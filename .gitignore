@@ -37,3 +37,7 @@ build/
 # OS files
 .DS_Store
 Thumbs.db
+
+# Go test artifacts
+*.out
+*.test
