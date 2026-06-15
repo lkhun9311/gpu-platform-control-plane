@@ -1,0 +1,9 @@
+apiVersion: platform.lkhun9311.github.io/v1
+kind: NodeHealth
+metadata:
+  labels:
+    app.kubernetes.io/name: gpu-platform-control-plane
+    app.kubernetes.io/managed-by: kustomize
+  name: nodehealth-sample
+spec:
+  # TODO(user): Add fields here
