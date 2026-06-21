@@ -22,6 +22,9 @@ resources:
 # default, aiding admins in cluster management. Those roles are
 # not used by the gpu-platform-control-plane itself. You can comment the following lines
 # if you do not want those helpers be installed with your Project.
+- inferencedeployment_admin_role.yaml
+- inferencedeployment_editor_role.yaml
+- inferencedeployment_viewer_role.yaml
 - gpuquotapolicy_admin_role.yaml
 - gpuquotapolicy_editor_role.yaml
 - gpuquotapolicy_viewer_role.yaml
