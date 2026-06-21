@@ -35,7 +35,7 @@ The project is built milestone by milestone.
 
 | Milestone | Scope | Status |
 |---|---|---|
-| M1 | Set up the project skeleton and define the four CRDs, verified with envtest | In progress (project scaffolded, CRDs pending) |
+| M1 | Set up the project skeleton and define the four CRDs, verified with envtest | Done |
 | M2 | Ensure reconciliation is idempotent, with finalizers and drift recovery | Designed |
 | M3 | Taint or cordon unhealthy nodes and sync per-tenant quota | Designed |
 | M4 | Manage inference workloads and route them through the gateway | Designed |
