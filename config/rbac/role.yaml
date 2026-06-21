@@ -9,6 +9,7 @@ rules:
   resources:
   - gpuquotapolicies
   - inferencedeployments
+  - mltrainingjobs
   - nodehealths
   verbs:
   - create
@@ -23,6 +24,7 @@ rules:
   resources:
   - gpuquotapolicies/finalizers
   - inferencedeployments/finalizers
+  - mltrainingjobs/finalizers
   - nodehealths/finalizers
   verbs:
   - update
@@ -31,6 +33,7 @@ rules:
   resources:
   - gpuquotapolicies/status
   - inferencedeployments/status
+  - mltrainingjobs/status
   - nodehealths/status
   verbs:
   - get
