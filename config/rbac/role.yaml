@@ -8,6 +8,7 @@ rules:
   - platform.lkhun9311.github.io
   resources:
   - gpuquotapolicies
+  - inferencedeployments
   - nodehealths
   verbs:
   - create
@@ -21,6 +22,7 @@ rules:
   - platform.lkhun9311.github.io
   resources:
   - gpuquotapolicies/finalizers
+  - inferencedeployments/finalizers
   - nodehealths/finalizers
   verbs:
   - update
@@ -28,6 +30,7 @@ rules:
   - platform.lkhun9311.github.io
   resources:
   - gpuquotapolicies/status
+  - inferencedeployments/status
   - nodehealths/status
   verbs:
   - get
