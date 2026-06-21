@@ -2,4 +2,5 @@
 resources:
 - platform_v1_nodehealth.yaml
 - platform_v1_gpuquotapolicy.yaml
+- platform_v1_inferencedeployment.yaml
 # +kubebuilder:scaffold:manifestskustomizesamples
