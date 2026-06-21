@@ -1,0 +1,12 @@
+apiVersion: platform.lkhun9311.github.io/v1
+kind: NodeHealth
+metadata:
+  labels:
+    app.kubernetes.io/name: gpu-platform-control-plane
+    app.kubernetes.io/managed-by: kustomize
+  name: platform-worker
+spec:
+  # nodeName is the target Node object this resource tracks.
+  nodeName: platform-worker
+  # gpuClass is illustrative; locally it is backed by simulated capacity.
+  gpuClass: l40s

@@ -1,0 +1,7 @@
+## Append samples of your project ##
+resources:
+- platform_v1_nodehealth.yaml
+- platform_v1_gpuquotapolicy.yaml
+- platform_v1_inferencedeployment.yaml
+- platform_v1_mltrainingjob.yaml
+# +kubebuilder:scaffold:manifestskustomizesamples

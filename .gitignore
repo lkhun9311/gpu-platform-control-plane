@@ -1,0 +1,43 @@
+# Local AI tool workspace - do not commit
+superpowers/
+.claude/
+.cursor/
+.chatgpt/
+.codex/
+
+# Markdown: only the root README is committed (other .md kept locally under superpowers/)
+*.md
+!/README.md
+
+# JetBrains / IntelliJ
+.idea/
+*.iml
+out/
+
+# VSCode
+.vscode/
+
+# Local secrets and environment
+.env
+.env.*
+*.local
+
+# Local runtime state
+state/
+tmp/
+*.db
+*.sqlite
+*.sqlite3
+
+# Generated binaries
+bin/
+dist/
+build/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Go test artifacts
+*.out
+*.test

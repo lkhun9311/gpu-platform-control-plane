@@ -1,0 +1,41 @@
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: manager-role
+rules:
+- apiGroups:
+  - platform.lkhun9311.github.io
+  resources:
+  - gpuquotapolicies
+  - inferencedeployments
+  - mltrainingjobs
+  - nodehealths
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - platform.lkhun9311.github.io
+  resources:
+  - gpuquotapolicies/finalizers
+  - inferencedeployments/finalizers
+  - mltrainingjobs/finalizers
+  - nodehealths/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - platform.lkhun9311.github.io
+  resources:
+  - gpuquotapolicies/status
+  - inferencedeployments/status
+  - mltrainingjobs/status
+  - nodehealths/status
+  verbs:
+  - get
+  - patch
+  - update
