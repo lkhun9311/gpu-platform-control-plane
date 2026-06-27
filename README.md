@@ -47,6 +47,10 @@ The project is built milestone by milestone.
 GPU capacity used in validation is simulated. Real GPU serving, hardware fault detection, the
 contention benchmark's p99 figures, and AWS deployment are designed but not yet exercised.
 
+**Flagship benchmark:** KV-cache-aware noisy-neighbor p99 protection — a real-GPU benchmark that
+compares premium tenant latency under baseline, colocated long-context noisy-neighbor, and Gateway
+admission-guard modes. See `docs/04_GPU_GOVERNANCE_AND_ISOLATION.md` (M5 Flagship Experiment).
+
 ## Tech stack
 
 - Go, controller-runtime, scaffolded with [kubebuilder](https://book.kubebuilder.io/)
@@ -69,13 +73,18 @@ make build
 make test
 ```
 
-Simulated GPU capacity on a worker node, for scheduling/quota validation:
+Simulated GPU capacity on a **kind** worker node, only for end-to-end scheduling/quota-*enforcement*
+validation (the GPUQuotaPolicy controller itself needs no GPU capacity — it writes a
+`requests.nvidia.com/gpu` ResourceQuota; capacity matters only when sample pods actually request GPU):
 
 ```bash
 kubectl patch node platform-worker --subresource=status --type=json \
   -p='[{"op":"add","path":"/status/capacity/nvidia.com~1gpu","value":"4"},
        {"op":"add","path":"/status/allocatable/nvidia.com~1gpu","value":"4"}]'
 ```
+
+> This node-status patch holds on kind because no device plugin reconciles GPU capacity there.
+> On a real cluster (e.g. EKS) the kubelet/device plugin owns node status and would overwrite it, so advertise simulated capacity with a device-plugin-style DaemonSet instead.
 
 ## Repository layout
 

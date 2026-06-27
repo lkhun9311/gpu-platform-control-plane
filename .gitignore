@@ -1,5 +1,6 @@
 # Local AI tool workspace - do not commit
 superpowers/
+docs/
 .claude/
 .cursor/
 .chatgpt/
@@ -25,6 +26,7 @@ out/
 # Local runtime state
 state/
 tmp/
+.reviews/
 *.db
 *.sqlite
 *.sqlite3
