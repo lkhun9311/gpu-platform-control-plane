@@ -146,6 +146,81 @@ var _ = Describe("InferenceDeployment Controller", func() {
 			Expect(cond).NotTo(BeNil())
 			Expect(cond.Reason).To(Equal("ScaledToZero"))
 		})
+
+		It("reports Degraded when the Deployment exceeds its progress deadline", func() {
+			Expect(k8sClient.Create(ctx, newInfD(2, 1))).To(Succeed())
+			r := reconciler()
+			_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: key})
+			Expect(err).NotTo(HaveOccurred())
+
+			dep := &appsv1.Deployment{}
+			Expect(k8sClient.Get(ctx, key, dep)).To(Succeed())
+			dep.Status.ObservedGeneration = dep.Generation
+			dep.Status.Conditions = []appsv1.DeploymentCondition{{
+				Type: appsv1.DeploymentProgressing, Status: corev1.ConditionFalse, Reason: "ProgressDeadlineExceeded",
+			}}
+			Expect(k8sClient.Status().Update(ctx, dep)).To(Succeed())
+
+			_, err = r.Reconcile(ctx, reconcile.Request{NamespacedName: key})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(mustGet(ctx, key).Status.Phase).To(Equal("Degraded"))
+		})
+
+		It("refuses to adopt an unowned Deployment of the same name", func() {
+			foreign := &appsv1.Deployment{
+				ObjectMeta: metav1.ObjectMeta{Name: resourceName, Namespace: ns, Labels: map[string]string{"owner": "someone-else"}},
+				Spec: appsv1.DeploymentSpec{
+					Selector: &metav1.LabelSelector{MatchLabels: map[string]string{"owner": "someone-else"}},
+					Template: corev1.PodTemplateSpec{
+						ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"owner": "someone-else"}},
+						Spec:       corev1.PodSpec{Containers: []corev1.Container{{Name: "x", Image: "busybox"}}},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, foreign)).To(Succeed())
+			Expect(k8sClient.Create(ctx, newInfD(1, 1))).To(Succeed())
+
+			_, err := reconciler().Reconcile(ctx, reconcile.Request{NamespacedName: key})
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(mustGet(ctx, key).Status.Phase).To(Equal("Degraded"))
+			got := &appsv1.Deployment{}
+			Expect(k8sClient.Get(ctx, key, got)).To(Succeed())
+			Expect(got.OwnerReferences).To(BeEmpty())
+			Expect(got.Spec.Template.Spec.Containers[0].Image).To(Equal("busybox"))
+		})
+
+		It("does not prematurely report Ready when scale-down to zero is not yet observed by the Deployment", func() {
+			// Start with 2 ready replicas.
+			Expect(k8sClient.Create(ctx, newInfD(2, 1))).To(Succeed())
+			r := reconciler()
+			_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: key})
+			Expect(err).NotTo(HaveOccurred())
+			markDeploymentObserved(2)
+			_, err = r.Reconcile(ctx, reconcile.Request{NamespacedName: key})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(mustGet(ctx, key).Status.Phase).To(Equal("Ready"))
+
+			// Scale to zero in the InferenceDeployment spec.
+			infd := mustGet(ctx, key)
+			infd.Spec.Replicas = 0
+			Expect(k8sClient.Update(ctx, infd)).To(Succeed())
+
+			// Reconcile: the Deployment now has Replicas=0 in spec but the Deployment
+			// status still shows the old generation (ObservedGeneration < Generation).
+			_, err = r.Reconcile(ctx, reconcile.Request{NamespacedName: key})
+			Expect(err).NotTo(HaveOccurred())
+
+			// Stale gate fires before ScaledToZero: must not report Ready prematurely.
+			dep := &appsv1.Deployment{}
+			Expect(k8sClient.Get(ctx, key, dep)).To(Succeed())
+			dep.Status.ObservedGeneration = dep.Generation - 1
+			Expect(k8sClient.Status().Update(ctx, dep)).To(Succeed())
+
+			_, err = r.Reconcile(ctx, reconcile.Request{NamespacedName: key})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(mustGet(ctx, key).Status.Phase).To(Equal("Progressing"))
+		})
 	})
 })
 
