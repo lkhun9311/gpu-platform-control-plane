@@ -31,11 +31,19 @@ type GPUQuotaPolicySpec struct {
 	Tenant string `json:"tenant"`
 
 	// targetNamespace is the namespace into which quota objects are synced.
+	// It is immutable: a policy enforces quota in exactly one namespace for its lifetime.
+	// Changing it would orphan the ResourceQuota already synced into the old namespace
+	// (the reconciler only ever reconciles the namespace named here),
+	// so migration is done by deleting and recreating the policy rather than mutating this field.
 	// +required
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="targetNamespace is immutable"
 	TargetNamespace string `json:"targetNamespace"`
 
-	// gpuClass scopes the quota to a GPU class (e.g. "l40s"). Empty means all classes.
-	// Locally this is backed by simulated capacity (see the dev runbook).
+	// gpuClass records the GPU class (e.g. "l40s") this policy is intended for.
+	// Empty means all classes.
+	// NOTE: per-class quota scoping is not yet enforced.
+	// This milestone caps a single aggregate ceiling (requests.nvidia.com/gpu) regardless of class;
+	// the field is recorded for a later milestone that will enforce per-class resource keys (see the gpuClass note in the reconciler).
 	// +optional
 	GPUClass string `json:"gpuClass,omitempty"`
 

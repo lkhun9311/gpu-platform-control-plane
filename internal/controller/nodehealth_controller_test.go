@@ -129,7 +129,7 @@ var _ = Describe("NodeHealth Controller", func() {
 
 			drifted := &platformv1.NodeHealth{}
 			Expect(k8sClient.Get(ctx, nhKey, drifted)).To(Succeed())
-			drifted.Status.Phase = "Quarantine"
+			drifted.Status.Phase = phaseQuarantine
 			Expect(k8sClient.Status().Update(ctx, drifted)).To(Succeed())
 
 			_, err := reconciler().Reconcile(ctx, reconcile.Request{NamespacedName: nhKey})
@@ -140,7 +140,7 @@ var _ = Describe("NodeHealth Controller", func() {
 			Expect(got.Status.Phase).To(Equal(phaseReady))
 		})
 
-		It("reports Degraded for a not-ready node", func() {
+		It("quarantines a not-ready node: taints it, sets phase and fault signal", func() {
 			node := makeNode(corev1.ConditionFalse)
 			Expect(k8sClient.Create(ctx, node)).To(Succeed())
 			Expect(k8sClient.Status().Update(ctx, node)).To(Succeed())
@@ -149,7 +149,113 @@ var _ = Describe("NodeHealth Controller", func() {
 
 			got := &platformv1.NodeHealth{}
 			Expect(k8sClient.Get(ctx, nhKey, got)).To(Succeed())
-			Expect(got.Status.Phase).To(Equal(phaseDegraded))
+			Expect(got.Status.Phase).To(Equal(phaseQuarantine))
+			Expect(got.Status.FaultSignal).NotTo(BeNil())
+			Expect(got.Status.FaultSignal.Source).To(Equal(faultSourceNodeNotReady))
+
+			gotNode := &corev1.Node{}
+			Expect(k8sClient.Get(ctx, nodeKey, gotNode)).To(Succeed())
+			Expect(unhealthyTaintCount(gotNode)).To(Equal(1))
+		})
+
+		It("removes the taint and clears the fault signal when the node recovers", func() {
+			node := makeNode(corev1.ConditionFalse)
+			Expect(k8sClient.Create(ctx, node)).To(Succeed())
+			Expect(k8sClient.Status().Update(ctx, node)).To(Succeed())
+			reconcileUntilSteady()
+
+			recovered := &corev1.Node{}
+			Expect(k8sClient.Get(ctx, nodeKey, recovered)).To(Succeed())
+			recovered.Status.Conditions = []corev1.NodeCondition{{Type: corev1.NodeReady, Status: corev1.ConditionTrue}}
+			Expect(k8sClient.Status().Update(ctx, recovered)).To(Succeed())
+			reconcileUntilSteady()
+
+			got := &platformv1.NodeHealth{}
+			Expect(k8sClient.Get(ctx, nhKey, got)).To(Succeed())
+			Expect(got.Status.Phase).To(Equal(phaseReady))
+			Expect(got.Status.FaultSignal).To(BeNil())
+
+			gotNode := &corev1.Node{}
+			Expect(k8sClient.Get(ctx, nodeKey, gotNode)).To(Succeed())
+			Expect(unhealthyTaintCount(gotNode)).To(Equal(0))
+		})
+
+		It("does not duplicate the taint or rewrite when already quarantined", func() {
+			node := makeNode(corev1.ConditionFalse)
+			Expect(k8sClient.Create(ctx, node)).To(Succeed())
+			Expect(k8sClient.Status().Update(ctx, node)).To(Succeed())
+			reconcileUntilSteady()
+
+			nhBefore := &platformv1.NodeHealth{}
+			Expect(k8sClient.Get(ctx, nhKey, nhBefore)).To(Succeed())
+			nodeBefore := &corev1.Node{}
+			Expect(k8sClient.Get(ctx, nodeKey, nodeBefore)).To(Succeed())
+
+			_, err := reconciler().Reconcile(ctx, reconcile.Request{NamespacedName: nhKey})
+			Expect(err).NotTo(HaveOccurred())
+
+			nhAfter := &platformv1.NodeHealth{}
+			Expect(k8sClient.Get(ctx, nhKey, nhAfter)).To(Succeed())
+			nodeAfter := &corev1.Node{}
+			Expect(k8sClient.Get(ctx, nodeKey, nodeAfter)).To(Succeed())
+
+			Expect(unhealthyTaintCount(nodeAfter)).To(Equal(1))
+			Expect(nhAfter.ResourceVersion).To(Equal(nhBefore.ResourceVersion))
+			Expect(nodeAfter.ResourceVersion).To(Equal(nodeBefore.ResourceVersion))
+		})
+
+		It("preserves unrelated taints through quarantine and recovery", func() {
+			node := makeNode(corev1.ConditionFalse)
+			node.Spec.Taints = []corev1.Taint{{Key: "example.com/other", Value: "x", Effect: corev1.TaintEffectNoSchedule}}
+			Expect(k8sClient.Create(ctx, node)).To(Succeed())
+			Expect(k8sClient.Status().Update(ctx, node)).To(Succeed())
+			reconcileUntilSteady()
+
+			hasOther := func() bool {
+				n := &corev1.Node{}
+				Expect(k8sClient.Get(ctx, nodeKey, n)).To(Succeed())
+				for _, t := range n.Spec.Taints {
+					if t.Key == "example.com/other" {
+						return true
+					}
+				}
+				return false
+			}
+			Expect(hasOther()).To(BeTrue())
+
+			recovered := &corev1.Node{}
+			Expect(k8sClient.Get(ctx, nodeKey, recovered)).To(Succeed())
+			recovered.Status.Conditions = []corev1.NodeCondition{{Type: corev1.NodeReady, Status: corev1.ConditionTrue}}
+			Expect(k8sClient.Status().Update(ctx, recovered)).To(Succeed())
+			reconcileUntilSteady()
+
+			Expect(hasOther()).To(BeTrue())
+			gotNode := &corev1.Node{}
+			Expect(k8sClient.Get(ctx, nodeKey, gotNode)).To(Succeed())
+			Expect(unhealthyTaintCount(gotNode)).To(Equal(0))
+		})
+
+		It("removes the taint on deletion (finalizer cleanup)", func() {
+			node := makeNode(corev1.ConditionFalse)
+			Expect(k8sClient.Create(ctx, node)).To(Succeed())
+			Expect(k8sClient.Status().Update(ctx, node)).To(Succeed())
+			reconcileUntilSteady()
+
+			tainted := &corev1.Node{}
+			Expect(k8sClient.Get(ctx, nodeKey, tainted)).To(Succeed())
+			Expect(unhealthyTaintCount(tainted)).To(Equal(1))
+
+			toDelete := &platformv1.NodeHealth{}
+			Expect(k8sClient.Get(ctx, nhKey, toDelete)).To(Succeed())
+			Expect(k8sClient.Delete(ctx, toDelete)).To(Succeed())
+
+			_, err := reconciler().Reconcile(ctx, reconcile.Request{NamespacedName: nhKey})
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(errors.IsNotFound(k8sClient.Get(ctx, nhKey, &platformv1.NodeHealth{}))).To(BeTrue())
+			gotNode := &corev1.Node{}
+			Expect(k8sClient.Get(ctx, nodeKey, gotNode)).To(Succeed())
+			Expect(unhealthyTaintCount(gotNode)).To(Equal(0))
 		})
 
 		It("reports Pending when the target node is absent", func() {
@@ -172,6 +278,15 @@ var _ = Describe("NodeHealth Controller", func() {
 
 			err = k8sClient.Get(ctx, nhKey, &platformv1.NodeHealth{})
 			Expect(errors.IsNotFound(err)).To(BeTrue())
+		})
+
+		It("rejects a change to the immutable nodeName", func() {
+			nh := &platformv1.NodeHealth{}
+			Expect(k8sClient.Get(ctx, nhKey, nh)).To(Succeed())
+			nh.Spec.NodeName = "some-other-node"
+			err := k8sClient.Update(ctx, nh)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("nodeName is immutable"))
 		})
 	})
 
@@ -204,6 +319,17 @@ var _ = Describe("NodeHealth Controller", func() {
 		})
 	})
 })
+
+// unhealthyTaintCount counts taints carrying the platform unhealthy key.
+func unhealthyTaintCount(node *corev1.Node) int {
+	n := 0
+	for _, t := range node.Spec.Taints {
+		if t.Key == unhealthyTaintKey {
+			n++
+		}
+	}
+	return n
+}
 
 // findCondition returns a pointer to the condition of the given type, or nil.
 func findCondition(conds []metav1.Condition, condType string) *metav1.Condition {

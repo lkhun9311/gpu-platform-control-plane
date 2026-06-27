@@ -26,7 +26,10 @@ import (
 // NodeHealthSpec defines the desired state of NodeHealth.
 type NodeHealthSpec struct {
 	// nodeName is the name of the target Node object this resource tracks.
+	// It is immutable: a NodeHealth manages the unhealthy taint on exactly one node for its lifetime.
+	// Changing it would orphan the taint already applied to the old node, since cleanup only ever targets the node named here.
 	// +required
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="nodeName is immutable"
 	NodeName string `json:"nodeName"`
 
 	// gpuClass is the illustrative GPU class of the node (e.g. "l40s").
@@ -38,6 +41,8 @@ type NodeHealthSpec struct {
 // NodeHealthStatus defines the observed state of NodeHealth.
 type NodeHealthStatus struct {
 	// phase is the high-level health state of the node.
+	// M3 emits Pending, Ready, and Quarantine.
+	// Intake and Degraded are reserved for the node intake and degrade lifecycle stages (see docs/03) and are not emitted yet.
 	// +kubebuilder:validation:Enum=Pending;Intake;Ready;Degraded;Quarantine
 	// +optional
 	Phase string `json:"phase,omitempty"`
