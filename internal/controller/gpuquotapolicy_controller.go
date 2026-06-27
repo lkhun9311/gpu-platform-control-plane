@@ -49,9 +49,11 @@ const (
 	reasonQuotaConflict = "QuotaConflict"
 
 	// phaseSynced is set once the ResourceQuota matches the policy ceiling.
-	// Deterministic enforcement failures (e.g. a name collision with a ResourceQuota this policy does not own) set the shared phaseDegraded;
-	// transient API errors are not reflected in status — they are requeued instead, so the phase does not flap on retry.
-	phaseSynced = "Synced"
+	// phaseDegraded is set on a deterministic enforcement failure (e.g. a name collision with a ResourceQuota this policy does not own).
+	// Transient API errors are not reflected in status — they are requeued instead, so the phase does not flap on retry.
+	// These phases are owned by this controller, not shared, so the NodeHealth controller can rename its own phases independently.
+	phaseSynced   = "Synced"
+	phaseDegraded = "Degraded"
 
 	// gpuRequestsResource is the ResourceQuota key that caps GPU consumption.
 	// Extended resources are tracked under requests.<resource>.
