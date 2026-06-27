@@ -22,10 +22,11 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
+	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -83,6 +84,21 @@ func (r *InferenceDeploymentReconciler) Reconcile(ctx context.Context, req ctrl.
 	}
 
 	log.Info("Synced serving objects", "inferenceDeployment", req.NamespacedName.String())
+
+	phase, cond := computeInfDPhase(&infd, dep)
+	desired := infd.Status.DeepCopy()
+	desired.Phase = phase
+	desired.ReadyReplicas = dep.Status.ReadyReplicas
+	desired.ObservedGeneration = infd.Generation
+	meta.SetStatusCondition(&desired.Conditions, cond)
+
+	if !equality.Semantic.DeepEqual(infd.Status, *desired) {
+		infd.Status = *desired
+		if err := r.Status().Update(ctx, &infd); err != nil {
+			return ctrl.Result{}, fmt.Errorf("update inferencedeployment status %s/%s: %w", infd.Namespace, infd.Name, err)
+		}
+		log.Info("Updated InferenceDeployment status", "name", infd.Name, "phase", phase)
+	}
 	return ctrl.Result{}, nil
 }
 
@@ -153,6 +169,39 @@ func (r *InferenceDeploymentReconciler) mutateService(infd *platformv1.Inference
 	}}
 }
 
+const (
+	infdPhasePending     = "Pending"
+	infdPhaseProgressing = "Progressing"
+	infdPhaseReady       = "Ready"
+	infdPhaseDegraded    = "Degraded"
+
+	infdCondAvailable    = "Available"
+	infdReasonScaledZero = "ScaledToZero"
+	infdReasonRollout    = "RolloutInProgress"
+	infdReasonAvailable  = "MinimumReplicasAvailable"
+)
+
+// computeInfDPhase derives the phase and the Available condition from the Deployment status.
+// The Deployment status is only trusted once its observedGeneration has caught up to its generation.
+func computeInfDPhase(infd *platformv1.InferenceDeployment, dep *appsv1.Deployment) (string, metav1.Condition) {
+	avail := func(status metav1.ConditionStatus, reason, msg string) metav1.Condition {
+		return metav1.Condition{Type: infdCondAvailable, Status: status, Reason: reason, Message: msg, ObservedGeneration: infd.Generation}
+	}
+	if infd.Spec.Replicas == 0 {
+		return infdPhaseReady, avail(metav1.ConditionTrue, infdReasonScaledZero, "scaled to zero replicas")
+	}
+	if dep.Status.ObservedGeneration < dep.Generation {
+		return infdPhaseProgressing, avail(metav1.ConditionFalse, infdReasonRollout, "deployment not yet observed")
+	}
+	if dep.Status.ReadyReplicas == 0 {
+		return infdPhasePending, avail(metav1.ConditionFalse, infdReasonRollout, "no replicas ready yet")
+	}
+	if dep.Status.UpdatedReplicas < infd.Spec.Replicas || dep.Status.ReadyReplicas < infd.Spec.Replicas {
+		return infdPhaseProgressing, avail(metav1.ConditionFalse, infdReasonRollout, "rollout in progress")
+	}
+	return infdPhaseReady, avail(metav1.ConditionTrue, infdReasonAvailable, "all replicas ready")
+}
+
 // SetupWithManager sets up the controller with the Manager.
 func (r *InferenceDeploymentReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
@@ -162,5 +211,3 @@ func (r *InferenceDeploymentReconciler) SetupWithManager(mgr ctrl.Manager) error
 		Named("inferencedeployment").
 		Complete(r)
 }
-
-var _ = types.NamespacedName{} // retained: types import used by later tasks
