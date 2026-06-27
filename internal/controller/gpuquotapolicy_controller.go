@@ -89,17 +89,17 @@ func (r *GPUQuotaPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 			switch err := r.Get(ctx, rqKey, &rq); {
 			case err == nil:
 				if err := r.Delete(ctx, &rq); err != nil && !apierrors.IsNotFound(err) {
-					return ctrl.Result{}, err
+					return ctrl.Result{}, fmt.Errorf("delete resourcequota %s on policy deletion: %w", rqKey, err)
 				}
 				log.Info("Deleted synced ResourceQuota on deletion", "resourceQuota", rqKey.String())
 			case apierrors.IsNotFound(err):
 				// already gone
 			default:
-				return ctrl.Result{}, err
+				return ctrl.Result{}, fmt.Errorf("get resourcequota %s on policy deletion: %w", rqKey, err)
 			}
 			controllerutil.RemoveFinalizer(&policy, gpuQuotaFinalizer)
 			if err := r.Update(ctx, &policy); err != nil {
-				return ctrl.Result{}, err
+				return ctrl.Result{}, fmt.Errorf("remove finalizer from gpuquotapolicy %s: %w", policy.Name, err)
 			}
 		}
 		return ctrl.Result{}, nil
@@ -109,7 +109,7 @@ func (r *GPUQuotaPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	if !controllerutil.ContainsFinalizer(&policy, gpuQuotaFinalizer) {
 		controllerutil.AddFinalizer(&policy, gpuQuotaFinalizer)
 		if err := r.Update(ctx, &policy); err != nil {
-			return ctrl.Result{}, err
+			return ctrl.Result{}, fmt.Errorf("add finalizer to gpuquotapolicy %s: %w", policy.Name, err)
 		}
 		return ctrl.Result{}, nil
 	}
@@ -132,7 +132,7 @@ func (r *GPUQuotaPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 			Spec:       corev1.ResourceQuotaSpec{Hard: desiredHard},
 		}
 		if err := controllerutil.SetControllerReference(&policy, &rq, r.Scheme); err != nil {
-			return ctrl.Result{}, err
+			return ctrl.Result{}, fmt.Errorf("set controller reference on resourcequota %s: %w", rqKey, err)
 		}
 		if err := r.Create(ctx, &rq); err != nil {
 			if apierrors.IsAlreadyExists(err) {
@@ -140,11 +140,11 @@ func (r *GPUQuotaPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 				// exists, so requeue and reconcile it on the next pass instead of failing.
 				return ctrl.Result{RequeueAfter: time.Second}, nil
 			}
-			return ctrl.Result{}, err
+			return ctrl.Result{}, fmt.Errorf("create resourcequota %s: %w", rqKey, err)
 		}
 		log.Info("Created ResourceQuota", "resourceQuota", rqKey.String())
 	case err != nil:
-		return ctrl.Result{}, err
+		return ctrl.Result{}, fmt.Errorf("get resourcequota %s: %w", rqKey, err)
 	default:
 		// Refuse to hijack a ResourceQuota this policy does not own (name collision with an unrelated object).
 		// Overwriting it would clobber someone else's quota, so report Degraded and recheck later instead of taking it over.
@@ -157,7 +157,7 @@ func (r *GPUQuotaPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		if !equality.Semantic.DeepEqual(rq.Spec.Hard, desiredHard) {
 			rq.Spec.Hard = desiredHard
 			if err := r.Update(ctx, &rq); err != nil {
-				return ctrl.Result{}, err
+				return ctrl.Result{}, fmt.Errorf("update resourcequota %s for drift correction: %w", rqKey, err)
 			}
 			log.Info("Corrected ResourceQuota drift", "resourceQuota", rqKey.String())
 		}
@@ -178,7 +178,7 @@ func (r *GPUQuotaPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	if !equality.Semantic.DeepEqual(policy.Status, *desired) {
 		policy.Status = *desired
 		if err := r.Status().Update(ctx, &policy); err != nil {
-			return ctrl.Result{}, err
+			return ctrl.Result{}, fmt.Errorf("update gpuquotapolicy status %s: %w", policy.Name, err)
 		}
 		log.Info("Updated GPUQuotaPolicy status", "name", policy.Name, "phase", desired.Phase)
 	}
@@ -208,7 +208,7 @@ func (r *GPUQuotaPolicyReconciler) markDegraded(ctx context.Context, policy *pla
 	if !equality.Semantic.DeepEqual(policy.Status, *desired) {
 		policy.Status = *desired
 		if err := r.Status().Update(ctx, policy); err != nil {
-			return ctrl.Result{}, err
+			return ctrl.Result{}, fmt.Errorf("update gpuquotapolicy status %s to Degraded: %w", policy.Name, err)
 		}
 	}
 	return ctrl.Result{RequeueAfter: time.Minute}, nil
