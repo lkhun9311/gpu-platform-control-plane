@@ -55,9 +55,14 @@ spec:
                   Locally this is backed by simulated capacity (see the dev runbook).
                 type: string
               nodeName:
-                description: nodeName is the name of the target Node object this resource
-                  tracks.
+                description: |-
+                  nodeName is the name of the target Node object this resource tracks.
+                  It is immutable: a NodeHealth manages the unhealthy taint on exactly one node for its lifetime.
+                  Changing it would orphan the taint already applied to the old node, since cleanup only ever targets the node named here.
                 type: string
+                x-kubernetes-validations:
+                - message: nodeName is immutable
+                  rule: self == oldSelf
             required:
             - nodeName
             type: object
@@ -148,7 +153,10 @@ spec:
                 format: int64
                 type: integer
               phase:
-                description: phase is the high-level health state of the node.
+                description: |-
+                  phase is the high-level health state of the node.
+                  M3 emits Pending, Ready, and Quarantine.
+                  Intake and Degraded are reserved for the node intake and degrade lifecycle stages (see docs/03) and are not emitted yet.
                 enum:
                 - Pending
                 - Intake
