@@ -23,10 +23,12 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -65,6 +67,13 @@ func (r *InferenceDeploymentReconciler) Reconcile(ctx context.Context, req ctrl.
 	var infd platformv1.InferenceDeployment
 	if err := r.Get(ctx, req.NamespacedName, &infd); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+
+	if conflict, err := r.ownedConflict(ctx, &infd, &appsv1.Deployment{}); err != nil {
+		return ctrl.Result{}, fmt.Errorf("check deployment ownership %s/%s: %w", infd.Namespace, infd.Name, err)
+	} else if conflict {
+		log.Info("Deployment exists and is not owned by this InferenceDeployment; refusing to adopt", "name", infd.Name)
+		return r.markDegraded(ctx, &infd, infdReasonConflict, "a Deployment of the same name is not owned by this InferenceDeployment")
 	}
 
 	dep := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: infd.Name, Namespace: infd.Namespace}}
@@ -179,27 +188,84 @@ const (
 	infdReasonScaledZero = "ScaledToZero"
 	infdReasonRollout    = "RolloutInProgress"
 	infdReasonAvailable  = "MinimumReplicasAvailable"
+	infdReasonConflict   = "DeploymentConflict"
 )
 
 // computeInfDPhase derives the phase and the Available condition from the Deployment status.
-// The Deployment status is only trusted once its observedGeneration has caught up to its generation.
+// Precedence (top to bottom):
+//  1. stale gate — when spec.Replicas > 0 and ObservedGeneration < Generation → Progressing.
+//     This ensures a scale-down to 0 not yet observed by the Deployment does not prematurely report Ready.
+//  2. ScaledToZero — Replicas == 0 → Ready (zero replicas is always authoritative from spec alone).
+//  3. Degraded — Deployment Progressing condition is False with ProgressDeadlineExceeded.
+//  4. Pending — ReadyReplicas == 0.
+//  5. Progressing — UpdatedReplicas or ReadyReplicas < spec.Replicas, or old replicas not yet drained.
+//  6. Ready — fully converged.
 func computeInfDPhase(infd *platformv1.InferenceDeployment, dep *appsv1.Deployment) (string, metav1.Condition) {
 	avail := func(status metav1.ConditionStatus, reason, msg string) metav1.Condition {
 		return metav1.Condition{Type: infdCondAvailable, Status: status, Reason: reason, Message: msg, ObservedGeneration: infd.Generation}
 	}
+	// 1. Stale gate: block phase decisions until the Deployment controller has observed the current spec.
+	// The gate is skipped only when spec wants zero replicas and status already shows zero running replicas,
+	// because there is nothing to drain and the spec intent is authoritative.
+	staleDep := dep.Status.ObservedGeneration < dep.Generation
+	zeroAndDrained := infd.Spec.Replicas == 0 && dep.Status.Replicas == 0
+	if staleDep && !zeroAndDrained {
+		return infdPhaseProgressing, avail(metav1.ConditionFalse, infdReasonRollout, "deployment not yet observed")
+	}
+	// 2. ScaledToZero: intentional zero-replica state is Ready once the status shows no running replicas.
 	if infd.Spec.Replicas == 0 {
 		return infdPhaseReady, avail(metav1.ConditionTrue, infdReasonScaledZero, "scaled to zero replicas")
 	}
-	if dep.Status.ObservedGeneration < dep.Generation {
-		return infdPhaseProgressing, avail(metav1.ConditionFalse, infdReasonRollout, "deployment not yet observed")
+	// 3. Degraded: a ProgressDeadlineExceeded condition means the rollout will never complete on its own.
+	for i := range dep.Status.Conditions {
+		c := dep.Status.Conditions[i]
+		if c.Type == appsv1.DeploymentProgressing && c.Status == corev1.ConditionFalse && c.Reason == "ProgressDeadlineExceeded" {
+			return infdPhaseDegraded, avail(metav1.ConditionFalse, "ProgressDeadlineExceeded", "deployment rollout failed")
+		}
 	}
+	// 4. Pending: no replicas are ready yet.
 	if dep.Status.ReadyReplicas == 0 {
 		return infdPhasePending, avail(metav1.ConditionFalse, infdReasonRollout, "no replicas ready yet")
 	}
+	// 5. Progressing: replicas are not yet fully updated/ready, or old replicas have not been drained.
 	if dep.Status.UpdatedReplicas < infd.Spec.Replicas || dep.Status.ReadyReplicas < infd.Spec.Replicas {
 		return infdPhaseProgressing, avail(metav1.ConditionFalse, infdReasonRollout, "rollout in progress")
 	}
+	if dep.Status.Replicas != dep.Status.UpdatedReplicas {
+		return infdPhaseProgressing, avail(metav1.ConditionFalse, infdReasonRollout, "waiting for old replicas to drain")
+	}
+	// 6. Ready: fully converged.
 	return infdPhaseReady, avail(metav1.ConditionTrue, infdReasonAvailable, "all replicas ready")
+}
+
+// markDegraded reflects a deterministic failure into status as Degraded with Available=False.
+func (r *InferenceDeploymentReconciler) markDegraded(ctx context.Context, infd *platformv1.InferenceDeployment, reason, msg string) (ctrl.Result, error) {
+	desired := infd.Status.DeepCopy()
+	desired.Phase = infdPhaseDegraded
+	desired.ObservedGeneration = infd.Generation
+	meta.SetStatusCondition(&desired.Conditions, metav1.Condition{
+		Type: infdCondAvailable, Status: metav1.ConditionFalse, Reason: reason, Message: msg, ObservedGeneration: infd.Generation,
+	})
+	if !equality.Semantic.DeepEqual(infd.Status, *desired) {
+		infd.Status = *desired
+		if err := r.Status().Update(ctx, infd); err != nil {
+			return ctrl.Result{}, fmt.Errorf("update inferencedeployment status %s/%s to Degraded: %w", infd.Namespace, infd.Name, err)
+		}
+	}
+	return ctrl.Result{}, nil
+}
+
+// ownedConflict reports whether an object of the given name exists but is not controlled by infd.
+func (r *InferenceDeploymentReconciler) ownedConflict(ctx context.Context, infd *platformv1.InferenceDeployment, obj client.Object) (bool, error) {
+	err := r.Get(ctx, types.NamespacedName{Name: infd.Name, Namespace: infd.Namespace}, obj)
+	switch {
+	case apierrors.IsNotFound(err):
+		return false, nil
+	case err != nil:
+		return false, err
+	default:
+		return !metav1.IsControlledBy(obj, infd), nil
+	}
 }
 
 // SetupWithManager sets up the controller with the Manager.
