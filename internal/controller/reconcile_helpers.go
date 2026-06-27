@@ -17,6 +17,8 @@ limitations under the License.
 package controller
 
 import (
+	"slices"
+
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -106,10 +108,8 @@ func isManagedTaint(t corev1.Taint) bool {
 // It returns whether the node's taints changed.
 // Other taints are left untouched.
 func ensureUnhealthyTaint(node *corev1.Node) bool {
-	for i := range node.Spec.Taints {
-		if isManagedTaint(node.Spec.Taints[i]) {
-			return false
-		}
+	if slices.ContainsFunc(node.Spec.Taints, isManagedTaint) {
+		return false
 	}
 	node.Spec.Taints = append(node.Spec.Taints, corev1.Taint{
 		Key:    unhealthyTaintKey,
