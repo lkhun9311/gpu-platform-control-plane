@@ -104,6 +104,48 @@ var _ = Describe("InferenceDeployment Controller", func() {
 			_, hasReq := dep.Spec.Template.Spec.Containers[0].Resources.Requests[nvidiaGPUResource]
 			Expect(hasReq).To(BeFalse())
 		})
+
+		// markDeploymentObserved patches the Deployment status as the (absent) Deployment controller would.
+		markDeploymentObserved := func(ready int32) {
+			dep := &appsv1.Deployment{}
+			Expect(k8sClient.Get(ctx, key, dep)).To(Succeed())
+			dep.Status.ObservedGeneration = dep.Generation
+			dep.Status.Replicas = ready
+			dep.Status.UpdatedReplicas = ready
+			dep.Status.ReadyReplicas = ready
+			Expect(k8sClient.Status().Update(ctx, dep)).To(Succeed())
+		}
+
+		It("reports Progressing then Ready as the Deployment becomes ready", func() {
+			Expect(k8sClient.Create(ctx, newInfD(2, 1))).To(Succeed())
+			r := reconciler()
+			_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: key})
+			Expect(err).NotTo(HaveOccurred())
+
+			// Deployment status is stale (observedGeneration 0) -> Progressing.
+			_, err = r.Reconcile(ctx, reconcile.Request{NamespacedName: key})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(mustGet(ctx, key).Status.Phase).To(Equal("Progressing"))
+
+			markDeploymentObserved(2)
+			_, err = r.Reconcile(ctx, reconcile.Request{NamespacedName: key})
+			Expect(err).NotTo(HaveOccurred())
+			got := mustGet(ctx, key)
+			Expect(got.Status.Phase).To(Equal("Ready"))
+			Expect(got.Status.ReadyReplicas).To(Equal(int32(2)))
+			Expect(got.Status.ObservedGeneration).To(Equal(got.Generation))
+		})
+
+		It("reports Ready with ScaledToZero when replicas is zero", func() {
+			Expect(k8sClient.Create(ctx, newInfD(0, 0))).To(Succeed())
+			_, err := reconciler().Reconcile(ctx, reconcile.Request{NamespacedName: key})
+			Expect(err).NotTo(HaveOccurred())
+			got := mustGet(ctx, key)
+			Expect(got.Status.Phase).To(Equal("Ready"))
+			cond := findCondition(got.Status.Conditions, "Available")
+			Expect(cond).NotTo(BeNil())
+			Expect(cond.Reason).To(Equal("ScaledToZero"))
+		})
 	})
 })
 
