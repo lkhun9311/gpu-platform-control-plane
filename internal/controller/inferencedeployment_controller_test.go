@@ -21,95 +21,94 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/types"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-
+	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	platformv1 "github.com/lkhun9311/gpu-mlops-platform-control-plane/api/v1"
 )
 
 var _ = Describe("InferenceDeployment Controller", func() {
 	Context("When reconciling a resource", func() {
-		const resourceName = "test-inference"
-		const resourceNamespace = "default"
+		const resourceName = "llama3-8b"
+		const ns = "default"
 
 		ctx := context.Background()
+		key := types.NamespacedName{Name: resourceName, Namespace: ns}
 
-		typeNamespacedName := types.NamespacedName{
-			Name:      resourceName,
-			Namespace: resourceNamespace,
+		reconciler := func() *InferenceDeploymentReconciler {
+			return &InferenceDeploymentReconciler{Client: k8sClient, Scheme: k8sClient.Scheme()}
 		}
-		inferencedeployment := &platformv1.InferenceDeployment{}
 
-		BeforeEach(func() {
-			By("creating the custom resource for the Kind InferenceDeployment")
-			err := k8sClient.Get(ctx, typeNamespacedName, inferencedeployment)
-			if err != nil && errors.IsNotFound(err) {
-				resource := &platformv1.InferenceDeployment{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      resourceName,
-						Namespace: resourceNamespace,
-					},
-					Spec: platformv1.InferenceDeploymentSpec{
-						Model: platformv1.InferenceModel{
-							Name:       "llama3-8b",
-							StorageURI: "s3://models/llama3-8b",
-						},
-						Image:    "vllm/vllm-openai:v0.6.0",
-						GPUClass: "l40s",
-						GPUCount: 1,
-						Replicas: 2,
-						Port:     8080,
-					},
-				}
-				Expect(k8sClient.Create(ctx, resource)).To(Succeed())
+		newInfD := func(replicas, gpu int32) *platformv1.InferenceDeployment {
+			return &platformv1.InferenceDeployment{
+				ObjectMeta: metav1.ObjectMeta{Name: resourceName, Namespace: ns},
+				Spec: platformv1.InferenceDeploymentSpec{
+					Model:    platformv1.InferenceModel{Name: "llama3-8b", StorageURI: "s3://models/llama3-8b/v1"},
+					Image:    "vllm/vllm-openai:test",
+					GPUClass: "a10g",
+					GPUCount: gpu,
+					Replicas: replicas,
+					Port:     8080,
+				},
 			}
-		})
+		}
 
 		AfterEach(func() {
-			resource := &platformv1.InferenceDeployment{}
-			err := k8sClient.Get(ctx, typeNamespacedName, resource)
-			Expect(err).NotTo(HaveOccurred())
-
-			By("Cleanup the specific resource instance InferenceDeployment")
-			Expect(k8sClient.Delete(ctx, resource)).To(Succeed())
-		})
-		It("should round-trip the spec and reconcile without error", func() {
-			By("reading the created resource back")
-			fetched := &platformv1.InferenceDeployment{}
-			Expect(k8sClient.Get(ctx, typeNamespacedName, fetched)).To(Succeed())
-			Expect(fetched.Spec.Model.Name).To(Equal("llama3-8b"))
-			Expect(fetched.Spec.Model.StorageURI).To(Equal("s3://models/llama3-8b"))
-			Expect(fetched.Spec.Image).To(Equal("vllm/vllm-openai:v0.6.0"))
-			Expect(fetched.Spec.GPUCount).To(Equal(int32(1)))
-			Expect(fetched.Spec.Replicas).To(Equal(int32(2)))
-			Expect(fetched.Spec.Port).To(Equal(int32(8080)))
-
-			By("Reconciling the created resource")
-			controllerReconciler := &InferenceDeploymentReconciler{
-				Client: k8sClient,
-				Scheme: k8sClient.Scheme(),
+			infd := &platformv1.InferenceDeployment{}
+			if err := k8sClient.Get(ctx, key, infd); err == nil {
+				Expect(k8sClient.Delete(ctx, infd)).To(Succeed())
 			}
-			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
-				NamespacedName: typeNamespacedName,
-			})
-			Expect(err).NotTo(HaveOccurred())
+			for _, obj := range []client.Object{&appsv1.Deployment{}, &corev1.Service{}} {
+				_ = k8sClient.DeleteAllOf(ctx, obj, client.InNamespace(ns))
+			}
 		})
 
-		It("should persist status phase and readyReplicas via the status subresource", func() {
-			fetched := &platformv1.InferenceDeployment{}
-			Expect(k8sClient.Get(ctx, typeNamespacedName, fetched)).To(Succeed())
+		It("creates an owned Deployment and Service with the model spec", func() {
+			Expect(k8sClient.Create(ctx, newInfD(2, 1))).To(Succeed())
 
-			fetched.Status.Phase = "Pending"
-			fetched.Status.ReadyReplicas = 0
-			Expect(k8sClient.Status().Update(ctx, fetched)).To(Succeed())
+			_, err := reconciler().Reconcile(ctx, reconcile.Request{NamespacedName: key})
+			Expect(err).NotTo(HaveOccurred())
 
-			updated := &platformv1.InferenceDeployment{}
-			Expect(k8sClient.Get(ctx, typeNamespacedName, updated)).To(Succeed())
-			Expect(updated.Status.Phase).To(Equal("Pending"))
-			Expect(updated.Status.ReadyReplicas).To(Equal(int32(0)))
+			dep := &appsv1.Deployment{}
+			Expect(k8sClient.Get(ctx, key, dep)).To(Succeed())
+			Expect(*dep.Spec.Replicas).To(Equal(int32(2)))
+			Expect(dep.Spec.Selector.MatchLabels).To(HaveKeyWithValue("app.kubernetes.io/instance", resourceName))
+			c := dep.Spec.Template.Spec.Containers[0]
+			Expect(c.Image).To(Equal("vllm/vllm-openai:test"))
+			Expect(c.Ports[0].Name).To(Equal("http"))
+			Expect(c.Ports[0].ContainerPort).To(Equal(int32(8080)))
+			gpuReq := c.Resources.Requests[nvidiaGPUResource]
+			gpuLim := c.Resources.Limits[nvidiaGPUResource]
+			Expect(gpuReq.Value()).To(Equal(int64(1)))
+			Expect(gpuLim.Value()).To(Equal(int64(1)))
+			Expect(metav1.IsControlledBy(dep, mustGet(ctx, key))).To(BeTrue())
+
+			svc := &corev1.Service{}
+			Expect(k8sClient.Get(ctx, key, svc)).To(Succeed())
+			Expect(svc.Spec.Selector).To(HaveKeyWithValue("app.kubernetes.io/instance", resourceName))
+			Expect(svc.Spec.Ports[0].Name).To(Equal("http"))
+			Expect(svc.Spec.Ports[0].Port).To(Equal(int32(8080)))
+			Expect(metav1.IsControlledBy(svc, mustGet(ctx, key))).To(BeTrue())
+		})
+
+		It("omits the GPU resource when GPUCount is zero", func() {
+			Expect(k8sClient.Create(ctx, newInfD(1, 0))).To(Succeed())
+			_, err := reconciler().Reconcile(ctx, reconcile.Request{NamespacedName: key})
+			Expect(err).NotTo(HaveOccurred())
+			dep := &appsv1.Deployment{}
+			Expect(k8sClient.Get(ctx, key, dep)).To(Succeed())
+			_, hasReq := dep.Spec.Template.Spec.Containers[0].Resources.Requests[nvidiaGPUResource]
+			Expect(hasReq).To(BeFalse())
 		})
 	})
 })
+
+func mustGet(ctx context.Context, key types.NamespacedName) *platformv1.InferenceDeployment {
+	infd := &platformv1.InferenceDeployment{}
+	Expect(k8sClient.Get(ctx, key, infd)).To(Succeed())
+	return infd
+}
