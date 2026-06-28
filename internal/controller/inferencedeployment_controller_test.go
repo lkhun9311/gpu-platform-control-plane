@@ -190,6 +190,29 @@ var _ = Describe("InferenceDeployment Controller", func() {
 			Expect(got.Spec.Template.Spec.Containers[0].Image).To(Equal("busybox"))
 		})
 
+		It("reports Progressing (not Ready) when Replicas=3 but desired is 2 (surplus not yet removed)", func() {
+			// Create an InferenceDeployment with 2 desired replicas.
+			Expect(k8sClient.Create(ctx, newInfD(2, 1))).To(Succeed())
+			r := reconciler()
+			_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: key})
+			Expect(err).NotTo(HaveOccurred())
+
+			// Simulate a scale-down in flight: Deployment controller reports 3 total replicas
+			// (all updated, all ready) but the surplus old replica has not yet been removed.
+			dep := &appsv1.Deployment{}
+			Expect(k8sClient.Get(ctx, key, dep)).To(Succeed())
+			dep.Status.ObservedGeneration = dep.Generation
+			dep.Status.Replicas = 3
+			dep.Status.UpdatedReplicas = 3
+			dep.Status.ReadyReplicas = 3
+			Expect(k8sClient.Status().Update(ctx, dep)).To(Succeed())
+
+			_, err = r.Reconcile(ctx, reconcile.Request{NamespacedName: key})
+			Expect(err).NotTo(HaveOccurred())
+			// Must NOT report Ready: total replica count has not converged to desired=2.
+			Expect(mustGet(ctx, key).Status.Phase).To(Equal("Progressing"))
+		})
+
 		It("does not prematurely report Ready when scale-down to zero is not yet observed by the Deployment", func() {
 			// Start with 2 ready replicas.
 			Expect(k8sClient.Create(ctx, newInfD(2, 1))).To(Succeed())

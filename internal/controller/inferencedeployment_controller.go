@@ -234,14 +234,21 @@ func computeInfDPhase(infd *platformv1.InferenceDeployment, dep *appsv1.Deployme
 	if dep.Status.Replicas != dep.Status.UpdatedReplicas {
 		return infdPhaseProgressing, avail(metav1.ConditionFalse, infdReasonRollout, "waiting for old replicas to drain")
 	}
-	// 6. Ready: fully converged.
+	// 6. Ready: all three replica counts must equal the desired count to guard against
+	// a scale-down in progress where surplus replicas have not yet been removed.
+	if dep.Status.Replicas != infd.Spec.Replicas || dep.Status.UpdatedReplicas != infd.Spec.Replicas || dep.Status.ReadyReplicas != infd.Spec.Replicas {
+		return infdPhaseProgressing, avail(metav1.ConditionFalse, infdReasonRollout, "waiting for replica count to converge")
+	}
+	// 7. Ready: fully converged.
 	return infdPhaseReady, avail(metav1.ConditionTrue, infdReasonAvailable, "all replicas ready")
 }
 
 // markDegraded reflects a deterministic failure into status as Degraded with Available=False.
+// ReadyReplicas is zeroed so a DeploymentConflict does not leave a stale ready count.
 func (r *InferenceDeploymentReconciler) markDegraded(ctx context.Context, infd *platformv1.InferenceDeployment, reason, msg string) (ctrl.Result, error) {
 	desired := infd.Status.DeepCopy()
 	desired.Phase = infdPhaseDegraded
+	desired.ReadyReplicas = 0
 	desired.ObservedGeneration = infd.Generation
 	meta.SetStatusCondition(&desired.Conditions, metav1.Condition{
 		Type: infdCondAvailable, Status: metav1.ConditionFalse, Reason: reason, Message: msg, ObservedGeneration: infd.Generation,
