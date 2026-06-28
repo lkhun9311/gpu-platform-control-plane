@@ -244,6 +244,77 @@ var _ = Describe("InferenceDeployment Controller", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(mustGet(ctx, key).Status.Phase).To(Equal("Progressing"))
 		})
+
+		It("is idempotent once steady", func() {
+			// Create with 0 replicas so the reconciler reaches Ready on first pass without
+			// needing a manual Deployment status patch.
+			Expect(k8sClient.Create(ctx, newInfD(0, 0))).To(Succeed())
+			r := reconciler()
+			_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: key})
+			Expect(err).NotTo(HaveOccurred())
+
+			depBefore := &appsv1.Deployment{}
+			Expect(k8sClient.Get(ctx, key, depBefore)).To(Succeed())
+			infdBefore := mustGet(ctx, key)
+
+			// A second reconcile must not write any Deployment or InferenceDeployment update.
+			_, err = r.Reconcile(ctx, reconcile.Request{NamespacedName: key})
+			Expect(err).NotTo(HaveOccurred())
+
+			depAfter := &appsv1.Deployment{}
+			Expect(k8sClient.Get(ctx, key, depAfter)).To(Succeed())
+			Expect(depAfter.ResourceVersion).To(Equal(depBefore.ResourceVersion))
+			Expect(mustGet(ctx, key).ResourceVersion).To(Equal(infdBefore.ResourceVersion))
+		})
+
+		It("restores a drifted Deployment image", func() {
+			Expect(k8sClient.Create(ctx, newInfD(1, 1))).To(Succeed())
+			r := reconciler()
+			_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: key})
+			Expect(err).NotTo(HaveOccurred())
+
+			// Tamper with the Deployment image directly to simulate drift.
+			dep := &appsv1.Deployment{}
+			Expect(k8sClient.Get(ctx, key, dep)).To(Succeed())
+			dep.Spec.Template.Spec.Containers[0].Image = "tampered:bad"
+			Expect(k8sClient.Update(ctx, dep)).To(Succeed())
+
+			// The next reconcile must overwrite the drifted image.
+			_, err = r.Reconcile(ctx, reconcile.Request{NamespacedName: key})
+			Expect(err).NotTo(HaveOccurred())
+
+			restored := &appsv1.Deployment{}
+			Expect(k8sClient.Get(ctx, key, restored)).To(Succeed())
+			Expect(restored.Spec.Template.Spec.Containers[0].Image).To(Equal("vllm/vllm-openai:test"))
+		})
+
+		It("removes the GPU resource when GPUCount changes from 1 to 0", func() {
+			// Create an InferenceDeployment with 1 GPU and verify the resource is set.
+			Expect(k8sClient.Create(ctx, newInfD(1, 1))).To(Succeed())
+			r := reconciler()
+			_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: key})
+			Expect(err).NotTo(HaveOccurred())
+
+			dep := &appsv1.Deployment{}
+			Expect(k8sClient.Get(ctx, key, dep)).To(Succeed())
+			Expect(dep.Spec.Template.Spec.Containers[0].Resources.Requests).To(HaveKey(nvidiaGPUResource))
+			Expect(dep.Spec.Template.Spec.Containers[0].Resources.Limits).To(HaveKey(nvidiaGPUResource))
+
+			// Update GPUCount to 0 and reconcile; the GPU resource must be removed.
+			infd := mustGet(ctx, key)
+			infd.Spec.GPUCount = 0
+			Expect(k8sClient.Update(ctx, infd)).To(Succeed())
+
+			_, err = r.Reconcile(ctx, reconcile.Request{NamespacedName: key})
+			Expect(err).NotTo(HaveOccurred())
+
+			updated := &appsv1.Deployment{}
+			Expect(k8sClient.Get(ctx, key, updated)).To(Succeed())
+			_, hasReq := updated.Spec.Template.Spec.Containers[0].Resources.Requests[nvidiaGPUResource]
+			_, hasLim := updated.Spec.Template.Spec.Containers[0].Resources.Limits[nvidiaGPUResource]
+			Expect(hasReq).To(BeFalse())
+			Expect(hasLim).To(BeFalse())
+		})
 	})
 })
 
