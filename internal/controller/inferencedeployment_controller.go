@@ -18,47 +18,277 @@ package controller
 
 import (
 	"context"
+	"fmt"
 
+	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	platformv1 "github.com/lkhun9311/gpu-mlops-platform-control-plane/api/v1"
 )
 
-// InferenceDeploymentReconciler reconciles a InferenceDeployment object
+// nvidiaGPUResource is the node extended resource a serving pod requests per GPU.
+// This is the pod-level resource, distinct from the GPUQuotaPolicy ResourceQuota key.
+const nvidiaGPUResource = corev1.ResourceName("nvidia.com/gpu")
+
+const (
+	// instanceLabel selects the pods owned by one InferenceDeployment.
+	// It is set once and never changed, because a Deployment's selector is immutable.
+	instanceLabel = "app.kubernetes.io/instance"
+)
+
+// InferenceDeploymentReconciler reconciles an InferenceDeployment object.
 type InferenceDeploymentReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
 }
 
-// +kubebuilder:rbac:groups=platform.lkhun9311.github.io,resources=inferencedeployments,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=platform.lkhun9311.github.io,resources=inferencedeployments,verbs=get;list;watch
 // +kubebuilder:rbac:groups=platform.lkhun9311.github.io,resources=inferencedeployments/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=platform.lkhun9311.github.io,resources=inferencedeployments/finalizers,verbs=update
+// +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch
+// +kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch;create;update;patch
 
-// Reconcile is part of the main kubernetes reconciliation loop which aims to
-// move the current state of the cluster closer to the desired state.
-// TODO(user): Modify the Reconcile function to compare the state specified by
-// the InferenceDeployment object against the actual cluster state, and then
-// perform operations to make the cluster state reflect the state specified by
-// the user.
-//
-// For more details, check Reconcile and its Result here:
-// - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.23.3/pkg/reconcile
+// Reconcile syncs a Deployment and Service from the InferenceDeployment and reflects readiness into status.
 func (r *InferenceDeploymentReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
-	// M1: empty reconciler — log the request only.
-	// Deployment/Service creation and KEDA autoscaling land in M4.
-	log.Info("Reconciling InferenceDeployment", "name", req.Name, "namespace", req.Namespace)
 
+	var infd platformv1.InferenceDeployment
+	if err := r.Get(ctx, req.NamespacedName, &infd); err != nil {
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+
+	if conflict, err := r.ownedConflict(ctx, &infd, &appsv1.Deployment{}); err != nil {
+		return ctrl.Result{}, fmt.Errorf("check deployment ownership %s/%s: %w", infd.Namespace, infd.Name, err)
+	} else if conflict {
+		log.Info("Deployment exists and is not owned by this InferenceDeployment; refusing to adopt", "name", infd.Name)
+		return r.markDegraded(ctx, &infd, infdReasonConflict, "a Deployment of the same name is not owned by this InferenceDeployment")
+	}
+
+	dep := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: infd.Name, Namespace: infd.Namespace}}
+	if _, err := controllerutil.CreateOrUpdate(ctx, r.Client, dep, func() error {
+		r.mutateDeployment(&infd, dep)
+		return controllerutil.SetControllerReference(&infd, dep, r.Scheme)
+	}); err != nil {
+		return ctrl.Result{}, fmt.Errorf("sync deployment %s/%s: %w", infd.Namespace, infd.Name, err)
+	}
+
+	if conflict, err := r.ownedConflict(ctx, &infd, &corev1.Service{}); err != nil {
+		return ctrl.Result{}, fmt.Errorf("check service ownership %s/%s: %w", infd.Namespace, infd.Name, err)
+	} else if conflict {
+		log.Info("Service exists and is not owned by this InferenceDeployment; refusing to adopt", "name", infd.Name)
+		return r.markDegraded(ctx, &infd, infdReasonServiceConflict, "a Service of the same name is not owned by this InferenceDeployment")
+	}
+
+	svc := &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: infd.Name, Namespace: infd.Namespace}}
+	if _, err := controllerutil.CreateOrUpdate(ctx, r.Client, svc, func() error {
+		r.mutateService(&infd, svc)
+		return controllerutil.SetControllerReference(&infd, svc, r.Scheme)
+	}); err != nil {
+		return ctrl.Result{}, fmt.Errorf("sync service %s/%s: %w", infd.Namespace, infd.Name, err)
+	}
+
+	log.Info("Synced serving objects", "inferenceDeployment", req.String())
+
+	phase, cond := computeInfDPhase(&infd, dep)
+	desired := infd.Status.DeepCopy()
+	desired.Phase = phase
+	desired.ReadyReplicas = dep.Status.ReadyReplicas
+	desired.ObservedGeneration = infd.Generation
+	meta.SetStatusCondition(&desired.Conditions, cond)
+
+	if !equality.Semantic.DeepEqual(infd.Status, *desired) {
+		infd.Status = *desired
+		if err := r.Status().Update(ctx, &infd); err != nil {
+			return ctrl.Result{}, fmt.Errorf("update inferencedeployment status %s/%s: %w", infd.Namespace, infd.Name, err)
+		}
+		log.Info("Updated InferenceDeployment status", "name", infd.Name, "phase", phase)
+	}
 	return ctrl.Result{}, nil
+}
+
+// servingPort returns the configured serving port, defaulting to 8080 when unset.
+func servingPort(infd *platformv1.InferenceDeployment) int32 {
+	if infd.Spec.Port == 0 {
+		return 8080
+	}
+	return infd.Spec.Port
+}
+
+// infdLabels is the recommended label set applied to the owned Deployment and Service.
+func infdLabels(infd *platformv1.InferenceDeployment) map[string]string {
+	return map[string]string{
+		"app.kubernetes.io/name":              "inferencedeployment",
+		instanceLabel:                         infd.Name,
+		"app.kubernetes.io/managed-by":        "gpu-platform-control-plane",
+		"platform.lkhun9311.github.io/tenant": infd.Namespace,
+	}
+}
+
+// mutateDeployment sets only the fields this controller manages on the Deployment.
+// The selector is set once and never changed, because it is immutable after create.
+func (r *InferenceDeploymentReconciler) mutateDeployment(infd *platformv1.InferenceDeployment, dep *appsv1.Deployment) {
+	labels := infdLabels(infd)
+	port := servingPort(infd)
+
+	dep.Labels = labels
+	dep.Spec.Replicas = ptr.To(infd.Spec.Replicas)
+	dep.Spec.ProgressDeadlineSeconds = ptr.To(int32(600))
+	if dep.Spec.Selector == nil {
+		dep.Spec.Selector = &metav1.LabelSelector{MatchLabels: map[string]string{instanceLabel: infd.Name}}
+	}
+	dep.Spec.Template.Labels = labels
+
+	container := corev1.Container{
+		Name:  "server",
+		Image: infd.Spec.Image,
+		Args:  []string{"--model", infd.Spec.Model.Name, "--model-path", infd.Spec.Model.StorageURI},
+		Ports: []corev1.ContainerPort{{Name: "http", ContainerPort: port}},
+		ReadinessProbe: &corev1.Probe{ProbeHandler: corev1.ProbeHandler{
+			HTTPGet: &corev1.HTTPGetAction{Path: "/health", Port: intstr.FromString("http")},
+		}},
+		LivenessProbe: &corev1.Probe{ProbeHandler: corev1.ProbeHandler{
+			HTTPGet: &corev1.HTTPGetAction{Path: "/health", Port: intstr.FromString("http")},
+		}},
+	}
+	if infd.Spec.GPUCount > 0 {
+		q := *resource.NewQuantity(int64(infd.Spec.GPUCount), resource.DecimalSI)
+		container.Resources = corev1.ResourceRequirements{
+			Requests: corev1.ResourceList{nvidiaGPUResource: q},
+			Limits:   corev1.ResourceList{nvidiaGPUResource: q},
+		}
+	}
+	dep.Spec.Template.Spec.Containers = []corev1.Container{container}
+}
+
+// mutateService sets only the fields this controller manages on the Service.
+func (r *InferenceDeploymentReconciler) mutateService(infd *platformv1.InferenceDeployment, svc *corev1.Service) {
+	port := servingPort(infd)
+	svc.Labels = infdLabels(infd)
+	svc.Spec.Type = corev1.ServiceTypeClusterIP
+	svc.Spec.Selector = map[string]string{instanceLabel: infd.Name}
+	svc.Spec.Ports = []corev1.ServicePort{{
+		Name:       "http",
+		Port:       port,
+		TargetPort: intstr.FromString("http"),
+	}}
+}
+
+const (
+	infdPhasePending     = "Pending"
+	infdPhaseProgressing = "Progressing"
+	infdPhaseReady       = "Ready"
+	infdPhaseDegraded    = "Degraded"
+
+	infdCondAvailable         = "Available"
+	infdReasonScaledZero      = "ScaledToZero"
+	infdReasonRollout         = "RolloutInProgress"
+	infdReasonAvailable       = "MinimumReplicasAvailable"
+	infdReasonConflict        = "DeploymentConflict"
+	infdReasonServiceConflict = "ServiceConflict"
+)
+
+// computeInfDPhase derives the phase and the Available condition from the Deployment status.
+// Precedence (top to bottom):
+//  1. stale gate — when spec.Replicas > 0 and ObservedGeneration < Generation → Progressing.
+//     This ensures a scale-down to 0 not yet observed by the Deployment does not prematurely report Ready.
+//  2. ScaledToZero — Replicas == 0 → Ready (zero replicas is always authoritative from spec alone).
+//  3. Degraded — Deployment Progressing condition is False with ProgressDeadlineExceeded.
+//  4. Pending — ReadyReplicas == 0.
+//  5. Progressing — UpdatedReplicas or ReadyReplicas < spec.Replicas, or old replicas not yet drained.
+//  6. Ready — fully converged.
+func computeInfDPhase(infd *platformv1.InferenceDeployment, dep *appsv1.Deployment) (string, metav1.Condition) {
+	avail := func(status metav1.ConditionStatus, reason, msg string) metav1.Condition {
+		return metav1.Condition{Type: infdCondAvailable, Status: status, Reason: reason, Message: msg, ObservedGeneration: infd.Generation}
+	}
+	// 1. Stale gate: block phase decisions until the Deployment controller has observed the current spec.
+	// The gate is skipped only when spec wants zero replicas and status already shows zero running replicas,
+	// because there is nothing to drain and the spec intent is authoritative.
+	staleDep := dep.Status.ObservedGeneration < dep.Generation
+	zeroAndDrained := infd.Spec.Replicas == 0 && dep.Status.Replicas == 0
+	if staleDep && !zeroAndDrained {
+		return infdPhaseProgressing, avail(metav1.ConditionFalse, infdReasonRollout, "deployment not yet observed")
+	}
+	// 2. ScaledToZero: intentional zero-replica state is Ready once the status shows no running replicas.
+	if infd.Spec.Replicas == 0 {
+		return infdPhaseReady, avail(metav1.ConditionTrue, infdReasonScaledZero, "scaled to zero replicas")
+	}
+	// 3. Degraded: a ProgressDeadlineExceeded condition means the rollout will never complete on its own.
+	for i := range dep.Status.Conditions {
+		c := dep.Status.Conditions[i]
+		if c.Type == appsv1.DeploymentProgressing && c.Status == corev1.ConditionFalse && c.Reason == "ProgressDeadlineExceeded" {
+			return infdPhaseDegraded, avail(metav1.ConditionFalse, "ProgressDeadlineExceeded", "deployment rollout failed")
+		}
+	}
+	// 4. Pending: no replicas are ready yet.
+	if dep.Status.ReadyReplicas == 0 {
+		return infdPhasePending, avail(metav1.ConditionFalse, infdReasonRollout, "no replicas ready yet")
+	}
+	// 5. Progressing: replicas are not yet fully updated/ready, or old replicas have not been drained.
+	if dep.Status.UpdatedReplicas < infd.Spec.Replicas || dep.Status.ReadyReplicas < infd.Spec.Replicas {
+		return infdPhaseProgressing, avail(metav1.ConditionFalse, infdReasonRollout, "rollout in progress")
+	}
+	if dep.Status.Replicas != dep.Status.UpdatedReplicas {
+		return infdPhaseProgressing, avail(metav1.ConditionFalse, infdReasonRollout, "waiting for old replicas to drain")
+	}
+	// 6. Ready: all three replica counts must equal the desired count to guard against
+	// a scale-down in progress where surplus replicas have not yet been removed.
+	if dep.Status.Replicas != infd.Spec.Replicas || dep.Status.UpdatedReplicas != infd.Spec.Replicas || dep.Status.ReadyReplicas != infd.Spec.Replicas {
+		return infdPhaseProgressing, avail(metav1.ConditionFalse, infdReasonRollout, "waiting for replica count to converge")
+	}
+	// 7. Ready: fully converged.
+	return infdPhaseReady, avail(metav1.ConditionTrue, infdReasonAvailable, "all replicas ready")
+}
+
+// markDegraded reflects a deterministic failure into status as Degraded with Available=False.
+// ReadyReplicas is zeroed so a DeploymentConflict does not leave a stale ready count.
+func (r *InferenceDeploymentReconciler) markDegraded(ctx context.Context, infd *platformv1.InferenceDeployment, reason, msg string) (ctrl.Result, error) {
+	desired := infd.Status.DeepCopy()
+	desired.Phase = infdPhaseDegraded
+	desired.ReadyReplicas = 0
+	desired.ObservedGeneration = infd.Generation
+	meta.SetStatusCondition(&desired.Conditions, metav1.Condition{
+		Type: infdCondAvailable, Status: metav1.ConditionFalse, Reason: reason, Message: msg, ObservedGeneration: infd.Generation,
+	})
+	if !equality.Semantic.DeepEqual(infd.Status, *desired) {
+		infd.Status = *desired
+		if err := r.Status().Update(ctx, infd); err != nil {
+			return ctrl.Result{}, fmt.Errorf("update inferencedeployment status %s/%s to Degraded: %w", infd.Namespace, infd.Name, err)
+		}
+	}
+	return ctrl.Result{}, nil
+}
+
+// ownedConflict reports whether an object of the given name exists but is not controlled by infd.
+func (r *InferenceDeploymentReconciler) ownedConflict(ctx context.Context, infd *platformv1.InferenceDeployment, obj client.Object) (bool, error) {
+	err := r.Get(ctx, types.NamespacedName{Name: infd.Name, Namespace: infd.Namespace}, obj)
+	switch {
+	case apierrors.IsNotFound(err):
+		return false, nil
+	case err != nil:
+		return false, err
+	default:
+		return !metav1.IsControlledBy(obj, infd), nil
+	}
 }
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *InferenceDeploymentReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&platformv1.InferenceDeployment{}).
+		Owns(&appsv1.Deployment{}).
+		Owns(&corev1.Service{}).
 		Named("inferencedeployment").
 		Complete(r)
 }
