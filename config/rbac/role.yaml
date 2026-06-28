@@ -27,10 +27,31 @@ rules:
   - update
   - watch
 - apiGroups:
+  - ""
+  resources:
+  - services
+  verbs:
+  - create
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - apps
+  resources:
+  - deployments
+  verbs:
+  - create
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
   - platform.lkhun9311.github.io
   resources:
   - gpuquotapolicies
-  - inferencedeployments
   - mltrainingjobs
   - nodehealths
   verbs:
@@ -45,7 +66,6 @@ rules:
   - platform.lkhun9311.github.io
   resources:
   - gpuquotapolicies/finalizers
-  - inferencedeployments/finalizers
   - mltrainingjobs/finalizers
   - nodehealths/finalizers
   verbs:
@@ -61,3 +81,11 @@ rules:
   - get
   - patch
   - update
+- apiGroups:
+  - platform.lkhun9311.github.io
+  resources:
+  - inferencedeployments
+  verbs:
+  - get
+  - list
+  - watch
