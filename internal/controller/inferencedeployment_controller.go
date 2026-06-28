@@ -92,7 +92,7 @@ func (r *InferenceDeploymentReconciler) Reconcile(ctx context.Context, req ctrl.
 		return ctrl.Result{}, fmt.Errorf("sync service %s/%s: %w", infd.Namespace, infd.Name, err)
 	}
 
-	log.Info("Synced serving objects", "inferenceDeployment", req.NamespacedName.String())
+	log.Info("Synced serving objects", "inferenceDeployment", req.String())
 
 	phase, cond := computeInfDPhase(&infd, dep)
 	desired := infd.Status.DeepCopy()
@@ -141,7 +141,7 @@ func (r *InferenceDeploymentReconciler) mutateDeployment(infd *platformv1.Infere
 	if dep.Spec.Selector == nil {
 		dep.Spec.Selector = &metav1.LabelSelector{MatchLabels: map[string]string{instanceLabel: infd.Name}}
 	}
-	dep.Spec.Template.ObjectMeta.Labels = labels
+	dep.Spec.Template.Labels = labels
 
 	container := corev1.Container{
 		Name:  "server",
