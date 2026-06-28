@@ -288,6 +288,30 @@ var _ = Describe("InferenceDeployment Controller", func() {
 			Expect(restored.Spec.Template.Spec.Containers[0].Image).To(Equal("vllm/vllm-openai:test"))
 		})
 
+		It("refuses to adopt an unowned Service of the same name", func() {
+			foreignSvc := &corev1.Service{
+				ObjectMeta: metav1.ObjectMeta{Name: resourceName, Namespace: ns, Labels: map[string]string{"owner": "someone-else"}},
+				Spec: corev1.ServiceSpec{
+					Selector: map[string]string{"owner": "someone-else"},
+					Ports:    []corev1.ServicePort{{Name: "foreign", Port: 9999}},
+				},
+			}
+			Expect(k8sClient.Create(ctx, foreignSvc)).To(Succeed())
+			Expect(k8sClient.Create(ctx, newInfD(1, 1))).To(Succeed())
+
+			_, err := reconciler().Reconcile(ctx, reconcile.Request{NamespacedName: key})
+			Expect(err).NotTo(HaveOccurred())
+
+			// InferenceDeployment must be Degraded; we did not own the Service.
+			Expect(mustGet(ctx, key).Status.Phase).To(Equal("Degraded"))
+
+			// Service must not have been adopted or overwritten.
+			got := &corev1.Service{}
+			Expect(k8sClient.Get(ctx, key, got)).To(Succeed())
+			Expect(got.OwnerReferences).To(BeEmpty())
+			Expect(got.Spec.Selector).To(HaveKeyWithValue("owner", "someone-else"))
+		})
+
 		It("removes the GPU resource when GPUCount changes from 1 to 0", func() {
 			// Create an InferenceDeployment with 1 GPU and verify the resource is set.
 			Expect(k8sClient.Create(ctx, newInfD(1, 1))).To(Succeed())
