@@ -84,6 +84,13 @@ func (r *InferenceDeploymentReconciler) Reconcile(ctx context.Context, req ctrl.
 		return ctrl.Result{}, fmt.Errorf("sync deployment %s/%s: %w", infd.Namespace, infd.Name, err)
 	}
 
+	if conflict, err := r.ownedConflict(ctx, &infd, &corev1.Service{}); err != nil {
+		return ctrl.Result{}, fmt.Errorf("check service ownership %s/%s: %w", infd.Namespace, infd.Name, err)
+	} else if conflict {
+		log.Info("Service exists and is not owned by this InferenceDeployment; refusing to adopt", "name", infd.Name)
+		return r.markDegraded(ctx, &infd, infdReasonServiceConflict, "a Service of the same name is not owned by this InferenceDeployment")
+	}
+
 	svc := &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: infd.Name, Namespace: infd.Namespace}}
 	if _, err := controllerutil.CreateOrUpdate(ctx, r.Client, svc, func() error {
 		r.mutateService(&infd, svc)
@@ -184,11 +191,12 @@ const (
 	infdPhaseReady       = "Ready"
 	infdPhaseDegraded    = "Degraded"
 
-	infdCondAvailable    = "Available"
-	infdReasonScaledZero = "ScaledToZero"
-	infdReasonRollout    = "RolloutInProgress"
-	infdReasonAvailable  = "MinimumReplicasAvailable"
-	infdReasonConflict   = "DeploymentConflict"
+	infdCondAvailable         = "Available"
+	infdReasonScaledZero      = "ScaledToZero"
+	infdReasonRollout         = "RolloutInProgress"
+	infdReasonAvailable       = "MinimumReplicasAvailable"
+	infdReasonConflict        = "DeploymentConflict"
+	infdReasonServiceConflict = "ServiceConflict"
 )
 
 // computeInfDPhase derives the phase and the Available condition from the Deployment status.
