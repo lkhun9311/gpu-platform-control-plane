@@ -50,6 +50,22 @@ type GPUQuotaPolicySpec struct {
 	// limits is the quota ceiling for this tenant in the target namespace.
 	// +required
 	Limits GPUQuotaLimits `json:"limits"`
+
+	// rateLimit caps the per-tenant serving request rate enforced at the gateway (admission Layer 4).
+	// It is optional: a policy without rateLimit means the tenant has no gateway rate limit.
+	// +optional
+	RateLimit *GPUQuotaRateLimit `json:"rateLimit,omitempty"`
+}
+
+// GPUQuotaRateLimit is the per-tenant token-bucket configuration consumed by the serving gateway.
+type GPUQuotaRateLimit struct {
+	// requestsPerMinute is the sustained request rate allowed for the tenant.
+	// +kubebuilder:validation:Minimum=1
+	RequestsPerMinute int32 `json:"requestsPerMinute"`
+
+	// burst is the maximum momentary burst the bucket allows above the sustained rate.
+	// +kubebuilder:validation:Minimum=1
+	Burst int32 `json:"burst"`
 }
 
 // GPUQuotaLimits is the quota ceiling for a tenant.

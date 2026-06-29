@@ -206,5 +206,16 @@ var _ = Describe("GPUQuotaPolicy Controller", func() {
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("targetNamespace is immutable"))
 		})
+
+		It("round-trips the optional rateLimit", func() {
+			p := &platformv1.GPUQuotaPolicy{}
+			Expect(k8sClient.Get(ctx, key, p)).To(Succeed())
+			p.Spec.RateLimit = &platformv1.GPUQuotaRateLimit{RequestsPerMinute: 600, Burst: 100}
+			Expect(k8sClient.Update(ctx, p)).To(Succeed())
+			got := &platformv1.GPUQuotaPolicy{}
+			Expect(k8sClient.Get(ctx, key, got)).To(Succeed())
+			Expect(got.Spec.RateLimit.RequestsPerMinute).To(Equal(int32(600)))
+			Expect(got.Spec.RateLimit.Burst).To(Equal(int32(100)))
+		})
 	})
 })
