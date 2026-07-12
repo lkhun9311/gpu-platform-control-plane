@@ -5,6 +5,7 @@ docs/
 .cursor/
 .chatgpt/
 .codex/
+.githooks/
 
 # Markdown: only the root README is committed (other .md kept locally under superpowers/)
 *.md
@@ -30,6 +31,8 @@ tmp/
 *.db
 *.sqlite
 *.sqlite3
+deployments/
+evidence/
 
 # Generated binaries
 bin/
@@ -43,3 +46,6 @@ Thumbs.db
 # Go test artifacts
 *.out
 *.test
+
+# Claude Code personal overrides
+.claude/settings.local.json
