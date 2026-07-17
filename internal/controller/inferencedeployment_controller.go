@@ -206,7 +206,8 @@ const (
 //  2. ScaledToZero — Replicas == 0 → Ready (zero replicas is always authoritative from spec alone).
 //  3. Degraded — Deployment Progressing condition is False with ProgressDeadlineExceeded.
 //  4. Pending — ReadyReplicas == 0.
-//  5. Progressing — UpdatedReplicas or ReadyReplicas < spec.Replicas, or old replicas not yet drained.
+//  5. Progressing — UpdatedReplicas or ReadyReplicas < spec.Replicas, old replicas not yet drained,
+//     or the three replica counts have not yet converged on spec.Replicas.
 //  6. Ready — fully converged.
 func computeInfDPhase(infd *platformv1.InferenceDeployment, dep *appsv1.Deployment) (string, metav1.Condition) {
 	avail := func(status metav1.ConditionStatus, reason, msg string) metav1.Condition {
@@ -242,12 +243,12 @@ func computeInfDPhase(infd *platformv1.InferenceDeployment, dep *appsv1.Deployme
 	if dep.Status.Replicas != dep.Status.UpdatedReplicas {
 		return infdPhaseProgressing, avail(metav1.ConditionFalse, infdReasonRollout, "waiting for old replicas to drain")
 	}
-	// 6. Ready: all three replica counts must equal the desired count to guard against
+	// Still Progressing: all three replica counts must equal the desired count to guard against
 	// a scale-down in progress where surplus replicas have not yet been removed.
 	if dep.Status.Replicas != infd.Spec.Replicas || dep.Status.UpdatedReplicas != infd.Spec.Replicas || dep.Status.ReadyReplicas != infd.Spec.Replicas {
 		return infdPhaseProgressing, avail(metav1.ConditionFalse, infdReasonRollout, "waiting for replica count to converge")
 	}
-	// 7. Ready: fully converged.
+	// 6. Ready: fully converged.
 	return infdPhaseReady, avail(metav1.ConditionTrue, infdReasonAvailable, "all replicas ready")
 }
 
