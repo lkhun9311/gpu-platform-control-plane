@@ -30,12 +30,14 @@ import (
 // ErrNoPolicy is the sentinel reported when no GPUQuotaPolicy targets the tenant.
 //
 // Design rationale (design spec Identity model section): a tenant with zero policies must get a 403.
+//
 // This signals "policy not provisioned" rather than a read failure, so the caller translates it to 403.
 var ErrNoPolicy = errors.New("no GPUQuotaPolicy for tenant")
 
 // policyForTenant returns the single GPUQuotaPolicy governing tenant, or ErrNoPolicy if none exists.
 //
 // Design rationale (design spec Identity model section): GPUQuotaPolicy is cluster-scoped and nothing stops two policies from sharing a spec.tenant.
+//
 // Limiter state must not become non-deterministic in that case, so exactly one is chosen by a deterministic rule: the oldest creationTimestamp wins, and ties break on ascending name.
 func (s *Server) policyForTenant(ctx context.Context, tenant string) (*platformv1.GPUQuotaPolicy, error) {
 	var list platformv1.GPUQuotaPolicyList
@@ -64,6 +66,7 @@ func (s *Server) policyForTenant(ctx context.Context, tenant string) (*platformv
 }
 
 // olderPolicy reports whether a takes precedence over b.
+//
 // The earlier creationTimestamp wins, and on an exact tie the lexicographically smaller name wins.
 func olderPolicy(a, b *platformv1.GPUQuotaPolicy) bool {
 	if a.CreationTimestamp.Equal(&b.CreationTimestamp) {
@@ -76,7 +79,9 @@ func olderPolicy(a, b *platformv1.GPUQuotaPolicy) bool {
 // bucketRegistry holds one token-bucket limiter per tenant.
 //
 // Design rationale (design spec Components section): a map[tenant]*rate.Limiter.
+//
 // The gateway runs a single replica, so an in-memory map suffices and distributed buckets are out of scope.
+//
 // Concurrent requests read and write the map, so a Mutex guards it.
 type bucketRegistry struct {
 	// mu guards buckets against concurrent access, since Go's built-in map is not safe for concurrent writes.
@@ -86,6 +91,7 @@ type bucketRegistry struct {
 }
 
 // trackedBucket pairs a limiter with the policy values (rpm, burst) it was built from.
+//
 // Keeping those values alongside the limiter is what lets Allow detect a changed policy and refresh the limiter.
 type trackedBucket struct {
 	limiter *rate.Limiter
@@ -101,9 +107,11 @@ func newBucketRegistry() *bucketRegistry {
 }
 
 // Allow reports whether tenant may issue a request now, consuming one token if so.
+//
 // false means the tenant is over its limit and the caller translates it to a 429 rate_limited.
 //
-// Design rationale (design spec Components and Request flow step 4):
+// Design rationale (design spec Components and Request flow step 4).
+//
 //   - a nil rateLimit means an unlimited tenant, so always allow
 //   - per-second rate = requestsPerMinute / 60, since feeding the per-minute value straight in would run 60× fast
 //   - on a policy change, refresh via SetLimit/SetBurst instead of rebuilding, which preserves accumulated tokens
@@ -129,6 +137,7 @@ func (b *bucketRegistry) Allow(tenant string, rl *platformv1.GPUQuotaRateLimit) 
 		b.buckets[tenant] = tb
 	} else if tb.rpm != rl.RequestsPerMinute || tb.burst != rl.Burst {
 		// The policy values changed, so update the limiter in place rather than discarding it.
+		//
 		// Rebuilding would refill the bucket and hand a free burst to any tenant whose policy was edited.
 		tb.limiter.SetLimit(limit)
 		tb.limiter.SetBurst(burst)
@@ -140,6 +149,7 @@ func (b *bucketRegistry) Allow(tenant string, rl *platformv1.GPUQuotaRateLimit) 
 	b.mu.Unlock()
 
 	// rate.Limiter is concurrency-safe on its own, so this runs outside the lock.
+	//
 	// It consumes a token and reports true, or reports false when none is available.
 	return limiter.Allow()
 }

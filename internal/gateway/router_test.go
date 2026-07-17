@@ -46,8 +46,8 @@ func newInfD(name, ns, model string, port int32, created time.Time) *platformv1.
 }
 
 // newRouterClient builds a fake client with ModelNameIndex registered.
-// NewCache installs that index in production; the fake client does not use that cache, so the tests
-// register the same key and extractor to make MatchingFields lookups behave as they do in production.
+//
+// NewCache installs that index in production; the fake client does not use that cache, so the tests register the same key and extractor to make MatchingFields lookups behave as they do in production.
 func newRouterClient(objs ...client.Object) client.Client {
 	return fake.NewClientBuilder().
 		WithScheme(newSchemeForTest()).
@@ -60,11 +60,11 @@ func newRouterClient(objs ...client.Object) client.Client {
 
 // policyFor builds the minimal policy backendFor needs: it only reads TargetNamespace.
 //
-// The ns parameter stays despite unparam flagging it as always "vision": it is what makes each call site
-// show which namespace the policy scopes to. The tenant-isolation spec in particular puts the
-// InferenceDeployment in "nlp" and asks with a "vision" policy to expect ErrNoRoute, and that contrast is
-// only legible with both namespaces side by side at the call site. Dropping the parameter hides it inside
-// the helper and leaves that spec unreadable.
+// The ns parameter stays despite unparam flagging it as always "vision": it is what makes each call site show which namespace the policy scopes to.
+//
+// The tenant-isolation spec in particular puts the InferenceDeployment in "nlp" and asks with a "vision" policy to expect ErrNoRoute, and that contrast is only legible with both namespaces side by side at the call site.
+//
+// Dropping the parameter hides it inside the helper and leaves that spec unreadable.
 //
 // nolint:unparam
 func policyFor(ns string) *platformv1.GPUQuotaPolicy {
@@ -81,6 +81,7 @@ var _ = Describe("backendFor", func() {
 
 	It("returns ErrNoRoute when no InferenceDeployment serves the model", func() {
 		// Guards against returning a nil URL for an unknown model, which would panic the proxy.
+		//
 		// The design spec Error codes section requires a 404 here, so the error must be distinguishable.
 		s := &Server{Client: newRouterClient()}
 		_, err := s.backendFor(ctx, policyFor("vision"), "llama-3-8b")
@@ -96,8 +97,9 @@ var _ = Describe("backendFor", func() {
 	})
 
 	It("defaults the port to 8080 when spec.port is unset", func() {
-		// The fake client applies no defaulting, so spec.port stays 0 where the API server would have
-		// set 8080. A URL on port 0 is unroutable, so the code must supply the same default.
+		// The fake client applies no defaulting, so spec.port stays 0 where the API server would have set 8080.
+		//
+		// A URL on port 0 is unroutable, so the code must supply the same default.
 		infd := newInfD("llama", "vision", "llama-3-8b", 0, now)
 		s := &Server{Client: newRouterClient(infd)}
 		got, err := s.backendFor(ctx, policyFor("vision"), "llama-3-8b")
@@ -116,9 +118,9 @@ var _ = Describe("backendFor", func() {
 	})
 
 	It("picks the lexicographically smaller name when creation timestamps tie", func() {
-		// This alone does not guard the non-determinism regression: the fake client returns the list
-		// name-sorted, so the tie-break winner is already first and a timestamp-only rule would pass
-		// here too. The olderInfD specs below pin the rule itself.
+		// This alone does not guard the non-determinism regression: the fake client returns the list name-sorted, so the tie-break winner is already first and a timestamp-only rule would pass here too.
+		//
+		// The olderInfD specs below pin the rule itself.
 		same := now
 		b := newInfD("llama-b", "vision", "llama-3-8b", 8080, same)
 		a := newInfD("llama-a", "vision", "llama-3-8b", 8080, same)
@@ -129,8 +131,7 @@ var _ = Describe("backendFor", func() {
 	})
 
 	It("ignores an InferenceDeployment outside the policy's target namespace", func() {
-		// Guards the tenant boundary: dropping the namespace filter would leak requests to another
-		// tenant's backend, and distinct tenants commonly serve the same model name.
+		// Guards the tenant boundary: dropping the namespace filter would leak requests to another tenant's backend, and distinct tenants commonly serve the same model name.
 		other := newInfD("llama", "nlp", "llama-3-8b", 8080, now)
 		s := &Server{Client: newRouterClient(other)}
 		_, err := s.backendFor(ctx, policyFor("vision"), "llama-3-8b")
@@ -150,11 +151,13 @@ var _ = Describe("olderInfD", func() {
 	})
 
 	It("breaks an exact timestamp tie by ascending name", func() {
-		// Guards the non-determinism regression: creationTimestamp has second granularity, so objects
-		// created in the same second compare equal and a timestamp-only rule leaves them unordered.
-		// Sorting an unordered pair then depends on input order, and the cache guarantees none — the
-		// same request could reach different backends, which the design spec Identity model section
-		// forbids. Names are unique within a namespace, so the tie-break always decides.
+		// Guards the non-determinism regression: creationTimestamp has second granularity, so objects created in the same second compare equal and a timestamp-only rule leaves them unordered.
+		//
+		// Sorting an unordered pair then depends on input order, and the cache guarantees none.
+		//
+		// The same request could reach different backends, which the design spec Identity model section forbids.
+		//
+		// Names are unique within a namespace, so the tie-break always decides.
 		same := now
 		a := newInfD("llama-a", "vision", "m", 8080, same)
 		b := newInfD("llama-b", "vision", "m", 8080, same)
