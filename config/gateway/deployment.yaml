@@ -1,0 +1,98 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gateway
+  namespace: system
+  labels:
+    app.kubernetes.io/name: gpu-platform-control-plane
+    app.kubernetes.io/component: gateway
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  # replicas: 1 is not a stopgap; it is forced by the current design (design spec Deployment section, ADR).
+  #
+  # The reason is that the token buckets live in process memory (bucketRegistry in ratelimit.go).
+  # Raising replicas to 2 gives each Pod its own buckets, multiplying a tenant's effective limit by the replica count.
+  # A policy set to 60 requests per minute quietly becomes 120. Nothing errors; only the limit is wrong.
+  # Scaling horizontally requires moving the buckets to shared storage (Redis or similar) first, which is explicitly out of scope for M4-b.
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: gpu-platform-control-plane
+      app.kubernetes.io/component: gateway
+  template:
+    metadata:
+      annotations:
+        kubectl.kubernetes.io/default-container: gateway
+      labels:
+        app.kubernetes.io/name: gpu-platform-control-plane
+        app.kubernetes.io/component: gateway
+    spec:
+      # Follows the same restricted Pod Security Standards as the controller (manager.yaml).
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: gateway
+        image: gateway:latest
+        command:
+        - /gateway
+        ports:
+        # 8080 carries user inference traffic; 8081 carries metrics and probes.
+        # The ports are split so that metrics, which contain per-tenant usage, are not exposed externally (MetricsHandler in server.go).
+        - containerPort: 8080
+          name: http
+          protocol: TCP
+        - containerPort: 8081
+          name: metrics
+          protocol: TCP
+        env:
+        # These two values are the coordinates of the api-keys Secret (read by resolveTenant in tenant.go).
+        # If either one disagrees with the actual Secret, every request falls through to 401.
+        #
+        # Why GATEWAY_NAMESPACE is injected via fieldRef instead of hardcoded:
+        # kustomize's namePrefix/namespace settings can change the namespace at deploy time,
+        # and a hardcoded value would quietly diverge at that point. Letting the Pod learn the namespace it actually runs in is safer.
+        - name: GATEWAY_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: GATEWAY_API_KEY_SECRET
+          value: gateway-api-keys
+        securityContext:
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - "ALL"
+        # readinessProbe gets 503 until the cache has synced (readyz in server.go).
+        # This is what keeps a Pod with an empty cache out of the Service endpoints.
+        # Without it, a freshly started Pod returns false errors such as "no such model (404)" to users.
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: 8081
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        # livenessProbe uses the same /readyz but means something different.
+        # readiness asks "can this take traffic now"; liveness asks "is the process alive".
+        # failureThreshold is set high so that a slow cache sync does not trip liveness first
+        # and drop the Pod into a restart crash loop.
+        livenessProbe:
+          httpGet:
+            path: /readyz
+            port: 8081
+          initialDelaySeconds: 15
+          periodSeconds: 20
+          failureThreshold: 6
+        # The gateway only proxies requests and runs no inference, so its resource needs are small.
+        # Memory goes mainly to the CRD cache, and request bodies are capped at 1MB (maxBodyBytes in proxy.go).
+        resources:
+          limits:
+            cpu: 500m
+            memory: 256Mi
+          requests:
+            cpu: 10m
+            memory: 64Mi
+      serviceAccountName: gateway
+      terminationGracePeriodSeconds: 10

@@ -1,0 +1,10 @@
+# The bundle of gateway manifests.
+#
+# When config/default includes this directory as a resource, its namespace (system -> the real namespace)
+# and namePrefix apply to every name in here.
+# So each file writes the namespace as system verbatim, and default owns the substitution.
+resources:
+- serviceaccount.yaml
+- rbac.yaml
+- deployment.yaml
+- service.yaml
