@@ -27,11 +27,12 @@ import (
 )
 
 // nodeHealthFinalizer guards NodeHealth cleanup.
+//
 // On deletion the reconciler removes the unhealthy taint it owns before dropping this finalizer.
 const nodeHealthFinalizer = "nodehealth.platform.lkhun9311.github.io/finalizer"
 
-// unhealthyTaintKey/Value/Effect is the taint the reconciler applies to quarantine a not-ready node
-// so the scheduler stops placing GPU workloads on it.
+// unhealthyTaintKey/Value/Effect is the taint the reconciler applies to quarantine a not-ready node so the scheduler stops placing GPU workloads on it.
+//
 // The reconciler manages only this taint.
 const (
 	unhealthyTaintKey   = "platform.lkhun9311.github.io/unhealthy"
@@ -39,6 +40,7 @@ const (
 )
 
 // faultSourceNodeNotReady is the faultSignal source recorded while a node is quarantined for being not ready.
+//
 // Honesty: this is a readiness-derived signal, not a real hardware fault signal.
 const faultSourceNodeNotReady = "node-not-ready"
 
@@ -53,7 +55,9 @@ const (
 )
 
 // NodeHealth phases emitted in M3.
+//
 // M3 drives readiness into Pending (node absent), Ready (node ready), and Quarantine (node not ready -> tainted).
+//
 // The Intake and Degraded phases in the CRD enum are reserved for later lifecycle stages (see docs/03) and are not emitted here.
 const (
 	phasePending    = "Pending"
@@ -72,6 +76,7 @@ func setPhase(status *platformv1.NodeHealthStatus, phase string) {
 }
 
 // setReadyCondition sets the Ready condition, stamping observedGeneration.
+//
 // It is a thin wrapper over meta.SetStatusCondition (which preserves lastTransitionTime when unchanged).
 func setReadyCondition(status *platformv1.NodeHealthStatus, ready bool, reason, msg string, generation int64) {
 	condStatus := metav1.ConditionFalse
@@ -99,13 +104,16 @@ func isNodeReady(node *corev1.Node) bool {
 }
 
 // isManagedTaint reports whether a taint is the exact one this controller manages.
+//
 // It is identified by key AND effect, so a same-key taint with a different effect owned by another actor is left alone.
 func isManagedTaint(t corev1.Taint) bool {
 	return t.Key == unhealthyTaintKey && t.Effect == corev1.TaintEffectNoSchedule
 }
 
 // ensureUnhealthyTaint adds the platform unhealthy taint if it is absent.
+//
 // It returns whether the node's taints changed.
+//
 // Other taints are left untouched.
 func ensureUnhealthyTaint(node *corev1.Node) bool {
 	if slices.ContainsFunc(node.Spec.Taints, isManagedTaint) {
@@ -120,7 +128,9 @@ func ensureUnhealthyTaint(node *corev1.Node) bool {
 }
 
 // removeUnhealthyTaint removes only the taint this controller manages, if present.
+//
 // It returns whether the node's taints changed.
+//
 // Other taints, including a same-key taint with a different effect, are preserved.
 func removeUnhealthyTaint(node *corev1.Node) bool {
 	var kept []corev1.Taint

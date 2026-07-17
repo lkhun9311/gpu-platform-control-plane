@@ -40,11 +40,13 @@ import (
 )
 
 // nvidiaGPUResource is the node extended resource a serving pod requests per GPU.
+//
 // This is the pod-level resource, distinct from the GPUQuotaPolicy ResourceQuota key.
 const nvidiaGPUResource = corev1.ResourceName("nvidia.com/gpu")
 
 const (
 	// instanceLabel selects the pods owned by one InferenceDeployment.
+	//
 	// It is set once and never changed, because a Deployment's selector is immutable.
 	instanceLabel = "app.kubernetes.io/instance"
 )
@@ -137,6 +139,7 @@ func infdLabels(infd *platformv1.InferenceDeployment) map[string]string {
 }
 
 // mutateDeployment sets only the fields this controller manages on the Deployment.
+//
 // The selector is set once and never changed, because it is immutable after create.
 func (r *InferenceDeploymentReconciler) mutateDeployment(infd *platformv1.InferenceDeployment, dep *appsv1.Deployment) {
 	labels := infdLabels(infd)
@@ -200,22 +203,24 @@ const (
 )
 
 // computeInfDPhase derives the phase and the Available condition from the Deployment status.
+//
 // Precedence (top to bottom):
-//  1. stale gate — when spec.Replicas > 0 and ObservedGeneration < Generation → Progressing.
+//
+//  1. stale gate: when spec.Replicas > 0 and ObservedGeneration < Generation → Progressing.
 //     This ensures a scale-down to 0 not yet observed by the Deployment does not prematurely report Ready.
-//  2. ScaledToZero — Replicas == 0 → Ready (zero replicas is always authoritative from spec alone).
-//  3. Degraded — Deployment Progressing condition is False with ProgressDeadlineExceeded.
-//  4. Pending — ReadyReplicas == 0.
-//  5. Progressing — UpdatedReplicas or ReadyReplicas < spec.Replicas, old replicas not yet drained,
+//  2. ScaledToZero: Replicas == 0 → Ready (zero replicas is always authoritative from spec alone).
+//  3. Degraded: Deployment Progressing condition is False with ProgressDeadlineExceeded.
+//  4. Pending: ReadyReplicas == 0.
+//  5. Progressing: UpdatedReplicas or ReadyReplicas < spec.Replicas, old replicas not yet drained,
 //     or the three replica counts have not yet converged on spec.Replicas.
-//  6. Ready — fully converged.
+//  6. Ready: fully converged.
 func computeInfDPhase(infd *platformv1.InferenceDeployment, dep *appsv1.Deployment) (string, metav1.Condition) {
 	avail := func(status metav1.ConditionStatus, reason, msg string) metav1.Condition {
 		return metav1.Condition{Type: infdCondAvailable, Status: status, Reason: reason, Message: msg, ObservedGeneration: infd.Generation}
 	}
 	// 1. Stale gate: block phase decisions until the Deployment controller has observed the current spec.
-	// The gate is skipped only when spec wants zero replicas and status already shows zero running replicas,
-	// because there is nothing to drain and the spec intent is authoritative.
+	//
+	// The gate is skipped only when spec wants zero replicas and status already shows zero running replicas, because there is nothing to drain and the spec intent is authoritative.
 	staleDep := dep.Status.ObservedGeneration < dep.Generation
 	zeroAndDrained := infd.Spec.Replicas == 0 && dep.Status.Replicas == 0
 	if staleDep && !zeroAndDrained {
@@ -243,8 +248,7 @@ func computeInfDPhase(infd *platformv1.InferenceDeployment, dep *appsv1.Deployme
 	if dep.Status.Replicas != dep.Status.UpdatedReplicas {
 		return infdPhaseProgressing, avail(metav1.ConditionFalse, infdReasonRollout, "waiting for old replicas to drain")
 	}
-	// Still Progressing: all three replica counts must equal the desired count to guard against
-	// a scale-down in progress where surplus replicas have not yet been removed.
+	// Still Progressing: all three replica counts must equal the desired count to guard against a scale-down in progress where surplus replicas have not yet been removed.
 	if dep.Status.Replicas != infd.Spec.Replicas || dep.Status.UpdatedReplicas != infd.Spec.Replicas || dep.Status.ReadyReplicas != infd.Spec.Replicas {
 		return infdPhaseProgressing, avail(metav1.ConditionFalse, infdReasonRollout, "waiting for replica count to converge")
 	}
@@ -253,6 +257,7 @@ func computeInfDPhase(infd *platformv1.InferenceDeployment, dep *appsv1.Deployme
 }
 
 // markDegraded reflects a deterministic failure into status as Degraded with Available=False.
+//
 // ReadyReplicas is zeroed so a DeploymentConflict does not leave a stale ready count.
 func (r *InferenceDeploymentReconciler) markDegraded(ctx context.Context, infd *platformv1.InferenceDeployment, reason, msg string) (ctrl.Result, error) {
 	desired := infd.Status.DeepCopy()

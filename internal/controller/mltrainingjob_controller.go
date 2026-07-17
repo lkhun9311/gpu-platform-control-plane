@@ -48,7 +48,7 @@ type MLTrainingJobReconciler struct {
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.23.3/pkg/reconcile
 func (r *MLTrainingJobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
-	// M1: empty reconciler — log the request only.
+	// M1: empty reconciler (logs the request only).
 	// batch/v1 Job creation and Kueue admission land in M5.
 	log.Info("Reconciling MLTrainingJob", "name", req.Name, "namespace", req.Namespace)
 

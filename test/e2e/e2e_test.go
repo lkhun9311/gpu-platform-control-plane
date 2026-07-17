@@ -94,8 +94,7 @@ var _ = Describe("Manager", Ordered, func() {
 		_, _ = utils.Run(cmd)
 	})
 
-	// After each test, check for failures and collect logs, events,
-	// and pod descriptions for debugging.
+	// After each test, check for failures and collect logs, events, and pod descriptions for debugging.
 	AfterEach(func() {
 		specReport := CurrentSpecReport()
 		if specReport.Failed() {
@@ -283,6 +282,7 @@ var _ = Describe("Manager", Ordered, func() {
 })
 
 // serviceAccountToken returns a token for the specified service account in the given namespace.
+//
 // It uses the Kubernetes TokenRequest API to generate a token by directly sending a request
 // and parsing the resulting token from the API response.
 func serviceAccountToken() (string, error) {

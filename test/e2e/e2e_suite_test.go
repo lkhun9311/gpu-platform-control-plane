@@ -39,10 +39,13 @@ var (
 )
 
 // TestE2E runs the e2e test suite to validate the solution in an isolated environment.
+//
 // The default setup requires Kind and CertManager.
 //
 // To enable kubectl kuberc (use custom kubectl configurations), set: KUBECTL_KUBERC=true
+//
 // By default, kuberc is disabled to ensure consistent test behavior across different environments.
+//
 // To skip CertManager installation, set: CERT_MANAGER_INSTALL_SKIP=true
 func TestE2E(t *testing.T) {
 	RegisterFailHandler(Fail)
@@ -71,7 +74,9 @@ var _ = AfterSuite(func() {
 })
 
 // Disable kubectl kuberc by default for test isolation.
+//
 // This prevents local kubectl configurations from affecting test behavior.
+//
 // To enable kuberc, set: KUBECTL_KUBERC=true
 func configureKubectlKubeRC() {
 	if os.Getenv("KUBECTL_KUBERC") != "true" {
@@ -86,6 +91,7 @@ func configureKubectlKubeRC() {
 }
 
 // setupCertManager installs CertManager if needed for webhook tests.
+//
 // Skips installation if CERT_MANAGER_INSTALL_SKIP=true or if already present.
 func setupCertManager() {
 	if os.Getenv("CERT_MANAGER_INSTALL_SKIP") == "true" {
@@ -107,6 +113,7 @@ func setupCertManager() {
 }
 
 // teardownCertManager uninstalls CertManager if it was installed by setupCertManager.
+//
 // This ensures we only remove what we installed.
 func teardownCertManager() {
 	if !shouldCleanupCertManager {
