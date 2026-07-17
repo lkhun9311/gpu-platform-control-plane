@@ -48,10 +48,15 @@ func main() {
 	cfg := ctrl.GetConfigOrDie()
 	// Settle the namespace before building the cache.
 	//
-	// It is hoisted here because NewCache needs it to confine the Secret watch, and Server.Namespace needs
-	// the same value below. Were the two to disagree, the gateway would watch one namespace and look for the
-	// Secret in another, and every request would fall to 401. Deriving both from one variable makes that
-	// mismatch impossible.
+	// It is hoisted here because NewCache needs it to confine the Secret watch.
+	//
+	// Server.Namespace needs the same value below.
+	//
+	// Were the two to disagree, the gateway would watch one namespace and look for the Secret in another.
+	//
+	// Every request would fall to 401.
+	//
+	// Deriving both from one variable makes that mismatch impossible.
 	namespace := envOr("GATEWAY_NAMESPACE", "default")
 	ca, cl, err := gateway.NewCache(ctx, cfg, scheme, namespace)
 	if err != nil {
@@ -66,8 +71,10 @@ func main() {
 	}
 	// Turn on the per-tenant token bucket registry.
 	//
-	// It happens here rather than in the struct literal because bucketRegistry is unexported to the
-	// gateway package; the package exposes one method and main merely states the intent to rate limit.
+	// It happens here rather than in the struct literal because bucketRegistry is unexported to the gateway package.
+	//
+	// The package exposes one method and main merely states the intent to rate limit.
+	//
 	// Skipping this call would leave buckets nil while serving, so the gateway guards that case.
 	s.InitRateLimiter()
 

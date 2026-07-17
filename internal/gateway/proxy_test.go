@@ -14,8 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// An internal test: same package as the code under test, so unexported members such as chatCompletions
-// and readModel are reachable, as are router_test.go's newSchemeForTest/policyFor helpers.
+// An internal test: same package as the code under test, so unexported members such as chatCompletions and readModel are reachable, as are router_test.go's newSchemeForTest/policyFor helpers.
 package gateway
 
 import (
@@ -38,8 +37,9 @@ import (
 	platformv1 "github.com/lkhun9311/gpu-mlops-platform-control-plane/api/v1"
 )
 
-// Shared fixture coordinates. Repeating these literals per spec would let one drift out of step with
-// another and break a lookup silently.
+// Shared fixture coordinates.
+//
+// Repeating these literals per spec would let one drift out of step with another and break a lookup silently.
 const (
 	testGatewayNS = "gw"               // namespace holding the api-keys Secret
 	testSecret    = "gateway-api-keys" // api-keys Secret name
@@ -49,16 +49,13 @@ const (
 	testModel     = "llama-3"          // model the InferenceDeployment serves
 )
 
-// newProxyServer wires a Server complete enough to exercise the whole request pipeline:
-// an api-keys Secret mapping "k1" to "team-vision", that tenant's GPUQuotaPolicy carrying
-// TargetNamespace and rateLimit, and an InferenceDeployment serving testModel in that namespace.
+// newProxyServer wires a Server complete enough to exercise the whole request pipeline: an api-keys Secret mapping "k1" to "team-vision", that tenant's GPUQuotaPolicy carrying TargetNamespace and rateLimit, and an InferenceDeployment serving testModel in that namespace.
 //
-// rpm is a parameter because only the rate-limit spec should drain its bucket; every other spec must be
-// incapable of hitting a 429.
+// rpm is a parameter because only the rate-limit spec should drain its bucket; every other spec must be incapable of hitting a 429.
 //
-// The backendOverride hook (plan Task 6) exists because backendFor yields an in-cluster DNS address of
-// the form http://<name>.<ns>.svc:<port>, which this process can never reach. Only the resolved address
-// is swapped for the httptest server; a nil hook leaves the production backendFor path intact.
+// The backendOverride hook (plan Task 6) exists because backendFor yields an in-cluster DNS address of the form http://<name>.<ns>.svc:<port>, which this process can never reach.
+//
+// Only the resolved address is swapped for the httptest server; a nil hook leaves the production backendFor path intact.
 func newProxyServer(upstream string, rpm int32) *Server {
 	// The Secret tenant.go's resolveTenant reads to map a key to a tenant.
 	secret := &corev1.Secret{
@@ -84,8 +81,7 @@ func newProxyServer(upstream string, rpm int32) *Server {
 		APIKeySecret: testSecret,
 		buckets:      newBucketRegistry(),
 	}
-	// Only hook when an upstream is given; an empty string leaves the hook nil so the real backendFor
-	// runs, which is how the unroutable-address cases are built.
+	// Only hook when an upstream is given; an empty string leaves the hook nil so the real backendFor runs, which is how the unroutable-address cases are built.
 	if upstream != "" {
 		u, err := url.Parse(upstream)
 		Expect(err).NotTo(HaveOccurred())
@@ -105,14 +101,18 @@ func authedRequest(body string) *http.Request {
 
 // Specs for the pipeline's error-code mapping.
 //
-// The regression these prevent (design spec Error codes section): the pipeline runs auth, then policy,
-// then rate limit, then body parse, then routing, and each stage's failure must map to a distinct code.
-// Reorder it — rate limiting ahead of auth, say — and an unauthenticated request can drain someone
-// else's bucket. Collapse the codes and a caller can no longer tell what to retry from what to fix.
+// The regression these prevent (design spec Error codes section).
+//
+// The pipeline runs auth, then policy, then rate limit, then body parse, then routing, and each stage's failure must map to a distinct code.
+//
+// Reorder it (rate limiting ahead of auth, say) and an unauthenticated request can drain someone else's bucket.
+//
+// Collapse the codes and a caller can no longer tell what to retry from what to fix.
 var _ = Describe("chat completions pipeline", func() {
 	It("returns 405 for a non-POST method on the completions path", func() {
-		// Right path, wrong method. A mux that ignores the method sends this into the pipeline, where it
-		// becomes a 401 or 400 and fails this spec.
+		// Right path, wrong method.
+		//
+		// A mux that ignores the method sends this into the pipeline, where it becomes a 401 or 400 and fails this spec.
 		s := newProxyServer("", 600)
 		rr := httptest.NewRecorder()
 		s.Handler().ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/v1/chat/completions", nil))
@@ -172,8 +172,7 @@ var _ = Describe("chat completions pipeline", func() {
 			w.WriteHeader(http.StatusOK)
 		}))
 		defer up.Close()
-		// rpm=1, burst=1: the first request drains the bucket, and refilling once a minute leaves no
-		// chance of the next one slipping through.
+		// rpm=1, burst=1: the first request drains the bucket, and refilling once a minute leaves no chance of the next one slipping through.
 		s := newProxyServer(up.URL, 1)
 
 		first := httptest.NewRecorder()
@@ -196,7 +195,9 @@ var _ = Describe("chat completions pipeline", func() {
 	It("returns 400 when the model field is missing", func() {
 		s := newProxyServer("", 600)
 		rr := httptest.NewRecorder()
-		// Valid JSON, no model key. Routing depends entirely on it, so there is nowhere to go.
+		// Valid JSON, no model key.
+		//
+		// Routing depends entirely on it, so there is nowhere to go.
 		s.Handler().ServeHTTP(rr, authedRequest(`{"messages":[]}`))
 		Expect(rr.Code).To(Equal(http.StatusBadRequest))
 	})
@@ -259,32 +260,33 @@ var _ = Describe("chat completions pipeline", func() {
 
 	// This spec pairs with the 502 one to pin both branches of proxy.go's ErrorHandler.
 	//
-	// Why 502 alone is not enough (design spec Error codes section): deleting the timeout check
-	// (errors.As + ne.Timeout()) entirely leaves the 502 default in place, so the spec above still passes.
-	// The 504 mapping is therefore a behavior that can vanish silently. Operationally the two are
-	// different signals — 502 means the backend is gone, 504 means it is alive but not answering — and
-	// losing the distinction sends incident response after the wrong thing.
+	// Why 502 alone is not enough (design spec Error codes section).
+	//
+	// Deleting the timeout check (errors.As + ne.Timeout()) entirely leaves the 502 default in place, so the spec above still passes.
+	//
+	// The 504 mapping is therefore a behavior that can vanish silently.
+	//
+	// Operationally the two are different signals (502 means the backend is gone, 504 means it is alive but not answering), and losing the distinction sends incident response after the wrong thing.
 	It("returns 504 when the upstream does not send response headers in time", func() {
 		// An upstream that accepts the connection but sends no response headers: exactly what 504 denotes.
 		release := make(chan struct{})
 		up := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
-			// Write nothing and hold. Returning would let Go write a 200 instead.
-			// The time.After bound is here for the same reason as in the streaming specs: if the test
-			// fails and release is never closed, this goroutine would keep up.Close() from returning and
-			// hang the whole suite.
+			// Write nothing and hold.
+			//
+			// Returning would let Go write a 200 instead.
+			//
+			// The time.After bound is here for the same reason as in the streaming specs: if the test fails and release is never closed, this goroutine would keep up.Close() from returning and hang the whole suite.
 			select {
 			case <-release:
 			case <-time.After(10 * time.Second):
 			}
 		}))
-		// Deferred calls run last-registered-first, so release closes and frees the handler before
-		// up.Close() runs and blocks on it.
+		// Deferred calls run last-registered-first, so release closes and frees the handler before up.Close() runs and blocks on it.
 		defer up.Close()
 		defer close(release)
 
 		s := newProxyServer(up.URL, 600)
-		// The 30s production default would cost this one spec 30 seconds; a short bound in tests only
-		// drives the identical code path immediately.
+		// The 30s production default would cost this one spec 30 seconds; a short bound in tests only drives the identical code path immediately.
 		s.responseHeaderTimeout = 50 * time.Millisecond
 
 		rr := httptest.NewRecorder()
@@ -296,13 +298,17 @@ var _ = Describe("chat completions pipeline", func() {
 
 // Streaming specs.
 //
-// The regression these prevent (design spec Request flow section): stream:true emits tokens as they are
-// generated, and a proxy that buffers hands the client everything only once generation completes, so the
-// full latency is felt. Status-and-body assertions cannot catch this, because the final result is
-// identical either way — only the timing differs. So these specs assert the timing directly.
+// The regression these prevent (design spec Request flow section).
+//
+// stream:true emits tokens as they are generated, and a proxy that buffers hands the client everything only once generation completes, so the full latency is felt.
+//
+// Status-and-body assertions cannot catch this, because the final result is identical either way: only the timing differs.
+//
+// So these specs assert the timing directly.
 var _ = Describe("streaming", func() {
 	It("delivers upstream chunks progressively instead of buffering them", func() {
 		// release lets the test decide when the upstream may send its second chunk.
+		//
 		// A struct{} channel carries no value; it signals the event itself.
 		release := make(chan struct{})
 		up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -311,11 +317,13 @@ var _ = Describe("streaming", func() {
 			// Write the first chunk and push it out immediately.
 			_, _ = fmt.Fprintf(w, "data: chunk-1\n\n")
 			w.(http.Flusher).Flush()
-			// Block until the test confirms the first chunk arrived. This wait is the whole spec: if the
-			// proxy buffers, the client never sees chunk-1 and never closes release.
+			// Block until the test confirms the first chunk arrived.
 			//
-			// The time.After arm exists so a failing test does not strand this goroutine here, which would
-			// hang httptest's Close and with it the suite. Failures should be fast and loud.
+			// This wait is the whole spec: if the proxy buffers, the client never sees chunk-1 and never closes release.
+			//
+			// The time.After arm exists so a failing test does not strand this goroutine here, which would hang httptest's Close and with it the suite.
+			//
+			// Failures should be fast and loud.
 			select {
 			case <-release:
 			case <-time.After(10 * time.Second):
@@ -327,15 +335,15 @@ var _ = Describe("streaming", func() {
 		defer up.Close()
 		s := newProxyServer(up.URL, 600)
 
-		// A real server, not httptest.NewRecorder: a recorder is an in-memory buffer with no notion of
-		// when bytes arrived, so it cannot observe streaming at all. Only a real connection can show that
-		// the first chunk lands before the handler returns.
+		// A real server, not httptest.NewRecorder: a recorder is an in-memory buffer with no notion of when bytes arrived, so it cannot observe streaming at all.
+		//
+		// Only a real connection can show that the first chunk lands before the handler returns.
 		gw := httptest.NewServer(s.Handler())
 		defer gw.Close()
 
-		// A deadline on the request, so buffering fails the spec instead of hanging it: without one the
-		// read below simply blocks forever and stalls the suite. With it, the read breaks at the deadline
-		// and the failure is immediate and unambiguous.
+		// A deadline on the request, so buffering fails the spec instead of hanging it: without one the read below simply blocks forever and stalls the suite.
+		//
+		// With it, the read breaks at the deadline and the failure is immediate and unambiguous.
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost,
@@ -348,8 +356,7 @@ var _ = Describe("streaming", func() {
 		defer func() { _ = resp.Body.Close() }()
 		Expect(resp.StatusCode).To(Equal(http.StatusOK))
 
-		// Reading the first line while the upstream still holds the second chunk, and its handler has not
-		// returned, is precisely the evidence that bytes flowed without buffering.
+		// Reading the first line while the upstream still holds the second chunk, and its handler has not returned, is precisely the evidence that bytes flowed without buffering.
 		reader := bufio.NewReader(resp.Body)
 		line, err := reader.ReadString('\n')
 		Expect(err).NotTo(HaveOccurred())
@@ -367,22 +374,24 @@ var _ = Describe("streaming", func() {
 
 	// This spec, and only this one, pins p.FlushInterval = -1.
 	//
-	// Why the SSE spec above cannot: httputil.ReverseProxy's flushInterval() overrides the configured
-	// value and flushes immediately whenever
+	// Why the SSE spec above cannot.
+	//
+	// httputil.ReverseProxy's flushInterval() overrides the configured value and flushes immediately whenever
+	//
 	//   1. the response Content-Type is text/event-stream, or
 	//   2. the response Content-Length is unknown (res.ContentLength == -1, i.e. chunked streaming).
-	// Real streaming responses always hit one of those, so with such a response the spec above passes even
-	// with p.FlushInterval reset to 0 (verified). It pins that statusRecorder does not mask Flusher, but
-	// not the interval itself.
 	//
-	// So this builds the one case where the setting is actually consulted: an upstream that declares a
-	// Content-Length and still delivers the body in pieces. Neither override applies, so p.FlushInterval
-	// governs, and at 0 the proxy batches the body and the first chunk misses its deadline.
+	// Real streaming responses always hit one of those, so with such a response the spec above passes even with p.FlushInterval reset to 0 (verified).
+	//
+	// It pins that statusRecorder does not mask Flusher, but not the interval itself.
+	//
+	// So this builds the one case where the setting is actually consulted: an upstream that declares a Content-Length and still delivers the body in pieces.
+	//
+	// Neither override applies, so p.FlushInterval governs, and at 0 the proxy batches the body and the first chunk misses its deadline.
 	It("uses the configured flush interval when the upstream declares a content length", func() {
 		release := make(chan struct{})
 		up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			// A declared Content-Length plus a non-SSE Content-Type: both are needed for ReverseProxy to
-			// consult our setting rather than override it.
+			// A declared Content-Length plus a non-SSE Content-Type: both are needed for ReverseProxy to consult our setting rather than override it.
 			w.Header().Set("Content-Type", "application/json")
 			w.Header().Set("Content-Length", "16") // "chunk-1\n" + "chunk-2\n"
 			w.WriteHeader(http.StatusOK)
@@ -413,8 +422,7 @@ var _ = Describe("streaming", func() {
 		Expect(err).NotTo(HaveOccurred())
 		defer func() { _ = resp.Body.Close() }()
 
-		// At any interval other than -1 the first chunk stays held until the upstream handler returns, and
-		// the upstream is waiting on release, so this read hits the deadline and fails.
+		// At any interval other than -1 the first chunk stays held until the upstream handler returns, and the upstream is waiting on release, so this read hits the deadline and fails.
 		reader := bufio.NewReader(resp.Body)
 		line, err := reader.ReadString('\n')
 		Expect(err).NotTo(HaveOccurred())
@@ -426,18 +434,24 @@ var _ = Describe("streaming", func() {
 
 // Pins the exposed metric names to the design contract.
 //
-// The regression this prevents (docs/05 Minimum metrics section): docs/05 pins the four series to the
-// gpuaas_gateway_ prefix. Those names are a contract, not a label — dashboards and alert rules query the
-// exact strings. Get the prefix wrong and the gateway runs perfectly and every test still passes; it
-// surfaces only in production as "the graphs are empty", by which point it is too late. Before this spec
-// existed the implementation used a gateway_ prefix and all 33 specs passed. So the doc's names are
-// transcribed here verbatim, and the code failing to match the doc now fails immediately.
+// The regression this prevents (docs/05 Minimum metrics section).
+//
+// docs/05 pins the four series to the gpuaas_gateway_ prefix.
+//
+// Those names are a contract, not a label: dashboards and alert rules query the exact strings.
+//
+// Get the prefix wrong and the gateway runs perfectly and every test still passes; it surfaces only in production as "the graphs are empty", by which point it is too late.
+//
+// Before this spec existed the implementation used a gateway_ prefix and all 33 specs passed.
+//
+// So the doc's names are transcribed here verbatim, and the code failing to match the doc now fails immediately.
 var _ = Describe("metric names", func() {
 	It("exposes exactly the series docs/05 pins", func() {
 		// Drive three real paths so all four series carry a value.
 		//
-		// The traffic is necessary: a labelled CounterVec/HistogramVec appears in a scrape only once a
-		// label combination has actually been used. Registration alone exposes no name.
+		// The traffic is necessary: a labelled CounterVec/HistogramVec appears in a scrape only once a label combination has actually been used.
+		//
+		// Registration alone exposes no name.
 
 		// (1) A 200 -> requests_total, request_duration_seconds
 		up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -466,6 +480,7 @@ var _ = Describe("metric names", func() {
 		body := rr.Body.String()
 
 		// Transcribed from the Minimum metrics section of docs/05.
+		//
 		// Changing the code without changing the doc fails right here.
 		Expect(body).To(ContainSubstring("gpuaas_gateway_requests_total"))
 		Expect(body).To(ContainSubstring("gpuaas_gateway_request_duration_seconds_bucket"))
@@ -476,9 +491,9 @@ var _ = Describe("metric names", func() {
 
 // Specs for readModel itself.
 //
-// Separate from the handler specs because those only observe a 400, never whether a consumed body is
-// handed on intact. readModel consumes the body to peek at model, and failing to restore it leaves the
-// upstream with an empty one — a bug the proxy's 200 would hide from every spec above.
+// Separate from the handler specs because those only observe a 400, never whether a consumed body is handed on intact.
+//
+// readModel consumes the body to peek at model, and failing to restore it leaves the upstream with an empty one: a bug the proxy's 200 would hide from every spec above.
 var _ = Describe("readModel", func() {
 	It("restores the body so the upstream still receives it intact", func() {
 		body := `{"model":"llama-3","messages":[{"role":"user","content":"hi"}]}`
@@ -497,8 +512,9 @@ var _ = Describe("readModel", func() {
 	It("rejects a body that exceeds the size limit", func() {
 		// A body past maxBodyBytes.
 		//
-		// Why the cap matters (design spec Error codes section): without it a malicious client can exhaust
-		// gateway memory, and readModel — which buffers the body to find model — is exactly that vector.
+		// Why the cap matters (design spec Error codes section).
+		//
+		// Without it a malicious client can exhaust gateway memory, and readModel (which buffers the body to find model) is exactly that vector.
 		big := `{"model":"llama-3","pad":"` + strings.Repeat("a", maxBodyBytes) + `"}`
 		r := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(big))
 
