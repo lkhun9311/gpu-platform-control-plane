@@ -6,3 +6,6 @@ resources:
   - crds.yaml
   - operator.yaml
   - gateway.yaml
+  - observability.yaml
+  - device-plugin.yaml
+  - samples.yaml
