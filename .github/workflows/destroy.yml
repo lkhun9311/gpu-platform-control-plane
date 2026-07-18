@@ -50,12 +50,34 @@ jobs:
           role-to-assume: ${{ secrets.CI_APPLY_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
+      # A re-run after the cluster is gone should no-op, not fail into break-glass.
+      #
+      # This sets an output the Argo and argo-bootstrap steps condition on.
+      - name: Check whether the cluster still exists
+        id: cluster
+        run: |
+          set +e
+          OUT=$(aws eks describe-cluster --name "$CLUSTER_NAME" --region "$AWS_REGION" 2>&1)
+          RC=$?
+          set -e
+          if [ "$RC" -eq 0 ]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          elif printf '%s' "$OUT" | grep -q "ResourceNotFoundException"; then
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "Cluster $CLUSTER_NAME not found; skipping Argo and argo-bootstrap teardown."
+          else
+            echo "describe-cluster failed for a reason other than not-found; failing closed so real cleanup is not skipped." >&2
+            printf '%s\n' "$OUT" >&2
+            exit 1
+          fi
+
       # Delete the Argo CD Applications first so Argo stops reconciling as resources are removed.
       #
       # The apply role reaches the cluster through the access entry created in the cluster root.
       #
       # Teardown halts here if the Applications do not finish deleting within the timeout.
       - name: Delete Argo CD applications
+        if: steps.cluster.outputs.exists == 'true'
         run: |
           aws eks update-kubeconfig --name "$CLUSTER_NAME" --region "$AWS_REGION"
           # Delete the root app first so it stops re-creating the children mid-teardown.
@@ -67,6 +89,7 @@ jobs:
 
       # Destroy argo-bootstrap before cluster, or the Argo Helm release state is orphaned.
       - name: Destroy argo-bootstrap state
+        if: steps.cluster.outputs.exists == 'true'
         working-directory: infra/aws/argo-bootstrap
         run: |
           # The argo-bootstrap providers need the cluster connection to plan the helm_release destroy.
