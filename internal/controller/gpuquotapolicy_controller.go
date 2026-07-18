@@ -39,7 +39,9 @@ import (
 
 const (
 	// gpuQuotaFinalizer guards GPUQuotaPolicy cleanup.
+	//
 	// On deletion the reconciler deletes the synced ResourceQuota before dropping this finalizer.
+	//
 	// envtest has no GC, so cleanup is explicit.
 	gpuQuotaFinalizer = "gpuquotapolicy.platform.lkhun9311.github.io/finalizer"
 
@@ -49,14 +51,19 @@ const (
 	reasonQuotaConflict = "QuotaConflict"
 
 	// phaseSynced is set once the ResourceQuota matches the policy ceiling.
+	//
 	// phaseDegraded is set on a deterministic enforcement failure (e.g. a name collision with a ResourceQuota this policy does not own).
-	// Transient API errors are not reflected in status — they are requeued instead, so the phase does not flap on retry.
+	//
+	// Transient API errors are not reflected in status: they are requeued instead, so the phase does not flap on retry.
+	//
 	// These phases are owned by this controller, not shared, so the NodeHealth controller can rename its own phases independently.
 	phaseSynced   = "Synced"
 	phaseDegraded = "Degraded"
 
 	// gpuRequestsResource is the ResourceQuota key that caps GPU consumption.
+	//
 	// Extended resources are tracked under requests.<resource>.
+	//
 	// Locally this caps simulated nvidia.com/gpu capacity.
 	gpuRequestsResource = corev1.ResourceName("requests.nvidia.com/gpu")
 )
@@ -72,8 +79,7 @@ type GPUQuotaPolicyReconciler struct {
 // +kubebuilder:rbac:groups=platform.lkhun9311.github.io,resources=gpuquotapolicies/finalizers,verbs=update
 // +kubebuilder:rbac:groups="",resources=resourcequotas,verbs=get;list;watch;create;update;patch;delete
 
-// Reconcile syncs a namespace ResourceQuota from the GPUQuotaPolicy:
-// the GPU ceiling is enforced as a hard requests.nvidia.com/gpu limit, kept in sync against drift, and removed on deletion.
+// Reconcile syncs a namespace ResourceQuota from the GPUQuotaPolicy: the GPU ceiling is enforced as a hard requests.nvidia.com/gpu limit, kept in sync against drift, and removed on deletion.
 func (r *GPUQuotaPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 
@@ -117,11 +123,12 @@ func (r *GPUQuotaPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	}
 
 	// Sync the ResourceQuota toward the desired GPU ceiling.
+	//
 	// NOTE: spec.gpuClass is not yet enforced per class.
-	// This milestone caps a single aggregate key (requests.nvidia.com/gpu) regardless of class,
-	// so two policies with different gpuClass values targeting one namespace cap the same key (k8s AND-s the quotas, so the strictest wins).
-	// Per-class keys depend on how simulated capacity is modeled and are deferred;
-	// gpuClass is recorded on the policy but does not scope quota.
+	//
+	// This milestone caps a single aggregate key (requests.nvidia.com/gpu) regardless of class, so two policies with different gpuClass values targeting one namespace cap the same key (k8s AND-s the quotas, so the strictest wins).
+	//
+	// Per-class keys depend on how simulated capacity is modeled and are deferred; gpuClass is recorded on the policy but does not scope quota.
 	desiredHard := corev1.ResourceList{
 		gpuRequestsResource: *resource.NewQuantity(int64(policy.Spec.Limits.GPUCount), resource.DecimalSI),
 	}
@@ -138,8 +145,7 @@ func (r *GPUQuotaPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		}
 		if err := r.Create(ctx, &rq); err != nil {
 			if apierrors.IsAlreadyExists(err) {
-				// Lost a race (concurrent reconcile or informer lag): the object now
-				// exists, so requeue and reconcile it on the next pass instead of failing.
+				// Lost a race (concurrent reconcile or informer lag): the object now exists, so requeue and reconcile it on the next pass instead of failing.
 				return ctrl.Result{RequeueAfter: time.Second}, nil
 			}
 			return ctrl.Result{}, err
@@ -149,6 +155,7 @@ func (r *GPUQuotaPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		return ctrl.Result{}, err
 	default:
 		// Refuse to hijack a ResourceQuota this policy does not own (name collision with an unrelated object).
+		//
 		// Overwriting it would clobber someone else's quota, so report Degraded and recheck later instead of taking it over.
 		if !metav1.IsControlledBy(&rq, &policy) {
 			log.Info("ResourceQuota exists but is not owned by this policy; refusing to overwrite",
@@ -162,6 +169,9 @@ func (r *GPUQuotaPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 				return ctrl.Result{}, err
 			}
 			log.Info("Corrected ResourceQuota drift", "resourceQuota", rqKey.String())
+
+			// Count the correction only after the update succeeds, so a failed write is never counted as a fix.
+			gpuQuotaPolicyDriftCorrectedTotal.Inc()
 		}
 	}
 
@@ -194,8 +204,8 @@ func quotaName(policyName string) string {
 }
 
 // markDegraded reflects a deterministic enforcement failure into status as Degraded with a Synced=False condition.
-// It returns a RequeueAfter so the policy recovers automatically once the blocking condition clears
-// (the Owns watch does not fire for a ResourceQuota we do not own).
+//
+// It returns a RequeueAfter so the policy recovers automatically once the blocking condition clears (the Owns watch does not fire for a ResourceQuota we do not own).
 func (r *GPUQuotaPolicyReconciler) markDegraded(ctx context.Context, policy *platformv1.GPUQuotaPolicy, reason, msg string) (ctrl.Result, error) {
 	desired := policy.Status.DeepCopy()
 	desired.ObservedGeneration = policy.Generation

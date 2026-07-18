@@ -20,8 +20,13 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
-// NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
+// EDIT THIS FILE!
+//
+// THIS IS SCAFFOLDING FOR YOU TO OWN!
+//
+// NOTE: json tags are required.
+//
+// Any new fields you add must have json tags for the fields to be serialized.
 
 // InferenceDeploymentSpec defines the desired state of InferenceDeployment.
 type InferenceDeploymentSpec struct {
@@ -34,17 +39,21 @@ type InferenceDeploymentSpec struct {
 	Image string `json:"image"`
 
 	// gpuClass is the illustrative GPU class (e.g. "l40s").
+	//
 	// Locally this is backed by simulated capacity (see the dev runbook).
 	// +optional
 	GPUClass string `json:"gpuClass,omitempty"`
 
 	// gpuCount is the number of GPUs (nvidia.com/gpu) per replica.
+	//
 	// Locally this is backed by simulated capacity, not real hardware.
 	// +kubebuilder:validation:Minimum=0
 	// +required
 	GPUCount int32 `json:"gpuCount"`
 
-	// replicas is the fixed number of serving replicas. Autoscaling lands in M4.
+	// replicas is the fixed number of serving replicas.
+	//
+	// Autoscaling lands in M4.
 	// +kubebuilder:validation:Minimum=0
 	// +required
 	Replicas int32 `json:"replicas"`
@@ -88,6 +97,7 @@ type InferenceDeploymentStatus struct {
 	LastTransitionTime *metav1.Time `json:"lastTransitionTime,omitempty"`
 
 	// conditions represent the current state of the InferenceDeployment resource.
+	//
 	// The status of each condition is one of True, False, or Unknown.
 	// +listType=map
 	// +listMapKey=type

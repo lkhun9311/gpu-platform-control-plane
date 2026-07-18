@@ -21,8 +21,9 @@ import (
 	"flag"
 	"os"
 
-	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
-	// to ensure that exec-entrypoint and run can make use of them.
+	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.).
+	//
+	// This ensures that exec-entrypoint and run can make use of them.
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
 	"k8s.io/apimachinery/pkg/runtime"
@@ -87,10 +88,13 @@ func main() {
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
 
-	// if the enable-http2 flag is false (the default), http/2 should be disabled
-	// due to its vulnerabilities. More specifically, disabling http/2 will
-	// prevent from being vulnerable to the HTTP/2 Stream Cancellation and
-	// Rapid Reset CVEs. For more information see:
+	// if the enable-http2 flag is false (the default), http/2 should be disabled due to its vulnerabilities.
+	//
+	// More specifically, disabling http/2 will prevent from being vulnerable to the HTTP/2 Stream Cancellation CVE.
+	//
+	// It also prevents from being vulnerable to the Rapid Reset CVE.
+	//
+	// For more information see:
 	// - https://github.com/advisories/GHSA-qppj-fm5r-hxr3
 	// - https://github.com/advisories/GHSA-4374-p667-p6c8
 	disableHTTP2 := func(c *tls.Config) {
@@ -119,7 +123,10 @@ func main() {
 
 	webhookServer := webhook.NewServer(webhookServerOptions)
 
-	// Metrics endpoint is enabled in 'config/default/kustomization.yaml'. The Metrics options configure the server.
+	// Metrics endpoint is enabled in 'config/default/kustomization.yaml'.
+	//
+	// The Metrics options configure the server.
+	//
 	// More info:
 	// - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.23.3/pkg/metrics/server
 	// - https://book.kubebuilder.io/reference/metrics.html
@@ -131,15 +138,21 @@ func main() {
 
 	if secureMetrics {
 		// FilterProvider is used to protect the metrics endpoint with authn/authz.
-		// These configurations ensure that only authorized users and service accounts
-		// can access the metrics endpoint. The RBAC are configured in 'config/rbac/kustomization.yaml'. More info:
+		//
+		// These configurations ensure that only authorized users and service accounts can access the metrics endpoint.
+		//
+		// The RBAC are configured in 'config/rbac/kustomization.yaml'.
+		//
+		// More info:
 		// https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.23.3/pkg/metrics/filters#WithAuthenticationAndAuthorization
 		metricsServerOptions.FilterProvider = filters.WithAuthenticationAndAuthorization
 	}
 
-	// If the certificate is not specified, controller-runtime will automatically
-	// generate self-signed certificates for the metrics server. While convenient for development and testing,
-	// this setup is not recommended for production.
+	// If the certificate is not specified, controller-runtime will automatically generate self-signed certificates.
+	//
+	// Those certificates serve the metrics server.
+	//
+	// While convenient for development and testing, this setup is not recommended for production.
 	//
 	// TODO(user): If you enable certManager, uncomment the following lines:
 	// - [METRICS-WITH-CERTS] at config/default/kustomization.yaml to generate and use certificates
@@ -161,16 +174,21 @@ func main() {
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         enableLeaderElection,
 		LeaderElectionID:       "4b07920a.lkhun9311.github.io",
-		// LeaderElectionReleaseOnCancel defines if the leader should step down voluntarily
-		// when the Manager ends. This requires the binary to immediately end when the
-		// Manager is stopped, otherwise, this setting is unsafe. Setting this significantly
-		// speeds up voluntary leader transitions as the new leader don't have to wait
-		// LeaseDuration time first.
+		// LeaderElectionReleaseOnCancel defines if the leader should step down voluntarily when the Manager ends.
 		//
-		// In the default scaffold provided, the program ends immediately after
-		// the manager stops, so would be fine to enable this option. However,
-		// if you are doing or is intended to do any operation such as perform cleanups
-		// after the manager stops then its usage might be unsafe.
+		// This requires the binary to immediately end when the Manager is stopped, otherwise, this setting is unsafe.
+		//
+		// Setting this significantly speeds up voluntary leader transitions.
+		//
+		// The new leader don't have to wait LeaseDuration time first.
+		//
+		// In the default scaffold provided, the program ends immediately after the manager stops.
+		//
+		// So it would be fine to enable this option.
+		//
+		// However, you might do (or intend to do) some operation such as perform cleanups after the manager stops.
+		//
+		// In that case its usage might be unsafe.
 		// LeaderElectionReleaseOnCancel: true,
 	})
 	if err != nil {

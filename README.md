@@ -10,46 +10,44 @@ Most GPU setups stop at running a single workload. This project treats the GPU a
 
 The control plane is organized into the following areas:
 
-| Area | What it does |
-|---|---|
-| GPU node readiness | Represent node GPU state as a `NodeHealth` CR; block scheduling on degraded nodes |
-| Multi-tenant quota | Sync per-tenant quota and isolation policy from `GPUQuotaPolicy` into namespace objects |
-| Inference serving | Manage serving workloads declaratively via `InferenceDeployment` |
-| Performance isolation | Measure multi-tenant noisy-neighbor p99 contention under GPU sharing via `GpuSharingBenchmark` (killer feature) |
-| Failure & recovery | Inject failure scenarios and validate the response path |
-| Observability & ledger | Metrics, dashboards, and a SQLite ledger that projects CR/status/events |
-| Gateway & CLI | A lightweight multi-tenant gateway and a `platformctl` CLI |
-| Training admission (stretch) | Translate `MLTrainingJob` into queued `batch/v1` Jobs admitted through Kueue |
+| Area                   | What it does                                                                                                    |
+|------------------------|-----------------------------------------------------------------------------------------------------------------|
+| GPU node readiness     | Represent node GPU state as a `NodeHealth` CR; block scheduling on degraded nodes                               |
+| Multi-tenant quota     | Sync per-tenant quota and isolation policy from `GPUQuotaPolicy` into namespace objects                         |
+| Inference serving      | Manage serving workloads declaratively via `InferenceDeployment`                                                |
+| Performance isolation  | Measure multi-tenant noisy-neighbor p99 contention under GPU sharing via `GpuSharingBenchmark` (killer feature) |
+| Failure & recovery     | Inject failure scenarios and validate the response path                                                         |
+| Observability & ledger | Metrics, dashboards, and a SQLite ledger that projects CR/status/events                                         |
+| Gateway & CLI          | A lightweight multi-tenant gateway and a `platformctl` CLI                                                      |
+| Training admission     | Translate `MLTrainingJob` into queued `batch/v1` Jobs admitted through Kueue (M6)                               |
 
-Training admission is a stretch track. It uses [Kueue](https://kueue.sigs.k8s.io/) as the admission
-engine — this project does not reimplement a scheduler; it provides the `MLTrainingJob` abstraction
-and the status translation on top of Kueue.
+Training admission (M6) uses [Kueue](https://kueue.sigs.k8s.io/) as the admission engine — this project does not reimplement a scheduler; it provides the `MLTrainingJob` abstraction and the status translation on top of Kueue. For training GPUs, Kueue owns the admission quota (`GPUQuotaPolicy` syncs to ClusterQueue/ResourceFlavor rather than double-counting the same GPUs in a namespace ResourceQuota).
 
 ## Architecture
 
-The control plane owns the CRDs and reconciles them into native cluster objects. The data plane is
-ordinary Kubernetes resources created and garbage-collected through owner references.
+The control plane owns the CRDs and reconciles them into native cluster objects. The data plane is ordinary Kubernetes resources created and garbage-collected through owner references.
 
 ## Status
 
 The project is built milestone by milestone.
 
-| Milestone | Scope | Status |
-|---|---|---|
-| M1 | Set up the project skeleton and define the core CRDs, verified with envtest | Done |
-| M2 | Make reconciliation idempotent, with finalizers and drift recovery (NodeHealth reference) | In progress |
-| M3 | Taint/cordon unhealthy nodes (NodeHealth enforcement) and sync per-tenant quota | Designed |
-| M4 | Manage inference workloads (`InferenceDeployment`) and route them through the tenant-aware gateway | Designed |
-| M5 | Measure multi-tenant noisy-neighbor p99 contention via `GpuSharingBenchmark`, with a real-GPU baseline-vs-colocated run (killer feature) | Designed |
-| M6 | Inject failure scenarios and record an operational evidence trail (`WorkloadRun`) | Designed |
-| Stretch | Admit training jobs through Kueue (`MLTrainingJob`) | Designed |
+| Milestone | Scope                                                                                                                                                                            | Status          |
+|-----------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-----------------|
+| M1        | Set up the project skeleton and define the core CRDs, verified with envtest                                                                                                      | Done            |
+| M2        | Make reconciliation idempotent, with finalizers and drift recovery (NodeHealth reference)                                                                                        | Done            |
+| M3        | Taint unhealthy nodes (NodeHealth enforcement) and sync per-tenant quota into ResourceQuota                                                                                      | Done            |
+| M4-a      | Manage inference workloads: `InferenceDeployment` → Deployment/Service with a phase ladder                                                                                       | Done            |
+| M4-b      | Tenant-aware serving gateway: API key → tenant, token bucket → 429, model routing, proxy, metrics                                                                                | Done            |
+| M5-a      | AWS hosting: Terraform (state bootstrap, EKS, node groups), GitHub Actions CI (OIDC → ECR), Argo CD GitOps, operator deployed on EKS, slim observability — no GPU yet            | Designed (v3.1) |
+| M5-b      | Real-GPU flagship on that infra: GPU node group (On-Demand, ephemeral), `GpuSharingBenchmark` + KV-cache-aware admission guard, measured noisy-neighbor p99 A/B (killer feature) | Designed        |
+| M5-c      | Depth: cost/fairness frontier (≥3 guard thresholds) + sharing-mode matrix (exclusive / time-slicing / MPS) — hardens the M5-b evidence, no new features                          | Planned         |
+| M5-d      | Technical write-up with the measured numbers (published after M5-c)                                                                                                              | Planned         |
+| M6        | Training admission (promoted from stretch): `MLTrainingJob` → Job + Kueue Workload, 2-tenant fair sharing, preemption evidence on kind; Kueue owns training quota                | Planned         |
+| M7        | Inject failure scenarios and record an operational evidence trail (`WorkloadRun`)                                                                                                | Sketched        |
 
-GPU capacity used in validation is simulated. Real GPU serving, hardware fault detection, the
-contention benchmark's p99 figures, and AWS deployment are designed but not yet exercised.
+GPU capacity used in validation is simulated. Real GPU serving, hardware fault detection, the contention benchmark's p99 figures, and AWS deployment are designed but not yet exercised.
 
-**Flagship benchmark:** KV-cache-aware noisy-neighbor p99 protection — a real-GPU benchmark that
-compares premium tenant latency under baseline, colocated long-context noisy-neighbor, and Gateway
-admission-guard modes. See `docs/04_GPU_GOVERNANCE_AND_ISOLATION.md` (M5 Flagship Experiment).
+**Flagship benchmark:** KV-cache-aware noisy-neighbor p99 protection — a real-GPU benchmark that compares premium tenant latency under baseline, colocated long-context noisy-neighbor, and Gateway admission-guard modes. See `docs/04_GPU_GOVERNANCE_AND_ISOLATION.md` (M5 Flagship Experiment).
 
 ## Tech stack
 
@@ -73,9 +71,7 @@ make build
 make test
 ```
 
-Simulated GPU capacity on a **kind** worker node, only for end-to-end scheduling/quota-*enforcement*
-validation (the GPUQuotaPolicy controller itself needs no GPU capacity — it writes a
-`requests.nvidia.com/gpu` ResourceQuota; capacity matters only when sample pods actually request GPU):
+Simulated GPU capacity on a **kind** worker node, only for end-to-end scheduling/quota-*enforcement* validation (the GPUQuotaPolicy controller itself needs no GPU capacity — it writes a `requests.nvidia.com/gpu` ResourceQuota; capacity matters only when sample pods actually request GPU):
 
 ```bash
 kubectl patch node platform-worker --subresource=status --type=json \
@@ -83,8 +79,7 @@ kubectl patch node platform-worker --subresource=status --type=json \
        {"op":"add","path":"/status/allocatable/nvidia.com~1gpu","value":"4"}]'
 ```
 
-> This node-status patch holds on kind because no device plugin reconciles GPU capacity there.
-> On a real cluster (e.g. EKS) the kubelet/device plugin owns node status and would overwrite it, so advertise simulated capacity with a device-plugin-style DaemonSet instead.
+> This node-status patch holds on kind because no device plugin reconciles GPU capacity there. On a real cluster (e.g. EKS) the kubelet/device plugin owns node status and would overwrite it, so advertise simulated capacity with a device-plugin-style DaemonSet instead.
 
 ## Repository layout
 
