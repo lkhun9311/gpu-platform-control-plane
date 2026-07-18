@@ -36,3 +36,21 @@ variable "tags" {
     ttl     = "ephemeral"
   }
 }
+
+variable "github_repo" {
+  description = "owner/name of the GitHub repository allowed to assume the CI roles."
+  type        = string
+}
+
+# job_workflow_ref is not an AWS IAM trust condition key.
+#
+# Workflow identity, if it must be pinned, is encoded through GitHub's customized sub template, not here.
+#
+# Immutable owner/repo-ID sub claims require opt-in for repos created before 2026-07-15 (this one).
+#
+# This toggle stays off until that opt-in is enabled.
+variable "use_immutable_sub" {
+  description = "Whether the OIDC sub uses immutable owner/repo IDs (requires GitHub opt-in)."
+  type        = bool
+  default     = false
+}

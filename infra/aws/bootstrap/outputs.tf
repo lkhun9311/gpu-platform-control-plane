@@ -17,3 +17,18 @@ output "operator_repo_url" {
   description = "ECR repository URL for the operator image."
   value       = aws_ecr_repository.operator.repository_url
 }
+
+output "ci_plan_role_arn" {
+  description = "IAM role ARN for terraform plan (PR context)."
+  value       = aws_iam_role.ci_plan.arn
+}
+
+output "ci_apply_role_arn" {
+  description = "IAM role ARN for terraform apply (protected environment)."
+  value       = aws_iam_role.ci_apply.arn
+}
+
+output "ci_image_push_role_arn" {
+  description = "IAM role ARN for pushing the operator image to ECR."
+  value       = aws_iam_role.ci_image_push.arn
+}
