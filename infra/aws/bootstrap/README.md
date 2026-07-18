@@ -33,3 +33,16 @@ terraform init -migrate-state
 
 After migration, `bootstrap` is applied only to rotate identity or the registry,
 never on routine cluster work.
+
+## Required GitHub Environment protection (one-time, manual)
+
+The apply role's OIDC trust condition pins the sub to
+`repo:<owner/name>:environment:infra-apply`. That condition denies applies from
+forked PRs and non-main branches only when the GitHub Environment enforces it.
+In the repository settings, create an Environment named `infra-apply` with:
+
+- a deployment branch policy restricting deployments to the `main` branch, and
+- at least one required reviewer.
+
+Without this Environment protection, the sub condition alone does not prevent a
+workflow edited in a fork from assuming the apply role.

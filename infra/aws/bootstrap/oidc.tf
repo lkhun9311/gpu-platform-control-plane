@@ -27,7 +27,7 @@ data "aws_iam_policy_document" "ci_plan_trust" {
     }
 
     condition {
-      test     = "StringLike"
+      test     = "StringEquals"
       variable = "token.actions.githubusercontent.com:sub"
       values   = ["repo:${var.github_repo}:pull_request"]
     }
@@ -45,9 +45,11 @@ resource "aws_iam_role_policy_attachment" "ci_plan_readonly" {
   policy_arn = "arn:aws:iam::aws:policy/ReadOnlyAccess"
 }
 
-# The apply role is assumed only from the protected environment on the default branch.
+# The apply role is assumed only from the protected GitHub Environment named infra-apply.
 #
-# Forked-PR contexts never match this sub, so they cannot assume it.
+# This sub condition denies forked-PR and non-main assumption only when the infra-apply Environment has a deployment branch policy restricting it to main.
+#
+# That GitHub-side protection rule is a one-time manual setup documented in README.md.
 data "aws_iam_policy_document" "ci_apply_trust" {
   statement {
     effect  = "Allow"
@@ -104,7 +106,7 @@ data "aws_iam_policy_document" "ci_image_push_trust" {
     }
 
     condition {
-      test     = "StringLike"
+      test     = "StringEquals"
       variable = "token.actions.githubusercontent.com:sub"
       values   = ["repo:${var.github_repo}:ref:refs/heads/main"]
     }
