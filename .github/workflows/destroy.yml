@@ -56,11 +56,19 @@ jobs:
       - name: Check whether the cluster still exists
         id: cluster
         run: |
-          if aws eks describe-cluster --name "$CLUSTER_NAME" --region "$AWS_REGION" >/dev/null 2>&1; then
+          set +e
+          OUT=$(aws eks describe-cluster --name "$CLUSTER_NAME" --region "$AWS_REGION" 2>&1)
+          RC=$?
+          set -e
+          if [ "$RC" -eq 0 ]; then
             echo "exists=true" >> "$GITHUB_OUTPUT"
-          else
+          elif printf '%s' "$OUT" | grep -q "ResourceNotFoundException"; then
             echo "exists=false" >> "$GITHUB_OUTPUT"
             echo "Cluster $CLUSTER_NAME not found; skipping Argo and argo-bootstrap teardown."
+          else
+            echo "describe-cluster failed for a reason other than not-found; failing closed so real cleanup is not skipped." >&2
+            printf '%s\n' "$OUT" >&2
+            exit 1
           fi
 
       # Delete the Argo CD Applications first so Argo stops reconciling as resources are removed.
