@@ -26,6 +26,56 @@ resource "aws_kms_alias" "state" {
   target_key_id = aws_kms_key.state.key_id
 }
 
+data "aws_caller_identity" "current" {}
+
+# The key policy grants the account root full administration so the key is never orphaned.
+#
+# Encrypt and decrypt usage is granted only to the state roles in var.state_key_user_arns.
+#
+# The list is empty until the CI roles exist, and an empty list omits the usage statement.
+data "aws_iam_policy_document" "state_key" {
+  statement {
+    sid     = "EnableRootAdministration"
+    effect  = "Allow"
+    actions = ["kms:*"]
+
+    principals {
+      type        = "AWS"
+      identifiers = ["arn:aws:iam::${data.aws_caller_identity.current.account_id}:root"]
+    }
+
+    resources = ["*"]
+  }
+
+  dynamic "statement" {
+    for_each = length(var.state_key_user_arns) > 0 ? [1] : []
+
+    content {
+      sid    = "AllowStateRoleUsage"
+      effect = "Allow"
+
+      actions = [
+        "kms:Encrypt",
+        "kms:Decrypt",
+        "kms:GenerateDataKey",
+        "kms:DescribeKey",
+      ]
+
+      principals {
+        type        = "AWS"
+        identifiers = var.state_key_user_arns
+      }
+
+      resources = ["*"]
+    }
+  }
+}
+
+resource "aws_kms_key_policy" "state" {
+  key_id = aws_kms_key.state.id
+  policy = data.aws_iam_policy_document.state_key.json
+}
+
 resource "aws_s3_bucket_server_side_encryption_configuration" "state" {
   bucket = aws_s3_bucket.state.id
 
@@ -96,69 +146,28 @@ data "aws_iam_policy_document" "state_bucket" {
       values   = ["aws:kms"]
     }
   }
+
+  statement {
+    sid     = "DenyUnencryptedWrites"
+    effect  = "Deny"
+    actions = ["s3:PutObject"]
+
+    principals {
+      type        = "*"
+      identifiers = ["*"]
+    }
+
+    resources = ["${aws_s3_bucket.state.arn}/*"]
+
+    condition {
+      test     = "Null"
+      variable = "s3:x-amz-server-side-encryption"
+      values   = ["true"]
+    }
+  }
 }
 
 resource "aws_s3_bucket_policy" "state" {
   bucket = aws_s3_bucket.state.id
   policy = data.aws_iam_policy_document.state_bucket.json
-}
-
-# The lock table serializes concurrent applies.
-resource "aws_dynamodb_table" "lock" {
-  name         = var.lock_table_name
-  billing_mode = "PAY_PER_REQUEST"
-  hash_key     = "LockID"
-  tags         = var.tags
-
-  attribute {
-    name = "LockID"
-    type = "S"
-  }
-
-  server_side_encryption {
-    enabled = true
-  }
-
-  point_in_time_recovery {
-    enabled = true
-  }
-
-  deletion_protection_enabled = true
-}
-
-# The operator image registry.
-#
-# The lifecycle policy expires only untagged images, never a tag referenced from the default branch.
-resource "aws_ecr_repository" "operator" {
-  name                 = var.operator_repo_name
-  image_tag_mutability = "IMMUTABLE"
-  tags                 = var.tags
-
-  image_scanning_configuration {
-    scan_on_push = true
-  }
-
-  encryption_configuration {
-    encryption_type = "KMS"
-  }
-}
-
-resource "aws_ecr_lifecycle_policy" "operator" {
-  repository = aws_ecr_repository.operator.name
-
-  policy = jsonencode({
-    rules = [{
-      rulePriority = 1
-      description  = "Expire untagged images after 14 days."
-      selection = {
-        tagStatus   = "untagged"
-        countType   = "sinceImagePushed"
-        countUnit   = "days"
-        countNumber = 14
-      }
-      action = {
-        type = "expire"
-      }
-    }]
-  })
 }

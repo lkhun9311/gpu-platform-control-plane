@@ -24,6 +24,7 @@ terraform {
     region         = "us-east-1"
     dynamodb_table = "gpu-platform-tf-lock"
     encrypt        = true
+    kms_key_id     = "<state_kms_key_arn from the step 1 output>"
   }
 }
 HCL
