@@ -69,6 +69,11 @@ spec:
         # (including NVIDIA's own) uses to get it.
         securityContext:
           privileged: true
+          # The image defaults to a nonroot user, but the registration socket lives in a root-owned host directory.
+          #
+          # The plugin must run as root to create that socket, which is what every real device plugin does.
+          runAsUser: 0
+          runAsNonRoot: false
         volumeMounts:
         # hostPath, not a PVC: the kubelet looks for the registration socket
         # on the node's own filesystem, so the plugin's view of that
