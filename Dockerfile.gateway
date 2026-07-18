@@ -1,0 +1,32 @@
+# Builds the gateway binary
+#
+# Why a separate Dockerfile:
+# The existing Dockerfile builds cmd/main.go (the controller) into the manager binary.
+# The gateway is a separate process running as a separate Deployment, so its image must be separate too.
+# Putting both binaries in one image would redeploy both when only one changes, and would bloat the image needlessly.
+FROM golang:1.25 AS builder
+ARG TARGETOS
+ARG TARGETARCH
+
+WORKDIR /workspace
+# Copy go.mod/go.sum first to cache the dependency layer.
+# This avoids re-downloading dependencies when only the source changes.
+COPY go.mod go.mod
+COPY go.sum go.sum
+RUN go mod download
+
+# Copy the source (.dockerignore filters it).
+COPY . .
+
+# GOARCH is left without a default for the same reason as in the existing Dockerfile.
+# Left empty, the build targets the platform of the host that runs it.
+RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -a -o gateway cmd/gateway/main.go
+
+# distroless: a minimal base image with no shell and no package manager.
+# The gateway takes external traffic directly, so shrinking the attack surface matters especially here.
+FROM gcr.io/distroless/static:nonroot
+WORKDIR /
+COPY --from=builder /workspace/gateway .
+USER 65532:65532
+
+ENTRYPOINT ["/gateway"]

@@ -197,8 +197,7 @@ var _ = Describe("InferenceDeployment Controller", func() {
 			_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: key})
 			Expect(err).NotTo(HaveOccurred())
 
-			// Simulate a scale-down in flight: Deployment controller reports 3 total replicas
-			// (all updated, all ready) but the surplus old replica has not yet been removed.
+			// Simulate a scale-down in flight: Deployment controller reports 3 total replicas (all updated, all ready) but the surplus old replica has not yet been removed.
 			dep := &appsv1.Deployment{}
 			Expect(k8sClient.Get(ctx, key, dep)).To(Succeed())
 			dep.Status.ObservedGeneration = dep.Generation
@@ -229,8 +228,7 @@ var _ = Describe("InferenceDeployment Controller", func() {
 			infd.Spec.Replicas = 0
 			Expect(k8sClient.Update(ctx, infd)).To(Succeed())
 
-			// Reconcile: the Deployment now has Replicas=0 in spec but the Deployment
-			// status still shows the old generation (ObservedGeneration < Generation).
+			// Reconcile: the Deployment now has Replicas=0 in spec but the Deployment status still shows the old generation (ObservedGeneration < Generation).
 			_, err = r.Reconcile(ctx, reconcile.Request{NamespacedName: key})
 			Expect(err).NotTo(HaveOccurred())
 
@@ -246,8 +244,7 @@ var _ = Describe("InferenceDeployment Controller", func() {
 		})
 
 		It("is idempotent once steady", func() {
-			// Create with 0 replicas so the reconciler reaches Ready on first pass without
-			// needing a manual Deployment status patch.
+			// Create with 0 replicas so the reconciler reaches Ready on first pass without needing a manual Deployment status patch.
 			Expect(k8sClient.Create(ctx, newInfD(0, 0))).To(Succeed())
 			r := reconciler()
 			_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: key})

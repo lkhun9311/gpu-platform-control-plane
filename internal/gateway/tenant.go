@@ -26,6 +26,7 @@ import (
 )
 
 // resolveTenant maps the request's Bearer API key to a tenant via the api-keys Secret.
+//
 // It returns ok=false for a missing or unknown key.
 func (s *Server) resolveTenant(ctx context.Context, r *http.Request) (string, bool) {
 	h := r.Header.Get("Authorization")

@@ -20,30 +20,38 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
-// NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
+// EDIT THIS FILE!
+//
+// THIS IS SCAFFOLDING FOR YOU TO OWN!
+//
+// NOTE: json tags are required.
+//
+// Any new fields you add must have json tags for the fields to be serialized.
 
 // GPUQuotaPolicySpec defines the desired state of GPUQuotaPolicy.
 type GPUQuotaPolicySpec struct {
 	// tenant is the logical tenant (team/org) this policy applies to.
+	//
 	// A tenant may own multiple namespaces, so this is distinct from targetNamespace.
 	// +required
 	Tenant string `json:"tenant"`
 
 	// targetNamespace is the namespace into which quota objects are synced.
+	//
 	// It is immutable: a policy enforces quota in exactly one namespace for its lifetime.
-	// Changing it would orphan the ResourceQuota already synced into the old namespace
-	// (the reconciler only ever reconciles the namespace named here),
-	// so migration is done by deleting and recreating the policy rather than mutating this field.
+	//
+	// Changing it would orphan the ResourceQuota already synced into the old namespace (the reconciler only ever reconciles the namespace named here), so migration is done by deleting and recreating the policy rather than mutating this field.
 	// +required
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="targetNamespace is immutable"
 	TargetNamespace string `json:"targetNamespace"`
 
 	// gpuClass records the GPU class (e.g. "l40s") this policy is intended for.
+	//
 	// Empty means all classes.
+	//
 	// NOTE: per-class quota scoping is not yet enforced.
-	// This milestone caps a single aggregate ceiling (requests.nvidia.com/gpu) regardless of class;
-	// the field is recorded for a later milestone that will enforce per-class resource keys (see the gpuClass note in the reconciler).
+	//
+	// This milestone caps a single aggregate ceiling (requests.nvidia.com/gpu) regardless of class; the field is recorded for a later milestone that will enforce per-class resource keys (see the gpuClass note in the reconciler).
 	// +optional
 	GPUClass string `json:"gpuClass,omitempty"`
 
@@ -52,6 +60,7 @@ type GPUQuotaPolicySpec struct {
 	Limits GPUQuotaLimits `json:"limits"`
 
 	// rateLimit caps the per-tenant serving request rate enforced at the gateway (admission Layer 4).
+	//
 	// It is optional: a policy without rateLimit means the tenant has no gateway rate limit.
 	// +optional
 	RateLimit *GPUQuotaRateLimit `json:"rateLimit,omitempty"`
@@ -71,6 +80,7 @@ type GPUQuotaRateLimit struct {
 // GPUQuotaLimits is the quota ceiling for a tenant.
 type GPUQuotaLimits struct {
 	// gpuCount is the maximum number of GPUs (nvidia.com/gpu) allowed.
+	//
 	// Locally this is backed by simulated capacity, not real hardware.
 	// +kubebuilder:validation:Minimum=0
 	// +required
@@ -93,6 +103,7 @@ type GPUQuotaPolicyStatus struct {
 	LastTransitionTime *metav1.Time `json:"lastTransitionTime,omitempty"`
 
 	// conditions represent the current state of the GPUQuotaPolicy resource.
+	//
 	// The status of each condition is one of True, False, or Unknown.
 	// +listType=map
 	// +listMapKey=type
