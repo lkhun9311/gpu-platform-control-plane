@@ -19,4 +19,9 @@ resource "aws_eks_access_policy_association" "ci_apply_admin" {
   access_scope {
     type = "cluster"
   }
+
+  # AWS requires the access entry to exist before a policy association references its principal.
+  #
+  # The two resources share no attribute, so this explicit dependency is what orders them.
+  depends_on = [aws_eks_access_entry.ci_apply]
 }
