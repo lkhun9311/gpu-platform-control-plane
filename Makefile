@@ -208,6 +208,8 @@ KUSTOMIZE ?= $(LOCALBIN)/kustomize
 CONTROLLER_GEN ?= $(LOCALBIN)/controller-gen
 ENVTEST ?= $(LOCALBIN)/setup-envtest
 GOLANGCI_LINT = $(LOCALBIN)/golangci-lint
+TERRAFORM = $(LOCALBIN)/terraform
+ACTIONLINT = $(LOCALBIN)/actionlint
 
 ## Tool Versions
 KUSTOMIZE_VERSION ?= v5.8.1
@@ -224,6 +226,8 @@ ENVTEST_K8S_VERSION ?= $(shell v='$(call gomodver,k8s.io/api)'; \
   printf '%s\n' "$$v" | sed -E 's/^v?[0-9]+\.([0-9]+).*/1.\1/')
 
 GOLANGCI_LINT_VERSION ?= v2.11.4
+TERRAFORM_VERSION ?= 1.9.8
+ACTIONLINT_VERSION ?= v1.7.7
 .PHONY: kustomize
 kustomize: $(KUSTOMIZE) ## Download kustomize locally if necessary.
 $(KUSTOMIZE): $(LOCALBIN)
@@ -276,3 +280,32 @@ endef
 define gomodver
 $(shell go list -m -f '{{if .Replace}}{{.Replace.Version}}{{else}}{{.Version}}{{end}}' $(1) 2>/dev/null)
 endef
+
+.PHONY: terraform
+terraform: $(TERRAFORM) ## Download terraform locally if necessary.
+$(TERRAFORM): $(LOCALBIN)
+	@test -x "$(TERRAFORM)" || { \
+		echo "Downloading terraform $(TERRAFORM_VERSION)"; \
+		curl -fsSL "https://releases.hashicorp.com/terraform/$(TERRAFORM_VERSION)/terraform_$(TERRAFORM_VERSION)_linux_amd64.zip" -o "$(LOCALBIN)/terraform.zip"; \
+		unzip -o "$(LOCALBIN)/terraform.zip" -d "$(LOCALBIN)" >/dev/null; \
+		rm -f "$(LOCALBIN)/terraform.zip"; \
+	}
+
+.PHONY: actionlint
+actionlint: $(ACTIONLINT) ## Download actionlint locally if necessary.
+$(ACTIONLINT): $(LOCALBIN)
+	$(call go-install-tool,$(ACTIONLINT),github.com/rhysd/actionlint/cmd/actionlint,$(ACTIONLINT_VERSION))
+
+.PHONY: infra-fmt
+infra-fmt: terraform ## Check Terraform formatting under infra/aws.
+	"$(TERRAFORM)" fmt -check -recursive infra/aws
+
+.PHONY: infra-validate
+infra-validate: terraform actionlint ## Validate Terraform (offline) and workflow YAML.
+	@for d in infra/aws/bootstrap infra/aws/cluster; do \
+		if [ -d "$$d" ]; then \
+			echo "validate $$d"; \
+			( cd "$$d" && "$(CURDIR)/$(TERRAFORM)" init -backend=false -input=false >/dev/null && "$(CURDIR)/$(TERRAFORM)" validate ); \
+		fi; \
+	done
+	"$(ACTIONLINT)" -color
