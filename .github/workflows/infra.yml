@@ -9,6 +9,9 @@ on:
 
 permissions: {}
 
+# TF_STATE_BUCKET and TF_LOCK_TABLE are repository variables holding the bootstrap state bucket and lock table names.
+#
+# They complete the cluster's partial S3 backend at init time, since the bucket name is chosen at bootstrap.
 env:
   AWS_REGION: us-east-1
   TF_VERSION: 1.9.8
@@ -41,7 +44,9 @@ jobs:
       - name: Terraform plan
         working-directory: infra/aws/cluster
         run: |
-          terraform init -input=false
+          terraform init -input=false \
+            -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" \
+            -backend-config="dynamodb_table=${{ vars.TF_LOCK_TABLE }}"
           terraform plan -input=false -no-color
 
   apply:
@@ -75,5 +80,7 @@ jobs:
       - name: Terraform apply
         working-directory: infra/aws/cluster
         run: |
-          terraform init -input=false
+          terraform init -input=false \
+            -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" \
+            -backend-config="dynamodb_table=${{ vars.TF_LOCK_TABLE }}"
           terraform apply -input=false -auto-approve
