@@ -22,7 +22,14 @@ jobs:
     # If that environment has a required-reviewer rule, this scheduled run pauses for manual approval.
     #
     # For fully unattended nightly teardown, provision a separate infra-destroy environment and role without a reviewer gate.
+    #
+    # Skip cleanly until the bootstrap state bucket exists, so the nightly cron does not fail before AWS is provisioned.
+    if: vars.TF_STATE_BUCKET != ''
     environment: infra-apply
+    timeout-minutes: 45
+    concurrency:
+      group: terraform-cluster-state
+      cancel-in-progress: false
     permissions:
       contents: read
       id-token: write
@@ -51,6 +58,10 @@ jobs:
       - name: Delete Argo CD applications
         run: |
           aws eks update-kubeconfig --name "$CLUSTER_NAME" --region "$AWS_REGION"
+          # Delete the root app first so it stops re-creating the children mid-teardown.
+          #
+          # The cascade finalizer on each Application then removes the underlying workloads, including any LoadBalancer that would otherwise block the VPC destroy.
+          kubectl delete application gpu-platform-root -n argocd --ignore-not-found=true --wait=true
           kubectl delete applications --all -n argocd --ignore-not-found=true --wait=true
           kubectl wait --for=delete application --all -n argocd --timeout=300s
 

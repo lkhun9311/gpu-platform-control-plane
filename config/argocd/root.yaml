@@ -6,6 +6,8 @@ kind: Application
 metadata:
   name: gpu-platform-root
   namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
 spec:
   project: default
   source:
