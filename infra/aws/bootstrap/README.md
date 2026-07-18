@@ -47,6 +47,15 @@ In the repository settings, create an Environment named `infra-apply` with:
 Without this Environment protection, the sub condition alone does not prevent a
 workflow edited in a fork from assuming the apply role.
 
+## Unattended teardown note
+
+`destroy.yml` runs on a nightly schedule but uses the `infra-apply` environment
+so its OIDC token can assume the apply role. If `infra-apply` requires a
+reviewer, the scheduled teardown will pause for manual approval. For fully
+unattended teardown, provision a separate `infra-destroy` environment and a
+dedicated destroy role whose trust pins `sub` to that environment, without a
+reviewer gate.
+
 ## Required repository secrets and variables (one-time, manual)
 
 After `terraform apply` of this bootstrap root, set these in the GitHub repo so

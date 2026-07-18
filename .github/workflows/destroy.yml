@@ -17,6 +17,11 @@ jobs:
   destroy:
     name: Ordered teardown
     runs-on: ubuntu-latest
+    # This job uses the infra-apply environment so the OIDC token sub matches the apply role trust.
+    #
+    # If that environment has a required-reviewer rule, this scheduled run pauses for manual approval.
+    #
+    # For fully unattended nightly teardown, provision a separate infra-destroy environment and role without a reviewer gate.
     environment: infra-apply
     permissions:
       contents: read
@@ -41,21 +46,30 @@ jobs:
       # Delete the Argo CD Applications first so Argo stops reconciling as resources are removed.
       #
       # The apply role reaches the cluster through the access entry created in the cluster root.
+      #
+      # Teardown halts here if the Applications do not finish deleting within the timeout.
       - name: Delete Argo CD applications
         run: |
           aws eks update-kubeconfig --name "$CLUSTER_NAME" --region "$AWS_REGION"
           kubectl delete applications --all -n argocd --ignore-not-found=true --wait=true
-          kubectl wait --for=delete application --all -n argocd --timeout=300s || true
+          kubectl wait --for=delete application --all -n argocd --timeout=300s
 
       # Destroy argo-bootstrap before cluster, or the Argo Helm release state is orphaned.
       - name: Destroy argo-bootstrap state
         working-directory: infra/aws/argo-bootstrap
         run: |
+          # The argo-bootstrap providers need the cluster connection to plan the helm_release destroy.
+          #
+          # The cluster still exists at this point, so read its endpoint and CA from the EKS API.
+          ENDPOINT=$(aws eks describe-cluster --name "$CLUSTER_NAME" --query 'cluster.endpoint' --output text)
+          CA=$(aws eks describe-cluster --name "$CLUSTER_NAME" --query 'cluster.certificateAuthority.data' --output text)
           terraform init -input=false \
             -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" \
             -backend-config="dynamodb_table=${{ vars.TF_LOCK_TABLE }}" \
             -backend-config="kms_key_id=${{ vars.TF_STATE_KMS_KEY }}"
-          terraform destroy -input=false -auto-approve
+          terraform destroy -input=false -auto-approve \
+            -var "cluster_endpoint=$ENDPOINT" \
+            -var "cluster_ca=$CA"
 
       # Inventory anything that commonly lingers, so a failed destroy is visible rather than silent.
       - name: Residue check
