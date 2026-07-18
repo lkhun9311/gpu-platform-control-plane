@@ -20,7 +20,12 @@ jobs:
   plan:
     name: Terraform plan (cluster)
     runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request'
+    # Skip cleanly until the bootstrap state bucket exists, since there is nothing to plan against.
+    if: github.event_name == 'pull_request' && vars.TF_STATE_BUCKET != ''
+    timeout-minutes: 45
+    concurrency:
+      group: infra-plan-${{ github.ref }}
+      cancel-in-progress: true
     permissions:
       contents: read
       id-token: write
@@ -56,8 +61,14 @@ jobs:
     # Apply only on merge to the default branch, behind the protected environment.
     #
     # The environment gate plus the apply role's sub condition together deny forked-PR applies.
-    if: github.event_name == 'push'
+    #
+    # Skip cleanly until the bootstrap state bucket exists, since there is nothing to apply against.
+    if: github.event_name == 'push' && vars.TF_STATE_BUCKET != ''
     environment: infra-apply
+    timeout-minutes: 45
+    concurrency:
+      group: terraform-cluster-state
+      cancel-in-progress: false
     permissions:
       contents: read
       id-token: write

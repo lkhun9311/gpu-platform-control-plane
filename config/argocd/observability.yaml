@@ -8,6 +8,8 @@ kind: Application
 metadata:
   name: gpu-platform-observability
   namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
   annotations:
     argocd.argoproj.io/sync-wave: "1"
 spec:

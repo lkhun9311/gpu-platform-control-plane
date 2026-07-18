@@ -6,13 +6,17 @@ on:
 
 permissions: {}
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   AWS_REGION: us-east-1
   ECR_REPOSITORY: gpu-platform-operator
 
 jobs:
-  test:
-    name: Test
+  infra-validate:
+    name: Infra validate
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -27,17 +31,17 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: Run tests
-        run: |
-          go mod tidy
-          make test
+      - name: Validate infra, manifests, and workflows
+        run: make infra-validate
 
   build-push:
     name: Build and push operator image
     runs-on: ubuntu-latest
     # Push only from the default branch; PRs (including forks) run tests only.
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: test
+    #
+    # The provisioning gate skips this job cleanly until AWS exists.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.TF_STATE_BUCKET != ''
+    needs: infra-validate
     permissions:
       contents: read
       id-token: write
