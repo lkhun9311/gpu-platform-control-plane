@@ -301,11 +301,17 @@ infra-fmt: terraform ## Check Terraform formatting under infra/aws.
 	"$(TERRAFORM)" fmt -check -recursive infra/aws
 
 .PHONY: infra-validate
-infra-validate: terraform actionlint ## Validate Terraform (offline) and workflow YAML.
-	@for d in infra/aws/bootstrap infra/aws/cluster; do \
-		if [ -d "$$d" ]; then \
+infra-validate: terraform kustomize actionlint ## Validate Terraform (offline), Argo manifests, and workflow YAML.
+	@for d in infra/aws/*/; do \
+		if [ -f "$$d/versions.tf" ]; then \
 			echo "validate $$d"; \
 			( cd "$$d" && "$(abspath $(TERRAFORM))" init -backend=false -input=false >/dev/null && "$(abspath $(TERRAFORM))" validate ); \
+		fi; \
+	done
+	@for k in config/argocd config/operator config/gateway config/crd config/prometheus config/samples; do \
+		if [ -f "$$k/kustomization.yaml" ]; then \
+			echo "kustomize build $$k"; \
+			"$(KUSTOMIZE)" build "$$k" >/dev/null; \
 		fi; \
 	done
 	"$(ACTIONLINT)" -color
