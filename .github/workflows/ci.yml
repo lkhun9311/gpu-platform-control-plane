@@ -44,8 +44,9 @@ jobs:
     needs: infra-validate
     timeout-minutes: 30
     permissions:
-      contents: read
+      contents: write
       id-token: write
+      pull-requests: write
     steps:
       - name: Clone the code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -63,9 +64,35 @@ jobs:
         uses: aws-actions/amazon-ecr-login@d539f0932e70871a027e9d5a9d8fc38589180a64 # v2.1.6
 
       - name: Build and push the operator image
+        id: build
         env:
           REGISTRY: ${{ steps.login-ecr.outputs.registry }}
         run: |
           IMG="$REGISTRY/$ECR_REPOSITORY:$GITHUB_SHA"
           make docker-build IMG="$IMG"
           make docker-push IMG="$IMG"
+          # Capture the pushed image's digest reference so the next step can pin it exactly.
+          DIGEST_REF=$(docker inspect --format='{{index .RepoDigests 0}}' "$IMG")
+          echo "digest_ref=$DIGEST_REF" >> "$GITHUB_OUTPUT"
+
+      - name: Open an operator image digest-bump PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DIGEST_REF: ${{ steps.build.outputs.digest_ref }}
+        run: |
+          set -euo pipefail
+          # Pin the operator image to the digest just pushed, so Argo CD deploys exactly this build.
+          #
+          # The bump lands via a PR rather than a direct push, keeping Git the source of truth.
+          make kustomize
+          ( cd config/manager && "$GITHUB_WORKSPACE/bin/kustomize" edit set image "controller=${DIGEST_REF}" )
+          BRANCH="bot/operator-digest-${GITHUB_SHA:0:12}"
+          git config user.name "gpu-platform-ci"
+          git config user.email "ci@users.noreply.github.com"
+          git checkout -b "$BRANCH"
+          git add config/manager/kustomization.yaml
+          git commit -m "chore: pin operator image to digest ${GITHUB_SHA:0:12}"
+          git push origin "$BRANCH"
+          gh pr create --base main --head "$BRANCH" \
+            --title "chore: bump operator image digest" \
+            --body "Automated digest pin from commit ${GITHUB_SHA}. Argo CD will deploy this exact build once merged."
