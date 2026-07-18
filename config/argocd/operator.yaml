@@ -1,0 +1,25 @@
+# The operator manager and RBAC, sourced from the top-level kustomization.
+#
+# The image digest comes from Git, so Argo CD deploys whatever config/default pins.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: gpu-platform-operator
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/lkhun9311/gpu-platform-control-plane.git
+    targetRevision: main
+    path: config/default
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: gpu-platform-control-plane-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
