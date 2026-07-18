@@ -21,6 +21,7 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -141,6 +142,8 @@ var _ = Describe("NodeHealth Controller", func() {
 		})
 
 		It("quarantines a not-ready node: taints it, sets phase and fault signal", func() {
+			before := testutil.ToFloat64(nodeHealthTaintTotal.WithLabelValues("applied"))
+
 			node := makeNode(corev1.ConditionFalse)
 			Expect(k8sClient.Create(ctx, node)).To(Succeed())
 			Expect(k8sClient.Status().Update(ctx, node)).To(Succeed())
@@ -156,6 +159,9 @@ var _ = Describe("NodeHealth Controller", func() {
 			gotNode := &corev1.Node{}
 			Expect(k8sClient.Get(ctx, nodeKey, gotNode)).To(Succeed())
 			Expect(unhealthyTaintCount(gotNode)).To(Equal(1))
+
+			after := testutil.ToFloat64(nodeHealthTaintTotal.WithLabelValues("applied"))
+			Expect(after - before).To(Equal(1.0))
 		})
 
 		It("removes the taint and clears the fault signal when the node recovers", func() {
@@ -163,6 +169,8 @@ var _ = Describe("NodeHealth Controller", func() {
 			Expect(k8sClient.Create(ctx, node)).To(Succeed())
 			Expect(k8sClient.Status().Update(ctx, node)).To(Succeed())
 			reconcileUntilSteady()
+
+			before := testutil.ToFloat64(nodeHealthTaintTotal.WithLabelValues("removed"))
 
 			recovered := &corev1.Node{}
 			Expect(k8sClient.Get(ctx, nodeKey, recovered)).To(Succeed())
@@ -178,6 +186,9 @@ var _ = Describe("NodeHealth Controller", func() {
 			gotNode := &corev1.Node{}
 			Expect(k8sClient.Get(ctx, nodeKey, gotNode)).To(Succeed())
 			Expect(unhealthyTaintCount(gotNode)).To(Equal(0))
+
+			after := testutil.ToFloat64(nodeHealthTaintTotal.WithLabelValues("removed"))
+			Expect(after - before).To(Equal(1.0))
 		})
 
 		It("does not duplicate the taint or rewrite when already quarantined", func() {

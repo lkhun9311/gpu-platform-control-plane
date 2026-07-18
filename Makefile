@@ -3,6 +3,8 @@ IMG ?= controller:latest
 # The gateway is a separate process and a separate image, so it takes its own tag.
 # Sharing IMG would overwrite the gateway with the controller's tag on every push.
 GATEWAY_IMG ?= gateway:latest
+# gpu-simulator is a third, independent process (a DaemonSet, not a Deployment), so it takes its own tag for the same reason.
+GPU_SIMULATOR_IMG ?= gpu-simulator:latest
 # YEAR defines the year value used for substituting the YEAR placeholder in the boilerplate header.
 YEAR ?= $(shell date +%Y)
 
@@ -134,6 +136,22 @@ docker-build-gateway: ## Build docker image with the gateway.
 .PHONY: docker-push-gateway
 docker-push-gateway: ## Push docker image with the gateway.
 	$(CONTAINER_TOOL) push ${GATEWAY_IMG}
+
+.PHONY: build-gpu-simulator
+build-gpu-simulator: fmt vet ## Build gpu-simulator binary.
+	go build -o bin/gpu-simulator cmd/gpu-simulator/main.go
+
+.PHONY: run-gpu-simulator
+run-gpu-simulator: fmt vet ## Run the gpu-simulator from your host.
+	go run ./cmd/gpu-simulator/main.go
+
+.PHONY: docker-build-gpu-simulator
+docker-build-gpu-simulator: ## Build docker image with gpu-simulator.
+	$(CONTAINER_TOOL) build -t ${GPU_SIMULATOR_IMG} -f Dockerfile.gpu-simulator .
+
+.PHONY: docker-push-gpu-simulator
+docker-push-gpu-simulator: ## Push docker image with gpu-simulator.
+	$(CONTAINER_TOOL) push ${GPU_SIMULATOR_IMG}
 
 # If you wish to build the manager image targeting other platforms you can use the --platform flag.
 # (i.e. docker build --platform linux/arm64). However, you must enable docker buildKit for it.
@@ -308,7 +326,7 @@ infra-validate: terraform kustomize actionlint ## Validate Terraform (offline), 
 			( cd "$$d" && "$(abspath $(TERRAFORM))" init -backend=false -input=false >/dev/null && "$(abspath $(TERRAFORM))" validate ); \
 		fi; \
 	done
-	@for k in config/argocd config/operator config/gateway config/crd config/prometheus config/samples; do \
+	@for k in config/argocd config/operator config/gateway config/device-plugin config/crd config/prometheus config/samples; do \
 		if [ -f "$$k/kustomization.yaml" ]; then \
 			echo "kustomize build $$k"; \
 			"$(KUSTOMIZE)" build "$$k" >/dev/null; \

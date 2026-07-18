@@ -116,9 +116,9 @@ resource "aws_iam_role" "ci_apply" {
 
 # PowerUserAccess excludes IAM role and policy creation.
 #
-# The cluster module creates IAM roles at apply time, so before real provisioning this role needs IAM-creation permission added (for example an IAMFullAccess attachment).
+# The cluster module creates IAM roles at apply time, so this role needs IAM-creation permission too.
 #
-# That expansion is deferred to the provisioning step and is intentionally not applied here.
+# The companion aws_iam_role_policy_attachment.ci_apply_iam attachment below supplies that permission.
 #
 # The apply role's permissions are broad by necessity (VPC, EKS, IAM, node groups).
 #
@@ -126,6 +126,14 @@ resource "aws_iam_role" "ci_apply" {
 resource "aws_iam_role_policy_attachment" "ci_apply_admin" {
   role       = aws_iam_role.ci_apply.name
   policy_arn = "arn:aws:iam::aws:policy/PowerUserAccess"
+}
+
+# PowerUserAccess excludes IAM management, but the EKS module creates IAM roles at apply time.
+#
+# This companion attachment supplies the IAM permissions the cluster provisioning needs.
+resource "aws_iam_role_policy_attachment" "ci_apply_iam" {
+  role       = aws_iam_role.ci_apply.name
+  policy_arn = "arn:aws:iam::aws:policy/IAMFullAccess"
 }
 
 # The image-push role is assumed from the default branch to push the operator image.

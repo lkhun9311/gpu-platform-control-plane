@@ -129,6 +129,16 @@ func (r *NodeHealthReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			return ctrl.Result{}, fmt.Errorf("update node %s taints: %w", node.Name, err)
 		}
 		log.Info("Updated node taints", "node", node.Name, "phase", desired.Phase)
+
+		// Count the taint transition only after the patch succeeds, so the metric never claims an enforcement that did not happen.
+		//
+		// Pending has no taint change, so only these two phases increment the counter.
+		switch desired.Phase {
+		case phaseQuarantine:
+			nodeHealthTaintTotal.WithLabelValues("applied").Inc()
+		case phaseReady:
+			nodeHealthTaintTotal.WithLabelValues("removed").Inc()
+		}
 	}
 
 	// Idempotent: write status only when it actually changed.
