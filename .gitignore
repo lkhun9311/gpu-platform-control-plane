@@ -1,13 +1,32 @@
 # Local AI tool workspace - do not commit
 superpowers/
+docs/
 .claude/
 .cursor/
 .chatgpt/
 .codex/
+.githooks/
 
-# Markdown: only the root README is committed (other .md kept locally under superpowers/)
+# Markdown: only the root README and infra module READMEs are committed
+# (other .md kept locally under superpowers/)
 *.md
 !/README.md
+!/infra/**/README.md
+
+# Terraform local state, cache and secrets (state lives in the remote backend, not here)
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+crash.log
+crash.*.log
+*.tfvars
+*.tfvars.json
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraformrc
+terraform.rc
 
 # JetBrains / IntelliJ
 .idea/
@@ -25,9 +44,12 @@ out/
 # Local runtime state
 state/
 tmp/
+.reviews/
 *.db
 *.sqlite
 *.sqlite3
+deployments/
+evidence/
 
 # Generated binaries
 bin/
@@ -41,3 +63,6 @@ Thumbs.db
 # Go test artifacts
 *.out
 *.test
+
+# Claude Code personal overrides
+.claude/settings.local.json

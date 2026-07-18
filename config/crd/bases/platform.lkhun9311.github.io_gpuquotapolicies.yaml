@@ -74,6 +74,27 @@ spec:
                 required:
                 - gpuCount
                 type: object
+              rateLimit:
+                description: |-
+                  rateLimit caps the per-tenant serving request rate enforced at the gateway (admission Layer 4).
+                  It is optional: a policy without rateLimit means the tenant has no gateway rate limit.
+                properties:
+                  burst:
+                    description: burst is the maximum momentary burst the bucket allows
+                      above the sustained rate.
+                    format: int32
+                    minimum: 1
+                    type: integer
+                  requestsPerMinute:
+                    description: requestsPerMinute is the sustained request rate allowed
+                      for the tenant.
+                    format: int32
+                    minimum: 1
+                    type: integer
+                required:
+                - burst
+                - requestsPerMinute
+                type: object
               targetNamespace:
                 description: |-
                   targetNamespace is the namespace into which quota objects are synced.

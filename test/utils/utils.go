@@ -173,8 +173,9 @@ func GetProjectDir() (string, error) {
 	return wd, nil
 }
 
-// UncommentCode searches for target in the file and remove the comment prefix
-// of the target content. The target content may span multiple lines.
+// UncommentCode searches for target in the file and remove the comment prefix of the target content.
+//
+// The target content may span multiple lines.
 func UncommentCode(filename, target, prefix string) error {
 	// false positive
 	// nolint:gosec
