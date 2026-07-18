@@ -80,6 +80,12 @@ resource "aws_iam_role" "ci_apply" {
   tags               = var.tags
 }
 
+# PowerUserAccess excludes IAM role and policy creation.
+#
+# The cluster module creates IAM roles at apply time, so before real provisioning this role needs IAM-creation permission added (for example an IAMFullAccess attachment).
+#
+# That expansion is deferred to the provisioning step and is intentionally not applied here.
+#
 # The apply role's permissions are broad by necessity (VPC, EKS, IAM, node groups).
 #
 # This is scoped to the demo account, not a production least-privilege set, and is labeled as such.

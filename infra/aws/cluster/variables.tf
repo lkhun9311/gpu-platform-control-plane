@@ -37,3 +37,9 @@ variable "tags" {
     ttl     = "ephemeral"
   }
 }
+
+variable "ci_apply_role_arn" {
+  description = "ARN of the CI apply role (bootstrap output) granted cluster admin via an access entry."
+  type        = string
+  default     = ""
+}
