@@ -33,6 +33,10 @@ spec:
         app.kubernetes.io/name: gpu-platform-control-plane
         app.kubernetes.io/component: gpu-simulator
     spec:
+      # system-node-critical keeps this pod off the eviction list under node
+      # pressure, matching the convention real device plugins (including
+      # NVIDIA's own) rely on to stay registered with the kubelet.
+      priorityClassName: system-node-critical
       # A device plugin has to run wherever fake GPU capacity should be
       # advertised, not merely where the scheduler would place it by default.
       #
