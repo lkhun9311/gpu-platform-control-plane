@@ -37,7 +37,7 @@ The project is built milestone by milestone.
 | M2        | Make reconciliation idempotent, with finalizers and drift recovery (NodeHealth reference)                                                                                        | Done            |
 | M3        | Taint unhealthy nodes (NodeHealth enforcement) and sync per-tenant quota into ResourceQuota                                                                                      | Done            |
 | M4-a      | Manage inference workloads: `InferenceDeployment` → Deployment/Service with a phase ladder                                                                                       | Done            |
-| M4-b      | Tenant-aware serving gateway: API key → tenant, token bucket → 429, model routing, proxy, metrics                                                                                | In progress     |
+| M4-b      | Tenant-aware serving gateway: API key → tenant, token bucket → 429, model routing, proxy, metrics                                                                                | Done            |
 | M5-a      | AWS hosting: Terraform (state bootstrap, EKS, node groups), GitHub Actions CI (OIDC → ECR), Argo CD GitOps, operator deployed on EKS, slim observability — no GPU yet            | Designed (v3.1) |
 | M5-b      | Real-GPU flagship on that infra: GPU node group (On-Demand, ephemeral), `GpuSharingBenchmark` + KV-cache-aware admission guard, measured noisy-neighbor p99 A/B (killer feature) | Designed        |
 | M5-c      | Depth: cost/fairness frontier (≥3 guard thresholds) + sharing-mode matrix (exclusive / time-slicing / MPS) — hardens the M5-b evidence, no new features                          | Planned         |
