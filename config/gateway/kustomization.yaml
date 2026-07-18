@@ -1,8 +1,10 @@
 # The bundle of gateway manifests.
 #
-# When config/default includes this directory as a resource, its namespace (system -> the real namespace)
-# and namePrefix apply to every name in here.
-# So each file writes the namespace as system verbatim, and default owns the substitution.
+# config/default no longer composes this directory, so nothing else rewrites the placeholder namespace.
+# Every manifest here hardcodes namespace: system as a kubebuilder scaffold placeholder.
+# This transform rewrites that placeholder to the real namespace for a standalone build.
+namespace: gpu-platform-control-plane-system
+
 resources:
 - serviceaccount.yaml
 - rbac.yaml
