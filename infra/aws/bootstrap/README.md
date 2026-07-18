@@ -46,3 +46,18 @@ In the repository settings, create an Environment named `infra-apply` with:
 
 Without this Environment protection, the sub condition alone does not prevent a
 workflow edited in a fork from assuming the apply role.
+
+## Required repository secrets and variables (one-time, manual)
+
+After `terraform apply` of this bootstrap root, set these in the GitHub repo so
+the workflows can assume the roles and complete the cluster backend:
+
+Secrets:
+- `CI_PLAN_ROLE_ARN` from output `ci_plan_role_arn`
+- `CI_APPLY_ROLE_ARN` from output `ci_apply_role_arn`
+- `CI_IMAGE_PUSH_ROLE_ARN` from output `ci_image_push_role_arn`
+
+Variables:
+- `TF_STATE_BUCKET` from output `state_bucket`
+- `TF_LOCK_TABLE` from output `lock_table`
+- `TF_STATE_KMS_KEY` from output `state_kms_key_arn`

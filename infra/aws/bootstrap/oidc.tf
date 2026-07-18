@@ -45,6 +45,40 @@ resource "aws_iam_role_policy_attachment" "ci_plan_readonly" {
   policy_arn = "arn:aws:iam::aws:policy/ReadOnlyAccess"
 }
 
+# ReadOnlyAccess covers reading state from S3 but not the lock write or the state decrypt that plan needs.
+#
+# This inline policy grants exactly the DynamoDB lock operations and the KMS decrypt for the state key.
+data "aws_iam_policy_document" "ci_plan_state" {
+  statement {
+    effect = "Allow"
+
+    actions = [
+      "dynamodb:GetItem",
+      "dynamodb:PutItem",
+      "dynamodb:DeleteItem",
+    ]
+
+    resources = [aws_dynamodb_table.lock.arn]
+  }
+
+  statement {
+    effect = "Allow"
+
+    actions = [
+      "kms:Decrypt",
+      "kms:GenerateDataKey",
+    ]
+
+    resources = [aws_kms_key.state.arn]
+  }
+}
+
+resource "aws_iam_role_policy" "ci_plan_state" {
+  name   = "tf-state-access"
+  role   = aws_iam_role.ci_plan.id
+  policy = data.aws_iam_policy_document.ci_plan_state.json
+}
+
 # The apply role is assumed only from the protected GitHub Environment named infra-apply.
 #
 # This sub condition denies forked-PR and non-main assumption only when the infra-apply Environment has a deployment branch policy restricting it to main.
