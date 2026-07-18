@@ -22,6 +22,12 @@ variable "vpc_cidr" {
   default     = "10.0.0.0/16"
 }
 
+variable "node_instance_type" {
+  description = "Instance type for the CPU managed node group."
+  type        = string
+  default     = "t3.large"
+}
+
 variable "tags" {
   description = "Owner and TTL tags applied to every resource."
   type        = map(string)
