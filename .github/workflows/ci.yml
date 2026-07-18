@@ -42,6 +42,7 @@ jobs:
     # The provisioning gate skips this job cleanly until AWS exists.
     if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.TF_STATE_BUCKET != ''
     needs: infra-validate
+    timeout-minutes: 30
     permissions:
       contents: read
       id-token: write
