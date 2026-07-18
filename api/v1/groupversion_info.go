@@ -26,6 +26,7 @@ import (
 
 var (
 	// SchemeGroupVersion is group version used to register these objects.
+	//
 	// This name is used by applyconfiguration generators (e.g. controller-gen).
 	SchemeGroupVersion = schema.GroupVersion{Group: "platform.lkhun9311.github.io", Version: "v1"}
 

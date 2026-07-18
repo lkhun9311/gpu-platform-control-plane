@@ -1,0 +1,31 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: gateway
+  namespace: system
+  labels:
+    app.kubernetes.io/name: gpu-platform-control-plane
+    app.kubernetes.io/component: gateway
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  # ClusterIP is an address reachable only from inside the cluster (design spec Deployment section).
+  #
+  # Why this is not exposed via LoadBalancer or NodePort:
+  # This gateway authenticates with a single static key held in the api-keys Secret, which is not strong enough for the public internet.
+  # External exposure is covered by the M5 AWS design, which has a no-public-LB principle and a separate access path.
+  # At this stage the access method is kubectl port-forward.
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: gpu-platform-control-plane
+    app.kubernetes.io/component: gateway
+  ports:
+  # Only user traffic is exposed through the Service.
+  #
+  # Leaving 8081 (metrics) out of this list is deliberate.
+  # Putting it on the Service would let anyone in the cluster scrape per-tenant usage
+  # and infer other tenants' activity from it.
+  # Prometheus scrapes Pod IPs directly, so collection works fine without a Service entry.
+  - name: http
+    port: 8080
+    targetPort: http
+    protocol: TCP

@@ -1,0 +1,102 @@
+# The gateway's permissions are "read-only, and only what is needed" (design spec Deployment section).
+#
+# Why the controller's manager-role is not reused:
+# manager-role can create/update/patch ResourceQuota and Node.
+# The gateway only routes requests and never changes cluster state, so it has no use for those verbs.
+# The gateway is the only component that takes external traffic directly, so its attack surface is the widest.
+# Granting write access there lets a compromise spread across the whole cluster. Hence a dedicated role.
+---
+# ClusterRole: reads the two CRD kinds.
+#
+# Why a ClusterRole:
+# GPUQuotaPolicy is cluster-scoped, so a namespaced Role cannot read it at all.
+# InferenceDeployment is namespaced but lives in a different namespace per tenant,
+# and the gateway must serve any tenant's requests, so it cannot be narrowed to a fixed namespace in advance.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/name: gpu-platform-control-plane
+    app.kubernetes.io/component: gateway
+    app.kubernetes.io/managed-by: kustomize
+  name: gateway-role
+rules:
+# Why watch is required:
+# The gateway does not call the apiserver per request; it reads from a watch-backed cache (NewCache in server.go).
+# watch is what fills and refreshes that cache, so without list and watch the cache never syncs,
+# readiness never opens, and the Pod receives no traffic.
+- apiGroups:
+  - platform.lkhun9311.github.io
+  resources:
+  - inferencedeployments
+  - gpuquotapolicies
+  verbs:
+  - get
+  - list
+  - watch
+---
+# Role: reads only the api-keys Secret.
+#
+# Why a Role rather than a ClusterRole:
+# Secrets are the most sensitive resource in the cluster.
+# Granting secrets read via a ClusterRole would let the gateway read every Secret in every namespace,
+# including other components' credentials and TLS keys.
+# All the gateway actually needs is the single api-keys Secret in its own namespace, so a Role bounds the scope.
+#
+# Why this is not narrowed further with resourceNames:
+# resourceNames breaks list and watch (it applies only to get, where the name is known up front).
+# Since the cache is filled by watch, narrowing that way would make cache sync itself fail.
+# So the namespace boundary is the trust boundary, on the premise that the gateway namespace holds only this Secret.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  labels:
+    app.kubernetes.io/name: gpu-platform-control-plane
+    app.kubernetes.io/component: gateway
+    app.kubernetes.io/managed-by: kustomize
+  name: gateway-secret-reader
+  namespace: system
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - secrets
+  verbs:
+  - get
+  - list
+  - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  labels:
+    app.kubernetes.io/name: gpu-platform-control-plane
+    app.kubernetes.io/component: gateway
+    app.kubernetes.io/managed-by: kustomize
+  name: gateway-rolebinding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: gateway-role
+subjects:
+- kind: ServiceAccount
+  name: gateway
+  namespace: system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  labels:
+    app.kubernetes.io/name: gpu-platform-control-plane
+    app.kubernetes.io/component: gateway
+    app.kubernetes.io/managed-by: kustomize
+  name: gateway-secret-reader-binding
+  namespace: system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: gateway-secret-reader
+subjects:
+- kind: ServiceAccount
+  name: gateway
+  namespace: system
