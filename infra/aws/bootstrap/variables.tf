@@ -21,6 +21,12 @@ variable "operator_repo_name" {
   default     = "gpu-platform-operator"
 }
 
+variable "state_key_user_arns" {
+  description = "IAM role ARNs allowed to use the state KMS key for encrypt and decrypt."
+  type        = list(string)
+  default     = []
+}
+
 variable "tags" {
   description = "Owner and TTL tags applied to every resource."
   type        = map(string)
