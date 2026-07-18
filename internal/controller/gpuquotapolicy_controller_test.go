@@ -21,6 +21,7 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -145,12 +146,18 @@ var _ = Describe("GPUQuotaPolicy Controller", func() {
 			rq.Spec.Hard[gpuResource] = *resource.NewQuantity(99, resource.DecimalSI)
 			Expect(k8sClient.Update(ctx, rq)).To(Succeed())
 
+			// Capture the before-value rather than assuming zero, because the counter is process-global and other specs may have already incremented it.
+			before := testutil.ToFloat64(gpuQuotaPolicyDriftCorrectedTotal)
+
 			reconcileUntilSteady()
 
 			corrected := &corev1.ResourceQuota{}
 			Expect(k8sClient.Get(ctx, rqKey, corrected)).To(Succeed())
 			q := corrected.Spec.Hard[gpuResource]
 			Expect(q.Value()).To(Equal(int64(8)))
+
+			after := testutil.ToFloat64(gpuQuotaPolicyDriftCorrectedTotal)
+			Expect(after - before).To(Equal(1.0))
 		})
 
 		It("deletes the ResourceQuota and clears the finalizer on deletion", func() {

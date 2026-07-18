@@ -21,6 +21,7 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -180,6 +181,8 @@ var _ = Describe("InferenceDeployment Controller", func() {
 			Expect(k8sClient.Create(ctx, foreign)).To(Succeed())
 			Expect(k8sClient.Create(ctx, newInfD(1, 1))).To(Succeed())
 
+			before := testutil.ToFloat64(inferenceDeploymentDegradedTotal.WithLabelValues(infdReasonConflict))
+
 			_, err := reconciler().Reconcile(ctx, reconcile.Request{NamespacedName: key})
 			Expect(err).NotTo(HaveOccurred())
 
@@ -188,6 +191,9 @@ var _ = Describe("InferenceDeployment Controller", func() {
 			Expect(k8sClient.Get(ctx, key, got)).To(Succeed())
 			Expect(got.OwnerReferences).To(BeEmpty())
 			Expect(got.Spec.Template.Spec.Containers[0].Image).To(Equal("busybox"))
+
+			after := testutil.ToFloat64(inferenceDeploymentDegradedTotal.WithLabelValues(infdReasonConflict))
+			Expect(after - before).To(Equal(1.0))
 		})
 
 		It("reports Progressing (not Ready) when Replicas=3 but desired is 2 (surplus not yet removed)", func() {

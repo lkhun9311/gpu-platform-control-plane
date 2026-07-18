@@ -169,6 +169,9 @@ func (r *GPUQuotaPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 				return ctrl.Result{}, err
 			}
 			log.Info("Corrected ResourceQuota drift", "resourceQuota", rqKey.String())
+
+			// Count the correction only after the update succeeds, so a failed write is never counted as a fix.
+			gpuQuotaPolicyDriftCorrectedTotal.Inc()
 		}
 	}
 

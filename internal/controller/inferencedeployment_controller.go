@@ -272,6 +272,9 @@ func (r *InferenceDeploymentReconciler) markDegraded(ctx context.Context, infd *
 		if err := r.Status().Update(ctx, infd); err != nil {
 			return ctrl.Result{}, fmt.Errorf("update inferencedeployment status %s/%s to Degraded: %w", infd.Namespace, infd.Name, err)
 		}
+
+		// Count the transition only after the status write succeeds, so a reconcile that finds the object already Degraded does not inflate the metric.
+		inferenceDeploymentDegradedTotal.WithLabelValues(reason).Inc()
 	}
 	return ctrl.Result{}, nil
 }
