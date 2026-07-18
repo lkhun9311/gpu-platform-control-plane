@@ -8,11 +8,23 @@ module "eks" {
   # Public endpoint: demo-only threat model, documented in docs/09.
   cluster_endpoint_public_access = true
 
-  # Terraform owns the cluster-lifecycle add-ons, pinned. Argo CD never touches these.
+  # Terraform owns the cluster-lifecycle add-ons.
+  #
+  # Argo CD never touches these.
+  #
+  # Versions are pinned to the AWS defaults for EKS 1.31.
+  #
+  # Re-verify them against aws eks describe-addon-versions before provisioning, since AWS revises eksbuild numbers over time.
   cluster_addons = {
-    coredns    = {}
-    kube-proxy = {}
-    vpc-cni    = {}
+    coredns = {
+      addon_version = "v1.11.3-eksbuild.1"
+    }
+    kube-proxy = {
+      addon_version = "v1.31.0-eksbuild.5"
+    }
+    vpc-cni = {
+      addon_version = "v1.18.3-eksbuild.3"
+    }
   }
 
   vpc_id     = module.vpc.vpc_id
