@@ -305,7 +305,7 @@ infra-validate: terraform actionlint ## Validate Terraform (offline) and workflo
 	@for d in infra/aws/bootstrap infra/aws/cluster; do \
 		if [ -d "$$d" ]; then \
 			echo "validate $$d"; \
-			( cd "$$d" && "$(CURDIR)/$(TERRAFORM)" init -backend=false -input=false >/dev/null && "$(CURDIR)/$(TERRAFORM)" validate ); \
+			( cd "$$d" && "$(abspath $(TERRAFORM))" init -backend=false -input=false >/dev/null && "$(abspath $(TERRAFORM))" validate ); \
 		fi; \
 	done
 	"$(ACTIONLINT)" -color
