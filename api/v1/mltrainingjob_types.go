@@ -20,8 +20,13 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
-// NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
+// EDIT THIS FILE!
+//
+// THIS IS SCAFFOLDING FOR YOU TO OWN!
+//
+// NOTE: json tags are required.
+//
+// Any new fields you add must have json tags for the fields to be serialized.
 
 // MLTrainingJobSpec defines the desired state of MLTrainingJob.
 type MLTrainingJobSpec struct {
@@ -38,11 +43,13 @@ type MLTrainingJobSpec struct {
 	Command []string `json:"command,omitempty"`
 
 	// gpuClass is the illustrative GPU class (e.g. "l40s").
+	//
 	// Locally this is backed by simulated capacity (see the dev runbook).
 	// +optional
 	GPUClass string `json:"gpuClass,omitempty"`
 
 	// gpuCount is the number of GPUs (nvidia.com/gpu) per pod.
+	//
 	// Locally this is backed by simulated capacity, not real hardware.
 	// +kubebuilder:validation:Minimum=0
 	// +required
@@ -77,6 +84,7 @@ type MLTrainingJobStatus struct {
 	LastTransitionTime *metav1.Time `json:"lastTransitionTime,omitempty"`
 
 	// conditions represent the current state of the MLTrainingJob resource.
+	//
 	// The status of each condition is one of True, False, or Unknown.
 	// +listType=map
 	// +listMapKey=type

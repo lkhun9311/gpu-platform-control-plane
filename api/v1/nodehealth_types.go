@@ -20,19 +20,27 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
-// NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
+// EDIT THIS FILE!
+//
+// THIS IS SCAFFOLDING FOR YOU TO OWN!
+//
+// NOTE: json tags are required.
+//
+// Any new fields you add must have json tags for the fields to be serialized.
 
 // NodeHealthSpec defines the desired state of NodeHealth.
 type NodeHealthSpec struct {
 	// nodeName is the name of the target Node object this resource tracks.
+	//
 	// It is immutable: a NodeHealth manages the unhealthy taint on exactly one node for its lifetime.
+	//
 	// Changing it would orphan the taint already applied to the old node, since cleanup only ever targets the node named here.
 	// +required
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="nodeName is immutable"
 	NodeName string `json:"nodeName"`
 
 	// gpuClass is the illustrative GPU class of the node (e.g. "l40s").
+	//
 	// Locally this is backed by simulated capacity (see the dev runbook).
 	// +optional
 	GPUClass string `json:"gpuClass,omitempty"`
@@ -41,7 +49,9 @@ type NodeHealthSpec struct {
 // NodeHealthStatus defines the observed state of NodeHealth.
 type NodeHealthStatus struct {
 	// phase is the high-level health state of the node.
+	//
 	// M3 emits Pending, Ready, and Quarantine.
+	//
 	// Intake and Degraded are reserved for the node intake and degrade lifecycle stages (see docs/03) and are not emitted yet.
 	// +kubebuilder:validation:Enum=Pending;Intake;Ready;Degraded;Quarantine
 	// +optional
@@ -51,8 +61,9 @@ type NodeHealthStatus struct {
 	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 
-	// faultSignal records the origin of the current fault signal. It is recorded
-	// for honesty: locally the signal is simulated, not a real hardware signal.
+	// faultSignal records the origin of the current fault signal.
+	//
+	// It is recorded for honesty: locally the signal is simulated, not a real hardware signal.
 	// +optional
 	FaultSignal *FaultSignal `json:"faultSignal,omitempty"`
 
@@ -61,6 +72,7 @@ type NodeHealthStatus struct {
 	LastTransitionTime *metav1.Time `json:"lastTransitionTime,omitempty"`
 
 	// conditions represent the current state of the NodeHealth resource.
+	//
 	// The status of each condition is one of True, False, or Unknown.
 	// +listType=map
 	// +listMapKey=type

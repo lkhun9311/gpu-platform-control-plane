@@ -1,5 +1,8 @@
 # Image URL to use all building/pushing image targets
 IMG ?= controller:latest
+# The gateway is a separate process and a separate image, so it takes its own tag.
+# Sharing IMG would overwrite the gateway with the controller's tag on every push.
+GATEWAY_IMG ?= gateway:latest
 # YEAR defines the year value used for substituting the YEAR placeholder in the boilerplate header.
 YEAR ?= $(shell date +%Y)
 
@@ -116,6 +119,22 @@ build: manifests generate fmt vet ## Build manager binary.
 run: manifests generate fmt vet ## Run a controller from your host.
 	go run ./cmd/main.go
 
+.PHONY: build-gateway
+build-gateway: fmt vet ## Build gateway binary.
+	go build -o bin/gateway cmd/gateway/main.go
+
+.PHONY: run-gateway
+run-gateway: fmt vet ## Run the gateway from your host.
+	go run ./cmd/gateway/main.go
+
+.PHONY: docker-build-gateway
+docker-build-gateway: ## Build docker image with the gateway.
+	$(CONTAINER_TOOL) build -t ${GATEWAY_IMG} -f Dockerfile.gateway .
+
+.PHONY: docker-push-gateway
+docker-push-gateway: ## Push docker image with the gateway.
+	$(CONTAINER_TOOL) push ${GATEWAY_IMG}
+
 # If you wish to build the manager image targeting other platforms you can use the --platform flag.
 # (i.e. docker build --platform linux/arm64). However, you must enable docker buildKit for it.
 # More info: https://docs.docker.com/develop/develop-images/build_enhancements/
@@ -189,6 +208,8 @@ KUSTOMIZE ?= $(LOCALBIN)/kustomize
 CONTROLLER_GEN ?= $(LOCALBIN)/controller-gen
 ENVTEST ?= $(LOCALBIN)/setup-envtest
 GOLANGCI_LINT = $(LOCALBIN)/golangci-lint
+TERRAFORM = $(LOCALBIN)/terraform
+ACTIONLINT = $(LOCALBIN)/actionlint
 
 ## Tool Versions
 KUSTOMIZE_VERSION ?= v5.8.1
@@ -205,6 +226,8 @@ ENVTEST_K8S_VERSION ?= $(shell v='$(call gomodver,k8s.io/api)'; \
   printf '%s\n' "$$v" | sed -E 's/^v?[0-9]+\.([0-9]+).*/1.\1/')
 
 GOLANGCI_LINT_VERSION ?= v2.11.4
+TERRAFORM_VERSION ?= 1.9.8
+ACTIONLINT_VERSION ?= v1.7.7
 .PHONY: kustomize
 kustomize: $(KUSTOMIZE) ## Download kustomize locally if necessary.
 $(KUSTOMIZE): $(LOCALBIN)
@@ -257,3 +280,38 @@ endef
 define gomodver
 $(shell go list -m -f '{{if .Replace}}{{.Replace.Version}}{{else}}{{.Version}}{{end}}' $(1) 2>/dev/null)
 endef
+
+.PHONY: terraform
+terraform: $(TERRAFORM) ## Download terraform locally if necessary.
+$(TERRAFORM): $(LOCALBIN)
+	@test -x "$(TERRAFORM)" || { \
+		echo "Downloading terraform $(TERRAFORM_VERSION)"; \
+		curl -fsSL "https://releases.hashicorp.com/terraform/$(TERRAFORM_VERSION)/terraform_$(TERRAFORM_VERSION)_linux_amd64.zip" -o "$(LOCALBIN)/terraform.zip"; \
+		unzip -o "$(LOCALBIN)/terraform.zip" -d "$(LOCALBIN)" >/dev/null; \
+		rm -f "$(LOCALBIN)/terraform.zip"; \
+	}
+
+.PHONY: actionlint
+actionlint: $(ACTIONLINT) ## Download actionlint locally if necessary.
+$(ACTIONLINT): $(LOCALBIN)
+	$(call go-install-tool,$(ACTIONLINT),github.com/rhysd/actionlint/cmd/actionlint,$(ACTIONLINT_VERSION))
+
+.PHONY: infra-fmt
+infra-fmt: terraform ## Check Terraform formatting under infra/aws.
+	"$(TERRAFORM)" fmt -check -recursive infra/aws
+
+.PHONY: infra-validate
+infra-validate: terraform kustomize actionlint ## Validate Terraform (offline), Argo manifests, and workflow YAML.
+	@for d in infra/aws/*/; do \
+		if [ -f "$$d/versions.tf" ]; then \
+			echo "validate $$d"; \
+			( cd "$$d" && "$(abspath $(TERRAFORM))" init -backend=false -input=false >/dev/null && "$(abspath $(TERRAFORM))" validate ); \
+		fi; \
+	done
+	@for k in config/argocd config/operator config/gateway config/crd config/prometheus config/samples; do \
+		if [ -f "$$k/kustomization.yaml" ]; then \
+			echo "kustomize build $$k"; \
+			"$(KUSTOMIZE)" build "$$k" >/dev/null; \
+		fi; \
+	done
+	"$(ACTIONLINT)" -color
