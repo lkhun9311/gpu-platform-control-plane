@@ -38,6 +38,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/go-logr/logr"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	pluginapi "k8s.io/kubelet/pkg/apis/deviceplugin/v1beta1"
@@ -91,7 +92,8 @@ func main() {
 	}
 
 	grpcServer := grpc.NewServer()
-	pluginapi.RegisterDevicePluginServer(grpcServer, &gpuSimulator{devices: fakeDevices(count)})
+	simulator := &gpuSimulator{devices: fakeDevices(count), stop: make(chan struct{})}
+	pluginapi.RegisterDevicePluginServer(grpcServer, simulator)
 
 	serveErr := make(chan error, 1)
 	go func() {
@@ -102,7 +104,7 @@ func main() {
 	// The kubelet must be able to dial socketName before Register is called.
 	//
 	// That ordering is why registration happens after Serve starts, not before.
-	if err := registerWithKubelet(pluginPath, socketName); err != nil {
+	if err := registerWithKubeletRetry(log, pluginPath, socketName); err != nil {
 		log.Error(err, "register with kubelet")
 		grpcServer.Stop()
 		os.Exit(1)
@@ -115,6 +117,14 @@ func main() {
 	select {
 	case <-ctx.Done():
 		log.Info("shutting down")
+
+		// ListAndWatch only returns when its stream context ends or this
+		// channel closes, and the stream context never ends on its own.
+		//
+		// Closing it here, before GracefulStop, is what lets the in-flight
+		// ListAndWatch call return so GracefulStop can finish instead of
+		// blocking until the kubelet sends SIGKILL.
+		close(simulator.stop)
 		grpcServer.GracefulStop()
 	case err := <-serveErr:
 		if err != nil {
@@ -156,22 +166,53 @@ func fakeDevices(n int) []*pluginapi.Device {
 	return devices
 }
 
+// registerRetryBackoff is the pause between failed kubelet registration attempts.
+const registerRetryBackoff = 1 * time.Second
+
+// registerWithKubeletRetry retries registerWithKubelet until it succeeds or
+// the overall 10-second timeout expires.
+//
+// The very first registration attempt can lose a race with a kubelet
+// restart, since kubelet.sock is briefly unreachable while the kubelet
+// comes back up.
+//
+// Retrying inside the same startup recovers from that race in seconds,
+// rather than leaving recovery to the pod's much slower restart backoff.
+func registerWithKubeletRetry(log logr.Logger, pluginPath, endpoint string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	var lastErr error
+	for {
+		err := registerWithKubelet(ctx, pluginPath, endpoint)
+		if err == nil {
+			return nil
+		}
+		lastErr = err
+
+		log.V(1).Info("retrying kubelet registration", "error", lastErr)
+
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("register with kubelet: %w", lastErr)
+		case <-time.After(registerRetryBackoff):
+		}
+	}
+}
+
 // registerWithKubelet dials the kubelet's registration socket and
 // advertises resourceName at pluginPath/endpoint.
 //
 // The kubelet socket is derived from pluginPath rather than
 // pluginapi.KubeletSocket, so that a DEVICE_PLUGIN_PATH override applies
 // consistently to both sides of the handshake.
-func registerWithKubelet(pluginPath, endpoint string) error {
+func registerWithKubelet(ctx context.Context, pluginPath, endpoint string) error {
 	target := "unix://" + filepath.Join(pluginPath, "kubelet.sock")
 	conn, err := grpc.NewClient(target, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		return fmt.Errorf("dial kubelet registration socket: %w", err)
 	}
 	defer conn.Close() //nolint:errcheck
-
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
 
 	req := &pluginapi.RegisterRequest{
 		Version:      pluginapi.Version,
@@ -202,6 +243,14 @@ type gpuSimulator struct {
 	pluginapi.UnimplementedDevicePluginServer
 
 	devices []*pluginapi.Device
+
+	// stop is closed once, from main's shutdown path, to unblock every
+	// in-flight ListAndWatch call.
+	//
+	// Without it, ListAndWatch would only return when the stream's own
+	// context ends, which never happens on a normal SIGTERM, so
+	// GracefulStop would hang until the kubelet gives up and sends SIGKILL.
+	stop chan struct{}
 }
 
 // GetDevicePluginOptions reports that this plugin needs no
@@ -219,12 +268,20 @@ func (p *gpuSimulator) GetDevicePluginOptions(
 //
 // The stream must still be held open for as long as the kubelet expects to
 // receive updates on it, which is why this returns only when the stream's
-// context is done.
+// context ends or the process is shutting down.
+//
+// Selecting on p.stop as well as the stream context is what lets a normal
+// SIGTERM unblock this call, since the stream context alone never ends on
+// its own, and an always-blocked ListAndWatch would otherwise deadlock
+// grpcServer.GracefulStop() until the kubelet resorts to SIGKILL.
 func (p *gpuSimulator) ListAndWatch(_ *pluginapi.Empty, stream pluginapi.DevicePlugin_ListAndWatchServer) error {
 	if err := stream.Send(&pluginapi.ListAndWatchResponse{Devices: p.devices}); err != nil {
 		return fmt.Errorf("send device list: %w", err)
 	}
-	<-stream.Context().Done()
+	select {
+	case <-stream.Context().Done():
+	case <-p.stop:
+	}
 	return nil
 }
 
