@@ -42,7 +42,7 @@ The project is built milestone by milestone.
 | M5-b      | Real-GPU flagship on that infra: GPU node group (On-Demand, ephemeral), `GpuSharingBenchmark` + KV-cache-aware admission guard, measured noisy-neighbor p99 A/B (killer feature) | Designed        |
 | M5-c      | Depth: cost/fairness frontier (≥3 guard thresholds) + sharing-mode matrix (exclusive / time-slicing / MPS) — hardens the M5-b evidence, no new features                          | Planned         |
 | M5-d      | Technical write-up with the measured numbers (published after M5-c)                                                                                                              | Planned         |
-| M6        | Training admission (promoted from stretch): `MLTrainingJob` → Job + Kueue Workload, 2-tenant fair sharing, preemption evidence on kind; Kueue owns training quota                | Planned         |
+| M6        | Training admission (promoted from stretch): `MLTrainingJob` → Job + Kueue Workload, 2-tenant fair sharing, preemption evidence on kind; Kueue owns training quota                | Done ([evidence](hack/m6-kind-e2e.md)) |
 | M7        | Inject failure scenarios and record an operational evidence trail (`WorkloadRun`)                                                                                                | Sketched        |
 
 GPU capacity used in validation is simulated. Real GPU serving, hardware fault detection, the contention benchmark's p99 figures, and AWS deployment are designed but not yet exercised.
