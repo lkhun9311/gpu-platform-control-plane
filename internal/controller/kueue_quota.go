@@ -187,21 +187,45 @@ func (r *GPUQuotaPolicyReconciler) syncKueueTrainingQuota(ctx context.Context, p
 	return ctrl.Result{}, false, nil
 }
 
-// deleteKueueQuota removes the per-tenant Kueue ClusterQueue and LocalQueue.
+// deleteKueueQuota removes the per-tenant Kueue ClusterQueue and LocalQueue this policy owns.
 //
 // It is called when trainingQuota flips false or on policy deletion, and it ignores not-found so it is safe to call repeatedly.
+//
+// The queue name is derived from the tenant, which two policies in different namespaces can share, so deletion only ever removes a queue this policy controls.
+//
+// Deleting purely by name would let a non-owning policy tear down another policy's active queue, which the create path already refuses to do.
 //
 // envtest has no garbage collector, so this explicit cleanup is what removes the owned queues in tests; in a real cluster the owner references remove them as well.
 func (r *GPUQuotaPolicyReconciler) deleteKueueQuota(ctx context.Context, policy *platformv1.GPUQuotaPolicy) error {
 	name := kueueQueueName(policy.Spec.Tenant)
 
-	lq := &kueuev1beta1.LocalQueue{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: policy.Spec.TargetNamespace}}
-	if err := r.Delete(ctx, lq); err != nil && !apierrors.IsNotFound(err) {
+	lqKey := types.NamespacedName{Name: name, Namespace: policy.Spec.TargetNamespace}
+	var lq kueuev1beta1.LocalQueue
+	switch err := r.Get(ctx, lqKey, &lq); {
+	case err == nil:
+		if metav1.IsControlledBy(&lq, policy) {
+			if err := r.Delete(ctx, &lq); err != nil && !apierrors.IsNotFound(err) {
+				return err
+			}
+		}
+	case apierrors.IsNotFound(err):
+		// already gone
+	default:
 		return err
 	}
 
-	cq := &kueuev1beta1.ClusterQueue{ObjectMeta: metav1.ObjectMeta{Name: name}}
-	if err := r.Delete(ctx, cq); err != nil && !apierrors.IsNotFound(err) {
+	cqKey := types.NamespacedName{Name: name}
+	var cq kueuev1beta1.ClusterQueue
+	switch err := r.Get(ctx, cqKey, &cq); {
+	case err == nil:
+		if metav1.IsControlledBy(&cq, policy) {
+			if err := r.Delete(ctx, &cq); err != nil && !apierrors.IsNotFound(err) {
+				return err
+			}
+		}
+	case apierrors.IsNotFound(err):
+		// already gone
+	default:
 		return err
 	}
 
