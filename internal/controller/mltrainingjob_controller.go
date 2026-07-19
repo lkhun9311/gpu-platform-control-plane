@@ -277,6 +277,12 @@ func (r *MLTrainingJobReconciler) setMLTJPhase(ctx context.Context, mltj *platfo
 	if err := r.Status().Update(ctx, mltj); err != nil {
 		return fmt.Errorf("update mltrainingjob status %s/%s to phase %s: %w", mltj.Namespace, mltj.Name, phase, err)
 	}
+
+	// Increment the phase transition counter only when the phase actually changed.
+	if phaseChanged {
+		mlTrainingJobPhaseTotal.WithLabelValues(phase).Inc()
+	}
+
 	return nil
 }
 
