@@ -3,7 +3,7 @@
 # Why a separate Dockerfile:
 # The existing Dockerfile builds cmd/main.go (the controller) into the manager binary, and Dockerfile.gateway builds the gateway.
 # gpu-simulator is a third, independent process that runs as a DaemonSet on every node, so it takes its own image for the same reason the gateway does: a shared image would redeploy all three whenever only one changes.
-FROM golang:1.25 AS builder
+FROM golang:1.26 AS builder
 ARG TARGETOS
 ARG TARGETARCH
 
