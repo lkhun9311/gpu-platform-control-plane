@@ -31,6 +31,23 @@ import (
 // On deletion the reconciler removes the unhealthy taint it owns before dropping this finalizer.
 const nodeHealthFinalizer = "nodehealth.platform.lkhun9311.github.io/finalizer"
 
+// mlTrainingJobFinalizer guards MLTrainingJob cleanup.
+//
+// The owned Job is removed by garbage collection via the owner reference, so on deletion the reconciler only needs to drop this finalizer.
+const mlTrainingJobFinalizer = "mltrainingjob.platform.lkhun9311.github.io/finalizer"
+
+// kueueQueueLabel is the label Kueue reads to admit a Job through a LocalQueue of the same name.
+const kueueQueueLabel = "kueue.x-k8s.io/queue-name"
+
+// MLTrainingJob phase, condition and reason constants for the Failed path.
+//
+// The other phases (Pending, Admitted, Running, Succeeded) are driven by Kueue admission and Job status in a later milestone.
+const (
+	mltjPhaseFailed    = "Failed"
+	mltjCondSynced     = "JobSynced"
+	mltjReasonConflict = "JobConflict"
+)
+
 // unhealthyTaintKey/Value/Effect is the taint the reconciler applies to quarantine a not-ready node so the scheduler stops placing GPU workloads on it.
 //
 // The reconciler manages only this taint.
