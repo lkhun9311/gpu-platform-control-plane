@@ -262,5 +262,61 @@ var _ = Describe("MLTrainingJob Controller", func() {
 			Expect(k8sClient.Get(ctx, key, running)).To(Succeed())
 			Expect(running.Status.Phase).To(Equal("Running"))
 		})
+
+		It("increments mlTrainingJobPhaseTotal counter when transitioning to Admitted phase", func() {
+			reconcileUntilSteady()
+
+			job := &batchv1.Job{}
+			Expect(k8sClient.Get(ctx, key, job)).To(Succeed())
+
+			By("reading the counter value before the Admitted phase transition")
+			before := testutil.ToFloat64(mlTrainingJobPhaseTotal.WithLabelValues(mltjPhaseAdmitted))
+
+			By("creating the Kueue Workload and admitting it")
+			wl := &kueuev1beta1.Workload{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      key.Name,
+					Namespace: key.Namespace,
+					Labels:    map[string]string{"kueue.x-k8s.io/job-uid": string(job.UID)},
+				},
+				Spec: kueuev1beta1.WorkloadSpec{
+					PodSets: []kueuev1beta1.PodSet{{
+						Name:  "main",
+						Count: 1,
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{
+								RestartPolicy: corev1.RestartPolicyNever,
+								Containers:    []corev1.Container{{Name: "trainer", Image: "busybox"}},
+							},
+						},
+					}},
+				},
+			}
+			Expect(k8sClient.Create(ctx, wl)).To(Succeed())
+
+			wl.Status.Conditions = []metav1.Condition{{
+				Type:               "Admitted",
+				Status:             metav1.ConditionTrue,
+				Reason:             "QuotaReserved",
+				Message:            "",
+				LastTransitionTime: metav1.Now(),
+			}}
+			Expect(k8sClient.Status().Update(ctx, wl)).To(Succeed())
+
+			By("reconciling to trigger the phase transition to Admitted")
+			_, err := reconciler().Reconcile(ctx, reconcile.Request{NamespacedName: key})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("verifying the MLTrainingJob transitioned to Admitted")
+			admitted := &platformv1.MLTrainingJob{}
+			Expect(k8sClient.Get(ctx, key, admitted)).To(Succeed())
+			Expect(admitted.Status.Phase).To(Equal(mltjPhaseAdmitted))
+
+			By("reading the counter value after the phase transition")
+			after := testutil.ToFloat64(mlTrainingJobPhaseTotal.WithLabelValues(mltjPhaseAdmitted))
+
+			By("asserting the counter incremented by exactly 1")
+			Expect(after - before).To(Equal(1.0))
+		})
 	})
 })

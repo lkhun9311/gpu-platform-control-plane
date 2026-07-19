@@ -76,4 +76,15 @@ var (
 		},
 		[]string{"reason"},
 	)
+
+	// mlTrainingJobPhaseTotal counts MLTrainingJob phase transitions, by phase.
+	//
+	// It increments each time a phase actually changes, right after the status update succeeds.
+	mlTrainingJobPhaseTotal = promauto.With(metrics.Registry).NewCounterVec(
+		prometheus.CounterOpts{
+			Name: metricPrefix + "mltrainingjob_phase_total",
+			Help: "Number of MLTrainingJob phase transitions, labeled by phase.",
+		},
+		[]string{"phase"},
+	)
 )
