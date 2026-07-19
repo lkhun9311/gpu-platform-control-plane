@@ -33,6 +33,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
+	kueuev1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 
 	platformv1 "github.com/lkhun9311/gpu-mlops-platform-control-plane/api/v1"
 )
@@ -90,7 +91,7 @@ func (r *GPUQuotaPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 
 	rqKey := types.NamespacedName{Name: quotaName(policy.Name), Namespace: policy.Spec.TargetNamespace}
 
-	// Handle deletion: delete the synced ResourceQuota, then drop the finalizer.
+	// Handle deletion: delete the synced ResourceQuota and any Kueue queues, then drop the finalizer.
 	if !policy.DeletionTimestamp.IsZero() {
 		if controllerutil.ContainsFinalizer(&policy, gpuQuotaFinalizer) {
 			var rq corev1.ResourceQuota
@@ -105,6 +106,14 @@ func (r *GPUQuotaPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 			default:
 				return ctrl.Result{}, err
 			}
+
+			// Delete the per-tenant Kueue queues explicitly for ordered cleanup, mirroring the ResourceQuota path above.
+			//
+			// The owner references also garbage collect them in a real cluster, but envtest has no garbage collector.
+			if err := r.deleteKueueQuota(ctx, &policy); err != nil {
+				return ctrl.Result{}, err
+			}
+
 			controllerutil.RemoveFinalizer(&policy, gpuQuotaFinalizer)
 			if err := r.Update(ctx, &policy); err != nil {
 				return ctrl.Result{}, err
@@ -175,6 +184,13 @@ func (r *GPUQuotaPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		}
 	}
 
+	// Sync the per-tenant Kueue ClusterQueue and LocalQueue when the tenant opts into training quota.
+	//
+	// A conflict or a create race is handled inside the sync and short-circuits this reconcile.
+	if res, handled, err := r.syncKueueTrainingQuota(ctx, &policy); handled || err != nil {
+		return res, err
+	}
+
 	// Reflect the synced state into status, idempotently.
 	desired := policy.Status.DeepCopy()
 	desired.ObservedGeneration = policy.Generation
@@ -241,6 +257,8 @@ func (r *GPUQuotaPolicyReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&platformv1.GPUQuotaPolicy{}).
 		Owns(&corev1.ResourceQuota{}).
+		Owns(&kueuev1beta1.ClusterQueue{}).
+		Owns(&kueuev1beta1.LocalQueue{}).
 		Named("gpuquotapolicy").
 		Complete(r)
 }

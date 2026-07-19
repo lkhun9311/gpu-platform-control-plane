@@ -64,6 +64,12 @@ type GPUQuotaPolicySpec struct {
 	// It is optional: a policy without rateLimit means the tenant has no gateway rate limit.
 	// +optional
 	RateLimit *GPUQuotaRateLimit `json:"rateLimit,omitempty"`
+
+	// trainingQuota, when true, also publishes this tenant's GPU ceiling as a Kueue ClusterQueue for training admission.
+	//
+	// Training GPU quota then lives in Kueue rather than the namespace ResourceQuota, so the same GPUs are not counted twice.
+	// +optional
+	TrainingQuota bool `json:"trainingQuota,omitempty"`
 }
 
 // GPUQuotaRateLimit is the per-tenant token-bucket configuration consumed by the serving gateway.

@@ -63,6 +63,19 @@ rules:
 - apiGroups:
   - kueue.x-k8s.io
   resources:
+  - clusterqueues
+  - localqueues
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - kueue.x-k8s.io
+  resources:
   - workloads
   verbs:
   - get

@@ -9,15 +9,7 @@ metadata:
   name: workloads.kueue.x-k8s.io
 spec:
   conversion:
-    strategy: Webhook
-    webhook:
-      clientConfig:
-        service:
-          name: kueue-webhook-service
-          namespace: kueue-system
-          path: /convert
-      conversionReviewVersions:
-      - v1
+    strategy: None
   group: kueue.x-k8s.io
   names:
     kind: Workload
@@ -13947,7 +13939,7 @@ spec:
             'True')))?((has(oldSelf.spec.maximumExecutionTimeSeconds)?oldSelf.spec.maximumExecutionTimeSeconds:0)
             ==  (has(self.spec.maximumExecutionTimeSeconds)?self.spec.maximumExecutionTimeSeconds:0)):true
     served: true
-    storage: false
+    storage: true
     subresources:
       status: {}
   - additionalPrinterColumns:
@@ -28172,6 +28164,6 @@ spec:
     selectableFields:
     - jsonPath: .status.admission.clusterQueue
     served: true
-    storage: true
+    storage: false
     subresources:
       status: {}
