@@ -259,7 +259,7 @@ spec:
                 == oldSelf.topologyName)'
         type: object
     served: true
-    storage: false
+    storage: true
   - name: v1beta2
     schema:
       openAPIV3Schema:
@@ -497,4 +497,4 @@ spec:
                 == oldSelf.topologyName)'
         type: object
     served: true
-    storage: true
+    storage: false

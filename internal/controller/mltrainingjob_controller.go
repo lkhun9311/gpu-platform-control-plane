@@ -19,6 +19,8 @@ package controller
 import (
 	"context"
 	"fmt"
+	"maps"
+	"time"
 
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -106,7 +108,11 @@ func (r *MLTrainingJobReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 			job.Spec.Suspend = new(true)
 			job.Spec.Template = desired.Spec.Template
 		}
-		job.Labels = desired.Labels
+		// Merge the desired labels in rather than replacing the map, so any label Kueue or the apiserver adds to the Job is preserved across reconciles.
+		if job.Labels == nil {
+			job.Labels = map[string]string{}
+		}
+		maps.Copy(job.Labels, desired.Labels)
 		job.Spec.Parallelism = desired.Spec.Parallelism
 		job.Spec.Completions = desired.Spec.Completions
 		return controllerutil.SetControllerReference(&mltj, job, r.Scheme)
@@ -169,14 +175,21 @@ func defaultOne(v int32) int32 {
 }
 
 // markFailed reflects a deterministic failure into status as Failed with the JobSynced condition set to False.
+//
+// It returns a RequeueAfter so the job recovers automatically once the blocking condition clears, since a conflicting foreign Job is not owned and so does not trigger the owned-Job watch.
 func (r *MLTrainingJobReconciler) markFailed(ctx context.Context, mltj *platformv1.MLTrainingJob, reason, msg string) (ctrl.Result, error) {
 	desired := mltj.Status.DeepCopy()
+	phaseChanged := desired.Phase != mltjPhaseFailed
 	desired.Phase = mltjPhaseFailed
 	desired.ObservedGeneration = mltj.Generation
 	meta.SetStatusCondition(&desired.Conditions, metav1.Condition{
 		Type: mltjCondSynced, Status: metav1.ConditionFalse, Reason: reason, Message: msg, ObservedGeneration: mltj.Generation,
 	})
 	if !equality.Semantic.DeepEqual(mltj.Status, *desired) {
+		if phaseChanged {
+			now := metav1.Now()
+			desired.LastTransitionTime = &now
+		}
 		mltj.Status = *desired
 		if err := r.Status().Update(ctx, mltj); err != nil {
 			return ctrl.Result{}, fmt.Errorf("update mltrainingjob status %s/%s to Failed: %w", mltj.Namespace, mltj.Name, err)
@@ -184,8 +197,13 @@ func (r *MLTrainingJobReconciler) markFailed(ctx context.Context, mltj *platform
 
 		// Count the transition only after the status write succeeds, so a reconcile that finds the object already Failed does not inflate the metric.
 		mlTrainingJobFailedTotal.WithLabelValues(reason).Inc()
+
+		// The phase counter tracks every entry into a phase, so a failure reached here counts the same as one reached through the normal phase translation.
+		if phaseChanged {
+			mlTrainingJobPhaseTotal.WithLabelValues(mltjPhaseFailed).Inc()
+		}
 	}
-	return ctrl.Result{}, nil
+	return ctrl.Result{RequeueAfter: time.Minute}, nil
 }
 
 // computeMLTJPhase derives the training phase from the Job and its Kueue Workload.
@@ -235,6 +253,13 @@ func (r *MLTrainingJobReconciler) getWorkloadForJob(ctx context.Context, job *ba
 		return nil, fmt.Errorf("list workloads for job %s/%s by job-uid label: %w", job.Namespace, job.Name, err)
 	}
 	if len(byLabel.Items) > 0 {
+		// Kueue keeps one Workload per Job UID, so more than one match means that invariant was violated upstream.
+		//
+		// Surface it rather than silently picking one, then take the first so the reconcile still makes progress.
+		if len(byLabel.Items) > 1 {
+			logf.FromContext(ctx).Info("multiple Kueue Workloads share one job-uid label; using the first",
+				"job", job.Namespace+"/"+job.Name, "count", len(byLabel.Items))
+		}
 		return &byLabel.Items[0], nil
 	}
 
@@ -291,7 +316,8 @@ func (r *MLTrainingJobReconciler) setMLTJPhase(ctx context.Context, mltj *platfo
 // A Kueue Workload's owner reference points at the batch/v1 Job it is admitting, and that Job always shares its name with the MLTrainingJob that created it, so no further lookup is needed.
 func mapWorkloadToMLTrainingJob(_ context.Context, obj client.Object) []reconcile.Request {
 	for _, ref := range obj.GetOwnerReferences() {
-		if ref.Kind == "Job" {
+		// Match the batch/v1 Job specifically, so a same-named owner from another API group cannot enqueue a spurious request.
+		if ref.Kind == "Job" && ref.APIVersion == "batch/v1" {
 			return []reconcile.Request{{NamespacedName: types.NamespacedName{Name: ref.Name, Namespace: obj.GetNamespace()}}}
 		}
 	}
