@@ -32,7 +32,10 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	kueuev1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 
 	platformv1 "github.com/lkhun9311/gpu-mlops-platform-control-plane/api/v1"
 )
@@ -47,6 +50,7 @@ type MLTrainingJobReconciler struct {
 // +kubebuilder:rbac:groups=platform.lkhun9311.github.io,resources=mltrainingjobs/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=platform.lkhun9311.github.io,resources=mltrainingjobs/finalizers,verbs=update
 // +kubebuilder:rbac:groups=batch,resources=jobs,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads,verbs=get;list;watch
 
 // Reconcile syncs an owned, suspended batch/v1 Job from the MLTrainingJob spec.
 //
@@ -112,6 +116,16 @@ func (r *MLTrainingJobReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 
 	log.Info("Synced training job", "mlTrainingJob", req.String())
 
+	wl, err := r.getWorkloadForJob(ctx, job)
+	if err != nil {
+		return ctrl.Result{}, fmt.Errorf("get kueue workload for job %s/%s: %w", mltj.Namespace, mltj.Name, err)
+	}
+
+	phase, cond := computeMLTJPhase(job, wl)
+	if err := r.setMLTJPhase(ctx, &mltj, phase, cond); err != nil {
+		return ctrl.Result{}, err
+	}
+
 	return ctrl.Result{}, nil
 }
 
@@ -174,6 +188,110 @@ func (r *MLTrainingJobReconciler) markFailed(ctx context.Context, mltj *platform
 	return ctrl.Result{}, nil
 }
 
+// computeMLTJPhase derives the training phase from the Job and its Kueue Workload.
+//
+// Kueue admission is read from the Workload's Admitted condition, since the Job's suspend flag alone is ambiguous mid-transition.
+func computeMLTJPhase(job *batchv1.Job, wl *kueuev1beta1.Workload) (string, metav1.Condition) {
+	if isJobConditionTrue(job, batchv1.JobFailed) {
+		return mltjPhaseFailed, admittedCondition(metav1.ConditionFalse, "JobFailed")
+	}
+	if isJobConditionTrue(job, batchv1.JobComplete) {
+		return mltjPhaseSucceeded, admittedCondition(metav1.ConditionTrue, "JobComplete")
+	}
+	if job.Status.Active > 0 {
+		return mltjPhaseRunning, admittedCondition(metav1.ConditionTrue, "PodsRunning")
+	}
+	if wl != nil && meta.IsStatusConditionTrue(wl.Status.Conditions, kueuev1beta1.WorkloadAdmitted) {
+		return mltjPhaseAdmitted, admittedCondition(metav1.ConditionTrue, "QuotaReserved")
+	}
+	return mltjPhasePending, admittedCondition(metav1.ConditionFalse, "QueuedForAdmission")
+}
+
+// isJobConditionTrue reports whether the Job carries the given condition type with status True.
+func isJobConditionTrue(job *batchv1.Job, condType batchv1.JobConditionType) bool {
+	for i := range job.Status.Conditions {
+		if job.Status.Conditions[i].Type == condType {
+			return job.Status.Conditions[i].Status == corev1.ConditionTrue
+		}
+	}
+	return false
+}
+
+// admittedCondition builds the MLTrainingJob Admitted condition for a phase transition.
+//
+// The message is left empty; the reason and the phase it is paired with already say what happened.
+func admittedCondition(status metav1.ConditionStatus, reason string) metav1.Condition {
+	return metav1.Condition{Type: mltjCondAdmitted, Status: status, Reason: reason}
+}
+
+// getWorkloadForJob returns the Kueue Workload created for a Job, or nil if Kueue has not created one yet.
+//
+// Kueue stamps every Workload it creates with the kueue.x-k8s.io/job-uid label, so listing by that label is the primary lookup.
+//
+// A Workload whose owner reference points at the Job's UID is accepted as a fallback, in case a Workload ever exists without the label.
+func (r *MLTrainingJobReconciler) getWorkloadForJob(ctx context.Context, job *batchv1.Job) (*kueuev1beta1.Workload, error) {
+	var byLabel kueuev1beta1.WorkloadList
+	if err := r.List(ctx, &byLabel, client.InNamespace(job.Namespace), client.MatchingLabels{kueueJobUIDLabel: string(job.UID)}); err != nil {
+		return nil, fmt.Errorf("list workloads for job %s/%s by job-uid label: %w", job.Namespace, job.Name, err)
+	}
+	if len(byLabel.Items) > 0 {
+		return &byLabel.Items[0], nil
+	}
+
+	var all kueuev1beta1.WorkloadList
+	if err := r.List(ctx, &all, client.InNamespace(job.Namespace)); err != nil {
+		return nil, fmt.Errorf("list workloads in namespace %s: %w", job.Namespace, err)
+	}
+	for i := range all.Items {
+		for _, ref := range all.Items[i].OwnerReferences {
+			if ref.UID == job.UID {
+				return &all.Items[i], nil
+			}
+		}
+	}
+	return nil, nil
+}
+
+// setMLTJPhase writes the phase and the Admitted condition to status, but only when either actually changes.
+//
+// lastTransitionTime is stamped only on a phase transition, not on every reconcile that finds the same phase.
+func (r *MLTrainingJobReconciler) setMLTJPhase(ctx context.Context, mltj *platformv1.MLTrainingJob, phase string, cond metav1.Condition) error {
+	desired := mltj.Status.DeepCopy()
+	phaseChanged := desired.Phase != phase
+	desired.Phase = phase
+	desired.ObservedGeneration = mltj.Generation
+
+	cond.ObservedGeneration = mltj.Generation
+	meta.SetStatusCondition(&desired.Conditions, cond)
+
+	if equality.Semantic.DeepEqual(mltj.Status, *desired) {
+		return nil
+	}
+
+	if phaseChanged {
+		now := metav1.Now()
+		desired.LastTransitionTime = &now
+	}
+
+	mltj.Status = *desired
+	if err := r.Status().Update(ctx, mltj); err != nil {
+		return fmt.Errorf("update mltrainingjob status %s/%s to phase %s: %w", mltj.Namespace, mltj.Name, phase, err)
+	}
+	return nil
+}
+
+// mapWorkloadToMLTrainingJob maps a Workload event to a reconcile request for the MLTrainingJob that owns its Job.
+//
+// A Kueue Workload's owner reference points at the batch/v1 Job it is admitting, and that Job always shares its name with the MLTrainingJob that created it, so no further lookup is needed.
+func mapWorkloadToMLTrainingJob(_ context.Context, obj client.Object) []reconcile.Request {
+	for _, ref := range obj.GetOwnerReferences() {
+		if ref.Kind == "Job" {
+			return []reconcile.Request{{NamespacedName: types.NamespacedName{Name: ref.Name, Namespace: obj.GetNamespace()}}}
+		}
+	}
+	return nil
+}
+
 // ownedConflict reports whether an object of the given name exists but is not controlled by mltj.
 func (r *MLTrainingJobReconciler) ownedConflict(ctx context.Context, mltj *platformv1.MLTrainingJob, obj client.Object) (bool, error) {
 	err := r.Get(ctx, types.NamespacedName{Name: mltj.Name, Namespace: mltj.Namespace}, obj)
@@ -192,6 +310,7 @@ func (r *MLTrainingJobReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&platformv1.MLTrainingJob{}).
 		Owns(&batchv1.Job{}).
+		Watches(&kueuev1beta1.Workload{}, handler.EnqueueRequestsFromMapFunc(mapWorkloadToMLTrainingJob)).
 		Named("mltrainingjob").
 		Complete(r)
 }

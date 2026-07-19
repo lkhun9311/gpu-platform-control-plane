@@ -39,12 +39,32 @@ const mlTrainingJobFinalizer = "mltrainingjob.platform.lkhun9311.github.io/final
 // kueueQueueLabel is the label Kueue reads to admit a Job through a LocalQueue of the same name.
 const kueueQueueLabel = "kueue.x-k8s.io/queue-name"
 
-// MLTrainingJob phase, condition and reason constants for the Failed path.
+// kueueJobUIDLabel is the label Kueue stamps on a Workload with the UID of the Job it wraps.
 //
-// The other phases (Pending, Admitted, Running, Succeeded) are driven by Kueue admission and Job status in a later milestone.
+// This is a label, not an annotation, so it can be used as a List label selector.
+const kueueJobUIDLabel = "kueue.x-k8s.io/job-uid"
+
+// MLTrainingJob phase constants for the whole lifecycle ladder.
+//
+// Pending, Admitted, Running and Succeeded are derived from the owned Job and its Kueue Workload by computeMLTJPhase.
+//
+// Failed is reached either the same way, from a Job Failed condition, or directly by markFailed for a deterministic controller-side error such as a Job name conflict.
 const (
+	mltjPhasePending   = "Pending"
+	mltjPhaseAdmitted  = "Admitted"
+	mltjPhaseRunning   = "Running"
+	mltjPhaseSucceeded = "Succeeded"
 	mltjPhaseFailed    = "Failed"
+)
+
+// MLTrainingJob condition types and reasons.
+//
+// mltjCondSynced reflects whether the owned Job was synced from spec, and is only ever set to False by markFailed.
+//
+// mltjCondAdmitted reflects Kueue admission and Job progress, and is set by computeMLTJPhase on every normal reconcile.
+const (
 	mltjCondSynced     = "JobSynced"
+	mltjCondAdmitted   = "Admitted"
 	mltjReasonConflict = "JobConflict"
 )
 
