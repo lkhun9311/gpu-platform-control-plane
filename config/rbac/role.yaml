@@ -61,6 +61,14 @@ rules:
   - update
   - watch
 - apiGroups:
+  - kueue.x-k8s.io
+  resources:
+  - workloads
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
   - platform.lkhun9311.github.io
   resources:
   - gpuquotapolicies

@@ -30,6 +30,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/rand"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	kueuev1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 
 	platformv1 "github.com/lkhun9311/gpu-mlops-platform-control-plane/api/v1"
 )
@@ -91,6 +92,12 @@ var _ = Describe("MLTrainingJob Controller", func() {
 			job := &batchv1.Job{}
 			if err := k8sClient.Get(ctx, key, job); err == nil {
 				Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, job))).To(Succeed())
+			}
+
+			// Best-effort: any Workload a spec created has no controller running to finalize it, so just ask for deletion.
+			wl := &kueuev1beta1.Workload{}
+			if err := k8sClient.Get(ctx, key, wl); err == nil {
+				Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, wl))).To(Succeed())
 			}
 		})
 
@@ -196,6 +203,64 @@ var _ = Describe("MLTrainingJob Controller", func() {
 			updated := &platformv1.MLTrainingJob{}
 			Expect(k8sClient.Get(ctx, key, updated)).To(Succeed())
 			Expect(updated.Status.Phase).To(Equal(phasePending))
+		})
+
+		It("moves to Admitted once the Kueue Workload reports Admitted=True, then to Running once the Job has active pods", func() {
+			reconcileUntilSteady()
+
+			job := &batchv1.Job{}
+			Expect(k8sClient.Get(ctx, key, job)).To(Succeed())
+
+			By("creating the Kueue Workload Kueue would create for this Job, labeled with the Job's UID")
+			wl := &kueuev1beta1.Workload{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      key.Name,
+					Namespace: key.Namespace,
+					Labels:    map[string]string{"kueue.x-k8s.io/job-uid": string(job.UID)},
+				},
+				Spec: kueuev1beta1.WorkloadSpec{
+					PodSets: []kueuev1beta1.PodSet{{
+						Name:  "main",
+						Count: 1,
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{
+								RestartPolicy: corev1.RestartPolicyNever,
+								Containers:    []corev1.Container{{Name: "trainer", Image: "busybox"}},
+							},
+						},
+					}},
+				},
+			}
+			Expect(k8sClient.Create(ctx, wl)).To(Succeed())
+
+			wl.Status.Conditions = []metav1.Condition{{
+				Type:               "Admitted",
+				Status:             metav1.ConditionTrue,
+				Reason:             "QuotaReserved",
+				Message:            "",
+				LastTransitionTime: metav1.Now(),
+			}}
+			Expect(k8sClient.Status().Update(ctx, wl)).To(Succeed())
+
+			By("reconciling so the MLTrainingJob picks up the Workload's Admitted condition")
+			_, err := reconciler().Reconcile(ctx, reconcile.Request{NamespacedName: key})
+			Expect(err).NotTo(HaveOccurred())
+
+			admitted := &platformv1.MLTrainingJob{}
+			Expect(k8sClient.Get(ctx, key, admitted)).To(Succeed())
+			Expect(admitted.Status.Phase).To(Equal("Admitted"))
+			Expect(admitted.Status.LastTransitionTime).NotTo(BeNil())
+
+			By("giving the Job an active pod, as Kueue's unsuspend would eventually lead to")
+			job.Status.Active = 1
+			Expect(k8sClient.Status().Update(ctx, job)).To(Succeed())
+
+			_, err = reconciler().Reconcile(ctx, reconcile.Request{NamespacedName: key})
+			Expect(err).NotTo(HaveOccurred())
+
+			running := &platformv1.MLTrainingJob{}
+			Expect(k8sClient.Get(ctx, key, running)).To(Succeed())
+			Expect(running.Status.Phase).To(Equal("Running"))
 		})
 	})
 })
