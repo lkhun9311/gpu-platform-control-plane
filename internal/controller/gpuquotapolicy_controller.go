@@ -97,10 +97,13 @@ func (r *GPUQuotaPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 			var rq corev1.ResourceQuota
 			switch err := r.Get(ctx, rqKey, &rq); {
 			case err == nil:
-				if err := r.Delete(ctx, &rq); err != nil && !apierrors.IsNotFound(err) {
-					return ctrl.Result{}, err
+				// Only delete a ResourceQuota this policy owns, so a same-named ResourceQuota planted by someone else is never removed on this policy's deletion.
+				if metav1.IsControlledBy(&rq, &policy) {
+					if err := r.Delete(ctx, &rq); err != nil && !apierrors.IsNotFound(err) {
+						return ctrl.Result{}, err
+					}
+					log.Info("Deleted synced ResourceQuota on deletion", "resourceQuota", rqKey.String())
 				}
-				log.Info("Deleted synced ResourceQuota on deletion", "resourceQuota", rqKey.String())
 			case apierrors.IsNotFound(err):
 				// already gone
 			default:
@@ -146,6 +149,12 @@ func (r *GPUQuotaPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	}
 
 	// Reflect the synced state into status, idempotently.
+	//
+	// The message names where the GPU ceiling is enforced, since training quota lives in the Kueue ClusterQueue and no namespace ResourceQuota exists for it.
+	syncedMessage := "ResourceQuota synced from policy"
+	if policy.Spec.TrainingQuota {
+		syncedMessage = "GPU quota synced to Kueue ClusterQueue from policy"
+	}
 	desired := policy.Status.DeepCopy()
 	desired.ObservedGeneration = policy.Generation
 	setQuotaPhase(desired, phaseSynced)
@@ -153,7 +162,7 @@ func (r *GPUQuotaPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		Type:               conditionSynced,
 		Status:             metav1.ConditionTrue,
 		Reason:             reasonQuotaSynced,
-		Message:            "ResourceQuota synced from policy",
+		Message:            syncedMessage,
 		ObservedGeneration: policy.Generation,
 	})
 
