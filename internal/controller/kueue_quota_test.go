@@ -200,6 +200,55 @@ var _ = Describe("GPUQuotaPolicy Kueue sync", func() {
 			Expect(errors.IsNotFound(k8sClient.Get(ctx, lqKey, &kueuev1beta1.LocalQueue{}))).To(BeTrue())
 		})
 
+		It("does not delete a ClusterQueue owned by another policy sharing the tenant", func() {
+			By("creating the owning policy with training quota")
+			owner := &platformv1.GPUQuotaPolicy{
+				ObjectMeta: metav1.ObjectMeta{Name: resourceName},
+				Spec: platformv1.GPUQuotaPolicySpec{
+					Tenant:          tenant,
+					TargetNamespace: targetNS,
+					Limits:          platformv1.GPUQuotaLimits{GPUCount: 12},
+					TrainingQuota:   true,
+				},
+			}
+			Expect(k8sClient.Create(ctx, owner)).To(Succeed())
+			reconcileUntilSteady()
+			Expect(k8sClient.Get(ctx, cqKey, &kueuev1beta1.ClusterQueue{})).To(Succeed())
+
+			By("creating a second policy for the same tenant in another namespace, opted out of training quota")
+			otherNS := targetNS + "-2"
+			ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: otherNS}}
+			if err := k8sClient.Create(ctx, ns); err != nil && !errors.IsAlreadyExists(err) {
+				Expect(err).NotTo(HaveOccurred())
+			}
+			otherKey := types.NamespacedName{Name: resourceName + "-2"}
+			other := &platformv1.GPUQuotaPolicy{
+				ObjectMeta: metav1.ObjectMeta{Name: otherKey.Name},
+				Spec: platformv1.GPUQuotaPolicySpec{
+					Tenant:          tenant,
+					TargetNamespace: otherNS,
+					Limits:          platformv1.GPUQuotaLimits{GPUCount: 4},
+					TrainingQuota:   false,
+				},
+			}
+			Expect(k8sClient.Create(ctx, other)).To(Succeed())
+			for range 3 {
+				_, err := reconciler().Reconcile(ctx, reconcile.Request{NamespacedName: otherKey})
+				Expect(err).NotTo(HaveOccurred())
+			}
+
+			By("confirming the non-owning policy did not remove the owner's ClusterQueue")
+			Expect(k8sClient.Get(ctx, cqKey, &kueuev1beta1.ClusterQueue{})).To(Succeed())
+
+			By("cleaning up the second policy")
+			got := &platformv1.GPUQuotaPolicy{}
+			if err := k8sClient.Get(ctx, otherKey, got); err == nil {
+				got.Finalizers = nil
+				Expect(k8sClient.Update(ctx, got)).To(Succeed())
+				Expect(k8sClient.Delete(ctx, got)).To(Succeed())
+			}
+		})
+
 		It("corrects a mutated ClusterQueue nominal quota (drift recovery)", func() {
 			policy := &platformv1.GPUQuotaPolicy{
 				ObjectMeta: metav1.ObjectMeta{Name: resourceName},
