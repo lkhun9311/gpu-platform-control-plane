@@ -274,5 +274,54 @@ var _ = Describe("GPUQuotaPolicy Kueue sync", func() {
 			nominal := corrected.Spec.ResourceGroups[0].Flavors[0].Resources[0].NominalQuota
 			Expect(nominal.Value()).To(Equal(int64(12)))
 		})
+
+		It("does not cap GPUs in a namespace ResourceQuota when trainingQuota is true", func() {
+			By("creating a policy with training quota enabled")
+			policy := &platformv1.GPUQuotaPolicy{
+				ObjectMeta: metav1.ObjectMeta{Name: resourceName},
+				Spec: platformv1.GPUQuotaPolicySpec{
+					Tenant:          tenant,
+					TargetNamespace: targetNS,
+					Limits:          platformv1.GPUQuotaLimits{GPUCount: 12},
+					TrainingQuota:   true,
+				},
+			}
+			Expect(k8sClient.Create(ctx, policy)).To(Succeed())
+			reconcileUntilSteady()
+
+			By("confirming the GPU ceiling lives only in the ClusterQueue, not a namespace ResourceQuota")
+			rqKey := types.NamespacedName{Name: "gpuquota-" + resourceName, Namespace: targetNS}
+			Expect(errors.IsNotFound(k8sClient.Get(ctx, rqKey, &corev1.ResourceQuota{}))).To(BeTrue())
+			Expect(k8sClient.Get(ctx, cqKey, &kueuev1beta1.ClusterQueue{})).To(Succeed())
+		})
+
+		It("removes the namespace ResourceQuota when trainingQuota flips from false to true", func() {
+			By("creating a policy with training quota disabled so the namespace ResourceQuota is synced")
+			policy := &platformv1.GPUQuotaPolicy{
+				ObjectMeta: metav1.ObjectMeta{Name: resourceName},
+				Spec: platformv1.GPUQuotaPolicySpec{
+					Tenant:          tenant,
+					TargetNamespace: targetNS,
+					Limits:          platformv1.GPUQuotaLimits{GPUCount: 12},
+					TrainingQuota:   false,
+				},
+			}
+			Expect(k8sClient.Create(ctx, policy)).To(Succeed())
+			reconcileUntilSteady()
+
+			rqKey := types.NamespacedName{Name: "gpuquota-" + resourceName, Namespace: targetNS}
+			Expect(k8sClient.Get(ctx, rqKey, &corev1.ResourceQuota{})).To(Succeed())
+
+			By("flipping training quota on so the GPU ceiling moves to Kueue")
+			got := &platformv1.GPUQuotaPolicy{}
+			Expect(k8sClient.Get(ctx, key, got)).To(Succeed())
+			got.Spec.TrainingQuota = true
+			Expect(k8sClient.Update(ctx, got)).To(Succeed())
+			reconcileUntilSteady()
+
+			By("confirming the namespace ResourceQuota is removed and the ClusterQueue exists")
+			Expect(errors.IsNotFound(k8sClient.Get(ctx, rqKey, &corev1.ResourceQuota{}))).To(BeTrue())
+			Expect(k8sClient.Get(ctx, cqKey, &kueuev1beta1.ClusterQueue{})).To(Succeed())
+		})
 	})
 })
