@@ -1,0 +1,685 @@
+/*
+Copyright 2026.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package gateway
+
+import (
+	"context"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"os"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"time"
+
+	. "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
+
+	"github.com/prometheus/client_golang/prometheus/testutil"
+)
+
+// minimalValidMetrics is a small, valid vLLM-shaped exposition body: low usage, low waiting, well
+// under either engage threshold used across these specs.
+const minimalValidMetrics = `# HELP vllm:kv_cache_usage_perc x
+# TYPE vllm:kv_cache_usage_perc gauge
+vllm:kv_cache_usage_perc{engine="0"} 0.3
+# HELP vllm:num_requests_waiting x
+# TYPE vllm:num_requests_waiting gauge
+vllm:num_requests_waiting{engine="0"} 1
+`
+
+// overThresholdMetrics is a small, valid vLLM-shaped exposition body whose values clear the
+// default 0.85/8 engage thresholds used across these specs.
+const overThresholdMetrics = `# HELP vllm:kv_cache_usage_perc x
+# TYPE vllm:kv_cache_usage_perc gauge
+vllm:kv_cache_usage_perc{engine="0"} 0.95
+# HELP vllm:num_requests_waiting x
+# TYPE vllm:num_requests_waiting gauge
+vllm:num_requests_waiting{engine="0"} 20
+`
+
+// newTestRef builds a BackendRef whose URL points at an httptest server, for scraper specs that
+// need a real (loopback) HTTP round trip.
+func newTestRef(namespace, name, rawURL string) *BackendRef {
+	u, err := url.Parse(rawURL)
+	Expect(err).NotTo(HaveOccurred())
+	return &BackendRef{Namespace: namespace, Name: name, Port: 8080, URL: u, Model: "kvguard-test-model"}
+}
+
+// baseScraperConfig returns a scraperConfig with the design spec's v1 default thresholds and a
+// fixed clock, for specs that only care about one or two tick() calls and set clock explicitly
+// where they need to.
+func baseScraperConfig(clock clockFunc) scraperConfig {
+	return scraperConfig{
+		engageUsage:    0.85,
+		releaseUsage:   0.75,
+		waitingThresh:  8,
+		releaseSustain: 30 * time.Second,
+		scrapeInterval: 2 * time.Second,
+		maxStaleness:   6 * time.Second,
+		httpTimeout:    2 * time.Second,
+		clock:          clock,
+	}
+}
+
+// --- Exposition parser -------------------------------------------------------
+
+var _ = Describe("parseKVMetrics", func() {
+	It("parses the committed golden fixture's usage and waiting series", func() {
+		f, err := os.Open("testdata/vllm_metrics_golden.txt")
+		Expect(err).NotTo(HaveOccurred())
+		defer func() { _ = f.Close() }()
+
+		sample, err := parseKVMetrics(f)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(sample.CacheUsage).To(Equal(0.42))
+		Expect(sample.Waiting).To(Equal(5))
+	})
+
+	It("falls back to the V0 alias when only vllm:gpu_cache_usage_perc is present", func() {
+		text := `# HELP vllm:gpu_cache_usage_perc x
+# TYPE vllm:gpu_cache_usage_perc gauge
+vllm:gpu_cache_usage_perc{engine="0"} 0.5
+# HELP vllm:num_requests_waiting x
+# TYPE vllm:num_requests_waiting gauge
+vllm:num_requests_waiting{engine="0"} 3
+`
+		sample, err := parseKVMetrics(strings.NewReader(text))
+		Expect(err).NotTo(HaveOccurred())
+		Expect(sample.CacheUsage).To(Equal(0.5))
+		Expect(sample.Waiting).To(Equal(3))
+	})
+
+	It("prefers the V1 series over the V0 alias when both are present", func() {
+		text := `# HELP vllm:gpu_cache_usage_perc x
+# TYPE vllm:gpu_cache_usage_perc gauge
+vllm:gpu_cache_usage_perc{engine="0"} 0.1
+# HELP vllm:kv_cache_usage_perc x
+# TYPE vllm:kv_cache_usage_perc gauge
+vllm:kv_cache_usage_perc{engine="0"} 0.9
+# HELP vllm:num_requests_waiting x
+# TYPE vllm:num_requests_waiting gauge
+vllm:num_requests_waiting{engine="0"} 1
+`
+		sample, err := parseKVMetrics(strings.NewReader(text))
+		Expect(err).NotTo(HaveOccurred())
+		Expect(sample.CacheUsage).To(Equal(0.9))
+	})
+
+	It("aggregates multiple series for one logical backend: max usage, sum waiting", func() {
+		text := `# HELP vllm:kv_cache_usage_perc x
+# TYPE vllm:kv_cache_usage_perc gauge
+vllm:kv_cache_usage_perc{engine="0"} 0.3
+vllm:kv_cache_usage_perc{engine="1"} 0.6
+# HELP vllm:num_requests_waiting x
+# TYPE vllm:num_requests_waiting gauge
+vllm:num_requests_waiting{engine="0"} 2
+vllm:num_requests_waiting{engine="1"} 4
+`
+		sample, err := parseKVMetrics(strings.NewReader(text))
+		Expect(err).NotTo(HaveOccurred())
+		Expect(sample.CacheUsage).To(Equal(0.6))
+		Expect(sample.Waiting).To(Equal(6))
+	})
+
+	It("ignores unrelated series", func() {
+		text := `# HELP unrelated_thing x
+# TYPE unrelated_thing counter
+unrelated_thing 999
+# HELP vllm:kv_cache_usage_perc x
+# TYPE vllm:kv_cache_usage_perc gauge
+vllm:kv_cache_usage_perc{engine="0"} 0.1
+# HELP vllm:num_requests_waiting x
+# TYPE vllm:num_requests_waiting gauge
+vllm:num_requests_waiting{engine="0"} 1
+`
+		sample, err := parseKVMetrics(strings.NewReader(text))
+		Expect(err).NotTo(HaveOccurred())
+		Expect(sample.CacheUsage).To(Equal(0.1))
+		Expect(sample.Waiting).To(Equal(1))
+	})
+
+	It("errors on malformed exposition text", func() {
+		_, err := parseKVMetrics(strings.NewReader("vllm:kv_cache_usage_perc{engine=\"0\"\n"))
+		Expect(err).To(HaveOccurred())
+	})
+
+	It("errors when usage is above the [0,1] range", func() {
+		text := `# HELP vllm:kv_cache_usage_perc x
+# TYPE vllm:kv_cache_usage_perc gauge
+vllm:kv_cache_usage_perc{engine="0"} 1.5
+# HELP vllm:num_requests_waiting x
+# TYPE vllm:num_requests_waiting gauge
+vllm:num_requests_waiting{engine="0"} 1
+`
+		_, err := parseKVMetrics(strings.NewReader(text))
+		Expect(err).To(HaveOccurred())
+	})
+
+	It("errors when usage is below the [0,1] range", func() {
+		text := `# HELP vllm:kv_cache_usage_perc x
+# TYPE vllm:kv_cache_usage_perc gauge
+vllm:kv_cache_usage_perc{engine="0"} -0.1
+# HELP vllm:num_requests_waiting x
+# TYPE vllm:num_requests_waiting gauge
+vllm:num_requests_waiting{engine="0"} 1
+`
+		_, err := parseKVMetrics(strings.NewReader(text))
+		Expect(err).To(HaveOccurred())
+	})
+
+	It("errors when the usage series (both V1 and V0) is missing entirely", func() {
+		text := `# HELP vllm:num_requests_waiting x
+# TYPE vllm:num_requests_waiting gauge
+vllm:num_requests_waiting{engine="0"} 1
+`
+		_, err := parseKVMetrics(strings.NewReader(text))
+		Expect(err).To(HaveOccurred())
+	})
+
+	It("errors when the waiting series is missing entirely", func() {
+		text := `# HELP vllm:kv_cache_usage_perc x
+# TYPE vllm:kv_cache_usage_perc gauge
+vllm:kv_cache_usage_perc{engine="0"} 0.1
+`
+		_, err := parseKVMetrics(strings.NewReader(text))
+		Expect(err).To(HaveOccurred())
+	})
+
+	It("bounds an oversized response: a valid series placed past maxMetricsBytes is never reached", func() {
+		padding := strings.Repeat("# padding\n", 200000) // ~2,000,000 bytes, well past maxMetricsBytes (1MiB).
+		body := padding + minimalValidMetrics
+		_, err := parseKVMetrics(strings.NewReader(body))
+		// Without the bound, this would parse cleanly since minimalValidMetrics is valid; the
+		// bound truncates before reaching it, so parsing fails instead.
+		Expect(err).To(HaveOccurred())
+	})
+})
+
+// --- Pressure state machine ---------------------------------------------------
+
+var _ = Describe("pressureState", func() {
+	cfg := pressureConfig{
+		engageUsage:    0.85,
+		releaseUsage:   0.75,
+		waitingThresh:  8,
+		releaseSustain: 30 * time.Second,
+	}
+	base := time.Date(2026, 7, 25, 0, 0, 0, 0, time.UTC)
+
+	It("does not engage on a single over-threshold sample", func() {
+		p := newPressureState(cfg)
+		p.observe(kvSample{CacheUsage: 0.9, Waiting: 0}, base)
+		Expect(p.Engaged()).To(BeFalse())
+	})
+
+	It("engages after 2 consecutive fresh over-threshold samples", func() {
+		p := newPressureState(cfg)
+		p.observe(kvSample{CacheUsage: 0.9, Waiting: 0}, base)
+		p.observe(kvSample{CacheUsage: 0.9, Waiting: 0}, base.Add(2*time.Second))
+		Expect(p.Engaged()).To(BeTrue())
+	})
+
+	It("engages on waiting depth alone, without cache usage crossing its threshold", func() {
+		p := newPressureState(cfg)
+		p.observe(kvSample{CacheUsage: 0.1, Waiting: 9}, base)
+		p.observe(kvSample{CacheUsage: 0.1, Waiting: 9}, base.Add(2*time.Second))
+		Expect(p.Engaged()).To(BeTrue())
+	})
+
+	It("resets the consecutive count on an intervening under-threshold sample", func() {
+		p := newPressureState(cfg)
+		p.observe(kvSample{CacheUsage: 0.9, Waiting: 0}, base)
+		p.observe(kvSample{CacheUsage: 0.5, Waiting: 0}, base.Add(2*time.Second))
+		p.observe(kvSample{CacheUsage: 0.9, Waiting: 0}, base.Add(4*time.Second))
+		Expect(p.Engaged()).To(BeFalse())
+	})
+
+	It("does not release before the sustain window elapses", func() {
+		p := newPressureState(cfg)
+		p.observe(kvSample{CacheUsage: 0.9, Waiting: 0}, base)
+		p.observe(kvSample{CacheUsage: 0.9, Waiting: 0}, base.Add(2*time.Second))
+		Expect(p.Engaged()).To(BeTrue())
+		p.observe(kvSample{CacheUsage: 0.5, Waiting: 0}, base.Add(4*time.Second))
+		p.observe(kvSample{CacheUsage: 0.5, Waiting: 0}, base.Add(20*time.Second))
+		Expect(p.Engaged()).To(BeTrue())
+	})
+
+	It("releases once under both thresholds for the full sustain window", func() {
+		p := newPressureState(cfg)
+		p.observe(kvSample{CacheUsage: 0.9, Waiting: 0}, base)
+		p.observe(kvSample{CacheUsage: 0.9, Waiting: 0}, base.Add(2*time.Second))
+		Expect(p.Engaged()).To(BeTrue())
+		p.observe(kvSample{CacheUsage: 0.5, Waiting: 0}, base.Add(4*time.Second))
+		p.observe(kvSample{CacheUsage: 0.5, Waiting: 0}, base.Add(4*time.Second+30*time.Second))
+		Expect(p.Engaged()).To(BeFalse())
+	})
+
+	It("restarts the sustain window when the under-threshold streak breaks", func() {
+		p := newPressureState(cfg)
+		p.observe(kvSample{CacheUsage: 0.9, Waiting: 0}, base)
+		p.observe(kvSample{CacheUsage: 0.9, Waiting: 0}, base.Add(2*time.Second))
+		Expect(p.Engaged()).To(BeTrue())
+
+		p.observe(kvSample{CacheUsage: 0.5, Waiting: 0}, base.Add(4*time.Second))
+		// The under-threshold streak (started at t=4s) breaks here, at t=29s.
+		p.observe(kvSample{CacheUsage: 0.9, Waiting: 0}, base.Add(29*time.Second))
+		Expect(p.Engaged()).To(BeTrue())
+
+		// A fresh under-threshold streak starts at t=34s.
+		p.observe(kvSample{CacheUsage: 0.5, Waiting: 0}, base.Add(34*time.Second))
+		Expect(p.Engaged()).To(BeTrue())
+		// Only 25s after the restart point (34s): if the old streak from t=4s had survived, this
+		// (59s, i.e. 55s after t=4s) would already have released; it must not have.
+		p.observe(kvSample{CacheUsage: 0.5, Waiting: 0}, base.Add(59*time.Second))
+		Expect(p.Engaged()).To(BeTrue())
+		// 30s after the restart point (34s): now it releases.
+		p.observe(kvSample{CacheUsage: 0.5, Waiting: 0}, base.Add(64*time.Second))
+		Expect(p.Engaged()).To(BeFalse())
+	})
+
+	It("does not flap at the boundary between release and engage thresholds (asymmetric hysteresis)", func() {
+		p := newPressureState(cfg)
+		p.observe(kvSample{CacheUsage: 0.9, Waiting: 0}, base)
+		p.observe(kvSample{CacheUsage: 0.9, Waiting: 0}, base.Add(2*time.Second))
+		Expect(p.Engaged()).To(BeTrue())
+		// 0.8 is below engage (0.85) but above release (0.75): neither condition holds, so the
+		// state must not change no matter how long this persists.
+		for i := 1; i <= 10; i++ {
+			p.observe(kvSample{CacheUsage: 0.8, Waiting: 0}, base.Add(time.Duration(i)*10*time.Second))
+		}
+		Expect(p.Engaged()).To(BeTrue())
+	})
+
+	It("resetConsecutive clears an in-progress engage count without touching engaged", func() {
+		p := newPressureState(cfg)
+		p.observe(kvSample{CacheUsage: 0.9, Waiting: 0}, base)
+		Expect(p.Engaged()).To(BeFalse())
+		p.resetConsecutive()
+		// Without the reset, this would be "sample 2 of 2" and engage; with it, it is "sample 1
+		// of 2" and must not.
+		p.observe(kvSample{CacheUsage: 0.9, Waiting: 0}, base.Add(2*time.Second))
+		Expect(p.Engaged()).To(BeFalse())
+	})
+
+	It("resetConsecutive restarts an in-progress release sustain window without touching engaged", func() {
+		p := newPressureState(cfg)
+		p.observe(kvSample{CacheUsage: 0.9, Waiting: 0}, base)
+		p.observe(kvSample{CacheUsage: 0.9, Waiting: 0}, base.Add(2*time.Second))
+		Expect(p.Engaged()).To(BeTrue())
+		p.observe(kvSample{CacheUsage: 0.5, Waiting: 0}, base.Add(4*time.Second))
+		p.resetConsecutive()
+		// Without the reset, base.Add(4s+30s) would already satisfy the window that started at
+		// 4s; with it, the window can only start at whichever under-sample lands next.
+		p.observe(kvSample{CacheUsage: 0.5, Waiting: 0}, base.Add(34*time.Second))
+		Expect(p.Engaged()).To(BeTrue())
+	})
+})
+
+// --- Scraper hardening ---------------------------------------------------------
+
+var _ = Describe("backendScraper", func() {
+	It("counts a scrape error and leaves telemetry not-fresh when the backend returns 500", func() {
+		up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusInternalServerError)
+		}))
+		defer up.Close()
+		ref := newTestRef("kvguard-500-ns", "kvguard-500-backend", up.URL)
+		b := newBackendScraper(*ref, baseScraperConfig(time.Now))
+
+		before := testutil.ToFloat64(backendScrapeErrors.WithLabelValues(ref.Namespace, ref.Name))
+		b.tick(context.Background())
+		after := testutil.ToFloat64(backendScrapeErrors.WithLabelValues(ref.Namespace, ref.Name))
+		Expect(after).To(Equal(before + 1))
+
+		snap := b.snap.Load()
+		Expect(snap.fresh).To(BeFalse())
+		Expect(snap.engaged).To(BeFalse())
+	})
+
+	It("refuses to follow a redirect from the scrape target", func() {
+		var targetHits atomic.Int32
+		target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			targetHits.Add(1)
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(minimalValidMetrics))
+		}))
+		defer target.Close()
+		up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			http.Redirect(w, r, target.URL+"/metrics", http.StatusFound)
+		}))
+		defer up.Close()
+		ref := newTestRef("kvguard-redirect-ns", "kvguard-redirect-backend", up.URL)
+		b := newBackendScraper(*ref, baseScraperConfig(time.Now))
+
+		_, err := b.scrape(context.Background())
+		Expect(err).To(HaveOccurred())
+		Expect(targetHits.Load()).To(Equal(int32(0)))
+	})
+
+	It("never forwards an Authorization or API-key header to the scrape target", func() {
+		var gotAuth, gotAPIKey string
+		up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			gotAuth = r.Header.Get("Authorization")
+			gotAPIKey = r.Header.Get("X-Api-Key")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(minimalValidMetrics))
+		}))
+		defer up.Close()
+		ref := newTestRef("kvguard-noauth-ns", "kvguard-noauth-backend", up.URL)
+		b := newBackendScraper(*ref, baseScraperConfig(time.Now))
+
+		_, err := b.scrape(context.Background())
+		Expect(err).NotTo(HaveOccurred())
+		Expect(gotAuth).To(BeEmpty())
+		Expect(gotAPIKey).To(BeEmpty())
+	})
+
+	It("resets the consecutive engage count after a stale gap, so a lone post-gap sample does not instantly engage", func() {
+		h := &switchableHandler{mode: "engage"}
+		up := httptest.NewServer(h)
+		defer up.Close()
+		ref := newTestRef("kvguard-reset-ns", "kvguard-reset-backend", up.URL)
+
+		base := time.Date(2026, 7, 25, 12, 0, 0, 0, time.UTC)
+		now := base
+		cfg := baseScraperConfig(func() time.Time { return now })
+		cfg.maxStaleness = 6 * time.Second
+		b := newBackendScraper(*ref, cfg)
+
+		// t=0: first over-threshold sample; 1 of 2 needed to engage.
+		b.tick(context.Background())
+		Expect(b.snap.Load().engaged).To(BeFalse())
+
+		// Scrape failures long enough to exceed maxStaleness (6s) since the t=0 success.
+		h.setMode("fail")
+		for _, d := range []time.Duration{2 * time.Second, 4 * time.Second, 6 * time.Second, 8 * time.Second} {
+			now = base.Add(d)
+			b.tick(context.Background())
+		}
+		Expect(b.snap.Load().fresh).To(BeFalse())
+
+		// Resume with a single over-threshold sample. Without the reset this would be "sample 2
+		// of 2" (the t=0 sample plus this one) and engage immediately; with the reset it is
+		// "sample 1 of 2" and must not engage yet.
+		h.setMode("engage")
+		now = base.Add(10 * time.Second)
+		b.tick(context.Background())
+		Expect(b.snap.Load().engaged).To(BeFalse())
+
+		// A second consecutive fresh over-threshold sample now does engage.
+		now = base.Add(12 * time.Second)
+		b.tick(context.Background())
+		Expect(b.snap.Load().engaged).To(BeTrue())
+	})
+})
+
+// switchableHandler serves either overThresholdMetrics ("engage") or a 500 ("fail"), switchable
+// mid-test via setMode, guarded by a mutex since it may be hit from the scraper's own goroutine
+// in the race spec below as well as ticked directly in-line elsewhere.
+type switchableHandler struct {
+	mu   sync.Mutex
+	mode string
+}
+
+func (h *switchableHandler) setMode(m string) {
+	h.mu.Lock()
+	h.mode = m
+	h.mu.Unlock()
+}
+
+func (h *switchableHandler) ServeHTTP(w http.ResponseWriter, _ *http.Request) {
+	h.mu.Lock()
+	m := h.mode
+	h.mu.Unlock()
+	if m == "fail" {
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte(overThresholdMetrics))
+}
+
+// --- Admit matrix ---------------------------------------------------------------
+
+// managerWithSnapshot returns a scraperManager holding one backendScraper whose published
+// snapshot is exactly snap, without starting any goroutine or performing any HTTP -- the Admit
+// matrix specs below only care what kvAwareAdmitter.Admit does with a given snapshot, not how
+// the snapshot came to be.
+func managerWithSnapshot(key string, snap *backendSnapshot) *scraperManager {
+	m := newScraperManager(scraperConfig{clock: time.Now})
+	b := &backendScraper{}
+	b.snap.Store(snap)
+	m.scrapers[key] = b
+	return m
+}
+
+var _ = Describe("kvAwareAdmitter.Admit", func() {
+	ctx := context.Background()
+	backend := &BackendRef{Namespace: "kvguard-admit-ns", Name: "kvguard-admit-backend"}
+	longMeta := RequestMeta{EstInputTokens: 4096}
+	shortMeta := RequestMeta{EstInputTokens: 100}
+
+	It("admits when the backend has never been registered", func() {
+		m := newScraperManager(scraperConfig{clock: time.Now})
+		a := newKVAwareAdmitter(m, 4096)
+		ok, reason := a.Admit(ctx, longMeta, backend, "t", tierStandard)
+		Expect(ok).To(BeTrue())
+		Expect(reason).To(BeEmpty())
+	})
+
+	It("admits when telemetry is stale, even if the backend was previously engaged (fail-open bypass, not fail-closed retain)", func() {
+		m := managerWithSnapshot(backendKey(backend), &backendSnapshot{engaged: true, fresh: false})
+		a := newKVAwareAdmitter(m, 4096)
+		ok, reason := a.Admit(ctx, longMeta, backend, "t", tierStandard)
+		Expect(ok).To(BeTrue())
+		Expect(reason).To(BeEmpty())
+	})
+
+	It("admits when fresh but not engaged", func() {
+		m := managerWithSnapshot(backendKey(backend), &backendSnapshot{engaged: false, fresh: true})
+		a := newKVAwareAdmitter(m, 4096)
+		ok, reason := a.Admit(ctx, longMeta, backend, "t", tierStandard)
+		Expect(ok).To(BeTrue())
+		Expect(reason).To(BeEmpty())
+	})
+
+	It("admits a premium request even when engaged and fresh", func() {
+		m := managerWithSnapshot(backendKey(backend), &backendSnapshot{engaged: true, fresh: true})
+		a := newKVAwareAdmitter(m, 4096)
+		ok, reason := a.Admit(ctx, longMeta, backend, "t", tierPremium)
+		Expect(ok).To(BeTrue())
+		Expect(reason).To(BeEmpty())
+	})
+
+	It("rejects a standard-long request when engaged and fresh", func() {
+		m := managerWithSnapshot(backendKey(backend), &backendSnapshot{engaged: true, fresh: true})
+		a := newKVAwareAdmitter(m, 4096)
+		ok, reason := a.Admit(ctx, longMeta, backend, "t", tierStandard)
+		Expect(ok).To(BeFalse())
+		Expect(reason).To(Equal(reasonKVCachePressure))
+	})
+
+	It("admits a standard-short request even when engaged and fresh", func() {
+		m := managerWithSnapshot(backendKey(backend), &backendSnapshot{engaged: true, fresh: true})
+		a := newKVAwareAdmitter(m, 4096)
+		ok, reason := a.Admit(ctx, shortMeta, backend, "t", tierStandard)
+		Expect(ok).To(BeTrue())
+		Expect(reason).To(BeEmpty())
+	})
+})
+
+// --- Scraper manager lifecycle ---------------------------------------------------
+
+var _ = Describe("scraperManager lifecycle", func() {
+	It("Register is idempotent: a second call for the same backend does not start a second scraper", func() {
+		up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(minimalValidMetrics))
+		}))
+		defer up.Close()
+		ref := newTestRef("kvguard-idem-ns", "kvguard-idem-backend", up.URL)
+		m := newScraperManager(scraperConfig{scrapeInterval: time.Hour, maxStaleness: time.Hour, httpTimeout: time.Second, clock: time.Now})
+		defer m.Stop()
+
+		m.Register(ref)
+		m.Register(ref)
+		Expect(m.scrapers).To(HaveLen(1))
+	})
+
+	It("Unregister stops the scraper and removes it from lookup", func() {
+		up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(minimalValidMetrics))
+		}))
+		defer up.Close()
+		ref := newTestRef("kvguard-unreg-ns", "kvguard-unreg-backend", up.URL)
+		m := newScraperManager(scraperConfig{scrapeInterval: 5 * time.Millisecond, maxStaleness: time.Hour, httpTimeout: time.Second, clock: time.Now})
+		m.Register(ref)
+		Eventually(func() bool {
+			_, ok := m.snapshotFor(backendKey(ref))
+			return ok
+		}).Should(BeTrue())
+
+		m.Unregister(ref)
+		_, ok := m.snapshotFor(backendKey(ref))
+		Expect(ok).To(BeFalse())
+
+		// A second Unregister for a backend that is no longer registered must be a harmless
+		// no-op, not a panic.
+		m.Unregister(ref)
+	})
+
+	It("Stop stops every running scraper", func() {
+		up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(minimalValidMetrics))
+		}))
+		defer up.Close()
+		refA := newTestRef("kvguard-stop-ns-a", "kvguard-stop-backend-a", up.URL)
+		refB := newTestRef("kvguard-stop-ns-b", "kvguard-stop-backend-b", up.URL)
+		m := newScraperManager(scraperConfig{scrapeInterval: 5 * time.Millisecond, maxStaleness: time.Hour, httpTimeout: time.Second, clock: time.Now})
+		m.Register(refA)
+		m.Register(refB)
+		Eventually(func() bool {
+			_, okA := m.snapshotFor(backendKey(refA))
+			_, okB := m.snapshotFor(backendKey(refB))
+			return okA && okB
+		}).Should(BeTrue())
+
+		m.Stop()
+		Expect(m.scrapers).To(BeEmpty())
+	})
+})
+
+// --- Metrics ---------------------------------------------------------------------
+
+var _ = Describe("kv-aware metrics", func() {
+	It("flips admission_guard_engaged and backend_telemetry_fresh, and increments backend_scrape_errors_total", func() {
+		h := &switchableHandler{mode: "engage"}
+		up := httptest.NewServer(h)
+		defer up.Close()
+		ref := newTestRef("kvguard-metrics-ns", "kvguard-metrics-backend", up.URL)
+
+		base := time.Date(2026, 7, 25, 13, 0, 0, 0, time.UTC)
+		now := base
+		cfg := baseScraperConfig(func() time.Time { return now })
+		b := newBackendScraper(*ref, cfg)
+
+		Expect(testutil.ToFloat64(backendTelemetryFresh.WithLabelValues(ref.Namespace, ref.Name))).To(Equal(0.0))
+
+		b.tick(context.Background())
+		now = base.Add(2 * time.Second)
+		b.tick(context.Background())
+		Expect(testutil.ToFloat64(admissionGuardEngaged.WithLabelValues(ref.Namespace, ref.Name, ref.Model))).To(Equal(1.0))
+		Expect(testutil.ToFloat64(backendTelemetryFresh.WithLabelValues(ref.Namespace, ref.Name))).To(Equal(1.0))
+
+		errsBefore := testutil.ToFloat64(backendScrapeErrors.WithLabelValues(ref.Namespace, ref.Name))
+		h.setMode("fail")
+		now = base.Add(20 * time.Second) // well past maxStaleness (6s)
+		b.tick(context.Background())
+		Expect(testutil.ToFloat64(backendScrapeErrors.WithLabelValues(ref.Namespace, ref.Name))).To(Equal(errsBefore + 1))
+		Expect(testutil.ToFloat64(backendTelemetryFresh.WithLabelValues(ref.Namespace, ref.Name))).To(Equal(0.0))
+	})
+})
+
+// --- Race: scraper goroutine vs request-path reads --------------------------------
+
+var _ = Describe("scraper vs request-path concurrency", func() {
+	It("scrapes concurrently with Admit reads without racing (meaningful under go test -race)", func() {
+		up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(overThresholdMetrics))
+		}))
+		defer up.Close()
+		ref := newTestRef("kvguard-race-ns", "kvguard-race-backend", up.URL)
+
+		m := newScraperManager(scraperConfig{
+			engageUsage: 0.85, releaseUsage: 0.75, waitingThresh: 8,
+			releaseSustain: 30 * time.Second,
+			scrapeInterval: time.Millisecond, maxStaleness: time.Second,
+			httpTimeout: time.Second, clock: time.Now,
+		})
+		a := newKVAwareAdmitter(m, 4096)
+		a.RegisterBackend(ref)
+		defer m.Stop()
+
+		var wg sync.WaitGroup
+		wg.Add(2)
+		deadline := time.Now().Add(100 * time.Millisecond)
+		for range 2 {
+			go func() {
+				defer wg.Done()
+				for time.Now().Before(deadline) {
+					a.Admit(context.Background(), RequestMeta{EstInputTokens: 5000}, ref, "t", tierStandard)
+				}
+			}()
+		}
+		wg.Wait()
+	})
+})
+
+// --- Pipeline wiring ---------------------------------------------------------------
+//
+// Reuses newAdmissionServer/eligibleLongBody/authedRequest from admission_pipeline_test.go.
+
+var _ = Describe("kv-aware admission pipeline placement", func() {
+	It("admits an eligible standard-long request when the backend has just been registered and has no fresh telemetry yet", func() {
+		up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			// Not a valid vLLM /metrics body; the guard must still admit rather than block the
+			// request on it, since Admit only ever reads an already-published snapshot.
+			w.WriteHeader(http.StatusOK)
+		}))
+		defer up.Close()
+
+		admitter, stop := NewKVAwareAdmitter(KVAwareConfig{
+			EngageUsage: 0.85, ReleaseUsage: 0.75, WaitingThresh: 8,
+			ReleaseSustain: 30 * time.Second,
+			ScrapeInterval: time.Hour,
+			MaxStaleness:   time.Hour,
+			HTTPTimeout:    time.Second,
+			LongThreshold:  4096,
+		})
+		defer stop()
+
+		s := newAdmissionServer(up.URL, tierStandard, AdmissionKVAware, admitter)
+		rr := httptest.NewRecorder()
+		s.Handler().ServeHTTP(rr, authedRequest(eligibleLongBody))
+		Expect(rr.Code).To(Equal(http.StatusOK))
+	})
+})

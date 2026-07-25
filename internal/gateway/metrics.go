@@ -132,6 +132,74 @@ var (
 		},
 		[]string{"mode", "tenant", "decision"},
 	)
+
+	// admissionGuardEngaged reports the kv-aware guard's current pressure state per backend: 1
+	// while ENGAGED, 0 while RELEASED.
+	//
+	// Design rationale (design spec Metrics section, arm C): a gauge rather than a counter,
+	// since this is a current state, not an accumulating count. It reflects the pressure state
+	// machine's internal engaged flag exactly as last published, regardless of telemetry
+	// freshness; gpuaas_gateway_backend_telemetry_fresh is the series that tells a reader
+	// whether this value (and the two below) are still trustworthy.
+	admissionGuardEngaged = promauto.With(metrics.Registry).NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: metricPrefix + "admission_guard_engaged",
+			Help: "Whether the kv-aware admission guard is currently ENGAGED (1) or RELEASED (0) for a backend.",
+		},
+		[]string{"namespace", "backend", "model"},
+	)
+
+	// backendKVCacheUsage is the last successfully scraped KV-cache usage fraction for a
+	// backend, in [0,1].
+	//
+	// It holds its last value across a scrape failure rather than resetting to 0, matching
+	// "last scraped value" in the design spec's Metrics section; telemetry_fresh is what tells a
+	// reader the value may now be stale.
+	backendKVCacheUsage = promauto.With(metrics.Registry).NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: metricPrefix + "backend_kv_cache_usage",
+			Help: "Last scraped vLLM KV-cache usage fraction for a backend, in [0,1].",
+		},
+		[]string{"namespace", "backend", "model"},
+	)
+
+	// backendWaitingRequests is the last successfully scraped waiting-queue depth for a backend.
+	backendWaitingRequests = promauto.With(metrics.Registry).NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: metricPrefix + "backend_waiting_requests",
+			Help: "Last scraped vLLM waiting-queue depth for a backend.",
+		},
+		[]string{"namespace", "backend", "model"},
+	)
+
+	// backendTelemetryFresh reports whether a backend's kv-aware telemetry is within
+	// maxStaleness of now: 1 fresh, 0 stale (design spec Arm C section, "Expose telemetry
+	// freshness").
+	//
+	// This is the series that distinguishes a genuinely quiet backend (fresh, cacheUsage low)
+	// from one the scraper has simply lost contact with (stale, cacheUsage frozen at whatever it
+	// last read); admissionGuardEngaged and the two gauges above cannot tell those apart on
+	// their own.
+	backendTelemetryFresh = promauto.With(metrics.Registry).NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: metricPrefix + "backend_telemetry_fresh",
+			Help: "Whether a backend's kv-aware telemetry is fresh (1) or stale (0), i.e. within maxStaleness of the last successful scrape.",
+		},
+		[]string{"namespace", "backend"},
+	)
+
+	// backendScrapeErrors counts failed /metrics scrapes by backend.
+	//
+	// A rising rate here alongside backendTelemetryFresh dropping to 0 is what operationally
+	// distinguishes "the backend is fine but the scrape target/network is broken" from "the
+	// backend, and everything talking to it, is just quiet".
+	backendScrapeErrors = promauto.With(metrics.Registry).NewCounterVec(
+		prometheus.CounterOpts{
+			Name: metricPrefix + "backend_scrape_errors_total",
+			Help: "Total failed vLLM /metrics scrapes by backend.",
+		},
+		[]string{"namespace", "backend"},
+	)
 )
 
 // metricsHTTPHandler exposes the registered series.
