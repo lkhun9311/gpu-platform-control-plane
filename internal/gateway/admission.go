@@ -42,7 +42,7 @@ const (
 	AdmissionStaticCap AdmissionMode = "static-cap"
 	// AdmissionKVAware runs the KV-cache/queue-depth-driven guard.
 	//
-	// Implemented in Task 3; this task only reserves the constant and rejects it at startup.
+	// It reads the backend's KV-cache pressure and rejects standard long-context requests only while the backend is engaged.
 	AdmissionKVAware AdmissionMode = "kv-aware"
 )
 
