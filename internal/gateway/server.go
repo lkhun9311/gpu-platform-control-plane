@@ -73,6 +73,8 @@ type Server struct {
 	// The production path runs unchanged whenever the hook is nil.
 	//
 	// So this never bypasses production behavior.
+	//
+	// The hook returns a bare *url.URL rather than a *BackendRef, since tests only need the pipeline to reach an httptest server; resolveBackend wraps it into a BackendRef carrying just URL and Model.
 	backendOverride func(model string) *url.URL
 	// responseHeaderTimeout bounds the wait for upstream response headers.
 	//
@@ -125,17 +127,20 @@ func (s *Server) readyz(w http.ResponseWriter, _ *http.Request) {
 // model may be empty: the auth, policy, and rate-limit stages run before the body is parsed, so no model is known yet.
 //
 // The empty label records exactly that.
+//
+// The response body is the OpenAI-style JSON envelope from writeJSONError, not plaintext, so every gateway failure looks the same to a client regardless of which pipeline stage produced it.
 func (s *Server) fail(w http.ResponseWriter, tenant, model string, code int) {
 	requests.WithLabelValues(tenant, model, strconv.Itoa(code)).Inc()
-	http.Error(w, http.StatusText(code), code)
+	writeJSONError(w, code, http.StatusText(code))
 }
 
-// resolveBackend resolves a model to its backend URL.
+// resolveBackend resolves a model to its backend.
 //
 // It prefers the test hook over the real backendFor.
-func (s *Server) resolveBackend(ctx context.Context, policy *platformv1.GPUQuotaPolicy, model string) (*url.URL, error) {
+func (s *Server) resolveBackend(ctx context.Context, policy *platformv1.GPUQuotaPolicy, model string) (*BackendRef, error) {
 	if s.backendOverride != nil {
-		return s.backendOverride(model), nil
+		// The hook only fabricates a URL; Namespace/Name/Port stay zero-valued, since tests using it only need the pipeline to reach an httptest server, not a real backend's identity.
+		return &BackendRef{URL: s.backendOverride(model), Model: model}, nil
 	}
 	return s.backendFor(ctx, policy, model)
 }
@@ -219,12 +224,12 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 5. Extract the model and recover the body.
+	// 5. Extract admission metadata and recover the body.
 	//
 	// Malformed JSON, a missing model, and an oversized body all land here.
 	//
 	// All three are the client's to fix.
-	body, model, err := readModel(r)
+	body, meta, err := readRequestMeta(r)
 	if err != nil {
 		s.fail(w, tenant, "", http.StatusBadRequest)
 		return
@@ -233,32 +238,32 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 	r.Body = body
 
 	// 6. Resolve the model to a backend.
-	target, err := s.resolveBackend(ctx, policy, model)
+	target, err := s.resolveBackend(ctx, policy, meta.Model)
 	if errors.Is(err, ErrNoRoute) {
 		// An ordinary "no such model" outcome.
-		s.fail(w, tenant, model, http.StatusNotFound)
+		s.fail(w, tenant, meta.Model, http.StatusNotFound)
 		return
 	}
 	if err != nil {
-		log.FromContext(ctx).Error(err, "backend lookup failed", "tenant", tenant, "model", model, "request_id", rid)
-		s.fail(w, tenant, model, http.StatusBadGateway)
+		log.FromContext(ctx).Error(err, "backend lookup failed", "tenant", tenant, "model", meta.Model, "request_id", rid)
+		s.fail(w, tenant, meta.Model, http.StatusBadGateway)
 		return
 	}
 
 	// 7. From here the response is the upstream's, passed through rather than composed.
 	start := time.Now()
 	rec := &statusRecorder{ResponseWriter: w, code: http.StatusOK}
-	newReverseProxy(target, s.responseHeaderTimeout, func(c int) {
-		upstreamErrors.WithLabelValues(tenant, model).Inc()
-		// ErrorHandler writes its code via http.Error, which may not pass through statusRecorder, so record it here to keep the metric consistent with what the client actually received.
+	newReverseProxy(target.URL, s.responseHeaderTimeout, func(c int) {
+		upstreamErrors.WithLabelValues(tenant, meta.Model).Inc()
+		// ErrorHandler writes its code via writeJSONError, which may not pass through statusRecorder, so record it here to keep the metric consistent with what the client actually received.
 		rec.code = c
 	}).ServeHTTP(rec, r)
 
 	// ServeHTTP returning means the response finished sending (for a stream, that the stream closed).
 	//
 	// This therefore measures the whole request rather than time-to-first-byte.
-	requests.WithLabelValues(tenant, model, strconv.Itoa(rec.code)).Inc()
-	requestDuration.WithLabelValues(tenant, model).Observe(time.Since(start).Seconds())
+	requests.WithLabelValues(tenant, meta.Model, strconv.Itoa(rec.code)).Inc()
+	requestDuration.WithLabelValues(tenant, meta.Model).Observe(time.Since(start).Seconds())
 }
 
 // Handler is the serving mux on :8080.
