@@ -293,6 +293,16 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 		// SetAdmitter was never called, so behave exactly as if the guard did not exist.
 		admitter = offAdmitter{}
 	}
+	// kv-aware is the only mode that needs to learn about a backend as soon as it is routed
+	// (design spec Config and API section, "the gateway registers backends as they are first
+	// routed"); off and static-cap don't implement backendRegistrar, so this is a no-op for
+	// them.
+	//
+	// scraperManager.Register is idempotent, so calling it on every request only actually
+	// starts a scraper the first time a given backend is seen.
+	if reg, ok := admitter.(backendRegistrar); ok {
+		reg.RegisterBackend(target)
+	}
 	mode := s.mode
 	if mode == "" {
 		mode = AdmissionOff
