@@ -31,9 +31,9 @@ import (
 	"time"
 )
 
-// maxBodyBytes caps how much of a request body readModel will buffer.
+// maxBodyBytes caps how much of a request body readRequestMeta will buffer.
 //
-// Design rationale (design spec Error codes section): readModel holds the body in memory to look at the model field, so an unbounded body is a memory-exhaustion vector.
+// Design rationale (design spec Error codes section): readRequestMeta holds the body in memory to look at the model field, so an unbounded body is a memory-exhaustion vector.
 //
 // 1MB is far above a normal chat completions request (tens of KB) while keeping a single request unable to threaten the process.
 const maxBodyBytes = 1 << 20 // 1MB
@@ -53,13 +53,15 @@ type RequestMeta struct {
 	Model string
 	// EstInputTokens is a conservative, text-only estimate of the prompt's input tokens.
 	//
-	// It is the ceiling of total prompt characters divided by 4, never an exact count.
+	// It is the ceiling of the total prompt byte length divided by 4, never an exact count.
+	//
+	// Byte length is used deliberately: it equals the character count for ASCII and over-counts for multibyte UTF-8, which keeps the estimate conservative (it never reads lower than the true token cost implies).
 	//
 	// The gateway never claims to know the true token count; a real tokenizer calibration is a later GPU-free step, not this one.
 	EstInputTokens int
 	// NonTextContent is true when at least one message's content was not a plain string.
 	//
-	// A true value means EstInputTokens is a known-approximate lower bound rather than a character-accurate estimate, since a non-string part's true token cost cannot be read off its character count.
+	// A true value means EstInputTokens is a known-approximate lower bound rather than a byte-accurate estimate, since a non-string part's true token cost cannot be read off its byte length.
 	NonTextContent bool
 }
 
@@ -137,7 +139,7 @@ func readRequestMeta(r *http.Request) (io.ReadCloser, RequestMeta, error) {
 		meta.NonTextContent = true
 		totalChars += len(m.Content)
 	}
-	// Ceiling division, not floor: a conservative estimate must never read lower than the true character count implies.
+	// Ceiling division, not floor: a conservative estimate must never read lower than the total byte length implies.
 	meta.EstInputTokens = (totalChars + 3) / 4
 
 	// Hand back a reader over the bytes just consumed, byte-for-byte identical to the original.
