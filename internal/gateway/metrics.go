@@ -106,6 +106,32 @@ var (
 		},
 		[]string{"tenant", "model"},
 	)
+
+	// admissionDecisions counts every admission-control decision by mode, tenant, model, decision, and reason.
+	//
+	// Design rationale (design spec Metrics section): decision is "admit" or "reject", and reason is empty on admit and the rejection's machine-readable code (e.g. "input_rate_limit") on reject.
+	//
+	// Every request records here, admitted or not, and for every mode including "off".
+	//
+	// Recording only rejections would leave no way to compute an admit rate without also diffing against requests_total, which carries a different set of labels and is not guaranteed to line up 1:1 with admission decisions.
+	admissionDecisions = promauto.With(metrics.Registry).NewCounterVec(
+		prometheus.CounterOpts{
+			Name: metricPrefix + "admission_decisions_total",
+			Help: "Total admission-control decisions by mode, tenant, model, decision, and reason.",
+		},
+		[]string{"mode", "tenant", "model", "decision", "reason"},
+	)
+
+	// admissionInputTokens accumulates each request's estimated input tokens by mode, tenant, and decision.
+	//
+	// Design rationale (design spec Metrics section, "Decision counts alone cannot prove admission matching; the input-token counter is mandatory."): the static-cap and kv-aware arms are compared by admitted-work fraction (admitted input tokens over offered input tokens), a ratio decision counts cannot express since a decision counts requests, not the token volume each one carries.
+	admissionInputTokens = promauto.With(metrics.Registry).NewCounterVec(
+		prometheus.CounterOpts{
+			Name: metricPrefix + "admission_input_tokens_total",
+			Help: "Total estimated input tokens seen by admission control by mode, tenant, and decision.",
+		},
+		[]string{"mode", "tenant", "decision"},
+	)
 )
 
 // metricsHTTPHandler exposes the registered series.

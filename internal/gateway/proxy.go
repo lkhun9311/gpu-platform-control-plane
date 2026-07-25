@@ -215,14 +215,23 @@ func errorCode(status int) string {
 	}
 }
 
-// writeJSONError writes the OpenAI-style JSON error envelope with the given status and message.
+// writeJSONError writes the OpenAI-style JSON error envelope with the given status and message, deriving the machine-readable code from status via errorCode.
 //
-// Every gateway failure path (fail() below and the reverse proxy's ErrorHandler) returns through here, so the response shape stays identical regardless of which pipeline stage rejected the request.
+// Every gateway failure path whose reason follows directly from its HTTP status (fail() in server.go and the reverse proxy's ErrorHandler below) returns through here, so the response shape stays identical regardless of which pipeline stage rejected the request.
 func writeJSONError(w http.ResponseWriter, status int, message string) {
+	writeJSONErrorCode(w, status, errorCode(status), message)
+}
+
+// writeJSONErrorCode writes the OpenAI-style JSON error envelope with an explicit machine-readable code, for a failure whose reason cannot be derived from the HTTP status alone.
+//
+// The admission guard is exactly that case (design spec Config and API section): static-cap and kv-aware both reject with 429, but carry different codes ("input_rate_limit" vs "kv_cache_pressure"), and errorCode's status-to-code mapping has room for only one string per status.
+//
+// failReason in server.go is the only caller today.
+func writeJSONErrorCode(w http.ResponseWriter, status int, code, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	// Encoding into a fixed struct cannot fail; the error is ignored deliberately rather than handled for a write that has already committed its status code.
-	_ = json.NewEncoder(w).Encode(errorBody{Error: errorDetail{Code: errorCode(status), Message: message}})
+	_ = json.NewEncoder(w).Encode(errorBody{Error: errorDetail{Code: code, Message: message}})
 }
 
 // defaultResponseHeaderTimeout bounds the wait for upstream response headers in production.
