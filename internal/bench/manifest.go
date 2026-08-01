@@ -1,0 +1,193 @@
+/*
+Copyright 2026.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+// Package bench implements the GPU-free benchmark harness: a frozen run manifest, an immutable
+// open-loop trace, a replay client that records raw per-request evidence, and a report that
+// computes the design's pre-registered checks from that evidence.
+//
+// Design rationale (design spec "Benchmarking harness" section): the gateway's own request
+// histogram starts just before the proxy handoff and stops when the stream closes, so it is not
+// TTFT. Every latency number this package reports comes from client-side raw timestamps recorded
+// during replay, never from a server-side metric.
+package bench
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"strconv"
+
+	"sigs.k8s.io/yaml"
+)
+
+// RunManifest freezes everything that must stay fixed for a benchmark comparison across arms to
+// be valid.
+//
+// Design rationale (design spec "Benchmarking harness" section): "Frozen run manifest (versioned,
+// validated): arms, trace checksum, image digests, model/tokenizer revision, gateway SHA,
+// thresholds, B rate/burst, endpoint, tolerances." Every arm's manifest for one repetition shares
+// the same TracePath/TraceChecksum, Model, and Seed; only Arm and Thresholds are expected to
+// differ between them.
+type RunManifest struct {
+	// SchemaVersion pins the manifest shape, so a future incompatible change to this struct can
+	// be detected instead of silently misparsed.
+	SchemaVersion string `json:"schemaVersion"`
+	// Arm names which of the four pre-registered conditions this run measures.
+	//
+	// Must be one of "R1", "off", "static-cap", "kv-aware" (design spec "The experiment: four
+	// conditions" section).
+	Arm string `json:"arm"`
+	// GatewayURL is the target the replay client sends requests to.
+	GatewayURL string `json:"gatewayURL"`
+	// TracePath locates the immutable trace file this run replays.
+	//
+	// A relative path is resolved against the manifest file's own directory by LoadManifest, so
+	// a manifest and its trace can be moved together without editing this field.
+	TracePath string `json:"tracePath"`
+	// TraceChecksum is the sha256 (hex) of the trace file at TracePath, verified by LoadManifest.
+	//
+	// This is what makes "immutable trace across frozen arms" enforceable rather than aspirational:
+	// a trace edited after the checksum was frozen fails to load instead of silently comparing arms
+	// against different traffic.
+	TraceChecksum string `json:"traceChecksum"`
+	// Model is the model name every replayed request targets.
+	Model string `json:"model"`
+	// TokenizerRev records the tokenizer/chat-template revision the estimator was calibrated
+	// against.
+	//
+	// Recorded for provenance only; the GPU-free build never loads a real tokenizer with it
+	// (design spec "Frozen run manifest" bullet).
+	TokenizerRev string `json:"tokenizerRev,omitempty"`
+	// GatewaySHA is the gateway build's commit SHA, recorded for provenance.
+	GatewaySHA string `json:"gatewaySHA,omitempty"`
+	// ImageDigests pins every image (gateway, vLLM, load generator) this run used, by name.
+	ImageDigests map[string]string `json:"imageDigests,omitempty"`
+	// Thresholds records the guard/static-cap parameters in effect for this arm (e.g. engage
+	// usage, W, static-cap rate/burst), as strings so heterogeneous parameter sets across arms
+	// don't need one struct field per possible knob.
+	Thresholds map[string]string `json:"thresholds,omitempty"`
+	// TimeoutMs bounds how long the replay client waits for a single request before recording it
+	// as a timeout row.
+	TimeoutMs int `json:"timeoutMs"`
+	// Seed is the trace generator's seed, recorded here so a manifest alone documents which seed
+	// produced its trace even though gen-trace, not LoadManifest, is what actually consumes it.
+	Seed int64 `json:"seed"`
+	// PrimaryEndpoint names the pre-registered primary metric.
+	//
+	// Design spec "Pre-registered success criteria" section: "Primary endpoint is TTFT p99 ...
+	// Choosing the endpoint now prevents post-hoc metric selection." Always "ttft_p99" in this
+	// design, but recorded rather than hardcoded so the report can assert it was not changed
+	// after the fact.
+	PrimaryEndpoint string `json:"primaryEndpoint"`
+	// MatchTolerance is the pre-registered admission-work match tolerance, as a decimal string
+	// (e.g. "0.05" for +/-5%).
+	//
+	// A string, not a float64: the manifest is meant to be hand-edited YAML, and "0.05" round-trips
+	// through YAML/JSON exactly, while a float field risks a value like 0.050000000000000003
+	// appearing in a re-serialized manifest and looking like the tolerance was silently changed.
+	MatchTolerance string `json:"matchTolerance"`
+}
+
+// allowedArms is the set of Arm values the design's four conditions permit.
+var allowedArms = map[string]bool{
+	"R1":         true,
+	"off":        true,
+	"static-cap": true,
+	"kv-aware":   true,
+}
+
+// LoadManifest reads, validates, and returns the manifest at path.
+//
+// Validation covers two independent things, both hard errors: every required field is present
+// and well-formed, and TraceChecksum matches the sha256 of the trace file TracePath resolves to.
+// The second check is what makes an edited-after-freeze trace file unusable rather than silently
+// accepted, which is the property the design spec calls "immutable trace across frozen arms".
+//
+// On success, m.TracePath is rewritten to the resolved absolute path, so callers (gen-trace,
+// replay) never need to re-resolve it against the manifest's own directory.
+func LoadManifest(path string) (*RunManifest, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read manifest %s: %w", path, err)
+	}
+
+	var m RunManifest
+	// sigs.k8s.io/yaml round-trips through JSON, so a manifest may be written as either YAML or
+	// plain JSON (JSON is valid YAML) without this package needing to tell them apart.
+	if err := yaml.Unmarshal(data, &m); err != nil {
+		return nil, fmt.Errorf("parse manifest %s: %w", path, err)
+	}
+
+	if err := m.validateFields(); err != nil {
+		return nil, fmt.Errorf("manifest %s: %w", path, err)
+	}
+
+	tracePath := m.TracePath
+	if !filepath.IsAbs(tracePath) {
+		tracePath = filepath.Join(filepath.Dir(path), tracePath)
+	}
+	sum, err := ChecksumFile(tracePath)
+	if err != nil {
+		return nil, fmt.Errorf("read trace file %s: %w", tracePath, err)
+	}
+	if sum != m.TraceChecksum {
+		return nil, fmt.Errorf("trace checksum mismatch: manifest declares %s but %s hashes to %s",
+			m.TraceChecksum, tracePath, sum)
+	}
+	m.TracePath = tracePath
+
+	return &m, nil
+}
+
+// validateFields checks that every field LoadManifest's checksum step depends on, and every
+// field the report later depends on, is present and well-formed.
+//
+// It does not touch the filesystem; that half of validation (the checksum check) lives in
+// LoadManifest, since it needs the resolved trace path.
+func (m *RunManifest) validateFields() error {
+	required := []struct {
+		name  string
+		value string
+	}{
+		{"schemaVersion", m.SchemaVersion},
+		{"arm", m.Arm},
+		{"gatewayURL", m.GatewayURL},
+		{"tracePath", m.TracePath},
+		{"traceChecksum", m.TraceChecksum},
+		{"model", m.Model},
+		{"primaryEndpoint", m.PrimaryEndpoint},
+		{"matchTolerance", m.MatchTolerance},
+	}
+	for _, f := range required {
+		if f.value == "" {
+			return fmt.Errorf("missing required field %q", f.name)
+		}
+	}
+
+	if !allowedArms[m.Arm] {
+		return fmt.Errorf("arm %q is not one of the allowed arms (R1, off, static-cap, kv-aware)", m.Arm)
+	}
+
+	if m.TimeoutMs <= 0 {
+		return fmt.Errorf("timeoutMs must be positive, got %d", m.TimeoutMs)
+	}
+
+	if _, err := strconv.ParseFloat(m.MatchTolerance, 64); err != nil {
+		return fmt.Errorf("matchTolerance %q is not a number: %w", m.MatchTolerance, err)
+	}
+
+	return nil
+}
