@@ -61,6 +61,18 @@ type RawRow struct {
 	//
 	// It is a small closed vocabulary ("timeout", "transport", "rejected", "stream") so a report can bucket failures without parsing free text.
 	ErrorKind string `json:"errorKind,omitempty"`
+	// TraceChecksum is the sha256 of the trace this row replayed, copied from the frozen manifest.
+	//
+	// The report asserts the contended arms all carry one checksum, so it can prove they replayed identical traffic rather than trusting operator discipline.
+	TraceChecksum string `json:"traceChecksum,omitempty"`
+	// LongThreshold is the eligible-population token threshold in effect, copied from the manifest.
+	//
+	// The report measures admitted-work over this same threshold, so if the paid run tuned it the report cannot silently score a different population than the guard gated.
+	LongThreshold int `json:"longThreshold,omitempty"`
+	// MatchTolerance is the pre-registered admission-match tolerance, copied from the manifest.
+	//
+	// The report reads it from here rather than a CLI default, so the frozen tolerance cannot be loosened after the fact.
+	MatchTolerance float64 `json:"matchTolerance,omitempty"`
 }
 
 // TTFTNanos returns the time to first token, or (0,false) when no first token was recorded.
@@ -107,6 +119,10 @@ type Sender interface {
 type ReplayOptions struct {
 	// Arm is copied into every RawRow.
 	Arm string
+	// TraceChecksum, LongThreshold, and MatchTolerance are the frozen manifest provenance stamped into every RawRow, so the report can enforce trace identity and read the pre-registered knobs from the evidence itself.
+	TraceChecksum  string
+	LongThreshold  int
+	MatchTolerance float64
 	// EstInputTokens estimates a prompt's input tokens the same way the gateway does, so admitted-work can be measured; when nil, a default ceiling-of-chars/4 estimate is used.
 	EstInputTokens func(promptLenChars int) int
 	// clock and sleepUntil are injected only by tests; production uses the wall clock.
@@ -163,6 +179,9 @@ func Replay(ctx context.Context, sender Sender, trace []TraceRow, opts ReplayOpt
 				OutputTokens:        res.OutputTokens,
 				HTTPStatus:          res.HTTPStatus,
 				ErrorKind:           res.ErrorKind,
+				TraceChecksum:       opts.TraceChecksum,
+				LongThreshold:       opts.LongThreshold,
+				MatchTolerance:      opts.MatchTolerance,
 			}
 		}(i, tr)
 	}

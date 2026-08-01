@@ -80,11 +80,17 @@ const eligibleLongThreshold = 4096
 func Summarize(arm string, rows []RawRow) ArmSummary {
 	s := ArmSummary{Arm: arm, Total: len(rows)}
 
+	// The eligible-population threshold comes from the manifest provenance stamped into the rows, so admitted-work is scored over the same population the guard gated even if the paid run tuned it.
+	threshold := eligibleLongThreshold
+	if len(rows) > 0 && rows[0].LongThreshold > 0 {
+		threshold = rows[0].LongThreshold
+	}
+
 	var ttft, e2e []float64
 	var premiumTotal, premiumTimedOut int
 	for _, r := range rows {
 		// Admitted-work accounting covers the eligible population (the long requests the controls gate), for the admission-match check.
-		if r.EstInputTokens >= eligibleLongThreshold {
+		if r.EstInputTokens >= threshold {
 			s.OfferedInputTokens += int64(r.EstInputTokens)
 			if r.HTTPStatus != httpStatusTooManyRequests {
 				s.AdmittedInputTokens += int64(r.EstInputTokens)

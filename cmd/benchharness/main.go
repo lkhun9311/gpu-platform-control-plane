@@ -27,6 +27,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -77,6 +78,7 @@ func genTrace(args []string) error {
 	model := fs.String("model", "llama-3-8b", "model name")
 	timeoutMs := fs.Int("timeout-ms", 30_000, "per-request timeout in ms")
 	matchTol := fs.String("match-tolerance", "0.05", "admission-work match tolerance")
+	longThreshold := fs.Int("admission-long-threshold", 4096, "eligible-population token threshold the guard gates on")
 	traceOut := fs.String("trace-out", "trace.jsonl", "trace file to write")
 	manifestOut := fs.String("manifest-out", "manifest.yaml", "manifest file to write")
 	if err := fs.Parse(args); err != nil {
@@ -132,6 +134,7 @@ func genTrace(args []string) error {
 		Seed:            *seed,
 		PrimaryEndpoint: "ttft_p99",
 		MatchTolerance:  *matchTol,
+		LongThreshold:   *longThreshold,
 	}
 	if err := writeManifest(*manifestOut, m); err != nil {
 		return err
@@ -165,7 +168,19 @@ func replay(args []string) error {
 	}
 	sender := bench.NewHTTPSender(url, m.Model, parseAPIKeys(*apiKeys), time.Duration(m.TimeoutMs)*time.Millisecond)
 
-	raw := bench.Replay(context.Background(), sender, rows, bench.ReplayOptions{Arm: m.Arm})
+	// The frozen manifest's provenance is stamped into every raw row.
+	//
+	// That lets the report enforce trace identity and read the pre-registered knobs from the evidence.
+	tol, err := strconv.ParseFloat(m.MatchTolerance, 64)
+	if err != nil {
+		return fmt.Errorf("manifest matchTolerance %q is not a number: %w", m.MatchTolerance, err)
+	}
+	raw := bench.Replay(context.Background(), sender, rows, bench.ReplayOptions{
+		Arm:            m.Arm,
+		TraceChecksum:  m.TraceChecksum,
+		LongThreshold:  m.LongThreshold,
+		MatchTolerance: tol,
+	})
 
 	f, err := os.Create(*rawOut)
 	if err != nil {
@@ -186,7 +201,8 @@ func report(args []string) error {
 	fs := flag.NewFlagSet("report", flag.ExitOnError)
 	var rawFiles multiFlag
 	fs.Var(&rawFiles, "raw", "a raw evidence file (repeatable, one arm per file)")
-	matchTol := fs.Float64("match-tolerance", 0.05, "admission-work match tolerance")
+	matchTolFlag := fs.Float64("match-tolerance", 0.05,
+		"fallback admission-work match tolerance when the evidence carries none")
 	out := fs.String("out", "", "report file to write (default stdout)")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -195,9 +211,11 @@ func report(args []string) error {
 		return fmt.Errorf("at least one --raw file is required")
 	}
 
-	// Group rows and per-file p99 repetitions by arm.
+	// Group rows and per-file p99 repetitions by arm, and capture each arm's frozen provenance.
 	byArm := map[string][]bench.RawRow{}
 	repP99 := map[string][]float64{}
+	armChecksum := map[string]string{}
+	armTolerance := map[string]float64{}
 	for _, path := range rawFiles {
 		f, err := os.Open(path)
 		if err != nil {
@@ -214,6 +232,40 @@ func report(args []string) error {
 		arm := rows[0].Arm
 		byArm[arm] = append(byArm[arm], rows...)
 		repP99[arm] = append(repP99[arm], bench.Summarize(arm, rows).TTFTMsP99)
+		armChecksum[arm] = rows[0].TraceChecksum
+		armTolerance[arm] = rows[0].MatchTolerance
+	}
+
+	// The contended arms must have replayed identical traffic, so their trace checksums must match.
+	//
+	// R1 legitimately differs (it is the same trace with the contender filtered out).
+	//
+	// So it is excluded from the identity check.
+	var wantSum string
+	for _, arm := range []string{"off", "static-cap", "kv-aware"} {
+		sum, ok := armChecksum[arm]
+		if !ok {
+			continue
+		}
+		if sum == "" {
+			return fmt.Errorf("arm %s carries no trace checksum; regenerate its manifest with a current gen-trace", arm)
+		}
+		if wantSum == "" {
+			wantSum = sum
+		} else if sum != wantSum {
+			return fmt.Errorf("arm %s replayed a different trace (%s) than the other contended arms (%s);"+
+				" a valid comparison needs one immutable trace", arm, sum, wantSum)
+		}
+	}
+
+	// The admission-match tolerance is the frozen one from the evidence, not a CLI default.
+	//
+	// So it cannot be loosened after the fact.
+	matchTolerance := *matchTolFlag
+	if tol, ok := armTolerance["kv-aware"]; ok && tol > 0 {
+		matchTolerance = tol
+	} else if tol, ok := armTolerance["static-cap"]; ok && tol > 0 {
+		matchTolerance = tol
 	}
 
 	order := []string{"R1", "off", "static-cap", "kv-aware"}
@@ -240,10 +292,16 @@ func report(args []string) error {
 			}
 		}
 		incCI = bench.BootstrapCI(ratios, 2000, 1, 0.05)
+	} else if len(b) > 0 && len(c) > 0 {
+		// Unequal repetition counts leave the incremental CI at the degenerate point estimate.
+		//
+		// That would make the CI-upper-bound gate trivially true.
+		fmt.Fprintf(os.Stderr, "warning: static-cap has %d repetitions but kv-aware has %d;"+
+			" the incremental C/B interval is a point estimate, not a real CI\n", len(b), len(c))
 	}
 
-	checks := bench.EvaluateChecks(summ["R1"], summ["static-cap"], summ["kv-aware"], incCI, *matchTol)
-	text := bench.FormatReport(summaries, checks, *matchTol)
+	checks := bench.EvaluateChecks(summ["R1"], summ["static-cap"], summ["kv-aware"], incCI, matchTolerance)
+	text := bench.FormatReport(summaries, checks, matchTolerance)
 
 	if *out == "" {
 		fmt.Print(text)

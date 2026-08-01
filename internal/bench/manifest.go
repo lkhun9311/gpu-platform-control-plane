@@ -99,6 +99,10 @@ type RunManifest struct {
 	// through YAML/JSON exactly, while a float field risks a value like 0.050000000000000003
 	// appearing in a re-serialized manifest and looking like the tolerance was silently changed.
 	MatchTolerance string `json:"matchTolerance"`
+	// LongThreshold is the eligible-population token threshold the guard and static cap gate on.
+	//
+	// It is frozen here so the report scores admitted-work over the same population the guard used, even if the paid pilot tuned the gateway's --admission-long-threshold.
+	LongThreshold int `json:"longThreshold,omitempty"`
 }
 
 // allowedArms is the set of Arm values the design's four conditions permit.
