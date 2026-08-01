@@ -13,6 +13,7 @@ docs/
 !/README.md
 !/infra/**/README.md
 !/hack/m6-kind-e2e.md
+!/hack/m5a-ephemeral-runbook.md
 
 # Terraform local state, cache and secrets (state lives in the remote backend, not here)
 **/.terraform/*
