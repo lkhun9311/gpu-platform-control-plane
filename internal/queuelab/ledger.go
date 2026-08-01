@@ -26,20 +26,30 @@ import "sort"
 // Every latency, occupancy, and waste number the report makes is reconstructed from these events, never
 // from an aggregated Prometheus histogram.
 type LifecycleEvent struct {
-	// ObservedUnixNanos is when the collector saw the transition, on one monotonic clock.
-	ObservedUnixNanos int64 `json:"observedUnixNanos"`
+	// ElapsedNs is the transition time as a monotonic offset from the run's t0.
+	//
+	// The review caught that a wall-clock UnixNano is not monotonic (it drops Go's monotonic component), so
+	// the collector stamps this elapsed offset as the timing authority and keeps the wall clock separately.
+	ElapsedNs int64 `json:"elapsedNs"`
+	// WallUnixNanos is the wall-clock observation time, kept for provenance only, never for arithmetic.
+	WallUnixNanos int64 `json:"wallUnixNanos,omitempty"`
 	// Kind is the object kind: "Workload" | "Pod" | "Job" | "MLTrainingJob".
 	Kind string `json:"kind"`
 	// Type is the transition within the closed vocabulary below.
 	Type EventType `json:"type"`
-	// Job is the trace job name this event belongs to, so events join back to the trace row.
+	// Job is the trace job name this event belongs to, resolved by the collector through the UID chain.
 	Job string `json:"job"`
 	// Tenant is the submitting tenant.
 	Tenant string `json:"tenant"`
 	// GPUCount is the job's requested quota, carried so occupancy and waste can be weighted.
 	GPUCount int `json:"gpuCount"`
-	// ResourceVersion is the object's version at the observation, so a replayed/duplicate event is detectable.
+	// ObjectUID is the observed object's UID; the collector joins events to a trace job through the UID chain
+	// (MLTrainingJob -> Job kueue.x-k8s.io/job-uid -> Workload -> Pod), not by name alone.
+	ObjectUID string `json:"objectUID,omitempty"`
+	// ResourceVersion and Reason carry the condition provenance so a duplicate delta or the preemption
+	// mechanism (e.g. InCohortReclamation) can be checked.
 	ResourceVersion string `json:"resourceVersion,omitempty"`
+	Reason          string `json:"reason,omitempty"`
 }
 
 // EventType is the closed vocabulary of lifecycle transitions the ledger records.
@@ -52,8 +62,16 @@ const (
 	EventAdmitted EventType = "Admitted"
 	// EventPodReady is the training Pod becoming Ready (execution start).
 	EventPodReady EventType = "PodReady"
-	// EventPreempted is a Kueue preemption/eviction of the Workload.
+	// EventPreempted is when Kueue DECIDES to preempt the Workload (Preempted=True).
+	//
+	// It is the decision, not the moment execution stops; the two are separated because the discarded work
+	// continues between the decision and the Pod actually terminating.
 	EventPreempted EventType = "Preempted"
+	// EventAttemptStopped is when the preempted Pod actually terminates (deletion/termination).
+	//
+	// Waste is measured up to here, not up to the preemption decision, so the work done during the grace
+	// window is not silently dropped from the discarded total.
+	EventAttemptStopped EventType = "AttemptStopped"
 	// EventCompleted is the Job reaching successful completion.
 	EventCompleted EventType = "Completed"
 )
@@ -70,9 +88,11 @@ type jobTimeline struct {
 	admitted     bool
 	firstAdmitNs int64
 	completed    bool
-	// readyNs and preemptedNs pair each PodReady with a later Preempted, for preemption-waste accounting.
+	// readyNs, preemptedNs, stoppedNs let preemption waste be measured from the last PodReady up to the Pod
+	// actually stopping, not merely up to Kueue's preemption decision.
 	readyNs     []int64
 	preemptedNs []int64
+	stoppedNs   []int64
 }
 
 // WorkloadOutcome is one job's reconstructed, censoring-aware result.
@@ -108,15 +128,16 @@ type LabResult struct {
 	TotalWastedGPUSeconds float64
 }
 
-// Reconstruct turns a raw event ledger into a censoring-aware result for one arm, up to horizonUnixNanos.
+// Reconstruct turns a raw event ledger into a censoring-aware result for one arm, up to horizonElapsedNs
+// (the monotonic run offset the runner marks as the observation horizon).
 //
 // It never drops a job: a job pending at the horizon becomes an unfinished, right-censored outcome rather
 // than a silent omission, because those slow jobs are exactly what a fair comparison must account for.
-func Reconstruct(arm string, events []LifecycleEvent, horizonUnixNanos int64) LabResult {
+func Reconstruct(arm string, events []LifecycleEvent, horizonElapsedNs int64) LabResult {
 	byJob := map[string]*jobTimeline{}
 	order := []string{}
 	for _, e := range events {
-		if e.ObservedUnixNanos > horizonUnixNanos {
+		if e.ElapsedNs > horizonElapsedNs {
 			continue
 		}
 		t, ok := byJob[e.Job]
@@ -128,16 +149,18 @@ func Reconstruct(arm string, events []LifecycleEvent, horizonUnixNanos int64) La
 		switch e.Type {
 		case EventSubmitted:
 			t.submitted = true
-			t.submittedNs = e.ObservedUnixNanos
+			t.submittedNs = e.ElapsedNs
 		case EventAdmitted:
 			if !t.admitted {
 				t.admitted = true
-				t.firstAdmitNs = e.ObservedUnixNanos
+				t.firstAdmitNs = e.ElapsedNs
 			}
 		case EventPodReady:
-			t.readyNs = append(t.readyNs, e.ObservedUnixNanos)
+			t.readyNs = append(t.readyNs, e.ElapsedNs)
 		case EventPreempted:
-			t.preemptedNs = append(t.preemptedNs, e.ObservedUnixNanos)
+			t.preemptedNs = append(t.preemptedNs, e.ElapsedNs)
+		case EventAttemptStopped:
+			t.stoppedNs = append(t.stoppedNs, e.ElapsedNs)
 		case EventCompleted:
 			t.completed = true
 		}
@@ -154,7 +177,7 @@ func Reconstruct(arm string, events []LifecycleEvent, horizonUnixNanos int64) La
 			admitWaits = append(admitWaits, float64(out.AdmitLatencyNs))
 			res.Admitted++
 		} else if t.submitted {
-			out.CensoredWaitNs = horizonUnixNanos - t.submittedNs
+			out.CensoredWaitNs = horizonElapsedNs - t.submittedNs
 		}
 		if t.completed {
 			out.Completed = true
@@ -173,10 +196,13 @@ func Reconstruct(arm string, events []LifecycleEvent, horizonUnixNanos int64) La
 	return res
 }
 
-// wastedGPUSeconds sums, over each preemption, the GPU-seconds discarded since the most recent PodReady.
+// wastedGPUSeconds sums, over each preemption, the GPU-seconds discarded from the most recent PodReady up to
+// the Pod actually STOPPING (not the preemption decision), so the work done during the termination grace
+// window is counted rather than dropped.
 //
 // Each preempted attempt counts, matching restart-from-zero semantics: the work between becoming Ready and
-// being preempted is thrown away.
+// stopping is thrown away. If no Pod stop was observed for a decision, the decision time is used as a
+// conservative lower bound.
 func wastedGPUSeconds(t *jobTimeline) float64 {
 	var waste float64
 	for _, pre := range t.preemptedNs {
@@ -184,9 +210,25 @@ func wastedGPUSeconds(t *jobTimeline) float64 {
 		if ready == 0 {
 			continue
 		}
-		waste += float64(t.gpuCount) * float64(pre-ready) / 1e9
+		end := firstStoppedAtOrAfter(t.stoppedNs, pre)
+		if end == 0 {
+			// The Pod stop was not observed, so fall back to the decision time as a lower bound.
+			end = pre
+		}
+		waste += float64(t.gpuCount) * float64(end-ready) / 1e9
 	}
 	return waste
+}
+
+// firstStoppedAtOrAfter returns the earliest recorded Pod-stop time at or after t, or 0 if none.
+func firstStoppedAtOrAfter(stops []int64, t int64) int64 {
+	var best int64
+	for _, s := range stops {
+		if s >= t && (best == 0 || s < best) {
+			best = s
+		}
+	}
+	return best
 }
 
 // latestReadyBefore returns the most recent PodReady time strictly before t, or 0 if none.

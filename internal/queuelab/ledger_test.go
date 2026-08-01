@@ -30,20 +30,23 @@ const sec = int64(1_000_000_000)
 // admitted quickly after the preemption and completes.
 func reclaimAnyEvents() []LifecycleEvent {
 	return []LifecycleEvent{
-		{ObservedUnixNanos: 0, Kind: "MLTrainingJob", Type: EventSubmitted, Job: "a1", Tenant: "tenant-a", GPUCount: 1},
-		{ObservedUnixNanos: 1 * sec, Kind: "Workload", Type: EventAdmitted, Job: "a1", Tenant: "tenant-a", GPUCount: 1},
-		{ObservedUnixNanos: 1*sec + sec/2, Kind: "Pod", Type: EventPodReady, Job: "a1", Tenant: "tenant-a", GPUCount: 1},
-		{ObservedUnixNanos: 601 * sec, Kind: "Job", Type: EventCompleted, Job: "a1", Tenant: "tenant-a", GPUCount: 1},
+		{ElapsedNs: 0, Kind: "MLTrainingJob", Type: EventSubmitted, Job: "a1", Tenant: "tenant-a", GPUCount: 1},
+		{ElapsedNs: 1 * sec, Kind: "Workload", Type: EventAdmitted, Job: "a1", Tenant: "tenant-a", GPUCount: 1},
+		{ElapsedNs: 1*sec + sec/2, Kind: "Pod", Type: EventPodReady, Job: "a1", Tenant: "tenant-a", GPUCount: 1},
+		{ElapsedNs: 601 * sec, Kind: "Job", Type: EventCompleted, Job: "a1", Tenant: "tenant-a", GPUCount: 1},
 
-		{ObservedUnixNanos: 1 * sec, Kind: "MLTrainingJob", Type: EventSubmitted, Job: "a2", Tenant: "tenant-a", GPUCount: 1},
-		{ObservedUnixNanos: 2 * sec, Kind: "Workload", Type: EventAdmitted, Job: "a2", Tenant: "tenant-a", GPUCount: 1},
-		{ObservedUnixNanos: 2*sec + sec/2, Kind: "Pod", Type: EventPodReady, Job: "a2", Tenant: "tenant-a", GPUCount: 1},
-		{ObservedUnixNanos: 591 * sec, Kind: "Workload", Type: EventPreempted, Job: "a2", Tenant: "tenant-a", GPUCount: 1},
+		{ElapsedNs: 1 * sec, Kind: "MLTrainingJob", Type: EventSubmitted, Job: "a2", Tenant: "tenant-a", GPUCount: 1},
+		{ElapsedNs: 2 * sec, Kind: "Workload", Type: EventAdmitted, Job: "a2", Tenant: "tenant-a", GPUCount: 1},
+		{ElapsedNs: 2*sec + sec/2, Kind: "Pod", Type: EventPodReady, Job: "a2", Tenant: "tenant-a", GPUCount: 1},
+		{ElapsedNs: 591 * sec, Kind: "Workload", Type: EventPreempted, Job: "a2", Tenant: "tenant-a", GPUCount: 1},
+		// The Pod does not stop the instant Kueue decides to preempt; it keeps running through the
+		// termination grace window and only stops here, so the discarded work is measured up to this point.
+		{ElapsedNs: 593 * sec, Kind: "Pod", Type: EventAttemptStopped, Job: "a2", Tenant: "tenant-a", GPUCount: 1},
 
-		{ObservedUnixNanos: 590 * sec, Kind: "MLTrainingJob", Type: EventSubmitted, Job: "b1", Tenant: "tenant-b", GPUCount: 1},
-		{ObservedUnixNanos: 592 * sec, Kind: "Workload", Type: EventAdmitted, Job: "b1", Tenant: "tenant-b", GPUCount: 1},
-		{ObservedUnixNanos: 592*sec + sec/2, Kind: "Pod", Type: EventPodReady, Job: "b1", Tenant: "tenant-b", GPUCount: 1},
-		{ObservedUnixNanos: 650 * sec, Kind: "Job", Type: EventCompleted, Job: "b1", Tenant: "tenant-b", GPUCount: 1},
+		{ElapsedNs: 590 * sec, Kind: "MLTrainingJob", Type: EventSubmitted, Job: "b1", Tenant: "tenant-b", GPUCount: 1},
+		{ElapsedNs: 592 * sec, Kind: "Workload", Type: EventAdmitted, Job: "b1", Tenant: "tenant-b", GPUCount: 1},
+		{ElapsedNs: 592*sec + sec/2, Kind: "Pod", Type: EventPodReady, Job: "b1", Tenant: "tenant-b", GPUCount: 1},
+		{ElapsedNs: 650 * sec, Kind: "Job", Type: EventCompleted, Job: "b1", Tenant: "tenant-b", GPUCount: 1},
 	}
 }
 
@@ -69,26 +72,45 @@ func TestReconstructReclaimAny(t *testing.T) {
 	if byJob["b1"].AdmitLatencyNs != 2*sec {
 		t.Fatalf("b1 admit latency = %d ns, want %d", byJob["b1"].AdmitLatencyNs, 2*sec)
 	}
-	// a2 wasted GPU-seconds: 1 * (591 - 2.5) = 588.5.
-	if got := byJob["a2"].WastedGPUSeconds; got < 588.4 || got > 588.6 {
-		t.Fatalf("a2 wasted GPU-seconds = %.2f, want ~588.5", got)
+	// a2 wasted GPU-seconds: measured from PodReady to the Pod actually stopping, not the preemption
+	// decision, so 1 * (593 - 2.5) = 590.5, not 588.5.
+	if got := byJob["a2"].WastedGPUSeconds; got < 590.4 || got > 590.6 {
+		t.Fatalf("a2 wasted GPU-seconds = %.2f, want ~590.5", got)
 	}
 	if byJob["a2"].Preemptions != 1 {
 		t.Fatalf("a2 should have one preemption, got %d", byJob["a2"].Preemptions)
 	}
-	if res.TotalWastedGPUSeconds < 588.4 {
+	if res.TotalWastedGPUSeconds < 590.4 {
 		t.Fatalf("total wasted should include a2's discarded work, got %.2f", res.TotalWastedGPUSeconds)
+	}
+}
+
+func TestWasteFallsBackToDecisionWhenNoStopObserved(t *testing.T) {
+	// If the collector never observed the Pod stopping (e.g. the watch desynced right after the
+	// preemption decision), waste falls back to the decision time as a conservative lower bound rather
+	// than being dropped to zero, so a missing AttemptStopped never flatters the preempting policy.
+	events := []LifecycleEvent{
+		{ElapsedNs: 0, Kind: "MLTrainingJob", Type: EventSubmitted, Job: "a2", Tenant: "tenant-a", GPUCount: 2},
+		{ElapsedNs: 1 * sec, Kind: "Workload", Type: EventAdmitted, Job: "a2", Tenant: "tenant-a", GPUCount: 2},
+		{ElapsedNs: 2 * sec, Kind: "Pod", Type: EventPodReady, Job: "a2", Tenant: "tenant-a", GPUCount: 2},
+		{ElapsedNs: 100 * sec, Kind: "Workload", Type: EventPreempted, Job: "a2", Tenant: "tenant-a", GPUCount: 2},
+		// No AttemptStopped event: the Pod stop was never seen.
+	}
+	res := Reconstruct("Any", events, 200*sec)
+	// 2 GPUs * (100 - 2) = 196, using the decision time as the lower bound.
+	if got := res.TotalWastedGPUSeconds; got < 195.9 || got > 196.1 {
+		t.Fatalf("fallback waste = %.2f, want ~196 (decision time as lower bound)", got)
 	}
 }
 
 func TestReconstructNeverHasNoWaste(t *testing.T) {
 	// The "Never" arm: the owner waits instead of preempting, so nothing is discarded.
 	events := []LifecycleEvent{
-		{ObservedUnixNanos: 0, Kind: "MLTrainingJob", Type: EventSubmitted, Job: "a2", Tenant: "tenant-a", GPUCount: 1},
-		{ObservedUnixNanos: 1 * sec, Kind: "Workload", Type: EventAdmitted, Job: "a2", Tenant: "tenant-a", GPUCount: 1},
-		{ObservedUnixNanos: 2 * sec, Kind: "Pod", Type: EventPodReady, Job: "a2", Tenant: "tenant-a", GPUCount: 1},
-		{ObservedUnixNanos: 600 * sec, Kind: "Job", Type: EventCompleted, Job: "a2", Tenant: "tenant-a", GPUCount: 1},
-		{ObservedUnixNanos: 590 * sec, Kind: "MLTrainingJob", Type: EventSubmitted, Job: "b1", Tenant: "tenant-b", GPUCount: 1},
+		{ElapsedNs: 0, Kind: "MLTrainingJob", Type: EventSubmitted, Job: "a2", Tenant: "tenant-a", GPUCount: 1},
+		{ElapsedNs: 1 * sec, Kind: "Workload", Type: EventAdmitted, Job: "a2", Tenant: "tenant-a", GPUCount: 1},
+		{ElapsedNs: 2 * sec, Kind: "Pod", Type: EventPodReady, Job: "a2", Tenant: "tenant-a", GPUCount: 1},
+		{ElapsedNs: 600 * sec, Kind: "Job", Type: EventCompleted, Job: "a2", Tenant: "tenant-a", GPUCount: 1},
+		{ElapsedNs: 590 * sec, Kind: "MLTrainingJob", Type: EventSubmitted, Job: "b1", Tenant: "tenant-b", GPUCount: 1},
 	}
 	res := Reconstruct("Never", events, 700*sec)
 	if res.TotalWastedGPUSeconds != 0 {

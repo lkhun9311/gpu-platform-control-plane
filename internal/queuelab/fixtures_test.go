@@ -38,7 +38,7 @@ func TestReclaimFixturesVaryOnlyReclaimPolicy(t *testing.T) {
 	}
 	// Both tenants share one cohort so borrowing/reclaim is possible.
 	for _, cq := range never.ClusterQueue {
-		if string(cq.Spec.CohortName) != labCohort {
+		if string(cq.Spec.CohortName) != cohortName("r1") {
 			t.Fatalf("ClusterQueue %s not in the shared cohort", cq.Name)
 		}
 		if cq.Spec.Preemption.ReclaimWithinCohort != kueuev1beta2.PreemptionPolicyNever {
@@ -93,6 +93,22 @@ func TestFixtureNamesAreUniquePerRun(t *testing.T) {
 	}
 	if !strings.Contains(a.ClusterQueue[0].Name, "runA") {
 		t.Fatalf("queue name should carry the run id, got %s", a.ClusterQueue[0].Name)
+	}
+	// The review's isolation fix: different runs must be in DIFFERENT cohorts and use DIFFERENT flavors,
+	// so a delayed old ClusterQueue cannot contribute quota into a new run's cohort.
+	if a.ClusterQueue[0].Spec.CohortName == b.ClusterQueue[0].Spec.CohortName {
+		t.Fatalf("different runs must not share a cohort: %s", a.ClusterQueue[0].Spec.CohortName)
+	}
+	if a.Flavor.Name == b.Flavor.Name {
+		t.Fatalf("different runs must not share a ResourceFlavor: %s", a.Flavor.Name)
+	}
+	// The flavor must pin one dedicated worker so a 2-GPU pod maps to a single node.
+	if a.Flavor.Spec.NodeLabels[labWorkerLabel] != "runA" {
+		t.Fatalf("flavor should select the run's dedicated worker, got %v", a.Flavor.Spec.NodeLabels)
+	}
+	// Lab objects must be labelled for the reset audit.
+	if a.ClusterQueue[0].Labels[runLabel] != "runA" {
+		t.Fatalf("ClusterQueue should carry the run label")
 	}
 }
 
