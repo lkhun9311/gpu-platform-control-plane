@@ -34,6 +34,11 @@ var (
 	GroupVersion = SchemeGroupVersion
 
 	// SchemeBuilder is used to add go types to the GroupVersionKind scheme.
+	//
+	// controller-runtime v0.24.0 deprecated this helper in favor of the apimachinery builder.
+	//
+	// Migrating every API type in this package is out of scope for this change, so the warning is suppressed here.
+	//nolint:staticcheck // SA1019: tracked separately from this change, see comment above.
 	SchemeBuilder = &scheme.Builder{GroupVersion: SchemeGroupVersion}
 
 	// AddToScheme adds the types in this group-version to the given scheme.

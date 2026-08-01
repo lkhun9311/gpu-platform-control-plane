@@ -30,7 +30,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -146,8 +145,8 @@ func (r *InferenceDeploymentReconciler) mutateDeployment(infd *platformv1.Infere
 	port := servingPort(infd)
 
 	dep.Labels = labels
-	dep.Spec.Replicas = ptr.To(infd.Spec.Replicas)
-	dep.Spec.ProgressDeadlineSeconds = ptr.To(int32(600))
+	dep.Spec.Replicas = new(infd.Spec.Replicas)
+	dep.Spec.ProgressDeadlineSeconds = new(int32(600))
 	if dep.Spec.Selector == nil {
 		dep.Spec.Selector = &metav1.LabelSelector{MatchLabels: map[string]string{instanceLabel: infd.Name}}
 	}

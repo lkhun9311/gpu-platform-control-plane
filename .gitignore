@@ -12,6 +12,7 @@ docs/
 *.md
 !/README.md
 !/infra/**/README.md
+!/hack/m6-kind-e2e.md
 
 # Terraform local state, cache and secrets (state lives in the remote backend, not here)
 **/.terraform/*
@@ -66,3 +67,6 @@ Thumbs.db
 
 # Claude Code personal overrides
 .claude/settings.local.json
+
+# M6 kind E2E run artifact (curated evidence lives in hack/m6-kind-e2e.md)
+hack/m6-e2e-evidence.log

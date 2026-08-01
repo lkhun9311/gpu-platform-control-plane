@@ -65,4 +65,26 @@ var (
 			Help: "Number of times a drifted ResourceQuota was corrected back to the policy spec.",
 		},
 	)
+
+	// mlTrainingJobFailedTotal counts entries into the Failed phase, by reason.
+	//
+	// The reason label is the same deterministic-failure reason recorded on the JobSynced condition.
+	mlTrainingJobFailedTotal = promauto.With(metrics.Registry).NewCounterVec(
+		prometheus.CounterOpts{
+			Name: metricPrefix + "mltrainingjob_failed_total",
+			Help: "Number of times an MLTrainingJob entered the Failed phase, labeled by reason.",
+		},
+		[]string{"reason"},
+	)
+
+	// mlTrainingJobPhaseTotal counts MLTrainingJob phase transitions, by phase.
+	//
+	// It increments each time a phase actually changes, right after the status update succeeds.
+	mlTrainingJobPhaseTotal = promauto.With(metrics.Registry).NewCounterVec(
+		prometheus.CounterOpts{
+			Name: metricPrefix + "mltrainingjob_phase_total",
+			Help: "Number of MLTrainingJob phase transitions, labeled by phase.",
+		},
+		[]string{"phase"},
+	)
 )

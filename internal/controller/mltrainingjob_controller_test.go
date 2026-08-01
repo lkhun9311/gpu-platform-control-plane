@@ -18,96 +18,305 @@ package controller
 
 import (
 	"context"
+	"fmt"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/types"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-
+	"github.com/prometheus/client_golang/prometheus/testutil"
+	batchv1 "k8s.io/api/batch/v1"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/rand"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	kueuev1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 
 	platformv1 "github.com/lkhun9311/gpu-mlops-platform-control-plane/api/v1"
 )
 
 var _ = Describe("MLTrainingJob Controller", func() {
 	Context("When reconciling a resource", func() {
-		const resourceName = "test-training"
 		const resourceNamespace = "default"
 
 		ctx := context.Background()
+		var key types.NamespacedName
 
-		typeNamespacedName := types.NamespacedName{
-			Name:      resourceName,
-			Namespace: resourceNamespace,
+		reconciler := func() *MLTrainingJobReconciler {
+			return &MLTrainingJobReconciler{Client: k8sClient, Scheme: k8sClient.Scheme()}
 		}
-		mltrainingjob := &platformv1.MLTrainingJob{}
+
+		// reconcileUntilSteady drives Reconcile a few times so the finalizer is added and the owned Job is created.
+		reconcileUntilSteady := func() {
+			for range 3 {
+				_, err := reconciler().Reconcile(ctx, reconcile.Request{NamespacedName: key})
+				Expect(err).NotTo(HaveOccurred())
+			}
+		}
 
 		BeforeEach(func() {
+			// Each spec gets its own resource name.
+			//
+			// envtest's apiserver adds the batch.kubernetes.io/job-tracking finalizer to every Job it admits, and only a running Job controller (absent here) ever retires it, so a Job this suite creates stays "Terminating" forever once deleted.
+			//
+			// A unique name per spec means that lingering Job never collides with the next spec's Job of the "same" logical name.
+			key = types.NamespacedName{Name: fmt.Sprintf("test-training-%s", rand.String(8)), Namespace: resourceNamespace}
+
 			By("creating the custom resource for the Kind MLTrainingJob")
-			err := k8sClient.Get(ctx, typeNamespacedName, mltrainingjob)
-			if err != nil && errors.IsNotFound(err) {
-				resource := &platformv1.MLTrainingJob{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      resourceName,
-						Namespace: resourceNamespace,
-					},
-					Spec: platformv1.MLTrainingJobSpec{
-						Queue:       "team-vision-queue",
-						Image:       "pytorch/pytorch:2.3.0-cuda12.1-cudnn8-runtime",
-						Command:     []string{"python", "train.py"},
-						GPUClass:    "l40s",
-						GPUCount:    2,
-						Parallelism: 2,
-						Completions: 2,
-					},
-				}
-				Expect(k8sClient.Create(ctx, resource)).To(Succeed())
+			mltj := &platformv1.MLTrainingJob{
+				ObjectMeta: metav1.ObjectMeta{Name: key.Name, Namespace: key.Namespace},
+				Spec: platformv1.MLTrainingJobSpec{
+					Queue:       "team-a",
+					Image:       "busybox",
+					Command:     []string{"python", "train.py"},
+					GPUCount:    2,
+					Parallelism: 1,
+					Completions: 1,
+				},
 			}
+			Expect(k8sClient.Create(ctx, mltj)).To(Succeed())
 		})
 
 		AfterEach(func() {
-			resource := &platformv1.MLTrainingJob{}
-			err := k8sClient.Get(ctx, typeNamespacedName, resource)
-			Expect(err).NotTo(HaveOccurred())
-
-			By("Cleanup the specific resource instance MLTrainingJob")
-			Expect(k8sClient.Delete(ctx, resource)).To(Succeed())
-		})
-		It("should round-trip the spec and reconcile without error", func() {
-			By("reading the created resource back")
-			fetched := &platformv1.MLTrainingJob{}
-			Expect(k8sClient.Get(ctx, typeNamespacedName, fetched)).To(Succeed())
-			Expect(fetched.Spec.Queue).To(Equal("team-vision-queue"))
-			Expect(fetched.Spec.Image).To(Equal("pytorch/pytorch:2.3.0-cuda12.1-cudnn8-runtime"))
-			Expect(fetched.Spec.Command).To(Equal([]string{"python", "train.py"}))
-			Expect(fetched.Spec.GPUCount).To(Equal(int32(2)))
-			Expect(fetched.Spec.Parallelism).To(Equal(int32(2)))
-			Expect(fetched.Spec.Completions).To(Equal(int32(2)))
-
-			By("Reconciling the created resource")
-			controllerReconciler := &MLTrainingJobReconciler{
-				Client: k8sClient,
-				Scheme: k8sClient.Scheme(),
+			By("dropping the MLTrainingJob's finalizer since there is no running manager to do it")
+			mltj := &platformv1.MLTrainingJob{}
+			if err := k8sClient.Get(ctx, key, mltj); err == nil {
+				mltj.Finalizers = nil
+				Expect(k8sClient.Update(ctx, mltj)).To(Succeed())
+				Expect(k8sClient.Delete(ctx, mltj)).To(Succeed())
 			}
-			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
-				NamespacedName: typeNamespacedName,
-			})
-			Expect(err).NotTo(HaveOccurred())
+
+			// Best-effort: ask the Job to delete too, but do not wait for it to actually disappear.
+			//
+			// Its job-tracking finalizer only clears once a real Job controller marks it complete, which never happens in envtest, so it would stay "Terminating" forever; the unique name per spec is what actually prevents cross-spec collisions.
+			job := &batchv1.Job{}
+			if err := k8sClient.Get(ctx, key, job); err == nil {
+				Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, job))).To(Succeed())
+			}
+
+			// Best-effort: any Workload a spec created has no controller running to finalize it, so just ask for deletion.
+			wl := &kueuev1beta1.Workload{}
+			if err := k8sClient.Get(ctx, key, wl); err == nil {
+				Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, wl))).To(Succeed())
+			}
 		})
 
-		It("should persist a status phase via the status subresource", func() {
+		It("creates an owned, suspended, Kueue-labeled Job", func() {
+			reconcileUntilSteady()
+
+			got := &platformv1.MLTrainingJob{}
+			Expect(k8sClient.Get(ctx, key, got)).To(Succeed())
+			Expect(got.Finalizers).To(ContainElement(mlTrainingJobFinalizer))
+
+			job := &batchv1.Job{}
+			Expect(k8sClient.Get(ctx, key, job)).To(Succeed())
+			Expect(metav1.IsControlledBy(job, got)).To(BeTrue())
+			Expect(job.Labels).To(HaveKeyWithValue("kueue.x-k8s.io/queue-name", "team-a"))
+
+			Expect(job.Spec.Suspend).NotTo(BeNil())
+			Expect(*job.Spec.Suspend).To(BeTrue())
+
+			Expect(*job.Spec.Parallelism).To(Equal(int32(1)))
+			Expect(*job.Spec.Completions).To(Equal(int32(1)))
+
+			Expect(job.Spec.Template.Spec.RestartPolicy).To(Equal(corev1.RestartPolicyNever))
+			Expect(job.Spec.Template.Spec.Containers).To(HaveLen(1))
+			container := job.Spec.Template.Spec.Containers[0]
+			Expect(container.Name).To(Equal("trainer"))
+			Expect(container.Image).To(Equal("busybox"))
+			Expect(container.Command).To(Equal([]string{"python", "train.py"}))
+			gpu := container.Resources.Limits[corev1.ResourceName("nvidia.com/gpu")]
+			Expect(gpu.Value()).To(Equal(int64(2)))
+		})
+
+		It("is idempotent once steady", func() {
+			reconcileUntilSteady()
+
+			before := &batchv1.Job{}
+			Expect(k8sClient.Get(ctx, key, before)).To(Succeed())
+
+			_, err := reconciler().Reconcile(ctx, reconcile.Request{NamespacedName: key})
+			Expect(err).NotTo(HaveOccurred())
+
+			after := &batchv1.Job{}
+			Expect(k8sClient.Get(ctx, key, after)).To(Succeed())
+			Expect(after.ResourceVersion).To(Equal(before.ResourceVersion))
+		})
+
+		It("does not reconcile Suspend back to true once Kueue has admitted the Job", func() {
+			reconcileUntilSteady()
+
+			job := &batchv1.Job{}
+			Expect(k8sClient.Get(ctx, key, job)).To(Succeed())
+			job.Spec.Suspend = new(bool)
+			*job.Spec.Suspend = false
+			Expect(k8sClient.Update(ctx, job)).To(Succeed())
+
+			_, err := reconciler().Reconcile(ctx, reconcile.Request{NamespacedName: key})
+			Expect(err).NotTo(HaveOccurred())
+
+			after := &batchv1.Job{}
+			Expect(k8sClient.Get(ctx, key, after)).To(Succeed())
+			Expect(after.Spec.Suspend).NotTo(BeNil())
+			Expect(*after.Spec.Suspend).To(BeFalse())
+		})
+
+		It("refuses to adopt a Job of the same name it does not own", func() {
+			foreign := &batchv1.Job{
+				ObjectMeta: metav1.ObjectMeta{Name: key.Name, Namespace: key.Namespace},
+				Spec: batchv1.JobSpec{
+					Template: corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{
+							RestartPolicy: corev1.RestartPolicyNever,
+							Containers:    []corev1.Container{{Name: "x", Image: "busybox"}},
+						},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, foreign)).To(Succeed())
+
+			before := testutil.ToFloat64(mlTrainingJobFailedTotal.WithLabelValues(mltjReasonConflict))
+
+			reconcileUntilSteady()
+
+			got := &platformv1.MLTrainingJob{}
+			Expect(k8sClient.Get(ctx, key, got)).To(Succeed())
+			Expect(got.Status.Phase).To(Equal(mltjPhaseFailed))
+
+			gotJob := &batchv1.Job{}
+			Expect(k8sClient.Get(ctx, key, gotJob)).To(Succeed())
+			Expect(gotJob.OwnerReferences).To(BeEmpty())
+
+			after := testutil.ToFloat64(mlTrainingJobFailedTotal.WithLabelValues(mltjReasonConflict))
+			Expect(after - before).To(Equal(1.0))
+		})
+
+		It("persists a status phase via the status subresource", func() {
 			const phasePending = "Pending"
 
 			fetched := &platformv1.MLTrainingJob{}
-			Expect(k8sClient.Get(ctx, typeNamespacedName, fetched)).To(Succeed())
+			Expect(k8sClient.Get(ctx, key, fetched)).To(Succeed())
 
 			fetched.Status.Phase = phasePending
 			Expect(k8sClient.Status().Update(ctx, fetched)).To(Succeed())
 
 			updated := &platformv1.MLTrainingJob{}
-			Expect(k8sClient.Get(ctx, typeNamespacedName, updated)).To(Succeed())
+			Expect(k8sClient.Get(ctx, key, updated)).To(Succeed())
 			Expect(updated.Status.Phase).To(Equal(phasePending))
+		})
+
+		It("moves to Admitted once the Kueue Workload reports Admitted=True, then to Running once the Job has active pods", func() {
+			reconcileUntilSteady()
+
+			job := &batchv1.Job{}
+			Expect(k8sClient.Get(ctx, key, job)).To(Succeed())
+
+			By("creating the Kueue Workload Kueue would create for this Job, labeled with the Job's UID")
+			wl := &kueuev1beta1.Workload{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      key.Name,
+					Namespace: key.Namespace,
+					Labels:    map[string]string{"kueue.x-k8s.io/job-uid": string(job.UID)},
+				},
+				Spec: kueuev1beta1.WorkloadSpec{
+					PodSets: []kueuev1beta1.PodSet{{
+						Name:  "main",
+						Count: 1,
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{
+								RestartPolicy: corev1.RestartPolicyNever,
+								Containers:    []corev1.Container{{Name: "trainer", Image: "busybox"}},
+							},
+						},
+					}},
+				},
+			}
+			Expect(k8sClient.Create(ctx, wl)).To(Succeed())
+
+			wl.Status.Conditions = []metav1.Condition{{
+				Type:               "Admitted",
+				Status:             metav1.ConditionTrue,
+				Reason:             "QuotaReserved",
+				Message:            "",
+				LastTransitionTime: metav1.Now(),
+			}}
+			Expect(k8sClient.Status().Update(ctx, wl)).To(Succeed())
+
+			By("reconciling so the MLTrainingJob picks up the Workload's Admitted condition")
+			_, err := reconciler().Reconcile(ctx, reconcile.Request{NamespacedName: key})
+			Expect(err).NotTo(HaveOccurred())
+
+			admitted := &platformv1.MLTrainingJob{}
+			Expect(k8sClient.Get(ctx, key, admitted)).To(Succeed())
+			Expect(admitted.Status.Phase).To(Equal("Admitted"))
+			Expect(admitted.Status.LastTransitionTime).NotTo(BeNil())
+
+			By("giving the Job an active pod, as Kueue's unsuspend would eventually lead to")
+			job.Status.Active = 1
+			Expect(k8sClient.Status().Update(ctx, job)).To(Succeed())
+
+			_, err = reconciler().Reconcile(ctx, reconcile.Request{NamespacedName: key})
+			Expect(err).NotTo(HaveOccurred())
+
+			running := &platformv1.MLTrainingJob{}
+			Expect(k8sClient.Get(ctx, key, running)).To(Succeed())
+			Expect(running.Status.Phase).To(Equal("Running"))
+		})
+
+		It("increments mlTrainingJobPhaseTotal counter when transitioning to Admitted phase", func() {
+			reconcileUntilSteady()
+
+			job := &batchv1.Job{}
+			Expect(k8sClient.Get(ctx, key, job)).To(Succeed())
+
+			By("reading the counter value before the Admitted phase transition")
+			before := testutil.ToFloat64(mlTrainingJobPhaseTotal.WithLabelValues(mltjPhaseAdmitted))
+
+			By("creating the Kueue Workload and admitting it")
+			wl := &kueuev1beta1.Workload{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      key.Name,
+					Namespace: key.Namespace,
+					Labels:    map[string]string{"kueue.x-k8s.io/job-uid": string(job.UID)},
+				},
+				Spec: kueuev1beta1.WorkloadSpec{
+					PodSets: []kueuev1beta1.PodSet{{
+						Name:  "main",
+						Count: 1,
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{
+								RestartPolicy: corev1.RestartPolicyNever,
+								Containers:    []corev1.Container{{Name: "trainer", Image: "busybox"}},
+							},
+						},
+					}},
+				},
+			}
+			Expect(k8sClient.Create(ctx, wl)).To(Succeed())
+
+			wl.Status.Conditions = []metav1.Condition{{
+				Type:               "Admitted",
+				Status:             metav1.ConditionTrue,
+				Reason:             "QuotaReserved",
+				Message:            "",
+				LastTransitionTime: metav1.Now(),
+			}}
+			Expect(k8sClient.Status().Update(ctx, wl)).To(Succeed())
+
+			By("reconciling to trigger the phase transition to Admitted")
+			_, err := reconciler().Reconcile(ctx, reconcile.Request{NamespacedName: key})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("verifying the MLTrainingJob transitioned to Admitted")
+			admitted := &platformv1.MLTrainingJob{}
+			Expect(k8sClient.Get(ctx, key, admitted)).To(Succeed())
+			Expect(admitted.Status.Phase).To(Equal(mltjPhaseAdmitted))
+
+			By("reading the counter value after the phase transition")
+			after := testutil.ToFloat64(mlTrainingJobPhaseTotal.WithLabelValues(mltjPhaseAdmitted))
+
+			By("asserting the counter incremented by exactly 1")
+			Expect(after - before).To(Equal(1.0))
 		})
 	})
 })

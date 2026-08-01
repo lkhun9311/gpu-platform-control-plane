@@ -4,7 +4,7 @@
 # The existing Dockerfile builds cmd/main.go (the controller) into the manager binary.
 # The gateway is a separate process running as a separate Deployment, so its image must be separate too.
 # Putting both binaries in one image would redeploy both when only one changes, and would bloat the image needlessly.
-FROM golang:1.25 AS builder
+FROM golang:1.26 AS builder
 ARG TARGETOS
 ARG TARGETARCH
 
