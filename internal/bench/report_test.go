@@ -62,6 +62,7 @@ var _ = Describe("Summarize", func() {
 		Expect(s.TimedOut).To(Equal(1))
 		Expect(s.TTFTMsP50).To(Equal(float64(50)))
 		Expect(s.TTFTMsP99).To(Equal(float64(99)))
+		Expect(s.TailSampleSize).To(Equal(100))
 		// Admitted-work over the eligible (>=4096-token) population: one offered (rejected) + one offered (timed out, not a 429 so counts as admitted work).
 		Expect(s.OfferedInputTokens).To(Equal(int64(16000)))
 		Expect(s.AdmittedInputTokens).To(Equal(int64(8000))) // the timeout row was admitted (not 429); the 429 was not
@@ -99,12 +100,13 @@ var _ = Describe("BootstrapCI", func() {
 
 var _ = Describe("EvaluateChecks", func() {
 	It("passes when C beats R1 absolutely and B incrementally with a matched admission fraction", func() {
-		r1 := ArmSummary{Arm: "R1", TTFTMsP99: 100}
+		r1 := ArmSummary{Arm: "R1", TTFTMsP99: 100, TailSampleSize: 500}
 		// static-cap and kv-aware admit the same work (matched), but kv-aware protects the tail better.
-		staticCap := ArmSummary{Arm: "static-cap", TTFTMsP99: 200, OfferedInputTokens: 1000, AdmittedInputTokens: 500}
-		kvAware := ArmSummary{Arm: "kv-aware", TTFTMsP99: 110, OfferedInputTokens: 1000, AdmittedInputTokens: 510}
+		staticCap := ArmSummary{Arm: "static-cap", TTFTMsP99: 200, OfferedInputTokens: 1000, AdmittedInputTokens: 500, TailSampleSize: 500}
+		kvAware := ArmSummary{Arm: "kv-aware", TTFTMsP99: 110, OfferedInputTokens: 1000, AdmittedInputTokens: 510, TailSampleSize: 500}
 		ci := CI{Lo: 0.45, Hi: 0.65} // C/B ratio CI, upper bound < 1.0
 		c := EvaluateChecks(r1, staticCap, kvAware, ci, 0.05)
+		Expect(c.Invalid).To(BeFalse())
 		Expect(c.AbsoluteProtectionPass).To(BeTrue()) // 110/100 = 1.10 <= 1.25
 		Expect(c.IncrementalValuePass).To(BeTrue())   // 110/200 = 0.55 <= 0.90, CI hi 0.65 < 1.0
 		Expect(c.AdmissionMatchPass).To(BeTrue())     // |0.5-0.51|/0.51 ~ 0.02 <= 0.05
@@ -112,9 +114,9 @@ var _ = Describe("EvaluateChecks", func() {
 	})
 
 	It("fails incremental value when C does not beat the admission-matched B (just load shedding)", func() {
-		r1 := ArmSummary{Arm: "R1", TTFTMsP99: 100}
-		staticCap := ArmSummary{Arm: "static-cap", TTFTMsP99: 115, OfferedInputTokens: 1000, AdmittedInputTokens: 500}
-		kvAware := ArmSummary{Arm: "kv-aware", TTFTMsP99: 112, OfferedInputTokens: 1000, AdmittedInputTokens: 505}
+		r1 := ArmSummary{Arm: "R1", TTFTMsP99: 100, TailSampleSize: 500}
+		staticCap := ArmSummary{Arm: "static-cap", TTFTMsP99: 115, OfferedInputTokens: 1000, AdmittedInputTokens: 500, TailSampleSize: 500}
+		kvAware := ArmSummary{Arm: "kv-aware", TTFTMsP99: 112, OfferedInputTokens: 1000, AdmittedInputTokens: 505, TailSampleSize: 500}
 		ci := CI{Lo: 0.90, Hi: 1.05} // ratio ~0.97, CI crosses 1.0
 		c := EvaluateChecks(r1, staticCap, kvAware, ci, 0.05)
 		Expect(c.AbsoluteProtectionPass).To(BeTrue()) // 112/100 = 1.12 <= 1.25
@@ -123,12 +125,33 @@ var _ = Describe("EvaluateChecks", func() {
 	})
 
 	It("fails admission match when B and C admit different work fractions", func() {
-		r1 := ArmSummary{Arm: "R1", TTFTMsP99: 100}
-		staticCap := ArmSummary{Arm: "static-cap", TTFTMsP99: 200, OfferedInputTokens: 1000, AdmittedInputTokens: 300}
-		kvAware := ArmSummary{Arm: "kv-aware", TTFTMsP99: 110, OfferedInputTokens: 1000, AdmittedInputTokens: 600}
+		r1 := ArmSummary{Arm: "R1", TTFTMsP99: 100, TailSampleSize: 500}
+		staticCap := ArmSummary{Arm: "static-cap", TTFTMsP99: 200, OfferedInputTokens: 1000, AdmittedInputTokens: 300, TailSampleSize: 500}
+		kvAware := ArmSummary{Arm: "kv-aware", TTFTMsP99: 110, OfferedInputTokens: 1000, AdmittedInputTokens: 600, TailSampleSize: 500}
 		ci := CI{Lo: 0.45, Hi: 0.65}
 		c := EvaluateChecks(r1, staticCap, kvAware, ci, 0.05)
 		Expect(c.AdmissionMatchPass).To(BeFalse()) // 0.3 vs 0.6 is a 50% gap
+		Expect(c.OverallPass).To(BeFalse())
+	})
+
+	It("invalidates the run when a compared arm completed no premium requests", func() {
+		r1 := ArmSummary{Arm: "R1", TTFTMsP99: 100, TailSampleSize: 500}
+		staticCap := ArmSummary{Arm: "static-cap", TTFTMsP99: 200, OfferedInputTokens: 1000, AdmittedInputTokens: 500, TailSampleSize: 500}
+		// kv-aware completed nothing (e.g. every admitted request timed out): its p99 is 0 and would otherwise pass every ratio check.
+		kvAware := ArmSummary{Arm: "kv-aware", TTFTMsP99: 0, OfferedInputTokens: 1000, AdmittedInputTokens: 500, TailSampleSize: 0}
+		ci := CI{Lo: 0, Hi: 0}
+		c := EvaluateChecks(r1, staticCap, kvAware, ci, 0.05)
+		Expect(c.Invalid).To(BeTrue())
+		Expect(c.OverallPass).To(BeFalse()) // never certifies a zero-completion run as protection
+	})
+
+	It("invalidates the run when a compared arm's tail is censored", func() {
+		r1 := ArmSummary{Arm: "R1", TTFTMsP99: 100, TailSampleSize: 500}
+		staticCap := ArmSummary{Arm: "static-cap", TTFTMsP99: 200, OfferedInputTokens: 1000, AdmittedInputTokens: 500, TailSampleSize: 500}
+		kvAware := ArmSummary{Arm: "kv-aware", TTFTMsP99: 110, OfferedInputTokens: 1000, AdmittedInputTokens: 510, TailSampleSize: 500, Censored: true}
+		ci := CI{Lo: 0.45, Hi: 0.65}
+		c := EvaluateChecks(r1, staticCap, kvAware, ci, 0.05)
+		Expect(c.Invalid).To(BeTrue())
 		Expect(c.OverallPass).To(BeFalse())
 	})
 })
