@@ -150,12 +150,15 @@ type LabResult struct {
 	// latency percentiles would flatter the worse policy, so they are reported explicitly.
 	UnfinishedAtHorizon int
 	// AdmittedWaitP95Ns is the p95 admission latency over ADMITTED jobs only, in ns. It is a SECONDARY
-	// statistic: on a heavily censored arm it is admitted-survivor-biased (0 admissions reads as 0), so it
-	// must be read together with WaitP95Estimable and the censored waits, never in place of them.
+	// statistic: on a censored arm it is admitted-survivor-biased (0 admissions reads as 0), so it must be
+	// read together with WaitP95FullyObserved and the censored waits, never in place of them.
 	AdmittedWaitP95Ns int64
-	// WaitP95Estimable is true only when at least 95% of offered jobs were admitted, so the p95 is not just
-	// the fastest survivors. When false, AdmittedWaitP95Ns is not a defensible comparison number.
-	WaitP95Estimable bool
+	// WaitP95FullyObserved is true only when EVERY offered job was admitted, which is the only case where
+	// the admitted-only p95 equals the offered-work p95. Any unadmitted job is right-censored with an
+	// unknown true wait that could occupy the p95 rank, so an admission fraction below 100% cannot make the
+	// admitted-only p95 a defensible estimate of the offered-work p95; when false, treat AdmittedWaitP95Ns
+	// as a within-survivors descriptor only.
+	WaitP95FullyObserved bool
 	// TotalWastedGPUSeconds is the run's total EXACT discarded (restart-from-zero) work.
 	TotalWastedGPUSeconds float64
 	// TotalWasteLowerBoundGPUSeconds is >= the exact total, counting censored attempts up to the horizon.
@@ -173,6 +176,11 @@ type LabResult struct {
 // (an event for an unknown job, a missing or duplicated submission, an admitted-before-submitted or
 // completed-before-admitted ordering, or a preemption that pairs to no running attempt), because for an
 // experiment tool a plausible wrong number is worse than a refusal.
+//
+// It assumes its input came from a fail-closed collector that observes every terminal Pod transition and
+// invalidates a run on any unexplained one (the live runner's contract). That precondition is what makes
+// "no in-horizon stop" mean the attempt still held the GPU at the horizon, so the censored waste lower
+// bound is a true lower bound rather than a guess; on a raw hand-authored ledger that guarantee is absent.
 func Reconstruct(arm string, trace []TrainingTraceRow, events []LifecycleEvent, horizonElapsedNs int64) (LabResult, error) {
 	byJob := map[string]*jobTimeline{}
 	order := make([]string, 0, len(trace))
@@ -231,29 +239,42 @@ func Reconstruct(arm string, trace []TrainingTraceRow, events []LifecycleEvent, 
 
 	sort.Float64s(admitWaits)
 	res.AdmittedWaitP95Ns = int64(percentileNs(admitWaits, 0.95))
-	// The p95 is only a defensible comparison number when almost everyone was admitted; otherwise it is the
-	// latency of the fastest survivors. Require at least 95% of offered jobs admitted.
-	if res.Offered > 0 {
-		needed := (res.Offered*95 + 99) / 100 // ceil(0.95 * Offered)
-		res.WaitP95Estimable = res.Admitted >= needed
-	}
+	// The admitted-only p95 equals the offered-work p95 only when nothing is censored. With any unadmitted
+	// job the offered p95 is not identifiable from admitted data, so the fully-observed flag is exactly
+	// "every offered job was admitted", not an admission-fraction threshold.
+	res.WaitP95FullyObserved = res.Offered > 0 && res.Admitted == res.Offered
 	return res, nil
 }
 
 // foldEvent validates one event against the seeded timelines and folds it in, returning an error on any
 // evidence that could not have happened in a real run.
+//
+// Shape validation (known job, known type, Pod events carry a UID, non-negative timestamp) runs BEFORE the
+// horizon rule, so a corrupt event is rejected whether it lands before or after the horizon. Only a valid
+// post-horizon AttemptStopped is then folded, as the causal tail that closes a pre-horizon preemption; any
+// other post-horizon delta is validated but not folded into in-horizon state.
 func foldEvent(byJob map[string]*jobTimeline, e *LifecycleEvent, horizonElapsedNs int64) error {
-	if e.ElapsedNs > horizonElapsedNs {
-		// A post-horizon delta is provenance for the causal tail (e.g. a stop that closes a pre-horizon
-		// preemption); it is folded so waste can pair to it, but it never creates in-horizon outcomes.
-		if e.Type != EventAttemptStopped {
-			return nil
-		}
+	if e.ElapsedNs < 0 {
+		return fmt.Errorf("job %q event has negative elapsed time %d", e.Job, e.ElapsedNs)
 	}
 	t, ok := byJob[e.Job]
 	if !ok {
 		return fmt.Errorf("event for job %q is not in the trace", e.Job)
 	}
+	switch e.Type {
+	case EventSubmitted, EventAdmitted, EventPreempted, EventCompleted:
+	case EventPodReady, EventAttemptStopped:
+		if e.ObjectUID == "" {
+			return fmt.Errorf("job %q %s has no Pod UID", e.Job, e.Type)
+		}
+	default:
+		return fmt.Errorf("job %q has unknown event type %q", e.Job, e.Type)
+	}
+
+	if e.ElapsedNs > horizonElapsedNs && e.Type != EventAttemptStopped {
+		return nil
+	}
+
 	switch e.Type {
 	case EventSubmitted:
 		if t.submitted && t.submittedNs != e.ElapsedNs {
@@ -269,9 +290,6 @@ func foldEvent(byJob map[string]*jobTimeline, e *LifecycleEvent, horizonElapsedN
 			t.admitNs = e.ElapsedNs
 		}
 	case EventPodReady:
-		if e.ObjectUID == "" {
-			return fmt.Errorf("job %q PodReady has no Pod UID", e.Job)
-		}
 		a, ok := t.attempts[e.ObjectUID]
 		if !ok {
 			a = &attempt{uid: e.ObjectUID, readyNs: e.ElapsedNs}
@@ -283,9 +301,6 @@ func foldEvent(byJob map[string]*jobTimeline, e *LifecycleEvent, horizonElapsedN
 	case EventPreempted:
 		t.preemptedNs = append(t.preemptedNs, e.ElapsedNs)
 	case EventAttemptStopped:
-		if e.ObjectUID == "" {
-			return fmt.Errorf("job %q AttemptStopped has no Pod UID", e.Job)
-		}
 		a, ok := t.attempts[e.ObjectUID]
 		if !ok {
 			return fmt.Errorf("job %q AttemptStopped for unknown Pod %q (no PodReady seen)", e.Job, e.ObjectUID)
@@ -295,10 +310,11 @@ func foldEvent(byJob map[string]*jobTimeline, e *LifecycleEvent, horizonElapsedN
 			a.stopNs = e.ElapsedNs
 		}
 	case EventCompleted:
+		if t.completed && t.completedNs != e.ElapsedNs {
+			return fmt.Errorf("job %q completed twice at %d and %d", e.Job, t.completedNs, e.ElapsedNs)
+		}
 		t.completed = true
 		t.completedNs = e.ElapsedNs
-	default:
-		return fmt.Errorf("job %q has unknown event type %q", e.Job, e.Type)
 	}
 	return nil
 }
@@ -317,38 +333,40 @@ func chargeWaste(t *jobTimeline, horizonElapsedNs int64, out *WorkloadOutcome) e
 	decisions := append([]int64(nil), t.preemptedNs...)
 	slices.Sort(decisions)
 	for _, d := range decisions {
-		a := openAttemptAt(t, d)
-		if a == nil {
-			return fmt.Errorf("preemption at %d pairs to no running attempt", d)
+		a, err := openAttemptAt(t, d)
+		if err != nil {
+			return err
 		}
 		a.consumed = true
 		gpu := float64(t.gpuCount)
-		switch {
-		case a.stopped && a.stopNs <= horizonElapsedNs:
+		if a.stopped && a.stopNs <= horizonElapsedNs {
 			// The Pod stop was observed in-horizon: the discarded work is exact, from Ready to the stop.
 			exact := gpu * float64(a.stopNs-a.readyNs) / 1e9
 			out.WastedGPUSeconds += exact
 			out.WasteLowerBoundGPUSeconds += exact
-		case a.stopped:
-			// The stop was observed beyond the horizon, so the attempt is KNOWN to have run through the
-			// horizon: charge a lower bound to the horizon (including the grace period up to it) and flag it.
+		} else {
+			// No in-horizon stop was observed. Because the collector is fail-closed and observes every
+			// terminal Pod transition (the runner's contract; a run with an unexplained missing stop is
+			// invalidated upstream), the absence of a stop by the horizon means the attempt still held the
+			// GPU at the horizon. So the discarded work is at least Ready->horizon: a lower bound, flagged,
+			// never folded into the exact total. A stop recorded beyond the horizon is the same case.
 			out.WasteLowerBoundGPUSeconds += gpu * float64(horizonElapsedNs-a.readyNs) / 1e9
-			out.WasteCensored = true
-		default:
-			// No stop was observed at all: the attempt could have stopped early in the grace window, so the
-			// only defensible floor is up to the preemption DECISION, which it provably ran to. Flag it.
-			out.WasteLowerBoundGPUSeconds += gpu * float64(d-a.readyNs) / 1e9
 			out.WasteCensored = true
 		}
 	}
 	return nil
 }
 
-// openAttemptAt returns the unconsumed attempt that was Ready before decision time d and had not already
-// stopped before d (so it was still running when the preemption was decided), choosing the most recently
-// Ready such attempt. It returns nil when no attempt was running, which is an invalid preemption.
-func openAttemptAt(t *jobTimeline, d int64) *attempt {
-	var best *attempt
+// openAttemptAt returns the single unconsumed attempt that was Ready before decision time d and had not
+// already stopped before d, so it was still running when the preemption was decided.
+//
+// It requires EXACTLY ONE such attempt. A Workload preemption delta does not name a Pod UID, so if two
+// attempts were both running at the decision the pairing is ambiguous; rather than pick one heuristically
+// (which can misattribute discarded work), it errors, because for one training row Kueue runs one attempt
+// at a time and two concurrently-running attempts mean the ledger is inconsistent. It also errors when no
+// attempt was running, which is an unpaired preemption.
+func openAttemptAt(t *jobTimeline, d int64) (*attempt, error) {
+	var found *attempt
 	for _, uid := range t.attemptSeq {
 		a := t.attempts[uid]
 		if a.consumed || a.readyNs >= d {
@@ -357,11 +375,15 @@ func openAttemptAt(t *jobTimeline, d int64) *attempt {
 		if a.stopped && a.stopNs < d {
 			continue
 		}
-		if best == nil || a.readyNs > best.readyNs {
-			best = a
+		if found != nil {
+			return nil, fmt.Errorf("preemption at %d has two running attempts (%s, %s); ambiguous pairing", d, found.uid, a.uid)
 		}
+		found = a
 	}
-	return best
+	if found == nil {
+		return nil, fmt.Errorf("preemption at %d pairs to no running attempt", d)
+	}
+	return found, nil
 }
 
 // percentileNs is a nearest-rank percentile over a sorted slice, returning 0 for empty input.

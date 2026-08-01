@@ -134,22 +134,23 @@ func validateStructural(rows []TrainingTraceRow) error {
 		return fmt.Errorf("trace is empty")
 	}
 	names := map[string]bool{}
-	indices := map[int]bool{}
 	var prevOffset int64
 	for i, row := range rows {
-		if !rfc1123Name.MatchString(row.Name) {
-			return fmt.Errorf("row %d name %q is not a valid Kubernetes name", i, row.Name)
+		// The name becomes a Job/Pod name prefix, so it must be a valid label-length DNS name, or the API
+		// server rejects the create and the job masquerades as censored rather than as a bad trace.
+		if !rfc1123Name.MatchString(row.Name) || len(row.Name) > 63 {
+			return fmt.Errorf("row %d name %q is not a valid Kubernetes name (<=63 chars)", i, row.Name)
 		}
 		if names[row.Name] {
 			return fmt.Errorf("duplicate job name %q", row.Name)
 		}
 		names[row.Name] = true
-		if indices[row.Index] {
-			return fmt.Errorf("duplicate row index %d", row.Index)
+		// The index IS the row position so an event join by index cannot land on a gap or a reordering.
+		if row.Index != i {
+			return fmt.Errorf("row %q index %d does not match its position %d", row.Name, row.Index, i)
 		}
-		indices[row.Index] = true
-		if row.OffsetMs < 0 {
-			return fmt.Errorf("row %q has negative offset %d", row.Name, row.OffsetMs)
+		if row.OffsetMs < 0 || row.OffsetMs > math.MaxInt32 {
+			return fmt.Errorf("row %q offset %d is outside [0,%d] ms", row.Name, row.OffsetMs, math.MaxInt32)
 		}
 		if row.OffsetMs < prevOffset {
 			return fmt.Errorf("trace offsets are not non-decreasing at row %q", row.Name)
@@ -160,12 +161,6 @@ func validateStructural(rows []TrainingTraceRow) error {
 		}
 		if row.DurationSec < 1 || row.DurationSec > math.MaxInt32 {
 			return fmt.Errorf("row %q DurationSec %d is not a positive int32", row.Name, row.DurationSec)
-		}
-	}
-	// Indices must be exactly 0..n-1 so an event join by index cannot land on a gap.
-	for i := range rows {
-		if !indices[i] {
-			return fmt.Errorf("row indices are not contiguous 0..%d (missing %d)", len(rows)-1, i)
 		}
 	}
 	return nil
@@ -181,6 +176,7 @@ func ValidateTrace(study Study, rows []TrainingTraceRow) error {
 	}
 	switch study {
 	case StudyReclaim:
+		seen := map[string]bool{}
 		for _, row := range rows {
 			if row.Tenant != "tenant-a" && row.Tenant != "tenant-b" {
 				return fmt.Errorf("reclaim row %q has tenant %q, want tenant-a or tenant-b", row.Name, row.Tenant)
@@ -188,12 +184,27 @@ func ValidateTrace(study Study, rows []TrainingTraceRow) error {
 			if row.GPUCount != 1 {
 				return fmt.Errorf("reclaim row %q GPUCount %d, want 1 (per-tenant nominal quota)", row.Name, row.GPUCount)
 			}
+			seen[row.Tenant] = true
+		}
+		// Reclaim is a cross-tenant borrowing-and-return story: with only one tenant there is nothing to
+		// reclaim, so a single-tenant trace would silently not exercise the mechanism under test.
+		if !seen["tenant-a"] || !seen["tenant-b"] {
+			return fmt.Errorf("reclaim trace needs both tenant-a and tenant-b to exercise reclamation")
 		}
 	case StudyFIFO:
+		hasHead := false
 		for _, row := range rows {
 			if row.Tenant != "tenant-a" {
 				return fmt.Errorf("fifo row %q has tenant %q, want the single tenant tenant-a", row.Name, row.Tenant)
 			}
+			if row.GPUCount == labMaxGPU {
+				hasHead = true
+			}
+		}
+		// The FIFO study turns on a head job that cannot immediately fit (the 2-GPU job) blocking smaller
+		// ones behind it; without such a head there is no head-of-line decision to compare.
+		if !hasHead {
+			return fmt.Errorf("fifo trace needs a %d-GPU head job to create head-of-line blocking", labMaxGPU)
 		}
 	default:
 		return fmt.Errorf("unknown study %q", study)

@@ -79,8 +79,8 @@ func TestReconstructReclaimAny(t *testing.T) {
 	if res.UnfinishedAtHorizon != 1 {
 		t.Fatalf("a2 is unfinished at the horizon, got %d", res.UnfinishedAtHorizon)
 	}
-	if !res.WaitP95Estimable {
-		t.Fatalf("all offered jobs admitted, p95 should be estimable")
+	if !res.WaitP95FullyObserved {
+		t.Fatalf("all offered jobs admitted, p95 should be fully observed")
 	}
 
 	byJob := map[string]WorkloadOutcome{}
@@ -110,10 +110,11 @@ func TestReconstructReclaimAny(t *testing.T) {
 	}
 }
 
-func TestWasteNoStopChargesToDecisionAsLowerBound(t *testing.T) {
-	// No AttemptStopped was observed, so the attempt could have stopped early in the grace window: the only
-	// defensible floor is up to the preemption DECISION, reported as a lower bound and flagged censored,
-	// never as the exact total.
+func TestWasteNoStopChargesToHorizonAsLowerBound(t *testing.T) {
+	// No AttemptStopped was observed by the horizon. Under the fail-closed collector contract (every
+	// terminal transition is observed or the run is invalidated), an absent stop means the attempt still
+	// held the GPU at the horizon, so the floor is Ready->horizon, reported as a lower bound and flagged
+	// censored, never as the exact total.
 	trace := []TrainingTraceRow{{Index: 0, Name: "a2", OffsetMs: 0, Tenant: "tenant-a", GPUCount: 2, DurationSec: 300}}
 	events := []LifecycleEvent{
 		{ElapsedNs: 0, Kind: "MLTrainingJob", Type: EventSubmitted, Job: "a2", GPUCount: 2},
@@ -128,12 +129,42 @@ func TestWasteNoStopChargesToDecisionAsLowerBound(t *testing.T) {
 	if res.TotalWastedGPUSeconds != 0 {
 		t.Fatalf("exact total must be 0 when no stop was observed, got %.2f", res.TotalWastedGPUSeconds)
 	}
-	// 2 GPUs * (100 - 2) = 196, the decision-time floor.
-	if got := res.TotalWasteLowerBoundGPUSeconds; got < 195.9 || got > 196.1 {
-		t.Fatalf("lower-bound waste = %.2f, want ~196 (decision-time floor)", got)
+	// 2 GPUs * (200 - 2) = 396, the horizon floor.
+	if got := res.TotalWasteLowerBoundGPUSeconds; got < 395.9 || got > 396.1 {
+		t.Fatalf("lower-bound waste = %.2f, want ~396 (horizon floor)", got)
 	}
 	if !res.AnyWasteCensored {
 		t.Fatalf("a run with an unobserved stop must be flagged censored")
+	}
+}
+
+func TestReconstructRejectsAmbiguousPreemptionPairing(t *testing.T) {
+	// Two attempts are both running when a preemption is decided (an inconsistent one-Pod history). A
+	// Workload preemption delta names no Pod UID, so pairing is ambiguous; Reconstruct refuses rather than
+	// heuristically charging one attempt's waste.
+	trace := []TrainingTraceRow{{Index: 0, Name: "a2", OffsetMs: 0, Tenant: "tenant-a", GPUCount: 1, DurationSec: 300}}
+	events := []LifecycleEvent{
+		{ElapsedNs: 0, Kind: "MLTrainingJob", Type: EventSubmitted, Job: "a2", GPUCount: 1},
+		{ElapsedNs: 1 * sec, Kind: "Workload", Type: EventAdmitted, Job: "a2", GPUCount: 1},
+		{ElapsedNs: 10 * sec, Kind: "Pod", Type: EventPodReady, Job: "a2", GPUCount: 1, ObjectUID: "pod-A"},
+		{ElapsedNs: 20 * sec, Kind: "Pod", Type: EventPodReady, Job: "a2", GPUCount: 1, ObjectUID: "pod-B"},
+		{ElapsedNs: 30 * sec, Kind: "Workload", Type: EventPreempted, Job: "a2", GPUCount: 1, Reason: "InCohortReclamation"},
+	}
+	if _, err := Reconstruct("Any", trace, events, 100*sec); err == nil {
+		t.Fatalf("two concurrently-running attempts at a preemption must error as ambiguous")
+	}
+}
+
+func TestReconstructRejectsPostHorizonUnknownJob(t *testing.T) {
+	// Corruption is rejected whether it lands before OR after the horizon: a post-horizon event for a job
+	// not in the trace must still error, not be silently skipped by the horizon rule.
+	trace := []TrainingTraceRow{{Index: 0, Name: "a1", OffsetMs: 0, Tenant: "tenant-a", GPUCount: 1, DurationSec: 10}}
+	events := []LifecycleEvent{
+		{ElapsedNs: 0, Kind: "MLTrainingJob", Type: EventSubmitted, Job: "a1", GPUCount: 1},
+		{ElapsedNs: 500 * sec, Kind: "Pod", Type: EventAttemptStopped, Job: "ghost", GPUCount: 1, ObjectUID: "pod-x"},
+	}
+	if _, err := Reconstruct("Any", trace, events, 100*sec); err == nil {
+		t.Fatalf("a post-horizon event for an unknown job must error")
 	}
 }
 
@@ -184,10 +215,10 @@ func TestReconstructNeverHasNoWaste(t *testing.T) {
 	if res.TotalWastedGPUSeconds != 0 {
 		t.Fatalf("Never arm should waste nothing, got %.2f", res.TotalWastedGPUSeconds)
 	}
-	// b1 is submitted but never admitted, so the arm is heavily censored: p95 must NOT be estimable, or the
-	// fastest admitted survivor would be reported as the arm's p95.
-	if res.WaitP95Estimable {
-		t.Fatalf("only 1 of 2 offered jobs admitted, p95 must not be estimable")
+	// b1 is submitted but never admitted, so the arm is censored: p95 must NOT be marked fully observed, or
+	// the fastest admitted survivor would be reported as the arm's p95.
+	if res.WaitP95FullyObserved {
+		t.Fatalf("only 1 of 2 offered jobs admitted, p95 must not be fully observed")
 	}
 	// b1 never admitted by the horizon -> unfinished + right-censored wait, not dropped.
 	var b1 WorkloadOutcome
