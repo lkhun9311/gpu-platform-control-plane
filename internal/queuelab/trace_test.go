@@ -18,10 +18,20 @@ package queuelab
 
 import (
 	"bytes"
+	"fmt"
 	"testing"
 
 	"github.com/lkhun9311/gpu-mlops-platform-control-plane/internal/exputil"
 )
+
+const tenantA = "tenant-a"
+
+// jsonRow renders one trace row as a JSON Lines record, so malformed-input tests can vary a single field
+// without repeating the whole object literal.
+func jsonRow(index int, name string, offsetMs, gpu, dur int) string {
+	return fmt.Sprintf(`{"index":%d,"name":%q,"offsetMs":%d,"tenant":%q,"gpuCount":%d,"durationSec":%d}`+"\n",
+		index, name, offsetMs, tenantA, gpu, dur)
+}
 
 func TestReclaimScenarioLateVsEarly(t *testing.T) {
 	late := ReclaimScenario(true, 600)
@@ -37,7 +47,7 @@ func TestReclaimScenarioLateVsEarly(t *testing.T) {
 	if late[2].OffsetMs != 600*1000-10_000 {
 		t.Fatalf("late owner offset = %d, want %d", late[2].OffsetMs, 600*1000-10_000)
 	}
-	if late[1].Name != "a2-borrow" || late[1].Tenant != "tenant-a" {
+	if late[1].Name != "a2-borrow" || late[1].Tenant != tenantA {
 		t.Fatalf("row 1 should be tenant-a's borrowing job")
 	}
 	if late[2].Tenant != "tenant-b" {
@@ -77,6 +87,49 @@ func TestFIFOHeadOfLine(t *testing.T) {
 	}
 }
 
+func TestGeneratedScenariosPassValidation(t *testing.T) {
+	// The handcrafted generators must satisfy the same rules a hand-edited trace is held to, so the study's
+	// own inputs cannot silently drift out of the mechanism they are meant to exercise.
+	if err := ValidateTrace(StudyReclaim, ReclaimScenario(true, 600)); err != nil {
+		t.Fatalf("reclaim scenario should validate: %v", err)
+	}
+	if err := ValidateTrace(StudyFIFO, FIFOHeadOfLineScenario(600, 120)); err != nil {
+		t.Fatalf("fifo scenario should validate: %v", err)
+	}
+}
+
+func TestValidateTraceStudyRules(t *testing.T) {
+	// A reclaim trace is a two-tenant borrowing story; a FIFO trace is single-tenant. Crossing the studies
+	// would exercise a different mechanism than the one under test.
+	reclaim := ReclaimScenario(true, 600)
+	if err := ValidateTrace(StudyFIFO, reclaim); err == nil {
+		t.Fatalf("a two-tenant trace must fail the single-tenant FIFO study")
+	}
+	// A reclaim row asking for 2 GPUs exceeds the per-tenant nominal quota of 1 and would test capacity, not
+	// reclaim.
+	twoGPU := ReclaimScenario(true, 600)
+	twoGPU[1].GPUCount = 2
+	if err := ValidateTrace(StudyReclaim, twoGPU); err == nil {
+		t.Fatalf("a 2-GPU reclaim row must be rejected")
+	}
+}
+
+func TestReadTraceRejectsMalformedRows(t *testing.T) {
+	cases := map[string]string{
+		"duplicate name":  jsonRow(0, "x", 0, 1, 60) + jsonRow(1, "x", 10, 1, 60),
+		"non-contiguous":  jsonRow(0, "x", 0, 1, 60) + jsonRow(2, "y", 10, 1, 60),
+		"zero gpu":        jsonRow(0, "x", 0, 0, 60),
+		"negative offset": jsonRow(0, "x", -5, 1, 60),
+		"zero duration":   jsonRow(0, "x", 0, 1, 0),
+		"bad name":        jsonRow(0, "X_bad", 0, 1, 60),
+	}
+	for name, body := range cases {
+		if _, err := ReadTrace(bytes.NewReader([]byte(body))); err == nil {
+			t.Fatalf("%s: malformed trace must be rejected", name)
+		}
+	}
+}
+
 func TestReadTraceRejectsReorderedOffsets(t *testing.T) {
 	good := ReclaimScenario(false, 600)
 	var buf bytes.Buffer
@@ -87,8 +140,7 @@ func TestReadTraceRejectsReorderedOffsets(t *testing.T) {
 		t.Fatalf("valid trace should read: %v", err)
 	}
 
-	bad := []byte(`{"index":0,"name":"x","offsetMs":100,"tenant":"tenant-a","gpuCount":1,"durationSec":60}` + "\n" +
-		`{"index":1,"name":"y","offsetMs":50,"tenant":"tenant-a","gpuCount":1,"durationSec":60}` + "\n")
+	bad := []byte(jsonRow(0, "x", 100, 1, 60) + jsonRow(1, "y", 50, 1, 60))
 	if _, err := ReadTrace(bytes.NewReader(bad)); err == nil {
 		t.Fatalf("a trace with decreasing offsets must be rejected")
 	}

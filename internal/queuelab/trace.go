@@ -24,10 +24,19 @@ package queuelab
 import (
 	"fmt"
 	"io"
-	"sort"
+	"math"
+	"regexp"
 
 	"github.com/lkhun9311/gpu-mlops-platform-control-plane/internal/exputil"
 )
+
+// rfc1123Name is the lowercase DNS label form a Kubernetes object name must take, so a trace row cannot
+// name a job the API server would then reject at create time (which would look like a censored job).
+var rfc1123Name = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`)
+
+// labMaxGPU is the lab worker's fake GPU count; a row asking for more can never be admitted, so it would
+// masquerade as a censored job rather than a bad trace.
+const labMaxGPU = 2
 
 // TrainingTraceRow is one scheduled training submission in an immutable trace.
 //
@@ -101,15 +110,93 @@ func WriteTrace(w io.Writer, rows []TrainingTraceRow) error {
 	return exputil.WriteJSONL(w, rows)
 }
 
-// ReadTrace parses a JSON Lines trace and verifies the offsets are non-decreasing, so a hand-edited trace
-// that reorders submissions is rejected rather than replayed out of order.
+// ReadTrace parses a JSON Lines trace and runs the study-agnostic structural checks, so a hand-edited
+// trace with duplicate names, non-contiguous indices, negative offsets, or unsafe values is rejected
+// rather than replayed into a reconstruction that would silently misattribute or collide its jobs.
+//
+// Study-specific rules (allowed tenants, per-study GPU counts) are enforced separately by ValidateTrace,
+// which the runner calls once the study is known.
 func ReadTrace(r io.Reader) ([]TrainingTraceRow, error) {
 	rows, err := exputil.ReadJSONL[TrainingTraceRow](r)
 	if err != nil {
 		return nil, err
 	}
-	if !sort.SliceIsSorted(rows, func(i, j int) bool { return rows[i].OffsetMs < rows[j].OffsetMs }) {
-		return nil, fmt.Errorf("trace offsets are not non-decreasing")
+	if err := validateStructural(rows); err != nil {
+		return nil, err
 	}
 	return rows, nil
+}
+
+// validateStructural enforces the invariants Reconstruct relies on regardless of study: unique contiguous
+// indices, unique valid names, non-decreasing non-negative offsets, and positive int32-safe GPU/duration.
+func validateStructural(rows []TrainingTraceRow) error {
+	if len(rows) == 0 {
+		return fmt.Errorf("trace is empty")
+	}
+	names := map[string]bool{}
+	indices := map[int]bool{}
+	var prevOffset int64
+	for i, row := range rows {
+		if !rfc1123Name.MatchString(row.Name) {
+			return fmt.Errorf("row %d name %q is not a valid Kubernetes name", i, row.Name)
+		}
+		if names[row.Name] {
+			return fmt.Errorf("duplicate job name %q", row.Name)
+		}
+		names[row.Name] = true
+		if indices[row.Index] {
+			return fmt.Errorf("duplicate row index %d", row.Index)
+		}
+		indices[row.Index] = true
+		if row.OffsetMs < 0 {
+			return fmt.Errorf("row %q has negative offset %d", row.Name, row.OffsetMs)
+		}
+		if row.OffsetMs < prevOffset {
+			return fmt.Errorf("trace offsets are not non-decreasing at row %q", row.Name)
+		}
+		prevOffset = row.OffsetMs
+		if row.GPUCount < 1 || row.GPUCount > labMaxGPU {
+			return fmt.Errorf("row %q GPUCount %d is outside [1,%d]", row.Name, row.GPUCount, labMaxGPU)
+		}
+		if row.DurationSec < 1 || row.DurationSec > math.MaxInt32 {
+			return fmt.Errorf("row %q DurationSec %d is not a positive int32", row.Name, row.DurationSec)
+		}
+	}
+	// Indices must be exactly 0..n-1 so an event join by index cannot land on a gap.
+	for i := range rows {
+		if !indices[i] {
+			return fmt.Errorf("row indices are not contiguous 0..%d (missing %d)", len(rows)-1, i)
+		}
+	}
+	return nil
+}
+
+// ValidateTrace runs the structural checks and the study-specific semantic checks a runner must pass a
+// trace before replaying it: the reclaim study is a two-tenant borrowing story, while the FIFO study is a
+// single-tenant head-of-line story, and a row that violates the study would exercise a different mechanism
+// than the one under test.
+func ValidateTrace(study Study, rows []TrainingTraceRow) error {
+	if err := validateStructural(rows); err != nil {
+		return err
+	}
+	switch study {
+	case StudyReclaim:
+		for _, row := range rows {
+			if row.Tenant != "tenant-a" && row.Tenant != "tenant-b" {
+				return fmt.Errorf("reclaim row %q has tenant %q, want tenant-a or tenant-b", row.Name, row.Tenant)
+			}
+			if row.GPUCount != 1 {
+				return fmt.Errorf("reclaim row %q GPUCount %d, want 1 (per-tenant nominal quota)", row.Name, row.GPUCount)
+			}
+		}
+	case StudyFIFO:
+		for _, row := range rows {
+			if row.Tenant != "tenant-a" {
+				return fmt.Errorf("fifo row %q has tenant %q, want the single tenant tenant-a", row.Name, row.Tenant)
+			}
+		}
+	default:
+		return fmt.Errorf("unknown study %q", study)
+	}
+	return nil
 }
