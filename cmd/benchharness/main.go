@@ -87,16 +87,29 @@ func genTrace(args []string) error {
 		{Tenant: "premium-1", Weight: *premiumWeight, PromptLenChars: *premiumChars, MaxOutputTokens: 64, IsNoisy: false},
 		{Tenant: "standard-noisy", Weight: *noisyWeight, PromptLenChars: *noisyChars, MaxOutputTokens: 16, IsNoisy: true},
 	}
-	// R1 measures the premium tenant alone, so drop the contender from that arm's trace.
-	if *arm == "R1" {
-		tenants = tenants[:1]
-	}
 
 	rows, err := bench.GenerateTrace(bench.TraceParams{
 		Seed: *seed, DurationMs: *durationMs, RatePerSec: *rate, Tenants: tenants,
 	})
 	if err != nil {
 		return fmt.Errorf("generate trace: %w", err)
+	}
+
+	// R1 is the uncontended premium baseline.
+	//
+	// It is the SAME two-tenant trace with the contender filtered out, not a premium-only trace at the full rate.
+	//
+	// That way premium arrives on the identical schedule it has in the contended arms.
+	//
+	// So the 1.25x baseline is not inflated by running premium at double its share.
+	if *arm == "R1" {
+		premiumOnly := rows[:0]
+		for _, r := range rows {
+			if !r.IsNoisy {
+				premiumOnly = append(premiumOnly, r)
+			}
+		}
+		rows = premiumOnly
 	}
 
 	var traceBuf strings.Builder

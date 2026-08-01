@@ -27,6 +27,9 @@ import (
 // httpStatusTooManyRequests is the status the gateway returns when an admission control rejects a request.
 const httpStatusTooManyRequests = 429
 
+// errKindTimeout is the RawRow.ErrorKind the replay client records when a request exceeds its deadline.
+const errKindTimeout = "timeout"
+
 // ArmSummary is the analysis of one arm's raw evidence for one repetition.
 //
 // Latency percentiles are in milliseconds, computed from the client-side raw timestamps.
@@ -56,8 +59,12 @@ type ArmSummary struct {
 	// Their ratio is the admitted-work fraction the design uses to check that arm B is admission-matched to arm C.
 	OfferedInputTokens  int64
 	AdmittedInputTokens int64
-	// Censored is true when more than 1% of requests timed out, so the p99 is a lower bound rather than an exact tail (design spec: report it as at least the timeout, never drop it).
+	// Censored is true when more than 1% of the premium requests timed out, so the tail is a lower bound rather than an exact p99 (design spec: report it as at least the timeout, never drop it).
 	Censored bool
+	// TailSampleSize is the number of completed premium requests the tail percentiles were computed over.
+	//
+	// The pre-registered checks refuse a run whose compared arms have a zero-size tail, so a run that completed nothing cannot be certified as protection.
+	TailSampleSize int
 }
 
 // eligibleLongThreshold mirrors the guard's standard-long threshold, so admitted-work is measured over the same population the guard and static cap actually gate.
@@ -65,11 +72,16 @@ const eligibleLongThreshold = 4096
 
 // Summarize computes one arm's summary from its raw rows.
 //
-// Percentiles are taken over completed requests only, but the completed/rejected/timed-out/failed counts account for every offered request, so shedding load can never flatter the tail without also showing up as a rejection count.
+// The tail percentiles are the DESIGN'S PRIMARY ENDPOINT: premium (victim) TTFT p99, so they are computed only over the premium tenant's completed requests, never over the noisy contender whose long prefills would otherwise dominate the tail and let a guard flatter its number by shedding contender load.
+//
+// The overall completed/rejected/timed-out/failed counts still account for every offered request, so shedding load always shows up as a rejection count.
+//
+// The admitted-work fractions are measured over the eligible (standard-long) population, which is the contender the controls actually gate.
 func Summarize(arm string, rows []RawRow) ArmSummary {
 	s := ArmSummary{Arm: arm, Total: len(rows)}
 
 	var ttft, e2e []float64
+	var premiumTotal, premiumTimedOut int
 	for _, r := range rows {
 		// Admitted-work accounting covers the eligible population (the long requests the controls gate), for the admission-match check.
 		if r.EstInputTokens >= eligibleLongThreshold {
@@ -79,37 +91,53 @@ func Summarize(arm string, rows []RawRow) ArmSummary {
 			}
 		}
 
+		// Overall outcome counts cover every offered request, so load shedding is always visible as a rejection.
 		switch {
-		case r.ErrorKind == "timeout":
+		case r.ErrorKind == errKindTimeout:
 			s.TimedOut++
-			continue
 		case r.HTTPStatus == httpStatusTooManyRequests:
 			s.Rejected++
-			continue
 		case r.ErrorKind != "":
 			s.Failed++
-			continue
+		default:
+			if _, ok := r.TTFTNanos(); ok {
+				s.Completed++
+			} else {
+				s.Failed++
+			}
 		}
 
+		// The tail is premium-only; the contender's requests never enter the protected metric.
+		if r.IsNoisy {
+			continue
+		}
+		premiumTotal++
+		if r.ErrorKind == errKindTimeout {
+			premiumTimedOut++
+			continue
+		}
+		if r.HTTPStatus == httpStatusTooManyRequests || r.ErrorKind != "" {
+			continue
+		}
 		t, okT := r.TTFTNanos()
 		e, okE := r.E2ENanos()
 		if !okT || !okE {
-			s.Failed++
 			continue
 		}
-		s.Completed++
 		ttft = append(ttft, nanosToMs(t))
 		e2e = append(e2e, nanosToMs(e))
 	}
 
 	sort.Float64s(ttft)
 	sort.Float64s(e2e)
+	s.TailSampleSize = len(ttft)
 	s.TTFTMsP50 = percentile(ttft, 0.50)
 	s.TTFTMsP95 = percentile(ttft, 0.95)
 	s.TTFTMsP99 = percentile(ttft, 0.99)
 	s.E2EMsP99 = percentile(e2e, 0.99)
 
-	if s.Total > 0 && float64(s.TimedOut)/float64(s.Total) > 0.01 {
+	// The tail is censored when more than 1% of the PREMIUM requests timed out, since those missing slow requests are exactly the ones a p99 should capture.
+	if premiumTotal > 0 && float64(premiumTimedOut)/float64(premiumTotal) > 0.01 {
 		s.Censored = true
 	}
 	return s
@@ -197,7 +225,12 @@ type Checks struct {
 	// AdmissionMatch is |wB - wC| / wC over admitted-work fractions, which must be within MatchTolerance.
 	AdmissionMatchDelta float64
 	AdmissionMatchPass  bool
-	// OverallPass is true only when every check passed, which is the condition for using the word "protects".
+	// Invalid marks a run whose evidence disqualifies the comparison before any check is read, so a degenerate run can never be certified as protection.
+	//
+	// InvalidReason names why, for the report.
+	Invalid       bool
+	InvalidReason string
+	// OverallPass is true only when the run is valid and every check passed, which is the condition for using the word "protects".
 	OverallPass bool
 }
 
@@ -206,6 +239,18 @@ type Checks struct {
 // r1P99, offP99 are provenance context; the checks compare C against R1 (absolute) and against B (incremental). incrementalCI is the bootstrap CI of the C/B ratio, produced by the caller from per-repetition ratios.
 func EvaluateChecks(r1, staticCap, kvAware ArmSummary, incrementalCI CI, matchTolerance float64) Checks {
 	var c Checks
+
+	// A comparison is disqualified before any check is read if a compared arm completed no premium requests or has a censored tail, since its p99 is then not a real tail.
+	for _, s := range []ArmSummary{r1, staticCap, kvAware} {
+		if s.TailSampleSize == 0 {
+			c.Invalid = true
+			c.InvalidReason = fmt.Sprintf("arm %s completed no premium requests, so its tail is undefined", s.Arm)
+		}
+		if s.Censored {
+			c.Invalid = true
+			c.InvalidReason = fmt.Sprintf("arm %s tail is censored (>1%% premium timeouts), so its p99 is only a lower bound", s.Arm)
+		}
+	}
 
 	if r1.TTFTMsP99 > 0 {
 		c.AbsoluteProtectionRatio = kvAware.TTFTMsP99 / r1.TTFTMsP99
@@ -225,7 +270,7 @@ func EvaluateChecks(r1, staticCap, kvAware ArmSummary, incrementalCI CI, matchTo
 		c.AdmissionMatchPass = c.AdmissionMatchDelta <= matchTolerance
 	}
 
-	c.OverallPass = c.AbsoluteProtectionPass && c.IncrementalValuePass && c.AdmissionMatchPass
+	c.OverallPass = !c.Invalid && c.AbsoluteProtectionPass && c.IncrementalValuePass && c.AdmissionMatchPass
 	return c
 }
 
@@ -249,10 +294,16 @@ func FormatReport(summaries []ArmSummary, checks Checks, matchTolerance float64)
 	fmt.Fprintf(&b, "  incremental value    C/B  = %.3f  CI[%.3f, %.3f]  (<= 0.90, CI hi < 1.0)  %s\n",
 		checks.IncrementalRatio, checks.IncrementalRatioCI.Lo, checks.IncrementalRatioCI.Hi, pass(checks.IncrementalValuePass))
 	fmt.Fprintf(&b, "  admission match      |B-C|/C = %.3f  (<= %.3f)  %s\n", checks.AdmissionMatchDelta, matchTolerance, pass(checks.AdmissionMatchPass))
+	if checks.Invalid {
+		fmt.Fprintf(&b, "  RUN INVALID: %s\n", checks.InvalidReason)
+	}
 	b.WriteString("\n")
-	if checks.OverallPass {
+	switch {
+	case checks.Invalid:
+		b.WriteString("VERDICT: run invalid; no protection claim is made from this evidence.\n")
+	case checks.OverallPass:
 		b.WriteString("VERDICT: all checks passed; the guard protects the premium tenant's tail beyond load shedding.\n")
-	} else {
+	default:
 		b.WriteString("VERDICT: not all checks passed; the word \"protects\" is not used for this run.\n")
 	}
 	return b.String()
