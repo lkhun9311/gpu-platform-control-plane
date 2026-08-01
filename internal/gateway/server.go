@@ -58,6 +58,16 @@ type Server struct {
 	//
 	// So one process-wide registry holds them all.
 	buckets *bucketRegistry
+	// mode records which admission-control mode admitter implements, purely for the mode label on the admission metrics.
+	//
+	// It travels alongside admitter rather than being derived from it, since the two are set together by SetAdmitter and a type switch on admitter would need one arm per implementation anyway.
+	//
+	// The zero value "" is treated as AdmissionOff at the call site, matching admitter's nil default below.
+	mode AdmissionMode
+	// admitter runs the admission-control stage in chatCompletions, between backend resolution and the proxy handoff.
+	//
+	// nil (always so unless SetAdmitter is called) makes chatCompletions default to an offAdmitter, so a gateway that never configures admission control keeps its pre-admission-guard behavior exactly.
+	admitter Admitter
 	// backendOverride swaps out model-to-backend resolution in tests.
 	//
 	// nil (always so in production) makes resolveBackend use the real backendFor.
@@ -73,6 +83,8 @@ type Server struct {
 	// The production path runs unchanged whenever the hook is nil.
 	//
 	// So this never bypasses production behavior.
+	//
+	// The hook returns a bare *url.URL rather than a *BackendRef, since tests only need the pipeline to reach an httptest server; resolveBackend wraps it into a BackendRef carrying just URL and Model.
 	backendOverride func(model string) *url.URL
 	// responseHeaderTimeout bounds the wait for upstream response headers.
 	//
@@ -105,6 +117,16 @@ func (s *Server) MarkReady() { s.markReady() }
 // Keeping the type unexported means the bucket internals can change without touching the assembly code.
 func (s *Server) InitRateLimiter() { s.buckets = newBucketRegistry() }
 
+// SetAdmitter installs the admission-control implementation and the mode label it reports on metrics.
+//
+// Why this method exists (mirrors InitRateLimiter above): admitter is unexported, so cmd/gateway/main.go cannot populate it via a struct literal.
+//
+// mode travels through the same call so the two can never drift out of step with each other.
+func (s *Server) SetAdmitter(mode AdmissionMode, a Admitter) {
+	s.mode = mode
+	s.admitter = a
+}
+
 // readyz returns 200 only once the cache has synced, else 503 so the Pod stays out of Service endpoints.
 func (s *Server) readyz(w http.ResponseWriter, _ *http.Request) {
 	if !s.ready.Load() {
@@ -125,17 +147,31 @@ func (s *Server) readyz(w http.ResponseWriter, _ *http.Request) {
 // model may be empty: the auth, policy, and rate-limit stages run before the body is parsed, so no model is known yet.
 //
 // The empty label records exactly that.
+//
+// The response body is the OpenAI-style JSON envelope from writeJSONError, not plaintext, so every gateway failure looks the same to a client regardless of which pipeline stage produced it.
 func (s *Server) fail(w http.ResponseWriter, tenant, model string, code int) {
 	requests.WithLabelValues(tenant, model, strconv.Itoa(code)).Inc()
-	http.Error(w, http.StatusText(code), code)
+	writeJSONError(w, code, http.StatusText(code))
 }
 
-// resolveBackend resolves a model to its backend URL.
+// failReason ends the request with status and an explicit machine-readable reason, then records it.
+//
+// Why this cannot just be fail(): the admission guard's reasons ("input_rate_limit" here, "kv_cache_pressure" in Task 3) are not derivable from the HTTP status the way fail()'s errorCode mapping assumes, since both share status 429.
+//
+// Retry-After is set to 5s (design spec Config and API section) because an admission-guard 429 is expected to clear once bucket capacity or backend pressure recovers, unlike the RPM limiter's 429, which carries no such hint.
+func (s *Server) failReason(w http.ResponseWriter, tenant, model string, code int, reason string) {
+	requests.WithLabelValues(tenant, model, strconv.Itoa(code)).Inc()
+	w.Header().Set("Retry-After", "5")
+	writeJSONErrorCode(w, code, reason, http.StatusText(code))
+}
+
+// resolveBackend resolves a model to its backend.
 //
 // It prefers the test hook over the real backendFor.
-func (s *Server) resolveBackend(ctx context.Context, policy *platformv1.GPUQuotaPolicy, model string) (*url.URL, error) {
+func (s *Server) resolveBackend(ctx context.Context, policy *platformv1.GPUQuotaPolicy, model string) (*BackendRef, error) {
 	if s.backendOverride != nil {
-		return s.backendOverride(model), nil
+		// The hook only fabricates a URL; Namespace/Name/Port stay zero-valued, since tests using it only need the pipeline to reach an httptest server, not a real backend's identity.
+		return &BackendRef{URL: s.backendOverride(model), Model: model}, nil
 	}
 	return s.backendFor(ctx, policy, model)
 }
@@ -150,7 +186,8 @@ func (s *Server) resolveBackend(ctx context.Context, policy *platformv1.GPUQuota
 //  4. rate limit: over its share stops here (429).
 //  5. body parse: extract the model (400).
 //  6. routing: resolve the model to a backend (404).
-//  7. proxy: hand off upstream (502/504, or whatever the upstream returns).
+//  7. admission: off/static-cap/kv-aware decide whether the request proceeds (429).
+//  8. proxy: hand off upstream (502/504, or whatever the upstream returns).
 //
 // Why auth precedes rate limiting.
 //
@@ -219,12 +256,12 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 5. Extract the model and recover the body.
+	// 5. Extract admission metadata and recover the body.
 	//
 	// Malformed JSON, a missing model, and an oversized body all land here.
 	//
 	// All three are the client's to fix.
-	body, model, err := readModel(r)
+	body, meta, err := readRequestMeta(r)
 	if err != nil {
 		s.fail(w, tenant, "", http.StatusBadRequest)
 		return
@@ -233,32 +270,70 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 	r.Body = body
 
 	// 6. Resolve the model to a backend.
-	target, err := s.resolveBackend(ctx, policy, model)
+	target, err := s.resolveBackend(ctx, policy, meta.Model)
 	if errors.Is(err, ErrNoRoute) {
 		// An ordinary "no such model" outcome.
-		s.fail(w, tenant, model, http.StatusNotFound)
+		s.fail(w, tenant, meta.Model, http.StatusNotFound)
 		return
 	}
 	if err != nil {
-		log.FromContext(ctx).Error(err, "backend lookup failed", "tenant", tenant, "model", model, "request_id", rid)
-		s.fail(w, tenant, model, http.StatusBadGateway)
+		log.FromContext(ctx).Error(err, "backend lookup failed", "tenant", tenant, "model", meta.Model, "request_id", rid)
+		s.fail(w, tenant, meta.Model, http.StatusBadGateway)
 		return
 	}
 
-	// 7. From here the response is the upstream's, passed through rather than composed.
+	// 7. Admission control: decide whether the request may proceed.
+	//
+	// Design rationale (design spec Pipeline placement section): this sits after backend resolution and before the proxy handoff, so an unroutable model (404, step 6) never consumes admission budget, while every request that will actually reach a backend is metered before it does.
+	//
+	// tier comes from the policy already fetched in step 3, not from the request, since tier is a property of the tenant's contract rather than something a caller can assert about itself.
+	tier := tierForPolicy(policy)
+	admitter := s.admitter
+	if admitter == nil {
+		// SetAdmitter was never called, so behave exactly as if the guard did not exist.
+		admitter = offAdmitter{}
+	}
+	// kv-aware is the only mode that needs to learn about a backend as soon as it is routed
+	// (design spec Config and API section, "the gateway registers backends as they are first
+	// routed"); off and static-cap don't implement backendRegistrar, so this is a no-op for
+	// them.
+	//
+	// scraperManager.Register is idempotent, so calling it on every request only actually
+	// starts a scraper the first time a given backend is seen.
+	if reg, ok := admitter.(backendRegistrar); ok {
+		reg.RegisterBackend(target)
+	}
+	mode := s.mode
+	if mode == "" {
+		mode = AdmissionOff
+	}
+	admit, reason := admitter.Admit(ctx, meta, target, tenant, tier)
+	decision := "admit"
+	if !admit {
+		decision = "reject"
+	}
+	// Recorded for every request, admitted or not, so the admit rate and admitted-vs-offered token fraction can both be read straight off these two series without diffing against requests_total.
+	admissionDecisions.WithLabelValues(string(mode), tenant, meta.Model, decision, reason).Inc()
+	admissionInputTokens.WithLabelValues(string(mode), tenant, decision).Add(float64(meta.EstInputTokens))
+	if !admit {
+		s.failReason(w, tenant, meta.Model, http.StatusTooManyRequests, reason)
+		return
+	}
+
+	// 8. From here the response is the upstream's, passed through rather than composed.
 	start := time.Now()
 	rec := &statusRecorder{ResponseWriter: w, code: http.StatusOK}
-	newReverseProxy(target, s.responseHeaderTimeout, func(c int) {
-		upstreamErrors.WithLabelValues(tenant, model).Inc()
-		// ErrorHandler writes its code via http.Error, which may not pass through statusRecorder, so record it here to keep the metric consistent with what the client actually received.
+	newReverseProxy(target.URL, s.responseHeaderTimeout, func(c int) {
+		upstreamErrors.WithLabelValues(tenant, meta.Model).Inc()
+		// ErrorHandler writes its code via writeJSONError, which may not pass through statusRecorder, so record it here to keep the metric consistent with what the client actually received.
 		rec.code = c
 	}).ServeHTTP(rec, r)
 
 	// ServeHTTP returning means the response finished sending (for a stream, that the stream closed).
 	//
 	// This therefore measures the whole request rather than time-to-first-byte.
-	requests.WithLabelValues(tenant, model, strconv.Itoa(rec.code)).Inc()
-	requestDuration.WithLabelValues(tenant, model).Observe(time.Since(start).Seconds())
+	requests.WithLabelValues(tenant, meta.Model, strconv.Itoa(rec.code)).Inc()
+	requestDuration.WithLabelValues(tenant, meta.Model).Observe(time.Since(start).Seconds())
 }
 
 // Handler is the serving mux on :8080.

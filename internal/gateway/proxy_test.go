@@ -20,6 +20,7 @@ package gateway
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -99,6 +100,24 @@ func authedRequest(body string) *http.Request {
 	return r
 }
 
+// expectJSONError asserts the response carries the OpenAI-style JSON error envelope every gateway failure path now returns.
+//
+// Design rationale (design spec Pipeline placement section): fail() used to write plaintext via http.Error, and the design promises OpenAI-style JSON errors throughout, not just for the two 429 codes a later task adds.
+//
+// Asserting both the content type and the decoded shape at each failure site is what pins the contract rather than just the status code.
+func expectJSONError(rr *httptest.ResponseRecorder, wantCode string) {
+	Expect(rr.Header().Get("Content-Type")).To(Equal("application/json"))
+	var body struct {
+		Error struct {
+			Code    string `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	Expect(json.Unmarshal(rr.Body.Bytes(), &body)).To(Succeed())
+	Expect(body.Error.Code).To(Equal(wantCode))
+	Expect(body.Error.Message).NotTo(BeEmpty())
+}
+
 // Specs for the pipeline's error-code mapping.
 //
 // The regression these prevent (design spec Error codes section).
@@ -133,6 +152,7 @@ var _ = Describe("chat completions pipeline", func() {
 		r := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"llama-3"}`))
 		s.Handler().ServeHTTP(rr, r)
 		Expect(rr.Code).To(Equal(http.StatusUnauthorized))
+		expectJSONError(rr, "unauthorized")
 	})
 
 	It("returns 401 when the bearer token is unknown", func() {
@@ -143,6 +163,7 @@ var _ = Describe("chat completions pipeline", func() {
 		r.Header.Set("Authorization", "Bearer nope")
 		s.Handler().ServeHTTP(rr, r)
 		Expect(rr.Code).To(Equal(http.StatusUnauthorized))
+		expectJSONError(rr, "unauthorized")
 	})
 
 	It("returns 403 when the tenant has no policy", func() {
@@ -164,6 +185,7 @@ var _ = Describe("chat completions pipeline", func() {
 		s.Handler().ServeHTTP(rr, r)
 		// 403, not 401: identity was established and authorization was not.
 		Expect(rr.Code).To(Equal(http.StatusForbidden))
+		expectJSONError(rr, "no_policy")
 	})
 
 	It("returns 429 once the tenant bucket is exhausted", func() {
@@ -182,6 +204,7 @@ var _ = Describe("chat completions pipeline", func() {
 		second := httptest.NewRecorder()
 		s.Handler().ServeHTTP(second, authedRequest(`{"model":"llama-3"}`))
 		Expect(second.Code).To(Equal(http.StatusTooManyRequests)) // none left
+		expectJSONError(second, "rate_limited")
 	})
 
 	It("returns 400 for a malformed JSON body", func() {
@@ -190,6 +213,7 @@ var _ = Describe("chat completions pipeline", func() {
 		// Unterminated JSON.
 		s.Handler().ServeHTTP(rr, authedRequest(`{"model":`))
 		Expect(rr.Code).To(Equal(http.StatusBadRequest))
+		expectJSONError(rr, "bad_request")
 	})
 
 	It("returns 400 when the model field is missing", func() {
@@ -200,6 +224,7 @@ var _ = Describe("chat completions pipeline", func() {
 		// Routing depends entirely on it, so there is nowhere to go.
 		s.Handler().ServeHTTP(rr, authedRequest(`{"messages":[]}`))
 		Expect(rr.Code).To(Equal(http.StatusBadRequest))
+		expectJSONError(rr, "bad_request")
 	})
 
 	It("returns 404 for an unknown model", func() {
@@ -208,6 +233,7 @@ var _ = Describe("chat completions pipeline", func() {
 		rr := httptest.NewRecorder()
 		s.Handler().ServeHTTP(rr, authedRequest(`{"model":"does-not-exist"}`))
 		Expect(rr.Code).To(Equal(http.StatusNotFound))
+		expectJSONError(rr, "model_not_found")
 	})
 
 	It("proxies the upstream status and body on the happy path and sets X-Request-Id", func() {
@@ -256,6 +282,8 @@ var _ = Describe("chat completions pipeline", func() {
 		s.Handler().ServeHTTP(rr, authedRequest(`{"model":"llama-3"}`))
 		// 502: the gateway is fine, the upstream is unreachable.
 		Expect(rr.Code).To(Equal(http.StatusBadGateway))
+		// This body is written by proxy.go's ErrorHandler, not fail(), so it pins that path emits the same JSON envelope too.
+		expectJSONError(rr, "bad_gateway")
 	})
 
 	// This spec pairs with the 502 one to pin both branches of proxy.go's ErrorHandler.
@@ -293,6 +321,7 @@ var _ = Describe("chat completions pipeline", func() {
 		s.Handler().ServeHTTP(rr, authedRequest(`{"model":"llama-3"}`))
 		// The connection succeeded but no header arrived in time, so this is 504, not 502.
 		Expect(rr.Code).To(Equal(http.StatusGatewayTimeout))
+		expectJSONError(rr, "upstream_timeout")
 	})
 })
 
@@ -489,19 +518,19 @@ var _ = Describe("metric names", func() {
 	})
 })
 
-// Specs for readModel itself.
+// Specs for readRequestMeta itself.
 //
-// Separate from the handler specs because those only observe a 400, never whether a consumed body is handed on intact.
+// Separate from the handler specs because those only observe a 400, never whether a consumed body is handed on intact, nor the RequestMeta fields the admission guard (a later task) reads.
 //
-// readModel consumes the body to peek at model, and failing to restore it leaves the upstream with an empty one: a bug the proxy's 200 would hide from every spec above.
-var _ = Describe("readModel", func() {
+// readRequestMeta consumes the body to peek at model and messages, and failing to restore it leaves the upstream with an empty one: a bug the proxy's 200 would hide from every spec above.
+var _ = Describe("readRequestMeta", func() {
 	It("restores the body so the upstream still receives it intact", func() {
 		body := `{"model":"llama-3","messages":[{"role":"user","content":"hi"}]}`
 		r := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
 
-		restored, model, err := readModel(r)
+		restored, meta, err := readRequestMeta(r)
 		Expect(err).NotTo(HaveOccurred())
-		Expect(model).To(Equal("llama-3"))
+		Expect(meta.Model).To(Equal("llama-3"))
 
 		// The restored body must match the original byte for byte.
 		buf := make([]byte, len(body))
@@ -514,12 +543,62 @@ var _ = Describe("readModel", func() {
 		//
 		// Why the cap matters (design spec Error codes section).
 		//
-		// Without it a malicious client can exhaust gateway memory, and readModel (which buffers the body to find model) is exactly that vector.
+		// Without it a malicious client can exhaust gateway memory, and readRequestMeta (which buffers the body to find model and messages) is exactly that vector.
 		big := `{"model":"llama-3","pad":"` + strings.Repeat("a", maxBodyBytes) + `"}`
 		r := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(big))
 
-		_, _, err := readModel(r)
+		_, _, err := readRequestMeta(r)
 		Expect(err).To(HaveOccurred())
+	})
+
+	It("rejects a body with no model field", func() {
+		r := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"messages":[]}`))
+
+		_, _, err := readRequestMeta(r)
+		Expect(err).To(MatchError(ErrNoModel))
+	})
+
+	It("estimates input tokens as the ceiling of total string content length over 4", func() {
+		// "hi" is 2 chars and "hello!" is 6 chars: 8 total, an exact multiple of 4, so ceiling and floor agree here.
+		body := `{"model":"llama-3","messages":[{"role":"user","content":"hi"},{"role":"assistant","content":"hello!"}]}`
+		r := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+
+		_, meta, err := readRequestMeta(r)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(meta.EstInputTokens).To(Equal(2))
+		Expect(meta.NonTextContent).To(BeFalse())
+	})
+
+	It("rounds the estimate up rather than truncating it", func() {
+		// 5 chars / 4 = 1.25; a conservative estimate must read 2, not 1, or a prompt near a threshold is undercounted.
+		body := `{"model":"llama-3","messages":[{"role":"user","content":"abcde"}]}`
+		r := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+
+		_, meta, err := readRequestMeta(r)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(meta.EstInputTokens).To(Equal(2))
+	})
+
+	It("flags non-text content and still counts its raw bytes toward the estimate", func() {
+		// content is an array of parts, the OpenAI multimodal shape, not a plain string.
+		body := `{"model":"llama-3","messages":[{"role":"user","content":[{"type":"text","text":"hi"}]}]}`
+		r := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+
+		_, meta, err := readRequestMeta(r)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(meta.NonTextContent).To(BeTrue())
+		// The part is never dropped from the estimate, only imprecisely counted, so it must contribute a positive amount.
+		Expect(meta.EstInputTokens).To(BeNumerically(">", 0))
+	})
+
+	It("treats a missing or null content field as contributing nothing, without flagging it as non-text", func() {
+		body := `{"model":"llama-3","messages":[{"role":"assistant","tool_calls":[]},{"role":"user","content":null}]}`
+		r := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+
+		_, meta, err := readRequestMeta(r)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(meta.EstInputTokens).To(Equal(0))
+		Expect(meta.NonTextContent).To(BeFalse())
 	})
 })
 

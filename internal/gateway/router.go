@@ -35,6 +35,21 @@ import (
 // This signals "no such model" rather than a read failure, so the caller translates it to 404.
 var ErrNoRoute = errors.New("no inferencedeployment for model")
 
+// BackendRef identifies the resolved serving backend, not just its URL.
+//
+// A later scraper task needs the namespace, name, and port to build the backend's metrics URL and manage its telemetry lifecycle, which a bare *url.URL cannot provide.
+type BackendRef struct {
+	// Namespace and Name locate the InferenceDeployment, and its same-named Service, that serves the request.
+	Namespace string
+	Name      string
+	// Port is the Service port the InferenceDeployment serves on.
+	Port int32
+	// URL is the in-cluster address the proxy forwards the request to.
+	URL *url.URL
+	// Model is the requested model name, carried through for metric labels.
+	Model string
+}
+
 // servingPort returns the port the InferenceDeployment serves on.
 //
 // spec.port carries +kubebuilder:default=8080, so anything that went through the API server already has it set and zero cannot occur in production.
@@ -73,7 +88,7 @@ func olderInfD(a, b *platformv1.InferenceDeployment) bool {
 // Design rationale (design spec Identity model section): nothing stops two InferenceDeployments from serving the same model.
 //
 // Requests must not bounce between backends in that case, so exactly one is chosen by a deterministic rule (oldest wins, ties break on ascending name) and the duplicate is logged.
-func (s *Server) backendFor(ctx context.Context, policy *platformv1.GPUQuotaPolicy, model string) (*url.URL, error) {
+func (s *Server) backendFor(ctx context.Context, policy *platformv1.GPUQuotaPolicy, model string) (*BackendRef, error) {
 	var list platformv1.InferenceDeploymentList
 	if err := s.Client.List(ctx, &list,
 		client.InNamespace(policy.Spec.TargetNamespace),
@@ -98,6 +113,17 @@ func (s *Server) backendFor(ctx context.Context, policy *platformv1.GPUQuotaPoli
 			"model", model, "chosen", oldest.Name)
 	}
 
+	port := servingPort(oldest)
 	// The controller names the Service after the InferenceDeployment in the same namespace, so the in-cluster address is http://<name>.<namespace>.svc:<port>.
-	return url.Parse(fmt.Sprintf("http://%s.%s.svc:%d", oldest.Name, oldest.Namespace, servingPort(oldest)))
+	u, err := url.Parse(fmt.Sprintf("http://%s.%s.svc:%d", oldest.Name, oldest.Namespace, port))
+	if err != nil {
+		return nil, fmt.Errorf("parse backend url: %w", err)
+	}
+	return &BackendRef{
+		Namespace: oldest.Namespace,
+		Name:      oldest.Name,
+		Port:      port,
+		URL:       u,
+		Model:     model,
+	}, nil
 }

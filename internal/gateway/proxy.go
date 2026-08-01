@@ -31,9 +31,9 @@ import (
 	"time"
 )
 
-// maxBodyBytes caps how much of a request body readModel will buffer.
+// maxBodyBytes caps how much of a request body readRequestMeta will buffer.
 //
-// Design rationale (design spec Error codes section): readModel holds the body in memory to look at the model field, so an unbounded body is a memory-exhaustion vector.
+// Design rationale (design spec Error codes section): readRequestMeta holds the body in memory to look at the model field, so an unbounded body is a memory-exhaustion vector.
 //
 // 1MB is far above a normal chat completions request (tens of KB) while keeping a single request unable to threaten the process.
 const maxBodyBytes = 1 << 20 // 1MB
@@ -42,6 +42,35 @@ const maxBodyBytes = 1 << 20 // 1MB
 //
 // It mirrors ErrNoPolicy in ratelimit.go and ErrNoRoute in router.go so callers can match on it exactly.
 var ErrNoModel = errors.New("request body has no model field")
+
+// RequestMeta is the admission-relevant metadata extracted from a chat-completions request body.
+//
+// The admission guard (a later task) reads these fields to decide whether to admit a request.
+//
+// This task only extracts them; nothing here yet changes what gets admitted.
+type RequestMeta struct {
+	// Model is the requested model name, already validated non-empty by readRequestMeta.
+	Model string
+	// EstInputTokens is a conservative, text-only estimate of the prompt's input tokens.
+	//
+	// It is the ceiling of the total prompt byte length divided by 4, never an exact count.
+	//
+	// Byte length is used deliberately: it equals the character count for ASCII and over-counts for multibyte UTF-8, which keeps the estimate conservative (it never reads lower than the true token cost implies).
+	//
+	// The gateway never claims to know the true token count; a real tokenizer calibration is a later GPU-free step, not this one.
+	EstInputTokens int
+	// NonTextContent is true when at least one message's content was not a plain string.
+	//
+	// A true value means EstInputTokens is a known-approximate lower bound rather than a byte-accurate estimate, since a non-string part's true token cost cannot be read off its byte length.
+	NonTextContent bool
+}
+
+// chatMessage is the shape readRequestMeta needs from each entry in messages.
+//
+// Content stays raw JSON rather than string because the OpenAI schema allows it to be either a plain string or an array of content parts, and readRequestMeta must tell the two apart rather than assume one.
+type chatMessage struct {
+	Content json.RawMessage `json:"content"`
+}
 
 // newRequestID returns a random hex identifier for a single request.
 //
@@ -58,39 +87,63 @@ func newRequestID() string {
 	return hex.EncodeToString(b)
 }
 
-// readModel extracts the model name from the request body and returns the body restored for replay.
+// readRequestMeta extracts admission-relevant metadata from the request body and returns the body restored for replay.
 //
-// It returns the restored body, the model name, and an error.
+// It returns the restored body, the metadata, and an error.
 //
 // The restore is what makes this safe: r.Body is a one-shot stream, so reading it here would leave the proxy nothing to forward and the model server would see an empty body.
 //
 // The gateway would pass that failure through verbatim, hiding the fact that the gateway caused it.
 //
-// Only the model field is decoded.
+// Only model and messages[].content are decoded.
 //
-// The gateway routes on model and must forward everything else untouched; modelling the whole schema would mean editing the gateway whenever the OpenAI API grows a field, and would silently drop any field not yet declared.
-func readModel(r *http.Request) (io.ReadCloser, string, error) {
+// The gateway routes on model and estimates admission cost from content, and must forward everything else untouched; modelling the whole schema would mean editing the gateway whenever the OpenAI API grows a field, and would silently drop any field not yet declared.
+func readRequestMeta(r *http.Request) (io.ReadCloser, RequestMeta, error) {
 	// The nil first argument means MaxBytesReader will not write a response itself; the caller owns the status code.
 	//
 	// Exceeding the cap surfaces as a read error, which the caller maps to 400.
 	limited := http.MaxBytesReader(nil, r.Body, maxBodyBytes)
 	buf, err := io.ReadAll(limited)
 	if err != nil {
-		return nil, "", err
+		return nil, RequestMeta{}, err
 	}
 
 	var probe struct {
-		Model string `json:"model"`
+		Model    string        `json:"model"`
+		Messages []chatMessage `json:"messages"`
 	}
 	if err := json.Unmarshal(buf, &probe); err != nil {
-		return nil, "", err
+		return nil, RequestMeta{}, err
 	}
 	if probe.Model == "" {
-		return nil, "", ErrNoModel
+		return nil, RequestMeta{}, ErrNoModel
 	}
 
+	meta := RequestMeta{Model: probe.Model}
+	var totalChars int
+	for _, m := range probe.Messages {
+		// An absent content field, or an explicit JSON null, carries no text and is not a non-text part either.
+		if len(m.Content) == 0 || string(m.Content) == "null" {
+			continue
+		}
+		var text string
+		if err := json.Unmarshal(m.Content, &text); err == nil {
+			totalChars += len(text)
+			continue
+		}
+		// content did not decode as a plain string, so it is an array, object, or number: the OpenAI multimodal shape.
+		//
+		// The true token cost of that part cannot be read off a character count, so flag the estimate as approximate.
+		//
+		// Its raw JSON byte length is still added, so the estimate is never undercounted, only ever imprecise.
+		meta.NonTextContent = true
+		totalChars += len(m.Content)
+	}
+	// Ceiling division, not floor: a conservative estimate must never read lower than the total byte length implies.
+	meta.EstInputTokens = (totalChars + 3) / 4
+
 	// Hand back a reader over the bytes just consumed, byte-for-byte identical to the original.
-	return io.NopCloser(bytes.NewReader(buf)), probe.Model, nil
+	return io.NopCloser(bytes.NewReader(buf)), meta, nil
 }
 
 // statusRecorder wraps a ResponseWriter to capture the status code the proxy actually wrote.
@@ -119,6 +172,66 @@ func (rec *statusRecorder) Flush() {
 	if f, ok := rec.ResponseWriter.(http.Flusher); ok {
 		f.Flush()
 	}
+}
+
+// errorBody is the OpenAI-style JSON envelope every gateway error response carries.
+//
+// Design rationale (design spec Pipeline placement section): the design promises an OpenAI-style JSON error contract, but fail() used to write plaintext via http.Error.
+//
+// A later task adds two new 429 codes as JSON; leaving everything else plaintext would make those two the odd ones out instead of the norm.
+type errorBody struct {
+	Error errorDetail `json:"error"`
+}
+
+// errorDetail carries the machine-readable code and human-readable message inside errorBody.
+type errorDetail struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+}
+
+// errorCode maps an HTTP status to the stable code the JSON error body reports.
+//
+// The mapping is written out explicitly rather than derived from http.StatusText, since a machine-readable code must stay a fixed string even if the status text behind it ever changes wording.
+//
+// An unmapped status falls back to "internal_error"; every status this gateway actually emits is listed, so the default path is not expected to run.
+func errorCode(status int) string {
+	switch status {
+	case http.StatusBadRequest:
+		return "bad_request"
+	case http.StatusUnauthorized:
+		return "unauthorized"
+	case http.StatusForbidden:
+		return "no_policy"
+	case http.StatusNotFound:
+		return "model_not_found"
+	case http.StatusTooManyRequests:
+		return "rate_limited"
+	case http.StatusBadGateway:
+		return "bad_gateway"
+	case http.StatusGatewayTimeout:
+		return "upstream_timeout"
+	default:
+		return "internal_error"
+	}
+}
+
+// writeJSONError writes the OpenAI-style JSON error envelope with the given status and message, deriving the machine-readable code from status via errorCode.
+//
+// Every gateway failure path whose reason follows directly from its HTTP status (fail() in server.go and the reverse proxy's ErrorHandler below) returns through here, so the response shape stays identical regardless of which pipeline stage rejected the request.
+func writeJSONError(w http.ResponseWriter, status int, message string) {
+	writeJSONErrorCode(w, status, errorCode(status), message)
+}
+
+// writeJSONErrorCode writes the OpenAI-style JSON error envelope with an explicit machine-readable code, for a failure whose reason cannot be derived from the HTTP status alone.
+//
+// The admission guard is exactly that case (design spec Config and API section): static-cap and kv-aware both reject with 429, but carry different codes ("input_rate_limit" vs "kv_cache_pressure"), and errorCode's status-to-code mapping has room for only one string per status.
+//
+// failReason in server.go is the only caller today.
+func writeJSONErrorCode(w http.ResponseWriter, status int, code, message string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	// Encoding into a fixed struct cannot fail; the error is ignored deliberately rather than handled for a write that has already committed its status code.
+	_ = json.NewEncoder(w).Encode(errorBody{Error: errorDetail{Code: code, Message: message}})
 }
 
 // defaultResponseHeaderTimeout bounds the wait for upstream response headers in production.
@@ -189,7 +302,7 @@ func newReverseProxy(target *url.URL, responseHeaderTimeout time.Duration, onErr
 			code = http.StatusGatewayTimeout
 		}
 		onErr(code)
-		http.Error(w, err.Error(), code)
+		writeJSONError(w, code, err.Error())
 	}
 
 	return p

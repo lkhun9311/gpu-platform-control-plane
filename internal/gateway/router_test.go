@@ -93,7 +93,20 @@ var _ = Describe("backendFor", func() {
 		s := &Server{Client: newRouterClient(infd)}
 		got, err := s.backendFor(ctx, policyFor("vision"), "llama-3-8b")
 		Expect(err).NotTo(HaveOccurred())
-		Expect(got.String()).To(Equal("http://llama.vision.svc:9000"))
+		Expect(got.URL.String()).To(Equal("http://llama.vision.svc:9000"))
+	})
+
+	It("populates every BackendRef field for a routed model", func() {
+		// The scraper (a later task) needs namespace/name/port to build the metrics URL and manage lifecycle, which a bare *url.URL cannot provide.
+		infd := newInfD("llama", "vision", "llama-3-8b", 9000, now)
+		s := &Server{Client: newRouterClient(infd)}
+		got, err := s.backendFor(ctx, policyFor("vision"), "llama-3-8b")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(got.Namespace).To(Equal("vision"))
+		Expect(got.Name).To(Equal("llama"))
+		Expect(got.Port).To(Equal(int32(9000)))
+		Expect(got.Model).To(Equal("llama-3-8b"))
+		Expect(got.URL.String()).To(Equal("http://llama.vision.svc:9000"))
 	})
 
 	It("defaults the port to 8080 when spec.port is unset", func() {
@@ -104,7 +117,8 @@ var _ = Describe("backendFor", func() {
 		s := &Server{Client: newRouterClient(infd)}
 		got, err := s.backendFor(ctx, policyFor("vision"), "llama-3-8b")
 		Expect(err).NotTo(HaveOccurred())
-		Expect(got.String()).To(Equal("http://llama.vision.svc:8080"))
+		Expect(got.Port).To(Equal(int32(8080)))
+		Expect(got.URL.String()).To(Equal("http://llama.vision.svc:8080"))
 	})
 
 	It("uses the older InferenceDeployment when more than one serves the model", func() {
@@ -114,7 +128,7 @@ var _ = Describe("backendFor", func() {
 		s := &Server{Client: newRouterClient(newer, older)}
 		got, err := s.backendFor(ctx, policyFor("vision"), "llama-3-8b")
 		Expect(err).NotTo(HaveOccurred())
-		Expect(got.String()).To(Equal("http://llama-old.vision.svc:8080"))
+		Expect(got.URL.String()).To(Equal("http://llama-old.vision.svc:8080"))
 	})
 
 	It("picks the lexicographically smaller name when creation timestamps tie", func() {
@@ -127,7 +141,7 @@ var _ = Describe("backendFor", func() {
 		s := &Server{Client: newRouterClient(b, a)}
 		got, err := s.backendFor(ctx, policyFor("vision"), "llama-3-8b")
 		Expect(err).NotTo(HaveOccurred())
-		Expect(got.String()).To(Equal("http://llama-a.vision.svc:8080"))
+		Expect(got.URL.String()).To(Equal("http://llama-a.vision.svc:8080"))
 	})
 
 	It("ignores an InferenceDeployment outside the policy's target namespace", func() {
