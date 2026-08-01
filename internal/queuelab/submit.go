@@ -24,6 +24,13 @@ import (
 	platformv1 "github.com/lkhun9311/gpu-mlops-platform-control-plane/api/v1"
 )
 
+// sleeperImage is the CPU-only image the trace jobs run, pinned by digest.
+//
+// The review caught that a mutable tag (busybox:1.36) lets the image drift between runs, so the same study
+// re-run months later could execute different bytes; pinning the multi-arch manifest-list digest freezes
+// exactly what runs while still resolving on whatever architecture the kind node uses.
+const sleeperImage = "busybox:1.36@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662"
+
 // localQueueName is the deterministic LocalQueue name a tenant's jobs are admitted through.
 //
 // It must match the name BuildFixtures uses for that tenant's LocalQueue, so a submitted job lands in the
@@ -54,7 +61,7 @@ func RenderMLTrainingJob(row TrainingTraceRow, namespace string) *platformv1.MLT
 		},
 		Spec: platformv1.MLTrainingJobSpec{
 			Queue:       localQueueName(row.Tenant),
-			Image:       "busybox:1.36",
+			Image:       sleeperImage,
 			Command:     []string{"sh", "-c", fmt.Sprintf("sleep %d", row.DurationSec)},
 			GPUCount:    int32(row.GPUCount),
 			Parallelism: 1,
