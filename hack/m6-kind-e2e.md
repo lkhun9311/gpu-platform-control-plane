@@ -1,10 +1,19 @@
-# M6 kind end-to-end: two-tenant Kueue fair-sharing and preemption (fake GPU)
+# M6 kind end-to-end: two-tenant Kueue cohort borrowing and quota reclaim (fake GPU)
 
 This procedure proves the M6 training-admission path end to end on a local `kind`
 cluster, with **no real GPU and no AWS**. The fake GPU device plugin advertises
 `nvidia.com/gpu` capacity, Kueue is the real admission engine, and the operator
 provides the `MLTrainingJob` abstraction, the suspended Job it admits, the
 `GPUQuotaPolicy` to Kueue quota sync, and the status translation on top.
+
+> **Terminology (precise on purpose).** What this demonstrates is **cohort
+> borrowing** (an idle tenant's nominal quota is lent within the cohort) and
+> **quota reclaim** through classic preemption (`reclaimWithinCohort: Any`). It
+> is deliberately NOT Kueue's weighted **Fair Sharing** feature, which needs the
+> global `fairSharing` configuration (left disabled here) and adds weighted
+> dominant-resource shares and fair-sharing preemption strategies. "Borrowing +
+> reclaim" is the accurate name for this evidence; calling it "Fair Sharing"
+> would overclaim a mechanism this run does not enable.
 
 The whole run is scripted in [`m6-kind-e2e.sh`](m6-kind-e2e.sh); this document
 explains what it does and records the observed evidence.
