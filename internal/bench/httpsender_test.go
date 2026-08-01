@@ -33,12 +33,12 @@ var _ = Describe("HTTPSender", func() {
 			Expect(r.Header.Get("Authorization")).To(Equal("Bearer premium-key"))
 			w.Header().Set("Content-Type", "text/event-stream")
 			f := w.(http.Flusher)
-			for i := 0; i < 3; i++ {
-				fmt.Fprintf(w, "data: {\"choices\":[{\"delta\":{\"content\":\"tok\"}}]}\n\n")
+			for range 3 {
+				_, _ = fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"tok\"}}]}\n\n")
 				f.Flush()
 				time.Sleep(2 * time.Millisecond)
 			}
-			fmt.Fprint(w, "data: [DONE]\n\n")
+			_, _ = fmt.Fprint(w, "data: [DONE]\n\n")
 			f.Flush()
 		}))
 		defer srv.Close()
@@ -56,7 +56,7 @@ var _ = Describe("HTTPSender", func() {
 	It("records a 429 as a rejection, not a completed request", func() {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusTooManyRequests)
-			fmt.Fprint(w, `{"error":{"code":"kv_cache_pressure"}}`)
+			_, _ = fmt.Fprint(w, `{"error":{"code":"kv_cache_pressure"}}`)
 		}))
 		defer srv.Close()
 
@@ -72,7 +72,7 @@ var _ = Describe("HTTPSender", func() {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			time.Sleep(200 * time.Millisecond)
 			w.Header().Set("Content-Type", "text/event-stream")
-			fmt.Fprint(w, "data: [DONE]\n\n")
+			_, _ = fmt.Fprint(w, "data: [DONE]\n\n")
 		}))
 		defer srv.Close()
 

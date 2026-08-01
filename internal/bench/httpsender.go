@@ -105,7 +105,7 @@ func (h *HTTPSender) Send(ctx context.Context, row TraceRow, sendUnixNanos int64
 		}
 		return SendResult{ErrorKind: "transport"}
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		kind := "http"

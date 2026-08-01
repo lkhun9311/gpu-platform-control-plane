@@ -21,6 +21,7 @@ import (
 	"math"
 	"math/rand/v2"
 	"sort"
+	"strings"
 )
 
 // httpStatusTooManyRequests is the status the gateway returns when an admission control rejects a request.
@@ -132,12 +133,8 @@ func percentile(sorted []float64, q float64) float64 {
 	}
 	// Nearest-rank: the smallest index whose cumulative share reaches q.
 	rank := int(math.Ceil(q*float64(len(sorted)))) - 1
-	if rank < 0 {
-		rank = 0
-	}
-	if rank >= len(sorted) {
-		rank = len(sorted) - 1
-	}
+	rank = max(rank, 0)
+	rank = min(rank, len(sorted)-1)
 	return sorted[rank]
 }
 
@@ -166,9 +163,9 @@ func BootstrapCI(values []float64, iterations int, seed int64, alpha float64) CI
 
 	means := make([]float64, iterations)
 	n := len(values)
-	for i := 0; i < iterations; i++ {
+	for i := range iterations {
 		var sum float64
-		for j := 0; j < n; j++ {
+		for range n {
 			sum += values[rng.IntN(n)]
 		}
 		means[i] = sum / float64(n)
@@ -236,28 +233,29 @@ func EvaluateChecks(r1, staticCap, kvAware ArmSummary, incrementalCI CI, matchTo
 //
 // It states explicitly when the comparison is invalid (admission match missed) or the tail is censored, so a reader is never handed a clean-looking number that the methodology already disqualified.
 func FormatReport(summaries []ArmSummary, checks Checks, matchTolerance float64) string {
-	out := "M5-b benchmark report\n\n"
-	out += fmt.Sprintf("%-12s %8s %8s %8s %8s %8s %8s %8s\n", "arm", "total", "done", "429", "timeout", "ttftP50", "ttftP95", "ttftP99")
+	var b strings.Builder
+	b.WriteString("M5-b benchmark report\n\n")
+	fmt.Fprintf(&b, "%-12s %8s %8s %8s %8s %8s %8s %8s\n", "arm", "total", "done", "429", "timeout", "ttftP50", "ttftP95", "ttftP99")
 	for _, s := range summaries {
 		censored := ""
 		if s.Censored {
 			censored = " (p99 censored: >1% timeouts, lower bound)"
 		}
-		out += fmt.Sprintf("%-12s %8d %8d %8d %8d %8.1f %8.1f %8.1f%s\n",
+		fmt.Fprintf(&b, "%-12s %8d %8d %8d %8d %8.1f %8.1f %8.1f%s\n",
 			s.Arm, s.Total, s.Completed, s.Rejected, s.TimedOut, s.TTFTMsP50, s.TTFTMsP95, s.TTFTMsP99, censored)
 	}
-	out += "\nPre-registered checks (primary endpoint: TTFT p99)\n"
-	out += fmt.Sprintf("  absolute protection  C/R1 = %.3f  (<= 1.25)  %s\n", checks.AbsoluteProtectionRatio, pass(checks.AbsoluteProtectionPass))
-	out += fmt.Sprintf("  incremental value    C/B  = %.3f  CI[%.3f, %.3f]  (<= 0.90, CI hi < 1.0)  %s\n",
+	b.WriteString("\nPre-registered checks (primary endpoint: TTFT p99)\n")
+	fmt.Fprintf(&b, "  absolute protection  C/R1 = %.3f  (<= 1.25)  %s\n", checks.AbsoluteProtectionRatio, pass(checks.AbsoluteProtectionPass))
+	fmt.Fprintf(&b, "  incremental value    C/B  = %.3f  CI[%.3f, %.3f]  (<= 0.90, CI hi < 1.0)  %s\n",
 		checks.IncrementalRatio, checks.IncrementalRatioCI.Lo, checks.IncrementalRatioCI.Hi, pass(checks.IncrementalValuePass))
-	out += fmt.Sprintf("  admission match      |B-C|/C = %.3f  (<= %.3f)  %s\n", checks.AdmissionMatchDelta, matchTolerance, pass(checks.AdmissionMatchPass))
-	out += "\n"
+	fmt.Fprintf(&b, "  admission match      |B-C|/C = %.3f  (<= %.3f)  %s\n", checks.AdmissionMatchDelta, matchTolerance, pass(checks.AdmissionMatchPass))
+	b.WriteString("\n")
 	if checks.OverallPass {
-		out += "VERDICT: all checks passed; the guard protects the premium tenant's tail beyond load shedding.\n"
+		b.WriteString("VERDICT: all checks passed; the guard protects the premium tenant's tail beyond load shedding.\n")
 	} else {
-		out += "VERDICT: not all checks passed; the word \"protects\" is not used for this run.\n"
+		b.WriteString("VERDICT: not all checks passed; the word \"protects\" is not used for this run.\n")
 	}
-	return out
+	return b.String()
 }
 
 // pass renders a boolean as a short marker for the report.
