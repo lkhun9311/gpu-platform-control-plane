@@ -63,7 +63,7 @@ var _ = Describe("GenerateTrace", func() {
 	It("emits non-decreasing arrival offsets and stable indices", func() {
 		rows, err := GenerateTrace(twoTenantParams(7))
 		Expect(err).NotTo(HaveOccurred())
-		Expect(len(rows)).To(BeNumerically(">", 0))
+		Expect(rows).ToNot(BeEmpty())
 		for i := range rows {
 			Expect(rows[i].Index).To(Equal(i))
 			if i > 0 {
