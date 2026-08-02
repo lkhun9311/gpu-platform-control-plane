@@ -71,3 +71,6 @@ Thumbs.db
 
 # M6 kind E2E run artifact (curated evidence lives in hack/m6-kind-e2e.md)
 hack/m6-e2e-evidence.log
+
+# stray local build of cmd/benchharness
+benchharness
