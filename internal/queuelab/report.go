@@ -45,17 +45,27 @@ func RenderResult(res LabResult) string {
 		time.Duration(res.AdmittedWaitP95Ns), res.WaitP95FullyObserved)
 	for _, o := range res.Outcomes {
 		fmt.Fprintf(&b,
-			"  %-10s admitted=%v executed=%v completed=%v attempts=%d reExecuted=%v preemptions=%d\n",
-			o.Job, o.Admitted, o.Executed, o.Completed, o.Attempts, o.ReExecuted, o.Preemptions)
+			"  %-10s admitted=%v executed=%v completed=%v attempts=%d reExecuted=%v preemptions=%d preemptionIneffective=%v\n",
+			o.Job, o.Admitted, o.Executed, o.Completed, o.Attempts, o.ReExecuted, o.Preemptions, o.PreemptionIneffective)
 		fmt.Fprintf(&b,
-			"             admitLatency=%s readyLatency=%s admitToReady=%s\n",
-			time.Duration(o.AdmitLatencyNs), time.Duration(o.ReadyLatencyNs), time.Duration(o.AdmitToReadyNs))
+			"             admitLatency=%s readyLatency=%s admitToReady=%s%s\n",
+			time.Duration(o.AdmitLatencyNs), time.Duration(o.ReadyLatencyNs), time.Duration(o.AdmitToReadyNs),
+			censoredWaitSuffix(o))
 		fmt.Fprintf(&b,
 			"             waste=%.1f(lb %.1f%s) unattributedOccupancy=%.1f totalOccupancy=%.1f\n",
 			o.WastedGPUSeconds, o.WasteLowerBoundGPUSeconds, censoredMark(o.WasteCensored),
 			o.UnattributedOccupancyGPUSeconds, o.TotalOccupancyGPUSeconds)
 	}
 	return b.String()
+}
+
+// censoredWaitSuffix reports CensoredWaitNs only for a row never admitted by the horizon, because the field
+// is a lower bound on wait in that case only and a bare number on an admitted row would misread as exact.
+func censoredWaitSuffix(o WorkloadOutcome) string {
+	if o.Admitted {
+		return ""
+	}
+	return fmt.Sprintf(" censoredWait=%s(never admitted by horizon)", time.Duration(o.CensoredWaitNs))
 }
 
 // countExecuted counts rows that reached the execution-start proxy, which is deliberately reported next to
