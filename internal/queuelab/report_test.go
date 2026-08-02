@@ -84,6 +84,29 @@ func TestRenderResultExposesExecutionStartForUnexecutedRows(t *testing.T) {
 	}
 	out := RenderResult(res)
 	assertTimingLinesAdjacent(t, out, len(res.Outcomes))
+	// Ensure censoredWait is rendered for the never-admitted row with its caveat text.
+	if !strings.Contains(out, "censoredWait=") || !strings.Contains(out, "(never admitted by horizon)") {
+		t.Fatalf("censoredWait with caveat must be rendered for never-admitted rows:\n%s", out)
+	}
+	// Ensure censoredWait is not rendered for rows that were admitted.
+	for _, o := range res.Outcomes {
+		if o.Admitted {
+			// Admitted rows should have their outcome line with admitLatency but no censoredWait in that section.
+			lines := strings.Split(out, "\n")
+			for i, line := range lines {
+				// Find the line for this admitted job.
+				if strings.Contains(line, o.Job) && strings.Contains(line, "admitted=true") {
+					// The next line should have the timing info without censoredWait.
+					if i+1 < len(lines) && strings.Contains(lines[i+1], "admitLatency=") {
+						if strings.Contains(lines[i+1], "censoredWait=") {
+							t.Fatalf("censoredWait must not appear for admitted row %s:\n%s", o.Job, lines[i+1])
+						}
+					}
+					break
+				}
+			}
+		}
+	}
 }
 
 func TestRenderResultSurfacesIneffectivePreemption(t *testing.T) {
@@ -97,5 +120,25 @@ func TestRenderResultSurfacesIneffectivePreemption(t *testing.T) {
 	}
 	if !strings.Contains(out, "unattributedOccupancy") {
 		t.Fatalf("unattributed occupancy must be reported:\n%s", out)
+	}
+	// Ensure per-row preemptionIneffective field appears for rows that experienced ineffective preemption.
+	foundIneffectiveRow := false
+	for _, o := range res.Outcomes {
+		if o.PreemptionIneffective {
+			foundIneffectiveRow = true
+			lines := strings.Split(out, "\n")
+			for _, line := range lines {
+				// Find the line for this preempted job with its preemptionIneffective field.
+				if strings.Contains(line, o.Job) && strings.Contains(line, "preemptionIneffective=true") {
+					break
+				}
+				if strings.Contains(line, o.Job) && strings.Contains(line, "admitLatency=") {
+					t.Fatalf("job %s had ineffective preemption but preemptionIneffective=true not found in output:\n%s", o.Job, out)
+				}
+			}
+		}
+	}
+	if !foundIneffectiveRow {
+		t.Fatalf("no row with ineffective preemption found in outcomes, test setup may be broken: %+v", res.Outcomes)
 	}
 }
