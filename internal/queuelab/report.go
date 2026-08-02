@@ -36,10 +36,15 @@ func RenderResult(res LabResult) string {
 	fmt.Fprintf(&b, "wastedGPUSeconds(attributable)=%.1f lowerBound=%.1f censored=%v\n",
 		res.TotalWastedGPUSeconds, res.TotalWasteLowerBoundGPUSeconds, res.AnyWasteCensored)
 	fmt.Fprintf(&b, "unattributedOccupancyGPUSeconds=%.1f\n", res.TotalUnattributedOccupancyGPUSeconds)
+	// The run-level occupancy and re-execution count sit in the header because that is the part of a report a
+	// reader carries away; the published run put re-execution nowhere a reader would look.
+	fmt.Fprintf(&b, "totalOccupancyGPUSeconds=%.1f reExecutedRows=%d\n",
+		res.TotalOccupancyGPUSeconds, res.ReExecutedRows)
 	if res.AnyPreemptionIneffective {
 		// Stated loudly because it invalidates the natural reading of the waste number: the platform decided
 		// to reclaim and the workload did not comply.
-		fmt.Fprintf(&b, "PREEMPTION INEFFECTIVE: a preemption was decided but its target completed successfully\n")
+		fmt.Fprintf(&b, "PREEMPTION INEFFECTIVE: a preemption was decided but its target completed successfully%s\n",
+			uncreditedLossNote(res))
 	}
 	fmt.Fprintf(&b, "admittedWaitP95=%s fullyObserved=%v\n",
 		time.Duration(res.AdmittedWaitP95Ns), res.WaitP95FullyObserved)
@@ -51,12 +56,29 @@ func RenderResult(res LabResult) string {
 			"             admitLatency=%s readyLatency=%s admitToReady=%s%s\n",
 			time.Duration(o.AdmitLatencyNs), time.Duration(o.ReadyLatencyNs), time.Duration(o.AdmitToReadyNs),
 			censoredWaitSuffix(o))
+		// Occupancy is printed against the row's declared service time because the bare number is not
+		// interpretable: "81.0 for a 40 s job" is the finding, "81.0" is trivia.
 		fmt.Fprintf(&b,
-			"             waste=%.1f(lb %.1f%s) unattributedOccupancy=%.1f totalOccupancy=%.1f\n",
+			"             waste=%.1f(lb %.1f%s) unattributedOccupancy=%.1f totalOccupancy=%.1f(serviceTime=%ds)\n",
 			o.WastedGPUSeconds, o.WasteLowerBoundGPUSeconds, censoredMark(o.WasteCensored),
-			o.UnattributedOccupancyGPUSeconds, o.TotalOccupancyGPUSeconds)
+			o.UnattributedOccupancyGPUSeconds, o.TotalOccupancyGPUSeconds, o.ServiceDurationSec)
 	}
 	return b.String()
+}
+
+// uncreditedLossNote states the loss on a row that was both preempted ineffectively and re-executed.
+//
+// Without it the report trades an overclaim for an underclaim: waste=0.0 is true about the MECHANISM (the
+// preemption stopped nothing) and false about the OUTCOME (a completed attempt went uncredited and the row
+// re-ran from zero), and a reader takes waste=0.0 to mean nothing was lost.
+func uncreditedLossNote(res LabResult) string {
+	for _, o := range res.Outcomes {
+		if o.PreemptionIneffective && o.ReExecuted {
+			return "; that completed attempt's work was NOT credited and the row re-executed from zero," +
+				" so the seconds were lost even though no waste is attributable to the preemption"
+		}
+	}
+	return ""
 }
 
 // censoredWaitSuffix reports CensoredWaitNs only for a row never admitted by the horizon, because the field

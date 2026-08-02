@@ -110,8 +110,9 @@ type attempt struct {
 // discovered from whatever events arrived, so a job whose events were all missed still appears (censored)
 // in the denominators rather than silently vanishing and flattering the worse arm.
 type jobTimeline struct {
-	tenant   string
-	gpuCount int
+	tenant      string
+	gpuCount    int
+	durationSec int
 
 	submitted   bool
 	submittedNs int64
@@ -182,6 +183,11 @@ type WorkloadOutcome struct {
 	// TotalOccupancyGPUSeconds is gpuCount-weighted execution time summed over ALL attempts, censored
 	// attempts charged only to the horizon. It is the row's real cost to the pool regardless of attribution.
 	TotalOccupancyGPUSeconds float64
+	// ServiceDurationSec is the row's declared uninterrupted service time, carried from the frozen trace.
+	//
+	// Occupancy alone is uninterpretable: 81 GPU-seconds is neither good nor bad until it is read against the
+	// 40 seconds of service that were asked for, and that ratio is what makes re-execution legible.
+	ServiceDurationSec int
 }
 
 // LabResult is the censoring-aware reconstruction of one arm's run.
@@ -217,6 +223,15 @@ type LabResult struct {
 	TotalUnattributedOccupancyGPUSeconds float64
 	// AnyPreemptionIneffective is true when any preemption in the run failed to stop its target.
 	AnyPreemptionIneffective bool
+	// TotalOccupancyGPUSeconds is the run's occupancy summed over every row.
+	//
+	// It is a run-level field because a reader takes the header away and the per-row detail on trust: the
+	// published run's header showed admissions and waste only, so the pool paying twice for the same service
+	// was visible nowhere a reader would look.
+	TotalOccupancyGPUSeconds float64
+	// ReExecutedRows counts rows that ran more than one attempt, which is re-execution stated as a number in
+	// the summary rather than left to be counted out of the per-row lines.
+	ReExecutedRows int
 }
 
 // Reconstruct turns a raw event ledger into a censoring-aware result for one arm, up to horizonElapsedNs
@@ -241,9 +256,10 @@ func Reconstruct(arm string, trace []TrainingTraceRow, events []LifecycleEvent, 
 			return LabResult{}, fmt.Errorf("trace has duplicate job name %q", row.Name)
 		}
 		byJob[row.Name] = &jobTimeline{
-			tenant:   row.Tenant,
-			gpuCount: row.GPUCount,
-			attempts: map[string]*attempt{},
+			tenant:      row.Tenant,
+			gpuCount:    row.GPUCount,
+			durationSec: row.DurationSec,
+			attempts:    map[string]*attempt{},
 		}
 		order = append(order, row.Name)
 	}
@@ -263,7 +279,7 @@ func Reconstruct(arm string, trace []TrainingTraceRow, events []LifecycleEvent, 
 			// absence means the job was never created, which invalidates the run rather than censoring it.
 			return LabResult{}, fmt.Errorf("job %q has no Submitted event; the run is invalid", job)
 		}
-		out := WorkloadOutcome{Job: job, Tenant: t.tenant}
+		out := WorkloadOutcome{Job: job, Tenant: t.tenant, ServiceDurationSec: t.durationSec}
 		if t.admitted {
 			out.Admitted = true
 			out.AdmitLatencyNs = t.admitNs - t.submittedNs
@@ -289,6 +305,10 @@ func Reconstruct(arm string, trace []TrainingTraceRow, events []LifecycleEvent, 
 		res.TotalUnattributedOccupancyGPUSeconds += out.UnattributedOccupancyGPUSeconds
 		if out.PreemptionIneffective {
 			res.AnyPreemptionIneffective = true
+		}
+		res.TotalOccupancyGPUSeconds += out.TotalOccupancyGPUSeconds
+		if out.ReExecuted {
+			res.ReExecutedRows++
 		}
 		res.Outcomes = append(res.Outcomes, out)
 	}
@@ -319,9 +339,21 @@ func foldEvent(byJob map[string]*jobTimeline, e *LifecycleEvent, horizonElapsedN
 	}
 	switch e.Type {
 	case EventSubmitted, EventAdmitted, EventPreempted, EventCompleted:
-	case EventPodReady, EventAttemptStopped:
+	case EventPodReady:
 		if e.ObjectUID == "" {
 			return fmt.Errorf("job %q %s has no Pod UID", e.Job, e.Type)
+		}
+	case EventAttemptStopped:
+		if e.ObjectUID == "" {
+			return fmt.Errorf("job %q %s has no Pod UID", e.Job, e.Type)
+		}
+		// The stop reason is the ONLY evidence that separates discarded work from a run that finished its own
+		// service, so attribution must not be a blacklist that exempts one literal and charges everything else
+		// as preemption waste. ClassifyPod can emit only the two terminal phases, so any other value means the
+		// evidence is not interpretable and a plausible wrong number is worse than a refusal.
+		if e.Reason != StopReasonSucceeded && e.Reason != StopReasonFailed {
+			return fmt.Errorf("job %q AttemptStopped has uninterpretable reason %q; want %q or %q",
+				e.Job, e.Reason, StopReasonSucceeded, StopReasonFailed)
 		}
 	default:
 		return fmt.Errorf("job %q has unknown event type %q", e.Job, e.Type)
@@ -416,6 +448,12 @@ func chargeWaste(t *jobTimeline, horizonElapsedNs int64, out *WorkloadOutcome) e
 	}
 	for _, uid := range t.attemptSeq {
 		a := t.attempts[uid]
+		if a.stopped && a.stopNs < a.readyNs {
+			// A Pod's Ready and its terminal phase come from the SAME watch, so unlike the cross-watch gaps
+			// above this ordering is not legal reordering but impossible evidence. Charging it would produce
+			// negative occupancy that silently cancels another attempt's real cost with no flag raised.
+			return fmt.Errorf("attempt %s stopped at %d before it was Ready at %d", a.uid, a.stopNs, a.readyNs)
+		}
 		end := horizonElapsedNs
 		if a.stopped && a.stopNs <= horizonElapsedNs {
 			end = a.stopNs
@@ -444,12 +482,22 @@ func chargeWaste(t *jobTimeline, horizonElapsedNs int64, out *WorkloadOutcome) e
 			exact := gpu * float64(a.stopNs-a.readyNs) / 1e9
 			out.WastedGPUSeconds += exact
 			out.WasteLowerBoundGPUSeconds += exact
+		case a.stopped && a.stopReason == StopReasonSucceeded:
+			// The stop landed beyond the horizon but its reason is folded anyway, and it refutes the censored
+			// reading below: the attempt reached a successful terminal phase, so the preemption never stopped
+			// it and there is no attributable waste here to understate. Charging Ready->horizon as censored
+			// waste instead is the published error verbatim.
+			// The occupancy is charged only to the horizon, which is a lower bound on this attempt's
+			// occupancy, as it is for every occupancy figure in this file.
+			out.UnattributedOccupancyGPUSeconds += gpu * float64(horizonElapsedNs-a.readyNs) / 1e9
+			out.PreemptionIneffective = true
 		default:
 			// No in-horizon stop was observed. Because the collector is fail-closed and observes every
 			// terminal Pod transition (the runner's contract; a run with an unexplained missing stop is
 			// invalidated upstream), the absence of a stop by the horizon means the attempt still held the
 			// GPU at the horizon. So the discarded work is at least Ready->horizon: a lower bound, flagged,
-			// never folded into the exact total. A stop recorded beyond the horizon is the same case.
+			// never folded into the exact total. A post-horizon stop that is not a successful completion is
+			// the same case.
 			out.WasteLowerBoundGPUSeconds += gpu * float64(horizonElapsedNs-a.readyNs) / 1e9
 			out.WasteCensored = true
 		}

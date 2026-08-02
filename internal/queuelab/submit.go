@@ -109,9 +109,16 @@ func RenderMLTrainingJobWithContract(
 // The honoring form backgrounds the sleep and waits, so the shell stays PID 1 and keeps its trap installed;
 // POSIX wait is interruptible by a trapped signal, which is what lets the trap run promptly instead of
 // after the sleep finishes.
+// The contract is the experimental axis of this study, so an unrecognized value must not fall through to the
+// ignoring arm: that would run the contrast arm under the honoring arm's label and produce a plausible wrong
+// result, which is the exact failure class the measurement work exists to eliminate.
 func sleeperCommand(durationSec int, contract TerminationContract) []string {
-	if contract == HonorsSIGTERM {
+	switch contract {
+	case HonorsSIGTERM:
 		return []string{"sh", "-c", fmt.Sprintf("trap 'exit %d' TERM; sleep %d & wait", termExitCode, durationSec)}
+	case IgnoresSIGTERM:
+		return []string{"sh", "-c", fmt.Sprintf("sleep %d", durationSec)}
+	default:
+		panic(fmt.Sprintf("queuelab: unknown TerminationContract %q", contract))
 	}
-	return []string{"sh", "-c", fmt.Sprintf("sleep %d", durationSec)}
 }
