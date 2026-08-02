@@ -46,12 +46,21 @@ func RenderResult(res LabResult) string {
 		fmt.Fprintf(&b, "PREEMPTION INEFFECTIVE: a preemption was decided but its target completed successfully%s\n",
 			uncreditedLossNote(res))
 	}
+	if res.AnyAttributionUnknown {
+		// A silent flag helps nobody: waste=0.0 above is the honest number, but on its own it reads as "nothing
+		// was lost", when in fact some occupancy has no established cause in either direction.
+		fmt.Fprintf(&b, "UNATTRIBUTED OCCUPANCY: %.1f GPU-seconds could not be attributed either way"+
+			" -- a preempted attempt reached no observed terminal phase, so the evidence supports neither"+
+			" discarded work nor a completed run\n", res.TotalUnattributedOccupancyGPUSeconds)
+	}
 	fmt.Fprintf(&b, "admittedWaitP95=%s fullyObserved=%v\n",
 		time.Duration(res.AdmittedWaitP95Ns), res.WaitP95FullyObserved)
 	for _, o := range res.Outcomes {
 		fmt.Fprintf(&b,
-			"  %-10s admitted=%v executed=%v completed=%v attempts=%d reExecuted=%v preemptions=%d preemptionIneffective=%v\n",
-			o.Job, o.Admitted, o.Executed, o.Completed, o.Attempts, o.ReExecuted, o.Preemptions, o.PreemptionIneffective)
+			"  %-10s admitted=%v executed=%v completed=%v attempts=%d reExecuted=%v preemptions=%d"+
+				" preemptionIneffective=%v attributionUnknown=%v\n",
+			o.Job, o.Admitted, o.Executed, o.Completed, o.Attempts, o.ReExecuted, o.Preemptions,
+			o.PreemptionIneffective, o.AttributionUnknown)
 		fmt.Fprintf(&b,
 			"             admitLatency=%s readyLatency=%s admitToReady=%s%s\n",
 			time.Duration(o.AdmitLatencyNs), time.Duration(o.ReadyLatencyNs), time.Duration(o.AdmitToReadyNs),

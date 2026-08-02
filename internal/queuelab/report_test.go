@@ -17,6 +17,8 @@ limitations under the License.
 package queuelab
 
 import (
+	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -187,6 +189,148 @@ func TestRenderResultReportsOccupancyAgainstServiceTime(t *testing.T) {
 	out := RenderResult(res)
 	if !hasLineWith(out, "totalOccupancy=", "serviceTime=") {
 		t.Fatalf("occupancy must be rendered beside the row's service time:\n%s", out)
+	}
+}
+
+// occupancyLinePattern pulls the two figures back out of a rendered row so the RELATION between them can be
+// asserted, not merely the presence of the two labels.
+var occupancyLinePattern = regexp.MustCompile(`totalOccupancy=([0-9.]+)\(serviceTime=([0-9]+)s\)`)
+
+func TestRenderResultShowsOccupancyExceedingDeclaredServiceTime(t *testing.T) {
+	// The whole point of printing service time is that a reader can see the pool paid 81 s for 40 s of asked-
+	// for service. A fixture whose declared duration does not match its own events renders the label while
+	// demonstrating the inverse, so the ordering of the two figures is what has to be pinned.
+	res, err := Reconstruct("Any", matchedServiceTimeTrace(), reExecutionEvents(), 200*sec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var a2 WorkloadOutcome
+	for _, o := range res.Outcomes {
+		if o.Job == "a2" {
+			a2 = o
+		}
+	}
+	if !a2.ReExecuted {
+		t.Fatalf("a2 must be the re-executed row for this demonstration to mean anything: %+v", a2)
+	}
+	out := RenderResult(res)
+	var line string
+	for _, l := range strings.Split(out, "\n") {
+		if strings.Contains(l, "totalOccupancy=") && strings.Contains(l, "serviceTime=40s") {
+			line = l
+		}
+	}
+	if line == "" {
+		t.Fatalf("no row line carries a2's occupancy against its declared 40 s of service:\n%s", out)
+	}
+	m := occupancyLinePattern.FindStringSubmatch(line)
+	if m == nil {
+		t.Fatalf("occupancy and service time are not rendered in a readable pair: %q", line)
+	}
+	occupancy, err := strconv.ParseFloat(m[1], 64)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service, err := strconv.Atoi(m[2])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if occupancy <= float64(service) {
+		t.Fatalf("rendered occupancy %.1f must EXCEED the declared service time %ds; a fixture that renders the "+
+			"reverse demonstrates nothing: %q", occupancy, service, line)
+	}
+}
+
+func TestRenderResultShowsCensoredWaitOnlyOnNeverAdmittedRows(t *testing.T) {
+	// The suffix is a lower bound on wait for a row never admitted, and a bare number on an ADMITTED row
+	// would misread as that row's exact wait. Pinning both sides in one rendering is what makes the guard a
+	// constraint: an assertion that only checks the never-admitted row still passes if the guard is deleted.
+	events := ineffectivePreemptionEvents()
+	kept := events[:0]
+	for _, e := range events {
+		if e.Job == "b1" && (e.Type == EventAdmitted || e.Type == EventPodReady || e.Type == EventCompleted) {
+			continue
+		}
+		kept = append(kept, e)
+	}
+	res, err := Reconstruct("Any", reclaimAnyTrace(), kept, 200*sec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var admitted, never []string
+	for _, o := range res.Outcomes {
+		if o.Admitted {
+			admitted = append(admitted, o.Job)
+		} else {
+			never = append(never, o.Job)
+		}
+	}
+	if len(admitted) == 0 || len(never) == 0 {
+		t.Fatalf("this test needs BOTH an admitted and a never-admitted row, got admitted=%v never=%v", admitted, never)
+	}
+	// Timing lines are emitted one per outcome in Outcomes order, which is what lets each rendered line be
+	// paired with the row it belongs to and checked BOTH ways.
+	out := RenderResult(res)
+	var timing []string
+	for _, l := range strings.Split(out, "\n") {
+		if strings.Contains(l, "admitLatency=") {
+			timing = append(timing, l)
+		}
+	}
+	if len(timing) != len(res.Outcomes) {
+		t.Fatalf("got %d timing lines for %d outcomes:\n%s", len(timing), len(res.Outcomes), out)
+	}
+	for i, o := range res.Outcomes {
+		shown := strings.Contains(timing[i], "censoredWait=")
+		if o.Admitted && shown {
+			t.Fatalf("admitted row %s rendered a censored wait, which misreads as its exact wait: %q", o.Job, timing[i])
+		}
+		if !o.Admitted && !shown {
+			t.Fatalf("never-admitted row %s must render its censored wait: %q", o.Job, timing[i])
+		}
+	}
+}
+
+func TestRenderResultSurfacesUnknownAttribution(t *testing.T) {
+	// Occupancy that no evidence can attribute either way must not be a silent flag: a reader who sees
+	// waste=0.0 in the header would otherwise conclude nothing was lost.
+	res, err := Reconstruct("Any", noTerminalPhaseTrace(), preemptedNoTerminalPhaseEvents(), 50*sec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.AnyAttributionUnknown {
+		t.Fatalf("fixture must produce unknown attribution: %+v", res)
+	}
+	out := RenderResult(res)
+	header := strings.Split(out, "\n  ")[0]
+	for _, s := range []string{"UNATTRIBUTED", "could not be attributed"} {
+		if !strings.Contains(header, s) {
+			t.Fatalf("run-level header must state %q so the reader knows unattributable occupancy exists:\n%s", s, out)
+		}
+	}
+	if !hasLineWith(out, "a2", "attributionUnknown=true") {
+		t.Fatalf("the per-row flag must be rendered on its own row:\n%s", out)
+	}
+}
+
+func TestRenderResultStatesKnownAttributionAsFalse(t *testing.T) {
+	// The flag is pinned as a per-row VALUE, so a row whose cause is established must say so rather than
+	// simply omit the field, which a substring search would not distinguish from a deleted renderer line.
+	res, err := Reconstruct("Any", reclaimAnyTrace(), ineffectivePreemptionEvents(), 200*sec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.AnyAttributionUnknown {
+		t.Fatalf("every attempt in this fixture reached an observed terminal phase: %+v", res)
+	}
+	out := RenderResult(res)
+	for _, o := range res.Outcomes {
+		if !hasLineWith(out, o.Job, "attributionUnknown=false") {
+			t.Fatalf("row %s must render attributionUnknown=false:\n%s", o.Job, out)
+		}
+	}
+	if strings.Contains(out, "UNATTRIBUTED") {
+		t.Fatalf("the run-level banner must stay off when every cause is established:\n%s", out)
 	}
 }
 
