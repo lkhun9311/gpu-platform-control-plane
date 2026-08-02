@@ -153,8 +153,11 @@ type WorkloadOutcome struct {
 	// WastedGPUSeconds is the EXACT discarded work ATTRIBUTABLE to preemption: sum over preempted attempts
 	// whose Pod reached a FAILED terminal phase at or before the horizon, of gpuCount * (stop - ready).
 	//
-	// A Failed terminal phase is the ONLY evidence that the attempt was actually cut short, and nothing else
-	// in this file may charge waste. A workload that ignores SIGTERM keeps running after the preemption
+	// A Failed terminal phase is evidence that the attempt was cut short, not evidence that the PREEMPTION is
+	// what cut it short: an unrelated crash after the preemption decision reaches the same Failed phase and is
+	// charged identically, so this field rests on the assumption that a Failed phase following a preemption
+	// decision was caused by it, an assumption the ledger has no independent way to confirm or refute. Nothing
+	// else in this file may charge waste. A workload that ignores SIGTERM keeps running after the preemption
 	// decision and reaches a terminal Succeeded phase on its own; charging that run as discarded work reports
 	// a completed job as destroyed progress, which is exactly the error this field's earlier definition
 	// produced.
@@ -192,6 +195,18 @@ type WorkloadOutcome struct {
 	// rule is to report an unestablishable cause as unattributed; the old fallback presumed loss instead, on
 	// exactly the arm where the workload is more likely than not to succeed.
 	AttributionUnknown bool
+	// UncreditedAttributionUnknownOccupancyGPUSeconds is the subset of UnattributedOccupancyGPUSeconds that
+	// STILL has no cause pointing either way: a no-terminal-phase attempt the sole-attempt-plus-completion
+	// rule (see PreemptionIneffective) did NOT credit as ineffective.
+	//
+	// UnattributedOccupancyGPUSeconds also folds in occupancy whose cause the ledger DOES establish -- a
+	// Succeeded stop, or a no-terminal-phase attempt credited by that same rule -- so a report claiming the
+	// evidence "supports neither conclusion" must read this field, or it contradicts the PreemptionIneffective
+	// line describing the very same seconds.
+	UncreditedAttributionUnknownOccupancyGPUSeconds float64
+	// UncreditedAttributionUnknown is true when this row carries occupancy of that kind, mirroring
+	// AttributionUnknown but excluding the credited case the same way the float above does.
+	UncreditedAttributionUnknown bool
 	// CensoredWaitNs is a lower-bound wait for a job never admitted by the horizon (submitted -> horizon).
 	CensoredWaitNs int64
 	// Attempts is how many Pod attempts this row ran.
@@ -251,6 +266,15 @@ type LabResult struct {
 	// It has to be run-level and rendered, because a reader who sees waste=0.0 in the header must not conclude
 	// that nothing was lost: occupancy exists here that the evidence cannot attribute either way.
 	AnyAttributionUnknown bool
+	// TotalUncreditedAttributionUnknownOccupancyGPUSeconds is the run-level sum of
+	// UncreditedAttributionUnknownOccupancyGPUSeconds: occupancy whose cause is genuinely unestablished, as
+	// opposed to TotalUnattributedOccupancyGPUSeconds, which also includes occupancy a Succeeded stop or a
+	// credited completion DOES explain. A banner stating that the evidence "supports neither conclusion" must
+	// report this figure, not the combined one, or it describes seconds the ledger has already accounted for.
+	TotalUncreditedAttributionUnknownOccupancyGPUSeconds float64
+	// AnyUncreditedAttributionUnknown is true when at least one row carries occupancy of that kind, gating the
+	// "neither" banner so it is never printed about a row the PreemptionIneffective line already explains.
+	AnyUncreditedAttributionUnknown bool
 	// TotalOccupancyGPUSeconds is the run's occupancy summed over every row.
 	//
 	// It is a run-level field because a reader takes the header away and the per-row detail on trust: the
@@ -331,11 +355,15 @@ func Reconstruct(arm string, trace []TrainingTraceRow, events []LifecycleEvent, 
 			res.AnyWasteCensored = true
 		}
 		res.TotalUnattributedOccupancyGPUSeconds += out.UnattributedOccupancyGPUSeconds
+		res.TotalUncreditedAttributionUnknownOccupancyGPUSeconds += out.UncreditedAttributionUnknownOccupancyGPUSeconds
 		if out.PreemptionIneffective {
 			res.AnyPreemptionIneffective = true
 		}
 		if out.AttributionUnknown {
 			res.AnyAttributionUnknown = true
+		}
+		if out.UncreditedAttributionUnknown {
+			res.AnyUncreditedAttributionUnknown = true
 		}
 		res.TotalOccupancyGPUSeconds += out.TotalOccupancyGPUSeconds
 		if out.ReExecuted {
@@ -439,6 +467,27 @@ func foldEvent(byJob map[string]*jobTimeline, e *LifecycleEvent, horizonElapsedN
 	return nil
 }
 
+// occupancyEnd returns the point up to which one attempt's occupancy may be charged.
+//
+// An observed stop is authoritative regardless of the horizon: an in-horizon stop ends the interval exactly
+// there, and a post-horizon one still bounds it at the horizon because the attempt is known to have held the
+// GPU through the boundary. Only when NO stop was observed does a completion help: a Job's Complete
+// condition is observed only after its Pod has terminated, so an unstopped attempt on an otherwise-completed
+// row could not still have been running past that completion, making it a sound and still-conservative upper
+// bound tighter than the horizon. With neither a stop nor a completion, the horizon is what remains.
+func occupancyEnd(t *jobTimeline, a *attempt, horizonElapsedNs int64) int64 {
+	if a.stopped {
+		if a.stopNs <= horizonElapsedNs {
+			return a.stopNs
+		}
+		return horizonElapsedNs
+	}
+	if t.completed {
+		return t.completedNs
+	}
+	return horizonElapsedNs
+}
+
 // chargeWaste runs the per-job ordering checks and the attempt-paired preemption accounting, writing the
 // exact and lower-bound waste onto out.
 func chargeWaste(t *jobTimeline, horizonElapsedNs int64, out *WorkloadOutcome) error {
@@ -485,10 +534,7 @@ func chargeWaste(t *jobTimeline, horizonElapsedNs int64, out *WorkloadOutcome) e
 			// negative occupancy that silently cancels another attempt's real cost with no flag raised.
 			return fmt.Errorf("attempt %s stopped at %d before it was Ready at %d", a.uid, a.stopNs, a.readyNs)
 		}
-		end := horizonElapsedNs
-		if a.stopped && a.stopNs <= horizonElapsedNs {
-			end = a.stopNs
-		}
+		end := occupancyEnd(t, a, horizonElapsedNs)
 		out.TotalOccupancyGPUSeconds += float64(t.gpuCount) * float64(end-a.readyNs) / 1e9
 	}
 	decisions := append([]int64(nil), t.preemptedNs...)
@@ -503,10 +549,7 @@ func chargeWaste(t *jobTimeline, horizonElapsedNs int64, out *WorkloadOutcome) e
 		// The attempt's in-horizon occupancy, which every arm below charges somewhere. It is the SAME endpoint
 		// rule the occupancy loop above uses, so no arm can charge more than the row's own occupancy and a
 		// double-charge cannot hide behind two different interval definitions.
-		end := horizonElapsedNs
-		if a.stopped && a.stopNs <= horizonElapsedNs {
-			end = a.stopNs
-		}
+		end := occupancyEnd(t, a, horizonElapsedNs)
 		charged := gpu * float64(end-a.readyNs) / 1e9
 		switch {
 		case a.stopped && a.stopReason == StopReasonSucceeded:
@@ -542,6 +585,12 @@ func chargeWaste(t *jobTimeline, horizonElapsedNs int64, out *WorkloadOutcome) e
 				// nothing about which one it belongs to, and crediting it would be inference from adjacency
 				// again.
 				out.PreemptionIneffective = true
+			} else {
+				// This charge was NOT credited, so unlike the branch above its cause is still genuinely
+				// unknown; a report is free to say so about these seconds without contradicting a
+				// PreemptionIneffective line, because no such line was written for them.
+				out.UncreditedAttributionUnknownOccupancyGPUSeconds += charged
+				out.UncreditedAttributionUnknown = true
 			}
 		}
 	}

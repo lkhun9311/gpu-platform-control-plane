@@ -334,6 +334,81 @@ func TestRenderResultStatesKnownAttributionAsFalse(t *testing.T) {
 	}
 }
 
+// f1UnattributedBannerTrace pairs a row whose preemption target succeeded anyway (cause established) with a
+// row that reaches no terminal phase at all (cause unknown), so the banner's single figure can be checked
+// against the RIGHT subtotal instead of their sum.
+func f1UnattributedBannerTrace() []TrainingTraceRow {
+	return []TrainingTraceRow{
+		{Index: 0, Name: "r1", OffsetMs: 0, Tenant: "tenant-a", GPUCount: 1, DurationSec: 100},
+		{Index: 1, Name: "r2", OffsetMs: 0, Tenant: "tenant-a", GPUCount: 1, DurationSec: 100},
+	}
+}
+
+// f1UnattributedBannerEvents is the two-row scenario the finding names verbatim: r1 is preempted but
+// succeeds anyway (33 GPU-seconds, cause established), r2 is preempted and reaches no terminal phase by the
+// horizon at all (47 GPU-seconds, cause unknown).
+func f1UnattributedBannerEvents() []LifecycleEvent {
+	return []LifecycleEvent{
+		{ElapsedNs: 0, Kind: "MLTrainingJob", Type: EventSubmitted, Job: "r1", GPUCount: 1},
+		{ElapsedNs: 1 * sec, Kind: "Workload", Type: EventAdmitted, Job: "r1", GPUCount: 1},
+		{ElapsedNs: 2 * sec, Kind: "Pod", Type: EventPodReady, Job: "r1", GPUCount: 1, ObjectUID: "pod-r1"},
+		{ElapsedNs: 10 * sec, Kind: "Workload", Type: EventPreempted, Job: "r1", GPUCount: 1, Reason: "InCohortReclamation"},
+		// r1 ignores the signal and finishes on its own: 35 - 2 = 33 GPU-seconds, cause established.
+		{ElapsedNs: 35 * sec, Kind: "Pod", Type: EventAttemptStopped, Job: "r1", GPUCount: 1, ObjectUID: "pod-r1", Reason: StopReasonSucceeded},
+
+		{ElapsedNs: 0, Kind: "MLTrainingJob", Type: EventSubmitted, Job: "r2", GPUCount: 1},
+		{ElapsedNs: 1 * sec, Kind: "Workload", Type: EventAdmitted, Job: "r2", GPUCount: 1},
+		{ElapsedNs: 3 * sec, Kind: "Pod", Type: EventPodReady, Job: "r2", GPUCount: 1, ObjectUID: "pod-r2"},
+		{ElapsedNs: 20 * sec, Kind: "Workload", Type: EventPreempted, Job: "r2", GPUCount: 1, Reason: "InCohortReclamation"},
+		// r2 reaches no terminal phase at all: charged 50 - 3 = 47 to the horizon, cause unknown.
+	}
+}
+
+var unattributedBannerPattern = regexp.MustCompile(`UNATTRIBUTED OCCUPANCY: ([0-9.]+) GPU-seconds`)
+
+// TestRenderResultUnattributedBannerReportsOnlyNoTerminalPhaseOccupancy is F1: the banner is gated on
+// AnyAttributionUnknown but historically printed the COMBINED unattributed figure, which also folds in
+// occupancy from a Succeeded stop where the cause IS established. Only r2's 47 lacks a terminal phase; r1's
+// 33 must not be added into the number this banner's own sentence claims to describe.
+func TestRenderResultUnattributedBannerReportsOnlyNoTerminalPhaseOccupancy(t *testing.T) {
+	res, err := Reconstruct("Any", f1UnattributedBannerTrace(), f1UnattributedBannerEvents(), 50*sec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := RenderResult(res)
+	m := unattributedBannerPattern.FindStringSubmatch(out)
+	if m == nil {
+		t.Fatalf("banner did not render in the expected shape:\n%s", out)
+	}
+	got, err := strconv.ParseFloat(m[1], 64)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != 47.0 {
+		t.Fatalf("banner figure = %.1f, want 47.0 (only r2's no-terminal-phase occupancy, not r1's 33 + r2's"+
+			" 47 = 80.0)", got)
+	}
+}
+
+// TestRenderResultDoesNotContradictCreditedIneffectivePreemption is F2: on the scenario this branch exists to
+// correct (a sole attempt preempted, no terminal phase observed, but the row's ledger contains a completion,
+// so the sole-attempt credit fires), the header must not follow "its target completed successfully" with a
+// sentence claiming the evidence supports neither conclusion -- for this row the second claim is false.
+func TestRenderResultDoesNotContradictCreditedIneffectivePreemption(t *testing.T) {
+	res, err := Reconstruct("Any", noTerminalPhaseTrace(), completedNoTerminalPhaseEvents(), 50*sec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := RenderResult(res)
+	if !strings.Contains(out, "PREEMPTION INEFFECTIVE") || !strings.Contains(out, "its target completed successfully") {
+		t.Fatalf("the credited row's ineffectiveness must still be stated loudly:\n%s", out)
+	}
+	if strings.Contains(out, "supports neither") {
+		t.Fatalf("a row credited via the sole-attempt-plus-completion rule must not also be described as"+
+			" supporting neither conclusion, which contradicts the ineffectiveness line above it:\n%s", out)
+	}
+}
+
 func TestRenderResultStatesUncreditedLossOnReExecutedIneffectiveRow(t *testing.T) {
 	// waste=0.0 is true about mechanism and false about loss: the attempt succeeded, was not credited, and
 	// re-ran from zero. Replacing an overclaim with an underclaim is not a fix, so the banner must state the

@@ -46,12 +46,16 @@ func RenderResult(res LabResult) string {
 		fmt.Fprintf(&b, "PREEMPTION INEFFECTIVE: a preemption was decided but its target completed successfully%s\n",
 			uncreditedLossNote(res))
 	}
-	if res.AnyAttributionUnknown {
+	if res.AnyUncreditedAttributionUnknown {
 		// A silent flag helps nobody: waste=0.0 above is the honest number, but on its own it reads as "nothing
 		// was lost", when in fact some occupancy has no established cause in either direction.
+		//
+		// This is gated on the UNCREDITED subtotal, not the combined UnattributedOccupancyGPUSeconds figure
+		// printed above: that figure also counts occupancy a Succeeded stop or a completion-credited attempt
+		// already explains, and printing it here would contradict this sentence for exactly that occupancy.
 		fmt.Fprintf(&b, "UNATTRIBUTED OCCUPANCY: %.1f GPU-seconds could not be attributed either way"+
 			" -- a preempted attempt reached no observed terminal phase, so the evidence supports neither"+
-			" discarded work nor a completed run\n", res.TotalUnattributedOccupancyGPUSeconds)
+			" discarded work nor a completed run\n", res.TotalUncreditedAttributionUnknownOccupancyGPUSeconds)
 	}
 	fmt.Fprintf(&b, "admittedWaitP95=%s fullyObserved=%v\n",
 		time.Duration(res.AdmittedWaitP95Ns), res.WaitP95FullyObserved)
