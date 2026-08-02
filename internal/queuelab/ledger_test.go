@@ -592,4 +592,3 @@ func TestReconstructRejectsReadyBeforeSubmitted(t *testing.T) {
 		t.Fatalf("Pod Ready before Submitted must error")
 	}
 }
-
