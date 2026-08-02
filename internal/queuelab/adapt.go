@@ -20,14 +20,14 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// observedFrom builds the join's ObservedObject from any Kubernetes object's metadata, so the collector can
+// ObservedFrom builds the join's ObservedObject from any Kubernetes object's metadata, so the collector can
 // feed real Pods, Jobs, Workloads, and MLTrainingJobs into ResolveTraceJobs without the join needing to
 // import every type.
 //
 // It records only the CONTROLLER flag on each owner reference (not merely that a reference exists), so the
 // UID-chain join follows the controlling parent alone; and for a Workload it lifts Kueue's job-uid label so
 // the join can cross-check it against the controller Job.
-func observedFrom(kind string, obj metav1.Object) ObservedObject {
+func ObservedFrom(kind string, obj metav1.Object) ObservedObject {
 	o := ObservedObject{Kind: kind, Name: obj.GetName(), UID: string(obj.GetUID())}
 	for _, r := range obj.GetOwnerReferences() {
 		o.Owners = append(o.Owners, OwnerRef{

@@ -74,3 +74,6 @@ hack/m6-e2e-evidence.log
 
 # stray local build of cmd/benchharness
 benchharness
+
+# stray local build of cmd/queuelabrun
+queuelabrun
