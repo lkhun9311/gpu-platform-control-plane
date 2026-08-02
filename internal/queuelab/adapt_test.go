@@ -37,7 +37,7 @@ func TestObservedFromExtractsControllerOwner(t *testing.T) {
 			{UID: "nocontroller", Kind: "Job"}, // Controller nil -> false
 		},
 	}
-	got := observedFrom(kindWorkload, obj)
+	got := ObservedFrom(kindWorkload, obj)
 	if got.UID != "wl-1" || got.Name != "wl-a1" {
 		t.Fatalf("identity = %s/%s", got.UID, got.Name)
 	}
@@ -70,9 +70,9 @@ func TestObservedFromFeedsResolveTraceJobs(t *testing.T) {
 	pod := &metav1.ObjectMeta{Name: "a1-pod", UID: "pod-1", OwnerReferences: []metav1.OwnerReference{{UID: "job-1", Kind: kindJob, Controller: &ctrl}}}
 
 	objs := []ObservedObject{
-		observedFrom(kindMLTrainingJob, mltj),
-		observedFrom(kindJob, job),
-		observedFrom(kindPod, pod),
+		ObservedFrom(kindMLTrainingJob, mltj),
+		ObservedFrom(kindJob, job),
+		ObservedFrom(kindPod, pod),
 	}
 	got, err := ResolveTraceJobs(objs)
 	if err != nil {
