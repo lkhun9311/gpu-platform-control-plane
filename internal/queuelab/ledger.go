@@ -85,14 +85,25 @@ const (
 	EventCompleted EventType = "Completed"
 )
 
+// StopReasonSucceeded and StopReasonFailed are the terminal Pod phases the collector stamps onto an
+// AttemptStopped event.
+//
+// They are the ONLY evidence in the ledger that distinguishes "the preemption stopped this attempt" from
+// "this attempt finished its own service while marked preempted", and the second case is not discarded work.
+const (
+	StopReasonSucceeded = "Succeeded"
+	StopReasonFailed    = "Failed"
+)
+
 // attempt is one Pod's execution, keyed by Pod UID, so preemption waste is paired to the exact Pod that
 // ran rather than to whichever stop happened to be recorded next.
 type attempt struct {
-	uid      string
-	readyNs  int64
-	stopped  bool
-	stopNs   int64
-	consumed bool // a preemption decision has claimed this attempt's discarded work
+	uid        string
+	readyNs    int64
+	stopped    bool
+	stopNs     int64
+	stopReason string // the terminal Pod phase, which is what makes a stop attributable or not
+	consumed   bool   // a preemption decision has claimed this attempt's discarded work
 }
 
 // jobTimeline reconstructs one job's story from its events. It is SEEDED from the frozen trace row, not
@@ -124,9 +135,21 @@ type WorkloadOutcome struct {
 	Completed      bool
 	// Preemptions counts how many times the job was preempted.
 	Preemptions int
-	// WastedGPUSeconds is the EXACT discarded work: sum over preempted attempts whose Pod stop was observed
-	// at or before the horizon, of gpuCount * (stop - ready).
+	// WastedGPUSeconds is the EXACT discarded work ATTRIBUTABLE to preemption: sum over preempted attempts
+	// whose Pod stop was observed at or before the horizon AND whose stop was caused by the preemption, of
+	// gpuCount * (stop - ready).
+	//
+	// The attribution clause is not pedantry. A workload that ignores SIGTERM keeps running after the
+	// preemption decision and reaches a terminal Succeeded phase on its own; charging that run as discarded
+	// work reports a completed job as destroyed progress, which is exactly the error this field's earlier
+	// definition produced.
 	WastedGPUSeconds float64
+	// UnattributedOccupancyGPUSeconds is the occupancy of attempts that were preempted on paper but observed
+	// to terminate as Succeeded, so their work was not cut short. It is reported, never folded into waste.
+	UnattributedOccupancyGPUSeconds float64
+	// PreemptionIneffective is true when at least one preemption decision was followed by that attempt
+	// completing successfully, meaning the platform decided to reclaim and the workload did not comply.
+	PreemptionIneffective bool
 	// WasteLowerBoundGPUSeconds is >= WastedGPUSeconds: it also counts attempts whose stop was not observed
 	// in-horizon, charged only up to the horizon. It is a lower bound, never presented as exact.
 	WasteLowerBoundGPUSeconds float64
@@ -165,6 +188,11 @@ type LabResult struct {
 	TotalWasteLowerBoundGPUSeconds float64
 	// AnyWasteCensored is true when any outcome's waste is censored, so the exact total is a lower bound.
 	AnyWasteCensored bool
+	// TotalUnattributedOccupancyGPUSeconds is the run's total occupancy that a preemption was decided over
+	// but did not actually stop.
+	TotalUnattributedOccupancyGPUSeconds float64
+	// AnyPreemptionIneffective is true when any preemption in the run failed to stop its target.
+	AnyPreemptionIneffective bool
 }
 
 // Reconstruct turns a raw event ledger into a censoring-aware result for one arm, up to horizonElapsedNs
@@ -233,6 +261,10 @@ func Reconstruct(arm string, trace []TrainingTraceRow, events []LifecycleEvent, 
 		res.TotalWasteLowerBoundGPUSeconds += out.WasteLowerBoundGPUSeconds
 		if out.WasteCensored {
 			res.AnyWasteCensored = true
+		}
+		res.TotalUnattributedOccupancyGPUSeconds += out.UnattributedOccupancyGPUSeconds
+		if out.PreemptionIneffective {
+			res.AnyPreemptionIneffective = true
 		}
 		res.Outcomes = append(res.Outcomes, out)
 	}
@@ -308,6 +340,7 @@ func foldEvent(byJob map[string]*jobTimeline, e *LifecycleEvent, horizonElapsedN
 		if !a.stopped || e.ElapsedNs < a.stopNs {
 			a.stopped = true
 			a.stopNs = e.ElapsedNs
+			a.stopReason = e.Reason
 		}
 	case EventCompleted:
 		if t.completed && t.completedNs != e.ElapsedNs {
@@ -339,12 +372,20 @@ func chargeWaste(t *jobTimeline, horizonElapsedNs int64, out *WorkloadOutcome) e
 		}
 		a.consumed = true
 		gpu := float64(t.gpuCount)
-		if a.stopped && a.stopNs <= horizonElapsedNs {
-			// The Pod stop was observed in-horizon: the discarded work is exact, from Ready to the stop.
+		switch {
+		case a.stopped && a.stopNs <= horizonElapsedNs && a.stopReason == StopReasonSucceeded:
+			// The attempt reached a successful terminal phase, so it finished its own service rather than
+			// being stopped by the preemption. Its occupancy is real but it is not discarded work, and
+			// folding it into waste would report a completed run as destroyed progress.
+			out.UnattributedOccupancyGPUSeconds += gpu * float64(a.stopNs-a.readyNs) / 1e9
+			out.PreemptionIneffective = true
+		case a.stopped && a.stopNs <= horizonElapsedNs:
+			// The Pod stop was observed in-horizon and was not a successful completion: the discarded work
+			// is exact, from Ready to the stop.
 			exact := gpu * float64(a.stopNs-a.readyNs) / 1e9
 			out.WastedGPUSeconds += exact
 			out.WasteLowerBoundGPUSeconds += exact
-		} else {
+		default:
 			// No in-horizon stop was observed. Because the collector is fail-closed and observes every
 			// terminal Pod transition (the runner's contract; a run with an unexplained missing stop is
 			// invalidated upstream), the absence of a stop by the horizon means the attempt still held the

@@ -300,3 +300,94 @@ func TestLedgerJSONLRoundTrip(t *testing.T) {
 		t.Fatalf("round-trip lost events: %d vs %d", len(got), len(reclaimAnyEvents()))
 	}
 }
+
+// ineffectivePreemptionEvents is the case the live run actually produced: a preemption is decided while the
+// borrower runs, but the borrower ignores the signal and reaches a terminal Succeeded phase on its own.
+func ineffectivePreemptionEvents() []LifecycleEvent {
+	return []LifecycleEvent{
+		{ElapsedNs: 0, Kind: "MLTrainingJob", Type: EventSubmitted, Job: "a1", Tenant: "tenant-a", GPUCount: 1},
+		{ElapsedNs: 1 * sec, Kind: "Workload", Type: EventAdmitted, Job: "a1", Tenant: "tenant-a", GPUCount: 1},
+		{ElapsedNs: 2 * sec, Kind: "Pod", Type: EventPodReady, Job: "a1", Tenant: "tenant-a", GPUCount: 1, ObjectUID: "pod-a1"},
+		{ElapsedNs: 601 * sec, Kind: "Job", Type: EventCompleted, Job: "a1", Tenant: "tenant-a", GPUCount: 1},
+
+		{ElapsedNs: 1 * sec, Kind: "MLTrainingJob", Type: EventSubmitted, Job: "a2", Tenant: "tenant-a", GPUCount: 1},
+		{ElapsedNs: 2 * sec, Kind: "Workload", Type: EventAdmitted, Job: "a2", Tenant: "tenant-a", GPUCount: 1},
+		{ElapsedNs: 3 * sec, Kind: "Pod", Type: EventPodReady, Job: "a2", Tenant: "tenant-a", GPUCount: 1, ObjectUID: "pod-a2"},
+		{ElapsedNs: 34 * sec, Kind: "Workload", Type: EventPreempted, Job: "a2", Tenant: "tenant-a", GPUCount: 1, Reason: "InCohortReclamation"},
+		// The workload ignored the signal and finished its own service, so this stop was NOT caused by the
+		// preemption and its occupancy must not be reported as discarded work.
+		{ElapsedNs: 43 * sec, Kind: "Pod", Type: EventAttemptStopped, Job: "a2", Tenant: "tenant-a", GPUCount: 1, ObjectUID: "pod-a2", Reason: StopReasonSucceeded},
+
+		{ElapsedNs: 34 * sec, Kind: "MLTrainingJob", Type: EventSubmitted, Job: "b1", Tenant: "tenant-b", GPUCount: 1},
+		{ElapsedNs: 34 * sec, Kind: "Workload", Type: EventAdmitted, Job: "b1", Tenant: "tenant-b", GPUCount: 1},
+		{ElapsedNs: 44 * sec, Kind: "Pod", Type: EventPodReady, Job: "b1", Tenant: "tenant-b", GPUCount: 1, ObjectUID: "pod-b1"},
+		{ElapsedNs: 90 * sec, Kind: "Job", Type: EventCompleted, Job: "b1", Tenant: "tenant-b", GPUCount: 1},
+	}
+}
+
+func TestReconstructDoesNotChargeIneffectivePreemptionAsWaste(t *testing.T) {
+	res, err := Reconstruct("Any", reclaimAnyTrace(), ineffectivePreemptionEvents(), 200*sec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var a2 WorkloadOutcome
+	for _, o := range res.Outcomes {
+		if o.Job == "a2" {
+			a2 = o
+		}
+	}
+	if a2.Preemptions != 1 {
+		t.Fatalf("a2 preemptions = %d, want 1", a2.Preemptions)
+	}
+	if a2.WastedGPUSeconds != 0 {
+		t.Fatalf("a2 waste = %.1f, want 0: a Succeeded stop is not preemption-caused loss", a2.WastedGPUSeconds)
+	}
+	if a2.WasteLowerBoundGPUSeconds != 0 {
+		t.Fatalf("a2 waste lower bound = %.1f, want 0", a2.WasteLowerBoundGPUSeconds)
+	}
+	// The occupancy is still real and still reported, just not as discarded work.
+	if got := a2.UnattributedOccupancyGPUSeconds; got != 40 {
+		t.Fatalf("a2 unattributed occupancy = %.1f, want 40", got)
+	}
+	if !a2.PreemptionIneffective {
+		t.Fatal("a2 must be flagged as an ineffective preemption")
+	}
+	if res.TotalWastedGPUSeconds != 0 {
+		t.Fatalf("total waste = %.1f, want 0", res.TotalWastedGPUSeconds)
+	}
+	if res.TotalUnattributedOccupancyGPUSeconds != 40 {
+		t.Fatalf("total unattributed occupancy = %.1f, want 40", res.TotalUnattributedOccupancyGPUSeconds)
+	}
+	if !res.AnyPreemptionIneffective {
+		t.Fatal("result must flag that a preemption was ineffective")
+	}
+}
+
+func TestReconstructChargesSignalledStopAsWaste(t *testing.T) {
+	events := ineffectivePreemptionEvents()
+	for i := range events {
+		if events[i].Job == "a2" && events[i].Type == EventAttemptStopped {
+			// A workload that honors the signal terminates non-zero, which IS attributable to the preemption.
+			events[i].Reason = StopReasonFailed
+		}
+	}
+	res, err := Reconstruct("Any", reclaimAnyTrace(), events, 200*sec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var a2 WorkloadOutcome
+	for _, o := range res.Outcomes {
+		if o.Job == "a2" {
+			a2 = o
+		}
+	}
+	if a2.WastedGPUSeconds != 40 {
+		t.Fatalf("a2 waste = %.1f, want 40 for a signalled stop", a2.WastedGPUSeconds)
+	}
+	if a2.UnattributedOccupancyGPUSeconds != 0 {
+		t.Fatalf("a2 unattributed occupancy = %.1f, want 0", a2.UnattributedOccupancyGPUSeconds)
+	}
+	if a2.PreemptionIneffective {
+		t.Fatal("a signalled stop is an effective preemption")
+	}
+}
