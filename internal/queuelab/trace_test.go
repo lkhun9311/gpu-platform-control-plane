@@ -47,7 +47,7 @@ func TestReclaimScenarioLateVsEarly(t *testing.T) {
 	if late[2].OffsetMs != 600*1000-10_000 {
 		t.Fatalf("late owner offset = %d, want %d", late[2].OffsetMs, 600*1000-10_000)
 	}
-	if late[1].Name != "a2-borrow" || late[1].Tenant != tenantA {
+	if late[1].Name != jobBorrow || late[1].Tenant != tenantA {
 		t.Fatalf("row 1 should be tenant-a's borrowing job")
 	}
 	if late[2].Tenant != "tenant-b" {
@@ -73,7 +73,7 @@ func TestFIFOHeadOfLine(t *testing.T) {
 	if len(rows) != 5 {
 		t.Fatalf("FIFO scenario should have 5 rows, got %d", len(rows))
 	}
-	if rows[1].Name != "head2" || rows[1].GPUCount != 2 {
+	if rows[1].Name != jobHead || rows[1].GPUCount != 2 {
 		t.Fatalf("row 1 should be the 2-GPU head job")
 	}
 	// The head job must arrive before the small jobs, so it truly sits at the head of the line.
