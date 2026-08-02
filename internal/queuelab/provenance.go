@@ -69,16 +69,21 @@ func ClassifyWorkload(wl *kueuev1beta2.Workload) ObservedState {
 	return ObservedState{}
 }
 
-// ClassifyJob reads a batch/v1 Job's conditions. A successful completion is the authoritative Completed
-// event; a failure invalidates the run, because a lab Job runs with backoffLimit 0 (set by the runner) and
-// a real training row is not supposed to fail, so a failure means the arm did not run as designed.
+// ClassifyJob reads a batch/v1 Job's conditions. Only the terminal Complete condition is the authoritative
+// Completed event; a failure invalidates the run, because a lab Job runs with backoffLimit 0 (set by the
+// runner) and a real training row is not supposed to fail, so a failure means the arm did not run as
+// designed.
+//
+// SuccessCriteriaMet is deliberately NOT treated as completion: Kubernetes sets it before the Job's Pods
+// have all terminated, so completing on it would let an orchestrator close the horizon while a Pod is still
+// holding a GPU, dropping that interval. Complete is the condition that waits for terminal Pods.
 func ClassifyJob(job *batchv1.Job) ObservedState {
 	for _, c := range job.Status.Conditions {
 		if c.Status != corev1.ConditionTrue {
 			continue
 		}
 		switch c.Type {
-		case batchv1.JobComplete, batchv1.JobSuccessCriteriaMet:
+		case batchv1.JobComplete:
 			return ObservedState{Event: EventCompleted, Reason: string(c.Type)}
 		case batchv1.JobFailed:
 			return ObservedState{Invalid: true, InvalidReason: fmt.Sprintf("Job failed (%s)", c.Reason)}

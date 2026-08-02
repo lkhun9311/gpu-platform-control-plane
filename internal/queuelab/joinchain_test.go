@@ -18,13 +18,15 @@ package queuelab
 
 import "testing"
 
-// fullChain builds one complete MLTrainingJob -> Job -> {Workload, Pod} ownership chain for job "a1".
+func ctrl(uid, kind string) OwnerRef { return OwnerRef{UID: uid, Kind: kind, Controller: true} }
+
+// fullChain builds one complete MLTrainingJob -> Job -> {Workload, Pod} controller-ownership chain for "a1".
 func fullChain() []ObservedObject {
 	return []ObservedObject{
 		{Kind: kindMLTrainingJob, Name: "a1", UID: "mltj-1"},
-		{Kind: kindJob, Name: "a1", UID: "job-1", OwnerUIDs: []string{"mltj-1"}},
-		{Kind: kindWorkload, Name: "wl-a1", UID: "wl-1", OwnerUIDs: []string{"job-1"}, JobUIDLabel: "job-1"},
-		{Kind: kindPod, Name: "a1-pod", UID: "pod-1", OwnerUIDs: []string{"job-1"}},
+		{Kind: kindJob, Name: "a1", UID: "job-1", Owners: []OwnerRef{ctrl("mltj-1", kindMLTrainingJob)}},
+		{Kind: kindWorkload, Name: "wl-a1", UID: "wl-1", Owners: []OwnerRef{ctrl("job-1", kindJob)}, JobUIDLabel: "job-1"},
+		{Kind: kindPod, Name: "a1-pod", UID: "pod-1", Owners: []OwnerRef{ctrl("job-1", kindJob)}},
 	}
 }
 
@@ -40,9 +42,31 @@ func TestResolveTraceJobsFullChain(t *testing.T) {
 	}
 }
 
+func TestResolveTraceJobsIgnoresNonControllerOwner(t *testing.T) {
+	// A Job carries a non-controller ownerReference to a2's MLTrainingJob but is actually controlled by a1's.
+	// Following the controller reference only, it must resolve to a1, not be pulled toward a2 or rejected as
+	// ambiguous.
+	objs := []ObservedObject{
+		{Kind: kindMLTrainingJob, Name: "a1", UID: "mltj-1"},
+		{Kind: kindMLTrainingJob, Name: "a2", UID: "mltj-2"},
+		{Kind: kindJob, Name: "a1", UID: "job-1", Owners: []OwnerRef{
+			ctrl("mltj-1", kindMLTrainingJob),
+			{UID: "mltj-2", Kind: kindMLTrainingJob, Controller: false},
+		}},
+		{Kind: kindPod, Name: "a1-pod", UID: "pod-1", Owners: []OwnerRef{ctrl("job-1", kindJob)}},
+	}
+	got, err := ResolveTraceJobs(objs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got["job-1"] != "a1" || got["pod-1"] != "a1" {
+		t.Fatalf("non-controller owner leaked attribution: job-1=%q pod-1=%q", got["job-1"], got["pod-1"])
+	}
+}
+
 func TestResolveTraceJobsRejectsJobUIDLabelMismatch(t *testing.T) {
-	// The Workload's kueue job-uid label points at a different Job than its ownerReference: a broken chain
-	// that a name-only join would have accepted.
+	// The Workload's kueue job-uid label points at a different Job than its controller reference: a broken
+	// chain a name-only join would have accepted.
 	objs := fullChain()
 	for i := range objs {
 		if objs[i].Kind == kindWorkload {
@@ -50,17 +74,17 @@ func TestResolveTraceJobsRejectsJobUIDLabelMismatch(t *testing.T) {
 		}
 	}
 	if _, err := ResolveTraceJobs(objs); err == nil {
-		t.Fatalf("a job-uid label disagreeing with the owner must error")
+		t.Fatalf("a job-uid label disagreeing with the controller must error")
 	}
 }
 
 func TestResolveTraceJobsRejectsOrphan(t *testing.T) {
-	// A Pod whose owning Job was never observed cannot be attributed, so it errors rather than being
+	// A Pod whose controller Job was never observed cannot be attributed, so it errors rather than being
 	// dropped (which would silently shrink an arm's evidence).
 	objs := []ObservedObject{
 		{Kind: kindMLTrainingJob, Name: "a1", UID: "mltj-1"},
-		{Kind: kindJob, Name: "a1", UID: "job-1", OwnerUIDs: []string{"mltj-1"}},
-		{Kind: kindPod, Name: "orphan", UID: "pod-x", OwnerUIDs: []string{"job-unknown"}},
+		{Kind: kindJob, Name: "a1", UID: "job-1", Owners: []OwnerRef{ctrl("mltj-1", kindMLTrainingJob)}},
+		{Kind: kindPod, Name: "orphan", UID: "pod-x", Owners: []OwnerRef{ctrl("job-unknown", kindJob)}},
 	}
 	if _, err := ResolveTraceJobs(objs); err == nil {
 		t.Fatalf("an orphan pod must error")
@@ -78,8 +102,8 @@ func TestResolveTraceJobsTwoIndependentChains(t *testing.T) {
 	// Two trace jobs must not cross-attribute: each object resolves to its own root.
 	objs := append(fullChain(),
 		ObservedObject{Kind: kindMLTrainingJob, Name: "b1", UID: "mltj-2"},
-		ObservedObject{Kind: kindJob, Name: "b1", UID: "job-2", OwnerUIDs: []string{"mltj-2"}},
-		ObservedObject{Kind: kindPod, Name: "b1-pod", UID: "pod-2", OwnerUIDs: []string{"job-2"}},
+		ObservedObject{Kind: kindJob, Name: "b1", UID: "job-2", Owners: []OwnerRef{ctrl("mltj-2", kindMLTrainingJob)}},
+		ObservedObject{Kind: kindPod, Name: "b1-pod", UID: "pod-2", Owners: []OwnerRef{ctrl("job-2", kindJob)}},
 	)
 	got, err := ResolveTraceJobs(objs)
 	if err != nil {
