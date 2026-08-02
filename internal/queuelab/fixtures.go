@@ -38,6 +38,11 @@ const (
 	// labWorkerLabel is the node label the ResourceFlavor selects, so every run's quota maps to one
 	// dedicated lab worker rather than borrowing capacity from wherever the fake plugin advertises it.
 	labWorkerLabel = "queuelab.gpu-platform/worker"
+	// labWorkerTaint is the taint key the runner puts on the dedicated worker so no unrelated Pod schedules
+	// there. The flavor carries a matching toleration, which Kueue injects into admitted lab Pods, so only
+	// this run's jobs land on the isolated node; without the toleration the taint would time out the Ready
+	// barriers instead of isolating the run.
+	labWorkerTaint = "queuelab.gpu-platform/dedicated"
 	// runLabel, studyLabel, variantLabel tag every lab-owned object so a reset audit can prove no prior
 	// run's objects survive into a new one.
 	runLabel     = "queuelab.gpu-platform/run"
@@ -153,11 +158,27 @@ func labLabels(runID string, study Study, variant string) map[string]string {
 
 // labResourceFlavor is the per-run flavor that selects the one dedicated lab worker, so quota maps to a
 // single node (a 2-GPU Pod cannot span nodes) rather than to wherever the fake plugin advertises capacity.
+//
+// It selects the worker by label AND carries a taint plus the matching toleration: the runner taints the
+// worker so nothing else schedules there, and Kueue injects this toleration into admitted lab Pods so they
+// still land on it. Taint without the paired toleration would isolate the node but also time out the run's
+// own Ready barriers, so the two must be defined together with the flavor.
 func labResourceFlavor(runID string, study Study, variant string) *kueuev1beta2.ResourceFlavor {
 	return &kueuev1beta2.ResourceFlavor{
 		ObjectMeta: metav1.ObjectMeta{Name: flavorName(runID), Labels: labLabels(runID, study, variant)},
 		Spec: kueuev1beta2.ResourceFlavorSpec{
 			NodeLabels: map[string]string{labWorkerLabel: runID},
+			NodeTaints: []corev1.Taint{{
+				Key:    labWorkerTaint,
+				Value:  runID,
+				Effect: corev1.TaintEffectNoSchedule,
+			}},
+			Tolerations: []corev1.Toleration{{
+				Key:      labWorkerTaint,
+				Operator: corev1.TolerationOpEqual,
+				Value:    runID,
+				Effect:   corev1.TaintEffectNoSchedule,
+			}},
 		},
 	}
 }

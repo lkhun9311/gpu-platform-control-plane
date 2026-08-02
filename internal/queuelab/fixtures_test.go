@@ -23,6 +23,8 @@ import (
 	kueuev1beta2 "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 )
 
+const runA = "runA"
+
 func TestReclaimFixturesVaryOnlyReclaimPolicy(t *testing.T) {
 	never, err := BuildFixtures(StudyReclaim, "Never", "r1", "ns")
 	if err != nil {
@@ -86,12 +88,12 @@ func TestFIFOFixturesVaryQueueingStrategy(t *testing.T) {
 }
 
 func TestFixtureNamesAreUniquePerRun(t *testing.T) {
-	a, _ := BuildFixtures(StudyReclaim, "Any", "runA", "ns")
+	a, _ := BuildFixtures(StudyReclaim, "Any", runA, "ns")
 	b, _ := BuildFixtures(StudyReclaim, "Any", "runB", "ns")
 	if a.ClusterQueue[0].Name == b.ClusterQueue[0].Name {
 		t.Fatalf("different runs must not share queue names: %s", a.ClusterQueue[0].Name)
 	}
-	if !strings.Contains(a.ClusterQueue[0].Name, "runA") {
+	if !strings.Contains(a.ClusterQueue[0].Name, runA) {
 		t.Fatalf("queue name should carry the run id, got %s", a.ClusterQueue[0].Name)
 	}
 	// The review's isolation fix: different runs must be in DIFFERENT cohorts and use DIFFERENT flavors,
@@ -103,11 +105,22 @@ func TestFixtureNamesAreUniquePerRun(t *testing.T) {
 		t.Fatalf("different runs must not share a ResourceFlavor: %s", a.Flavor.Name)
 	}
 	// The flavor must pin one dedicated worker so a 2-GPU pod maps to a single node.
-	if a.Flavor.Spec.NodeLabels[labWorkerLabel] != "runA" {
+	if a.Flavor.Spec.NodeLabels[labWorkerLabel] != runA {
 		t.Fatalf("flavor should select the run's dedicated worker, got %v", a.Flavor.Spec.NodeLabels)
 	}
+	// The flavor must taint the worker AND carry the matching toleration Kueue injects, or admitted pods
+	// could not schedule onto the isolated node.
+	if len(a.Flavor.Spec.NodeTaints) != 1 || a.Flavor.Spec.NodeTaints[0].Value != runA {
+		t.Fatalf("flavor should taint the dedicated worker for the run, got %v", a.Flavor.Spec.NodeTaints)
+	}
+	if len(a.Flavor.Spec.Tolerations) != 1 || a.Flavor.Spec.Tolerations[0].Value != runA {
+		t.Fatalf("flavor should tolerate its own worker taint, got %v", a.Flavor.Spec.Tolerations)
+	}
+	if a.Flavor.Spec.NodeTaints[0].Key != a.Flavor.Spec.Tolerations[0].Key {
+		t.Fatalf("taint and toleration keys must match for admitted pods to schedule")
+	}
 	// Lab objects must be labelled for the reset audit.
-	if a.ClusterQueue[0].Labels[runLabel] != "runA" {
+	if a.ClusterQueue[0].Labels[runLabel] != runA {
 		t.Fatalf("ClusterQueue should carry the run label")
 	}
 }
