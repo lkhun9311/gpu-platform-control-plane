@@ -429,3 +429,69 @@ func TestReconstructAccountsForReExecution(t *testing.T) {
 		}
 	}
 }
+
+func TestReconstructChargesUnstoppedAttemptOccupancyToHorizon(t *testing.T) {
+	// No AttemptStopped observed by the horizon.
+	// Occupancy is charged only from ready (3s) to the horizon (50s), without overflow.
+	// WasteCensored flags the censored lower bound of an unobserved stop.
+	events := ineffectivePreemptionEvents()
+	var filtered []LifecycleEvent
+	for _, e := range events {
+		// Exclude a2's EventAttemptStopped to simulate an attempt never observed stopping.
+		if e.Job == "a2" && e.Type == EventAttemptStopped {
+			continue
+		}
+		filtered = append(filtered, e)
+	}
+	res, err := Reconstruct("Any", reclaimAnyTrace(), filtered, 50*sec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var a2 WorkloadOutcome
+	for _, o := range res.Outcomes {
+		if o.Job == "a2" {
+			a2 = o
+		}
+	}
+	// Ready at 3s, horizon at 50s: 1 GPU * (50 - 3) = 47.
+	if a2.TotalOccupancyGPUSeconds != 47 {
+		t.Fatalf("a2 occupancy = %.1f, want 47 (ready at 3s, charged to 50s horizon)", a2.TotalOccupancyGPUSeconds)
+	}
+	// An attempt with no in-horizon stop is a censored lower bound.
+	if !a2.WasteCensored {
+		t.Fatalf("a2 must be flagged censored when no stop was observed by horizon")
+	}
+}
+
+func TestReconstructChargesPostHorizonStopOccupancyToHorizon(t *testing.T) {
+	// An in-horizon ready (3s) with a post-horizon stop (60s) observed.
+	// Occupancy is charged only from ready to the horizon, same as no stop at all.
+	// A stop beyond the horizon must be charged as if it still ran through the boundary.
+	events := ineffectivePreemptionEvents()
+	for i := range events {
+		if events[i].Job == "a2" && events[i].Type == EventAttemptStopped {
+			// Move the stop beyond the horizon.
+			events[i].ElapsedNs = 60 * sec
+		}
+	}
+	res, err := Reconstruct("Any", reclaimAnyTrace(), events, 50*sec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var a2 WorkloadOutcome
+	for _, o := range res.Outcomes {
+		if o.Job == "a2" {
+			a2 = o
+		}
+	}
+	// Ready at 3s, horizon at 50s: 1 GPU * (50 - 3) = 47.
+	// Post-horizon stop does not extend the charged interval.
+	if a2.TotalOccupancyGPUSeconds != 47 {
+		t.Fatalf("a2 occupancy = %.1f, want 47 (ready at 3s, charged to 50s horizon, post-horizon stop)", a2.TotalOccupancyGPUSeconds)
+	}
+	// A post-horizon stop means the attempt definitely ran through the horizon, so it is censored.
+	if !a2.WasteCensored {
+		t.Fatalf("a2 must be flagged censored when stop is observed beyond horizon")
+	}
+}
+
