@@ -1,0 +1,123 @@
+/*
+Copyright 2026.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package queuelab
+
+import (
+	"fmt"
+
+	batchv1 "k8s.io/api/batch/v1"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	kueuev1beta2 "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+)
+
+// ObservedState is the authoritative reading of one observed object version: the lifecycle event its
+// conditions now justify (empty when none), and whether that state forces the whole run invalid.
+//
+// The collector (a later slice) tracks the last emitted event per object and only journals a transition,
+// so a repeated observation of the same admitted Workload does not produce duplicate Admitted events. This
+// classifier is stateless: it answers "what does THIS version mean", not "did it just change".
+type ObservedState struct {
+	// Event is the lifecycle transition this object version justifies, or "" for none.
+	Event EventType
+	// Reason carries the condition reason behind Event (e.g. the preemption mechanism), for provenance.
+	Reason string
+	// Invalid is set when this state proves the run cannot be a clean comparison (an unexpected eviction,
+	// a failed Job), so the runner must discard the run rather than report a contaminated number.
+	Invalid bool
+	// InvalidReason explains the invalidation.
+	InvalidReason string
+}
+
+// ClassifyWorkload reads a Workload's conditions into the authoritative admission/preemption state.
+//
+// The ONLY preemption the reclaim study expects is in-cohort reclamation: Preempted=True with reason
+// InCohortReclamation AND Evicted=True with reason Preempted. Any other eviction (PodsReadyTimeout,
+// NodeFailures, AdmissionCheck, a stopped queue, a non-reclaim preemption) is a different mechanism than
+// the one under test and would silently change the arm, so it invalidates the run instead of being folded
+// as if it were the study's preemption.
+func ClassifyWorkload(wl *kueuev1beta2.Workload) ObservedState {
+	evicted, evictReason := conditionTrue(wl.Status.Conditions, kueuev1beta2.WorkloadEvicted)
+	if evicted {
+		preempted, preemptReason := conditionTrue(wl.Status.Conditions, kueuev1beta2.WorkloadPreempted)
+		if evictReason == kueuev1beta2.WorkloadEvictedByPreemption &&
+			preempted && preemptReason == kueuev1beta2.InCohortReclamationReason {
+			return ObservedState{Event: EventPreempted, Reason: kueuev1beta2.InCohortReclamationReason}
+		}
+		return ObservedState{
+			Invalid:       true,
+			InvalidReason: fmt.Sprintf("unexpected Workload eviction (reason %q), not the study's in-cohort reclamation", evictReason),
+		}
+	}
+	if admitted, _ := conditionTrue(wl.Status.Conditions, kueuev1beta2.WorkloadAdmitted); admitted && wl.Status.Admission != nil {
+		return ObservedState{Event: EventAdmitted, Reason: kueuev1beta2.WorkloadAdmitted}
+	}
+	return ObservedState{}
+}
+
+// ClassifyJob reads a batch/v1 Job's conditions. A successful completion is the authoritative Completed
+// event; a failure invalidates the run, because a lab Job runs with backoffLimit 0 (set by the runner) and
+// a real training row is not supposed to fail, so a failure means the arm did not run as designed.
+func ClassifyJob(job *batchv1.Job) ObservedState {
+	for _, c := range job.Status.Conditions {
+		if c.Status != corev1.ConditionTrue {
+			continue
+		}
+		switch c.Type {
+		case batchv1.JobComplete, batchv1.JobSuccessCriteriaMet:
+			return ObservedState{Event: EventCompleted, Reason: string(c.Type)}
+		case batchv1.JobFailed:
+			return ObservedState{Invalid: true, InvalidReason: fmt.Sprintf("Job failed (%s)", c.Reason)}
+		}
+	}
+	return ObservedState{}
+}
+
+// ClassifyPod reads a Pod's status into the execution-start and execution-stop events.
+//
+// AttemptStopped is a genuine TERMINAL phase (Succeeded or Failed), not the first deletionTimestamp: the
+// deletion timestamp only starts the grace period, during which the Pod keeps holding the GPU, so waste
+// measured to it would undercount exactly the grace window this event exists to capture.
+func ClassifyPod(pod *corev1.Pod) ObservedState {
+	if pod.Status.Phase == corev1.PodSucceeded || pod.Status.Phase == corev1.PodFailed {
+		return ObservedState{Event: EventAttemptStopped, Reason: string(pod.Status.Phase)}
+	}
+	if pod.Status.Phase == corev1.PodRunning && podConditionTrue(pod, corev1.PodReady) {
+		return ObservedState{Event: EventPodReady, Reason: string(corev1.PodReady)}
+	}
+	return ObservedState{}
+}
+
+// conditionTrue reports whether the named condition is present with status True, returning its reason.
+func conditionTrue(conditions []metav1.Condition, condType string) (bool, string) {
+	for i := range conditions {
+		if conditions[i].Type == condType {
+			return conditions[i].Status == metav1.ConditionTrue, conditions[i].Reason
+		}
+	}
+	return false, ""
+}
+
+// podConditionTrue reports whether the Pod carries the named condition with status True.
+func podConditionTrue(pod *corev1.Pod, condType corev1.PodConditionType) bool {
+	for i := range pod.Status.Conditions {
+		if pod.Status.Conditions[i].Type == condType {
+			return pod.Status.Conditions[i].Status == corev1.ConditionTrue
+		}
+	}
+	return false
+}
