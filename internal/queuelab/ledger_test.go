@@ -495,3 +495,56 @@ func TestReconstructChargesPostHorizonStopOccupancyToHorizon(t *testing.T) {
 	}
 }
 
+func TestReconstructRecordsAdmissionToExecutionGap(t *testing.T) {
+	res, err := Reconstruct("Any", reclaimAnyTrace(), ineffectivePreemptionEvents(), 200*sec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var b1 WorkloadOutcome
+	for _, o := range res.Outcomes {
+		if o.Job == "b1" {
+			b1 = o
+		}
+	}
+	if !b1.Executed {
+		t.Fatal("b1 reached Pod Ready and must be marked executed")
+	}
+	// Submitted at 34 s, admitted at 34 s, Pod Ready at 44 s: admission is a quota reservation and says
+	// nothing about when execution began.
+	if b1.AdmitLatencyNs != 0 {
+		t.Fatalf("b1 admit latency = %d, want 0", b1.AdmitLatencyNs)
+	}
+	if b1.ReadyLatencyNs != 10*sec {
+		t.Fatalf("b1 ready latency = %d, want %d", b1.ReadyLatencyNs, 10*sec)
+	}
+	if b1.AdmitToReadyNs != 10*sec {
+		t.Fatalf("b1 admit-to-ready gap = %d, want %d", b1.AdmitToReadyNs, 10*sec)
+	}
+}
+
+func TestReconstructLeavesGapZeroWhenNeverExecuted(t *testing.T) {
+	events := ineffectivePreemptionEvents()
+	kept := events[:0]
+	for _, e := range events {
+		if e.Job == "b1" && (e.Type == EventPodReady || e.Type == EventCompleted) {
+			continue
+		}
+		kept = append(kept, e)
+	}
+	res, err := Reconstruct("Any", reclaimAnyTrace(), kept, 200*sec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, o := range res.Outcomes {
+		if o.Job != "b1" {
+			continue
+		}
+		if o.Executed {
+			t.Fatal("b1 never reached Pod Ready and must not be marked executed")
+		}
+		if o.ReadyLatencyNs != 0 || o.AdmitToReadyNs != 0 {
+			t.Fatalf("b1 gaps must stay zero when unexecuted, got ready=%d gap=%d", o.ReadyLatencyNs, o.AdmitToReadyNs)
+		}
+	}
+}
+

@@ -132,6 +132,19 @@ type WorkloadOutcome struct {
 	// AdmitLatencyNs is submitted -> first admitted; valid only when Admitted is true.
 	AdmitLatencyNs int64
 	Admitted       bool
+	// Executed is true when the row reached Pod Ready, which is the harness's execution-start proxy.
+	//
+	// It is NOT service restoration: a busybox sleeper has no application readiness contract.
+	Executed bool
+	// ReadyLatencyNs is submitted -> first observed Pod Ready, a client-observed propagation gap; valid only
+	// when Executed is true.
+	ReadyLatencyNs int64
+	// AdmitToReadyNs is admission -> first observed Pod Ready, a client-observed propagation gap.
+	//
+	// It exists because admission is a QUOTA RESERVATION, not the start of execution: a preempted victim can
+	// still hold the physical device while the owner's Workload is already admitted, so reporting admission
+	// alone overstates how quickly the owner was actually restored.
+	AdmitToReadyNs int64
 	Completed      bool
 	// Preemptions counts how many times the job was preempted.
 	Preemptions int
@@ -375,6 +388,14 @@ func chargeWaste(t *jobTimeline, horizonElapsedNs int64, out *WorkloadOutcome) e
 	out.Preemptions = len(t.preemptedNs)
 	out.Attempts = len(t.attemptSeq)
 	out.ReExecuted = out.Attempts > 1
+	if len(t.attemptSeq) > 0 {
+		firstReady := t.attempts[t.attemptSeq[0]].readyNs
+		out.Executed = true
+		out.ReadyLatencyNs = firstReady - t.submittedNs
+		if t.admitted {
+			out.AdmitToReadyNs = firstReady - t.admitNs
+		}
+	}
 	for _, uid := range t.attemptSeq {
 		a := t.attempts[uid]
 		end := horizonElapsedNs
