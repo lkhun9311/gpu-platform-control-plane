@@ -391,3 +391,41 @@ func TestReconstructChargesSignalledStopAsWaste(t *testing.T) {
 		t.Fatal("a signalled stop is an effective preemption")
 	}
 }
+
+func TestReconstructAccountsForReExecution(t *testing.T) {
+	events := ineffectivePreemptionEvents()
+	// After the ineffective preemption the victim was re-admitted and re-executed its whole service, which
+	// is the occupancy a report showing only the first attempt would hide.
+	events = append(events,
+		LifecycleEvent{ElapsedNs: 45 * sec, Kind: "Workload", Type: EventAdmitted, Job: "a2", Tenant: "tenant-a", GPUCount: 1},
+		LifecycleEvent{ElapsedNs: 46 * sec, Kind: "Pod", Type: EventPodReady, Job: "a2", Tenant: "tenant-a", GPUCount: 1, ObjectUID: "pod-a2-retry"},
+		LifecycleEvent{ElapsedNs: 87 * sec, Kind: "Pod", Type: EventAttemptStopped, Job: "a2", Tenant: "tenant-a", GPUCount: 1, ObjectUID: "pod-a2-retry", Reason: StopReasonSucceeded},
+		LifecycleEvent{ElapsedNs: 88 * sec, Kind: "Job", Type: EventCompleted, Job: "a2", Tenant: "tenant-a", GPUCount: 1},
+	)
+	res, err := Reconstruct("Any", reclaimAnyTrace(), events, 200*sec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var a2 WorkloadOutcome
+	for _, o := range res.Outcomes {
+		if o.Job == "a2" {
+			a2 = o
+		}
+	}
+	if a2.Attempts != 2 {
+		t.Fatalf("a2 attempts = %d, want 2", a2.Attempts)
+	}
+	if !a2.ReExecuted {
+		t.Fatal("a2 must be flagged as re-executed")
+	}
+	// 40 s for the first attempt (3 s -> 43 s) plus 41 s for the second (46 s -> 87 s).
+	if got := a2.TotalOccupancyGPUSeconds; got != 81 {
+		t.Fatalf("a2 total occupancy = %.1f, want 81", got)
+	}
+	// a1 ran once and must not be flagged.
+	for _, o := range res.Outcomes {
+		if o.Job == "a1" && o.ReExecuted {
+			t.Fatal("a1 ran a single attempt and must not be flagged as re-executed")
+		}
+	}
+}

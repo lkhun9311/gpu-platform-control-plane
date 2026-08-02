@@ -158,6 +158,16 @@ type WorkloadOutcome struct {
 	WasteCensored bool
 	// CensoredWaitNs is a lower-bound wait for a job never admitted by the horizon (submitted -> horizon).
 	CensoredWaitNs int64
+	// Attempts is how many Pod attempts this row ran.
+	//
+	// More than one means the platform re-ran work it had already executed, which a report limited to the
+	// first attempt would hide entirely.
+	Attempts int
+	// ReExecuted is true when the row ran more than one attempt.
+	ReExecuted bool
+	// TotalOccupancyGPUSeconds is gpuCount-weighted execution time summed over ALL attempts, censored
+	// attempts charged only to the horizon. It is the row's real cost to the pool regardless of attribution.
+	TotalOccupancyGPUSeconds float64
 }
 
 // LabResult is the censoring-aware reconstruction of one arm's run.
@@ -363,6 +373,16 @@ func chargeWaste(t *jobTimeline, horizonElapsedNs int64, out *WorkloadOutcome) e
 	}
 
 	out.Preemptions = len(t.preemptedNs)
+	out.Attempts = len(t.attemptSeq)
+	out.ReExecuted = out.Attempts > 1
+	for _, uid := range t.attemptSeq {
+		a := t.attempts[uid]
+		end := horizonElapsedNs
+		if a.stopped && a.stopNs <= horizonElapsedNs {
+			end = a.stopNs
+		}
+		out.TotalOccupancyGPUSeconds += float64(t.gpuCount) * float64(end-a.readyNs) / 1e9
+	}
 	decisions := append([]int64(nil), t.preemptedNs...)
 	slices.Sort(decisions)
 	for _, d := range decisions {
