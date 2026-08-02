@@ -548,3 +548,48 @@ func TestReconstructLeavesGapZeroWhenNeverExecuted(t *testing.T) {
 	}
 }
 
+func TestReconstructUsesEarliestReadyAcrossOutOfOrderAttempts(t *testing.T) {
+	// The retry attempt's PodReady is placed BEFORE the original attempt's PodReady in the event slice, even
+	// though the retry's own timestamp (46s) is later than the original's (3s): this simulates two
+	// independent watches delivering their PodReady deltas out of order, which attemptSeq's insertion order
+	// must not be trusted to reflect.
+	events := ineffectivePreemptionEvents()
+	retryReady := LifecycleEvent{
+		ElapsedNs: 46 * sec, Kind: "Pod", Type: EventPodReady,
+		Job: "a2", Tenant: "tenant-a", GPUCount: 1, ObjectUID: "pod-a2-retry",
+	}
+	reordered := append([]LifecycleEvent{retryReady}, events...)
+
+	res, err := Reconstruct("Any", reclaimAnyTrace(), reordered, 200*sec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var a2 WorkloadOutcome
+	for _, o := range res.Outcomes {
+		if o.Job == "a2" {
+			a2 = o
+		}
+	}
+	// a2 is submitted at 1s, admitted at 2s; the earliest observed Ready is the original attempt's at 3s, not
+	// the retry's at 46s, so both gaps must be computed from 3s regardless of fold order.
+	if a2.ReadyLatencyNs != 2*sec {
+		t.Fatalf("a2 ready latency = %d, want %d (earliest Ready, not attemptSeq[0])", a2.ReadyLatencyNs, 2*sec)
+	}
+	if a2.AdmitToReadyNs != 1*sec {
+		t.Fatalf("a2 admit-to-ready = %d, want %d (earliest Ready, not attemptSeq[0])", a2.AdmitToReadyNs, 1*sec)
+	}
+}
+
+func TestReconstructRejectsReadyBeforeSubmitted(t *testing.T) {
+	// A Pod cannot become Ready before its own row's Submitted, which is stamped locally right after Create
+	// and is never watch-observed, so this ordering is impossible evidence rather than legal reordering.
+	trace := []TrainingTraceRow{{Index: 0, Name: "a1", OffsetMs: 0, Tenant: "tenant-a", GPUCount: 1, DurationSec: 10}}
+	events := []LifecycleEvent{
+		{ElapsedNs: 5 * sec, Kind: "MLTrainingJob", Type: EventSubmitted, Job: "a1", GPUCount: 1},
+		{ElapsedNs: 1 * sec, Kind: "Pod", Type: EventPodReady, Job: "a1", GPUCount: 1, ObjectUID: "pod-a1"},
+	}
+	if _, err := Reconstruct("Any", trace, events, 100*sec); err == nil {
+		t.Fatalf("Pod Ready before Submitted must error")
+	}
+}
+

@@ -139,7 +139,8 @@ type WorkloadOutcome struct {
 	// ReadyLatencyNs is submitted -> first observed Pod Ready, a client-observed propagation gap; valid only
 	// when Executed is true.
 	ReadyLatencyNs int64
-	// AdmitToReadyNs is admission -> first observed Pod Ready, a client-observed propagation gap.
+	// AdmitToReadyNs is admission -> first observed Pod Ready, a client-observed propagation gap; valid only
+	// when the row was both Admitted and Executed.
 	//
 	// It exists because admission is a QUOTA RESERVATION, not the start of execution: a preempted victim can
 	// still hold the physical device while the owner's Workload is already admitted, so reporting admission
@@ -389,10 +390,27 @@ func chargeWaste(t *jobTimeline, horizonElapsedNs int64, out *WorkloadOutcome) e
 	out.Attempts = len(t.attemptSeq)
 	out.ReExecuted = out.Attempts > 1
 	if len(t.attemptSeq) > 0 {
+		// attemptSeq is observation-insertion order, not chronological order, so the earliest-observed Ready
+		// is the minimum over all attempts, the same pattern already used for EventAdmitted and per-UID
+		// readyNs; picking attemptSeq[0] would silently misreport a re-executed row whose retry's PodReady
+		// happened to be folded first.
 		firstReady := t.attempts[t.attemptSeq[0]].readyNs
+		for _, uid := range t.attemptSeq[1:] {
+			if r := t.attempts[uid].readyNs; r < firstReady {
+				firstReady = r
+			}
+		}
 		out.Executed = true
+		if firstReady < t.submittedNs {
+			// A Pod cannot become Ready before its own row was even created (Submitted is stamped locally,
+			// not watch-observed), so a negative gap here is impossible evidence, not legal reordering.
+			return fmt.Errorf("first Pod Ready at %d before submitted at %d", firstReady, t.submittedNs)
+		}
 		out.ReadyLatencyNs = firstReady - t.submittedNs
 		if t.admitted {
+			// Both endpoints here are watch-observed (Admitted and PodReady come from independent watches), so
+			// this gap can legally be slightly negative when deliveries are reordered across watches; erroring
+			// on that would discard a valid run, so the raw value is left as-is, unclamped.
 			out.AdmitToReadyNs = firstReady - t.admitNs
 		}
 	}
