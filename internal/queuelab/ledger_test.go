@@ -35,6 +35,22 @@ func reclaimAnyTrace() []TrainingTraceRow {
 	}
 }
 
+// matchedServiceTimeTrace declares each row's service time as the synthetic ledgers below actually run it, so
+// the rendered occupancy can be READ against it.
+//
+// reclaimAnyTrace declares 600 s for rows whose events run 40 s, which renders as
+// "totalOccupancy=81.0(serviceTime=600s)" and reads as a job using 81 of 600 requested seconds -- the exact
+// inverse of the finding ("81 s for a 40 s job") that showing service time exists to make legible.
+func matchedServiceTimeTrace() []TrainingTraceRow {
+	return []TrainingTraceRow{
+		{Index: 0, Name: "a1", OffsetMs: 0, Tenant: "tenant-a", GPUCount: 1, DurationSec: 600},
+		// a2 runs 3 s -> 43 s on its first attempt and 46 s -> 87 s on its retry: 40 s of declared service,
+		// executed twice.
+		{Index: 1, Name: "a2", OffsetMs: 1_000, Tenant: "tenant-a", GPUCount: 1, DurationSec: 40},
+		{Index: 2, Name: "b1", OffsetMs: 34_000, Tenant: "tenant-b", GPUCount: 1, DurationSec: 46},
+	}
+}
+
 // reclaimAnyEvents is a synthetic ledger for the reclaim "Any", late-owner-return case:
 // a1 runs to completion; a2 borrows then is preempted late (its work discarded, its Pod stopping a couple
 // seconds after the decision); b1 the owner is admitted quickly after the preemption and completes.
@@ -51,7 +67,9 @@ func reclaimAnyEvents() []LifecycleEvent {
 		{ElapsedNs: 591 * sec, Kind: "Workload", Type: EventPreempted, Job: "a2", Tenant: "tenant-a", GPUCount: 1, Reason: "InCohortReclamation"},
 		// The Pod does not stop the instant Kueue decides to preempt; it keeps running through the
 		// termination grace window and only stops here, so the discarded work is measured up to this point.
-		{ElapsedNs: 593 * sec, Kind: "Pod", Type: EventAttemptStopped, Job: "a2", Tenant: "tenant-a", GPUCount: 1, ObjectUID: "pod-a2"},
+		// The Failed phase is what makes this stop attributable to the preemption rather than to the
+		// workload finishing its own service, and the collector always stamps one of the two terminal phases.
+		{ElapsedNs: 593 * sec, Kind: "Pod", Type: EventAttemptStopped, Job: "a2", Tenant: "tenant-a", GPUCount: 1, ObjectUID: "pod-a2", Reason: StopReasonFailed},
 
 		{ElapsedNs: 590 * sec, Kind: "MLTrainingJob", Type: EventSubmitted, Job: "b1", Tenant: "tenant-b", GPUCount: 1},
 		{ElapsedNs: 592 * sec, Kind: "Workload", Type: EventAdmitted, Job: "b1", Tenant: "tenant-b", GPUCount: 1},
@@ -110,11 +128,12 @@ func TestReconstructReclaimAny(t *testing.T) {
 	}
 }
 
-func TestWasteNoStopChargesToHorizonAsLowerBound(t *testing.T) {
-	// No AttemptStopped was observed by the horizon. Under the fail-closed collector contract (every
-	// terminal transition is observed or the run is invalidated), an absent stop means the attempt still
-	// held the GPU at the horizon, so the floor is Ready->horizon, reported as a lower bound and flagged
-	// censored, never as the exact total.
+func TestWasteNoStopChargesToHorizonAsUnattributedOccupancy(t *testing.T) {
+	// No AttemptStopped was observed by the horizon. Under the fail-closed collector contract (every terminal
+	// transition is observed or the run is invalidated), an absent stop means the attempt still held the GPU
+	// at the horizon, so Ready->horizon is a floor on its OCCUPANCY. It is not a floor on its waste: without a
+	// Failed terminal phase nothing establishes that the preemption stopped it, so the interval is charged as
+	// unattributed and flagged unknown rather than presumed lost.
 	trace := []TrainingTraceRow{{Index: 0, Name: "a2", OffsetMs: 0, Tenant: "tenant-a", GPUCount: 2, DurationSec: 300}}
 	events := []LifecycleEvent{
 		{ElapsedNs: 0, Kind: "MLTrainingJob", Type: EventSubmitted, Job: "a2", GPUCount: 2},
@@ -129,12 +148,19 @@ func TestWasteNoStopChargesToHorizonAsLowerBound(t *testing.T) {
 	if res.TotalWastedGPUSeconds != 0 {
 		t.Fatalf("exact total must be 0 when no stop was observed, got %.2f", res.TotalWastedGPUSeconds)
 	}
-	// 2 GPUs * (200 - 2) = 396, the horizon floor.
-	if got := res.TotalWasteLowerBoundGPUSeconds; got < 395.9 || got > 396.1 {
-		t.Fatalf("lower-bound waste = %.2f, want ~396 (horizon floor)", got)
+	if res.TotalWasteLowerBoundGPUSeconds != 0 {
+		t.Fatalf("lower-bound waste = %.2f, want 0: no Failed terminal phase was observed",
+			res.TotalWasteLowerBoundGPUSeconds)
 	}
-	if !res.AnyWasteCensored {
-		t.Fatalf("a run with an unobserved stop must be flagged censored")
+	if res.AnyWasteCensored {
+		t.Fatalf("nothing attributable is being truncated here, so the censored flag must stay off")
+	}
+	// 2 GPUs * (200 - 2) = 396, the horizon floor, charged as occupancy of unestablished cause.
+	if got := res.TotalUnattributedOccupancyGPUSeconds; got < 395.9 || got > 396.1 {
+		t.Fatalf("unattributed occupancy = %.2f, want ~396 (horizon floor)", got)
+	}
+	if !res.AnyAttributionUnknown {
+		t.Fatalf("a run with an unobserved terminal phase must be flagged as unattributable")
 	}
 }
 
@@ -177,7 +203,7 @@ func TestWasteStopBeyondHorizonChargesToHorizon(t *testing.T) {
 		{ElapsedNs: 1 * sec, Kind: "Workload", Type: EventAdmitted, Job: "a2", GPUCount: 1},
 		{ElapsedNs: 2 * sec, Kind: "Pod", Type: EventPodReady, Job: "a2", GPUCount: 1, ObjectUID: "pod-a2"},
 		{ElapsedNs: 699 * sec, Kind: "Workload", Type: EventPreempted, Job: "a2", GPUCount: 1, Reason: "InCohortReclamation"},
-		{ElapsedNs: 704 * sec, Kind: "Pod", Type: EventAttemptStopped, Job: "a2", GPUCount: 1, ObjectUID: "pod-a2"},
+		{ElapsedNs: 704 * sec, Kind: "Pod", Type: EventAttemptStopped, Job: "a2", GPUCount: 1, ObjectUID: "pod-a2", Reason: StopReasonFailed},
 	}
 	res, err := Reconstruct("Any", trace, events, 700*sec)
 	if err != nil {
@@ -298,5 +324,682 @@ func TestLedgerJSONLRoundTrip(t *testing.T) {
 	}
 	if len(got) != len(reclaimAnyEvents()) {
 		t.Fatalf("round-trip lost events: %d vs %d", len(got), len(reclaimAnyEvents()))
+	}
+}
+
+// ineffectivePreemptionEvents is the case the live run actually produced: a preemption is decided while the
+// borrower runs, but the borrower ignores the signal and reaches a terminal Succeeded phase on its own.
+func ineffectivePreemptionEvents() []LifecycleEvent {
+	return []LifecycleEvent{
+		{ElapsedNs: 0, Kind: "MLTrainingJob", Type: EventSubmitted, Job: "a1", Tenant: "tenant-a", GPUCount: 1},
+		{ElapsedNs: 1 * sec, Kind: "Workload", Type: EventAdmitted, Job: "a1", Tenant: "tenant-a", GPUCount: 1},
+		{ElapsedNs: 2 * sec, Kind: "Pod", Type: EventPodReady, Job: "a1", Tenant: "tenant-a", GPUCount: 1, ObjectUID: "pod-a1"},
+		{ElapsedNs: 601 * sec, Kind: "Job", Type: EventCompleted, Job: "a1", Tenant: "tenant-a", GPUCount: 1},
+
+		{ElapsedNs: 1 * sec, Kind: "MLTrainingJob", Type: EventSubmitted, Job: "a2", Tenant: "tenant-a", GPUCount: 1},
+		{ElapsedNs: 2 * sec, Kind: "Workload", Type: EventAdmitted, Job: "a2", Tenant: "tenant-a", GPUCount: 1},
+		{ElapsedNs: 3 * sec, Kind: "Pod", Type: EventPodReady, Job: "a2", Tenant: "tenant-a", GPUCount: 1, ObjectUID: "pod-a2"},
+		{ElapsedNs: 34 * sec, Kind: "Workload", Type: EventPreempted, Job: "a2", Tenant: "tenant-a", GPUCount: 1, Reason: "InCohortReclamation"},
+		// The workload ignored the signal and finished its own service, so this stop was NOT caused by the
+		// preemption and its occupancy must not be reported as discarded work.
+		{ElapsedNs: 43 * sec, Kind: "Pod", Type: EventAttemptStopped, Job: "a2", Tenant: "tenant-a", GPUCount: 1, ObjectUID: "pod-a2", Reason: StopReasonSucceeded},
+
+		{ElapsedNs: 34 * sec, Kind: "MLTrainingJob", Type: EventSubmitted, Job: "b1", Tenant: "tenant-b", GPUCount: 1},
+		{ElapsedNs: 34 * sec, Kind: "Workload", Type: EventAdmitted, Job: "b1", Tenant: "tenant-b", GPUCount: 1},
+		{ElapsedNs: 44 * sec, Kind: "Pod", Type: EventPodReady, Job: "b1", Tenant: "tenant-b", GPUCount: 1, ObjectUID: "pod-b1"},
+		{ElapsedNs: 90 * sec, Kind: "Job", Type: EventCompleted, Job: "b1", Tenant: "tenant-b", GPUCount: 1},
+	}
+}
+
+func TestReconstructDoesNotChargeIneffectivePreemptionAsWaste(t *testing.T) {
+	res, err := Reconstruct("Any", reclaimAnyTrace(), ineffectivePreemptionEvents(), 200*sec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var a2 WorkloadOutcome
+	for _, o := range res.Outcomes {
+		if o.Job == "a2" {
+			a2 = o
+		}
+	}
+	if a2.Preemptions != 1 {
+		t.Fatalf("a2 preemptions = %d, want 1", a2.Preemptions)
+	}
+	if a2.WastedGPUSeconds != 0 {
+		t.Fatalf("a2 waste = %.1f, want 0: a Succeeded stop is not preemption-caused loss", a2.WastedGPUSeconds)
+	}
+	if a2.WasteLowerBoundGPUSeconds != 0 {
+		t.Fatalf("a2 waste lower bound = %.1f, want 0", a2.WasteLowerBoundGPUSeconds)
+	}
+	// The occupancy is still real and still reported, just not as discarded work.
+	if got := a2.UnattributedOccupancyGPUSeconds; got != 40 {
+		t.Fatalf("a2 unattributed occupancy = %.1f, want 40", got)
+	}
+	if !a2.PreemptionIneffective {
+		t.Fatal("a2 must be flagged as an ineffective preemption")
+	}
+	if res.TotalWastedGPUSeconds != 0 {
+		t.Fatalf("total waste = %.1f, want 0", res.TotalWastedGPUSeconds)
+	}
+	if res.TotalUnattributedOccupancyGPUSeconds != 40 {
+		t.Fatalf("total unattributed occupancy = %.1f, want 40", res.TotalUnattributedOccupancyGPUSeconds)
+	}
+	if !res.AnyPreemptionIneffective {
+		t.Fatal("result must flag that a preemption was ineffective")
+	}
+}
+
+func TestReconstructChargesSignalledStopAsWaste(t *testing.T) {
+	events := ineffectivePreemptionEvents()
+	for i := range events {
+		if events[i].Job == "a2" && events[i].Type == EventAttemptStopped {
+			// A workload that honors the signal terminates non-zero, which IS attributable to the preemption.
+			events[i].Reason = StopReasonFailed
+		}
+	}
+	res, err := Reconstruct("Any", reclaimAnyTrace(), events, 200*sec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var a2 WorkloadOutcome
+	for _, o := range res.Outcomes {
+		if o.Job == "a2" {
+			a2 = o
+		}
+	}
+	if a2.WastedGPUSeconds != 40 {
+		t.Fatalf("a2 waste = %.1f, want 40 for a signalled stop", a2.WastedGPUSeconds)
+	}
+	if a2.UnattributedOccupancyGPUSeconds != 0 {
+		t.Fatalf("a2 unattributed occupancy = %.1f, want 0", a2.UnattributedOccupancyGPUSeconds)
+	}
+	if a2.PreemptionIneffective {
+		t.Fatal("a signalled stop is an effective preemption")
+	}
+}
+
+// reExecutionEvents is the published run in full: the ineffective preemption, and then the victim being
+// re-admitted and re-executing its whole service from zero because its completed attempt was never credited.
+func reExecutionEvents() []LifecycleEvent {
+	// After the ineffective preemption the victim was re-admitted and re-executed its whole service, which
+	// is the occupancy a report showing only the first attempt would hide.
+	return append(ineffectivePreemptionEvents(),
+		LifecycleEvent{ElapsedNs: 45 * sec, Kind: "Workload", Type: EventAdmitted, Job: "a2", Tenant: "tenant-a", GPUCount: 1},
+		LifecycleEvent{ElapsedNs: 46 * sec, Kind: "Pod", Type: EventPodReady, Job: "a2", Tenant: "tenant-a", GPUCount: 1, ObjectUID: "pod-a2-retry"},
+		LifecycleEvent{ElapsedNs: 87 * sec, Kind: "Pod", Type: EventAttemptStopped, Job: "a2", Tenant: "tenant-a", GPUCount: 1, ObjectUID: "pod-a2-retry", Reason: StopReasonSucceeded},
+		LifecycleEvent{ElapsedNs: 88 * sec, Kind: "Job", Type: EventCompleted, Job: "a2", Tenant: "tenant-a", GPUCount: 1},
+	)
+}
+
+func TestReconstructAccountsForReExecution(t *testing.T) {
+	res, err := Reconstruct("Any", reclaimAnyTrace(), reExecutionEvents(), 200*sec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var a2 WorkloadOutcome
+	for _, o := range res.Outcomes {
+		if o.Job == "a2" {
+			a2 = o
+		}
+	}
+	if a2.Attempts != 2 {
+		t.Fatalf("a2 attempts = %d, want 2", a2.Attempts)
+	}
+	if !a2.ReExecuted {
+		t.Fatal("a2 must be flagged as re-executed")
+	}
+	// 40 s for the first attempt (3 s -> 43 s) plus 41 s for the second (46 s -> 87 s).
+	if got := a2.TotalOccupancyGPUSeconds; got != 81 {
+		t.Fatalf("a2 total occupancy = %.1f, want 81", got)
+	}
+	// a1 ran once and must not be flagged.
+	for _, o := range res.Outcomes {
+		if o.Job == "a1" && o.ReExecuted {
+			t.Fatal("a1 ran a single attempt and must not be flagged as re-executed")
+		}
+	}
+}
+
+func TestReconstructChargesUnstoppedAttemptOccupancyToHorizon(t *testing.T) {
+	// No AttemptStopped observed by the horizon.
+	// Occupancy is charged only from ready (3s) to the horizon (50s), without overflow.
+	// AttributionUnknown flags that the interval belongs to no established cause.
+	events := ineffectivePreemptionEvents()
+	var filtered []LifecycleEvent
+	for _, e := range events {
+		// Exclude a2's EventAttemptStopped to simulate an attempt never observed stopping.
+		if e.Job == "a2" && e.Type == EventAttemptStopped {
+			continue
+		}
+		filtered = append(filtered, e)
+	}
+	res, err := Reconstruct("Any", reclaimAnyTrace(), filtered, 50*sec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var a2 WorkloadOutcome
+	for _, o := range res.Outcomes {
+		if o.Job == "a2" {
+			a2 = o
+		}
+	}
+	// Ready at 3s, horizon at 50s: 1 GPU * (50 - 3) = 47.
+	if a2.TotalOccupancyGPUSeconds != 47 {
+		t.Fatalf("a2 occupancy = %.1f, want 47 (ready at 3s, charged to 50s horizon)", a2.TotalOccupancyGPUSeconds)
+	}
+	// An attempt with no observed terminal phase has an unestablished cause, not a truncated loss.
+	if !a2.AttributionUnknown {
+		t.Fatalf("a2 must be flagged attribution-unknown when no terminal phase was observed by the horizon")
+	}
+	if a2.WasteCensored || a2.WasteLowerBoundGPUSeconds != 0 {
+		t.Fatalf("a2 must carry no waste without a Failed phase, got lb=%.1f censored=%v",
+			a2.WasteLowerBoundGPUSeconds, a2.WasteCensored)
+	}
+}
+
+// postHorizonStopEvents moves a2's stop to 60 s with the given terminal phase, which against a 50 s horizon
+// is the exact shape of the published run: victim Ready 3 s, preempted 34 s, stop past the horizon.
+func postHorizonStopEvents(reason string) []LifecycleEvent {
+	events := ineffectivePreemptionEvents()
+	for i := range events {
+		if events[i].Job == "a2" && events[i].Type == EventAttemptStopped {
+			events[i].ElapsedNs = 60 * sec
+			events[i].Reason = reason
+		}
+	}
+	return events
+}
+
+// postHorizonStopOutcome reconstructs that ledger against the 50 s horizon and returns a2's row.
+func postHorizonStopOutcome(t *testing.T, reason string) WorkloadOutcome {
+	t.Helper()
+	res, err := Reconstruct("Any", reclaimAnyTrace(), postHorizonStopEvents(reason), 50*sec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, o := range res.Outcomes {
+		if o.Job == "a2" {
+			return o
+		}
+	}
+	t.Fatal("a2 is in the trace and must appear in the outcomes")
+	return WorkloadOutcome{}
+}
+
+func TestReconstructChargesPostHorizonStopOccupancyToHorizon(t *testing.T) {
+	// An in-horizon ready (3s) with a post-horizon stop (60s) observed.
+	// Occupancy is charged only from ready to the horizon, same as no stop at all.
+	// A stop beyond the horizon must be charged as if it still ran through the boundary.
+	a2 := postHorizonStopOutcome(t, StopReasonSucceeded)
+	// Ready at 3s, horizon at 50s: 1 GPU * (50 - 3) = 47.
+	// Post-horizon stop does not extend the charged interval.
+	if a2.TotalOccupancyGPUSeconds != 47 {
+		t.Fatalf("a2 occupancy = %.1f, want 47 (ready at 3s, charged to 50s horizon, post-horizon stop)", a2.TotalOccupancyGPUSeconds)
+	}
+}
+
+func TestReconstructDoesNotChargePostHorizonSucceededStopAsWaste(t *testing.T) {
+	// This is the published error verbatim: the victim ignored SIGTERM, ran to natural completion and exited
+	// zero, and the stop landed past the horizon. Reading only "no in-horizon stop" charged 47 GPU-seconds of
+	// completed work as censored discarded work; the Succeeded reason is folded even past the horizon and
+	// must refute that reading wherever it is read.
+	a2 := postHorizonStopOutcome(t, StopReasonSucceeded)
+	if a2.WastedGPUSeconds != 0 {
+		t.Fatalf("a2 waste = %.1f, want 0: a Succeeded stop is not preemption-caused loss", a2.WastedGPUSeconds)
+	}
+	if a2.WasteLowerBoundGPUSeconds != 0 {
+		t.Fatalf("a2 waste lower bound = %.1f, want 0 for a known-succeeded attempt", a2.WasteLowerBoundGPUSeconds)
+	}
+	if a2.WasteCensored {
+		t.Fatal("there is no attributable waste to understate when the attempt is known to have succeeded")
+	}
+	// Ready at 3s charged to the 50s horizon: a lower bound on that attempt's occupancy, not on its waste.
+	if a2.UnattributedOccupancyGPUSeconds != 47 {
+		t.Fatalf("a2 unattributed occupancy = %.1f, want 47 (ready 3s charged to the 50s horizon)", a2.UnattributedOccupancyGPUSeconds)
+	}
+	if !a2.PreemptionIneffective {
+		t.Fatal("a preemption whose target succeeded anyway must be flagged ineffective, in-horizon or not")
+	}
+}
+
+func TestReconstructKeepsPostHorizonFailedStopCensored(t *testing.T) {
+	// The contrast case: the same post-horizon stop with a Failed phase IS attributable to the preemption,
+	// so it keeps the censored lower-bound treatment rather than being exempted along with the succeeded one.
+	a2 := postHorizonStopOutcome(t, StopReasonFailed)
+	if a2.WastedGPUSeconds != 0 {
+		t.Fatalf("a2 exact waste = %.1f, want 0 when the stop is beyond the horizon", a2.WastedGPUSeconds)
+	}
+	if a2.WasteLowerBoundGPUSeconds != 47 {
+		t.Fatalf("a2 waste lower bound = %.1f, want 47 (ready 3s charged to the 50s horizon)", a2.WasteLowerBoundGPUSeconds)
+	}
+	if !a2.WasteCensored {
+		t.Fatal("a signalled stop beyond the horizon must stay flagged censored")
+	}
+	if a2.PreemptionIneffective {
+		t.Fatal("a signalled stop is an effective preemption")
+	}
+	// The Failed phase WAS observed, so the cause is established and only the interval is truncated; this is
+	// the boundary between the censored arm and the unattributed one.
+	if a2.AttributionUnknown {
+		t.Fatal("an observed Failed phase establishes the cause, so attribution is not unknown")
+	}
+	if a2.UnattributedOccupancyGPUSeconds != 0 {
+		t.Fatalf("a2 unattributed occupancy = %.1f, want 0 for an attributable loss", a2.UnattributedOccupancyGPUSeconds)
+	}
+}
+
+func TestReconstructRecordsAdmissionToExecutionGap(t *testing.T) {
+	res, err := Reconstruct("Any", reclaimAnyTrace(), ineffectivePreemptionEvents(), 200*sec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var b1 WorkloadOutcome
+	for _, o := range res.Outcomes {
+		if o.Job == "b1" {
+			b1 = o
+		}
+	}
+	if !b1.Executed {
+		t.Fatal("b1 reached Pod Ready and must be marked executed")
+	}
+	// Submitted at 34 s, admitted at 34 s, Pod Ready at 44 s: admission is a quota reservation and says
+	// nothing about when execution began.
+	if b1.AdmitLatencyNs != 0 {
+		t.Fatalf("b1 admit latency = %d, want 0", b1.AdmitLatencyNs)
+	}
+	if b1.ReadyLatencyNs != 10*sec {
+		t.Fatalf("b1 ready latency = %d, want %d", b1.ReadyLatencyNs, 10*sec)
+	}
+	if b1.AdmitToReadyNs != 10*sec {
+		t.Fatalf("b1 admit-to-ready gap = %d, want %d", b1.AdmitToReadyNs, 10*sec)
+	}
+}
+
+func TestReconstructLeavesGapZeroWhenNeverExecuted(t *testing.T) {
+	events := ineffectivePreemptionEvents()
+	kept := events[:0]
+	for _, e := range events {
+		if e.Job == "b1" && (e.Type == EventPodReady || e.Type == EventCompleted) {
+			continue
+		}
+		kept = append(kept, e)
+	}
+	res, err := Reconstruct("Any", reclaimAnyTrace(), kept, 200*sec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, o := range res.Outcomes {
+		if o.Job != "b1" {
+			continue
+		}
+		if o.Executed {
+			t.Fatal("b1 never reached Pod Ready and must not be marked executed")
+		}
+		if o.ReadyLatencyNs != 0 || o.AdmitToReadyNs != 0 {
+			t.Fatalf("b1 gaps must stay zero when unexecuted, got ready=%d gap=%d", o.ReadyLatencyNs, o.AdmitToReadyNs)
+		}
+	}
+}
+
+func TestReconstructUsesEarliestReadyAcrossOutOfOrderAttempts(t *testing.T) {
+	// The retry attempt's PodReady is placed BEFORE the original attempt's PodReady in the event slice, even
+	// though the retry's own timestamp (46s) is later than the original's (3s): this simulates two
+	// independent watches delivering their PodReady deltas out of order, which attemptSeq's insertion order
+	// must not be trusted to reflect.
+	events := ineffectivePreemptionEvents()
+	retryReady := LifecycleEvent{
+		ElapsedNs: 46 * sec, Kind: "Pod", Type: EventPodReady,
+		Job: "a2", Tenant: "tenant-a", GPUCount: 1, ObjectUID: "pod-a2-retry",
+	}
+	reordered := append([]LifecycleEvent{retryReady}, events...)
+
+	res, err := Reconstruct("Any", reclaimAnyTrace(), reordered, 200*sec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var a2 WorkloadOutcome
+	for _, o := range res.Outcomes {
+		if o.Job == "a2" {
+			a2 = o
+		}
+	}
+	// a2 is submitted at 1s, admitted at 2s; the earliest observed Ready is the original attempt's at 3s, not
+	// the retry's at 46s, so both gaps must be computed from 3s regardless of fold order.
+	if a2.ReadyLatencyNs != 2*sec {
+		t.Fatalf("a2 ready latency = %d, want %d (earliest Ready, not attemptSeq[0])", a2.ReadyLatencyNs, 2*sec)
+	}
+	if a2.AdmitToReadyNs != 1*sec {
+		t.Fatalf("a2 admit-to-ready = %d, want %d (earliest Ready, not attemptSeq[0])", a2.AdmitToReadyNs, 1*sec)
+	}
+}
+
+// twoPreemptedAttemptsTrace is a single row for F5: the invariant test's fixtures otherwise always have one
+// of WasteLowerBoundGPUSeconds or UnattributedOccupancyGPUSeconds at exactly zero, which reduces the combined
+// invariant to two separate single-term bounds and never actually exercises the sum.
+func twoPreemptedAttemptsTrace() []TrainingTraceRow {
+	return []TrainingTraceRow{{Index: 0, Name: "m1", OffsetMs: 0, Tenant: "tenant-a", GPUCount: 1, DurationSec: 60}}
+}
+
+// twoPreemptedAttemptsEvents preempts two different attempts on the same row: the first stops Failed beyond
+// the horizon (a non-zero censored waste lower bound), the second reaches no terminal phase at all (a
+// non-zero unattributed occupancy), so both terms of the invariant are non-zero on the very same row.
+func twoPreemptedAttemptsEvents() []LifecycleEvent {
+	return []LifecycleEvent{
+		{ElapsedNs: 0, Kind: "MLTrainingJob", Type: EventSubmitted, Job: "m1", GPUCount: 1},
+		{ElapsedNs: 1 * sec, Kind: "Workload", Type: EventAdmitted, Job: "m1", GPUCount: 1},
+		{ElapsedNs: 2 * sec, Kind: "Pod", Type: EventPodReady, Job: "m1", GPUCount: 1, ObjectUID: "pod-m1-a"},
+		{ElapsedNs: 10 * sec, Kind: "Workload", Type: EventPreempted, Job: "m1", GPUCount: 1, Reason: "InCohortReclamation"},
+		// The first attempt's Failed phase lands beyond the horizon: attributable loss, truncated interval.
+		{ElapsedNs: 60 * sec, Kind: "Pod", Type: EventAttemptStopped, Job: "m1", GPUCount: 1, ObjectUID: "pod-m1-a", Reason: StopReasonFailed},
+
+		{ElapsedNs: 15 * sec, Kind: "Pod", Type: EventPodReady, Job: "m1", GPUCount: 1, ObjectUID: "pod-m1-b"},
+		{ElapsedNs: 20 * sec, Kind: "Workload", Type: EventPreempted, Job: "m1", GPUCount: 1, Reason: "InCohortReclamation"},
+		// The second attempt reaches no terminal phase by the horizon at all: cause unknown.
+	}
+}
+
+func TestReconstructHoldsWasteAndOccupancyInvariants(t *testing.T) {
+	// The two relations the field doc comments promise, asserted over the fixtures rather than left as prose:
+	// a lower bound that dips below the exact total, or attributed plus unattributed work exceeding the row's
+	// whole occupancy, would each mean the accounting had double-charged or lost an interval.
+	cases := []struct {
+		name    string
+		trace   []TrainingTraceRow
+		events  []LifecycleEvent
+		horizon int64
+	}{
+		{"reclaimAny", reclaimAnyTrace(), reclaimAnyEvents(), 700 * sec},
+		{"ineffectivePreemption", reclaimAnyTrace(), ineffectivePreemptionEvents(), 200 * sec},
+		{"reExecution", reclaimAnyTrace(), reExecutionEvents(), 200 * sec},
+		{"postHorizonSucceededStop", reclaimAnyTrace(), postHorizonStopEvents(StopReasonSucceeded), 50 * sec},
+		{"postHorizonFailedStop", reclaimAnyTrace(), postHorizonStopEvents(StopReasonFailed), 50 * sec},
+		{"noTerminalPhase", noTerminalPhaseTrace(), preemptedNoTerminalPhaseEvents(), 50 * sec},
+		{"noTerminalPhaseCompleted", noTerminalPhaseTrace(), completedNoTerminalPhaseEvents(), 50 * sec},
+		{"twoPreemptedAttemptsOneRow", twoPreemptedAttemptsTrace(), twoPreemptedAttemptsEvents(), 50 * sec},
+	}
+	for _, tc := range cases {
+		res, err := Reconstruct("Any", tc.trace, tc.events, tc.horizon)
+		if err != nil {
+			t.Fatalf("%s: %v", tc.name, err)
+		}
+		if tc.name == "twoPreemptedAttemptsOneRow" {
+			// F5: this is the fixture that must make BOTH terms non-zero at once, or the invariant checks
+			// below reduce to two separate single-term bounds without ever exercising their sum.
+			o := res.Outcomes[0]
+			if o.WasteLowerBoundGPUSeconds <= 0 || o.UnattributedOccupancyGPUSeconds <= 0 {
+				t.Fatalf("%s: want both WasteLowerBoundGPUSeconds and UnattributedOccupancyGPUSeconds non-zero"+
+					" on the same row, got lb=%.1f unattributed=%.1f", tc.name,
+					o.WasteLowerBoundGPUSeconds, o.UnattributedOccupancyGPUSeconds)
+			}
+		}
+		for _, o := range res.Outcomes {
+			// A tolerance is needed because these are float sums of ns-scaled intervals, not exact decimals.
+			const eps = 1e-6
+			if o.WasteLowerBoundGPUSeconds < o.WastedGPUSeconds-eps {
+				t.Fatalf("%s/%s: lower bound %.6f is below the exact waste %.6f",
+					tc.name, o.Job, o.WasteLowerBoundGPUSeconds, o.WastedGPUSeconds)
+			}
+			if o.WastedGPUSeconds+o.UnattributedOccupancyGPUSeconds > o.TotalOccupancyGPUSeconds+eps {
+				t.Fatalf("%s/%s: waste %.6f + unattributed %.6f exceeds the row's occupancy %.6f",
+					tc.name, o.Job, o.WastedGPUSeconds, o.UnattributedOccupancyGPUSeconds, o.TotalOccupancyGPUSeconds)
+			}
+			// The exact-waste relation above cannot catch a double-charge on the CENSORED path, where the
+			// exact total is 0 by construction; only the lower bound is charged there, so the lower bound is
+			// what has to be bounded by the row's occupancy.
+			if o.WasteLowerBoundGPUSeconds+o.UnattributedOccupancyGPUSeconds > o.TotalOccupancyGPUSeconds+eps {
+				t.Fatalf("%s/%s: waste lower bound %.6f + unattributed %.6f exceeds the row's occupancy %.6f",
+					tc.name, o.Job, o.WasteLowerBoundGPUSeconds, o.UnattributedOccupancyGPUSeconds, o.TotalOccupancyGPUSeconds)
+			}
+		}
+	}
+}
+
+func TestReconstructRejectsUninterpretableStopReason(t *testing.T) {
+	// Attribution must fail closed rather than blacklist the one reason it knows to exempt. ClassifyPod can
+	// only ever emit Succeeded or Failed, so any other value means the evidence is not interpretable, and
+	// charging it as preemption waste by default is how a completed run got published as discarded work.
+	for _, reason := range []string{"", "Evicted", "succeeded", "Unknown"} {
+		trace := []TrainingTraceRow{{Index: 0, Name: "a2", OffsetMs: 0, Tenant: "tenant-a", GPUCount: 1, DurationSec: 60}}
+		events := []LifecycleEvent{
+			{ElapsedNs: 0, Kind: "MLTrainingJob", Type: EventSubmitted, Job: "a2", GPUCount: 1},
+			{ElapsedNs: 1 * sec, Kind: "Workload", Type: EventAdmitted, Job: "a2", GPUCount: 1},
+			{ElapsedNs: 2 * sec, Kind: "Pod", Type: EventPodReady, Job: "a2", GPUCount: 1, ObjectUID: "pod-a2"},
+			{ElapsedNs: 30 * sec, Kind: "Workload", Type: EventPreempted, Job: "a2", GPUCount: 1},
+			{ElapsedNs: 40 * sec, Kind: "Pod", Type: EventAttemptStopped, Job: "a2", GPUCount: 1, ObjectUID: "pod-a2", Reason: reason},
+		}
+		if _, err := Reconstruct("Any", trace, events, 100*sec); err == nil {
+			t.Fatalf("an AttemptStopped with reason %q must error, not default to attributable waste", reason)
+		}
+	}
+}
+
+func TestReconstructRejectsUninterpretablePostHorizonStopReason(t *testing.T) {
+	// The same validation must apply beyond the horizon, because foldEvent deliberately folds post-horizon
+	// stops and their reasons; validating only in-horizon would leave the blacklist alive on that path.
+	trace := []TrainingTraceRow{{Index: 0, Name: "a2", OffsetMs: 0, Tenant: "tenant-a", GPUCount: 1, DurationSec: 60}}
+	events := []LifecycleEvent{
+		{ElapsedNs: 0, Kind: "MLTrainingJob", Type: EventSubmitted, Job: "a2", GPUCount: 1},
+		{ElapsedNs: 1 * sec, Kind: "Workload", Type: EventAdmitted, Job: "a2", GPUCount: 1},
+		{ElapsedNs: 2 * sec, Kind: "Pod", Type: EventPodReady, Job: "a2", GPUCount: 1, ObjectUID: "pod-a2"},
+		{ElapsedNs: 30 * sec, Kind: "Workload", Type: EventPreempted, Job: "a2", GPUCount: 1},
+		{ElapsedNs: 400 * sec, Kind: "Pod", Type: EventAttemptStopped, Job: "a2", GPUCount: 1, ObjectUID: "pod-a2", Reason: "Evicted"},
+	}
+	if _, err := Reconstruct("Any", trace, events, 100*sec); err == nil {
+		t.Fatalf("a post-horizon AttemptStopped with an uninterpretable reason must error")
+	}
+}
+
+func TestReconstructKeepsUnattributedTreatmentWhenNoStopObserved(t *testing.T) {
+	// An attempt with no stop at all has no reason to validate, so fail-closed reason checking must not turn
+	// the documented unattributed case into an error.
+	trace := []TrainingTraceRow{{Index: 0, Name: "a2", OffsetMs: 0, Tenant: "tenant-a", GPUCount: 1, DurationSec: 60}}
+	events := []LifecycleEvent{
+		{ElapsedNs: 0, Kind: "MLTrainingJob", Type: EventSubmitted, Job: "a2", GPUCount: 1},
+		{ElapsedNs: 1 * sec, Kind: "Workload", Type: EventAdmitted, Job: "a2", GPUCount: 1},
+		{ElapsedNs: 2 * sec, Kind: "Pod", Type: EventPodReady, Job: "a2", GPUCount: 1, ObjectUID: "pod-a2"},
+		{ElapsedNs: 30 * sec, Kind: "Workload", Type: EventPreempted, Job: "a2", GPUCount: 1},
+	}
+	res, err := Reconstruct("Any", trace, events, 100*sec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.AnyAttributionUnknown {
+		t.Fatal("an attempt with no observed stop keeps its unattributed-occupancy treatment")
+	}
+	if res.AnyWasteCensored || res.TotalWasteLowerBoundGPUSeconds != 0 {
+		t.Fatalf("no Failed phase means no waste of any kind, got lb=%.2f censored=%v",
+			res.TotalWasteLowerBoundGPUSeconds, res.AnyWasteCensored)
+	}
+}
+
+func TestReconstructRejectsStopBeforeReady(t *testing.T) {
+	// A Pod's Ready and its terminal phase come from the SAME watch, so they cannot legitimately be
+	// reordered; a stop before ready is impossible evidence, and charging it would subtract negative
+	// occupancy that silently cancels another attempt's real cost.
+	trace := []TrainingTraceRow{{Index: 0, Name: "a2", OffsetMs: 0, Tenant: "tenant-a", GPUCount: 1, DurationSec: 60}}
+	events := []LifecycleEvent{
+		{ElapsedNs: 0, Kind: "MLTrainingJob", Type: EventSubmitted, Job: "a2", GPUCount: 1},
+		{ElapsedNs: 1 * sec, Kind: "Workload", Type: EventAdmitted, Job: "a2", GPUCount: 1},
+		{ElapsedNs: 40 * sec, Kind: "Pod", Type: EventPodReady, Job: "a2", GPUCount: 1, ObjectUID: "pod-a2"},
+		{ElapsedNs: 10 * sec, Kind: "Pod", Type: EventAttemptStopped, Job: "a2", GPUCount: 1, ObjectUID: "pod-a2", Reason: StopReasonFailed},
+	}
+	if _, err := Reconstruct("Any", trace, events, 100*sec); err == nil {
+		t.Fatalf("a stop observed before its own Pod's Ready must error, not yield negative occupancy")
+	}
+}
+
+// noTerminalPhaseTrace is a single-row trace for the attribution cases below, where the whole question is
+// what one preempted attempt's missing terminal phase may be charged as.
+func noTerminalPhaseTrace() []TrainingTraceRow {
+	return []TrainingTraceRow{{Index: 0, Name: "a2", OffsetMs: 0, Tenant: "tenant-a", GPUCount: 1, DurationSec: 40}}
+}
+
+// preemptedNoTerminalPhaseEvents is the ledger a live run of the ignoring workload actually produces: the
+// victim is Ready, a preemption is decided, and no terminal Pod phase is observed by the horizon.
+func preemptedNoTerminalPhaseEvents() []LifecycleEvent {
+	return []LifecycleEvent{
+		{ElapsedNs: 0, Kind: "MLTrainingJob", Type: EventSubmitted, Job: "a2", Tenant: "tenant-a", GPUCount: 1},
+		{ElapsedNs: 1 * sec, Kind: "Workload", Type: EventAdmitted, Job: "a2", Tenant: "tenant-a", GPUCount: 1},
+		{ElapsedNs: 3 * sec, Kind: "Pod", Type: EventPodReady, Job: "a2", Tenant: "tenant-a", GPUCount: 1, ObjectUID: "pod-a2"},
+		{ElapsedNs: 34 * sec, Kind: "Workload", Type: EventPreempted, Job: "a2", Tenant: "tenant-a", GPUCount: 1, Reason: "InCohortReclamation"},
+	}
+}
+
+// completedNoTerminalPhaseEvents adds the row's completion to that ledger, which is the refuting evidence the
+// old fallback never read: the ledger says the row finished while the row was being charged for lost work.
+func completedNoTerminalPhaseEvents() []LifecycleEvent {
+	return append(preemptedNoTerminalPhaseEvents(),
+		LifecycleEvent{ElapsedNs: 49 * sec, Kind: "Job", Type: EventCompleted, Job: "a2", Tenant: "tenant-a", GPUCount: 1},
+	)
+}
+
+func TestReconstructDoesNotChargeWasteOnARowTheLedgerSaysCompleted(t *testing.T) {
+	// A row cannot both have completed and have had its work discarded, yet the fallback arm rendered exactly
+	// that pair on one line. Waste requires a Failed terminal phase; with no terminal phase at all the cause
+	// is not establishable from Pod state, so it is unattributed, not loss.
+	res, err := Reconstruct("Any", noTerminalPhaseTrace(), completedNoTerminalPhaseEvents(), 50*sec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a2 := res.Outcomes[0]
+	if !a2.Completed {
+		t.Fatalf("the ledger carries a Completed event; this test is meaningless without it: %+v", a2)
+	}
+	if a2.WastedGPUSeconds != 0 || a2.WasteLowerBoundGPUSeconds != 0 {
+		t.Fatalf("a2 waste = %.1f (lb %.1f), want 0/0: no Failed terminal phase was observed",
+			a2.WastedGPUSeconds, a2.WasteLowerBoundGPUSeconds)
+	}
+	if a2.WasteCensored {
+		t.Fatal("WasteCensored means an attributable loss was truncated; there is no attributable loss here")
+	}
+	// Ready at 3 s charged to the observed completion at 49 s (the completion is a tighter, sound bound than
+	// the 50 s horizon): real occupancy that could not be attributed either way.
+	if a2.UnattributedOccupancyGPUSeconds != 46 {
+		t.Fatalf("a2 unattributed occupancy = %.1f, want 46", a2.UnattributedOccupancyGPUSeconds)
+	}
+	if res.TotalWasteLowerBoundGPUSeconds != 0 || res.AnyWasteCensored {
+		t.Fatalf("run-level waste must be 0 and uncensored, got lb=%.1f censored=%v",
+			res.TotalWasteLowerBoundGPUSeconds, res.AnyWasteCensored)
+	}
+	if res.TotalUnattributedOccupancyGPUSeconds != 46 {
+		t.Fatalf("run-level unattributed occupancy = %.1f, want 46", res.TotalUnattributedOccupancyGPUSeconds)
+	}
+	if !a2.AttributionUnknown || !res.AnyAttributionUnknown {
+		t.Fatalf("the missing terminal phase must be flagged unknown, got row=%v run=%v",
+			a2.AttributionUnknown, res.AnyAttributionUnknown)
+	}
+}
+
+func TestReconstructDoesNotChargeWasteForAnAttemptStillRunningAtTheHorizon(t *testing.T) {
+	// This is the arm the study exists to characterise: a workload that ignores the signal is still running
+	// at the horizon, and it is MORE LIKELY THAN NOT to go on to succeed. Presuming discarded work here is
+	// backwards, so the occupancy is reported as unattributed and the cause is left unstated.
+	res, err := Reconstruct("Any", noTerminalPhaseTrace(), preemptedNoTerminalPhaseEvents(), 50*sec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a2 := res.Outcomes[0]
+	if a2.Completed {
+		t.Fatalf("this case has no completion evidence at all: %+v", a2)
+	}
+	if a2.WastedGPUSeconds != 0 || a2.WasteLowerBoundGPUSeconds != 0 || a2.WasteCensored {
+		t.Fatalf("a2 waste = %.1f (lb %.1f, censored %v), want 0/0/false with no Failed terminal phase",
+			a2.WastedGPUSeconds, a2.WasteLowerBoundGPUSeconds, a2.WasteCensored)
+	}
+	if a2.UnattributedOccupancyGPUSeconds != 47 {
+		t.Fatalf("a2 unattributed occupancy = %.1f, want 47", a2.UnattributedOccupancyGPUSeconds)
+	}
+	// Nothing in the ledger says the attempt finished, so the preemption cannot be called ineffective either.
+	if a2.PreemptionIneffective {
+		t.Fatal("with no completion and no terminal phase, neither outcome may be asserted")
+	}
+	if !a2.AttributionUnknown {
+		t.Fatal("unattributable occupancy must be flagged, not left as a silent zero in the waste column")
+	}
+	if !res.AnyAttributionUnknown {
+		t.Fatal("the run must surface that some occupancy could not be attributed either way")
+	}
+}
+
+func TestReconstructCreditsASoleAttemptWithTheRowsCompletion(t *testing.T) {
+	// With exactly one attempt, the row's completion can only have happened on that attempt, so the attempt
+	// was not stopped and the preemption did not take effect. That is the refuting evidence N1 named, read.
+	res, err := Reconstruct("Any", noTerminalPhaseTrace(), completedNoTerminalPhaseEvents(), 50*sec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a2 := res.Outcomes[0]
+	if a2.Attempts != 1 {
+		t.Fatalf("a2 attempts = %d, want 1; the credit rule is gated on a sole attempt", a2.Attempts)
+	}
+	if !a2.PreemptionIneffective {
+		t.Fatal("the row completed on its only attempt, so the preemption stopped nothing")
+	}
+	if !res.AnyPreemptionIneffective {
+		t.Fatal("the run must surface that a preemption was ineffective")
+	}
+}
+
+func TestReconstructDoesNotCreditACompletionToOneOfSeveralAttempts(t *testing.T) {
+	// With two attempts the row's completion says nothing about WHICH attempt it belongs to, so the preempted
+	// attempt cannot be credited with it; guessing here would re-introduce inference from adjacency.
+	events := append(preemptedNoTerminalPhaseEvents(),
+		// The retry becomes Ready after the preemption decision, so the pairing at 34 s stays unambiguous.
+		LifecycleEvent{ElapsedNs: 40 * sec, Kind: "Pod", Type: EventPodReady, Job: "a2", Tenant: "tenant-a", GPUCount: 1, ObjectUID: "pod-a2-retry"},
+		LifecycleEvent{ElapsedNs: 49 * sec, Kind: "Job", Type: EventCompleted, Job: "a2", Tenant: "tenant-a", GPUCount: 1},
+	)
+	res, err := Reconstruct("Any", noTerminalPhaseTrace(), events, 50*sec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a2 := res.Outcomes[0]
+	if a2.Attempts != 2 || !a2.Completed {
+		t.Fatalf("this test needs a completed row with two attempts, got attempts=%d completed=%v", a2.Attempts, a2.Completed)
+	}
+	if a2.PreemptionIneffective {
+		t.Fatal("a completion on an unknown attempt must not be credited to the preempted one")
+	}
+	if a2.WastedGPUSeconds != 0 || a2.WasteLowerBoundGPUSeconds != 0 || a2.WasteCensored {
+		t.Fatalf("still no Failed terminal phase, so still no waste: %.1f/%.1f censored=%v",
+			a2.WastedGPUSeconds, a2.WasteLowerBoundGPUSeconds, a2.WasteCensored)
+	}
+	// Only the preempted attempt is charged, and only up to the row's observed completion at 49 s (Ready 3 s),
+	// tighter than the 50 s horizon; the retry was never preempted so it contributes nothing here.
+	if a2.UnattributedOccupancyGPUSeconds != 46 {
+		t.Fatalf("a2 unattributed occupancy = %.1f, want 46 (the preempted attempt only, bounded by the"+
+			" row's observed completion)", a2.UnattributedOccupancyGPUSeconds)
+	}
+}
+
+// TestReconstructBoundsUnstoppedAttemptOccupancyAtObservedCompletion is F3: a Job's Complete condition is
+// only observed after its Pod has terminated, so once the ledger holds a completion the horizon is no longer
+// the tightest available bound on an unstopped attempt's occupancy -- charging past the completion reports
+// GPU-seconds the row could not still have been holding.
+func TestReconstructBoundsUnstoppedAttemptOccupancyAtObservedCompletion(t *testing.T) {
+	res, err := Reconstruct("Any", noTerminalPhaseTrace(), completedNoTerminalPhaseEvents(), 200*sec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a2 := res.Outcomes[0]
+	// Ready at 3s, completion observed at 49s: 1 GPU * (49 - 3) = 46, not 1 * (200 - 3) = 197 from the horizon.
+	if got := a2.TotalOccupancyGPUSeconds; got != 46 {
+		t.Fatalf("a2 total occupancy = %.1f, want 46 (bounded by the observed completion at 49s, not 197"+
+			" from the 200s horizon)", got)
+	}
+	if got := a2.UnattributedOccupancyGPUSeconds; got != 46 {
+		t.Fatalf("a2 unattributed occupancy = %.1f, want 46 (bounded by the observed completion, not 197)", got)
+	}
+}
+
+func TestReconstructRejectsReadyBeforeSubmitted(t *testing.T) {
+	// A Pod cannot become Ready before its own row's Submitted, which is stamped locally right after Create
+	// and is never watch-observed, so this ordering is impossible evidence rather than legal reordering.
+	trace := []TrainingTraceRow{{Index: 0, Name: "a1", OffsetMs: 0, Tenant: "tenant-a", GPUCount: 1, DurationSec: 10}}
+	events := []LifecycleEvent{
+		{ElapsedNs: 5 * sec, Kind: "MLTrainingJob", Type: EventSubmitted, Job: "a1", GPUCount: 1},
+		{ElapsedNs: 1 * sec, Kind: "Pod", Type: EventPodReady, Job: "a1", GPUCount: 1, ObjectUID: "pod-a1"},
+	}
+	if _, err := Reconstruct("Any", trace, events, 100*sec); err == nil {
+		t.Fatalf("Pod Ready before Submitted must error")
 	}
 }
