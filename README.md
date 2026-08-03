@@ -31,21 +31,28 @@ The control plane owns the CRDs and reconciles them into native cluster objects.
 
 The project is built milestone by milestone.
 
-| Milestone | Scope                                                                                                                                                                            | Status          |
-|-----------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-----------------|
-| M1        | Set up the project skeleton and define the core CRDs, verified with envtest                                                                                                      | Done            |
-| M2        | Make reconciliation idempotent, with finalizers and drift recovery (NodeHealth reference)                                                                                        | Done            |
-| M3        | Taint unhealthy nodes (NodeHealth enforcement) and sync per-tenant quota into ResourceQuota                                                                                      | Done            |
-| M4-a      | Manage inference workloads: `InferenceDeployment` → Deployment/Service with a phase ladder                                                                                       | Done            |
-| M4-b      | Tenant-aware serving gateway: API key → tenant, token bucket → 429, model routing, proxy, metrics                                                                                | Done            |
-| M5-a      | AWS hosting: Terraform (state bootstrap, EKS, node groups), GitHub Actions CI (OIDC → ECR), Argo CD GitOps, operator deployed on EKS, slim observability — no GPU yet            | Designed (v3.1) |
-| M5-b      | Real-GPU flagship on that infra: GPU node group (On-Demand, ephemeral), `GpuSharingBenchmark` + KV-cache-aware admission guard, measured noisy-neighbor p99 A/B (killer feature) | Designed        |
-| M5-c      | Depth: cost/fairness frontier (≥3 guard thresholds) + sharing-mode matrix (exclusive / time-slicing / MPS) — hardens the M5-b evidence, no new features                          | Planned         |
-| M5-d      | Technical write-up with the measured numbers (published after M5-c)                                                                                                              | Planned         |
-| M6        | Training admission (promoted from stretch): `MLTrainingJob` → Job + Kueue Workload, 2-tenant cohort borrowing + quota-reclaim preemption on kind; Kueue owns training quota                | Done ([evidence](hack/m6-kind-e2e.md)) |
-| M7        | Inject failure scenarios and record an operational evidence trail (`WorkloadRun`)                                                                                                | Sketched        |
+Each finished milestone is tagged and released, so the code at any stage can be read or checked out
+directly from the [Releases](https://github.com/lkhun9311/gpu-platform-control-plane/releases) page.
 
-GPU capacity used in validation is simulated. Real GPU serving, hardware fault detection, the contention benchmark's p99 figures, and AWS deployment are designed but not yet exercised.
+| Milestone | Scope | Status |
+|---|---|---|
+| [M1](https://github.com/lkhun9311/gpu-platform-control-plane/releases/tag/m1-skeleton) | Project skeleton and the four core CRDs, verified with envtest | Done |
+| [M2](https://github.com/lkhun9311/gpu-platform-control-plane/releases/tag/m2-reconcilers) | Idempotent reconciliation with finalizers and drift recovery (NodeHealth reference) | Done |
+| [M3](https://github.com/lkhun9311/gpu-platform-control-plane/releases/tag/m3-enforcement) | Taint unhealthy nodes (NodeHealth enforcement) and sync per-tenant quota into ResourceQuota | Done |
+| [M4-a](https://github.com/lkhun9311/gpu-platform-control-plane/releases/tag/m4-serving) | `InferenceDeployment` → Deployment/Service with a phase ladder | Done |
+| [M4-b](https://github.com/lkhun9311/gpu-platform-control-plane/releases/tag/m4-serving) | Tenant-aware serving gateway: API key → tenant, token bucket → 429, model routing, proxy, metrics | Done |
+| [M5-a](https://github.com/lkhun9311/gpu-platform-control-plane/releases/tag/m5-a-hosting) | AWS hosting: Terraform state bootstrap, EKS, OIDC CI → ECR, Argo CD GitOps, ephemeral apply/destroy with a TTL kill switch | Code done, offline-validated; **never applied to AWS** |
+| [M5-b](https://github.com/lkhun9311/gpu-platform-control-plane/releases/tag/m5-b-admission-guard) | Three-arm KV-cache-aware admission guard and open-loop benchmark harness, with pre-registered checks that refuse to call load shedding a win | GPU-free half done and tested; **no GPU run yet** |
+| M5-c | Cost/fairness frontier and sharing-mode matrix (exclusive / time-slicing / MPS) — hardens the M5-b evidence | Planned |
+| M5-d | Technical write-up with the measured numbers | Planned |
+| [M6](https://github.com/lkhun9311/gpu-platform-control-plane/releases/tag/m6-training-admission) | Training admission: `MLTrainingJob` → Job + Kueue Workload; two-tenant cohort borrowing and quota-reclaim preemption, run end to end on kind | Done ([evidence](hack/m6-kind-e2e.md)) |
+| [queuelab](https://github.com/lkhun9311/gpu-platform-control-plane/releases/tag/queuelab) | Queue-policy measurement lab: censoring-aware list/watch lifecycle ledger replayed against real Kueue; reclaim and FIFO studies measured live | Measurement layer done; two studies measured |
+| M7 | Inject failure scenarios and record an operational evidence trail (`WorkloadRun`) | Sketched |
+
+**What has not been exercised.** Every GPU in this project is simulated by a fake device plugin. Real GPU
+serving, hardware fault detection, the contention benchmark's p99 figures, and any AWS deployment are
+designed and coded but have never been run against real hardware — the status column above says so per
+milestone rather than leaving it to be inferred.
 
 **Flagship benchmark:** KV-cache-aware noisy-neighbor p99 protection — a real-GPU benchmark that compares premium tenant latency under baseline, colocated long-context noisy-neighbor, and Gateway admission-guard modes. See `docs/04_GPU_GOVERNANCE_AND_ISOLATION.md` (M5 Flagship Experiment).
 
