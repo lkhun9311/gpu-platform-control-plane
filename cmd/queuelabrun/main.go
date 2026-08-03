@@ -154,7 +154,9 @@ func run(studyName, variant, runID, namespace, worker string, durSec int, horizo
 		printEvents(events)
 		return nil
 	}
-	printResult(res, events)
+	fmt.Print("\n" + queuelab.RenderResult(res))
+	fmt.Printf("\nledger: %d events\n", len(events))
+	printEvents(events)
 	return nil
 }
 
@@ -167,30 +169,6 @@ func buildTrace(study queuelab.Study, durSec int) ([]queuelab.TrainingTraceRow, 
 	default:
 		return nil, fmt.Errorf("unknown study %q", study)
 	}
-}
-
-func printResult(res queuelab.LabResult, events []queuelab.LifecycleEvent) {
-	fmt.Printf("\n===== RESULT (arm %s) =====\n", res.Arm)
-	fmt.Printf("offered=%d admitted=%d completed=%d unfinishedAtHorizon=%d\n",
-		res.Offered, res.Admitted, res.Completed, res.UnfinishedAtHorizon)
-	fmt.Printf("wastedGPUSeconds(exact)=%.1f lowerBound=%.1f censored=%v\n",
-		res.TotalWastedGPUSeconds, res.TotalWasteLowerBoundGPUSeconds, res.AnyWasteCensored)
-	fmt.Printf("admittedWaitP95=%s fullyObserved=%v\n",
-		time.Duration(res.AdmittedWaitP95Ns), res.WaitP95FullyObserved)
-	for _, o := range res.Outcomes {
-		fmt.Printf("  %-10s admitted=%v completed=%v preemptions=%d waste=%.1f(lb %.1f%s) admitLatency=%s\n",
-			o.Job, o.Admitted, o.Completed, o.Preemptions, o.WastedGPUSeconds, o.WasteLowerBoundGPUSeconds,
-			censoredMark(o.WasteCensored), time.Duration(o.AdmitLatencyNs))
-	}
-	fmt.Printf("\nledger: %d events\n", len(events))
-	printEvents(events)
-}
-
-func censoredMark(c bool) string {
-	if c {
-		return " censored"
-	}
-	return ""
 }
 
 func printEvents(events []queuelab.LifecycleEvent) {
