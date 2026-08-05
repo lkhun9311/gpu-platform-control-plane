@@ -79,4 +79,9 @@ func TestArmContractIsPerRow(t *testing.T) {
 	if _, err := ArmAHonor.ContractFor("not-a-row"); err == nil {
 		t.Fatal("an unknown row must be rejected")
 	}
+
+	// An unknown arm must be rejected even with a valid row, or a typo silently runs a different experiment.
+	if _, err := Arm("nonsense").ContractFor(OwnRow); err == nil {
+		t.Fatal("an unknown arm must be rejected, not return a default contract")
+	}
 }
