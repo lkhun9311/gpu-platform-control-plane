@@ -131,3 +131,41 @@ func fifoSchedule(trace []TrainingTraceRow) ([]Step, error) {
 	}
 	return steps, nil
 }
+
+// TerminationContractSchedule stages the termination-contract experiment: a1 runs, the victim borrows, and
+// the owner returns exactly doseSec after the victim's observed Pod Ready.
+//
+// The dose is a parameter rather than a subtraction of two trace offsets. The offset-derived form silently
+// produced 49 s where the design of record specified 40 s, and nothing would have caught it until the runs
+// were finished.
+func TerminationContractSchedule(trace []TrainingTraceRow, doseSec int) ([]Step, error) {
+	if len(trace) != 3 {
+		return nil, fmt.Errorf("termination-contract schedule needs 3 rows, got %d", len(trace))
+	}
+	if doseSec < 0 {
+		return nil, fmt.Errorf("dose %d s must not be negative", doseSec)
+	}
+	own, victim, owner := trace[0], trace[1], trace[2]
+	if own.Name != OwnRow || victim.Name != VictimRow || owner.Name != OwnerRow {
+		return nil, fmt.Errorf("rows must be %q, %q, %q in order, got %q, %q, %q",
+			OwnRow, VictimRow, OwnerRow, own.Name, victim.Name, owner.Name)
+	}
+	return []Step{
+		{Row: own},
+		{
+			After: []Barrier{
+				{Kind: BarrierAdmittedReady, Job: own.Name},
+				{Kind: BarrierFlavorUsage, Count: 1},
+			},
+			Row: victim,
+		},
+		{
+			After: []Barrier{
+				{Kind: BarrierAdmittedReady, Job: victim.Name},
+				{Kind: BarrierFlavorUsage, Count: 2},
+				{Kind: BarrierDelayFromReady, Job: victim.Name, DelaySec: doseSec},
+			},
+			Row: owner,
+		},
+	}, nil
+}

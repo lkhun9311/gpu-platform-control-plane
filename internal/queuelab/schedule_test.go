@@ -101,3 +101,46 @@ func TestStudyScheduleRejectsWrongShape(t *testing.T) {
 		t.Fatalf("unknown study should error")
 	}
 }
+
+func TestTerminationContractScheduleUsesTheStatedDose(t *testing.T) {
+	trace := TerminationContractTrace(60, 40)
+	steps, err := TerminationContractSchedule(trace, 40)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(steps) != 3 {
+		t.Fatalf("got %d steps, want 3", len(steps))
+	}
+	owner := steps[2]
+	if owner.Row.Name != OwnerRow {
+		t.Fatalf("last step submits %q, want %q", owner.Row.Name, OwnerRow)
+	}
+	var delay *Barrier
+	for i := range owner.After {
+		if owner.After[i].Kind == BarrierDelayFromReady {
+			delay = &owner.After[i]
+		}
+	}
+	if delay == nil {
+		t.Fatal("the owner step must be gated on a delay from the victim's Ready")
+	}
+	if delay.Job != VictimRow {
+		t.Fatalf("delay measured from %q, want the victim %q", delay.Job, VictimRow)
+	}
+	// The whole point: 40 is what the protocol says, not 49 derived from two trace offsets.
+	if delay.DelaySec != 40 {
+		t.Fatalf("dose = %d s, want the stated 40 s", delay.DelaySec)
+	}
+
+	// Deriving the dose from the old trace builder is what produced 49; prove the two disagree so nobody
+	// reintroduces the derivation.
+	old, err := StudySchedule(StudyReclaim, ReclaimScenario(true, 60))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, b := range old[2].After {
+		if b.Kind == BarrierDelayFromReady && b.DelaySec == 40 {
+			t.Fatal("the offset-derived schedule now yields 40 s; this test's premise needs revisiting")
+		}
+	}
+}
