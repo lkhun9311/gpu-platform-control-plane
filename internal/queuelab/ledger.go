@@ -491,11 +491,12 @@ func occupancyEnd(t *jobTimeline, a *attempt, horizonElapsedNs int64) int64 {
 // chargeWaste runs the per-job ordering checks and the attempt-paired preemption accounting, writing the
 // exact and lower-bound waste onto out.
 func chargeWaste(t *jobTimeline, horizonElapsedNs int64, out *WorkloadOutcome) error {
-	if t.admitted && t.admitNs < t.submittedNs {
-		return fmt.Errorf("admitted at %d before submitted at %d", t.admitNs, t.submittedNs)
-	}
-	if t.completed && (!t.admitted || t.completedNs < t.admitNs) {
-		return fmt.Errorf("completed at %d before admitted", t.completedNs)
+	// Only checks that hold REGARDLESS of delivery order belong here. Workload, Job and Pod arrive on three
+	// independent watches, so comparing their observed instants proves nothing about what happened first —
+	// a promptly stopped Pod really can be delivered before the preemption that stopped it. What remains
+	// impossible under any ordering is a completion with no admission evidence at all.
+	if t.completed && !t.admitted {
+		return fmt.Errorf("completed with no admission evidence")
 	}
 
 	out.Preemptions = len(t.preemptedNs)
@@ -537,13 +538,11 @@ func chargeWaste(t *jobTimeline, horizonElapsedNs int64, out *WorkloadOutcome) e
 		end := occupancyEnd(t, a, horizonElapsedNs)
 		out.TotalOccupancyGPUSeconds += float64(t.gpuCount) * float64(end-a.readyNs) / 1e9
 	}
-	decisions := append([]int64(nil), t.preemptedNs...)
-	slices.Sort(decisions)
-	for _, d := range decisions {
-		a, err := openAttemptAt(t, d)
-		if err != nil {
-			return err
-		}
+	paired, err := pairPreemptionsToAttempts(t, len(t.preemptedNs))
+	if err != nil {
+		return err
+	}
+	for _, a := range paired {
 		a.consumed = true
 		gpu := float64(t.gpuCount)
 		// The attempt's in-horizon occupancy, which every arm below charges somewhere. It is the SAME endpoint
@@ -597,33 +596,48 @@ func chargeWaste(t *jobTimeline, horizonElapsedNs int64, out *WorkloadOutcome) e
 	return nil
 }
 
-// openAttemptAt returns the single unconsumed attempt that was Ready before decision time d and had not
-// already stopped before d, so it was still running when the preemption was decided.
+// attemptsInStartOrder returns the row's attempts ordered by when their Pod became Ready.
 //
-// It requires EXACTLY ONE such attempt. A Workload preemption delta does not name a Pod UID, so if two
-// attempts were both running at the decision the pairing is ambiguous; rather than pick one heuristically
-// (which can misattribute discarded work), it errors, because for one training row Kueue runs one attempt
-// at a time and two concurrently-running attempts mean the ledger is inconsistent. It also errors when no
-// attempt was running, which is an unpaired preemption.
-func openAttemptAt(t *jobTimeline, d int64) (*attempt, error) {
-	var found *attempt
+// Ordering attempts among THEMSELVES is legal: every Ready observation comes from the same Pod watch, whose
+// deliveries are ordered. What is illegal is comparing one of those instants against a preemption instant
+// from the Workload watch, which is why the ordering is computed here once rather than inside a pairing
+// predicate.
+func attemptsInStartOrder(t *jobTimeline) []*attempt {
+	out := make([]*attempt, 0, len(t.attemptSeq))
 	for _, uid := range t.attemptSeq {
-		a := t.attempts[uid]
-		if a.consumed || a.readyNs >= d {
-			continue
-		}
-		if a.stopped && a.stopNs < d {
-			continue
-		}
-		if found != nil {
-			return nil, fmt.Errorf("preemption at %d has two running attempts (%s, %s); ambiguous pairing", d, found.uid, a.uid)
-		}
-		found = a
+		out = append(out, t.attempts[uid])
 	}
-	if found == nil {
-		return nil, fmt.Errorf("preemption at %d pairs to no running attempt", d)
+	slices.SortStableFunc(out, func(a, b *attempt) int {
+		switch {
+		case a.readyNs < b.readyNs:
+			return -1
+		case a.readyNs > b.readyNs:
+			return 1
+		default:
+			return 0
+		}
+	})
+	return out
+}
+
+// pairPreemptionsToAttempts matches each preemption decision to the attempt it stopped, ordinally.
+//
+// It never compares a decision instant against an attempt instant, because those come from different
+// watches: a victim that honors SIGTERM and stops within a second can have its Pod terminal delivered
+// BEFORE the Workload preemption, and an instant comparison would reject the real victim as already
+// stopped. Both orderings it does use are within a single watch and therefore trustworthy — decisions
+// among decisions, attempts among attempts.
+//
+// Ordinal pairing is what the mechanism actually does: a row runs one attempt at a time, so the k-th
+// preemption is the one that stopped the k-th attempt. A row that was preempted once and then re-executed
+// has two attempts and one decision, and only the first attempt is charged — the retry was not preempted.
+func pairPreemptionsToAttempts(t *jobTimeline, decisions int) ([]*attempt, error) {
+	ordered := attemptsInStartOrder(t)
+	if decisions > len(ordered) {
+		return nil, fmt.Errorf("%d preemptions but only %d attempts; the ledger disagrees with the protocol",
+			decisions, len(ordered))
 	}
-	return found, nil
+	return ordered[:decisions], nil
 }
 
 // percentileNs is a nearest-rank percentile over a sorted slice, returning 0 for empty input.

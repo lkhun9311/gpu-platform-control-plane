@@ -1003,3 +1003,74 @@ func TestReconstructRejectsReadyBeforeSubmitted(t *testing.T) {
 		t.Fatalf("Pod Ready before Submitted must error")
 	}
 }
+
+// TestReconstructToleratesCrossWatchReordering pins the rule the design of record states: Workload, Job and
+// Pod are three independent watches, so an observed order that violates causal expectation is delivery
+// latency, not impossible evidence, and must not discard a valid run.
+func TestReconstructToleratesCrossWatchReordering(t *testing.T) {
+	// The Job watch delivered Complete before the Workload watch delivered Admitted.
+	events := []LifecycleEvent{
+		{ElapsedNs: 0, Kind: "MLTrainingJob", Type: EventSubmitted, Job: "a1", Tenant: "tenant-a", GPUCount: 1},
+		{ElapsedNs: 30 * sec, Kind: "Job", Type: EventCompleted, Job: "a1", Tenant: "tenant-a", GPUCount: 1},
+		{ElapsedNs: 31 * sec, Kind: "Workload", Type: EventAdmitted, Job: "a1", Tenant: "tenant-a", GPUCount: 1},
+
+		{ElapsedNs: 1 * sec, Kind: "MLTrainingJob", Type: EventSubmitted, Job: "a2", Tenant: "tenant-a", GPUCount: 1},
+		{ElapsedNs: 2 * sec, Kind: "Workload", Type: EventAdmitted, Job: "a2", Tenant: "tenant-a", GPUCount: 1},
+		{ElapsedNs: 3 * sec, Kind: "Pod", Type: EventPodReady, Job: "a2", Tenant: "tenant-a", GPUCount: 1, ObjectUID: "pod-a2"},
+
+		{ElapsedNs: 5 * sec, Kind: "MLTrainingJob", Type: EventSubmitted, Job: "b1", Tenant: "tenant-b", GPUCount: 1},
+		{ElapsedNs: 6 * sec, Kind: "Workload", Type: EventAdmitted, Job: "b1", Tenant: "tenant-b", GPUCount: 1},
+	}
+	if _, err := Reconstruct("A-honor", reclaimAnyTrace(), events, 200*sec); err != nil {
+		t.Fatalf("legal cross-watch reordering must not invalidate a run: %v", err)
+	}
+}
+
+// TestReconstructStillRejectsACompletionWithNoAdmission keeps the check that holds no matter how deliveries
+// were ordered: a job that never has admission evidence at all cannot have completed.
+func TestReconstructStillRejectsACompletionWithNoAdmission(t *testing.T) {
+	events := []LifecycleEvent{
+		{ElapsedNs: 0, Kind: "MLTrainingJob", Type: EventSubmitted, Job: "a1", Tenant: "tenant-a", GPUCount: 1},
+		{ElapsedNs: 30 * sec, Kind: "Job", Type: EventCompleted, Job: "a1", Tenant: "tenant-a", GPUCount: 1},
+		{ElapsedNs: 1 * sec, Kind: "MLTrainingJob", Type: EventSubmitted, Job: "a2", Tenant: "tenant-a", GPUCount: 1},
+		{ElapsedNs: 5 * sec, Kind: "MLTrainingJob", Type: EventSubmitted, Job: "b1", Tenant: "tenant-b", GPUCount: 1},
+	}
+	if _, err := Reconstruct("A-honor", reclaimAnyTrace(), events, 200*sec); err == nil {
+		t.Fatal("a completion with no admission evidence at all must still be an error")
+	}
+}
+
+// TestReconstructPairsAPromptlyStoppedVictim is the failure the honoring arm would hit: the victim stops so
+// fast that the Pod watch delivers its terminal state before the Workload watch delivers the preemption.
+func TestReconstructPairsAPromptlyStoppedVictim(t *testing.T) {
+	events := []LifecycleEvent{
+		{ElapsedNs: 0, Kind: "MLTrainingJob", Type: EventSubmitted, Job: "a1", Tenant: "tenant-a", GPUCount: 1},
+		{ElapsedNs: 1 * sec, Kind: "Workload", Type: EventAdmitted, Job: "a1", Tenant: "tenant-a", GPUCount: 1},
+
+		{ElapsedNs: 1 * sec, Kind: "MLTrainingJob", Type: EventSubmitted, Job: "a2", Tenant: "tenant-a", GPUCount: 1},
+		{ElapsedNs: 2 * sec, Kind: "Workload", Type: EventAdmitted, Job: "a2", Tenant: "tenant-a", GPUCount: 1},
+		{ElapsedNs: 3 * sec, Kind: "Pod", Type: EventPodReady, Job: "a2", Tenant: "tenant-a", GPUCount: 1, ObjectUID: "pod-a2"},
+		// Pod terminal observed at 43 s, preemption observed at 44 s — reversed by delivery latency.
+		{ElapsedNs: 43 * sec, Kind: "Pod", Type: EventAttemptStopped, Job: "a2", Tenant: "tenant-a", GPUCount: 1, ObjectUID: "pod-a2", Reason: StopReasonFailed},
+		{ElapsedNs: 44 * sec, Kind: "Workload", Type: EventPreempted, Job: "a2", Tenant: "tenant-a", GPUCount: 1, Reason: "InCohortReclamation"},
+
+		{ElapsedNs: 40 * sec, Kind: "MLTrainingJob", Type: EventSubmitted, Job: "b1", Tenant: "tenant-b", GPUCount: 1},
+		{ElapsedNs: 44 * sec, Kind: "Workload", Type: EventAdmitted, Job: "b1", Tenant: "tenant-b", GPUCount: 1},
+	}
+	res, err := Reconstruct("A-honor", reclaimAnyTrace(), events, 200*sec)
+	if err != nil {
+		t.Fatalf("a promptly stopped victim must pair to its preemption: %v", err)
+	}
+	for _, o := range res.Outcomes {
+		if o.Job != "a2" {
+			continue
+		}
+		if o.Preemptions != 1 {
+			t.Fatalf("a2 preemptions = %d, want 1", o.Preemptions)
+		}
+		// Ready 3 s -> stop 43 s, attributable because the stop was Failed.
+		if o.WastedGPUSeconds != 40 {
+			t.Fatalf("a2 waste = %.1f, want 40", o.WastedGPUSeconds)
+		}
+	}
+}
