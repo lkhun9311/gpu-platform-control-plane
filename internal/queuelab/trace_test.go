@@ -145,3 +145,31 @@ func TestReadTraceRejectsReorderedOffsets(t *testing.T) {
 		t.Fatalf("a trace with decreasing offsets must be rejected")
 	}
 }
+
+func TestTerminationContractTraceKeepsOwnRowAlive(t *testing.T) {
+	rows := TerminationContractTrace(60, 40)
+	if len(rows) != 3 {
+		t.Fatalf("got %d rows, want 3", len(rows))
+	}
+	byName := map[string]TrainingTraceRow{}
+	for _, r := range rows {
+		byName[r.Name] = r
+	}
+	own, victim := byName[OwnRow], byName[VictimRow]
+
+	// a1 must still be running when the owner is restored, or its natural release — not the victim's — can
+	// be what freed a device, which is exactly the confound that made the recorded run uninterpretable.
+	// The owner is restored at the earliest at the dose, and at the latest after the victim's full service
+	// plus the 30 s grace period, so a1 must outlive that with margin.
+	minimum := victim.DurationSec + 30
+	if own.DurationSec <= minimum {
+		t.Fatalf("a1 duration %d s must exceed victim service + grace (%d s) so it never releases first",
+			own.DurationSec, minimum)
+	}
+	if victim.DurationSec != 60 {
+		t.Fatalf("victim service = %d, want 60", victim.DurationSec)
+	}
+	if err := ValidateTrace(StudyReclaim, rows); err != nil {
+		t.Fatalf("trace must satisfy the reclaim study rules: %v", err)
+	}
+}
