@@ -305,9 +305,17 @@ func runningCount(ctx context.Context, c client.Client, ns string) (int, error) 
 	return n, nil
 }
 
-// submit renders and creates the trace job, then records its Submitted event.
-func submit(ctx context.Context, c client.Client, col *collector, row queuelab.TrainingTraceRow, ns string) error {
-	mltj := queuelab.RenderMLTrainingJob(row, ns)
+// submit renders and creates the trace job under its own row's contract, then records its Submitted event.
+func submit(ctx context.Context, c client.Client, col *collector, arm queuelab.Arm,
+	row queuelab.TrainingTraceRow, ns string) error {
+	// The contract is resolved per row rather than per arm because the treatment is the VICTIM's behaviour;
+	// rendering the whole arm with one contract would change all three manifests when exactly one is meant
+	// to differ.
+	contract, err := arm.ContractFor(row.Name)
+	if err != nil {
+		return err
+	}
+	mltj := queuelab.RenderMLTrainingJobWithContract(row, ns, contract)
 	if err := c.Create(ctx, mltj); err != nil {
 		return err
 	}

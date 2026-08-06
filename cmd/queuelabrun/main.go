@@ -90,14 +90,18 @@ func run(arm queuelab.Arm, runID, namespace, worker string, horizon time.Duratio
 	}
 	ctx := context.Background()
 
-	trace, err := buildTrace(study)
+	// The corrected trace gives the victim its own duration instead of sharing one with the co-tenant, so the
+	// co-tenant's release cannot be mistaken for the reclamation under test.
+	trace, err := queuelab.TerminationContractTrace(victimServiceSec, doseSec)
 	if err != nil {
 		return err
 	}
+	// ValidateTrace still runs because the corrected trace must satisfy the reclaim study's semantic rules,
+	// not just the termination-contract shape.
 	if err := queuelab.ValidateTrace(study, trace); err != nil {
 		return fmt.Errorf("trace invalid: %w", err)
 	}
-	schedule, err := queuelab.StudySchedule(study, trace)
+	schedule, err := queuelab.TerminationContractSchedule(trace, doseSec)
 	if err != nil {
 		return err
 	}
@@ -136,7 +140,7 @@ func run(arm queuelab.Arm, runID, namespace, worker string, horizon time.Duratio
 			col.builder.Desync(fmt.Sprintf("barrier before step %d (%s): %v", i, step.Row.Name, err))
 			break
 		}
-		if err := submit(ctx, c, col, step.Row, namespace); err != nil {
+		if err := submit(ctx, c, col, arm, step.Row, namespace); err != nil {
 			return fmt.Errorf("submit %s: %w", step.Row.Name, err)
 		}
 		fmt.Printf("  submitted %s (t=%s)\n", step.Row.Name, col.elapsed().Round(time.Second))
@@ -172,15 +176,6 @@ func run(arm queuelab.Arm, runID, namespace, worker string, horizon time.Duratio
 	fmt.Printf("\nledger: %d events\n", len(events))
 	printEvents(events)
 	return nil
-}
-
-func buildTrace(study queuelab.Study) ([]queuelab.TrainingTraceRow, error) {
-	switch study {
-	case queuelab.StudyReclaim:
-		return queuelab.ReclaimScenario(true, victimServiceSec), nil
-	default:
-		return nil, fmt.Errorf("unknown study %q", study)
-	}
 }
 
 func printEvents(events []queuelab.LifecycleEvent) {
