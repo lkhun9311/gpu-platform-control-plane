@@ -168,7 +168,11 @@ func resolveAmbiguousAcquire(ctx context.Context, c client.Client, nodeName stri
 		}
 		select {
 		case <-ctx.Done():
-			return journal{}, ctx.Err()
+			// acquireWorker now runs on the signal-cancellable context, so a Ctrl-C during this retry loop
+			// must not drop the txID and the inspect-worker hint the bound-exhaustion path below carries.
+			return journal{}, fmt.Errorf(
+				"acquire node %s is UNRESOLVED after cancellation: it may hold tx %s. Run: queuelabrun -inspect-worker %s. Cause: %w",
+				nodeName, j.TxID, nodeName, ctx.Err())
 		case <-time.After(resolveInterval):
 		}
 	}

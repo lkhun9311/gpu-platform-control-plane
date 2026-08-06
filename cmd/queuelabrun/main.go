@@ -26,6 +26,8 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"k8s.io/apimachinery/pkg/runtime"
@@ -88,7 +90,11 @@ func main() {
 	if *preview {
 		fmt.Println(previewBanner)
 	}
-	runErr := run(arm, *runID, namespace, *worker, horizon, *out)
+	// NotifyContext alone would suppress the default terminate-on-signal behaviour, so every wait below is
+	// cancellable too; without that pairing a Ctrl-C would look ignored while the worker stayed dedicated.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	runErr := run(ctx, arm, *runID, namespace, *worker, horizon, *out)
 	// The closing banner has to print even when run fails, or an invalidated preview's ledger is dumped
 	// under an opening banner alone and could be mistaken for output nobody flagged.
 	if *preview {
@@ -106,7 +112,7 @@ func main() {
 // banner has to bracket the result rather than appear only once where scrolled-past output could miss it.
 const previewBanner = "==================== PREVIEW: SMOKE CHECK ONLY, NOT EVIDENCE ===================="
 
-func run(arm queuelab.Arm, runID, namespace, worker string, horizon time.Duration, out string) error {
+func run(ctx context.Context, arm queuelab.Arm, runID, namespace, worker string, horizon time.Duration, out string) error {
 	study := queuelab.StudyReclaim
 	scheme := runtime.NewScheme()
 	if err := clientgoscheme.AddToScheme(scheme); err != nil {
@@ -127,7 +133,6 @@ func run(arm queuelab.Arm, runID, namespace, worker string, horizon time.Duratio
 	if err != nil {
 		return fmt.Errorf("client: %w", err)
 	}
-	ctx := context.Background()
 
 	// The corrected trace gives the victim its own duration instead of sharing one with the co-tenant, so the
 	// co-tenant's release cannot be mistaken for the reclamation under test.
@@ -193,6 +198,13 @@ func run(arm queuelab.Arm, runID, namespace, worker string, horizon time.Duratio
 	deadline := time.Now().Add(horizon)
 	for i, step := range schedule {
 		if err := waitBarriers(ctx, c, namespace, step.After, col, deadline); err != nil {
+			if ctx.Err() != nil {
+				// A signal reached the barrier wait; recording this as a Desync would misread an operator's
+				// Ctrl-C as the arm failing to reach its protocol barrier, so it is reported as cancellation.
+				cancel()
+				col.wait()
+				return fmt.Errorf("observation cancelled while waiting for a barrier: %w", ctx.Err())
+			}
 			col.builder.Desync(fmt.Sprintf("barrier before step %d (%s): %v", i, step.Row.Name, err))
 			break
 		}
@@ -203,9 +215,16 @@ func run(arm queuelab.Arm, runID, namespace, worker string, horizon time.Duratio
 	}
 
 	// Observe until the horizon.
-	remaining := time.Until(deadline)
-	if remaining > 0 {
-		time.Sleep(remaining)
+	// A cancelled observation window is an incomplete run, so the signal has to reach this wait and the run
+	// must then invalidate rather than report whatever it happened to see.
+	if remaining := time.Until(deadline); remaining > 0 {
+		select {
+		case <-ctx.Done():
+			cancel()
+			col.wait()
+			return fmt.Errorf("observation cancelled before the horizon: %w", ctx.Err())
+		case <-time.After(remaining):
+		}
 	}
 	cancel()
 	col.wait()

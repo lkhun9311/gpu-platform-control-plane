@@ -103,7 +103,11 @@ func (col *collector) watch(ctx context.Context, kind string, newList func() cli
 				if ctx.Err() != nil {
 					return
 				}
-				time.Sleep(time.Second)
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(time.Second):
+				}
 				continue
 			}
 			for ev := range w.ResultChan() {
@@ -246,7 +250,13 @@ func waitBarrier(ctx context.Context, c client.Client, ns string, b queuelab.Bar
 		if time.Now().After(deadline) {
 			return fmt.Errorf("barrier %s(job=%s,count=%d,delay=%d) not met before horizon", b.Kind, b.Job, b.Count, b.DelaySec)
 		}
-		time.Sleep(2 * time.Second)
+		// Cancellation is reported as itself rather than as "barrier not met", which would misread an
+		// operator's Ctrl-C as a protocol failure in the ledger's desync note.
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(2 * time.Second):
+		}
 	}
 }
 
