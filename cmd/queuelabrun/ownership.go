@@ -275,6 +275,84 @@ func withoutOwnershipTaint(observed []corev1.Taint) []corev1.Taint {
 	return out
 }
 
+// quarantine is what a forced break leaves behind instead of a free node.
+//
+// No flag can prove the previous process is dead, so the break records what it removed and blocks
+// acquisition until an operator deliberately clears it in a second step.
+type quarantine struct {
+	Schema         int            `json:"schema"`
+	QuarantineID   string         `json:"quarantineID"`
+	ForcedAt       string         `json:"forcedAt"`
+	Node           string         `json:"node"`
+	NodeUID        string         `json:"nodeUID"`
+	PriorJournal   string         `json:"priorJournal"`
+	ObservedLabel  string         `json:"observedLabel"`
+	ObservedTaints []corev1.Taint `json:"observedTaints,omitempty"`
+}
+
+func encodeQuarantine(q quarantine) (string, error) {
+	b, err := json.Marshal(q)
+	if err != nil {
+		return "", fmt.Errorf("encode quarantine: %w", err)
+	}
+	return string(b), nil
+}
+
+func decodeQuarantine(s string) (quarantine, error) {
+	dec := json.NewDecoder(strings.NewReader(s))
+	dec.DisallowUnknownFields()
+	var q quarantine
+	if err := dec.Decode(&q); err != nil {
+		return quarantine{}, fmt.Errorf("decode quarantine: %w", err)
+	}
+	if q.Schema != quarantineSchema {
+		return quarantine{}, fmt.Errorf("decode quarantine: schema %d is not %d", q.Schema, quarantineSchema)
+	}
+	if q.QuarantineID == "" {
+		return quarantine{}, fmt.Errorf("decode quarantine: quarantineID is empty")
+	}
+	return q, nil
+}
+
+// decideForce refuses to force a node that is already quarantined and requires the operator to confirm the
+// target by its UID.
+func decideForce(obs ownership, nodeUID, quarantineID, forcedAt string) (quarantine, error) {
+	if obs.QuarantineRaw != "" {
+		return quarantine{}, refuse(reasonQuarantined,
+			"node %s is already quarantined; clear that record instead of forcing again", obs.NodeName)
+	}
+	if obs.NodeUID != nodeUID {
+		return quarantine{}, refuse(reasonWrongNode,
+			"node %s has UID %s, you confirmed %s", obs.NodeName, obs.NodeUID, nodeUID)
+	}
+	return quarantine{
+		Schema:         quarantineSchema,
+		QuarantineID:   quarantineID,
+		ForcedAt:       forcedAt,
+		Node:           obs.NodeName,
+		NodeUID:        obs.NodeUID,
+		PriorJournal:   obs.JournalRaw,
+		ObservedLabel:  obs.LabelValue,
+		ObservedTaints: obs.Taints,
+	}, nil
+}
+
+// decideClear removes only the exact record the operator names.
+func decideClear(obs ownership, quarantineID string) error {
+	if obs.QuarantineRaw == "" {
+		return refuse(reasonNotOurs, "node %s carries no quarantine record", obs.NodeName)
+	}
+	q, err := decodeQuarantine(obs.QuarantineRaw)
+	if err != nil {
+		return refuse(reasonBadJournal, "node %s: %v", obs.NodeName, err)
+	}
+	if q.QuarantineID != quarantineID {
+		return refuse(reasonNotOurs, "node %s carries quarantine %s, you named %s",
+			obs.NodeName, q.QuarantineID, quarantineID)
+	}
+	return nil
+}
+
 // decideRelease says what release may do, and refusing is a run-invalidating outcome rather than a warning.
 //
 // Restoring over a value that moved would be a second act of damage, so divergence refuses and hands the

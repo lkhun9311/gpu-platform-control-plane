@@ -49,8 +49,33 @@ func main() {
 			"observation horizon (must not be below the protocol's fixed window)")
 		out     = flag.String("out", "", "optional path to write the ledger JSONL")
 		preview = flag.Bool("preview", false, "run without the validity gates; output is a smoke check, not evidence")
+
+		// The operator modes recover from a crash: they inspect, release, or break the Node marker this
+		// package's transaction leaves behind. They are flags rather than subcommands only because this CLI
+		// was already flag-shaped; see dispatchOperatorMode for why they run before the gate.
+		inspectWorkerFlag    = flag.String("inspect-worker", "", "read-only: report node's ownership state and exit")
+		releaseStaleFlag     = flag.Bool("release-stale", false, "release -worker's journal for -txid, after confirming the prior process is gone")
+		txidFlag             = flag.String("txid", "", "transaction id to release with -release-stale")
+		forceReleaseFlag     = flag.Bool("force-release", false, "break -worker's stuck marker into a quarantine record; never frees the node in one step")
+		nodeUIDFlag          = flag.String("node-uid", "", "the Node UID to confirm as the -force-release target")
+		acceptDivergenceFlag = flag.Bool("accept-divergence", false, "attest that you accept forcing -worker despite not having tool-verified its installed values")
+		clearQuarantineFlag  = flag.Bool("clear-quarantine", false, "clear -worker's quarantine record named -quarantine-id")
+		quarantineIDFlag     = flag.String("quarantine-id", "", "the quarantine record to clear")
+		confirmOwnerDeadFlag = flag.Bool("confirm-owner-dead", false, "attest that the process which held -worker before it was quarantined is confirmed dead")
 	)
 	flag.Parse()
+
+	// Operator modes are recovery tools, not runs, so they dispatch before the gate and work even while the
+	// gate refuses every run; each exits directly with its own status rather than falling through to run().
+	if fired, err := dispatchOperatorMode(*armFlag, *worker, *inspectWorkerFlag, *releaseStaleFlag, *txidFlag,
+		*forceReleaseFlag, *nodeUIDFlag, *acceptDivergenceFlag, *clearQuarantineFlag, *quarantineIDFlag,
+		*confirmOwnerDeadFlag); fired {
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "ERROR:", err)
+			os.Exit(1)
+		}
+		os.Exit(0)
+	}
 
 	// The gate runs before the arm and namespace are even parsed, so a refused run cannot mutate the
 	// cluster or create fixtures through some later code path that forgets to check it.
@@ -106,6 +131,98 @@ func main() {
 	}
 }
 
+// dispatchOperatorMode runs at most one of the four recovery modes and reports whether one was requested.
+//
+// These are recovery tools, not runs, so the caller must invoke this before gateRefusal: an operator needs
+// -inspect-worker and the release/quarantine modes to work precisely while the gate refuses every run,
+// otherwise a crashed process could orphan a Node with no in-tool way to see or clear it. Refusing to
+// combine a mode with -arm keeps "recover the node" and "run an arm" from ever being read as one
+// invocation, and each mode dispatched here reports success or failure on its own rather than falling
+// through to the run() error path below it.
+func dispatchOperatorMode(arm, worker string, inspectNode string, releaseStaleMode bool, txID string,
+	forceReleaseMode bool, nodeUID string, acceptDivergence bool,
+	clearQuarantineMode bool, quarantineID string, confirmOwnerDead bool) (fired bool, err error) {
+	requested := 0
+	for _, on := range []bool{inspectNode != "", releaseStaleMode, forceReleaseMode, clearQuarantineMode} {
+		if on {
+			requested++
+		}
+	}
+	if requested == 0 {
+		return false, nil
+	}
+	if requested > 1 {
+		return true, fmt.Errorf(
+			"only one of -inspect-worker, -release-stale, -force-release, -clear-quarantine may be given at a time")
+	}
+	if arm != "" {
+		return true, fmt.Errorf("an operator mode cannot be combined with -arm: it is a recovery tool, not a run")
+	}
+
+	c, err := newClusterClient()
+	if err != nil {
+		return true, err
+	}
+	// A signal firing mid-patch is exactly what could leave a mutation half applied, and there is no wait
+	// in any of these modes worth making cancellable, so they all run on a context nothing can cancel out
+	// from under them.
+	ctx := context.Background()
+
+	switch {
+	case inspectNode != "":
+		return true, inspectWorker(ctx, c, inspectNode)
+	case releaseStaleMode:
+		if txID == "" {
+			return true, fmt.Errorf("-release-stale requires -txid")
+		}
+		return true, releaseStale(ctx, c, worker, txID)
+	case forceReleaseMode:
+		if nodeUID == "" {
+			return true, fmt.Errorf("-force-release requires -node-uid: it is the operator's confirmation of the target")
+		}
+		if !acceptDivergence {
+			return true, fmt.Errorf(
+				"-force-release requires -accept-divergence: nothing can prove the previous process is dead, " +
+					"so this attests it was the operator's judgement")
+		}
+		return true, forceQuarantine(ctx, c, worker, nodeUID)
+	default: // clearQuarantineMode
+		if quarantineID == "" {
+			return true, fmt.Errorf("-clear-quarantine requires -quarantine-id")
+		}
+		if !confirmOwnerDead {
+			return true, fmt.Errorf(
+				"-clear-quarantine requires -confirm-owner-dead: clearing is a separate, deliberate act and " +
+					"this attests the operator has established the previous owner is dead")
+		}
+		return true, clearQuarantine(ctx, c, worker, quarantineID)
+	}
+}
+
+// newClusterClient builds the same scheme and kubeconfig-derived client for run() and the operator modes,
+// so a recovery action and an ordinary run see the cluster identically.
+func newClusterClient() (client.WithWatch, error) {
+	scheme := runtime.NewScheme()
+	if err := clientgoscheme.AddToScheme(scheme); err != nil {
+		return nil, err
+	}
+	for _, add := range []func(*runtime.Scheme) error{platformv1.AddToScheme, kueuev1beta2.AddToScheme} {
+		if err := add(scheme); err != nil {
+			return nil, err
+		}
+	}
+	cfg, err := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
+		clientcmd.NewDefaultClientConfigLoadingRules(), &clientcmd.ConfigOverrides{}).ClientConfig()
+	if err != nil {
+		return nil, fmt.Errorf("kubeconfig: %w", err)
+	}
+	c, err := client.NewWithWatch(cfg, client.Options{Scheme: scheme})
+	if err != nil {
+		return nil, fmt.Errorf("client: %w", err)
+	}
+	return c, nil
+}
+
 // previewBanner marks preview output so it cannot be mistaken for a countable result.
 //
 // The validity gates are what make a run's output trustworthy, and preview mode runs without them, so the
@@ -114,24 +231,9 @@ const previewBanner = "==================== PREVIEW: SMOKE CHECK ONLY, NOT EVIDE
 
 func run(ctx context.Context, arm queuelab.Arm, runID, namespace, worker string, horizon time.Duration, out string) error {
 	study := queuelab.StudyReclaim
-	scheme := runtime.NewScheme()
-	if err := clientgoscheme.AddToScheme(scheme); err != nil {
+	c, err := newClusterClient()
+	if err != nil {
 		return err
-	}
-	for _, add := range []func(*runtime.Scheme) error{platformv1.AddToScheme, kueuev1beta2.AddToScheme} {
-		if err := add(scheme); err != nil {
-			return err
-		}
-	}
-
-	cfg, err := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
-		clientcmd.NewDefaultClientConfigLoadingRules(), &clientcmd.ConfigOverrides{}).ClientConfig()
-	if err != nil {
-		return fmt.Errorf("kubeconfig: %w", err)
-	}
-	c, err := client.NewWithWatch(cfg, client.Options{Scheme: scheme})
-	if err != nil {
-		return fmt.Errorf("client: %w", err)
 	}
 
 	// The corrected trace gives the victim its own duration instead of sharing one with the co-tenant, so the

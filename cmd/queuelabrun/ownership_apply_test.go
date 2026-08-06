@@ -208,3 +208,154 @@ func TestAcquireWorkerSelfReleaseSurvivesContextCancelledDuringVerify(t *testing
 		}
 	}
 }
+
+// This is the round-4 finding the two-step quarantine design exists to satisfy: a second force must never
+// even attempt a write, because a retry that reached the API server would overwrite the original record
+// with one describing an already-emptied node, destroying the only surviving evidence of who held it.
+func TestForceQuarantineRefusesWhenAlreadyQuarantinedWithoutPatching(t *testing.T) {
+	q := quarantine{Schema: quarantineSchema, QuarantineID: "q1", ForcedAt: "t", Node: "platform-worker",
+		NodeUID: "uid-node"}
+	raw, err := encodeQuarantine(q)
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	n := node(nil, map[string]string{quarantineKey: raw})
+	var patchCalls int
+	fc := fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(n).WithInterceptorFuncs(interceptor.Funcs{
+		Patch: func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch,
+			opts ...client.PatchOption) error {
+			patchCalls++
+			return c.Patch(ctx, obj, patch, opts...)
+		},
+	}).Build()
+
+	if err := forceQuarantine(context.Background(), fc, "platform-worker", "uid-node"); err == nil {
+		t.Fatal("forcing an already-quarantined node must refuse")
+	}
+	if patchCalls != 0 {
+		t.Fatalf("want 0 patch attempts, got %d — a refusal must never touch the API server", patchCalls)
+	}
+
+	var got corev1.Node
+	if err := fc.Get(context.Background(), client.ObjectKey{Name: "platform-worker"}, &got); err != nil {
+		t.Fatalf("get node: %v", err)
+	}
+	if got.Annotations[quarantineKey] != raw {
+		t.Fatalf("the original quarantine record must survive untouched, got %q", got.Annotations[quarantineKey])
+	}
+}
+
+// The happy path: forcing a held node preserves what it removes in the quarantine record and leaves the
+// node carrying no label, no journal and no ownership taint — never a free node in one step.
+func TestForceQuarantineBreaksAHeldNodeIntoAQuarantineRecord(t *testing.T) {
+	good, err := encodeJournal(testJournal())
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	n := node(map[string]string{workerLabelKey: "r7"}, map[string]string{journalKey: good}, ourTaint())
+
+	fc := fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(n).Build()
+	if err := forceQuarantine(context.Background(), fc, "platform-worker", "uid-node"); err != nil {
+		t.Fatalf("force: %v", err)
+	}
+
+	var got corev1.Node
+	if err := fc.Get(context.Background(), client.ObjectKey{Name: "platform-worker"}, &got); err != nil {
+		t.Fatalf("get node: %v", err)
+	}
+	if _, ok := got.Labels[workerLabelKey]; ok {
+		t.Fatalf("force must remove the label, got %+v", got.Labels)
+	}
+	if _, ok := got.Annotations[journalKey]; ok {
+		t.Fatalf("force must remove the journal, got %+v", got.Annotations)
+	}
+	for _, tt := range got.Spec.Taints {
+		if tt.Key == workerTaintKey {
+			t.Fatalf("force must remove the ownership taint, got %+v", tt)
+		}
+	}
+	raw, ok := got.Annotations[quarantineKey]
+	if !ok {
+		t.Fatal("force must leave a quarantine record")
+	}
+	q, err := decodeQuarantine(raw)
+	if err != nil {
+		t.Fatalf("decode quarantine: %v", err)
+	}
+	if q.PriorJournal != good || q.ObservedLabel != "r7" {
+		t.Fatalf("quarantine record does not preserve what was removed: %+v", q)
+	}
+}
+
+// clearQuarantine must remove only the exact record the operator names, leaving the node otherwise free.
+func TestClearQuarantineRemovesTheNamedRecord(t *testing.T) {
+	q := quarantine{Schema: quarantineSchema, QuarantineID: "q1", ForcedAt: "t", Node: "platform-worker",
+		NodeUID: "uid-node"}
+	raw, err := encodeQuarantine(q)
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	n := node(nil, map[string]string{quarantineKey: raw})
+	fc := fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(n).Build()
+
+	if err := clearQuarantine(context.Background(), fc, "platform-worker", "q1"); err != nil {
+		t.Fatalf("clear: %v", err)
+	}
+
+	var got corev1.Node
+	if err := fc.Get(context.Background(), client.ObjectKey{Name: "platform-worker"}, &got); err != nil {
+		t.Fatalf("get node: %v", err)
+	}
+	if _, ok := got.Annotations[quarantineKey]; ok {
+		t.Fatalf("clear must remove the quarantine record, got %+v", got.Annotations)
+	}
+}
+
+// releaseStale is the ordinary recovery path: it must restore the node once the operator names the correct
+// transaction id, and must refuse without writing anything for the wrong one.
+func TestReleaseStaleRestoresTheNamedTransaction(t *testing.T) {
+	good, err := encodeJournal(testJournal())
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	n := node(map[string]string{workerLabelKey: "r7"}, map[string]string{journalKey: good}, ourTaint())
+	fc := fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(n).Build()
+
+	if err := releaseStale(context.Background(), fc, "platform-worker", "tx-1111"); err != nil {
+		t.Fatalf("release: %v", err)
+	}
+
+	var got corev1.Node
+	if err := fc.Get(context.Background(), client.ObjectKey{Name: "platform-worker"}, &got); err != nil {
+		t.Fatalf("get node: %v", err)
+	}
+	if _, ok := got.Labels[workerLabelKey]; ok {
+		t.Fatalf("release must remove the label, got %+v", got.Labels)
+	}
+	if _, ok := got.Annotations[journalKey]; ok {
+		t.Fatalf("release must remove the journal, got %+v", got.Annotations)
+	}
+}
+
+func TestReleaseStaleRefusesTheWrongTxIDWithoutWriting(t *testing.T) {
+	good, err := encodeJournal(testJournal())
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	n := node(map[string]string{workerLabelKey: "r7"}, map[string]string{journalKey: good}, ourTaint())
+	var patchCalls int
+	fc := fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(n).WithInterceptorFuncs(interceptor.Funcs{
+		Patch: func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch,
+			opts ...client.PatchOption) error {
+			patchCalls++
+			return c.Patch(ctx, obj, patch, opts...)
+		},
+	}).Build()
+
+	if err := releaseStale(context.Background(), fc, "platform-worker", "tx-wrong"); err == nil {
+		t.Fatal("releasing the wrong tx id must refuse")
+	}
+	if patchCalls != 0 {
+		t.Fatalf("want 0 patch attempts, got %d — a refusal must not write", patchCalls)
+	}
+}

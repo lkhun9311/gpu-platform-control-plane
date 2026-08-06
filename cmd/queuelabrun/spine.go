@@ -148,13 +148,19 @@ func namespaceFor(runID string) (string, error) {
 
 // unimplementedGates names the validity work this executable does not yet have.
 //
+// The ownership transaction itself now exists — acquire, release, and the operator modes in
+// ownership_apply.go that recover a Node after a crash — so that line is narrowed here rather than
+// deleted: what remains is proving the exclusivity held for the whole run, not just at acquire and
+// release. Continuous evidence via a Node watch (2c) and a restoration audit recorded in the run artifact
+// (2d) are still open pieces.
+//
 // It exists so the refusal below can be specific: an unexplained failure gets rerun until it passes, while
 // a refusal that names what is missing gets fixed.
 func unimplementedGates() []string {
 	return []string{
 		"synchronized list+watch with resourceVersion continuity",
 		"environment qualification (capacity, foreign GPU pods, termination canary)",
-		"node ownership transaction with crash recovery",
+		"continuous ownership evidence (Node watch) and restoration audit in the run artifact",
 		"run artifact with a validity status",
 	}
 }

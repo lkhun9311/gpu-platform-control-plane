@@ -190,6 +190,135 @@ func resolveAmbiguousAcquire(ctx context.Context, c client.Client, nodeName stri
 		nodeName, time.Duration(resolveAttempts)*resolveInterval, j.TxID, nodeName, cause)
 }
 
+// inspectWorker is read-only and is how an operator learns a transaction id a crashed process never
+// printed anywhere.
+func inspectWorker(ctx context.Context, c client.Client, nodeName string) error {
+	var n corev1.Node
+	if err := c.Get(ctx, client.ObjectKey{Name: nodeName}, &n); err != nil {
+		return fmt.Errorf("get node %s: %w", nodeName, err)
+	}
+	obs := observe(&n)
+	fmt.Printf("node %s (uid %s)\n", obs.NodeName, obs.NodeUID)
+	fmt.Printf("  label %s = %q (present=%v)\n", workerLabelKey, obs.LabelValue, obs.HasLabel)
+	fmt.Printf("  taints on %s: %+v\n", workerTaintKey, obs.Taints)
+	fmt.Printf("  journal: %s\n", orNone(obs.JournalRaw))
+	fmt.Printf("  quarantine: %s\n", orNone(obs.QuarantineRaw))
+	switch {
+	case obs.QuarantineRaw != "":
+		q, err := decodeQuarantine(obs.QuarantineRaw)
+		if err != nil {
+			fmt.Printf("\nUNREADABLE QUARANTINE RECORD: %v — manual intervention required.\n", err)
+			return nil
+		}
+		fmt.Printf("\nQUARANTINED. To free it after establishing the previous process is dead:\n"+
+			"  queuelabrun -clear-quarantine -worker %s -quarantine-id %s -confirm-owner-dead\n",
+			nodeName, q.QuarantineID)
+	case obs.JournalRaw != "" && obs.JournalErr == nil:
+		fmt.Printf("\nHELD by run %s (arm %s) under tx %s since %s.\n"+
+			"  If that process is gone: queuelabrun -release-stale -worker %s -txid %s\n",
+			obs.Journal.RunID, obs.Journal.Arm, obs.Journal.TxID, obs.Journal.TakenAt,
+			nodeName, obs.Journal.TxID)
+		if err := verifyInstalled(obs, obs.Journal); err != nil {
+			fmt.Printf("  WARNING, the installed values have diverged: %v\n"+
+				"  A stale release will refuse. The break is:\n"+
+				"    queuelabrun -force-release -worker %s -node-uid %s -accept-divergence\n",
+				err, nodeName, obs.NodeUID)
+		}
+	case obs.HasLabel || len(obs.Taints) > 0:
+		fmt.Printf("\nSTALE MARKER WITH NO JOURNAL. This tool cannot release it safely.\n"+
+			"  Inspect and decide by hand, or break it with:\n"+
+			"    queuelabrun -force-release -worker %s -node-uid %s -accept-divergence\n",
+			nodeName, obs.NodeUID)
+	default:
+		fmt.Printf("\nFREE.\n")
+	}
+	return nil
+}
+
+func orNone(s string) string {
+	if s == "" {
+		return "(none)"
+	}
+	return s
+}
+
+// releaseStale is the ordinary recovery: the transaction is identified, its values are intact, and the
+// operator has established the process holding it is gone.
+func releaseStale(ctx context.Context, c client.Client, nodeName, txID string) error {
+	var n corev1.Node
+	if err := c.Get(ctx, client.ObjectKey{Name: nodeName}, &n); err != nil {
+		return fmt.Errorf("get node %s: %w", nodeName, err)
+	}
+	obs := observe(&n)
+	if _, err := decideRelease(obs, txID); err != nil {
+		return err
+	}
+	fmt.Printf("restoring node %s: removing label %s=%q and taint %s=%q/%s, and the journal for tx %s\n",
+		nodeName, workerLabelKey, obs.LabelValue, workerTaintKey,
+		obs.Journal.Installed.TaintValue, obs.Journal.Installed.TaintEffect, txID)
+	// releaseAcquired always runs on an uncancelled context, the same as every other release call site in
+	// this package: a half-applied restoration must be allowed to finish even if the operator's own signal
+	// handling (if any wraps ctx) fires mid-patch.
+	return releaseAcquired(context.Background(), c, obs.Journal)
+}
+
+// forceQuarantine breaks a stuck node without ever producing a free one.
+//
+// It cannot prove the previous process is dead, so it records everything it removes and leaves a record
+// that acquisition refuses until an operator clears it in a separate, deliberate step.
+func forceQuarantine(ctx context.Context, c client.Client, nodeName, nodeUID string) error {
+	var n corev1.Node
+	if err := c.Get(ctx, client.ObjectKey{Name: nodeName}, &n); err != nil {
+		return fmt.Errorf("get node %s: %w", nodeName, err)
+	}
+	obs := observe(&n)
+	q, err := decideForce(obs, nodeUID, string(uuid.NewUUID()), time.Now().UTC().Format(time.RFC3339))
+	if err != nil {
+		return err
+	}
+	raw, err := encodeQuarantine(q)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("forcing node %s: removing label %s=%q, %d taint(s) on %s, and the journal %s\n"+
+		"  all of it is preserved in quarantine record %s\n",
+		nodeName, workerLabelKey, obs.LabelValue, len(obs.Taints), workerTaintKey,
+		orNone(obs.JournalRaw), q.QuarantineID)
+	base := n.DeepCopy()
+	delete(n.Labels, workerLabelKey)
+	delete(n.Annotations, journalKey)
+	if n.Annotations == nil {
+		n.Annotations = map[string]string{}
+	}
+	n.Annotations[quarantineKey] = raw
+	n.Spec.Taints = withoutOwnershipTaint(obs.AllTaints)
+	if err := c.Patch(ctx, &n, client.MergeFromWithOptions(base, client.MergeFromWithOptimisticLock{})); err != nil {
+		return fmt.Errorf("force node %s (state changed under you, re-inspect): %w", nodeName, err)
+	}
+	fmt.Printf("node %s is QUARANTINED as %s; no run can acquire it until it is cleared\n", nodeName, q.QuarantineID)
+	return nil
+}
+
+// clearQuarantine removes only the record the operator names, after they have attested the previous owner
+// is dead — a judgement no flag can make for them.
+func clearQuarantine(ctx context.Context, c client.Client, nodeName, quarantineID string) error {
+	var n corev1.Node
+	if err := c.Get(ctx, client.ObjectKey{Name: nodeName}, &n); err != nil {
+		return fmt.Errorf("get node %s: %w", nodeName, err)
+	}
+	obs := observe(&n)
+	if err := decideClear(obs, quarantineID); err != nil {
+		return err
+	}
+	base := n.DeepCopy()
+	delete(n.Annotations, quarantineKey)
+	if err := c.Patch(ctx, &n, client.MergeFromWithOptions(base, client.MergeFromWithOptimisticLock{})); err != nil {
+		return fmt.Errorf("clear quarantine on %s (state changed under you, re-inspect): %w", nodeName, err)
+	}
+	fmt.Printf("node %s quarantine %s cleared\n", nodeName, quarantineID)
+	return nil
+}
+
 // releaseAcquired undoes exactly what this transaction installed, or refuses and invalidates the run.
 func releaseAcquired(ctx context.Context, c client.Client, j journal) error {
 	var lastErr error

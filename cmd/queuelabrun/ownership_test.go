@@ -278,6 +278,70 @@ func TestTaintListPreservesUnrelatedTaints(t *testing.T) {
 	}
 }
 
+// Forcing twice would overwrite the original record with one describing an already-emptied node, which
+// would destroy the only surviving evidence of who held the worker.
+func TestDecideForceRefusesWhenAlreadyQuarantined(t *testing.T) {
+	q := quarantine{Schema: quarantineSchema, QuarantineID: "q1", ForcedAt: "t", Node: "platform-worker",
+		NodeUID: "uid-node"}
+	raw, err := encodeQuarantine(q)
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	n := node(nil, map[string]string{quarantineKey: raw})
+	if _, err := decideForce(observe(n), "uid-node", "q2", "t2"); err == nil {
+		t.Fatal("forcing an already quarantined node must refuse")
+	}
+}
+
+// The forced break must preserve what it removed, or the operator loses the evidence of what the node
+// looked like at the moment they broke it.
+func TestDecideForceRecordsWhatItRemoves(t *testing.T) {
+	good, err := encodeJournal(testJournal())
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	n := node(map[string]string{workerLabelKey: "r7"}, map[string]string{journalKey: good}, ourTaint())
+	q, err := decideForce(observe(n), "uid-node", "q1", "2026-08-06T11:00:00Z")
+	if err != nil {
+		t.Fatalf("force: %v", err)
+	}
+	if q.PriorJournal != good {
+		t.Fatalf("the prior journal must be preserved verbatim, got %q", q.PriorJournal)
+	}
+	if q.ObservedLabel != "r7" || len(q.ObservedTaints) != 1 {
+		t.Fatalf("the observed markers must be preserved, got %+v", q)
+	}
+	if q.QuarantineID == "" {
+		t.Fatal("a quarantine must be identified so clearing it can be targeted")
+	}
+}
+
+func TestDecideForceRefusesAWrongNodeUID(t *testing.T) {
+	n := node(map[string]string{workerLabelKey: "r7"}, nil, ourTaint())
+	if _, err := decideForce(observe(n), "uid-typed-wrong", "q1", "t"); err == nil {
+		t.Fatal("a mistyped node UID must refuse: it is the operator's confirmation of the target")
+	}
+}
+
+func TestDecideClearRequiresTheExactQuarantineID(t *testing.T) {
+	q := quarantine{Schema: quarantineSchema, QuarantineID: "q1", ForcedAt: "t", Node: "platform-worker",
+		NodeUID: "uid-node"}
+	raw, err := encodeQuarantine(q)
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	n := node(nil, map[string]string{quarantineKey: raw})
+	if err := decideClear(observe(n), "q-wrong"); err == nil {
+		t.Fatal("clearing must be targeted at the exact quarantine record")
+	}
+	if err := decideClear(observe(n), "q1"); err != nil {
+		t.Fatalf("the matching id must clear: %v", err)
+	}
+	if err := decideClear(observe(node(nil, nil)), "q1"); err == nil {
+		t.Fatal("clearing a node with no quarantine record must refuse rather than silently succeed")
+	}
+}
+
 // withOwnershipTaint replaces the deleted upsertTaint's de-duplication role: a retried acquire attempt must
 // not leave two entries under workerTaintKey, or decideAcquire's own duplicate-taint-key check would refuse
 // a Node this transaction just wrote.
