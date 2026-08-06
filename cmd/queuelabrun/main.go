@@ -67,9 +67,24 @@ func main() {
 
 	// Operator modes are recovery tools, not runs, so they dispatch before the gate and work even while the
 	// gate refuses every run; each exits directly with its own status rather than falling through to run().
-	if fired, err := dispatchOperatorMode(*armFlag, *worker, *inspectWorkerFlag, *releaseStaleFlag, *txidFlag,
-		*forceReleaseFlag, *nodeUIDFlag, *acceptDivergenceFlag, *clearQuarantineFlag, *quarantineIDFlag,
-		*confirmOwnerDeadFlag); fired {
+	// Fields are named, not positional, so the flag that fills each one is visible at the call site.
+	if fired, err := dispatchOperatorMode(operatorModeArgs{
+		Arm:    *armFlag,
+		Worker: *worker,
+
+		InspectNode: *inspectWorkerFlag,
+
+		ReleaseStale: *releaseStaleFlag,
+		TxID:         *txidFlag,
+
+		ForceRelease:     *forceReleaseFlag,
+		NodeUID:          *nodeUIDFlag,
+		AcceptDivergence: *acceptDivergenceFlag,
+
+		ClearQuarantine:  *clearQuarantineFlag,
+		QuarantineID:     *quarantineIDFlag,
+		ConfirmOwnerDead: *confirmOwnerDeadFlag,
+	}); fired {
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "ERROR:", err)
 			os.Exit(1)
@@ -135,28 +150,18 @@ func main() {
 //
 // These are recovery tools, not runs, so the caller must invoke this before gateRefusal: an operator needs
 // -inspect-worker and the release/quarantine modes to work precisely while the gate refuses every run,
-// otherwise a crashed process could orphan a Node with no in-tool way to see or clear it. Refusing to
-// combine a mode with -arm keeps "recover the node" and "run an arm" from ever being read as one
-// invocation, and each mode dispatched here reports success or failure on its own rather than falling
-// through to the run() error path below it.
-func dispatchOperatorMode(arm, worker string, inspectNode string, releaseStaleMode bool, txID string,
-	forceReleaseMode bool, nodeUID string, acceptDivergence bool,
-	clearQuarantineMode bool, quarantineID string, confirmOwnerDead bool) (fired bool, err error) {
-	requested := 0
-	for _, on := range []bool{inspectNode != "", releaseStaleMode, forceReleaseMode, clearQuarantineMode} {
-		if on {
-			requested++
-		}
-	}
-	if requested == 0 {
+// otherwise a crashed process could orphan a Node with no in-tool way to see or clear it. All argument
+// validation happens in decideOperatorMode, entirely before newClusterClient below: a malformed invocation
+// must be refused before it needs a kubeconfig, not after failing to reach one.
+func dispatchOperatorMode(args operatorModeArgs) (fired bool, err error) {
+	mode, err := decideOperatorMode(args)
+	if mode == modeNone && err == nil {
 		return false, nil
 	}
-	if requested > 1 {
-		return true, fmt.Errorf(
-			"only one of -inspect-worker, -release-stale, -force-release, -clear-quarantine may be given at a time")
-	}
-	if arm != "" {
-		return true, fmt.Errorf("an operator mode cannot be combined with -arm: it is a recovery tool, not a run")
+	if err != nil {
+		// decideOperatorMode only returns an error once a mode was actually requested, so this is always a
+		// fired, refused attempt, never the "nothing requested" case above.
+		return true, err
 	}
 
 	c, err := newClusterClient()
@@ -168,34 +173,19 @@ func dispatchOperatorMode(arm, worker string, inspectNode string, releaseStaleMo
 	// from under them.
 	ctx := context.Background()
 
-	switch {
-	case inspectNode != "":
-		return true, inspectWorker(ctx, c, inspectNode)
-	case releaseStaleMode:
-		if txID == "" {
-			return true, fmt.Errorf("-release-stale requires -txid")
-		}
-		return true, releaseStale(ctx, c, worker, txID)
-	case forceReleaseMode:
-		if nodeUID == "" {
-			return true, fmt.Errorf("-force-release requires -node-uid: it is the operator's confirmation of the target")
-		}
-		if !acceptDivergence {
-			return true, fmt.Errorf(
-				"-force-release requires -accept-divergence: nothing can prove the previous process is dead, " +
-					"so this attests it was the operator's judgement")
-		}
-		return true, forceQuarantine(ctx, c, worker, nodeUID)
-	default: // clearQuarantineMode
-		if quarantineID == "" {
-			return true, fmt.Errorf("-clear-quarantine requires -quarantine-id")
-		}
-		if !confirmOwnerDead {
-			return true, fmt.Errorf(
-				"-clear-quarantine requires -confirm-owner-dead: clearing is a separate, deliberate act and " +
-					"this attests the operator has established the previous owner is dead")
-		}
-		return true, clearQuarantine(ctx, c, worker, quarantineID)
+	switch mode {
+	case modeInspect:
+		return true, inspectWorker(ctx, c, args.InspectNode)
+	case modeReleaseStale:
+		return true, releaseStale(ctx, c, args.Worker, args.TxID)
+	case modeForceRelease:
+		return true, forceQuarantine(ctx, c, args.Worker, args.NodeUID)
+	case modeClearQuarantine:
+		return true, clearQuarantine(ctx, c, args.Worker, args.QuarantineID)
+	default:
+		// decideOperatorMode's own switch is exhaustive over the same four modes, so reaching this means the
+		// two switches drifted apart, not that the operator did anything wrong.
+		return true, fmt.Errorf("internal error: unhandled operator mode %d", mode)
 	}
 }
 

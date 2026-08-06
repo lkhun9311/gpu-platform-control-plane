@@ -207,8 +207,10 @@ func inspectWorker(ctx context.Context, c client.Client, nodeName string) error 
 	case obs.QuarantineRaw != "":
 		q, err := decodeQuarantine(obs.QuarantineRaw)
 		if err != nil {
+			// A script wrapping -inspect-worker must see a non-zero exit here: an unreadable quarantine
+			// record needs a human, and printing the warning while still exiting 0 would read as healthy.
 			fmt.Printf("\nUNREADABLE QUARANTINE RECORD: %v — manual intervention required.\n", err)
-			return nil
+			return fmt.Errorf("node %s: unreadable quarantine record: %w", nodeName, err)
 		}
 		fmt.Printf("\nQUARANTINED. To free it after establishing the previous process is dead:\n"+
 			"  queuelabrun -clear-quarantine -worker %s -quarantine-id %s -confirm-owner-dead\n",

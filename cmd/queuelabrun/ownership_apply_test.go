@@ -209,6 +209,18 @@ func TestAcquireWorkerSelfReleaseSurvivesContextCancelledDuringVerify(t *testing
 	}
 }
 
+// A script wrapping -inspect-worker treats a nil error as "healthy"; an unreadable quarantine record needs
+// a human, and printing the warning while still returning nil would make that state indistinguishable from
+// FREE or HELD to anything checking the exit code rather than reading the output.
+func TestInspectWorkerReturnsErrorOnUnreadableQuarantine(t *testing.T) {
+	n := node(nil, map[string]string{quarantineKey: "{not valid json"})
+	fc := fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(n).Build()
+
+	if err := inspectWorker(context.Background(), fc, "platform-worker"); err == nil {
+		t.Fatal("an unreadable quarantine record must return an error, not exit 0")
+	}
+}
+
 // This is the round-4 finding the two-step quarantine design exists to satisfy: a second force must never
 // even attempt a write, because a retry that reached the API server would overwrite the original record
 // with one describing an already-emptied node, destroying the only surviving evidence of who held it.

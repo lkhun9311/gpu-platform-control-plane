@@ -146,6 +146,107 @@ func namespaceFor(runID string) (string, error) {
 	return ns, nil
 }
 
+// operatorModeArgs bundles the operator-mode flags into named fields.
+//
+// dispatchOperatorMode used to take these eleven values as positional bool/string parameters; two adjacent
+// bools (accept-divergence, clear-quarantine) could be swapped at the call site and the compiler would not
+// notice, silently rewiring the attestation gate for the most destructive path onto the wrong mode. A
+// struct with named fields turns that mistake from silent into a field name that visibly does not match
+// what it is assigned.
+type operatorModeArgs struct {
+	Arm    string
+	Worker string
+
+	InspectNode string
+
+	ReleaseStale bool
+	TxID         string
+
+	ForceRelease     bool
+	NodeUID          string
+	AcceptDivergence bool
+
+	ClearQuarantine  bool
+	QuarantineID     string
+	ConfirmOwnerDead bool
+}
+
+// operatorMode names which recovery mode decideOperatorMode selected, or that none was requested.
+type operatorMode int
+
+const (
+	modeNone operatorMode = iota
+	modeInspect
+	modeReleaseStale
+	modeForceRelease
+	modeClearQuarantine
+)
+
+// decideOperatorMode is the pure validation layer for the four operator recovery modes: it decides which
+// mode (if any) was requested and whether the invocation is well-formed, entirely without touching the
+// cluster.
+//
+// This has to run, in full, before anything that needs a kubeconfig: an operator on a box with no cluster
+// access who mistypes a flag combination must see the flag-combination refusal, not a "kubeconfig: ..."
+// error that has nothing to do with what they actually got wrong.
+//
+// modeNone is returned both when no mode was requested (err is nil; the caller falls through to the
+// ordinary run) and when a requested mode is malformed (err is non-nil; the caller must still stop rather
+// than fall through). The two are distinguished by err, not by the mode value alone.
+func decideOperatorMode(a operatorModeArgs) (operatorMode, error) {
+	requested := 0
+	for _, on := range []bool{a.InspectNode != "", a.ReleaseStale, a.ForceRelease, a.ClearQuarantine} {
+		if on {
+			requested++
+		}
+	}
+	if requested == 0 {
+		return modeNone, nil
+	}
+	if requested > 1 {
+		return modeNone, fmt.Errorf(
+			"only one of -inspect-worker, -release-stale, -force-release, -clear-quarantine may be given at a time")
+	}
+	// An operator mode is a recovery tool, not a run, so combining one with -arm would let "recover the
+	// node" and "run an arm" be read as a single invocation.
+	if a.Arm != "" {
+		return modeNone, fmt.Errorf("an operator mode cannot be combined with -arm: it is a recovery tool, not a run")
+	}
+
+	switch {
+	case a.InspectNode != "":
+		return modeInspect, nil
+	case a.ReleaseStale:
+		if a.TxID == "" {
+			return modeNone, fmt.Errorf("-release-stale requires -txid")
+		}
+		return modeReleaseStale, nil
+	case a.ForceRelease:
+		if a.NodeUID == "" {
+			return modeNone, fmt.Errorf(
+				"-force-release requires -node-uid: it is the operator's confirmation of the target")
+		}
+		// Nothing can prove the previous process is dead, so forcing requires the operator's explicit
+		// attestation rather than proceeding on the node-uid confirmation alone.
+		if !a.AcceptDivergence {
+			return modeNone, fmt.Errorf(
+				"-force-release requires -accept-divergence: nothing can prove the previous process is dead, " +
+					"so this attests it was the operator's judgement")
+		}
+		return modeForceRelease, nil
+	default: // a.ClearQuarantine
+		if a.QuarantineID == "" {
+			return modeNone, fmt.Errorf("-clear-quarantine requires -quarantine-id")
+		}
+		if !a.ConfirmOwnerDead {
+			return modeNone, fmt.Errorf(
+				"-clear-quarantine requires -confirm-owner-dead: clearing is a separate, deliberate act and " +
+					"this attests the operator has established the previous owner is dead")
+		}
+		return modeClearQuarantine, nil
+	}
+}
+
 // unimplementedGates names the validity work this executable does not yet have.
 //
 // The ownership transaction itself now exists — acquire, release, and the operator modes in

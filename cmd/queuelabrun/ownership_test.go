@@ -278,6 +278,24 @@ func TestTaintListPreservesUnrelatedTaints(t *testing.T) {
 	}
 }
 
+// decodeQuarantine's strictness is what the whole two-step design leans on to trust the record it reads
+// back, and the happy-path round trip embedded in the other quarantine tests would still pass if any one of
+// these three checks (unknown fields, unknown schema, empty quarantineID) were silently dropped.
+func TestDecodeQuarantineRejectsUnknownFieldSchemaAndEmptyID(t *testing.T) {
+	for name, raw := range map[string]string{
+		"unknown field": `{"schema":1,"quarantineID":"q1","forcedAt":"t","node":"platform-worker",` +
+			`"nodeUID":"uid-node","priorJournal":"","observedLabel":"","extra":true}`,
+		"unknown schema": `{"schema":99,"quarantineID":"q1","forcedAt":"t","node":"platform-worker",` +
+			`"nodeUID":"uid-node","priorJournal":"","observedLabel":""}`,
+		"empty quarantineID": `{"schema":1,"quarantineID":"","forcedAt":"t","node":"platform-worker",` +
+			`"nodeUID":"uid-node","priorJournal":"","observedLabel":""}`,
+	} {
+		if _, err := decodeQuarantine(raw); err == nil {
+			t.Fatalf("%s: expected rejection", name)
+		}
+	}
+}
+
 // Forcing twice would overwrite the original record with one describing an already-emptied node, which
 // would destroy the only surviving evidence of who held the worker.
 func TestDecideForceRefusesWhenAlreadyQuarantined(t *testing.T) {
@@ -293,26 +311,47 @@ func TestDecideForceRefusesWhenAlreadyQuarantined(t *testing.T) {
 	}
 }
 
-// The forced break must preserve what it removed, or the operator loses the evidence of what the node
-// looked like at the moment they broke it.
+// The forced break must preserve everything it removed — which node, when, and exactly what was on it — or
+// the operator loses the evidence of what they broke. Node, NodeUID and ForcedAt are asserted here too
+// (not just PriorJournal/ObservedLabel/ObservedTaints): those three are exactly what tells an operator
+// which machine was broken and at what time if the record is ever read on its own, and dropping any one of
+// the six fields checked below must fail this test, not just the round-trip test elsewhere in this file.
 func TestDecideForceRecordsWhatItRemoves(t *testing.T) {
 	good, err := encodeJournal(testJournal())
 	if err != nil {
 		t.Fatalf("encode: %v", err)
 	}
-	n := node(map[string]string{workerLabelKey: "r7"}, map[string]string{journalKey: good}, ourTaint())
+	// An unrelated taint alongside the ownership one is what makes ObservedTaints meaningful to assert: with
+	// only the ownership taint present, a record built from obs.AllTaints (the whole taint list) would look
+	// identical to one correctly built from obs.Taints (the ownership-key subset), and this test would not
+	// catch the difference.
+	unrelated := corev1.Taint{Key: "gpu-platform/unhealthy", Value: "true", Effect: corev1.TaintEffectNoSchedule}
+	n := node(map[string]string{workerLabelKey: "r7"}, map[string]string{journalKey: good}, ourTaint(), unrelated)
 	q, err := decideForce(observe(n), "uid-node", "q1", "2026-08-06T11:00:00Z")
 	if err != nil {
 		t.Fatalf("force: %v", err)
 	}
+	if q.QuarantineID == "" {
+		t.Fatal("a quarantine must be identified so clearing it can be targeted")
+	}
+	if q.ForcedAt != "2026-08-06T11:00:00Z" {
+		t.Fatalf("forcedAt = %q, want the caller's timestamp", q.ForcedAt)
+	}
+	if q.Node != "platform-worker" {
+		t.Fatalf("node = %q, want platform-worker", q.Node)
+	}
+	if q.NodeUID != "uid-node" {
+		t.Fatalf("nodeUID = %q, want uid-node", q.NodeUID)
+	}
 	if q.PriorJournal != good {
 		t.Fatalf("the prior journal must be preserved verbatim, got %q", q.PriorJournal)
 	}
-	if q.ObservedLabel != "r7" || len(q.ObservedTaints) != 1 {
-		t.Fatalf("the observed markers must be preserved, got %+v", q)
+	if q.ObservedLabel != "r7" {
+		t.Fatalf("observedLabel = %q, want r7", q.ObservedLabel)
 	}
-	if q.QuarantineID == "" {
-		t.Fatal("a quarantine must be identified so clearing it can be targeted")
+	if len(q.ObservedTaints) != 1 || q.ObservedTaints[0] != ourTaint() {
+		t.Fatalf("observedTaints must be exactly the ownership taint, not the unrelated one, got %+v",
+			q.ObservedTaints)
 	}
 }
 

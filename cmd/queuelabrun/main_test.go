@@ -66,3 +66,53 @@ func TestWaitForHorizonPastDeadlineReturnsImmediately(t *testing.T) {
 		t.Fatalf("waitForHorizon took %v for an already-past deadline", elapsed)
 	}
 }
+
+// dispatchOperatorMode must resolve every one of these without ever reaching newClusterClient: if the
+// validation-before-client ordering regressed, an operator on a box with no kubeconfig would see a
+// "kubeconfig: ..." error instead of the flag-combination message that actually explains their mistake.
+// This exercises dispatchOperatorMode itself, not just decideOperatorMode, so it also proves the wiring
+// between the two, not only the pure decision in isolation.
+func TestDispatchOperatorModeRefusesWithoutTouchingTheCluster(t *testing.T) {
+	cases := []struct {
+		name      string
+		args      operatorModeArgs
+		wantFired bool
+		wantErr   bool
+	}{
+		{name: "no mode requested falls through", args: operatorModeArgs{}, wantFired: false, wantErr: false},
+		{
+			name:      "two modes at once",
+			args:      operatorModeArgs{InspectNode: "platform-worker", ReleaseStale: true, TxID: "t"},
+			wantFired: true, wantErr: true,
+		},
+		{
+			name:      "mode combined with -arm",
+			args:      operatorModeArgs{Arm: "A-honor", InspectNode: "platform-worker"},
+			wantFired: true, wantErr: true,
+		},
+		{
+			name:      "force-release missing -accept-divergence",
+			args:      operatorModeArgs{ForceRelease: true, NodeUID: "uid-1"},
+			wantFired: true, wantErr: true,
+		},
+		{
+			name:      "clear-quarantine missing -confirm-owner-dead",
+			args:      operatorModeArgs{ClearQuarantine: true, QuarantineID: "q1"},
+			wantFired: true, wantErr: true,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			fired, err := dispatchOperatorMode(tc.args)
+			if fired != tc.wantFired {
+				t.Fatalf("fired = %v, want %v", fired, tc.wantFired)
+			}
+			if tc.wantErr && err == nil {
+				t.Fatal("want a refusal, got nil")
+			}
+			if !tc.wantErr && err != nil {
+				t.Fatalf("want no error, got %v", err)
+			}
+		})
+	}
+}

@@ -107,6 +107,30 @@ func TestUnimplementedGatesDoesNotNameADoneItem(t *testing.T) {
 	}
 }
 
+// The ownership transaction (acquire, release, the four operator recovery modes) exists now, but its
+// continuity and audit halves do not, so the gate entry must be narrowed to name exactly those, not
+// deleted. Deleting the entry would still pass the "non-zero exit" substring check above, which is why
+// that test alone is not evidence the gate line survived; this one pins the list length and requires one
+// entry to still name the (now-narrowed) ownership gate.
+func TestUnimplementedGatesStillNamesTheNarrowedOwnershipGate(t *testing.T) {
+	gates := unimplementedGates()
+	if len(gates) != 4 {
+		t.Fatalf("want 4 unimplemented gates, got %d: %v", len(gates), gates)
+	}
+	found := false
+	for _, g := range gates {
+		if strings.Contains(g, "ownership") {
+			found = true
+			if !strings.Contains(g, "continuous") {
+				t.Fatalf("the ownership gate must be narrowed to continuous evidence, not something else: %q", g)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("an unimplemented gate must still name ownership: the transaction is narrowed, not closed")
+	}
+}
+
 func TestRequireRunIDRejectsOnlyEmpty(t *testing.T) {
 	// The flag used to default to "r1", which made colliding with a previous run's cluster-scoped fixtures
 	// the default behaviour; there is no safe default, so only a genuinely supplied id may pass.
@@ -152,6 +176,112 @@ func TestHorizonSecCoversTheProtocolsFixedWindow(t *testing.T) {
 	// duration a1 now runs for; a shorter horizon would end the observation before the owner is ever Ready.
 	if horizonSec != 150 {
 		t.Fatalf("horizonSec = %d, want 150", horizonSec)
+	}
+}
+
+// decideOperatorMode is the pure layer dispatchOperatorMode hoists all validation into, precisely so a
+// malformed invocation is refused before it needs a kubeconfig. This table is the regression test for the
+// swapped-flag failure mode a review of the previous positional-parameter version found: every refusal this
+// layer is responsible for — combining a mode with -arm, more than one mode at once, and both halves of
+// each two-flag requirement (-force-release needs -node-uid AND -accept-divergence; -clear-quarantine needs
+// -quarantine-id AND -confirm-owner-dead) — is exercised here without touching a cluster.
+func TestDecideOperatorMode(t *testing.T) {
+	cases := []struct {
+		name       string
+		args       operatorModeArgs
+		wantMode   operatorMode
+		wantErr    bool
+		wantErrHas string
+	}{
+		{
+			name:     "nothing requested falls through to the ordinary run",
+			args:     operatorModeArgs{},
+			wantMode: modeNone,
+			wantErr:  false,
+		},
+		{
+			name:       "two modes at once refuses",
+			args:       operatorModeArgs{InspectNode: "platform-worker", ReleaseStale: true, TxID: "tx-1"},
+			wantErr:    true,
+			wantErrHas: "only one of",
+		},
+		{
+			name:       "a mode combined with -arm refuses",
+			args:       operatorModeArgs{Arm: "A-honor", InspectNode: "platform-worker"},
+			wantErr:    true,
+			wantErrHas: "-arm",
+		},
+		{
+			name:     "inspect-worker alone dispatches",
+			args:     operatorModeArgs{InspectNode: "platform-worker"},
+			wantMode: modeInspect,
+		},
+		{
+			name:       "release-stale without -txid refuses",
+			args:       operatorModeArgs{ReleaseStale: true},
+			wantErr:    true,
+			wantErrHas: "-txid",
+		},
+		{
+			name:     "release-stale with -txid dispatches",
+			args:     operatorModeArgs{ReleaseStale: true, TxID: "tx-1"},
+			wantMode: modeReleaseStale,
+		},
+		{
+			name:       "force-release without -node-uid refuses",
+			args:       operatorModeArgs{ForceRelease: true, AcceptDivergence: true},
+			wantErr:    true,
+			wantErrHas: "-node-uid",
+		},
+		{
+			name:       "force-release with -node-uid but without -accept-divergence refuses",
+			args:       operatorModeArgs{ForceRelease: true, NodeUID: "uid-1"},
+			wantErr:    true,
+			wantErrHas: "-accept-divergence",
+		},
+		{
+			name:     "force-release with both -node-uid and -accept-divergence dispatches",
+			args:     operatorModeArgs{ForceRelease: true, NodeUID: "uid-1", AcceptDivergence: true},
+			wantMode: modeForceRelease,
+		},
+		{
+			name:       "clear-quarantine without -quarantine-id refuses",
+			args:       operatorModeArgs{ClearQuarantine: true, ConfirmOwnerDead: true},
+			wantErr:    true,
+			wantErrHas: "-quarantine-id",
+		},
+		{
+			name:       "clear-quarantine with -quarantine-id but without -confirm-owner-dead refuses",
+			args:       operatorModeArgs{ClearQuarantine: true, QuarantineID: "q1"},
+			wantErr:    true,
+			wantErrHas: "-confirm-owner-dead",
+		},
+		{
+			name:     "clear-quarantine with both -quarantine-id and -confirm-owner-dead dispatches",
+			args:     operatorModeArgs{ClearQuarantine: true, QuarantineID: "q1", ConfirmOwnerDead: true},
+			wantMode: modeClearQuarantine,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			mode, err := decideOperatorMode(tc.args)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatal("want a refusal, got nil")
+				}
+				if !strings.Contains(err.Error(), tc.wantErrHas) {
+					t.Fatalf("refusal %q does not mention %q", err.Error(), tc.wantErrHas)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("want no error, got %v", err)
+			}
+			if mode != tc.wantMode {
+				t.Fatalf("mode = %v, want %v", mode, tc.wantMode)
+			}
+		})
 	}
 }
 
