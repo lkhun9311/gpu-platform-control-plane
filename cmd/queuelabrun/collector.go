@@ -365,11 +365,6 @@ func applyFixtures(ctx context.Context, c client.Client, fs *queuelab.FixtureSet
 	return nil
 }
 
-const (
-	workerLabelKey = "queuelab.gpu-platform/worker"
-	workerTaintKey = "queuelab.gpu-platform/dedicated"
-)
-
 func dedicateWorker(ctx context.Context, c client.Client, node, runID string) error {
 	var n corev1.Node
 	if err := c.Get(ctx, client.ObjectKey{Name: node}, &n); err != nil {
