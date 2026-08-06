@@ -164,10 +164,10 @@ func TestWasteNoStopChargesToHorizonAsUnattributedOccupancy(t *testing.T) {
 	}
 }
 
-func TestReconstructRejectsAmbiguousPreemptionPairing(t *testing.T) {
-	// Two attempts are both running when a preemption is decided (an inconsistent one-Pod history). A
-	// Workload preemption delta names no Pod UID, so pairing is ambiguous; Reconstruct refuses rather than
-	// heuristically charging one attempt's waste.
+func TestReconstructToleratesConcurrentAttemptsWithOrdinalPreemptionPairing(t *testing.T) {
+	// Two attempts are both running when a preemption is decided. A Workload preemption delta names no Pod UID,
+	// so pairing uses ordinal order: the k-th preemption pairs to the k-th attempt by start time.
+	// This means the preemption pairs to the first attempt (ready at 10s), not the second (ready at 20s).
 	trace := []TrainingTraceRow{{Index: 0, Name: "a2", OffsetMs: 0, Tenant: "tenant-a", GPUCount: 1, DurationSec: 300}}
 	events := []LifecycleEvent{
 		{ElapsedNs: 0, Kind: "MLTrainingJob", Type: EventSubmitted, Job: "a2", GPUCount: 1},
@@ -176,8 +176,8 @@ func TestReconstructRejectsAmbiguousPreemptionPairing(t *testing.T) {
 		{ElapsedNs: 20 * sec, Kind: "Pod", Type: EventPodReady, Job: "a2", GPUCount: 1, ObjectUID: "pod-B"},
 		{ElapsedNs: 30 * sec, Kind: "Workload", Type: EventPreempted, Job: "a2", GPUCount: 1, Reason: "InCohortReclamation"},
 	}
-	if _, err := Reconstruct("Any", trace, events, 100*sec); err == nil {
-		t.Fatalf("two concurrently-running attempts at a preemption must error as ambiguous")
+	if _, err := Reconstruct("Any", trace, events, 100*sec); err != nil {
+		t.Fatalf("ordinal pairing of concurrent attempts is legal: %v", err)
 	}
 }
 
@@ -286,16 +286,18 @@ func TestReconstructRejectsMissingSubmission(t *testing.T) {
 	}
 }
 
-func TestReconstructRejectsAdmittedBeforeSubmitted(t *testing.T) {
-	// Independent GVR watchers could journal an admission before the submission; a real run cannot admit
-	// what was never submitted, so this impossible ordering is an error, not a negative latency.
+func TestReconstructToleratesAdmittedBeforeSubmitted(t *testing.T) {
+	// The Submitted stamp is written by the client after its Create call returns, while admission
+	// is observed on a separate Workload watch; each has independent delivery latency.
+	// A reversal in their arrival order is a latency artifact, not impossible evidence.
+	// Rejecting such traces would discard runs that actually executed correctly.
 	trace := []TrainingTraceRow{{Index: 0, Name: "a1", OffsetMs: 0, Tenant: "tenant-a", GPUCount: 1, DurationSec: 10}}
 	events := []LifecycleEvent{
 		{ElapsedNs: 5 * sec, Kind: "MLTrainingJob", Type: EventSubmitted, Job: "a1", GPUCount: 1},
 		{ElapsedNs: 1 * sec, Kind: "Workload", Type: EventAdmitted, Job: "a1", GPUCount: 1},
 	}
-	if _, err := Reconstruct("Any", trace, events, 100*sec); err == nil {
-		t.Fatalf("admitted-before-submitted must error")
+	if _, err := Reconstruct("Any", trace, events, 100*sec); err != nil {
+		t.Fatalf("admitted-before-submitted is a legal cross-watch reordering: %v", err)
 	}
 }
 
