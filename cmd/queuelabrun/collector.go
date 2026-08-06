@@ -333,7 +333,22 @@ func ensureNamespace(ctx context.Context, c client.Client, ns string) error {
 	return nil
 }
 
-func applyFixtures(ctx context.Context, c client.Client, fs *queuelab.FixtureSet) error {
+// applyFixtures creates the run's Kueue fixtures, first checking that a cluster-scoped ResourceFlavor left
+// behind by an earlier run under this run id (only the namespace is ever cleaned up by hand) was built for
+// the same policy variant this arm requires, so a reused run id cannot silently execute under a different
+// arm's mechanism.
+func applyFixtures(ctx context.Context, c client.Client, fs *queuelab.FixtureSet, wantVariant string) error {
+	var existing kueuev1beta2.ResourceFlavor
+	err := c.Get(ctx, client.ObjectKey{Name: fs.Flavor.GetName()}, &existing)
+	switch {
+	case err == nil:
+		if verr := checkFlavorVariant(existing.Labels, wantVariant); verr != nil {
+			return fmt.Errorf("resource flavor %s: %w", fs.Flavor.GetName(), verr)
+		}
+	case !apierrors.IsNotFound(err):
+		return fmt.Errorf("get resource flavor %s: %w", fs.Flavor.GetName(), err)
+	}
+
 	objs := make([]client.Object, 0, 1+len(fs.ClusterQueue)+len(fs.LocalQueue))
 	objs = append(objs, fs.Flavor)
 	for _, cq := range fs.ClusterQueue {

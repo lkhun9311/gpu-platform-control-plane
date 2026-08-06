@@ -19,6 +19,7 @@ package main
 import (
 	"fmt"
 	"regexp"
+	"time"
 
 	"github.com/lkhun9311/gpu-mlops-platform-control-plane/internal/queuelab"
 )
@@ -30,7 +31,38 @@ import (
 const (
 	victimServiceSec = 60
 	doseSec          = 40
+
+	// terminationGraceSec mirrors internal/queuelab's private terminationGraceSec (the Pod termination grace
+	// period the fixture runs with). It is duplicated rather than imported because that package must not
+	// change for this fix and does not export the constant.
+	terminationGraceSec = 30
+	// startupMarginSec covers Pod scheduling and container-start latency on each of the schedule's three
+	// sequential Ready waits (a1, victim, owner), none of which the protocol's timing accounts for on its own.
+	startupMarginSec = 20
 )
+
+// horizonSec is the fixed observation window, derived from the protocol's own timing rather than typed in.
+//
+// A free -horizon flag is how a previous run silently truncated itself and still exited 0: 60 s cuts the run
+// off before the owner is ever Ready. The window has to cover the dose (the wait before the owner returns),
+// the victim's full service (so an unpreempted victim in N-ref still has time to run out its service), the
+// termination grace period (the victim's worst-case shutdown once preempted), and the startup margin above,
+// so it sums all four rather than approximating one of them away.
+const horizonSec = doseSec + victimServiceSec + terminationGraceSec + startupMarginSec
+
+// horizonFor returns the observation horizon for local iteration, refusing anything short of the protocol's
+// fixed window.
+//
+// A flag that could go below horizonSec would reintroduce the exact truncation this constant exists to rule
+// out, so requested only widens the window and never narrows it.
+func horizonFor(requested time.Duration) (time.Duration, error) {
+	minHorizon := time.Duration(horizonSec) * time.Second
+	if requested < minHorizon {
+		return 0, fmt.Errorf("-horizon %s is below the protocol's fixed window %s; "+
+			"the horizon cannot be shortened without truncating the run", requested, minHorizon)
+	}
+	return requested, nil
+}
 
 // runIDPattern is the shape a run id must take, since it becomes a namespace name.
 var runIDPattern = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`)
@@ -52,6 +84,50 @@ func parseArm(s string) (queuelab.Arm, error) {
 		return "", fmt.Errorf("arm must be one of %s, %s, %s; got %q",
 			queuelab.ArmAHonor, queuelab.ArmAIgnore, queuelab.ArmNRef, s)
 	}
+}
+
+// requireRunID refuses an empty run id.
+//
+// The flag used to default to "r1", which made colliding with a previous run's cluster-scoped fixtures
+// (ResourceFlavor, ClusterQueue) the default behaviour rather than a rare mistake; there is no safe default,
+// so the id must be supplied explicitly.
+func requireRunID(runID string) error {
+	if runID == "" {
+		return fmt.Errorf("-runid is required and has no default: a reused or shared id lets a stale " +
+			"cluster-scoped fixture from a different arm silently answer for this run")
+	}
+	return nil
+}
+
+// refusePreviewOut refuses to combine -preview with -out.
+//
+// The trace and dose are now compile-time constants, so a bare ledger JSONL is enough on its own for someone
+// to reconstruct a number offline; a preview run has no validity gates behind it, so that file must never
+// become an artifact that looks like evidence.
+func refusePreviewOut(preview bool, out string) error {
+	if preview && out != "" {
+		return fmt.Errorf("-preview and -out cannot be combined: a preview ledger must not become an " +
+			"artifact someone reconstructs offline")
+	}
+	return nil
+}
+
+// variantLabelKey mirrors internal/queuelab's private variantLabel, duplicated for the same reason as
+// terminationGraceSec above: that package must not change and does not export it.
+const variantLabelKey = "queuelab.gpu-platform/variant"
+
+// checkFlavorVariant refuses a run whose cluster-scoped ResourceFlavor was left behind by a prior run under
+// a different policy variant.
+//
+// ResourceFlavor and ClusterQueue are cluster-scoped and named from the run id alone, so reusing an id after
+// deleting only the namespace leaves them in place; without this check the run would proceed under the old
+// arm's mechanism while printing this arm's label.
+func checkFlavorVariant(existingLabels map[string]string, wantVariant string) error {
+	if got := existingLabels[variantLabelKey]; got != wantVariant {
+		return fmt.Errorf("resource flavor already exists with variant %q, this arm requires %q "+
+			"(run id likely reused from a different arm)", got, wantVariant)
+	}
+	return nil
 }
 
 // namespaceFor derives this run's namespace from its run id.
@@ -79,7 +155,7 @@ func unimplementedGates() []string {
 		"synchronized list+watch with resourceVersion continuity",
 		"environment qualification (capacity, foreign GPU pods, termination canary)",
 		"node ownership transaction with crash recovery",
-		"run artifact with a validity status and non-zero exit",
+		"run artifact with a validity status",
 	}
 }
 

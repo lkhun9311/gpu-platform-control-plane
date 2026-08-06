@@ -40,10 +40,11 @@ import (
 
 func main() {
 	var (
-		armFlag = flag.String("arm", "", "arm: A-honor | A-ignore | N-ref")
-		runID   = flag.String("runid", "r1", "unique run id")
-		worker  = flag.String("worker", "platform-worker", "node to dedicate to this run")
-		horizon = flag.Duration("horizon", 150*time.Second, "observation horizon")
+		armFlag     = flag.String("arm", "", "arm: A-honor | A-ignore | N-ref")
+		runID       = flag.String("runid", "", "unique run id (required, no default: a reused id can confound a run)")
+		worker      = flag.String("worker", "platform-worker", "node to dedicate to this run")
+		horizonFlag = flag.Duration("horizon", time.Duration(horizonSec)*time.Second,
+			"observation horizon (must not be below the protocol's fixed window)")
 		out     = flag.String("out", "", "optional path to write the ledger JSONL")
 		preview = flag.Bool("preview", false, "run without the validity gates; output is a smoke check, not evidence")
 	)
@@ -53,6 +54,16 @@ func main() {
 	// cluster or create fixtures through some later code path that forgets to check it.
 	if err := gateRefusal(*preview); err != nil {
 		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	// A preview ledger with no gates behind it must not be able to leave the process as a file, so this is
+	// checked alongside the other refuse-before-touching-anything checks.
+	if err := refusePreviewOut(*preview, *out); err != nil {
+		fmt.Fprintln(os.Stderr, "ERROR:", err)
+		os.Exit(1)
+	}
+	if err := requireRunID(*runID); err != nil {
+		fmt.Fprintln(os.Stderr, "ERROR:", err)
 		os.Exit(1)
 	}
 
@@ -68,16 +79,24 @@ func main() {
 		fmt.Fprintln(os.Stderr, "ERROR:", err)
 		os.Exit(1)
 	}
+	horizon, err := horizonFor(*horizonFlag)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "ERROR:", err)
+		os.Exit(1)
+	}
 
 	if *preview {
 		fmt.Println(previewBanner)
 	}
-	if err := run(arm, *runID, namespace, *worker, *horizon, *out); err != nil {
-		fmt.Fprintln(os.Stderr, "ERROR:", err)
-		os.Exit(1)
-	}
+	runErr := run(arm, *runID, namespace, *worker, horizon, *out)
+	// The closing banner has to print even when run fails, or an invalidated preview's ledger is dumped
+	// under an opening banner alone and could be mistaken for output nobody flagged.
 	if *preview {
 		fmt.Println(previewBanner)
+	}
+	if runErr != nil {
+		fmt.Fprintln(os.Stderr, "ERROR:", runErr)
+		os.Exit(1)
 	}
 }
 
@@ -137,7 +156,7 @@ func run(arm queuelab.Arm, runID, namespace, worker string, horizon time.Duratio
 	if err != nil {
 		return err
 	}
-	if err := applyFixtures(ctx, c, fs); err != nil {
+	if err := applyFixtures(ctx, c, fs, policyVariant); err != nil {
 		return err
 	}
 	if err := dedicateWorker(ctx, c, worker, runID); err != nil {
@@ -194,6 +213,14 @@ func run(arm queuelab.Arm, runID, namespace, worker string, horizon time.Duratio
 		printEvents(events)
 		// Same reasoning as the invalidation path above: a failed reconstruction is not a result either.
 		return fmt.Errorf("reconstruct failed: %w", err)
+	}
+	// The victim is identified by ordinal position now, not by cross-watch causal inference, so an unexpected
+	// preemption count means that pairing was not actually unambiguous and this reconstruction must be refused
+	// rather than printed as if it were.
+	if err := arm.AssertCardinality(res); err != nil {
+		fmt.Printf("\nRUN INVALIDATED: %v\n", err)
+		printEvents(events)
+		return fmt.Errorf("cardinality check failed: %w", err)
 	}
 	fmt.Print("\n" + queuelab.RenderResult(res))
 	fmt.Printf("\nledger: %d events\n", len(events))

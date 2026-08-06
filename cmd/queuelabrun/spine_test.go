@@ -19,6 +19,7 @@ package main
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/lkhun9311/gpu-mlops-platform-control-plane/internal/queuelab"
 )
@@ -93,5 +94,76 @@ func TestGateRefusalBlocksCountableResults(t *testing.T) {
 	}
 	if err := gateRefusal(true); err != nil {
 		t.Fatalf("the preview flag must allow a run: %v", err)
+	}
+}
+
+func TestUnimplementedGatesDoesNotNameADoneItem(t *testing.T) {
+	// A refusal that names an already-implemented item (non-zero exit on failure, which main already does)
+	// erodes the property the function exists for: a reader fixes the named thing and is still refused.
+	for _, g := range unimplementedGates() {
+		if strings.Contains(g, "non-zero exit") {
+			t.Fatalf("gate %q names the already-implemented non-zero exit behaviour", g)
+		}
+	}
+}
+
+func TestRequireRunIDRejectsOnlyEmpty(t *testing.T) {
+	// The flag used to default to "r1", which made colliding with a previous run's cluster-scoped fixtures
+	// the default behaviour; there is no safe default, so only a genuinely supplied id may pass.
+	if err := requireRunID(""); err == nil {
+		t.Fatal("an empty run id must be refused")
+	}
+	if err := requireRunID("r1"); err != nil {
+		t.Fatalf("a non-empty run id must be accepted: %v", err)
+	}
+}
+
+func TestRefusePreviewOutRejectsOnlyTheCombination(t *testing.T) {
+	if err := refusePreviewOut(true, "ledger.jsonl"); err == nil {
+		t.Fatal("-preview with -out must be refused")
+	}
+	if err := refusePreviewOut(true, ""); err != nil {
+		t.Fatalf("-preview without -out must be allowed: %v", err)
+	}
+	if err := refusePreviewOut(false, "ledger.jsonl"); err != nil {
+		t.Fatalf("-out without -preview must be allowed: %v", err)
+	}
+	if err := refusePreviewOut(false, ""); err != nil {
+		t.Fatalf("neither flag set must be allowed: %v", err)
+	}
+}
+
+func TestCheckFlavorVariantCatchesAReusedRunID(t *testing.T) {
+	// A reused run id leaves the old arm's ResourceFlavor in place; its variant label must match the new
+	// arm's PolicyVariant() or the run would silently execute under the old mechanism.
+	if err := checkFlavorVariant(map[string]string{variantLabelKey: "Never"}, "Any"); err == nil {
+		t.Fatal("a mismatched variant must be refused")
+	}
+	if err := checkFlavorVariant(map[string]string{variantLabelKey: "Any"}, "Any"); err != nil {
+		t.Fatalf("a matching variant must be allowed: %v", err)
+	}
+	if err := checkFlavorVariant(map[string]string{}, "Any"); err == nil {
+		t.Fatal("a flavor missing the variant label entirely must be refused, not treated as a match")
+	}
+}
+
+func TestHorizonSecCoversTheProtocolsFixedWindow(t *testing.T) {
+	// 40 s dose + 60 s victim service + 30 s termination grace + 20 s startup margin = 150 s, the same
+	// duration a1 now runs for; a shorter horizon would end the observation before the owner is ever Ready.
+	if horizonSec != 150 {
+		t.Fatalf("horizonSec = %d, want 150", horizonSec)
+	}
+}
+
+func TestHorizonForRefusesBelowTheFixedWindow(t *testing.T) {
+	min := time.Duration(horizonSec) * time.Second
+	if _, err := horizonFor(min - time.Second); err == nil {
+		t.Fatal("a horizon below the protocol's fixed window must be refused")
+	}
+	if got, err := horizonFor(min); err != nil || got != min {
+		t.Fatalf("horizonFor(min) = %v, %v; want %v, nil", got, err, min)
+	}
+	if got, err := horizonFor(min + time.Minute); err != nil || got != min+time.Minute {
+		t.Fatalf("a wider horizon must be allowed unchanged: got %v, %v", got, err)
 	}
 }
