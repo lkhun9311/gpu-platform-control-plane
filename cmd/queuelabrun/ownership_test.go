@@ -277,3 +277,17 @@ func TestTaintListPreservesUnrelatedTaints(t *testing.T) {
 		t.Fatalf("release must remove only our taint, got %+v", back)
 	}
 }
+
+// withOwnershipTaint replaces the deleted upsertTaint's de-duplication role: a retried acquire attempt must
+// not leave two entries under workerTaintKey, or decideAcquire's own duplicate-taint-key check would refuse
+// a Node this transaction just wrote.
+func TestWithOwnershipTaintReplacesStaleValue(t *testing.T) {
+	stale := corev1.Taint{Key: workerTaintKey, Value: "old-run", Effect: corev1.TaintEffectNoSchedule}
+	got := withOwnershipTaint([]corev1.Taint{stale}, "new-run")
+	if len(got) != 1 {
+		t.Fatalf("want exactly one taint under %s, got %+v", workerTaintKey, got)
+	}
+	if got[0].Value != "new-run" {
+		t.Fatalf("stale taint value was not replaced: %+v", got[0])
+	}
+}

@@ -39,6 +39,13 @@ const resolveAttempts = 6
 
 const resolveInterval = 2 * time.Second
 
+// verifyAttempts bounds the retry on the read that confirms a patch which the API server already reported
+// as committed, so one transient Get error immediately afterward is not mistaken for a verification failure
+// and does not, on its own, cause the node to be abandoned still carrying our markers.
+const verifyAttempts = 3
+
+const verifyInterval = 500 * time.Millisecond
+
 // newTxID generates the ownership identity.
 //
 // It is generated rather than derived from the run id because a reused run id is already a known confound
@@ -79,7 +86,19 @@ func acquireWorker(ctx context.Context, c client.Client, nodeName, txID, runID, 
 		err = c.Patch(ctx, &n, client.MergeFromWithOptions(base, client.MergeFromWithOptimisticLock{}))
 		switch {
 		case err == nil:
-			return j, verifyAcquired(ctx, c, nodeName, j)
+			if verr := verifyAcquired(ctx, c, nodeName, j); verr != nil {
+				// The patch reported success but what we can now observe does not match what it wrote, so
+				// this transaction attempts to undo its own markers rather than returning them installed
+				// with no error, or returning an error while leaving the node held for the next run to
+				// refuse foreign-owner and a human to clear by hand.
+				if rerr := releaseAcquired(ctx, c, j); rerr != nil {
+					return journal{}, fmt.Errorf(
+						"acquire node %s: verify failed: %v; release also failed, node may still carry tx %s: %w",
+						nodeName, verr, j.TxID, rerr)
+				}
+				return journal{}, fmt.Errorf("acquire node %s: verify failed and was undone: %w", nodeName, verr)
+			}
+			return j, nil
 		case apierrors.IsConflict(err):
 			// Somebody wrote the Node between the read and the patch; re-read and re-decide from scratch.
 			lastErr = err
@@ -99,7 +118,21 @@ func acquireWorker(ctx context.Context, c client.Client, nodeName, txID, runID, 
 // which would leave the run holding a node that no longer routes work the way the flavor expects.
 func verifyAcquired(ctx context.Context, c client.Client, nodeName string, j journal) error {
 	var n corev1.Node
-	if err := c.Get(ctx, client.ObjectKey{Name: nodeName}, &n); err != nil {
+	var err error
+	for attempt := 0; attempt < verifyAttempts; attempt++ {
+		if err = c.Get(ctx, client.ObjectKey{Name: nodeName}, &n); err == nil {
+			break
+		}
+		if attempt == verifyAttempts-1 {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(verifyInterval):
+		}
+	}
+	if err != nil {
 		return fmt.Errorf("verify node %s: %w", nodeName, err)
 	}
 	obs := observe(&n)
