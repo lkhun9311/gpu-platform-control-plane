@@ -85,3 +85,45 @@ func TestArmContractIsPerRow(t *testing.T) {
 		t.Fatal("an unknown arm must be rejected, not return a default contract")
 	}
 }
+
+func TestArmAssertCardinality(t *testing.T) {
+	ok := LabResult{Outcomes: []WorkloadOutcome{
+		{Job: OwnRow, Preemptions: 0, Attempts: 1},
+		{Job: VictimRow, Preemptions: 1, Attempts: 1},
+		{Job: OwnerRow, Preemptions: 0, Attempts: 1},
+	}}
+	if err := ArmAHonor.AssertCardinality(ok); err != nil {
+		t.Fatalf("the expected shape must pass: %v", err)
+	}
+
+	// N-ref must never preempt; a preemption there means the policy did not take effect.
+	if err := ArmNRef.AssertCardinality(ok); err == nil {
+		t.Fatal("N-ref must reject any preemption")
+	}
+
+	ownPreempted := LabResult{Outcomes: []WorkloadOutcome{
+		{Job: OwnRow, Preemptions: 1, Attempts: 1},
+		{Job: VictimRow, Preemptions: 0, Attempts: 1},
+		{Job: OwnerRow, Preemptions: 0, Attempts: 1},
+	}}
+	if err := ArmAHonor.AssertCardinality(ownPreempted); err == nil {
+		t.Fatal("a preemption on a row other than the victim must be rejected")
+	}
+
+	twice := LabResult{Outcomes: []WorkloadOutcome{
+		{Job: OwnRow, Preemptions: 0, Attempts: 1},
+		{Job: VictimRow, Preemptions: 2, Attempts: 2},
+		{Job: OwnerRow, Preemptions: 0, Attempts: 1},
+	}}
+	if err := ArmAHonor.AssertCardinality(twice); err == nil {
+		t.Fatal("more than one preemption on the victim must be rejected")
+	}
+
+	missing := LabResult{Outcomes: []WorkloadOutcome{
+		{Job: OwnRow, Preemptions: 0, Attempts: 1},
+		{Job: VictimRow, Preemptions: 0, Attempts: 1},
+	}}
+	if err := ArmAHonor.AssertCardinality(missing); err == nil {
+		t.Fatal("a missing row must be rejected")
+	}
+}

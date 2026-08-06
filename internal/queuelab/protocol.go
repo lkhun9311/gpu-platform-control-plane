@@ -74,3 +74,37 @@ func (a Arm) ContractFor(rowName string) (TerminationContract, error) {
 	}
 	return HonorsSIGTERM, nil
 }
+
+// AssertCardinality checks that a reconstructed run has the shape the protocol declares.
+//
+// It matters more than it looks: once causality is no longer inferred from cross-watch timestamps, the
+// victim attempt is identified by BEING the only one open to the decision, so an unexpected count is not a
+// cosmetic surprise — it means the pairing this arm relies on was not actually unambiguous.
+func (a Arm) AssertCardinality(res LabResult) error {
+	wantPreemptions := 1
+	if a == ArmNRef {
+		// Never must not reclaim; a preemption here means the applied policy was not the intended one.
+		wantPreemptions = 0
+	} else if _, err := a.PolicyVariant(); err != nil {
+		return err
+	}
+
+	seen := map[string]WorkloadOutcome{}
+	for _, o := range res.Outcomes {
+		seen[o.Job] = o
+	}
+	for _, row := range []string{OwnRow, VictimRow, OwnerRow} {
+		if _, ok := seen[row]; !ok {
+			return fmt.Errorf("row %q is missing from the reconstruction", row)
+		}
+	}
+	for _, row := range []string{OwnRow, OwnerRow} {
+		if n := seen[row].Preemptions; n != 0 {
+			return fmt.Errorf("row %q was preempted %d times; only the victim may be preempted", row, n)
+		}
+	}
+	if n := seen[VictimRow].Preemptions; n != wantPreemptions {
+		return fmt.Errorf("victim was preempted %d times, want %d for arm %s", n, wantPreemptions, a)
+	}
+	return nil
+}
