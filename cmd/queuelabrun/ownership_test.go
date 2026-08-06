@@ -256,3 +256,24 @@ func TestDecideRelease(t *testing.T) {
 		}
 	})
 }
+
+// RFC 7386 merge patch replaces spec.taints wholesale, so the new list must be built from the list we just
+// observed or an unrelated taint would be deleted as a side effect of dedicating the worker.
+func TestTaintListPreservesUnrelatedTaints(t *testing.T) {
+	unrelated := corev1.Taint{Key: "gpu-platform/unhealthy", Value: "true", Effect: corev1.TaintEffectNoSchedule}
+	got := withOwnershipTaint([]corev1.Taint{unrelated}, "r7")
+	if len(got) != 2 {
+		t.Fatalf("want the unrelated taint kept plus ours, got %+v", got)
+	}
+	if got[0] != unrelated {
+		t.Fatalf("unrelated taint was not preserved: %+v", got)
+	}
+	if got[1].Key != workerTaintKey || got[1].Value != "r7" || got[1].Effect != corev1.TaintEffectNoSchedule {
+		t.Fatalf("ownership taint not appended correctly: %+v", got[1])
+	}
+
+	back := withoutOwnershipTaint(got)
+	if len(back) != 1 || back[0] != unrelated {
+		t.Fatalf("release must remove only our taint, got %+v", back)
+	}
+}

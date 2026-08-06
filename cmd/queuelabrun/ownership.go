@@ -249,6 +249,32 @@ func verifyInstalled(obs ownership, j journal) error {
 	return nil
 }
 
+// withOwnershipTaint returns the taint list to patch, built from the observed list.
+//
+// The merge patch replaces the array wholesale, so anything not carried over here is deleted from the Node.
+func withOwnershipTaint(observed []corev1.Taint, runID string) []corev1.Taint {
+	out := make([]corev1.Taint, 0, len(observed)+1)
+	for _, t := range observed {
+		if t.Key != workerTaintKey {
+			out = append(out, t)
+		}
+	}
+	return append(out, corev1.Taint{
+		Key: workerTaintKey, Value: runID, Effect: corev1.TaintEffectNoSchedule,
+	})
+}
+
+// withoutOwnershipTaint removes only this experiment's taint key, leaving every other taint untouched.
+func withoutOwnershipTaint(observed []corev1.Taint) []corev1.Taint {
+	out := make([]corev1.Taint, 0, len(observed))
+	for _, t := range observed {
+		if t.Key != workerTaintKey {
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
 // decideRelease says what release may do, and refusing is a run-invalidating outcome rather than a warning.
 //
 // Restoring over a value that moved would be a second act of damage, so divergence refuses and hands the

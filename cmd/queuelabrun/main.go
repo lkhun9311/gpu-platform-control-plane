@@ -145,6 +145,27 @@ func run(arm queuelab.Arm, runID, namespace, worker string, horizon time.Duratio
 		return err
 	}
 
+	// Ownership is taken before any namespace or fixture exists, so a refused run leaves nothing of its own
+	// behind for the next one to trip over.
+	txID := newTxID()
+	j, err := acquireWorker(ctx, c, worker, txID, runID, string(arm))
+	if err != nil {
+		return fmt.Errorf("acquire worker %s: %w", worker, err)
+	}
+	released := false
+	// The emergency release covers the paths that return early; the run's own release in the happy path
+	// runs before anything is published, and sets released so this defer stays a no-op.
+	defer func() {
+		if released {
+			return
+		}
+		if rerr := releaseAcquired(context.Background(), c, j); rerr != nil {
+			fmt.Fprintf(os.Stderr, "WORKER NOT RESTORED: %v\n  run: queuelabrun -inspect-worker %s\n", rerr, worker)
+		}
+	}()
+	fmt.Printf("  worker %s acquired: tx=%s (if this process dies, run: queuelabrun -inspect-worker %s)\n",
+		worker, txID, worker)
+
 	if err := ensureNamespace(ctx, c, namespace); err != nil {
 		return err
 	}
@@ -159,10 +180,6 @@ func run(arm queuelab.Arm, runID, namespace, worker string, horizon time.Duratio
 	if err := applyFixtures(ctx, c, fs, policyVariant); err != nil {
 		return err
 	}
-	if err := dedicateWorker(ctx, c, worker, runID); err != nil {
-		return err
-	}
-	defer func() { _ = releaseWorker(context.Background(), c, worker) }()
 
 	fmt.Printf("run %s: arm=%s ns=%s worker=%s horizon=%s\n",
 		runID, arm, namespace, worker, horizon)
