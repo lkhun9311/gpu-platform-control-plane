@@ -40,25 +40,35 @@ import (
 
 func main() {
 	var (
-		studyFlag = flag.String("study", "reclaim", "study: reclaim | fifo")
-		variant   = flag.String("variant", "Any", "variant within the study")
-		runID     = flag.String("runid", "r1", "unique run id")
-		namespace = flag.String("ns", "queuelab", "namespace for LocalQueues and jobs")
-		worker    = flag.String("worker", "platform-worker", "node to dedicate to this run")
-		durSec    = flag.Int("dur", 60, "trace job duration seconds")
-		horizon   = flag.Duration("horizon", 150*time.Second, "observation horizon")
-		out       = flag.String("out", "", "optional path to write the ledger JSONL")
+		armFlag = flag.String("arm", "", "arm: A-honor | A-ignore | N-ref")
+		runID   = flag.String("runid", "r1", "unique run id")
+		worker  = flag.String("worker", "platform-worker", "node to dedicate to this run")
+		horizon = flag.Duration("horizon", 150*time.Second, "observation horizon")
+		out     = flag.String("out", "", "optional path to write the ledger JSONL")
 	)
 	flag.Parse()
 
-	if err := run(*studyFlag, *variant, *runID, *namespace, *worker, *durSec, *horizon, *out); err != nil {
+	// The arm and the namespace are resolved before anything touches the cluster, so a bad flag is refused
+	// up front instead of after fixtures are already applied to some namespace.
+	arm, err := parseArm(*armFlag)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "ERROR:", err)
+		os.Exit(1)
+	}
+	namespace, err := namespaceFor(*runID)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "ERROR:", err)
+		os.Exit(1)
+	}
+
+	if err := run(arm, *runID, namespace, *worker, *horizon, *out); err != nil {
 		fmt.Fprintln(os.Stderr, "ERROR:", err)
 		os.Exit(1)
 	}
 }
 
-func run(studyName, variant, runID, namespace, worker string, durSec int, horizon time.Duration, out string) error {
-	study := queuelab.Study(studyName)
+func run(arm queuelab.Arm, runID, namespace, worker string, horizon time.Duration, out string) error {
+	study := queuelab.StudyReclaim
 	scheme := runtime.NewScheme()
 	if err := clientgoscheme.AddToScheme(scheme); err != nil {
 		return err
@@ -80,7 +90,7 @@ func run(studyName, variant, runID, namespace, worker string, durSec int, horizo
 	}
 	ctx := context.Background()
 
-	trace, err := buildTrace(study, durSec)
+	trace, err := buildTrace(study)
 	if err != nil {
 		return err
 	}
@@ -95,7 +105,11 @@ func run(studyName, variant, runID, namespace, worker string, durSec int, horizo
 	if err := ensureNamespace(ctx, c, namespace); err != nil {
 		return err
 	}
-	fs, err := queuelab.BuildFixtures(study, variant, runID, namespace)
+	policyVariant, err := arm.PolicyVariant()
+	if err != nil {
+		return err
+	}
+	fs, err := queuelab.BuildFixtures(study, policyVariant, runID, namespace)
 	if err != nil {
 		return err
 	}
@@ -107,8 +121,8 @@ func run(studyName, variant, runID, namespace, worker string, durSec int, horizo
 	}
 	defer func() { _ = releaseWorker(context.Background(), c, worker) }()
 
-	fmt.Printf("run %s: study=%s variant=%s ns=%s worker=%s horizon=%s\n",
-		runID, study, variant, namespace, worker, horizon)
+	fmt.Printf("run %s: arm=%s ns=%s worker=%s horizon=%s\n",
+		runID, arm, namespace, worker, horizon)
 
 	col := newCollector(c, namespace, runID)
 	cctx, cancel := context.WithCancel(ctx)
@@ -148,7 +162,7 @@ func run(studyName, variant, runID, namespace, worker string, durSec int, horizo
 		printEvents(events)
 		return nil
 	}
-	res, err := queuelab.Reconstruct(variant, trace, events, col.elapsed().Nanoseconds())
+	res, err := queuelab.Reconstruct(string(arm), trace, events, col.elapsed().Nanoseconds())
 	if err != nil {
 		fmt.Printf("\nRECONSTRUCT ERROR: %v\n", err)
 		printEvents(events)
@@ -160,12 +174,10 @@ func run(studyName, variant, runID, namespace, worker string, durSec int, horizo
 	return nil
 }
 
-func buildTrace(study queuelab.Study, durSec int) ([]queuelab.TrainingTraceRow, error) {
+func buildTrace(study queuelab.Study) ([]queuelab.TrainingTraceRow, error) {
 	switch study {
 	case queuelab.StudyReclaim:
-		return queuelab.ReclaimScenario(true, durSec), nil
-	case queuelab.StudyFIFO:
-		return queuelab.FIFOHeadOfLineScenario(durSec, durSec/4+1), nil
+		return queuelab.ReclaimScenario(true, victimServiceSec), nil
 	default:
 		return nil, fmt.Errorf("unknown study %q", study)
 	}
