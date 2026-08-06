@@ -223,17 +223,12 @@ func run(ctx context.Context, arm queuelab.Arm, runID, namespace, worker string,
 	}
 
 	events := col.builder.Events()
-	if out != "" {
-		if err := writeLedger(out, events); err != nil {
-			return err
-		}
-		fmt.Printf("  wrote %d ledger events to %s\n", len(events), out)
-	}
+
+	// Validity is decided before anything is published, because a non-zero exit cannot retract a number
+	// that has already been printed or a ledger that has already been written.
 	if err := col.builder.Err(); err != nil {
 		fmt.Printf("\nRUN INVALIDATED: %v\n", err)
 		printEvents(events)
-		// The ledger is printed for diagnosis, but an invalidated run must exit non-zero so nothing
-		// downstream mistakes this for a countable result.
 		return fmt.Errorf("run invalidated: %w", err)
 	}
 	res, err := queuelab.Reconstruct(string(arm), trace, events, col.elapsed().Nanoseconds())
@@ -250,6 +245,22 @@ func run(ctx context.Context, arm queuelab.Arm, runID, namespace, worker string,
 		fmt.Printf("\nRUN INVALIDATED: %v\n", err)
 		printEvents(events)
 		return fmt.Errorf("cardinality check failed: %w", err)
+	}
+
+	// The worker is restored, and proven restored, before the result exists anywhere a reader could find
+	// it: a run that lost its exclusive worker mid-flight has no claim on the number it computed.
+	if err := releaseAcquired(context.Background(), c, j); err != nil {
+		fmt.Printf("\nRUN INVALIDATED: worker %s not restored: %v\n", worker, err)
+		printEvents(events)
+		return fmt.Errorf("worker not restored: %w", err)
+	}
+	released = true
+
+	if out != "" {
+		if err := writeLedger(out, events); err != nil {
+			return err
+		}
+		fmt.Printf("  wrote %d ledger events to %s\n", len(events), out)
 	}
 	fmt.Print("\n" + queuelab.RenderResult(res))
 	fmt.Printf("\nledger: %d events\n", len(events))
