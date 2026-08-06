@@ -45,8 +45,16 @@ func main() {
 		worker  = flag.String("worker", "platform-worker", "node to dedicate to this run")
 		horizon = flag.Duration("horizon", 150*time.Second, "observation horizon")
 		out     = flag.String("out", "", "optional path to write the ledger JSONL")
+		preview = flag.Bool("preview", false, "run without the validity gates; output is a smoke check, not evidence")
 	)
 	flag.Parse()
+
+	// The gate runs before the arm and namespace are even parsed, so a refused run cannot mutate the
+	// cluster or create fixtures through some later code path that forgets to check it.
+	if err := gateRefusal(*preview); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
 
 	// The arm and the namespace are resolved before anything touches the cluster, so a bad flag is refused
 	// up front instead of after fixtures are already applied to some namespace.
@@ -61,11 +69,23 @@ func main() {
 		os.Exit(1)
 	}
 
+	if *preview {
+		fmt.Println(previewBanner)
+	}
 	if err := run(arm, *runID, namespace, *worker, *horizon, *out); err != nil {
 		fmt.Fprintln(os.Stderr, "ERROR:", err)
 		os.Exit(1)
 	}
+	if *preview {
+		fmt.Println(previewBanner)
+	}
 }
+
+// previewBanner marks preview output so it cannot be mistaken for a countable result.
+//
+// The validity gates are what make a run's output trustworthy, and preview mode runs without them, so the
+// banner has to bracket the result rather than appear only once where scrolled-past output could miss it.
+const previewBanner = "==================== PREVIEW: SMOKE CHECK ONLY, NOT EVIDENCE ===================="
 
 func run(arm queuelab.Arm, runID, namespace, worker string, horizon time.Duration, out string) error {
 	study := queuelab.StudyReclaim
@@ -164,13 +184,16 @@ func run(arm queuelab.Arm, runID, namespace, worker string, horizon time.Duratio
 	if err := col.builder.Err(); err != nil {
 		fmt.Printf("\nRUN INVALIDATED: %v\n", err)
 		printEvents(events)
-		return nil
+		// The ledger is printed for diagnosis, but an invalidated run must exit non-zero so nothing
+		// downstream mistakes this for a countable result.
+		return fmt.Errorf("run invalidated: %w", err)
 	}
 	res, err := queuelab.Reconstruct(string(arm), trace, events, col.elapsed().Nanoseconds())
 	if err != nil {
 		fmt.Printf("\nRECONSTRUCT ERROR: %v\n", err)
 		printEvents(events)
-		return nil
+		// Same reasoning as the invalidation path above: a failed reconstruction is not a result either.
+		return fmt.Errorf("reconstruct failed: %w", err)
 	}
 	fmt.Print("\n" + queuelab.RenderResult(res))
 	fmt.Printf("\nledger: %d events\n", len(events))

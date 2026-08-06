@@ -69,3 +69,34 @@ func namespaceFor(runID string) (string, error) {
 	}
 	return ns, nil
 }
+
+// unimplementedGates names the validity work this executable does not yet have.
+//
+// It exists so the refusal below can be specific: an unexplained failure gets rerun until it passes, while
+// a refusal that names what is missing gets fixed.
+func unimplementedGates() []string {
+	return []string{
+		"synchronized list+watch with resourceVersion continuity",
+		"environment qualification (capacity, foreign GPU pods, termination canary)",
+		"node ownership transaction with crash recovery",
+		"run artifact with a validity status and non-zero exit",
+	}
+}
+
+// gateRefusal stops a run that would produce something a reader could mistake for a result.
+//
+// The measurement layer is correct and the protocol is now wired, but the gates that make a run's evidence
+// admissible are later pieces. A previous published result was wrong precisely because a run that looked
+// fine was allowed to count, so the executable refuses by default and requires an explicit preview flag
+// whose output is labelled as not a result.
+func gateRefusal(preview bool) error {
+	if preview {
+		return nil
+	}
+	msg := "refusing to run: the validity gates are not implemented yet, so this run cannot count as a result.\nmissing:"
+	for _, g := range unimplementedGates() {
+		msg += "\n  - " + g
+	}
+	msg += "\npass -preview to run anyway; its output is a smoke check, not evidence."
+	return fmt.Errorf("%s", msg)
+}

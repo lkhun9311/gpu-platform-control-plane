@@ -75,3 +75,23 @@ func TestProtocolConstantsMatchTheDesignOfRecord(t *testing.T) {
 		t.Fatalf("dose = %d, want 40", doseSec)
 	}
 }
+
+func TestGateRefusalBlocksCountableResults(t *testing.T) {
+	if len(unimplementedGates()) == 0 {
+		t.Fatal("while gates are unimplemented the list must not be empty")
+	}
+	err := gateRefusal(false)
+	if err == nil {
+		t.Fatal("without the preview flag the runner must refuse to run")
+	}
+	// The refusal has to name what is missing, or the next person reads it as a transient failure and
+	// reruns until it passes.
+	for _, want := range unimplementedGates() {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("refusal must name the missing gate %q, got: %v", want, err)
+		}
+	}
+	if err := gateRefusal(true); err != nil {
+		t.Fatalf("the preview flag must allow a run: %v", err)
+	}
+}
