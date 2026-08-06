@@ -164,10 +164,14 @@ func TestWasteNoStopChargesToHorizonAsUnattributedOccupancy(t *testing.T) {
 	}
 }
 
-func TestReconstructToleratesConcurrentAttemptsWithOrdinalPreemptionPairing(t *testing.T) {
-	// Two attempts are both running when a preemption is decided. A Workload preemption delta names no Pod UID,
-	// so pairing uses ordinal order: the k-th preemption pairs to the k-th attempt by start time.
-	// This means the preemption pairs to the first attempt (ready at 10s), not the second (ready at 20s).
+func TestReconstructRejectsOverlappingAttempts(t *testing.T) {
+	// Two attempts are both Ready with neither observed to stop.
+	// Both instants compared here -- one attempt's Ready and the other's Ready/stop -- come from the SAME
+	// Pod watch, so unlike a decision-to-attempt comparison this ordering is trustworthy evidence, not a
+	// delivery-latency artifact.
+	// A row runs with Parallelism: 1, one attempt at a time, so it cannot legitimately have two attempts
+	// Ready at once: the ledger disagrees with the mechanism, and Reconstruct must refuse it rather than
+	// silently pairing the preemption to one of them.
 	trace := []TrainingTraceRow{{Index: 0, Name: "a2", OffsetMs: 0, Tenant: "tenant-a", GPUCount: 1, DurationSec: 300}}
 	events := []LifecycleEvent{
 		{ElapsedNs: 0, Kind: "MLTrainingJob", Type: EventSubmitted, Job: "a2", GPUCount: 1},
@@ -176,8 +180,42 @@ func TestReconstructToleratesConcurrentAttemptsWithOrdinalPreemptionPairing(t *t
 		{ElapsedNs: 20 * sec, Kind: "Pod", Type: EventPodReady, Job: "a2", GPUCount: 1, ObjectUID: "pod-B"},
 		{ElapsedNs: 30 * sec, Kind: "Workload", Type: EventPreempted, Job: "a2", GPUCount: 1, Reason: "InCohortReclamation"},
 	}
-	if _, err := Reconstruct("Any", trace, events, 100*sec); err != nil {
-		t.Fatalf("ordinal pairing of concurrent attempts is legal: %v", err)
+	if _, err := Reconstruct("Any", trace, events, 100*sec); err == nil {
+		t.Fatalf("two attempts Ready with neither stopped must error as overlapping")
+	}
+}
+
+func TestReconstructAllowsSequentialReExecutionWithOrdinalPreemptionPairing(t *testing.T) {
+	// The legitimate re-execution shape: one attempt Ready at 10s and stopped at 20s, then a second Ready at
+	// 30s -- sequential, not overlapping, so attemptsDoNotOverlap must let it through.
+	// A Workload preemption delta names no Pod UID, so pairing uses ordinal order: with one decision and two
+	// attempts it pairs to the first (only) attempt that was running when the row had a single attempt.
+	trace := []TrainingTraceRow{{Index: 0, Name: "a2", OffsetMs: 0, Tenant: "tenant-a", GPUCount: 1, DurationSec: 300}}
+	events := []LifecycleEvent{
+		{ElapsedNs: 0, Kind: "MLTrainingJob", Type: EventSubmitted, Job: "a2", GPUCount: 1},
+		{ElapsedNs: 1 * sec, Kind: "Workload", Type: EventAdmitted, Job: "a2", GPUCount: 1},
+		{ElapsedNs: 10 * sec, Kind: "Pod", Type: EventPodReady, Job: "a2", GPUCount: 1, ObjectUID: "pod-A"},
+		{ElapsedNs: 20 * sec, Kind: "Pod", Type: EventAttemptStopped, Job: "a2", GPUCount: 1, ObjectUID: "pod-A", Reason: StopReasonFailed},
+		{ElapsedNs: 30 * sec, Kind: "Pod", Type: EventPodReady, Job: "a2", GPUCount: 1, ObjectUID: "pod-B"},
+		{ElapsedNs: 40 * sec, Kind: "Workload", Type: EventPreempted, Job: "a2", GPUCount: 1, Reason: "InCohortReclamation"},
+	}
+	res, err := Reconstruct("Any", trace, events, 100*sec)
+	if err != nil {
+		t.Fatalf("sequential re-execution must not be rejected as overlapping: %v", err)
+	}
+	var a2 WorkloadOutcome
+	for _, o := range res.Outcomes {
+		if o.Job == "a2" {
+			a2 = o
+		}
+	}
+	if a2.Preemptions != 1 {
+		t.Fatalf("a2 preemptions = %d, want 1", a2.Preemptions)
+	}
+	// The preemption pairs ordinally to the first attempt (pod-A, ready 10s -> stopped Failed at 20s), so
+	// its 10 GPU-seconds are charged as exact waste; the second attempt is untouched by the preemption.
+	if a2.WastedGPUSeconds != 10 {
+		t.Fatalf("a2 waste = %.1f, want 10 (charged to the first attempt only)", a2.WastedGPUSeconds)
 	}
 }
 
@@ -682,20 +720,23 @@ func twoPreemptedAttemptsTrace() []TrainingTraceRow {
 	return []TrainingTraceRow{{Index: 0, Name: "m1", OffsetMs: 0, Tenant: "tenant-a", GPUCount: 1, DurationSec: 60}}
 }
 
-// twoPreemptedAttemptsEvents preempts two different attempts on the same row: the first stops Failed beyond
-// the horizon (a non-zero censored waste lower bound), the second reaches no terminal phase at all (a
-// non-zero unattributed occupancy), so both terms of the invariant are non-zero on the very same row.
+// twoPreemptedAttemptsEvents preempts two different attempts on the same row, SEQUENTIALLY: a row runs
+// Parallelism: 1, one attempt at a time, so the second attempt's Ready only follows the first attempt's
+// observed stop (attemptsDoNotOverlap enforces exactly this). The first stops Failed in-horizon (a non-zero
+// exact waste, which also lower-bounds it), and the second reaches no terminal phase at all by the horizon
+// (a non-zero unattributed occupancy), so both terms of the invariant are non-zero on the very same row.
 func twoPreemptedAttemptsEvents() []LifecycleEvent {
 	return []LifecycleEvent{
 		{ElapsedNs: 0, Kind: "MLTrainingJob", Type: EventSubmitted, Job: "m1", GPUCount: 1},
 		{ElapsedNs: 1 * sec, Kind: "Workload", Type: EventAdmitted, Job: "m1", GPUCount: 1},
 		{ElapsedNs: 2 * sec, Kind: "Pod", Type: EventPodReady, Job: "m1", GPUCount: 1, ObjectUID: "pod-m1-a"},
 		{ElapsedNs: 10 * sec, Kind: "Workload", Type: EventPreempted, Job: "m1", GPUCount: 1, Reason: "InCohortReclamation"},
-		// The first attempt's Failed phase lands beyond the horizon: attributable loss, truncated interval.
-		{ElapsedNs: 60 * sec, Kind: "Pod", Type: EventAttemptStopped, Job: "m1", GPUCount: 1, ObjectUID: "pod-m1-a", Reason: StopReasonFailed},
+		// The first attempt's Failed phase lands in-horizon: an exact, attributable loss.
+		{ElapsedNs: 20 * sec, Kind: "Pod", Type: EventAttemptStopped, Job: "m1", GPUCount: 1, ObjectUID: "pod-m1-a", Reason: StopReasonFailed},
 
-		{ElapsedNs: 15 * sec, Kind: "Pod", Type: EventPodReady, Job: "m1", GPUCount: 1, ObjectUID: "pod-m1-b"},
-		{ElapsedNs: 20 * sec, Kind: "Workload", Type: EventPreempted, Job: "m1", GPUCount: 1, Reason: "InCohortReclamation"},
+		// Ready only after pod-m1-a's stop at 20s, so the row never runs two attempts at once.
+		{ElapsedNs: 25 * sec, Kind: "Pod", Type: EventPodReady, Job: "m1", GPUCount: 1, ObjectUID: "pod-m1-b"},
+		{ElapsedNs: 30 * sec, Kind: "Workload", Type: EventPreempted, Job: "m1", GPUCount: 1, Reason: "InCohortReclamation"},
 		// The second attempt reaches no terminal phase by the horizon at all: cause unknown.
 	}
 }
@@ -944,9 +985,16 @@ func TestReconstructCreditsASoleAttemptWithTheRowsCompletion(t *testing.T) {
 
 func TestReconstructDoesNotCreditACompletionToOneOfSeveralAttempts(t *testing.T) {
 	// With two attempts the row's completion says nothing about WHICH attempt it belongs to, so the preempted
-	// attempt cannot be credited with it; guessing here would re-introduce inference from adjacency.
+	// attempt cannot be credited with it; guessing here would re-introduce inference from adjacency. A row
+	// runs Parallelism: 1, one attempt at a time, so the first attempt must be observed stopped before the
+	// retry becomes Ready (attemptsDoNotOverlap enforces exactly this) -- here the first attempt's own Failed
+	// evidence already answers the question independently, and the row's completion must still not be read
+	// back onto it.
 	events := append(preemptedNoTerminalPhaseEvents(),
-		// The retry becomes Ready after the preemption decision, so the pairing at 34 s stays unambiguous.
+		// The first attempt is observed to stop Failed before the retry becomes Ready.
+		LifecycleEvent{ElapsedNs: 36 * sec, Kind: "Pod", Type: EventAttemptStopped, Job: "a2", Tenant: "tenant-a", GPUCount: 1, ObjectUID: "pod-a2", Reason: StopReasonFailed},
+		// The retry becomes Ready after both the preemption decision (34 s) and the first attempt's stop
+		// (36 s), so the pairing stays unambiguous and the two attempts are sequential, not concurrent.
 		LifecycleEvent{ElapsedNs: 40 * sec, Kind: "Pod", Type: EventPodReady, Job: "a2", Tenant: "tenant-a", GPUCount: 1, ObjectUID: "pod-a2-retry"},
 		LifecycleEvent{ElapsedNs: 49 * sec, Kind: "Job", Type: EventCompleted, Job: "a2", Tenant: "tenant-a", GPUCount: 1},
 	)
@@ -959,17 +1007,19 @@ func TestReconstructDoesNotCreditACompletionToOneOfSeveralAttempts(t *testing.T)
 		t.Fatalf("this test needs a completed row with two attempts, got attempts=%d completed=%v", a2.Attempts, a2.Completed)
 	}
 	if a2.PreemptionIneffective {
-		t.Fatal("a completion on an unknown attempt must not be credited to the preempted one")
+		t.Fatal("the row's completion belongs to the retry, not the already-Failed preempted attempt, and must not be credited to it")
 	}
-	if a2.WastedGPUSeconds != 0 || a2.WasteLowerBoundGPUSeconds != 0 || a2.WasteCensored {
-		t.Fatalf("still no Failed terminal phase, so still no waste: %.1f/%.1f censored=%v",
+	// The preempted attempt has its own Failed evidence (Ready 3 s, stop 36 s): 1 GPU * (36 - 3) = 33 exact,
+	// attributable waste, fully explained without reference to the row's later completion.
+	if a2.WastedGPUSeconds != 33 || a2.WasteLowerBoundGPUSeconds != 33 || a2.WasteCensored {
+		t.Fatalf("a2 waste = %.1f (lb %.1f, censored %v), want 33/33/false: an observed in-horizon Failed stop",
 			a2.WastedGPUSeconds, a2.WasteLowerBoundGPUSeconds, a2.WasteCensored)
 	}
-	// Only the preempted attempt is charged, and only up to the row's observed completion at 49 s (Ready 3 s),
-	// tighter than the 50 s horizon; the retry was never preempted so it contributes nothing here.
-	if a2.UnattributedOccupancyGPUSeconds != 46 {
-		t.Fatalf("a2 unattributed occupancy = %.1f, want 46 (the preempted attempt only, bounded by the"+
-			" row's observed completion)", a2.UnattributedOccupancyGPUSeconds)
+	// The retry was never preempted, so it contributes nothing here, and the preempted attempt's own Failed
+	// stop already explains its loss, so nothing is left unattributed.
+	if a2.UnattributedOccupancyGPUSeconds != 0 {
+		t.Fatalf("a2 unattributed occupancy = %.1f, want 0 (the preempted attempt's Failed stop fully"+
+			" explains its own loss)", a2.UnattributedOccupancyGPUSeconds)
 	}
 }
 

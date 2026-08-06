@@ -538,6 +538,9 @@ func chargeWaste(t *jobTimeline, horizonElapsedNs int64, out *WorkloadOutcome) e
 		end := occupancyEnd(t, a, horizonElapsedNs)
 		out.TotalOccupancyGPUSeconds += float64(t.gpuCount) * float64(end-a.readyNs) / 1e9
 	}
+	if err := attemptsDoNotOverlap(t); err != nil {
+		return err
+	}
 	paired, err := pairPreemptionsToAttempts(t, len(t.preemptedNs))
 	if err != nil {
 		return err
@@ -618,6 +621,27 @@ func attemptsInStartOrder(t *jobTimeline) []*attempt {
 		}
 	})
 	return out
+}
+
+// attemptsDoNotOverlap checks that a row's attempts, ordered by Ready, never run concurrently.
+//
+// It compares one attempt's stop instant against the NEXT attempt's Ready instant, and both come from the
+// same Pod watch, so unlike a decision-to-attempt comparison this ordering is trustworthy evidence, not a
+// delivery-latency artifact. A row runs with Parallelism: 1, one attempt at a time, so the earlier attempt
+// must have stopped before the later one became Ready.
+// An attempt with no observed stop cannot be shown to have ended, so it is treated as still open: a later
+// attempt becoming Ready while an earlier one has no observed stop is also an overlap, not a pass by
+// default.
+func attemptsDoNotOverlap(t *jobTimeline) error {
+	ordered := attemptsInStartOrder(t)
+	for i := 1; i < len(ordered); i++ {
+		prev, cur := ordered[i-1], ordered[i]
+		if !prev.stopped || prev.stopNs >= cur.readyNs {
+			return fmt.Errorf("attempt %s and attempt %s overlap: a row runs one attempt at a time",
+				prev.uid, cur.uid)
+		}
+	}
+	return nil
 }
 
 // pairPreemptionsToAttempts matches each preemption decision to the attempt it stopped, ordinally.
