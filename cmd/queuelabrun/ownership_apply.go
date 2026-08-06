@@ -91,10 +91,16 @@ func acquireWorker(ctx context.Context, c client.Client, nodeName, txID, runID, 
 				// this transaction attempts to undo its own markers rather than returning them installed
 				// with no error, or returning an error while leaving the node held for the next run to
 				// refuse foreign-owner and a human to clear by hand.
-				if rerr := releaseAcquired(ctx, c, j); rerr != nil {
+				//
+				// This self-release must run on a fresh background context, not ctx: a signal cancelling ctx
+				// is exactly what can cause verifyAcquired to fail in the first place, and releasing on the
+				// same cancelled context would make the Get here fail immediately, skip the release Patch
+				// entirely, and leave the label, taint and journal stranded on the node with nothing left to
+				// undo them — the failure this task exists to prevent.
+				if rerr := releaseAcquired(context.Background(), c, j); rerr != nil {
 					return journal{}, fmt.Errorf(
-						"acquire node %s: verify failed: %v; release also failed, node may still carry tx %s: %w",
-						nodeName, verr, j.TxID, rerr)
+						"acquire node %s: verify failed: %v; release also failed, node may still carry tx %s: run: queuelabrun -inspect-worker %s: %w",
+						nodeName, verr, j.TxID, nodeName, rerr)
 				}
 				return journal{}, fmt.Errorf("acquire node %s: verify failed and was undone: %w", nodeName, verr)
 			}
@@ -128,7 +134,10 @@ func verifyAcquired(ctx context.Context, c client.Client, nodeName string, j jou
 		}
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
+			// Bare ctx.Err() here would drop the node name and the txID that identify what is still on the
+			// node for the caller's self-release (see acquireWorker) to act on, the same detail every other
+			// cancellation branch in this file now carries.
+			return fmt.Errorf("verify node %s cancelled: tx %s: %w", nodeName, j.TxID, ctx.Err())
 		case <-time.After(verifyInterval):
 		}
 	}

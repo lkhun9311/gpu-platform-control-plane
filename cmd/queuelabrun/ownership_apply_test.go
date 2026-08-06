@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"testing"
 
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -144,5 +145,66 @@ func TestAcquireWorkerReturnsRefusalWithoutRetry(t *testing.T) {
 	}
 	if patchCalls != 0 {
 		t.Fatalf("want 0 patches, got %d — a refusal must not attempt to write", patchCalls)
+	}
+}
+
+// This is the regression test for the critical finding in Task 3's review: acquireWorker's self-release
+// must run on a fresh background context, never on ctx itself. A signal landing the instant after the
+// acquire Patch commits is exactly what makes verifyAcquired fail via its ctx.Done() branch, and if the
+// self-release that follows reused the same cancelled ctx, its own first Get would fail immediately, the
+// release Patch would never even be attempted, and the label, taint and journal would be stranded on the
+// node with nothing left to undo them — the exact failure this task exists to prevent.
+//
+// The interceptor simulates what a real REST client does on a cancelled context (the fake client does not
+// check ctx on its own): a Get issued after ctx is cancelled fails immediately, exactly like the trace the
+// review walked.
+func TestAcquireWorkerSelfReleaseSurvivesContextCancelledDuringVerify(t *testing.T) {
+	n := node(nil, nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var patched bool
+	fc := fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(n).WithInterceptorFuncs(interceptor.Funcs{
+		Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object,
+			opts ...client.GetOption) error {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			return c.Get(ctx, key, obj, opts...)
+		},
+		Patch: func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch,
+			opts ...client.PatchOption) error {
+			if err := c.Patch(ctx, obj, patch, opts...); err != nil {
+				return err
+			}
+			patched = true
+			// The signal lands the instant after the acquire Patch commits — exactly the window
+			// verifyAcquired's ctx.Done() branch, and this test, exist for.
+			cancel()
+			return nil
+		},
+	}).Build()
+
+	if _, err := acquireWorker(ctx, fc, "platform-worker", "tx-cancel", "r1", "A-honor"); err == nil {
+		t.Fatal("a cancelled verify must refuse acquisition")
+	}
+	if !patched {
+		t.Fatal("test did not exercise the patch-then-cancel window it depends on")
+	}
+
+	var got corev1.Node
+	if err := fc.Get(context.Background(), client.ObjectKey{Name: "platform-worker"}, &got); err != nil {
+		t.Fatalf("get node: %v", err)
+	}
+	if _, ok := got.Labels[workerLabelKey]; ok {
+		t.Fatalf("self-release did not run: node still carries the ownership label: %+v", got.Labels)
+	}
+	if _, ok := got.Annotations[journalKey]; ok {
+		t.Fatalf("self-release did not run: node still carries the journal: %+v", got.Annotations)
+	}
+	for _, tt := range got.Spec.Taints {
+		if tt.Key == workerTaintKey {
+			t.Fatalf("self-release did not run: node still carries the ownership taint: %+v", tt)
+		}
 	}
 }

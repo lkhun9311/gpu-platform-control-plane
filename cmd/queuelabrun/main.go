@@ -215,19 +215,12 @@ func run(ctx context.Context, arm queuelab.Arm, runID, namespace, worker string,
 	}
 
 	// Observe until the horizon.
-	// A cancelled observation window is an incomplete run, so the signal has to reach this wait and the run
-	// must then invalidate rather than report whatever it happened to see.
-	if remaining := time.Until(deadline); remaining > 0 {
-		select {
-		case <-ctx.Done():
-			cancel()
-			col.wait()
-			return fmt.Errorf("observation cancelled before the horizon: %w", ctx.Err())
-		case <-time.After(remaining):
-		}
-	}
+	werr := waitForHorizon(ctx, deadline)
 	cancel()
 	col.wait()
+	if werr != nil {
+		return werr
+	}
 
 	events := col.builder.Events()
 	if out != "" {
@@ -261,6 +254,23 @@ func run(ctx context.Context, arm queuelab.Arm, runID, namespace, worker string,
 	fmt.Print("\n" + queuelab.RenderResult(res))
 	fmt.Printf("\nledger: %d events\n", len(events))
 	printEvents(events)
+	return nil
+}
+
+// waitForHorizon blocks until the observation deadline or ctx is cancelled, whichever comes first.
+//
+// A cancelled observation window is an incomplete run, so the signal has to reach this wait and the run
+// must then invalidate rather than report whatever it happened to see; the caller returns this error before
+// any ledger is written or any result is reconstructed, so a cancellation can never fall through to
+// publication.
+func waitForHorizon(ctx context.Context, deadline time.Time) error {
+	if remaining := time.Until(deadline); remaining > 0 {
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("observation cancelled before the horizon: %w", ctx.Err())
+		case <-time.After(remaining):
+		}
+	}
 	return nil
 }
 
