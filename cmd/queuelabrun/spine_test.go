@@ -183,8 +183,9 @@ func TestHorizonSecCoversTheProtocolsFixedWindow(t *testing.T) {
 // malformed invocation is refused before it needs a kubeconfig. This table is the regression test for the
 // swapped-flag failure mode a review of the previous positional-parameter version found: every refusal this
 // layer is responsible for — combining a mode with -arm, more than one mode at once, and both halves of
-// each two-flag requirement (-force-release needs -node-uid AND -accept-divergence; -clear-quarantine needs
-// -quarantine-id AND -confirm-owner-dead) — is exercised here without touching a cluster.
+// each two-flag requirement (-release-stale needs -txid AND -confirm-owner-dead; -force-release needs
+// -node-uid AND -accept-divergence; -clear-quarantine needs -quarantine-id AND -confirm-owner-dead) — is
+// exercised here without touching a cluster.
 func TestDecideOperatorMode(t *testing.T) {
 	cases := []struct {
 		name       string
@@ -201,30 +202,39 @@ func TestDecideOperatorMode(t *testing.T) {
 		},
 		{
 			name:       "two modes at once refuses",
-			args:       operatorModeArgs{InspectNode: "platform-worker", ReleaseStale: true, TxID: "tx-1"},
+			args:       operatorModeArgs{Inspect: true, ReleaseStale: true, TxID: "tx-1"},
 			wantErr:    true,
 			wantErrHas: "only one of",
 		},
 		{
 			name:       "a mode combined with -arm refuses",
-			args:       operatorModeArgs{Arm: "A-honor", InspectNode: "platform-worker"},
+			args:       operatorModeArgs{Arm: "A-honor", Inspect: true},
 			wantErr:    true,
 			wantErrHas: "-arm",
 		},
 		{
 			name:     "inspect-worker alone dispatches",
-			args:     operatorModeArgs{InspectNode: "platform-worker"},
+			args:     operatorModeArgs{Inspect: true},
 			wantMode: modeInspect,
 		},
 		{
 			name:       "release-stale without -txid refuses",
-			args:       operatorModeArgs{ReleaseStale: true},
+			args:       operatorModeArgs{ReleaseStale: true, ConfirmOwnerDead: true},
 			wantErr:    true,
 			wantErrHas: "-txid",
 		},
 		{
-			name:     "release-stale with -txid dispatches",
-			args:     operatorModeArgs{ReleaseStale: true, TxID: "tx-1"},
+			// A -txid match identifies the transaction, not the liveness of the process holding it, so the
+			// mode that most often costs a live run its worker is attested exactly like the other two
+			// destructive ones.
+			name:       "release-stale with -txid but without -confirm-owner-dead refuses",
+			args:       operatorModeArgs{ReleaseStale: true, TxID: "tx-1"},
+			wantErr:    true,
+			wantErrHas: "-confirm-owner-dead",
+		},
+		{
+			name:     "release-stale with both -txid and -confirm-owner-dead dispatches",
+			args:     operatorModeArgs{ReleaseStale: true, TxID: "tx-1", ConfirmOwnerDead: true},
 			wantMode: modeReleaseStale,
 		},
 		{
@@ -282,6 +292,22 @@ func TestDecideOperatorMode(t *testing.T) {
 				t.Fatalf("mode = %v, want %v", mode, tc.wantMode)
 			}
 		})
+	}
+}
+
+// The old `-inspect-worker platform-worker2` form still parses now that the flag is a bool, and would
+// report on -worker's default while looking like it named a node, so a leftover positional argument is
+// refused rather than ignored.
+func TestRefuseExtraArgs(t *testing.T) {
+	if err := refuseExtraArgs(nil); err != nil {
+		t.Fatalf("no positional arguments must be allowed: %v", err)
+	}
+	err := refuseExtraArgs([]string{"platform-worker2"})
+	if err == nil {
+		t.Fatal("a leftover positional argument must be refused, not silently ignored")
+	}
+	if !strings.Contains(err.Error(), "platform-worker2") || !strings.Contains(err.Error(), "-worker") {
+		t.Fatalf("the refusal must name the stray argument and the flag to use instead, got: %v", err)
 	}
 }
 

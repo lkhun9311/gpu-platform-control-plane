@@ -157,7 +157,9 @@ type operatorModeArgs struct {
 	Arm    string
 	Worker string
 
-	InspectNode string
+	// Inspect names no node of its own: like the other three modes it acts on Worker, so a hint this tool
+	// prints for one mode cannot be right while the same hint for another is not runnable as printed.
+	Inspect bool
 
 	ReleaseStale bool
 	TxID         string
@@ -166,9 +168,27 @@ type operatorModeArgs struct {
 	NodeUID          string
 	AcceptDivergence bool
 
-	ClearQuarantine  bool
-	QuarantineID     string
+	ClearQuarantine bool
+	QuarantineID    string
+
+	// ConfirmOwnerDead is shared by -release-stale and -clear-quarantine because both turn on the same
+	// judgement — that the process which held the worker is gone — and nothing this tool can observe makes
+	// that judgement for the operator.
 	ConfirmOwnerDead bool
+}
+
+// refuseExtraArgs refuses leftover positional arguments, of which this executable accepts none.
+//
+// -inspect-worker becoming a bool is what makes them dangerous rather than merely untidy: the old
+// `-inspect-worker platform-worker2` invocation still parses cleanly, with the node name silently demoted
+// to a positional argument, and would report on -worker's default instead of the node the operator named —
+// an operator deciding whether to break a stuck node from a report about a different machine.
+func refuseExtraArgs(args []string) error {
+	if len(args) > 0 {
+		return fmt.Errorf("unexpected argument(s) %v: this tool takes flags only, and -inspect-worker now "+
+			"names its node with -worker like the other operator modes", args)
+	}
+	return nil
 }
 
 // operatorMode names which recovery mode decideOperatorMode selected, or that none was requested.
@@ -195,7 +215,7 @@ const (
 // than fall through). The two are distinguished by err, not by the mode value alone.
 func decideOperatorMode(a operatorModeArgs) (operatorMode, error) {
 	requested := 0
-	for _, on := range []bool{a.InspectNode != "", a.ReleaseStale, a.ForceRelease, a.ClearQuarantine} {
+	for _, on := range []bool{a.Inspect, a.ReleaseStale, a.ForceRelease, a.ClearQuarantine} {
 		if on {
 			requested++
 		}
@@ -214,11 +234,21 @@ func decideOperatorMode(a operatorModeArgs) (operatorMode, error) {
 	}
 
 	switch {
-	case a.InspectNode != "":
+	case a.Inspect:
 		return modeInspect, nil
 	case a.ReleaseStale:
 		if a.TxID == "" {
 			return modeNone, fmt.Errorf("-release-stale requires -txid")
+		}
+		// A matching -txid proves the operator identified the right transaction; it proves nothing about
+		// whether that transaction's process is dead, and that is the judgement that actually matters here.
+		// Releasing a live run's journal leaves it holding a worker it no longer owns, so this is the mode
+		// most likely to cost a run its exclusivity — and, being the one -inspect-worker recommends first,
+		// also the most reached for. It is attested like the other two destructive modes.
+		if !a.ConfirmOwnerDead {
+			return modeNone, fmt.Errorf(
+				"-release-stale requires -confirm-owner-dead: a -txid match identifies the transaction but " +
+					"cannot show its process is gone, and releasing a live run's journal costs that run its worker")
 		}
 		return modeReleaseStale, nil
 	case a.ForceRelease:

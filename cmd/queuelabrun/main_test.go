@@ -82,12 +82,17 @@ func TestDispatchOperatorModeRefusesWithoutTouchingTheCluster(t *testing.T) {
 		{name: "no mode requested falls through", args: operatorModeArgs{}, wantFired: false, wantErr: false},
 		{
 			name:      "two modes at once",
-			args:      operatorModeArgs{InspectNode: "platform-worker", ReleaseStale: true, TxID: "t"},
+			args:      operatorModeArgs{Inspect: true, ReleaseStale: true, TxID: "t"},
 			wantFired: true, wantErr: true,
 		},
 		{
 			name:      "mode combined with -arm",
-			args:      operatorModeArgs{Arm: "A-honor", InspectNode: "platform-worker"},
+			args:      operatorModeArgs{Arm: "A-honor", Inspect: true},
+			wantFired: true, wantErr: true,
+		},
+		{
+			name:      "release-stale missing -confirm-owner-dead",
+			args:      operatorModeArgs{ReleaseStale: true, TxID: "tx-1"},
 			wantFired: true, wantErr: true,
 		},
 		{

@@ -97,9 +97,14 @@ func acquireWorker(ctx context.Context, c client.Client, nodeName, txID, runID, 
 				// same cancelled context would make the Get here fail immediately, skip the release Patch
 				// entirely, and leave the label, taint and journal stranded on the node with nothing left to
 				// undo them — the failure this task exists to prevent.
-				if rerr := releaseAcquired(context.Background(), c, j); rerr != nil {
+				//
+				// It is releaseAcquired rather than releaseOwned because this transaction has not been handed
+				// to a run yet: finding the node clean here genuinely means there is nothing of ours to undo,
+				// where for a run that has been holding the worker it would mean its markers were taken.
+
+				if _, rerr := releaseAcquired(context.Background(), c, j); rerr != nil {
 					return journal{}, fmt.Errorf(
-						"acquire node %s: verify failed: %v; release also failed, node may still carry tx %s: run: queuelabrun -inspect-worker %s: %w",
+						"acquire node %s: verify failed: %v; release also failed, node may still carry tx %s: run: queuelabrun -inspect-worker -worker %s: %w",
 						nodeName, verr, j.TxID, nodeName, rerr)
 				}
 				return journal{}, fmt.Errorf("acquire node %s: verify failed and was undone: %w", nodeName, verr)
@@ -144,12 +149,23 @@ func verifyAcquired(ctx context.Context, c client.Client, nodeName string, j jou
 	if err != nil {
 		return fmt.Errorf("verify node %s: %w", nodeName, err)
 	}
-	obs := observe(&n)
+	if verr := verifyObserved(observe(&n), j); verr != nil {
+		return fmt.Errorf("verify node %s: %w", nodeName, verr)
+	}
+	return nil
+}
+
+// verifyObserved is the whole "did our write land, completely" invariant, in one place.
+//
+// resolveAmbiguousAcquire used to carry its own inlined copy of this check; two copies of the invariant is
+// two places it can drift, and the one thing the design forbids is treating a journal carrying our TxID as
+// acquired without also proving the markers are the ones we installed.
+func verifyObserved(obs ownership, j journal) error {
 	if obs.JournalErr != nil {
-		return fmt.Errorf("verify node %s: %w", nodeName, obs.JournalErr)
+		return obs.JournalErr
 	}
 	if obs.Journal != j {
-		return fmt.Errorf("verify node %s: journal is not the one this run wrote", nodeName)
+		return fmt.Errorf("journal is not the one this run wrote")
 	}
 	return verifyInstalled(obs, j)
 }
@@ -167,8 +183,15 @@ func resolveAmbiguousAcquire(ctx context.Context, c client.Client, nodeName stri
 			obs := observe(&n)
 			switch {
 			case obs.JournalRaw == "" && !obs.HasLabel && len(obs.Taints) == 0:
-				return journal{}, fmt.Errorf("acquire node %s failed and did not land: %w", nodeName, cause)
-			case obs.JournalErr == nil && obs.Journal == j && verifyInstalled(obs, j) == nil:
+				// A free node is proof the patch did not commit, not merely a read that has not caught up:
+				// controller-runtime's client reads straight from the API server rather than a cache, so this
+				// Get is linearizable and cannot observe a state older than a write that already landed. The
+				// same read against an informer cache could legitimately lag a committed patch, and this
+				// conclusion would then be wrong.
+				return journal{}, fmt.Errorf(
+					"acquire node %s failed and did not land; it does not hold tx %s. Run: queuelabrun -inspect-worker -worker %s. Cause: %w",
+					nodeName, j.TxID, nodeName, cause)
+			case verifyObserved(obs, j) == nil:
 				return j, nil
 			case obs.JournalErr == nil && obs.JournalRaw != "" && obs.Journal.TxID != j.TxID:
 				return journal{}, fmt.Errorf("acquire node %s failed; it is now held by tx %s: %w",
@@ -180,13 +203,13 @@ func resolveAmbiguousAcquire(ctx context.Context, c client.Client, nodeName stri
 			// acquireWorker now runs on the signal-cancellable context, so a Ctrl-C during this retry loop
 			// must not drop the txID and the inspect-worker hint the bound-exhaustion path below carries.
 			return journal{}, fmt.Errorf(
-				"acquire node %s is UNRESOLVED after cancellation: it may hold tx %s. Run: queuelabrun -inspect-worker %s. Cause: %w",
+				"acquire node %s is UNRESOLVED after cancellation: it may hold tx %s. Run: queuelabrun -inspect-worker -worker %s. Cause: %w",
 				nodeName, j.TxID, nodeName, ctx.Err())
 		case <-time.After(resolveInterval):
 		}
 	}
 	return journal{}, fmt.Errorf(
-		"acquire node %s is UNRESOLVED after %v: it may hold tx %s. Run: queuelabrun -inspect-worker %s. Cause: %w",
+		"acquire node %s is UNRESOLVED after %v: it may hold tx %s. Run: queuelabrun -inspect-worker -worker %s. Cause: %w",
 		nodeName, time.Duration(resolveAttempts)*resolveInterval, j.TxID, nodeName, cause)
 }
 
@@ -217,7 +240,7 @@ func inspectWorker(ctx context.Context, c client.Client, nodeName string) error 
 			nodeName, q.QuarantineID)
 	case obs.JournalRaw != "" && obs.JournalErr == nil:
 		fmt.Printf("\nHELD by run %s (arm %s) under tx %s since %s.\n"+
-			"  If that process is gone: queuelabrun -release-stale -worker %s -txid %s\n",
+			"  If that process is gone: queuelabrun -release-stale -worker %s -txid %s -confirm-owner-dead\n",
 			obs.Journal.RunID, obs.Journal.Arm, obs.Journal.TxID, obs.Journal.TakenAt,
 			nodeName, obs.Journal.TxID)
 		if err := verifyInstalled(obs, obs.Journal); err != nil {
@@ -261,7 +284,12 @@ func releaseStale(ctx context.Context, c client.Client, nodeName, txID string) e
 	// releaseAcquired always runs on an uncancelled context, the same as every other release call site in
 	// this package: a half-applied restoration must be allowed to finish even if the operator's own signal
 	// handling (if any wraps ctx) fires mid-patch.
-	return releaseAcquired(context.Background(), c, obs.Journal)
+	//
+	// It is releaseAcquired rather than releaseOwned because this recovery holds nothing: the read above and
+	// the read inside can race a genuine release, and finding the node already clean by then is the outcome
+	// the operator wanted, not a lost transaction.
+	_, err := releaseAcquired(context.Background(), c, obs.Journal)
+	return err
 }
 
 // forceQuarantine breaks a stuck node without ever producing a free one.
@@ -297,7 +325,12 @@ func forceQuarantine(ctx context.Context, c client.Client, nodeName, nodeUID str
 	if err := c.Patch(ctx, &n, client.MergeFromWithOptions(base, client.MergeFromWithOptimisticLock{})); err != nil {
 		return fmt.Errorf("force node %s (state changed under you, re-inspect): %w", nodeName, err)
 	}
-	fmt.Printf("node %s is QUARANTINED as %s; no run can acquire it until it is cleared\n", nodeName, q.QuarantineID)
+	// Every other hint this tool prints is a complete runnable command, and the operator who has just broken
+	// a node is exactly the one who should not have to reconstruct the second step from the flag list.
+	fmt.Printf("node %s is QUARANTINED as %s; no run can acquire it until it is cleared.\n"+
+		"  Once you have established the previous process is dead:\n"+
+		"    queuelabrun -clear-quarantine -worker %s -quarantine-id %s -confirm-owner-dead\n",
+		nodeName, q.QuarantineID, nodeName, q.QuarantineID)
 	return nil
 }
 
@@ -322,20 +355,25 @@ func clearQuarantine(ctx context.Context, c client.Client, nodeName, quarantineI
 }
 
 // releaseAcquired undoes exactly what this transaction installed, or refuses and invalidates the run.
-func releaseAcquired(ctx context.Context, c client.Client, j journal) error {
+//
+// It reports which of the two release actions it carried out, because "there was nothing of mine to undo"
+// means something different to each caller: to the operator modes and to acquire's self-release it is a
+// legitimate success, while to the run that holds the worker it is proof its markers were taken from it.
+// releaseOwned below is the caller that draws that distinction.
+func releaseAcquired(ctx context.Context, c client.Client, j journal) (releaseAction, error) {
 	var lastErr error
 	for attempt := 0; attempt < acquireAttempts; attempt++ {
 		var n corev1.Node
 		if err := c.Get(ctx, client.ObjectKey{Name: j.Node}, &n); err != nil {
-			return fmt.Errorf("get node %s: %w", j.Node, err)
+			return releaseRestore, fmt.Errorf("get node %s: %w", j.Node, err)
 		}
 		obs := observe(&n)
 		act, err := decideRelease(obs, j.TxID)
 		if err != nil {
-			return err
+			return act, err
 		}
 		if act == releaseAlreadyDone {
-			return nil
+			return act, nil
 		}
 		base := n.DeepCopy()
 		delete(n.Labels, workerLabelKey)
@@ -344,15 +382,41 @@ func releaseAcquired(ctx context.Context, c client.Client, j journal) error {
 		err = c.Patch(ctx, &n, client.MergeFromWithOptions(base, client.MergeFromWithOptimisticLock{}))
 		switch {
 		case err == nil:
-			return nil
+			return releaseRestore, nil
 		case apierrors.IsConflict(err):
 			// Retrying is legal here because release re-verifies identity on every attempt and is not
 			// racing anyone for exclusivity.
 			lastErr = err
 			continue
 		default:
-			return fmt.Errorf("release node %s: %w", j.Node, err)
+			return releaseRestore, fmt.Errorf("release node %s: %w", j.Node, err)
 		}
 	}
-	return fmt.Errorf("release node %s: %d conflicts, giving up: %w", j.Node, acquireAttempts, lastErr)
+	return releaseRestore, fmt.Errorf("release node %s: %d conflicts, giving up: %w",
+		j.Node, acquireAttempts, lastErr)
+}
+
+// releaseOwned is the release of a worker this process is still holding, and it is the only release for
+// which a free node is a failure.
+//
+// decideRelease cannot make this call on its own: reading a node with no journal and no markers, it cannot
+// tell "already released" from "released out from under a live run", and both operator recovery and
+// acquire's own self-release legitimately meet the first. The run does know — it installed those markers
+// and never removed them — so the distinction is drawn here, at the one call site that has that knowledge.
+//
+// A free worker at this point means someone ran -release-stale or the force/clear break-glass pair against
+// a live transaction, or the node was deleted and recreated. In every one of those the run lost exclusive
+// use of the GPU somewhere it cannot bound, which is exactly the "looked fine, was allowed to count"
+// failure the whole transaction exists to stop, so it invalidates rather than reporting a clean release.
+func releaseOwned(ctx context.Context, c client.Client, j journal) error {
+	act, err := releaseAcquired(ctx, c, j)
+	if err != nil {
+		return err
+	}
+	if act == releaseAlreadyDone {
+		return refuse(reasonOwnershipLost,
+			"worker %s no longer carries this run's markers; ownership was lost mid-run under tx %s",
+			j.Node, j.TxID)
+	}
+	return nil
 }

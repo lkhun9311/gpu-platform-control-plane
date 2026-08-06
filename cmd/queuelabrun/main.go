@@ -53,7 +53,9 @@ func main() {
 		// The operator modes recover from a crash: they inspect, release, or break the Node marker this
 		// package's transaction leaves behind. They are flags rather than subcommands only because this CLI
 		// was already flag-shaped; see dispatchOperatorMode for why they run before the gate.
-		inspectWorkerFlag    = flag.String("inspect-worker", "", "read-only: report node's ownership state and exit")
+		// -inspect-worker names no node of its own: it reads -worker like the other three modes, so that every
+		// command this tool prints as a hint is runnable exactly as printed, whichever mode it points at.
+		inspectWorkerFlag    = flag.Bool("inspect-worker", false, "read-only: report -worker's ownership state and exit")
 		releaseStaleFlag     = flag.Bool("release-stale", false, "release -worker's journal for -txid, after confirming the prior process is gone")
 		txidFlag             = flag.String("txid", "", "transaction id to release with -release-stale")
 		forceReleaseFlag     = flag.Bool("force-release", false, "break -worker's stuck marker into a quarantine record; never frees the node in one step")
@@ -61,9 +63,15 @@ func main() {
 		acceptDivergenceFlag = flag.Bool("accept-divergence", false, "attest that you accept forcing -worker despite not having tool-verified its installed values")
 		clearQuarantineFlag  = flag.Bool("clear-quarantine", false, "clear -worker's quarantine record named -quarantine-id")
 		quarantineIDFlag     = flag.String("quarantine-id", "", "the quarantine record to clear")
-		confirmOwnerDeadFlag = flag.Bool("confirm-owner-dead", false, "attest that the process which held -worker before it was quarantined is confirmed dead")
+		confirmOwnerDeadFlag = flag.Bool("confirm-owner-dead", false, "attest that the process which held -worker is confirmed dead (required by -release-stale and -clear-quarantine)")
 	)
 	flag.Parse()
+	// Checked before anything dispatches, because the invocation this catches is one that would otherwise
+	// run happily against the wrong node.
+	if err := refuseExtraArgs(flag.Args()); err != nil {
+		fmt.Fprintln(os.Stderr, "ERROR:", err)
+		os.Exit(1)
+	}
 
 	// Operator modes are recovery tools, not runs, so they dispatch before the gate and work even while the
 	// gate refuses every run; each exits directly with its own status rather than falling through to run().
@@ -72,7 +80,7 @@ func main() {
 		Arm:    *armFlag,
 		Worker: *worker,
 
-		InspectNode: *inspectWorkerFlag,
+		Inspect: *inspectWorkerFlag,
 
 		ReleaseStale: *releaseStaleFlag,
 		TxID:         *txidFlag,
@@ -81,8 +89,9 @@ func main() {
 		NodeUID:          *nodeUIDFlag,
 		AcceptDivergence: *acceptDivergenceFlag,
 
-		ClearQuarantine:  *clearQuarantineFlag,
-		QuarantineID:     *quarantineIDFlag,
+		ClearQuarantine: *clearQuarantineFlag,
+		QuarantineID:    *quarantineIDFlag,
+
 		ConfirmOwnerDead: *confirmOwnerDeadFlag,
 	}); fired {
 		if err != nil {
@@ -175,7 +184,7 @@ func dispatchOperatorMode(args operatorModeArgs) (fired bool, err error) {
 
 	switch mode {
 	case modeInspect:
-		return true, inspectWorker(ctx, c, args.InspectNode)
+		return true, inspectWorker(ctx, c, args.Worker)
 	case modeReleaseStale:
 		return true, releaseStale(ctx, c, args.Worker, args.TxID)
 	case modeForceRelease:
@@ -256,11 +265,12 @@ func run(ctx context.Context, arm queuelab.Arm, runID, namespace, worker string,
 		if released {
 			return
 		}
-		if rerr := releaseAcquired(context.Background(), c, j); rerr != nil {
-			fmt.Fprintf(os.Stderr, "WORKER NOT RESTORED: %v\n  run: queuelabrun -inspect-worker %s\n", rerr, worker)
+		if rerr := releaseOwned(context.Background(), c, j); rerr != nil {
+			fmt.Fprintf(os.Stderr, "WORKER NOT RESTORED: %v\n  run: queuelabrun -inspect-worker -worker %s\n",
+				rerr, worker)
 		}
 	}()
-	fmt.Printf("  worker %s acquired: tx=%s (if this process dies, run: queuelabrun -inspect-worker %s)\n",
+	fmt.Printf("  worker %s acquired: tx=%s (if this process dies, run: queuelabrun -inspect-worker -worker %s)\n",
 		worker, txID, worker)
 
 	if err := ensureNamespace(ctx, c, namespace); err != nil {
@@ -341,7 +351,11 @@ func run(ctx context.Context, arm queuelab.Arm, runID, namespace, worker string,
 
 	// The worker is restored, and proven restored, before the result exists anywhere a reader could find
 	// it: a run that lost its exclusive worker mid-flight has no claim on the number it computed.
-	if err := releaseAcquired(context.Background(), c, j); err != nil {
+	//
+	// releaseOwned rather than releaseAcquired, because a node found already free here is that very case:
+	// this run installed the markers and never removed them, so their absence is a lost worker, not a
+	// release that had already happened.
+	if err := releaseOwned(context.Background(), c, j); err != nil {
 		fmt.Printf("\nRUN INVALIDATED: worker %s not restored: %v\n", worker, err)
 		printEvents(events)
 		return fmt.Errorf("worker not restored: %w", err)

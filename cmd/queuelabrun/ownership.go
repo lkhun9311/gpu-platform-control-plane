@@ -18,6 +18,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -110,6 +111,10 @@ const (
 	reasonWrongNode            = "journal-names-another-node"
 	reasonInstalledDiverged    = "installed-values-diverged"
 	reasonNotOurs              = "not-our-transaction"
+	// reasonOwnershipLost is the run's own release finding nothing of its to undo, which is never the clean
+	// already-released case: markers this run provably installed can only be absent because something else
+	// removed them while the run was still holding the worker.
+	reasonOwnershipLost = "ownership-lost-mid-run"
 )
 
 type refusal struct {
@@ -125,12 +130,12 @@ func refuse(reason, format string, args ...any) error {
 
 // asRefusal is errors.As specialised to *refusal, kept here so the tests and the operator modes agree on
 // how a refusal is recognised.
+//
+// It has to unwrap rather than type-assert: every call site that reports a refusal to a human wraps it with
+// fmt.Errorf to say which node and which operation it came from, and a bare type assertion would stop
+// recognising a refusal the moment it travelled through any of that wrapping.
 func asRefusal(err error, target **refusal) bool {
-	r, ok := err.(*refusal)
-	if ok {
-		*target = r
-	}
-	return ok
+	return errors.As(err, target)
 }
 
 // ownership is the Node reduced to the state the decisions actually depend on.
