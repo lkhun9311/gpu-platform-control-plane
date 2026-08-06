@@ -150,6 +150,20 @@ func TerminationContractSchedule(trace []TrainingTraceRow, doseSec int) ([]Step,
 		return nil, fmt.Errorf("rows must be %q, %q, %q in order, got %q, %q, %q",
 			OwnRow, VictimRow, OwnerRow, own.Name, victim.Name, owner.Name)
 	}
+	// Row names can collide with these constants without the rows meaning what they say (ReclaimScenario
+	// names its rows identically), so the guard against a1 releasing first checks the duration that actually
+	// governs release, not the name.
+	if minOwnDuration := victim.DurationSec + terminationGraceSec; own.DurationSec <= minOwnDuration {
+		return nil, fmt.Errorf("a1 duration %d s does not exceed victim service + grace (%d s); a1 could "+
+			"release before the victim and the owner's execution could no longer be attributed to reclamation",
+			own.DurationSec, minOwnDuration)
+	}
+	// The dose is stated on the owner row's offset as provenance by TerminationContractTrace; if the caller's
+	// doseSec disagrees, the schedule and the trace would silently run two different experiments.
+	if wantOffsetMs := victim.OffsetMs + int64(doseSec)*1_000; owner.OffsetMs != wantOffsetMs {
+		return nil, fmt.Errorf("dose %d s disagrees with the trace's provenance: owner offset %d ms implies a %d s dose",
+			doseSec, owner.OffsetMs, (owner.OffsetMs-victim.OffsetMs)/1_000)
+	}
 	return []Step{
 		{Row: own},
 		{

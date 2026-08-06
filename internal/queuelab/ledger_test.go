@@ -983,13 +983,14 @@ func TestReconstructCreditsASoleAttemptWithTheRowsCompletion(t *testing.T) {
 	}
 }
 
-func TestReconstructDoesNotCreditACompletionToOneOfSeveralAttempts(t *testing.T) {
-	// With two attempts the row's completion says nothing about WHICH attempt it belongs to, so the preempted
-	// attempt cannot be credited with it; guessing here would re-introduce inference from adjacency. A row
-	// runs Parallelism: 1, one attempt at a time, so the first attempt must be observed stopped before the
-	// retry becomes Ready (attemptsDoNotOverlap enforces exactly this) -- here the first attempt's own Failed
-	// evidence already answers the question independently, and the row's completion must still not be read
-	// back onto it.
+// TestReconstructChargesAPreemptedAttemptsOwnFailedStopEvenWhenTheRowLaterCompletes checks a DIFFERENT rule
+// than its name once suggested: this attempt has its own observed Failed stop, so it is resolved in the
+// "a.stopped" branch of chargeWaste and never reaches the "no stop observed" fallback where the
+// len(attemptSeq)==1 credit gate lives. What this pins is that the row's later completion (which belongs to
+// the retry) is not read back onto an already-resolved earlier attempt. The credit-gate rule itself -- that a
+// completion may only be credited when there is exactly one attempt -- is pinned by
+// TestReconstructDoesNotCreditACompletionToAnUnstoppedAttemptOfSeveral below.
+func TestReconstructChargesAPreemptedAttemptsOwnFailedStopEvenWhenTheRowLaterCompletes(t *testing.T) {
 	events := append(preemptedNoTerminalPhaseEvents(),
 		// The first attempt is observed to stop Failed before the retry becomes Ready.
 		LifecycleEvent{ElapsedNs: 36 * sec, Kind: "Pod", Type: EventAttemptStopped, Job: "a2", Tenant: "tenant-a", GPUCount: 1, ObjectUID: "pod-a2", Reason: StopReasonFailed},
@@ -1020,6 +1021,55 @@ func TestReconstructDoesNotCreditACompletionToOneOfSeveralAttempts(t *testing.T)
 	if a2.UnattributedOccupancyGPUSeconds != 0 {
 		t.Fatalf("a2 unattributed occupancy = %.1f, want 0 (the preempted attempt's Failed stop fully"+
 			" explains its own loss)", a2.UnattributedOccupancyGPUSeconds)
+	}
+}
+
+// TestReconstructDoesNotCreditACompletionToAnUnstoppedAttemptOfSeveral is the shape that actually reaches the
+// len(t.attemptSeq)==1 gate in chargeWaste's default case: the FIRST attempt is resolved by its own Failed
+// stop (so it never touches the gate), but the SECOND -- and last -- attempt has no observed stop at all, so
+// only the gate stands between the row's later completion and a wrongful credit to that unresolved attempt.
+// With two attempts the completion cannot say which one it belongs to, so it must not be credited here either.
+func TestReconstructDoesNotCreditACompletionToAnUnstoppedAttemptOfSeveral(t *testing.T) {
+	events := []LifecycleEvent{
+		{ElapsedNs: 0, Kind: "MLTrainingJob", Type: EventSubmitted, Job: "a2", Tenant: "tenant-a", GPUCount: 1},
+		{ElapsedNs: 1 * sec, Kind: "Workload", Type: EventAdmitted, Job: "a2", Tenant: "tenant-a", GPUCount: 1},
+		{ElapsedNs: 3 * sec, Kind: "Pod", Type: EventPodReady, Job: "a2", Tenant: "tenant-a", GPUCount: 1, ObjectUID: "pod-a2"},
+		{ElapsedNs: 18 * sec, Kind: "Workload", Type: EventPreempted, Job: "a2", Tenant: "tenant-a", GPUCount: 1, Reason: "InCohortReclamation"},
+		// The first attempt has its own Failed evidence, so it is resolved before the gate is ever reached.
+		{ElapsedNs: 20 * sec, Kind: "Pod", Type: EventAttemptStopped, Job: "a2", Tenant: "tenant-a", GPUCount: 1, ObjectUID: "pod-a2", Reason: StopReasonFailed},
+		// The retry becomes Ready after the first attempt's own stop, so the two attempts stay sequential.
+		{ElapsedNs: 25 * sec, Kind: "Pod", Type: EventPodReady, Job: "a2", Tenant: "tenant-a", GPUCount: 1, ObjectUID: "pod-a2-retry"},
+		// A second preemption decision, so the retry is also a preemption target with no terminal Pod phase.
+		{ElapsedNs: 40 * sec, Kind: "Workload", Type: EventPreempted, Job: "a2", Tenant: "tenant-a", GPUCount: 1, Reason: "InCohortReclamation"},
+		{ElapsedNs: 45 * sec, Kind: "Job", Type: EventCompleted, Job: "a2", Tenant: "tenant-a", GPUCount: 1},
+	}
+	res, err := Reconstruct("Any", noTerminalPhaseTrace(), events, 50*sec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a2 := res.Outcomes[0]
+	if a2.Attempts != 2 || !a2.Completed {
+		t.Fatalf("this test needs a completed row with two attempts, got attempts=%d completed=%v", a2.Attempts, a2.Completed)
+	}
+	// The retry (the last attempt) has no terminal Pod phase, so this is the one line where the gate's answer
+	// is visible: crediting it would report the retry as stopped by the second preemption when Pod state
+	// cannot say that.
+	if a2.PreemptionIneffective {
+		t.Fatal("two attempts means the completion cannot be attributed to either one; it must not be credited")
+	}
+	if !a2.UncreditedAttributionUnknown {
+		t.Fatal("the retry's occupancy must be reported as uncredited, unattributed loss, not silently dropped")
+	}
+	// The retry's occupancy (Ready 25 s -> completion 45 s) is charged as unattributed, and specifically as
+	// UNCREDITED unattributed, which is the field the wrongful-credit bug would leave at zero.
+	if a2.UncreditedAttributionUnknownOccupancyGPUSeconds != 20 {
+		t.Fatalf("uncredited unattributed occupancy = %.1f, want 20 (the retry's Ready-to-completion span)",
+			a2.UncreditedAttributionUnknownOccupancyGPUSeconds)
+	}
+	// The first attempt's own Failed evidence (Ready 3 s, stop 20 s) is unaffected by the gate either way.
+	if a2.WastedGPUSeconds != 17 || a2.WasteLowerBoundGPUSeconds != 17 {
+		t.Fatalf("a2 waste = %.1f (lb %.1f), want 17/17: the first attempt's own observed Failed stop",
+			a2.WastedGPUSeconds, a2.WasteLowerBoundGPUSeconds)
 	}
 }
 

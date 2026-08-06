@@ -103,7 +103,10 @@ func TestStudyScheduleRejectsWrongShape(t *testing.T) {
 }
 
 func TestTerminationContractScheduleUsesTheStatedDose(t *testing.T) {
-	trace := TerminationContractTrace(60, 40)
+	trace, err := TerminationContractTrace(60, 40)
+	if err != nil {
+		t.Fatal(err)
+	}
 	steps, err := TerminationContractSchedule(trace, 40)
 	if err != nil {
 		t.Fatal(err)
@@ -142,5 +145,28 @@ func TestTerminationContractScheduleUsesTheStatedDose(t *testing.T) {
 		if b.Kind == BarrierDelayFromReady && b.DelaySec == 40 {
 			t.Fatal("the offset-derived schedule now yields 40 s; this test's premise needs revisiting")
 		}
+	}
+}
+
+func TestTerminationContractScheduleRejectsADoseThatContradictsTheTrace(t *testing.T) {
+	// The trace states 40 s as provenance on the owner row's offset; a schedule asked for 5 s would silently
+	// run a different experiment than the one the trace records, which is the exact failure this branch
+	// exists to prevent.
+	trace, err := TerminationContractTrace(60, 40)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := TerminationContractSchedule(trace, 5); err == nil {
+		t.Fatal("a dose that disagrees with the trace's stated provenance must be rejected")
+	}
+}
+
+func TestTerminationContractScheduleRejectsRowsThatDoNotOutliveTheWindow(t *testing.T) {
+	// ReclaimScenario names its rows a1 / a2-borrow / b1-owner, byte-identical to OwnRow / VictimRow /
+	// OwnerRow, so a name-only guard would pass this trace even though all three durations are equal and a1
+	// can release before the victim -- exactly the confound the branch removes. The check must be structural
+	// (durations), not the names that happen to match here.
+	if _, err := TerminationContractSchedule(ReclaimScenario(true, 600), 40); err == nil {
+		t.Fatal("a1 duration equal to the victim's must be rejected: a1 could release first")
 	}
 }

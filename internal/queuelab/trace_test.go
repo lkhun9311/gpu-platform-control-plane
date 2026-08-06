@@ -147,7 +147,10 @@ func TestReadTraceRejectsReorderedOffsets(t *testing.T) {
 }
 
 func TestTerminationContractTraceKeepsOwnRowAlive(t *testing.T) {
-	rows := TerminationContractTrace(60, 40)
+	rows, err := TerminationContractTrace(60, 40)
+	if err != nil {
+		t.Fatalf("(60, 40) is the intended combination and must be accepted: %v", err)
+	}
 	if len(rows) != 3 {
 		t.Fatalf("got %d rows, want 3", len(rows))
 	}
@@ -171,5 +174,21 @@ func TestTerminationContractTraceKeepsOwnRowAlive(t *testing.T) {
 	}
 	if err := ValidateTrace(StudyReclaim, rows); err != nil {
 		t.Fatalf("trace must satisfy the reclaim study rules: %v", err)
+	}
+}
+
+func TestTerminationContractTraceRejectsADoseThatLeavesNothingToReclaim(t *testing.T) {
+	// A dose at or past the victim's full service means the owner returns after the victim would already be
+	// done, so the run would exercise ordinary sequencing rather than a mid-service reclamation.
+	if _, err := TerminationContractTrace(60, 600); err == nil {
+		t.Fatal("a dose that exceeds the victim's service must be rejected")
+	}
+}
+
+func TestTerminationContractTraceRejectsADoseOutsideTheGracePeriod(t *testing.T) {
+	// A dose that leaves the victim's remaining service at or beyond the 30 s grace period does not pin the
+	// return inside the grace-period restoration window the experiment is about.
+	if _, err := TerminationContractTrace(60, 0); err == nil {
+		t.Fatal("a dose that leaves remaining service outside the grace period must be rejected")
 	}
 }
