@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -226,6 +227,34 @@ func TestInspectWorkerReturnsErrorOnUnreadableQuarantine(t *testing.T) {
 
 	if err := inspectWorker(context.Background(), fc, "platform-worker"); err == nil {
 		t.Fatal("an unreadable quarantine record must return an error, not exit 0")
+	}
+}
+
+// The recovery tool must not contradict the runner about the state of a node, and it must never say the
+// safe-sounding thing when it does.
+//
+// A node carrying an undecodable journal and no marker used to fall through inspectWorker's switch to the
+// default branch, print FREE and exit 0, while decideAcquire refuses that same node as unreadable-journal.
+// An operator, or a script reading the exit code, would then keep pointing runs at a node no run can ever
+// take. This asserts both halves at once, so the two can never silently disagree again.
+func TestInspectWorkerRefusesAnUnreadableJournalRatherThanReportingFree(t *testing.T) {
+	n := node(nil, map[string]string{journalKey: "{not valid json"})
+	fc := fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(n).Build()
+
+	err := inspectWorker(context.Background(), fc, "platform-worker")
+	if err == nil {
+		t.Fatal("an undecodable journal must return an error; reporting FREE and exiting 0 is the bug")
+	}
+	if !strings.Contains(err.Error(), "unreadable ownership journal") {
+		t.Fatalf("the refusal must name what it found, got: %v", err)
+	}
+
+	// The other half of the contradiction: acquisition refuses this exact node, so inspection saying FREE
+	// would have been wrong rather than merely terse.
+	_, aerr := decideAcquire(observe(n), n, "tx-new", "r1", "A-honor", "t")
+	var r *refusal
+	if !asRefusal(aerr, &r) || r.Reason != reasonBadJournal {
+		t.Fatalf("acquisition must refuse the same node as %s, got %v", reasonBadJournal, aerr)
 	}
 }
 
@@ -889,5 +918,176 @@ func TestVerifyClean(t *testing.T) {
 				t.Fatalf("want no error, got %v", err)
 			}
 		})
+	}
+}
+
+// Release had no counterpart to resolveAmbiguousAcquire, so a non-conflict Patch error whose write actually
+// landed — a proxy timeout, a connection reset after the commit — made the run print "worker not restored"
+// and exit non-zero for a node that was already clean. That is a false invalidation of a valid run, which
+// this lab pays for in GPU hours.
+func TestReleaseResolvesAPatchWhoseResponseWasLost(t *testing.T) {
+	n := node(nil, nil)
+	var patchCalls int
+	fc := fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(n).WithInterceptorFuncs(interceptor.Funcs{
+		Patch: func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch,
+			opts ...client.PatchOption) error {
+			patchCalls++
+			if err := c.Patch(ctx, obj, patch, opts...); err != nil {
+				return err
+			}
+			if patchCalls == 2 {
+				// The release patch (call 2, after acquire's call 1) committed; the caller never learns that.
+				return lostResponseErr()
+			}
+			return nil
+		},
+	}).Build()
+
+	j, err := acquireWorker(context.Background(), fc, "platform-worker", "tx-lostrelease", "r1", "A-honor")
+	if err != nil {
+		t.Fatalf("acquire: %v", err)
+	}
+
+	act, err := releaseAcquired(context.Background(), fc, j)
+	if err != nil {
+		t.Fatalf("a release whose write landed must resolve to restored, got: %v", err)
+	}
+	if act != releaseRestore {
+		t.Fatalf("release action = %v, want releaseRestore", act)
+	}
+	// releaseOwned is the caller that decides whether the run may publish, so assert the whole path, not just
+	// the primitive: this is the run that must NOT be invalidated.
+	if err := releaseOwned(context.Background(), fc, j); err != nil {
+		// The node is clean by now, so releaseOwned's own read reports already-done; what matters is that the
+		// ambiguous release above did not itself invalidate.
+		var r *refusal
+		if !asRefusal(err, &r) || r.Reason != reasonOwnershipLost {
+			t.Fatalf("unexpected second-release error: %v", err)
+		}
+	}
+
+	var got corev1.Node
+	if err := fc.Get(context.Background(), client.ObjectKey{Name: "platform-worker"}, &got); err != nil {
+		t.Fatalf("get node: %v", err)
+	}
+	if _, ok := got.Labels[workerLabelKey]; ok {
+		t.Fatalf("the test did not produce the landed-write state it exists for: %+v", got.Labels)
+	}
+}
+
+// The direction of failure the read-back must keep safe: the patch genuinely did not land, our markers are
+// still installed, and the run must still invalidate rather than treat the lost response as restoration.
+func TestReleaseStillInvalidatesWhenTheReadBackFindsOurMarkersInstalled(t *testing.T) {
+	n := node(nil, nil)
+	var patchCalls int
+	fc := fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(n).WithInterceptorFuncs(interceptor.Funcs{
+		Patch: func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch,
+			opts ...client.PatchOption) error {
+			patchCalls++
+			if patchCalls == 2 {
+				// The release patch never reaches the API server, so the node keeps our markers.
+				return lostResponseErr()
+			}
+			return c.Patch(ctx, obj, patch, opts...)
+		},
+	}).Build()
+
+	j, err := acquireWorker(context.Background(), fc, "platform-worker", "tx-notlanded", "r1", "A-honor")
+	if err != nil {
+		t.Fatalf("acquire: %v", err)
+	}
+
+	if _, err := releaseAcquired(context.Background(), fc, j); err == nil {
+		t.Fatal("a release that did not land must not be resolved as restored")
+	} else if !strings.Contains(err.Error(), "read-back could not prove restoration") {
+		t.Fatalf("the refusal must say the read-back failed to prove restoration, got: %v", err)
+	}
+
+	var got corev1.Node
+	if err := fc.Get(context.Background(), client.ObjectKey{Name: "platform-worker"}, &got); err != nil {
+		t.Fatalf("get node: %v", err)
+	}
+	if got.Annotations[journalKey] == "" {
+		t.Fatalf("the test did not produce the still-held state it exists for: %+v", got.Annotations)
+	}
+}
+
+// The resolve loop used to discard every failed re-read and report only the patch cause, so a persistent
+// authorization failure, a deleted node or a sustained API outage all surfaced as a generic unresolved write
+// — and the -inspect-worker command the refusal prints would then fail for the same unreported reason.
+//
+// The cancellation branch is exercised rather than the full bound because both render the kept error through
+// the same resolveReadNote, and reaching exhaustion costs resolveAttempts * resolveInterval of real sleep.
+func TestResolveAmbiguousAcquireReportsWhyItCouldNotReadTheNode(t *testing.T) {
+	n := node(nil, nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var gets int
+	fc := fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(n).WithInterceptorFuncs(interceptor.Funcs{
+		Get: func(gctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object,
+			opts ...client.GetOption) error {
+			gets++
+			if gets == 1 {
+				// The acquire loop's own read has to succeed, or the transaction never reaches the patch.
+				return c.Get(gctx, key, obj, opts...)
+			}
+			// Every re-read inside the resolve loop is refused, the shape a missing RBAC binding takes.
+			cancel()
+			return apierrors.NewForbidden(schema.GroupResource{Resource: "nodes"}, key.Name,
+				fmt.Errorf("node reader is not bound"))
+		},
+		Patch: func(pctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch,
+			opts ...client.PatchOption) error {
+			return lostResponseErr()
+		},
+	}).Build()
+
+	_, err := acquireWorker(ctx, fc, "platform-worker", "tx-blind", "r1", "A-honor")
+	if err == nil {
+		t.Fatal("an acquisition whose outcome could never be read must refuse")
+	}
+	if !strings.Contains(err.Error(), "Last re-read failed") {
+		t.Fatalf("the refusal must report that the re-reads themselves failed, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "node reader is not bound") {
+		t.Fatalf("the refusal must carry the read error itself, not just that one happened, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "UNRESOLVED") {
+		t.Fatalf("the refusal must still be UNRESOLVED, got: %v", err)
+	}
+}
+
+// The complement: when every re-read succeeded, the refusal has to say so, or a reader assumes the reads
+// must have failed because the outcome is unknown and goes looking for a connectivity problem that is not
+// there.
+func TestResolveReadNoteDistinguishesUnreadableFromUnresolved(t *testing.T) {
+	if note := resolveReadNote(nil); !strings.Contains(note, "Every re-read succeeded") {
+		t.Fatalf("a clean read history must be stated, got %q", note)
+	}
+	if note := resolveReadNote(fmt.Errorf("boom")); !strings.Contains(note, "boom") {
+		t.Fatalf("the read error must be carried verbatim, got %q", note)
+	}
+}
+
+// The operator modes deliberately run on a context no signal can cancel, which is what stops a Ctrl-C from
+// half-applying a break. Unbounded, that same choice turns a hung API server into a process that never
+// returns — the stranded-marker outcome moved from "Ctrl-C" to "hung apiserver" rather than prevented, which
+// is the argument releaseCleanupTimeout already exists for.
+func TestOperatorModeContextIsBoundedAndNotSignalCancellable(t *testing.T) {
+	ctx, cancel := operatorModeContext()
+	defer cancel()
+
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		t.Fatal("the operator modes must not run on an unbounded context")
+	}
+	if remaining := time.Until(deadline); remaining > operatorModeTimeout {
+		t.Fatalf("deadline is %v out, want at most operatorModeTimeout (%v)", remaining, operatorModeTimeout)
+	}
+	// Independent of any signal handling: it derives from Background, so nothing the run's own context does
+	// can cancel a half-applied break out from under it.
+	if err := ctx.Err(); err != nil {
+		t.Fatalf("a fresh operator-mode context must be live, got %v", err)
 	}
 }

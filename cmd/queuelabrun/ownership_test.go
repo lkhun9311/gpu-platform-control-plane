@@ -280,8 +280,13 @@ func TestTaintListPreservesUnrelatedTaints(t *testing.T) {
 
 // decodeQuarantine's strictness is what the whole two-step design leans on to trust the record it reads
 // back, and the happy-path round trip embedded in the other quarantine tests would still pass if any one of
-// these three checks (unknown fields, unknown schema, empty quarantineID) were silently dropped.
-func TestDecodeQuarantineRejectsUnknownFieldSchemaAndEmptyID(t *testing.T) {
+// these four checks (unknown fields, unknown schema, empty quarantineID, trailing data) were silently
+// dropped.
+//
+// The trailing-data row is the one decodeJournal always had and this decoder did not: two documents in one
+// annotation means the second one was written by something other than encodeQuarantine, and decideClear
+// matches the operator's -quarantine-id against whichever of them happened to decode first.
+func TestDecodeQuarantineRejectsUnknownFieldSchemaEmptyIDAndTrailingData(t *testing.T) {
 	for name, raw := range map[string]string{
 		"unknown field": `{"schema":1,"quarantineID":"q1","forcedAt":"t","node":"platform-worker",` +
 			`"nodeUID":"uid-node","priorJournal":"","observedLabel":"","extra":true}`,
@@ -289,6 +294,10 @@ func TestDecodeQuarantineRejectsUnknownFieldSchemaAndEmptyID(t *testing.T) {
 			`"nodeUID":"uid-node","priorJournal":"","observedLabel":""}`,
 		"empty quarantineID": `{"schema":1,"quarantineID":"","forcedAt":"t","node":"platform-worker",` +
 			`"nodeUID":"uid-node","priorJournal":"","observedLabel":""}`,
+		"trailing data": `{"schema":1,"quarantineID":"q1","forcedAt":"t","node":"platform-worker",` +
+			`"nodeUID":"uid-node","priorJournal":"","observedLabel":""} {"schema":1,"quarantineID":"q2"}`,
+		"trailing garbage": `{"schema":1,"quarantineID":"q1","forcedAt":"t","node":"platform-worker",` +
+			`"nodeUID":"uid-node","priorJournal":"","observedLabel":""} not json at all`,
 	} {
 		if _, err := decodeQuarantine(raw); err == nil {
 			t.Fatalf("%s: expected rejection", name)

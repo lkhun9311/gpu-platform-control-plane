@@ -62,12 +62,33 @@ const verifyInterval = 500 * time.Millisecond
 // smaller — budgeting a generous 10s for each of those 13 calls (plus the ~1s of deterministic verifyInterval
 // sleep already inside the 13) is 131s of worst-case sequential work, so 3 minutes leaves real margin above
 // that instead of the 30s bound this replaces, which left only about 2.2s per call.
+//
+// The ambiguous-release read-back added since does not change that 13: it runs in the non-conflict branch,
+// which returns instead of looping, and it costs the same up-to-3 reads verifyReleased already cost on the
+// success branch. The two branches are mutually exclusive, so the worst case is still 10 + 3.
 const releaseCleanupTimeout = 3 * time.Minute
 
 // cleanupContext returns a context bounded by releaseCleanupTimeout for release-path work that must run to
 // completion even after the run's own context was cancelled.
 func cleanupContext() (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.Background(), releaseCleanupTimeout)
+}
+
+// operatorModeTimeout bounds the four recovery modes, which run on their own uncancellable context for the
+// same reason the release path does: a signal arriving between a mode's Get and its Patch is exactly what
+// could leave a break half applied.
+//
+// It is far shorter than releaseCleanupTimeout because far less work runs on it. Each mode spends at most a
+// Get and a Patch on this context — releaseStale's actual restoration hands off to cleanupContext, and
+// inspectWorker only reads — so at the same generous 10s-per-call budget releaseCleanupTimeout is derived
+// from, 2 calls need 20s and one minute leaves triple that margin. Bounding it at all is the point: an
+// operator running these modes is already recovering from a stuck node, and a tool that hangs indefinitely
+// against a degraded API server gives them nothing to act on and no way to tell a hang from slow progress.
+const operatorModeTimeout = time.Minute
+
+// operatorModeContext returns the bounded, signal-independent context the recovery modes run on.
+func operatorModeContext() (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.Background(), operatorModeTimeout)
 }
 
 // newTxID generates the ownership identity.
@@ -264,9 +285,16 @@ func verifyClean(obs ownership, j journal) error {
 // leaves the operator modes to sort it out.
 func resolveAmbiguousAcquire(ctx context.Context, c client.Client, nodeName string, j journal,
 	cause error) (journal, error) {
+	// The failed re-read is kept rather than discarded, because "we could not read the node" and "we read it
+	// and it never resolved" send the operator to different places. A sustained authorization failure, a
+	// deleted node or an API outage would otherwise be reported as a generic unresolved write, and the very
+	// -inspect-worker command this refusal prints would fail for the same reason nobody was told about.
+	var lastReadErr error
 	for attempt := 0; attempt < resolveAttempts; attempt++ {
 		var n corev1.Node
-		if err := c.Get(ctx, client.ObjectKey{Name: nodeName}, &n); err == nil {
+		if err := c.Get(ctx, client.ObjectKey{Name: nodeName}, &n); err != nil {
+			lastReadErr = err
+		} else {
 			obs := observe(&n)
 			switch {
 			case obs.JournalRaw == "" && !obs.HasLabel && len(obs.Taints) == 0:
@@ -290,14 +318,27 @@ func resolveAmbiguousAcquire(ctx context.Context, c client.Client, nodeName stri
 			// acquireWorker now runs on the signal-cancellable context, so a Ctrl-C during this retry loop
 			// must not drop the txID and the inspect-worker hint the bound-exhaustion path below carries.
 			return journal{}, fmt.Errorf(
-				"acquire node %s is UNRESOLVED after cancellation: it may hold tx %s. Run: queuelabrun -inspect-worker -worker %s. Cause: %w",
-				nodeName, j.TxID, nodeName, ctx.Err())
+				"acquire node %s is UNRESOLVED after cancellation: it may hold tx %s. Run: queuelabrun -inspect-worker -worker %s. %s. Cause: %w",
+				nodeName, j.TxID, nodeName, resolveReadNote(lastReadErr), ctx.Err())
 		case <-time.After(resolveInterval):
 		}
 	}
 	return journal{}, fmt.Errorf(
-		"acquire node %s is UNRESOLVED after %v: it may hold tx %s. Run: queuelabrun -inspect-worker -worker %s. Cause: %w",
-		nodeName, time.Duration(resolveAttempts)*resolveInterval, j.TxID, nodeName, cause)
+		"acquire node %s is UNRESOLVED after %v: it may hold tx %s. Run: queuelabrun -inspect-worker -worker %s. %s. Cause: %w",
+		nodeName, time.Duration(resolveAttempts)*resolveInterval, j.TxID, nodeName,
+		resolveReadNote(lastReadErr), cause)
+}
+
+// resolveReadNote renders what the re-reads themselves reported, so the refusal distinguishes an unreadable
+// node from a readable one that simply never showed a resolving state.
+//
+// Every read succeeding is information too, and stating it is what stops a reader assuming the reads must
+// have failed because the outcome is unknown.
+func resolveReadNote(err error) string {
+	if err == nil {
+		return "Every re-read succeeded and none resolved the state"
+	}
+	return "Last re-read failed: " + err.Error()
 }
 
 // inspectWorker is read-only and is how an operator learns a transaction id a crashed process never
@@ -311,8 +352,8 @@ func inspectWorker(ctx context.Context, c client.Client, nodeName string) error 
 	fmt.Printf("node %s (uid %s)\n", obs.NodeName, obs.NodeUID)
 	fmt.Printf("  label %s = %q (present=%v)\n", workerLabelKey, obs.LabelValue, obs.HasLabel)
 	fmt.Printf("  taints on %s: %+v\n", workerTaintKey, obs.Taints)
-	fmt.Printf("  journal: %s\n", orNone(obs.JournalRaw))
-	fmt.Printf("  quarantine: %s\n", orNone(obs.QuarantineRaw))
+	fmt.Printf("  journal: %s\n", quotedOrNone(obs.JournalRaw))
+	fmt.Printf("  quarantine: %s\n", quotedOrNone(obs.QuarantineRaw))
 	switch {
 	case obs.QuarantineRaw != "":
 		q, err := decodeQuarantine(obs.QuarantineRaw)
@@ -325,6 +366,21 @@ func inspectWorker(ctx context.Context, c client.Client, nodeName string) error 
 		fmt.Printf("\nQUARANTINED. To free it after establishing the previous process is dead:\n"+
 			"  queuelabrun -clear-quarantine -worker %s -quarantine-id %s -confirm-owner-dead\n",
 			nodeName, q.QuarantineID)
+	case obs.JournalRaw != "" && obs.JournalErr != nil:
+		// Without this branch a node carrying an undecodable journal and no marker fell through to FREE and
+		// exited 0, while decideAcquire refuses that same node as unreadable-journal: the recovery tool
+		// contradicted the runner about the node's state, and said the safe-sounding thing. A script reading
+		// the exit code would then keep pointing runs at a node no run can ever take.
+		//
+		// It is not recoverable by the ordinary path either: -release-stale needs a txID, and the txID lives
+		// in the very document that cannot be read, so the break is the only way through.
+		fmt.Printf("\nUNREADABLE OWNERSHIP JOURNAL: %v\n"+
+			"  found: %s\n"+
+			"  No run can acquire this node (acquisition refuses it as %s) and -release-stale cannot free it,\n"+
+			"  because the transaction id it would need is inside this document. Break it with:\n"+
+			"    queuelabrun -force-release -worker %s -node-uid %s -accept-divergence\n",
+			obs.JournalErr, quotedOrNone(obs.JournalRaw), reasonBadJournal, nodeName, obs.NodeUID)
+		return fmt.Errorf("node %s: unreadable ownership journal: %w", nodeName, obs.JournalErr)
 	case obs.JournalRaw != "" && obs.JournalErr == nil:
 		fmt.Printf("\nHELD by run %s (arm %s) under tx %s since %s.\n"+
 			"  If that process is gone: queuelabrun -release-stale -worker %s -txid %s -confirm-owner-dead\n",
@@ -347,11 +403,18 @@ func inspectWorker(ctx context.Context, c client.Client, nodeName string) error 
 	return nil
 }
 
-func orNone(s string) string {
+// quotedOrNone renders an annotation this tool did not write.
+//
+// The journal and the quarantine record are Node annotations, so anyone who can write the Node can put
+// arbitrary bytes in them, and every caller here prints them into an operator's terminal while that operator
+// is deciding whether to break a node. %q escapes the terminal control sequences that could otherwise
+// rewrite the recovery instructions printed around them, and it also makes trailing whitespace or an empty
+// document visible instead of silently absent.
+func quotedOrNone(s string) string {
 	if s == "" {
 		return "(none)"
 	}
-	return s
+	return fmt.Sprintf("%q", s)
 }
 
 // releaseStale is the ordinary recovery: the transaction is identified, its values are intact, and the
@@ -412,7 +475,7 @@ func forceQuarantine(ctx context.Context, c client.Client, nodeName, nodeUID str
 	fmt.Printf("forcing node %s: removing label %s=%q, %d taint(s) on %s, and the journal %s\n"+
 		"  all of it is preserved in quarantine record %s\n",
 		nodeName, workerLabelKey, obs.LabelValue, len(obs.Taints), workerTaintKey,
-		orNone(obs.JournalRaw), q.QuarantineID)
+		quotedOrNone(obs.JournalRaw), q.QuarantineID)
 	base := n.DeepCopy()
 	delete(n.Labels, workerLabelKey)
 	delete(n.Annotations, journalKey)
@@ -495,7 +558,27 @@ func releaseAcquired(ctx context.Context, c client.Client, j journal) (releaseAc
 			lastErr = err
 			continue
 		default:
-			return releaseRestore, fmt.Errorf("release node %s: %w", j.Node, err)
+			// Acquisition has resolveAmbiguousAcquire for exactly this class of error and release had no
+			// counterpart, so a non-conflict Patch failure whose write actually landed — a proxy timeout, a
+			// connection reset after commit — made the run print "worker not restored" and exit non-zero for a
+			// node that was already clean. That is a false invalidation, and the lab pays for those in runs.
+			//
+			// The direction of failure stays safe because only a positive proof passes: verifyReleased must
+			// observe our label gone, our taint value gone, our journal gone and the same node UID, and it
+			// fails closed on an unreadable journal or a Get it cannot complete. It deliberately tolerates
+			// another transaction having acquired in the meantime, which is verifyClean's whole contract and
+			// is an ordinary race rather than a restoration failure.
+			//
+			// A 409 cannot reach here, which is what keeps this narrow: had a concurrent -release-stale or
+			// -force-release removed our markers before this patch, it would have moved the resourceVersion and
+			// the optimistic lock would have failed with a conflict, sending us round the loop to a fresh
+			// decideRelease that sees the loss. So a clean read-back here is our own write far more plausibly
+			// than somebody else's.
+			if verr := verifyReleased(ctx, c, j.Node, j); verr != nil {
+				return releaseRestore, fmt.Errorf(
+					"release node %s: %w (the read-back could not prove restoration either: %v)", j.Node, err, verr)
+			}
+			return releaseRestore, nil
 		}
 	}
 	return releaseRestore, fmt.Errorf("release node %s: %d conflicts, giving up: %w",

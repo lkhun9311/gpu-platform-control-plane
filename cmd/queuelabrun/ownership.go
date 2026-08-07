@@ -303,12 +303,20 @@ func encodeQuarantine(q quarantine) (string, error) {
 	return string(b), nil
 }
 
+// decodeQuarantine is as strict as decodeJournal, and for the same reason.
+//
+// The quarantine record is the only surviving evidence of who held a forcibly broken node, and it is what
+// decideClear matches the operator's -quarantine-id against, so a document with anything after it is one
+// this tool does not fully understand and must not act on.
 func decodeQuarantine(s string) (quarantine, error) {
 	dec := json.NewDecoder(strings.NewReader(s))
 	dec.DisallowUnknownFields()
 	var q quarantine
 	if err := dec.Decode(&q); err != nil {
 		return quarantine{}, fmt.Errorf("decode quarantine: %w", err)
+	}
+	if dec.More() {
+		return quarantine{}, fmt.Errorf("decode quarantine: trailing data after the document")
 	}
 	if q.Schema != quarantineSchema {
 		return quarantine{}, fmt.Errorf("decode quarantine: schema %d is not %d", q.Schema, quarantineSchema)

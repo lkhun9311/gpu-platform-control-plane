@@ -19,6 +19,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -57,5 +58,42 @@ func TestWaitBarrierReturnsPromptlyOnCancelledContext(t *testing.T) {
 	}
 	if elapsed > 500*time.Millisecond {
 		t.Fatalf("waitBarrier took %v to return on an already-cancelled context; it must not poll to the deadline", elapsed)
+	}
+}
+
+// The main goroutine used to call col.builder.Desync directly while the four watch goroutines were still
+// running and still calling Observe through flush under col.mu, and LedgerBuilder has no locking of its own:
+// invalid, events, lastEvent and ready are plain fields. That is a data race on the single field that
+// decides whether the run may produce a number at all.
+//
+// The whole test suite was green under -race before this fix and proved nothing, because no test ran the
+// live collector with concurrent watch goroutines. This one does: one goroutine plays the watch side
+// (submitObserved takes col.mu and calls Observe, exactly as flush does) while the test goroutine plays the
+// main side. Run under -race it fails on the unlocked Desync and passes on the locked one.
+func TestCollectorDesyncIsSerialisedWithTheWatchGoroutines(t *testing.T) {
+	scheme := testScheme(t)
+	if err := platformv1.AddToScheme(scheme); err != nil {
+		t.Fatalf("add platformv1 to scheme: %v", err)
+	}
+	fc := fake.NewClientBuilder().WithScheme(scheme).Build()
+	col := newCollector(fc, "ns", "r1")
+
+	const rounds = 500
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for i := 0; i < rounds; i++ {
+			col.submitObserved(queuelab.TrainingTraceRow{Name: "victim"}, fmt.Sprintf("uid-%d", i),
+				&platformv1.MLTrainingJob{})
+		}
+	}()
+	for i := 0; i < rounds; i++ {
+		col.desync("barrier before step 0 (victim): deadline")
+	}
+	<-done
+
+	// Reading the builder is safe only now, which is the same discipline run() follows after col.wait().
+	if col.builder.Err() == nil {
+		t.Fatal("the desync must have invalidated the run; the test did not exercise what it exists for")
 	}
 }

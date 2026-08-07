@@ -62,8 +62,11 @@ type EventType string
 const (
 	// EventSubmitted is the MLTrainingJob API acceptance (the offered-work clock start).
 	//
-	// It is written by the submitting path right after a successful Create, not by a watch, so it cannot be
-	// observed after an admission of the same job; Reconstruct rejects any admitted-before-submitted timeline.
+	// It is written by the submitting path right after a successful Create, not by a watch, so unlike every
+	// other event here its instant is a local fact rather than a delivery time. That is what lets Reconstruct
+	// treat a Pod Ready before it as impossible evidence: the comparison holds because only one side of it
+	// came off a watch. The admission comparison is NOT of that kind — Admitted is watch-observed, so an
+	// admission delivered before this event is legal cross-watch reordering and is folded, not refused.
 	EventSubmitted EventType = "Submitted"
 	// EventAdmitted is the Workload reaching Admitted=True.
 	EventAdmitted EventType = "Admitted"
@@ -291,10 +294,26 @@ type LabResult struct {
 //
 // It is SEEDED from the frozen trace: every offered row gets exactly one timeline whether or not its events
 // arrived, so a job pending or missed at the horizon becomes an unfinished, right-censored outcome rather
-// than a silent omission. It returns an error rather than a number on impossible or conflicting evidence
-// (an event for an unknown job, a missing or duplicated submission, an admitted-before-submitted or
-// completed-before-admitted ordering, or a preemption that pairs to no running attempt), because for an
-// experiment tool a plausible wrong number is worse than a refusal.
+// than a silent omission. It returns an error rather than a number on evidence that could not have come from
+// a real run, because for an experiment tool a plausible wrong number is worse than a refusal. What it
+// refuses is exactly this:
+//
+//   - shape: a duplicate job name in the trace, an event for a job not in the trace, an unknown event type,
+//     a negative elapsed time, a Pod event with no Pod UID, and an AttemptStopped whose reason is neither
+//     Succeeded nor Failed, since that reason is the only thing separating discarded work from finished work;
+//   - identity: a row with no Submitted event at all, a second Submitted or Completed at a different instant,
+//     and an AttemptStopped for a Pod whose Ready was never seen;
+//   - impossible order WITHIN one watch or against the locally stamped Submitted: a Pod Ready before its own
+//     row was created, an attempt stopped before it was Ready, two attempts of one row overlapping, and a
+//     completion with no admission evidence at all;
+//   - arithmetic that contradicts the protocol: more preemption decisions than the row has attempts.
+//
+// It deliberately does NOT refuse orderings that are legal cross-watch reordering, and this is the part that
+// changed: Workload, Job and Pod arrive on three independent watches, so an Admitted delivered before its
+// Submitted, a Completed delivered before its Admitted, and a preemption delivered after the Pod it stopped
+// are all realistic deliveries rather than impossible evidence. Earlier revisions rejected the first two and
+// paired preemptions by comparing instants across watches; both discarded valid runs. Preemptions are paired
+// to attempts ordinally now (see pairPreemptionsToAttempts), never by instant comparison.
 //
 // It assumes its input came from a fail-closed collector that observes every terminal Pod transition and
 // invalidates a run on any unexplained one (the live runner's contract). That precondition is what makes

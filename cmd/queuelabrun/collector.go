@@ -95,6 +95,20 @@ func (col *collector) start(ctx context.Context) {
 
 func (col *collector) wait() { col.wg.Wait() }
 
+// desync invalidates the run from the main goroutine, which is the only caller that does not already hold mu.
+//
+// LedgerBuilder has no locking of its own — invalid, events, lastEvent and ready are plain fields — and the
+// four watch goroutines call Observe through flush under this mutex for the whole run. Calling Desync
+// directly from the main goroutine is therefore a data race on the single field that decides whether the run
+// is allowed to produce a number at all, which is the one thing this package may not get wrong. The lock
+// belongs here rather than inside internal/queuelab because mu already serialises every other access to the
+// builder, and a second, independent mutex would only make that ownership ambiguous.
+func (col *collector) desync(reason string) {
+	col.mu.Lock()
+	defer col.mu.Unlock()
+	col.builder.Desync(reason)
+}
+
 func (col *collector) watch(ctx context.Context, kind string, newList func() client.ObjectList) {
 	col.wg.Go(func() {
 		for ctx.Err() == nil {

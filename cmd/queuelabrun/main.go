@@ -178,9 +178,10 @@ func dispatchOperatorMode(args operatorModeArgs) (fired bool, err error) {
 		return true, err
 	}
 	// A signal firing mid-patch is exactly what could leave a mutation half applied, and there is no wait
-	// in any of these modes worth making cancellable, so they all run on a context nothing can cancel out
-	// from under them.
-	ctx := context.Background()
+	// in any of these modes worth making cancellable, so they all run on a context no signal can cancel out
+	// from under them — but bounded, not indefinite, for the reason spelled out at operatorModeTimeout.
+	ctx, cancel := operatorModeContext()
+	defer cancel()
 
 	switch mode {
 	case modeInspect:
@@ -313,10 +314,18 @@ func run(ctx context.Context, arm queuelab.Arm, runID, namespace, worker string,
 				col.wait()
 				return fmt.Errorf("observation cancelled while waiting for a barrier: %w", ctx.Err())
 			}
-			col.builder.Desync(fmt.Sprintf("barrier before step %d (%s): %v", i, step.Row.Name, err))
+			// col.desync rather than col.builder.Desync: the four watch goroutines are still running and still
+			// calling Observe, and the builder has no locking of its own.
+			col.desync(fmt.Sprintf("barrier before step %d (%s): %v", i, step.Row.Name, err))
 			break
 		}
 		if err := submit(ctx, c, col, arm, step.Row, namespace); err != nil {
+			// Every return past col.start must stop the watches and join them, the same as the two paths
+			// around it. Returning straight out would run the deferred release while four goroutines were
+			// still writing to the builder and still watching a namespace the run has abandoned, and nothing
+			// would ever reach wg.Wait().
+			cancel()
+			col.wait()
 			return fmt.Errorf("submit %s: %w", step.Row.Name, err)
 		}
 		fmt.Printf("  submitted %s (t=%s)\n", step.Row.Name, col.elapsed().Round(time.Second))
@@ -330,6 +339,8 @@ func run(ctx context.Context, arm queuelab.Arm, runID, namespace, worker string,
 		return werr
 	}
 
+	// Reading the builder directly is safe only from here down: col.wait() above joined every watch
+	// goroutine, so nothing else can touch it again for the rest of the run.
 	events := col.builder.Events()
 
 	// Validity is decided before anything is published, because a non-zero exit cannot retract a number
