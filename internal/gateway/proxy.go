@@ -87,18 +87,30 @@ func newRequestID() string {
 	return hex.EncodeToString(b)
 }
 
-// readRequestMeta extracts admission-relevant metadata from the request body and returns the body restored for replay.
+// readRequestMeta extracts admission-relevant metadata from the request body and returns a factory that replays the body.
 //
-// It returns the restored body, the metadata, and an error.
+// It returns the factory, the metadata, and an error.
 //
 // The restore is what makes this safe: r.Body is a one-shot stream, so reading it here would leave the proxy nothing to forward and the model server would see an empty body.
 //
 // The gateway would pass that failure through verbatim, hiding the fact that the gateway caused it.
 //
+// Why a factory rather than the single restored reader it used to return.
+//
+// The bytes are already buffered here (they have to be, to estimate input tokens), so handing out any number of readers over them costs nothing beyond the one allocation per call.
+//
+// That is what lets the caller populate http.Request.GetBody, which http.Transport needs to replay a request onto a fresh connection when it finds a pooled one already closed by the upstream.
+//
+// The reach is specifically the case where the write failed having sent nothing: shouldRetryRequest allows that retry on req.GetBody != nil alone, whereas every other stale-connection error additionally requires isReplayable, which is false for a POST without an Idempotency-Key (go1.25.7 net/http).
+//
+// So this narrows the exposure the shared pool introduces rather than removing it, which is worth having because it is free.
+//
+// maxBodyBytes already bounds the buffer, so nothing here widens the memory exposure the single-reader version had.
+//
 // Only model and messages[].content are decoded.
 //
 // The gateway routes on model and estimates admission cost from content, and must forward everything else untouched; modelling the whole schema would mean editing the gateway whenever the OpenAI API grows a field, and would silently drop any field not yet declared.
-func readRequestMeta(r *http.Request) (io.ReadCloser, RequestMeta, error) {
+func readRequestMeta(r *http.Request) (func() (io.ReadCloser, error), RequestMeta, error) {
 	// The nil first argument means MaxBytesReader will not write a response itself; the caller owns the status code.
 	//
 	// Exceeding the cap surfaces as a read error, which the caller maps to 400.
@@ -142,8 +154,10 @@ func readRequestMeta(r *http.Request) (io.ReadCloser, RequestMeta, error) {
 	// Ceiling division, not floor: a conservative estimate must never read lower than the total byte length implies.
 	meta.EstInputTokens = (totalChars + 3) / 4
 
-	// Hand back a reader over the bytes just consumed, byte-for-byte identical to the original.
-	return io.NopCloser(bytes.NewReader(buf)), meta, nil
+	// Hand back a factory over the bytes just consumed; every reader it produces is byte-for-byte identical to the original.
+	//
+	// The error return is always nil and exists only to match http.Request.GetBody's signature, so the factory can be assigned to it directly rather than wrapped at the call site.
+	return func() (io.ReadCloser, error) { return io.NopCloser(bytes.NewReader(buf)), nil }, meta, nil
 }
 
 // statusRecorder wraps a ResponseWriter to capture the status code the proxy actually wrote.
@@ -239,6 +253,35 @@ func writeJSONErrorCode(w http.ResponseWriter, status int, code, message string)
 // 30s is the compromise: a model server can spend seconds on prefill before the first token, so a short cap severs healthy requests, while an unbounded wait lets hung requests pile up and exhaust connections.
 const defaultResponseHeaderTimeout = 30 * time.Second
 
+// maxIdleConnsPerHost caps how many idle connections the shared Transport keeps warm per backend.
+//
+// Go's default is 2 (http.DefaultMaxIdleConnsPerHost), which would leave the pooling fix half-done for the case it exists to serve.
+//
+// The M5-b harness dispatches open-loop, so many requests to the one backend are in flight at once; when a wave completes, a cap of 2 closes all but two of those connections and the next wave handshakes again.
+//
+// That is the same artifact a per-request Transport produced, only smaller, and it would still be measured as backend contention.
+//
+// Where 600 comes from.
+//
+// The harness's own defaults bound how many requests can be in flight at once: it offers a mean 20 arrivals per second (cmd/benchharness/main.go, -rate) and cancels any request still outstanding after 30s (-timeout-ms).
+//
+// Open-loop dispatch never waits for a response (internal/bench/replay.go), so in-flight requests accumulate at the arrival rate and leave only by completing or timing out, giving a hard ceiling of 20/s x 30s = 600 to a single backend host.
+//
+// All of a run's traffic targets one model, hence one Service host, so that ceiling applies per host rather than being split across hosts.
+//
+// What is assumed rather than derived.
+//
+// The steady-state figure is arrival rate times *mean* latency, which is far below this ceiling, but no run has been recorded in evidence/ and the repository contains no measured latency to compute it from.
+//
+// So this is deliberately the ceiling and not an estimate of typical load: it is the point beyond which the cap provably cannot be what closed a reusable connection.
+//
+// Why the ceiling is safe to use as the cap.
+//
+// This setting never creates a connection; it only decides whether an already-established one is kept or closed when it goes idle.
+//
+// So it cannot push the socket count above the peak concurrency the process already sustained, and anything it does keep is released by IdleConnTimeout below.
+const maxIdleConnsPerHost = 600
+
 // newTransport builds the one outbound Transport the whole process shares.
 //
 // A zero responseHeaderTimeout means "unset" and selects defaultResponseHeaderTimeout.
@@ -272,6 +315,15 @@ func newTransport(responseHeaderTimeout time.Duration) *http.Transport {
 		//
 		// That property only holds because this Transport outlives the request; see the sharing rationale above.
 		IdleConnTimeout: 90 * time.Second,
+		// See maxIdleConnsPerHost for the derivation; the default of 2 would undo most of the reuse this Transport exists to provide.
+		MaxIdleConnsPerHost: maxIdleConnsPerHost,
+		// MaxIdleConns is left zero, which for http.Transport means no limit on idle connections across all hosts.
+		//
+		// A total cap is deliberately not set: it would make one backend's pool depend on how busy the others are, so a noisy backend could evict the connections of the tenant whose latency is being measured.
+		//
+		// That is the exact coupling this gateway is instrumented to detect, and it must not be introduced by its own connection pool.
+		//
+		// The per-host cap above still bounds each backend, and the number of backends is bounded by the configured InferenceDeployments.
 	}
 }
 

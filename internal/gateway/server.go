@@ -306,8 +306,18 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, tenant, "", http.StatusBadRequest)
 		return
 	}
-	// Put the restored body back, or the upstream receives an empty one.
-	r.Body = body
+	// Put the body back, or the upstream receives an empty one.
+	//
+	// GetBody is set from the same factory, which is what lets the shared connection pool recover from the one stale-connection case Go will retry for a POST.
+	//
+	// When the Transport picks an idle connection the upstream has already closed and the write fails having sent nothing, http.Transport retries on a fresh connection if and only if it can rewind the body.
+	//
+	// A proxied request has no GetBody of its own, since the server side never sets one, so without this line that case reaches the client as a 502 despite nothing having been sent upstream.
+	//
+	// It does not make the pool immune to a stale connection: once bytes are on the wire, Go refuses to replay a POST at all (see readRequestMeta).
+	r.GetBody = body
+	// The factory reads from a buffer already in memory, so it has no failure mode and there is no error path to take here.
+	r.Body, _ = r.GetBody()
 
 	// 6. Resolve the model to a backend.
 	target, err := s.resolveBackend(ctx, policy, meta.Model)

@@ -22,6 +22,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -578,6 +579,135 @@ var _ = Describe("outbound connection pooling", func() {
 		// Strictly fewer dials than requests is the whole claim; the requests are sequential and the backend is one host, so in practice this is 1.
 		Expect(dials).To(BeNumerically("<", requests))
 	})
+
+	// Pins that the pool survives a whole concurrent wave, not just the two connections Go keeps by default.
+	//
+	// The regression this prevents.
+	//
+	// MaxIdleConnsPerHost defaults to 2, so with a shared Transport but no cap raised, a wave of concurrent requests opens many connections and then closes all but two the moment they go idle.
+	//
+	// The next wave handshakes again, which is the same artifact a per-request Transport produced, only smaller, and it would still be read as backend contention by a harness that dispatches open-loop.
+	//
+	// Why the upstream holds every request until the whole wave has arrived.
+	//
+	// Without that barrier the wave is free to serialise: a few connections would serve it by reuse, the pool would never exceed the default cap, and the spec would pass at any cap at all.
+	//
+	// Blocking until all of them are in flight forces exactly perWave connections open, so the second wave measures whether they were kept.
+	It("keeps a whole concurrent wave of connections warm for the next wave", func() {
+		const perWave = 12
+
+		var mu sync.Mutex
+		dials := 0
+		// arrived reports each request reaching the upstream; release is swapped per wave to free them all at once.
+		arrived := make(chan struct{}, perWave)
+		release := make(chan struct{})
+
+		up := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			mu.Lock()
+			gate := release
+			mu.Unlock()
+			arrived <- struct{}{}
+			<-gate
+			w.WriteHeader(http.StatusOK)
+		}))
+		up.Config.ConnState = func(_ net.Conn, state http.ConnState) {
+			if state != http.StateNew {
+				return
+			}
+			mu.Lock()
+			defer mu.Unlock()
+			dials++
+		}
+		up.Start()
+		defer up.Close()
+
+		s := newProxyServerWithBurst(up.URL, 600_000, perWave*2)
+		h := s.Handler()
+
+		for range 2 {
+			mu.Lock()
+			release = make(chan struct{})
+			gate := release
+			mu.Unlock()
+
+			var wg sync.WaitGroup
+			codes := make([]int, perWave)
+			for i := range perWave {
+				wg.Add(1)
+				go func(i int) {
+					defer wg.Done()
+					rr := httptest.NewRecorder()
+					h.ServeHTTP(rr, authedRequest(`{"model":"llama-3"}`))
+					codes[i] = rr.Code
+				}(i)
+			}
+			// Every request is now in flight at the upstream, so the wave genuinely holds perWave connections at once.
+			for range perWave {
+				<-arrived
+			}
+			close(gate)
+			wg.Wait()
+			// Asserted on the spec's own goroutine, since a Gomega failure inside a worker would not be attributed correctly.
+			for i, c := range codes {
+				Expect(c).To(Equal(http.StatusOK), "request %d was not proxied", i)
+			}
+		}
+
+		mu.Lock()
+		defer mu.Unlock()
+		// The second wave must have been served entirely from the pool: at the default cap of 2 it would have had to dial perWave-2 more.
+		Expect(dials).To(Equal(perWave))
+	})
+
+	// Pins that the gateway hands the Transport a request it is able to replay.
+	//
+	// Why this matters once the Transport is shared.
+	//
+	// Pooling introduces a race a per-request Transport could not have: the upstream may close an idle connection just as the gateway reuses it.
+	//
+	// When that happens before any byte is written, http.Transport retries on a fresh connection, but only if it can rewind the body: shouldRetryRequest returns req.outgoingLength() == 0 || req.GetBody != nil for a nothingWrittenError (go1.25.7 net/http/transport.go).
+	//
+	// A server-side request never carries a GetBody of its own, so unless chatCompletions supplies one, that retry is refused and the caller is told the backend failed when nothing was ever sent to it.
+	//
+	// Supplying it is free here because readRequestMeta has already buffered the whole body to estimate input tokens.
+	//
+	// What this spec deliberately does not claim.
+	//
+	// It does not claim pooling can no longer produce a 502.
+	//
+	// Go only treats a POST as replayable at all when it carries an Idempotency-Key header (isReplayable in net/http/request.go), so the stale-connection paths where bytes did reach the wire (errServerClosedIdle, transportReadFromServerError) stay unretried whatever GetBody says.
+	//
+	// GetBody narrows the exposure to the subset Go will act on; it does not close it, and a spec asserting otherwise would be asserting something false.
+	//
+	// chatCompletions is called directly rather than through Handler() so the assertion reads the very request the pipeline mutated, with no mux in between deciding whether to hand the handler the same *http.Request.
+	It("gives the forwarded request a rewindable body", func() {
+		const body = `{"model":"llama-3","messages":[{"role":"user","content":"hi"}]}`
+
+		// The upstream records what it received, so this also pins that Body itself was restored rather than merely GetBody being set.
+		var upstreamGot string
+		up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			b, _ := io.ReadAll(r.Body)
+			upstreamGot = string(b)
+			w.WriteHeader(http.StatusOK)
+		}))
+		defer up.Close()
+		s := newProxyServer(up.URL, 600)
+
+		r := authedRequest(body)
+		rr := httptest.NewRecorder()
+		s.chatCompletions(rr, r)
+		Expect(rr.Code).To(Equal(http.StatusOK))
+		Expect(upstreamGot).To(Equal(body))
+
+		// The rewind the Transport would perform, performed here instead.
+		Expect(r.GetBody).NotTo(BeNil())
+		rewound, err := r.GetBody()
+		Expect(err).NotTo(HaveOccurred())
+		replayed, err := io.ReadAll(rewound)
+		Expect(err).NotTo(HaveOccurred())
+		// Byte-for-byte, or a retried request would quietly send something other than what the caller wrote.
+		Expect(string(replayed)).To(Equal(body))
+	})
 })
 
 // Pins that an unresolved model never becomes a Prometheus label.
@@ -635,14 +765,24 @@ var _ = Describe("readRequestMeta", func() {
 		body := `{"model":"llama-3","messages":[{"role":"user","content":"hi"}]}`
 		r := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
 
-		restored, meta, err := readRequestMeta(r)
+		restore, meta, err := readRequestMeta(r)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(meta.Model).To(Equal("llama-3"))
 
 		// The restored body must match the original byte for byte.
-		buf := make([]byte, len(body))
-		n, _ := restored.Read(buf)
-		Expect(string(buf[:n])).To(Equal(body))
+		readAll := func() string {
+			rc, err := restore()
+			Expect(err).NotTo(HaveOccurred())
+			b, err := io.ReadAll(rc)
+			Expect(err).NotTo(HaveOccurred())
+			return string(b)
+		}
+		Expect(readAll()).To(Equal(body))
+
+		// And again, from a second reader over the same buffer.
+		//
+		// This is the property the factory sells to http.Request.GetBody: a request the Transport rewinds must carry the identical body the first attempt did, or a retry would silently send something else.
+		Expect(readAll()).To(Equal(body))
 	})
 
 	It("rejects a body that exceeds the size limit", func() {
