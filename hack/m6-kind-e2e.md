@@ -104,18 +104,32 @@ gpu-tenant-b   gpu-platform   1         Any
 round-tripped correctly through Kueue's real v1beta2 storage and webhook.
 
 Because both policies set `trainingQuota: true`, no namespace `ResourceQuota`
-caps GPUs (the ceiling lives only in the ClusterQueue):
+caps GPUs — the ceiling lives only in the ClusterQueue, so the same GPUs are not
+counted twice. Verified against the cluster after the run:
 
 ```
-$ kubectl get resourcequota -A | grep gpuquota
-# (nothing — the GPU ceiling is enforced only by Kueue, not double-counted)
+$ kubectl --context kind-platform get resourcequota -A
+No resources found
 ```
+
+> **Why this line is called out.** An earlier revision of this document showed a
+> transcript of this check that had never actually been run, and the capture it
+> sat next to came from a reused cluster carrying a stale `gpuquota-tenant-a-quota`
+> ResourceQuota from a previous experiment — 27 `exceeded quota` events in that
+> log flatly contradicted the claim above. The claim turned out to be correct and
+> the evidence had been contaminated, which is the worse of the two failures to
+> have: the conclusion survived by luck. The run recorded here is from a cluster
+> created from scratch, and `hack/m6-kind-e2e.sh` now captures this check itself
+> so the next run has it in the log rather than in prose.
 
 ### Fair sharing (borrowing)
 
-With `tenant-b` idle, `tenant-a` submitted two 1-GPU jobs. Both reached
-`Running`: `a1` on `tenant-a`'s own nominal unit, `a2` by **borrowing**
-`tenant-b`'s idle unit from the cohort (`gpu(Fit;borrow=1)`).
+With `tenant-b` idle, `tenant-a` submitted two 1-GPU jobs and both reached
+`Running`. The borrowing is a property of the ClusterQueue, not of either job:
+`gpu-tenant-a` has a nominal quota of 1 and was admitted 2, so one of those two
+units is **borrowed** from `tenant-b`'s idle nominal through the cohort
+(`gpu(Fit;borrow=1)`). Which job "is" the borrowed one is not a question Kueue
+answers, and the preemption section below is where that matters.
 
 ```
 tenant-a/a1 reached phase Running after 3s
@@ -133,23 +147,37 @@ gpu-tenant-b   1         0
 ### Preemption (reclaim)
 
 `tenant-b` then submitted its own 1-GPU job. Its ClusterQueue reclaimed its
-nominal unit via `reclaimWithinCohort: Any`, so Kueue preempted the borrowed
-`tenant-a` job. The operator translated the lost admission back to `Pending`.
+nominal unit via `reclaimWithinCohort: Any`, so Kueue preempted one of the two
+`tenant-a` workloads. The operator translated the lost admission back to
+`Pending`.
 
 ```
-tenant-b/b1 reached phase Running after 3s
-preemption: tenant-a/a2 was reclaimed back to Pending after b1 admitted
+tenant-b/b1 reached phase Running after 18s
+[EVIDENCE] preemption: tenant-a/a1 was reclaimed back to Pending after b1 admitted
 
 NS         NAME   PHASE
-tenant-a   a1     Running
-tenant-a   a2     Pending        <- borrowed job preempted, back to Pending
+tenant-a   a1     Pending        <- preempted, back to Pending
+tenant-a   a2     Running
 tenant-b   b1     Running        <- reclaimed its own nominal unit
 ```
+
+> **Which job gets preempted is not a property you can name in advance.** An
+> earlier revision of this document said Kueue "preempted the borrowed
+> `tenant-a` job" and showed `a2` going Pending, because that is what happened in
+> that run. This run preempted `a1` instead. Both are correct: quota inside a
+> ClusterQueue is fungible, so there is no such object as "the borrowed job" —
+> `gpu-tenant-a` was simply admitted 2 against a nominal of 1, and when
+> `tenant-b` reclaimed, Kueue returned one unit by evicting one of tenant-a's
+> workloads. Reading a specific victim as designed behaviour attributes an
+> identity to fungible quota, and a claim written that way survives only until
+> the next run. What is reproducible is the mechanism the event names — reclaim
+> within the cohort, preemptor `gpu-tenant-b`, preemptee `gpu-tenant-a` — not
+> which of `a1` or `a2` pays for it.
 
 Kueue's own event names the reclaim explicitly:
 
 ```
-Normal  Preempted  workload/job-a2-4764d
+Normal  Preempted  workload/job-a1-8606d
   Preempted to accommodate a workload ... due to reclamation within the cohort;
   preemptor path: /gpu-platform/gpu-tenant-b; preemptee path: /gpu-platform/gpu-tenant-a
 ```

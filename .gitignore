@@ -69,7 +69,6 @@ Thumbs.db
 .claude/settings.local.json
 
 # M6 kind E2E run artifact (curated evidence lives in hack/m6-kind-e2e.md)
-hack/m6-e2e-evidence.log
 
 # stray local build of cmd/benchharness, anchored so it cannot also swallow new files under cmd/benchharness/
 /benchharness
