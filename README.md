@@ -98,6 +98,9 @@ and **`queuelabrun` refuses by design to emit a countable result** — it exits 
 validity gates that are still unimplemented. That refusal is the current state of this milestone, and it is
 deliberate: the earlier result counted because a run that looked fine was allowed to count.
 
+The full account, including two further mistakes found while repairing this record, is in
+[docs/10_WHAT_I_GOT_WRONG.md](docs/10_WHAT_I_GOT_WRONG.md).
+
 ## Tech stack
 
 - Go, controller-runtime, scaffolded with [kubebuilder](https://book.kubebuilder.io/)
