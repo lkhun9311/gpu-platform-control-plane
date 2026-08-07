@@ -153,26 +153,48 @@ func (r *NodeHealthReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	return ctrl.Result{}, nil
 }
 
+// NodeNameIndex is the cache field-index key over NodeHealth.spec.nodeName.
+//
+// It mirrors the gateway's ModelNameIndex: the lookup that needs it runs on the hot path, so it resolves against the informer cache with no field selector and no apiserver call.
+const NodeNameIndex = ".spec.nodeName"
+
+// indexNodeHealthByNodeName is the extractor behind NodeNameIndex.
+//
+// It is a named function rather than a literal because the tests must register the identical extractor to make MatchingFields behave as it does against the manager's cache.
+func indexNodeHealthByNodeName(o client.Object) []string {
+	return []string{o.(*platformv1.NodeHealth).Spec.NodeName}
+}
+
 // mapNodeToNodeHealth maps a Node event to reconcile requests for every NodeHealth whose spec.nodeName matches the node.
 // This propagates node-side drift back into status.
+//
+// The lookup goes through NodeNameIndex rather than listing and filtering in Go, because kubelet posts a status heartbeat for every node on a fixed cadence: an unindexed List would walk every NodeHealth in the cluster once per node per heartbeat, so its cost grows with the product of the two rather than with the handful of objects that actually match.
 func (r *NodeHealthReconciler) mapNodeToNodeHealth(ctx context.Context, obj client.Object) []reconcile.Request {
 	var list platformv1.NodeHealthList
-	if err := r.List(ctx, &list); err != nil {
+	if err := r.List(ctx, &list, client.MatchingFields{NodeNameIndex: obj.GetName()}); err != nil {
+		// A map function has no error return, so the only alternative to logging is dropping the failure on the floor.
+		//
+		// That is the worst outcome available here: drift stops reaching status and the resource simply stops updating, with nothing anywhere saying which node stopped being watched or why.
+		logf.FromContext(ctx).Error(err, "list nodehealths for node event", "node", obj.GetName())
 		return nil
 	}
-	var reqs []reconcile.Request
+	reqs := make([]reconcile.Request, 0, len(list.Items))
 	for i := range list.Items {
-		if list.Items[i].Spec.NodeName == obj.GetName() {
-			reqs = append(reqs, reconcile.Request{
-				NamespacedName: types.NamespacedName{Name: list.Items[i].Name},
-			})
-		}
+		reqs = append(reqs, reconcile.Request{
+			NamespacedName: types.NamespacedName{Name: list.Items[i].Name},
+		})
 	}
 	return reqs
 }
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *NodeHealthReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	// The index must exist before the Node watch can fire, so it is registered here rather than lazily.
+	//
+	// context.Background() rather than a scoped context because IndexField only installs the extractor on the cache; it starts nothing that would need cancelling.
+	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &platformv1.NodeHealth{}, NodeNameIndex, indexNodeHealthByNodeName); err != nil {
+		return fmt.Errorf("index nodehealth by %s: %w", NodeNameIndex, err)
+	}
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&platformv1.NodeHealth{}).
 		Watches(&corev1.Node{}, handler.EnqueueRequestsFromMapFunc(r.mapNodeToNodeHealth)).
