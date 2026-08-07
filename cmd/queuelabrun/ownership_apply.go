@@ -294,8 +294,12 @@ func verifyClean(obs ownership, j journal) error {
 // resolveWindow is how long the node must look free before a lost write is called dead.
 //
 // It is stated as its own value because it is what the refusal quotes and what the argument below turns on,
-// not merely the product of two loop bounds.
-const resolveWindow = time.Duration(resolveAttempts) * resolveInterval
+// not merely the product of two loop bounds — and it counts the GAPS between reads, not the reads. The first
+// read is immediate, so six reads spaced two seconds apart span ten seconds, and quoting twelve would claim
+// two seconds nothing observed. That trailing gap is not a rounding detail: it is exactly where the late
+// commit this whole path exists to catch would land unseen, which is why the loop below does not sleep after
+// its last read.
+const resolveWindow = time.Duration(resolveAttempts-1) * resolveInterval
 
 // resolveAmbiguousAcquire decides whether a patch whose response was lost actually committed.
 //
@@ -352,6 +356,12 @@ func resolveAmbiguousAcquire(ctx context.Context, c client.Client, nodeName stri
 				// Partly ours, or ours diverged: resolved neither way.
 				freeThroughout = false
 			}
+		}
+		if attempt == resolveAttempts-1 {
+			// The last read closes the window. Sleeping after it would put resolveInterval of unwatched time
+			// inside the span the refusal below quotes, and a write committing in that gap is precisely the
+			// outcome this loop exists to notice.
+			break
 		}
 		select {
 		case <-ctx.Done():
@@ -411,7 +421,7 @@ func inspectWorker(ctx context.Context, c client.Client, nodeName string) error 
 			// this is a state, and a state that only exists as a sentence cannot be classified by anything
 			// that reads it.
 			fmt.Printf("\nUNREADABLE QUARANTINE RECORD: %v — manual intervention required.\n", err)
-			return refuse(reasonBadQuarantine, "node %s: %v", nodeName, err)
+			return refuseCause(err, reasonBadQuarantine, "node %s: %v", nodeName, err)
 		}
 		fmt.Printf("\nQUARANTINED. To free it after establishing the previous process is dead:\n"+
 			"  queuelabrun -clear-quarantine -worker %s -quarantine-id %q -confirm-owner-dead\n",

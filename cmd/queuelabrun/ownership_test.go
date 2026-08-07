@@ -17,6 +17,8 @@ limitations under the License.
 package main
 
 import (
+	"errors"
+	"strings"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
@@ -387,6 +389,26 @@ func TestDecideClearRequiresTheExactQuarantineID(t *testing.T) {
 	}
 	if err := decideClear(observe(node(nil, nil)), "q1"); err == nil {
 		t.Fatal("clearing a node with no quarantine record must refuse rather than silently succeed")
+	}
+}
+
+// A record this tool cannot read is its own state, not a variant of an unreadable journal: the two send an
+// operator to different places, so decideClear names it as such. The decode error stays reachable through
+// the chain, because "the reason is classifiable" and "the cause is gone" must not be the same trade.
+func TestDecideClearNamesAnUnreadableQuarantineAndKeepsTheCause(t *testing.T) {
+	n := node(nil, map[string]string{quarantineKey: "{not valid json"})
+
+	err := decideClear(observe(n), "q1")
+	var r *refusal
+	if err == nil || !asRefusal(err, &r) || r.Reason != reasonBadQuarantine {
+		t.Fatalf("want the %s refusal, got %v", reasonBadQuarantine, err)
+	}
+	cause := errors.Unwrap(err)
+	if cause == nil {
+		t.Fatal("the decode failure must stay reachable through the error chain, not only in the sentence")
+	}
+	if !strings.Contains(cause.Error(), "decode quarantine") {
+		t.Fatalf("the unwrapped cause must be the decode failure itself, got %v", cause)
 	}
 }
 

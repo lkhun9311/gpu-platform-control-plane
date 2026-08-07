@@ -125,12 +125,28 @@ const (
 type refusal struct {
 	Reason string
 	Detail string
+	// Cause is the error this refusal was derived from, when there was one.
+	//
+	// A refusal that renders its cause with %v alone is a dead end: the reason makes the state classifiable
+	// but the underlying failure stops being reachable through errors.Is/errors.As, which is what a caller
+	// needs to tell a decode failure from a transport one. Detail still carries the human sentence; this
+	// carries the error itself.
+	Cause error
 }
 
 func (r *refusal) Error() string { return r.Reason + ": " + r.Detail }
 
+// Unwrap keeps the cause reachable. asRefusal still finds the *refusal first, because errors.As checks each
+// error in the chain before unwrapping it.
+func (r *refusal) Unwrap() error { return r.Cause }
+
 func refuse(reason, format string, args ...any) error {
 	return &refusal{Reason: reason, Detail: fmt.Sprintf(format, args...)}
+}
+
+// refuseCause is refuse for the refusals that were derived from another error, which must stay reachable.
+func refuseCause(cause error, reason, format string, args ...any) error {
+	return &refusal{Reason: reason, Detail: fmt.Sprintf(format, args...), Cause: cause}
 }
 
 // asRefusal is errors.As specialised to *refusal, kept here so the tests and the operator modes agree on
@@ -197,13 +213,15 @@ func decideAcquire(obs ownership, n *corev1.Node, txID, runID, arm, takenAt stri
 		return journal{}, refuse(reasonBadJournal, "node %s: %v", obs.NodeName, obs.JournalErr)
 	case obs.JournalRaw != "" && !hasMarker:
 		return journal{}, refuse(reasonJournalWithoutMarker,
-			"node %s carries a journal for tx %s but no marker", obs.NodeName, obs.Journal.TxID)
+			"node %s carries a journal for tx %q but no marker", obs.NodeName, obs.Journal.TxID)
 	case obs.JournalRaw != "" && obs.Journal.TxID == txID:
 		return journal{}, refuse(reasonOwnTxID,
 			"node %s is already held by this transaction %s", obs.NodeName, txID)
 	case obs.JournalRaw != "":
+		// Run id, transaction id and timestamp all come out of the node's own journal, and this refusal is
+		// printed to a terminal by the run path exactly as inspectWorker prints its own.
 		return journal{}, refuse(reasonForeignOwner,
-			"node %s is held by run %s under tx %s since %s",
+			"node %s is held by run %q under tx %q since %q",
 			obs.NodeName, obs.Journal.RunID, obs.Journal.TxID, obs.Journal.TakenAt)
 	case hasMarker:
 		return journal{}, refuse(reasonMarkerWithoutJournal,
@@ -249,9 +267,13 @@ func verifyInstalled(obs ownership, j journal) error {
 			len(obs.Taints), workerTaintKey)
 	}
 	if obs.Taints[0].Value != j.Installed.TaintValue || obs.Taints[0].Effect != j.Installed.TaintEffect {
-		return refuse(reasonInstalledDiverged, "taint %s is %q/%s, this transaction installed %q/%s",
-			workerTaintKey, obs.Taints[0].Value, obs.Taints[0].Effect,
-			j.Installed.TaintValue, j.Installed.TaintEffect)
+		// Both effects are escaped, not just the values. decodeJournal checks only that installed.taintEffect
+		// is non-empty — there is no enum validation — so the journal's copy is node-controlled bytes like
+		// everything else in that document, and inspectWorker prints this refusal directly above the
+		// -force-release command it invites the operator to copy.
+		return refuse(reasonInstalledDiverged, "taint %s is %q/%q, this transaction installed %q/%q",
+			workerTaintKey, obs.Taints[0].Value, string(obs.Taints[0].Effect),
+			j.Installed.TaintValue, string(j.Installed.TaintEffect))
 	}
 	if obs.NodeUID != j.NodeUID {
 		return refuse(reasonWrongNode, "node UID is %s, the journal names %s", obs.NodeUID, j.NodeUID)
@@ -368,7 +390,7 @@ func decideClear(obs ownership, quarantineID string) error {
 	}
 	q, err := decodeQuarantine(obs.QuarantineRaw)
 	if err != nil {
-		return refuse(reasonBadQuarantine, "node %s: %v", obs.NodeName, err)
+		return refuseCause(err, reasonBadQuarantine, "node %s: %v", obs.NodeName, err)
 	}
 	if q.QuarantineID != quarantineID {
 		return refuse(reasonNotOurs, "node %s carries quarantine %s, you named %s",

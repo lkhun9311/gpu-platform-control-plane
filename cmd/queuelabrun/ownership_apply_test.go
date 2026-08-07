@@ -18,6 +18,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -237,6 +238,11 @@ func TestInspectWorkerReturnsErrorOnUnreadableQuarantine(t *testing.T) {
 	if !asRefusal(err, &r) || r.Reason != reasonBadQuarantine {
 		t.Fatalf("want the %s refusal, got %v", reasonBadQuarantine, err)
 	}
+	// Naming the state must not cost the cause: a caller that wants to tell a decode failure from a transport
+	// one needs the error itself, not a sentence containing it.
+	if cause := errors.Unwrap(err); cause == nil {
+		t.Fatal("the decode failure must stay reachable through the error chain")
+	}
 }
 
 // captureStdout runs fn with os.Stdout redirected and returns everything it printed.
@@ -282,6 +288,10 @@ func TestInspectWorkerEscapesFieldsDecodedOutOfNodeAnnotations(t *testing.T) {
 	j.RunID = "r7" + payload
 	j.Arm = "A-honor" + payload
 	j.TakenAt = "2026-08-06T10:00:00Z" + payload
+	// decodeJournal checks only that installed.taintEffect is non-empty, so the effect is node-controlled
+	// bytes too. This one reaches the terminal through verifyInstalled's divergence refusal, which
+	// inspectWorker prints immediately above the -force-release command it invites the operator to copy.
+	j.Installed.TaintEffect = corev1.TaintEffect("NoSchedule" + payload)
 	raw, err := encodeJournal(j)
 	if err != nil {
 		t.Fatalf("encode: %v", err)
@@ -300,6 +310,11 @@ func TestInspectWorkerEscapesFieldsDecodedOutOfNodeAnnotations(t *testing.T) {
 	// was escaped.
 	if !strings.Contains(out, "HELD by run") {
 		t.Fatalf("the held branch did not run, so nothing decoded was printed:\n%s", out)
+	}
+	// The divergence warning is the second decoded surface, and the one that renders the journal's own
+	// installed values through a refusal rather than directly.
+	if !strings.Contains(out, "the installed values have diverged") {
+		t.Fatalf("the divergence branch did not run, so the refusal's fields were never printed:\n%s", out)
 	}
 	for _, control := range []string{"\x1b", "\a"} {
 		if strings.Contains(out, control) {
@@ -720,10 +735,18 @@ func TestResolveAmbiguousAcquireDoesNotCallAWriteDeadFromOneFreeRead(t *testing.
 	}
 }
 
-// The companion direction: a read that FAILS in the middle of the window is not a free observation either, so
-// the window is broken and the outcome must be UNRESOLVED — which keeps the transaction id and the operator's
-// next command — rather than the definitive "did not land".
-func TestResolveAmbiguousAcquireWillNotCallAWriteDeadAcrossAFailedRead(t *testing.T) {
+// The companion direction: a free read that arrives AFTER a failed one must not conclude anything either.
+//
+// The failed read is the point. It leaves a hole in the window — a moment nobody observed, which is where a
+// write in flight could have committed and been undone by nothing — so the free observation that follows it
+// no longer stands for an unbroken window, and the outcome must stay UNRESOLVED with the transaction id and
+// the operator's next command intact.
+//
+// This discriminates: against the pre-fix resolver the free read at attempt 1 returns "failed and did not
+// land" on the spot, before the cancellation below is ever reached. The cancellation is only how the test
+// leaves the loop cheaply; the full-window exhaustion of the freeThroughout gate is covered by
+// TestResolveAmbiguousAcquireRefusesAPatchThatDidNotLand.
+func TestResolveAmbiguousAcquireWillNotCallAWriteDeadOnAFreeReadAfterAFailedOne(t *testing.T) {
 	n := node(nil, nil)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -733,12 +756,18 @@ func TestResolveAmbiguousAcquireWillNotCallAWriteDeadAcrossAFailedRead(t *testin
 		Get: func(gctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object,
 			opts ...client.GetOption) error {
 			gets++
-			if gets == 1 {
+			switch gets {
+			case 1:
+				// The acquire loop's own read, which has to succeed or nothing reaches the patch.
+				return c.Get(gctx, key, obj, opts...)
+			case 2:
+				// The resolve loop's first re-read fails, so this attempt observed nothing at all.
+				return apierrors.NewInternalError(fmt.Errorf("apiserver is not answering"))
+			default:
+				// And now the node reads FREE. The pre-fix resolver called the write dead right here.
+				cancel()
 				return c.Get(gctx, key, obj, opts...)
 			}
-			// The node is unreadable for the rest of the window, so nothing was ever observed free.
-			cancel()
-			return apierrors.NewInternalError(fmt.Errorf("apiserver is not answering"))
 		},
 		Patch: func(pctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch,
 			opts ...client.PatchOption) error {
@@ -748,10 +777,13 @@ func TestResolveAmbiguousAcquireWillNotCallAWriteDeadAcrossAFailedRead(t *testin
 
 	_, err := acquireWorker(ctx, fc, "platform-worker", "tx-blind2", "r1", "A-honor")
 	if err == nil {
-		t.Fatal("an unreadable resolution window must refuse")
+		t.Fatal("a resolution window with a hole in it must refuse")
+	}
+	if gets < 3 {
+		t.Fatalf("the test never reached the free read after the failed one (gets=%d), so it proved nothing", gets)
 	}
 	if strings.Contains(err.Error(), "did not land") {
-		t.Fatalf("a window with no free observation in it must never conclude the write is dead: %v", err)
+		t.Fatalf("a free read following an unobserved gap must not conclude the write is dead: %v", err)
 	}
 	if !strings.Contains(err.Error(), "UNRESOLVED") || !strings.Contains(err.Error(), "tx-blind2") {
 		t.Fatalf("the refusal must be UNRESOLVED and keep the transaction id, got: %v", err)
