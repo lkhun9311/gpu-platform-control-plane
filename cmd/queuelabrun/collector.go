@@ -18,6 +18,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -25,7 +26,9 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/watch"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	kueuev1beta2 "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -56,11 +59,19 @@ type pendingEvent struct {
 // trace job by the UID chain and classifying it. It is the live half of the runner; the pure builder,
 // classifier, join, and adapter are the reviewed units it composes.
 type collector struct {
-	c       client.WithWatch
-	ns      string
-	runID   string
-	t0      time.Time
-	builder *queuelab.LedgerBuilder
+	c     client.WithWatch
+	ns    string
+	runID string
+	t0    time.Time
+	// deadline is the end of the observation window as an absolute instant, stamped from t0 before any
+	// barrier is waited on.
+	//
+	// It is one field rather than a value each caller derives because the barrier loop and the censoring
+	// boundary must be the SAME instant: two separately computed deadlines can drift apart, and a
+	// reconstruction censored against a different horizon than the one the schedule ran to is not a
+	// reconstruction of the run that happened.
+	deadline time.Time
+	builder  *queuelab.LedgerBuilder
 
 	mu        sync.Mutex
 	cache     map[string]queuelab.ObservedObject
@@ -70,12 +81,14 @@ type collector struct {
 	wg        sync.WaitGroup
 }
 
-func newCollector(c client.WithWatch, ns, runID string) *collector {
+func newCollector(c client.WithWatch, ns, runID string, horizon time.Duration) *collector {
+	t0 := time.Now()
 	return &collector{
 		c:         c,
 		ns:        ns,
 		runID:     runID,
-		t0:        time.Now(),
+		t0:        t0,
+		deadline:  t0.Add(horizon),
 		builder:   queuelab.NewLedgerBuilder(),
 		cache:     map[string]queuelab.ObservedObject{},
 		readyAt:   map[string]time.Time{},
@@ -84,6 +97,17 @@ func newCollector(c client.WithWatch, ns, runID string) *collector {
 }
 
 func (col *collector) elapsed() time.Duration { return time.Since(col.t0) }
+
+// horizonNs is the censoring boundary the reconstruction is given, as an offset on the collector's own clock.
+//
+// It is derived from the deadline stamped at construction rather than read off the clock when it is asked
+// for, because the run used to pass col.elapsed() AFTER the watches had been cancelled and joined: the
+// horizon was then the observation window plus however long shutdown took, a different number on every run
+// and a longer one whenever the API server was slow to close the watches.
+//
+// The subtraction is against t0 specifically because every ledger event's ElapsedNs is measured from t0; a
+// boundary taken from any other origin would be offset from the very events it censors.
+func (col *collector) horizonNs() int64 { return col.deadline.Sub(col.t0).Nanoseconds() }
 
 // start launches one watch goroutine per GVR.
 func (col *collector) start(ctx context.Context) {
@@ -244,24 +268,81 @@ func classify(kind string, obj client.Object) queuelab.ObservedState {
 // ---- schedule execution (barrier polling against the live cluster) ----
 
 // waitBarriers blocks until every barrier in after holds, polling the cluster, or errors on the deadline.
+//
+// The deadline is the collector's own stamped one rather than a parameter, so the window the schedule runs
+// to and the horizon the reconstruction censors against cannot be two different instants.
 func waitBarriers(ctx context.Context, c client.Client, ns string, after []queuelab.Barrier,
-	col *collector, deadline time.Time) error {
+	col *collector) error {
 	for _, b := range after {
-		if err := waitBarrier(ctx, c, ns, b, col, deadline); err != nil {
+		if err := waitBarrier(ctx, c, ns, b, col); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func waitBarrier(ctx context.Context, c client.Client, ns string, b queuelab.Barrier,
-	col *collector, deadline time.Time) error {
+// errUnknownBarrier marks a barrier kind this executable has no check for.
+//
+// It is a sentinel rather than a bare message so waitBarrier can recognise it as terminal: polling a kind
+// nothing can ever evaluate would burn the whole observation window on a programming error and then report
+// it as a protocol outcome.
+var errUnknownBarrier = errors.New("unknown barrier kind")
+
+// barrierTerminal reports whether an error from barrierHolds is one that no amount of further polling can
+// clear.
+//
+// The distinction is the point: a barrier waits for an object to APPEAR, so the ordinary failure while it
+// waits is a NotFound (already folded into "not met" by phaseIs) and every transient API error is worth
+// retrying. But an authorization failure, a kind the cluster or the scheme does not know, and a barrier this
+// tool cannot evaluate are all states that will still hold at the deadline, and polling them until the
+// horizon expires spends the entire run to report an infrastructure failure as "barrier not met".
+//
+// NotFound is deliberately NOT terminal: it is indistinguishable from an object that has not been created
+// yet, which is exactly what a barrier exists to wait for.
+func barrierTerminal(err error) bool {
+	switch {
+	case errors.Is(err, errUnknownBarrier):
+		return true
+	case apierrors.IsUnauthorized(err), apierrors.IsForbidden(err):
+		return true
+	case meta.IsNoMatchError(err), runtime.IsNotRegisteredError(err):
+		// The CRD is absent from the cluster, or its kind from this client's scheme; either way no request
+		// this loop can issue will ever succeed.
+		return true
+	default:
+		return false
+	}
+}
+
+func waitBarrier(ctx context.Context, c client.Client, ns string, b queuelab.Barrier, col *collector) error {
+	// The most recent check error is kept so the horizon refusal can carry it: a barrier that was failing for
+	// a retryable reason right up to the deadline used to report only "not met", which tells the operator
+	// nothing about why it was never met.
+	var lastErr error
 	for {
 		ok, err := barrierHolds(ctx, c, ns, b, col)
 		if err == nil && ok {
 			return nil
 		}
-		if time.Now().After(deadline) {
+		if err != nil {
+			lastErr = err
+			// Cancellation is reported as itself rather than as a barrier outcome, whether it arrives through
+			// the select below or through the API call this check just made; Task 3 established that and it
+			// must survive this classification.
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return fmt.Errorf("barrier %s(job=%s) observation cancelled (last check: %v): %w",
+					b.Kind, b.Job, err, ctxErr)
+			}
+			if barrierTerminal(err) {
+				return fmt.Errorf("barrier %s(job=%s,count=%d,delay=%d) cannot be met: %w",
+					b.Kind, b.Job, b.Count, b.DelaySec, err)
+			}
+		}
+		if time.Now().After(col.deadline) {
+			if lastErr != nil {
+				return fmt.Errorf("barrier %s(job=%s,count=%d,delay=%d) not met before horizon; the last check failed: %w",
+					b.Kind, b.Job, b.Count, b.DelaySec, lastErr)
+			}
 			return fmt.Errorf("barrier %s(job=%s,count=%d,delay=%d) not met before horizon", b.Kind, b.Job, b.Count, b.DelaySec)
 		}
 		// Cancellation is reported as itself rather than as "barrier not met", which would misread an
@@ -300,7 +381,7 @@ func barrierHolds(ctx context.Context, c client.Client, ns string, b queuelab.Ba
 		}
 		return time.Since(ready) >= time.Duration(b.DelaySec)*time.Second, nil
 	default:
-		return false, fmt.Errorf("unknown barrier %s", b.Kind)
+		return false, fmt.Errorf("%w %s", errUnknownBarrier, b.Kind)
 	}
 }
 

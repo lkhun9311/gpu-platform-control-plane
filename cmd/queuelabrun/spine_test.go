@@ -17,6 +17,7 @@ limitations under the License.
 package main
 
 import (
+	"flag"
 	"strings"
 	"testing"
 	"time"
@@ -218,6 +219,24 @@ func TestDecideOperatorMode(t *testing.T) {
 			wantMode: modeInspect,
 		},
 		{
+			// -arm was refused and every other run-only flag was silently ignored, so an invocation that
+			// named a run id, an output path or a horizon looked configured to its author while doing none of
+			// it. The refusal has to name the flags, or the operator cannot tell which part was the mistake.
+			name:       "a mode combined with run-only flags refuses",
+			args:       operatorModeArgs{Inspect: true, RunOnlyFlags: []string{"-out", "-runid"}},
+			wantErr:    true,
+			wantErrHas: "-out, -runid",
+		},
+		{
+			// -horizon is the one that cannot be caught by looking at values: it has a default, so a supplied
+			// -horizon equal to that default is indistinguishable from an absent one unless what the operator
+			// TYPED is what gets carried here.
+			name:       "a mode combined with -horizon refuses even at its default value",
+			args:       operatorModeArgs{ForceRelease: true, NodeUID: "uid-1", AcceptDivergence: true, RunOnlyFlags: []string{"-horizon"}},
+			wantErr:    true,
+			wantErrHas: "-horizon",
+		},
+		{
 			name:       "release-stale without -txid refuses",
 			args:       operatorModeArgs{ReleaseStale: true, ConfirmOwnerDead: true},
 			wantErr:    true,
@@ -292,6 +311,41 @@ func TestDecideOperatorMode(t *testing.T) {
 				t.Fatalf("mode = %v, want %v", mode, tc.wantMode)
 			}
 		})
+	}
+}
+
+// The refusal above is only as good as what feeds it: it must report the flags the operator TYPED, which is
+// not the same as the flags holding a non-default value. -horizon is the case that proves the difference —
+// supplied with exactly its default, it is still a flag the operator believed did something.
+func TestSuppliedRunOnlyFlagsReportsWhatWasTyped(t *testing.T) {
+	newSet := func() *flag.FlagSet {
+		fs := flag.NewFlagSet("queuelabrun", flag.ContinueOnError)
+		fs.String("runid", "", "")
+		fs.String("out", "", "")
+		fs.Bool("preview", false, "")
+		fs.Duration("horizon", time.Duration(horizonSec)*time.Second, "")
+		fs.String("worker", "platform-worker", "")
+		fs.Bool("inspect-worker", false, "")
+		return fs
+	}
+
+	fs := newSet()
+	if err := fs.Parse([]string{"-inspect-worker", "-worker", "platform-worker2"}); err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if got := suppliedRunOnlyFlags(fs); len(got) != 0 {
+		t.Fatalf("a recovery invocation with no run-only flags must report none, got %v", got)
+	}
+
+	fs = newSet()
+	// -horizon is given its own default value, which is exactly the case a value comparison cannot see.
+	if err := fs.Parse([]string{"-inspect-worker", "-runid", "r1", "-horizon",
+		(time.Duration(horizonSec) * time.Second).String()}); err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	got := suppliedRunOnlyFlags(fs)
+	if len(got) != 2 || got[0] != "-horizon" || got[1] != "-runid" {
+		t.Fatalf("want [-horizon -runid] in a stable order, got %v", got)
 	}
 }
 

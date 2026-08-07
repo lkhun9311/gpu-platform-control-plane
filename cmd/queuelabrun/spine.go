@@ -17,8 +17,11 @@ limitations under the License.
 package main
 
 import (
+	"flag"
 	"fmt"
 	"regexp"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/lkhun9311/gpu-mlops-platform-control-plane/internal/queuelab"
@@ -175,6 +178,34 @@ type operatorModeArgs struct {
 	// judgement — that the process which held the worker is gone — and nothing this tool can observe makes
 	// that judgement for the operator.
 	ConfirmOwnerDead bool
+
+	// RunOnlyFlags names the run-configuration flags the operator actually supplied alongside a mode.
+	//
+	// It is the flag NAMES rather than their values because that is the only thing that distinguishes a flag
+	// left at its default from one typed with the same value as its default, and -horizon has a default.
+	RunOnlyFlags []string
+}
+
+// runOnlyFlagNames are the flags that configure a run and mean nothing to a recovery mode.
+//
+// -worker is not among them: every mode acts on it. -arm is not either, because it has its own refusal that
+// says the specific thing worth saying — a mode is not a run.
+var runOnlyFlagNames = map[string]bool{"runid": true, "out": true, "preview": true, "horizon": true}
+
+// suppliedRunOnlyFlags reports which run-only flags were present on the command line, in a stable order.
+//
+// flag.Visit walks only the flags actually set, which is what makes this a report of what the operator typed
+// rather than of what the defaults happen to be. It takes the FlagSet rather than reading the global one so
+// the refusal it feeds can be tested without a process-wide command line.
+func suppliedRunOnlyFlags(fs *flag.FlagSet) []string {
+	var names []string
+	fs.Visit(func(f *flag.Flag) {
+		if runOnlyFlagNames[f.Name] {
+			names = append(names, "-"+f.Name)
+		}
+	})
+	sort.Strings(names)
+	return names
 }
 
 // refuseExtraArgs refuses leftover positional arguments, of which this executable accepts none.
@@ -231,6 +262,16 @@ func decideOperatorMode(a operatorModeArgs) (operatorMode, error) {
 	// node" and "run an arm" be read as a single invocation.
 	if a.Arm != "" {
 		return modeNone, fmt.Errorf("an operator mode cannot be combined with -arm: it is a recovery tool, not a run")
+	}
+	// The same argument as -arm, for the flags that were merely ignored rather than refused. An invocation
+	// that names a run id, an output path, a preview or a horizon and then quietly does none of those things
+	// reads to its author as configured, which is the worst kind of no-op: they will believe the recovery
+	// they just ran was the one they described.
+	if len(a.RunOnlyFlags) > 0 {
+		return modeNone, fmt.Errorf(
+			"an operator mode cannot be combined with %s: a recovery mode ignores every run-only flag, so "+
+				"this invocation would have looked configured while doing nothing of the kind",
+			strings.Join(a.RunOnlyFlags, ", "))
 	}
 
 	switch {

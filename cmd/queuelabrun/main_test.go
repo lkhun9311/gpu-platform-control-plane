@@ -19,12 +19,15 @@ package main
 import (
 	"context"
 	"errors"
+	"reflect"
 	"testing"
 	"time"
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
+
+	"github.com/lkhun9311/gpu-mlops-platform-control-plane/internal/queuelab"
 )
 
 // A signal landing during the observation window must be seen immediately, not after the wait times out on
@@ -68,6 +71,56 @@ func TestWaitForHorizonPastDeadlineReturnsImmediately(t *testing.T) {
 	}
 	if elapsed := time.Since(start); elapsed > 200*time.Millisecond {
 		t.Fatalf("waitForHorizon took %v for an already-past deadline", elapsed)
+	}
+}
+
+// Gate 0 item 18, and the reason this is a P0 rather than a tidiness point: the horizon the reconstruction
+// censors against used to be col.elapsed(), read AFTER the collector had been cancelled and joined. That is
+// the observation window plus however long shutdown took — a different boundary on every run, and a wider
+// one exactly when the API server is slow, so two runs of the same protocol would be censored at two
+// different instants and their numbers would not be comparable.
+//
+// The test drives reconstructAtHorizon, which is the real call site, twice with a shutdown-shaped delay
+// between them. Both the value and its independence from that delay are asserted: a horizon that moved with
+// the clock would give the first call a boundary of a few microseconds, which is before every event here.
+func TestReconstructHorizonIsTheStampedInstantNotWhateverShutdownTook(t *testing.T) {
+	const horizon = 30 * time.Second
+	const submittedAt = 2 * time.Second
+
+	fc := fake.NewClientBuilder().WithScheme(testScheme(t)).Build()
+	col := newCollector(fc, "ns", "r1", horizon)
+
+	// One offered row that is submitted and then never admitted, because its censored wait is exactly
+	// horizon - submitted: the boundary itself, readable straight off the result.
+	trace := []queuelab.TrainingTraceRow{
+		{Index: 0, Name: "victim", Tenant: "a", GPUCount: 1, DurationSec: 40},
+	}
+	events := []queuelab.LifecycleEvent{
+		{ElapsedNs: int64(submittedAt), Kind: kindMLTrainingJob, Type: queuelab.EventSubmitted, Job: "victim"},
+	}
+
+	first, err := reconstructAtHorizon(col, queuelab.ArmNRef, trace, events)
+	if err != nil {
+		t.Fatalf("reconstruct: %v", err)
+	}
+	if got, want := first.Outcomes[0].CensoredWaitNs, int64(horizon-submittedAt); got != want {
+		t.Fatalf("censored wait = %v, want %v: the horizon is not the stamped instant",
+			time.Duration(got), time.Duration(want))
+	}
+
+	// Shutdown takes a while — cancelling the watches, joining four goroutines, a slow API server closing
+	// them. None of that may move the boundary.
+	time.Sleep(150 * time.Millisecond)
+
+	second, err := reconstructAtHorizon(col, queuelab.ArmNRef, trace, events)
+	if err != nil {
+		t.Fatalf("reconstruct after the shutdown delay: %v", err)
+	}
+	if !reflect.DeepEqual(first, second) {
+		t.Fatalf("the reconstruction moved with shutdown duration:\n first %+v\nsecond %+v", first, second)
+	}
+	if col.horizonNs() != int64(horizon) {
+		t.Fatalf("horizonNs = %v, want the configured horizon %v", time.Duration(col.horizonNs()), horizon)
 	}
 }
 

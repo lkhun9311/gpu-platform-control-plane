@@ -107,10 +107,15 @@ const (
 	reasonJournalWithoutMarker = "journal-without-marker"
 	reasonDuplicateTaintKey    = "duplicate-taint-key"
 	reasonBadJournal           = "unreadable-journal"
-	reasonQuarantined          = "quarantined"
-	reasonWrongNode            = "journal-names-another-node"
-	reasonInstalledDiverged    = "installed-values-diverged"
-	reasonNotOurs              = "not-our-transaction"
+	// reasonBadQuarantine is its own reason rather than reasonBadJournal because the two states send an
+	// operator to different places: an unreadable journal can still be broken with -force-release, while an
+	// unreadable QUARANTINE record is the one state this tool has no remaining move for, and a refusal that
+	// is only free text cannot be classified by anything reading it.
+	reasonBadQuarantine     = "unreadable-quarantine-record"
+	reasonQuarantined       = "quarantined"
+	reasonWrongNode         = "journal-names-another-node"
+	reasonInstalledDiverged = "installed-values-diverged"
+	reasonNotOurs           = "not-our-transaction"
 	// reasonOwnershipLost is the run's own release finding nothing of its to undo, which is never the clean
 	// already-released case: markers this run provably installed can only be absent because something else
 	// removed them while the run was still holding the worker.
@@ -350,18 +355,29 @@ func decideForce(obs ownership, nodeUID, quarantineID, forcedAt string) (quarant
 	}, nil
 }
 
-// decideClear removes only the exact record the operator names.
+// decideClear removes only the exact record the operator names, on the exact object it was written about.
+//
+// The quarantine id alone is not enough. decideForce records the node NAME and the node UID precisely
+// because a record is a document that can be copied onto another Node, and because a Node deleted and
+// recreated under the same name is a different machine wearing the same label. Clearing is the step that
+// makes a node acquirable again, so it must confirm it is unblocking the object that was actually broken,
+// the same way decideForce required the operator to confirm the target it was breaking.
 func decideClear(obs ownership, quarantineID string) error {
 	if obs.QuarantineRaw == "" {
 		return refuse(reasonNotOurs, "node %s carries no quarantine record", obs.NodeName)
 	}
 	q, err := decodeQuarantine(obs.QuarantineRaw)
 	if err != nil {
-		return refuse(reasonBadJournal, "node %s: %v", obs.NodeName, err)
+		return refuse(reasonBadQuarantine, "node %s: %v", obs.NodeName, err)
 	}
 	if q.QuarantineID != quarantineID {
 		return refuse(reasonNotOurs, "node %s carries quarantine %s, you named %s",
 			obs.NodeName, q.QuarantineID, quarantineID)
+	}
+	if q.Node != obs.NodeName || q.NodeUID != obs.NodeUID {
+		return refuse(reasonWrongNode,
+			"quarantine %s was recorded for node %s (uid %s), this node is %s (uid %s)",
+			quarantineID, q.Node, q.NodeUID, obs.NodeName, obs.NodeUID)
 	}
 	return nil
 }

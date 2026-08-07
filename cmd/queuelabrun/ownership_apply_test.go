@@ -19,6 +19,8 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -221,12 +223,96 @@ func TestAcquireWorkerSelfReleaseSurvivesContextCancelledDuringVerify(t *testing
 // A script wrapping -inspect-worker treats a nil error as "healthy"; an unreadable quarantine record needs
 // a human, and printing the warning while still returning nil would make that state indistinguishable from
 // FREE or HELD to anything checking the exit code rather than reading the output.
+// It is also a NAMED refusal rather than a bare error: every other refusal this state machine can reach is
+// classifiable by reason, and the one state the tool has no remaining move for was the exception.
 func TestInspectWorkerReturnsErrorOnUnreadableQuarantine(t *testing.T) {
 	n := node(nil, map[string]string{quarantineKey: "{not valid json"})
 	fc := fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(n).Build()
 
-	if err := inspectWorker(context.Background(), fc, "platform-worker"); err == nil {
+	err := inspectWorker(context.Background(), fc, "platform-worker")
+	if err == nil {
 		t.Fatal("an unreadable quarantine record must return an error, not exit 0")
+	}
+	var r *refusal
+	if !asRefusal(err, &r) || r.Reason != reasonBadQuarantine {
+		t.Fatalf("want the %s refusal, got %v", reasonBadQuarantine, err)
+	}
+}
+
+// captureStdout runs fn with os.Stdout redirected and returns everything it printed.
+//
+// The escaping this file's inspection tests assert on only exists on the way to a terminal, so asserting it
+// means reading what was actually written rather than what was passed in.
+func captureStdout(t *testing.T, fn func()) string {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe: %v", err)
+	}
+	saved := os.Stdout
+	os.Stdout = w
+	done := make(chan string, 1)
+	go func() {
+		var b strings.Builder
+		_, _ = io.Copy(&b, r)
+		done <- b.String()
+	}()
+	fn()
+	os.Stdout = saved
+	if err := w.Close(); err != nil {
+		t.Fatalf("close pipe: %v", err)
+	}
+	out := <-done
+	if err := r.Close(); err != nil {
+		t.Fatalf("close pipe reader: %v", err)
+	}
+	return out
+}
+
+// quotedOrNone escapes the raw annotation documents, but the fields DECODED out of them were still printed
+// raw — including the transaction id, which goes straight into a -release-stale command the operator is
+// being invited to copy, and the taints, which went out through %+v. Decoding a hostile string does not make
+// it safe: anyone who can write the Node chooses those bytes.
+func TestInspectWorkerEscapesFieldsDecodedOutOfNodeAnnotations(t *testing.T) {
+	// Erase the line, recolour, and print the reassuring words this tool would otherwise print for a healthy
+	// node — the same payload the raw-document test uses, now placed in the decoded fields.
+	payload := "\x1b[2K\x1b[32mFREE.\a"
+	j := testJournal()
+	j.TxID = "tx-" + payload
+	j.RunID = "r7" + payload
+	j.Arm = "A-honor" + payload
+	j.TakenAt = "2026-08-06T10:00:00Z" + payload
+	raw, err := encodeJournal(j)
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	tainted := corev1.Taint{Key: workerTaintKey, Value: "r7" + payload, Effect: corev1.TaintEffectNoSchedule}
+	n := node(map[string]string{workerLabelKey: "r7"}, map[string]string{journalKey: raw}, tainted)
+	fc := fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(n).Build()
+
+	var ierr error
+	out := captureStdout(t, func() { ierr = inspectWorker(context.Background(), fc, "platform-worker") })
+	if ierr != nil {
+		t.Fatalf("inspecting a held node must succeed: %v", ierr)
+	}
+
+	// The decoding round trip has to have actually happened, or this test proves only that the raw document
+	// was escaped.
+	if !strings.Contains(out, "HELD by run") {
+		t.Fatalf("the held branch did not run, so nothing decoded was printed:\n%s", out)
+	}
+	for _, control := range []string{"\x1b", "\a"} {
+		if strings.Contains(out, control) {
+			t.Fatalf("control byte %q reached the terminal:\n%q", control, out)
+		}
+	}
+	// Escaped, not stripped: an operator has to be able to see what is on the node.
+	if !strings.Contains(out, `\x1b[2K`) {
+		t.Fatalf("the escape sequence must remain visible, just inert:\n%s", out)
+	}
+	// The taints line specifically, which was the %+v.
+	if !strings.Contains(out, "taints on "+workerTaintKey+": [") {
+		t.Fatalf("the taints line is missing:\n%s", out)
 	}
 }
 
@@ -565,8 +651,120 @@ func TestResolveAmbiguousAcquireAcceptsAPatchWhoseResponseWasLost(t *testing.T) 
 	}
 }
 
-// Second: the error was real and the write never committed. The node is free, so there is nothing of ours
-// to undo and the refusal must say so rather than leaving the operator to wonder.
+// The P0 of this pass: a single free-looking read is not proof the write is dead.
+//
+// A linearizable read orders only COMPLETED operations, and the write being resolved is precisely the one
+// whose completion is unknown — a timed-out or disconnected request can still be in the API server's apply
+// path and commit after the read returns. The resolver used to conclude "failed and did not land" from that
+// first observation and then discard the transaction id, so the markers appearing a moment later belonged to
+// nobody: no run could acquire the node and no recovery mode could name what to release.
+//
+// The interceptor reproduces exactly that: the patch reports a lost response without applying, and the write
+// commits after the resolve loop's first read. The resolver must see it and resolve to acquired.
+func TestResolveAmbiguousAcquireDoesNotCallAWriteDeadFromOneFreeRead(t *testing.T) {
+	n := node(nil, nil)
+	var (
+		inFlight *corev1.Node // the write that was accepted but whose response was lost
+		gets     int
+	)
+	fc := fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(n).WithInterceptorFuncs(interceptor.Funcs{
+		Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object,
+			opts ...client.GetOption) error {
+			err := c.Get(ctx, key, obj, opts...)
+			gets++
+			// gets 1 is the acquire loop's own read; gets 2 is the resolve loop's first re-read, which sees a
+			// free node because the in-flight write has not committed yet. It commits immediately afterwards.
+			if gets == 2 && inFlight != nil {
+				pending := inFlight
+				inFlight = nil
+				var current corev1.Node
+				if gerr := c.Get(ctx, client.ObjectKey{Name: "platform-worker"}, &current); gerr != nil {
+					return gerr
+				}
+				current.Labels = pending.Labels
+				current.Annotations = pending.Annotations
+				current.Spec.Taints = pending.Spec.Taints
+				if uerr := c.Update(ctx, &current); uerr != nil {
+					return uerr
+				}
+			}
+			return err
+		},
+		Patch: func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch,
+			opts ...client.PatchOption) error {
+			// Accepted by the server, never applied yet, and the caller is told only that the connection died.
+			inFlight = obj.(*corev1.Node).DeepCopy()
+			return lostResponseErr()
+		},
+	}).Build()
+
+	j, err := acquireWorker(context.Background(), fc, "platform-worker", "tx-late", "r1", "A-honor")
+	if err != nil {
+		t.Fatalf("a write that commits after the first re-read must resolve to acquired, got: %v", err)
+	}
+	if j.TxID != "tx-late" {
+		t.Fatalf("journal txid = %q, want tx-late", j.TxID)
+	}
+	if gets < 3 {
+		t.Fatalf("the test did not reach a second re-read (gets=%d), so it proved nothing", gets)
+	}
+
+	// The node really is held by us: had the resolver concluded "did not land", these markers would be on a
+	// node nothing could name.
+	var got corev1.Node
+	if err := fc.Get(context.Background(), client.ObjectKey{Name: "platform-worker"}, &got); err != nil {
+		t.Fatalf("get node: %v", err)
+	}
+	if got.Annotations[journalKey] == "" || got.Labels[workerLabelKey] != "r1" {
+		t.Fatalf("the test did not produce the late-commit state it exists for: %+v %+v", got.Labels, got.Annotations)
+	}
+}
+
+// The companion direction: a read that FAILS in the middle of the window is not a free observation either, so
+// the window is broken and the outcome must be UNRESOLVED — which keeps the transaction id and the operator's
+// next command — rather than the definitive "did not land".
+func TestResolveAmbiguousAcquireWillNotCallAWriteDeadAcrossAFailedRead(t *testing.T) {
+	n := node(nil, nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var gets int
+	fc := fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(n).WithInterceptorFuncs(interceptor.Funcs{
+		Get: func(gctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object,
+			opts ...client.GetOption) error {
+			gets++
+			if gets == 1 {
+				return c.Get(gctx, key, obj, opts...)
+			}
+			// The node is unreadable for the rest of the window, so nothing was ever observed free.
+			cancel()
+			return apierrors.NewInternalError(fmt.Errorf("apiserver is not answering"))
+		},
+		Patch: func(pctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch,
+			opts ...client.PatchOption) error {
+			return lostResponseErr()
+		},
+	}).Build()
+
+	_, err := acquireWorker(ctx, fc, "platform-worker", "tx-blind2", "r1", "A-honor")
+	if err == nil {
+		t.Fatal("an unreadable resolution window must refuse")
+	}
+	if strings.Contains(err.Error(), "did not land") {
+		t.Fatalf("a window with no free observation in it must never conclude the write is dead: %v", err)
+	}
+	if !strings.Contains(err.Error(), "UNRESOLVED") || !strings.Contains(err.Error(), "tx-blind2") {
+		t.Fatalf("the refusal must be UNRESOLVED and keep the transaction id, got: %v", err)
+	}
+}
+
+// Second: the error was real and the write never committed. The node is free for the whole resolution
+// window, so there is nothing of ours to undo and the refusal must say so rather than leaving the operator
+// to wonder.
+//
+// This is the one test that pays the full resolveAttempts * resolveInterval in real sleep, and that cost is
+// the fix: "did not land" is now a conclusion the window has to earn rather than one the first read may
+// announce.
 func TestResolveAmbiguousAcquireRefusesAPatchThatDidNotLand(t *testing.T) {
 	n := node(nil, nil)
 	fc := fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(n).WithInterceptorFuncs(interceptor.Funcs{
@@ -846,6 +1044,55 @@ func TestReleaseVerifiesCleanWhenAnotherTransactionAcquiresRightAfterOurRelease(
 	}
 }
 
+// The same legitimate race as the test above, with the one detail that used to break it: the foreign
+// transaction reuses OUR RUN ID. The installed label and taint values are derived from the run id, so the
+// node now carries values byte-identical to the ones we installed, under a journal that names a different
+// transaction. Verification must read the journal, not the values, or a run whose worker was genuinely
+// restored is invalidated by a coincidence it has no way to influence.
+func TestReleaseVerifiesCleanWhenTheNextTransactionReusesTheSameRunID(t *testing.T) {
+	n := node(nil, nil)
+	var patchCalls int
+	fc := fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(n).WithInterceptorFuncs(interceptor.Funcs{
+		Patch: func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch,
+			opts ...client.PatchOption) error {
+			patchCalls++
+			if err := c.Patch(ctx, obj, patch, opts...); err != nil {
+				return err
+			}
+			if patchCalls == 2 {
+				// A second run acquires in the gap, under a fresh transaction but the same run id.
+				other := testJournal()
+				other.TxID = "tx-second"
+				other.RunID = "r1"
+				other.Installed = installedTuple{
+					LabelValue: "r1", TaintValue: "r1", TaintEffect: corev1.TaintEffectNoSchedule,
+				}
+				raw, err := encodeJournal(other)
+				if err != nil {
+					return err
+				}
+				var got corev1.Node
+				if err := c.Get(ctx, client.ObjectKey{Name: "platform-worker"}, &got); err != nil {
+					return err
+				}
+				got.Labels = map[string]string{workerLabelKey: "r1"}
+				got.Annotations = map[string]string{journalKey: raw}
+				got.Spec.Taints = []corev1.Taint{{Key: workerTaintKey, Value: "r1", Effect: corev1.TaintEffectNoSchedule}}
+				return c.Update(ctx, &got)
+			}
+			return nil
+		},
+	}).Build()
+
+	j, err := acquireWorker(context.Background(), fc, "platform-worker", "tx-first", "r1", "A-honor")
+	if err != nil {
+		t.Fatalf("acquire: %v", err)
+	}
+	if _, err := releaseAcquired(context.Background(), fc, j); err != nil {
+		t.Fatalf("release must succeed: the values match by run-id coincidence, the journal names tx-second: %v", err)
+	}
+}
+
 // verifyClean is the pure invariant Finding 3 adds, tested directly against every direction named in the
 // finding: it must prove OUR markers are gone (label, taint, journal, node identity), and must not demand a
 // free node.
@@ -906,6 +1153,41 @@ func TestVerifyClean(t *testing.T) {
 			obs: ownership{NodeUID: "uid-node", JournalRaw: "x",
 				Journal: journal{TxID: "tx-other"}},
 			wantErr: false,
+		},
+		{
+			// The finding this row exists for: the installed values are derived from the RUN ID, so a foreign
+			// transaction that legitimately acquired after our release and happens to carry the same run id
+			// installs byte-identical ones. Comparing values alone reads that as our own markers having
+			// survived, and invalidates a run whose restoration actually succeeded. The journal's txID is the
+			// authority, and it names somebody else.
+			name: "a different transaction holds it with the same run-id-derived values",
+			obs: ownership{
+				NodeUID: "uid-node", JournalRaw: "x", Journal: journal{TxID: "tx-other"},
+				HasLabel: true, LabelValue: "r7",
+				Taints: []corev1.Taint{{Key: workerTaintKey, Value: "r7", Effect: corev1.TaintEffectNoSchedule}},
+			},
+			wantErr: false,
+		},
+		{
+			// The fail-safe direction that must survive the row above: with no journal to name an owner,
+			// nothing vouches for these markers, so values carrying ours are treated as ours.
+			name: "our values are present with no journal to name an owner",
+			obs: ownership{
+				NodeUID: "uid-node", HasLabel: true, LabelValue: "r7",
+				Taints: []corev1.Taint{{Key: workerTaintKey, Value: "r7", Effect: corev1.TaintEffectNoSchedule}},
+			},
+			wantErr: true,
+		},
+		{
+			// And the other fail-safe direction: an unreadable journal names nobody, so it cannot license the
+			// markers beside it either.
+			name: "our values are present under an unreadable journal",
+			obs: ownership{
+				NodeUID: "uid-node", JournalRaw: "{not valid json",
+				JournalErr: fmt.Errorf("decode journal: unexpected end of JSON input"),
+				HasLabel:   true, LabelValue: "r7",
+			},
+			wantErr: true,
 		},
 	}
 	for _, tc := range cases {

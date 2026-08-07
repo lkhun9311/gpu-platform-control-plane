@@ -390,6 +390,47 @@ func TestDecideClearRequiresTheExactQuarantineID(t *testing.T) {
 	}
 }
 
+// decideForce records the node name AND the node UID; decideClear validated neither, so the id alone decided
+// whether a node could be unblocked. Clearing is the step that makes a node acquirable again, and these two
+// rows are the ways it could have been done to the wrong object: a record copied onto another Node, and a
+// Node deleted and recreated under the same name — a different machine wearing the same label, which is
+// exactly the case verifyInstalled already refuses to release across.
+func TestDecideClearRequiresTheRecordToNameTheObservedNode(t *testing.T) {
+	rec := func(nodeName, nodeUID string) map[string]string {
+		t.Helper()
+		raw, err := encodeQuarantine(quarantine{Schema: quarantineSchema, QuarantineID: "q1", ForcedAt: "t",
+			Node: nodeName, NodeUID: nodeUID})
+		if err != nil {
+			t.Fatalf("encode: %v", err)
+		}
+		return map[string]string{quarantineKey: raw}
+	}
+
+	cases := map[string]struct {
+		ann     map[string]string
+		wantErr bool
+	}{
+		"the record names this node":         {rec("platform-worker", "uid-node"), false},
+		"the record was copied from another": {rec("platform-worker9", "uid-other"), true},
+		"same name, recreated node":          {rec("platform-worker", "uid-recreated"), true},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			err := decideClear(observe(node(nil, tc.ann)), "q1")
+			if !tc.wantErr {
+				if err != nil {
+					t.Fatalf("want the record cleared, got %v", err)
+				}
+				return
+			}
+			var r *refusal
+			if err == nil || !asRefusal(err, &r) || r.Reason != reasonWrongNode {
+				t.Fatalf("want the %s refusal, got %v", reasonWrongNode, err)
+			}
+		})
+	}
+}
+
 // withOwnershipTaint replaces the deleted upsertTaint's de-duplication role: a retried acquire attempt must
 // not leave two entries under workerTaintKey, or decideAcquire's own duplicate-taint-key check would refuse
 // a Node this transaction just wrote.

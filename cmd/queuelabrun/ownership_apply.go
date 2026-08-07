@@ -19,6 +19,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -264,6 +265,18 @@ func verifyClean(obs ownership, j journal) error {
 			return fmt.Errorf("journal on node %s is unreadable after release: %v", obs.NodeName, obs.JournalErr)
 		case obs.Journal.TxID == j.TxID:
 			return fmt.Errorf("journal for tx %s is still on the node after release", j.TxID)
+		default:
+			// A journal that decodes and names a DIFFERENT transaction settles the question by itself, and the
+			// marker comparisons below must not run against it.
+			//
+			// Those comparisons match on the run-id-derived values, and a foreign transaction that happens to
+			// carry the same run id installs byte-identical ones — so a legitimate acquisition after our
+			// release would look like our own markers surviving, and the run would be invalidated by a value
+			// coincidence. The journal's txID is the authority precisely because it cannot be defeated that
+			// way: acquisition proceeds only from a free node and writes label, taint and journal in one
+			// atomic patch, so a foreign journal being present is proof that ours, and the markers it was
+			// written with, were gone by the time that patch was accepted.
+			return nil
 		}
 	}
 	if obs.HasLabel && obs.LabelValue == j.Installed.LabelValue {
@@ -278,11 +291,26 @@ func verifyClean(obs ownership, j journal) error {
 	return nil
 }
 
+// resolveWindow is how long the node must look free before a lost write is called dead.
+//
+// It is stated as its own value because it is what the refusal quotes and what the argument below turns on,
+// not merely the product of two loop bounds.
+const resolveWindow = time.Duration(resolveAttempts) * resolveInterval
+
 // resolveAmbiguousAcquire decides whether a patch whose response was lost actually committed.
 //
 // Three outcomes only: our complete tuple is observed and the run continues; the node is free or foreign
 // and the run refuses with nothing of ours to undo; or it is unresolved within the bound, which refuses and
 // leaves the operator modes to sort it out.
+//
+// A free node is the outcome that must be earned rather than read once. A linearizable read orders this Get
+// against writes that have COMPLETED, and the write in question is exactly the one that did not: a request
+// that timed out or lost its connection may still be sitting in the API server's apply path and commit after
+// this read returns. Concluding "did not land" from a single free observation therefore discards the
+// transaction id at the one moment it is still needed, and nothing afterwards can name the markers that
+// appear a moment later. So the free state has to hold for the whole window before it is believed, and
+// anything else — a read that failed, a state that resolved neither way — leaves the outcome unresolved,
+// which keeps the txID and the operator's next command.
 func resolveAmbiguousAcquire(ctx context.Context, c client.Client, nodeName string, j journal,
 	cause error) (journal, error) {
 	// The failed re-read is kept rather than discarded, because "we could not read the node" and "we read it
@@ -294,28 +322,35 @@ func resolveAmbiguousAcquire(ctx context.Context, c client.Client, nodeName stri
 	// one transient failure early in the loop followed by five clean reads is a node the operator can reach,
 	// and reporting the stale error would send them after a connectivity problem that has already passed.
 	var lastReadErr error
+	// freeThroughout stays true only while EVERY observation in the window has succeeded and found the node
+	// free. A failed read or any non-free state clears it for good, so the "did not land" conclusion below
+	// rests on an unbroken window rather than on whichever state the last read happened to catch.
+	freeThroughout := true
 	for attempt := 0; attempt < resolveAttempts; attempt++ {
 		var n corev1.Node
 		if err := c.Get(ctx, client.ObjectKey{Name: nodeName}, &n); err != nil {
 			lastReadErr = err
+			freeThroughout = false
 		} else {
 			lastReadErr = nil
 			obs := observe(&n)
 			switch {
-			case obs.JournalRaw == "" && !obs.HasLabel && len(obs.Taints) == 0:
-				// A free node is proof the patch did not commit, not merely a read that has not caught up:
-				// controller-runtime's client reads straight from the API server rather than a cache, so this
-				// Get is linearizable and cannot observe a state older than a write that already landed. The
-				// same read against an informer cache could legitimately lag a committed patch, and this
-				// conclusion would then be wrong.
-				return journal{}, fmt.Errorf(
-					"acquire node %s failed and did not land; it does not hold tx %s. Run: queuelabrun -inspect-worker -worker %s. Cause: %w",
-					nodeName, j.TxID, nodeName, cause)
 			case verifyObserved(obs, j) == nil:
+				// The write landed after all, which is the outcome a single free read would have thrown away.
 				return j, nil
 			case obs.JournalErr == nil && obs.JournalRaw != "" && obs.Journal.TxID != j.TxID:
+				// Another transaction holds the node, which it could only have acquired from a free one: our
+				// write is provably not going to appear underneath it.
 				return journal{}, fmt.Errorf("acquire node %s failed; it is now held by tx %s: %w",
 					nodeName, obs.Journal.TxID, cause)
+			case obs.JournalRaw == "" && !obs.HasLabel && len(obs.Taints) == 0:
+				// Free, so far. controller-runtime reads straight from the API server rather than a cache, so
+				// this Get cannot observe a state older than a write that has already COMPLETED — but the write
+				// this is resolving is one whose completion is exactly what is unknown, so a single free
+				// observation is not evidence of anything yet. Keep watching.
+			default:
+				// Partly ours, or ours diverged: resolved neither way.
+				freeThroughout = false
 			}
 		}
 		select {
@@ -328,9 +363,14 @@ func resolveAmbiguousAcquire(ctx context.Context, c client.Client, nodeName stri
 		case <-time.After(resolveInterval):
 		}
 	}
+	if freeThroughout {
+		return journal{}, fmt.Errorf(
+			"acquire node %s failed and did not land; it was observed free on every re-read across %v and does not hold tx %s. Run: queuelabrun -inspect-worker -worker %s. Cause: %w",
+			nodeName, resolveWindow, j.TxID, nodeName, cause)
+	}
 	return journal{}, fmt.Errorf(
 		"acquire node %s is UNRESOLVED after %v: it may hold tx %s. Run: queuelabrun -inspect-worker -worker %s. %s. Cause: %w",
-		nodeName, time.Duration(resolveAttempts)*resolveInterval, j.TxID, nodeName,
+		nodeName, resolveWindow, j.TxID, nodeName,
 		resolveReadNote(lastReadErr), cause)
 }
 
@@ -357,7 +397,7 @@ func inspectWorker(ctx context.Context, c client.Client, nodeName string) error 
 	obs := observe(&n)
 	fmt.Printf("node %s (uid %s)\n", obs.NodeName, obs.NodeUID)
 	fmt.Printf("  label %s = %q (present=%v)\n", workerLabelKey, obs.LabelValue, obs.HasLabel)
-	fmt.Printf("  taints on %s: %+v\n", workerTaintKey, obs.Taints)
+	fmt.Printf("  taints on %s: %s\n", workerTaintKey, quotedTaints(obs.Taints))
 	fmt.Printf("  journal: %s\n", quotedOrNone(obs.JournalRaw))
 	fmt.Printf("  quarantine: %s\n", quotedOrNone(obs.QuarantineRaw))
 	switch {
@@ -366,11 +406,15 @@ func inspectWorker(ctx context.Context, c client.Client, nodeName string) error 
 		if err != nil {
 			// A script wrapping -inspect-worker must see a non-zero exit here: an unreadable quarantine
 			// record needs a human, and printing the warning while still exiting 0 would read as healthy.
+			//
+			// It is a named refusal rather than a bare error for the reason the reason constants exist at all:
+			// this is a state, and a state that only exists as a sentence cannot be classified by anything
+			// that reads it.
 			fmt.Printf("\nUNREADABLE QUARANTINE RECORD: %v — manual intervention required.\n", err)
-			return fmt.Errorf("node %s: unreadable quarantine record: %w", nodeName, err)
+			return refuse(reasonBadQuarantine, "node %s: %v", nodeName, err)
 		}
 		fmt.Printf("\nQUARANTINED. To free it after establishing the previous process is dead:\n"+
-			"  queuelabrun -clear-quarantine -worker %s -quarantine-id %s -confirm-owner-dead\n",
+			"  queuelabrun -clear-quarantine -worker %s -quarantine-id %q -confirm-owner-dead\n",
 			nodeName, q.QuarantineID)
 	case obs.JournalRaw != "" && obs.JournalErr != nil:
 		// Without this branch a node carrying an undecodable journal and no marker fell through to FREE and
@@ -388,8 +432,11 @@ func inspectWorker(ctx context.Context, c client.Client, nodeName string) error 
 			obs.JournalErr, quotedOrNone(obs.JournalRaw), reasonBadJournal, nodeName, obs.NodeUID)
 		return fmt.Errorf("node %s: unreadable ownership journal: %w", nodeName, obs.JournalErr)
 	case obs.JournalRaw != "" && obs.JournalErr == nil:
-		fmt.Printf("\nHELD by run %s (arm %s) under tx %s since %s.\n"+
-			"  If that process is gone: queuelabrun -release-stale -worker %s -txid %s -confirm-owner-dead\n",
+		// Every one of these came out of a Node annotation, so they are quoted for the same reason the raw
+		// document is: decoding a hostile string does not make it safe, and the txID in particular is printed
+		// straight into a command the operator is being invited to copy.
+		fmt.Printf("\nHELD by run %q (arm %q) under tx %q since %q.\n"+
+			"  If that process is gone: queuelabrun -release-stale -worker %s -txid %q -confirm-owner-dead\n",
 			obs.Journal.RunID, obs.Journal.Arm, obs.Journal.TxID, obs.Journal.TakenAt,
 			nodeName, obs.Journal.TxID)
 		if err := verifyInstalled(obs, obs.Journal); err != nil {
@@ -423,6 +470,23 @@ func quotedOrNone(s string) string {
 	return fmt.Sprintf("%q", s)
 }
 
+// quotedTaints renders taints field by field with every value escaped.
+//
+// %+v was reaching the terminal raw, and a taint value is node-controlled in exactly the way the annotations
+// are: anyone who can taint the worker can put terminal control sequences in the value, and this line is
+// printed directly above the recovery instructions an operator is about to act on. The key and effect are
+// escaped too rather than trusted, because nothing here has validated them against the API server's rules.
+func quotedTaints(taints []corev1.Taint) string {
+	if len(taints) == 0 {
+		return "(none)"
+	}
+	parts := make([]string, 0, len(taints))
+	for _, t := range taints {
+		parts = append(parts, fmt.Sprintf("{key:%q value:%q effect:%q}", t.Key, t.Value, string(t.Effect)))
+	}
+	return "[" + strings.Join(parts, " ") + "]"
+}
+
 // releaseStale is the ordinary recovery: the transaction is identified, its values are intact, and the
 // operator has established the process holding it is gone.
 func releaseStale(ctx context.Context, c client.Client, nodeName, txID string) error {
@@ -444,9 +508,11 @@ func releaseStale(ctx context.Context, c client.Client, nodeName, txID string) e
 		fmt.Printf("node %s already carries nothing for tx %s; nothing to release\n", nodeName, txID)
 		return nil
 	}
-	fmt.Printf("restoring node %s: removing label %s=%q and taint %s=%q/%s, and the journal for tx %s\n",
+	// The taint value and effect are decoded out of the node's own journal, so they are escaped like every
+	// other node-controlled value this tool prints.
+	fmt.Printf("restoring node %s: removing label %s=%q and taint %s=%q/%q, and the journal for tx %s\n",
 		nodeName, workerLabelKey, obs.LabelValue, workerTaintKey,
-		obs.Journal.Installed.TaintValue, obs.Journal.Installed.TaintEffect, txID)
+		obs.Journal.Installed.TaintValue, string(obs.Journal.Installed.TaintEffect), txID)
 	// releaseAcquired always runs on a bounded, uncancelled context, the same as every other release call
 	// site in this package: a half-applied restoration must be allowed to finish even if the operator's own
 	// signal handling (if any wraps ctx) fires mid-patch, but the wait still cannot be indefinite.

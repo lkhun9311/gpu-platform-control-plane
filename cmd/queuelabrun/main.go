@@ -80,6 +80,11 @@ func main() {
 		Arm:    *armFlag,
 		Worker: *worker,
 
+		// Which run-only flags were actually TYPED, not which hold a non-zero value: -horizon has a default,
+		// so its value alone cannot distinguish "left alone" from "configured", and an operator who set it on
+		// a recovery invocation must be told it does nothing rather than left believing it took effect.
+		RunOnlyFlags: suppliedRunOnlyFlags(flag.CommandLine),
+
 		Inspect: *inspectWorkerFlag,
 
 		ReleaseStale: *releaseStaleFlag,
@@ -306,15 +311,17 @@ func run(ctx context.Context, arm queuelab.Arm, runID, namespace, worker string,
 	fmt.Printf("run %s: arm=%s ns=%s worker=%s horizon=%s\n",
 		runID, arm, namespace, worker, horizon)
 
-	col := newCollector(c, namespace, runID)
+	// The horizon is stamped here, once, as an absolute instant on the collector's own clock: the barrier
+	// loop, the observation wait and the reconstruction's censoring boundary all read that one instant, so
+	// none of them can be a different number than the others or than the horizon this run was configured with.
+	col := newCollector(c, namespace, runID, horizon)
 	cctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	col.start(cctx)
 
 	// Execute the barrier-staged schedule.
-	deadline := time.Now().Add(horizon)
 	for i, step := range schedule {
-		if err := waitBarriers(ctx, c, namespace, step.After, col, deadline); err != nil {
+		if err := waitBarriers(ctx, c, namespace, step.After, col); err != nil {
 			if ctx.Err() != nil {
 				// A signal reached the barrier wait; recording this as a Desync would misread an operator's
 				// Ctrl-C as the arm failing to reach its protocol barrier, so it is reported as cancellation.
@@ -340,7 +347,7 @@ func run(ctx context.Context, arm queuelab.Arm, runID, namespace, worker string,
 	}
 
 	// Observe until the horizon.
-	werr := waitForHorizon(ctx, deadline)
+	werr := waitForHorizon(ctx, col.deadline)
 	cancel()
 	col.wait()
 	if werr != nil {
@@ -358,7 +365,7 @@ func run(ctx context.Context, arm queuelab.Arm, runID, namespace, worker string,
 		printEvents(events)
 		return fmt.Errorf("run invalidated: %w", err)
 	}
-	res, err := queuelab.Reconstruct(string(arm), trace, events, col.elapsed().Nanoseconds())
+	res, err := reconstructAtHorizon(col, arm, trace, events)
 	if err != nil {
 		fmt.Printf("\nRECONSTRUCT ERROR: %v\n", err)
 		printEvents(events)
@@ -409,6 +416,18 @@ func run(ctx context.Context, arm queuelab.Arm, runID, namespace, worker string,
 	fmt.Printf("\nledger: %d events\n", len(events))
 	printEvents(events)
 	return nil
+}
+
+// reconstructAtHorizon reconstructs the run's result against the horizon the collector stamped before the
+// observation window opened.
+//
+// It is its own function so the censoring boundary is testable at the CALL SITE rather than only as a value:
+// the horizon used to be read off the clock right here, after the watches had been cancelled and joined, and
+// a test of the stamped instant alone could not have caught that. Everything this needs is already joined and
+// final by the time it runs, so it takes no clock of its own.
+func reconstructAtHorizon(col *collector, arm queuelab.Arm, trace []queuelab.TrainingTraceRow,
+	events []queuelab.LifecycleEvent) (queuelab.LabResult, error) {
+	return queuelab.Reconstruct(string(arm), trace, events, col.horizonNs())
 }
 
 // waitForHorizon blocks until the observation deadline or ctx is cancelled, whichever comes first.
