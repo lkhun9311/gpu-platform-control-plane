@@ -2,7 +2,7 @@
 
 Date: 2026-06-28 · Milestone: M4 (serving), sub-project **M4-b** · Author: lkhun9311
 
-Decisions: `.reviews/milestone-m4-serving/feat-m4-gateway/decisions.md` (ADR-1..4) + `runtime-tradeoffs.md`. v2 folds in the codex design review (`.../raw/design-codex.md`): tenant↔namespace mapping, policy 0/1/many rules, missing-policy default, model duplicate handling, streaming proxy, body restore, 502/504 criteria, bucket lifecycle, single-replica, Secret schema, request_id, RBAC, /metrics.
+Decisions: four ADRs and a runtime-tradeoffs note, kept as internal working documents and not published. v2 folds in an independent AI design review: tenant↔namespace mapping, policy 0/1/many rules, missing-policy default, model duplicate handling, streaming proxy, body restore, 502/504 criteria, bucket lifecycle, single-replica, Secret schema, request_id, RBAC, /metrics.
 
 ## Scope ("minimum done", docs/05)
 Standalone OpenAI-compatible gateway: API key → tenant, per-tenant token bucket → 429, model → `InferenceDeployment` Service routing, reverse-proxy, 4 `gpuaas_gateway_*` metrics, `request_id`. **Only `POST /v1/chat/completions`** (ADR-3). Dev/test on kind with **httptest stub upstreams** (no real vLLM; real serving = M5/AWS). Deferred: `/v1/embeddings`, distributed bucket, per-model limits, Open WebUI, `platformctl`.

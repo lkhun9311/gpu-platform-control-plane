@@ -2,7 +2,7 @@
 
 > Status: designed, code-only. No `terraform apply`, no cluster, no Argo CD installed.
 > Design of record it implements: `docs/09_AWS_INFRA_ARCHITECTURE.md` and
-> `.reviews/milestone-m5-aws/aws-infra-integration-design.md` (v3.2).
+> an internal integration design (v3.2), kept as a working document and not published.
 > Builds on Increment 1 (`docs/superpowers/specs/2026-07-18-m5-a-hosting-foundation-design.md`).
 
 ## Purpose
