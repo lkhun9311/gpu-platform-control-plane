@@ -10,7 +10,7 @@ The operator is cloud-agnostic; its only AWS dependency is hosting. Scope split,
 GitHub repo (public — Argo CD reads it anonymously; source of truth)
   ├── ci.yml      ──(OIDC: image-push role)──>  ECR  <──(pull by digest)── EKS nodes
   ├── infra.yml   ──(OIDC: plan role on PR / apply role on merge, manual gate)──> Terraform
-  ├── gpu.yml     ──(workflow_dispatch: apply role, gpu_desired=0|1)──> GPU node group switch
+  ├── gpu.yml     ──(workflow_dispatch: apply role, gpu_desired=0|1)──> GPU node group switch   [NOT WRITTEN]
   └── destroy.yml ──(nightly cron + workflow_dispatch: apply role)──>
         delete Argo apps -> destroy argo-bootstrap state -> residue check -> destroy cluster state
 
@@ -127,7 +127,7 @@ The repo is public, so Argo CD reads it anonymously — no deploy credential to 
 | Layer                         | Status                                                                                             |
 |-------------------------------|----------------------------------------------------------------------------------------------------|
 | Terraform code (`infra/aws/`) | **Written** (`bootstrap`, `cluster`, `argo-bootstrap` states) and offline-validated — never `terraform apply`'d |
-| GitHub workflows              | **Written** (`ci.yml`, `infra.yml`, `gpu.yml`, `destroy.yml`, `lint.yml`, `test-e2e.yml`) — never run against real AWS credentials or infrastructure |
+| GitHub workflows              | **Written** (`ci.yml`, `infra.yml`, `destroy.yml`, `lint.yml`, `test.yml`, `test-e2e.yml`) — never run against real AWS credentials or infrastructure. `gpu.yml`, the GPU node-group switch this document describes, is **designed only and does not exist** |
 | Gateway image                 | `Dockerfile.gateway` and `config/gateway/` manifests **exist**; `ci.yml` still builds/pushes only the operator image — the gateway image has never been built by CI or deployed |
 | Operator custom metrics       | **Implemented** (`internal/controller/metrics.go` — taints, degraded transitions, quota drift)     |
 | Everything in this doc        | Code written per this design (v3.2) and offline-validated; zero AWS resources have ever been provisioned |

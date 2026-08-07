@@ -2,7 +2,12 @@
 
 This is the killer feature. Everything else (CRDs, gateway, node lifecycle) exists so that this question can be asked and answered honestly.
 
-> **Status (2026-07): designed, not yet measured.** The CRD spec, guard spec, and protocol below are design-of-record; no real-GPU number exists yet. Every figure in this doc is a target or an example, and is labeled as such.
+> **Status (2026-08-07).** Mixed, and the difference matters. **Built and unit-tested:** the KV-cache-aware
+> admission guard (`internal/gateway/kvguard.go`, wired into the gateway) and the open-loop benchmark
+> harness. Neither has ever run on a GPU, and the guard's vLLM metrics fixture is synthetic — it says so in
+> the fixture — so its engage/release thresholds are unvalidated guesses. **Designed only, no code:** the
+> `GpuSharingBenchmark` CRD and the sharing-mode matrix. **Not measured:** everything numeric below. Every
+> figure in this document is a target or an example and is labeled as such; no real-GPU number exists.
 
 ## The core question
 

@@ -68,37 +68,18 @@ leaving it to be inferred. Two distinctions worth stating plainly, because they 
 
 ## Correction: the queuelab reclaim result is withdrawn
 
-On 2026-08-02 this repository published a live measurement of Kueue quota-reclaim preemption. The claim was
-that switching `reclaimWithinCohort` from `Never` to `Any` admitted the quota owner about 120 ms after its
-submission, at a cost of roughly 39 GPU-seconds of the borrower's discarded work. **It was wrong, and it is
-withdrawn. There are currently zero valid queuelab experimental numbers.**
+On 2026-08-02 this repository published a live measurement of Kueue quota-reclaim preemption. **It was
+wrong, and it is withdrawn. There are currently zero valid queuelab experimental numbers.**
 
-What was wrong, in the order it was found:
+Nothing was ever preempted: the lab's workload ran `sleep` as PID 1, and a container's PID 1 ignores
+`SIGTERM` without an explicit handler, so the jobs ran to completion and were re-executed. A later review
+found the experiment's design confounded as well, independently of that bug.
 
-1. **Nothing was ever preempted.** The lab's sleeper ran `sleep` as PID 1, and a container's PID 1 ignores
-   `SIGTERM` without an explicit handler. A controlled experiment settles it: a workload running
-   `trap 'exit 143' TERM; sleep N & wait` terminates in 1 s with exit 143, while a bare `sleep N` survives
-   the full 30 s termination grace and dies only to `SIGKILL` at 34 s. The measured workloads ran to
-   completion and were re-executed. The waste figure was real but for the opposite reason, and the
-   accounting inferred causation from adjacency: it charged discarded work whenever a preemption decision
-   was followed by a stop, without ever checking the stop reason its own ledger had recorded.
-2. **The "120 ms admission" was quota reservation, not service.** The owner's Pod became Ready 9.4 s later.
-3. **The experiment's design was invalid too.** The fixture is three jobs: the borrower that is meant to be
-   reclaimed, the quota owner whose admission is the endpoint, and `a1`, a co-tenant that is supposed to
-   hold its own unit throughout. All three shared one duration, so `a1` released a GPU 31 ms before the
-   alleged victim did (42.607 s vs 42.638 s, owner Ready at 43.550 s). The endpoint — "the owner ran because
-   the victim was reclaimed" — could not be attributed to the reclamation at all. The stated 40-second dose
-   was really 49 seconds, derived by subtracting two trace offsets that were never meant to encode it. And
-   the experiment defines three arms (honoring victim, ignoring victim, no-reclaim reference); the runner
-   could not select a termination contract, so **the honoring arm did not exist in the executable.**
+`queuelabrun` now **refuses by design to emit a countable result** — it exits non-zero and names the
+validity gates it does not yet have. That refusal is the current state of this milestone. The earlier
+result counted because a run that looked fine was allowed to count.
 
-What exists now instead of a number: the measurement layer will not charge discarded work without an
-observed failed terminal phase, the protocol closes the co-tenant confound and states its dose explicitly,
-and **`queuelabrun` refuses by design to emit a countable result** — it exits non-zero and names the
-validity gates that are still unimplemented. That refusal is the current state of this milestone, and it is
-deliberate: the earlier result counted because a run that looked fine was allowed to count.
-
-The full account, including two further mistakes found while repairing this record, is in
+The full account — five mistakes, what each one's evidence was, and what changed — is in
 [docs/10_WHAT_I_GOT_WRONG.md](docs/10_WHAT_I_GOT_WRONG.md).
 
 ## Tech stack

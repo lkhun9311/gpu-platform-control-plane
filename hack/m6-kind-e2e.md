@@ -32,8 +32,9 @@ cohort has a total nominal quota of 2 `nvidia.com/gpu` (1 + 1).
   runs past its own nominal quota because the cohort has spare capacity.
 - **Preemption (reclaim):** `tenant-b` then submits a 1-GPU job. Its
   `ClusterQueue` reclaims its nominal unit via `reclaimWithinCohort: Any`, so
-  Kueue preempts the borrowed `tenant-a` job. That job's `MLTrainingJob` returns
-  to `Pending` (its Job is re-suspended), and `tenant-b`'s job is admitted and
+  Kueue preempts **one of** the two `tenant-a` workloads — which one is not
+  fixed, see the preemption section below. That job's `MLTrainingJob` returns to
+  `Pending` (its Job is re-suspended), and `tenant-b`'s job is admitted and
   reaches `Running`.
 
 Priorities are deliberately **not** used here: `reclaimWithinCohort: Any`
@@ -72,8 +73,8 @@ preemption deterministic rather than a race against a short-lived job.
    conflict.)
 6. **Fair sharing** — submit `a1` and `a2` in `tenant-a`; observe both reach
    `Running` (borrowing).
-7. **Preemption** — submit `b1` in `tenant-b`; observe a borrowed `tenant-a` job
-   return to `Pending` and `b1` reach `Running` (reclaim).
+7. **Preemption** — submit `b1` in `tenant-b`; observe one `tenant-a` job return
+   to `Pending` and `b1` reach `Running` (reclaim).
 
 Run it:
 
@@ -108,19 +109,20 @@ caps GPUs — the ceiling lives only in the ClusterQueue, so the same GPUs are n
 counted twice. Verified against the cluster after the run:
 
 ```
-$ kubectl --context kind-platform get resourcequota -A
++ k get resourcequota -A
 No resources found
 ```
 
 > **Why this line is called out.** An earlier revision of this document showed a
-> transcript of this check that had never actually been run, and the capture it
-> sat next to came from a reused cluster carrying a stale `gpuquota-tenant-a-quota`
-> ResourceQuota from a previous experiment — 27 `exceeded quota` events in that
-> log flatly contradicted the claim above. The claim turned out to be correct and
-> the evidence had been contaminated, which is the worse of the two failures to
-> have: the conclusion survived by luck. The run recorded here is from a cluster
-> created from scratch, and `hack/m6-kind-e2e.sh` now captures this check itself
-> so the next run has it in the log rather than in prose.
+> transcript of this check that had never been run. The capture beside it came
+> from a cluster the script had *reused* — `cluster platform already exists;
+> reusing it` — carrying a stale `gpuquota-tenant-a-quota` from an earlier
+> experiment, and that log contains 27 `exceeded quota` events flatly
+> contradicting the claim. It is committed as `m6-e2e-evidence-contaminated.log`
+> so the contradiction can be read rather than taken on trust. The claim was
+> correct and the evidence was not, which is the worse way round: the conclusion
+> survived by luck. The script now runs this check itself, so the line above is
+> from the log rather than from prose.
 
 ### Fair sharing (borrowing)
 
@@ -152,19 +154,20 @@ nominal unit via `reclaimWithinCohort: Any`, so Kueue preempted one of the two
 `Pending`.
 
 ```
-tenant-b/b1 reached phase Running after 18s
-[EVIDENCE] preemption: tenant-a/a1 was reclaimed back to Pending after b1 admitted
+tenant-b/b1 reached phase Running after 3s
+[EVIDENCE] preemption: tenant-a/a2 was reclaimed back to Pending after b1 admitted
 
 NS         NAME   PHASE
-tenant-a   a1     Pending        <- preempted, back to Pending
-tenant-a   a2     Running
+tenant-a   a1     Running
+tenant-a   a2     Pending        <- preempted, back to Pending
 tenant-b   b1     Running        <- reclaimed its own nominal unit
 ```
 
-> **Which job gets preempted is not a property you can name in advance.** An
-> earlier revision of this document said Kueue "preempted the borrowed
-> `tenant-a` job" and showed `a2` going Pending, because that is what happened in
-> that run. This run preempted `a1` instead. Both are correct: quota inside a
+> **Which job gets preempted is not a property you can name in advance.** This
+> fixture has now been run three times. The first and third runs preempted `a2`;
+> the second preempted `a1`. An earlier revision of this document read the first
+> run's `a2` as designed behaviour and said Kueue "preempted the borrowed
+> `tenant-a` job". All three runs are correct: quota inside a
 > ClusterQueue is fungible, so there is no such object as "the borrowed job" —
 > `gpu-tenant-a` was simply admitted 2 against a nominal of 1, and when
 > `tenant-b` reclaimed, Kueue returned one unit by evicting one of tenant-a's
@@ -177,7 +180,7 @@ tenant-b   b1     Running        <- reclaimed its own nominal unit
 Kueue's own event names the reclaim explicitly:
 
 ```
-Normal  Preempted  workload/job-a1-8606d
+Normal  Preempted  workload/job-a2-de0c0
   Preempted to accommodate a workload ... due to reclamation within the cohort;
   preemptor path: /gpu-platform/gpu-tenant-b; preemptee path: /gpu-platform/gpu-tenant-a
 ```
