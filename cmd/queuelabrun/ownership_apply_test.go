@@ -664,3 +664,223 @@ func TestResolveAmbiguousAcquireRefusesAPartiallyLandedPatch(t *testing.T) {
 		t.Fatalf("the test did not produce the partial state it exists for: %+v %+v", got.Labels, got.Annotations)
 	}
 }
+
+// Finding 1 of the branch review: -release-stale against a node that already carries nothing for the named
+// transaction used to pass the zero journal (its Node field is "") straight to releaseAcquired, which then
+// tried to Get an empty node name and failed with a confusing API error — exactly the mode an operator reaches
+// for right after a crash, plausibly twice. releaseStale must instead recognise releaseAlreadyDone itself,
+// report it plainly, and never call releaseAcquired at all.
+func TestReleaseStaleOnAnAlreadyCleanNodeReportsAlreadyReleasedRatherThanFailing(t *testing.T) {
+	n := node(nil, nil)
+	var patchCalls int
+	fc := fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(n).WithInterceptorFuncs(interceptor.Funcs{
+		Patch: func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch,
+			opts ...client.PatchOption) error {
+			patchCalls++
+			return c.Patch(ctx, obj, patch, opts...)
+		},
+	}).Build()
+
+	if err := releaseStale(context.Background(), fc, "platform-worker", "tx-noop"); err != nil {
+		t.Fatalf("releaseStale against an already-clean node must succeed, got: %v", err)
+	}
+	if patchCalls != 0 {
+		t.Fatalf("want 0 patches against an already-clean node, got %d — releaseAcquired must never be called "+
+			"with the zero journal", patchCalls)
+	}
+}
+
+// Finding 3 of the branch review: releaseAcquired used to return success the instant Patch reported no error,
+// without re-reading, even though acquisition has verifyAcquired for exactly this reason. This is the ordinary
+// path: it must actually perform the post-release read rather than trust the status code alone.
+func TestReleaseVerifiesRestorationAfterThePatchOnTheOrdinaryPath(t *testing.T) {
+	n := node(nil, nil)
+	var getCalls int
+	fc := fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(n).WithInterceptorFuncs(interceptor.Funcs{
+		Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object,
+			opts ...client.GetOption) error {
+			getCalls++
+			return c.Get(ctx, key, obj, opts...)
+		},
+	}).Build()
+
+	j, err := acquireWorker(context.Background(), fc, "platform-worker", "tx-clean", "r1", "A-honor")
+	if err != nil {
+		t.Fatalf("acquire: %v", err)
+	}
+	getCalls = 0 // only count reads from the release path onward.
+
+	if _, err := releaseAcquired(context.Background(), fc, j); err != nil {
+		t.Fatalf("release: %v", err)
+	}
+	if getCalls < 2 {
+		t.Fatalf("want at least 2 gets (release's own decide read plus the post-patch verification read), "+
+			"got %d — verifyReleased did not run", getCalls)
+	}
+}
+
+// The failing direction of Finding 3: our own markers are somehow still on the node after our release patch
+// committed (a retried write landing late is a realistic cause). Verification must catch this rather than
+// report a clean release, because the whole branch exists to stop a run that looked fine from being allowed
+// to count.
+func TestReleaseFailsVerificationWhenOurOwnMarkersReappearAfterThePatch(t *testing.T) {
+	n := node(nil, nil)
+	var patchCalls int
+	var j journal
+	fc := fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(n).WithInterceptorFuncs(interceptor.Funcs{
+		Patch: func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch,
+			opts ...client.PatchOption) error {
+			patchCalls++
+			if err := c.Patch(ctx, obj, patch, opts...); err != nil {
+				return err
+			}
+			if patchCalls == 2 {
+				// The release patch (call 2, after acquire's call 1) committed and removed our markers; a
+				// late-landing retry of our own earlier write puts the exact same values straight back.
+				var got corev1.Node
+				if err := c.Get(ctx, client.ObjectKey{Name: "platform-worker"}, &got); err != nil {
+					return err
+				}
+				if got.Labels == nil {
+					got.Labels = map[string]string{}
+				}
+				got.Labels[workerLabelKey] = j.Installed.LabelValue
+				got.Spec.Taints = append(got.Spec.Taints, corev1.Taint{
+					Key: workerTaintKey, Value: j.Installed.TaintValue, Effect: j.Installed.TaintEffect,
+				})
+				return c.Update(ctx, &got)
+			}
+			return nil
+		},
+	}).Build()
+
+	var err error
+	j, err = acquireWorker(context.Background(), fc, "platform-worker", "tx-reappear", "r1", "A-honor")
+	if err != nil {
+		t.Fatalf("acquire: %v", err)
+	}
+
+	if _, err := releaseAcquired(context.Background(), fc, j); err == nil {
+		t.Fatal("release must fail verification when our own markers reappear after the patch")
+	} else if !strings.Contains(err.Error(), "did not verify") {
+		t.Fatalf("want a restoration-did-not-verify error, got: %v", err)
+	}
+}
+
+// The legitimate direction Finding 3 warns must not become a false failure: another transaction acquires the
+// node in the gap between our release patch committing and our verification read. verifyClean must prove OUR
+// markers are gone, not that the node is free, so a different transaction's markers must not be mistaken for
+// ours having survived.
+func TestReleaseVerifiesCleanWhenAnotherTransactionAcquiresRightAfterOurRelease(t *testing.T) {
+	n := node(nil, nil)
+	var patchCalls int
+	var j journal
+	fc := fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(n).WithInterceptorFuncs(interceptor.Funcs{
+		Patch: func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch,
+			opts ...client.PatchOption) error {
+			patchCalls++
+			if err := c.Patch(ctx, obj, patch, opts...); err != nil {
+				return err
+			}
+			if patchCalls == 2 {
+				other := testJournal()
+				other.TxID = "tx-other"
+				other.RunID = "r9"
+				other.Installed = installedTuple{
+					LabelValue: "r9", TaintValue: "r9", TaintEffect: corev1.TaintEffectNoSchedule,
+				}
+				raw, err := encodeJournal(other)
+				if err != nil {
+					return err
+				}
+				var got corev1.Node
+				if err := c.Get(ctx, client.ObjectKey{Name: "platform-worker"}, &got); err != nil {
+					return err
+				}
+				got.Labels = map[string]string{workerLabelKey: "r9"}
+				got.Annotations = map[string]string{journalKey: raw}
+				got.Spec.Taints = []corev1.Taint{{Key: workerTaintKey, Value: "r9", Effect: corev1.TaintEffectNoSchedule}}
+				return c.Update(ctx, &got)
+			}
+			return nil
+		},
+	}).Build()
+
+	var err error
+	j, err = acquireWorker(context.Background(), fc, "platform-worker", "tx-mine", "r1", "A-honor")
+	if err != nil {
+		t.Fatalf("acquire: %v", err)
+	}
+
+	if _, err := releaseAcquired(context.Background(), fc, j); err != nil {
+		t.Fatalf("release must succeed when a different, legitimate transaction's markers are present, got: %v", err)
+	}
+}
+
+// verifyClean is the pure invariant Finding 3 adds, tested directly against every direction named in the
+// finding: it must prove OUR markers are gone (label, taint, journal, node identity), and must not demand a
+// free node.
+func TestVerifyClean(t *testing.T) {
+	j := testJournal() // NodeUID uid-node, Installed{LabelValue: r7, TaintValue: r7, NoSchedule}
+
+	cases := []struct {
+		name    string
+		obs     ownership
+		wantErr bool
+	}{
+		{
+			name:    "clean node with nothing on it",
+			obs:     ownership{NodeUID: "uid-node"},
+			wantErr: false,
+		},
+		{
+			name:    "our label still present",
+			obs:     ownership{NodeUID: "uid-node", HasLabel: true, LabelValue: "r7"},
+			wantErr: true,
+		},
+		{
+			name: "our taint still present",
+			obs: ownership{NodeUID: "uid-node",
+				Taints: []corev1.Taint{{Key: workerTaintKey, Value: "r7", Effect: corev1.TaintEffectNoSchedule}}},
+			wantErr: true,
+		},
+		{
+			name:    "our journal still present under our txID",
+			obs:     ownership{NodeUID: "uid-node", JournalRaw: "x", Journal: j},
+			wantErr: true,
+		},
+		{
+			name:    "node UID no longer matches: a recreated node",
+			obs:     ownership{NodeUID: "uid-different"},
+			wantErr: true,
+		},
+		{
+			name:    "a different transaction's label is present",
+			obs:     ownership{NodeUID: "uid-node", HasLabel: true, LabelValue: "r9"},
+			wantErr: false,
+		},
+		{
+			name: "a different transaction's taint is present",
+			obs: ownership{NodeUID: "uid-node",
+				Taints: []corev1.Taint{{Key: workerTaintKey, Value: "r9", Effect: corev1.TaintEffectNoSchedule}}},
+			wantErr: false,
+		},
+		{
+			name: "a different transaction's journal is present",
+			obs: ownership{NodeUID: "uid-node", JournalRaw: "x",
+				Journal: journal{TxID: "tx-other"}},
+			wantErr: false,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := verifyClean(tc.obs, j)
+			if tc.wantErr && err == nil {
+				t.Fatal("want an error, got nil")
+			}
+			if !tc.wantErr && err != nil {
+				t.Fatalf("want no error, got %v", err)
+			}
+		})
+	}
+}

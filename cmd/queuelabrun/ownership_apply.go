@@ -46,6 +46,23 @@ const verifyAttempts = 3
 
 const verifyInterval = 500 * time.Millisecond
 
+// releaseCleanupTimeout bounds every release-path context that deliberately runs on context.Background()
+// instead of the run's own signal-cancellable context.
+//
+// That choice (see acquireWorker's self-release comment below) protects a half-applied restoration from
+// being cut off by Ctrl-C, but an unbounded context would let a stuck API server hang the process forever at
+// exactly the moment it is trying to clean up. The release path it bounds does at most acquireAttempts (5)
+// Get/Patch round trips with no inter-attempt sleep, plus verifyAttempts (3) reads spaced verifyInterval
+// (500ms) apart to confirm restoration — a few seconds of deterministic waiting under normal latency — so 30s
+// leaves an order of magnitude of margin for a slow cluster without permitting an indefinite hang.
+const releaseCleanupTimeout = 30 * time.Second
+
+// cleanupContext returns a context bounded by releaseCleanupTimeout for release-path work that must run to
+// completion even after the run's own context was cancelled.
+func cleanupContext() (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.Background(), releaseCleanupTimeout)
+}
+
 // newTxID generates the ownership identity.
 //
 // It is generated rather than derived from the run id because a reused run id is already a known confound
@@ -102,7 +119,10 @@ func acquireWorker(ctx context.Context, c client.Client, nodeName, txID, runID, 
 				// to a run yet: finding the node clean here genuinely means there is nothing of ours to undo,
 				// where for a run that has been holding the worker it would mean its markers were taken.
 
-				if _, rerr := releaseAcquired(context.Background(), c, j); rerr != nil {
+				relCtx, relCancel := cleanupContext()
+				_, rerr := releaseAcquired(relCtx, c, j)
+				relCancel()
+				if rerr != nil {
 					return journal{}, fmt.Errorf(
 						"acquire node %s: verify failed: %v; release also failed, node may still carry tx %s: run: queuelabrun -inspect-worker -worker %s: %w",
 						nodeName, verr, j.TxID, nodeName, rerr)
@@ -168,6 +188,57 @@ func verifyObserved(obs ownership, j journal) error {
 		return fmt.Errorf("journal is not the one this run wrote")
 	}
 	return verifyInstalled(obs, j)
+}
+
+// verifyReleased requires proof our markers are gone before release is trusted, in the same bounded-retry
+// shape as verifyAcquired.
+func verifyReleased(ctx context.Context, c client.Client, nodeName string, j journal) error {
+	var n corev1.Node
+	var err error
+	for attempt := 0; attempt < verifyAttempts; attempt++ {
+		if err = c.Get(ctx, client.ObjectKey{Name: nodeName}, &n); err == nil {
+			break
+		}
+		if attempt == verifyAttempts-1 {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("verify release of node %s cancelled: tx %s: %w", nodeName, j.TxID, ctx.Err())
+		case <-time.After(verifyInterval):
+		}
+	}
+	if err != nil {
+		return fmt.Errorf("verify release of node %s: %w", nodeName, err)
+	}
+	return verifyClean(observe(&n), j)
+}
+
+// verifyClean is release's counterpart to verifyObserved: it proves THIS transaction's markers are gone,
+// never that the node is free.
+//
+// Between our patch and this read, another run may legitimately have acquired the node, and demanding a free
+// node would turn that ordinary race into a spurious restoration failure. So each check only fails when what
+// is observed still names our own installed values, not merely when something is present.
+func verifyClean(obs ownership, j journal) error {
+	if obs.NodeUID != j.NodeUID {
+		// A recreated node is a different node: there is nothing of ours left to find on it, but that is not
+		// the invariant this function proves, so treat it as unable to verify rather than silently passing.
+		return fmt.Errorf("node UID is %s, the journal named %s: this is a different node", obs.NodeUID, j.NodeUID)
+	}
+	if obs.JournalRaw != "" && obs.JournalErr == nil && obs.Journal.TxID == j.TxID {
+		return fmt.Errorf("journal for tx %s is still on the node after release", j.TxID)
+	}
+	if obs.HasLabel && obs.LabelValue == j.Installed.LabelValue {
+		return fmt.Errorf("label %s still carries this transaction's value %q", workerLabelKey, obs.LabelValue)
+	}
+	for _, t := range obs.Taints {
+		if t.Value == j.Installed.TaintValue && t.Effect == j.Installed.TaintEffect {
+			return fmt.Errorf("taint %s still carries this transaction's value %q/%s",
+				workerTaintKey, t.Value, t.Effect)
+		}
+	}
+	return nil
 }
 
 // resolveAmbiguousAcquire decides whether a patch whose response was lost actually committed.
@@ -275,20 +346,32 @@ func releaseStale(ctx context.Context, c client.Client, nodeName, txID string) e
 		return fmt.Errorf("get node %s: %w", nodeName, err)
 	}
 	obs := observe(&n)
-	if _, err := decideRelease(obs, txID); err != nil {
+	act, err := decideRelease(obs, txID)
+	if err != nil {
 		return err
+	}
+	if act == releaseAlreadyDone {
+		// obs.Journal is the zero journal here (its Node field is ""), because decideRelease only reaches
+		// releaseAlreadyDone when there was never a journal to decode in the first place. Passing that zero
+		// journal to releaseAcquired would Get an empty node name and fail with a confusing API error, for an
+		// operator who reached for this exact mode right after a crash and deserves a plain "already released"
+		// instead.
+		fmt.Printf("node %s already carries nothing for tx %s; nothing to release\n", nodeName, txID)
+		return nil
 	}
 	fmt.Printf("restoring node %s: removing label %s=%q and taint %s=%q/%s, and the journal for tx %s\n",
 		nodeName, workerLabelKey, obs.LabelValue, workerTaintKey,
 		obs.Journal.Installed.TaintValue, obs.Journal.Installed.TaintEffect, txID)
-	// releaseAcquired always runs on an uncancelled context, the same as every other release call site in
-	// this package: a half-applied restoration must be allowed to finish even if the operator's own signal
-	// handling (if any wraps ctx) fires mid-patch.
+	// releaseAcquired always runs on a bounded, uncancelled context, the same as every other release call
+	// site in this package: a half-applied restoration must be allowed to finish even if the operator's own
+	// signal handling (if any wraps ctx) fires mid-patch, but the wait still cannot be indefinite.
 	//
 	// It is releaseAcquired rather than releaseOwned because this recovery holds nothing: the read above and
 	// the read inside can race a genuine release, and finding the node already clean by then is the outcome
 	// the operator wanted, not a lost transaction.
-	_, err := releaseAcquired(context.Background(), c, obs.Journal)
+	relCtx, relCancel := cleanupContext()
+	defer relCancel()
+	_, err = releaseAcquired(relCtx, c, obs.Journal)
 	return err
 }
 
@@ -382,6 +465,13 @@ func releaseAcquired(ctx context.Context, c client.Client, j journal) (releaseAc
 		err = c.Patch(ctx, &n, client.MergeFromWithOptions(base, client.MergeFromWithOptimisticLock{}))
 		switch {
 		case err == nil:
+			// acquireWorker has verifyAcquired for exactly this reason: a status code proves the API server
+			// accepted the request, not that what it committed is what a subsequent reader will see. Release
+			// now follows the same discipline and reads back before letting the caller trust restoration.
+			if verr := verifyReleased(ctx, c, j.Node, j); verr != nil {
+				return releaseRestore, fmt.Errorf("release node %s: patch succeeded but restoration did not verify: %w",
+					j.Node, verr)
+			}
 			return releaseRestore, nil
 		case apierrors.IsConflict(err):
 			// Retrying is legal here because release re-verifies identity on every attempt and is not

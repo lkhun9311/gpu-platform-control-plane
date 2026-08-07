@@ -258,14 +258,20 @@ func run(ctx context.Context, arm queuelab.Arm, runID, namespace, worker string,
 	if err != nil {
 		return fmt.Errorf("acquire worker %s: %w", worker, err)
 	}
-	released := false
-	// The emergency release covers the paths that return early; the run's own release in the happy path
-	// runs before anything is published, and sets released so this defer stays a no-op.
+	releaseAttempted := false
+	// The emergency release covers the paths that return early; the run's own release below sets
+	// releaseAttempted before it runs, whatever it returns, so this defer stays a no-op for every path that
+	// reached it. It must key on ATTEMPTED rather than succeeded: if the explicit release below fails with
+	// ownership-lost (a node observed FREE, not one this defer could do anything more for), re-running it
+	// here would print a second, misleading "WORKER NOT RESTORED" for a release that already ran and already
+	// invalidated the run.
 	defer func() {
-		if released {
+		if releaseAttempted {
 			return
 		}
-		if rerr := releaseOwned(context.Background(), c, j); rerr != nil {
+		relCtx, relCancel := cleanupContext()
+		defer relCancel()
+		if rerr := releaseOwned(relCtx, c, j); rerr != nil {
 			fmt.Fprintf(os.Stderr, "WORKER NOT RESTORED: %v\n  run: queuelabrun -inspect-worker -worker %s\n",
 				rerr, worker)
 		}
@@ -355,12 +361,18 @@ func run(ctx context.Context, arm queuelab.Arm, runID, namespace, worker string,
 	// releaseOwned rather than releaseAcquired, because a node found already free here is that very case:
 	// this run installed the markers and never removed them, so their absence is a lost worker, not a
 	// release that had already happened.
-	if err := releaseOwned(context.Background(), c, j); err != nil {
+	//
+	// Set before the call, not after checking its error: the deferred emergency release above must skip
+	// because this release ran, regardless of whether it succeeded or invalidated the run.
+	releaseAttempted = true
+	relCtx, relCancel := cleanupContext()
+	err = releaseOwned(relCtx, c, j)
+	relCancel()
+	if err != nil {
 		fmt.Printf("\nRUN INVALIDATED: worker %s not restored: %v\n", worker, err)
 		printEvents(events)
 		return fmt.Errorf("worker not restored: %w", err)
 	}
-	released = true
 
 	if out != "" {
 		if err := writeLedger(out, events); err != nil {
@@ -398,15 +410,23 @@ func printEvents(events []queuelab.LifecycleEvent) {
 	}
 }
 
-func writeLedger(path string, events []queuelab.LifecycleEvent) error {
+// writeLedger reports the Close error rather than discarding it.
+//
+// The ledger is the run's only evidence, and a buffered write can look successful right up until Close, so
+// swallowing that error would let a truncated file be reported to the operator as fully written.
+func writeLedger(path string, events []queuelab.LifecycleEvent) (err error) {
 	f, err := os.Create(path)
 	if err != nil {
 		return err
 	}
-	defer func() { _ = f.Close() }()
+	defer func() {
+		if cerr := f.Close(); cerr != nil && err == nil {
+			err = fmt.Errorf("close ledger %s: %w", path, cerr)
+		}
+	}()
 	enc := json.NewEncoder(f)
 	for i := range events {
-		if err := enc.Encode(events[i]); err != nil {
+		if err = enc.Encode(events[i]); err != nil {
 			return err
 		}
 	}
