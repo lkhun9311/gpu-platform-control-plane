@@ -21,6 +21,10 @@ import (
 	"errors"
 	"testing"
 	"time"
+
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 )
 
 // A signal landing during the observation window must be seen immediately, not after the wait times out on
@@ -67,11 +71,14 @@ func TestWaitForHorizonPastDeadlineReturnsImmediately(t *testing.T) {
 	}
 }
 
-// dispatchOperatorMode must resolve every one of these without ever reaching newClusterClient: if the
+// dispatchOperatorMode must resolve every one of these without ever reaching the cluster client: if the
 // validation-before-client ordering regressed, an operator on a box with no kubeconfig would see a
 // "kubeconfig: ..." error instead of the flag-combination message that actually explains their mistake.
 // This exercises dispatchOperatorMode itself, not just decideOperatorMode, so it also proves the wiring
 // between the two, not only the pure decision in isolation.
+//
+// The connect function fails the test if it is ever called, which turns "without touching the cluster" from
+// something this test relied on incidentally into something it asserts.
 func TestDispatchOperatorModeRefusesWithoutTouchingTheCluster(t *testing.T) {
 	cases := []struct {
 		name      string
@@ -108,7 +115,11 @@ func TestDispatchOperatorModeRefusesWithoutTouchingTheCluster(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			fired, err := dispatchOperatorMode(tc.args)
+			connect := func() (client.WithWatch, error) {
+				t.Fatal("a refused invocation must never reach the cluster client")
+				return nil, nil
+			}
+			fired, err := dispatchOperatorMode(connect, tc.args)
 			if fired != tc.wantFired {
 				t.Fatalf("fired = %v, want %v", fired, tc.wantFired)
 			}
@@ -119,5 +130,60 @@ func TestDispatchOperatorModeRefusesWithoutTouchingTheCluster(t *testing.T) {
 				t.Fatalf("want no error, got %v", err)
 			}
 		})
+	}
+}
+
+// The bound on the operator modes is only worth anything if the DISPATCH PATH is what applies it, and
+// testing operatorModeContext in isolation cannot show that: a regression restoring context.Background() at
+// the dispatch site would leave the helper untouched and the suite green.
+//
+// So this drives the real dispatchOperatorMode against a fake cluster and captures the context the mode
+// function is actually handed. It asserts the two properties the design argues for together: the context is
+// BOUNDED, so a hung API server cannot hang a recovery indefinitely, and it is LIVE and derived from
+// Background rather than from any signal handling, so a Ctrl-C cannot cut a break in half between its Get
+// and its Patch.
+// Both properties are sampled INSIDE the client call rather than from a captured context afterwards:
+// dispatchOperatorMode cancels on the way out, as it must, so a context inspected after it returns is
+// always cancelled and would prove the opposite of what this test is for.
+func TestDispatchOperatorModeRunsTheModeOnABoundedUncancellableContext(t *testing.T) {
+	n := node(nil, nil)
+	var (
+		called      bool
+		deadline    time.Time
+		hasDeadline bool
+		liveErr     error
+	)
+	fc := fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(n).WithInterceptorFuncs(interceptor.Funcs{
+		Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object,
+			opts ...client.GetOption) error {
+			called = true
+			deadline, hasDeadline = ctx.Deadline()
+			liveErr = ctx.Err()
+			return c.Get(ctx, key, obj, opts...)
+		},
+	}).Build()
+
+	fired, err := dispatchOperatorMode(
+		func() (client.WithWatch, error) { return fc, nil },
+		operatorModeArgs{Worker: "platform-worker", Inspect: true},
+	)
+	if !fired {
+		t.Fatal("-inspect-worker must fire")
+	}
+	if err != nil {
+		t.Fatalf("inspecting a free node must succeed, got %v", err)
+	}
+	if !called {
+		t.Fatal("the mode never reached the cluster, so this test proved nothing")
+	}
+
+	if !hasDeadline {
+		t.Fatal("the dispatch path handed the mode an unbounded context; a hung apiserver would hang recovery")
+	}
+	if remaining := time.Until(deadline); remaining > operatorModeTimeout {
+		t.Fatalf("deadline is %v out, want at most operatorModeTimeout (%v)", remaining, operatorModeTimeout)
+	}
+	if liveErr != nil {
+		t.Fatalf("the mode's context must be live while it runs, got %v", liveErr)
 	}
 }

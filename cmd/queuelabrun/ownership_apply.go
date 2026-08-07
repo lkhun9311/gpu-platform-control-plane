@@ -289,12 +289,17 @@ func resolveAmbiguousAcquire(ctx context.Context, c client.Client, nodeName stri
 	// and it never resolved" send the operator to different places. A sustained authorization failure, a
 	// deleted node or an API outage would otherwise be reported as a generic unresolved write, and the very
 	// -inspect-worker command this refusal prints would fail for the same reason nobody was told about.
+	//
+	// It tracks the MOST RECENT read, not the worst one ever seen, which is why the success branch clears it:
+	// one transient failure early in the loop followed by five clean reads is a node the operator can reach,
+	// and reporting the stale error would send them after a connectivity problem that has already passed.
 	var lastReadErr error
 	for attempt := 0; attempt < resolveAttempts; attempt++ {
 		var n corev1.Node
 		if err := c.Get(ctx, client.ObjectKey{Name: nodeName}, &n); err != nil {
 			lastReadErr = err
 		} else {
+			lastReadErr = nil
 			obs := observe(&n)
 			switch {
 			case obs.JournalRaw == "" && !obs.HasLabel && len(obs.Taints) == 0:
@@ -329,14 +334,15 @@ func resolveAmbiguousAcquire(ctx context.Context, c client.Client, nodeName stri
 		resolveReadNote(lastReadErr), cause)
 }
 
-// resolveReadNote renders what the re-reads themselves reported, so the refusal distinguishes an unreadable
-// node from a readable one that simply never showed a resolving state.
+// resolveReadNote renders what the LAST re-read reported, so the refusal distinguishes a node the operator
+// cannot reach from a readable one that simply never showed a resolving state.
 //
-// Every read succeeding is information too, and stating it is what stops a reader assuming the reads must
-// have failed because the outcome is unknown.
+// It is the last read rather than any read, because that is the state the operator is about to walk into.
+// A nil error here therefore means the most recent read succeeded, which is the fact worth stating: without
+// it a reader assumes the reads must have failed because the outcome is unknown.
 func resolveReadNote(err error) string {
 	if err == nil {
-		return "Every re-read succeeded and none resolved the state"
+		return "The last re-read succeeded and did not resolve the state"
 	}
 	return "Last re-read failed: " + err.Error()
 }

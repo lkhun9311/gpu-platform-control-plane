@@ -76,7 +76,7 @@ func main() {
 	// Operator modes are recovery tools, not runs, so they dispatch before the gate and work even while the
 	// gate refuses every run; each exits directly with its own status rather than falling through to run().
 	// Fields are named, not positional, so the flag that fills each one is visible at the call site.
-	if fired, err := dispatchOperatorMode(operatorModeArgs{
+	if fired, err := dispatchOperatorMode(newClusterClient, operatorModeArgs{
 		Arm:    *armFlag,
 		Worker: *worker,
 
@@ -155,14 +155,22 @@ func main() {
 	}
 }
 
+// clusterClientFunc is how dispatchOperatorMode obtains its client.
+//
+// It is a parameter rather than a direct call to newClusterClient so a test can drive the REAL dispatch path
+// — including the context it builds and hands to each mode — against a fake cluster. Without that seam the
+// only thing a test could reach is the context helper in isolation, and a regression restoring an unbounded
+// context at the dispatch site would pass the whole suite.
+type clusterClientFunc func() (client.WithWatch, error)
+
 // dispatchOperatorMode runs at most one of the four recovery modes and reports whether one was requested.
 //
 // These are recovery tools, not runs, so the caller must invoke this before gateRefusal: an operator needs
 // -inspect-worker and the release/quarantine modes to work precisely while the gate refuses every run,
 // otherwise a crashed process could orphan a Node with no in-tool way to see or clear it. All argument
-// validation happens in decideOperatorMode, entirely before newClusterClient below: a malformed invocation
-// must be refused before it needs a kubeconfig, not after failing to reach one.
-func dispatchOperatorMode(args operatorModeArgs) (fired bool, err error) {
+// validation happens in decideOperatorMode, entirely before connect below: a malformed invocation must be
+// refused before it needs a kubeconfig, not after failing to reach one.
+func dispatchOperatorMode(connect clusterClientFunc, args operatorModeArgs) (fired bool, err error) {
 	mode, err := decideOperatorMode(args)
 	if mode == modeNone && err == nil {
 		return false, nil
@@ -173,7 +181,7 @@ func dispatchOperatorMode(args operatorModeArgs) (fired bool, err error) {
 		return true, err
 	}
 
-	c, err := newClusterClient()
+	c, err := connect()
 	if err != nil {
 		return true, err
 	}

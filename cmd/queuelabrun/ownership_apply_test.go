@@ -1058,15 +1058,103 @@ func TestResolveAmbiguousAcquireReportsWhyItCouldNotReadTheNode(t *testing.T) {
 	}
 }
 
-// The complement: when every re-read succeeded, the refusal has to say so, or a reader assumes the reads
+// The complement: when the last re-read succeeded, the refusal has to say so, or a reader assumes the reads
 // must have failed because the outcome is unknown and goes looking for a connectivity problem that is not
 // there.
 func TestResolveReadNoteDistinguishesUnreadableFromUnresolved(t *testing.T) {
-	if note := resolveReadNote(nil); !strings.Contains(note, "Every re-read succeeded") {
-		t.Fatalf("a clean read history must be stated, got %q", note)
+	if note := resolveReadNote(nil); !strings.Contains(note, "The last re-read succeeded") {
+		t.Fatalf("a clean last read must be stated, got %q", note)
 	}
 	if note := resolveReadNote(fmt.Errorf("boom")); !strings.Contains(note, "boom") {
 		t.Fatalf("the read error must be carried verbatim, got %q", note)
+	}
+}
+
+// The kept read error is the MOST RECENT one, not the worst one ever seen. A transient failure early in the
+// resolve loop followed by reads that succeed but do not resolve used to leave the stale error in place, so
+// the refusal claimed "Last re-read failed" about a node the operator could in fact reach — the exact
+// opposite of what the note exists to tell them.
+//
+// This costs one resolveInterval of real sleep, which is unavoidable: the bug needs a failed read AND a
+// later successful one, and the loop always waits between attempts unless the context is already done.
+func TestResolveAmbiguousAcquireReportsTheLastReadNotAStaleFailure(t *testing.T) {
+	n := node(nil, nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var gets int
+	fc := fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(n).WithInterceptorFuncs(interceptor.Funcs{
+		Get: func(gctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object,
+			opts ...client.GetOption) error {
+			gets++
+			if gets == 2 {
+				// One transient blip, on the resolve loop's first re-read, that then clears.
+				return apierrors.NewInternalError(fmt.Errorf("transient blip that has since cleared"))
+			}
+			if gets >= 3 {
+				// The loop has now read the unresolvable state successfully; end the test here.
+				cancel()
+			}
+			return c.Get(gctx, key, obj, opts...)
+		},
+		Patch: func(pctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch,
+			opts ...client.PatchOption) error {
+			// A mutating webhook keeps our journal and rewrites the label, which is a state the resolve
+			// switch matches no case for, so the loop keeps re-reading instead of concluding.
+			if nd, ok := obj.(*corev1.Node); ok {
+				nd.Labels[workerLabelKey] = "someone-else"
+			}
+			if err := c.Patch(pctx, obj, patch, opts...); err != nil {
+				return err
+			}
+			return lostResponseErr()
+		},
+	}).Build()
+
+	_, err := acquireWorker(ctx, fc, "platform-worker", "tx-blip", "r1", "A-honor")
+	if err == nil {
+		t.Fatal("a partially landed patch must never resolve to acquired")
+	}
+	if gets < 3 {
+		t.Fatalf("the test did not reach a successful read after the failed one (gets=%d)", gets)
+	}
+	if strings.Contains(err.Error(), "transient blip that has since cleared") {
+		t.Fatalf("the refusal carried a stale read error the operator can no longer reproduce: %v", err)
+	}
+	if !strings.Contains(err.Error(), "The last re-read succeeded") {
+		t.Fatalf("the refusal must report the most recent read, got: %v", err)
+	}
+}
+
+// quotedOrNone is the only thing standing between a node annotation and an operator's terminal, and it was
+// evidenced by a live cluster run alone: reverting it to a raw %s would have failed nothing here.
+//
+// The payload is what an attacker would actually write — erase the line, recolour, then print the reassuring
+// word this tool would otherwise have printed for a free node — so the test fails if any of those bytes
+// reach the output unescaped.
+func TestQuotedOrNoneEscapesNodeControlledContent(t *testing.T) {
+	if got := quotedOrNone(""); got != "(none)" {
+		t.Fatalf("an absent annotation must read as (none), got %q", got)
+	}
+
+	payload := "{\"x\":\x1b[2K\x1b[31mFREE.\a"
+	got := quotedOrNone(payload)
+	for _, raw := range []string{"\x1b", "\a", "\n", "\r"} {
+		if strings.Contains(got, raw) {
+			t.Fatalf("control byte %q survived into the output %q", raw, got)
+		}
+	}
+	if !strings.Contains(got, `\x1b[2K`) {
+		t.Fatalf("the escape sequence must still be VISIBLE, just inert; got %q", got)
+	}
+	if got[0] != '"' || got[len(got)-1] != '"' {
+		t.Fatalf("the rendered annotation must be delimited so its extent is unambiguous, got %q", got)
+	}
+
+	// A journal that is merely surprising rather than hostile must stay readable enough to act on: trailing
+	// whitespace is exactly the kind of corruption an operator needs to SEE rather than have trimmed away.
+	if got := quotedOrNone("{} "); !strings.HasSuffix(got, ` "`) {
+		t.Fatalf("trailing whitespace must remain visible, got %q", got)
 	}
 }
 
