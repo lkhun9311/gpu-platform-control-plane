@@ -51,11 +51,18 @@ const verifyInterval = 500 * time.Millisecond
 //
 // That choice (see acquireWorker's self-release comment below) protects a half-applied restoration from
 // being cut off by Ctrl-C, but an unbounded context would let a stuck API server hang the process forever at
-// exactly the moment it is trying to clean up. The release path it bounds does at most acquireAttempts (5)
-// Get/Patch round trips with no inter-attempt sleep, plus verifyAttempts (3) reads spaced verifyInterval
-// (500ms) apart to confirm restoration — a few seconds of deterministic waiting under normal latency — so 30s
-// leaves an order of magnitude of margin for a slow cluster without permitting an indefinite hang.
-const releaseCleanupTimeout = 30 * time.Second
+// exactly the moment it is trying to clean up — the very stranded-marker outcome the background context
+// exists to prevent, just moved from "Ctrl-C" to "hung apiserver" as the cause.
+//
+// The worst case this bounds is 13 sequential API calls: releaseAcquired's loop retries up to acquireAttempts
+// (5) times on conflict, and a retry that reaches the patch spends 1 Get + 1 Patch, so 5 attempts is at most
+// 10 round trips; a successful patch then runs verifyReleased, which reads up to verifyAttempts (3) more
+// times, spaced verifyInterval (500ms) apart. 10 + 3 = 13 calls. client-go issues no timeout of its own per
+// call, so a degraded-but-still-responding API server is bounded only by this context, not by anything
+// smaller — budgeting a generous 10s for each of those 13 calls (plus the ~1s of deterministic verifyInterval
+// sleep already inside the 13) is 131s of worst-case sequential work, so 3 minutes leaves real margin above
+// that instead of the 30s bound this replaces, which left only about 2.2s per call.
+const releaseCleanupTimeout = 3 * time.Minute
 
 // cleanupContext returns a context bounded by releaseCleanupTimeout for release-path work that must run to
 // completion even after the run's own context was cancelled.
@@ -226,8 +233,17 @@ func verifyClean(obs ownership, j journal) error {
 		// the invariant this function proves, so treat it as unable to verify rather than silently passing.
 		return fmt.Errorf("node UID is %s, the journal named %s: this is a different node", obs.NodeUID, j.NodeUID)
 	}
-	if obs.JournalRaw != "" && obs.JournalErr == nil && obs.Journal.TxID == j.TxID {
-		return fmt.Errorf("journal for tx %s is still on the node after release", j.TxID)
+	if obs.JournalRaw != "" {
+		switch {
+		case obs.JournalErr != nil:
+			// The invariant is "absent, or present but naming a different txID" — an unreadable journal
+			// satisfies neither, so it cannot be waved through as clean. This cannot false-fail the legitimate
+			// race either: a foreign journal is written by encodeJournal inside one atomic patch, so there is
+			// no torn read of someone else's write to tolerate here, only ours failing to have been removed.
+			return fmt.Errorf("journal on node %s is unreadable after release: %v", obs.NodeName, obs.JournalErr)
+		case obs.Journal.TxID == j.TxID:
+			return fmt.Errorf("journal for tx %s is still on the node after release", j.TxID)
+		}
 	}
 	if obs.HasLabel && obs.LabelValue == j.Installed.LabelValue {
 		return fmt.Errorf("label %s still carries this transaction's value %q", workerLabelKey, obs.LabelValue)

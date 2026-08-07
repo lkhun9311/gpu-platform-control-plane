@@ -369,7 +369,13 @@ func run(ctx context.Context, arm queuelab.Arm, runID, namespace, worker string,
 	err = releaseOwned(relCtx, c, j)
 	relCancel()
 	if err != nil {
-		fmt.Printf("\nRUN INVALIDATED: worker %s not restored: %v\n", worker, err)
+		// This is the one path in the program that can leave a node genuinely held with no further attempt
+		// coming: releaseAttempted is already true, so the deferred emergency release above is a no-op, and a
+		// real failure here (conflict-bound exhaustion, a non-conflict Patch error, or a verification failure
+		// where our markers truly are still installed) means the worker is still marked. The operator needs
+		// the same runnable next step the deferred path always printed, not just the reason it failed.
+		fmt.Printf("\nRUN INVALIDATED: worker %s not restored: %v\n  run: queuelabrun -inspect-worker -worker %s\n",
+			worker, err, worker)
 		printEvents(events)
 		return fmt.Errorf("worker not restored: %w", err)
 	}

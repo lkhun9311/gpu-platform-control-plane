@@ -850,6 +850,13 @@ func TestVerifyClean(t *testing.T) {
 			wantErr: true,
 		},
 		{
+			// Minor review finding: the journal invariant is "absent, or present but naming a different
+			// txID" — an unreadable journal satisfies neither, so it must not read as clean.
+			name:    "journal present but undecodable",
+			obs:     ownership{NodeUID: "uid-node", JournalRaw: "{not valid json", JournalErr: fmt.Errorf("decode journal: unexpected end of JSON input")},
+			wantErr: true,
+		},
+		{
 			name:    "node UID no longer matches: a recreated node",
 			obs:     ownership{NodeUID: "uid-different"},
 			wantErr: true,
