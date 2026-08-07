@@ -239,16 +239,47 @@ func writeJSONErrorCode(w http.ResponseWriter, status int, code, message string)
 // 30s is the compromise: a model server can spend seconds on prefill before the first token, so a short cap severs healthy requests, while an unbounded wait lets hung requests pile up and exhaust connections.
 const defaultResponseHeaderTimeout = 30 * time.Second
 
-// newReverseProxy returns a streaming-capable reverse proxy to target, reporting 502/504 through onErr.
+// newTransport builds the one outbound Transport the whole process shares.
 //
 // A zero responseHeaderTimeout means "unset" and selects defaultResponseHeaderTimeout.
 //
 // Zero cannot be passed through as-is: http.Transport reads it as "no limit", which is the exact failure being bounded.
-func newReverseProxy(target *url.URL, responseHeaderTimeout time.Duration, onErr func(code int)) *httputil.ReverseProxy {
-	p := httputil.NewSingleHostReverseProxy(target)
+//
+// Why exactly one, and why it is safe to share.
+//
+// A Transport owns the idle-connection pool, so a Transport built per request pools nothing: every request dials a fresh TCP connection and its pool is only reclaimed when the garbage collector gets to the Transport.
+//
+// Under the open-loop benchmark harness that surfaces as inflated latency and a climbing socket count, which reads exactly like backend contention while being an artifact of the gateway measuring itself.
+//
+// One Transport serves every backend rather than one per backend because http.Transport is safe for concurrent use and already keys its pool by host, and because responseHeaderTimeout is process configuration that does not vary by backend.
+func newTransport(responseHeaderTimeout time.Duration) *http.Transport {
 	if responseHeaderTimeout == 0 {
 		responseHeaderTimeout = defaultResponseHeaderTimeout
 	}
+	// Transport tunes the outbound connection.
+	//
+	// Design rationale (design spec Request flow section): http.DefaultTransport has no response-header timeout, so a model server that accepts a connection and never answers pins the request forever; enough of those exhaust the gateway's connections and memory.
+	//
+	// There is deliberately no overall Timeout: a healthy stream legitimately runs for minutes, and an overall cap would sever it.
+	//
+	// Only the wait for the first response header is bounded; the time the body spends streaming is not.
+	return &http.Transport{
+		// ResponseHeaderTimeout bounds the wait for response headers.
+		//
+		// Exceeding it becomes a timeout error, which newReverseProxy's ErrorHandler maps to 504.
+		ResponseHeaderTimeout: responseHeaderTimeout,
+		// IdleConnTimeout keeps connections warm for reuse, avoiding a TCP handshake per request.
+		//
+		// That property only holds because this Transport outlives the request; see the sharing rationale above.
+		IdleConnTimeout: 90 * time.Second,
+	}
+}
+
+// newReverseProxy returns a streaming-capable reverse proxy to target over the shared transport, reporting 502/504 through onErr.
+//
+// The ReverseProxy value itself is still built per request, and deliberately so: target differs per backend and onErr closes over that request's tenant and model labels, while transport is the one piece that must not be rebuilt.
+func newReverseProxy(target *url.URL, transport http.RoundTripper, onErr func(code int)) *httputil.ReverseProxy {
+	p := httputil.NewSingleHostReverseProxy(target)
 
 	// FlushInterval = -1 means "flush immediately, never buffer".
 	//
@@ -270,21 +301,7 @@ func newReverseProxy(target *url.URL, responseHeaderTimeout time.Duration, onErr
 	// It stays despite the narrow reach because relying on Go's auto-detection would leave our intent unstated: this gateway buffers no response, and that intent belongs in the code.
 	p.FlushInterval = -1
 
-	// Transport tunes the outbound connection.
-	//
-	// Design rationale (design spec Request flow section): http.DefaultTransport has no response-header timeout, so a model server that accepts a connection and never answers pins the request forever; enough of those exhaust the gateway's connections and memory.
-	//
-	// There is deliberately no overall Timeout: a healthy stream legitimately runs for minutes, and an overall cap would sever it.
-	//
-	// Only the wait for the first response header is bounded; the time the body spends streaming is not.
-	p.Transport = &http.Transport{
-		// ResponseHeaderTimeout bounds the wait for response headers.
-		//
-		// Exceeding it becomes a timeout error, mapped to 504 below.
-		ResponseHeaderTimeout: responseHeaderTimeout,
-		// IdleConnTimeout keeps connections warm for reuse, avoiding a TCP handshake per request.
-		IdleConnTimeout: 90 * time.Second,
-	}
+	p.Transport = transport
 
 	// ErrorHandler runs when the upstream could not be reached.
 	//

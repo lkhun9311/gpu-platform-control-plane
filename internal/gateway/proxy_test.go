@@ -22,14 +22,17 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -57,7 +60,16 @@ const (
 // The backendOverride hook (plan Task 6) exists because backendFor yields an in-cluster DNS address of the form http://<name>.<ns>.svc:<port>, which this process can never reach.
 //
 // Only the resolved address is swapped for the httptest server; a nil hook leaves the production backendFor path intact.
+//
+// Burst stays at 1 here, which is what makes the 429 boundary sharp for the rate-limit spec: the first request passes and the next is refused.
+//
+// Specs that must send several requests back to back go through newProxyServerWithBurst instead, since at burst 1 the second one would be refused before it ever reaches the stage under test.
 func newProxyServer(upstream string, rpm int32) *Server {
+	return newProxyServerWithBurst(upstream, rpm, 1)
+}
+
+// newProxyServerWithBurst is newProxyServer with the token bucket's burst under the caller's control.
+func newProxyServerWithBurst(upstream string, rpm, burst int32) *Server {
 	// The Secret tenant.go's resolveTenant reads to map a key to a tenant.
 	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{Name: testSecret, Namespace: testGatewayNS},
@@ -69,8 +81,7 @@ func newProxyServer(upstream string, rpm int32) *Server {
 		Spec: platformv1.GPUQuotaPolicySpec{
 			Tenant:          testTenant,
 			TargetNamespace: testTenantNS,
-			// Burst 1 makes the boundary sharp: the first request passes, the next is refused.
-			RateLimit: &platformv1.GPUQuotaRateLimit{RequestsPerMinute: rpm, Burst: 1},
+			RateLimit:       &platformv1.GPUQuotaRateLimit{RequestsPerMinute: rpm, Burst: burst},
 		},
 	}
 	// Without this, testModel resolves to no route at all.
@@ -515,6 +526,102 @@ var _ = Describe("metric names", func() {
 		Expect(body).To(ContainSubstring("gpuaas_gateway_request_duration_seconds_bucket"))
 		Expect(body).To(ContainSubstring("gpuaas_gateway_rate_limited_total"))
 		Expect(body).To(ContainSubstring("gpuaas_gateway_upstream_errors_total"))
+	})
+})
+
+// Pins that the gateway pools its outbound connections instead of dialling one per request.
+//
+// The regression this prevents.
+//
+// A ReverseProxy's Transport owns the idle-connection pool, so building the Transport inside the request handler makes every request a fresh TCP handshake and leaves the pool unreachable until the garbage collector reclaims it.
+//
+// Nothing about the response changes, so every status-and-body spec above passes either way: the only visible difference is latency and socket count.
+//
+// That is precisely the failure mode that matters here, because the M5-b harness reads gateway latency as evidence of backend contention, and a per-request dial would be measured as contention that the gateway invented.
+var _ = Describe("outbound connection pooling", func() {
+	It("reuses upstream connections across requests rather than dialling one per request", func() {
+		// StateNew fires once per accepted connection, so this counts dials rather than requests.
+		//
+		// The counter is guarded because httptest's ConnState runs on the server's own goroutines.
+		var mu sync.Mutex
+		dials := 0
+
+		// Unstarted, so ConnState is installed before the accept loop can read it; setting it on an already-running server is a data race that -race would flag.
+		up := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		}))
+		up.Config.ConnState = func(_ net.Conn, state http.ConnState) {
+			if state != http.StateNew {
+				return
+			}
+			mu.Lock()
+			defer mu.Unlock()
+			dials++
+		}
+		up.Start()
+		defer up.Close()
+
+		// One Server for every request, since the pool it is meant to keep lives on the Server.
+		//
+		// A burst wide enough that the limiter cannot reject any of these, or the spec would measure the limiter instead.
+		const requests = 5
+		s := newProxyServerWithBurst(up.URL, 6000, requests)
+
+		for range requests {
+			rr := httptest.NewRecorder()
+			s.Handler().ServeHTTP(rr, authedRequest(`{"model":"llama-3"}`))
+			Expect(rr.Code).To(Equal(http.StatusOK))
+		}
+
+		mu.Lock()
+		defer mu.Unlock()
+		// Strictly fewer dials than requests is the whole claim; the requests are sequential and the backend is one host, so in practice this is 1.
+		Expect(dials).To(BeNumerically("<", requests))
+	})
+})
+
+// Pins that an unresolved model never becomes a Prometheus label.
+//
+// The regression this prevents (design spec Observability section, "Unbounded-cardinality values ... are never labels").
+//
+// On the 404 and 502 routing paths the model name is an arbitrary string out of the request body, so labelling requests_total with it lets one authenticated tenant mint a new time series per request.
+//
+// Counter series are never reclaimed, so this degrades /metrics and the scraping Prometheus until both fall over, and no status-code spec can see it happening.
+var _ = Describe("metric label cardinality", func() {
+	It("records unresolved models under one sentinel series instead of one series per requested name", func() {
+		// Two names no other spec uses, so finding either in the scrape can only mean this path put it there.
+		const probeA = "cardinality-probe-a"
+		const probeB = "cardinality-probe-b"
+
+		// No upstream hook, so the real backendFor runs and neither name matches a planted InferenceDeployment.
+		s := newProxyServerWithBurst("", 6000, 4)
+
+		before := testutil.ToFloat64(requests.WithLabelValues(testTenant, unresolvedModelLabel, "404"))
+
+		// Bodies are collected rather than asserted in the loop, so the cardinality claims below are what a regression trips on first.
+		bodies := map[string]string{}
+		for _, model := range []string{probeA, probeB} {
+			rr := httptest.NewRecorder()
+			s.Handler().ServeHTTP(rr, authedRequest(`{"model":"`+model+`"}`))
+			Expect(rr.Code).To(Equal(http.StatusNotFound))
+			bodies[model] = rr.Body.String()
+		}
+
+		// One series moving by two, rather than two series moving by one each.
+		after := testutil.ToFloat64(requests.WithLabelValues(testTenant, unresolvedModelLabel, "404"))
+		Expect(after - before).To(Equal(2.0))
+
+		// And a real scrape, which is the thing Prometheus would actually ingest, carries neither name anywhere.
+		rr := httptest.NewRecorder()
+		s.MetricsHandler().ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+		Expect(rr.Code).To(Equal(http.StatusOK))
+		body := rr.Body.String()
+		Expect(body).NotTo(ContainSubstring(probeA))
+		Expect(body).NotTo(ContainSubstring(probeB))
+
+		// The name is kept out of the label set, not thrown away: the caller is still told which model it asked for.
+		Expect(bodies[probeA]).To(ContainSubstring(probeA))
+		Expect(bodies[probeB]).To(ContainSubstring(probeB))
 	})
 })
 

@@ -24,6 +24,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -100,6 +101,23 @@ type Server struct {
 	//
 	// A field lets tests drive the same code path with a short bound.
 	responseHeaderTimeout time.Duration
+	// transport is the single outbound Transport every proxied request reuses, and transportOnce builds it on first use.
+	//
+	// The connection pool lives inside the Transport, so it is only a pool at all while one Transport outlives many requests.
+	//
+	// Construction is deferred rather than done at assembly because responseHeaderTimeout is set on the struct after it is built (production leaves it zero, tests shorten it), and a Transport built too early would capture the wrong bound.
+	transport     http.RoundTripper
+	transportOnce sync.Once
+}
+
+// sharedTransport returns the process-wide outbound Transport, building it the first time it is asked for.
+//
+// sync.Once rather than a plain nil check because chatCompletions runs concurrently, and two requests racing to build a Transport would leave one of them with a pool nobody else uses.
+func (s *Server) sharedTransport() http.RoundTripper {
+	s.transportOnce.Do(func() {
+		s.transport = newTransport(s.responseHeaderTimeout)
+	})
+	return s.transport
 }
 
 // markReady marks the gateway ready to serve.
@@ -152,6 +170,28 @@ func (s *Server) readyz(w http.ResponseWriter, _ *http.Request) {
 func (s *Server) fail(w http.ResponseWriter, tenant, model string, code int) {
 	requests.WithLabelValues(tenant, model, strconv.Itoa(code)).Inc()
 	writeJSONError(w, code, http.StatusText(code))
+}
+
+// unresolvedModelLabel is the fixed model label recorded when the requested model never resolved to a backend.
+//
+// Why a sentinel and not the requested name (design spec Observability section, "Unbounded-cardinality values ... are never labels").
+//
+// On the 404 and 502 routing paths the model is an arbitrary string lifted straight out of the request body, so an authenticated tenant looping over random names mints one new time series per name in requests_total.
+//
+// A counter's series are never reclaimed, so that walks the gateway's /metrics response and the scraping Prometheus into the ground, and it takes an authenticated client rather than an attacker to do it by accident.
+//
+// Every other model label in this file is bounded: the pre-routing stages pass an empty string, and the post-routing stages only run once resolveBackend has matched a configured InferenceDeployment.
+//
+// The leading underscore keeps the sentinel from ever colliding with a real model name, which must be a valid CR field value.
+const unresolvedModelLabel = "_unresolved"
+
+// failUnresolvedModel ends a request whose model never resolved to a backend, recording it under the sentinel label rather than the requested name.
+//
+// The requested name is not lost, only kept out of the label set: it goes into the caller's error body here and into the log line at each call site, both of which cost nothing per distinct value.
+func (s *Server) failUnresolvedModel(w http.ResponseWriter, tenant, model string, code int) {
+	requests.WithLabelValues(tenant, unresolvedModelLabel, strconv.Itoa(code)).Inc()
+	// %q rather than %s so an empty or whitespace-only name is still visible to whoever has to debug it.
+	writeJSONError(w, code, fmt.Sprintf("%s: model %q", http.StatusText(code), model))
 }
 
 // failReason ends the request with status and an explicit machine-readable reason, then records it.
@@ -272,13 +312,16 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 	// 6. Resolve the model to a backend.
 	target, err := s.resolveBackend(ctx, policy, meta.Model)
 	if errors.Is(err, ErrNoRoute) {
-		// An ordinary "no such model" outcome.
-		s.fail(w, tenant, meta.Model, http.StatusNotFound)
+		// An ordinary "no such model" outcome, so Info rather than Error.
+		//
+		// It is logged at all because the metric now records the sentinel label, and without this line the requested name would survive nowhere the operator can reach it.
+		log.FromContext(ctx).Info("no backend for model", "tenant", tenant, "model", meta.Model, "request_id", rid)
+		s.failUnresolvedModel(w, tenant, meta.Model, http.StatusNotFound)
 		return
 	}
 	if err != nil {
 		log.FromContext(ctx).Error(err, "backend lookup failed", "tenant", tenant, "model", meta.Model, "request_id", rid)
-		s.fail(w, tenant, meta.Model, http.StatusBadGateway)
+		s.failUnresolvedModel(w, tenant, meta.Model, http.StatusBadGateway)
 		return
 	}
 
@@ -323,7 +366,7 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 	// 8. From here the response is the upstream's, passed through rather than composed.
 	start := time.Now()
 	rec := &statusRecorder{ResponseWriter: w, code: http.StatusOK}
-	newReverseProxy(target.URL, s.responseHeaderTimeout, func(c int) {
+	newReverseProxy(target.URL, s.sharedTransport(), func(c int) {
 		upstreamErrors.WithLabelValues(tenant, meta.Model).Inc()
 		// ErrorHandler writes its code via writeJSONError, which may not pass through statusRecorder, so record it here to keep the metric consistent with what the client actually received.
 		rec.code = c
