@@ -1,18 +1,30 @@
 # Local AI tool workspace - do not commit
 superpowers/
-docs/
+
+# docs/ is published selectively: the design documents and the specs are the substance a reader needs,
+# while the implementation plans and the interview notes are working material and stay local.
+docs/*
+!docs/0[0-7]*.md
+!docs/09*.md
+!docs/superpowers/
+docs/superpowers/*
+!docs/superpowers/specs/
 .claude/
 .cursor/
 .chatgpt/
 .codex/
 .githooks/
 
-# Markdown: only the root README and infra module READMEs are committed
-# (other .md kept locally under superpowers/)
+# Markdown is committed selectively. The design documents and specs are published because a reader who
+# clones this repository should be able to see the reasoning, not just the code; the implementation plans
+# and the interview notes are working material and stay local.
 *.md
 !/README.md
 !/infra/**/README.md
 !/hack/m6-kind-e2e.md
+!/docs/0[0-7]*.md
+!/docs/09*.md
+!/docs/superpowers/specs/*.md
 
 # Terraform local state, cache and secrets (state lives in the remote backend, not here)
 **/.terraform/*
