@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/lkhun9311/gpu-mlops-platform-control-plane/internal/queuelab"
 )
@@ -67,6 +68,49 @@ type previewRecord struct {
 	// EventCount is a count, not a ledger: it cannot be inverted into events.
 	EventCount int    `json:"eventCount"`
 	Note       string `json:"note"`
+}
+
+// previewNote is a fixed constant, never anything derived from the run.
+//
+// previewRecord has no field a ledger can be decoded out of, but Note is free text, so a future writer could
+// fold run data — a JSON-encoded ledger, most obviously — into it and hand a gateless run exactly the
+// reconstructable evidence the type was shaped to deny it. A constant closes that second-order route with
+// something a test can check, which a formatted string could not be.
+const previewNote = "preview: the validity gates were not enforced, so this is a smoke check and not evidence"
+
+// buildRecord chooses which record a given invocation may leave behind.
+//
+// This is the only place the preview and non-preview branches diverge, so the guarantee that a gateless run
+// cannot emit reconstructable evidence lives in one readable decision rather than being spread across the
+// call sites that write.
+func buildRecord(o outcome, events []queuelab.LifecycleEvent, runID, arm string, preview bool,
+	started, ended time.Time) any {
+	startedAt := started.UTC().Format(time.RFC3339)
+	endedAt := ended.UTC().Format(time.RFC3339)
+	if preview {
+		return previewRecord{
+			SchemaVersion: recordSchemaVersion,
+			Preview:       true,
+			RunID:         runID,
+			Arm:           arm,
+			StartedAt:     startedAt,
+			EndedAt:       endedAt,
+			Disposition:   string(o.Disposition),
+			Reason:        o.Reason,
+			EventCount:    len(events),
+			Note:          previewNote,
+		}
+	}
+	return runRecord{
+		SchemaVersion: recordSchemaVersion,
+		RunID:         runID,
+		Arm:           arm,
+		StartedAt:     startedAt,
+		EndedAt:       endedAt,
+		Disposition:   string(o.Disposition),
+		Reason:        o.Reason,
+		Events:        events,
+	}
 }
 
 func encodeRecord(v any) ([]byte, error) {

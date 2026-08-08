@@ -19,10 +19,14 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
+	"os"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
+	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
@@ -238,5 +242,165 @@ func TestDispatchOperatorModeRunsTheModeOnABoundedUncancellableContext(t *testin
 	}
 	if liveErr != nil {
 		t.Fatalf("the mode's context must be live while it runs, got %v", liveErr)
+	}
+}
+
+// This is the acceptance condition the whole change rests on, driven end to end rather than asserted on
+// amend in isolation: run() must choose one disposition, its deferred emergency release must change that
+// choice after the return value has already been picked, and the record the caller persists must carry the
+// amended one.
+//
+// If it failed, the durable record would say the run failed at setup while the operator's terminal said the
+// worker was never restored — two accounts of the same run, with the more serious one missing from the only
+// account that survives the process.
+//
+// The failure is staged through the real client: the namespace Create fails, which is what makes run()
+// decide setup-failed, and it poisons the Node reads so the deferred release cannot prove restoration.
+func TestRunDeferredEmergencyReleaseAmendsThePersistedRecord(t *testing.T) {
+	poisoned := false
+	fc := fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(node(nil, nil)).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Create: func(ctx context.Context, c client.WithWatch, obj client.Object,
+				opts ...client.CreateOption) error {
+				if _, ok := obj.(*corev1.Namespace); ok {
+					poisoned = true
+					return fmt.Errorf("namespace quota exhausted")
+				}
+				return c.Create(ctx, obj, opts...)
+			},
+			Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object,
+				opts ...client.GetOption) error {
+				if _, ok := obj.(*corev1.Node); ok && poisoned {
+					return fmt.Errorf("apiserver unreachable")
+				}
+				return c.Get(ctx, key, obj, opts...)
+			},
+		}).Build()
+
+	o, events, res := run(context.Background(), func() (client.WithWatch, error) { return fc, nil },
+		queuelab.ArmAHonor, "r7", "queuelab-r7", "platform-worker", time.Duration(horizonSec)*time.Second)
+
+	if res != nil {
+		t.Fatal("a run that never reconstructed anything must hand back no result to render")
+	}
+	if o.Disposition != dispWorkerNotRestored {
+		t.Fatalf("the defer must amend the outcome it found, got %s: %s", o.Disposition, o.Reason)
+	}
+	if !strings.Contains(o.Reason, "ensuring namespace") {
+		t.Fatalf("the amended outcome must keep what run() originally decided as the cause, got %q", o.Reason)
+	}
+
+	// The record is what actually survives, so the assertion is made against the bytes on disk rather than
+	// against the outcome value the test already holds.
+	path := t.TempDir() + "/record.json"
+	started := time.Date(2026, 8, 8, 10, 0, 0, 0, time.UTC)
+	if err := writeRecord(path, buildRecord(o, events, "r7", string(queuelab.ArmAHonor), false,
+		started, started.Add(90*time.Second))); err != nil {
+		t.Fatalf("persist: %v", err)
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read back: %v", err)
+	}
+	rr, err := decodeRunRecord(b)
+	if err != nil {
+		t.Fatalf("the persisted record must decode: %v", err)
+	}
+	if rr.Disposition != string(dispWorkerNotRestored) {
+		t.Fatalf("the persisted record must carry the amended disposition, got %s", rr.Disposition)
+	}
+	if !strings.Contains(rr.Reason, "ensuring namespace") {
+		t.Fatalf("the persisted reason must name both the amendment and its cause, got %q", rr.Reason)
+	}
+	t.Logf("persisted record:\n%s", b)
+}
+
+// A record is only worth persisting if every path fills it in, so this walks the outcome-producing paths
+// reachable without a cluster and refuses a zero disposition on any of them: a zero disposition would be
+// encoded as an empty string, which decodeRunRecord rejects and which claims nothing about the run.
+func TestRunSetsADispositionOnEveryPathReachableWithoutACluster(t *testing.T) {
+	// A connect failure is the earliest return in run(), before anything is acquired or built.
+	o, _, res := run(context.Background(),
+		func() (client.WithWatch, error) { return nil, fmt.Errorf("kubeconfig: no such file") },
+		queuelab.ArmAHonor, "r7", "queuelab-r7", "platform-worker", time.Duration(horizonSec)*time.Second)
+	if o.Disposition != dispClientFailed {
+		t.Fatalf("a failed connect is client-failed, got %q", o.Disposition)
+	}
+	if res != nil {
+		t.Fatal("a run that never connected must hand back no result")
+	}
+
+	// An acquisition refusal is the last return before the emergency-release defer is even registered, which
+	// is the boundary a future edit is most likely to get wrong.
+	held := node(map[string]string{workerLabelKey: "someone-else"}, nil)
+	fc := fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(held).Build()
+	o, _, res = run(context.Background(), func() (client.WithWatch, error) { return fc, nil },
+		queuelab.ArmAHonor, "r7", "queuelab-r7", "platform-worker", time.Duration(horizonSec)*time.Second)
+	if o.Disposition != dispAcquisitionRefused {
+		t.Fatalf("a refused acquisition is acquisition-refused, got %q: %s", o.Disposition, o.Reason)
+	}
+	if res != nil {
+		t.Fatal("a run that never acquired its worker must hand back no result")
+	}
+	if o.Reason == "" {
+		t.Fatal("a refusal with no reason tells the operator nothing the record can act on")
+	}
+}
+
+// The preview note is the one free-text field in either record, so a future writer could fold run data into
+// it and hand a gateless run the reconstructable evidence previewRecord has no field for. It must therefore
+// be the same constant whatever the run did.
+func TestPreviewRecordNoteIsAConstantNotDerivedFromTheRun(t *testing.T) {
+	quiet := buildRecord(outcome{Disposition: dispChecksPassed}, nil, "r1", "A-honor", true,
+		time.Now(), time.Now()).(previewRecord)
+	busy := buildRecord(outcome{Disposition: dispCancelled, Reason: "observing until the horizon"},
+		[]queuelab.LifecycleEvent{{ElapsedNs: 1, Kind: "Pod", Job: "a1"}}, "r2", "N-ref", true,
+		time.Now(), time.Now()).(previewRecord)
+
+	if quiet.Note != previewNote || busy.Note != previewNote {
+		t.Fatalf("the note must be the fixed constant, got %q and %q", quiet.Note, busy.Note)
+	}
+	if quiet.Note != busy.Note {
+		t.Fatal("the note varied with the run, which is the smuggling path a constant exists to close")
+	}
+}
+
+// A refusal that fired before -runid was read still has to leave a record a reader can open, and
+// decodeRunRecord requires a non-empty run id. The sentinel only works if it can never be confused with a
+// run id somebody actually passed, which is a property of runIDPattern rather than of the constant.
+func TestRefusalRecordIsReadableEvenWithoutARunID(t *testing.T) {
+	if runIDPattern.MatchString(unidentifiedRunID) {
+		t.Fatalf("%q is an acceptable run id, so a real run could collide with the sentinel", unidentifiedRunID)
+	}
+
+	err := errors.New("-runid is required")
+	rec := buildRecord(outcome{Disposition: dispRefusedBeforeCluster, Reason: err.Error(), Err: err},
+		nil, recordRunID(""), "", false, time.Now(), time.Now())
+	b, encErr := encodeRecord(rec)
+	if encErr != nil {
+		t.Fatalf("encode: %v", encErr)
+	}
+	got, decErr := decodeRunRecord(b)
+	if decErr != nil {
+		t.Fatalf("a refusal's record must decode, or the refusals this record exists to make visible are "+
+			"written and then unreadable: %v", decErr)
+	}
+	if got.Disposition != string(dispRefusedBeforeCluster) {
+		t.Fatalf("a refusal is refused-before-cluster, got %q", got.Disposition)
+	}
+	if got.RunID != unidentifiedRunID {
+		t.Fatalf("an unidentified invocation must say so rather than carry an empty id, got %q", got.RunID)
+	}
+}
+
+// -out names the record now that the bare ledger is gone, and an invocation that names no path must still
+// leave one: a record written only when asked for would be absent exactly when an operator is trying to work
+// out what a surprising refusal did.
+func TestRecordPathFallsBackToADefaultRatherThanBeingSkipped(t *testing.T) {
+	if got := recordPathFor(""); got != defaultRecordName {
+		t.Fatalf("an unnamed record path must fall back to %q, got %q", defaultRecordName, got)
+	}
+	if got := recordPathFor("/tmp/rec1.json"); got != "/tmp/rec1.json" {
+		t.Fatalf("-out must name the record, got %q", got)
 	}
 }

@@ -35,11 +35,15 @@ const (
 	dispAcquisitionRefused   = disposition("acquisition-refused")
 	dispSetupFailed          = disposition("setup-failed")
 	dispCancelled            = disposition("cancelled")
-	dispObservationFailed    = disposition("observation-failed")
-	dispCollectorDesync      = disposition("collector-desync")
-	dispReconstructRefused   = disposition("reconstruct-refused")
-	dispCardinalityRefused   = disposition("cardinality-refused")
-	dispWorkerNotRestored    = disposition("worker-not-restored")
+	// There is deliberately no "observation-failed": waitForHorizon has exactly two returns, a
+	// cancellation-wrapped error and nil, so an observation window can only end early by being cancelled.
+	// The failures that happen DURING observation are already named — a barrier that cannot be met desyncs
+	// the ledger and lands on collector-desync — so a constant for a non-cancellation observation failure
+	// would be a slot for a path no code can take.
+	dispCollectorDesync    = disposition("collector-desync")
+	dispReconstructRefused = disposition("reconstruct-refused")
+	dispCardinalityRefused = disposition("cardinality-refused")
+	dispWorkerNotRestored  = disposition("worker-not-restored")
 	// dispChecksPassed is deliberately not called "valid": four validity gates are unimplemented, so the
 	// strongest statement available is that the checks this build implements passed.
 	dispChecksPassed = disposition("completed-implemented-checks-passed")
