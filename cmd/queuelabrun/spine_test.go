@@ -143,21 +143,6 @@ func TestRequireRunIDRejectsOnlyEmpty(t *testing.T) {
 	}
 }
 
-func TestRefusePreviewOutRejectsOnlyTheCombination(t *testing.T) {
-	if err := refusePreviewOut(true, "ledger.jsonl"); err == nil {
-		t.Fatal("-preview with -out must be refused")
-	}
-	if err := refusePreviewOut(true, ""); err != nil {
-		t.Fatalf("-preview without -out must be allowed: %v", err)
-	}
-	if err := refusePreviewOut(false, "ledger.jsonl"); err != nil {
-		t.Fatalf("-out without -preview must be allowed: %v", err)
-	}
-	if err := refusePreviewOut(false, ""); err != nil {
-		t.Fatalf("neither flag set must be allowed: %v", err)
-	}
-}
-
 func TestCheckFlavorVariantCatchesAReusedRunID(t *testing.T) {
 	// A reused run id leaves the old arm's ResourceFlavor in place; its variant label must match the new
 	// arm's PolicyVariant() or the run would silently execute under the old mechanism.

@@ -24,6 +24,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"syscall"
@@ -46,7 +47,7 @@ func main() {
 		worker      = flag.String("worker", "platform-worker", "node to dedicate to this run")
 		horizonFlag = flag.Duration("horizon", time.Duration(horizonSec)*time.Second,
 			"observation horizon (must not be below the protocol's fixed window)")
-		out     = flag.String("out", "", "path to write this invocation's run record (default "+defaultRecordName+")")
+		out     = flag.String("out", "", "path to write this invocation's run record (default: a per-invocation name in the working directory)")
 		preview = flag.Bool("preview", false, "run without the validity gates; output is a smoke check, not evidence")
 
 		// The operator modes recover from a crash: they inspect, release, or break the Node marker this
@@ -70,7 +71,7 @@ func main() {
 	// are records too: a run that is refused is precisely the run that used to leave nothing behind, and the
 	// more this tool refuses — which is its entire purpose — the more invocations vanished undiagnosably.
 	started := time.Now()
-	recordPath := recordPathFor(*out)
+	recordPath := recordPathFor(*out, started, os.Getpid())
 	// refuseInvocation records a refusal and NEVER RETURNS.
 	//
 	// Every caller below depends on that: they refuse on values they have not finished validating, so a
@@ -80,13 +81,17 @@ func main() {
 	// The caller prints its own message rather than having this do it, because gateRefusal's is a multi-line
 	// explanation that must not be squeezed behind the "ERROR:" prefix the one-line refusals carry.
 	refuseInvocation := func(err error) {
-		rec := buildRecord(outcome{Disposition: dispRefusedBeforeCluster, Reason: err.Error(), Err: err},
+		rec := buildRecord(outcome{Disposition: dispRefusedBeforeCluster, Reason: err.Error()},
 			nil, recordRunID(*runID), *armFlag, *preview, started, time.Now())
 		if werr := writeRecord(recordPath, rec); werr != nil {
 			// The record that failed to persist cannot report its own failure, so this is the one outcome that
 			// exists only on stderr. It says the record is unproven rather than that nothing changed: a
 			// post-rename failure has already put the new content at the path.
 			fmt.Fprintln(os.Stderr, "ERROR: run record not persisted:", werr)
+		} else {
+			// The default path carries a timestamp and a pid, so the operator is told where the record went
+			// rather than left to guess at a name this process generated.
+			fmt.Fprintln(os.Stderr, "  run record:", recordPath)
 		}
 		os.Exit(1)
 	}
@@ -142,14 +147,6 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		refuseInvocation(err)
 	}
-	// -out now names the record rather than a bare ledger, and previewRecord structurally cannot carry
-	// events, so this refusal no longer guards the thing it was written to guard. It stays for now rather
-	// than being dropped in passing: retiring a refusal is a decision that deserves its own commit and its
-	// own tests, not a side effect of moving persistence out of run().
-	if err := refusePreviewOut(*preview, *out); err != nil {
-		fmt.Fprintln(os.Stderr, "ERROR:", err)
-		refuseInvocation(err)
-	}
 	if err := requireRunID(*runID); err != nil {
 		fmt.Fprintln(os.Stderr, "ERROR:", err)
 		refuseInvocation(err)
@@ -185,51 +182,97 @@ func main() {
 	// later. By the time these three values exist here, every defer has finished amending them.
 	o, events, res := run(ctx, newClusterClient, arm, *runID, namespace, *worker, horizon)
 
-	// The order is the whole point: persist first, then render. A non-zero exit cannot retract a number that
-	// has already been printed, so nothing countable may exist before the record of it is durable.
-	rec := buildRecord(o, events, *runID, string(arm), *preview, started, time.Now())
-	writeErr := writeRecord(recordPath, rec)
+	os.Exit(reportRun(os.Stdout, os.Stderr, writeRecord, runReport{
+		Outcome: o,
+		Events:  events,
+		Result:  res,
+		Record:  buildRecord(o, events, *runID, string(arm), *preview, started, time.Now()),
+		Path:    recordPath,
+		Preview: *preview,
+	}))
+}
+
+// runReport is everything the publish-or-not decision needs, in named fields.
+//
+// The fields are named for the same reason operatorModeArgs' are: two adjacent bools and three slices in
+// positional order is an argument list a caller can silently transpose, and this one decides whether a
+// result gets published.
+type runReport struct {
+	Outcome outcome
+	Events  []queuelab.LifecycleEvent
+	Result  *queuelab.LabResult
+	Record  any
+	Path    string
+	Preview bool
+}
+
+// recordWriter is how reportRun persists, so a test can drive the real ordering against a failing write.
+type recordWriter func(path string, v any) error
+
+// reportRun persists the record and then, only if that succeeded, publishes the run; it returns the exit
+// code rather than calling os.Exit so the ordering it enforces is testable.
+//
+// That ordering is the point of the whole task: a non-zero exit cannot retract a number that has already
+// been printed, so nothing countable may exist before the record of it is durable. It lived inline in main
+// until a reviewer observed that no test can call main, which left the one rule this plan exists to
+// establish covered by a manual run of the binary alone.
+func reportRun(stdout, stderr io.Writer, write recordWriter, r runReport) int {
+	writeErr := write(r.Path, r.Record)
 	if writeErr == nil {
-		if res != nil && o.Disposition == dispChecksPassed {
-			fmt.Print("\n" + queuelab.RenderResult(*res))
-			fmt.Printf("\nledger: %d events\n", len(events))
+		fmt.Fprintln(stderr, "  run record:", r.Path)
+		if r.Result != nil && r.Outcome.Disposition == dispChecksPassed {
+			fmt.Fprint(stdout, "\n"+queuelab.RenderResult(*r.Result))
 		}
-		printEvents(events)
+		fmt.Fprintf(stdout, "\nledger: %d events\n", len(r.Events))
+		// A preview record deliberately carries a count and no events, so that a run without the validity
+		// gates behind it cannot emit anything reconstructable. Printing the ledger would hand back exactly
+		// that through a shell redirect, which makes the record's structural guarantee decorative, so the
+		// events are withheld from a preview's output for the same reason they are withheld from its record.
+		if r.Preview {
+			fmt.Fprintln(stdout, "  (withheld: a preview runs without the validity gates, and a printed "+
+				"ledger reconstructs just as well as a written one)")
+		} else {
+			printEvents(stdout, r.Events)
+		}
 	}
 	// The closing banner has to print even when the run failed or its record could not be persisted, or
 	// output already on the terminal is left under an opening banner alone and could be mistaken for output
-	// nobody flagged. It is not os.Exit-safe as a defer, so it is placed ahead of both exits instead.
-	if *preview {
-		fmt.Println(previewBanner)
+	// nobody flagged.
+	if r.Preview {
+		fmt.Fprintln(stdout, previewBanner)
 	}
 	if writeErr != nil {
 		// The record that failed to persist cannot report its own failure, so this is the one outcome that
 		// exists only on stderr, and nothing above rendered: an unrecorded result must not be published.
 		// It says the record is unproven rather than that the previous one survived, because a post-rename
 		// failure has already replaced it.
-		fmt.Fprintln(os.Stderr, "ERROR: run record not persisted:", writeErr)
-		fmt.Fprintf(os.Stderr, "  the outcome was %s: %s\n", o.Disposition, o.Reason)
-		os.Exit(1)
+		fmt.Fprintln(stderr, "ERROR: run record not persisted:", writeErr)
+		fmt.Fprintf(stderr, "  the outcome was %s: %s\n", r.Outcome.Disposition, r.Outcome.Reason)
+		return 1
 	}
-	if o.Disposition != dispChecksPassed {
-		fmt.Fprintf(os.Stderr, "ERROR: %s: %s\n", o.Disposition, o.Reason)
-		os.Exit(1)
+	if r.Outcome.Disposition != dispChecksPassed {
+		fmt.Fprintf(stderr, "ERROR: %s: %s\n", r.Outcome.Disposition, r.Outcome.Reason)
+		return 1
 	}
+	return 0
 }
 
-// defaultRecordName is where the record goes when -out names no path.
+// recordPathFor names the record, and the default names it per invocation.
 //
-// It is a fixed name rather than one derived from the run id because a refusal can fire before -runid has
-// been read at all, and a record that only existed for invocations identified enough to name a file would
-// miss exactly the refusals this record was added to make visible. A later invocation replaces it, so an
-// operator who needs records kept names a path.
-const defaultRecordName = "queuelabrun-record.json"
-
-func recordPathFor(out string) string {
-	if out == "" {
-		return defaultRecordName
+// A single fixed default is what made a refusal destructive: every record this build can produce landed on
+// one path, writeRecord replaces by rename, and so a mistyped invocation in the working directory silently
+// took the previous run's record with it — a refusal erasing evidence, in the task written to stop refusals
+// erasing evidence. The timestamp orders the files and the pid separates two invocations within the same
+// second, so two records cannot collide by construction rather than by convention.
+//
+// It is not derived from the run id, because a refusal can fire before -runid has been read at all and a
+// record that only existed for invocations identified enough to name a file would miss exactly the refusals
+// this record was added to make visible.
+func recordPathFor(out string, started time.Time, pid int) string {
+	if out != "" {
+		return out
 	}
-	return out
+	return fmt.Sprintf("queuelabrun-record-%s-%d.json", started.UTC().Format("20060102T150405Z"), pid)
 }
 
 // unidentifiedRunID stands in for the run id of an invocation refused before it supplied one.
@@ -581,9 +624,12 @@ func waitForHorizon(ctx context.Context, deadline time.Time) error {
 	return nil
 }
 
-func printEvents(events []queuelab.LifecycleEvent) {
+// printEvents takes its destination rather than writing to stdout directly, so the one caller that must be
+// able to withhold the ledger — a preview, whose record carries a count and no events — is a decision a
+// test can observe instead of a package-level side effect.
+func printEvents(w io.Writer, events []queuelab.LifecycleEvent) {
 	for _, e := range events {
-		fmt.Printf("  t=%-8s %-14s %-14s job=%-10s reason=%s\n",
+		fmt.Fprintf(w, "  t=%-8s %-14s %-14s job=%-10s reason=%s\n",
 			time.Duration(e.ElapsedNs).Round(time.Second), e.Kind, e.Type, e.Job, e.Reason)
 	}
 }

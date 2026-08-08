@@ -102,18 +102,14 @@ func requireRunID(runID string) error {
 	return nil
 }
 
-// refusePreviewOut refuses to combine -preview with -out.
+// refusePreviewOut is gone, and the guarantee it stood for moved rather than disappeared.
 //
-// The trace and dose are now compile-time constants, so a bare ledger JSONL is enough on its own for someone
-// to reconstruct a number offline; a preview run has no validity gates behind it, so that file must never
-// become an artifact that looks like evidence.
-func refusePreviewOut(preview bool, out string) error {
-	if preview && out != "" {
-		return fmt.Errorf("-preview and -out cannot be combined: a preview ledger must not become an " +
-			"artifact someone reconstructs offline")
-	}
-	return nil
-}
+// It refused -preview with -out because -out wrote a bare ledger JSONL, and the trace and dose being
+// compile-time constants made such a file enough on its own to reconstruct a number offline. -out now names
+// the run record, and previewRecord has no field a ledger can be decoded out of at all, so the guarantee is
+// a property of the type rather than of a flag combination — and a flag check that no longer guards
+// anything is worse than none, because it stops a preview naming where its own record goes and forces every
+// record onto one path that the next refusal overwrites.
 
 // variantLabelKey mirrors internal/queuelab's private variantLabel, duplicated for the same reason as
 // terminationGraceSec above: that package must not change and does not export it.

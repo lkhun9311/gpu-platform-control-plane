@@ -55,13 +55,10 @@ func TestCancellationPrecedenceIsCausalNotIncidental(t *testing.T) {
 // amend the outcome rather than only print, or the record can be contradicted the instant after it is
 // written.
 func TestAmendReplacesTheDispositionAndKeepsTheOriginalReason(t *testing.T) {
-	o := outcome{Disposition: dispReconstructRefused, Reason: "cardinality", Err: errors.New("boom")}
+	o := outcome{Disposition: dispReconstructRefused, Reason: "cardinality"}
 	a := o.amend(dispWorkerNotRestored, "emergency release failed")
 	if a.Disposition != dispWorkerNotRestored {
 		t.Fatalf("amend must replace the disposition, got %s", a.Disposition)
-	}
-	if a.Err == nil {
-		t.Fatal("amend must keep the original error as the cause")
 	}
 	// A reason that merely differs from the original (e.g. because the new reason string happens to be
 	// different) is not proof the original survived — it could equally mean amend discarded it outright.

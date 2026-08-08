@@ -78,6 +78,28 @@ type previewRecord struct {
 // something a test can check, which a formatted string could not be.
 const previewNote = "preview: the validity gates were not enforced, so this is a smoke check and not evidence"
 
+// classified refuses a zero disposition, which is the one thing a record must never carry.
+//
+// run sets a disposition on every return, but nothing in the language enforces that: deleting a single
+// assignment leaves the named return at its zero value, and neither the compiler nor go vet says a word.
+// The test that walked the returns could only reach two of seventeen, so the invariant is enforced here,
+// where every record is built, rather than audited where only some are reachable.
+//
+// It substitutes rather than panicking. A panic in the record writer would destroy the record for a run
+// that genuinely happened, which is precisely the evidence loss this whole task exists to stop; naming the
+// bug in the artifact keeps the record, fails the run (main exits non-zero on anything that is not
+// dispChecksPassed), and leaves a string a reader can grep for.
+func classified(o outcome) outcome {
+	if o.Disposition != "" {
+		return o
+	}
+	reason := "a return path set no disposition; this is a bug in run(), not an outcome of the run"
+	if o.Reason != "" {
+		reason = reason + " (reason given: " + o.Reason + ")"
+	}
+	return outcome{Disposition: dispUnclassified, Reason: reason}
+}
+
 // buildRecord chooses which record a given invocation may leave behind.
 //
 // This is the only place the preview and non-preview branches diverge, so the guarantee that a gateless run
@@ -85,6 +107,7 @@ const previewNote = "preview: the validity gates were not enforced, so this is a
 // call sites that write.
 func buildRecord(o outcome, events []queuelab.LifecycleEvent, runID, arm string, preview bool,
 	started, ended time.Time) any {
+	o = classified(o)
 	startedAt := started.UTC().Format(time.RFC3339)
 	endedAt := ended.UTC().Format(time.RFC3339)
 	if preview {
@@ -122,6 +145,10 @@ func encodeRecord(v any) ([]byte, error) {
 }
 
 // decodeRunRecord refuses anything it does not fully understand.
+//
+// A non-empty RunID is required but does not mean a run id somebody chose: an invocation refused before it
+// read -runid is recorded under the unidentifiedRunID sentinel, which runIDPattern can never accept, so a
+// reader matching records to runs must expect ids that name no run.
 func decodeRunRecord(b []byte) (runRecord, error) {
 	dec := json.NewDecoder(bytes.NewReader(b))
 	dec.DisallowUnknownFields()

@@ -17,6 +17,7 @@ limitations under the License.
 package main
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -315,10 +316,15 @@ func TestRunDeferredEmergencyReleaseAmendsThePersistedRecord(t *testing.T) {
 	t.Logf("persisted record:\n%s", b)
 }
 
-// A record is only worth persisting if every path fills it in, so this walks the outcome-producing paths
-// reachable without a cluster and refuses a zero disposition on any of them: a zero disposition would be
-// encoded as an empty string, which decodeRunRecord rejects and which claims nothing about the run.
-func TestRunSetsADispositionOnEveryPathReachableWithoutACluster(t *testing.T) {
+// This covers exactly two of run()'s seventeen returns — the connect failure and the acquisition refusal —
+// and its name says so. An earlier version claimed to cover every path, which it could not: the other
+// fifteen need a live cluster, and a reviewer proved the gap by deleting four `o = ...` assignments and
+// watching go vet stay silent and the suite stay green. The totality invariant is enforced in
+// buildRecord's classified() instead; see TestBuildRecordRefusesAZeroDisposition.
+//
+// These two are still worth pinning by hand because they bracket the emergency-release defer: the connect
+// failure returns before it is registered, and the acquisition refusal is the last return before it is.
+func TestRunSetsADispositionOnTheConnectAndAcquisitionPaths(t *testing.T) {
 	// A connect failure is the earliest return in run(), before anything is acquired or built.
 	o, _, res := run(context.Background(),
 		func() (client.WithWatch, error) { return nil, fmt.Errorf("kubeconfig: no such file") },
@@ -374,7 +380,7 @@ func TestRefusalRecordIsReadableEvenWithoutARunID(t *testing.T) {
 	}
 
 	err := errors.New("-runid is required")
-	rec := buildRecord(outcome{Disposition: dispRefusedBeforeCluster, Reason: err.Error(), Err: err},
+	rec := buildRecord(outcome{Disposition: dispRefusedBeforeCluster, Reason: err.Error()},
 		nil, recordRunID(""), "", false, time.Now(), time.Now())
 	b, encErr := encodeRecord(rec)
 	if encErr != nil {
@@ -396,11 +402,142 @@ func TestRefusalRecordIsReadableEvenWithoutARunID(t *testing.T) {
 // -out names the record now that the bare ledger is gone, and an invocation that names no path must still
 // leave one: a record written only when asked for would be absent exactly when an operator is trying to work
 // out what a surprising refusal did.
-func TestRecordPathFallsBackToADefaultRatherThanBeingSkipped(t *testing.T) {
-	if got := recordPathFor(""); got != defaultRecordName {
-		t.Fatalf("an unnamed record path must fall back to %q, got %q", defaultRecordName, got)
-	}
-	if got := recordPathFor("/tmp/rec1.json"); got != "/tmp/rec1.json" {
+//
+// The default must also differ per invocation. It used to be one fixed name, which composed into a real
+// defect: writeRecord replaces by rename, so a mistyped command in the same working directory destroyed the
+// previous run's record — a refusal erasing evidence, inside the change written to stop refusals erasing
+// evidence.
+func TestRecordPathNamesEveryInvocationSeparately(t *testing.T) {
+	if got := recordPathFor("/tmp/rec1.json", time.Now(), 1234); got != "/tmp/rec1.json" {
 		t.Fatalf("-out must name the record, got %q", got)
+	}
+
+	at := time.Date(2026, 8, 8, 1, 10, 27, 0, time.UTC)
+	first := recordPathFor("", at, 1234)
+	if first == "" || !strings.HasSuffix(first, ".json") {
+		t.Fatalf("an unnamed record path must still name a file, got %q", first)
+	}
+
+	// Two invocations in the same second are separated by the pid, and two at the same pid by the clock, so
+	// no pair of live invocations can land on one path by construction.
+	if sameSecond := recordPathFor("", at, 5678); sameSecond == first {
+		t.Fatalf("two invocations in the same second collided on %q", first)
+	}
+	if samePID := recordPathFor("", at.Add(time.Second), 1234); samePID == first {
+		t.Fatalf("two invocations at the same pid collided on %q", first)
+	}
+}
+
+// A zero disposition is the silent lie this task exists to prevent, and no test can walk the seventeen
+// returns that could produce one: fifteen need a live cluster. So the invariant is enforced where every
+// record is built rather than audited where only some are reachable — a reviewer deleted four `o = ...`
+// assignments and neither go vet nor the suite noticed.
+func TestBuildRecordRefusesAZeroDisposition(t *testing.T) {
+	rr, ok := buildRecord(outcome{}, nil, "r7", "A-honor", false, time.Now(), time.Now()).(runRecord)
+	if !ok {
+		t.Fatal("a non-preview invocation must build a runRecord")
+	}
+	if rr.Disposition != string(dispUnclassified) {
+		t.Fatalf("an unset disposition must be named, not written as an empty string, got %q", rr.Disposition)
+	}
+	if !strings.Contains(rr.Reason, "bug in run()") {
+		t.Fatalf("the record must say this is a bug rather than an outcome of the run, got %q", rr.Reason)
+	}
+
+	// The preview branch builds a different type, so it needs its own proof rather than inheriting this one.
+	pr, ok := buildRecord(outcome{}, nil, "r7", "A-honor", true, time.Now(), time.Now()).(previewRecord)
+	if !ok {
+		t.Fatal("a preview invocation must build a previewRecord")
+	}
+	if pr.Disposition != string(dispUnclassified) {
+		t.Fatalf("the preview branch must substitute too, got %q", pr.Disposition)
+	}
+
+	// The substitution must not touch an outcome that already has one, or it would rewrite real dispositions.
+	kept := buildRecord(outcome{Disposition: dispChecksPassed, Reason: "x"}, nil, "r7", "A-honor", false,
+		time.Now(), time.Now()).(runRecord)
+	if kept.Disposition != string(dispChecksPassed) || kept.Reason != "x" {
+		t.Fatalf("a classified outcome must pass through untouched, got %q / %q", kept.Disposition, kept.Reason)
+	}
+}
+
+// The persist-before-publish ordering is the rule this whole task establishes, and it used to live inline
+// in main(), which no test can call. If a persistence failure still rendered, an unrecorded result would
+// reach the terminal and a non-zero exit could not retract it.
+func TestReportRunPublishesNothingWhenTheRecordCannotBePersisted(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	res := queuelab.LabResult{Arm: "A-honor"}
+	code := reportRun(&stdout, &stderr, func(string, any) error { return errors.New("disk full") },
+		runReport{
+			Outcome: outcome{Disposition: dispChecksPassed},
+			Events:  []queuelab.LifecycleEvent{{ElapsedNs: 1, Kind: "Pod", Job: "a1"}},
+			Result:  &res,
+			Record:  runRecord{SchemaVersion: recordSchemaVersion},
+			Path:    "/nowhere/run.json",
+		})
+
+	if code == 0 {
+		t.Fatal("a run whose record was not persisted must exit non-zero")
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("nothing may be published when the record is not durable, got stdout %q", stdout.String())
+	}
+	if !strings.Contains(stderr.String(), "not persisted") {
+		t.Fatalf("the persistence failure exists only on stderr, so it must be there: %q", stderr.String())
+	}
+}
+
+// The mirror of the test above: a successful write must publish, or the ordering would be satisfied by a
+// function that never renders anything at all.
+func TestReportRunPublishesOnceTheRecordIsDurable(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	res := queuelab.LabResult{Arm: "A-honor"}
+	wrote := ""
+	code := reportRun(&stdout, &stderr, func(path string, _ any) error { wrote = path; return nil },
+		runReport{
+			Outcome: outcome{Disposition: dispChecksPassed},
+			Events:  []queuelab.LifecycleEvent{{ElapsedNs: 1, Kind: "Pod", Job: "a1"}},
+			Result:  &res,
+			Record:  runRecord{SchemaVersion: recordSchemaVersion},
+			Path:    "/tmp/run.json",
+		})
+
+	if code != 0 {
+		t.Fatalf("a run that passed its checks and persisted its record exits 0, got %d", code)
+	}
+	if wrote != "/tmp/run.json" {
+		t.Fatalf("reportRun must persist to the path it was given, got %q", wrote)
+	}
+	if !strings.Contains(stdout.String(), "job=a1") {
+		t.Fatalf("a non-preview run publishes its ledger, got %q", stdout.String())
+	}
+	if !strings.Contains(stderr.String(), "/tmp/run.json") {
+		t.Fatalf("the operator must be told where the record went, got %q", stderr.String())
+	}
+}
+
+// previewRecord carries a count and no events so a gateless run cannot emit anything reconstructable, and
+// a printed ledger reconstructs exactly as well as a written one: `queuelabrun -preview ... > ledger.txt`
+// would otherwise produce the artifact the record's whole shape exists to deny.
+func TestReportRunWithholdsTheLedgerFromAPreview(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	events := []queuelab.LifecycleEvent{{ElapsedNs: 1, Kind: "Pod", Type: queuelab.EventPodReady, Job: "a1"}}
+	reportRun(&stdout, &stderr, func(string, any) error { return nil }, runReport{
+		Outcome: outcome{Disposition: dispChecksPassed},
+		Events:  events,
+		Record:  previewRecord{SchemaVersion: recordSchemaVersion},
+		Path:    "/tmp/run.json",
+		Preview: true,
+	})
+
+	out := stdout.String()
+	if strings.Contains(out, "job=a1") || strings.Contains(out, string(queuelab.EventPodReady)) {
+		t.Fatalf("a preview must not print its ledger, got %q", out)
+	}
+	if !strings.Contains(out, "ledger: 1 events") {
+		t.Fatalf("a preview still reports how many events it saw, got %q", out)
+	}
+	if !strings.Contains(out, previewBanner) {
+		t.Fatalf("preview output must stay bracketed by the banner, got %q", out)
 	}
 }
