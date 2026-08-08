@@ -20,7 +20,9 @@ import (
 	"encoding/json"
 	"os"
 	"reflect"
+	"runtime"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/lkhun9311/gpu-mlops-platform-control-plane/internal/queuelab"
@@ -121,6 +123,11 @@ func TestDecodeRunRecordRefusesPreviewWithEvents(t *testing.T) {
 	}
 }
 
+// This test verifies success-content-correctness — that a successful write leaves exactly the destination
+// file behind, decodable back to the value passed in — and leftover-temp-file cleanliness. It does not
+// verify the atomic replace-not-modify mechanism itself; see TestWriteRecordReplacesTheDestinationInode
+// for that, because passing here is consistent with a non-atomic in-place write.
+//
 // A successful write must leave exactly the destination file behind, with the content actually written
 // decodable back to the value passed in — not merely some decodable-but-unrelated bytes, and not a
 // leftover temp file beside it.
@@ -167,6 +174,10 @@ func TestWriteRecordLeavesNoPartialFile(t *testing.T) {
 	}
 }
 
+// This test verifies failure-signalling — that a write which cannot proceed returns a non-nil error and
+// leaves no stray file behind — not the atomic replace-not-modify mechanism of a successful write; see
+// TestWriteRecordReplacesTheDestinationInode for that.
+//
 // A write into a directory that does not exist must fail loudly rather than leaving the caller believing
 // the run was recorded, and it must not scribble a stray file into the parent directory as a side effect
 // of the failed attempt.
@@ -185,5 +196,54 @@ func TestWriteRecordFailsLoudlyOnAnUnwritablePath(t *testing.T) {
 	}
 	if len(entries) != 0 {
 		t.Fatalf("a failed write must leave no trace in the parent directory, got %d entries", len(entries))
+	}
+}
+
+// TestWriteRecordReplacesTheDestinationInode pins the atomic replace-not-modify mechanism itself, which
+// the two tests above do not: they would pass just as well against a naive os.WriteFile(path, b, 0o644)
+// that opens the destination with O_TRUNC and writes into it in place.
+//
+// The distinguishing property is not timing, so it needs no race and cannot be flaky: os.WriteFile reuses
+// the destination's inode, while temp-file-plus-rename replaces the directory entry with a new inode. A
+// changed inode number between two successive writes is direct, deterministic evidence that a rename
+// happened rather than an in-place modification.
+func TestWriteRecordReplacesTheDestinationInode(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("inode numbers are not a meaningful concept on this platform")
+	}
+	dir := t.TempDir()
+	path := dir + "/run.json"
+
+	if err := writeRecord(path, runRecord{
+		SchemaVersion: recordSchemaVersion, RunID: "r1", Arm: "A-honor", Disposition: string(dispChecksPassed),
+	}); err != nil {
+		t.Fatalf("write 1: %v", err)
+	}
+	fi1, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat 1: %v", err)
+	}
+	st1, ok := fi1.Sys().(*syscall.Stat_t)
+	if !ok {
+		t.Skip("syscall.Stat_t is not available on this platform")
+	}
+	ino1 := st1.Ino
+
+	if err := writeRecord(path, runRecord{
+		SchemaVersion: recordSchemaVersion, RunID: "r2", Arm: "A-honor", Disposition: string(dispChecksPassed),
+	}); err != nil {
+		t.Fatalf("write 2: %v", err)
+	}
+	fi2, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat 2: %v", err)
+	}
+	st2 := fi2.Sys().(*syscall.Stat_t)
+	ino2 := st2.Ino
+
+	if ino1 == ino2 {
+		t.Fatalf("destination inode did not change across two writes (both %d): the file was modified in "+
+			"place rather than replaced by a rename, so a reader racing a write could observe a partial file",
+			ino1)
 	}
 }

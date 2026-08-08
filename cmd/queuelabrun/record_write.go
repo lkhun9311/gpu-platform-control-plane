@@ -27,6 +27,11 @@ import (
 // Temp-file-plus-rename makes the replacement atomic within the directory, and the directory fsync is what
 // makes the rename itself durable: without it a crash can leave the rename unrecorded even though the file
 // contents were flushed.
+//
+// A non-nil return does not always mean the previous record survived: if the failure is one of the two
+// post-rename steps (opening the directory or syncing it), the rename has already happened and the new
+// content is already at path, so callers must not treat this error as proof that nothing changed — only
+// that the new record's durability against a crash is unproven.
 func writeRecord(path string, v any) error {
 	b, err := encodeRecord(v)
 	if err != nil {
