@@ -47,7 +47,11 @@ STUB_SLOW_PORT=30083
 # two values; using anything else would measure a different ceiling than the one the comment claims.
 RATE=20
 TIMEOUT_MS=30000
-DURATION_MS=60000
+# 45s rather than 60s: the shared trace is now replayed five times (two client generations through the
+# gateway, three straight at the stub), so this keeps the load phase near its previous total while still
+# offering ~440 premium requests per arm, which is enough for a nearest-rank p99 to land on an actually
+# observed latency.
+DURATION_MS=45000
 
 # The slow-backend profile exists to push outbound concurrency up on purpose.
 #
@@ -351,37 +355,67 @@ cap "$BH" gen-trace \
   --arm off --model llama-3-8b --gateway-url "http://127.0.0.1:$GW_PORT" \
   --trace-out "$WORK/trace.jsonl" --manifest-out "$WORK/manifest.yaml" || die "gen-trace"
 
-step "11. RUN A: replay through the gateway"
-stub_reset "$STUB_FAST_PORT"
-log "fast stub counters reset; starting the gateway run"
-cap "$BH" replay \
-  --manifest "$WORK/manifest.yaml" \
-  --target "http://127.0.0.1:$GW_PORT" \
-  --api-keys "premium-1=premium-key,standard-noisy=standard-key" \
-  --raw-out "$WORK/raw-gateway.jsonl" || die "replay through gateway"
-STATS_GW=$(stub_stats "$STUB_FAST_PORT")
-log "[EVIDENCE] stub counters after the gateway run: $STATS_GW"
+# replay_arm NAME TARGET POOL RAWOUT
+#
+# Runs one replay and leaves the stub's counters for that window in ARM_STATS.
+#
+# The result comes back in a global rather than on stdout because this function tees its progress there; a
+# command substitution around it would capture the whole transcript along with the JSON, and `die` inside a
+# substitution runs in a subshell and would fail to stop the script.
+#
+# The stub is reset immediately before each arm, so every arm's connection counts describe only its own load.
+ARM_STATS=""
+replay_arm() {
+  local name=$1 target=$2 mode=$3 rawout=$4
+  stub_reset "$STUB_FAST_PORT"
+  log "--- arm $name: target $target, client mode $mode ---"
+  cap "$BH" replay \
+    --manifest "$WORK/manifest.yaml" \
+    --target "$target" \
+    --conn-mode "$mode" \
+    --api-keys "premium-1=premium-key,standard-noisy=standard-key" \
+    --raw-out "$rawout" || die "replay $name"
+  ARM_STATS=$(stub_stats "$STUB_FAST_PORT")
+}
 
-step "12. RUN B: replay straight to the stub (no gateway)"
-stub_reset "$STUB_FAST_PORT"
-log "fast stub counters reset; starting the no-gateway baseline"
-cap "$BH" replay \
-  --manifest "$WORK/manifest.yaml" \
-  --target "http://127.0.0.1:$STUB_FAST_PORT" \
-  --api-keys "premium-1=premium-key,standard-noisy=standard-key" \
-  --raw-out "$WORK/raw-direct.jsonl" || die "replay direct"
-STATS_DIRECT=$(stub_stats "$STUB_FAST_PORT")
-log "[EVIDENCE] stub counters after the no-gateway run: $STATS_DIRECT"
+step "11. RUN A: through the gateway, client BEFORE and AFTER"
+# The same trace is replayed with the sender's old client and its new one.
+#
+# The old client had no Transport at all, so it used http.DefaultTransport and its two idle connections per
+# host, and it abandoned each response body before EOF so even those two were rarely reusable. That cost lands
+# inside the latency the harness reports, which makes it the instrument's error rather than the system's.
+# Measuring both is the only way to say how large it was instead of asserting it.
+replay_arm "gateway/legacy" "http://127.0.0.1:$GW_PORT" legacy "$WORK/raw-gw-before.jsonl"; STATS_GW_BEFORE=$ARM_STATS
+log "[EVIDENCE] stub counters, gateway path, client legacy: $STATS_GW_BEFORE"
+replay_arm "gateway/pooled" "http://127.0.0.1:$GW_PORT" pooled "$WORK/raw-gateway.jsonl"; STATS_GW=$ARM_STATS
+log "[EVIDENCE] stub counters, gateway path, client pooled: $STATS_GW"
 
-step "13. MEASUREMENT 1: connection reuse through the gateway"
+step "12. RUN B: straight to the stub, client legacy / drain-only / pooled"
+# On this path the stub sees the harness's own connections directly, so it is the only place the client's
+# effect on connection count is observable at all; through the gateway the stub only ever sees the gateway.
+#
+# Three arms, not two, because the fix was two changes and reporting them as one lump would hide which one
+# did the work: draining the unread stream tail is what lets a connection be pooled at all, and sizing the
+# pool is what stops it being thrown away once more than two are in flight.
+replay_arm "direct/legacy" "http://127.0.0.1:$STUB_FAST_PORT" legacy "$WORK/raw-direct-before.jsonl"; STATS_DIRECT_BEFORE=$ARM_STATS
+log "[EVIDENCE] stub counters, direct path, client legacy:     $STATS_DIRECT_BEFORE"
+replay_arm "direct/drain-only" "http://127.0.0.1:$STUB_FAST_PORT" drain-only "$WORK/raw-direct-drain.jsonl"; STATS_DIRECT_DRAIN=$ARM_STATS
+log "[EVIDENCE] stub counters, direct path, client drain-only: $STATS_DIRECT_DRAIN"
+replay_arm "direct/pooled" "http://127.0.0.1:$STUB_FAST_PORT" pooled "$WORK/raw-direct.jsonl"; STATS_DIRECT=$ARM_STATS
+log "[EVIDENCE] stub counters, direct path, client pooled:     $STATS_DIRECT"
+
+step "13. MEASUREMENT 1: connection reuse, gateway's pool and the harness's own"
 GW_REQ=$(jnum "$STATS_GW" requestsServed)
 GW_CONNS=$(jnum "$STATS_GW" chatConnections)
 GW_MAXREQ=$(jnum "$STATS_GW" maxRequestsOnOneConnection)
 GW_ACCEPTED=$(jnum "$STATS_GW" connectionsAccepted)
 D_REQ=$(jnum "$STATS_DIRECT" requestsServed)
 D_CONNS=$(jnum "$STATS_DIRECT" chatConnections)
-log "gateway  -> stub: $GW_REQ requests over $GW_CONNS connections (max $GW_MAXREQ requests on one connection, $GW_ACCEPTED connections accepted in total including kubelet probes)"
-log "harness  -> stub: $D_REQ requests over $D_CONNS connections (the harness's own client, shown for contrast)"
+DB_REQ=$(jnum "$STATS_DIRECT_BEFORE" requestsServed)
+DB_CONNS=$(jnum "$STATS_DIRECT_BEFORE" chatConnections)
+DD_REQ=$(jnum "$STATS_DIRECT_DRAIN" requestsServed)
+DD_CONNS=$(jnum "$STATS_DIRECT_DRAIN" chatConnections)
+log "gateway -> stub (gateway's own shared Transport): $GW_REQ requests over $GW_CONNS connections (max $GW_MAXREQ on one connection; $GW_ACCEPTED accepted in total including kubelet probes)"
 if [ "$GW_CONNS" -gt 0 ] && [ "$GW_REQ" -gt 0 ]; then
   log "[EVIDENCE] gateway requests-per-connection: $(echo "scale=1; $GW_REQ / $GW_CONNS" | bc)"
 fi
@@ -392,17 +426,51 @@ if [ "$GW_CONNS" -lt "$GW_REQ" ]; then
 else
   log "  RESULT: FAIL - one connection per request, which is what a per-request Transport looks like."
 fi
+log ""
+log "harness -> stub, BEFORE     (legacy: DefaultTransport, no drain): $DB_REQ requests over $DB_CONNS connections"
+log "harness -> stub, drain only (DefaultTransport + drain):         $DD_REQ requests over $DD_CONNS connections"
+log "harness -> stub, AFTER      (sized pool + drain):               $D_REQ requests over $D_CONNS connections"
+if [ "$DB_CONNS" -gt 0 ] && [ "$DD_CONNS" -gt 0 ] && [ "$D_CONNS" -gt 0 ]; then
+  log "[EVIDENCE] harness requests-per-connection: before $(echo "scale=1; $DB_REQ / $DB_CONNS" | bc), drain-only $(echo "scale=1; $DD_REQ / $DD_CONNS" | bc), after $(echo "scale=1; $D_REQ / $D_CONNS" | bc)"
+  log "[EVIDENCE] connections the instrument no longer opens: $(( DB_CONNS - D_CONNS )) of $DB_CONNS"
+  log "[EVIDENCE] attribution: the drain accounts for $(( DB_CONNS - DD_CONNS )) of that, the pool size for $(( DD_CONNS - D_CONNS ))"
+fi
+if [ "$D_CONNS" -lt "$DB_CONNS" ]; then
+  log "  RESULT: PASS - the sized client pool cut the instrument's own connections from $DB_CONNS to $D_CONNS."
+else
+  log "  RESULT: FAIL - the client pool did not reduce connections ($DB_CONNS -> $D_CONNS)."
+fi
 
-step "14. MEASUREMENT 4: latency through the gateway vs straight to the stub"
-log "--- report: through the gateway ---"
-cap "$BH" report --raw "$WORK/raw-gateway.jsonl"
-log "--- report: straight to the stub ---"
-cap "$BH" report --raw "$WORK/raw-direct.jsonl"
+step "14. MEASUREMENT 4: latency, gateway vs direct, client pool before vs after"
+for arm in gw-before gateway direct-before direct-drain direct; do
+  log "--- report: $arm ---"
+  cap "$BH" report --raw "$WORK/raw-$arm.jsonl"
+done
 GW_P50=$(p_col "$WORK/raw-gateway.jsonl" 6); GW_P95=$(p_col "$WORK/raw-gateway.jsonl" 7); GW_P99=$(p_col "$WORK/raw-gateway.jsonl" 8)
 D_P50=$(p_col "$WORK/raw-direct.jsonl" 6);  D_P95=$(p_col "$WORK/raw-direct.jsonl" 7);  D_P99=$(p_col "$WORK/raw-direct.jsonl" 8)
+GWB_P50=$(p_col "$WORK/raw-gw-before.jsonl" 6); GWB_P95=$(p_col "$WORK/raw-gw-before.jsonl" 7); GWB_P99=$(p_col "$WORK/raw-gw-before.jsonl" 8)
+DB_P50=$(p_col "$WORK/raw-direct-before.jsonl" 6); DB_P95=$(p_col "$WORK/raw-direct-before.jsonl" 7); DB_P99=$(p_col "$WORK/raw-direct-before.jsonl" 8)
+DD_P50=$(p_col "$WORK/raw-direct-drain.jsonl" 6); DD_P95=$(p_col "$WORK/raw-direct-drain.jsonl" 7); DD_P99=$(p_col "$WORK/raw-direct-drain.jsonl" 8)
+log "[EVIDENCE] premium TTFT ms   gateway, client legacy:     p50=$GWB_P50 p95=$GWB_P95 p99=$GWB_P99"
+log "[EVIDENCE] premium TTFT ms   gateway, client pooled:     p50=$GW_P50 p95=$GW_P95 p99=$GW_P99"
+log "[EVIDENCE] premium TTFT ms   direct,  client legacy:     p50=$DB_P50 p95=$DB_P95 p99=$DB_P99"
+log "[EVIDENCE] premium TTFT ms   direct,  client drain-only: p50=$DD_P50 p95=$DD_P95 p99=$DD_P99"
+log "[EVIDENCE] premium TTFT ms   direct,  client pooled:     p50=$D_P50 p95=$D_P95 p99=$D_P99"
+log "[EVIDENCE] instrument cost removed  gateway p50=$(echo "$GWB_P50 - $GW_P50" | bc) p95=$(echo "$GWB_P95 - $GW_P95" | bc) p99=$(echo "$GWB_P99 - $GW_P99" | bc) ms"
+log "[EVIDENCE] instrument cost removed  direct  p50=$(echo "$DB_P50 - $D_P50" | bc) p95=$(echo "$DB_P95 - $D_P95" | bc) p99=$(echo "$DB_P99 - $D_P99" | bc) ms"
+# Latency differences of a few tenths of a millisecond are not resolvable from one repetition of ~440 premium
+# requests, so the reader is told the scale of the noise rather than left to over-read the digits.
+#
+# The connection counts above are exact counts and carry the argument; these deltas only have to not contradict them.
+log "[EVIDENCE] noise check: the gateway path and the direct path differ by p99 $(echo "$GW_P99 - $D_P99" | bc) ms, and the gateway path is strictly the longer one, so any difference at or below that magnitude is at the noise floor of this run"
 log "[EVIDENCE] premium TTFT ms   gateway: p50=$GW_P50 p95=$GW_P95 p99=$GW_P99"
 log "[EVIDENCE] premium TTFT ms   direct : p50=$D_P50 p95=$D_P95 p99=$D_P99"
-log "[EVIDENCE] gateway hop cost  p50=$(echo "$GW_P50 - $D_P50" | bc) ms  p95=$(echo "$GW_P95 - $D_P95" | bc) ms  p99=$(echo "$GW_P99 - $D_P99" | bc) ms"
+# The hop cost is taken from the two pooled-client arms, not the legacy ones.
+#
+# Both arms carry whatever the client costs, so the difference cancels it either way; the derived pair is used
+# because it is what a real run will use, and quoting a hop cost measured on a retired instrument would be
+# quoting a number nobody will ever reproduce.
+log "[EVIDENCE] gateway hop cost (both arms, pooled client)  p50=$(echo "$GW_P50 - $D_P50" | bc) ms  p95=$(echo "$GW_P95 - $D_P95" | bc) ms  p99=$(echo "$GW_P99 - $D_P99" | bc) ms"
 # The number that matters is the hop cost relative to the effect M5-b sets out to measure.
 #
 # M5-b's absolute-protection check calls a 25% rise in premium TTFT p99 the boundary of acceptable, so the

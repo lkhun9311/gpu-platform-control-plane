@@ -19,6 +19,7 @@ package bench
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"time"
@@ -43,7 +44,7 @@ var _ = Describe("HTTPSender", func() {
 		}))
 		defer srv.Close()
 
-		sender := NewHTTPSender(srv.URL, "llama-3-8b", map[string]string{"premium-1": "premium-key"}, 5*time.Second)
+		sender := NewHTTPSender(srv.URL, "llama-3-8b", map[string]string{"premium-1": "premium-key"}, 5*time.Second, SenderConn{MaxIdleConnsPerHost: 8, DrainForReuse: true})
 		res := sender.Send(context.Background(), TraceRow{Tenant: "premium-1", PromptLenChars: 100, MaxOutputTokens: 8}, time.Now().UnixNano())
 
 		Expect(res.HTTPStatus).To(Equal(200))
@@ -60,7 +61,7 @@ var _ = Describe("HTTPSender", func() {
 		}))
 		defer srv.Close()
 
-		sender := NewHTTPSender(srv.URL, "m", nil, 5*time.Second)
+		sender := NewHTTPSender(srv.URL, "m", nil, 5*time.Second, SenderConn{MaxIdleConnsPerHost: 8, DrainForReuse: true})
 		res := sender.Send(context.Background(), TraceRow{Tenant: "standard-noisy", PromptLenChars: 40000, MaxOutputTokens: 8}, time.Now().UnixNano())
 
 		Expect(res.HTTPStatus).To(Equal(429))
@@ -76,9 +77,121 @@ var _ = Describe("HTTPSender", func() {
 		}))
 		defer srv.Close()
 
-		sender := NewHTTPSender(srv.URL, "m", nil, 30*time.Millisecond)
+		sender := NewHTTPSender(srv.URL, "m", nil, 30*time.Millisecond, SenderConn{MaxIdleConnsPerHost: 8, DrainForReuse: true})
 		res := sender.Send(context.Background(), TraceRow{Tenant: "premium-1", PromptLenChars: 100, MaxOutputTokens: 8}, time.Now().UnixNano())
 
 		Expect(res.ErrorKind).To(Equal("timeout"))
+	})
+
+	// The pool is what keeps the instrument's own TCP handshakes out of the latency it reports, so the
+	// specs below pin that it is actually installed and actually sized from the run rather than guessed.
+	It("reuses one connection across sequential requests instead of dialling per request", func() {
+		var conns int
+		// Unstarted, because ConnState has to be installed before the listener accepts anything.
+		srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "text/event-stream")
+			f := w.(http.Flusher)
+			_, _ = fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"t\"}}]}\n\n")
+			f.Flush()
+			_, _ = fmt.Fprint(w, "data: [DONE]\n\n")
+			f.Flush()
+		}))
+		// ConnState counts accepted connections, which is the only place the difference between a pooled
+		// and an unpooled client is visible at all; the request count is identical either way.
+		srv.Config.ConnState = func(_ net.Conn, state http.ConnState) {
+			if state == http.StateNew {
+				conns++
+			}
+		}
+		srv.Start()
+		defer srv.Close()
+
+		sender := NewHTTPSender(srv.URL, "m", nil, 5*time.Second, SenderConn{MaxIdleConnsPerHost: 8, DrainForReuse: true})
+		for range 5 {
+			res := sender.Send(context.Background(), TraceRow{Tenant: "premium-1", PromptLenChars: 10, MaxOutputTokens: 1}, time.Now().UnixNano())
+			Expect(res.HTTPStatus).To(Equal(200))
+		}
+		Expect(conns).To(Equal(1))
+	})
+
+	// The legacy mode is what the before/after arms of hack/m5b-gateway-path.sh replay, so it has to
+	// actually behave like the old client; a "before" that quietly carried the fix would make the whole
+	// comparison meaningless.
+	It("dials per request in legacy mode, reproducing the client this replaced", func() {
+		var conns int
+		srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "text/event-stream")
+			f := w.(http.Flusher)
+			_, _ = fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"t\"}}]}\n\n")
+			f.Flush()
+			_, _ = fmt.Fprint(w, "data: [DONE]\n\n")
+			f.Flush()
+		}))
+		srv.Config.ConnState = func(_ net.Conn, state http.ConnState) {
+			if state == http.StateNew {
+				conns++
+			}
+		}
+		srv.Start()
+		defer srv.Close()
+
+		legacy, err := SenderConnForMode(SenderModeLegacy, nil, 30*time.Second)
+		Expect(err).NotTo(HaveOccurred())
+		sender := NewHTTPSender(srv.URL, "m", nil, 5*time.Second, legacy)
+		for range 5 {
+			Expect(sender.Send(context.Background(), TraceRow{Tenant: "premium-1", PromptLenChars: 10, MaxOutputTokens: 1}, time.Now().UnixNano()).HTTPStatus).To(Equal(200))
+		}
+		// More than one connection for five sequential requests is the defect being reproduced.
+		//
+		// The exact count is not pinned because it depends on whether the transport happened to have already
+		// buffered the stream terminator when the body was closed, which is precisely why the old client's
+		// reuse was erratic rather than absent.
+		Expect(conns).To(BeNumerically(">", 1))
+	})
+
+	It("resolves each sender mode to the connection handling it names", func() {
+		trace := []TraceRow{{Index: 0, OffsetMs: 0}, {Index: 1, OffsetMs: 1000}}
+
+		legacy, err := SenderConnForMode(SenderModeLegacy, trace, 30*time.Second)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(legacy).To(Equal(SenderConn{}))
+
+		drainOnly, err := SenderConnForMode(SenderModeDrainOnly, trace, 30*time.Second)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(drainOnly).To(Equal(SenderConn{DrainForReuse: true}))
+
+		pooled, err := SenderConnForMode(SenderModePooled, trace, 30*time.Second)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(pooled.DrainForReuse).To(BeTrue())
+		Expect(pooled.MaxIdleConnsPerHost).To(BeNumerically(">=", http.DefaultMaxIdleConnsPerHost))
+
+		// A typo must stop the run rather than silently replay with the wrong instrument.
+		_, err = SenderConnForMode("poooled", trace, 30*time.Second)
+		Expect(err).To(HaveOccurred())
+	})
+
+	It("derives the pool from the trace's own arrival rate and timeout, not from a constant", func() {
+		// 20 rows spread over 1000ms is 20/s; at a 30s timeout the open-loop in-flight ceiling is 600,
+		// but a trace cannot have more in flight than it has rows, so the row count binds first.
+		trace := make([]TraceRow, 20)
+		for i := range trace {
+			trace[i] = TraceRow{Index: i, OffsetMs: int64(i * 50)}
+		}
+		Expect(PoolSizeForTrace(trace, 30*time.Second)).To(Equal(20))
+
+		// The same rate over a longer trace lets the rate x timeout ceiling bind instead of the row count.
+		long := make([]TraceRow, 2000)
+		for i := range long {
+			long[i] = TraceRow{Index: i, OffsetMs: int64(i * 50)}
+		}
+		// 2000 rows over 99950ms is ~20.01/s, so the ceiling is just above 600 and well under 2000.
+		Expect(PoolSizeForTrace(long, 30*time.Second)).To(BeNumerically("~", 601, 2))
+	})
+
+	It("never sizes the pool below Go's own default", func() {
+		// An empty or single-request trace must not produce a pool of 0 or 1, which would be worse than
+		// the http.DefaultTransport behaviour this replaced.
+		Expect(PoolSizeForTrace(nil, 30*time.Second)).To(Equal(http.DefaultMaxIdleConnsPerHost))
+		Expect(PoolSizeForTrace([]TraceRow{{Index: 0}}, 30*time.Second)).To(Equal(http.DefaultMaxIdleConnsPerHost))
 	})
 })

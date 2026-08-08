@@ -150,6 +150,14 @@ func replay(args []string) error {
 	rawOut := fs.String("raw-out", "raw.jsonl", "raw evidence file to write")
 	target := fs.String("target", "", "override the manifest gateway URL (e.g. a stub)")
 	apiKeys := fs.String("api-keys", "", "comma-separated tenant=key pairs")
+	// The pool mode is a flag rather than a constant so the cost of pooling at all stays measurable.
+	//
+	// "go-default" reproduces the client this sender replaced, which used http.DefaultTransport and its two
+	// idle connections per host. It exists for a before/after comparison and for nothing else; a run that
+	// reports latency should always use the derived pool.
+	connMode := fs.String("conn-mode", bench.SenderModePooled,
+		"client connection handling: \"pooled\" (pool sized from the run, plus the drain that lets it be "+
+			"used), \"drain-only\", or \"legacy\" (the pre-fix client: http.DefaultTransport, no drain)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -166,7 +174,16 @@ func replay(args []string) error {
 	if *target != "" {
 		url = *target
 	}
-	sender := bench.NewHTTPSender(url, m.Model, parseAPIKeys(*apiKeys), time.Duration(m.TimeoutMs)*time.Millisecond)
+	timeout := time.Duration(m.TimeoutMs) * time.Millisecond
+	conn, err := bench.SenderConnForMode(*connMode, rows, timeout)
+	if err != nil {
+		return err
+	}
+	// Printed, not just applied: which client a run used is part of what its raw evidence means, and this
+	// line is what puts it in the evidence log beside the numbers it produced.
+	fmt.Printf("client connection mode: %s (MaxIdleConnsPerHost=%d, drain=%t) for %d rows at timeout %s\n",
+		*connMode, conn.MaxIdleConnsPerHost, conn.DrainForReuse, len(rows), timeout)
+	sender := bench.NewHTTPSender(url, m.Model, parseAPIKeys(*apiKeys), timeout, conn)
 
 	// The frozen manifest's provenance is stamped into every raw row.
 	//

@@ -271,9 +271,21 @@ const defaultResponseHeaderTimeout = 30 * time.Second
 //
 // What is assumed rather than derived.
 //
-// The steady-state figure is arrival rate times *mean* latency, which is far below this ceiling, but no run has been recorded in evidence/ and the repository contains no measured latency to compute it from.
+// The steady-state figure is arrival rate times *mean* latency, which is far below this ceiling.
 //
 // So this is deliberately the ceiling and not an estimate of typical load: it is the point beyond which the cap provably cannot be what closed a reusable connection.
+//
+// What has since been measured.
+//
+// This was a derived number with no observation beside it until hack/m5b-gateway-path.sh drove real load through the gateway on kind (hack/m5b-gateway-path-evidence.log).
+//
+// At the very flag values this constant is derived from, peak concurrency to one backend was 6, and against a deliberately slow two-second backend at double the rate it was 97; the cap was never approached in either regime.
+//
+// In both, the number of distinct connections the backend accepted equalled peak in-flight exactly, which is the signature of a pool that never evicted a connection it could have reused: were 600 too low, distinct connections would have run ahead of peak in-flight.
+//
+// So the ceiling reading above is confirmed, and the cap is now known to sit roughly two orders of magnitude above observed load rather than merely being assumed to.
+//
+// It is left at 600 rather than tuned down to what was observed: the observed figure is a property of one stub's latency, whereas the ceiling is a property of the harness's own flags, and the paragraph below is why an over-provisioned cap costs nothing.
 //
 // Why the ceiling is safe to use as the cap.
 //
