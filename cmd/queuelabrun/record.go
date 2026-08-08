@@ -38,14 +38,22 @@ const recordSchemaVersion = 1
 // the raw events. Fixtures, environment, restoration audit and validity are later pieces and add their own
 // fields when they exist rather than being reserved here.
 type runRecord struct {
-	SchemaVersion int    `json:"schemaVersion"`
-	Preview       bool   `json:"preview,omitempty"`
-	RunID         string `json:"runID"`
-	Arm           string `json:"arm"`
-	StartedAt     string `json:"startedAt,omitempty"`
-	EndedAt       string `json:"endedAt,omitempty"`
-	Disposition   string `json:"disposition"`
-	Reason        string `json:"reason,omitempty"`
+	SchemaVersion int `json:"schemaVersion"`
+	// Preview has no writer on purpose, and is NOT a reserved slot like the Flags field deleted before it: it
+	// exists for decodeRunRecord, so that a preview document fed to a run-record reader is rejected by the
+	// specific check below rather than by a generic unknown-field error that says nothing about why. Deleting
+	// it would silently weaken that message, so it stays despite buildRecord never setting it.
+	//
+	// It buys only that message: a hand-written {"schemaVersion":1,"preview":true,"runID":"x",
+	// "disposition":"y"} with no events still decodes as a valid RUN record, because the check that fires is
+	// about carrying events, not about the flag.
+	Preview     bool   `json:"preview,omitempty"`
+	RunID       string `json:"runID"`
+	Arm         string `json:"arm"`
+	StartedAt   string `json:"startedAt,omitempty"`
+	EndedAt     string `json:"endedAt,omitempty"`
+	Disposition string `json:"disposition"`
+	Reason      string `json:"reason,omitempty"`
 	// Events is the ledger. It is present whenever a collector ran.
 	Events []queuelab.LifecycleEvent `json:"events,omitempty"`
 }

@@ -53,7 +53,12 @@ func main() {
 		// collision-free and this file prints wherever it wrote — see recordPathFor and reportRun. Requiring it
 		// anyway would be a flag every invocation must remember to pass for a safety property the default
 		// already has, which is friction without a matching gain.
-		out     = flag.String("out", "", "path to write this invocation's run record (default: a per-invocation name in the working directory)")
+		// The help text warns about replacement because naming a fixed path is how an operator reintroduces the
+		// very defect recordPathFor's default was reshaped to remove: writeRecord replaces by rename, so a
+		// wrapper script passing `-out record.json` destroys the previous invocation's record on the next run.
+		out = flag.String("out", "", "path to write this invocation's run record; an existing file there is "+
+			"replaced, so a fixed path loses the previous run's record (default: a per-invocation name in the "+
+			"working directory, which never collides)")
 		preview = flag.Bool("preview", false, "run without the validity gates; output is a smoke check, not evidence")
 
 		// The operator modes recover from a crash: they inspect, release, or break the Node marker this
@@ -223,10 +228,15 @@ type recordWriter func(path string, v any) error
 // until a reviewer observed that no test can call main, which left the one rule this plan exists to
 // establish covered by a manual run of the binary alone.
 func reportRun(stdout, stderr io.Writer, write recordWriter, r runReport) int {
+	// The same substitution buildRecord applies, so the terminal and the record cannot give two accounts of one
+	// run: without it a zero disposition prints as "ERROR: :" — the blank field dispUnclassified exists to
+	// replace with a failure that names itself — while the file on disk correctly says it was a bug in run().
+	// classified is idempotent, so applying it here does not change what buildRecord already decided.
+	o := classified(r.Outcome)
 	writeErr := write(r.Path, r.Record)
 	if writeErr == nil {
 		fmt.Fprintln(stderr, "  run record:", r.Path)
-		if r.Result != nil && r.Outcome.Disposition == dispChecksPassed {
+		if r.Result != nil && o.Disposition == dispChecksPassed {
 			fmt.Fprint(stdout, "\n"+queuelab.RenderResult(*r.Result))
 		}
 		fmt.Fprintf(stdout, "\nledger: %d events\n", len(r.Events))
@@ -253,11 +263,11 @@ func reportRun(stdout, stderr io.Writer, write recordWriter, r runReport) int {
 		// It says the record is unproven rather than that the previous one survived, because a post-rename
 		// failure has already replaced it.
 		fmt.Fprintln(stderr, "ERROR: run record not persisted:", writeErr)
-		fmt.Fprintf(stderr, "  the outcome was %s: %s\n", r.Outcome.Disposition, r.Outcome.Reason)
+		fmt.Fprintf(stderr, "  the outcome was %s: %s\n", o.Disposition, o.Reason)
 		return 1
 	}
-	if r.Outcome.Disposition != dispChecksPassed {
-		fmt.Fprintf(stderr, "ERROR: %s: %s\n", r.Outcome.Disposition, r.Outcome.Reason)
+	if o.Disposition != dispChecksPassed {
+		fmt.Fprintf(stderr, "ERROR: %s: %s\n", o.Disposition, o.Reason)
 		return 1
 	}
 	return 0

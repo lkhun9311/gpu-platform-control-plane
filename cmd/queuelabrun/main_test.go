@@ -492,8 +492,12 @@ func TestReportRunPublishesNothingWhenTheRecordCannotBePersisted(t *testing.T) {
 	}
 }
 
-// The mirror of the test above: a successful write must publish, or the ordering would be satisfied by a
-// function that never renders anything at all.
+// The mirror of the test above: a successful write must publish the RESULT, which is the one thing a
+// non-zero exit cannot retract once it is on the terminal.
+//
+// It asserts on the rendered result rather than on a ledger line for a reason a reviewer proved empirically:
+// deleting reportRun's rendering block left the suite green, because an events line is printed by printEvents
+// and satisfies any assertion that only looks for one.
 func TestReportRunPublishesOnceTheRecordIsDurable(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	res := queuelab.LabResult{Arm: "A-honor"}
@@ -513,11 +517,74 @@ func TestReportRunPublishesOnceTheRecordIsDurable(t *testing.T) {
 	if wrote != "/tmp/run.json" {
 		t.Fatalf("reportRun must persist to the path it was given, got %q", wrote)
 	}
+	if !strings.Contains(stdout.String(), queuelab.RenderResult(res)) {
+		t.Fatalf("a durable record must be followed by the rendered result, got %q", stdout.String())
+	}
 	if !strings.Contains(stdout.String(), "job=a1") {
 		t.Fatalf("a non-preview run publishes its ledger, got %q", stdout.String())
 	}
 	if !strings.Contains(stderr.String(), "/tmp/run.json") {
 		t.Fatalf("the operator must be told where the record went, got %q", stderr.String())
+	}
+}
+
+// The other half of the rendering rule: a durable record is necessary to publish a result, not sufficient.
+//
+// run() hands back a nil Result on every path that failed, so this scenario needs the caller to be wrong
+// about that — a Result surviving alongside a failing disposition — and the check that must catch it is the
+// disposition gate, not the nil check. Rendering here would put a number on the terminal for a run whose own
+// collector desynced, which is exactly the "a run that looked fine was allowed to count" failure this lab
+// published once already.
+func TestReportRunRendersNoResultUnlessTheChecksPassed(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	res := queuelab.LabResult{Arm: "A-honor"}
+	code := reportRun(&stdout, &stderr, func(string, any) error { return nil }, runReport{
+		Outcome: outcome{Disposition: dispCollectorDesync, Reason: "watch gap"},
+		Events:  []queuelab.LifecycleEvent{{ElapsedNs: 1, Kind: "Pod", Job: "a1"}},
+		Result:  &res,
+		Record:  runRecord{SchemaVersion: recordSchemaVersion},
+		Path:    "/tmp/run.json",
+	})
+
+	if code == 0 {
+		t.Fatal("a run that did not pass its checks must exit non-zero")
+	}
+	if strings.Contains(stdout.String(), queuelab.RenderResult(res)) {
+		t.Fatalf("a result must not be rendered for a disposition other than %s, got %q",
+			dispChecksPassed, stdout.String())
+	}
+	// The ledger still publishes: withholding it would leave the failed run undiagnosable, which is the
+	// invisibility this record exists to end — only the countable result is withheld.
+	if !strings.Contains(stdout.String(), "job=a1") {
+		t.Fatalf("a failed non-preview run still publishes its ledger, got %q", stdout.String())
+	}
+	if !strings.Contains(stderr.String(), string(dispCollectorDesync)) {
+		t.Fatalf("stderr must name the disposition that stopped publication, got %q", stderr.String())
+	}
+}
+
+// reportRun applies the same substitution buildRecord does, so the terminal and the record cannot give two
+// accounts of one run.
+//
+// Without it a zero disposition — a bug in run(), not an outcome of it — printed as "ERROR: :", the blank
+// field dispUnclassified exists precisely to replace, while the record on disk named it correctly.
+func TestReportRunNamesAnUnclassifiedOutcomeOnStderrToo(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := reportRun(&stdout, &stderr, func(string, any) error { return nil }, runReport{
+		Outcome: outcome{},
+		Record:  runRecord{SchemaVersion: recordSchemaVersion},
+		Path:    "/tmp/run.json",
+	})
+
+	if code == 0 {
+		t.Fatal("an unclassified outcome is not a passing run")
+	}
+	if !strings.Contains(stderr.String(), string(dispUnclassified)) {
+		t.Fatalf("stderr must name the unclassified failure rather than print a blank field, got %q",
+			stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "bug in run()") {
+		t.Fatalf("stderr must carry the same reason the record does, got %q", stderr.String())
 	}
 }
 
@@ -627,7 +694,9 @@ func fakeSchedulerWatch(ctx context.Context, c client.WithWatch, obj client.Obje
 func TestRunExplicitReleaseFailureRecordsWorkerNotRestored(t *testing.T) {
 	if testing.Short() {
 		t.Skip("drives run() through the full 40-second protocol dose to reach the explicit-release path; " +
-			"-short does not check that an explicit release failure is recorded as worker-not-restored")
+			"this and the cancellation test below are the only two that drive run() past col.start, so -short " +
+			"leaves submit, the barriers, the collector and the explicit release entirely unexercised — in " +
+			"particular it does not check that an explicit release failure is recorded as worker-not-restored")
 	}
 	var nodePatches int
 	fc := fake.NewClientBuilder().WithScheme(fullScheme(t)).WithObjects(node(nil, nil)).
@@ -710,7 +779,10 @@ func TestRunExplicitReleaseFailureRecordsWorkerNotRestored(t *testing.T) {
 func TestRunCancellationWhileRestoringNeverRelabelsAsCancelled(t *testing.T) {
 	if testing.Short() {
 		t.Skip("drives run() through the full 40-second protocol dose to reach the explicit-release path; " +
-			"-short does not check that a cancellation during restoration never relabels the run cancelled")
+			"this and the release-failure test above are the only two that drive run() past col.start, so " +
+			"-short leaves submit, the barriers, the collector and the explicit release entirely unexercised " +
+			"— in particular it does not check that a cancellation during restoration never relabels the run " +
+			"cancelled")
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	var nodePatches int
