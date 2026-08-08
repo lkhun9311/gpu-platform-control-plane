@@ -19,6 +19,7 @@ package main
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -59,10 +60,17 @@ func TestAmendReplacesTheDispositionAndKeepsTheOriginalReason(t *testing.T) {
 	if a.Disposition != dispWorkerNotRestored {
 		t.Fatalf("amend must replace the disposition, got %s", a.Disposition)
 	}
-	if a.Reason == "" || a.Err == nil {
-		t.Fatal("amend must keep the original reason and error as the cause")
+	if a.Err == nil {
+		t.Fatal("amend must keep the original error as the cause")
 	}
-	if a.Reason == o.Reason {
-		t.Fatal("amend must record why it amended, not silently keep the old reason alone")
+	// A reason that merely differs from the original (e.g. because the new reason string happens to be
+	// different) is not proof the original survived — it could equally mean amend discarded it outright.
+	// Asserting containment of both strings is the only way to tell "replaced but chained" from "replaced
+	// entirely."
+	if !strings.Contains(a.Reason, o.Reason) {
+		t.Fatalf("amend must keep the original reason inside the amended one, got %q, want it to contain %q", a.Reason, o.Reason)
+	}
+	if !strings.Contains(a.Reason, "emergency release failed") {
+		t.Fatalf("amend must record why it amended, not silently keep the old reason alone, got %q", a.Reason)
 	}
 }
