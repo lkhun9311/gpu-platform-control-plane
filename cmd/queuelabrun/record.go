@@ -45,8 +45,6 @@ type runRecord struct {
 	EndedAt       string `json:"endedAt,omitempty"`
 	Disposition   string `json:"disposition"`
 	Reason        string `json:"reason,omitempty"`
-	// Flags are the invocation's flags as given, for provenance.
-	Flags map[string]string `json:"flags,omitempty"`
 	// Events is the ledger. It is present whenever a collector ran.
 	Events []queuelab.LifecycleEvent `json:"events,omitempty"`
 }

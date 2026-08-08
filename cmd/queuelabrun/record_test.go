@@ -18,12 +18,15 @@ package main
 
 import (
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/lkhun9311/gpu-mlops-platform-control-plane/internal/queuelab"
 )
 
+// The assertion checks every field, not a sample, so a struct-copy bug or a stray json:"-" on any one
+// field cannot slip through a partial check the way an earlier revision of this test allowed.
 func TestRunRecordRoundTrips(t *testing.T) {
 	in := runRecord{
 		SchemaVersion: recordSchemaVersion,
@@ -43,8 +46,8 @@ func TestRunRecordRoundTrips(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if got.RunID != in.RunID || got.Disposition != in.Disposition || len(got.Events) != 1 {
-		t.Fatalf("round trip lost content: %+v", got)
+	if !reflect.DeepEqual(got, in) {
+		t.Fatalf("round trip lost content: got %+v, want %+v", got, in)
 	}
 }
 
@@ -53,6 +56,24 @@ func TestDecodeRunRecordRefusesAnUnknownSchema(t *testing.T) {
 	b := []byte(`{"schemaVersion":99,"runID":"r7","arm":"A-honor","disposition":"completed-implemented-checks-passed"}`)
 	if _, err := decodeRunRecord(b); err == nil {
 		t.Fatal("an unknown schema version must be refused")
+	}
+}
+
+// A field the schema does not define must be refused, not silently dropped, or a hand-edited or
+// future-schema document could carry content decodeRunRecord never validated.
+func TestDecodeRunRecordRefusesAnUnknownField(t *testing.T) {
+	b := []byte(`{"schemaVersion":1,"runID":"r7","arm":"A-honor",` +
+		`"disposition":"completed-implemented-checks-passed","bogusField":"x"}`)
+	if _, err := decodeRunRecord(b); err == nil {
+		t.Fatal("an unrecognized field must be refused")
+	}
+}
+
+// A record without a run identity is not a usable record regardless of what else it claims.
+func TestDecodeRunRecordRefusesEmptyRunID(t *testing.T) {
+	b := []byte(`{"schemaVersion":1,"runID":"","arm":"A-honor","disposition":"completed-implemented-checks-passed"}`)
+	if _, err := decodeRunRecord(b); err == nil {
+		t.Fatal("an empty runID must be refused")
 	}
 }
 
