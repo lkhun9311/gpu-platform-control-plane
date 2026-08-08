@@ -94,7 +94,13 @@ type streamBaseline struct {
 // "not cancelled" alone as a lost stream would condemn every orderly shutdown, which is why Stopped exists.
 //
 // Stopped says the caller asked to stop before the stream finished ending, not that the stop was the cause,
-// because a stop can race with a stream that was already dying; LastStatus stays evidence either way.
+// because a stop can race with a stream that was already dying.
+//
+// LastStatus is independent evidence when it is present, but its absence proves nothing: the wrapped
+// Forbidden path terminates permanently while forwarding no event at all, so a stop racing that loss reads
+// as Stopped with no status — indistinguishable, on these three fields alone, from an orderly shutdown. A
+// caller that needs the distinction must establish it before stopping, with a non-blocking check of End(),
+// rather than inferring it from a nil LastStatus afterwards.
 type streamEnd struct {
 	Cancelled  bool
 	Stopped    bool
