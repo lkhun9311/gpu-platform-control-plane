@@ -98,9 +98,8 @@ type streamBaseline struct {
 //
 // LastStatus is independent evidence when it is present, but its absence proves nothing: the wrapped
 // Forbidden path terminates permanently while forwarding no event at all, so a stop racing that loss reads
-// as Stopped with no status — indistinguishable, on these three fields alone, from an orderly shutdown. A
-// caller that needs the distinction must establish it before stopping, with a non-blocking check of End(),
-// rather than inferring it from a nil LastStatus afterwards.
+// as Stopped with no status. These three fields can therefore confirm a loss and can never confirm an
+// orderly ending; Ended documents that asymmetry and what an adopter has to do about it.
 type streamEnd struct {
 	Cancelled  bool
 	Stopped    bool
@@ -125,6 +124,15 @@ type watchStream struct {
 	end streamEnd
 }
 
+// startWatchStream opens one kind's continuous view: a baseline List, then a watch resuming from exactly
+// the point that List established.
+//
+// ctx governs the whole stream and not merely the baseline List, which is the trap worth stating outright.
+// A caller bounding establishment with context.WithTimeout hands that deadline to the stream as well, so
+// every stream dies when it expires and the ending reads as Cancelled — the caller's own shutdown
+// signature. A run that stopped observing thirty seconds in would then be reported as a clean shutdown.
+// Give the stream the run's own context and bound establishment by selecting on Established() against a
+// timer instead.
 func startWatchStream(ctx context.Context, c client.WithWatch, ns string,
 	newList func() client.ObjectList) (*watchStream, error) {
 	list := newList()
@@ -202,9 +210,16 @@ func (s *watchStream) forward(ctx context.Context) {
 }
 
 func (s *watchStream) Baseline() streamBaseline       { return s.baseline }
-func (s *watchStream) Established() <-chan struct{}   { return s.adapter.Established() }
 func (s *watchStream) ResultChan() <-chan watch.Event { return s.out }
 func (s *watchStream) End() <-chan struct{}           { return s.done }
+
+// Established closes once an underlying watch has succeeded, and may never close at all.
+//
+// A permanent pre-establishment failure — a Forbidden that arrives wrapped is the one this package has
+// reproduced — ends the stream having never established anything, and startWatchStream has already returned
+// a nil error by then. A barrier written as a bare receive over several streams therefore waits forever on
+// the one that died; select it against End() and treat that arm as a failed stream, not as a slow one.
+func (s *watchStream) Established() <-chan struct{} { return s.adapter.Established() }
 
 // Stop ends the stream and is enough on its own: after it returns, End closes whatever forward was doing.
 //
@@ -216,6 +231,24 @@ func (s *watchStream) Stop() {
 }
 
 // Ended reports what was observed about the ending, and is only meaningful after End() is closed.
+//
+// The reading is one-sided on purpose, because what is here can confirm a loss and can never confirm the
+// absence of one:
+//
+//   - Neither Cancelled nor Stopped means the stream ended on its own, which is always a lost gap.
+//   - A non-nil LastStatus is a terminal status the stream actually saw, which is also always a lost gap.
+//   - Cancelled or Stopped with no status is only an absence of evidence, because a permanent failure that
+//     forwards nothing can arrive concurrently with the shutdown that set either flag.
+//
+// No check the caller can perform closes that last hole, and sampling End() before stopping actively makes
+// things worse. If the stream had already ended on its own, the flags alone already reject it and the
+// sample adds nothing; if it is ending concurrently, End() has not closed yet and the sample permits
+// exactly the case it was meant to catch; and on an ordinary cancelled shutdown, where End() has
+// legitimately closed first, the sample condemns a run that was fine.
+//
+// An adopter that needs a real orderliness verdict has to source it from outside this type — a final List
+// once the stream has ended, comparing that resourceVersion against the last one delivered, which is the
+// job relistCheck does today and which the plan leaves to the integration slice.
 func (s *watchStream) Ended() streamEnd {
 	s.mu.Lock()
 	defer s.mu.Unlock()
