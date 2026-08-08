@@ -28,10 +28,15 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/watch"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
+	kueuev1beta2 "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 
+	platformv1 "github.com/lkhun9311/gpu-mlops-platform-control-plane/api/v1"
 	"github.com/lkhun9311/gpu-mlops-platform-control-plane/internal/queuelab"
 )
 
@@ -539,5 +544,207 @@ func TestReportRunWithholdsTheLedgerFromAPreview(t *testing.T) {
 	}
 	if !strings.Contains(out, previewBanner) {
 		t.Fatalf("preview output must stay bracketed by the banner, got %q", out)
+	}
+}
+
+// fullScheme extends testScheme with the CRDs a full protocol run touches. Every other test in this file
+// fails before reaching them, so testScheme itself is deliberately left without them; only the two tests
+// below drive run() all the way to its own explicit release and need MLTrainingJob and the Kueue fixture
+// types registered to get there.
+func fullScheme(t *testing.T) *runtime.Scheme {
+	t.Helper()
+	scheme := testScheme(t)
+	if err := platformv1.AddToScheme(scheme); err != nil {
+		t.Fatalf("add platform/v1 to scheme: %v", err)
+	}
+	if err := kueuev1beta2.AddToScheme(scheme); err != nil {
+		t.Fatalf("add kueue v1beta2 to scheme: %v", err)
+	}
+	return scheme
+}
+
+// fakeSchedulerCreate stands in for the Kueue scheduler this fake cluster has none of. It stamps every
+// MLTrainingJob straight to Running with a unique UID — the two facts the barrier-staged schedule and the
+// collector's UID-keyed cache actually depend on — so an uncontested arm falls through to run()'s own
+// explicit release exactly as it would against a real, empty cluster with nothing else competing for the
+// worker.
+func fakeSchedulerCreate(ctx context.Context, c client.WithWatch, obj client.Object,
+	opts ...client.CreateOption) error {
+	if mltj, ok := obj.(*platformv1.MLTrainingJob); ok {
+		mltj.UID = types.UID("uid-" + mltj.Name)
+		mltj.Status.Phase = phaseRunning
+	}
+	return c.Create(ctx, obj, opts...)
+}
+
+// stubWatch never delivers an event; it exists only to close once ctx is cancelled, which the fake client's
+// real Watch — a thin wrapper over an in-memory tracker with no notion of context at all — never does on its
+// own. collector.watch relies on that closing to unblock and rejoin its goroutines once run() cancels its
+// observation context, so without this a full run() driven against a bare fake client hangs forever in
+// col.wait() the instant it tries to finish, whatever the rest of the run computed.
+//
+// It costs nothing in fidelity here: every fact this file's two full-run tests depend on — an MLTrainingJob's
+// Submitted event and its Status.Phase for the barrier checks — is written directly rather than observed off
+// a watch (see fakeSchedulerCreate and collector.submitObserved), and classify() has no case for
+// MLTrainingJob in the first place, so a real relay of watch events would not change what either test sees.
+type stubWatch struct{ ch chan watch.Event }
+
+func newStubWatch(ctx context.Context) *stubWatch {
+	w := &stubWatch{ch: make(chan watch.Event)}
+	go func() {
+		<-ctx.Done()
+		close(w.ch)
+	}()
+	return w
+}
+
+func (w *stubWatch) Stop()                          {}
+func (w *stubWatch) ResultChan() <-chan watch.Event { return w.ch }
+
+// fakeSchedulerWatch pairs with fakeSchedulerCreate to complete the fake-cluster double: see stubWatch.
+func fakeSchedulerWatch(ctx context.Context, c client.WithWatch, obj client.ObjectList,
+	opts ...client.ListOption) (watch.Interface, error) {
+	return newStubWatch(ctx), nil
+}
+
+// run()'s own release — at the very end, after reconstruction and cardinality have already passed, not the
+// deferred emergency one that covers early returns — is the last thing standing between a computed result
+// and calling the worker restored. If it fails, run() must reach classifyReleaseFailure, not the phase
+// classifier every earlier failure in this function uses, because this release ran to completion rather than
+// being cut short partway through: a failure here means the worker is still held, in full, with nothing left
+// to retry, which is what dispWorkerNotRestored says and dispCancelled does not.
+//
+// Driving this requires run() to actually complete its protocol, so the Node patch this test fails is
+// counted rather than the first one intercepted: the first Node patch is acquireWorker's own, and only the
+// second is the run's own release.
+func TestRunExplicitReleaseFailureRecordsWorkerNotRestored(t *testing.T) {
+	var nodePatches int
+	fc := fake.NewClientBuilder().WithScheme(fullScheme(t)).WithObjects(node(nil, nil)).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Create: fakeSchedulerCreate,
+			Watch:  fakeSchedulerWatch,
+			Patch: func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch,
+				opts ...client.PatchOption) error {
+				if _, ok := obj.(*corev1.Node); ok {
+					nodePatches++
+					// A non-conflict error is not retried, which is what makes it land on the explicit
+					// release's own failure path rather than acquisition's conflict-retry loop.
+					if nodePatches == 2 {
+						return fmt.Errorf("apiserver unreachable")
+					}
+				}
+				return c.Patch(ctx, obj, patch, opts...)
+			},
+		}).Build()
+
+	o, events, res := run(context.Background(), func() (client.WithWatch, error) { return fc, nil },
+		queuelab.ArmNRef, "r8", "queuelab-r8", "platform-worker", 45*time.Second)
+
+	if nodePatches != 2 {
+		t.Fatalf("want exactly 2 node patches (acquire + the run's own release), got %d — this test proved "+
+			"nothing about the explicit release if the run never reached it", nodePatches)
+	}
+	if res != nil {
+		t.Fatal("a run whose own release failed must hand back no result to render, or a caller could " +
+			"publish a number computed under a worker that is still held")
+	}
+	if o.Disposition != dispWorkerNotRestored {
+		t.Fatalf("an explicit release failure is worker-not-restored, got %s: %s", o.Disposition, o.Reason)
+	}
+
+	// The record is what actually survives, so the assertion is made against the bytes on disk rather than
+	// the in-memory outcome the test already holds.
+	path := t.TempDir() + "/record.json"
+	started := time.Now()
+	if err := writeRecord(path, buildRecord(o, events, "r8", string(queuelab.ArmNRef), false,
+		started, started.Add(45*time.Second))); err != nil {
+		t.Fatalf("persist: %v", err)
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read back: %v", err)
+	}
+	rr, err := decodeRunRecord(b)
+	if err != nil {
+		t.Fatalf("the persisted record must decode: %v", err)
+	}
+	if rr.Disposition != string(dispWorkerNotRestored) {
+		t.Fatalf("the persisted record must carry worker-not-restored, got %s", rr.Disposition)
+	}
+}
+
+// This is the acceptance condition the whole disposition design turns on. run()'s own release executes on
+// cleanupContext — a bounded context deliberately derived from context.Background() rather than the
+// signal-cancelled run context, exactly so a Ctrl-C landing while restoration is in flight cannot be
+// mistaken for the reason restoration failed (see cleanupContext's and classifyReleaseFailure's comments).
+//
+// This drives that scenario for real: it cancels the run's own context from inside the release-phase Patch,
+// the instant restoration is in flight, and checks two things. First, that the context the release actually
+// ran on was still live the moment cancellation landed elsewhere — proving cleanupContext is genuinely
+// independent rather than only documented as such, since a regression that handed the release the run's own
+// context would show Canceled here immediately, before the injected failure below even matters. Second, that
+// the disposition which follows names the release failure and never cancellation: the wrong implementation
+// this guards against is routing the release failure through the PHASE classifier (classifyPhaseFailure)
+// instead of classifyReleaseFailure, which is why the injected failure itself wraps context.Canceled — the
+// phase classifier treats that as cancellation outright and would relabel this run cancelled, exactly the
+// misreading two accounts of one run — a worker still held, reported as merely interrupted — that this
+// design exists to prevent.
+func TestRunCancellationWhileRestoringNeverRelabelsAsCancelled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	var nodePatches int
+	var releaseCtxErr error
+	fc := fake.NewClientBuilder().WithScheme(fullScheme(t)).WithObjects(node(nil, nil)).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Create: fakeSchedulerCreate,
+			Watch:  fakeSchedulerWatch,
+			Patch: func(pctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch,
+				opts ...client.PatchOption) error {
+				if _, ok := obj.(*corev1.Node); ok {
+					nodePatches++
+					if nodePatches == 2 {
+						cancel()
+						releaseCtxErr = pctx.Err()
+						return fmt.Errorf("release patch: %w", context.Canceled)
+					}
+				}
+				return c.Patch(pctx, obj, patch, opts...)
+			},
+		}).Build()
+
+	o, events, res := run(ctx, func() (client.WithWatch, error) { return fc, nil },
+		queuelab.ArmNRef, "r9", "queuelab-r9", "platform-worker", 45*time.Second)
+
+	if nodePatches != 2 {
+		t.Fatalf("want exactly 2 node patches (acquire + the run's own release), got %d — this test proved "+
+			"nothing about restoration if the run never reached it", nodePatches)
+	}
+	if releaseCtxErr != nil {
+		t.Fatalf("the release ran on a context the run's own cancellation could reach; want an independent "+
+			"one derived from cleanupContext, got err %v on it", releaseCtxErr)
+	}
+	if res != nil {
+		t.Fatal("a run whose own release failed must hand back no result to render")
+	}
+	if o.Disposition != dispWorkerNotRestored {
+		t.Fatalf("a cancellation arriving while restoration is in flight must not relabel the run cancelled; "+
+			"want worker-not-restored, got %s: %s", o.Disposition, o.Reason)
+	}
+
+	path := t.TempDir() + "/record.json"
+	started := time.Now()
+	if err := writeRecord(path, buildRecord(o, events, "r9", string(queuelab.ArmNRef), false,
+		started, started.Add(45*time.Second))); err != nil {
+		t.Fatalf("persist: %v", err)
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read back: %v", err)
+	}
+	rr, err := decodeRunRecord(b)
+	if err != nil {
+		t.Fatalf("the persisted record must decode: %v", err)
+	}
+	if rr.Disposition != string(dispWorkerNotRestored) {
+		t.Fatalf("the persisted record must not carry cancelled, got %s", rr.Disposition)
 	}
 }
