@@ -136,28 +136,31 @@ type watchStream struct {
 func startWatchStream(ctx context.Context, c client.WithWatch, ns string,
 	newList func() client.ObjectList) (*watchStream, error) {
 	list := newList()
+	// Every stream a run opens watches the same namespace, so the namespace alone identifies none of them
+	// and all four would fail with byte-identical text; the list type is what tells them apart in a log.
+	kind := fmt.Sprintf("%T", list)
 	if err := c.List(ctx, list, client.InNamespace(ns)); err != nil {
-		return nil, fmt.Errorf("baseline list for %s: %w", ns, err)
+		return nil, fmt.Errorf("baseline list of %s in %s: %w", kind, ns, err)
 	}
 	rv := list.GetResourceVersion()
 	// RetryWatcher rejects both, and for the same reason this component must: an empty version starts the
 	// watch from now, and "0" starts it from an arbitrary cached point, so neither gives a known baseline
 	// that a later gap can be measured against.
 	if rv == "" || rv == "0" {
-		return nil, fmt.Errorf("baseline list for %s returned resource version %q, which is not a resumable point", ns, rv)
+		return nil, fmt.Errorf("baseline list of %s in %s returned resource version %q, which is not a resumable point", kind, ns, rv)
 	}
 	// ExtractList rather than meta.LenList because LenList reports 0 for anything it cannot walk, and a
 	// baseline that silently reads as empty is exactly the kind of unobserved claim this component refuses.
 	items, err := meta.ExtractList(list)
 	if err != nil {
-		return nil, fmt.Errorf("count baseline objects for %s: %w", ns, err)
+		return nil, fmt.Errorf("count baseline %s objects in %s: %w", kind, ns, err)
 	}
 	n := len(items)
 
 	a := newWatchAdapter(c, ns, newList)
 	rw, err := watchtools.NewRetryWatcherWithContext(ctx, rv, a)
 	if err != nil {
-		return nil, fmt.Errorf("start watch for %s from %s: %w", ns, rv, err)
+		return nil, fmt.Errorf("start watch of %s in %s from %s: %w", kind, ns, rv, err)
 	}
 
 	s := &watchStream{

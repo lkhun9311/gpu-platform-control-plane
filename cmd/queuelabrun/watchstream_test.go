@@ -235,6 +235,11 @@ func TestWatchStreamRefusesABaselineWithoutAResumableVersion(t *testing.T) {
 		if !strings.Contains(err.Error(), "ns-a") || !strings.Contains(err.Error(), "not a resumable point") {
 			t.Fatalf("baseline %q was refused by %q, but not by the component's own guard naming the list it came from", rv, err)
 		}
+		// Naming the namespace is not identification when every stream in a run shares one, so the kind has
+		// to be in there too or all four failures read the same.
+		if !strings.Contains(err.Error(), "PodList") {
+			t.Fatalf("baseline %q was refused by %q, which names no kind and so reads identically for every stream in the namespace", rv, err)
+		}
 	}
 }
 
