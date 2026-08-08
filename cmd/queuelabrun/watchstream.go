@@ -88,10 +88,14 @@ type streamBaseline struct {
 // the cancelled context — so "410 versus another permanent reason" is not a distinction this type can
 // always make.
 //
-// Cancelled and Stopped are the two endings the caller itself caused, and they are the only endings that
-// are not a loss of continuity: an ending with neither set means the stream ended on its own, so the gap
-// since the last delivered version can never be closed, whether or not LastStatus names a cause. Reading
-// "not cancelled" alone as a lost stream would condemn every orderly shutdown, which is why Stopped exists.
+// Cancelled and Stopped are the two endings the caller itself caused, and an ending with neither set is
+// always a loss: the stream ended on its own, so the gap since the last delivered version can never be
+// closed, whether or not LastStatus names a cause. Reading "not cancelled" alone as a lost stream would
+// condemn every orderly shutdown, which is why Stopped exists.
+//
+// But either flag being set proves only that the ending is not yet shown to be a loss — never that it was
+// orderly. Do not read this struct as licensing `orderly := end.Cancelled || end.Stopped`; Ended explains
+// why that is weaker than it looks and where a real verdict has to come from.
 //
 // Stopped says the caller asked to stop before the stream finished ending, not that the stop was the cause,
 // because a stop can race with a stream that was already dying.
@@ -252,6 +256,12 @@ func (s *watchStream) Stop() {
 // An adopter that needs a real orderliness verdict has to source it from outside this type — a final List
 // once the stream has ended, comparing that resourceVersion against the last one delivered, which is the
 // job relistCheck does today and which the plan leaves to the integration slice.
+//
+// That final List is not the asynchronous relist the plan removes, and the difference is a guarantee this
+// type makes rather than a matter of intent. forward defers close(done) before close(out), so LIFO closes
+// out first: End() being closed already implies ResultChan() is closed and no further event can arrive. A
+// List issued after End() therefore cannot race a terminal event still in flight, which is exactly what
+// today's relist — running inside the live watch loop — can do when it marks a Pod vanished.
 func (s *watchStream) Ended() streamEnd {
 	s.mu.Lock()
 	defer s.mu.Unlock()
