@@ -160,33 +160,41 @@ func waitFor(t *testing.T, cond func() bool) {
 
 // A break in the middle of a stream must resume from the last delivered version, not from the baseline —
 // resuming from the baseline would redeliver, and resuming from now would lose the gap.
+//
+// This drives a whole watchStream rather than a bare RetryWatcher because the resume version only reaches
+// the server through the adapter's Raw options, so the composed path is the only place the claim is true.
 func TestWatchStreamResumesFromTheLastDeliveredVersion(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	first := watch.NewFake()
 	second := watch.NewFake()
-	s := &scriptedWatcher{calls: []func(metav1.ListOptions) (watch.Interface, error){
+	ws, script := streamOnScript(ctx, t, nil,
 		func(metav1.ListOptions) (watch.Interface, error) { return first, nil },
-		func(metav1.ListOptions) (watch.Interface, error) { return second, nil },
-	}}
-
-	rw, err := watchtools.NewRetryWatcherWithContext(context.Background(), "100", s)
-	if err != nil {
-		t.Fatalf("retry watcher: %v", err)
-	}
-	defer rw.Stop()
+		func(metav1.ListOptions) (watch.Interface, error) { return second, nil })
+	defer ws.Stop()
 
 	go func() {
-		first.Modify(podAtVersion("p1", "105"))
+		first.Modify(podAtVersion("p1", "1105"))
 		first.Stop()
 	}()
-	<-rw.ResultChan()
+	select {
+	case <-ws.ResultChan():
+	case <-time.After(5 * time.Second):
+		t.Fatal("the event never reached the caller, so there is no delivered version to resume from")
+	}
 
-	// The second call must ask for 105, the version of the event actually delivered.
-	waitFor(t, func() bool { s.mu.Lock(); defer s.mu.Unlock(); return len(s.seen) == 2 })
-	s.mu.Lock()
-	got := s.seen[1]
-	s.mu.Unlock()
-	if got != "105" {
-		t.Fatalf("resumed from %q, want 105 — resuming from the baseline redelivers and resuming from now loses the gap", got)
+	// The second call must ask for 1105, the version of the event actually delivered.
+	waitFor(t, func() bool { script.mu.Lock(); defer script.mu.Unlock(); return len(script.seen) == 2 })
+	script.mu.Lock()
+	opened, resumed := script.seen[0], script.seen[1]
+	script.mu.Unlock()
+
+	if opened != baselineRV {
+		t.Fatalf("the first watch opened at %q, want the baseline %q", opened, baselineRV)
+	}
+	if resumed != "1105" {
+		t.Fatalf("resumed from %q, want 1105 — resuming from the baseline redelivers and resuming from now loses the gap", resumed)
 	}
 }
 
@@ -367,6 +375,13 @@ func TestWatchStreamEndsOnAPermanentFailureThatForwardsNothing(t *testing.T) {
 	if ev, ok := <-ws.ResultChan(); ok {
 		t.Fatalf("nothing was forwarded on this path, yet the caller saw %v", ev)
 	}
+	// The stream is over and no watch ever succeeded, so a barrier written as a bare receive on Established
+	// would wait here forever; that is the shape the plan's "establish all four before t0" invites.
+	select {
+	case <-ws.Established():
+		t.Fatal("no watch was ever established, so signalling establishment would release a barrier on a dead stream")
+	default:
+	}
 	end := ws.Ended()
 	if end.Cancelled || end.Stopped {
 		t.Fatal("no cause was observed and the caller neither cancelled nor stopped, so this must read as a lost stream")
@@ -446,5 +461,84 @@ func TestWatchStreamStopEndsTheStreamWithAnEventParkedMidForward(t *testing.T) {
 	}
 	if end.LastStatus != nil {
 		t.Fatalf("no status was forwarded, so claiming one would be evidence the stream never saw: %v", end.LastStatus)
+	}
+}
+
+// Delivering events is the component's entire purpose and every other test here only pins the plumbing
+// around it, so a forwarder that silently dropped everything would leave the ledger with no input at all
+// and nothing else in this file would notice.
+func TestWatchStreamDeliversTheEventsItReceives(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	feed := watch.NewFakeWithChanSize(2, false)
+	feed.Add(podAtVersion("p1", "1001"))
+	feed.Modify(podAtVersion("p2", "1002"))
+	ws, _ := streamOnScript(ctx, t, nil,
+		func(metav1.ListOptions) (watch.Interface, error) { return feed, nil })
+	defer ws.Stop()
+
+	// Order matters as much as arrival: the ledger reads these as a sequence, so a reordered pair would
+	// describe a lifecycle that never happened.
+	want := []struct {
+		typ  watch.EventType
+		name string
+	}{
+		{watch.Added, "p1"},
+		{watch.Modified, "p2"},
+	}
+	for i, w := range want {
+		select {
+		case ev, ok := <-ws.ResultChan():
+			if !ok {
+				t.Fatalf("the stream ended before event %d, so the caller never saw it", i)
+			}
+			if ev.Type != w.typ {
+				t.Fatalf("event %d has type %q, want %q", i, ev.Type, w.typ)
+			}
+			pod, isPod := ev.Object.(*corev1.Pod)
+			if !isPod {
+				t.Fatalf("event %d carried %T rather than the object that was watched", i, ev.Object)
+			}
+			if pod.Name != w.name {
+				t.Fatalf("event %d names %q, want %q", i, pod.Name, w.name)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatalf("event %d never arrived, so this stream feeds the ledger nothing", i)
+		}
+	}
+}
+
+// Cancelling is the collector's actual shutdown, so the ctx arm has to release a parked forwarder for the
+// same reason Stop does: without it the caller waits on an End that this goroutine can no longer reach.
+func TestWatchStreamCancellationEndsTheStreamWithAnEventParkedMidForward(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Two events, because the second is what makes the first observably parked: RetryWatcher can only have
+	// taken the second after the forwarder accepted the first.
+	parked := watch.NewFakeWithChanSize(2, false)
+	parked.Modify(podAtVersion("p1", "1001"))
+	parked.Modify(podAtVersion("p2", "1002"))
+	ws, _ := streamOnScript(ctx, t, nil,
+		func(metav1.ListOptions) (watch.Interface, error) { return parked, nil })
+	defer ws.Stop()
+
+	// Nothing ever drains ResultChan here, which is exactly the state a caller is in between reads.
+	waitFor(t, func() bool { return len(parked.ResultChan()) == 0 })
+
+	cancel()
+	select {
+	case <-ws.End():
+	case <-time.After(5 * time.Second):
+		t.Fatal("cancelling the caller's context must end the stream even with an event parked mid-forward")
+	}
+
+	end := ws.Ended()
+	if !end.Cancelled {
+		t.Fatal("the caller cancelled, so any other reading of this ending names the wrong cause")
+	}
+	if end.Stopped {
+		t.Fatal("nobody called Stop, so claiming a stop would credit an ending the caller never asked for")
 	}
 }
