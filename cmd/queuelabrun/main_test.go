@@ -617,7 +617,18 @@ func fakeSchedulerWatch(ctx context.Context, c client.WithWatch, obj client.Obje
 // Driving this requires run() to actually complete its protocol, so the Node patch this test fails is
 // counted rather than the first one intercepted: the first Node patch is acquireWorker's own, and only the
 // second is the run's own release.
+//
+// This test is real time, not simulated: it drives run() through the actual doseSec=40 protocol wait (see
+// spine.go), which is a protocol constant the experiment's validity rests on and is deliberately not made
+// configurable for tests — a test-only override would be exactly the seam that later gets used in
+// production. -short skips it for that reason: `go test -short` does NOT check that an explicit release
+// failure is recorded as worker-not-restored with nothing rendered. Only a full `go test` (no -short)
+// exercises this acceptance condition.
 func TestRunExplicitReleaseFailureRecordsWorkerNotRestored(t *testing.T) {
+	if testing.Short() {
+		t.Skip("drives run() through the full 40-second protocol dose to reach the explicit-release path; " +
+			"-short does not check that an explicit release failure is recorded as worker-not-restored")
+	}
 	var nodePatches int
 	fc := fake.NewClientBuilder().WithScheme(fullScheme(t)).WithObjects(node(nil, nil)).
 		WithInterceptorFuncs(interceptor.Funcs{
@@ -689,7 +700,18 @@ func TestRunExplicitReleaseFailureRecordsWorkerNotRestored(t *testing.T) {
 // phase classifier treats that as cancellation outright and would relabel this run cancelled, exactly the
 // misreading two accounts of one run — a worker still held, reported as merely interrupted — that this
 // design exists to prevent.
+//
+// This test is real time, not simulated: it drives run() through the actual doseSec=40 protocol wait (see
+// spine.go), which is a protocol constant the experiment's validity rests on and is deliberately not made
+// configurable for tests — a test-only override would be exactly the seam that later gets used in
+// production. -short skips it for that reason: `go test -short` does NOT check the acceptance condition
+// above — that a cancellation arriving while restoration is in flight never relabels the run cancelled. Only
+// a full `go test` (no -short) exercises it.
 func TestRunCancellationWhileRestoringNeverRelabelsAsCancelled(t *testing.T) {
+	if testing.Short() {
+		t.Skip("drives run() through the full 40-second protocol dose to reach the explicit-release path; " +
+			"-short does not check that a cancellation during restoration never relabels the run cancelled")
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	var nodePatches int
 	var releaseCtxErr error
