@@ -22,6 +22,7 @@ docs/superpowers/*
 !/README.md
 !/infra/**/README.md
 !/hack/m6-kind-e2e.md
+!/hack/m5b-gateway-path.md
 !/docs/0[0-7]*.md
 !/docs/09*.md
 !/docs/10_WHAT_I_GOT_WRONG.md
