@@ -329,7 +329,7 @@ func unimplementedGates() []string {
 		"synchronized list+watch with resourceVersion continuity",
 		"environment qualification (capacity, foreign GPU pods, termination canary)",
 		"continuous ownership evidence (Node watch) and restoration audit in the run artifact",
-		"run artifact with a validity status",
+		"validity-bearing run artifact (evidence, environment and restoration audit)",
 	}
 }
 

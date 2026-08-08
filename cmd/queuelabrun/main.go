@@ -47,6 +47,12 @@ func main() {
 		worker      = flag.String("worker", "platform-worker", "node to dedicate to this run")
 		horizonFlag = flag.Duration("horizon", time.Duration(horizonSec)*time.Second,
 			"observation horizon (must not be below the protocol's fixed window)")
+		// -out is deliberately not required, even for a non-preview run: -runid has no safe default because
+		// ANY default (a reused id, e.g. "r1") collides with a prior run's cluster-scoped fixtures, a defect no
+		// amount of printing can undo. An unnamed -out has no equivalent hazard once recordPathFor's default is
+		// collision-free and this file prints wherever it wrote — see recordPathFor and reportRun. Requiring it
+		// anyway would be a flag every invocation must remember to pass for a safety property the default
+		// already has, which is friction without a matching gain.
 		out     = flag.String("out", "", "path to write this invocation's run record (default: a per-invocation name in the working directory)")
 		preview = flag.Bool("preview", false, "run without the validity gates; output is a smoke check, not evidence")
 

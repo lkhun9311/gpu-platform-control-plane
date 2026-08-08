@@ -132,6 +132,32 @@ func TestUnimplementedGatesStillNamesTheNarrowedOwnershipGate(t *testing.T) {
 	}
 }
 
+// This plan makes the run record durable, not valid: nothing in it proves a run's evidence, environment or
+// restoration audit are sound, so the artifact-validity gate must stay open, narrowed from a bare "validity
+// status" to naming exactly what is still missing. A test that only checked the list's length (above) would
+// pass unchanged if this entry were quietly reverted to its old wording, which is why the text is pinned here
+// too.
+func TestUnimplementedGatesStillNamesTheValidityBearingArtifactGate(t *testing.T) {
+	gates := unimplementedGates()
+	found := false
+	for _, g := range gates {
+		if strings.Contains(g, "run artifact with a validity status") {
+			t.Fatalf("the old bare validity-status wording must be replaced, not left alongside the narrowed one: %q", g)
+		}
+		if strings.Contains(g, "validity-bearing run artifact") {
+			found = true
+			for _, want := range []string{"evidence", "environment", "restoration audit"} {
+				if !strings.Contains(g, want) {
+					t.Fatalf("the validity-bearing artifact gate must name %q, got %q", want, g)
+				}
+			}
+		}
+	}
+	if !found {
+		t.Fatal("an unimplemented gate must still name a validity-bearing run artifact: the record is durable, not validity-bearing")
+	}
+}
+
 func TestRequireRunIDRejectsOnlyEmpty(t *testing.T) {
 	// The flag used to default to "r1", which made colliding with a previous run's cluster-scoped fixtures
 	// the default behaviour; there is no safe default, so only a genuinely supplied id may pass.
