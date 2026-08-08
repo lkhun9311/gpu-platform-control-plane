@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -189,12 +190,42 @@ func TestWatchStreamResumesFromTheLastDeliveredVersion(t *testing.T) {
 	}
 }
 
-// A baseline resource version of "" or "0" makes RetryWatcher start from now rather than from a known
-// point, which is a silent continuity hole, and RetryWatcher itself rejects both.
-func TestWatchStreamRefusesAnUnusableBaselineVersion(t *testing.T) {
+// A baseline resource version of "" or "0" makes a watch start from now rather than from a known point,
+// which is a silent continuity hole, so RetryWatcher rejects both. This pins that upstream behaviour rather
+// than the component's, so a client-go upgrade that relaxed it shows up here and not as a lost gap.
+func TestRetryWatcherRejectsUnusableInitialVersions(t *testing.T) {
 	for _, rv := range []string{"", "0"} {
 		if _, err := watchtools.NewRetryWatcherWithContext(context.Background(), rv, &scriptedWatcher{}); err == nil {
 			t.Fatalf("baseline %q must be refused", rv)
+		}
+	}
+}
+
+// The component has to refuse an unusable baseline itself rather than lean on RetryWatcher rejecting it
+// later, because the refusal has to name the list it came from: a run aborted with "the baseline list for
+// ns-a has no resumable version" is diagnosable, and a generic complaint about an initial RV is not.
+func TestWatchStreamRefusesABaselineWithoutAResumableVersion(t *testing.T) {
+	for _, rv := range []string{"", "0"} {
+		c := fake.NewClientBuilder().WithScheme(fullScheme(t)).WithInterceptorFuncs(interceptor.Funcs{
+			List: func(ctx context.Context, cl client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
+				if err := cl.List(ctx, list, opts...); err != nil {
+					return err
+				}
+				list.SetResourceVersion(rv)
+				return nil
+			},
+			Watch: func(context.Context, client.WithWatch, client.ObjectList, ...client.ListOption) (watch.Interface, error) {
+				t.Errorf("a watch was started from baseline %q, which resumes from an unknown point", rv)
+				return nil, errors.New("must not be reached")
+			},
+		}).Build()
+
+		_, err := startWatchStream(context.Background(), c, "ns-a", func() client.ObjectList { return &corev1.PodList{} })
+		if err == nil {
+			t.Fatalf("baseline %q must be refused", rv)
+		}
+		if !strings.Contains(err.Error(), "ns-a") || !strings.Contains(err.Error(), "not a resumable point") {
+			t.Fatalf("baseline %q was refused by %q, but not by the component's own guard naming the list it came from", rv, err)
 		}
 	}
 }
@@ -305,8 +336,8 @@ func TestWatchStreamEndsOnAForwardedGone(t *testing.T) {
 		t.Fatal("a 410 is permanent, so the stream must end rather than reconnect forever")
 	}
 	end := ws.Ended()
-	if end.Cancelled {
-		t.Fatal("nobody cancelled this stream, so reporting it as cancelled would hide a lost gap")
+	if end.Cancelled || end.Stopped {
+		t.Fatal("nobody cancelled or stopped this stream, so either flag would hide a lost gap behind a tidy ending")
 	}
 	if end.LastStatus == nil {
 		t.Fatal("the forwarded status is the only evidence of the cause and must be kept")
@@ -337,8 +368,8 @@ func TestWatchStreamEndsOnAPermanentFailureThatForwardsNothing(t *testing.T) {
 		t.Fatalf("nothing was forwarded on this path, yet the caller saw %v", ev)
 	}
 	end := ws.Ended()
-	if end.Cancelled {
-		t.Fatal("no cause was observed, but the caller did not cancel either, so this must read as a lost stream")
+	if end.Cancelled || end.Stopped {
+		t.Fatal("no cause was observed and the caller neither cancelled nor stopped, so this must read as a lost stream")
 	}
 	if end.LastStatus != nil {
 		t.Fatalf("no status was forwarded, so claiming one would be evidence the stream never saw: %v", end.LastStatus)
@@ -375,5 +406,45 @@ func TestWatchStreamEndsAsCancelledWhenTheCallerCancels(t *testing.T) {
 	}
 	if !ws.Ended().Cancelled {
 		t.Fatal("a caller cancellation reported as anything else would look like a lost gap")
+	}
+}
+
+// Stopping has to be enough on its own, including when an event is parked mid-forward, because the shutdown
+// a caller will actually write is Stop then wait on End and a stream that cannot reach End hangs the run.
+//
+// It also has to be legible afterwards: an orderly stop at the end of a run must not carry the same ending
+// signature as a stream that died on its own, or the integration slice throws away good runs.
+func TestWatchStreamStopEndsTheStreamWithAnEventParkedMidForward(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Two events, because the second is what makes the first observably parked: RetryWatcher can only have
+	// taken the second after the forwarder accepted the first.
+	parked := watch.NewFakeWithChanSize(2, false)
+	parked.Modify(podAtVersion("p1", "1001"))
+	parked.Modify(podAtVersion("p2", "1002"))
+	ws, _ := streamOnScript(ctx, t, nil,
+		func(metav1.ListOptions) (watch.Interface, error) { return parked, nil })
+
+	// Nothing ever drains ResultChan here, which is exactly the state a caller is in between reads.
+	waitFor(t, func() bool { return len(parked.ResultChan()) == 0 })
+
+	ws.Stop()
+	ws.Stop() // Idempotent by contract, and a second close of the stop channel would panic.
+	select {
+	case <-ws.End():
+	case <-time.After(5 * time.Second):
+		t.Fatal("Stop must end the stream even with an event parked mid-forward, or the caller's shutdown deadlocks")
+	}
+
+	end := ws.Ended()
+	if !end.Stopped {
+		t.Fatal("a deliberate stop must be legible, or an orderly shutdown is indistinguishable from a lost stream")
+	}
+	if end.Cancelled {
+		t.Fatal("the caller's context is still alive, so reporting a cancellation would name the wrong ending")
+	}
+	if end.LastStatus != nil {
+		t.Fatalf("no status was forwarded, so claiming one would be evidence the stream never saw: %v", end.LastStatus)
 	}
 }

@@ -82,13 +82,22 @@ type streamBaseline struct {
 
 // streamEnd is what can actually be observed about why a stream stopped.
 //
-// RetryWatcher exposes only forwarded events, the closure of its channels, and the caller's own ctx.Err().
-// Some permanent establishment errors close without forwarding anything, cancellation races with
-// forwarding, and a terminal error event can be lost when the internal send selects the cancelled context —
-// so "410 versus another permanent reason versus cancelled" is not a distinction this type can always make.
-// Anything that is not the caller cancelling means continuity was lost, whether or not a cause was seen.
+// RetryWatcher exposes only forwarded events, the closure of its channels, the caller's own ctx.Err() and
+// whether the caller asked to stop. Some permanent establishment errors close without forwarding anything,
+// cancellation races with forwarding, and a terminal error event can be lost when the internal send selects
+// the cancelled context — so "410 versus another permanent reason" is not a distinction this type can
+// always make.
+//
+// Cancelled and Stopped are the two endings the caller itself caused, and they are the only endings that
+// are not a loss of continuity: an ending with neither set means the stream ended on its own, so the gap
+// since the last delivered version can never be closed, whether or not LastStatus names a cause. Reading
+// "not cancelled" alone as a lost stream would condemn every orderly shutdown, which is why Stopped exists.
+//
+// Stopped says the caller asked to stop before the stream finished ending, not that the stop was the cause,
+// because a stop can race with a stream that was already dying; LastStatus stays evidence either way.
 type streamEnd struct {
 	Cancelled  bool
+	Stopped    bool
 	LastStatus *metav1.Status
 }
 
@@ -100,6 +109,11 @@ type watchStream struct {
 
 	out  chan watch.Event
 	done chan struct{}
+
+	// stop is a second way out of the forwarding select, because cancelling RetryWatcher only closes the
+	// channel forward reads from and cannot reach forward while it is parked on a send nobody is receiving.
+	stopOnce sync.Once
+	stop     chan struct{}
 
 	mu  sync.Mutex
 	end streamEnd
@@ -138,6 +152,7 @@ func startWatchStream(ctx context.Context, c client.WithWatch, ns string,
 		rw:       rw,
 		out:      make(chan watch.Event),
 		done:     make(chan struct{}),
+		stop:     make(chan struct{}),
 	}
 	go s.forward(ctx)
 	return s, nil
@@ -162,12 +177,21 @@ func (s *watchStream) forward(ctx context.Context) {
 		case s.out <- ev:
 		case <-ctx.Done():
 			// The caller is going away; stop republishing rather than blocking on a channel nobody reads.
+		case <-s.stop:
+			// Stop has to be sufficient on its own, because a caller that stops between reads leaves an event
+			// parked here and would otherwise wait on an End that this goroutine can no longer reach.
 		}
 	}
-	// Read the caller's context only after the watcher has actually stopped, so a cancellation that arrives
-	// while the stream was already ending for another reason is not mistaken for the reason.
+	// Read the caller's context and the stop request only after the watcher has actually stopped, so an
+	// ending the caller caused while the stream was already ending for another reason is not mistaken for
+	// the reason.
 	s.mu.Lock()
 	s.end.Cancelled = ctx.Err() != nil
+	select {
+	case <-s.stop:
+		s.end.Stopped = true
+	default:
+	}
 	s.mu.Unlock()
 }
 
@@ -175,7 +199,15 @@ func (s *watchStream) Baseline() streamBaseline       { return s.baseline }
 func (s *watchStream) Established() <-chan struct{}   { return s.adapter.Established() }
 func (s *watchStream) ResultChan() <-chan watch.Event { return s.out }
 func (s *watchStream) End() <-chan struct{}           { return s.done }
-func (s *watchStream) Stop()                          { s.rw.Stop() }
+
+// Stop ends the stream and is enough on its own: after it returns, End closes whatever forward was doing.
+//
+// The close is guarded because Stop is idempotent by contract and a caller racing a stream that is already
+// ending on its own must not panic on a second close.
+func (s *watchStream) Stop() {
+	s.stopOnce.Do(func() { close(s.stop) })
+	s.rw.Stop()
+}
 
 // Ended reports what was observed about the ending, and is only meaningful after End() is closed.
 func (s *watchStream) Ended() streamEnd {
