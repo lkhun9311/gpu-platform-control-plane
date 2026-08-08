@@ -18,6 +18,7 @@ package main
 
 import (
 	"encoding/json"
+	"os"
 	"reflect"
 	"strings"
 	"testing"
@@ -117,5 +118,72 @@ func TestDecodeRunRecordRefusesPreviewWithEvents(t *testing.T) {
 		`"disposition":"completed-implemented-checks-passed","events":[{"elapsedNs":1,"kind":"Pod"}]}`)
 	if _, err := decodeRunRecord(b); err == nil {
 		t.Fatal("a preview record carrying events must be refused")
+	}
+}
+
+// A successful write must leave exactly the destination file behind, with the content actually written
+// decodable back to the value passed in — not merely some decodable-but-unrelated bytes, and not a
+// leftover temp file beside it.
+func TestWriteRecordLeavesNoPartialFile(t *testing.T) {
+	dir := t.TempDir()
+	path := dir + "/run.json"
+
+	want := runRecord{
+		SchemaVersion: recordSchemaVersion,
+		RunID:         "r7",
+		Arm:           "A-honor",
+		Disposition:   string(dispChecksPassed),
+	}
+	if err := writeRecord(path, want); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read back: %v", err)
+	}
+	got, err := decodeRunRecord(b)
+	if err != nil {
+		t.Fatalf("the written record must decode: %v", err)
+	}
+	// Decoding without error is not enough: a writer that ignored v and emitted some other fixed,
+	// decodable record would still pass a bare decode check, so the decoded value must match what was
+	// actually asked to be written.
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("written record does not match what was passed in: got %+v, want %+v", got, want)
+	}
+
+	// No temporary file may survive a successful write.
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("readdir: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("expected exactly the record, got %d entries", len(entries))
+	}
+	// The one surviving entry must be the destination itself, not some other artifact of the rename.
+	if entries[0].Name() != "run.json" {
+		t.Fatalf("expected the surviving entry to be run.json, got %q", entries[0].Name())
+	}
+}
+
+// A write into a directory that does not exist must fail loudly rather than leaving the caller believing
+// the run was recorded, and it must not scribble a stray file into the parent directory as a side effect
+// of the failed attempt.
+func TestWriteRecordFailsLoudlyOnAnUnwritablePath(t *testing.T) {
+	parent := t.TempDir()
+	if err := writeRecord(parent+"/missing/run.json", runRecord{
+		SchemaVersion: recordSchemaVersion, RunID: "r7", Arm: "A-honor",
+		Disposition: string(dispChecksPassed),
+	}); err == nil {
+		t.Fatal("writing into a missing directory must fail")
+	}
+
+	entries, err := os.ReadDir(parent)
+	if err != nil {
+		t.Fatalf("readdir: %v", err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("a failed write must leave no trace in the parent directory, got %d entries", len(entries))
 	}
 }
