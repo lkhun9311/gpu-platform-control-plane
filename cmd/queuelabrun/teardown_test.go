@@ -84,6 +84,12 @@ func TestEnumerateReturnsTargetsInDeletionOrder(t *testing.T) {
 		}
 		last = tg.Phase
 	}
+	// enumerate returning an empty slice with a nil error would otherwise reach the next two index
+	// expressions and panic the whole test binary, which crashes the process rather than failing this
+	// test cleanly and silently prevents every test declared after this one from running at all.
+	if len(got) == 0 {
+		t.Fatalf("enumerate returned no targets")
+	}
 	if got[0].Kind != "Namespace" {
 		t.Fatalf("first target is %s, want Namespace: a ClusterQueue deleted while a Workload still reserves it blocks on resource-in-use forever", got[0].Kind)
 	}
