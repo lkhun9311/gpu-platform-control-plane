@@ -174,7 +174,10 @@ func classifyAbsence(obs observation, wantUID string) absence {
 	//
 	// A found object under our recorded UID is ours and still present; a found object under any other UID
 	// is a name collision this run must refuse to touch, and it must never become a deletion target on the
-	// strength of the name matching alone.
+	// strength of the name matching alone. This is the case a create-time stamp cannot rule out on its own:
+	// our own object could be deleted and a DIFFERENT object recreated under the same name, between the
+	// recovery pass that established wantUID and this poll — a different object's create, stamped or not,
+	// so only comparing the UID this run actually observed catches it.
 	if obs.UID != wantUID {
 		return absenceForeign
 	}

@@ -447,6 +447,10 @@ func ensureNamespace(ctx context.Context, c client.Client, ns, txID string) erro
 	}
 	// AlreadyExists is an ownership question, not a shrug: the namespace name is derived from the run id
 	// alone, so the same name is exactly what a reused run id or a crashed previous attempt leaves behind.
+	//
+	// A delete landing between the Create above and this Get turns AlreadyExists into NotFound here and
+	// fails this run closed with a slightly misleading "could not be read" rather than a clean retry. Fine:
+	// the alternative is silently proceeding on an ownership question this read could not actually answer.
 	var existing corev1.Namespace
 	if gerr := c.Get(ctx, client.ObjectKey{Name: ns}, &existing); gerr != nil {
 		return fmt.Errorf("namespace %s exists but could not be read to check ownership: %w", ns, gerr)
@@ -503,10 +507,23 @@ func createOwned(ctx context.Context, c client.Client, o client.Object, txID str
 	if !apierrors.IsAlreadyExists(err) {
 		return err
 	}
-	if gerr := c.Get(ctx, client.ObjectKey{Namespace: o.GetNamespace(), Name: o.GetName()}, o); gerr != nil {
+	// The ownership check reads into a fresh copy, never into o itself: o is the caller's own FixtureSet
+	// object, and Getting the server's copy in place would overwrite its UID and ResourceVersion whether
+	// this run created it or only adopted it — leaving a FixtureSet that means two different things
+	// depending on which path was taken, a distinction a future consumer recording UIDs for teardown must
+	// not have to guess about.
+	existing, ok := o.DeepCopyObject().(client.Object)
+	if !ok {
+		return fmt.Errorf("internal error: %T does not implement client.Object after DeepCopyObject", o)
+	}
+	// A delete landing between the Create above and this Get (another actor removing the very object we
+	// just failed to create) turns AlreadyExists into NotFound here and fails this run closed with a
+	// slightly misleading "could not be read" rather than a clean retry. Fine: the alternative is silently
+	// proceeding on an ownership question this read could not actually answer.
+	if gerr := c.Get(ctx, client.ObjectKey{Namespace: o.GetNamespace(), Name: o.GetName()}, existing); gerr != nil {
 		return fmt.Errorf("exists but could not be read to check ownership: %w", gerr)
 	}
-	if got := o.GetLabels()[queuelab.TxLabel]; got != txID {
+	if got := existing.GetLabels()[queuelab.TxLabel]; got != txID {
 		return fmt.Errorf("already exists under transaction %q, not this run's %q; "+
 			"clear it before rerunning rather than running inside another attempt's object", got, txID)
 	}

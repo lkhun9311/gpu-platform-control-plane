@@ -218,13 +218,14 @@ func TestEnsureNamespaceStampsWhatItCreates(t *testing.T) {
 // existing object is ours only if it carries our stamp; anything else is a refusal, not a shrug.
 func TestEnsureNamespaceAdoptsOnlyItsOwnStamp(t *testing.T) {
 	for _, tc := range []struct {
-		name      string
-		labels    map[string]string
-		wantAdopt bool
+		name       string
+		labels     map[string]string
+		wantAdopt  bool
+		wantErrSub string // required when !wantAdopt, so a wrong-reason refusal cannot pass as this one
 	}{
-		{"our own stamp", map[string]string{queuelab.TxLabel: "tx-1"}, true},
-		{"another transaction", map[string]string{queuelab.TxLabel: "tx-2"}, false},
-		{"no stamp at all", nil, false},
+		{"our own stamp", map[string]string{queuelab.TxLabel: "tx-1"}, true, ""},
+		{"another transaction", map[string]string{queuelab.TxLabel: "tx-2"}, false, "transaction"},
+		{"no stamp at all", nil, false, "transaction"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			c := fake.NewClientBuilder().WithScheme(fullScheme(t)).WithObjects(
@@ -234,39 +235,131 @@ func TestEnsureNamespaceAdoptsOnlyItsOwnStamp(t *testing.T) {
 			if tc.wantAdopt && err != nil {
 				t.Fatalf("our own namespace was refused: %v", err)
 			}
-			if !tc.wantAdopt && err == nil {
-				t.Fatal("a namespace this run did not create was adopted; a previous run's leftovers can then satisfy this run's barriers")
+			if !tc.wantAdopt {
+				if err == nil {
+					t.Fatal("a namespace this run did not create was adopted; a previous run's leftovers can then satisfy this run's barriers")
+				}
+				if !strings.Contains(err.Error(), tc.wantErrSub) {
+					t.Fatalf("refusal %q does not name the reason %q; a wrong-reason refusal must not pass", err, tc.wantErrSub)
+				}
 			}
 		})
 	}
 }
 
-// The equivalent confound for fixtures: a ResourceFlavor left behind by a different transaction under the
-// same run id (only the namespace is ever cleaned up by hand between attempts) must not be adopted, or
-// applyFixtures proceeds as if this run created a quota mapping it never wrote.
+// The equivalent confound for fixtures: an object left behind by a different transaction under the same run
+// id (only the namespace is ever cleaned up by hand between attempts) must not be adopted, or applyFixtures
+// proceeds as if this run created a quota mapping, queue, or binding it never wrote.
+//
+// Every fixture kind is covered, not just the ResourceFlavor: applyFixtures applies createOwned's ownership
+// check to every object in its loop, and a mutation that special-cased only the first object (the Flavor)
+// would leave the ClusterQueue and LocalQueue cases silently adoptive while this test still passed if they
+// were untested. The "no stamp at all" case is the one a lenient reading of the ownership check (treat an
+// absent label as "not yet stamped, adopt it") would pass: every fixture created before this task carries no
+// TxLabel at all, so that is not a hypothetical, it is what a rerun against real leftover objects hits.
+//
+// checkFlavorVariant's own pre-check is exercised too ("our tx, wrong variant"), so a mutation that deleted
+// that block would not sail through on the strength of the ownership check alone covering applyFixtures.
 func TestApplyFixturesAdoptsOnlyItsOwnStamp(t *testing.T) {
+	newFixtures := func(t *testing.T) *queuelab.FixtureSet {
+		t.Helper()
+		fs, err := queuelab.BuildFixtures(queuelab.StudyReclaim, "Any", "tx-1", "r1", "queuelab-r1")
+		if err != nil {
+			t.Fatalf("build fixtures: %v", err)
+		}
+		return fs
+	}
+
 	for _, tc := range []struct {
-		name      string
-		labels    map[string]string
-		wantAdopt bool
+		name       string
+		preexist   func(fs *queuelab.FixtureSet) client.Object
+		wantAdopt  bool
+		wantErrSub string // required when !wantAdopt, so a wrong-reason refusal cannot pass as this one
 	}{
-		{"our own stamp", map[string]string{queuelab.TxLabel: "tx-1", variantLabelKey: "Any"}, true},
-		{"another transaction", map[string]string{queuelab.TxLabel: "tx-2", variantLabelKey: "Any"}, false},
+		{
+			name: "our own stamp",
+			preexist: func(fs *queuelab.FixtureSet) client.Object {
+				return &kueuev1beta2.ResourceFlavor{ObjectMeta: metav1.ObjectMeta{
+					Name: fs.Flavor.GetName(), Labels: map[string]string{queuelab.TxLabel: "tx-1", variantLabelKey: "Any"},
+				}}
+			},
+			wantAdopt: true,
+		},
+		{
+			name: "another transaction",
+			preexist: func(fs *queuelab.FixtureSet) client.Object {
+				return &kueuev1beta2.ResourceFlavor{ObjectMeta: metav1.ObjectMeta{
+					Name: fs.Flavor.GetName(), Labels: map[string]string{queuelab.TxLabel: "tx-2", variantLabelKey: "Any"},
+				}}
+			},
+			wantAdopt:  false,
+			wantErrSub: "transaction",
+		},
+		{
+			// Every fixture BuildFixtures produced before this task carries no TxLabel, so this is what a
+			// rerun against real leftovers hits, not a hypothetical.
+			name: "no stamp at all",
+			preexist: func(fs *queuelab.FixtureSet) client.Object {
+				return &kueuev1beta2.ResourceFlavor{ObjectMeta: metav1.ObjectMeta{
+					Name: fs.Flavor.GetName(), Labels: map[string]string{variantLabelKey: "Any"},
+				}}
+			},
+			wantAdopt:  false,
+			wantErrSub: "transaction",
+		},
+		{
+			// Our own transaction is not enough on its own: checkFlavorVariant's pre-check must still catch
+			// a same-transaction flavor built for a different arm's variant.
+			name: "our tx, wrong variant",
+			preexist: func(fs *queuelab.FixtureSet) client.Object {
+				return &kueuev1beta2.ResourceFlavor{ObjectMeta: metav1.ObjectMeta{
+					Name: fs.Flavor.GetName(), Labels: map[string]string{queuelab.TxLabel: "tx-1", variantLabelKey: "Never"},
+				}}
+			},
+			wantAdopt:  false,
+			wantErrSub: "variant",
+		},
+		{
+			// The Flavor is absent here, so its Create succeeds outright; only the ClusterQueue pre-exists,
+			// which is what isolates createOwned's check on THIS kind rather than the Flavor's.
+			name: "foreign cluster queue",
+			preexist: func(fs *queuelab.FixtureSet) client.Object {
+				cq := fs.ClusterQueue[0]
+				return &kueuev1beta2.ClusterQueue{ObjectMeta: metav1.ObjectMeta{
+					Name: cq.GetName(), Labels: map[string]string{queuelab.TxLabel: "tx-2"},
+				}}
+			},
+			wantAdopt:  false,
+			wantErrSub: "transaction",
+		},
+		{
+			// Flavor and ClusterQueues are both absent, so only the LocalQueue's own ownership check can be
+			// what refuses this case.
+			name: "foreign local queue",
+			preexist: func(fs *queuelab.FixtureSet) client.Object {
+				lq := fs.LocalQueue[0]
+				return &kueuev1beta2.LocalQueue{ObjectMeta: metav1.ObjectMeta{
+					Name: lq.GetName(), Namespace: lq.GetNamespace(), Labels: map[string]string{queuelab.TxLabel: "tx-2"},
+				}}
+			},
+			wantAdopt:  false,
+			wantErrSub: "transaction",
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			fs, err := queuelab.BuildFixtures(queuelab.StudyReclaim, "Any", "tx-1", "r1", "queuelab-r1")
-			if err != nil {
-				t.Fatalf("build fixtures: %v", err)
-			}
-			c := fake.NewClientBuilder().WithScheme(fullScheme(t)).WithObjects(
-				&kueuev1beta2.ResourceFlavor{ObjectMeta: metav1.ObjectMeta{Name: fs.Flavor.GetName(), Labels: tc.labels}},
-			).Build()
-			err = applyFixtures(context.Background(), c, fs, "Any", "tx-1")
+			fs := newFixtures(t)
+			c := fake.NewClientBuilder().WithScheme(fullScheme(t)).WithObjects(tc.preexist(fs)).Build()
+			err := applyFixtures(context.Background(), c, fs, "Any", "tx-1")
 			if tc.wantAdopt && err != nil {
-				t.Fatalf("our own resource flavor was refused: %v", err)
+				t.Fatalf("our own fixture was refused: %v", err)
 			}
-			if !tc.wantAdopt && err == nil {
-				t.Fatal("a resource flavor this run did not create was adopted; a previous transaction's leftovers can then satisfy this run's barriers")
+			if !tc.wantAdopt {
+				if err == nil {
+					t.Fatal("a fixture this run did not create was adopted; a previous transaction's leftovers can then satisfy this run's barriers")
+				}
+				if !strings.Contains(err.Error(), tc.wantErrSub) {
+					t.Fatalf("refusal %q does not name the reason %q; a wrong-reason refusal must not pass", err, tc.wantErrSub)
+				}
 			}
 		})
 	}
