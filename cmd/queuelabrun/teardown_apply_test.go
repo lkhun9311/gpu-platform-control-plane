@@ -29,6 +29,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	kueuev1beta2 "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -355,27 +356,79 @@ type recordedDelete struct {
 	UID  string // from client.Preconditions, "" if none was set
 }
 
-// deleteRecorder captures what the executor issued, because the properties that matter here are properties
-// of the CALLS — order and preconditions — not of the final state, which a fake client would let a wrong
-// implementation reach anyway. The fake client does not even enforce a UID precondition (it checks only
-// ResourceVersion), so a missing one is invisible in the final state by construction.
-func deleteRecorder(t *testing.T, objs ...client.Object) (client.WithWatch, *[]recordedDelete) {
+// recordedCall is one call the executor made against the cluster, in the order it made it.
+//
+// Reads are recorded alongside deletes because phase ordering is a claim about the INTERLEAVING of the two,
+// not about the sequence of deletes alone: enumerate already hands its targets over in ascending phase order,
+// so an executor that issues every delete at once still records them phase-monotonically. What separates a
+// sequenced teardown from one simultaneous sweep is whether the earlier phase had been read absent before the
+// later phase's delete went out.
+type recordedCall struct {
+	Op     string // "read" or "delete"
+	Kind   string
+	Name   string
+	UID    string // delete only: from client.Preconditions, "" if none was set
+	Absent bool   // read only: this read proved the object gone
+}
+
+// recordCalls wraps a client so every read and delete the executor issues is captured in order.
+//
+// It wraps rather than builds, so a test that needs its own Get behaviour can install that on the inner
+// client and still get a full call log — interceptor.Funcs on a builder is a single slot, and the last one
+// set wins.
+//
+// The properties these tests care about are properties of the CALLS, not of the final state, which a fake
+// client would let a wrong implementation reach anyway. That is not a stylistic preference here: fake.Delete
+// checks only Preconditions.ResourceVersion and accepts-and-discards Preconditions.UID (client.go:680), and
+// fake.ensureTypeMeta actively clears Kind/APIVersion off every object it returns (client.go:1712), so
+// neither a missing UID precondition nor the kind of the object deleted is recoverable from the state
+// afterwards. The kind is resolved from the scheme, the way the typed client itself resolves it, rather than
+// read off a TypeMeta the fake guarantees is empty.
+func recordCalls(t *testing.T, inner client.WithWatch) (client.WithWatch, *[]recordedCall) {
 	t.Helper()
-	var got []recordedDelete
-	c := fake.NewClientBuilder().WithScheme(fullScheme(t)).WithObjects(objs...).
-		WithInterceptorFuncs(interceptor.Funcs{
-			Delete: func(ctx context.Context, cl client.WithWatch, obj client.Object, opts ...client.DeleteOption) error {
-				do := &client.DeleteOptions{}
-				do.ApplyOptions(opts)
-				uid := ""
-				if do.Preconditions != nil && do.Preconditions.UID != nil {
-					uid = string(*do.Preconditions.UID)
-				}
-				got = append(got, recordedDelete{Kind: obj.GetObjectKind().GroupVersionKind().Kind, Name: obj.GetName(), UID: uid})
-				return cl.Delete(ctx, obj, opts...)
-			},
-		}).Build()
+	var got []recordedCall
+	kindOf := func(obj client.Object) string {
+		gvk, err := apiutil.GVKForObject(obj, inner.Scheme())
+		if err != nil {
+			t.Fatalf("no GroupVersionKind for %T: %v", obj, err)
+		}
+		return gvk.Kind
+	}
+	c := interceptor.NewClient(inner, interceptor.Funcs{
+		Get: func(ctx context.Context, cl client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+			err := cl.Get(ctx, key, obj, opts...)
+			got = append(got, recordedCall{Op: "read", Kind: kindOf(obj), Name: key.Name, Absent: apierrors.IsNotFound(err)})
+			return err
+		},
+		Delete: func(ctx context.Context, cl client.WithWatch, obj client.Object, opts ...client.DeleteOption) error {
+			do := &client.DeleteOptions{}
+			do.ApplyOptions(opts)
+			uid := ""
+			if do.Preconditions != nil && do.Preconditions.UID != nil {
+				uid = string(*do.Preconditions.UID)
+			}
+			got = append(got, recordedCall{Op: "delete", Kind: kindOf(obj), Name: obj.GetName(), UID: uid})
+			return cl.Delete(ctx, obj, opts...)
+		},
+	})
 	return c, &got
+}
+
+// callRecorder is recordCalls over a plain fake cluster holding objs.
+func callRecorder(t *testing.T, objs ...client.Object) (client.WithWatch, *[]recordedCall) {
+	t.Helper()
+	return recordCalls(t, fake.NewClientBuilder().WithScheme(fullScheme(t)).WithObjects(objs...).Build())
+}
+
+// deletesIn narrows a call log to the deletes, in order, for the properties that are about deletes alone.
+func deletesIn(calls []recordedCall) []recordedDelete {
+	var out []recordedDelete
+	for _, c := range calls {
+		if c.Op == "delete" {
+			out = append(out, recordedDelete{Kind: c.Kind, Name: c.Name, UID: c.UID})
+		}
+	}
+	return out
 }
 
 // seedOwned puts every enumerated target on the cluster, stamped as ours, so a teardown has something to do.
@@ -419,11 +472,13 @@ func fakeClock(start time.Time) (func() time.Time, func(time.Duration)) {
 // themselves rather than inferred from the final state.
 func TestDeleteIssuesDeletesInPhaseOrder(t *testing.T) {
 	s := testSeed()
-	c, got := deleteRecorder(t, seedOwned(t, s)...)
+	c, calls := callRecorder(t, seedOwned(t, s)...)
 	now, sleep := fakeClock(time.Unix(0, 0))
 	if _, err := deleteTargets(context.Background(), c, s, s.TxID, now, sleep, time.Minute); err != nil {
 		t.Fatalf("delete: %v", err)
 	}
+	d := deletesIn(*calls)
+	got := &d
 	if len(*got) == 0 {
 		t.Fatal("no deletes were issued at all")
 	}
@@ -448,11 +503,13 @@ func TestDeleteIssuesDeletesInPhaseOrder(t *testing.T) {
 // another actor can remove and recreate the name, and the unconditioned Delete destroys the replacement.
 func TestEveryDeleteCarriesItsUIDPrecondition(t *testing.T) {
 	s := testSeed()
-	c, got := deleteRecorder(t, seedOwned(t, s)...)
+	c, calls := callRecorder(t, seedOwned(t, s)...)
 	now, sleep := fakeClock(time.Unix(0, 0))
 	if _, err := deleteTargets(context.Background(), c, s, s.TxID, now, sleep, time.Minute); err != nil {
 		t.Fatalf("delete: %v", err)
 	}
+	d := deletesIn(*calls)
+	got := &d
 	if len(*got) == 0 {
 		t.Fatal("no deletes were issued at all")
 	}
@@ -466,12 +523,14 @@ func TestEveryDeleteCarriesItsUIDPrecondition(t *testing.T) {
 // A foreign object is a refusal, not a target. Deleting it destroys another run's live state.
 func TestDeleteNeverIssuesADeleteForAForeignTarget(t *testing.T) {
 	s := testSeed()
-	c, got := deleteRecorder(t, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{
+	c, calls := callRecorder(t, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{
 		Name: s.Namespace, UID: "theirs", Labels: map[string]string{queuelab.TxLabel: "tx-someone-else"}}})
 	now, sleep := fakeClock(time.Unix(0, 0))
 	if _, err := deleteTargets(context.Background(), c, s, s.TxID, now, sleep, time.Minute); err == nil {
 		t.Fatal("teardown proceeded against a namespace stamped by another transaction")
 	}
+	d := deletesIn(*calls)
+	got := &d
 	for _, d := range *got {
 		if d.Name == s.Namespace {
 			t.Fatalf("issued a delete for %s %q, which this run did not create", d.Kind, d.Name)
@@ -539,4 +598,193 @@ func TestDeleteReportsResidueWhenTheBudgetExpires(t *testing.T) {
 			t.Fatalf("%s carries absenceAbsent yet survived into the residue", r.Observation.Target.Name)
 		}
 	}
+	// Elapsed must come from the injected clock, which only the poll loop's own sleeps advance. Read off the
+	// wall clock it would report microseconds for a teardown that spent its whole budget, and a caller sizing
+	// the next run's budget from it would size it from nothing.
+	if res.Elapsed < 30*time.Second {
+		t.Errorf("reported Elapsed %v for a teardown that ran out a 30s budget", res.Elapsed)
+	}
+}
+
+// Phase order is a claim about the interleaving of deletes and reads, not about the order of the deletes on
+// their own. enumerate hands its targets over already sorted by phase, so an executor that abandons the
+// phases entirely and issues every delete in one sweep still records them in monotone phase order — the
+// sequence check above cannot tell the two apart. What distinguishes them is whether the earlier phase had
+// been read ABSENT before the later phase's delete went out, because that absence is the thing Kueue's
+// resource-in-use finalizer waits on: a ClusterQueue deleted while the namespace still holds its admitted
+// Workloads does not fail, it pins, and teardown burns its budget reporting residue it could have removed.
+func TestDeleteFinishesEachPhaseBeforeStartingTheNext(t *testing.T) {
+	s := testSeed()
+	tgs, err := enumerate(s)
+	if err != nil {
+		t.Fatalf("enumerate: %v", err)
+	}
+	c, calls := callRecorder(t, seedOwned(t, s)...)
+	now, sleep := fakeClock(time.Unix(0, 0))
+	if _, err := deleteTargets(context.Background(), c, s, s.TxID, now, sleep, time.Minute); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	phaseOf := map[string]teardownPhase{}
+	for _, tg := range tgs {
+		phaseOf[tg.Name] = tg.Phase
+	}
+	absent := map[string]bool{}
+	deletes := 0
+	for _, call := range *calls {
+		if call.Op == "read" {
+			if call.Absent {
+				absent[call.Name] = true
+			}
+			continue
+		}
+		deletes++
+		for _, tg := range tgs {
+			if tg.Phase < phaseOf[call.Name] && !absent[tg.Name] {
+				t.Fatalf("issued the delete for %s %q (phase %d) while %s %q (phase %d) had not yet been read absent; "+
+					"on a real cluster that earlier object still holds the Workloads pinning this one's resource-in-use finalizer",
+					call.Kind, call.Name, phaseOf[call.Name], tg.Kind, tg.Name, tg.Phase)
+			}
+		}
+	}
+	if deletes == 0 {
+		t.Fatal("no deletes were issued at all")
+	}
+}
+
+// A residue record that says only "still present" reads as a slow finalizer. If what actually happened is
+// that the apiserver refused the delete, the operator has no way to tell those apart, and the next run
+// refuses to start with no clue why. The refusal must survive into the result — which is not free, because
+// the read that follows the delete in the same round is what proves presence and would otherwise overwrite
+// it milliseconds later.
+func TestDeleteReportsWhyATargetSurvivedWhenTheApiserverRefused(t *testing.T) {
+	s := testSeed()
+	c := fake.NewClientBuilder().WithScheme(fullScheme(t)).WithInterceptorFuncs(interceptor.Funcs{
+		Delete: func(ctx context.Context, cl client.WithWatch, obj client.Object, opts ...client.DeleteOption) error {
+			return apierrors.NewForbidden(corev1.Resource("namespaces"), obj.GetName(), errors.New("no delete authority"))
+		},
+	}).WithObjects(seedOwned(t, s)...).Build()
+	now, sleep := fakeClock(time.Unix(0, 0))
+	res, err := deleteTargets(context.Background(), c, s, s.TxID, now, sleep, 30*time.Second)
+	if err != nil {
+		t.Fatalf("a refused delete is a fact to report, not a reason to crash: %v", err)
+	}
+	if len(res.Residue) == 0 {
+		t.Fatal("every delete was refused and nothing was reported as residue")
+	}
+	ns := residueFor(t, res.Residue, s.Namespace)
+	if ns.Observation.Err == nil {
+		t.Fatalf("%s survived teardown with no recorded reason; the residue says 'still present', which reads as a slow finalizer rather than a refusal", s.Namespace)
+	}
+	if !apierrors.IsForbidden(ns.Observation.Err) {
+		t.Errorf("%s carries %v, want the apiserver's Forbidden", s.Namespace, ns.Observation.Err)
+	}
+	if ns.Absence != absenceUnknown {
+		t.Errorf("%s classified %v; a target whose delete was refused is not known to be present or gone, it is unknown", s.Namespace, ns.Absence)
+	}
+}
+
+// A read that fails proves nothing, and must not settle a phase. Crediting it would let one 503 on the
+// namespace read start the ClusterQueue deletes while the namespace and its admitted Workloads are still
+// there — the same resource-in-use pin as an out-of-order teardown, reached through the error path instead.
+func TestDeleteKeepsAPhaseOpenWhileATargetCannotBeRead(t *testing.T) {
+	s := testSeed()
+	inner := fake.NewClientBuilder().WithScheme(fullScheme(t)).WithObjects(seedOwned(t, s)...).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Get: func(ctx context.Context, cl client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+				if key.Name == s.Namespace {
+					return apierrors.NewServiceUnavailable("etcdserver: leader changed")
+				}
+				return cl.Get(ctx, key, obj, opts...)
+			},
+		}).Build()
+	c, calls := recordCalls(t, inner)
+	now, sleep := fakeClock(time.Unix(0, 0))
+	res, err := deleteTargets(context.Background(), c, s, s.TxID, now, sleep, 30*time.Second)
+	if err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	for _, d := range deletesIn(*calls) {
+		if d.Kind != "Namespace" {
+			t.Fatalf("issued a delete for %s %q while the namespace read was still failing; an unreadable target proves nothing and must hold its phase open", d.Kind, d.Name)
+		}
+	}
+	ns := residueFor(t, res.Residue, s.Namespace)
+	if ns.Absence != absenceUnknown {
+		t.Errorf("%s classified %v after every read of it failed, want unknown", s.Namespace, ns.Absence)
+	}
+}
+
+// Our object can be deleted and a different one created under our name while teardown is running — the one
+// case a create-time stamp cannot rule out, and the reason recoverTargets records a UID at all.
+//
+// Three separate rules meet here. The replacement is never deleted: it is a stranger's object under our name.
+// It does not hold its phase open either: a different UID at our name is proof ours is gone, so the Workloads
+// it held went with it and the later phases are safe to run — waiting instead would spend the whole budget on
+// a deletion this run does not control. And it is still residue, because "someone else's object is here" is
+// not "our teardown was clean".
+func TestDeleteStopsAtOurNameOnceAnotherTransactionTakesIt(t *testing.T) {
+	s := testSeed()
+	nsReads := 0
+	inner := fake.NewClientBuilder().WithScheme(fullScheme(t)).WithObjects(seedOwned(t, s)...).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Get: func(ctx context.Context, cl client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+				if key.Name != s.Namespace {
+					return cl.Get(ctx, key, obj, opts...)
+				}
+				nsReads++
+				ns := obj.(*corev1.Namespace)
+				if nsReads == 1 {
+					// Recovery sees our own namespace and records its UID.
+					*ns = corev1.Namespace{ObjectMeta: metav1.ObjectMeta{
+						Name: s.Namespace, UID: "ns-uid", Labels: map[string]string{queuelab.TxLabel: s.TxID}}}
+					return nil
+				}
+				// Ours went away and another run took the name, stamp and all.
+				*ns = corev1.Namespace{ObjectMeta: metav1.ObjectMeta{
+					Name: s.Namespace, UID: "stranger", Labels: map[string]string{queuelab.TxLabel: "tx-someone-else"}}}
+				return nil
+			},
+		}).Build()
+	c, calls := recordCalls(t, inner)
+	now, sleep := fakeClock(time.Unix(0, 0))
+	res, err := deleteTargets(context.Background(), c, s, s.TxID, now, sleep, 30*time.Second)
+	if err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+
+	nsDeletes, sawFlavor := 0, false
+	for _, d := range deletesIn(*calls) {
+		if d.Name == s.Namespace {
+			nsDeletes++
+			if d.UID != "ns-uid" {
+				t.Errorf("the namespace delete carried UID %q; the precondition must be the UID this run recorded, not whatever the latest read saw", d.UID)
+			}
+		}
+		if d.Kind == "ResourceFlavor" {
+			sawFlavor = true
+		}
+	}
+	if nsDeletes != 1 {
+		t.Errorf("issued %d deletes for %q; exactly one belongs to this run, and any after the takeover would destroy a stranger's namespace", nsDeletes, s.Namespace)
+	}
+	if !sawFlavor {
+		t.Error("teardown never reached the ResourceFlavor; a name taken over by another run is proof ours is gone, not a reason to wait out the budget")
+	}
+	ns := residueFor(t, res.Residue, s.Namespace)
+	if ns.Absence != absenceForeign {
+		t.Errorf("%s classified %v after another transaction took the name, want foreign", s.Namespace, ns.Absence)
+	}
+}
+
+// residueFor finds one target's residue record, failing rather than returning a zero value: a zero residue
+// carries absenceUnknown, which several assertions here are looking for, so a silent miss would pass.
+func residueFor(t *testing.T, rs []residue, name string) residue {
+	t.Helper()
+	for _, r := range rs {
+		if r.Observation.Target.Name == name {
+			return r
+		}
+	}
+	t.Fatalf("no residue record for %q", name)
+	return residue{}
 }

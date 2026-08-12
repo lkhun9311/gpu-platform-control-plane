@@ -24,10 +24,8 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 	kueuev1beta2 "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 
 	"github.com/lkhun9311/gpu-mlops-platform-control-plane/internal/queuelab"
@@ -128,19 +126,14 @@ type teardownResult struct {
 // deleteObjectFor builds the object a Delete is issued against: this target's kind and name, and nothing
 // else, so no stale spec read earlier in the run can travel into the delete.
 //
-// The GroupVersionKind is stamped explicitly because a typed empty object carries an empty TypeMeta, and the
-// kind is how anything auditing what teardown destroyed — a log line, an error, a recorder standing in for
-// one — names the object. A delete recorded under an empty kind is not an audit trail.
-func deleteObjectFor(tg target, sch *runtime.Scheme) (client.Object, error) {
+// It carries no TypeMeta. The typed client resolves the kind from the scheme, not from the object body, so
+// stamping a GroupVersionKind here would change nothing on the wire — anything that needs to name what was
+// deleted resolves the kind the same way the client does.
+func deleteObjectFor(tg target) (client.Object, error) {
 	obj, err := emptyObjectFor(tg)
 	if err != nil {
 		return nil, err
 	}
-	gvk, err := apiutil.GVKForObject(obj, sch)
-	if err != nil {
-		return nil, fmt.Errorf("teardown: no GroupVersionKind registered for %s %q: %w", tg.Kind, tg.Name, err)
-	}
-	obj.GetObjectKind().SetGroupVersionKind(gvk)
 	obj.SetName(tg.Name)
 	return obj, nil
 }
@@ -153,8 +146,13 @@ func deleteObjectFor(tg target, sch *runtime.Scheme) (client.Object, error) {
 // apiserver refuse instead of leaving that outcome to timing. o.WantUID is non-empty by construction here:
 // classifyAbsence returns absenceUnknown when it is empty, so a target with no recovered UID never reaches a
 // delete at all.
+//
+// WantUID and UID are equal at every call site today, because the only classification that reaches a delete
+// is absencePresent and that classification requires them to match. WantUID is still the right field to read:
+// it is what this run recorded, so it stays correct if the gate below it ever widens, whereas o.UID is
+// whatever the last read happened to see.
 func deleteTarget(ctx context.Context, c client.Client, o observation) error {
-	obj, err := deleteObjectFor(o.Target, c.Scheme())
+	obj, err := deleteObjectFor(o.Target)
 	if err != nil {
 		return err
 	}
@@ -224,8 +222,15 @@ func phaseTargetSettled(o observation) bool {
 // settlePhase deletes one phase's targets and then polls them to absence, updating their observations in
 // place so the caller always holds the freshest read of every target. It reports whether the phase settled;
 // false means the budget ran out with something still there.
+//
+// A Delete that the apiserver refused is recorded in deleteErrs, keyed by target name, rather than written
+// onto the observation. The read that follows in the same round is better evidence of whether the object is
+// still there, and would overwrite anything written onto the observation before any caller could see it —
+// but the read says nothing about WHY the object survived, and "the apiserver refused" is the single most
+// useful thing a residue record can carry. deleteTargets folds these back in at the end, for targets that
+// never settled.
 func settlePhase(ctx context.Context, c client.Client, latest []observation, phase teardownPhase,
-	now func() time.Time, sleep func(time.Duration), deadline time.Time) bool {
+	now func() time.Time, sleep func(time.Duration), deadline time.Time, deleteErrs map[string]error) bool {
 	for {
 		for i := range latest {
 			o := &latest[i]
@@ -240,12 +245,18 @@ func settlePhase(ctx context.Context, c client.Client, latest []observation, pha
 			if classifyAbsence(*o, o.WantUID) != absencePresent || o.Terminating {
 				continue
 			}
-			if err := deleteTarget(ctx, c, *o); err != nil && !apierrors.IsNotFound(err) {
+			err := deleteTarget(ctx, c, *o)
+			switch {
+			case err == nil || apierrors.IsNotFound(err):
+				// Already gone is not a failure, and a successful request clears any earlier refusal so a
+				// transient one cannot haunt a target that did in the end come away.
+				delete(deleteErrs, o.Target.Name)
+			default:
 				// A Forbidden here is teardown discovering that this run's delete authority was never
 				// verified, and that is a fact to report, not a reason to crash and abandon the rest of the
-				// set. Recording it on the observation classifies the target unknown, so it survives into the
-				// residue; the next read then supersedes this guess with evidence either way.
-				o.Err = err
+				// set. It is held aside rather than written onto the observation so it neither gets erased by
+				// this round's own read nor stops the next round from trying the Delete again.
+				deleteErrs[o.Target.Name] = err
 			}
 		}
 
@@ -298,12 +309,28 @@ func deleteTargets(ctx context.Context, c client.Client, s seed, txID string,
 		return teardownResult{}, err
 	}
 
+	deleteErrs := map[string]error{}
 	for _, phase := range phasesIn(latest) {
-		if !settlePhase(ctx, c, latest, phase, now, sleep, deadline) {
+		if !settlePhase(ctx, c, latest, phase, now, sleep, deadline, deleteErrs) {
 			// A phase that did not settle stops teardown here rather than advancing. Deleting a ClusterQueue
 			// while the namespace holding its Workloads is still there does not fail loudly — it blocks on
 			// the resource-in-use finalizer — so pressing on buys nothing and buries which object is stuck.
 			break
+		}
+	}
+
+	// Fold the refusals back in, last, and only onto targets that never settled. A residue record saying
+	// "still present" and nothing else reads as a slow finalizer, so the next run refuses to start with no
+	// clue why; carrying the refusal makes the difference between "waiting" and "not allowed" legible. It is
+	// applied here rather than during the loop because a target that did eventually come away has nothing to
+	// explain, and because classifyAbsence turns a carried error into absenceUnknown — which, mid-loop, would
+	// have stopped the retry that removed it.
+	for i := range latest {
+		o := &latest[i]
+		if o.Err == nil && !phaseTargetSettled(*o) {
+			if derr := deleteErrs[o.Target.Name]; derr != nil {
+				o.Err = derr
+			}
 		}
 	}
 	return teardownResult{Residue: residual(latest), Elapsed: now().Sub(start)}, nil
