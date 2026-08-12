@@ -24,14 +24,18 @@ import (
 	"os"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/watch"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	kueuev1beta2 "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -264,7 +268,7 @@ func TestDispatchOperatorModeRunsTheModeOnABoundedUncancellableContext(t *testin
 // decide setup-failed, and it poisons the Node reads so the deferred release cannot prove restoration.
 func TestRunDeferredEmergencyReleaseAmendsThePersistedRecord(t *testing.T) {
 	poisoned := false
-	fc := fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(node(nil, nil)).
+	fc := fake.NewClientBuilder().WithScheme(fullScheme(t)).WithObjects(node(nil, nil)).
 		WithInterceptorFuncs(interceptor.Funcs{
 			Create: func(ctx context.Context, c client.WithWatch, obj client.Object,
 				opts ...client.CreateOption) error {
@@ -283,8 +287,10 @@ func TestRunDeferredEmergencyReleaseAmendsThePersistedRecord(t *testing.T) {
 			},
 		}).Build()
 
-	o, events, res := run(context.Background(), func() (client.WithWatch, error) { return fc, nil },
-		queuelab.ArmAHonor, "r7", "queuelab-r7", "platform-worker", time.Duration(horizonSec)*time.Second)
+	tdNow, tdSleep := fakeClock(time.Unix(0, 0))
+	o, events, res, _ := run(context.Background(), func() (client.WithWatch, error) { return fc, nil },
+		queuelab.ArmAHonor, "r7", "queuelab-r7", "platform-worker", time.Duration(horizonSec)*time.Second,
+		tdNow, tdSleep)
 
 	if res != nil {
 		t.Fatal("a run that never reconstructed anything must hand back no result to render")
@@ -300,7 +306,7 @@ func TestRunDeferredEmergencyReleaseAmendsThePersistedRecord(t *testing.T) {
 	// against the outcome value the test already holds.
 	path := t.TempDir() + "/record.json"
 	started := time.Date(2026, 8, 8, 10, 0, 0, 0, time.UTC)
-	if err := writeRecord(path, buildRecord(o, events, "r7", string(queuelab.ArmAHonor), false,
+	if err := writeRecord(path, buildRecord(o, events, nil, "r7", string(queuelab.ArmAHonor), false,
 		started, started.Add(90*time.Second))); err != nil {
 		t.Fatalf("persist: %v", err)
 	}
@@ -331,9 +337,11 @@ func TestRunDeferredEmergencyReleaseAmendsThePersistedRecord(t *testing.T) {
 // failure returns before it is registered, and the acquisition refusal is the last return before it is.
 func TestRunSetsADispositionOnTheConnectAndAcquisitionPaths(t *testing.T) {
 	// A connect failure is the earliest return in run(), before anything is acquired or built.
-	o, _, res := run(context.Background(),
+	tdNow, tdSleep := fakeClock(time.Unix(0, 0))
+	o, _, res, _ := run(context.Background(),
 		func() (client.WithWatch, error) { return nil, fmt.Errorf("kubeconfig: no such file") },
-		queuelab.ArmAHonor, "r7", "queuelab-r7", "platform-worker", time.Duration(horizonSec)*time.Second)
+		queuelab.ArmAHonor, "r7", "queuelab-r7", "platform-worker", time.Duration(horizonSec)*time.Second,
+		tdNow, tdSleep)
 	if o.Disposition != dispClientFailed {
 		t.Fatalf("a failed connect is client-failed, got %q", o.Disposition)
 	}
@@ -345,8 +353,9 @@ func TestRunSetsADispositionOnTheConnectAndAcquisitionPaths(t *testing.T) {
 	// is the boundary a future edit is most likely to get wrong.
 	held := node(map[string]string{workerLabelKey: "someone-else"}, nil)
 	fc := fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(held).Build()
-	o, _, res = run(context.Background(), func() (client.WithWatch, error) { return fc, nil },
-		queuelab.ArmAHonor, "r7", "queuelab-r7", "platform-worker", time.Duration(horizonSec)*time.Second)
+	o, _, res, _ = run(context.Background(), func() (client.WithWatch, error) { return fc, nil },
+		queuelab.ArmAHonor, "r7", "queuelab-r7", "platform-worker", time.Duration(horizonSec)*time.Second,
+		tdNow, tdSleep)
 	if o.Disposition != dispAcquisitionRefused {
 		t.Fatalf("a refused acquisition is acquisition-refused, got %q: %s", o.Disposition, o.Reason)
 	}
@@ -362,10 +371,10 @@ func TestRunSetsADispositionOnTheConnectAndAcquisitionPaths(t *testing.T) {
 // it and hand a gateless run the reconstructable evidence previewRecord has no field for. It must therefore
 // be the same constant whatever the run did.
 func TestPreviewRecordNoteIsAConstantNotDerivedFromTheRun(t *testing.T) {
-	quiet := buildRecord(outcome{Disposition: dispChecksPassed}, nil, "r1", "A-honor", true,
+	quiet := buildRecord(outcome{Disposition: dispChecksPassed}, nil, nil, "r1", "A-honor", true,
 		time.Now(), time.Now()).(previewRecord)
 	busy := buildRecord(outcome{Disposition: dispCancelled, Reason: "observing until the horizon"},
-		[]queuelab.LifecycleEvent{{ElapsedNs: 1, Kind: "Pod", Job: "a1"}}, "r2", "N-ref", true,
+		[]queuelab.LifecycleEvent{{ElapsedNs: 1, Kind: "Pod", Job: "a1"}}, nil, "r2", "N-ref", true,
 		time.Now(), time.Now()).(previewRecord)
 
 	if quiet.Note != previewNote || busy.Note != previewNote {
@@ -386,7 +395,7 @@ func TestRefusalRecordIsReadableEvenWithoutARunID(t *testing.T) {
 
 	err := errors.New("-runid is required")
 	rec := buildRecord(outcome{Disposition: dispRefusedBeforeCluster, Reason: err.Error()},
-		nil, recordRunID(""), "", false, time.Now(), time.Now())
+		nil, nil, recordRunID(""), "", false, time.Now(), time.Now())
 	b, encErr := encodeRecord(rec)
 	if encErr != nil {
 		t.Fatalf("encode: %v", encErr)
@@ -438,7 +447,7 @@ func TestRecordPathNamesEveryInvocationSeparately(t *testing.T) {
 // record is built rather than audited where only some are reachable — a reviewer deleted four `o = ...`
 // assignments and neither go vet nor the suite noticed.
 func TestBuildRecordRefusesAZeroDisposition(t *testing.T) {
-	rr, ok := buildRecord(outcome{}, nil, "r7", "A-honor", false, time.Now(), time.Now()).(runRecord)
+	rr, ok := buildRecord(outcome{}, nil, nil, "r7", "A-honor", false, time.Now(), time.Now()).(runRecord)
 	if !ok {
 		t.Fatal("a non-preview invocation must build a runRecord")
 	}
@@ -450,7 +459,7 @@ func TestBuildRecordRefusesAZeroDisposition(t *testing.T) {
 	}
 
 	// The preview branch builds a different type, so it needs its own proof rather than inheriting this one.
-	pr, ok := buildRecord(outcome{}, nil, "r7", "A-honor", true, time.Now(), time.Now()).(previewRecord)
+	pr, ok := buildRecord(outcome{}, nil, nil, "r7", "A-honor", true, time.Now(), time.Now()).(previewRecord)
 	if !ok {
 		t.Fatal("a preview invocation must build a previewRecord")
 	}
@@ -459,7 +468,7 @@ func TestBuildRecordRefusesAZeroDisposition(t *testing.T) {
 	}
 
 	// The substitution must not touch an outcome that already has one, or it would rewrite real dispositions.
-	kept := buildRecord(outcome{Disposition: dispChecksPassed, Reason: "x"}, nil, "r7", "A-honor", false,
+	kept := buildRecord(outcome{Disposition: dispChecksPassed, Reason: "x"}, nil, nil, "r7", "A-honor", false,
 		time.Now(), time.Now()).(runRecord)
 	if kept.Disposition != string(dispChecksPassed) || kept.Reason != "x" {
 		t.Fatalf("a classified outcome must pass through untouched, got %q / %q", kept.Disposition, kept.Reason)
@@ -614,10 +623,13 @@ func TestReportRunWithholdsTheLedgerFromAPreview(t *testing.T) {
 	}
 }
 
-// fullScheme extends testScheme with the CRDs a full protocol run touches. Every other test in this file
-// fails before reaching them, so testScheme itself is deliberately left without them; only the two tests
-// below drive run() all the way to its own explicit release and need MLTrainingJob and the Kueue fixture
-// types registered to get there.
+// fullScheme extends testScheme with the CRDs a full protocol run touches.
+//
+// Every test that reaches run()'s teardown now needs it, not just the ones that drive the whole protocol:
+// teardown enumerates a ClusterQueue and a ResourceFlavor and reads both, and against a scheme without them
+// every read fails, every target classifies absenceUnknown, and the run reports residue for a reason that
+// has nothing to do with what it is testing. testScheme stays as it is for the tests that never reach a
+// cluster at all.
 func fullScheme(t *testing.T) *runtime.Scheme {
 	t.Helper()
 	scheme := testScheme(t)
@@ -631,17 +643,20 @@ func fullScheme(t *testing.T) *runtime.Scheme {
 }
 
 // fakeSchedulerCreate stands in for the Kueue scheduler this fake cluster has none of. It stamps every
-// MLTrainingJob straight to Running with a unique UID — the two facts the barrier-staged schedule and the
-// collector's UID-keyed cache actually depend on — so an uncontested arm falls through to run()'s own
-// explicit release exactly as it would against a real, empty cluster with nothing else competing for the
-// worker.
+// MLTrainingJob straight to Running — the fact the barrier-staged schedule depends on — so an uncontested
+// arm falls through to run()'s own explicit release exactly as it would against a real, empty cluster with
+// nothing else competing for the worker.
+//
+// The UID it used to set by hand now comes from stampUIDOnCreate, which does it for every kind rather than
+// for MLTrainingJob alone. The collector's UID-keyed cache always needed one; teardown needs one on the
+// namespace and the fixtures too, and a fake cluster that assigned UIDs to exactly one kind would report
+// residue for every run() test purely as an artefact of the double.
 func fakeSchedulerCreate(ctx context.Context, c client.WithWatch, obj client.Object,
 	opts ...client.CreateOption) error {
 	if mltj, ok := obj.(*platformv1.MLTrainingJob); ok {
-		mltj.UID = types.UID("uid-" + mltj.Name)
 		mltj.Status.Phase = phaseRunning
 	}
-	return c.Create(ctx, obj, opts...)
+	return stampUIDOnCreate(ctx, c, obj, opts...)
 }
 
 // stubWatch never delivers an event; it exists only to close once ctx is cancelled, which the fake client's
@@ -717,8 +732,9 @@ func TestRunExplicitReleaseFailureRecordsWorkerNotRestored(t *testing.T) {
 			},
 		}).Build()
 
-	o, events, res := run(context.Background(), func() (client.WithWatch, error) { return fc, nil },
-		queuelab.ArmNRef, "r8", "queuelab-r8", "platform-worker", 45*time.Second)
+	tdNow, tdSleep := fakeClock(time.Unix(0, 0))
+	o, events, res, _ := run(context.Background(), func() (client.WithWatch, error) { return fc, nil },
+		queuelab.ArmNRef, "r8", "queuelab-r8", "platform-worker", 45*time.Second, tdNow, tdSleep)
 
 	if nodePatches != 2 {
 		t.Fatalf("want exactly 2 node patches (acquire + the run's own release), got %d — this test proved "+
@@ -736,7 +752,7 @@ func TestRunExplicitReleaseFailureRecordsWorkerNotRestored(t *testing.T) {
 	// the in-memory outcome the test already holds.
 	path := t.TempDir() + "/record.json"
 	started := time.Now()
-	if err := writeRecord(path, buildRecord(o, events, "r8", string(queuelab.ArmNRef), false,
+	if err := writeRecord(path, buildRecord(o, events, nil, "r8", string(queuelab.ArmNRef), false,
 		started, started.Add(45*time.Second))); err != nil {
 		t.Fatalf("persist: %v", err)
 	}
@@ -805,8 +821,9 @@ func TestRunCancellationWhileRestoringNeverRelabelsAsCancelled(t *testing.T) {
 			},
 		}).Build()
 
-	o, events, res := run(ctx, func() (client.WithWatch, error) { return fc, nil },
-		queuelab.ArmNRef, "r9", "queuelab-r9", "platform-worker", 45*time.Second)
+	tdNow, tdSleep := fakeClock(time.Unix(0, 0))
+	o, events, res, _ := run(ctx, func() (client.WithWatch, error) { return fc, nil },
+		queuelab.ArmNRef, "r9", "queuelab-r9", "platform-worker", 45*time.Second, tdNow, tdSleep)
 
 	if nodePatches != 2 {
 		t.Fatalf("want exactly 2 node patches (acquire + the run's own release), got %d — this test proved "+
@@ -826,7 +843,7 @@ func TestRunCancellationWhileRestoringNeverRelabelsAsCancelled(t *testing.T) {
 
 	path := t.TempDir() + "/record.json"
 	started := time.Now()
-	if err := writeRecord(path, buildRecord(o, events, "r9", string(queuelab.ArmNRef), false,
+	if err := writeRecord(path, buildRecord(o, events, nil, "r9", string(queuelab.ArmNRef), false,
 		started, started.Add(45*time.Second))); err != nil {
 		t.Fatalf("persist: %v", err)
 	}
@@ -840,5 +857,281 @@ func TestRunCancellationWhileRestoringNeverRelabelsAsCancelled(t *testing.T) {
 	}
 	if rr.Disposition != string(dispWorkerNotRestored) {
 		t.Fatalf("the persisted record must not carry cancelled, got %s", rr.Disposition)
+	}
+}
+
+// runCall is one mutating call run() made against the cluster, in the order it made it.
+//
+// The property these tests are about — teardown happens before the worker's markers come off — is a
+// property of the ORDER of calls, and no final state can show it: the node ends up released and the
+// namespace ends up gone whichever order they happened in. This is the same reason Task 1's phase-order
+// test had to assert on a call log rather than on what the cluster looked like afterwards.
+type runCall struct {
+	Op   string // "delete" | "patch"
+	Kind string
+	Name string
+}
+
+// recordRunCalls wraps a client so every delete and patch is captured in order.
+//
+// It wraps with interceptor.NewClient rather than adding to the builder, because WithInterceptorFuncs is a
+// single slot whose last call wins and every test below needs its own Create behaviour as well as the log.
+// The mutex is not decorative: run() has four watch goroutines live for most of its body, and a test that
+// only happens not to trip -race today would be a poor thing to leave for the next reader.
+func recordRunCalls(t *testing.T, inner client.WithWatch) (client.WithWatch, func() []runCall) {
+	t.Helper()
+	var (
+		mu  sync.Mutex
+		got []runCall
+	)
+	kindOf := func(obj client.Object) string {
+		gvk, err := apiutil.GVKForObject(obj, inner.Scheme())
+		if err != nil {
+			t.Fatalf("no GroupVersionKind for %T: %v", obj, err)
+		}
+		return gvk.Kind
+	}
+	add := func(c runCall) {
+		mu.Lock()
+		defer mu.Unlock()
+		got = append(got, c)
+	}
+	c := interceptor.NewClient(inner, interceptor.Funcs{
+		Delete: func(ctx context.Context, cl client.WithWatch, obj client.Object,
+			opts ...client.DeleteOption) error {
+			add(runCall{Op: "delete", Kind: kindOf(obj), Name: obj.GetName()})
+			return cl.Delete(ctx, obj, opts...)
+		},
+		Patch: func(ctx context.Context, cl client.WithWatch, obj client.Object, patch client.Patch,
+			opts ...client.PatchOption) error {
+			add(runCall{Op: "patch", Kind: kindOf(obj), Name: obj.GetName()})
+			return cl.Patch(ctx, obj, patch, opts...)
+		},
+	})
+	return c, func() []runCall {
+		mu.Lock()
+		defer mu.Unlock()
+		return append([]runCall(nil), got...)
+	}
+}
+
+// stampUIDOnCreate gives every created object a UID, which a real apiserver does and the fake client does
+// not.
+//
+// Without it these tests would exercise a cluster no teardown can ever meet: recoverTargets learns the UID
+// from the object it reads, classifyAbsence returns absenceUnknown for an empty one, and the executor would
+// therefore never issue a single Delete — every run() test would "prove" residue for the wrong reason.
+func stampUIDOnCreate(ctx context.Context, c client.WithWatch, obj client.Object,
+	opts ...client.CreateOption) error {
+	if obj.GetUID() == "" {
+		obj.SetUID(types.UID("uid-" + obj.GetName()))
+	}
+	return c.Create(ctx, obj, opts...)
+}
+
+// firstIndexOf reports where a call appears in the log, or -1. The tests assert on indices rather than on
+// mere presence, because presence is what both the right and the wrong order have in common.
+func firstIndexOf(calls []runCall, op, kind string, nth int) int {
+	seen := 0
+	for i, c := range calls {
+		if c.Op == op && c.Kind == kind {
+			seen++
+			if seen == nth {
+				return i
+			}
+		}
+	}
+	return -1
+}
+
+// releasePatchIndex is where the run's own release of the worker appears. It is the SECOND Node patch:
+// the first is acquireWorker installing the markers, and a test that looked for "a Node patch" would be
+// satisfied by the acquisition alone and could never fail.
+func releasePatchIndex(calls []runCall) int { return firstIndexOf(calls, "patch", "Node", 2) }
+
+// The ordering this whole task exists to establish, on the path that returns early — which is every failure
+// between acquiring the worker and reconstructing the result, and therefore the common case.
+//
+// If the worker's label and NoSchedule taint came off first, the next run would acquire a node whose GPUs
+// this run's namespace is still holding, and it would look perfectly free while doing it. The assertion is
+// on the index of the namespace delete against the index of the release patch, because both calls happen in
+// either order and only their sequence distinguishes the two implementations.
+func TestRunTearsDownBeforeTheEmergencyReleaseOnAnEarlyReturn(t *testing.T) {
+	inner := fake.NewClientBuilder().WithScheme(fullScheme(t)).WithObjects(node(nil, nil)).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Create: func(ctx context.Context, c client.WithWatch, obj client.Object,
+				opts ...client.CreateOption) error {
+				// The flavor is the first fixture applyFixtures creates, so failing it returns the run early
+				// with the namespace already on the cluster: the exact state teardown exists for.
+				if _, ok := obj.(*kueuev1beta2.ResourceFlavor); ok {
+					return fmt.Errorf("resource flavor quota exhausted")
+				}
+				return stampUIDOnCreate(ctx, c, obj, opts...)
+			},
+		}).Build()
+	c, calls := recordRunCalls(t, inner)
+	now, sleep := fakeClock(time.Unix(0, 0))
+
+	o, _, res, left := run(context.Background(), func() (client.WithWatch, error) { return c, nil },
+		queuelab.ArmAHonor, "r7", "queuelab-r7", "platform-worker",
+		time.Duration(horizonSec)*time.Second, now, sleep)
+
+	if res != nil {
+		t.Fatal("a run that failed setup must hand back no result")
+	}
+	if o.Disposition != dispSetupFailed {
+		t.Fatalf("a clean teardown must leave the original disposition alone, got %s: %s", o.Disposition, o.Reason)
+	}
+	if len(left) != 0 {
+		t.Fatalf("teardown had one namespace to remove and it was removable; residue %+v", left)
+	}
+
+	got := calls()
+	del := firstIndexOf(got, "delete", "Namespace", 1)
+	rel := releasePatchIndex(got)
+	if del < 0 {
+		t.Fatalf("the namespace this run created was never deleted; calls: %+v", got)
+	}
+	if rel < 0 {
+		t.Fatalf("the worker was never released; calls: %+v", got)
+	}
+	if del > rel {
+		t.Fatalf("the worker was released at call %d, before the namespace was deleted at call %d: the next "+
+			"run would acquire a node this run's namespace still holds; calls: %+v", rel, del, got)
+	}
+}
+
+// The same ordering on the path that returns normally, which a defer cannot get right on its own: an inline
+// release always runs before a defer registered later, so the happy path has to call teardown explicitly and
+// in the right place. Nothing about the deferred path can show that.
+//
+// This test is real time, not simulated: it drives run() through the actual doseSec=40 protocol wait, the
+// same as the two release tests above and for the same reason — the dose is a protocol constant the
+// experiment's validity rests on and is deliberately not configurable. -short therefore does NOT check the
+// happy-path half of this ordering.
+func TestRunTearsDownBeforeItsOwnReleaseOnTheHappyPath(t *testing.T) {
+	if testing.Short() {
+		t.Skip("drives run() through the full 40-second protocol dose to reach the happy path; -short leaves " +
+			"the inline teardown-before-release ordering unexercised, and only the deferred path is checked")
+	}
+	inner := fake.NewClientBuilder().WithScheme(fullScheme(t)).WithObjects(node(nil, nil)).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Create: fakeSchedulerCreate,
+			Watch:  fakeSchedulerWatch,
+		}).Build()
+	c, calls := recordRunCalls(t, inner)
+	now, sleep := fakeClock(time.Unix(0, 0))
+
+	o, _, res, left := run(context.Background(), func() (client.WithWatch, error) { return c, nil },
+		queuelab.ArmNRef, "r8", "queuelab-r8", "platform-worker", 45*time.Second, now, sleep)
+
+	if o.Disposition != dispChecksPassed {
+		t.Fatalf("an uncontested N-ref run against a clean cluster must pass, got %s: %s", o.Disposition, o.Reason)
+	}
+	if res == nil {
+		t.Fatal("a passing run must hand back a result, or this test never reached the happy path at all")
+	}
+	if len(left) != 0 {
+		t.Fatalf("teardown left residue on a cluster that deletes on request: %+v", left)
+	}
+
+	got := calls()
+	del := firstIndexOf(got, "delete", "Namespace", 1)
+	rel := releasePatchIndex(got)
+	if del < 0 {
+		t.Fatalf("the namespace this run created was never deleted; calls: %+v", got)
+	}
+	if rel < 0 {
+		t.Fatalf("the run never released its worker; calls: %+v", got)
+	}
+	if del > rel {
+		t.Fatalf("the happy path released the worker at call %d before deleting the namespace at call %d; a "+
+			"defer registered after the release cannot fix this, the call has to be inline and earlier; "+
+			"calls: %+v", rel, del, got)
+	}
+	// The fixtures are cluster-scoped and outlive the namespace, so a teardown that stopped at the namespace
+	// would leave the next run under this id colliding with a ResourceFlavor built for a different arm.
+	if firstIndexOf(got, "delete", "ResourceFlavor", 1) < 0 {
+		t.Fatalf("the run's ResourceFlavor was never deleted; calls: %+v", got)
+	}
+}
+
+// Residue is not a failure to compute a result — it is a fact about the cluster, and two things must follow
+// from it: the outcome says so without losing what the run was already failing at, and the worker STAYS
+// DEDICATED. Releasing it would strip the NoSchedule taint from a node whose namespace is still there, and
+// an annotation cannot contain a GPU Pod; a teardown timeout deliberately sacrifices worker availability to
+// preserve isolation.
+//
+// The namespace delete is refused rather than merely slow, because that is the shape that also proves the
+// reason survives: a residue entry saying only "still present" reads as a slow finalizer.
+func TestRunTeardownResidueAmendsTheOutcomeAndHoldsTheWorker(t *testing.T) {
+	inner := fake.NewClientBuilder().WithScheme(fullScheme(t)).WithObjects(node(nil, nil)).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Create: func(ctx context.Context, c client.WithWatch, obj client.Object,
+				opts ...client.CreateOption) error {
+				if _, ok := obj.(*kueuev1beta2.ResourceFlavor); ok {
+					return fmt.Errorf("resource flavor quota exhausted")
+				}
+				return stampUIDOnCreate(ctx, c, obj, opts...)
+			},
+			Delete: func(ctx context.Context, c client.WithWatch, obj client.Object,
+				opts ...client.DeleteOption) error {
+				if _, ok := obj.(*corev1.Namespace); ok {
+					return apierrors.NewForbidden(schema.GroupResource{Resource: "namespaces"},
+						obj.GetName(), errors.New("teardown may not delete namespaces"))
+				}
+				return c.Delete(ctx, obj, opts...)
+			},
+		}).Build()
+	c, calls := recordRunCalls(t, inner)
+	now, sleep := fakeClock(time.Unix(0, 0))
+
+	o, _, res, left := run(context.Background(), func() (client.WithWatch, error) { return c, nil },
+		queuelab.ArmAHonor, "r7", "queuelab-r7", "platform-worker",
+		time.Duration(horizonSec)*time.Second, now, sleep)
+
+	if res != nil {
+		t.Fatal("a run that failed setup must hand back no result")
+	}
+	if o.Disposition != dispResidueLeft {
+		t.Fatalf("a run whose teardown left objects behind is %s, got %s: %s",
+			dispResidueLeft, o.Disposition, o.Reason)
+	}
+	// amend, not assignment: this run failed at setup AND then failed to clean up, and those are not the
+	// same event. The record is the only account of it that survives the process.
+	if !strings.Contains(o.Reason, "applying fixtures") {
+		t.Fatalf("the amended outcome must keep what run() originally decided as the cause in its (after …) "+
+			"chain, got %q", o.Reason)
+	}
+	if len(left) == 0 {
+		t.Fatal("run() reported no residue for a namespace it was refused permission to delete; residue that " +
+			"never leaves run() cannot reach the record")
+	}
+	found := false
+	for _, r := range left {
+		if r.Observation.Target.Name == "queuelab-r7" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("the residue must name the namespace that is still there, got %+v", left)
+	}
+
+	got := calls()
+	if rel := releasePatchIndex(got); rel >= 0 {
+		t.Fatalf("the worker was released at call %d despite residue; the next run would schedule onto a node "+
+			"whose namespace is still there; calls: %+v", rel, got)
+	}
+	// Asserted on the node itself as well as on the call log, because "no second patch" and "the markers are
+	// still installed" are different claims and the operator's recovery depends on the second one.
+	var n corev1.Node
+	if err := c.Get(context.Background(), client.ObjectKey{Name: "platform-worker"}, &n); err != nil {
+		t.Fatalf("read the worker back: %v", err)
+	}
+	if n.Labels[workerLabelKey] == "" {
+		t.Fatal("the worker lost its dedication label while this run's namespace was still on the cluster")
+	}
+	if len(n.Spec.Taints) == 0 {
+		t.Fatal("the worker lost its NoSchedule taint while this run's namespace was still on the cluster")
 	}
 }

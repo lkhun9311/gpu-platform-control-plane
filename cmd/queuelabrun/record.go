@@ -56,6 +56,80 @@ type runRecord struct {
 	Reason      string `json:"reason,omitempty"`
 	// Events is the ledger. It is present whenever a collector ran.
 	Events []queuelab.LifecycleEvent `json:"events,omitempty"`
+	// Residue is what this run's teardown could not prove gone. Empty is the ordinary case and says nothing;
+	// a non-empty one is the fact the next run has to refuse to start on.
+	Residue []recordResidue `json:"residue,omitempty"`
+}
+
+// recordResidue is the record's own projection of a residue entry, and deliberately not teardown.go's
+// `residue` itself.
+//
+// residue carries an `error` on its observation, and an error has no JSON. It ENCODES as `{}` — losing the
+// one thing settlePhase holds a delete refusal aside to report — and it DECODES not at all, because
+// encoding/json cannot unmarshal an object into an interface field. Persisting `[]residue` verbatim would
+// therefore write records that decodeRunRecord rejects, on exactly the runs whose delete was refused: the
+// most informative residue there is would be the residue that made the record unreadable. So the error is
+// flattened to its text here, at the boundary where the record is built.
+//
+// Absence is a NAME rather than the iota, which is the point at which the plan said to settle that: an int
+// here would make the declaration order of the constants in teardown.go a wire format, and inserting a case
+// between two of them would silently relabel every record ever written.
+//
+// The phase is not carried. It is a function of the kind — namespace, then ClusterQueue, then
+// ResourceFlavor — so persisting it would only create a second copy to keep in sync with enumerate.
+type recordResidue struct {
+	Kind        string `json:"kind"`
+	Name        string `json:"name"`
+	Absence     string `json:"absence"`
+	Found       bool   `json:"found,omitempty"`
+	Terminating bool   `json:"terminating,omitempty"`
+	UID         string `json:"uid,omitempty"`
+	WantUID     string `json:"wantUID,omitempty"`
+	Error       string `json:"error,omitempty"`
+}
+
+// absenceName is the persisted spelling of a verdict.
+//
+// The default case names the integer rather than falling back to "unknown", because a constant added to
+// teardown.go without a case here is a bug in this function, and reporting it as the verdict that means
+// "nobody could tell" would hide that bug inside a value the schema says is legitimate.
+func absenceName(a absence) string {
+	switch a {
+	case absencePresent:
+		return "present"
+	case absenceAbsent:
+		return "absent"
+	case absenceForeign:
+		return "foreign"
+	case absenceUnknown:
+		return "unknown"
+	default:
+		return fmt.Sprintf("unrecognised(%d)", int(a))
+	}
+}
+
+// residueForRecord projects what teardown observed into what the record persists.
+func residueForRecord(left []residue) []recordResidue {
+	if len(left) == 0 {
+		return nil
+	}
+	out := make([]recordResidue, 0, len(left))
+	for _, r := range left {
+		e := recordResidue{
+			Kind:        r.Observation.Target.Kind,
+			Name:        r.Observation.Target.Name,
+			Absence:     absenceName(r.Absence),
+			Found:       r.Observation.Found,
+			Terminating: r.Observation.Terminating,
+			UID:         r.Observation.UID,
+			WantUID:     r.Observation.WantUID,
+		}
+		if r.Observation.Err != nil {
+			e.Error = r.Observation.Err.Error()
+		}
+		out = append(out, e)
+	}
+	return out
 }
 
 // previewRecord is a separate type, not runRecord with the events omitted.
@@ -76,6 +150,11 @@ type previewRecord struct {
 	// EventCount is a count, not a ledger: it cannot be inverted into events.
 	EventCount int    `json:"eventCount"`
 	Note       string `json:"note"`
+	// Residue is carried here too, unlike the ledger, because a preview runs the whole of run() — namespace
+	// and fixtures included — and is therefore the mode generating residue today. Withholding it would lose
+	// the residue for the only mode currently producing any. It is safe here for the same structural reason
+	// the type's own comment gives: recordResidue has no field a lifecycle ledger can be decoded out of.
+	Residue []recordResidue `json:"residue,omitempty"`
 }
 
 // previewNote is a fixed constant, never anything derived from the run.
@@ -113,9 +192,10 @@ func classified(o outcome) outcome {
 // This is the only place the preview and non-preview branches diverge, so the guarantee that a gateless run
 // cannot emit reconstructable evidence lives in one readable decision rather than being spread across the
 // call sites that write.
-func buildRecord(o outcome, events []queuelab.LifecycleEvent, runID, arm string, preview bool,
+func buildRecord(o outcome, events []queuelab.LifecycleEvent, left []residue, runID, arm string, preview bool,
 	started, ended time.Time) any {
 	o = classified(o)
+	persistedResidue := residueForRecord(left)
 	startedAt := started.UTC().Format(time.RFC3339)
 	endedAt := ended.UTC().Format(time.RFC3339)
 	if preview {
@@ -130,6 +210,7 @@ func buildRecord(o outcome, events []queuelab.LifecycleEvent, runID, arm string,
 			Reason:        o.Reason,
 			EventCount:    len(events),
 			Note:          previewNote,
+			Residue:       persistedResidue,
 		}
 	}
 	return runRecord{
@@ -141,6 +222,7 @@ func buildRecord(o outcome, events []queuelab.LifecycleEvent, runID, arm string,
 		Disposition:   string(o.Disposition),
 		Reason:        o.Reason,
 		Events:        events,
+		Residue:       persistedResidue,
 	}
 }
 

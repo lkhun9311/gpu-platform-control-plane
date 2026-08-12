@@ -93,7 +93,7 @@ func main() {
 	// explanation that must not be squeezed behind the "ERROR:" prefix the one-line refusals carry.
 	refuseInvocation := func(err error) {
 		rec := buildRecord(outcome{Disposition: dispRefusedBeforeCluster, Reason: err.Error()},
-			nil, recordRunID(*runID), *armFlag, *preview, started, time.Now())
+			nil, nil, recordRunID(*runID), *armFlag, *preview, started, time.Now())
 		if werr := writeRecord(recordPath, rec); werr != nil {
 			// The record that failed to persist cannot report its own failure, so this is the one outcome that
 			// exists only on stderr. It says the record is unproven rather than that nothing changed: a
@@ -188,16 +188,18 @@ func main() {
 	// cancellable too; without that pairing a Ctrl-C would look ignored while the worker stayed dedicated.
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	// run publishes nothing and persists nothing: its deferred emergency release amends the outcome AFTER
-	// the return value has been chosen, so anything written from inside it could be contradicted a moment
-	// later. By the time these three values exist here, every defer has finished amending them.
-	o, events, res := run(ctx, newClusterClient, arm, *runID, namespace, *worker, horizon)
+	// run publishes nothing and persists nothing: its deferred teardown and emergency release both amend the
+	// outcome AFTER the return value has been chosen, so anything written from inside it could be
+	// contradicted a moment later. By the time these four values exist here, every defer has finished
+	// amending them.
+	o, events, res, left := run(ctx, newClusterClient, arm, *runID, namespace, *worker, horizon,
+		time.Now, time.Sleep)
 
 	os.Exit(reportRun(os.Stdout, os.Stderr, writeRecord, runReport{
 		Outcome: o,
 		Events:  events,
 		Result:  res,
-		Record:  buildRecord(o, events, *runID, string(arm), *preview, started, time.Now()),
+		Record:  buildRecord(o, events, left, *runID, string(arm), *preview, started, time.Now()),
 		Path:    recordPath,
 		Preview: *preview,
 	}))
@@ -387,6 +389,89 @@ func newClusterClient() (client.WithWatch, error) {
 // banner has to bracket the result rather than appear only once where scrolled-past output could miss it.
 const previewBanner = "==================== PREVIEW: SMOKE CHECK ONLY, NOT EVIDENCE ===================="
 
+// teardownBudget bounds one run's teardown, and it is a constant for the same reason the horizon is: the
+// deadline decides whether a run reports a clean teardown or residue, and a knob that could shorten it is a
+// knob that can buy a clean-looking record by not waiting for the answer.
+//
+// The namespace phase is what sizes it. Deleting the namespace waits on kube-controller-manager to remove
+// its contents, and the Pods inside carry terminationGraceSec (30s) on top of however long kubelet takes to
+// get to them; the two Kueue phases behind it clear in seconds once nothing references them. Three minutes
+// is several times over that shape, and it is also the ceiling on how long a stuck teardown holds this
+// process before it records the residue and hands the operator a still-dedicated worker.
+const teardownBudget = 3 * time.Minute
+
+// teardownContextTimeout is deliberately LARGER than teardownBudget, and the gap is the whole point.
+//
+// The expiry that has to be reported as residue is the poll loop's own, measured on the injected clock. Were
+// the context to expire first, every read and delete would start failing with a cancellation, the executor
+// would classify those as absenceUnknown, and a teardown that simply ran out of time would be
+// indistinguishable from an orderly shutdown. This context exists only as a backstop against an apiserver
+// that never answers at all, so it is bounded but never the binding constraint.
+const teardownContextTimeout = teardownBudget + time.Minute
+
+// teardownContext is derived from Background rather than from the run's context, for the same reason
+// cleanupContext is: a Ctrl-C landing mid-teardown must not abandon a half-deleted namespace and then
+// release the worker on top of it. Containment work runs to completion.
+func teardownContext() (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.Background(), teardownContextTimeout)
+}
+
+// tearDownBeforeRelease deletes everything this run created and reports whether the worker may now be let go.
+//
+// It is a function rather than inline code because run() has to do this twice — once on the path that
+// returns normally and once in the deferred path covering every early return — and two copies of a decision
+// this consequential is two places for them to drift apart.
+//
+// clean is false for residue and for a teardown that could not run at all, and false is what HOLDS THE
+// WORKER. Releasing it strips the dedication label and the NoSchedule taint from a node whose namespace may
+// still be running this run's GPU Pods, and there is no marker that keeps a scheduler off a node while
+// letting the run be over — forceQuarantine's annotation means nothing to the scheduler. So a teardown that
+// did not finish sacrifices worker availability to preserve isolation. That is a stated choice, and the
+// operator is handed the recovery command rather than left to find it.
+func tearDownBeforeRelease(c client.Client, s seed, worker string, now func() time.Time,
+	sleep func(time.Duration), o outcome) (outcome, []residue, bool) {
+	tctx, cancel := teardownContext()
+	defer cancel()
+	result, err := deleteTargets(tctx, c, s, s.TxID, now, sleep, teardownBudget)
+	if err != nil {
+		// A teardown that could not even compute its target set deleted nothing and proved nothing, so for
+		// every decision below it is the same state as residue: hold the worker, and name the cause in the
+		// record rather than letting the run look like it cleaned up after itself.
+		o = o.amend(dispResidueLeft, fmt.Sprintf("teardown could not run: %v", err))
+		reportResidueHeld(worker, nil)
+		return o, nil, false
+	}
+	if len(result.Residue) == 0 {
+		return o, nil, true
+	}
+	// amend rather than assignment, exactly as the deferred emergency release does: a run that failed
+	// reconstruction AND then failed to clean up is not the same event as one that only failed to clean up,
+	// and the record is the only account of either that survives the process.
+	o = o.amend(dispResidueLeft, fmt.Sprintf("teardown left %d object(s) after %s",
+		len(result.Residue), result.Elapsed.Round(time.Second)))
+	reportResidueHeld(worker, result.Residue)
+	return o, result.Residue, false
+}
+
+// reportResidueHeld tells the operator what is still there and why their worker did not come back.
+//
+// The residue also reaches the record, so this is not the only account of it — that is the difference
+// between this and the WORKER NOT RESTORED line, which for a long time was printed and then lost. What only
+// exists here is the warning: stripping a stuck namespace's finalizer is the standard human fix and it is
+// the one action that makes the situation unrecoverable, because it orphans the contents and every later
+// absence check then reports clean over objects that are still running.
+func reportResidueHeld(worker string, left []residue) {
+	fmt.Fprintf(os.Stderr, "TEARDOWN INCOMPLETE: worker %s stays dedicated; its GPUs may still be in use\n",
+		worker)
+	for _, r := range left {
+		fmt.Fprintf(os.Stderr, "  %s %s: %s\n", r.Observation.Target.Kind, r.Observation.Target.Name,
+			absenceName(r.Absence))
+	}
+	fmt.Fprintf(os.Stderr, "  do NOT strip a stuck namespace's finalizer: that orphans its contents, and "+
+		"every absence check afterwards reports clean over objects that are still running\n")
+	fmt.Fprintf(os.Stderr, "  run: queuelabrun -inspect-worker -worker %s\n", worker)
+}
+
 // phaseFailure is classifyPhaseFailure with the cause folded into the reason.
 //
 // The record has no field for an error and main prints only the reason, so a reason naming the phase alone
@@ -399,16 +484,23 @@ func phaseFailure(phase disposition, what string, err error) outcome {
 
 // run executes one arm and reports what happened to it, publishing and persisting nothing.
 //
-// The outcome is a NAMED return because the deferred emergency release below runs after the return value has
-// been chosen: a record written from inside this function could be contradicted by a WORKER NOT RESTORED
-// line moments later, so the caller persists only what the defers have finished amending. Every return path
-// sets o; a zero disposition reaching the record would be a silent lie about what happened.
+// The outcome is a NAMED return because the deferred teardown and emergency release below both run after the
+// return value has been chosen: a record written from inside this function could be contradicted by a
+// TEARDOWN INCOMPLETE or WORKER NOT RESTORED line moments later, so the caller persists only what the defers
+// have finished amending. left is named for the same reason and carries the residue out to the record —
+// residue that only reached stderr would be printed and lost, which is the failure the record exists to end.
+// Every return path sets o; a zero disposition reaching the record would be a silent lie about what happened.
 //
 // connect is a parameter rather than a direct newClusterClient call for the same reason dispatchOperatorMode
 // takes one: without that seam the amendment this function is shaped around is reachable only by reading it,
 // and a regression that stopped the defer amending would leave the suite green.
+//
+// now and sleep are the teardown executor's clock, injected for the same reason and nothing else: teardown
+// polls to a three-minute budget, and a test that had to spend three real minutes to see a run report residue
+// would be a test nobody runs. Everything else in this function reads the real clock directly.
 func run(ctx context.Context, connect clusterClientFunc, arm queuelab.Arm, runID, namespace, worker string,
-	horizon time.Duration) (o outcome, events []queuelab.LifecycleEvent, res *queuelab.LabResult) {
+	horizon time.Duration, now func() time.Time, sleep func(time.Duration)) (o outcome,
+	events []queuelab.LifecycleEvent, res *queuelab.LabResult, left []residue) {
 	study := queuelab.StudyReclaim
 	c, err := connect()
 	if err != nil {
@@ -444,6 +536,13 @@ func run(ctx context.Context, connect clusterClientFunc, arm queuelab.Arm, runID
 		return
 	}
 	releaseAttempted := false
+	// workerHeldForResidue is the deliberate refusal to release, not a release that failed. Teardown sets it
+	// when it could not prove this run's objects gone, and it suppresses the emergency release below for the
+	// same reason the explicit release is skipped on that path: a node whose namespace may still be running
+	// GPU Pods must keep its label and its NoSchedule taint, or the next run acquires a worker that only
+	// looks free. It is a second flag rather than a reuse of releaseAttempted because "we chose not to" and
+	// "we already tried" want different messages, and the operator acts on the difference.
+	workerHeldForResidue := false
 	// The emergency release covers the paths that return early; the run's own release below sets
 	// releaseAttempted before it runs, whatever it returns, so this defer stays a no-op for every path that
 	// reached it. It must key on ATTEMPTED rather than succeeded: if the explicit release below fails with
@@ -451,7 +550,7 @@ func run(ctx context.Context, connect clusterClientFunc, arm queuelab.Arm, runID
 	// here would print a second, misleading "WORKER NOT RESTORED" for a release that already ran and already
 	// invalidated the run.
 	defer func() {
-		if releaseAttempted {
+		if releaseAttempted || workerHeldForResidue {
 			return
 		}
 		relCtx, relCancel := cleanupContext()
@@ -469,10 +568,14 @@ func run(ctx context.Context, connect clusterClientFunc, arm queuelab.Arm, runID
 	fmt.Printf("  worker %s acquired: tx=%s (if this process dies, run: queuelabrun -inspect-worker -worker %s)\n",
 		worker, txID, worker)
 
-	if err := ensureNamespace(ctx, c, namespace, txID); err != nil {
-		o = phaseFailure(dispSetupFailed, fmt.Sprintf("ensuring namespace %s", namespace), err)
-		return
-	}
+	// Both of these used to sit BELOW ensureNamespace, and neither does any I/O — which made that ordering a
+	// real hole rather than a matter of taste. ensureNamespace is this run's first Create, and the seed that
+	// teardown regenerates its deletion set from cannot be built without the policy variant; so on the path
+	// where the namespace was created and PolicyVariant then failed, a namespace existed and no seed did, and
+	// teardown could not compute a target set for an object the run demonstrably created. teardown.go
+	// specifies the seed as written before the run's first Create, and moving these two up is what makes that
+	// true. It also means an invalid arm or an unbuildable fixture set now fails before the run touches the
+	// cluster at all, rather than after.
 	policyVariant, err := arm.PolicyVariant()
 	if err != nil {
 		o = phaseFailure(dispSetupFailed, "resolving the arm's policy variant", err)
@@ -481,6 +584,40 @@ func run(ctx context.Context, connect clusterClientFunc, arm queuelab.Arm, runID
 	fs, err := queuelab.BuildFixtures(study, policyVariant, txID, runID, namespace)
 	if err != nil {
 		o = phaseFailure(dispSetupFailed, "building fixtures", err)
+		return
+	}
+	s := seed{
+		Schema:    teardownSeedSchema,
+		TxID:      txID,
+		RunID:     runID,
+		Arm:       string(arm),
+		Study:     study,
+		Variant:   policyVariant,
+		Namespace: namespace,
+	}
+
+	teardownAttempted := false
+	// Registered AFTER the emergency release above, and that is the requirement, not an accident of where the
+	// code happened to land: defers run LIFO, so registering this one second is what makes it run FIRST.
+	// Inverted, the worker's dedication label and NoSchedule taint would come off while this run's namespace
+	// still held its GPUs, and the next run would acquire a node that only looks free.
+	//
+	// It covers every early return from here down; the path that returns normally calls the same function
+	// inline, because an inline release later in the body would otherwise beat a defer registered here.
+	defer func() {
+		if teardownAttempted {
+			return
+		}
+		teardownAttempted = true
+		var clean bool
+		o, left, clean = tearDownBeforeRelease(c, s, worker, now, sleep, o)
+		if !clean {
+			workerHeldForResidue = true
+		}
+	}()
+
+	if err := ensureNamespace(ctx, c, namespace, txID); err != nil {
+		o = phaseFailure(dispSetupFailed, fmt.Sprintf("ensuring namespace %s", namespace), err)
 		return
 	}
 	if err := applyFixtures(ctx, c, fs, policyVariant, txID); err != nil {
@@ -570,6 +707,24 @@ func run(ctx context.Context, connect clusterClientFunc, arm queuelab.Arm, runID
 	if err := arm.AssertCardinality(result); err != nil {
 		fmt.Printf("\nRUN INVALIDATED: %v\n", err)
 		o = phaseFailure(dispCardinalityRefused, "cardinality check failed", err)
+		return
+	}
+
+	// Teardown runs here, INLINE and above the release, rather than being left to the defer registered
+	// earlier. A defer runs after every inline statement in the function body, so it cannot get ahead of the
+	// release call below however it is registered: the ordering the early-return paths get for free has to be
+	// written out explicitly on the path that returns normally.
+	//
+	// teardownAttempted is set before the call for the same reason releaseAttempted is below: whatever this
+	// returns, the deferred copy must not run the whole thing a second time.
+	teardownAttempted = true
+	var teardownClean bool
+	o, left, teardownClean = tearDownBeforeRelease(c, s, worker, now, sleep, o)
+	if !teardownClean {
+		// The worker is deliberately kept, so the deferred emergency release must not undo that. res stays
+		// nil, which is the same rule the release failure below follows: this run computed a result, but a
+		// result is handed back only once the worker is restored, and here it is being held on purpose.
+		workerHeldForResidue = true
 		return
 	}
 

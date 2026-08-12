@@ -44,6 +44,12 @@ const (
 	dispReconstructRefused = disposition("reconstruct-refused")
 	dispCardinalityRefused = disposition("cardinality-refused")
 	dispWorkerNotRestored  = disposition("worker-not-restored")
+	// dispResidueLeft is a fact about the cluster, not a failure to compute one: teardown ran and something
+	// this run created is still there. It is separate from worker-not-restored because the worker is
+	// deliberately NOT restored on this path — releasing a node whose namespace still holds GPUs is the
+	// outcome teardown exists to prevent — so collapsing the two would make a chosen containment look like a
+	// failed release the operator should retry.
+	dispResidueLeft = disposition("residue-left")
 	// dispChecksPassed is deliberately not called "valid": four validity gates are unimplemented, so the
 	// strongest statement available is that the checks this build implements passed.
 	dispChecksPassed = disposition("completed-implemented-checks-passed")

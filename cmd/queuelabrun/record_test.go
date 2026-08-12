@@ -18,12 +18,17 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"reflect"
 	"runtime"
 	"strings"
 	"syscall"
 	"testing"
+	"time"
+
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 
 	"github.com/lkhun9311/gpu-mlops-platform-control-plane/internal/queuelab"
 )
@@ -245,5 +250,86 @@ func TestWriteRecordReplacesTheDestinationInode(t *testing.T) {
 		t.Fatalf("destination inode did not change across two writes (both %d): the file was modified in "+
 			"place rather than replaced by a rename, so a reader racing a write could observe a partial file",
 			ino1)
+	}
+}
+
+// The residue is the one thing a teardown that did not finish leaves for anybody to act on, so it has to
+// survive the round trip the record's whole contract is built on: written, and then read back by a reader
+// that refuses anything it does not fully understand.
+//
+// The entry here carries a REFUSED DELETE on purpose. That is the case settlePhase holds a delete error
+// aside for — "the apiserver said no" is the single most useful thing a residue record can say, and it is
+// also the case that breaks if the record persists teardown.go's `residue` verbatim: an `error` field
+// encodes as `{}` and decodes not at all, so exactly the runs whose teardown was refused would write a
+// record decodeRunRecord rejects. Hence the projection this asserts against, and hence the error text
+// assertion rather than a bare "the entry is there".
+func TestRunRecordCarriesTheResidueAndStillDecodes(t *testing.T) {
+	refused := apierrors.NewForbidden(schema.GroupResource{Resource: "namespaces"}, "queuelab-r7",
+		errors.New("teardown may not delete namespaces"))
+	left := []residue{{
+		Observation: observation{
+			Target:  target{Phase: phaseNamespace, Kind: "Namespace", Name: "queuelab-r7"},
+			Found:   true,
+			UID:     "ns-uid",
+			WantUID: "ns-uid",
+			Err:     refused,
+		},
+		Absence: absenceUnknown,
+	}}
+
+	rec := buildRecord(outcome{Disposition: dispResidueLeft, Reason: "teardown left 1 object(s)"}, nil, left,
+		"r7", "A-honor", false, time.Now(), time.Now())
+	b, err := encodeRecord(rec)
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	got, err := decodeRunRecord(b)
+	if err != nil {
+		t.Fatalf("a record carrying residue must decode, or the residue is written and then unreadable "+
+			"exactly when it matters most: %v\n%s", err, b)
+	}
+	if len(got.Residue) != 1 {
+		t.Fatalf("the record carries %d residue entries, want 1: residue that only reached stderr is "+
+			"printed and lost, which is the failure this field exists to end\n%s", len(got.Residue), b)
+	}
+	e := got.Residue[0]
+	if e.Kind != "Namespace" || e.Name != "queuelab-r7" {
+		t.Fatalf("the entry must name the object still there, got %s %q", e.Kind, e.Name)
+	}
+	if e.Absence != "unknown" {
+		t.Fatalf("the verdict must be persisted by name, not as the iota an inserted constant would "+
+			"silently relabel, got %q", e.Absence)
+	}
+	if !strings.Contains(e.Error, "forbidden") {
+		t.Fatalf("the refusal must survive into the record, or a residue entry reads as a slow finalizer "+
+			"when it was actually a permission the run never had, got %q", e.Error)
+	}
+	if e.UID != "ns-uid" || !e.Found {
+		t.Fatalf("the entry must carry what was observed, got %+v", e)
+	}
+}
+
+// A preview is the mode that generates residue TODAY — it runs the whole of run(), namespace and fixtures
+// included — so dropping the residue from its record would lose it for the only mode currently producing
+// it. Residue is safe to carry there for the reason previewRecord's own comment gives: the guarantee is
+// structural, and recordResidue has no field a lifecycle ledger can be decoded out of.
+func TestPreviewRecordCarriesResidueToo(t *testing.T) {
+	left := []residue{{
+		Observation: observation{
+			Target: target{Phase: phaseResourceFlavor, Kind: "ResourceFlavor", Name: "queuelab-gpu-r7"},
+			Found:  true, UID: "rf-uid", WantUID: "rf-uid",
+		},
+		Absence: absencePresent,
+	}}
+	pr, ok := buildRecord(outcome{Disposition: dispResidueLeft}, nil, left, "r7", "A-honor", true,
+		time.Now(), time.Now()).(previewRecord)
+	if !ok {
+		t.Fatal("a preview invocation must build a previewRecord")
+	}
+	if len(pr.Residue) != 1 || pr.Residue[0].Name != "queuelab-gpu-r7" {
+		t.Fatalf("a preview's record must carry what its own teardown could not remove, got %+v", pr.Residue)
+	}
+	if pr.Residue[0].Absence != "present" {
+		t.Fatalf("verdict = %q, want present", pr.Residue[0].Absence)
 	}
 }
