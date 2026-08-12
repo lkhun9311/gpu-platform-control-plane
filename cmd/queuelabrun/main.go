@@ -469,7 +469,7 @@ func run(ctx context.Context, connect clusterClientFunc, arm queuelab.Arm, runID
 	fmt.Printf("  worker %s acquired: tx=%s (if this process dies, run: queuelabrun -inspect-worker -worker %s)\n",
 		worker, txID, worker)
 
-	if err := ensureNamespace(ctx, c, namespace); err != nil {
+	if err := ensureNamespace(ctx, c, namespace, txID); err != nil {
 		o = phaseFailure(dispSetupFailed, fmt.Sprintf("ensuring namespace %s", namespace), err)
 		return
 	}
@@ -478,12 +478,12 @@ func run(ctx context.Context, connect clusterClientFunc, arm queuelab.Arm, runID
 		o = phaseFailure(dispSetupFailed, "resolving the arm's policy variant", err)
 		return
 	}
-	fs, err := queuelab.BuildFixtures(study, policyVariant, runID, namespace)
+	fs, err := queuelab.BuildFixtures(study, policyVariant, txID, runID, namespace)
 	if err != nil {
 		o = phaseFailure(dispSetupFailed, "building fixtures", err)
 		return
 	}
-	if err := applyFixtures(ctx, c, fs, policyVariant); err != nil {
+	if err := applyFixtures(ctx, c, fs, policyVariant, txID); err != nil {
 		o = phaseFailure(dispSetupFailed, "applying fixtures", err)
 		return
 	}

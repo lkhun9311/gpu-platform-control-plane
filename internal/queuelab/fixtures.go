@@ -48,6 +48,10 @@ const (
 	runLabel     = "queuelab.gpu-platform/run"
 	studyLabel   = "queuelab.gpu-platform/study"
 	variantLabel = "queuelab.gpu-platform/variant"
+	// TxLabel is the per-attempt transaction id, stamped into the object body at Create so it commits with
+	// the object or not at all. runLabel cannot serve: a run id is reused across retries, so it cannot tell
+	// this attempt's leftovers from the previous attempt's.
+	TxLabel = "queuelab.gpu-platform/tx"
 )
 
 // flavorName is the per-run ResourceFlavor name.
@@ -84,13 +88,14 @@ type FixtureSet struct {
 // BuildFixtures renders the dedicated queues for one study variant under a unique run id.
 //
 // runID makes every object name unique so two arms (or two repetitions) never share a queue; namespace is
-// where the LocalQueues (and the submitted jobs) live.
-func BuildFixtures(study Study, variant, runID, namespace string) (*FixtureSet, error) {
+// where the LocalQueues (and the submitted jobs) live. txID stamps every object it renders (see TxLabel), so
+// the caller can tell this attempt's objects from a previous attempt's under the same run id.
+func BuildFixtures(study Study, variant, txID, runID, namespace string) (*FixtureSet, error) {
 	switch study {
 	case StudyReclaim:
-		return reclaimFixtures(variant, runID, namespace)
+		return reclaimFixtures(variant, txID, runID, namespace)
 	case StudyFIFO:
-		return fifoFixtures(variant, runID, namespace)
+		return fifoFixtures(variant, txID, runID, namespace)
 	default:
 		return nil, fmt.Errorf("unknown study %q", study)
 	}
@@ -98,7 +103,7 @@ func BuildFixtures(study Study, variant, runID, namespace string) (*FixtureSet, 
 
 // reclaimFixtures builds two per-tenant ClusterQueues in one per-run cohort, identical except that the whole
 // set's reclaimWithinCohort is Never or Any (the one knob), with unlimited borrowing (no borrowingLimit).
-func reclaimFixtures(variant, runID, namespace string) (*FixtureSet, error) {
+func reclaimFixtures(variant, txID, runID, namespace string) (*FixtureSet, error) {
 	var policy kueuev1beta2.PreemptionPolicy
 	switch variant {
 	case "Never":
@@ -109,23 +114,23 @@ func reclaimFixtures(variant, runID, namespace string) (*FixtureSet, error) {
 		return nil, fmt.Errorf("reclaim variant must be Never or Any, got %q", variant)
 	}
 
-	fs := &FixtureSet{Flavor: labResourceFlavor(runID, StudyReclaim, variant)}
+	fs := &FixtureSet{Flavor: labResourceFlavor(txID, runID, StudyReclaim, variant)}
 	for _, tenant := range []string{"tenant-a", "tenant-b"} {
 		cqName := fmt.Sprintf("ql-%s-%s-%s", StudyReclaim, tenant, runID)
-		cq := baseClusterQueue(cqName, 1, runID, StudyReclaim, variant)
+		cq := baseClusterQueue(cqName, 1, txID, runID, StudyReclaim, variant)
 		cq.Spec.CohortName = kueuev1beta2.CohortReference(cohortName(runID))
 		cq.Spec.Preemption = &kueuev1beta2.ClusterQueuePreemption{
 			ReclaimWithinCohort: policy,
 			WithinClusterQueue:  kueuev1beta2.PreemptionPolicyLowerPriority,
 		}
 		fs.ClusterQueue = append(fs.ClusterQueue, cq)
-		fs.LocalQueue = append(fs.LocalQueue, localQueue(tenant, namespace, cqName, runID, StudyReclaim, variant))
+		fs.LocalQueue = append(fs.LocalQueue, localQueue(tenant, namespace, cqName, txID, runID, StudyReclaim, variant))
 	}
 	return fs, nil
 }
 
 // fifoFixtures builds one ClusterQueue of capacity 2 whose only varied knob is the queueingStrategy.
-func fifoFixtures(variant, runID, namespace string) (*FixtureSet, error) {
+func fifoFixtures(variant, txID, runID, namespace string) (*FixtureSet, error) {
 	var strategy kueuev1beta2.QueueingStrategy
 	switch variant {
 	case "StrictFIFO":
@@ -137,19 +142,21 @@ func fifoFixtures(variant, runID, namespace string) (*FixtureSet, error) {
 	}
 
 	cqName := fmt.Sprintf("ql-%s-%s", StudyFIFO, runID)
-	cq := baseClusterQueue(cqName, 2, runID, StudyFIFO, variant)
+	cq := baseClusterQueue(cqName, 2, txID, runID, StudyFIFO, variant)
 	cq.Spec.QueueingStrategy = strategy
 	return &FixtureSet{
-		Flavor:       labResourceFlavor(runID, StudyFIFO, variant),
+		Flavor:       labResourceFlavor(txID, runID, StudyFIFO, variant),
 		ClusterQueue: []*kueuev1beta2.ClusterQueue{cq},
-		LocalQueue:   []*kueuev1beta2.LocalQueue{localQueue("tenant-a", namespace, cqName, runID, StudyFIFO, variant)},
+		LocalQueue:   []*kueuev1beta2.LocalQueue{localQueue("tenant-a", namespace, cqName, txID, runID, StudyFIFO, variant)},
 	}, nil
 }
 
-// labLabels tags a lab-owned object with its run, study, and variant, so a reset audit can prove no prior
-// run's objects survive.
-func labLabels(runID string, study Study, variant string) map[string]string {
+// labLabels tags a lab-owned object with its transaction, run, study, and variant, so a reset audit can
+// prove no prior run's objects survive and a teardown can tell this attempt's objects from a previous
+// attempt's under the same run id.
+func labLabels(txID, runID string, study Study, variant string) map[string]string {
 	return map[string]string{
+		TxLabel:      txID,
 		runLabel:     runID,
 		studyLabel:   string(study),
 		variantLabel: variant,
@@ -163,9 +170,9 @@ func labLabels(runID string, study Study, variant string) map[string]string {
 // worker so nothing else schedules there, and Kueue injects this toleration into admitted lab Pods so they
 // still land on it. Taint without the paired toleration would isolate the node but also time out the run's
 // own Ready barriers, so the two must be defined together with the flavor.
-func labResourceFlavor(runID string, study Study, variant string) *kueuev1beta2.ResourceFlavor {
+func labResourceFlavor(txID, runID string, study Study, variant string) *kueuev1beta2.ResourceFlavor {
 	return &kueuev1beta2.ResourceFlavor{
-		ObjectMeta: metav1.ObjectMeta{Name: flavorName(runID), Labels: labLabels(runID, study, variant)},
+		ObjectMeta: metav1.ObjectMeta{Name: flavorName(runID), Labels: labLabels(txID, runID, study, variant)},
 		Spec: kueuev1beta2.ResourceFlavorSpec{
 			NodeLabels: map[string]string{labWorkerLabel: runID},
 			NodeTaints: []corev1.Taint{{
@@ -184,10 +191,10 @@ func labResourceFlavor(runID string, study Study, variant string) *kueuev1beta2.
 }
 
 // baseClusterQueue is a ClusterQueue covering nvidia.com/gpu with the given nominal quota on the run's flavor.
-func baseClusterQueue(name string, nominal int64, runID string, study Study, variant string) *kueuev1beta2.ClusterQueue {
+func baseClusterQueue(name string, nominal int64, txID, runID string, study Study, variant string) *kueuev1beta2.ClusterQueue {
 	q := resource.NewQuantity(nominal, resource.DecimalSI)
 	return &kueuev1beta2.ClusterQueue{
-		ObjectMeta: metav1.ObjectMeta{Name: name, Labels: labLabels(runID, study, variant)},
+		ObjectMeta: metav1.ObjectMeta{Name: name, Labels: labLabels(txID, runID, study, variant)},
 		Spec: kueuev1beta2.ClusterQueueSpec{
 			NamespaceSelector: &metav1.LabelSelector{},
 			ResourceGroups: []kueuev1beta2.ResourceGroup{{
@@ -205,9 +212,9 @@ func baseClusterQueue(name string, nominal int64, runID string, study Study, var
 }
 
 // localQueue binds a tenant's namespace queue to the given ClusterQueue.
-func localQueue(tenant, namespace, clusterQueue, runID string, study Study, variant string) *kueuev1beta2.LocalQueue {
+func localQueue(tenant, namespace, clusterQueue, txID, runID string, study Study, variant string) *kueuev1beta2.LocalQueue {
 	return &kueuev1beta2.LocalQueue{
-		ObjectMeta: metav1.ObjectMeta{Name: "ql-" + tenant, Namespace: namespace, Labels: labLabels(runID, study, variant)},
+		ObjectMeta: metav1.ObjectMeta{Name: "ql-" + tenant, Namespace: namespace, Labels: labLabels(txID, runID, study, variant)},
 		Spec:       kueuev1beta2.LocalQueueSpec{ClusterQueue: kueuev1beta2.ClusterQueueReference(clusterQueue)},
 	}
 }

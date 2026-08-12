@@ -430,10 +430,30 @@ func submit(ctx context.Context, c client.Client, col *collector, arm queuelab.A
 
 // ---- cluster setup ----
 
-func ensureNamespace(ctx context.Context, c client.Client, ns string) error {
-	err := c.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: ns}})
-	if err != nil && !apierrors.IsAlreadyExists(err) {
+// ensureNamespace creates the run's namespace, stamped, and refuses one it did not create.
+//
+// The stamp is in the Create body rather than a follow-up patch because a second write is a window a crash
+// can land in, and an object created without its stamp is one no later teardown can recognise or delete.
+func ensureNamespace(ctx context.Context, c client.Client, ns, txID string) error {
+	err := c.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{
+		Name:   ns,
+		Labels: map[string]string{queuelab.TxLabel: txID},
+	}})
+	if err == nil {
+		return nil
+	}
+	if !apierrors.IsAlreadyExists(err) {
 		return err
+	}
+	// AlreadyExists is an ownership question, not a shrug: the namespace name is derived from the run id
+	// alone, so the same name is exactly what a reused run id or a crashed previous attempt leaves behind.
+	var existing corev1.Namespace
+	if gerr := c.Get(ctx, client.ObjectKey{Name: ns}, &existing); gerr != nil {
+		return fmt.Errorf("namespace %s exists but could not be read to check ownership: %w", ns, gerr)
+	}
+	if got := existing.Labels[queuelab.TxLabel]; got != txID {
+		return fmt.Errorf("namespace %s already exists under transaction %q, not this run's %q; "+
+			"clear it before rerunning rather than running inside another attempt's namespace", ns, got, txID)
 	}
 	return nil
 }
@@ -441,8 +461,10 @@ func ensureNamespace(ctx context.Context, c client.Client, ns string) error {
 // applyFixtures creates the run's Kueue fixtures, first checking that a cluster-scoped ResourceFlavor left
 // behind by an earlier run under this run id (only the namespace is ever cleaned up by hand) was built for
 // the same policy variant this arm requires, so a reused run id cannot silently execute under a different
-// arm's mechanism.
-func applyFixtures(ctx context.Context, c client.Client, fs *queuelab.FixtureSet, wantVariant string) error {
+// arm's mechanism. That check is about the VARIANT a name was built for; createOwned below is a separate
+// question about which TRANSACTION created the name, and both must hold before an existing object is
+// treated as this run's own.
+func applyFixtures(ctx context.Context, c client.Client, fs *queuelab.FixtureSet, wantVariant, txID string) error {
 	var existing kueuev1beta2.ResourceFlavor
 	err := c.Get(ctx, client.ObjectKey{Name: fs.Flavor.GetName()}, &existing)
 	switch {
@@ -463,9 +485,30 @@ func applyFixtures(ctx context.Context, c client.Client, fs *queuelab.FixtureSet
 		objs = append(objs, lq)
 	}
 	for _, o := range objs {
-		if err := c.Create(ctx, o); err != nil && !apierrors.IsAlreadyExists(err) {
+		if err := createOwned(ctx, c, o, txID); err != nil {
 			return fmt.Errorf("create %T %s: %w", o, o.GetName(), err)
 		}
+	}
+	return nil
+}
+
+// createOwned creates o and, on AlreadyExists, refuses unless the object already there carries this run's
+// own transaction stamp — the same shape as ensureNamespace, generalised over every fixture kind so a
+// leftover from a different attempt under the same run id cannot silently satisfy this one.
+func createOwned(ctx context.Context, c client.Client, o client.Object, txID string) error {
+	err := c.Create(ctx, o)
+	if err == nil {
+		return nil
+	}
+	if !apierrors.IsAlreadyExists(err) {
+		return err
+	}
+	if gerr := c.Get(ctx, client.ObjectKey{Namespace: o.GetNamespace(), Name: o.GetName()}, o); gerr != nil {
+		return fmt.Errorf("exists but could not be read to check ownership: %w", gerr)
+	}
+	if got := o.GetLabels()[queuelab.TxLabel]; got != txID {
+		return fmt.Errorf("already exists under transaction %q, not this run's %q; "+
+			"clear it before rerunning rather than running inside another attempt's object", got, txID)
 	}
 	return nil
 }

@@ -20,17 +20,18 @@ import (
 	"strings"
 	"testing"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	kueuev1beta2 "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 )
 
 const runA = "runA"
 
 func TestReclaimFixturesVaryOnlyReclaimPolicy(t *testing.T) {
-	never, err := BuildFixtures(StudyReclaim, "Never", "r1", "ns")
+	never, err := BuildFixtures(StudyReclaim, "Never", "tx-1", "r1", "ns")
 	if err != nil {
 		t.Fatal(err)
 	}
-	any, err := BuildFixtures(StudyReclaim, "Any", "r1", "ns")
+	any, err := BuildFixtures(StudyReclaim, "Any", "tx-1", "r1", "ns")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,11 +65,11 @@ func TestReclaimFixturesVaryOnlyReclaimPolicy(t *testing.T) {
 }
 
 func TestFIFOFixturesVaryQueueingStrategy(t *testing.T) {
-	strict, err := BuildFixtures(StudyFIFO, "StrictFIFO", "f1", "ns")
+	strict, err := BuildFixtures(StudyFIFO, "StrictFIFO", "tx-1", "f1", "ns")
 	if err != nil {
 		t.Fatal(err)
 	}
-	best, err := BuildFixtures(StudyFIFO, "BestEffortFIFO", "f1", "ns")
+	best, err := BuildFixtures(StudyFIFO, "BestEffortFIFO", "tx-1", "f1", "ns")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -88,8 +89,8 @@ func TestFIFOFixturesVaryQueueingStrategy(t *testing.T) {
 }
 
 func TestFixtureNamesAreUniquePerRun(t *testing.T) {
-	a, _ := BuildFixtures(StudyReclaim, "Any", runA, "ns")
-	b, _ := BuildFixtures(StudyReclaim, "Any", "runB", "ns")
+	a, _ := BuildFixtures(StudyReclaim, "Any", "tx-1", runA, "ns")
+	b, _ := BuildFixtures(StudyReclaim, "Any", "tx-1", "runB", "ns")
 	if a.ClusterQueue[0].Name == b.ClusterQueue[0].Name {
 		t.Fatalf("different runs must not share queue names: %s", a.ClusterQueue[0].Name)
 	}
@@ -126,10 +127,34 @@ func TestFixtureNamesAreUniquePerRun(t *testing.T) {
 }
 
 func TestBuildFixturesRejectsBadInput(t *testing.T) {
-	if _, err := BuildFixtures(StudyReclaim, "sometimes", "r", "ns"); err == nil {
+	if _, err := BuildFixtures(StudyReclaim, "sometimes", "tx-1", "r", "ns"); err == nil {
 		t.Fatalf("bad reclaim variant should error")
 	}
-	if _, err := BuildFixtures("nope", "Any", "r", "ns"); err == nil {
+	if _, err := BuildFixtures("nope", "Any", "tx-1", "r", "ns"); err == nil {
 		t.Fatalf("unknown study should error")
+	}
+}
+
+// The stamp is what lets teardown tell this run's objects from a previous run's under the same name, and it
+// has to be on every object the builder produces — an unstamped one is unrecoverable and undeletable.
+func TestEveryFixtureCarriesTheTransactionStamp(t *testing.T) {
+	fs, err := BuildFixtures(StudyReclaim, "Any", "tx-1", "r1", "queuelab-r1")
+	if err != nil {
+		t.Fatalf("build fixtures: %v", err)
+	}
+	objs := []metav1.Object{fs.Flavor}
+	for _, cq := range fs.ClusterQueue {
+		objs = append(objs, cq)
+	}
+	for _, lq := range fs.LocalQueue {
+		objs = append(objs, lq)
+	}
+	if len(objs) < 3 {
+		t.Fatalf("expected at least a flavor, a cluster queue and a local queue, got %d objects", len(objs))
+	}
+	for _, o := range objs {
+		if got := o.GetLabels()[TxLabel]; got != "tx-1" {
+			t.Errorf("%s carries tx stamp %q, want tx-1", o.GetName(), got)
+		}
 	}
 }

@@ -56,7 +56,7 @@ func TestRenderMLTrainingJobQueuePerTenant(t *testing.T) {
 		t.Fatalf("tenant-b job should target ql-tenant-b, got %q", job.Spec.Queue)
 	}
 	// The fixtures must create exactly this LocalQueue name for tenant-b, so submit and fixtures agree.
-	fs, err := BuildFixtures(StudyReclaim, "Any", "r", "run-ns")
+	fs, err := BuildFixtures(StudyReclaim, "Any", "tx-1", "r", "run-ns")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -93,7 +93,7 @@ func enumerate(s seed) ([]target, error) {
 		return nil, fmt.Errorf("seed has an empty Namespace")
 	}
 
-	fs, err := queuelab.BuildFixtures(s.Study, s.Variant, s.RunID, s.Namespace)
+	fs, err := queuelab.BuildFixtures(s.Study, s.Variant, s.TxID, s.RunID, s.Namespace)
 	if err != nil {
 		return nil, fmt.Errorf("rebuild fixture names from seed: %w", err)
 	}
@@ -143,7 +143,7 @@ const (
 	absenceAbsent
 	// absenceForeign: the name is held by an object this run did not create. It is neither evidence ours is
 	// gone nor a target to delete — deleting it would destroy another run's live state under a name
-	// collision ensureNamespace already tolerates (no ownership labels, AlreadyExists accepted silently).
+	// collision this run's own UID check (below) exists to catch, whatever refused or admitted the create.
 	absenceForeign
 )
 
@@ -172,10 +172,9 @@ func classifyAbsence(obs observation, wantUID string) absence {
 	// would make the executor poll someone else's deletion) or absent (which would make it declare our own
 	// object gone because a different one under the same name happens to be going away).
 	//
-	// ensureNamespace sets no ownership labels and tolerates AlreadyExists, so this runner already adopts a
-	// namespace it did not create whenever the name collides: a found object under our recorded UID is
-	// ours and still present; a found object under any other UID is a name collision this run must refuse
-	// to touch, and it must never become a deletion target on the strength of the name matching.
+	// A found object under our recorded UID is ours and still present; a found object under any other UID
+	// is a name collision this run must refuse to touch, and it must never become a deletion target on the
+	// strength of the name matching alone.
 	if obs.UID != wantUID {
 		return absenceForeign
 	}
