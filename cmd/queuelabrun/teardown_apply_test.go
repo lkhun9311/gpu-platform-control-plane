@@ -161,28 +161,70 @@ func TestRecoverRefusesWhenTxIDDisagreesWithTheSeed(t *testing.T) {
 	}
 }
 
-// Ownership is established here, by stamp, and a foreign stamp is a refusal rather than an observation.
+// Ownership is established here, by stamp, and an object carrying somebody else's stamp is refused — but the
+// refusal is this TARGET's, not the batch's.
 //
-// classifyAbsence decides foreignness by UID comparison, which needs a UID we recorded for an object we
-// created. For an object we never created there is no such UID, so recovery cannot express "foreign" as an
-// observation without inventing one. It refuses instead — the same answer ensureNamespace gives at create.
-// absenceForeign remains the executor's: during polling it re-reads with a WantUID this pass established,
-// and an object replaced under that name mid-teardown is exactly what it detects.
-func TestRecoverRefusesAnObjectStampedByAnotherTransaction(t *testing.T) {
+// A stale cluster-scoped fixture under the same run id is the ordinary rerun, not an exotic case (only the
+// namespace is ever cleaned up by hand — applyFixtures' own comment says so). A batch-level refusal turns
+// that into a teardown that issues no Delete at all and leaves the run's own namespace on the cluster, so
+// each target is judged on its own evidence and the ones this run really did create still come away.
+//
+// The two assertions that matter are the verdict and the UID. Reaching absenceForeign by INVENTING a UID
+// would be the lie this design refuses to tell: WantUID must stay empty, because this run recorded no UID
+// for an object it never created, and foreignness here is a fact about the create-time stamp rather than a
+// UID comparison it has no operand for.
+func TestRecoverReportsAForeignObjectPerTargetRatherThanRefusingTheBatch(t *testing.T) {
 	s := testSeed()
+	fs, err := queuelab.BuildFixtures(s.Study, s.Variant, s.TxID, s.RunID, s.Namespace)
+	if err != nil {
+		t.Fatalf("build fixtures: %v", err)
+	}
+	// The state a rerun under a used run id actually finds: this attempt's own namespace, and a ResourceFlavor
+	// a previous attempt left behind under a transaction that is no longer this one's.
 	c := fake.NewClientBuilder().WithScheme(fullScheme(t)).WithObjects(
 		&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{
-			Name: s.Namespace, UID: "theirs", Labels: map[string]string{queuelab.TxLabel: "tx-2"}}},
+			Name: s.Namespace, UID: "ns-uid", Labels: map[string]string{queuelab.TxLabel: s.TxID}}},
+		&kueuev1beta2.ResourceFlavor{ObjectMeta: metav1.ObjectMeta{
+			Name: fs.Flavor.GetName(), UID: "theirs", Labels: map[string]string{queuelab.TxLabel: "tx-previous"}}},
 	).Build()
-	if _, err := recoverTargets(context.Background(), c, s, "tx-1"); err == nil {
-		t.Fatal("recovery adopted a namespace stamped by another transaction; deleting it would destroy another run's live state")
+	got, err := recoverTargets(context.Background(), c, s, s.TxID)
+	if err != nil {
+		t.Fatalf("one foreign target aborted the whole recovery: %v", err)
 	}
 
-	unstamped := fake.NewClientBuilder().WithScheme(fullScheme(t)).WithObjects(
+	ns := observationFor(t, got, s.Namespace)
+	if ns.WantUID != "ns-uid" || classifyAbsence(ns, ns.WantUID) != absencePresent {
+		t.Fatalf("this run's own namespace recovered as WantUID %q / %v; a foreign object elsewhere in the "+
+			"batch must not cost this run the targets it did create", ns.WantUID, classifyAbsence(ns, ns.WantUID))
+	}
+
+	rf := observationFor(t, got, fs.Flavor.GetName())
+	if a := classifyAbsence(rf, rf.WantUID); a != absenceForeign {
+		t.Fatalf("a ResourceFlavor stamped by another transaction classified %v, want foreign: unknown holds "+
+			"the phase open for the whole budget and present would make it a deletion target", a)
+	}
+	if rf.WantUID != "" {
+		t.Errorf("recovery recorded WantUID %q for an object this run never created; a UID invented to force a "+
+			"foreign verdict would also arm deleteTarget's precondition with it", rf.WantUID)
+	}
+}
+
+// An unstamped object is foreign for the same reason a differently-stamped one is: it predates stamping or
+// was created by something else, and either way this run did not make it. It is called out separately because
+// the empty label and an empty txID compare equal, so this is the case a missing guard reads as ours.
+func TestRecoverTreatsAnUnstampedObjectAsForeign(t *testing.T) {
+	s := testSeed()
+	c := fake.NewClientBuilder().WithScheme(fullScheme(t)).WithObjects(
 		&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: s.Namespace, UID: "nobody"}},
 	).Build()
-	if _, err := recoverTargets(context.Background(), unstamped, s, "tx-1"); err == nil {
-		t.Fatal("recovery adopted an unstamped namespace; it predates stamping or was created by something else, and either way is not ours to delete")
+	got, err := recoverTargets(context.Background(), c, s, s.TxID)
+	if err != nil {
+		t.Fatalf("recover: %v", err)
+	}
+	ns := observationFor(t, got, s.Namespace)
+	if a := classifyAbsence(ns, ns.WantUID); a != absenceForeign {
+		t.Fatalf("an unstamped namespace classified %v, want foreign; adopting it would delete an object this "+
+			"run did not create", a)
 	}
 }
 
@@ -244,7 +286,7 @@ func TestRecoverReadsEveryTargetKindByItsOwnKindAndName(t *testing.T) {
 // The ownership check applies to every kind, not just Namespace: a ClusterQueue or ResourceFlavor stamped by
 // another transaction is exactly as much a name collision as a Namespace is, and deleting it destroys that
 // other run's live quota just as surely.
-func TestRecoverRefusesAForeignClusterQueue(t *testing.T) {
+func TestRecoverMarksAForeignClusterQueueForeign(t *testing.T) {
 	s := testSeed()
 	fs, err := queuelab.BuildFixtures(s.Study, s.Variant, s.TxID, s.RunID, s.Namespace)
 	if err != nil {
@@ -259,8 +301,14 @@ func TestRecoverRefusesAForeignClusterQueue(t *testing.T) {
 		&kueuev1beta2.ClusterQueue{ObjectMeta: metav1.ObjectMeta{
 			Name: fs.ClusterQueue[0].GetName(), UID: "theirs", Labels: map[string]string{queuelab.TxLabel: "tx-2"}}},
 	).Build()
-	if _, err := recoverTargets(context.Background(), c, s, s.TxID); err == nil {
-		t.Fatal("recovery adopted a ClusterQueue stamped by another transaction; deleting it would destroy another run's live quota")
+	got, err := recoverTargets(context.Background(), c, s, s.TxID)
+	if err != nil {
+		t.Fatalf("recover: %v", err)
+	}
+	cq := observationFor(t, got, fs.ClusterQueue[0].GetName())
+	if a := classifyAbsence(cq, cq.WantUID); a != absenceForeign {
+		t.Fatalf("a ClusterQueue stamped by another transaction classified %v, want foreign; deleting it would "+
+			"destroy another run's live quota", a)
 	}
 }
 
@@ -520,14 +568,17 @@ func TestEveryDeleteCarriesItsUIDPrecondition(t *testing.T) {
 	}
 }
 
-// A foreign object is a refusal, not a target. Deleting it destroys another run's live state.
+// A foreign object is a refusal, not a target. Deleting it destroys another run's live state, and this is the
+// highest-stakes property in the file: every other failure here costs a run, this one costs somebody else's.
 func TestDeleteNeverIssuesADeleteForAForeignTarget(t *testing.T) {
 	s := testSeed()
 	c, calls := callRecorder(t, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{
 		Name: s.Namespace, UID: "theirs", Labels: map[string]string{queuelab.TxLabel: "tx-someone-else"}}})
 	now, sleep := fakeClock(time.Unix(0, 0))
-	if _, err := deleteTargets(context.Background(), c, s, s.TxID, now, sleep, time.Minute); err == nil {
-		t.Fatal("teardown proceeded against a namespace stamped by another transaction")
+	res, err := deleteTargets(context.Background(), c, s, s.TxID, now, sleep, time.Minute)
+	if err != nil {
+		t.Fatalf("a name held by another transaction is cluster state to report, not a reason to abandon the "+
+			"batch: %v", err)
 	}
 	d := deletesIn(*calls)
 	got := &d
@@ -535,6 +586,85 @@ func TestDeleteNeverIssuesADeleteForAForeignTarget(t *testing.T) {
 		if d.Name == s.Namespace {
 			t.Fatalf("issued a delete for %s %q, which this run did not create", d.Kind, d.Name)
 		}
+	}
+	// It must also be REPORTED. A refusal that leaves no residue is the failure mode where teardown deletes
+	// nothing, says nothing, and the record the next run reads names nothing.
+	ns := residueFor(t, res.Residue, s.Namespace)
+	if ns.Absence != absenceForeign {
+		t.Errorf("%s classified %v in the residue, want foreign", s.Namespace, ns.Absence)
+	}
+}
+
+// A foreign target must not cost this run the targets it did create, and must not cost it the budget either.
+//
+// Both halves are one behaviour of absenceForeign — phaseTargetSettled accepts it, so the phase advances —
+// and both are invisible from the final cluster state, so they are asserted on the calls and on the clock.
+// The alternative implementation this rules out is the obvious one: emitting the foreign target as an
+// observation carrying an Err. That classifies absenceUnknown, which holds its phase open until the budget
+// expires; measured on this executor it is 3m0s of wall clock and 90 poll rounds, and when the foreign target
+// is the namespace it also blocks every later phase, so a teardown that had two ClusterQueues and a
+// ResourceFlavor of its own to remove issues no Delete at all.
+func TestDeleteRemovesOurOwnTargetsAroundAForeignOneWithoutBurningTheBudget(t *testing.T) {
+	s := testSeed()
+	fs, err := queuelab.BuildFixtures(s.Study, s.Variant, s.TxID, s.RunID, s.Namespace)
+	if err != nil {
+		t.Fatalf("build fixtures: %v", err)
+	}
+	if len(fs.ClusterQueue) == 0 {
+		t.Fatalf("fixture set built no ClusterQueue; this test needs one in a phase after the namespace's")
+	}
+	// The two positions that matter: last phase (the stale cluster-scoped flavor a rerun finds, which the
+	// batch abort turned into zero deletes) and first phase (the leftover namespace, which additionally has
+	// every other phase queued behind it).
+	for _, tc := range []struct{ name, foreign string }{
+		{"stale flavor from a previous attempt", fs.Flavor.GetName()},
+		{"leftover namespace from a previous attempt", s.Namespace},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			objs := seedOwned(t, s)
+			for _, o := range objs {
+				if o.GetName() == tc.foreign {
+					o.SetLabels(map[string]string{queuelab.TxLabel: "tx-previous"})
+				}
+			}
+			c, calls := callRecorder(t, objs...)
+			sleeps := 0
+			now, sleep := fakeClock(time.Unix(0, 0))
+			budget := teardownBudget
+			res, err := deleteTargets(context.Background(), c, s, s.TxID,
+				now, func(d time.Duration) { sleeps++; sleep(d) }, budget)
+			if err != nil {
+				t.Fatalf("delete: %v", err)
+			}
+
+			deleted := map[string]bool{}
+			for _, d := range deletesIn(*calls) {
+				deleted[d.Name] = true
+			}
+			if deleted[tc.foreign] {
+				t.Fatalf("issued a delete for %q, which this run did not create", tc.foreign)
+			}
+			for _, o := range objs {
+				if o.GetName() == tc.foreign {
+					continue
+				}
+				if !deleted[o.GetName()] {
+					t.Errorf("%q was created by this run and was never deleted; one foreign name must not "+
+						"strand the rest of the set", o.GetName())
+				}
+			}
+			if res.Elapsed >= budget {
+				t.Errorf("teardown spent its whole %s budget (%s, %d poll rounds) on a target it had already "+
+					"decided it must not touch", budget, res.Elapsed, sleeps)
+			}
+			if len(res.Residue) != 1 || res.Residue[0].Observation.Target.Name != tc.foreign {
+				t.Fatalf("residue is %+v; it must name the one target teardown refused and nothing else",
+					res.Residue)
+			}
+			if res.Residue[0].Absence != absenceForeign {
+				t.Errorf("%q classified %v in the residue, want foreign", tc.foreign, res.Residue[0].Absence)
+			}
+		})
 	}
 }
 

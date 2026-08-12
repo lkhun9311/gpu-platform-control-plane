@@ -129,6 +129,14 @@ type observation struct {
 	// WantUID is the UID this run recorded for the target, carried on the observation so that residual can
 	// classify a batch without a second lookup structure the caller could populate inconsistently.
 	WantUID string
+	// Foreign records that the object at this name carries somebody else's create-time stamp, and is set only
+	// by recoverTargets, only on a read that succeeded.
+	//
+	// It exists because the other route to absenceForeign is a UID comparison, and there is no UID to compare
+	// for an object this run never created. Inventing one would be a lie with teeth: WantUID is what arms
+	// deleteTarget's precondition, so a UID fabricated to force a verdict would also be a UID armed to delete
+	// somebody else's object. Carrying the fact as a fact keeps WantUID empty and the delete gate shut.
+	Foreign bool
 }
 
 // absence classifies what a single observation of a target proves about whether it is gone.
@@ -144,6 +152,12 @@ const (
 	// absenceForeign: the name is held by an object this run did not create. It is neither evidence ours is
 	// gone nor a target to delete — deleting it would destroy another run's live state under a name
 	// collision this run's own UID check (below) exists to catch, whatever refused or admitted the create.
+	//
+	// Two different reads reach it, and the difference matters to the caller rather than to this file. Either
+	// the object was already somebody else's when recovery first looked (a stale fixture under a reused run
+	// id: this run never created anything at that name), or it changed hands under us mid-teardown (ours was
+	// deleted and a different object took the name). Both say the same thing about the delete gate, and both
+	// say nothing was left there by this run.
 	absenceForeign
 )
 
@@ -160,6 +174,13 @@ func classifyAbsence(obs observation, wantUID string) absence {
 	}
 	if !obs.Found {
 		return absenceAbsent
+	}
+	// Checked before the wantUID gate below, and that order is the whole point of the flag: a create-time
+	// stamp that is somebody else's is precisely the case where this run holds no UID to compare, so leaving
+	// it to the comparison would classify unknown — which holds the target's phase open for the entire
+	// teardown budget and reports the collision with no verdict attached.
+	if obs.Foreign {
+		return absenceForeign
 	}
 	// The seed is written before the first Create, so an unrecovered UID means ownership is unproven, not
 	// refuted: a name match with no recorded UID to check it against must not be waved through as ours

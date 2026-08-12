@@ -44,11 +44,16 @@ const (
 	dispReconstructRefused = disposition("reconstruct-refused")
 	dispCardinalityRefused = disposition("cardinality-refused")
 	dispWorkerNotRestored  = disposition("worker-not-restored")
-	// dispResidueLeft is a fact about the cluster, not a failure to compute one: teardown ran and something
-	// this run created is still there. It is separate from worker-not-restored because the worker is
-	// deliberately NOT restored on this path — releasing a node whose namespace still holds GPUs is the
-	// outcome teardown exists to prevent — so collapsing the two would make a chosen containment look like a
-	// failed release the operator should retry.
+	// dispResidueLeft is a fact about the cluster, not a failure to compute one: teardown ran and something is
+	// still standing at one of this run's names. Usually that is an object this run created; it can also be
+	// one another transaction holds, which this run may not touch and which the next run under this id will
+	// collide with just the same, so both are reported here and the record names which.
+	//
+	// It is separate from worker-not-restored because the worker is not restored on this path WHEN THE
+	// LEFTOVER IS OURS — releasing a node whose namespace still holds GPUs is the outcome teardown exists to
+	// prevent — so collapsing the two would make a chosen containment look like a failed release the operator
+	// should retry. Where every leftover belongs to somebody else the worker does go back (residueHoldsWorker
+	// draws that line), and this disposition then reports the collision alone.
 	dispResidueLeft = disposition("residue-left")
 	// dispChecksPassed is deliberately not called "valid": four validity gates are unimplemented, so the
 	// strongest statement available is that the checks this build implements passed.

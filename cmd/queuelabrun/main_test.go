@@ -1056,6 +1056,128 @@ func TestRunTearsDownBeforeItsOwnReleaseOnTheHappyPath(t *testing.T) {
 	}
 }
 
+// The rerun a used run id actually produces: a cluster-scoped ResourceFlavor from a previous attempt is still
+// there (only the namespace is ever cleaned up by hand), so applyFixtures refuses and the run returns early
+// with its own namespace already created.
+//
+// Everything this test asserts used to be the other way round. Recovery refused the whole batch on the first
+// foreign target, so teardown issued no Delete at all, the run's own namespace stayed on the cluster, the
+// record carried disposition residue-left with an EMPTY residue array — naming nothing, which a next-run gate
+// keying on len(Residue) > 0 waves straight through — and the worker was held forever for a run whose only
+// cluster write it could not undo was one it had not made.
+//
+// The worker going back is the deliberate half, and the disposition still reporting residue is the other:
+// every object still standing here is one this run did not create, so holding contains nothing — the taint
+// and label go back exactly as they were found, which is the state the previous attempt's leftovers were
+// already sitting in — but the name is taken, the next run under this id collides with it just the same, and
+// the record is what carries that.
+func TestRunTearsDownAroundAStaleFixtureFromAPreviousAttempt(t *testing.T) {
+	variant, err := queuelab.ArmAHonor.PolicyVariant()
+	if err != nil {
+		t.Fatalf("policy variant: %v", err)
+	}
+	// The flavor is built by the real builder so its name is whatever teardown will enumerate, and it carries
+	// the variant this arm requires — so applyFixtures fails on the TRANSACTION check rather than on the
+	// variant check, which is the case that reaches teardown with a foreign object at one of its own names.
+	fs, err := queuelab.BuildFixtures(queuelab.StudyReclaim, variant, "tx-previous", "r7", "queuelab-r7")
+	if err != nil {
+		t.Fatalf("build fixtures: %v", err)
+	}
+	stale := fs.Flavor.DeepCopy()
+	stale.SetUID("rf-uid-previous")
+	inner := fake.NewClientBuilder().WithScheme(fullScheme(t)).WithObjects(node(nil, nil), stale).
+		WithInterceptorFuncs(interceptor.Funcs{Create: stampUIDOnCreate}).Build()
+	c, calls := recordRunCalls(t, inner)
+	now, sleep := fakeClock(time.Unix(0, 0))
+
+	o, _, res, left := run(context.Background(), func() (client.WithWatch, error) { return c, nil },
+		queuelab.ArmAHonor, "r7", "queuelab-r7", "platform-worker",
+		time.Duration(horizonSec)*time.Second, now, sleep)
+
+	if res != nil {
+		t.Fatal("a run that failed setup must hand back no result")
+	}
+	if o.Disposition != dispResidueLeft {
+		t.Fatalf("a name this run's teardown could not clear is %s, got %s: %s",
+			dispResidueLeft, o.Disposition, o.Reason)
+	}
+	// The collision this run actually failed on has to survive the amendment, or the record says a name was
+	// left behind without saying it is the same name that refused the run in the first place.
+	if !strings.Contains(o.Reason, "applying fixtures") {
+		t.Fatalf("the amended outcome dropped what run() originally decided as the cause, got %q", o.Reason)
+	}
+	if len(left) != 1 || left[0].Observation.Target.Name != stale.GetName() {
+		t.Fatalf("residue is %+v; it must name the one object teardown refused to touch, so the record says "+
+			"which name is taken rather than carrying an empty array", left)
+	}
+	if left[0].Absence != absenceForeign {
+		t.Errorf("the stale flavor classified %v, want foreign", left[0].Absence)
+	}
+
+	got := calls()
+	for _, call := range got {
+		if call.Op == "delete" && call.Name == stale.GetName() {
+			t.Fatalf("deleted %s %q, which a previous transaction created and may still be using",
+				call.Kind, call.Name)
+		}
+	}
+	del := firstIndexOf(got, "delete", "Namespace", 1)
+	if del < 0 {
+		t.Fatalf("this run's own namespace was never deleted; one foreign target must not strand the objects "+
+			"the run really did create; calls: %+v", got)
+	}
+	rel := releasePatchIndex(got)
+	if rel < 0 {
+		t.Fatalf("the worker was never released though nothing this run created is still on the cluster; "+
+			"calls: %+v", got)
+	}
+	if del > rel {
+		t.Fatalf("released the worker at call %d before deleting the namespace at call %d; calls: %+v",
+			rel, del, got)
+	}
+	// Asserted on the node, not only on the call log: "a patch happened" and "the markers are gone" are
+	// different claims, and the next run acquires on the second one.
+	var n corev1.Node
+	if err := c.Get(context.Background(), client.ObjectKey{Name: "platform-worker"}, &n); err != nil {
+		t.Fatalf("read the worker back: %v", err)
+	}
+	if n.Labels[workerLabelKey] != "" || len(n.Spec.Taints) != 0 {
+		t.Fatalf("the worker kept its dedication (labels %v, taints %v) for a run that created nothing still "+
+			"standing; the next run finds a node that only looks busy", n.Labels, n.Spec.Taints)
+	}
+}
+
+// residueHoldsWorker is the whole of that decision, so the mixed case is pinned here rather than through a
+// second full run: one foreign object among objects this run really did leave behind must still hold the
+// worker. Holding is decided by what is NOT foreign, not by whether anything foreign is present.
+func TestResidueHoldsTheWorkerUnlessEverythingLeftIsSomebodyElses(t *testing.T) {
+	foreign := residue{Observation: observation{Target: target{Kind: "ResourceFlavor", Name: "rf"}, Found: true,
+		UID: "theirs", Foreign: true}, Absence: absenceForeign}
+	ours := residue{Observation: observation{Target: target{Kind: "Namespace", Name: "ns"}, Found: true,
+		UID: "u", WantUID: "u"}, Absence: absencePresent}
+	unknown := residue{Observation: observation{Target: target{Kind: "Namespace", Name: "ns"},
+		Err: errors.New("etcdserver: leader changed")}, Absence: absenceUnknown}
+
+	for _, tc := range []struct {
+		name string
+		left []residue
+		want bool
+	}{
+		{"nothing left", nil, false},
+		{"only somebody else's names", []residue{foreign}, false},
+		{"ours is still there", []residue{ours}, true},
+		{"ours cannot be read", []residue{unknown}, true},
+		// The one a "does any foreign object appear?" test cannot separate: our namespace may still be
+		// running GPU Pods, and a foreign flavor alongside it says nothing about that.
+		{"one of each", []residue{foreign, ours}, true},
+		{"unreadable alongside a foreign one", []residue{foreign, unknown}, true},
+	} {
+		if got := residueHoldsWorker(tc.left); got != tc.want {
+			t.Errorf("%s: residueHoldsWorker = %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}
+
 // Residue is not a failure to compute a result — it is a fact about the cluster, and two things must follow
 // from it: the outcome says so without losing what the run was already failing at, and the worker STAYS
 // DEDICATED. Releasing it would strip the NoSchedule taint from a node whose namespace is still there, and
@@ -1133,5 +1255,106 @@ func TestRunTeardownResidueAmendsTheOutcomeAndHoldsTheWorker(t *testing.T) {
 	}
 	if len(n.Spec.Taints) == 0 {
 		t.Fatal("the worker lost its NoSchedule taint while this run's namespace was still on the cluster")
+	}
+}
+
+// The same containment on the path that MEASURED SOMETHING, which is the case the whole teardown-before-
+// release ordering exists for and the only one where the worker is holding live GPU Pods this run put there.
+//
+// Every other residue test in this package drives an early return: the fixture Create is refused, so run()
+// never gets past setup and the inline branch on the happy path — the one that decides both that the worker
+// stays and that no result is handed back — is reached by nothing. Deleting that branch outright and
+// replacing it with `_ = holdWorker` left the entire package green, which is why this test exists rather than
+// a stronger assertion somewhere cheaper.
+//
+// This test is real time, not simulated: it drives run() through the actual doseSec=40 protocol wait, the
+// same as the other full-run tests here and for the same reason — the dose is a protocol constant the
+// experiment's validity rests on and is deliberately not configurable. -short therefore does NOT check that a
+// successful run holds its worker when teardown leaves residue.
+func TestRunHoldsTheWorkerWhenTheHappyPathLeavesResidue(t *testing.T) {
+	if testing.Short() {
+		t.Skip("drives run() through the full 40-second protocol dose to reach the happy path; -short leaves " +
+			"the happy-path worker hold and the no-result-on-residue rule unexercised")
+	}
+	inner := fake.NewClientBuilder().WithScheme(fullScheme(t)).WithObjects(node(nil, nil)).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Create: fakeSchedulerCreate,
+			Watch:  fakeSchedulerWatch,
+			// Refused rather than merely slow, so the residue also carries WHY: a record saying only "still
+			// present" reads as a finalizer taking its time.
+			Delete: func(ctx context.Context, c client.WithWatch, obj client.Object,
+				opts ...client.DeleteOption) error {
+				if _, ok := obj.(*corev1.Namespace); ok {
+					return apierrors.NewForbidden(schema.GroupResource{Resource: "namespaces"},
+						obj.GetName(), errors.New("teardown may not delete namespaces"))
+				}
+				return c.Delete(ctx, obj, opts...)
+			},
+		}).Build()
+	c, calls := recordRunCalls(t, inner)
+	now, sleep := fakeClock(time.Unix(0, 0))
+
+	o, events, res, left := run(context.Background(), func() (client.WithWatch, error) { return c, nil },
+		queuelab.ArmNRef, "r8", "queuelab-r8", "platform-worker", 45*time.Second, now, sleep)
+
+	// The run must genuinely have completed its protocol, or this test is another early-return test wearing a
+	// longer sleep. The owner row is submitted only after the victim has been Ready for the whole 40-second
+	// dose, so an event for it is evidence the schedule ran to its last step; and the outcome carrying no
+	// "(after …)" chain is evidence run() reached teardown with nothing already decided against it, which
+	// only the path through reconstruction and the cardinality check does.
+	submittedOwner := false
+	for _, e := range events {
+		if e.Job == queuelab.OwnerRow {
+			submittedOwner = true
+		}
+	}
+	if !submittedOwner {
+		t.Fatalf("no event for the %q row; this run never reached the end of the schedule, so it cannot be "+
+			"testing the happy path's teardown at all: %+v", queuelab.OwnerRow, events)
+	}
+	if strings.Contains(o.Reason, "(after ") {
+		t.Fatalf("the outcome carries an earlier failure in its chain (%q); this run returned early and the "+
+			"happy path's own branch is still untested", o.Reason)
+	}
+
+	if o.Disposition != dispResidueLeft {
+		t.Fatalf("a run that measured cleanly and then could not remove its namespace is %s, got %s: %s",
+			dispResidueLeft, o.Disposition, o.Reason)
+	}
+	// A sound measurement is still withheld, by the same rule the release-failure path follows: the number is
+	// handed back only once the run is over, and this one is not over — its namespace is still on the cluster
+	// and its worker is still dedicated to it.
+	if res != nil {
+		t.Fatal("a run holding its worker for residue handed back a result; nothing downstream distinguishes " +
+			"that number from one produced by a run that finished")
+	}
+	found := false
+	for _, r := range left {
+		if r.Observation.Target.Name == "queuelab-r8" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("the residue must name the namespace that is still there, got %+v", left)
+	}
+
+	got := calls()
+	if firstIndexOf(got, "delete", "Namespace", 1) < 0 {
+		t.Fatalf("teardown never even attempted the namespace delete; calls: %+v", got)
+	}
+	if rel := releasePatchIndex(got); rel >= 0 {
+		t.Fatalf("the worker was released at call %d though this run's namespace — and the GPU Pods it holds "+
+			"— are still there; calls: %+v", rel, got)
+	}
+	var n corev1.Node
+	if err := c.Get(context.Background(), client.ObjectKey{Name: "platform-worker"}, &n); err != nil {
+		t.Fatalf("read the worker back: %v", err)
+	}
+	if n.Labels[workerLabelKey] == "" {
+		t.Fatal("the worker lost its dedication label while this run's namespace was still on the cluster")
+	}
+	if len(n.Spec.Taints) == 0 {
+		t.Fatal("the worker lost its NoSchedule taint while this run's namespace was still on the cluster; " +
+			"an annotation means nothing to the scheduler and a GPU Pod would land on it")
 	}
 }

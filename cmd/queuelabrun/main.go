@@ -416,18 +416,23 @@ func teardownContext() (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.Background(), teardownContextTimeout)
 }
 
-// tearDownBeforeRelease deletes everything this run created and reports whether the worker may now be let go.
+// tearDownBeforeRelease deletes everything this run created and reports whether the worker must be kept.
 //
 // It is a function rather than inline code because run() has to do this twice — once on the path that
 // returns normally and once in the deferred path covering every early return — and two copies of a decision
 // this consequential is two places for them to drift apart.
 //
-// clean is false for residue and for a teardown that could not run at all, and false is what HOLDS THE
-// WORKER. Releasing it strips the dedication label and the NoSchedule taint from a node whose namespace may
-// still be running this run's GPU Pods, and there is no marker that keeps a scheduler off a node while
-// letting the run be over — forceQuarantine's annotation means nothing to the scheduler. So a teardown that
-// did not finish sacrifices worker availability to preserve isolation. That is a stated choice, and the
-// operator is handed the recovery command rather than left to find it.
+// hold is true for residue this run is answerable for and for a teardown that could not run at all, and true
+// is what HOLDS THE WORKER. Releasing it strips the dedication label and the NoSchedule taint from a node
+// whose namespace may still be running this run's GPU Pods, and there is no marker that keeps a scheduler off
+// a node while letting the run be over — forceQuarantine's annotation means nothing to the scheduler. So a
+// teardown that did not finish sacrifices worker availability to preserve isolation. That is a stated choice,
+// and the operator is handed the recovery command rather than left to find it.
+//
+// The disposition and the hold are decided separately, and only the hold turns on whose objects these are.
+// Anything left standing at one of this run's names is amended into the outcome, because the record's residue
+// and its disposition must not disagree: a record saying "checks passed" while carrying a residue array is
+// two accounts of one run, and this program's whole shape is a refusal to emit those.
 func tearDownBeforeRelease(c client.Client, s seed, worker string, now func() time.Time,
 	sleep func(time.Duration), o outcome) (outcome, []residue, bool) {
 	tctx, cancel := teardownContext()
@@ -435,41 +440,86 @@ func tearDownBeforeRelease(c client.Client, s seed, worker string, now func() ti
 	result, err := deleteTargets(tctx, c, s, s.TxID, now, sleep, teardownBudget)
 	if err != nil {
 		// A teardown that could not even compute its target set deleted nothing and proved nothing, so for
-		// every decision below it is the same state as residue: hold the worker, and name the cause in the
-		// record rather than letting the run look like it cleaned up after itself.
+		// every decision below it is the worst case: hold the worker, and name the cause in the record rather
+		// than letting the run look like it cleaned up after itself.
+		//
+		// This is the one residue-left with nothing in its residue, and after recoverTargets stopped refusing
+		// per batch it is no longer reachable from cluster state at all — a txID that disagrees with the seed,
+		// a seed enumerate refuses, a target kind with no reader. Each is a bug in this program, which is why
+		// the reason carries the error text: there is no object to name.
 		o = o.amend(dispResidueLeft, fmt.Sprintf("teardown could not run: %v", err))
-		reportResidueHeld(worker, nil)
-		return o, nil, false
+		reportResidue(worker, nil, true)
+		return o, nil, true
 	}
 	if len(result.Residue) == 0 {
-		return o, nil, true
+		return o, nil, false
 	}
 	// amend rather than assignment, exactly as the deferred emergency release does: a run that failed
 	// reconstruction AND then failed to clean up is not the same event as one that only failed to clean up,
 	// and the record is the only account of either that survives the process.
 	o = o.amend(dispResidueLeft, fmt.Sprintf("teardown left %d object(s) after %s",
 		len(result.Residue), result.Elapsed.Round(time.Second)))
-	reportResidueHeld(worker, result.Residue)
-	return o, result.Residue, false
+	hold := residueHoldsWorker(result.Residue)
+	reportResidue(worker, result.Residue, hold)
+	return o, result.Residue, hold
 }
 
-// reportResidueHeld tells the operator what is still there and why their worker did not come back.
+// residueHoldsWorker decides whether what teardown could not remove is a reason to keep the worker dedicated.
+//
+// The worker is held to contain GPU Pods, and only this run's own objects can be holding any. absenceForeign
+// says the name is held under a stamp or a UID this run never recorded, which means nothing of ours is there:
+// either we never created anything at that name (a leftover from a previous attempt under the same run id —
+// the ordinary rerun, since only the namespace is ever cleaned up by hand), or ours was deleted and something
+// else took the name, which frees a namespace's contents on the way. Holding for that contains nothing, and
+// releasing restores the node to exactly the state this run acquired it in — the leftovers were already there
+// and were not keeping it busy then either.
+//
+// The condition is deliberately "nothing left is ours" rather than "something foreign is here": one foreign
+// flavor alongside a namespace of ours that will not go away says nothing about that namespace's Pods, so any
+// entry that is not foreign holds the worker. absenceUnknown holds it too, by the same rule that makes it the
+// zero value — a target nobody could classify must fail toward "still here".
+//
+// It is the record, not the worker, that carries the fact onward: the residue is persisted either way, so a
+// next-run gate keying on it still refuses to start on a name another transaction holds.
+func residueHoldsWorker(left []residue) bool {
+	for _, r := range left {
+		if r.Absence != absenceForeign {
+			return true
+		}
+	}
+	return false
+}
+
+// reportResidue tells the operator what is still standing at this run's names, and what happened to their
+// worker as a result.
 //
 // The residue also reaches the record, so this is not the only account of it — that is the difference
 // between this and the WORKER NOT RESTORED line, which for a long time was printed and then lost. What only
-// exists here is the warning: stripping a stuck namespace's finalizer is the standard human fix and it is
-// the one action that makes the situation unrecoverable, because it orphans the contents and every later
-// absence check then reports clean over objects that are still running.
-func reportResidueHeld(worker string, left []residue) {
-	fmt.Fprintf(os.Stderr, "TEARDOWN INCOMPLETE: worker %s stays dedicated; its GPUs may still be in use\n",
-		worker)
+// exists here is the advice, and it differs by case because the two cases need opposite things: a stuck
+// object of our own must not have its finalizer stripped, and a name another transaction holds is not ours to
+// clear at all.
+func reportResidue(worker string, left []residue, held bool) {
+	if held {
+		fmt.Fprintf(os.Stderr, "TEARDOWN INCOMPLETE: worker %s stays dedicated; its GPUs may still be in use\n",
+			worker)
+	} else {
+		// Saying the worker stays dedicated when it does not would send the operator to -force-release for a
+		// node that is already free, and the objects named below are not theirs to delete on this run's say-so.
+		fmt.Fprintf(os.Stderr, "TEARDOWN INCOMPLETE: worker %s was released; nothing this run created is still "+
+			"on the cluster, but these names are held by another transaction\n", worker)
+	}
 	for _, r := range left {
 		fmt.Fprintf(os.Stderr, "  %s %s: %s\n", r.Observation.Target.Kind, r.Observation.Target.Name,
 			absenceName(r.Absence))
 	}
-	fmt.Fprintf(os.Stderr, "  do NOT strip a stuck namespace's finalizer: that orphans its contents, and "+
-		"every absence check afterwards reports clean over objects that are still running\n")
-	fmt.Fprintf(os.Stderr, "  run: queuelabrun -inspect-worker -worker %s\n", worker)
+	if held {
+		fmt.Fprintf(os.Stderr, "  do NOT strip a stuck namespace's finalizer: that orphans its contents, and "+
+			"every absence check afterwards reports clean over objects that are still running\n")
+		fmt.Fprintf(os.Stderr, "  run: queuelabrun -inspect-worker -worker %s\n", worker)
+		return
+	}
+	fmt.Fprintf(os.Stderr, "  rerun under a run id of its own, or clear those objects first once you have "+
+		"established the transaction that created them is gone\n")
 }
 
 // phaseFailure is classifyPhaseFailure with the cause folded into the reason.
@@ -609,9 +659,9 @@ func run(ctx context.Context, connect clusterClientFunc, arm queuelab.Arm, runID
 			return
 		}
 		teardownAttempted = true
-		var clean bool
-		o, left, clean = tearDownBeforeRelease(c, s, worker, now, sleep, o)
-		if !clean {
+		var hold bool
+		o, left, hold = tearDownBeforeRelease(c, s, worker, now, sleep, o)
+		if hold {
 			workerHeldForResidue = true
 		}
 	}()
@@ -718,46 +768,51 @@ func run(ctx context.Context, connect clusterClientFunc, arm queuelab.Arm, runID
 	// teardownAttempted is set before the call for the same reason releaseAttempted is below: whatever this
 	// returns, the deferred copy must not run the whole thing a second time.
 	teardownAttempted = true
-	var teardownClean bool
-	o, left, teardownClean = tearDownBeforeRelease(c, s, worker, now, sleep, o)
-	if !teardownClean {
-		// The worker is deliberately kept, so the deferred emergency release must not undo that. res stays
-		// nil, which is the same rule the release failure below follows: this run computed a result, but a
-		// result is handed back only once the worker is restored, and here it is being held on purpose.
+	var holdWorker bool
+	o, left, holdWorker = tearDownBeforeRelease(c, s, worker, now, sleep, o)
+	if holdWorker {
+		// The worker is deliberately kept, so the deferred emergency release must not undo that.
 		workerHeldForResidue = true
-		return
+	} else {
+		// The worker is restored, and proven restored, before the result exists anywhere a reader could find
+		// it: a run that lost its exclusive worker mid-flight has no claim on the number it computed.
+		//
+		// releaseOwned rather than releaseAcquired, because a node found already free here is that very case:
+		// this run installed the markers and never removed them, so their absence is a lost worker, not a
+		// release that had already happened.
+		//
+		// Set before the call, not after checking its error: the deferred emergency release above must skip
+		// because this release ran, regardless of whether it succeeded or invalidated the run.
+		releaseAttempted = true
+		relCtx, relCancel := cleanupContext()
+		err = releaseOwned(relCtx, c, j)
+		relCancel()
+		if err != nil {
+			// This is the one path in the program that can leave a node genuinely held with no further attempt
+			// coming: releaseAttempted is already true, so the deferred emergency release above is a no-op, and
+			// a real failure here (conflict-bound exhaustion, a non-conflict Patch error, or a verification
+			// failure where our markers truly are still installed) means the worker is still marked. The
+			// operator needs the same runnable next step the deferred path always printed, not just the reason
+			// it failed.
+			fmt.Printf("\nRUN INVALIDATED: worker %s not restored: %v\n  run: queuelabrun -inspect-worker -worker %s\n",
+				worker, err, worker)
+			// classifyReleaseFailure, never classifyPhaseFailure: this release ran on cleanupContext rather
+			// than the signal-cancelled run context, so a cancellation surfacing beneath it does not mean the
+			// run was cancelled — it means restoration could not be proven, which is the more serious of the
+			// two.
+			o = classifyReleaseFailure(err)
+			return
+		}
 	}
 
-	// The worker is restored, and proven restored, before the result exists anywhere a reader could find
-	// it: a run that lost its exclusive worker mid-flight has no claim on the number it computed.
-	//
-	// releaseOwned rather than releaseAcquired, because a node found already free here is that very case:
-	// this run installed the markers and never removed them, so their absence is a lost worker, not a
-	// release that had already happened.
-	//
-	// Set before the call, not after checking its error: the deferred emergency release above must skip
-	// because this release ran, regardless of whether it succeeded or invalidated the run.
-	releaseAttempted = true
-	relCtx, relCancel := cleanupContext()
-	err = releaseOwned(relCtx, c, j)
-	relCancel()
-	if err != nil {
-		// This is the one path in the program that can leave a node genuinely held with no further attempt
-		// coming: releaseAttempted is already true, so the deferred emergency release above is a no-op, and a
-		// real failure here (conflict-bound exhaustion, a non-conflict Patch error, or a verification failure
-		// where our markers truly are still installed) means the worker is still marked. The operator needs
-		// the same runnable next step the deferred path always printed, not just the reason it failed.
-		fmt.Printf("\nRUN INVALIDATED: worker %s not restored: %v\n  run: queuelabrun -inspect-worker -worker %s\n",
-			worker, err, worker)
-		// classifyReleaseFailure, never classifyPhaseFailure: this release ran on cleanupContext rather than
-		// the signal-cancelled run context, so a cancellation surfacing beneath it does not mean the run was
-		// cancelled — it means restoration could not be proven, which is the more serious of the two.
-		o = classifyReleaseFailure(err)
+	// The result is handed back only under an outcome nothing has amended: restoration proven, and teardown
+	// with nothing to report. Testing o rather than re-testing the two conditions is what keeps this from
+	// drifting out of step with them — a residue that held the worker and a residue that let it go have
+	// already been folded into o, and either way this run did not leave the cluster as it found it, so the
+	// number it computed is not published under a disposition that says the checks passed.
+	if o.Disposition != "" {
 		return
 	}
-
-	// The result is handed back only once restoration is proven, so the caller has nothing renderable for any
-	// run that lost its worker, whatever else that run computed.
 	res = &result
 	o = outcome{Disposition: dispChecksPassed}
 	return

@@ -55,12 +55,27 @@ func emptyObjectFor(tg target) (client.Object, error) {
 //
 // Ownership is decided here, once, by that stamp — the same test ensureNamespace applies at create time. An
 // object found under this run's name but stamped by a different transaction (or not stamped at all) is
-// refused outright: recovery cannot express "foreign" as an observation, because classifyAbsence's
-// absenceForeign is a UID comparison against a UID this run recorded for an object it created, and there is
-// no such UID for an object it never created. Inventing one to force a foreign classification would be
-// exactly the lie this whole design refuses to tell. absenceForeign stays the executor's, for the narrower
-// case a create-time stamp cannot see: our object deleted and a different one recreated under our name
-// between this pass and a later poll, where the WantUID this pass established is what makes that detectable.
+// refused, and the refusal is that TARGET's alone: it becomes an observation marked Foreign, which
+// classifyAbsence reads as absenceForeign, so no Delete is ever issued against it, it does not hold its phase
+// open, and it survives into the residue for the record to name.
+//
+// Refusing the whole batch instead is what this used to do, and it inverted the design's own guarantee. The
+// state that triggers it is the ordinary rerun — only the namespace is ever cleaned up by hand, so a
+// cluster-scoped fixture from a previous attempt under the same run id is the common leftover — and the
+// result was a teardown that issued not one Delete, left the run's OWN namespace on the cluster, and returned
+// an error rather than a residue, so the record named nothing while a namespace was still running.
+//
+// What the old comment here argued was narrower and is still true, and is why the fact is carried explicitly
+// rather than expressed as a UID: absenceForeign's other route is a UID comparison against a UID this run
+// recorded for an object it created, and there is no such UID for an object it never created. Inventing one
+// would be exactly the lie this design refuses to tell — and worse than a lie in a report, because WantUID is
+// what deleteTarget arms its precondition with. So WantUID stays empty and observation.Foreign carries the
+// verdict. The UID comparison keeps the case a create-time stamp cannot see: our object deleted and a
+// different one recreated under our name between this pass and a later poll.
+//
+// It still returns an error, but only for a caller or seed bug — a txID that disagrees with the seed, a seed
+// enumerate refuses, a target kind with no reader. None of those are cluster state, and after this change no
+// cluster state reaches the caller as an error at all.
 func recoverTargets(ctx context.Context, c client.Client, s seed, txID string) ([]observation, error) {
 	// txID is a caller-supplied parameter, s.TxID is the durable record this run wrote at Create; nothing
 	// stops a caller from passing the two out of sync. Left unguarded, txID == "" would match an unstamped
@@ -81,10 +96,11 @@ func recoverTargets(ctx context.Context, c client.Client, s seed, txID string) (
 		if err != nil {
 			return nil, err
 		}
-		// Every branch below appends exactly once. A continue here — on a read error especially — would drop
-		// the target out of the audit entirely, and "no residue" would then read as clean while the object is
-		// still there. That is the batch-level form of unclassified-reads-as-absence, and no coverage check
-		// placed afterwards can see it, because the missing observation was never made.
+		// Every path below appends exactly once, the foreign one included — it continues only AFTER appending.
+		// Leaving a target unobserved — on a read error especially — would drop it out of the audit entirely,
+		// and "no residue" would then read as clean while the object is still there. That is the batch-level
+		// form of unclassified-reads-as-absence, and no coverage check placed afterwards can see it, because
+		// the missing observation was never made.
 		gerr := c.Get(ctx, client.ObjectKey{Name: tg.Name}, obj)
 		switch {
 		case apierrors.IsNotFound(gerr):
@@ -92,11 +108,14 @@ func recoverTargets(ctx context.Context, c client.Client, s seed, txID string) (
 		case gerr != nil:
 			out = append(out, observation{Target: tg, Err: gerr})
 		default:
-			if got := obj.GetLabels()[queuelab.TxLabel]; got != txID {
-				return nil, fmt.Errorf("%s %s exists under transaction %q, not this run's %q; "+
-					"it is not this run's object to delete", tg.Kind, tg.Name, got, txID)
-			}
 			uid := string(obj.GetUID())
+			if got := obj.GetLabels()[queuelab.TxLabel]; got != txID {
+				// The observed UID is carried so the record can name WHICH object holds the name, and WantUID
+				// is deliberately left empty: this run recorded no UID here, and the empty one is what keeps
+				// the delete precondition unarmed even if the gate above it were ever widened.
+				out = append(out, observation{Target: tg, Found: true, UID: uid, Foreign: true})
+				continue
+			}
 			out = append(out, observation{
 				Target: tg, Found: true, UID: uid, WantUID: uid,
 				Terminating: obj.GetDeletionTimestamp() != nil,
@@ -310,9 +329,10 @@ func deleteTargets(ctx context.Context, c client.Client, s seed, txID string,
 	start := now()
 	deadline := start.Add(budget)
 
-	// Ownership is decided once, here, by recoverTargets — which refuses outright on an object stamped by
-	// another transaction. Nothing below re-derives it, so there is exactly one place that can be wrong about
-	// whose objects these are.
+	// Ownership is decided once, here, by recoverTargets — which marks an object stamped by another
+	// transaction foreign rather than adopting it. Nothing below re-derives it, so there is exactly one place
+	// that can be wrong about whose objects these are. An error from it is a caller or seed bug, never cluster
+	// state: cluster state comes back as observations, including the ones this run may not touch.
 	latest, err := recoverTargets(ctx, c, s, txID)
 	if err != nil {
 		return teardownResult{}, err
