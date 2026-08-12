@@ -141,6 +141,10 @@ const (
 	absenceUnknown absence = iota
 	absencePresent
 	absenceAbsent
+	// absenceForeign: the name is held by an object this run did not create. It is neither evidence ours is
+	// gone nor a target to delete — deleting it would destroy another run's live state under a name
+	// collision ensureNamespace already tolerates (no ownership labels, AlreadyExists accepted silently).
+	absenceForeign
 )
 
 // classifyAbsence decides what one observation of a target proves, against the UID this run recorded for
@@ -157,18 +161,28 @@ func classifyAbsence(obs observation, wantUID string) absence {
 	if !obs.Found {
 		return absenceAbsent
 	}
-	// A deletionTimestamp means deletion was requested, not that it completed: the object is still readable,
-	// still holds whatever it held, and a finalizer may be blocking it indefinitely. Reporting it absent
-	// would let teardown declare victory on the exact objects still stuck.
-	if obs.Terminating {
-		return absencePresent
+	// The seed is written before the first Create, so an unrecovered UID means ownership is unproven, not
+	// refuted: a name match with no recorded UID to check it against must not be waved through as ours
+	// either, so deletion has to wait for UID recovery rather than proceed on the name alone.
+	if wantUID == "" {
+		return absenceUnknown
 	}
-	// Found and not terminating is still not automatically "ours": ensureNamespace sets no ownership labels
-	// and tolerates AlreadyExists, so this runner already adopts a namespace it did not create whenever the
-	// name collides. A found object is reported present whether or not its UID matches wantUID — the UID
-	// mismatch case is called out separately below only because it is a refusal, not a routine "present":
-	// crediting absence to a name match alone would let this run treat another run's live namespace as its
-	// own residue being clear, so a same-name/different-UID object must never become a deletion target.
+	// Checked before Terminating: a foreign object that is itself terminating is still foreign — someone
+	// else's object being torn down is not our residue to wait on, and must not be reported present (which
+	// would make the executor poll someone else's deletion) or absent (which would make it declare our own
+	// object gone because a different one under the same name happens to be going away).
+	//
+	// ensureNamespace sets no ownership labels and tolerates AlreadyExists, so this runner already adopts a
+	// namespace it did not create whenever the name collides: a found object under our recorded UID is
+	// ours and still present; a found object under any other UID is a name collision this run must refuse
+	// to touch, and it must never become a deletion target on the strength of the name matching.
+	if obs.UID != wantUID {
+		return absenceForeign
+	}
+	// Found, under our own UID, and either ordinary or terminating: a deletionTimestamp means deletion was
+	// requested, not that it completed — the object is still readable, still holds whatever it held, and a
+	// finalizer may be blocking it indefinitely. Reporting it absent would let teardown declare victory on
+	// the exact objects still stuck, so both cases classify present.
 	return absencePresent
 }
 

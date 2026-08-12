@@ -147,11 +147,21 @@ func TestAReadErrorIsUnknownNotAbsent(t *testing.T) {
 
 // NotFound on a name proves the name is free, not that this run's object was deleted: the runner derives its
 // namespace from the run id alone and today adopts one it did not create, so a name can be absent because it
-// never existed, because someone else's was deleted, or because ours was deleted and recreated.
+// never existed, because someone else's was deleted, or because ours was deleted and recreated. A found
+// object under a different UID is a name collision this run must refuse to touch, not a routine "present"
+// indistinguishable from our own live object — an executor that cannot tell the two apart from the returned
+// classification alone cannot refuse to delete the one it does not own.
 func TestAbsenceIsCreditedOnlyAgainstTheRecordedUID(t *testing.T) {
-	present := observation{Target: target{Kind: "Namespace", Name: "queuelab-r1"}, Found: true, UID: "somebody-else"}
-	if got := classifyAbsence(present, "ours"); got != absencePresent {
-		t.Fatalf("a different UID under our name classified as %v; it must not be reported absent, and it must never become a deletion target", got)
+	mine := observation{Target: target{Kind: "Namespace", Name: "queuelab-r1"}, Found: true, UID: "ours"}
+	if got := classifyAbsence(mine, "ours"); got != absencePresent {
+		t.Fatalf("our own live namespace classified as %v, want present", got)
+	}
+	theirs := observation{Target: target{Kind: "Namespace", Name: "queuelab-r1"}, Found: true, UID: "somebody-else"}
+	if got := classifyAbsence(theirs, "ours"); got != absenceForeign {
+		t.Fatalf("a different UID under our name classified as %v; it must never become a deletion target", got)
+	}
+	if classifyAbsence(mine, "ours") == classifyAbsence(theirs, "ours") {
+		t.Fatal("ours and somebody else's classify identically; the executor cannot refuse what it cannot see")
 	}
 	gone := observation{Target: target{Kind: "Namespace", Name: "queuelab-r1"}, Found: false}
 	if got := classifyAbsence(gone, "ours"); got != absenceAbsent {
@@ -159,21 +169,42 @@ func TestAbsenceIsCreditedOnlyAgainstTheRecordedUID(t *testing.T) {
 	}
 }
 
+// The zero value is load-bearing: a map miss, an unset field, or a code path that forgets to classify must
+// read as unknown, never as absence.
+func TestUnclassifiedIsUnknown(t *testing.T) {
+	var a absence
+	if a != absenceUnknown {
+		t.Fatalf("the zero absence is %v, want unknown; an unclassified observation must never read as gone", a)
+	}
+}
+
 // residual is what the executor persists, so anything not proven absent has to survive into it — including
-// the unknowns, which are the ones a hurried reader will otherwise treat as fine.
+// the unknowns, which are the ones a hurried reader will otherwise treat as fine, and the foreign ones,
+// which residual must carry forward on WantUID rather than a second lookup structure the caller could
+// populate inconsistently.
 func TestResidualKeepsEverythingNotProvenAbsent(t *testing.T) {
 	in := []observation{
 		{Target: target{Name: "gone"}, Found: false},
-		{Target: target{Name: "stuck"}, Found: true, UID: "u", Terminating: true},
+		{Target: target{Name: "stuck"}, Found: true, UID: "u", WantUID: "u", Terminating: true},
 		{Target: target{Name: "unreadable"}, Err: errors.New("boom")},
+		{Target: target{Name: "squatted"}, Found: true, UID: "other", WantUID: "ours"},
 	}
 	got := residual(in)
-	if len(got) != 2 {
-		t.Fatalf("residual kept %d observations, want 2 (the terminating one and the unreadable one)", len(got))
+	if len(got) != 3 {
+		t.Fatalf("residual kept %d observations, want 3 (the terminating one, the unreadable one, and the squatted one)", len(got))
 	}
+	byName := map[string]observation{}
 	for _, o := range got {
 		if o.Target.Name == "gone" {
 			t.Fatal("residual kept an object proven absent")
 		}
+		byName[o.Target.Name] = o
+	}
+	squatted, ok := byName["squatted"]
+	if !ok {
+		t.Fatal("residual dropped the squatted observation, whose recorded UID this run does not own")
+	}
+	if got := classifyAbsence(squatted, squatted.WantUID); got != absenceForeign {
+		t.Fatalf("the squatted observation classifies as %v via residual's WantUID wiring, want foreign", got)
 	}
 }
