@@ -19,10 +19,15 @@ package main
 import (
 	"context"
 	"fmt"
+	"sort"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 	kueuev1beta2 "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 
 	"github.com/lkhun9311/gpu-mlops-platform-control-plane/internal/queuelab"
@@ -101,4 +106,205 @@ func recoverTargets(ctx context.Context, c client.Client, s seed, txID string) (
 		}
 	}
 	return out, nil
+}
+
+// teardownPollInterval is how long the executor waits between rounds of re-reads.
+//
+// It is a constant rather than a knob because the caller already controls the only input that changes the
+// outcome — the budget. A namespace deletion on a real cluster settles in seconds, gated by kube-controller
+// -manager's own cleanup, so a tighter interval would add API calls without finishing any sooner.
+const teardownPollInterval = 2 * time.Second
+
+// teardownResult is what one teardown attempt proved.
+//
+// Residue is a result, not a failure to compute one: a run whose budget expired with objects still present
+// has established a fact the next run must refuse to start on, and returning it as an error would collapse
+// that fact back into "teardown failed" with nothing left to persist.
+type teardownResult struct {
+	Residue []residue // empty means proven clean
+	Elapsed time.Duration
+}
+
+// deleteObjectFor builds the object a Delete is issued against: this target's kind and name, and nothing
+// else, so no stale spec read earlier in the run can travel into the delete.
+//
+// The GroupVersionKind is stamped explicitly because a typed empty object carries an empty TypeMeta, and the
+// kind is how anything auditing what teardown destroyed — a log line, an error, a recorder standing in for
+// one — names the object. A delete recorded under an empty kind is not an audit trail.
+func deleteObjectFor(tg target, sch *runtime.Scheme) (client.Object, error) {
+	obj, err := emptyObjectFor(tg)
+	if err != nil {
+		return nil, err
+	}
+	gvk, err := apiutil.GVKForObject(obj, sch)
+	if err != nil {
+		return nil, fmt.Errorf("teardown: no GroupVersionKind registered for %s %q: %w", tg.Kind, tg.Name, err)
+	}
+	obj.GetObjectKind().SetGroupVersionKind(gvk)
+	obj.SetName(tg.Name)
+	return obj, nil
+}
+
+// deleteTarget issues the one Delete this run is entitled to issue for a target.
+//
+// The UID precondition is not a nicety. Between the read that learned the UID and this call, another actor
+// can delete the name and recreate it, and an unconditioned delete-by-name would then destroy the
+// replacement — an object this run never created and has no authority over. The precondition makes the
+// apiserver refuse instead of leaving that outcome to timing. o.WantUID is non-empty by construction here:
+// classifyAbsence returns absenceUnknown when it is empty, so a target with no recovered UID never reaches a
+// delete at all.
+func deleteTarget(ctx context.Context, c client.Client, o observation) error {
+	obj, err := deleteObjectFor(o.Target, c.Scheme())
+	if err != nil {
+		return err
+	}
+	uid := types.UID(o.WantUID)
+	return c.Delete(ctx, obj, client.Preconditions{UID: &uid})
+}
+
+// observeTarget re-reads one target and reports what that read found, against the UID recovery established.
+//
+// It deliberately does not re-check the transaction stamp: ownership was decided once, by recoverTargets, and
+// the question during polling is the narrower one — is the object we established still the object at this
+// name. classifyAbsence answers that from the UID alone, which is exactly what catches our object being
+// deleted and a different one recreated under our name mid-teardown, stamped or not.
+func observeTarget(ctx context.Context, c client.Client, tg target, wantUID string) observation {
+	obj, err := emptyObjectFor(tg)
+	if err != nil {
+		return observation{Target: tg, WantUID: wantUID, Err: err}
+	}
+	switch gerr := c.Get(ctx, client.ObjectKey{Name: tg.Name}, obj); {
+	case apierrors.IsNotFound(gerr):
+		return observation{Target: tg, WantUID: wantUID}
+	case gerr != nil:
+		return observation{Target: tg, WantUID: wantUID, Err: gerr}
+	default:
+		return observation{
+			Target: tg, Found: true, UID: string(obj.GetUID()), WantUID: wantUID,
+			Terminating: obj.GetDeletionTimestamp() != nil,
+		}
+	}
+}
+
+// phasesIn returns the distinct phases the observations carry, ascending.
+//
+// The order comes from the phase constants rather than from the order the observations happen to arrive in,
+// so a target list that reached here shuffled still deletes the namespace first; and a phase added to
+// enumerate later is picked up here without a second ordered list to keep in sync with teardown.go.
+func phasesIn(obs []observation) []teardownPhase {
+	seen := map[teardownPhase]bool{}
+	var out []teardownPhase
+	for _, o := range obs {
+		if seen[o.Target.Phase] {
+			continue
+		}
+		seen[o.Target.Phase] = true
+		out = append(out, o.Target.Phase)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
+	return out
+}
+
+// phaseTargetSettled reports whether a target has stopped holding its phase open.
+//
+// Absent is the only thing that proves the object is gone. Foreign settles the phase too, but for the
+// opposite reason: the name is held by an object under a different UID, so ours is no longer there, and
+// continuing to poll would be waiting on a deletion this run does not control — the outcome teardown.go
+// refuses when it declines to report a foreign object as present. It is not evidence of a clean teardown
+// either, so residual keeps it in the residue; it simply stops holding the next phase hostage.
+func phaseTargetSettled(o observation) bool {
+	switch classifyAbsence(o, o.WantUID) {
+	case absenceAbsent, absenceForeign:
+		return true
+	default:
+		return false
+	}
+}
+
+// settlePhase deletes one phase's targets and then polls them to absence, updating their observations in
+// place so the caller always holds the freshest read of every target. It reports whether the phase settled;
+// false means the budget ran out with something still there.
+func settlePhase(ctx context.Context, c client.Client, latest []observation, phase teardownPhase,
+	now func() time.Time, sleep func(time.Duration), deadline time.Time) bool {
+	for {
+		for i := range latest {
+			o := &latest[i]
+			if o.Target.Phase != phase {
+				continue
+			}
+			// Terminating is what separates "deletion already requested, keep polling" from "issue the
+			// Delete". Re-issuing against an object that already carries a deletionTimestamp buys nothing —
+			// the request was accepted and a finalizer, not a missing Delete, is what holds it. Re-issuing
+			// against one that is present and NOT terminating is the opposite: evidence the previous attempt
+			// did not take, which is the case worth another try.
+			if classifyAbsence(*o, o.WantUID) != absencePresent || o.Terminating {
+				continue
+			}
+			if err := deleteTarget(ctx, c, *o); err != nil && !apierrors.IsNotFound(err) {
+				// A Forbidden here is teardown discovering that this run's delete authority was never
+				// verified, and that is a fact to report, not a reason to crash and abandon the rest of the
+				// set. Recording it on the observation classifies the target unknown, so it survives into the
+				// residue; the next read then supersedes this guess with evidence either way.
+				o.Err = err
+			}
+		}
+
+		// Read after deleting, so the loop always exits on evidence rather than on the assumption that an
+		// accepted Delete completed. An accepted Delete is a request; only a read proves the result.
+		for i := range latest {
+			o := &latest[i]
+			if o.Target.Phase != phase || phaseTargetSettled(*o) {
+				continue
+			}
+			*o = observeTarget(ctx, c, o.Target, o.WantUID)
+		}
+
+		done := true
+		for _, o := range latest {
+			if o.Target.Phase == phase && !phaseTargetSettled(o) {
+				done = false
+				break
+			}
+		}
+		if done {
+			return true
+		}
+		// The budget is checked here, against the injected clock, and never against ctx. A context deadline
+		// would surface expiry as an ordinary cancellation indistinguishable from the caller giving up, and
+		// expiry is the one path that must report residue.
+		if !now().Before(deadline) {
+			return false
+		}
+		sleep(teardownPollInterval)
+	}
+}
+
+// deleteTargets deletes everything this run created, in the order Kueue's finalizers allow, and reports what
+// would not go away.
+//
+// The deletion set comes only from enumerate via recoverTargets — no List, no label selector, no DeleteAllOf.
+// A selector deletes whatever currently matches it, which is not the same set as "what THIS run created": a
+// concurrent run's objects can match, and the seed exists precisely to remove that ambiguity.
+func deleteTargets(ctx context.Context, c client.Client, s seed, txID string,
+	now func() time.Time, sleep func(time.Duration), budget time.Duration) (teardownResult, error) {
+	start := now()
+	deadline := start.Add(budget)
+
+	// Ownership is decided once, here, by recoverTargets — which refuses outright on an object stamped by
+	// another transaction. Nothing below re-derives it, so there is exactly one place that can be wrong about
+	// whose objects these are.
+	latest, err := recoverTargets(ctx, c, s, txID)
+	if err != nil {
+		return teardownResult{}, err
+	}
+
+	for _, phase := range phasesIn(latest) {
+		if !settlePhase(ctx, c, latest, phase, now, sleep, deadline) {
+			// A phase that did not settle stops teardown here rather than advancing. Deleting a ClusterQueue
+			// while the namespace holding its Workloads is still there does not fail loudly — it blocks on
+			// the resource-in-use finalizer — so pressing on buys nothing and buries which object is stuck.
+			break
+		}
+	}
+	return teardownResult{Residue: residual(latest), Elapsed: now().Sub(start)}, nil
 }

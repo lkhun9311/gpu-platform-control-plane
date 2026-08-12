@@ -20,10 +20,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -342,6 +344,199 @@ func TestRecoverPreservesEnumeratesOrder(t *testing.T) {
 		if got[i].Target.Name != want[i].Name || got[i].Target.Kind != want[i].Kind {
 			t.Fatalf("recover reordered position %d: got %s %q, want %s %q",
 				i, got[i].Target.Kind, got[i].Target.Name, want[i].Kind, want[i].Name)
+		}
+	}
+}
+
+// recordedDelete is one Delete the executor issued, as the cluster saw it.
+type recordedDelete struct {
+	Kind string
+	Name string
+	UID  string // from client.Preconditions, "" if none was set
+}
+
+// deleteRecorder captures what the executor issued, because the properties that matter here are properties
+// of the CALLS — order and preconditions — not of the final state, which a fake client would let a wrong
+// implementation reach anyway. The fake client does not even enforce a UID precondition (it checks only
+// ResourceVersion), so a missing one is invisible in the final state by construction.
+func deleteRecorder(t *testing.T, objs ...client.Object) (client.WithWatch, *[]recordedDelete) {
+	t.Helper()
+	var got []recordedDelete
+	c := fake.NewClientBuilder().WithScheme(fullScheme(t)).WithObjects(objs...).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Delete: func(ctx context.Context, cl client.WithWatch, obj client.Object, opts ...client.DeleteOption) error {
+				do := &client.DeleteOptions{}
+				do.ApplyOptions(opts)
+				uid := ""
+				if do.Preconditions != nil && do.Preconditions.UID != nil {
+					uid = string(*do.Preconditions.UID)
+				}
+				got = append(got, recordedDelete{Kind: obj.GetObjectKind().GroupVersionKind().Kind, Name: obj.GetName(), UID: uid})
+				return cl.Delete(ctx, obj, opts...)
+			},
+		}).Build()
+	return c, &got
+}
+
+// seedOwned puts every enumerated target on the cluster, stamped as ours, so a teardown has something to do.
+// Each carries a distinct UID on purpose: a shared UID would let a cross-wired precondition pass, and the
+// precondition is the whole defence against deleting a name someone else recreated.
+func seedOwned(t *testing.T, s seed) []client.Object {
+	t.Helper()
+	fs, err := queuelab.BuildFixtures(s.Study, s.Variant, s.TxID, s.RunID, s.Namespace)
+	if err != nil {
+		t.Fatalf("build fixtures: %v", err)
+	}
+	if len(fs.ClusterQueue) == 0 {
+		t.Fatalf("fixture set built no ClusterQueue; these tests need at least one to exercise that phase")
+	}
+	objs := []client.Object{
+		&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{
+			Name: s.Namespace, UID: "ns-uid", Labels: map[string]string{queuelab.TxLabel: s.TxID}}},
+	}
+	for i, cq := range fs.ClusterQueue {
+		objs = append(objs, &kueuev1beta2.ClusterQueue{ObjectMeta: metav1.ObjectMeta{
+			Name: cq.GetName(), UID: types.UID(fmt.Sprintf("cq-uid-%d", i)),
+			Labels: map[string]string{queuelab.TxLabel: s.TxID}}})
+	}
+	objs = append(objs, &kueuev1beta2.ResourceFlavor{ObjectMeta: metav1.ObjectMeta{
+		Name: fs.Flavor.GetName(), UID: "rf-uid", Labels: map[string]string{queuelab.TxLabel: s.TxID}}})
+	return objs
+}
+
+// fakeClock returns a now/sleep pair that advances only when the executor sleeps, so a poll loop cannot take
+// real time and a budget test cannot be flaky.
+func fakeClock(start time.Time) (func() time.Time, func(time.Duration)) {
+	cur := start
+	var mu sync.Mutex
+	return func() time.Time { mu.Lock(); defer mu.Unlock(); return cur },
+		func(d time.Duration) { mu.Lock(); defer mu.Unlock(); cur = cur.Add(d) }
+}
+
+// Phase order is forced by Kueue's finalizers: a ClusterQueue deleted while a Workload still reserves it
+// blocks on resource-in-use, and the namespace deletion is what releases those Workloads. Issuing the
+// deletes out of order does not fail loudly — it hangs — which is why the order is asserted on the calls
+// themselves rather than inferred from the final state.
+func TestDeleteIssuesDeletesInPhaseOrder(t *testing.T) {
+	s := testSeed()
+	c, got := deleteRecorder(t, seedOwned(t, s)...)
+	now, sleep := fakeClock(time.Unix(0, 0))
+	if _, err := deleteTargets(context.Background(), c, s, s.TxID, now, sleep, time.Minute); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	if len(*got) == 0 {
+		t.Fatal("no deletes were issued at all")
+	}
+	phaseOf := map[string]int{"Namespace": 0, "ClusterQueue": 1, "ResourceFlavor": 2}
+	last := -1
+	for _, d := range *got {
+		p, ok := phaseOf[d.Kind]
+		if !ok {
+			t.Fatalf("deleted an unexpected kind %q", d.Kind)
+		}
+		if p < last {
+			t.Fatalf("%s %q (phase %d) was deleted after phase %d; a ClusterQueue removed before the namespace releases its Workloads hangs on resource-in-use", d.Kind, d.Name, p, last)
+		}
+		last = p
+	}
+	if last != 2 {
+		t.Fatalf("teardown stopped at phase %d; the ResourceFlavor was never deleted", last)
+	}
+}
+
+// A delete without a UID precondition races a recreate: between the Get that learned the UID and the Delete,
+// another actor can remove and recreate the name, and the unconditioned Delete destroys the replacement.
+func TestEveryDeleteCarriesItsUIDPrecondition(t *testing.T) {
+	s := testSeed()
+	c, got := deleteRecorder(t, seedOwned(t, s)...)
+	now, sleep := fakeClock(time.Unix(0, 0))
+	if _, err := deleteTargets(context.Background(), c, s, s.TxID, now, sleep, time.Minute); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	if len(*got) == 0 {
+		t.Fatal("no deletes were issued at all")
+	}
+	for _, d := range *got {
+		if d.UID == "" {
+			t.Errorf("%s %q was deleted with no UID precondition; a recreate between the read and the delete destroys an object this run does not own", d.Kind, d.Name)
+		}
+	}
+}
+
+// A foreign object is a refusal, not a target. Deleting it destroys another run's live state.
+func TestDeleteNeverIssuesADeleteForAForeignTarget(t *testing.T) {
+	s := testSeed()
+	c, got := deleteRecorder(t, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{
+		Name: s.Namespace, UID: "theirs", Labels: map[string]string{queuelab.TxLabel: "tx-someone-else"}}})
+	now, sleep := fakeClock(time.Unix(0, 0))
+	if _, err := deleteTargets(context.Background(), c, s, s.TxID, now, sleep, time.Minute); err == nil {
+		t.Fatal("teardown proceeded against a namespace stamped by another transaction")
+	}
+	for _, d := range *got {
+		if d.Name == s.Namespace {
+			t.Fatalf("issued a delete for %s %q, which this run did not create", d.Kind, d.Name)
+		}
+	}
+}
+
+// deletionTimestamp is a request, not a result: an object that is terminating has been asked to go away and
+// has not gone away, so polling must continue rather than credit it as absent.
+func TestDeletePollsUntilAbsentNotUntilTerminating(t *testing.T) {
+	s := testSeed()
+	polls := 0
+	c := fake.NewClientBuilder().WithScheme(fullScheme(t)).WithInterceptorFuncs(interceptor.Funcs{
+		Get: func(ctx context.Context, cl client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+			if key.Name == s.Namespace {
+				polls++
+				if polls <= 3 {
+					// Present, and terminating: the deletion has been accepted and has not completed.
+					ns := obj.(*corev1.Namespace)
+					*ns = corev1.Namespace{ObjectMeta: metav1.ObjectMeta{
+						Name: s.Namespace, UID: "ns-uid", Labels: map[string]string{queuelab.TxLabel: s.TxID},
+						DeletionTimestamp: &metav1.Time{Time: time.Unix(0, 0)},
+						Finalizers:        []string{"kubernetes"}}}
+					return nil
+				}
+				return apierrors.NewNotFound(corev1.Resource("namespaces"), s.Namespace)
+			}
+			// Delegate to this same cluster, not to a second one: the other phases' targets must see the
+			// executor's own deletes, or they could never be observed absent and every run would look stuck.
+			return cl.Get(ctx, key, obj, opts...)
+		},
+	}).WithObjects(seedOwned(t, s)...).Build()
+	now, sleep := fakeClock(time.Unix(0, 0))
+	res, err := deleteTargets(context.Background(), c, s, s.TxID, now, sleep, time.Minute)
+	if err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	if len(res.Residue) != 0 {
+		t.Fatalf("reported residue %v for a namespace that did eventually go away", res.Residue)
+	}
+	if polls <= 3 {
+		t.Fatalf("stopped polling after %d reads; a terminating namespace was credited as gone", polls)
+	}
+}
+
+// Expiry is the one path that must report residue, so it must be reachable, and the budget must live in the
+// loop's own timer — a context deadline would make expiry read as an ordinary cancellation instead.
+func TestDeleteReportsResidueWhenTheBudgetExpires(t *testing.T) {
+	s := testSeed()
+	c := fake.NewClientBuilder().WithScheme(fullScheme(t)).WithInterceptorFuncs(interceptor.Funcs{
+		Delete: func(ctx context.Context, cl client.WithWatch, obj client.Object, opts ...client.DeleteOption) error {
+			return nil // accepted, and nothing ever goes away
+		},
+	}).WithObjects(seedOwned(t, s)...).Build()
+	now, sleep := fakeClock(time.Unix(0, 0))
+	res, err := deleteTargets(context.Background(), c, s, s.TxID, now, sleep, 30*time.Second)
+	if err != nil {
+		t.Fatalf("expiry is a result, not a failure to compute one: %v", err)
+	}
+	if len(res.Residue) == 0 {
+		t.Fatal("the budget expired with every target still present and nothing was reported as residue")
+	}
+	for _, r := range res.Residue {
+		if r.Absence == absenceAbsent {
+			t.Fatalf("%s carries absenceAbsent yet survived into the residue", r.Observation.Target.Name)
 		}
 	}
 }
