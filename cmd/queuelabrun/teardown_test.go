@@ -163,6 +163,20 @@ func TestAbsenceIsCreditedOnlyAgainstTheRecordedUID(t *testing.T) {
 	if classifyAbsence(mine, "ours") == classifyAbsence(theirs, "ours") {
 		t.Fatal("ours and somebody else's classify identically; the executor cannot refuse what it cannot see")
 	}
+	// A foreign object that is itself terminating is still foreign: waiting on it as if it were our own
+	// residue would let our run credit its own absence to someone else's object being deleted, the moment
+	// their deletion completes and the next read comes back NotFound.
+	theirsGoing := observation{Target: target{Kind: "Namespace", Name: "queuelab-r1"}, Found: true, UID: "somebody-else", Terminating: true}
+	if got := classifyAbsence(theirsGoing, "ours"); got != absenceForeign {
+		t.Fatalf("someone else's terminating namespace classified as %v; waiting on it would credit our absence to their deletion", got)
+	}
+	// The seed is written before the first Create; UIDs are recovered later, so an empty wantUID is this
+	// run's ordinary pre-recovery state, not an edge case. Comparing a real UID against "" would make every
+	// one of this run's own live targets classify foreign and invalidate the run on its own objects.
+	unrecovered := observation{Target: target{Kind: "Namespace", Name: "queuelab-r1"}, Found: true, UID: "u1"}
+	if got := classifyAbsence(unrecovered, ""); got != absenceUnknown {
+		t.Fatalf("a found object with no recorded UID classified as %v; unproven ownership is not a refusal, and not a licence to delete", got)
+	}
 	gone := observation{Target: target{Kind: "Namespace", Name: "queuelab-r1"}, Found: false}
 	if got := classifyAbsence(gone, "ours"); got != absenceAbsent {
 		t.Fatalf("NotFound with a recorded UID classified as %v, want absent", got)
@@ -193,18 +207,38 @@ func TestResidualKeepsEverythingNotProvenAbsent(t *testing.T) {
 	if len(got) != 3 {
 		t.Fatalf("residual kept %d observations, want 3 (the terminating one, the unreadable one, and the squatted one)", len(got))
 	}
-	byName := map[string]observation{}
-	for _, o := range got {
-		if o.Target.Name == "gone" {
+	byName := map[string]residue{}
+	for _, r := range got {
+		if r.Observation.Target.Name == "gone" {
 			t.Fatal("residual kept an object proven absent")
 		}
-		byName[o.Target.Name] = o
+		byName[r.Observation.Target.Name] = r
 	}
 	squatted, ok := byName["squatted"]
 	if !ok {
 		t.Fatal("residual dropped the squatted observation, whose recorded UID this run does not own")
 	}
-	if got := classifyAbsence(squatted, squatted.WantUID); got != absenceForeign {
-		t.Fatalf("the squatted observation classifies as %v via residual's WantUID wiring, want foreign", got)
+	if squatted.Absence != absenceForeign {
+		t.Fatalf("the squatted observation's carried verdict is %v via residual's WantUID wiring, want foreign", squatted.Absence)
+	}
+}
+
+// residual must carry out the verdict it reached, not leave each consumer to recompute one: the persisted
+// record is read by the next run, and a stuck object and a name collision have different consequences.
+func TestResidualCarriesTheClassificationItComputed(t *testing.T) {
+	in := []observation{
+		{Target: target{Name: "stuck"}, Found: true, UID: "u", WantUID: "u", Terminating: true},
+		{Target: target{Name: "squatted"}, Found: true, UID: "other", WantUID: "ours"},
+		{Target: target{Name: "unreadable"}, Err: errors.New("boom")},
+	}
+	want := map[string]absence{"stuck": absencePresent, "squatted": absenceForeign, "unreadable": absenceUnknown}
+	got := residual(in)
+	if len(got) != len(want) {
+		t.Fatalf("residual kept %d, want %d", len(got), len(want))
+	}
+	for _, r := range got {
+		if r.Absence != want[r.Observation.Target.Name] {
+			t.Fatalf("%s carried %v, want %v", r.Observation.Target.Name, r.Absence, want[r.Observation.Target.Name])
+		}
 	}
 }

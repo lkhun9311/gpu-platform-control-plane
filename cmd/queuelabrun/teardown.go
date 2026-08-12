@@ -186,14 +186,31 @@ func classifyAbsence(obs observation, wantUID string) absence {
 	return absencePresent
 }
 
+// residue is one target's remaining teardown work: the observation and the verdict residual reached on it.
+// The verdict travels with the observation because this record is what the executor persists and what the
+// next run refuses to start on, and those two consumers must not re-derive it — a consumer that recomputes
+// with a different wantUID reaches a different answer than the one this record was built from.
+//
+// Rejected alternatives: parallel slices can desynchronize; an Absence field on observation lets a caller
+// construct a read carrying a contradictory pre-set verdict and makes a zero value meaningful on an input
+// type; a map[target]absence loses the declared phase order Task 1 exists to establish and returns the
+// zero value on a miss.
+type residue struct {
+	Observation observation
+	Absence     absence
+}
+
 // residual is what an executor persists as the run's remaining teardown work: everything not proven absent,
-// including the unknowns that a hurried reader would otherwise wave through as fine.
-func residual(obs []observation) []observation {
-	var out []observation
+// including the unknowns that a hurried reader would otherwise wave through as fine, each carrying the
+// verdict residual itself reached rather than leaving every consumer to recompute one.
+func residual(obs []observation) []residue {
+	var out []residue
 	for _, o := range obs {
-		if classifyAbsence(o, o.WantUID) != absenceAbsent {
-			out = append(out, o)
+		a := classifyAbsence(o, o.WantUID)
+		if a == absenceAbsent {
+			continue
 		}
+		out = append(out, residue{Observation: o, Absence: a})
 	}
 	return out
 }
