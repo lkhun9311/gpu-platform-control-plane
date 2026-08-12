@@ -59,6 +59,15 @@ func emptyObjectFor(tg target) (client.Object, error) {
 // case a create-time stamp cannot see: our object deleted and a different one recreated under our name
 // between this pass and a later poll, where the WantUID this pass established is what makes that detectable.
 func recoverTargets(ctx context.Context, c client.Client, s seed, txID string) ([]observation, error) {
+	// txID is a caller-supplied parameter, s.TxID is the durable record this run wrote at Create; nothing
+	// stops a caller from passing the two out of sync. Left unguarded, txID == "" would match an unstamped
+	// object's absent label (both compare equal to ""), collapsing the unstamped-leftover refusal below, and
+	// any other txID would let the caller adopt whatever transaction it names instead of this seed's own. The
+	// same reasoning that makes enumerate refuse an empty s.TxID at teardown.go:77 applies here — an
+	// unguarded value does not mean "recover less," it means "recover under a different, wrong transaction."
+	if txID != s.TxID {
+		return nil, fmt.Errorf("recover: txID %q does not match the seed's own TxID %q", txID, s.TxID)
+	}
 	targets, err := enumerate(s)
 	if err != nil {
 		return nil, err
