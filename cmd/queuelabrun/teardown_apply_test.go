@@ -683,6 +683,55 @@ func TestDeleteReportsWhyATargetSurvivedWhenTheApiserverRefused(t *testing.T) {
 	}
 }
 
+// Not every refusal is permanent. A 429 under load, an etcd leader change, an admission webhook still coming
+// up — each rejects one Delete and relents. The test above only ever sees a Forbidden that never relents, so
+// it says nothing about this case, and this case is the one that decides whether an ordinary teardown on a
+// busy cluster reports itself clean.
+//
+// Two properties are pinned together here because they are two halves of one behaviour and each is
+// individually redundant: the executor retries a refused delete on the next round, and a refusal stops
+// travelling with a target that did in the end come away. Without the first there is nothing to clear;
+// without the second, a target read absent still carries the earlier error into residual, where a carried
+// error classifies absenceUnknown — so a teardown that removed everything reports residue anyway, and the
+// next run refuses to start on a cluster that is actually clean.
+func TestDeleteClearsARefusalOnceTheRetrySucceeds(t *testing.T) {
+	s := testSeed()
+	// Refused once per name, then allowed: the narrowest shape that separates "the apiserver said no" from
+	// "the object is still there", which is exactly the distinction a permanently-Forbidden fake cannot make.
+	refused := map[string]bool{}
+	inner := fake.NewClientBuilder().WithScheme(fullScheme(t)).WithObjects(seedOwned(t, s)...).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Delete: func(ctx context.Context, cl client.WithWatch, obj client.Object, opts ...client.DeleteOption) error {
+				if !refused[obj.GetName()] {
+					refused[obj.GetName()] = true
+					return apierrors.NewTooManyRequests("apiserver is shedding load", 1)
+				}
+				return cl.Delete(ctx, obj, opts...)
+			},
+		}).Build()
+	c, calls := recordCalls(t, inner)
+	now, sleep := fakeClock(time.Unix(0, 0))
+	res, err := deleteTargets(context.Background(), c, s, s.TxID, now, sleep, 30*time.Second)
+	if err != nil {
+		t.Fatalf("a refused delete is a fact to report, not a reason to crash: %v", err)
+	}
+	// The retry asserted on the calls, not inferred from the end state: an executor that never re-issued the
+	// Delete would also finish with everything present, and the residue check below alone could not tell that
+	// apart from a delete that was issued and did not take.
+	attempts := map[string]int{}
+	for _, d := range deletesIn(*calls) {
+		attempts[d.Name]++
+	}
+	if attempts[s.Namespace] < 2 {
+		t.Fatalf("the namespace's first delete was refused and it was attempted %d time(s) in total; "+
+			"a refusal that is never retried turns a momentary 429 into permanent residue", attempts[s.Namespace])
+	}
+	if len(res.Residue) != 0 {
+		t.Fatalf("every target was refused once, came away on the retry, and teardown still reported residue %+v; "+
+			"that record is what the next run refuses to start on", res.Residue)
+	}
+}
+
 // A read that fails proves nothing, and must not settle a phase. Crediting it would let one 503 on the
 // namespace read start the ClusterQueue deletes while the namespace and its admitted Workloads are still
 // there — the same resource-in-use pin as an out-of-order teardown, reached through the error path instead.

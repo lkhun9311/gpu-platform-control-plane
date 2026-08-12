@@ -223,14 +223,16 @@ func phaseTargetSettled(o observation) bool {
 // place so the caller always holds the freshest read of every target. It reports whether the phase settled;
 // false means the budget ran out with something still there.
 //
-// A Delete that the apiserver refused is recorded in deleteErrs, keyed by target name, rather than written
-// onto the observation. The read that follows in the same round is better evidence of whether the object is
+// A Delete that the apiserver refused is recorded in deleteErrs, keyed by the target itself rather than by
+// its name: kind is part of what identifies a target, and a name-only key would cross-wire one kind's refusal
+// onto another kind's residue the moment enumerate returns two kinds under one name. It is not reachable
+// today — the three names enumerate computes cannot collide — but the map has no reason to know that. The read that follows in the same round is better evidence of whether the object is
 // still there, and would overwrite anything written onto the observation before any caller could see it —
 // but the read says nothing about WHY the object survived, and "the apiserver refused" is the single most
 // useful thing a residue record can carry. deleteTargets folds these back in at the end, for targets that
 // never settled.
 func settlePhase(ctx context.Context, c client.Client, latest []observation, phase teardownPhase,
-	now func() time.Time, sleep func(time.Duration), deadline time.Time, deleteErrs map[string]error) bool {
+	now func() time.Time, sleep func(time.Duration), deadline time.Time, deleteErrs map[target]error) bool {
 	for {
 		for i := range latest {
 			o := &latest[i]
@@ -250,13 +252,20 @@ func settlePhase(ctx context.Context, c client.Client, latest []observation, pha
 			case err == nil || apierrors.IsNotFound(err):
 				// Already gone is not a failure, and a successful request clears any earlier refusal so a
 				// transient one cannot haunt a target that did in the end come away.
-				delete(deleteErrs, o.Target.Name)
+				//
+				// This clearing is defended twice — here, and by the settled check on the fold-back in
+				// deleteTargets — so neither line alone can be shown red by a test: removing either leaves the
+				// other holding the property. TestDeleteClearsARefusalOnceTheRetrySucceeds removes both at once,
+				// which is the only mutation that separates the behaviour from its absence. Kept deliberately
+				// rather than reduced to one: a refusal that has been superseded is stale data, and the cheapest
+				// place to stop carrying it is where it is superseded.
+				delete(deleteErrs, o.Target)
 			default:
 				// A Forbidden here is teardown discovering that this run's delete authority was never
 				// verified, and that is a fact to report, not a reason to crash and abandon the rest of the
 				// set. It is held aside rather than written onto the observation so it neither gets erased by
 				// this round's own read nor stops the next round from trying the Delete again.
-				deleteErrs[o.Target.Name] = err
+				deleteErrs[o.Target] = err
 			}
 		}
 
@@ -309,7 +318,7 @@ func deleteTargets(ctx context.Context, c client.Client, s seed, txID string,
 		return teardownResult{}, err
 	}
 
-	deleteErrs := map[string]error{}
+	deleteErrs := map[target]error{}
 	for _, phase := range phasesIn(latest) {
 		if !settlePhase(ctx, c, latest, phase, now, sleep, deadline, deleteErrs) {
 			// A phase that did not settle stops teardown here rather than advancing. Deleting a ClusterQueue
@@ -328,7 +337,7 @@ func deleteTargets(ctx context.Context, c client.Client, s seed, txID string,
 	for i := range latest {
 		o := &latest[i]
 		if o.Err == nil && !phaseTargetSettled(*o) {
-			if derr := deleteErrs[o.Target.Name]; derr != nil {
+			if derr := deleteErrs[o.Target]; derr != nil {
 				o.Err = derr
 			}
 		}
