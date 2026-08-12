@@ -17,6 +17,7 @@ limitations under the License.
 package main
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/lkhun9311/gpu-mlops-platform-control-plane/internal/queuelab"
@@ -122,5 +123,57 @@ func TestEnumerateRefusesAnIncompleteSeed(t *testing.T) {
 	s.Schema = teardownSeedSchema + 1
 	if _, err := enumerate(s); err == nil {
 		t.Error("enumerate accepted a seed from an unknown schema, whose names a different enumerate produced")
+	}
+}
+
+// An object carrying a deletionTimestamp has been asked to go away and has not gone away. Treating that as
+// absence is the exact error this whole piece exists to prevent: it asserts deletion was requested, not that
+// it happened.
+func TestTerminatingIsNotAbsent(t *testing.T) {
+	obs := observation{Target: target{Kind: "Namespace", Name: "queuelab-r1"}, Found: true, UID: "u1", Terminating: true}
+	if got := classifyAbsence(obs, "u1"); got != absencePresent {
+		t.Fatalf("a terminating object classified as %v, want present", got)
+	}
+}
+
+// A read that failed says nothing about the object, and a teardown that reports zero residue from a failed
+// read is reporting a guess as a result.
+func TestAReadErrorIsUnknownNotAbsent(t *testing.T) {
+	obs := observation{Target: target{Kind: "ClusterQueue", Name: "ql-reclaim-tenant-a-r1"}, Err: errors.New("etcdserver: request timed out")}
+	if got := classifyAbsence(obs, "u1"); got != absenceUnknown {
+		t.Fatalf("a failed read classified as %v, want unknown", got)
+	}
+}
+
+// NotFound on a name proves the name is free, not that this run's object was deleted: the runner derives its
+// namespace from the run id alone and today adopts one it did not create, so a name can be absent because it
+// never existed, because someone else's was deleted, or because ours was deleted and recreated.
+func TestAbsenceIsCreditedOnlyAgainstTheRecordedUID(t *testing.T) {
+	present := observation{Target: target{Kind: "Namespace", Name: "queuelab-r1"}, Found: true, UID: "somebody-else"}
+	if got := classifyAbsence(present, "ours"); got != absencePresent {
+		t.Fatalf("a different UID under our name classified as %v; it must not be reported absent, and it must never become a deletion target", got)
+	}
+	gone := observation{Target: target{Kind: "Namespace", Name: "queuelab-r1"}, Found: false}
+	if got := classifyAbsence(gone, "ours"); got != absenceAbsent {
+		t.Fatalf("NotFound with a recorded UID classified as %v, want absent", got)
+	}
+}
+
+// residual is what the executor persists, so anything not proven absent has to survive into it — including
+// the unknowns, which are the ones a hurried reader will otherwise treat as fine.
+func TestResidualKeepsEverythingNotProvenAbsent(t *testing.T) {
+	in := []observation{
+		{Target: target{Name: "gone"}, Found: false},
+		{Target: target{Name: "stuck"}, Found: true, UID: "u", Terminating: true},
+		{Target: target{Name: "unreadable"}, Err: errors.New("boom")},
+	}
+	got := residual(in)
+	if len(got) != 2 {
+		t.Fatalf("residual kept %d observations, want 2 (the terminating one and the unreadable one)", len(got))
+	}
+	for _, o := range got {
+		if o.Target.Name == "gone" {
+			t.Fatal("residual kept an object proven absent")
+		}
 	}
 }

@@ -117,3 +117,69 @@ func enumerate(s seed) ([]target, error) {
 
 	return targets, nil
 }
+
+// observation is what a single read of a target found, or failed to find. It carries no client and no
+// context: whatever produced it already did the I/O, and this layer only judges the result.
+type observation struct {
+	Target      target
+	Found       bool
+	UID         string // the UID observed, when Found
+	Terminating bool   // a deletionTimestamp was set
+	Err         error  // the read failed
+	// WantUID is the UID this run recorded for the target, carried on the observation so that residual can
+	// classify a batch without a second lookup structure the caller could populate inconsistently.
+	WantUID string
+}
+
+// absence classifies what a single observation of a target proves about whether it is gone.
+type absence int
+
+const (
+	// absenceUnknown is the zero value on purpose: an observation nobody has classified must never read as
+	// absence by default. A new field left unset by a caller, or a code path that forgets to classify at
+	// all, fails toward "still here" rather than toward "safe to report gone".
+	absenceUnknown absence = iota
+	absencePresent
+	absenceAbsent
+)
+
+// classifyAbsence decides what one observation of a target proves, against the UID this run recorded for
+// it. It performs no I/O and reads no clock: the observation is the only input, so the same observation
+// always classifies the same way.
+func classifyAbsence(obs observation, wantUID string) absence {
+	// A failed read says nothing about the object's state. Classifying it as absent would let an etcd
+	// timeout or an RBAC hiccup during teardown report a clean deletion of something that is still there;
+	// classifying it as present would be an equally fabricated claim in the other direction. Unknown is the
+	// only claim the observation actually supports.
+	if obs.Err != nil {
+		return absenceUnknown
+	}
+	if !obs.Found {
+		return absenceAbsent
+	}
+	// A deletionTimestamp means deletion was requested, not that it completed: the object is still readable,
+	// still holds whatever it held, and a finalizer may be blocking it indefinitely. Reporting it absent
+	// would let teardown declare victory on the exact objects still stuck.
+	if obs.Terminating {
+		return absencePresent
+	}
+	// Found and not terminating is still not automatically "ours": ensureNamespace sets no ownership labels
+	// and tolerates AlreadyExists, so this runner already adopts a namespace it did not create whenever the
+	// name collides. A found object is reported present whether or not its UID matches wantUID — the UID
+	// mismatch case is called out separately below only because it is a refusal, not a routine "present":
+	// crediting absence to a name match alone would let this run treat another run's live namespace as its
+	// own residue being clear, so a same-name/different-UID object must never become a deletion target.
+	return absencePresent
+}
+
+// residual is what an executor persists as the run's remaining teardown work: everything not proven absent,
+// including the unknowns that a hurried reader would otherwise wave through as fine.
+func residual(obs []observation) []observation {
+	var out []observation
+	for _, o := range obs {
+		if classifyAbsence(o, o.WantUID) != absenceAbsent {
+			out = append(out, o)
+		}
+	}
+	return out
+}
