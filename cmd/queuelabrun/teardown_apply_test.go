@@ -205,6 +205,10 @@ func TestRecoverReadsEveryTargetKindByItsOwnKindAndName(t *testing.T) {
 			Name: cq.GetName(), UID: types.UID(fmt.Sprintf("cq-uid-%d", i)),
 			Labels: map[string]string{queuelab.TxLabel: s.TxID}}})
 	}
+	wantUID := map[string]string{s.Namespace: "ns-uid", fs.Flavor.GetName(): "rf-uid"}
+	for i, cq := range fs.ClusterQueue {
+		wantUID[cq.GetName()] = fmt.Sprintf("cq-uid-%d", i)
+	}
 	got, err := recoverTargets(context.Background(), b.Build(), s, s.TxID)
 	if err != nil {
 		t.Fatalf("recover: %v", err)
@@ -217,8 +221,16 @@ func TestRecoverReadsEveryTargetKindByItsOwnKindAndName(t *testing.T) {
 			t.Errorf("%s %q not found though it was seeded on the cluster", o.Target.Kind, o.Target.Name)
 			continue
 		}
-		if o.UID == "" || o.WantUID != o.UID {
-			t.Errorf("%s %q learned UID %q / WantUID %q, want both non-empty and equal", o.Target.Kind, o.Target.Name, o.UID, o.WantUID)
+		// The UID must be THIS object's, not merely some non-empty string: the executor feeds WantUID to
+		// client.Preconditions{UID:}, so a cross-wired or constant UID makes every delete precondition miss
+		// and leaves a deletable object sitting in the residue.
+		if o.UID != wantUID[o.Target.Name] || o.WantUID != o.UID {
+			t.Errorf("%s %q learned UID %q / WantUID %q, want both %q", o.Target.Kind, o.Target.Name, o.UID, o.WantUID, wantUID[o.Target.Name])
+		}
+		// Nothing here was seeded with a deletionTimestamp. An observation that claims otherwise would make
+		// an executor treat every object as already-deleting and never issue a Delete at all.
+		if o.Terminating {
+			t.Errorf("%s %q came back Terminating though it was seeded live", o.Target.Kind, o.Target.Name)
 		}
 		if classifyAbsence(o, o.WantUID) != absencePresent {
 			t.Errorf("%s %q classified as %v, want present", o.Target.Kind, o.Target.Name, classifyAbsence(o, o.WantUID))
