@@ -28,6 +28,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
@@ -211,6 +212,125 @@ func TestEnsureNamespaceStampsWhatItCreates(t *testing.T) {
 	}
 	if got := ns.Labels[queuelab.TxLabel]; got != "tx-1" {
 		t.Fatalf("namespace carries tx stamp %q, want tx-1", got)
+	}
+}
+
+// stripStampOnCreate models the cluster storing something other than what the run sent: a mutating admission
+// webhook or a namespace label policy that rewrites labels it does not recognise.
+//
+// It mutates the object in place because that is what a real client does. controller-runtime's typed client
+// posts the object and decodes the RESPONSE — the persisted object — back into the very same pointer
+// (typed_client.go's Body(obj)...Into(obj)), and it zeroes that pointer before decoding
+// (apiutil.targetZeroingDecoder), so nothing the caller sent survives a field the server did not send back.
+// Measured against a stub apiserver on this module's pinned versions, for a dropped label, a replaced label
+// map and a rewritten value alike.
+func stripStampOnCreate(stored map[string]string, uid types.UID) func(context.Context, client.WithWatch,
+	client.Object, ...client.CreateOption) error {
+	return func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.CreateOption) error {
+		obj.SetLabels(stored)
+		// The apiserver assigns the UID and returns it; the fake's tracker does not, and without one there is
+		// nothing for the delete's precondition to be armed with.
+		obj.SetUID(uid)
+		return c.Create(ctx, obj, opts...)
+	}
+}
+
+// A stamp in the Create body is a request, not a fact. Strip it in admission and this run's OWN namespace
+// reads foreign at teardown: recoverTargets decides ownership by that label alone, residueHoldsWorker sees
+// nothing of ours left, and the worker's dedication label and NoSchedule taint come off over a live namespace
+// this run created — under a stderr line saying nothing this run created is still on the cluster.
+//
+// Detecting it and returning an error does not close that. The namespace is still there, still unstamped,
+// still unclaimable by any teardown, and the worker release that follows is still wrong; the hole is only
+// announced. So the assertions below are deliberately not satisfiable by an error alone: the namespace this
+// call created must be gone, and the delete that removed it must have been conditioned on the UID the Create
+// returned, or a name freed and recreated by another actor in between is what the delete would destroy.
+func TestEnsureNamespaceRemovesWhatTheClusterStoredUnstamped(t *testing.T) {
+	const createdUID = types.UID("ns-uid-1")
+	for _, tc := range []struct {
+		name   string
+		stored map[string]string // what the cluster holds, whatever the run sent
+	}{
+		{"stamp dropped, no labels left", nil},
+		{"stamp replaced by a policy's own label", map[string]string{"policy.example/managed": "true"}},
+		{"stamp rewritten to another transaction", map[string]string{queuelab.TxLabel: "tx-2"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			deletes := 0
+			var gotPreconditions *metav1.Preconditions
+			c := fake.NewClientBuilder().WithScheme(fullScheme(t)).WithInterceptorFuncs(interceptor.Funcs{
+				Create: stripStampOnCreate(tc.stored, createdUID),
+				Delete: func(ctx context.Context, c client.WithWatch, obj client.Object,
+					opts ...client.DeleteOption) error {
+					deletes++
+					o := &client.DeleteOptions{}
+					o.ApplyOptions(opts)
+					// Captured rather than checked through the fake: the fake ignores preconditions outright, so
+					// a delete armed with the wrong UID still removes the object there. What it was armed with is
+					// the only thing this test can prove.
+					gotPreconditions = o.Preconditions
+					return c.Delete(ctx, obj, opts...)
+				},
+			}).Build()
+
+			err := ensureNamespace(context.Background(), c, "queuelab-r1", "tx-1")
+			if err == nil {
+				t.Fatal("a namespace the cluster stored without this run's stamp was accepted; teardown then " +
+					"reads this run's own namespace as another transaction's and releases the worker over it")
+			}
+			if !strings.Contains(err.Error(), "queuelab-r1") {
+				t.Fatalf("refusal %q does not name the namespace it is about", err)
+			}
+			var ns corev1.Namespace
+			gerr := c.Get(context.Background(), client.ObjectKey{Name: "queuelab-r1"}, &ns)
+			if gerr == nil {
+				t.Fatalf("namespace queuelab-r1 is still on the cluster carrying %v: an error alone leaves "+
+					"exactly the unclaimable namespace this refusal exists to prevent", ns.Labels)
+			}
+			if !apierrors.IsNotFound(gerr) {
+				t.Fatalf("reading back the namespace: %v", gerr)
+			}
+			if deletes != 1 {
+				t.Fatalf("the namespace was deleted %d times, want exactly 1", deletes)
+			}
+			if gotPreconditions == nil || gotPreconditions.UID == nil {
+				t.Fatal("the delete carried no UID precondition: another actor that freed this name and " +
+					"recreated it between the Create and this Delete would have ITS object destroyed instead")
+			}
+			if *gotPreconditions.UID != createdUID {
+				t.Fatalf("the delete was conditioned on UID %q, want the %q the Create returned",
+					*gotPreconditions.UID, createdUID)
+			}
+		})
+	}
+}
+
+// A namespace that could not be removed after the cluster refused its stamp is the worst state in this whole
+// area: it is on the cluster under no stamp any teardown can recognise, so nothing this run or a later one
+// runs will ever claim it. Swallowing the delete's error would report that as an ordinary setup failure and
+// leave the operator with no reason to go looking.
+func TestEnsureNamespaceReportsANamespaceItCouldNotRemove(t *testing.T) {
+	refused := apierrors.NewForbidden(schema.GroupResource{Resource: "namespaces"}, "queuelab-r1",
+		fmt.Errorf("namespace deletion is not bound"))
+	c := fake.NewClientBuilder().WithScheme(fullScheme(t)).WithInterceptorFuncs(interceptor.Funcs{
+		Create: stripStampOnCreate(nil, "ns-uid-1"),
+		Delete: func(ctx context.Context, c client.WithWatch, obj client.Object,
+			opts ...client.DeleteOption) error {
+			return refused
+		},
+	}).Build()
+
+	err := ensureNamespace(context.Background(), c, "queuelab-r1", "tx-1")
+	if err == nil {
+		t.Fatal("a namespace left behind unstamped AND undeletable was reported as success")
+	}
+	if !errors.Is(err, refused) {
+		t.Fatalf("refusal %q does not carry the refused delete; the operator is never told a namespace was "+
+			"left behind under no recoverable stamp", err)
+	}
+	if !strings.Contains(err.Error(), "stamp") {
+		t.Fatalf("refusal %q does not say why the namespace had to go, only that it would not; both facts "+
+			"are needed to know what state the cluster is in", err)
 	}
 }
 

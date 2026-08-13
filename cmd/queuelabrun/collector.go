@@ -435,11 +435,31 @@ func submit(ctx context.Context, c client.Client, col *collector, arm queuelab.A
 // The stamp is in the Create body rather than a follow-up patch because a second write is a window a crash
 // can land in, and an object created without its stamp is one no later teardown can recognise or delete.
 func ensureNamespace(ctx context.Context, c client.Client, ns, txID string) error {
-	err := c.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{
+	created := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{
 		Name:   ns,
 		Labels: map[string]string{queuelab.TxLabel: txID},
-	}})
+	}}
+	err := c.Create(ctx, created)
 	if err == nil {
+		// What went into the Create body is a REQUEST; recoverTargets decides ownership by what the cluster
+		// actually stored. A mutating webhook or a namespace label policy that drops labels it does not
+		// recognise makes those two different, and then this run's own namespace reads foreign at teardown:
+		// nothing of ours is in the residue, so the worker is released — label and NoSchedule taint off — over
+		// a namespace this run created and may still be running GPU Pods in.
+		//
+		// No second Get is needed to see it. The typed client posts the object and decodes the RESPONSE, which
+		// is the persisted object, back into the very pointer it was given, having zeroed that pointer first
+		// (controller-runtime's targetZeroingDecoder) — so what stands here after Create is what admission
+		// stored, not what we sent, and a stale label cannot survive by having merged with the response.
+		// Measured on this module's pinned versions against a stub apiserver, for a dropped label, a replaced
+		// label map and a rewritten value alike. A Get would only add a round trip and a window for the answer
+		// to change between the two reads.
+		if got := created.Labels[queuelab.TxLabel]; got != txID {
+			return deleteUnstamped(ctx, c, created, fmt.Errorf(
+				"namespace %s was created but the cluster stored it under stamp %q, not this run's %q; "+
+					"something is rewriting namespace labels, and a namespace whose stamp does not survive its "+
+					"own Create is one no teardown of this run can recognise as ours", ns, got, txID))
+		}
 		return nil
 	}
 	if !apierrors.IsAlreadyExists(err) {
@@ -460,6 +480,47 @@ func ensureNamespace(ctx context.Context, c client.Client, ns, txID string) erro
 			"clear it before rerunning rather than running inside another attempt's namespace", ns, got, txID)
 	}
 	return nil
+}
+
+// deleteUnstamped removes the namespace the Create above just made, and reports why it had to.
+//
+// Refusing without deleting would not close anything: the namespace would still be there, still unstamped,
+// still unclaimable by any teardown this run or a later one performs, and the worker release that follows a
+// residue of nothing-but-foreign would be as wrong as before — the hole would only be announced. Deleting it
+// leaves the cluster as this run found it, which is what makes that release correct rather than accidentally
+// correct.
+//
+// This is safe precisely here and nowhere else. A nil from Create is the apiserver reporting that THIS request
+// created the object — client-go never retries a write on a transport error (rest.Request's own
+// isErrRetryableFunc returns false for anything but GET), so a nil cannot be a second POST's view of an object
+// someone else made — and run() creates nothing inside the namespace until applyFixtures, which is the very
+// next call. So there is nothing in there to destroy.
+//
+// What it does NOT do is wait. A namespace delete is asynchronous, so on a real cluster the deferred teardown
+// that follows still finds the name held by a terminating, unstamped object and records it as foreign residue
+// — under a stderr line saying nothing this run created is still on the cluster, which is still not literally
+// true. The difference this makes is the one that matters: the worker release that follows is now correct
+// rather than accidentally correct, because the namespace being reported is empty and on its way out instead
+// of live and holding GPU Pods. Measured through run() both ways: with the delete settling at once there is no
+// residue at all, and with it lingering the residue is one foreign namespace and the worker is released.
+//
+// The UID precondition is the same one every delete in teardown_apply.go carries, for the same reason: between
+// the Create and this Delete another actor can remove the name and recreate it, and an unconditioned
+// delete-by-name would destroy that replacement instead. The UID comes from the Create response, so it is the
+// object this call made and nothing else; an empty one would make the apiserver refuse the delete rather than
+// widen it to the name, which is the direction to fail in.
+func deleteUnstamped(ctx context.Context, c client.Client, created *corev1.Namespace, cause error) error {
+	uid := created.GetUID()
+	derr := c.Delete(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: created.GetName()}},
+		client.Preconditions{UID: &uid})
+	// NotFound is the state this function exists to reach, by someone else's hand. Anything else is a namespace
+	// left on the cluster under no stamp any teardown can recognise, and that must never reach the caller as
+	// the ordinary "the stamp did not land" refusal — it is the one outcome here that needs a pair of hands.
+	if derr != nil && !apierrors.IsNotFound(derr) {
+		return fmt.Errorf("%w; and it could not be deleted: %w — it is on the cluster under no stamp this run's "+
+			"teardown can recognise and has to be removed by hand", cause, derr)
+	}
+	return cause
 }
 
 // applyFixtures creates the run's Kueue fixtures, first checking that a cluster-scoped ResourceFlavor left
