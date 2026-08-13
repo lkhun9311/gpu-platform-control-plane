@@ -35,9 +35,15 @@ const (
 	journalKey = "queuelab.gpu-platform/ownership-journal"
 	// A forced break leaves this record instead of a free Node, because nothing can prove the previous
 	// process is dead and a free Node would let a second run acquire underneath a live one.
-	quarantineKey    = "queuelab.gpu-platform/quarantine"
+	quarantineKey = "queuelab.gpu-platform/quarantine"
+	// residueKey explains a hold; it never creates one. The label and the taint are what keep Pods off the
+	// node — an annotation the scheduler does not understand cannot contain a residual GPU Pod, which is the
+	// same trap forceQuarantine's comment names. This record exists so the next operator can tell a run that
+	// is legitimately in flight from one that finished and could not remove its namespace.
+	residueKey       = "queuelab.gpu-platform/residue"
 	journalSchema    = 1
 	quarantineSchema = 1
+	residueSchema    = 1
 )
 
 // installedTuple is exactly what this transaction wrote, so release can prove nothing moved before it
@@ -96,6 +102,65 @@ func decodeJournal(s string) (journal, error) {
 		}
 	}
 	return j, nil
+}
+
+// residueLeft is one object teardown could not prove gone, in the spelling the record persists.
+//
+// Absence is the string absenceName produces rather than the iota, for the reason record.go already gives:
+// an integer would make teardown.go's declaration order a wire format, and reordering it a silent
+// compatibility break.
+type residueLeft struct {
+	Kind    string `json:"kind"`
+	Name    string `json:"name"`
+	Absence string `json:"absence"`
+}
+
+// residueRecord is why a worker is still held after its run finished.
+//
+// It carries a summary AND the path of the run record, deliberately. The path alone is useless whenever the
+// next run happens on another machine or in another directory — which is exactly when a human is most lost —
+// so the summary must stand on its own; the path is an invitation to read more, not the payload.
+type residueRecord struct {
+	Schema     int           `json:"schema"`
+	TxID       string        `json:"txID"`
+	RunID      string        `json:"runID"`
+	LeftAt     string        `json:"leftAt"`
+	RecordPath string        `json:"recordPath,omitempty"`
+	Left       []residueLeft `json:"left"`
+}
+
+func encodeResidue(r residueRecord) (string, error) {
+	b, err := json.Marshal(r)
+	if err != nil {
+		return "", fmt.Errorf("encode residue: %w", err)
+	}
+	return string(b), nil
+}
+
+// decodeResidue refuses anything it does not fully understand, for the same reason decodeJournal does: a
+// document with fields that were silently ignored is not one to quote at an operator as fact.
+//
+// The CONSEQUENCE of a failure here is where the two part company. An unreadable journal is a refusal
+// (reasonBadJournal), because the journal decides who owns a GPU worker. An unreadable residue record is
+// not, because this record decides nothing — see residueNote. An empty Left is refused because a record
+// that names nothing explains nothing, and a refusal quoting it would be worse than one that stayed silent.
+func decodeResidue(s string) (residueRecord, error) {
+	dec := json.NewDecoder(strings.NewReader(s))
+	dec.DisallowUnknownFields()
+	var r residueRecord
+	if err := dec.Decode(&r); err != nil {
+		return residueRecord{}, fmt.Errorf("decode residue: %w", err)
+	}
+	if dec.More() {
+		return residueRecord{}, fmt.Errorf("decode residue: trailing data after the record")
+	}
+	if r.Schema != residueSchema {
+		return residueRecord{}, fmt.Errorf("decode residue: schema %d is not %d", r.Schema, residueSchema)
+	}
+	if len(r.Left) == 0 {
+		return residueRecord{}, fmt.Errorf("decode residue: left is empty, so the record explains nothing")
+	}
+	return r, nil
 }
 
 // The refusal reasons are named constants because the tests assert on them: an ownership state machine
@@ -174,6 +239,11 @@ type ownership struct {
 	Journal       journal
 	JournalErr    error
 	QuarantineRaw string
+	// The record is kept alongside its raw text and its decode error because an unreadable record must stay
+	// distinguishable from an absent one: the refusal says different things about the two.
+	ResidueRaw string
+	Residue    residueRecord
+	ResidueErr error
 }
 
 func observe(n *corev1.Node) ownership {
@@ -189,6 +259,10 @@ func observe(n *corev1.Node) ownership {
 	obs.QuarantineRaw = n.Annotations[quarantineKey]
 	if obs.JournalRaw != "" {
 		obs.Journal, obs.JournalErr = decodeJournal(obs.JournalRaw)
+	}
+	obs.ResidueRaw = n.Annotations[residueKey]
+	if obs.ResidueRaw != "" {
+		obs.Residue, obs.ResidueErr = decodeResidue(obs.ResidueRaw)
 	}
 	return obs
 }

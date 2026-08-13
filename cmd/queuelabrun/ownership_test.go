@@ -466,3 +466,51 @@ func TestWithOwnershipTaintReplacesStaleValue(t *testing.T) {
 		t.Fatalf("stale taint value was not replaced: %+v", got[0])
 	}
 }
+
+// A residue record is quoted at an operator, so it is decoded as strictly as the journal: a document with
+// fields that were silently ignored is not one to print as fact. What differs is the consequence, and that
+// is decideAcquire's business, not this decoder's.
+func TestDecodeResidueRefusesWhatItDoesNotFullyUnderstand(t *testing.T) {
+	good := `{"schema":1,"txID":"tx-1","runID":"r7","leftAt":"2026-08-13T01:07:29Z",` +
+		`"left":[{"kind":"Namespace","name":"queuelab-r7","absence":"present"}]}`
+	if _, err := decodeResidue(good); err != nil {
+		t.Fatalf("a well-formed record was refused: %v", err)
+	}
+	for name, raw := range map[string]string{
+		"unknown field": `{"schema":1,"txID":"tx-1","runID":"r7","leftAt":"t","left":[{"kind":"Namespace","name":"n","absence":"present"}],"extra":1}`,
+		"wrong schema":  `{"schema":2,"txID":"tx-1","runID":"r7","leftAt":"t","left":[{"kind":"Namespace","name":"n","absence":"present"}]}`,
+		"trailing data": `{"schema":1,"txID":"tx-1","runID":"r7","leftAt":"t","left":[{"kind":"Namespace","name":"n","absence":"present"}]}{}`,
+		"nothing left":  `{"schema":1,"txID":"tx-1","runID":"r7","leftAt":"t","left":[]}`,
+		"not json":      `{nope`,
+	} {
+		if _, err := decodeResidue(raw); err == nil {
+			t.Errorf("%s was accepted; an operator would be shown a record this decoder could not vouch for", name)
+		}
+	}
+}
+
+// observe is the one place Node state becomes a decision input, so a field it does not read is a field no
+// decision can ever see.
+func TestObserveSurfacesTheResidueRecord(t *testing.T) {
+	raw := `{"schema":1,"txID":"tx-1","runID":"r7","leftAt":"2026-08-13T01:07:29Z",` +
+		`"left":[{"kind":"Namespace","name":"queuelab-r7","absence":"present"}]}`
+	obs := observe(node(nil, map[string]string{residueKey: raw}))
+	if obs.ResidueRaw != raw {
+		t.Fatalf("ResidueRaw is %q, want the annotation verbatim", obs.ResidueRaw)
+	}
+	if obs.ResidueErr != nil {
+		t.Fatalf("a well-formed record produced ResidueErr %v", obs.ResidueErr)
+	}
+	if len(obs.Residue.Left) != 1 || obs.Residue.Left[0].Name != "queuelab-r7" {
+		t.Fatalf("decoded record is %+v, want one entry naming queuelab-r7", obs.Residue)
+	}
+
+	// A record that cannot be read must still be OBSERVED as present. Reporting neither the raw text nor an
+	// error would make an unreadable record indistinguishable from no record at all, and the refusal could
+	// then say nothing about it.
+	bad := observe(node(nil, map[string]string{residueKey: "{not json"}))
+	if bad.ResidueRaw == "" || bad.ResidueErr == nil {
+		t.Fatalf("an unreadable record observed as raw=%q err=%v; it must be visible as present-but-unreadable",
+			bad.ResidueRaw, bad.ResidueErr)
+	}
+}
