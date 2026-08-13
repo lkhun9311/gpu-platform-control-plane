@@ -603,6 +603,29 @@ func releaseStale(ctx context.Context, c client.Client, nodeName, txID string) e
 	fmt.Printf("restoring node %s: removing label %s=%q and taint %s=%q/%q, and the journal for tx %s\n",
 		nodeName, workerLabelKey, obs.LabelValue, workerTaintKey,
 		obs.Journal.Installed.TaintValue, string(obs.Journal.Installed.TaintEffect), txID)
+	// releaseAcquired deletes the residue record in the same patch that removes the markers, so this is the
+	// last moment anyone can see it. Saying so here is not a duplicate of inspectWorker's warning: that
+	// warning lives in a different command's output, and this command is the one inspectWorker tells the
+	// operator to run. An operator who skimmed the prose and copied the last line would otherwise destroy the
+	// only record of what was left and be told only that a label, a taint and a journal went away.
+	//
+	// It warns rather than refuses because this mode exists for the case where the previous process is gone
+	// and the operator has attested to it; refusing would leave them with no move at all. The fields are
+	// escaped for the same reason every other node-controlled value here is.
+	switch {
+	case obs.ResidueErr != nil:
+		fmt.Printf("  WARNING: this also deletes a residue record that could not be read: %v\n", obs.ResidueErr)
+	case obs.ResidueRaw != "":
+		// "residue record" verbatim, because that is what inspectWorker labels it and what sent the operator
+		// here; a synonym would make the two outputs look like they are about different things.
+		fmt.Printf("  WARNING: this also deletes the residue record naming %d object(s) that run's teardown "+
+			"could not remove:\n", len(obs.Residue.Left))
+		for _, l := range obs.Residue.Left {
+			fmt.Printf("    %q %q (%q)\n", l.Kind, l.Name, l.Absence)
+		}
+		fmt.Printf("  deleting the record does not delete those objects; confirm they are gone before you " +
+			"trust this node as free\n")
+	}
 	// releaseAcquired always runs on a bounded, uncancelled context, the same as every other release call
 	// site in this package: a half-applied restoration must be allowed to finish even if the operator's own
 	// signal handling (if any wraps ctx) fires mid-patch, but the wait still cannot be indefinite.

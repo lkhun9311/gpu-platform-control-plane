@@ -1545,6 +1545,55 @@ func TestReleaseClearsTheResidueRecord(t *testing.T) {
 	}
 }
 
+// -release-stale is the command inspectWorker tells an operator to run, and it deletes the residue record in
+// the same patch that removes the markers. That makes its own output the last moment anyone can see what was
+// left, so it has to say what it is about to destroy — otherwise the explanation this whole feature exists to
+// deliver dies at the one step most likely to be copied without reading.
+//
+// The mutation that turns this red: delete the residue warning block from releaseStale, leaving only the
+// "restoring node ..." line it had before.
+func TestReleaseStaleWarnsBeforeItDeletesTheResidueRecord(t *testing.T) {
+	_, n := heldWithResidue(t)
+	fc := fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(n).Build()
+
+	var rerr error
+	out := captureStdout(t, func() { rerr = releaseStale(context.Background(), fc, "platform-worker", "tx-1") })
+	if rerr != nil {
+		t.Fatalf("release-stale: %v", rerr)
+	}
+	// The name of the object matters more than the word "residue": an operator scanning this output is
+	// looking for something they recognise as still standing on their cluster.
+	for _, want := range []string{"residue", `"queuelab-r7"`, "does not delete those objects"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the release said nothing about %s before deleting the record; got:\n%s", want, out)
+		}
+	}
+	if raw, ok := residueOn(t, fc); ok {
+		t.Fatalf("the record survived the release as %q, so this test proved nothing about the warning", raw)
+	}
+}
+
+// An unreadable record is still a record being destroyed, and silence about it is the same loss. It says so
+// rather than printing the raw document, which decideAcquire's own unreadable branch already establishes as
+// the right shape.
+//
+// The mutation that turns this red: drop the ResidueErr case from releaseStale's switch, which sends an
+// unreadable record down the readable path and prints a zero-length object list.
+func TestReleaseStaleWarnsAboutAResidueRecordItCannotRead(t *testing.T) {
+	_, n := heldWithResidue(t)
+	n.Annotations[residueKey] = "{not json"
+	fc := fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(n).Build()
+
+	var rerr error
+	out := captureStdout(t, func() { rerr = releaseStale(context.Background(), fc, "platform-worker", "tx-1") })
+	if rerr != nil {
+		t.Fatalf("release-stale: %v", rerr)
+	}
+	if !strings.Contains(out, "could not be read") {
+		t.Errorf("the release destroyed an unreadable residue record without saying so; got:\n%s", out)
+	}
+}
+
 // forceQuarantine deliberately does NOT clear it. It is the explanation an operator most needs at the moment
 // they are breaking a hold by hand, and it cannot mislead while it sits there: decideAcquire refuses a
 // quarantined node on QuarantineRaw before it ever reaches the foreign-owner branch that quotes it.
