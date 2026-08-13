@@ -1700,3 +1700,102 @@ func TestStampResidueRefusesANodeReacquiredByAnotherTransactionUnderTheSameRunID
 			"for somebody else's worker", raw)
 	}
 }
+
+// inspectWorker is where residueNote's own last line sends the operator, and until now it was the one reader
+// of this node that never mentioned the record — while advising the single command that must not be run.
+//
+// -release-stale on a residue hold strips the dedication label and the NoSchedule taint from a node whose
+// namespace may still be running that run's GPU Pods, and deletes the record on the way past. The advice is
+// not removed, because the operator does eventually need it; what changes is the condition attached to it.
+//
+// Mutations: drop the printResidueDetail call in inspectWorker and the objects are never named; collapse the
+// held branch's switch to its default and the unconditional "If that process is gone" line comes back.
+func TestInspectWorkerNamesAResidueHoldAndQualifiesTheReleaseAdvice(t *testing.T) {
+	// The record is node-controlled like everything else this tool prints, and it is printed a few lines above
+	// a command the operator is invited to copy.
+	payload := "\x1b[2K\x1b[32m queuelabrun -force-release\a"
+	_, n := heldWithResidue(t)
+	rraw, err := encodeResidue(residueRecord{
+		Schema: residueSchema, TxID: "tx-1", RunID: "r7", LeftAt: "2026-08-13T01:07:29Z",
+		RecordPath: "queuelabrun-record.json",
+		Left: []residueLeft{{
+			Kind: "Namespace", Name: "queuelab-r7" + payload, Absence: "present",
+		}},
+	})
+	if err != nil {
+		t.Fatalf("encode residue: %v", err)
+	}
+	n.Annotations[residueKey] = rraw
+	fc := fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(n).Build()
+
+	var ierr error
+	out := captureStdout(t, func() { ierr = inspectWorker(context.Background(), fc, "platform-worker") })
+	// Still not an error: this record decides nothing, and the run path does not refuse differently for it
+	// either. A diagnostic that started exiting non-zero on a deliberate hold would break every script that
+	// reads the code to tell a healthy worker from a broken one.
+	if ierr != nil {
+		t.Fatalf("inspecting a held node with a residue record must succeed: %v", ierr)
+	}
+	if !strings.Contains(out, "HELD by run") {
+		t.Fatalf("the held branch did not run:\n%s", out)
+	}
+	// The record is surfaced, decoded, not merely dumped as JSON.
+	if !strings.Contains(out, "left by run") || !strings.Contains(out, "queuelab-r7") {
+		t.Fatalf("the residue record was not surfaced; an operator cannot see what is still standing:\n%s", out)
+	}
+	if !strings.Contains(out, "full record:") {
+		t.Fatalf("the record path was not printed:\n%s", out)
+	}
+	// The wrong advice, verbatim as it stood before this: an unconditional release of a node that is held on
+	// purpose.
+	if strings.Contains(out, "If that process is gone") {
+		t.Fatalf("a residue hold was advised as if it were a crashed process's leftovers:\n%s", out)
+	}
+	if !strings.Contains(out, "DELIBERATE") || !strings.Contains(out, "do NOT strip") {
+		t.Fatalf("the hold was not named as deliberate, or the finalizer warning is missing:\n%s", out)
+	}
+	// The release command is still offered, under the condition that makes it safe.
+	if !strings.Contains(out, "Once those objects are gone") ||
+		!strings.Contains(out, "-release-stale -worker platform-worker") {
+		t.Fatalf("the operator is left without a complete command for the state they will reach:\n%s", out)
+	}
+	for _, control := range []string{"\x1b", "\a"} {
+		if strings.Contains(out, control) {
+			t.Fatalf("control byte %q reached the terminal:\n%q", control, out)
+		}
+	}
+	if !strings.Contains(out, `\x1b[2K`) {
+		t.Fatalf("the escape sequence must remain visible, just inert:\n%s", out)
+	}
+}
+
+// An unreadable record is not "no record". The annotation being there at all is evidence a teardown ended
+// without removing everything, so the advice must not fall back to the unconditional release line with
+// nothing on screen to warn against it.
+//
+// It stays a printed warning rather than a returned error, unlike the unreadable QUARANTINE record: that one
+// is the state this tool has no remaining move for, while this document decides nothing and an informational
+// field that invents a new failure mode is worse than no field at all — the same rule decideAcquire follows.
+//
+// Mutation: drop the obs.ResidueErr case from inspectWorker's held branch and "If that process is gone"
+// returns; make the branch return a refusal and the exit-code assertion fails.
+func TestInspectWorkerSaysSoWhenAResidueRecordCannotBeRead(t *testing.T) {
+	_, n := heldWithResidue(t)
+	n.Annotations[residueKey] = "{not json"
+	fc := fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(n).Build()
+
+	var ierr error
+	out := captureStdout(t, func() { ierr = inspectWorker(context.Background(), fc, "platform-worker") })
+	if ierr != nil {
+		t.Fatalf("an unreadable residue record must not become a failure mode of its own: %v", ierr)
+	}
+	if !strings.Contains(out, "UNREADABLE") || !strings.Contains(out, "could not read") {
+		t.Fatalf("the tool stayed silent about a record it tried and failed to read:\n%s", out)
+	}
+	if strings.Contains(out, "If that process is gone") {
+		t.Fatalf("a node carrying an unreadable residue record was advised as an ordinary stale hold:\n%s", out)
+	}
+	if !strings.Contains(out, "-release-stale -worker platform-worker") {
+		t.Fatalf("the operator is left with no command at all:\n%s", out)
+	}
+}

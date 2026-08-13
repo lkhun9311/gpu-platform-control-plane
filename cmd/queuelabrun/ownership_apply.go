@@ -410,6 +410,13 @@ func inspectWorker(ctx context.Context, c client.Client, nodeName string) error 
 	fmt.Printf("  taints on %s: %s\n", workerTaintKey, quotedTaints(obs.Taints))
 	fmt.Printf("  journal: %s\n", quotedOrNone(obs.JournalRaw))
 	fmt.Printf("  quarantine: %s\n", quotedOrNone(obs.QuarantineRaw))
+	fmt.Printf("  residue: %s\n", quotedOrNone(obs.ResidueRaw))
+	// Printed above the switch rather than inside the held branch, because the held branch is not the only
+	// state that can carry one: forceQuarantine deliberately preserves the record, and the moment an operator
+	// is breaking a hold by hand is exactly when they need to know why it was held. A record that survived a
+	// hand-stripped label reaches the stale-marker and free branches the same way, and saying so is better than
+	// printing a raw document nobody reads.
+	printResidueDetail(obs)
 	switch {
 	case obs.QuarantineRaw != "":
 		q, err := decodeQuarantine(obs.QuarantineRaw)
@@ -445,10 +452,39 @@ func inspectWorker(ctx context.Context, c client.Client, nodeName string) error 
 		// Every one of these came out of a Node annotation, so they are quoted for the same reason the raw
 		// document is: decoding a hostile string does not make it safe, and the txID in particular is printed
 		// straight into a command the operator is being invited to copy.
-		fmt.Printf("\nHELD by run %q (arm %q) under tx %q since %q.\n"+
-			"  If that process is gone: queuelabrun -release-stale -worker %s -txid %q -confirm-owner-dead\n",
-			obs.Journal.RunID, obs.Journal.Arm, obs.Journal.TxID, obs.Journal.TakenAt,
-			nodeName, obs.Journal.TxID)
+		fmt.Printf("\nHELD by run %q (arm %q) under tx %q since %q.\n",
+			obs.Journal.RunID, obs.Journal.Arm, obs.Journal.TxID, obs.Journal.TakenAt)
+		switch {
+		case obs.ResidueErr != nil:
+			// An unreadable record still changes the advice, because what it fails to say is not "there is
+			// nothing here" — the annotation's presence is itself evidence a teardown ended without removing
+			// everything, and the ordinary -release-stale line printed under that would be the same unsafe
+			// suggestion as below, just with nothing on screen to warn against it. It stays a printed warning
+			// rather than a returned error, unlike the unreadable QUARANTINE record above: this document decides
+			// nothing, and an informational field that invents a new failure mode is worse than no field at all.
+			fmt.Printf("  It also carries a residue record this tool could not read (see above), so it cannot\n" +
+				"  say what was left behind. Assume the hold is deliberate until you have established otherwise:\n" +
+				"  a run whose teardown finished removes this annotation on its way out.\n")
+			printResidueRelease(nodeName, obs.Journal.TxID)
+		case obs.ResidueRaw != "":
+			// -release-stale is the WRONG move here and is deliberately not offered unconditionally. This hold
+			// is not a crashed process's leftovers: the run that installed these markers decided to keep the
+			// worker because its own teardown could not prove those objects gone. Releasing strips the
+			// dedication label and the NoSchedule taint from a node whose namespace may still be running that
+			// run's GPU Pods — and takes the record explaining it along too, since releaseAcquired clears the
+			// annotation with the markers.
+			fmt.Printf("  This hold is DELIBERATE. That run's teardown could not remove the objects listed\n" +
+				"  under residue: above, so the label and the taint are still installed to keep other work off\n" +
+				"  GPUs that may still be busy. -release-stale is NOT the move: it strips both markers from a\n" +
+				"  node whose namespace may still be running that run's Pods, and deletes the record on the way.\n" +
+				"  do NOT strip a stuck namespace's finalizer: that orphans its contents, and every absence\n" +
+				"  check afterwards reports clean over objects that are still running.\n" +
+				"  Get those objects deleted first; the worker is only free once they are actually gone.\n")
+			printResidueRelease(nodeName, obs.Journal.TxID)
+		default:
+			fmt.Printf("  If that process is gone: queuelabrun -release-stale -worker %s -txid %q -confirm-owner-dead\n",
+				nodeName, obs.Journal.TxID)
+		}
 		if err := verifyInstalled(obs, obs.Journal); err != nil {
 			fmt.Printf("  WARNING, the installed values have diverged: %v\n"+
 				"  A stale release will refuse. The break is:\n"+
@@ -464,6 +500,50 @@ func inspectWorker(ctx context.Context, c client.Client, nodeName string) error 
 		fmt.Printf("\nFREE.\n")
 	}
 	return nil
+}
+
+// printResidueDetail says what a previous teardown left, in the form a human can act on.
+//
+// The raw line above it is the document; this is what the document MEANS, and an operator recovering a stuck
+// worker at 3am should not have to read JSON out of a terminal to learn that a namespace is still standing.
+// It prints nothing at all when there is no record, so the only thing an ordinary inspection gains is the
+// `residue: (none)` fact line above, which is the same shape the journal and the quarantine record already
+// have there.
+//
+// Every decoded field is escaped for the same reason residueNote escapes them and quotedTaints escapes a taint
+// value: all of it came out of a Node annotation, and it is printed a few lines above commands this tool is
+// inviting the operator to copy.
+func printResidueDetail(obs ownership) {
+	if obs.ResidueRaw == "" {
+		return
+	}
+	if obs.ResidueErr != nil {
+		// Named, not skipped. Staying silent here would leave the operator with only the raw line above and no
+		// indication that this tool tried to read it and failed — the same reason residueNote reports an
+		// unreadable record rather than behaving as though there were none.
+		fmt.Printf("    UNREADABLE: %v\n", obs.ResidueErr)
+		return
+	}
+	fmt.Printf("    left by run %q under tx %q at %q, %d object(s):\n",
+		obs.Residue.RunID, obs.Residue.TxID, obs.Residue.LeftAt, len(obs.Residue.Left))
+	for _, l := range obs.Residue.Left {
+		fmt.Printf("      %q %q (%q)\n", l.Kind, l.Name, l.Absence)
+	}
+	if obs.Residue.RecordPath != "" {
+		// The path is an invitation to read more, never the payload: it names a file on the machine that ran,
+		// which is very often not the machine this inspection is running on.
+		fmt.Printf("    full record: %q\n", obs.Residue.RecordPath)
+	}
+}
+
+// printResidueRelease prints the release command under the condition that makes it safe.
+//
+// The command is still printed in full, because every other hint this tool gives is a complete runnable one
+// and an operator reconstructing it from the flag list under pressure is how the wrong node gets released. It
+// is the CONDITION that changes: a residue hold ends when the objects are gone, not when the process is.
+func printResidueRelease(nodeName, txID string) {
+	fmt.Printf("  Once those objects are gone AND the process holding this transaction is dead:\n"+
+		"    queuelabrun -release-stale -worker %s -txid %q -confirm-owner-dead\n", nodeName, txID)
 }
 
 // quotedOrNone renders an annotation this tool did not write.
