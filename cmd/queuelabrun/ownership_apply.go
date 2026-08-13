@@ -686,16 +686,25 @@ func releaseAcquired(ctx context.Context, c client.Client, j journal) (releaseAc
 // forceQuarantine's comment names. What this buys is that the next operator, refused this worker, is told
 // which objects a finished run could not remove instead of being handed a transaction id alone.
 //
-// It re-reads and re-checks ownership with verifyInstalled before writing, for the same reason releaseOwned
+// It re-reads and re-checks ownership with verifyObserved before writing, for the same reason releaseOwned
 // does: a status code proves the API server accepted a request, not that the node is still the one this
 // transaction acquired. Between teardown and this call another actor can have taken it over, and stamping our
 // residue onto their markers is the same lie the UID preconditions in teardown_apply.go exist to prevent.
+//
+// verifyObserved rather than verifyInstalled alone, because verifyInstalled cannot make that promise. It
+// compares the label value, the taint value and effect, and the node UID — and both marker values are the RUN
+// id, not the transaction id, so a node re-acquired by a DIFFERENT transaction under the same run id carries
+// byte-identical markers and would pass. A reused run id is the confound the txID exists to defeat (see
+// newTxID), and verifyClean's comment already names this exact value coincidence as the reason the journal's
+// txID is the authority. decideRelease closes it by checking obs.Journal.TxID before it calls verifyInstalled;
+// verifyObserved is the same check plus the whole tuple, so this path gets it by reusing rather than repeating.
 func stampResidue(ctx context.Context, c client.Client, j journal, left []residue, leftAt, recordPath string) error {
-	// Refused here rather than left to the call site, because decodeResidue refuses an empty Left: a record
-	// naming nothing would reach the next operator only as "a residue record that could not be read", which is
-	// worse than the bare refusal they would otherwise get. tearDownBeforeRelease has one hold with no residue
-	// to name — a teardown that could not compute its target set at all — so this is a state, not a guard
-	// against a caller bug.
+	// Defense in depth, not a live defect: no caller can currently reach this. tearDownBeforeRelease's one
+	// hold with an empty residue — a teardown that could not compute its target set at all — returns before the
+	// stamp branch, and the surviving call site is past a `len(result.Residue) == 0` return. The guard stays
+	// because of what it would cost to be wrong: decodeResidue refuses an empty Left, so a record naming
+	// nothing would reach the next operator only as "a residue record that could not be read", which is worse
+	// than the bare refusal they would otherwise get.
 	if len(left) == 0 {
 		return fmt.Errorf("stamp residue on %s: nothing was left to name", j.Node)
 	}
@@ -704,7 +713,7 @@ func stampResidue(ctx context.Context, c client.Client, j journal, left []residu
 		return fmt.Errorf("get node %s: %w", j.Node, err)
 	}
 	obs := observe(&n)
-	if err := verifyInstalled(obs, j); err != nil {
+	if err := verifyObserved(obs, j); err != nil {
 		return fmt.Errorf("stamp residue on %s: %w", j.Node, err)
 	}
 	rec := residueRecord{

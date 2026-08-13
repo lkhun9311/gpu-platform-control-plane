@@ -1642,8 +1642,9 @@ func TestStampResidueWritesTheRecordOnANodeWeStillHold(t *testing.T) {
 
 // A record naming nothing explains nothing, and decodeResidue already refuses to read one back — so writing
 // it would put a document on the node that residueNote can only report as unreadable, which is strictly worse
-// than the bare refusal an operator would otherwise get. The one hold with no residue to name (teardown that
-// could not run at all) reaches this with an empty slice, so the guard is not hypothetical.
+// than the bare refusal an operator would otherwise get. No caller reaches it today — tearDownBeforeRelease's
+// one hold with an empty residue returns before the stamp branch, and the surviving call site is past a
+// `len(result.Residue) == 0` return — so this pins defense in depth rather than a live path.
 func TestStampResidueWritesNoRecordThatNamesNothing(t *testing.T) {
 	j, n := heldWithResidue(t)
 	delete(n.Annotations, residueKey)
@@ -1655,5 +1656,47 @@ func TestStampResidueWritesNoRecordThatNamesNothing(t *testing.T) {
 	if raw, ok := residueOn(t, fc); ok {
 		t.Fatalf("wrote %q for a residue that names nothing; decodeResidue refuses such a record, so it would "+
 			"reach the next operator only as \"a residue record that could not be read\"", raw)
+	}
+}
+
+// verifyInstalled cannot tell this transaction's node from one another transaction re-acquired under the same
+// run id, and stampResidue's own doc comment promises exactly that it can.
+//
+// Both installed values ARE the run id, so the label, the taint and the node UID are byte-identical across the
+// two — only the journal's txID differs. A reused run id is the confound newTxID exists to defeat, and
+// verifyClean's comment already names this same value coincidence as the reason the journal is the authority.
+// Stamping through it writes our residue onto somebody else's hold, so the next operator is refused with an
+// explanation belonging to a run that is not the one holding the node — the lie the UID preconditions in
+// teardown_apply.go exist to prevent, arriving by the one door they do not cover.
+//
+// Mutation: put verifyInstalled back in place of verifyObserved in stampResidue, and the stamp lands on the
+// foreign transaction's node.
+func TestStampResidueRefusesANodeReacquiredByAnotherTransactionUnderTheSameRunID(t *testing.T) {
+	ours, n := heldWithResidue(t)
+	delete(n.Annotations, residueKey)
+	// Somebody else acquired it between our teardown and this write, under the same run id. Everything
+	// verifyInstalled compares is unchanged, because everything it compares is derived from that run id.
+	theirs := ours
+	theirs.TxID = "tx-2"
+	jraw, err := encodeJournal(theirs)
+	if err != nil {
+		t.Fatalf("encode journal: %v", err)
+	}
+	n.Annotations[journalKey] = jraw
+	fc := fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(n).Build()
+
+	// The markers really are indistinguishable: if this were false the test would be proving something else.
+	if err := verifyInstalled(observe(n), ours); err != nil {
+		t.Fatalf("the fixture's markers already diverge (%v), so this would pass without the journal check", err)
+	}
+
+	left := []residue{{Observation: observation{Target: target{Kind: "Namespace", Name: "queuelab-r7"}},
+		Absence: absencePresent}}
+	if err := stampResidue(context.Background(), fc, ours, left, "t", "rec.json"); err == nil {
+		t.Fatal("stamped a node whose journal names another transaction")
+	}
+	if raw, ok := residueOn(t, fc); ok {
+		t.Fatalf("wrote %q onto a hold belonging to tx-2; the next operator would read our run's explanation "+
+			"for somebody else's worker", raw)
 	}
 }
