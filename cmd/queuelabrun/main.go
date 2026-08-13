@@ -193,7 +193,7 @@ func main() {
 	// contradicted a moment later. By the time these four values exist here, every defer has finished
 	// amending them.
 	o, events, res, left := run(ctx, newClusterClient, arm, *runID, namespace, *worker, horizon,
-		time.Now, time.Sleep)
+		recordPath, time.Now, time.Sleep)
 
 	os.Exit(reportRun(os.Stdout, os.Stderr, writeRecord, runReport{
 		Outcome: o,
@@ -433,7 +433,12 @@ func teardownContext() (context.Context, context.CancelFunc) {
 // Anything left standing at one of this run's names is amended into the outcome, because the record's residue
 // and its disposition must not disagree: a record saying "checks passed" while carrying a residue array is
 // two accounts of one run, and this program's whole shape is a refusal to emit those.
-func tearDownBeforeRelease(c client.Client, s seed, worker string, now func() time.Time,
+//
+// j and recordPath are here only for the stamp on the held branch below. The journal is what proves the node
+// this writes on is still the one this transaction acquired, and recordPath is threaded down from main rather
+// than recomputed because recordPathFor's default carries a timestamp and a pid: a second call would name a
+// different file, and a record pointing at a file nobody wrote is worse than one carrying no path at all.
+func tearDownBeforeRelease(c client.Client, s seed, j journal, worker, recordPath string, now func() time.Time,
 	sleep func(time.Duration), o outcome) (outcome, []residue, bool) {
 	tctx, cancel := teardownContext()
 	defer cancel()
@@ -448,6 +453,10 @@ func tearDownBeforeRelease(c client.Client, s seed, worker string, now func() ti
 		// a seed enumerate refuses, a target kind with no reader. Each is a bug in this program, which is why
 		// the reason carries the error text: there is no object to name.
 		o = o.amend(dispResidueLeft, fmt.Sprintf("teardown could not run: %v", err))
+		// Nothing is stamped on the worker here, and that is not an oversight: this is the one hold whose
+		// residue is empty, and a record naming no object explains nothing — decodeResidue refuses to read one
+		// back, so the next refusal would quote it as unreadable rather than say nothing. The reason above still
+		// reaches the run record, which is where a cause with no object to name belongs.
 		reportResidue(worker, nil, true)
 		return o, nil, true
 	}
@@ -461,6 +470,25 @@ func tearDownBeforeRelease(c client.Client, s seed, worker string, now func() ti
 		len(result.Residue), result.Elapsed.Round(time.Second)))
 	hold := residueHoldsWorker(result.Residue)
 	reportResidue(worker, result.Residue, hold)
+	if hold {
+		// Written only when the worker is actually held: a released worker is refused by nothing, so a record
+		// there would be quoted by no refusal and would outlive the hold it describes. releaseAcquired deletes
+		// it on the way past anyway, which makes a stamp on that branch pure waste as well as wrong.
+		//
+		// On cleanupContext for the same reason every release-path write is: this runs after teardown has
+		// already spent its budget, and a Ctrl-C landing here must not be what decides whether the operator is
+		// told why their worker is held.
+		sctx, scancel := cleanupContext()
+		serr := stampResidue(sctx, c, j, result.Residue, time.Now().UTC().Format(time.RFC3339), recordPath)
+		scancel()
+		if serr != nil {
+			// NOT an outcome change. What contains the GPU Pods is the label and the taint, and they are already
+			// installed and were never what failed here; amending the disposition on this would misreport a run
+			// that did exactly what it decided to do. What is lost is narrower and worth naming on its own.
+			fmt.Fprintf(os.Stderr, "  could not record why on the worker itself: %v\n"+
+				"  the next run will be refused this worker without being told what was left\n", serr)
+		}
+	}
 	return o, result.Residue, hold
 }
 
@@ -479,8 +507,10 @@ func tearDownBeforeRelease(c client.Client, s seed, worker string, now func() ti
 // entry that is not foreign holds the worker. absenceUnknown holds it too, by the same rule that makes it the
 // zero value — a target nobody could classify must fail toward "still here".
 //
-// It is the record, not the worker, that carries the fact onward: the residue is persisted either way, so a
-// next-run gate keying on it still refuses to start on a name another transaction holds.
+// Both the worker and the record carry the fact onward, and they carry different halves of it. Holding true
+// stamps residueKey on the node, so the next acquisition's foreign-owner refusal can say which objects are
+// still standing instead of quoting a transaction id at somebody; the run record carries the full residue
+// either way, held or released, so a reader who has the file still learns what a released run left behind.
 func residueHoldsWorker(left []residue) bool {
 	for _, r := range left {
 		if r.Absence != absenceForeign {
@@ -548,8 +578,14 @@ func phaseFailure(phase disposition, what string, err error) outcome {
 // now and sleep are the teardown executor's clock, injected for the same reason and nothing else: teardown
 // polls to a three-minute budget, and a test that had to spend three real minutes to see a run report residue
 // would be a test nobody runs. Everything else in this function reads the real clock directly.
+//
+// recordPath is passed in rather than derived here because main already named the file: recordPathFor's
+// default embeds a timestamp and a pid, so recomputing it would produce a second name, and the residue record
+// this run may stamp on the worker would invite the next operator to open a file nobody wrote. It sits after
+// horizon rather than beside worker deliberately — runID, namespace and worker are already three adjacent
+// strings a caller can transpose in silence, and a fourth would make that worse.
 func run(ctx context.Context, connect clusterClientFunc, arm queuelab.Arm, runID, namespace, worker string,
-	horizon time.Duration, now func() time.Time, sleep func(time.Duration)) (o outcome,
+	horizon time.Duration, recordPath string, now func() time.Time, sleep func(time.Duration)) (o outcome,
 	events []queuelab.LifecycleEvent, res *queuelab.LabResult, left []residue) {
 	study := queuelab.StudyReclaim
 	c, err := connect()
@@ -660,7 +696,7 @@ func run(ctx context.Context, connect clusterClientFunc, arm queuelab.Arm, runID
 		}
 		teardownAttempted = true
 		var hold bool
-		o, left, hold = tearDownBeforeRelease(c, s, worker, now, sleep, o)
+		o, left, hold = tearDownBeforeRelease(c, s, j, worker, recordPath, now, sleep, o)
 		if hold {
 			workerHeldForResidue = true
 		}
@@ -769,7 +805,7 @@ func run(ctx context.Context, connect clusterClientFunc, arm queuelab.Arm, runID
 	// returns, the deferred copy must not run the whole thing a second time.
 	teardownAttempted = true
 	var holdWorker bool
-	o, left, holdWorker = tearDownBeforeRelease(c, s, worker, now, sleep, o)
+	o, left, holdWorker = tearDownBeforeRelease(c, s, j, worker, recordPath, now, sleep, o)
 	if holdWorker {
 		// The worker is deliberately kept, so the deferred emergency release must not undo that.
 		workerHeldForResidue = true

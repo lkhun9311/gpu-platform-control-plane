@@ -679,6 +679,61 @@ func releaseAcquired(ctx context.Context, c client.Client, j journal) (releaseAc
 		j.Node, acquireAttempts, lastErr)
 }
 
+// stampResidue records on the worker itself why its markers are still installed.
+//
+// The record CONTAINS nothing. The dedication label and the NoSchedule taint are what keep Pods off the node,
+// and an annotation the scheduler does not understand cannot hold a GPU Pod back for a moment — the same trap
+// forceQuarantine's comment names. What this buys is that the next operator, refused this worker, is told
+// which objects a finished run could not remove instead of being handed a transaction id alone.
+//
+// It re-reads and re-checks ownership with verifyInstalled before writing, for the same reason releaseOwned
+// does: a status code proves the API server accepted a request, not that the node is still the one this
+// transaction acquired. Between teardown and this call another actor can have taken it over, and stamping our
+// residue onto their markers is the same lie the UID preconditions in teardown_apply.go exist to prevent.
+func stampResidue(ctx context.Context, c client.Client, j journal, left []residue, leftAt, recordPath string) error {
+	// Refused here rather than left to the call site, because decodeResidue refuses an empty Left: a record
+	// naming nothing would reach the next operator only as "a residue record that could not be read", which is
+	// worse than the bare refusal they would otherwise get. tearDownBeforeRelease has one hold with no residue
+	// to name — a teardown that could not compute its target set at all — so this is a state, not a guard
+	// against a caller bug.
+	if len(left) == 0 {
+		return fmt.Errorf("stamp residue on %s: nothing was left to name", j.Node)
+	}
+	var n corev1.Node
+	if err := c.Get(ctx, client.ObjectKey{Name: j.Node}, &n); err != nil {
+		return fmt.Errorf("get node %s: %w", j.Node, err)
+	}
+	obs := observe(&n)
+	if err := verifyInstalled(obs, j); err != nil {
+		return fmt.Errorf("stamp residue on %s: %w", j.Node, err)
+	}
+	rec := residueRecord{
+		Schema: residueSchema, TxID: j.TxID, RunID: j.RunID, LeftAt: leftAt, RecordPath: recordPath,
+	}
+	for _, r := range left {
+		rec.Left = append(rec.Left, residueLeft{
+			Kind: r.Observation.Target.Kind,
+			Name: r.Observation.Target.Name,
+			// absenceName, never a literal: the run record spells its verdicts with the same function, and two
+			// spellings of one verdict is exactly the disagreement between accounts this program refuses to emit.
+			Absence: absenceName(r.Absence),
+		})
+	}
+	raw, err := encodeResidue(rec)
+	if err != nil {
+		return err
+	}
+	base := n.DeepCopy()
+	if n.Annotations == nil {
+		n.Annotations = map[string]string{}
+	}
+	n.Annotations[residueKey] = raw
+	if err := c.Patch(ctx, &n, client.MergeFromWithOptions(base, client.MergeFromWithOptimisticLock{})); err != nil {
+		return fmt.Errorf("stamp residue on %s (state changed under you, re-inspect): %w", j.Node, err)
+	}
+	return nil
+}
+
 // releaseOwned is the release of a worker this process is still holding, and it is the only release for
 // which a free node is a failure.
 //

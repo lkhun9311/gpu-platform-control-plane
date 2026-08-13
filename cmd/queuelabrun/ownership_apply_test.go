@@ -1586,3 +1586,74 @@ func TestClearQuarantineRemovesTheResidueRecord(t *testing.T) {
 		t.Fatalf("the residue record survived the quarantine being cleared as %q", raw)
 	}
 }
+
+// The stamp goes on a node this transaction still holds, or nowhere. Between teardown and this write another
+// actor can take the node over, and stamping our residue onto theirs is the same lie the UID preconditions
+// in teardown_apply.go exist to prevent.
+func TestStampResidueRefusesANodeThisTransactionNoLongerHolds(t *testing.T) {
+	j := journal{
+		Schema: journalSchema, TxID: "tx-1", RunID: "r7", Arm: "reclaim-on",
+		Node: "platform-worker", NodeUID: "uid-node", TakenAt: "t0",
+		Installed: installedTuple{LabelValue: "r7", TaintValue: "r7", TaintEffect: corev1.TaintEffectNoSchedule},
+	}
+	// Someone else's markers, under our node's name.
+	n := node(map[string]string{workerLabelKey: "r9"}, nil,
+		corev1.Taint{Key: workerTaintKey, Value: "r9", Effect: corev1.TaintEffectNoSchedule})
+	fc := fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(n).Build()
+
+	left := []residue{{Observation: observation{Target: target{Kind: "Namespace", Name: "queuelab-r7"}},
+		Absence: absencePresent}}
+	if err := stampResidue(context.Background(), fc, j, left, "t", ""); err == nil {
+		t.Fatal("stamped a node whose markers are another transaction's")
+	}
+	if raw, ok := residueOn(t, fc); ok {
+		t.Fatalf("wrote %q onto a node this transaction no longer holds", raw)
+	}
+}
+
+func TestStampResidueWritesTheRecordOnANodeWeStillHold(t *testing.T) {
+	j, n := heldWithResidue(t)
+	delete(n.Annotations, residueKey) // start clean; this test is about writing it
+	fc := fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(n).Build()
+
+	left := []residue{
+		{Observation: observation{Target: target{Kind: "Namespace", Name: "queuelab-r7"}}, Absence: absencePresent},
+		{Observation: observation{Target: target{Kind: "ResourceFlavor", Name: "queuelab-gpu-r7"}}, Absence: absenceUnknown},
+	}
+	if err := stampResidue(context.Background(), fc, j, left, "2026-08-13T01:07:29Z", "rec.json"); err != nil {
+		t.Fatalf("stamp: %v", err)
+	}
+	raw, ok := residueOn(t, fc)
+	if !ok {
+		t.Fatal("no residue record was written")
+	}
+	rec, err := decodeResidue(raw)
+	if err != nil {
+		t.Fatalf("the record this code wrote cannot be read back by its own decoder: %v", err)
+	}
+	if rec.TxID != "tx-1" || rec.RunID != "r7" || rec.RecordPath != "rec.json" || len(rec.Left) != 2 {
+		t.Fatalf("record is %+v, want tx-1/r7/rec.json with two entries", rec)
+	}
+	if rec.Left[0].Absence != absenceName(absencePresent) || rec.Left[1].Absence != absenceName(absenceUnknown) {
+		t.Fatalf("verdicts are %q/%q; they must be spelled by absenceName so the record and the run record "+
+			"cannot disagree", rec.Left[0].Absence, rec.Left[1].Absence)
+	}
+}
+
+// A record naming nothing explains nothing, and decodeResidue already refuses to read one back — so writing
+// it would put a document on the node that residueNote can only report as unreadable, which is strictly worse
+// than the bare refusal an operator would otherwise get. The one hold with no residue to name (teardown that
+// could not run at all) reaches this with an empty slice, so the guard is not hypothetical.
+func TestStampResidueWritesNoRecordThatNamesNothing(t *testing.T) {
+	j, n := heldWithResidue(t)
+	delete(n.Annotations, residueKey)
+	fc := fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(n).Build()
+
+	if err := stampResidue(context.Background(), fc, j, nil, "t", "rec.json"); err == nil {
+		t.Fatal("stamped a record with nothing in it")
+	}
+	if raw, ok := residueOn(t, fc); ok {
+		t.Fatalf("wrote %q for a residue that names nothing; decodeResidue refuses such a record, so it would "+
+			"reach the next operator only as \"a residue record that could not be read\"", raw)
+	}
+}

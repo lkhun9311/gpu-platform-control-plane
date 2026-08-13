@@ -290,7 +290,7 @@ func TestRunDeferredEmergencyReleaseAmendsThePersistedRecord(t *testing.T) {
 	tdNow, tdSleep := fakeClock(time.Unix(0, 0))
 	o, events, res, _ := run(context.Background(), func() (client.WithWatch, error) { return fc, nil },
 		queuelab.ArmAHonor, "r7", "queuelab-r7", "platform-worker", time.Duration(horizonSec)*time.Second,
-		tdNow, tdSleep)
+		"", tdNow, tdSleep)
 
 	if res != nil {
 		t.Fatal("a run that never reconstructed anything must hand back no result to render")
@@ -341,7 +341,7 @@ func TestRunSetsADispositionOnTheConnectAndAcquisitionPaths(t *testing.T) {
 	o, _, res, _ := run(context.Background(),
 		func() (client.WithWatch, error) { return nil, fmt.Errorf("kubeconfig: no such file") },
 		queuelab.ArmAHonor, "r7", "queuelab-r7", "platform-worker", time.Duration(horizonSec)*time.Second,
-		tdNow, tdSleep)
+		"", tdNow, tdSleep)
 	if o.Disposition != dispClientFailed {
 		t.Fatalf("a failed connect is client-failed, got %q", o.Disposition)
 	}
@@ -355,7 +355,7 @@ func TestRunSetsADispositionOnTheConnectAndAcquisitionPaths(t *testing.T) {
 	fc := fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(held).Build()
 	o, _, res, _ = run(context.Background(), func() (client.WithWatch, error) { return fc, nil },
 		queuelab.ArmAHonor, "r7", "queuelab-r7", "platform-worker", time.Duration(horizonSec)*time.Second,
-		tdNow, tdSleep)
+		"", tdNow, tdSleep)
 	if o.Disposition != dispAcquisitionRefused {
 		t.Fatalf("a refused acquisition is acquisition-refused, got %q: %s", o.Disposition, o.Reason)
 	}
@@ -734,7 +734,7 @@ func TestRunExplicitReleaseFailureRecordsWorkerNotRestored(t *testing.T) {
 
 	tdNow, tdSleep := fakeClock(time.Unix(0, 0))
 	o, events, res, _ := run(context.Background(), func() (client.WithWatch, error) { return fc, nil },
-		queuelab.ArmNRef, "r8", "queuelab-r8", "platform-worker", 45*time.Second, tdNow, tdSleep)
+		queuelab.ArmNRef, "r8", "queuelab-r8", "platform-worker", 45*time.Second, "", tdNow, tdSleep)
 
 	if nodePatches != 2 {
 		t.Fatalf("want exactly 2 node patches (acquire + the run's own release), got %d — this test proved "+
@@ -823,7 +823,7 @@ func TestRunCancellationWhileRestoringNeverRelabelsAsCancelled(t *testing.T) {
 
 	tdNow, tdSleep := fakeClock(time.Unix(0, 0))
 	o, events, res, _ := run(ctx, func() (client.WithWatch, error) { return fc, nil },
-		queuelab.ArmNRef, "r9", "queuelab-r9", "platform-worker", 45*time.Second, tdNow, tdSleep)
+		queuelab.ArmNRef, "r9", "queuelab-r9", "platform-worker", 45*time.Second, "", tdNow, tdSleep)
 
 	if nodePatches != 2 {
 		t.Fatalf("want exactly 2 node patches (acquire + the run's own release), got %d — this test proved "+
@@ -870,6 +870,11 @@ type runCall struct {
 	Op   string // "delete" | "patch"
 	Kind string
 	Name string
+	// Dedicated says whether a patched Node still carried the dedication label at the moment it was written.
+	// It exists because "the second Node patch" stopped being a synonym for "the release": a held worker now
+	// gets a residue record patched onto it as well, and that patch — like the acquisition's — leaves the label
+	// on, while only a release takes it off. Meaningless on any call that is not a Node patch.
+	Dedicated bool
 }
 
 // recordRunCalls wraps a client so every delete and patch is captured in order.
@@ -904,7 +909,9 @@ func recordRunCalls(t *testing.T, inner client.WithWatch) (client.WithWatch, fun
 		},
 		Patch: func(ctx context.Context, cl client.WithWatch, obj client.Object, patch client.Patch,
 			opts ...client.PatchOption) error {
-			add(runCall{Op: "patch", Kind: kindOf(obj), Name: obj.GetName()})
+			call := runCall{Op: "patch", Kind: kindOf(obj), Name: obj.GetName()}
+			_, call.Dedicated = obj.GetLabels()[workerLabelKey]
+			add(call)
 			return cl.Patch(ctx, obj, patch, opts...)
 		},
 	})
@@ -944,10 +951,23 @@ func firstIndexOf(calls []runCall, op, kind string, nth int) int {
 	return -1
 }
 
-// releasePatchIndex is where the run's own release of the worker appears. It is the SECOND Node patch:
-// the first is acquireWorker installing the markers, and a test that looked for "a Node patch" would be
-// satisfied by the acquisition alone and could never fail.
-func releasePatchIndex(calls []runCall) int { return firstIndexOf(calls, "patch", "Node", 2) }
+// releasePatchIndex is where the run's own release of the worker appears, identified by the one thing a
+// release does that no other Node patch does: take the dedication label off.
+//
+// It used to count — the SECOND Node patch, because the first was acquireWorker installing the markers and a
+// test looking merely for "a Node patch" would be satisfied by the acquisition alone and could never fail.
+// That arithmetic broke when a held worker started getting its residue record stamped on: the stamp is a
+// second Node patch on precisely the path where the correct answer is "the worker was never released", so
+// every held-worker test would have read the explanation of the hold as the release it is asserting did not
+// happen.
+func releasePatchIndex(calls []runCall) int {
+	for i, c := range calls {
+		if c.Op == "patch" && c.Kind == "Node" && !c.Dedicated {
+			return i
+		}
+	}
+	return -1
+}
 
 // The ordering this whole task exists to establish, on the path that returns early — which is every failure
 // between acquiring the worker and reconstructing the result, and therefore the common case.
@@ -974,7 +994,7 @@ func TestRunTearsDownBeforeTheEmergencyReleaseOnAnEarlyReturn(t *testing.T) {
 
 	o, _, res, left := run(context.Background(), func() (client.WithWatch, error) { return c, nil },
 		queuelab.ArmAHonor, "r7", "queuelab-r7", "platform-worker",
-		time.Duration(horizonSec)*time.Second, now, sleep)
+		time.Duration(horizonSec)*time.Second, "", now, sleep)
 
 	if res != nil {
 		t.Fatal("a run that failed setup must hand back no result")
@@ -1023,7 +1043,7 @@ func TestRunTearsDownBeforeItsOwnReleaseOnTheHappyPath(t *testing.T) {
 	now, sleep := fakeClock(time.Unix(0, 0))
 
 	o, _, res, left := run(context.Background(), func() (client.WithWatch, error) { return c, nil },
-		queuelab.ArmNRef, "r8", "queuelab-r8", "platform-worker", 45*time.Second, now, sleep)
+		queuelab.ArmNRef, "r8", "queuelab-r8", "platform-worker", 45*time.Second, "", now, sleep)
 
 	if o.Disposition != dispChecksPassed {
 		t.Fatalf("an uncontested N-ref run against a clean cluster must pass, got %s: %s", o.Disposition, o.Reason)
@@ -1092,7 +1112,7 @@ func TestRunTearsDownAroundAStaleFixtureFromAPreviousAttempt(t *testing.T) {
 
 	o, _, res, left := run(context.Background(), func() (client.WithWatch, error) { return c, nil },
 		queuelab.ArmAHonor, "r7", "queuelab-r7", "platform-worker",
-		time.Duration(horizonSec)*time.Second, now, sleep)
+		time.Duration(horizonSec)*time.Second, "", now, sleep)
 
 	if res != nil {
 		t.Fatal("a run that failed setup must hand back no result")
@@ -1210,7 +1230,7 @@ func TestRunTeardownResidueAmendsTheOutcomeAndHoldsTheWorker(t *testing.T) {
 
 	o, _, res, left := run(context.Background(), func() (client.WithWatch, error) { return c, nil },
 		queuelab.ArmAHonor, "r7", "queuelab-r7", "platform-worker",
-		time.Duration(horizonSec)*time.Second, now, sleep)
+		time.Duration(horizonSec)*time.Second, "", now, sleep)
 
 	if res != nil {
 		t.Fatal("a run that failed setup must hand back no result")
@@ -1295,7 +1315,7 @@ func TestRunHoldsTheWorkerWhenTheHappyPathLeavesResidue(t *testing.T) {
 	now, sleep := fakeClock(time.Unix(0, 0))
 
 	o, events, res, left := run(context.Background(), func() (client.WithWatch, error) { return c, nil },
-		queuelab.ArmNRef, "r8", "queuelab-r8", "platform-worker", 45*time.Second, now, sleep)
+		queuelab.ArmNRef, "r8", "queuelab-r8", "platform-worker", 45*time.Second, "", now, sleep)
 
 	// The run must genuinely have completed its protocol, or this test is another early-return test wearing a
 	// longer sleep. The owner row is submitted only after the victim has been Ready for the whole 40-second
@@ -1356,5 +1376,203 @@ func TestRunHoldsTheWorkerWhenTheHappyPathLeavesResidue(t *testing.T) {
 	if len(n.Spec.Taints) == 0 {
 		t.Fatal("the worker lost its NoSchedule taint while this run's namespace was still on the cluster; " +
 			"an annotation means nothing to the scheduler and a GPU Pod would land on it")
+	}
+}
+
+// A run that leaves residue and keeps the worker is exactly the case the next operator needs explained: the
+// next acquisition refuses that node, and without this record the refusal has nothing to quote but a
+// transaction id.
+//
+// The harness is TestRunTeardownResidueAmendsTheOutcomeAndHoldsTheWorker's — the fixture Create is refused so
+// run() returns early, and the namespace Delete is forbidden so teardown has something of this run's own it
+// cannot prove gone, which is what makes residueHoldsWorker hold.
+func TestRunStampsTheResidueRecordWhenItHoldsTheWorker(t *testing.T) {
+	inner := fake.NewClientBuilder().WithScheme(fullScheme(t)).WithObjects(node(nil, nil)).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Create: func(ctx context.Context, c client.WithWatch, obj client.Object,
+				opts ...client.CreateOption) error {
+				if _, ok := obj.(*kueuev1beta2.ResourceFlavor); ok {
+					return fmt.Errorf("resource flavor quota exhausted")
+				}
+				return stampUIDOnCreate(ctx, c, obj, opts...)
+			},
+			Delete: func(ctx context.Context, c client.WithWatch, obj client.Object,
+				opts ...client.DeleteOption) error {
+				if _, ok := obj.(*corev1.Namespace); ok {
+					return apierrors.NewForbidden(schema.GroupResource{Resource: "namespaces"},
+						obj.GetName(), errors.New("teardown may not delete namespaces"))
+				}
+				return c.Delete(ctx, obj, opts...)
+			},
+		}).Build()
+	c, _ := recordRunCalls(t, inner)
+	now, sleep := fakeClock(time.Unix(0, 0))
+
+	// A named record path, because the path is the half of this record a test can pin exactly: main computes
+	// it once and run() must carry that same name down, or the record invites the operator to open a file
+	// nobody wrote.
+	o, _, _, left := run(context.Background(), func() (client.WithWatch, error) { return c, nil },
+		queuelab.ArmAHonor, "r7", "queuelab-r7", "platform-worker",
+		time.Duration(horizonSec)*time.Second, "queuelabrun-record-r7.json", now, sleep)
+
+	if o.Disposition != dispResidueLeft || len(left) == 0 {
+		t.Fatalf("this harness must reach a residue that holds the worker, got %s: %s with %+v",
+			o.Disposition, o.Reason, left)
+	}
+	raw, ok := residueOn(t, c) // node "platform-worker"
+	if !ok {
+		t.Fatal("the worker is held for residue and carries no record of why; the next run is refused with " +
+			"nothing but a transaction id")
+	}
+	rec, err := decodeResidue(raw)
+	if err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(rec.Left) == 0 || rec.RunID == "" {
+		t.Fatalf("record is %+v, want it to name the run and what it left", rec)
+	}
+	// The record on the node and the record run() hands to the run record are two accounts of one teardown,
+	// and a reader who has both must not be able to find them disagreeing.
+	if len(rec.Left) != len(left) {
+		t.Fatalf("the node says %d object(s) were left and the run record says %d", len(rec.Left), len(left))
+	}
+	if rec.RecordPath != "queuelabrun-record-r7.json" {
+		t.Fatalf("record path is %q; run() must carry down the name main already gave the file, since "+
+			"recomputing it names a file nobody wrote", rec.RecordPath)
+	}
+}
+
+// A foreign-only residue releases the worker on purpose, so no refusal will ever quote a record. Writing one
+// would leave a marker on a node whose release path has already run.
+//
+// The harness is TestRunTearsDownAroundAStaleFixtureFromAPreviousAttempt's: a cluster-scoped flavor from a
+// previous attempt under the same run id, which applyFixtures refuses and teardown then classifies foreign.
+//
+// The attempt is watched at the patch rather than only in the final state, and that is not belt-and-braces:
+// releaseAcquired deletes residueKey on its way past, so a stamp written a moment earlier would already be
+// gone by the time this test read the node back, and an assertion on the node alone would pass over exactly
+// the bug it is here for.
+func TestRunDoesNotStampWhenTheWorkerIsReleased(t *testing.T) {
+	variant, err := queuelab.ArmAHonor.PolicyVariant()
+	if err != nil {
+		t.Fatalf("policy variant: %v", err)
+	}
+	fs, err := queuelab.BuildFixtures(queuelab.StudyReclaim, variant, "tx-previous", "r7", "queuelab-r7")
+	if err != nil {
+		t.Fatalf("build fixtures: %v", err)
+	}
+	stale := fs.Flavor.DeepCopy()
+	stale.SetUID("rf-uid-previous")
+
+	var (
+		mu      sync.Mutex
+		stamped []string
+	)
+	inner := fake.NewClientBuilder().WithScheme(fullScheme(t)).WithObjects(node(nil, nil), stale).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Create: stampUIDOnCreate,
+			Patch: func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch,
+				opts ...client.PatchOption) error {
+				if raw, ok := obj.GetAnnotations()[residueKey]; ok {
+					mu.Lock()
+					stamped = append(stamped, raw)
+					mu.Unlock()
+				}
+				return c.Patch(ctx, obj, patch, opts...)
+			},
+		}).Build()
+	c, _ := recordRunCalls(t, inner)
+	now, sleep := fakeClock(time.Unix(0, 0))
+
+	o, _, _, left := run(context.Background(), func() (client.WithWatch, error) { return c, nil },
+		queuelab.ArmAHonor, "r7", "queuelab-r7", "platform-worker",
+		time.Duration(horizonSec)*time.Second, "queuelabrun-record-r7.json", now, sleep)
+
+	if o.Disposition != dispResidueLeft || len(left) == 0 {
+		t.Fatalf("this harness must reach a residue, got %s: %s with %+v", o.Disposition, o.Reason, left)
+	}
+	for _, r := range left {
+		if r.Absence != absenceForeign {
+			t.Fatalf("this harness must reach a residue that is entirely somebody else's, got %+v", left)
+		}
+	}
+	mu.Lock()
+	got := append([]string(nil), stamped...)
+	mu.Unlock()
+	if len(got) > 0 {
+		t.Fatalf("stamped %q onto a worker this run released; nothing will ever quote it", got)
+	}
+	if raw, ok := residueOn(t, c); ok {
+		t.Fatalf("stamped %q onto a worker this run released; nothing will ever quote it", raw)
+	}
+}
+
+// The stamp is written on a path that is already reporting failure, and the fact that matters — the worker is
+// held — is carried by the label and the taint, which are already installed. Failing the run on it would
+// misreport that: it would turn a run that did exactly what it decided into a run that decided something
+// else, and no next-run gate keys on this annotation.
+func TestAFailedResidueStampChangesNoOutcome(t *testing.T) {
+	inner := fake.NewClientBuilder().WithScheme(fullScheme(t)).WithObjects(node(nil, nil)).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Create: func(ctx context.Context, c client.WithWatch, obj client.Object,
+				opts ...client.CreateOption) error {
+				if _, ok := obj.(*kueuev1beta2.ResourceFlavor); ok {
+					return fmt.Errorf("resource flavor quota exhausted")
+				}
+				return stampUIDOnCreate(ctx, c, obj, opts...)
+			},
+			Delete: func(ctx context.Context, c client.WithWatch, obj client.Object,
+				opts ...client.DeleteOption) error {
+				if _, ok := obj.(*corev1.Namespace); ok {
+					return apierrors.NewForbidden(schema.GroupResource{Resource: "namespaces"},
+						obj.GetName(), errors.New("teardown may not delete namespaces"))
+				}
+				return c.Delete(ctx, obj, opts...)
+			},
+			// Only the write that sets residueKey is rejected. Acquisition patches the same Node and must still
+			// succeed, or this test would be about a run that never got a worker at all.
+			Patch: func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch,
+				opts ...client.PatchOption) error {
+				if _, ok := obj.GetAnnotations()[residueKey]; ok {
+					return fmt.Errorf("apiserver unreachable")
+				}
+				return c.Patch(ctx, obj, patch, opts...)
+			},
+		}).Build()
+	c, calls := recordRunCalls(t, inner)
+	now, sleep := fakeClock(time.Unix(0, 0))
+
+	o, _, res, left := run(context.Background(), func() (client.WithWatch, error) { return c, nil },
+		queuelab.ArmAHonor, "r7", "queuelab-r7", "platform-worker",
+		time.Duration(horizonSec)*time.Second, "queuelabrun-record-r7.json", now, sleep)
+
+	if o.Disposition != dispResidueLeft {
+		t.Fatalf("disposition is %q, want %q: a failed annotation must not change what the run decided",
+			o.Disposition, dispResidueLeft)
+	}
+	if res != nil {
+		t.Fatal("a run holding its worker for residue handed back a result")
+	}
+	if len(left) == 0 {
+		t.Fatal("the residue must still reach the run record; the annotation is the copy, not the original")
+	}
+	if raw, ok := residueOn(t, c); ok {
+		t.Fatalf("the stamp was rejected and yet the node carries %q; this test proved nothing", raw)
+	}
+	// The worker must still be held: label and taint are what contain, and they were never the thing that
+	// failed. Asserted on the node itself and on the call log, the way the existing residue tests do.
+	var n corev1.Node
+	if err := c.Get(context.Background(), client.ObjectKey{Name: "platform-worker"}, &n); err != nil {
+		t.Fatalf("read the worker back: %v", err)
+	}
+	if n.Labels[workerLabelKey] == "" {
+		t.Fatal("the worker lost its dedication label because an explanatory annotation could not be written")
+	}
+	if len(n.Spec.Taints) == 0 {
+		t.Fatal("the worker lost its NoSchedule taint because an explanatory annotation could not be written")
+	}
+	if rel := releasePatchIndex(calls()); rel >= 0 {
+		t.Fatalf("the worker was released at call %d after the stamp failed; a write that explains a hold must "+
+			"not be able to end one", rel)
 	}
 }
