@@ -328,6 +328,13 @@ func decideAcquire(obs ownership, n *corev1.Node, txID, runID, arm, takenAt stri
 // operator reads at the exact moment they are most tempted to strip a stuck namespace's finalizer — and the
 // teardown design forbids ever offering that as a fix, since it orphans the contents and every absence check
 // afterwards reports clean over objects that are still running.
+//
+// Every field decoded out of the record is quoted, for the reason inspectWorker states about the journal:
+// decoding a hostile string does not make it safe. All of this came out of a Node annotation, this refusal is
+// printed straight to an operator's terminal by both the run path and inspectWorker, and the last line below
+// hands that operator a command to run — so an unescaped kind or record path could rewrite the instructions
+// printed around it into a different, legitimate-looking one. The node name is the one thing here this tool
+// did not read out of an annotation, so it stays unquoted like every other node name this package prints.
 func residueNote(obs ownership) string {
 	if obs.ResidueRaw == "" {
 		return ""
@@ -336,13 +343,13 @@ func residueNote(obs ownership) string {
 		return fmt.Sprintf("; it also carries a residue record that could not be read: %v", obs.ResidueErr)
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, ";\n  that run's teardown left %d object(s) behind at %s, so the worker is held "+
+	fmt.Fprintf(&b, ";\n  that run's teardown left %d object(s) behind at %q, so the worker is held "+
 		"deliberately and its GPUs may still be in use:", len(obs.Residue.Left), obs.Residue.LeftAt)
 	for _, l := range obs.Residue.Left {
-		fmt.Fprintf(&b, "\n    %s %s (%s)", l.Kind, l.Name, l.Absence)
+		fmt.Fprintf(&b, "\n    %q %q (%q)", l.Kind, l.Name, l.Absence)
 	}
 	if obs.Residue.RecordPath != "" {
-		fmt.Fprintf(&b, "\n  full record: %s", obs.Residue.RecordPath)
+		fmt.Fprintf(&b, "\n  full record: %q", obs.Residue.RecordPath)
 	}
 	fmt.Fprintf(&b, "\n  do NOT strip a stuck namespace's finalizer; run: queuelabrun -inspect-worker -worker %s",
 		obs.NodeName)

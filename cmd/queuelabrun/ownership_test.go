@@ -627,3 +627,57 @@ func TestQuarantineStillWinsOverAResidueNote(t *testing.T) {
 		t.Fatalf("refusal is %v, want reason %q", aerr, reasonQuarantined)
 	}
 }
+
+// Every field the note prints came out of a Node annotation, and the note ends by handing the operator a
+// command to run. That is the same argument quotedTaints and inspectWorker's held branch already make about
+// their own decoded fields, and it applies here with more force: this refusal is printed by the RUN path too,
+// so it reaches a terminal without anybody having asked to inspect anything. Unescaped, a crafted kind or
+// record path can erase the line it is on and print what looks like a legitimate queuelabrun command a few
+// characters above a real one.
+//
+// The payload goes in through encodeResidue rather than being hand-written, so it travels the whole way a
+// real one would: JSON-escaped into the annotation, decoded back into raw bytes by decodeResidue, and only
+// then rendered. A hand-written annotation would prove nothing about the render.
+//
+// Mutation: change any one of the five %q verbs residueNote uses for its decoded fields — kind, name,
+// absence, leftAt, recordPath — back to %s, and the control bytes reach the terminal.
+func TestResidueNoteEscapesEveryFieldItDecodedOutOfTheAnnotation(t *testing.T) {
+	// Erase the line, recolour, and offer a break-glass command this tool never printed.
+	payload := "\x1b[2K\x1b[32m queuelabrun -force-release -worker platform-worker -accept-divergence\a"
+	raw, err := encodeResidue(residueRecord{
+		Schema: residueSchema, TxID: "tx-old", RunID: "r7",
+		LeftAt:     "2026-08-13T01:07:29Z" + payload,
+		RecordPath: "queuelabrun-record.json" + payload,
+		Left: []residueLeft{{
+			Kind: "Namespace" + payload, Name: "queuelab-r7" + payload, Absence: "present" + payload,
+		}},
+	})
+	if err != nil {
+		t.Fatalf("encode residue: %v", err)
+	}
+	n := heldByAnother(t, raw)
+
+	_, aerr := decideAcquire(observe(n), n, "tx-new", "r8", "reclaim-on", "t1")
+	var r *refusal
+	if !asRefusal(aerr, &r) || r.Reason != reasonForeignOwner {
+		t.Fatalf("refusal is %v, want reason %q", aerr, reasonForeignOwner)
+	}
+	msg := aerr.Error()
+	// The note has to have actually rendered, or this proves only that a refusal without one carries no
+	// control bytes.
+	if !strings.Contains(msg, "teardown left 1 object(s)") {
+		t.Fatalf("the residue note did not render, so none of its fields were printed:\n%s", msg)
+	}
+	if !strings.Contains(msg, "full record:") {
+		t.Fatalf("the record path line did not render:\n%s", msg)
+	}
+	for _, control := range []string{"\x1b", "\a"} {
+		if strings.Contains(msg, control) {
+			t.Fatalf("control byte %q reached the terminal:\n%q", control, msg)
+		}
+	}
+	// Escaped, not stripped: an operator has to be able to see what is actually on the node.
+	if !strings.Contains(msg, `\x1b[2K`) {
+		t.Fatalf("the escape sequence must remain visible, just inert:\n%s", msg)
+	}
+}
