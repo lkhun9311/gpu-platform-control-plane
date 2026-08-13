@@ -87,10 +87,18 @@ testable without a cluster.
 **Cleared** wherever the ownership markers come off:
 
 - `releaseAcquired` (`ownership_apply.go:623`), beside `delete(n.Annotations, journalKey)` — the ordinary
-  release.
-- `forceQuarantine` (`ownership_apply.go:562`) — but **preserved into the quarantine record**, exactly as
-  the journal already is. Losing it there would destroy the explanation at the one moment a human has
-  decided to intervene by hand.
+  release. The same applies at every other site that removes `journalKey`; the implementer greps for them
+  rather than working from a list here.
+- `clearQuarantine` (`ownership_apply.go:583`) — the operator's deliberate clear, beside
+  `delete(n.Annotations, quarantineKey)`.
+
+`forceQuarantine` (`ownership_apply.go:543`) deliberately does **not** clear it, and does not copy it into
+the quarantine record either. An earlier draft of this design said to preserve it into that record the way
+the journal already is; that would require bumping `quarantineSchema`, and since the record is decoded with
+`DisallowUnknownFields`, an older binary would then refuse every new quarantine record. Simply leaving the
+annotation in place preserves the explanation for free. It cannot mislead while it sits there: `decideAcquire`
+refuses on `QuarantineRaw` before it reaches the foreign-owner branch, so a quarantined node is refused for
+being quarantined and the residue note is never reached.
 
 A stale annotation cannot mislead. The refusal is only reached when the node is held, held implies the
 journal is present, and the annotation is removed at the same sites as the journal. If someone strips the
@@ -164,7 +172,8 @@ The reading half is pure, so most of this needs no cluster.
 | A malformed record degrades to a note and does **not** become a new refusal | `decideAcquire` unit test |
 | `observe` surfaces the annotation | `observe` unit test |
 | The ordinary release clears it | mutation: drop the `delete` in `releaseAcquired`, and a later acquire must quote stale residue |
-| `forceQuarantine` preserves it into the quarantine record | fake-client test, mirroring the journal's existing one |
+| `forceQuarantine` leaves it in place, and a quarantined node is still refused for being quarantined | fake-client test + a `decideAcquire` test proving the quarantine branch wins |
+| `clearQuarantine` removes it | mutation: drop the `delete`, and a later acquire must quote stale residue |
 | A worker-holding residue run writes it | `run()`-level test |
 | A foreign-only residue run does **not** write it | `run()`-level test |
 | A failed patch changes no outcome but is reported | `run()`-level test with a patch interceptor |
