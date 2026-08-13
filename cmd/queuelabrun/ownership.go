@@ -295,8 +295,8 @@ func decideAcquire(obs ownership, n *corev1.Node, txID, runID, arm, takenAt stri
 		// Run id, transaction id and timestamp all come out of the node's own journal, and this refusal is
 		// printed to a terminal by the run path exactly as inspectWorker prints its own.
 		return journal{}, refuse(reasonForeignOwner,
-			"node %s is held by run %q under tx %q since %q",
-			obs.NodeName, obs.Journal.RunID, obs.Journal.TxID, obs.Journal.TakenAt)
+			"node %s is held by run %q under tx %q since %q%s",
+			obs.NodeName, obs.Journal.RunID, obs.Journal.TxID, obs.Journal.TakenAt, residueNote(obs))
 	case hasMarker:
 		return journal{}, refuse(reasonMarkerWithoutJournal,
 			"node %s carries a queuelab marker with no journal; it cannot be released safely by this tool",
@@ -316,6 +316,37 @@ func decideAcquire(obs ownership, n *corev1.Node, txID, runID, arm, takenAt stri
 			TaintEffect: corev1.TaintEffectNoSchedule,
 		},
 	}, nil
+}
+
+// residueNote is what a residue record adds to a foreign-owner refusal, and the only thing it adds anywhere.
+//
+// It returns "" when there is no record, so a refusal on a node without one is byte-for-byte what it was
+// before this existed. An unreadable record degrades to saying so: this document carries no safety weight,
+// and an informational field that invents a new failure mode is worse than no field at all.
+//
+// The finalizer warning is repeated here rather than left to the run record, because this refusal is what an
+// operator reads at the exact moment they are most tempted to strip a stuck namespace's finalizer — and the
+// teardown design forbids ever offering that as a fix, since it orphans the contents and every absence check
+// afterwards reports clean over objects that are still running.
+func residueNote(obs ownership) string {
+	if obs.ResidueRaw == "" {
+		return ""
+	}
+	if obs.ResidueErr != nil {
+		return fmt.Sprintf("; it also carries a residue record that could not be read: %v", obs.ResidueErr)
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, ";\n  that run's teardown left %d object(s) behind at %s, so the worker is held "+
+		"deliberately and its GPUs may still be in use:", len(obs.Residue.Left), obs.Residue.LeftAt)
+	for _, l := range obs.Residue.Left {
+		fmt.Fprintf(&b, "\n    %s %s (%s)", l.Kind, l.Name, l.Absence)
+	}
+	if obs.Residue.RecordPath != "" {
+		fmt.Fprintf(&b, "\n  full record: %s", obs.Residue.RecordPath)
+	}
+	fmt.Fprintf(&b, "\n  do NOT strip a stuck namespace's finalizer; run: queuelabrun -inspect-worker -worker %s",
+		obs.NodeName)
+	return b.String()
 }
 
 type releaseAction int

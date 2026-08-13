@@ -514,3 +514,112 @@ func TestObserveSurfacesTheResidueRecord(t *testing.T) {
 			bad.ResidueRaw, bad.ResidueErr)
 	}
 }
+
+// heldByAnother builds the state every test below starts from: a node another transaction holds, with the
+// residue annotation set to whatever the case under test needs.
+func heldByAnother(t *testing.T, residueRaw string) *corev1.Node {
+	t.Helper()
+	j := journal{
+		Schema: journalSchema, TxID: "tx-old", RunID: "r7", Arm: "reclaim-on",
+		Node: "platform-worker", NodeUID: "uid-node", TakenAt: "t0",
+		Installed: installedTuple{LabelValue: "r7", TaintValue: "r7", TaintEffect: corev1.TaintEffectNoSchedule},
+	}
+	raw, err := encodeJournal(j)
+	if err != nil {
+		t.Fatalf("encode journal: %v", err)
+	}
+	ann := map[string]string{journalKey: raw}
+	if residueRaw != "" {
+		ann[residueKey] = residueRaw
+	}
+	return node(map[string]string{workerLabelKey: "r7"}, ann, ourTaint())
+}
+
+func residueRaw(t *testing.T, left ...residueLeft) string {
+	t.Helper()
+	raw, err := encodeResidue(residueRecord{
+		Schema: residueSchema, TxID: "tx-old", RunID: "r7", LeftAt: "2026-08-13T01:07:29Z",
+		RecordPath: "queuelabrun-record-20260813T010422Z-31288.json", Left: left,
+	})
+	if err != nil {
+		t.Fatalf("encode residue: %v", err)
+	}
+	return raw
+}
+
+// The foreign-owner refusal is what an operator sees when a previous run left GPU Pods behind, and today it
+// is indistinguishable from a run that is legitimately still in flight. Those two need opposite responses.
+func TestAcquireRefusalNamesWhatThePreviousTeardownLeft(t *testing.T) {
+	n := heldByAnother(t, residueRaw(t,
+		residueLeft{Kind: "Namespace", Name: "queuelab-r7", Absence: "present"},
+		residueLeft{Kind: "ClusterQueue", Name: "ql-reclaim-tenant-a-r7", Absence: "present"}))
+
+	_, err := decideAcquire(observe(n), n, "tx-new", "r8", "reclaim-on", "t1")
+	if err == nil {
+		t.Fatal("acquisition was allowed on a node another transaction holds")
+	}
+	var r *refusal
+	if !asRefusal(err, &r) || r.Reason != reasonForeignOwner {
+		t.Fatalf("refusal is %v, want reason %q: residue explains WHY the owner is still there, it is not a "+
+			"different state of the node", err, reasonForeignOwner)
+	}
+	for _, want := range []string{
+		"queuelab-r7", "ql-reclaim-tenant-a-r7",
+		"queuelabrun-record-20260813T010422Z-31288.json",
+		"do NOT strip",
+	} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("refusal does not mention %q; got:\n%s", want, err.Error())
+		}
+	}
+}
+
+// Without a record the refusal must be exactly what it was before this feature existed, or every operator
+// who has learned to read it has to learn again.
+func TestAcquireRefusalIsUnchangedWithoutAResidueRecord(t *testing.T) {
+	n := heldByAnother(t, "")
+
+	_, err := decideAcquire(observe(n), n, "tx-new", "r8", "reclaim-on", "t1")
+	// refusal.Error() always prepends "reason: ", so the pre-existing message carries that prefix too — this
+	// is what every caller has always seen, not a new addition.
+	want := `foreign-owner: node platform-worker is held by run "r7" under tx "tx-old" since "t0"`
+	if err == nil || err.Error() != want {
+		t.Fatalf("refusal is %v, want exactly %q", err, want)
+	}
+}
+
+// An informational field must not invent a failure mode. This is deliberately unlike the journal, where an
+// unreadable document IS a refusal, because the journal decides ownership and this record decides nothing.
+func TestAnUnreadableResidueRecordDoesNotBecomeItsOwnRefusal(t *testing.T) {
+	n := heldByAnother(t, "{not json")
+
+	_, err := decideAcquire(observe(n), n, "tx-new", "r8", "reclaim-on", "t1")
+	var r *refusal
+	if !asRefusal(err, &r) || r.Reason != reasonForeignOwner {
+		t.Fatalf("refusal is %v, want reason %q; an unreadable explanation must not change what the node IS",
+			err, reasonForeignOwner)
+	}
+	if !strings.Contains(err.Error(), "could not be read") {
+		t.Errorf("refusal hides that an unreadable residue record is present; got:\n%s", err.Error())
+	}
+}
+
+// A quarantined node is refused for being quarantined, whatever else it carries — the quarantine branch runs
+// first and is the one state this tool has no remaining move for.
+func TestQuarantineStillWinsOverAResidueNote(t *testing.T) {
+	q, err := encodeQuarantine(quarantine{Schema: quarantineSchema, QuarantineID: "q1", ForcedAt: "t",
+		Node: "platform-worker", NodeUID: "uid-node"})
+	if err != nil {
+		t.Fatalf("encode quarantine: %v", err)
+	}
+	n := node(nil, map[string]string{
+		quarantineKey: q,
+		residueKey:    residueRaw(t, residueLeft{Kind: "Namespace", Name: "queuelab-r7", Absence: "present"}),
+	})
+
+	_, aerr := decideAcquire(observe(n), n, "tx-new", "r8", "reclaim-on", "t1")
+	var r *refusal
+	if !asRefusal(aerr, &r) || r.Reason != reasonQuarantined {
+		t.Fatalf("refusal is %v, want reason %q", aerr, reasonQuarantined)
+	}
+}
