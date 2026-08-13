@@ -341,9 +341,17 @@ func deleteTargets(ctx context.Context, c client.Client, s seed, txID string,
 	deleteErrs := map[target]error{}
 	for _, phase := range phasesIn(latest) {
 		if !settlePhase(ctx, c, latest, phase, now, sleep, deadline, deleteErrs) {
-			// A phase that did not settle stops teardown here rather than advancing. Deleting a ClusterQueue
-			// while the namespace holding its Workloads is still there does not fail loudly — it blocks on
-			// the resource-in-use finalizer — so pressing on buys nothing and buries which object is stuck.
+			// A phase that did not settle stops teardown here rather than advancing. An out-of-order delete
+			// does not fail loudly — measured against a real apiserver, the Delete returned nil in 7ms and
+			// the ClusterQueue was still there twenty seconds later, terminating, holding
+			// kueue.x-k8s.io/resource-in-use. Pressing on would bury which object is actually stuck behind a
+			// row of accepted deletes that changed nothing.
+			//
+			// Note what this costs, because the kind test measured it and enumerate's comment argues it: a
+			// namespace can sit Terminating long after Kueue has reaped the Workloads that were reserving,
+			// so a phase held open here can be holding targets that would delete immediately. Stopping
+			// reports them as residue, and residue holds the worker. That is the accepted price of gating on
+			// a fact this run can read for itself rather than on Kueue's view of who reserves what.
 			break
 		}
 	}

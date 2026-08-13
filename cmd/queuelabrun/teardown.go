@@ -106,10 +106,27 @@ func enumerate(s seed) ([]target, error) {
 	// would need its own ordering rule for no reason.
 	//
 	// Phase order below follows Kueue's finalizers, not this code's preference: a ClusterQueue carries a
-	// resource-in-use finalizer that only clears once no Workload reserves it, and a Workload's reservation
-	// is only released once the namespace holding it is gone — so the namespace must be deleted, and
-	// confirmed absent, before a ClusterQueue delete can complete. ResourceFlavor carries the same kind of
-	// finalizer, clearing only once every ClusterQueue that references it is gone, so it must be last.
+	// resource-in-use finalizer that only clears once no Workload reserves it, so the Workloads must go
+	// before the ClusterQueue can. Deleting the namespace is what removes them, and deleting the namespace
+	// is the only lever this run has. ResourceFlavor carries the same kind of finalizer, clearing only once
+	// EVERY ClusterQueue that references it is gone — not merely the one that was reserving — so it is last;
+	// measured against Kueue v0.18.3, a flavor held by a second, idle referencer stays until that one goes
+	// too, and a phase that settled on one ClusterQueue would look correct right up until it never cleared.
+	//
+	// Waiting for the namespace to be ABSENT is deliberately stronger than what the finalizer needs, and the
+	// kind test measured the difference: once the namespace is deleted, Kueue reaps its Workloads and
+	// reservingWorkloads drops to zero in about six seconds, while the namespace itself can sit Terminating
+	// indefinitely behind any one finalizer its contents carry. So in exactly the state this order exists
+	// for, a ClusterQueue delete would in fact have completed immediately. Absence is SUFFICIENT for "no
+	// Workload reserves this", not NECESSARY.
+	//
+	// It is kept anyway, as a stated choice rather than a discovery. The weaker gate would have to ask Kueue
+	// what reserves a ClusterQueue and trust that answer during teardown, which is a second source of truth
+	// about someone else's state at the one moment this run is least able to check it; absence is a fact
+	// this run reads directly. The price is real and is paid in the worst case: a namespace stuck behind a
+	// finalizer holds every later phase open to the budget, and teardown then reports as residue objects
+	// that were removable the whole time — which, because residue holds the worker, over-holds a GPU node.
+	// Revisit this when a node needs to come back sooner than a stuck namespace allows, not before.
 	for _, cq := range fs.ClusterQueue {
 		targets = append(targets, target{Phase: phaseClusterQueue, Kind: "ClusterQueue", Name: cq.GetName(), Namespaced: false})
 	}
