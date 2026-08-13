@@ -1493,3 +1493,96 @@ func TestOperatorModeContextIsBoundedAndNotSignalCancellable(t *testing.T) {
 		t.Fatalf("a fresh operator-mode context must be live, got %v", err)
 	}
 }
+
+// heldWithResidue builds a node this transaction holds, carrying a residue record.
+func heldWithResidue(t *testing.T) (journal, *corev1.Node) {
+	t.Helper()
+	j := journal{
+		Schema: journalSchema, TxID: "tx-1", RunID: "r7", Arm: "reclaim-on",
+		Node: "platform-worker", NodeUID: "uid-node", TakenAt: "t0",
+		Installed: installedTuple{LabelValue: "r7", TaintValue: "r7", TaintEffect: corev1.TaintEffectNoSchedule},
+	}
+	jraw, err := encodeJournal(j)
+	if err != nil {
+		t.Fatalf("encode journal: %v", err)
+	}
+	rraw, err := encodeResidue(residueRecord{
+		Schema: residueSchema, TxID: "tx-1", RunID: "r7", LeftAt: "2026-08-13T01:07:29Z",
+		Left: []residueLeft{{Kind: "Namespace", Name: "queuelab-r7", Absence: "present"}},
+	})
+	if err != nil {
+		t.Fatalf("encode residue: %v", err)
+	}
+	// Explicit rather than ourTaint(): verifyInstalled compares this value against j.Installed.TaintValue.
+	n := node(map[string]string{workerLabelKey: "r7"},
+		map[string]string{journalKey: jraw, residueKey: rraw},
+		corev1.Taint{Key: workerTaintKey, Value: "r7", Effect: corev1.TaintEffectNoSchedule})
+	return j, n
+}
+
+func residueOn(t *testing.T, c client.Client) (string, bool) {
+	t.Helper()
+	var got corev1.Node
+	if err := c.Get(context.Background(), client.ObjectKey{Name: "platform-worker"}, &got); err != nil {
+		t.Fatalf("get node: %v", err)
+	}
+	raw, ok := got.Annotations[residueKey]
+	return raw, ok
+}
+
+// The explanation goes with the thing it explains. A record surviving a release would be quoted by no
+// refusal — nothing refuses a free node — and read by a human as current long after the worker it described
+// was handed back.
+func TestReleaseClearsTheResidueRecord(t *testing.T) {
+	j, n := heldWithResidue(t)
+	fc := fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(n).Build()
+
+	if _, err := releaseAcquired(context.Background(), fc, j); err != nil {
+		t.Fatalf("release: %v", err)
+	}
+	if raw, ok := residueOn(t, fc); ok {
+		t.Fatalf("the residue record survived the release as %q", raw)
+	}
+}
+
+// forceQuarantine deliberately does NOT clear it. It is the explanation an operator most needs at the moment
+// they are breaking a hold by hand, and it cannot mislead while it sits there: decideAcquire refuses a
+// quarantined node on QuarantineRaw before it ever reaches the foreign-owner branch that quotes it.
+func TestForceQuarantineLeavesTheResidueRecordInPlace(t *testing.T) {
+	_, n := heldWithResidue(t)
+	want := n.Annotations[residueKey]
+	fc := fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(n).Build()
+
+	if err := forceQuarantine(context.Background(), fc, "platform-worker", "uid-node"); err != nil {
+		t.Fatalf("force: %v", err)
+	}
+	got, ok := residueOn(t, fc)
+	if !ok || got != want {
+		t.Fatalf("residue record is %q (present=%v), want it untouched; forcing is exactly when the operator "+
+			"needs to know why the worker was held", got, ok)
+	}
+}
+
+// clearQuarantine is the deliberate end of that state, so it is where the explanation ends too.
+func TestClearQuarantineRemovesTheResidueRecord(t *testing.T) {
+	_, n := heldWithResidue(t)
+	fc := fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(n).Build()
+	if err := forceQuarantine(context.Background(), fc, "platform-worker", "uid-node"); err != nil {
+		t.Fatalf("force: %v", err)
+	}
+	var forced corev1.Node
+	if err := fc.Get(context.Background(), client.ObjectKey{Name: "platform-worker"}, &forced); err != nil {
+		t.Fatalf("get node: %v", err)
+	}
+	q, err := decodeQuarantine(forced.Annotations[quarantineKey])
+	if err != nil {
+		t.Fatalf("decode quarantine: %v", err)
+	}
+
+	if err := clearQuarantine(context.Background(), fc, "platform-worker", q.QuarantineID); err != nil {
+		t.Fatalf("clear: %v", err)
+	}
+	if raw, ok := residueOn(t, fc); ok {
+		t.Fatalf("the residue record survived the quarantine being cleared as %q", raw)
+	}
+}

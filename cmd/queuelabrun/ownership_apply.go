@@ -561,6 +561,12 @@ func forceQuarantine(ctx context.Context, c client.Client, nodeName, nodeUID str
 	base := n.DeepCopy()
 	delete(n.Labels, workerLabelKey)
 	delete(n.Annotations, journalKey)
+	// The residue record is deliberately left in place. It is the explanation an operator most needs at the
+	// moment they are breaking a hold by hand, and it cannot mislead while it sits here: decideAcquire
+	// refuses a quarantined node on QuarantineRaw before it ever reaches the foreign-owner branch that quotes
+	// it. clearQuarantine is what removes it. Copying it into the quarantine record instead would mean
+	// bumping quarantineSchema, and that record is decoded with DisallowUnknownFields, so every older binary
+	// would then refuse every newer record.
 	if n.Annotations == nil {
 		n.Annotations = map[string]string{}
 	}
@@ -591,6 +597,9 @@ func clearQuarantine(ctx context.Context, c client.Client, nodeName, quarantineI
 	}
 	base := n.DeepCopy()
 	delete(n.Annotations, quarantineKey)
+	// The quarantine is the state that outlived the run; clearing it deliberately is where its explanation
+	// ends too.
+	delete(n.Annotations, residueKey)
 	if err := c.Patch(ctx, &n, client.MergeFromWithOptions(base, client.MergeFromWithOptimisticLock{})); err != nil {
 		return fmt.Errorf("clear quarantine on %s (state changed under you, re-inspect): %w", nodeName, err)
 	}
@@ -622,6 +631,9 @@ func releaseAcquired(ctx context.Context, c client.Client, j journal) (releaseAc
 		base := n.DeepCopy()
 		delete(n.Labels, workerLabelKey)
 		delete(n.Annotations, journalKey)
+		// The explanation goes with the thing it explains: once the markers are off, nothing refuses on this
+		// node, so a surviving record would be quoted by no refusal and read by a human as current.
+		delete(n.Annotations, residueKey)
 		n.Spec.Taints = withoutOwnershipTaint(obs.AllTaints)
 		err = c.Patch(ctx, &n, client.MergeFromWithOptions(base, client.MergeFromWithOptimisticLock{}))
 		switch {
