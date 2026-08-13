@@ -606,16 +606,20 @@ func TestAnUnreadableResidueRecordDoesNotBecomeItsOwnRefusal(t *testing.T) {
 
 // A quarantined node is refused for being quarantined, whatever else it carries — the quarantine branch runs
 // first and is the one state this tool has no remaining move for.
+//
+// The fixture also carries a journal, on top of the quarantine record, so reasonForeignOwner is a genuinely
+// live alternative here and not merely absent. A fixture with no journal at all would still pass this
+// assertion if the quarantine check were moved anywhere before the success return, since nothing else would
+// ever fire for it either way — that would prove only "quarantine is checked eventually," not "quarantine is
+// checked first."
 func TestQuarantineStillWinsOverAResidueNote(t *testing.T) {
 	q, err := encodeQuarantine(quarantine{Schema: quarantineSchema, QuarantineID: "q1", ForcedAt: "t",
 		Node: "platform-worker", NodeUID: "uid-node"})
 	if err != nil {
 		t.Fatalf("encode quarantine: %v", err)
 	}
-	n := node(nil, map[string]string{
-		quarantineKey: q,
-		residueKey:    residueRaw(t, residueLeft{Kind: "Namespace", Name: "queuelab-r7", Absence: "present"}),
-	})
+	n := heldByAnother(t, residueRaw(t, residueLeft{Kind: "Namespace", Name: "queuelab-r7", Absence: "present"}))
+	n.Annotations[quarantineKey] = q
 
 	_, aerr := decideAcquire(observe(n), n, "tx-new", "r8", "reclaim-on", "t1")
 	var r *refusal
