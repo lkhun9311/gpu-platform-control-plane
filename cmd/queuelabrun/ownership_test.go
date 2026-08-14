@@ -22,6 +22,7 @@ import (
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 )
@@ -80,6 +81,15 @@ func TestDecodeJournalRejectsUnknownFieldAndSchema(t *testing.T) {
 	}
 }
 
+// node is the worker every test in this package acquires, and it is Ready and advertising two devices
+// because that is what the cluster these runs are aimed at looks like: two kind workers, a gpu-simulator
+// DaemonSet registered on each with FAKE_GPU_COUNT=2 (hack/m6-kind-e2e.sh), and Kueue on top.
+//
+// Before the environment qualification existed this status was absent and nothing noticed, which is exactly
+// the point: a Node object with no allocatable devices and no Ready condition was an adequate stand-in for a
+// GPU worker only as long as nothing in the run ever asked what the machine was. Leaving it that way now
+// would make every run() test refuse at qualification and prove nothing about the paths they were written
+// for, so the double is corrected to match the machine rather than the check weakened to accept the double.
 func node(labels map[string]string, ann map[string]string, taints ...corev1.Taint) *corev1.Node {
 	return &corev1.Node{
 		ObjectMeta: metav1.ObjectMeta{
@@ -89,6 +99,12 @@ func node(labels map[string]string, ann map[string]string, taints ...corev1.Tain
 			Annotations: ann,
 		},
 		Spec: corev1.NodeSpec{Taints: taints},
+		Status: corev1.NodeStatus{
+			Allocatable: corev1.ResourceList{gpuResourceName: *resource.NewQuantity(2, resource.DecimalSI)},
+			Conditions: []corev1.NodeCondition{
+				{Type: corev1.NodeReady, Status: corev1.ConditionTrue},
+			},
+		},
 	}
 }
 

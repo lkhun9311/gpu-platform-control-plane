@@ -59,6 +59,13 @@ type runRecord struct {
 	// Residue is what this run's teardown could not prove gone. Empty is the ordinary case and says nothing;
 	// a non-empty one is the fact the next run has to refuse to start on.
 	Residue []recordResidue `json:"residue,omitempty"`
+	// Qualification is what the run observed about its worker before it created anything on it.
+	//
+	// It is a pointer, and absent means the run never got that far — a refused acquisition, a failed connect —
+	// rather than a worker that qualified. A struct value would write a zero qualification for those runs,
+	// claiming a node named "" advertising no devices was inspected and found fine, which is the one thing a
+	// record must never do.
+	Qualification *qualification `json:"qualification,omitempty"`
 }
 
 // recordResidue is the record's own projection of a residue entry, and deliberately not teardown.go's
@@ -159,6 +166,11 @@ type previewRecord struct {
 	// the residue for the only mode currently producing any. It is safe here for the same structural reason
 	// the type's own comment gives: recordResidue has no field a lifecycle ledger can be decoded out of.
 	Residue []recordResidue `json:"residue,omitempty"`
+	// Qualification is carried here for the same reason Residue is, and is safe here for the same structural
+	// reason: it describes the machine, not the run's lifecycle, and has no field a ledger can be decoded out
+	// of. A preview runs the whole of run(), so it qualifies its worker exactly as a real run does, and a
+	// preview whose record did not say what it found would be a smoke check of an unnamed machine.
+	Qualification *qualification `json:"qualification,omitempty"`
 }
 
 // previewNote is a fixed constant, never anything derived from the run.
@@ -196,8 +208,8 @@ func classified(o outcome) outcome {
 // This is the only place the preview and non-preview branches diverge, so the guarantee that a gateless run
 // cannot emit reconstructable evidence lives in one readable decision rather than being spread across the
 // call sites that write.
-func buildRecord(o outcome, events []queuelab.LifecycleEvent, left []residue, runID, arm string, preview bool,
-	started, ended time.Time) any {
+func buildRecord(o outcome, events []queuelab.LifecycleEvent, left []residue, qual *qualification,
+	runID, arm string, preview bool, started, ended time.Time) any {
 	o = classified(o)
 	persistedResidue := residueForRecord(left)
 	startedAt := started.UTC().Format(time.RFC3339)
@@ -215,6 +227,7 @@ func buildRecord(o outcome, events []queuelab.LifecycleEvent, left []residue, ru
 			EventCount:    len(events),
 			Note:          previewNote,
 			Residue:       persistedResidue,
+			Qualification: qual,
 		}
 	}
 	return runRecord{
@@ -227,6 +240,7 @@ func buildRecord(o outcome, events []queuelab.LifecycleEvent, left []residue, ru
 		Reason:        o.Reason,
 		Events:        events,
 		Residue:       persistedResidue,
+		Qualification: qual,
 	}
 }
 

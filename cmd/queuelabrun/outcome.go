@@ -33,8 +33,18 @@ const (
 	dispClientFailed         = disposition("client-failed")
 	dispProtocolBuildFailed  = disposition("protocol-build-failed")
 	dispAcquisitionRefused   = disposition("acquisition-refused")
-	dispSetupFailed          = disposition("setup-failed")
-	dispCancelled            = disposition("cancelled")
+	// dispEnvironmentUnqualified is the worker being the wrong machine to measure on, which is a fact about
+	// the cluster rather than a failure of this program to do something.
+	//
+	// It is not folded into setup-failed, and the distinction is the point of having a disposition at all: a
+	// setup failure is this run's own Create being refused and the operator's move is to look at this run,
+	// while an unqualified environment is a leftover GPU Pod, a cordon or a node too small for the arm and the
+	// operator's move is to look at the cluster. Collapsing them would make every record carrying either one
+	// require its free-text reason to be read before it could be classified, which is what the disposition
+	// exists to make unnecessary.
+	dispEnvironmentUnqualified = disposition("environment-unqualified")
+	dispSetupFailed            = disposition("setup-failed")
+	dispCancelled              = disposition("cancelled")
 	// There is deliberately no "observation-failed": waitForHorizon has exactly two returns, a
 	// cancellation-wrapped error and nil, so an observation window can only end early by being cancelled.
 	// The failures that happen DURING observation are already named — a barrier that cannot be met desyncs

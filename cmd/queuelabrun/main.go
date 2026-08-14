@@ -93,7 +93,7 @@ func main() {
 	// explanation that must not be squeezed behind the "ERROR:" prefix the one-line refusals carry.
 	refuseInvocation := func(err error) {
 		rec := buildRecord(outcome{Disposition: dispRefusedBeforeCluster, Reason: err.Error()},
-			nil, nil, recordRunID(*runID), *armFlag, *preview, started, time.Now())
+			nil, nil, nil, recordRunID(*runID), *armFlag, *preview, started, time.Now())
 		if werr := writeRecord(recordPath, rec); werr != nil {
 			// The record that failed to persist cannot report its own failure, so this is the one outcome that
 			// exists only on stderr. It says the record is unproven rather than that nothing changed: a
@@ -190,16 +190,16 @@ func main() {
 	defer stop()
 	// run publishes nothing and persists nothing: its deferred teardown and emergency release both amend the
 	// outcome AFTER the return value has been chosen, so anything written from inside it could be
-	// contradicted a moment later. By the time these four values exist here, every defer has finished
+	// contradicted a moment later. By the time these five values exist here, every defer has finished
 	// amending them.
-	o, events, res, left := run(ctx, newClusterClient, arm, *runID, namespace, *worker, horizon,
+	o, events, res, left, qual := run(ctx, newClusterClient, arm, *runID, namespace, *worker, horizon,
 		recordPath, time.Now, time.Sleep)
 
 	os.Exit(reportRun(os.Stdout, os.Stderr, writeRecord, runReport{
 		Outcome: o,
 		Events:  events,
 		Result:  res,
-		Record:  buildRecord(o, events, left, *runID, string(arm), *preview, started, time.Now()),
+		Record:  buildRecord(o, events, left, qual, *runID, string(arm), *preview, started, time.Now()),
 		Path:    recordPath,
 		Preview: *preview,
 	}))
@@ -588,6 +588,9 @@ func phaseFailure(phase disposition, what string, err error) outcome {
 // have finished amending. left is named for the same reason and carries the residue out to the record —
 // residue that only reached stderr would be printed and lost, which is the failure the record exists to end.
 // Every return path sets o; a zero disposition reaching the record would be a silent lie about what happened.
+// qual is named for the same reason again, and carries what the worker was found to be BEFORE this run
+// created anything on it — including on the path where that observation is what refused the run, which is the
+// path whose evidence would otherwise exist only as a sentence on somebody's terminal.
 //
 // connect is a parameter rather than a direct newClusterClient call for the same reason dispatchOperatorMode
 // takes one: without that seam the amendment this function is shaped around is reachable only by reading it,
@@ -604,7 +607,7 @@ func phaseFailure(phase disposition, what string, err error) outcome {
 // strings a caller can transpose in silence, and a fourth would make that worse.
 func run(ctx context.Context, connect clusterClientFunc, arm queuelab.Arm, runID, namespace, worker string,
 	horizon time.Duration, recordPath string, now func() time.Time, sleep func(time.Duration)) (o outcome,
-	events []queuelab.LifecycleEvent, res *queuelab.LabResult, left []residue) {
+	events []queuelab.LifecycleEvent, res *queuelab.LabResult, left []residue, qual *qualification) {
 	study := queuelab.StudyReclaim
 	c, err := connect()
 	if err != nil {
@@ -721,6 +724,35 @@ func run(ctx context.Context, connect clusterClientFunc, arm queuelab.Arm, runID
 			workerHeldForResidue = true
 		}
 	}()
+
+	// The worker is qualified here: after acquisition, so nothing new can land on it while this looks, and
+	// before the run's first Create, so a refusal leaves nothing of ours behind to clean up.
+	//
+	// It sits BELOW the teardown defer rather than above it even though it creates nothing, so that everything
+	// from this point down is covered by one blanket guarantee. The cost is a teardown pass over objects that
+	// were never created on the refusal path, which observes them absent and reports no residue; the gain is
+	// that an edit which later adds a Create to this stretch cannot fall outside the containment by accident.
+	//
+	// It runs for a preview too, because run() takes no preview flag and should not: -preview waives the
+	// gateRefusal that says the validity gates are unimplemented, and this is not one of those gates. It
+	// protects the premise a measurement is about rather than the admissibility of its result, and a smoke
+	// check of a machine that is not the one under test is not a weaker smoke check but a different one.
+	required, requiredFrom, err := requiredGPU(fs)
+	if err != nil {
+		o = phaseFailure(dispEnvironmentUnqualified, "sizing the worker against this run's fixtures", err)
+		return
+	}
+	var qerr error
+	// The observation is assigned to the named return before the error is inspected, so the refusal path
+	// records what it saw rather than only that it refused.
+	qual, qerr = qualifyWorker(ctx, c, worker, required, requiredFrom)
+	if qerr != nil {
+		fmt.Fprintf(os.Stderr, "ENVIRONMENT NOT QUALIFIED: %v\n", qerr)
+		o = phaseFailure(dispEnvironmentUnqualified, fmt.Sprintf("qualifying worker %s", worker), qerr)
+		return
+	}
+	fmt.Printf("  worker %s qualified: %d allocatable %s (this arm needs %d), %d pod(s) on the node and none "+
+		"holding a device\n", worker, qual.AllocatableGPU, gpuResourceName, qual.RequiredGPU, qual.PodsOnNode)
 
 	if err := ensureNamespace(ctx, c, namespace, txID); err != nil {
 		o = phaseFailure(dispSetupFailed, fmt.Sprintf("ensuring namespace %s", namespace), err)

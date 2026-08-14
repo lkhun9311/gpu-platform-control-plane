@@ -304,7 +304,7 @@ func TestRunRecordCarriesTheResidueAndStillDecodes(t *testing.T) {
 		Absence: absenceUnknown,
 	}}
 
-	rec := buildRecord(outcome{Disposition: dispResidueLeft, Reason: "teardown left 1 object(s)"}, nil, left,
+	rec := buildRecord(outcome{Disposition: dispResidueLeft, Reason: "teardown left 1 object(s)"}, nil, left, nil,
 		"r7", "A-honor", false, time.Now(), time.Now())
 	b, err := encodeRecord(rec)
 	if err != nil {
@@ -385,7 +385,7 @@ func TestPreviewRecordCarriesResidueToo(t *testing.T) {
 		},
 		Absence: absencePresent,
 	}}
-	pr, ok := buildRecord(outcome{Disposition: dispResidueLeft}, nil, left, "r7", "A-honor", true,
+	pr, ok := buildRecord(outcome{Disposition: dispResidueLeft}, nil, left, nil, "r7", "A-honor", true,
 		time.Now(), time.Now()).(previewRecord)
 	if !ok {
 		t.Fatal("a preview invocation must build a previewRecord")
@@ -395,5 +395,97 @@ func TestPreviewRecordCarriesResidueToo(t *testing.T) {
 	}
 	if pr.Residue[0].Absence != "present" {
 		t.Fatalf("verdict = %q, want present", pr.Residue[0].Absence)
+	}
+}
+
+// What the run observed about its worker has to survive into the artifact, through a decoder that rejects
+// anything it does not fully understand. A qualification that only reached stderr is the same loss the
+// residue field was added to end: the run that refused is exactly the run whose evidence nobody kept.
+//
+// The refusal shape is asserted rather than the clean one, because the clean one is the case where dropping
+// the field costs least — an empty consumer list read back as an empty consumer list looks identical whether
+// it was persisted or not.
+//
+// Mutation that turns this red: delete the Qualification field from runRecord, or stop assigning it in
+// buildRecord. Either leaves the whole package green apart from this test and its preview twin below.
+func TestRunRecordCarriesTheQualificationAndStillDecodes(t *testing.T) {
+	q := &qualification{
+		Node:           "platform-worker",
+		NodeUID:        "uid-node",
+		AllocatableGPU: 2,
+		RequiredGPU:    2,
+		RequiredFrom:   "nominal nvidia.com/gpu quota summed over 2 ClusterQueue(s) on flavor queuelab-gpu-r7",
+		Ready:          true,
+		Schedulable:    true,
+		PodsOnNode:     4,
+		GPUConsumers: []gpuConsumer{
+			{Namespace: "tenant-a", Name: "train-7", Phase: "Running", Terminating: true, GPUs: 2},
+		},
+	}
+	rec := buildRecord(outcome{Disposition: dispEnvironmentUnqualified, Reason: "a GPU Pod was already there"},
+		nil, nil, q, "r7", "A-honor", false, time.Now(), time.Now())
+	b, err := encodeRecord(rec)
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	got, err := decodeRunRecord(b)
+	if err != nil {
+		t.Fatalf("a record carrying a qualification must decode, or the evidence is written and then "+
+			"unreadable exactly on the runs that produced it: %v\n%s", err, b)
+	}
+	if got.Qualification == nil {
+		t.Fatalf("the qualification did not survive the round trip:\n%s", b)
+	}
+	if !reflect.DeepEqual(*got.Qualification, *q) {
+		t.Fatalf("the qualification changed on the round trip:\n got %+v\nwant %+v\n%s", *got.Qualification, *q, b)
+	}
+	// The denominator is the half a projection is most likely to drop, because it is the field that says
+	// nothing on its own: "no foreign consumer among four Pods inspected" is a claim, and "no foreign
+	// consumer" with no count is indistinguishable from having looked in the wrong place.
+	if got.Qualification.PodsOnNode != 4 {
+		t.Fatalf("PodsOnNode = %d, want 4", got.Qualification.PodsOnNode)
+	}
+	t.Logf("persisted record:\n%s", b)
+}
+
+// A run refused before it ever reached its worker — a bad flag, a refused acquisition — has observed nothing,
+// and a record for it must say nothing rather than write a zero qualification claiming a node named "" was
+// inspected and found fine. That is why the field is a pointer.
+//
+// Mutation that turns this red: make runRecord.Qualification a value rather than a pointer. The key then
+// appears on every record ever written, populated with zeros, and every reader has to know that Ready:false
+// on a node with no name means "not checked".
+func TestARecordWithNoQualificationCarriesNoQualificationKey(t *testing.T) {
+	rec := buildRecord(outcome{Disposition: dispAcquisitionRefused, Reason: "held by another run"},
+		nil, nil, nil, "r7", "A-honor", false, time.Now(), time.Now())
+	b, err := encodeRecord(rec)
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	if strings.Contains(string(b), "qualification") {
+		t.Fatalf("a run that never qualified its worker wrote a qualification anyway:\n%s", b)
+	}
+}
+
+// A preview runs the whole of run(), so it qualifies its worker exactly as a real run does. Withholding the
+// qualification from its record would lose the observation for the only mode that currently produces one on a
+// live cluster, and it is safe here for the same structural reason the residue is: it describes the machine,
+// and has no field a lifecycle ledger can be decoded out of.
+//
+// Mutation that turns this red: drop Qualification from previewRecord or stop assigning it in buildRecord's
+// preview branch.
+func TestPreviewRecordCarriesTheQualificationToo(t *testing.T) {
+	q := &qualification{Node: "platform-worker", NodeUID: "uid-node", AllocatableGPU: 2, RequiredGPU: 2,
+		Ready: true, Schedulable: true, PodsOnNode: 3}
+	pr, ok := buildRecord(outcome{Disposition: dispChecksPassed}, nil, nil, q, "r7", "A-honor", true,
+		time.Now(), time.Now()).(previewRecord)
+	if !ok {
+		t.Fatal("a preview invocation must build a previewRecord")
+	}
+	if pr.Qualification == nil || pr.Qualification.Node != "platform-worker" {
+		t.Fatalf("a preview's record must say which machine it smoke-tested, got %+v", pr.Qualification)
+	}
+	if pr.Qualification.PodsOnNode != 3 {
+		t.Fatalf("PodsOnNode = %d, want 3", pr.Qualification.PodsOnNode)
 	}
 }
