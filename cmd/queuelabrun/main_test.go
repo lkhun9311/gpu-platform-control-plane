@@ -2328,9 +2328,12 @@ func TestAPassingRunRecordsTheObservationAndCallsItselfAdmissible(t *testing.T) 
 		t.Fatalf("a run with every implemented gate's evidence intact is %q, got %+v:\n%s",
 			verdictAdmissible, got.Validity, b)
 	}
-	if len(got.Validity.UnimplementedGates) == 0 {
-		t.Fatal("an admissible record must still carry what this build cannot check at all: the termination " +
-			"canary is genuinely missing, and a verdict that did not say so would read as more than it says")
+	// Exactly recordUnchecked, not gateRefusal's roadmap: the termination canary is genuinely missing and the
+	// record has to keep saying so, but a record asserting this build lacks the very gates whose evidence it
+	// carries tells its reader to discount that evidence.
+	if !reflect.DeepEqual(got.Validity.UnimplementedGates, recordUnchecked()) {
+		t.Fatalf("the record's unchecked list is %v, want exactly %v",
+			got.Validity.UnimplementedGates, recordUnchecked())
 	}
 	t.Logf("verdict persisted by a passing run: %+v", got.Validity)
 }

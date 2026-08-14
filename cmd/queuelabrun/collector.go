@@ -123,6 +123,29 @@ func (col *collector) elapsed() time.Duration { return time.Since(col.t0) }
 // boundary taken from any other origin would be offset from the very events it censors.
 func (col *collector) horizonNs() int64 { return col.deadline.Sub(col.t0).Nanoseconds() }
 
+// watchedKinds is the set of views one run opens, and it is hoisted out of start's body so that the record's
+// own completeness check and the loop that opens the streams cannot name different sets.
+//
+// The lift changes no decision: same kinds, same order, same list constructors. What it buys is that
+// observationContinuous can ask whether a persisted observation covers every kind this build watches rather
+// than counting to a number written down twice — and a build that later adds a fifth view gets a record that
+// refuses to read four streams as a complete observation, instead of quietly narrowing what "continuous"
+// means.
+func watchedKinds() []struct {
+	kind    string
+	newList func() client.ObjectList
+} {
+	return []struct {
+		kind    string
+		newList func() client.ObjectList
+	}{
+		{kindMLTrainingJob, func() client.ObjectList { return &platformv1.MLTrainingJobList{} }},
+		{kindJob, func() client.ObjectList { return &batchv1.JobList{} }},
+		{kindWorkload, func() client.ObjectList { return &kueuev1beta2.WorkloadList{} }},
+		{kindPod, func() client.ObjectList { return &corev1.PodList{} }},
+	}
+}
+
 // start opens one continuous stream per watched kind and consumes each into the ledger.
 //
 // A stream is a baseline List plus a watch resuming from exactly that list's resource version, and the
@@ -135,16 +158,7 @@ func (col *collector) horizonNs() int64 { return col.deadline.Sub(col.t0).Nanose
 // It returns an error rather than logging one because nothing downstream can compensate for a view that was
 // never opened. The caller must refuse the run before it submits work it cannot observe.
 func (col *collector) start(ctx context.Context) error {
-	kinds := []struct {
-		kind    string
-		newList func() client.ObjectList
-	}{
-		{kindMLTrainingJob, func() client.ObjectList { return &platformv1.MLTrainingJobList{} }},
-		{kindJob, func() client.ObjectList { return &batchv1.JobList{} }},
-		{kindWorkload, func() client.ObjectList { return &kueuev1beta2.WorkloadList{} }},
-		{kindPod, func() client.ObjectList { return &corev1.PodList{} }},
-	}
-	for _, k := range kinds {
+	for _, k := range watchedKinds() {
 		s, err := startWatchStream(ctx, col.c, namespaceScope(col.ns), k.newList)
 		if err != nil {
 			col.abort()

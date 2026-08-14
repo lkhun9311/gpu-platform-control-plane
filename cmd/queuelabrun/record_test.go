@@ -53,7 +53,7 @@ func TestRunRecordRoundTrips(t *testing.T) {
 		Validity: validity{
 			Verdict:            verdictRefused,
 			Failures:           []string{failureObservation, failureExclusivity},
-			UnimplementedGates: unimplementedGates(),
+			UnimplementedGates: recordUnchecked(),
 		},
 	}
 	b, err := encodeRecord(in)
@@ -498,10 +498,14 @@ func TestARecordWithNoQualificationCarriesNoQualificationKey(t *testing.T) {
 	if err != nil {
 		t.Fatalf("encode: %v", err)
 	}
-	// The JSON KEY, not the bare word: the validity block carries unimplementedGates(), one of whose entries
-	// is "environment qualification (capacity, foreign GPU pods, termination canary)", so a substring check for
-	// the word alone now fires on a record that correctly wrote no qualification at all.
-	if strings.Contains(string(b), `"qualification":`) {
+	// The bare WORD, not merely the JSON key, and it is back to the bare word after a round trip through the
+	// weaker check. When the validity block carried gateRefusal's roadmap, one of its entries read "environment
+	// qualification (capacity, foreign GPU pods, termination canary)" and this check fired on a record that
+	// correctly wrote no qualification — so it was narrowed to the key, losing the reach that catches the word
+	// appearing anywhere at all. recordUnchecked names the canary without the word, so the strong check stands
+	// again; a future entry that reintroduces it will fail here and should be reworded rather than the check
+	// weakened a second time.
+	if strings.Contains(string(b), "qualification") {
 		t.Fatalf("a run that never qualified its worker wrote a qualification anyway:\n%s", b)
 	}
 }
@@ -803,9 +807,9 @@ func TestRunRecordCarriesTheObservationAndStillDecodes(t *testing.T) {
 	if got.Validity.Verdict != verdictAdmissible || len(got.Validity.Failures) != 0 {
 		t.Fatalf("a run with every gate's evidence intact is %q, got %+v", verdictAdmissible, got.Validity)
 	}
-	if len(got.Validity.UnimplementedGates) == 0 {
-		t.Fatal("an admissible record must still carry what this build cannot check at all, or the verdict " +
-			"reads as more than it says")
+	if !reflect.DeepEqual(got.Validity.UnimplementedGates, recordUnchecked()) {
+		t.Fatalf("an admissible record must carry what this build cannot check at all, and exactly that: %v",
+			got.Validity.UnimplementedGates)
 	}
 	t.Logf("persisted record:\n%s", b)
 }
@@ -851,15 +855,40 @@ func TestValidityKeepsTheExclusivityFailureTheReasonHasLost(t *testing.T) {
 // that collapsed them — returning early, or keying every claim off the disposition — would make the block a
 // second spelling of `disposition` and buy a reader nothing.
 //
-// Mutation that turns this red: make deriveValidity stop at the first failure it appends (guard each check
-// after the disposition with `len(v.Failures) == 0`). The single-failure rows all survive it — which is why
-// the two-claim row at the bottom is not padding.
+// Mutations that turn this red, one per clause the rows exist to reach — every one of them was run:
+//
+//   - make deriveValidity stop at the first failure it appends (guard each check after the disposition with
+//     `len(v.Failures) == 0`). Only the two-claim row at the bottom catches this, which is why it is not
+//     padding.
+//   - delete `s.LastStatus != ""` from observationContinuous. Nothing else in the package caught this: the
+//     clause shipped in the first round of this gate with no fixture anywhere setting a LastStatus.
+//   - delete the resume-point check from observationContinuous.
+//   - make observationContinuous check only the streams that are PRESENT rather than the watchedKinds set
+//     (`for _, present := range obs.Streams { s, ok := seen[present.Kind] ... }`).
+//   - delete the `q.Node == "" || q.RequiredGPU < 1` floor from environmentEstablished.
 func TestValidityNamesTheClaimTheFieldsActuallyFail(t *testing.T) {
 	pass := outcome{Disposition: dispChecksPassed}
 	lostStream := testObservation()
 	lostStream.Streams[3].Cancelled = false
 	unestablished := testObservation()
 	unestablished.Established = false
+	// A loss the cancellation MASKS: this stream forwarded a terminal 410 and was then cancelled at the
+	// horizon like every other. Cancelled alone would wave it through, and an expired resume point is the one
+	// thing RetryWatcher cannot resume past — the likeliest way a real apiserver breaks this gate.
+	maskedLoss := testObservation()
+	maskedLoss.Streams[3].LastStatus = "terminal watch error: too old resource version (code 410, reason Expired)"
+	unknownResume := testObservation()
+	unknownResume.Streams[2].BaselineResourceVersion = "0"
+	// Three healthy streams and no Workload view at all: a length check would accept this, and a record
+	// missing the kind that carries admission and preemption is not a view of a reclaim run.
+	missingKind := testObservation()
+	missingKind.Streams = missingKind.Streams[:3]
+	unnamedNode := testQualification()
+	unnamedNode.Node = ""
+	// The floor: 0 >= 0 satisfies the capacity test on its own, so without it a qualification that established
+	// nothing about nothing reads as a worker this run could measure on.
+	noRequirement := testQualification()
+	noRequirement.RequiredGPU, noRequirement.AllocatableGPU = 0, 0
 	contended := testQualification()
 	contended.GPUConsumers = []gpuConsumer{{Namespace: "tenant-a", Name: "train-7", Phase: "Running", GPUs: 1}}
 	blindWindow := testWindow()
@@ -883,11 +912,21 @@ func TestValidityNamesTheClaimTheFieldsActuallyFail(t *testing.T) {
 			[]string{failureObservation}},
 		{"never established", pass, nil, testQualification(), testWindow(), unestablished,
 			[]string{failureObservation}},
+		{"a 410 masked by the horizon's own cancellation", pass, nil, testQualification(), testWindow(),
+			maskedLoss, []string{failureObservation}},
+		{"a stream resumed from an unknown point", pass, nil, testQualification(), testWindow(), unknownResume,
+			[]string{failureObservation}},
+		{"a kind that was never watched", pass, nil, testQualification(), testWindow(), missingKind,
+			[]string{failureObservation}},
 		{"never observed at all", pass, nil, testQualification(), testWindow(), nil,
 			[]string{failureObservation}},
 		{"a foreign GPU pod", pass, nil, contended, testWindow(), testObservation(),
 			[]string{failureEnvironment}},
 		{"never qualified", pass, nil, nil, testWindow(), testObservation(), []string{failureEnvironment}},
+		{"a qualification naming no node", pass, nil, unnamedNode, testWindow(), testObservation(),
+			[]string{failureEnvironment}},
+		{"a requirement of nothing on a node advertising nothing", pass, nil, noRequirement, testWindow(),
+			testObservation(), []string{failureEnvironment}},
 		{"a window that compared nothing", pass, nil, testQualification(), blindWindow, testObservation(),
 			[]string{failureExclusivity}},
 		{"no window at all", pass, nil, testQualification(), nil, testObservation(),
@@ -971,9 +1010,15 @@ func TestDecodeRunRecordRefusesAnAdmissibleVerdictItsFieldsDoNotSupport(t *testi
 		`"ourMarkersRemoved":true}}`
 	qual := `{"node":"platform-worker","nodeUID":"uid-node","allocatableGPU":2,"requiredGPU":2,` +
 		`"requiredFrom":"x","requiredBoundBy":"nominal-quota-sum","ready":true,"schedulable":true,"podsOnNode":6}`
+	// All four watched kinds, because a document short of one is not a continuous view and would be refused
+	// by the clause above the forgery this test is about — which would make the test pass for the wrong reason.
+	stream := func(kind string) string {
+		return fmt.Sprintf(`{"kind":%q,"baselineResourceVersion":"2000","baselineObjects":0,`+
+			`"ended":true,"cancelled":true,"stopped":false}`, kind)
+	}
 	obs := `{"namespace":"queuelab-r7","horizonNs":1,"established":true,"establishedNs":1,` +
-		`"establishBudgetNs":1,"streams":[{"kind":"Pod","baselineResourceVersion":"2000","baselineObjects":0,` +
-		`"ended":true,"cancelled":true,"stopped":false}]}`
+		`"establishBudgetNs":1,"streams":[` + stream(kindMLTrainingJob) + `,` + stream(kindJob) + `,` +
+		stream(kindWorkload) + `,` + stream(kindPod) + `]}`
 
 	// A window that saw the worker shared, under a verdict that says every gate passed: exactly the shape the
 	// exclusivity discriminator exists to catch, forged rather than measured.
@@ -991,12 +1036,63 @@ func TestDecodeRunRecordRefusesAnAdmissibleVerdictItsFieldsDoNotSupport(t *testi
 	if _, err := decodeRunRecord(unobserved); err == nil {
 		t.Fatal("a record claiming to be admissible while carrying no observation at all was accepted")
 	}
+	// A document that claims the strongest verdict AND lists claims it did not support is contradicting
+	// itself, whatever its other fields say. It is refused by its own arm rather than by the re-derivation
+	// above, because the fields here DO support admissible — only the block disagrees with itself.
+	//
+	// Mutation that turns this red: delete the `len(r.Validity.Failures) > 0` check from checkValidity's
+	// admissible arm. The document then decodes, and a reader is handed a verdict and a list of reasons not to
+	// believe it in the same object.
+	contradictory := fmt.Appendf(nil, `{"schemaVersion":%d,"runID":"r7","arm":"A-honor",`+
+		`"disposition":"completed-implemented-checks-passed","validity":{"verdict":%q,"failures":[%q]},`+
+		`"qualification":%s,"window":`+window+`,"observation":%s}`,
+		recordSchemaVersion, verdictAdmissible, failureExclusivity, qual, 0, obs)
+	if _, err := decodeRunRecord(contradictory); err == nil {
+		t.Fatal("a record claiming to be admissible while listing a failed claim was accepted")
+	}
+
 	// And the supported one must decode, or the guard is refusing the records it was written to protect.
 	ok := fmt.Appendf(nil, `{"schemaVersion":%d,"runID":"r7","arm":"A-honor",`+
 		`"disposition":"completed-implemented-checks-passed","validity":%s,"qualification":%s,"window":`+window+
 		`,"observation":%s}`, recordSchemaVersion, admissible, qual, 0, obs)
 	if _, err := decodeRunRecord(ok); err != nil {
 		t.Fatalf("a well-formed admissible record was refused: %v", err)
+	}
+}
+
+// The record's statement about what it could not check must describe the build that wrote it, not the
+// roadmap gateRefusal shows an operator once on a terminal.
+//
+// This is the defect the first round of this gate shipped and a live run exposed: the block carried
+// unimplementedGates(), so a record holding an observation, a qualification, a window and a derived verdict
+// asserted inside itself that this build had no "synchronized list+watch with resourceVersion continuity"
+// and no "validity-bearing run artifact" — the block printed beside it, and the block making the assertion.
+// A reader following that list would discount exactly the evidence this gate exists to add.
+//
+// The canary is asserted as PRESENT as well, because a list narrowed to nothing would pass a "does not name
+// the implemented gates" check while quietly claiming this build checks everything. Something is genuinely
+// missing and the record has to keep saying so.
+//
+// Mutation that turns this red: put `unimplementedGates()` back in deriveValidity.
+func TestTheRecordsUncheckedListDescribesTheBuildNotTheRoadmap(t *testing.T) {
+	rec, ok := buildRecord(outcome{Disposition: dispChecksPassed}, nil, nil, testQualification(), testWindow(),
+		testObservation(), "r7", "A-honor", false, time.Now(), time.Now()).(runRecord)
+	if !ok {
+		t.Fatal("a non-preview invocation must build a runRecord")
+	}
+	got := strings.Join(rec.Validity.UnimplementedGates, "\n")
+	if !strings.Contains(got, "termination canary") {
+		t.Fatalf("the record no longer says the one thing this build genuinely cannot check: %q", got)
+	}
+	// Every gate this build DOES implement, named by the thing a reader would look for. Each of these appears
+	// in unimplementedGates(), so a record repeating that list fails on all three at once.
+	for _, implemented := range []string{"resourceVersion continuity", "validity-bearing run artifact",
+		"continuous ownership evidence"} {
+		if strings.Contains(got, implemented) {
+			t.Fatalf("the record claims this build lacks %q while carrying that gate's own evidence beside "+
+				"the claim; a reader is being told to discount the block the claim is written in: %q",
+				implemented, got)
+		}
 	}
 }
 

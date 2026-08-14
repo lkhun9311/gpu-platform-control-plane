@@ -118,8 +118,8 @@ type runRecord struct {
 // persists one and a reader classifies on it, so a reworded string would silently become a different verdict.
 const (
 	// verdictAdmissible names what this build can actually establish, and deliberately not "valid" — for
-	// dispChecksPassed's reason, and it carries unimplementedGates() alongside so the gap is in the document
-	// rather than in the reader's memory.
+	// dispChecksPassed's reason, and it carries recordUnchecked alongside so the gap is in the document rather
+	// than in the reader's memory.
 	//
 	// NO INVOCATION OF THIS BUILD CAN WRITE IT, and that is worth stating rather than discovering. gateRefusal
 	// refuses every non-preview run, so a real record today is either a refusal or a preview, and a preview is
@@ -153,6 +153,34 @@ const (
 	failureContainment   = "cluster-not-left-as-this-run-found-it"
 )
 
+// recordUnchecked is what a record cannot speak for, and it is deliberately NOT unimplementedGates().
+//
+// The first version of this block carried gateRefusal's list, on a DRY argument that inverts here. The two
+// consumers need different content. gateRefusal's list is a ROADMAP shown once on a terminal, and it may be
+// over-broad without costing anything — an item still named after it lands only delays the moment somebody
+// narrows it. This list is a DURABLE STATEMENT about the document it sits in, read by someone who was not
+// there, and an over-broad entry there is simply false about the build that wrote it.
+//
+// The live artifact is what settled it. A record carrying an observation block, a qualification, a window and
+// a derived verdict was written while asserting, inside itself, that this build has no "synchronized
+// list+watch with resourceVersion continuity" and no "validity-bearing run artifact". The first is the very
+// block printed beside it; the second is the block making the assertion. A reader following that list would
+// discount exactly the evidence this gate was written to add.
+//
+// So one entry, and only what is verifiable from the code: qualifyWorker checks capacity and foreign GPU
+// consumers, and nothing anywhere checks that this worker can actually terminate a Pod. The name is carried
+// through from unimplementedGates' own wording so an operator holding both can match them up.
+//
+// It is a function rather than a package-level slice for the reason unimplementedGates() is one: a slice
+// would be mutable from anywhere, and a caller that appended to what it was handed would edit what every
+// later record claims about itself.
+func recordUnchecked() []string {
+	return []string{
+		"termination canary: qualifyWorker checks capacity and foreign GPU consumers, and nothing in this " +
+			"build checks that the worker can actually terminate a Pod",
+	}
+}
+
 // validity states, once and in the record, what the evidence beside it supports.
 //
 // It exists because the alternative is every consumer re-deriving it, and the re-derivation people actually
@@ -168,8 +196,12 @@ type validity struct {
 	// compare equal.
 	Failures []string `json:"failures,omitempty"`
 	// UnimplementedGates is what this build cannot check AT ALL, carried so that verdictAdmissible cannot be
-	// read as more than it says. It is the same list gateRefusal prints, from the same function, because a
-	// second copy of it here would be a second thing to keep in step with the work as gates land.
+	// read as more than it says.
+	//
+	// It comes from recordUnchecked and NOT from gateRefusal's unimplementedGates(), which is a roadmap rather
+	// than a statement about a document; recordUnchecked's own comment argues why sharing one list makes the
+	// durable one false. The field name still fits what it now holds: a gate this build has not implemented is
+	// exactly a check this record cannot speak for, and the two coincide.
 	UnimplementedGates []string `json:"unimplementedGates,omitempty"`
 }
 
@@ -180,7 +212,7 @@ type validity struct {
 // o.Reason, and nothing may: that string is the human's account of whichever failure came first.
 func deriveValidity(o outcome, left []recordResidue, qual *qualification, win *ownershipWindow,
 	obs *observationEvidence, preview bool) validity {
-	v := validity{Verdict: verdictAdmissible, UnimplementedGates: unimplementedGates()}
+	v := validity{Verdict: verdictAdmissible, UnimplementedGates: recordUnchecked()}
 	// The disposition is a claim of its own rather than a summary of the four below it. A run can hold its
 	// worker, qualify it, observe continuously and still be cancelled at the horizon, and a record that only
 	// listed gate failures would call that one admissible.
@@ -220,10 +252,32 @@ func deriveValidity(o outcome, left []recordResidue, qual *qualification, win *o
 func observationContinuous(obs *observationEvidence) bool {
 	// An absent block is a run that never built a collector, and no streams at all is one whose very first
 	// baseline was refused. Neither observed the run, and neither may read as though it had.
-	if obs == nil || !obs.Established || len(obs.Streams) == 0 {
+	if obs == nil || !obs.Established {
 		return false
 	}
+	seen := map[string]streamEvidence{}
 	for _, s := range obs.Streams {
+		seen[s.Kind] = s
+	}
+	// Every kind this build watches has to be there. A record carrying one healthy stream out of four is not a
+	// continuous view of the run, and counting the entries would not say so — three Pod streams and no
+	// Workload stream would satisfy any length check. This is why watchedKinds was hoisted: the set that
+	// decides here is the set that opened them.
+	//
+	// It does couple a record to the build reading it, and that is accepted rather than overlooked: a build
+	// that watches a different set of kinds is a build whose evidence has a different shape, which is a schema
+	// change, and recordSchemaVersion is what separates those documents anyway.
+	for _, k := range watchedKinds() {
+		s, ok := seen[k.kind]
+		if !ok {
+			return false
+		}
+		// The one-sided reading, spelled out because each clause catches something the others do not. Ended
+		// keeps a stream still shutting down from reading as one that died. LastStatus is the only clause that
+		// can see a loss a cancellation has MASKED — a stream that forwarded a terminal 410 and was then
+		// cancelled at the horizon has Cancelled true and is still a gap, and an expired resume point is the
+		// canonical thing RetryWatcher cannot resume past. And neither flag set is a stream that stopped on its
+		// own, which is always a gap.
 		if !s.Ended || s.LastStatus != "" || (!s.Cancelled && !s.Stopped) {
 			return false
 		}
@@ -241,8 +295,23 @@ func observationContinuous(obs *observationEvidence) bool {
 //
 // A qualification is persisted on the refusal path too — that is the more valuable of the two records — so
 // its presence says the worker was inspected and never that it passed.
+//
+// The first two clauses are a FLOOR, and they are the symmetric twin of the guard decodeRunRecord already
+// applies to the window. Without them `0 >= 0` satisfies the capacity test, so a qualification of a node
+// named "" advertising no device and requiring none reads as a worker this run could measure on — the exact
+// zero-valued claim the field being a pointer was chosen to prevent, re-entered through the values instead of
+// through the block's absence. Neither is a state any build writes: qualify copies the node's own name, and
+// requiredGPU refuses a requirement below 1 outright rather than accepting a bar every machine clears.
+//
+// PodsOnNode deliberately has NO floor, and the asymmetry with the window's NodeVersionsObserved is the
+// point. The window's opening read makes 1 the structural minimum, so a zero there is impossible; a node
+// genuinely carrying no Pods is an ordinary cluster state, and refusing it would refuse a real machine for
+// being quiet.
 func environmentEstablished(q *qualification) bool {
 	if q == nil {
+		return false
+	}
+	if q.Node == "" || q.RequiredGPU < 1 {
 		return false
 	}
 	return q.Ready && q.Schedulable && q.AllocatableGPU >= q.RequiredGPU && len(q.GPUConsumers) == 0
