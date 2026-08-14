@@ -1560,9 +1560,15 @@ func TestReportResidueReleasedMessageAssertsNoNegativeItCannotKnow(t *testing.T)
 			"created can itself be observed Terminating and classified foreign, this claim can be false on "+
 			"the exact residue driving this test, got:\n%s", got)
 	}
-	if !strings.Contains(got, "TEARDOWN INCOMPLETE: worker platform-worker was released; what is left is "+
-		"held under a stamp this run does not own") {
+	if !strings.Contains(got, "TEARDOWN INCOMPLETE: worker platform-worker was released; nothing left at "+
+		"these names carries this run's stamp") {
 		t.Fatalf("released message changed unexpectedly, got:\n%s", got)
+	}
+	// Not "somebody else's stamp": absenceForeign also covers an object carrying no stamp at all, so naming a
+	// foreign owner would presuppose a stamp that may not exist — the same unprovable shape this branch was
+	// rewritten to stop asserting, one size smaller.
+	if strings.Contains(got, "does not own") {
+		t.Fatalf("the released branch presupposes a foreign stamp on names that may carry none, got:\n%s", got)
 	}
 	if !strings.Contains(got, "Namespace queuelab-r7: foreign") {
 		t.Fatalf("residue line missing or misformatted, got:\n%s", got)

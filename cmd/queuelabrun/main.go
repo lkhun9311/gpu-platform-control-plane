@@ -544,12 +544,17 @@ func reportResidue(w io.Writer, worker string, left []residue, held bool) {
 		// landed, a namespace this run itself created and deleted can still be observed Terminating and
 		// classified absenceForeign (a different object can take a terminating name before it finally frees),
 		// so the run's own object can be exactly what is named below. What holds regardless is narrower —
-		// the stamp on each name is not this run's — and that is the claim this line now makes.
+		// nothing below carries this run's stamp — and that is the claim this line now makes.
+		//
+		// "not under this run's stamp" rather than "under somebody else's": absenceForeign is reached by two
+		// routes, a UID that is not the one recovery recorded and a recoverTargets stamp check that also
+		// refuses an object carrying NO stamp at all. Naming a foreign owner would presuppose a stamp that
+		// may not exist, which is the same shape of unprovable claim this line was rewritten to stop making.
 		//
 		// Saying the worker stays dedicated when it does not would send the operator to -force-release for a
 		// node that is already free, and the objects named below are not theirs to delete on this run's say-so.
-		fmt.Fprintf(w, "TEARDOWN INCOMPLETE: worker %s was released; what is left is held under a stamp "+
-			"this run does not own\n", worker)
+		fmt.Fprintf(w, "TEARDOWN INCOMPLETE: worker %s was released; nothing left at these names carries "+
+			"this run's stamp\n", worker)
 	}
 	for _, r := range left {
 		fmt.Fprintf(w, "  %s %s: %s\n", r.Observation.Target.Kind, r.Observation.Target.Name,
