@@ -1,0 +1,655 @@
+/*
+Copyright 2026.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package main
+
+import (
+	"encoding/json"
+	"reflect"
+	"strings"
+	"testing"
+	"time"
+)
+
+// The kubelet and runtime the test worker reports. They are plausible kind values rather than placeholders
+// because they are half the qualification key, and a key whose node-side fields were "" would compare equal
+// to any other empty key — which is exactly the shape of a check that has stopped checking.
+const (
+	testKubeletVersion   = "v1.31.0"
+	testContainerRuntime = "containerd://1.7.18"
+)
+
+// passingCanary is a qualification of the test worker that demonstrated the contrast.
+//
+// The key is built from harnessTerminationContract rather than from literals, and that is a deliberate and
+// bounded piece of self-reference: it is the only way a fixture can track the pinned image digest without
+// becoming a second copy of it that drifts. What stops it from turning into a test that compares a function
+// against itself is that nothing here is only checked against itself —
+// TestCanaryContractMirrorsWhatTheHarnessActuallyRenders pins the contract's fields against the measurement
+// package's own output and against the literal exit code, decodeCanary refuses a document whose key is
+// missing any of them, and every mismatch test below supplies a literal that differs.
+func passingCanary() canaryQualification {
+	c := harnessTerminationContract()
+	return canaryQualification{
+		Schema:          canarySchema,
+		CanaryID:        "canary-0001",
+		Node:            "platform-worker",
+		QualifiedAt:     "2026-08-15T00:00:00Z",
+		HarnessRevision: "abc123",
+		Key: canaryKey{
+			Image:            c.Image,
+			HonorCommand:     c.HonorCommand,
+			IgnoreCommand:    c.IgnoreCommand,
+			GraceSec:         terminationGraceSec,
+			HonorExitCode:    honorExitCode,
+			NodeUID:          "uid-node",
+			KubeletVersion:   testKubeletVersion,
+			ContainerRuntime: testContainerRuntime,
+		},
+		Honor:  passingHonorProbe(),
+		Ignore: passingIgnoreProbe(),
+	}
+}
+
+// The two probe readings a healthy cluster produces: the honouring workload stops in under a second with the
+// trap's own code, and the ignoring one spends the whole grace period and is killed at the end of it.
+func passingHonorProbe() canaryProbe {
+	c := harnessTerminationContract()
+	return canaryProbe{
+		Pod: "tc-abcd1234-honor", Contract: "HonorsSIGTERM", Command: c.HonorCommand,
+		GraceSec: terminationGraceSec, Terminated: true, ExitCode: honorExitCode, Reason: "Error",
+		StoppedAfterMs: 800,
+	}
+}
+
+func passingIgnoreProbe() canaryProbe {
+	c := harnessTerminationContract()
+	return canaryProbe{
+		Pod: "tc-abcd1234-ignore", Contract: "IgnoresSIGTERM", Command: c.IgnoreCommand,
+		GraceSec: terminationGraceSec, Terminated: true, ExitCode: killExitCode, Reason: "Error",
+		StoppedAfterMs: 30400,
+	}
+}
+
+// qualifiedCanaryAnnotation is what node() hangs on the test worker.
+//
+// The encode error is ignored deliberately: every field of the document is a string, a slice of strings, an
+// int or a bool, so json.Marshal has no failure mode reachable from here, and threading a *testing.T through
+// node() would touch fifty call sites for an error that cannot occur. A malformed document would still fail
+// loudly rather than silently — decodeCanary refuses it, and every test whose worker has to qualify would
+// refuse at the gate.
+func qualifiedCanaryAnnotation() string {
+	raw, _ := encodeCanary(passingCanary())
+	return raw
+}
+
+// canaryAnnotation renders a qualification with one thing about it changed.
+func canaryAnnotation(t *testing.T, mutate func(*canaryQualification)) string {
+	t.Helper()
+	q := passingCanary()
+	mutate(&q)
+	raw, err := encodeCanary(q)
+	if err != nil {
+		t.Fatalf("encode canary: %v", err)
+	}
+	return raw
+}
+
+// testCanaryReference is what a run that stood on a qualification carries in its record.
+func testCanaryReference() *canaryReference {
+	q := passingCanary()
+	return &canaryReference{
+		CanaryID:             q.CanaryID,
+		QualifiedAt:          q.QualifiedAt,
+		Key:                  q.Key,
+		HonorStoppedAfterMs:  q.Honor.StoppedAfterMs,
+		IgnoreStoppedAfterMs: q.Ignore.StoppedAfterMs,
+	}
+}
+
+// canaryReferenceJSON is the reference as a hand-written record's qualification block has to carry it.
+//
+// Marshalled from the real type rather than typed out, because decodeRunRecord reads records with
+// DisallowUnknownFields: a hand-written reference would have to be kept in step with the struct by hand, and
+// the failure when it was not would look like the guard under test rejecting a good document.
+func canaryReferenceJSON(t *testing.T) string {
+	t.Helper()
+	b, err := json.Marshal(testCanaryReference())
+	if err != nil {
+		t.Fatalf("marshal the canary reference: %v", err)
+	}
+	return string(b)
+}
+
+// The canary probes what the arm submits, or it probes nothing worth knowing. Every field of the contract is
+// read out of internal/queuelab's own renderer — the same function submit() calls — so this test is what
+// stands between that claim and a hand-written imitation of the workload drifting away from it.
+//
+// The exit code is the one field that IS a local copy (termExitCode is private), so it is checked against the
+// rendered command's own text rather than against itself: if the measurement package ever changes what its
+// trap exits with, the string stops containing this constant.
+//
+// Mutation that turns this red: replace harnessTerminationContract's renderer calls with literals for the
+// image or either command, or change honorExitCode to anything the trap does not use.
+func TestCanaryContractMirrorsWhatTheHarnessActuallyRenders(t *testing.T) {
+	c := harnessTerminationContract()
+
+	if !strings.HasPrefix(c.Image, "busybox:1.36@sha256:") {
+		t.Fatalf("the canary probes image %q, which is not the pinned sleeper the arm runs: a canary that "+
+			"qualifies different bytes than the run submits qualifies nothing", c.Image)
+	}
+	honor := strings.Join(c.HonorCommand, " ")
+	ignore := strings.Join(c.IgnoreCommand, " ")
+	for _, want := range []string{"trap", "TERM", "wait"} {
+		if !strings.Contains(honor, want) {
+			t.Fatalf("the honouring command %q does not contain %q, so it is not the workload that stops when "+
+				"asked", honor, want)
+		}
+	}
+	if !strings.Contains(honor, "exit 143") {
+		t.Fatalf("the honouring command is %q; honorExitCode is %d and the command's own trap must exit with "+
+			"it, or the canary is looking for a code nothing produces", honor, honorExitCode)
+	}
+	if strings.Contains(ignore, "trap") {
+		t.Fatalf("the ignoring command %q traps SIGTERM, so the two probes would be the same probe and the "+
+			"contrast would be between a workload and itself", ignore)
+	}
+	if c.GraceSec != terminationGraceSec {
+		t.Fatalf("the contract requires a %ds grace period, but the protocol's horizon is derived from %ds",
+			c.GraceSec, terminationGraceSec)
+	}
+}
+
+// The single most important property in this file: the canary qualifies the CONTRAST, not one half of it.
+//
+// A runtime that SIGKILLs every container the instant it is asked passes the honouring half for entirely the
+// wrong reason — the Pod stops promptly, and 143 is what an untrapped SIGTERM leaves behind too — and it is
+// precisely the runtime on which A-honor and A-ignore become the same experiment. Only the ignoring probe
+// outlasting the grace period rules it out, so a canary that judged the honouring probe alone would qualify
+// the one cluster this whole file exists to refuse.
+//
+// Mutation that turns this red: drop the ignoring probe's survival clause from judgeCanary (the honouring
+// half is untouched and still passes, which is the point).
+func TestCanaryRefusesAClusterThatStopsEverythingImmediately(t *testing.T) {
+	honor := passingHonorProbe()
+	// Both stopped at once, both with plausible codes. This is the whole failure: nothing about the honouring
+	// probe alone looks wrong.
+	honor.StoppedAfterMs = 120
+	ignore := passingIgnoreProbe()
+	ignore.StoppedAfterMs = 130
+
+	failures := judgeCanary(honor, ignore)
+	if len(failures) == 0 {
+		t.Fatal("a cluster that killed both probes immediately qualified: A-honor and A-ignore are the same " +
+			"experiment on it, and every run would report the contrast it structurally could not produce")
+	}
+	joined := strings.Join(failures, "\n")
+	if !strings.Contains(joined, "ignoring probe") {
+		t.Fatalf("the refusal must name the half that failed, got:\n%s", joined)
+	}
+	if strings.Contains(joined, "honouring probe") {
+		t.Fatalf("the honouring probe did exactly what it was supposed to; naming it sends the operator after "+
+			"the wrong workload:\n%s", joined)
+	}
+}
+
+// The other direction, and the one the arm is actually built on: SIGTERM never reaching the workload. Both
+// probes then behave like the ignoring one — killed at the grace deadline with 137 — and the honouring half
+// has to say so.
+//
+// Mutation that turns this red: accept any exit code from the honouring probe, or drop its promptness clause.
+func TestCanaryRefusesAClusterThatNeverDeliversTheSignal(t *testing.T) {
+	honor := passingHonorProbe()
+	honor.ExitCode = killExitCode
+	honor.Reason = "Error"
+	honor.StoppedAfterMs = 30500
+
+	failures := judgeCanary(honor, passingIgnoreProbe())
+	joined := strings.Join(failures, "\n")
+	if len(failures) < 2 {
+		t.Fatalf("a workload that was killed rather than signalled fails on its code AND on its promptness, "+
+			"and both are worth telling the operator; got:\n%s", joined)
+	}
+	if !strings.Contains(joined, "SIGKILL") {
+		t.Fatalf("the refusal must connect a 137 to the post-grace kill, or an operator reads it as an "+
+			"arbitrary exit code:\n%s", joined)
+	}
+}
+
+// A probe whose ending was never seen is not evidence of anything, in either direction. The honouring one
+// missing means nothing showed the cluster can stop a Pod; the ignoring one missing means there is nothing to
+// compare against. Both must refuse, and neither may fall through to a number-based clause reading a zero.
+//
+// Mutation that turns this red: judge the exit code and duration without testing Terminated first — a probe
+// that was never observed carries an ExitCode of 0 and a StoppedAfterMs of 0, and 0ms is comfortably inside
+// the promptness threshold, so the honouring half would PASS on a probe nobody ever saw stop.
+func TestCanaryRefusesAProbeItNeverSawStop(t *testing.T) {
+	honor := passingHonorProbe()
+	honor.Terminated = false
+	honor.ExitCode = 0
+	honor.StoppedAfterMs = 0
+	honor.Unobserved = "it was still running when the budget expired"
+
+	failures := judgeCanary(honor, passingIgnoreProbe())
+	if len(failures) == 0 {
+		t.Fatal("a canary whose honouring probe was never observed to stop qualified the worker: a zero " +
+			"duration reads as the promptest possible stop, which is how absence of evidence becomes evidence")
+	}
+	if !strings.Contains(strings.Join(failures, "\n"), "still running when the budget expired") {
+		t.Fatalf("the refusal must carry why nothing was observed, got %v", failures)
+	}
+
+	ignore := passingIgnoreProbe()
+	ignore.Terminated = false
+	ignore.Unobserved = "the Pod object was removed"
+	if len(judgeCanary(passingHonorProbe(), ignore)) == 0 {
+		t.Fatal("the honouring probe alone qualified the worker: with no ignoring reading there is no contrast, " +
+			"which is the same state a SIGKILL-everything runtime produces")
+	}
+}
+
+// The grace period nothing in this harness sets. The controller leaves terminationGracePeriodSeconds unset,
+// so a run's Pods take the apiserver's default, and every number in spine.go's horizon is arithmetic over
+// that default being 30. A cluster defaulting something else is not running this protocol.
+//
+// Mutation that turns this red: drop the grace clause from judgeCanary. Both probes still show a textbook
+// contrast, so nothing else in the function objects.
+func TestCanaryRefusesAClusterWhoseDefaultGracePeriodIsNotTheProtocolsOwn(t *testing.T) {
+	honor, ignore := passingHonorProbe(), passingIgnoreProbe()
+	honor.GraceSec, ignore.GraceSec = 60, 60
+	// Scaled to the grace period it was actually given, so the contrast itself is impeccable: only the window
+	// is wrong.
+	ignore.StoppedAfterMs = 60400
+
+	failures := judgeCanary(honor, ignore)
+	if len(failures) == 0 {
+		t.Fatalf("a cluster defaulting a %ds grace period qualified against a protocol whose horizon assumes "+
+			"%ds", honor.GraceSec, terminationGraceSec)
+	}
+	if !strings.Contains(strings.Join(failures, "\n"), "nothing in this harness sets one") {
+		t.Fatalf("the refusal has to say the default is the cluster's rather than this tool's, or an operator "+
+			"goes looking for the flag that set it: %v", failures)
+	}
+}
+
+// A healthy cluster must actually pass, or the gate is a wall. This is the reading a working kind cluster
+// produces and it has to qualify, including the fact that the ignoring probe's exit code is the SIGKILL its
+// survival is proven by.
+//
+// It is the positive control for every refusal above: a threshold tightened until nothing real can meet it
+// would leave all of them green and this one alone red.
+//
+// Mutation that turns this red: set canaryPromptWithin to zero, or require the ignoring probe to outlast more
+// than the grace period it is given.
+func TestCanaryQualifiesTheReadingAHealthyClusterProduces(t *testing.T) {
+	if failures := judgeCanary(passingHonorProbe(), passingIgnoreProbe()); len(failures) > 0 {
+		t.Fatalf("the textbook contrast was refused, so no cluster could ever qualify: %v", failures)
+	}
+}
+
+// A run may not stand on a worker nobody has qualified, and the refusal has to be the one an operator can act
+// on: it names the missing thing and prints the command that produces it.
+//
+// Mutation that turns this red: return (nil, nil) from checkTerminationCanary when the annotation is absent,
+// which is the natural "there is nothing to check here" reading and is how a gate becomes decorative.
+func TestQualifyRefusesAWorkerNoCanaryHasEverQualified(t *testing.T) {
+	// Explicitly blanked rather than merely omitted: node() carries a passing qualification the way it carries
+	// a Ready condition, so a test about the absence has to create the absence.
+	bare := node(nil, map[string]string{canaryAnnotationKey: ""})
+
+	q, err := qualify(bare, nil, testReq(2), harnessTerminationContract())
+	if err == nil {
+		t.Fatal("a worker whose ability to stop a Pod nothing had ever checked was accepted: the arms differ " +
+			"only by whether the workload stops when asked, so this is the one property whose absence makes the " +
+			"whole comparison meaningless while every number still looks fine")
+	}
+	if !strings.Contains(err.Error(), "-termination-canary -worker platform-worker") {
+		t.Fatalf("the refusal must hand over the runnable command that fixes it, got %q", err)
+	}
+	if q.TerminationCanary != nil {
+		t.Fatal("no reference may be recorded for a qualification that was never consulted")
+	}
+}
+
+// A recorded canary that FAILED is worse than none, and must refuse louder rather than quieter: this cluster
+// has been shown not to produce the contrast. The refusal has to quote what was found, because "re-run the
+// canary" is the wrong advice when the canary already ran and said no.
+//
+// Mutation that turns this red: treat a recorded document as a qualification whenever it decodes, ignoring
+// Failures.
+func TestQualifyRefusesAWorkerWhoseRecordedCanaryFailed(t *testing.T) {
+	failed := node(nil, map[string]string{canaryAnnotationKey: canaryAnnotation(t, func(q *canaryQualification) {
+		q.Ignore.StoppedAfterMs = 90
+		q.Failures = judgeCanary(q.Honor, q.Ignore)
+	})})
+
+	_, err := qualify(failed, nil, testReq(2), harnessTerminationContract())
+	if err == nil {
+		t.Fatal("a worker carrying a canary that failed was accepted: the document proving the arms collapse " +
+			"on this cluster was read as the document proving they do not")
+	}
+	if !strings.Contains(err.Error(), "FAILED") || !strings.Contains(err.Error(), "ignoring probe") {
+		t.Fatalf("the refusal must quote what the canary found, got %q", err)
+	}
+}
+
+// The qualification is a property of a COMBINATION, and every field of that combination has to be able to
+// refuse on its own. A bumped sleeper digest, a re-imaged node, a cluster upgrade and a recreated Node are
+// four completely different next steps, so the refusal names the field rather than saying the key differs.
+//
+// Mutation that turns this red: compare only the image (or only the node UID) in keyDifferences, or compare
+// the key with a single equality that reports no field at all — the last one still refuses, but the
+// per-field assertions below fail.
+func TestQualifyRefusesACanaryTakenOnADifferentCombination(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		mutate func(*canaryQualification)
+		want   string
+	}{
+		{"a bumped sleeper image", func(q *canaryQualification) {
+			q.Key.Image = "busybox:1.37@sha256:0000000000000000000000000000000000000000000000000000000000000000"
+		}, "image"},
+		{"a changed honouring command", func(q *canaryQualification) {
+			q.Key.HonorCommand = []string{"sh", "-c", "sleep 600"}
+		}, "honoring command"},
+		{"a changed ignoring command", func(q *canaryQualification) {
+			q.Key.IgnoreCommand = []string{"sh", "-c", "trap 'exit 143' TERM; sleep 600 & wait"}
+		}, "ignoring command"},
+		{"a node recreated under the same name", func(q *canaryQualification) {
+			q.Key.NodeUID = "uid-some-other-machine"
+		}, "node UID"},
+		{"a kubelet upgrade", func(q *canaryQualification) {
+			q.Key.KubeletVersion = "v1.33.2"
+		}, "kubelet version"},
+		{"a runtime change", func(q *canaryQualification) {
+			q.Key.ContainerRuntime = "cri-o://1.30.0"
+		}, "container runtime"},
+		{"a canary taken under another grace period", func(q *canaryQualification) {
+			q.Key.GraceSec = 60
+		}, "termination grace period"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			n := node(nil, map[string]string{canaryAnnotationKey: canaryAnnotation(t, tc.mutate)})
+			_, err := qualify(n, nil, testReq(2), harnessTerminationContract())
+			if err == nil {
+				t.Fatalf("%s did not invalidate the qualification: it is a statement about one combination and "+
+					"says nothing about another", tc.name)
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("the refusal does not name %q, so the operator cannot tell which of four different "+
+					"things changed: %v", tc.want, err)
+			}
+		})
+	}
+}
+
+// Every field of the key has to be able to refuse on its own, INCLUDING one added after this was written.
+//
+// The field list in keyDifferences is prose and prose falls behind: a field added to canaryKey without a line
+// there would be compared by nothing, and a qualification taken on a different value of it would match. So the
+// equality is the authority and the names are the explanation, and this test walks the struct by reflection
+// rather than listing what it knows about — a new field is covered the day it is added, whether or not
+// anybody remembers this test exists.
+//
+// Mutation that turns this red: make canaryKeyMatches compare with keyDifferences alone (`return
+// len(diffs) == 0, diffs`), then add a field to canaryKey — or, without touching the struct, drop any single
+// comparison from keyDifferences.
+func TestEveryFieldOfTheKeyCanRefuseOnItsOwn(t *testing.T) {
+	base := passingCanary().Key
+	rt := reflect.TypeOf(base)
+	for i := 0; i < rt.NumField(); i++ {
+		f := rt.Field(i)
+		got := base
+		v := reflect.ValueOf(&got).Elem().Field(i)
+		switch v.Kind() {
+		case reflect.String:
+			v.SetString(v.String() + "-changed")
+		case reflect.Int64, reflect.Int32:
+			v.SetInt(v.Int() + 1)
+		case reflect.Slice:
+			v.Set(reflect.ValueOf([]string{"something", "else"}))
+		default:
+			t.Fatalf("canaryKey.%s is a %s, which this test does not know how to vary; a field the drift check "+
+				"skips is a field that can change without invalidating a qualification", f.Name, v.Kind())
+		}
+		matched, diffs := canaryKeyMatches(base, got)
+		if matched {
+			t.Fatalf("a qualification differing only in %s matched: the key is what says this reading was taken "+
+				"on the combination this run needs", f.Name)
+		}
+		if len(diffs) == 0 {
+			t.Fatalf("a mismatch on %s was refused with nothing to tell the operator", f.Name)
+		}
+	}
+	if matched, _ := canaryKeyMatches(base, base); !matched {
+		t.Fatal("a key did not match itself, so no qualification could ever be consulted")
+	}
+}
+
+// The trap the required-field sweep exists for. A qualification document that decoded into zero values would
+// carry a zero key, and a zero key compares equal to another zero key — so a bug that built the expected side
+// out of nothing would match anything, and the gate would still be present and no longer checking. The floor
+// is in decodeCanary rather than in the comparison, so nothing downstream can be handed one.
+//
+// This test is written as one blanked field at a time against an OTHERWISE COMPLETE document, and that shape
+// is the correction of a defect in its own first version: it originally listed four hand-written documents,
+// every one of which was refused by a different clause — the command check or the schema check — so removing
+// the required-field sweep left it green. A trap that passes under the mutation its own comment names is a
+// trap this lineage has already shipped once, so each swept field now has to be the only thing wrong.
+//
+// Mutation that turns this red: drop the required-field sweep from decodeCanary (each blanked-field case
+// below), or drop either structural clause under it (the last two cases).
+func TestCanaryDocumentWithNothingInItIsNotAQualification(t *testing.T) {
+	for _, blank := range []struct {
+		field  string
+		mutate func(*canaryQualification)
+	}{
+		{"canaryID", func(q *canaryQualification) { q.CanaryID = "" }},
+		{"node", func(q *canaryQualification) { q.Node = "" }},
+		{"qualifiedAt", func(q *canaryQualification) { q.QualifiedAt = "" }},
+		{"key.image", func(q *canaryQualification) { q.Key.Image = "" }},
+		{"key.nodeUID", func(q *canaryQualification) { q.Key.NodeUID = "" }},
+		{"key.kubeletVersion", func(q *canaryQualification) { q.Key.KubeletVersion = "" }},
+		{"key.containerRuntime", func(q *canaryQualification) { q.Key.ContainerRuntime = "" }},
+	} {
+		raw := canaryAnnotation(t, blank.mutate)
+		if _, err := decodeCanary(raw); err == nil {
+			t.Fatalf("a qualification with %s blank and everything else intact decoded: a document missing any "+
+				"one of these identifies nothing a reader could go and check, and its key would compare equal to "+
+				"another key missing the same thing", blank.field)
+		}
+	}
+
+	// The structural clauses under the sweep, each of which is the only thing wrong with its own document.
+	for _, tc := range []struct {
+		name   string
+		mutate func(*canaryQualification)
+	}{
+		{"no honouring command", func(q *canaryQualification) { q.Key.HonorCommand = nil }},
+		{"no ignoring command", func(q *canaryQualification) { q.Key.IgnoreCommand = nil }},
+		{"no grace period at all", func(q *canaryQualification) { q.Key.GraceSec = 0 }},
+	} {
+		if _, err := decodeCanary(canaryAnnotation(t, tc.mutate)); err == nil {
+			t.Fatalf("a qualification with %s decoded; it establishes nothing about a workload and must not be "+
+				"readable as though it did", tc.name)
+		}
+	}
+
+	// And the empty document, which is what a zero-valued key would arrive as.
+	for _, raw := range []string{`{"schema":1}`, `{"schema":2,"canaryID":"c","node":"n","qualifiedAt":"t"}`} {
+		if _, err := decodeCanary(raw); err == nil {
+			t.Fatalf("%s decoded as a qualification", raw)
+		}
+	}
+
+	// And the whole document round-trips, so the strictness above is not simply refusing everything.
+	raw, err := encodeCanary(passingCanary())
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	got, err := decodeCanary(raw)
+	if err != nil {
+		t.Fatalf("a document this build wrote must decode: %v", err)
+	}
+	if got.CanaryID != "canary-0001" || got.Key.Image != harnessTerminationContract().Image {
+		t.Fatalf("round trip lost the qualification's identity: %+v", got)
+	}
+}
+
+// An unreadable qualification is not a missing one and must not be treated as either a pass or a plain
+// absence: it is a document this tool cannot act on, sitting where the answer should be.
+//
+// Mutation that turns this red: ignore the decode error and fall through to "no canary recorded", which reads
+// as a node nobody has qualified rather than one carrying something nobody can read.
+func TestQualifyRefusesACanaryItCannotRead(t *testing.T) {
+	broken := node(nil, map[string]string{canaryAnnotationKey: `{"schema":1,"canaryID":"c",` +
+		`"unexpectedField":"from a newer build"}`})
+
+	_, err := qualify(broken, nil, testReq(2), harnessTerminationContract())
+	if err == nil {
+		t.Fatal("a worker carrying an unreadable qualification was accepted")
+	}
+	if !strings.Contains(err.Error(), "could not be read") {
+		t.Fatalf("the refusal must distinguish an unreadable document from an absent one, got %q", err)
+	}
+	if !strings.Contains(err.Error(), "unexpectedField") {
+		t.Fatalf("the refusal must quote what it found, or the operator has nothing to inspect: %q", err)
+	}
+}
+
+// The passing path, and the reference it leaves behind. A run that stood on a qualification has to say which
+// one in its own record, or a reader holding the file has to go and ask a cluster that may no longer exist.
+//
+// Mutation that turns this red: return a bare nil reference from checkTerminationCanary on the passing path,
+// or drop the assignment in qualify. The run still proceeds, and its record silently stops saying what it
+// stood on — which is also what makes environmentEstablished refuse it.
+func TestAQualifiedWorkerRecordsWhichCanaryTheRunStoodOn(t *testing.T) {
+	q, err := qualify(node(nil, nil), nil, testReq(2), harnessTerminationContract())
+	if err != nil {
+		t.Fatalf("a worker with a passing canary for exactly this combination was refused: %v", err)
+	}
+	if q.TerminationCanary == nil {
+		t.Fatal("the qualification carries no reference to the canary it consulted, so the record cannot say " +
+			"what the run stood on")
+	}
+	ref := q.TerminationCanary
+	if ref.CanaryID != "canary-0001" || ref.QualifiedAt != "2026-08-15T00:00:00Z" {
+		t.Fatalf("the reference must identify the qualification, got %+v", ref)
+	}
+	if ref.Key.Image != harnessTerminationContract().Image || ref.Key.NodeUID != "uid-node" {
+		t.Fatalf("the reference must carry the combination that was qualified, got %+v", ref.Key)
+	}
+	// The measured contrast travels with it: an id alone points into a cluster the reader may not have, and
+	// these two numbers are what the qualification actually established.
+	if ref.HonorStoppedAfterMs != 800 || ref.IgnoreStoppedAfterMs != 30400 {
+		t.Fatalf("the reference must carry the separation that was measured, got %+v", ref)
+	}
+}
+
+// The record's own verdict has to fall when the canary reference does. A run refused at this gate carries a
+// qualification block full of perfectly good numbers — the node was Ready, schedulable, uncontended and large
+// enough — so a verdict derived from those alone would call the environment established for a run that was
+// refused precisely because it was not.
+//
+// Mutation that turns this red: drop the TerminationCanary clause from environmentEstablished. Every other
+// field of the fixture below is the passing one, so nothing else in deriveValidity objects and the record
+// calls itself admissible.
+func TestARecordWhoseRunStoodOnNoCanaryDoesNotCallItselfAdmissible(t *testing.T) {
+	q := testQualification()
+	q.TerminationCanary = nil
+
+	v := deriveValidity(outcome{Disposition: dispChecksPassed}, nil, q, testWindow(), testObservation(), false)
+	if v.Verdict != verdictRefused {
+		t.Fatalf("a run that stood on no termination qualification called itself %q; every number in its "+
+			"environment block is fine, which is exactly why the verdict must not be derived from them alone",
+			v.Verdict)
+	}
+	found := false
+	for _, f := range v.Failures {
+		if f == failureEnvironment {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("the failure must be named against the claim it belongs to, got %v", v.Failures)
+	}
+
+	// And the passing fixture still passes, or the clause above would be refusing everything.
+	if got := deriveValidity(outcome{Disposition: dispChecksPassed}, nil, testQualification(), testWindow(),
+		testObservation(), false); got.Verdict != verdictAdmissible {
+		t.Fatalf("a run that did stand on one was refused: %v", got.Failures)
+	}
+}
+
+// A document claiming this schema while carrying a reference that names nothing is the route the version bump
+// alone does not close: a zero canaryReference satisfies environmentEstablished's non-nil test — the strongest
+// thing the block can say about the mechanism the arms differ by — while identifying no qualification and
+// naming no image, so a reader could not go and check it against anything.
+//
+// Mutation that turns this red: drop the reference guard from decodeRunRecord.
+func TestDecodeRefusesACanaryReferenceThatNamesNothing(t *testing.T) {
+	q := testQualification()
+	q.TerminationCanary = &canaryReference{}
+	rec := buildRecord(outcome{Disposition: dispChecksPassed}, nil, nil, q, testWindow(), testObservation(),
+		"r7", "A-honor", false, time.Now(), time.Now())
+	b, err := encodeRecord(rec)
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	if _, err := decodeRunRecord(b); err == nil {
+		t.Fatal("a record whose canary reference identifies no qualification was read as evidence that one was " +
+			"consulted")
+	}
+}
+
+// The schema bump, in the direction it exists for. A version-4 record decodes into today's struct without
+// complaint and leaves TerminationCanary nil — which is not a spare slot but exactly what THIS build writes
+// for a run it refused at this gate. Without the bump every record every earlier build wrote, including the
+// good ones, reads as a run that faced the gate and did not get past it.
+//
+// Mutation that turns this red: leave recordSchemaVersion at 4.
+func TestARecordFromBeforeTheCanaryGateIsRefusedRatherThanReinterpreted(t *testing.T) {
+	if recordSchemaVersion != 5 {
+		t.Fatalf("recordSchemaVersion is %d; the canary reference was added to the qualification block, and a "+
+			"reader that cannot tell a run refused for it from a build that could not ask has been told nothing",
+			recordSchemaVersion)
+	}
+	older := []byte(`{"schemaVersion":4,"runID":"r7","arm":"A-honor","disposition":"checks-passed",` +
+		`"validity":{"verdict":"refused","failures":["environment-not-established"]}}`)
+	if _, err := decodeRunRecord(older); err == nil {
+		t.Fatal("a record written before this gate existed decoded under today's rules, so its silence about " +
+			"the canary reads as a run that was refused for one")
+	}
+}
+
+// The revision is recorded and deliberately not keyed, and the reason is measurable rather than stylistic: a
+// `go test` binary carries no vcs settings at all, so a key that included one could not be matched from half
+// the ways this code is exercised. What the field must never do is decode as an empty string a reader cannot
+// tell from a writer that forgot it.
+//
+// Mutation that turns this red: return "" instead of the sentinel when the build carries no stamp.
+func TestHarnessRevisionIsHonestAboutBeingAbsent(t *testing.T) {
+	got := harnessRevision()
+	if got == "" {
+		t.Fatal("the harness revision must never be empty in a document somebody reads later: an empty string " +
+			"there cannot be told apart from a writer that skipped the field")
+	}
+	// Under `go test` this is the expected value, and asserting it is what pins the claim the key's own comment
+	// makes: the stamp genuinely is unavailable here, which is why it is not what the match turns on.
+	if got != unstampedRevision && len(got) < 7 {
+		t.Fatalf("a stamped revision should be a commit hash and an unstamped one the sentinel, got %q", got)
+	}
+}

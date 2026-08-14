@@ -61,12 +61,18 @@ func main() {
 			"working directory, which never collides)")
 		preview = flag.Bool("preview", false, "run without the validity gates; output is a smoke check, not evidence")
 
-		// The operator modes recover from a crash: they inspect, release, or break the Node marker this
-		// package's transaction leaves behind. They are flags rather than subcommands only because this CLI
-		// was already flag-shaped; see dispatchOperatorMode for why they run before the gate.
-		// -inspect-worker names no node of its own: it reads -worker like the other three modes, so that every
+		// Four of these five modes recover from a crash: they inspect, release, or break the Node marker this
+		// package's transaction leaves behind. The fifth qualifies the worker. They are flags rather than
+		// subcommands only because this CLI was already flag-shaped; see dispatchOperatorMode for why they all
+		// run before the gate.
+		// -inspect-worker names no node of its own: it reads -worker like every other mode here, so that every
 		// command this tool prints as a hint is runnable exactly as printed, whichever mode it points at.
-		inspectWorkerFlag    = flag.Bool("inspect-worker", false, "read-only: report -worker's ownership state and exit")
+		inspectWorkerFlag = flag.Bool("inspect-worker", false, "read-only: report -worker's ownership state and exit")
+		// Not a recovery mode, but it belongs with them for the same reason they are here: it is not a run, and
+		// it has to work while the gate refuses every run — no run can be qualified until this has been taken.
+		terminationCanaryFlag = flag.Bool("termination-canary", false,
+			"qualify -worker for the one thing the arms differ by: that a Pod asked to stop actually stops. "+
+				"Records the result on the Node; runs consult it and refuse without one")
 		releaseStaleFlag     = flag.Bool("release-stale", false, "release -worker's journal for -txid, after confirming the prior process is gone")
 		txidFlag             = flag.String("txid", "", "transaction id to release with -release-stale")
 		forceReleaseFlag     = flag.Bool("force-release", false, "break -worker's stuck marker into a quarantine record; never frees the node in one step")
@@ -117,8 +123,8 @@ func main() {
 		refuseInvocation(err)
 	}
 
-	// Operator modes are recovery tools, not runs, so they dispatch before the gate and work even while the
-	// gate refuses every run; each exits directly with its own status rather than falling through to run().
+	// None of these modes is a run, so they dispatch before the gate and work even while the gate refuses every
+	// run; each exits directly with its own status rather than falling through to run().
 	// Fields are named, not positional, so the flag that fills each one is visible at the call site.
 	if fired, err := dispatchOperatorMode(newClusterClient, operatorModeArgs{
 		Arm:    *armFlag,
@@ -130,6 +136,8 @@ func main() {
 		RunOnlyFlags: suppliedRunOnlyFlags(flag.CommandLine),
 
 		Inspect: *inspectWorkerFlag,
+
+		TerminationCanary: *terminationCanaryFlag,
 
 		ReleaseStale: *releaseStaleFlag,
 		TxID:         *txidFlag,
@@ -315,11 +323,12 @@ func recordRunID(runID string) string {
 // context at the dispatch site would pass the whole suite.
 type clusterClientFunc func() (client.WithWatch, error)
 
-// dispatchOperatorMode runs at most one of the four recovery modes and reports whether one was requested.
+// dispatchOperatorMode runs at most one of the five non-run modes and reports whether one was requested.
 //
-// These are recovery tools, not runs, so the caller must invoke this before gateRefusal: an operator needs
-// -inspect-worker and the release/quarantine modes to work precisely while the gate refuses every run,
-// otherwise a crashed process could orphan a Node with no in-tool way to see or clear it. All argument
+// None of them is a run, so the caller must invoke this before gateRefusal: an operator needs -inspect-worker
+// and the release/quarantine modes to work precisely while the gate refuses every run, otherwise a crashed
+// process could orphan a Node with no in-tool way to see or clear it — and the termination canary has to run
+// then too, since it is what a run has to consult before it can be allowed to count at all. All argument
 // validation happens in decideOperatorMode, entirely before connect below: a malformed invocation must be
 // refused before it needs a kubeconfig, not after failing to reach one.
 func dispatchOperatorMode(connect clusterClientFunc, args operatorModeArgs) (fired bool, err error) {
@@ -340,12 +349,17 @@ func dispatchOperatorMode(connect clusterClientFunc, args operatorModeArgs) (fir
 	// A signal firing mid-patch is exactly what could leave a mutation half applied, and there is no wait
 	// in any of these modes worth making cancellable, so they all run on a context no signal can cancel out
 	// from under them — but bounded, not indefinite, for the reason spelled out at operatorModeTimeout.
-	ctx, cancel := operatorModeContext()
+	ctx, cancel := operatorModeContext(mode)
 	defer cancel()
 
 	switch mode {
 	case modeInspect:
 		return true, inspectWorker(ctx, c, args.Worker)
+	case modeTerminationCanary:
+		// The real clock, unlike the teardown executor's: this mode's budgets are the grace period and a
+		// container start, both of which are things happening on a cluster rather than intervals a test needs to
+		// skip past. The injection exists so the tests can drive the loops without spending them.
+		return true, terminationCanary(ctx, c, args.Worker, time.Now, time.Sleep, os.Stdout)
 	case modeReleaseStale:
 		return true, releaseStale(ctx, c, args.Worker, args.TxID)
 	case modeForceRelease:
@@ -353,7 +367,7 @@ func dispatchOperatorMode(connect clusterClientFunc, args operatorModeArgs) (fir
 	case modeClearQuarantine:
 		return true, clearQuarantine(ctx, c, args.Worker, args.QuarantineID)
 	default:
-		// decideOperatorMode's own switch is exhaustive over the same four modes, so reaching this means the
+		// decideOperatorMode's own switch is exhaustive over the same five modes, so reaching this means the
 		// two switches drifted apart, not that the operator did anything wrong.
 		return true, fmt.Errorf("internal error: unhandled operator mode %d", mode)
 	}
@@ -839,7 +853,12 @@ func run(ctx context.Context, connect clusterClientFunc, arm queuelab.Arm, runID
 	var qerr error
 	// The observation is assigned to the named return before the error is inspected, so the refusal path
 	// records what it saw rather than only that it refused.
-	qual, qerr = qualifyWorker(ctx, c, worker, req)
+	//
+	// The contract is rendered here, at the call site, for the reason req is derived here: both are what this
+	// run would actually do, and the qualification is the comparison of that against what the machine has been
+	// shown to support. harnessTerminationContract reads the measurement package's own renderer, so the
+	// combination qualified is the combination submitted rather than a description of it.
+	qual, qerr = qualifyWorker(ctx, c, worker, req, harnessTerminationContract())
 	if qerr != nil {
 		fmt.Fprintf(stderr, "ENVIRONMENT NOT QUALIFIED: %v\n", qerr)
 		o = phaseFailure(dispEnvironmentUnqualified, fmt.Sprintf("qualifying worker %s", worker), qerr)
@@ -848,6 +867,16 @@ func run(ctx context.Context, connect clusterClientFunc, arm queuelab.Arm, runID
 	fmt.Printf("  worker %s qualified: %d allocatable %s (this arm needs %d, bound by the %s), %d pod(s) on "+
 		"the node and none holding a device\n", worker, qual.AllocatableGPU, gpuResourceName, qual.RequiredGPU,
 		qual.RequiredBoundBy, qual.PodsOnNode)
+	// Which qualification the run stood on, printed with the separation it established rather than with its id
+	// alone: the id says a document was consulted, and these two numbers are what that document actually
+	// established about the mechanism the arms differ by.
+	//
+	// The reference cannot be nil on this line. qualify attaches it only when the consult returned one, and
+	// appends a failure on every route by which it did not — so a nil reference and a nil qerr cannot both
+	// hold, and this line is past the qerr check.
+	fmt.Printf("    termination canary %s (taken %s): honouring probe stopped after %dms, ignoring probe "+
+		"after %dms\n", qual.TerminationCanary.CanaryID, qual.TerminationCanary.QualifiedAt,
+		qual.TerminationCanary.HonorStoppedAfterMs, qual.TerminationCanary.IgnoreStoppedAfterMs)
 
 	if err := ensureNamespace(ctx, c, namespace, txID); err != nil {
 		o = phaseFailure(dispSetupFailed, fmt.Sprintf("ensuring namespace %s", namespace), err)

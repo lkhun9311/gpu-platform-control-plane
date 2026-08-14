@@ -104,6 +104,14 @@ type qualification struct {
 	// GPUConsumers is empty on every qualified run, which is why it is omitempty: a record carrying one is
 	// always a record of a refusal.
 	GPUConsumers []gpuConsumer `json:"gpuConsumers,omitempty"`
+	// TerminationCanary is the recorded qualification this run stood on for the one property everything above
+	// says nothing about: that this cluster can actually stop a Pod that is asked to.
+	//
+	// It is a pointer, and nil is the shape of every run that did not stand on one — refused because no canary
+	// was recorded for the worker, because the recorded one failed, or because it was taken on a different
+	// combination. It is omitempty for the reason GPUConsumers is, inverted: a record carrying one is always a
+	// record of a run that got past this gate.
+	TerminationCanary *canaryReference `json:"terminationCanary,omitempty"`
 }
 
 // The two names a requirement can be bound by. They are constants because the record persists one of them and
@@ -329,7 +337,13 @@ func nodeReady(n *corev1.Node) bool {
 // ago, so a check for "no taints" would refuse every run on the marker the run itself put there; and the
 // question a taint could answer — will something new land here — is already answered by the acquisition. What
 // a taint cannot answer, and what is asked here instead, is what is on the node already.
-func qualify(n *corev1.Node, pods []corev1.Pod, req gpuRequirement) (qualification, error) {
+//
+// contract is what this build would submit, and it is here for the check that was added BESIDE the three
+// above rather than inside them: the termination canary. It is a parameter rather than derived in this
+// function so that every input to this decision is still visible at the call site — which is the property
+// that lets a test drive a mismatch through the real path instead of comparing the derivation against itself.
+func qualify(n *corev1.Node, pods []corev1.Pod, req gpuRequirement, contract canaryContract) (qualification,
+	error) {
 	allocatable := n.Status.Allocatable[gpuResourceName]
 	consumers, onNode := gpuConsumersOn(pods, n.Name)
 	q := qualification{
@@ -344,6 +358,13 @@ func qualify(n *corev1.Node, pods []corev1.Pod, req gpuRequirement) (qualificati
 		PodsOnNode:      onNode,
 		GPUConsumers:    consumers,
 	}
+
+	// The canary is consulted here, alongside the capacity checks and not before them, so that a worker with
+	// three things wrong with it still reports all three in one refusal. The reference is attached whenever it
+	// matched, on the same principle the block's other fields follow: what was observed goes into the record
+	// whichever way the verdict went.
+	canary, cerr := checkTerminationCanary(n, contract)
+	q.TerminationCanary = canary
 
 	var failed []string
 	if !q.Ready {
@@ -377,6 +398,11 @@ func qualify(n *corev1.Node, pods []corev1.Pod, req gpuRequirement) (qualificati
 		}
 		failed = append(failed, b.String())
 	}
+	if cerr != nil {
+		// The mechanism the arms are built out of, not a property of the machine like the three above: a worker
+		// can have every device it needs and still be one on which A-honor and A-ignore are the same experiment.
+		failed = append(failed, cerr.Error())
+	}
 	if len(failed) == 0 {
 		return q, nil
 	}
@@ -397,7 +423,7 @@ func qualify(n *corev1.Node, pods []corev1.Pod, req gpuRequirement) (qualificati
 // Pods still requires list on pods at cluster scope, which is what this adds to whatever credential the
 // runner uses.
 func qualifyWorker(ctx context.Context, c client.Client, nodeName string,
-	req gpuRequirement) (*qualification, error) {
+	req gpuRequirement, contract canaryContract) (*qualification, error) {
 	var n corev1.Node
 	if err := c.Get(ctx, client.ObjectKey{Name: nodeName}, &n); err != nil {
 		return nil, fmt.Errorf("get node %s: %w", nodeName, err)
@@ -409,6 +435,6 @@ func qualifyWorker(ctx context.Context, c client.Client, nodeName string,
 		// substitution — absence of evidence for evidence of absence — that this gate exists to stop.
 		return nil, fmt.Errorf("list pods to check %s for foreign GPU consumers: %w", nodeName, err)
 	}
-	q, err := qualify(&n, pods.Items, req)
+	q, err := qualify(&n, pods.Items, req, contract)
 	return &q, err
 }

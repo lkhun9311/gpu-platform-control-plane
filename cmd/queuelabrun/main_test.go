@@ -2328,9 +2328,11 @@ func TestAPassingRunRecordsTheObservationAndCallsItselfAdmissible(t *testing.T) 
 		t.Fatalf("a run with every implemented gate's evidence intact is %q, got %+v:\n%s",
 			verdictAdmissible, got.Validity, b)
 	}
-	// Exactly recordUnchecked, not gateRefusal's roadmap: the termination canary is genuinely missing and the
-	// record has to keep saying so, but a record asserting this build lacks the very gates whose evidence it
-	// carries tells its reader to discount that evidence.
+	// Exactly recordUnchecked, not gateRefusal's roadmap. Something is still genuinely outside what this build
+	// can check — the canary probes a Pod it creates itself, so the MLTrainingJob-to-Job-to-Pod path a run's
+	// workload actually takes is not what was qualified — and the record has to keep saying so. What it must
+	// not do is assert this build lacks the very gates whose evidence it carries, which tells its reader to
+	// discount that evidence.
 	if !reflect.DeepEqual(got.Validity.UnimplementedGates, recordUnchecked()) {
 		t.Fatalf("the record's unchecked list is %v, want exactly %v",
 			got.Validity.UnimplementedGates, recordUnchecked())

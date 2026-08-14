@@ -301,6 +301,35 @@ func TestDecideOperatorMode(t *testing.T) {
 			args:     operatorModeArgs{ClearQuarantine: true, QuarantineID: "q1", ConfirmOwnerDead: true},
 			wantMode: modeClearQuarantine,
 		},
+		{
+			// The canary needs nothing but the node. It is deliberately NOT behind an attestation like the three
+			// destructive modes: those require one because nothing this tool can observe tells the operator
+			// whether the previous process is dead, and this mode asks nobody to judge anything — it takes the
+			// worker through the ordinary transaction, which refuses a node somebody else holds.
+			//
+			// Mutation that turns this row red: leave TerminationCanary out of decideOperatorMode's switch. It
+			// falls through to the ClearQuarantine default and refuses for a missing -quarantine-id, which is a
+			// flag this mode has nothing to do with.
+			name:     "termination-canary alone dispatches",
+			args:     operatorModeArgs{TerminationCanary: true},
+			wantMode: modeTerminationCanary,
+		},
+		{
+			// Mutation that turns this row red: leave TerminationCanary out of the count above the switch. Two
+			// modes are then requested and only one is seen, so the canary silently runs the inspection.
+			name:       "termination-canary alongside another mode refuses",
+			args:       operatorModeArgs{TerminationCanary: true, Inspect: true},
+			wantErr:    true,
+			wantErrHas: "only one of",
+		},
+		{
+			// A canary is not a run, so an invocation that names a run id was written by somebody expecting
+			// something this mode does not do.
+			name:       "termination-canary combined with run-only flags refuses",
+			args:       operatorModeArgs{TerminationCanary: true, RunOnlyFlags: []string{"-runid"}},
+			wantErr:    true,
+			wantErrHas: "-runid",
+		},
 	}
 
 	for _, tc := range cases {

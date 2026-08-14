@@ -90,19 +90,34 @@ func TestDecodeJournalRejectsUnknownFieldAndSchema(t *testing.T) {
 // GPU worker only as long as nothing in the run ever asked what the machine was. Leaving it that way now
 // would make every run() test refuse at qualification and prove nothing about the paths they were written
 // for, so the double is corrected to match the machine rather than the check weakened to accept the double.
+//
+// The termination canary is the same argument once more, and it is the reason this node now carries a kubelet
+// version, a container runtime and a passing qualification annotation. A worker a canary has never qualified
+// is a worker no run may measure on, so a double without one would send every run() test to the same refusal
+// and none of them would reach the path it was written for. A test that wants an UNQUALIFIED worker asks for
+// one explicitly — `node(nil, map[string]string{canaryAnnotationKey: ""})` — rather than getting it by
+// omission, so the tests about this gate say so in their own bodies.
 func node(labels map[string]string, ann map[string]string, taints ...corev1.Taint) *corev1.Node {
+	annotations := map[string]string{canaryAnnotationKey: qualifiedCanaryAnnotation()}
+	for k, v := range ann {
+		annotations[k] = v
+	}
 	return &corev1.Node{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        "platform-worker",
 			UID:         types.UID("uid-node"),
 			Labels:      labels,
-			Annotations: ann,
+			Annotations: annotations,
 		},
 		Spec: corev1.NodeSpec{Taints: taints},
 		Status: corev1.NodeStatus{
 			Allocatable: corev1.ResourceList{gpuResourceName: *resource.NewQuantity(2, resource.DecimalSI)},
 			Conditions: []corev1.NodeCondition{
 				{Type: corev1.NodeReady, Status: corev1.ConditionTrue},
+			},
+			NodeInfo: corev1.NodeSystemInfo{
+				KubeletVersion:          testKubeletVersion,
+				ContainerRuntimeVersion: testContainerRuntime,
 			},
 		},
 	}

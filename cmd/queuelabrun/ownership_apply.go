@@ -75,7 +75,7 @@ func cleanupContext() (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.Background(), releaseCleanupTimeout)
 }
 
-// operatorModeTimeout bounds the four recovery modes, which run on their own uncancellable context for the
+// operatorModeTimeout bounds the four RECOVERY modes, which run on their own uncancellable context for the
 // same reason the release path does: a signal arriving between a mode's Get and its Patch is exactly what
 // could leave a break half applied.
 //
@@ -87,8 +87,18 @@ func cleanupContext() (context.Context, context.CancelFunc) {
 // against a degraded API server gives them nothing to act on and no way to tell a hang from slow progress.
 const operatorModeTimeout = time.Minute
 
-// operatorModeContext returns the bounded, signal-independent context the recovery modes run on.
-func operatorModeContext() (context.Context, context.CancelFunc) {
+// operatorModeContext returns the bounded, signal-independent context a mode runs on.
+//
+// The bound is per-mode because one of them is not shaped like the others at all. The four recovery modes
+// spend a Get and a Patch and are done; the termination canary starts two containers, waits out a grace
+// period and reads what happened, which is minutes of legitimate work that a one-minute bound would cut off
+// mid-probe — leaving two Pods holding a finalizer and no verdict to show for it. The reason for making it
+// uncancellable is the same for both, and it is stronger for the canary: a signal landing between the delete
+// and the finalizer cleanup is exactly what strands a probe.
+func operatorModeContext(mode operatorMode) (context.Context, context.CancelFunc) {
+	if mode == modeTerminationCanary {
+		return context.WithTimeout(context.Background(), canaryModeTimeout)
+	}
 	return context.WithTimeout(context.Background(), operatorModeTimeout)
 }
 

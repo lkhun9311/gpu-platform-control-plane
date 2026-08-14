@@ -818,8 +818,18 @@ func TestResolveAmbiguousAcquireRefusesAPatchThatDidNotLand(t *testing.T) {
 	if err := fc.Get(context.Background(), client.ObjectKey{Name: "platform-worker"}, &got); err != nil {
 		t.Fatalf("get node: %v", err)
 	}
-	if len(got.Labels) != 0 || len(got.Annotations) != 0 || len(got.Spec.Taints) != 0 {
-		t.Fatalf("nothing may have been written: %+v %+v %+v", got.Labels, got.Annotations, got.Spec.Taints)
+	// The claim is that THIS TRANSACTION wrote nothing, which is narrower than the node being bare — and the
+	// difference stopped being academic when the worker started carrying a termination qualification, an
+	// annotation that is a property of the machine rather than of anybody's transaction and that was on this
+	// fixture before acquisition was attempted. Asserting an empty annotation map would fail on it and would
+	// be asserting something acquisition never promised.
+	if len(got.Labels) != 0 || len(got.Spec.Taints) != 0 {
+		t.Fatalf("nothing may have been written: %+v %+v", got.Labels, got.Spec.Taints)
+	}
+	for _, k := range []string{journalKey, quarantineKey, residueKey} {
+		if v, ok := got.Annotations[k]; ok {
+			t.Fatalf("annotation %s was written by an acquisition that did not land: %q", k, v)
+		}
 	}
 }
 
@@ -1477,7 +1487,7 @@ func TestQuotedOrNoneEscapesNodeControlledContent(t *testing.T) {
 // returns — the stranded-marker outcome moved from "Ctrl-C" to "hung apiserver" rather than prevented, which
 // is the argument releaseCleanupTimeout already exists for.
 func TestOperatorModeContextIsBoundedAndNotSignalCancellable(t *testing.T) {
-	ctx, cancel := operatorModeContext()
+	ctx, cancel := operatorModeContext(modeInspect)
 	defer cancel()
 
 	deadline, ok := ctx.Deadline()
@@ -1491,6 +1501,29 @@ func TestOperatorModeContextIsBoundedAndNotSignalCancellable(t *testing.T) {
 	// can cancel a half-applied break out from under it.
 	if err := ctx.Err(); err != nil {
 		t.Fatalf("a fresh operator-mode context must be live, got %v", err)
+	}
+}
+
+// The canary is the one mode whose legitimate work is minutes long: it starts two containers, waits out a
+// grace period and reads what happened. On the recovery modes' one-minute bound it would be cut off
+// mid-probe, every time, leaving two Pods holding its finalizer and no verdict — and the failure would look
+// like a cluster that could not stop a Pod rather than like a timeout.
+//
+// Mutation that turns this red: drop the mode parameter and give every mode operatorModeTimeout again.
+func TestTheCanaryModeGetsABudgetItsOwnWorkFitsIn(t *testing.T) {
+	ctx, cancel := operatorModeContext(modeTerminationCanary)
+	defer cancel()
+
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		t.Fatal("the canary must not run on an unbounded context either")
+	}
+	// The bound has to exceed what the mode's own budgets can legitimately spend, or the context becomes the
+	// thing that decides — and a context expiry cannot say which probe was still running.
+	if remaining := time.Until(deadline); remaining <= canaryStartBudget+canaryStopBudgetMax {
+		t.Fatalf("the canary's context expires %v out, which is inside its own start (%v) plus stop (%v) "+
+			"budgets: the loop that can report why it gave up would never get to",
+			remaining, canaryStartBudget, canaryStopBudgetMax)
 	}
 }
 

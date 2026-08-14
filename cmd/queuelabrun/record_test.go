@@ -765,12 +765,17 @@ func testObservation() *observationEvidence {
 }
 
 // testQualification is a worker this run could measure on.
+//
+// It carries a canary reference for the same reason it carries a Ready flag and a device count: a worker that
+// has the machinery but has never been shown able to stop a Pod is not one a run may measure on, so a
+// qualification without one is not the "everything held" fixture these tests need it to be.
 func testQualification() *qualification {
 	return &qualification{
 		Node: "platform-worker", NodeUID: "uid-node",
 		AllocatableGPU: 2, RequiredGPU: 2,
 		RequiredFrom: "x", RequiredBoundBy: boundByQuotaSum,
 		Ready: true, Schedulable: true, PodsOnNode: 6,
+		TerminationCanary: testCanaryReference(),
 	}
 }
 
@@ -1008,8 +1013,12 @@ func TestDecodeRunRecordRefusesAnAdmissibleVerdictItsFieldsDoNotSupport(t *testi
 		`"baselineResourceVersion":"1000","openedAt":"t","nodeVersionsObserved":9,"ending":"closed by the run",` +
 		`"violationsObserved":%d,"restoration":{"before":{"observed":true},"after":{"observed":true},` +
 		`"ourMarkersRemoved":true}}`
+	// The canary reference is part of what makes a record admissible now, so a forgery has to carry one too:
+	// without it every document below is refused for the environment rather than for the thing it is testing,
+	// and the last case — the well-formed one that must decode — could never pass.
 	qual := `{"node":"platform-worker","nodeUID":"uid-node","allocatableGPU":2,"requiredGPU":2,` +
-		`"requiredFrom":"x","requiredBoundBy":"nominal-quota-sum","ready":true,"schedulable":true,"podsOnNode":6}`
+		`"requiredFrom":"x","requiredBoundBy":"nominal-quota-sum","ready":true,"schedulable":true,` +
+		`"podsOnNode":6,"terminationCanary":` + canaryReferenceJSON(t) + `}`
 	// All four watched kinds, because a document short of one is not a continuous view and would be refused
 	// by the clause above the forgery this test is about — which would make the test pass for the wrong reason.
 	stream := func(kind string) string {
@@ -1131,7 +1140,15 @@ func TestTheRecordsUncheckedListDescribesTheBuildNotTheRoadmap(t *testing.T) {
 	}
 	got := strings.Join(rec.Validity.UnimplementedGates, "\n")
 	if !strings.Contains(got, "termination canary") {
-		t.Fatalf("the record no longer says the one thing this build genuinely cannot check: %q", got)
+		t.Fatalf("the record no longer says what this build still cannot check: %q", got)
+	}
+	// And it says the RESIDUAL rather than the gate. The canary gate now exists and every run stands on one, so
+	// an entry still claiming nothing checks that the worker can stop a Pod would be exactly the defect this
+	// list was created to remove — a durable statement about the document it sits in, false about the build
+	// that wrote it — pointing the other way.
+	if strings.Contains(got, "nothing in this build checks") {
+		t.Fatalf("the record claims this build cannot check what the run it describes was refused or qualified "+
+			"on: %q", got)
 	}
 	// Every gate this build DOES implement, named by the thing a reader would look for. Each of these appears
 	// in unimplementedGates(), so a record repeating that list fails on all three at once.

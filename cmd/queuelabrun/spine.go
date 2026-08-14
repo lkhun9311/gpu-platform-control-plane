@@ -156,9 +156,14 @@ type operatorModeArgs struct {
 	Arm    string
 	Worker string
 
-	// Inspect names no node of its own: like the other three modes it acts on Worker, so a hint this tool
+	// Inspect names no node of its own: like every other mode here it acts on Worker, so a hint this tool
 	// prints for one mode cannot be right while the same hint for another is not runnable as printed.
 	Inspect bool
+
+	// TerminationCanary is the one mode here that is not recovery. It sits with them because it is not a run
+	// either — it produces no result, leaves no run record, and above all it has to be runnable while
+	// gateRefusal refuses every run, since a run cannot be qualified until this has been taken.
+	TerminationCanary bool
 
 	ReleaseStale bool
 	TxID         string
@@ -227,11 +232,12 @@ const (
 	modeReleaseStale
 	modeForceRelease
 	modeClearQuarantine
+	modeTerminationCanary
 )
 
-// decideOperatorMode is the pure validation layer for the four operator recovery modes: it decides which
-// mode (if any) was requested and whether the invocation is well-formed, entirely without touching the
-// cluster.
+// decideOperatorMode is the pure validation layer for the five non-run modes — the four recovery ones and
+// the termination canary: it decides which mode (if any) was requested and whether the invocation is
+// well-formed, entirely without touching the cluster.
 //
 // This has to run, in full, before anything that needs a kubeconfig: an operator on a box with no cluster
 // access who mistypes a flag combination must see the flag-combination refusal, not a "kubeconfig: ..."
@@ -242,7 +248,7 @@ const (
 // than fall through). The two are distinguished by err, not by the mode value alone.
 func decideOperatorMode(a operatorModeArgs) (operatorMode, error) {
 	requested := 0
-	for _, on := range []bool{a.Inspect, a.ReleaseStale, a.ForceRelease, a.ClearQuarantine} {
+	for _, on := range []bool{a.Inspect, a.ReleaseStale, a.ForceRelease, a.ClearQuarantine, a.TerminationCanary} {
 		if on {
 			requested++
 		}
@@ -252,7 +258,8 @@ func decideOperatorMode(a operatorModeArgs) (operatorMode, error) {
 	}
 	if requested > 1 {
 		return modeNone, fmt.Errorf(
-			"only one of -inspect-worker, -release-stale, -force-release, -clear-quarantine may be given at a time")
+			"only one of -inspect-worker, -release-stale, -force-release, -clear-quarantine, " +
+				"-termination-canary may be given at a time")
 	}
 	// An operator mode is a recovery tool, not a run, so combining one with -arm would let "recover the
 	// node" and "run an arm" be read as a single invocation.
@@ -273,6 +280,12 @@ func decideOperatorMode(a operatorModeArgs) (operatorMode, error) {
 	switch {
 	case a.Inspect:
 		return modeInspect, nil
+	case a.TerminationCanary:
+		// No attestation of its own. The three destructive modes require one because nothing this tool can
+		// observe tells the operator whether the previous process is dead; this mode asks nobody to judge
+		// anything — it takes the worker through the ordinary transaction, which refuses a node somebody else
+		// holds, and everything it creates it names and deletes itself.
+		return modeTerminationCanary, nil
 	case a.ReleaseStale:
 		if a.TxID == "" {
 			return modeNone, fmt.Errorf("-release-stale requires -txid")

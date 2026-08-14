@@ -55,7 +55,16 @@ import (
 // never observed anything. And a blank verdict is the more dangerous half: the whole reason the verdict is a
 // field is that a reader classifies on it without parsing prose, so a document decoding into a verdict that
 // is neither documented name gives that reader a value to classify on that means nothing at all.
-const recordSchemaVersion = 4
+//
+// Version 5 adds the qualification block's `terminationCanary`, and the asymmetry is the same one a fourth
+// time — sharper here than in any of the three above, because of what the absent field means. A version-4
+// record decodes into today's struct with TerminationCanary nil, and nil is not a spare slot: it is exactly
+// what THIS build writes for a run it refused because nothing had established that the worker can stop a Pod
+// that is asked to. So every record every earlier build wrote — including the ones whose runs were fine,
+// since no earlier build could take that reading at all — would read as a run that faced that gate and did
+// not get past it. The version is what separates "was refused for it" from "could not ask", and nothing in
+// the document itself can.
+const recordSchemaVersion = 5
 
 // runRecord is what a non-preview invocation leaves behind.
 //
@@ -167,17 +176,31 @@ const (
 // block printed beside it; the second is the block making the assertion. A reader following that list would
 // discount exactly the evidence this gate was written to add.
 //
-// So one entry, and only what is verifiable from the code: qualifyWorker checks capacity and foreign GPU
-// consumers, and nothing anywhere checks that this worker can actually terminate a Pod. The name is carried
-// through from unimplementedGates' own wording so an operator holding both can match them up.
+// So one entry, and only what is verifiable from the code.
+//
+// It used to say that nothing in this build checked that the worker can actually terminate a Pod, and that
+// entry is GONE rather than reworded, because it is no longer true: qualify now refuses a worker whose
+// recorded termination canary is absent, failed, or was taken on a different combination, and no run reaches
+// a measurement without one. Leaving it would have been the mirror image of the defect that produced this
+// list — a durable statement about the document it sits in, false about the build that wrote it — and a
+// reader following it would discount the very gate that qualified the run.
+//
+// What replaces it is the residual that gate genuinely does not close, stated as narrowly as the code
+// supports. The canary probes a Pod IT creates: the same image and the same rendered command as the arm, on
+// the same node, under the grace period that node's apiserver defaults. A run's Pods reach the kubelet by a
+// different route — MLTrainingJob, admitted by Kueue, rendered into a Job by this repository's own controller
+// — and nothing in that route is exercised by the reading. What the canary establishes is that this cluster
+// delivers SIGTERM to this workload and enforces the grace period; what it does not establish is that the
+// controller will keep rendering the Pod that way.
 //
 // It is a function rather than a package-level slice for the reason unimplementedGates() is one: a slice
 // would be mutable from anywhere, and a caller that appended to what it was handed would edit what every
 // later record claims about itself.
 func recordUnchecked() []string {
 	return []string{
-		"termination canary: qualifyWorker checks capacity and foreign GPU consumers, and nothing in this " +
-			"build checks that the worker can actually terminate a Pod",
+		"termination canary coverage: the recorded canary probes a Pod it creates directly on the worker with " +
+			"this build's own image and command, so it establishes signal delivery and the grace period on that " +
+			"node; the MLTrainingJob-to-Job-to-Pod path a run's workload actually takes is not exercised by it",
 	}
 }
 
@@ -321,11 +344,20 @@ func observationContinuous(obs *observationEvidence) bool {
 // point. The window's opening read makes 1 the structural minimum, so a zero there is impossible; a node
 // genuinely carrying no Pods is an ordinary cluster state, and refusing it would refuse a real machine for
 // being quiet.
+//
+// The canary reference is required for the same reason the two floors are, and it is the one clause here that
+// is about the mechanism rather than the machine: a worker can be Ready, schedulable, uncontended and large
+// enough while being one on which the two arms are the same experiment. A nil reference is every run that did
+// not get past that gate — no canary recorded, a recorded one that failed, or one taken on another
+// combination — and none of those may read as an established environment.
 func environmentEstablished(q *qualification) bool {
 	if q == nil {
 		return false
 	}
 	if q.Node == "" || q.RequiredGPU < 1 {
+		return false
+	}
+	if q.TerminationCanary == nil {
 		return false
 	}
 	return q.Ready && q.Schedulable && q.AllocatableGPU >= q.RequiredGPU && len(q.GPUConsumers) == 0
@@ -596,6 +628,20 @@ func decodeRunRecord(b []byte) (runRecord, error) {
 			"decode record: qualification names bound %q, which is neither %q nor %q; a requirement whose "+
 				"binding constraint is unknown cannot be read as either of them",
 			q.RequiredBoundBy, boundByQuotaSum, boundByLargestRow)
+	}
+	// The same guard once more for the canary reference, and it closes the same route the two around it do: a
+	// document CLAIMING this version while carrying a reference that names nothing. A zero canaryReference
+	// satisfies environmentEstablished's non-nil test — which is the strongest thing this block can say about
+	// the mechanism the arms differ by — while identifying no qualification, quoting no image and naming no
+	// runtime, so a reader could not go and check it against anything. No build writes one: qualify attaches
+	// only what checkTerminationCanary returned, and that comes from a document decodeCanary has already
+	// refused to read without these fields.
+	if tc := canaryRefOf(r.Qualification); tc != nil &&
+		(tc.CanaryID == "" || tc.Key.Image == "" || tc.Key.NodeUID == "") {
+		return runRecord{}, fmt.Errorf(
+			"decode record: the qualification names termination canary %q on image %q and node UID %q; a "+
+				"reference that identifies no qualification cannot be read as evidence that one was consulted",
+			tc.CanaryID, tc.Key.Image, tc.Key.NodeUID)
 	}
 	// The same guard for the window, and it is a different check from the version one above for the same
 	// reason: a document CLAIMING this version while carrying a window that observed no node version at all
