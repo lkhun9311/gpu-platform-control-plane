@@ -264,6 +264,105 @@ func endText(e streamEnd) string {
 	return "it forwarded no status, so the cause is not recoverable from the stream itself"
 }
 
+// streamEvidence is what one stream established and how it ended, in the spelling the run record persists.
+//
+// The ending is carried as the three RAW facts streamEnd holds rather than as a verdict computed here, and
+// that is the point rather than laziness. The reading of those facts is one-sided — streamEnd's own comment
+// spells out why Cancelled or Stopped can never prove an ending was orderly — and the record's validity block
+// is where that asymmetry is applied, once. A "lost" bool decided at this end would put the same rule in two
+// places, and the copy a reader could check would not be the copy that decided.
+type streamEvidence struct {
+	Kind string `json:"kind"`
+	// BaselineResourceVersion is the point this stream's watch resumed from, and it is the field that makes
+	// the difference between a view and a sample: startWatchStream refuses "" and "0" precisely because
+	// neither is a point a later gap could be measured against.
+	BaselineResourceVersion string `json:"baselineResourceVersion"`
+	// BaselineObjects is what the initial List found, and on any run that got as far as submitting it is 0 —
+	// start above refuses a non-empty baseline outright. It is persisted anyway because the refusal is the
+	// record worth having: it says how much of somebody else's work was standing in a namespace this run had
+	// just created, which nothing else in the document would afterwards say.
+	BaselineObjects int `json:"baselineObjects"`
+	// Ended says End() had closed when this was captured, and it is recorded rather than assumed.
+	//
+	// It is not always true, which is the point. Every stream that has a CONSUMER is joined before run()
+	// returns — col.abort on the start failures, cancel plus col.wait on every other — but start refuses a
+	// non-empty baseline before it consumes that stream, so on that one path a stream is stopped and never
+	// joined and its ending may still be being written when this is sampled. A zero streamEnd is
+	// byte-identical to an ending with neither flag set, which is the shape that reads as a LOST stream, so
+	// without this field that refusal would persist as "the view died under us" about a view that was merely
+	// still shutting down.
+	Ended     bool `json:"ended"`
+	Cancelled bool `json:"cancelled"`
+	Stopped   bool `json:"stopped"`
+	// LastStatus is the terminal watch status the stream actually forwarded, in statusText's spelling, and
+	// its absence proves nothing — a permanent failure can terminate while forwarding no event at all.
+	LastStatus string `json:"lastStatus,omitempty"`
+}
+
+// observationEvidence is what the run's continuous view of its own namespace actually was.
+//
+// It is the last of the three gates' evidence to reach the record, and the one a reader can least
+// reconstruct: qualification describes a machine and the window describes a Node, both of which an operator
+// could go and look at afterwards, while a stream's baseline and its ending exist only for as long as the
+// process does. Without this block a stored record cannot distinguish a complete observation from a truncated
+// one, which is the single property the continuity gate exists to establish.
+//
+// It is written into the record directly rather than through a second projection type, for qualification's
+// reason: every field here is a string, a bool or an int, so nothing encodes asymmetrically and nothing is an
+// iota whose declaration order would become a wire format.
+type observationEvidence struct {
+	Namespace string `json:"namespace"`
+	// HorizonNs is the denominator for EstablishedNs. Establishment is spent INSIDE the window (see
+	// establishBudget), so "four seconds" means nothing to a later reader without the window it came out of,
+	// and the horizon appears nowhere else in the record.
+	HorizonNs int64 `json:"horizonNs"`
+	// Established says every stream accepted a watch before anything was submitted. A false one is the
+	// strongest thing this block says: the run either never opened its streams or gave up waiting for them,
+	// and nothing it observed afterwards covers the interval it was supposed to.
+	Established       bool             `json:"established"`
+	EstablishedNs     int64            `json:"establishedNs"`
+	EstablishBudgetNs int64            `json:"establishBudgetNs"`
+	Streams           []streamEvidence `json:"streams,omitempty"`
+}
+
+// evidence projects what this collector's streams established and how each of them ended.
+//
+// Ended() is only final once a stream's End() has closed, so this SAMPLES End() rather than assuming it: see
+// streamEvidence.Ended for the one path where a stream reaches here unjoined, and for why persisting its zero
+// ending would invent a loss. Nothing here reads the builder or changes any decision — the ledger's verdict
+// was taken long before this runs, and this is a projection of what the streams already were.
+func (col *collector) evidence(established bool, establishedIn time.Duration) *observationEvidence {
+	ev := &observationEvidence{
+		Namespace:         col.ns,
+		HorizonNs:         col.horizonNs(),
+		Established:       established,
+		EstablishBudgetNs: establishBudget.Nanoseconds(),
+	}
+	if established {
+		ev.EstablishedNs = establishedIn.Nanoseconds()
+	}
+	for _, ks := range col.streams {
+		s := streamEvidence{
+			Kind:                    ks.kind,
+			BaselineResourceVersion: ks.stream.Baseline().ResourceVersion,
+			BaselineObjects:         ks.stream.Baseline().Objects,
+		}
+		select {
+		case <-ks.stream.End():
+			end := ks.stream.Ended()
+			s.Ended = true
+			s.Cancelled = end.Cancelled
+			s.Stopped = end.Stopped
+			if end.LastStatus != nil {
+				s.LastStatus = statusText(end.LastStatus)
+			}
+		default:
+		}
+		ev.Streams = append(ev.Streams, s)
+	}
+	return ev
+}
+
 func (col *collector) wait() { col.wg.Wait() }
 
 // desync invalidates the run from the main goroutine, which is the only caller that does not already hold mu.

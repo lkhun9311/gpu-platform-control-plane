@@ -23,6 +23,7 @@ import (
 	"os"
 	"reflect"
 	"runtime"
+	"slices"
 	"strings"
 	"syscall"
 	"testing"
@@ -46,6 +47,14 @@ func TestRunRecordRoundTrips(t *testing.T) {
 		Disposition:   string(dispChecksPassed),
 		Reason:        "",
 		Events:        []queuelab.LifecycleEvent{{ElapsedNs: 1, Kind: "Pod", Job: "a1"}},
+		// Written out rather than derived, because this test is about the WIRE and a derived block would only
+		// prove buildRecord agrees with itself. The failure list is populated for the same reason the events are:
+		// an omitempty slice that is never non-empty here would leave the field's encoding unexercised.
+		Validity: validity{
+			Verdict:            verdictRefused,
+			Failures:           []string{failureObservation, failureExclusivity},
+			UnimplementedGates: unimplementedGates(),
+		},
 	}
 	b, err := encodeRecord(in)
 	if err != nil {
@@ -67,6 +76,16 @@ func TestDecodeRunRecordRefusesAnUnknownSchema(t *testing.T) {
 		t.Fatal("an unknown schema version must be refused")
 	}
 }
+
+// refusedValidity is the smallest validity block a hand-written document can carry and still get past
+// decodeRunRecord's verdict guard.
+//
+// Every document below that must DECODE needs one, and that is not boilerplate to skim past: a verdict is
+// required of every record, so a fixture without one is refused for a reason its test did not write. The
+// guard ORDER is what keeps the refusal fixtures honest in the other direction — the qualification, window
+// and observation guards all run before the verdict is looked at, so each of those documents is still
+// refused by the specific check its test is about rather than by a missing verdict.
+const refusedValidity = `"validity":{"verdict":"refused","failures":["observation-not-continuous"]}`
 
 // A field the schema does not define must be refused, not silently dropped, or a hand-edited or
 // future-schema document could carry content decodeRunRecord never validated.
@@ -154,6 +173,10 @@ func TestWriteRecordLeavesNoPartialFile(t *testing.T) {
 		RunID:         "r7",
 		Arm:           "A-honor",
 		Disposition:   string(dispChecksPassed),
+		// A verdict is required of every record, so this fixture carries the one its own fields support: no
+		// observation, no window and no qualification means it establishes nothing, whatever its disposition
+		// says.
+		Validity: validity{Verdict: verdictRefused, Failures: []string{failureRunIncomplete}},
 	}
 	if err := writeRecord(path, want); err != nil {
 		t.Fatalf("write: %v", err)
@@ -314,7 +337,7 @@ func TestRunRecordCarriesTheResidueAndStillDecodes(t *testing.T) {
 	}}
 
 	rec := buildRecord(outcome{Disposition: dispResidueLeft, Reason: "teardown left 1 object(s)"}, nil, left, nil, nil,
-		"r7", "A-honor", false, time.Now(), time.Now())
+		nil, "r7", "A-honor", false, time.Now(), time.Now())
 	b, err := encodeRecord(rec)
 	if err != nil {
 		t.Fatalf("encode: %v", err)
@@ -394,7 +417,7 @@ func TestPreviewRecordCarriesResidueToo(t *testing.T) {
 		},
 		Absence: absencePresent,
 	}}
-	pr, ok := buildRecord(outcome{Disposition: dispResidueLeft}, nil, left, nil, nil, "r7", "A-honor", true,
+	pr, ok := buildRecord(outcome{Disposition: dispResidueLeft}, nil, left, nil, nil, nil, "r7", "A-honor", true,
 		time.Now(), time.Now()).(previewRecord)
 	if !ok {
 		t.Fatal("a preview invocation must build a previewRecord")
@@ -436,7 +459,7 @@ func TestRunRecordCarriesTheQualificationAndStillDecodes(t *testing.T) {
 		},
 	}
 	rec := buildRecord(outcome{Disposition: dispEnvironmentUnqualified, Reason: "a GPU Pod was already there"},
-		nil, nil, q, nil, "r7", "A-honor", false, time.Now(), time.Now())
+		nil, nil, q, nil, nil, "r7", "A-honor", false, time.Now(), time.Now())
 	b, err := encodeRecord(rec)
 	if err != nil {
 		t.Fatalf("encode: %v", err)
@@ -470,12 +493,15 @@ func TestRunRecordCarriesTheQualificationAndStillDecodes(t *testing.T) {
 // on a node with no name means "not checked".
 func TestARecordWithNoQualificationCarriesNoQualificationKey(t *testing.T) {
 	rec := buildRecord(outcome{Disposition: dispAcquisitionRefused, Reason: "held by another run"},
-		nil, nil, nil, nil, "r7", "A-honor", false, time.Now(), time.Now())
+		nil, nil, nil, nil, nil, "r7", "A-honor", false, time.Now(), time.Now())
 	b, err := encodeRecord(rec)
 	if err != nil {
 		t.Fatalf("encode: %v", err)
 	}
-	if strings.Contains(string(b), "qualification") {
+	// The JSON KEY, not the bare word: the validity block carries unimplementedGates(), one of whose entries
+	// is "environment qualification (capacity, foreign GPU pods, termination canary)", so a substring check for
+	// the word alone now fires on a record that correctly wrote no qualification at all.
+	if strings.Contains(string(b), `"qualification":`) {
 		t.Fatalf("a run that never qualified its worker wrote a qualification anyway:\n%s", b)
 	}
 }
@@ -490,7 +516,7 @@ func TestARecordWithNoQualificationCarriesNoQualificationKey(t *testing.T) {
 func TestPreviewRecordCarriesTheQualificationToo(t *testing.T) {
 	q := &qualification{Node: "platform-worker", NodeUID: "uid-node", AllocatableGPU: 2, RequiredGPU: 2,
 		Ready: true, Schedulable: true, PodsOnNode: 3}
-	pr, ok := buildRecord(outcome{Disposition: dispChecksPassed}, nil, nil, q, nil, "r7", "A-honor", true,
+	pr, ok := buildRecord(outcome{Disposition: dispChecksPassed}, nil, nil, q, nil, nil, "r7", "A-honor", true,
 		time.Now(), time.Now()).(previewRecord)
 	if !ok {
 		t.Fatal("a preview invocation must build a previewRecord")
@@ -567,9 +593,9 @@ func TestDecodeRunRecordRefusesAQualificationNamingNoDocumentedBound(t *testing.
 	}
 
 	// The same document naming a real bound must still decode, or the guard above is refusing the records it
-	// was written to protect.
+	// was written to protect. It carries a verdict because every record must; see refusedValidity.
 	ok := fmt.Appendf(nil, `{"schemaVersion":%d,"runID":"r7","arm":"A-honor",`+
-		`"disposition":"completed-implemented-checks-passed","qualification":{`+
+		`"disposition":"completed-implemented-checks-passed",`+refusedValidity+`,"qualification":{`+
 		`"node":"platform-worker","nodeUID":"uid-node","allocatableGPU":2,"requiredGPU":2,`+
 		`"requiredFrom":"x","requiredBoundBy":%q,"ready":true,"schedulable":true,"podsOnNode":0}}`,
 		recordSchemaVersion, boundByLargestRow)
@@ -609,7 +635,7 @@ func testWindow() *ownershipWindow {
 // end and the state the fourth gate would have to investigate from scratch.
 func TestRunRecordCarriesTheWindowAndStillDecodes(t *testing.T) {
 	w := testWindow()
-	rec := buildRecord(outcome{Disposition: dispChecksPassed}, nil, nil, nil, w, "r7", "A-honor", false,
+	rec := buildRecord(outcome{Disposition: dispChecksPassed}, nil, nil, nil, w, nil, "r7", "A-honor", false,
 		time.Now(), time.Now())
 	b, err := encodeRecord(rec)
 	if err != nil {
@@ -648,7 +674,7 @@ func TestARefusedRunRecordsWhatTheWindowSaw(t *testing.T) {
 		ObservedTaints: "(none)",
 	}}
 	rec := buildRecord(outcome{Disposition: dispCollectorDesync, Reason: "run invalidated"}, nil, nil, nil, w,
-		"r7", "A-honor", false, time.Now(), time.Now())
+		nil, "r7", "A-honor", false, time.Now(), time.Now())
 	b, err := encodeRecord(rec)
 	if err != nil {
 		t.Fatalf("encode: %v", err)
@@ -671,7 +697,7 @@ func TestARefusedRunRecordsWhatTheWindowSaw(t *testing.T) {
 //
 // Mutation that turns this red: delete `Window: win` from buildRecord's previewRecord branch.
 func TestPreviewRecordCarriesTheWindowToo(t *testing.T) {
-	pr, ok := buildRecord(outcome{Disposition: dispChecksPassed}, nil, nil, nil, testWindow(), "r7", "A-honor",
+	pr, ok := buildRecord(outcome{Disposition: dispChecksPassed}, nil, nil, nil, testWindow(), nil, "r7", "A-honor",
 		true, time.Now(), time.Now()).(previewRecord)
 	if !ok {
 		t.Fatal("a preview invocation must build a previewRecord")
@@ -705,10 +731,324 @@ func TestDecodeRunRecordRefusesAWindowThatWatchedNothing(t *testing.T) {
 	// The same document with a window that actually watched something must still decode, or the guard is
 	// refusing the records it was written to protect.
 	ok := fmt.Appendf(nil, `{"schemaVersion":%d,"runID":"r7","arm":"A-honor",`+
-		`"disposition":"completed-implemented-checks-passed","window":{"node":"platform-worker",`+
+		`"disposition":"completed-implemented-checks-passed",`+refusedValidity+`,"window":{"node":"platform-worker",`+
 		`"nodeUID":"uid-node","txID":"tx-1111","baselineResourceVersion":"1000","openedAt":"t",`+
 		`"nodeVersionsObserved":1,"ending":"closed by the run","violationsObserved":0}}`, recordSchemaVersion)
 	if _, err := decodeRunRecord(ok); err != nil {
 		t.Fatalf("a well-formed record was refused by the window guard: %v", err)
+	}
+}
+
+// testObservation is a view that covered its run: four streams, each resumed from a known point, each ended
+// by the caller at the horizon, and establishment cheap against the window it was spent out of.
+func testObservation() *observationEvidence {
+	ev := &observationEvidence{
+		Namespace:         "queuelab-r7",
+		HorizonNs:         int64(150 * time.Second),
+		Established:       true,
+		EstablishedNs:     int64(120 * time.Millisecond),
+		EstablishBudgetNs: establishBudget.Nanoseconds(),
+	}
+	for i, kind := range []string{kindMLTrainingJob, kindJob, kindWorkload, kindPod} {
+		ev.Streams = append(ev.Streams, streamEvidence{
+			Kind:                    kind,
+			BaselineResourceVersion: fmt.Sprintf("%d", 2000+i),
+			Ended:                   true,
+			Cancelled:               true,
+		})
+	}
+	return ev
+}
+
+// testQualification is a worker this run could measure on.
+func testQualification() *qualification {
+	return &qualification{
+		Node: "platform-worker", NodeUID: "uid-node",
+		AllocatableGPU: 2, RequiredGPU: 2,
+		RequiredFrom: "x", RequiredBoundBy: boundByQuotaSum,
+		Ready: true, Schedulable: true, PodsOnNode: 6,
+	}
+}
+
+// The observation is the one gate whose evidence a reader cannot go and re-check afterwards: a Node is still
+// there to inspect and a worker's Pods are still listable, but a stream's baseline and its ending exist only
+// for as long as the process does. A record without this block cannot distinguish a run that watched its
+// whole window from one that watched thirty seconds of it, which is the single property the continuity gate
+// exists to establish.
+//
+// Mutation that turns this red: drop `Observation: obs` from buildRecord's runRecord branch. The run still
+// observes continuously, the ledger still refuses a truncated one, and every stored record goes back to being
+// silent about which of the two it came from.
+func TestRunRecordCarriesTheObservationAndStillDecodes(t *testing.T) {
+	obs := testObservation()
+	rec := buildRecord(outcome{Disposition: dispChecksPassed}, nil, nil, testQualification(), testWindow(),
+		obs, "r7", "A-honor", false, time.Now(), time.Now())
+	b, err := encodeRecord(rec)
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	got, err := decodeRunRecord(b)
+	if err != nil {
+		t.Fatalf("a record carrying an observation must decode: %v\n%s", err, b)
+	}
+	if got.Observation == nil {
+		t.Fatalf("the observation did not survive the round trip:\n%s", b)
+	}
+	if !reflect.DeepEqual(*got.Observation, *obs) {
+		t.Fatalf("the observation changed on the round trip:\n got %+v\nwant %+v", *got.Observation, *obs)
+	}
+	// This document is the one shape that reaches verdictAdmissible, so it is also the positive half of
+	// checkValidity: a guard that only ever refused would be a guard nothing could distinguish from a decoder
+	// that refuses everything.
+	if got.Validity.Verdict != verdictAdmissible || len(got.Validity.Failures) != 0 {
+		t.Fatalf("a run with every gate's evidence intact is %q, got %+v", verdictAdmissible, got.Validity)
+	}
+	if len(got.Validity.UnimplementedGates) == 0 {
+		t.Fatal("an admissible record must still carry what this build cannot check at all, or the verdict " +
+			"reads as more than it says")
+	}
+	t.Logf("persisted record:\n%s", b)
+}
+
+// The case that makes the verdict a FIELD rather than a reading of the prose, and it is not hypothetical: the
+// re-review of the ownership gate found it.
+//
+// A collector stream desyncs and the ownership window is violated in the same run. Both land on
+// collector-desync — deliberately, because builder.Err() is the one thing that decides whether a number may
+// exist — and LedgerBuilder.Desync keeps only the FIRST reason it is given. The stream's desync is recorded
+// during the run and the window's verdict is folded in after the streams are joined, so `reason` names the
+// stream and the exclusivity failure survives nowhere in the text at all.
+//
+// Mutation that turns this red: derive the verdict from o.Reason — for instance by returning
+// failureExclusivity only when the reason mentions the worker. The reason here names the Pod stream and
+// nothing else, so the exclusivity failure disappears exactly as it does today.
+func TestValidityKeepsTheExclusivityFailureTheReasonHasLost(t *testing.T) {
+	o := outcome{
+		Disposition: dispCollectorDesync,
+		Reason: "run invalidated: the Pod stream ended on its own while the run was still observing, so " +
+			"every transition after that point is unobserved rather than absent",
+	}
+	win := testWindow()
+	win.ViolationsObserved = 3
+	win.Violations = []ownershipViolation{{At: "t", Reason: reasonInstalledDiverged, Detail: "taint stripped"}}
+	// The observation is intact in this fixture on purpose: the desync reached the ledger but the record's
+	// stream evidence would show a lost Pod stream too, and leaving that in would let the exclusivity failure
+	// be "found" by a derivation that only looked at the streams.
+	v := deriveValidity(o, nil, testQualification(), win, testObservation(), false)
+
+	if strings.Contains(o.Reason, "worker") || strings.Contains(o.Reason, "exclusiv") {
+		t.Fatalf("this fixture only proves anything while the reason is silent about exclusivity, got %q", o.Reason)
+	}
+	if !slices.Contains(v.Failures, failureExclusivity) {
+		t.Fatalf("the verdict lost the exclusivity failure the reason never carried: %+v", v)
+	}
+	if v.Verdict != verdictRefused {
+		t.Fatalf("verdict = %q, want %q", v.Verdict, verdictRefused)
+	}
+}
+
+// Each claim is derived from its own fields, so a record failing one has to fail exactly one. A derivation
+// that collapsed them — returning early, or keying every claim off the disposition — would make the block a
+// second spelling of `disposition` and buy a reader nothing.
+//
+// Mutation that turns this red: make deriveValidity stop at the first failure it appends (guard each check
+// after the disposition with `len(v.Failures) == 0`). The single-failure rows all survive it — which is why
+// the two-claim row at the bottom is not padding.
+func TestValidityNamesTheClaimTheFieldsActuallyFail(t *testing.T) {
+	pass := outcome{Disposition: dispChecksPassed}
+	lostStream := testObservation()
+	lostStream.Streams[3].Cancelled = false
+	unestablished := testObservation()
+	unestablished.Established = false
+	contended := testQualification()
+	contended.GPUConsumers = []gpuConsumer{{Namespace: "tenant-a", Name: "train-7", Phase: "Running", GPUs: 1}}
+	blindWindow := testWindow()
+	blindWindow.NodeVersionsObserved = 0
+	unrestored := testWindow()
+	unrestored.Restoration = nil
+
+	for _, tc := range []struct {
+		name string
+		o    outcome
+		left []recordResidue
+		qual *qualification
+		win  *ownershipWindow
+		obs  *observationEvidence
+		want []string
+	}{
+		{"everything held", pass, nil, testQualification(), testWindow(), testObservation(), nil},
+		{"cancelled at the horizon", outcome{Disposition: dispCancelled}, nil, testQualification(),
+			testWindow(), testObservation(), []string{failureRunIncomplete}},
+		{"a stream ended on its own", pass, nil, testQualification(), testWindow(), lostStream,
+			[]string{failureObservation}},
+		{"never established", pass, nil, testQualification(), testWindow(), unestablished,
+			[]string{failureObservation}},
+		{"never observed at all", pass, nil, testQualification(), testWindow(), nil,
+			[]string{failureObservation}},
+		{"a foreign GPU pod", pass, nil, contended, testWindow(), testObservation(),
+			[]string{failureEnvironment}},
+		{"never qualified", pass, nil, nil, testWindow(), testObservation(), []string{failureEnvironment}},
+		{"a window that compared nothing", pass, nil, testQualification(), blindWindow, testObservation(),
+			[]string{failureExclusivity}},
+		{"no window at all", pass, nil, testQualification(), nil, testObservation(),
+			[]string{failureExclusivity}},
+		{"residue left behind", pass, []recordResidue{{Kind: "Namespace", Name: "queuelab-r7", Absence: "present"}},
+			testQualification(), testWindow(), testObservation(), []string{failureContainment}},
+		{"restoration never audited", pass, nil, testQualification(), unrestored, testObservation(),
+			[]string{failureContainment}},
+		// The row the single-failure rows above cannot cover: two independent claims failing at once. Without
+		// it a derivation that stopped at the first failure would satisfy every other row here, since each of
+		// them has exactly one, and the block would silently become "the first thing that went wrong" — which
+		// is the free-text reason it exists to replace.
+		{"two claims fail at once", pass, []recordResidue{{Kind: "Namespace", Name: "queuelab-r7", Absence: "present"}},
+			testQualification(), testWindow(), lostStream, []string{failureObservation, failureContainment}},
+	} {
+		v := deriveValidity(tc.o, tc.left, tc.qual, tc.win, tc.obs, false)
+		if !reflect.DeepEqual(v.Failures, tc.want) {
+			t.Errorf("%s: failures = %v, want %v", tc.name, v.Failures, tc.want)
+		}
+		wantVerdict := verdictAdmissible
+		if len(tc.want) > 0 {
+			wantVerdict = verdictRefused
+		}
+		if v.Verdict != wantVerdict {
+			t.Errorf("%s: verdict = %q, want %q", tc.name, v.Verdict, wantVerdict)
+		}
+	}
+}
+
+// A preview waives gateRefusal, so its record must be readable as neither a pass nor a failure of gates it
+// never faced — however well every other field came out. This is the same guarantee previewRecord's missing
+// events field provides, applied to the field a reader classifies on.
+//
+// Mutation that turns this red: drop the `if preview` branch from deriveValidity. A preview against a clean
+// cluster then writes a record that says it is admissible, which is the one thing -preview exists to stop.
+func TestAPreviewIsNeverAdmissibleHoweverWellItWent(t *testing.T) {
+	pr, ok := buildRecord(outcome{Disposition: dispChecksPassed}, nil, nil, testQualification(), testWindow(),
+		testObservation(), "r7", "A-honor", true, time.Now(), time.Now()).(previewRecord)
+	if !ok {
+		t.Fatal("a preview invocation must build a previewRecord")
+	}
+	if pr.Validity.Verdict != verdictPreview {
+		t.Fatalf("a preview whose every gate passed is %q, got %q", verdictPreview, pr.Validity.Verdict)
+	}
+	if pr.Observation == nil {
+		t.Fatal("a preview opens the same four streams a run does, and its record must say what they were")
+	}
+}
+
+// The verdict's whole value is that a reader classifies on it without parsing prose, so a value that is
+// neither documented name hands that reader something meaningless while looking like an answer. The blank is
+// the case that matters: it is what every record written before this schema decodes into.
+//
+// Mutation that turns this red: delete the default arm from checkValidity.
+func TestDecodeRunRecordRefusesAVerdictNoBuildEverWrote(t *testing.T) {
+	for name, block := range map[string]string{
+		"no verdict at all":        `{"verdict":""}`,
+		"a name nobody defined":    `{"verdict":"probably-fine"}`,
+		"a refusal naming nothing": `{"verdict":"refused"}`,
+	} {
+		b := fmt.Appendf(nil, `{"schemaVersion":%d,"runID":"r7","arm":"A-honor",`+
+			`"disposition":"completed-implemented-checks-passed","validity":%s}`, recordSchemaVersion, block)
+		if _, err := decodeRunRecord(b); err == nil {
+			t.Fatalf("%s: a record whose verdict cannot be read was read as though it had been judged", name)
+		}
+	}
+}
+
+// The forgery this guard exists for. verdictAdmissible is the strongest thing a record can say, and a
+// document can simply assert it: the fields beside it are what make it evidence rather than a claim, so the
+// admissible direction — and only that direction — is re-derived at decode.
+//
+// Mutation that turns this red: delete the deriveValidity re-check from checkValidity's verdictAdmissible
+// arm. Both documents below then decode, and a reader is handed "admissible" over a worker that was shared
+// mid-run and over a run that never opened a stream.
+func TestDecodeRunRecordRefusesAnAdmissibleVerdictItsFieldsDoNotSupport(t *testing.T) {
+	admissible := `{"verdict":"admissible-under-implemented-gates"}`
+	window := `{"node":"platform-worker","nodeUID":"uid-node","txID":"tx-1111",` +
+		`"baselineResourceVersion":"1000","openedAt":"t","nodeVersionsObserved":9,"ending":"closed by the run",` +
+		`"violationsObserved":%d,"restoration":{"before":{"observed":true},"after":{"observed":true},` +
+		`"ourMarkersRemoved":true}}`
+	qual := `{"node":"platform-worker","nodeUID":"uid-node","allocatableGPU":2,"requiredGPU":2,` +
+		`"requiredFrom":"x","requiredBoundBy":"nominal-quota-sum","ready":true,"schedulable":true,"podsOnNode":6}`
+	obs := `{"namespace":"queuelab-r7","horizonNs":1,"established":true,"establishedNs":1,` +
+		`"establishBudgetNs":1,"streams":[{"kind":"Pod","baselineResourceVersion":"2000","baselineObjects":0,` +
+		`"ended":true,"cancelled":true,"stopped":false}]}`
+
+	// A window that saw the worker shared, under a verdict that says every gate passed: exactly the shape the
+	// exclusivity discriminator exists to catch, forged rather than measured.
+	shared := fmt.Appendf(nil, `{"schemaVersion":%d,"runID":"r7","arm":"A-honor",`+
+		`"disposition":"completed-implemented-checks-passed","validity":%s,"qualification":%s,"window":`+window+
+		`,"observation":%s}`, recordSchemaVersion, admissible, qual, 4, obs)
+	if _, err := decodeRunRecord(shared); err == nil {
+		t.Fatal("a record claiming to be admissible over a violated ownership window was accepted")
+	}
+	// The same document with nothing to say about its observation: an admissible verdict over a run whose
+	// streams nobody recorded.
+	unobserved := fmt.Appendf(nil, `{"schemaVersion":%d,"runID":"r7","arm":"A-honor",`+
+		`"disposition":"completed-implemented-checks-passed","validity":%s,"qualification":%s,"window":`+window+`}`,
+		recordSchemaVersion, admissible, qual, 0)
+	if _, err := decodeRunRecord(unobserved); err == nil {
+		t.Fatal("a record claiming to be admissible while carrying no observation at all was accepted")
+	}
+	// And the supported one must decode, or the guard is refusing the records it was written to protect.
+	ok := fmt.Appendf(nil, `{"schemaVersion":%d,"runID":"r7","arm":"A-honor",`+
+		`"disposition":"completed-implemented-checks-passed","validity":%s,"qualification":%s,"window":`+window+
+		`,"observation":%s}`, recordSchemaVersion, admissible, qual, 0, obs)
+	if _, err := decodeRunRecord(ok); err != nil {
+		t.Fatalf("a well-formed admissible record was refused: %v", err)
+	}
+}
+
+// startWatchStream refuses "" and "0" outright, because a watch that begins at "now" or at an arbitrary
+// cached point cannot speak for the interval before it attached — which is the defect the continuity gate
+// replaced. So a stream recorded with either is a hand-edited or future-written document, and it must not be
+// readable as the continuous view the block's existence claims.
+//
+// Mutation that turns this red: delete the observation guard from decodeRunRecord.
+func TestDecodeRunRecordRefusesAStreamWithNoResumePoint(t *testing.T) {
+	for _, rv := range []string{"", "0"} {
+		b := fmt.Appendf(nil, `{"schemaVersion":%d,"runID":"r7","arm":"A-honor",`+
+			`"disposition":"collector-desync",`+refusedValidity+`,"observation":{"namespace":"queuelab-r7",`+
+			`"horizonNs":1,"established":true,"establishedNs":1,"establishBudgetNs":1,"streams":[`+
+			`{"kind":"Pod","baselineResourceVersion":%q,"baselineObjects":0,"ended":true,"cancelled":true}]}}`,
+			recordSchemaVersion, rv)
+		if _, err := decodeRunRecord(b); err == nil {
+			t.Fatalf("a stream recorded at resume point %q was read as a continuous view", rv)
+		}
+	}
+}
+
+// The record shape gate 3 shipped, refused rather than read. The asymmetry is the one recordSchemaVersion's
+// comment describes and the reason the bump is the right instrument: a version-4 record read by a version-3
+// build already fails loudly on DisallowUnknownFields, while a version-3 record read by this build decodes
+// without complaint into a nil observation and a blank verdict — a run that "never observed anything" and was
+// "never judged", said about a run that did both under rules that could not record either.
+//
+// Two mutations turn this red, and they are red for different halves. Reverting recordSchemaVersion to 3
+// alone still refuses this document — the verdict guard catches the blank — but the refusal then names no
+// version, and the second assertion fails: the operator is told the verdict is unreadable rather than which
+// build wrote the file. Reverting the version AND deleting the verdict guard is the pre-fix build, and the
+// document decodes clean, so the first assertion fires with a nil observation in hand.
+func TestDecodeRunRecordRefusesTheShapeThatPredatesTheObservationBlock(t *testing.T) {
+	preFix := []byte(`{"schemaVersion":3,"runID":"g3a","arm":"A-honor",` +
+		`"disposition":"completed-implemented-checks-passed","qualification":{` +
+		`"node":"platform-worker","nodeUID":"uid-node","allocatableGPU":2,"requiredGPU":2,` +
+		`"requiredFrom":"x","requiredBoundBy":"nominal-quota-sum","ready":true,"schedulable":true,` +
+		`"podsOnNode":6},"window":{"node":"platform-worker","nodeUID":"uid-node","txID":"tx-1111",` +
+		`"baselineResourceVersion":"1000","openedAt":"t","nodeVersionsObserved":9,` +
+		`"ending":"closed by the run","violationsObserved":0}}`)
+
+	got, err := decodeRunRecord(preFix)
+	if err == nil {
+		t.Fatalf("a record written before the observation was recorded was read under today's rules; its "+
+			"observation came back as %v and its verdict as %q, and a reader classifying on either would be "+
+			"told a run watched nothing and was judged by nobody", got.Observation, got.Validity.Verdict)
+	}
+	for _, want := range []string{"3", fmt.Sprint(recordSchemaVersion)} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("the refusal %q does not name version %s; an operator holding the file has to be told "+
+				"which build wrote it and which one is reading", err, want)
+		}
 	}
 }

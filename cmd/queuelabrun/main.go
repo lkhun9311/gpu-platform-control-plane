@@ -93,7 +93,7 @@ func main() {
 	// explanation that must not be squeezed behind the "ERROR:" prefix the one-line refusals carry.
 	refuseInvocation := func(err error) {
 		rec := buildRecord(outcome{Disposition: dispRefusedBeforeCluster, Reason: err.Error()},
-			nil, nil, nil, nil, recordRunID(*runID), *armFlag, *preview, started, time.Now())
+			nil, nil, nil, nil, nil, recordRunID(*runID), *armFlag, *preview, started, time.Now())
 		if werr := writeRecord(recordPath, rec); werr != nil {
 			// The record that failed to persist cannot report its own failure, so this is the one outcome that
 			// exists only on stderr. It says the record is unproven rather than that nothing changed: a
@@ -190,16 +190,16 @@ func main() {
 	defer stop()
 	// run publishes nothing and persists nothing: its deferred teardown and emergency release both amend the
 	// outcome AFTER the return value has been chosen, so anything written from inside it could be
-	// contradicted a moment later. By the time these six values exist here, every defer has finished
+	// contradicted a moment later. By the time these seven values exist here, every defer has finished
 	// amending them.
-	o, events, res, left, qual, win := run(ctx, newClusterClient, arm, *runID, namespace, *worker, horizon,
-		recordPath, time.Now, time.Sleep)
+	o, events, res, left, qual, win, obs := run(ctx, newClusterClient, arm, *runID, namespace, *worker, horizon,
+		recordPath, os.Stderr, time.Now, time.Sleep)
 
 	os.Exit(reportRun(os.Stdout, os.Stderr, writeRecord, runReport{
 		Outcome: o,
 		Events:  events,
 		Result:  res,
-		Record:  buildRecord(o, events, left, qual, win, *runID, string(arm), *preview, started, time.Now()),
+		Record:  buildRecord(o, events, left, qual, win, obs, *runID, string(arm), *preview, started, time.Now()),
 		Path:    recordPath,
 		Preview: *preview,
 	}))
@@ -438,8 +438,12 @@ func teardownContext() (context.Context, context.CancelFunc) {
 // this writes on is still the one this transaction acquired, and recordPath is threaded down from main rather
 // than recomputed because recordPathFor's default carries a timestamp and a pid: a second call would name a
 // different file, and a record pointing at a file nobody wrote is worse than one carrying no path at all.
-func tearDownBeforeRelease(c client.Client, s seed, j journal, worker, recordPath string, now func() time.Time,
-	sleep func(time.Duration), o outcome) (outcome, []residue, bool) {
+//
+// stderr is threaded rather than taken as os.Stderr, for the reason reportResidue itself takes a writer: the
+// TEARDOWN INCOMPLETE lines below are the ones this file has twice shipped a false sentence in, and a claim
+// written to a package-level stream is a claim no test can fail. run() passes its own writer down.
+func tearDownBeforeRelease(c client.Client, s seed, j journal, worker, recordPath string, stderr io.Writer,
+	now func() time.Time, sleep func(time.Duration), o outcome) (outcome, []residue, bool) {
 	tctx, cancel := teardownContext()
 	defer cancel()
 	result, err := deleteTargets(tctx, c, s, s.TxID, now, sleep, teardownBudget)
@@ -457,7 +461,7 @@ func tearDownBeforeRelease(c client.Client, s seed, j journal, worker, recordPat
 		// residue is empty, and a record naming no object explains nothing — decodeResidue refuses to read one
 		// back, so the next refusal would quote it as unreadable rather than say nothing. The reason above still
 		// reaches the run record, which is where a cause with no object to name belongs.
-		reportResidue(os.Stderr, worker, nil, true)
+		reportResidue(stderr, worker, nil, true)
 		return o, nil, true
 	}
 	if len(result.Residue) == 0 {
@@ -469,7 +473,7 @@ func tearDownBeforeRelease(c client.Client, s seed, j journal, worker, recordPat
 	o = o.amend(dispResidueLeft, fmt.Sprintf("teardown left %d object(s) after %s",
 		len(result.Residue), result.Elapsed.Round(time.Second)))
 	hold := residueHoldsWorker(result.Residue)
-	reportResidue(os.Stderr, worker, result.Residue, hold)
+	reportResidue(stderr, worker, result.Residue, hold)
 	if hold {
 		// Written only when the worker is actually held: a released worker is refused by nothing, so a record
 		// there would be quoted by no refusal and would outlive the hold it describes. releaseAcquired deletes
@@ -485,7 +489,7 @@ func tearDownBeforeRelease(c client.Client, s seed, j journal, worker, recordPat
 			// NOT an outcome change. What contains the GPU Pods is the label and the taint, and they are already
 			// installed and were never what failed here; amending the disposition on this would misreport a run
 			// that did exactly what it decided to do. What is lost is narrower and worth naming on its own.
-			fmt.Fprintf(os.Stderr, "  could not record why on the worker itself: %v\n"+
+			fmt.Fprintf(stderr, "  could not record why on the worker itself: %v\n"+
 				"  the next run will be refused this worker without being told what was left\n", serr)
 		}
 	}
@@ -595,10 +599,22 @@ func phaseFailure(phase disposition, what string, err error) outcome {
 // between acquisition and release, and what the Node looked like on either side of that release. It is
 // written by a defer like the others, because the restoration audit only exists once the release has run and
 // the release runs after this function has chosen what to return.
+// obs is the newest of them and carries the observation's own evidence: what each stream's baseline
+// established, how much of the window establishment cost, and how every stream ended. It is a defer too, and
+// for a reason the others do not share — the endings are only final once the consumers have been joined, and
+// each of the many returns below joins them in its own way, so a capture written out at every return site
+// would be the one thing in this function most likely to be forgotten at the next one added.
 //
 // connect is a parameter rather than a direct newClusterClient call for the same reason dispatchOperatorMode
 // takes one: without that seam the amendment this function is shaped around is reachable only by reading it,
 // and a regression that stopped the defer amending would leave the suite green.
+//
+// stderr is an injected writer for the reason reportRun and reportResidue already take theirs: everything this
+// function tells an operator — the two reportRestoration call sites, the failed residue stamp, TEARDOWN
+// INCOMPLETE, WORKER NOT RESTORED — used to go straight to os.Stderr, where no test could assert it, and a
+// false sentence in one of them survived two reviews on exactly that footing. It sits beside now and sleep
+// because it is the same kind of thing: a dependency injected so the real path can be driven, not a value the
+// run is configured with. Stdout is deliberately left alone; this seam is for the claims, not for the log.
 //
 // now and sleep are the teardown executor's clock, injected for the same reason and nothing else: teardown
 // polls to a three-minute budget, and a test that had to spend three real minutes to see a run report residue
@@ -610,9 +626,9 @@ func phaseFailure(phase disposition, what string, err error) outcome {
 // horizon rather than beside worker deliberately — runID, namespace and worker are already three adjacent
 // strings a caller can transpose in silence, and a fourth would make that worse.
 func run(ctx context.Context, connect clusterClientFunc, arm queuelab.Arm, runID, namespace, worker string,
-	horizon time.Duration, recordPath string, now func() time.Time, sleep func(time.Duration)) (o outcome,
-	events []queuelab.LifecycleEvent, res *queuelab.LabResult, left []residue, qual *qualification,
-	win *ownershipWindow) {
+	horizon time.Duration, recordPath string, stderr io.Writer, now func() time.Time,
+	sleep func(time.Duration)) (o outcome, events []queuelab.LifecycleEvent, res *queuelab.LabResult,
+	left []residue, qual *qualification, win *ownershipWindow, obs *observationEvidence) {
 	study := queuelab.StudyReclaim
 	c, err := connect()
 	if err != nil {
@@ -679,9 +695,9 @@ func run(ctx context.Context, connect clusterClientFunc, arm queuelab.Arm, runID
 		// Printed here as well as at the inline release, because this defer is the release EVERY early return
 		// takes — including the run this gate invalidates. A drifted or unreadable restoration that reported
 		// itself only on the happy path would be silent on exactly the runs an operator is already staring at.
-		reportRestoration(os.Stderr, worker, audit)
+		reportRestoration(stderr, worker, audit)
 		if rerr != nil {
-			fmt.Fprintf(os.Stderr, "WORKER NOT RESTORED: %v\n  run: queuelabrun -inspect-worker -worker %s\n",
+			fmt.Fprintf(stderr, "WORKER NOT RESTORED: %v\n  run: queuelabrun -inspect-worker -worker %s\n",
 				rerr, worker)
 			// This defer runs after the return value was chosen, so amending it is the only thing that stops
 			// the record being written and then contradicted by the line just printed. amend keeps whatever
@@ -708,7 +724,7 @@ func run(ctx context.Context, connect clusterClientFunc, arm queuelab.Arm, runID
 	// exclusivity at two instants and asserting it for everything in between.
 	sentinel, serr := startOwnershipSentinel(ctx, c, j)
 	if serr != nil {
-		fmt.Fprintf(os.Stderr, "OWNERSHIP WINDOW NOT OPENED: %v\n", serr)
+		fmt.Fprintf(stderr, "OWNERSHIP WINDOW NOT OPENED: %v\n", serr)
 		o = phaseFailure(dispSetupFailed, "opening the continuous ownership view of the worker", serr)
 		return
 	}
@@ -794,7 +810,7 @@ func run(ctx context.Context, connect clusterClientFunc, arm queuelab.Arm, runID
 		}
 		teardownAttempted = true
 		var hold bool
-		o, left, hold = tearDownBeforeRelease(c, s, j, worker, recordPath, now, sleep, o)
+		o, left, hold = tearDownBeforeRelease(c, s, j, worker, recordPath, stderr, now, sleep, o)
 		if hold {
 			workerHeldForResidue = true
 		}
@@ -825,7 +841,7 @@ func run(ctx context.Context, connect clusterClientFunc, arm queuelab.Arm, runID
 	// records what it saw rather than only that it refused.
 	qual, qerr = qualifyWorker(ctx, c, worker, req)
 	if qerr != nil {
-		fmt.Fprintf(os.Stderr, "ENVIRONMENT NOT QUALIFIED: %v\n", qerr)
+		fmt.Fprintf(stderr, "ENVIRONMENT NOT QUALIFIED: %v\n", qerr)
 		o = phaseFailure(dispEnvironmentUnqualified, fmt.Sprintf("qualifying worker %s", worker), qerr)
 		return
 	}
@@ -851,6 +867,21 @@ func run(ctx context.Context, connect clusterClientFunc, arm queuelab.Arm, runID
 	col := newCollector(c, namespace, runID, horizon)
 	cctx, cancel := context.WithCancel(ctx)
 	defer cancel()
+	// establishedIn is stamped where establishment finishes rather than read off the clock inside the defer,
+	// which would measure everything the run did afterwards as well: the horizon was wrong in exactly that way
+	// once (see horizonNs), and a "cost of establishment" that grew with the length of the run would be the
+	// same defect in a smaller field. The line below prints this value rather than taking a second
+	// col.elapsed(), so what the operator reads and what the record carries cannot be two different numbers.
+	var (
+		established   bool
+		establishedIn time.Duration
+	)
+	// Registered after the teardown, window and release defers, which puts it FIRST in the LIFO order — before
+	// all three, not after them. Nothing here depends on that: this reads and decides nothing, and none of
+	// those three touches a stream. What the defer actually buys is a capture that cannot be forgotten at the
+	// next return added to this function, which is how the streams' endings would otherwise stop reaching the
+	// record.
+	defer func() { obs = col.evidence(established, establishedIn) }()
 	// The streams take the run's own context, never a bounded one: startWatchStream's doc comment explains
 	// that a deadline handed to the streams makes every later death read as an ordinary cancellation, which is
 	// how a run that stopped observing would report itself as having shut down cleanly. The bound on
@@ -884,8 +915,9 @@ func run(ctx context.Context, connect clusterClientFunc, arm queuelab.Arm, runID
 	// watches leaves ten seconds less window for the schedule to finish in, and the operator would otherwise
 	// meet that only as an unexplained barrier miss near the horizon. Measured with col.elapsed() rather than a
 	// timer of its own so the number printed is the offset the ledger and the censoring boundary use.
+	established, establishedIn = true, col.elapsed()
 	fmt.Printf("  observation established at t=%s (out of a %s window; budget %s)\n",
-		col.elapsed().Round(time.Millisecond), horizon, establishBudget)
+		establishedIn.Round(time.Millisecond), horizon, establishBudget)
 
 	// Execute the barrier-staged schedule.
 	for i, step := range schedule {
@@ -998,7 +1030,7 @@ func run(ctx context.Context, connect clusterClientFunc, arm queuelab.Arm, runID
 	// returns, the deferred copy must not run the whole thing a second time.
 	teardownAttempted = true
 	var holdWorker bool
-	o, left, holdWorker = tearDownBeforeRelease(c, s, j, worker, recordPath, now, sleep, o)
+	o, left, holdWorker = tearDownBeforeRelease(c, s, j, worker, recordPath, stderr, now, sleep, o)
 	if holdWorker {
 		// The worker is deliberately kept, so the deferred emergency release must not undo that.
 		workerHeldForResidue = true
@@ -1016,7 +1048,7 @@ func run(ctx context.Context, connect clusterClientFunc, arm queuelab.Arm, runID
 		relCtx, relCancel := cleanupContext()
 		releaseAudit, err = auditedRelease(relCtx, c, j)
 		relCancel()
-		reportRestoration(os.Stderr, worker, releaseAudit)
+		reportRestoration(stderr, worker, releaseAudit)
 		if err != nil {
 			// This is the one path in the program that can leave a node genuinely held with no further attempt
 			// coming: releaseAttempted is already true, so the deferred emergency release above is a no-op, and
