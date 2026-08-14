@@ -145,6 +145,13 @@ type gpuRequirement struct {
 // row against a 2-GPU nominal sum would pass a sum-only check, run, and contain a Pod that could never be
 // scheduled: the arm would report the head-of-line comparison it structurally never made.
 //
+// To be exact about what is and is not exercised today: run() pins `study := queuelab.StudyReclaim`, so the
+// FIFO trace — the one whose head row is 2 GPUs — is not reachable through this binary at all yet, and the
+// row bound therefore never decides for any run this build can perform. It is written now because the study
+// switch is a smaller change than remembering this constraint at the time, and because the bound is a
+// property of how Kubernetes schedules a Pod rather than of which study is wired up. The tests reach it
+// directly for the same reason.
+//
 // On a tie the quota sum is named as the binding one, because it is the bound that always exists.
 func requiredGPU(fs *queuelab.FixtureSet, trace []queuelab.TrainingTraceRow) (gpuRequirement, error) {
 	if fs == nil || fs.Flavor == nil {

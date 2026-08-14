@@ -30,7 +30,16 @@ import (
 // An unknown version must not be read under today's rules: the whole point of the record is that a later
 // reader can tell what a run actually established, and silently applying current semantics to a document
 // written under different ones is the failure this package exists to prevent.
-const recordSchemaVersion = 1
+//
+// Version 2 adds the qualification block's `requiredBoundBy`, and the bump is there for one direction of the
+// asymmetry only. A version-2 record read by a version-1 build already fails loudly — DisallowUnknownFields
+// refuses the field it has never heard of — so nothing needed to be added for that. The dangerous direction
+// is the other one: a version-1 record, and at least one exists from a real cluster run, decodes into today's
+// struct WITHOUT COMPLAINT, leaving RequiredBoundBy at "" — a value that is neither documented constant and
+// that a reader classifying on it would take as a third, unnamed kind of bound. That is precisely the
+// silent reinterpretation the paragraph above says this constant exists to stop, so the version is what
+// separates the two shapes rather than the absence of a field nobody can distinguish from a bound of "".
+const recordSchemaVersion = 2
 
 // runRecord is what a non-preview invocation leaves behind.
 //
@@ -273,6 +282,18 @@ func decodeRunRecord(b []byte) (runRecord, error) {
 	}
 	if r.RunID == "" || r.Disposition == "" {
 		return runRecord{}, fmt.Errorf("decode record: runID and disposition are required")
+	}
+	// The version check above already refuses every document an older build wrote, so this guards a different
+	// thing: a document that CLAIMS this version while carrying a bound no build ever produced — a hand-edited
+	// file, or a future writer that forgot to set it. Both would otherwise decode into the same undocumented
+	// "" the version bump exists to stop being readable, which would make the bump a fix for one route into a
+	// state the type still permits.
+	if q := r.Qualification; q != nil &&
+		q.RequiredBoundBy != boundByQuotaSum && q.RequiredBoundBy != boundByLargestRow {
+		return runRecord{}, fmt.Errorf(
+			"decode record: qualification names bound %q, which is neither %q nor %q; a requirement whose "+
+				"binding constraint is unknown cannot be read as either of them",
+			q.RequiredBoundBy, boundByQuotaSum, boundByLargestRow)
 	}
 	return r, nil
 }

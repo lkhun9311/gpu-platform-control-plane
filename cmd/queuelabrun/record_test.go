@@ -19,6 +19,7 @@ package main
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"reflect"
 	"runtime"
@@ -69,9 +70,14 @@ func TestDecodeRunRecordRefusesAnUnknownSchema(t *testing.T) {
 
 // A field the schema does not define must be refused, not silently dropped, or a hand-edited or
 // future-schema document could carry content decodeRunRecord never validated.
+//
+// The version is interpolated rather than written out, here and in the two documents below, because each of
+// these tests asserts only that SOMETHING was refused: pinned to a literal, they would keep passing after a
+// schema bump while the refusal they actually observed was the version check, and the property each was
+// written for would quietly stop being covered.
 func TestDecodeRunRecordRefusesAnUnknownField(t *testing.T) {
-	b := []byte(`{"schemaVersion":1,"runID":"r7","arm":"A-honor",` +
-		`"disposition":"completed-implemented-checks-passed","bogusField":"x"}`)
+	b := fmt.Appendf(nil, `{"schemaVersion":%d,"runID":"r7","arm":"A-honor",`+
+		`"disposition":"completed-implemented-checks-passed","bogusField":"x"}`, recordSchemaVersion)
 	if _, err := decodeRunRecord(b); err == nil {
 		t.Fatal("an unrecognized field must be refused")
 	}
@@ -79,7 +85,9 @@ func TestDecodeRunRecordRefusesAnUnknownField(t *testing.T) {
 
 // A record without a run identity is not a usable record regardless of what else it claims.
 func TestDecodeRunRecordRefusesEmptyRunID(t *testing.T) {
-	b := []byte(`{"schemaVersion":1,"runID":"","arm":"A-honor","disposition":"completed-implemented-checks-passed"}`)
+	b := fmt.Appendf(nil,
+		`{"schemaVersion":%d,"runID":"","arm":"A-honor","disposition":"completed-implemented-checks-passed"}`,
+		recordSchemaVersion)
 	if _, err := decodeRunRecord(b); err == nil {
 		t.Fatal("an empty runID must be refused")
 	}
@@ -121,8 +129,9 @@ func TestPreviewRecordCannotCarryEvents(t *testing.T) {
 // A record claiming to be a preview while carrying events is malformed and must be refused, so a
 // hand-edited or future file cannot smuggle evidence through the preview branch.
 func TestDecodeRunRecordRefusesPreviewWithEvents(t *testing.T) {
-	b := []byte(`{"schemaVersion":1,"preview":true,"runID":"r7","arm":"A-honor",` +
-		`"disposition":"completed-implemented-checks-passed","events":[{"elapsedNs":1,"kind":"Pod"}]}`)
+	b := fmt.Appendf(nil, `{"schemaVersion":%d,"preview":true,"runID":"r7","arm":"A-honor",`+
+		`"disposition":"completed-implemented-checks-passed","events":[{"elapsedNs":1,"kind":"Pod"}]}`,
+		recordSchemaVersion)
 	if _, err := decodeRunRecord(b); err == nil {
 		t.Fatal("a preview record carrying events must be refused")
 	}
@@ -491,5 +500,80 @@ func TestPreviewRecordCarriesTheQualificationToo(t *testing.T) {
 	}
 	if pr.Qualification.PodsOnNode != 3 {
 		t.Fatalf("PodsOnNode = %d, want 3", pr.Qualification.PodsOnNode)
+	}
+}
+
+// The record shape this gate's first commit wrote, and it is not hypothetical: a live kind run against a
+// real cluster left one at /tmp/claude-1000/e2e/rec-gate2.json, carrying schemaVersion 1, a requiredFrom
+// naming only the quota sum, and no requiredBoundBy at all.
+//
+// That document has to be REFUSED rather than read, and the asymmetry is what makes the version the right
+// instrument. A new record read by an old build already fails loudly on DisallowUnknownFields; an old record
+// read by this build decodes without complaint and leaves RequiredBoundBy at "" — neither documented
+// constant, and indistinguishable to a reader from a third kind of bound nobody named. A run artifact whose
+// binding constraint reads as a blank is exactly the "silently applying current semantics to a document
+// written under different ones" that recordSchemaVersion's own comment exists to prevent.
+//
+// The message must name both versions, because the operator holding this file needs to know which build
+// wrote it, not merely that this one will not read it.
+//
+// Two mutations turn this red, and they are red for different halves of it, which is worth stating exactly
+// because the two guards overlap on THIS document and a careless reading would credit one for the other's
+// work. Reverting recordSchemaVersion to 1 alone still refuses the document — the bound guard below catches
+// the blank — but the refusal then names no version at all, and the second assertion fails: the operator is
+// told the bound is unreadable and not which build wrote the file. Reverting the version AND deleting the
+// bound guard is the pre-fix build, and the document decodes clean; the first assertion then fires with the
+// blank bound in hand. The version is what distinguishes the two SHAPES; the bound guard is what refuses a
+// bad value inside the current shape. Neither subsumes the other.
+func TestDecodeRunRecordRefusesTheShapeThatPredatesTheBoundDerivation(t *testing.T) {
+	preFix := []byte(`{"schemaVersion":1,"runID":"g2a","arm":"A-honor",` +
+		`"disposition":"completed-implemented-checks-passed","qualification":{` +
+		`"node":"platform-worker","nodeUID":"uid-node","allocatableGPU":2,"requiredGPU":2,` +
+		`"requiredFrom":"nominal nvidia.com/gpu quota summed over 2 ClusterQueue(s) on flavor queuelab-gpu-g2a",` +
+		`"ready":true,"schedulable":true,"podsOnNode":6}}`)
+
+	got, err := decodeRunRecord(preFix)
+	if err == nil {
+		t.Fatalf("a record written before the requirement had two bounds was read under today's rules; its "+
+			"qualification came back with RequiredBoundBy = %q, which is neither %q nor %q and which a reader "+
+			"classifying on that field would take as a third kind of bound nobody defined",
+			got.Qualification.RequiredBoundBy, boundByQuotaSum, boundByLargestRow)
+	}
+	for _, want := range []string{"1", "2"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("the refusal %q does not name version %s; an operator holding the file has to be told "+
+				"which build wrote it and which one is reading", err, want)
+		}
+	}
+}
+
+// The version bump closes one route into the blank bound: a document an older build wrote. This closes the
+// other: a document that claims THIS version while naming a bound no build ever produced — hand-edited, or
+// written by a future version that forgot the field. Without it the type still permits the state the bump
+// was made to eliminate, and the bump would be a fix for one entrance to a room with two.
+//
+// Mutation that turns this red: delete the RequiredBoundBy check from decodeRunRecord.
+func TestDecodeRunRecordRefusesAQualificationNamingNoDocumentedBound(t *testing.T) {
+	for _, bound := range []string{"", "whatever-the-writer-felt-like"} {
+		b := fmt.Appendf(nil, `{"schemaVersion":%d,"runID":"r7","arm":"A-honor",`+
+			`"disposition":"completed-implemented-checks-passed","qualification":{`+
+			`"node":"platform-worker","nodeUID":"uid-node","allocatableGPU":2,"requiredGPU":2,`+
+			`"requiredFrom":"x","requiredBoundBy":%q,"ready":true,"schedulable":true,"podsOnNode":0}}`,
+			recordSchemaVersion, bound)
+		if _, err := decodeRunRecord(b); err == nil {
+			t.Fatalf("a qualification bound by %q was accepted; the field's whole value is that a reader can "+
+				"classify on it without parsing prose", bound)
+		}
+	}
+
+	// The same document naming a real bound must still decode, or the guard above is refusing the records it
+	// was written to protect.
+	ok := fmt.Appendf(nil, `{"schemaVersion":%d,"runID":"r7","arm":"A-honor",`+
+		`"disposition":"completed-implemented-checks-passed","qualification":{`+
+		`"node":"platform-worker","nodeUID":"uid-node","allocatableGPU":2,"requiredGPU":2,`+
+		`"requiredFrom":"x","requiredBoundBy":%q,"ready":true,"schedulable":true,"podsOnNode":0}}`,
+		recordSchemaVersion, boundByLargestRow)
+	if _, err := decodeRunRecord(ok); err != nil {
+		t.Fatalf("a well-formed record was refused by the bound guard: %v", err)
 	}
 }
