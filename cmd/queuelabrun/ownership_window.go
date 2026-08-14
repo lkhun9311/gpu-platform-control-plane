@@ -134,6 +134,14 @@ type restorationAudit struct {
 // It is persisted whether the window held or not, the same way the qualification block is, and the refusal
 // path is again the more valuable of the two: a run invalidated for a stripped taint is precisely the run
 // whose evidence would otherwise be a line on somebody's terminal.
+//
+// READ ViolationsObserved, NOT THE RECORD'S REASON, to tell an exclusivity failure from an observation
+// failure. Both land on the collector-desync disposition — deliberately, since builder.Err() is the one
+// thing that decides whether a number may exist — but LedgerBuilder.Desync keeps the FIRST reason it is
+// given, and this verdict is folded in after the streams have been joined. So on a run where a collector
+// stream also desynced, the record's `reason` names that stream and the exclusivity failure survives only
+// here. `disposition == collector-desync && window.violationsObserved > 0` is the discriminator that holds
+// in both orders; the reason text is the human's account of whichever came first.
 type ownershipWindow struct {
 	Node    string `json:"node"`
 	NodeUID string `json:"nodeUID"`
@@ -181,10 +189,17 @@ type ownershipSentinel struct {
 // that happened between the list and the read is already on its way through the watch. Reading first and
 // listing second would leave exactly the hole this gate exists to close.
 //
-// What it cannot close is the sliver between acquireWorker's own verification and this baseline. A strip and
-// restore inside those few milliseconds is invisible to both reads, and nothing short of resuming from the
-// resourceVersion of the acquiring patch itself would see it. That is stated rather than papered over: the
-// window this proves is [baseline, close], and acquire's verify is what stands before it.
+// What it cannot close is the sliver between acquireWorker's own verification and this baseline, and the
+// bound on it is narrower than "anything could happen in there". The opening read compares against the
+// journal like every other version, so a strip STILL IN EFFECT when the window opens is caught; what is
+// invisible is only a complete strip-and-restore that begins and ends inside the sliver. Nothing short of
+// resuming from the resourceVersion of the acquiring patch itself would see that.
+//
+// The caller keeps the sliver small by where it calls this: run() opens the window immediately after
+// acquireWorker rather than after qualifyWorker, whose unfiltered cluster-wide Pod List is the most
+// expensive call in setup and would otherwise sit inside the gap. What remains is one Get-plus-List against
+// the apiserver. The window this proves is [baseline, close], and acquire's own verify is what stands
+// before it.
 func startOwnershipSentinel(ctx context.Context, c client.WithWatch, j journal) (*ownershipSentinel, error) {
 	stream, err := startWatchStream(ctx, c, clusterScope(), func() client.ObjectList { return &corev1.NodeList{} })
 	if err != nil {
@@ -268,18 +283,17 @@ func (s *ownershipSentinel) consume() {
 			// errors it retries, so an Error that arrives is one it has given up on and forward has already kept
 			// the status as the ending's evidence. The ending below is what decides.
 			continue
-		case watch.Bookmark:
-			// A bookmark carries a resource version on an otherwise empty object, so comparing one would report
-			// the run's own progress marker as a stripped label.
-			//
-			// Defence in depth, not a live defect, and it is worth being exact about which: no bookmark can
-			// reach the comparison today, because the empty object carries no name and the worker-name guard
-			// below drops it just as surely. Nothing a test can construct distinguishes the two, since a real
-			// bookmark never carries a name. It stays because the name guard is the kind of thing a later change
-			// removes as redundant — narrowing this watch to a metadata.name field selector would make it look
-			// exactly that — and the failure it would uncover is a run invalidated by its own progress marker.
-			continue
 		}
+		// There is deliberately no watch.Bookmark arm here, and the absence is worth a line because a bookmark
+		// looks like it would be dangerous: it carries a resource version on an otherwise empty object, so
+		// comparing one against the journal would read as a stripped label.
+		//
+		// It cannot arrive. RetryWatcher consumes bookmarks to advance its own resume version and never
+		// forwards them — client-go v0.36.1, tools/watch/retrywatcher.go: `if event.Type != watch.Bookmark {
+		// ok = rw.send(ctx, event) }` — so nothing downstream of it, this consumer or the collector's four,
+		// ever sees one. The collector has no such arm for the same reason. A guard here would be code with no
+		// caller wearing a comment about a mechanism nobody had measured, which is the exact defect this
+		// lineage keeps finding.
 		n, ok := ev.Object.(*corev1.Node)
 		if !ok {
 			continue
@@ -358,11 +372,15 @@ func (s *ownershipSentinel) observe(n *corev1.Node, et watch.EventType) {
 	})
 }
 
-// recordLocked counts every violation and keeps the first windowViolationCap of them.
+// recordLocked counts every violation and keeps the earliest windowViolationCap of them.
 //
-// The first rather than the last, because the first is the one that ends the claim: everything after it
-// happened to a run that was already invalid, and an operator needs to know when exclusivity broke rather
-// than what it looked like once it had.
+// The earliest rather than the latest, because the ones that end the claim are worth more than the ones that
+// happen to a run already invalid — an operator needs to know when exclusivity broke, not what it looked
+// like once it had.
+//
+// "Earliest observed", not "earliest in time": consume() starts before the opening read, so a watch event
+// delivered in that instant can be folded ahead of it. Every entry carries its own At, which is what a
+// reader should order by; retention order is arrival order and nothing more.
 func (s *ownershipSentinel) recordLocked(v ownershipViolation) {
 	s.window.ViolationsObserved++
 	if len(s.window.Violations) < windowViolationCap {
@@ -397,8 +415,10 @@ func (s *ownershipSentinel) Window() ownershipWindow {
 
 // invalidation is the sentence the ledger is desynced with, or "" when the window held.
 //
-// It names the first violation rather than summarising all of them, for the same reason the record keeps the
-// first: the run stopped being measurable there, and the count says how much else followed.
+// It quotes ONE violation rather than summarising all of them, and calls it what it is — the first one
+// recorded, which is the first one observed and not necessarily the earliest by clock (see recordLocked).
+// The count beside it says how much else there was, and the record carries every retained entry with its own
+// timestamp for anyone who needs the order.
 func (w *ownershipWindow) invalidation() string {
 	if w == nil || w.ViolationsObserved == 0 {
 		return ""
@@ -406,12 +426,13 @@ func (w *ownershipWindow) invalidation() string {
 	// windowViolationCap is above zero, so a counted violation is always a retained one and this stands for a
 	// state no build can reach. It is a fallback rather than an index because this string is the run's own
 	// refusal: a panic here would destroy the refusal along with the run it was refusing.
-	first := "the first violation was not retained"
+	quoted := "no violation was retained to quote"
 	if len(w.Violations) > 0 {
-		first = fmt.Sprintf("%s: %s", w.Violations[0].Reason, w.Violations[0].Detail)
+		quoted = fmt.Sprintf("%s: %s (at %s)", w.Violations[0].Reason, w.Violations[0].Detail, w.Violations[0].At)
 	}
 	return fmt.Sprintf("the worker was not exclusively this run's for the whole window: %d violation(s) "+
-		"observed across %d node version(s); the first was %s", w.ViolationsObserved, w.NodeVersionsObserved, first)
+		"observed across %d node version(s); the first recorded was %s",
+		w.ViolationsObserved, w.NodeVersionsObserved, quoted)
 }
 
 // readMarkers is one side of the restoration audit.

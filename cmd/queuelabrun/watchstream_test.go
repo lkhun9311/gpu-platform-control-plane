@@ -605,10 +605,19 @@ func TestStreamScopeReachesBothTheBaselineListAndEveryWatch(t *testing.T) {
 				t.Fatal("the stream never established a watch")
 			}
 
-			if listed == nil || listed.Namespace != tc.wantS {
+			// The nil cases are reported separately rather than folded into the comparisons below: a Fatalf that
+			// formats the pointer it just found nil panics instead of failing, which turns "the list never ran"
+			// into a stack trace nobody reads as an assertion.
+			if listed == nil {
+				t.Fatal("the baseline list never ran, so this test proved nothing about its scope")
+			}
+			if watched == nil {
+				t.Fatal("no watch ever ran, so this test proved nothing about its scope")
+			}
+			if listed.Namespace != tc.wantS {
 				t.Fatalf("the baseline list ran against namespace %q, want %q", listed.Namespace, tc.wantS)
 			}
-			if watched == nil || watched.Namespace != tc.wantS {
+			if watched.Namespace != tc.wantS {
 				t.Fatalf("the watch ran against namespace %q, want %q", watched.Namespace, tc.wantS)
 			}
 			// The resume version has to survive alongside the scope, or generalising the selector cost the one

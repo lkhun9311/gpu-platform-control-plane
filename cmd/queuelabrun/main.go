@@ -676,6 +676,10 @@ func run(ctx context.Context, connect clusterClientFunc, arm queuelab.Arm, runID
 		if win != nil {
 			win.Restoration = audit
 		}
+		// Printed here as well as at the inline release, because this defer is the release EVERY early return
+		// takes — including the run this gate invalidates. A drifted or unreadable restoration that reported
+		// itself only on the happy path would be silent on exactly the runs an operator is already staring at.
+		reportRestoration(os.Stderr, worker, audit)
 		if rerr != nil {
 			fmt.Fprintf(os.Stderr, "WORKER NOT RESTORED: %v\n  run: queuelabrun -inspect-worker -worker %s\n",
 				rerr, worker)
@@ -688,6 +692,50 @@ func run(ctx context.Context, connect clusterClientFunc, arm queuelab.Arm, runID
 	}()
 	fmt.Printf("  worker %s acquired: tx=%s (if this process dies, run: queuelabrun -inspect-worker -worker %s)\n",
 		worker, txID, worker)
+
+	// The ownership window opens as early as it possibly can: the journal exists (there is no tuple to compare
+	// a Node against before that) and nothing else has happened yet.
+	//
+	// It used to open after qualifyWorker, which was wrong in a way that only measurement shows. Nothing here
+	// depends on qualification, and qualifyWorker does a Node Get plus an unfiltered cluster-wide Pod List —
+	// the most expensive call in setup, seconds on a real cluster — all of it inside the unwatched sliver
+	// between acquire's verify and this baseline. Opening first shrinks that sliver to one Get-plus-List, puts
+	// the qualification reads inside the window rather than before it, and gives an environment-unqualified run
+	// a window in its record instead of nothing.
+	//
+	// It refuses the run when it cannot be opened, for the same reason col.start does: nothing downstream can
+	// compensate for a view that was never opened, and a run that measures without one is back to proving its
+	// exclusivity at two instants and asserting it for everything in between.
+	sentinel, serr := startOwnershipSentinel(ctx, c, j)
+	if serr != nil {
+		fmt.Fprintf(os.Stderr, "OWNERSHIP WINDOW NOT OPENED: %v\n", serr)
+		o = phaseFailure(dispSetupFailed, "opening the continuous ownership view of the worker", serr)
+		return
+	}
+	// releaseAudit is set by whichever release ran INLINE; the deferred emergency release attaches its own to
+	// the published window instead, because it runs after this defer has already published it.
+	var releaseAudit *restorationAudit
+	// Registered between the emergency release above and the teardown below, which puts it SECOND in the LIFO
+	// order: teardown, then this, then the emergency release. Two orderings matter and this satisfies both.
+	//
+	// It must run before any release, because a release removes this transaction's markers on purpose and a
+	// view still open through one would record the run's own restoration as the divergence this gate refuses.
+	// Every release is either inline above this defer's own execution or in the defer registered before it, so
+	// that holds. It must also run before the emergency release so the window exists for that release to
+	// attach its audit to.
+	//
+	// Running AFTER teardown is deliberate rather than tolerated: teardown deletes namespaces and fixtures and
+	// at most writes the residue ANNOTATION on the Node, and verifyInstalled compares the label, the taint and
+	// the UID — so nothing teardown does can trip the window, and leaving it open through teardown keeps the
+	// hold under observation right up to the release that ends it.
+	defer func() {
+		sentinel.Close()
+		w := sentinel.Window()
+		w.Restoration = releaseAudit
+		win = &w
+	}()
+	fmt.Printf("  ownership window open on %s from resourceVersion %s (tx=%s)\n",
+		worker, sentinel.Window().BaselineResourceVersion, txID)
 
 	// Both of these used to sit BELOW ensureNamespace, and neither does any I/O — which made that ordering a
 	// real hole rather than a matter of taste. ensureNamespace is this run's first Create, and the seed that
@@ -719,9 +767,11 @@ func run(ctx context.Context, connect clusterClientFunc, arm queuelab.Arm, runID
 
 	teardownAttempted := false
 	// Registered AFTER the emergency release above, and that is the requirement, not an accident of where the
-	// code happened to land: defers run LIFO, so registering this one second is what makes it run FIRST.
+	// code happened to land: defers run LIFO, so registering this one later is what makes it run first.
 	// Inverted, the worker's dedication label and NoSchedule taint would come off while this run's namespace
-	// still held its GPUs, and the next run would acquire a node that only looks free.
+	// still held its GPUs, and the next run would acquire a node that only looks free. (The window's own defer
+	// now sits between the two and runs between them; it changes nothing here, since teardown never touches the
+	// markers the window compares.)
 	//
 	// It covers every early return from here down; the path that returns normally calls the same function
 	// inline, because an inline release later in the body would otherwise beat a defer registered here.
@@ -769,37 +819,6 @@ func run(ctx context.Context, connect clusterClientFunc, arm queuelab.Arm, runID
 	fmt.Printf("  worker %s qualified: %d allocatable %s (this arm needs %d, bound by the %s), %d pod(s) on "+
 		"the node and none holding a device\n", worker, qual.AllocatableGPU, gpuResourceName, qual.RequiredGPU,
 		qual.RequiredBoundBy, qual.PodsOnNode)
-
-	// The ownership window opens HERE, and both halves of that placement are load-bearing. After acquisition,
-	// because there is no tuple to compare a Node against until the journal exists; and before the run's first
-	// Create, because a view established later cannot speak for the interval in which the fixtures are applied
-	// and the first rows are submitted — which is precisely the interval a stripped taint would be used in.
-	//
-	// It refuses the run when it cannot be opened, for the same reason col.start does: nothing downstream can
-	// compensate for a view that was never opened, and a run that measures without one is back to proving its
-	// exclusivity at two instants and asserting it for everything between them.
-	sentinel, serr := startOwnershipSentinel(ctx, c, j)
-	if serr != nil {
-		fmt.Fprintf(os.Stderr, "OWNERSHIP WINDOW NOT OPENED: %v\n", serr)
-		o = phaseFailure(dispSetupFailed, "opening the continuous ownership view of the worker", serr)
-		return
-	}
-	// releaseAudit is set by whichever release actually ran inline; the deferred emergency release below sets
-	// its own onto the published window instead, because it runs after this defer has already published it.
-	var releaseAudit *restorationAudit
-	// Registered AFTER the teardown defer for the same reason that one was registered after the emergency
-	// release: defers run LIFO, so registering this last is what makes it run FIRST. That ordering is required
-	// rather than tidy — both the teardown and every release below legitimately change this Node, and a view
-	// still running through the release would report this run's own restoration as the divergence the gate
-	// refuses.
-	defer func() {
-		sentinel.Close()
-		w := sentinel.Window()
-		w.Restoration = releaseAudit
-		win = &w
-	}()
-	fmt.Printf("  ownership window open on %s from resourceVersion %s (tx=%s)\n",
-		worker, sentinel.Window().BaselineResourceVersion, txID)
 
 	if err := ensureNamespace(ctx, c, namespace, txID); err != nil {
 		o = phaseFailure(dispSetupFailed, fmt.Sprintf("ensuring namespace %s", namespace), err)

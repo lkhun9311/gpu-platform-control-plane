@@ -2126,3 +2126,47 @@ func TestRunRefusesToPublishAWorkerThatWasSharedMidRun(t *testing.T) {
 		t.Fatalf("an invalidated run must still restore and audit its worker: %+v", win.Restoration)
 	}
 }
+
+// The window opens before qualification, not after it, and an unqualified run is where that ordering is
+// visible: the run is refused by the machine it was given, and the record still has to say what that machine
+// was doing while it was being inspected.
+//
+// The ordering is not cosmetic. qualifyWorker does a Node Get and an unfiltered cluster-wide Pod List — the
+// most expensive call in setup — and every millisecond of it used to sit inside the one interval this gate
+// does not watch, between acquire's own verify and the window's baseline. Nothing in the sentinel depends on
+// qualification, so the cost bought nothing.
+//
+// Mutation that turns this red: move the startOwnershipSentinel call and its defer back below qualifyWorker.
+// This run then refuses before the window is ever opened, the record carries no window for it, and the
+// unwatched sliver grows by however long a cluster-wide Pod List takes.
+func TestAnUnqualifiedRunStillRecordsTheWindowItOpened(t *testing.T) {
+	fc := fake.NewClientBuilder().WithScheme(fullScheme(t)).
+		WithObjects(node(nil, nil), gpuPod("tenant-a", "train-7", "platform-worker", 1)).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Create: fakeSchedulerCreate,
+			List:   fakeSchedulerList,
+			Watch:  fakeSchedulerWatch,
+		}).Build()
+	tdNow, tdSleep := fakeClock(time.Unix(0, 0))
+
+	o, _, _, _, qual, win := run(context.Background(), func() (client.WithWatch, error) { return fc, nil },
+		queuelab.ArmAHonor, "r17", "queuelab-r17", "platform-worker",
+		time.Duration(horizonSec)*time.Second, "", tdNow, tdSleep)
+
+	if o.Disposition != dispEnvironmentUnqualified || qual == nil {
+		t.Fatalf("this test is only meaningful on a run refused at qualification, got %s: %s", o.Disposition, o.Reason)
+	}
+	if win == nil {
+		t.Fatal("a run refused at qualification carries no window, so the window was opened after the " +
+			"qualification reads and those reads happened inside the interval nothing was watching")
+	}
+	if win.NodeVersionsObserved < 1 || win.BaselineResourceVersion == "" {
+		t.Fatalf("the window exists but established nothing: %+v", win)
+	}
+	// The worker went back on this path, and the audit is the record of it — the deferred emergency release is
+	// what runs here, so this also pins that the audit reaches the window from that release and not only from
+	// the inline one.
+	if win.Restoration == nil || !win.Restoration.OurMarkersRemoved {
+		t.Fatalf("the emergency release on the refusal path recorded no audited restoration: %+v", win.Restoration)
+	}
+}

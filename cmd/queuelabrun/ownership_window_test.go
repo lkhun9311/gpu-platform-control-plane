@@ -246,19 +246,17 @@ func TestOwnershipWindowSeesTheWorkerDeleted(t *testing.T) {
 // other machines — and another node carries none of this transaction's markers, so folding it in would make
 // every run on a cluster with more than one node invalid.
 //
-// Bookmarks are the same shape of mistake from the other direction: RetryWatcher asks for them and they
-// carry a resource version on an otherwise empty object, so comparing one reports the run's own progress
-// marker as a stripped label.
-//
 // Mutation that turns this red: delete the `n.Name != s.j.Node` guard from ownershipSentinel.consume. The
 // other node's version — which carries none of this transaction's markers — then invalidates every run on a
 // cluster with more than one worker.
 //
-// The bookmark half has NO mutation that turns it red, and saying so is the point rather than an omission:
-// deleting the `case watch.Bookmark` arm leaves this test green, because a real bookmark's object carries no
-// name and the guard above drops it just the same. That was measured, not assumed. The arm is kept as the
-// defence it is (see its comment), and this test records the joint behaviour rather than crediting the arm
-// with work the name guard is doing.
+// The bookmark in the script pins nothing about this package and is here as documentation of why there is no
+// bookmark case in consume: RetryWatcher consumes bookmarks to advance its resume version and never forwards
+// them (client-go v0.36.1, tools/watch/retrywatcher.go), so one cannot reach the consumer at all. An earlier
+// revision of this file guarded against them and claimed the worker-name guard as its backstop; the guard is
+// never reached either, and the review that measured it is why the arm is gone. What this line asserts is
+// only that a bookmark travelling the whole composed path — if a future client-go forwarded one — still
+// produces no violation.
 func TestOwnershipWindowIgnoresOtherNodesAndBookmarks(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
