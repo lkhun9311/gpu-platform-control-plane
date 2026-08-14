@@ -255,14 +255,28 @@ func observationContinuous(obs *observationEvidence) bool {
 	if obs == nil || !obs.Established {
 		return false
 	}
+	// The count and the coverage loop below are ONE check, and neither half works alone. Coverage alone reads
+	// only the last entry per kind, because the map that follows is keyed by kind: a document listing a Pod
+	// stream that forwarded a 410 and then a healthy duplicate Pod stream would have every watched kind
+	// present, valid resume points throughout — so decodeRunRecord's own all-streams guard stays silent — and
+	// the 410 would never be looked at. The count alone is no better: four streams all named "Pod" satisfy it.
+	// Together they force a bijection onto watchedKinds, so every element of obs.Streams is exactly one of the
+	// entries the loop below reads.
+	//
+	// This was a regression introduced by the fix for the missing-kind finding, not an original gap — the loop
+	// it replaced ran the one-sided reading over every element. No build writes a duplicate kind, so no real
+	// run was affected, but a forged document is the whole reason checkValidity re-derives this verdict at all.
+	if len(obs.Streams) != len(watchedKinds()) {
+		return false
+	}
 	seen := map[string]streamEvidence{}
 	for _, s := range obs.Streams {
 		seen[s.Kind] = s
 	}
 	// Every kind this build watches has to be there. A record carrying one healthy stream out of four is not a
-	// continuous view of the run, and counting the entries would not say so — three Pod streams and no
-	// Workload stream would satisfy any length check. This is why watchedKinds was hoisted: the set that
-	// decides here is the set that opened them.
+	// continuous view of the run, and counting the entries would not say so on its own — three Pod streams and
+	// no Workload stream pass any length check. This is why watchedKinds was hoisted: the set that decides
+	// here is the set that opened them.
 	//
 	// It does couple a record to the build reading it, and that is accepted rather than overlooked: a build
 	// that watches a different set of kinds is a build whose evidence has a different shape, which is a schema

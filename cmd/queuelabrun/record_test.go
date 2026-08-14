@@ -1060,6 +1060,55 @@ func TestDecodeRunRecordRefusesAnAdmissibleVerdictItsFieldsDoNotSupport(t *testi
 	}
 }
 
+// The reviewer's throwaway probe, made permanent: a forged record whose Pod stream forwarded a terminal 410,
+// followed by a healthy DUPLICATE Pod stream, decoded as admissible.
+//
+// It is a regression test for the fix to the missing-kind finding rather than for an original gap. That fix
+// keyed the streams by kind so the record's coverage could be checked against watchedKinds, and a kind-keyed
+// map keeps only the LAST entry — so the loss sat in an element nothing read. Every resume point here is
+// valid, which is what keeps decodeRunRecord's own all-streams guard silent and leaves the verdict as the
+// only thing standing between this document and a reader treating it as evidence.
+//
+// It goes through decodeRunRecord rather than calling observationContinuous, deliberately: a forged document
+// arrives at the decoder, and this pins the whole path checkValidity's admissible re-derivation exists for.
+// The refusal is asserted to name observation-not-continuous rather than merely to be non-nil, because a
+// malformed fixture would otherwise be refused by DisallowUnknownFields and the test would pass having
+// proved nothing.
+//
+// No build writes a duplicate kind, so no real run was ever affected.
+//
+// Mutation that turns this red: delete the `len(obs.Streams) != len(watchedKinds())` check from
+// observationContinuous. The healthy duplicate then masks the 410 and the document decodes as admissible.
+func TestDecodeRunRecordRefusesAnAdmissibleVerdictHidingALossBehindADuplicateStream(t *testing.T) {
+	stream := func(kind, lastStatus string) string {
+		return fmt.Sprintf(`{"kind":%q,"baselineResourceVersion":"2000","baselineObjects":0,`+
+			`"ended":true,"cancelled":true,"stopped":false,"lastStatus":%q}`, kind, lastStatus)
+	}
+	const expired = "terminal watch error: too old resource version (code 410, reason Expired)"
+	forged := fmt.Appendf(nil, `{"schemaVersion":%d,"runID":"r7","arm":"A-honor",`+
+		`"disposition":"completed-implemented-checks-passed","validity":{"verdict":%q},`+
+		`"qualification":{"node":"platform-worker","nodeUID":"uid-node","allocatableGPU":2,"requiredGPU":2,`+
+		`"requiredFrom":"x","requiredBoundBy":"nominal-quota-sum","ready":true,"schedulable":true,`+
+		`"podsOnNode":6},"window":{"node":"platform-worker","nodeUID":"uid-node","txID":"tx-1111",`+
+		`"baselineResourceVersion":"1000","openedAt":"t","nodeVersionsObserved":9,`+
+		`"ending":"closed by the run","violationsObserved":0,"restoration":{"before":{"observed":true},`+
+		`"after":{"observed":true},"ourMarkersRemoved":true}},`+
+		`"observation":{"namespace":"queuelab-r7","horizonNs":1,"established":true,"establishedNs":1,`+
+		`"establishBudgetNs":1,"streams":[%s,%s,%s,%s,%s]}}`,
+		recordSchemaVersion, verdictAdmissible,
+		stream(kindMLTrainingJob, ""), stream(kindJob, ""), stream(kindWorkload, ""),
+		stream(kindPod, expired), stream(kindPod, ""))
+
+	_, err := decodeRunRecord(forged)
+	if err == nil {
+		t.Fatal("a forged record whose Pod stream forwarded a 410 decoded as admissible, because a healthy " +
+			"duplicate of the same kind sits after it and only the last entry per kind is read")
+	}
+	if !strings.Contains(err.Error(), failureObservation) {
+		t.Fatalf("the refusal does not name the claim the duplicate was hiding: %v", err)
+	}
+}
+
 // The record's statement about what it could not check must describe the build that wrote it, not the
 // roadmap gateRefusal shows an operator once on a terminal.
 //
