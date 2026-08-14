@@ -1507,6 +1507,74 @@ func TestRunDoesNotStampWhenTheWorkerIsReleased(t *testing.T) {
 	}
 }
 
+// reportResidue used to write straight to os.Stderr, which made its text unassertable and is exactly how a
+// false sentence in the released branch (see the next test) survived two reviews. This pins the held branch
+// the same way, so a future change to either has to answer to a literal string instead of to nothing.
+func TestReportResidueHeldMessage(t *testing.T) {
+	var buf bytes.Buffer
+	left := []residue{{Observation: observation{Target: target{Kind: "Namespace", Name: "queuelab-r7"}},
+		Absence: absencePresent}}
+	reportResidue(&buf, "platform-worker", left, true)
+	got := buf.String()
+	if !strings.Contains(got, "TEARDOWN INCOMPLETE: worker platform-worker stays dedicated; its GPUs may "+
+		"still be in use") {
+		t.Fatalf("held message changed or missing, got:\n%s", got)
+	}
+	if !strings.Contains(got, "Namespace queuelab-r7: present") {
+		t.Fatalf("residue line missing or misformatted, got:\n%s", got)
+	}
+	if !strings.Contains(got, "do NOT strip a stuck namespace's finalizer") {
+		t.Fatalf("finalizer warning missing from the held branch, got:\n%s", got)
+	}
+	if !strings.Contains(got, "-inspect-worker -worker platform-worker") {
+		t.Fatalf("recovery command missing from the held branch, got:\n%s", got)
+	}
+}
+
+// This is the finding itself: since 62e74c4, a namespace THIS RUN created and deleted can still be observed
+// Terminating and classified absenceForeign — so the released branch's old text ("nothing this run created
+// is still on the cluster") is false in exactly the window an operator is most likely to read it. This test
+// drives that scenario — a residue entry that is foreign, which is the only way reportResidue is ever
+// called with held=false (residueHoldsWorker's own contract) — and pins that the message no longer asserts
+// the negative it cannot know, while still giving the released-branch advice.
+//
+// Mutation this catches: reverting the released-branch Fprintf back to "nothing this run created is still
+// on the cluster, but these names are held by another transaction" makes the first assertion below fail,
+// because that old text is exactly what it checks is absent.
+func TestReportResidueReleasedMessageAssertsNoNegativeItCannotKnow(t *testing.T) {
+	var buf bytes.Buffer
+	// A namespace this run itself created: WantUID set, but observed under a different UID because a
+	// different object took the name while this run's own was going Terminating — classifyAbsence's
+	// absenceForeign case, reached from residue this run is directly implicated in.
+	left := []residue{{
+		Observation: observation{
+			Target: target{Kind: "Namespace", Name: "queuelab-r7"}, Found: true, Terminating: true,
+			UID: "someone-elses-uid", WantUID: "our-uid",
+		},
+		Absence: absenceForeign,
+	}}
+	reportResidue(&buf, "platform-worker", left, false)
+	got := buf.String()
+	if strings.Contains(got, "nothing this run created is still on the cluster") {
+		t.Fatalf("the released branch still asserts a negative it cannot know: since a namespace this run "+
+			"created can itself be observed Terminating and classified foreign, this claim can be false on "+
+			"the exact residue driving this test, got:\n%s", got)
+	}
+	if !strings.Contains(got, "TEARDOWN INCOMPLETE: worker platform-worker was released; what is left is "+
+		"held under a stamp this run does not own") {
+		t.Fatalf("released message changed unexpectedly, got:\n%s", got)
+	}
+	if !strings.Contains(got, "Namespace queuelab-r7: foreign") {
+		t.Fatalf("residue line missing or misformatted, got:\n%s", got)
+	}
+	if !strings.Contains(got, "rerun under a run id of its own") {
+		t.Fatalf("released-branch advice missing, got:\n%s", got)
+	}
+	if strings.Contains(got, "do NOT strip a stuck namespace's finalizer") {
+		t.Fatalf("the held-branch finalizer warning must not appear on the released branch, got:\n%s", got)
+	}
+}
+
 // The stamp is written on a path that is already reporting failure, and the fact that matters — the worker is
 // held — is carried by the label and the taint, which are already installed. Failing the run on it would
 // misreport that: it would turn a run that did exactly what it decided into a run that decided something

@@ -457,7 +457,7 @@ func tearDownBeforeRelease(c client.Client, s seed, j journal, worker, recordPat
 		// residue is empty, and a record naming no object explains nothing — decodeResidue refuses to read one
 		// back, so the next refusal would quote it as unreadable rather than say nothing. The reason above still
 		// reaches the run record, which is where a cause with no object to name belongs.
-		reportResidue(worker, nil, true)
+		reportResidue(os.Stderr, worker, nil, true)
 		return o, nil, true
 	}
 	if len(result.Residue) == 0 {
@@ -469,7 +469,7 @@ func tearDownBeforeRelease(c client.Client, s seed, j journal, worker, recordPat
 	o = o.amend(dispResidueLeft, fmt.Sprintf("teardown left %d object(s) after %s",
 		len(result.Residue), result.Elapsed.Round(time.Second)))
 	hold := residueHoldsWorker(result.Residue)
-	reportResidue(worker, result.Residue, hold)
+	reportResidue(os.Stderr, worker, result.Residue, hold)
 	if hold {
 		// Written only when the worker is actually held: a released worker is refused by nothing, so a record
 		// there would be quoted by no refusal and would outlive the hold it describes. releaseAcquired deletes
@@ -528,27 +528,40 @@ func residueHoldsWorker(left []residue) bool {
 // exists here is the advice, and it differs by case because the two cases need opposite things: a stuck
 // object of our own must not have its finalizer stripped, and a name another transaction holds is not ours to
 // clear at all.
-func reportResidue(worker string, left []residue, held bool) {
+//
+// w is a seam for the same reason reportRun already takes injected writers: without one, nothing this
+// function prints is assertable, and a false claim in it — this file shipped one, twice, before a review
+// caught it on a real cluster — has nothing to fail a test against. Call sites pass os.Stderr.
+func reportResidue(w io.Writer, worker string, left []residue, held bool) {
 	if held {
-		fmt.Fprintf(os.Stderr, "TEARDOWN INCOMPLETE: worker %s stays dedicated; its GPUs may still be in use\n",
+		fmt.Fprintf(w, "TEARDOWN INCOMPLETE: worker %s stays dedicated; its GPUs may still be in use\n",
 			worker)
 	} else {
+		// held is false only when residueHoldsWorker found every entry absenceForeign (see its own comment),
+		// so what follows is provably true of THIS branch: every name below is held under somebody else's
+		// stamp, not this run's own. "nothing this run created is still on the cluster" used to stand here
+		// instead, and it is a claim this code cannot make: since the Terminating/foreign classification
+		// landed, a namespace this run itself created and deleted can still be observed Terminating and
+		// classified absenceForeign (a different object can take a terminating name before it finally frees),
+		// so the run's own object can be exactly what is named below. What holds regardless is narrower —
+		// the stamp on each name is not this run's — and that is the claim this line now makes.
+		//
 		// Saying the worker stays dedicated when it does not would send the operator to -force-release for a
 		// node that is already free, and the objects named below are not theirs to delete on this run's say-so.
-		fmt.Fprintf(os.Stderr, "TEARDOWN INCOMPLETE: worker %s was released; nothing this run created is still "+
-			"on the cluster, but these names are held by another transaction\n", worker)
+		fmt.Fprintf(w, "TEARDOWN INCOMPLETE: worker %s was released; what is left is held under a stamp "+
+			"this run does not own\n", worker)
 	}
 	for _, r := range left {
-		fmt.Fprintf(os.Stderr, "  %s %s: %s\n", r.Observation.Target.Kind, r.Observation.Target.Name,
+		fmt.Fprintf(w, "  %s %s: %s\n", r.Observation.Target.Kind, r.Observation.Target.Name,
 			absenceName(r.Absence))
 	}
 	if held {
-		fmt.Fprintf(os.Stderr, "  do NOT strip a stuck namespace's finalizer: that orphans its contents, and "+
+		fmt.Fprintf(w, "  do NOT strip a stuck namespace's finalizer: that orphans its contents, and "+
 			"every absence check afterwards reports clean over objects that are still running\n")
-		fmt.Fprintf(os.Stderr, "  run: queuelabrun -inspect-worker -worker %s\n", worker)
+		fmt.Fprintf(w, "  run: queuelabrun -inspect-worker -worker %s\n", worker)
 		return
 	}
-	fmt.Fprintf(os.Stderr, "  rerun under a run id of its own, or clear those objects first once you have "+
+	fmt.Fprintf(w, "  rerun under a run id of its own, or clear those objects first once you have "+
 		"established the transaction that created them is gone\n")
 }
 
