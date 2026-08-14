@@ -97,6 +97,13 @@ func simulatorPod(nodeName string) *corev1.Pod {
 	}
 }
 
+// testReq is a requirement whose provenance is not what the test is about. The tests that DO care about the
+// provenance build a gpuRequirement by hand instead, so that this helper can never be what makes one of them
+// pass.
+func testReq(n int64) gpuRequirement {
+	return gpuRequirement{Total: n, BoundBy: boundByQuotaSum, From: "test"}
+}
+
 // testFixtures renders the real fixture set for an arm, so the requirement under test is the one the run
 // would actually apply rather than a hand-built imitation of it.
 func testFixtures(t *testing.T, study queuelab.Study, variant string) *queuelab.FixtureSet {
@@ -108,39 +115,55 @@ func testFixtures(t *testing.T, study queuelab.Study, variant string) *queuelab.
 	return fs
 }
 
-// The requirement has to be COMPUTED from the fixtures, and the two real studies cannot prove that on their
-// own: reclaim (two ClusterQueues at nominal 1) and FIFO (one at 2) both come to 2, so `return 2` passes for
-// both and the check silently stops being about this run's arm. The synthetic set below is what makes the
-// derivation observable — 1 + 3 is a number no constant anyone would plausibly type produces.
+// The requirement has to be COMPUTED from this run's own protocol, and the two real studies cannot prove
+// that on their own: reclaim (two ClusterQueues at nominal 1, largest row 1) and FIFO (one queue at nominal
+// 2, largest row 2) both come to 2, so `return 2` passes for both and the check silently stops being about
+// this run's arm. The synthetic set is what makes the summation observable — 1 + 3 is a number no constant
+// anyone would plausibly type produces.
 //
 // The quota on a foreign flavor is there for the same reason: only this run's flavor is pinned to this run's
 // worker, so a summation that ignored the flavor would size the node against capacity that lives elsewhere.
 //
-// Mutation that turns this red: replace requiredGPU's body with `return 2, "two GPUs", nil`. The reclaim and
-// FIFO cases stay green — they are 2 — and the synthetic case fails at once, which is the whole reason it is
-// here alongside them rather than instead of them.
+// The provenance is asserted on the CONTRIBUTING queue count, not on len(fs.ClusterQueue). The synthetic set
+// has three queues and two of them were summed; a provenance saying "3 ClusterQueue(s)" would describe a sum
+// that was not taken over them, in the one field whose entire job is to be trustworthy.
+//
+// Mutation that turns this red: replace the summation with a constant 2 while keeping an honest provenance
+// string (the synthetic case catches it); or build the provenance with len(fs.ClusterQueue) instead of the
+// contributing count (the "2 ClusterQueue(s)" assertion catches that one).
 func TestRequiredGPUIsDerivedFromTheFixturesNotHardCoded(t *testing.T) {
+	reclaimTrace, err := queuelab.TerminationContractTrace(victimServiceSec, doseSec)
+	if err != nil {
+		t.Fatalf("build the reclaim trace: %v", err)
+	}
 	reclaim := testFixtures(t, queuelab.StudyReclaim, "Any")
-	got, from, err := requiredGPU(reclaim)
+	req, err := requiredGPU(reclaim, reclaimTrace)
 	if err != nil {
 		t.Fatalf("reclaim: %v", err)
 	}
-	if got != 2 {
+	if req.Total != 2 {
 		t.Fatalf("reclaim needs %d GPUs, want 2: two ClusterQueues at nominal 1 in one cohort is exactly the "+
 			"borrow-then-reclaim contrast the arm is named after, and a node that cannot back both never "+
-			"produces it", got)
+			"produces it", req.Total)
 	}
-	if !strings.Contains(from, "ClusterQueue") || !strings.Contains(from, reclaim.Flavor.Name) {
+	if req.BoundBy != boundByQuotaSum {
+		t.Fatalf("reclaim is bound by %q, want %q: its rows are 1 GPU each, so the sum is the only bound that "+
+			"can be doing any work", req.BoundBy, boundByQuotaSum)
+	}
+	if !strings.Contains(req.From, "ClusterQueue") || !strings.Contains(req.From, reclaim.Flavor.Name) {
 		t.Fatalf("the provenance %q names neither the queues it summed nor the flavor it summed them on, so a "+
-			"reader cannot tell a derived number from a typed one", from)
+			"reader cannot tell a derived number from a typed one", req.From)
 	}
 
-	if got, _, err = requiredGPU(testFixtures(t, queuelab.StudyFIFO, "StrictFIFO")); err != nil || got != 2 {
-		t.Fatalf("fifo needs %d GPUs (err %v), want 2: one ClusterQueue at nominal 2", got, err)
+	fifo, err := requiredGPU(testFixtures(t, queuelab.StudyFIFO, "StrictFIFO"),
+		queuelab.FIFOHeadOfLineScenario(120, 30))
+	if err != nil || fifo.Total != 2 {
+		t.Fatalf("fifo needs %d GPUs (err %v), want 2: one ClusterQueue at nominal 2, and a 2-GPU head row "+
+			"that ties with it", fifo.Total, err)
 	}
 
 	// Two quotas on this run's flavor and one on somebody else's, so both halves of the rule are exercised at
-	// once: the total is summed, and the foreign flavor contributes nothing.
+	// once: the total is summed, and the foreign flavor contributes nothing to either the sum or the count.
 	synthetic := &queuelab.FixtureSet{
 		Flavor: &kueuev1beta2.ResourceFlavor{ObjectMeta: metav1.ObjectMeta{Name: "queuelab-gpu-r7"}},
 		ClusterQueue: []*kueuev1beta2.ClusterQueue{
@@ -149,13 +172,69 @@ func TestRequiredGPUIsDerivedFromTheFixturesNotHardCoded(t *testing.T) {
 			syntheticCQ("cq-elsewhere", "some-other-flavor", 8),
 		},
 	}
-	got, _, err = requiredGPU(synthetic)
+	req, err = requiredGPU(synthetic, reclaimTrace)
 	if err != nil {
 		t.Fatalf("synthetic: %v", err)
 	}
-	if got != 4 {
+	if req.Total != 4 {
 		t.Fatalf("requiredGPU = %d, want 4 (1+3 on this run's flavor, and none of the 8 on another): the "+
-			"number is not being summed out of the fixtures", got)
+			"number is not being summed out of the fixtures", req.Total)
+	}
+	if !strings.Contains(req.From, "over 2 ClusterQueue(s)") {
+		t.Fatalf("the provenance %q counts queues that contributed nothing to the sum it describes", req.From)
+	}
+}
+
+// The bound my brief denied existed. It said every trace row requests one GPU; FIFOHeadOfLineScenario emits a
+// 2-GPU head row and ValidateTrace REQUIRES one, because a head job that cannot immediately fit is the entire
+// mechanism that study compares.
+//
+// The two bounds are independent and neither implies the other. A Pod is scheduled whole onto one node, so a
+// row larger than the node advertises can never be scheduled at all however much aggregate quota the queues
+// hold — the run would proceed, the head job would sit unschedulable forever, and the arm would report the
+// head-of-line comparison it structurally never made. Today the FIFO sum (2) and its largest row (2) happen
+// to coincide, which is exactly the coincidence that lets a sum-only derivation look correct indefinitely.
+//
+// Mutation that turns this red: derive the requirement from the nominal quota sum alone (drop the
+// `largest > sum` branch). Both real studies stay green — that is the point of this test existing.
+func TestRequiredGPUTakesTheLargestSingleRowWhenItExceedsTheQuotaSum(t *testing.T) {
+	fs := &queuelab.FixtureSet{
+		Flavor:       &kueuev1beta2.ResourceFlavor{ObjectMeta: metav1.ObjectMeta{Name: "queuelab-gpu-r7"}},
+		ClusterQueue: []*kueuev1beta2.ClusterQueue{syntheticCQ("cq-a", "queuelab-gpu-r7", 2)},
+	}
+	trace := []queuelab.TrainingTraceRow{
+		{Index: 0, Name: "small", Tenant: "tenant-a", GPUCount: 1, DurationSec: 30},
+		{Index: 1, Name: "head3", Tenant: "tenant-a", GPUCount: 3, DurationSec: 30},
+	}
+
+	req, err := requiredGPU(fs, trace)
+	if err != nil {
+		t.Fatalf("requiredGPU: %v", err)
+	}
+	if req.Total != 3 {
+		t.Fatalf("requiredGPU = %d, want 3: a 3-GPU Pod is scheduled whole onto one node, so a 2-GPU node "+
+			"can never run it however much aggregate quota the queues hold", req.Total)
+	}
+	if req.BoundBy != boundByLargestRow {
+		t.Fatalf("BoundBy = %q, want %q: which bound decided is the difference between \"the node cannot hold "+
+			"the whole arm\" and \"one Pod can never be scheduled at all\"", req.BoundBy, boundByLargestRow)
+	}
+	if !strings.Contains(req.From, `"head3"`) {
+		t.Fatalf("the provenance %q does not name the row that bound the requirement", req.From)
+	}
+	// Both numbers are carried whichever one won, so the margin between them is legible in the record rather
+	// than having to be reconstructed from the fixtures afterwards.
+	if !strings.Contains(req.From, "= 2;") {
+		t.Fatalf("the provenance %q drops the bound that lost, leaving no way to see how close the two were",
+			req.From)
+	}
+
+	// A node that satisfies the sum and not the row must still refuse, which is the whole reason the bound is
+	// computed at all: the aggregate looks fine and exactly one Pod is unschedulable forever.
+	twoGPU := node(nil, nil)
+	if _, err := qualify(twoGPU, nil, req); err == nil {
+		t.Fatal("a 2-GPU node was accepted for a trace containing a 3-GPU row: the run proceeds, the head job " +
+			"never schedules, and the study reports a comparison it never made")
 	}
 }
 
@@ -177,24 +256,24 @@ func syntheticCQ(name, flavor string, nominal int64) *kueuev1beta2.ClusterQueue 
 	}
 }
 
-// A fixture set covering no GPU would make the capacity check pass on any machine at all, including one with
-// no device, which is a bar that reads as a check and is not one. It is a defect in the fixtures rather than
-// in the node, and the message has to say so or an operator goes looking at the cluster.
+// A protocol asking for no device at all would make the capacity check pass on any machine, including one
+// with no GPU — a bar that reads as a check and is not one. It is a defect in this program rather than in the
+// node, and the message has to say so or an operator goes looking at the cluster. Both bounds are zero here,
+// because either one alone being positive is a legitimate requirement.
 //
-// Mutation that turns this red: drop the `total < 1` branch from requiredGPU and return (0, from, nil).
-func TestRequiredGPURefusesAFixtureSetThatCoversNoDevice(t *testing.T) {
+// Mutation that turns this red: drop the `req.Total < 1` branch from requiredGPU.
+func TestRequiredGPURefusesAProtocolThatAsksForNoDevice(t *testing.T) {
 	empty := &queuelab.FixtureSet{
 		Flavor:       &kueuev1beta2.ResourceFlavor{ObjectMeta: metav1.ObjectMeta{Name: "queuelab-gpu-r7"}},
 		ClusterQueue: []*kueuev1beta2.ClusterQueue{syntheticCQ("cq-a", "queuelab-gpu-r7", 0)},
 	}
-	_, _, err := requiredGPU(empty)
+	_, err := requiredGPU(empty, []queuelab.TrainingTraceRow{{Index: 0, Name: "cpu-only", GPUCount: 0}})
 	if err == nil {
 		t.Fatal("a requirement of zero was accepted: every node passes a bar of zero, so the capacity check " +
 			"would still be present and would no longer be checking anything")
 	}
-	if !strings.Contains(err.Error(), "fixture") {
-		t.Fatalf("the refusal %q blames something other than the fixtures, which sends the operator to the "+
-			"cluster for a defect that is in this program", err)
+	if !strings.Contains(err.Error(), "defect in the protocol") {
+		t.Fatalf("the refusal %q blames the machine for a defect that is in this program", err)
 	}
 }
 
@@ -206,7 +285,7 @@ func TestRequiredGPURefusesAFixtureSetThatCoversNoDevice(t *testing.T) {
 // proceeds onto a machine with one of its two GPUs already spoken for.
 func TestQualifyRefusesAWorkerThatAlreadyHoldsAForeignGPUPod(t *testing.T) {
 	q, err := qualify(node(nil, nil), []corev1.Pod{*gpuPod("tenant-a", "train-7", "platform-worker", 1)},
-		2, "test")
+		testReq(2))
 	if err == nil {
 		t.Fatal("a worker running somebody else's GPU Pod qualified: the run would admit against capacity it " +
 			"does not have and report a number measured on a different machine")
@@ -231,7 +310,7 @@ func TestQualifyRefusesAWorkerThatAlreadyHoldsAForeignGPUPod(t *testing.T) {
 // keyed on the node advertising the resource, on the priority class, or on the Pod's own name — every
 // variant that "looks GPU-ish" rather than asking what was requested.
 func TestQualifyDoesNotRejectTheDevicePluginThatProvidesTheResource(t *testing.T) {
-	q, err := qualify(node(nil, nil), []corev1.Pod{*simulatorPod("platform-worker")}, 2, "test")
+	q, err := qualify(node(nil, nil), []corev1.Pod{*simulatorPod("platform-worker")}, testReq(2))
 	if err != nil {
 		t.Fatalf("the gpu-simulator DaemonSet was treated as a GPU consumer, so every run against every "+
 			"cluster this lab has would refuse: %v", err)
@@ -257,7 +336,7 @@ func TestQualifyCountsATerminatingGPUPodBecauseItStillHoldsTheDevice(t *testing.
 	dying.DeletionTimestamp = &ts
 	dying.Finalizers = []string{"kubernetes"}
 
-	q, err := qualify(node(nil, nil), []corev1.Pod{*dying}, 2, "test")
+	q, err := qualify(node(nil, nil), []corev1.Pod{*dying}, testReq(2))
 	if err == nil {
 		t.Fatal("a terminating GPU Pod was treated as gone: it holds both devices until the kubelet finishes, " +
 			"and the run would have measured against nothing at all")
@@ -268,6 +347,32 @@ func TestQualifyCountsATerminatingGPUPodBecauseItStillHoldsTheDevice(t *testing.
 	}
 	if !strings.Contains(err.Error(), "terminating") {
 		t.Fatalf("the refusal %q does not distinguish a Pod that will clear itself from one that will not", err)
+	}
+}
+
+// Pending counts, and the reason is not symmetry with Running: a Pod already assigned to this node has had
+// the device reserved for it by the scheduler and will take it the moment its image finishes pulling. This is
+// the ordinary state of a GPU Pod in the first seconds of its life, so a run started just after somebody
+// else's job was admitted is exactly when it would be missed — and it would be missed silently, because by
+// the time the run submitted anything the Pod would be Running and holding the device.
+//
+// This branch was the one predicate my first round left untested: mutating holdsDevices to exclude Pending
+// kept the whole targeted suite green.
+//
+// Mutation that turns this red: `return p.Status.Phase != corev1.PodPending && p.Status.Phase !=
+// corev1.PodSucceeded && p.Status.Phase != corev1.PodFailed` in holdsDevices.
+func TestQualifyCountsAPendingGPUPodBecauseTheDeviceIsAlreadyReservedForIt(t *testing.T) {
+	starting := gpuPod("tenant-a", "train-12", "platform-worker", 2)
+	starting.Status.Phase = corev1.PodPending
+
+	q, err := qualify(node(nil, nil), []corev1.Pod{*starting}, testReq(2))
+	if err == nil {
+		t.Fatal("a Pending GPU Pod already assigned to this node was treated as consuming nothing: the " +
+			"scheduler has reserved both devices for it, and it will hold them before this run submits a thing")
+	}
+	if len(q.GPUConsumers) != 1 || q.GPUConsumers[0].Phase != string(corev1.PodPending) {
+		t.Fatalf("the observation must record the phase it found, so a reader can tell a Pod that is starting "+
+			"from one that has been running for an hour, got %+v", q.GPUConsumers)
 	}
 }
 
@@ -285,7 +390,7 @@ func TestQualifyIgnoresPodsOnOtherNodesAndPodsThatHaveFinished(t *testing.T) {
 	failed := gpuPod("tenant-b", "train-crashed", "platform-worker", 2)
 	failed.Status.Phase = corev1.PodFailed
 
-	q, err := qualify(node(nil, nil), []corev1.Pod{*elsewhere, *finished, *failed}, 2, "test")
+	q, err := qualify(node(nil, nil), []corev1.Pod{*elsewhere, *finished, *failed}, testReq(2))
 	if err != nil {
 		t.Fatalf("a worker whose only GPU Pods are on another node or already finished was refused: %v", err)
 	}
@@ -305,7 +410,7 @@ func TestQualifyIgnoresPodsOnOtherNodesAndPodsThatHaveFinished(t *testing.T) {
 // Mutation that turns this red: add a "the node carries no NoSchedule taint" condition to qualify.
 func TestQualifyAcceptsTheRunsOwnOwnershipTaint(t *testing.T) {
 	ours := node(map[string]string{workerLabelKey: "r7"}, nil, ourTaint())
-	if _, err := qualify(ours, nil, 2, "test"); err != nil {
+	if _, err := qualify(ours, nil, testReq(2)); err != nil {
 		t.Fatalf("the worker was refused for the marker this run installed on it a moment earlier: %v", err)
 	}
 }
@@ -319,7 +424,8 @@ func TestQualifyRefusesANodeTooSmallForTheArm(t *testing.T) {
 	small := node(nil, nil)
 	small.Status.Allocatable[gpuResourceName] = *resource.NewQuantity(1, resource.DecimalSI)
 
-	q, err := qualify(small, nil, 2, "nominal quota over 2 ClusterQueue(s)")
+	q, err := qualify(small, nil, gpuRequirement{Total: 2, BoundBy: boundByQuotaSum,
+		From: "nominal quota over 2 ClusterQueue(s)"})
 	if err == nil {
 		t.Fatal("a one-device node was accepted for a two-device arm: the run completes and reports the " +
 			"contrast it structurally could not produce")
@@ -343,20 +449,20 @@ func TestQualifyRefusesANodeTooSmallForTheArm(t *testing.T) {
 func TestQualifyRefusesANodeThatIsNotReadyOrIsCordoned(t *testing.T) {
 	notReady := node(nil, nil)
 	notReady.Status.Conditions = []corev1.NodeCondition{{Type: corev1.NodeReady, Status: corev1.ConditionFalse}}
-	if _, err := qualify(notReady, nil, 2, "test"); err == nil {
+	if _, err := qualify(notReady, nil, testReq(2)); err == nil {
 		t.Fatal("a NotReady worker was accepted")
 	}
 
 	silent := node(nil, nil)
 	silent.Status.Conditions = nil
-	if _, err := qualify(silent, nil, 2, "test"); err == nil {
+	if _, err := qualify(silent, nil, testReq(2)); err == nil {
 		t.Fatal("a Node reporting no Ready condition at all was accepted: an unclassifiable machine must fail " +
 			"toward the refusal, not toward the measurement")
 	}
 
 	cordoned := node(nil, nil)
 	cordoned.Spec.Unschedulable = true
-	q, err := qualify(cordoned, nil, 2, "test")
+	q, err := qualify(cordoned, nil, testReq(2))
 	if err == nil {
 		t.Fatal("a cordoned worker was accepted: nothing this run submits can land on it, so the whole run " +
 			"would time out at its first barrier with no explanation")
@@ -379,7 +485,7 @@ func TestQualifyReportsEveryConditionItFailedNotJustTheFirst(t *testing.T) {
 	bad.Status.Allocatable[gpuResourceName] = *resource.NewQuantity(1, resource.DecimalSI)
 	bad.Spec.Unschedulable = true
 
-	_, err := qualify(bad, []corev1.Pod{*gpuPod("tenant-a", "train-7", "platform-worker", 1)}, 2, "test")
+	_, err := qualify(bad, []corev1.Pod{*gpuPod("tenant-a", "train-7", "platform-worker", 1)}, testReq(2))
 	if err == nil {
 		t.Fatal("a node that failed three conditions qualified")
 	}
@@ -439,7 +545,7 @@ func TestQualifyWorkerRefusesWhenItCannotSeeThePods(t *testing.T) {
 			},
 		}).Build()
 
-	q, err := qualifyWorker(context.Background(), fc, "platform-worker", 2, "test")
+	q, err := qualifyWorker(context.Background(), fc, "platform-worker", testReq(2))
 	if err == nil {
 		t.Fatal("a worker whose Pods could not be listed was qualified, which is exactly how an RBAC gap on " +
 			"Pods would present itself: as a clean cluster")
@@ -461,7 +567,8 @@ func TestQualifyWorkerReturnsWhatItSawEvenWhenItRefuses(t *testing.T) {
 			simulatorPod("platform-worker")).
 		Build()
 
-	q, err := qualifyWorker(context.Background(), fc, "platform-worker", 2, "nominal quota")
+	q, err := qualifyWorker(context.Background(), fc, "platform-worker",
+		gpuRequirement{Total: 2, BoundBy: boundByQuotaSum, From: "nominal quota"})
 	if err == nil {
 		t.Fatal("the contaminated worker qualified")
 	}
@@ -471,7 +578,8 @@ func TestQualifyWorkerReturnsWhatItSawEvenWhenItRefuses(t *testing.T) {
 	if q.Node != "platform-worker" || q.NodeUID != "uid-node" {
 		t.Fatalf("the observation must identify the machine it is about, got %+v", q)
 	}
-	if q.AllocatableGPU != 2 || q.RequiredGPU != 2 || q.RequiredFrom != "nominal quota" {
+	if q.AllocatableGPU != 2 || q.RequiredGPU != 2 || q.RequiredFrom != "nominal quota" ||
+		q.RequiredBoundBy != boundByQuotaSum {
 		t.Fatalf("the observation must carry the capacity claim and where the requirement came from, got %+v", q)
 	}
 	if !q.Ready || !q.Schedulable {

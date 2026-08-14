@@ -83,10 +83,17 @@ type qualification struct {
 	RequiredGPU    int64 `json:"requiredGPU"`
 	// RequiredFrom names where the requirement came from, because a bare number invites exactly the hard-coded
 	// constant this derivation exists to avoid: a later reader has to be able to tell whether 2 was computed
-	// from this run's own fixtures or typed in by somebody who knew what the cluster happened to have.
+	// from this run's own fixtures or typed in by somebody who knew what the cluster happened to have. It
+	// quotes BOTH lower bounds and their numbers, not just the one that won, so the margin between them is
+	// legible rather than having to be reconstructed from the fixtures afterwards.
 	RequiredFrom string `json:"requiredFrom"`
-	Ready        bool   `json:"ready"`
-	Schedulable  bool   `json:"schedulable"`
+	// RequiredBoundBy is which of the two bounds decided, as a name rather than as a sentence to be parsed —
+	// the same reason the disposition is a constant and not free text. A run refused for capacity reads
+	// completely differently depending on this: bound by the quota sum means the node cannot hold the whole
+	// arm at once, bound by a single row means one Pod in the trace could never be scheduled at all.
+	RequiredBoundBy string `json:"requiredBoundBy"`
+	Ready           bool   `json:"ready"`
+	Schedulable     bool   `json:"schedulable"`
 	// PodsOnNode is the denominator for the empty GPUConsumers list.
 	//
 	// "No foreign GPU consumer" is a negative, and a negative that was never given a count is indistinguishable
@@ -99,7 +106,22 @@ type qualification struct {
 	GPUConsumers []gpuConsumer `json:"gpuConsumers,omitempty"`
 }
 
-// requiredGPU derives how much of the device this run's own fixtures need, and returns where that came from.
+// The two names a requirement can be bound by. They are constants because the record persists one of them and
+// a reader classifies on it; a reworded string would silently become a different value.
+const (
+	boundByQuotaSum   = "nominal-quota-sum"
+	boundByLargestRow = "largest-trace-row"
+)
+
+// gpuRequirement is how much of the device this run needs, and which of its two independent lower bounds
+// decided that.
+type gpuRequirement struct {
+	Total   int64
+	BoundBy string
+	From    string
+}
+
+// requiredGPU derives how much of the device this run needs from its OWN fixtures and its OWN trace.
 //
 // It is derived rather than written down because the number is a property of the arm, not of the cluster: the
 // reclaim study builds two ClusterQueues at nominal 1 in one per-run cohort and the FIFO study one at 2, and a
@@ -107,20 +129,39 @@ type qualification struct {
 // advertising 1 would still let a reclaim run complete — it would simply never produce the borrow-then-reclaim
 // contrast the arm is named after, and would report the run that did not happen as the run that did.
 //
-// Summing across ClusterQueues is right precisely because a study's queues share ONE per-run cohort and ONE
-// per-run flavor: their nominal quotas are simultaneously admissible against the same node, so the node has to
-// back their total. Quotas on any other flavor are skipped rather than summed, since this run's flavor is the
-// only one pinned to this run's worker.
-func requiredGPU(fs *queuelab.FixtureSet) (int64, string, error) {
+// There are TWO independent lower bounds and the requirement is the larger:
+//
+//   - The nominal quota SUM across this run's ClusterQueues. Summing is right precisely because a study's
+//     queues share one per-run cohort and one per-run flavor, so their quotas are simultaneously admissible
+//     against the same node and the node has to back their total. Quotas on any other flavor are skipped,
+//     since this run's flavor is the only one pinned to this run's worker.
+//   - The LARGEST SINGLE trace row. A Pod is scheduled whole onto one node, so a row asking for more than the
+//     node advertises can never be scheduled at all, however much aggregate quota exists — and this is not a
+//     hypothetical shape: FIFOHeadOfLineScenario emits a 2-GPU head row, and ValidateTrace REQUIRES one,
+//     because head-of-line blocking is the mechanism that study is about.
+//
+// Neither bound implies the other, and today they happen to coincide — the FIFO sum is 2 and its largest row
+// is 2 — which is exactly the coincidence that would let the missing bound go unnoticed. A study with a 3-GPU
+// row against a 2-GPU nominal sum would pass a sum-only check, run, and contain a Pod that could never be
+// scheduled: the arm would report the head-of-line comparison it structurally never made.
+//
+// On a tie the quota sum is named as the binding one, because it is the bound that always exists.
+func requiredGPU(fs *queuelab.FixtureSet, trace []queuelab.TrainingTraceRow) (gpuRequirement, error) {
 	if fs == nil || fs.Flavor == nil {
-		return 0, "", fmt.Errorf("fixture set has no ResourceFlavor to size the worker against")
+		return gpuRequirement{}, fmt.Errorf("fixture set has no ResourceFlavor to size the worker against")
 	}
 	flavor := fs.Flavor.Name
-	var total int64
+	var sum int64
+	// Counted rather than taken from len(fs.ClusterQueue), because only the queues that actually carried a
+	// quota on THIS run's flavor were added: a count of every queue in the set would describe a sum that was
+	// not taken over them, in the one field whose entire job is to be trustworthy about where a number came
+	// from.
+	contributing := 0
 	for _, cq := range fs.ClusterQueue {
 		if cq == nil {
 			continue
 		}
+		before := sum
 		for _, rg := range cq.Spec.ResourceGroups {
 			for _, fq := range rg.Flavors {
 				if string(fq.Name) != flavor {
@@ -128,23 +169,41 @@ func requiredGPU(fs *queuelab.FixtureSet) (int64, string, error) {
 				}
 				for _, r := range fq.Resources {
 					if r.Name == gpuResourceName {
-						total += r.NominalQuota.Value()
+						sum += r.NominalQuota.Value()
 					}
 				}
 			}
 		}
+		if sum != before {
+			contributing++
+		}
 	}
-	from := fmt.Sprintf("nominal %s quota summed over %d ClusterQueue(s) on flavor %s",
-		gpuResourceName, len(fs.ClusterQueue), flavor)
-	if total < 1 {
+
+	var largest int64
+	largestRow := "(no rows)"
+	for _, row := range trace {
+		if int64(row.GPUCount) > largest {
+			largest = int64(row.GPUCount)
+			largestRow = row.Name
+		}
+	}
+
+	req := gpuRequirement{Total: sum, BoundBy: boundByQuotaSum}
+	if largest > sum {
+		req = gpuRequirement{Total: largest, BoundBy: boundByLargestRow}
+	}
+	req.From = fmt.Sprintf(
+		"nominal %s quota summed over %d ClusterQueue(s) on flavor %s = %d; largest single trace row %q = %d",
+		gpuResourceName, contributing, flavor, sum, largestRow, largest)
+	if req.Total < 1 {
 		// A zero requirement would make this whole check pass on any node at all, including one advertising no
-		// device — so it is refused rather than accepted as a trivially satisfiable bar. Reaching it means
-		// BuildFixtures rendered queues that cover no GPU, which is a bug in the fixtures rather than anything
+		// device — so it is refused rather than accepted as a trivially satisfiable bar. Reaching it means the
+		// fixtures cover no GPU and the trace asks for none, which is a bug in this program rather than anything
 		// about the machine, and the message says so rather than blaming the node.
-		return 0, from, fmt.Errorf("this run's fixtures request no %s at all (%s); "+
-			"that is a defect in the fixture set, not a property of the worker", gpuResourceName, from)
+		return req, fmt.Errorf("this run's fixtures and trace request no %s at all (%s); "+
+			"that is a defect in the protocol, not a property of the worker", gpuResourceName, req.From)
 	}
-	return total, from, nil
+	return req, nil
 }
 
 // gpuOf reads one container's device request.
@@ -263,19 +322,20 @@ func nodeReady(n *corev1.Node) bool {
 // ago, so a check for "no taints" would refuse every run on the marker the run itself put there; and the
 // question a taint could answer — will something new land here — is already answered by the acquisition. What
 // a taint cannot answer, and what is asked here instead, is what is on the node already.
-func qualify(n *corev1.Node, pods []corev1.Pod, required int64, requiredFrom string) (qualification, error) {
+func qualify(n *corev1.Node, pods []corev1.Pod, req gpuRequirement) (qualification, error) {
 	allocatable := n.Status.Allocatable[gpuResourceName]
 	consumers, onNode := gpuConsumersOn(pods, n.Name)
 	q := qualification{
-		Node:           n.Name,
-		NodeUID:        string(n.UID),
-		AllocatableGPU: allocatable.Value(),
-		RequiredGPU:    required,
-		RequiredFrom:   requiredFrom,
-		Ready:          nodeReady(n),
-		Schedulable:    !n.Spec.Unschedulable,
-		PodsOnNode:     onNode,
-		GPUConsumers:   consumers,
+		Node:            n.Name,
+		NodeUID:         string(n.UID),
+		AllocatableGPU:  allocatable.Value(),
+		RequiredGPU:     req.Total,
+		RequiredFrom:    req.From,
+		RequiredBoundBy: req.BoundBy,
+		Ready:           nodeReady(n),
+		Schedulable:     !n.Spec.Unschedulable,
+		PodsOnNode:      onNode,
+		GPUConsumers:    consumers,
 	}
 
 	var failed []string
@@ -285,11 +345,11 @@ func qualify(n *corev1.Node, pods []corev1.Pod, required int64, requiredFrom str
 	if !q.Schedulable {
 		failed = append(failed, "it is cordoned (spec.unschedulable), so nothing this run submits can land on it")
 	}
-	if q.AllocatableGPU < required {
+	if q.AllocatableGPU < req.Total {
 		failed = append(failed, fmt.Sprintf(
-			"it advertises %d allocatable %s and this run needs %d (%s); the arm would complete against a "+
-				"smaller machine and report the contrast it never produced",
-			q.AllocatableGPU, gpuResourceName, required, requiredFrom))
+			"it advertises %d allocatable %s and this run needs %d, bound by the %s (%s); the arm would "+
+				"complete against a smaller machine and report the contrast it never produced",
+			q.AllocatableGPU, gpuResourceName, req.Total, req.BoundBy, req.From))
 	}
 	if len(consumers) > 0 {
 		// Every field below came out of the apiserver and this sentence is printed straight to an operator's
@@ -329,8 +389,8 @@ func qualify(n *corev1.Node, pods []corev1.Pod, required int64, requiredFrom str
 // a verdict, on a lab cluster of a few dozen Pods. The RBAC is the same either way: a field-selected List of
 // Pods still requires list on pods at cluster scope, which is what this adds to whatever credential the
 // runner uses.
-func qualifyWorker(ctx context.Context, c client.Client, nodeName string, required int64,
-	requiredFrom string) (*qualification, error) {
+func qualifyWorker(ctx context.Context, c client.Client, nodeName string,
+	req gpuRequirement) (*qualification, error) {
 	var n corev1.Node
 	if err := c.Get(ctx, client.ObjectKey{Name: nodeName}, &n); err != nil {
 		return nil, fmt.Errorf("get node %s: %w", nodeName, err)
@@ -342,6 +402,6 @@ func qualifyWorker(ctx context.Context, c client.Client, nodeName string, requir
 		// substitution — absence of evidence for evidence of absence — that this gate exists to stop.
 		return nil, fmt.Errorf("list pods to check %s for foreign GPU consumers: %w", nodeName, err)
 	}
-	q, err := qualify(&n, pods.Items, required, requiredFrom)
+	q, err := qualify(&n, pods.Items, req)
 	return &q, err
 }

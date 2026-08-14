@@ -1902,3 +1902,72 @@ func TestRunSizesTheWorkerAgainstItsOwnFixtures(t *testing.T) {
 		t.Fatalf("the record must say where the requirement came from, got %+v", qual)
 	}
 }
+
+// The qualification a PASSING run records, which is the case the later validity-bearing-artifact gate is
+// actually built on and the one both refusal tests above leave uncovered.
+//
+// The gap that motivated it is narrow and real: every other run() test discards the fifth return, so a
+// regression that recorded the observation only on the refusal path — a qualification block moved inside an
+// `if err != nil`, or made conditional on there being Pods to look at — would leave the entire package green
+// while every admissible run in the archive carried no evidence of the machine it ran on.
+//
+// It drives the same 45-second N-ref shape as the teardown-ordering test above rather than the full protocol
+// dose, and asserts on the bytes of the record rather than on the returned struct, because the artifact is
+// what survives the process.
+//
+// Mutation that turns this red: move the qualifyWorker call inside the refusal branch, or drop the
+// `Qualification: qual` assignment from buildRecord's non-preview branch.
+func TestAQualifiedRunRecordsWhatItsWorkerWas(t *testing.T) {
+	if testing.Short() {
+		t.Skip("drives run() to a passing disposition, which takes the 45-second observation window")
+	}
+	fc := fake.NewClientBuilder().WithScheme(fullScheme(t)).WithObjects(node(nil, nil)).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Create: fakeSchedulerCreate,
+			Watch:  fakeSchedulerWatch,
+			List:   fakeSchedulerList,
+		}).Build()
+	now, sleep := fakeClock(time.Unix(0, 0))
+
+	o, events, res, left, qual := run(context.Background(), func() (client.WithWatch, error) { return fc, nil },
+		queuelab.ArmNRef, "r14", "queuelab-r14", "platform-worker", 45*time.Second, "", now, sleep)
+
+	if o.Disposition != dispChecksPassed {
+		t.Fatalf("this test is only meaningful on a run that passed, got %s: %s", o.Disposition, o.Reason)
+	}
+	if res == nil {
+		t.Fatal("a passing run must hand back a result, or this never reached the qualified happy path")
+	}
+	if qual == nil {
+		t.Fatal("a run that passed every check recorded nothing about the machine it measured on")
+	}
+
+	rec := buildRecord(o, events, left, qual, "r14", string(queuelab.ArmNRef), false,
+		time.Now(), time.Now())
+	b, err := encodeRecord(rec)
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	got, err := decodeRunRecord(b)
+	if err != nil {
+		t.Fatalf("a passing run's record must decode: %v\n%s", err, b)
+	}
+	q := got.Qualification
+	if q == nil {
+		t.Fatalf("the passing run's record carries no qualification, so the artifact says a number was "+
+			"measured and nothing about what it was measured on:\n%s", b)
+	}
+	if q.Node != "platform-worker" || q.NodeUID != "uid-node" {
+		t.Fatalf("the record must identify the machine, got %+v", q)
+	}
+	if q.AllocatableGPU != 2 || q.RequiredGPU != 2 || q.RequiredBoundBy != boundByQuotaSum {
+		t.Fatalf("the record must carry the capacity claim and which bound decided it, got %+v", q)
+	}
+	if !strings.Contains(q.RequiredFrom, "ClusterQueue") {
+		t.Fatalf("the record must say where the requirement came from, got %q", q.RequiredFrom)
+	}
+	if !q.Ready || !q.Schedulable || len(q.GPUConsumers) != 0 {
+		t.Fatalf("a passing run's worker was Ready, schedulable and uncontended, got %+v", q)
+	}
+	t.Logf("qualification persisted by a passing run: %+v", *q)
+}

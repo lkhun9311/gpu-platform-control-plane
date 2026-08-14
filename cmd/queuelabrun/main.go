@@ -737,22 +737,26 @@ func run(ctx context.Context, connect clusterClientFunc, arm queuelab.Arm, runID
 	// gateRefusal that says the validity gates are unimplemented, and this is not one of those gates. It
 	// protects the premise a measurement is about rather than the admissibility of its result, and a smoke
 	// check of a machine that is not the one under test is not a weaker smoke check but a different one.
-	required, requiredFrom, err := requiredGPU(fs)
+	// The trace is passed alongside the fixtures because the quota sum is only one of the two lower bounds:
+	// a Pod is scheduled whole onto one node, so a single row larger than the node advertises can never be
+	// scheduled at all no matter how much aggregate quota the queues hold. See requiredGPU.
+	req, err := requiredGPU(fs, trace)
 	if err != nil {
-		o = phaseFailure(dispEnvironmentUnqualified, "sizing the worker against this run's fixtures", err)
+		o = phaseFailure(dispEnvironmentUnqualified, "sizing the worker against this run's fixtures and trace", err)
 		return
 	}
 	var qerr error
 	// The observation is assigned to the named return before the error is inspected, so the refusal path
 	// records what it saw rather than only that it refused.
-	qual, qerr = qualifyWorker(ctx, c, worker, required, requiredFrom)
+	qual, qerr = qualifyWorker(ctx, c, worker, req)
 	if qerr != nil {
 		fmt.Fprintf(os.Stderr, "ENVIRONMENT NOT QUALIFIED: %v\n", qerr)
 		o = phaseFailure(dispEnvironmentUnqualified, fmt.Sprintf("qualifying worker %s", worker), qerr)
 		return
 	}
-	fmt.Printf("  worker %s qualified: %d allocatable %s (this arm needs %d), %d pod(s) on the node and none "+
-		"holding a device\n", worker, qual.AllocatableGPU, gpuResourceName, qual.RequiredGPU, qual.PodsOnNode)
+	fmt.Printf("  worker %s qualified: %d allocatable %s (this arm needs %d, bound by the %s), %d pod(s) on "+
+		"the node and none holding a device\n", worker, qual.AllocatableGPU, gpuResourceName, qual.RequiredGPU,
+		qual.RequiredBoundBy, qual.PodsOnNode)
 
 	if err := ensureNamespace(ctx, c, namespace, txID); err != nil {
 		o = phaseFailure(dispSetupFailed, fmt.Sprintf("ensuring namespace %s", namespace), err)

@@ -414,10 +414,14 @@ func TestRunRecordCarriesTheQualificationAndStillDecodes(t *testing.T) {
 		NodeUID:        "uid-node",
 		AllocatableGPU: 2,
 		RequiredGPU:    2,
-		RequiredFrom:   "nominal nvidia.com/gpu quota summed over 2 ClusterQueue(s) on flavor queuelab-gpu-r7",
-		Ready:          true,
-		Schedulable:    true,
-		PodsOnNode:     4,
+		RequiredFrom: "nominal nvidia.com/gpu quota summed over 2 ClusterQueue(s) on flavor queuelab-gpu-r7 " +
+			"= 2; largest single trace row \"head2\" = 2",
+		// Carried explicitly because it is what a reader classifies on: bound by the quota sum means the node
+		// could not hold the whole arm, bound by a single row means one Pod could never have been scheduled.
+		RequiredBoundBy: boundByQuotaSum,
+		Ready:           true,
+		Schedulable:     true,
+		PodsOnNode:      4,
 		GPUConsumers: []gpuConsumer{
 			{Namespace: "tenant-a", Name: "train-7", Phase: "Running", Terminating: true, GPUs: 2},
 		},
