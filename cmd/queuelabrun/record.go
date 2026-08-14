@@ -64,12 +64,16 @@ type runRecord struct {
 // recordResidue is the record's own projection of a residue entry, and deliberately not teardown.go's
 // `residue` itself.
 //
-// residue carries an `error` on its observation, and an error has no JSON. It ENCODES as `{}` — losing the
-// one thing settlePhase holds a delete refusal aside to report — and it DECODES not at all, because
-// encoding/json cannot unmarshal an object into an interface field. Persisting `[]residue` verbatim would
-// therefore write records that decodeRunRecord rejects, on exactly the runs whose delete was refused: the
-// most informative residue there is would be the residue that made the record unreadable. So the error is
-// flattened to its text here, at the boundary where the record is built.
+// residue carries an `error` on its observation, and an interface field does not survive the round trip —
+// but not because encoding loses it. What an error ENCODES as depends on its concrete type: a plain
+// fmt.Errorf/errors.New value has no exported fields, so it degenerates to `{}`, but the case settlePhase
+// actually holds a delete refusal aside to report — an apiserver refusal, *apierrors.StatusError — has an
+// exported ErrStatus and encodes in full, message and all. What breaks, for every error value alike
+// (short of nil), is the DECODE: encoding/json cannot unmarshal a JSON object into an interface field,
+// independent of DisallowUnknownFields or of what the object contains. Persisting `[]residue` verbatim
+// would therefore write records that decodeRunRecord rejects, on exactly the runs whose delete was
+// refused: the most informative residue there is would be the residue that made the record unreadable. So
+// the error is flattened to its text here, at the boundary where the record is built.
 //
 // Absence is a NAME rather than the iota, which is the point at which the plan said to settle that: an int
 // here would make the declaration order of the constants in teardown.go a wire format, and inserting a case

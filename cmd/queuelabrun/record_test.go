@@ -253,6 +253,33 @@ func TestWriteRecordReplacesTheDestinationInode(t *testing.T) {
 	}
 }
 
+// absenceName's spellings are a wire format: runRecord.Residue and the Node residue record both persist
+// them, so a rename here silently relabels every record already written under the old name. The two other
+// residue tests in this file each pin one spelling as a side effect of asserting a full record, but neither
+// checks it against a literal — they check it against what buildRecord happened to produce, which is not a
+// test of absenceName at all. This one is direct and literal, so a rename of any spelling, or of the
+// default's "unrecognised" prefix, has nothing else to hide behind.
+func TestAbsenceNameSpellings(t *testing.T) {
+	cases := []struct {
+		a    absence
+		want string
+	}{
+		{absencePresent, "present"},
+		{absenceAbsent, "absent"},
+		{absenceForeign, "foreign"},
+		{absenceUnknown, "unknown"},
+		// A constant added to teardown.go without a matching case here must not fall back to "unknown" — the
+		// spelling that means "nobody could tell" — because that would hide the missing case inside a value
+		// the schema calls legitimate. It must name the integer instead, so the bug is visible in the record.
+		{absence(99), "unrecognised(99)"},
+	}
+	for _, tc := range cases {
+		if got := absenceName(tc.a); got != tc.want {
+			t.Errorf("absenceName(%d) = %q, want %q", int(tc.a), got, tc.want)
+		}
+	}
+}
+
 // The residue is the one thing a teardown that did not finish leaves for anybody to act on, so it has to
 // survive the round trip the record's whole contract is built on: written, and then read back by a reader
 // that refuses anything it does not fully understand.
@@ -306,6 +333,43 @@ func TestRunRecordCarriesTheResidueAndStillDecodes(t *testing.T) {
 	}
 	if e.UID != "ns-uid" || !e.Found {
 		t.Fatalf("the entry must carry what was observed, got %+v", e)
+	}
+}
+
+// residueForRecord copies eight fields, and two of them — Terminating and WantUID — had no assertion
+// anywhere in this file before this test: dropping either from the projection left the whole package
+// green. Terminating is the operator's first question reading a residue entry, because it is what tells a
+// finalizer stuck on an object apart from a Delete that never even landed; WantUID is what the next
+// operator compares against a fresh read to tell "still ours" from "somebody else's object took the name
+// after ours left". UID and WantUID are given different values so a projection that swapped the two, not
+// just dropped one, would also be caught.
+func TestResidueForRecordProjectsTerminatingAndWantUID(t *testing.T) {
+	left := []residue{{
+		Observation: observation{
+			Target:      target{Kind: "Namespace", Name: "queuelab-r7"},
+			Found:       true,
+			Terminating: true,
+			UID:         "have-uid",
+			WantUID:     "want-uid",
+		},
+		Absence: absencePresent,
+	}}
+	out := residueForRecord(left)
+	if len(out) != 1 {
+		t.Fatalf("got %d entries, want 1: %+v", len(out), out)
+	}
+	e := out[0]
+	if !e.Terminating {
+		t.Fatal("Terminating dropped by the projection: a namespace stuck on a finalizer now reads " +
+			"identically to one whose Delete never landed, which is the distinction this field exists for")
+	}
+	if e.WantUID != "want-uid" {
+		t.Fatalf("WantUID = %q, want %q: dropped, or overwritten by the UID field, in the projection",
+			e.WantUID, "want-uid")
+	}
+	if e.UID != "have-uid" {
+		t.Fatalf("UID = %q, want %q: corrupted by whatever is wrong with the WantUID projection above",
+			e.UID, "have-uid")
 	}
 }
 

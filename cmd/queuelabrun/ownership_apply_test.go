@@ -1683,9 +1683,13 @@ func TestStampResidueWritesTheRecordOnANodeWeStillHold(t *testing.T) {
 	if rec.TxID != "tx-1" || rec.RunID != "r7" || rec.RecordPath != "rec.json" || len(rec.Left) != 2 {
 		t.Fatalf("record is %+v, want tx-1/r7/rec.json with two entries", rec)
 	}
-	if rec.Left[0].Absence != absenceName(absencePresent) || rec.Left[1].Absence != absenceName(absenceUnknown) {
-		t.Fatalf("verdicts are %q/%q; they must be spelled by absenceName so the record and the run record "+
-			"cannot disagree", rec.Left[0].Absence, rec.Left[1].Absence)
+	// Literal strings, not absenceName(absencePresent) / absenceName(absenceUnknown): comparing the
+	// function's output against itself is circular and pins nothing — renaming a spelling changes both
+	// sides at once and the test stays green. The persisted spellings are a wire format (see record.go's
+	// absenceName), so what belongs here is what the record actually says on disk.
+	if rec.Left[0].Absence != "present" || rec.Left[1].Absence != "unknown" {
+		t.Fatalf("verdicts are %q/%q, want %q/%q: the node's residue record and the run record must spell "+
+			"verdicts identically", rec.Left[0].Absence, rec.Left[1].Absence, "present", "unknown")
 	}
 }
 

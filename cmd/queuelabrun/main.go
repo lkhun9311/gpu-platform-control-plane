@@ -626,8 +626,10 @@ func run(ctx context.Context, connect clusterClientFunc, arm queuelab.Arm, runID
 	// when it could not prove this run's objects gone, and it suppresses the emergency release below for the
 	// same reason the explicit release is skipped on that path: a node whose namespace may still be running
 	// GPU Pods must keep its label and its NoSchedule taint, or the next run acquires a worker that only
-	// looks free. It is a second flag rather than a reuse of releaseAttempted because "we chose not to" and
-	// "we already tried" want different messages, and the operator acts on the difference.
+	// looks free. It is a second flag rather than a reuse of releaseAttempted purely for readability at each
+	// setting site: neither flag is read anywhere except the single OR below, and nothing that prints to the
+	// operator — reportResidue, WORKER NOT RESTORED — consults which one fired. There is no behavioural
+	// difference to preserve here; collapsing the two into one flag changes no decision this function makes.
 	workerHeldForResidue := false
 	// The emergency release covers the paths that return early; the run's own release below sets
 	// releaseAttempted before it runs, whatever it returns, so this defer stays a no-op for every path that
