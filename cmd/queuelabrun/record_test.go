@@ -313,7 +313,7 @@ func TestRunRecordCarriesTheResidueAndStillDecodes(t *testing.T) {
 		Absence: absenceUnknown,
 	}}
 
-	rec := buildRecord(outcome{Disposition: dispResidueLeft, Reason: "teardown left 1 object(s)"}, nil, left, nil,
+	rec := buildRecord(outcome{Disposition: dispResidueLeft, Reason: "teardown left 1 object(s)"}, nil, left, nil, nil,
 		"r7", "A-honor", false, time.Now(), time.Now())
 	b, err := encodeRecord(rec)
 	if err != nil {
@@ -394,7 +394,7 @@ func TestPreviewRecordCarriesResidueToo(t *testing.T) {
 		},
 		Absence: absencePresent,
 	}}
-	pr, ok := buildRecord(outcome{Disposition: dispResidueLeft}, nil, left, nil, "r7", "A-honor", true,
+	pr, ok := buildRecord(outcome{Disposition: dispResidueLeft}, nil, left, nil, nil, "r7", "A-honor", true,
 		time.Now(), time.Now()).(previewRecord)
 	if !ok {
 		t.Fatal("a preview invocation must build a previewRecord")
@@ -436,7 +436,7 @@ func TestRunRecordCarriesTheQualificationAndStillDecodes(t *testing.T) {
 		},
 	}
 	rec := buildRecord(outcome{Disposition: dispEnvironmentUnqualified, Reason: "a GPU Pod was already there"},
-		nil, nil, q, "r7", "A-honor", false, time.Now(), time.Now())
+		nil, nil, q, nil, "r7", "A-honor", false, time.Now(), time.Now())
 	b, err := encodeRecord(rec)
 	if err != nil {
 		t.Fatalf("encode: %v", err)
@@ -470,7 +470,7 @@ func TestRunRecordCarriesTheQualificationAndStillDecodes(t *testing.T) {
 // on a node with no name means "not checked".
 func TestARecordWithNoQualificationCarriesNoQualificationKey(t *testing.T) {
 	rec := buildRecord(outcome{Disposition: dispAcquisitionRefused, Reason: "held by another run"},
-		nil, nil, nil, "r7", "A-honor", false, time.Now(), time.Now())
+		nil, nil, nil, nil, "r7", "A-honor", false, time.Now(), time.Now())
 	b, err := encodeRecord(rec)
 	if err != nil {
 		t.Fatalf("encode: %v", err)
@@ -490,7 +490,7 @@ func TestARecordWithNoQualificationCarriesNoQualificationKey(t *testing.T) {
 func TestPreviewRecordCarriesTheQualificationToo(t *testing.T) {
 	q := &qualification{Node: "platform-worker", NodeUID: "uid-node", AllocatableGPU: 2, RequiredGPU: 2,
 		Ready: true, Schedulable: true, PodsOnNode: 3}
-	pr, ok := buildRecord(outcome{Disposition: dispChecksPassed}, nil, nil, q, "r7", "A-honor", true,
+	pr, ok := buildRecord(outcome{Disposition: dispChecksPassed}, nil, nil, q, nil, "r7", "A-honor", true,
 		time.Now(), time.Now()).(previewRecord)
 	if !ok {
 		t.Fatal("a preview invocation must build a previewRecord")
@@ -539,7 +539,7 @@ func TestDecodeRunRecordRefusesTheShapeThatPredatesTheBoundDerivation(t *testing
 			"classifying on that field would take as a third kind of bound nobody defined",
 			got.Qualification.RequiredBoundBy, boundByQuotaSum, boundByLargestRow)
 	}
-	for _, want := range []string{"1", "2"} {
+	for _, want := range []string{"1", fmt.Sprint(recordSchemaVersion)} {
 		if !strings.Contains(err.Error(), want) {
 			t.Fatalf("the refusal %q does not name version %s; an operator holding the file has to be told "+
 				"which build wrote it and which one is reading", err, want)
@@ -575,5 +575,140 @@ func TestDecodeRunRecordRefusesAQualificationNamingNoDocumentedBound(t *testing.
 		recordSchemaVersion, boundByLargestRow)
 	if _, err := decodeRunRecord(ok); err != nil {
 		t.Fatalf("a well-formed record was refused by the bound guard: %v", err)
+	}
+}
+
+// testWindow is a window that held: a view opened before the run's first Create, a handful of Node versions
+// compared against the journal's tuple, nothing deviating, and an audited release on the way out.
+func testWindow() *ownershipWindow {
+	return &ownershipWindow{
+		Node:                    "platform-worker",
+		NodeUID:                 "uid-node",
+		TxID:                    "tx-1111",
+		BaselineResourceVersion: "1000",
+		OpenedAt:                "2026-08-15T10:00:00Z",
+		ClosedAt:                "2026-08-15T10:02:30Z",
+		NodeVersionsObserved:    7,
+		Ending:                  "closed by the run",
+		Restoration: &restorationAudit{
+			Before: nodeMarkers{Observed: true, NodeUID: "uid-node", HasLabel: true, LabelValue: "r7",
+				OwnershipTaintValues: []string{"r7"}, OtherTaintKeys: []string{"platform.lkhun9311.github.io/unhealthy"},
+				HasJournal: true},
+			After: nodeMarkers{Observed: true, NodeUID: "uid-node",
+				OtherTaintKeys: []string{"platform.lkhun9311.github.io/unhealthy"}},
+			OurMarkersRemoved: true,
+		},
+	}
+}
+
+// The window is the gate's evidence, and evidence that is written and then unreadable is the failure the
+// strict decoder exists to prevent — on precisely the runs that produced it.
+//
+// Mutation that turns this red: delete `Window: win` from buildRecord's runRecord branch. The run's own
+// continuous evidence then exists only as a line on a terminal, which is the state this gate was written to
+// end and the state the fourth gate would have to investigate from scratch.
+func TestRunRecordCarriesTheWindowAndStillDecodes(t *testing.T) {
+	w := testWindow()
+	rec := buildRecord(outcome{Disposition: dispChecksPassed}, nil, nil, nil, w, "r7", "A-honor", false,
+		time.Now(), time.Now())
+	b, err := encodeRecord(rec)
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	got, err := decodeRunRecord(b)
+	if err != nil {
+		t.Fatalf("a record carrying an ownership window must decode: %v\n%s", err, b)
+	}
+	if got.Window == nil {
+		t.Fatalf("the window did not survive the round trip:\n%s", b)
+	}
+	if !reflect.DeepEqual(*got.Window, *w) {
+		t.Fatalf("the window changed on the round trip:\n got %+v\nwant %+v\n%s", *got.Window, *w, b)
+	}
+	// The restoration audit is the half most likely to be dropped by a projection, because it is the only
+	// nested structure in the block and the only one written after the run has chosen its outcome.
+	if got.Window.Restoration == nil || !got.Window.Restoration.OurMarkersRemoved {
+		t.Fatalf("the restoration audit did not survive:\n%s", b)
+	}
+	t.Logf("persisted record:\n%s", b)
+}
+
+// A violated window has to survive the round trip too, and it is the more valuable of the two: a run
+// invalidated for a stripped taint is exactly the run whose evidence would otherwise be a sentence on
+// somebody's terminal.
+//
+// Mutation that turns this red: drop the Violations field from the encoded window (or make recordLocked stop
+// filling it). The record then says a window existed and cannot say what it saw.
+func TestARefusedRunRecordsWhatTheWindowSaw(t *testing.T) {
+	w := testWindow()
+	w.ViolationsObserved = 2
+	w.Violations = []ownershipViolation{{
+		At: "2026-08-15T10:01:00Z", Reason: reasonInstalledDiverged,
+		Detail:         "node platform-worker no longer carries what tx tx-1111 installed",
+		ObservedTaints: "(none)",
+	}}
+	rec := buildRecord(outcome{Disposition: dispCollectorDesync, Reason: "run invalidated"}, nil, nil, nil, w,
+		"r7", "A-honor", false, time.Now(), time.Now())
+	b, err := encodeRecord(rec)
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	got, err := decodeRunRecord(b)
+	if err != nil {
+		t.Fatalf("a record carrying a violated window must decode: %v\n%s", err, b)
+	}
+	if got.Window.ViolationsObserved != 2 || len(got.Window.Violations) != 1 {
+		t.Fatalf("the violation count and the retained detail must both survive: %+v", got.Window)
+	}
+	if got.Window.Violations[0].Reason != reasonInstalledDiverged {
+		t.Fatalf("the violation reason changed to %q", got.Window.Violations[0].Reason)
+	}
+}
+
+// A preview opens its window exactly as a run does, and a preview whose record did not say what happened to
+// its worker would be a smoke check of a machine nobody watched. It is safe here for the same structural
+// reason the qualification is: no field in the block is a lifecycle ledger.
+//
+// Mutation that turns this red: delete `Window: win` from buildRecord's previewRecord branch.
+func TestPreviewRecordCarriesTheWindowToo(t *testing.T) {
+	pr, ok := buildRecord(outcome{Disposition: dispChecksPassed}, nil, nil, nil, testWindow(), "r7", "A-honor",
+		true, time.Now(), time.Now()).(previewRecord)
+	if !ok {
+		t.Fatal("a preview invocation must build a previewRecord")
+	}
+	if pr.Window == nil || pr.Window.NodeVersionsObserved != 7 {
+		t.Fatalf("the preview record dropped the window: %+v", pr.Window)
+	}
+}
+
+// A window that watched nothing cannot be read as evidence that the worker stayed this run's, and that is
+// the single strongest claim this record can make. No build writes one — the opening read makes every window
+// at least 1 — so a zero is a hand-edited or future-written document.
+//
+// Mutation that turns this red: delete the window guard from decodeRunRecord.
+func TestDecodeRunRecordRefusesAWindowThatWatchedNothing(t *testing.T) {
+	for name, block := range map[string]string{
+		"no versions": `{"node":"platform-worker","nodeUID":"uid-node","txID":"tx-1111",` +
+			`"baselineResourceVersion":"1000","openedAt":"t","nodeVersionsObserved":0,"ending":"closed by the run",` +
+			`"violationsObserved":0}`,
+		"no node": `{"node":"","nodeUID":"uid-node","txID":"tx-1111",` +
+			`"baselineResourceVersion":"1000","openedAt":"t","nodeVersionsObserved":3,"ending":"closed by the run",` +
+			`"violationsObserved":0}`,
+	} {
+		b := fmt.Appendf(nil, `{"schemaVersion":%d,"runID":"r7","arm":"A-honor",`+
+			`"disposition":"completed-implemented-checks-passed","window":%s}`, recordSchemaVersion, block)
+		if _, err := decodeRunRecord(b); err == nil {
+			t.Fatalf("%s: a window that established nothing was read as evidence that the hold held", name)
+		}
+	}
+
+	// The same document with a window that actually watched something must still decode, or the guard is
+	// refusing the records it was written to protect.
+	ok := fmt.Appendf(nil, `{"schemaVersion":%d,"runID":"r7","arm":"A-honor",`+
+		`"disposition":"completed-implemented-checks-passed","window":{"node":"platform-worker",`+
+		`"nodeUID":"uid-node","txID":"tx-1111","baselineResourceVersion":"1000","openedAt":"t",`+
+		`"nodeVersionsObserved":1,"ending":"closed by the run","violationsObserved":0}}`, recordSchemaVersion)
+	if _, err := decodeRunRecord(ok); err != nil {
+		t.Fatalf("a well-formed record was refused by the window guard: %v", err)
 	}
 }

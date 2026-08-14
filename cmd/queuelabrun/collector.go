@@ -145,7 +145,7 @@ func (col *collector) start(ctx context.Context) error {
 		{kindPod, func() client.ObjectList { return &corev1.PodList{} }},
 	}
 	for _, k := range kinds {
-		s, err := startWatchStream(ctx, col.c, col.ns, k.newList)
+		s, err := startWatchStream(ctx, col.c, namespaceScope(col.ns), k.newList)
 		if err != nil {
 			col.abort()
 			return fmt.Errorf("open the %s stream: %w", k.kind, err)

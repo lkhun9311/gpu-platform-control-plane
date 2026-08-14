@@ -39,7 +39,14 @@ import (
 // that a reader classifying on it would take as a third, unnamed kind of bound. That is precisely the
 // silent reinterpretation the paragraph above says this constant exists to stop, so the version is what
 // separates the two shapes rather than the absence of a field nobody can distinguish from a bound of "".
-const recordSchemaVersion = 2
+//
+// Version 3 adds the ownership window, and the asymmetry is the same one again. An absent window means a run
+// that never opened one — refused before it acquired, or refused at qualification — which is a real and
+// ordinary state; so a version-2 record, written by a build that could not open a window at all, decodes
+// into today's struct as a run that got no further than acquisition, and a reader asking "did this run prove
+// its worker stayed its own" would be told "it never got that far" about a run that was never able to ask.
+// The version is what separates those two, because nothing in the document itself can.
+const recordSchemaVersion = 3
 
 // runRecord is what a non-preview invocation leaves behind.
 //
@@ -75,6 +82,12 @@ type runRecord struct {
 	// claiming a node named "" advertising no devices was inspected and found fine, which is the one thing a
 	// record must never do.
 	Qualification *qualification `json:"qualification,omitempty"`
+	// Window is what the run observed about its exclusive hold between acquisition and release.
+	//
+	// It is a pointer for the same reason Qualification is, and the nil case says the same kind of thing: the
+	// run never opened a window, because it was refused before or at the point where one could be opened. A
+	// struct value would write a window that observed nothing over a node named "" and claim the hold held.
+	Window *ownershipWindow `json:"window,omitempty"`
 }
 
 // recordResidue is the record's own projection of a residue entry, and deliberately not teardown.go's
@@ -180,6 +193,11 @@ type previewRecord struct {
 	// of. A preview runs the whole of run(), so it qualifies its worker exactly as a real run does, and a
 	// preview whose record did not say what it found would be a smoke check of an unnamed machine.
 	Qualification *qualification `json:"qualification,omitempty"`
+	// Window is carried for the same reason and is safe for the same one: it describes what happened to a
+	// Node, and every field in it is a string, a bool or an int that no lifecycle ledger can be decoded out
+	// of. A preview opens its window exactly as a run does, and a preview that lost its worker mid-flight is
+	// worth knowing about precisely because a smoke check is where that would first be noticed.
+	Window *ownershipWindow `json:"window,omitempty"`
 }
 
 // previewNote is a fixed constant, never anything derived from the run.
@@ -218,7 +236,7 @@ func classified(o outcome) outcome {
 // cannot emit reconstructable evidence lives in one readable decision rather than being spread across the
 // call sites that write.
 func buildRecord(o outcome, events []queuelab.LifecycleEvent, left []residue, qual *qualification,
-	runID, arm string, preview bool, started, ended time.Time) any {
+	win *ownershipWindow, runID, arm string, preview bool, started, ended time.Time) any {
 	o = classified(o)
 	persistedResidue := residueForRecord(left)
 	startedAt := started.UTC().Format(time.RFC3339)
@@ -237,6 +255,7 @@ func buildRecord(o outcome, events []queuelab.LifecycleEvent, left []residue, qu
 			Note:          previewNote,
 			Residue:       persistedResidue,
 			Qualification: qual,
+			Window:        win,
 		}
 	}
 	return runRecord{
@@ -250,6 +269,7 @@ func buildRecord(o outcome, events []queuelab.LifecycleEvent, left []residue, qu
 		Events:        events,
 		Residue:       persistedResidue,
 		Qualification: qual,
+		Window:        win,
 	}
 }
 
@@ -294,6 +314,18 @@ func decodeRunRecord(b []byte) (runRecord, error) {
 			"decode record: qualification names bound %q, which is neither %q nor %q; a requirement whose "+
 				"binding constraint is unknown cannot be read as either of them",
 			q.RequiredBoundBy, boundByQuotaSum, boundByLargestRow)
+	}
+	// The same guard for the window, and it is a different check from the version one above for the same
+	// reason: a document CLAIMING this version while carrying a window that observed no node version at all
+	// would be read as a run whose worker was watched throughout and never deviated, which is the single
+	// strongest thing this record can say. No build writes one — startOwnershipSentinel's opening read makes
+	// every window it returns at least 1 — so a zero here is a hand-edited or future-written document, and
+	// it must not be readable as the claim it structurally cannot support.
+	if w := r.Window; w != nil && (w.Node == "" || w.NodeVersionsObserved < 1) {
+		return runRecord{}, fmt.Errorf(
+			"decode record: the window names node %q and %d observed node version(s); a window that watched "+
+				"nothing cannot be read as evidence that the worker stayed this run's",
+			w.Node, w.NodeVersionsObserved)
 	}
 	return r, nil
 }

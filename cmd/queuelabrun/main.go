@@ -93,7 +93,7 @@ func main() {
 	// explanation that must not be squeezed behind the "ERROR:" prefix the one-line refusals carry.
 	refuseInvocation := func(err error) {
 		rec := buildRecord(outcome{Disposition: dispRefusedBeforeCluster, Reason: err.Error()},
-			nil, nil, nil, recordRunID(*runID), *armFlag, *preview, started, time.Now())
+			nil, nil, nil, nil, recordRunID(*runID), *armFlag, *preview, started, time.Now())
 		if werr := writeRecord(recordPath, rec); werr != nil {
 			// The record that failed to persist cannot report its own failure, so this is the one outcome that
 			// exists only on stderr. It says the record is unproven rather than that nothing changed: a
@@ -190,16 +190,16 @@ func main() {
 	defer stop()
 	// run publishes nothing and persists nothing: its deferred teardown and emergency release both amend the
 	// outcome AFTER the return value has been chosen, so anything written from inside it could be
-	// contradicted a moment later. By the time these five values exist here, every defer has finished
+	// contradicted a moment later. By the time these six values exist here, every defer has finished
 	// amending them.
-	o, events, res, left, qual := run(ctx, newClusterClient, arm, *runID, namespace, *worker, horizon,
+	o, events, res, left, qual, win := run(ctx, newClusterClient, arm, *runID, namespace, *worker, horizon,
 		recordPath, time.Now, time.Sleep)
 
 	os.Exit(reportRun(os.Stdout, os.Stderr, writeRecord, runReport{
 		Outcome: o,
 		Events:  events,
 		Result:  res,
-		Record:  buildRecord(o, events, left, qual, *runID, string(arm), *preview, started, time.Now()),
+		Record:  buildRecord(o, events, left, qual, win, *runID, string(arm), *preview, started, time.Now()),
 		Path:    recordPath,
 		Preview: *preview,
 	}))
@@ -591,6 +591,10 @@ func phaseFailure(phase disposition, what string, err error) outcome {
 // qual is named for the same reason again, and carries what the worker was found to be BEFORE this run
 // created anything on it — including on the path where that observation is what refused the run, which is the
 // path whose evidence would otherwise exist only as a sentence on somebody's terminal.
+// win is the last of them and carries the continuous evidence: what the worker did for the whole window
+// between acquisition and release, and what the Node looked like on either side of that release. It is
+// written by a defer like the others, because the restoration audit only exists once the release has run and
+// the release runs after this function has chosen what to return.
 //
 // connect is a parameter rather than a direct newClusterClient call for the same reason dispatchOperatorMode
 // takes one: without that seam the amendment this function is shaped around is reachable only by reading it,
@@ -607,7 +611,8 @@ func phaseFailure(phase disposition, what string, err error) outcome {
 // strings a caller can transpose in silence, and a fourth would make that worse.
 func run(ctx context.Context, connect clusterClientFunc, arm queuelab.Arm, runID, namespace, worker string,
 	horizon time.Duration, recordPath string, now func() time.Time, sleep func(time.Duration)) (o outcome,
-	events []queuelab.LifecycleEvent, res *queuelab.LabResult, left []residue, qual *qualification) {
+	events []queuelab.LifecycleEvent, res *queuelab.LabResult, left []residue, qual *qualification,
+	win *ownershipWindow) {
 	study := queuelab.StudyReclaim
 	c, err := connect()
 	if err != nil {
@@ -664,7 +669,14 @@ func run(ctx context.Context, connect clusterClientFunc, arm queuelab.Arm, runID
 		}
 		relCtx, relCancel := cleanupContext()
 		defer relCancel()
-		if rerr := releaseOwned(relCtx, c, j); rerr != nil {
+		// The audit is attached to the window this function already published, because this defer runs after
+		// the one that published it. A nil window means the run never opened one — it was refused before the
+		// worker was acquired or before the view could be established — and there is nothing to attach it to.
+		audit, rerr := auditedRelease(relCtx, c, j)
+		if win != nil {
+			win.Restoration = audit
+		}
+		if rerr != nil {
 			fmt.Fprintf(os.Stderr, "WORKER NOT RESTORED: %v\n  run: queuelabrun -inspect-worker -worker %s\n",
 				rerr, worker)
 			// This defer runs after the return value was chosen, so amending it is the only thing that stops
@@ -757,6 +769,37 @@ func run(ctx context.Context, connect clusterClientFunc, arm queuelab.Arm, runID
 	fmt.Printf("  worker %s qualified: %d allocatable %s (this arm needs %d, bound by the %s), %d pod(s) on "+
 		"the node and none holding a device\n", worker, qual.AllocatableGPU, gpuResourceName, qual.RequiredGPU,
 		qual.RequiredBoundBy, qual.PodsOnNode)
+
+	// The ownership window opens HERE, and both halves of that placement are load-bearing. After acquisition,
+	// because there is no tuple to compare a Node against until the journal exists; and before the run's first
+	// Create, because a view established later cannot speak for the interval in which the fixtures are applied
+	// and the first rows are submitted — which is precisely the interval a stripped taint would be used in.
+	//
+	// It refuses the run when it cannot be opened, for the same reason col.start does: nothing downstream can
+	// compensate for a view that was never opened, and a run that measures without one is back to proving its
+	// exclusivity at two instants and asserting it for everything between them.
+	sentinel, serr := startOwnershipSentinel(ctx, c, j)
+	if serr != nil {
+		fmt.Fprintf(os.Stderr, "OWNERSHIP WINDOW NOT OPENED: %v\n", serr)
+		o = phaseFailure(dispSetupFailed, "opening the continuous ownership view of the worker", serr)
+		return
+	}
+	// releaseAudit is set by whichever release actually ran inline; the deferred emergency release below sets
+	// its own onto the published window instead, because it runs after this defer has already published it.
+	var releaseAudit *restorationAudit
+	// Registered AFTER the teardown defer for the same reason that one was registered after the emergency
+	// release: defers run LIFO, so registering this last is what makes it run FIRST. That ordering is required
+	// rather than tidy — both the teardown and every release below legitimately change this Node, and a view
+	// still running through the release would report this run's own restoration as the divergence the gate
+	// refuses.
+	defer func() {
+		sentinel.Close()
+		w := sentinel.Window()
+		w.Restoration = releaseAudit
+		win = &w
+	}()
+	fmt.Printf("  ownership window open on %s from resourceVersion %s (tx=%s)\n",
+		worker, sentinel.Window().BaselineResourceVersion, txID)
 
 	if err := ensureNamespace(ctx, c, namespace, txID); err != nil {
 		o = phaseFailure(dispSetupFailed, fmt.Sprintf("ensuring namespace %s", namespace), err)
@@ -853,6 +896,28 @@ func run(ctx context.Context, connect clusterClientFunc, arm queuelab.Arm, runID
 	cancel()
 	col.wait()
 
+	// The window closes with the observation window and before anything else touches the Node, and its verdict
+	// is folded into the ledger rather than kept beside it. A run whose worker was shared for part of the
+	// measurement must not print a number, and builder.Err() is already the one thing that decides that: a
+	// parallel "sort of invalid" state would be a second gate for a caller to forget.
+	//
+	// It is desynced here rather than from inside the sentinel because the ledger did not exist when the window
+	// opened, and because col.wait() above has joined every consumer, which is what makes this the first moment
+	// the builder can be touched from this goroutine at all.
+	sentinel.Close()
+	closed := sentinel.Window()
+	if reason := closed.invalidation(); reason != "" {
+		fmt.Printf("\nWORKER NOT EXCLUSIVE: %s\n", reason)
+		col.desync(reason)
+	} else {
+		// The count is printed with the verdict for the reason the qualification line prints its Pod count: a
+		// negative that was never given a denominator is indistinguishable from a view that was watching the
+		// wrong object, and this is the line an operator will read to decide whether the gate was doing
+		// anything at all.
+		fmt.Printf("  worker %s stayed this run's for the whole window: %d node version(s) observed, none diverged\n",
+			worker, closed.NodeVersionsObserved)
+	}
+
 	// Reading the builder directly is safe only from here down: col.wait() above joined every watch
 	// goroutine, so nothing else can touch it again for the rest of the run.
 	events = col.builder.Events()
@@ -911,8 +976,9 @@ func run(ctx context.Context, connect clusterClientFunc, arm queuelab.Arm, runID
 		// because this release ran, regardless of whether it succeeded or invalidated the run.
 		releaseAttempted = true
 		relCtx, relCancel := cleanupContext()
-		err = releaseOwned(relCtx, c, j)
+		releaseAudit, err = auditedRelease(relCtx, c, j)
 		relCancel()
+		reportRestoration(os.Stderr, worker, releaseAudit)
 		if err != nil {
 			// This is the one path in the program that can leave a node genuinely held with no further attempt
 			// coming: releaseAttempted is already true, so the deferred emergency release above is a no-op, and
