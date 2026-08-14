@@ -20,7 +20,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -29,6 +31,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/watch"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
@@ -482,5 +485,251 @@ func TestApplyFixturesAdoptsOnlyItsOwnStamp(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// ---- the observation streams ----
+
+// streamingFake is a fake cluster a stream can actually be opened against.
+//
+// The List stamp is not decoration: the fake client's tracker returns lists with an empty resource version,
+// and an empty one is precisely the unresumable point startWatchStream refuses, so without it no test below
+// gets as far as a watch. watchFn is per-test because what these tests exercise is what the collector does
+// when a watch misbehaves, and a nil one means every kind gets a watch that establishes and then says
+// nothing — the quiet baseline the interesting cases are measured against.
+func streamingFake(t *testing.T, seed []client.Object,
+	watchFn func(context.Context, client.WithWatch, client.ObjectList, ...client.ListOption) (watch.Interface, error)) client.WithWatch {
+	t.Helper()
+	if watchFn == nil {
+		watchFn = fakeSchedulerWatch
+	}
+	return fake.NewClientBuilder().WithScheme(fullScheme(t)).WithObjects(seed...).
+		WithInterceptorFuncs(interceptor.Funcs{List: fakeSchedulerList, Watch: watchFn}).Build()
+}
+
+// isPodList reports whether a stream is the Pod one, which every test below rigs because it is the LAST of
+// the four the collector opens: a failure there proves the barrier is not satisfied by the three that came
+// before it.
+func isPodList(list client.ObjectList) bool {
+	_, ok := list.(*corev1.PodList)
+	return ok
+}
+
+// ledgerErr reads the ledger's verdict while the stream consumers are still running, under the very mutex
+// that makes those consumers safe.
+//
+// LedgerBuilder has no locking of its own, so run() only ever reads it after col.wait() has joined every
+// consumer. A test that wants to watch an invalidation ARRIVE cannot wait that long — the point is that the
+// run is still observing when it happens — so it borrows the collector's mutex instead of racing it.
+func ledgerErr(col *collector) error {
+	col.mu.Lock()
+	defer col.mu.Unlock()
+	return col.builder.Err()
+}
+
+// A namespace this run created moments ago must be empty of the four kinds it watches, so an object already
+// standing in one is a previous attempt's or another actor's — and the trace job names are fixed by the
+// protocol, so a previous attempt's Pods carry the very names this run is about to use. Folding them in would
+// have the reconstruction measure one run against another's work; dropping them silently would leave the
+// ledger describing a namespace it had only half seen. Neither is a run, so there is no run.
+//
+// Mutation that turns this red: delete the `if n := s.Baseline().Objects; n > 0` block in collector.start.
+// The baseline is then counted and discarded, which is what startWatchStream on its own does today.
+func TestCollectorRefusesANamespaceThatAlreadyHoldsWatchedObjects(t *testing.T) {
+	leftover := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{
+		Namespace: "ns", Name: "victim-0", UID: types.UID("pod-from-a-previous-attempt")}}
+	col := newCollector(streamingFake(t, []client.Object{leftover}, nil), "ns", "r1", time.Hour)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	err := col.start(ctx)
+	if err == nil {
+		t.Fatal("a namespace already holding a watched object must refuse the run before it submits anything")
+	}
+	// The kind and the count are what make the refusal actionable: all four streams watch one namespace, so a
+	// message naming only the namespace reads identically whichever view was occupied.
+	if !strings.Contains(err.Error(), kindPod) || !strings.Contains(err.Error(), "1 object") {
+		t.Fatalf("the refusal %q names neither the occupied kind nor how much was there", err)
+	}
+	// The error is what stops run(); this is what stops anything else. A caller that dropped the error must
+	// still not be able to get a number out of the ledger.
+	if col.builder.Err() == nil {
+		t.Fatal("a refused baseline must also invalidate the ledger, or only the caller's diligence stands between a polluted namespace and a published result")
+	}
+}
+
+// Nothing may be submitted until every stream has actually accepted a watch. The failure this pins is the one
+// the old collector had by construction: it retried a failing watch forever, in silence, while run() went
+// straight into the submit loop — so a run could spend its entire window offering work to a cluster it was
+// not observing and still reach the end with a ledger it treated as complete.
+//
+// Mutation that turns this red: replace awaitEstablished's select with a bare `<-ks.stream.Established()`.
+// The wait then never returns for a watch that is merely failing, and the test hangs until the package
+// timeout rather than refusing the run.
+func TestCollectorRefusesToObserveWhenAWatchNeverEstablishes(t *testing.T) {
+	c := streamingFake(t, nil, func(ctx context.Context, cl client.WithWatch, list client.ObjectList,
+		opts ...client.ListOption) (watch.Interface, error) {
+		if isPodList(list) {
+			// A plain error is one RetryWatcher retries indefinitely — the shape of an apiserver that is merely
+			// unreachable — so this stream neither establishes nor ends, and only the budget can end the wait.
+			return nil, errors.New("apiserver unreachable")
+		}
+		return newStubWatch(ctx), nil
+	})
+	col := newCollector(c, "ns", "r1", time.Hour)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer func() { cancel(); col.wait() }()
+
+	if err := col.start(ctx); err != nil {
+		t.Fatalf("the baselines all listed cleanly, so start must succeed: %v", err)
+	}
+	start := time.Now()
+	err := col.awaitEstablished(ctx, 300*time.Millisecond)
+	elapsed := time.Since(start)
+
+	if err == nil {
+		t.Fatal("a watch that never establishes must refuse the run rather than let it submit")
+	}
+	if !strings.Contains(err.Error(), kindPod) {
+		t.Fatalf("the refusal %q does not say which view of the run was never opened", err)
+	}
+	if elapsed > 5*time.Second {
+		t.Fatalf("the wait took %v against a 300ms budget, so it is bounded by something other than the budget", elapsed)
+	}
+}
+
+// The trap startWatchStream's doc comment names, in executable form. Bounding establishment with a
+// context.WithTimeout hands that deadline to the streams themselves, so every stream dies when it expires and
+// every ending afterwards reads as Cancelled — the caller's own shutdown signature. A run that stopped
+// observing seconds in would then report itself as having shut down cleanly, which is the exact failure class
+// this whole change exists to remove, reintroduced by the fix for it.
+//
+// Mutation that turns this red: bound establishment on the streams' own context, e.g. by having run() call
+// col.start with context.WithTimeout(cctx, establishBudget), or by deriving such a context inside
+// awaitEstablished and passing it to the streams. Both kill the streams a budget after they started.
+func TestCollectorEstablishmentBudgetIsNotTheStreamsDeadline(t *testing.T) {
+	col := newCollector(streamingFake(t, nil, nil), "ns", "r1", time.Hour)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer func() { cancel(); col.wait() }()
+
+	if err := col.start(ctx); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	const budget = 150 * time.Millisecond
+	if err := col.awaitEstablished(ctx, budget); err != nil {
+		t.Fatalf("four stub watches establish immediately, so this must not fail: %v", err)
+	}
+
+	// Well past the budget, which is the whole point: an observation window is a hundred times longer than the
+	// budget that bounds its opening, and a stream that dies with the budget observes almost none of it.
+	time.Sleep(6 * budget)
+	for _, ks := range col.streams {
+		select {
+		case <-ks.stream.End():
+			t.Fatalf("the %s stream ended %v after establishment, which is the budget having become its deadline: %+v",
+				ks.kind, 6*budget, ks.stream.Ended())
+		default:
+		}
+	}
+	if err := ledgerErr(col); err != nil {
+		t.Fatalf("the run was invalidated while every stream was still live: %v", err)
+	}
+}
+
+// A stream that ends while the run is still observing is a gap that can never be closed: the events in it are
+// lost, not delayed, and no later list can say what they were. The old collector reconnected from "now" here
+// and carried on, which is precisely how a run could miss a preemption and still print a number.
+//
+// The reconnect is refused with a WRAPPED Forbidden on purpose. RetryWatcher recognises the reason but cannot
+// assert the concrete status type, so it terminates having forwarded nothing at all: there is no error event,
+// no status, and nothing to notice except the ending itself.
+//
+// Mutation that turns this red: delete the `case !end.Cancelled && !end.Stopped` arm in consume. With no
+// status forwarded on this path there is nothing else left to catch it, and the run stays valid with a Pod
+// stream that stopped delivering.
+func TestCollectorInvalidatesWhenAStreamEndsWhileTheRunIsObserving(t *testing.T) {
+	forbidden := apierrors.NewForbidden(schema.GroupResource{Resource: "pods"}, "", errors.New("no watch permission"))
+	first := watch.NewFake()
+	var (
+		mu      sync.Mutex
+		podCall int
+	)
+	c := streamingFake(t, nil, func(ctx context.Context, cl client.WithWatch, list client.ObjectList,
+		opts ...client.ListOption) (watch.Interface, error) {
+		if !isPodList(list) {
+			return newStubWatch(ctx), nil
+		}
+		mu.Lock()
+		podCall++
+		n := podCall
+		mu.Unlock()
+		if n == 1 {
+			return first, nil
+		}
+		return nil, fmt.Errorf("watch pods: %w", forbidden)
+	})
+	col := newCollector(c, "ns", "r1", time.Hour)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer func() { cancel(); col.wait() }()
+
+	if err := col.start(ctx); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	if err := col.awaitEstablished(ctx, 5*time.Second); err != nil {
+		t.Fatalf("every stream establishes on its first watch here: %v", err)
+	}
+	// The apiserver closing a watch, which on its own is ordinary and recoverable; what makes it terminal is
+	// that the resume fails permanently.
+	first.Stop()
+
+	waitFor(t, func() bool { return ledgerErr(col) != nil })
+	err := ledgerErr(col)
+	if !strings.Contains(err.Error(), kindPod) || !strings.Contains(err.Error(), "ended on its own") {
+		t.Fatalf("the invalidation %q does not say which stream stopped or that it stopped by itself", err)
+	}
+	// Nobody cancelled or stopped anything, so an ending reported as either would be the tidy-shutdown reading
+	// this test exists to rule out.
+	if ctx.Err() != nil {
+		t.Fatal("the run's context is still live, so nothing here may be read as a caller cancellation")
+	}
+}
+
+// A 410 is the one terminal cause the apiserver states outright — the resume point has aged out of etcd — and
+// the run has to carry that cause, not merely the fact that something stopped. An operator who sees "Gone"
+// knows to rerun; one who sees "the stream ended" does not know whether to fix RBAC first.
+//
+// Mutation that turns this red: delete the `case end.LastStatus != nil` arm in consume. The run is still
+// invalidated by the arm below it, so the mutation is invisible to a test that only asks whether the ledger
+// refused — which is why this one asserts on the cause instead.
+func TestCollectorInvalidationNamesATerminalWatchStatus(t *testing.T) {
+	gone := watch.NewFakeWithChanSize(1, false)
+	gone.Error(&metav1.Status{
+		Status:  metav1.StatusFailure,
+		Code:    http.StatusGone,
+		Reason:  metav1.StatusReasonExpired,
+		Message: "too old resource version: 1 (2000)",
+	})
+	c := streamingFake(t, nil, func(ctx context.Context, cl client.WithWatch, list client.ObjectList,
+		opts ...client.ListOption) (watch.Interface, error) {
+		if isPodList(list) {
+			return gone, nil
+		}
+		return newStubWatch(ctx), nil
+	})
+	col := newCollector(c, "ns", "r1", time.Hour)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer func() { cancel(); col.wait() }()
+
+	if err := col.start(ctx); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	waitFor(t, func() bool { return ledgerErr(col) != nil })
+
+	err := ledgerErr(col)
+	if !strings.Contains(err.Error(), kindPod) {
+		t.Fatalf("the invalidation %q does not say which view of the run was lost", err)
+	}
+	if !strings.Contains(err.Error(), "410") || !strings.Contains(err.Error(), string(metav1.StatusReasonExpired)) {
+		t.Fatalf("the invalidation %q drops the cause the apiserver stated, leaving an operator to guess at it", err)
 	}
 }

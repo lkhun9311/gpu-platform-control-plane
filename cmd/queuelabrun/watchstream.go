@@ -254,14 +254,20 @@ func (s *watchStream) Stop() {
 // legitimately closed first, the sample condemns a run that was fine.
 //
 // An adopter that needs a real orderliness verdict has to source it from outside this type — a final List
-// once the stream has ended, comparing that resourceVersion against the last one delivered, which is the
-// job relistCheck does today and which the plan leaves to the integration slice.
+// once the stream has ended, comparing that resourceVersion against the last one delivered. This package's
+// own adopter, the collector, deliberately does NOT do that, and the reasons belong here so the next one
+// does not spend an afternoon reaching them again. A list's resourceVersion is the store's current position
+// and advances on writes anywhere in the cluster, so on a healthy run it stands above the last delivered
+// version and proves nothing; and the collector's streams end at the observation horizon, past which every
+// change is censored by design, so a Pod that final List found absent is an ordinary post-horizon
+// termination rather than a missed stop. It refuses the endings this type cannot vouch for instead, which is
+// a verdict it can actually make.
 //
-// That final List is not the asynchronous relist the plan removes, and the difference is a guarantee this
-// type makes rather than a matter of intent. forward defers close(done) before close(out), so LIFO closes
-// out first: End() being closed already implies ResultChan() is closed and no further event can arrive. A
-// List issued after End() therefore cannot race a terminal event still in flight, which is exactly what
-// today's relist — running inside the live watch loop — can do when it marks a Pod vanished.
+// What this type does guarantee, for an adopter whose window really does end where its stream does, is a
+// property rather than an intention: forward defers close(done) before close(out), so LIFO closes out first,
+// and End() being closed already implies ResultChan() is closed and no further event can arrive. A List
+// issued after End() therefore cannot race a terminal event still in flight — which the collector's former
+// in-loop relist could, and did, when it marked a Pod vanished.
 func (s *watchStream) Ended() streamEnd {
 	s.mu.Lock()
 	defer s.mu.Unlock()

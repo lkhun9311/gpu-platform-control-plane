@@ -740,7 +740,29 @@ func run(ctx context.Context, connect clusterClientFunc, arm queuelab.Arm, runID
 	col := newCollector(c, namespace, runID, horizon)
 	cctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	col.start(cctx)
+	// The streams take the run's own context, never a bounded one: startWatchStream's doc comment explains
+	// that a deadline handed to the streams makes every later death read as an ordinary cancellation, which is
+	// how a run that stopped observing would report itself as having shut down cleanly. The bound on
+	// establishment lives inside awaitEstablished instead.
+	if err := col.start(cctx); err != nil {
+		o = phaseFailure(dispSetupFailed, "opening the observation streams", err)
+		return
+	}
+	// Nothing is submitted until every stream is proven open, and that ordering is the point rather than
+	// tidiness. This used to be col.start(cctx) followed immediately by the submit loop: a watch that had not
+	// been established yet — or was retrying a failure forever, which the old loop did in silence — held up
+	// nothing at all, so the run submitted its trace, spent its whole window, and reported whatever fraction
+	// of the lifecycle it happened to catch as if it were the whole of it.
+	if err := col.awaitEstablished(cctx, establishBudget); err != nil {
+		// Every return past col.start joins the consumers before the deferred teardown runs, exactly as the
+		// paths below do; the events are carried out for diagnosability even though nothing has been submitted
+		// yet and the ledger is expected to be empty.
+		cancel()
+		col.wait()
+		events = col.builder.Events()
+		o = phaseFailure(dispSetupFailed, "establishing the observation streams", err)
+		return
+	}
 
 	// Execute the barrier-staged schedule.
 	for i, step := range schedule {
@@ -765,9 +787,9 @@ func run(ctx context.Context, connect clusterClientFunc, arm queuelab.Arm, runID
 			break
 		}
 		if err := submit(ctx, c, col, arm, step.Row, namespace); err != nil {
-			// Every return past col.start must stop the watches and join them, the same as the two paths
-			// around it. Returning straight out would run the deferred release while four goroutines were
-			// still writing to the builder and still watching a namespace the run has abandoned, and nothing
+			// Every return past col.start must cancel the streams and join their consumers, the same as the two
+			// paths around it. Returning straight out would run the deferred release while four goroutines were
+			// still writing to the builder and still observing a namespace the run has abandoned, and nothing
 			// would ever reach wg.Wait().
 			cancel()
 			col.wait()

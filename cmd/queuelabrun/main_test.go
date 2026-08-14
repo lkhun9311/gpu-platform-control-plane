@@ -659,13 +659,34 @@ func fakeSchedulerCreate(ctx context.Context, c client.WithWatch, obj client.Obj
 	return stampUIDOnCreate(ctx, c, obj, opts...)
 }
 
+// fakeSchedulerList stamps a resource version on every list, which a real apiserver always does and the fake
+// client's in-memory tracker never does.
+//
+// Without it no full run can start at all: each of the collector's four streams takes its baseline from a
+// List and refuses an empty resource version, because a watch resumed from one starts at "now" and the gap
+// between the list and the watch is then invisible. That refusal is the correct behaviour against a real
+// cluster and an artefact of the double against this one, so the double is what changes.
+//
+// The value is fixed rather than incremented because nothing here reads it back: the fake client's Watch
+// ignores the resume version entirely, and what these tests exercise is run()'s ordering around the streams,
+// not client-go's resumption.
+func fakeSchedulerList(ctx context.Context, c client.WithWatch, list client.ObjectList,
+	opts ...client.ListOption) error {
+	if err := c.List(ctx, list, opts...); err != nil {
+		return err
+	}
+	list.SetResourceVersion("1")
+	return nil
+}
+
 // stubWatch never delivers an event; it exists only to close once ctx is cancelled, which the fake client's
 // real Watch — a thin wrapper over an in-memory tracker with no notion of context at all — never does on its
-// own. collector.watch relies on that closing to unblock and rejoin its goroutines once run() cancels its
-// observation context, so without this a full run() driven against a bare fake client hangs forever in
-// col.wait() the instant it tries to finish, whatever the rest of the run computed.
+// own. It predates the streams: collector.watch read the raw watch channel and could only rejoin its
+// goroutines when that channel closed, so without this a full run() against a bare fake client hung in
+// col.wait() forever. RetryWatcher no longer needs it — it selects on the context and gives up on the
+// underlying watch — but the stub stays because it is also what keeps these tests deterministic.
 //
-// It costs nothing in fidelity here: every fact this file's two full-run tests depend on — an MLTrainingJob's
+// It costs nothing in fidelity here: every fact this file's full-run tests depend on — an MLTrainingJob's
 // Submitted event and its Status.Phase for the barrier checks — is written directly rather than observed off
 // a watch (see fakeSchedulerCreate and collector.submitObserved), and classify() has no case for
 // MLTrainingJob in the first place, so a real relay of watch events would not change what either test sees.
@@ -718,6 +739,7 @@ func TestRunExplicitReleaseFailureRecordsWorkerNotRestored(t *testing.T) {
 		WithInterceptorFuncs(interceptor.Funcs{
 			Create: fakeSchedulerCreate,
 			Watch:  fakeSchedulerWatch,
+			List:   fakeSchedulerList,
 			Patch: func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch,
 				opts ...client.PatchOption) error {
 				if _, ok := obj.(*corev1.Node); ok {
@@ -807,6 +829,7 @@ func TestRunCancellationWhileRestoringNeverRelabelsAsCancelled(t *testing.T) {
 		WithInterceptorFuncs(interceptor.Funcs{
 			Create: fakeSchedulerCreate,
 			Watch:  fakeSchedulerWatch,
+			List:   fakeSchedulerList,
 			Patch: func(pctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch,
 				opts ...client.PatchOption) error {
 				if _, ok := obj.(*corev1.Node); ok {
@@ -1038,6 +1061,7 @@ func TestRunTearsDownBeforeItsOwnReleaseOnTheHappyPath(t *testing.T) {
 		WithInterceptorFuncs(interceptor.Funcs{
 			Create: fakeSchedulerCreate,
 			Watch:  fakeSchedulerWatch,
+			List:   fakeSchedulerList,
 		}).Build()
 	c, calls := recordRunCalls(t, inner)
 	now, sleep := fakeClock(time.Unix(0, 0))
@@ -1300,6 +1324,7 @@ func TestRunHoldsTheWorkerWhenTheHappyPathLeavesResidue(t *testing.T) {
 		WithInterceptorFuncs(interceptor.Funcs{
 			Create: fakeSchedulerCreate,
 			Watch:  fakeSchedulerWatch,
+			List:   fakeSchedulerList,
 			// Refused rather than merely slow, so the residue also carries WHY: a record saying only "still
 			// present" reads as a finalizer taking its time.
 			Delete: func(ctx context.Context, c client.WithWatch, obj client.Object,
@@ -1648,5 +1673,76 @@ func TestAFailedResidueStampChangesNoOutcome(t *testing.T) {
 	if rel := releasePatchIndex(calls()); rel >= 0 {
 		t.Fatalf("the worker was released at call %d after the stamp failed; a write that explains a hold must "+
 			"not be able to end one", rel)
+	}
+}
+
+// Submission is the point of no return: work offered to the cluster runs, competes for the worker's GPUs and
+// finishes whether or not anything was watching, and no later read can reconstruct the transitions it made in
+// between. So run() must prove its four streams open BEFORE it submits, and refuse the run when it cannot.
+//
+// This is the run-level half of the barrier that awaitEstablished implements. Its collector-level tests can
+// only show the wait returning an error; this one shows what the run does with it, which is the property that
+// actually matters — the previous implementation called col.start and fell straight into the submit loop, so
+// a watch that never established held up precisely nothing.
+//
+// The Pod watch is refused with a WRAPPED Forbidden because that is the case with no other signal in it:
+// RetryWatcher terminates the stream having forwarded no event and no status, and startWatchStream has
+// already returned a nil error by then, so nothing but the barrier's own End() arm can notice.
+//
+// Mutation that turns this red: delete the col.awaitEstablished block from run(). The run then submits its
+// whole trace under a Pod stream that does not exist, spends the full horizon, and this test counts the
+// submissions it was not supposed to make.
+func TestRunSubmitsNothingWhenAStreamCannotBeEstablished(t *testing.T) {
+	forbidden := apierrors.NewForbidden(schema.GroupResource{Resource: "pods"}, "",
+		errors.New("no watch permission"))
+	var (
+		mu        sync.Mutex
+		submitted int
+	)
+	fc := fake.NewClientBuilder().WithScheme(fullScheme(t)).WithObjects(node(nil, nil)).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Create: func(ctx context.Context, c client.WithWatch, obj client.Object,
+				opts ...client.CreateOption) error {
+				if _, ok := obj.(*platformv1.MLTrainingJob); ok {
+					// Counted under a mutex because run() has live consumer goroutines for the three streams that
+					// did establish, and a counter this test's verdict rests on must not be the one racy thing in it.
+					mu.Lock()
+					submitted++
+					mu.Unlock()
+				}
+				return fakeSchedulerCreate(ctx, c, obj, opts...)
+			},
+			List: fakeSchedulerList,
+			Watch: func(ctx context.Context, c client.WithWatch, list client.ObjectList,
+				opts ...client.ListOption) (watch.Interface, error) {
+				if isPodList(list) {
+					return nil, fmt.Errorf("watch pods: %w", forbidden)
+				}
+				return newStubWatch(ctx), nil
+			},
+		}).Build()
+	now, sleep := fakeClock(time.Unix(0, 0))
+
+	o, _, res, _ := run(context.Background(), func() (client.WithWatch, error) { return fc, nil },
+		queuelab.ArmNRef, "r10", "queuelab-r10", "platform-worker",
+		time.Duration(horizonSec)*time.Second, "", now, sleep)
+
+	mu.Lock()
+	n := submitted
+	mu.Unlock()
+	if n != 0 {
+		t.Fatalf("the run submitted %d job(s) with no Pod stream open; that work runs and finishes entirely "+
+			"unobserved, and the readiness and termination transitions it makes are gone", n)
+	}
+	if res != nil {
+		t.Fatal("a run that never established its observation must hand back no result")
+	}
+	if o.Disposition != dispSetupFailed {
+		t.Fatalf("a run refused before it could observe is %s, got %s: %s", dispSetupFailed, o.Disposition, o.Reason)
+	}
+	// Naming the kind is what tells the operator whether they are looking at an RBAC gap on Pods or at a
+	// cluster that is failing every watch; all four streams share one namespace and would otherwise read alike.
+	if !strings.Contains(o.Reason, kindPod) {
+		t.Fatalf("the refusal %q does not name the view of the run that could not be opened", o.Reason)
 	}
 }

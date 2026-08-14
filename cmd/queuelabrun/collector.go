@@ -55,9 +55,9 @@ type pendingEvent struct {
 	elapsed int64
 }
 
-// collector watches the four GVRs and drives the fail-closed LedgerBuilder, resolving each object to its
-// trace job by the UID chain and classifying it. It is the live half of the runner; the pure builder,
-// classifier, join, and adapter are the reviewed units it composes.
+// collector observes the four GVRs through continuous streams and drives the fail-closed LedgerBuilder,
+// resolving each object to its trace job by the UID chain and classifying it. It is the live half of the
+// runner; the pure builder, classifier, join, and adapter are the reviewed units it composes.
 type collector struct {
 	c     client.WithWatch
 	ns    string
@@ -73,26 +73,40 @@ type collector struct {
 	deadline time.Time
 	builder  *queuelab.LedgerBuilder
 
-	mu        sync.Mutex
-	cache     map[string]queuelab.ObservedObject
-	pending   []pendingEvent
-	readyAt   map[string]time.Time
-	readyPods map[string]bool
-	wg        sync.WaitGroup
+	// streams is this run's view of the cluster, one per watched kind, and is written only by start and read
+	// only by the main goroutine afterwards — the consumer goroutines are handed their own stream and never
+	// look at the slice.
+	streams []kindStream
+
+	mu      sync.Mutex
+	cache   map[string]queuelab.ObservedObject
+	pending []pendingEvent
+	readyAt map[string]time.Time
+	wg      sync.WaitGroup
+}
+
+// kindStream pairs a stream with the kind name its events are classified under.
+//
+// The kind cannot be recovered from the stream: startWatchStream is handed a list constructor and keeps no
+// name of its own. Without it every diagnostic below would say "a stream ended" for four different views of
+// the run, and the operator could not tell a lost Pod watch — which loses readiness and termination — from a
+// lost Workload watch, which loses admission and preemption.
+type kindStream struct {
+	kind   string
+	stream *watchStream
 }
 
 func newCollector(c client.WithWatch, ns, runID string, horizon time.Duration) *collector {
 	t0 := time.Now()
 	return &collector{
-		c:         c,
-		ns:        ns,
-		runID:     runID,
-		t0:        t0,
-		deadline:  t0.Add(horizon),
-		builder:   queuelab.NewLedgerBuilder(),
-		cache:     map[string]queuelab.ObservedObject{},
-		readyAt:   map[string]time.Time{},
-		readyPods: map[string]bool{},
+		c:        c,
+		ns:       ns,
+		runID:    runID,
+		t0:       t0,
+		deadline: t0.Add(horizon),
+		builder:  queuelab.NewLedgerBuilder(),
+		cache:    map[string]queuelab.ObservedObject{},
+		readyAt:  map[string]time.Time{},
 	}
 }
 
@@ -109,12 +123,135 @@ func (col *collector) elapsed() time.Duration { return time.Since(col.t0) }
 // boundary taken from any other origin would be offset from the very events it censors.
 func (col *collector) horizonNs() int64 { return col.deadline.Sub(col.t0).Nanoseconds() }
 
-// start launches one watch goroutine per GVR.
-func (col *collector) start(ctx context.Context) {
-	col.watch(ctx, kindMLTrainingJob, func() client.ObjectList { return &platformv1.MLTrainingJobList{} })
-	col.watch(ctx, kindJob, func() client.ObjectList { return &batchv1.JobList{} })
-	col.watch(ctx, kindWorkload, func() client.ObjectList { return &kueuev1beta2.WorkloadList{} })
-	col.watch(ctx, kindPod, func() client.ObjectList { return &corev1.PodList{} })
+// start opens one continuous stream per watched kind and consumes each into the ledger.
+//
+// A stream is a baseline List plus a watch resuming from exactly that list's resource version, and the
+// difference from the loop this replaces is the whole point of the change. That loop called Watch with no
+// resource version, so it began at "now": everything the apiserver had already recorded between this run
+// creating its namespace and the watch being accepted was invisible, and every reconnect — it re-established
+// from "now" again — opened another hole of the same kind. A run could miss an admission, a readiness, a
+// preemption or a termination and still reach the disposition that says the checks passed.
+//
+// It returns an error rather than logging one because nothing downstream can compensate for a view that was
+// never opened. The caller must refuse the run before it submits work it cannot observe.
+func (col *collector) start(ctx context.Context) error {
+	kinds := []struct {
+		kind    string
+		newList func() client.ObjectList
+	}{
+		{kindMLTrainingJob, func() client.ObjectList { return &platformv1.MLTrainingJobList{} }},
+		{kindJob, func() client.ObjectList { return &batchv1.JobList{} }},
+		{kindWorkload, func() client.ObjectList { return &kueuev1beta2.WorkloadList{} }},
+		{kindPod, func() client.ObjectList { return &corev1.PodList{} }},
+	}
+	for _, k := range kinds {
+		s, err := startWatchStream(ctx, col.c, col.ns, k.newList)
+		if err != nil {
+			col.abort()
+			return fmt.Errorf("open the %s stream: %w", k.kind, err)
+		}
+		col.streams = append(col.streams, kindStream{kind: k.kind, stream: s})
+		if n := s.Baseline().Objects; n > 0 {
+			// A non-empty baseline refuses the run, and the alternatives are close enough together to be worth
+			// arguing rather than asserting.
+			//
+			// These four kinds are exactly what this run submits and what the platform creates in response, and
+			// the namespace was created by this same run moments earlier, so anything already standing in it is
+			// somebody else's: a previous attempt under this run id whose namespace was never cleaned up (only
+			// the namespace is ever cleared by hand, so that is the ordinary rerun), or another actor working
+			// inside a name this run believes it owns.
+			//
+			// Feeding them in as events would be worse than dropping them, not better. The trace job names are
+			// fixed by the protocol, so a previous attempt's objects carry the SAME names this run is about to
+			// use; ResolveTraceJobs would attribute a dead run's Pods to this run's jobs, at an elapsed time of
+			// roughly zero, and the reconstruction would measure one run's latency against another's work. And
+			// dropping them silently is the defect this whole change exists to remove — the ledger would then
+			// describe a namespace it had only half observed.
+			//
+			// So the run is refused, at the cheapest possible moment: nothing has been submitted, no GPU time
+			// has been spent, and the operator is told which kind is occupied and by how many objects.
+			//
+			// The ledger is desynced as well as the error returned, because the two do different jobs. The error
+			// is what stops run(); the builder is the object that decides whether a number may be printed at
+			// all, and a caller that mishandled the error must still not be able to get one out of it.
+			col.desync(fmt.Sprintf("the %s baseline in %s held %d object(s) this run did not create", k.kind, col.ns, n))
+			col.abort()
+			return fmt.Errorf("the %s baseline in %s already holds %d object(s); this run created that namespace, "+
+				"so they are a previous attempt's or another actor's, and neither dropping them nor folding them "+
+				"into this run's ledger would describe the run that is about to happen", k.kind, col.ns, n)
+		}
+		col.consume(k.kind, s)
+	}
+	return nil
+}
+
+// abort ends every stream this collector opened and joins whatever was already consuming them.
+//
+// It exists for start's failure paths alone. The ordinary shutdown cancels the observation context instead,
+// so the endings read as cancellations; here the caller is refusing the run outright, and an ending marked
+// Stopped is what stops consume from recording a desync for a stream nobody was still relying on.
+func (col *collector) abort() {
+	for _, ks := range col.streams {
+		ks.stream.Stop()
+	}
+	col.wg.Wait()
+}
+
+// establishBudget bounds how long a run waits for its four streams before refusing to start.
+//
+// The wait is spent INSIDE the observation window — t0 and the horizon are stamped when the collector is
+// built, because the baseline lists are taken at that instant and dating events from any later one would put
+// the baseline outside the window it describes — so this constant is the amount of window a slow apiserver is
+// allowed to consume. Fifteen seconds is comfortably under the horizon's own 20-second startup margin and is
+// several hundred times what four List+Watch pairs cost on a healthy cluster, which puts it where the
+// asymmetry wants it: too short refuses a run loudly and retryably, too long quietly hands back a truncated
+// window.
+const establishBudget = 15 * time.Second
+
+// awaitEstablished blocks until every stream has accepted a watch, and refuses the run if any of them cannot.
+//
+// The timer is deliberately NOT a deadline on the streams' own context, and startWatchStream's doc comment
+// names why: a context bounded here is handed to the streams as well, so every later stream death would read
+// as Cancelled — the caller's own shutdown signature — and a run that stopped observing thirty seconds in
+// would be reported as an orderly one. The budget therefore lives in this select, and the streams keep the
+// run's context.
+//
+// The End() arm is the other half, and it is not defensive padding: a stream can fail permanently BEFORE it
+// ever establishes anything (a wrapped Forbidden is the case this package has reproduced), and
+// startWatchStream has already returned a nil error by then. A bare receive on Established() would sit out the
+// whole budget on a stream that is already dead, and then report a timeout rather than the cause.
+//
+// A stream that established and then died before this loop reached it can take either arm, and both refuse:
+// this one reports the ending, and the other lets consume record the desync a moment later.
+func (col *collector) awaitEstablished(ctx context.Context, budget time.Duration) error {
+	timer := time.NewTimer(budget)
+	defer timer.Stop()
+	for _, ks := range col.streams {
+		select {
+		case <-ks.stream.Established():
+		case <-ks.stream.End():
+			return fmt.Errorf("the %s stream ended before it ever established a watch: %s",
+				ks.kind, endText(ks.stream.Ended()))
+		case <-timer.C:
+			return fmt.Errorf("the %s stream did not establish a watch within %s, and a run that submits under an "+
+				"unestablished watch observes nothing it can be held to", ks.kind, budget)
+		case <-ctx.Done():
+			return fmt.Errorf("waiting for the %s stream to establish: %w", ks.kind, ctx.Err())
+		}
+	}
+	return nil
+}
+
+// endText renders what could be observed about an ending, for a refusal an operator has to act on.
+//
+// The absence of a status is reported as an absence rather than omitted, because "the stream ended and said
+// nothing" is a different diagnosis from "the stream ended with a 403" and the operator needs to know which
+// of the two they are looking at before they go hunting for an RBAC problem that may not exist.
+func endText(e streamEnd) string {
+	if e.LastStatus != nil {
+		return fmt.Sprintf("%s (code %d, reason %s)", e.LastStatus.Message, e.LastStatus.Code, e.LastStatus.Reason)
+	}
+	return "it forwarded no status, so the cause is not recoverable from the stream itself"
 }
 
 func (col *collector) wait() { col.wg.Wait() }
@@ -122,7 +259,8 @@ func (col *collector) wait() { col.wg.Wait() }
 // desync invalidates the run from the main goroutine, which is the only caller that does not already hold mu.
 //
 // LedgerBuilder has no locking of its own — invalid, events, lastEvent and ready are plain fields — and the
-// four watch goroutines call Observe through flush under this mutex for the whole run. Calling Desync
+// four stream consumers call Observe through flush under this mutex for the whole run, as well as calling
+// this from their own goroutines when their stream ends badly. Calling Desync
 // directly from the main goroutine is therefore a data race on the single field that decides whether the run
 // is allowed to produce a number at all, which is the one thing this package may not get wrong. The lock
 // belongs here rather than inside internal/queuelab because mu already serialises every other access to the
@@ -133,39 +271,53 @@ func (col *collector) desync(reason string) {
 	col.builder.Desync(reason)
 }
 
-func (col *collector) watch(ctx context.Context, kind string, newList func() client.ObjectList) {
+// consume folds one stream's events into the ledger and decides what that stream's ending means.
+//
+// The ending is the half that matters. An apiserver timeout no longer reaches here at all — the stream's
+// RetryWatcher resumes from the last delivered resource version and the gap is closed by the server, which is
+// what the old loop's comment claimed to do by re-listing and never did — so a stream that stops delivering
+// has stopped for a reason no reconnection can repair, and the events in the gap are lost rather than
+// delayed. The only endings this may accept are therefore the two the caller itself caused: the observation
+// context cancelled at the horizon, and an explicit Stop.
+//
+// LastStatus condemns the run even alongside those two, per streamEnd's own asymmetry: a forwarded terminal
+// status is a loss the stream actually witnessed, while a Cancelled or Stopped flag only says the caller
+// arrived at the same moment and never that the ending was orderly.
+func (col *collector) consume(kind string, s *watchStream) {
 	col.wg.Go(func() {
-		for ctx.Err() == nil {
-			w, err := col.c.Watch(ctx, newList(), client.InNamespace(col.ns))
-			if err != nil {
-				if ctx.Err() != nil {
-					return
-				}
-				select {
-				case <-ctx.Done():
-					return
-				case <-time.After(time.Second):
-				}
+		for ev := range s.ResultChan() {
+			if ev.Type == watch.Error {
+				// No verdict is taken here, and that is deliberate rather than an omission. RetryWatcher forwards
+				// NOTHING for the errors it intends to retry — a 504, a 500, an unrecognised status all reconnect
+				// in silence — so an Error that arrives here is one it has already given up on, and forward has
+				// already recorded the Status as the ending's evidence. Judging it twice would put the run's
+				// validity in two places that could disagree; the ending below is the one that decides.
 				continue
 			}
-			for ev := range w.ResultChan() {
-				if ev.Type == watch.Error {
-					// The apiserver ended this watch (a periodic timeout or a stale resourceVersion). Break
-					// to re-establish it with a fresh list+watch rather than invalidating the run; the
-					// re-list below re-observes current state so a Ready Pod that vanished during the gap is
-					// still caught by the vanished check.
-					break
-				}
-				obj, ok := ev.Object.(client.Object)
-				if !ok {
-					continue
-				}
-				col.handle(kind, ev.Type, obj)
+			obj, ok := ev.Object.(client.Object)
+			if !ok {
+				continue
 			}
-			w.Stop()
-			col.relistCheck(ctx, kind, newList())
+			col.handle(kind, ev.Type, obj)
+		}
+		// Ended is final only now, and that is a guarantee rather than a hope: forward records the ending under
+		// its own mutex BEFORE closing the channel this range just drained, so a closed ResultChan proves the
+		// verdict is written rather than still being decided.
+		end := s.Ended()
+		switch {
+		case end.LastStatus != nil:
+			col.desync(fmt.Sprintf("the %s stream ended on a %s", kind, statusText(end.LastStatus)))
+		case !end.Cancelled && !end.Stopped:
+			col.desync(fmt.Sprintf("the %s stream ended on its own while the run was still observing, so every "+
+				"transition after that point is unobserved rather than absent", kind))
 		}
 	})
+}
+
+// statusText names the cause an operator can act on: a 410 means the resume point aged out of etcd and the
+// run has to be rerun, a 403 means the credentials cannot watch this kind and no rerun will help.
+func statusText(st *metav1.Status) string {
+	return fmt.Sprintf("terminal watch error: %s (code %d, reason %s)", st.Message, st.Code, st.Reason)
 }
 
 // handle folds one watch event: it updates the object cache, classifies the object, and (re)attempts to
@@ -203,14 +355,6 @@ func (col *collector) flush() {
 	for _, pe := range col.pending {
 		if name, ok := names[pe.uid]; ok {
 			col.builder.Observe(pe.delta, pe.kind, pe.uid, name, pe.state, pe.elapsed)
-			if pe.kind == kindPod {
-				switch pe.state.Event {
-				case queuelab.EventPodReady:
-					col.readyPods[pe.uid] = true
-				case queuelab.EventAttemptStopped:
-					delete(col.readyPods, pe.uid)
-				}
-			}
 		} else {
 			kept = append(kept, pe)
 		}
@@ -218,29 +362,29 @@ func (col *collector) flush() {
 	col.pending = kept
 }
 
-// relistCheck re-lists a GVR after its watch was re-established and, for Pods, invalidates the run if a
-// previously-Ready Pod is no longer present without a recorded terminal state, so a stop missed during the
-// watch gap is caught rather than silently charged to the horizon.
-func (col *collector) relistCheck(ctx context.Context, kind string, list client.ObjectList) {
-	if kind != kindPod || ctx.Err() != nil {
-		return
-	}
-	if err := col.c.List(ctx, list, client.InNamespace(col.ns)); err != nil {
-		return
-	}
-	present := map[string]bool{}
-	for _, o := range list.(*corev1.PodList).Items {
-		present[string(o.UID)] = true
-	}
-	col.mu.Lock()
-	defer col.mu.Unlock()
-	for uid := range col.readyPods {
-		if !present[uid] {
-			col.builder.MarkVanished(uid)
-			delete(col.readyPods, uid)
-		}
-	}
-}
+// relistCheck used to live here, and it is gone rather than repaired, because the gap it audited no longer
+// exists and the audit could not be moved anywhere it would still be sound.
+//
+// What it did: after each watch re-establishment, list Pods and mark any previously-Ready Pod that was no
+// longer present as vanished, so a stop missed during the gap between the two watches was caught. Three
+// things were wrong with it and only one was fixable here. It ran for Pods alone, so a Workload admitted and
+// preempted inside the same gap left no trace at all. Its own List failure returned silently, turning "the
+// gap could not be audited" into "the gap is fine" — the defect this task names. And it ran INSIDE the live
+// watch loop, so it could mark a Pod vanished while a terminal event for that Pod was still in flight.
+//
+// What replaces it is not a better audit but the removal of the thing being audited: the streams resume from
+// the last delivered resource version, so an apiserver timeout is closed by the server with no gap to inspect,
+// and any ending a resume cannot repair now invalidates the run outright in consume. There is nothing left
+// for a relist to discover that the ledger does not already know.
+//
+// It is deliberately not re-sited as a final List after the streams end, which is what watchStream.Ended's
+// doc suggests an adopter might do. That check would run AFTER the horizon, and everything after the horizon
+// is censored by design: a Pod that was Ready at the horizon and terminated a second later is not a missed
+// stop, it is an event outside the observation window, and marking it vanished would invalidate perfectly
+// good runs for doing exactly what the protocol expects. The same doc's other suggestion — comparing the last
+// delivered resource version against a final list's — does not survive contact with a real cluster either:
+// a list's resource version is the store's current position and advances on writes anywhere in the cluster,
+// so it is above the last delivered one on every healthy run and proves nothing.
 
 // submit creates the MLTrainingJob and records the Submitted event from the create response (not a watch),
 // so the offered-work clock cannot be observed after admission.
