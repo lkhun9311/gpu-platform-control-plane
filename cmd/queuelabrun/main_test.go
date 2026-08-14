@@ -1746,3 +1746,51 @@ func TestRunSubmitsNothingWhenAStreamCannotBeEstablished(t *testing.T) {
 		t.Fatalf("the refusal %q does not name the view of the run that could not be opened", o.Reason)
 	}
 }
+
+// run() must hand the streams its own cancellable context and bound establishment separately, and no
+// collector-level test can see that: what is being checked is how run() BUILT the context it passed, which
+// only a test driving run() itself can observe.
+//
+// The mutation this exists for is the natural wrong implementation — col.start(context.WithTimeout(cctx,
+// establishBudget)) — and it is the one that must not be able to ship green. It is silent by construction:
+// the streams die a budget into the window, every ending reads Cancelled because the caller's own context
+// expired, no consumer desyncs, and the run reports checks-passed over a window it observed almost none of.
+// Every other test in this package stays green under it, which is precisely why this one asserts on the
+// context rather than on any consequence of it.
+//
+// The Pod watch is refused permanently so the run returns in milliseconds. What this test reads — the
+// contexts the four streams were opened with — all exists before that refusal is noticed, so nothing about
+// the assertion depends on how the run ends.
+func TestRunHandsTheStreamsAnUnboundedContext(t *testing.T) {
+	spy := &deadlineSpy{}
+	forbidden := apierrors.NewForbidden(schema.GroupResource{Resource: "pods"}, "",
+		errors.New("no watch permission"))
+	fc := fake.NewClientBuilder().WithScheme(fullScheme(t)).WithObjects(node(nil, nil)).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Create: fakeSchedulerCreate,
+			List:   fakeSchedulerList,
+			Watch: spy.watch(func(ctx context.Context, c client.WithWatch, list client.ObjectList,
+				opts ...client.ListOption) (watch.Interface, error) {
+				if isPodList(list) {
+					return nil, fmt.Errorf("watch pods: %w", forbidden)
+				}
+				return newStubWatch(ctx), nil
+			}),
+		}).Build()
+	now, sleep := fakeClock(time.Unix(0, 0))
+
+	run(context.Background(), func() (client.WithWatch, error) { return fc, nil },
+		queuelab.ArmNRef, "r11", "queuelab-r11", "platform-worker",
+		time.Duration(horizonSec)*time.Second, "", now, sleep)
+
+	calls, bounded := spy.observed()
+	if calls < 4 {
+		t.Fatalf("the run opened %d watch(es); it never got as far as the four stream contexts this test "+
+			"inspects, so a green result here would mean nothing", calls)
+	}
+	if len(bounded) > 0 {
+		t.Fatalf("run() handed its streams bounded contexts (%v): the establishment budget has become the "+
+			"observation's deadline, and a run that stops observing when it expires reports an orderly shutdown "+
+			"instead of a lost stream", bounded)
+	}
+}

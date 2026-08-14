@@ -202,10 +202,20 @@ func (col *collector) abort() {
 // The wait is spent INSIDE the observation window — t0 and the horizon are stamped when the collector is
 // built, because the baseline lists are taken at that instant and dating events from any later one would put
 // the baseline outside the window it describes — so this constant is the amount of window a slow apiserver is
-// allowed to consume. Fifteen seconds is comfortably under the horizon's own 20-second startup margin and is
-// several hundred times what four List+Watch pairs cost on a healthy cluster, which puts it where the
-// asymmetry wants it: too short refuses a run loudly and retryably, too long quietly hands back a truncated
-// window.
+// allowed to consume.
+//
+// It is NOT sized against slack in the horizon, because there is none to spend. horizonSec adds
+// startupMarginSec on top of the protocol's own timing, and spine.go allocates that 20 seconds to three
+// SEQUENTIAL Ready waits (a1, victim, owner); a run that spent 15 of them here would leave 5 for all three
+// and would very likely miss its last barrier. What makes that acceptable is the direction such a run fails
+// in: a barrier that is not met before the horizon desyncs the ledger, and a desynced run publishes no
+// number. Truncation is therefore loud and self-reporting, while the failure this budget exists to catch — a
+// watch that never establishes while the run submits and observes nothing — used to be silent.
+//
+// Fifteen seconds is several hundred times what four List+Watch pairs cost against a healthy apiserver, so in
+// practice the budget is never approached; it is a bound on an infrastructure failure, not a latency target.
+// run() prints what was actually spent, so an operator can see a window that was shortened rather than infer
+// it from a barrier miss.
 const establishBudget = 15 * time.Second
 
 // awaitEstablished blocks until every stream has accepted a watch, and refuses the run if any of them cannot.

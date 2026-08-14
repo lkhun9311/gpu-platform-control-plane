@@ -745,6 +745,11 @@ func run(ctx context.Context, connect clusterClientFunc, arm queuelab.Arm, runID
 	// how a run that stopped observing would report itself as having shut down cleanly. The bound on
 	// establishment lives inside awaitEstablished instead.
 	if err := col.start(cctx); err != nil {
+		// col.start has already stopped and joined whatever it opened, so the ledger is quiescent and readable
+		// here. The events are carried out for the same reason the path below carries them: a refused run with an
+		// empty record is undiagnosable. A baseline refusal leaves the ledger desynced with no events at all,
+		// which is itself the fact worth recording.
+		events = col.builder.Events()
 		o = phaseFailure(dispSetupFailed, "opening the observation streams", err)
 		return
 	}
@@ -763,6 +768,13 @@ func run(ctx context.Context, connect clusterClientFunc, arm queuelab.Arm, runID
 		o = phaseFailure(dispSetupFailed, "establishing the observation streams", err)
 		return
 	}
+	// What establishment cost is printed because it is spent out of the observation window and nothing else
+	// reports it: t0 is stamped when the collector is built, so a cluster that took ten seconds to accept four
+	// watches leaves ten seconds less window for the schedule to finish in, and the operator would otherwise
+	// meet that only as an unexplained barrier miss near the horizon. Measured with col.elapsed() rather than a
+	// timer of its own so the number printed is the offset the ledger and the censoring boundary use.
+	fmt.Printf("  observation established at t=%s (out of a %s window; budget %s)\n",
+		col.elapsed().Round(time.Millisecond), horizon, establishBudget)
 
 	// Execute the barrier-staged schedule.
 	for i, step := range schedule {

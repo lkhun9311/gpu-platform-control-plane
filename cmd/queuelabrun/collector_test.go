@@ -598,36 +598,96 @@ func TestCollectorRefusesToObserveWhenAWatchNeverEstablishes(t *testing.T) {
 	}
 }
 
+// deadlineSpy records every observation stream that was handed a context carrying a deadline.
+//
+// It exists because of how the first version of the test below failed. That version bounded establishment
+// with a 150ms budget and then checked, ~900ms later, that no stream had died — which does catch the trap at
+// 150ms and does NOT catch it at the production constant, because a stream killed at fifteen seconds outlives
+// any test that waits under a second. The mutation could therefore be reintroduced at the value that actually
+// ships with the whole suite green: the same class of silent hole this gate exists to close, one level up.
+//
+// A deadline is visible the moment the context arrives, whatever its value, so the check sits at the watch
+// call rather than in a race against the clock.
+//
+// It records instead of calling t.Errorf on the spot because interceptors run on RetryWatcher's goroutines,
+// which can outlive the test function, and a t.Errorf from one of those after the test has returned panics
+// the whole binary. calls is counted for the same reason the assertion is not simply "nothing bounded": if no
+// watch was ever opened, "no bounded context was seen" is true and means nothing.
+type deadlineSpy struct {
+	mu      sync.Mutex
+	calls   int
+	bounded []string
+}
+
+func (s *deadlineSpy) watch(inner func(context.Context, client.WithWatch, client.ObjectList,
+	...client.ListOption) (watch.Interface, error)) func(context.Context, client.WithWatch, client.ObjectList,
+	...client.ListOption) (watch.Interface, error) {
+	return func(ctx context.Context, c client.WithWatch, list client.ObjectList,
+		opts ...client.ListOption) (watch.Interface, error) {
+		s.mu.Lock()
+		s.calls++
+		if dl, ok := ctx.Deadline(); ok {
+			s.bounded = append(s.bounded, fmt.Sprintf("%T expires in %s", list, time.Until(dl).Round(time.Second)))
+		}
+		s.mu.Unlock()
+		return inner(ctx, c, list, opts...)
+	}
+}
+
+// observed reports how many watches were opened and which of them were handed a bounded context.
+func (s *deadlineSpy) observed() (int, []string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.calls, append([]string(nil), s.bounded...)
+}
+
 // The trap startWatchStream's doc comment names, in executable form. Bounding establishment with a
 // context.WithTimeout hands that deadline to the streams themselves, so every stream dies when it expires and
 // every ending afterwards reads as Cancelled — the caller's own shutdown signature. A run that stopped
-// observing seconds in would then report itself as having shut down cleanly, which is the exact failure class
-// this whole change exists to remove, reintroduced by the fix for it.
+// observing fifteen seconds into a 150-second window would then report itself as having shut down cleanly,
+// which is the exact failure class this whole change exists to remove, reintroduced by the fix for it.
 //
-// Mutation that turns this red: bound establishment on the streams' own context, e.g. by having run() call
-// col.start with context.WithTimeout(cctx, establishBudget), or by deriving such a context inside
-// awaitEstablished and passing it to the streams. Both kill the streams a budget after they started.
+// The budget passed here is the REAL one, so nothing about this test depends on the constant being small.
+// What kills it is the deadline itself, seen where the stream's context arrives.
+//
+// Mutation that turns this red: bound the streams' own context anywhere, e.g. `ctx, cancel :=
+// context.WithTimeout(ctx, establishBudget)` at the top of collector.start. The run-level half of the same
+// mutation — col.start(context.WithTimeout(cctx, establishBudget)) inside run() — is pinned by
+// TestRunHandsTheStreamsAnUnboundedContext, because no collector-level test can see how run() built the
+// context it was given.
+//
+// A different wrong implementation with no deadline in it at all — an establishment-scoped
+// context.WithCancel whose cancel is deferred — is caught too, by whichever check the timing reaches first:
+// the establishment wait itself when the cancel lands before it returns (the observed case, reported as the
+// Pod stream ending before it established), and the liveness check below when it lands after.
 func TestCollectorEstablishmentBudgetIsNotTheStreamsDeadline(t *testing.T) {
-	col := newCollector(streamingFake(t, nil, nil), "ns", "r1", time.Hour)
+	spy := &deadlineSpy{}
+	col := newCollector(streamingFake(t, nil, spy.watch(fakeSchedulerWatch)), "ns", "r1", time.Hour)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer func() { cancel(); col.wait() }()
 
 	if err := col.start(ctx); err != nil {
 		t.Fatalf("start: %v", err)
 	}
-	const budget = 150 * time.Millisecond
-	if err := col.awaitEstablished(ctx, budget); err != nil {
+	if err := col.awaitEstablished(ctx, establishBudget); err != nil {
 		t.Fatalf("four stub watches establish immediately, so this must not fail: %v", err)
 	}
 
-	// Well past the budget, which is the whole point: an observation window is a hundred times longer than the
-	// budget that bounds its opening, and a stream that dies with the budget observes almost none of it.
-	time.Sleep(6 * budget)
+	calls, bounded := spy.observed()
+	if calls < 4 {
+		t.Fatalf("only %d watch(es) were opened, so this test never saw the four stream contexts it exists to inspect", calls)
+	}
+	if len(bounded) > 0 {
+		t.Fatalf("the streams were handed bounded contexts (%v): every stream then dies when the bound expires "+
+			"and its ending reads Cancelled, so a run that stopped observing reports an orderly shutdown", bounded)
+	}
+	// Short on purpose: this is not waiting out a budget, it is checking that establishment did not take the
+	// streams with it on the way out.
+	time.Sleep(100 * time.Millisecond)
 	for _, ks := range col.streams {
 		select {
 		case <-ks.stream.End():
-			t.Fatalf("the %s stream ended %v after establishment, which is the budget having become its deadline: %+v",
-				ks.kind, 6*budget, ks.stream.Ended())
+			t.Fatalf("the %s stream ended as soon as establishment finished: %+v", ks.kind, ks.stream.Ended())
 		default:
 		}
 	}
