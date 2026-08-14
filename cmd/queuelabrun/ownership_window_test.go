@@ -254,9 +254,9 @@ func TestOwnershipWindowSeesTheWorkerDeleted(t *testing.T) {
 // bookmark case in consume: RetryWatcher consumes bookmarks to advance its resume version and never forwards
 // them (client-go v0.36.1, tools/watch/retrywatcher.go), so one cannot reach the consumer at all. An earlier
 // revision of this file guarded against them and claimed the worker-name guard as its backstop; the guard is
-// never reached either, and the review that measured it is why the arm is gone. What this line asserts is
-// only that a bookmark travelling the whole composed path — if a future client-go forwarded one — still
-// produces no violation.
+// never reached either, and the review that measured it is why the arm is gone. This test cannot say more
+// than that: running against this client-go, it cannot tell a bookmark swallowed inside RetryWatcher from one
+// forwarded and dropped by the name guard, so it asserts only that feeding one produces no violation.
 func TestOwnershipWindowIgnoresOtherNodesAndBookmarks(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

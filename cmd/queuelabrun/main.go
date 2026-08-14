@@ -724,10 +724,23 @@ func run(ctx context.Context, connect clusterClientFunc, arm queuelab.Arm, runID
 	// that holds. It must also run before the emergency release so the window exists for that release to
 	// attach its audit to.
 	//
-	// Running AFTER teardown is deliberate rather than tolerated: teardown deletes namespaces and fixtures and
-	// at most writes the residue ANNOTATION on the Node, and verifyInstalled compares the label, the taint and
-	// the UID — so nothing teardown does can trip the window, and leaving it open through teardown keeps the
-	// hold under observation right up to the release that ends it.
+	// What this defer actually covers differs by path, and both halves are worth stating because the previous
+	// version of this comment claimed the second one for every run and that was false.
+	//
+	// A run that reaches the horizon does NOT close its window here. It closes inline below, before teardown
+	// and before the release, and that ordering is a requirement rather than a convenience: the release strips
+	// this transaction's label, taint and journal on purpose, Close drains what the view has already delivered,
+	// and a window still open across it would fold the run's OWN restoration as an installed-values-diverged
+	// violation — inventing the exact failure this gate exists to detect, on a run that did everything right.
+	// So on the happy path, and on every return past the inline close (cancelled, invalidated, reconstruct- and
+	// cardinality-refused), this defer finds the window already closed and only publishes it.
+	//
+	// It is the pre-horizon failures — setup, qualification, establishment, submit, a barrier — where this
+	// runs as a close, and there it runs AFTER teardown. That is safe rather than merely tolerated: teardown
+	// deletes namespaces and fixtures and at most writes the residue ANNOTATION on the Node, while
+	// verifyInstalled compares the label, the taint and the UID, so nothing teardown does can trip the window.
+	// It also means those runs keep watching for a third party across teardown's whole budget; see
+	// ownershipWindow's note on what that does and does not mean in the record.
 	defer func() {
 		sentinel.Close()
 		w := sentinel.Window()
@@ -915,10 +928,16 @@ func run(ctx context.Context, connect clusterClientFunc, arm queuelab.Arm, runID
 	cancel()
 	col.wait()
 
-	// The window closes with the observation window and before anything else touches the Node, and its verdict
-	// is folded into the ledger rather than kept beside it. A run whose worker was shared for part of the
-	// measurement must not print a number, and builder.Err() is already the one thing that decides that: a
-	// parallel "sort of invalid" state would be a second gate for a caller to forget.
+	// The window closes HERE, inline, and this line is what makes the deferred close a no-op for every run that
+	// gets this far. It has to precede the teardown and the release below rather than being left to that defer:
+	// the release strips this transaction's label, taint and journal deliberately, and a view still open across
+	// it would record the run's own restoration as an installed-values-diverged violation — a run that did
+	// everything right, invalidated by the gate that was watching it. Close drains, so what Window reports
+	// afterwards is what happened up to this instant and nothing later.
+	//
+	// Its verdict is folded into the ledger rather than kept beside it. A run whose worker was shared for part
+	// of the measurement must not print a number, and builder.Err() is already the one thing that decides that:
+	// a parallel "sort of invalid" state would be a second gate for a caller to forget.
 	//
 	// It is desynced here rather than from inside the sentinel because the ledger did not exist when the window
 	// opened, and because col.wait() above has joined every consumer, which is what makes this the first moment

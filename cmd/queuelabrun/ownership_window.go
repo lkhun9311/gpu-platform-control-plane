@@ -151,7 +151,17 @@ type ownershipWindow struct {
 	// attached, and that interval is where the fixtures are created and the first rows are submitted.
 	BaselineResourceVersion string `json:"baselineResourceVersion"`
 	OpenedAt                string `json:"openedAt"`
-	ClosedAt                string `json:"closedAt,omitempty"`
+	// ClosedAt is where the covered interval ends, and it does not mean the same thing on every run.
+	//
+	// A run that reached the horizon closes its window there, before teardown and before the release, because
+	// a view open across a release would record that release as a violation. A run that failed BEFORE the
+	// horizon closes it after teardown instead, which can be three minutes later — so on those records the
+	// window covers a stretch during which no measurement was happening, and a third party mutating the node
+	// (or the view dying) in it is recorded here as a violation with nothing to mark it as post-run. It cannot
+	// change a verdict: the ledger is only ever told about this window at the horizon, which those runs never
+	// reached, and they already carry a failing disposition of their own. Read it as noise in the record of a
+	// run that measured nothing, not as evidence about a measurement.
+	ClosedAt string `json:"closedAt,omitempty"`
 	// NodeVersionsObserved is the denominator for an empty Violations list, for the reason PodsOnNode is the
 	// denominator for an empty GPUConsumers list: "nothing deviated" from a view that observed nothing is
 	// indistinguishable from a view pointed at the wrong object. The opening read is one of these, so a window
