@@ -189,6 +189,12 @@ const maxDrainBytes = 8 << 10 // 8KB
 // (hack/m5b-gateway-path-evidence.log), draining alone took the client from 431 connections to 53, and
 // sizing the pool took it from 53 to 6: the drain accounts for 378 of the 425 connections no longer opened.
 //
+// Read that trace's scope before quoting those numbers: every arm in it recorded ZERO rejections, so they
+// describe the all-200 path only. Send's non-200 branch returned without draining until this was noticed, and
+// the same method run on an 884-rejection trace measured pooled mode — the mode every real run uses — opening
+// 884 connections, one handshake per request, indistinguishable from legacy and worse than the 431 that
+// trace's "before" arm reported. Draining the rejection body takes it to 22.
+//
 // A drain that hits the bound without reaching EOF simply forfeits reuse for that one connection, so the
 // failure mode is a lost optimization rather than a wrong number. The request's own deadline bounds it too.
 func drainForReuse(body io.Reader) {
@@ -197,8 +203,10 @@ func drainForReuse(body io.Reader) {
 
 // newSenderTransport returns the one Transport a sender uses for every request it makes.
 //
-// A nil return means http.Client falls back to http.DefaultTransport, which is what GoDefaultConnPool
-// selects; that path is kept only so the before/after of introducing the pool can be measured.
+// A nil return means http.Client falls back to http.DefaultTransport, which is what SenderModeLegacy and
+// SenderModeDrainOnly select; that path is kept only so the before/after of introducing the pool can be
+// measured. It named a GoDefaultConnPool constant that does not exist in this package, which would send an
+// operator looking for a fourth mode beside the three the flag actually accepts.
 //
 // One Transport per sender, and one sender per replay, is what makes the pool a pool: a Transport owns the
 // idle-connection pool, so one built per request would pool nothing at all.
@@ -274,6 +282,21 @@ func (h *HTTPSender) Send(ctx context.Context, row TraceRow, sendUnixNanos int64
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
+		// Drained for the same reason the streaming path drains, and this is the path where it matters most.
+		//
+		// 429 is not an edge case here, it is the outcome the admission arms exist to produce: an arm that
+		// protects capacity does so BY rejecting, so the rejection-heavy runs are exactly the ones whose
+		// numbers the pool was introduced to clean up. Returning without reading the body marks the connection
+		// unusable, so every rejection cost a fresh handshake and put it back inside the latency the harness
+		// reports — reproducing, on the measured path, the instrument artifact drainForReuse's own comment
+		// says it removes. The 431-to-6 evidence quoted above cannot have covered this: every arm in that log
+		// recorded zero rejections.
+		//
+		// No ordering care is needed, unlike readStream: a non-200 result carries no EndUnixNanos, because a
+		// rejection is counted rather than timed, so there is no measurement here for the drain to fall into.
+		if h.drain {
+			drainForReuse(resp.Body)
+		}
 		kind := "http"
 		if resp.StatusCode == http.StatusTooManyRequests {
 			kind = "rejected"

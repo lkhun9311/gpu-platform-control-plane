@@ -152,9 +152,10 @@ func replay(args []string) error {
 	apiKeys := fs.String("api-keys", "", "comma-separated tenant=key pairs")
 	// The pool mode is a flag rather than a constant so the cost of pooling at all stays measurable.
 	//
-	// "go-default" reproduces the client this sender replaced, which used http.DefaultTransport and its two
-	// idle connections per host. It exists for a before/after comparison and for nothing else; a run that
-	// reports latency should always use the derived pool.
+	// "legacy" reproduces the client this sender replaced, which used http.DefaultTransport and its two idle
+	// connections per host. It exists for a before/after comparison and for nothing else; a run that reports
+	// latency should always use the derived pool. The name written here used to be "go-default", which the
+	// flag has never accepted, so an operator copying it out of this rationale got "unknown sender mode".
 	connMode := fs.String("conn-mode", bench.SenderModePooled,
 		"client connection handling: \"pooled\" (pool sized from the run, plus the drain that lets it be "+
 			"used), \"drain-only\", or \"legacy\" (the pre-fix client: http.DefaultTransport, no drain)")

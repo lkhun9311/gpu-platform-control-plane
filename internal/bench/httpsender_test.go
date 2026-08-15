@@ -114,6 +114,37 @@ var _ = Describe("HTTPSender", func() {
 		Expect(conns).To(Equal(1))
 	})
 
+	// The spec above pools only the path where the request succeeded, which is not the path these arms are
+	// about. An admission guard protects capacity BY returning 429, so a run that actually exercises the
+	// guard is mostly rejections — and the sender used to return on a non-200 without reading the body,
+	// which marks the connection unusable. Every rejection then cost a fresh handshake, inside the latency
+	// the harness reports: precisely the instrument artifact the pool was introduced to remove, present on
+	// the arm it was introduced to measure. Nothing caught it because the evidence trace behind the
+	// 431-to-6 claim recorded zero rejections in every arm.
+	//
+	// Mutation that turns this red: drop the drain from the non-200 branch of Send, and conns becomes 5.
+	It("reuses one connection across sequential rejections, not only across successful streams", func() {
+		var conns int
+		srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusTooManyRequests)
+			_, _ = fmt.Fprint(w, `{"error":{"code":"kv_cache_pressure"}}`)
+		}))
+		srv.Config.ConnState = func(_ net.Conn, state http.ConnState) {
+			if state == http.StateNew {
+				conns++
+			}
+		}
+		srv.Start()
+		defer srv.Close()
+
+		sender := NewHTTPSender(srv.URL, "m", nil, 5*time.Second, SenderConn{MaxIdleConnsPerHost: 8, DrainForReuse: true})
+		for range 5 {
+			res := sender.Send(context.Background(), TraceRow{Tenant: "standard-noisy", PromptLenChars: 10, MaxOutputTokens: 1}, time.Now().UnixNano())
+			Expect(res.ErrorKind).To(Equal("rejected"))
+		}
+		Expect(conns).To(Equal(1))
+	})
+
 	// The legacy mode is what the before/after arms of hack/m5b-gateway-path.sh replay, so it has to
 	// actually behave like the old client; a "before" that quietly carried the fix would make the whole
 	// comparison meaningless.
