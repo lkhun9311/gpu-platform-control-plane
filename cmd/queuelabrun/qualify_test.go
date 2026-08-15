@@ -108,7 +108,7 @@ func testReq(n int64) gpuRequirement {
 // would actually apply rather than a hand-built imitation of it.
 func testFixtures(t *testing.T, study queuelab.Study, variant string) *queuelab.FixtureSet {
 	t.Helper()
-	fs, err := queuelab.BuildFixtures(study, variant, "tx-1111", "r7", "queuelab-r7")
+	fs, err := queuelab.BuildFixtures(study, variant, queuelab.FixtureIdentity{TxID: "tx-1111", RunID: "r7", Namespace: "queuelab-r7"})
 	if err != nil {
 		t.Fatalf("build fixtures: %v", err)
 	}

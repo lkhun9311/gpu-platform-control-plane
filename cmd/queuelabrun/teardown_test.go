@@ -35,7 +35,7 @@ func testSeed() seed {
 // it happened to remember.
 func TestEnumerateNamesEveryFixtureTheBuilderCreates(t *testing.T) {
 	s := testSeed()
-	fs, err := queuelab.BuildFixtures(s.Study, s.Variant, s.TxID, s.RunID, s.Namespace)
+	fs, err := queuelab.BuildFixtures(s.Study, s.Variant, queuelab.FixtureIdentity{TxID: s.TxID, RunID: s.RunID, Namespace: s.Namespace})
 	if err != nil {
 		t.Fatalf("build fixtures: %v", err)
 	}

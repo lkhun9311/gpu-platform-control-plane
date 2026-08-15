@@ -40,10 +40,9 @@ const (
 
 // target is one object enumerate says must be deleted, and the phase it must be deleted in.
 type target struct {
-	Phase      teardownPhase
-	Kind       string // "Namespace", "ClusterQueue", "ResourceFlavor"
-	Name       string
-	Namespaced bool
+	Phase teardownPhase
+	Kind  string // "Namespace", "ClusterQueue", "ResourceFlavor"
+	Name  string
 }
 
 // seed is the durable record of what a run created, written before the run's first Create so a crash mid-run
@@ -93,12 +92,14 @@ func enumerate(s seed) ([]target, error) {
 		return nil, fmt.Errorf("seed has an empty Namespace")
 	}
 
-	fs, err := queuelab.BuildFixtures(s.Study, s.Variant, s.TxID, s.RunID, s.Namespace)
+	fs, err := queuelab.BuildFixtures(s.Study, s.Variant, queuelab.FixtureIdentity{
+		TxID: s.TxID, RunID: s.RunID, Namespace: s.Namespace,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("rebuild fixture names from seed: %w", err)
 	}
 
-	targets := []target{{Phase: phaseNamespace, Kind: "Namespace", Name: s.Namespace, Namespaced: false}}
+	targets := []target{{Phase: phaseNamespace, Kind: "Namespace", Name: s.Namespace}}
 
 	// LocalQueues are deliberately not enumerated: they are namespaced objects that live inside s.Namespace,
 	// so deleting the namespace already removes them. Listing them here as separate targets would make the
@@ -128,9 +129,9 @@ func enumerate(s seed) ([]target, error) {
 	// that were removable the whole time — which, because residue holds the worker, over-holds a GPU node.
 	// Revisit this when a node needs to come back sooner than a stuck namespace allows, not before.
 	for _, cq := range fs.ClusterQueue {
-		targets = append(targets, target{Phase: phaseClusterQueue, Kind: "ClusterQueue", Name: cq.GetName(), Namespaced: false})
+		targets = append(targets, target{Phase: phaseClusterQueue, Kind: "ClusterQueue", Name: cq.GetName()})
 	}
-	targets = append(targets, target{Phase: phaseResourceFlavor, Kind: "ResourceFlavor", Name: fs.Flavor.GetName(), Namespaced: false})
+	targets = append(targets, target{Phase: phaseResourceFlavor, Kind: "ResourceFlavor", Name: fs.Flavor.GetName()})
 
 	return targets, nil
 }

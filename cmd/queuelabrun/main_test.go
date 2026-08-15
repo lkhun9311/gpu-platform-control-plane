@@ -1353,7 +1353,7 @@ func TestRunTearsDownAroundAStaleFixtureFromAPreviousAttempt(t *testing.T) {
 	// The flavor is built by the real builder so its name is whatever teardown will enumerate, and it carries
 	// the variant this arm requires — so applyFixtures fails on the TRANSACTION check rather than on the
 	// variant check, which is the case that reaches teardown with a foreign object at one of its own names.
-	fs, err := queuelab.BuildFixtures(queuelab.StudyReclaim, variant, "tx-previous", "r7", "queuelab-r7")
+	fs, err := queuelab.BuildFixtures(queuelab.StudyReclaim, variant, queuelab.FixtureIdentity{TxID: "tx-previous", RunID: "r7", Namespace: "queuelab-r7"})
 	if err != nil {
 		t.Fatalf("build fixtures: %v", err)
 	}
@@ -1714,7 +1714,7 @@ func TestRunDoesNotStampWhenTheWorkerIsReleased(t *testing.T) {
 	if err != nil {
 		t.Fatalf("policy variant: %v", err)
 	}
-	fs, err := queuelab.BuildFixtures(queuelab.StudyReclaim, variant, "tx-previous", "r7", "queuelab-r7")
+	fs, err := queuelab.BuildFixtures(queuelab.StudyReclaim, variant, queuelab.FixtureIdentity{TxID: "tx-previous", RunID: "r7", Namespace: "queuelab-r7"})
 	if err != nil {
 		t.Fatalf("build fixtures: %v", err)
 	}
@@ -2616,7 +2616,7 @@ func TestRunTellsItsWriterTheWorkerWentBackWhenItDid(t *testing.T) {
 	if err != nil {
 		t.Fatalf("policy variant: %v", err)
 	}
-	fs, err := queuelab.BuildFixtures(queuelab.StudyReclaim, variant, "tx-previous", "r21", "queuelab-r21")
+	fs, err := queuelab.BuildFixtures(queuelab.StudyReclaim, variant, queuelab.FixtureIdentity{TxID: "tx-previous", RunID: "r21", Namespace: "queuelab-r21"})
 	if err != nil {
 		t.Fatalf("build fixtures: %v", err)
 	}

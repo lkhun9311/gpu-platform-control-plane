@@ -431,7 +431,7 @@ func TestEnsureNamespaceAdoptsOnlyItsOwnStamp(t *testing.T) {
 func TestApplyFixturesAdoptsOnlyItsOwnStamp(t *testing.T) {
 	newFixtures := func(t *testing.T) *queuelab.FixtureSet {
 		t.Helper()
-		fs, err := queuelab.BuildFixtures(queuelab.StudyReclaim, "Any", "tx-1", "r1", "queuelab-r1")
+		fs, err := queuelab.BuildFixtures(queuelab.StudyReclaim, "Any", queuelab.FixtureIdentity{TxID: "tx-1", RunID: "r1", Namespace: "queuelab-r1"})
 		if err != nil {
 			t.Fatalf("build fixtures: %v", err)
 		}

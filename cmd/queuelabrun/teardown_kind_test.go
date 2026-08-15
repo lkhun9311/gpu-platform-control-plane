@@ -109,7 +109,7 @@ func kindFixtures(ctx context.Context, t *testing.T, c client.Client, s seed) *q
 	if err := ensureNamespace(ctx, c, s.Namespace, s.TxID); err != nil {
 		t.Fatalf("ensure namespace %s: %v", s.Namespace, err)
 	}
-	fs, err := queuelab.BuildFixtures(s.Study, s.Variant, s.TxID, s.RunID, s.Namespace)
+	fs, err := queuelab.BuildFixtures(s.Study, s.Variant, queuelab.FixtureIdentity{TxID: s.TxID, RunID: s.RunID, Namespace: s.Namespace})
 	if err != nil {
 		t.Fatalf("build fixtures: %v", err)
 	}
@@ -514,7 +514,7 @@ func TestKindDeletePreconditionRefusesAStaleUID(t *testing.T) {
 	// fixture set here would make the correct-UID delete below block on the ordering this test is not about,
 	// and the takeover half would never be reached. The other targets simply read NotFound in recovery, which
 	// costs nothing: this test asks about identity, not about phases.
-	fs, err := queuelab.BuildFixtures(s.Study, s.Variant, s.TxID, s.RunID, s.Namespace)
+	fs, err := queuelab.BuildFixtures(s.Study, s.Variant, queuelab.FixtureIdentity{TxID: s.TxID, RunID: s.RunID, Namespace: s.Namespace})
 	if err != nil {
 		t.Fatalf("build fixtures: %v", err)
 	}
