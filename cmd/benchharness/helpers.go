@@ -265,10 +265,42 @@ func (p *stubProfile) applyModelPath(modelPath string) error {
 		return nil
 	}
 	u, err := url.Parse(modelPath)
-	if err != nil || u.Scheme != "stub" {
+	if err != nil {
+		// A parse failure and "not a stub URI" were one condition, which meant a malformed stub:// URI ran the
+		// defaults while the CR described the profile the author intended. They are separated by intent: a
+		// string that announces itself as a stub URI and then does not parse is a typo in the one field this
+		// backend can be configured through, and guessing is how a run measures a backend nobody asked for. A
+		// real serving runtime's storage URI still passes through untouched, because it does not claim to be
+		// one of ours.
+		if strings.HasPrefix(modelPath, "stub:") {
+			return fmt.Errorf("model path %q announces the stub scheme but does not parse: %w", modelPath, err)
+		}
 		return nil
 	}
-	q := u.Query()
+	if u.Scheme != "stub" {
+		return nil
+	}
+	// url.Values.Query() is not used, and that is the third way this function used to serve the defaults
+	// quietly: Query() DISCARDS anything it cannot parse and returns no error, so "tokens=%zz" arrives as no
+	// tokens parameter at all — past the unknown-key check below, because the key never appears — and the
+	// default stands. ParseQuery reports it.
+	q, qerr := url.ParseQuery(u.RawQuery)
+	if qerr != nil {
+		return fmt.Errorf("model path %q: its parameters do not parse: %w", modelPath, qerr)
+	}
+	// An unrecognised parameter is refused for the same reason an unparseable value is, and it is the likelier
+	// mistake of the two: "token=4" for "tokens=4" reads correctly to a human, is silently not a parameter this
+	// understands, and leaves the default in place. Nothing downstream can notice, because the default is a
+	// valid profile — the startup validation added beside this cannot catch it either. The refusal names what
+	// is accepted, since the whole point is that the author believed they had set something.
+	for key := range q {
+		switch key {
+		case "tokens", "ttft-ms", "itl-ms":
+		default:
+			return fmt.Errorf("model path %q: unknown parameter %q; the stub accepts tokens, ttft-ms and itl-ms",
+				modelPath, key)
+		}
+	}
 	// intParam returns the named query parameter, or def when it is absent.
 	//
 	// A present-but-unparseable value is an error rather than a silent fall back to the default, because a

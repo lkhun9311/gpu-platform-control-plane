@@ -315,3 +315,55 @@ func TestStubProfileValidationRefusesWhatWouldSilentlyChangeTheExperiment(t *tes
 		})
 	}
 }
+
+// The one field this backend can be configured through must not accept a typo silently.
+//
+// "token=4" for "tokens=4" reads correctly to a human, was not a parameter this understood, and left the
+// default in place — so the CR described one profile and the stub served another, with nothing downstream
+// able to notice because the default is itself a valid profile. validate() cannot catch it for that exact
+// reason. A malformed stub:// URI had the same shape: the parse error was folded into "not a stub URI" and
+// the defaults ran.
+//
+// The real-storage case is asserted alongside, because refusing everything unparseable would break the
+// passthrough this function exists to preserve — and that is the way to "fix" this that looks right and
+// stops a real serving runtime from starting.
+//
+// Mutations that turn this red: drop the unknown-parameter loop; or fold the parse error back into the
+// scheme check.
+func TestApplyModelPathRefusesATypoInsteadOfServingTheDefaults(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		path      string
+		wantErr   bool
+		wantTokns int
+	}{
+		{"a correct stub URI still applies", "stub://x?tokens=4&ttft-ms=7", false, 4},
+		{"a real storage URI still passes through", "s3://models/llama-3-8b", false, 8},
+		{"a typo in a parameter name", "stub://x?token=4", true, 0},
+		{"an unknown parameter beside correct ones", "stub://x?tokens=4&itl_ms=3", true, 0},
+		{"parameters that do not parse", "stub://x?tokens=%zz", true, 0},
+		// Two distinct failure points, and the earlier fixture only reached the second: "tokens=%zz" parses
+		// as a URL and fails in ParseQuery, while a bad host fails url.Parse itself. Without this row the
+		// parse-error branch had no test and folding it back into the scheme check killed nothing.
+		{"a URI announcing our scheme that does not parse at all", "stub://%zz", true, 0},
+		{"a real storage URI that does not parse is still not ours", "s3://%zz", false, 8},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := stubProfile{tokens: 8, ttft: 5 * time.Millisecond, itl: 2 * time.Millisecond}
+			err := p.applyModelPath(tc.path)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("%q was accepted and left the profile at %+v; the CR describes one backend and the "+
+						"stub serves another", tc.path, p)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("%q was refused: %v", tc.path, err)
+			}
+			if p.tokens != tc.wantTokns {
+				t.Fatalf("%q left tokens=%d, want %d", tc.path, p.tokens, tc.wantTokns)
+			}
+		})
+	}
+}
