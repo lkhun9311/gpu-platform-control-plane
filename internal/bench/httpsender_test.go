@@ -22,6 +22,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -156,6 +157,18 @@ var _ = Describe("HTTPSender", func() {
 			_, _ = fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"t\"}}]}\n\n")
 			f.Flush()
 			_, _ = fmt.Fprint(w, "data: [DONE]\n\n")
+			f.Flush()
+			// A remainder too large to have been buffered already, and it is what makes this spec
+			// deterministic rather than a coin flip.
+			//
+			// readStream breaks at [DONE] without consuming what follows, so whether the connection can be
+			// reused turns on whether the transport happened to hold the rest already. With only a two-byte
+			// tail that is genuinely a race with the kernel, and the spec failed 5 times in 12 plain runs
+			// observing conns == 1 — the erratic behaviour its own comment describes, asserted as though it
+			// were reliable. A tail this size cannot be sitting in a buffer, so an undrained body always
+			// leaves unread bytes and the connection is always discarded, which is the causal claim the
+			// before/after arms rest on.
+			_, _ = fmt.Fprint(w, ": "+strings.Repeat("x", 64<<10)+"\n\n")
 			f.Flush()
 		}))
 		srv.Config.ConnState = func(_ net.Conn, state http.ConnState) {
