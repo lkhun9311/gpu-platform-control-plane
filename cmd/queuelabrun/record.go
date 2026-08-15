@@ -77,9 +77,12 @@ const recordSchemaVersion = 6
 
 // runRecord is what a non-preview invocation leaves behind.
 //
-// It makes no experimental claim: it says an invocation happened, what disposition it reached, and carries
-// the raw events. Fixtures, environment, restoration audit and validity are later pieces and add their own
-// fields when they exist rather than being reserved here.
+// It made no experimental claim when it was first written — an invocation happened, this is the disposition
+// it reached, here are the raw events — and the environment, the restoration audit and the verdict were named
+// as later pieces that would add their own fields rather than be reserved here. All three have since landed
+// as Qualification, Window and Validity, which is why this type is now the thing a reader can judge a run
+// from. The fixtures are the one item on that old list still absent, and no field is reserved for them here
+// either — the same rule as before, that a block appears when something writes it.
 type runRecord struct {
 	SchemaVersion int `json:"schemaVersion"`
 	// Preview has no writer on purpose, and is NOT a reserved slot like the Flags field deleted before it: it
@@ -139,12 +142,11 @@ const (
 	// dispChecksPassed's reason, and it carries recordUnchecked alongside so the gap is in the document rather
 	// than in the reader's memory.
 	//
-	// NO INVOCATION OF THIS BUILD CAN WRITE IT, and that is worth stating rather than discovering. gateRefusal
-	// refuses every non-preview run, so a real record today is either a refusal or a preview, and a preview is
-	// verdictPreview by construction. This is not an unreached component, though: deriveValidity runs on every
-	// record written, and this is the one output value the gate currently withholds. It is written now because
-	// the verdict has to exist before the gate can be lifted — the alternative is deciding what "admissible"
-	// means in the same change that starts publishing under it.
+	// It became WRITABLE when gateRefusal came off, and the order of those two events is the point. The verdict
+	// existed, derived and tested, through every build that refused to run: deciding what "admissible" means in
+	// the same change that starts publishing under it is how a definition gets shaped to fit the first run that
+	// wants to pass. So no invocation before that change could write this value, and none since needs a new
+	// rule to.
 	verdictAdmissible = "admissible-under-implemented-gates"
 	// verdictRefused is a record whose own fields do not support one of the claims below. It always names at
 	// least one of them; a refusal that names nothing would tell a reader less than the disposition already
@@ -171,19 +173,26 @@ const (
 	failureContainment   = "cluster-not-left-as-this-run-found-it"
 )
 
-// recordUnchecked is what a record cannot speak for, and it is deliberately NOT unimplementedGates().
+// recordUnchecked is what a record cannot speak for, and the rule governing it is that every entry must be
+// verifiable in the code of the build that wrote the document.
 //
-// The first version of this block carried gateRefusal's list, on a DRY argument that inverts here. The two
-// consumers need different content. gateRefusal's list is a ROADMAP shown once on a terminal, and it may be
-// over-broad without costing anything — an item still named after it lands only delays the moment somebody
+// That rule reads as obvious and was learned the hard way, so the incident stays written down. This block
+// once carried the executable's own list of work still to do — the roadmap the refusal that used to stand in
+// spine.go printed for an operator — on a DRY argument that inverts here. A roadmap shown once on a terminal
+// may be over-broad at no cost: an item still named after the work lands only delays the moment somebody
 // narrows it. This list is a DURABLE STATEMENT about the document it sits in, read by someone who was not
-// there, and an over-broad entry there is simply false about the build that wrote it.
+// there and has only the file, and an over-broad entry there is not conservative, it is false.
 //
 // The live artifact is what settled it. A record carrying an observation block, a qualification, a window and
-// a derived verdict was written while asserting, inside itself, that this build has no "synchronized
-// list+watch with resourceVersion continuity" and no "validity-bearing run artifact". The first is the very
-// block printed beside it; the second is the block making the assertion. A reader following that list would
-// discount exactly the evidence this gate was written to add.
+// a derived verdict was written while asserting, inside itself, that this build had no "synchronized
+// list+watch with resourceVersion continuity" and no "validity-bearing run artifact". The first named the
+// very block printed beside it; the second named the block making the assertion. A reader following that list
+// would have discounted exactly the evidence the record was built to carry.
+//
+// The roadmap is gone now — every gate it named exists — and its removal is precisely why the rule has to be
+// stated here as a rule rather than as a contrast with something a reader could go and look at. The next
+// person tempted to widen this list "to be safe" has no other place to find out that safety runs the other
+// way in a durable document.
 //
 // So one entry, and only what is verifiable from the code.
 //
@@ -216,9 +225,8 @@ const (
 // Saying "the CRD path is not exercised" would now understate what the reading covers, and saying the path is
 // covered would be the overclaim this list was written after. The entry says which of the two it is.
 //
-// It is a function rather than a package-level slice for the reason unimplementedGates() is one: a slice
-// would be mutable from anywhere, and a caller that appended to what it was handed would edit what every
-// later record claims about itself.
+// It is a function rather than a package-level slice because a slice would be mutable from anywhere, and a
+// caller that appended to what it was handed would edit what every later record claims about itself.
 func recordUnchecked() []string {
 	return []string{
 		"termination canary coverage: the recorded canary probes a Pod built from the very template this " +
@@ -248,10 +256,11 @@ type validity struct {
 	// UnimplementedGates is what this build cannot check AT ALL, carried so that verdictAdmissible cannot be
 	// read as more than it says.
 	//
-	// It comes from recordUnchecked and NOT from gateRefusal's unimplementedGates(), which is a roadmap rather
-	// than a statement about a document; recordUnchecked's own comment argues why sharing one list makes the
-	// durable one false. The field name still fits what it now holds: a gate this build has not implemented is
-	// exactly a check this record cannot speak for, and the two coincide.
+	// Its only source is recordUnchecked, whose comment gives the rule: every entry must be verifiable in the
+	// code of the build that wrote this document, because a reader holding the file has nothing else to check
+	// it against. The field NAME predates that rule and is kept because it is on the wire — renaming it is a
+	// schema change, and it still fits what it holds, since a check this build cannot perform and a gate it has
+	// not implemented are the same thing described from the two ends.
 	UnimplementedGates []string `json:"unimplementedGates,omitempty"`
 }
 
@@ -284,9 +293,12 @@ func deriveValidity(o outcome, left []recordResidue, qual *qualification, win *o
 	if len(v.Failures) > 0 {
 		v.Verdict = verdictRefused
 	}
-	// Last and unconditional: -preview waives gateRefusal, so a preview's record must not be readable as an
-	// admissible run however well every other field came out. The failures are kept beside it rather than
-	// dropped, because a preview is also the mode an operator uses to find out what is wrong with a cluster.
+	// Last and unconditional, and it is the ONLY thing -preview now decides anywhere in this program: an
+	// invocation its author declared a smoke check must not be readable as an admissible run however well every
+	// other field came out. Being last is what makes that hold — a preview against a flawless cluster derives
+	// verdictAdmissible in the lines above, and this line is what refuses to publish it under that name. The
+	// failures are kept beside it rather than dropped, because a preview is also the mode an operator uses to
+	// find out what is wrong with a cluster.
 	if preview {
 		v.Verdict = verdictPreview
 	}
@@ -490,10 +502,11 @@ func residueForRecord(left []residue) []recordResidue {
 
 // previewRecord is a separate type, not runRecord with the events omitted.
 //
-// A preview runs without the validity gates, so its output must not be convertible into evidence. Because
-// queuelab.Reconstruct accepts an event slice, any field decodable into one is reconstructable regardless
-// of its name — so the preview branch has no such field at all, and the summary below is deliberately
-// lossy.
+// A preview's author declared its output uncountable, so that output must not be convertible into evidence
+// by anyone downstream who did not read the declaration. Because queuelab.Reconstruct accepts an event slice,
+// any field decodable into one is reconstructable regardless of its name — so the preview branch has no such
+// field at all, and the summary below is deliberately lossy. The declaration is thus enforced by the TYPE
+// rather than by the reader's good faith, which is what makes it survive a shell redirect.
 type previewRecord struct {
 	SchemaVersion int    `json:"schemaVersion"`
 	Preview       bool   `json:"preview"`
@@ -507,9 +520,11 @@ type previewRecord struct {
 	EventCount int    `json:"eventCount"`
 	Note       string `json:"note"`
 	// Residue is carried here too, unlike the ledger, because a preview runs the whole of run() — namespace
-	// and fixtures included — and is therefore the mode generating residue today. Withholding it would lose
-	// the residue for the only mode currently producing any. It is safe here for the same structural reason
-	// the type's own comment gives: recordResidue has no field a lifecycle ledger can be decoded out of.
+	// and fixtures included — and leaves exactly the same objects behind when teardown cannot finish.
+	// Withholding it would hide a held worker from the mode most likely to be the one that stranded it, since
+	// a smoke check is what an operator reaches for on a cluster they do not yet trust. It is safe here for the
+	// same structural reason the type's own comment gives: recordResidue has no field a lifecycle ledger can be
+	// decoded out of.
 	Residue []recordResidue `json:"residue,omitempty"`
 	// Qualification is carried here for the same reason Residue is, and is safe here for the same structural
 	// reason: it describes the machine, not the run's lifecycle, and has no field a ledger can be decoded out
@@ -535,9 +550,17 @@ type previewRecord struct {
 // previewNote is a fixed constant, never anything derived from the run.
 //
 // previewRecord has no field a ledger can be decoded out of, but Note is free text, so a future writer could
-// fold run data — a JSON-encoded ledger, most obviously — into it and hand a gateless run exactly the
+// fold run data — a JSON-encoded ledger, most obviously — into it and hand a preview exactly the
 // reconstructable evidence the type was shaped to deny it. A constant closes that second-order route with
 // something a test can check, which a formatted string could not be.
+//
+// The TEXT below is stale and is left standing on purpose. The gates it says were not enforced are enforced,
+// on a preview exactly as on a run — run() has never taken a preview flag, so they have been enforced since
+// each of them landed, and the sentence went stale then rather than when the refusal came off. Rewording it
+// changes what an invocation RECORDS, which is a decision about the archive's contents and not one to smuggle
+// into a change that lifts a refusal; its conclusion, that a preview is not evidence, remains true and is the
+// half a reader acts on. It is named here so the next reader meets it as a known defect rather than as a
+// description of the build.
 const previewNote = "preview: the validity gates were not enforced, so this is a smoke check and not evidence"
 
 // classified refuses a zero disposition, which is the one thing a record must never carry.
@@ -564,9 +587,10 @@ func classified(o outcome) outcome {
 
 // buildRecord chooses which record a given invocation may leave behind.
 //
-// This is the only place the preview and non-preview branches diverge, so the guarantee that a gateless run
+// This is the only place a preview and a run diverge in what they PERSIST, so the guarantee that a preview
 // cannot emit reconstructable evidence lives in one readable decision rather than being spread across the
-// call sites that write.
+// call sites that write. (reportRun diverges too, but only over what reaches a terminal, and it diverges the
+// same way for the same reason: a printed ledger reconstructs as well as a written one.)
 func buildRecord(o outcome, events []queuelab.LifecycleEvent, left []residue, qual *qualification,
 	win *ownershipWindow, obs *observationEvidence, runID, arm string, preview bool,
 	started, ended time.Time) any {

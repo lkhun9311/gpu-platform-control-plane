@@ -65,8 +65,12 @@ const (
 	// should retry. Where every leftover belongs to somebody else the worker does go back (residueHoldsWorker
 	// draws that line), and this disposition then reports the collision alone.
 	dispResidueLeft = disposition("residue-left")
-	// dispChecksPassed is deliberately not called "valid": four validity gates are unimplemented, so the
-	// strongest statement available is that the checks this build implements passed.
+	// dispChecksPassed is deliberately not called "valid", and it keeps that name now that the four gates it
+	// was named around all exist. The residual recordUnchecked names is real — nothing here travels the
+	// operator's reconcile loop, Kueue's admission or the Job controller — so the strongest statement available
+	// is still that the checks this build implements passed. A rename to "valid" on the day the last gate
+	// landed would have been the overclaim this spelling exists to refuse, and the wire value is read by
+	// decodeRunRecord besides.
 	dispChecksPassed = disposition("completed-implemented-checks-passed")
 	// dispUnclassified is not reachable by design; it exists so that a bug which makes it reachable says so.
 	//

@@ -78,85 +78,19 @@ func TestProtocolConstantsMatchTheDesignOfRecord(t *testing.T) {
 	}
 }
 
-func TestGateRefusalBlocksCountableResults(t *testing.T) {
-	if len(unimplementedGates()) == 0 {
-		t.Fatal("while gates are unimplemented the list must not be empty")
-	}
-	err := gateRefusal(false)
-	if err == nil {
-		t.Fatal("without the preview flag the runner must refuse to run")
-	}
-	// The refusal has to name what is missing, or the next person reads it as a transient failure and
-	// reruns until it passes.
-	for _, want := range unimplementedGates() {
-		if !strings.Contains(err.Error(), want) {
-			t.Fatalf("refusal must name the missing gate %q, got: %v", want, err)
-		}
-	}
-	if err := gateRefusal(true); err != nil {
-		t.Fatalf("the preview flag must allow a run: %v", err)
-	}
-}
-
-func TestUnimplementedGatesDoesNotNameADoneItem(t *testing.T) {
-	// A refusal that names an already-implemented item (non-zero exit on failure, which main already does)
-	// erodes the property the function exists for: a reader fixes the named thing and is still refused.
-	for _, g := range unimplementedGates() {
-		if strings.Contains(g, "non-zero exit") {
-			t.Fatalf("gate %q names the already-implemented non-zero exit behaviour", g)
-		}
-	}
-}
-
-// The ownership transaction (acquire, release, the four operator recovery modes) exists now, but its
-// continuity and audit halves do not, so the gate entry must be narrowed to name exactly those, not
-// deleted. Deleting the entry would still pass the "non-zero exit" substring check above, which is why
-// that test alone is not evidence the gate line survived; this one pins the list length and requires one
-// entry to still name the (now-narrowed) ownership gate.
-func TestUnimplementedGatesStillNamesTheNarrowedOwnershipGate(t *testing.T) {
-	gates := unimplementedGates()
-	if len(gates) != 4 {
-		t.Fatalf("want 4 unimplemented gates, got %d: %v", len(gates), gates)
-	}
-	found := false
-	for _, g := range gates {
-		if strings.Contains(g, "ownership") {
-			found = true
-			if !strings.Contains(g, "continuous") {
-				t.Fatalf("the ownership gate must be narrowed to continuous evidence, not something else: %q", g)
-			}
-		}
-	}
-	if !found {
-		t.Fatal("an unimplemented gate must still name ownership: the transaction is narrowed, not closed")
-	}
-}
-
-// This plan makes the run record durable, not valid: nothing in it proves a run's evidence, environment or
-// restoration audit are sound, so the artifact-validity gate must stay open, narrowed from a bare "validity
-// status" to naming exactly what is still missing. A test that only checked the list's length (above) would
-// pass unchanged if this entry were quietly reverted to its old wording, which is why the text is pinned here
-// too.
-func TestUnimplementedGatesStillNamesTheValidityBearingArtifactGate(t *testing.T) {
-	gates := unimplementedGates()
-	found := false
-	for _, g := range gates {
-		if strings.Contains(g, "run artifact with a validity status") {
-			t.Fatalf("the old bare validity-status wording must be replaced, not left alongside the narrowed one: %q", g)
-		}
-		if strings.Contains(g, "validity-bearing run artifact") {
-			found = true
-			for _, want := range []string{"evidence", "environment", "restoration audit"} {
-				if !strings.Contains(g, want) {
-					t.Fatalf("the validity-bearing artifact gate must name %q, got %q", want, g)
-				}
-			}
-		}
-	}
-	if !found {
-		t.Fatal("an unimplemented gate must still name a validity-bearing run artifact: the record is durable, not validity-bearing")
-	}
-}
+// The four tests that stood here — TestGateRefusalBlocksCountableResults and the three that pinned
+// unimplementedGates()' entries — went with the functions they tested, and what they were protecting did not
+// go with them.
+//
+// They existed to stop a list of missing work from decaying: from going empty, from naming something already
+// built, from being quietly widened back after somebody narrowed it. That list is now recordUnchecked(), it
+// is persisted into every record rather than printed once, and the successor to all four is
+// TestTheRecordsUncheckedListNamesTheResidualAndNothingWider in record_test.go, which applies the same three
+// pressures to it. Deleting these without a successor would have left the surviving list guarded only by
+// tests that check it names the canary, which an entry narrowed to a single vague word would satisfy.
+//
+// Nothing replaces the refusal itself, because there is nothing left to refuse: what a run may claim is
+// decided after the fact by deriveValidity, from fields the run wrote.
 
 func TestRequireRunIDRejectsOnlyEmpty(t *testing.T) {
 	// The flag used to default to "r1", which made colliding with a previous run's cluster-scoped fixtures

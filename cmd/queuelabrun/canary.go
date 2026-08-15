@@ -82,7 +82,9 @@ const (
 	canarySchema = 2
 
 	// canaryNamespace holds the probe Pods. It is deliberately not a run namespace: this is not a run, it
-	// creates no fixtures, and it must be able to execute while gateRefusal refuses every run.
+	// creates no fixtures, and it must be able to execute on a worker no run can be allowed on yet — a node
+	// with no canary is a node qualifyWorker refuses, so a canary taken inside a run namespace could never be
+	// taken on the node that needs one.
 	canaryNamespace = "queuelab-canary"
 
 	// canaryArm is what the ownership journal records for a canary's transaction, so an operator running

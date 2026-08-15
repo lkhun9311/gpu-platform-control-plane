@@ -372,8 +372,8 @@ func TestRunSetsADispositionOnTheConnectAndAcquisitionPaths(t *testing.T) {
 }
 
 // The preview note is the one free-text field in either record, so a future writer could fold run data into
-// it and hand a gateless run the reconstructable evidence previewRecord has no field for. It must therefore
-// be the same constant whatever the run did.
+// it and hand a preview the reconstructable evidence previewRecord has no field for. It must therefore be the
+// same constant whatever the run did.
 func TestPreviewRecordNoteIsAConstantNotDerivedFromTheRun(t *testing.T) {
 	quiet := buildRecord(outcome{Disposition: dispChecksPassed}, nil, nil, nil, nil, nil, "r1", "A-honor", true,
 		time.Now(), time.Now()).(previewRecord)
@@ -601,9 +601,10 @@ func TestReportRunNamesAnUnclassifiedOutcomeOnStderrToo(t *testing.T) {
 	}
 }
 
-// previewRecord carries a count and no events so a gateless run cannot emit anything reconstructable, and
-// a printed ledger reconstructs exactly as well as a written one: `queuelabrun -preview ... > ledger.txt`
-// would otherwise produce the artifact the record's whole shape exists to deny.
+// previewRecord carries a count and no events so an invocation declared uncountable cannot emit anything
+// reconstructable, and a printed ledger reconstructs exactly as well as a written one:
+// `queuelabrun -preview ... > ledger.txt` would otherwise produce the artifact the record's whole shape
+// exists to deny.
 func TestReportRunWithholdsTheLedgerFromAPreview(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	events := []queuelab.LifecycleEvent{{ElapsedNs: 1, Kind: "Pod", Type: queuelab.EventPodReady, Job: "a1"}}
@@ -2328,11 +2329,11 @@ func TestAPassingRunRecordsTheObservationAndCallsItselfAdmissible(t *testing.T) 
 		t.Fatalf("a run with every implemented gate's evidence intact is %q, got %+v:\n%s",
 			verdictAdmissible, got.Validity, b)
 	}
-	// Exactly recordUnchecked, not gateRefusal's roadmap. Something is still genuinely outside what this build
-	// can check — the canary probes a Pod it creates itself, so the MLTrainingJob-to-Job-to-Pod path a run's
-	// workload actually takes is not what was qualified — and the record has to keep saying so. What it must
-	// not do is assert this build lacks the very gates whose evidence it carries, which tells its reader to
-	// discount that evidence.
+	// Exactly recordUnchecked, and not a roadmap of work still to do. Something is still genuinely outside
+	// what this build can check — the canary probes a Pod it creates itself, so the MLTrainingJob-to-Job-to-Pod
+	// path a run's workload actually takes is not what was qualified — and the record has to keep saying so.
+	// What it must not do is assert this build lacks the very gates whose evidence it carries, which tells its
+	// reader to discount that evidence.
 	if !reflect.DeepEqual(got.Validity.UnimplementedGates, recordUnchecked()) {
 		t.Fatalf("the record's unchecked list is %v, want exactly %v",
 			got.Validity.UnimplementedGates, recordUnchecked())

@@ -59,17 +59,23 @@ func main() {
 		out = flag.String("out", "", "path to write this invocation's run record; an existing file there is "+
 			"replaced, so a fixed path loses the previous run's record (default: a per-invocation name in the "+
 			"working directory, which never collides)")
-		preview = flag.Bool("preview", false, "run without the validity gates; output is a smoke check, not evidence")
+		// The help text no longer says "run without the validity gates": every gate runs either way, and a flag
+		// described as waiving checks it does not waive is how an operator learns to reach for it when a real
+		// gate refuses them. What it actually does is declare the output uncountable — the record carries a
+		// count instead of the ledger and can never be admissible — which is a smaller and true claim.
+		preview = flag.Bool("preview", false, "declare this invocation a smoke check: it runs and checks exactly "+
+			"as a real run does, but withholds the ledger and its record can never be admissible")
 
 		// Four of these five modes recover from a crash: they inspect, release, or break the Node marker this
 		// package's transaction leaves behind. The fifth qualifies the worker. They are flags rather than
 		// subcommands only because this CLI was already flag-shaped; see dispatchOperatorMode for why they all
-		// run before the gate.
+		// run before anything a run needs.
 		// -inspect-worker names no node of its own: it reads -worker like every other mode here, so that every
 		// command this tool prints as a hint is runnable exactly as printed, whichever mode it points at.
 		inspectWorkerFlag = flag.Bool("inspect-worker", false, "read-only: report -worker's ownership state and exit")
 		// Not a recovery mode, but it belongs with them for the same reason they are here: it is not a run, and
-		// it has to work while the gate refuses every run — no run can be qualified until this has been taken.
+		// it has to work on a node no run can be allowed on — qualifyWorker refuses a worker with no recorded
+		// canary, so a canary that could only be taken by a run could never be taken at all.
 		terminationCanaryFlag = flag.Bool("termination-canary", false,
 			"qualify -worker for the one thing the arms differ by: that a Pod asked to stop actually stops. "+
 				"Records the result on the Node; runs consult it and refuse without one")
@@ -95,8 +101,13 @@ func main() {
 	// version of this that returned would let a refused invocation fall through into a run holding a
 	// zero-valued arm, namespace or horizon.
 	//
-	// The caller prints its own message rather than having this do it, because gateRefusal's is a multi-line
-	// explanation that must not be squeezed behind the "ERROR:" prefix the one-line refusals carry.
+	// The caller prints its own message rather than having this do it. That used to be forced by gateRefusal,
+	// whose multi-line explanation could not be squeezed behind the "ERROR:" prefix; with it gone the five
+	// remaining messages are uniform one-liners, so the split is now a redundancy rather than a requirement.
+	// It is left where it is because folding it in here would rewrite the refusal path in the change that
+	// lifts a refusal, and those two edits must be separately reviewable. Whichever end it lives at, the
+	// ordering is what matters: the cause reaches the operator BEFORE the record is attempted, so a write that
+	// fails cannot also swallow the reason the invocation was refused.
 	refuseInvocation := func(err error) {
 		rec := buildRecord(outcome{Disposition: dispRefusedBeforeCluster, Reason: err.Error()},
 			nil, nil, nil, nil, nil, recordRunID(*runID), *armFlag, *preview, started, time.Now())
@@ -123,8 +134,9 @@ func main() {
 		refuseInvocation(err)
 	}
 
-	// None of these modes is a run, so they dispatch before the gate and work even while the gate refuses every
-	// run; each exits directly with its own status rather than falling through to run().
+	// None of these modes is a run, so they dispatch before anything a run needs and each exits directly with
+	// its own status rather than falling through to run(). Dispatching first is what makes them usable on a
+	// worker no run can currently be allowed on — a node held by a dead process, or one with no canary yet.
 	// Fields are named, not positional, so the flag that fills each one is visible at the call site.
 	if fired, err := dispatchOperatorMode(newClusterClient, operatorModeArgs{
 		Arm:    *armFlag,
@@ -160,12 +172,6 @@ func main() {
 		os.Exit(0)
 	}
 
-	// The gate runs before the arm and namespace are even parsed, so a refused run cannot mutate the
-	// cluster or create fixtures through some later code path that forgets to check it.
-	if err := gateRefusal(*preview); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		refuseInvocation(err)
-	}
 	if err := requireRunID(*runID); err != nil {
 		fmt.Fprintln(os.Stderr, "ERROR:", err)
 		refuseInvocation(err)
@@ -250,12 +256,14 @@ func reportRun(stdout, stderr io.Writer, write recordWriter, r runReport) int {
 			fmt.Fprint(stdout, "\n"+queuelab.RenderResult(*r.Result))
 		}
 		fmt.Fprintf(stdout, "\nledger: %d events\n", len(r.Events))
-		// A preview record deliberately carries a count and no events, so that a run without the validity
-		// gates behind it cannot emit anything reconstructable. Printing the ledger would hand back exactly
-		// that through a shell redirect, which makes the record's structural guarantee decorative, so the
-		// events are withheld from a preview's output for the same reason they are withheld from its record.
+		// A preview record deliberately carries a count and no events, so that an invocation its own author
+		// declared uncountable cannot emit anything reconstructable. Printing the ledger would hand back
+		// exactly that through a shell redirect, which makes the record's structural guarantee decorative, so
+		// the events are withheld from a preview's output for the same reason they are withheld from its
+		// record. The withheld line no longer claims the gates were skipped — they were not, and a preview
+		// whose stated reason for withholding is untrue invites the reader to discount the withholding too.
 		if r.Preview {
-			fmt.Fprintln(stdout, "  (withheld: a preview runs without the validity gates, and a printed "+
+			fmt.Fprintln(stdout, "  (withheld: this invocation was declared a smoke check, and a printed "+
 				"ledger reconstructs just as well as a written one)")
 		} else {
 			printEvents(stdout, r.Events)
@@ -325,10 +333,11 @@ type clusterClientFunc func() (client.WithWatch, error)
 
 // dispatchOperatorMode runs at most one of the five non-run modes and reports whether one was requested.
 //
-// None of them is a run, so the caller must invoke this before gateRefusal: an operator needs -inspect-worker
-// and the release/quarantine modes to work precisely while the gate refuses every run, otherwise a crashed
-// process could orphan a Node with no in-tool way to see or clear it — and the termination canary has to run
-// then too, since it is what a run has to consult before it can be allowed to count at all. All argument
+// None of them is a run, so the caller must invoke this before anything a run needs: an operator needs
+// -inspect-worker and the release/quarantine modes to work precisely on a worker no run can be allowed on,
+// otherwise a crashed process could orphan a Node with no in-tool way to see or clear it — and the
+// termination canary has to run there too, since qualifyWorker refuses a node that has no recorded canary,
+// so a canary that could only be taken by a run would be unreachable on every node needing one. All argument
 // validation happens in decideOperatorMode, entirely before connect below: a malformed invocation must be
 // refused before it needs a kubeconfig, not after failing to reach one.
 func dispatchOperatorMode(connect clusterClientFunc, args operatorModeArgs) (fired bool, err error) {
@@ -399,8 +408,11 @@ func newClusterClient() (client.WithWatch, error) {
 
 // previewBanner marks preview output so it cannot be mistaken for a countable result.
 //
-// The validity gates are what make a run's output trustworthy, and preview mode runs without them, so the
-// banner has to bracket the result rather than appear only once where scrolled-past output could miss it.
+// A preview is not a weaker run — it executes the same gates and records the same evidence — it is an
+// invocation whose author declared in advance that its output is not to be counted, and that declaration is
+// the only thing separating the two on a terminal. So the banner has to bracket the output rather than appear
+// once where scrolled-past text could miss it: the reader deciding whether to quote a number is the one who
+// has to see it.
 const previewBanner = "==================== PREVIEW: SMOKE CHECK ONLY, NOT EVIDENCE ===================="
 
 // teardownBudget bounds one run's teardown, and it is a constant for the same reason the horizon is: the
@@ -838,10 +850,10 @@ func run(ctx context.Context, connect clusterClientFunc, arm queuelab.Arm, runID
 	// were never created on the refusal path, which observes them absent and reports no residue; the gain is
 	// that an edit which later adds a Create to this stretch cannot fall outside the containment by accident.
 	//
-	// It runs for a preview too, because run() takes no preview flag and should not: -preview waives the
-	// gateRefusal that says the validity gates are unimplemented, and this is not one of those gates. It
-	// protects the premise a measurement is about rather than the admissibility of its result, and a smoke
-	// check of a machine that is not the one under test is not a weaker smoke check but a different one.
+	// It runs for a preview too, because run() takes no preview flag and should not: -preview decides how the
+	// invocation's output is LABELLED, never what it does on the cluster. This protects the premise a
+	// measurement is about rather than the admissibility of its result, and a smoke check of a machine that is
+	// not the one under test is not a weaker smoke check but a different one.
 	// The trace is passed alongside the fixtures because the quota sum is only one of the two lower bounds:
 	// a Pod is scheduled whole onto one node, so a single row larger than the node advertises can never be
 	// scheduled at all no matter how much aggregate quota the queues hold. See requiredGPU.

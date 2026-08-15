@@ -499,12 +499,12 @@ func TestARecordWithNoQualificationCarriesNoQualificationKey(t *testing.T) {
 		t.Fatalf("encode: %v", err)
 	}
 	// The bare WORD, not merely the JSON key, and it is back to the bare word after a round trip through the
-	// weaker check. When the validity block carried gateRefusal's roadmap, one of its entries read "environment
-	// qualification (capacity, foreign GPU pods, termination canary)" and this check fired on a record that
-	// correctly wrote no qualification — so it was narrowed to the key, losing the reach that catches the word
-	// appearing anywhere at all. recordUnchecked names the canary without the word, so the strong check stands
-	// again; a future entry that reintroduces it will fail here and should be reworded rather than the check
-	// weakened a second time.
+	// weaker check. When the validity block carried the executable's roadmap of work still to do, one of its
+	// entries read "environment qualification (capacity, foreign GPU pods, termination canary)" and this check
+	// fired on a record that correctly wrote no qualification — so it was narrowed to the key, losing the reach
+	// that catches the word appearing anywhere at all. recordUnchecked names the canary without the word, so
+	// the strong check stands again; a future entry that reintroduces it will fail here and should be reworded
+	// rather than the check weakened a second time.
 	if strings.Contains(string(b), "qualification") {
 		t.Fatalf("a run that never qualified its worker wrote a qualification anyway:\n%s", b)
 	}
@@ -961,9 +961,13 @@ func TestValidityNamesTheClaimTheFieldsActuallyFail(t *testing.T) {
 	}
 }
 
-// A preview waives gateRefusal, so its record must be readable as neither a pass nor a failure of gates it
-// never faced — however well every other field came out. This is the same guarantee previewRecord's missing
-// events field provides, applied to the field a reader classifies on.
+// A preview's author declared its output uncountable in advance, so its record must not be readable as a pass
+// however well every other field came out. This is the same guarantee previewRecord's missing events field
+// provides, applied to the field a reader classifies on.
+//
+// This became the ONLY thing -preview decides when gateRefusal was removed, which raises what this test is
+// worth rather than lowering it: a preview now runs every gate a run does, so its record differs from an
+// admissible one in this field alone, and the `if preview` branch below is the whole of the distinction.
 //
 // Mutation that turns this red: drop the `if preview` branch from deriveValidity. A preview against a clean
 // cluster then writes a record that says it is admissible, which is the one thing -preview exists to stop.
@@ -1118,20 +1122,26 @@ func TestDecodeRunRecordRefusesAnAdmissibleVerdictHidingALossBehindADuplicateStr
 	}
 }
 
-// The record's statement about what it could not check must describe the build that wrote it, not the
-// roadmap gateRefusal shows an operator once on a terminal.
+// The record's statement about what it could not check must describe the build that wrote it, and never the
+// roadmap of work still to do that the executable's removed refusal used to print for an operator.
 //
-// This is the defect the first round of this gate shipped and a live run exposed: the block carried
-// unimplementedGates(), so a record holding an observation, a qualification, a window and a derived verdict
-// asserted inside itself that this build had no "synchronized list+watch with resourceVersion continuity"
-// and no "validity-bearing run artifact" — the block printed beside it, and the block making the assertion.
-// A reader following that list would discount exactly the evidence this gate exists to add.
+// This is the defect the first round of this gate shipped and a live run exposed: the block carried that
+// roadmap, so a record holding an observation, a qualification, a window and a derived verdict asserted
+// inside itself that this build had no "synchronized list+watch with resourceVersion continuity" and no
+// "validity-bearing run artifact" — the block printed beside it, and the block making the assertion. A reader
+// following that list would discount exactly the evidence this gate exists to add.
 //
 // The canary is asserted as PRESENT as well, because a list narrowed to nothing would pass a "does not name
 // the implemented gates" check while quietly claiming this build checks everything. Something is genuinely
 // missing and the record has to keep saying so.
 //
-// Mutation that turns this red: put `unimplementedGates()` back in deriveValidity.
+// The three implemented gates below are still spelled the way the roadmap spelled them even though nothing
+// prints that wording any more, and that is on purpose: those strings are what a reverted or re-copied list
+// would contain, so pinning the old spelling is what keeps this test able to catch the reversion.
+//
+// Mutation that turns this red: make deriveValidity fill UnimplementedGates from a list naming the gates
+// rather than from recordUnchecked — restoring the roadmap the removed refusal used to print is the concrete
+// form of that, and it fails all three clauses at once.
 func TestTheRecordsUncheckedListDescribesTheBuildNotTheRoadmap(t *testing.T) {
 	rec, ok := buildRecord(outcome{Disposition: dispChecksPassed}, nil, nil, testQualification(), testWindow(),
 		testObservation(), "r7", "A-honor", false, time.Now(), time.Now()).(runRecord)
@@ -1150,14 +1160,65 @@ func TestTheRecordsUncheckedListDescribesTheBuildNotTheRoadmap(t *testing.T) {
 		t.Fatalf("the record claims this build cannot check what the run it describes was refused or qualified "+
 			"on: %q", got)
 	}
-	// Every gate this build DOES implement, named by the thing a reader would look for. Each of these appears
-	// in unimplementedGates(), so a record repeating that list fails on all three at once.
+	// Every gate this build DOES implement, named by the thing a reader would look for and spelled as the
+	// removed roadmap spelled it, so a record repeating that list fails on all three at once.
 	for _, implemented := range []string{"resourceVersion continuity", "validity-bearing run artifact",
 		"continuous ownership evidence"} {
 		if strings.Contains(got, implemented) {
 			t.Fatalf("the record claims this build lacks %q while carrying that gate's own evidence beside "+
 				"the claim; a reader is being told to discount the block the claim is written in: %q",
 				implemented, got)
+		}
+	}
+}
+
+// The successor to the four tests deleted from spine_test.go with gateRefusal and unimplementedGates().
+//
+// Those four kept a list of missing work from decaying in three specific ways — going empty, naming something
+// already built, being widened back after somebody narrowed it — and the list they guarded no longer exists.
+// The list that survives is recordUnchecked(), which is strictly more consequential: the old one was printed
+// once on a terminal and could be over-broad at no cost, while this one is persisted into every record ever
+// written and read by someone who has only the file. So the same three pressures move here, applied to the
+// stronger list.
+//
+// The test asserts on recordUnchecked() directly rather than through a record, unlike the test above it, and
+// the two are not redundant. That one proves the list REACHES the document; this one proves the list still
+// SAYS the four things the residual consists of. Either alone leaves a hole: a correct list that buildRecord
+// dropped, or a faithfully persisted list narrowed to a sentence that means nothing.
+//
+// The clauses are exactly the residual the canary gate does not close, and each names a distinct thing a
+// reader would otherwise assume was covered — that a run's Pods travel MLTrainingJob, Kueue admission and the
+// Job controller, and that the template probed is the one this binary renders rather than the one the
+// operator image on the cluster does. Truncating any one of them is an overclaim about coverage, which is the
+// direction this whole list exists to guard.
+//
+// Mutation that turns this red: have recordUnchecked() return nil, or drop any one of the four clauses below
+// from its entry — for instance the last, on the grounds that the template is keyed and probed and therefore
+// "covered", which is precisely the overclaim the entry was narrowed twice to avoid making.
+func TestTheRecordsUncheckedListNamesTheResidualAndNothingWider(t *testing.T) {
+	unchecked := recordUnchecked()
+	// One entry, because that is what is verifiable from the code. A second would have to be justified the same
+	// way, and a list that grew without one is the roadmap creeping back in.
+	if len(unchecked) != 1 {
+		t.Fatalf("want exactly 1 unchecked entry, got %d: %v", len(unchecked), unchecked)
+	}
+	entry := unchecked[0]
+	if strings.TrimSpace(entry) == "" {
+		t.Fatal("a record that claims to name what it cannot check and names nothing claims this build " +
+			"checks everything, which is the strongest thing in the file and the least supported")
+	}
+	// The four clauses of the residual. Each is something a run does and the canary does not, so each is a
+	// sentence a reader needs in order to size what the reading covers. "Job controller" rather than the bare
+	// "Job", because that is a substring of MLTrainingJob above and would be satisfied by the clause before it.
+	for _, want := range []string{
+		"MLTrainingJob",  // nothing here submits one, so the reconcile loop is not travelled
+		"Kueue",          // and therefore nothing is admitted
+		"Job controller", // and none creates the Pod, so it carries no owner reference and no Job labels
+		"THIS BINARY",    // and the template is rendered here, not by the operator image on the cluster
+	} {
+		if !strings.Contains(entry, want) {
+			t.Fatalf("the residual no longer names %q, so a reader is told the reading covers a path it does "+
+				"not travel: %q", want, entry)
 		}
 	}
 }

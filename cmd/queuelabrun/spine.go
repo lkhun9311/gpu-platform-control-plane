@@ -161,8 +161,9 @@ type operatorModeArgs struct {
 	Inspect bool
 
 	// TerminationCanary is the one mode here that is not recovery. It sits with them because it is not a run
-	// either — it produces no result, leaves no run record, and above all it has to be runnable while
-	// gateRefusal refuses every run, since a run cannot be qualified until this has been taken.
+	// either — it produces no result, leaves no run record, and above all it has to be runnable on a worker no
+	// run can yet be allowed on: qualifyWorker refuses a node with no recorded canary, so if taking one required
+	// a run the two would deadlock on each other.
 	TerminationCanary bool
 
 	ReleaseStale bool
@@ -327,39 +328,21 @@ func decideOperatorMode(a operatorModeArgs) (operatorMode, error) {
 	}
 }
 
-// unimplementedGates names the validity work this executable does not yet have.
+// gateRefusal and unimplementedGates are gone, and what they stood for moved into the record rather than
+// disappearing.
 //
-// The ownership transaction itself now exists — acquire, release, and the operator modes in
-// ownership_apply.go that recover a Node after a crash — so that line is narrowed here rather than
-// deleted: what remains is proving the exclusivity held for the whole run, not just at acquire and
-// release. Continuous evidence via a Node watch (2c) and a restoration audit recorded in the run artifact
-// (2d) are still open pieces.
+// gateRefusal refused every non-preview invocation and named four missing gates as its reason. All four now
+// exist and run on every invocation, preview or not: the streams are opened with resourceVersion continuity
+// and their endings recorded, the worker is qualified against this run's own fixtures and against a recorded
+// termination canary, the exclusive hold is watched continuously and audited across the release, and the
+// record carries all three plus a verdict derived from those fields. A refusal whose stated reason has become
+// false is worse than no refusal at all: it teaches its reader that the tool refuses for reasons that are not
+// true, which is how the next real refusal gets waived by reflex.
 //
-// It exists so the refusal below can be specific: an unexplained failure gets rerun until it passes, while
-// a refusal that names what is missing gets fixed.
-func unimplementedGates() []string {
-	return []string{
-		"synchronized list+watch with resourceVersion continuity",
-		"environment qualification (capacity, foreign GPU pods, termination canary)",
-		"continuous ownership evidence (Node watch) and restoration audit in the run artifact",
-		"validity-bearing run artifact (evidence, environment and restoration audit)",
-	}
-}
-
-// gateRefusal stops a run that would produce something a reader could mistake for a result.
+// What did NOT move here is the judgement. Nothing decides up front whether an invocation may count — the
+// record decides, afterwards, from what the run actually observed, which is why deriveValidity reads only
+// persisted fields. A flag could never have made that judgement anyway; it could only have deferred it.
 //
-// The measurement layer is correct and the protocol is now wired, but the gates that make a run's evidence
-// admissible are later pieces. A previous published result was wrong precisely because a run that looked
-// fine was allowed to count, so the executable refuses by default and requires an explicit preview flag
-// whose output is labelled as not a result.
-func gateRefusal(preview bool) error {
-	if preview {
-		return nil
-	}
-	msg := "refusing to run: the validity gates are not implemented yet, so this run cannot count as a result.\nmissing:"
-	for _, g := range unimplementedGates() {
-		msg += "\n  - " + g
-	}
-	msg += "\npass -preview to run anyway; its output is a smoke check, not evidence."
-	return fmt.Errorf("%s", msg)
-}
+// The record's own statement of what it cannot speak for is recordUnchecked, in record.go, and it is
+// deliberately not a copy of the roadmap this refusal used to print. See its comment for why one list could
+// not serve both.
