@@ -231,7 +231,7 @@ func verifyObserved(obs ownership, j journal) error {
 
 // verifyReleased requires proof our markers are gone before release is trusted, in the same bounded-retry
 // shape as verifyAcquired.
-func verifyReleased(ctx context.Context, c client.Client, nodeName string, j journal) error {
+func verifyReleased(ctx context.Context, c client.Client, nodeName string, j journal) (ownership, error) {
 	var n corev1.Node
 	var err error
 	for attempt := 0; attempt < verifyAttempts; attempt++ {
@@ -243,14 +243,18 @@ func verifyReleased(ctx context.Context, c client.Client, nodeName string, j jou
 		}
 		select {
 		case <-ctx.Done():
-			return fmt.Errorf("verify release of node %s cancelled: tx %s: %w", nodeName, j.TxID, ctx.Err())
+			return ownership{}, fmt.Errorf("verify release of node %s cancelled: tx %s: %w", nodeName, j.TxID, ctx.Err())
 		case <-time.After(verifyInterval):
 		}
 	}
 	if err != nil {
-		return fmt.Errorf("verify release of node %s: %w", nodeName, err)
+		return ownership{}, fmt.Errorf("verify release of node %s: %w", nodeName, err)
 	}
-	return verifyClean(observe(&n), j)
+	obs := observe(&n)
+	// The observation is returned, not just the verdict, because "our markers are gone" and "the node is
+	// free" are different facts and one caller below needs to tell them apart. verifyClean deliberately
+	// answers only the first.
+	return obs, verifyClean(obs, j)
 }
 
 // verifyClean is release's counterpart to verifyObserved: it proves THIS transaction's markers are gone,
@@ -754,7 +758,7 @@ func releaseAcquired(ctx context.Context, c client.Client, j journal) (releaseAc
 			// acquireWorker has verifyAcquired for exactly this reason: a status code proves the API server
 			// accepted the request, not that what it committed is what a subsequent reader will see. Release
 			// now follows the same discipline and reads back before letting the caller trust restoration.
-			if verr := verifyReleased(ctx, c, j.Node, j); verr != nil {
+			if _, verr := verifyReleased(ctx, c, j.Node, j); verr != nil {
 				return releaseRestore, fmt.Errorf("release node %s: patch succeeded but restoration did not verify: %w",
 					j.Node, verr)
 			}
@@ -776,14 +780,34 @@ func releaseAcquired(ctx context.Context, c client.Client, j journal) (releaseAc
 			// another transaction having acquired in the meantime, which is verifyClean's whole contract and
 			// is an ordinary race rather than a restoration failure.
 			//
-			// A 409 cannot reach here, which is what keeps this narrow: had a concurrent -release-stale or
-			// -force-release removed our markers before this patch, it would have moved the resourceVersion and
-			// the optimistic lock would have failed with a conflict, sending us round the loop to a fresh
-			// decideRelease that sees the loss. So a clean read-back here is our own write far more plausibly
-			// than somebody else's.
-			if verr := verifyReleased(ctx, c, j.Node, j); verr != nil {
+			// The 409 argument that used to end this comment does not hold, and it is worth spelling out why
+			// rather than deleting quietly. It ran: a concurrent -release-stale or -force-release would have
+			// moved the resourceVersion, the optimistic lock would have conflicted, and we would be in the
+			// IsConflict arm instead — so a clean read-back here is our own write. That inference needs the
+			// request to have REACHED the apiserver, and this arm exists precisely for the case where it may
+			// not have. If the patch never landed there was no opportunity for a 409, so the absence of one
+			// proves nothing about who removed our markers.
+			//
+			// So the read-back is split by what it finds, which lets the two comments above compose instead of
+			// contradicting each other. A node with no journal at all is the case this arm was written for:
+			// nobody holds it, restoration is real however it happened, and invalidating would be the false
+			// invalidation the lab pays for in runs. A node held by ANOTHER transaction is not that case. It
+			// is either our write landing and somebody acquiring after, or our write vanishing and somebody
+			// force-releasing us mid-run, and nothing on the node distinguishes them — which is the definition
+			// releaseOwned already gives for invalidating: the run lost exclusive use somewhere it cannot
+			// bound. Reporting a clean release there would be the "looked fine, was allowed to count" outcome
+			// the whole transaction exists to stop.
+			obs, verr := verifyReleased(ctx, c, j.Node, j)
+			if verr != nil {
 				return releaseRestore, fmt.Errorf(
 					"release node %s: %w (the read-back could not prove restoration either: %v)", j.Node, err, verr)
+			}
+			if obs.JournalRaw != "" {
+				return releaseRestore, refuse(reasonOwnershipLost,
+					"worker %s: the release patch failed with %v and the read-back finds this run's markers gone "+
+						"but the node held by another transaction; whether that patch landed cannot be told from "+
+						"here, so the point at which tx %s stopped holding the node exclusively is unbounded",
+					j.Node, err, j.TxID)
 			}
 			return releaseRestore, nil
 		}
