@@ -229,6 +229,25 @@ type stubProfile struct {
 	itl    time.Duration
 }
 
+// validate refuses a profile that would serve a backend other than the one declared.
+//
+// Neither bad value fails on its own: `for i := range p.tokens` with a negative count emits nothing at all,
+// and time.Sleep of a negative duration returns immediately. A mistyped flag or a stub:// URI therefore does
+// not crash the stub — it quietly stands up a different experiment, and the run's numbers describe that one
+// while the manifest describes the other. A refusal at startup is the only place this is cheap to catch.
+func (p stubProfile) validate() error {
+	if p.tokens < 1 {
+		return fmt.Errorf("stub profile: tokens is %d; a response with no tokens measures nothing", p.tokens)
+	}
+	if p.ttft < 0 {
+		return fmt.Errorf("stub profile: ttft is %s; a negative delay is served as no delay", p.ttft)
+	}
+	if p.itl < 0 {
+		return fmt.Errorf("stub profile: itl is %s; a negative delay is served as no delay", p.itl)
+	}
+	return nil
+}
+
 // applyModelPath overrides the profile from a "stub://" model path, and ignores anything else.
 //
 // Why the profile arrives this way at all: the InferenceDeployment controller builds every serving
@@ -246,10 +265,42 @@ func (p *stubProfile) applyModelPath(modelPath string) error {
 		return nil
 	}
 	u, err := url.Parse(modelPath)
-	if err != nil || u.Scheme != "stub" {
+	if err != nil {
+		// A parse failure and "not a stub URI" were one condition, which meant a malformed stub:// URI ran the
+		// defaults while the CR described the profile the author intended. They are separated by intent: a
+		// string that announces itself as a stub URI and then does not parse is a typo in the one field this
+		// backend can be configured through, and guessing is how a run measures a backend nobody asked for. A
+		// real serving runtime's storage URI still passes through untouched, because it does not claim to be
+		// one of ours.
+		if strings.HasPrefix(modelPath, "stub:") {
+			return fmt.Errorf("model path %q announces the stub scheme but does not parse: %w", modelPath, err)
+		}
 		return nil
 	}
-	q := u.Query()
+	if u.Scheme != "stub" {
+		return nil
+	}
+	// url.Values.Query() is not used, and that is the third way this function used to serve the defaults
+	// quietly: Query() DISCARDS anything it cannot parse and returns no error, so "tokens=%zz" arrives as no
+	// tokens parameter at all — past the unknown-key check below, because the key never appears — and the
+	// default stands. ParseQuery reports it.
+	q, qerr := url.ParseQuery(u.RawQuery)
+	if qerr != nil {
+		return fmt.Errorf("model path %q: its parameters do not parse: %w", modelPath, qerr)
+	}
+	// An unrecognised parameter is refused for the same reason an unparseable value is, and it is the likelier
+	// mistake of the two: "token=4" for "tokens=4" reads correctly to a human, is silently not a parameter this
+	// understands, and leaves the default in place. Nothing downstream can notice, because the default is a
+	// valid profile — the startup validation added beside this cannot catch it either. The refusal names what
+	// is accepted, since the whole point is that the author believed they had set something.
+	for key := range q {
+		switch key {
+		case "tokens", "ttft-ms", "itl-ms":
+		default:
+			return fmt.Errorf("model path %q: unknown parameter %q; the stub accepts tokens, ttft-ms and itl-ms",
+				modelPath, key)
+		}
+	}
 	// intParam returns the named query parameter, or def when it is absent.
 	//
 	// A present-but-unparseable value is an error rather than a silent fall back to the default, because a
@@ -319,8 +370,32 @@ func stubServe(args []string) error {
 	if err := profile.applyModelPath(*modelPath); err != nil {
 		return err
 	}
+	// Validated after applyModelPath, not before, because a stub:// URI can replace every field and a check
+	// on the flags alone would pass a profile that no longer exists.
+	if err := profile.validate(); err != nil {
+		return err
+	}
 
 	stats := newStubStats()
+	mux := stubMux(profile, stats)
+	fmt.Printf("stub backend listening on %s (tokens=%d ttft=%s itl=%s)\n", *addr, profile.tokens, profile.ttft, profile.itl)
+	srv := &http.Server{
+		Addr:              *addr,
+		Handler:           mux,
+		ReadHeaderTimeout: 5 * time.Second,
+		ConnContext:       stats.connContext,
+		ConnState:         stats.connState,
+	}
+	return srv.ListenAndServe()
+}
+
+// stubMux builds the stub backend's routes, separated from stubServe so the handlers can be exercised
+// without binding a port.
+//
+// The seam is not cosmetic: the streaming handler's obligation to abandon a request whose client has gone
+// away is a claim about what happens DURING a response, and nothing that only starts a listener can assert
+// it. It went unnoticed for exactly that reason.
+func stubMux(profile stubProfile, stats *stubStats) *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/v1/chat/completions", func(w http.ResponseWriter, r *http.Request) {
 		stats.begin(r.Context())
@@ -331,16 +406,45 @@ func stubServe(args []string) error {
 			http.Error(w, "streaming unsupported", http.StatusInternalServerError)
 			return
 		}
-		time.Sleep(profile.ttft)
-		for i := range profile.tokens {
-			if i > 0 {
-				time.Sleep(profile.itl)
+		// Every wait and every write is abandoned the moment the client goes away.
+		//
+		// The bare time.Sleep this replaces ignored r.Context(), so a request the harness had already timed
+		// out kept its handler asleep for the whole configured response — and stats.begin/end counted it as
+		// in flight the entire time. peakInFlight is what PoolSizeForTrace is derived from, so the contamination
+		// landed in the instrument's own sizing, not merely in a log line. Ignoring write errors kept it
+		// writing into a closed connection for the same span.
+		wait := func(d time.Duration) bool {
+			if d <= 0 {
+				return true
 			}
-			_, _ = fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"x\"}}]}\n\n")
-			f.Flush()
+			timer := time.NewTimer(d)
+			defer timer.Stop()
+			select {
+			case <-timer.C:
+				return true
+			case <-r.Context().Done():
+				return false
+			}
 		}
-		_, _ = fmt.Fprint(w, "data: [DONE]\n\n")
-		f.Flush()
+		emit := func(chunk string) bool {
+			if _, err := fmt.Fprint(w, chunk); err != nil {
+				return false
+			}
+			f.Flush()
+			return true
+		}
+		if !wait(profile.ttft) {
+			return
+		}
+		for i := range profile.tokens {
+			if i > 0 && !wait(profile.itl) {
+				return
+			}
+			if !emit("data: {\"choices\":[{\"delta\":{\"content\":\"x\"}}]}\n\n") {
+				return
+			}
+		}
+		_ = emit("data: [DONE]\n\n")
 	})
 	// /health is on the serving port and not a separate one because the InferenceDeployment controller
 	// hardcodes both probes to GET /health on the container's named "http" port; without it the pod never
@@ -355,18 +459,24 @@ func stubServe(args []string) error {
 	mux.HandleFunc("/stats", func(w http.ResponseWriter, _ *http.Request) {
 		writeStats(w, stats.snapshot())
 	})
-	mux.HandleFunc("/stats/reset", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("/stats/reset", func(w http.ResponseWriter, r *http.Request) {
+		// POST-only. This endpoint destroys the connection accounting an evidence run is in the middle of
+		// collecting, and a GET is what a probe, a link prefetch, a browser or a stray curl issues — the
+		// kubelet already GETs this port for /health. Requiring POST removes the accidental route.
+		//
+		// It is NOT authentication, and this comment says so rather than implying the hole is closed:
+		// anything that can reach the Service can still POST here. The stub exists only inside the evidence
+		// cluster, so the realistic failure is an accident rather than an adversary; a real fix is a separate
+		// administrative listener, which is more machinery than a measurement stub has earned.
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", http.MethodPost)
+			http.Error(w, "reset requires POST: a GET here would silently discard a run's counters",
+				http.StatusMethodNotAllowed)
+			return
+		}
 		stats.reset()
 		writeStats(w, stats.snapshot())
 	})
 
-	fmt.Printf("stub backend listening on %s (tokens=%d ttft=%s itl=%s)\n", *addr, profile.tokens, profile.ttft, profile.itl)
-	srv := &http.Server{
-		Addr:              *addr,
-		Handler:           mux,
-		ReadHeaderTimeout: 5 * time.Second,
-		ConnContext:       stats.connContext,
-		ConnState:         stats.connState,
-	}
-	return srv.ListenAndServe()
+	return mux
 }

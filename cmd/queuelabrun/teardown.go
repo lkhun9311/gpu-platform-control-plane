@@ -154,6 +154,15 @@ type observation struct {
 	// deleteTarget's precondition, so a UID fabricated to force a verdict would also be a UID armed to delete
 	// somebody else's object. Carrying the fact as a fact keeps WantUID empty and the delete gate shut.
 	Foreign bool
+	// DeleteRefusal is why a delete this run issued was refused, and it is deliberately NOT Err.
+	//
+	// Err means "the read failed, so this observation supports no claim about the object's state", which is
+	// why classifyAbsence answers absenceUnknown for it. A refused delete is the opposite situation: the read
+	// SUCCEEDED and said the object is present, and only the removal was not allowed. Folding the refusal
+	// into Err made the persisted record carry absence:"unknown" beside found:true and terminating:true —
+	// two accounts of one observation — and told the next operator that nobody could tell about an object
+	// this run had positively read. classifyAbsence must never read this field.
+	DeleteRefusal error
 }
 
 // absence classifies what a single observation of a target proves about whether it is gone.

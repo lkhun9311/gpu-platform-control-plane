@@ -175,7 +175,7 @@ func (r *NodeHealthReconciler) mapNodeToNodeHealth(ctx context.Context, obj clie
 		// A map function has no error return, so the only alternative to logging is dropping the failure on the floor.
 		//
 		// That is the worst outcome available here: drift stops reaching status and the resource simply stops updating, with nothing anywhere saying which node stopped being watched or why.
-		logf.FromContext(ctx).Error(err, "list nodehealths for node event", "node", obj.GetName())
+		logf.FromContext(ctx).Error(err, "Could not list NodeHealth resources for Node event", "node", obj.GetName())
 		return nil
 	}
 	reqs := make([]reconcile.Request, 0, len(list.Items))

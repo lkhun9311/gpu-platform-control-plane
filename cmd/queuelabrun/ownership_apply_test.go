@@ -352,7 +352,7 @@ func TestInspectWorkerRefusesAnUnreadableJournalRatherThanReportingFree(t *testi
 
 	// The other half of the contradiction: acquisition refuses this exact node, so inspection saying FREE
 	// would have been wrong rather than merely terse.
-	_, aerr := decideAcquire(observe(n), n, "tx-new", "r1", "A-honor", "t")
+	_, aerr := decideAcquire(observe(n), "tx-new", "r1", "A-honor", "t")
 	var r *refusal
 	if !asRefusal(aerr, &r) || r.Reason != reasonBadJournal {
 		t.Fatalf("acquisition must refuse the same node as %s, got %v", reasonBadJournal, aerr)
@@ -1883,5 +1883,95 @@ func TestInspectWorkerSaysSoWhenAResidueRecordCannotBeRead(t *testing.T) {
 	}
 	if !strings.Contains(out, "-release-stale -worker platform-worker") {
 		t.Fatalf("the operator is left with no command at all:\n%s", out)
+	}
+}
+
+// The non-conflict release arm must tell a free node from a stolen one, because its old argument does not
+// hold and the two outcomes are opposite.
+//
+// That argument ran: a concurrent -release-stale or -force-release would have moved the resourceVersion, the
+// optimistic lock would have conflicted, and we would be in the IsConflict arm — so a clean read-back here is
+// our own write. It needs the patch to have REACHED the apiserver, which is the one thing this arm exists to
+// doubt: it is written for a proxy timeout or a connection reset, and a request that never landed had no
+// opportunity to conflict. The absence of a 409 therefore proves nothing about who removed our markers.
+//
+// Both halves are asserted together because each one alone is satisfied by breaking the other. Refusing
+// whenever the patch errors would reinstate the false invalidation this arm was written to remove — the lab
+// pays for those in runs. Accepting whenever the read-back is clean is what let a run report a tidy release
+// over a worker another transaction had taken mid-run.
+//
+// Mutation that turns this red: drop the obs.JournalRaw check and return releaseRestore unconditionally.
+func TestReleaseOnANonConflictFailureSeparatesAFreeNodeFromAStolenOne(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		stolenBy   string
+		wantRefuse bool
+	}{
+		{"nobody holds it, so restoration is real however the patch fared", "", false},
+		{"another transaction holds it and our patch may never have landed", "tx-thief", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			failRelease := false
+			fc := fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(node(nil, nil)).
+				WithInterceptorFuncs(interceptor.Funcs{
+					Patch: func(ctx context.Context, c client.WithWatch, obj client.Object, p client.Patch,
+						opts ...client.PatchOption) error {
+						if !failRelease {
+							return c.Patch(ctx, obj, p, opts...)
+						}
+						// A write whose fate the caller cannot know: it sees a transport error, while the node
+						// independently reaches the state under test.
+						var cur corev1.Node
+						if err := c.Get(ctx, client.ObjectKey{Name: "platform-worker"}, &cur); err != nil {
+							return err
+						}
+						delete(cur.Labels, workerLabelKey)
+						delete(cur.Annotations, journalKey)
+						cur.Spec.Taints = nil
+						if tc.stolenBy != "" {
+							// A READABLE foreign journal, because verifyClean already fails closed on an
+							// unreadable one and would never reach the branch under test. This is the state a
+							// real -force-release plus a fresh acquire leaves behind.
+							thief, jerr := encodeJournal(journal{
+								Schema: journalSchema, TxID: tc.stolenBy, RunID: "r-thief", Arm: "A-honor",
+								Node: "platform-worker", NodeUID: string(cur.UID), TakenAt: "2026-08-15T00:00:00Z",
+								Installed: installedTuple{
+									LabelValue: tc.stolenBy, TaintValue: tc.stolenBy,
+									TaintEffect: corev1.TaintEffectNoSchedule,
+								},
+							})
+							if jerr != nil {
+								return jerr
+							}
+							cur.Labels[workerLabelKey] = tc.stolenBy
+							cur.Annotations[journalKey] = thief
+						}
+						if err := c.Update(ctx, &cur); err != nil {
+							return err
+						}
+						return errors.New("net/http: request canceled while awaiting headers")
+					},
+				}).Build()
+
+			j, err := acquireWorker(context.Background(), fc, "platform-worker", "tx-ours", "r1", "A-honor")
+			if err != nil {
+				t.Fatalf("acquire: %v", err)
+			}
+			failRelease = true
+
+			_, err = releaseAcquired(context.Background(), fc, j)
+			var r *refusal
+			gotRefuse := err != nil && asRefusal(err, &r) && r.Reason == reasonOwnershipLost
+			if tc.wantRefuse && !gotRefuse {
+				t.Fatalf("the node was taken by %s while this run's release may never have landed, and the run "+
+					"was told nothing: err=%v", tc.stolenBy, err)
+			}
+			if !tc.wantRefuse && err != nil {
+				t.Fatalf("the node ended free, so this is the false invalidation the arm exists to prevent: %v", err)
+			}
+			if tc.wantRefuse && !strings.Contains(err.Error(), j.TxID) {
+				t.Fatalf("the invalidation must name the transaction that lost the worker: %v", err)
+			}
+		})
 	}
 }

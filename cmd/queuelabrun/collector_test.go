@@ -165,6 +165,51 @@ func TestWaitBarrierKeepsPollingWhileTheObjectIsMerelyAbsent(t *testing.T) {
 	}
 }
 
+// The horizon refusal says "the last check failed", so it must be describing the last check.
+//
+// waitBarrier carries the most recent error so a barrier still failing at the deadline can say why. It never
+// cleared that error when a later check succeeded, so one transient failure early — a connection reset, a
+// momentarily unavailable apiserver — followed by minutes of clean polls that simply never saw the barrier
+// hold, produced a refusal blaming an error that had already resolved. An operator reads that and goes
+// hunting for a connectivity problem instead of asking why the condition was never met.
+//
+// Mutation that turns this red: delete the `lastErr = nil` assignment in waitBarrier's err == nil branch.
+func TestWaitBarrierDoesNotBlameAnErrorThatLaterChecksCleared(t *testing.T) {
+	scheme := testScheme(t)
+	if err := platformv1.AddToScheme(scheme); err != nil {
+		t.Fatalf("add platformv1 to scheme: %v", err)
+	}
+	var gets int
+	transient := errors.New("connection reset by peer")
+	fc := fake.NewClientBuilder().WithScheme(scheme).WithInterceptorFuncs(interceptor.Funcs{
+		Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object,
+			opts ...client.GetOption) error {
+			gets++
+			// Only the first check fails; every one after it completes and merely finds the barrier unmet.
+			if gets == 1 {
+				return transient
+			}
+			return c.Get(ctx, key, obj, opts...)
+		},
+	}).Build()
+	col := newCollector(fc, "ns", "r1", 2500*time.Millisecond)
+
+	err := waitBarrier(context.Background(), fc, "ns",
+		queuelab.Barrier{Kind: queuelab.BarrierPending, Job: "never-created"}, col)
+
+	if err == nil {
+		t.Fatal("a barrier that never holds must fail at the horizon")
+	}
+	// Asserted together: the first half alone would pass if the refusal stopped naming a genuinely failing
+	// last check too, which is the other way to get this wrong.
+	if strings.Contains(err.Error(), transient.Error()) {
+		t.Fatalf("the refusal blames an error that %d later checks cleared: %v", gets-1, err)
+	}
+	if !strings.Contains(err.Error(), "not met before horizon") {
+		t.Fatalf("the barrier was never met, and that is what the refusal should say: %v", err)
+	}
+}
+
 // The main goroutine used to call col.builder.Desync directly while the four watch goroutines were still
 // running and still calling Observe through flush under col.mu, and LedgerBuilder has no locking of its own:
 // invalid, events, lastEvent and ready are plain fields. That is a data race on the single field that

@@ -22,6 +22,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -114,6 +115,37 @@ var _ = Describe("HTTPSender", func() {
 		Expect(conns).To(Equal(1))
 	})
 
+	// The spec above pools only the path where the request succeeded, which is not the path these arms are
+	// about. An admission guard protects capacity BY returning 429, so a run that actually exercises the
+	// guard is mostly rejections — and the sender used to return on a non-200 without reading the body,
+	// which marks the connection unusable. Every rejection then cost a fresh handshake, inside the latency
+	// the harness reports: precisely the instrument artifact the pool was introduced to remove, present on
+	// the arm it was introduced to measure. Nothing caught it because the evidence trace behind the
+	// 431-to-6 claim recorded zero rejections in every arm.
+	//
+	// Mutation that turns this red: drop the drain from the non-200 branch of Send, and conns becomes 5.
+	It("reuses one connection across sequential rejections, not only across successful streams", func() {
+		var conns int
+		srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusTooManyRequests)
+			_, _ = fmt.Fprint(w, `{"error":{"code":"kv_cache_pressure"}}`)
+		}))
+		srv.Config.ConnState = func(_ net.Conn, state http.ConnState) {
+			if state == http.StateNew {
+				conns++
+			}
+		}
+		srv.Start()
+		defer srv.Close()
+
+		sender := NewHTTPSender(srv.URL, "m", nil, 5*time.Second, SenderConn{MaxIdleConnsPerHost: 8, DrainForReuse: true})
+		for range 5 {
+			res := sender.Send(context.Background(), TraceRow{Tenant: "standard-noisy", PromptLenChars: 10, MaxOutputTokens: 1}, time.Now().UnixNano())
+			Expect(res.ErrorKind).To(Equal("rejected"))
+		}
+		Expect(conns).To(Equal(1))
+	})
+
 	// The legacy mode is what the before/after arms of hack/m5b-gateway-path.sh replay, so it has to
 	// actually behave like the old client; a "before" that quietly carried the fix would make the whole
 	// comparison meaningless.
@@ -125,6 +157,18 @@ var _ = Describe("HTTPSender", func() {
 			_, _ = fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"t\"}}]}\n\n")
 			f.Flush()
 			_, _ = fmt.Fprint(w, "data: [DONE]\n\n")
+			f.Flush()
+			// A remainder too large to have been buffered already, and it is what makes this spec
+			// deterministic rather than a coin flip.
+			//
+			// readStream breaks at [DONE] without consuming what follows, so whether the connection can be
+			// reused turns on whether the transport happened to hold the rest already. With only a two-byte
+			// tail that is genuinely a race with the kernel, and the spec failed 5 times in 12 plain runs
+			// observing conns == 1 — the erratic behaviour its own comment describes, asserted as though it
+			// were reliable. A tail this size cannot be sitting in a buffer, so an undrained body always
+			// leaves unread bytes and the connection is always discarded, which is the causal claim the
+			// before/after arms rest on.
+			_, _ = fmt.Fprint(w, ": "+strings.Repeat("x", 64<<10)+"\n\n")
 			f.Flush()
 		}))
 		srv.Config.ConnState = func(_ net.Conn, state http.ConnState) {

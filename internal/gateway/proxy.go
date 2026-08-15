@@ -318,25 +318,44 @@ func newTransport(responseHeaderTimeout time.Duration) *http.Transport {
 	// There is deliberately no overall Timeout: a healthy stream legitimately runs for minutes, and an overall cap would sever it.
 	//
 	// Only the wait for the first response header is bounded; the time the body spends streaming is not.
-	return &http.Transport{
-		// ResponseHeaderTimeout bounds the wait for response headers.
-		//
-		// Exceeding it becomes a timeout error, which newReverseProxy's ErrorHandler maps to 504.
-		ResponseHeaderTimeout: responseHeaderTimeout,
-		// IdleConnTimeout keeps connections warm for reuse, avoiding a TCP handshake per request.
-		//
-		// That property only holds because this Transport outlives the request; see the sharing rationale above.
-		IdleConnTimeout: 90 * time.Second,
-		// See maxIdleConnsPerHost for the derivation; the default of 2 would undo most of the reuse this Transport exists to provide.
-		MaxIdleConnsPerHost: maxIdleConnsPerHost,
-		// MaxIdleConns is left zero, which for http.Transport means no limit on idle connections across all hosts.
-		//
-		// A total cap is deliberately not set: it would make one backend's pool depend on how busy the others are, so a noisy backend could evict the connections of the tenant whose latency is being measured.
-		//
-		// That is the exact coupling this gateway is instrumented to detect, and it must not be introduced by its own connection pool.
-		//
-		// The per-host cap above still bounds each backend, and the number of backends is bounded by the configured InferenceDeployments.
-	}
+	// Cloned from http.DefaultTransport rather than built from zero values, and that is a correctness point
+	// rather than convention. A zero Transport has no DialContext and no TLSHandshakeTimeout, so nothing
+	// bounds the time spent REACHING a backend — and ResponseHeaderTimeout below cannot cover it, because it
+	// only starts once a connection exists. An unreachable or blackholed model server would then hold a
+	// gateway request for the OS-level TCP timeout, minutes rather than the seconds this file's own rationale
+	// says it is bounding. A zero value also drops Proxy, so a deployment behind an egress proxy would
+	// silently stop using it.
+	//
+	// Clone carries DefaultTransport's MaxIdleConns of 100, which the block at the bottom of this function
+	// argues must not exist here, so it is put back to zero explicitly below rather than inherited.
+	t := http.DefaultTransport.(*http.Transport).Clone()
+
+	// ResponseHeaderTimeout bounds the wait for response headers.
+	//
+	// Exceeding it becomes a timeout error, which newReverseProxy's ErrorHandler maps to 504.
+	t.ResponseHeaderTimeout = responseHeaderTimeout
+
+	// IdleConnTimeout keeps connections warm for reuse, avoiding a TCP handshake per request.
+	//
+	// That property only holds because this Transport outlives the request; see the sharing rationale above.
+	t.IdleConnTimeout = 90 * time.Second
+
+	// See maxIdleConnsPerHost for the derivation; the default of 2 would undo most of the reuse this Transport exists to provide.
+	t.MaxIdleConnsPerHost = maxIdleConnsPerHost
+
+	// MaxIdleConns is set to zero, which for http.Transport means no limit on idle connections across all hosts.
+	//
+	// It is assigned rather than omitted because Clone inherits DefaultTransport's cap of 100, so leaving this
+	// out would silently introduce the very total cap the paragraphs below rule out.
+	//
+	// A total cap is deliberately not set: it would make one backend's pool depend on how busy the others are, so a noisy backend could evict the connections of the tenant whose latency is being measured.
+	//
+	// That is the exact coupling this gateway is instrumented to detect, and it must not be introduced by its own connection pool.
+	//
+	// The per-host cap above still bounds each backend, and the number of backends is bounded by the configured InferenceDeployments.
+	t.MaxIdleConns = 0
+
+	return t
 }
 
 // newReverseProxy returns a streaming-capable reverse proxy to target over the shared transport, reporting 502/504 through onErr.
