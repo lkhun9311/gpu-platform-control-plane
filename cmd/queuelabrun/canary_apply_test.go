@@ -440,6 +440,27 @@ func TestTheProbeCarriesWhatTheOperatorAddsToTheTemplate(t *testing.T) {
 		mutate func(*corev1.PodTemplateSpec)
 		check  func(*testing.T, *corev1.Pod)
 	}{
+		// Command and Args are one unit, and the probe replaced only Command. BuildJob renders no Args today,
+		// so this is the drift the template hash exists to catch — and catching it was not enough: the
+		// re-taken probe would have run `sh -c '<arm command>' <template args>`, where those args become $0
+		// and $1 to the shell, while canaryProbe records only the command. The qualification would have named
+		// a command line nobody ran, which is detection with hollow remediation.
+		//
+		// Mutation that turns this red: drop the Args = nil assignment in probePodFrom.
+		{"args the template carried alongside its own command", func(tpl *corev1.PodTemplateSpec) {
+			for i := range tpl.Spec.Containers {
+				if tpl.Spec.Containers[i].Name == probeTrainerContainer {
+					tpl.Spec.Containers[i].Args = []string{"--dataset", "/mnt/imagenet"}
+				}
+			}
+		}, func(t *testing.T, p *corev1.Pod) {
+			trainer := trainerContainerOf(t, p)
+			if len(trainer.Args) != 0 {
+				t.Fatalf("the probe kept the template's args %v beside the arm's command; under sh -c those "+
+					"become $0 and $1, so the probe runs a different process shape than the arm and the "+
+					"recorded command names something nobody ran", trainer.Args)
+			}
+		}},
 		{"an explicit grace period", func(tpl *corev1.PodTemplateSpec) {
 			tpl.Spec.TerminationGracePeriodSeconds = new(int64(60))
 		}, func(t *testing.T, p *corev1.Pod) {
