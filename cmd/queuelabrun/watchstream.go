@@ -28,6 +28,41 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+// streamScope is which objects one stream covers: the selector handed to its List and to every watch that
+// resumes it, plus how that selector reads in a refusal.
+//
+// It replaces the bare namespace this file used to take, because the ownership window watches the worker
+// Node and a Node is cluster-scoped. Threading a scope rather than writing a sibling keeps the parts that
+// decide whether a view is continuous — the resume version, the baseline refusal, the ending semantics —
+// as one implementation with one set of tests behind it. A second copy would be a hundred lines that start
+// identical and drift silently, and continuity is not a property to hold in two places.
+//
+// The change is deliberately confined to the selector. namespaceScope produces exactly the option and
+// exactly the wording the namespaced callers had before it existed, so a namespaced stream is byte-for-byte
+// the stream it was.
+type streamScope struct {
+	// desc is how the scope reads inside the two refusals below, phrased to follow the kind: "of PodList in
+	// ns-a". It is not derived from opts, because a caller that selects nothing still has to say so —
+	// "cluster-wide" is a scope, and an empty string there would produce a refusal that names no scope at all.
+	desc string
+	opts []client.ListOption
+}
+
+// namespaceScope is what the collector's four streams watch: one kind inside the run's own namespace.
+func namespaceScope(ns string) streamScope {
+	return streamScope{desc: "in " + ns, opts: []client.ListOption{client.InNamespace(ns)}}
+}
+
+// clusterScope is the whole of a cluster-scoped kind, with no selector at all.
+//
+// The single-object case — the ownership window wants one Node — filters by name in its own consumer rather
+// than through a metadata.name field selector, for the reason qualifyWorker already gives about Pods: the
+// local comparison is what decides either way, so a server-side selector this code cannot verify would still
+// have to be re-checked against everything it returned. It cannot narrow the RBAC either, since watch on
+// nodes is cluster-scoped whether or not a selector is attached, and on a lab cluster the difference is a
+// handful of objects.
+func clusterScope() streamScope { return streamScope{desc: "cluster-wide"} }
+
 // watchAdapter presents controller-runtime's client as the cache.WatcherWithContext that RetryWatcher
 // needs.
 //
@@ -36,15 +71,15 @@ import (
 // provide.
 type watchAdapter struct {
 	c       client.WithWatch
-	ns      string
+	scope   streamScope
 	newList func() client.ObjectList
 
 	once        sync.Once
 	established chan struct{}
 }
 
-func newWatchAdapter(c client.WithWatch, ns string, newList func() client.ObjectList) *watchAdapter {
-	return &watchAdapter{c: c, ns: ns, newList: newList, established: make(chan struct{})}
+func newWatchAdapter(c client.WithWatch, scope streamScope, newList func() client.ObjectList) *watchAdapter {
+	return &watchAdapter{c: c, scope: scope, newList: newList, established: make(chan struct{})}
 }
 
 // WatchWithContext starts one underlying watch at the resume version RetryWatcher asks for.
@@ -53,7 +88,13 @@ func newWatchAdapter(c client.WithWatch, ns string, newList func() client.Object
 // request reach the API server through controller-runtime; dropping them would silently restart the stream
 // from now and lose every edge in the gap.
 func (a *watchAdapter) WatchWithContext(ctx context.Context, opts metav1.ListOptions) (watch.Interface, error) {
-	w, err := a.c.Watch(ctx, a.newList(), client.InNamespace(a.ns), &client.ListOptions{Raw: &opts})
+	// A fresh slice per call rather than one built once at construction: these are handed to a client that may
+	// hold them, and every reconnect passes a different Raw, so a shared backing array would let one watch's
+	// resume version reach another's request.
+	lopts := make([]client.ListOption, 0, len(a.scope.opts)+1)
+	lopts = append(lopts, a.scope.opts...)
+	lopts = append(lopts, &client.ListOptions{Raw: &opts})
+	w, err := a.c.Watch(ctx, a.newList(), lopts...)
 	if err != nil {
 		return nil, err
 	}
@@ -137,34 +178,34 @@ type watchStream struct {
 // signature. A run that stopped observing thirty seconds in would then be reported as a clean shutdown.
 // Give the stream the run's own context and bound establishment by selecting on Established() against a
 // timer instead.
-func startWatchStream(ctx context.Context, c client.WithWatch, ns string,
+func startWatchStream(ctx context.Context, c client.WithWatch, scope streamScope,
 	newList func() client.ObjectList) (*watchStream, error) {
 	list := newList()
-	// Every stream a run opens watches the same namespace, so the namespace alone identifies none of them
+	// Every stream the collector opens watches the same namespace, so the scope alone identifies none of them
 	// and all four would fail with byte-identical text; the list type is what tells them apart in a log.
 	kind := fmt.Sprintf("%T", list)
-	if err := c.List(ctx, list, client.InNamespace(ns)); err != nil {
-		return nil, fmt.Errorf("baseline list of %s in %s: %w", kind, ns, err)
+	if err := c.List(ctx, list, scope.opts...); err != nil {
+		return nil, fmt.Errorf("baseline list of %s %s: %w", kind, scope.desc, err)
 	}
 	rv := list.GetResourceVersion()
 	// RetryWatcher rejects both, and for the same reason this component must: an empty version starts the
 	// watch from now, and "0" starts it from an arbitrary cached point, so neither gives a known baseline
 	// that a later gap can be measured against.
 	if rv == "" || rv == "0" {
-		return nil, fmt.Errorf("baseline list of %s in %s returned resource version %q, which is not a resumable point", kind, ns, rv)
+		return nil, fmt.Errorf("baseline list of %s %s returned resource version %q, which is not a resumable point", kind, scope.desc, rv)
 	}
 	// ExtractList rather than meta.LenList because LenList reports 0 for anything it cannot walk, and a
 	// baseline that silently reads as empty is exactly the kind of unobserved claim this component refuses.
 	items, err := meta.ExtractList(list)
 	if err != nil {
-		return nil, fmt.Errorf("count baseline %s objects in %s: %w", kind, ns, err)
+		return nil, fmt.Errorf("count baseline %s objects %s: %w", kind, scope.desc, err)
 	}
 	n := len(items)
 
-	a := newWatchAdapter(c, ns, newList)
+	a := newWatchAdapter(c, scope, newList)
 	rw, err := watchtools.NewRetryWatcherWithContext(ctx, rv, a)
 	if err != nil {
-		return nil, fmt.Errorf("start watch of %s in %s from %s: %w", kind, ns, rv, err)
+		return nil, fmt.Errorf("start watch of %s %s from %s: %w", kind, scope.desc, rv, err)
 	}
 
 	s := &watchStream{
@@ -254,14 +295,20 @@ func (s *watchStream) Stop() {
 // legitimately closed first, the sample condemns a run that was fine.
 //
 // An adopter that needs a real orderliness verdict has to source it from outside this type — a final List
-// once the stream has ended, comparing that resourceVersion against the last one delivered, which is the
-// job relistCheck does today and which the plan leaves to the integration slice.
+// once the stream has ended, comparing that resourceVersion against the last one delivered. This package's
+// own adopter, the collector, deliberately does NOT do that, and the reasons belong here so the next one
+// does not spend an afternoon reaching them again. A list's resourceVersion is the store's current position
+// and advances on writes anywhere in the cluster, so on a healthy run it stands above the last delivered
+// version and proves nothing; and the collector's streams end at the observation horizon, past which every
+// change is censored by design, so a Pod that final List found absent is an ordinary post-horizon
+// termination rather than a missed stop. It refuses the endings this type cannot vouch for instead, which is
+// a verdict it can actually make.
 //
-// That final List is not the asynchronous relist the plan removes, and the difference is a guarantee this
-// type makes rather than a matter of intent. forward defers close(done) before close(out), so LIFO closes
-// out first: End() being closed already implies ResultChan() is closed and no further event can arrive. A
-// List issued after End() therefore cannot race a terminal event still in flight, which is exactly what
-// today's relist — running inside the live watch loop — can do when it marks a Pod vanished.
+// What this type does guarantee, for an adopter whose window really does end where its stream does, is a
+// property rather than an intention: forward defers close(done) before close(out), so LIFO closes out first,
+// and End() being closed already implies ResultChan() is closed and no further event can arrive. A List
+// issued after End() therefore cannot race a terminal event still in flight — which the collector's former
+// in-loop relist could, and did, when it marked a Pod vanished.
 func (s *watchStream) Ended() streamEnd {
 	s.mu.Lock()
 	defer s.mu.Unlock()

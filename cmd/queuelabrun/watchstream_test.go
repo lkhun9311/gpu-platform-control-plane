@@ -51,7 +51,7 @@ func TestWatchAdapterPassesTheResumeOptionsThrough(t *testing.T) {
 		},
 	}).Build()
 
-	a := newWatchAdapter(c, "ns-a", func() client.ObjectList { return &corev1.PodList{} })
+	a := newWatchAdapter(c, namespaceScope("ns-a"), func() client.ObjectList { return &corev1.PodList{} })
 	w, err := a.WatchWithContext(context.Background(), metav1.ListOptions{
 		ResourceVersion:     "1234",
 		AllowWatchBookmarks: true,
@@ -89,7 +89,7 @@ func TestWatchAdapterSignalsOnlyAfterAWatchActuallySucceeds(t *testing.T) {
 		},
 	}).Build()
 
-	a := newWatchAdapter(c, "ns-a", func() client.ObjectList { return &corev1.PodList{} })
+	a := newWatchAdapter(c, namespaceScope("ns-a"), func() client.ObjectList { return &corev1.PodList{} })
 
 	if _, err := a.WatchWithContext(context.Background(), metav1.ListOptions{}); err == nil {
 		t.Fatal("the first attempt was rigged to fail")
@@ -228,7 +228,7 @@ func TestWatchStreamRefusesABaselineWithoutAResumableVersion(t *testing.T) {
 			},
 		}).Build()
 
-		_, err := startWatchStream(context.Background(), c, "ns-a", func() client.ObjectList { return &corev1.PodList{} })
+		_, err := startWatchStream(context.Background(), c, namespaceScope("ns-a"), func() client.ObjectList { return &corev1.PodList{} })
 		if err == nil {
 			t.Fatalf("baseline %q must be refused", rv)
 		}
@@ -276,7 +276,7 @@ func streamOnScript(ctx context.Context, t *testing.T, seed []client.Object,
 		},
 	}).Build()
 
-	ws, err := startWatchStream(ctx, c, "ns-a", func() client.ObjectList { return &corev1.PodList{} })
+	ws, err := startWatchStream(ctx, c, namespaceScope("ns-a"), func() client.ObjectList { return &corev1.PodList{} })
 	if err != nil {
 		t.Fatalf("start watch stream: %v", err)
 	}
@@ -545,5 +545,86 @@ func TestWatchStreamCancellationEndsTheStreamWithAnEventParkedMidForward(t *test
 	}
 	if end.Stopped {
 		t.Fatal("nobody called Stop, so claiming a stop would credit an ending the caller never asked for")
+	}
+}
+
+// The scope has to reach BOTH requests a stream makes, and the namespaced half of this is gate 1's own
+// guarantee rather than a new one: the collector's four streams are namespace-bound, and a selector that
+// stopped reaching the API server would silently widen every one of them to the whole cluster — the ledger
+// would then fold another namespace's Pods into this run's reconstruction.
+//
+// The cluster-scoped half is what the ownership window needs: a Node watch carrying a namespace selector
+// returns nothing at all on a real apiserver, and a view that observes nothing is exactly what that gate
+// exists to refuse.
+//
+// Mutation that turns this red: drop `lopts = append(lopts, a.scope.opts...)` from
+// watchAdapter.WatchWithContext, or `scope.opts...` from the baseline List in startWatchStream. Either turns
+// the namespaced case into a cluster-wide one while every other test in this file still passes.
+func TestStreamScopeReachesBothTheBaselineListAndEveryWatch(t *testing.T) {
+	for name, tc := range map[string]struct {
+		scope streamScope
+		wantS string
+	}{
+		"namespaced":     {scope: namespaceScope("ns-a"), wantS: "ns-a"},
+		"cluster-scoped": {scope: clusterScope(), wantS: ""},
+	} {
+		t.Run(name, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
+			var listed, watched *client.ListOptions
+			held := watch.NewFake()
+			defer held.Stop()
+			c := fake.NewClientBuilder().WithScheme(fullScheme(t)).WithInterceptorFuncs(interceptor.Funcs{
+				List: func(ctx context.Context, cl client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
+					lo := &client.ListOptions{}
+					lo.ApplyOptions(opts)
+					listed = lo
+					if err := cl.List(ctx, list, opts...); err != nil {
+						return err
+					}
+					list.SetResourceVersion(baselineRV)
+					return nil
+				},
+				Watch: func(_ context.Context, _ client.WithWatch, _ client.ObjectList, opts ...client.ListOption) (watch.Interface, error) {
+					lo := &client.ListOptions{}
+					lo.ApplyOptions(opts)
+					watched = lo
+					return held, nil
+				},
+			}).Build()
+
+			ws, err := startWatchStream(ctx, c, tc.scope, func() client.ObjectList { return &corev1.PodList{} })
+			if err != nil {
+				t.Fatalf("start watch stream: %v", err)
+			}
+			defer ws.Stop()
+			select {
+			case <-ws.Established():
+			case <-time.After(5 * time.Second):
+				t.Fatal("the stream never established a watch")
+			}
+
+			// The nil cases are reported separately rather than folded into the comparisons below: a Fatalf that
+			// formats the pointer it just found nil panics instead of failing, which turns "the list never ran"
+			// into a stack trace nobody reads as an assertion.
+			if listed == nil {
+				t.Fatal("the baseline list never ran, so this test proved nothing about its scope")
+			}
+			if watched == nil {
+				t.Fatal("no watch ever ran, so this test proved nothing about its scope")
+			}
+			if listed.Namespace != tc.wantS {
+				t.Fatalf("the baseline list ran against namespace %q, want %q", listed.Namespace, tc.wantS)
+			}
+			if watched.Namespace != tc.wantS {
+				t.Fatalf("the watch ran against namespace %q, want %q", watched.Namespace, tc.wantS)
+			}
+			// The resume version has to survive alongside the scope, or generalising the selector cost the one
+			// property the whole component exists for.
+			if watched.Raw == nil || watched.Raw.ResourceVersion != baselineRV {
+				t.Fatalf("the watch carried resume options %+v, want the baseline %q", watched.Raw, baselineRV)
+			}
+		})
 	}
 }

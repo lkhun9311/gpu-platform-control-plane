@@ -156,9 +156,15 @@ type operatorModeArgs struct {
 	Arm    string
 	Worker string
 
-	// Inspect names no node of its own: like the other three modes it acts on Worker, so a hint this tool
+	// Inspect names no node of its own: like every other mode here it acts on Worker, so a hint this tool
 	// prints for one mode cannot be right while the same hint for another is not runnable as printed.
 	Inspect bool
+
+	// TerminationCanary is the one mode here that is not recovery. It sits with them because it is not a run
+	// either — it produces no result, leaves no run record, and above all it has to be runnable on a worker no
+	// run can yet be allowed on: qualifyWorker refuses a node with no recorded canary, so if taking one required
+	// a run the two would deadlock on each other.
+	TerminationCanary bool
 
 	ReleaseStale bool
 	TxID         string
@@ -227,11 +233,12 @@ const (
 	modeReleaseStale
 	modeForceRelease
 	modeClearQuarantine
+	modeTerminationCanary
 )
 
-// decideOperatorMode is the pure validation layer for the four operator recovery modes: it decides which
-// mode (if any) was requested and whether the invocation is well-formed, entirely without touching the
-// cluster.
+// decideOperatorMode is the pure validation layer for the five non-run modes — the four recovery ones and
+// the termination canary: it decides which mode (if any) was requested and whether the invocation is
+// well-formed, entirely without touching the cluster.
 //
 // This has to run, in full, before anything that needs a kubeconfig: an operator on a box with no cluster
 // access who mistypes a flag combination must see the flag-combination refusal, not a "kubeconfig: ..."
@@ -242,7 +249,7 @@ const (
 // than fall through). The two are distinguished by err, not by the mode value alone.
 func decideOperatorMode(a operatorModeArgs) (operatorMode, error) {
 	requested := 0
-	for _, on := range []bool{a.Inspect, a.ReleaseStale, a.ForceRelease, a.ClearQuarantine} {
+	for _, on := range []bool{a.Inspect, a.ReleaseStale, a.ForceRelease, a.ClearQuarantine, a.TerminationCanary} {
 		if on {
 			requested++
 		}
@@ -252,7 +259,8 @@ func decideOperatorMode(a operatorModeArgs) (operatorMode, error) {
 	}
 	if requested > 1 {
 		return modeNone, fmt.Errorf(
-			"only one of -inspect-worker, -release-stale, -force-release, -clear-quarantine may be given at a time")
+			"only one of -inspect-worker, -release-stale, -force-release, -clear-quarantine, " +
+				"-termination-canary may be given at a time")
 	}
 	// An operator mode is a recovery tool, not a run, so combining one with -arm would let "recover the
 	// node" and "run an arm" be read as a single invocation.
@@ -273,6 +281,12 @@ func decideOperatorMode(a operatorModeArgs) (operatorMode, error) {
 	switch {
 	case a.Inspect:
 		return modeInspect, nil
+	case a.TerminationCanary:
+		// No attestation of its own. The three destructive modes require one because nothing this tool can
+		// observe tells the operator whether the previous process is dead; this mode asks nobody to judge
+		// anything — it takes the worker through the ordinary transaction, which refuses a node somebody else
+		// holds, and everything it creates it names and deletes itself.
+		return modeTerminationCanary, nil
 	case a.ReleaseStale:
 		if a.TxID == "" {
 			return modeNone, fmt.Errorf("-release-stale requires -txid")
@@ -314,39 +328,21 @@ func decideOperatorMode(a operatorModeArgs) (operatorMode, error) {
 	}
 }
 
-// unimplementedGates names the validity work this executable does not yet have.
+// gateRefusal and unimplementedGates are gone, and what they stood for moved into the record rather than
+// disappearing.
 //
-// The ownership transaction itself now exists — acquire, release, and the operator modes in
-// ownership_apply.go that recover a Node after a crash — so that line is narrowed here rather than
-// deleted: what remains is proving the exclusivity held for the whole run, not just at acquire and
-// release. Continuous evidence via a Node watch (2c) and a restoration audit recorded in the run artifact
-// (2d) are still open pieces.
+// gateRefusal refused every non-preview invocation and named four missing gates as its reason. All four now
+// exist and run on every invocation, preview or not: the streams are opened with resourceVersion continuity
+// and their endings recorded, the worker is qualified against this run's own fixtures and against a recorded
+// termination canary, the exclusive hold is watched continuously and audited across the release, and the
+// record carries all three plus a verdict derived from those fields. A refusal whose stated reason has become
+// false is worse than no refusal at all: it teaches its reader that the tool refuses for reasons that are not
+// true, which is how the next real refusal gets waived by reflex.
 //
-// It exists so the refusal below can be specific: an unexplained failure gets rerun until it passes, while
-// a refusal that names what is missing gets fixed.
-func unimplementedGates() []string {
-	return []string{
-		"synchronized list+watch with resourceVersion continuity",
-		"environment qualification (capacity, foreign GPU pods, termination canary)",
-		"continuous ownership evidence (Node watch) and restoration audit in the run artifact",
-		"validity-bearing run artifact (evidence, environment and restoration audit)",
-	}
-}
-
-// gateRefusal stops a run that would produce something a reader could mistake for a result.
+// What did NOT move here is the judgement. Nothing decides up front whether an invocation may count — the
+// record decides, afterwards, from what the run actually observed, which is why deriveValidity reads only
+// persisted fields. A flag could never have made that judgement anyway; it could only have deferred it.
 //
-// The measurement layer is correct and the protocol is now wired, but the gates that make a run's evidence
-// admissible are later pieces. A previous published result was wrong precisely because a run that looked
-// fine was allowed to count, so the executable refuses by default and requires an explicit preview flag
-// whose output is labelled as not a result.
-func gateRefusal(preview bool) error {
-	if preview {
-		return nil
-	}
-	msg := "refusing to run: the validity gates are not implemented yet, so this run cannot count as a result.\nmissing:"
-	for _, g := range unimplementedGates() {
-		msg += "\n  - " + g
-	}
-	msg += "\npass -preview to run anyway; its output is a smoke check, not evidence."
-	return fmt.Errorf("%s", msg)
-}
+// The record's own statement of what it cannot speak for is recordUnchecked, in record.go, and it is
+// deliberately not a copy of the roadmap this refusal used to print. See its comment for why one list could
+// not serve both.

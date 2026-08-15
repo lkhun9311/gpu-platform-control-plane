@@ -70,3 +70,46 @@ func writeRecord(path string, v any) error {
 	}
 	return nil
 }
+
+// verifyRecordReadable asks the one question nothing in this binary asked before: is the file this run just
+// wrote a file this build can read?
+//
+// The record IS the deliverable — the run's numbers are quotable only because a reader holding the file can
+// re-derive the verdict from the fields beside them — and until now the entire validation layer that decides
+// whether a document is readable as evidence (the schema check, the verdict re-derivation, the qualification,
+// canary, window and resume-point guards) was reachable only from tests. Every property it checks is enforced
+// by the writers, which is why no record has been unreadable yet; but "the writer and the reader agree" is
+// exactly the kind of claim that stays true until it quietly does not. This project has already paid for that
+// once: residue's observation carried an `error`, which encodes and does not decode, and the defect was
+// caught by a person reasoning during a design round rather than by the tool noticing the record it had just
+// written could not be read. A write-then-read-back would have caught it for free, on the first run.
+//
+// It re-reads the file rather than checking the bytes it was about to write, because the bytes are not the
+// artifact. A truncated write, a rename that landed somewhere else, a directory sync that failed after the
+// content was already replaced — all leave a caller with err == nil and a file nobody can use, and only a
+// read of the path proves what a later reader will actually find there.
+//
+// The preview arm inverts the question rather than skipping it, so that no record this build writes passes
+// unexamined. previewRecord's whole shape is a promise that a preview cannot be read as a run — it carries
+// eventCount and note, which runRecord has never heard of, so decodeRunRecord's DisallowUnknownFields refuses
+// it structurally. A preview that DID decode as a run record would be a preview whose fields had drifted into
+// a run's, which is the one failure the type was built to make impossible; asserting the refusal is what turns
+// that structural promise into something an invocation checks.
+func verifyRecordReadable(path string, preview bool) error {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("read back record: %w", err)
+	}
+	_, decErr := decodeRunRecord(b)
+	if preview {
+		if decErr == nil {
+			return fmt.Errorf("read back record: the preview record at %s decodes as a run record; a preview's "+
+				"fields have drifted into a run's, and its output is not evidence", path)
+		}
+		return nil
+	}
+	if decErr != nil {
+		return fmt.Errorf("read back record: %w", decErr)
+	}
+	return nil
+}

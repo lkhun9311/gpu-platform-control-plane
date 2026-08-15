@@ -33,8 +33,18 @@ const (
 	dispClientFailed         = disposition("client-failed")
 	dispProtocolBuildFailed  = disposition("protocol-build-failed")
 	dispAcquisitionRefused   = disposition("acquisition-refused")
-	dispSetupFailed          = disposition("setup-failed")
-	dispCancelled            = disposition("cancelled")
+	// dispEnvironmentUnqualified is the worker being the wrong machine to measure on, which is a fact about
+	// the cluster rather than a failure of this program to do something.
+	//
+	// It is not folded into setup-failed, and the distinction is the point of having a disposition at all: a
+	// setup failure is this run's own Create being refused and the operator's move is to look at this run,
+	// while an unqualified environment is a leftover GPU Pod, a cordon or a node too small for the arm and the
+	// operator's move is to look at the cluster. Collapsing them would make every record carrying either one
+	// require its free-text reason to be read before it could be classified, which is what the disposition
+	// exists to make unnecessary.
+	dispEnvironmentUnqualified = disposition("environment-unqualified")
+	dispSetupFailed            = disposition("setup-failed")
+	dispCancelled              = disposition("cancelled")
 	// There is deliberately no "observation-failed": waitForHorizon has exactly two returns, a
 	// cancellation-wrapped error and nil, so an observation window can only end early by being cancelled.
 	// The failures that happen DURING observation are already named — a barrier that cannot be met desyncs
@@ -55,8 +65,12 @@ const (
 	// should retry. Where every leftover belongs to somebody else the worker does go back (residueHoldsWorker
 	// draws that line), and this disposition then reports the collision alone.
 	dispResidueLeft = disposition("residue-left")
-	// dispChecksPassed is deliberately not called "valid": four validity gates are unimplemented, so the
-	// strongest statement available is that the checks this build implements passed.
+	// dispChecksPassed is deliberately not called "valid", and it keeps that name now that the four gates it
+	// was named around all exist. The residual recordUnchecked names is real — nothing here travels the
+	// operator's reconcile loop, Kueue's admission or the Job controller — so the strongest statement available
+	// is still that the checks this build implements passed. A rename to "valid" on the day the last gate
+	// landed would have been the overclaim this spelling exists to refuse, and the wire value is read by
+	// decodeRunRecord besides.
 	dispChecksPassed = disposition("completed-implemented-checks-passed")
 	// dispUnclassified is not reachable by design; it exists so that a bug which makes it reachable says so.
 	//

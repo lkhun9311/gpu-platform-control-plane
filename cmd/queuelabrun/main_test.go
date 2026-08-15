@@ -21,8 +21,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"reflect"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -30,6 +32,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
@@ -270,6 +273,7 @@ func TestRunDeferredEmergencyReleaseAmendsThePersistedRecord(t *testing.T) {
 	poisoned := false
 	fc := fake.NewClientBuilder().WithScheme(fullScheme(t)).WithObjects(node(nil, nil)).
 		WithInterceptorFuncs(interceptor.Funcs{
+			List: fakeNodeList,
 			Create: func(ctx context.Context, c client.WithWatch, obj client.Object,
 				opts ...client.CreateOption) error {
 				if _, ok := obj.(*corev1.Namespace); ok {
@@ -288,9 +292,9 @@ func TestRunDeferredEmergencyReleaseAmendsThePersistedRecord(t *testing.T) {
 		}).Build()
 
 	tdNow, tdSleep := fakeClock(time.Unix(0, 0))
-	o, events, res, _ := run(context.Background(), func() (client.WithWatch, error) { return fc, nil },
+	o, events, res, _, _, _, _ := run(context.Background(), func() (client.WithWatch, error) { return fc, nil },
 		queuelab.ArmAHonor, "r7", "queuelab-r7", "platform-worker", time.Duration(horizonSec)*time.Second,
-		"", tdNow, tdSleep)
+		"", io.Discard, tdNow, tdSleep)
 
 	if res != nil {
 		t.Fatal("a run that never reconstructed anything must hand back no result to render")
@@ -306,7 +310,7 @@ func TestRunDeferredEmergencyReleaseAmendsThePersistedRecord(t *testing.T) {
 	// against the outcome value the test already holds.
 	path := t.TempDir() + "/record.json"
 	started := time.Date(2026, 8, 8, 10, 0, 0, 0, time.UTC)
-	if err := writeRecord(path, buildRecord(o, events, nil, "r7", string(queuelab.ArmAHonor), false,
+	if err := writeRecord(path, buildRecord(o, events, nil, nil, nil, nil, "r7", string(queuelab.ArmAHonor), false,
 		started, started.Add(90*time.Second))); err != nil {
 		t.Fatalf("persist: %v", err)
 	}
@@ -338,10 +342,10 @@ func TestRunDeferredEmergencyReleaseAmendsThePersistedRecord(t *testing.T) {
 func TestRunSetsADispositionOnTheConnectAndAcquisitionPaths(t *testing.T) {
 	// A connect failure is the earliest return in run(), before anything is acquired or built.
 	tdNow, tdSleep := fakeClock(time.Unix(0, 0))
-	o, _, res, _ := run(context.Background(),
+	o, _, res, _, _, _, _ := run(context.Background(),
 		func() (client.WithWatch, error) { return nil, fmt.Errorf("kubeconfig: no such file") },
 		queuelab.ArmAHonor, "r7", "queuelab-r7", "platform-worker", time.Duration(horizonSec)*time.Second,
-		"", tdNow, tdSleep)
+		"", io.Discard, tdNow, tdSleep)
 	if o.Disposition != dispClientFailed {
 		t.Fatalf("a failed connect is client-failed, got %q", o.Disposition)
 	}
@@ -353,9 +357,9 @@ func TestRunSetsADispositionOnTheConnectAndAcquisitionPaths(t *testing.T) {
 	// is the boundary a future edit is most likely to get wrong.
 	held := node(map[string]string{workerLabelKey: "someone-else"}, nil)
 	fc := fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(held).Build()
-	o, _, res, _ = run(context.Background(), func() (client.WithWatch, error) { return fc, nil },
+	o, _, res, _, _, _, _ = run(context.Background(), func() (client.WithWatch, error) { return fc, nil },
 		queuelab.ArmAHonor, "r7", "queuelab-r7", "platform-worker", time.Duration(horizonSec)*time.Second,
-		"", tdNow, tdSleep)
+		"", io.Discard, tdNow, tdSleep)
 	if o.Disposition != dispAcquisitionRefused {
 		t.Fatalf("a refused acquisition is acquisition-refused, got %q: %s", o.Disposition, o.Reason)
 	}
@@ -368,13 +372,13 @@ func TestRunSetsADispositionOnTheConnectAndAcquisitionPaths(t *testing.T) {
 }
 
 // The preview note is the one free-text field in either record, so a future writer could fold run data into
-// it and hand a gateless run the reconstructable evidence previewRecord has no field for. It must therefore
-// be the same constant whatever the run did.
+// it and hand a preview the reconstructable evidence previewRecord has no field for. It must therefore be the
+// same constant whatever the run did.
 func TestPreviewRecordNoteIsAConstantNotDerivedFromTheRun(t *testing.T) {
-	quiet := buildRecord(outcome{Disposition: dispChecksPassed}, nil, nil, "r1", "A-honor", true,
+	quiet := buildRecord(outcome{Disposition: dispChecksPassed}, nil, nil, nil, nil, nil, "r1", "A-honor", true,
 		time.Now(), time.Now()).(previewRecord)
 	busy := buildRecord(outcome{Disposition: dispCancelled, Reason: "observing until the horizon"},
-		[]queuelab.LifecycleEvent{{ElapsedNs: 1, Kind: "Pod", Job: "a1"}}, nil, "r2", "N-ref", true,
+		[]queuelab.LifecycleEvent{{ElapsedNs: 1, Kind: "Pod", Job: "a1"}}, nil, nil, nil, nil, "r2", "N-ref", true,
 		time.Now(), time.Now()).(previewRecord)
 
 	if quiet.Note != previewNote || busy.Note != previewNote {
@@ -382,6 +386,37 @@ func TestPreviewRecordNoteIsAConstantNotDerivedFromTheRun(t *testing.T) {
 	}
 	if quiet.Note != busy.Note {
 		t.Fatal("the note varied with the run, which is the smuggling path a constant exists to close")
+	}
+}
+
+// The note is persisted into every preview record, so it is a durable statement read by somebody who has only
+// the file — and it said the validity gates were not enforced, which was false of every build that wrote it.
+// run() takes no preview flag, so no gate has ever been waived for a preview. That is the same defect the
+// UnimplementedGates field was already fixed for, and it fails the same way: a reader who checks the claim and
+// finds it false learns to discount the rest of the note, conclusion included.
+//
+// The assertions are on the SHAPE of the claim, not on the exact wording, because the wording may be improved
+// and the two properties may not: the note must not say checking was weakened, and it must name the ledger it
+// actually withholds.
+//
+// Mutation that turns this red: restore
+// "preview: the validity gates were not enforced, so this is a smoke check and not evidence".
+func TestThePreviewNoteNamesTheWithheldLedgerAndNoWaivedGate(t *testing.T) {
+	// Every spelling the old note and its neighbours reached for. A preview differs from a run in what it
+	// PERSISTS, so any of these describes the build wrongly.
+	for _, falsehood := range []string{"not enforced", "gates were", "without the validity gates", "not checked"} {
+		if strings.Contains(previewNote, falsehood) {
+			t.Fatalf("the note claims checking was weakened (%q), which no build has ever done to a preview: %q",
+				falsehood, previewNote)
+		}
+	}
+	// The difference that does exist, and the half a reader acts on.
+	if !strings.Contains(previewNote, "ledger") {
+		t.Fatalf("the note must name what a preview actually withholds — the events ledger — or it explains "+
+			"the withholding with something other than the reason for it: %q", previewNote)
+	}
+	if !strings.Contains(previewNote, "not evidence") {
+		t.Fatalf("the note must still reach the conclusion an operator acts on: %q", previewNote)
 	}
 }
 
@@ -395,7 +430,7 @@ func TestRefusalRecordIsReadableEvenWithoutARunID(t *testing.T) {
 
 	err := errors.New("-runid is required")
 	rec := buildRecord(outcome{Disposition: dispRefusedBeforeCluster, Reason: err.Error()},
-		nil, nil, recordRunID(""), "", false, time.Now(), time.Now())
+		nil, nil, nil, nil, nil, recordRunID(""), "", false, time.Now(), time.Now())
 	b, encErr := encodeRecord(rec)
 	if encErr != nil {
 		t.Fatalf("encode: %v", encErr)
@@ -447,7 +482,7 @@ func TestRecordPathNamesEveryInvocationSeparately(t *testing.T) {
 // record is built rather than audited where only some are reachable — a reviewer deleted four `o = ...`
 // assignments and neither go vet nor the suite noticed.
 func TestBuildRecordRefusesAZeroDisposition(t *testing.T) {
-	rr, ok := buildRecord(outcome{}, nil, nil, "r7", "A-honor", false, time.Now(), time.Now()).(runRecord)
+	rr, ok := buildRecord(outcome{}, nil, nil, nil, nil, nil, "r7", "A-honor", false, time.Now(), time.Now()).(runRecord)
 	if !ok {
 		t.Fatal("a non-preview invocation must build a runRecord")
 	}
@@ -459,7 +494,7 @@ func TestBuildRecordRefusesAZeroDisposition(t *testing.T) {
 	}
 
 	// The preview branch builds a different type, so it needs its own proof rather than inheriting this one.
-	pr, ok := buildRecord(outcome{}, nil, nil, "r7", "A-honor", true, time.Now(), time.Now()).(previewRecord)
+	pr, ok := buildRecord(outcome{}, nil, nil, nil, nil, nil, "r7", "A-honor", true, time.Now(), time.Now()).(previewRecord)
 	if !ok {
 		t.Fatal("a preview invocation must build a previewRecord")
 	}
@@ -468,10 +503,26 @@ func TestBuildRecordRefusesAZeroDisposition(t *testing.T) {
 	}
 
 	// The substitution must not touch an outcome that already has one, or it would rewrite real dispositions.
-	kept := buildRecord(outcome{Disposition: dispChecksPassed, Reason: "x"}, nil, nil, "r7", "A-honor", false,
+	kept := buildRecord(outcome{Disposition: dispChecksPassed, Reason: "x"}, nil, nil, nil, nil, nil, "r7", "A-honor", false,
 		time.Now(), time.Now()).(runRecord)
 	if kept.Disposition != string(dispChecksPassed) || kept.Reason != "x" {
 		t.Fatalf("a classified outcome must pass through untouched, got %q / %q", kept.Disposition, kept.Reason)
+	}
+}
+
+// readsBackFine stands in for a read-back that found the record readable, for the tests below that are about
+// the publish ordering rather than about the artifact. They inject a writer that touches no disk, so the real
+// verifier would fail on a path they never created and every one of them would be measuring the filesystem.
+func readsBackFine(string, bool) error { return nil }
+
+// neverVerified fails if the read-back is attempted at all, which is the assertion the failed-write test
+// needs: there is nothing at the path to read, so reading it would report a missing file as an unreadable
+// record and bury the write failure that actually happened under a second, derived one.
+func neverVerified(t *testing.T) recordVerifier {
+	t.Helper()
+	return func(path string, _ bool) error {
+		t.Fatalf("the record must not be read back when the write failed, got a read of %q", path)
+		return nil
 	}
 }
 
@@ -482,7 +533,7 @@ func TestReportRunPublishesNothingWhenTheRecordCannotBePersisted(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	res := queuelab.LabResult{Arm: "A-honor"}
 	code := reportRun(&stdout, &stderr, func(string, any) error { return errors.New("disk full") },
-		runReport{
+		neverVerified(t), runReport{
 			Outcome: outcome{Disposition: dispChecksPassed},
 			Events:  []queuelab.LifecycleEvent{{ElapsedNs: 1, Kind: "Pod", Job: "a1"}},
 			Result:  &res,
@@ -512,7 +563,7 @@ func TestReportRunPublishesOnceTheRecordIsDurable(t *testing.T) {
 	res := queuelab.LabResult{Arm: "A-honor"}
 	wrote := ""
 	code := reportRun(&stdout, &stderr, func(path string, _ any) error { wrote = path; return nil },
-		runReport{
+		readsBackFine, runReport{
 			Outcome: outcome{Disposition: dispChecksPassed},
 			Events:  []queuelab.LifecycleEvent{{ElapsedNs: 1, Kind: "Pod", Job: "a1"}},
 			Result:  &res,
@@ -547,7 +598,7 @@ func TestReportRunPublishesOnceTheRecordIsDurable(t *testing.T) {
 func TestReportRunRendersNoResultUnlessTheChecksPassed(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	res := queuelab.LabResult{Arm: "A-honor"}
-	code := reportRun(&stdout, &stderr, func(string, any) error { return nil }, runReport{
+	code := reportRun(&stdout, &stderr, func(string, any) error { return nil }, readsBackFine, runReport{
 		Outcome: outcome{Disposition: dispCollectorDesync, Reason: "watch gap"},
 		Events:  []queuelab.LifecycleEvent{{ElapsedNs: 1, Kind: "Pod", Job: "a1"}},
 		Result:  &res,
@@ -579,7 +630,7 @@ func TestReportRunRendersNoResultUnlessTheChecksPassed(t *testing.T) {
 // field dispUnclassified exists precisely to replace, while the record on disk named it correctly.
 func TestReportRunNamesAnUnclassifiedOutcomeOnStderrToo(t *testing.T) {
 	var stdout, stderr bytes.Buffer
-	code := reportRun(&stdout, &stderr, func(string, any) error { return nil }, runReport{
+	code := reportRun(&stdout, &stderr, func(string, any) error { return nil }, readsBackFine, runReport{
 		Outcome: outcome{},
 		Record:  runRecord{SchemaVersion: recordSchemaVersion},
 		Path:    "/tmp/run.json",
@@ -597,13 +648,14 @@ func TestReportRunNamesAnUnclassifiedOutcomeOnStderrToo(t *testing.T) {
 	}
 }
 
-// previewRecord carries a count and no events so a gateless run cannot emit anything reconstructable, and
-// a printed ledger reconstructs exactly as well as a written one: `queuelabrun -preview ... > ledger.txt`
-// would otherwise produce the artifact the record's whole shape exists to deny.
+// previewRecord carries a count and no events so an invocation declared uncountable cannot emit anything
+// reconstructable, and a printed ledger reconstructs exactly as well as a written one:
+// `queuelabrun -preview ... > ledger.txt` would otherwise produce the artifact the record's whole shape
+// exists to deny.
 func TestReportRunWithholdsTheLedgerFromAPreview(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	events := []queuelab.LifecycleEvent{{ElapsedNs: 1, Kind: "Pod", Type: queuelab.EventPodReady, Job: "a1"}}
-	reportRun(&stdout, &stderr, func(string, any) error { return nil }, runReport{
+	reportRun(&stdout, &stderr, func(string, any) error { return nil }, readsBackFine, runReport{
 		Outcome: outcome{Disposition: dispChecksPassed},
 		Events:  events,
 		Record:  previewRecord{SchemaVersion: recordSchemaVersion},
@@ -620,6 +672,92 @@ func TestReportRunWithholdsTheLedgerFromAPreview(t *testing.T) {
 	}
 	if !strings.Contains(out, previewBanner) {
 		t.Fatalf("preview output must stay bracketed by the banner, got %q", out)
+	}
+}
+
+// The record is the run's deliverable, so a record this build cannot read back is a failed deliverable and
+// must change the exit code: exit 0 on an unreadable artifact is exactly how a number gets quoted out of a
+// document nobody can re-derive it from.
+//
+// What it must NOT do is withhold the output. That is the asymmetry with a write failure, and the reason for
+// it is that the two are different states: a failed write may mean nothing durable exists, while an unreadable
+// record is durable bytes this build's reader refuses. Suppressing the ledger there would delete the last
+// usable account of the run at the moment the file stopped being one.
+//
+// Mutation that turns this red: drop `|| verifyErr != nil` from reportRun's return condition, so an
+// unreadable record is announced on stderr and still exits 0.
+func TestReportRunFailsARunWhoseRecordCannotBeReadBack(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	res := queuelab.LabResult{Arm: "A-honor"}
+	code := reportRun(&stdout, &stderr, func(string, any) error { return nil },
+		func(string, bool) error { return errors.New("schema 7 is not 6") }, runReport{
+			Outcome: outcome{Disposition: dispChecksPassed},
+			Events:  []queuelab.LifecycleEvent{{ElapsedNs: 1, Kind: "Pod", Job: "a1"}},
+			Result:  &res,
+			Record:  runRecord{SchemaVersion: recordSchemaVersion},
+			Path:    "/tmp/run.json",
+		})
+
+	if code == 0 {
+		t.Fatal("a run whose record cannot be read back has not delivered a record, and must not exit 0")
+	}
+	if !strings.Contains(stderr.String(), "cannot be read back") {
+		t.Fatalf("the read-back failure must name itself, or it reads as the run having failed: %q", stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "schema 7 is not 6") {
+		t.Fatalf("the reader's own reason must reach the operator, got %q", stderr.String())
+	}
+	// The evidence must survive. Withholding it here is the failure this branch was written to avoid.
+	if !strings.Contains(stdout.String(), "job=a1") {
+		t.Fatalf("an unreadable record is a reason to fail the run, not to destroy the only other account "+
+			"of it, got %q", stdout.String())
+	}
+}
+
+// A passing run and an unreadable record are two different facts, and an operator holding both needs both:
+// one says what the run did, the other says the document cannot answer for it.
+//
+// Mutation that turns this red: return 1 from the disposition branch as it did before, so the read-back
+// failure never prints for a run that also failed its checks.
+func TestReportRunNamesBothTheFailedRunAndTheUnreadableRecord(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := reportRun(&stdout, &stderr, func(string, any) error { return nil },
+		func(string, bool) error { return errors.New("verdict is unreadable") }, runReport{
+			Outcome: outcome{Disposition: dispCollectorDesync, Reason: "watch gap"},
+			Record:  runRecord{SchemaVersion: recordSchemaVersion},
+			Path:    "/tmp/run.json",
+		})
+
+	if code == 0 {
+		t.Fatal("neither failure alone permits exit 0")
+	}
+	if !strings.Contains(stderr.String(), string(dispCollectorDesync)) {
+		t.Fatalf("the run's own outcome must still be named, got %q", stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "verdict is unreadable") {
+		t.Fatalf("the record's failure must not be swallowed by the run's, got %q", stderr.String())
+	}
+}
+
+// The verifier has two arms and they ask opposite questions — a run record must decode, a preview record must
+// be refused — so handing it the wrong flag inverts the check into one that passes on precisely the documents
+// it exists to catch.
+//
+// Mutation that turns this red: pass `false` instead of `r.Preview` at reportRun's verify call.
+func TestReportRunTellsTheReadBackWhetherItWroteAPreview(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	got := false
+	reportRun(&stdout, &stderr, func(string, any) error { return nil },
+		func(_ string, preview bool) error { got = preview; return nil }, runReport{
+			Outcome: outcome{Disposition: dispChecksPassed},
+			Record:  previewRecord{SchemaVersion: recordSchemaVersion},
+			Path:    "/tmp/run.json",
+			Preview: true,
+		})
+
+	if !got {
+		t.Fatal("the read-back was told this was a run record when a preview was written, which inverts " +
+			"the check it performs")
 	}
 }
 
@@ -659,13 +797,56 @@ func fakeSchedulerCreate(ctx context.Context, c client.WithWatch, obj client.Obj
 	return stampUIDOnCreate(ctx, c, obj, opts...)
 }
 
+// fakeSchedulerList stamps a resource version on every list, which a real apiserver always does and the fake
+// client's in-memory tracker never does.
+//
+// Without it no full run can start at all: each of the collector's four streams takes its baseline from a
+// List and refuses an empty resource version, because a watch resumed from one starts at "now" and the gap
+// between the list and the watch is then invisible. That refusal is the correct behaviour against a real
+// cluster and an artefact of the double against this one, so the double is what changes.
+//
+// The value is fixed rather than incremented because nothing here reads it back: the fake client's Watch
+// ignores the resume version entirely, and what these tests exercise is run()'s ordering around the streams,
+// not client-go's resumption.
+func fakeSchedulerList(ctx context.Context, c client.WithWatch, list client.ObjectList,
+	opts ...client.ListOption) error {
+	if err := c.List(ctx, list, opts...); err != nil {
+		return err
+	}
+	list.SetResourceVersion("1")
+	return nil
+}
+
+// fakeNodeList stamps a resource version on Node lists and on nothing else.
+//
+// The ownership window takes its baseline from a List of Nodes and refuses an empty resource version, for the
+// same reason the collector's four streams do: a watch resumed from one starts at "now", and the interval
+// before it attached — the one in which the fixtures are applied and the first rows submitted — is invisible.
+// That refusal is correct against a real apiserver and an artefact of the fake client's tracker, which stamps
+// nothing, so the double is what changes.
+//
+// Nodes ALONE, deliberately. The tests that use this are about what run() does after an early return, and they
+// reach those returns because the collector's namespaced streams refuse their own unstamped baseline. Stamping
+// every list would send them down the full protocol instead and they would stop testing the path they name.
+func fakeNodeList(ctx context.Context, c client.WithWatch, list client.ObjectList,
+	opts ...client.ListOption) error {
+	if err := c.List(ctx, list, opts...); err != nil {
+		return err
+	}
+	if _, ok := list.(*corev1.NodeList); ok {
+		list.SetResourceVersion("1")
+	}
+	return nil
+}
+
 // stubWatch never delivers an event; it exists only to close once ctx is cancelled, which the fake client's
 // real Watch — a thin wrapper over an in-memory tracker with no notion of context at all — never does on its
-// own. collector.watch relies on that closing to unblock and rejoin its goroutines once run() cancels its
-// observation context, so without this a full run() driven against a bare fake client hangs forever in
-// col.wait() the instant it tries to finish, whatever the rest of the run computed.
+// own. It predates the streams: collector.watch read the raw watch channel and could only rejoin its
+// goroutines when that channel closed, so without this a full run() against a bare fake client hung in
+// col.wait() forever. RetryWatcher no longer needs it — it selects on the context and gives up on the
+// underlying watch — but the stub stays because it is also what keeps these tests deterministic.
 //
-// It costs nothing in fidelity here: every fact this file's two full-run tests depend on — an MLTrainingJob's
+// It costs nothing in fidelity here: every fact this file's full-run tests depend on — an MLTrainingJob's
 // Submitted event and its Status.Phase for the barrier checks — is written directly rather than observed off
 // a watch (see fakeSchedulerCreate and collector.submitObserved), and classify() has no case for
 // MLTrainingJob in the first place, so a real relay of watch events would not change what either test sees.
@@ -718,6 +899,7 @@ func TestRunExplicitReleaseFailureRecordsWorkerNotRestored(t *testing.T) {
 		WithInterceptorFuncs(interceptor.Funcs{
 			Create: fakeSchedulerCreate,
 			Watch:  fakeSchedulerWatch,
+			List:   fakeSchedulerList,
 			Patch: func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch,
 				opts ...client.PatchOption) error {
 				if _, ok := obj.(*corev1.Node); ok {
@@ -733,8 +915,8 @@ func TestRunExplicitReleaseFailureRecordsWorkerNotRestored(t *testing.T) {
 		}).Build()
 
 	tdNow, tdSleep := fakeClock(time.Unix(0, 0))
-	o, events, res, _ := run(context.Background(), func() (client.WithWatch, error) { return fc, nil },
-		queuelab.ArmNRef, "r8", "queuelab-r8", "platform-worker", 45*time.Second, "", tdNow, tdSleep)
+	o, events, res, _, _, _, _ := run(context.Background(), func() (client.WithWatch, error) { return fc, nil },
+		queuelab.ArmNRef, "r8", "queuelab-r8", "platform-worker", 45*time.Second, "", io.Discard, tdNow, tdSleep)
 
 	if nodePatches != 2 {
 		t.Fatalf("want exactly 2 node patches (acquire + the run's own release), got %d — this test proved "+
@@ -752,7 +934,7 @@ func TestRunExplicitReleaseFailureRecordsWorkerNotRestored(t *testing.T) {
 	// the in-memory outcome the test already holds.
 	path := t.TempDir() + "/record.json"
 	started := time.Now()
-	if err := writeRecord(path, buildRecord(o, events, nil, "r8", string(queuelab.ArmNRef), false,
+	if err := writeRecord(path, buildRecord(o, events, nil, nil, nil, nil, "r8", string(queuelab.ArmNRef), false,
 		started, started.Add(45*time.Second))); err != nil {
 		t.Fatalf("persist: %v", err)
 	}
@@ -807,6 +989,7 @@ func TestRunCancellationWhileRestoringNeverRelabelsAsCancelled(t *testing.T) {
 		WithInterceptorFuncs(interceptor.Funcs{
 			Create: fakeSchedulerCreate,
 			Watch:  fakeSchedulerWatch,
+			List:   fakeSchedulerList,
 			Patch: func(pctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch,
 				opts ...client.PatchOption) error {
 				if _, ok := obj.(*corev1.Node); ok {
@@ -822,8 +1005,8 @@ func TestRunCancellationWhileRestoringNeverRelabelsAsCancelled(t *testing.T) {
 		}).Build()
 
 	tdNow, tdSleep := fakeClock(time.Unix(0, 0))
-	o, events, res, _ := run(ctx, func() (client.WithWatch, error) { return fc, nil },
-		queuelab.ArmNRef, "r9", "queuelab-r9", "platform-worker", 45*time.Second, "", tdNow, tdSleep)
+	o, events, res, _, _, _, _ := run(ctx, func() (client.WithWatch, error) { return fc, nil },
+		queuelab.ArmNRef, "r9", "queuelab-r9", "platform-worker", 45*time.Second, "", io.Discard, tdNow, tdSleep)
 
 	if nodePatches != 2 {
 		t.Fatalf("want exactly 2 node patches (acquire + the run's own release), got %d — this test proved "+
@@ -843,7 +1026,7 @@ func TestRunCancellationWhileRestoringNeverRelabelsAsCancelled(t *testing.T) {
 
 	path := t.TempDir() + "/record.json"
 	started := time.Now()
-	if err := writeRecord(path, buildRecord(o, events, nil, "r9", string(queuelab.ArmNRef), false,
+	if err := writeRecord(path, buildRecord(o, events, nil, nil, nil, nil, "r9", string(queuelab.ArmNRef), false,
 		started, started.Add(45*time.Second))); err != nil {
 		t.Fatalf("persist: %v", err)
 	}
@@ -979,6 +1162,7 @@ func releasePatchIndex(calls []runCall) int {
 func TestRunTearsDownBeforeTheEmergencyReleaseOnAnEarlyReturn(t *testing.T) {
 	inner := fake.NewClientBuilder().WithScheme(fullScheme(t)).WithObjects(node(nil, nil)).
 		WithInterceptorFuncs(interceptor.Funcs{
+			List: fakeNodeList,
 			Create: func(ctx context.Context, c client.WithWatch, obj client.Object,
 				opts ...client.CreateOption) error {
 				// The flavor is the first fixture applyFixtures creates, so failing it returns the run early
@@ -992,9 +1176,9 @@ func TestRunTearsDownBeforeTheEmergencyReleaseOnAnEarlyReturn(t *testing.T) {
 	c, calls := recordRunCalls(t, inner)
 	now, sleep := fakeClock(time.Unix(0, 0))
 
-	o, _, res, left := run(context.Background(), func() (client.WithWatch, error) { return c, nil },
+	o, _, res, left, _, _, _ := run(context.Background(), func() (client.WithWatch, error) { return c, nil },
 		queuelab.ArmAHonor, "r7", "queuelab-r7", "platform-worker",
-		time.Duration(horizonSec)*time.Second, "", now, sleep)
+		time.Duration(horizonSec)*time.Second, "", io.Discard, now, sleep)
 
 	if res != nil {
 		t.Fatal("a run that failed setup must hand back no result")
@@ -1038,12 +1222,13 @@ func TestRunTearsDownBeforeItsOwnReleaseOnTheHappyPath(t *testing.T) {
 		WithInterceptorFuncs(interceptor.Funcs{
 			Create: fakeSchedulerCreate,
 			Watch:  fakeSchedulerWatch,
+			List:   fakeSchedulerList,
 		}).Build()
 	c, calls := recordRunCalls(t, inner)
 	now, sleep := fakeClock(time.Unix(0, 0))
 
-	o, _, res, left := run(context.Background(), func() (client.WithWatch, error) { return c, nil },
-		queuelab.ArmNRef, "r8", "queuelab-r8", "platform-worker", 45*time.Second, "", now, sleep)
+	o, _, res, left, _, _, _ := run(context.Background(), func() (client.WithWatch, error) { return c, nil },
+		queuelab.ArmNRef, "r8", "queuelab-r8", "platform-worker", 45*time.Second, "", io.Discard, now, sleep)
 
 	if o.Disposition != dispChecksPassed {
 		t.Fatalf("an uncontested N-ref run against a clean cluster must pass, got %s: %s", o.Disposition, o.Reason)
@@ -1106,13 +1291,13 @@ func TestRunTearsDownAroundAStaleFixtureFromAPreviousAttempt(t *testing.T) {
 	stale := fs.Flavor.DeepCopy()
 	stale.SetUID("rf-uid-previous")
 	inner := fake.NewClientBuilder().WithScheme(fullScheme(t)).WithObjects(node(nil, nil), stale).
-		WithInterceptorFuncs(interceptor.Funcs{Create: stampUIDOnCreate}).Build()
+		WithInterceptorFuncs(interceptor.Funcs{Create: stampUIDOnCreate, List: fakeNodeList}).Build()
 	c, calls := recordRunCalls(t, inner)
 	now, sleep := fakeClock(time.Unix(0, 0))
 
-	o, _, res, left := run(context.Background(), func() (client.WithWatch, error) { return c, nil },
+	o, _, res, left, _, _, _ := run(context.Background(), func() (client.WithWatch, error) { return c, nil },
 		queuelab.ArmAHonor, "r7", "queuelab-r7", "platform-worker",
-		time.Duration(horizonSec)*time.Second, "", now, sleep)
+		time.Duration(horizonSec)*time.Second, "", io.Discard, now, sleep)
 
 	if res != nil {
 		t.Fatal("a run that failed setup must hand back no result")
@@ -1209,6 +1394,7 @@ func TestResidueHoldsTheWorkerUnlessEverythingLeftIsSomebodyElses(t *testing.T) 
 func TestRunTeardownResidueAmendsTheOutcomeAndHoldsTheWorker(t *testing.T) {
 	inner := fake.NewClientBuilder().WithScheme(fullScheme(t)).WithObjects(node(nil, nil)).
 		WithInterceptorFuncs(interceptor.Funcs{
+			List: fakeNodeList,
 			Create: func(ctx context.Context, c client.WithWatch, obj client.Object,
 				opts ...client.CreateOption) error {
 				if _, ok := obj.(*kueuev1beta2.ResourceFlavor); ok {
@@ -1228,9 +1414,9 @@ func TestRunTeardownResidueAmendsTheOutcomeAndHoldsTheWorker(t *testing.T) {
 	c, calls := recordRunCalls(t, inner)
 	now, sleep := fakeClock(time.Unix(0, 0))
 
-	o, _, res, left := run(context.Background(), func() (client.WithWatch, error) { return c, nil },
+	o, _, res, left, _, _, _ := run(context.Background(), func() (client.WithWatch, error) { return c, nil },
 		queuelab.ArmAHonor, "r7", "queuelab-r7", "platform-worker",
-		time.Duration(horizonSec)*time.Second, "", now, sleep)
+		time.Duration(horizonSec)*time.Second, "", io.Discard, now, sleep)
 
 	if res != nil {
 		t.Fatal("a run that failed setup must hand back no result")
@@ -1300,6 +1486,7 @@ func TestRunHoldsTheWorkerWhenTheHappyPathLeavesResidue(t *testing.T) {
 		WithInterceptorFuncs(interceptor.Funcs{
 			Create: fakeSchedulerCreate,
 			Watch:  fakeSchedulerWatch,
+			List:   fakeSchedulerList,
 			// Refused rather than merely slow, so the residue also carries WHY: a record saying only "still
 			// present" reads as a finalizer taking its time.
 			Delete: func(ctx context.Context, c client.WithWatch, obj client.Object,
@@ -1314,8 +1501,8 @@ func TestRunHoldsTheWorkerWhenTheHappyPathLeavesResidue(t *testing.T) {
 	c, calls := recordRunCalls(t, inner)
 	now, sleep := fakeClock(time.Unix(0, 0))
 
-	o, events, res, left := run(context.Background(), func() (client.WithWatch, error) { return c, nil },
-		queuelab.ArmNRef, "r8", "queuelab-r8", "platform-worker", 45*time.Second, "", now, sleep)
+	o, events, res, left, _, _, _ := run(context.Background(), func() (client.WithWatch, error) { return c, nil },
+		queuelab.ArmNRef, "r8", "queuelab-r8", "platform-worker", 45*time.Second, "", io.Discard, now, sleep)
 
 	// The run must genuinely have completed its protocol, or this test is another early-return test wearing a
 	// longer sleep. The owner row is submitted only after the victim has been Ready for the whole 40-second
@@ -1389,6 +1576,7 @@ func TestRunHoldsTheWorkerWhenTheHappyPathLeavesResidue(t *testing.T) {
 func TestRunStampsTheResidueRecordWhenItHoldsTheWorker(t *testing.T) {
 	inner := fake.NewClientBuilder().WithScheme(fullScheme(t)).WithObjects(node(nil, nil)).
 		WithInterceptorFuncs(interceptor.Funcs{
+			List: fakeNodeList,
 			Create: func(ctx context.Context, c client.WithWatch, obj client.Object,
 				opts ...client.CreateOption) error {
 				if _, ok := obj.(*kueuev1beta2.ResourceFlavor); ok {
@@ -1411,9 +1599,9 @@ func TestRunStampsTheResidueRecordWhenItHoldsTheWorker(t *testing.T) {
 	// A named record path, because the path is the half of this record a test can pin exactly: main computes
 	// it once and run() must carry that same name down, or the record invites the operator to open a file
 	// nobody wrote.
-	o, _, _, left := run(context.Background(), func() (client.WithWatch, error) { return c, nil },
+	o, _, _, left, _, _, _ := run(context.Background(), func() (client.WithWatch, error) { return c, nil },
 		queuelab.ArmAHonor, "r7", "queuelab-r7", "platform-worker",
-		time.Duration(horizonSec)*time.Second, "queuelabrun-record-r7.json", now, sleep)
+		time.Duration(horizonSec)*time.Second, "queuelabrun-record-r7.json", io.Discard, now, sleep)
 
 	if o.Disposition != dispResidueLeft || len(left) == 0 {
 		t.Fatalf("this harness must reach a residue that holds the worker, got %s: %s with %+v",
@@ -1470,6 +1658,7 @@ func TestRunDoesNotStampWhenTheWorkerIsReleased(t *testing.T) {
 	)
 	inner := fake.NewClientBuilder().WithScheme(fullScheme(t)).WithObjects(node(nil, nil), stale).
 		WithInterceptorFuncs(interceptor.Funcs{
+			List:   fakeNodeList,
 			Create: stampUIDOnCreate,
 			Patch: func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch,
 				opts ...client.PatchOption) error {
@@ -1484,9 +1673,9 @@ func TestRunDoesNotStampWhenTheWorkerIsReleased(t *testing.T) {
 	c, _ := recordRunCalls(t, inner)
 	now, sleep := fakeClock(time.Unix(0, 0))
 
-	o, _, _, left := run(context.Background(), func() (client.WithWatch, error) { return c, nil },
+	o, _, _, left, _, _, _ := run(context.Background(), func() (client.WithWatch, error) { return c, nil },
 		queuelab.ArmAHonor, "r7", "queuelab-r7", "platform-worker",
-		time.Duration(horizonSec)*time.Second, "queuelabrun-record-r7.json", now, sleep)
+		time.Duration(horizonSec)*time.Second, "queuelabrun-record-r7.json", io.Discard, now, sleep)
 
 	if o.Disposition != dispResidueLeft || len(left) == 0 {
 		t.Fatalf("this harness must reach a residue, got %s: %s with %+v", o.Disposition, o.Reason, left)
@@ -1507,6 +1696,80 @@ func TestRunDoesNotStampWhenTheWorkerIsReleased(t *testing.T) {
 	}
 }
 
+// reportResidue used to write straight to os.Stderr, which made its text unassertable and is exactly how a
+// false sentence in the released branch (see the next test) survived two reviews. This pins the held branch
+// the same way, so a future change to either has to answer to a literal string instead of to nothing.
+func TestReportResidueHeldMessage(t *testing.T) {
+	var buf bytes.Buffer
+	left := []residue{{Observation: observation{Target: target{Kind: "Namespace", Name: "queuelab-r7"}},
+		Absence: absencePresent}}
+	reportResidue(&buf, "platform-worker", left, true)
+	got := buf.String()
+	if !strings.Contains(got, "TEARDOWN INCOMPLETE: worker platform-worker stays dedicated; its GPUs may "+
+		"still be in use") {
+		t.Fatalf("held message changed or missing, got:\n%s", got)
+	}
+	if !strings.Contains(got, "Namespace queuelab-r7: present") {
+		t.Fatalf("residue line missing or misformatted, got:\n%s", got)
+	}
+	if !strings.Contains(got, "do NOT strip a stuck namespace's finalizer") {
+		t.Fatalf("finalizer warning missing from the held branch, got:\n%s", got)
+	}
+	if !strings.Contains(got, "-inspect-worker -worker platform-worker") {
+		t.Fatalf("recovery command missing from the held branch, got:\n%s", got)
+	}
+}
+
+// This is the finding itself: since 62e74c4, a namespace THIS RUN created and deleted can still be observed
+// Terminating and classified absenceForeign — so the released branch's old text ("nothing this run created
+// is still on the cluster") is false in exactly the window an operator is most likely to read it. This test
+// drives that scenario — a residue entry that is foreign, which is the only way reportResidue is ever
+// called with held=false (residueHoldsWorker's own contract) — and pins that the message no longer asserts
+// the negative it cannot know, while still giving the released-branch advice.
+//
+// Mutation this catches: reverting the released-branch Fprintf back to "nothing this run created is still
+// on the cluster, but these names are held by another transaction" makes the first assertion below fail,
+// because that old text is exactly what it checks is absent.
+func TestReportResidueReleasedMessageAssertsNoNegativeItCannotKnow(t *testing.T) {
+	var buf bytes.Buffer
+	// A namespace this run itself created: WantUID set, but observed under a different UID because a
+	// different object took the name while this run's own was going Terminating — classifyAbsence's
+	// absenceForeign case, reached from residue this run is directly implicated in.
+	left := []residue{{
+		Observation: observation{
+			Target: target{Kind: "Namespace", Name: "queuelab-r7"}, Found: true, Terminating: true,
+			UID: "someone-elses-uid", WantUID: "our-uid",
+		},
+		Absence: absenceForeign,
+	}}
+	reportResidue(&buf, "platform-worker", left, false)
+	got := buf.String()
+	if strings.Contains(got, "nothing this run created is still on the cluster") {
+		t.Fatalf("the released branch still asserts a negative it cannot know: since a namespace this run "+
+			"created can itself be observed Terminating and classified foreign, this claim can be false on "+
+			"the exact residue driving this test, got:\n%s", got)
+	}
+	if !strings.Contains(got, "TEARDOWN INCOMPLETE: worker platform-worker was released; nothing left at "+
+		"these names carries this run's stamp") {
+		t.Fatalf("released message changed unexpectedly, got:\n%s", got)
+	}
+	// Not "somebody else's stamp": absenceForeign also covers an object carrying no stamp at all, so naming a
+	// foreign owner would presuppose a stamp that may not exist — the same unprovable shape this branch was
+	// rewritten to stop asserting, one size smaller.
+	if strings.Contains(got, "does not own") {
+		t.Fatalf("the released branch presupposes a foreign stamp on names that may carry none, got:\n%s", got)
+	}
+	if !strings.Contains(got, "Namespace queuelab-r7: foreign") {
+		t.Fatalf("residue line missing or misformatted, got:\n%s", got)
+	}
+	if !strings.Contains(got, "rerun under a run id of its own") {
+		t.Fatalf("released-branch advice missing, got:\n%s", got)
+	}
+	if strings.Contains(got, "do NOT strip a stuck namespace's finalizer") {
+		t.Fatalf("the held-branch finalizer warning must not appear on the released branch, got:\n%s", got)
+	}
+}
+
 // The stamp is written on a path that is already reporting failure, and the fact that matters — the worker is
 // held — is carried by the label and the taint, which are already installed. Failing the run on it would
 // misreport that: it would turn a run that did exactly what it decided into a run that decided something
@@ -1514,6 +1777,7 @@ func TestRunDoesNotStampWhenTheWorkerIsReleased(t *testing.T) {
 func TestAFailedResidueStampChangesNoOutcome(t *testing.T) {
 	inner := fake.NewClientBuilder().WithScheme(fullScheme(t)).WithObjects(node(nil, nil)).
 		WithInterceptorFuncs(interceptor.Funcs{
+			List: fakeNodeList,
 			Create: func(ctx context.Context, c client.WithWatch, obj client.Object,
 				opts ...client.CreateOption) error {
 				if _, ok := obj.(*kueuev1beta2.ResourceFlavor); ok {
@@ -1542,9 +1806,9 @@ func TestAFailedResidueStampChangesNoOutcome(t *testing.T) {
 	c, calls := recordRunCalls(t, inner)
 	now, sleep := fakeClock(time.Unix(0, 0))
 
-	o, _, res, left := run(context.Background(), func() (client.WithWatch, error) { return c, nil },
+	o, _, res, left, _, _, _ := run(context.Background(), func() (client.WithWatch, error) { return c, nil },
 		queuelab.ArmAHonor, "r7", "queuelab-r7", "platform-worker",
-		time.Duration(horizonSec)*time.Second, "queuelabrun-record-r7.json", now, sleep)
+		time.Duration(horizonSec)*time.Second, "queuelabrun-record-r7.json", io.Discard, now, sleep)
 
 	if o.Disposition != dispResidueLeft {
 		t.Fatalf("disposition is %q, want %q: a failed annotation must not change what the run decided",
@@ -1574,5 +1838,751 @@ func TestAFailedResidueStampChangesNoOutcome(t *testing.T) {
 	if rel := releasePatchIndex(calls()); rel >= 0 {
 		t.Fatalf("the worker was released at call %d after the stamp failed; a write that explains a hold must "+
 			"not be able to end one", rel)
+	}
+}
+
+// Submission is the point of no return: work offered to the cluster runs, competes for the worker's GPUs and
+// finishes whether or not anything was watching, and no later read can reconstruct the transitions it made in
+// between. So run() must prove its four streams open BEFORE it submits, and refuse the run when it cannot.
+//
+// This is the run-level half of the barrier that awaitEstablished implements. Its collector-level tests can
+// only show the wait returning an error; this one shows what the run does with it, which is the property that
+// actually matters — the previous implementation called col.start and fell straight into the submit loop, so
+// a watch that never established held up precisely nothing.
+//
+// The Pod watch is refused with a WRAPPED Forbidden because that is the case with no other signal in it:
+// RetryWatcher terminates the stream having forwarded no event and no status, and startWatchStream has
+// already returned a nil error by then, so nothing but the barrier's own End() arm can notice.
+//
+// Mutation that turns this red: delete the col.awaitEstablished block from run(). The run then submits its
+// whole trace under a Pod stream that does not exist, spends the full horizon, and this test counts the
+// submissions it was not supposed to make.
+func TestRunSubmitsNothingWhenAStreamCannotBeEstablished(t *testing.T) {
+	forbidden := apierrors.NewForbidden(schema.GroupResource{Resource: "pods"}, "",
+		errors.New("no watch permission"))
+	var (
+		mu        sync.Mutex
+		submitted int
+	)
+	fc := fake.NewClientBuilder().WithScheme(fullScheme(t)).WithObjects(node(nil, nil)).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Create: func(ctx context.Context, c client.WithWatch, obj client.Object,
+				opts ...client.CreateOption) error {
+				if _, ok := obj.(*platformv1.MLTrainingJob); ok {
+					// Counted under a mutex because run() has live consumer goroutines for the three streams that
+					// did establish, and a counter this test's verdict rests on must not be the one racy thing in it.
+					mu.Lock()
+					submitted++
+					mu.Unlock()
+				}
+				return fakeSchedulerCreate(ctx, c, obj, opts...)
+			},
+			List: fakeSchedulerList,
+			Watch: func(ctx context.Context, c client.WithWatch, list client.ObjectList,
+				opts ...client.ListOption) (watch.Interface, error) {
+				if isPodList(list) {
+					return nil, fmt.Errorf("watch pods: %w", forbidden)
+				}
+				return newStubWatch(ctx), nil
+			},
+		}).Build()
+	now, sleep := fakeClock(time.Unix(0, 0))
+
+	o, _, res, _, _, _, _ := run(context.Background(), func() (client.WithWatch, error) { return fc, nil },
+		queuelab.ArmNRef, "r10", "queuelab-r10", "platform-worker",
+		time.Duration(horizonSec)*time.Second, "", io.Discard, now, sleep)
+
+	mu.Lock()
+	n := submitted
+	mu.Unlock()
+	if n != 0 {
+		t.Fatalf("the run submitted %d job(s) with no Pod stream open; that work runs and finishes entirely "+
+			"unobserved, and the readiness and termination transitions it makes are gone", n)
+	}
+	if res != nil {
+		t.Fatal("a run that never established its observation must hand back no result")
+	}
+	if o.Disposition != dispSetupFailed {
+		t.Fatalf("a run refused before it could observe is %s, got %s: %s", dispSetupFailed, o.Disposition, o.Reason)
+	}
+	// Naming the kind is what tells the operator whether they are looking at an RBAC gap on Pods or at a
+	// cluster that is failing every watch; all four streams share one namespace and would otherwise read alike.
+	if !strings.Contains(o.Reason, kindPod) {
+		t.Fatalf("the refusal %q does not name the view of the run that could not be opened", o.Reason)
+	}
+}
+
+// run() must hand the streams its own cancellable context and bound establishment separately, and no
+// collector-level test can see that: what is being checked is how run() BUILT the context it passed, which
+// only a test driving run() itself can observe.
+//
+// The mutation this exists for is the natural wrong implementation — col.start(context.WithTimeout(cctx,
+// establishBudget)) — and it is the one that must not be able to ship green. It is silent by construction:
+// the streams die a budget into the window, every ending reads Cancelled because the caller's own context
+// expired, no consumer desyncs, and the run reports checks-passed over a window it observed almost none of.
+// Every other test in this package stays green under it, which is precisely why this one asserts on the
+// context rather than on any consequence of it.
+//
+// The Pod watch is refused permanently so the run returns in milliseconds. What this test reads — the
+// contexts the four streams were opened with — all exists before that refusal is noticed, so nothing about
+// the assertion depends on how the run ends.
+func TestRunHandsTheStreamsAnUnboundedContext(t *testing.T) {
+	spy := &deadlineSpy{}
+	forbidden := apierrors.NewForbidden(schema.GroupResource{Resource: "pods"}, "",
+		errors.New("no watch permission"))
+	fc := fake.NewClientBuilder().WithScheme(fullScheme(t)).WithObjects(node(nil, nil)).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Create: fakeSchedulerCreate,
+			List:   fakeSchedulerList,
+			Watch: spy.watch(func(ctx context.Context, c client.WithWatch, list client.ObjectList,
+				opts ...client.ListOption) (watch.Interface, error) {
+				if isPodList(list) {
+					return nil, fmt.Errorf("watch pods: %w", forbidden)
+				}
+				return newStubWatch(ctx), nil
+			}),
+		}).Build()
+	now, sleep := fakeClock(time.Unix(0, 0))
+
+	run(context.Background(), func() (client.WithWatch, error) { return fc, nil },
+		queuelab.ArmNRef, "r11", "queuelab-r11", "platform-worker",
+		time.Duration(horizonSec)*time.Second, "", io.Discard, now, sleep)
+
+	calls, bounded := spy.observed()
+	if calls < 4 {
+		t.Fatalf("the run opened %d watch(es); it never got as far as the four stream contexts this test "+
+			"inspects, so a green result here would mean nothing", calls)
+	}
+	if len(bounded) > 0 {
+		t.Fatalf("run() handed its streams bounded contexts (%v): the establishment budget has become the "+
+			"observation's deadline, and a run that stops observing when it expires reports an orderly shutdown "+
+			"instead of a lost stream", bounded)
+	}
+}
+
+// The gate this whole file's ownership machinery could not close: the label and the NoSchedule taint reserve
+// the worker against FUTURE placement and evict nothing, so a GPU Pod that was already running keeps its
+// device for the entire run. run() went from acquireWorker straight to its first Create, and the run then
+// measured a machine with half its devices already spoken for and said nothing about it.
+//
+// This asserts three separate things about the refusal, and each is a different way for the check to be
+// present and useless: it has to actually refuse, it has to refuse BEFORE the first Create (so nothing of
+// this run's is left on a cluster it never should have touched), and it has to give the worker back (so the
+// next attempt is not blocked by a run that never started).
+//
+// Mutation that turns this red: delete the qualifyWorker block from run(). That is the mutation that
+// matters most here — the component would still exist, still be correct and still be tested in isolation,
+// which is precisely the defect the previous gate shipped and had to be caught live.
+func TestRunRefusesToCreateAnythingOnAContaminatedWorker(t *testing.T) {
+	var (
+		mu      sync.Mutex
+		created []string
+	)
+	fc := fake.NewClientBuilder().WithScheme(fullScheme(t)).
+		WithObjects(node(nil, nil), gpuPod("tenant-a", "train-7", "platform-worker", 1)).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Create: func(ctx context.Context, c client.WithWatch, obj client.Object,
+				opts ...client.CreateOption) error {
+				mu.Lock()
+				created = append(created, fmt.Sprintf("%T %s", obj, obj.GetName()))
+				mu.Unlock()
+				return fakeSchedulerCreate(ctx, c, obj, opts...)
+			},
+			List:  fakeSchedulerList,
+			Watch: fakeSchedulerWatch,
+		}).Build()
+	tdNow, tdSleep := fakeClock(time.Unix(0, 0))
+
+	o, _, res, _, qual, _, _ := run(context.Background(), func() (client.WithWatch, error) { return fc, nil },
+		queuelab.ArmAHonor, "r12", "queuelab-r12", "platform-worker",
+		time.Duration(horizonSec)*time.Second, "", io.Discard, tdNow, tdSleep)
+
+	if o.Disposition != dispEnvironmentUnqualified {
+		t.Fatalf("a run on a worker already holding somebody else's GPU Pod is %s, got %s: %s",
+			dispEnvironmentUnqualified, o.Disposition, o.Reason)
+	}
+	if res != nil {
+		t.Fatal("a run that refused its environment must hand back no result")
+	}
+	mu.Lock()
+	madeObjects := append([]string(nil), created...)
+	mu.Unlock()
+	if len(madeObjects) != 0 {
+		t.Fatalf("the run created %v before deciding the worker was unusable; a refusal that leaves objects "+
+			"behind is a refusal the next run has to clean up after", madeObjects)
+	}
+	if qual == nil || len(qual.GPUConsumers) != 1 || qual.GPUConsumers[0].Name != "train-7" {
+		t.Fatalf("the refusal must carry what it saw into the record, got %+v", qual)
+	}
+
+	// The worker has to go back. A refusal that holds the node is indistinguishable from a crash to the next
+	// operator, and there is nothing of this run's on it to contain.
+	var n corev1.Node
+	if err := fc.Get(context.Background(), client.ObjectKey{Name: "platform-worker"}, &n); err != nil {
+		t.Fatalf("read the node back: %v", err)
+	}
+	if _, held := n.Labels[workerLabelKey]; held {
+		t.Fatal("the worker is still labelled after a refusal that created nothing on it")
+	}
+	if _, journalled := n.Annotations[journalKey]; journalled {
+		t.Fatal("the ownership journal survived a refusal, so the next run refuses foreign-owner on a node " +
+			"nothing is using")
+	}
+	for _, tt := range n.Spec.Taints {
+		if tt.Key == workerTaintKey {
+			t.Fatal("the NoSchedule taint survived a refusal, so the node stays reserved for a run that " +
+				"never started")
+		}
+	}
+	t.Logf("refusal reason:\n%s", o.Reason)
+}
+
+// The requirement is derived from the fixtures at the call site, not just inside requiredGPU, and this is
+// what pins that wiring: the node advertises one device and the reclaim arm's two ClusterQueues need two, so
+// a run() that passed a smaller (or hard-coded, or zero) requirement through would let it past.
+//
+// Mutation that turns this red: pass a literal 1 — or `int64(len(fs.ClusterQueue))` on the FIFO shape, or 0 —
+// to qualifyWorker in run() instead of requiredGPU(fs)'s result.
+func TestRunSizesTheWorkerAgainstItsOwnFixtures(t *testing.T) {
+	small := node(nil, nil)
+	small.Status.Allocatable[gpuResourceName] = *resource.NewQuantity(1, resource.DecimalSI)
+	fc := fake.NewClientBuilder().WithScheme(fullScheme(t)).WithObjects(small).
+		WithInterceptorFuncs(interceptor.Funcs{Create: fakeSchedulerCreate, List: fakeSchedulerList,
+			Watch: fakeSchedulerWatch}).Build()
+	tdNow, tdSleep := fakeClock(time.Unix(0, 0))
+
+	o, _, _, _, qual, _, _ := run(context.Background(), func() (client.WithWatch, error) { return fc, nil },
+		queuelab.ArmAHonor, "r13", "queuelab-r13", "platform-worker",
+		time.Duration(horizonSec)*time.Second, "", io.Discard, tdNow, tdSleep)
+
+	if o.Disposition != dispEnvironmentUnqualified {
+		t.Fatalf("a one-device node cannot produce the borrow-then-reclaim contrast the arm is named after, "+
+			"so the run must refuse rather than complete; got %s: %s", o.Disposition, o.Reason)
+	}
+	if qual == nil || qual.RequiredGPU != 2 {
+		t.Fatalf("the requirement must be the fixtures' own total, got %+v", qual)
+	}
+	if qual.RequiredFrom == "" || !strings.Contains(qual.RequiredFrom, "ClusterQueue") {
+		t.Fatalf("the record must say where the requirement came from, got %+v", qual)
+	}
+}
+
+// The qualification a PASSING run records, which is the case the later validity-bearing-artifact gate is
+// actually built on and the one both refusal tests above leave uncovered.
+//
+// The gap that motivated it is narrow and real: every other run() test discards the fifth return, so a
+// regression that recorded the observation only on the refusal path — a qualification block moved inside an
+// `if err != nil`, or made conditional on there being Pods to look at — would leave the entire package green
+// while every admissible run in the archive carried no evidence of the machine it ran on.
+//
+// It drives the same 45-second N-ref shape as the teardown-ordering test above rather than the full protocol
+// dose, and asserts on the bytes of the record rather than on the returned struct, because the artifact is
+// what survives the process.
+//
+// Mutation that turns this red: move the qualifyWorker call inside the refusal branch, or drop the
+// `Qualification: qual` assignment from buildRecord's non-preview branch.
+func TestAQualifiedRunRecordsWhatItsWorkerWas(t *testing.T) {
+	if testing.Short() {
+		t.Skip("drives run() to a passing disposition, which takes the 45-second observation window")
+	}
+	fc := fake.NewClientBuilder().WithScheme(fullScheme(t)).WithObjects(node(nil, nil)).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Create: fakeSchedulerCreate,
+			Watch:  fakeSchedulerWatch,
+			List:   fakeSchedulerList,
+		}).Build()
+	now, sleep := fakeClock(time.Unix(0, 0))
+
+	o, events, res, left, qual, _, obs := run(context.Background(), func() (client.WithWatch, error) { return fc, nil },
+		queuelab.ArmNRef, "r14", "queuelab-r14", "platform-worker", 45*time.Second, "", io.Discard, now, sleep)
+
+	if o.Disposition != dispChecksPassed {
+		t.Fatalf("this test is only meaningful on a run that passed, got %s: %s", o.Disposition, o.Reason)
+	}
+	if res == nil {
+		t.Fatal("a passing run must hand back a result, or this never reached the qualified happy path")
+	}
+	if qual == nil {
+		t.Fatal("a run that passed every check recorded nothing about the machine it measured on")
+	}
+
+	rec := buildRecord(o, events, left, qual, nil, obs, "r14", string(queuelab.ArmNRef), false,
+		time.Now(), time.Now())
+	b, err := encodeRecord(rec)
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	got, err := decodeRunRecord(b)
+	if err != nil {
+		t.Fatalf("a passing run's record must decode: %v\n%s", err, b)
+	}
+	q := got.Qualification
+	if q == nil {
+		t.Fatalf("the passing run's record carries no qualification, so the artifact says a number was "+
+			"measured and nothing about what it was measured on:\n%s", b)
+	}
+	if q.Node != "platform-worker" || q.NodeUID != "uid-node" {
+		t.Fatalf("the record must identify the machine, got %+v", q)
+	}
+	if q.AllocatableGPU != 2 || q.RequiredGPU != 2 || q.RequiredBoundBy != boundByQuotaSum {
+		t.Fatalf("the record must carry the capacity claim and which bound decided it, got %+v", q)
+	}
+	if !strings.Contains(q.RequiredFrom, "ClusterQueue") {
+		t.Fatalf("the record must say where the requirement came from, got %q", q.RequiredFrom)
+	}
+	if !q.Ready || !q.Schedulable || len(q.GPUConsumers) != 0 {
+		t.Fatalf("a passing run's worker was Ready, schedulable and uncontended, got %+v", q)
+	}
+	t.Logf("qualification persisted by a passing run: %+v", *q)
+}
+
+// The window a PASSING run records, which is what the later validity-bearing-artifact gate is built on and
+// what no unit test of the sentinel can establish: every one of those drives the component directly, so a
+// sentinel that was never started from run(), or a window never carried into the record, would leave the
+// whole package green while every admissible run in the archive claimed exclusivity it had not watched for.
+// That is the exact failure this lineage has already shipped once — a correct component, reviewed, with no
+// caller.
+//
+// Mutation that turns this red: delete the startOwnershipSentinel call and its defer from run(), or drop the
+// `Window: win` assignment from buildRecord's non-preview branch.
+func TestAPassingRunRecordsTheWindowItHeld(t *testing.T) {
+	if testing.Short() {
+		t.Skip("drives run() to a passing disposition, which takes the 45-second observation window")
+	}
+	fc := fake.NewClientBuilder().WithScheme(fullScheme(t)).WithObjects(node(nil, nil)).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Create: fakeSchedulerCreate,
+			Watch:  fakeSchedulerWatch,
+			List:   fakeSchedulerList,
+		}).Build()
+	now, sleep := fakeClock(time.Unix(0, 0))
+
+	o, events, res, left, qual, win, obs := run(context.Background(), func() (client.WithWatch, error) { return fc, nil },
+		queuelab.ArmNRef, "r15", "queuelab-r15", "platform-worker", 45*time.Second, "", io.Discard, now, sleep)
+
+	if o.Disposition != dispChecksPassed {
+		t.Fatalf("this test is only meaningful on a run that passed, got %s: %s", o.Disposition, o.Reason)
+	}
+	if res == nil {
+		t.Fatal("a passing run must hand back a result, or this never reached the happy path")
+	}
+	if win == nil {
+		t.Fatal("a run that published a number recorded nothing about whether its worker stayed its own")
+	}
+	if win.ViolationsObserved != 0 {
+		t.Fatalf("an uncontested worker produced violations: %+v", win.Violations)
+	}
+	if win.NodeVersionsObserved < 1 {
+		t.Fatal("a window that compared no node version at all is not evidence of anything; the count is the " +
+			"denominator for its empty violation list")
+	}
+	// The restoration audit only exists once the release has run, and the release runs after run() has chosen
+	// what to return — so this is also the assertion that the audit reaches the record at all.
+	if win.Restoration == nil || !win.Restoration.OurMarkersRemoved {
+		t.Fatalf("the passing run recorded no audited restoration: %+v", win.Restoration)
+	}
+
+	rec := buildRecord(o, events, left, qual, win, obs, "r15", string(queuelab.ArmNRef), false,
+		time.Now(), time.Now())
+	b, err := encodeRecord(rec)
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	got, err := decodeRunRecord(b)
+	if err != nil {
+		t.Fatalf("a passing run's record must decode: %v\n%s", err, b)
+	}
+	if got.Window == nil || got.Window.Node != "platform-worker" || got.Window.BaselineResourceVersion == "" {
+		t.Fatalf("the artifact does not carry a window naming the machine and the point it opened from:\n%s", b)
+	}
+	t.Logf("window persisted by a passing run: %+v", *got.Window)
+}
+
+// The gate itself, end to end and through the real run(): the worker's NoSchedule taint is stripped while the
+// measurement is in flight and put back before the release, so acquire's verify and release's decideRelease
+// both see a correct tuple and both pass — which is precisely the run that used to publish a number measured
+// on a shared machine.
+//
+// The Node's stored state is never actually changed, only what the view observes. That is deliberate: it
+// isolates what this test is about (the continuous view is the only thing that can see this) and leaves the
+// release path exercising the same clean node every other run() test does.
+//
+// Mutation that turns this red: delete the `col.desync(reason)` fold in run(). The window still records the
+// violation, the record still carries it, and the run prints its number anyway — the split between having
+// evidence and enforcing it, which is the whole failure mode this gate is against.
+func TestRunRefusesToPublishAWorkerThatWasSharedMidRun(t *testing.T) {
+	if testing.Short() {
+		t.Skip("drives run() through its 45-second observation window to reach the invalidation")
+	}
+	// The label value and the taint value are the RUN id (see decideAcquire), so these versions can be built
+	// without knowing the transaction id this run will generate.
+	stripped := node(map[string]string{workerLabelKey: "r16"}, nil)
+	stripped.ResourceVersion = "9001"
+	restored := node(map[string]string{workerLabelKey: "r16"}, nil,
+		corev1.Taint{Key: workerTaintKey, Value: "r16", Effect: corev1.TaintEffectNoSchedule})
+	restored.ResourceVersion = "9002"
+
+	fc := fake.NewClientBuilder().WithScheme(fullScheme(t)).WithObjects(node(nil, nil)).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Create: fakeSchedulerCreate,
+			List:   fakeSchedulerList,
+			Watch: func(ctx context.Context, c client.WithWatch, list client.ObjectList,
+				opts ...client.ListOption) (watch.Interface, error) {
+				if _, isNodes := list.(*corev1.NodeList); !isNodes {
+					return fakeSchedulerWatch(ctx, c, list, opts...)
+				}
+				w := watch.NewFakeWithChanSize(2, false)
+				w.Modify(stripped)
+				w.Modify(restored)
+				return w, nil
+			},
+		}).Build()
+	now, sleep := fakeClock(time.Unix(0, 0))
+
+	o, _, res, _, _, win, _ := run(context.Background(), func() (client.WithWatch, error) { return fc, nil },
+		queuelab.ArmNRef, "r16", "queuelab-r16", "platform-worker", 45*time.Second, "", io.Discard, now, sleep)
+
+	if res != nil {
+		t.Fatal("a run whose worker was shared for part of its window published a result")
+	}
+	if o.Disposition != dispCollectorDesync {
+		t.Fatalf("disposition is %q (%s), want %q: the window's verdict has to reach the ledger, because "+
+			"builder.Err() is the one thing that decides whether a number may exist",
+			o.Disposition, o.Reason, dispCollectorDesync)
+	}
+	if win == nil || win.ViolationsObserved == 0 {
+		t.Fatalf("the run was invalidated but its record says nothing about why: %+v", win)
+	}
+	if win.Violations[0].Reason != reasonInstalledDiverged {
+		t.Fatalf("the violation was classified %q, want %q", win.Violations[0].Reason, reasonInstalledDiverged)
+	}
+	// The worker still goes back: this run lost its claim to the number, not its obligation to leave the
+	// cluster as it found it.
+	if win.Restoration == nil || !win.Restoration.OurMarkersRemoved {
+		t.Fatalf("an invalidated run must still restore and audit its worker: %+v", win.Restoration)
+	}
+}
+
+// The window opens before qualification, not after it, and an unqualified run is where that ordering is
+// visible: the run is refused by the machine it was given, and the record still has to say what that machine
+// was doing while it was being inspected.
+//
+// The ordering is not cosmetic. qualifyWorker does a Node Get and an unfiltered cluster-wide Pod List — the
+// most expensive call in setup — and every millisecond of it used to sit inside the one interval this gate
+// does not watch, between acquire's own verify and the window's baseline. Nothing in the sentinel depends on
+// qualification, so the cost bought nothing.
+//
+// Mutation that turns this red: move the startOwnershipSentinel call and its defer back below qualifyWorker.
+// This run then refuses before the window is ever opened, the record carries no window for it, and the
+// unwatched sliver grows by however long a cluster-wide Pod List takes.
+func TestAnUnqualifiedRunStillRecordsTheWindowItOpened(t *testing.T) {
+	fc := fake.NewClientBuilder().WithScheme(fullScheme(t)).
+		WithObjects(node(nil, nil), gpuPod("tenant-a", "train-7", "platform-worker", 1)).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Create: fakeSchedulerCreate,
+			List:   fakeSchedulerList,
+			Watch:  fakeSchedulerWatch,
+		}).Build()
+	tdNow, tdSleep := fakeClock(time.Unix(0, 0))
+
+	o, _, _, _, qual, win, _ := run(context.Background(), func() (client.WithWatch, error) { return fc, nil },
+		queuelab.ArmAHonor, "r17", "queuelab-r17", "platform-worker",
+		time.Duration(horizonSec)*time.Second, "", io.Discard, tdNow, tdSleep)
+
+	if o.Disposition != dispEnvironmentUnqualified || qual == nil {
+		t.Fatalf("this test is only meaningful on a run refused at qualification, got %s: %s", o.Disposition, o.Reason)
+	}
+	if win == nil {
+		t.Fatal("a run refused at qualification carries no window, so the window was opened after the " +
+			"qualification reads and those reads happened inside the interval nothing was watching")
+	}
+	if win.NodeVersionsObserved < 1 || win.BaselineResourceVersion == "" {
+		t.Fatalf("the window exists but established nothing: %+v", win)
+	}
+	// The worker went back on this path, and the audit is the record of it — the deferred emergency release is
+	// what runs here, so this also pins that the audit reaches the window from that release and not only from
+	// the inline one.
+	if win.Restoration == nil || !win.Restoration.OurMarkersRemoved {
+		t.Fatalf("the emergency release on the refusal path recorded no audited restoration: %+v", win.Restoration)
+	}
+}
+
+// A run refused at establishment is the truncated observation this gate exists to make legible, and it is the
+// record no reader could previously tell apart from a complete one: same disposition, same free-text reason,
+// and nothing anywhere saying which of four views had died or that none of them had been proven open.
+//
+// The harness is TestRunSubmitsNothingWhenAStreamCannotBeEstablished's, and the wrapped Forbidden is chosen
+// for the same reason it is there: RetryWatcher terminates having forwarded no event and no status, so the
+// Pod stream ends with neither Cancelled nor Stopped and with nothing else to give it away. That ending is
+// exactly the shape the record has to carry, because it is the only thing distinguishing a lost stream from
+// an orderly one.
+//
+// Mutation that turns this red: delete the `obs = col.evidence(...)` defer from run(). Every assertion below
+// then has nothing to read, and the record of a run that observed almost nothing goes back to looking like
+// the record of a run that observed everything.
+func TestARefusedEstablishmentRecordsWhichStreamDiedAndThatNothingWasEstablished(t *testing.T) {
+	forbidden := apierrors.NewForbidden(schema.GroupResource{Resource: "pods"}, "",
+		errors.New("no watch permission"))
+	fc := fake.NewClientBuilder().WithScheme(fullScheme(t)).WithObjects(node(nil, nil)).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Create: fakeSchedulerCreate,
+			List:   fakeSchedulerList,
+			Watch: func(ctx context.Context, c client.WithWatch, list client.ObjectList,
+				opts ...client.ListOption) (watch.Interface, error) {
+				if isPodList(list) {
+					return nil, fmt.Errorf("watch pods: %w", forbidden)
+				}
+				return newStubWatch(ctx), nil
+			},
+		}).Build()
+	now, sleep := fakeClock(time.Unix(0, 0))
+
+	o, events, _, left, qual, win, obs := run(context.Background(),
+		func() (client.WithWatch, error) { return fc, nil }, queuelab.ArmNRef, "r18", "queuelab-r18",
+		"platform-worker", time.Duration(horizonSec)*time.Second, "", io.Discard, now, sleep)
+
+	if o.Disposition != dispSetupFailed {
+		t.Fatalf("this test is only meaningful on a run refused at establishment, got %s: %s", o.Disposition, o.Reason)
+	}
+	if obs == nil {
+		t.Fatal("a run that refused because it could not observe recorded nothing about its observation; the " +
+			"one fact worth keeping about this run exists only as a sentence on somebody's terminal")
+	}
+	if obs.Established {
+		t.Fatalf("the record says every stream was proven open on a run that was refused for the opposite: %+v", obs)
+	}
+	if len(obs.Streams) != 4 {
+		t.Fatalf("the collector opens four views and the record carries %d: %+v", len(obs.Streams), obs.Streams)
+	}
+	var pod *streamEvidence
+	for i := range obs.Streams {
+		if obs.Streams[i].Kind == kindPod {
+			pod = &obs.Streams[i]
+		}
+		if obs.Streams[i].BaselineResourceVersion == "" {
+			t.Fatalf("the %s stream recorded no resume point, so nothing says what interval it could speak for",
+				obs.Streams[i].Kind)
+		}
+	}
+	if pod == nil {
+		t.Fatalf("the record names no Pod view at all: %+v", obs.Streams)
+	}
+	// The ending, and it is the whole point: Cancelled or Stopped would say the caller ended this stream, and
+	// this one ended on its own before the caller had asked for anything.
+	if !pod.Ended || pod.Cancelled || pod.Stopped {
+		t.Fatalf("the Pod stream died before it ever established a watch, and the record reports it as an "+
+			"ending the run itself caused: %+v", *pod)
+	}
+
+	rec := buildRecord(o, events, left, qual, win, obs, "r18", string(queuelab.ArmNRef), false,
+		time.Now(), time.Now())
+	b, err := encodeRecord(rec)
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	got, err := decodeRunRecord(b)
+	if err != nil {
+		t.Fatalf("a refused run's record must decode: %v\n%s", err, b)
+	}
+	if got.Validity.Verdict != verdictRefused {
+		t.Fatalf("verdict = %q, want %q:\n%s", got.Validity.Verdict, verdictRefused, b)
+	}
+	if !slices.Contains(got.Validity.Failures, failureObservation) {
+		t.Fatalf("the verdict does not name the claim this run actually failed: %+v", got.Validity)
+	}
+	t.Logf("observation persisted by a truncated run: %+v", *got.Observation)
+}
+
+// The whole gate end to end, and the assertion no unit test can make: a passing run's stored record carries
+// the observation it made and states, in a field, that its own evidence supports the number beside it.
+//
+// It is the counterpart to the refused case above, and it is the one that pins the wiring rather than the
+// derivation — a deriveValidity that was correct in isolation but never reached from run(), or an observation
+// captured and then dropped at buildRecord, would leave every other test in this package green while every
+// admissible record in the archive said nothing about how it had been observed.
+//
+// Mutation that turns this red: delete the `obs = col.evidence(...)` defer from run(). The run is unchanged
+// and the number is unchanged, and the record then says a run that observed its whole window observed
+// nothing — which deriveValidity correctly refuses, so the verdict flips with it.
+//
+// What this cannot reach is main's own buildRecord call, for the reason reportRun was extracted in the first
+// place: no test can call main. Passing nil for obs there would leave this test green, and the only thing
+// standing between that and a shipped archive of observation-less records is that the argument has a name at
+// the call site and a live run prints the block it wrote.
+func TestAPassingRunRecordsTheObservationAndCallsItselfAdmissible(t *testing.T) {
+	if testing.Short() {
+		t.Skip("drives run() to a passing disposition, which takes the 45-second observation window")
+	}
+	fc := fake.NewClientBuilder().WithScheme(fullScheme(t)).WithObjects(node(nil, nil)).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Create: fakeSchedulerCreate,
+			Watch:  fakeSchedulerWatch,
+			List:   fakeSchedulerList,
+		}).Build()
+	now, sleep := fakeClock(time.Unix(0, 0))
+
+	o, events, res, left, qual, win, obs := run(context.Background(),
+		func() (client.WithWatch, error) { return fc, nil }, queuelab.ArmNRef, "r19", "queuelab-r19",
+		"platform-worker", 45*time.Second, "", io.Discard, now, sleep)
+
+	if o.Disposition != dispChecksPassed || res == nil {
+		t.Fatalf("this test is only meaningful on a run that passed, got %s: %s", o.Disposition, o.Reason)
+	}
+	if obs == nil || !obs.Established {
+		t.Fatalf("a run that published a number recorded no established observation: %+v", obs)
+	}
+	// Establishment is spent INSIDE the window, so both numbers have to be there: the cost on its own is not
+	// readable without the window it came out of, which is the whole argument establishBudget makes.
+	if obs.EstablishedNs <= 0 || obs.HorizonNs != int64(45*time.Second) {
+		t.Fatalf("the record cannot say how much window establishment cost: %+v", obs)
+	}
+	if obs.EstablishedNs >= obs.EstablishBudgetNs {
+		t.Fatalf("establishment took %v against a %v budget, so this run was already the failure case",
+			time.Duration(obs.EstablishedNs), time.Duration(obs.EstablishBudgetNs))
+	}
+	for _, s := range obs.Streams {
+		// Cancelled, because the ordinary shutdown cancels the observation context at the horizon. Neither flag
+		// would be a stream that died mid-run, and this run published a number.
+		if !s.Ended || !s.Cancelled || s.LastStatus != "" {
+			t.Fatalf("the %s stream of a passing run ended as %+v", s.Kind, s)
+		}
+	}
+
+	rec := buildRecord(o, events, left, qual, win, obs, "r19", string(queuelab.ArmNRef), false,
+		time.Now(), time.Now())
+	b, err := encodeRecord(rec)
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	got, err := decodeRunRecord(b)
+	if err != nil {
+		t.Fatalf("a passing run's record must decode: %v\n%s", err, b)
+	}
+	if got.Validity.Verdict != verdictAdmissible || len(got.Validity.Failures) > 0 {
+		t.Fatalf("a run with every implemented gate's evidence intact is %q, got %+v:\n%s",
+			verdictAdmissible, got.Validity, b)
+	}
+	// Exactly recordUnchecked, and not a roadmap of work still to do. Something is still genuinely outside
+	// what this build can check — the canary probes a Pod it creates itself, so the MLTrainingJob-to-Job-to-Pod
+	// path a run's workload actually takes is not what was qualified — and the record has to keep saying so.
+	// What it must not do is assert this build lacks the very gates whose evidence it carries, which tells its
+	// reader to discount that evidence.
+	if !reflect.DeepEqual(got.Validity.UnimplementedGates, recordUnchecked()) {
+		t.Fatalf("the record's unchecked list is %v, want exactly %v",
+			got.Validity.UnimplementedGates, recordUnchecked())
+	}
+	t.Logf("verdict persisted by a passing run: %+v", got.Validity)
+}
+
+// The claim this file has shipped false twice, now assertable for the first time through run() itself.
+//
+// The worker is HELD here — this run's own namespace could not be deleted — and the line an operator reads
+// has to say that, because the two branches send them to opposite places: a held worker needs
+// -inspect-worker and patience, a released one needs nothing at all. Every previous test of this text drove
+// reportResidue directly, which cannot show that run() passes the right `held` down to it.
+//
+// Mutation that turns this red: pass `false` instead of `hold` at tearDownBeforeRelease's reportResidue call.
+// The residue, the disposition and the held node are all unchanged — every other test stays green — and the
+// operator is told their worker went back while it is still labelled and still tainted.
+func TestRunTellsItsWriterTheWorkerIsHeldWhenItIsHeld(t *testing.T) {
+	fc := fake.NewClientBuilder().WithScheme(fullScheme(t)).WithObjects(node(nil, nil)).
+		WithInterceptorFuncs(interceptor.Funcs{
+			List: fakeNodeList,
+			Create: func(ctx context.Context, c client.WithWatch, obj client.Object,
+				opts ...client.CreateOption) error {
+				if _, ok := obj.(*kueuev1beta2.ResourceFlavor); ok {
+					return fmt.Errorf("resource flavor quota exhausted")
+				}
+				return stampUIDOnCreate(ctx, c, obj, opts...)
+			},
+			Delete: func(ctx context.Context, c client.WithWatch, obj client.Object,
+				opts ...client.DeleteOption) error {
+				if _, ok := obj.(*corev1.Namespace); ok {
+					return apierrors.NewForbidden(schema.GroupResource{Resource: "namespaces"},
+						obj.GetName(), errors.New("teardown may not delete namespaces"))
+				}
+				return c.Delete(ctx, obj, opts...)
+			},
+		}).Build()
+	now, sleep := fakeClock(time.Unix(0, 0))
+	// A plain buffer is safe here because this run is refused at applyFixtures and never starts a collector,
+	// so nothing but the main goroutine ever writes to it.
+	var stderr bytes.Buffer
+
+	o, _, _, left, _, _, _ := run(context.Background(), func() (client.WithWatch, error) { return fc, nil },
+		queuelab.ArmAHonor, "r20", "queuelab-r20", "platform-worker",
+		time.Duration(horizonSec)*time.Second, "", &stderr, now, sleep)
+
+	if o.Disposition != dispResidueLeft || len(left) == 0 {
+		t.Fatalf("this harness must reach a residue that holds the worker, got %s: %s with %+v",
+			o.Disposition, o.Reason, left)
+	}
+	got := stderr.String()
+	if !strings.Contains(got, "TEARDOWN INCOMPLETE: worker platform-worker stays dedicated") {
+		t.Fatalf("the run held its worker and never said so to the writer it was given:\n%s", got)
+	}
+	if strings.Contains(got, "was released") {
+		t.Fatalf("the run told the operator their worker went back while it is still held:\n%s", got)
+	}
+	// The advice differs by branch and is the half that exists nowhere else — the residue itself reaches the
+	// record, this does not.
+	if !strings.Contains(got, "-inspect-worker") {
+		t.Fatalf("a held worker's report gives the operator no runnable next step:\n%s", got)
+	}
+}
+
+// The other branch, and the one whose sentence was rewritten twice for claiming more than the code could
+// know. Every name left standing here belongs to a previous attempt, so the worker goes back — and the line
+// may say only that nothing left carries THIS run's stamp, never that nothing this run created is still on
+// the cluster, which a terminating namespace of our own can falsify.
+//
+// The harness is TestRunTearsDownAroundAStaleFixtureFromAPreviousAttempt's, driven for the text rather than
+// for the call ordering.
+//
+// Mutation that turns this red: pass `true` instead of `hold` at tearDownBeforeRelease's reportResidue call.
+// The worker is still released — residueHoldsWorker is what decides that — and the operator is sent to
+// -force-release for a node that is already free.
+func TestRunTellsItsWriterTheWorkerWentBackWhenItDid(t *testing.T) {
+	variant, err := queuelab.ArmAHonor.PolicyVariant()
+	if err != nil {
+		t.Fatalf("policy variant: %v", err)
+	}
+	fs, err := queuelab.BuildFixtures(queuelab.StudyReclaim, variant, "tx-previous", "r21", "queuelab-r21")
+	if err != nil {
+		t.Fatalf("build fixtures: %v", err)
+	}
+	stale := fs.Flavor.DeepCopy()
+	stale.SetUID("rf-uid-previous")
+	fc := fake.NewClientBuilder().WithScheme(fullScheme(t)).WithObjects(node(nil, nil), stale).
+		WithInterceptorFuncs(interceptor.Funcs{Create: stampUIDOnCreate, List: fakeNodeList}).Build()
+	now, sleep := fakeClock(time.Unix(0, 0))
+	var stderr bytes.Buffer
+
+	o, _, _, left, _, _, _ := run(context.Background(), func() (client.WithWatch, error) { return fc, nil },
+		queuelab.ArmAHonor, "r21", "queuelab-r21", "platform-worker",
+		time.Duration(horizonSec)*time.Second, "", &stderr, now, sleep)
+
+	if o.Disposition != dispResidueLeft || len(left) == 0 {
+		t.Fatalf("this harness must reach a foreign-only residue, got %s: %s with %+v",
+			o.Disposition, o.Reason, left)
+	}
+	for _, r := range left {
+		if r.Absence != absenceForeign {
+			t.Fatalf("this harness must reach a residue that is entirely somebody else's, got %+v", left)
+		}
+	}
+	got := stderr.String()
+	if !strings.Contains(got, "worker platform-worker was released") {
+		t.Fatalf("the run released its worker and never said so to the writer it was given:\n%s", got)
+	}
+	if !strings.Contains(got, "nothing left at these names carries this run's stamp") {
+		t.Fatalf("the released-worker line does not make the narrow claim it is allowed to make:\n%s", got)
+	}
+	// The two negatives this branch may not assert: a namespace of this run's own can be observed terminating
+	// and classified foreign, so neither of these is knowable here.
+	for _, forbidden := range []string{"nothing this run created", "stays dedicated"} {
+		if strings.Contains(got, forbidden) {
+			t.Fatalf("the released-worker line claims %q, which this code cannot know:\n%s", forbidden, got)
+		}
 	}
 }

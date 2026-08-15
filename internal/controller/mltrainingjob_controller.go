@@ -96,7 +96,7 @@ func (r *MLTrainingJobReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 		return r.markFailed(ctx, &mltj, mltjReasonConflict, "a Job of the same name is not owned by this MLTrainingJob")
 	}
 
-	desired := r.buildJob(&mltj)
+	desired := BuildJob(&mltj)
 	job := &batchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: mltj.Name, Namespace: mltj.Namespace}}
 	if _, err := controllerutil.CreateOrUpdate(ctx, r.Client, job, func() error {
 		// Suspend and the pod template are set once, on create, and never touched again.
@@ -135,10 +135,16 @@ func (r *MLTrainingJobReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	return ctrl.Result{}, nil
 }
 
-// buildJob renders the desired batch/v1 Job for a training job.
+// BuildJob renders the desired batch/v1 Job for a training job.
 //
 // Suspend is deliberately absent here: the caller decides whether to set it, since it only applies on the create path and must never be reconciled on update, as Kueue owns it after admission.
-func (r *MLTrainingJobReconciler) buildJob(mltj *platformv1.MLTrainingJob) *batchv1.Job {
+//
+// It is exported, and takes no receiver, because the Pod template below is the one thing about this controller another binary has to be able to ask about without running it: cmd/queuelabrun keys its termination qualification on this template, so that adding a preStop hook or a grace period here invalidates a reading taken before the change instead of quietly changing what a run measures.
+//
+// That makes one property of this function load-bearing outside this package, and it was already true when the receiver was still here and unused: it must stay a pure function of its argument.
+//
+// A later version that read anything off the client, the manager or the cluster would still render a Job for the reconciler and would panic or lie for a caller that has none of those.
+func BuildJob(mltj *platformv1.MLTrainingJob) *batchv1.Job {
 	labels := map[string]string{kueueQueueLabel: mltj.Spec.Queue}
 	return &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{Name: mltj.Name, Namespace: mltj.Namespace, Labels: labels},
@@ -166,7 +172,7 @@ func (r *MLTrainingJobReconciler) buildJob(mltj *platformv1.MLTrainingJob) *batc
 //
 // The CRD's kubebuilder default of 1 only applies when the field is omitted from a request payload.
 //
-// It does not backfill a zero-value struct built in Go, so buildJob applies the same default explicitly.
+// It does not backfill a zero-value struct built in Go, so BuildJob applies the same default explicitly.
 func defaultOne(v int32) int32 {
 	if v <= 0 {
 		return 1

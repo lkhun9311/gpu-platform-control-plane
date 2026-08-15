@@ -818,8 +818,18 @@ func TestResolveAmbiguousAcquireRefusesAPatchThatDidNotLand(t *testing.T) {
 	if err := fc.Get(context.Background(), client.ObjectKey{Name: "platform-worker"}, &got); err != nil {
 		t.Fatalf("get node: %v", err)
 	}
-	if len(got.Labels) != 0 || len(got.Annotations) != 0 || len(got.Spec.Taints) != 0 {
-		t.Fatalf("nothing may have been written: %+v %+v %+v", got.Labels, got.Annotations, got.Spec.Taints)
+	// The claim is that THIS TRANSACTION wrote nothing, which is narrower than the node being bare — and the
+	// difference stopped being academic when the worker started carrying a termination qualification, an
+	// annotation that is a property of the machine rather than of anybody's transaction and that was on this
+	// fixture before acquisition was attempted. Asserting an empty annotation map would fail on it and would
+	// be asserting something acquisition never promised.
+	if len(got.Labels) != 0 || len(got.Spec.Taints) != 0 {
+		t.Fatalf("nothing may have been written: %+v %+v", got.Labels, got.Spec.Taints)
+	}
+	for _, k := range []string{journalKey, quarantineKey, residueKey} {
+		if v, ok := got.Annotations[k]; ok {
+			t.Fatalf("annotation %s was written by an acquisition that did not land: %q", k, v)
+		}
 	}
 }
 
@@ -1477,7 +1487,7 @@ func TestQuotedOrNoneEscapesNodeControlledContent(t *testing.T) {
 // returns — the stranded-marker outcome moved from "Ctrl-C" to "hung apiserver" rather than prevented, which
 // is the argument releaseCleanupTimeout already exists for.
 func TestOperatorModeContextIsBoundedAndNotSignalCancellable(t *testing.T) {
-	ctx, cancel := operatorModeContext()
+	ctx, cancel := operatorModeContext(modeInspect)
 	defer cancel()
 
 	deadline, ok := ctx.Deadline()
@@ -1491,6 +1501,29 @@ func TestOperatorModeContextIsBoundedAndNotSignalCancellable(t *testing.T) {
 	// can cancel a half-applied break out from under it.
 	if err := ctx.Err(); err != nil {
 		t.Fatalf("a fresh operator-mode context must be live, got %v", err)
+	}
+}
+
+// The canary is the one mode whose legitimate work is minutes long: it starts two containers, waits out a
+// grace period and reads what happened. On the recovery modes' one-minute bound it would be cut off
+// mid-probe, every time, leaving two Pods holding its finalizer and no verdict — and the failure would look
+// like a cluster that could not stop a Pod rather than like a timeout.
+//
+// Mutation that turns this red: drop the mode parameter and give every mode operatorModeTimeout again.
+func TestTheCanaryModeGetsABudgetItsOwnWorkFitsIn(t *testing.T) {
+	ctx, cancel := operatorModeContext(modeTerminationCanary)
+	defer cancel()
+
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		t.Fatal("the canary must not run on an unbounded context either")
+	}
+	// The bound has to exceed what the mode's own budgets can legitimately spend, or the context becomes the
+	// thing that decides — and a context expiry cannot say which probe was still running.
+	if remaining := time.Until(deadline); remaining <= canaryStartBudget+canaryStopBudgetMax {
+		t.Fatalf("the canary's context expires %v out, which is inside its own start (%v) plus stop (%v) "+
+			"budgets: the loop that can report why it gave up would never get to",
+			remaining, canaryStartBudget, canaryStopBudgetMax)
 	}
 }
 
@@ -1542,6 +1575,55 @@ func TestReleaseClearsTheResidueRecord(t *testing.T) {
 	}
 	if raw, ok := residueOn(t, fc); ok {
 		t.Fatalf("the residue record survived the release as %q", raw)
+	}
+}
+
+// -release-stale is the command inspectWorker tells an operator to run, and it deletes the residue record in
+// the same patch that removes the markers. That makes its own output the last moment anyone can see what was
+// left, so it has to say what it is about to destroy — otherwise the explanation this whole feature exists to
+// deliver dies at the one step most likely to be copied without reading.
+//
+// The mutation that turns this red: delete the residue warning block from releaseStale, leaving only the
+// "restoring node ..." line it had before.
+func TestReleaseStaleWarnsBeforeItDeletesTheResidueRecord(t *testing.T) {
+	_, n := heldWithResidue(t)
+	fc := fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(n).Build()
+
+	var rerr error
+	out := captureStdout(t, func() { rerr = releaseStale(context.Background(), fc, "platform-worker", "tx-1") })
+	if rerr != nil {
+		t.Fatalf("release-stale: %v", rerr)
+	}
+	// The name of the object matters more than the word "residue": an operator scanning this output is
+	// looking for something they recognise as still standing on their cluster.
+	for _, want := range []string{"residue", `"queuelab-r7"`, "does not delete those objects"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the release said nothing about %s before deleting the record; got:\n%s", want, out)
+		}
+	}
+	if raw, ok := residueOn(t, fc); ok {
+		t.Fatalf("the record survived the release as %q, so this test proved nothing about the warning", raw)
+	}
+}
+
+// An unreadable record is still a record being destroyed, and silence about it is the same loss. It says so
+// rather than printing the raw document, which decideAcquire's own unreadable branch already establishes as
+// the right shape.
+//
+// The mutation that turns this red: drop the ResidueErr case from releaseStale's switch, which sends an
+// unreadable record down the readable path and prints a zero-length object list.
+func TestReleaseStaleWarnsAboutAResidueRecordItCannotRead(t *testing.T) {
+	_, n := heldWithResidue(t)
+	n.Annotations[residueKey] = "{not json"
+	fc := fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(n).Build()
+
+	var rerr error
+	out := captureStdout(t, func() { rerr = releaseStale(context.Background(), fc, "platform-worker", "tx-1") })
+	if rerr != nil {
+		t.Fatalf("release-stale: %v", rerr)
+	}
+	if !strings.Contains(out, "could not be read") {
+		t.Errorf("the release destroyed an unreadable residue record without saying so; got:\n%s", out)
 	}
 }
 
@@ -1634,9 +1716,13 @@ func TestStampResidueWritesTheRecordOnANodeWeStillHold(t *testing.T) {
 	if rec.TxID != "tx-1" || rec.RunID != "r7" || rec.RecordPath != "rec.json" || len(rec.Left) != 2 {
 		t.Fatalf("record is %+v, want tx-1/r7/rec.json with two entries", rec)
 	}
-	if rec.Left[0].Absence != absenceName(absencePresent) || rec.Left[1].Absence != absenceName(absenceUnknown) {
-		t.Fatalf("verdicts are %q/%q; they must be spelled by absenceName so the record and the run record "+
-			"cannot disagree", rec.Left[0].Absence, rec.Left[1].Absence)
+	// Literal strings, not absenceName(absencePresent) / absenceName(absenceUnknown): comparing the
+	// function's output against itself is circular and pins nothing — renaming a spelling changes both
+	// sides at once and the test stays green. The persisted spellings are a wire format (see record.go's
+	// absenceName), so what belongs here is what the record actually says on disk.
+	if rec.Left[0].Absence != "present" || rec.Left[1].Absence != "unknown" {
+		t.Fatalf("verdicts are %q/%q, want %q/%q: the node's residue record and the run record must spell "+
+			"verdicts identically", rec.Left[0].Absence, rec.Left[1].Absence, "present", "unknown")
 	}
 }
 

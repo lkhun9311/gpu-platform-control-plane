@@ -74,11 +74,16 @@ where the annotation is written, so no later reader mistakes it for a containmen
 worker is actually held.** When residue is foreign-only the worker is released on purpose, no refusal will
 ever occur, and an annotation nobody quotes is a stale marker waiting to mislead.
 
-The patch carries an optimistic lock like every other Node write here, and re-checks ownership with the
-existing `verifyInstalled(obs, j)` before writing — the same test `releaseOwned` already uses to prove the
-markers on the node are still the ones this transaction installed. Between teardown and this write another
-actor could have taken the node over; stamping our residue onto someone else's node would be a lie of
-exactly the kind the UID preconditions in `teardown_apply.go` exist to prevent.
+The patch carries an optimistic lock like every other Node write here, and re-checks ownership with
+`verifyObserved(obs, j)` before writing. Between teardown and this write another actor could have taken the
+node over; stamping our residue onto someone else's node would be a lie of exactly the kind the UID
+preconditions in `teardown_apply.go` exist to prevent.
+
+An earlier draft of this design named `verifyInstalled` here. That is not enough: it proves the label value,
+the taint value and effect, and the node UID — but both marker values are the **run id**, so a node
+re-acquired by a *different* transaction under the *same* run id passes it. `verifyObserved` adds the check
+that the journal on the node is this transaction's, which is what `decideRelease` already requires before
+`releaseAcquired` will undo anything.
 
 **Read** by `observe` (`ownership.go:179`) into a new `ownership.ResidueRaw`, and quoted by `decideAcquire`
 (`ownership.go:201`). `decideAcquire` is a pure function of the observation, so the whole reading half is
@@ -91,6 +96,13 @@ testable without a cluster.
   rather than working from a list here.
 - `clearQuarantine` (`ownership_apply.go:583`) — the operator's deliberate clear, beside
   `delete(n.Annotations, quarantineKey)`.
+
+`releaseStale` **warns before that deletion happens**, naming the record and the objects it lists. It does
+not refuse — this mode exists for the case where the previous process is gone and the operator has attested
+to it, and refusing would leave them with no move at all. The warning is load-bearing because this is the
+command `inspectWorker` tells the operator to run: without it, the whole explanation dies at the one step
+most likely to be copied without reading, and the output would say only that a label, a taint and a journal
+went away. Deleting the record does not delete the objects, and it says that too.
 
 `forceQuarantine` (`ownership_apply.go:543`) deliberately does **not** clear it, and does not copy it into
 the quarantine record either. An earlier draft of this design said to preserve it into that record the way
@@ -119,13 +131,20 @@ With a residue record:
 
 ```
 node platform-worker is held by run "r7" under tx "c8b2…" since "2026-08-13T01:04:22Z";
-  that run's teardown left 2 object(s) behind at 2026-08-13T01:07:29Z, so the worker is held
+  that run's teardown left 2 object(s) behind at "2026-08-13T01:07:29Z", so the worker is held
   deliberately and its GPUs may still be in use:
-    Namespace queuelab-r7 (present)
-    ClusterQueue ql-reclaim-tenant-a-r7 (present)
-  full record: queuelabrun-record-20260813T010422Z-31288.json
+    "Namespace" "queuelab-r7" ("present")
+    "ClusterQueue" "ql-reclaim-tenant-a-r7" ("present")
+  full record: "queuelabrun-record-20260813T010422Z-31288.json"
   do NOT strip a stuck namespace's finalizer; run: queuelabrun -inspect-worker -worker platform-worker
 ```
+
+Every field above that came out of the annotation is **quoted**, and that is not cosmetic. Unquoted, a
+crafted record can embed terminal control bytes and forge what looks like a legitimate
+`queuelabrun -force-release …` line inside this very message — the command that breaks the hold this text
+exists to explain. `obs.NodeName` stays unquoted because it is the one value here that was not read out of an
+annotation. The quoting makes the message read heavier than it otherwise would; that trade was made
+deliberately, and it matches how `inspectWorker` already treats every node-controlled value.
 
 Unreadable record:
 

@@ -31,15 +31,22 @@ const (
 // LedgerBuilder turns a stream of classified, job-resolved watch observations into the append-only event
 // ledger Reconstruct consumes.
 //
-// It emits only real state TRANSITIONS: a repeated observation of the same admitted Workload, or a relisted
+// It emits only real state TRANSITIONS: a repeated observation of the same admitted Workload, or a re-sent
 // object at a state already recorded, does not produce a duplicate event. It is FAIL-CLOSED, which is the
 // precondition Reconstruct's waste lower bound depends on:
 //
 //   - Any observation classified Invalid (an unexpected eviction, a failed Job) invalidates the run.
-//   - A Ready Pod that is deleted, or disappears on relist, WITHOUT an observed terminal transition
-//     invalidates the run, so a missed stop can never be silently treated as "still running to the horizon".
-//   - An unrecoverable watch desync (a 410 Gone the collector cannot reconcile) invalidates the run rather
-//     than guessing across the gap.
+//   - A Ready Pod deleted WITHOUT an observed terminal transition invalidates the run, so a missed stop can
+//     never be silently treated as "still running to the horizon".
+//   - A desync reported by the caller invalidates the run rather than guessing across the gap. The caller
+//     decides what counts as one; for the queuelab runner it is any observation stream that ended while the
+//     run was still observing, which is unrecoverable because the events in that gap are lost rather than
+//     delayed.
+//
+// MarkVanished below is the one part of this contract with no caller left. It served a relist the runner used
+// to perform between two watches; the runner now observes through streams that resume from the last delivered
+// resource version, so there is no gap to relist and nothing calls it. It is kept, unused, only because
+// removing an exported method is a separable change from the one that orphaned it.
 type LedgerBuilder struct {
 	lastEvent map[string]EventType // per object UID, the last emitted event (transition dedup)
 	ready     map[string]bool      // per Pod UID, currently Ready and not yet observed stopped
@@ -90,8 +97,10 @@ func (b *LedgerBuilder) Observe(delta DeltaType, kind, uid, job string, st Obser
 	}
 }
 
-// MarkVanished reports a Pod UID that a relist found gone. If it was Ready and never observed stopping, the
-// run is invalid, because its discarded work would otherwise be charged to the horizon on a false premise.
+// MarkVanished reports a Pod UID an out-of-band read found gone. If it was Ready and never observed stopping,
+// the run is invalid, because its discarded work would otherwise be charged to the horizon on a false premise.
+//
+// Nothing calls this: see the note on LedgerBuilder for why it is kept and what removed its caller.
 func (b *LedgerBuilder) MarkVanished(uid string) {
 	if b.invalid != "" {
 		return
@@ -101,8 +110,9 @@ func (b *LedgerBuilder) MarkVanished(uid string) {
 	}
 }
 
-// Desync invalidates the run on an unrecoverable watch gap (e.g. a 410 Gone the collector cannot reconcile
-// by relist), because events across the gap cannot be trusted.
+// Desync invalidates the run on an unrecoverable watch gap (a 410 Gone whose resume point is past, or an
+// observation stream that ended while the run was still observing), because events across the gap cannot be
+// trusted and cannot be recovered afterwards.
 func (b *LedgerBuilder) Desync(reason string) {
 	if b.invalid == "" {
 		b.invalid = fmt.Sprintf("watch desync: %s", reason)

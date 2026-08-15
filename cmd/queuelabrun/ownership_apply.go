@@ -75,7 +75,7 @@ func cleanupContext() (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.Background(), releaseCleanupTimeout)
 }
 
-// operatorModeTimeout bounds the four recovery modes, which run on their own uncancellable context for the
+// operatorModeTimeout bounds the four RECOVERY modes, which run on their own uncancellable context for the
 // same reason the release path does: a signal arriving between a mode's Get and its Patch is exactly what
 // could leave a break half applied.
 //
@@ -87,8 +87,18 @@ func cleanupContext() (context.Context, context.CancelFunc) {
 // against a degraded API server gives them nothing to act on and no way to tell a hang from slow progress.
 const operatorModeTimeout = time.Minute
 
-// operatorModeContext returns the bounded, signal-independent context the recovery modes run on.
-func operatorModeContext() (context.Context, context.CancelFunc) {
+// operatorModeContext returns the bounded, signal-independent context a mode runs on.
+//
+// The bound is per-mode because one of them is not shaped like the others at all. The four recovery modes
+// spend a Get and a Patch and are done; the termination canary starts two containers, waits out a grace
+// period and reads what happened, which is minutes of legitimate work that a one-minute bound would cut off
+// mid-probe — leaving two Pods holding a finalizer and no verdict to show for it. The reason for making it
+// uncancellable is the same for both, and it is stronger for the canary: a signal landing between the delete
+// and the finalizer cleanup is exactly what strands a probe.
+func operatorModeContext(mode operatorMode) (context.Context, context.CancelFunc) {
+	if mode == modeTerminationCanary {
+		return context.WithTimeout(context.Background(), canaryModeTimeout)
+	}
 	return context.WithTimeout(context.Background(), operatorModeTimeout)
 }
 
@@ -603,6 +613,29 @@ func releaseStale(ctx context.Context, c client.Client, nodeName, txID string) e
 	fmt.Printf("restoring node %s: removing label %s=%q and taint %s=%q/%q, and the journal for tx %s\n",
 		nodeName, workerLabelKey, obs.LabelValue, workerTaintKey,
 		obs.Journal.Installed.TaintValue, string(obs.Journal.Installed.TaintEffect), txID)
+	// releaseAcquired deletes the residue record in the same patch that removes the markers, so this is the
+	// last moment anyone can see it. Saying so here is not a duplicate of inspectWorker's warning: that
+	// warning lives in a different command's output, and this command is the one inspectWorker tells the
+	// operator to run. An operator who skimmed the prose and copied the last line would otherwise destroy the
+	// only record of what was left and be told only that a label, a taint and a journal went away.
+	//
+	// It warns rather than refuses because this mode exists for the case where the previous process is gone
+	// and the operator has attested to it; refusing would leave them with no move at all. The fields are
+	// escaped for the same reason every other node-controlled value here is.
+	switch {
+	case obs.ResidueErr != nil:
+		fmt.Printf("  WARNING: this also deletes a residue record that could not be read: %v\n", obs.ResidueErr)
+	case obs.ResidueRaw != "":
+		// "residue record" verbatim, because that is what inspectWorker labels it and what sent the operator
+		// here; a synonym would make the two outputs look like they are about different things.
+		fmt.Printf("  WARNING: this also deletes the residue record naming %d object(s) that run's teardown "+
+			"could not remove:\n", len(obs.Residue.Left))
+		for _, l := range obs.Residue.Left {
+			fmt.Printf("    %q %q (%q)\n", l.Kind, l.Name, l.Absence)
+		}
+		fmt.Printf("  deleting the record does not delete those objects; confirm they are gone before you " +
+			"trust this node as free\n")
+	}
 	// releaseAcquired always runs on a bounded, uncancelled context, the same as every other release call
 	// site in this package: a half-applied restoration must be allowed to finish even if the operator's own
 	// signal handling (if any wraps ctx) fires mid-patch, but the wait still cannot be indefinite.
