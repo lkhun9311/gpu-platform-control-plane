@@ -135,6 +135,13 @@ func canaryProbeSpecs(canaryID string, c canaryContract) (honor, ignore probeSpe
 //
 // No device is requested. The canary is about signal delivery, not allocation: asking for a GPU would make the
 // probe unschedulable on a node whose devices are legitimately busy and would qualify nothing extra.
+//
+// This Pod is still HAND-BUILT rather than rendered from the controller's Job template, and what that leaves
+// belongs here, where somebody changing this function will meet it. The template is KEYED — canaryKey's
+// PodTemplateHash — so a change to it refuses every reading taken before the change; it is not PROBED, so the
+// reading taken after the re-take is still of the Pod below. A template that acquired a preStop hook would be
+// noticed and would not be measured. Building this Pod out of renderedPodTemplate instead is what would close
+// that, and it is a decision about what the canary measures rather than about what the key covers.
 func canaryPod(canaryID, node, runID string, contract canaryContract, p probeSpec) *corev1.Pod {
 	return &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
@@ -585,6 +592,10 @@ func terminationCanary(ctx context.Context, c client.Client, nodeName string,
 			NodeUID:          string(n.UID),
 			KubeletVersion:   n.Status.NodeInfo.KubeletVersion,
 			ContainerRuntime: n.Status.NodeInfo.ContainerRuntimeVersion,
+			// The contract's, like the image and the commands above and unlike the grace period: this is what the
+			// build that took the reading renders, not something observed on the cluster, so it is recorded and
+			// compared out of the same place on both sides.
+			PodTemplateHash: contract.PodTemplateHash,
 		},
 		Honor:    *probes[0],
 		Ignore:   *probes[1],

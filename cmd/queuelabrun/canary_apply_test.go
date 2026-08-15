@@ -203,6 +203,14 @@ func TestTheCanaryRecordsAPassingQualificationOnTheWorkerItsProbes(t *testing.T)
 		q.Key.KubeletVersion != testKubeletVersion || q.Key.ContainerRuntime != testContainerRuntime {
 		t.Fatalf("the key must record the combination the reading was taken on, got %+v", q.Key)
 	}
+	// The operator's template travels with the rest, and it is the one field of the key this mode copies from
+	// the contract rather than reading off the cluster: a canary that recorded it empty would write a document
+	// decodeCanary refuses, and one that recorded somebody else's would be matched by no run. The consult below
+	// is what proves it is the right one; this is what proves it is there at all.
+	if len(q.Key.PodTemplateHash) != 64 {
+		t.Fatalf("the recorded key fingerprints the operator's pod template as %q, which is not a hash",
+			q.Key.PodTemplateHash)
+	}
 
 	// A later run must be able to stand on what was just written, through the real consult rather than by
 	// inspection: this is the join between the two halves of the feature, and it is where a key the canary

@@ -64,7 +64,16 @@ import (
 // since no earlier build could take that reading at all — would read as a run that faced that gate and did
 // not get past it. The version is what separates "was refused for it" from "could not ask", and nothing in
 // the document itself can.
-const recordSchemaVersion = 5
+//
+// Version 6 adds `podTemplateHash` to the key inside that reference, and this one's argument is weaker than
+// the four above it, which is worth writing down rather than dressing up. A version-5 record that carries a
+// reference is refused with or without the bump, because the reference guard below stops an empty hash on its
+// own. What the version adds is the same thing it adds to the canary document: the DIAGNOSIS. Without it the
+// refusal an operator meets says the reference identifies nothing, which reads as a corrupted or hand-edited
+// file, when what they are holding is a perfectly good record from a build in which the operator's Pod
+// template was not yet part of what a reading covered. The version is the only thing in either document that
+// can tell those apart.
+const recordSchemaVersion = 6
 
 // runRecord is what a non-preview invocation leaves behind.
 //
@@ -188,10 +197,18 @@ const (
 // What replaces it is the residual that gate genuinely does not close, stated as narrowly as the code
 // supports. The canary probes a Pod IT creates: the same image and the same rendered command as the arm, on
 // the same node, under the grace period that node's apiserver defaults. A run's Pods reach the kubelet by a
-// different route — MLTrainingJob, admitted by Kueue, rendered into a Job by this repository's own controller
-// — and nothing in that route is exercised by the reading. What the canary establishes is that this cluster
-// delivers SIGTERM to this workload and enforces the grace period; what it does not establish is that the
-// controller will keep rendering the Pod that way.
+// different route — MLTrainingJob, admitted by Kueue, rendered into a Job by this repository's own controller.
+//
+// That entry has now NARROWED once more rather than gone, and the difference is exactly one clause. The key a
+// reading is matched on carries a fingerprint of the Pod template the controller renders (canaryKey's
+// PodTemplateHash), so the half of the residual that used to read "the controller may stop rendering the Pod
+// that way" is closed: it cannot do so without invalidating every reading taken before the change. What is
+// left is that the ROUTE is still not travelled — nothing here submits an MLTrainingJob, waits for Kueue to
+// admit it, or reads back the Pod the operator produced — and that the template is keyed as this binary
+// renders it, which is not the same statement as what the operator image on the cluster renders.
+//
+// Saying only "the CRD path is not exercised" would now understate what the reading covers, and saying the
+// path is covered would be the overclaim this list was written after. The entry says which of the two it is.
 //
 // It is a function rather than a package-level slice for the reason unimplementedGates() is one: a slice
 // would be mutable from anywhere, and a caller that appended to what it was handed would edit what every
@@ -200,7 +217,12 @@ func recordUnchecked() []string {
 	return []string{
 		"termination canary coverage: the recorded canary probes a Pod it creates directly on the worker with " +
 			"this build's own image and command, so it establishes signal delivery and the grace period on that " +
-			"node; the MLTrainingJob-to-Job-to-Pod path a run's workload actually takes is not exercised by it",
+			"node, and the key it is matched on fingerprints the Pod template this build's operator would " +
+			"render, so a change to that template refuses the reading instead of passing unnoticed; but the " +
+			"MLTrainingJob-to-Job-to-Pod path a run's workload actually takes is still not travelled — nothing " +
+			"here submits an MLTrainingJob, waits for Kueue to admit it, or reads back the Pod the operator " +
+			"produced — and the template is fingerprinted as THIS BINARY renders it, not as the operator image " +
+			"running on the cluster does",
 	}
 }
 
@@ -636,12 +658,19 @@ func decodeRunRecord(b []byte) (runRecord, error) {
 	// runtime, so a reader could not go and check it against anything. No build writes one: qualify attaches
 	// only what checkTerminationCanary returned, and that comes from a document decodeCanary has already
 	// refused to read without these fields.
+	//
+	// The pod template hash is swept with them rather than left to the version check above, and the reason is
+	// the shape of failure this lineage has already met once: two guards that each look sufficient, neither of
+	// which covers one field, and the overlap hiding that nothing did. The version refuses documents written
+	// before the field existed; this clause refuses a document claiming today's version whose reference carries
+	// no hash, which is the state a projection that dropped the field, or a hand-edited file, produces.
 	if tc := canaryRefOf(r.Qualification); tc != nil &&
-		(tc.CanaryID == "" || tc.Key.Image == "" || tc.Key.NodeUID == "") {
+		(tc.CanaryID == "" || tc.Key.Image == "" || tc.Key.NodeUID == "" || tc.Key.PodTemplateHash == "") {
 		return runRecord{}, fmt.Errorf(
-			"decode record: the qualification names termination canary %q on image %q and node UID %q; a "+
-				"reference that identifies no qualification cannot be read as evidence that one was consulted",
-			tc.CanaryID, tc.Key.Image, tc.Key.NodeUID)
+			"decode record: the qualification names termination canary %q on image %q, node UID %q and pod "+
+				"template %q; a reference that identifies no qualification cannot be read as evidence that one "+
+				"was consulted",
+			tc.CanaryID, tc.Key.Image, tc.Key.NodeUID, tc.Key.PodTemplateHash)
 	}
 	// The same guard for the window, and it is a different check from the version one above for the same
 	// reason: a document CLAIMING this version while carrying a window that observed no node version at all

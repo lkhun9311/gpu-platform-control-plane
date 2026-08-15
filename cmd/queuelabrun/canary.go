@@ -17,6 +17,8 @@ limitations under the License.
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"reflect"
@@ -25,7 +27,10 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	platformv1 "github.com/lkhun9311/gpu-mlops-platform-control-plane/api/v1"
+	"github.com/lkhun9311/gpu-mlops-platform-control-plane/internal/controller"
 	"github.com/lkhun9311/gpu-mlops-platform-control-plane/internal/queuelab"
 )
 
@@ -65,7 +70,16 @@ const (
 	// teardown), a second RBAC rule, and a garbage-collection story of its own, in exchange for nothing this
 	// needs.
 	canaryAnnotationKey = "queuelab.gpu-platform/termination-canary"
-	canarySchema        = 1
+	// canarySchema is 2, and version 1 documents are refused rather than read.
+	//
+	// What the bump buys is narrower than the usual argument for one, and saying so is the point. A version-1
+	// key carries no podTemplateHash, so it would be refused either way: the required-field sweep in
+	// decodeCanary stops an empty hash on its own. The version decides the DIAGNOSIS. "This reading predates the
+	// template being part of the key" and "a field of this document is empty" are the same outcome to a parser
+	// and completely different sentences to an operator working out whether their node carries an old reading or
+	// a corrupted one, and only the version can say which — nothing inside a document written before the field
+	// existed distinguishes it from one written badly today.
+	canarySchema = 2
 
 	// canaryNamespace holds the probe Pods. It is deliberately not a run namespace: this is not a run, it
 	// creates no fixtures, and it must be able to execute while gateRefusal refuses every run.
@@ -134,6 +148,10 @@ type canaryContract struct {
 	ProbeDurationSec int
 	GraceSec         int64
 	HonorExitCode    int32
+	// PodTemplateHash fingerprints the Pod template this repository's operator would render a training job
+	// into. It is the one field of the contract that does not describe the workload but the route the workload
+	// reaches the kubelet by; canaryKey.PodTemplateHash carries the argument for keying it.
+	PodTemplateHash string
 }
 
 // canaryProbeDurationSec is how long a probe Pod would sleep if nothing ever asked it to stop.
@@ -163,7 +181,102 @@ func harnessTerminationContract() canaryContract {
 		ProbeDurationSec: canaryProbeDurationSec,
 		GraceSec:         terminationGraceSec,
 		HonorExitCode:    honorExitCode,
+		PodTemplateHash:  podTemplateHashOf(renderedPodTemplate(templateProbeJob())),
 	}
+}
+
+// templateProbeJob is the MLTrainingJob the operator's renderer is keyed AT.
+//
+// Its values are SENTINELS and deliberately not the harness's own image, command and device count. Those three
+// are key fields in their own right, and a template hash that moved whenever they moved would report one
+// change twice: an operator who bumped the pinned sleeper digest would be told both that the image changed and
+// that the operator's template had, and would have to work out that those were one event. What this field is
+// for is everything the operator imposes that the MLTrainingJob did not carry.
+//
+// Every field is non-zero, INCLUDING gpuClass, which BuildJob reads nowhere at all today, and that is the
+// difference between a probe that keeps working and one that quietly stops. A zero-valued input renders the
+// same template
+// as a real submission only while the renderer stays unconditional; a later line that adds something when a
+// spec field is set — gpuClass becoming a nodeSelector is the obvious candidate — would be exercised by every
+// run and skipped here, and the hash would go on matching a template that had changed underneath it.
+//
+// The three numbers are distinct for the same kind of reason. Parallelism and completions do not reach the Pod
+// template today, so if one of them ever does, a rendering that puts the wrong one where the device count
+// belongs is a different hash rather than the same 1 twice over.
+//
+// What no input can cover is a line that branches on a PARTICULAR value rather than on a field being set. A
+// key evaluated at one input cannot see the other branch, and this one does not pretend to.
+func templateProbeJob() *platformv1.MLTrainingJob {
+	return &platformv1.MLTrainingJob{
+		ObjectMeta: metav1.ObjectMeta{Name: "template-probe", Namespace: "template-probe"},
+		Spec: platformv1.MLTrainingJobSpec{
+			Queue:       "template-probe-queue",
+			Image:       "template-probe.invalid/sentinel:not-a-real-image",
+			Command:     []string{"/template-probe", "--sentinel"},
+			GPUClass:    "template-probe-class",
+			GPUCount:    7,
+			Parallelism: 3,
+			Completions: 5,
+		},
+	}
+}
+
+// renderedPodTemplate is the Pod template THIS repository's operator would materialise for mltj.
+//
+// It calls the controller's own BuildJob rather than describing what that function does, and that is the whole
+// design decision behind this field. The alternative — a copy of the template kept in step by hand — would not
+// be a check on drift, it would BE the drift: two renderers that have to be updated together are exactly the
+// failure this key is being added to catch, and the copy is the one nobody remembers.
+//
+// The cost is real and worth naming rather than discovering. cmd/queuelabrun now links internal/controller,
+// which pulls the operator's dependency tree — and its Prometheus registrations, which nothing in this process
+// ever serves — into a measurement binary. That is what one source of truth costs here; the prices on the
+// other two doors were a second renderer, or an operator running beside the canary.
+//
+// Only the Job's TEMPLATE is taken. The Job-level fields BuildJob also sets — parallelism, completions and the
+// Kueue queue label — decide how much is admitted and through which queue rather than what a Pod does when it
+// is asked to stop, and they are not what this canary qualifies. A silent change to those is a different gap,
+// still open, and naming it here is not closing it.
+func renderedPodTemplate(mltj *platformv1.MLTrainingJob) corev1.PodTemplateSpec {
+	return controller.BuildJob(mltj).Spec.Template
+}
+
+// podTemplateHashOf fingerprints one rendered Pod template.
+//
+// JSON rather than fmt's struct printing, and that is not taste: a PodSpec is full of pointer fields and %+v
+// prints their ADDRESSES, which would make two processes rendering byte-identical templates disagree — a key
+// that refused every reading it had just written. Marshalling is canonical enough for this, since struct
+// fields come out in declaration order and map keys sorted, so the canary that records a hash and the run that
+// consults it compute the same one.
+//
+// A dependency bump that renamed or reordered a field of corev1.PodSpec would change the hash with nothing in
+// this repository having changed, and that costs one re-taken canary. It is the right direction to fail in: a
+// re-take is cheap, and a template change nobody noticed is the entire reason this field exists.
+func podTemplateHashOf(tpl corev1.PodTemplateSpec) string {
+	b, err := json.Marshal(tpl)
+	if err != nil {
+		// Unreachable by construction — a PodTemplateSpec is API types all the way down, and the only custom
+		// marshallers in it cannot fail — so what matters is the direction of the failure if it ever were. It
+		// panics rather than returning a sentinel string because ANY sentinel would be computed identically by
+		// the canary recording the key and by the run consulting it: the two would match on it, and the field
+		// would be present and no longer checking, which is the exact shape decodeCanary's required-field sweep
+		// exists to keep out of this document.
+		panic(fmt.Sprintf("queuelabrun: could not render the operator's pod template to JSON: %v", err))
+	}
+	sum := sha256.Sum256(b)
+	return hex.EncodeToString(sum[:])
+}
+
+// shortHash is how a hash is quoted to an operator.
+//
+// The full 64 characters twice over in one refusal line is not readable, and nothing about the diagnosis needs
+// them: what an operator does with this field is re-take the reading, and the complete value is in the
+// document on the node for anyone who wants to compare it byte for byte.
+func shortHash(h string) string {
+	if len(h) <= 12 {
+		return h
+	}
+	return h[:12] + "..."
 }
 
 // canaryKey is what the qualification is keyed by: the combination whose change invalidates it.
@@ -182,15 +295,15 @@ func harnessTerminationContract() canaryContract {
 // instead: the image, both rendered commands, the grace period and the expected exit code, taken from the
 // renderer rather than from constants here, so a harness change to any of them changes a key field.
 //
-// That is deliberately NOT a claim to cover the whole mechanism, and the first version of this comment made
-// that claim and was wrong. The canary hand-builds its probe in canaryPod; a run's Pod is materialised from
-// the controller's own Job template (internal/controller/mltrainingjob_controller.go's buildJob). A commit
-// adding a preStop hook, shareProcessNamespace, or an explicit terminationGracePeriodSeconds to THAT template
-// would change what a run measures while changing no field here, and a recorded qualification would go on
-// matching. The decision not to key the revision stands — the alternative is worse, and the exposure is
-// narrow and named — but the record does not hide it: recordUnchecked() states this same residual as the one
-// thing a qualified run's artifact still cannot speak for, and that entry is the honest version of what this
-// key covers.
+// The route a run's workload takes to the kubelet is covered by ONE field and not by the rest, and the
+// distinction is worth keeping sharp because two earlier versions of this comment got it wrong in opposite
+// directions. The canary hand-builds its probe in canaryPod, while a run's Pod is materialised from the
+// controller's own Job template (internal/controller/mltrainingjob_controller.go's BuildJob). Until
+// PodTemplateHash existed, a commit adding a preStop hook, shareProcessNamespace or an explicit
+// terminationGracePeriodSeconds to THAT template changed what a run measures while changing no field here, and
+// a recorded qualification went on matching. That is the silence the hash closes. What it does not do is
+// exercise the path: the qualification is refused and re-taken, and the re-taken reading is still of a
+// hand-built probe. recordUnchecked() carries that residual in the document itself.
 //
 // Two more invalidators are invisible to any key of readable strings, and are worth naming rather than
 // leaving to be discovered: a kubelet restarted with different flags, and a container-runtime configuration
@@ -226,6 +339,30 @@ type canaryKey struct {
 	// "v1.31.0" and "containerd://1.7.18".
 	KubeletVersion   string `json:"kubeletVersion"`
 	ContainerRuntime string `json:"containerRuntime"`
+	// PodTemplateHash fingerprints the Pod template the operator renders a training job into, and it is the one
+	// field here that is about the ROUTE a run's workload takes rather than about the workload or the machine.
+	//
+	// Nothing the canary measures would change if that template gained a preStop hook, an explicit
+	// terminationGracePeriodSeconds or shareProcessNamespace, because the probe Pod does not come from it. What
+	// a RUN measures would change completely, and before this field every other field of this key stayed
+	// identical while it did — the qualification kept matching and the run kept reporting a contrast it was no
+	// longer producing. The field is the end of that silence: the key stops matching, and the operator is told
+	// to re-take the reading.
+	//
+	// It is a hash of the template rendered at a fixed synthetic input (templateProbeJob), so it is a constant
+	// of this build rather than a function of the row a run happens to submit.
+	//
+	// Two things it does NOT establish, both stated because a hash invites being read as more than it is.
+	//
+	// It is what THIS BINARY renders. An operator image built from a different commit than the runner is
+	// outside it, exactly as it was before this field existed, and no key computed in this process can reach
+	// that; only submitting an MLTrainingJob and reading back the Job the cluster's own operator produced can.
+	//
+	// And a re-take after a template change re-qualifies without probing what changed: the probe Pod is still
+	// hand-built, so a template that has just acquired a preStop hook produces a fresh reading of a Pod that
+	// has none. What this field buys is that the change cannot pass unseen, not that the canary has followed
+	// it.
+	PodTemplateHash string `json:"podTemplateHash"`
 }
 
 // canaryKeyFor builds the key a run requires of a recorded qualification: this build's mechanism, on this
@@ -245,6 +382,7 @@ func canaryKeyFor(n *corev1.Node, c canaryContract) canaryKey {
 		NodeUID:          string(n.UID),
 		KubeletVersion:   n.Status.NodeInfo.KubeletVersion,
 		ContainerRuntime: n.Status.NodeInfo.ContainerRuntimeVersion,
+		PodTemplateHash:  c.PodTemplateHash,
 	}
 }
 
@@ -362,6 +500,7 @@ func decodeCanary(s string) (canaryQualification, error) {
 		"canaryID": q.CanaryID, "node": q.Node, "qualifiedAt": q.QualifiedAt,
 		"key.image": q.Key.Image, "key.nodeUID": q.Key.NodeUID,
 		"key.kubeletVersion": q.Key.KubeletVersion, "key.containerRuntime": q.Key.ContainerRuntime,
+		"key.podTemplateHash": q.Key.PodTemplateHash,
 	} {
 		if v == "" {
 			return canaryQualification{}, fmt.Errorf("decode termination canary: %s is empty", name)
@@ -511,6 +650,16 @@ func keyDifferences(want, got canaryKey) []string {
 		diffs = append(diffs, fmt.Sprintf(
 			"expected exit code: this run's honouring workload exits %d, the recorded qualification looked for %d",
 			want.HonorExitCode, got.HonorExitCode))
+	}
+	if want.PodTemplateHash != got.PodTemplateHash {
+		// Named as a change to the OPERATOR rather than as a mismatched hash, because the two send an operator to
+		// different places: nothing is wrong with the reading or with the node, and what moved is a file in this
+		// repository. Re-taking makes it match again, as it does for every other difference here — what it does
+		// not do is probe whatever was added; canaryPod says why.
+		diffs = append(diffs, fmt.Sprintf(
+			"operator pod template: this build renders %s and the reading was taken against %s; the Job template "+
+				"in internal/controller has changed since, so what a run's Pods carry when they are asked to stop "+
+				"is not what was probed", shortHash(want.PodTemplateHash), shortHash(got.PodTemplateHash)))
 	}
 	return diffs
 }

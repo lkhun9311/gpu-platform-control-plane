@@ -22,6 +22,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	corev1 "k8s.io/api/core/v1"
 )
 
 // The kubelet and runtime the test worker reports. They are plausible kind values rather than placeholders
@@ -58,6 +60,7 @@ func passingCanary() canaryQualification {
 			NodeUID:          "uid-node",
 			KubeletVersion:   testKubeletVersion,
 			ContainerRuntime: testContainerRuntime,
+			PodTemplateHash:  c.PodTemplateHash,
 		},
 		Honor:  passingHonorProbe(),
 		Ignore: passingIgnoreProbe(),
@@ -493,6 +496,12 @@ func TestQualifyRefusesACanaryTakenOnADifferentCombination(t *testing.T) {
 		{"a canary taken under another grace period", func(q *canaryQualification) {
 			q.Key.GraceSec = 60
 		}, "termination grace period: this run's timing"},
+		// The one that used to change nothing. A preStop hook or an explicit grace period added to the
+		// controller's Job template changes what a run's Pods do when they are asked to stop, and every other
+		// field of this key stays identical while it does.
+		{"a changed operator pod template", func(q *canaryQualification) {
+			q.Key.PodTemplateHash = "0000000000000000000000000000000000000000000000000000000000000000"
+		}, "operator pod template: this build renders"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			n := node(nil, map[string]string{canaryAnnotationKey: canaryAnnotation(t, tc.mutate)})
@@ -588,6 +597,7 @@ func TestCanaryDocumentWithNothingInItIsNotAQualification(t *testing.T) {
 		{"key.nodeUID", func(q *canaryQualification) { q.Key.NodeUID = "" }},
 		{"key.kubeletVersion", func(q *canaryQualification) { q.Key.KubeletVersion = "" }},
 		{"key.containerRuntime", func(q *canaryQualification) { q.Key.ContainerRuntime = "" }},
+		{"key.podTemplateHash", func(q *canaryQualification) { q.Key.PodTemplateHash = "" }},
 	} {
 		raw := canaryAnnotation(t, blank.mutate)
 		if _, err := decodeCanary(raw); err == nil {
@@ -612,8 +622,10 @@ func TestCanaryDocumentWithNothingInItIsNotAQualification(t *testing.T) {
 		}
 	}
 
-	// And the empty document, which is what a zero-valued key would arrive as.
-	for _, raw := range []string{`{"schema":1}`, `{"schema":2,"canaryID":"c","node":"n","qualifiedAt":"t"}`} {
+	// And the empty document, which is what a zero-valued key would arrive as, beside a document from the
+	// version before the operator's template joined the key: the first is refused by the sweep and the second
+	// by the version, and both would otherwise be read as readings they are not.
+	for _, raw := range []string{`{"schema":2}`, `{"schema":1,"canaryID":"c","node":"n","qualifiedAt":"t"}`} {
 		if _, err := decodeCanary(raw); err == nil {
 			t.Fatalf("%s decoded as a qualification", raw)
 		}
@@ -739,14 +751,43 @@ func TestDecodeRefusesACanaryReferenceThatNamesNothing(t *testing.T) {
 	}
 }
 
+// The same guard one field at a time, which is the shape the sibling above cannot have: it blanks the whole
+// reference, so CanaryID alone refuses it and the clauses beside that one are never the thing under test. A
+// document whose reference names its canary, its image and its node and is silent only about the operator's
+// template is the one a projection that dropped a field, or a hand-edited file, actually produces.
+//
+// Mutation that turns this red: drop the PodTemplateHash clause from decodeRunRecord's reference guard. The
+// version check does not cover it — this document claims version 6 — and the record then reads as a run gated
+// on a template it names nothing about.
+func TestDecodeRefusesACanaryReferenceThatNamesNoTemplate(t *testing.T) {
+	q := testQualification()
+	ref := *testCanaryReference()
+	ref.Key.PodTemplateHash = ""
+	q.TerminationCanary = &ref
+	rec := buildRecord(outcome{Disposition: dispChecksPassed}, nil, nil, q, testWindow(), testObservation(),
+		"r7", "A-honor", false, time.Now(), time.Now())
+	b, err := encodeRecord(rec)
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	if _, err := decodeRunRecord(b); err == nil {
+		t.Fatal("a record whose canary reference fingerprints no pod template was read as evidence that the " +
+			"reading it stood on covered the one the operator renders")
+	}
+}
+
 // The schema bump, in the direction it exists for. A version-4 record decodes into today's struct without
 // complaint and leaves TerminationCanary nil — which is not a spare slot but exactly what THIS build writes
 // for a run it refused at this gate. Without the bump every record every earlier build wrote, including the
 // good ones, reads as a run that faced the gate and did not get past it.
 //
 // Mutation that turns this red: leave recordSchemaVersion at 4.
+//
+// The constant has moved on since — the pod template key took it to 6 — so what is pinned here is the floor
+// and not the exact value: any version below 5 is a build that cannot tell a run refused at this gate from one
+// that could not ask. TestARecordFromBeforeTheTemplateKeyIsRefusedRatherThanReinterpreted pins the next bump.
 func TestARecordFromBeforeTheCanaryGateIsRefusedRatherThanReinterpreted(t *testing.T) {
-	if recordSchemaVersion != 5 {
+	if recordSchemaVersion < 5 {
 		t.Fatalf("recordSchemaVersion is %d; the canary reference was added to the qualification block, and a "+
 			"reader that cannot tell a run refused for it from a build that could not ask has been told nothing",
 			recordSchemaVersion)
@@ -775,5 +816,232 @@ func TestHarnessRevisionIsHonestAboutBeingAbsent(t *testing.T) {
 	// makes: the stamp genuinely is unavailable here, which is why it is not what the match turns on.
 	if got != unstampedRevision && len(got) < 7 {
 		t.Fatalf("a stamped revision should be a commit hash and an unstamped one the sentinel, got %q", got)
+	}
+}
+
+// The template the key covers has to be the OPERATOR'S rendering rather than a description of it, because the
+// one failure this field exists to catch is the two drifting apart. So every assertion below is against
+// something only internal/controller's BuildJob puts there: an MLTrainingJob carries no container name, no
+// restart policy and no resource limits at all, and all three are in what gets hashed.
+//
+// The device count is checked against the probe's own 7 and not against 1, which is what the probe's three
+// distinct numbers buy: parallelism is 3 and completions 5, so a rendering that reached for the wrong one of
+// them shows up as a wrong number here instead of as an indistinguishable 1.
+//
+// Mutation that turns this red: have renderedPodTemplate build a template locally instead of calling
+// controller.BuildJob — which is the re-derivation this field exists to make pointless — or point it at the
+// MLTrainingJob's own spec, which carries none of the three.
+func TestTheTemplateTheKeyCoversIsTheOneTheOperatorRenders(t *testing.T) {
+	probe := templateProbeJob()
+	tpl := renderedPodTemplate(probe)
+
+	if len(tpl.Spec.Containers) != 1 {
+		t.Fatalf("the hashed template carries %d containers; a run's Pod is one trainer, and this is not what "+
+			"the operator renders", len(tpl.Spec.Containers))
+	}
+	ctr := tpl.Spec.Containers[0]
+	if ctr.Name != "trainer" {
+		t.Fatalf("the hashed template names its container %q; an MLTrainingJob carries no container name at "+
+			"all, so a template that does not say \"trainer\" did not come from the operator's renderer", ctr.Name)
+	}
+	if tpl.Spec.RestartPolicy != corev1.RestartPolicyNever {
+		t.Fatalf("the hashed template has restart policy %q; the operator pins Never and the MLTrainingJob says "+
+			"nothing about restarting, so this template is not the operator's", tpl.Spec.RestartPolicy)
+	}
+	gpu := ctr.Resources.Limits[corev1.ResourceName("nvidia.com/gpu")]
+	if gpu.Value() != int64(probe.Spec.GPUCount) {
+		t.Fatalf("the hashed template limits nvidia.com/gpu to %d and the probe asks for %d; the device limit is "+
+			"the operator's own translation of gpuCount, and a template carrying another number was rendered "+
+			"from something else", gpu.Value(), probe.Spec.GPUCount)
+	}
+	if ctr.Image != probe.Spec.Image {
+		t.Fatalf("the hashed template runs %q, not the probe's %q, so it was rendered from another job",
+			ctr.Image, probe.Spec.Image)
+	}
+	if strings.Join(ctr.Command, " ") != strings.Join(probe.Spec.Command, " ") {
+		t.Fatalf("the hashed template runs %v, not the probe's %v", ctr.Command, probe.Spec.Command)
+	}
+}
+
+// The property the field is bought for: anything the operator adds to that template about STOPPING changes the
+// key, so a reading taken before it stops matching and the run refuses instead of measuring something else.
+//
+// The first three rows are the three the brief named as the realistic additions, and they are the whole reason
+// this is not an empty gate: each of them changes what a run's Pod does when it is deleted, and before this
+// field every one of them left every field of the key identical. The rest are there because the argument is
+// not really about those three — it is that the template is hashed WHOLE, so an added env var or a second
+// container is caught by the same mechanism and nobody has to have anticipated it.
+//
+// Mutation that turns this red: return a constant from podTemplateHashOf, or hash any PART of the template
+// rather than the whole of it — hashing just the container list turns rows 1, 3, 4 and 7 red, since the grace
+// period, the shared PID namespace, the restart policy and a template annotation all sit outside the
+// containers. That is the argument for hashing everything rather than the fields that looked relevant.
+func TestEveryAdditionToTheOperatorsTemplateChangesTheKey(t *testing.T) {
+	base := renderedPodTemplate(templateProbeJob())
+	baseHash := podTemplateHashOf(base)
+	if len(baseHash) != 64 {
+		t.Fatalf("the template hash is %q; a key field that is not a hash is one nothing can be compared on",
+			baseHash)
+	}
+
+	for _, tc := range []struct {
+		name   string
+		mutate func(*corev1.PodTemplateSpec)
+	}{
+		{"an explicit terminationGracePeriodSeconds", func(p *corev1.PodTemplateSpec) {
+			p.Spec.TerminationGracePeriodSeconds = new(int64(60))
+		}},
+		{"a preStop hook", func(p *corev1.PodTemplateSpec) {
+			p.Spec.Containers[0].Lifecycle = &corev1.Lifecycle{
+				PreStop: &corev1.LifecycleHandler{Exec: &corev1.ExecAction{Command: []string{"sleep", "5"}}},
+			}
+		}},
+		{"shareProcessNamespace", func(p *corev1.PodTemplateSpec) {
+			p.Spec.ShareProcessNamespace = new(true)
+		}},
+		{"a changed restart policy", func(p *corev1.PodTemplateSpec) {
+			p.Spec.RestartPolicy = corev1.RestartPolicyOnFailure
+		}},
+		{"an added environment variable", func(p *corev1.PodTemplateSpec) {
+			p.Spec.Containers[0].Env = []corev1.EnvVar{{Name: "GRACE", Value: "60"}}
+		}},
+		{"a second container", func(p *corev1.PodTemplateSpec) {
+			p.Spec.Containers = append(p.Spec.Containers, corev1.Container{Name: "sidecar", Image: "x"})
+		}},
+		{"a template annotation", func(p *corev1.PodTemplateSpec) {
+			p.Annotations = map[string]string{"queuelab.gpu-platform/anything": "1"}
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := base.DeepCopy()
+			tc.mutate(got)
+			if podTemplateHashOf(*got) == baseHash {
+				t.Fatalf("%s left the key identical: a run's Pods would carry it, the recorded reading would go "+
+					"on matching, and the run would report a contrast it was no longer producing", tc.name)
+			}
+		})
+	}
+}
+
+// A hash that moved with the row a run submits would be useless: every run would refuse the reading before it,
+// and the field would be a per-run ritual rather than a key. Two things keep it still, and both are testable.
+//
+// Only the Job's TEMPLATE is hashed, so the name and namespace — which are per-row, since a trace row's name is
+// the object's name — cannot reach it. And the template is rendered at sentinel values rather than at the
+// harness's own workload, so the pinned image digest and the arm's rendered command are keyed by their own
+// fields and are not also inside this one, where a digest bump would be reported a second time as a template
+// change.
+//
+// Mutation that turns this red: let the Job's own identity into what is hashed — renderedPodTemplate stamping
+// j.Name and j.Namespace onto the template it returns, which is what hashing the whole rendered Job rather
+// than its Spec.Template would amount to (the first half); or render the probe from
+// harnessTerminationContract's own MLTrainingJob instead of the sentinel (the second half, where the row's
+// duration would put a per-row number in the command as well).
+func TestTheTemplateKeyDoesNotMoveWithWhatARunSubmits(t *testing.T) {
+	probe := templateProbeJob()
+	other := templateProbeJob()
+	other.Name = "row-000017-tenant-b"
+	other.Namespace = "queuelab-run-r7"
+	other.Spec.Queue = "lq-tenant-b"
+	if podTemplateHashOf(renderedPodTemplate(probe)) != podTemplateHashOf(renderedPodTemplate(other)) {
+		t.Fatal("the template key changed with the name, namespace and queue of the job it was rendered from; " +
+			"those are per-row, so every run would refuse the reading taken before it")
+	}
+
+	c := harnessTerminationContract()
+	tpl := renderedPodTemplate(probe)
+	ctr := tpl.Spec.Containers[0]
+	if ctr.Image == c.Image {
+		t.Fatalf("the template is keyed at the harness's own image %q, which is already a key field of its own; "+
+			"a digest bump would then be reported twice, once as the image and once as a template change",
+			ctr.Image)
+	}
+	for _, cmd := range [][]string{c.HonorCommand, c.IgnoreCommand} {
+		if strings.Join(ctr.Command, " ") == strings.Join(cmd, " ") {
+			t.Fatalf("the template is keyed at the arm's own command %v, which is already a key field of its "+
+				"own and carries the row's duration besides", ctr.Command)
+		}
+	}
+}
+
+// The probe is only as good as the fields it exercises, and the field it does not exercise is the one that
+// goes wrong silently. A spec field left at its zero value renders whatever the operator does for an unset
+// field, so a later line that adds something only when that field IS set — gpuClass becoming a nodeSelector is
+// the obvious one — would be taken by every run and skipped by the key.
+//
+// This walks the spec by reflection rather than listing what it knows about, for the reason
+// TestEveryFieldOfTheKeyCanRefuseOnItsOwn does: a field added to the CRD after this was written is covered on
+// the day it is added, whether or not anybody remembers this test exists.
+//
+// Mutation that turns this red: drop any field from templateProbeJob's literal, or add a field to
+// MLTrainingJobSpec without giving the probe a value for it.
+func TestTheTemplateProbeLeavesNoFieldOfTheSpecUnexercised(t *testing.T) {
+	spec := reflect.ValueOf(templateProbeJob().Spec)
+	for i := 0; i < spec.NumField(); i++ {
+		if spec.Field(i).IsZero() {
+			t.Fatalf("templateProbeJob leaves MLTrainingJobSpec.%s at its zero value; the operator's template is "+
+				"keyed at this one input, so anything it renders only when that field is set is outside the key",
+				spec.Type().Field(i).Name)
+		}
+	}
+}
+
+// The schema bump on the canary document itself, and what it does and does not buy — which is worth being
+// exact about, because the honest answer is narrower than "it is what refuses the old document".
+//
+// A version-1 reading carries no podTemplateHash, and it would be refused with or without the bump:
+// decodeCanary's required-field sweep stops an empty hash on its own. What the version buys is the DIAGNOSIS.
+// "This document is from before the template was keyed" and "a field of this document is empty" are the same
+// outcome to a parser and completely different sentences to an operator deciding whether the node is carrying
+// an old reading or a corrupted one.
+//
+// Mutation that turns this red: leave canarySchema at 1 — the first assertion. It is asserted on the constant
+// rather than left implicit in the refusal precisely because the sweep would otherwise cover for it, which is
+// the shape of guard-overlap this lineage has already been caught by once. Dropping the sweep entry AND the
+// bump together turns the second half red instead: the document then decodes, and the refusal an operator
+// meets names a template change that never happened.
+func TestACanaryFromBeforeTheTemplateKeyIsRefusedRatherThanReinterpreted(t *testing.T) {
+	if canarySchema != 2 {
+		t.Fatalf("canarySchema is %d; the operator's pod template joined the key, and a document that predates "+
+			"it cannot be told apart from one whose template differs", canarySchema)
+	}
+	older := passingCanary()
+	older.Schema = 1
+	older.Key.PodTemplateHash = ""
+	raw, err := json.Marshal(older)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	n := node(nil, map[string]string{canaryAnnotationKey: string(raw)})
+	_, err = qualify(n, nil, testReq(2), harnessTerminationContract())
+	if err == nil {
+		t.Fatal("a reading taken before the operator's template was part of the key was stood on")
+	}
+	// The refusal has to be the unreadable-document one, not the wrong-combination one: the reading is not about
+	// a different template, it is about a build in which the template was not a fact the reading carried.
+	if !strings.Contains(err.Error(), "could not be read") {
+		t.Fatalf("the refusal must say the document cannot be read rather than blame the template, got: %v", err)
+	}
+}
+
+// And the same bump on the run record, which carries the key inside its canary reference.
+//
+// The document below carries NO qualification block at all, which is the case the reference guard cannot
+// reach: with no reference there is nothing for it to sweep, so the version is the only thing that refuses it.
+// A version-5 record that does carry a reference is stopped by the guard as well, and there the version buys
+// the diagnosis rather than the refusal — recordSchemaVersion's own comment argues that, and it is thinner
+// than the four bumps before it.
+//
+// Mutation that turns this red: leave recordSchemaVersion at 5 — both halves, the constant and the document.
+func TestARecordFromBeforeTheTemplateKeyIsRefusedRatherThanReinterpreted(t *testing.T) {
+	if recordSchemaVersion != 6 {
+		t.Fatalf("recordSchemaVersion is %d; the pod template joined the key a record's reference carries, and "+
+			"a reader cannot tell a run gated on the template from one that could not be", recordSchemaVersion)
+	}
+	older := []byte(`{"schemaVersion":5,"runID":"r7","arm":"A-honor","disposition":"checks-passed",` +
+		`"validity":{"verdict":"refused","failures":["environment-not-established"]}}`)
+	if _, err := decodeRunRecord(older); err == nil {
+		t.Fatal("a record written before the operator's template was keyed decoded under today's rules, so its " +
+			"silence about the template reads as a run that was gated on one")
 	}
 }
