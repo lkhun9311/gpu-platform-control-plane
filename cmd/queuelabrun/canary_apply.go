@@ -591,11 +591,30 @@ func terminationCanary(ctx context.Context, c client.Client, nodeName string,
 		Failures: judgeCanary(*probes[0], *probes[1]),
 	}
 	reportCanary(out, q)
-	if serr := stampCanary(ctx, c, j, q); serr != nil {
+	// On cleanupContext, not ctx, and it is the only write in this mode that needs saying twice. Every other
+	// thing this function does is reversible or self-clearing — probes are deleted, the worker is released —
+	// but the stamp is the entire product, and a signal or an expiring mode budget landing here would throw
+	// away a reading whose probes have already been spent. It is the same argument the release path makes,
+	// applied to the one write whose loss cannot be recovered by re-reading anything.
+	stampCtx, stampCancel := cleanupContext()
+	serr := stampCanary(stampCtx, c, j, q)
+	stampCancel()
+	if serr != nil {
 		// Refused rather than noted, on a passing canary as much as on a failing one: a qualification nobody
 		// recorded qualifies nothing, and reporting success for a reading that reached no cluster would leave
 		// the operator believing their worker was qualified when the next run will refuse it.
-		return fmt.Errorf("canary on %s: the reading was taken but not recorded: %w", nodeName, serr)
+		//
+		// What the operator most needs to know here is what is STILL ON THE NODE, because this failure leaves
+		// whatever was there before untouched — and on a failing reading that is the dangerous case: a
+		// previously passing qualification survives the canary that has just contradicted it, and runs go on
+		// consulting it. Saying only "not recorded" leaves that to be worked out.
+		standing := "whatever qualification was already on the node is unchanged, so runs will go on consulting it"
+		if len(q.Failures) > 0 {
+			standing = "this reading FAILED and did not replace what was already on the node: any qualification " +
+				"standing there has just been contradicted and may now be false, and runs will consult it until " +
+				"this is recorded or cleared"
+		}
+		return fmt.Errorf("canary on %s: the reading was taken but not recorded: %w\n  %s", nodeName, serr, standing)
 	}
 	if len(q.Failures) > 0 {
 		return fmt.Errorf("worker %s did not qualify: this cluster does not produce the contrast the arms are "+

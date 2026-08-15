@@ -595,6 +595,141 @@ func TestAProbeThatCouldNotBeReadIsNotAProbeThatWouldNotStop(t *testing.T) {
 	}
 }
 
+// The delete must carry NO grace-period option, and nothing pinned that: passing
+// client.GracePeriodSeconds(1) was green everywhere. It is the whole reason the probe leaves
+// terminationGracePeriodSeconds unset in the first place — the Pod is stopped under the window the apiserver
+// defaulted onto it, which is the window a run's Pods are stopped under. An override here would measure a
+// number this harness never gives a workload, and would do it invisibly, since every threshold is a fraction
+// of the grace period the probe was recorded with rather than of the one it was actually given.
+//
+// Mutation that turns this red: pass client.GracePeriodSeconds(anything) to the probe delete.
+func TestTheProbesAreStoppedUnderTheGracePeriodTheClusterGaveThem(t *testing.T) {
+	now, sleep := fakeClock(time.Unix(0, 0))
+	k := newFakeKubelet(now, 500*time.Millisecond, 30*time.Second, honorExitCode, killExitCode)
+	base := k.interceptors()
+	var overrides []int64
+	c := fake.NewClientBuilder().WithScheme(testScheme(t)).
+		WithObjects(node(nil, map[string]string{canaryAnnotationKey: ""})).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Create: base.Create,
+			Get:    base.Get,
+			Delete: func(ctx context.Context, cl client.WithWatch, obj client.Object,
+				opts ...client.DeleteOption) error {
+				if _, ok := obj.(*corev1.Pod); ok {
+					var o client.DeleteOptions
+					o.ApplyOptions(opts)
+					if o.GracePeriodSeconds != nil {
+						overrides = append(overrides, *o.GracePeriodSeconds)
+					}
+				}
+				return base.Delete(ctx, cl, obj, opts...)
+			},
+		}).Build()
+
+	if err := terminationCanary(context.Background(), c, "platform-worker", now, sleep,
+		&bytes.Buffer{}); err != nil {
+		t.Fatalf("canary: %v", err)
+	}
+	if len(overrides) != 0 {
+		t.Fatalf("the probe delete overrode the grace period with %v: the reading then describes a window no "+
+			"run's Pod is ever given, and every threshold is a fraction of the recorded grace period rather "+
+			"than of the one that was actually applied", overrides)
+	}
+}
+
+// A Pod is phase Running before its container is, and the difference is the whole premise of the honouring
+// probe: what has to be up before anything is signalled is the SHELL, with its trap installed. Signalling a
+// container that has not started yet measures the start-up race instead of the termination contract — and it
+// does so in the direction that flatters the honouring arm, since a container that never ran stops instantly.
+//
+// It is tested here rather than through the mode because the double sets phase and container state together,
+// so no cluster this suite can build separates them; a real one does, in the ordinary course of starting a
+// Pod.
+//
+// Mutation that turns this red: reduce probeRunning to `p.Status.Phase == corev1.PodRunning`.
+func TestAProbeIsNotRunningUntilItsContainerIs(t *testing.T) {
+	starting := &corev1.Pod{Status: corev1.PodStatus{
+		Phase: corev1.PodRunning,
+		ContainerStatuses: []corev1.ContainerStatus{{
+			Name:  "sleeper",
+			State: corev1.ContainerState{Waiting: &corev1.ContainerStateWaiting{Reason: "ContainerCreating"}},
+		}},
+	}}
+	if probeRunning(starting) {
+		t.Fatal("a Pod whose container is still being created was treated as ready to be signalled: the trap " +
+			"is not installed until the shell is up, so the honouring probe would be measured on a container " +
+			"that never ran")
+	}
+
+	// No container statuses at all is the same state a moment earlier, and reads the same way.
+	if probeRunning(&corev1.Pod{Status: corev1.PodStatus{Phase: corev1.PodRunning}}) {
+		t.Fatal("a Pod reporting no container status at all was treated as running")
+	}
+
+	up := &corev1.Pod{Status: corev1.PodStatus{
+		Phase: corev1.PodRunning,
+		ContainerStatuses: []corev1.ContainerStatus{{
+			Name:  "sleeper",
+			State: corev1.ContainerState{Running: &corev1.ContainerStateRunning{}},
+		}},
+	}}
+	if !probeRunning(up) {
+		t.Fatal("a Pod whose container is running was not treated as running, so no probe could ever start")
+	}
+
+	// And the phase still has to be Running: a container reported running inside a Pod the apiserver has not
+	// moved out of Pending is a state to keep waiting through, not to signal.
+	pending := up.DeepCopy()
+	pending.Status.Phase = corev1.PodPending
+	if probeRunning(pending) {
+		t.Fatal("a Pending Pod was treated as running")
+	}
+}
+
+// A probe that ended before anybody asked it to stop measured nothing, and carrying on would produce a
+// "stopped promptly" reading for a container that was never signalled — the single most misleading output
+// this file could generate, since it is indistinguishable from the healthy honouring result.
+//
+// The sleeper is rendered at ten minutes precisely so this cannot happen, which is why it is a refusal rather
+// than a retry: reaching it means the probe died of something else.
+//
+// Mutation that turns this red: drop the Succeeded/Failed arm from awaitProbesRunning. The probe is then
+// never "running", the start budget is spent in full, and the refusal blames a timeout for a container that
+// had already exited and said why.
+func TestAProbeThatEndedBeforeItWasAskedToStopRefusesImmediately(t *testing.T) {
+	now, sleep := fakeClock(time.Unix(0, 0))
+	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Namespace: canaryNamespace, Name: "tc-early-honor"}}
+	c := fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(pod).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Get: func(ctx context.Context, cl client.WithWatch, key client.ObjectKey, obj client.Object,
+				opts ...client.GetOption) error {
+				if err := cl.Get(ctx, key, obj, opts...); err != nil {
+					return err
+				}
+				if p, ok := obj.(*corev1.Pod); ok {
+					p.Status.Phase = corev1.PodFailed
+					p.Status.Reason = "Evicted"
+				}
+				return nil
+			},
+		}).Build()
+
+	err := awaitProbesRunning(context.Background(), c, []*corev1.Pod{pod}, now, sleep)
+	if err == nil {
+		t.Fatal("a probe that had already ended was waited on as though it were starting")
+	}
+	if !strings.Contains(err.Error(), "before it was asked to stop") {
+		t.Fatalf("the refusal must say the probe ended on its own rather than blaming a timeout, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "Evicted") {
+		t.Fatalf("the refusal must carry what the cluster said about it, got %v", err)
+	}
+	if got := now().Sub(time.Unix(0, 0)); got >= canaryStartBudget {
+		t.Fatalf("the refusal spent %v, the whole start budget: a probe that has already ended is not "+
+			"something to keep waiting for", got)
+	}
+}
+
 // The two probes must be distinguishable by name, because everything downstream — the double above, an
 // operator reading `kubectl get pods`, and the leaked-probe recovery hint — keys off the suffix.
 //
@@ -613,6 +748,67 @@ func TestTheTwoProbesAreNamedApart(t *testing.T) {
 	}
 	if !strings.HasSuffix(honor.name, "-honor") || !strings.HasSuffix(ignore.name, "-ignore") {
 		t.Fatalf("the probes must say which contract they carry in their names: %q and %q", honor.name, ignore.name)
+	}
+}
+
+// A reading that could not be recorded is a refusal, and the refusal has to say what is STILL ON THE NODE.
+//
+// This failure leaves the previous document untouched, and on a failing reading that is the dangerous case:
+// the canary has just contradicted a qualification that is still standing, and runs will go on consulting it
+// until somebody records or clears this. "The reading was taken but not recorded" leaves that to be worked
+// out by whoever reads the terminal.
+//
+// Mutation that turns this red: drop the standing-document clause from the stamp failure, or report the stamp
+// failure as a warning and return nil (which would report a cluster proven broken as qualified).
+func TestAReadingThatCouldNotBeRecordedSaysWhatIsStillOnTheNode(t *testing.T) {
+	now, sleep := fakeClock(time.Unix(0, 0))
+	// A killing runtime: the reading fails, so the previously recorded document is the one that matters.
+	k := newFakeKubelet(now, 300*time.Millisecond, 400*time.Millisecond, honorExitCode, honorExitCode)
+	base := k.interceptors()
+	var nodePatches int
+	c := fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(node(nil, nil)).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Create: base.Create,
+			Get:    base.Get,
+			Delete: base.Delete,
+			Patch: func(ctx context.Context, cl client.WithWatch, obj client.Object, patch client.Patch,
+				opts ...client.PatchOption) error {
+				if _, ok := obj.(*corev1.Node); ok {
+					// 1 is the acquisition, 2 is the stamp, 3 is the release.
+					nodePatches++
+					if nodePatches == 2 {
+						return errors.New("apiserver unreachable")
+					}
+				}
+				return cl.Patch(ctx, obj, patch, opts...)
+			},
+		}).Build()
+
+	var out bytes.Buffer
+	err := terminationCanary(context.Background(), c, "platform-worker", now, sleep, &out)
+	if err == nil {
+		t.Fatal("a reading that reached no cluster was reported as a qualification")
+	}
+	if !strings.Contains(err.Error(), "may now be false") {
+		t.Fatalf("the refusal does not say that the qualification still standing on the node has just been "+
+			"contradicted, which is the whole consequence of this failure: %v", err)
+	}
+	if nodePatches < 3 {
+		t.Fatalf("the worker was not released after a failed stamp (%d node patches): a canary that could not "+
+			"record its reading must still give the node back", nodePatches)
+	}
+	// The previous document is genuinely still there, which is what the sentence is about.
+	var worker corev1.Node
+	if gerr := c.Get(context.Background(), client.ObjectKey{Name: "platform-worker"}, &worker); gerr != nil {
+		t.Fatalf("read the worker: %v", gerr)
+	}
+	q, derr := decodeCanary(worker.Annotations[canaryAnnotationKey])
+	if derr != nil {
+		t.Fatalf("the previous qualification should be untouched, got %v", derr)
+	}
+	if len(q.Failures) != 0 {
+		t.Fatal("this test proves nothing unless what survived is the PASSING document the failed reading " +
+			"contradicted")
 	}
 }
 

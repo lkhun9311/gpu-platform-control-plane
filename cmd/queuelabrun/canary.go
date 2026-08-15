@@ -94,6 +94,13 @@ const honorExitCode = 143
 // It is required of the ignoring probe rather than merely expected. Requiring it is what makes "it survived"
 // a positive observation — the kubelet had to take it out — instead of an inference from a clock reading that
 // a slow status update could also produce.
+//
+// There is a second guard against that stall, noticed after this was written and worth recording because it
+// is not obvious: both probes are read by ONE loop on ONE clock, so a stall long enough to make a
+// promptly-killed ignoring probe look like a survivor inflates the honouring probe's reading by the same
+// interval — and the honouring probe has an UPPER bound. A global stall therefore trips canaryPromptWithin
+// before it can manufacture a survivor. The two bounds protect each other; this clause is what closes the
+// remaining case, a stall that somehow reached only one of the two reads.
 const killExitCode = 137
 
 // The two thresholds that turn the observation into a verdict, both derived from terminationGraceSec so they
@@ -172,12 +179,26 @@ func harnessTerminationContract() canaryContract {
 // revision changes on every commit, so keying on it would invalidate every recorded qualification whenever a
 // comment was reworded, and the operator would be re-running the canary before every run — which is exactly
 // the per-run ritual this was designed not to be. What a revision would be standing in FOR is spelled out
-// instead: the image, both rendered commands, the grace period and the expected exit code are the entirety of
-// the mechanism this build submits, they come out of the renderer rather than out of a constant here, and any
-// harness change that alters what a SIGTERM does to the workload changes one of them. A change that alters
-// none of them cannot have changed what this canary established. The revision is still recorded beside the
-// key (canaryQualification.HarnessRevision) so a reader can see which build took the reading; it just is not
-// what the match turns on.
+// instead: the image, both rendered commands, the grace period and the expected exit code, taken from the
+// renderer rather than from constants here, so a harness change to any of them changes a key field.
+//
+// That is deliberately NOT a claim to cover the whole mechanism, and the first version of this comment made
+// that claim and was wrong. The canary hand-builds its probe in canaryPod; a run's Pod is materialised from
+// the controller's own Job template (internal/controller/mltrainingjob_controller.go's buildJob). A commit
+// adding a preStop hook, shareProcessNamespace, or an explicit terminationGracePeriodSeconds to THAT template
+// would change what a run measures while changing no field here, and a recorded qualification would go on
+// matching. The decision not to key the revision stands — the alternative is worse, and the exposure is
+// narrow and named — but the record does not hide it: recordUnchecked() states this same residual as the one
+// thing a qualified run's artifact still cannot speak for, and that entry is the honest version of what this
+// key covers.
+//
+// Two more invalidators are invisible to any key of readable strings, and are worth naming rather than
+// leaving to be discovered: a kubelet restarted with different flags, and a container-runtime configuration
+// change that bumps no version string. Both leave every field below identical while changing what the
+// cluster does with a signal. Re-take the canary after either; nothing here can prompt you to.
+//
+// The revision is still recorded beside the key (canaryQualification.HarnessRevision) so a reader can see
+// which build took the reading; it just is not what the match turns on.
 type canaryKey struct {
 	Image         string   `json:"image"`
 	HonorCommand  []string `json:"honorCommand"`
@@ -186,9 +207,14 @@ type canaryKey struct {
 	//
 	// That is the fact worth keying on, because nothing in this harness sets a grace period at all: the
 	// controller's Job template (internal/controller/mltrainingjob_controller.go) leaves
-	// terminationGracePeriodSeconds unset, so every Pod a run creates takes the API default — and the whole
-	// horizon derivation in spine.go is arithmetic over the assumption that the default is 30. A cluster whose
-	// default is anything else runs a different experiment, and this is where that shows up.
+	// terminationGracePeriodSeconds unset, so every Pod a run creates takes the API default.
+	//
+	// FOUR separate pieces of arithmetic rest on that default being 30, not one: the observation horizon
+	// (spine.go's horizonSec), the trace's remaining-service check and the victim's own row duration
+	// (trace.go), and the schedule's minimum owner duration (schedule.go). A cluster defaulting anything else
+	// is not running this protocol at all — every one of those four numbers would be sized against a window the
+	// workload does not have. judgeCanary refuses any value but terminationGraceSec outright, which is what
+	// covers all four rather than the one this comment used to name.
 	GraceSec      int64 `json:"graceSec"`
 	HonorExitCode int32 `json:"honorExitCode"`
 	// NodeUID rather than the node name alone. A node deleted and recreated under the same name is a different
@@ -242,6 +268,10 @@ type canaryProbe struct {
 	// StoppedAfterMs is measured on this program's own clock, from the instant the delete was accepted to the
 	// instant a terminal status was first observed. It is deliberately not derived from the kubelet's
 	// finishedAt: that field has one-second resolution, which is a third of the promptness threshold below.
+	//
+	// Being this program's own clock, it is inflated by a read stall — which is exactly why the verdict never
+	// rests on it alone. See killExitCode for the two things that close that: the exit code the cluster itself
+	// reports, and the fact that a global stall trips the honouring probe's upper bound first.
 	StoppedAfterMs int64 `json:"stoppedAfterMs"`
 	// Unobserved is why nothing terminal was seen, when nothing was. An empty Terminated with an empty reason
 	// would be a probe nobody could tell apart from one that was never run.
@@ -439,11 +469,19 @@ func canaryKeyMatches(want, got canaryKey) (bool, []string) {
 	diffs := keyDifferences(want, got)
 	if len(diffs) == 0 {
 		diffs = []string{fmt.Sprintf(
-			"the recorded key is not this run's and this build cannot say which field differs (recorded %+v, "+
-				"needed %+v); a field was added to the key without a line that names it", got, want)}
+			"%s (recorded %+v, needed %+v); a field was added to the key without a line that names it",
+			unnamedKeyDifference, got, want)}
 	}
 	return false, diffs
 }
+
+// unnamedKeyDifference prefixes the fallback above.
+//
+// It is a constant so a test can tell the two outcomes apart, which is the whole difficulty with a safety net
+// of this shape: the net makes the refusal correct for a field nobody named, and by doing so it also makes
+// "nobody named it" invisible. TestEveryFieldOfTheKeyCanRefuseOnItsOwn asserts no field of today's key
+// reaches it, so the net stays a net rather than becoming where the diagnosis quietly goes.
+const unnamedKeyDifference = "the recorded key is not this run's and this build cannot say which field differs"
 
 // keyDifferences names every field on which a recorded qualification is not the one this run needs.
 //
@@ -503,15 +541,12 @@ func checkTerminationCanary(n *corev1.Node, c canaryContract) (*canaryReference,
 				"read is not one a run may stand on. Re-take it:\n    queuelabrun -termination-canary -worker %s",
 			err, raw, n.Name)
 	}
-	if len(q.Failures) > 0 {
-		var b strings.Builder
-		fmt.Fprintf(&b, "the termination canary recorded on it at %q (id %q) FAILED, so this cluster has been "+
-			"shown not to produce the contrast the arms are built on:", q.QualifiedAt, q.CanaryID)
-		for _, f := range q.Failures {
-			fmt.Fprintf(&b, "\n    %s", f)
-		}
-		return nil, fmt.Errorf("%s", b.String())
-	}
+	// The KEY is tested before the recorded failures, and the order is the whole of the difference between two
+	// refusals an operator reads completely differently. A canary that failed on a combination this run does
+	// not use — a bumped image digest, a kubelet since upgraded — says nothing whatever about this run: the
+	// truth is "that reading is about a different machine", not "this cluster cannot stop a Pod". Tested the
+	// other way round, that stale document produced the most alarming sentence this file can print, and it was
+	// also the one branch that offered no way forward.
 	want := canaryKeyFor(n, c)
 	if matched, diffs := canaryKeyMatches(want, q.Key); !matched {
 		var b strings.Builder
@@ -520,8 +555,25 @@ func checkTerminationCanary(n *corev1.Node, c canaryContract) (*canaryReference,
 		for _, d := range diffs {
 			fmt.Fprintf(&b, "\n    %s", d)
 		}
-		fmt.Fprintf(&b, "\n  a qualification is a property of one (image, cluster, runtime, harness) "+
-			"combination and says nothing about another. Re-take it:\n"+
+		fmt.Fprintf(&b, "\n  a qualification is a property of one combination of workload, cluster, runtime and "+
+			"harness, and says nothing about another. Re-take it:\n"+
+			"    queuelabrun -termination-canary -worker %s", n.Name)
+		return nil, fmt.Errorf("%s", b.String())
+	}
+	// Reached only once the key is this run's, so what follows is a statement about the combination this run
+	// is actually about to measure on.
+	if len(q.Failures) > 0 {
+		var b strings.Builder
+		fmt.Fprintf(&b, "the termination canary recorded on it at %q (id %q) FAILED on this run's own "+
+			"combination, so this cluster has been shown not to produce the contrast the arms are built on:",
+			q.QualifiedAt, q.CanaryID)
+		for _, f := range q.Failures {
+			fmt.Fprintf(&b, "\n    %s", f)
+		}
+		// A command is offered here too, unlike the first version of this branch. It is not the fix — a cluster
+		// that cannot stop a Pod is not fixed by measuring it again — but it is what an operator runs to confirm
+		// they have fixed it, and a branch with no next step at all reads as a dead end.
+		fmt.Fprintf(&b, "\n  fix the cluster, then re-take the reading:\n"+
 			"    queuelabrun -termination-canary -worker %s", n.Name)
 		return nil, fmt.Errorf("%s", b.String())
 	}
