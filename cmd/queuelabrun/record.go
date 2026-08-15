@@ -492,8 +492,13 @@ func residueForRecord(left []residue) []recordResidue {
 			UID:         r.Observation.UID,
 			WantUID:     r.Observation.WantUID,
 		}
-		if r.Observation.Err != nil {
+		// The read's own failure is reported in preference to a delete refusal, because when a read failed
+		// there is no observation for a refusal to be about; only one of the two can be true of one target.
+		switch {
+		case r.Observation.Err != nil:
 			e.Error = r.Observation.Err.Error()
+		case r.Observation.DeleteRefusal != nil:
+			e.Error = r.Observation.DeleteRefusal.Error()
 		}
 		out = append(out, e)
 	}

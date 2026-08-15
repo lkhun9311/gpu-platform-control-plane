@@ -360,13 +360,18 @@ func deleteTargets(ctx context.Context, c client.Client, s seed, txID string,
 	// "still present" and nothing else reads as a slow finalizer, so the next run refuses to start with no
 	// clue why; carrying the refusal makes the difference between "waiting" and "not allowed" legible. It is
 	// applied here rather than during the loop because a target that did eventually come away has nothing to
-	// explain, and because classifyAbsence turns a carried error into absenceUnknown — which, mid-loop, would
-	// have stopped the retry that removed it.
+	// explain.
+	//
+	// It lands on DeleteRefusal rather than on Err, and that is the whole correction. Err is the read's own
+	// failure, so classifyAbsence answers absenceUnknown for it; a refusal carried there downgraded a target
+	// this run had positively OBSERVED present to "nobody could tell", and the record then said
+	// absence:"unknown" next to found:true. The verdict is evidence the run actually has, and explaining why
+	// the object could not be removed must not cost it.
 	for i := range latest {
 		o := &latest[i]
 		if o.Err == nil && !phaseTargetSettled(*o) {
 			if derr := deleteErrs[o.Target]; derr != nil {
-				o.Err = derr
+				o.DeleteRefusal = derr
 			}
 		}
 	}

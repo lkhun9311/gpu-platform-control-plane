@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -27,6 +28,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
@@ -733,6 +735,61 @@ func TestDeleteReportsResidueWhenTheBudgetExpires(t *testing.T) {
 	// the next run's budget from it would size it from nothing.
 	if res.Elapsed < 30*time.Second {
 		t.Errorf("reported Elapsed %v for a teardown that ran out a 30s budget", res.Elapsed)
+	}
+}
+
+// Explaining why an object could not be removed must not cost the verdict that it is still there.
+//
+// A refused Delete used to be folded onto observation.Err, which is the field that means "the read failed".
+// classifyAbsence answers absenceUnknown for that, so a target this run had positively READ as present was
+// persisted as absence:"unknown" beside found:true — two accounts of one observation — and the node's residue
+// stamp told the next operator nobody could tell about an object this one had seen.
+//
+// Mutation that turns this red: assign the refusal to o.Err instead of o.DeleteRefusal in deleteTargets'
+// fold-back, and every absence below becomes unknown.
+func TestDeleteRefusalExplainsResidueWithoutDowngradingItsVerdict(t *testing.T) {
+	s := testSeed()
+	refusal := apierrors.NewForbidden(schema.GroupResource{Resource: "namespaces"}, s.Namespace,
+		errors.New("admission webhook denied the request"))
+	c := fake.NewClientBuilder().WithScheme(fullScheme(t)).WithInterceptorFuncs(interceptor.Funcs{
+		Delete: func(_ context.Context, _ client.WithWatch, _ client.Object, _ ...client.DeleteOption) error {
+			return refusal
+		},
+	}).WithObjects(seedOwned(t, s)...).Build()
+	now, sleep := fakeClock(time.Unix(0, 0))
+	res, err := deleteTargets(context.Background(), c, s, s.TxID, now, sleep, 30*time.Second)
+	if err != nil {
+		t.Fatalf("a refused delete is a result, not a failure to compute one: %v", err)
+	}
+	if len(res.Residue) == 0 {
+		t.Fatal("every delete was refused and nothing was reported as residue")
+	}
+	for _, r := range res.Residue {
+		if r.Absence == absenceUnknown {
+			t.Fatalf("%s was read as present and its delete refused, yet its verdict is unknown",
+				r.Observation.Target.Name)
+		}
+		if r.Observation.Err != nil {
+			t.Fatalf("%s carries a read error, but every read here succeeded: %v",
+				r.Observation.Target.Name, r.Observation.Err)
+		}
+	}
+	// The refusal still has to reach the record, or the next operator sees "still present" and no reason.
+	rec := residueForRecord(res.Residue)
+	if len(rec) != len(res.Residue) {
+		t.Fatalf("projection dropped residue: %d of %d", len(rec), len(res.Residue))
+	}
+	var explained int
+	for _, e := range rec {
+		if e.Absence == absenceName(absenceUnknown) {
+			t.Fatalf("%s persisted as unknown", e.Name)
+		}
+		if strings.Contains(e.Error, "denied the request") {
+			explained++
+		}
+	}
+	if explained == 0 {
+		t.Fatalf("no residue entry carried the refusal, so the record says present with no reason: %+v", rec)
 	}
 }
 

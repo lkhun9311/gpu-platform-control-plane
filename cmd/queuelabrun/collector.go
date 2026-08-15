@@ -591,6 +591,16 @@ func waitBarrier(ctx context.Context, c client.Client, ns string, b queuelab.Bar
 		if err == nil && ok {
 			return nil
 		}
+		if err == nil {
+			// A check that completed and simply found the barrier unmet clears the carried error, and the
+			// comment above says why without having said so: the error is kept for a barrier that was failing
+			// "right up to the deadline". Without this line it is kept for one that failed ONCE, minutes
+			// earlier, and then polled cleanly until the horizon — and the refusal then tells an operator "the
+			// last check failed: <error>" about a check that succeeded, sending them after a connectivity
+			// problem that resolved itself. The message has to be true of the last check, which is what it
+			// claims to describe.
+			lastErr = nil
+		}
 		if err != nil {
 			lastErr = err
 			// Cancellation is reported as itself rather than as a barrier outcome, whether it arrives through
