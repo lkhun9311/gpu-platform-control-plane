@@ -136,6 +136,22 @@ func (k *fakeKubelet) interceptors() interceptor.Funcs {
 	}
 }
 
+// trainerContainerOf finds the container the arm's command is in, by name.
+//
+// Tests that assert on "the probe's container" have to look it up rather than index it, for the reason the
+// production readers do: a template can put a sidecar in front of the trainer, and an assertion that indexes 0
+// would then be checking the wrong container while still passing.
+func trainerContainerOf(t *testing.T, p *corev1.Pod) corev1.Container {
+	t.Helper()
+	for _, ctr := range p.Spec.Containers {
+		if ctr.Name == probeTrainerContainer {
+			return ctr
+		}
+	}
+	t.Fatalf("the probe has no %q container: %+v", probeTrainerContainer, p.Spec.Containers)
+	return corev1.Container{}
+}
+
 // probeContainerName is the container a kubelet would publish a status for: the one the Pod declares.
 //
 // It reads the Pod instead of naming a container, and that is the correction of a fixture that had gone stale
@@ -374,9 +390,13 @@ func TestTheProbePodIsTheWorkloadAsTheRunWouldSubmitIt(t *testing.T) {
 		t.Fatalf("restart policy %q: a probe that restarts after being killed has no terminal status to read",
 			p.Spec.RestartPolicy)
 	}
+	// Exactly the canary's, which is a claim about the OVERLAY and not only about presence: the finalizer is the
+	// one thing here that replaces rather than merges, because releaseProbes can only remove its own and a
+	// foreign one would strand the probe object. The row in
+	// TestTheProbeCarriesWhatTheOperatorAddsToTheTemplate drives the case where the template has one.
 	if len(p.Finalizers) != 1 || p.Finalizers[0] != canaryFinalizer {
 		t.Fatalf("the probe carries finalizers %v; without the canary's own the exit code is collected along "+
-			"with the object", p.Finalizers)
+			"with the object, and with anybody else's the object cannot be cleared", p.Finalizers)
 	}
 	if p.Spec.Containers[0].Image != c.Image {
 		t.Fatalf("the probe runs image %q, not the pinned sleeper %q", p.Spec.Containers[0].Image, c.Image)
@@ -446,12 +466,69 @@ func TestTheProbeCarriesWhatTheOperatorAddsToTheTemplate(t *testing.T) {
 					p.Spec.ShareProcessNamespace)
 			}
 		}},
-		{"a sidecar", func(tpl *corev1.PodTemplateSpec) {
-			tpl.Spec.Containers = append(tpl.Spec.Containers,
-				corev1.Container{Name: "sidecar", Image: "busybox:1.36"})
+		// PREPENDED, not appended, and that is the whole value of the row. The trainer sitting at index 0 is what
+		// let an earlier version of this suite pass while probePodFrom ignored the name and took Containers[0] —
+		// which is the exact template probeTrainerContainer's comment describes, one that "grew a sidecar in front
+		// of the trainer".
+		{"a sidecar in front of the trainer", func(tpl *corev1.PodTemplateSpec) {
+			tpl.Spec.Containers = append([]corev1.Container{{Name: "sidecar", Image: "busybox:1.36"}},
+				tpl.Spec.Containers...)
 		}, func(t *testing.T, p *corev1.Pod) {
-			if len(p.Spec.Containers) != 2 || p.Spec.Containers[1].Name != "sidecar" {
-				t.Fatalf("the probe dropped the template's second container: %+v", p.Spec.Containers)
+			if len(p.Spec.Containers) != 2 || p.Spec.Containers[0].Name != "sidecar" {
+				t.Fatalf("the probe dropped the template's other container: %+v", p.Spec.Containers)
+			}
+			// And the sidecar is still the sidecar: writing the arm's command into it would be a reading of a
+			// workload nobody chose.
+			if len(p.Spec.Containers[0].Command) != 0 {
+				t.Fatalf("the arm's command went into the sidecar: %+v", p.Spec.Containers[0])
+			}
+		}},
+		// The device strip has to be per-POD, because the admission it avoids is: the kubelet sums the whole Pod
+		// against the node's allocatable, so a sidecar's request makes the probe unschedulable exactly as the
+		// trainer's would.
+		{"a sidecar that asks for a device", func(tpl *corev1.PodTemplateSpec) {
+			tpl.Spec.Containers = append(tpl.Spec.Containers, corev1.Container{
+				Name: "sidecar", Image: "busybox:1.36",
+				Resources: corev1.ResourceRequirements{
+					Limits: corev1.ResourceList{gpuResourceName: *resource.NewQuantity(1, resource.DecimalSI)},
+				},
+			})
+		}, func(t *testing.T, p *corev1.Pod) {
+			for _, ctr := range p.Spec.Containers {
+				if _, ok := ctr.Resources.Limits[gpuResourceName]; ok {
+					t.Fatalf("container %q still asks for %s; the kubelet admits the POD against this node's "+
+						"allocatable, so one container's request is enough to make the probe unschedulable",
+						ctr.Name, gpuResourceName)
+				}
+			}
+		}},
+		// Requests as well as Limits. BuildJob writes only Limits today, so nothing observes the Requests half of
+		// the strip unless a template spells it — and an unobserved clause is one that can be deleted without a
+		// test noticing, which is how the first version of this suite left it.
+		{"a device spelled as a request", func(tpl *corev1.PodTemplateSpec) {
+			tpl.Spec.Containers[0].Resources.Requests = corev1.ResourceList{
+				gpuResourceName: *resource.NewQuantity(7, resource.DecimalSI),
+			}
+		}, func(t *testing.T, p *corev1.Pod) {
+			if _, ok := p.Spec.Containers[0].Resources.Requests[gpuResourceName]; ok {
+				t.Fatalf("the probe still requests %s: %+v", gpuResourceName, p.Spec.Containers[0].Resources)
+			}
+			// Nil rather than an empty map, or the Pod is the template's shape plus an artefact of the removal.
+			if p.Spec.Containers[0].Resources.Requests != nil {
+				t.Fatalf("the emptied requests map was sent as %v rather than dropped",
+					p.Spec.Containers[0].Resources.Requests)
+			}
+		}},
+		// The one overlay that REPLACES rather than merges, and the only ObjectMeta field where that is the
+		// intended semantics: releaseProbes can remove the finalizer it installed and no other, so adopting the
+		// template's would strand a probe object nobody can clear. It is still keyed — the hash covers the
+		// template's metadata — so this is noticed and deliberately not adopted.
+		{"a finalizer of the template's own", func(tpl *corev1.PodTemplateSpec) {
+			tpl.Finalizers = []string{"platform.example/keep"}
+		}, func(t *testing.T, p *corev1.Pod) {
+			if len(p.Finalizers) != 1 || p.Finalizers[0] != canaryFinalizer {
+				t.Fatalf("the probe carries finalizers %v; a foreign one cannot be removed by releaseProbes, so "+
+					"the probe object would outlive the canary with no command that clears it", p.Finalizers)
 			}
 		}},
 		{"a cpu limit", func(tpl *corev1.PodTemplateSpec) {
@@ -516,12 +593,14 @@ func TestTheProbeCarriesWhatTheOperatorAddsToTheTemplate(t *testing.T) {
 			}
 			tc.check(t, p)
 			// Whatever the template said, the probe is still the probe: the arm's command is the mechanism under
-			// test, and a Pod that adopted the template's workload as well would measure the sentinel.
-			if strings.Join(p.Spec.Containers[0].Command, " ") != strings.Join(c.HonorCommand, " ") {
-				t.Fatalf("the probe runs %v, not the honouring command the arm submits", p.Spec.Containers[0].Command)
+			// test, and a Pod that adopted the template's workload as well would measure the sentinel. Looked up
+			// BY NAME, because the row above puts the trainer at index 1.
+			trainer := trainerContainerOf(t, p)
+			if strings.Join(trainer.Command, " ") != strings.Join(c.HonorCommand, " ") {
+				t.Fatalf("the probe runs %v, not the honouring command the arm submits", trainer.Command)
 			}
-			if p.Spec.Containers[0].Image != c.Image {
-				t.Fatalf("the probe runs image %q, not the pinned sleeper", p.Spec.Containers[0].Image)
+			if trainer.Image != c.Image {
+				t.Fatalf("the probe runs image %q, not the pinned sleeper", trainer.Image)
 			}
 		})
 	}
@@ -601,11 +680,18 @@ func TestAProbeCannotBeBuiltFromATemplateWithNoTrainerContainer(t *testing.T) {
 // Mutation that turns this red: replace the DeepCopy of the template's spec with a fresh PodSpec, strip
 // anything beyond the device request, or remove either overlay this compares (the nodeName or the toleration).
 //
-// Two things it does NOT catch, named because the first one escaped before it was written down. Turning the
-// toleration overlay from an append into a REPLACEMENT is invisible here: today's template carries no
-// toleration, so both produce the same one-element list, and only a template that already tolerates something
-// can tell them apart — TestTheProbeCarriesWhatTheOperatorAddsToTheTemplate has a row that does. And this
-// compares Spec only, so nothing about the label merge is in scope of it at all; that row is in the same place.
+// What it does NOT catch is listed here because the list itself has been wrong twice, and both times in the
+// same way: an overlay whose behaviour today's template cannot exercise. Everything below is covered by a row
+// in TestTheProbeCarriesWhatTheOperatorAddsToTheTemplate instead, which drives templates this build does not
+// render.
+//
+//   - Turning the toleration overlay from an append into a REPLACEMENT. Today's template tolerates nothing, so
+//     both produce the same one-element list.
+//   - Anything about ObjectMeta at all — this compares Spec — so neither the label merge nor the finalizer
+//     replacement is in scope.
+//   - The Requests half of the device strip, and the emptied-map-to-nil that follows it. BuildJob writes only
+//     Limits, so `want` has no Requests to model and deleting both lines leaves this green.
+//   - The strip being per-container rather than trainer-only, since there is only ever one container here.
 func TestTheProbeIsTheTemplateAndTheThreeDocumentedChanges(t *testing.T) {
 	c := harnessTerminationContract()
 	honor, _ := canaryProbeSpecs("abcd1234-5678", c)
@@ -618,9 +704,11 @@ func TestTheProbeIsTheTemplateAndTheThreeDocumentedChanges(t *testing.T) {
 	want := *tpl.Spec.DeepCopy()
 	want.Containers[0].Image = c.Image
 	want.Containers[0].Command = c.HonorCommand
-	delete(want.Containers[0].Resources.Limits, gpuResourceName)
-	if len(want.Containers[0].Resources.Limits) == 0 {
-		want.Containers[0].Resources.Limits = nil
+	for i := range want.Containers {
+		delete(want.Containers[i].Resources.Limits, gpuResourceName)
+		if len(want.Containers[i].Resources.Limits) == 0 {
+			want.Containers[i].Resources.Limits = nil
+		}
 	}
 	want.NodeName = "platform-worker"
 	want.Tolerations = append(want.Tolerations, corev1.Toleration{
@@ -1097,5 +1185,91 @@ func TestReleasingAProbeThatIsAlreadyGoneIsNotAFailure(t *testing.T) {
 	}}, &out)
 	if out.Len() != 0 {
 		t.Fatalf("cleanup of an absent probe reported a problem: %s", out.String())
+	}
+}
+
+// The reading has to be the TRAINER's, and this is the check that was missing when multi-container templates
+// stopped being impossible.
+//
+// Both readers were written when the probe was one hand-built container, so "the first status carrying a
+// terminated state" and "the trainer's ending" were the same sentence. Building the probe from the operator's
+// template made them different, and nothing noticed: a sidecar that exits promptly supplies a terminal status
+// this canary would record as the reading, and the exit code and stop latency in the document would describe a
+// container the arms are not built out of.
+//
+// The direction is survivable rather than catastrophic — a prompt sidecar makes the reading look FASTER, both
+// arms carry it, and judgeCanary's survival bound and exit-137 requirement turn that into a refusal rather than
+// a false qualification — but "it fails safe" is not the same as "it measures the right container", and only
+// one of those is worth recording on a node.
+//
+// Mutation that turns this red: return the first status carrying a terminal state from terminatedState (the
+// first case), or accept any running container in probeRunning (the second).
+func TestTheReadingIsTheTrainersAndNotWhicheverContainerAnswersFirst(t *testing.T) {
+	// A sidecar that finished immediately, in front of a trainer that is still going.
+	withSidecarDone := &corev1.Pod{Status: corev1.PodStatus{
+		Phase: corev1.PodRunning,
+		ContainerStatuses: []corev1.ContainerStatus{
+			{Name: "sidecar", State: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{
+				ExitCode: 0, Reason: "Completed",
+			}}},
+			{Name: probeTrainerContainer, State: corev1.ContainerState{Running: &corev1.ContainerStateRunning{}}},
+		},
+	}}
+	if term := terminatedState(withSidecarDone); term != nil {
+		t.Fatalf("a sidecar's ending was read as the probe's (exit %d, %q) while the trainer was still running; "+
+			"that exit code and the latency measured to it would go into the document as the reading",
+			term.ExitCode, term.Reason)
+	}
+
+	// And the trainer's own ending is still read, or the fix above would simply have stopped reading anything.
+	withTrainerDone := &corev1.Pod{Status: corev1.PodStatus{
+		Phase: corev1.PodFailed,
+		ContainerStatuses: []corev1.ContainerStatus{
+			{Name: "sidecar", State: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{
+				ExitCode: 0, Reason: "Completed",
+			}}},
+			{Name: probeTrainerContainer, State: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{
+				ExitCode: honorExitCode, Reason: "Error",
+			}}},
+		},
+	}}
+	term := terminatedState(withTrainerDone)
+	if term == nil || term.ExitCode != honorExitCode {
+		t.Fatalf("the trainer's own ending was not read: %+v", term)
+	}
+
+	// The start-up race, which is the other half and the more dangerous one: deleting a Pod whose trainer has not
+	// started measures the race rather than the contract, and it does it in the direction that flatters the
+	// honouring arm.
+	sidecarUpTrainerStarting := &corev1.Pod{Status: corev1.PodStatus{
+		Phase: corev1.PodRunning,
+		ContainerStatuses: []corev1.ContainerStatus{
+			{Name: "sidecar", State: corev1.ContainerState{Running: &corev1.ContainerStateRunning{}}},
+			{Name: probeTrainerContainer, State: corev1.ContainerState{Waiting: &corev1.ContainerStateWaiting{
+				Reason: "ContainerCreating",
+			}}},
+		},
+	}}
+	if probeRunning(sidecarUpTrainerStarting) {
+		t.Fatal("a Pod whose sidecar was up and whose trainer was still being created was treated as ready to " +
+			"be signalled: the trap is not installed until the trainer's shell is, so the honouring probe would " +
+			"be measured on a container that had not started")
+	}
+
+	bothUp := sidecarUpTrainerStarting.DeepCopy()
+	bothUp.Status.ContainerStatuses[1].State = corev1.ContainerState{Running: &corev1.ContainerStateRunning{}}
+	if !probeRunning(bothUp) {
+		t.Fatal("a Pod whose trainer is running was not treated as running, so no probe could ever start")
+	}
+
+	// A Pod with no trainer status at all is neither running nor terminated, rather than either by default.
+	none := &corev1.Pod{Status: corev1.PodStatus{
+		Phase: corev1.PodRunning,
+		ContainerStatuses: []corev1.ContainerStatus{
+			{Name: "sidecar", State: corev1.ContainerState{Running: &corev1.ContainerStateRunning{}}},
+		},
+	}}
+	if probeRunning(none) || terminatedState(none) != nil {
+		t.Fatal("a Pod publishing no status for the trainer was read as one that had started or stopped")
 	}
 }

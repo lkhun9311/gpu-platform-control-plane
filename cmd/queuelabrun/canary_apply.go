@@ -148,23 +148,33 @@ func canaryPod(canaryID, node, runID string, contract canaryContract, p probeSpe
 // probe adopts the template's SHAPE, not its workload; both replaced values are key fields in their own right,
 // so nothing about them is being taken on trust here.
 //
-// The DEVICE REQUEST is dropped, and this is the one place where what is hashed and what is run differ, so it
-// has to be argued rather than assumed. spec.nodeName removes the scheduler but NOT the kubelet's admission: a
-// Pod asking for more of an extended resource than the node advertises is rejected outright, and the sentinel's
-// gpuCount is 7 because 7 is distinct from the other two numbers in the probe job, not because any run needs
-// seven devices. Keeping it would make a worker unqualifiable unless it had seven free devices, and it would
-// make a node whose devices are legitimately held fail the canary for a reason that has nothing to do with
-// signal delivery. Allocation is not what this measures. Only the device is removed — a cpu or memory limit the
-// template later grows is left in place and probed, because those DO shape what the kubelet does to a container.
-// If the operator ever renames the device resource, this stops matching it and the probe asks for something the
-// node does not have: that is a loud refusal at the start budget, not a silent one, and the hash will have
-// changed anyway.
+// The DEVICE REQUEST is dropped from EVERY container, and this is the one place where what is hashed and what
+// is run differ, so it has to be argued rather than assumed. spec.nodeName removes the scheduler but NOT the
+// kubelet's admission: a Pod asking for more of an extended resource than the node advertises is rejected
+// outright, and the sentinel's gpuCount is 7 because 7 is distinct from the other two numbers in the probe job,
+// not because any run needs seven devices. Keeping it would make a worker unqualifiable unless it had seven free
+// devices, and it would make a node whose devices are legitimately held fail the canary for a reason that has
+// nothing to do with signal delivery. Allocation is not what this measures. Only the device is removed — a cpu
+// or memory limit the template later grows is left in place and probed, because those DO shape what the kubelet
+// does to a container. If the operator ever renames the device resource, this stops matching it and the probe
+// asks for something the node does not have: that is a loud refusal at the start budget, not a silent one, and
+// the hash will have changed anyway.
 //
 // IDENTITY AND PLACEMENT are added. spec.nodeName is set rather than a nodeSelector because what is being
 // qualified is THIS node's kubelet and THIS node's runtime, so the probe must not be allowed to land elsewhere.
 // The toleration is appended to whatever the template carries rather than replacing it, and it is the same
 // shape internal/queuelab's ResourceFlavor gives the arm's own Pods, so the probe is admitted under the rule
-// the workload it stands for is. The finalizer is what keeps the exit code readable after the container stops.
+// the workload it stands for is. The finalizer is what keeps the exit code readable after the container stops,
+// and it is the one overlay that replaces rather than merges; the reason is at the assignment.
+//
+// A MULTI-CONTAINER template is adopted rather than refused, and the alternative is worth stating because it is
+// arguably the more conservative reading of this function's own refuse-rather-than-guess rule. A sidecar in the
+// template is something a RUN's Pod would carry, and it is not inert to what this canary measures: deleting a
+// Pod signals every container in it, and under RestartPolicyNever the Pod is not finished until all of them
+// stop, so a sidecar that ignores SIGTERM changes the shutdown a run actually gets. Refusing it would make a
+// template the operator supports unqualifiable and would throw that fidelity away. What must not be guessed is
+// WHICH container's ending is the reading, and the trainer's name is what settles that — here, and in
+// terminatedState and probeRunning, which read the same name for the same reason.
 //
 // terminationGracePeriodSeconds is still not pinned HERE, and the reason is unchanged even though the source of
 // the value has moved: a run's Pods take whatever the apiserver defaults, and four separate pieces of the
@@ -197,15 +207,26 @@ func probePodFrom(tpl corev1.PodTemplateSpec, canaryID, node, runID string, cont
 	}
 	spec.Containers[trainer].Image = contract.Image
 	spec.Containers[trainer].Command = p.command
-	delete(spec.Containers[trainer].Resources.Limits, gpuResourceName)
-	delete(spec.Containers[trainer].Resources.Requests, gpuResourceName)
-	// Emptied maps are dropped rather than sent as `{}`, so the Pod this creates is the template's shape and not
-	// the template's shape plus an artefact of the removal.
-	if len(spec.Containers[trainer].Resources.Limits) == 0 {
-		spec.Containers[trainer].Resources.Limits = nil
-	}
-	if len(spec.Containers[trainer].Resources.Requests) == 0 {
-		spec.Containers[trainer].Resources.Requests = nil
+	// EVERY container, not just the trainer, because the admission this is avoiding is per-POD: the kubelet adds
+	// up what the whole Pod asks for and rejects it against the node's allocatable, so a sidecar holding a device
+	// request makes the probe unschedulable exactly as the trainer's would. Stripping only the container whose
+	// command was replaced would have left the strip working for the shape of template that exists today and
+	// silently not working for the one this commit made possible.
+	//
+	// Requests as well as Limits: BuildJob writes only Limits today, but a template that spelled the device as a
+	// request would be admitted against the same allocatable, and a strip that covered one of the two fields
+	// would be a guard that looks complete.
+	for i := range spec.Containers {
+		delete(spec.Containers[i].Resources.Limits, gpuResourceName)
+		delete(spec.Containers[i].Resources.Requests, gpuResourceName)
+		// Emptied maps are dropped rather than sent as `{}`, so the Pod this creates is the template's shape and
+		// not the template's shape plus an artefact of the removal.
+		if len(spec.Containers[i].Resources.Limits) == 0 {
+			spec.Containers[i].Resources.Limits = nil
+		}
+		if len(spec.Containers[i].Resources.Requests) == 0 {
+			spec.Containers[i].Resources.Requests = nil
+		}
 	}
 	spec.NodeName = node
 	spec.Tolerations = append(spec.Tolerations, corev1.Toleration{
@@ -225,7 +246,17 @@ func probePodFrom(tpl corev1.PodTemplateSpec, canaryID, node, runID string, cont
 	// appended: a label the operator puts on the template is part of what a run's Pod carries.
 	meta.Labels["queuelab.gpu-platform/termination-canary"] = canaryID
 	meta.Labels["queuelab.gpu-platform/contract"] = p.contract
-	meta.Finalizers = append(meta.Finalizers, canaryFinalizer)
+	// The canary's finalizer REPLACES whatever the template carries, and this is the one overlay that does not
+	// merge. The reason is not symmetry with the others, it is what a finalizer does: it decides when the object
+	// disappears, not what the kubelet does to the containers, so adopting one adds nothing to a reading about
+	// signal delivery. What it would add is a probe nobody can clear — releaseProbes removes the finalizer it
+	// installed and no other, so a foreign one would strand a Pod object in the canary namespace and the refusal
+	// printed for it names a command that would not be enough.
+	//
+	// The template's own finalizer is still KEYED: podTemplateHashOf hashes the whole PodTemplateSpec, metadata
+	// included, so a template that grows one invalidates every reading taken before it. It is noticed and
+	// deliberately not adopted, which is a different thing from not noticed.
+	meta.Finalizers = []string{canaryFinalizer}
 	return &corev1.Pod{ObjectMeta: meta, Spec: spec}, nil
 }
 
@@ -250,35 +281,58 @@ func ensureCanaryNamespace(ctx context.Context, c client.Client) error {
 	return fmt.Errorf("create the canary namespace %s: %w", canaryNamespace, err)
 }
 
-// terminatedState returns the probe container's terminal status, or nil while it has none.
+// trainerStatus is the status of the container the arm's command is in, or nil while the cluster has published
+// none for it.
 //
-// It reads whichever container status carries one rather than indexing [0], because a status list that is
-// still empty and one whose single entry is still Waiting are both ordinary intermediate states and neither
-// is an error to be reported as an absent Pod.
-func terminatedState(p *corev1.Pod) *corev1.ContainerStateTerminated {
+// Both readers below go through this, and the reason is a change of premise rather than a tidy-up. They were
+// written when the probe was one hand-built container, so "the first status carrying X" and "the trainer's
+// status" were the same sentence. Building the probe from the operator's template made a MULTI-CONTAINER probe
+// possible, and the two stopped being the same sentence the moment that landed: a sidecar that exits promptly
+// would supply the terminal status this canary records as the reading, and a sidecar that is up while the
+// trainer is still starting would satisfy "something is running".
+//
+// That is the same argument probeTrainerContainer already makes one level up — a reading of a workload nobody
+// meant to probe — and it was left unapplied here. Matching by name is what keeps the two levels consistent.
+//
+// It returns nil rather than an error for a missing status because an empty list and a list whose trainer entry
+// is still Waiting are ordinary intermediate states, not failures: the budget in awaitProbesStopped is what
+// decides when waiting has gone on too long, and it records that as Unobserved with the reason.
+func trainerStatus(p *corev1.Pod) *corev1.ContainerStatus {
 	for i := range p.Status.ContainerStatuses {
-		if t := p.Status.ContainerStatuses[i].State.Terminated; t != nil {
-			return t
+		if p.Status.ContainerStatuses[i].Name == probeTrainerContainer {
+			return &p.Status.ContainerStatuses[i]
 		}
 	}
 	return nil
 }
 
-// probeRunning reports whether the probe's container is actually executing.
+// terminatedState returns the trainer's terminal status, or nil while it has none.
+//
+// The exit code and the stop latency this canary records are the whole reading, so they have to be the
+// TRAINER's: an exit code from a container running something else is a number about a workload the arms are not
+// built out of, and it would look entirely reasonable in the record.
+func terminatedState(p *corev1.Pod) *corev1.ContainerStateTerminated {
+	if s := trainerStatus(p); s != nil {
+		return s.State.Terminated
+	}
+	return nil
+}
+
+// probeRunning reports whether the probe's trainer container is actually executing.
 //
 // The phase alone is not enough. What has to be true before the delete is that the SHELL IS RUNNING with its
 // trap installed: signalling a Pod whose container has not started yet would measure the start-up race rather
 // than the termination contract, and would do it in the direction that makes the honouring probe look good.
+//
+// So it is the trainer's own Running state that is required, not any container's. A sidecar that came up first
+// says nothing about whether the trap exists yet, and accepting it would re-open exactly the race this function
+// was written to close.
 func probeRunning(p *corev1.Pod) bool {
 	if p.Status.Phase != corev1.PodRunning {
 		return false
 	}
-	for i := range p.Status.ContainerStatuses {
-		if p.Status.ContainerStatuses[i].State.Running != nil {
-			return true
-		}
-	}
-	return false
+	s := trainerStatus(p)
+	return s != nil && s.State.Running != nil
 }
 
 // probeTrouble describes why a probe is not running yet, in the words the cluster used.

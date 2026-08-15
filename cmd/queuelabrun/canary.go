@@ -206,6 +206,18 @@ func harnessTerminationContract() canaryContract {
 //
 // What no input can cover is a line that branches on a PARTICULAR value rather than on a field being set. A
 // key evaluated at one input cannot see the other branch, and this one does not pretend to.
+//
+// This job now has TWO jobs, and they pull against each other, which is worth writing down where the values are
+// chosen. Non-zero sentinels exist so the HASH sees any field the renderer starts using — but the same
+// rendering is now the Pod the canary runs, so a field that starts being rendered carries a sentinel into a
+// real Pod. gpuClass becoming a nodeSelector is the concrete case: `template-probe-class` matches no node, and
+// a nodeSelector is checked by the kubelet's admission even with spec.nodeName pinned, so the probe would be
+// rejected and the canary would refuse at the start budget rather than take a reading.
+//
+// That is the same shape as the device-rename case probePodFrom names, one size larger, and it fails in the
+// same safe direction: a refusal that quotes the kubelet's own words, never a reading taken under something
+// nobody meant. The fix when it happens is to give this job a value that can actually schedule — which is a
+// decision about the probe, and belongs to whoever adds the field rather than being guessed at now.
 func templateProbeJob() *platformv1.MLTrainingJob {
 	return &platformv1.MLTrainingJob{
 		ObjectMeta: metav1.ObjectMeta{Name: "template-probe", Namespace: "template-probe"},
