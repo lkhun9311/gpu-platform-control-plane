@@ -139,6 +139,35 @@ func expectJSONError(rr *httptest.ResponseRecorder, wantCode string) {
 // Reorder it (rate limiting ahead of auth, say) and an unauthenticated request can drain someone else's bucket.
 //
 // Collapse the codes and a caller can no longer tell what to retry from what to fix.
+// newTransport had no coverage at all, and was built from a zero http.Transport: no DialContext, no
+// TLSHandshakeTimeout, no Proxy. ResponseHeaderTimeout cannot stand in for any of them, because it starts
+// only once a connection exists — so nothing bounded the time spent REACHING a blackholed backend, and the
+// gateway would hold the request for the OS-level TCP timeout while this file's own rationale claimed to be
+// bounding it in seconds.
+//
+// Mutations that turn these red: build the Transport from &http.Transport{...} again, and DialContext is
+// nil; or drop the explicit MaxIdleConns assignment, and Clone's inherited cap of 100 reintroduces exactly
+// the cross-backend coupling the pool rationale rules out.
+var _ = Describe("the shared outbound transport", func() {
+	It("keeps the dial-time safety settings a zero Transport would have dropped", func() {
+		t := newTransport(30 * time.Second)
+		Expect(t.DialContext).NotTo(BeNil(), "nothing would bound the time spent reaching a backend")
+		Expect(t.TLSHandshakeTimeout).To(BeNumerically(">", 0))
+		Expect(t.Proxy).NotTo(BeNil(), "a deployment behind an egress proxy would silently stop using it")
+	})
+
+	It("keeps its own pool decisions on top of the cloned base", func() {
+		t := newTransport(30 * time.Second)
+		Expect(t.ResponseHeaderTimeout).To(Equal(30 * time.Second))
+		Expect(t.MaxIdleConnsPerHost).To(Equal(maxIdleConnsPerHost))
+		Expect(t.MaxIdleConns).To(Equal(0), "a total cap makes one backend's pool depend on how busy the others are")
+	})
+
+	It("falls back to the default response-header timeout when given zero", func() {
+		Expect(newTransport(0).ResponseHeaderTimeout).To(Equal(defaultResponseHeaderTimeout))
+	})
+})
+
 var _ = Describe("chat completions pipeline", func() {
 	It("returns 405 for a non-POST method on the completions path", func() {
 		// Right path, wrong method.
