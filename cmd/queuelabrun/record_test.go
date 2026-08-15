@@ -285,6 +285,98 @@ func TestWriteRecordReplacesTheDestinationInode(t *testing.T) {
 	}
 }
 
+// A record this build writes has to be a record this build can read, and until verifyRecordReadable existed
+// nothing in the binary ever asked. The fixture carries a REFUSED DELETE for the reason
+// TestRunRecordCarriesTheResidueAndStillDecodes gives — an `error` encodes and does not decode, so persisting
+// teardown's `residue` verbatim would produce an unreadable record on exactly the runs whose teardown was
+// refused — but that test decodes bytes it holds in memory, and this one reads the FILE, which is what the
+// tool now does and what a later reader will actually open.
+//
+// Mutation that turns this red: change recordResidue.Error from `string` to `error` and assign
+// `e.Error = r.Observation.Err` in residueForRecord — the original observation.Err defect, which was caught by
+// a person reasoning during a design round rather than by the tool noticing.
+func TestVerifyRecordReadableAcceptsARecordThisBuildJustWrote(t *testing.T) {
+	refused := apierrors.NewForbidden(schema.GroupResource{Resource: "namespaces"}, "queuelab-r7",
+		errors.New("teardown may not delete namespaces"))
+	left := []residue{{
+		Observation: observation{
+			Target:  target{Phase: phaseNamespace, Kind: "Namespace", Name: "queuelab-r7"},
+			Found:   true,
+			UID:     "ns-uid",
+			WantUID: "ns-uid",
+			Err:     refused,
+		},
+		Absence: absenceUnknown,
+	}}
+	rec := buildRecord(outcome{Disposition: dispResidueLeft, Reason: "teardown left 1 object(s)"}, nil, left,
+		nil, nil, nil, "r7", "A-honor", false, time.Now(), time.Now())
+
+	path := t.TempDir() + "/run.json"
+	if err := writeRecord(path, rec); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if err := verifyRecordReadable(path, false); err != nil {
+		t.Fatalf("the record this build just wrote must be one it can read: %v", err)
+	}
+}
+
+// The other half: a document the reader refuses must be reported, not shrugged off. A schema one ahead of this
+// build's is the cheapest way to produce one, and it is also the realistic drift — a future writer's record
+// landing under a reader that has not been taught it.
+//
+// Mutation that turns this red: drop the `if _, err := decodeRunRecord(b); err != nil` return from
+// verifyRecordReadable's non-preview arm, so the function reports only whether the file could be OPENED.
+func TestVerifyRecordReadableRefusesADocumentThisBuildCannotDecode(t *testing.T) {
+	path := t.TempDir() + "/run.json"
+	if err := writeRecord(path, runRecord{
+		SchemaVersion: recordSchemaVersion + 1, RunID: "r7", Arm: "A-honor",
+		Disposition: string(dispChecksPassed),
+		Validity:    validity{Verdict: verdictRefused, Failures: []string{failureRunIncomplete}},
+	}); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	err := verifyRecordReadable(path, false)
+	if err == nil {
+		t.Fatal("a record this build cannot decode must be reported, or the one artifact the run delivers " +
+			"passes silently in exactly the state that makes it useless")
+	}
+	if !strings.Contains(err.Error(), "read back record") {
+		t.Fatalf("the failure must name itself as a read-back rather than read as a write failure, got %q", err)
+	}
+}
+
+// The preview arm inverts the question rather than skipping it, so that no record this build writes goes
+// unexamined. previewRecord's promise is that a preview cannot be read as a run — it carries eventCount and
+// note, which runRecord has never heard of — and a preview document that DID decode as a run record would be
+// one whose fields had drifted into a run's, which is the single failure the type exists to prevent.
+//
+// The second half writes a runRecord and verifies it AS a preview, which is that drift already complete.
+//
+// Mutation that turns this red: delete the `if preview` block from verifyRecordReadable, so a preview is
+// checked against the run-record reader (or not at all) and the drift reports success.
+func TestVerifyRecordReadableRefusesAPreviewWhoseFieldsDriftedIntoARuns(t *testing.T) {
+	dir := t.TempDir()
+
+	good := dir + "/preview.json"
+	if err := writeRecord(good, buildRecord(outcome{Disposition: dispChecksPassed}, nil, nil, nil, nil, nil,
+		"r7", "A-honor", true, time.Now(), time.Now())); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if err := verifyRecordReadable(good, true); err != nil {
+		t.Fatalf("an ordinary preview record must pass its own check: %v", err)
+	}
+
+	drifted := dir + "/drifted.json"
+	if err := writeRecord(drifted, buildRecord(outcome{Disposition: dispChecksPassed}, nil, nil, nil, nil, nil,
+		"r7", "A-honor", false, time.Now(), time.Now())); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if err := verifyRecordReadable(drifted, true); err == nil {
+		t.Fatal("a preview document that decodes as a run record has lost the structural guarantee that a " +
+			"preview cannot be read as evidence, and must not pass")
+	}
+}
+
 // absenceName's spellings are a wire format: runRecord.Residue and the Node residue record both persist
 // them, so a rename here silently relabels every record already written under the old name. The two other
 // residue tests in this file each pin one spelling as a side effect of asserting a full record, but neither

@@ -120,6 +120,13 @@ func main() {
 			// The default path carries a timestamp and a pid, so the operator is told where the record went
 			// rather than left to guess at a name this process generated.
 			fmt.Fprintln(os.Stderr, "  run record:", recordPath)
+			// The read-back cannot change this exit code — a refusal already exits 1 — so what it adds here is
+			// that the operator is not handed a path as though the file at it were usable. A refusal record is
+			// the one this tool exists to stop losing, and losing it to an unreadable document reads exactly
+			// like not writing it at all.
+			if verr := verifyRecordReadable(recordPath, *preview); verr != nil {
+				fmt.Fprintln(os.Stderr, "ERROR: that record cannot be read back by this build:", verr)
+			}
 		}
 		os.Exit(1)
 	}
@@ -209,7 +216,7 @@ func main() {
 	o, events, res, left, qual, win, obs := run(ctx, newClusterClient, arm, *runID, namespace, *worker, horizon,
 		recordPath, os.Stderr, time.Now, time.Sleep)
 
-	os.Exit(reportRun(os.Stdout, os.Stderr, writeRecord, runReport{
+	os.Exit(reportRun(os.Stdout, os.Stderr, writeRecord, verifyRecordReadable, runReport{
 		Outcome: o,
 		Events:  events,
 		Result:  res,
@@ -236,21 +243,37 @@ type runReport struct {
 // recordWriter is how reportRun persists, so a test can drive the real ordering against a failing write.
 type recordWriter func(path string, v any) error
 
-// reportRun persists the record and then, only if that succeeded, publishes the run; it returns the exit
-// code rather than calling os.Exit so the ordering it enforces is testable.
+// recordVerifier is how reportRun reads back what it wrote, injected for the same reason recordWriter is: the
+// tests that pin the persist-before-publish ordering hand in a writer that touches no disk, so a read-back
+// wired straight to the filesystem would fail on a path those tests never created and turn the ordering rule's
+// own coverage into a filesystem test.
+type recordVerifier func(path string, preview bool) error
+
+// reportRun persists the record, reads it back, and then, only if the write succeeded, publishes the run; it
+// returns the exit code rather than calling os.Exit so the ordering it enforces is testable.
 //
 // That ordering is the point of the whole task: a non-zero exit cannot retract a number that has already
 // been printed, so nothing countable may exist before the record of it is durable. It lived inline in main
 // until a reviewer observed that no test can call main, which left the one rule this plan exists to
 // establish covered by a manual run of the binary alone.
-func reportRun(stdout, stderr io.Writer, write recordWriter, r runReport) int {
+func reportRun(stdout, stderr io.Writer, write recordWriter, verify recordVerifier, r runReport) int {
 	// The same substitution buildRecord applies, so the terminal and the record cannot give two accounts of one
 	// run: without it a zero disposition prints as "ERROR: :" — the blank field dispUnclassified exists to
 	// replace with a failure that names itself — while the file on disk correctly says it was a bug in run().
 	// classified is idempotent, so applying it here does not change what buildRecord already decided.
 	o := classified(r.Outcome)
 	writeErr := write(r.Path, r.Record)
+	// The read-back runs before anything is published but does NOT gate publication, and the asymmetry with
+	// writeErr is deliberate. A write failure means there may be no durable record at all, so publishing a
+	// number would put a countable result on a terminal with nothing on disk to answer for it. An unreadable
+	// record is a different state: the bytes are there and durable, and what failed is this build's ability to
+	// read them as evidence. Withholding the ledger then would delete the last usable account of the run at the
+	// exact moment the file stopped being one — evidence destroyed in the name of protecting evidence, which is
+	// the defect recordPathFor's default was reshaped to remove. So everything prints, and the exit code and a
+	// named stderr line are what stop the record being quoted.
+	var verifyErr error
 	if writeErr == nil {
+		verifyErr = verify(r.Path, r.Preview)
 		fmt.Fprintln(stderr, "  run record:", r.Path)
 		if r.Result != nil && o.Disposition == dispChecksPassed {
 			fmt.Fprint(stdout, "\n"+queuelab.RenderResult(*r.Result))
@@ -284,8 +307,19 @@ func reportRun(stdout, stderr io.Writer, write recordWriter, r runReport) int {
 		fmt.Fprintf(stderr, "  the outcome was %s: %s\n", o.Disposition, o.Reason)
 		return 1
 	}
+	// The disposition is reported first even when both failed, because it is the account of the RUN; the
+	// read-back failure is an account of the artifact, and a reader needs to know which of the two they are
+	// holding. Neither returns on its own, so an operator whose run failed AND whose record is unreadable is
+	// told both rather than the first one only.
 	if o.Disposition != dispChecksPassed {
 		fmt.Fprintf(stderr, "ERROR: %s: %s\n", o.Disposition, o.Reason)
+	}
+	if verifyErr != nil {
+		fmt.Fprintln(stderr, "ERROR: the record this run wrote cannot be read back by this build:", verifyErr)
+		fmt.Fprintln(stderr, "  the record is the deliverable, so nothing above may be quoted out of it: a "+
+			"document this build's own reader refuses is not evidence, whatever it says about itself")
+	}
+	if o.Disposition != dispChecksPassed || verifyErr != nil {
 		return 1
 	}
 	return 0

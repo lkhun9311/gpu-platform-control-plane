@@ -554,14 +554,28 @@ type previewRecord struct {
 // reconstructable evidence the type was shaped to deny it. A constant closes that second-order route with
 // something a test can check, which a formatted string could not be.
 //
-// The TEXT below is stale and is left standing on purpose. The gates it says were not enforced are enforced,
-// on a preview exactly as on a run — run() has never taken a preview flag, so they have been enforced since
-// each of them landed, and the sentence went stale then rather than when the refusal came off. Rewording it
-// changes what an invocation RECORDS, which is a decision about the archive's contents and not one to smuggle
-// into a change that lifts a refusal; its conclusion, that a preview is not evidence, remains true and is the
-// half a reader acts on. It is named here so the next reader meets it as a known defect rather than as a
-// description of the build.
-const previewNote = "preview: the validity gates were not enforced, so this is a smoke check and not evidence"
+// The TEXT used to say "the validity gates were not enforced", and that was false about every build that
+// wrote it. run() has never taken a preview flag, so no gate has ever been waived for a preview; the sentence
+// went stale the day the first gate landed. It is replaced rather than annotated because this is the same
+// defect the UnimplementedGates field was already fixed for — a durable statement, inside a document, that is
+// untrue of the build that wrote the document, read by someone who has only the file. An operator who checks
+// the claim and finds it false learns to discount the rest of the note, including the conclusion that is the
+// half worth acting on.
+//
+// What replaces it is the difference that actually exists, which is about the ARTIFACT and not about the
+// checking: buildRecord's preview branch returns previewRecord, which carries a count where a run carries its
+// events and has no field a ledger can be decoded out of, so no result can be reconstructed from this
+// document by anyone — and deriveValidity's last line forces the verdict to verdictPreview however well every
+// other field came out. Those two, plus what reportRun withholds from the terminal for the same reason, are
+// the whole of the delta.
+//
+// It is phrased as a property of the MODE rather than of the invocation, because this note is persisted on
+// every preview record including one refused before it reached a cluster, where no gate ran at all — for the
+// same reason no gate runs on a non-preview invocation refused at the same point. "No gate is waived for a
+// preview" is true of all of them; "this invocation passed the gates" would not be.
+const previewNote = "preview: declared a smoke check. No validity gate is waived for a preview — it is " +
+	"checked exactly as a run is — but this record withholds the events ledger, so no result can be " +
+	"reconstructed from it and it is not evidence"
 
 // classified refuses a zero disposition, which is the one thing a record must never carry.
 //

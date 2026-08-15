@@ -389,6 +389,37 @@ func TestPreviewRecordNoteIsAConstantNotDerivedFromTheRun(t *testing.T) {
 	}
 }
 
+// The note is persisted into every preview record, so it is a durable statement read by somebody who has only
+// the file — and it said the validity gates were not enforced, which was false of every build that wrote it.
+// run() takes no preview flag, so no gate has ever been waived for a preview. That is the same defect the
+// UnimplementedGates field was already fixed for, and it fails the same way: a reader who checks the claim and
+// finds it false learns to discount the rest of the note, conclusion included.
+//
+// The assertions are on the SHAPE of the claim, not on the exact wording, because the wording may be improved
+// and the two properties may not: the note must not say checking was weakened, and it must name the ledger it
+// actually withholds.
+//
+// Mutation that turns this red: restore
+// "preview: the validity gates were not enforced, so this is a smoke check and not evidence".
+func TestThePreviewNoteNamesTheWithheldLedgerAndNoWaivedGate(t *testing.T) {
+	// Every spelling the old note and its neighbours reached for. A preview differs from a run in what it
+	// PERSISTS, so any of these describes the build wrongly.
+	for _, falsehood := range []string{"not enforced", "gates were", "without the validity gates", "not checked"} {
+		if strings.Contains(previewNote, falsehood) {
+			t.Fatalf("the note claims checking was weakened (%q), which no build has ever done to a preview: %q",
+				falsehood, previewNote)
+		}
+	}
+	// The difference that does exist, and the half a reader acts on.
+	if !strings.Contains(previewNote, "ledger") {
+		t.Fatalf("the note must name what a preview actually withholds — the events ledger — or it explains "+
+			"the withholding with something other than the reason for it: %q", previewNote)
+	}
+	if !strings.Contains(previewNote, "not evidence") {
+		t.Fatalf("the note must still reach the conclusion an operator acts on: %q", previewNote)
+	}
+}
+
 // A refusal that fired before -runid was read still has to leave a record a reader can open, and
 // decodeRunRecord requires a non-empty run id. The sentinel only works if it can never be confused with a
 // run id somebody actually passed, which is a property of runIDPattern rather than of the constant.
@@ -479,6 +510,22 @@ func TestBuildRecordRefusesAZeroDisposition(t *testing.T) {
 	}
 }
 
+// readsBackFine stands in for a read-back that found the record readable, for the tests below that are about
+// the publish ordering rather than about the artifact. They inject a writer that touches no disk, so the real
+// verifier would fail on a path they never created and every one of them would be measuring the filesystem.
+func readsBackFine(string, bool) error { return nil }
+
+// neverVerified fails if the read-back is attempted at all, which is the assertion the failed-write test
+// needs: there is nothing at the path to read, so reading it would report a missing file as an unreadable
+// record and bury the write failure that actually happened under a second, derived one.
+func neverVerified(t *testing.T) recordVerifier {
+	t.Helper()
+	return func(path string, _ bool) error {
+		t.Fatalf("the record must not be read back when the write failed, got a read of %q", path)
+		return nil
+	}
+}
+
 // The persist-before-publish ordering is the rule this whole task establishes, and it used to live inline
 // in main(), which no test can call. If a persistence failure still rendered, an unrecorded result would
 // reach the terminal and a non-zero exit could not retract it.
@@ -486,7 +533,7 @@ func TestReportRunPublishesNothingWhenTheRecordCannotBePersisted(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	res := queuelab.LabResult{Arm: "A-honor"}
 	code := reportRun(&stdout, &stderr, func(string, any) error { return errors.New("disk full") },
-		runReport{
+		neverVerified(t), runReport{
 			Outcome: outcome{Disposition: dispChecksPassed},
 			Events:  []queuelab.LifecycleEvent{{ElapsedNs: 1, Kind: "Pod", Job: "a1"}},
 			Result:  &res,
@@ -516,7 +563,7 @@ func TestReportRunPublishesOnceTheRecordIsDurable(t *testing.T) {
 	res := queuelab.LabResult{Arm: "A-honor"}
 	wrote := ""
 	code := reportRun(&stdout, &stderr, func(path string, _ any) error { wrote = path; return nil },
-		runReport{
+		readsBackFine, runReport{
 			Outcome: outcome{Disposition: dispChecksPassed},
 			Events:  []queuelab.LifecycleEvent{{ElapsedNs: 1, Kind: "Pod", Job: "a1"}},
 			Result:  &res,
@@ -551,7 +598,7 @@ func TestReportRunPublishesOnceTheRecordIsDurable(t *testing.T) {
 func TestReportRunRendersNoResultUnlessTheChecksPassed(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	res := queuelab.LabResult{Arm: "A-honor"}
-	code := reportRun(&stdout, &stderr, func(string, any) error { return nil }, runReport{
+	code := reportRun(&stdout, &stderr, func(string, any) error { return nil }, readsBackFine, runReport{
 		Outcome: outcome{Disposition: dispCollectorDesync, Reason: "watch gap"},
 		Events:  []queuelab.LifecycleEvent{{ElapsedNs: 1, Kind: "Pod", Job: "a1"}},
 		Result:  &res,
@@ -583,7 +630,7 @@ func TestReportRunRendersNoResultUnlessTheChecksPassed(t *testing.T) {
 // field dispUnclassified exists precisely to replace, while the record on disk named it correctly.
 func TestReportRunNamesAnUnclassifiedOutcomeOnStderrToo(t *testing.T) {
 	var stdout, stderr bytes.Buffer
-	code := reportRun(&stdout, &stderr, func(string, any) error { return nil }, runReport{
+	code := reportRun(&stdout, &stderr, func(string, any) error { return nil }, readsBackFine, runReport{
 		Outcome: outcome{},
 		Record:  runRecord{SchemaVersion: recordSchemaVersion},
 		Path:    "/tmp/run.json",
@@ -608,7 +655,7 @@ func TestReportRunNamesAnUnclassifiedOutcomeOnStderrToo(t *testing.T) {
 func TestReportRunWithholdsTheLedgerFromAPreview(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	events := []queuelab.LifecycleEvent{{ElapsedNs: 1, Kind: "Pod", Type: queuelab.EventPodReady, Job: "a1"}}
-	reportRun(&stdout, &stderr, func(string, any) error { return nil }, runReport{
+	reportRun(&stdout, &stderr, func(string, any) error { return nil }, readsBackFine, runReport{
 		Outcome: outcome{Disposition: dispChecksPassed},
 		Events:  events,
 		Record:  previewRecord{SchemaVersion: recordSchemaVersion},
@@ -625,6 +672,92 @@ func TestReportRunWithholdsTheLedgerFromAPreview(t *testing.T) {
 	}
 	if !strings.Contains(out, previewBanner) {
 		t.Fatalf("preview output must stay bracketed by the banner, got %q", out)
+	}
+}
+
+// The record is the run's deliverable, so a record this build cannot read back is a failed deliverable and
+// must change the exit code: exit 0 on an unreadable artifact is exactly how a number gets quoted out of a
+// document nobody can re-derive it from.
+//
+// What it must NOT do is withhold the output. That is the asymmetry with a write failure, and the reason for
+// it is that the two are different states: a failed write may mean nothing durable exists, while an unreadable
+// record is durable bytes this build's reader refuses. Suppressing the ledger there would delete the last
+// usable account of the run at the moment the file stopped being one.
+//
+// Mutation that turns this red: drop `|| verifyErr != nil` from reportRun's return condition, so an
+// unreadable record is announced on stderr and still exits 0.
+func TestReportRunFailsARunWhoseRecordCannotBeReadBack(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	res := queuelab.LabResult{Arm: "A-honor"}
+	code := reportRun(&stdout, &stderr, func(string, any) error { return nil },
+		func(string, bool) error { return errors.New("schema 7 is not 6") }, runReport{
+			Outcome: outcome{Disposition: dispChecksPassed},
+			Events:  []queuelab.LifecycleEvent{{ElapsedNs: 1, Kind: "Pod", Job: "a1"}},
+			Result:  &res,
+			Record:  runRecord{SchemaVersion: recordSchemaVersion},
+			Path:    "/tmp/run.json",
+		})
+
+	if code == 0 {
+		t.Fatal("a run whose record cannot be read back has not delivered a record, and must not exit 0")
+	}
+	if !strings.Contains(stderr.String(), "cannot be read back") {
+		t.Fatalf("the read-back failure must name itself, or it reads as the run having failed: %q", stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "schema 7 is not 6") {
+		t.Fatalf("the reader's own reason must reach the operator, got %q", stderr.String())
+	}
+	// The evidence must survive. Withholding it here is the failure this branch was written to avoid.
+	if !strings.Contains(stdout.String(), "job=a1") {
+		t.Fatalf("an unreadable record is a reason to fail the run, not to destroy the only other account "+
+			"of it, got %q", stdout.String())
+	}
+}
+
+// A passing run and an unreadable record are two different facts, and an operator holding both needs both:
+// one says what the run did, the other says the document cannot answer for it.
+//
+// Mutation that turns this red: return 1 from the disposition branch as it did before, so the read-back
+// failure never prints for a run that also failed its checks.
+func TestReportRunNamesBothTheFailedRunAndTheUnreadableRecord(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := reportRun(&stdout, &stderr, func(string, any) error { return nil },
+		func(string, bool) error { return errors.New("verdict is unreadable") }, runReport{
+			Outcome: outcome{Disposition: dispCollectorDesync, Reason: "watch gap"},
+			Record:  runRecord{SchemaVersion: recordSchemaVersion},
+			Path:    "/tmp/run.json",
+		})
+
+	if code == 0 {
+		t.Fatal("neither failure alone permits exit 0")
+	}
+	if !strings.Contains(stderr.String(), string(dispCollectorDesync)) {
+		t.Fatalf("the run's own outcome must still be named, got %q", stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "verdict is unreadable") {
+		t.Fatalf("the record's failure must not be swallowed by the run's, got %q", stderr.String())
+	}
+}
+
+// The verifier has two arms and they ask opposite questions — a run record must decode, a preview record must
+// be refused — so handing it the wrong flag inverts the check into one that passes on precisely the documents
+// it exists to catch.
+//
+// Mutation that turns this red: pass `false` instead of `r.Preview` at reportRun's verify call.
+func TestReportRunTellsTheReadBackWhetherItWroteAPreview(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	got := false
+	reportRun(&stdout, &stderr, func(string, any) error { return nil },
+		func(_ string, preview bool) error { got = preview; return nil }, runReport{
+			Outcome: outcome{Disposition: dispChecksPassed},
+			Record:  previewRecord{SchemaVersion: recordSchemaVersion},
+			Path:    "/tmp/run.json",
+			Preview: true,
+		})
+
+	if !got {
+		t.Fatal("the read-back was told this was a run record when a preview was written, which inverts " +
+			"the check it performs")
 	}
 }
 
