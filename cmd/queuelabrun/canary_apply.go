@@ -116,59 +116,117 @@ func canaryProbeSpecs(canaryID string, c canaryContract) (honor, ignore probeSpe
 		probeSpec{name: "tc-" + short + "-ignore", contract: "IgnoresSIGTERM", command: c.IgnoreCommand}
 }
 
-// canaryPod builds one probe Pod.
+// probeTrainerContainer is the container the operator renders a training job's workload into.
 //
-// spec.nodeName is set rather than a nodeSelector, and that is the point of the whole Pod: what is being
-// qualified is THIS node's kubelet and THIS node's container runtime, so the probe must not be allowed to
-// land anywhere else. Naming the node also removes the scheduler from the picture entirely, which matters on
-// a node this process has just tainted NoSchedule for its own transaction.
+// The probe finds the container BY NAME rather than by index, because the index is what would go wrong
+// quietly: a template that grew a sidecar in front of the trainer would have the arm's command written into
+// the sidecar, and the reading would be of a workload nobody meant to probe.
+const probeTrainerContainer = "trainer"
+
+// canaryPod builds one probe Pod out of the Pod template the operator would actually render.
 //
-// The toleration is still installed, and it is the same shape internal/queuelab's ResourceFlavor gives the
-// arm's own Pods — key, value and NoSchedule effect — so the probe is admitted under the same rule the
-// workload it stands for is.
+// The template is fetched from the same place the key's hash is taken (renderedPodTemplate at
+// templateProbeJob), so the thing hashed and the thing run are one rendering. That is what closes the gap the
+// hash alone left: a hash detects a change and then refuses, and before this the re-take that follows the
+// refusal probed a Pod without the change in it. Detection with hollow remediation is worse than no detection,
+// because it looks like a check. Now a preStop hook added to the template is in the Pod this creates, and the
+// re-take measures it.
+func canaryPod(canaryID, node, runID string, contract canaryContract, p probeSpec) (*corev1.Pod, error) {
+	return probePodFrom(renderedPodTemplate(templateProbeJob()), canaryID, node, runID, contract, p)
+}
+
+// probePodFrom turns one rendered Pod template into one probe Pod.
 //
-// terminationGracePeriodSeconds is deliberately NOT SET, which is the single most important line in this
-// function. The controller that renders a run's Job leaves it unset too, so every Pod a run creates takes
-// whatever the apiserver defaults — and the horizon in spine.go is arithmetic over the assumption that the
-// default is 30. Pinning it here would make the canary measure a configuration no run ever uses and would
-// hide the one cluster property most able to invalidate the protocol's timing.
+// It takes the template as a parameter rather than fetching it, so a test can drive a template this build does
+// not render — a preStop hook, an explicit grace period — through the real transformation, instead of asserting
+// against what the transformation itself produced.
 //
-// No device is requested. The canary is about signal delivery, not allocation: asking for a GPU would make the
-// probe unschedulable on a node whose devices are legitimately busy and would qualify nothing extra.
+// The template is adopted WHOLE and three things are changed, each of which is a decision rather than a tidy-up:
 //
-// This Pod is still HAND-BUILT rather than rendered from the controller's Job template, and what that leaves
-// belongs here, where somebody changing this function will meet it. The template is KEYED — canaryKey's
-// PodTemplateHash — so a change to it refuses every reading taken before the change; it is not PROBED, so the
-// reading taken after the re-take is still of the Pod below. A template that acquired a preStop hook would be
-// noticed and would not be measured. Building this Pod out of renderedPodTemplate instead is what would close
-// that, and it is a decision about what the canary measures rather than about what the key covers.
-func canaryPod(canaryID, node, runID string, contract canaryContract, p probeSpec) *corev1.Pod {
-	return &corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{
-			Namespace: canaryNamespace,
-			Name:      p.name,
-			Labels: map[string]string{
-				"queuelab.gpu-platform/termination-canary": canaryID,
-				"queuelab.gpu-platform/contract":           p.contract,
-			},
-			Finalizers: []string{canaryFinalizer},
-		},
-		Spec: corev1.PodSpec{
-			NodeName:      node,
-			RestartPolicy: corev1.RestartPolicyNever,
-			Tolerations: []corev1.Toleration{{
-				Key:      workerTaintKey,
-				Operator: corev1.TolerationOpEqual,
-				Value:    runID,
-				Effect:   corev1.TaintEffectNoSchedule,
-			}},
-			Containers: []corev1.Container{{
-				Name:    "sleeper",
-				Image:   contract.Image,
-				Command: p.command,
-			}},
-		},
+// The WORKLOAD is replaced. Image and command come from the contract and the probe spec, because the mechanism
+// under test is the honouring/ignoring pair and the template's own image is a sentinel that does not exist. The
+// probe adopts the template's SHAPE, not its workload; both replaced values are key fields in their own right,
+// so nothing about them is being taken on trust here.
+//
+// The DEVICE REQUEST is dropped, and this is the one place where what is hashed and what is run differ, so it
+// has to be argued rather than assumed. spec.nodeName removes the scheduler but NOT the kubelet's admission: a
+// Pod asking for more of an extended resource than the node advertises is rejected outright, and the sentinel's
+// gpuCount is 7 because 7 is distinct from the other two numbers in the probe job, not because any run needs
+// seven devices. Keeping it would make a worker unqualifiable unless it had seven free devices, and it would
+// make a node whose devices are legitimately held fail the canary for a reason that has nothing to do with
+// signal delivery. Allocation is not what this measures. Only the device is removed — a cpu or memory limit the
+// template later grows is left in place and probed, because those DO shape what the kubelet does to a container.
+// If the operator ever renames the device resource, this stops matching it and the probe asks for something the
+// node does not have: that is a loud refusal at the start budget, not a silent one, and the hash will have
+// changed anyway.
+//
+// IDENTITY AND PLACEMENT are added. spec.nodeName is set rather than a nodeSelector because what is being
+// qualified is THIS node's kubelet and THIS node's runtime, so the probe must not be allowed to land elsewhere.
+// The toleration is appended to whatever the template carries rather than replacing it, and it is the same
+// shape internal/queuelab's ResourceFlavor gives the arm's own Pods, so the probe is admitted under the rule
+// the workload it stands for is. The finalizer is what keeps the exit code readable after the container stops.
+//
+// terminationGracePeriodSeconds is still not pinned HERE, and the reason is unchanged even though the source of
+// the value has moved: a run's Pods take whatever the apiserver defaults, and four separate pieces of the
+// protocol's arithmetic assume that default is 30. What HAS changed is that if the template ever pins one, the
+// probe now carries it and the reading is taken under it — which is the whole point — and judgeCanary refuses
+// anything but terminationGraceSec, so the change surfaces as a refusal rather than as a quietly different
+// experiment.
+func probePodFrom(tpl corev1.PodTemplateSpec, canaryID, node, runID string, contract canaryContract,
+	p probeSpec) (*corev1.Pod, error) {
+	spec := *tpl.Spec.DeepCopy()
+	trainer := -1
+	for i := range spec.Containers {
+		if spec.Containers[i].Name == probeTrainerContainer {
+			trainer = i
+			break
+		}
 	}
+	if trainer < 0 {
+		// Refused rather than guessed. Writing the arm's command into whatever container happened to be there
+		// would produce a reading of something nobody chose, and a canary that cannot say which container is the
+		// workload cannot say what it qualified.
+		var names []string
+		for i := range spec.Containers {
+			names = append(names, spec.Containers[i].Name)
+		}
+		return nil, fmt.Errorf(
+			"the operator's pod template has no %q container (it has %v), so this canary cannot tell which "+
+				"container a run's workload would be, and cannot put the arm's command anywhere with confidence",
+			probeTrainerContainer, names)
+	}
+	spec.Containers[trainer].Image = contract.Image
+	spec.Containers[trainer].Command = p.command
+	delete(spec.Containers[trainer].Resources.Limits, gpuResourceName)
+	delete(spec.Containers[trainer].Resources.Requests, gpuResourceName)
+	// Emptied maps are dropped rather than sent as `{}`, so the Pod this creates is the template's shape and not
+	// the template's shape plus an artefact of the removal.
+	if len(spec.Containers[trainer].Resources.Limits) == 0 {
+		spec.Containers[trainer].Resources.Limits = nil
+	}
+	if len(spec.Containers[trainer].Resources.Requests) == 0 {
+		spec.Containers[trainer].Resources.Requests = nil
+	}
+	spec.NodeName = node
+	spec.Tolerations = append(spec.Tolerations, corev1.Toleration{
+		Key:      workerTaintKey,
+		Operator: corev1.TolerationOpEqual,
+		Value:    runID,
+		Effect:   corev1.TaintEffectNoSchedule,
+	})
+
+	meta := *tpl.ObjectMeta.DeepCopy()
+	meta.Namespace = canaryNamespace
+	meta.Name = p.name
+	if meta.Labels == nil {
+		meta.Labels = map[string]string{}
+	}
+	// Merged into the template's own labels rather than replacing them, for the reason the toleration is
+	// appended: a label the operator puts on the template is part of what a run's Pod carries.
+	meta.Labels["queuelab.gpu-platform/termination-canary"] = canaryID
+	meta.Labels["queuelab.gpu-platform/contract"] = p.contract
+	meta.Finalizers = append(meta.Finalizers, canaryFinalizer)
+	return &corev1.Pod{ObjectMeta: meta, Spec: spec}, nil
 }
 
 // ensureCanaryNamespace creates the canary's namespace if it is not already there.
@@ -529,9 +587,15 @@ func terminationCanary(ctx context.Context, c client.Client, nodeName string,
 	}
 
 	honorSpec, ignoreSpec := canaryProbeSpecs(canaryID, contract)
-	pods := []*corev1.Pod{
-		canaryPod(canaryID, nodeName, runID, contract, honorSpec),
-		canaryPod(canaryID, nodeName, runID, contract, ignoreSpec),
+	// Both Pods are built before either is created, so a template this canary cannot probe refuses with nothing
+	// of its own on the cluster: the worker's release is already deferred above, and no probe exists to leak.
+	var pods []*corev1.Pod
+	for _, ps := range []probeSpec{honorSpec, ignoreSpec} {
+		pod, perr := canaryPod(canaryID, nodeName, runID, contract, ps)
+		if perr != nil {
+			return fmt.Errorf("canary on %s: %w", nodeName, perr)
+		}
+		pods = append(pods, pod)
 	}
 	probes := []*canaryProbe{
 		{Pod: honorSpec.name, Contract: honorSpec.contract, Command: honorSpec.command},

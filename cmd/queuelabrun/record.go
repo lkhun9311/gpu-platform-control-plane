@@ -199,30 +199,35 @@ const (
 // the same node, under the grace period that node's apiserver defaults. A run's Pods reach the kubelet by a
 // different route — MLTrainingJob, admitted by Kueue, rendered into a Job by this repository's own controller.
 //
-// That entry has now NARROWED once more rather than gone, and the difference is exactly one clause. The key a
-// reading is matched on carries a fingerprint of the Pod template the controller renders (canaryKey's
-// PodTemplateHash), so the half of the residual that used to read "the controller may stop rendering the Pod
-// that way" is closed: it cannot do so without invalidating every reading taken before the change. What is
-// left is that the ROUTE is still not travelled — nothing here submits an MLTrainingJob, waits for Kueue to
-// admit it, or reads back the Pod the operator produced — and that the template is keyed as this binary
-// renders it, which is not the same statement as what the operator image on the cluster renders.
+// That entry has NARROWED twice since, and the second time is the one that changed what is probed rather than
+// what is keyed. The key carries a fingerprint of the Pod template the controller renders (canaryKey's
+// PodTemplateHash), so the controller cannot change it without invalidating every reading taken before the
+// change; and the probe Pod is now BUILT FROM that same rendered template, so the re-take a mismatch forces
+// actually exercises what changed. The first alone would have been detection with hollow remediation — the
+// mismatch fires, the operator re-takes, and the fresh reading is of a Pod without the change in it.
 //
-// Saying only "the CRD path is not exercised" would now understate what the reading covers, and saying the
-// path is covered would be the overclaim this list was written after. The entry says which of the two it is.
+// What is left is the reconcile loop and the Job controller, which is a narrower thing than "the CRD path".
+// Nothing here submits an MLTrainingJob, so nothing exercises the reconciler that renders it, Kueue's
+// admission, or the Job controller that creates the Pod — this tool creates the Pod itself, so it carries no
+// owner reference, none of the labels a Job stamps on its Pods, and no restart of a failed Pod. And the
+// template is still keyed and probed as THIS BINARY renders it, which is not a statement about the operator
+// image running on the cluster.
+//
+// Saying "the CRD path is not exercised" would now understate what the reading covers, and saying the path is
+// covered would be the overclaim this list was written after. The entry says which of the two it is.
 //
 // It is a function rather than a package-level slice for the reason unimplementedGates() is one: a slice
 // would be mutable from anywhere, and a caller that appended to what it was handed would edit what every
 // later record claims about itself.
 func recordUnchecked() []string {
 	return []string{
-		"termination canary coverage: the recorded canary probes a Pod it creates directly on the worker with " +
-			"this build's own image and command, so it establishes signal delivery and the grace period on that " +
-			"node, and the key it is matched on fingerprints the Pod template this build's operator would " +
-			"render, so a change to that template refuses the reading instead of passing unnoticed; but the " +
-			"MLTrainingJob-to-Job-to-Pod path a run's workload actually takes is still not travelled — nothing " +
-			"here submits an MLTrainingJob, waits for Kueue to admit it, or reads back the Pod the operator " +
-			"produced — and the template is fingerprinted as THIS BINARY renders it, not as the operator image " +
-			"running on the cluster does",
+		"termination canary coverage: the recorded canary probes a Pod built from the very template this " +
+			"build's operator would render, carrying the arm's own image and command and no device request, and " +
+			"the key it is matched on fingerprints that template, so a change to it both refuses the reading and " +
+			"is exercised by the re-take; what is still not travelled is the operator's reconcile loop and the " +
+			"Job controller — nothing here submits an MLTrainingJob, so Kueue admits nothing and no Job creates " +
+			"the Pod, which therefore carries no owner reference and none of the labels a Job stamps on its " +
+			"Pods — and the template is rendered by THIS BINARY, not by the operator image running on the cluster",
 	}
 }
 

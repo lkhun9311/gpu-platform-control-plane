@@ -223,6 +223,10 @@ func templateProbeJob() *platformv1.MLTrainingJob {
 
 // renderedPodTemplate is the Pod template THIS repository's operator would materialise for mltj.
 //
+// It has two callers and they are the two halves of one claim: the key hashes what it returns, and canaryPod
+// builds the probe Pod out of it. Anything that made those two disagree — a second rendering, a different
+// input — would put the harness back where a hash detected a change that the re-take did not measure.
+//
 // It calls the controller's own BuildJob rather than describing what that function does, and that is the whole
 // design decision behind this field. The alternative — a copy of the template kept in step by hand — would not
 // be a check on drift, it would BE the drift: two renderers that have to be updated together are exactly the
@@ -296,14 +300,17 @@ func shortHash(h string) string {
 // renderer rather than from constants here, so a harness change to any of them changes a key field.
 //
 // The route a run's workload takes to the kubelet is covered by ONE field and not by the rest, and the
-// distinction is worth keeping sharp because two earlier versions of this comment got it wrong in opposite
-// directions. The canary hand-builds its probe in canaryPod, while a run's Pod is materialised from the
-// controller's own Job template (internal/controller/mltrainingjob_controller.go's BuildJob). Until
-// PodTemplateHash existed, a commit adding a preStop hook, shareProcessNamespace or an explicit
-// terminationGracePeriodSeconds to THAT template changed what a run measures while changing no field here, and
-// a recorded qualification went on matching. That is the silence the hash closes. What it does not do is
-// exercise the path: the qualification is refused and re-taken, and the re-taken reading is still of a
-// hand-built probe. recordUnchecked() carries that residual in the document itself.
+// distinction is worth keeping sharp because earlier versions of this comment got it wrong in both directions.
+// A run's Pod is materialised from the controller's own Job template
+// (internal/controller/mltrainingjob_controller.go's BuildJob). Until PodTemplateHash existed, a commit adding
+// a preStop hook, shareProcessNamespace or an explicit terminationGracePeriodSeconds to THAT template changed
+// what a run measures while changing no field here, and a recorded qualification went on matching. That is the
+// silence this closes.
+//
+// The refusal it produces is not the end of the story, and for one commit it was: a hash that only detects
+// leaves the operator re-taking a reading whose probe does not contain the change, which is detection with
+// hollow remediation and reads as a check that ran. canaryPod now BUILDS the probe from this same rendered
+// template, so the re-take exercises whatever was added. recordUnchecked() carries what is left.
 //
 // Two more invalidators are invisible to any key of readable strings, and are worth naming rather than
 // leaving to be discovered: a kubelet restarted with different flags, and a container-runtime configuration
@@ -352,16 +359,16 @@ type canaryKey struct {
 	// It is a hash of the template rendered at a fixed synthetic input (templateProbeJob), so it is a constant
 	// of this build rather than a function of the row a run happens to submit.
 	//
-	// Two things it does NOT establish, both stated because a hash invites being read as more than it is.
+	// The refusal it produces is also what makes the re-take meaningful, and the two halves belong together.
+	// canaryPod builds the probe from this same rendered template, so a preStop hook added to it is in the Pod
+	// the re-taken reading is of. A version of this field that only detected would be worse than it looks: the
+	// operator re-takes, the fresh reading passes, and nothing has been established about the thing that
+	// changed.
 	//
-	// It is what THIS BINARY renders. An operator image built from a different commit than the runner is
-	// outside it, exactly as it was before this field existed, and no key computed in this process can reach
-	// that; only submitting an MLTrainingJob and reading back the Job the cluster's own operator produced can.
-	//
-	// And a re-take after a template change re-qualifies without probing what changed: the probe Pod is still
-	// hand-built, so a template that has just acquired a preStop hook produces a fresh reading of a Pod that
-	// has none. What this field buys is that the change cannot pass unseen, not that the canary has followed
-	// it.
+	// What it does NOT establish is stated because a hash invites being read as more than it is. It is what
+	// THIS BINARY renders. An operator image built from a different commit than the runner is outside it,
+	// exactly as it was before this field existed, and no key computed in this process can reach that; only
+	// submitting an MLTrainingJob and reading back the Job the cluster's own operator produced can.
 	PodTemplateHash string `json:"podTemplateHash"`
 }
 
@@ -654,8 +661,8 @@ func keyDifferences(want, got canaryKey) []string {
 	if want.PodTemplateHash != got.PodTemplateHash {
 		// Named as a change to the OPERATOR rather than as a mismatched hash, because the two send an operator to
 		// different places: nothing is wrong with the reading or with the node, and what moved is a file in this
-		// repository. Re-taking makes it match again, as it does for every other difference here — what it does
-		// not do is probe whatever was added; canaryPod says why.
+		// repository. Re-taking is the whole fix here, and unlike the other differences in this list it is also
+		// a re-measurement: the probe is built from this template, so the re-take runs whatever was added.
 		diffs = append(diffs, fmt.Sprintf(
 			"operator pod template: this build renders %s and the reading was taken against %s; the Job template "+
 				"in internal/controller has changed since, so what a run's Pods carry when they are asked to stop "+

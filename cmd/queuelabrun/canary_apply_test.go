@@ -20,12 +20,14 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -117,7 +119,7 @@ func (k *fakeKubelet) interceptors() interceptor.Funcs {
 			case deleted && !k.now().Before(t0.Add(k.stopAfter[w])):
 				p.Status.Phase = corev1.PodFailed
 				p.Status.ContainerStatuses = []corev1.ContainerStatus{{
-					Name: "sleeper",
+					Name: probeContainerName(p),
 					State: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{
 						ExitCode: k.exitCode[w], Reason: "Error",
 					}},
@@ -125,13 +127,27 @@ func (k *fakeKubelet) interceptors() interceptor.Funcs {
 			default:
 				p.Status.Phase = corev1.PodRunning
 				p.Status.ContainerStatuses = []corev1.ContainerStatus{{
-					Name:  "sleeper",
+					Name:  probeContainerName(p),
 					State: corev1.ContainerState{Running: &corev1.ContainerStateRunning{}},
 				}}
 			}
 			return nil
 		},
 	}
+}
+
+// probeContainerName is the container a kubelet would publish a status for: the one the Pod declares.
+//
+// It reads the Pod instead of naming a container, and that is the correction of a fixture that had gone stale
+// the moment the probe stopped being hand-built. The double went on stamping "sleeper" while the probe's
+// container came from the operator's template and was called "trainer", and nothing failed — production
+// matches on container STATE, not on the name — so a double describing a Pod that no longer existed was
+// invisible. A double that invents its own names is one that can disagree with the cluster it stands for.
+func probeContainerName(p *corev1.Pod) string {
+	if len(p.Spec.Containers) > 0 {
+		return p.Spec.Containers[0].Name
+	}
+	return probeTrainerContainer
 }
 
 // canaryCluster builds a fake worker plus the double, and returns the client and the clock the canary runs on.
@@ -326,25 +342,33 @@ func TestTheCanaryCanStillReadAProbeThatHasBeenDeleted(t *testing.T) {
 // The Pod the canary probes has to be the one a run's Pod would be, on the machine being qualified.
 //
 // spec.nodeName rather than a selector, because what is under test is THIS node's kubelet and runtime and a
-// probe that landed elsewhere would qualify a machine nobody asked about. And no explicit grace period,
-// because the controller that renders a run's Job sets none either: pinning one here would measure a
-// configuration no run ever uses and would hide the cluster default the whole horizon is derived from.
+// probe that landed elsewhere would qualify a machine nobody asked about.
 //
-// Mutation that turns this red: set TerminationGracePeriodSeconds on the probe (the assertion below fails, and
-// so does the point of reading it back from the Create response), or swap nodeName for a NodeSelector.
+// The grace period is now asserted against the TEMPLATE's rather than against nil, and the change is the point
+// of this commit rather than a loosening. What must never happen is this function pinning a period of its own,
+// which would measure a configuration no run uses and hide the cluster default four pieces of the protocol's
+// arithmetic rest on. What must now happen is the probe carrying whatever the operator's template says — nil
+// today — so that a template which pins one is measured under it instead of around it.
+//
+// Mutation that turns this red: pin TerminationGracePeriodSeconds in probePodFrom (it then differs from the
+// template's nil), or swap nodeName for a NodeSelector.
 func TestTheProbePodIsTheWorkloadAsTheRunWouldSubmitIt(t *testing.T) {
 	c := harnessTerminationContract()
 	honor, _ := canaryProbeSpecs("abcd1234-5678", c)
-	p := canaryPod("abcd1234-5678", "platform-worker", "canary-abcd1234", c, honor)
+	p, err := canaryPod("abcd1234-5678", "platform-worker", "canary-abcd1234", c, honor)
+	if err != nil {
+		t.Fatalf("build the probe: %v", err)
+	}
 
 	if p.Spec.NodeName != "platform-worker" {
 		t.Fatalf("the probe does not name the node it is qualifying (nodeName %q): a probe that ran elsewhere "+
 			"would report another machine's runtime", p.Spec.NodeName)
 	}
-	if p.Spec.TerminationGracePeriodSeconds != nil {
-		t.Fatalf("the probe pins a %d second grace period; a run's Pods take the apiserver's default because "+
-			"nothing in this harness sets one, and pinning it here measures a configuration no run uses",
-			*p.Spec.TerminationGracePeriodSeconds)
+	if want := renderedPodTemplate(templateProbeJob()).Spec.TerminationGracePeriodSeconds; !reflect.DeepEqual(
+		p.Spec.TerminationGracePeriodSeconds, want) {
+		t.Fatalf("the probe's grace period is %v and the operator's template says %v; a probe that pins its own "+
+			"measures a configuration no run uses, and one that drops the template's measures around the change "+
+			"it exists to catch", p.Spec.TerminationGracePeriodSeconds, want)
 	}
 	if p.Spec.RestartPolicy != corev1.RestartPolicyNever {
 		t.Fatalf("restart policy %q: a probe that restarts after being killed has no terminal status to read",
@@ -366,6 +390,246 @@ func TestTheProbePodIsTheWorkloadAsTheRunWouldSubmitIt(t *testing.T) {
 	if len(p.Spec.Tolerations) != 1 || p.Spec.Tolerations[0].Key != workerTaintKey ||
 		p.Spec.Tolerations[0].Value != "canary-abcd1234" {
 		t.Fatalf("the probe does not tolerate the ownership taint this canary installed: %+v", p.Spec.Tolerations)
+	}
+	// And the container it put the arm's command in is the one the OPERATOR names, which is what says this Pod
+	// came out of the template rather than out of this file.
+	if p.Spec.Containers[0].Name != probeTrainerContainer {
+		t.Fatalf("the probe's container is %q; the operator renders a run's workload into %q, so a probe that "+
+			"names it anything else was hand-built", p.Spec.Containers[0].Name, probeTrainerContainer)
+	}
+}
+
+// The property this commit exists for: whatever the operator adds to its Pod template is IN the Pod the canary
+// probes, so the re-take a key mismatch forces actually exercises the change.
+//
+// Before this, the loop detected and then rubber-stamped. A preStop hook added to the template changed the key,
+// the run refused, the operator re-took the reading — and the re-take probed a Pod with no preStop hook in it
+// and passed. A hollow remediation is worse than an absent one, because it looks like a check that ran.
+//
+// The template is passed in rather than rendered, so these are additions this build's operator does not make
+// yet — which is the only way to test the behaviour before the change that needs it exists.
+//
+// Mutation that turns this red: hand-build the probe's PodSpec in probePodFrom instead of adopting tpl (every
+// row below vanishes from the Pod), or copy only the containers across (the three Pod-level rows survive).
+func TestTheProbeCarriesWhatTheOperatorAddsToTheTemplate(t *testing.T) {
+	c := harnessTerminationContract()
+	honor, _ := canaryProbeSpecs("abcd1234-5678", c)
+
+	for _, tc := range []struct {
+		name   string
+		mutate func(*corev1.PodTemplateSpec)
+		check  func(*testing.T, *corev1.Pod)
+	}{
+		{"an explicit grace period", func(tpl *corev1.PodTemplateSpec) {
+			tpl.Spec.TerminationGracePeriodSeconds = new(int64(60))
+		}, func(t *testing.T, p *corev1.Pod) {
+			if p.Spec.TerminationGracePeriodSeconds == nil || *p.Spec.TerminationGracePeriodSeconds != 60 {
+				t.Fatalf("the probe does not carry the template's grace period: %v",
+					p.Spec.TerminationGracePeriodSeconds)
+			}
+		}},
+		{"a preStop hook", func(tpl *corev1.PodTemplateSpec) {
+			tpl.Spec.Containers[0].Lifecycle = &corev1.Lifecycle{
+				PreStop: &corev1.LifecycleHandler{Exec: &corev1.ExecAction{Command: []string{"sleep", "45"}}},
+			}
+		}, func(t *testing.T, p *corev1.Pod) {
+			l := p.Spec.Containers[0].Lifecycle
+			if l == nil || l.PreStop == nil || l.PreStop.Exec == nil {
+				t.Fatalf("the probe does not carry the template's preStop hook: %+v", l)
+			}
+		}},
+		{"shareProcessNamespace", func(tpl *corev1.PodTemplateSpec) {
+			tpl.Spec.ShareProcessNamespace = new(true)
+		}, func(t *testing.T, p *corev1.Pod) {
+			if p.Spec.ShareProcessNamespace == nil || !*p.Spec.ShareProcessNamespace {
+				t.Fatalf("the probe does not share the process namespace the template asked for: %v",
+					p.Spec.ShareProcessNamespace)
+			}
+		}},
+		{"a sidecar", func(tpl *corev1.PodTemplateSpec) {
+			tpl.Spec.Containers = append(tpl.Spec.Containers,
+				corev1.Container{Name: "sidecar", Image: "busybox:1.36"})
+		}, func(t *testing.T, p *corev1.Pod) {
+			if len(p.Spec.Containers) != 2 || p.Spec.Containers[1].Name != "sidecar" {
+				t.Fatalf("the probe dropped the template's second container: %+v", p.Spec.Containers)
+			}
+		}},
+		{"a cpu limit", func(tpl *corev1.PodTemplateSpec) {
+			tpl.Spec.Containers[0].Resources.Limits[corev1.ResourceCPU] = *resource.NewMilliQuantity(500,
+				resource.DecimalSI)
+		}, func(t *testing.T, p *corev1.Pod) {
+			// The device request is removed and nothing else is: a limit that shapes what the kubelet does to the
+			// container has to survive, or the strip has quietly become "drop the resources".
+			if q, ok := p.Spec.Containers[0].Resources.Limits[corev1.ResourceCPU]; !ok || q.MilliValue() != 500 {
+				t.Fatalf("the probe dropped the template's cpu limit along with the device request: %+v",
+					p.Spec.Containers[0].Resources)
+			}
+		}},
+		{"a template label", func(tpl *corev1.PodTemplateSpec) {
+			tpl.Labels = map[string]string{"platform.example/tier": "batch"}
+		}, func(t *testing.T, p *corev1.Pod) {
+			if p.Labels["platform.example/tier"] != "batch" {
+				t.Fatalf("the probe dropped the template's own labels: %v", p.Labels)
+			}
+			// And its own are still there, or the merge has become a replacement in the other direction.
+			if p.Labels["queuelab.gpu-platform/contract"] != honor.contract {
+				t.Fatalf("the probe lost the label that says which arm it is: %v", p.Labels)
+			}
+		}},
+		// This row exists because a mutation escaped without it. Turning the toleration overlay from an append
+		// into a replacement was green everywhere: the structural equality below runs against today's template,
+		// which carries no toleration of its own, so appending to nothing and replacing nothing produce the same
+		// one-element list. Only a template that already tolerates something can tell those apart, and a probe
+		// that dropped it would fail to land on a node tainted for any other reason.
+		{"a toleration of the template's own", func(tpl *corev1.PodTemplateSpec) {
+			tpl.Spec.Tolerations = []corev1.Toleration{{
+				Key: "platform.example/reserved", Operator: corev1.TolerationOpExists,
+				Effect: corev1.TaintEffectNoSchedule,
+			}}
+		}, func(t *testing.T, p *corev1.Pod) {
+			var kept, own bool
+			for _, tol := range p.Spec.Tolerations {
+				if tol.Key == "platform.example/reserved" {
+					kept = true
+				}
+				if tol.Key == workerTaintKey {
+					own = true
+				}
+			}
+			if !kept {
+				t.Fatalf("the probe replaced the template's tolerations with the canary's own (%+v); a run's Pod "+
+					"would tolerate what the template says, and a probe that does not cannot land where it does",
+					p.Spec.Tolerations)
+			}
+			if !own {
+				t.Fatalf("the probe no longer tolerates the ownership taint this canary installed: %+v",
+					p.Spec.Tolerations)
+			}
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tpl := renderedPodTemplate(templateProbeJob())
+			tc.mutate(&tpl)
+			p, err := probePodFrom(tpl, "abcd1234-5678", "platform-worker", "canary-abcd1234", c, honor)
+			if err != nil {
+				t.Fatalf("build the probe: %v", err)
+			}
+			tc.check(t, p)
+			// Whatever the template said, the probe is still the probe: the arm's command is the mechanism under
+			// test, and a Pod that adopted the template's workload as well would measure the sentinel.
+			if strings.Join(p.Spec.Containers[0].Command, " ") != strings.Join(c.HonorCommand, " ") {
+				t.Fatalf("the probe runs %v, not the honouring command the arm submits", p.Spec.Containers[0].Command)
+			}
+			if p.Spec.Containers[0].Image != c.Image {
+				t.Fatalf("the probe runs image %q, not the pinned sleeper", p.Spec.Containers[0].Image)
+			}
+		})
+	}
+}
+
+// The one field where what is hashed and what is run differ, asserted in both directions so neither half can
+// rot: the template DOES ask for a device and the probe does NOT.
+//
+// The precondition matters as much as the conclusion. Without it, a day when the operator stops requesting a
+// device at all leaves this test passing for a reason that has nothing to do with the strip, which is how a
+// check stops checking without failing.
+//
+// Why the device goes: spec.nodeName removes the scheduler but not the kubelet's admission, so a probe asking
+// for seven devices is rejected outright by any node advertising fewer — and seven is a hash-distinctness
+// sentinel, not a number any run needs. Requiring seven free devices before a worker could be qualified would
+// make the canary unrunnable on the clusters it exists for.
+//
+// Mutation that turns this red: stop deleting the device from the probe's limits (the second assertion), or
+// delete the whole Resources block instead of the one key (TestTheProbeCarriesWhatTheOperatorAddsToTheTemplate's
+// cpu row).
+func TestTheProbeAsksForNoDeviceThoughTheTemplateDoes(t *testing.T) {
+	tpl := renderedPodTemplate(templateProbeJob())
+	want := tpl.Spec.Containers[0].Resources.Limits[gpuResourceName]
+	if want.Value() != int64(templateProbeJob().Spec.GPUCount) {
+		t.Fatalf("the operator's template requests %v of %s and the probe job asks for %d; this test's point is "+
+			"that the probe drops a request the template makes, and it makes none", want.Value(), gpuResourceName,
+			templateProbeJob().Spec.GPUCount)
+	}
+
+	c := harnessTerminationContract()
+	honor, _ := canaryProbeSpecs("abcd1234-5678", c)
+	p, err := canaryPod("abcd1234-5678", "platform-worker", "canary-abcd1234", c, honor)
+	if err != nil {
+		t.Fatalf("build the probe: %v", err)
+	}
+	if q, ok := p.Spec.Containers[0].Resources.Limits[gpuResourceName]; ok {
+		t.Fatalf("the probe asks for %v of %s; the canary pins spec.nodeName, so the kubelet admits it against "+
+			"this node's allocatable and rejects it outright where the devices are not free — a refusal about "+
+			"allocation on a reading about signal delivery", q.Value(), gpuResourceName)
+	}
+}
+
+// A template whose workload container this canary cannot identify is a refusal, not a guess.
+//
+// Writing the arm's command into whatever container happens to be first would produce a reading of something
+// nobody chose — and it would do it silently, since the Pod would start and stop perfectly well. This is also
+// the boundary at which the honest answer stops being "adopt the template": a template that can no longer say
+// which container is the workload is one the full CRD-path canary should be reading back from the cluster.
+//
+// Mutation that turns this red: fall back to Containers[0] when no trainer is found.
+func TestAProbeCannotBeBuiltFromATemplateWithNoTrainerContainer(t *testing.T) {
+	tpl := renderedPodTemplate(templateProbeJob())
+	tpl.Spec.Containers[0].Name = "worker"
+	c := harnessTerminationContract()
+	honor, _ := canaryProbeSpecs("abcd1234-5678", c)
+
+	_, err := probePodFrom(tpl, "abcd1234-5678", "platform-worker", "canary-abcd1234", c, honor)
+	if err == nil {
+		t.Fatal("a template with no trainer container built a probe anyway; the arm's command would have gone " +
+			"into a container nobody chose and the reading would have looked entirely normal")
+	}
+	if !strings.Contains(err.Error(), probeTrainerContainer) || !strings.Contains(err.Error(), "worker") {
+		t.Fatalf("the refusal must name the container it looked for and what it found instead, got: %v", err)
+	}
+}
+
+// The probe is the rendered template plus exactly the changes probePodFrom is documented to make, and nothing
+// else. Written as one structural equality rather than a list of assertions, because a list only covers what
+// somebody thought to list: this fails on any field the transformation touches that its comment does not claim.
+//
+// Both sides derive from the same renderer, which is deliberate and is not the self-comparison this lineage has
+// been caught by: the LEFT side is the transformation under test and the RIGHT side is the template with the
+// three documented overlays applied by hand. A transformation that copied nothing, stripped extra, or forgot an
+// overlay fails; a change to the renderer itself moves both sides, which is correct, and is pinned separately
+// by TestTheTemplateTheKeyCoversIsTheOneTheOperatorRenders.
+//
+// Mutation that turns this red: replace the DeepCopy of the template's spec with a fresh PodSpec, strip
+// anything beyond the device request, or remove either overlay this compares (the nodeName or the toleration).
+//
+// Two things it does NOT catch, named because the first one escaped before it was written down. Turning the
+// toleration overlay from an append into a REPLACEMENT is invisible here: today's template carries no
+// toleration, so both produce the same one-element list, and only a template that already tolerates something
+// can tell them apart — TestTheProbeCarriesWhatTheOperatorAddsToTheTemplate has a row that does. And this
+// compares Spec only, so nothing about the label merge is in scope of it at all; that row is in the same place.
+func TestTheProbeIsTheTemplateAndTheThreeDocumentedChanges(t *testing.T) {
+	c := harnessTerminationContract()
+	honor, _ := canaryProbeSpecs("abcd1234-5678", c)
+	got, err := canaryPod("abcd1234-5678", "platform-worker", "canary-abcd1234", c, honor)
+	if err != nil {
+		t.Fatalf("build the probe: %v", err)
+	}
+
+	tpl := renderedPodTemplate(templateProbeJob())
+	want := *tpl.Spec.DeepCopy()
+	want.Containers[0].Image = c.Image
+	want.Containers[0].Command = c.HonorCommand
+	delete(want.Containers[0].Resources.Limits, gpuResourceName)
+	if len(want.Containers[0].Resources.Limits) == 0 {
+		want.Containers[0].Resources.Limits = nil
+	}
+	want.NodeName = "platform-worker"
+	want.Tolerations = append(want.Tolerations, corev1.Toleration{
+		Key: workerTaintKey, Operator: corev1.TolerationOpEqual, Value: "canary-abcd1234",
+		Effect: corev1.TaintEffectNoSchedule,
+	})
+	if !reflect.DeepEqual(got.Spec, want) {
+		t.Fatalf("the probe is not the operator's template with the documented changes applied:\n got %+v\nwant %+v",
+			got.Spec, want)
 	}
 }
 
@@ -433,7 +697,7 @@ func TestTheCanaryClearsItsProbesEvenWhenItRefuses(t *testing.T) {
 				if p, ok := obj.(*corev1.Pod); ok {
 					p.Status.Phase = corev1.PodPending
 					p.Status.ContainerStatuses = []corev1.ContainerStatus{{
-						Name: "sleeper",
+						Name: probeContainerName(p),
 						State: corev1.ContainerState{Waiting: &corev1.ContainerStateWaiting{
 							Reason: "ImagePullBackOff", Message: "manifest unknown",
 						}},
@@ -659,7 +923,7 @@ func TestAProbeIsNotRunningUntilItsContainerIs(t *testing.T) {
 	starting := &corev1.Pod{Status: corev1.PodStatus{
 		Phase: corev1.PodRunning,
 		ContainerStatuses: []corev1.ContainerStatus{{
-			Name:  "sleeper",
+			Name:  probeTrainerContainer,
 			State: corev1.ContainerState{Waiting: &corev1.ContainerStateWaiting{Reason: "ContainerCreating"}},
 		}},
 	}}
@@ -677,7 +941,7 @@ func TestAProbeIsNotRunningUntilItsContainerIs(t *testing.T) {
 	up := &corev1.Pod{Status: corev1.PodStatus{
 		Phase: corev1.PodRunning,
 		ContainerStatuses: []corev1.ContainerStatus{{
-			Name:  "sleeper",
+			Name:  probeTrainerContainer,
 			State: corev1.ContainerState{Running: &corev1.ContainerStateRunning{}},
 		}},
 	}}
