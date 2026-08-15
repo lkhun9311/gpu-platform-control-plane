@@ -859,14 +859,28 @@ func TestDeleteReportsWhyATargetSurvivedWhenTheApiserverRefused(t *testing.T) {
 		t.Fatal("every delete was refused and nothing was reported as residue")
 	}
 	ns := residueFor(t, res.Residue, s.Namespace)
-	if ns.Observation.Err == nil {
+	if ns.Observation.DeleteRefusal == nil {
 		t.Fatalf("%s survived teardown with no recorded reason; the residue says 'still present', which reads as a slow finalizer rather than a refusal", s.Namespace)
 	}
-	if !apierrors.IsForbidden(ns.Observation.Err) {
-		t.Errorf("%s carries %v, want the apiserver's Forbidden", s.Namespace, ns.Observation.Err)
+	if !apierrors.IsForbidden(ns.Observation.DeleteRefusal) {
+		t.Errorf("%s carries %v, want the apiserver's Forbidden", s.Namespace, ns.Observation.DeleteRefusal)
 	}
-	if ns.Absence != absenceUnknown {
-		t.Errorf("%s classified %v; a target whose delete was refused is not known to be present or gone, it is unknown", s.Namespace, ns.Absence)
+	// This assertion used to read `ns.Absence != absenceUnknown`, on the rationale that "a target whose delete
+	// was refused is not known to be present or gone". That rationale does not survive reading the loop it
+	// describes: deleteTargets reads AFTER each delete precisely so it exits on evidence, so by the time a
+	// refusal is folded back the run holds a successful read saying the object is there. Present is not a
+	// guess here, it is the observation — and Found below is what keeps this test honest about that. Unknown
+	// would discard a fact the run actually has and, persisted, would tell the next operator nobody could
+	// tell about an object this one read.
+	if !ns.Observation.Found {
+		t.Fatalf("%s is reported as residue but was not observed present; then unknown WOULD be the right verdict "+
+			"and this test is asserting the wrong thing", s.Namespace)
+	}
+	if ns.Absence != absencePresent {
+		t.Errorf("%s classified %v; the read that followed the refused delete found it present", s.Namespace, ns.Absence)
+	}
+	if ns.Observation.Err != nil {
+		t.Errorf("%s carries a read error, but the read is what proved it present: %v", s.Namespace, ns.Observation.Err)
 	}
 }
 
