@@ -272,7 +272,11 @@ func observe(n *corev1.Node) ownership {
 // Free means neither ownership key, nor a journal, nor a quarantine record: because that is the only entry
 // state, the prior value of the two keys is provably absent, which is why the journal records what was
 // installed rather than what to restore.
-func decideAcquire(obs ownership, n *corev1.Node, txID, runID, arm, takenAt string) (journal, error) {
+// The node object itself is deliberately NOT a parameter. obs already carries NodeName and NodeUID, and
+// taking the object beside the reduction gave one fact two sources in the function that decides who owns a
+// GPU worker: a caller that reduced one node and passed another would record a journal naming a node the
+// decision was not made about. decideForce, decideClear and decideRelease all take obs alone.
+func decideAcquire(obs ownership, txID, runID, arm, takenAt string) (journal, error) {
 	if obs.QuarantineRaw != "" {
 		return journal{}, refuse(reasonQuarantined,
 			"node %s carries a quarantine record; clear it deliberately before any run", obs.NodeName)
@@ -307,8 +311,8 @@ func decideAcquire(obs ownership, n *corev1.Node, txID, runID, arm, takenAt stri
 		TxID:    txID,
 		RunID:   runID,
 		Arm:     arm,
-		Node:    n.Name,
-		NodeUID: string(n.UID),
+		Node:    obs.NodeName,
+		NodeUID: obs.NodeUID,
 		TakenAt: takenAt,
 		Installed: installedTuple{
 			LabelValue:  runID,

@@ -120,7 +120,7 @@ func acquireWorker(ctx context.Context, c client.Client, nodeName, txID, runID, 
 			return journal{}, fmt.Errorf("get node %s: %w", nodeName, err)
 		}
 		obs := observe(&n)
-		j, err := decideAcquire(obs, &n, txID, runID, arm, time.Now().UTC().Format(time.RFC3339))
+		j, err := decideAcquire(obs, txID, runID, arm, time.Now().UTC().Format(time.RFC3339))
 		if err != nil {
 			// A refusal is a decision about the observed state, so it is returned as-is rather than retried.
 			return journal{}, err

@@ -352,7 +352,7 @@ func TestInspectWorkerRefusesAnUnreadableJournalRatherThanReportingFree(t *testi
 
 	// The other half of the contradiction: acquisition refuses this exact node, so inspection saying FREE
 	// would have been wrong rather than merely terse.
-	_, aerr := decideAcquire(observe(n), n, "tx-new", "r1", "A-honor", "t")
+	_, aerr := decideAcquire(observe(n), "tx-new", "r1", "A-honor", "t")
 	var r *refusal
 	if !asRefusal(aerr, &r) || r.Reason != reasonBadJournal {
 		t.Fatalf("acquisition must refuse the same node as %s, got %v", reasonBadJournal, aerr)
