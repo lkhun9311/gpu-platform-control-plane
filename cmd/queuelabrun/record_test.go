@@ -102,6 +102,27 @@ func TestDecodeRunRecordRefusesAnUnknownField(t *testing.T) {
 	}
 }
 
+// Bytes after the record must be refused, because a decoder stops at the end of the first value and would
+// otherwise hand a reader a document whose tail went to nobody.
+//
+// The accepted-then-refused pair is the whole design of this test rather than ceremony around the assertion
+// that matters. A fixture that only appended garbage and asserted a refusal would pass identically if the
+// document in front of the garbage were itself unreadable — the refusal would come from the record, not from
+// the tail — and this package has already shipped one assertion that proved nothing for exactly that reason.
+// Decoding the same bytes first is what makes the second call's failure attributable to the appended
+// document. Mutation: delete the dec.More() block in decodeRunRecord and the second call returns nil.
+func TestDecodeRunRecordRefusesTrailingDataAfterAValidRecord(t *testing.T) {
+	b := fmt.Appendf(nil, `{"schemaVersion":%d,"runID":"r7","arm":"A-honor",`+
+		`"disposition":"completed-implemented-checks-passed",%s}`, recordSchemaVersion, refusedValidity)
+	if _, err := decodeRunRecord(b); err != nil {
+		t.Fatalf("the document before the trailing data must decode on its own, or this test attributes its "+
+			"refusal to the wrong bytes: %v", err)
+	}
+	if _, err := decodeRunRecord(append(b, "\n{\"trailingGarbage\":true}\n"...)); err == nil {
+		t.Fatal("a second document appended after the record must be refused")
+	}
+}
+
 // A record without a run identity is not a usable record regardless of what else it claims.
 func TestDecodeRunRecordRefusesEmptyRunID(t *testing.T) {
 	b := fmt.Appendf(nil,

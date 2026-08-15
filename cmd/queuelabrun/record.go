@@ -672,6 +672,16 @@ func decodeRunRecord(b []byte) (runRecord, error) {
 	if err := dec.Decode(&r); err != nil {
 		return runRecord{}, fmt.Errorf("decode record: %w", err)
 	}
+	// The three sibling decoders in this package all refuse trailing data and this one did not, which made its
+	// own doc comment false: a decoder stops at the end of the first value, so a record file with a second
+	// document appended decoded exactly as cleanly as one without, and every byte past the record went to no
+	// reader at all. That is not a hypothetical shape — a double write, a partially replaced file, or two
+	// records concatenated by a wrapper script all produce it, and the artifact is the deliverable precisely
+	// because a reader can re-derive the verdict from the fields beside the numbers. Bytes nobody accounts for
+	// sitting after those fields mean the file is not one document, whatever its first document says.
+	if dec.More() {
+		return runRecord{}, fmt.Errorf("decode record: trailing data after the record")
+	}
 	if r.SchemaVersion != recordSchemaVersion {
 		return runRecord{}, fmt.Errorf("decode record: schema %d is not %d", r.SchemaVersion, recordSchemaVersion)
 	}
