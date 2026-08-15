@@ -724,6 +724,38 @@ func TestReportRunFailsARunWhoseRecordCannotBeReadBack(t *testing.T) {
 	}
 }
 
+// A banner closes on the channel it opened on, whatever happened to the content between.
+//
+// This is a regression the diversion introduced and a review caught. main prints the OPENING banner to stdout
+// unconditionally; the closing one followed publish, so a refused read-back sent it to stderr and left stdout
+// holding an opening banner with nothing under it — which is, word for word, the state the closing banner's
+// own comment says it exists to prevent. The fix that protected one property broke the other.
+//
+// Mutation that turns this red: print the closing banner to publish again.
+func TestReportRunClosesThePreviewBannerOnTheChannelItOpenedOn(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := reportRun(&stdout, &stderr, func(string, any) error { return nil },
+		func(string, bool) error { return errors.New("this preview decodes as a run record") }, runReport{
+			Outcome: outcome{Disposition: dispChecksPassed},
+			Events:  []queuelab.LifecycleEvent{{ElapsedNs: 1, Kind: "Pod", Job: "a1"}},
+			Record:  previewRecord{SchemaVersion: recordSchemaVersion},
+			Path:    "/tmp/run.json",
+			Preview: true,
+		})
+
+	if code == 0 {
+		t.Fatal("a preview whose record fails its own read-back must not exit 0")
+	}
+	if !strings.Contains(stdout.String(), previewBanner) {
+		t.Fatalf("the ledger diverted and took the closing banner with it, so an operator reading stdout is "+
+			"left under an opening banner alone: stdout=%q", stdout.String())
+	}
+	// The content still diverts — otherwise this test would be satisfied by undoing the diversion entirely.
+	if strings.Contains(stdout.String(), "job=a1") {
+		t.Fatalf("the refused record's ledger is back on stdout: %q", stdout.String())
+	}
+}
+
 // A readable record puts the same output back on stdout, which is the half that stops the diversion from
 // being a way to make every run quiet.
 //

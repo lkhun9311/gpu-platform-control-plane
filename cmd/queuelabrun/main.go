@@ -317,8 +317,15 @@ func reportRun(stdout, stderr io.Writer, write recordWriter, verify recordVerifi
 	// The closing banner has to print even when the run failed or its record could not be persisted, or
 	// output already on the terminal is left under an opening banner alone and could be mistaken for output
 	// nobody flagged.
+	//
+	// It goes to stdout, NOT to publish, and the difference is the whole point of the paragraph above. main
+	// prints the opening banner to stdout unconditionally, so following publish to stderr on a refused
+	// read-back left stdout holding an opening banner and nothing else — precisely the state this banner
+	// exists to prevent, reintroduced by the change that diverted the ledger. A banner is a property of the
+	// channel it opened on; where the content went is a separate question, and the refusal on stderr is what
+	// answers it.
 	if r.Preview {
-		fmt.Fprintln(publish, previewBanner)
+		fmt.Fprintln(stdout, previewBanner)
 	}
 	if writeErr != nil {
 		// The record that failed to persist cannot report its own failure, so this is the one outcome that
@@ -1071,7 +1078,7 @@ func run(ctx context.Context, connect clusterClientFunc, arm queuelab.Arm, runID
 	sentinel.Close()
 	closed := sentinel.Window()
 	if reason := closed.invalidation(); reason != "" {
-		fmt.Printf("\nWORKER NOT EXCLUSIVE: %s\n", reason)
+		fmt.Fprintf(stderr, "\nWORKER NOT EXCLUSIVE: %s\n", reason)
 		col.desync(reason)
 	} else {
 		// The count is printed with the verdict for the reason the qualification line prints its Pod count: a
@@ -1095,13 +1102,13 @@ func run(ctx context.Context, connect clusterClientFunc, arm queuelab.Arm, runID
 	// Validity is decided before anything is published, because a non-zero exit cannot retract a number
 	// that has already been printed or a record that has already been written.
 	if err := col.builder.Err(); err != nil {
-		fmt.Printf("\nRUN INVALIDATED: %v\n", err)
+		fmt.Fprintf(stderr, "\nRUN INVALIDATED: %v\n", err)
 		o = phaseFailure(dispCollectorDesync, "run invalidated", err)
 		return
 	}
 	result, err := reconstructAtHorizon(col, arm, trace, events)
 	if err != nil {
-		fmt.Printf("\nRECONSTRUCT ERROR: %v\n", err)
+		fmt.Fprintf(stderr, "\nRECONSTRUCT ERROR: %v\n", err)
 		// Same reasoning as the invalidation path above: a failed reconstruction is not a result either.
 		o = phaseFailure(dispReconstructRefused, "reconstruct failed", err)
 		return
@@ -1110,7 +1117,7 @@ func run(ctx context.Context, connect clusterClientFunc, arm queuelab.Arm, runID
 	// preemption count means that pairing was not actually unambiguous and this reconstruction must be refused
 	// rather than printed as if it were.
 	if err := arm.AssertCardinality(result); err != nil {
-		fmt.Printf("\nRUN INVALIDATED: %v\n", err)
+		fmt.Fprintf(stderr, "\nRUN INVALIDATED: %v\n", err)
 		o = phaseFailure(dispCardinalityRefused, "cardinality check failed", err)
 		return
 	}
@@ -1150,7 +1157,7 @@ func run(ctx context.Context, connect clusterClientFunc, arm queuelab.Arm, runID
 			// failure where our markers truly are still installed) means the worker is still marked. The
 			// operator needs the same runnable next step the deferred path always printed, not just the reason
 			// it failed.
-			fmt.Printf("\nRUN INVALIDATED: worker %s not restored: %v\n  run: queuelabrun -inspect-worker -worker %s\n",
+			fmt.Fprintf(stderr, "\nRUN INVALIDATED: worker %s not restored: %v\n  run: queuelabrun -inspect-worker -worker %s\n",
 				worker, err, worker)
 			// classifyReleaseFailure, never classifyPhaseFailure: this release ran on cleanupContext rather
 			// than the signal-cancelled run context, so a cancellation surfacing beneath it does not mean the
