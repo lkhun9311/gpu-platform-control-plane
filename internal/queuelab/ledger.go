@@ -62,8 +62,11 @@ type EventType string
 const (
 	// EventSubmitted is the MLTrainingJob API acceptance (the offered-work clock start).
 	//
-	// It is written by the submitting path right after a successful Create, not by a watch, so it cannot be
-	// observed after an admission of the same job; Reconstruct rejects any admitted-before-submitted timeline.
+	// It is written by the submitting path right after a successful Create, not by a watch, so unlike every
+	// other event here its instant is a local fact rather than a delivery time. That is what lets Reconstruct
+	// treat a Pod Ready before it as impossible evidence: the comparison holds because only one side of it
+	// came off a watch. The admission comparison is NOT of that kind — Admitted is watch-observed, so an
+	// admission delivered before this event is legal cross-watch reordering and is folded, not refused.
 	EventSubmitted EventType = "Submitted"
 	// EventAdmitted is the Workload reaching Admitted=True.
 	EventAdmitted EventType = "Admitted"
@@ -291,10 +294,26 @@ type LabResult struct {
 //
 // It is SEEDED from the frozen trace: every offered row gets exactly one timeline whether or not its events
 // arrived, so a job pending or missed at the horizon becomes an unfinished, right-censored outcome rather
-// than a silent omission. It returns an error rather than a number on impossible or conflicting evidence
-// (an event for an unknown job, a missing or duplicated submission, an admitted-before-submitted or
-// completed-before-admitted ordering, or a preemption that pairs to no running attempt), because for an
-// experiment tool a plausible wrong number is worse than a refusal.
+// than a silent omission. It returns an error rather than a number on evidence that could not have come from
+// a real run, because for an experiment tool a plausible wrong number is worse than a refusal. What it
+// refuses is exactly this:
+//
+//   - shape: a duplicate job name in the trace, an event for a job not in the trace, an unknown event type,
+//     a negative elapsed time, a Pod event with no Pod UID, and an AttemptStopped whose reason is neither
+//     Succeeded nor Failed, since that reason is the only thing separating discarded work from finished work;
+//   - identity: a row with no Submitted event at all, a second Submitted or Completed at a different instant,
+//     and an AttemptStopped for a Pod whose Ready was never seen;
+//   - impossible order WITHIN one watch or against the locally stamped Submitted: a Pod Ready before its own
+//     row was created, an attempt stopped before it was Ready, two attempts of one row overlapping, and a
+//     completion with no admission evidence at all;
+//   - arithmetic that contradicts the protocol: more preemption decisions than the row has attempts.
+//
+// It deliberately does NOT refuse orderings that are legal cross-watch reordering, and this is the part that
+// changed: Workload, Job and Pod arrive on three independent watches, so an Admitted delivered before its
+// Submitted, a Completed delivered before its Admitted, and a preemption delivered after the Pod it stopped
+// are all realistic deliveries rather than impossible evidence. Earlier revisions rejected the first two and
+// paired preemptions by comparing instants across watches; both discarded valid runs. Preemptions are paired
+// to attempts ordinally now (see pairPreemptionsToAttempts), never by instant comparison.
 //
 // It assumes its input came from a fail-closed collector that observes every terminal Pod transition and
 // invalidates a run on any unexplained one (the live runner's contract). That precondition is what makes
@@ -491,11 +510,12 @@ func occupancyEnd(t *jobTimeline, a *attempt, horizonElapsedNs int64) int64 {
 // chargeWaste runs the per-job ordering checks and the attempt-paired preemption accounting, writing the
 // exact and lower-bound waste onto out.
 func chargeWaste(t *jobTimeline, horizonElapsedNs int64, out *WorkloadOutcome) error {
-	if t.admitted && t.admitNs < t.submittedNs {
-		return fmt.Errorf("admitted at %d before submitted at %d", t.admitNs, t.submittedNs)
-	}
-	if t.completed && (!t.admitted || t.completedNs < t.admitNs) {
-		return fmt.Errorf("completed at %d before admitted", t.completedNs)
+	// Only checks that hold REGARDLESS of delivery order belong here. Workload, Job and Pod arrive on three
+	// independent watches, so comparing their observed instants proves nothing about what happened first —
+	// a promptly stopped Pod really can be delivered before the preemption that stopped it. What remains
+	// impossible under any ordering is a completion with no admission evidence at all.
+	if t.completed && !t.admitted {
+		return fmt.Errorf("completed with no admission evidence")
 	}
 
 	out.Preemptions = len(t.preemptedNs)
@@ -537,13 +557,14 @@ func chargeWaste(t *jobTimeline, horizonElapsedNs int64, out *WorkloadOutcome) e
 		end := occupancyEnd(t, a, horizonElapsedNs)
 		out.TotalOccupancyGPUSeconds += float64(t.gpuCount) * float64(end-a.readyNs) / 1e9
 	}
-	decisions := append([]int64(nil), t.preemptedNs...)
-	slices.Sort(decisions)
-	for _, d := range decisions {
-		a, err := openAttemptAt(t, d)
-		if err != nil {
-			return err
-		}
+	if err := attemptsDoNotOverlap(t); err != nil {
+		return err
+	}
+	paired, err := pairPreemptionsToAttempts(t, len(t.preemptedNs))
+	if err != nil {
+		return err
+	}
+	for _, a := range paired {
 		a.consumed = true
 		gpu := float64(t.gpuCount)
 		// The attempt's in-horizon occupancy, which every arm below charges somewhere. It is the SAME endpoint
@@ -597,33 +618,69 @@ func chargeWaste(t *jobTimeline, horizonElapsedNs int64, out *WorkloadOutcome) e
 	return nil
 }
 
-// openAttemptAt returns the single unconsumed attempt that was Ready before decision time d and had not
-// already stopped before d, so it was still running when the preemption was decided.
+// attemptsInStartOrder returns the row's attempts ordered by when their Pod became Ready.
 //
-// It requires EXACTLY ONE such attempt. A Workload preemption delta does not name a Pod UID, so if two
-// attempts were both running at the decision the pairing is ambiguous; rather than pick one heuristically
-// (which can misattribute discarded work), it errors, because for one training row Kueue runs one attempt
-// at a time and two concurrently-running attempts mean the ledger is inconsistent. It also errors when no
-// attempt was running, which is an unpaired preemption.
-func openAttemptAt(t *jobTimeline, d int64) (*attempt, error) {
-	var found *attempt
+// Ordering attempts among THEMSELVES is legal: every Ready observation comes from the same Pod watch, whose
+// deliveries are ordered. What is illegal is comparing one of those instants against a preemption instant
+// from the Workload watch, which is why the ordering is computed here once rather than inside a pairing
+// predicate.
+func attemptsInStartOrder(t *jobTimeline) []*attempt {
+	out := make([]*attempt, 0, len(t.attemptSeq))
 	for _, uid := range t.attemptSeq {
-		a := t.attempts[uid]
-		if a.consumed || a.readyNs >= d {
-			continue
-		}
-		if a.stopped && a.stopNs < d {
-			continue
-		}
-		if found != nil {
-			return nil, fmt.Errorf("preemption at %d has two running attempts (%s, %s); ambiguous pairing", d, found.uid, a.uid)
-		}
-		found = a
+		out = append(out, t.attempts[uid])
 	}
-	if found == nil {
-		return nil, fmt.Errorf("preemption at %d pairs to no running attempt", d)
+	slices.SortStableFunc(out, func(a, b *attempt) int {
+		switch {
+		case a.readyNs < b.readyNs:
+			return -1
+		case a.readyNs > b.readyNs:
+			return 1
+		default:
+			return 0
+		}
+	})
+	return out
+}
+
+// attemptsDoNotOverlap checks that a row's attempts, ordered by Ready, never run concurrently.
+//
+// It compares one attempt's stop instant against the NEXT attempt's Ready instant, and both come from the
+// same Pod watch, so unlike a decision-to-attempt comparison this ordering is trustworthy evidence, not a
+// delivery-latency artifact. A row runs with Parallelism: 1, one attempt at a time, so the earlier attempt
+// must have stopped before the later one became Ready.
+// An attempt with no observed stop cannot be shown to have ended, so it is treated as still open: a later
+// attempt becoming Ready while an earlier one has no observed stop is also an overlap, not a pass by
+// default.
+func attemptsDoNotOverlap(t *jobTimeline) error {
+	ordered := attemptsInStartOrder(t)
+	for i := 1; i < len(ordered); i++ {
+		prev, cur := ordered[i-1], ordered[i]
+		if !prev.stopped || prev.stopNs >= cur.readyNs {
+			return fmt.Errorf("attempt %s and attempt %s overlap: a row runs one attempt at a time",
+				prev.uid, cur.uid)
+		}
 	}
-	return found, nil
+	return nil
+}
+
+// pairPreemptionsToAttempts matches each preemption decision to the attempt it stopped, ordinally.
+//
+// It never compares a decision instant against an attempt instant, because those come from different
+// watches: a victim that honors SIGTERM and stops within a second can have its Pod terminal delivered
+// BEFORE the Workload preemption, and an instant comparison would reject the real victim as already
+// stopped. Both orderings it does use are within a single watch and therefore trustworthy — decisions
+// among decisions, attempts among attempts.
+//
+// Ordinal pairing is what the mechanism actually does: a row runs one attempt at a time, so the k-th
+// preemption is the one that stopped the k-th attempt. A row that was preempted once and then re-executed
+// has two attempts and one decision, and only the first attempt is charged — the retry was not preempted.
+func pairPreemptionsToAttempts(t *jobTimeline, decisions int) ([]*attempt, error) {
+	ordered := attemptsInStartOrder(t)
+	if decisions > len(ordered) {
+		return nil, fmt.Errorf("%d preemptions but only %d attempts; the ledger disagrees with the protocol",
+			decisions, len(ordered))
+	}
+	return ordered[:decisions], nil
 }
 
 // percentileNs is a nearest-rank percentile over a sorted slice, returning 0 for empty input.

@@ -1,0 +1,101 @@
+/*
+Copyright 2026.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package main
+
+import (
+	"context"
+	"errors"
+	"fmt"
+)
+
+// disposition is what happened to one invocation.
+//
+// The set is derived from the return graph of main and run rather than invented, because two earlier
+// attempts at an asserted list did not survive a walk of the real returns.
+type disposition string
+
+const (
+	dispRefusedBeforeCluster = disposition("refused-before-cluster")
+	dispClientFailed         = disposition("client-failed")
+	dispProtocolBuildFailed  = disposition("protocol-build-failed")
+	dispAcquisitionRefused   = disposition("acquisition-refused")
+	dispSetupFailed          = disposition("setup-failed")
+	dispCancelled            = disposition("cancelled")
+	// There is deliberately no "observation-failed": waitForHorizon has exactly two returns, a
+	// cancellation-wrapped error and nil, so an observation window can only end early by being cancelled.
+	// The failures that happen DURING observation are already named — a barrier that cannot be met desyncs
+	// the ledger and lands on collector-desync — so a constant for a non-cancellation observation failure
+	// would be a slot for a path no code can take.
+	dispCollectorDesync    = disposition("collector-desync")
+	dispReconstructRefused = disposition("reconstruct-refused")
+	dispCardinalityRefused = disposition("cardinality-refused")
+	dispWorkerNotRestored  = disposition("worker-not-restored")
+	// dispChecksPassed is deliberately not called "valid": four validity gates are unimplemented, so the
+	// strongest statement available is that the checks this build implements passed.
+	dispChecksPassed = disposition("completed-implemented-checks-passed")
+	// dispUnclassified is not reachable by design; it exists so that a bug which makes it reachable says so.
+	//
+	// Every return in run sets a disposition, but nothing in the language enforces that: deleting one
+	// assignment leaves the zero value, which the compiler and go vet both accept and which would be written
+	// as an empty disposition — a record that claims nothing while looking like a record. buildRecord
+	// substitutes this instead, so the failure names itself in the artifact rather than being a blank field
+	// a reader has to notice.
+	dispUnclassified = disposition("unclassified-internal-error")
+)
+
+// outcome is what run returns instead of a bare error, so its deferred cleanup can amend it.
+//
+// There is deliberately no error field. The record has nowhere to put one, and both classifiers below
+// already fold the cause into Reason, so an error carried alongside would be written by every path and read
+// by none — a field with no reader is the same dead weight as a disposition with no producer.
+type outcome struct {
+	Disposition disposition
+	Reason      string
+}
+
+// amend replaces the disposition while preserving what was originally decided as the cause.
+//
+// The deferred emergency release runs after run has chosen its return value, so without this the record
+// could be written and then contradicted by a WORKER NOT RESTORED line moments later.
+func (o outcome) amend(d disposition, reason string) outcome {
+	if o.Reason != "" {
+		reason = reason + " (after " + o.Reason + ")"
+	}
+	return outcome{Disposition: d, Reason: reason}
+}
+
+// classifyPhaseFailure applies the causal precedence rule.
+//
+// Cancellation outranks a phase only when that phase terminated because it observed cancellation; a phase
+// that failed on its own terms keeps its own disposition even if a signal is pending elsewhere.
+//
+// err is inspected rather than stored: it decides the precedence, and the caller has already folded its
+// text into reason.
+func classifyPhaseFailure(phase disposition, reason string, err error) outcome {
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return outcome{Disposition: dispCancelled, Reason: reason}
+	}
+	return outcome{Disposition: phase, Reason: reason}
+}
+
+// classifyReleaseFailure is separate because restoration wins once it has begun.
+//
+// The release runs on cleanupContext rather than the signal-cancelled run context, so a cancellation
+// surfacing beneath it does not mean the run was cancelled — it means restoration could not be proven.
+func classifyReleaseFailure(err error) outcome {
+	return outcome{Disposition: dispWorkerNotRestored, Reason: fmt.Sprintf("release: %v", err)}
+}

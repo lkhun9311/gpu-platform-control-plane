@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -258,6 +259,8 @@ func computeInfDPhase(infd *platformv1.InferenceDeployment, dep *appsv1.Deployme
 // markDegraded reflects a deterministic failure into status as Degraded with Available=False.
 //
 // ReadyReplicas is zeroed so a DeploymentConflict does not leave a stale ready count.
+//
+// It returns a RequeueAfter so the deployment recovers automatically once the blocking condition clears, since the conflicting Deployment or Service is by definition not owned and so does not trigger the Owns watch.
 func (r *InferenceDeploymentReconciler) markDegraded(ctx context.Context, infd *platformv1.InferenceDeployment, reason, msg string) (ctrl.Result, error) {
 	desired := infd.Status.DeepCopy()
 	desired.Phase = infdPhaseDegraded
@@ -275,7 +278,7 @@ func (r *InferenceDeploymentReconciler) markDegraded(ctx context.Context, infd *
 		// Count the transition only after the status write succeeds, so a reconcile that finds the object already Degraded does not inflate the metric.
 		inferenceDeploymentDegradedTotal.WithLabelValues(reason).Inc()
 	}
-	return ctrl.Result{}, nil
+	return ctrl.Result{RequeueAfter: time.Minute}, nil
 }
 
 // ownedConflict reports whether an object of the given name exists but is not controlled by infd.

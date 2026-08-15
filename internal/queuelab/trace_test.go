@@ -145,3 +145,50 @@ func TestReadTraceRejectsReorderedOffsets(t *testing.T) {
 		t.Fatalf("a trace with decreasing offsets must be rejected")
 	}
 }
+
+func TestTerminationContractTraceKeepsOwnRowAlive(t *testing.T) {
+	rows, err := TerminationContractTrace(60, 40)
+	if err != nil {
+		t.Fatalf("(60, 40) is the intended combination and must be accepted: %v", err)
+	}
+	if len(rows) != 3 {
+		t.Fatalf("got %d rows, want 3", len(rows))
+	}
+	byName := map[string]TrainingTraceRow{}
+	for _, r := range rows {
+		byName[r.Name] = r
+	}
+	own, victim := byName[OwnRow], byName[VictimRow]
+
+	// a1 must still be running when the owner is restored, or its natural release — not the victim's — can
+	// be what freed a device, which is exactly the confound that made the recorded run uninterpretable.
+	// The owner is restored at the earliest at the dose, and at the latest after the victim's full service
+	// plus the 30 s grace period, so a1 must outlive that with margin.
+	minimum := victim.DurationSec + 30
+	if own.DurationSec <= minimum {
+		t.Fatalf("a1 duration %d s must exceed victim service + grace (%d s) so it never releases first",
+			own.DurationSec, minimum)
+	}
+	if victim.DurationSec != 60 {
+		t.Fatalf("victim service = %d, want 60", victim.DurationSec)
+	}
+	if err := ValidateTrace(StudyReclaim, rows); err != nil {
+		t.Fatalf("trace must satisfy the reclaim study rules: %v", err)
+	}
+}
+
+func TestTerminationContractTraceRejectsADoseThatLeavesNothingToReclaim(t *testing.T) {
+	// A dose at or past the victim's full service means the owner returns after the victim would already be
+	// done, so the run would exercise ordinary sequencing rather than a mid-service reclamation.
+	if _, err := TerminationContractTrace(60, 600); err == nil {
+		t.Fatal("a dose that exceeds the victim's service must be rejected")
+	}
+}
+
+func TestTerminationContractTraceRejectsADoseOutsideTheGracePeriod(t *testing.T) {
+	// A dose that leaves the victim's remaining service at or beyond the 30 s grace period does not pin the
+	// return inside the grace-period restoration window the experiment is about.
+	if _, err := TerminationContractTrace(60, 0); err == nil {
+		t.Fatal("a dose that leaves remaining service outside the grace period must be rejected")
+	}
+}

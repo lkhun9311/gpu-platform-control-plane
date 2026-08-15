@@ -18,6 +18,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -25,7 +26,9 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/watch"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	kueuev1beta2 "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -56,11 +59,19 @@ type pendingEvent struct {
 // trace job by the UID chain and classifying it. It is the live half of the runner; the pure builder,
 // classifier, join, and adapter are the reviewed units it composes.
 type collector struct {
-	c       client.WithWatch
-	ns      string
-	runID   string
-	t0      time.Time
-	builder *queuelab.LedgerBuilder
+	c     client.WithWatch
+	ns    string
+	runID string
+	t0    time.Time
+	// deadline is the end of the observation window as an absolute instant, stamped from t0 before any
+	// barrier is waited on.
+	//
+	// It is one field rather than a value each caller derives because the barrier loop and the censoring
+	// boundary must be the SAME instant: two separately computed deadlines can drift apart, and a
+	// reconstruction censored against a different horizon than the one the schedule ran to is not a
+	// reconstruction of the run that happened.
+	deadline time.Time
+	builder  *queuelab.LedgerBuilder
 
 	mu        sync.Mutex
 	cache     map[string]queuelab.ObservedObject
@@ -70,12 +81,14 @@ type collector struct {
 	wg        sync.WaitGroup
 }
 
-func newCollector(c client.WithWatch, ns, runID string) *collector {
+func newCollector(c client.WithWatch, ns, runID string, horizon time.Duration) *collector {
+	t0 := time.Now()
 	return &collector{
 		c:         c,
 		ns:        ns,
 		runID:     runID,
-		t0:        time.Now(),
+		t0:        t0,
+		deadline:  t0.Add(horizon),
 		builder:   queuelab.NewLedgerBuilder(),
 		cache:     map[string]queuelab.ObservedObject{},
 		readyAt:   map[string]time.Time{},
@@ -84,6 +97,17 @@ func newCollector(c client.WithWatch, ns, runID string) *collector {
 }
 
 func (col *collector) elapsed() time.Duration { return time.Since(col.t0) }
+
+// horizonNs is the censoring boundary the reconstruction is given, as an offset on the collector's own clock.
+//
+// It is derived from the deadline stamped at construction rather than read off the clock when it is asked
+// for, because the run used to pass col.elapsed() AFTER the watches had been cancelled and joined: the
+// horizon was then the observation window plus however long shutdown took, a different number on every run
+// and a longer one whenever the API server was slow to close the watches.
+//
+// The subtraction is against t0 specifically because every ledger event's ElapsedNs is measured from t0; a
+// boundary taken from any other origin would be offset from the very events it censors.
+func (col *collector) horizonNs() int64 { return col.deadline.Sub(col.t0).Nanoseconds() }
 
 // start launches one watch goroutine per GVR.
 func (col *collector) start(ctx context.Context) {
@@ -95,6 +119,20 @@ func (col *collector) start(ctx context.Context) {
 
 func (col *collector) wait() { col.wg.Wait() }
 
+// desync invalidates the run from the main goroutine, which is the only caller that does not already hold mu.
+//
+// LedgerBuilder has no locking of its own — invalid, events, lastEvent and ready are plain fields — and the
+// four watch goroutines call Observe through flush under this mutex for the whole run. Calling Desync
+// directly from the main goroutine is therefore a data race on the single field that decides whether the run
+// is allowed to produce a number at all, which is the one thing this package may not get wrong. The lock
+// belongs here rather than inside internal/queuelab because mu already serialises every other access to the
+// builder, and a second, independent mutex would only make that ownership ambiguous.
+func (col *collector) desync(reason string) {
+	col.mu.Lock()
+	defer col.mu.Unlock()
+	col.builder.Desync(reason)
+}
+
 func (col *collector) watch(ctx context.Context, kind string, newList func() client.ObjectList) {
 	col.wg.Go(func() {
 		for ctx.Err() == nil {
@@ -103,7 +141,11 @@ func (col *collector) watch(ctx context.Context, kind string, newList func() cli
 				if ctx.Err() != nil {
 					return
 				}
-				time.Sleep(time.Second)
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(time.Second):
+				}
 				continue
 			}
 			for ev := range w.ResultChan() {
@@ -226,27 +268,90 @@ func classify(kind string, obj client.Object) queuelab.ObservedState {
 // ---- schedule execution (barrier polling against the live cluster) ----
 
 // waitBarriers blocks until every barrier in after holds, polling the cluster, or errors on the deadline.
+//
+// The deadline is the collector's own stamped one rather than a parameter, so the window the schedule runs
+// to and the horizon the reconstruction censors against cannot be two different instants.
 func waitBarriers(ctx context.Context, c client.Client, ns string, after []queuelab.Barrier,
-	col *collector, deadline time.Time) error {
+	col *collector) error {
 	for _, b := range after {
-		if err := waitBarrier(ctx, c, ns, b, col, deadline); err != nil {
+		if err := waitBarrier(ctx, c, ns, b, col); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func waitBarrier(ctx context.Context, c client.Client, ns string, b queuelab.Barrier,
-	col *collector, deadline time.Time) error {
+// errUnknownBarrier marks a barrier kind this executable has no check for.
+//
+// It is a sentinel rather than a bare message so waitBarrier can recognise it as terminal: polling a kind
+// nothing can ever evaluate would burn the whole observation window on a programming error and then report
+// it as a protocol outcome.
+var errUnknownBarrier = errors.New("unknown barrier kind")
+
+// barrierTerminal reports whether an error from barrierHolds is one that no amount of further polling can
+// clear.
+//
+// The distinction is the point: a barrier waits for an object to APPEAR, so the ordinary failure while it
+// waits is a NotFound (already folded into "not met" by phaseIs) and every transient API error is worth
+// retrying. But an authorization failure, a kind the cluster or the scheme does not know, and a barrier this
+// tool cannot evaluate are all states that will still hold at the deadline, and polling them until the
+// horizon expires spends the entire run to report an infrastructure failure as "barrier not met".
+//
+// NotFound is deliberately NOT terminal: it is indistinguishable from an object that has not been created
+// yet, which is exactly what a barrier exists to wait for.
+func barrierTerminal(err error) bool {
+	switch {
+	case errors.Is(err, errUnknownBarrier):
+		return true
+	case apierrors.IsUnauthorized(err), apierrors.IsForbidden(err):
+		return true
+	case meta.IsNoMatchError(err), runtime.IsNotRegisteredError(err):
+		// The CRD is absent from the cluster, or its kind from this client's scheme; either way no request
+		// this loop can issue will ever succeed.
+		return true
+	default:
+		return false
+	}
+}
+
+func waitBarrier(ctx context.Context, c client.Client, ns string, b queuelab.Barrier, col *collector) error {
+	// The most recent check error is kept so the horizon refusal can carry it: a barrier that was failing for
+	// a retryable reason right up to the deadline used to report only "not met", which tells the operator
+	// nothing about why it was never met.
+	var lastErr error
 	for {
 		ok, err := barrierHolds(ctx, c, ns, b, col)
 		if err == nil && ok {
 			return nil
 		}
-		if time.Now().After(deadline) {
+		if err != nil {
+			lastErr = err
+			// Cancellation is reported as itself rather than as a barrier outcome, whether it arrives through
+			// the select below or through the API call this check just made; Task 3 established that and it
+			// must survive this classification.
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return fmt.Errorf("barrier %s(job=%s) observation cancelled (last check: %v): %w",
+					b.Kind, b.Job, err, ctxErr)
+			}
+			if barrierTerminal(err) {
+				return fmt.Errorf("barrier %s(job=%s,count=%d,delay=%d) cannot be met: %w",
+					b.Kind, b.Job, b.Count, b.DelaySec, err)
+			}
+		}
+		if time.Now().After(col.deadline) {
+			if lastErr != nil {
+				return fmt.Errorf("barrier %s(job=%s,count=%d,delay=%d) not met before horizon; the last check failed: %w",
+					b.Kind, b.Job, b.Count, b.DelaySec, lastErr)
+			}
 			return fmt.Errorf("barrier %s(job=%s,count=%d,delay=%d) not met before horizon", b.Kind, b.Job, b.Count, b.DelaySec)
 		}
-		time.Sleep(2 * time.Second)
+		// Cancellation is reported as itself rather than as "barrier not met", which would misread an
+		// operator's Ctrl-C as a protocol failure in the ledger's desync note.
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(2 * time.Second):
+		}
 	}
 }
 
@@ -276,7 +381,7 @@ func barrierHolds(ctx context.Context, c client.Client, ns string, b queuelab.Ba
 		}
 		return time.Since(ready) >= time.Duration(b.DelaySec)*time.Second, nil
 	default:
-		return false, fmt.Errorf("unknown barrier %s", b.Kind)
+		return false, fmt.Errorf("%w %s", errUnknownBarrier, b.Kind)
 	}
 }
 
@@ -305,9 +410,17 @@ func runningCount(ctx context.Context, c client.Client, ns string) (int, error) 
 	return n, nil
 }
 
-// submit renders and creates the trace job, then records its Submitted event.
-func submit(ctx context.Context, c client.Client, col *collector, row queuelab.TrainingTraceRow, ns string) error {
-	mltj := queuelab.RenderMLTrainingJob(row, ns)
+// submit renders and creates the trace job under its own row's contract, then records its Submitted event.
+func submit(ctx context.Context, c client.Client, col *collector, arm queuelab.Arm,
+	row queuelab.TrainingTraceRow, ns string) error {
+	// The contract is resolved per row rather than per arm because the treatment is the VICTIM's behaviour;
+	// rendering the whole arm with one contract would change all three manifests when exactly one is meant
+	// to differ.
+	contract, err := arm.ContractFor(row.Name)
+	if err != nil {
+		return err
+	}
+	mltj := queuelab.RenderMLTrainingJobWithContract(row, ns, contract)
 	if err := c.Create(ctx, mltj); err != nil {
 		return err
 	}
@@ -325,7 +438,22 @@ func ensureNamespace(ctx context.Context, c client.Client, ns string) error {
 	return nil
 }
 
-func applyFixtures(ctx context.Context, c client.Client, fs *queuelab.FixtureSet) error {
+// applyFixtures creates the run's Kueue fixtures, first checking that a cluster-scoped ResourceFlavor left
+// behind by an earlier run under this run id (only the namespace is ever cleaned up by hand) was built for
+// the same policy variant this arm requires, so a reused run id cannot silently execute under a different
+// arm's mechanism.
+func applyFixtures(ctx context.Context, c client.Client, fs *queuelab.FixtureSet, wantVariant string) error {
+	var existing kueuev1beta2.ResourceFlavor
+	err := c.Get(ctx, client.ObjectKey{Name: fs.Flavor.GetName()}, &existing)
+	switch {
+	case err == nil:
+		if verr := checkFlavorVariant(existing.Labels, wantVariant); verr != nil {
+			return fmt.Errorf("resource flavor %s: %w", fs.Flavor.GetName(), verr)
+		}
+	case !apierrors.IsNotFound(err):
+		return fmt.Errorf("get resource flavor %s: %w", fs.Flavor.GetName(), err)
+	}
+
 	objs := make([]client.Object, 0, 1+len(fs.ClusterQueue)+len(fs.LocalQueue))
 	objs = append(objs, fs.Flavor)
 	for _, cq := range fs.ClusterQueue {
@@ -340,51 +468,4 @@ func applyFixtures(ctx context.Context, c client.Client, fs *queuelab.FixtureSet
 		}
 	}
 	return nil
-}
-
-const (
-	workerLabelKey = "queuelab.gpu-platform/worker"
-	workerTaintKey = "queuelab.gpu-platform/dedicated"
-)
-
-func dedicateWorker(ctx context.Context, c client.Client, node, runID string) error {
-	var n corev1.Node
-	if err := c.Get(ctx, client.ObjectKey{Name: node}, &n); err != nil {
-		return err
-	}
-	base := n.DeepCopy()
-	if n.Labels == nil {
-		n.Labels = map[string]string{}
-	}
-	n.Labels[workerLabelKey] = runID
-	n.Spec.Taints = upsertTaint(n.Spec.Taints,
-		corev1.Taint{Key: workerTaintKey, Value: runID, Effect: corev1.TaintEffectNoSchedule})
-	return c.Patch(ctx, &n, client.MergeFrom(base))
-}
-
-func releaseWorker(ctx context.Context, c client.Client, node string) error {
-	var n corev1.Node
-	if err := c.Get(ctx, client.ObjectKey{Name: node}, &n); err != nil {
-		return err
-	}
-	base := n.DeepCopy()
-	delete(n.Labels, workerLabelKey)
-	kept := n.Spec.Taints[:0]
-	for _, t := range n.Spec.Taints {
-		if t.Key != workerTaintKey {
-			kept = append(kept, t)
-		}
-	}
-	n.Spec.Taints = kept
-	return c.Patch(ctx, &n, client.MergeFrom(base))
-}
-
-func upsertTaint(taints []corev1.Taint, t corev1.Taint) []corev1.Taint {
-	for i := range taints {
-		if taints[i].Key == t.Key {
-			taints[i] = t
-			return taints
-		}
-	}
-	return append(taints, t)
 }

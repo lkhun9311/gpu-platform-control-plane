@@ -34,7 +34,9 @@ phases() {
   echo "--- Workloads (admitted) ---" | tee -a "$LOG"
   k get workloads -A -o custom-columns=NS:.metadata.namespace,NAME:.metadata.name,QUEUE:.spec.queueName,ADMITTED:'.status.conditions[?(@.type=="Admitted")].status' 2>&1 | tee -a "$LOG"
   echo "--- ClusterQueue usage ---" | tee -a "$LOG"
-  k get clusterqueue -o custom-columns=NAME:.metadata.name,COHORT:.spec.cohort,PENDING:.status.pendingWorkloads,ADMITTED:.status.admittedWorkloads 2>&1 | tee -a "$LOG"
+  # cohortName, not cohort: v1beta2 renamed the field, and querying the old one made every
+  # ClusterQueue in the evidence log read COHORT <none> even though the cohort was set.
+  k get clusterqueue -o custom-columns=NAME:.metadata.name,COHORT:.spec.cohortName,PENDING:.status.pendingWorkloads,ADMITTED:.status.admittedWorkloads 2>&1 | tee -a "$LOG"
 }
 
 # wait_phase NS NAME WANT TIMEOUT
@@ -159,6 +161,10 @@ for i in $(seq 1 40); do
 done
 cap k get clusterqueue -o custom-columns=NAME:.metadata.name,COHORT:.spec.cohortName,NOMINAL:.spec.resourceGroups[0].flavors[0].resources[0].nominalQuota,RECLAIM:.spec.preemption.reclaimWithinCohort
 cap k get localqueue -A
+# Captured rather than asserted in prose: with trainingQuota true the GPU ceiling must live only in the
+# ClusterQueue, and a stale namespace ResourceQuota left by an earlier run is exactly what would silently
+# double-count it, so the absence has to be in the evidence log.
+cap k get resourcequota -A
 
 step "6. FAIR SHARING: two tenant-a jobs while tenant-b is idle"
 log "clearing any MLTrainingJobs from a previous run so the demo starts from an empty cohort..."

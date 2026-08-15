@@ -183,8 +183,13 @@ var _ = Describe("InferenceDeployment Controller", func() {
 
 			before := testutil.ToFloat64(inferenceDeploymentDegradedTotal.WithLabelValues(infdReasonConflict))
 
-			_, err := reconciler().Reconcile(ctx, reconcile.Request{NamespacedName: key})
+			res, err := reconciler().Reconcile(ctx, reconcile.Request{NamespacedName: key})
 			Expect(err).NotTo(HaveOccurred())
+
+			// The result is asserted, not discarded, because discarding it is what let a Degraded resource stay Degraded forever.
+			//
+			// The conflicting Deployment is not owned by this InferenceDeployment, so deleting it fires no Owns watch and schedules no reconcile; without a RequeueAfter nothing ever looks again and the resource never recovers on its own.
+			Expect(res.RequeueAfter).To(BeNumerically(">", 0))
 
 			Expect(mustGet(ctx, key).Status.Phase).To(Equal("Degraded"))
 			got := &appsv1.Deployment{}

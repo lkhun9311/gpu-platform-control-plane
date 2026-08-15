@@ -5,6 +5,8 @@ IMG ?= controller:latest
 GATEWAY_IMG ?= gateway:latest
 # gpu-simulator is a third, independent process (a DaemonSet, not a Deployment), so it takes its own tag for the same reason.
 GPU_SIMULATOR_IMG ?= gpu-simulator:latest
+# benchharness stub-serve runs in-cluster as the backend the gateway-path evidence routes to, so it needs its own tag too.
+BENCHHARNESS_IMG ?= benchharness:latest
 # YEAR defines the year value used for substituting the YEAR placeholder in the boilerplate header.
 YEAR ?= $(shell date +%Y)
 
@@ -152,6 +154,10 @@ docker-build-gpu-simulator: ## Build docker image with gpu-simulator.
 .PHONY: docker-push-gpu-simulator
 docker-push-gpu-simulator: ## Push docker image with gpu-simulator.
 	$(CONTAINER_TOOL) push ${GPU_SIMULATOR_IMG}
+
+.PHONY: docker-build-benchharness
+docker-build-benchharness: ## Build docker image with benchharness (entrypoint: stub-serve).
+	$(CONTAINER_TOOL) build -t ${BENCHHARNESS_IMG} -f Dockerfile.benchharness .
 
 # If you wish to build the manager image targeting other platforms you can use the --platform flag.
 # (i.e. docker build --platform linux/arm64). However, you must enable docker buildKit for it.

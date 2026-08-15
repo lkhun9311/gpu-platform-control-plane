@@ -22,6 +22,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
+	"math"
 	"net/http"
 	"strings"
 	"time"
@@ -38,22 +41,185 @@ type HTTPSender struct {
 	apiKeys map[string]string
 	// timeout bounds a single request; on expiry the row is recorded as a timeout rather than dropped.
 	timeout time.Duration
+	// drain reports whether the unread tail of each response is consumed so its connection can be pooled.
+	//
+	// It is a field rather than always-on so a run can reproduce the client this replaced and measure the difference; see SenderConn.
+	drain bool
 	// now is injected only by tests; production uses the wall clock.
 	now func() time.Time
 }
 
+// SenderConn configures how a sender handles the connections it makes.
+//
+// The two fields travel together because neither is worth anything alone: a sized pool has nothing to pool
+// if every response body is abandoned before EOF, and draining still throws connections away if the pool
+// only holds two of them.
+type SenderConn struct {
+	// MaxIdleConnsPerHost sizes the idle pool kept per host.
+	//
+	// Zero means "no Transport of our own", which makes http.Client fall back to http.DefaultTransport and
+	// its default of 2 (net/http's DefaultMaxIdleConnsPerHost).
+	MaxIdleConnsPerHost int
+	// DrainForReuse reads the unread tail of each response so its connection can go back to the pool.
+	DrainForReuse bool
+}
+
+// The sender modes name whole generations of this client's connection handling, not individual knobs.
+//
+// They exist so the cost of the change can be measured rather than asserted: SenderModeLegacy reproduces
+// exactly the client this replaced, SenderModePooled is what a real run uses, and SenderModeDrainOnly sits
+// between them so the improvement can be attributed to the drain and the pool separately instead of being
+// reported as one lump.
+const (
+	// SenderModeLegacy is the client as it was: http.DefaultTransport, and no drain.
+	SenderModeLegacy = "legacy"
+	// SenderModeDrainOnly keeps Go's default two-connection pool but drains, isolating the drain's share.
+	SenderModeDrainOnly = "drain-only"
+	// SenderModePooled is the current client: a pool sized from the run, plus the drain that lets it be used.
+	SenderModePooled = "pooled"
+)
+
+// SenderConnForMode resolves a mode name against the trace about to be replayed.
+//
+// An unrecognized mode is an error rather than a fallback: silently replaying with the wrong client would
+// fold the instrument's own TCP handshakes into a latency number nobody would think to question.
+func SenderConnForMode(mode string, trace []TraceRow, timeout time.Duration) (SenderConn, error) {
+	switch mode {
+	case SenderModeLegacy:
+		return SenderConn{}, nil
+	case SenderModeDrainOnly:
+		return SenderConn{DrainForReuse: true}, nil
+	case SenderModePooled:
+		return SenderConn{MaxIdleConnsPerHost: PoolSizeForTrace(trace, timeout), DrainForReuse: true}, nil
+	default:
+		return SenderConn{}, fmt.Errorf("unknown sender mode %q; want %q, %q or %q",
+			mode, SenderModeLegacy, SenderModeDrainOnly, SenderModePooled)
+	}
+}
+
+// PoolSizeForTrace returns how many idle connections a replay of trace should keep warm per host.
+//
+// Why the sender needs this at all.
+//
+// The client used to be built with no Transport, so it used http.DefaultTransport and its
+// MaxIdleConnsPerHost of 2 (net/http's DefaultMaxIdleConnsPerHost). The gateway's own outbound pool was
+// raised off that same default for exactly the reason that matters here (internal/gateway/proxy.go): under
+// open-loop dispatch many requests to one host are in flight at once, and a cap of 2 closes all but two of
+// those connections the moment a wave completes, so the next wave handshakes again.
+//
+// In the client that cost lands inside the latency the harness reports rather than in the system under test.
+// It was measured (hack/m5b-gateway-path-evidence.log): replaying an 884-request trace with the old client
+// opened 431 connections, exactly 2.0 requests per connection, which is Go's default cap reproduced to the
+// decimal. The same trace with this pool and the drain opened 6.
+//
+// Where the number comes from.
+//
+// It is derived per run rather than being a constant, because the harness's in-flight ceiling is a property
+// of the run's own parameters, not of the harness. Dispatch is open-loop (Replay never waits for a response),
+// so in-flight requests accumulate at the trace's arrival rate and leave only by completing or timing out,
+// giving a hard ceiling of rate x timeout. That is the same shape of derivation the gateway uses, and
+// deliberately not a copy of the gateway's 600: 600 is what that formula happens to give for one particular
+// pair of flag values.
+//
+// The result is additionally capped at len(trace), since a trace cannot have more requests in flight than it
+// contains, and floored at Go's default of 2 so this can never be worse than what it replaces.
+//
+// What is assumed rather than derived.
+//
+// This is the ceiling, not the steady state. Observation puts real concurrency far below it: peak in-flight
+// was 6 at rate 20/s against a millisecond-scale backend and 97 at rate 40/s against a two-second backend
+// (same log). The ceiling is used anyway for the same reason the gateway uses one: this setting never opens
+// a connection, it only decides whether an already-established one is kept when it goes idle, so it cannot
+// push the socket count above the concurrency the process already reached.
+func PoolSizeForTrace(trace []TraceRow, timeout time.Duration) int {
+	if len(trace) == 0 {
+		return http.DefaultMaxIdleConnsPerHost
+	}
+	// The trace's own offsets are the arrival schedule, so the offered rate is read off them rather than
+	// taken from a flag the replayer does not see.
+	spanMs := trace[len(trace)-1].OffsetMs - trace[0].OffsetMs
+	ceiling := len(trace)
+	if spanMs > 0 {
+		rate := float64(len(trace)) / (float64(spanMs) / 1000.0)
+		ceiling = int(math.Ceil(rate * timeout.Seconds()))
+	}
+	// A trace fired entirely at one offset, or one whose ceiling exceeds its own length, is bounded by how
+	// many requests exist at all.
+	ceiling = min(ceiling, len(trace))
+	return max(ceiling, http.DefaultMaxIdleConnsPerHost)
+}
+
 // NewHTTPSender builds a sender targeting gatewayURL for model, resolving each tenant through apiKeys.
-func NewHTTPSender(gatewayURL, model string, apiKeys map[string]string, timeout time.Duration) *HTTPSender {
+//
+// conn selects the connection handling; pass SenderConnForMode(SenderModePooled, ...) for a real run.
+func NewHTTPSender(gatewayURL, model string, apiKeys map[string]string, timeout time.Duration, conn SenderConn) *HTTPSender {
 	return &HTTPSender{
 		client: &http.Client{
 			// No redirects: the gateway answers directly, and a redirect would point somewhere unmeasured.
 			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+			Transport:     newSenderTransport(conn.MaxIdleConnsPerHost),
 		},
 		gatewayURL: strings.TrimRight(gatewayURL, "/"),
 		model:      model,
 		apiKeys:    apiKeys,
 		timeout:    timeout,
+		drain:      conn.DrainForReuse,
 		now:        time.Now,
+	}
+}
+
+// maxDrainBytes bounds how much of an unread response body is consumed to make its connection reusable.
+//
+// After "data: [DONE]" only the stream terminator remains, so the normal case is a handful of bytes; the
+// bound is what stops a server that keeps writing from holding the sender open on a body nobody wants.
+const maxDrainBytes = 8 << 10 // 8KB
+
+// drainForReuse reads whatever is left of a response body so its connection can return to the idle pool.
+//
+// This is not an optimization, it is what makes the pool a pool at all. http.Transport returns a connection
+// to the idle pool only once the body has been read to EOF; closing a body early marks the connection
+// unusable and closes it, so a sized MaxIdleConnsPerHost would have nothing to keep.
+//
+// The reader breaks out of the stream at "[DONE]" without consuming the terminator, which is correct for
+// measurement (the last token is what TTFT and end-time are about) but leaves exactly that unread remainder.
+// The "reuses one connection across sequential requests" spec in httpsender_test.go fails without this line,
+// observing a fresh dial where the pool should have served, which is the pin holding it in place.
+//
+// Of the two changes this is the larger one by some way. Measured on one 884-request trace
+// (hack/m5b-gateway-path-evidence.log), draining alone took the client from 431 connections to 53, and
+// sizing the pool took it from 53 to 6: the drain accounts for 378 of the 425 connections no longer opened.
+//
+// A drain that hits the bound without reaching EOF simply forfeits reuse for that one connection, so the
+// failure mode is a lost optimization rather than a wrong number. The request's own deadline bounds it too.
+func drainForReuse(body io.Reader) {
+	_, _ = io.Copy(io.Discard, io.LimitReader(body, maxDrainBytes))
+}
+
+// newSenderTransport returns the one Transport a sender uses for every request it makes.
+//
+// A nil return means http.Client falls back to http.DefaultTransport, which is what GoDefaultConnPool
+// selects; that path is kept only so the before/after of introducing the pool can be measured.
+//
+// One Transport per sender, and one sender per replay, is what makes the pool a pool: a Transport owns the
+// idle-connection pool, so one built per request would pool nothing at all.
+func newSenderTransport(maxIdleConnsPerHost int) http.RoundTripper {
+	if maxIdleConnsPerHost <= 0 {
+		return nil
+	}
+	return &http.Transport{
+		MaxIdleConnsPerHost: maxIdleConnsPerHost,
+		// IdleConnTimeout matches http.DefaultTransport's 90s rather than being left at zero, which would
+		// mean "never close an idle connection"; a benchmark process is short-lived, but a harness that
+		// leaks sockets on a long run would be measuring its own file-descriptor pressure.
+		IdleConnTimeout: 90 * time.Second,
+		// MaxIdleConns is left zero (no total cap) for the same reason the gateway leaves it zero: a shared
+		// total would let traffic to one host evict the connections of another, which in a two-tenant
+		// noisy-neighbour benchmark is precisely the coupling the run exists to detect and must not
+		// introduce itself.
+		//
+		// There is deliberately no MaxConnsPerHost either: that one blocks dispatch when the limit is
+		// reached, which would turn this open-loop sender into a closed-loop one and reintroduce the
+		// coordinated omission the design goes to some trouble to avoid.
 	}
 }
 
@@ -125,6 +291,13 @@ func (h *HTTPSender) Send(ctx context.Context, row TraceRow, sendUnixNanos int64
 // Each chunk carrying a non-empty content delta counts as one output token, which is an approximation the report labels as such; an exact count needs the tokenizer, deferred to the paid run.
 func (h *HTTPSender) readStream(ctx context.Context, resp *http.Response) SendResult {
 	res := SendResult{HTTPStatus: http.StatusOK}
+	// Deferred, so it runs on every return path and always AFTER that path has stamped EndUnixNanos.
+	//
+	// Ordering is the whole point: draining is bookkeeping for the next request, not part of this one's
+	// latency, and stamping after it would fold the drain into the measurement.
+	if h.drain {
+		defer drainForReuse(resp.Body)
+	}
 	sc := bufio.NewScanner(resp.Body)
 	sc.Buffer(make([]byte, 0, 64*1024), 1<<20)
 

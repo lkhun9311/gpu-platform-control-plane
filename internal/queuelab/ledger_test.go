@@ -164,10 +164,14 @@ func TestWasteNoStopChargesToHorizonAsUnattributedOccupancy(t *testing.T) {
 	}
 }
 
-func TestReconstructRejectsAmbiguousPreemptionPairing(t *testing.T) {
-	// Two attempts are both running when a preemption is decided (an inconsistent one-Pod history). A
-	// Workload preemption delta names no Pod UID, so pairing is ambiguous; Reconstruct refuses rather than
-	// heuristically charging one attempt's waste.
+func TestReconstructRejectsOverlappingAttempts(t *testing.T) {
+	// Two attempts are both Ready with neither observed to stop.
+	// Both instants compared here -- one attempt's Ready and the other's Ready/stop -- come from the SAME
+	// Pod watch, so unlike a decision-to-attempt comparison this ordering is trustworthy evidence, not a
+	// delivery-latency artifact.
+	// A row runs with Parallelism: 1, one attempt at a time, so it cannot legitimately have two attempts
+	// Ready at once: the ledger disagrees with the mechanism, and Reconstruct must refuse it rather than
+	// silently pairing the preemption to one of them.
 	trace := []TrainingTraceRow{{Index: 0, Name: "a2", OffsetMs: 0, Tenant: "tenant-a", GPUCount: 1, DurationSec: 300}}
 	events := []LifecycleEvent{
 		{ElapsedNs: 0, Kind: "MLTrainingJob", Type: EventSubmitted, Job: "a2", GPUCount: 1},
@@ -177,7 +181,41 @@ func TestReconstructRejectsAmbiguousPreemptionPairing(t *testing.T) {
 		{ElapsedNs: 30 * sec, Kind: "Workload", Type: EventPreempted, Job: "a2", GPUCount: 1, Reason: "InCohortReclamation"},
 	}
 	if _, err := Reconstruct("Any", trace, events, 100*sec); err == nil {
-		t.Fatalf("two concurrently-running attempts at a preemption must error as ambiguous")
+		t.Fatalf("two attempts Ready with neither stopped must error as overlapping")
+	}
+}
+
+func TestReconstructAllowsSequentialReExecutionWithOrdinalPreemptionPairing(t *testing.T) {
+	// The legitimate re-execution shape: one attempt Ready at 10s and stopped at 20s, then a second Ready at
+	// 30s -- sequential, not overlapping, so attemptsDoNotOverlap must let it through.
+	// A Workload preemption delta names no Pod UID, so pairing uses ordinal order: with one decision and two
+	// attempts it pairs to the first (only) attempt that was running when the row had a single attempt.
+	trace := []TrainingTraceRow{{Index: 0, Name: "a2", OffsetMs: 0, Tenant: "tenant-a", GPUCount: 1, DurationSec: 300}}
+	events := []LifecycleEvent{
+		{ElapsedNs: 0, Kind: "MLTrainingJob", Type: EventSubmitted, Job: "a2", GPUCount: 1},
+		{ElapsedNs: 1 * sec, Kind: "Workload", Type: EventAdmitted, Job: "a2", GPUCount: 1},
+		{ElapsedNs: 10 * sec, Kind: "Pod", Type: EventPodReady, Job: "a2", GPUCount: 1, ObjectUID: "pod-A"},
+		{ElapsedNs: 20 * sec, Kind: "Pod", Type: EventAttemptStopped, Job: "a2", GPUCount: 1, ObjectUID: "pod-A", Reason: StopReasonFailed},
+		{ElapsedNs: 30 * sec, Kind: "Pod", Type: EventPodReady, Job: "a2", GPUCount: 1, ObjectUID: "pod-B"},
+		{ElapsedNs: 40 * sec, Kind: "Workload", Type: EventPreempted, Job: "a2", GPUCount: 1, Reason: "InCohortReclamation"},
+	}
+	res, err := Reconstruct("Any", trace, events, 100*sec)
+	if err != nil {
+		t.Fatalf("sequential re-execution must not be rejected as overlapping: %v", err)
+	}
+	var a2 WorkloadOutcome
+	for _, o := range res.Outcomes {
+		if o.Job == "a2" {
+			a2 = o
+		}
+	}
+	if a2.Preemptions != 1 {
+		t.Fatalf("a2 preemptions = %d, want 1", a2.Preemptions)
+	}
+	// The preemption pairs ordinally to the first attempt (pod-A, ready 10s -> stopped Failed at 20s), so
+	// its 10 GPU-seconds are charged as exact waste; the second attempt is untouched by the preemption.
+	if a2.WastedGPUSeconds != 10 {
+		t.Fatalf("a2 waste = %.1f, want 10 (charged to the first attempt only)", a2.WastedGPUSeconds)
 	}
 }
 
@@ -286,16 +324,18 @@ func TestReconstructRejectsMissingSubmission(t *testing.T) {
 	}
 }
 
-func TestReconstructRejectsAdmittedBeforeSubmitted(t *testing.T) {
-	// Independent GVR watchers could journal an admission before the submission; a real run cannot admit
-	// what was never submitted, so this impossible ordering is an error, not a negative latency.
+func TestReconstructToleratesAdmittedBeforeSubmitted(t *testing.T) {
+	// The Submitted stamp is written by the client after its Create call returns, while admission
+	// is observed on a separate Workload watch; each has independent delivery latency.
+	// A reversal in their arrival order is a latency artifact, not impossible evidence.
+	// Rejecting such traces would discard runs that actually executed correctly.
 	trace := []TrainingTraceRow{{Index: 0, Name: "a1", OffsetMs: 0, Tenant: "tenant-a", GPUCount: 1, DurationSec: 10}}
 	events := []LifecycleEvent{
 		{ElapsedNs: 5 * sec, Kind: "MLTrainingJob", Type: EventSubmitted, Job: "a1", GPUCount: 1},
 		{ElapsedNs: 1 * sec, Kind: "Workload", Type: EventAdmitted, Job: "a1", GPUCount: 1},
 	}
-	if _, err := Reconstruct("Any", trace, events, 100*sec); err == nil {
-		t.Fatalf("admitted-before-submitted must error")
+	if _, err := Reconstruct("Any", trace, events, 100*sec); err != nil {
+		t.Fatalf("admitted-before-submitted is a legal cross-watch reordering: %v", err)
 	}
 }
 
@@ -680,20 +720,23 @@ func twoPreemptedAttemptsTrace() []TrainingTraceRow {
 	return []TrainingTraceRow{{Index: 0, Name: "m1", OffsetMs: 0, Tenant: "tenant-a", GPUCount: 1, DurationSec: 60}}
 }
 
-// twoPreemptedAttemptsEvents preempts two different attempts on the same row: the first stops Failed beyond
-// the horizon (a non-zero censored waste lower bound), the second reaches no terminal phase at all (a
-// non-zero unattributed occupancy), so both terms of the invariant are non-zero on the very same row.
+// twoPreemptedAttemptsEvents preempts two different attempts on the same row, SEQUENTIALLY: a row runs
+// Parallelism: 1, one attempt at a time, so the second attempt's Ready only follows the first attempt's
+// observed stop (attemptsDoNotOverlap enforces exactly this). The first stops Failed in-horizon (a non-zero
+// exact waste, which also lower-bounds it), and the second reaches no terminal phase at all by the horizon
+// (a non-zero unattributed occupancy), so both terms of the invariant are non-zero on the very same row.
 func twoPreemptedAttemptsEvents() []LifecycleEvent {
 	return []LifecycleEvent{
 		{ElapsedNs: 0, Kind: "MLTrainingJob", Type: EventSubmitted, Job: "m1", GPUCount: 1},
 		{ElapsedNs: 1 * sec, Kind: "Workload", Type: EventAdmitted, Job: "m1", GPUCount: 1},
 		{ElapsedNs: 2 * sec, Kind: "Pod", Type: EventPodReady, Job: "m1", GPUCount: 1, ObjectUID: "pod-m1-a"},
 		{ElapsedNs: 10 * sec, Kind: "Workload", Type: EventPreempted, Job: "m1", GPUCount: 1, Reason: "InCohortReclamation"},
-		// The first attempt's Failed phase lands beyond the horizon: attributable loss, truncated interval.
-		{ElapsedNs: 60 * sec, Kind: "Pod", Type: EventAttemptStopped, Job: "m1", GPUCount: 1, ObjectUID: "pod-m1-a", Reason: StopReasonFailed},
+		// The first attempt's Failed phase lands in-horizon: an exact, attributable loss.
+		{ElapsedNs: 20 * sec, Kind: "Pod", Type: EventAttemptStopped, Job: "m1", GPUCount: 1, ObjectUID: "pod-m1-a", Reason: StopReasonFailed},
 
-		{ElapsedNs: 15 * sec, Kind: "Pod", Type: EventPodReady, Job: "m1", GPUCount: 1, ObjectUID: "pod-m1-b"},
-		{ElapsedNs: 20 * sec, Kind: "Workload", Type: EventPreempted, Job: "m1", GPUCount: 1, Reason: "InCohortReclamation"},
+		// Ready only after pod-m1-a's stop at 20s, so the row never runs two attempts at once.
+		{ElapsedNs: 25 * sec, Kind: "Pod", Type: EventPodReady, Job: "m1", GPUCount: 1, ObjectUID: "pod-m1-b"},
+		{ElapsedNs: 30 * sec, Kind: "Workload", Type: EventPreempted, Job: "m1", GPUCount: 1, Reason: "InCohortReclamation"},
 		// The second attempt reaches no terminal phase by the horizon at all: cause unknown.
 	}
 }
@@ -940,11 +983,19 @@ func TestReconstructCreditsASoleAttemptWithTheRowsCompletion(t *testing.T) {
 	}
 }
 
-func TestReconstructDoesNotCreditACompletionToOneOfSeveralAttempts(t *testing.T) {
-	// With two attempts the row's completion says nothing about WHICH attempt it belongs to, so the preempted
-	// attempt cannot be credited with it; guessing here would re-introduce inference from adjacency.
+// TestReconstructChargesAPreemptedAttemptsOwnFailedStopEvenWhenTheRowLaterCompletes checks a DIFFERENT rule
+// than its name once suggested: this attempt has its own observed Failed stop, so it is resolved in the
+// "a.stopped" branch of chargeWaste and never reaches the "no stop observed" fallback where the
+// len(attemptSeq)==1 credit gate lives. What this pins is that the row's later completion (which belongs to
+// the retry) is not read back onto an already-resolved earlier attempt. The credit-gate rule itself -- that a
+// completion may only be credited when there is exactly one attempt -- is pinned by
+// TestReconstructDoesNotCreditACompletionToAnUnstoppedAttemptOfSeveral below.
+func TestReconstructChargesAPreemptedAttemptsOwnFailedStopEvenWhenTheRowLaterCompletes(t *testing.T) {
 	events := append(preemptedNoTerminalPhaseEvents(),
-		// The retry becomes Ready after the preemption decision, so the pairing at 34 s stays unambiguous.
+		// The first attempt is observed to stop Failed before the retry becomes Ready.
+		LifecycleEvent{ElapsedNs: 36 * sec, Kind: "Pod", Type: EventAttemptStopped, Job: "a2", Tenant: "tenant-a", GPUCount: 1, ObjectUID: "pod-a2", Reason: StopReasonFailed},
+		// The retry becomes Ready after both the preemption decision (34 s) and the first attempt's stop
+		// (36 s), so the pairing stays unambiguous and the two attempts are sequential, not concurrent.
 		LifecycleEvent{ElapsedNs: 40 * sec, Kind: "Pod", Type: EventPodReady, Job: "a2", Tenant: "tenant-a", GPUCount: 1, ObjectUID: "pod-a2-retry"},
 		LifecycleEvent{ElapsedNs: 49 * sec, Kind: "Job", Type: EventCompleted, Job: "a2", Tenant: "tenant-a", GPUCount: 1},
 	)
@@ -957,17 +1008,68 @@ func TestReconstructDoesNotCreditACompletionToOneOfSeveralAttempts(t *testing.T)
 		t.Fatalf("this test needs a completed row with two attempts, got attempts=%d completed=%v", a2.Attempts, a2.Completed)
 	}
 	if a2.PreemptionIneffective {
-		t.Fatal("a completion on an unknown attempt must not be credited to the preempted one")
+		t.Fatal("the row's completion belongs to the retry, not the already-Failed preempted attempt, and must not be credited to it")
 	}
-	if a2.WastedGPUSeconds != 0 || a2.WasteLowerBoundGPUSeconds != 0 || a2.WasteCensored {
-		t.Fatalf("still no Failed terminal phase, so still no waste: %.1f/%.1f censored=%v",
+	// The preempted attempt has its own Failed evidence (Ready 3 s, stop 36 s): 1 GPU * (36 - 3) = 33 exact,
+	// attributable waste, fully explained without reference to the row's later completion.
+	if a2.WastedGPUSeconds != 33 || a2.WasteLowerBoundGPUSeconds != 33 || a2.WasteCensored {
+		t.Fatalf("a2 waste = %.1f (lb %.1f, censored %v), want 33/33/false: an observed in-horizon Failed stop",
 			a2.WastedGPUSeconds, a2.WasteLowerBoundGPUSeconds, a2.WasteCensored)
 	}
-	// Only the preempted attempt is charged, and only up to the row's observed completion at 49 s (Ready 3 s),
-	// tighter than the 50 s horizon; the retry was never preempted so it contributes nothing here.
-	if a2.UnattributedOccupancyGPUSeconds != 46 {
-		t.Fatalf("a2 unattributed occupancy = %.1f, want 46 (the preempted attempt only, bounded by the"+
-			" row's observed completion)", a2.UnattributedOccupancyGPUSeconds)
+	// The retry was never preempted, so it contributes nothing here, and the preempted attempt's own Failed
+	// stop already explains its loss, so nothing is left unattributed.
+	if a2.UnattributedOccupancyGPUSeconds != 0 {
+		t.Fatalf("a2 unattributed occupancy = %.1f, want 0 (the preempted attempt's Failed stop fully"+
+			" explains its own loss)", a2.UnattributedOccupancyGPUSeconds)
+	}
+}
+
+// TestReconstructDoesNotCreditACompletionToAnUnstoppedAttemptOfSeveral is the shape that actually reaches the
+// len(t.attemptSeq)==1 gate in chargeWaste's default case: the FIRST attempt is resolved by its own Failed
+// stop (so it never touches the gate), but the SECOND -- and last -- attempt has no observed stop at all, so
+// only the gate stands between the row's later completion and a wrongful credit to that unresolved attempt.
+// With two attempts the completion cannot say which one it belongs to, so it must not be credited here either.
+func TestReconstructDoesNotCreditACompletionToAnUnstoppedAttemptOfSeveral(t *testing.T) {
+	events := []LifecycleEvent{
+		{ElapsedNs: 0, Kind: "MLTrainingJob", Type: EventSubmitted, Job: "a2", Tenant: "tenant-a", GPUCount: 1},
+		{ElapsedNs: 1 * sec, Kind: "Workload", Type: EventAdmitted, Job: "a2", Tenant: "tenant-a", GPUCount: 1},
+		{ElapsedNs: 3 * sec, Kind: "Pod", Type: EventPodReady, Job: "a2", Tenant: "tenant-a", GPUCount: 1, ObjectUID: "pod-a2"},
+		{ElapsedNs: 18 * sec, Kind: "Workload", Type: EventPreempted, Job: "a2", Tenant: "tenant-a", GPUCount: 1, Reason: "InCohortReclamation"},
+		// The first attempt has its own Failed evidence, so it is resolved before the gate is ever reached.
+		{ElapsedNs: 20 * sec, Kind: "Pod", Type: EventAttemptStopped, Job: "a2", Tenant: "tenant-a", GPUCount: 1, ObjectUID: "pod-a2", Reason: StopReasonFailed},
+		// The retry becomes Ready after the first attempt's own stop, so the two attempts stay sequential.
+		{ElapsedNs: 25 * sec, Kind: "Pod", Type: EventPodReady, Job: "a2", Tenant: "tenant-a", GPUCount: 1, ObjectUID: "pod-a2-retry"},
+		// A second preemption decision, so the retry is also a preemption target with no terminal Pod phase.
+		{ElapsedNs: 40 * sec, Kind: "Workload", Type: EventPreempted, Job: "a2", Tenant: "tenant-a", GPUCount: 1, Reason: "InCohortReclamation"},
+		{ElapsedNs: 45 * sec, Kind: "Job", Type: EventCompleted, Job: "a2", Tenant: "tenant-a", GPUCount: 1},
+	}
+	res, err := Reconstruct("Any", noTerminalPhaseTrace(), events, 50*sec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a2 := res.Outcomes[0]
+	if a2.Attempts != 2 || !a2.Completed {
+		t.Fatalf("this test needs a completed row with two attempts, got attempts=%d completed=%v", a2.Attempts, a2.Completed)
+	}
+	// The retry (the last attempt) has no terminal Pod phase, so this is the one line where the gate's answer
+	// is visible: crediting it would report the retry as stopped by the second preemption when Pod state
+	// cannot say that.
+	if a2.PreemptionIneffective {
+		t.Fatal("two attempts means the completion cannot be attributed to either one; it must not be credited")
+	}
+	if !a2.UncreditedAttributionUnknown {
+		t.Fatal("the retry's occupancy must be reported as uncredited, unattributed loss, not silently dropped")
+	}
+	// The retry's occupancy (Ready 25 s -> completion 45 s) is charged as unattributed, and specifically as
+	// UNCREDITED unattributed, which is the field the wrongful-credit bug would leave at zero.
+	if a2.UncreditedAttributionUnknownOccupancyGPUSeconds != 20 {
+		t.Fatalf("uncredited unattributed occupancy = %.1f, want 20 (the retry's Ready-to-completion span)",
+			a2.UncreditedAttributionUnknownOccupancyGPUSeconds)
+	}
+	// The first attempt's own Failed evidence (Ready 3 s, stop 20 s) is unaffected by the gate either way.
+	if a2.WastedGPUSeconds != 17 || a2.WasteLowerBoundGPUSeconds != 17 {
+		t.Fatalf("a2 waste = %.1f (lb %.1f), want 17/17: the first attempt's own observed Failed stop",
+			a2.WastedGPUSeconds, a2.WasteLowerBoundGPUSeconds)
 	}
 }
 
@@ -1001,5 +1103,76 @@ func TestReconstructRejectsReadyBeforeSubmitted(t *testing.T) {
 	}
 	if _, err := Reconstruct("Any", trace, events, 100*sec); err == nil {
 		t.Fatalf("Pod Ready before Submitted must error")
+	}
+}
+
+// TestReconstructToleratesCrossWatchReordering pins the rule the design of record states: Workload, Job and
+// Pod are three independent watches, so an observed order that violates causal expectation is delivery
+// latency, not impossible evidence, and must not discard a valid run.
+func TestReconstructToleratesCrossWatchReordering(t *testing.T) {
+	// The Job watch delivered Complete before the Workload watch delivered Admitted.
+	events := []LifecycleEvent{
+		{ElapsedNs: 0, Kind: "MLTrainingJob", Type: EventSubmitted, Job: "a1", Tenant: "tenant-a", GPUCount: 1},
+		{ElapsedNs: 30 * sec, Kind: "Job", Type: EventCompleted, Job: "a1", Tenant: "tenant-a", GPUCount: 1},
+		{ElapsedNs: 31 * sec, Kind: "Workload", Type: EventAdmitted, Job: "a1", Tenant: "tenant-a", GPUCount: 1},
+
+		{ElapsedNs: 1 * sec, Kind: "MLTrainingJob", Type: EventSubmitted, Job: "a2", Tenant: "tenant-a", GPUCount: 1},
+		{ElapsedNs: 2 * sec, Kind: "Workload", Type: EventAdmitted, Job: "a2", Tenant: "tenant-a", GPUCount: 1},
+		{ElapsedNs: 3 * sec, Kind: "Pod", Type: EventPodReady, Job: "a2", Tenant: "tenant-a", GPUCount: 1, ObjectUID: "pod-a2"},
+
+		{ElapsedNs: 5 * sec, Kind: "MLTrainingJob", Type: EventSubmitted, Job: "b1", Tenant: "tenant-b", GPUCount: 1},
+		{ElapsedNs: 6 * sec, Kind: "Workload", Type: EventAdmitted, Job: "b1", Tenant: "tenant-b", GPUCount: 1},
+	}
+	if _, err := Reconstruct("A-honor", reclaimAnyTrace(), events, 200*sec); err != nil {
+		t.Fatalf("legal cross-watch reordering must not invalidate a run: %v", err)
+	}
+}
+
+// TestReconstructStillRejectsACompletionWithNoAdmission keeps the check that holds no matter how deliveries
+// were ordered: a job that never has admission evidence at all cannot have completed.
+func TestReconstructStillRejectsACompletionWithNoAdmission(t *testing.T) {
+	events := []LifecycleEvent{
+		{ElapsedNs: 0, Kind: "MLTrainingJob", Type: EventSubmitted, Job: "a1", Tenant: "tenant-a", GPUCount: 1},
+		{ElapsedNs: 30 * sec, Kind: "Job", Type: EventCompleted, Job: "a1", Tenant: "tenant-a", GPUCount: 1},
+		{ElapsedNs: 1 * sec, Kind: "MLTrainingJob", Type: EventSubmitted, Job: "a2", Tenant: "tenant-a", GPUCount: 1},
+		{ElapsedNs: 5 * sec, Kind: "MLTrainingJob", Type: EventSubmitted, Job: "b1", Tenant: "tenant-b", GPUCount: 1},
+	}
+	if _, err := Reconstruct("A-honor", reclaimAnyTrace(), events, 200*sec); err == nil {
+		t.Fatal("a completion with no admission evidence at all must still be an error")
+	}
+}
+
+// TestReconstructPairsAPromptlyStoppedVictim is the failure the honoring arm would hit: the victim stops so
+// fast that the Pod watch delivers its terminal state before the Workload watch delivers the preemption.
+func TestReconstructPairsAPromptlyStoppedVictim(t *testing.T) {
+	events := []LifecycleEvent{
+		{ElapsedNs: 0, Kind: "MLTrainingJob", Type: EventSubmitted, Job: "a1", Tenant: "tenant-a", GPUCount: 1},
+		{ElapsedNs: 1 * sec, Kind: "Workload", Type: EventAdmitted, Job: "a1", Tenant: "tenant-a", GPUCount: 1},
+
+		{ElapsedNs: 1 * sec, Kind: "MLTrainingJob", Type: EventSubmitted, Job: "a2", Tenant: "tenant-a", GPUCount: 1},
+		{ElapsedNs: 2 * sec, Kind: "Workload", Type: EventAdmitted, Job: "a2", Tenant: "tenant-a", GPUCount: 1},
+		{ElapsedNs: 3 * sec, Kind: "Pod", Type: EventPodReady, Job: "a2", Tenant: "tenant-a", GPUCount: 1, ObjectUID: "pod-a2"},
+		// Pod terminal observed at 43 s, preemption observed at 44 s — reversed by delivery latency.
+		{ElapsedNs: 43 * sec, Kind: "Pod", Type: EventAttemptStopped, Job: "a2", Tenant: "tenant-a", GPUCount: 1, ObjectUID: "pod-a2", Reason: StopReasonFailed},
+		{ElapsedNs: 44 * sec, Kind: "Workload", Type: EventPreempted, Job: "a2", Tenant: "tenant-a", GPUCount: 1, Reason: "InCohortReclamation"},
+
+		{ElapsedNs: 40 * sec, Kind: "MLTrainingJob", Type: EventSubmitted, Job: "b1", Tenant: "tenant-b", GPUCount: 1},
+		{ElapsedNs: 44 * sec, Kind: "Workload", Type: EventAdmitted, Job: "b1", Tenant: "tenant-b", GPUCount: 1},
+	}
+	res, err := Reconstruct("A-honor", reclaimAnyTrace(), events, 200*sec)
+	if err != nil {
+		t.Fatalf("a promptly stopped victim must pair to its preemption: %v", err)
+	}
+	for _, o := range res.Outcomes {
+		if o.Job != "a2" {
+			continue
+		}
+		if o.Preemptions != 1 {
+			t.Fatalf("a2 preemptions = %d, want 1", o.Preemptions)
+		}
+		// Ready 3 s -> stop 43 s, attributable because the stop was Failed.
+		if o.WastedGPUSeconds != 40 {
+			t.Fatalf("a2 waste = %.1f, want 40", o.WastedGPUSeconds)
+		}
 	}
 }

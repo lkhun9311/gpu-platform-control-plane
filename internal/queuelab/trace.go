@@ -105,6 +105,47 @@ func FIFOHeadOfLineScenario(longDurationSec, smallDurationSec int) []TrainingTra
 	return rows
 }
 
+// ownRowGraceMarginSec is how far a1's service must exceed the victim's service plus the termination grace
+// period.
+//
+// It exists because a1 releasing a GPU first destroys the experiment: with two units, whichever of a1 and
+// the victim releases first is what lets the owner run, so if a1 can finish during the restoration window
+// the owner's execution start cannot be attributed to the reclamation under test.
+const ownRowGraceMarginSec = 60
+
+// terminationGraceSec is the Pod termination grace period the fixture runs with, mirrored here so the trace
+// can reason about the worst-case restoration window.
+const terminationGraceSec = 30
+
+// TerminationContractTrace builds the trace for the termination-contract experiment.
+//
+// victimServiceSec is the borrowed job's service time and doseSec is how long after the victim's Pod Ready
+// the owner returns; the dose is carried on the owner row's offset ONLY as provenance, because the schedule
+// gates the owner on the victim's observed Ready rather than on wall-clock offsets.
+//
+// A dose is rejected unless the victim's remaining service at the moment of return sits strictly inside the
+// termination grace period. A dose at or past the victim's full service leaves nothing running to reclaim,
+// and a dose that leaves victimServiceSec-doseSec at or beyond the grace period lets the victim's own
+// service, rather than the grace-period termination under test, be what frees the device.
+func TerminationContractTrace(victimServiceSec, doseSec int) ([]TrainingTraceRow, error) {
+	remaining := victimServiceSec - doseSec
+	if remaining <= 0 || remaining >= terminationGraceSec {
+		return nil, fmt.Errorf("dose %d s on a %d s victim leaves %d s of remaining service, want strictly inside (0,%d) s",
+			doseSec, victimServiceSec, remaining, terminationGraceSec)
+	}
+	return []TrainingTraceRow{
+		{
+			Index: 0, Name: OwnRow, OffsetMs: 0, Tenant: "tenant-a", GPUCount: 1,
+			DurationSec: victimServiceSec + terminationGraceSec + ownRowGraceMarginSec,
+		},
+		{Index: 1, Name: VictimRow, OffsetMs: 1_000, Tenant: "tenant-a", GPUCount: 1, DurationSec: victimServiceSec},
+		{
+			Index: 2, Name: OwnerRow, OffsetMs: int64(1_000 + doseSec*1_000), Tenant: "tenant-b",
+			GPUCount: 1, DurationSec: victimServiceSec,
+		},
+	}, nil
+}
+
 // WriteTrace serializes a trace as JSON Lines.
 func WriteTrace(w io.Writer, rows []TrainingTraceRow) error {
 	return exputil.WriteJSONL(w, rows)
