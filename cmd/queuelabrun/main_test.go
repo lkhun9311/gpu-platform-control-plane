@@ -707,10 +707,47 @@ func TestReportRunFailsARunWhoseRecordCannotBeReadBack(t *testing.T) {
 	if !strings.Contains(stderr.String(), "schema 7 is not 6") {
 		t.Fatalf("the reader's own reason must reach the operator, got %q", stderr.String())
 	}
-	// The evidence must survive. Withholding it here is the failure this branch was written to avoid.
-	if !strings.Contains(stdout.String(), "job=a1") {
+	// The evidence must survive. Destroying it here is one failure this branch was written to avoid, and
+	// leaving it on stdout is the other: a non-zero exit cannot retract a number a shell redirect already
+	// captured, so an unreadable record must not leave anything countable on the channel a caller quotes.
+	// Both halves are asserted together on purpose — either one alone is satisfied by a change that breaks
+	// the other, and this function has already been wrong in each direction once.
+	if !strings.Contains(stderr.String(), "job=a1") {
 		t.Fatalf("an unreadable record is a reason to fail the run, not to destroy the only other account "+
-			"of it, got %q", stdout.String())
+			"of it, got %q", stderr.String())
+	}
+	for _, countable := range []string{"job=a1", "ledger:", "RESULT"} {
+		if strings.Contains(stdout.String(), countable) {
+			t.Fatalf("stdout carried %q after the record was refused; the exit code cannot retract it, got %q",
+				countable, stdout.String())
+		}
+	}
+}
+
+// A readable record puts the same output back on stdout, which is the half that stops the diversion from
+// being a way to make every run quiet.
+//
+// Mutation that turns this red: set publish = stderr unconditionally in reportRun.
+func TestReportRunPublishesToStdoutWhenTheRecordReadsBack(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	res := queuelab.LabResult{Arm: "A-honor"}
+	code := reportRun(&stdout, &stderr, func(string, any) error { return nil },
+		func(string, bool) error { return nil }, runReport{
+			Outcome: outcome{Disposition: dispChecksPassed},
+			Events:  []queuelab.LifecycleEvent{{ElapsedNs: 1, Kind: "Pod", Job: "a1"}},
+			Result:  &res,
+			Record:  runRecord{SchemaVersion: recordSchemaVersion},
+			Path:    "/tmp/run.json",
+		})
+
+	if code != 0 {
+		t.Fatalf("a passing run with a readable record must exit 0, got %d", code)
+	}
+	if !strings.Contains(stdout.String(), "job=a1") {
+		t.Fatalf("a readable record's ledger belongs on stdout, got %q", stdout.String())
+	}
+	if strings.Contains(stderr.String(), "job=a1") {
+		t.Fatalf("nothing diverted the output, yet the ledger reached stderr too: %q", stderr.String())
 	}
 }
 

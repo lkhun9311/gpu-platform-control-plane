@@ -263,22 +263,44 @@ func reportRun(stdout, stderr io.Writer, write recordWriter, verify recordVerifi
 	// classified is idempotent, so applying it here does not change what buildRecord already decided.
 	o := classified(r.Outcome)
 	writeErr := write(r.Path, r.Record)
-	// The read-back runs before anything is published but does NOT gate publication, and the asymmetry with
-	// writeErr is deliberate. A write failure means there may be no durable record at all, so publishing a
-	// number would put a countable result on a terminal with nothing on disk to answer for it. An unreadable
-	// record is a different state: the bytes are there and durable, and what failed is this build's ability to
-	// read them as evidence. Withholding the ledger then would delete the last usable account of the run at the
-	// exact moment the file stopped being one — evidence destroyed in the name of protecting evidence, which is
-	// the defect recordPathFor's default was reshaped to remove. So everything prints, and the exit code and a
-	// named stderr line are what stop the record being quoted.
+	// The read-back runs before anything is published, and it decides WHICH CHANNEL the run's numbers go to.
+	//
+	// The asymmetry with writeErr is still deliberate. A write failure means there may be no durable record at
+	// all, so a countable result would sit on a terminal with nothing on disk to answer for it, and nothing
+	// prints. An unreadable record is a different state: the bytes are there and durable, and what failed is
+	// this build's ability to read them as evidence.
+	//
+	// An earlier revision drew the wrong conclusion from that difference — it published everything to stdout
+	// and relied on a stderr line telling the reader not to quote it. That asks a reader to un-see what a shell
+	// redirect has already captured, and it contradicts the sentence the whole artifact layer rests on: the
+	// numbers are quotable ONLY because a reader holding the file can re-derive the verdict from the fields
+	// beside them. A file this build refuses leaves nothing on stdout with a warrant to be there.
+	//
+	// Diverting rather than withholding is what keeps the original objection answered, because that objection
+	// was right about the facts even though it reached for the wrong remedy. An unreadable record really can be
+	// a run's only complete account — a truncated write loses the tail that carried the ledger — and deleting
+	// that account to guard against misquotation would be evidence destroyed in the name of protecting
+	// evidence. Nothing here is destroyed. It stops arriving on the channel a redirect captures, and arrives
+	// under a line saying what it is instead.
 	var verifyErr error
+	// publish is declared out here because the closing banner below sits outside this block and must follow the
+	// output it closes: a banner left on stdout over content that went to stderr labels an empty channel.
+	publish := stdout
 	if writeErr == nil {
 		verifyErr = verify(r.Path, r.Preview)
 		fmt.Fprintln(stderr, "  run record:", r.Path)
-		if r.Result != nil && o.Disposition == dispChecksPassed {
-			fmt.Fprint(stdout, "\n"+queuelab.RenderResult(*r.Result))
+		if verifyErr != nil {
+			publish = stderr
+			fmt.Fprintln(stderr, "ERROR: the record this run wrote cannot be read back by this build:", verifyErr)
+			fmt.Fprintln(stderr, "  the record is the deliverable, so what follows is not evidence and is not "+
+				"on stdout: a document this build's own reader refuses cannot answer for the numbers under it. "+
+				"They are kept because they may be this run's only remaining account, not because they can be "+
+				"quoted.")
 		}
-		fmt.Fprintf(stdout, "\nledger: %d events\n", len(r.Events))
+		if r.Result != nil && o.Disposition == dispChecksPassed {
+			fmt.Fprint(publish, "\n"+queuelab.RenderResult(*r.Result))
+		}
+		fmt.Fprintf(publish, "\nledger: %d events\n", len(r.Events))
 		// A preview record deliberately carries a count and no events, so that an invocation its own author
 		// declared uncountable cannot emit anything reconstructable. Printing the ledger would hand back
 		// exactly that through a shell redirect, which makes the record's structural guarantee decorative, so
@@ -286,17 +308,17 @@ func reportRun(stdout, stderr io.Writer, write recordWriter, verify recordVerifi
 		// record. The withheld line no longer claims the gates were skipped — they were not, and a preview
 		// whose stated reason for withholding is untrue invites the reader to discount the withholding too.
 		if r.Preview {
-			fmt.Fprintln(stdout, "  (withheld: this invocation was declared a smoke check, and a printed "+
+			fmt.Fprintln(publish, "  (withheld: this invocation was declared a smoke check, and a printed "+
 				"ledger reconstructs just as well as a written one)")
 		} else {
-			printEvents(stdout, r.Events)
+			printEvents(publish, r.Events)
 		}
 	}
 	// The closing banner has to print even when the run failed or its record could not be persisted, or
 	// output already on the terminal is left under an opening banner alone and could be mistaken for output
 	// nobody flagged.
 	if r.Preview {
-		fmt.Fprintln(stdout, previewBanner)
+		fmt.Fprintln(publish, previewBanner)
 	}
 	if writeErr != nil {
 		// The record that failed to persist cannot report its own failure, so this is the one outcome that
@@ -307,17 +329,14 @@ func reportRun(stdout, stderr io.Writer, write recordWriter, verify recordVerifi
 		fmt.Fprintf(stderr, "  the outcome was %s: %s\n", o.Disposition, o.Reason)
 		return 1
 	}
-	// The disposition is reported first even when both failed, because it is the account of the RUN; the
-	// read-back failure is an account of the artifact, and a reader needs to know which of the two they are
-	// holding. Neither returns on its own, so an operator whose run failed AND whose record is unreadable is
-	// told both rather than the first one only.
+	// Both failures still reach an operator who suffered both, which is what this branch is for: the
+	// disposition is the account of the RUN and the read-back failure is an account of the ARTIFACT, and a
+	// reader needs to know which of the two they are holding. What changed is the order — the read-back
+	// failure now prints above, because it has to introduce the diverted output rather than explain it
+	// afterwards — so this no longer reports the disposition first, and saying it did would be a comment
+	// crediting an ordering the code stopped having.
 	if o.Disposition != dispChecksPassed {
 		fmt.Fprintf(stderr, "ERROR: %s: %s\n", o.Disposition, o.Reason)
-	}
-	if verifyErr != nil {
-		fmt.Fprintln(stderr, "ERROR: the record this run wrote cannot be read back by this build:", verifyErr)
-		fmt.Fprintln(stderr, "  the record is the deliverable, so nothing above may be quoted out of it: a "+
-			"document this build's own reader refuses is not evidence, whatever it says about itself")
 	}
 	if o.Disposition != dispChecksPassed || verifyErr != nil {
 		return 1
