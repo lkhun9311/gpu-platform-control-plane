@@ -92,7 +92,9 @@ teardown() {
 stub_stats() { curl -sS --max-time 10 "http://127.0.0.1:$1/stats"; }
 
 # stub_reset starts a fresh measurement window on one stub.
-stub_reset() { curl -sS --max-time 10 "http://127.0.0.1:$1/stats/reset" >/dev/null; }
+# POST, because the stub now refuses a GET here: a GET is what a probe or a stray curl issues, and this
+# endpoint discards the connection counters this script is in the middle of collecting.
+stub_reset() { curl -sS -X POST --max-time 10 "http://127.0.0.1:$1/stats/reset" >/dev/null; }
 
 # jnum reads one number out of a stub stats JSON blob.
 jnum() { echo "$1" | jq -r ".$2"; }

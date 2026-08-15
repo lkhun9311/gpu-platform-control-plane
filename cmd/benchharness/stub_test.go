@@ -19,6 +19,7 @@ package main
 import (
 	"context"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 )
@@ -187,4 +188,130 @@ func TestStubStatsResetKeepsLiveState(t *testing.T) {
 	s.end()
 	s.end()
 	s.connState(nil, http.StateClosed)
+}
+
+// A client that goes away must take its handler with it.
+//
+// The handler used a bare time.Sleep for the first-token and inter-token delays, which ignores r.Context(),
+// so a request the harness had already timed out kept its goroutine asleep for the whole configured response
+// while stats counted it as in flight. That is not a cosmetic leak: peakInFlight is what PoolSizeForTrace
+// derives the sender's pool from, so a timeout-heavy arm inflated the instrument's own sizing.
+//
+// The assertion is on inFlight rather than on wall clock, because a handler that returned promptly but left
+// the counter up would be the same defect wearing a different face.
+//
+// Mutation that turns this red: replace the wait helper's select with time.Sleep(d).
+func TestStubAbandonsAStreamWhoseClientHasGoneAway(t *testing.T) {
+	stats := newStubStats()
+	// Long enough that a handler ignoring cancellation is still asleep when the assertion runs.
+	mux := stubMux(stubProfile{tokens: 4, ttft: 30 * time.Second, itl: time.Second}, stats)
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, srv.URL+"/v1/chat/completions", nil)
+	if err != nil {
+		t.Fatalf("request: %v", err)
+	}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		if resp, err := http.DefaultClient.Do(req); err == nil {
+			_ = resp.Body.Close()
+		}
+	}()
+
+	// Wait for the handler to be counted before cancelling, or the test could cancel a request that never
+	// arrived and pass without exercising anything.
+	if !waitFor(func() bool { return stats.snapshot().InFlight == 1 }, 5*time.Second) {
+		t.Fatalf("the handler never registered as in flight: %+v", stats.snapshot())
+	}
+	cancel()
+	<-done
+
+	if !waitFor(func() bool { return stats.snapshot().InFlight == 0 }, 5*time.Second) {
+		t.Fatalf("the client is gone and the handler is still counted in flight after 5s: %+v; peakInFlight "+
+			"feeds the sender's pool size, so this contaminates the instrument", stats.snapshot())
+	}
+}
+
+// waitFor polls cond until it holds or the budget expires, so the assertions above are about the handler
+// rather than about how fast this machine schedules a goroutine.
+func waitFor(cond func() bool, budget time.Duration) bool {
+	deadline := time.Now().Add(budget)
+	for time.Now().Before(deadline) {
+		if cond() {
+			return true
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	return cond()
+}
+
+// The reset endpoint discards the counters an evidence run is collecting, and the kubelet already GETs this
+// same port for /health, so an accidental GET must not be a route to it.
+//
+// Mutation that turns this red: drop the method check in the /stats/reset handler.
+func TestStubResetRefusesAnAccidentalGET(t *testing.T) {
+	stats := newStubStats()
+	stats.begin(context.Background())
+	stats.end()
+	srv := httptest.NewServer(stubMux(stubProfile{tokens: 1}, stats))
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/stats/reset")
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusMethodNotAllowed {
+		t.Fatalf("a GET to /stats/reset returned %d, want 405", resp.StatusCode)
+	}
+	if got := stats.snapshot().RequestsServed; got != 1 {
+		t.Fatalf("the refused GET still cleared the counters: requestsServed=%d, want 1", got)
+	}
+
+	// The POST must still work, or this guard has simply broken the evidence script.
+	post, err := http.Post(srv.URL+"/stats/reset", "", nil)
+	if err != nil {
+		t.Fatalf("post: %v", err)
+	}
+	defer func() { _ = post.Body.Close() }()
+	if post.StatusCode != http.StatusOK {
+		t.Fatalf("POST to /stats/reset returned %d, want 200", post.StatusCode)
+	}
+	if got := stats.snapshot().RequestsServed; got != 0 {
+		t.Fatalf("POST did not reset: requestsServed=%d, want 0", got)
+	}
+}
+
+// A profile that would serve a different experiment than the manifest declares must refuse at startup.
+//
+// Neither bad value fails on its own — a negative token count emits nothing and a negative delay is served as
+// no delay — so without this the stub stands up and the run's numbers describe a backend nobody asked for.
+//
+// Mutation that turns this red: return nil unconditionally from validate.
+func TestStubProfileValidationRefusesWhatWouldSilentlyChangeTheExperiment(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		p    stubProfile
+		bad  bool
+	}{
+		{"the default profile", stubProfile{tokens: 8, ttft: 5 * time.Millisecond, itl: 2 * time.Millisecond}, false},
+		{"zero delays are legitimate", stubProfile{tokens: 1}, false},
+		{"no tokens measures nothing", stubProfile{tokens: 0}, true},
+		{"negative tokens emits nothing", stubProfile{tokens: -3}, true},
+		{"negative ttft is served as none", stubProfile{tokens: 1, ttft: -time.Second}, true},
+		{"negative itl is served as none", stubProfile{tokens: 1, itl: -time.Second}, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.p.validate()
+			if tc.bad && err == nil {
+				t.Fatalf("%+v was accepted; it would serve an experiment nobody declared", tc.p)
+			}
+			if !tc.bad && err != nil {
+				t.Fatalf("%+v was refused: %v", tc.p, err)
+			}
+		})
+	}
 }
