@@ -99,8 +99,50 @@ behaviour. Its whole purpose is that the number stops being uninterpretable the 
 
 ## Stage B — progress in the artifact
 
+**Status: implemented.** The two open questions below were settled by measurement rather than by reasoning,
+and one of them changed the design.
+
 Carry the iteration count into the ledger and the record, beside the measurement block that already carries
 the horizon and the censoring flag.
+
+### The transport: termination message, not `pods/log`
+
+This document originally proposed reading container logs. A review proposed the cheaper route — the workload
+writes its progress to `/dev/termination-log`, and the kubelet copies it into
+`ContainerStateTerminated.Message` — which needs no log API and no extra RBAC.
+
+That route rested on an **unverified inference**: that the message survives for a container the kubelet
+SIGKILLs, when the Pod is then removed by graceful deletion. Exit codes were already arriving from such
+containers, and the message travels in the same struct, so it should arrive too — but "should" is not
+evidence, and the whole stage was built on it.
+
+Measured on the decisive combination, `A-ignore` × `grace-bounded`, the only arm where the borrower is
+actually SIGKILLed:
+
+```
+job=a2-borrow  reason=Failed     exit=137   iterations=21540
+job=b1-owner   reason=Succeeded  exit=0     iterations=25973
+```
+
+It arrives. The route is confirmed and `pods/log` is not needed.
+
+### Discarded ≠ stopped — what that same run also showed
+
+The first implementation summed every stopped attempt, so the owner's **completed** 25973 iterations were
+added to the borrower's genuinely discarded 21540 and reported as 47513 discarded. A number that would have
+been quoted as waste was, for more than half its magnitude, the opposite of waste.
+
+The filter is a `Completed` event in the ledger — the ledger's own statement that the row's work was
+credited — and its **absence** is what makes an attempt's iterations discarded. That is deliberately wider
+than "the container failed": the self-completing regime's victim exits 0 and is still re-executed from zero,
+because Kueue does not credit a suspended Job's finished attempt. Judging by exit code would call that work
+saved when losing it is the entire subject of the lab.
+
+Two things are worth carrying forward from how this was caught. It was not caught by the suite — the fixture
+had no completed row in it, so the missing filter was unobservable. And it was caught on the **first live run
+of the new instrument**, because that arm is the first to put a completed row and a killed row in one run with
+numbers attached. A new measurement's first real run is there to have its numbers read, not to be watched for
+a green light.
 
 Once it is there, the waste figure has a denominator: a row that was preempted after 40 s of a 60 s service
 discarded a known number of iterations, and a reader can divide. Without it, Stage A's progress reporting

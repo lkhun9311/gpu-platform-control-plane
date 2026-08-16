@@ -77,13 +77,14 @@ func (b *LedgerBuilder) Observe(delta DeltaType, kind, uid, job string, st Obser
 	}
 	if st.Event != "" && b.lastEvent[uid] != st.Event {
 		b.events = append(b.events, LifecycleEvent{
-			ElapsedNs: elapsedNs,
-			Kind:      kind,
-			Type:      st.Event,
-			Job:       job,
-			ObjectUID: uid,
-			Reason:    st.Reason,
-			ExitCode:  st.ExitCode,
+			ElapsedNs:  elapsedNs,
+			Kind:       kind,
+			Type:       st.Event,
+			Job:        job,
+			ObjectUID:  uid,
+			Reason:     st.Reason,
+			ExitCode:   st.ExitCode,
+			Iterations: st.Iterations,
 		})
 		b.lastEvent[uid] = st.Event
 		switch st.Event {

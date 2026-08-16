@@ -1429,7 +1429,7 @@ func TestARecordFromBeforeTheDoseRegimeIsRefusedRatherThanAssumedDefault(t *test
 //
 // Mutation that turns this red: leave recordSchemaVersion at 7 — both halves, the constant and the document.
 func TestARecordFromBeforeTheMeasurementBlockIsRefused(t *testing.T) {
-	if recordSchemaVersion != 8 {
+	if recordSchemaVersion < 8 {
 		t.Fatalf("recordSchemaVersion is %d; the record now carries what the run measured and the boundary it "+
 			"measured to, and a document without them cannot say whether its waste is a value or a floor",
 			recordSchemaVersion)
@@ -1472,7 +1472,7 @@ func TestARecordFromBeforeTheMeasurementBlockIsRefused(t *testing.T) {
 // Mutations that turn this red: hard-code Censored to false; or return a zero block instead of nil for a run
 // that never reconstructed.
 func TestMeasurementOfCarriesWhatTheRunActuallyMeasured(t *testing.T) {
-	if m := measurementOf(nil, 150e9); m != nil {
+	if m := measurementOf(nil, 150e9, nil); m != nil {
 		t.Fatalf("a run that never reconstructed must project no measurement, got %+v; a block of zeroes reads "+
 			"as a run that measured nothing rather than one that never got to measure", m)
 	}
@@ -1482,7 +1482,7 @@ func TestMeasurementOfCarriesWhatTheRunActuallyMeasured(t *testing.T) {
 		AnyWasteCensored:               true,
 		UnfinishedAtHorizon:            2,
 	}
-	m := measurementOf(res, 150e9)
+	m := measurementOf(res, 150e9, nil)
 	if m == nil {
 		t.Fatal("a run that reconstructed must project a measurement")
 	}
@@ -1495,5 +1495,75 @@ func TestMeasurementOfCarriesWhatTheRunActuallyMeasured(t *testing.T) {
 	}
 	if m.UnfinishedAtHorizon != res.UnfinishedAtHorizon || m.HorizonNs != 150e9 {
 		t.Fatalf("projection lost the boundary or the unfinished count: %+v", m)
+	}
+}
+
+// A record from before the iteration count is refused, because its silence about discarded WORK reads as a
+// run that measured it and lost none.
+//
+// GPU-seconds say how long a device was held; iterations say what was thrown away. A workload that computed
+// nothing produced the same waste figure as one that saturated the card, which is the ambiguity Stage A's
+// counting exists to end and this field carries into the artifact.
+//
+// Mutation that turns this red: leave recordSchemaVersion at 8 — both halves.
+func TestARecordFromBeforeDiscardedIterationsIsRefused(t *testing.T) {
+	if recordSchemaVersion != 9 {
+		t.Fatalf("recordSchemaVersion is %d; the record now carries the work a run discarded, and a document "+
+			"without it cannot say whether its waste figure covered any computation at all", recordSchemaVersion)
+	}
+	older := fmt.Appendf(nil, `{"schemaVersion":8,"dose":"self-completing","runID":"r7","arm":"A-honor",`+
+		`"disposition":"completed-implemented-checks-passed",%s}`, refusedValidity)
+	if _, err := decodeRunRecord(older); err == nil {
+		t.Fatal("a record from before the iteration count decoded under today's rules")
+	}
+}
+
+// The sum is taken off the ledger, and only from attempts that actually carried a count.
+//
+// Mutations that turn this red: sum every event rather than the stopped ones; or return zero instead of nil
+// when nothing carried a count, which would report "nothing was discarded" for a run that could not tell.
+func TestDiscardedIterationsSumsOnlyWhatTheLedgerCarried(t *testing.T) {
+	n := func(v int) *int { return &v }
+	if got := discardedIterations(nil); got != nil {
+		t.Fatalf("an empty ledger reported %d discarded, which claims a measurement nobody made", *got)
+	}
+	if got := discardedIterations([]queuelab.LifecycleEvent{
+		{Type: queuelab.EventPodReady, Job: "a1", Iterations: n(500)},
+	}); got != nil {
+		t.Fatal("a non-terminal event was counted as discarded work")
+	}
+	got := discardedIterations([]queuelab.LifecycleEvent{
+		{Type: queuelab.EventAttemptStopped, Job: "a2-borrow", Iterations: n(40)},
+		{Type: queuelab.EventAttemptStopped, Job: "b1-owner"},
+		{Type: queuelab.EventAttemptStopped, Job: "a1", Iterations: n(2)},
+	})
+	if got == nil || *got != 42 {
+		t.Fatalf("summed %v, want 42 from the two attempts that carried a count", got)
+	}
+
+	// A row that COMPLETED did not discard its work, and the first version of this function counted it anyway.
+	// On a live run that turned 21540 discarded iterations into 47513 by adding the owner's 25973 completed
+	// ones, which would have been quoted as waste while being its opposite.
+	//
+	// Mutation that turns this red: drop the credited-job filter.
+	withOwner := discardedIterations([]queuelab.LifecycleEvent{
+		{Type: queuelab.EventAttemptStopped, Job: "a2-borrow", Iterations: n(21540)},
+		{Type: queuelab.EventAttemptStopped, Job: "b1-owner", Iterations: n(25973)},
+		{Type: queuelab.EventCompleted, Job: "b1-owner"},
+	})
+	if withOwner == nil || *withOwner != 21540 {
+		t.Fatalf("summed %v, want 21540: the owner's row completed, so its work was credited rather than "+
+			"discarded", withOwner)
+	}
+
+	// Wider than "the container failed": the self-completing regime's victim exits 0 and is still re-executed
+	// from zero, because Kueue does not credit a suspended Job's finished attempt. Absence of a Completed
+	// event is what says the work was lost.
+	exitedZero := discardedIterations([]queuelab.LifecycleEvent{
+		{Type: queuelab.EventAttemptStopped, Job: "a2-borrow", Reason: "Succeeded", Iterations: n(900)},
+	})
+	if exitedZero == nil || *exitedZero != 900 {
+		t.Fatalf("summed %v, want 900: an attempt that exited cleanly and was never credited still lost its "+
+			"work", exitedZero)
 	}
 }

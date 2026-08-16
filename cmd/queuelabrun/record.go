@@ -73,7 +73,7 @@ import (
 // file, when what they are holding is a perfectly good record from a build in which the operator's Pod
 // template was not yet part of what a reading covered. The version is the only thing in either document that
 // can tell those apart.
-const recordSchemaVersion = 8
+const recordSchemaVersion = 9
 
 // runRecord is what a non-preview invocation leaves behind.
 //
@@ -294,6 +294,17 @@ type measurement struct {
 	Censored bool `json:"censored,omitempty"`
 	// UnfinishedAtHorizon is the count still pending or running when the window closed.
 	UnfinishedAtHorizon int `json:"unfinishedAtHorizon"`
+	// DiscardedIterations is the work the run threw away, summed over attempts that stopped without their row
+	// completing, and it is what gives the waste figure a denominator.
+	//
+	// GPU-seconds say how long a device was held; iterations say what was lost. A run whose workload computed
+	// nothing reports zero here beside a large waste figure, which is the state that used to be
+	// indistinguishable from a saturated card.
+	//
+	// A pointer, because "no attempt carried a count" is a different fact from "nothing was discarded": the
+	// first happens when the terminated status could not be read, the second when the run genuinely lost no
+	// work.
+	DiscardedIterations *int `json:"discardedIterations,omitempty"`
 }
 
 type validity struct {
@@ -676,11 +687,51 @@ type recordIdentity struct {
 //
 // nil rather than a zero block, because "this run measured nothing" and "this run never got far enough to
 // measure" are different states and a reader must not have to guess which produced a row of zeroes.
-func measurementOf(res *queuelab.LabResult, horizonNs int64) *measurement {
+// discardedIterations sums the work of attempts whose ROW never completed.
+//
+// The completion filter is the whole of it, and the first version did not have one: it added every stopped
+// attempt, so a row that ran to a successful finish had its work counted as thrown away. On a live run that
+// turned 21540 genuinely discarded iterations into 47513 by adding the owner's 25973 completed ones — a
+// number that would have been quoted as waste and was the opposite of it. The doc comment claimed the filter
+// before the code had it.
+//
+// A Completed event is the ledger's own statement that the row's work was credited. Its ABSENCE is what makes
+// an attempt's iterations discarded, which is deliberately wider than "the container failed": the
+// self-completing regime's victim exits 0 and is still re-executed from zero, because Kueue does not credit a
+// suspended Job's finished attempt. Reading the exit code instead would call that work saved when the whole
+// experiment is about it being lost.
+//
+// Counted off the LEDGER rather than off the reconstruction, because the ledger is what the record persists:
+// a number derived from anything the document does not carry could not be re-derived by a reader holding it.
+func discardedIterations(events []queuelab.LifecycleEvent) *int {
+	credited := make(map[string]bool)
+	for _, e := range events {
+		if e.Type == queuelab.EventCompleted {
+			credited[e.Job] = true
+		}
+	}
+	total, seen := 0, false
+	for _, e := range events {
+		if e.Type != queuelab.EventAttemptStopped || e.Iterations == nil {
+			continue
+		}
+		seen = true
+		if !credited[e.Job] {
+			total += *e.Iterations
+		}
+	}
+	if !seen {
+		return nil
+	}
+	return &total
+}
+
+func measurementOf(res *queuelab.LabResult, horizonNs int64, events []queuelab.LifecycleEvent) *measurement {
 	if res == nil {
 		return nil
 	}
 	return &measurement{
+		DiscardedIterations:       discardedIterations(events),
 		HorizonNs:                 horizonNs,
 		WastedGPUSeconds:          res.TotalWastedGPUSeconds,
 		WasteLowerBoundGPUSeconds: res.TotalWasteLowerBoundGPUSeconds,

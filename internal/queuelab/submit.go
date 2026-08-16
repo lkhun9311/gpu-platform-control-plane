@@ -45,6 +45,15 @@ const WorkloadImage = "python:3.12-alpine@sha256:78098ea6a3a9c6a7727a5d4674e4a44
 // simulated cluster cannot show the difference, because there is no device behind the advertised resource and
 // "Pod alive" and "device busy" are the same proposition there.
 //
+// The count is written to /dev/termination-log as well as printed, and that is what makes it survive.
+//
+// The kubelet copies that file into the container's terminated status, which the collector already watches —
+// soleExitCode reads the same struct. So the number arrives inside the Pod object rather than needing the
+// logs subresource, a second client, extra RBAC, and a read that races teardown. It is written from INSIDE
+// the loop rather than from the termination handler, because the ignoring arm is SIGKILLed at the grace
+// boundary and SIGKILL cannot be handled: a count written only on the way out would be missing from exactly
+// the arm whose discarded work the experiment is about.
+//
 // It reports progress, and that half is the point rather than decoration. A compute loop nobody counts is the
 // same kind of claim the sleeper was: a loop that silently fell back, or barely advanced, would produce the
 // same plausible numbers with no signal anywhere. With a count, discarded GPU-seconds are backed by discarded
@@ -59,15 +68,21 @@ const WorkloadImage = "python:3.12-alpine@sha256:78098ea6a3a9c6a7727a5d4674e4a44
 // keeps everything around it, which is why the kernel is one line.
 const workloadScript = `import signal,sys,time
 seconds=float(sys.argv[1]); honor=sys.argv[2]=="honor"; n=0
+try: tl=open("/dev/termination-log","w")
+except Exception: tl=None
+def mark():
+    if tl is None: return
+    tl.seek(0); tl.write("iters=%d"%n); tl.truncate(); tl.flush()
 def stop(*_):
-    print("terminated iters=%d"%n,flush=True); sys.exit(EXITCODE)
+    mark(); print("terminated iters=%d"%n,flush=True); sys.exit(EXITCODE)
 if honor: signal.signal(signal.SIGTERM,stop)
 end=time.monotonic()+seconds; x=1.0
+mark()
 while time.monotonic()<end:
     for _ in range(50000): x=(x*1.0000001)%1000000.0
     n+=1
-    if n%20==0: print("iters=%d"%n,flush=True)
-print("finished iters=%d"%n,flush=True)`
+    if n%20==0: mark(); print("iters=%d"%n,flush=True)
+mark(); print("finished iters=%d"%n,flush=True)`
 
 // localQueueName is the deterministic LocalQueue name a tenant's jobs are admitted through.
 //

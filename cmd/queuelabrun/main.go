@@ -233,7 +233,7 @@ func main() {
 		Result:  res,
 		Record: buildRecord(o, events, left, qual, win, obs,
 			recordIdentity{RunID: *runID, Arm: string(arm), Dose: string(protocol.Regime)},
-			measurementOf(res, horizon.Nanoseconds()), *preview, started, time.Now()),
+			measurementOf(res, horizon.Nanoseconds(), events), *preview, started, time.Now()),
 		Path:    recordPath,
 		Preview: *preview,
 	}))

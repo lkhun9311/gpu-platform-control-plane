@@ -173,3 +173,56 @@ func TestClassifyPodRecordsWhichKindOfStopItObserved(t *testing.T) {
 }
 
 //go:fix inline
+
+// The count arrives in the Pod object, which is what lets it survive the arm that cannot report anything.
+//
+// The ignoring workload is SIGKILLed at the grace boundary and SIGKILL cannot be handled, so it prints no
+// final line — its stdout ends wherever the last periodic flush landed, and teardown deletes that anyway. The
+// kubelet copies /dev/termination-log into the terminated status instead, and the workload rewrites that file
+// from inside its loop, so the number is in the object the collector already watches.
+//
+// A message that is not exactly the expected shape yields nil rather than a guess: it is a channel the
+// workload controls, and a number parsed loosely out of it would be a measurement invented from whatever
+// happened to be in a file.
+//
+// Mutation that turns this red: drop Iterations from the ObservedState ClassifyPod returns.
+func TestClassifyPodReadsTheWorkCompletedFromTheTerminatedStatus(t *testing.T) {
+	stopped := func(phase corev1.PodPhase, code int32, msg string) *corev1.Pod {
+		return &corev1.Pod{Status: corev1.PodStatus{Phase: phase, ContainerStatuses: []corev1.ContainerStatus{{
+			State: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{ExitCode: code, Message: msg}},
+		}}}}
+	}
+	for _, tc := range []struct {
+		name string
+		msg  string
+		want *int
+	}{
+		{"a killed workload's last written count", "iters=137", func() *int { v := 137; return &v }()},
+		{"trailing newline from the file", "iters=40\n", func() *int { v := 40; return &v }()},
+		{"zero is a count, not an absence", "iters=0", func() *int { v := 0; return &v }()},
+		{"a message that is not a count", "OOMKilled", nil},
+		{"an empty termination log", "", nil},
+		{"something shaped like a count but not one", "iters=many", nil},
+		{"a negative count", "iters=-3", nil},
+		// The row that makes the prefix check load-bearing. Every other rejection above is caught by Atoi
+		// failing, so without this one the check could be deleted and the suite would stay green — a bare
+		// number would then be read as an iteration count. The termination log is a file anything in the
+		// container can write, and "42" is exactly what an unrelated tool leaves behind.
+		{"a bare number nobody labelled", "42", nil},
+		{"another tool's key", "tokens=5", nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := ClassifyPod(stopped(corev1.PodFailed, 137, tc.msg)).Iterations
+			switch {
+			case tc.want == nil && got != nil:
+				t.Fatalf("message %q yielded %d; a number invented from an unrecognised message is not a "+
+					"measurement", tc.msg, *got)
+			case tc.want != nil && got == nil:
+				t.Fatalf("message %q carried %d and it was dropped, so the arm that can report nothing else "+
+					"leaves no evidence of the work it lost", tc.msg, *tc.want)
+			case tc.want != nil && *got != *tc.want:
+				t.Fatalf("read %d, want %d", *got, *tc.want)
+			}
+		})
+	}
+}

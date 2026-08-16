@@ -49,6 +49,9 @@ type LifecycleEvent struct {
 	// ignored it until the grace period ran out and was killed. The canary qualifies that contrast by exit
 	// status; until this field the run could not observe it.
 	ExitCode *int32 `json:"exitCode,omitempty"`
+	// Iterations is how much work the attempt had completed when it stopped, absent when no single container's
+	// terminated status carried a count. It is what makes a discarded GPU-second a discarded unit of work.
+	Iterations *int `json:"iterations,omitempty"`
 	// Job is the trace job name this event belongs to, resolved by the collector through the UID chain.
 	Job string `json:"job"`
 	// Tenant is the submitting tenant.

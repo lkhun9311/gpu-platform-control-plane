@@ -18,6 +18,8 @@ package queuelab
 
 import (
 	"fmt"
+	"strconv"
+	"strings"
 
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -51,6 +53,16 @@ type ObservedState struct {
 	// It is a pointer because "no terminated container status to read" is a different fact from "exited 0",
 	// and nil is the only honest spelling of the first.
 	ExitCode *int32
+	// Iterations is how much work the container had completed when it stopped, read out of the same terminated
+	// status the exit code comes from.
+	//
+	// It is what turns a discarded GPU-second into a discarded UNIT OF WORK. Without it the waste figure says
+	// how long a device was held and nothing about what was lost, and a workload that computed nothing looks
+	// exactly like one that saturated the card.
+	//
+	// nil for the same reason ExitCode is: a status that could not be read, or a message that does not carry a
+	// count, is a different fact from zero iterations.
+	Iterations *int
 }
 
 // ClassifyWorkload reads a Workload's conditions into the authoritative admission/preemption state.
@@ -109,7 +121,9 @@ func ClassifyJob(job *batchv1.Job) ObservedState {
 // measured to it would undercount exactly the grace window this event exists to capture.
 func ClassifyPod(pod *corev1.Pod) ObservedState {
 	if pod.Status.Phase == corev1.PodSucceeded || pod.Status.Phase == corev1.PodFailed {
-		return ObservedState{Event: EventAttemptStopped, Reason: string(pod.Status.Phase), ExitCode: soleExitCode(pod)}
+		code, iters := soleTerminated(pod)
+		return ObservedState{Event: EventAttemptStopped, Reason: string(pod.Status.Phase),
+			ExitCode: code, Iterations: iters}
 	}
 	if pod.Status.Phase == corev1.PodRunning && podConditionTrue(pod, corev1.PodReady) {
 		return ObservedState{Event: EventPodReady, Reason: string(corev1.PodReady)}
@@ -144,18 +158,42 @@ func podConditionTrue(pod *corev1.Pod, condType corev1.PodConditionType) bool {
 // grew a sidecar would make any choice here a guess presented as a measurement. nil then reports that the
 // stop was observed but its kind could not be established, which is a weaker claim than a number and the
 // only true one.
-func soleExitCode(pod *corev1.Pod) *int32 {
-	var found *int32
+func soleTerminated(pod *corev1.Pod) (*int32, *int) {
+	var code *int32
+	var iters *int
 	for i := range pod.Status.ContainerStatuses {
 		t := pod.Status.ContainerStatuses[i].State.Terminated
 		if t == nil {
 			continue
 		}
-		if found != nil {
-			return nil
+		if code != nil {
+			return nil, nil
 		}
-		code := t.ExitCode
-		found = &code
+		c := t.ExitCode
+		code = &c
+		iters = itersFromMessage(t.Message)
 	}
-	return found
+	return code, iters
+}
+
+// itersFromMessage reads the workload's own count out of the terminated status message.
+//
+// The kubelet copies /dev/termination-log there, and the workload rewrites that file from inside its loop, so
+// this arrives even for a container SIGKILLed at the grace boundary — the arm whose discarded work the
+// experiment is about, and the one that can print no final line because SIGKILL cannot be handled.
+//
+// Anything that is not exactly the expected shape yields nil rather than a guess. The message is a channel the
+// workload controls, and a number parsed loosely out of it would be a measurement invented from whatever
+// happened to be in a file.
+func itersFromMessage(msg string) *int {
+	const prefix = "iters="
+	msg = strings.TrimSpace(msg)
+	if !strings.HasPrefix(msg, prefix) {
+		return nil
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(strings.TrimPrefix(msg, prefix)))
+	if err != nil || n < 0 {
+		return nil
+	}
+	return &n
 }
