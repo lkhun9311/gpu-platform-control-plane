@@ -73,7 +73,7 @@ import (
 // file, when what they are holding is a perfectly good record from a build in which the operator's Pod
 // template was not yet part of what a reading covered. The version is the only thing in either document that
 // can tell those apart.
-const recordSchemaVersion = 7
+const recordSchemaVersion = 8
 
 // runRecord is what a non-preview invocation leaves behind.
 //
@@ -85,7 +85,12 @@ const recordSchemaVersion = 7
 // either — the same rule as before, that a block appears when something writes it.
 type runRecord struct {
 	SchemaVersion int `json:"schemaVersion"`
-	// The bump to 7 carries two changes, and both are about a record being unable to say what it observed:
+	// The bump to 8 adds the measurement block below. Until it, the record carried the ledger and nothing
+	// derived from it, so the numbers a run reported existed only on a terminal — and one of them, the waste,
+	// is sometimes a LOWER BOUND rather than a value. A reader quoting it out of an older document had nothing
+	// in the file telling them which of the two they were holding.
+	//
+	// The bump to 7 carried two changes, and both are about a record being unable to say what it observed:
 	// Dose below, and the exit code the ledger's AttemptStopped events now carry. A document from before it is
 	// refused rather than read, because in both cases the silence would be taken for the ordinary case — the
 	// default regime, and a stop whose kind nobody could tell.
@@ -96,6 +101,9 @@ type runRecord struct {
 	// costs it. Two records without this field are indistinguishable while describing different experiments,
 	// so a reader comparing them would be comparing numbers that never answered the same question.
 	Dose string `json:"dose"`
+	// Measurement is absent when the run produced no reconstruction, which is every refused run: a block of
+	// zeroes would read as a run that measured nothing rather than one that never got to measure.
+	Measurement *measurement `json:"measurement,omitempty"`
 	// Preview has no writer on purpose, and is NOT a reserved slot like the Flags field deleted before it: it
 	// exists for decodeRunRecord, so that a preview document fed to a run-record reader is rejected by the
 	// specific check below rather than by a generic unknown-field error that says nothing about why. Deleting
@@ -259,6 +267,35 @@ func recordUnchecked() []string {
 // number may exist — and LedgerBuilder.Desync keeps only the FIRST reason it was given. The exclusivity
 // failure then survives nowhere in the prose, only as window.violationsObserved > 0. A verdict parsed from
 // `reason` misses it; a verdict derived from the fields cannot.
+// measurement is what the run's reconstruction produced, persisted beside the ledger it came from.
+//
+// It sits with observation, window and qualification as EVIDENCE rather than inside validity, and that
+// placement is the argument. checkValidity re-derives the verdict from the document's own fields; a censoring
+// flag put in there would be a claim the decoder cannot reproduce, because reproducing it means rebuilding
+// the trace from the arm and dose, replaying the ledger and re-running the reconstruction. Evidence blocks
+// are not re-derived, they are what a verdict is derived FROM, and this is one.
+//
+// HorizonNs is here for the same reason: without it a reader holding the events cannot replay them to the
+// same boundary, so nothing in the file could be recomputed even in principle.
+type measurement struct {
+	// HorizonNs is the observation boundary the reconstruction charged against, as an offset from t0.
+	HorizonNs int64 `json:"horizonNs"`
+	// WastedGPUSeconds is the discarded work attributable to reclamation.
+	WastedGPUSeconds float64 `json:"wastedGPUSeconds"`
+	// WasteLowerBoundGPUSeconds is what the run can prove was discarded. It equals WastedGPUSeconds unless
+	// Censored, and the two are carried separately so a reader never has to infer which they hold.
+	WasteLowerBoundGPUSeconds float64 `json:"wasteLowerBoundGPUSeconds"`
+	// Censored says an attempt's stop was observed BEYOND the horizon, so its interval is truncated and the
+	// waste above is a floor rather than a measurement.
+	//
+	// It is expected to become ordinary on slower clusters — a longer image pull pushes every stop later —
+	// which is exactly why the record has to say it. The printed result already did; the durable artifact did
+	// not, and the artifact is what outlives the terminal.
+	Censored bool `json:"censored,omitempty"`
+	// UnfinishedAtHorizon is the count still pending or running when the window closed.
+	UnfinishedAtHorizon int `json:"unfinishedAtHorizon"`
+}
+
 type validity struct {
 	Verdict string `json:"verdict"`
 	// Failures is every claim this record does not support, in a fixed order so two records of the same shape
@@ -635,8 +672,25 @@ type recordIdentity struct {
 	Dose  string
 }
 
+// measurementOf projects a reconstruction into the record, or nil when there was none.
+//
+// nil rather than a zero block, because "this run measured nothing" and "this run never got far enough to
+// measure" are different states and a reader must not have to guess which produced a row of zeroes.
+func measurementOf(res *queuelab.LabResult, horizonNs int64) *measurement {
+	if res == nil {
+		return nil
+	}
+	return &measurement{
+		HorizonNs:                 horizonNs,
+		WastedGPUSeconds:          res.TotalWastedGPUSeconds,
+		WasteLowerBoundGPUSeconds: res.TotalWasteLowerBoundGPUSeconds,
+		Censored:                  res.AnyWasteCensored,
+		UnfinishedAtHorizon:       res.UnfinishedAtHorizon,
+	}
+}
+
 func buildRecord(o outcome, events []queuelab.LifecycleEvent, left []residue, qual *qualification,
-	win *ownershipWindow, obs *observationEvidence, id recordIdentity, preview bool,
+	win *ownershipWindow, obs *observationEvidence, id recordIdentity, m *measurement, preview bool,
 	started, ended time.Time) any {
 	o = classified(o)
 	persistedResidue := residueForRecord(left)
@@ -666,8 +720,12 @@ func buildRecord(o outcome, events []queuelab.LifecycleEvent, left []residue, qu
 			Validity:      v,
 		}
 	}
+	// The preview above deliberately carries NO measurement. It withholds the ledger so its output cannot be
+	// reconstructed into a number, and handing back the numbers directly would return exactly what the
+	// withholding protects.
 	return runRecord{
 		SchemaVersion: recordSchemaVersion,
+		Measurement:   m,
 		RunID:         id.RunID,
 		Arm:           id.Arm,
 		Dose:          id.Dose,

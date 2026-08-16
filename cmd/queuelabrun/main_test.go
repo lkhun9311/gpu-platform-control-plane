@@ -310,7 +310,7 @@ func TestRunDeferredEmergencyReleaseAmendsThePersistedRecord(t *testing.T) {
 	// against the outcome value the test already holds.
 	path := t.TempDir() + "/record.json"
 	started := time.Date(2026, 8, 8, 10, 0, 0, 0, time.UTC)
-	if err := writeRecord(path, buildRecord(o, events, nil, nil, nil, nil, recordIdentity{RunID: "r7", Arm: string(queuelab.ArmAHonor)}, false,
+	if err := writeRecord(path, buildRecord(o, events, nil, nil, nil, nil, recordIdentity{RunID: "r7", Arm: string(queuelab.ArmAHonor)}, nil, false,
 		started, started.Add(90*time.Second))); err != nil {
 		t.Fatalf("persist: %v", err)
 	}
@@ -375,10 +375,10 @@ func TestRunSetsADispositionOnTheConnectAndAcquisitionPaths(t *testing.T) {
 // it and hand a preview the reconstructable evidence previewRecord has no field for. It must therefore be the
 // same constant whatever the run did.
 func TestPreviewRecordNoteIsAConstantNotDerivedFromTheRun(t *testing.T) {
-	quiet := buildRecord(outcome{Disposition: dispChecksPassed}, nil, nil, nil, nil, nil, recordIdentity{RunID: "r1", Arm: "A-honor"}, true,
+	quiet := buildRecord(outcome{Disposition: dispChecksPassed}, nil, nil, nil, nil, nil, recordIdentity{RunID: "r1", Arm: "A-honor"}, nil, true,
 		time.Now(), time.Now()).(previewRecord)
 	busy := buildRecord(outcome{Disposition: dispCancelled, Reason: "observing until the horizon"},
-		[]queuelab.LifecycleEvent{{ElapsedNs: 1, Kind: "Pod", Job: "a1"}}, nil, nil, nil, nil, recordIdentity{RunID: "r2", Arm: "N-ref"}, true,
+		[]queuelab.LifecycleEvent{{ElapsedNs: 1, Kind: "Pod", Job: "a1"}}, nil, nil, nil, nil, recordIdentity{RunID: "r2", Arm: "N-ref"}, nil, true,
 		time.Now(), time.Now()).(previewRecord)
 
 	if quiet.Note != previewNote || busy.Note != previewNote {
@@ -430,7 +430,7 @@ func TestRefusalRecordIsReadableEvenWithoutARunID(t *testing.T) {
 
 	err := errors.New("-runid is required")
 	rec := buildRecord(outcome{Disposition: dispRefusedBeforeCluster, Reason: err.Error()},
-		nil, nil, nil, nil, nil, recordIdentity{RunID: recordRunID(""), Arm: ""}, false, time.Now(), time.Now())
+		nil, nil, nil, nil, nil, recordIdentity{RunID: recordRunID(""), Arm: ""}, nil, false, time.Now(), time.Now())
 	b, encErr := encodeRecord(rec)
 	if encErr != nil {
 		t.Fatalf("encode: %v", encErr)
@@ -482,7 +482,7 @@ func TestRecordPathNamesEveryInvocationSeparately(t *testing.T) {
 // record is built rather than audited where only some are reachable — a reviewer deleted four `o = ...`
 // assignments and neither go vet nor the suite noticed.
 func TestBuildRecordRefusesAZeroDisposition(t *testing.T) {
-	rr, ok := buildRecord(outcome{}, nil, nil, nil, nil, nil, recordIdentity{RunID: "r7", Arm: "A-honor"}, false, time.Now(), time.Now()).(runRecord)
+	rr, ok := buildRecord(outcome{}, nil, nil, nil, nil, nil, recordIdentity{RunID: "r7", Arm: "A-honor"}, nil, false, time.Now(), time.Now()).(runRecord)
 	if !ok {
 		t.Fatal("a non-preview invocation must build a runRecord")
 	}
@@ -494,7 +494,7 @@ func TestBuildRecordRefusesAZeroDisposition(t *testing.T) {
 	}
 
 	// The preview branch builds a different type, so it needs its own proof rather than inheriting this one.
-	pr, ok := buildRecord(outcome{}, nil, nil, nil, nil, nil, recordIdentity{RunID: "r7", Arm: "A-honor"}, true, time.Now(), time.Now()).(previewRecord)
+	pr, ok := buildRecord(outcome{}, nil, nil, nil, nil, nil, recordIdentity{RunID: "r7", Arm: "A-honor"}, nil, true, time.Now(), time.Now()).(previewRecord)
 	if !ok {
 		t.Fatal("a preview invocation must build a previewRecord")
 	}
@@ -503,7 +503,7 @@ func TestBuildRecordRefusesAZeroDisposition(t *testing.T) {
 	}
 
 	// The substitution must not touch an outcome that already has one, or it would rewrite real dispositions.
-	kept := buildRecord(outcome{Disposition: dispChecksPassed, Reason: "x"}, nil, nil, nil, nil, nil, recordIdentity{RunID: "r7", Arm: "A-honor"}, false,
+	kept := buildRecord(outcome{Disposition: dispChecksPassed, Reason: "x"}, nil, nil, nil, nil, nil, recordIdentity{RunID: "r7", Arm: "A-honor"}, nil, false,
 		time.Now(), time.Now()).(runRecord)
 	if kept.Disposition != string(dispChecksPassed) || kept.Reason != "x" {
 		t.Fatalf("a classified outcome must pass through untouched, got %q / %q", kept.Disposition, kept.Reason)
@@ -1003,7 +1003,7 @@ func TestRunExplicitReleaseFailureRecordsWorkerNotRestored(t *testing.T) {
 	// the in-memory outcome the test already holds.
 	path := t.TempDir() + "/record.json"
 	started := time.Now()
-	if err := writeRecord(path, buildRecord(o, events, nil, nil, nil, nil, recordIdentity{RunID: "r8", Arm: string(queuelab.ArmNRef)}, false,
+	if err := writeRecord(path, buildRecord(o, events, nil, nil, nil, nil, recordIdentity{RunID: "r8", Arm: string(queuelab.ArmNRef)}, nil, false,
 		started, started.Add(45*time.Second))); err != nil {
 		t.Fatalf("persist: %v", err)
 	}
@@ -1095,7 +1095,7 @@ func TestRunCancellationWhileRestoringNeverRelabelsAsCancelled(t *testing.T) {
 
 	path := t.TempDir() + "/record.json"
 	started := time.Now()
-	if err := writeRecord(path, buildRecord(o, events, nil, nil, nil, nil, recordIdentity{RunID: "r9", Arm: string(queuelab.ArmNRef)}, false,
+	if err := writeRecord(path, buildRecord(o, events, nil, nil, nil, nil, recordIdentity{RunID: "r9", Arm: string(queuelab.ArmNRef)}, nil, false,
 		started, started.Add(45*time.Second))); err != nil {
 		t.Fatalf("persist: %v", err)
 	}
@@ -2175,7 +2175,7 @@ func TestAQualifiedRunRecordsWhatItsWorkerWas(t *testing.T) {
 		t.Fatal("a run that passed every check recorded nothing about the machine it measured on")
 	}
 
-	rec := buildRecord(o, events, left, qual, nil, obs, recordIdentity{RunID: "r14", Arm: string(queuelab.ArmNRef)}, false,
+	rec := buildRecord(o, events, left, qual, nil, obs, recordIdentity{RunID: "r14", Arm: string(queuelab.ArmNRef)}, nil, false,
 		time.Now(), time.Now())
 	b, err := encodeRecord(rec)
 	if err != nil {
@@ -2251,7 +2251,7 @@ func TestAPassingRunRecordsTheWindowItHeld(t *testing.T) {
 		t.Fatalf("the passing run recorded no audited restoration: %+v", win.Restoration)
 	}
 
-	rec := buildRecord(o, events, left, qual, win, obs, recordIdentity{RunID: "r15", Arm: string(queuelab.ArmNRef)}, false,
+	rec := buildRecord(o, events, left, qual, win, obs, recordIdentity{RunID: "r15", Arm: string(queuelab.ArmNRef)}, nil, false,
 		time.Now(), time.Now())
 	b, err := encodeRecord(rec)
 	if err != nil {
@@ -2443,7 +2443,7 @@ func TestARefusedEstablishmentRecordsWhichStreamDiedAndThatNothingWasEstablished
 			"ending the run itself caused: %+v", *pod)
 	}
 
-	rec := buildRecord(o, events, left, qual, win, obs, recordIdentity{RunID: "r18", Arm: string(queuelab.ArmNRef)}, false,
+	rec := buildRecord(o, events, left, qual, win, obs, recordIdentity{RunID: "r18", Arm: string(queuelab.ArmNRef)}, nil, false,
 		time.Now(), time.Now())
 	b, err := encodeRecord(rec)
 	if err != nil {
@@ -2517,7 +2517,7 @@ func TestAPassingRunRecordsTheObservationAndCallsItselfAdmissible(t *testing.T) 
 		}
 	}
 
-	rec := buildRecord(o, events, left, qual, win, obs, recordIdentity{RunID: "r19", Arm: string(queuelab.ArmNRef)}, false,
+	rec := buildRecord(o, events, left, qual, win, obs, recordIdentity{RunID: "r19", Arm: string(queuelab.ArmNRef)}, nil, false,
 		time.Now(), time.Now())
 	b, err := encodeRecord(rec)
 	if err != nil {

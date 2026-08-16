@@ -330,7 +330,7 @@ func TestVerifyRecordReadableAcceptsARecordThisBuildJustWrote(t *testing.T) {
 		Absence: absenceUnknown,
 	}}
 	rec := buildRecord(outcome{Disposition: dispResidueLeft, Reason: "teardown left 1 object(s)"}, nil, left,
-		nil, nil, nil, recordIdentity{RunID: "r7", Arm: "A-honor"}, false, time.Now(), time.Now())
+		nil, nil, nil, recordIdentity{RunID: "r7", Arm: "A-honor"}, nil, false, time.Now(), time.Now())
 
 	path := t.TempDir() + "/run.json"
 	if err := writeRecord(path, rec); err != nil {
@@ -379,7 +379,7 @@ func TestVerifyRecordReadableRefusesAPreviewWhoseFieldsDriftedIntoARuns(t *testi
 	dir := t.TempDir()
 
 	good := dir + "/preview.json"
-	if err := writeRecord(good, buildRecord(outcome{Disposition: dispChecksPassed}, nil, nil, nil, nil, nil, recordIdentity{RunID: "r7", Arm: "A-honor"}, true, time.Now(), time.Now())); err != nil {
+	if err := writeRecord(good, buildRecord(outcome{Disposition: dispChecksPassed}, nil, nil, nil, nil, nil, recordIdentity{RunID: "r7", Arm: "A-honor"}, nil, true, time.Now(), time.Now())); err != nil {
 		t.Fatalf("write: %v", err)
 	}
 	if err := verifyRecordReadable(good, true); err != nil {
@@ -387,7 +387,7 @@ func TestVerifyRecordReadableRefusesAPreviewWhoseFieldsDriftedIntoARuns(t *testi
 	}
 
 	drifted := dir + "/drifted.json"
-	if err := writeRecord(drifted, buildRecord(outcome{Disposition: dispChecksPassed}, nil, nil, nil, nil, nil, recordIdentity{RunID: "r7", Arm: "A-honor"}, false, time.Now(), time.Now())); err != nil {
+	if err := writeRecord(drifted, buildRecord(outcome{Disposition: dispChecksPassed}, nil, nil, nil, nil, nil, recordIdentity{RunID: "r7", Arm: "A-honor"}, nil, false, time.Now(), time.Now())); err != nil {
 		t.Fatalf("write: %v", err)
 	}
 	if err := verifyRecordReadable(drifted, true); err == nil {
@@ -448,7 +448,7 @@ func TestRunRecordCarriesTheResidueAndStillDecodes(t *testing.T) {
 	}}
 
 	rec := buildRecord(outcome{Disposition: dispResidueLeft, Reason: "teardown left 1 object(s)"}, nil, left, nil, nil,
-		nil, recordIdentity{RunID: "r7", Arm: "A-honor"}, false, time.Now(), time.Now())
+		nil, recordIdentity{RunID: "r7", Arm: "A-honor"}, nil, false, time.Now(), time.Now())
 	b, err := encodeRecord(rec)
 	if err != nil {
 		t.Fatalf("encode: %v", err)
@@ -528,7 +528,7 @@ func TestPreviewRecordCarriesResidueToo(t *testing.T) {
 		},
 		Absence: absencePresent,
 	}}
-	pr, ok := buildRecord(outcome{Disposition: dispResidueLeft}, nil, left, nil, nil, nil, recordIdentity{RunID: "r7", Arm: "A-honor"}, true,
+	pr, ok := buildRecord(outcome{Disposition: dispResidueLeft}, nil, left, nil, nil, nil, recordIdentity{RunID: "r7", Arm: "A-honor"}, nil, true,
 		time.Now(), time.Now()).(previewRecord)
 	if !ok {
 		t.Fatal("a preview invocation must build a previewRecord")
@@ -570,7 +570,7 @@ func TestRunRecordCarriesTheQualificationAndStillDecodes(t *testing.T) {
 		},
 	}
 	rec := buildRecord(outcome{Disposition: dispEnvironmentUnqualified, Reason: "a GPU Pod was already there"},
-		nil, nil, q, nil, nil, recordIdentity{RunID: "r7", Arm: "A-honor"}, false, time.Now(), time.Now())
+		nil, nil, q, nil, nil, recordIdentity{RunID: "r7", Arm: "A-honor"}, nil, false, time.Now(), time.Now())
 	b, err := encodeRecord(rec)
 	if err != nil {
 		t.Fatalf("encode: %v", err)
@@ -604,7 +604,7 @@ func TestRunRecordCarriesTheQualificationAndStillDecodes(t *testing.T) {
 // on a node with no name means "not checked".
 func TestARecordWithNoQualificationCarriesNoQualificationKey(t *testing.T) {
 	rec := buildRecord(outcome{Disposition: dispAcquisitionRefused, Reason: "held by another run"},
-		nil, nil, nil, nil, nil, recordIdentity{RunID: "r7", Arm: "A-honor"}, false, time.Now(), time.Now())
+		nil, nil, nil, nil, nil, recordIdentity{RunID: "r7", Arm: "A-honor"}, nil, false, time.Now(), time.Now())
 	b, err := encodeRecord(rec)
 	if err != nil {
 		t.Fatalf("encode: %v", err)
@@ -631,7 +631,7 @@ func TestARecordWithNoQualificationCarriesNoQualificationKey(t *testing.T) {
 func TestPreviewRecordCarriesTheQualificationToo(t *testing.T) {
 	q := &qualification{Node: "platform-worker", NodeUID: "uid-node", AllocatableGPU: 2, RequiredGPU: 2,
 		Ready: true, Schedulable: true, PodsOnNode: 3}
-	pr, ok := buildRecord(outcome{Disposition: dispChecksPassed}, nil, nil, q, nil, nil, recordIdentity{RunID: "r7", Arm: "A-honor"}, true,
+	pr, ok := buildRecord(outcome{Disposition: dispChecksPassed}, nil, nil, q, nil, nil, recordIdentity{RunID: "r7", Arm: "A-honor"}, nil, true,
 		time.Now(), time.Now()).(previewRecord)
 	if !ok {
 		t.Fatal("a preview invocation must build a previewRecord")
@@ -750,7 +750,7 @@ func testWindow() *ownershipWindow {
 // end and the state the fourth gate would have to investigate from scratch.
 func TestRunRecordCarriesTheWindowAndStillDecodes(t *testing.T) {
 	w := testWindow()
-	rec := buildRecord(outcome{Disposition: dispChecksPassed}, nil, nil, nil, w, nil, recordIdentity{RunID: "r7", Arm: "A-honor"}, false,
+	rec := buildRecord(outcome{Disposition: dispChecksPassed}, nil, nil, nil, w, nil, recordIdentity{RunID: "r7", Arm: "A-honor"}, nil, false,
 		time.Now(), time.Now())
 	b, err := encodeRecord(rec)
 	if err != nil {
@@ -789,7 +789,7 @@ func TestARefusedRunRecordsWhatTheWindowSaw(t *testing.T) {
 		ObservedTaints: "(none)",
 	}}
 	rec := buildRecord(outcome{Disposition: dispCollectorDesync, Reason: "run invalidated"}, nil, nil, nil, w,
-		nil, recordIdentity{RunID: "r7", Arm: "A-honor"}, false, time.Now(), time.Now())
+		nil, recordIdentity{RunID: "r7", Arm: "A-honor"}, nil, false, time.Now(), time.Now())
 	b, err := encodeRecord(rec)
 	if err != nil {
 		t.Fatalf("encode: %v", err)
@@ -812,7 +812,7 @@ func TestARefusedRunRecordsWhatTheWindowSaw(t *testing.T) {
 //
 // Mutation that turns this red: delete `Window: win` from buildRecord's previewRecord branch.
 func TestPreviewRecordCarriesTheWindowToo(t *testing.T) {
-	pr, ok := buildRecord(outcome{Disposition: dispChecksPassed}, nil, nil, nil, testWindow(), nil, recordIdentity{RunID: "r7", Arm: "A-honor"}, true, time.Now(), time.Now()).(previewRecord)
+	pr, ok := buildRecord(outcome{Disposition: dispChecksPassed}, nil, nil, nil, testWindow(), nil, recordIdentity{RunID: "r7", Arm: "A-honor"}, nil, true, time.Now(), time.Now()).(previewRecord)
 	if !ok {
 		t.Fatal("a preview invocation must build a previewRecord")
 	}
@@ -901,7 +901,7 @@ func testQualification() *qualification {
 func TestRunRecordCarriesTheObservationAndStillDecodes(t *testing.T) {
 	obs := testObservation()
 	rec := buildRecord(outcome{Disposition: dispChecksPassed}, nil, nil, testQualification(), testWindow(),
-		obs, recordIdentity{RunID: "r7", Arm: "A-honor"}, false, time.Now(), time.Now())
+		obs, recordIdentity{RunID: "r7", Arm: "A-honor"}, nil, false, time.Now(), time.Now())
 	b, err := encodeRecord(rec)
 	if err != nil {
 		t.Fatalf("encode: %v", err)
@@ -1083,7 +1083,7 @@ func TestValidityNamesTheClaimTheFieldsActuallyFail(t *testing.T) {
 // cluster then writes a record that says it is admissible, which is the one thing -preview exists to stop.
 func TestAPreviewIsNeverAdmissibleHoweverWellItWent(t *testing.T) {
 	pr, ok := buildRecord(outcome{Disposition: dispChecksPassed}, nil, nil, testQualification(), testWindow(),
-		testObservation(), recordIdentity{RunID: "r7", Arm: "A-honor"}, true, time.Now(), time.Now()).(previewRecord)
+		testObservation(), recordIdentity{RunID: "r7", Arm: "A-honor"}, nil, true, time.Now(), time.Now()).(previewRecord)
 	if !ok {
 		t.Fatal("a preview invocation must build a previewRecord")
 	}
@@ -1254,7 +1254,7 @@ func TestDecodeRunRecordRefusesAnAdmissibleVerdictHidingALossBehindADuplicateStr
 // form of that, and it fails all three clauses at once.
 func TestTheRecordsUncheckedListDescribesTheBuildNotTheRoadmap(t *testing.T) {
 	rec, ok := buildRecord(outcome{Disposition: dispChecksPassed}, nil, nil, testQualification(), testWindow(),
-		testObservation(), recordIdentity{RunID: "r7", Arm: "A-honor"}, false, time.Now(), time.Now()).(runRecord)
+		testObservation(), recordIdentity{RunID: "r7", Arm: "A-honor"}, nil, false, time.Now(), time.Now()).(runRecord)
 	if !ok {
 		t.Fatal("a non-preview invocation must build a runRecord")
 	}
@@ -1396,7 +1396,7 @@ func TestDecodeRunRecordRefusesTheShapeThatPredatesTheObservationBlock(t *testin
 //
 // Mutation that turns this red: leave recordSchemaVersion at 6 — both halves, the constant and the document.
 func TestARecordFromBeforeTheDoseRegimeIsRefusedRatherThanAssumedDefault(t *testing.T) {
-	if recordSchemaVersion != 7 {
+	if recordSchemaVersion < 7 {
 		t.Fatalf("recordSchemaVersion is %d; the run now measures one of two dose regimes and a record that "+
 			"cannot say which describes an experiment the reader has to guess at", recordSchemaVersion)
 	}
@@ -1412,5 +1412,88 @@ func TestARecordFromBeforeTheDoseRegimeIsRefusedRatherThanAssumedDefault(t *test
 		`"disposition":"completed-implemented-checks-passed",%s}`, recordSchemaVersion, refusedValidity)
 	if _, err := decodeRunRecord(current); err != nil {
 		t.Fatalf("a record at today's version naming its regime must decode: %v", err)
+	}
+}
+
+// A record from before the measurement block is refused, because the number it reported could be a value or
+// a floor and the file said nothing about which.
+//
+// Waste is censored when an attempt's stop is observed BEYOND the horizon: the loss is attributable but its
+// interval is truncated, so wastedGPUSeconds becomes a lower bound. The printed result always said so; the
+// durable artifact did not, and the artifact is what outlives the terminal. On a slower cluster — a longer
+// image pull pushes every stop later — censoring stops being exotic, which is why this cannot wait for the
+// hardware that makes it common.
+//
+// The horizon is in the same block for a related reason: without it a reader holding the ledger cannot
+// replay it to the same boundary, so none of the numbers could be recomputed even in principle.
+//
+// Mutation that turns this red: leave recordSchemaVersion at 7 — both halves, the constant and the document.
+func TestARecordFromBeforeTheMeasurementBlockIsRefused(t *testing.T) {
+	if recordSchemaVersion != 8 {
+		t.Fatalf("recordSchemaVersion is %d; the record now carries what the run measured and the boundary it "+
+			"measured to, and a document without them cannot say whether its waste is a value or a floor",
+			recordSchemaVersion)
+	}
+	older := fmt.Appendf(nil, `{"schemaVersion":7,"dose":"self-completing","runID":"r7","arm":"A-honor",`+
+		`"disposition":"completed-implemented-checks-passed",%s}`, refusedValidity)
+	if _, err := decodeRunRecord(older); err == nil {
+		t.Fatal("a record from before the measurement block decoded under today's rules, so its silence about " +
+			"censoring reads as a run whose waste was fully measured")
+	}
+	// A censored run must round-trip carrying the flag, or the field is decoration.
+	m := &measurement{HorizonNs: 150e9, WastedGPUSeconds: 12.5, WasteLowerBoundGPUSeconds: 12.5,
+		Censored: true, UnfinishedAtHorizon: 2}
+	b, err := encodeRecord(runRecord{
+		SchemaVersion: recordSchemaVersion, RunID: "r7", Arm: "A-honor", Dose: "self-completing",
+		Disposition: string(dispChecksPassed), Measurement: m,
+		Validity: validity{Verdict: verdictRefused, Failures: []string{failureObservation}},
+	})
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	got, err := decodeRunRecord(b)
+	if err != nil {
+		t.Fatalf("a record carrying a measurement must decode: %v", err)
+	}
+	if got.Measurement == nil || !got.Measurement.Censored {
+		t.Fatalf("the censoring flag did not survive the wire: %+v", got.Measurement)
+	}
+	if got.Measurement.HorizonNs != m.HorizonNs {
+		t.Fatalf("the horizon did not survive the wire: %d", got.Measurement.HorizonNs)
+	}
+}
+
+// The projection is what carries the reconstruction into the artifact, so it is what has to be tested.
+//
+// The schema test above builds a measurement literal and round-trips it, which proves the wire format and
+// nothing about whether the run's own numbers reach it — dropping the censoring flag inside measurementOf
+// left that test green. A mutation that survives is a coverage hole, and this is the hole.
+//
+// Mutations that turn this red: hard-code Censored to false; or return a zero block instead of nil for a run
+// that never reconstructed.
+func TestMeasurementOfCarriesWhatTheRunActuallyMeasured(t *testing.T) {
+	if m := measurementOf(nil, 150e9); m != nil {
+		t.Fatalf("a run that never reconstructed must project no measurement, got %+v; a block of zeroes reads "+
+			"as a run that measured nothing rather than one that never got to measure", m)
+	}
+	res := &queuelab.LabResult{
+		TotalWastedGPUSeconds:          12.5,
+		TotalWasteLowerBoundGPUSeconds: 9.5,
+		AnyWasteCensored:               true,
+		UnfinishedAtHorizon:            2,
+	}
+	m := measurementOf(res, 150e9)
+	if m == nil {
+		t.Fatal("a run that reconstructed must project a measurement")
+	}
+	if !m.Censored {
+		t.Fatal("the run's waste was censored and the record says it was fully measured; a reader quoting " +
+			"wastedGPUSeconds out of this file would be quoting a floor as a value")
+	}
+	if m.WastedGPUSeconds != res.TotalWastedGPUSeconds || m.WasteLowerBoundGPUSeconds != res.TotalWasteLowerBoundGPUSeconds {
+		t.Fatalf("the two waste figures must be carried separately so a reader never infers which they hold: %+v", m)
+	}
+	if m.UnfinishedAtHorizon != res.UnfinishedAtHorizon || m.HorizonNs != 150e9 {
+		t.Fatalf("projection lost the boundary or the unfinished count: %+v", m)
 	}
 }
