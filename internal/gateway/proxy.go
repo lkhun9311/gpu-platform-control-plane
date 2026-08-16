@@ -409,6 +409,9 @@ func newReverseProxy(target *url.URL, transport http.RoundTripper, onErr func(co
 	return p
 }
 
+// maxBackendAttempts caps how many backends one request may try; see tryBackends for why it is two.
+const maxBackendAttempts = 2
+
 // attemptWriter is what lets one request try a second backend without the client seeing the first one fail.
 //
 // httputil.ReverseProxy has no notion of "try again elsewhere": its ErrorHandler writes a 502 straight to the
@@ -496,6 +499,19 @@ func (a *attemptWriter) Flush() {
 // broken one look identical in the metrics.
 func tryBackends(w http.ResponseWriter, r *http.Request, targets []*url.URL,
 	transport http.RoundTripper, onFailure func(code int, final bool)) {
+	// Attempts are capped, and the cap is not tidiness. Each attempt gets the transport's full
+	// ResponseHeaderTimeout plus its dial timeout, and nothing spans the loop — so a model left with four
+	// stale InferenceDeployments pointing at blackholed Services would pin a goroutine, a client connection
+	// and a slot in the tenant's in-flight budget for minutes where the pre-fallback worst case was one
+	// timeout. The blast radius grew with operator sloppiness, and the premise of fallback is that several
+	// deployments per model are NORMAL.
+	//
+	// Two, because the value of a third attempt is small and its cost is another full timeout: if the head and
+	// one spare are both unreachable the model is down, and telling the client so quickly is better than
+	// walking a list.
+	if len(targets) > maxBackendAttempts {
+		targets = targets[:maxBackendAttempts]
+	}
 	for i, u := range targets {
 		last := i == len(targets)-1
 		att := &attemptWriter{ResponseWriter: w, suppress: !last}
@@ -509,6 +525,14 @@ func tryBackends(w http.ResponseWriter, r *http.Request, targets []*url.URL,
 		// Answered, or answered partially: either way this request is finished. A failure after the first byte
 		// cannot be retried, because a second backend would splice its answer onto the one already in flight.
 		if !att.failed || att.wrote || last {
+			return
+		}
+		// A client that hung up is not a backend that failed. RoundTrip returns context.Canceled, which is not
+		// a net.Error, so ErrorHandler maps it to 502 and the loop would walk every remaining candidate —
+		// each cloning the same already-cancelled context and failing at once. One disconnect then produced N
+		// upstream errors and N-1 fallbacks, poisoning the very ratio backend_fallbacks_total exists to give.
+		// The harness cancels every request outstanding past its timeout, so this is routine rather than exotic.
+		if r.Context().Err() != nil {
 			return
 		}
 		// The body has been consumed by the attempt that just failed, so the next one needs it back. GetBody

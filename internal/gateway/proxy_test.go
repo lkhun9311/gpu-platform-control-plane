@@ -968,3 +968,62 @@ var _ = Describe("backend fallback", func() {
 		Expect(rec.Body.String()).NotTo(ContainSubstring("second"))
 	})
 })
+
+// A client that hung up is not a backend that failed.
+//
+// RoundTrip returns context.Canceled, which is not a net.Error, so ErrorHandler maps it to 502 and the loop
+// would walk every remaining candidate — each cloning the same already-cancelled context and failing at once.
+// One disconnect then produced N upstream errors and N-1 fallbacks, poisoning the ratio the fallback counter
+// exists to provide. The harness cancels every request outstanding past its timeout, so this is routine.
+//
+// Mutation that turns this red: delete the r.Context().Err() guard from tryBackends.
+var _ = Describe("fallback and the client's own cancellation", func() {
+	It("does not walk the candidate list after the client has gone", func() {
+		var hits int
+		slow := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			hits++
+			<-r.Context().Done()
+		}))
+		defer slow.Close()
+		spare := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			hits += 100
+		}))
+		defer spare.Close()
+		slowURL, _ := url.Parse(slow.URL)
+		spareURL, _ := url.Parse(spare.URL)
+
+		ctx, cancel := context.WithCancel(context.Background())
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://gw/v1/chat/completions", nil)
+		Expect(err).NotTo(HaveOccurred())
+		buf := []byte(`{"model":"m"}`)
+		req.GetBody = func() (io.ReadCloser, error) { return io.NopCloser(bytes.NewReader(buf)), nil }
+		req.Body, _ = req.GetBody()
+
+		go func() { time.Sleep(120 * time.Millisecond); cancel() }()
+		var failures int
+		tryBackends(httptest.NewRecorder(), req, []*url.URL{slowURL, spareURL}, http.DefaultTransport,
+			func(int, bool) { failures++ })
+
+		Expect(hits).To(Equal(1), "the spare was tried after the client had already gone")
+		Expect(failures).To(Equal(1), "one disconnect was counted as several upstream failures")
+	})
+
+	// Mutation that turns this red: remove the maxBackendAttempts truncation.
+	It("stops after the cap however many stale backends a model has", func() {
+		var dialled int
+		dead := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+		deadURL, _ := url.Parse(dead.URL)
+		dead.Close()
+		urls := []*url.URL{deadURL, deadURL, deadURL, deadURL}
+
+		req, err := http.NewRequest(http.MethodPost, "http://gw/v1/chat/completions", nil)
+		Expect(err).NotTo(HaveOccurred())
+		buf := []byte(`{"model":"m"}`)
+		req.GetBody = func() (io.ReadCloser, error) { return io.NopCloser(bytes.NewReader(buf)), nil }
+		req.Body, _ = req.GetBody()
+
+		tryBackends(httptest.NewRecorder(), req, urls, http.DefaultTransport, func(int, bool) { dialled++ })
+		Expect(dialled).To(Equal(maxBackendAttempts),
+			"a request walked every stale backend, each costing a full timeout")
+	})
+})
