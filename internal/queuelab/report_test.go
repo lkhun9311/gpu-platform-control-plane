@@ -45,7 +45,7 @@ func TestRenderResultAlwaysExposesExecutionStart(t *testing.T) {
 func assertTimingLinesAdjacent(t *testing.T, out string, wantLines int) {
 	t.Helper()
 	timingLines := 0
-	for _, line := range strings.Split(out, "\n") {
+	for line := range strings.SplitSeq(out, "\n") {
 		if !strings.Contains(line, "admitLatency=") {
 			continue
 		}
@@ -132,7 +132,7 @@ func TestRenderResultSurfacesIneffectivePreemption(t *testing.T) {
 // hasLineWith reports whether any single line of out contains all the given substrings, which is how a
 // per-row field is pinned to its own row rather than to the output as a whole.
 func hasLineWith(out string, substrings ...string) bool {
-	for _, line := range strings.Split(out, "\n") {
+	for line := range strings.SplitSeq(out, "\n") {
 		all := true
 		for _, s := range substrings {
 			if !strings.Contains(line, s) {
@@ -215,7 +215,7 @@ func TestRenderResultShowsOccupancyExceedingDeclaredServiceTime(t *testing.T) {
 	}
 	out := RenderResult(res)
 	var line string
-	for _, l := range strings.Split(out, "\n") {
+	for l := range strings.SplitSeq(out, "\n") {
 		if strings.Contains(l, "totalOccupancy=") && strings.Contains(l, "serviceTime=40s") {
 			line = l
 		}
@@ -272,7 +272,7 @@ func TestRenderResultShowsCensoredWaitOnlyOnNeverAdmittedRows(t *testing.T) {
 	// paired with the row it belongs to and checked BOTH ways.
 	out := RenderResult(res)
 	var timing []string
-	for _, l := range strings.Split(out, "\n") {
+	for l := range strings.SplitSeq(out, "\n") {
 		if strings.Contains(l, "admitLatency=") {
 			timing = append(timing, l)
 		}
@@ -428,7 +428,7 @@ func TestRenderResultStatesUncreditedLossOnReExecutedIneffectiveRow(t *testing.T
 	}
 	out := RenderResult(res)
 	banner := ""
-	for _, line := range strings.Split(out, "\n") {
+	for line := range strings.SplitSeq(out, "\n") {
 		if strings.Contains(line, "PREEMPTION INEFFECTIVE") {
 			banner = line
 		}

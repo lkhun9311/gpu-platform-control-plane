@@ -164,8 +164,7 @@ func waitFor(t *testing.T, cond func() bool) {
 // This drives a whole watchStream rather than a bare RetryWatcher because the resume version only reaches
 // the server through the adapter's Raw options, so the composed path is the only place the claim is true.
 func TestWatchStreamResumesFromTheLastDeliveredVersion(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	first := watch.NewFake()
 	second := watch.NewFake()
@@ -286,8 +285,7 @@ func streamOnScript(ctx context.Context, t *testing.T, seed []client.Object,
 // The baseline is the only thing a later gap can be measured against, so it has to be the list's own
 // resource version and the list's own object count rather than anything inferred afterwards.
 func TestWatchStreamCapturesTheBaselineItListed(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	held := watch.NewFake()
 	defer held.Stop()
@@ -321,8 +319,7 @@ func TestWatchStreamCapturesTheBaselineItListed(t *testing.T) {
 // A 410 is the one terminal cause the API server states outright, and it means the resume version is gone
 // and the gap can no longer be closed, so the stream must end and keep the status as evidence.
 func TestWatchStreamEndsOnAForwardedGone(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	gone := watch.NewFakeWithChanSize(1, false)
 	gone.Error(&metav1.Status{
@@ -364,8 +361,7 @@ func TestWatchStreamEndsOnAForwardedGone(t *testing.T) {
 // RetryWatcher wrapped is one, since it recognises the reason but cannot assert the concrete status type.
 // Continuity is just as lost there, so the ending must still not read as a caller cancellation.
 func TestWatchStreamEndsOnAPermanentFailureThatForwardsNothing(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	forbidden := apierrors.NewForbidden(schema.GroupResource{Resource: "pods"}, "", errors.New("no watch permission"))
 	ws, _ := streamOnScript(ctx, t, nil,
@@ -435,8 +431,7 @@ func TestWatchStreamEndsAsCancelledWhenTheCallerCancels(t *testing.T) {
 // It also has to be legible afterwards: an orderly stop at the end of a run must not carry the same ending
 // signature as a stream that died on its own, or the integration slice throws away good runs.
 func TestWatchStreamStopEndsTheStreamWithAnEventParkedMidForward(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	// Two events, because the second is what makes the first observably parked: RetryWatcher can only have
 	// taken the second after the forwarder accepted the first.
@@ -473,8 +468,7 @@ func TestWatchStreamStopEndsTheStreamWithAnEventParkedMidForward(t *testing.T) {
 // around it, so a forwarder that silently dropped everything would leave the ledger with no input at all
 // and nothing else in this file would notice.
 func TestWatchStreamDeliversTheEventsItReceives(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	feed := watch.NewFakeWithChanSize(2, false)
 	feed.Add(podAtVersion("p1", "1001"))
@@ -569,8 +563,7 @@ func TestStreamScopeReachesBothTheBaselineListAndEveryWatch(t *testing.T) {
 		"cluster-scoped": {scope: clusterScope(), wantS: ""},
 	} {
 		t.Run(name, func(t *testing.T) {
-			ctx, cancel := context.WithCancel(context.Background())
-			defer cancel()
+			ctx := t.Context()
 
 			var listed, watched *client.ListOptions
 			held := watch.NewFake()

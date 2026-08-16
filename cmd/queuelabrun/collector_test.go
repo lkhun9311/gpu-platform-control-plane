@@ -231,12 +231,12 @@ func TestCollectorDesyncIsSerialisedWithTheWatchGoroutines(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		for i := 0; i < rounds; i++ {
+		for i := range rounds {
 			col.submitObserved(queuelab.TrainingTraceRow{Name: "victim"}, fmt.Sprintf("uid-%d", i),
 				&platformv1.MLTrainingJob{})
 		}
 	}()
-	for i := 0; i < rounds; i++ {
+	for range rounds {
 		col.desync("barrier before step 0 (victim): deadline")
 	}
 	<-done
@@ -584,8 +584,7 @@ func TestCollectorRefusesANamespaceThatAlreadyHoldsWatchedObjects(t *testing.T) 
 	leftover := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{
 		Namespace: "ns", Name: "victim-0", UID: types.UID("pod-from-a-previous-attempt")}}
 	col := newCollector(streamingFake(t, []client.Object{leftover}, nil), "ns", "r1", time.Hour)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	err := col.start(ctx)
 	if err == nil {

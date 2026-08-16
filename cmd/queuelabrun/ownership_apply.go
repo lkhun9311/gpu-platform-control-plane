@@ -114,7 +114,7 @@ func newTxID() string { return string(uuid.NewUUID()) }
 // API server never commits a marker without the journal that says who owns it and what to undo.
 func acquireWorker(ctx context.Context, c client.Client, nodeName, txID, runID, arm string) (journal, error) {
 	var lastErr error
-	for attempt := 0; attempt < acquireAttempts; attempt++ {
+	for range acquireAttempts {
 		var n corev1.Node
 		if err := c.Get(ctx, client.ObjectKey{Name: nodeName}, &n); err != nil {
 			return journal{}, fmt.Errorf("get node %s: %w", nodeName, err)
@@ -189,7 +189,7 @@ func acquireWorker(ctx context.Context, c client.Client, nodeName, txID, runID, 
 func verifyAcquired(ctx context.Context, c client.Client, nodeName string, j journal) error {
 	var n corev1.Node
 	var err error
-	for attempt := 0; attempt < verifyAttempts; attempt++ {
+	for attempt := range verifyAttempts {
 		if err = c.Get(ctx, client.ObjectKey{Name: nodeName}, &n); err == nil {
 			break
 		}
@@ -234,7 +234,7 @@ func verifyObserved(obs ownership, j journal) error {
 func verifyReleased(ctx context.Context, c client.Client, nodeName string, j journal) (ownership, error) {
 	var n corev1.Node
 	var err error
-	for attempt := 0; attempt < verifyAttempts; attempt++ {
+	for attempt := range verifyAttempts {
 		if err = c.Get(ctx, client.ObjectKey{Name: nodeName}, &n); err == nil {
 			break
 		}
@@ -344,7 +344,7 @@ func resolveAmbiguousAcquire(ctx context.Context, c client.Client, nodeName stri
 	// free. A failed read or any non-free state clears it for good, so the "did not land" conclusion below
 	// rests on an unbroken window rather than on whichever state the last read happened to catch.
 	freeThroughout := true
-	for attempt := 0; attempt < resolveAttempts; attempt++ {
+	for attempt := range resolveAttempts {
 		var n corev1.Node
 		if err := c.Get(ctx, client.ObjectKey{Name: nodeName}, &n); err != nil {
 			lastReadErr = err
@@ -732,7 +732,7 @@ func clearQuarantine(ctx context.Context, c client.Client, nodeName, quarantineI
 // releaseOwned below is the caller that draws that distinction.
 func releaseAcquired(ctx context.Context, c client.Client, j journal) (releaseAction, error) {
 	var lastErr error
-	for attempt := 0; attempt < acquireAttempts; attempt++ {
+	for range acquireAttempts {
 		var n corev1.Node
 		if err := c.Get(ctx, client.ObjectKey{Name: j.Node}, &n); err != nil {
 			return releaseRestore, fmt.Errorf("get node %s: %w", j.Node, err)

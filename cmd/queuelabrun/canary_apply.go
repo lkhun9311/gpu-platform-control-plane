@@ -196,7 +196,7 @@ func probePodFrom(tpl corev1.PodTemplateSpec, canaryID, node, runID string, cont
 		// Refused rather than guessed. Writing the arm's command into whatever container happened to be there
 		// would produce a reading of something nobody chose, and a canary that cannot say which container is the
 		// workload cannot say what it qualified.
-		var names []string
+		names := make([]string, 0, len(spec.Containers))
 		for i := range spec.Containers {
 			names = append(names, spec.Containers[i].Name)
 		}
@@ -431,10 +431,7 @@ func deleteProbe(ctx context.Context, c client.Client, p *corev1.Pod, now func()
 // the budget expires is recorded as unobserved rather than as anything else, and judgeCanary refuses on it.
 func awaitProbesStopped(ctx context.Context, c client.Client, probes []*canaryProbe, pods []*corev1.Pod,
 	t0 []time.Time, graceSec int64, now func() time.Time, sleep func(time.Duration)) {
-	budget := time.Duration(graceSec)*time.Second + canaryStopSlack
-	if budget > canaryStopBudgetMax {
-		budget = canaryStopBudgetMax
-	}
+	budget := min(time.Duration(graceSec)*time.Second+canaryStopSlack, canaryStopBudgetMax)
 	deadline := now().Add(budget)
 	// The last read failure per probe, kept rather than acted on immediately: one blip against the apiserver
 	// must not end a reading that is going fine, but a read that never succeeds has to be what the record says
@@ -518,7 +515,7 @@ func awaitProbesStopped(ctx context.Context, c client.Client, probes []*canaryPr
 func releaseProbes(ctx context.Context, c client.Client, pods []*corev1.Pod, out io.Writer) {
 	for _, p := range pods {
 		if err := releaseProbe(ctx, c, p); err != nil {
-			fmt.Fprintf(out, "CANARY PROBE NOT CLEARED: %s/%s: %v\n"+
+			_, _ = fmt.Fprintf(out, "CANARY PROBE NOT CLEARED: %s/%s: %v\n"+
 				"  it holds no device and no CPU, but its object will not go away while this canary's finalizer "+
 				"is on it:\n"+
 				"    kubectl -n %s patch pod %s --type=json -p '[{\"op\":\"remove\",\"path\":\"/metadata/finalizers\"}]'\n",
@@ -528,7 +525,7 @@ func releaseProbes(ctx context.Context, c client.Client, pods []*corev1.Pod, out
 }
 
 func releaseProbe(ctx context.Context, c client.Client, p *corev1.Pod) error {
-	for attempt := 0; attempt < acquireAttempts; attempt++ {
+	for range acquireAttempts {
 		var got corev1.Pod
 		if err := c.Get(ctx, client.ObjectKeyFromObject(p), &got); err != nil {
 			if apierrors.IsNotFound(err) {
@@ -619,7 +616,7 @@ func terminationCanary(ctx context.Context, c client.Client, nodeName string,
 	if aerr != nil {
 		return fmt.Errorf("acquire worker %s to canary it: %w", nodeName, aerr)
 	}
-	fmt.Fprintf(out, "worker %s acquired for canary %s: tx=%s\n"+
+	_, _ = fmt.Fprintf(out, "worker %s acquired for canary %s: tx=%s\n"+
 		"  (if this process dies, run: queuelabrun -inspect-worker -worker %s)\n",
 		nodeName, canaryID, j.TxID, nodeName)
 	defer func() {
@@ -629,10 +626,10 @@ func terminationCanary(ctx context.Context, c client.Client, nodeName string,
 		defer relCancel()
 		rerr := releaseOwned(relCtx, c, j)
 		if rerr == nil {
-			fmt.Fprintf(out, "worker %s released\n", nodeName)
+			_, _ = fmt.Fprintf(out, "worker %s released\n", nodeName)
 			return
 		}
-		fmt.Fprintf(out, "WORKER NOT RESTORED: %v\n  run: queuelabrun -inspect-worker -worker %s\n", rerr, nodeName)
+		_, _ = fmt.Fprintf(out, "WORKER NOT RESTORED: %v\n  run: queuelabrun -inspect-worker -worker %s\n", rerr, nodeName)
 		if err == nil {
 			// Only when nothing else already failed: a canary that refused AND could not give the worker back is
 			// still primarily a refused canary, and overwriting its reason would hide what it found.
@@ -681,14 +678,14 @@ func terminationCanary(ctx context.Context, c client.Client, nodeName string,
 		if p.Spec.TerminationGracePeriodSeconds != nil {
 			probes[i].GraceSec = *p.Spec.TerminationGracePeriodSeconds
 		}
-		fmt.Fprintf(out, "  probe %s created (%s, grace %ds): %s\n",
+		_, _ = fmt.Fprintf(out, "  probe %s created (%s, grace %ds): %s\n",
 			p.Name, probes[i].Contract, probes[i].GraceSec, strings.Join(probes[i].Command, " "))
 	}
 
 	if werr := awaitProbesRunning(ctx, c, pods, now, sleep); werr != nil {
 		return fmt.Errorf("canary on %s: %w", nodeName, werr)
 	}
-	fmt.Fprintf(out, "  both probes running; asking both to stop\n")
+	_, _ = fmt.Fprintf(out, "  both probes running; asking both to stop\n")
 
 	t0 := make([]time.Time, len(pods))
 	for i, p := range pods {
@@ -768,23 +765,23 @@ func terminationCanary(ctx context.Context, c client.Client, nodeName string,
 // one command whose entire product is a measurement, and an operator who cannot see the separation between the
 // two probes has no way to tell a healthy margin from one that scraped past a threshold.
 func reportCanary(out io.Writer, q canaryQualification) {
-	fmt.Fprintf(out, "\ntermination canary %s on node %s (harness %s)\n", q.CanaryID, q.Node, q.HarnessRevision)
+	_, _ = fmt.Fprintf(out, "\ntermination canary %s on node %s (harness %s)\n", q.CanaryID, q.Node, q.HarnessRevision)
 	for _, p := range []canaryProbe{q.Honor, q.Ignore} {
 		if !p.Terminated {
-			fmt.Fprintf(out, "  %-10s %s: NOT OBSERVED TO STOP: %s\n", p.Contract, p.Pod, p.Unobserved)
+			_, _ = fmt.Fprintf(out, "  %-10s %s: NOT OBSERVED TO STOP: %s\n", p.Contract, p.Pod, p.Unobserved)
 			continue
 		}
-		fmt.Fprintf(out, "  %-10s %s: stopped after %dms, exit %d (%s)\n",
+		_, _ = fmt.Fprintf(out, "  %-10s %s: stopped after %dms, exit %d (%s)\n",
 			p.Contract, p.Pod, p.StoppedAfterMs, p.ExitCode, p.Reason)
 	}
 	if len(q.Failures) == 0 {
-		fmt.Fprintf(out, "QUALIFIED: the honouring workload stopped inside %s and the ignoring one outlasted %s, "+
+		_, _ = fmt.Fprintf(out, "QUALIFIED: the honouring workload stopped inside %s and the ignoring one outlasted %s, "+
 			"so the two arms differ on this cluster by what they are supposed to differ by.\n",
 			canaryPromptWithin, canarySurvivesAtLeast)
 		return
 	}
-	fmt.Fprintf(out, "NOT QUALIFIED:\n")
+	_, _ = fmt.Fprintf(out, "NOT QUALIFIED:\n")
 	for _, f := range q.Failures {
-		fmt.Fprintf(out, "  - %s\n", f)
+		_, _ = fmt.Fprintf(out, "  - %s\n", f)
 	}
 }

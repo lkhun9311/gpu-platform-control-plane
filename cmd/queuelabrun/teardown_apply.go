@@ -19,7 +19,7 @@ package main
 import (
 	"context"
 	"fmt"
-	"sort"
+	"slices"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -36,11 +36,11 @@ import (
 // without a matching case here must fail loudly, not silently read into the wrong type.
 func emptyObjectFor(tg target) (client.Object, error) {
 	switch tg.Kind {
-	case "Namespace":
+	case kindNamespace:
 		return &corev1.Namespace{}, nil
-	case "ClusterQueue":
+	case kindClusterQueue:
 		return &kueuev1beta2.ClusterQueue{}, nil
-	case "ResourceFlavor":
+	case kindResourceFlavor:
 		return &kueuev1beta2.ResourceFlavor{}, nil
 	default:
 		return nil, fmt.Errorf("recover: no reader registered for target kind %q", tg.Kind)
@@ -218,7 +218,7 @@ func phasesIn(obs []observation) []teardownPhase {
 		seen[o.Target.Phase] = true
 		out = append(out, o.Target.Phase)
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
+	slices.Sort(out)
 	return out
 }
 

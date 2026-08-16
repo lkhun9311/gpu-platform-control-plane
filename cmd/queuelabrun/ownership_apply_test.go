@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -589,12 +590,7 @@ func TestReleaseEmptiesTheTaintListWhenOnlyOursWasPresent(t *testing.T) {
 }
 
 func hasTaint(taints []corev1.Taint, want corev1.Taint) bool {
-	for _, t := range taints {
-		if t == want {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(taints, want)
 }
 
 // This is the critical finding of the whole-branch review, and the exact shape of the failure this branch

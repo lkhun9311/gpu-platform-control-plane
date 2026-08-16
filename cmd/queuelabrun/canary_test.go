@@ -556,7 +556,7 @@ func TestQualifyRefusesACanaryTakenOnADifferentCombination(t *testing.T) {
 // diffs` — with any one comparison missing, which makes the mismatch match.
 func TestEveryFieldOfTheKeyCanRefuseOnItsOwn(t *testing.T) {
 	base := passingCanary().Key
-	rt := reflect.TypeOf(base)
+	rt := reflect.TypeFor[canaryKey]()
 	for i := 0; i < rt.NumField(); i++ {
 		f := rt.Field(i)
 		got := base

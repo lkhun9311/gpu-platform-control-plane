@@ -127,7 +127,7 @@ func TestRenderMLTrainingJobTerminationContract(t *testing.T) {
 		t.Fatal("progress is not flushed, so a killed workload's last line may never leave the buffer")
 	}
 	loopEmit := false
-	for _, line := range strings.Split(script, "\n") {
+	for line := range strings.SplitSeq(script, "\n") {
 		t := strings.TrimSpace(line)
 		if strings.HasPrefix(t, "if n%") && strings.Contains(t, "iters=") {
 			loopEmit = true

@@ -520,14 +520,14 @@ func reportRestoration(w io.Writer, worker string, a *restorationAudit) {
 		return
 	}
 	if a.Unavailable != "" {
-		fmt.Fprintf(w, "RESTORATION NOT AUDITED: worker %s: %s\n", worker, a.Unavailable)
+		_, _ = fmt.Fprintf(w, "RESTORATION NOT AUDITED: worker %s: %s\n", worker, a.Unavailable)
 	}
 	if len(a.Drift) > 0 {
 		// Not an outcome change, for the reason a failed residue stamp is not one either: what this run had to
 		// restore is its own label and taint, and verifyReleased has already proven those came off. A taint of
 		// somebody else's that did not survive is damage to the cluster rather than to the measurement, and it
 		// happened after the horizon, so it cannot bear on the number — but nobody else is watching for it.
-		fmt.Fprintf(w, "RESTORATION DRIFT: worker %s carried taint(s) %v before this run released it and does "+
+		_, _ = fmt.Fprintf(w, "RESTORATION DRIFT: worker %s carried taint(s) %v before this run released it and does "+
 			"not now; the release replaces spec.taints wholesale, so something dropped them\n", worker, a.Drift)
 	}
 }

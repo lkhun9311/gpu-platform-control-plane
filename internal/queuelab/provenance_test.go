@@ -147,9 +147,9 @@ func TestClassifyPodRecordsWhichKindOfStopItObserved(t *testing.T) {
 		pod  *corev1.Pod
 		want *int32
 	}{
-		{"a victim that honoured the signal", stopped(corev1.PodFailed, 143), ptr(int32(143))},
-		{"a victim that was killed at the grace period", stopped(corev1.PodFailed, 137), ptr(int32(137))},
-		{"a victim that ran out its own service", stopped(corev1.PodSucceeded, 0), ptr(int32(0))},
+		{"a victim that honoured the signal", stopped(corev1.PodFailed, 143), new(int32(143))},
+		{"a victim that was killed at the grace period", stopped(corev1.PodFailed, 137), new(int32(137))},
+		{"a victim that ran out its own service", stopped(corev1.PodSucceeded, 0), new(int32(0))},
 		// Absent rather than guessed: nothing here knows which container carried the workload.
 		{"two terminated containers", stopped(corev1.PodFailed, 143, 0), nil},
 		{"a terminal phase with no container status", stopped(corev1.PodFailed), nil},
@@ -172,4 +172,4 @@ func TestClassifyPodRecordsWhichKindOfStopItObserved(t *testing.T) {
 	}
 }
 
-func ptr[T any](v T) *T { return &v }
+//go:fix inline

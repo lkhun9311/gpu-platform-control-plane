@@ -18,6 +18,7 @@ package main
 
 import (
 	"errors"
+	"maps"
 	"strings"
 	"testing"
 
@@ -99,9 +100,7 @@ func TestDecodeJournalRejectsUnknownFieldAndSchema(t *testing.T) {
 // omission, so the tests about this gate say so in their own bodies.
 func node(labels map[string]string, ann map[string]string, taints ...corev1.Taint) *corev1.Node {
 	annotations := map[string]string{canaryAnnotationKey: qualifiedCanaryAnnotation()}
-	for k, v := range ann {
-		annotations[k] = v
-	}
+	maps.Copy(annotations, ann)
 	return &corev1.Node{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        "platform-worker",
