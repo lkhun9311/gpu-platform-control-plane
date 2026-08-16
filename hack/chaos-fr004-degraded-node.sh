@@ -51,12 +51,39 @@ node_ready () {
   [ "$(kubectl get node "$NODE" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null)" = "True" ]
 }
 
+# Restoring kubelet is not enough to restore the cluster.
+#
+# A device plugin registers with kubelet over a socket, and that registration does not survive kubelet
+# restarting: the node comes back Ready while advertising nvidia.com/gpu: 0. The first version of this script
+# stopped at "kubelet is running again" and left the node without its simulated GPUs — which would have
+# silently failed the NEXT experiment's steady state, or worse, passed it while measuring a node no workload
+# could land on. A chaos experiment that degrades the cluster it runs on is not repeatable.
 restore () {
   echo
   say "restoring kubelet on $NODE"
   docker exec "${CLUSTER}-worker2" systemctl start kubelet >/dev/null 2>&1 || \
     docker exec "$NODE" systemctl start kubelet >/dev/null 2>&1 || true
   kubectl -n "$CANARY_NS" delete pod chaos-canary-pre chaos-canary-post --ignore-not-found >/dev/null 2>&1
+  kubectl delete nodehealth "chaos-$NODE" --ignore-not-found >/dev/null 2>&1
+
+  # Wait for Ready first: deleting the plugin pod while the node is still NotReady only strands the
+  # replacement, since the scheduler will not place it there.
+  for _ in $(seq 120); do node_ready && break; sleep 1; done
+
+  local plugin
+  plugin=$(kubectl -n "$SYS" get pods -o wide --no-headers 2>/dev/null \
+    | awk -v n="$NODE" '$7==n && /gpu-simulator/{print $1}')
+  if [ -n "$plugin" ]; then
+    say "re-registering the device plugin on $NODE (kubelet restart drops the registration)"
+    kubectl -n "$SYS" delete pod "$plugin" --wait=false >/dev/null 2>&1
+    for _ in $(seq 60); do
+      local gpu
+      gpu=$(kubectl get node "$NODE" -o jsonpath='{.status.allocatable.nvidia\.com/gpu}' 2>/dev/null)
+      [ -n "$gpu" ] && [ "$gpu" != "0" ] && { say "GPU capacity restored on $NODE (gpu=$gpu)"; return; }
+      sleep 2
+    done
+    say "WARNING: $NODE still advertises no GPU; the next run's steady state will be wrong"
+  fi
 }
 trap restore EXIT
 
@@ -66,6 +93,12 @@ say "=== steady state ==="
 kubectl get node "$NODE" >/dev/null 2>&1 || die "node $NODE does not exist"
 node_ready || die "node $NODE is already NotReady; there is no degradation left to inject"
 taint_present && die "node $NODE already carries $TAINT_KEY; a taint seen later would not be a reaction"
+
+# A previous run that failed to restore the device plugin leaves the node Ready but advertising no GPU. The
+# canary below would still schedule (it asks for no GPU), so the run would pass while exercising a node no
+# real workload could use.
+GPU=$(kubectl get node "$NODE" -o jsonpath='{.status.allocatable.nvidia\.com/gpu}' 2>/dev/null)
+[ -n "$GPU" ] && [ "$GPU" != "0" ] || die "node $NODE advertises no GPU (allocatable=${GPU:-none}); a previous run left it degraded, so its steady state is not the one this experiment assumes"
 
 kubectl -n "$SYS" get deploy gpu-platform-control-plane-controller-manager >/dev/null 2>&1 \
   || die "the operator is not deployed; nothing would apply a taint"
