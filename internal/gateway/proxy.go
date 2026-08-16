@@ -412,6 +412,26 @@ func newReverseProxy(target *url.URL, transport http.RoundTripper, onErr func(co
 // maxBackendAttempts caps how many backends one request may try; see tryBackends for why it is two.
 const maxBackendAttempts = 2
 
+// errRetryableStatus turns an upstream's own answer into a transport-style failure, so ReverseProxy routes it
+// through ErrorHandler and tryBackends can treat it like any other failed attempt.
+var errRetryableStatus = errors.New("upstream returned a retryable status")
+
+// retryableStatus says whether another backend is worth trying after this answer.
+//
+// The three chosen are the ones that describe the BACKEND rather than the request: 502 and 504 are a proxy
+// or a timeout in front of the model, and 503 is what a model server returns while it is still loading
+// weights, after an engine OOM, or at capacity. A spare has a real chance at all three.
+//
+// 500 is deliberately excluded. It usually means the request itself broke something, and replaying it
+// elsewhere spends a second backend's time to fail the same way — while doubling the blast radius of a
+// request that can crash an engine. 4xx is excluded for the same reason, more obviously: the caller is being
+// told something true, and no other backend will say otherwise.
+func retryableStatus(code int) bool {
+	return code == http.StatusBadGateway ||
+		code == http.StatusServiceUnavailable ||
+		code == http.StatusGatewayTimeout
+}
+
 // attemptWriter is what lets one request try a second backend without the client seeing the first one fail.
 //
 // httputil.ReverseProxy has no notion of "try again elsewhere": its ErrorHandler writes a 502 straight to the
@@ -527,12 +547,32 @@ func tryBackends(w http.ResponseWriter, r *http.Request, targets []*url.URL,
 	for i, u := range targets {
 		last := i == len(targets)-1
 		att := &attemptWriter{ResponseWriter: w, suppress: !last}
-		newReverseProxy(u, transport, func(c int) {
+		proxy := newReverseProxy(u, transport, func(c int) {
 			att.failed = true
 			if onFailure != nil {
 				onFailure(c, last)
 			}
-		}).ServeHTTP(att, r)
+		})
+		// Attached only when another candidate remains, and that condition is the whole design.
+		//
+		// Without fallback, att.failed was set only by ErrorHandler, which fires only when the ROUND TRIP
+		// failed — so a backend that accepted the connection and answered 503 was a success as far as this
+		// loop could tell, and its status went to the client with a healthy spare untried. "Up but not
+		// serving" is the ordinary shape for a model server, so that was the more likely half going uncovered.
+		//
+		// On the LAST attempt no hook is installed, and that is not an optimisation. If it were, ErrorHandler
+		// would replace the upstream's answer with its own 502 and a genuine 503 would reach the caller as a
+		// gateway error — they would be told the proxy failed when the model was merely unavailable, and could
+		// not tell which side to look at. The final answer belongs to the backend that gave it.
+		if !last {
+			proxy.ModifyResponse = func(res *http.Response) error {
+				if retryableStatus(res.StatusCode) {
+					return errRetryableStatus
+				}
+				return nil
+			}
+		}
+		proxy.ServeHTTP(att, r)
 
 		// Answered, or answered partially: either way this request is finished. A failure after the first byte
 		// cannot be retried, because a second backend would splice its answer onto the one already in flight.

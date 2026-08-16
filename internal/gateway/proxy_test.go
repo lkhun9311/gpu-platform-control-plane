@@ -1027,3 +1027,81 @@ var _ = Describe("fallback and the client's own cancellation", func() {
 			"a request walked every stale backend, each costing a full timeout")
 	})
 })
+
+// "Up but not serving" is the ordinary shape for a model server, and it used to go entirely uncovered.
+//
+// att.failed was set only by ErrorHandler, which ReverseProxy calls only when the round trip itself failed.
+// A backend that accepted the connection and answered 503 — loading weights, post-OOM, at capacity — was a
+// successful round trip, so its status went to the client with a healthy spare one list entry away.
+var _ = Describe("fallback on a retryable upstream status", func() {
+	post := func() *http.Request {
+		buf := []byte(`{"model":"m","messages":[]}`)
+		r, err := http.NewRequest(http.MethodPost, "http://gw/v1/chat/completions", bytes.NewReader(buf))
+		Expect(err).NotTo(HaveOccurred())
+		r.GetBody = func() (io.ReadCloser, error) { return io.NopCloser(bytes.NewReader(buf)), nil }
+		r.Body, _ = r.GetBody()
+		return r
+	}
+	serving := func(code int, body string) (*url.URL, *int) {
+		hits := 0
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			hits++
+			if code != http.StatusOK {
+				w.WriteHeader(code)
+				return
+			}
+			w.Header().Set("Content-Type", "text/event-stream")
+			_, _ = fmt.Fprint(w, body)
+		}))
+		DeferCleanup(srv.Close)
+		u, err := url.Parse(srv.URL)
+		Expect(err).NotTo(HaveOccurred())
+		return u, &hits
+	}
+
+	// Mutation that turns this red: drop the ModifyResponse hook from tryBackends.
+	It("tries the spare when the head answers 503", func() {
+		headURL, headHits := serving(http.StatusServiceUnavailable, "")
+		spareURL, spareHits := serving(http.StatusOK, "data: [DONE]\n\n")
+
+		rec := httptest.NewRecorder()
+		tryBackends(rec, post(), []*url.URL{headURL, spareURL}, http.DefaultTransport, nil)
+
+		Expect(*headHits).To(Equal(1))
+		Expect(*spareHits).To(Equal(1), "a healthy spare was never tried behind a 503")
+		Expect(rec.Code).To(Equal(http.StatusOK))
+		Expect(rec.Body.String()).To(ContainSubstring("[DONE]"))
+	})
+
+	// The half that makes the hook safe rather than merely useful.
+	//
+	// Mutation that turns this red: attach ModifyResponse unconditionally instead of only when !last. The
+	// client then receives ErrorHandler's 502 in place of the model's own 503 and cannot tell whether the
+	// gateway broke or the backend was unavailable.
+	It("passes the last backend's own status through instead of a gateway error", func() {
+		aURL, aHits := serving(http.StatusServiceUnavailable, "")
+		bURL, bHits := serving(http.StatusServiceUnavailable, "")
+
+		rec := httptest.NewRecorder()
+		tryBackends(rec, post(), []*url.URL{aURL, bURL}, http.DefaultTransport, nil)
+
+		Expect(*aHits).To(Equal(1))
+		Expect(*bHits).To(Equal(1))
+		Expect(rec.Code).To(Equal(http.StatusServiceUnavailable),
+			"the model's 503 reached the caller as a gateway error, so they cannot tell which side failed")
+	})
+
+	// 500 is not retryable: it usually means the request broke something, and replaying it spends a second
+	// backend to fail the same way while doubling the blast radius of a request that can crash an engine.
+	It("does not spend a second backend on a 500", func() {
+		headURL, headHits := serving(http.StatusInternalServerError, "")
+		spareURL, spareHits := serving(http.StatusOK, "data: [DONE]\n\n")
+
+		rec := httptest.NewRecorder()
+		tryBackends(rec, post(), []*url.URL{headURL, spareURL}, http.DefaultTransport, nil)
+
+		Expect(*headHits).To(Equal(1))
+		Expect(*spareHits).To(Equal(0), "a 500 was replayed on another backend")
+		Expect(rec.Code).To(Equal(http.StatusInternalServerError))
+	})
+})
