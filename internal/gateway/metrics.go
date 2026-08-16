@@ -106,11 +106,13 @@ var (
 	backendFallbacks = promauto.With(metrics.Registry).NewCounterVec(
 		prometheus.CounterOpts{
 			Name: metricPrefix + "backend_fallbacks_total",
-			Help: "Requests retried on another backend after the first one failed, by tenant and model.",
+			Help: "Requests a later backend successfully served after an earlier one failed, by tenant and model.",
 		},
 		[]string{"tenant", "model"},
 	)
 
+	// upstreamErrors counts every failed ATTEMPT, including the ones a fallback then rescued, which is what
+	// makes it the denominator rather than a duplicate of the counter above.
 	upstreamErrors = promauto.With(metrics.Registry).NewCounterVec(
 		prometheus.CounterOpts{
 			Name: metricPrefix + "upstream_errors_total",

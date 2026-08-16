@@ -494,6 +494,18 @@ func (a *attemptWriter) Flush() {
 // and the request body must be replayable. Inline they were four lines in a four-hundred line handler with no
 // way to write a spec against them.
 //
+// SCOPE, and it is narrower than "the backend is down" suggests. att.failed is set only by ErrorHandler,
+// which ReverseProxy calls only when the round trip itself failed — a refused connection, a dial timeout, a
+// reset. A backend that ACCEPTS the connection and answers 503 (a model server still loading weights, an
+// engine that OOMed, one at capacity) is a successful round trip: the status reaches the client and a healthy
+// spare is never tried. "Up but not serving" is the more common shape for a model server, so this covers the
+// less likely half.
+//
+// Closing it means hooking ModifyResponse to turn a retryable status into an error, and the reason it is not
+// done here is that the final attempt must then pass the ORIGINAL status through rather than the 502
+// ErrorHandler would write — otherwise a genuine 503 reaches the client as a gateway error and the caller
+// cannot tell which side failed.
+//
 // onFailure reports each failed attempt, and its final flag is what separates a failure the client will see
 // from one another backend went on to absorb — the two need different counters, or a degraded model and a
 // broken one look identical in the metrics.

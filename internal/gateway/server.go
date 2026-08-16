@@ -390,6 +390,7 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 	// It also needs the request body back. A POST is not replayable on its own, and this is exactly what
 	// r.GetBody was already installed for one stage earlier: the factory reads from a buffer held in memory,
 	// so rewinding costs nothing and cannot fail. Without it there would be no second attempt to make.
+	fellBack := false
 	urls := make([]*url.URL, 0, len(targets))
 	for _, t := range targets {
 		urls = append(urls, t.URL)
@@ -398,10 +399,19 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 		upstreamErrors.WithLabelValues(tenant, meta.Model).Inc()
 		if final {
 			rec.code = code
-		} else {
-			backendFallbacks.WithLabelValues(tenant, meta.Model).Inc()
+			return
 		}
+		// Counted once per REQUEST that a later backend went on to serve, not once per failed attempt. The
+		// increment used to sit here unconditionally, so a request whose non-final attempt failed and was then
+		// NOT retried — the client already had bytes, or the body could not be replayed — was counted as a
+		// fallback that never happened, and the counter could not answer the question it exists for.
+		fellBack = true
 	})
+	if fellBack && rec.code < 500 {
+		// Only when the request was actually served by a later backend: rec.code still being a success is what
+		// says the fallback worked, and a failure counted as a rescue would invert the ratio's meaning.
+		backendFallbacks.WithLabelValues(tenant, meta.Model).Inc()
+	}
 
 	// ServeHTTP returning means the response finished sending (for a stream, that the stream closed).
 	//
