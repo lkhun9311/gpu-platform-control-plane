@@ -14,13 +14,31 @@ resources:
   - ../webhook
   - ../certmanager
 
+# A concrete tag, because this image is SIDE-LOADED into kind rather than pulled.
+#
+# config/manager pins controller:latest, and the kubelet treats :latest as "always pull" no matter what is
+# already on the node — so a side-loaded :latest image sends it to a registry that does not have it. The same
+# trap is already recorded in hack/m5b-gateway-path.sh.
+images:
+  - name: controller
+    newTag: webhook-v1
+
 patches:
   # Mount the issued certificate and point the manager at it. Without --webhook-cert-path the manager logs
-  # that admission validation is NOT running and starts anyway, which is the right behaviour for the default
-  # overlay and the wrong one here.
+  # that admission validation is NOT running and starts anyway, which is right for the default overlay and
+  # wrong here.
   - path: manager_webhook_patch.yaml
 
-# The CA annotation is a static patch now that the Certificate's name and namespace are fixed. The earlier
-# replacements block derived it from the Certificate, which read as more robust and produced
-# "system/serving-cert" — a reference to a namespace that does not exist.
+  # The CA annotation is a static patch now that the Certificate's name and namespace are fixed. An earlier
+  # version derived it from the Certificate with a replacements block, which read as more robust and produced
+  # "system/serving-cert" — a reference to a namespace that does not exist.
   - path: webhook_cainjection_patch.yaml
+
+  # IfNotPresent for the same side-loading reason as the tag above.
+  - target:
+      kind: Deployment
+      name: controller-manager
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/imagePullPolicy
+        value: IfNotPresent
