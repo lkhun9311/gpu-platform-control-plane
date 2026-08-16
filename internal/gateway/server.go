@@ -208,12 +208,12 @@ func (s *Server) failReason(w http.ResponseWriter, tenant, model string, code in
 // resolveBackend resolves a model to its backend.
 //
 // It prefers the test hook over the real backendFor.
-func (s *Server) resolveBackend(ctx context.Context, policy *platformv1.GPUQuotaPolicy, model string) (*BackendRef, error) {
+func (s *Server) resolveBackend(ctx context.Context, policy *platformv1.GPUQuotaPolicy, model string) ([]*BackendRef, error) {
 	if s.backendOverride != nil {
 		// The hook only fabricates a URL; Namespace/Name/Port stay zero-valued, since tests using it only need the pipeline to reach an httptest server, not a real backend's identity.
-		return &BackendRef{URL: s.backendOverride(model), Model: model}, nil
+		return []*BackendRef{{URL: s.backendOverride(model), Model: model}}, nil
 	}
-	return s.backendFor(ctx, policy, model)
+	return s.backendsFor(ctx, policy, model)
 }
 
 // chatCompletions serves the OpenAI-compatible chat completions pipeline.
@@ -320,7 +320,7 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 	r.Body, _ = r.GetBody()
 
 	// 6. Resolve the model to a backend.
-	target, err := s.resolveBackend(ctx, policy, meta.Model)
+	targets, err := s.resolveBackend(ctx, policy, meta.Model)
 	if errors.Is(err, ErrNoRoute) {
 		// An ordinary "no such model" outcome, so Info rather than Error.
 		//
@@ -353,14 +353,18 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 	//
 	// scraperManager.Register is idempotent, so calling it on every request only actually
 	// starts a scraper the first time a given backend is seen.
+	// The head is what admission meters and what the KV guard scrapes: fallback is a response to a failure,
+	// not a second thing to admit. Metering every candidate would count one request against several backends'
+	// budgets and make the admission arms measure something other than offered load.
+	primary := targets[0]
 	if reg, ok := admitter.(backendRegistrar); ok {
-		reg.RegisterBackend(target)
+		reg.RegisterBackend(primary)
 	}
 	mode := s.mode
 	if mode == "" {
 		mode = AdmissionOff
 	}
-	admit, reason := admitter.Admit(ctx, meta, target, tenant, tier)
+	admit, reason := admitter.Admit(ctx, meta, primary, tenant, tier)
 	decision := "admit"
 	if !admit {
 		decision = "reject"
@@ -376,11 +380,28 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 	// 8. From here the response is the upstream's, passed through rather than composed.
 	start := time.Now()
 	rec := &statusRecorder{ResponseWriter: w, code: http.StatusOK}
-	newReverseProxy(target.URL, s.sharedTransport(), func(c int) {
+	// Each candidate is tried until one answers, and the two conditions below are what make that safe rather
+	// than merely useful.
+	//
+	// A retry is only possible while NOTHING has reached the client. Once the upstream has written a status
+	// line or a token, the client is mid-response and a second backend cannot take over — it would splice two
+	// answers together. att.wrote is that latch, and for a streaming response it closes on the first token.
+	//
+	// It also needs the request body back. A POST is not replayable on its own, and this is exactly what
+	// r.GetBody was already installed for one stage earlier: the factory reads from a buffer held in memory,
+	// so rewinding costs nothing and cannot fail. Without it there would be no second attempt to make.
+	urls := make([]*url.URL, 0, len(targets))
+	for _, t := range targets {
+		urls = append(urls, t.URL)
+	}
+	tryBackends(rec, r, urls, s.sharedTransport(), func(code int, final bool) {
 		upstreamErrors.WithLabelValues(tenant, meta.Model).Inc()
-		// ErrorHandler writes its code via writeJSONError, which may not pass through statusRecorder, so record it here to keep the metric consistent with what the client actually received.
-		rec.code = c
-	}).ServeHTTP(rec, r)
+		if final {
+			rec.code = code
+		} else {
+			backendFallbacks.WithLabelValues(tenant, meta.Model).Inc()
+		}
+	})
 
 	// ServeHTTP returning means the response finished sending (for a stream, that the stream closed).
 	//

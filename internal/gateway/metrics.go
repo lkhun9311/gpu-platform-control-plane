@@ -99,6 +99,18 @@ var (
 	// 502/504 are the backend's fault, not the gateway's.
 	//
 	// Separating them answers "do I look at the gateway or the model server?" immediately.
+	// backendFallbacks counts requests a second backend served after the first failed, and it is separate from
+	// upstream_errors_total on purpose: that counter rises on every failed attempt, including the ones a
+	// fallback then rescued, so on its own it cannot tell a degraded model from a broken one. The ratio
+	// between them is what says whether redundancy is absorbing the failures or merely counting them.
+	backendFallbacks = promauto.With(metrics.Registry).NewCounterVec(
+		prometheus.CounterOpts{
+			Name: metricPrefix + "backend_fallbacks_total",
+			Help: "Requests retried on another backend after the first one failed, by tenant and model.",
+		},
+		[]string{"tenant", "model"},
+	)
+
 	upstreamErrors = promauto.With(metrics.Registry).NewCounterVec(
 		prometheus.CounterOpts{
 			Name: metricPrefix + "upstream_errors_total",

@@ -19,6 +19,7 @@ package gateway
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -880,3 +881,79 @@ var _ = Describe("readRequestMeta", func() {
 
 // A compile-time assertion: if the type stops satisfying the interface, this fails to build.
 var _ client.Object = &platformv1.InferenceDeployment{}
+
+// A dead backend must not become a dead request while another backend serves the same model.
+//
+// backendsFor used to log a second deployment as an operator problem and discard it, so a model with a spare
+// still failed whenever the one chosen backend was down. The spare is now the fallback, and these specs pin
+// the two conditions that make retrying safe rather than merely useful.
+var _ = Describe("backend fallback", func() {
+	// A body the second attempt can replay. This is what r.GetBody was installed for one stage earlier, and
+	// without it there is no second attempt to make.
+	post := func(url string) *http.Request {
+		r, err := http.NewRequest(http.MethodPost, url, strings.NewReader(`{"model":"m","messages":[]}`))
+		Expect(err).NotTo(HaveOccurred())
+		buf := []byte(`{"model":"m","messages":[]}`)
+		r.GetBody = func() (io.ReadCloser, error) { return io.NopCloser(bytes.NewReader(buf)), nil }
+		r.Body, _ = r.GetBody()
+		return r
+	}
+
+	It("serves the request from the next backend when the first refuses the connection", func() {
+		var served int
+		up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			served++
+			body, _ := io.ReadAll(r.Body)
+			// The replayed body must arrive intact, or the second backend answers a different question.
+			Expect(string(body)).To(ContainSubstring(`"model":"m"`))
+			w.Header().Set("Content-Type", "text/event-stream")
+			_, _ = fmt.Fprint(w, "data: [DONE]\n\n")
+		}))
+		defer up.Close()
+
+		// A listener that is closed, so dialling it fails at once rather than hanging.
+		dead := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+		deadURL, err := url.Parse(dead.URL)
+		Expect(err).NotTo(HaveOccurred())
+		dead.Close()
+		liveURL, err := url.Parse(up.URL)
+		Expect(err).NotTo(HaveOccurred())
+
+		rec := httptest.NewRecorder()
+		req := post("http://gw/v1/chat/completions")
+		tryBackends(rec, req, []*url.URL{deadURL, liveURL}, http.DefaultTransport, nil)
+
+		Expect(served).To(Equal(1), "the live backend never saw the request")
+		Expect(rec.Code).To(Equal(http.StatusOK), "the client was told about an attempt that another backend served")
+		Expect(rec.Body.String()).To(ContainSubstring("[DONE]"))
+	})
+
+	// Mutation that turns this red: drop the att.wrote check from the fallback loop's break condition.
+	It("does not retry once bytes have reached the client", func() {
+		var served int
+		flaky := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			served++
+			w.Header().Set("Content-Type", "text/event-stream")
+			_, _ = fmt.Fprint(w, "data: first\n\n")
+			w.(http.Flusher).Flush()
+			// The upstream dies mid-stream; the client already holds a token.
+			panic(http.ErrAbortHandler)
+		}))
+		defer flaky.Close()
+		spare := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			served += 100
+			_, _ = fmt.Fprint(w, "data: second\n\n")
+		}))
+		defer spare.Close()
+		flakyURL, _ := url.Parse(flaky.URL)
+		spareURL, _ := url.Parse(spare.URL)
+
+		rec := httptest.NewRecorder()
+		tryBackends(rec, post("http://gw/v1/chat/completions"), []*url.URL{flakyURL, spareURL}, http.DefaultTransport, nil)
+
+		Expect(served).To(Equal(1),
+			"the spare was tried after the client already held a token, which splices two answers into one response")
+		Expect(rec.Body.String()).To(ContainSubstring("first"))
+		Expect(rec.Body.String()).NotTo(ContainSubstring("second"))
+	})
+})

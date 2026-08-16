@@ -407,3 +407,92 @@ func newReverseProxy(target *url.URL, transport http.RoundTripper, onErr func(co
 
 	return p
 }
+
+// attemptWriter is what lets one request try a second backend without the client seeing the first one fail.
+//
+// httputil.ReverseProxy has no notion of "try again elsewhere": its ErrorHandler writes a 502 straight to the
+// ResponseWriter it was handed. Suppressing that write while candidates remain is the whole mechanism — the
+// client is never told about an attempt that another backend went on to serve.
+//
+// wrote is the safety latch, and it is set on the first byte that actually leaves for the client rather than
+// on success. Once a status line or a token is out, a second backend cannot take over: it would splice two
+// answers into one response, and for a stream that is a token sequence from two different models. So a
+// failure AFTER the first write ends the request, however many candidates are left.
+//
+// Suppression is keyed on failed rather than applied unconditionally, because a suppressing writer that
+// swallowed a SUCCESSFUL response would be a gateway that answers nothing. ErrorHandler runs only after the
+// transport gave up and before it writes, so failed is already true by the time the bytes to drop arrive.
+type attemptWriter struct {
+	http.ResponseWriter
+	// suppress is true while another candidate remains to try.
+	suppress bool
+	// failed is set by the proxy's ErrorHandler before it writes its own response.
+	failed bool
+	// wrote records that bytes reached the client, which forecloses any further attempt.
+	wrote bool
+}
+
+func (a *attemptWriter) WriteHeader(c int) {
+	if a.failed && a.suppress {
+		return
+	}
+	a.wrote = true
+	a.ResponseWriter.WriteHeader(c)
+}
+
+func (a *attemptWriter) Write(b []byte) (int, error) {
+	if a.failed && a.suppress {
+		// Reported as written so the proxy's own error path completes normally; nothing reaches the client.
+		return len(b), nil
+	}
+	a.wrote = true
+	return a.ResponseWriter.Write(b)
+}
+
+// Flush forwards to the wrapped writer, for the reason statusRecorder.Flush exists: embedding promotes only
+// the methods on the embedded interface, and a proxy that cannot flush turns a stream into one late blob.
+func (a *attemptWriter) Flush() {
+	if f, ok := a.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
+// tryBackends forwards one request to the first backend that answers it.
+//
+// Extracted from the handler rather than left inline, because the two conditions that make a retry SAFE are
+// the whole of this function and neither is observable from outside it: nothing may have reached the client,
+// and the request body must be replayable. Inline they were four lines in a four-hundred line handler with no
+// way to write a spec against them.
+//
+// onFailure reports each failed attempt, and its final flag is what separates a failure the client will see
+// from one another backend went on to absorb — the two need different counters, or a degraded model and a
+// broken one look identical in the metrics.
+func tryBackends(w http.ResponseWriter, r *http.Request, targets []*url.URL,
+	transport http.RoundTripper, onFailure func(code int, final bool)) {
+	for i, u := range targets {
+		last := i == len(targets)-1
+		att := &attemptWriter{ResponseWriter: w, suppress: !last}
+		newReverseProxy(u, transport, func(c int) {
+			att.failed = true
+			if onFailure != nil {
+				onFailure(c, last)
+			}
+		}).ServeHTTP(att, r)
+
+		// Answered, or answered partially: either way this request is finished. A failure after the first byte
+		// cannot be retried, because a second backend would splice its answer onto the one already in flight.
+		if !att.failed || att.wrote || last {
+			return
+		}
+		// The body has been consumed by the attempt that just failed, so the next one needs it back. GetBody
+		// reads from a buffer already in memory; a request without one cannot be replayed and ends here.
+		if r.GetBody == nil {
+			return
+		}
+		body, err := r.GetBody()
+		if err != nil {
+			return
+		}
+		r.Body = body
+	}
+}

@@ -84,14 +84,14 @@ var _ = Describe("backendFor", func() {
 		//
 		// The design spec Error codes section requires a 404 here, so the error must be distinguishable.
 		s := &Server{Client: newRouterClient()}
-		_, err := s.backendFor(ctx, policyFor("vision"), "llama-3-8b")
+		_, err := s.headBackendFor(ctx, policyFor("vision"), "llama-3-8b")
 		Expect(err).To(MatchError(ErrNoRoute))
 	})
 
 	It("resolves the model to its Service URL", func() {
 		infd := newInfD("llama", "vision", "llama-3-8b", 9000, now)
 		s := &Server{Client: newRouterClient(infd)}
-		got, err := s.backendFor(ctx, policyFor("vision"), "llama-3-8b")
+		got, err := s.headBackendFor(ctx, policyFor("vision"), "llama-3-8b")
 		Expect(err).NotTo(HaveOccurred())
 		Expect(got.URL.String()).To(Equal("http://llama.vision.svc:9000"))
 	})
@@ -100,7 +100,7 @@ var _ = Describe("backendFor", func() {
 		// The scraper (a later task) needs namespace/name/port to build the metrics URL and manage lifecycle, which a bare *url.URL cannot provide.
 		infd := newInfD("llama", "vision", "llama-3-8b", 9000, now)
 		s := &Server{Client: newRouterClient(infd)}
-		got, err := s.backendFor(ctx, policyFor("vision"), "llama-3-8b")
+		got, err := s.headBackendFor(ctx, policyFor("vision"), "llama-3-8b")
 		Expect(err).NotTo(HaveOccurred())
 		Expect(got.Namespace).To(Equal("vision"))
 		Expect(got.Name).To(Equal("llama"))
@@ -115,7 +115,7 @@ var _ = Describe("backendFor", func() {
 		// A URL on port 0 is unroutable, so the code must supply the same default.
 		infd := newInfD("llama", "vision", "llama-3-8b", 0, now)
 		s := &Server{Client: newRouterClient(infd)}
-		got, err := s.backendFor(ctx, policyFor("vision"), "llama-3-8b")
+		got, err := s.headBackendFor(ctx, policyFor("vision"), "llama-3-8b")
 		Expect(err).NotTo(HaveOccurred())
 		Expect(got.Port).To(Equal(int32(8080)))
 		Expect(got.URL.String()).To(Equal("http://llama.vision.svc:8080"))
@@ -126,7 +126,7 @@ var _ = Describe("backendFor", func() {
 		newer := newInfD("llama-new", "vision", "llama-3-8b", 8080, now)
 		// newer is added first, so a pass proves the choice follows creation time, not insertion order.
 		s := &Server{Client: newRouterClient(newer, older)}
-		got, err := s.backendFor(ctx, policyFor("vision"), "llama-3-8b")
+		got, err := s.headBackendFor(ctx, policyFor("vision"), "llama-3-8b")
 		Expect(err).NotTo(HaveOccurred())
 		Expect(got.URL.String()).To(Equal("http://llama-old.vision.svc:8080"))
 	})
@@ -139,7 +139,7 @@ var _ = Describe("backendFor", func() {
 		b := newInfD("llama-b", "vision", "llama-3-8b", 8080, same)
 		a := newInfD("llama-a", "vision", "llama-3-8b", 8080, same)
 		s := &Server{Client: newRouterClient(b, a)}
-		got, err := s.backendFor(ctx, policyFor("vision"), "llama-3-8b")
+		got, err := s.headBackendFor(ctx, policyFor("vision"), "llama-3-8b")
 		Expect(err).NotTo(HaveOccurred())
 		Expect(got.URL.String()).To(Equal("http://llama-a.vision.svc:8080"))
 	})
@@ -148,7 +148,7 @@ var _ = Describe("backendFor", func() {
 		// Guards the tenant boundary: dropping the namespace filter would leak requests to another tenant's backend, and distinct tenants commonly serve the same model name.
 		other := newInfD("llama", "nlp", "llama-3-8b", 8080, now)
 		s := &Server{Client: newRouterClient(other)}
-		_, err := s.backendFor(ctx, policyFor("vision"), "llama-3-8b")
+		_, err := s.headBackendFor(ctx, policyFor("vision"), "llama-3-8b")
 		Expect(err).To(MatchError(ErrNoRoute))
 	})
 })
