@@ -18,12 +18,15 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+
+	"github.com/lkhun9311/gpu-mlops-platform-control-plane/internal/queuelab"
 )
 
 // The kubelet and runtime the test worker reports. They are plausible kind values rather than placeholders
@@ -150,25 +153,40 @@ func canaryReferenceJSON(t *testing.T) string {
 func TestCanaryContractMirrorsWhatTheHarnessActuallyRenders(t *testing.T) {
 	c := harnessTerminationContract()
 
-	if !strings.HasPrefix(c.Image, "busybox:1.36@sha256:") {
-		t.Fatalf("the canary probes image %q, which is not the pinned sleeper the arm runs: a canary that "+
-			"qualifies different bytes than the run submits qualifies nothing", c.Image)
+	// Compared against the measurement package's own constant rather than a literal copied to here. The copy
+	// this replaces broke the moment the workload legitimately changed image, and it would not have caught the
+	// case it existed for: a canary quietly pinned to a DIFFERENT digest still matched the prefix.
+	if c.Image != queuelab.WorkloadImage {
+		t.Fatalf("the canary probes image %q, which is not the %q the arm runs: a canary that qualifies "+
+			"different bytes than the run submits qualifies nothing", c.Image, queuelab.WorkloadImage)
+	}
+	if !strings.Contains(c.Image, "@sha256:") {
+		t.Fatalf("the workload image %q is not pinned by digest, so the same study re-run later could execute "+
+			"different bytes", c.Image)
 	}
 	honor := strings.Join(c.HonorCommand, " ")
 	ignore := strings.Join(c.IgnoreCommand, " ")
-	for _, want := range []string{"trap", "TERM", "wait"} {
+	for _, want := range []string{"signal.SIGTERM", "honor"} {
 		if !strings.Contains(honor, want) {
 			t.Fatalf("the honouring command %q does not contain %q, so it is not the workload that stops when "+
 				"asked", honor, want)
 		}
 	}
-	if !strings.Contains(honor, "exit 143") {
-		t.Fatalf("the honouring command is %q; honorExitCode is %d and the command's own trap must exit with "+
-			"it, or the canary is looking for a code nothing produces", honor, honorExitCode)
+	// honorExitCode is a local copy of a private constant, so it is checked against the rendered command's own
+	// text rather than against itself: if the measurement package changes what its handler exits with, this
+	// stops matching.
+	if !strings.Contains(honor, fmt.Sprintf("exit(%d)", honorExitCode)) {
+		t.Fatalf("the honouring command is %q; honorExitCode is %d and the workload's own handler must exit "+
+			"with it, or the canary is looking for a code nothing produces", honor, honorExitCode)
 	}
-	if strings.Contains(ignore, "trap") {
-		t.Fatalf("the ignoring command %q traps SIGTERM, so the two probes would be the same probe and the "+
-			"contrast would be between a workload and itself", ignore)
+	// The two probes must be different probes. They share one script and differ by the contract argument, so
+	// the check is on that argument: identical commands would make the contrast one between a workload and
+	// itself, which is the single thing this canary exists to rule out.
+	if honor == ignore {
+		t.Fatalf("both probes run the same command %q, so the canary would compare a workload with itself", honor)
+	}
+	if !strings.HasSuffix(ignore, " ignore") || !strings.HasSuffix(honor, " honor") {
+		t.Fatalf("the probes are not the two contract arms: honour=%q ignore=%q", honor, ignore)
 	}
 	if c.GraceSec != terminationGraceSec {
 		t.Fatalf("the contract requires a %ds grace period, but the protocol's horizon is derived from %ds",

@@ -41,8 +41,10 @@ func TestRenderMLTrainingJobMatchesTraceAndQueue(t *testing.T) {
 	if job.Spec.Parallelism != 1 || job.Spec.Completions != 1 {
 		t.Fatalf("parallelism/completions must be pinned to 1 so gpuCount is the demand")
 	}
-	if len(job.Spec.Command) != 3 || !strings.Contains(job.Spec.Command[2], "sleep 600") {
-		t.Fatalf("sleeper command = %v, want sleep 600", job.Spec.Command)
+	// The duration is an ARGUMENT now rather than text inside a shell string, which is what lets the two arms
+	// share one script: a workload spelled per-arm could drift between them without the compiler noticing.
+	if len(job.Spec.Command) != 5 || job.Spec.Command[0] != "python3" || job.Spec.Command[3] != "600" {
+		t.Fatalf("workload command = %v, want python3 -c <script> 600 <contract>", job.Spec.Command)
 	}
 	if job.Labels["queuelab.gpu-platform/trace-index"] != "1" {
 		t.Fatalf("trace-index label = %q, want 1", job.Labels["queuelab.gpu-platform/trace-index"])
@@ -75,28 +77,75 @@ func TestRenderMLTrainingJobTerminationContract(t *testing.T) {
 	row := TrainingTraceRow{Index: 0, Name: "a1", Tenant: "tenant-a", GPUCount: 1, DurationSec: 40}
 
 	ignoring := RenderMLTrainingJobWithContract(row, "queuelab", IgnoresSIGTERM)
-	wantIgnoring := []string{"sh", "-c", "sleep 40"}
-	if !slices.Equal(ignoring.Spec.Command, wantIgnoring) {
-		t.Fatalf("ignoring command = %q, want %q", ignoring.Spec.Command, wantIgnoring)
-	}
-
 	honoring := RenderMLTrainingJobWithContract(row, "queuelab", HonorsSIGTERM)
-	// The honoring form must keep the shell as PID 1 and install a TERM trap, because a bare "sleep" exec'd
-	// as PID 1 receives no default signal disposition and would ignore the signal.
-	got := strings.Join(honoring.Spec.Command, " ")
-	for _, want := range []string{"trap", "TERM", "sleep 40", "wait"} {
-		if !strings.Contains(got, want) {
-			t.Fatalf("honoring command %q is missing %q", got, want)
+
+	// The arms must differ by EXACTLY ONE element, and that is the property the whole contrast rests on. A
+	// second difference — a different script, a different duration, a different interpreter — would make the
+	// measured gap attributable to something other than the termination contract, which is the one thing this
+	// study varies.
+	if len(ignoring.Spec.Command) != len(honoring.Spec.Command) {
+		t.Fatalf("the arms have different command lengths: %d and %d",
+			len(ignoring.Spec.Command), len(honoring.Spec.Command))
+	}
+	diff := 0
+	for i := range ignoring.Spec.Command {
+		if ignoring.Spec.Command[i] != honoring.Spec.Command[i] {
+			diff++
 		}
 	}
+	if diff != 1 {
+		t.Fatalf("the arms differ in %d command elements, want exactly 1:\n ignore=%q\n honor=%q",
+			diff, ignoring.Spec.Command, honoring.Spec.Command)
+	}
+	if ignoring.Spec.Command[4] != "ignore" || honoring.Spec.Command[4] != "honor" {
+		t.Fatalf("the differing element must be the contract argument: %q vs %q",
+			ignoring.Spec.Command[4], honoring.Spec.Command[4])
+	}
+
+	// The ignoring arm must install NOTHING. The reason the old `sh -c "sleep N"` ignored SIGTERM was never
+	// the command: PID 1 has its default signal dispositions dropped by the kernel, so a process registering
+	// no handler is a process that ignores. An explicit SIG_IGN would ignore for a different reason than the
+	// form it replaces, and the two arms would then differ in mechanism as well as in label.
+	script := honoring.Spec.Command[2]
+	if strings.Contains(script, "SIG_IGN") {
+		t.Fatalf("the workload installs SIG_IGN; the ignoring arm must ignore because PID 1 has no handler, " +
+			"which is the mechanism the shell form used and the only one this translation preserves")
+	}
+	if !strings.Contains(script, "signal.signal(signal.SIGTERM") {
+		t.Fatalf("the honouring arm installs no SIGTERM handler, so it would ignore the signal exactly as the "+
+			"contrast arm does: %q", script)
+	}
+	// Progress is what turns occupancy from an assumption into evidence: a workload that computed nothing
+	// reports iters=0 rather than being indistinguishable from one that saturated the device.
+	//
+	// The PERIODIC emit is asserted separately from the final ones, and the ignoring arm is why. It is killed
+	// by SIGKILL at the end of the grace period, and SIGKILL cannot be handled — so no final line is ever
+	// printed for it, and the last periodic line is the only progress evidence that arm leaves behind.
+	// Checking for "iters=" alone passes on a script whose loop reports nothing, because the two exit lines
+	// carry the same substring; that mutation survived until this assertion existed.
+	if !strings.Contains(script, "flush=True") {
+		t.Fatal("progress is not flushed, so a killed workload's last line may never leave the buffer")
+	}
+	loopEmit := false
+	for _, line := range strings.Split(script, "\n") {
+		t := strings.TrimSpace(line)
+		if strings.HasPrefix(t, "if n%") && strings.Contains(t, "iters=") {
+			loopEmit = true
+		}
+	}
+	if !loopEmit {
+		t.Fatal("the workload never reports progress from inside its loop; the ignoring arm is SIGKILLed and " +
+			"prints no final line, so that arm would leave no evidence it computed anything at all")
+	}
+	got := strings.Join(honoring.Spec.Command, " ")
 	// A trapped stop must be distinguishable from natural completion by exit status, or the ledger cannot
 	// tell "the preemption stopped it" from "it finished on its own".
-	if !strings.Contains(got, "exit 143") {
+	if !strings.Contains(got, "sys.exit(143)") {
 		t.Fatalf("honoring command %q must exit 143 on TERM so the stop is distinguishable", got)
 	}
 
 	// The default wrapper stays on the ignoring contract so existing callers do not silently change arms.
-	if !slices.Equal(RenderMLTrainingJob(row, "queuelab").Spec.Command, wantIgnoring) {
+	if !slices.Equal(RenderMLTrainingJob(row, "queuelab").Spec.Command, ignoring.Spec.Command) {
 		t.Fatal("RenderMLTrainingJob must keep the IgnoresSIGTERM contract")
 	}
 }

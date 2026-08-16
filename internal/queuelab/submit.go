@@ -18,6 +18,8 @@ package queuelab
 
 import (
 	"fmt"
+	"strconv"
+	"strings"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
@@ -29,7 +31,43 @@ import (
 // The review caught that a mutable tag (busybox:1.36) lets the image drift between runs, so the same study
 // re-run months later could execute different bytes; pinning the multi-arch manifest-list digest freezes
 // exactly what runs while still resolving on whatever architecture the kind node uses.
-const sleeperImage = "busybox:1.36@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662"
+// WorkloadImage is exported so a caller that must check it against its own copy has no copy to keep.
+//
+// cmd/queuelabrun's canary asserted a hardcoded prefix of this string, which is the duplication that test's
+// own comment warns against — it broke the moment the workload legitimately changed, and it would not have
+// caught the canary drifting to a different pinned image at all.
+const WorkloadImage = "python:3.12-alpine@sha256:78098ea6a3a9c6a7727a5d4674e4a44e57e01fac878ee9cb4d24a86bd93916ff"
+
+// workloadScript is the trace's workload, and it computes rather than sleeps.
+//
+// A sleeping workload holds a device allocation and leaves it idle, so on real hardware the run's headline
+// number is discarded RESERVATION rather than discarded work — and nothing in the harness refuses that. The
+// simulated cluster cannot show the difference, because there is no device behind the advertised resource and
+// "Pod alive" and "device busy" are the same proposition there.
+//
+// It reports progress, and that half is the point rather than decoration. A compute loop nobody counts is the
+// same kind of claim the sleeper was: a loop that silently fell back, or barely advanced, would produce the
+// same plausible numbers with no signal anywhere. With a count, discarded GPU-seconds are backed by discarded
+// ITERATIONS, and a workload that did nothing says iters=0 out loud.
+//
+// It is carried in the command rather than baked into an image on purpose. The command is part of the Pod
+// template the termination canary fingerprints, so changing the workload forces a re-take; an image would
+// only do that when its digest moved, and a script edited inside the same tag would not move it.
+//
+// The arithmetic is pure Python with no imports beyond the standard library. Stage A establishes the shape —
+// compute, count, honour or ignore — on a cluster with no devices; the GPU stage swaps the inner kernel and
+// keeps everything around it, which is why the kernel is one line.
+const workloadScript = `import signal,sys,time
+seconds=float(sys.argv[1]); honor=sys.argv[2]=="honor"; n=0
+def stop(*_):
+    print("terminated iters=%d"%n,flush=True); sys.exit(EXITCODE)
+if honor: signal.signal(signal.SIGTERM,stop)
+end=time.monotonic()+seconds; x=1.0
+while time.monotonic()<end:
+    for _ in range(50000): x=(x*1.0000001)%1000000.0
+    n+=1
+    if n%20==0: print("iters=%d"%n,flush=True)
+print("finished iters=%d"%n,flush=True)`
 
 // localQueueName is the deterministic LocalQueue name a tenant's jobs are admitted through.
 //
@@ -95,7 +133,7 @@ func RenderMLTrainingJobWithContract(
 		},
 		Spec: platformv1.MLTrainingJobSpec{
 			Queue:       localQueueName(row.Tenant),
-			Image:       sleeperImage,
+			Image:       WorkloadImage,
 			Command:     sleeperCommand(row.DurationSec, contract),
 			GPUCount:    int32(row.GPUCount),
 			Parallelism: 1,
@@ -106,18 +144,27 @@ func RenderMLTrainingJobWithContract(
 
 // sleeperCommand builds the container command for a duration under the given termination contract.
 //
-// The honoring form backgrounds the sleep and waits, so the shell stays PID 1 and keeps its trap installed;
-// POSIX wait is interruptible by a trapped signal, which is what lets the trap run promptly instead of
-// after the sleep finishes.
+// The two arms differ by ONE argument, and that is deliberate. The ignoring arm installs no handler at all,
+// because the reason the old `sh -c "sleep N"` ignored SIGTERM was never the command: PID 1 has its default
+// signal dispositions dropped by the kernel, so a process that registers nothing is a process that ignores.
+// Spelling it as an explicit SIG_IGN would ignore for a DIFFERENT reason than the shell form did, and the
+// arms would then differ by two things rather than one.
+//
+// Measured on kind with a 15 s grace before this was written: no handler survived 16 s and was killed at the
+// boundary, a handler exited in 2 s.
+//
 // The contract is the experimental axis of this study, so an unrecognized value must not fall through to the
 // ignoring arm: that would run the contrast arm under the honoring arm's label and produce a plausible wrong
 // result, which is the exact failure class the measurement work exists to eliminate.
 func sleeperCommand(durationSec int, contract TerminationContract) []string {
+	// Substituted rather than formatted: the script is full of Python %d verbs and handing it to fmt.Sprintf
+	// makes Go try to interpret them, which go vet catches and a reader would not.
+	script := strings.Replace(workloadScript, "EXITCODE", strconv.Itoa(termExitCode), 1)
 	switch contract {
 	case HonorsSIGTERM:
-		return []string{"sh", "-c", fmt.Sprintf("trap 'exit %d' TERM; sleep %d & wait", termExitCode, durationSec)}
+		return []string{"python3", "-c", script, strconv.Itoa(durationSec), "honor"}
 	case IgnoresSIGTERM:
-		return []string{"sh", "-c", fmt.Sprintf("sleep %d", durationSec)}
+		return []string{"python3", "-c", script, strconv.Itoa(durationSec), "ignore"}
 	default:
 		panic(fmt.Sprintf("queuelab: unknown TerminationContract %q", contract))
 	}
