@@ -83,6 +83,7 @@ func (b *LedgerBuilder) Observe(delta DeltaType, kind, uid, job string, st Obser
 			Job:       job,
 			ObjectUID: uid,
 			Reason:    st.Reason,
+			ExitCode:  st.ExitCode,
 		})
 		b.lastEvent[uid] = st.Event
 		switch st.Event {

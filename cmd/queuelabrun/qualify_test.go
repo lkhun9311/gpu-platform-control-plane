@@ -132,7 +132,7 @@ func testFixtures(t *testing.T, study queuelab.Study, variant string) *queuelab.
 // string (the synthetic case catches it); or build the provenance with len(fs.ClusterQueue) instead of the
 // contributing count (the "2 ClusterQueue(s)" assertion catches that one).
 func TestRequiredGPUIsDerivedFromTheFixturesNotHardCoded(t *testing.T) {
-	reclaimTrace, err := queuelab.TerminationContractTrace(victimServiceSec, doseSec)
+	reclaimTrace, err := queuelab.TerminationContractTrace(victimServiceSec, doseSec, queuelab.DoseSelfCompleting)
 	if err != nil {
 		t.Fatalf("build the reclaim trace: %v", err)
 	}

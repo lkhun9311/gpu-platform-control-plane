@@ -739,8 +739,7 @@ func TestARecordWhoseRunStoodOnNoCanaryDoesNotCallItselfAdmissible(t *testing.T)
 func TestDecodeRefusesACanaryReferenceThatNamesNothing(t *testing.T) {
 	q := testQualification()
 	q.TerminationCanary = &canaryReference{}
-	rec := buildRecord(outcome{Disposition: dispChecksPassed}, nil, nil, q, testWindow(), testObservation(),
-		"r7", "A-honor", false, time.Now(), time.Now())
+	rec := buildRecord(outcome{Disposition: dispChecksPassed}, nil, nil, q, testWindow(), testObservation(), recordIdentity{RunID: "r7", Arm: "A-honor"}, false, time.Now(), time.Now())
 	b, err := encodeRecord(rec)
 	if err != nil {
 		t.Fatalf("encode: %v", err)
@@ -764,8 +763,7 @@ func TestDecodeRefusesACanaryReferenceThatNamesNoTemplate(t *testing.T) {
 	ref := *testCanaryReference()
 	ref.Key.PodTemplateHash = ""
 	q.TerminationCanary = &ref
-	rec := buildRecord(outcome{Disposition: dispChecksPassed}, nil, nil, q, testWindow(), testObservation(),
-		"r7", "A-honor", false, time.Now(), time.Now())
+	rec := buildRecord(outcome{Disposition: dispChecksPassed}, nil, nil, q, testWindow(), testObservation(), recordIdentity{RunID: "r7", Arm: "A-honor"}, false, time.Now(), time.Now())
 	b, err := encodeRecord(rec)
 	if err != nil {
 		t.Fatalf("encode: %v", err)
@@ -1032,9 +1030,13 @@ func TestACanaryFromBeforeTheTemplateKeyIsRefusedRatherThanReinterpreted(t *test
 // the diagnosis rather than the refusal — recordSchemaVersion's own comment argues that, and it is thinner
 // than the four bumps before it.
 //
+// The floor is asserted rather than an exact version, so a LATER deliberate bump does not have to edit the
+// test that documents an EARLIER one. Each bump brings its own document that must stop decoding; this one
+// owns the version-5 document below, and the newest bump owns its own test beside this file.
+//
 // Mutation that turns this red: leave recordSchemaVersion at 5 — both halves, the constant and the document.
 func TestARecordFromBeforeTheTemplateKeyIsRefusedRatherThanReinterpreted(t *testing.T) {
-	if recordSchemaVersion != 6 {
+	if recordSchemaVersion < 6 {
 		t.Fatalf("recordSchemaVersion is %d; the pod template joined the key a record's reference carries, and "+
 			"a reader cannot tell a run gated on the template from one that could not be", recordSchemaVersion)
 	}

@@ -35,6 +35,15 @@ const (
 	victimServiceSec = 60
 	doseSec          = 40
 
+	// graceBoundedDoseSec returns the owner early enough that the victim still has more service left than the
+	// grace period, so an ignoring victim is cut short by the grace period rather than finishing on its own.
+	//
+	// 20 s leaves 40 s of remaining service against a 30 s grace. It is a second CONSTANT rather than a free
+	// flag for the reason the pair above is: the previous CLI let the duration be chosen freely and the dose
+	// silently became 49 s instead of 40. A closed set of two named regimes keeps the arithmetic pinned while
+	// letting the experiment reach the side of the grace period it could not reach at all before.
+	graceBoundedDoseSec = 20
+
 	// terminationGraceSec mirrors internal/queuelab's private terminationGraceSec (the Pod termination grace
 	// period the fixture runs with). It is duplicated rather than imported because that package must not
 	// change for this fix and does not export the constant.
@@ -53,16 +62,54 @@ const (
 // so it sums all four rather than approximating one of them away.
 const horizonSec = doseSec + victimServiceSec + terminationGraceSec + startupMarginSec
 
+// doseProtocol is the fixed timing of one dose regime, resolved together so the horizon cannot be computed
+// from one regime's dose while the trace is built from another's.
+//
+// That pairing is the point. The horizon is DERIVED from the dose, so a second regime with its own dose and
+// a horizon still summed from the first would truncate the run — the failure horizonSec exists to rule out,
+// reintroduced by the change that added the regime.
+type doseProtocol struct {
+	Regime           queuelab.DoseRegime
+	VictimServiceSec int
+	DoseSec          int
+}
+
+// HorizonSec sums the same four terms horizonSec does, for this regime's own dose.
+func (p doseProtocol) HorizonSec() int {
+	return p.DoseSec + p.VictimServiceSec + terminationGraceSec + startupMarginSec
+}
+
+// doseProtocolFor resolves a regime name against the closed set, refusing anything else.
+//
+// An unknown name is an error rather than a fallback to the default, for the reason SenderConnForMode gives
+// for the same shape: silently running the regime the operator did not ask for produces a number nobody
+// would think to question, and the two regimes measure different things.
+func doseProtocolFor(name string) (doseProtocol, error) {
+	switch queuelab.DoseRegime(name) {
+	case queuelab.DoseSelfCompleting:
+		return doseProtocol{queuelab.DoseSelfCompleting, victimServiceSec, doseSec}, nil
+	case queuelab.DoseGraceBounded:
+		return doseProtocol{queuelab.DoseGraceBounded, victimServiceSec, graceBoundedDoseSec}, nil
+	default:
+		return doseProtocol{}, fmt.Errorf("unknown dose regime %q; want %q or %q",
+			name, queuelab.DoseSelfCompleting, queuelab.DoseGraceBounded)
+	}
+}
+
 // horizonFor returns the observation horizon for local iteration, refusing anything short of the protocol's
 // fixed window.
 //
-// A flag that could go below horizonSec would reintroduce the exact truncation this constant exists to rule
-// out, so requested only widens the window and never narrows it.
-func horizonFor(requested time.Duration) (time.Duration, error) {
-	minHorizon := time.Duration(horizonSec) * time.Second
+// A flag that could go below the window would reintroduce the exact truncation the derivation exists to rule
+// out, so requested only widens the window and never narrows it. Zero means "this regime's own window",
+// which is the default: a fixed default computed from one regime's dose would silently truncate the other.
+func horizonFor(requested time.Duration, p doseProtocol) (time.Duration, error) {
+	minHorizon := time.Duration(p.HorizonSec()) * time.Second
+	if requested == 0 {
+		return minHorizon, nil
+	}
 	if requested < minHorizon {
-		return 0, fmt.Errorf("-horizon %s is below the protocol's fixed window %s; "+
-			"the horizon cannot be shortened without truncating the run", requested, minHorizon)
+		return 0, fmt.Errorf("-horizon %s is below the %s window %s; "+
+			"the horizon cannot be shortened without truncating the run", requested, p.Regime, minHorizon)
 	}
 	return requested, nil
 }
@@ -346,3 +393,9 @@ func decideOperatorMode(a operatorModeArgs) (operatorMode, error) {
 // The record's own statement of what it cannot speak for is recordUnchecked, in record.go, and it is
 // deliberately not a copy of the roadmap this refusal used to print. See its comment for why one list could
 // not serve both.
+
+// selfCompletingProtocol is the default regime, resolved once so callers cannot assemble a doseProtocol whose
+// dose and horizon disagree by hand.
+func selfCompletingProtocol() doseProtocol {
+	return doseProtocol{queuelab.DoseSelfCompleting, victimServiceSec, doseSec}
+}

@@ -293,7 +293,7 @@ func TestRunDeferredEmergencyReleaseAmendsThePersistedRecord(t *testing.T) {
 
 	tdNow, tdSleep := fakeClock(time.Unix(0, 0))
 	o, events, res, _, _, _, _ := run(context.Background(), func() (client.WithWatch, error) { return fc, nil },
-		queuelab.ArmAHonor, "r7", "queuelab-r7", "platform-worker", time.Duration(horizonSec)*time.Second,
+		queuelab.ArmAHonor, "r7", "queuelab-r7", "platform-worker", selfCompletingProtocol(), time.Duration(horizonSec)*time.Second,
 		"", io.Discard, tdNow, tdSleep)
 
 	if res != nil {
@@ -310,7 +310,7 @@ func TestRunDeferredEmergencyReleaseAmendsThePersistedRecord(t *testing.T) {
 	// against the outcome value the test already holds.
 	path := t.TempDir() + "/record.json"
 	started := time.Date(2026, 8, 8, 10, 0, 0, 0, time.UTC)
-	if err := writeRecord(path, buildRecord(o, events, nil, nil, nil, nil, "r7", string(queuelab.ArmAHonor), false,
+	if err := writeRecord(path, buildRecord(o, events, nil, nil, nil, nil, recordIdentity{RunID: "r7", Arm: string(queuelab.ArmAHonor)}, false,
 		started, started.Add(90*time.Second))); err != nil {
 		t.Fatalf("persist: %v", err)
 	}
@@ -344,7 +344,7 @@ func TestRunSetsADispositionOnTheConnectAndAcquisitionPaths(t *testing.T) {
 	tdNow, tdSleep := fakeClock(time.Unix(0, 0))
 	o, _, res, _, _, _, _ := run(context.Background(),
 		func() (client.WithWatch, error) { return nil, fmt.Errorf("kubeconfig: no such file") },
-		queuelab.ArmAHonor, "r7", "queuelab-r7", "platform-worker", time.Duration(horizonSec)*time.Second,
+		queuelab.ArmAHonor, "r7", "queuelab-r7", "platform-worker", selfCompletingProtocol(), time.Duration(horizonSec)*time.Second,
 		"", io.Discard, tdNow, tdSleep)
 	if o.Disposition != dispClientFailed {
 		t.Fatalf("a failed connect is client-failed, got %q", o.Disposition)
@@ -358,7 +358,7 @@ func TestRunSetsADispositionOnTheConnectAndAcquisitionPaths(t *testing.T) {
 	held := node(map[string]string{workerLabelKey: "someone-else"}, nil)
 	fc := fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(held).Build()
 	o, _, res, _, _, _, _ = run(context.Background(), func() (client.WithWatch, error) { return fc, nil },
-		queuelab.ArmAHonor, "r7", "queuelab-r7", "platform-worker", time.Duration(horizonSec)*time.Second,
+		queuelab.ArmAHonor, "r7", "queuelab-r7", "platform-worker", selfCompletingProtocol(), time.Duration(horizonSec)*time.Second,
 		"", io.Discard, tdNow, tdSleep)
 	if o.Disposition != dispAcquisitionRefused {
 		t.Fatalf("a refused acquisition is acquisition-refused, got %q: %s", o.Disposition, o.Reason)
@@ -375,10 +375,10 @@ func TestRunSetsADispositionOnTheConnectAndAcquisitionPaths(t *testing.T) {
 // it and hand a preview the reconstructable evidence previewRecord has no field for. It must therefore be the
 // same constant whatever the run did.
 func TestPreviewRecordNoteIsAConstantNotDerivedFromTheRun(t *testing.T) {
-	quiet := buildRecord(outcome{Disposition: dispChecksPassed}, nil, nil, nil, nil, nil, "r1", "A-honor", true,
+	quiet := buildRecord(outcome{Disposition: dispChecksPassed}, nil, nil, nil, nil, nil, recordIdentity{RunID: "r1", Arm: "A-honor"}, true,
 		time.Now(), time.Now()).(previewRecord)
 	busy := buildRecord(outcome{Disposition: dispCancelled, Reason: "observing until the horizon"},
-		[]queuelab.LifecycleEvent{{ElapsedNs: 1, Kind: "Pod", Job: "a1"}}, nil, nil, nil, nil, "r2", "N-ref", true,
+		[]queuelab.LifecycleEvent{{ElapsedNs: 1, Kind: "Pod", Job: "a1"}}, nil, nil, nil, nil, recordIdentity{RunID: "r2", Arm: "N-ref"}, true,
 		time.Now(), time.Now()).(previewRecord)
 
 	if quiet.Note != previewNote || busy.Note != previewNote {
@@ -430,7 +430,7 @@ func TestRefusalRecordIsReadableEvenWithoutARunID(t *testing.T) {
 
 	err := errors.New("-runid is required")
 	rec := buildRecord(outcome{Disposition: dispRefusedBeforeCluster, Reason: err.Error()},
-		nil, nil, nil, nil, nil, recordRunID(""), "", false, time.Now(), time.Now())
+		nil, nil, nil, nil, nil, recordIdentity{RunID: recordRunID(""), Arm: ""}, false, time.Now(), time.Now())
 	b, encErr := encodeRecord(rec)
 	if encErr != nil {
 		t.Fatalf("encode: %v", encErr)
@@ -482,7 +482,7 @@ func TestRecordPathNamesEveryInvocationSeparately(t *testing.T) {
 // record is built rather than audited where only some are reachable — a reviewer deleted four `o = ...`
 // assignments and neither go vet nor the suite noticed.
 func TestBuildRecordRefusesAZeroDisposition(t *testing.T) {
-	rr, ok := buildRecord(outcome{}, nil, nil, nil, nil, nil, "r7", "A-honor", false, time.Now(), time.Now()).(runRecord)
+	rr, ok := buildRecord(outcome{}, nil, nil, nil, nil, nil, recordIdentity{RunID: "r7", Arm: "A-honor"}, false, time.Now(), time.Now()).(runRecord)
 	if !ok {
 		t.Fatal("a non-preview invocation must build a runRecord")
 	}
@@ -494,7 +494,7 @@ func TestBuildRecordRefusesAZeroDisposition(t *testing.T) {
 	}
 
 	// The preview branch builds a different type, so it needs its own proof rather than inheriting this one.
-	pr, ok := buildRecord(outcome{}, nil, nil, nil, nil, nil, "r7", "A-honor", true, time.Now(), time.Now()).(previewRecord)
+	pr, ok := buildRecord(outcome{}, nil, nil, nil, nil, nil, recordIdentity{RunID: "r7", Arm: "A-honor"}, true, time.Now(), time.Now()).(previewRecord)
 	if !ok {
 		t.Fatal("a preview invocation must build a previewRecord")
 	}
@@ -503,7 +503,7 @@ func TestBuildRecordRefusesAZeroDisposition(t *testing.T) {
 	}
 
 	// The substitution must not touch an outcome that already has one, or it would rewrite real dispositions.
-	kept := buildRecord(outcome{Disposition: dispChecksPassed, Reason: "x"}, nil, nil, nil, nil, nil, "r7", "A-honor", false,
+	kept := buildRecord(outcome{Disposition: dispChecksPassed, Reason: "x"}, nil, nil, nil, nil, nil, recordIdentity{RunID: "r7", Arm: "A-honor"}, false,
 		time.Now(), time.Now()).(runRecord)
 	if kept.Disposition != string(dispChecksPassed) || kept.Reason != "x" {
 		t.Fatalf("a classified outcome must pass through untouched, got %q / %q", kept.Disposition, kept.Reason)
@@ -985,7 +985,7 @@ func TestRunExplicitReleaseFailureRecordsWorkerNotRestored(t *testing.T) {
 
 	tdNow, tdSleep := fakeClock(time.Unix(0, 0))
 	o, events, res, _, _, _, _ := run(context.Background(), func() (client.WithWatch, error) { return fc, nil },
-		queuelab.ArmNRef, "r8", "queuelab-r8", "platform-worker", 45*time.Second, "", io.Discard, tdNow, tdSleep)
+		queuelab.ArmNRef, "r8", "queuelab-r8", "platform-worker", selfCompletingProtocol(), 45*time.Second, "", io.Discard, tdNow, tdSleep)
 
 	if nodePatches != 2 {
 		t.Fatalf("want exactly 2 node patches (acquire + the run's own release), got %d — this test proved "+
@@ -1003,7 +1003,7 @@ func TestRunExplicitReleaseFailureRecordsWorkerNotRestored(t *testing.T) {
 	// the in-memory outcome the test already holds.
 	path := t.TempDir() + "/record.json"
 	started := time.Now()
-	if err := writeRecord(path, buildRecord(o, events, nil, nil, nil, nil, "r8", string(queuelab.ArmNRef), false,
+	if err := writeRecord(path, buildRecord(o, events, nil, nil, nil, nil, recordIdentity{RunID: "r8", Arm: string(queuelab.ArmNRef)}, false,
 		started, started.Add(45*time.Second))); err != nil {
 		t.Fatalf("persist: %v", err)
 	}
@@ -1075,7 +1075,7 @@ func TestRunCancellationWhileRestoringNeverRelabelsAsCancelled(t *testing.T) {
 
 	tdNow, tdSleep := fakeClock(time.Unix(0, 0))
 	o, events, res, _, _, _, _ := run(ctx, func() (client.WithWatch, error) { return fc, nil },
-		queuelab.ArmNRef, "r9", "queuelab-r9", "platform-worker", 45*time.Second, "", io.Discard, tdNow, tdSleep)
+		queuelab.ArmNRef, "r9", "queuelab-r9", "platform-worker", selfCompletingProtocol(), 45*time.Second, "", io.Discard, tdNow, tdSleep)
 
 	if nodePatches != 2 {
 		t.Fatalf("want exactly 2 node patches (acquire + the run's own release), got %d — this test proved "+
@@ -1095,7 +1095,7 @@ func TestRunCancellationWhileRestoringNeverRelabelsAsCancelled(t *testing.T) {
 
 	path := t.TempDir() + "/record.json"
 	started := time.Now()
-	if err := writeRecord(path, buildRecord(o, events, nil, nil, nil, nil, "r9", string(queuelab.ArmNRef), false,
+	if err := writeRecord(path, buildRecord(o, events, nil, nil, nil, nil, recordIdentity{RunID: "r9", Arm: string(queuelab.ArmNRef)}, false,
 		started, started.Add(45*time.Second))); err != nil {
 		t.Fatalf("persist: %v", err)
 	}
@@ -1247,7 +1247,7 @@ func TestRunTearsDownBeforeTheEmergencyReleaseOnAnEarlyReturn(t *testing.T) {
 
 	o, _, res, left, _, _, _ := run(context.Background(), func() (client.WithWatch, error) { return c, nil },
 		queuelab.ArmAHonor, "r7", "queuelab-r7", "platform-worker",
-		time.Duration(horizonSec)*time.Second, "", io.Discard, now, sleep)
+		selfCompletingProtocol(), time.Duration(horizonSec)*time.Second, "", io.Discard, now, sleep)
 
 	if res != nil {
 		t.Fatal("a run that failed setup must hand back no result")
@@ -1297,7 +1297,7 @@ func TestRunTearsDownBeforeItsOwnReleaseOnTheHappyPath(t *testing.T) {
 	now, sleep := fakeClock(time.Unix(0, 0))
 
 	o, _, res, left, _, _, _ := run(context.Background(), func() (client.WithWatch, error) { return c, nil },
-		queuelab.ArmNRef, "r8", "queuelab-r8", "platform-worker", 45*time.Second, "", io.Discard, now, sleep)
+		queuelab.ArmNRef, "r8", "queuelab-r8", "platform-worker", selfCompletingProtocol(), 45*time.Second, "", io.Discard, now, sleep)
 
 	if o.Disposition != dispChecksPassed {
 		t.Fatalf("an uncontested N-ref run against a clean cluster must pass, got %s: %s", o.Disposition, o.Reason)
@@ -1366,7 +1366,7 @@ func TestRunTearsDownAroundAStaleFixtureFromAPreviousAttempt(t *testing.T) {
 
 	o, _, res, left, _, _, _ := run(context.Background(), func() (client.WithWatch, error) { return c, nil },
 		queuelab.ArmAHonor, "r7", "queuelab-r7", "platform-worker",
-		time.Duration(horizonSec)*time.Second, "", io.Discard, now, sleep)
+		selfCompletingProtocol(), time.Duration(horizonSec)*time.Second, "", io.Discard, now, sleep)
 
 	if res != nil {
 		t.Fatal("a run that failed setup must hand back no result")
@@ -1485,7 +1485,7 @@ func TestRunTeardownResidueAmendsTheOutcomeAndHoldsTheWorker(t *testing.T) {
 
 	o, _, res, left, _, _, _ := run(context.Background(), func() (client.WithWatch, error) { return c, nil },
 		queuelab.ArmAHonor, "r7", "queuelab-r7", "platform-worker",
-		time.Duration(horizonSec)*time.Second, "", io.Discard, now, sleep)
+		selfCompletingProtocol(), time.Duration(horizonSec)*time.Second, "", io.Discard, now, sleep)
 
 	if res != nil {
 		t.Fatal("a run that failed setup must hand back no result")
@@ -1571,7 +1571,7 @@ func TestRunHoldsTheWorkerWhenTheHappyPathLeavesResidue(t *testing.T) {
 	now, sleep := fakeClock(time.Unix(0, 0))
 
 	o, events, res, left, _, _, _ := run(context.Background(), func() (client.WithWatch, error) { return c, nil },
-		queuelab.ArmNRef, "r8", "queuelab-r8", "platform-worker", 45*time.Second, "", io.Discard, now, sleep)
+		queuelab.ArmNRef, "r8", "queuelab-r8", "platform-worker", selfCompletingProtocol(), 45*time.Second, "", io.Discard, now, sleep)
 
 	// The run must genuinely have completed its protocol, or this test is another early-return test wearing a
 	// longer sleep. The owner row is submitted only after the victim has been Ready for the whole 40-second
@@ -1670,7 +1670,7 @@ func TestRunStampsTheResidueRecordWhenItHoldsTheWorker(t *testing.T) {
 	// nobody wrote.
 	o, _, _, left, _, _, _ := run(context.Background(), func() (client.WithWatch, error) { return c, nil },
 		queuelab.ArmAHonor, "r7", "queuelab-r7", "platform-worker",
-		time.Duration(horizonSec)*time.Second, "queuelabrun-record-r7.json", io.Discard, now, sleep)
+		selfCompletingProtocol(), time.Duration(horizonSec)*time.Second, "queuelabrun-record-r7.json", io.Discard, now, sleep)
 
 	if o.Disposition != dispResidueLeft || len(left) == 0 {
 		t.Fatalf("this harness must reach a residue that holds the worker, got %s: %s with %+v",
@@ -1744,7 +1744,7 @@ func TestRunDoesNotStampWhenTheWorkerIsReleased(t *testing.T) {
 
 	o, _, _, left, _, _, _ := run(context.Background(), func() (client.WithWatch, error) { return c, nil },
 		queuelab.ArmAHonor, "r7", "queuelab-r7", "platform-worker",
-		time.Duration(horizonSec)*time.Second, "queuelabrun-record-r7.json", io.Discard, now, sleep)
+		selfCompletingProtocol(), time.Duration(horizonSec)*time.Second, "queuelabrun-record-r7.json", io.Discard, now, sleep)
 
 	if o.Disposition != dispResidueLeft || len(left) == 0 {
 		t.Fatalf("this harness must reach a residue, got %s: %s with %+v", o.Disposition, o.Reason, left)
@@ -1877,7 +1877,7 @@ func TestAFailedResidueStampChangesNoOutcome(t *testing.T) {
 
 	o, _, res, left, _, _, _ := run(context.Background(), func() (client.WithWatch, error) { return c, nil },
 		queuelab.ArmAHonor, "r7", "queuelab-r7", "platform-worker",
-		time.Duration(horizonSec)*time.Second, "queuelabrun-record-r7.json", io.Discard, now, sleep)
+		selfCompletingProtocol(), time.Duration(horizonSec)*time.Second, "queuelabrun-record-r7.json", io.Discard, now, sleep)
 
 	if o.Disposition != dispResidueLeft {
 		t.Fatalf("disposition is %q, want %q: a failed annotation must not change what the run decided",
@@ -1959,7 +1959,7 @@ func TestRunSubmitsNothingWhenAStreamCannotBeEstablished(t *testing.T) {
 
 	o, _, res, _, _, _, _ := run(context.Background(), func() (client.WithWatch, error) { return fc, nil },
 		queuelab.ArmNRef, "r10", "queuelab-r10", "platform-worker",
-		time.Duration(horizonSec)*time.Second, "", io.Discard, now, sleep)
+		selfCompletingProtocol(), time.Duration(horizonSec)*time.Second, "", io.Discard, now, sleep)
 
 	mu.Lock()
 	n := submitted
@@ -2015,7 +2015,7 @@ func TestRunHandsTheStreamsAnUnboundedContext(t *testing.T) {
 
 	run(context.Background(), func() (client.WithWatch, error) { return fc, nil },
 		queuelab.ArmNRef, "r11", "queuelab-r11", "platform-worker",
-		time.Duration(horizonSec)*time.Second, "", io.Discard, now, sleep)
+		selfCompletingProtocol(), time.Duration(horizonSec)*time.Second, "", io.Discard, now, sleep)
 
 	calls, bounded := spy.observed()
 	if calls < 4 {
@@ -2064,7 +2064,7 @@ func TestRunRefusesToCreateAnythingOnAContaminatedWorker(t *testing.T) {
 
 	o, _, res, _, qual, _, _ := run(context.Background(), func() (client.WithWatch, error) { return fc, nil },
 		queuelab.ArmAHonor, "r12", "queuelab-r12", "platform-worker",
-		time.Duration(horizonSec)*time.Second, "", io.Discard, tdNow, tdSleep)
+		selfCompletingProtocol(), time.Duration(horizonSec)*time.Second, "", io.Discard, tdNow, tdSleep)
 
 	if o.Disposition != dispEnvironmentUnqualified {
 		t.Fatalf("a run on a worker already holding somebody else's GPU Pod is %s, got %s: %s",
@@ -2122,7 +2122,7 @@ func TestRunSizesTheWorkerAgainstItsOwnFixtures(t *testing.T) {
 
 	o, _, _, _, qual, _, _ := run(context.Background(), func() (client.WithWatch, error) { return fc, nil },
 		queuelab.ArmAHonor, "r13", "queuelab-r13", "platform-worker",
-		time.Duration(horizonSec)*time.Second, "", io.Discard, tdNow, tdSleep)
+		selfCompletingProtocol(), time.Duration(horizonSec)*time.Second, "", io.Discard, tdNow, tdSleep)
 
 	if o.Disposition != dispEnvironmentUnqualified {
 		t.Fatalf("a one-device node cannot produce the borrow-then-reclaim contrast the arm is named after, "+
@@ -2163,7 +2163,7 @@ func TestAQualifiedRunRecordsWhatItsWorkerWas(t *testing.T) {
 	now, sleep := fakeClock(time.Unix(0, 0))
 
 	o, events, res, left, qual, _, obs := run(context.Background(), func() (client.WithWatch, error) { return fc, nil },
-		queuelab.ArmNRef, "r14", "queuelab-r14", "platform-worker", 45*time.Second, "", io.Discard, now, sleep)
+		queuelab.ArmNRef, "r14", "queuelab-r14", "platform-worker", selfCompletingProtocol(), 45*time.Second, "", io.Discard, now, sleep)
 
 	if o.Disposition != dispChecksPassed {
 		t.Fatalf("this test is only meaningful on a run that passed, got %s: %s", o.Disposition, o.Reason)
@@ -2175,7 +2175,7 @@ func TestAQualifiedRunRecordsWhatItsWorkerWas(t *testing.T) {
 		t.Fatal("a run that passed every check recorded nothing about the machine it measured on")
 	}
 
-	rec := buildRecord(o, events, left, qual, nil, obs, "r14", string(queuelab.ArmNRef), false,
+	rec := buildRecord(o, events, left, qual, nil, obs, recordIdentity{RunID: "r14", Arm: string(queuelab.ArmNRef)}, false,
 		time.Now(), time.Now())
 	b, err := encodeRecord(rec)
 	if err != nil {
@@ -2227,7 +2227,7 @@ func TestAPassingRunRecordsTheWindowItHeld(t *testing.T) {
 	now, sleep := fakeClock(time.Unix(0, 0))
 
 	o, events, res, left, qual, win, obs := run(context.Background(), func() (client.WithWatch, error) { return fc, nil },
-		queuelab.ArmNRef, "r15", "queuelab-r15", "platform-worker", 45*time.Second, "", io.Discard, now, sleep)
+		queuelab.ArmNRef, "r15", "queuelab-r15", "platform-worker", selfCompletingProtocol(), 45*time.Second, "", io.Discard, now, sleep)
 
 	if o.Disposition != dispChecksPassed {
 		t.Fatalf("this test is only meaningful on a run that passed, got %s: %s", o.Disposition, o.Reason)
@@ -2251,7 +2251,7 @@ func TestAPassingRunRecordsTheWindowItHeld(t *testing.T) {
 		t.Fatalf("the passing run recorded no audited restoration: %+v", win.Restoration)
 	}
 
-	rec := buildRecord(o, events, left, qual, win, obs, "r15", string(queuelab.ArmNRef), false,
+	rec := buildRecord(o, events, left, qual, win, obs, recordIdentity{RunID: "r15", Arm: string(queuelab.ArmNRef)}, false,
 		time.Now(), time.Now())
 	b, err := encodeRecord(rec)
 	if err != nil {
@@ -2309,7 +2309,7 @@ func TestRunRefusesToPublishAWorkerThatWasSharedMidRun(t *testing.T) {
 	now, sleep := fakeClock(time.Unix(0, 0))
 
 	o, _, res, _, _, win, _ := run(context.Background(), func() (client.WithWatch, error) { return fc, nil },
-		queuelab.ArmNRef, "r16", "queuelab-r16", "platform-worker", 45*time.Second, "", io.Discard, now, sleep)
+		queuelab.ArmNRef, "r16", "queuelab-r16", "platform-worker", selfCompletingProtocol(), 45*time.Second, "", io.Discard, now, sleep)
 
 	if res != nil {
 		t.Fatal("a run whose worker was shared for part of its window published a result")
@@ -2356,7 +2356,7 @@ func TestAnUnqualifiedRunStillRecordsTheWindowItOpened(t *testing.T) {
 
 	o, _, _, _, qual, win, _ := run(context.Background(), func() (client.WithWatch, error) { return fc, nil },
 		queuelab.ArmAHonor, "r17", "queuelab-r17", "platform-worker",
-		time.Duration(horizonSec)*time.Second, "", io.Discard, tdNow, tdSleep)
+		selfCompletingProtocol(), time.Duration(horizonSec)*time.Second, "", io.Discard, tdNow, tdSleep)
 
 	if o.Disposition != dispEnvironmentUnqualified || qual == nil {
 		t.Fatalf("this test is only meaningful on a run refused at qualification, got %s: %s", o.Disposition, o.Reason)
@@ -2408,7 +2408,7 @@ func TestARefusedEstablishmentRecordsWhichStreamDiedAndThatNothingWasEstablished
 
 	o, events, _, left, qual, win, obs := run(context.Background(),
 		func() (client.WithWatch, error) { return fc, nil }, queuelab.ArmNRef, "r18", "queuelab-r18",
-		"platform-worker", time.Duration(horizonSec)*time.Second, "", io.Discard, now, sleep)
+		"platform-worker", selfCompletingProtocol(), time.Duration(horizonSec)*time.Second, "", io.Discard, now, sleep)
 
 	if o.Disposition != dispSetupFailed {
 		t.Fatalf("this test is only meaningful on a run refused at establishment, got %s: %s", o.Disposition, o.Reason)
@@ -2443,7 +2443,7 @@ func TestARefusedEstablishmentRecordsWhichStreamDiedAndThatNothingWasEstablished
 			"ending the run itself caused: %+v", *pod)
 	}
 
-	rec := buildRecord(o, events, left, qual, win, obs, "r18", string(queuelab.ArmNRef), false,
+	rec := buildRecord(o, events, left, qual, win, obs, recordIdentity{RunID: "r18", Arm: string(queuelab.ArmNRef)}, false,
 		time.Now(), time.Now())
 	b, err := encodeRecord(rec)
 	if err != nil {
@@ -2492,7 +2492,7 @@ func TestAPassingRunRecordsTheObservationAndCallsItselfAdmissible(t *testing.T) 
 
 	o, events, res, left, qual, win, obs := run(context.Background(),
 		func() (client.WithWatch, error) { return fc, nil }, queuelab.ArmNRef, "r19", "queuelab-r19",
-		"platform-worker", 45*time.Second, "", io.Discard, now, sleep)
+		"platform-worker", selfCompletingProtocol(), 45*time.Second, "", io.Discard, now, sleep)
 
 	if o.Disposition != dispChecksPassed || res == nil {
 		t.Fatalf("this test is only meaningful on a run that passed, got %s: %s", o.Disposition, o.Reason)
@@ -2517,7 +2517,7 @@ func TestAPassingRunRecordsTheObservationAndCallsItselfAdmissible(t *testing.T) 
 		}
 	}
 
-	rec := buildRecord(o, events, left, qual, win, obs, "r19", string(queuelab.ArmNRef), false,
+	rec := buildRecord(o, events, left, qual, win, obs, recordIdentity{RunID: "r19", Arm: string(queuelab.ArmNRef)}, false,
 		time.Now(), time.Now())
 	b, err := encodeRecord(rec)
 	if err != nil {
@@ -2580,7 +2580,7 @@ func TestRunTellsItsWriterTheWorkerIsHeldWhenItIsHeld(t *testing.T) {
 
 	o, _, _, left, _, _, _ := run(context.Background(), func() (client.WithWatch, error) { return fc, nil },
 		queuelab.ArmAHonor, "r20", "queuelab-r20", "platform-worker",
-		time.Duration(horizonSec)*time.Second, "", &stderr, now, sleep)
+		selfCompletingProtocol(), time.Duration(horizonSec)*time.Second, "", &stderr, now, sleep)
 
 	if o.Disposition != dispResidueLeft || len(left) == 0 {
 		t.Fatalf("this harness must reach a residue that holds the worker, got %s: %s with %+v",
@@ -2629,7 +2629,7 @@ func TestRunTellsItsWriterTheWorkerWentBackWhenItDid(t *testing.T) {
 
 	o, _, _, left, _, _, _ := run(context.Background(), func() (client.WithWatch, error) { return fc, nil },
 		queuelab.ArmAHonor, "r21", "queuelab-r21", "platform-worker",
-		time.Duration(horizonSec)*time.Second, "", &stderr, now, sleep)
+		selfCompletingProtocol(), time.Duration(horizonSec)*time.Second, "", &stderr, now, sleep)
 
 	if o.Disposition != dispResidueLeft || len(left) == 0 {
 		t.Fatalf("this harness must reach a foreign-only residue, got %s: %s with %+v",

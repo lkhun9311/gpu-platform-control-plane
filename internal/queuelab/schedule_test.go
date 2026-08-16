@@ -103,7 +103,7 @@ func TestStudyScheduleRejectsWrongShape(t *testing.T) {
 }
 
 func TestTerminationContractScheduleUsesTheStatedDose(t *testing.T) {
-	trace, err := TerminationContractTrace(60, 40)
+	trace, err := TerminationContractTrace(60, 40, DoseSelfCompleting)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -152,7 +152,7 @@ func TestTerminationContractScheduleRejectsADoseThatContradictsTheTrace(t *testi
 	// The trace states 40 s as provenance on the owner row's offset; a schedule asked for 5 s would silently
 	// run a different experiment than the one the trace records, which is the exact failure this branch
 	// exists to prevent.
-	trace, err := TerminationContractTrace(60, 40)
+	trace, err := TerminationContractTrace(60, 40, DoseSelfCompleting)
 	if err != nil {
 		t.Fatal(err)
 	}

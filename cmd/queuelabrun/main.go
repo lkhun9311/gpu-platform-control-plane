@@ -42,11 +42,14 @@ import (
 
 func main() {
 	var (
-		armFlag     = flag.String("arm", "", "arm: A-honor | A-ignore | N-ref")
-		runID       = flag.String("runid", "", "unique run id (required, no default: a reused id can confound a run)")
-		worker      = flag.String("worker", "platform-worker", "node to dedicate to this run")
-		horizonFlag = flag.Duration("horizon", time.Duration(horizonSec)*time.Second,
-			"observation horizon (must not be below the protocol's fixed window)")
+		armFlag  = flag.String("arm", "", "arm: A-honor | A-ignore | N-ref")
+		runID    = flag.String("runid", "", "unique run id (required, no default: a reused id can confound a run)")
+		worker   = flag.String("worker", "platform-worker", "node to dedicate to this run")
+		doseFlag = flag.String("dose", string(queuelab.DoseSelfCompleting),
+			"dose regime: self-completing (an ignoring victim finishes its own service) | grace-bounded "+
+				"(an ignoring victim is cut short at the termination grace period)")
+		horizonFlag = flag.Duration("horizon", 0,
+			"observation horizon; zero means the selected dose regime's own window, which is also its minimum")
 		// -out is deliberately not required, even for a non-preview run: -runid has no safe default because
 		// ANY default (a reused id, e.g. "r1") collides with a prior run's cluster-scoped fixtures, a defect no
 		// amount of printing can undo. An unnamed -out has no equivalent hazard once recordPathFor's default is
@@ -110,7 +113,10 @@ func main() {
 	// fails cannot also swallow the reason the invocation was refused.
 	refuseInvocation := func(err error) {
 		rec := buildRecord(outcome{Disposition: dispRefusedBeforeCluster, Reason: err.Error()},
-			nil, nil, nil, nil, nil, recordRunID(*runID), *armFlag, *preview, started, time.Now())
+			// The dose is left empty on purpose: this refusal fires before the flags are resolved, so no regime
+			// has been chosen and naming one would put a claim in the record that no run stood behind.
+			nil, nil, nil, nil, nil, recordIdentity{RunID: recordRunID(*runID), Arm: *armFlag}, *preview,
+			started, time.Now())
 		if werr := writeRecord(recordPath, rec); werr != nil {
 			// The record that failed to persist cannot report its own failure, so this is the one outcome that
 			// exists only on stderr. It says the record is unproven rather than that nothing changed: a
@@ -196,7 +202,12 @@ func main() {
 		fmt.Fprintln(os.Stderr, "ERROR:", err)
 		refuseInvocation(err)
 	}
-	horizon, err := horizonFor(*horizonFlag)
+	protocol, err := doseProtocolFor(*doseFlag)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "ERROR:", err)
+		refuseInvocation(err)
+	}
+	horizon, err := horizonFor(*horizonFlag, protocol)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "ERROR:", err)
 		refuseInvocation(err)
@@ -213,14 +224,15 @@ func main() {
 	// outcome AFTER the return value has been chosen, so anything written from inside it could be
 	// contradicted a moment later. By the time these seven values exist here, every defer has finished
 	// amending them.
-	o, events, res, left, qual, win, obs := run(ctx, newClusterClient, arm, *runID, namespace, *worker, horizon,
+	o, events, res, left, qual, win, obs := run(ctx, newClusterClient, arm, *runID, namespace, *worker, protocol, horizon,
 		recordPath, os.Stderr, time.Now, time.Sleep)
 
 	os.Exit(reportRun(os.Stdout, os.Stderr, writeRecord, verifyRecordReadable, runReport{
 		Outcome: o,
 		Events:  events,
 		Result:  res,
-		Record:  buildRecord(o, events, left, qual, win, obs, *runID, string(arm), *preview, started, time.Now()),
+		Record: buildRecord(o, events, left, qual, win, obs,
+			recordIdentity{RunID: *runID, Arm: string(arm), Dose: string(protocol.Regime)}, *preview, started, time.Now()),
 		Path:    recordPath,
 		Preview: *preview,
 	}))
@@ -712,7 +724,7 @@ func phaseFailure(phase disposition, what string, err error) outcome {
 // horizon rather than beside worker deliberately — runID, namespace and worker are already three adjacent
 // strings a caller can transpose in silence, and a fourth would make that worse.
 func run(ctx context.Context, connect clusterClientFunc, arm queuelab.Arm, runID, namespace, worker string,
-	horizon time.Duration, recordPath string, stderr io.Writer, now func() time.Time,
+	protocol doseProtocol, horizon time.Duration, recordPath string, stderr io.Writer, now func() time.Time,
 	sleep func(time.Duration)) (o outcome, events []queuelab.LifecycleEvent, res *queuelab.LabResult,
 	left []residue, qual *qualification, win *ownershipWindow, obs *observationEvidence) {
 	study := queuelab.StudyReclaim
@@ -724,7 +736,7 @@ func run(ctx context.Context, connect clusterClientFunc, arm queuelab.Arm, runID
 
 	// The corrected trace gives the victim its own duration instead of sharing one with the co-tenant, so the
 	// co-tenant's release cannot be mistaken for the reclamation under test.
-	trace, err := queuelab.TerminationContractTrace(victimServiceSec, doseSec)
+	trace, err := queuelab.TerminationContractTrace(protocol.VictimServiceSec, protocol.DoseSec, protocol.Regime)
 	if err != nil {
 		o = phaseFailure(dispProtocolBuildFailed, "building the trace", err)
 		return
@@ -735,7 +747,11 @@ func run(ctx context.Context, connect clusterClientFunc, arm queuelab.Arm, runID
 		o = phaseFailure(dispProtocolBuildFailed, "trace invalid", err)
 		return
 	}
-	schedule, err := queuelab.TerminationContractSchedule(trace, doseSec)
+	// The SAME resolved protocol the trace came from, not the package constant. Passing doseSec here while the
+	// trace was built from protocol.DoseSec is the exact disagreement the schedule's own guard refuses, and it
+	// refused six live runs before this line was corrected — the guard working as designed, and the reason the
+	// dose and the horizon are resolved together rather than read from wherever each caller happens to look.
+	schedule, err := queuelab.TerminationContractSchedule(trace, protocol.DoseSec)
 	if err != nil {
 		o = phaseFailure(dispProtocolBuildFailed, "building the schedule", err)
 		return

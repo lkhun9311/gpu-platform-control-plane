@@ -73,7 +73,7 @@ import (
 // file, when what they are holding is a perfectly good record from a build in which the operator's Pod
 // template was not yet part of what a reading covered. The version is the only thing in either document that
 // can tell those apart.
-const recordSchemaVersion = 6
+const recordSchemaVersion = 7
 
 // runRecord is what a non-preview invocation leaves behind.
 //
@@ -85,6 +85,17 @@ const recordSchemaVersion = 6
 // either — the same rule as before, that a block appears when something writes it.
 type runRecord struct {
 	SchemaVersion int `json:"schemaVersion"`
+	// The bump to 7 carries two changes, and both are about a record being unable to say what it observed:
+	// Dose below, and the exit code the ledger's AttemptStopped events now carry. A document from before it is
+	// refused rather than read, because in both cases the silence would be taken for the ordinary case — the
+	// default regime, and a stop whose kind nobody could tell.
+	//
+	// Dose names which side of the termination grace period this run's victim was preempted on, and it is
+	// persisted because the two regimes measure different quantities: self-completing reports what the
+	// victim's remaining WORK costs the owner, grace-bounded reports what the platform's configured PATIENCE
+	// costs it. Two records without this field are indistinguishable while describing different experiments,
+	// so a reader comparing them would be comparing numbers that never answered the same question.
+	Dose string `json:"dose"`
 	// Preview has no writer on purpose, and is NOT a reserved slot like the Flags field deleted before it: it
 	// exists for decodeRunRecord, so that a preview document fed to a run-record reader is rejected by the
 	// specific check below rather than by a generic unknown-field error that says nothing about why. Deleting
@@ -513,14 +524,17 @@ func residueForRecord(left []residue) []recordResidue {
 // field at all, and the summary below is deliberately lossy. The declaration is thus enforced by the TYPE
 // rather than by the reader's good faith, which is what makes it survive a shell redirect.
 type previewRecord struct {
-	SchemaVersion int    `json:"schemaVersion"`
-	Preview       bool   `json:"preview"`
-	RunID         string `json:"runID"`
-	Arm           string `json:"arm"`
-	StartedAt     string `json:"startedAt,omitempty"`
-	EndedAt       string `json:"endedAt,omitempty"`
-	Disposition   string `json:"disposition"`
-	Reason        string `json:"reason,omitempty"`
+	SchemaVersion int `json:"schemaVersion"`
+	// Dose is carried for the same reason runRecord carries it: two previews of different regimes would
+	// otherwise be indistinguishable documents describing different experiments.
+	Dose        string `json:"dose"`
+	Preview     bool   `json:"preview"`
+	RunID       string `json:"runID"`
+	Arm         string `json:"arm"`
+	StartedAt   string `json:"startedAt,omitempty"`
+	EndedAt     string `json:"endedAt,omitempty"`
+	Disposition string `json:"disposition"`
+	Reason      string `json:"reason,omitempty"`
 	// EventCount is a count, not a ledger: it cannot be inverted into events.
 	EventCount int    `json:"eventCount"`
 	Note       string `json:"note"`
@@ -610,8 +624,19 @@ func classified(o outcome) outcome {
 // cannot emit reconstructable evidence lives in one readable decision rather than being spread across the
 // call sites that write. (reportRun diverges too, but only over what reaches a terminal, and it diverges the
 // same way for the same reason: a printed ledger reconstructs as well as a written one.)
+// recordIdentity is what names the experiment a record describes.
+//
+// A struct rather than three adjacent strings, for the reason FixtureIdentity is one: runID, arm and dose are
+// all strings, a transposition would not be caught by the compiler, and a record naming the wrong arm or the
+// wrong dose regime is a document that answers a question it did not ask.
+type recordIdentity struct {
+	RunID string
+	Arm   string
+	Dose  string
+}
+
 func buildRecord(o outcome, events []queuelab.LifecycleEvent, left []residue, qual *qualification,
-	win *ownershipWindow, obs *observationEvidence, runID, arm string, preview bool,
+	win *ownershipWindow, obs *observationEvidence, id recordIdentity, preview bool,
 	started, ended time.Time) any {
 	o = classified(o)
 	persistedResidue := residueForRecord(left)
@@ -625,8 +650,9 @@ func buildRecord(o outcome, events []queuelab.LifecycleEvent, left []residue, qu
 		return previewRecord{
 			SchemaVersion: recordSchemaVersion,
 			Preview:       true,
-			RunID:         runID,
-			Arm:           arm,
+			RunID:         id.RunID,
+			Arm:           id.Arm,
+			Dose:          id.Dose,
 			StartedAt:     startedAt,
 			EndedAt:       endedAt,
 			Disposition:   string(o.Disposition),
@@ -642,8 +668,9 @@ func buildRecord(o outcome, events []queuelab.LifecycleEvent, left []residue, qu
 	}
 	return runRecord{
 		SchemaVersion: recordSchemaVersion,
-		RunID:         runID,
-		Arm:           arm,
+		RunID:         id.RunID,
+		Arm:           id.Arm,
+		Dose:          id.Dose,
 		StartedAt:     startedAt,
 		EndedAt:       endedAt,
 		Disposition:   string(o.Disposition),

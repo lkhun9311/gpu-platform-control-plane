@@ -341,13 +341,53 @@ func TestRefuseExtraArgs(t *testing.T) {
 
 func TestHorizonForRefusesBelowTheFixedWindow(t *testing.T) {
 	min := time.Duration(horizonSec) * time.Second
-	if _, err := horizonFor(min - time.Second); err == nil {
+	if _, err := horizonFor(min-time.Second, selfCompletingProtocol()); err == nil {
 		t.Fatal("a horizon below the protocol's fixed window must be refused")
 	}
-	if got, err := horizonFor(min); err != nil || got != min {
-		t.Fatalf("horizonFor(min) = %v, %v; want %v, nil", got, err, min)
+	if got, err := horizonFor(min, selfCompletingProtocol()); err != nil || got != min {
+		t.Fatalf("horizonFor(min, selfCompletingProtocol()) = %v, %v; want %v, nil", got, err, min)
 	}
-	if got, err := horizonFor(min + time.Minute); err != nil || got != min+time.Minute {
+	if got, err := horizonFor(min+time.Minute, selfCompletingProtocol()); err != nil || got != min+time.Minute {
 		t.Fatalf("a wider horizon must be allowed unchanged: got %v, %v", got, err)
+	}
+}
+
+// The horizon is derived from the dose, so resolving them separately is how a second regime would truncate
+// its own runs: a window summed from the default dose is 20 s too long for one regime and would have been
+// 20 s too short had the doses gone the other way.
+//
+// Mutation that turns this red: have HorizonSec use the package-level doseSec instead of p.DoseSec.
+func TestDoseProtocolResolvesItsOwnHorizon(t *testing.T) {
+	self, err := doseProtocolFor(string(queuelab.DoseSelfCompleting))
+	if err != nil {
+		t.Fatalf("the default regime must resolve: %v", err)
+	}
+	bounded, err := doseProtocolFor(string(queuelab.DoseGraceBounded))
+	if err != nil {
+		t.Fatalf("the grace-bounded regime must resolve: %v", err)
+	}
+	// The default must keep the window every earlier run was measured under, or this change silently
+	// reinterprets the baseline it is meant to be compared against.
+	if got := self.HorizonSec(); got != horizonSec {
+		t.Fatalf("the default regime's window is %d s, want the protocol's %d s", got, horizonSec)
+	}
+	if bounded.HorizonSec() == self.HorizonSec() {
+		t.Fatalf("both regimes report a %d s window, so the horizon is not following the dose", bounded.HorizonSec())
+	}
+	// The point of the second regime: an ignoring victim must still be running when the grace period expires.
+	if rem := bounded.VictimServiceSec - bounded.DoseSec; rem < terminationGraceSec {
+		t.Fatalf("grace-bounded leaves %d s of remaining service against a %d s grace, so the victim would "+
+			"finish on its own and the regime measures the same thing as the default", rem, terminationGraceSec)
+	}
+	if _, err := doseProtocolFor("neither"); err == nil {
+		t.Fatal("an unknown regime must be refused rather than falling back to the default")
+	}
+	// Zero means the selected regime's own window; anything shorter truncates it.
+	h, err := horizonFor(0, bounded)
+	if err != nil || h != time.Duration(bounded.HorizonSec())*time.Second {
+		t.Fatalf("zero horizon must resolve to the regime's own window, got %v (%v)", h, err)
+	}
+	if _, err := horizonFor(time.Duration(bounded.HorizonSec())*time.Second-time.Second, bounded); err == nil {
+		t.Fatal("a horizon below the regime's window must be refused")
 	}
 }

@@ -122,3 +122,54 @@ func TestClassifyPodReadyAndStopped(t *testing.T) {
 		t.Fatalf("a deleting-but-running pod must not be AttemptStopped yet")
 	}
 }
+
+// The Pod phase cannot tell the two arms apart at the moment the experiment is about.
+//
+// "Failed" is the phase both for a workload that honoured SIGTERM and exited promptly and for one that
+// ignored it until the grace period ran out and was killed — 143 against 137, the exact contrast the
+// termination canary qualifies and the run itself could not observe. Recording the phase alone left the
+// ledger unable to say which kind of stop it had watched, so a claim that a run exercised the SIGKILL path
+// rested on the clock rather than on evidence.
+//
+// Mutation that turns this red: drop ExitCode from the ObservedState that ClassifyPod returns.
+func TestClassifyPodRecordsWhichKindOfStopItObserved(t *testing.T) {
+	stopped := func(phase corev1.PodPhase, codes ...int32) *corev1.Pod {
+		p := &corev1.Pod{Status: corev1.PodStatus{Phase: phase}}
+		for _, c := range codes {
+			p.Status.ContainerStatuses = append(p.Status.ContainerStatuses, corev1.ContainerStatus{
+				State: corev1.ContainerState{Terminated: &corev1.ContainerStateTerminated{ExitCode: c}},
+			})
+		}
+		return p
+	}
+	for _, tc := range []struct {
+		name string
+		pod  *corev1.Pod
+		want *int32
+	}{
+		{"a victim that honoured the signal", stopped(corev1.PodFailed, 143), ptr(int32(143))},
+		{"a victim that was killed at the grace period", stopped(corev1.PodFailed, 137), ptr(int32(137))},
+		{"a victim that ran out its own service", stopped(corev1.PodSucceeded, 0), ptr(int32(0))},
+		// Absent rather than guessed: nothing here knows which container carried the workload.
+		{"two terminated containers", stopped(corev1.PodFailed, 143, 0), nil},
+		{"a terminal phase with no container status", stopped(corev1.PodFailed), nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := ClassifyPod(tc.pod)
+			if got.Event != EventAttemptStopped {
+				t.Fatalf("a terminal phase must be an AttemptStopped, got %q", got.Event)
+			}
+			switch {
+			case tc.want == nil && got.ExitCode != nil:
+				t.Fatalf("the exit code is ambiguous here, yet %d was reported as if measured", *got.ExitCode)
+			case tc.want != nil && got.ExitCode == nil:
+				t.Fatalf("exit %d was readable and was not recorded; the ledger then cannot tell this stop "+
+					"from the other arm's", *tc.want)
+			case tc.want != nil && *got.ExitCode != *tc.want:
+				t.Fatalf("recorded exit %d, want %d", *got.ExitCode, *tc.want)
+			}
+		})
+	}
+}
+
+func ptr[T any](v T) *T { return &v }

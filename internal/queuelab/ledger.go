@@ -41,6 +41,14 @@ type LifecycleEvent struct {
 	Kind string `json:"kind"`
 	// Type is the transition within the closed vocabulary below.
 	Type EventType `json:"type"`
+	// ExitCode is the terminated container's status on an AttemptStopped event, absent everywhere else and
+	// absent when no single container's status could be read.
+	//
+	// Without it the ledger cannot tell the two arms apart at the moment that matters: Reason is the Pod
+	// phase, and "Failed" covers both a workload that honoured SIGTERM and exited promptly and one that
+	// ignored it until the grace period ran out and was killed. The canary qualifies that contrast by exit
+	// status; until this field the run could not observe it.
+	ExitCode *int32 `json:"exitCode,omitempty"`
 	// Job is the trace job name this event belongs to, resolved by the collector through the UID chain.
 	Job string `json:"job"`
 	// Tenant is the submitting tenant.

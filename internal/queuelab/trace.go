@@ -117,21 +117,62 @@ const ownRowGraceMarginSec = 60
 // can reason about the worst-case restoration window.
 const terminationGraceSec = 30
 
+// DoseRegime names which side of the termination grace period the victim's remaining service falls on.
+//
+// It exists because the two sides measure different things, and the earlier guard permitted only one of them
+// while its own comment described the other. What an IGNORING victim costs the owner is:
+//
+//	DoseSelfCompleting  the victim's remaining service — the grace period never expires, so the platform's
+//	                    configured patience is irrelevant and could be any value without changing the result
+//	DoseGraceBounded    the grace period itself — a constant the platform sets, independent of how long the
+//	                    victim's job would otherwise have run
+//
+// Only the second is what a termination CONTRACT binds, and it is the operationally ordinary one: real
+// training jobs are long, so remaining service exceeds any sane grace period almost always. The first is
+// still worth running, because it is the regime that reproduces the confound this lineage was built on — a
+// preempted victim completing successfully, its work uncredited, the row re-executing from zero — which
+// cannot happen at all when the grace period cuts the victim short first.
+//
+// The regime is declared by the caller rather than inferred from the arithmetic, so a dose that does not
+// produce the regime the run says it is measuring is refused instead of quietly measuring the other one.
+type DoseRegime string
+
+const (
+	// DoseSelfCompleting returns while the victim has less service left than the grace period.
+	DoseSelfCompleting DoseRegime = "self-completing"
+	// DoseGraceBounded returns while the victim has at least a grace period of service left.
+	DoseGraceBounded DoseRegime = "grace-bounded"
+)
+
 // TerminationContractTrace builds the trace for the termination-contract experiment.
 //
 // victimServiceSec is the borrowed job's service time and doseSec is how long after the victim's Pod Ready
 // the owner returns; the dose is carried on the owner row's offset ONLY as provenance, because the schedule
 // gates the owner on the victim's observed Ready rather than on wall-clock offsets.
 //
-// A dose is rejected unless the victim's remaining service at the moment of return sits strictly inside the
-// termination grace period. A dose at or past the victim's full service leaves nothing running to reclaim,
-// and a dose that leaves victimServiceSec-doseSec at or beyond the grace period lets the victim's own
-// service, rather than the grace-period termination under test, be what frees the device.
-func TerminationContractTrace(victimServiceSec, doseSec int) ([]TrainingTraceRow, error) {
+// A dose at or past the victim's full service is refused under either regime: it leaves nothing running to
+// reclaim, so there is no termination to contract about.
+func TerminationContractTrace(victimServiceSec, doseSec int, regime DoseRegime) ([]TrainingTraceRow, error) {
 	remaining := victimServiceSec - doseSec
-	if remaining <= 0 || remaining >= terminationGraceSec {
-		return nil, fmt.Errorf("dose %d s on a %d s victim leaves %d s of remaining service, want strictly inside (0,%d) s",
-			doseSec, victimServiceSec, remaining, terminationGraceSec)
+	if remaining <= 0 {
+		return nil, fmt.Errorf("dose %d s on a %d s victim leaves %d s of remaining service, so there is "+
+			"nothing running to reclaim", doseSec, victimServiceSec, remaining)
+	}
+	switch regime {
+	case DoseSelfCompleting:
+		if remaining >= terminationGraceSec {
+			return nil, fmt.Errorf("dose %d s on a %d s victim leaves %d s of remaining service, which the %d s "+
+				"grace period would cut short; that is %s, not %s",
+				doseSec, victimServiceSec, remaining, terminationGraceSec, DoseGraceBounded, DoseSelfCompleting)
+		}
+	case DoseGraceBounded:
+		if remaining < terminationGraceSec {
+			return nil, fmt.Errorf("dose %d s on a %d s victim leaves %d s of remaining service, so an ignoring "+
+				"victim would finish before the %d s grace period expired; that is %s, not %s",
+				doseSec, victimServiceSec, remaining, terminationGraceSec, DoseSelfCompleting, DoseGraceBounded)
+		}
+	default:
+		return nil, fmt.Errorf("unknown dose regime %q; want %q or %q", regime, DoseSelfCompleting, DoseGraceBounded)
 	}
 	return []TrainingTraceRow{
 		{
