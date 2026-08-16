@@ -23,6 +23,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"maps"
 	"net"
 	"net/http"
 	"net/http/httputil"
@@ -452,10 +453,7 @@ func (a *attemptWriter) promote() {
 	if a.scratch == nil {
 		return
 	}
-	dst := a.ResponseWriter.Header()
-	for k, vs := range a.scratch {
-		dst[k] = vs
-	}
+	maps.Copy(a.ResponseWriter.Header(), a.scratch)
 }
 
 func (a *attemptWriter) WriteHeader(c int) {
