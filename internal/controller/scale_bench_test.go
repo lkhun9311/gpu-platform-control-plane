@@ -38,7 +38,7 @@ import (
 //
 // The writer is uncached: fixtures must land in the apiserver for the cache to observe them, and writing
 // through the cache's reader would be a different code path than the one under measurement.
-func startCachedClient(b *testing.B) (context.Context, client.Client, client.Client) {
+func startCachedClient(b testing.TB) (context.Context, client.Client, client.Client) {
 	b.Helper()
 
 	env := &envtest.Environment{
@@ -78,12 +78,17 @@ func startCachedClient(b *testing.B) (context.Context, client.Client, client.Cli
 }
 
 // startCache builds the informer cache and blocks until it has synced.
-func startCache(b *testing.B, ctx context.Context, cfg *rest.Config) client.Client {
+func startCache(b testing.TB, ctx context.Context, cfg *rest.Config) client.Client {
 	b.Helper()
 
 	c, err := cache.New(cfg, cache.Options{Scheme: scheme.Scheme})
 	if err != nil {
 		b.Fatalf("build cache: %v", err)
+	}
+	// The same index SetupWithManager installs. Without it the benchmark would measure a lookup production
+	// never performs, and the MatchingFields List would fail rather than scan.
+	if err := c.IndexField(ctx, &kueuev1beta1.Workload{}, WorkloadJobRefIndex, indexWorkloadByJobRef); err != nil {
+		b.Fatalf("index workloads: %v", err)
 	}
 	go func() { _ = c.Start(ctx) }()
 	if !c.WaitForCacheSync(ctx) {
@@ -101,7 +106,7 @@ func startCache(b *testing.B, ctx context.Context, cfg *rest.Config) client.Clie
 //
 // The label is present and distinct on every fixture rather than absent, so the benchmark measures a
 // selector that has to reject n candidates rather than one the store can dismiss for lacking the key.
-func seedWorkloads(b *testing.B, ctx context.Context, writer, reader client.Client, ns string, n int) {
+func seedWorkloads(b testing.TB, ctx context.Context, writer, reader client.Client, ns string, n int) {
 	b.Helper()
 
 	if err := writer.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: ns}}); err != nil {

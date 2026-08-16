@@ -248,39 +248,97 @@ func admittedCondition(status metav1.ConditionStatus, reason string) metav1.Cond
 	return metav1.Condition{Type: mltjCondAdmitted, Status: status, Reason: reason}
 }
 
+// WorkloadJobRefIndex indexes a Kueue Workload by every Job UID that could claim it.
+//
+// A cached List narrows by FIELD indexes only. A label selector is applied by walking the whole store, so
+// the label lookup this replaced cost O(N) in the number of Workloads even when it matched immediately —
+// measured in BenchmarkGetWorkloadForJobHit, which never reaches the fallback and still grew linearly.
+const WorkloadJobRefIndex = ".metadata.jobRef"
+
+// indexWorkloadByJobRef emits both claims a Workload can carry: the job-uid label and its owner references.
+//
+// Both go into ONE index so the lookup is a single List. Indexing only the label would leave the owner-
+// reference fallback listing the entire namespace, which measured about 20x the label walk because it
+// deep-copies every Workload into the result rather than the one it matched.
+func indexWorkloadByJobRef(o client.Object) []string {
+	wl, ok := o.(*kueuev1beta1.Workload)
+	if !ok {
+		return nil
+	}
+	// A Workload can be claimed by at most one Job, but the two claims are indexed separately because a
+	// Workload missing the label is exactly the case the owner-reference path exists to catch.
+	refs := make([]string, 0, 1+len(wl.OwnerReferences))
+	if uid := wl.Labels[kueueJobUIDLabel]; uid != "" {
+		refs = append(refs, uid)
+	}
+	for _, ref := range wl.OwnerReferences {
+		if string(ref.UID) != "" {
+			refs = append(refs, string(ref.UID))
+		}
+	}
+	return refs
+}
+
 // getWorkloadForJob returns the Kueue Workload created for a Job, or nil if Kueue has not created one yet.
 //
-// Kueue stamps every Workload it creates with the kueue.x-k8s.io/job-uid label, so listing by that label is the primary lookup.
+// Kueue stamps every Workload it creates with the kueue.x-k8s.io/job-uid label, so a labelled match is
+// preferred. A Workload whose owner reference points at the Job's UID is accepted as a fallback, in case a
+// Workload ever exists without the label.
 //
-// A Workload whose owner reference points at the Job's UID is accepted as a fallback, in case a Workload ever exists without the label.
+// Both claims resolve through one indexed List. This lookup runs on the way in for EVERY MLTrainingJob —
+// before Kueue has created the Workload there is nothing to match, which is the path that used to pay for
+// both a full label walk and a full namespace list. With MaxConcurrentReconciles at its default of 1, a
+// per-item cost proportional to the namespace's size drains the queue in O(N^2).
+//
+// The index lives on the manager's cache, so a client that reads through to the apiserver cannot serve this
+// List: the apiserver rejects field selectors it does not define for the resource.
 func (r *MLTrainingJobReconciler) getWorkloadForJob(ctx context.Context, job *batchv1.Job) (*kueuev1beta1.Workload, error) {
-	var byLabel kueuev1beta1.WorkloadList
-	if err := r.List(ctx, &byLabel, client.InNamespace(job.Namespace), client.MatchingLabels{kueueJobUIDLabel: string(job.UID)}); err != nil {
-		return nil, fmt.Errorf("list workloads for job %s/%s by job-uid label: %w", job.Namespace, job.Name, err)
+	var claimed kueuev1beta1.WorkloadList
+	if err := r.List(ctx, &claimed, client.InNamespace(job.Namespace),
+		client.MatchingFields{WorkloadJobRefIndex: string(job.UID)}); err != nil {
+		return nil, fmt.Errorf("list workloads claiming job %s/%s: %w", job.Namespace, job.Name, err)
 	}
-	if len(byLabel.Items) > 0 {
+	if len(claimed.Items) == 0 {
+		return nil, nil
+	}
+
+	// The label is preferred over the owner reference, so the two are separated here rather than taking
+	// whichever the index happened to return first.
+	var labelled, owned *kueuev1beta1.Workload
+	for i := range claimed.Items {
+		wl := &claimed.Items[i]
+		switch {
+		case wl.Labels[kueueJobUIDLabel] == string(job.UID):
+			if labelled == nil {
+				labelled = wl
+			}
+		case owned == nil:
+			owned = wl
+		}
+	}
+
+	if labelled != nil {
 		// Kueue keeps one Workload per Job UID, so more than one match means that invariant was violated upstream.
 		//
 		// Surface it rather than silently picking one, then take the first so the reconcile still makes progress.
-		if len(byLabel.Items) > 1 {
+		if n := countLabelled(claimed.Items, string(job.UID)); n > 1 {
 			logf.FromContext(ctx).Info("multiple Kueue Workloads share one job-uid label; using the first",
-				"job", job.Namespace+"/"+job.Name, "count", len(byLabel.Items))
+				"job", job.Namespace+"/"+job.Name, "count", n)
 		}
-		return &byLabel.Items[0], nil
+		return labelled, nil
 	}
+	return owned, nil
+}
 
-	var all kueuev1beta1.WorkloadList
-	if err := r.List(ctx, &all, client.InNamespace(job.Namespace)); err != nil {
-		return nil, fmt.Errorf("list workloads in namespace %s: %w", job.Namespace, err)
-	}
-	for i := range all.Items {
-		for _, ref := range all.Items[i].OwnerReferences {
-			if ref.UID == job.UID {
-				return &all.Items[i], nil
-			}
+// countLabelled reports how many Workloads carry the given Job UID in the job-uid label.
+func countLabelled(items []kueuev1beta1.Workload, uid string) int {
+	n := 0
+	for i := range items {
+		if items[i].Labels[kueueJobUIDLabel] == uid {
+			n++
 		}
 	}
-	return nil, nil
+	return n
 }
 
 // setMLTJPhase writes the phase and the Admitted condition to status, but only when either actually changes.
@@ -345,6 +403,12 @@ func (r *MLTrainingJobReconciler) ownedConflict(ctx context.Context, mltj *platf
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *MLTrainingJobReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	// context.Background() rather than a scoped context because IndexField only installs the extractor on the cache; it starts nothing that would need cancelling.
+	if err := mgr.GetFieldIndexer().IndexField(
+		context.Background(), &kueuev1beta1.Workload{}, WorkloadJobRefIndex, indexWorkloadByJobRef,
+	); err != nil {
+		return fmt.Errorf("index workloads by job ref: %w", err)
+	}
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&platformv1.MLTrainingJob{}).
 		Owns(&batchv1.Job{}).

@@ -43,7 +43,7 @@ var _ = Describe("MLTrainingJob Controller", func() {
 		var key types.NamespacedName
 
 		reconciler := func() *MLTrainingJobReconciler {
-			return &MLTrainingJobReconciler{Client: k8sClient, Scheme: k8sClient.Scheme()}
+			return &MLTrainingJobReconciler{Client: cachedClient, Scheme: cachedClient.Scheme()}
 		}
 
 		// reconcileUntilSteady drives Reconcile a few times so the finalizer is added and the owned Job is created.
@@ -242,6 +242,8 @@ var _ = Describe("MLTrainingJob Controller", func() {
 			}}
 			Expect(k8sClient.Status().Update(ctx, wl)).To(Succeed())
 
+			awaitCachedWorkload(wl.Name, wl.Namespace, hasAdmittedCondition)
+
 			By("reconciling so the MLTrainingJob picks up the Workload's Admitted condition")
 			_, err := reconciler().Reconcile(ctx, reconcile.Request{NamespacedName: key})
 			Expect(err).NotTo(HaveOccurred())
@@ -302,6 +304,8 @@ var _ = Describe("MLTrainingJob Controller", func() {
 				LastTransitionTime: metav1.Now(),
 			}}
 			Expect(k8sClient.Status().Update(ctx, wl)).To(Succeed())
+
+			awaitCachedWorkload(wl.Name, wl.Namespace, hasAdmittedCondition)
 
 			By("reconciling to trigger the phase transition to Admitted")
 			_, err := reconciler().Reconcile(ctx, reconcile.Request{NamespacedName: key})
