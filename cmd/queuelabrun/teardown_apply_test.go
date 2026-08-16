@@ -177,7 +177,7 @@ func TestRecoverRefusesWhenTxIDDisagreesWithTheSeed(t *testing.T) {
 // UID comparison it has no operand for.
 func TestRecoverReportsAForeignObjectPerTargetRatherThanRefusingTheBatch(t *testing.T) {
 	s := testSeed()
-	fs, err := queuelab.BuildFixtures(s.Study, s.Variant, s.TxID, s.RunID, s.Namespace)
+	fs, err := queuelab.BuildFixtures(s.Study, s.Variant, queuelab.FixtureIdentity{TxID: s.TxID, RunID: s.RunID, Namespace: s.Namespace})
 	if err != nil {
 		t.Fatalf("build fixtures: %v", err)
 	}
@@ -237,7 +237,7 @@ func TestRecoverTreatsAnUnstampedObjectAsForeign(t *testing.T) {
 // nothing before this test could see that, because nothing before this test put one there.
 func TestRecoverReadsEveryTargetKindByItsOwnKindAndName(t *testing.T) {
 	s := testSeed()
-	fs, err := queuelab.BuildFixtures(s.Study, s.Variant, s.TxID, s.RunID, s.Namespace)
+	fs, err := queuelab.BuildFixtures(s.Study, s.Variant, queuelab.FixtureIdentity{TxID: s.TxID, RunID: s.RunID, Namespace: s.Namespace})
 	if err != nil {
 		t.Fatalf("build fixtures: %v", err)
 	}
@@ -290,7 +290,7 @@ func TestRecoverReadsEveryTargetKindByItsOwnKindAndName(t *testing.T) {
 // other run's live quota just as surely.
 func TestRecoverMarksAForeignClusterQueueForeign(t *testing.T) {
 	s := testSeed()
-	fs, err := queuelab.BuildFixtures(s.Study, s.Variant, s.TxID, s.RunID, s.Namespace)
+	fs, err := queuelab.BuildFixtures(s.Study, s.Variant, queuelab.FixtureIdentity{TxID: s.TxID, RunID: s.RunID, Namespace: s.Namespace})
 	if err != nil {
 		t.Fatalf("build fixtures: %v", err)
 	}
@@ -486,7 +486,7 @@ func deletesIn(calls []recordedCall) []recordedDelete {
 // precondition is the whole defence against deleting a name someone else recreated.
 func seedOwned(t *testing.T, s seed) []client.Object {
 	t.Helper()
-	fs, err := queuelab.BuildFixtures(s.Study, s.Variant, s.TxID, s.RunID, s.Namespace)
+	fs, err := queuelab.BuildFixtures(s.Study, s.Variant, queuelab.FixtureIdentity{TxID: s.TxID, RunID: s.RunID, Namespace: s.Namespace})
 	if err != nil {
 		t.Fatalf("build fixtures: %v", err)
 	}
@@ -608,7 +608,7 @@ func TestDeleteNeverIssuesADeleteForAForeignTarget(t *testing.T) {
 // ResourceFlavor of its own to remove issues no Delete at all.
 func TestDeleteRemovesOurOwnTargetsAroundAForeignOneWithoutBurningTheBudget(t *testing.T) {
 	s := testSeed()
-	fs, err := queuelab.BuildFixtures(s.Study, s.Variant, s.TxID, s.RunID, s.Namespace)
+	fs, err := queuelab.BuildFixtures(s.Study, s.Variant, queuelab.FixtureIdentity{TxID: s.TxID, RunID: s.RunID, Namespace: s.Namespace})
 	if err != nil {
 		t.Fatalf("build fixtures: %v", err)
 	}

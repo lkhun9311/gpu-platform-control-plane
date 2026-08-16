@@ -207,6 +207,16 @@ func probePodFrom(tpl corev1.PodTemplateSpec, canaryID, node, runID string, cont
 	}
 	spec.Containers[trainer].Image = contract.Image
 	spec.Containers[trainer].Command = p.command
+	// Args is cleared because Command and Args are one unit: Command is the entrypoint and Args is what
+	// follows it, so replacing one and adopting the other leaves half of a pair and is not a replacement at
+	// all. BuildJob renders no Args today, which is exactly why this is worth writing down rather than
+	// leaving to be discovered — if it ever renders mltj.Spec.Args, the template hash changes and forces a
+	// re-take, and the re-taken probe would run `sh -c '<arm command>' <template args>`, where those args
+	// become $0 and $1 to the shell. That is a different process shape from the arm's, and canaryProbe
+	// records only p.command, so the qualification would name a command line nobody ran. The mechanism would
+	// have detected the drift and then qualified the wrong thing, which is the hollow remediation this file
+	// argues against elsewhere.
+	spec.Containers[trainer].Args = nil
 	// EVERY container, not just the trainer, because the admission this is avoiding is per-POD: the kubelet adds
 	// up what the whole Pod asks for and rejects it against the node's allocatable, so a sidecar holding a device
 	// request makes the probe unschedulable exactly as the trainer's would. Stripping only the container whose

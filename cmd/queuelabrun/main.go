@@ -865,7 +865,9 @@ func run(ctx context.Context, connect clusterClientFunc, arm queuelab.Arm, runID
 		o = phaseFailure(dispSetupFailed, "resolving the arm's policy variant", err)
 		return
 	}
-	fs, err := queuelab.BuildFixtures(study, policyVariant, txID, runID, namespace)
+	fs, err := queuelab.BuildFixtures(study, policyVariant, queuelab.FixtureIdentity{
+		TxID: txID, RunID: runID, Namespace: namespace,
+	})
 	if err != nil {
 		o = phaseFailure(dispSetupFailed, "building fixtures", err)
 		return
