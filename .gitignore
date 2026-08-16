@@ -89,3 +89,7 @@ Thumbs.db
 
 # stray local build of cmd/queuelabrun, anchored so it cannot also swallow new files under cmd/queuelabrun/
 /queuelabrun
+
+# Raw chaos-run records. Curated evidence lives in hack/chaos-fr004-degraded-node.md, following the same
+# split as the M6 artifacts above: the run writes here, the reviewed numbers are committed as prose.
+ex/
