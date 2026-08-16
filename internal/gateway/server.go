@@ -353,18 +353,11 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 	//
 	// scraperManager.Register is idempotent, so calling it on every request only actually
 	// starts a scraper the first time a given backend is seen.
-	// The head is what admission meters and what the KV guard scrapes: fallback is a response to a failure,
-	// not a second thing to admit. Metering every candidate would count one request against several backends'
-	// budgets and make the admission arms measure something other than offered load.
-	primary := targets[0]
-	if reg, ok := admitter.(backendRegistrar); ok {
-		reg.RegisterBackend(primary)
-	}
 	mode := s.mode
 	if mode == "" {
 		mode = AdmissionOff
 	}
-	admit, reason := admitter.Admit(ctx, meta, primary, tenant, tier)
+	admit, reason := admitCandidates(ctx, admitter, meta, targets, tenant, tier)
 	decision := "admit"
 	if !admit {
 		decision = "reject"
@@ -506,4 +499,29 @@ func NewCache(ctx context.Context, cfg *rest.Config, scheme *runtime.Scheme, nam
 		return nil, nil, fmt.Errorf("new delegating client: %w", err)
 	}
 	return ca, cl, nil
+}
+
+// admitCandidates registers every backend that could serve this request and meters the one that will be
+// tried first.
+//
+// The two halves take different sets, and that asymmetry is the point rather than an inconsistency.
+//
+// EVERY candidate is registered, because registration starts a telemetry scraper and a backend that can serve
+// traffic has to be observable before it does. Registering only the head meant that when the head went down
+// its scraper hit the same dead Service, its snapshot went stale, and the kv-aware guard — which fails OPEN on
+// staleness — admitted everything, while the spare absorbing all of the traffic had no scraper at all. The
+// guard went blind exactly when fallback made it matter, and nothing reported it, because every request still
+// succeeded. Register is idempotent, so this starts a scraper only the first time a backend is seen.
+//
+// The HEAD alone is metered. Admission runs before any attempt, so it cannot know which backend will end up
+// serving; and charging one request against several backends' budgets would make the admission arms measure
+// something other than offered load. One request, one charge, decided up front.
+func admitCandidates(ctx context.Context, admitter Admitter, meta RequestMeta,
+	targets []*BackendRef, tenant, tier string) (bool, string) {
+	if reg, ok := admitter.(backendRegistrar); ok {
+		for _, t := range targets {
+			reg.RegisterBackend(t)
+		}
+	}
+	return admitter.Admit(ctx, meta, targets[0], tenant, tier)
 }

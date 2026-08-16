@@ -683,3 +683,68 @@ var _ = Describe("kv-aware admission pipeline placement", func() {
 		Expect(rr.Code).To(Equal(http.StatusOK))
 	})
 })
+
+// recordingAdmitter observes what admitCandidates registers and what it meters.
+type recordingAdmitter struct {
+	registered []string
+	metered    []string
+}
+
+func (r *recordingAdmitter) RegisterBackend(b *BackendRef) {
+	r.registered = append(r.registered, b.Name)
+}
+
+func (r *recordingAdmitter) Admit(_ context.Context, _ RequestMeta, b *BackendRef, _, _ string) (bool, string) {
+	r.metered = append(r.metered, b.Name)
+	return true, ""
+}
+
+// Registration covers every candidate; metering covers one. The asymmetry is the fix, not an inconsistency.
+//
+// Registering only the head meant that when the head went down its scraper hit the same dead Service, its
+// snapshot went stale, and the kv-aware guard — which fails OPEN on staleness — admitted everything, while
+// the spare absorbing all the traffic had no scraper at all. The guard went blind exactly when fallback made
+// it matter, and nothing reported it: every request still succeeded.
+//
+// Metering stays on the head because admission runs before any attempt and cannot know which backend will
+// serve; charging one request to several budgets would make the admission arms measure something other than
+// offered load.
+//
+// Mutations that turn this red: register targets[0] only, or meter every candidate.
+var _ = Describe("admitCandidates", func() {
+	It("registers every candidate and meters only the first", func() {
+		rec := &recordingAdmitter{}
+		targets := []*BackendRef{
+			{Name: "head", Namespace: "ns", Model: "m"},
+			{Name: "spare", Namespace: "ns", Model: "m"},
+		}
+
+		admit, reason := admitCandidates(context.Background(), rec, RequestMeta{Model: "m"}, targets, "t1", "premium")
+
+		Expect(admit).To(BeTrue())
+		Expect(reason).To(BeEmpty())
+		Expect(rec.registered).To(Equal([]string{"head", "spare"}),
+			"a backend that can serve traffic was left without a telemetry scraper")
+		Expect(rec.metered).To(Equal([]string{"head"}),
+			"one request was charged against more than one backend's budget")
+	})
+
+	// An admitter that does not register at all must still be metered — off and static-cap do not implement
+	// backendRegistrar, and a type assertion that silently skipped admission would disable those arms.
+	It("meters an admitter that cannot register", func() {
+		plain := admitterFunc(func(context.Context, RequestMeta, *BackendRef, string, string) (bool, string) {
+			return false, "over_budget"
+		})
+		admit, reason := admitCandidates(context.Background(), plain, RequestMeta{Model: "m"},
+			[]*BackendRef{{Name: "only", Model: "m"}}, "t1", "premium")
+		Expect(admit).To(BeFalse())
+		Expect(reason).To(Equal("over_budget"))
+	})
+})
+
+// admitterFunc adapts a function to Admitter without implementing backendRegistrar.
+type admitterFunc func(context.Context, RequestMeta, *BackendRef, string, string) (bool, string)
+
+func (f admitterFunc) Admit(ctx context.Context, m RequestMeta, b *BackendRef, t, tier string) (bool, string) {
+	return f(ctx, m, b, t, tier)
+}
