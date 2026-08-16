@@ -35,6 +35,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
+
+	webhookv1 "github.com/lkhun9311/gpu-mlops-platform-control-plane/internal/webhook/v1"
 	kueuev1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 
 	platformv1 "github.com/lkhun9311/gpu-mlops-platform-control-plane/api/v1"
@@ -225,6 +227,21 @@ func main() {
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "mltrainingjob")
 		os.Exit(1)
+	}
+	// The webhook is registered only when a certificate was supplied, because the manager cannot serve TLS
+	// without one and would fail to start.
+	//
+	// Its failurePolicy is Fail, so a cluster that has the ValidatingWebhookConfiguration installed but no
+	// running webhook rejects every MLTrainingJob write. That is the correct direction for this rule: it
+	// exists to stop writes that are silently ignored, and a rule that disappears when the server is down
+	// would go missing exactly when the cluster is least healthy.
+	if len(webhookCertPath) > 0 {
+		if err := webhookv1.SetupMLTrainingJobWebhookWithManager(mgr); err != nil {
+			setupLog.Error(err, "Failed to create webhook", "webhook", "mltrainingjob")
+			os.Exit(1)
+		}
+	} else {
+		setupLog.Info("No webhook certificate supplied; MLTrainingJob admission validation is NOT running")
 	}
 	// +kubebuilder:scaffold:builder
 
