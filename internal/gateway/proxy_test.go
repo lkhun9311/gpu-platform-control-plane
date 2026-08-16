@@ -926,6 +926,17 @@ var _ = Describe("backend fallback", func() {
 		Expect(served).To(Equal(1), "the live backend never saw the request")
 		Expect(rec.Code).To(Equal(http.StatusOK), "the client was told about an attempt that another backend served")
 		Expect(rec.Body.String()).To(ContainSubstring("[DONE]"))
+
+		// The failed attempt's headers must not survive into the winning response. ErrorHandler sets
+		// Content-Type: application/json before it writes, and ReverseProxy copies the upstream's headers in
+		// with Add rather than Set — so a shared header map hands the client two Content-Type values with
+		// application/json first, and anything that branches on it to decide whether to parse SSE mis-handles
+		// a valid stream. Body and status alone do not catch this; only the header does.
+		//
+		// Mutation that turns this red: delete attemptWriter.Header, so every attempt shares the real map.
+		ct := rec.Result().Header.Values("Content-Type")
+		Expect(ct).To(HaveLen(1), "the abandoned attempt's Content-Type survived into the served response")
+		Expect(ct[0]).To(ContainSubstring("text/event-stream"))
 	})
 
 	// Mutation that turns this red: drop the att.wrote check from the fallback loop's break condition.

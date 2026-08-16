@@ -424,6 +424,13 @@ func newReverseProxy(target *url.URL, transport http.RoundTripper, onErr func(co
 // transport gave up and before it writes, so failed is already true by the time the bytes to drop arrive.
 type attemptWriter struct {
 	http.ResponseWriter
+	// scratch holds the headers this attempt sets, and it exists because suppressing the BODY of a failed
+	// attempt was never enough. Header() used to return the real writer's live map, shared by every attempt,
+	// and ErrorHandler's first act is Header().Set("Content-Type", "application/json"). WriteHeader was
+	// suppressed so that map was never committed and never cleared — and ReverseProxy then copies the winning
+	// upstream's headers in with Add, not Set. The client received two Content-Type values, application/json
+	// first, and any client that branches on it to decide whether to parse SSE mis-handled a valid stream.
+	scratch http.Header
 	// suppress is true while another candidate remains to try.
 	suppress bool
 	// failed is set by the proxy's ErrorHandler before it writes its own response.
@@ -432,10 +439,30 @@ type attemptWriter struct {
 	wrote bool
 }
 
+// Header returns this attempt's own map, so nothing an abandoned attempt set can reach the client.
+func (a *attemptWriter) Header() http.Header {
+	if a.scratch == nil {
+		a.scratch = make(http.Header)
+	}
+	return a.scratch
+}
+
+// promote copies this attempt's headers onto the real writer, and runs only once the attempt is committing.
+func (a *attemptWriter) promote() {
+	if a.scratch == nil {
+		return
+	}
+	dst := a.ResponseWriter.Header()
+	for k, vs := range a.scratch {
+		dst[k] = vs
+	}
+}
+
 func (a *attemptWriter) WriteHeader(c int) {
 	if a.failed && a.suppress {
 		return
 	}
+	a.promote()
 	a.wrote = true
 	a.ResponseWriter.WriteHeader(c)
 }
@@ -445,6 +472,8 @@ func (a *attemptWriter) Write(b []byte) (int, error) {
 		// Reported as written so the proxy's own error path completes normally; nothing reaches the client.
 		return len(b), nil
 	}
+	// A Write without a WriteHeader implies 200, so this is the other place an attempt commits.
+	a.promote()
 	a.wrote = true
 	return a.ResponseWriter.Write(b)
 }
