@@ -24,27 +24,53 @@ letting the number be read as the gateway's own recovery time.
 ## Observed evidence
 
 kind `platform`, gateway from `config/gateway-kind`, backend an `InferenceDeployment` running the
-benchharness stub.
+benchharness stub. Six runs: three that exposed the comparison defect below, three after it was fixed.
 
 ```json
 {
   "experiment": "FR-002 serving pod killed",
   "steadyStateEstablished": true,
-  "samplingIntervalMs": 304.2,
+  "samplingIntervalMs": 419.4,
   "disrupted": true,
-  "latenciesMs": { "killToFirstError": 51.7, "killToRecovery": 3079.8, "errorWindow": 3028.0 },
-  "clientView":  { "sampled": 10, "failed": 9 },
-  "gatewayView": { "requests5xx": 9, "upstreamErrors": 9, "backendFallbacks": 0,
-                   "agreesWithClient": "true" }
+  "latenciesMs": { "killToFirstError": 49.4, "killToRecovery": 1294.6, "errorWindow": 1245.1 },
+  "clientView":  { "sampled": 3, "failed": 2, "neverAnswered": 1, "answeredByGateway": 1 },
+  "gatewayView": { "requests5xxDelta": 1, "upstreamErrorsDelta": 1,
+                   "requests5xxCumulative": 34, "agreesWithClient": "true" }
 }
 ```
 
-**9 and 9.** Every failure the client experienced appears in the gateway's own counters. That agreement is
-the load-bearing result; the 3-second recovery is secondary and mostly belongs to Kubernetes anyway.
+Across the three corrected runs the client's view and the gateway's delta agree exactly every time, and the
+timings barely move:
 
-`backendFallbacks: 0` is correct rather than disappointing — there is one `InferenceDeployment` for this
-model, so there was no later backend to fall back to. The panel exists to distinguish failures a retry
-absorbed from failures that reached the client, and with a single backend every failure is the second kind.
+| run | first error | recovery | client failed | never answered | gateway 5xx delta |
+|---|---|---|---|---|---|
+| 1 | 49.5ms | 1295.3ms | 2 | 1 | 1 |
+| 2 | 48.6ms | 1295.5ms | 2 | 1 | 1 |
+| 3 | 49.4ms | 1294.6ms | 2 | 1 | 1 |
+
+## The agreement was not being tested at all
+
+The first write-up of this experiment reported **"9 and 9 — every failure the client experienced appears in
+the gateway's own counters"** and called that the load-bearing result. It was a coincidence.
+
+`gpuaas_gateway_requests_total` is **cumulative**. The harness recorded only the value after the run and
+compared that absolute against one run's client failures. They happened to match once. Repeating the
+experiment three times is what broke it: the counter climbed 15 → 23 → 31 while every run saw nine failures.
+The comparison had never been a comparison.
+
+Two corrections followed:
+
+- the harness records the counter **before and after** and compares the **delta**
+- a client failure with code `000` is **excluded** from what the gateway must account for. `000` is curl
+  never receiving an HTTP response — its own timeout, or a refused connection. Demanding that the gateway
+  count a request that never reached it is an impossible standard, and it was the whole of the residual
+  discrepancy: nine client failures against a delta of eight, with one `000` among them.
+
+The agreement now holds across three runs with the deltas matched exactly, and it means something it did
+not mean before.
+
+**This is why the n=1 note in the validity table mattered.** It was written down as a weakness and the
+weakness was real: closing it invalidated the conclusion the single run had produced.
 
 ## The instrument claimed a resolution it did not have
 

@@ -75,7 +75,14 @@ say "5/5 pre-fault requests returned 200 — the path works before the fault"
 
 BEFORE_2XX=$(promq 'sum(gpuaas_gateway_requests_total{code="200"})')
 [ -n "$BEFORE_2XX" ] || die "Prometheus has no gateway request counter; the effect could not be read from the gateway's own view"
-say "gateway counter visible in Prometheus (200s so far: $BEFORE_2XX)"
+# Counters are CUMULATIVE, and the cluster carries traffic from earlier runs and from any background load.
+# The first version of this script recorded only the after value and compared that absolute against one
+# run's client failures. They matched once, by coincidence, and the run was reported as proof that the
+# gateway's counters miss nothing. Three repetitions showed the counter climbing 15 -> 23 -> 31 while each
+# run saw nine failures: the agreement was never being tested.
+BEFORE_5XX=$(promq 'sum(gpuaas_gateway_requests_total{code=~"5.."})')
+BEFORE_UPSTREAM=$(promq 'sum(gpuaas_gateway_upstream_errors_total)')
+say "gateway counters before — 200s: $BEFORE_2XX, 5xx: $BEFORE_5XX, upstream errors: $BEFORE_UPSTREAM"
 
 POD=$(kubectl -n "$SERV" get pods -l app.kubernetes.io/instance="$BACKEND" -o name 2>/dev/null | head -1)
 [ -n "$POD" ] || POD=$(kubectl -n "$SERV" get pods -o name 2>/dev/null | grep "$BACKEND" | head -1)
@@ -91,12 +98,16 @@ kubectl -n "$SERV" delete "$POD" --wait=false >/dev/null 2>&1 || die "delete fai
 # One continuous loop, sampling the client's view at ~100ms. Both edges of the error window come from the
 # same series so they are ordered by construction rather than by two loops racing.
 FIRST_ERR=""; LAST_ERR=""; RECOVERED=""
-ERRORS=0; TOTAL=0; CODES=""
+ERRORS=0; TOTAL=0; NOREPLY=0; CODES=""
 LOOP_START=$(now_ns)
 DEADLINE=$(( $(date +%s) + WINDOW ))
 while [ "$(date +%s)" -lt "$DEADLINE" ]; do
   C=$(req); TOTAL=$((TOTAL+1))
   CODES="$CODES$C "
+  # curl reports 000 when it never got an HTTP response at all — a connection refused or its own timeout.
+  # The gateway cannot count a request that did not reach it, so these are excluded from the comparison
+  # rather than held against its counters.
+  [ "$C" = "000" ] && NOREPLY=$((NOREPLY+1))
   if [ "$C" = "200" ]; then
     # Recovery counts only after an error was actually seen; otherwise a kill that never disrupted anything
     # would report an instant recovery and look like a success.
@@ -136,18 +147,25 @@ sleep 20   # let at least one scrape land after recovery
 AFTER_5XX=$(promq 'sum(gpuaas_gateway_requests_total{code=~"5.."})')
 AFTER_UPSTREAM=$(promq 'sum(gpuaas_gateway_upstream_errors_total)')
 AFTER_FALLBACK=$(promq 'sum(gpuaas_gateway_backend_fallbacks_total)')
-say "requests_total{code=~5..}      ${AFTER_5XX:-0}"
-say "upstream_errors_total          ${AFTER_UPSTREAM:-0}"
+D_5XX=$(echo "${AFTER_5XX:-0} - ${BEFORE_5XX:-0}" | bc)
+D_UPSTREAM=$(echo "${AFTER_UPSTREAM:-0} - ${BEFORE_UPSTREAM:-0}" | bc)
+ANSWERED=$(( ERRORS - NOREPLY ))
+say "requests_total{5xx}   delta $D_5XX   (${BEFORE_5XX:-0} -> ${AFTER_5XX:-0})"
+say "upstream_errors_total delta $D_UPSTREAM   (${BEFORE_UPSTREAM:-0} -> ${AFTER_UPSTREAM:-0})"
 say "backend_fallbacks_total        ${AFTER_FALLBACK:-0}"
+say "client failures $ERRORS, of which $NOREPLY never got a reply — $ANSWERED are the gateway's to account for"
 
 # The client saw failures and the gateway's counters must agree. A gateway whose metrics stay clean through
 # an outage its clients felt is a worse problem than the outage, because it is the version an on-call
 # engineer would be looking at.
+# The comparison is DELTA against the failures the gateway actually answered. Counting the client's own
+# timeouts against it would demand the impossible; ignoring the before value would compare a cumulative
+# total against one run's count, which is what the first version did.
 AGREES=unknown
 if [ "$DISRUPTED" = true ]; then
-  if [ -n "$AFTER_5XX" ] && [ "${AFTER_5XX%%.*}" -gt 0 ] 2>/dev/null; then AGREES=true; else AGREES=false; fi
+  if [ "$(echo "$D_5XX >= $ANSWERED" | bc)" = "1" ] && [ "$ANSWERED" -gt 0 ]; then AGREES=true; else AGREES=false; fi
 fi
-[ "$AGREES" = false ] && say "WARNING: clients saw errors the gateway's own metrics do not show"
+[ "$AGREES" = false ] && say "WARNING: the gateway's counters do not account for the failures it answered"
 
 # ---------------------------------------------------------------- record
 mkdir -p "$(dirname "$OUT")"
@@ -165,10 +183,17 @@ cat > "$OUT" <<EOF
     "killToRecovery": $( [ -n "$RECOVERED" ] && ms $(( RECOVERED - T_KILL )) || echo null ),
     "errorWindow": $( [ -n "$FIRST_ERR" ] && [ -n "$RECOVERED" ] && ms $(( RECOVERED - FIRST_ERR )) || echo null )
   },
-  "clientView": { "sampled": $TOTAL, "failed": $ERRORS },
+  "clientView": {
+    "sampled": $TOTAL,
+    "failed": $ERRORS,
+    "neverAnswered": $NOREPLY,
+    "answeredByGateway": $ANSWERED,
+    "note": "a 000 is curl never receiving an HTTP response; the gateway cannot count a request that did not reach it"
+  },
   "gatewayView": {
-    "requests5xx": ${AFTER_5XX:-0},
-    "upstreamErrors": ${AFTER_UPSTREAM:-0},
+    "requests5xxDelta": $D_5XX,
+    "upstreamErrorsDelta": $D_UPSTREAM,
+    "requests5xxCumulative": ${AFTER_5XX:-0},
     "backendFallbacks": ${AFTER_FALLBACK:-0},
     "agreesWithClient": "$AGREES"
   },
