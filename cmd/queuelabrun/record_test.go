@@ -1011,6 +1011,15 @@ func TestValidityNamesTheClaimTheFieldsActuallyFail(t *testing.T) {
 	unrestored := testWindow()
 	unrestored.Restoration = nil
 
+	// The state that had no row: a worker was acquired and the sentinel could not be started, so the run is
+	// refused with no view over a node that is already labelled and tainted. The emergency release synthesizes
+	// this carrier so its audit survives. Both outcomes are asserted below, because the failure that mattered
+	// was silent — a run in this state used to derive containment held on no evidence at all.
+	neverOpenedRemoved := &ownershipWindow{Node: "w1", TxID: "tx-1", NeverOpened: true,
+		Restoration: &restorationAudit{OurMarkersRemoved: true}}
+	neverOpenedStranded := &ownershipWindow{Node: "w1", TxID: "tx-1", NeverOpened: true,
+		Restoration: &restorationAudit{OurMarkersRemoved: false}}
+
 	for _, tc := range []struct {
 		name string
 		o    outcome
@@ -1050,6 +1059,12 @@ func TestValidityNamesTheClaimTheFieldsActuallyFail(t *testing.T) {
 			testQualification(), testWindow(), testObservation(), []string{failureContainment}},
 		{"restoration never audited", pass, nil, testQualification(), unrestored, testObservation(),
 			[]string{failureContainment}},
+		// Exclusivity fails on both of these for the same reason "no window at all" does: nothing was ever
+		// compared. What separates them is containment, and only the audit can separate them.
+		{"acquired, never observed, markers came off", pass, nil, testQualification(), neverOpenedRemoved,
+			testObservation(), []string{failureExclusivity}},
+		{"acquired, never observed, worker left marked", pass, nil, testQualification(), neverOpenedStranded,
+			testObservation(), []string{failureExclusivity, failureContainment}},
 		// The row the single-failure rows above cannot cover: two independent claims failing at once. Without
 		// it a derivation that stopped at the first failure would satisfy every other row here, since each of
 		// them has exactly one, and the block would silently become "the first thing that went wrong" — which

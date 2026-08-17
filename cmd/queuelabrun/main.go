@@ -794,12 +794,19 @@ func run(ctx context.Context, connect clusterClientFunc, arm queuelab.Arm, runID
 		relCtx, relCancel := cleanupContext()
 		defer relCancel()
 		// The audit is attached to the window this function already published, because this defer runs after
-		// the one that published it. A nil window means the run never opened one — it was refused before the
-		// worker was acquired or before the view could be established — and there is nothing to attach it to.
+		// the one that published it.
+		//
+		// A nil window here does NOT mean there is nothing to attach. This defer only runs at all on a path
+		// that acquired the worker, so the node carries this run's label and taint either way; the window is
+		// nil when the sentinel could not be started, which refuses the run but leaves those markers behind.
+		// Dropping the audit there discarded the only evidence of whether they came off, and clusterRestored
+		// — which demands proof only where a window exists — then read that silence as containment holding.
+		// So a carrier is synthesized, marked as one.
 		audit, rerr := auditedRelease(relCtx, c, j)
-		if win != nil {
-			win.Restoration = audit
+		if win == nil {
+			win = &ownershipWindow{Node: worker, TxID: txID, NeverOpened: true}
 		}
+		win.Restoration = audit
 		// Printed here as well as at the inline release, because this defer is the release EVERY early return
 		// takes — including the run this gate invalidates. A drifted or unreadable restoration that reported
 		// itself only on the happy path would be silent on exactly the runs an operator is already staring at.
