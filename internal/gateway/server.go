@@ -341,6 +341,15 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The reachable set is decided ONCE, here, and every stage below sees the same slice.
+	//
+	// tryBackends caps attempts at maxBackendAttempts and used to apply that cap itself, on its own copy. That
+	// was invisible while admission only ever consulted targets[0]. Once admission started asking every
+	// candidate, a third backend the request could never reach could reject it on its own pressure — a refusal
+	// attributable to a machine that was never going to serve. Registration has the same problem in the other
+	// direction: a scraper started for a backend outside the reachable set is telemetry nothing can act on.
+	targets = capBackendAttempts(targets)
+
 	// 7. Admission control: decide whether the request may proceed.
 	//
 	// Design rationale (design spec Pipeline placement section): this sits after backend resolution and before the proxy handoff, so an unroutable model (404, step 6) never consumes admission budget, while every request that will actually reach a backend is metered before it does.

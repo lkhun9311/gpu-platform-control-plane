@@ -779,6 +779,27 @@ var _ = Describe("admitCandidates", func() {
 
 	// Asking stops at the first dissent, so a rejecting head is never overruled by a permissive spare behind
 	// it. Without this a "take the last verdict" implementation would satisfy the two specs above.
+	// The regression the all-candidate change introduced: forwarding tries at most maxBackendAttempts, so a
+	// candidate past that cap can never serve, and letting it vote meant a request could be refused on the
+	// pressure of a machine it would never have reached. The caller caps once and every stage shares the
+	// slice; this asserts the shared slice is what admission sees.
+	It("never consults a candidate the request could not reach", func() {
+		rec := &statelessRecorder{rejectFor: "third"}
+		resolved := []*BackendRef{
+			{Name: "head", Namespace: "ns", Model: "m"},
+			{Name: "spare", Namespace: "ns", Model: "m"},
+			{Name: "third", Namespace: "ns", Model: "m"},
+		}
+
+		admit, _ := admitCandidates(context.Background(), rec, RequestMeta{Model: "m"},
+			capBackendAttempts(resolved), "t1", "standard")
+
+		Expect(admit).To(BeTrue())
+		Expect(rec.metered).To(Equal([]string{"head", "spare"}))
+		Expect(rec.registered).To(Equal([]string{"head", "spare"}),
+			"a scraper was started for a backend no request can reach")
+	})
+
 	It("stops at the first candidate that refuses", func() {
 		rec := &statelessRecorder{rejectFor: "head"}
 		targets := []*BackendRef{

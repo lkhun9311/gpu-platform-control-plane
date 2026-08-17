@@ -470,6 +470,18 @@ func publicUpstreamMessage(code int) string {
 // maxBackendAttempts caps how many backends one request may try; see tryBackends for why it is two.
 const maxBackendAttempts = 2
 
+// capBackendAttempts returns the prefix of candidates a request can actually reach.
+//
+// It is exported to the package so the caller can apply the cap once and hand the SAME slice to admission,
+// to backend registration and to forwarding. Each stage deriving its own view of "the candidates" is how a
+// backend outside the reachable set came to be able to reject a request and to acquire a scraper.
+func capBackendAttempts[T any](targets []T) []T {
+	if len(targets) > maxBackendAttempts {
+		return targets[:maxBackendAttempts]
+	}
+	return targets
+}
+
 // errRetryableStatus turns an upstream's own answer into a transport-style failure, so ReverseProxy routes it
 // through ErrorHandler and tryBackends can treat it like any other failed attempt.
 var errRetryableStatus = errors.New("upstream returned a retryable status")
@@ -624,9 +636,10 @@ func tryBackends(w http.ResponseWriter, r *http.Request, targets []*url.URL,
 	// Two, because the value of a third attempt is small and its cost is another full timeout: if the head and
 	// one spare are both unreachable the model is down, and telling the client so quickly is better than
 	// walking a list.
-	if len(targets) > maxBackendAttempts {
-		targets = targets[:maxBackendAttempts]
-	}
+	//
+	// The caller caps the set before admission sees it, so this is normally a no-op; it stays because
+	// tryBackends is called directly by tests and must not depend on a caller having done it.
+	targets = capBackendAttempts(targets)
 	for i, u := range targets {
 		last := i == len(targets)-1
 		att := &attemptWriter{ResponseWriter: w, suppress: !last}
