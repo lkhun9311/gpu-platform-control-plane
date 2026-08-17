@@ -608,7 +608,10 @@ func stampCanary(ctx context.Context, c client.Client, j journal, q canaryQualif
 // falsified.
 func terminationCanary(ctx context.Context, c client.Client, nodeName string,
 	now func() time.Time, sleep func(time.Duration), out io.Writer) (err error) {
-	contract := harnessTerminationContract()
+	contract, cerr := harnessTerminationContract()
+	if cerr != nil {
+		return fmt.Errorf("build the canary's termination contract: %w", cerr)
+	}
 	canaryID := string(uuid.NewUUID())
 	runID := canaryRunID(canaryID)
 

@@ -304,15 +304,22 @@ func (r *MLTrainingJobReconciler) getWorkloadForJob(ctx context.Context, job *ba
 
 	// The label is preferred over the owner reference, so the two are separated here rather than taking
 	// whichever the index happened to return first.
+	//
+	// Within each group the OLDEST wins, by creation time and then by name. List order is not a selection
+	// rule: the cache can return duplicates in either order, so "the first one" made the chosen Workload — and
+	// therefore the phase written to status — depend on which way a map happened to iterate. Status could
+	// oscillate between two Workloads with nothing having changed. Oldest-first is the same tie-break the
+	// gateway's backend ordering uses, and for the same reason: a deterministic answer that does not move.
 	var labelled, owned *kueuev1beta1.Workload
 	for i := range claimed.Items {
 		wl := &claimed.Items[i]
-		switch {
-		case wl.Labels[kueueJobUIDLabel] == string(job.UID):
-			if labelled == nil {
+		if wl.Labels[kueueJobUIDLabel] == string(job.UID) {
+			if labelled == nil || olderWorkload(wl, labelled) {
 				labelled = wl
 			}
-		case owned == nil:
+			continue
+		}
+		if owned == nil || olderWorkload(wl, owned) {
 			owned = wl
 		}
 	}
@@ -328,6 +335,17 @@ func (r *MLTrainingJobReconciler) getWorkloadForJob(ctx context.Context, job *ba
 		return labelled, nil
 	}
 	return owned, nil
+}
+
+// olderWorkload orders two Workloads deterministically: by creation time, then by name.
+//
+// The name tie-break matters because two objects created in the same second are indistinguishable by
+// timestamp alone, and metav1.Time has one-second resolution.
+func olderWorkload(a, b *kueuev1beta1.Workload) bool {
+	if !a.CreationTimestamp.Equal(&b.CreationTimestamp) {
+		return a.CreationTimestamp.Before(&b.CreationTimestamp)
+	}
+	return a.Name < b.Name
 }
 
 // countLabelled reports how many Workloads carry the given Job UID in the job-uid label.

@@ -169,20 +169,26 @@ const canaryProbeDurationSec = 600
 //
 // The row is synthetic and its name and tenant are irrelevant: only the image and the command come out of it,
 // and both are functions of the contract and the duration alone.
-func harnessTerminationContract() canaryContract {
+func harnessTerminationContract() (canaryContract, error) {
 	row := queuelab.TrainingTraceRow{
 		Index: 0, Name: "termination-canary", Tenant: "canary",
 		GPUCount: 1, DurationSec: canaryProbeDurationSec,
 	}
-	// Both errors are discarded, and the reason is that both arguments are constants of this package: the
-	// renderer's only failure is an unknown TerminationContract, and neither of these can be one. The renderer
-	// returns an error because it is EXPORTED and a caller elsewhere could hand it anything — that was the
-	// review's concern and it is answered there, not here.
+	// The errors are propagated rather than discarded, even though both arguments are constants of this
+	// package and the renderer's only failure is an unknown contract.
 	//
-	// Mutation that would make this unsafe: passing a contract derived from input. If that ever happens this
-	// function has to grow an error return with it.
-	honor, _ := queuelab.RenderMLTrainingJobWithContract(row, canaryNamespace, queuelab.HonorsSIGTERM)
-	ignore, _ := queuelab.RenderMLTrainingJobWithContract(row, canaryNamespace, queuelab.IgnoresSIGTERM)
+	// An earlier version dropped them and dereferenced the results on the next line. That was safe on the
+	// arguments as written and stops being safe the moment the renderer grows a rule — a nil-pointer panic in
+	// an operator command, arriving through a path nothing tests because it "cannot happen". Returning the
+	// error costs one line at each caller and removes the class.
+	honor, err := queuelab.RenderMLTrainingJobWithContract(row, canaryNamespace, queuelab.HonorsSIGTERM)
+	if err != nil {
+		return canaryContract{}, fmt.Errorf("render the honouring probe: %w", err)
+	}
+	ignore, err := queuelab.RenderMLTrainingJobWithContract(row, canaryNamespace, queuelab.IgnoresSIGTERM)
+	if err != nil {
+		return canaryContract{}, fmt.Errorf("render the ignoring probe: %w", err)
+	}
 	return canaryContract{
 		Image:            honor.Spec.Image,
 		HonorCommand:     honor.Spec.Command,
@@ -191,7 +197,7 @@ func harnessTerminationContract() canaryContract {
 		GraceSec:         terminationGraceSec,
 		HonorExitCode:    honorExitCode,
 		PodTemplateHash:  podTemplateHashOf(renderedPodTemplate(templateProbeJob())),
-	}
+	}, nil
 }
 
 // templateProbeJob is the MLTrainingJob the operator's renderer is keyed AT.

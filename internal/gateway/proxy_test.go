@@ -161,7 +161,24 @@ var _ = Describe("the shared outbound transport", func() {
 		t := newTransport(30 * time.Second)
 		Expect(t.ResponseHeaderTimeout).To(Equal(30 * time.Second))
 		Expect(t.MaxIdleConnsPerHost).To(Equal(maxIdleConnsPerHost))
-		Expect(t.MaxIdleConns).To(Equal(0), "a total cap makes one backend's pool depend on how busy the others are")
+		// Finite, and high enough that it cannot bind in any measured topology.
+		//
+		// This asserted 0 — unlimited — on the reasoning that a total cap makes one backend's pool depend on
+		// how busy the others are, which is the coupling this gateway exists to detect. That reasoning holds
+		// and rested on an unenforced premise: "the number of backends is bounded by the configured
+		// InferenceDeployments" is not a bound, since users create them and churn leaves dead hosts holding
+		// sockets for the full idle timeout.
+		//
+		// Both properties are kept by sizing the cap past any topology this is measured in: eight backends can
+		// each hold a full per-host pool before eviction begins, and the largest measured case is one model
+		// with a head and a spare.
+		//
+		// Mutation that turns this red: restore MaxIdleConns = 0, or drop the assignment so Clone's inherited
+		// 100 binds silently.
+		Expect(t.MaxIdleConns).To(Equal(maxIdleConnsPerHost*maxIdleBackends),
+			"an unbounded idle pool is a file-descriptor exhaustion path, not a bound")
+		Expect(t.MaxIdleConns).To(BeNumerically(">", maxIdleConnsPerHost),
+			"the total cap must not bind before a single backend's own pool is full")
 	})
 
 	It("falls back to the default response-header timeout when given zero", func() {

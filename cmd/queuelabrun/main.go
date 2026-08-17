@@ -958,7 +958,14 @@ func run(ctx context.Context, connect clusterClientFunc, arm queuelab.Arm, runID
 	// run would actually do, and the qualification is the comparison of that against what the machine has been
 	// shown to support. harnessTerminationContract reads the measurement package's own renderer, so the
 	// combination qualified is the combination submitted rather than a description of it.
-	qual, qerr = qualifyWorker(ctx, c, worker, req, harnessTerminationContract())
+	contract, cerr := harnessTerminationContract()
+	if cerr != nil {
+		_, _ = fmt.Fprintf(stderr, "ENVIRONMENT NOT QUALIFIED: %v\n", cerr)
+		o = phaseFailure(dispEnvironmentUnqualified, "building the termination contract", cerr)
+		return o, events, res,
+			left, qual, win, obs
+	}
+	qual, qerr = qualifyWorker(ctx, c, worker, req, contract)
 	if qerr != nil {
 		_, _ = fmt.Fprintf(stderr, "ENVIRONMENT NOT QUALIFIED: %v\n", qerr)
 		o = phaseFailure(dispEnvironmentUnqualified, fmt.Sprintf("qualifying worker %s", worker), qerr)

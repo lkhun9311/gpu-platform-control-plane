@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"testing"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -324,3 +325,39 @@ var _ = Describe("MLTrainingJob Controller", func() {
 		})
 	})
 })
+
+// Duplicate Workloads must resolve to the SAME one every time.
+//
+// Kueue keeps one Workload per Job UID, so more than one is an upstream invariant violation — but the
+// reconciler still has to make progress, and "the first the cache returned" is not a rule. List order can
+// differ between reconciles, so the phase written to status could oscillate between two Workloads with
+// nothing having changed.
+//
+// Mutation that turns this red: take the first match instead of the oldest.
+func TestOlderWorkloadIsADeterministicOrder(t *testing.T) {
+	older := &kueuev1beta1.Workload{ObjectMeta: metav1.ObjectMeta{
+		Name: "wl-b", CreationTimestamp: metav1.Unix(1000, 0),
+	}}
+	newer := &kueuev1beta1.Workload{ObjectMeta: metav1.ObjectMeta{
+		Name: "wl-a", CreationTimestamp: metav1.Unix(2000, 0),
+	}}
+
+	if !olderWorkload(older, newer) {
+		t.Fatal("the earlier creation timestamp must win regardless of name")
+	}
+	if olderWorkload(newer, older) {
+		t.Fatal("the ordering is not antisymmetric")
+	}
+
+	// Same second, which metav1.Time cannot separate: the name is the tie-break, and without one the answer
+	// would still depend on list order for the case duplicates are most likely to hit.
+	sameA := &kueuev1beta1.Workload{ObjectMeta: metav1.ObjectMeta{
+		Name: "wl-a", CreationTimestamp: metav1.Unix(1000, 0),
+	}}
+	sameB := &kueuev1beta1.Workload{ObjectMeta: metav1.ObjectMeta{
+		Name: "wl-b", CreationTimestamp: metav1.Unix(1000, 0),
+	}}
+	if !olderWorkload(sameA, sameB) || olderWorkload(sameB, sameA) {
+		t.Fatal("two Workloads created in the same second do not order deterministically")
+	}
+}

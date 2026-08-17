@@ -310,6 +310,13 @@ const defaultResponseHeaderTimeout = 30 * time.Second
 // So it cannot push the socket count above the peak concurrency the process already sustained, and anything it does keep is released by IdleConnTimeout below.
 const maxIdleConnsPerHost = 600
 
+// maxIdleBackends is how many distinct backends may each hold a full idle pool before the total cap binds.
+//
+// It converts "unbounded" into a number without making the bound reachable in practice: the measured
+// topologies have one or two backends per model, so eviction across backends never happens, while a cluster
+// that accumulated dead InferenceDeployments can no longer accumulate sockets without limit.
+const maxIdleBackends = 8
+
 // newTransport builds the one outbound Transport the whole process shares.
 //
 // A zero responseHeaderTimeout means "unset" and selects defaultResponseHeaderTimeout.
@@ -359,17 +366,25 @@ func newTransport(responseHeaderTimeout time.Duration) *http.Transport {
 	// See maxIdleConnsPerHost for the derivation; the default of 2 would undo most of the reuse this Transport exists to provide.
 	t.MaxIdleConnsPerHost = maxIdleConnsPerHost
 
-	// MaxIdleConns is set to zero, which for http.Transport means no limit on idle connections across all hosts.
+	// A total cap, sized so it cannot bind in any topology this gateway is measured in.
 	//
-	// It is assigned rather than omitted because Clone inherits DefaultTransport's cap of 100, so leaving this
-	// out would silently introduce the very total cap the paragraphs below rule out.
+	// This was zero — unlimited — and the reasoning for that was sound as far as it went: a total cap makes one
+	// backend's pool depend on how busy the others are, so a noisy backend could evict the connections of the
+	// tenant whose latency is being measured, and that coupling is the exact thing this gateway is instrumented
+	// to detect. It must not be introduced by its own connection pool.
 	//
-	// A total cap is deliberately not set: it would make one backend's pool depend on how busy the others are, so a noisy backend could evict the connections of the tenant whose latency is being measured.
+	// What the reasoning leaned on was that "the number of backends is bounded by the configured
+	// InferenceDeployments", and nothing enforces that. Deployments are created by users, churn leaves dead
+	// hosts holding idle sockets for the full IdleConnTimeout, and 600 per host times an unbounded host count
+	// is a file-descriptor exhaustion path rather than a bound.
 	//
-	// That is the exact coupling this gateway is instrumented to detect, and it must not be introduced by its own connection pool.
+	// maxIdleBackends is the number of distinct backends that can each hold a FULL per-host pool before the
+	// total starts evicting. Eight is well past any measured topology — the largest is one model with a head
+	// and a spare — so the eviction coupling stays hypothetical while the socket count stays finite.
 	//
-	// The per-host cap above still bounds each backend, and the number of backends is bounded by the configured InferenceDeployments.
-	t.MaxIdleConns = 0
+	// Assigned rather than omitted either way: Clone inherits DefaultTransport's cap of 100, which would bind
+	// immediately and silently.
+	t.MaxIdleConns = maxIdleConnsPerHost * maxIdleBackends
 
 	return t
 }
