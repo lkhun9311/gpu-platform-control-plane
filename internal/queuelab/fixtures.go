@@ -59,7 +59,12 @@ const (
 // flavorName is the per-run ResourceFlavor name.
 //
 // It is unique per run so a delayed delete of a previous run's flavor cannot silently back a new run's quota.
-func flavorName(runID string) string { return "queuelab-gpu-" + runID }
+// FlavorName is the ResourceFlavor a run's fixtures are built around.
+//
+// Exported because the barrier that waits on that flavor's usage lives in cmd/queuelabrun and must ask about
+// the SAME name these fixtures create. Two copies of the rule would drift, and a barrier watching a flavor
+// nothing charges against would wait out its deadline while the run was working perfectly.
+func FlavorName(runID string) string { return "queuelab-gpu-" + runID }
 
 // cohortName is the per-run cohort name.
 //
@@ -228,7 +233,7 @@ func labLabels(id FixtureIdentity, study Study, variant string) map[string]strin
 // own Ready barriers, so the two must be defined together with the flavor.
 func labResourceFlavor(id FixtureIdentity, study Study, variant string) *kueuev1beta2.ResourceFlavor {
 	return &kueuev1beta2.ResourceFlavor{
-		ObjectMeta: metav1.ObjectMeta{Name: flavorName(id.RunID), Labels: labLabels(id, study, variant)},
+		ObjectMeta: metav1.ObjectMeta{Name: FlavorName(id.RunID), Labels: labLabels(id, study, variant)},
 		Spec: kueuev1beta2.ResourceFlavorSpec{
 			NodeLabels: map[string]string{labWorkerLabel: id.RunID},
 			NodeTaints: []corev1.Taint{{
@@ -256,7 +261,7 @@ func baseClusterQueue(name string, nominal int64, id FixtureIdentity, study Stud
 			ResourceGroups: []kueuev1beta2.ResourceGroup{{
 				CoveredResources: []corev1.ResourceName{gpuResource},
 				Flavors: []kueuev1beta2.FlavorQuotas{{
-					Name: kueuev1beta2.ResourceFlavorReference(flavorName(id.RunID)),
+					Name: kueuev1beta2.ResourceFlavorReference(FlavorName(id.RunID)),
 					Resources: []kueuev1beta2.ResourceQuota{{
 						Name:         gpuResource,
 						NominalQuota: *q,

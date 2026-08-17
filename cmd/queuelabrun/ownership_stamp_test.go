@@ -15,6 +15,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
+	platformv1 "github.com/lkhun9311/gpu-mlops-platform-control-plane/api/v1"
 	"github.com/lkhun9311/gpu-mlops-platform-control-plane/internal/queuelab"
 )
 
@@ -322,5 +323,81 @@ func TestCreateOwnedRefusesAFlavorThatLostItsIsolation(t *testing.T) {
 	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(base(nil)).Build()
 	if err := createOwned(context.Background(), c, base(nil), "tx-1"); err != nil {
 		t.Fatalf("refused to adopt an identical ResourceFlavor: %v", err)
+	}
+}
+
+// The FlavorUsage barrier must read KUEUE's accounting, not this operator's phase field.
+//
+// The distinction is the barrier's whole purpose: it gates the next submission on borrowing having taken
+// effect, and an MLTrainingJob this operator marked Running proves nothing about what Kueue charged. The
+// earlier implementation summed declared Spec.GPUCount over Running jobs in the namespace, which holds
+// perfectly well while Kueue has admitted nothing at all.
+//
+// Mutation that turns this red: read MLTrainingJob phases instead of ClusterQueue status.
+func TestFlavorUsageReadsKueueNotOurOwnPhase(t *testing.T) {
+	scheme := kueueScheme(t)
+	if err := platformv1.AddToScheme(scheme); err != nil {
+		t.Fatalf("add platformv1: %v", err)
+	}
+
+	// Two jobs this operator calls Running, asking for two GPUs between them...
+	jobs := []client.Object{
+		&platformv1.MLTrainingJob{
+			ObjectMeta: metav1.ObjectMeta{Name: "j1", Namespace: "ns"},
+			Spec:       platformv1.MLTrainingJobSpec{Queue: "q", Image: "i", GPUCount: 1},
+			Status:     platformv1.MLTrainingJobStatus{Phase: phaseRunning},
+		},
+		&platformv1.MLTrainingJob{
+			ObjectMeta: metav1.ObjectMeta{Name: "j2", Namespace: "ns"},
+			Spec:       platformv1.MLTrainingJobSpec{Queue: "q", Image: "i", GPUCount: 1},
+			Status:     platformv1.MLTrainingJobStatus{Phase: phaseRunning},
+		},
+	}
+	// ...while Kueue has charged nothing against the flavor.
+	empty := &kueuev1beta2.ClusterQueue{
+		ObjectMeta: metav1.ObjectMeta{Name: "cq"},
+		Status:     kueuev1beta2.ClusterQueueStatus{},
+	}
+	c := fake.NewClientBuilder().WithScheme(scheme).
+		WithObjects(append(jobs, empty)...).WithStatusSubresource(empty).Build()
+
+	got, err := flavorUsage(context.Background(), c, "queuelab-gpu-r1")
+	if err != nil {
+		t.Fatalf("flavorUsage: %v", err)
+	}
+	if got != 0 {
+		t.Fatalf("usage = %d, want 0: Kueue charged nothing, whatever our own phase field says", got)
+	}
+
+	// The control: once Kueue does report usage against that flavor, the barrier must see it. Without this a
+	// function returning 0 unconditionally would satisfy the assertion above and the barrier would never lift.
+	charged := &kueuev1beta2.ClusterQueue{
+		ObjectMeta: metav1.ObjectMeta{Name: "cq2"},
+		Status: kueuev1beta2.ClusterQueueStatus{
+			FlavorsUsage: []kueuev1beta2.FlavorUsage{{
+				Name: kueuev1beta2.ResourceFlavorReference("queuelab-gpu-r1"),
+				Resources: []kueuev1beta2.ResourceUsage{{
+					Name: "nvidia.com/gpu", Total: *resource.NewQuantity(2, resource.DecimalSI),
+				}},
+			}},
+		},
+	}
+	c2 := fake.NewClientBuilder().WithScheme(scheme).WithObjects(charged).WithStatusSubresource(charged).Build()
+	got, err = flavorUsage(context.Background(), c2, "queuelab-gpu-r1")
+	if err != nil {
+		t.Fatalf("flavorUsage: %v", err)
+	}
+	if got != 2 {
+		t.Fatalf("usage = %d, want 2 from Kueue's own report", got)
+	}
+
+	// A different run's flavor must not count toward this one, or two runs sharing a cluster would lift each
+	// other's barriers.
+	got, err = flavorUsage(context.Background(), c2, "queuelab-gpu-r2")
+	if err != nil {
+		t.Fatalf("flavorUsage: %v", err)
+	}
+	if got != 0 {
+		t.Fatalf("usage = %d for another run's flavor, want 0", got)
 	}
 }

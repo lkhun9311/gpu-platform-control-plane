@@ -862,8 +862,72 @@ func fakeSchedulerCreate(ctx context.Context, c client.WithWatch, obj client.Obj
 	opts ...client.CreateOption) error {
 	if mltj, ok := obj.(*platformv1.MLTrainingJob); ok {
 		mltj.Status.Phase = phaseRunning
+		if err := stampUIDOnCreate(ctx, c, obj, opts...); err != nil {
+			return err
+		}
+		// Admission is two things, and this double used to do one of them.
+		//
+		// A real Kueue marks the workload admitted AND charges its request against the ResourceFlavor, which
+		// is what ClusterQueue.Status.FlavorsUsage reports. Modelling only the phase left the double able to
+		// satisfy a barrier that reads phases and unable to satisfy one that reads Kueue's accounting — and
+		// the barrier's implementation used to read phases. The double was not merely incomplete; it was the
+		// shape the implementation had been fitted to.
+		return chargeFakeFlavorUsage(ctx, c, mltj)
 	}
 	return stampUIDOnCreate(ctx, c, obj, opts...)
+}
+
+// chargeFakeFlavorUsage adds an admitted job's GPU request to every ClusterQueue's flavor usage, the way
+// Kueue does when it admits.
+//
+// Every ClusterQueue in this fake cluster belongs to the one run under test, so charging all of them needs no
+// cohort arithmetic — what matters is that the usage appears against the flavor the fixtures named.
+func chargeFakeFlavorUsage(ctx context.Context, c client.WithWatch, mltj *platformv1.MLTrainingJob) error {
+	var cqs kueuev1beta2.ClusterQueueList
+	if err := c.List(ctx, &cqs); err != nil {
+		return err
+	}
+	for i := range cqs.Items {
+		cq := &cqs.Items[i]
+		flavor := ""
+		for _, rg := range cq.Spec.ResourceGroups {
+			for _, f := range rg.Flavors {
+				flavor = string(f.Name)
+			}
+		}
+		if flavor == "" {
+			continue
+		}
+		charged := false
+		for fi := range cq.Status.FlavorsUsage {
+			if string(cq.Status.FlavorsUsage[fi].Name) != flavor {
+				continue
+			}
+			for ri := range cq.Status.FlavorsUsage[fi].Resources {
+				r := &cq.Status.FlavorsUsage[fi].Resources[ri]
+				if r.Name == gpuResourceName {
+					r.Total.Add(*resource.NewQuantity(int64(mltj.Spec.GPUCount), resource.DecimalSI))
+					charged = true
+				}
+			}
+		}
+		if !charged {
+			cq.Status.FlavorsUsage = append(cq.Status.FlavorsUsage, kueuev1beta2.FlavorUsage{
+				Name: kueuev1beta2.ResourceFlavorReference(flavor),
+				Resources: []kueuev1beta2.ResourceUsage{{
+					Name:  gpuResourceName,
+					Total: *resource.NewQuantity(int64(mltj.Spec.GPUCount), resource.DecimalSI),
+				}},
+			})
+		}
+		// A plain Update rather than Status().Update: the fake tracker stores the whole object, and the status
+		// subresource is only registered for the kinds these tests already needed it for. This is double code,
+		// so writing the field directly is the shortest faithful way to say "Kueue charged it".
+		if err := c.Update(ctx, cq); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // fakeSchedulerList stamps a resource version on every list, which a real apiserver always does and the fake

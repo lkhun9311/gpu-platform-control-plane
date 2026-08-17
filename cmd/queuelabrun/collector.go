@@ -649,8 +649,12 @@ func barrierHolds(ctx context.Context, c client.Client, ns string, b queuelab.Ba
 	case queuelab.BarrierPending:
 		return phaseIs(ctx, c, ns, b.Job, "Pending")
 	case queuelab.BarrierFlavorUsage:
-		n, err := runningCount(ctx, c, ns)
-		return n >= b.Count, err
+		// Still >=, and deliberately so despite the contract's word "equals". Usage is sampled by polling, so
+		// an exact match can be stepped over between two reads and the barrier would then wait out its whole
+		// deadline on a run that had already reached the state. The contract wording is corrected to say
+		// "reaches" rather than "equals"; the threshold is what was always meant.
+		n, err := flavorUsage(ctx, c, queuelab.FlavorName(col.runID))
+		return n >= int64(b.Count), err
 	case queuelab.BarrierDelayFromReady:
 		col.mu.Lock()
 		ready, ok := col.readyAt[b.Job]
@@ -675,18 +679,35 @@ func phaseIs(ctx context.Context, c client.Client, ns, name, want string) (bool,
 	return mltj.Status.Phase == want, nil
 }
 
-func runningCount(ctx context.Context, c client.Client, ns string) (int, error) {
-	var list platformv1.MLTrainingJobList
-	if err := c.List(ctx, &list, client.InNamespace(ns)); err != nil {
+// flavorUsage returns the GPU total Kueue reports as used against this run's ResourceFlavor.
+//
+// This barrier's contract is that the flavor's OBSERVED usage reached Count, which is what establishes that
+// borrowing took effect before the next step is submitted. The implementation used to sum the declared
+// Spec.GPUCount of MLTrainingJobs this operator had marked Running — three steps removed from the claim:
+// it read our own phase field rather than Kueue's accounting, it counted what a job ASKED for rather than
+// what was charged, and it summed a whole namespace rather than one flavor. Every one of those can hold
+// while Kueue has admitted nothing, and this barrier exists precisely to decide that question.
+//
+// Reading the ClusterQueue's status is the observation the contract already promised.
+func flavorUsage(ctx context.Context, c client.Client, flavor string) (int64, error) {
+	var list kueuev1beta2.ClusterQueueList
+	if err := c.List(ctx, &list); err != nil {
 		return 0, err
 	}
-	n := 0
+	var total int64
 	for i := range list.Items {
-		if list.Items[i].Status.Phase == phaseRunning {
-			n += int(list.Items[i].Spec.GPUCount)
+		for _, fu := range list.Items[i].Status.FlavorsUsage {
+			if string(fu.Name) != flavor {
+				continue
+			}
+			for _, r := range fu.Resources {
+				if r.Name == gpuResourceName {
+					total += r.Total.Value()
+				}
+			}
 		}
 	}
-	return n, nil
+	return total, nil
 }
 
 // submit renders and creates the trace job under its own row's contract, then records its Submitted event.
