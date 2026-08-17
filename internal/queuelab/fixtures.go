@@ -19,6 +19,8 @@ package queuelab
 import (
 	"fmt"
 
+	"k8s.io/apimachinery/pkg/util/validation"
+
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -104,12 +106,47 @@ type FixtureIdentity struct {
 	Namespace string
 }
 
+// validate refuses an identity that would render a name or a stamp the rest of the run cannot rely on.
+//
+// The syntax check is not decoration: a value that is non-empty but not a valid DNS-1123 label produces an
+// object the apiserver rejects at Create, which surfaces as a fixture failure far from the field that caused
+// it. Failing here names the field.
+func (id FixtureIdentity) validate() error {
+	for _, f := range []struct {
+		name, value string
+	}{
+		{"TxID", id.TxID},
+		{"RunID", id.RunID},
+		{"Namespace", id.Namespace},
+	} {
+		if f.value == "" {
+			return fmt.Errorf("fixture identity has an empty %s; it would render an object name or ownership "+
+				"label that no teardown of this run can recognise", f.name)
+		}
+		if errs := validation.IsDNS1123Label(f.value); len(errs) > 0 {
+			return fmt.Errorf("fixture identity %s %q is not a valid DNS-1123 label: %s", f.name, f.value, errs[0])
+		}
+	}
+	return nil
+}
+
 // BuildFixtures renders the dedicated queues for one study variant under a unique run id.
 //
 // id.RunID makes every object name unique so two arms (or two repetitions) never share a queue; namespace is
 // where the LocalQueues (and the submitted jobs) live. id.TxID stamps every object it renders (see TxLabel), so
 // the caller can tell this attempt's objects from a previous attempt's under the same run id.
 func BuildFixtures(study Study, variant string, id FixtureIdentity) (*FixtureSet, error) {
+	// Every identity field below becomes part of an object NAME or an ownership LABEL, so an empty one does
+	// not render a smaller object — it renders a different, wrong one. An empty RunID yields "queuelab-gpu-",
+	// a name that can collide with an unrelated run's leftovers; an empty TxID yields a stamp no teardown can
+	// tell apart from an unstamped object.
+	//
+	// teardown.go already refuses these same empty fields, which is what makes them invariants rather than
+	// optional values. Rejecting them only at teardown means the run creates the wrong objects first and
+	// discovers it when trying to remove them, so the check belongs at the boundary that renders the names.
+	if err := id.validate(); err != nil {
+		return nil, err
+	}
 	switch study {
 	case StudyReclaim:
 		return reclaimFixtures(variant, id)

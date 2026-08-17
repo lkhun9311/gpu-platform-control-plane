@@ -24,7 +24,10 @@ import (
 	kueuev1beta2 "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 )
 
-const runA = "runA"
+// Lowercase because these become object NAMES. The earlier values were "runA"/"runB", which no apiserver
+// would have accepted — DNS-1123 labels are lowercase — so the fixture was exercising a run id a real run
+// could never have. BuildFixtures' identity validation is what surfaced that.
+const runA = "run-a"
 
 func TestReclaimFixturesVaryOnlyReclaimPolicy(t *testing.T) {
 	never, err := BuildFixtures(StudyReclaim, "Never", FixtureIdentity{TxID: "tx-1", RunID: "r1", Namespace: "ns"})
@@ -90,7 +93,7 @@ func TestFIFOFixturesVaryQueueingStrategy(t *testing.T) {
 
 func TestFixtureNamesAreUniquePerRun(t *testing.T) {
 	a, _ := BuildFixtures(StudyReclaim, "Any", FixtureIdentity{TxID: "tx-1", RunID: runA, Namespace: "ns"})
-	b, _ := BuildFixtures(StudyReclaim, "Any", FixtureIdentity{TxID: "tx-1", RunID: "runB", Namespace: "ns"})
+	b, _ := BuildFixtures(StudyReclaim, "Any", FixtureIdentity{TxID: "tx-1", RunID: "run-b", Namespace: "ns"})
 	if a.ClusterQueue[0].Name == b.ClusterQueue[0].Name {
 		t.Fatalf("different runs must not share queue names: %s", a.ClusterQueue[0].Name)
 	}
@@ -123,6 +126,48 @@ func TestFixtureNamesAreUniquePerRun(t *testing.T) {
 	// Lab objects must be labelled for the reset audit.
 	if a.ClusterQueue[0].Labels[runLabel] != runA {
 		t.Fatalf("ClusterQueue should carry the run label")
+	}
+}
+
+// The identity fields become object NAMES and ownership LABELS, so an empty one does not render less — it
+// renders a different, wrong object. teardown.go refuses these same empties, which is what makes them
+// invariants; refusing them only there means the run creates the wrong objects first and finds out when it
+// tries to remove them.
+//
+// Mutation that turns this red: drop the id.validate() call from BuildFixtures.
+func TestBuildFixturesRejectsAnUnusableIdentity(t *testing.T) {
+	good := FixtureIdentity{TxID: "tx-1", RunID: "r1", Namespace: "ns"}
+
+	rows := []struct {
+		name  string
+		id    FixtureIdentity
+		field string
+	}{
+		{"empty TxID", FixtureIdentity{RunID: "r1", Namespace: "ns"}, "TxID"},
+		{"empty RunID", FixtureIdentity{TxID: "tx-1", Namespace: "ns"}, "RunID"},
+		{"empty Namespace", FixtureIdentity{TxID: "tx-1", RunID: "r1"}, "Namespace"},
+		// Non-empty but unrenderable. Without this row a check that only tested for "" would pass, and the
+		// apiserver would reject the object at Create with an error naming a generated name rather than the
+		// field that produced it.
+		{"RunID with an underscore", FixtureIdentity{TxID: "tx-1", RunID: "r_1", Namespace: "ns"}, "RunID"},
+		{"Namespace in capitals", FixtureIdentity{TxID: "tx-1", RunID: "r1", Namespace: "NS"}, "Namespace"},
+	}
+	for _, row := range rows {
+		t.Run(row.name, func(t *testing.T) {
+			_, err := BuildFixtures(StudyReclaim, "Any", row.id)
+			if err == nil {
+				t.Fatalf("accepted %s", row.name)
+			}
+			if !strings.Contains(err.Error(), row.field) {
+				t.Fatalf("error does not name the offending field %s: %v", row.field, err)
+			}
+		})
+	}
+
+	// The control: a usable identity must still build. Without it, a validate() that rejected everything
+	// would satisfy every row above.
+	if _, err := BuildFixtures(StudyReclaim, "Any", good); err != nil {
+		t.Fatalf("refused a usable identity: %v", err)
 	}
 }
 

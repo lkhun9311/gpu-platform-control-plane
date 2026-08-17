@@ -840,6 +840,19 @@ func applyFixtures(ctx context.Context, c client.Client, fs *queuelab.FixtureSet
 func createOwned(ctx context.Context, c client.Client, o client.Object, txID string) error {
 	err := c.Create(ctx, o)
 	if err == nil {
+		// A successful Create is not proof the stamp landed. controller-runtime decodes the apiserver's
+		// response back into o, so what stands in o now is what admission stored — the same reason
+		// ensureNamespace checks its own object here rather than issuing a second read. An admission plugin
+		// that dropped or rewrote TxLabel would leave an object no teardown of this run can recognise as ours,
+		// and the run would go on to measure inside it.
+		//
+		// A re-read would answer the same question for the cost of another round trip. This does not need one.
+		if got := o.GetLabels()[queuelab.TxLabel]; got != txID {
+			return deleteUnstampedObject(ctx, c, o, fmt.Errorf(
+				"%s %s/%s was created carrying transaction %q rather than this run's %q; an object this run's "+
+					"own Create is one no teardown of this run can recognise as ours",
+				o.GetObjectKind().GroupVersionKind().Kind, o.GetNamespace(), o.GetName(), got, txID))
+		}
 		return nil
 	}
 	if !apierrors.IsAlreadyExists(err) {
@@ -864,6 +877,73 @@ func createOwned(ctx context.Context, c client.Client, o client.Object, txID str
 	if got := existing.GetLabels()[queuelab.TxLabel]; got != txID {
 		return fmt.Errorf("already exists under transaction %q, not this run's %q; "+
 			"clear it before rerunning rather than running inside another attempt's object", got, txID)
+	}
+	// Same transaction is not the same object. The label says who created it; it says nothing about WHAT was
+	// created, and what was created is the mechanism this lab exists to measure. A ClusterQueue adopted here
+	// with a different reclaimWithinCohort would let the run report an arm it never executed — the exact
+	// failure the variant precheck guards for ResourceFlavors, generalised to the specs that carry the knob.
+	if merr := sameMechanism(o, existing); merr != nil {
+		return fmt.Errorf("already exists under this transaction but %w; clear it before rerunning rather than "+
+			"measuring a mechanism this arm did not declare", merr)
+	}
+	return nil
+}
+
+// deleteUnstampedObject removes an object whose stamp did not land, guarded by the UID this run just created.
+//
+// The precondition is what keeps this from deleting somebody else's object of the same name: if the thing on
+// the cluster is no longer the one Create returned, the delete fails rather than widening the blast radius.
+func deleteUnstampedObject(ctx context.Context, c client.Client, created client.Object, cause error) error {
+	uid := created.GetUID()
+	stub, ok := created.DeepCopyObject().(client.Object)
+	if !ok {
+		return fmt.Errorf("%w; and it could not be prepared for deletion", cause)
+	}
+	derr := c.Delete(ctx, stub, client.Preconditions{UID: &uid})
+	// NotFound is the state this function exists to reach, by someone else's hand. Anything else leaves an
+	// object on the cluster under no stamp any teardown can recognise, which needs a pair of hands rather
+	// than the ordinary "the stamp did not land" refusal.
+	if derr != nil && !apierrors.IsNotFound(derr) {
+		return fmt.Errorf("%w; and it could not be deleted: %w — it is on the cluster under no stamp this run's "+
+			"teardown can recognise and has to be removed by hand", cause, derr)
+	}
+	return cause
+}
+
+// sameMechanism reports whether an adopted object still carries the knob this arm declared.
+//
+// Only the fields that DEFINE the mechanism are compared, not the whole spec: the apiserver defaults and
+// mutates plenty that the experiment does not care about, and comparing everything would refuse every
+// adoption for reasons unrelated to what is being measured.
+func sameMechanism(want, got client.Object) error {
+	switch w := want.(type) {
+	case *kueuev1beta2.ClusterQueue:
+		g, ok := got.(*kueuev1beta2.ClusterQueue)
+		if !ok {
+			return fmt.Errorf("is a %T where a ClusterQueue was expected", got)
+		}
+		// reclaimWithinCohort IS the reclaim study's one knob, and cohort membership decides who can borrow
+		// from whom. An arm that measured either of these differently measured a different experiment.
+		if wp, gp := w.Spec.Preemption, g.Spec.Preemption; (wp == nil) != (gp == nil) ||
+			(wp != nil && gp != nil && wp.ReclaimWithinCohort != gp.ReclaimWithinCohort) {
+			return fmt.Errorf("its reclaimWithinCohort is not the one this arm declared")
+		}
+		if w.Spec.CohortName != g.Spec.CohortName {
+			return fmt.Errorf("it belongs to cohort %q, not %q", g.Spec.CohortName, w.Spec.CohortName)
+		}
+	case *kueuev1beta2.LocalQueue:
+		g, ok := got.(*kueuev1beta2.LocalQueue)
+		if !ok {
+			return fmt.Errorf("is a %T where a LocalQueue was expected", got)
+		}
+		// A LocalQueue pointing at another ClusterQueue routes this arm's jobs into another arm's quota.
+		if w.Spec.ClusterQueue != g.Spec.ClusterQueue {
+			return fmt.Errorf("it points at ClusterQueue %q, not %q", g.Spec.ClusterQueue, w.Spec.ClusterQueue)
+		}
+	case *kueuev1beta2.ResourceFlavor:
+		// The variant precheck in applyFixtures already covers the ResourceFlavor's arm label, which is the
+		// only thing about a flavor this lab varies.
+		_ = w
 	}
 	return nil
 }

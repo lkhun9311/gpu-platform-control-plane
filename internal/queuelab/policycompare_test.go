@@ -51,15 +51,15 @@ func TestFIFOVariantsDifferOnlyInQueueingStrategy(t *testing.T) {
 func TestOneKnobDiffWorksAcrossDifferentRunIDs(t *testing.T) {
 	// Live arms use different run ids, so their cohort/flavor/queue names all differ. Canonicalizing the run
 	// id must let the mechanism comparison still see a single-knob difference.
-	never, err := BuildFixtures(StudyReclaim, "Never", FixtureIdentity{TxID: "tx-1", RunID: "runA", Namespace: "ns"})
+	never, err := BuildFixtures(StudyReclaim, "Never", FixtureIdentity{TxID: "tx-1", RunID: "run-a", Namespace: "ns"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	any, err := BuildFixtures(StudyReclaim, "Any", FixtureIdentity{TxID: "tx-1", RunID: "runB", Namespace: "ns"})
+	any, err := BuildFixtures(StudyReclaim, "Any", FixtureIdentity{TxID: "tx-1", RunID: "run-b", Namespace: "ns"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := AssertOneKnobDiff(StudyReclaim, never, any, "runA", "runB"); err != nil {
+	if err := AssertOneKnobDiff(StudyReclaim, never, any, "run-a", "run-b"); err != nil {
 		t.Fatalf("cross-run reclaim comparison should still see one knob: %v", err)
 	}
 }
