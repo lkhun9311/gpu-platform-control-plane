@@ -20,6 +20,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
+	"slices"
 	"sync"
 	"time"
 
@@ -910,11 +912,17 @@ func deleteUnstampedObject(ctx context.Context, c client.Client, created client.
 	return cause
 }
 
-// sameMechanism reports whether an adopted object still carries the knob this arm declared.
+// sameMechanism reports whether an adopted object still implements the experiment this arm declared.
 //
-// Only the fields that DEFINE the mechanism are compared, not the whole spec: the apiserver defaults and
-// mutates plenty that the experiment does not care about, and comparing everything would refuse every
-// adoption for reasons unrelated to what is being measured.
+// Not whole-spec equality: the apiserver defaults and mutates fields the experiment does not care about, and
+// comparing everything would refuse every adoption for reasons unrelated to what is being measured. What is
+// compared is every field that DEFINES the experiment, enumerated explicitly so that adding a study forces a
+// decision about its knob rather than silently inheriting an incomplete check.
+//
+// The first version compared only the reclaim study's knob and the cohort. It therefore let a StrictFIFO
+// queue satisfy a BestEffortFIFO arm — the exact contamination it existed to prevent, for the OTHER of the
+// two studies, whose one varied knob is queueingStrategy. A check that covers one study's mechanism and not
+// the other's is worse than none, because it reads as coverage.
 func sameMechanism(want, got client.Object) error {
 	switch w := want.(type) {
 	case *kueuev1beta2.ClusterQueue:
@@ -922,15 +930,7 @@ func sameMechanism(want, got client.Object) error {
 		if !ok {
 			return fmt.Errorf("is a %T where a ClusterQueue was expected", got)
 		}
-		// reclaimWithinCohort IS the reclaim study's one knob, and cohort membership decides who can borrow
-		// from whom. An arm that measured either of these differently measured a different experiment.
-		if wp, gp := w.Spec.Preemption, g.Spec.Preemption; (wp == nil) != (gp == nil) ||
-			(wp != nil && gp != nil && wp.ReclaimWithinCohort != gp.ReclaimWithinCohort) {
-			return fmt.Errorf("its reclaimWithinCohort is not the one this arm declared")
-		}
-		if w.Spec.CohortName != g.Spec.CohortName {
-			return fmt.Errorf("it belongs to cohort %q, not %q", g.Spec.CohortName, w.Spec.CohortName)
-		}
+		return sameClusterQueue(w, g)
 	case *kueuev1beta2.LocalQueue:
 		g, ok := got.(*kueuev1beta2.LocalQueue)
 		if !ok {
@@ -941,9 +941,115 @@ func sameMechanism(want, got client.Object) error {
 			return fmt.Errorf("it points at ClusterQueue %q, not %q", g.Spec.ClusterQueue, w.Spec.ClusterQueue)
 		}
 	case *kueuev1beta2.ResourceFlavor:
-		// The variant precheck in applyFixtures already covers the ResourceFlavor's arm label, which is the
-		// only thing about a flavor this lab varies.
-		_ = w
+		g, ok := got.(*kueuev1beta2.ResourceFlavor)
+		if !ok {
+			return fmt.Errorf("is a %T where a ResourceFlavor was expected", got)
+		}
+		return sameFlavor(w, g)
+	}
+	return nil
+}
+
+// sameClusterQueue compares the fields that decide what a ClusterQueue admits and how it preempts.
+func sameClusterQueue(w, g *kueuev1beta2.ClusterQueue) error {
+	// The FIFO study's ONE varied knob.
+	if w.Spec.QueueingStrategy != g.Spec.QueueingStrategy {
+		return fmt.Errorf("its queueingStrategy is %q, not the %q this arm declared",
+			g.Spec.QueueingStrategy, w.Spec.QueueingStrategy)
+	}
+	// The reclaim study's one varied knob, plus the in-queue policy that decides whether a waiting workload
+	// can displace a running one. Both are preemption behaviour; a run adopting either from another arm
+	// measures that arm.
+	wp, gp := w.Spec.Preemption, g.Spec.Preemption
+	if (wp == nil) != (gp == nil) {
+		return fmt.Errorf("one of the two has no preemption policy at all")
+	}
+	if wp != nil && gp != nil {
+		if wp.ReclaimWithinCohort != gp.ReclaimWithinCohort {
+			return fmt.Errorf("its reclaimWithinCohort is %q, not the %q this arm declared",
+				gp.ReclaimWithinCohort, wp.ReclaimWithinCohort)
+		}
+		if wp.WithinClusterQueue != gp.WithinClusterQueue {
+			return fmt.Errorf("its withinClusterQueue is %q, not the %q this arm declared",
+				gp.WithinClusterQueue, wp.WithinClusterQueue)
+		}
+	}
+	// Cohort membership decides who can borrow from whom, which is the whole subject of the reclaim study.
+	if w.Spec.CohortName != g.Spec.CohortName {
+		return fmt.Errorf("it belongs to cohort %q, not %q", g.Spec.CohortName, w.Spec.CohortName)
+	}
+	// Quota is capacity, and capacity decides whether borrowing was ever possible. A queue adopted with a
+	// different nominal quota changes what the run is able to observe before any policy applies.
+	if err := sameQuota(w.Spec.ResourceGroups, g.Spec.ResourceGroups); err != nil {
+		return err
+	}
+	return nil
+}
+
+// sameQuota compares covered resources, the flavor each is charged against, and the nominal amounts.
+func sameQuota(want, got []kueuev1beta2.ResourceGroup) error {
+	if len(want) != len(got) {
+		return fmt.Errorf("it declares %d resource groups, not %d", len(got), len(want))
+	}
+	for i := range want {
+		if !slices.Equal(want[i].CoveredResources, got[i].CoveredResources) {
+			return fmt.Errorf("its covered resources are %v, not %v", got[i].CoveredResources, want[i].CoveredResources)
+		}
+		if len(want[i].Flavors) != len(got[i].Flavors) {
+			return fmt.Errorf("it declares %d flavors, not %d", len(got[i].Flavors), len(want[i].Flavors))
+		}
+		for j := range want[i].Flavors {
+			wf, gf := want[i].Flavors[j], got[i].Flavors[j]
+			if wf.Name != gf.Name {
+				return fmt.Errorf("its quota is charged against flavor %q, not %q", gf.Name, wf.Name)
+			}
+			if len(wf.Resources) != len(gf.Resources) {
+				return fmt.Errorf("flavor %q declares %d resources, not %d", wf.Name, len(gf.Resources), len(wf.Resources))
+			}
+			for k := range wf.Resources {
+				wr, gr := wf.Resources[k], gf.Resources[k]
+				if wr.Name != gr.Name {
+					return fmt.Errorf("flavor %q covers %q, not %q", wf.Name, gr.Name, wr.Name)
+				}
+				if wr.NominalQuota.Cmp(gr.NominalQuota) != 0 {
+					return fmt.Errorf("flavor %q gives %q a nominal quota of %s, not %s",
+						wf.Name, wr.Name, gr.NominalQuota.String(), wr.NominalQuota.String())
+				}
+			}
+		}
+	}
+	return nil
+}
+
+// sameFlavor compares the fields that isolate one run's workloads onto its own dedicated node.
+//
+// The variant label on a flavor says which arm it was BUILT for and nothing about whether its isolation is
+// intact. A flavor adopted without its node selector, taint or toleration lets this run's pods land beside
+// another run's, which contaminates every timing the run then reports.
+func sameFlavor(w, g *kueuev1beta2.ResourceFlavor) error {
+	if !maps.Equal(w.Spec.NodeLabels, g.Spec.NodeLabels) {
+		return fmt.Errorf("its nodeLabels are %v, not the %v that pin this run to its own worker",
+			g.Spec.NodeLabels, w.Spec.NodeLabels)
+	}
+	if len(w.Spec.NodeTaints) != len(g.Spec.NodeTaints) {
+		return fmt.Errorf("it carries %d node taints, not %d", len(g.Spec.NodeTaints), len(w.Spec.NodeTaints))
+	}
+	for i := range w.Spec.NodeTaints {
+		wt, gt := w.Spec.NodeTaints[i], g.Spec.NodeTaints[i]
+		if wt.Key != gt.Key || wt.Value != gt.Value || wt.Effect != gt.Effect {
+			return fmt.Errorf("its node taint is %s=%s:%s, not %s=%s:%s",
+				gt.Key, gt.Value, gt.Effect, wt.Key, wt.Value, wt.Effect)
+		}
+	}
+	if len(w.Spec.Tolerations) != len(g.Spec.Tolerations) {
+		return fmt.Errorf("it carries %d tolerations, not %d", len(g.Spec.Tolerations), len(w.Spec.Tolerations))
+	}
+	for i := range w.Spec.Tolerations {
+		wt, gt := w.Spec.Tolerations[i], g.Spec.Tolerations[i]
+		if wt.Key != gt.Key || wt.Value != gt.Value || wt.Effect != gt.Effect {
+			return fmt.Errorf("its toleration is %s=%s:%s, not %s=%s:%s",
+				gt.Key, gt.Value, gt.Effect, wt.Key, wt.Value, wt.Effect)
+		}
 	}
 	return nil
 }

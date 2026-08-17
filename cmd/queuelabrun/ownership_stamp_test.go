@@ -7,6 +7,8 @@ import (
 
 	kueuev1beta2 "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -178,5 +180,147 @@ func TestCreateOwnedRefusesALocalQueuePointingElsewhere(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "cq-other") {
 		t.Fatalf("error does not name the ClusterQueue it actually points at: %v", err)
+	}
+}
+
+// cqWith builds a ClusterQueue carrying the full set of fields the experiment is defined by, so each spec
+// below can vary exactly one of them.
+func cqWith(mutate func(*kueuev1beta2.ClusterQueue)) *kueuev1beta2.ClusterQueue {
+	q := resource.NewQuantity(2, resource.DecimalSI)
+	cq := &kueuev1beta2.ClusterQueue{
+		ObjectMeta: metav1.ObjectMeta{Name: "cq-x", Labels: map[string]string{queuelab.TxLabel: "tx-1"}},
+		Spec: kueuev1beta2.ClusterQueueSpec{
+			CohortName:        "cohort-1",
+			QueueingStrategy:  kueuev1beta2.BestEffortFIFO,
+			NamespaceSelector: &metav1.LabelSelector{},
+			Preemption: &kueuev1beta2.ClusterQueuePreemption{
+				ReclaimWithinCohort: kueuev1beta2.PreemptionPolicy("Any"),
+				WithinClusterQueue:  kueuev1beta2.PreemptionPolicyLowerPriority,
+			},
+			ResourceGroups: []kueuev1beta2.ResourceGroup{{
+				CoveredResources: []corev1.ResourceName{"nvidia.com/gpu"},
+				Flavors: []kueuev1beta2.FlavorQuotas{{
+					Name: "flavor-a",
+					Resources: []kueuev1beta2.ResourceQuota{{
+						Name: "nvidia.com/gpu", NominalQuota: *q,
+					}},
+				}},
+			}},
+		},
+	}
+	if mutate != nil {
+		mutate(cq)
+	}
+	return cq
+}
+
+// Every field this table varies DEFINES the experiment, and adopting an object that differs in any of them
+// makes the run report an arm it did not execute.
+//
+// The queueingStrategy row is the one that mattered most: it is the FIFO study's ONLY varied knob, and the
+// first version of sameMechanism did not compare it — so a StrictFIFO queue satisfied a BestEffortFIFO arm
+// while the check read as coverage.
+//
+// Mutation that turns each row red: remove that field's comparison from sameClusterQueue or sameQuota.
+func TestCreateOwnedRefusesEveryExperimentDefiningDifference(t *testing.T) {
+	rows := []struct {
+		name   string
+		differ func(*kueuev1beta2.ClusterQueue)
+		blames string
+	}{
+		{"queueingStrategy", func(c *kueuev1beta2.ClusterQueue) {
+			c.Spec.QueueingStrategy = kueuev1beta2.StrictFIFO
+		}, "queueingStrategy"},
+		{"reclaimWithinCohort", func(c *kueuev1beta2.ClusterQueue) {
+			c.Spec.Preemption.ReclaimWithinCohort = kueuev1beta2.PreemptionPolicy("Never")
+		}, "reclaimWithinCohort"},
+		{"withinClusterQueue", func(c *kueuev1beta2.ClusterQueue) {
+			c.Spec.Preemption.WithinClusterQueue = kueuev1beta2.PreemptionPolicyNever
+		}, "withinClusterQueue"},
+		{"cohort", func(c *kueuev1beta2.ClusterQueue) { c.Spec.CohortName = "cohort-other" }, "cohort"},
+		{"nominal quota", func(c *kueuev1beta2.ClusterQueue) {
+			c.Spec.ResourceGroups[0].Flavors[0].Resources[0].NominalQuota = *resource.NewQuantity(8, resource.DecimalSI)
+		}, "nominal quota"},
+		{"flavor the quota is charged against", func(c *kueuev1beta2.ClusterQueue) {
+			c.Spec.ResourceGroups[0].Flavors[0].Name = "flavor-other"
+		}, "flavor"},
+	}
+	for _, row := range rows {
+		t.Run(row.name, func(t *testing.T) {
+			scheme := kueueScheme(t)
+			c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(cqWith(row.differ)).Build()
+			err := createOwned(context.Background(), c, cqWith(nil), "tx-1")
+			if err == nil {
+				t.Fatalf("adopted a ClusterQueue differing in %s", row.name)
+			}
+			if !strings.Contains(err.Error(), row.blames) {
+				t.Fatalf("error does not name %s: %v", row.blames, err)
+			}
+		})
+	}
+
+	// The control: an identical queue must still be adopted, or the check has become "refuse everything" and
+	// retrying after a partial setup stops working.
+	scheme := kueueScheme(t)
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(cqWith(nil)).Build()
+	if err := createOwned(context.Background(), c, cqWith(nil), "tx-1"); err != nil {
+		t.Fatalf("refused to adopt an identical ClusterQueue: %v", err)
+	}
+}
+
+// A flavor's variant label says which arm it was BUILT for and nothing about whether its isolation survived.
+// Adopting one without its node selector, taint or toleration lets this run's pods land beside another run's,
+// which contaminates every timing the run reports rather than failing it.
+//
+// Mutation that turns this red: return nil from sameFlavor.
+func TestCreateOwnedRefusesAFlavorThatLostItsIsolation(t *testing.T) {
+	base := func(mutate func(*kueuev1beta2.ResourceFlavor)) *kueuev1beta2.ResourceFlavor {
+		rf := &kueuev1beta2.ResourceFlavor{
+			ObjectMeta: metav1.ObjectMeta{Name: "rf-x", Labels: map[string]string{queuelab.TxLabel: "tx-1"}},
+			Spec: kueuev1beta2.ResourceFlavorSpec{
+				NodeLabels: map[string]string{"queuelab/worker": "run-a"},
+				NodeTaints: []corev1.Taint{{
+					Key: "queuelab/dedicated", Value: "run-a", Effect: corev1.TaintEffectNoSchedule,
+				}},
+				Tolerations: []corev1.Toleration{{
+					Key: "queuelab/dedicated", Value: "run-a", Effect: corev1.TaintEffectNoSchedule,
+				}},
+			},
+		}
+		if mutate != nil {
+			mutate(rf)
+		}
+		return rf
+	}
+
+	rows := []struct {
+		name   string
+		differ func(*kueuev1beta2.ResourceFlavor)
+		blames string
+	}{
+		{"node labels", func(r *kueuev1beta2.ResourceFlavor) {
+			r.Spec.NodeLabels = map[string]string{"queuelab/worker": "run-b"}
+		}, "nodeLabels"},
+		{"taint dropped", func(r *kueuev1beta2.ResourceFlavor) { r.Spec.NodeTaints = nil }, "node taints"},
+		{"toleration dropped", func(r *kueuev1beta2.ResourceFlavor) { r.Spec.Tolerations = nil }, "tolerations"},
+	}
+	for _, row := range rows {
+		t.Run(row.name, func(t *testing.T) {
+			scheme := kueueScheme(t)
+			c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(base(row.differ)).Build()
+			err := createOwned(context.Background(), c, base(nil), "tx-1")
+			if err == nil {
+				t.Fatalf("adopted a ResourceFlavor whose %s differed", row.name)
+			}
+			if !strings.Contains(err.Error(), row.blames) {
+				t.Fatalf("error does not name %s: %v", row.blames, err)
+			}
+		})
+	}
+
+	scheme := kueueScheme(t)
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(base(nil)).Build()
+	if err := createOwned(context.Background(), c, base(nil), "tx-1"); err != nil {
+		t.Fatalf("refused to adopt an identical ResourceFlavor: %v", err)
 	}
 }
