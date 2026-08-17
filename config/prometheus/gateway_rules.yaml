@@ -18,6 +18,12 @@ spec:
         # could read would be worse — but it means the arm can be fully bypassed while every request still
         # succeeds and no error is recorded anywhere. Staleness is therefore not a warning about the future;
         # it is the statement that admission control is currently OFF for that backend.
+        #
+        # PRECONDITION: this fires only when the gateway runs with --admission-mode=kv-aware. In any other
+        # mode the guard does not exist, backend_telemetry_fresh is never observed, and a Vec with no
+        # observed child emits no series at all — so "== 0" matches nothing and the rule is permanently
+        # inactive. That is correct here (there is no guard to bypass), and it is why the rule below exists:
+        # absence means "no guard" and "guard broken" equally, and only one of those is an incident.
         - alert: GatewayAdmissionGuardBypassed
           expr: gpuaas_gateway_backend_telemetry_fresh == 0
           for: 2m
@@ -31,6 +37,7 @@ spec:
 
         # Scrape failures are the usual cause of the alert above, and separating them says whether the backend
         # is unreachable or merely slow to answer.
+        # Same precondition as above: no kv-aware mode, no scrape, no series.
         - alert: GatewayBackendScrapeFailing
           expr: rate(gpuaas_gateway_backend_scrape_errors_total[5m]) > 0
           for: 5m
@@ -38,6 +45,28 @@ spec:
             severity: warning
           annotations:
             summary: "Cannot read telemetry from {{ $labels.backend }}"
+
+        # The two rules above are written over series the guard itself publishes, so they are silent when the
+        # guard is off AND when the guard is on but publishing nothing: a scraper goroutine that never
+        # started, a backend list that came back empty, a panic in the scrape loop. Both look identical to
+        # Prometheus, and the second is precisely the failure GatewayAdmissionGuardBypassed was written for.
+        #
+        # admission_mode_active is set once at process start, before any request or scrape, so it is present
+        # even when nothing else about the guard is. "unless on()" drops this series the moment any
+        # telemetry_fresh series exists at all, so the rule speaks only about total silence, not staleness.
+        - alert: GatewayKVGuardNotReporting
+          expr: |
+            (gpuaas_gateway_admission_mode_active{mode="kv-aware"} == 1) unless on() gpuaas_gateway_backend_telemetry_fresh
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "kv-aware admission is configured but publishing no backend telemetry"
+            description: >-
+              The gateway resolved --admission-mode=kv-aware, so admission decisions are supposed to depend
+              on backend KV-cache pressure, but no backend has reported freshness for five minutes. Either
+              the guard is watching no backends or its scrape loop is not running. Requests are being
+              admitted and nothing else will say so.
 
     - name: gateway.routing
       rules:

@@ -143,6 +143,12 @@ func (s *Server) InitRateLimiter() { s.buckets = newBucketRegistry() }
 func (s *Server) SetAdmitter(mode AdmissionMode, a Admitter) {
 	s.mode = mode
 	s.admitter = a
+
+	// Publish the mode here rather than in main, for the same reason mode travels through this call at
+	// all: this is the one place that knows which Admitter is actually installed, so the series cannot
+	// claim a mode the gateway is not running.
+	admissionModeActive.Reset()
+	admissionModeActive.WithLabelValues(string(mode)).Set(1)
 }
 
 // readyz returns 200 only once the cache has synced, else 503 so the Pod stays out of Service endpoints.

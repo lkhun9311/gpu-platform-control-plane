@@ -31,6 +31,7 @@ docs/superpowers/*
 !/hack/kueue-deployment-integration.md
 !/hack/kserve-queue-label-propagation.md
 !/hack/queue-drain-under-load.md
+!/hack/alert-firing-verification.md
 !/docs/0[0-7]*.md
 !/docs/09*.md
 !/docs/10_WHAT_I_GOT_WRONG.md

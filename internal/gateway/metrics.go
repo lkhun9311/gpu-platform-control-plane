@@ -147,6 +147,28 @@ var (
 		[]string{"mode", "tenant", "decision"},
 	)
 
+	// admissionModeActive publishes which admission mode this process resolved --admission-mode to,
+	// as a 1 on exactly one mode label.
+	//
+	// Why a series just for a configuration value.
+	//
+	// Every other kv-aware series below is a Vec that only acquires a child once the guard has
+	// actually observed a backend, so all of them are simply ABSENT when the mode is "off" — and
+	// equally absent when the mode is "kv-aware" but the scraper never started or died. Prometheus
+	// cannot tell those two apart, which means an alert written over the guard's own gauges goes
+	// quiet in exactly the case it exists to catch.
+	//
+	// This series is set once at startup, before any request or scrape, so it is present whether or
+	// not the guard ever reports. It is what lets an alert say "the guard is configured on and is
+	// telling us nothing" rather than "the guard is telling us nothing".
+	admissionModeActive = promauto.With(metrics.Registry).NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: metricPrefix + "admission_mode_active",
+			Help: "The admission mode this gateway process is running, as a 1 on the active mode label.",
+		},
+		[]string{"mode"},
+	)
+
 	// admissionGuardEngaged reports the kv-aware guard's current pressure state per backend: 1
 	// while ENGAGED, 0 while RELEASED.
 	//
