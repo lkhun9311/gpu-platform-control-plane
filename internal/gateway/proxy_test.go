@@ -1111,6 +1111,33 @@ var _ = Describe("fallback and the client's own cancellation", func() {
 		Expect(last).NotTo(BeZero(), "the failure the handler would substitute was never reported")
 	})
 
+	// A caller must not be able to read the cluster's topology out of a failed request.
+	//
+	// The whole existing suite passed while the raw transport error was being written to the client, which
+	// means nothing asserted what the BODY says — only what the status code is. That gap is why the leak
+	// survived: every spec was watching the half that was right.
+	//
+	// Mutation that turns this red: pass err.Error() to writeJSONError instead of publicUpstreamMessage.
+	It("tells the client nothing about where the backend lives", func() {
+		dead := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+		deadURL, _ := url.Parse(dead.URL)
+		dead.Close()
+
+		req, err := http.NewRequest(http.MethodPost, "http://gw/v1/chat/completions", nil)
+		Expect(err).NotTo(HaveOccurred())
+		rec := httptest.NewRecorder()
+		tryBackends(rec, req, []*url.URL{deadURL}, http.DefaultTransport, nil)
+
+		body := rec.Body.String()
+		Expect(rec.Code).To(Equal(http.StatusBadGateway), "the status still has to say which failure this was")
+		Expect(body).To(ContainSubstring("could not be reached"))
+		// The address the proxy failed to dial, in every form it appears in a transport error.
+		Expect(body).NotTo(ContainSubstring(deadURL.Host), "the body names the backend's address")
+		Expect(body).NotTo(ContainSubstring("dial tcp"), "the body carries the raw transport error")
+		Expect(body).NotTo(ContainSubstring("connection refused"))
+		Expect(body).NotTo(ContainSubstring("127.0.0.1"))
+	})
+
 	// Mutation that turns this red: remove the maxBackendAttempts truncation.
 	It("stops after the cap however many stale backends a model has", func() {
 		var dialled int

@@ -30,6 +30,8 @@ import (
 	"net/url"
 	"strconv"
 	"time"
+
+	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 // maxBodyBytes caps how much of a request body readRequestMeta will buffer.
@@ -406,7 +408,7 @@ func newReverseProxy(target *url.URL, transport http.RoundTripper, onErr func(co
 	// They are different operational signals: 502 means the backend Pod is gone or the Service is miswired, 504 means it is alive but hung or slow.
 	//
 	// They call for different responses, so they get different codes.
-	p.ErrorHandler = func(w http.ResponseWriter, _ *http.Request, err error) {
+	p.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
 		// Connection refused, DNS failure, and similar land here.
 		code := http.StatusBadGateway
 		// errors.As walks the error chain, so a timeout wrapped with %w is still detected; a plain type assertion would miss it.
@@ -415,10 +417,33 @@ func newReverseProxy(target *url.URL, transport http.RoundTripper, onErr func(co
 			code = http.StatusGatewayTimeout
 		}
 		onErr(code)
-		writeJSONError(w, code, err.Error())
+		// The error goes to the LOG; the client gets a fixed sentence.
+		//
+		// A transport error names what it failed to reach: "dial tcp 10.244.2.18:8090: connect: connection
+		// refused" hands a caller a Pod IP and port, and a DNS failure hands them internal Service names. This
+		// used to be passed through verbatim, so the gateway published its own cluster topology to anyone who
+		// could make a backend fail — and making a backend fail is not hard when one is already unhealthy.
+		//
+		// Nothing is lost operationally. The status code still separates the two cases the design cares about
+		// (502 unreachable, 504 hung), and the detail an operator needs is in the log beside the request id.
+		log.FromContext(r.Context()).Error(err, "upstream request failed",
+			"code", code, "backend", target.Host, "path", r.URL.Path)
+		writeJSONError(w, code, publicUpstreamMessage(code))
 	}
 
 	return p
+}
+
+// publicUpstreamMessage is what a caller is told when a backend could not answer.
+//
+// Two sentences rather than one, because the distinction the status code already draws is one a caller can
+// act on: a timeout is worth retrying, an unreachable backend usually is not until someone looks at it.
+// Neither names an address.
+func publicUpstreamMessage(code int) string {
+	if code == http.StatusGatewayTimeout {
+		return "the model backend did not respond in time"
+	}
+	return "the model backend could not be reached"
 }
 
 // maxBackendAttempts caps how many backends one request may try; see tryBackends for why it is two.
