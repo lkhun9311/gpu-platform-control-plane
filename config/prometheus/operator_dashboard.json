@@ -1,5 +1,5 @@
 {
-  "title": "GPU Platform Operator",
+  "title": "GPU Platform",
   "uid": "gpu-platform-operator",
   "tags": [
     "gpu-platform"
@@ -370,6 +370,143 @@
           "expr": "histogram_quantile(0.99, sum by (le, controller) (rate(controller_runtime_reconcile_time_seconds_bucket{job=~\".*controller-manager.*\"}[5m])))",
           "legendFormat": "{{controller}}",
           "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "Gateway",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 33
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Requests per second by status class",
+      "description": "Split by code, not totalled. A gateway returning 500s at full rate is indistinguishable from a healthy one on a request-rate panel.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 12,
+        "x": 0,
+        "y": 34
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "noValue": "0"
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum by (code) (rate(gpuaas_gateway_requests_total[2m]))",
+          "legendFormat": "{{code}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Request duration p99 and p50",
+      "description": "Both, because a p99 alone cannot say whether a spike hit every request or only the tail. The gap between them is the shape of the degradation.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 12,
+        "x": 12,
+        "y": 34
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "0"
+        }
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(gpuaas_gateway_request_duration_seconds_bucket[2m])))",
+          "legendFormat": "p99",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.50, sum by (le) (rate(gpuaas_gateway_request_duration_seconds_bucket[2m])))",
+          "legendFormat": "p50",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Upstream errors and backend fallbacks",
+      "description": "upstream_errors counts failures that reached the client; backend_fallbacks counts failures a later backend absorbed. The second rising while the first stays flat is the retry path working, and that distinction is the whole reason both exist.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 12,
+        "x": 0,
+        "y": 40
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "noValue": "0"
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum by (model) (rate(gpuaas_gateway_upstream_errors_total[2m]))",
+          "legendFormat": "upstream error {{model}}",
+          "refId": "A"
+        },
+        {
+          "expr": "sum by (model) (rate(gpuaas_gateway_backend_fallbacks_total[2m]))",
+          "legendFormat": "fallback {{model}}",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Rate limiting and admission decisions",
+      "description": "Refusals the gateway made on purpose, kept apart from upstream failures above. Conflating deliberate rejection with breakage is how a working limiter gets paged as an outage.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 12,
+        "x": 12,
+        "y": 40
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "noValue": "0"
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum by (tenant) (rate(gpuaas_gateway_rate_limited_total[2m]))",
+          "legendFormat": "rate-limited {{tenant}}",
+          "refId": "A"
+        },
+        {
+          "expr": "sum by (decision) (rate(gpuaas_gateway_admission_decisions_total[2m]))",
+          "legendFormat": "admission {{decision}}",
+          "refId": "B"
         }
       ]
     }
