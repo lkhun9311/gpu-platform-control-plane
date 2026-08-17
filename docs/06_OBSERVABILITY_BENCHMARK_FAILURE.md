@@ -1,14 +1,31 @@
 # Observability, Benchmark, and Failure
 
-> **Status (2026-08-07).** Most of this document is design-of-record, not built. **Built (code,
-> unit-tested), never deployed:** gateway Prometheus metrics. **Built (code, unit-tested), never run on a
-> GPU:** the M5-b admission-guard benchmark harness (its vLLM metrics fixture is synthetic, so thresholds
-> are unvalidated). **Designed only — no code:** the DCGM exporter layer (no DCGM, Xid, or ECC anywhere in
-> the Go tree), the eBPF layer, Nsight profiling, the SQLite/Postgres operations ledger, the five failure
-> reports (FR-001…FR-005, M7), and the `evidence/` report tree shown below (the real `evidence/` directory
-> in this repo holds only empty placeholder subdirectories today). **Working today:** Kubernetes
-> events/logs, and `NodeHealth` phase transitions (built, but with no GPU-specific fault detection). No GPU
-> in this project is real.
+> **Status (2026-08-17).** Parts of this document are design-of-record and parts are now running; the two
+> are marked separately below because an earlier version of this header claimed less than was true and a
+> reader has no way to tell an unbuilt plan from an unmeasured one.
+>
+> **Deployed and scraped on kind:** the operator's five metrics and the gateway's twelve, through the
+> ServiceMonitor and PodMonitor in `config/prometheus/`, into kube-prometheus-stack. A Grafana dashboard
+> (`config/prometheus/operator_dashboard.json`) renders them, and `hack/check-dashboard.sh` asserts every
+> panel's PromQL parses AND that every metric it names exists in the Go source — an unexported metric renders
+> an empty graph, and an empty graph reads as "no traffic". The four alert rules pass `promtool check rules`
+> via `hack/check-prometheus-rules.sh`.
+>
+> **Run against a real cluster:** FR-002 and FR-004, with their evidence and their instrument defects written
+> up in `hack/chaos-fr002-serving-pod-killed.md`, `hack/chaos-fr002b-backend-fallback.md` and
+> `hack/chaos-fr004-degraded-node.md`. The gateway IS deployed (`config/gateway-kind`), serving a stub
+> backend through an `InferenceDeployment`; the admission webhook is deployed and verified end to end
+> (`hack/verify-webhook-live.sh`).
+>
+> **Built (code, unit-tested), never run on a GPU:** the M5-b admission-guard benchmark harness. Its vLLM
+> metrics fixture is synthetic, so its thresholds remain unvalidated.
+>
+> **Designed only — no code:** the DCGM exporter layer (no DCGM, Xid, or ECC anywhere in the Go tree), the
+> eBPF layer, Nsight profiling, the SQLite/Postgres operations ledger, FR-001, FR-003, FR-005, and the
+> `evidence/` report tree shown below.
+>
+> **No GPU in this project is real.** Every number above was measured against simulated `nvidia.com/gpu`
+> capacity, and the chaos runs measure control-plane reaction rather than device behaviour.
 
 This is the evidence center of the project — the proof that the platform actually operates workloads, not just defines types.
 
@@ -40,10 +57,10 @@ GPU/eBPF/Nsight layers require a real GPU node and are **not implemented at all 
 
 | Scenario                    | Local (kind, simulated GPU)           | Needs real GPU            |
 |-----------------------------|---------------------------------------|---------------------------|
-| quota exceeded (FR-001)     | yes — HTTP 429, exercised in gateway unit tests (the gateway itself has never been deployed to a running cluster) | no                        |
-| serving pod killed (FR-002) | yes with a mock backend               | real vLLM recovery timing |
+| quota exceeded (FR-001)     | not yet run; HTTP 429 is exercised in gateway unit tests, and the gateway is now deployed on kind so the scenario is reachable | no                        |
+| serving pod killed (FR-002) | **RUN** — see `hack/chaos-fr002-serving-pod-killed.md`; the fallback path has its own run in `hack/chaos-fr002b-backend-fallback.md` | real vLLM recovery timing |
 | GPU OOM (FR-003)            | hard                                  | yes                       |
-| degraded node (FR-004)      | yes — NodeHealth simulated            | DCGM-based signal         |
+| degraded node (FR-004)      | **RUN** — see `hack/chaos-fr004-degraded-node.md`; kubelet is stopped for real, and the operator's own reaction is reported as a bound because it is faster than the harness can resolve | DCGM-based signal         |
 | noisy neighbor (FR-005)     | harness only                          | yes (measured p99)        |
 
 Numbers from real-GPU scenarios are committed only after a real run; locally we ship the harness and say so.
