@@ -63,6 +63,21 @@ func (v *MLTrainingJobValidator) ValidateCreate(
 func (v *MLTrainingJobValidator) ValidateUpdate(
 	ctx context.Context, oldJob, newJob *platformv1.MLTrainingJob,
 ) (admission.Warnings, error) {
+	// Once deletion has started, every update is allowed through.
+	//
+	// This validator already refuses to intercept DELETE, on the reasoning that a webhook able to refuse one
+	// could strand an object nobody can remove. That reasoning was right and the guard was in the wrong place:
+	// the finalizer is removed with an ordinary UPDATE, so an object whose spec this validator considers
+	// unrunnable — an empty image on something created before this webhook existed — could never complete the
+	// update that ends its deletion. It would sit in Terminating forever, refused by the rule that exists to
+	// stop unrunnable jobs being CREATED.
+	//
+	// Nothing is lost by allowing these. The object is going away; a spec edit racing its own deletion changes
+	// nothing that will ever run, and the rules below are about what a Job would do, not about cleanup.
+	if !newJob.DeletionTimestamp.IsZero() {
+		return nil, nil
+	}
+
 	errs := validateRunnable(&newJob.Spec)
 
 	// The pod template is written once, when the Job is created, because a batch/v1 Job's template is

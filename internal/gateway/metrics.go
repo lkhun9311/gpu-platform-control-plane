@@ -116,7 +116,7 @@ var (
 	upstreamErrors = promauto.With(metrics.Registry).NewCounterVec(
 		prometheus.CounterOpts{
 			Name: metricPrefix + "upstream_errors_total",
-			Help: "Total upstream connection failures by tenant and model.",
+			Help: "Failed backend ATTEMPTS by tenant and model; a retried request contributes more than one.",
 		},
 		[]string{"tenant", "model"},
 	)

@@ -26,7 +26,7 @@ import (
 	platformv1 "github.com/lkhun9311/gpu-mlops-platform-control-plane/api/v1"
 )
 
-// sleeperImage is the CPU-only image the trace jobs run, pinned by digest.
+// WorkloadImage is the CPU-only image the trace jobs run, pinned by digest.
 //
 // The review caught that a mutable tag (busybox:1.36) lets the image drift between runs, so the same study
 // re-run months later could execute different bytes; pinning the multi-arch manifest-list digest freezes
@@ -48,7 +48,7 @@ const WorkloadImage = "python:3.12-alpine@sha256:78098ea6a3a9c6a7727a5d4674e4a44
 // The count is written to /dev/termination-log as well as printed, and that is what makes it survive.
 //
 // The kubelet copies that file into the container's terminated status, which the collector already watches —
-// soleExitCode reads the same struct. So the number arrives inside the Pod object rather than needing the
+// soleTerminated reads the same struct. So the number arrives inside the Pod object rather than needing the
 // logs subresource, a second client, extra RBAC, and a read that races teardown. It is written from INSIDE
 // the loop rather than from the termination handler, because the ignoring arm is SIGKILLed at the grace
 // boundary and SIGKILL cannot be handled: a count written only on the way out would be missing from exactly
@@ -128,9 +128,18 @@ func RenderMLTrainingJob(row TrainingTraceRow, namespace string) (*platformv1.ML
 // RenderMLTrainingJobWithContract turns one immutable trace row into the MLTrainingJob to submit into
 // namespace, with an explicit workload termination contract.
 //
-// The sleeper is CPU-only busybox that just holds its quota for the row's duration, so the whole study runs
-// on kind with fake nvidia.com/gpu capacity and no real GPU; the point under test is Kueue admission and
-// reclaim, not GPU computation.
+// The workload is a CPU compute loop in a digest-pinned Python image, not the busybox sleeper this comment
+// used to describe. The change was deliberate: a sleeper holds the quota and computes nothing, so on real
+// hardware "GPU-seconds discarded" would be GPU-seconds of discarded BOOKING, and nothing in the harness
+// could tell the two apart. The loop also reports its progress, which is what turns a discarded GPU-second
+// into a discarded unit of work.
+//
+// It stays CPU-only, and that is forced rather than chosen: the termination canary strips the GPU limit from
+// its probe Pods so they can schedule on a node whose devices are spoken for, and a workload requiring CUDA
+// to start would break the gate every run depends on.
+//
+// The study still runs on kind with simulated nvidia.com/gpu capacity and no real GPU; what is under test is
+// Kueue admission and reclaim, not GPU computation.
 //
 // Parallelism and completions are pinned to 1 so a row's gpuCount is exactly its demand (one Pod), which the
 // occupancy and demand-satisfaction accounting assumes.

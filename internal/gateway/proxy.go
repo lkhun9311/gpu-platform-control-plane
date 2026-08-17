@@ -22,6 +22,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"maps"
 	"net"
@@ -413,7 +414,12 @@ func newReverseProxy(target *url.URL, transport http.RoundTripper, onErr func(co
 		code := http.StatusBadGateway
 		// errors.As walks the error chain, so a timeout wrapped with %w is still detected; a plain type assertion would miss it.
 		var ne net.Error
-		if errors.As(err, &ne) && ne.Timeout() {
+		var rse *retryableStatusError
+		switch {
+		case errors.As(err, &rse):
+			// The upstream answered; report what it said rather than inventing a proxy failure.
+			code = rse.code
+		case errors.As(err, &ne) && ne.Timeout():
 			code = http.StatusGatewayTimeout
 		}
 		onErr(code)
@@ -452,6 +458,25 @@ const maxBackendAttempts = 2
 // errRetryableStatus turns an upstream's own answer into a transport-style failure, so ReverseProxy routes it
 // through ErrorHandler and tryBackends can treat it like any other failed attempt.
 var errRetryableStatus = errors.New("upstream returned a retryable status")
+
+// retryableStatusError carries the status the upstream actually sent.
+//
+// The bare sentinel lost it. ErrorHandler saw an error that was not a timeout and wrote 502, so a backend
+// answering 503 while it loaded weights was logged and counted as 502 — a proxy failure. Those are different
+// operational signals, which is the exact reason this file bothers to separate 502 from 504 one function
+// earlier, and the substitution also contradicted upstream_errors_total's own description.
+//
+// Only the code the client sees is unaffected either way: ModifyResponse is attached to non-final attempts
+// only, so the last backend's real answer always reaches the caller untouched.
+type retryableStatusError struct {
+	code int
+}
+
+func (e *retryableStatusError) Error() string {
+	return fmt.Sprintf("upstream returned a retryable status %d", e.code)
+}
+
+func (e *retryableStatusError) Unwrap() error { return errRetryableStatus }
 
 // retryableStatus says whether another backend is worth trying after this answer.
 //
@@ -610,7 +635,7 @@ func tryBackends(w http.ResponseWriter, r *http.Request, targets []*url.URL,
 		if !last {
 			proxy.ModifyResponse = func(res *http.Response) error {
 				if retryableStatus(res.StatusCode) {
-					return errRetryableStatus
+					return &retryableStatusError{code: res.StatusCode}
 				}
 				return nil
 			}

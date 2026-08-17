@@ -186,3 +186,54 @@ func TestValidateDeleteAllowsEveryDelete(t *testing.T) {
 		t.Fatalf("refused a delete: %v", err)
 	}
 }
+
+// An object being deleted must be able to finish being deleted, whatever its spec says.
+//
+// This validator refuses to intercept DELETE precisely so it cannot strand an object. That guard was in the
+// wrong place: the finalizer comes off with an ordinary UPDATE, so a spec this validator calls unrunnable —
+// an empty image on something created before the webhook existed — could never complete the update that ends
+// its deletion. The object would sit in Terminating with no way out, held there by a rule about what a Job
+// would run.
+//
+// Mutation that turns this red: drop the DeletionTimestamp early return from ValidateUpdate.
+func TestValidateUpdateNeverBlocksDeletion(t *testing.T) {
+	deleting := func(mutate func(*platformv1.MLTrainingJob)) *platformv1.MLTrainingJob {
+		now := metav1.Now()
+		j := job(mutate)
+		j.DeletionTimestamp = &now
+		j.Finalizers = []string{"platform.lkhun9311.github.io/mltrainingjob"}
+		return j
+	}
+
+	rows := []struct {
+		name string
+		spec func(*platformv1.MLTrainingJob)
+	}{
+		// The legacy shapes: created before this webhook, so they hold values it would refuse today.
+		{"empty image", func(m *platformv1.MLTrainingJob) { m.Spec.Image = "" }},
+		{"empty queue", func(m *platformv1.MLTrainingJob) { m.Spec.Queue = "" }},
+		{"both empty", func(m *platformv1.MLTrainingJob) { m.Spec.Image = ""; m.Spec.Queue = "" }},
+	}
+	for _, row := range rows {
+		t.Run(row.name, func(t *testing.T) {
+			// The owned Job exists, so the immutability rule would also fire on an ordinary update.
+			v := validatorWith(t, ownedJob())
+			old := deleting(row.spec)
+			// What the controller actually does: same object, one finalizer fewer.
+			updated := deleting(row.spec)
+			updated.Finalizers = nil
+
+			if _, err := v.ValidateUpdate(context.Background(), old, updated); err != nil {
+				t.Fatalf("finalizer removal was refused, so the object can never be deleted: %v", err)
+			}
+		})
+	}
+
+	// The control: with no deletion under way the same spec must still be refused, or the bypass has swallowed
+	// the rule rather than scoped it.
+	v := validatorWith(t, ownedJob())
+	broken := job(func(m *platformv1.MLTrainingJob) { m.Spec.Image = "" })
+	if _, err := v.ValidateUpdate(context.Background(), job(nil), broken); err == nil {
+		t.Fatal("an empty image was accepted on a live object; the deletion bypass is too wide")
+	}
+}

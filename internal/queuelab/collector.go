@@ -16,7 +16,10 @@ limitations under the License.
 
 package queuelab
 
-import "fmt"
+import (
+	"fmt"
+	"time"
+)
 
 // DeltaType is the kind of watch observation the collector feeds the builder.
 type DeltaType string
@@ -48,10 +51,12 @@ const (
 // resource version, so there is no gap to relist and nothing calls it. It is kept, unused, only because
 // removing an exported method is a separable change from the one that orphaned it.
 type LedgerBuilder struct {
-	lastEvent map[string]EventType // per object UID, the last emitted event (transition dedup)
-	ready     map[string]bool      // per Pod UID, currently Ready and not yet observed stopped
-	events    []LifecycleEvent
-	invalid   string
+	lastEvent map[string]EventType
+	// wallAnchorNs is the run's t0 as a wall clock, zero until AnchorWallClock is called.
+	wallAnchorNs int64           // per object UID, the last emitted event (transition dedup)
+	ready        map[string]bool // per Pod UID, currently Ready and not yet observed stopped
+	events       []LifecycleEvent
+	invalid      string
 }
 
 // NewLedgerBuilder returns an empty builder.
@@ -60,6 +65,21 @@ func NewLedgerBuilder() *LedgerBuilder {
 		lastEvent: map[string]EventType{},
 		ready:     map[string]bool{},
 	}
+}
+
+// AnchorWallClock records the run's single wall-clock reference, from which every event's WallUnixNanos is
+// derived as anchor + ElapsedNs.
+//
+// Derived rather than sampled per event, and that is the point. The schema already warns that a wall clock is
+// not monotonic; taking time.Now() at each observation would let two events land out of order in the field
+// meant to date them, and a reader comparing them would be comparing clock drift. One anchor plus the
+// monotonic offsets keeps the wall times in the same order as the events.
+//
+// Without an anchor the field stays zero, which is what live runs did: the schema said the value was "kept
+// for provenance" and no producer ever wrote it, so every persisted ledger had events datable only relative
+// to a t0 the document did not carry.
+func (b *LedgerBuilder) AnchorWallClock(t0 time.Time) {
+	b.wallAnchorNs = t0.UnixNano()
 }
 
 // Observe folds one watch delta for an object already resolved to its trace job and classified into st.
@@ -76,15 +96,20 @@ func (b *LedgerBuilder) Observe(delta DeltaType, kind, uid, job string, st Obser
 		return
 	}
 	if st.Event != "" && b.lastEvent[uid] != st.Event {
+		wall := int64(0)
+		if b.wallAnchorNs != 0 {
+			wall = b.wallAnchorNs + elapsedNs
+		}
 		b.events = append(b.events, LifecycleEvent{
-			ElapsedNs:  elapsedNs,
-			Kind:       kind,
-			Type:       st.Event,
-			Job:        job,
-			ObjectUID:  uid,
-			Reason:     st.Reason,
-			ExitCode:   st.ExitCode,
-			Iterations: st.Iterations,
+			ElapsedNs:     elapsedNs,
+			WallUnixNanos: wall,
+			Kind:          kind,
+			Type:          st.Event,
+			Job:           job,
+			ObjectUID:     uid,
+			Reason:        st.Reason,
+			ExitCode:      st.ExitCode,
+			Iterations:    st.Iterations,
 		})
 		b.lastEvent[uid] = st.Event
 		switch st.Event {

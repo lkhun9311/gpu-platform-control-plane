@@ -98,6 +98,17 @@ type kindStream struct {
 	stream *watchStream
 }
 
+// newAnchoredBuilder returns a ledger builder that can date its events in wall-clock terms.
+//
+// The anchor is the run's own t0, so every event's WallUnixNanos is that instant plus the event's monotonic
+// offset. Sampling the wall clock at each observation instead would let two events land out of order in the
+// very field meant to date them.
+func newAnchoredBuilder(t0 time.Time) *queuelab.LedgerBuilder {
+	b := queuelab.NewLedgerBuilder()
+	b.AnchorWallClock(t0)
+	return b
+}
+
 func newCollector(c client.WithWatch, ns, runID string, horizon time.Duration) *collector {
 	t0 := time.Now()
 	return &collector{
@@ -106,7 +117,7 @@ func newCollector(c client.WithWatch, ns, runID string, horizon time.Duration) *
 		runID:    runID,
 		t0:       t0,
 		deadline: t0.Add(horizon),
-		builder:  queuelab.NewLedgerBuilder(),
+		builder:  newAnchoredBuilder(t0),
 		cache:    map[string]queuelab.ObservedObject{},
 		readyAt:  map[string]time.Time{},
 	}

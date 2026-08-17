@@ -57,10 +57,19 @@ spec:
               are capped at two, so this model has no depth left.
 
         # Upstream errors that fallback did NOT rescue: these reached the client.
+        # Requests that ENDED in a 5xx, which is what a client actually experienced.
+        #
+        # This used to subtract successful fallbacks from upstream errors, and those count different things:
+        # upstream_errors_total increments once per failed ATTEMPT, backend_fallbacks_total once per rescued
+        # REQUEST. A request whose two attempts both failed contributed 2 and was rescued 0 times, so the
+        # stated 0.1 threshold fired at roughly 0.05 failed requests per second. Subtracting a request rate
+        # from an attempt rate cannot be made meaningful by choosing a different number.
+        #
+        # requests_total is stamped once per request with its final status, so a 5xx rate over it is the
+        # client-visible failure rate directly, with no arithmetic between mismatched cardinalities.
         - alert: GatewayUpstreamErrorsReachingClients
           expr: |
-            sum by (model) (rate(gpuaas_gateway_upstream_errors_total[5m]))
-              - sum by (model) (rate(gpuaas_gateway_backend_fallbacks_total[5m])) > 0.1
+            sum by (model) (rate(gpuaas_gateway_requests_total{code=~"5.."}[5m])) > 0.1
           for: 5m
           labels:
             severity: critical

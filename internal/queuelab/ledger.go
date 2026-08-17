@@ -117,7 +117,6 @@ type attempt struct {
 	stopped    bool
 	stopNs     int64
 	stopReason string // the terminal Pod phase, which is what makes a stop attributable or not
-	consumed   bool   // a preemption decision has claimed this attempt's discarded work
 }
 
 // jobTimeline reconstructs one job's story from its events. It is SEEDED from the frozen trace row, not
@@ -592,8 +591,10 @@ func chargeWaste(t *jobTimeline, horizonElapsedNs int64, out *WorkloadOutcome) e
 	if err != nil {
 		return err
 	}
+	// No per-attempt "consumed" flag: pairPreemptionsToAttempts returns each ordinal attempt once, so a single
+	// pass cannot charge one twice. A mutable guard here read as double-charge protection while providing none,
+	// and it would only start mattering if pairing ever became incremental or multi-pass.
 	for _, a := range paired {
-		a.consumed = true
 		gpu := float64(t.gpuCount)
 		// The attempt's in-horizon occupancy, which every arm below charges somewhere. It is the SAME endpoint
 		// rule the occupancy loop above uses, so no arm can charge more than the row's own occupancy and a

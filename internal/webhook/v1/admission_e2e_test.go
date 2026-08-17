@@ -222,3 +222,48 @@ func minimalPodTemplate() corev1.PodTemplateSpec {
 		},
 	}
 }
+
+// The same guarantee through a real apiserver, because this one is about a path the unit test cannot walk:
+// the object has to actually be deleting, with a finalizer holding it, and the update has to be the one that
+// lets go.
+//
+// A webhook that refuses this update does not fail loudly. The delete call SUCCEEDS — it only sets a
+// deletion timestamp — and the object then sits in Terminating with no error anywhere until someone notices
+// it never went away.
+func TestApiserverLetsADeletingObjectFinish(t *testing.T) {
+	ctx, c := startAdmissionEnv(t)
+
+	// Created valid, because the webhook is installed and would refuse an empty image outright. What is
+	// simulated is a spec that BECAME unacceptable — the shape a legacy object has after a rule is added.
+	obj := mltj("deleting", func(j *platformv1.MLTrainingJob) {
+		j.Finalizers = []string{"platform.lkhun9311.github.io/mltrainingjob"}
+	})
+	if err := c.Create(ctx, obj); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	if err := c.Delete(ctx, obj); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+
+	var deleting platformv1.MLTrainingJob
+	if err := c.Get(ctx, client.ObjectKeyFromObject(obj), &deleting); err != nil {
+		t.Fatalf("the finalizer should be holding the object: %v", err)
+	}
+	if deleting.DeletionTimestamp.IsZero() {
+		t.Fatal("the object is not actually deleting, so this test proves nothing")
+	}
+
+	// Now it fails the create-time rules, the way an object predating them does.
+	deleting.Spec.Image = ""
+	deleting.Finalizers = nil
+	if err := c.Update(ctx, &deleting); err != nil {
+		t.Fatalf("the apiserver refused the update that removes the finalizer, so the object is stranded: %v", err)
+	}
+
+	var gone platformv1.MLTrainingJob
+	err := c.Get(ctx, client.ObjectKeyFromObject(obj), &gone)
+	if err == nil {
+		t.Fatal("the object survived its own deletion")
+	}
+}

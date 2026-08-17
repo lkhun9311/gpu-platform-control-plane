@@ -1111,6 +1111,73 @@ var _ = Describe("fallback and the client's own cancellation", func() {
 		Expect(last).NotTo(BeZero(), "the failure the handler would substitute was never reported")
 	})
 
+	// A non-final backend answering 503 must be REPORTED as 503, not as a proxy failure.
+	//
+	// The retryable answer used to travel as a bare sentinel, so ErrorHandler saw an error that was not a
+	// timeout and wrote 502. A model server returning 503 while it loads weights was then logged and counted
+	// as "the proxy could not reach it" — a different operational signal, and the exact distinction this file
+	// separates 502 from 504 to preserve.
+	//
+	// The client's own answer is unaffected either way, because ModifyResponse is only attached to non-final
+	// attempts. What was wrong was what the gateway told its operators about itself.
+	//
+	// Mutation that turns this red: return the bare errRetryableStatus instead of the typed error.
+	It("reports a retryable upstream answer as the status the upstream actually sent", func() {
+		loading := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusServiceUnavailable)
+		}))
+		defer loading.Close()
+		spare := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		}))
+		defer spare.Close()
+		loadingURL, _ := url.Parse(loading.URL)
+		spareURL, _ := url.Parse(spare.URL)
+
+		req, err := http.NewRequest(http.MethodPost, "http://gw/v1/chat/completions", nil)
+		Expect(err).NotTo(HaveOccurred())
+		buf := []byte(`{"model":"m"}`)
+		req.GetBody = func() (io.ReadCloser, error) { return io.NopCloser(bytes.NewReader(buf)), nil }
+		req.Body, _ = req.GetBody()
+
+		var reported []int
+		rec := &statusRecorder{ResponseWriter: httptest.NewRecorder(), code: http.StatusOK}
+		advanced := tryBackends(rec, req, []*url.URL{loadingURL, spareURL}, http.DefaultTransport,
+			func(c int, final bool) { reported = append(reported, c) })
+
+		Expect(advanced).To(BeTrue(), "a 503 head should have been retried")
+		Expect(reported).To(Equal([]int{http.StatusServiceUnavailable}),
+			"the failure was reported as a synthetic proxy error rather than the upstream's own status")
+	})
+
+	// The control: a genuine transport failure must still be 502, or the change has replaced one wrong code
+	// with another.
+	//
+	// Mutation that turns this red: report every failure as the upstream status, defaulting to 200.
+	It("still reports an unreachable backend as a proxy failure", func() {
+		dead := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+		deadURL, _ := url.Parse(dead.URL)
+		dead.Close()
+		spare := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		}))
+		defer spare.Close()
+		spareURL, _ := url.Parse(spare.URL)
+
+		req, err := http.NewRequest(http.MethodPost, "http://gw/v1/chat/completions", nil)
+		Expect(err).NotTo(HaveOccurred())
+		buf := []byte(`{"model":"m"}`)
+		req.GetBody = func() (io.ReadCloser, error) { return io.NopCloser(bytes.NewReader(buf)), nil }
+		req.Body, _ = req.GetBody()
+
+		var reported []int
+		tryBackends(httptest.NewRecorder(), req, []*url.URL{deadURL, spareURL}, http.DefaultTransport,
+			func(c int, final bool) { reported = append(reported, c) })
+
+		Expect(reported).To(Equal([]int{http.StatusBadGateway}),
+			"a refused connection is a proxy failure and must stay 502")
+	})
+
 	// A caller must not be able to read the cluster's topology out of a failed request.
 	//
 	// The whole existing suite passed while the raw transport error was being written to the client, which
