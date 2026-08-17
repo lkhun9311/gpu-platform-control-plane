@@ -886,9 +886,9 @@ func createOwned(ctx context.Context, c client.Client, o client.Object, txID str
 		// A re-read would answer the same question for the cost of another round trip. This does not need one.
 		if got := o.GetLabels()[queuelab.TxLabel]; got != txID {
 			return deleteUnstampedObject(ctx, c, o, fmt.Errorf(
-				"%s %s/%s was created carrying transaction %q rather than this run's %q; an object this run's "+
-					"own Create is one no teardown of this run can recognise as ours",
-				o.GetObjectKind().GroupVersionKind().Kind, o.GetNamespace(), o.GetName(), got, txID))
+				"%T %s/%s was created carrying transaction %q rather than this run's %q; an object this "+
+					"run created but cannot recognise as its own is one no teardown of this run will remove",
+				o, o.GetNamespace(), o.GetName(), got, txID))
 		}
 		return nil
 	}

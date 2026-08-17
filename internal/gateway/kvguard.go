@@ -601,6 +601,21 @@ type backendRegistrar interface {
 	RegisterBackend(backend *BackendRef)
 }
 
+// statelessAdmitter marks an Admitter whose Admit is a pure read of backend state, charging the request
+// nothing and consuming no budget.
+//
+// It exists so admitCandidates can ask about EVERY backend a request might reach instead of only the first.
+// That question is unanswerable for a stateful admitter: static-cap's Admit spends EstInputTokens from a
+// per-backend rate limiter, so asking it about three candidates would bill one request three times and make
+// the arm measure something other than offered load.
+//
+// A marker method rather than a bool field, matching backendRegistrar directly above: the property belongs
+// to the implementation, and an implementation that stops being a pure read has to delete this method to
+// stay honest.
+type statelessAdmitter interface {
+	AdmitIsStateless()
+}
+
 // kvAwareAdmitter is the Admitter behind AdmissionKVAware.
 //
 // Design rationale (design spec Arm C section): it never scrapes and never blocks on I/O; Admit
@@ -623,6 +638,11 @@ func newKVAwareAdmitter(manager *scraperManager, longThreshold int) *kvAwareAdmi
 func (a *kvAwareAdmitter) RegisterBackend(backend *BackendRef) {
 	a.manager.Register(backend)
 }
+
+// AdmitIsStateless declares what the type comment above already promises: Admit below reads a published
+// snapshot and returns, touching nothing. It is what lets admitCandidates evaluate every routing candidate
+// for one request.
+func (a *kvAwareAdmitter) AdmitIsStateless() {}
 
 // Admit implements the Arm C decision (design spec v1 Mechanism / v2 Arm C sections):
 //

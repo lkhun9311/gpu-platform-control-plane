@@ -699,20 +699,40 @@ func (r *recordingAdmitter) Admit(_ context.Context, _ RequestMeta, b *BackendRe
 	return true, ""
 }
 
-// Registration covers every candidate; metering covers one. The asymmetry is the fix, not an inconsistency.
+// statelessRecorder is a recordingAdmitter that declares its Admit free of side effects, and rejects for
+// exactly one named backend so the specs below can put the rejection anywhere in the candidate list.
+type statelessRecorder struct {
+	recordingAdmitter
+	rejectFor string
+}
+
+func (s *statelessRecorder) AdmitIsStateless() {}
+
+func (s *statelessRecorder) Admit(_ context.Context, _ RequestMeta, b *BackendRef, _, _ string) (bool, string) {
+	s.metered = append(s.metered, b.Name)
+	if b.Name == s.rejectFor {
+		return false, "kv_cache_pressure"
+	}
+	return true, ""
+}
+
+// Registration covers every candidate. Which candidates are ASKED depends on whether asking costs anything.
 //
 // Registering only the head meant that when the head went down its scraper hit the same dead Service, its
 // snapshot went stale, and the kv-aware guard — which fails OPEN on staleness — admitted everything, while
 // the spare absorbing all the traffic had no scraper at all. The guard went blind exactly when fallback made
 // it matter, and nothing reported it: every request still succeeded.
 //
-// Metering stays on the head because admission runs before any attempt and cannot know which backend will
-// serve; charging one request to several budgets would make the admission arms measure something other than
-// offered load.
+// Asking only the head was the same shape of mistake one level up. The head is the backend TRIED first, not
+// the one that will serve, so a stale head bypassing the guard let the request reach a spare nobody
+// consulted. A stateless admitter is now asked about every candidate and one dissent rejects; a stateful one
+// is still asked once, because static-cap spends tokens per call and billing one request several times would
+// make the arm measure something other than offered load.
 //
-// Mutations that turn this red: register targets[0] only, or meter every candidate.
+// Mutations that turn these red: register targets[0] only; ask targets[0] only for a stateless admitter; ask
+// every candidate regardless of statelessness; or take the last verdict rather than the first dissent.
 var _ = Describe("admitCandidates", func() {
-	It("registers every candidate and meters only the first", func() {
+	It("registers every candidate and meters only the first, for a stateful admitter", func() {
 		rec := &recordingAdmitter{}
 		targets := []*BackendRef{
 			{Name: "head", Namespace: "ns", Model: "m"},
@@ -727,6 +747,49 @@ var _ = Describe("admitCandidates", func() {
 			"a backend that can serve traffic was left without a telemetry scraper")
 		Expect(rec.metered).To(Equal([]string{"head"}),
 			"one request was charged against more than one backend's budget")
+	})
+
+	It("asks a stateless admitter about every candidate", func() {
+		rec := &statelessRecorder{}
+		targets := []*BackendRef{
+			{Name: "head", Namespace: "ns", Model: "m"},
+			{Name: "spare", Namespace: "ns", Model: "m"},
+		}
+
+		admit, _ := admitCandidates(context.Background(), rec, RequestMeta{Model: "m"}, targets, "t1", "standard")
+
+		Expect(admit).To(BeTrue())
+		Expect(rec.metered).To(Equal([]string{"head", "spare"}))
+	})
+
+	// The defect this closes: the head bypasses (stale telemetry, or simply healthy), the request travels to a
+	// spare that is under pressure, and nothing ever asked the spare.
+	It("rejects when a candidate other than the head refuses", func() {
+		rec := &statelessRecorder{rejectFor: "spare"}
+		targets := []*BackendRef{
+			{Name: "head", Namespace: "ns", Model: "m"},
+			{Name: "spare", Namespace: "ns", Model: "m"},
+		}
+
+		admit, reason := admitCandidates(context.Background(), rec, RequestMeta{Model: "m"}, targets, "t1", "standard")
+
+		Expect(admit).To(BeFalse())
+		Expect(reason).To(Equal("kv_cache_pressure"))
+	})
+
+	// Asking stops at the first dissent, so a rejecting head is never overruled by a permissive spare behind
+	// it. Without this a "take the last verdict" implementation would satisfy the two specs above.
+	It("stops at the first candidate that refuses", func() {
+		rec := &statelessRecorder{rejectFor: "head"}
+		targets := []*BackendRef{
+			{Name: "head", Namespace: "ns", Model: "m"},
+			{Name: "spare", Namespace: "ns", Model: "m"},
+		}
+
+		admit, _ := admitCandidates(context.Background(), rec, RequestMeta{Model: "m"}, targets, "t1", "standard")
+
+		Expect(admit).To(BeFalse())
+		Expect(rec.metered).To(Equal([]string{"head"}))
 	})
 
 	// An admitter that does not register at all must still be metered — off and static-cap do not implement

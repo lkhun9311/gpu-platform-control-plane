@@ -327,9 +327,10 @@ func (r *MLTrainingJobReconciler) getWorkloadForJob(ctx context.Context, job *ba
 	if labelled != nil {
 		// Kueue keeps one Workload per Job UID, so more than one match means that invariant was violated upstream.
 		//
-		// Surface it rather than silently picking one, then take the first so the reconcile still makes progress.
+		// Surface it rather than silently picking one, then take the oldest so the reconcile still makes
+		// progress, and so a repeated reconcile keeps choosing the same object.
 		if n := countLabelled(claimed.Items, string(job.UID)); n > 1 {
-			logf.FromContext(ctx).Info("multiple Kueue Workloads share one job-uid label; using the first",
+			logf.FromContext(ctx).Info("multiple Kueue Workloads share one job-uid label; using the oldest",
 				"job", job.Namespace+"/"+job.Name, "count", n)
 		}
 		return labelled, nil

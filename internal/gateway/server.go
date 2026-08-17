@@ -419,9 +419,11 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 	// a non-final attempt failed — including the cancelled requests where no retry ever happened, which the
 	// benchmark harness produces on every timeout.
 	//
-	// rec.code < 500 is still required on top: a fallback that also failed is not a rescue, and counting it
-	// as one inverts what the ratio means.
-	if advanced && rec.code < 500 {
+	// A successful status is still required on top: a fallback that also failed is not a rescue, and counting
+	// it as one inverts what the ratio means. The range is 2xx and 3xx rather than everything below 500,
+	// because a 4xx from the spare means the request reached it and was refused on its own merits — the
+	// fallback path carried the request but never served an answer, and the metric's name says "served".
+	if advanced && rec.code >= 200 && rec.code < 400 {
 		backendFallbacks.WithLabelValues(tenant, meta.Model).Inc()
 	}
 
@@ -532,9 +534,24 @@ func NewCache(ctx context.Context, cfg *rest.Config, scheme *runtime.Scheme, nam
 // guard went blind exactly when fallback made it matter, and nothing reported it, because every request still
 // succeeded. Register is idempotent, so this starts a scraper only the first time a backend is seen.
 //
-// The HEAD alone is metered. Admission runs before any attempt, so it cannot know which backend will end up
-// serving; and charging one request against several backends' budgets would make the admission arms measure
-// something other than offered load. One request, one charge, decided up front.
+// WHICH candidates are ASKED depends on whether asking costs anything.
+//
+// Asking only the head was wrong in the same shape as registering only the head, and for the same reason.
+// Admission runs before any attempt, so it cannot know which backend will serve; the head is merely the one
+// that will be TRIED first. When the head is unreachable its telemetry goes stale, the kv-aware guard
+// bypasses on staleness — correctly, since refusing traffic on a number nobody could read would be worse —
+// and the request then travels to a spare that was never consulted. The guard is at its most permissive
+// exactly when the backend under real pressure is the one about to receive the request.
+//
+// So a stateless admitter is asked about every candidate, and one dissent rejects. It is the conservative
+// reading and deliberately so: a request is admitted only if every backend it could reach would take it. The
+// cost is that a loaded spare can now shed a long standard-tier request the head would have served. That
+// costs something only while a spare is genuinely under KV pressure, which on this routing table means it is
+// already absorbing traffic.
+//
+// A STATEFUL admitter is still asked once, about the head. static-cap's Admit spends EstInputTokens from a
+// per-backend limiter, so asking it about each candidate would bill one request several times and the arm
+// would stop measuring offered load. One request, one charge, decided up front.
 func admitCandidates(ctx context.Context, admitter Admitter, meta RequestMeta,
 	targets []*BackendRef, tenant, tier string) (bool, string) {
 	if reg, ok := admitter.(backendRegistrar); ok {
@@ -542,5 +559,13 @@ func admitCandidates(ctx context.Context, admitter Admitter, meta RequestMeta,
 			reg.RegisterBackend(t)
 		}
 	}
-	return admitter.Admit(ctx, meta, targets[0], tenant, tier)
+	if _, stateless := admitter.(statelessAdmitter); !stateless {
+		return admitter.Admit(ctx, meta, targets[0], tenant, tier)
+	}
+	for _, t := range targets {
+		if ok, reason := admitter.Admit(ctx, meta, t, tenant, tier); !ok {
+			return false, reason
+		}
+	}
+	return true, ""
 }
