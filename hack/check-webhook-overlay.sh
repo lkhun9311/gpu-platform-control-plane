@@ -65,6 +65,15 @@ require(cert_secret == dep_secret,
         'Certificate writes secret %r but the Deployment mounts %r' % (cert_secret, dep_secret))
 require('--webhook-cert-path=' in dep,
         'Deployment does not pass --webhook-cert-path, so the manager starts with validation disabled')
+# The webhook patch must ADD to args, not replace them. containers[].args is a list of plain strings with no
+# merge key, so a strategic-merge patch silently drops every flag the base and the other overlays set. The
+# first version did exactly that and deleted --metrics-bind-address: the rollout was clean, the webhook
+# worked, and the operator exposed no metrics at all until Prometheus failed to connect to a port nothing
+# was listening on.
+require('--metrics-bind-address=' in dep,
+        'Deployment lost --metrics-bind-address; the webhook patch replaced the args list instead of adding to it')
+require('--health-probe-bind-address=' in dep,
+        'Deployment lost --health-probe-bind-address; same cause as above')
 require('DELETE' not in wh,
         'webhook intercepts DELETE; teardown belongs to the finalizer')
 

@@ -24,10 +24,15 @@ images:
     newTag: webhook-v1
 
 patches:
-  # Mount the issued certificate and point the manager at it. Without --webhook-cert-path the manager logs
-  # that admission validation is NOT running and starts anyway, which is right for the default overlay and
-  # wrong here.
+  # Point the manager at the certificate. Without --webhook-cert-path it logs that admission validation is
+  # NOT running and starts anyway, which is right for the default overlay and wrong here.
   - path: manager_webhook_patch.yaml
+    target:
+      kind: Deployment
+      name: controller-manager
+
+  # Mount the certificate the flag above refers to.
+  - path: manager_webhook_volume_patch.yaml
 
   # The CA annotation is a static patch now that the Certificate's name and namespace are fixed. An earlier
   # version derived it from the Certificate with a replacements block, which read as more robust and produced
