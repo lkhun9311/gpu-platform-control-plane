@@ -383,26 +383,39 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 	// It also needs the request body back. A POST is not replayable on its own, and this is exactly what
 	// r.GetBody was already installed for one stage earlier: the factory reads from a buffer held in memory,
 	// so rewinding costs nothing and cannot fail. Without it there would be no second attempt to make.
-	fellBack := false
+	// The LAST failure code seen, kept so a request that ended without any backend answering is not published
+	// as the recorder's seeded 200. That happened on every cancelled request: the callback only wrote rec.code
+	// on a final attempt, the guards inside tryBackends stopped the loop before any final attempt ran, and a
+	// request nobody served went into requests_total as a success.
+	lastFailure := 0
 	urls := make([]*url.URL, 0, len(targets))
 	for _, t := range targets {
 		urls = append(urls, t.URL)
 	}
-	tryBackends(rec, r, urls, s.sharedTransport(), func(code int, final bool) {
+	advanced := tryBackends(rec, r, urls, s.sharedTransport(), func(code int, final bool) {
 		upstreamErrors.WithLabelValues(tenant, meta.Model).Inc()
+		lastFailure = code
 		if final {
 			rec.code = code
-			return
 		}
-		// Counted once per REQUEST that a later backend went on to serve, not once per failed attempt. The
-		// increment used to sit here unconditionally, so a request whose non-final attempt failed and was then
-		// NOT retried — the client already had bytes, or the body could not be replayed — was counted as a
-		// fallback that never happened, and the counter could not answer the question it exists for.
-		fellBack = true
 	})
-	if fellBack && rec.code < 500 {
-		// Only when the request was actually served by a later backend: rec.code still being a success is what
-		// says the fallback worked, and a failure counted as a rescue would invert the ratio's meaning.
+	// Nothing ever reached the client, so no backend answered. rec.code is still its default 200 and would
+	// publish a failed request as a success; the last failure code is what actually happened.
+	//
+	// The rec.answered guard is load-bearing rather than defensive: a request whose FIRST attempt failed and
+	// whose retry SUCCEEDED also leaves lastFailure set, and without the guard that genuine 200 would be
+	// overwritten by the failure that was recovered from.
+	if !rec.answered && lastFailure != 0 {
+		rec.code = lastFailure
+	}
+	// advanced is tryBackends reporting that it REALLY tried another candidate, not the failure callback
+	// guessing. The callback fires before the retry guards run, so latching on it counted a fallback whenever
+	// a non-final attempt failed — including the cancelled requests where no retry ever happened, which the
+	// benchmark harness produces on every timeout.
+	//
+	// rec.code < 500 is still required on top: a fallback that also failed is not a rescue, and counting it
+	// as one inverts what the ratio means.
+	if advanced && rec.code < 500 {
 		backendFallbacks.WithLabelValues(tenant, meta.Model).Inc()
 	}
 

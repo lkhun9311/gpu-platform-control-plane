@@ -1008,6 +1008,109 @@ var _ = Describe("fallback and the client's own cancellation", func() {
 		Expect(failures).To(Equal(1), "one disconnect was counted as several upstream failures")
 	})
 
+	// The failure callback fires BEFORE the guards decide whether a retry is possible, so a caller latching on
+	// it counts a fallback that never happened. tryBackends reporting whether it actually advanced is the only
+	// thing that can tell the two apart, and a cancelled request is the case where they differ.
+	//
+	// Mutation that turns this red: set advanced = true at the top of the loop instead of past the guards.
+	It("reports that it did not advance when the client hung up", func() {
+		var hits int
+		slow := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			time.Sleep(400 * time.Millisecond)
+		}))
+		defer slow.Close()
+		spare := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			hits++
+			w.WriteHeader(http.StatusOK)
+		}))
+		defer spare.Close()
+		slowURL, _ := url.Parse(slow.URL)
+		spareURL, _ := url.Parse(spare.URL)
+
+		ctx, cancel := context.WithCancel(context.Background())
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://gw/v1/chat/completions", nil)
+		Expect(err).NotTo(HaveOccurred())
+		buf := []byte(`{"model":"m"}`)
+		req.GetBody = func() (io.ReadCloser, error) { return io.NopCloser(bytes.NewReader(buf)), nil }
+		req.Body, _ = req.GetBody()
+
+		go func() { time.Sleep(120 * time.Millisecond); cancel() }()
+		advanced := tryBackends(httptest.NewRecorder(), req, []*url.URL{slowURL, spareURL},
+			http.DefaultTransport, func(int, bool) {})
+
+		Expect(advanced).To(BeFalse(), "a cancelled request reported a fallback that never happened")
+		Expect(hits).To(Equal(0), "the spare was tried after the client had already gone")
+	})
+
+	// The control. Without it, always returning false would satisfy the spec above and the counter would stop
+	// recording the fallbacks that do happen.
+	//
+	// Mutation that turns this red: return false unconditionally.
+	It("reports that it advanced when a spare really served the request", func() {
+		var hits int
+		dead := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+		deadURL, _ := url.Parse(dead.URL)
+		dead.Close()
+		spare := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			hits++
+			w.WriteHeader(http.StatusOK)
+		}))
+		defer spare.Close()
+		spareURL, _ := url.Parse(spare.URL)
+
+		req, err := http.NewRequest(http.MethodPost, "http://gw/v1/chat/completions", nil)
+		Expect(err).NotTo(HaveOccurred())
+		buf := []byte(`{"model":"m"}`)
+		req.GetBody = func() (io.ReadCloser, error) { return io.NopCloser(bytes.NewReader(buf)), nil }
+		req.Body, _ = req.GetBody()
+
+		rec := &statusRecorder{ResponseWriter: httptest.NewRecorder(), code: http.StatusOK}
+		advanced := tryBackends(rec, req, []*url.URL{deadURL, spareURL}, http.DefaultTransport, func(int, bool) {})
+
+		Expect(advanced).To(BeTrue(), "a real retry was not reported")
+		Expect(hits).To(Equal(1))
+		Expect(rec.answered).To(BeTrue(), "the spare's answer was not recorded as having reached the client")
+	})
+
+	// A request nobody answered must not be publishable as the recorder's seeded 200.
+	//
+	// This needs a NON-final attempt to fail and the retry to be refused, which is the only way the loop ends
+	// with nothing written: on a final attempt the ErrorHandler's 502 goes straight through to the client and
+	// the recorder is answered, correctly. A first version of this spec used a single target and asserted the
+	// recorder still held 200 — it held 502, because that is the right answer for that case.
+	//
+	// Mutation that turns this red: make statusRecorder stop tracking answered.
+	It("leaves the recorder unanswered when a non-final attempt fails and no retry follows", func() {
+		slow := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			time.Sleep(400 * time.Millisecond)
+		}))
+		defer slow.Close()
+		spare := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		}))
+		defer spare.Close()
+		slowURL, _ := url.Parse(slow.URL)
+		spareURL, _ := url.Parse(spare.URL)
+
+		ctx, cancel := context.WithCancel(context.Background())
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://gw/v1/chat/completions", nil)
+		Expect(err).NotTo(HaveOccurred())
+		buf := []byte(`{"model":"m"}`)
+		req.GetBody = func() (io.ReadCloser, error) { return io.NopCloser(bytes.NewReader(buf)), nil }
+		req.Body, _ = req.GetBody()
+
+		go func() { time.Sleep(120 * time.Millisecond); cancel() }()
+		rec := &statusRecorder{ResponseWriter: httptest.NewRecorder(), code: http.StatusOK}
+		var last int
+		tryBackends(rec, req, []*url.URL{slowURL, spareURL}, http.DefaultTransport,
+			func(c int, final bool) { last = c })
+
+		Expect(rec.answered).To(BeFalse(), "nothing reached the client, so the recorder must not claim it did")
+		Expect(rec.code).To(Equal(http.StatusOK),
+			"the recorder still holds its seed, which is why the handler has to substitute the failure code")
+		Expect(last).NotTo(BeZero(), "the failure the handler would substitute was never reported")
+	})
+
 	// Mutation that turns this red: remove the maxBackendAttempts truncation.
 	It("stops after the cap however many stale backends a model has", func() {
 		var dialled int

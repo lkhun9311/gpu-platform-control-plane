@@ -168,12 +168,24 @@ type statusRecorder struct {
 	http.ResponseWriter
 	// code defaults to 200 because a handler that calls Write without WriteHeader implicitly sends 200.
 	code int
+	// answered distinguishes "the client received 200" from "nothing reached the client and code is still its
+	// default". Without it those two are the same value, and a request no backend ever answered is published
+	// as a success — which is exactly what happened to every cancelled request.
+	answered bool
 }
 
 // WriteHeader records the status code and forwards it to the wrapped writer.
 func (rec *statusRecorder) WriteHeader(c int) {
 	rec.code = c
+	rec.answered = true
 	rec.ResponseWriter.WriteHeader(c)
+}
+
+// Write marks the response answered, because a handler may write a body without ever calling WriteHeader and
+// that still means 200 reached the client.
+func (rec *statusRecorder) Write(b []byte) (int, error) {
+	rec.answered = true
+	return rec.ResponseWriter.Write(b)
 }
 
 // Flush forwards to the wrapped writer's Flusher when it has one.
@@ -529,8 +541,14 @@ func (a *attemptWriter) Flush() {
 // onFailure reports each failed attempt, and its final flag is what separates a failure the client will see
 // from one another backend went on to absorb — the two need different counters, or a degraded model and a
 // broken one look identical in the metrics.
+// The bool reports whether the loop ACTUALLY advanced to another candidate.
+//
+// The caller cannot infer this from the failure callback. That callback fires before the guards below decide
+// whether a retry is possible at all, so a caller latching on it counts a fallback for a request that was
+// never retried — on a cancelled request it also leaves the status recorder holding its seeded 200, and a
+// failed request is then published as a success. Reporting the fact is the only way the caller can know it.
 func tryBackends(w http.ResponseWriter, r *http.Request, targets []*url.URL,
-	transport http.RoundTripper, onFailure func(code int, final bool)) {
+	transport http.RoundTripper, onFailure func(code int, final bool)) (advanced bool) {
 	// Attempts are capped, and the cap is not tidiness. Each attempt gets the transport's full
 	// ResponseHeaderTimeout plus its dial timeout, and nothing spans the loop — so a model left with four
 	// stale InferenceDeployments pointing at blackholed Services would pin a goroutine, a client connection
@@ -577,7 +595,7 @@ func tryBackends(w http.ResponseWriter, r *http.Request, targets []*url.URL,
 		// Answered, or answered partially: either way this request is finished. A failure after the first byte
 		// cannot be retried, because a second backend would splice its answer onto the one already in flight.
 		if !att.failed || att.wrote || last {
-			return
+			return advanced
 		}
 		// A client that hung up is not a backend that failed. RoundTrip returns context.Canceled, which is not
 		// a net.Error, so ErrorHandler maps it to 502 and the loop would walk every remaining candidate —
@@ -585,17 +603,21 @@ func tryBackends(w http.ResponseWriter, r *http.Request, targets []*url.URL,
 		// upstream errors and N-1 fallbacks, poisoning the very ratio backend_fallbacks_total exists to give.
 		// The harness cancels every request outstanding past its timeout, so this is routine rather than exotic.
 		if r.Context().Err() != nil {
-			return
+			return advanced
 		}
 		// The body has been consumed by the attempt that just failed, so the next one needs it back. GetBody
 		// reads from a buffer already in memory; a request without one cannot be replayed and ends here.
 		if r.GetBody == nil {
-			return
+			return advanced
 		}
 		body, err := r.GetBody()
 		if err != nil {
-			return
+			return advanced
 		}
 		r.Body = body
+		// Past every guard, so the next iteration really is another backend being tried. Set here rather than
+		// at the top of the loop: entering the loop is not advancing, and the difference is the whole point.
+		advanced = true
 	}
+	return advanced
 }

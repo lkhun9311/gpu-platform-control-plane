@@ -54,6 +54,21 @@ The steady state also asserts what makes the two objects alternatives at all: bo
 serve the same model name, and the head really is the older of the two — oldest-first is the routing order,
 so an experiment that removed the *younger* one would be removing the spare and measuring nothing.
 
+## What this evidence depended on
+
+At the time this run was taken, `backend_fallbacks_total` could be incremented for a request that was never
+retried. The failure callback set the fallback flag before the guards inside `tryBackends` decided whether a
+retry was possible, so a cancelled request recorded a fallback that did not happen — and, because the status
+recorder still held its seeded 200, was also published as a success.
+
+**This run is unaffected**, and the reason is checkable rather than hopeful: all twenty requests returned
+200 from the spare, none were cancelled, and the delta was exactly twenty against twenty successes. The
+defective path needs a cancellation, and there was none.
+
+It is recorded here anyway, because "the counter moved by 20" is only evidence if the counter could not have
+moved for another reason. `tryBackends` now reports whether it actually advanced to another candidate rather
+than leaving the caller to infer it, so a later reader does not have to reconstruct that argument.
+
 ## Together with FR-002
 
 | run | backends | outcome | `backend_fallbacks_total` |
