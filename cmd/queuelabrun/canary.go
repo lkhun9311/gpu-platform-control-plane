@@ -174,8 +174,15 @@ func harnessTerminationContract() canaryContract {
 		Index: 0, Name: "termination-canary", Tenant: "canary",
 		GPUCount: 1, DurationSec: canaryProbeDurationSec,
 	}
-	honor := queuelab.RenderMLTrainingJobWithContract(row, canaryNamespace, queuelab.HonorsSIGTERM)
-	ignore := queuelab.RenderMLTrainingJobWithContract(row, canaryNamespace, queuelab.IgnoresSIGTERM)
+	// Both errors are discarded, and the reason is that both arguments are constants of this package: the
+	// renderer's only failure is an unknown TerminationContract, and neither of these can be one. The renderer
+	// returns an error because it is EXPORTED and a caller elsewhere could hand it anything — that was the
+	// review's concern and it is answered there, not here.
+	//
+	// Mutation that would make this unsafe: passing a contract derived from input. If that ever happens this
+	// function has to grow an error return with it.
+	honor, _ := queuelab.RenderMLTrainingJobWithContract(row, canaryNamespace, queuelab.HonorsSIGTERM)
+	ignore, _ := queuelab.RenderMLTrainingJobWithContract(row, canaryNamespace, queuelab.IgnoresSIGTERM)
 	return canaryContract{
 		Image:            honor.Spec.Image,
 		HonorCommand:     honor.Spec.Command,

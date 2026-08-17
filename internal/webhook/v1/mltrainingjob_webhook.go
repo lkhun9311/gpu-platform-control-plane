@@ -30,7 +30,11 @@ import (
 // fact that decides whether an edit can still take effect. Reading status.phase instead would decide the
 // same question from a field that lags the Job it describes.
 type MLTrainingJobValidator struct {
-	client.Client
+	// Reader, not client.Client. Embedding the full interface put Create, Update, Delete and Patch on the
+	// exported validator's own surface — an admission validator that can mutate the cluster is a wider public
+	// API than the job needs, and it invites a future rule to write from inside a decision that should only
+	// read. A named field also makes the dependency legible in tests: what has to be faked is one Get.
+	Reader client.Reader
 }
 
 var _ admission.Validator[*platformv1.MLTrainingJob] = &MLTrainingJobValidator{}
@@ -41,7 +45,7 @@ var mltjGroupKind = schema.GroupKind{Group: platformv1.GroupVersion.Group, Kind:
 // SetupMLTrainingJobWebhookWithManager registers the validator with the manager's webhook server.
 func SetupMLTrainingJobWebhookWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewWebhookManagedBy(mgr, &platformv1.MLTrainingJob{}).
-		WithValidator(&MLTrainingJobValidator{Client: mgr.GetClient()}).
+		WithValidator(&MLTrainingJobValidator{Reader: mgr.GetClient()}).
 		Complete()
 }
 
@@ -144,7 +148,7 @@ func bakedFieldEdits(oldSpec, newSpec *platformv1.MLTrainingJobSpec) field.Error
 // template is not this object's to change either way.
 func (v *MLTrainingJobValidator) ownedJobExists(ctx context.Context, mltj *platformv1.MLTrainingJob) (bool, error) {
 	var job batchv1.Job
-	err := v.Get(ctx, client.ObjectKey{Name: mltj.Name, Namespace: mltj.Namespace}, &job)
+	err := v.Reader.Get(ctx, client.ObjectKey{Name: mltj.Name, Namespace: mltj.Namespace}, &job)
 	switch {
 	case err == nil:
 		return true, nil

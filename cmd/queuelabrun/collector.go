@@ -720,7 +720,10 @@ func submit(ctx context.Context, c client.Client, col *collector, arm queuelab.A
 	if err != nil {
 		return err
 	}
-	mltj := queuelab.RenderMLTrainingJobWithContract(row, ns, contract)
+	mltj, err := queuelab.RenderMLTrainingJobWithContract(row, ns, contract)
+	if err != nil {
+		return err
+	}
 	if err := c.Create(ctx, mltj); err != nil {
 		return err
 	}

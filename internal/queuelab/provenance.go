@@ -151,7 +151,7 @@ func podConditionTrue(pod *corev1.Pod, condType corev1.PodConditionType) bool {
 	return false
 }
 
-// soleExitCode returns the exit status when exactly one container terminated, and nil otherwise.
+// soleTerminated returns the exit status and iteration count when exactly one container terminated, and nil otherwise.
 //
 // The ambiguity is refused rather than resolved by picking a container, because this package has no way to
 // know which one carried the workload: the trace's Pods have a single container today, and a template that

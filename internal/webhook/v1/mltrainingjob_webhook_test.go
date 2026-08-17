@@ -38,7 +38,7 @@ func validatorWith(t *testing.T, objs ...runtime.Object) *MLTrainingJobValidator
 		t.Fatalf("add scheme: %v", err)
 	}
 	return &MLTrainingJobValidator{
-		Client: fake.NewClientBuilder().WithScheme(scheme.Scheme).WithRuntimeObjects(objs...).Build(),
+		Reader: fake.NewClientBuilder().WithScheme(scheme.Scheme).WithRuntimeObjects(objs...).Build(),
 	}
 }
 
@@ -166,7 +166,7 @@ func TestValidateUpdateFailsClosedWhenTheJobLookupFails(t *testing.T) {
 	// exists to catch, and it would do so at the least visible moment.
 	//
 	// Mutation that turns this red: treat a lookup error as "no Job exists" and carry on.
-	v := &MLTrainingJobValidator{Client: erroringClient{}}
+	v := &MLTrainingJobValidator{Reader: erroringClient{}}
 	_, err := v.ValidateUpdate(context.Background(), job(nil), job(func(m *platformv1.MLTrainingJob) {
 		m.Spec.Image = "trainer:v2"
 	}))

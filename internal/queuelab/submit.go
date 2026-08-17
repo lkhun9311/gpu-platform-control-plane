@@ -119,7 +119,9 @@ const termExitCode = 143
 //
 // The default is deliberately the ignoring form so no existing caller silently switches arms; callers that
 // want a preemptible workload must ask for it.
-func RenderMLTrainingJob(row TrainingTraceRow, namespace string) *platformv1.MLTrainingJob {
+func RenderMLTrainingJob(row TrainingTraceRow, namespace string) (*platformv1.MLTrainingJob, error) {
+	// The contract is a constant here, so the error cannot fire; it is returned rather than dropped so this
+	// wrapper does not become the one place an unknown contract is silently tolerated.
 	return RenderMLTrainingJobWithContract(row, namespace, IgnoresSIGTERM)
 }
 
@@ -134,7 +136,11 @@ func RenderMLTrainingJob(row TrainingTraceRow, namespace string) *platformv1.MLT
 // occupancy and demand-satisfaction accounting assumes.
 func RenderMLTrainingJobWithContract(
 	row TrainingTraceRow, namespace string, contract TerminationContract,
-) *platformv1.MLTrainingJob {
+) (*platformv1.MLTrainingJob, error) {
+	command, err := sleeperCommand(row.DurationSec, contract)
+	if err != nil {
+		return nil, err
+	}
 	return &platformv1.MLTrainingJob{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      row.Name,
@@ -149,12 +155,12 @@ func RenderMLTrainingJobWithContract(
 		Spec: platformv1.MLTrainingJobSpec{
 			Queue:       localQueueName(row.Tenant),
 			Image:       WorkloadImage,
-			Command:     sleeperCommand(row.DurationSec, contract),
+			Command:     command,
 			GPUCount:    int32(row.GPUCount),
 			Parallelism: 1,
 			Completions: 1,
 		},
-	}
+	}, nil
 }
 
 // sleeperCommand builds the container command for a duration under the given termination contract.
@@ -171,16 +177,16 @@ func RenderMLTrainingJobWithContract(
 // The contract is the experimental axis of this study, so an unrecognized value must not fall through to the
 // ignoring arm: that would run the contrast arm under the honoring arm's label and produce a plausible wrong
 // result, which is the exact failure class the measurement work exists to eliminate.
-func sleeperCommand(durationSec int, contract TerminationContract) []string {
+func sleeperCommand(durationSec int, contract TerminationContract) ([]string, error) {
 	// Substituted rather than formatted: the script is full of Python %d verbs and handing it to fmt.Sprintf
 	// makes Go try to interpret them, which go vet catches and a reader would not.
 	script := strings.Replace(workloadScript, "EXITCODE", strconv.Itoa(termExitCode), 1)
 	switch contract {
 	case HonorsSIGTERM:
-		return []string{"python3", "-c", script, strconv.Itoa(durationSec), "honor"}
+		return []string{"python3", "-c", script, strconv.Itoa(durationSec), "honor"}, nil
 	case IgnoresSIGTERM:
-		return []string{"python3", "-c", script, strconv.Itoa(durationSec), "ignore"}
+		return []string{"python3", "-c", script, strconv.Itoa(durationSec), "ignore"}, nil
 	default:
-		panic(fmt.Sprintf("queuelab: unknown TerminationContract %q", contract))
+		return nil, fmt.Errorf("unknown TerminationContract %q", contract)
 	}
 }

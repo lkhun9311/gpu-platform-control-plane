@@ -79,7 +79,7 @@ func olderInfD(a, b *platformv1.InferenceDeployment) bool {
 	return a.CreationTimestamp.Before(&b.CreationTimestamp)
 }
 
-// backendFor resolves the requested model to the Service URL of the InferenceDeployment serving it, or ErrNoRoute if none does.
+// backendsFor resolves the requested model to every InferenceDeployment serving it, ordered head first, or ErrNoRoute if none does.
 //
 // Design rationale (design spec Components section): the lookup goes through the ModelNameIndex field index on the cache, so it needs no CR field selector and no per-request apiserver call.
 //

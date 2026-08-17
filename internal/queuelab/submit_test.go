@@ -25,7 +25,10 @@ import (
 func TestRenderMLTrainingJobMatchesTraceAndQueue(t *testing.T) {
 	rows := ReclaimScenario(true, 600)
 	borrow := rows[1] // a2-borrow, tenant-a
-	job := RenderMLTrainingJob(borrow, "run-ns")
+	job, err := RenderMLTrainingJob(borrow, "run-ns")
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
 
 	if job.Name != "a2-borrow" || job.Namespace != "run-ns" {
 		t.Fatalf("job identity = %s/%s", job.Namespace, job.Name)
@@ -53,7 +56,10 @@ func TestRenderMLTrainingJobMatchesTraceAndQueue(t *testing.T) {
 
 func TestRenderMLTrainingJobQueuePerTenant(t *testing.T) {
 	owner := ReclaimScenario(true, 600)[2] // b1-owner, tenant-b
-	job := RenderMLTrainingJob(owner, "run-ns")
+	job, err := RenderMLTrainingJob(owner, "run-ns")
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
 	if job.Spec.Queue != "ql-tenant-b" {
 		t.Fatalf("tenant-b job should target ql-tenant-b, got %q", job.Spec.Queue)
 	}
@@ -76,8 +82,14 @@ func TestRenderMLTrainingJobQueuePerTenant(t *testing.T) {
 func TestRenderMLTrainingJobTerminationContract(t *testing.T) {
 	row := TrainingTraceRow{Index: 0, Name: "a1", Tenant: "tenant-a", GPUCount: 1, DurationSec: 40}
 
-	ignoring := RenderMLTrainingJobWithContract(row, "queuelab", IgnoresSIGTERM)
-	honoring := RenderMLTrainingJobWithContract(row, "queuelab", HonorsSIGTERM)
+	ignoring, err := RenderMLTrainingJobWithContract(row, "queuelab", IgnoresSIGTERM)
+	if err != nil {
+		t.Fatalf("render ignoring: %v", err)
+	}
+	honoring, err := RenderMLTrainingJobWithContract(row, "queuelab", HonorsSIGTERM)
+	if err != nil {
+		t.Fatalf("render honoring: %v", err)
+	}
 
 	// The arms must differ by EXACTLY ONE element, and that is the property the whole contrast rests on. A
 	// second difference — a different script, a different duration, a different interpreter — would make the
@@ -145,7 +157,40 @@ func TestRenderMLTrainingJobTerminationContract(t *testing.T) {
 	}
 
 	// The default wrapper stays on the ignoring contract so existing callers do not silently change arms.
-	if !slices.Equal(RenderMLTrainingJob(row, "queuelab").Spec.Command, ignoring.Spec.Command) {
+	defaulted, err := RenderMLTrainingJob(row, "queuelab")
+	if err != nil {
+		t.Fatalf("render default: %v", err)
+	}
+	if !slices.Equal(defaulted.Spec.Command, ignoring.Spec.Command) {
 		t.Fatal("RenderMLTrainingJob must keep the IgnoresSIGTERM contract")
+	}
+}
+
+// The exported renderer must refuse an unknown contract rather than take the process down with it.
+//
+// It is exported and takes the contract from its caller, so an invalid value is caller input, not an
+// impossible internal state. It used to panic, which in a measurement binary loses the whole run over an
+// argument the function could simply have rejected.
+//
+// Mutation that turns this red: restore the panic in sleeperCommand's default branch.
+func TestRenderRefusesAnUnknownContract(t *testing.T) {
+	row := TrainingTraceRow{Index: 0, Name: "x", Tenant: "t", GPUCount: 1, DurationSec: 10}
+
+	job, err := RenderMLTrainingJobWithContract(row, "queuelab", TerminationContract("neither"))
+	if err == nil {
+		t.Fatal("an unknown contract was rendered instead of refused")
+	}
+	if job != nil {
+		t.Fatal("a job was returned alongside the error")
+	}
+	if !strings.Contains(err.Error(), "neither") {
+		t.Fatalf("the error does not name the contract it rejected: %v", err)
+	}
+
+	// The control: the two real contracts must still render, or the guard has become "refuse everything".
+	for _, c := range []TerminationContract{HonorsSIGTERM, IgnoresSIGTERM} {
+		if _, err := RenderMLTrainingJobWithContract(row, "queuelab", c); err != nil {
+			t.Fatalf("contract %q was refused: %v", c, err)
+		}
 	}
 }
