@@ -27,6 +27,7 @@ docs/superpowers/*
 !/hack/observability-kind.md
 !/hack/chaos-fr002-serving-pod-killed.md
 !/hack/chaos-fr002b-backend-fallback.md
+!/hack/argocd-kind.md
 !/docs/0[0-7]*.md
 !/docs/09*.md
 !/docs/10_WHAT_I_GOT_WRONG.md
