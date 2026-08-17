@@ -155,6 +155,36 @@ func TestCreateOwnedAdoptsAMatchingMechanism(t *testing.T) {
 	}
 }
 
+// A LocalQueue holds submissions at its own end, so a stopped one produces a run in which nothing was ever
+// submitted while the ClusterQueue behind it looks perfectly healthy.
+//
+// Mutation that turns this red: stop comparing StopPolicy for LocalQueue in sameMechanism.
+func TestCreateOwnedRefusesAStoppedLocalQueue(t *testing.T) {
+	scheme := kueueScheme(t)
+	hold := kueuev1beta2.Hold
+	existing := &kueuev1beta2.LocalQueue{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "lq-s", Namespace: "ns", Labels: map[string]string{queuelab.TxLabel: "tx-1"},
+		},
+		Spec: kueuev1beta2.LocalQueueSpec{ClusterQueue: "cq-mine", StopPolicy: &hold},
+	}
+	c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(existing).Build()
+
+	want := &kueuev1beta2.LocalQueue{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "lq-s", Namespace: "ns", Labels: map[string]string{queuelab.TxLabel: "tx-1"},
+		},
+		Spec: kueuev1beta2.LocalQueueSpec{ClusterQueue: "cq-mine"},
+	}
+	err := createOwned(context.Background(), c, want, "tx-1")
+	if err == nil {
+		t.Fatal("adopted a LocalQueue that is holding every submission")
+	}
+	if !strings.Contains(err.Error(), "stopPolicy") {
+		t.Fatalf("error does not name stopPolicy: %v", err)
+	}
+}
+
 func TestCreateOwnedRefusesALocalQueuePointingElsewhere(t *testing.T) {
 	// A LocalQueue aimed at another ClusterQueue routes this arm's jobs into another arm's quota, which is a
 	// contaminated measurement rather than a failed one — the kind that still produces a number.
@@ -245,6 +275,30 @@ func TestCreateOwnedRefusesEveryExperimentDefiningDifference(t *testing.T) {
 		{"flavor the quota is charged against", func(c *kueuev1beta2.ClusterQueue) {
 			c.Spec.ResourceGroups[0].Flavors[0].Name = "flavor-other"
 		}, "flavor"},
+		// The four rows below were absent while this table read as complete coverage of the mechanism. Each
+		// one changes what the queue admits without changing anything the six rows above compare, so an arm
+		// could adopt a queue that admitted nothing and record the run as executed.
+		{"stopPolicy", func(c *kueuev1beta2.ClusterQueue) {
+			hold := kueuev1beta2.HoldAndDrain
+			c.Spec.StopPolicy = &hold
+		}, "stopPolicy"},
+		{"namespaceSelector narrowed", func(c *kueuev1beta2.ClusterQueue) {
+			c.Spec.NamespaceSelector = &metav1.LabelSelector{MatchLabels: map[string]string{"team": "other"}}
+		}, "namespace"},
+		{"namespaceSelector absent", func(c *kueuev1beta2.ClusterQueue) {
+			c.Spec.NamespaceSelector = nil
+		}, "namespace"},
+		{"borrowWithinCohort", func(c *kueuev1beta2.ClusterQueue) {
+			c.Spec.Preemption.BorrowWithinCohort = &kueuev1beta2.BorrowWithinCohort{
+				Policy: kueuev1beta2.BorrowWithinCohortPolicyLowerPriority,
+			}
+		}, "borrowWithinCohort"},
+		{"flavorFungibility", func(c *kueuev1beta2.ClusterQueue) {
+			c.Spec.FlavorFungibility = &kueuev1beta2.FlavorFungibility{
+				WhenCanBorrow:  kueuev1beta2.MayStopSearch,
+				WhenCanPreempt: kueuev1beta2.MayStopSearch,
+			}
+		}, "flavorFungibility"},
 	}
 	for _, row := range rows {
 		t.Run(row.name, func(t *testing.T) {

@@ -975,6 +975,12 @@ func sameMechanism(want, got client.Object) error {
 		if w.Spec.ClusterQueue != g.Spec.ClusterQueue {
 			return fmt.Errorf("it points at ClusterQueue %q, not %q", g.Spec.ClusterQueue, w.Spec.ClusterQueue)
 		}
+		// A LocalQueue carries its own stop policy, and a stopped one holds every submission at this end
+		// however healthy the ClusterQueue behind it is.
+		if stopPolicy(w.Spec.StopPolicy) != stopPolicy(g.Spec.StopPolicy) {
+			return fmt.Errorf("its stopPolicy is %q, not the %q this arm declared",
+				stopPolicy(g.Spec.StopPolicy), stopPolicy(w.Spec.StopPolicy))
+		}
 	case *kueuev1beta2.ResourceFlavor:
 		g, ok := got.(*kueuev1beta2.ResourceFlavor)
 		if !ok {
@@ -1008,6 +1014,32 @@ func sameClusterQueue(w, g *kueuev1beta2.ClusterQueue) error {
 			return fmt.Errorf("its withinClusterQueue is %q, not the %q this arm declared",
 				gp.WithinClusterQueue, wp.WithinClusterQueue)
 		}
+		// The third preemption knob. It decides whether a workload may preempt in order to keep BORROWING
+		// rather than to fit inside its own nominal quota, which is a distinct behaviour from the two above
+		// and the one the reclaim study's cohort arrangement exists to exercise.
+		if borrowPolicy(wp.BorrowWithinCohort) != borrowPolicy(gp.BorrowWithinCohort) {
+			return fmt.Errorf("its borrowWithinCohort policy is %q, not the %q this arm declared",
+				borrowPolicy(gp.BorrowWithinCohort), borrowPolicy(wp.BorrowWithinCohort))
+		}
+	}
+	// A stopped queue admits nothing at all, so an arm that adopted one would record a run in which the
+	// mechanism under test never ran, with no error anywhere to say so.
+	if stopPolicy(w.Spec.StopPolicy) != stopPolicy(g.Spec.StopPolicy) {
+		return fmt.Errorf("its stopPolicy is %q, not the %q this arm declared",
+			stopPolicy(g.Spec.StopPolicy), stopPolicy(w.Spec.StopPolicy))
+	}
+	// The fixture declares an empty selector, meaning every namespace may submit to this queue. A selector
+	// that is absent or narrowed can exclude this run's own namespace, and Kueue reports that by simply not
+	// admitting: the arm would measure a queue nothing reached.
+	if selectsAllNamespaces(w) != selectsAllNamespaces(g) {
+		return fmt.Errorf("it admits from %s, where this arm declared %s",
+			admittedNamespaceScope(g), admittedNamespaceScope(w))
+	}
+	// Fungibility decides whether a workload waits for its preferred flavor or spills to the next one, which
+	// changes which flavor a run's pods land on and therefore which node.
+	if fungibility(w.Spec.FlavorFungibility) != fungibility(g.Spec.FlavorFungibility) {
+		return fmt.Errorf("its flavorFungibility is %q, not the %q this arm declared",
+			fungibility(g.Spec.FlavorFungibility), fungibility(w.Spec.FlavorFungibility))
 	}
 	// Cohort membership decides who can borrow from whom, which is the whole subject of the reclaim study.
 	if w.Spec.CohortName != g.Spec.CohortName {
@@ -1019,6 +1051,50 @@ func sameClusterQueue(w, g *kueuev1beta2.ClusterQueue) error {
 		return err
 	}
 	return nil
+}
+
+// The four helpers below render an optional policy field as a single comparable string.
+//
+// Each of these is a pointer or a nested struct where "unset" and "set to the zero value" are different
+// facts, and comparing the pointers directly would compare addresses. Rendering both sides through the same
+// function is also what puts the same spelling in the comparison and in the error message.
+func stopPolicy(p *kueuev1beta2.StopPolicy) string {
+	if p == nil {
+		return "None"
+	}
+	return string(*p)
+}
+
+func borrowPolicy(b *kueuev1beta2.BorrowWithinCohort) string {
+	if b == nil {
+		return "Never"
+	}
+	return string(b.Policy)
+}
+
+func fungibility(f *kueuev1beta2.FlavorFungibility) string {
+	if f == nil {
+		return "default"
+	}
+	return fmt.Sprintf("%s/%s", f.WhenCanBorrow, f.WhenCanPreempt)
+}
+
+// selectsAllNamespaces reports whether the queue's selector matches every namespace, which is what an empty
+// (but present) selector means. A nil selector matches NOTHING, so the two are opposites rather than
+// variations, and the distinction is the whole reason this is not a nil check.
+func selectsAllNamespaces(cq *kueuev1beta2.ClusterQueue) bool {
+	s := cq.Spec.NamespaceSelector
+	return s != nil && len(s.MatchLabels) == 0 && len(s.MatchExpressions) == 0
+}
+
+func admittedNamespaceScope(cq *kueuev1beta2.ClusterQueue) string {
+	if selectsAllNamespaces(cq) {
+		return "every namespace"
+	}
+	if cq.Spec.NamespaceSelector == nil {
+		return "no namespace (its selector is absent)"
+	}
+	return fmt.Sprintf("a restricted set of namespaces (%v)", cq.Spec.NamespaceSelector)
 }
 
 // sameQuota compares covered resources, the flavor each is charged against, and the nominal amounts.
