@@ -1176,3 +1176,73 @@ func TestReconstructPairsAPromptlyStoppedVictim(t *testing.T) {
 		}
 	}
 }
+
+// reorderedCompletionEvents has the Job's completion observed BEFORE its own Pod's Ready.
+//
+// That is not corrupt data. Job and Pod arrive on independent watches and the ledger says outright that
+// comparing their observed instants proves nothing about what happened first, so this ordering is legal and
+// a run carrying it must still be readable.
+// reorderedTrace declares exactly the two rows reorderedCompletionEvents drives, so the reconstruction is
+// not refused for a third row the fixture never submits.
+func reorderedTrace() []TrainingTraceRow {
+	return []TrainingTraceRow{
+		{Index: 0, Name: "a1", OffsetMs: 0, Tenant: "tenant-a", GPUCount: 1, DurationSec: 600},
+		{Index: 1, Name: "a2", OffsetMs: 1_000, Tenant: "tenant-a", GPUCount: 1, DurationSec: 600},
+	}
+}
+
+func reorderedCompletionEvents() []LifecycleEvent {
+	return []LifecycleEvent{
+		{ElapsedNs: 0, Kind: "MLTrainingJob", Type: EventSubmitted, Job: "a1", Tenant: "tenant-a", GPUCount: 1},
+		{ElapsedNs: 0, Kind: "Workload", Type: EventAdmitted, Job: "a1", Tenant: "tenant-a", GPUCount: 1},
+		{ElapsedNs: 2 * sec, Kind: "Pod", Type: EventPodReady, Job: "a1", Tenant: "tenant-a", GPUCount: 1, ObjectUID: "pod-a1"},
+		{ElapsedNs: 40 * sec, Kind: "Pod", Type: EventAttemptStopped, Job: "a1", Tenant: "tenant-a", GPUCount: 1, ObjectUID: "pod-a1", Reason: StopReasonSucceeded},
+		{ElapsedNs: 41 * sec, Kind: "Job", Type: EventCompleted, Job: "a1", Tenant: "tenant-a", GPUCount: 1},
+
+		// a2's completion lands at 20s while its Pod's Ready is only observed at 30s.
+		{ElapsedNs: 1 * sec, Kind: "MLTrainingJob", Type: EventSubmitted, Job: "a2", Tenant: "tenant-a", GPUCount: 1},
+		{ElapsedNs: 5 * sec, Kind: "Workload", Type: EventAdmitted, Job: "a2", Tenant: "tenant-a", GPUCount: 1},
+		{ElapsedNs: 20 * sec, Kind: "Job", Type: EventCompleted, Job: "a2", Tenant: "tenant-a", GPUCount: 1},
+		{ElapsedNs: 30 * sec, Kind: "Pod", Type: EventPodReady, Job: "a2", Tenant: "tenant-a", GPUCount: 1, ObjectUID: "pod-a2"},
+	}
+}
+
+// A completion observed before its own attempt's Ready must charge zero, never a negative interval.
+//
+// Negative occupancy does not merely misreport the attempt it belongs to: the row's total is a sum, so a
+// negative term silently cancels another attempt's real cost and the report comes out lower with nothing
+// flagged. That is the failure mode this lab exists to refuse.
+//
+// Mutation that turns this red: return end without clamping it up to readyNs in occupancyEnd.
+func TestOccupancyIsNeverNegativeWhenWatchesReorder(t *testing.T) {
+	res, err := Reconstruct("Any", reorderedTrace(), reorderedCompletionEvents(), 200*sec)
+	if err != nil {
+		t.Fatalf("a legal cross-watch reordering must still reconstruct: %v", err)
+	}
+
+	var total float64
+	for _, o := range res.Outcomes {
+		if o.TotalOccupancyGPUSeconds < 0 {
+			t.Fatalf("%s charged %.1f GPU-seconds; occupancy can never be negative",
+				o.Job, o.TotalOccupancyGPUSeconds)
+		}
+		total += o.TotalOccupancyGPUSeconds
+	}
+
+	var a2 WorkloadOutcome
+	for _, o := range res.Outcomes {
+		if o.Job == "a2" {
+			a2 = o
+		}
+	}
+	// Ready at 30s against a completion seen at 20s is zero-width evidence, not minus ten seconds.
+	if a2.TotalOccupancyGPUSeconds != 0 {
+		t.Fatalf("a2 charged %.1f, want 0 for an interval whose end was observed before its start",
+			a2.TotalOccupancyGPUSeconds)
+	}
+	// The control: a1's ordinary 2s -> 40s attempt must still be charged in full, or the clamp has become
+	// "charge nothing" and the measurement is gone rather than corrected.
+	if total != 38 {
+		t.Fatalf("total occupancy = %.1f, want 38 from a1 alone", total)
+	}
+}

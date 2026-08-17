@@ -506,16 +506,33 @@ func foldEvent(byJob map[string]*jobTimeline, e *LifecycleEvent, horizonElapsedN
 // row could not still have been running past that completion, making it a sound and still-conservative upper
 // bound tighter than the horizon. With neither a stop nor a completion, the horizon is what remains.
 func occupancyEnd(t *jobTimeline, a *attempt, horizonElapsedNs int64) int64 {
-	if a.stopped {
+	end := horizonElapsedNs
+	switch {
+	case a.stopped:
 		if a.stopNs <= horizonElapsedNs {
-			return a.stopNs
+			end = a.stopNs
 		}
-		return horizonElapsedNs
+	case t.completed:
+		end = t.completedNs
 	}
-	if t.completed {
-		return t.completedNs
+	// Clamped up to readyNs, never below it, because the endpoint can legally be observed first.
+	//
+	// completedNs comes from the JOB watch and readyNs from the POD watch, and the ledger already states that
+	// ordering across independent watches proves nothing about what happened. So a completion seen before its
+	// own attempt's Ready is not impossible evidence — it is the reordering this design accepts — and the
+	// subtraction below it would produce NEGATIVE occupancy, which does not merely misreport this attempt: it
+	// silently cancels another attempt's real cost out of the row's total, with nothing flagged.
+	//
+	// Refusing the run instead would discard legitimate measurements over an ordering the harness has already
+	// decided it cannot read. Clamping keeps the accounting non-negative and treats the interval as the
+	// zero-width evidence it actually is.
+	//
+	// The same-watch case is deliberately NOT handled here: a Pod stopping before it was Ready comes from one
+	// watch, is therefore impossible rather than reordered, and chargeWaste refuses the run over it.
+	if end < a.readyNs {
+		return a.readyNs
 	}
-	return horizonElapsedNs
+	return end
 }
 
 // chargeWaste runs the per-job ordering checks and the attempt-paired preemption accounting, writing the
