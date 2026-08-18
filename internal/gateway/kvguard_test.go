@@ -526,6 +526,69 @@ var _ = Describe("kvAwareAdmitter.Admit", func() {
 
 // --- Scraper manager lifecycle ---------------------------------------------------
 
+var _ = Describe("scraperManager idle eviction", func() {
+	// Unregister existed with no production caller, so every backend ever routed to kept a goroutine, an HTTP
+	// client, a scrape every interval, and a live gauge until the process exited. A deleted or renamed model
+	// left admission_guard_engaged=1 on a machine that no longer exists — a reading of something that is not
+	// there, which is worse than losing the series.
+	//
+	// The clock is injected and sweep is driven directly, so nothing here waits on a ticker.
+	//
+	// Mutation that turns this red: make sweep a no-op, or stamp lastRouted only when a scraper is created.
+	It("stops a scraper nothing has routed to, and removes its gauges", func() {
+		up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(minimalValidMetrics))
+		}))
+		defer up.Close()
+
+		now := time.Now()
+		m := newScraperManager(scraperConfig{
+			scrapeInterval: time.Hour, maxStaleness: time.Hour, httpTimeout: time.Second,
+			idleTimeout: 30 * time.Minute,
+			clock:       func() time.Time { return now },
+		})
+		defer m.Stop()
+
+		// The count is taken against a baseline rather than zero: backendTelemetryFresh is a package-level Vec
+		// shared by every spec in this suite.
+		//
+		// And the wait is on the METRIC, not on snapshotFor. snapshotFor answers true as soon as Register puts
+		// the scraper in the map, which is before its first scrape has published anything — a first version of
+		// this spec waited on it, evicted a backend whose gauge had never been created, and passed while
+		// asserting nothing.
+		baseline := testutil.CollectAndCount(backendTelemetryFresh)
+
+		ref := newTestRef("ns", "b1", up.URL)
+		m.Register(ref)
+		Eventually(func() int {
+			return testutil.CollectAndCount(backendTelemetryFresh)
+		}, 2*time.Second, 10*time.Millisecond).Should(Equal(baseline+1),
+			"the scraper never published a gauge, so there is nothing for eviction to remove")
+
+		// Still inside the window: a sweep must leave it alone, or the eviction is just a timer that fires.
+		now = now.Add(20 * time.Minute)
+		m.sweep()
+		_, ok := m.snapshotFor(backendKey(ref))
+		Expect(ok).To(BeTrue(), "a backend routed to 20 minutes ago was evicted under a 30-minute timeout")
+
+		// Routing to it again must postpone eviction, which is the whole reason Register stamps before its
+		// early return rather than after.
+		m.Register(ref)
+		now = now.Add(20 * time.Minute)
+		m.sweep()
+		_, ok = m.snapshotFor(backendKey(ref))
+		Expect(ok).To(BeTrue(), "re-routing to a live backend did not postpone its eviction")
+
+		now = now.Add(31 * time.Minute)
+		m.sweep()
+		_, ok = m.snapshotFor(backendKey(ref))
+		Expect(ok).To(BeFalse(), "a backend idle past the timeout kept its scraper")
+		Expect(testutil.CollectAndCount(backendTelemetryFresh)).To(Equal(baseline),
+			"the evicted backend's gauge is still being reported for a machine nothing is scraping")
+	})
+})
+
 var _ = Describe("scraperManager lifecycle", func() {
 	It("Register is idempotent: a second call for the same backend does not start a second scraper", func() {
 		up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

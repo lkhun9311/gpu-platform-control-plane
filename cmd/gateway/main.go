@@ -60,7 +60,12 @@ const (
 	defaultAdmissionKVReleaseSustain = 30 * time.Second
 	defaultAdmissionKVScrapeInterval = 2 * time.Second
 	defaultAdmissionKVMaxStaleness   = 6 * time.Second // 3x defaultAdmissionKVScrapeInterval
-	defaultAdmissionKVScrapeTimeout  = 1 * time.Second
+	// A backend under steady traffic is routed to constantly, so this only ever expires one that has stopped
+	// receiving requests: it has either been deleted or has nothing to be under pressure about, and both want
+	// its scraper stopped and its gauges gone. Far above maxStaleness so a backend cannot be evicted while the
+	// guard is still treating its last reading as usable.
+	defaultAdmissionKVIdleTimeout   = 15 * time.Minute
+	defaultAdmissionKVScrapeTimeout = 1 * time.Second
 )
 
 func main() {
@@ -81,6 +86,7 @@ func main() {
 		admissionKVScrapeInterval time.Duration
 		admissionKVMaxStaleness   time.Duration
 		admissionKVScrapeTimeout  time.Duration
+		admissionKVIdleTimeout    time.Duration
 	)
 	flag.StringVar(&admissionModeFlag, "admission-mode", string(gateway.AdmissionOff),
 		"Admission control mode on the inference path: off, static-cap, or kv-aware.")
@@ -109,6 +115,9 @@ func main() {
 	flag.DurationVar(&admissionKVMaxStaleness, "admission-kv-max-staleness", defaultAdmissionKVMaxStaleness,
 		"kv-aware mode: how long since the last successful scrape before the guard bypasses "+
 			"(admits) rather than acting on stale telemetry.")
+	flag.DurationVar(&admissionKVIdleTimeout, "admission-kv-idle-timeout", defaultAdmissionKVIdleTimeout,
+		"how long a backend may go unrouted before its scraper is stopped and its gauges removed; "+
+			"must be well above --admission-kv-scrape-interval")
 	flag.DurationVar(&admissionKVScrapeTimeout, "admission-kv-scrape-timeout", defaultAdmissionKVScrapeTimeout,
 		"kv-aware mode: HTTP timeout for a single /metrics scrape.")
 	flag.Parse()
@@ -138,6 +147,7 @@ func main() {
 			ReleaseSustain: admissionKVReleaseSustain,
 			ScrapeInterval: admissionKVScrapeInterval,
 			MaxStaleness:   admissionKVMaxStaleness,
+			IdleTimeout:    admissionKVIdleTimeout,
 			HTTPTimeout:    admissionKVScrapeTimeout,
 			LongThreshold:  admissionLongThreshold,
 		},

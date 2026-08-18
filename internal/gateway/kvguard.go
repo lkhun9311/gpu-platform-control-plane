@@ -314,7 +314,12 @@ type scraperConfig struct {
 	scrapeInterval time.Duration
 	maxStaleness   time.Duration
 	httpTimeout    time.Duration
-	clock          clockFunc
+	// idleTimeout is how long a backend may go unrouted before its scraper is stopped and its gauges removed.
+	//
+	// It must be well above scrapeInterval, or a backend serving steady traffic could be evicted between two
+	// requests. Zero selects ten scrape intervals; a set value is used as given.
+	idleTimeout time.Duration
+	clock       clockFunc
 }
 
 // pressureConfig extracts the subset scraperConfig shares with pressureState.
@@ -326,6 +331,13 @@ func (c scraperConfig) pressureConfig() pressureConfig {
 		releaseSustain: c.releaseSustain,
 	}
 }
+
+// defaultScraperIdleTimeout is the fallback when neither an explicit timeout nor a scrape interval is set.
+//
+// It only applies to a manager built with no scrapeInterval at all, which production never does; the real
+// floor is ten scrape intervals, so a backend under steady traffic can miss several scrapes without being
+// mistaken for one that has gone away.
+const defaultScraperIdleTimeout = 15 * time.Minute
 
 // backendScraper owns one backend's HTTP scrape loop, pressure state machine, and published
 // snapshot.
@@ -474,7 +486,17 @@ func boolToFloat(v bool) float64 {
 // snapshot for longer than necessary.
 func (b *backendScraper) run() {
 	defer close(b.done)
-	ctx := context.Background()
+	// The scrape inherits the SCRAPER's lifetime rather than context.Background(). With Background, Stop
+	// closed b.stop and then blocked on <-b.done while a scrape already in flight ran to its full HTTP
+	// timeout: shutting the gateway down, or evicting one idle backend, waited on a request whose answer
+	// nobody would read. Cancelling here ends that request at the moment the decision to stop is made.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() {
+		<-b.stop
+		cancel()
+	}()
+
 	b.tick(ctx)
 	ticker := time.NewTicker(b.cfg.scrapeInterval)
 	defer ticker.Stop()
@@ -503,6 +525,17 @@ type scraperManager struct {
 
 	mu       sync.Mutex
 	scrapers map[string]*backendScraper
+	// lastRouted is when each key was last handed to Register, which happens on every routed request.
+	//
+	// It is the eviction clock. Register is the only signal this component gets that a backend still exists:
+	// there is no watch here, and adding one would put an informer and its RBAC into a process that otherwise
+	// only reads on demand. A backend that has stopped receiving traffic has either gone away or has nothing
+	// to be under pressure about, and both cases want the same thing — its scraper stopped and its gauges
+	// removed.
+	lastRouted map[string]time.Time
+	// janitorStop ends the eviction loop; janitorDone is closed when it has.
+	janitorStop chan struct{}
+	janitorDone chan struct{}
 }
 
 // newScraperManager returns an empty scraperManager, defaulting cfg.clock to time.Now when the
@@ -511,7 +544,72 @@ func newScraperManager(cfg scraperConfig) *scraperManager {
 	if cfg.clock == nil {
 		cfg.clock = time.Now
 	}
-	return &scraperManager{cfg: cfg, scrapers: make(map[string]*backendScraper)}
+	// A zero idleTimeout would evict every backend on the first sweep, including ones being routed to right
+	// now, so an unset value is defaulted rather than taken literally.
+	//
+	// An explicitly set value is used as given. Clamping it to a floor was the first attempt and it was wrong
+	// in a way the specs caught immediately: it silently overrode what the caller asked for, so a manager
+	// configured with a 30-minute timeout quietly ran with a ten-hour one and nothing said so. A value too
+	// close to scrapeInterval is a configuration error, and the place to reject one is where the flag is
+	// parsed, not here where the correction would be invisible.
+	if cfg.idleTimeout <= 0 {
+		cfg.idleTimeout = 10 * cfg.scrapeInterval
+	}
+	if cfg.idleTimeout <= 0 {
+		cfg.idleTimeout = defaultScraperIdleTimeout
+	}
+	m := &scraperManager{
+		cfg:         cfg,
+		scrapers:    make(map[string]*backendScraper),
+		lastRouted:  make(map[string]time.Time),
+		janitorStop: make(chan struct{}),
+		janitorDone: make(chan struct{}),
+	}
+	go m.evictIdle()
+	return m
+}
+
+// evictIdle stops scrapers for backends nothing has routed to in idleTimeout, and removes their gauges.
+//
+// Without it Unregister had no production caller at all: every backend ever routed to kept a goroutine, an
+// HTTP client, a scrape every scrapeInterval, and a live gauge until the process exited. A model renamed or
+// deleted left admission_guard_engaged=1 on a machine that no longer exists, which is worse than losing the
+// series — it is a reading of something that is not there.
+//
+// The cost of evicting a quiet-but-alive backend is bounded and already documented behaviour: the next
+// request re-registers it, and the guard fails open while telemetry is stale, which is what it does for any
+// backend it cannot currently read.
+func (m *scraperManager) evictIdle() {
+	defer close(m.janitorDone)
+	// Swept at a fraction of the timeout so a backend is evicted somewhere near when it went idle rather
+	// than up to a whole timeout late.
+	ticker := time.NewTicker(m.cfg.idleTimeout / 4)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-m.janitorStop:
+			return
+		case <-ticker.C:
+			m.sweep()
+		}
+	}
+}
+
+// sweep unregisters every key idle past the timeout. Split from evictIdle so a test can drive one pass.
+func (m *scraperManager) sweep() {
+	cutoff := m.cfg.clock().Add(-m.cfg.idleTimeout)
+	m.mu.Lock()
+	stale := make([]BackendRef, 0)
+	for key, s := range m.scrapers {
+		if at, ok := m.lastRouted[key]; ok && at.After(cutoff) {
+			continue
+		}
+		stale = append(stale, s.ref)
+	}
+	m.mu.Unlock()
+	for i := range stale {
+		m.Unregister(&stale[i])
+	}
 }
 
 // Register starts a scraper for backend if one is not already running for its key.
@@ -524,6 +622,9 @@ func (m *scraperManager) Register(backend *BackendRef) {
 	key := backendKey(backend)
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	// Stamped before the early return, because the point is to record that this backend is still being routed
+	// to — which is exactly the case where a scraper already exists.
+	m.lastRouted[key] = m.cfg.clock()
 	if _, ok := m.scrapers[key]; ok {
 		return
 	}
@@ -543,6 +644,7 @@ func (m *scraperManager) Unregister(backend *BackendRef) {
 	s, ok := m.scrapers[key]
 	if ok {
 		delete(m.scrapers, key)
+		delete(m.lastRouted, key)
 	}
 	m.mu.Unlock()
 	if !ok {
@@ -561,12 +663,15 @@ func (m *scraperManager) Unregister(backend *BackendRef) {
 
 // Stop stops every running scraper, for graceful shutdown.
 func (m *scraperManager) Stop() {
+	close(m.janitorStop)
+	<-m.janitorDone
 	m.mu.Lock()
 	scrapers := make([]*backendScraper, 0, len(m.scrapers))
 	for _, s := range m.scrapers {
 		scrapers = append(scrapers, s)
 	}
 	m.scrapers = make(map[string]*backendScraper)
+	m.lastRouted = make(map[string]time.Time)
 	m.mu.Unlock()
 	for _, s := range scrapers {
 		s.Stop()
@@ -689,6 +794,9 @@ type KVAwareConfig struct {
 	MaxStaleness time.Duration
 	// HTTPTimeout bounds a single scrape's HTTP round trip.
 	HTTPTimeout time.Duration
+	// IdleTimeout is how long a backend may go unrouted before its scraper is stopped and its live
+	// gauges are deleted. Zero selects ten scrape intervals, which is the floor either way.
+	IdleTimeout time.Duration
 	// LongThreshold is the minimum EstInputTokens a standard-tier request needs before an
 	// engaged backend rejects it; shared in spirit with static-cap's longThreshold, since both
 	// modes meter the same eligible population.
@@ -706,6 +814,7 @@ func (c KVAwareConfig) toScraperConfig() scraperConfig {
 		scrapeInterval: c.ScrapeInterval,
 		maxStaleness:   c.MaxStaleness,
 		httpTimeout:    c.HTTPTimeout,
+		idleTimeout:    c.IdleTimeout,
 		clock:          time.Now,
 	}
 }
