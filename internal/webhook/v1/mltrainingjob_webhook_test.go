@@ -126,6 +126,11 @@ func TestValidateUpdateRefusesBakedEditsOnceTheJobExists(t *testing.T) {
 		{"gpuCount", func(m *platformv1.MLTrainingJob) { m.Spec.GPUCount = 8 }, "spec.gpuCount"},
 		{"gpuClass", func(m *platformv1.MLTrainingJob) { m.Spec.GPUClass = "h100" }, "spec.gpuClass"},
 		{"command", func(m *platformv1.MLTrainingJob) { m.Spec.Command = []string{"python", "train.py"} }, "spec.command"},
+		// Queue is not in the pod template, so it fails differently from the four above: the reconciler DOES
+		// re-apply it, on every pass, and Kueue's own webhook then refuses the change on a Job it has already
+		// admitted. The edit is stored and the controller loops on it forever, which reads as a controller bug
+		// rather than as the rejected edit it is.
+		{"queue", func(m *platformv1.MLTrainingJob) { m.Spec.Queue = "team-b" }, "spec.queue"},
 	}
 	for _, row := range rows {
 		t.Run(row.name, func(t *testing.T) {

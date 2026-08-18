@@ -172,6 +172,16 @@ func bakedFieldEdits(oldSpec, newSpec *platformv1.MLTrainingJobSpec) field.Error
 	if !slices.Equal(oldSpec.Command, newSpec.Command) {
 		errs = append(errs, field.Invalid(specPath.Child("command"), newSpec.Command, because))
 	}
+	// Queue is not part of the pod template, so it needs its own sentence: the reconciler copies the desired
+	// labels — including Kueue's queue-name label — onto the live Job on every pass, and Kueue's own webhook
+	// refuses that label being changed on a Job it has already admitted. Without this rule the edit is stored
+	// happily and then fails on every reconcile afterwards, which surfaces as a controller error loop about an
+	// object the user believes they successfully updated.
+	if oldSpec.Queue != newSpec.Queue {
+		errs = append(errs, field.Invalid(specPath.Child("queue"), newSpec.Queue,
+			"the owned Job is already admitted under queue "+oldSpec.Queue+
+				"; delete and recreate the MLTrainingJob to move it"))
+	}
 	return errs
 }
 

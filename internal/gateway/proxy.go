@@ -530,7 +530,18 @@ type attemptWriter struct {
 }
 
 // Header returns this attempt's own map, so nothing an abandoned attempt set can reach the client.
+//
+// Once the attempt has COMMITTED it returns the real writer's map instead, because the scratch map exists to
+// isolate an attempt that might still be abandoned and this one no longer can be.
+//
+// The case that needs it is trailers. ReverseProxy copies the body and then writes the upstream's trailer
+// values into rw.Header(); promote runs at WriteHeader or Write, so by then it has already happened, and
+// every trailer landed in a map nothing reads again. A streaming completion announcing usage totals in a
+// trailer delivered them nowhere.
 func (a *attemptWriter) Header() http.Header {
+	if a.wrote {
+		return a.ResponseWriter.Header()
+	}
 	if a.scratch == nil {
 		a.scratch = make(http.Header)
 	}

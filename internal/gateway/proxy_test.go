@@ -1307,6 +1307,35 @@ var _ = Describe("fallback on a retryable upstream status", func() {
 			"the head's own answer was replaced rather than passed through")
 	})
 
+	// Trailers are written AFTER the body, which is after the attempt has committed, and they were landing in
+	// the scratch map that only an uncommitted attempt should be using.
+	//
+	// This is not a theoretical HTTP corner for this gateway: a streaming completion reports its token usage
+	// in a trailer, so the tenant's own accounting arrived nowhere while the response itself looked perfect.
+	//
+	// Mutation that turns this red: return the scratch map from Header() unconditionally.
+	It("delivers a trailer the backend writes after the body", func() {
+		upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Trailer", "X-Usage-Total")
+			w.Header().Set("Content-Type", "text/event-stream")
+			w.WriteHeader(http.StatusOK)
+			_, _ = fmt.Fprint(w, "data: [DONE]\n\n")
+			w.Header().Set("X-Usage-Total", "512")
+		}))
+		DeferCleanup(upstream.Close)
+		u, err := url.Parse(upstream.URL)
+		Expect(err).NotTo(HaveOccurred())
+
+		rec := httptest.NewRecorder()
+		tryBackends(rec, post(), []*url.URL{u}, http.DefaultTransport, nil)
+
+		res := rec.Result()
+		defer func() { _ = res.Body.Close() }()
+		_, _ = io.ReadAll(res.Body)
+		Expect(res.Trailer.Get("X-Usage-Total")).To(Equal("512"),
+			"the backend's trailer never left the attempt's scratch headers")
+	})
+
 	// The dangerous half, and the one a status check cannot reach.
 	//
 	// A backend that ACCEPTS the connection, reads the request and then dies mid-flight produces a transport

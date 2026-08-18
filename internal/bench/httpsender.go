@@ -214,21 +214,25 @@ func newSenderTransport(maxIdleConnsPerHost int) http.RoundTripper {
 	if maxIdleConnsPerHost <= 0 {
 		return nil
 	}
-	return &http.Transport{
-		MaxIdleConnsPerHost: maxIdleConnsPerHost,
-		// IdleConnTimeout matches http.DefaultTransport's 90s rather than being left at zero, which would
-		// mean "never close an idle connection"; a benchmark process is short-lived, but a harness that
-		// leaks sockets on a long run would be measuring its own file-descriptor pressure.
-		IdleConnTimeout: 90 * time.Second,
-		// MaxIdleConns is left zero (no total cap) for the same reason the gateway leaves it zero: a shared
-		// total would let traffic to one host evict the connections of another, which in a two-tenant
-		// noisy-neighbour benchmark is precisely the coupling the run exists to detect and must not
-		// introduce itself.
-		//
-		// There is deliberately no MaxConnsPerHost either: that one blocks dispatch when the limit is
-		// reached, which would turn this open-loop sender into a closed-loop one and reintroduce the
-		// coordinated omission the design goes to some trouble to avoid.
-	}
+	// Cloned from http.DefaultTransport rather than built from a zero value, because the arms this sender
+	// compares differ ONLY in pooling. A fresh &http.Transport{} silently drops the defaults the other arm
+	// runs with — the proxy resolver, the dialer's timeout and keep-alive, TLS handshake timeout, expect-100
+	// handling and HTTP/2 — so "before" and "after" would differ in half a dozen ways at once and the measured
+	// difference could not be attributed to MaxIdleConnsPerHost.
+	t := http.DefaultTransport.(*http.Transport).Clone()
+	t.MaxIdleConnsPerHost = maxIdleConnsPerHost
+	// MaxIdleConns is set back to zero, which the clone does NOT bring: http.DefaultTransport caps the total
+	// at 100, and a shared total would let traffic to one host evict the connections of another. In a
+	// two-tenant noisy-neighbour benchmark that is precisely the coupling the run exists to detect, and the
+	// harness must not introduce it itself.
+	t.MaxIdleConns = 0
+	// MaxConnsPerHost stays zero, as the clone leaves it. That one blocks dispatch when the limit is reached,
+	// which would turn this open-loop sender into a closed-loop one and reintroduce the coordinated omission
+	// the design goes to some trouble to avoid.
+	//
+	// IdleConnTimeout keeps the clone's 90s. Zero would mean "never close an idle connection", and a harness
+	// that leaks sockets on a long run measures its own file-descriptor pressure.
+	return t
 }
 
 // chatRequest is the minimal OpenAI chat-completions body the harness sends.

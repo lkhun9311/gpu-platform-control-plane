@@ -51,9 +51,9 @@ const (
 // resource version, so there is no gap to relist and nothing calls it. It is kept, unused, only because
 // removing an exported method is a separable change from the one that orphaned it.
 type LedgerBuilder struct {
-	lastEvent map[string]EventType
+	lastEvent map[string]EventType // per object UID, the last emitted event (transition dedup)
 	// wallAnchorNs is the run's t0 as a wall clock, zero until AnchorWallClock is called.
-	wallAnchorNs int64           // per object UID, the last emitted event (transition dedup)
+	wallAnchorNs int64
 	ready        map[string]bool // per Pod UID, currently Ready and not yet observed stopped
 	events       []LifecycleEvent
 	invalid      string
