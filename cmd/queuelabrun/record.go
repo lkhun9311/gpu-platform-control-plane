@@ -255,6 +255,13 @@ func recordUnchecked() []string {
 			"Job controller — nothing here submits an MLTrainingJob, so Kueue admits nothing and no Job creates " +
 			"the Pod, which therefore carries no owner reference and none of the labels a Job stamps on its " +
 			"Pods — and the template is rendered by THIS BINARY, not by the operator image running on the cluster",
+		"device use: nothing in this build can establish that a GPU was USED rather than reserved. The " +
+			"workload in internal/queuelab/submit.go is pure Python float arithmetic making no driver call, and " +
+			"the cluster advertises nvidia.com/gpu through a fake device plugin, so a Pod that dropped the " +
+			"resource request entirely would compute exactly the same iterations at exactly the same rate. " +
+			"measurement.discardedIterations therefore counts CPU work performed by a Pod HOLDING a reservation, " +
+			"and measurement.workload states the same thing beside the number; neither is discarded GPU " +
+			"computation, and this entry is what stops an admissible verdict from being read as saying it is",
 	}
 }
 
@@ -301,10 +308,54 @@ type measurement struct {
 	// nothing reports zero here beside a large waste figure, which is the state that used to be
 	// indistinguishable from a saturated card.
 	//
+	// It counts CPU iterations, NOT device work, and Workload below is what says so in the record rather than
+	// only in a source comment. Reading it as discarded GPU computation is the one misreading this field
+	// invites, and it is not a small one: the number would then describe hardware that was never touched.
+	//
 	// A pointer, because "no attempt carried a count" is a different fact from "nothing was discarded": the
 	// first happens when the terminated status could not be read, the second when the run genuinely lost no
 	// work.
 	DiscardedIterations *int `json:"discardedIterations,omitempty"`
+	// Workload states what the counted work actually was, and travels beside the count so the two cannot be
+	// separated by anyone reading the record.
+	Workload workloadProvenance `json:"workload"`
+}
+
+// workloadProvenance records what produced the iteration counts, so a reader cannot take them for device
+// work without contradicting the record itself.
+//
+// The workload is pure Python arithmetic on a cluster whose nvidia.com/gpu capacity is advertised by a fake
+// device plugin. There is no kernel, no driver call, and nothing that would fail if the resource request were
+// dropped — so an iteration is CPU work performed by a Pod that HELD a GPU reservation, which is a different
+// claim from work the GPU did.
+//
+// The distinction survives into the GPU stage rather than becoming moot: there, DeviceUseEstablished only
+// becomes true once something outside the workload's own report says the device was used. Until then the
+// field reads false and the reason says why, which is what stops "iterations" from quietly graduating into
+// "GPU-seconds of computation" when the hardware arrives.
+type workloadProvenance struct {
+	// Kind is what the inner loop computes.
+	Kind string `json:"kind"`
+	// CountedUnit names what one iteration is, in the terms the workload itself uses.
+	CountedUnit string `json:"countedUnit"`
+	// DeviceUseEstablished is whether anything in this run showed the GPU was USED rather than reserved.
+	DeviceUseEstablished bool `json:"deviceUseEstablished"`
+	// WhyNot is the reason DeviceUseEstablished is false, and is empty when it is true.
+	WhyNot string `json:"whyNot,omitempty"`
+}
+
+// cpuOnlyWorkload is the provenance every run on this cluster carries.
+//
+// It is a constructor rather than a literal at the call site so that a build which gains a real kernel has
+// one place to change, and so that no run can be assembled without stating this at all.
+func cpuOnlyWorkload() workloadProvenance {
+	return workloadProvenance{
+		Kind:                 "pure-python-float-arithmetic",
+		CountedUnit:          "50000 float multiply-modulo operations",
+		DeviceUseEstablished: false,
+		WhyNot: "the cluster advertises nvidia.com/gpu through a fake device plugin and the workload makes no " +
+			"driver call, so nothing here can distinguish a device that was used from one that was only reserved",
+	}
 }
 
 type validity struct {
@@ -732,6 +783,7 @@ func measurementOf(res *queuelab.LabResult, horizonNs int64, events []queuelab.L
 	}
 	return &measurement{
 		DiscardedIterations:       discardedIterations(events),
+		Workload:                  cpuOnlyWorkload(),
 		HorizonNs:                 horizonNs,
 		WastedGPUSeconds:          res.TotalWastedGPUSeconds,
 		WasteLowerBoundGPUSeconds: res.TotalWasteLowerBoundGPUSeconds,

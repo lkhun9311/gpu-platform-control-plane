@@ -1322,18 +1322,21 @@ func TestTheRecordsUncheckedListDescribesTheBuildNotTheRoadmap(t *testing.T) {
 // "covered", which is precisely the overclaim the entry was narrowed twice to avoid making.
 func TestTheRecordsUncheckedListNamesTheResidualAndNothingWider(t *testing.T) {
 	unchecked := recordUnchecked()
-	// One entry, because that is what is verifiable from the code. A second would have to be justified the same
-	// way, and a list that grew without one is the roadmap creeping back in.
-	if len(unchecked) != 1 {
-		t.Fatalf("want exactly 1 unchecked entry, got %d: %v", len(unchecked), unchecked)
+	// Two entries, and the count is asserted so the list cannot grow into a roadmap. Each has to be justified
+	// the same way the first was: verifiable in the code of the build that wrote the document, because a reader
+	// holding the file has nothing else to check it against.
+	if len(unchecked) != 2 {
+		t.Fatalf("want exactly 2 unchecked entries, got %d: %v", len(unchecked), unchecked)
 	}
-	entry := unchecked[0]
-	if strings.TrimSpace(entry) == "" {
-		t.Fatal("a record that claims to name what it cannot check and names nothing claims this build " +
-			"checks everything, which is the strongest thing in the file and the least supported")
+	for i, e := range unchecked {
+		if strings.TrimSpace(e) == "" {
+			t.Fatalf("entry %d is empty; a record that claims to name what it cannot check and names nothing "+
+				"claims this build checks everything, which is the strongest thing in the file and the least "+
+				"supported", i)
+		}
 	}
-	// The four clauses of the residual. Each is something a run does and the canary does not, so each is a
-	// sentence a reader needs in order to size what the reading covers. "Job controller" rather than the bare
+	// The four clauses of the canary residual. Each is something a run does and the canary does not, so each is
+	// a sentence a reader needs in order to size what the reading covers. "Job controller" rather than the bare
 	// "Job", because that is a substring of MLTrainingJob above and would be satisfied by the clause before it.
 	for _, want := range []string{
 		"MLTrainingJob",  // nothing here submits one, so the reconcile loop is not travelled
@@ -1341,10 +1344,48 @@ func TestTheRecordsUncheckedListNamesTheResidualAndNothingWider(t *testing.T) {
 		"Job controller", // and none creates the Pod, so it carries no owner reference and no Job labels
 		"THIS BINARY",    // and the template is rendered here, not by the operator image on the cluster
 	} {
-		if !strings.Contains(entry, want) {
-			t.Fatalf("the residual no longer names %q, so a reader is told the reading covers a path it does "+
-				"not travel: %q", want, entry)
+		if !strings.Contains(unchecked[0], want) {
+			t.Fatalf("the canary residual no longer names %q, so a reader is told the reading covers a path it "+
+				"does not travel: %q", want, unchecked[0])
 		}
+	}
+	// The device-use entry. Its whole job is to stop discardedIterations being read as discarded GPU
+	// computation, so it must name the number it qualifies and say what the workload actually does; an entry
+	// that only says "no GPU" leaves the reader to guess which figure it bears on.
+	for _, want := range []string{
+		"discardedIterations", // the field it qualifies, by name
+		"fake device plugin",  // why the cluster cannot tell use from reservation
+		"driver call",         // why the workload cannot either
+		"reservation",         // what the count actually describes
+	} {
+		if !strings.Contains(unchecked[1], want) {
+			t.Fatalf("the device-use entry no longer names %q, so an admissible verdict can be read as saying "+
+				"a GPU did the counted work: %q", want, unchecked[1])
+		}
+	}
+}
+
+// The provenance travels with the number, in the record, not only in a source comment. A consumer reading
+// discardedIterations without it has no way to know the count is CPU work.
+//
+// Mutation that turns this red: drop Workload from measurementOf.
+func TestTheMeasurementSaysWhatProducedItsIterations(t *testing.T) {
+	m := measurementOf(&queuelab.LabResult{}, 1, nil)
+	if m == nil {
+		t.Fatal("no measurement was produced")
+	}
+	if m.Workload.DeviceUseEstablished {
+		t.Fatal("this build claims device use was established; nothing in it can establish that")
+	}
+	if strings.TrimSpace(m.Workload.WhyNot) == "" {
+		t.Fatal("device use is unestablished and the record does not say why, which reads as an oversight " +
+			"rather than a stated limit")
+	}
+	if !strings.Contains(m.Workload.Kind, "python") {
+		t.Fatalf("the workload kind does not name what actually runs: %q", m.Workload.Kind)
+	}
+	if strings.TrimSpace(m.Workload.CountedUnit) == "" {
+		t.Fatal("one iteration is unexplained, so the count has no unit a reader can size")
 	}
 }
 
