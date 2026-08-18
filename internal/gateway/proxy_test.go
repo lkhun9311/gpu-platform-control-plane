@@ -1128,18 +1128,15 @@ var _ = Describe("fallback and the client's own cancellation", func() {
 		Expect(last).NotTo(BeZero(), "the failure the handler would substitute was never reported")
 	})
 
-	// A non-final backend answering 503 must be REPORTED as 503, not as a proxy failure.
+	// A backend answering 503 is not a proxy failure and is no longer reported as one.
 	//
-	// The retryable answer used to travel as a bare sentinel, so ErrorHandler saw an error that was not a
-	// timeout and wrote 502. A model server returning 503 while it loads weights was then logged and counted
-	// as "the proxy could not reach it" — a different operational signal, and the exact distinction this file
-	// separates 502 from 504 to preserve.
+	// This spec used to assert the opposite, because a non-final 503 was converted into a synthetic error so
+	// the loop could retry on it. With that conversion gone the 503 is simply the response: ErrorHandler never
+	// runs, so nothing is counted as a failed ATTEMPT, and the status reaches the client and
+	// requests_total{code="503"} where it belongs.
 	//
-	// The client's own answer is unaffected either way, because ModifyResponse is only attached to non-final
-	// attempts. What was wrong was what the gateway told its operators about itself.
-	//
-	// Mutation that turns this red: return the bare errRetryableStatus instead of the typed error.
-	It("reports a retryable upstream answer as the status the upstream actually sent", func() {
+	// Mutation that turns this red: convert a retryable upstream status into an error again.
+	It("does not count a backend's own 503 as a failed attempt", func() {
 		loading := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusServiceUnavailable)
 		}))
@@ -1162,9 +1159,11 @@ var _ = Describe("fallback and the client's own cancellation", func() {
 		advanced := tryBackends(rec, req, []*url.URL{loadingURL, spareURL}, http.DefaultTransport,
 			func(c int, final bool) { reported = append(reported, c) })
 
-		Expect(advanced).To(BeTrue(), "a 503 head should have been retried")
-		Expect(reported).To(Equal([]int{http.StatusServiceUnavailable}),
-			"the failure was reported as a synthetic proxy error rather than the upstream's own status")
+		Expect(advanced).To(BeFalse(), "a non-idempotent POST was replayed after a backend answered it")
+		Expect(reported).To(BeEmpty(),
+			"a backend's own answer was counted as an attempt the proxy failed to make")
+		Expect(rec.code).To(Equal(http.StatusServiceUnavailable),
+			"the backend's status did not reach the client")
 	})
 
 	// The control: a genuine transport failure must still be 502, or the change has replaced one wrong code
@@ -1273,8 +1272,18 @@ var _ = Describe("fallback on a retryable upstream status", func() {
 		return u, &hits
 	}
 
-	// Mutation that turns this red: drop the ModifyResponse hook from tryBackends.
-	It("tries the spare when the head answers 503", func() {
+	// This spec asserted the opposite until a review pointed out what a status actually proves. A 503 says the
+	// request ARRIVED; it does not say the backend declined to work on it. A model server can accept a
+	// completion, spend GPU seconds on it and fail on the way out, and replaying it there bills the tenant
+	// twice and can emit a second set of tokens, with no counter anywhere recording that it happened.
+	//
+	// So the head's own answer goes to the client and the spare stays untried. What is given up — falling
+	// through a 503 that really did refuse at the door — needs the backends to state an idempotency contract,
+	// not the gateway to assume one.
+	//
+	// Mutation that turns this red: replay on a retryable status again, by ORing retryableStatus into the
+	// att.replayable gate.
+	It("does not replay a POST the head already answered, even with a 503", func() {
 		headURL, headHits := serving(http.StatusServiceUnavailable, "")
 		spareURL, spareHits := serving(http.StatusOK, "data: [DONE]\n\n")
 
@@ -1282,17 +1291,52 @@ var _ = Describe("fallback on a retryable upstream status", func() {
 		tryBackends(rec, post(), []*url.URL{headURL, spareURL}, http.DefaultTransport, nil)
 
 		Expect(*headHits).To(Equal(1))
-		Expect(*spareHits).To(Equal(1), "a healthy spare was never tried behind a 503")
-		Expect(rec.Code).To(Equal(http.StatusOK))
-		Expect(rec.Body.String()).To(ContainSubstring("[DONE]"))
+		Expect(*spareHits).To(Equal(0), "a non-idempotent completion was sent to a second backend")
+		Expect(rec.Code).To(Equal(http.StatusServiceUnavailable),
+			"the head's own answer was replaced rather than passed through")
 	})
 
-	// The half that makes the hook safe rather than merely useful.
+	// The dangerous half, and the one a status check cannot reach.
 	//
-	// Mutation that turns this red: attach ModifyResponse unconditionally instead of only when !last. The
-	// client then receives ErrorHandler's 502 in place of the model's own 503 and cannot tell whether the
-	// gateway broke or the backend was unavailable.
-	It("passes the last backend's own status through instead of a gateway error", func() {
+	// A backend that ACCEPTS the connection, reads the request and then dies mid-flight produces a transport
+	// error, so ErrorHandler fires and the attempt is marked failed — the same state a refused connection
+	// leaves behind. The difference is that this backend received the request and may have spent GPU seconds
+	// on it before dying, so replaying it charges the tenant twice for one completion.
+	//
+	// Mutation that turns this red: make neverReachedBackend return true for anything other than a dial
+	// failure, which is what "the client saw nothing, so nothing happened" amounts to.
+	It("does not replay a POST the backend accepted and then dropped", func() {
+		dropped := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Read the body first, so the request provably arrived in full before the connection dies.
+			_, _ = io.ReadAll(r.Body)
+			hj, ok := w.(http.Hijacker)
+			if !ok {
+				return
+			}
+			conn, _, err := hj.Hijack()
+			if err != nil {
+				return
+			}
+			_ = conn.Close()
+		}))
+		DeferCleanup(dropped.Close)
+		droppedURL, err := url.Parse(dropped.URL)
+		Expect(err).NotTo(HaveOccurred())
+
+		spareURL, spareHits := serving(http.StatusOK, "data: [DONE]\n\n")
+
+		rec := httptest.NewRecorder()
+		advanced := tryBackends(rec, post(), []*url.URL{droppedURL, spareURL}, http.DefaultTransport, nil)
+
+		Expect(advanced).To(BeFalse(), "a completion the backend had already received was sent again")
+		Expect(*spareHits).To(Equal(0), "a non-idempotent completion reached a second backend")
+	})
+
+	// The client must be able to tell which side failed, which means the backend's status reaches them
+	// unchanged rather than becoming ErrorHandler's 502.
+	//
+	// Mutation that turns this red: convert a retryable upstream status into a proxy error.
+	It("passes a backend's own status through instead of a gateway error", func() {
 		aURL, aHits := serving(http.StatusServiceUnavailable, "")
 		bURL, bHits := serving(http.StatusServiceUnavailable, "")
 
@@ -1300,7 +1344,7 @@ var _ = Describe("fallback on a retryable upstream status", func() {
 		tryBackends(rec, post(), []*url.URL{aURL, bURL}, http.DefaultTransport, nil)
 
 		Expect(*aHits).To(Equal(1))
-		Expect(*bHits).To(Equal(1))
+		Expect(*bHits).To(Equal(0))
 		Expect(rec.Code).To(Equal(http.StatusServiceUnavailable),
 			"the model's 503 reached the caller as a gateway error, so they cannot tell which side failed")
 	})

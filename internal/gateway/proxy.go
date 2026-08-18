@@ -22,7 +22,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"maps"
 	"net"
@@ -392,7 +391,7 @@ func newTransport(responseHeaderTimeout time.Duration) *http.Transport {
 // newReverseProxy returns a streaming-capable reverse proxy to target over the shared transport, reporting 502/504 through onErr.
 //
 // The ReverseProxy value itself is still built per request, and deliberately so: target differs per backend and onErr closes over that request's tenant and model labels, while transport is the one piece that must not be rebuilt.
-func newReverseProxy(target *url.URL, transport http.RoundTripper, onErr func(code int)) *httputil.ReverseProxy {
+func newReverseProxy(target *url.URL, transport http.RoundTripper, onErr func(code int, err error)) *httputil.ReverseProxy {
 	p := httputil.NewSingleHostReverseProxy(target)
 
 	// FlushInterval = -1 means "flush immediately, never buffer".
@@ -429,15 +428,10 @@ func newReverseProxy(target *url.URL, transport http.RoundTripper, onErr func(co
 		code := http.StatusBadGateway
 		// errors.As walks the error chain, so a timeout wrapped with %w is still detected; a plain type assertion would miss it.
 		var ne net.Error
-		var rse *retryableStatusError
-		switch {
-		case errors.As(err, &rse):
-			// The upstream answered; report what it said rather than inventing a proxy failure.
-			code = rse.code
-		case errors.As(err, &ne) && ne.Timeout():
+		if errors.As(err, &ne) && ne.Timeout() {
 			code = http.StatusGatewayTimeout
 		}
-		onErr(code)
+		onErr(code, err)
 		// The error goes to the LOG; the client gets a fixed sentence.
 		//
 		// A transport error names what it failed to reach: "dial tcp 10.244.2.18:8090: connect: connection
@@ -482,43 +476,23 @@ func capBackendAttempts[T any](targets []T) []T {
 	return targets
 }
 
-// errRetryableStatus turns an upstream's own answer into a transport-style failure, so ReverseProxy routes it
-// through ErrorHandler and tryBackends can treat it like any other failed attempt.
-var errRetryableStatus = errors.New("upstream returned a retryable status")
-
-// retryableStatusError carries the status the upstream actually sent.
+// neverReachedBackend reports whether a failed attempt provably delivered nothing to a backend.
 //
-// The bare sentinel lost it. ErrorHandler saw an error that was not a timeout and wrote 502, so a backend
-// answering 503 while it loaded weights was logged and counted as 502 — a proxy failure. Those are different
-// operational signals, which is the exact reason this file bothers to separate 502 from 504 one function
-// earlier, and the substitution also contradicted upstream_errors_total's own description.
+// This is the only safe basis for replaying a chat-completion POST, and the distinction is not pedantic. A
+// completion is not idempotent: it consumes GPU seconds, it is billed, and on a streaming client it can
+// produce a second set of tokens. Replaying one that a backend already began serving charges the tenant
+// twice for work they asked for once, and nothing downstream can detect that it happened.
 //
-// Only the code the client sees is unaffected either way: ModifyResponse is attached to non-final attempts
-// only, so the last backend's real answer always reaches the caller untouched.
-type retryableStatusError struct {
-	code int
-}
-
-func (e *retryableStatusError) Error() string {
-	return fmt.Sprintf("upstream returned a retryable status %d", e.code)
-}
-
-func (e *retryableStatusError) Unwrap() error { return errRetryableStatus }
-
-// retryableStatus says whether another backend is worth trying after this answer.
+// A DIAL failure is the case where no bytes were written, because there was never a connection to write them
+// to. Everything else — a connection that was established and then broke, a response header timeout, an
+// upstream's own 502/503/504 — is consistent with the backend having received the request and started
+// generating. "The client saw nothing" is not evidence that the backend did nothing.
 //
-// The three chosen are the ones that describe the BACKEND rather than the request: 502 and 504 are a proxy
-// or a timeout in front of the model, and 503 is what a model server returns while it is still loading
-// weights, after an engine OOM, or at capacity. A spare has a real chance at all three.
-//
-// 500 is deliberately excluded. It usually means the request itself broke something, and replaying it
-// elsewhere spends a second backend's time to fail the same way — while doubling the blast radius of a
-// request that can crash an engine. 4xx is excluded for the same reason, more obviously: the caller is being
-// told something true, and no other backend will say otherwise.
-func retryableStatus(code int) bool {
-	return code == http.StatusBadGateway ||
-		code == http.StatusServiceUnavailable ||
-		code == http.StatusGatewayTimeout
+// Go's own transport draws the same line, retrying only requests it knows were not written; it does not
+// export that judgement, so this reconstructs the one case that can be recognised from outside.
+func neverReachedBackend(err error) bool {
+	var oe *net.OpError
+	return errors.As(err, &oe) && oe.Op == "dial"
 }
 
 // attemptWriter is what lets one request try a second backend without the client seeing the first one fail.
@@ -550,6 +524,9 @@ type attemptWriter struct {
 	failed bool
 	// wrote records that bytes reached the client, which forecloses any further attempt.
 	wrote bool
+	// replayable records that this attempt provably delivered nothing to a backend, which is the only
+	// condition under which the same non-idempotent POST may be sent somewhere else. See neverReachedBackend.
+	replayable bool
 }
 
 // Header returns this attempt's own map, so nothing an abandoned attempt set can reach the client.
@@ -643,36 +620,37 @@ func tryBackends(w http.ResponseWriter, r *http.Request, targets []*url.URL,
 	for i, u := range targets {
 		last := i == len(targets)-1
 		att := &attemptWriter{ResponseWriter: w, suppress: !last}
-		proxy := newReverseProxy(u, transport, func(c int) {
+		proxy := newReverseProxy(u, transport, func(c int, err error) {
 			att.failed = true
+			att.replayable = neverReachedBackend(err)
 			if onFailure != nil {
 				onFailure(c, last)
 			}
 		})
-		// Attached only when another candidate remains, and that condition is the whole design.
+		// This used to convert an upstream's own 502/503/504 into a retryable failure when another candidate
+		// remained, on the reasoning that "up but not serving" is the ordinary shape for a model server and a
+		// healthy spare was going untried.
 		//
-		// Without fallback, att.failed was set only by ErrorHandler, which fires only when the ROUND TRIP
-		// failed — so a backend that accepted the connection and answered 503 was a success as far as this
-		// loop could tell, and its status went to the client with a healthy spare untried. "Up but not
-		// serving" is the ordinary shape for a model server, so that was the more likely half going uncovered.
+		// It is removed because that reasoning proves the wrong thing. A status is proof the request ARRIVED.
+		// A model server answering 503 may have refused it at the door, or may have accepted it, spent GPU
+		// seconds on it and failed on the way out; 504 in particular is most likely while generation is still
+		// running. Replaying a chat completion in that state bills the tenant twice for one request and can
+		// emit a second set of tokens, and no counter anywhere would show it happened. Fallback now covers
+		// only the case that can be established from outside — the connection that was never made.
 		//
-		// On the LAST attempt no hook is installed, and that is not an optimisation. If it were, ErrorHandler
-		// would replace the upstream's answer with its own 502 and a genuine 503 would reach the caller as a
-		// gateway error — they would be told the proxy failed when the model was merely unavailable, and could
-		// not tell which side to look at. The final answer belongs to the backend that gave it.
-		if !last {
-			proxy.ModifyResponse = func(res *http.Response) error {
-				if retryableStatus(res.StatusCode) {
-					return &retryableStatusError{code: res.StatusCode}
-				}
-				return nil
-			}
-		}
+		// What is given up is real: a backend that returns 503 without doing any work now answers the client
+		// instead of falling through to a healthy spare. That is the safe direction of the two, and closing it
+		// properly needs the backends to state an idempotency contract rather than the gateway to assume one.
 		proxy.ServeHTTP(att, r)
 
 		// Answered, or answered partially: either way this request is finished. A failure after the first byte
 		// cannot be retried, because a second backend would splice its answer onto the one already in flight.
 		if !att.failed || att.wrote || last {
+			return advanced
+		}
+		// The request must provably have reached no backend. Everything below this line replays a POST that
+		// consumes GPU time and is billed, so the bar is evidence rather than the absence of evidence.
+		if !att.replayable {
 			return advanced
 		}
 		// A client that hung up is not a backend that failed. RoundTrip returns context.Canceled, which is not
