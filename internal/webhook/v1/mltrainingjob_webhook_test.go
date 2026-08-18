@@ -10,6 +10,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -176,6 +177,47 @@ func TestValidateUpdateFailsClosedWhenTheJobLookupFails(t *testing.T) {
 	if !strings.Contains(err.Error(), "unreachable") {
 		t.Fatalf("error lost the cause: %v", err)
 	}
+}
+
+// A cached read answers NotFound for a Job that exists but has not reached the informer yet, and NotFound is
+// not an error — so the fail-closed path above never runs and the immutability rules are simply skipped.
+//
+// This spec pins the CONSEQUENCE of reading through a lagging cache, which is why the validator is wired with
+// mgr.GetAPIReader() rather than mgr.GetClient(). It is the shape of the bug, held still: an edit that must be
+// refused is admitted, with no error anywhere, in the window right after creation where it does the most harm.
+//
+// Mutation that turns this red: make the rules apply regardless of whether the Job was found, which would
+// also refuse legitimate pre-creation edits.
+func TestALaggingReadSilentlySkipsTheImmutabilityRules(t *testing.T) {
+	// The Job exists on the cluster; this reader has not seen it. No error is produced, which is the whole
+	// problem — there is nothing for the fail-closed branch to catch.
+	v := &MLTrainingJobValidator{Reader: coldCache{}}
+
+	_, err := v.ValidateUpdate(context.Background(), job(nil), job(func(m *platformv1.MLTrainingJob) {
+		m.Spec.Image = "trainer:v2"
+	}))
+	if err != nil {
+		t.Fatalf("a reader that reports NotFound should skip the baked-field rules, so this edit is admitted "+
+			"under it; the spec exists to record that, not to assert the opposite: %v", err)
+	}
+
+	// And with a reader that can see it, the same edit is refused. The two together say the outcome turns
+	// entirely on whether the read was current.
+	warm := validatorWith(t, ownedJob())
+	if _, err := warm.ValidateUpdate(context.Background(), job(nil), job(func(m *platformv1.MLTrainingJob) {
+		m.Spec.Image = "trainer:v2"
+	})); err == nil {
+		t.Fatal("an edit to a baked field was admitted even though the Job was visible")
+	}
+}
+
+// coldCache reports every Job as absent, standing in for an informer that has not caught up.
+type coldCache struct {
+	client.Client
+}
+
+func (coldCache) Get(_ context.Context, key client.ObjectKey, _ client.Object, _ ...client.GetOption) error {
+	return apierrors.NewNotFound(schema.GroupResource{Group: "batch", Resource: "jobs"}, key.Name)
 }
 
 func TestValidateDeleteAllowsEveryDelete(t *testing.T) {

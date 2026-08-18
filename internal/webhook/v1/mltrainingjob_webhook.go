@@ -34,6 +34,13 @@ type MLTrainingJobValidator struct {
 	// exported validator's own surface — an admission validator that can mutate the cluster is a wider public
 	// API than the job needs, and it invites a future rule to write from inside a decision that should only
 	// read. A named field also makes the dependency legible in tests: what has to be faked is one Get.
+	//
+	// It must be an UNCACHED reader, which is why SetupMLTrainingJobWebhookWithManager passes
+	// mgr.GetAPIReader() rather than mgr.GetClient(). The manager's client reads through an informer cache,
+	// and a cache that has not yet seen a Job created moments ago answers NotFound — not an error. That
+	// answer is indistinguishable from the Job genuinely not existing, so the immutability rules below would
+	// be skipped, silently, in precisely the window right after creation where an edit does the most damage.
+	// The error path already fails closed; this is the path that had no error to fail on.
 	Reader client.Reader
 }
 
@@ -45,8 +52,20 @@ var mltjGroupKind = schema.GroupKind{Group: platformv1.GroupVersion.Group, Kind:
 // SetupMLTrainingJobWebhookWithManager registers the validator with the manager's webhook server.
 func SetupMLTrainingJobWebhookWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewWebhookManagedBy(mgr, &platformv1.MLTrainingJob{}).
-		WithValidator(&MLTrainingJobValidator{Reader: mgr.GetClient()}).
+		WithValidator(newValidator(mgr)).
 		Complete()
+}
+
+// newValidator picks the reader the validator runs on, and is separate from the registration above so a test
+// can hold the result and check which one it got.
+//
+// The check that matters is an INEQUALITY against mgr.GetClient(), because asserting it equals
+// mgr.GetAPIReader() only restates this line. The failure being guarded against is a revert to the cached
+// client, and that is what an inequality catches. It cannot be caught any other way here: the bug needs the
+// informer to lag behind a Create, and in envtest it never does, so the end-to-end spec passes under both
+// readers.
+func newValidator(mgr ctrl.Manager) *MLTrainingJobValidator {
+	return &MLTrainingJobValidator{Reader: mgr.GetAPIReader()}
 }
 
 // ValidateCreate refuses a spec that could never produce a runnable Job.

@@ -80,6 +80,18 @@ func startAdmissionEnv(t *testing.T) (context.Context, client.Client) {
 	if err := SetupMLTrainingJobWebhookWithManager(mgr); err != nil {
 		t.Fatalf("register webhook: %v", err)
 	}
+	// A precondition of every spec below rather than a spec of its own, because it is about how the validator
+	// is BUILT and the specs are about what it decides.
+	//
+	// The manager's client reads through an informer cache, which answers NotFound for a Job created moments
+	// ago — not an error, so the fail-closed branch never runs and the immutability rules are skipped exactly
+	// when they matter. The timing itself cannot be reproduced here: envtest's cache is never slow enough, and
+	// TestApiserverRefusesAnImageEditOnceTheJobExists passes under either reader. This is what catches a
+	// revert.
+	if got := newValidator(mgr).Reader; got == client.Reader(mgr.GetClient()) {
+		t.Fatal("the validator reads through the manager's cache, so a Job the informer has not seen yet " +
+			"reads as absent and the baked-field rules are silently skipped")
+	}
 	go func() { _ = mgr.Start(ctx) }()
 
 	waitForWebhookServer(t, opts.LocalServingHost, opts.LocalServingPort)
