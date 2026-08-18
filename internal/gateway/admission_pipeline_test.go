@@ -84,13 +84,47 @@ var _ = Describe("admission pipeline placement", func() {
 	})
 	AfterEach(func() { up.Close() })
 
+	// The bucket is DRAINED by the first request rather than built at burst 0. Built at 0 the eligible request
+	// is larger than the bucket can ever hold, which is a permanent refusal wearing a transient reason's
+	// clothes — the state this pipeline now answers 413 to, and never the 429 this spec is about.
 	It("rejects an eligible standard-long request over budget with a 429 carrying code input_rate_limit", func() {
-		// burst 0 leaves nothing for any weighted request to consume, so the eligible request is refused outright.
-		s := newAdmissionServer(up.URL, tierStandard, AdmissionStaticCap, newStaticCapAdmitter(0, 0, 4096))
+		// rate 0, burst 4096: the first eligible request fits exactly and leaves nothing behind.
+		s := newAdmissionServer(up.URL, tierStandard, AdmissionStaticCap, newStaticCapAdmitter(0, 4096, 4096))
+		first := httptest.NewRecorder()
+		s.Handler().ServeHTTP(first, authedRequest(eligibleLongBody))
+		Expect(first.Code).To(Equal(http.StatusOK), "the draining request was itself refused")
+
 		rr := httptest.NewRecorder()
 		s.Handler().ServeHTTP(rr, authedRequest(eligibleLongBody))
 		Expect(rr.Code).To(Equal(http.StatusTooManyRequests))
 		expectJSONError(rr, reasonInputRateLimit)
+	})
+
+	// The other "too large", and the one the unit spec in proxy_test cannot reach: it proves the error is
+	// distinguishable, not that the handler distinguishes it. Without this the 413 mapping can be deleted and
+	// every test still passes.
+	//
+	// Mutation that turns this red: map every readRequestMeta error to 400 again.
+	It("answers 413 rather than 400 when the body exceeds the size cap", func() {
+		s := newAdmissionServer(up.URL, tierStandard, AdmissionOff, offAdmitter{})
+		big := `{"model":"` + testModel + `","pad":"` + strings.Repeat("a", maxBodyBytes) + `"}`
+		rr := httptest.NewRecorder()
+		s.Handler().ServeHTTP(rr, authedRequest(big))
+		Expect(rr.Code).To(Equal(http.StatusRequestEntityTooLarge),
+			"an oversized body was reported as malformed JSON, sending the caller after a syntax bug that is not there")
+	})
+
+	// A request that can never be admitted must not carry the retry hint a 429 does. A client obeying
+	// Retry-After would resend an arithmetically impossible request every five seconds forever.
+	//
+	// Mutation that turns this red: route reasonInputExceedsBurst through failReason like every other reason.
+	It("answers 413 with no retry hint when the input can never fit the bucket", func() {
+		s := newAdmissionServer(up.URL, tierStandard, AdmissionStaticCap, newStaticCapAdmitter(1000, 8, 4096))
+		rr := httptest.NewRecorder()
+		s.Handler().ServeHTTP(rr, authedRequest(eligibleLongBody))
+		Expect(rr.Code).To(Equal(http.StatusRequestEntityTooLarge))
+		Expect(rr.Header().Get("Retry-After")).To(BeEmpty(),
+			"a permanently impossible request was advertised as retryable")
 	})
 
 	It("lets a premium request over the same budget reach the proxy", func() {
@@ -186,7 +220,12 @@ var _ = Describe("admission metrics", func() {
 		}))
 		defer up.Close()
 		const tenant, key = "metrics-reject-tenant", "metrics-reject-key"
-		s := newTenantAdmissionServer(up.URL, tenant, key, tierStandard, AdmissionStaticCap, newStaticCapAdmitter(0, 0, 4096))
+		s := newTenantAdmissionServer(up.URL, tenant, key, tierStandard, AdmissionStaticCap, newStaticCapAdmitter(0, 4096, 4096))
+		// Drained first, so the recorded rejection is exhaustion rather than a request too big for the bucket.
+		drain := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(eligibleLongBody))
+		drain.Header.Set("Authorization", "Bearer "+key)
+		s.Handler().ServeHTTP(httptest.NewRecorder(), drain)
+
 		r := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(eligibleLongBody))
 		r.Header.Set("Authorization", "Bearer "+key)
 		s.Handler().ServeHTTP(httptest.NewRecorder(), r)

@@ -309,6 +309,13 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 	// All three are the client's to fix.
 	body, meta, err := readRequestMeta(r)
 	if err != nil {
+		// A body over the cap is not malformed, and 400 told the caller to fix their JSON when the JSON was
+		// fine. MaxBytesReader reports the case as a distinguishable type precisely so it can be separated.
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			s.fail(w, tenant, "", http.StatusRequestEntityTooLarge)
+			return
+		}
 		s.fail(w, tenant, "", http.StatusBadRequest)
 		return
 	}
@@ -381,6 +388,14 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 	admissionDecisions.WithLabelValues(string(mode), tenant, meta.Model, decision, reason).Inc()
 	admissionInputTokens.WithLabelValues(string(mode), tenant, decision).Add(float64(meta.EstInputTokens))
 	if !admit {
+		// A request larger than the bucket can ever hold is refused permanently, so it must not carry the
+		// retry hint failReason attaches: a client obeying it would retry an arithmetically impossible request
+		// forever. 413 rather than 429 for the same reason — the caller's action is a smaller prompt, not a
+		// later one.
+		if reason == reasonInputExceedsBurst {
+			s.fail(w, tenant, meta.Model, http.StatusRequestEntityTooLarge)
+			return
+		}
 		s.failReason(w, tenant, meta.Model, http.StatusTooManyRequests, reason)
 		return
 	}

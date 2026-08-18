@@ -18,6 +18,7 @@ limitations under the License.
 package gateway
 
 import (
+	"errors"
 	"bufio"
 	"bytes"
 	"context"
@@ -843,6 +844,16 @@ var _ = Describe("readRequestMeta", func() {
 
 		_, _, err := readRequestMeta(r)
 		Expect(err).To(HaveOccurred())
+
+		// The type matters as much as the error. Every readRequestMeta failure used to reach the client as 400,
+		// which tells a caller their JSON is malformed when the JSON was fine and only the size was wrong; they
+		// would look for a syntax bug that is not there. MaxBytesReader reports the case distinguishably for
+		// exactly this reason.
+		//
+		// Mutation that turns this red: map every readRequestMeta error to 400 again.
+		var tooLarge *http.MaxBytesError
+		Expect(errors.As(err, &tooLarge)).To(BeTrue(),
+			"an oversized body is indistinguishable from malformed JSON, so it cannot be answered 413")
 	})
 
 	It("rejects a body with no model field", func() {

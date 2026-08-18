@@ -104,12 +104,33 @@ var _ = Describe("staticCapAdmitter", func() {
 		Expect(reason).To(BeEmpty())
 	})
 
+	// This spec used to build the admitter with burst 0 and send a 4096-token request, which is not an
+	// exhausted bucket at all: 4096 > 0 is the case AllowN refuses forever regardless of time. It asserted the
+	// transient reason while exercising the permanent one, so the two were never distinguished anywhere.
+	//
+	// A bucket is exhausted by DRAINING it, which needs a burst the request can actually fit in.
 	It("rejects a standard-long request once the bucket is exhausted", func() {
-		// burst 0 leaves nothing for any weighted request to consume.
-		a := newStaticCapAdmitter(0, 0, 4096)
-		ok, reason := a.Admit(ctx, RequestMeta{EstInputTokens: 4096}, backend, "t", "standard")
+		// rate 0 means nothing refills during the spec, so the first request's consumption is permanent.
+		a := newStaticCapAdmitter(0, 8192, 4096)
+		ok, reason := a.Admit(ctx, RequestMeta{EstInputTokens: 8192}, backend, "t", "standard")
+		Expect(ok).To(BeTrue(), "the request that was meant to drain the bucket did not fit in it")
+		Expect(reason).To(BeEmpty())
+
+		ok, reason = a.Admit(ctx, RequestMeta{EstInputTokens: 4096}, backend, "t", "standard")
 		Expect(ok).To(BeFalse())
-		Expect(reason).To(Equal("input_rate_limit"))
+		Expect(reason).To(Equal(reasonInputRateLimit))
+	})
+
+	// The case the spec above was accidentally covering, now named. AllowN cannot admit n > burst at any time,
+	// so reporting it as input_rate_limit told the caller to wait for capacity that will never arrive.
+	//
+	// Mutation that turns this red: delete the burst pre-check from Admit.
+	It("rejects a request larger than the bucket will ever hold, with a terminal reason", func() {
+		// A full bucket, so nothing here can be mistaken for exhaustion: the request simply does not fit.
+		a := newStaticCapAdmitter(1000, 4096, 4096)
+		ok, reason := a.Admit(ctx, RequestMeta{EstInputTokens: 4097}, backend, "t", "standard")
+		Expect(ok).To(BeFalse())
+		Expect(reason).To(Equal(reasonInputExceedsBurst))
 	})
 
 	It("weights consumption by input tokens: a single 8192-token request consumes about twice what a 4096-token one does", func() {
