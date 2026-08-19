@@ -84,6 +84,10 @@ delivery time. Nothing sub-second in this experiment is resolved. The GPU is sim
 records say so. Details, and what the result does not support, are in
 [hack/queuelab-reclaim-first-result.md](hack/queuelab-reclaim-first-result.md).
 
+Three of this platform's defences were broken the same way — each expressed a guarantee in terms of a field
+the tenant writes — and each was found by attacking it rather than reading it:
+[hack/tenant-writable-fields.md](hack/tenant-writable-fields.md).
+
 **The result that survived contact with review** is the other regime. An unresponsive workload defeats
 quota reclaim completely while its remaining service fits inside the Pod's termination grace period — it
 finishes, nothing is discarded, and the owner waits the whole of that service with the preemption recorded
