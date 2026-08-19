@@ -303,6 +303,15 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 4. Take a token from the tenant's bucket.
+	// An unfinished Server is answered 503, not 429. Both are refusals, but 429 tells the caller they exceeded
+	// a budget that in this state was never being applied, and the retry it invites will be refused the same
+	// way forever.
+	if !s.buckets.configured() {
+		log.FromContext(ctx).Error(nil, "rate limiter was never initialised; refusing rather than serving unlimited",
+			"request_id", rid)
+		s.fail(w, tenant, "", http.StatusServiceUnavailable)
+		return
+	}
 	if !s.buckets.Allow(tenant, policy.Spec.RateLimit) {
 		// Counted separately from requests{code="429"}; the two answer different questions.
 		rateLimited.WithLabelValues(tenant).Inc()

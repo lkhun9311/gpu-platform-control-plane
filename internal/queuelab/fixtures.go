@@ -135,6 +135,22 @@ func (id FixtureIdentity) validate() error {
 	return nil
 }
 
+// Why validating the COMPONENTS is enough, and the rendered names need no separate check.
+//
+// A review argued that a 63-character RunID accepted here renders "ql-reclaim-tenant-b-<runID>" at 83
+// characters and is therefore refused at Create. It is not. The validators answer directly:
+//
+//	NameIsDNSSubdomain("ql-reclaim-tenant-b-" + 63 chars)  -> no errors  (the limit is 253)
+//	IsDNS1123Label(same)                                   -> too long   (the limit is 63)
+//
+// Object names for these CRs take the first rule, so composition has 170 characters of headroom that a
+// 63-character component cannot exhaust. The 63-character limit binds label values, namespaces and taint
+// values — and nothing composed lands in one: labLabels carries TxID, RunID, study and variant unaltered,
+// the flavor's node label and taint carry RunID unaltered, and Namespace is checked above as itself.
+//
+// So this stays a per-component check. Recorded here because the argument is a reasonable one to make from
+// reading the code, and the next reader should not have to re-derive that it does not hold.
+
 // BuildFixtures renders the dedicated queues for one study variant under a unique run id.
 //
 // id.RunID makes every object name unique so two arms (or two repetitions) never share a queue; namespace is
@@ -152,14 +168,22 @@ func BuildFixtures(study Study, variant string, id FixtureIdentity) (*FixtureSet
 	if err := id.validate(); err != nil {
 		return nil, err
 	}
+	var (
+		fs  *FixtureSet
+		err error
+	)
 	switch study {
 	case StudyReclaim:
-		return reclaimFixtures(variant, id)
+		fs, err = reclaimFixtures(variant, id)
 	case StudyFIFO:
-		return fifoFixtures(variant, id)
+		fs, err = fifoFixtures(variant, id)
 	default:
 		return nil, fmt.Errorf("unknown study %q", study)
 	}
+	if err != nil {
+		return nil, err
+	}
+	return fs, nil
 }
 
 // reclaimFixtures builds two per-tenant ClusterQueues in one per-run cohort, identical except that the whole

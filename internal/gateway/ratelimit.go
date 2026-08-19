@@ -110,12 +110,26 @@ func newBucketRegistry() *bucketRegistry {
 //
 // false means the tenant is over its limit and the caller translates it to a 429 rate_limited.
 //
+// configured reports whether the registry was ever installed, so a caller can tell an unfinished Server from
+// a tenant that is genuinely over budget. Nil-safe by design: that is the only case it exists to answer.
+func (b *bucketRegistry) configured() bool { return b != nil }
+
 // Design rationale (design spec Components and Request flow step 4).
 //
 //   - a nil rateLimit means an unlimited tenant, so always allow
 //   - per-second rate = requestsPerMinute / 60, since feeding the per-minute value straight in would run 60× fast
 //   - on a policy change, refresh via SetLimit/SetBurst instead of rebuilding, which preserves accumulated tokens
 func (b *bucketRegistry) Allow(tenant string, rl *platformv1.GPUQuotaRateLimit) bool {
+	// A nil REGISTRY is an assembly fault, not a runtime state: main always calls InitRateLimiter, and a
+	// Server without it is one nobody finished building. It is refused rather than allowed because a limiter
+	// that cannot function must not answer "within budget" — that would serve unlimited traffic under a
+	// configuration that says otherwise, and nothing anywhere would say so.
+	//
+	// The comment on InitRateLimiter claimed the gateway guarded this case. It did not: with a non-nil policy
+	// the next line dereferenced b and the request panicked.
+	if b == nil {
+		return false
+	}
 	// A nil rl means this tenant has no gateway rate limit, so it always passes.
 	if rl == nil {
 		return true
