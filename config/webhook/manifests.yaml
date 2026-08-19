@@ -44,3 +44,41 @@ webhooks:
           - UPDATE
         resources:
           - mltrainingjobs
+  - name: vgpupod.kb.io
+    admissionReviewVersions:
+      - v1
+    sideEffects: None
+    # Fail, and this one is the reason the whole file exists. The rule stops a Pod taking a device that
+    # nothing would charge; a rule that vanished whenever the webhook Pod was unreachable would open the
+    # bypass at exactly the moment nobody is watching the cluster.
+    #
+    # The cost is real and worth stating: while the webhook is down, no GPU Pod can be created in a selected
+    # namespace at all. That is the correct direction for a quota boundary — refusing work is recoverable,
+    # unaccounted GPU consumption is not — but it means this webhook's availability is now part of the
+    # platform's availability.
+    failurePolicy: Fail
+    clientConfig:
+      service:
+        name: gpu-platform-control-plane-webhook-service
+        namespace: gpu-platform-control-plane-system
+        path: /validate--v1-pod
+    # Scoped by LABEL rather than applied cluster-wide, and the scope is not a convenience.
+    #
+    # Every Pod in the cluster would otherwise pass through this webhook, including the ones in kube-system
+    # that have to start before it does — a Pod webhook that can refuse kube-system is how a cluster becomes
+    # unbootable. The label goes on namespaces the platform governs, which is also the only place the quota
+    # claim is made.
+    namespaceSelector:
+      matchLabels:
+        platform.lkhun9311.github.io/gpu-quota-enforced: "true"
+    rules:
+      - apiGroups:
+          - ""
+        apiVersions:
+          - v1
+        # CREATE only. A Pod's resource requests are immutable, so no UPDATE can introduce a device request
+        # that CREATE did not already see, and refusing a DELETE could strand a Pod nobody can remove.
+        operations:
+          - CREATE
+        resources:
+          - pods

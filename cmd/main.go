@@ -240,8 +240,16 @@ func main() {
 			setupLog.Error(err, "Failed to create webhook", "webhook", "mltrainingjob")
 			os.Exit(1)
 		}
+		// The Pod guard is what makes the tenant GPU budget a boundary rather than a convention. Without it a
+		// Pod created directly, with a device request and no queue, is admitted by nobody and counted by
+		// nobody — demonstrated on this cluster before the guard existed.
+		if err := webhookv1.SetupGPUPodWebhookWithManager(mgr); err != nil {
+			setupLog.Error(err, "Failed to create webhook", "webhook", "gpupod")
+			os.Exit(1)
+		}
 	} else {
-		setupLog.Info("No webhook certificate supplied; MLTrainingJob admission validation is NOT running")
+		setupLog.Info("No webhook certificate supplied; MLTrainingJob admission validation is NOT running, " +
+			"and neither is the GPU quota guard — a Pod can take a device without passing through a queue")
 	}
 	// +kubebuilder:scaffold:builder
 
