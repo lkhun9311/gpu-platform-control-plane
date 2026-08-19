@@ -118,6 +118,23 @@ make build
 
 # run controller tests (envtest)
 make test
+
+# the shared Kueue fixtures — REQUIRED before any GPUQuotaPolicy with trainingQuota works
+kubectl apply -k config/kueue
+```
+
+`config/kueue` is deliberately outside `config/default`. Its resources are cluster-scoped and referenced by
+name — the ClusterQueue the policy controller writes points at a ResourceFlavor called exactly `gpu` — and
+`config/default` applies a `namePrefix`, which would rename the flavor out from under that reference.
+
+Applying it is easy to forget, and forgetting it used to fail silently: the ClusterQueue sits
+`Active=False FlavorNotFound`, every training Job submitted to it stays suspended, and the policy still read
+`Synced=True`. The policy now carries a second condition for exactly this, so the state is visible:
+
+```bash
+kubectl get gpuquotapolicy <name> -o jsonpath='{range .status.conditions[*]}{.type}={.status} {.reason}{"\n"}{end}'
+# Synced=True QuotaSynced
+# Admitting=False ClusterQueueInactive     <- the fixture is missing
 ```
 
 Simulated GPU capacity on a **kind** worker node, only for end-to-end scheduling/quota-*enforcement* validation (the GPUQuotaPolicy controller itself needs no GPU capacity — it writes a `requests.nvidia.com/gpu` ResourceQuota; capacity matters only when sample pods actually request GPU):

@@ -132,9 +132,14 @@ Measured end to end after deploying:
 Then with the guard turned ON in that namespace: the serving Pod is admitted (zero denial events), and a bare
 GPU Pod is still Forbidden. The two now coexist, which they did not before.
 
-The namespace is unlabelled again at the end of the check, because the order matters: existing serving
-Deployments do not carry the label until their controller reconciles them, and turning the guard on first
-would deny their Pods in the window between.
+The order matters: existing serving Deployments do not carry the label until their controller reconciles
+them, and turning the guard on first denies their Pods in the window between. So the sequence is reconcile
+serving, then label the namespace.
+
+**The guard is now on** in `serving`, and both directions hold there:
+
+    serving Pod recreated          -> admitted, 0 admission denials on the ReplicaSet
+    bare Pod, 1 nvidia.com/gpu     -> Forbidden
 
 ## What it broke before that, and how it was found
 
