@@ -26,6 +26,27 @@ So: what stops a tenant from creating a Pod directly?
 Created, scheduled, Running, holding two devices, with no Kueue Workload anywhere. Nothing admitted it and
 nothing is counting it. "Multi-tenant GPU quota" was a convention the platform's own controller followed.
 
+## The first guard, and how it was broken
+
+The first version read the Pod's `ownerReference` and trusted it: a Pod whose controller was a queued Job was
+admitted. It passed ten unit specs and four live cases, and it was wrong.
+
+    # create a real Job in a real queue
+    kubectl apply -f (Job "decoy", labelled kueue.x-k8s.io/queue-name: gpu-premium)
+
+    # then claim it as your Pod's controller
+    kubectl apply -f (Pod, ownerReferences: [{kind: Job, name: decoy, uid: <decoy's uid>, controller: true}],
+                      resources: {limits: {"nvidia.com/gpu": "2"}})
+
+    pod/forged-owner created
+    forged-owner   1/1   Running
+
+`ownerReferences` is supplied by whoever creates the object. Kubernetes does not check that the named owner
+had anything to do with it. **Everything on a Pod is written by the party the guard is trying to constrain.**
+
+The same was true of the exemption: a tenant can annotate their own Pod, so an exemption honoured for anyone
+is the bypass with an extra step.
+
 ## The guard
 
 A validating webhook on Pod CREATE, scoped by namespace label, `failurePolicy: Fail`.
@@ -34,7 +55,11 @@ The rule is **not** "the Pod carries a queue label". That was the first design a
 puts the queue label on the JOB's metadata, and the Job controller creates Pods from `spec.template`, which
 carries no such label. A Pod-level check would refuse every training Pod this platform creates.
 
-The rule is that the Pod's **controller** is a `batch/v1` Job carrying the queue label. Only a Job, because
+The rule has two halves, and the second is the one that matters: the Pod's **controller** is a `batch/v1` Job
+carrying the queue label, **and the request comes from the Job controller** —
+`system:serviceaccount:kube-system:job-controller`. The requester is the only field in an admission request a
+tenant cannot write, so it is the only thing an ownerReference can be believed on. The exemption is honoured
+only for `kube-system` service accounts for the same reason. Only a Job, because
 in this cluster that is the only shape Kueue governs — its `pod` and `deployment` integrations are not among
 the enabled frameworks, so a Pod owned by a ReplicaSet is invisible to Kueue however it is labelled.
 Admitting it on a label Kueue never reads would be a guard that checks a string rather than a fact.
@@ -46,6 +71,8 @@ An ownerReference naming a Job that does not exist is refused: it is a field any
 | case | result |
 |---|---|
 | bare Pod, 2 GPUs, unlabelled namespace | created — the guard is scoped, and says so |
+| **forged ownerReference to a real queued Job** | **Forbidden**, naming the requester |
+| **tenant annotating its own Pod exempt** | **Forbidden**, naming the reserved annotation |
 | bare Pod, 2 GPUs, governed namespace | **Forbidden**, with the remedy in the message |
 | Pod from a Job labelled `kueue.x-k8s.io/queue-name` | **admitted**, no warning |
 | Pod annotated `quota-exempt` | admitted **with a warning naming the annotation** |

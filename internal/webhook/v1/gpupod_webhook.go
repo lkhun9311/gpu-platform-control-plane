@@ -19,6 +19,8 @@ package v1
 import (
 	"context"
 	"fmt"
+	"net/http"
+	"strings"
 
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -27,6 +29,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
 
@@ -38,6 +41,24 @@ const gpuResource = corev1.ResourceName("nvidia.com/gpu")
 // Duplicated from internal/controller rather than imported, because a webhook importing the controller
 // package to read one string would drag the whole reconciler into the admission binary's dependency graph.
 const kueueQueueLabel = "kueue.x-k8s.io/queue-name"
+
+// jobControllerUser is the identity the Job controller creates Pods as.
+//
+// It is the ONLY thing in an admission request that a tenant cannot write. Everything on the Pod — labels,
+// annotations, and ownerReferences above all — is supplied by whoever creates it, and Kubernetes does not
+// check that a named owner had anything to do with the object claiming it.
+//
+// That was not a theoretical weakness. The first version of this guard read the Pod's ownerReference and
+// trusted it: a Pod naming a real, queued Job as its controller was admitted. Forging one took a single
+// kubectl apply and obtained two devices, which is exactly the bypass the guard exists to close.
+const jobControllerUser = "system:serviceaccount:kube-system:job-controller"
+
+// systemNamespacePrefix identifies the service accounts allowed to use the exemption.
+//
+// A tenant can annotate their own Pod, so an exemption honoured for anyone is not an exemption, it is the
+// bypass with an extra step. Infrastructure that legitimately holds a device outside the budget — a device
+// plugin DaemonSet — runs as a kube-system service account, and a tenant cannot create one.
+const systemNamespacePrefix = "system:serviceaccount:kube-system:"
 
 // QuotaExemptAnnotation marks a Pod that may hold a device outside the tenant quota.
 //
@@ -68,62 +89,83 @@ type GPUPodValidator struct {
 	// just created by, and an informer that has not caught up answers NotFound — which is indistinguishable
 	// from the Job not existing and would let the Pod through.
 	Reader client.Reader
+	// decoder turns the admission request's raw bytes into a Pod.
+	//
+	// This is a raw Handler rather than a typed Validator because the decision needs the REQUESTER, and
+	// admission.Validator is handed only the object. Everything on the object is attacker-controlled; the
+	// requester is not.
+	decoder admission.Decoder
 }
 
-var _ admission.Validator[*corev1.Pod] = &GPUPodValidator{}
+var _ admission.Handler = &GPUPodValidator{}
 
 // podGroupKind names the kind in the errors this validator returns.
 var podGroupKind = schema.GroupKind{Group: "", Kind: "Pod"}
 
 // SetupGPUPodWebhookWithManager registers the validator with the manager's webhook server.
+//
+// Registered by path rather than through NewWebhookManagedBy, because that builder wires a typed Validator
+// and this guard needs the admission request itself.
 func SetupGPUPodWebhookWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewWebhookManagedBy(mgr, &corev1.Pod{}).
-		WithValidator(&GPUPodValidator{Reader: mgr.GetAPIReader()}).
-		Complete()
+	mgr.GetWebhookServer().Register("/validate--v1-pod", &webhook.Admission{
+		Handler: &GPUPodValidator{Reader: mgr.GetAPIReader(), decoder: admission.NewDecoder(mgr.GetScheme())},
+	})
+	return nil
 }
 
-// ValidateCreate refuses a device request that is not accounted for.
-func (v *GPUPodValidator) ValidateCreate(ctx context.Context, pod *corev1.Pod) (admission.Warnings, error) {
-	if gpuRequest(pod) == 0 {
-		return nil, nil
+// Handle refuses a device request that is not accounted for.
+//
+// The order is deliberate: cheapest and least surprising first, so the overwhelming majority of Pods — which
+// ask for no device at all — leave immediately, and so a refusal is only ever reached by a Pod that really
+// would take one.
+func (v *GPUPodValidator) Handle(ctx context.Context, req admission.Request) admission.Response {
+	var pod corev1.Pod
+	if err := v.decoder.Decode(req, &pod); err != nil {
+		return admission.Errored(http.StatusBadRequest, err)
 	}
+	devices := gpuRequest(&pod)
+	if devices == 0 {
+		return admission.Allowed("")
+	}
+	user := req.UserInfo.Username
+
 	if _, exempt := pod.Annotations[QuotaExemptAnnotation]; exempt {
-		// Recorded as a warning so the exemption is visible at the moment it is used rather than only to
-		// someone who thinks to go looking for the annotation.
-		return admission.Warnings{fmt.Sprintf(
-			"this Pod holds %d %s outside the tenant quota, by %s",
-			gpuRequest(pod), gpuResource, QuotaExemptAnnotation)}, nil
+		// The annotation is honoured only for identities a tenant cannot assume. Honoured for anyone, it is
+		// the bypass with an extra step: a tenant who can create a Pod can also annotate it.
+		if !strings.HasPrefix(user, systemNamespacePrefix) {
+			return admission.Denied(fmt.Sprintf(
+				"%s is reserved for cluster infrastructure and %q is not a kube-system service account; "+
+					"this Pod asks for %d %s and would leave the tenant budget unaccounted",
+				QuotaExemptAnnotation, user, devices, gpuResource))
+		}
+		return admission.Allowed("").WithWarnings(fmt.Sprintf(
+			"this Pod holds %d %s outside the tenant quota, by %s, created by %s",
+			devices, gpuResource, QuotaExemptAnnotation, user))
 	}
 
-	queued, err := v.tracesToAQueue(ctx, pod)
+	// An ownerReference is only evidence when the Job controller is the one presenting it. A tenant writing
+	// the same field is describing a relationship that does not exist.
+	if user != jobControllerUser {
+		return admission.Denied(fmt.Sprintf(
+			"this namespace's GPU budget is held by a Kueue ClusterQueue, and %q is asking for %d %s directly "+
+				"rather than through a queue, so nothing would charge it: submit an MLTrainingJob, or create a "+
+				"Job labelled %s=<queue> and let the Job controller create the Pod",
+			user, devices, gpuResource, kueueQueueLabel))
+	}
+
+	queued, err := v.tracesToAQueue(ctx, &pod)
 	if err != nil {
 		// Fail closed, for the same reason the webhook's failurePolicy is Fail: a guard that stops applying
 		// whenever a read fails admits exactly what it exists to refuse, and does so invisibly.
-		return nil, fmt.Errorf("establish whether pod %s/%s passes through a queue: %w",
-			pod.Namespace, pod.Name, err)
+		return admission.Errored(http.StatusInternalServerError, fmt.Errorf(
+			"establish whether pod %s/%s passes through a queue: %w", pod.Namespace, pod.Name, err))
 	}
-	if queued {
-		return nil, nil
+	if !queued {
+		return admission.Denied(fmt.Sprintf(
+			"the Job that created this Pod carries no %s, so the %d %s it asks for would be charged to no "+
+				"tenant's budget", kueueQueueLabel, devices, gpuResource))
 	}
-	return nil, apierrors.NewForbidden(
-		schema.GroupResource{Group: podGroupKind.Group, Resource: "pods"}, pod.Name,
-		fmt.Errorf("this namespace's GPU budget is held by a Kueue ClusterQueue, and this Pod asks for %d %s "+
-			"without belonging to a queue, so nothing would charge it: submit an MLTrainingJob, or label the "+
-			"owning Job %s=<queue>, or annotate the Pod %s to take the device outside the budget on purpose",
-			gpuRequest(pod), gpuResource, kueueQueueLabel, QuotaExemptAnnotation))
-}
-
-// ValidateUpdate and ValidateDelete admit everything.
-//
-// A Pod's resource requests are immutable, so an update cannot introduce a device request that CREATE did not
-// already see; and refusing a delete could strand a Pod nobody can remove, which is worse than anything this
-// guard prevents.
-func (v *GPUPodValidator) ValidateUpdate(context.Context, *corev1.Pod, *corev1.Pod) (admission.Warnings, error) {
-	return nil, nil
-}
-
-func (v *GPUPodValidator) ValidateDelete(context.Context, *corev1.Pod) (admission.Warnings, error) {
-	return nil, nil
+	return admission.Allowed("")
 }
 
 // tracesToAQueue reports whether this Pod reaches Kueue's accounting through its controller.
