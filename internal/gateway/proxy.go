@@ -235,6 +235,12 @@ func errorCode(status int) string {
 		return "model_not_found"
 	case http.StatusTooManyRequests:
 		return "rate_limited"
+	case http.StatusRequestEntityTooLarge:
+		// Added with the two 413 paths and missed at the time, so both of them — an oversized body and an
+		// estimate larger than the bucket can ever hold — were answering internal_error. A client branching on
+		// the code was told the gateway had broken when it had in fact refused something it can describe, and
+		// the one action that resolves either case is the same: send less.
+		return "payload_too_large"
 	case http.StatusBadGateway:
 		return "bad_gateway"
 	case http.StatusGatewayTimeout:

@@ -536,6 +536,13 @@ type scraperManager struct {
 	// janitorStop ends the eviction loop; janitorDone is closed when it has.
 	janitorStop chan struct{}
 	janitorDone chan struct{}
+	// stopped is set by Stop and refuses every later Register.
+	//
+	// Without it a request draining during shutdown could start a scraper AFTER Stop had torn them all down,
+	// leaving a goroutine and an HTTP client alive for the rest of the process — which on a gateway that
+	// registers on every routed request is not a corner case but the ordinary shape of a graceful stop.
+	// Stop also became callable twice this way, and the second close of janitorStop panicked.
+	stopped bool
 }
 
 // newScraperManager returns an empty scraperManager, defaulting cfg.clock to time.Now when the
@@ -645,6 +652,11 @@ func (m *scraperManager) Register(backend *BackendRef) {
 	key := backendKey(backend)
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	// A stopped manager starts nothing. The check is here rather than at the call site because Register runs
+	// on the request path and the request path does not know the process is shutting down.
+	if m.stopped {
+		return
+	}
 	// Stamped before the early return, because the point is to record that this backend is still being routed
 	// to — which is exactly the case where a scraper already exists.
 	m.lastRouted[key] = m.cfg.clock()
@@ -679,6 +691,14 @@ func (m *scraperManager) Unregister(backend *BackendRef) {
 
 // Stop stops every running scraper, for graceful shutdown.
 func (m *scraperManager) Stop() {
+	m.mu.Lock()
+	if m.stopped {
+		m.mu.Unlock()
+		return
+	}
+	m.stopped = true
+	m.mu.Unlock()
+
 	close(m.janitorStop)
 	<-m.janitorDone
 	m.mu.Lock()

@@ -112,6 +112,9 @@ var _ = Describe("admission pipeline placement", func() {
 		s.Handler().ServeHTTP(rr, authedRequest(big))
 		Expect(rr.Code).To(Equal(http.StatusRequestEntityTooLarge),
 			"an oversized body was reported as malformed JSON, sending the caller after a syntax bug that is not there")
+		// The code travels in the body too, and it defaulted to internal_error: a client branching on it was
+		// told the gateway broke when it had refused something it can name.
+		Expect(rr.Body.String()).To(ContainSubstring("payload_too_large"))
 	})
 
 	// A request that can never be admitted must not carry the retry hint a 429 does. A client obeying
@@ -123,6 +126,7 @@ var _ = Describe("admission pipeline placement", func() {
 		rr := httptest.NewRecorder()
 		s.Handler().ServeHTTP(rr, authedRequest(eligibleLongBody))
 		Expect(rr.Code).To(Equal(http.StatusRequestEntityTooLarge))
+		Expect(rr.Body.String()).To(ContainSubstring("payload_too_large"))
 		Expect(rr.Header().Get("Retry-After")).To(BeEmpty(),
 			"a permanently impossible request was advertised as retryable")
 	})

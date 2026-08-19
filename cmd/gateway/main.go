@@ -162,13 +162,12 @@ func main() {
 		log.Error(err, "configure admission control", "mode", admissionModeFlag)
 		os.Exit(1)
 	}
-	// Stop any scrapers the admitter started (a no-op for off/static-cap) once the gateway is
-	// signaled to shut down, so a graceful stop never leaves scrape goroutines running past
-	// process shutdown.
-	go func() {
-		<-ctx.Done()
-		stopAdmitter()
-	}()
+	// stopAdmitter is called by the shutdown sequence below rather than from a goroutine of its own here.
+	//
+	// Two goroutines both waking on ctx.Done() raced, and the losing order was the likely one: the scrapers
+	// stopped while requests were still draining, so every completion still in flight was admitted by a guard
+	// that had lost its telemetry and failed open. Shutdown is one sequence — stop accepting, drain, then
+	// stop the machinery the drained requests were using.
 
 	cfg := ctrl.GetConfigOrDie()
 	// Settle the namespace before building the cache.
@@ -252,6 +251,9 @@ func main() {
 		if err := api.Shutdown(shutdownCtx); err != nil {
 			log.Error(err, "in-flight requests were cut short by the shutdown deadline")
 		}
+		// Last, because until Shutdown returns there are requests being admitted, and admission reads what
+		// these scrapers publish. Stopping them first left the guard failing open over the whole drain.
+		stopAdmitter()
 	}()
 
 	go func() {

@@ -651,6 +651,45 @@ var _ = Describe("scraperManager eviction under concurrent routing", func() {
 	})
 })
 
+// Shutdown has to survive being called twice and has to end registration, because on this gateway Register
+// runs on the request path: a completion draining after Stop would otherwise start a scraper that outlives
+// every other goroutine in the process.
+//
+// Mutation that turns either of these red: drop the stopped check from Register, or the early return from Stop.
+var _ = Describe("scraperManager shutdown", func() {
+	newStopped := func() (*scraperManager, *BackendRef, *httptest.Server) {
+		up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(minimalValidMetrics))
+		}))
+		m := newScraperManager(scraperConfig{
+			scrapeInterval: time.Hour, maxStaleness: time.Hour, httpTimeout: time.Second,
+			idleTimeout: time.Hour, clock: time.Now,
+		})
+		return m, newTestRef("ns", "late", up.URL), up
+	}
+
+	It("starts no scraper for a request that arrives after Stop", func() {
+		m, ref, up := newStopped()
+		defer up.Close()
+		m.Stop()
+
+		m.Register(ref)
+		_, ok := m.snapshotFor(backendKey(ref))
+		Expect(ok).To(BeFalse(),
+			"a request draining during shutdown started a scraper that nothing will ever stop")
+	})
+
+	It("can be stopped twice", func() {
+		m, _, up := newStopped()
+		defer up.Close()
+		m.Stop()
+		// The second close of janitorStop panicked, which turns an ordinary double-shutdown — a signal
+		// handler and a defer, say — into a crash on the way out.
+		Expect(func() { m.Stop() }).NotTo(Panic())
+	})
+})
+
 var _ = Describe("scraperManager lifecycle", func() {
 	It("Register is idempotent: a second call for the same backend does not start a second scraper", func() {
 		up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
