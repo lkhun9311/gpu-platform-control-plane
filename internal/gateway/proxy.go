@@ -554,6 +554,13 @@ func (a *attemptWriter) promote() {
 		return
 	}
 	maps.Copy(a.ResponseWriter.Header(), a.scratch)
+	// Released so the guard above makes this run exactly once, which is what the sentence on this function
+	// already claimed. Write calls promote unconditionally, so without it a streaming completion paid a
+	// maps.Copy of the whole header map per chunk, forever, after the response had already committed.
+	//
+	// Safe because nothing reads scratch again: Header returns the real writer's map once wrote is set, and
+	// wrote is set immediately after this returns on both paths that call it.
+	a.scratch = nil
 }
 
 func (a *attemptWriter) WriteHeader(c int) {

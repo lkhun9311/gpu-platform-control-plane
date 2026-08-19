@@ -484,6 +484,23 @@ func foldEvent(byJob map[string]*jobTimeline, e *LifecycleEvent, horizonElapsedN
 	case EventAttemptStopped:
 		a, ok := t.attempts[e.ObjectUID]
 		if !ok {
+			// A stop past the horizon for a Pod whose PodReady was ALSO past the horizon is an ordinary
+			// consequence of where the window closes, not a malformed sequence.
+			//
+			// The gate above folds a post-horizon AttemptStopped — deliberately, because an attempt that was
+			// running when the window closed needs its end to charge occupancy correctly — while dropping every
+			// other post-horizon event, PodReady included. So a retry Pod that became Ready after the horizon
+			// and stopped shortly after arrived here with no attempt to attach to, and the run was refused
+			// under dispReconstructRefused with a reason that reads as a broken ledger. Both events are
+			// deliverable in the interval between waitForHorizon returning and the watches being cancelled, so
+			// the window is narrow and real.
+			//
+			// Inside the horizon this stays an error, and that is the half worth keeping: a stop for a Pod
+			// never seen Ready within the measured window IS a malformed sequence, and folding it silently
+			// would charge occupancy from an instant nothing established.
+			if e.ElapsedNs > horizonElapsedNs {
+				return nil
+			}
 			return fmt.Errorf("job %q AttemptStopped for unknown Pod %q (no PodReady seen)", e.Job, e.ObjectUID)
 		}
 		if !a.stopped || e.ElapsedNs < a.stopNs {

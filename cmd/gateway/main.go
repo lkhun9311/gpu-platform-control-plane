@@ -18,6 +18,8 @@ limitations under the License.
 package main
 
 import (
+	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"net/http"
@@ -64,7 +66,11 @@ const (
 	// receiving requests: it has either been deleted or has nothing to be under pressure about, and both want
 	// its scraper stopped and its gauges gone. Far above maxStaleness so a backend cannot be evicted while the
 	// guard is still treating its last reading as usable.
-	defaultAdmissionKVIdleTimeout   = 15 * time.Minute
+	defaultAdmissionKVIdleTimeout = 15 * time.Minute
+	// shutdownGrace bounds how long in-flight requests are given after a signal. Under a default 30s
+	// terminationGracePeriodSeconds, so the decision to cut a request belongs to this program rather than to
+	// the kubelet's SIGKILL.
+	shutdownGrace                   = 25 * time.Second
 	defaultAdmissionKVScrapeTimeout = 1 * time.Second
 )
 
@@ -217,16 +223,50 @@ func main() {
 	}()
 
 	// Serve metrics/readiness on :8081 and the OpenAI-compatible API on :8080.
+	//
+	// Both are named servers rather than http.ListenAndServe, so both can be shut down.
+	//
+	// A signal previously ended the process while requests were mid-flight: SetupSignalHandler cancelled ctx,
+	// which stopped the cache and the scrapers, and nothing at all told the HTTP servers. Kubernetes sends
+	// SIGTERM and then waits out terminationGracePeriodSeconds, so every completion in flight — some of them
+	// streaming for minutes — was cut at whatever byte it had reached, and the client saw a truncated response
+	// rather than a refused one. On a gateway whose whole job is proxying long generations that is the failure
+	// mode most worth having.
+	api := &http.Server{Addr: ":8080", Handler: s.Handler()}
+	metrics := &http.Server{Addr: ":8081", Handler: s.MetricsHandler()}
+
 	go func() {
-		if err := http.ListenAndServe(":8081", s.MetricsHandler()); err != nil {
+		<-ctx.Done()
+		// Bounded, because Shutdown waits for every in-flight request and a stuck upstream would otherwise
+		// hold the process past the grace period — at which point the kubelet SIGKILLs it and the graceful
+		// path has bought nothing. The bound is deliberately under a default 30s grace period, so the
+		// difference between finishing and being killed belongs to this program rather than to the kubelet.
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownGrace)
+		defer cancel()
+		// Metrics first: readiness lives on that listener, so closing it takes this Pod out of Service
+		// endpoints before the API server stops accepting, and new requests stop arriving while the ones
+		// already here finish.
+		if err := metrics.Shutdown(shutdownCtx); err != nil {
+			log.Error(err, "metrics server did not shut down cleanly")
+		}
+		if err := api.Shutdown(shutdownCtx); err != nil {
+			log.Error(err, "in-flight requests were cut short by the shutdown deadline")
+		}
+	}()
+
+	go func() {
+		// ErrServerClosed is what Shutdown produces and is not a failure; reporting it would put an error in
+		// the log of every clean stop.
+		if err := metrics.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Error(err, "metrics server stopped")
 		}
 	}()
 	log.Info("serving", "addr", ":8080")
-	if err := http.ListenAndServe(":8080", s.Handler()); err != nil {
+	if err := api.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Error(err, "serving stopped")
 		os.Exit(1)
 	}
+	log.Info("stopped serving")
 }
 
 // envOr returns the environment value for key or def when unset.

@@ -1246,3 +1246,45 @@ func TestOccupancyIsNeverNegativeWhenWatchesReorder(t *testing.T) {
 		t.Fatalf("total occupancy = %.1f, want 38 from a1 alone", total)
 	}
 }
+
+// A retry Pod that becomes Ready AFTER the horizon and stops shortly after is an ordinary consequence of
+// where the window closes, not a broken ledger.
+//
+// The horizon gate folds a post-horizon AttemptStopped deliberately — an attempt still running when the
+// window closed needs its end to charge occupancy correctly — while dropping every other post-horizon event,
+// PodReady included. So the stop arrived with no attempt to attach to and the whole arm was refused under a
+// reason that reads as a malformed sequence. Both events are deliverable in the interval between the horizon
+// being reached and the watches being cancelled.
+//
+// Mutation that turns this red: error on an unknown Pod regardless of when the stop happened.
+func TestReconstructIgnoresAPostHorizonStopForAPostHorizonAttempt(t *testing.T) {
+	trace := []TrainingTraceRow{{Index: 0, Name: "a1", OffsetMs: 0, Tenant: "tenant-a", GPUCount: 1, DurationSec: 300}}
+	events := []LifecycleEvent{
+		{ElapsedNs: 0, Kind: "MLTrainingJob", Type: EventSubmitted, Job: "a1"},
+		{ElapsedNs: 1 * sec, Kind: "Workload", Type: EventAdmitted, Job: "a1"},
+		{ElapsedNs: 10 * sec, Kind: "Pod", Type: EventPodReady, Job: "a1", ObjectUID: "pod-1"},
+		{ElapsedNs: 40 * sec, Kind: "Pod", Type: EventAttemptStopped, Job: "a1", ObjectUID: "pod-1", Reason: StopReasonSucceeded},
+		// Both past the 100s horizon: the retry's readiness is dropped by the gate, and its stop must be too.
+		{ElapsedNs: 110 * sec, Kind: "Pod", Type: EventPodReady, Job: "a1", ObjectUID: "pod-2"},
+		{ElapsedNs: 115 * sec, Kind: "Pod", Type: EventAttemptStopped, Job: "a1", ObjectUID: "pod-2", Reason: StopReasonSucceeded},
+	}
+	if _, err := Reconstruct("Any", trace, events, 100*sec); err != nil {
+		t.Fatalf("an ordinary post-horizon retry refused the whole arm: %v", err)
+	}
+}
+
+// The half that must keep erroring. A stop INSIDE the window for a Pod never seen Ready inside it is a
+// malformed sequence, and folding it silently would charge occupancy from an instant nothing established.
+//
+// Mutation that turns this red: return nil for an unknown Pod at any elapsed time.
+func TestReconstructStillRefusesAnInHorizonStopWithNoReadiness(t *testing.T) {
+	trace := []TrainingTraceRow{{Index: 0, Name: "a1", OffsetMs: 0, Tenant: "tenant-a", GPUCount: 1, DurationSec: 300}}
+	events := []LifecycleEvent{
+		{ElapsedNs: 0, Kind: "MLTrainingJob", Type: EventSubmitted, Job: "a1"},
+		{ElapsedNs: 1 * sec, Kind: "Workload", Type: EventAdmitted, Job: "a1"},
+		{ElapsedNs: 40 * sec, Kind: "Pod", Type: EventAttemptStopped, Job: "a1", ObjectUID: "pod-ghost", Reason: StopReasonSucceeded},
+	}
+	if _, err := Reconstruct("Any", trace, events, 100*sec); err == nil {
+		t.Fatal("a stop inside the window for a Pod never seen Ready was folded as if it were ordinary")
+	}
+}
