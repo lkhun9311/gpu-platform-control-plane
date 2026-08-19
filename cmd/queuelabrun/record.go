@@ -329,13 +329,13 @@ type measurement struct {
 	Resolution *observationResolution `json:"resolution,omitempty"`
 }
 
-// observationResolution summarises the gap between when the kubelet said a container stopped and when this
-// collector heard about it.
+// observationResolution bounds how finely the intervals in this record can be read.
 //
-// Reported as a spread rather than a single figure because it is not a constant: it depends on the apiserver,
-// the watch, and the two machines' clocks agreeing. The minimum is the more useful end — a lag cannot be
-// smaller than the clock skew, so a minimum near zero is evidence the clocks are close, while a large
-// minimum means every number here is offset by at least that much.
+// It is the spread between the kubelet's stamp for a stop and this collector's arrival time for it, and it
+// is a BOUND rather than a correction. The two times come from unsynchronised clocks on different machines
+// and the kubelet's is truncated to the second, so the gap mixes propagation, clock offset and truncation
+// with no way here to separate them. What it supports is one statement: an interval is not resolved below
+// this spread. It does not support "the watch is N milliseconds late".
 type observationResolution struct {
 	// Samples is how many stop events carried a kubelet timestamp to compare against.
 	Samples int `json:"samples"`
@@ -343,12 +343,12 @@ type observationResolution struct {
 	MinNs    int64 `json:"minNs"`
 	MedianNs int64 `json:"medianNs"`
 	MaxNs    int64 `json:"maxNs"`
-	// QuantisationNs is the granularity of the reference clock itself.
+	// QuantisationNs is the granularity of the kubelet's own field.
 	//
-	// metav1.Time serialises to RFC3339 with SECOND precision, so the kubelet's finishedAt arrives with its
-	// nanoseconds zeroed — checked, not assumed: every observed value ends in nine zeros. Each lag below is
-	// therefore the true lag plus up to one second of truncation, and the instrument measuring the
-	// instrument is itself no finer than that.
+	// metav1.Time serialises to RFC3339 with SECOND precision, so finishedAt arrives with its nanoseconds
+	// zeroed — checked, not assumed: every observed value ends in nine zeros. Each figure below therefore
+	// carries up to a second of truncation on top of everything else, which is why they bound rather than
+	// measure.
 	QuantisationNs int64 `json:"quantisationNs"`
 	// Note names what the reader must not do with the intervals in this record.
 	Note string `json:"note"`
@@ -361,8 +361,8 @@ type observationResolution struct {
 func resolutionOf(events []queuelab.LifecycleEvent) *observationResolution {
 	lags := make([]int64, 0, len(events))
 	for _, e := range events {
-		if e.ObservedLagNs != nil {
-			lags = append(lags, *e.ObservedLagNs)
+		if e.ObservedSkewNs != nil {
+			lags = append(lags, *e.ObservedSkewNs)
 		}
 	}
 	if len(lags) == 0 {
@@ -375,8 +375,9 @@ func resolutionOf(events []queuelab.LifecycleEvent) *observationResolution {
 		MinNs:          lags[0],
 		MedianNs:       lags[len(lags)/2],
 		MaxNs:          lags[len(lags)-1],
-		Note: "every interval in this record is a difference of ARRIVAL times and carries the lag of both " +
-			"its endpoints; a residual smaller than this spread is not resolved by this harness",
+		Note: "a bound, not a delivery time: it mixes propagation, the offset between two unsynchronised " +
+			"clocks and one-second truncation. Every interval here is a difference of ARRIVAL times, so a " +
+			"residual smaller than this spread is not resolved by this harness",
 	}
 }
 

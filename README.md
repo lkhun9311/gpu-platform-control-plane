@@ -77,9 +77,10 @@ victim's remaining service into the quota owner's waiting time, with the preempt
 Both arms reproduce across their two runs.
 
 The magnitudes — 41 GPU-seconds and 19.4 — are the protocol's dose and remaining service, not discoveries;
-the residuals inside them turned out to be smaller than the harness's own delivery lag, which the record now
-measures per event: every ledger time is when a watch event ARRIVED, and that arrival runs 0.4 to 2.4 seconds
-behind the kubelet's own timestamp. Nothing sub-second in this experiment is resolved. The GPU is simulated, so these are seconds of RESERVATION and the
+the residuals inside them turned out to be smaller than the harness's own uncertainty, which the record now
+bounds per event: every ledger time is when a watch event ARRIVED, and the gap to the kubelet's own stamp
+runs 0.4 to 2.4 seconds — a bound mixing propagation, clock offset and one-second truncation, not a measured
+delivery time. Nothing sub-second in this experiment is resolved. The GPU is simulated, so these are seconds of RESERVATION and the
 records say so. Details, and what the result does not support, are in
 [hack/queuelab-reclaim-first-result.md](hack/queuelab-reclaim-first-result.md).
 

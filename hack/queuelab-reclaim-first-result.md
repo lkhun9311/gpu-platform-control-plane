@@ -49,23 +49,26 @@ I called the first residual the control plane's own cost — about 0.94 seconds 
 to the container being gone. **That was wrong, and the harness now says so itself.**
 
 Every time in this ledger is `col.elapsed()`: the collector's clock when a watch event ARRIVED, not when the
-event happened. So each interval carries the delivery lag of both its endpoints, and that lag had never been
-measured. The record now measures it, by capturing the kubelet's own `finishedAt` beside the collector's
+event happened. So each interval carries however far behind those arrivals are, and that had never been
+bounded. The record now bounds it, by capturing the kubelet's own `finishedAt` beside the collector's
 observation time:
 
-| run | discarded | lag min | lag median | lag max |
+| run | discarded | skew min | skew median | skew max |
 |---|---|---|---|---|
 | res1 | 41.014 | 945.7 ms | 2113.0 ms | 2113.0 ms |
 | res2 | 41.232 | 430.1 ms | 2389.2 ms | 2389.2 ms |
 
-**The lag is of the same size as the residual, and varies by more than it.** A 0.94-second gap cannot be
-attributed to termination when the instrument reporting it is between 0.4 and 2.4 seconds late, and late by a
-different amount at each endpoint. The residual is not resolved by this harness.
+**This is a bound, not a delivery time, and the distinction is the point.** The two stamps come from
+unsynchronised clocks on different machines, and `metav1.Time` serialises with SECOND precision so the
+kubelet's value arrives with its nanoseconds zeroed — checked rather than assumed: every observed value ends
+in nine zeros. So each figure mixes propagation, clock offset and up to a second of truncation, and nothing
+available here separates them. Saying "the watch is 900 ms late" would claim a measurement this harness
+cannot make without clock synchronisation or distributed tracing.
 
-Worse for precision, the reference clock is coarse. `metav1.Time` serialises with SECOND precision, so the
-kubelet's `finishedAt` arrives with its nanoseconds zeroed — checked rather than assumed: every observed
-value ends in nine zeros. Each lag above is the true lag plus up to a second of truncation, so the instrument
-that measures the instrument is itself no finer than one second.
+What it does support is one statement, and it is enough: **an interval whose endpoints carry a gap of this
+size is not resolved below it.** The residual was under a second. The gap runs from 0.4 to 2.4 seconds and
+differs at each endpoint. The residual is therefore not resolved by this harness, and no number of
+repetitions changes that — a resolution problem is not a noise problem.
 
 What survives is what the arms differ in, which is a whole order of magnitude larger than the lag: 41 seconds
 against 0, and 19.4 seconds against 2.2. Those differences are real. The sub-second residual inside them is
@@ -112,8 +115,10 @@ did.
   interleaved replications for the intervals to overlap — or for one honouring run to show no discarded work,
   or one ignoring run to terminate promptly.
 - **The magnitudes are the trace's.** 41 and 19.4 are the dose and the remaining service, to within a second.
-- **The residuals are inside the instrument.** Delivery lag runs 0.4 to 2.4 seconds against residuals under
-  one, and the reference clock is quantised to the second. Nothing sub-second here is resolved.
+- **The residuals are inside the instrument's own uncertainty.** The gap between the kubelet's stamp and the
+  collector's arrival runs 0.4 to 2.4 seconds against residuals under one, and the kubelet's field is
+  quantised to the second. Nothing sub-second here is resolved, and this harness cannot be made to resolve it
+  by running more of the same.
 - **One trace, one dose.** `self-completing`, where an ignoring victim finishes its own service. The
   `grace-bounded` regime — where it is cut at the termination grace period — is a different experiment and
   has not been run.

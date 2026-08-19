@@ -57,16 +57,21 @@ type LifecycleEvent struct {
 	// FinishedUnixNanos is the kubelet's own wall clock for the container stopping, absent unless this event
 	// is a stop whose terminated status carried one.
 	FinishedUnixNanos *int64 `json:"finishedUnixNanos,omitempty"`
-	// ObservedLagNs is how long after that instant this collector saw the event.
+	// ObservedSkewNs is the gap between the kubelet's stamp and this collector's arrival time, in the
+	// collector's own frame.
 	//
-	// It is the instrument's resolution, recorded per event rather than assumed. Every interval in this
-	// ledger is a difference of ARRIVAL times, so each one carries the lag of both its endpoints; without
-	// this field a reader cannot tell a slow termination from a slow watch.
+	// It is deliberately NOT called a delivery lag, and the difference matters. The two times come from
+	// different machines with unsynchronised clocks, and the kubelet's is truncated to the second, so this
+	// number is (true propagation) + (clock offset between the two hosts) + (up to a second of truncation)
+	// and nothing here can separate the three. Calling it a lag would claim a measurement of propagation
+	// that this harness cannot make without clock synchronisation or distributed tracing.
 	//
-	// It compares two machines' wall clocks and can therefore come out negative, which is reported rather
-	// than clamped: a negative value is evidence of skew between the kubelet's node and this host, and
-	// hiding it would turn a known unknown into an unknown one.
-	ObservedLagNs *int64 `json:"observedLagNs,omitempty"`
+	// What it IS good for is a bound: an interval whose endpoints carry skew of this size is not resolved
+	// below it. That is the use it is put to, and the only one it supports.
+	//
+	// It can come out negative, which is reported rather than clamped — a negative value is direct evidence
+	// of clock offset, and hiding it would turn a known unknown into an unknown one.
+	ObservedSkewNs *int64 `json:"observedSkewNs,omitempty"`
 	// Tenant and GPUCount used to sit here, described as the submitting tenant and the quota occupancy is
 	// weighted by. Nothing ever wrote them: LedgerBuilder.Observe is the only constructor of a LifecycleEvent
 	// and it never set either, so every event in every record this build has ever produced carried "" and 0
