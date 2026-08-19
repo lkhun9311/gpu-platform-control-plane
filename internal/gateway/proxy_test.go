@@ -18,11 +18,11 @@ limitations under the License.
 package gateway
 
 import (
-	"errors"
 	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -31,6 +31,7 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -1007,14 +1008,17 @@ var _ = Describe("backend fallback", func() {
 // Mutation that turns this red: delete the r.Context().Err() guard from tryBackends.
 var _ = Describe("fallback and the client's own cancellation", func() {
 	It("does not walk the candidate list after the client has gone", func() {
-		var hits int
+		// Atomic because the handlers run on the server's own goroutines while the spec body reads the count;
+		// a plain int here is a data race that -race reports, and a counter two goroutines disagree about is
+		// not evidence of anything.
+		var hits atomic.Int64
 		slow := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			hits++
+			hits.Add(1)
 			<-r.Context().Done()
 		}))
 		defer slow.Close()
 		spare := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			hits += 100
+			hits.Add(100)
 		}))
 		defer spare.Close()
 		slowURL, _ := url.Parse(slow.URL)
@@ -1032,7 +1036,7 @@ var _ = Describe("fallback and the client's own cancellation", func() {
 		tryBackends(httptest.NewRecorder(), req, []*url.URL{slowURL, spareURL}, http.DefaultTransport,
 			func(int, bool) { failures++ })
 
-		Expect(hits).To(Equal(1), "the spare was tried after the client had already gone")
+		Expect(hits.Load()).To(Equal(int64(1)), "the spare was tried after the client had already gone")
 		Expect(failures).To(Equal(1), "one disconnect was counted as several upstream failures")
 	})
 

@@ -589,6 +589,68 @@ var _ = Describe("scraperManager idle eviction", func() {
 	})
 })
 
+// The race the first version of sweep had: it read the stale set, released the lock, and only then called
+// Unregister. A request arriving in that window re-registered the backend — stamping lastRouted and returning
+// early because the scraper still existed — and the eviction then stopped a scraper serving live traffic and
+// deleted its gauges.
+//
+// Driven with -race and a Register hammering concurrently, so the assertion is about the invariant rather
+// than about winning a timing lottery: a backend routed to throughout must never lose its scraper.
+//
+// Mutation that turns this red: collect the stale set under the lock, release it, then Unregister.
+// The race the first version of sweep had: it read the stale set, released the lock, and only then called
+// Unregister. A request arriving in that window re-registered the backend — stamping lastRouted and returning
+// early because the scraper still existed — and the eviction then stopped a scraper serving live traffic and
+// deleted its gauges.
+//
+// The interleaving is forced rather than hoped for. Each trial makes the backend genuinely stale, then runs
+// one sweep against a Register spinning beside it. Under the bug the Register lands in the gap, succeeds
+// against the still-present entry, and is undone by the Unregister that follows — leaving NO scraper, which
+// is a state the fixed code cannot reach: there, whichever of the two wins the lock, the backend ends up
+// registered.
+//
+// Mutation that turns this red: collect the stale set under the lock, release it, then Unregister.
+var _ = Describe("scraperManager eviction under concurrent routing", func() {
+	It("never leaves a routed-to backend unregistered", func() {
+		up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(minimalValidMetrics))
+		}))
+		defer up.Close()
+
+		for trial := range 200 {
+			// Atomic because the backend's own scrape loop reads this clock on its own goroutine, so a plain
+			// variable advanced from here is a data race -race reports.
+			var nowNs atomic.Int64
+			nowNs.Store(time.Now().UnixNano())
+			m := newScraperManager(scraperConfig{
+				scrapeInterval: time.Hour, maxStaleness: time.Hour, httpTimeout: time.Second,
+				idleTimeout: time.Minute,
+				clock:       func() time.Time { return time.Unix(0, nowNs.Load()) },
+			})
+			ref := newTestRef("ns", "hot", up.URL)
+
+			m.Register(ref)
+			// Past the idle timeout, so the sweep below genuinely wants to evict it.
+			nowNs.Add(int64(2 * time.Minute))
+
+			var wg sync.WaitGroup
+			wg.Add(2)
+			start := make(chan struct{})
+			go func() { defer wg.Done(); <-start; m.sweep() }()
+			go func() { defer wg.Done(); <-start; m.Register(ref) }()
+			close(start)
+			wg.Wait()
+
+			_, ok := m.snapshotFor(backendKey(ref))
+			m.Stop()
+			Expect(ok).To(BeTrue(),
+				"trial %d: a Register that landed between the stale check and the removal was undone, leaving "+
+					"a backend that is being routed to with no scraper and no gauges", trial)
+		}
+	})
+})
+
 var _ = Describe("scraperManager lifecycle", func() {
 	It("Register is idempotent: a second call for the same backend does not start a second scraper", func() {
 		up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

@@ -598,18 +598,41 @@ func (m *scraperManager) evictIdle() {
 // sweep unregisters every key idle past the timeout. Split from evictIdle so a test can drive one pass.
 func (m *scraperManager) sweep() {
 	cutoff := m.cfg.clock().Add(-m.cfg.idleTimeout)
+	// The decision, the map removal, the stop and the gauge deletion all happen under ONE lock.
+	//
+	// The first version read the stale set, released the lock, and then called Unregister for each entry. A
+	// request arriving in that gap called Register, which stamps lastRouted and returns early because the
+	// scraper still exists — and Unregister then stopped that scraper and deleted the gauges of a backend
+	// actively serving traffic. The guard fails open with no snapshot, so it went blind exactly as traffic
+	// resumed, which is the opposite of what eviction is for.
+	//
+	// Holding the lock across Stop is affordable only because the scrape now runs on the scraper's own
+	// context: Stop cancels an in-flight request rather than waiting out its timeout, so Register — which is
+	// on the request path — blocks for a goroutine exit rather than for an HTTP round trip.
 	m.mu.Lock()
-	stale := make([]BackendRef, 0)
+	defer m.mu.Unlock()
 	for key, s := range m.scrapers {
 		if at, ok := m.lastRouted[key]; ok && at.After(cutoff) {
 			continue
 		}
-		stale = append(stale, s.ref)
+		delete(m.scrapers, key)
+		delete(m.lastRouted, key)
+		s.Stop()
+		deleteBackendGauges(s.ref)
 	}
-	m.mu.Unlock()
-	for i := range stale {
-		m.Unregister(&stale[i])
-	}
+}
+
+// deleteBackendGauges removes the live series a stopped backend would otherwise leave behind.
+//
+// Shared by Unregister and sweep so the two cannot diverge on which gauges a departing backend takes with it.
+//
+// backend_scrape_errors_total is deliberately absent: it is a counter of what this backend historically did,
+// not a live reading, and dropping it would understate the total if the same key is registered again.
+func deleteBackendGauges(ref BackendRef) {
+	admissionGuardEngaged.DeleteLabelValues(ref.Namespace, ref.Name, ref.Model)
+	backendKVCacheUsage.DeleteLabelValues(ref.Namespace, ref.Name, ref.Model)
+	backendWaitingRequests.DeleteLabelValues(ref.Namespace, ref.Name, ref.Model)
+	backendTelemetryFresh.DeleteLabelValues(ref.Namespace, ref.Name)
 }
 
 // Register starts a scraper for backend if one is not already running for its key.
@@ -651,14 +674,7 @@ func (m *scraperManager) Unregister(backend *BackendRef) {
 		return
 	}
 	s.Stop()
-
-	admissionGuardEngaged.DeleteLabelValues(backend.Namespace, backend.Name, backend.Model)
-	backendKVCacheUsage.DeleteLabelValues(backend.Namespace, backend.Name, backend.Model)
-	backendWaitingRequests.DeleteLabelValues(backend.Namespace, backend.Name, backend.Model)
-	backendTelemetryFresh.DeleteLabelValues(backend.Namespace, backend.Name)
-	// backend_scrape_errors_total is a counter, deliberately left in place: it is the backend's
-	// historical error count, not a live gauge, and dropping it would understate the total
-	// number of scrape errors this backend ever produced if the same key is registered again.
+	deleteBackendGauges(*backend)
 }
 
 // Stop stops every running scraper, for graceful shutdown.
