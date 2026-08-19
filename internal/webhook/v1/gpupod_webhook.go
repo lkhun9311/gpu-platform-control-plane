@@ -71,6 +71,24 @@ const systemNamespacePrefix = "system:serviceaccount:kube-system:"
 // this platform is not accounting for.
 const QuotaExemptAnnotation = "platform.lkhun9311.github.io/quota-exempt"
 
+// maxGraceSeconds caps how long a device-holding Pod may take to shut down.
+//
+// A quota is only worth what its RECLAIM is worth, and reclaim waits for termination. Measured on this
+// cluster: a Pod with terminationGracePeriodSeconds 30 held its device for 32 seconds after deletion; the
+// same Pod with 300 held it for 301. The field is set by the tenant being preempted, so without a cap the
+// borrower decides how long it keeps a device its owner has already claimed back.
+//
+// That is not a hypothetical reading of the spec. The queuelab measured the same boundary from the other
+// side: an unresponsive workload defeats reclaim entirely while its remaining service fits inside grace, and
+// is cut off at exactly the grace period once it does not. Grace IS the bound, and it was tenant-controlled.
+//
+// 120 seconds because it has to be long enough for the workloads this platform is for. A training step that
+// checkpoints on SIGTERM needs more than the 30-second default, and refusing that would push tenants to
+// ignore SIGTERM instead — which is the behaviour that produces the worst outcome in the measurement above.
+// The number is a policy choice and is stated here rather than derived, because there is nothing to derive
+// it from until real workloads say how long their checkpoints take.
+const maxGraceSeconds int64 = 120
+
 // +kubebuilder:webhook:path=/validate--v1-pod,mutating=false,failurePolicy=fail,sideEffects=None,groups="",resources=pods,verbs=create,versions=v1,name=vgpupod.kb.io,admissionReviewVersions=v1
 
 // GPUPodValidator refuses a Pod that would take a GPU without passing through the tenant's quota.
@@ -173,6 +191,16 @@ func (v *GPUPodValidator) Handle(ctx context.Context, req admission.Request) adm
 				"rather than through a queue, so nothing would charge it: submit an MLTrainingJob, or create a "+
 				"Job labelled %s=<queue> and let the Job controller create the Pod",
 			user, devices, gpuResource, kueueQueueLabel))
+	}
+
+	// Checked before the queue lookup because it is a property of the Pod alone and needs no reads, and
+	// because a Pod that fails it fails regardless of which queue it belongs to.
+	if g := pod.Spec.TerminationGracePeriodSeconds; g != nil && *g > maxGraceSeconds {
+		return admission.Denied(fmt.Sprintf(
+			"terminationGracePeriodSeconds is %d, and this namespace's GPU budget is reclaimed by preemption "+
+				"— a Pod that takes %d seconds to stop holds its device that long against the owner that "+
+				"reclaimed it. The cap here is %d",
+			*g, *g, maxGraceSeconds))
 	}
 
 	queued, err := v.tracesToAQueue(ctx, &pod)

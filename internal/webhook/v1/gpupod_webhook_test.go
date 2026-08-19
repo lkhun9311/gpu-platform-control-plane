@@ -271,3 +271,54 @@ func TestTheManagedLabelAloneIsNotEnough(t *testing.T) {
 		t.Fatal("a Pod was admitted on a label that does not put it in any queue")
 	}
 }
+
+// A quota is worth what its reclaim is worth, and reclaim waits for termination. The tenant being preempted
+// sets terminationGracePeriodSeconds, so without a cap the borrower decides how long it keeps a device its
+// owner already reclaimed.
+//
+// Measured on the cluster before this cap existed: grace 30 held the device 32 seconds after deletion,
+// grace 300 held it 301.
+//
+// Mutation that turns this red: remove the cap, or apply it to Pods with no device request.
+func TestAnOverlongGracePeriodIsRefusedForADeviceHolder(t *testing.T) {
+	v := gpuValidator(t, queuedJob("train-1", "team-a-queue"))
+	long := int64(300)
+	res := ask(t, v, jobControllerUser, gpuPod(1, func(p *corev1.Pod) {
+		ownedBy("train-1")(p)
+		p.Spec.TerminationGracePeriodSeconds = &long
+	}))
+	if res.Allowed {
+		t.Fatal("a Pod may hold a device for five minutes against the owner that reclaimed it")
+	}
+	if !strings.Contains(res.Result.Message, "300") {
+		t.Fatalf("the refusal does not name the value that was asked for: %s", res.Result.Message)
+	}
+}
+
+// The cap has to leave room for the workloads this platform exists for. A training step that checkpoints on
+// SIGTERM needs longer than the 30-second default, and refusing that would push tenants to ignore SIGTERM —
+// which the queuelab measured as the behaviour with the worst outcome for the quota owner.
+func TestAGracePeriodWithinTheCapIsAdmitted(t *testing.T) {
+	v := gpuValidator(t, queuedJob("train-1", "team-a-queue"))
+	ok := int64(90)
+	res := ask(t, v, jobControllerUser, gpuPod(1, func(p *corev1.Pod) {
+		ownedBy("train-1")(p)
+		p.Spec.TerminationGracePeriodSeconds = &ok
+	}))
+	if !res.Allowed {
+		t.Fatalf("refused a checkpointing workload's grace period: %s", res.Result.Message)
+	}
+}
+
+// A Pod holding no device delays no reclaim, so the cap must not reach it.
+func TestTheGraceCapDoesNotTouchAPodWithNoDevice(t *testing.T) {
+	v := gpuValidator(t)
+	long := int64(600)
+	res := ask(t, v, tenantUser, gpuPod(0, func(p *corev1.Pod) {
+		p.Spec.Containers[0].Resources.Limits = corev1.ResourceList{}
+		p.Spec.TerminationGracePeriodSeconds = &long
+	}))
+	if !res.Allowed {
+		t.Fatalf("a Pod with no device request was capped: %s", res.Result.Message)
+	}
+}

@@ -61,6 +61,45 @@ The differences here are an order of magnitude above that. The sub-second residu
 tried to quote was not, which is why it was withdrawn. Same instrument, different question, and only the
 second one is answerable with it.
 
+## The attack this implies, and the fix
+
+If grace is the bound and the tenant sets it, the obvious question is what stops a tenant setting it to an
+hour. Nothing did. Measured directly on the cluster, deleting a running device-holder and timing how long it
+kept the device:
+
+| terminationGracePeriodSeconds | device held after deletion |
+|---|---|
+| 30 (the default) | **32 s** |
+| 300 | **301 s** |
+
+A borrower could therefore keep a device for as long as it liked against the owner that had already reclaimed
+it, and every part of that is a supported Kubernetes API a tenant is allowed to use.
+
+The admission guard now caps it at **120 seconds** for Pods that request a device, in namespaces where the
+quota is enforced. Re-attacked after deploying:
+
+    terminationGracePeriodSeconds: 300  ->  admission webhook "vgpupod.kb.io" denied the request:
+                                            terminationGracePeriodSeconds is 300 ... the cap here is 120
+    terminationGracePeriodSeconds: 90   ->  admitted, Pod Running
+
+120 rather than the 30-second default because the cap has to leave room for the workloads this platform is
+for. A training step that checkpoints on SIGTERM needs longer than 30 seconds, and refusing that would push
+tenants to ignore SIGTERM instead — which is the behaviour the measurement above shows produces the worst
+outcome for the quota owner. The number is a policy choice, stated rather than derived: there is nothing to
+derive it from until real workloads say how long their checkpoints take.
+
+## Found while testing the cap
+
+Kueue admitted a Workload whose Pods can never be created. The Job carrying `terminationGracePeriodSeconds:
+300` had its Workload admitted and holding quota, while the webhook rejected every Pod the Job controller
+tried to make — `FailedCreate ... x5`. The quota read `used=2 admitted=2 pending=1` with one of those two
+admissions belonging to a Job that could never run.
+
+A rejected Pod does not release the Kueue reservation, so a tenant submitting Jobs that fail admission can
+hold quota indefinitely without running anything. That is a second, different denial-of-service on the same
+budget and it is **not fixed here**; it is recorded because it was found by running the test rather than by
+reading the code.
+
 ## What this does not say
 
 - **Nothing about GPUs.** Pure Python arithmetic against a fake device plugin. These are seconds of
