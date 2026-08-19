@@ -143,6 +143,28 @@ func (v *GPUPodValidator) Handle(ctx context.Context, req admission.Request) adm
 			devices, gpuResource, QuotaExemptAnnotation, user))
 	}
 
+	// A Pod carrying the queue label is one Kueue itself is accounting for, and it needs no owner at all.
+	//
+	// This branch exists because the first version did not have it and was built on a claim that turned out to
+	// be false: that Kueue's `pod` and `deployment` integrations were not enabled here, so only a Job could be
+	// governed. They ARE enabled — seventeen frameworks including pod, deployment and statefulset — and the
+	// conclusion came from reading the first twelve lines of a truncated grep.
+	//
+	// What that changes is the meaning of the label. It is not a permission a tenant grants itself; it is a
+	// BILL. A bare Pod labelled kueue.x-k8s.io/queue-name gets a Kueue Workload and is charged against that
+	// ClusterQueue — verified by creating one and watching the admitted Workload appear. Forging it does not
+	// obtain free capacity, it obtains metered capacity, which is the whole objective.
+	//
+	// The label is checked and not kueue.x-k8s.io/managed, which is forgeable in the way that matters: a Pod
+	// carrying managed=true and no queue name runs with no Workload at all.
+	if pod.Labels[kueueQueueLabel] != "" {
+		return admission.Allowed("")
+	}
+
+	// Otherwise the Pod must come from a Job, because Kueue governs a Job through the JOB object and does not
+	// propagate the label down: a Pod the Job controller created for a queued Job carries neither
+	// queue-name nor managed. Verified rather than assumed — the Deployment path does carry both.
+	//
 	// An ownerReference is only evidence when the Job controller is the one presenting it. A tenant writing
 	// the same field is describing a relationship that does not exist.
 	if user != jobControllerUser {

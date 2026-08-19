@@ -242,3 +242,32 @@ func TestALookupFailureRefusesAndSaysWhy(t *testing.T) {
 			res.Result.Message)
 	}
 }
+
+// A Pod carrying the queue label needs no owner: Kueue's pod integration charges it directly.
+//
+// The label is a bill, not a permission. Forging it does not obtain free capacity — it obtains metered
+// capacity, which is what the guard is for. Verified on the cluster: a bare Pod labelled queue-name got an
+// admitted Kueue Workload.
+//
+// Mutation that turns this red: remove the queue-label branch, which also breaks every serving Pod.
+func TestALabelledPodIsAdmittedWithoutAnyOwner(t *testing.T) {
+	v := gpuValidator(t)
+	res := ask(t, v, tenantUser, gpuPod(1, func(p *corev1.Pod) {
+		p.Labels = map[string]string{kueueQueueLabel: "gpu-premium"}
+	}))
+	if !res.Allowed {
+		t.Fatalf("refused a Pod Kueue would charge: %s", res.Result.Message)
+	}
+}
+
+// managed=true is NOT the signal, and the difference is not academic: a Pod carrying it with no queue name
+// runs with no Workload at all, so trusting it would admit exactly what this guard refuses.
+func TestTheManagedLabelAloneIsNotEnough(t *testing.T) {
+	v := gpuValidator(t)
+	res := ask(t, v, tenantUser, gpuPod(1, func(p *corev1.Pod) {
+		p.Labels = map[string]string{"kueue.x-k8s.io/managed": "true"}
+	}))
+	if res.Allowed {
+		t.Fatal("a Pod was admitted on a label that does not put it in any queue")
+	}
+}

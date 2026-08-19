@@ -85,6 +85,35 @@ The refusal:
     submit an MLTrainingJob, or label the owning Job kueue.x-k8s.io/queue-name=<queue>, or annotate
     the Pod platform.lkhun9311.github.io/quota-exempt to take the device outside the budget on purpose
 
+## A claim in this document was false, and the guard was built on it
+
+The paragraph above said Kueue's `pod` and `deployment` integrations were not enabled here, so only a Job
+could be governed and a serving Pod was invisible to Kueue however it was labelled.
+
+That is wrong. Seventeen frameworks are enabled, including `pod`, `deployment` and `statefulset`. The
+conclusion came from reading the first twelve lines of a truncated `grep`, and it survived into the guard's
+design, its code comments and this write-up.
+
+What it changes is what the label MEANS. It is not a permission a tenant grants itself; it is a bill:
+
+    # a bare Pod, no owner, labelled with a queue
+    kubectl apply -f (Pod, labels: {kueue.x-k8s.io/queue-name: gpu-premium}, limits: {nvidia.com/gpu: 1})
+
+    $ kubectl -n serving get workloads
+    pod-forged-both-64bfd   gpu-premium   gpu-premium   True   8s     <- admitted, charged
+
+Forging the label does not obtain free capacity. It obtains METERED capacity, which is the objective. So the
+guard accepts a labelled Pod outright, and the serving path works: a Deployment labelled with a queue has the
+label propagated onto its Pods by Kueue's own webhook, along with `managed=true`, and gets an admitted
+Workload.
+
+`managed=true` is deliberately NOT the signal. A Pod carrying it with no queue name runs with no Workload at
+all — checked, not assumed.
+
+The Job path is different again and needs the owner check: Kueue governs a Job through the JOB object and
+does not propagate the label down, so a Pod the Job controller created for a queued Job carries neither
+label. Also checked.
+
 ## What it breaks, and why it is not enabled anywhere
 
 An `InferenceDeployment` — a first-class API of this platform — cannot create its Pods in a governed
