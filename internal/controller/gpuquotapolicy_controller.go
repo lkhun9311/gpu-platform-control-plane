@@ -47,7 +47,21 @@ const (
 	gpuQuotaFinalizer = "gpuquotapolicy.platform.lkhun9311.github.io/finalizer"
 
 	// conditionSynced reports whether the namespace ResourceQuota matches the policy.
-	conditionSynced     = "Synced"
+	conditionSynced = "Synced"
+	// conditionAdmitting reports whether the Kueue ClusterQueue this policy owns can actually admit work.
+	//
+	// It exists because Synced answers a narrower question than a reader assumes: it says the objects were
+	// WRITTEN. A ClusterQueue can be written exactly as specified and still admit nothing — most obviously
+	// when the shared ResourceFlavor it references is absent, which Kueue reports as Active=False
+	// FlavorNotFound. That happened on a live cluster: the policy read Synced=True, phase=Synced, and every
+	// training Job submitted to it sat suspended forever with the tenant's quota apparently in place.
+	//
+	// Two facts, two conditions. Collapsing them means the only signal a reader has cannot distinguish a
+	// quota that exists from a quota that works.
+	conditionAdmitting  = "Admitting"
+	reasonQueueActive   = "ClusterQueueActive"
+	reasonQueueInactive = "ClusterQueueInactive"
+	reasonQueueUnread   = "ClusterQueueUnreadable"
 	reasonQuotaSynced   = "QuotaSynced"
 	reasonQuotaConflict = "QuotaConflict"
 
@@ -165,6 +179,15 @@ func (r *GPUQuotaPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		Message:            syncedMessage,
 		ObservedGeneration: policy.Generation,
 	})
+	// Reported only for a policy that has a queue at all. Without training quota the GPU ceiling is the
+	// namespace ResourceQuota, which admits nothing and is not supposed to.
+	if policy.Spec.TrainingQuota {
+		cond := r.admittingCondition(ctx, &policy)
+		cond.ObservedGeneration = policy.Generation
+		meta.SetStatusCondition(&desired.Conditions, cond)
+	} else {
+		meta.RemoveStatusCondition(&desired.Conditions, conditionAdmitting)
+	}
 
 	if !equality.Semantic.DeepEqual(policy.Status, *desired) {
 		policy.Status = *desired
@@ -285,6 +308,43 @@ func (r *GPUQuotaPolicyReconciler) markDegraded(ctx context.Context, policy *pla
 		}
 	}
 	return ctrl.Result{RequeueAfter: time.Minute}, nil
+}
+
+// admittingCondition asks the ClusterQueue whether it can admit, and reports its answer verbatim.
+//
+// Kueue's own Active condition is the authority and its reason is carried through unchanged rather than
+// reworded: an operator searching for "FlavorNotFound" should find it here, and a reason this controller
+// invented would be one more string to correlate.
+//
+// An unreadable queue is reported as not admitting rather than as an error on the reconcile. The policy's
+// other guarantees still hold and failing the whole reconcile would hide them behind a read that may recover
+// on its own; what must not happen is the condition silently staying True from a previous pass.
+func (r *GPUQuotaPolicyReconciler) admittingCondition(ctx context.Context, policy *platformv1.GPUQuotaPolicy) metav1.Condition {
+	name := kueueQueueName(policy.Spec.Tenant)
+	var cq kueuev1beta1.ClusterQueue
+	if err := r.Get(ctx, types.NamespacedName{Name: name}, &cq); err != nil {
+		return metav1.Condition{
+			Type: conditionAdmitting, Status: metav1.ConditionFalse, Reason: reasonQueueUnread,
+			Message: fmt.Sprintf("could not read ClusterQueue %s: %v", name, err),
+		}
+	}
+	active := meta.FindStatusCondition(cq.Status.Conditions, "Active")
+	if active == nil {
+		return metav1.Condition{
+			Type: conditionAdmitting, Status: metav1.ConditionFalse, Reason: reasonQueueInactive,
+			Message: fmt.Sprintf("ClusterQueue %s has not reported whether it is active", name),
+		}
+	}
+	if active.Status != metav1.ConditionTrue {
+		return metav1.Condition{
+			Type: conditionAdmitting, Status: metav1.ConditionFalse, Reason: reasonQueueInactive,
+			Message: fmt.Sprintf("ClusterQueue %s admits nothing: %s: %s", name, active.Reason, active.Message),
+		}
+	}
+	return metav1.Condition{
+		Type: conditionAdmitting, Status: metav1.ConditionTrue, Reason: reasonQueueActive,
+		Message: fmt.Sprintf("ClusterQueue %s is admitting", name),
+	}
 }
 
 // setQuotaPhase updates the phase and bumps lastTransitionTime only when the phase changes.
