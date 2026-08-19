@@ -615,7 +615,19 @@ func terminationCanary(ctx context.Context, c client.Client, nodeName string,
 	canaryID := string(uuid.NewUUID())
 	runID := canaryRunID(canaryID)
 
-	j, aerr := acquireWorker(ctx, c, nodeName, newTxID(), runID, canaryArm)
+	// The canary builds no fixtures, so its journal's recovery fields describe the only thing it does create:
+	// one Pod in the canary namespace. They are filled truthfully rather than left blank because decodeJournal
+	// refuses an empty field — a journal that cannot be read is a worker nothing can release, and the canary
+	// is exactly the tool an operator reaches for when a node is stuck.
+	j, aerr := acquireWorker(ctx, c, nodeName, seed{
+		Schema:    teardownSeedSchema,
+		TxID:      newTxID(),
+		RunID:     runID,
+		Arm:       canaryArm,
+		Study:     canaryStudy,
+		Variant:   canaryVariant,
+		Namespace: canaryNamespace,
+	})
 	if aerr != nil {
 		return fmt.Errorf("acquire worker %s to canary it: %w", nodeName, aerr)
 	}

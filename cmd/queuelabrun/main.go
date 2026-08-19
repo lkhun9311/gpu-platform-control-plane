@@ -762,10 +762,43 @@ func run(ctx context.Context, connect clusterClientFunc, arm queuelab.Arm, runID
 			left, qual, win, obs
 	}
 
+	// Everything teardown needs is computed BEFORE the worker is acquired, because the journal that takes
+	// ownership is also what carries it.
+	//
+	// These two used to sit below ensureNamespace, which was a hole: the namespace could exist with no seed
+	// naming it. Moving them above the first Create fixed that half. The remaining half was that the seed was
+	// only ever a local variable — so a crash after acquisition left a marked node and fixtures on the
+	// cluster with nothing durable saying what to delete, and enumerate refuses a seed missing any field
+	// rather than guessing. Neither call does any I/O, so nothing is paid for computing them this early, and
+	// an invalid arm or an unbuildable fixture set now fails before the run touches the cluster at all.
+	policyVariant, err := arm.PolicyVariant()
+	if err != nil {
+		o = phaseFailure(dispSetupFailed, "resolving the arm's policy variant", err)
+		return o, events, res,
+			left, qual, win, obs
+	}
+	txID := newTxID()
+	fs, err := queuelab.BuildFixtures(study, policyVariant, queuelab.FixtureIdentity{
+		TxID: txID, RunID: runID, Namespace: namespace,
+	})
+	if err != nil {
+		o = phaseFailure(dispSetupFailed, "building fixtures", err)
+		return o, events, res,
+			left, qual, win, obs
+	}
+	s := seed{
+		Schema:    teardownSeedSchema,
+		TxID:      txID,
+		RunID:     runID,
+		Arm:       string(arm),
+		Study:     study,
+		Variant:   policyVariant,
+		Namespace: namespace,
+	}
+
 	// Ownership is taken before any namespace or fixture exists, so a refused run leaves nothing of its own
 	// behind for the next one to trip over.
-	txID := newTxID()
-	j, err := acquireWorker(ctx, c, worker, txID, runID, string(arm))
+	j, err := acquireWorker(ctx, c, worker, s)
 	if err != nil {
 		o = phaseFailure(dispAcquisitionRefused, fmt.Sprintf("acquire worker %s", worker), err)
 		return o, events, res,
@@ -881,38 +914,6 @@ func run(ctx context.Context, connect clusterClientFunc, arm queuelab.Arm, runID
 	}()
 	fmt.Printf("  ownership window open on %s from resourceVersion %s (tx=%s)\n",
 		worker, sentinel.Window().BaselineResourceVersion, txID)
-
-	// Both of these used to sit BELOW ensureNamespace, and neither does any I/O — which made that ordering a
-	// real hole rather than a matter of taste. ensureNamespace is this run's first Create, and the seed that
-	// teardown regenerates its deletion set from cannot be built without the policy variant; so on the path
-	// where the namespace was created and PolicyVariant then failed, a namespace existed and no seed did, and
-	// teardown could not compute a target set for an object the run demonstrably created. teardown.go
-	// specifies the seed as written before the run's first Create, and moving these two up is what makes that
-	// true. It also means an invalid arm or an unbuildable fixture set now fails before the run touches the
-	// cluster at all, rather than after.
-	policyVariant, err := arm.PolicyVariant()
-	if err != nil {
-		o = phaseFailure(dispSetupFailed, "resolving the arm's policy variant", err)
-		return o, events, res,
-			left, qual, win, obs
-	}
-	fs, err := queuelab.BuildFixtures(study, policyVariant, queuelab.FixtureIdentity{
-		TxID: txID, RunID: runID, Namespace: namespace,
-	})
-	if err != nil {
-		o = phaseFailure(dispSetupFailed, "building fixtures", err)
-		return o, events, res,
-			left, qual, win, obs
-	}
-	s := seed{
-		Schema:    teardownSeedSchema,
-		TxID:      txID,
-		RunID:     runID,
-		Arm:       string(arm),
-		Study:     study,
-		Variant:   policyVariant,
-		Namespace: namespace,
-	}
 
 	teardownAttempted := false
 	// Registered AFTER the emergency release above, and that is the requirement, not an accident of where the

@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/lkhun9311/gpu-mlops-platform-control-plane/internal/queuelab"
 	"io"
 	"os"
 	"slices"
@@ -78,7 +79,7 @@ func TestAcquireWorkerRetriesConflictWithFreshReadAndDecide(t *testing.T) {
 		},
 	}).Build()
 
-	j, err := acquireWorker(context.Background(), fc, "platform-worker", "tx-a", "r1", "A-honor")
+	j, err := acquireWorker(context.Background(), fc, "platform-worker", acquisitionSeed("tx-a", "r1", "A-honor"))
 	if err != nil {
 		t.Fatalf("acquire must succeed once the second attempt lands: %v", err)
 	}
@@ -113,7 +114,7 @@ func TestAcquireWorkerRefusesAfterConflictBoundNotSpin(t *testing.T) {
 		},
 	}).Build()
 
-	_, err := acquireWorker(context.Background(), fc, "platform-worker", "tx-b", "r1", "A-honor")
+	_, err := acquireWorker(context.Background(), fc, "platform-worker", acquisitionSeed("tx-b", "r1", "A-honor"))
 	if err == nil {
 		t.Fatal("acquire must refuse once the conflict bound is exhausted")
 	}
@@ -148,7 +149,7 @@ func TestAcquireWorkerReturnsRefusalWithoutRetry(t *testing.T) {
 		},
 	}).Build()
 
-	_, err = acquireWorker(context.Background(), fc, "platform-worker", "tx-c", "r9", "A-honor")
+	_, err = acquireWorker(context.Background(), fc, "platform-worker", acquisitionSeed("tx-c", "r9", "A-honor"))
 	var r *refusal
 	if err == nil || !asRefusal(err, &r) || r.Reason != reasonForeignOwner {
 		t.Fatalf("want a foreign-owner refusal, got %v", err)
@@ -198,7 +199,7 @@ func TestAcquireWorkerSelfReleaseSurvivesContextCancelledDuringVerify(t *testing
 		},
 	}).Build()
 
-	if _, err := acquireWorker(ctx, fc, "platform-worker", "tx-cancel", "r1", "A-honor"); err == nil {
+	if _, err := acquireWorker(ctx, fc, "platform-worker", acquisitionSeed("tx-cancel", "r1", "A-honor")); err == nil {
 		t.Fatal("a cancelled verify must refuse acquisition")
 	}
 	if !patched {
@@ -353,7 +354,7 @@ func TestInspectWorkerRefusesAnUnreadableJournalRatherThanReportingFree(t *testi
 
 	// The other half of the contradiction: acquisition refuses this exact node, so inspection saying FREE
 	// would have been wrong rather than merely terse.
-	_, aerr := decideAcquire(observe(n), "tx-new", "r1", "A-honor", "t")
+	_, aerr := decideAcquire(observe(n), acquisitionSeed("tx-new", "r1", "A-honor"), "t")
 	var r *refusal
 	if !asRefusal(aerr, &r) || r.Reason != reasonBadJournal {
 		t.Fatalf("acquisition must refuse the same node as %s, got %v", reasonBadJournal, aerr)
@@ -524,7 +525,7 @@ func TestAcquireAndReleasePreserveUnrelatedNodeState(t *testing.T) {
 	n := node(map[string]string{"unrelated-label": "keep"}, map[string]string{"unrelated-ann": "keep"}, unrelated)
 	fc := fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(n).Build()
 
-	j, err := acquireWorker(context.Background(), fc, "platform-worker", "tx-preserve", "r1", "A-honor")
+	j, err := acquireWorker(context.Background(), fc, "platform-worker", acquisitionSeed("tx-preserve", "r1", "A-honor"))
 	if err != nil {
 		t.Fatalf("acquire: %v", err)
 	}
@@ -572,7 +573,7 @@ func TestReleaseEmptiesTheTaintListWhenOnlyOursWasPresent(t *testing.T) {
 	n := node(nil, nil)
 	fc := fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(n).Build()
 
-	j, err := acquireWorker(context.Background(), fc, "platform-worker", "tx-only", "r1", "A-honor")
+	j, err := acquireWorker(context.Background(), fc, "platform-worker", acquisitionSeed("tx-only", "r1", "A-honor"))
 	if err != nil {
 		t.Fatalf("acquire: %v", err)
 	}
@@ -607,7 +608,7 @@ func TestReleaseOwnedInvalidatesWhenMarkersVanishMidRun(t *testing.T) {
 	n := node(nil, nil)
 	fc := fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(n).Build()
 
-	j, err := acquireWorker(context.Background(), fc, "platform-worker", "tx-vanish", "r1", "A-honor")
+	j, err := acquireWorker(context.Background(), fc, "platform-worker", acquisitionSeed("tx-vanish", "r1", "A-honor"))
 	if err != nil {
 		t.Fatalf("acquire: %v", err)
 	}
@@ -653,7 +654,7 @@ func TestResolveAmbiguousAcquireAcceptsAPatchWhoseResponseWasLost(t *testing.T) 
 		},
 	}).Build()
 
-	j, err := acquireWorker(context.Background(), fc, "platform-worker", "tx-lost", "r1", "A-honor")
+	j, err := acquireWorker(context.Background(), fc, "platform-worker", acquisitionSeed("tx-lost", "r1", "A-honor"))
 	if err != nil {
 		t.Fatalf("a committed patch with a lost response must resolve to acquired: %v", err)
 	}
@@ -709,7 +710,7 @@ func TestResolveAmbiguousAcquireDoesNotCallAWriteDeadFromOneFreeRead(t *testing.
 		},
 	}).Build()
 
-	j, err := acquireWorker(context.Background(), fc, "platform-worker", "tx-late", "r1", "A-honor")
+	j, err := acquireWorker(context.Background(), fc, "platform-worker", acquisitionSeed("tx-late", "r1", "A-honor"))
 	if err != nil {
 		t.Fatalf("a write that commits after the first re-read must resolve to acquired, got: %v", err)
 	}
@@ -771,7 +772,7 @@ func TestResolveAmbiguousAcquireWillNotCallAWriteDeadOnAFreeReadAfterAFailedOne(
 		},
 	}).Build()
 
-	_, err := acquireWorker(ctx, fc, "platform-worker", "tx-blind2", "r1", "A-honor")
+	_, err := acquireWorker(ctx, fc, "platform-worker", acquisitionSeed("tx-blind2", "r1", "A-honor"))
 	if err == nil {
 		t.Fatal("a resolution window with a hole in it must refuse")
 	}
@@ -802,7 +803,7 @@ func TestResolveAmbiguousAcquireRefusesAPatchThatDidNotLand(t *testing.T) {
 		},
 	}).Build()
 
-	_, err := acquireWorker(context.Background(), fc, "platform-worker", "tx-nolanding", "r1", "A-honor")
+	_, err := acquireWorker(context.Background(), fc, "platform-worker", acquisitionSeed("tx-nolanding", "r1", "A-honor"))
 	if err == nil {
 		t.Fatal("a patch that did not land must refuse acquisition")
 	}
@@ -862,7 +863,7 @@ func TestResolveAmbiguousAcquireRefusesWhenAnotherTransactionHoldsTheNode(t *tes
 		},
 	}).Build()
 
-	if _, err := acquireWorker(context.Background(), fc, "platform-worker", "tx-loser", "r1", "A-honor"); err == nil {
+	if _, err := acquireWorker(context.Background(), fc, "platform-worker", acquisitionSeed("tx-loser", "r1", "A-honor")); err == nil {
 		t.Fatal("acquisition must refuse when another transaction holds the node")
 	} else if !strings.Contains(err.Error(), "tx-other") {
 		t.Fatalf("the refusal must name the holding transaction, got: %v", err)
@@ -907,7 +908,7 @@ func TestResolveAmbiguousAcquireRefusesAPartiallyLandedPatch(t *testing.T) {
 		},
 	}).Build()
 
-	j, err := acquireWorker(ctx, fc, "platform-worker", "tx-partial", "r1", "A-honor")
+	j, err := acquireWorker(ctx, fc, "platform-worker", acquisitionSeed("tx-partial", "r1", "A-honor"))
 	if err == nil {
 		t.Fatal("a partially landed patch must never resolve to acquired")
 	}
@@ -969,7 +970,7 @@ func TestReleaseVerifiesRestorationAfterThePatchOnTheOrdinaryPath(t *testing.T) 
 		},
 	}).Build()
 
-	j, err := acquireWorker(context.Background(), fc, "platform-worker", "tx-clean", "r1", "A-honor")
+	j, err := acquireWorker(context.Background(), fc, "platform-worker", acquisitionSeed("tx-clean", "r1", "A-honor"))
 	if err != nil {
 		t.Fatalf("acquire: %v", err)
 	}
@@ -1020,7 +1021,7 @@ func TestReleaseFailsVerificationWhenOurOwnMarkersReappearAfterThePatch(t *testi
 	}).Build()
 
 	var err error
-	j, err = acquireWorker(context.Background(), fc, "platform-worker", "tx-reappear", "r1", "A-honor")
+	j, err = acquireWorker(context.Background(), fc, "platform-worker", acquisitionSeed("tx-reappear", "r1", "A-honor"))
 	if err != nil {
 		t.Fatalf("acquire: %v", err)
 	}
@@ -1072,7 +1073,7 @@ func TestReleaseVerifiesCleanWhenAnotherTransactionAcquiresRightAfterOurRelease(
 	}).Build()
 
 	var err error
-	j, err = acquireWorker(context.Background(), fc, "platform-worker", "tx-mine", "r1", "A-honor")
+	j, err = acquireWorker(context.Background(), fc, "platform-worker", acquisitionSeed("tx-mine", "r1", "A-honor"))
 	if err != nil {
 		t.Fatalf("acquire: %v", err)
 	}
@@ -1122,7 +1123,7 @@ func TestReleaseVerifiesCleanWhenTheNextTransactionReusesTheSameRunID(t *testing
 		},
 	}).Build()
 
-	j, err := acquireWorker(context.Background(), fc, "platform-worker", "tx-first", "r1", "A-honor")
+	j, err := acquireWorker(context.Background(), fc, "platform-worker", acquisitionSeed("tx-first", "r1", "A-honor"))
 	if err != nil {
 		t.Fatalf("acquire: %v", err)
 	}
@@ -1263,7 +1264,7 @@ func TestReleaseResolvesAPatchWhoseResponseWasLost(t *testing.T) {
 		},
 	}).Build()
 
-	j, err := acquireWorker(context.Background(), fc, "platform-worker", "tx-lostrelease", "r1", "A-honor")
+	j, err := acquireWorker(context.Background(), fc, "platform-worker", acquisitionSeed("tx-lostrelease", "r1", "A-honor"))
 	if err != nil {
 		t.Fatalf("acquire: %v", err)
 	}
@@ -1312,7 +1313,7 @@ func TestReleaseStillInvalidatesWhenTheReadBackFindsOurMarkersInstalled(t *testi
 		},
 	}).Build()
 
-	j, err := acquireWorker(context.Background(), fc, "platform-worker", "tx-notlanded", "r1", "A-honor")
+	j, err := acquireWorker(context.Background(), fc, "platform-worker", acquisitionSeed("tx-notlanded", "r1", "A-honor"))
 	if err != nil {
 		t.Fatalf("acquire: %v", err)
 	}
@@ -1363,7 +1364,7 @@ func TestResolveAmbiguousAcquireReportsWhyItCouldNotReadTheNode(t *testing.T) {
 		},
 	}).Build()
 
-	_, err := acquireWorker(ctx, fc, "platform-worker", "tx-blind", "r1", "A-honor")
+	_, err := acquireWorker(ctx, fc, "platform-worker", acquisitionSeed("tx-blind", "r1", "A-honor"))
 	if err == nil {
 		t.Fatal("an acquisition whose outcome could never be read must refuse")
 	}
@@ -1431,7 +1432,7 @@ func TestResolveAmbiguousAcquireReportsTheLastReadNotAStaleFailure(t *testing.T)
 		},
 	}).Build()
 
-	_, err := acquireWorker(ctx, fc, "platform-worker", "tx-blip", "r1", "A-honor")
+	_, err := acquireWorker(ctx, fc, "platform-worker", acquisitionSeed("tx-blip", "r1", "A-honor"))
 	if err == nil {
 		t.Fatal("a partially landed patch must never resolve to acquired")
 	}
@@ -1528,6 +1529,7 @@ func heldWithResidue(t *testing.T) (journal, *corev1.Node) {
 	t.Helper()
 	j := journal{
 		Schema: journalSchema, TxID: "tx-1", RunID: "r7", Arm: "reclaim-on",
+		Study: "reclaim", Variant: "reclaim-on", Namespace: "queuelab-r7",
 		Node: "platform-worker", NodeUID: "uid-node", TakenAt: "t0",
 		Installed: installedTuple{LabelValue: "r7", TaintValue: "r7", TaintEffect: corev1.TaintEffectNoSchedule},
 	}
@@ -1671,6 +1673,7 @@ func TestClearQuarantineRemovesTheResidueRecord(t *testing.T) {
 func TestStampResidueRefusesANodeThisTransactionNoLongerHolds(t *testing.T) {
 	j := journal{
 		Schema: journalSchema, TxID: "tx-1", RunID: "r7", Arm: "reclaim-on",
+		Study: "reclaim", Variant: "reclaim-on", Namespace: "queuelab-r7",
 		Node: "platform-worker", NodeUID: "uid-node", TakenAt: "t0",
 		Installed: installedTuple{LabelValue: "r7", TaintValue: "r7", TaintEffect: corev1.TaintEffectNoSchedule},
 	}
@@ -1930,6 +1933,7 @@ func TestReleaseOnANonConflictFailureSeparatesAFreeNodeFromAStolenOne(t *testing
 							// real -force-release plus a fresh acquire leaves behind.
 							thief, jerr := encodeJournal(journal{
 								Schema: journalSchema, TxID: tc.stolenBy, RunID: "r-thief", Arm: "A-honor",
+								Study: "reclaim", Variant: "reclaim-on", Namespace: "queuelab-r-thief",
 								Node: "platform-worker", NodeUID: string(cur.UID), TakenAt: "2026-08-15T00:00:00Z",
 								Installed: installedTuple{
 									LabelValue: tc.stolenBy, TaintValue: tc.stolenBy,
@@ -1949,7 +1953,7 @@ func TestReleaseOnANonConflictFailureSeparatesAFreeNodeFromAStolenOne(t *testing
 					},
 				}).Build()
 
-			j, err := acquireWorker(context.Background(), fc, "platform-worker", "tx-ours", "r1", "A-honor")
+			j, err := acquireWorker(context.Background(), fc, "platform-worker", acquisitionSeed("tx-ours", "r1", "A-honor"))
 			if err != nil {
 				t.Fatalf("acquire: %v", err)
 			}
@@ -1969,5 +1973,19 @@ func TestReleaseOnANonConflictFailureSeparatesAFreeNodeFromAStolenOne(t *testing
 				t.Fatalf("the invalidation must name the transaction that lost the worker: %v", err)
 			}
 		})
+	}
+}
+
+// acquisitionSeed builds the seed acquisition now takes, so a spec that only cares about the transaction, run and
+// arm does not have to spell out the recovery fields the journal carries.
+func acquisitionSeed(txID, runID, arm string) seed {
+	return seed{
+		Schema:    teardownSeedSchema,
+		TxID:      txID,
+		RunID:     runID,
+		Arm:       arm,
+		Study:     queuelab.StudyReclaim,
+		Variant:   "reclaim-on",
+		Namespace: "queuelab-" + runID,
 	}
 }

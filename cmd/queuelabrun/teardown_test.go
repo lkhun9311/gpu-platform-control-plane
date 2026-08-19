@@ -242,3 +242,42 @@ func TestResidualCarriesTheClassificationItComputed(t *testing.T) {
 		}
 	}
 }
+
+// The property the durable journal exists for: a node's own annotation must be enough to regenerate exactly
+// what the run created, with no other state.
+//
+// Before the journal carried Study, Variant and Namespace, the seed was a local variable handed to an
+// in-process defer. A crash after acquisition therefore left fixtures on the cluster and a marked node, and
+// the only durable record named the transaction without naming a single object it had made — so recovery had
+// nothing to enumerate, and enumerate refuses a seed missing any field rather than guessing at a name that
+// could match an unrelated run's leftovers.
+//
+// Mutation that turns this red: drop any of the three fields from the journal decideAcquire builds.
+func TestAJournalAloneRegeneratesTheDeletionSet(t *testing.T) {
+	s := testSeed()
+
+	// The journal a real acquisition would write, built through decideAcquire rather than by hand so this
+	// spec fails if that function stops carrying the recovery fields.
+	j, err := decideAcquire(ownership{NodeName: "platform-worker", NodeUID: "uid-1"}, s, "2026-08-18T00:00:00Z")
+	if err != nil {
+		t.Fatalf("decide acquire: %v", err)
+	}
+
+	// Everything below comes from the journal. Nothing reads s again.
+	recovered, err := enumerate(seedFromJournal(j))
+	if err != nil {
+		t.Fatalf("a journal written by acquisition cannot regenerate its own deletion set: %v", err)
+	}
+	direct, err := enumerate(s)
+	if err != nil {
+		t.Fatalf("enumerate the original seed: %v", err)
+	}
+	if len(recovered) != len(direct) {
+		t.Fatalf("recovered %d targets from the journal, the run itself would delete %d", len(recovered), len(direct))
+	}
+	for i := range direct {
+		if recovered[i] != direct[i] {
+			t.Fatalf("target %d differs: recovered %+v, run would delete %+v", i, recovered[i], direct[i])
+		}
+	}
+}

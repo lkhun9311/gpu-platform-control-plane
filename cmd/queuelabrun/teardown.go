@@ -73,6 +73,28 @@ type seed struct {
 // concurrent or later run happens to own, so the deletion set would drift from "what THIS run created" to
 // "what currently matches a label selector" — exactly the ambiguity a seed recorded before creation exists
 // to remove.
+// seedFromJournal rebuilds the teardown seed from what a node's own journal carries.
+//
+// This is the reason the journal carries Study, Variant and Namespace at all. Before it did, a crash after
+// acquisition left fixtures on the cluster and a marked node, and the only durable record named the
+// transaction without naming a single object it had created — so recovery had nothing to enumerate and the
+// operator was left reading annotations by hand.
+//
+// The Schema it stamps is teardownSeedSchema, not the journal's: enumerate refuses a seed whose schema is not
+// its own, and the two version independently. A journal written by an older binary is rejected at
+// decodeJournal, before this is ever reached.
+func seedFromJournal(j journal) seed {
+	return seed{
+		Schema:    teardownSeedSchema,
+		TxID:      j.TxID,
+		RunID:     j.RunID,
+		Arm:       j.Arm,
+		Study:     queuelab.Study(j.Study),
+		Variant:   j.Variant,
+		Namespace: j.Namespace,
+	}
+}
+
 func enumerate(s seed) ([]target, error) {
 	if s.Schema != teardownSeedSchema {
 		return nil, fmt.Errorf("seed schema %d does not match enumerate's schema %d: "+

@@ -112,7 +112,7 @@ func newTxID() string { return string(uuid.NewUUID()) }
 //
 // The label, the whole taint array and the journal go in one resource-version-preconditioned patch, so the
 // API server never commits a marker without the journal that says who owns it and what to undo.
-func acquireWorker(ctx context.Context, c client.Client, nodeName, txID, runID, arm string) (journal, error) {
+func acquireWorker(ctx context.Context, c client.Client, nodeName string, s seed) (journal, error) {
 	var lastErr error
 	for range acquireAttempts {
 		var n corev1.Node
@@ -120,7 +120,7 @@ func acquireWorker(ctx context.Context, c client.Client, nodeName, txID, runID, 
 			return journal{}, fmt.Errorf("get node %s: %w", nodeName, err)
 		}
 		obs := observe(&n)
-		j, err := decideAcquire(obs, txID, runID, arm, time.Now().UTC().Format(time.RFC3339))
+		j, err := decideAcquire(obs, s, time.Now().UTC().Format(time.RFC3339))
 		if err != nil {
 			// A refusal is a decision about the observed state, so it is returned as-is rather than retried.
 			return journal{}, err
@@ -468,6 +468,21 @@ func inspectWorker(ctx context.Context, c client.Client, nodeName string) error 
 		// straight into a command the operator is being invited to copy.
 		fmt.Printf("\nHELD by run %q (arm %q) under tx %q since %q.\n",
 			obs.Journal.RunID, obs.Journal.Arm, obs.Journal.TxID, obs.Journal.TakenAt)
+		// Printed from the journal's own recovery fields, which exist so this question is answerable from the
+		// NODE. A crash after acquisition leaves objects behind, and an operator holding only a node name
+		// previously had nothing telling them where to look; enumerate regenerates the full deletion set from
+		// exactly these three values.
+		if targets, terr := enumerate(seedFromJournal(obs.Journal)); terr == nil {
+			fmt.Printf("  That run's objects, regenerated from this journal:\n")
+			for _, t := range targets {
+				fmt.Printf("    %s %s\n", t.Kind, t.Name)
+			}
+		} else {
+			// Reported rather than swallowed: a journal that decodes but cannot rebuild a deletion set is a
+			// state worth naming, and the operator would otherwise see a HELD node with no explanation of why
+			// the object list is missing.
+			fmt.Printf("  Its objects could not be regenerated from this journal: %v\n", terr)
+		}
 		switch {
 		case obs.ResidueErr != nil:
 			// An unreadable record still changes the advice, because what it fails to say is not "there is

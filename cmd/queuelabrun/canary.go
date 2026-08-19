@@ -91,6 +91,11 @@ const (
 	// -inspect-worker on a node a canary is holding is told what is holding it rather than seeing an arm name
 	// the experiment does not have.
 	canaryArm = "termination-canary"
+	// canaryStudy and canaryVariant name what the canary is, for the journal's recovery fields. They are not
+	// a study or a variant this lab runs; they exist so a stuck worker's journal reads as the canary's rather
+	// than as a run whose fixtures someone should go looking for.
+	canaryStudy   = "termination-canary"
+	canaryVariant = "none"
 )
 
 // honorExitCode mirrors internal/queuelab's private termExitCode, duplicated for the reason spine.go

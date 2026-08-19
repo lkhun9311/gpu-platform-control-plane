@@ -30,13 +30,16 @@ import (
 
 func testJournal() journal {
 	return journal{
-		Schema:  journalSchema,
-		TxID:    "tx-1111",
-		RunID:   "r7",
-		Arm:     "A-honor",
-		Node:    "platform-worker",
-		NodeUID: "uid-node",
-		TakenAt: "2026-08-06T10:00:00Z",
+		Schema:    journalSchema,
+		TxID:      "tx-1111",
+		RunID:     "r7",
+		Arm:       "A-honor",
+		Study:     "reclaim",
+		Variant:   "reclaim-on",
+		Namespace: "queuelab-r7",
+		Node:      "platform-worker",
+		NodeUID:   "uid-node",
+		TakenAt:   "2026-08-06T10:00:00Z",
 		Installed: installedTuple{
 			LabelValue:  "r7",
 			TaintValue:  "r7",
@@ -188,7 +191,7 @@ func TestDecideAcquireRefusesEveryNonFreeState(t *testing.T) {
 
 	for name, tc := range cases {
 		obs := observe(tc.n)
-		if _, err := decideAcquire(obs, "tx-1111", "r7", "A-honor", "t"); err == nil {
+		if _, err := decideAcquire(obs, acquisitionSeed("tx-1111", "r7", "A-honor"), "t"); err == nil {
 			t.Fatalf("%s: acquisition must refuse", name)
 		} else {
 			var r *refusal
@@ -207,7 +210,7 @@ func TestDecideAcquireProceedsOnlyFromTheFreeState(t *testing.T) {
 	// worker with its distinct unhealthy key and that must not block the lab.
 	n := node(map[string]string{"kubernetes.io/hostname": "platform-worker"}, map[string]string{"other": "x"},
 		corev1.Taint{Key: "gpu-platform/unhealthy", Value: "true", Effect: corev1.TaintEffectNoSchedule})
-	j, err := decideAcquire(observe(n), "tx-1111", "r7", "A-honor", "2026-08-06T10:00:00Z")
+	j, err := decideAcquire(observe(n), acquisitionSeed("tx-1111", "r7", "A-honor"), "2026-08-06T10:00:00Z")
 	if err != nil {
 		t.Fatalf("free node must be acquirable: %v", err)
 	}
@@ -551,6 +554,7 @@ func heldByAnother(t *testing.T, residueRaw string) *corev1.Node {
 	t.Helper()
 	j := journal{
 		Schema: journalSchema, TxID: "tx-old", RunID: "r7", Arm: "reclaim-on",
+		Study: "reclaim", Variant: "reclaim-on", Namespace: "queuelab-r7",
 		Node: "platform-worker", NodeUID: "uid-node", TakenAt: "t0",
 		Installed: installedTuple{LabelValue: "r7", TaintValue: "r7", TaintEffect: corev1.TaintEffectNoSchedule},
 	}
@@ -584,7 +588,7 @@ func TestAcquireRefusalNamesWhatThePreviousTeardownLeft(t *testing.T) {
 		residueLeft{Kind: "Namespace", Name: "queuelab-r7", Absence: "present"},
 		residueLeft{Kind: "ClusterQueue", Name: "ql-reclaim-tenant-a-r7", Absence: "present"}))
 
-	_, err := decideAcquire(observe(n), "tx-new", "r8", "reclaim-on", "t1")
+	_, err := decideAcquire(observe(n), acquisitionSeed("tx-new", "r8", "reclaim-on"), "t1")
 	if err == nil {
 		t.Fatal("acquisition was allowed on a node another transaction holds")
 	}
@@ -609,7 +613,7 @@ func TestAcquireRefusalNamesWhatThePreviousTeardownLeft(t *testing.T) {
 func TestAcquireRefusalIsUnchangedWithoutAResidueRecord(t *testing.T) {
 	n := heldByAnother(t, "")
 
-	_, err := decideAcquire(observe(n), "tx-new", "r8", "reclaim-on", "t1")
+	_, err := decideAcquire(observe(n), acquisitionSeed("tx-new", "r8", "reclaim-on"), "t1")
 	// refusal.Error() always prepends "reason: ", so the pre-existing message carries that prefix too — this
 	// is what every caller has always seen, not a new addition.
 	want := `foreign-owner: node platform-worker is held by run "r7" under tx "tx-old" since "t0"`
@@ -623,7 +627,7 @@ func TestAcquireRefusalIsUnchangedWithoutAResidueRecord(t *testing.T) {
 func TestAnUnreadableResidueRecordDoesNotBecomeItsOwnRefusal(t *testing.T) {
 	n := heldByAnother(t, "{not json")
 
-	_, err := decideAcquire(observe(n), "tx-new", "r8", "reclaim-on", "t1")
+	_, err := decideAcquire(observe(n), acquisitionSeed("tx-new", "r8", "reclaim-on"), "t1")
 	var r *refusal
 	if !asRefusal(err, &r) || r.Reason != reasonForeignOwner {
 		t.Fatalf("refusal is %v, want reason %q; an unreadable explanation must not change what the node IS",
@@ -651,7 +655,7 @@ func TestQuarantineStillWinsOverAResidueNote(t *testing.T) {
 	n := heldByAnother(t, residueRaw(t, residueLeft{Kind: "Namespace", Name: "queuelab-r7", Absence: "present"}))
 	n.Annotations[quarantineKey] = q
 
-	_, aerr := decideAcquire(observe(n), "tx-new", "r8", "reclaim-on", "t1")
+	_, aerr := decideAcquire(observe(n), acquisitionSeed("tx-new", "r8", "reclaim-on"), "t1")
 	var r *refusal
 	if !asRefusal(aerr, &r) || r.Reason != reasonQuarantined {
 		t.Fatalf("refusal is %v, want reason %q", aerr, reasonQuarantined)
@@ -687,7 +691,7 @@ func TestResidueNoteEscapesEveryFieldItDecodedOutOfTheAnnotation(t *testing.T) {
 	}
 	n := heldByAnother(t, raw)
 
-	_, aerr := decideAcquire(observe(n), "tx-new", "r8", "reclaim-on", "t1")
+	_, aerr := decideAcquire(observe(n), acquisitionSeed("tx-new", "r8", "reclaim-on"), "t1")
 	var r *refusal
 	if !asRefusal(aerr, &r) || r.Reason != reasonForeignOwner {
 		t.Fatalf("refusal is %v, want reason %q", aerr, reasonForeignOwner)

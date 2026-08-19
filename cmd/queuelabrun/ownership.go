@@ -41,7 +41,7 @@ const (
 	// same trap forceQuarantine's comment names. This record exists so the next operator can tell a run that
 	// is legitimately in flight from one that finished and could not remove its namespace.
 	residueKey       = "queuelab.gpu-platform/residue"
-	journalSchema    = 1
+	journalSchema    = 2
 	quarantineSchema = 1
 	residueSchema    = 1
 )
@@ -57,12 +57,26 @@ type installedTuple struct {
 // journal identifies the transaction by a generated TxID rather than the human run id, because a reused
 // run id is already a known confound and must not be able to authorise a release.
 type journal struct {
-	Schema    int            `json:"schema"`
-	TxID      string         `json:"txID"`
-	RunID     string         `json:"runID"`
-	Arm       string         `json:"arm"`
-	Node      string         `json:"node"`
-	NodeUID   string         `json:"nodeUID"`
+	Schema  int    `json:"schema"`
+	TxID    string `json:"txID"`
+	RunID   string `json:"runID"`
+	Arm     string `json:"arm"`
+	Node    string `json:"node"`
+	NodeUID string `json:"nodeUID"`
+	// Study, Variant and Namespace are here so that teardown can be reconstructed from the NODE alone.
+	//
+	// The teardown seed was documented as durable and written before the first fixture is created. It was
+	// neither: it lived as a local variable handed to an in-process defer, so a crash between acquiring the
+	// worker and finishing the run left fixtures on the cluster and a node marked, with nothing durable
+	// naming what to delete. enumerate refuses a seed missing any of these — correctly, since an empty
+	// RunID makes a flavor name that can match an unrelated run's leftovers — so recovery could not even be
+	// attempted.
+	//
+	// They are written in the SAME patch that takes ownership, because a second write is a second place to
+	// crash: the gap this closes is precisely the interval between two writes.
+	Study     string         `json:"study"`
+	Variant   string         `json:"variant"`
+	Namespace string         `json:"namespace"`
 	TakenAt   string         `json:"takenAt"`
 	Installed installedTuple `json:"installed"`
 }
@@ -94,6 +108,7 @@ func decodeJournal(s string) (journal, error) {
 	}
 	for name, v := range map[string]string{
 		"txID": j.TxID, "runID": j.RunID, "arm": j.Arm, "node": j.Node, "nodeUID": j.NodeUID,
+		"study": j.Study, "variant": j.Variant, "namespace": j.Namespace,
 		"installed.labelValue": j.Installed.LabelValue, "installed.taintValue": j.Installed.TaintValue,
 		"installed.taintEffect": string(j.Installed.TaintEffect),
 	} {
@@ -276,7 +291,8 @@ func observe(n *corev1.Node) ownership {
 // taking the object beside the reduction gave one fact two sources in the function that decides who owns a
 // GPU worker: a caller that reduced one node and passed another would record a journal naming a node the
 // decision was not made about. decideForce, decideClear and decideRelease all take obs alone.
-func decideAcquire(obs ownership, txID, runID, arm, takenAt string) (journal, error) {
+func decideAcquire(obs ownership, s seed, takenAt string) (journal, error) {
+	txID, runID, arm := s.TxID, s.RunID, s.Arm
 	if obs.QuarantineRaw != "" {
 		return journal{}, refuse(reasonQuarantined,
 			"node %s carries a quarantine record; clear it deliberately before any run", obs.NodeName)
@@ -307,13 +323,16 @@ func decideAcquire(obs ownership, txID, runID, arm, takenAt string) (journal, er
 			obs.NodeName)
 	}
 	return journal{
-		Schema:  journalSchema,
-		TxID:    txID,
-		RunID:   runID,
-		Arm:     arm,
-		Node:    obs.NodeName,
-		NodeUID: obs.NodeUID,
-		TakenAt: takenAt,
+		Schema:    journalSchema,
+		TxID:      txID,
+		RunID:     runID,
+		Arm:       arm,
+		Node:      obs.NodeName,
+		NodeUID:   obs.NodeUID,
+		Study:     string(s.Study),
+		Variant:   s.Variant,
+		Namespace: s.Namespace,
+		TakenAt:   takenAt,
 		Installed: installedTuple{
 			LabelValue:  runID,
 			TaintValue:  runID,
