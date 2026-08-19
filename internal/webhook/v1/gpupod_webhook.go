@@ -195,12 +195,8 @@ func (v *GPUPodValidator) Handle(ctx context.Context, req admission.Request) adm
 
 	// Checked before the queue lookup because it is a property of the Pod alone and needs no reads, and
 	// because a Pod that fails it fails regardless of which queue it belongs to.
-	if g := pod.Spec.TerminationGracePeriodSeconds; g != nil && *g > maxGraceSeconds {
-		return admission.Denied(fmt.Sprintf(
-			"terminationGracePeriodSeconds is %d, and this namespace's GPU budget is reclaimed by preemption "+
-				"— a Pod that takes %d seconds to stop holds its device that long against the owner that "+
-				"reclaimed it. The cap here is %d",
-			*g, *g, maxGraceSeconds))
+	if why := graceTooLong(&pod.Spec); why != "" {
+		return admission.Denied(why)
 	}
 
 	queued, err := v.tracesToAQueue(ctx, &pod)
@@ -250,13 +246,31 @@ func (v *GPUPodValidator) tracesToAQueue(ctx context.Context, pod *corev1.Pod) (
 	return job.Labels[kueueQueueLabel] != "", nil
 }
 
+// graceTooLong returns why this spec's termination grace exceeds the cap, or "" when it does not.
+//
+// Shared by the Pod guard and the Job guard so the two cannot drift: a Job whose template would produce a
+// Pod this rule refuses must be refused itself, or it reserves quota for Pods that can never be created.
+func graceTooLong(spec *corev1.PodSpec) string {
+	g := spec.TerminationGracePeriodSeconds
+	if g == nil || *g <= maxGraceSeconds {
+		return ""
+	}
+	return fmt.Sprintf(
+		"terminationGracePeriodSeconds is %d, and this namespace's GPU budget is reclaimed by preemption — a "+
+			"Pod that takes %d seconds to stop holds its device that long against the owner that reclaimed "+
+			"it. The cap here is %d", *g, *g, maxGraceSeconds)
+}
+
 // gpuRequest is how many devices this Pod would hold.
 //
 // Limits rather than requests, because an extended resource's request is defaulted from its limit and a Pod
 // may set only the limit — which is exactly what BuildJob does.
-func gpuRequest(pod *corev1.Pod) int64 {
+func gpuRequest(pod *corev1.Pod) int64 { return gpuRequestOf(&pod.Spec) }
+
+// gpuRequestOf is the same question asked of a bare PodSpec, which is what a Job carries.
+func gpuRequestOf(spec *corev1.PodSpec) int64 {
 	var total int64
-	for _, c := range append(append([]corev1.Container{}, pod.Spec.InitContainers...), pod.Spec.Containers...) {
+	for _, c := range append(append([]corev1.Container{}, spec.InitContainers...), spec.Containers...) {
 		if q, ok := c.Resources.Limits[gpuResource]; ok {
 			total += q.Value()
 			continue

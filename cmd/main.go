@@ -247,6 +247,12 @@ func main() {
 			setupLog.Error(err, "Failed to create webhook", "webhook", "gpupod")
 			os.Exit(1)
 		}
+		// Refusing the Pod is too late: Kueue admits a Job by looking at the Job, and a Job whose Pods are
+		// rejected keeps its admission and holds quota while running nothing.
+		if err := webhookv1.SetupGPUJobWebhookWithManager(mgr); err != nil {
+			setupLog.Error(err, "Failed to create webhook", "webhook", "gpujob")
+			os.Exit(1)
+		}
 	} else {
 		setupLog.Info("No webhook certificate supplied; MLTrainingJob admission validation is NOT running, " +
 			"and neither is the GPU quota guard — a Pod can take a device without passing through a queue")

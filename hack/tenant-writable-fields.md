@@ -8,6 +8,7 @@ than by reading it. They are collected here because the pattern is the finding, 
 | GPU quota is enforced | `ownerReferences` | 2 devices, unaccounted | one `kubectl apply` |
 | GPU quota is enforced | `quota-exempt` annotation | any number of devices | one annotation |
 | a reclaimed device comes back | `terminationGracePeriodSeconds` | 301 s of a reclaimed device | 30 s → 32 s held; 300 s → 301 s |
+| the budget is available to those who can use it | a Job whose Pods are refused | the whole budget, indefinitely | used=2 for 240 s, `failed` stuck at 0 |
 
 ## 1. An ownerReference is a claim, not a fact
 
@@ -54,7 +55,7 @@ entirely while its remaining service fits inside grace, and is cut off at exactl
 needs longer, and refusing that pushes tenants to ignore SIGTERM — which the measurement shows is what costs
 the owner most.
 
-## What the three have in common
+## What they have in common
 
 Each guarantee was expressed in terms of a value the adversary supplies. Not a bug in the check — the checks
 were correct about what they read. The mistake was reading something the tenant writes and treating it as
@@ -65,15 +66,30 @@ The three fixes take different forms, and the difference is instructive:
 - **1** replaced the untrusted input with a trusted one. The requester is authenticated; the object is not.
 - **2** restricted who may supply the input, to a set the tenant cannot join.
 - **3** could do neither — the grace period genuinely belongs to the workload — so it **bounded** the damage
-  instead. That is the weakest of the three and the honest one: reclaim is still not immediate, and no
-  Kubernetes mechanism makes it so.
+  instead. That is the weakest of them and the honest one: reclaim is still not immediate, and no Kubernetes
+  mechanism makes it so.
+- **4** moved the check to where the commitment is made. The rule had not changed; it was being applied after
+  the thing it was meant to prevent had already happened.
 
-## What is still open
+## 4. A reservation made for Pods that can never exist
 
-**Kueue holds quota for a Workload whose Pods can never be created.** Found while testing the grace cap: a
-Job carrying `terminationGracePeriodSeconds: 300` had its Workload admitted and holding quota while the
-webhook rejected every Pod the Job controller made. `used=2 admitted=2`, one of them a Job that could not
-run. A rejected Pod does not release the reservation, so a tenant submitting Jobs that fail admission can
-hold a budget indefinitely without running anything.
+Found while testing the third fix, and it is the same shape again: refusing the Pod was too late.
 
-Same shape as the three above — a guarantee bounded by what a tenant may submit — and not fixed.
+Kueue admits a Job by looking at the Job. A Job whose Pods are then rejected keeps its admission — the Job
+controller retries, every Pod is refused, and the Workload sits admitted holding quota. Measured:
+
+    t=20s   used=2 admitted=2  job.status.failed=0
+    t=240s  used=2 admitted=2  job.status.failed=0
+
+`backoffLimit` cannot end it. An admission rejection is not a Pod failure, so `failed` never leaves 0 and the
+retry never stops. A tenant submitting such Jobs holds a budget indefinitely while running nothing.
+
+**Fix.** Apply the rules that decide a Pod's fate to the template that would produce it, at the point where
+the reservation is made. A Job asking for devices is now refused if its template's grace exceeds the cap, or
+if it carries no queue label — the latter checked at the Job because that is where Kueue reads it, and
+refusing at the Pod would tell a user to fix a field their Pod does not have.
+
+Re-attacked after deploying: both Jobs Forbidden, `used` unchanged at 1, and an ordinary queued Job with
+grace 90 still runs.
+
+## What the four have in common

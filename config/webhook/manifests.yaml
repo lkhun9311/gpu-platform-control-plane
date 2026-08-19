@@ -82,3 +82,29 @@ webhooks:
           - CREATE
         resources:
           - pods
+  - name: vgpujob.kb.io
+    admissionReviewVersions:
+      - v1
+    sideEffects: None
+    # Fail, for the reason the Pod guard beside it fails: a rule that vanishes when the webhook is
+    # unreachable opens the hole exactly when nobody is watching.
+    failurePolicy: Fail
+    clientConfig:
+      service:
+        name: gpu-platform-control-plane-webhook-service
+        namespace: gpu-platform-control-plane-system
+        path: /validate-batch-v1-job
+    # Same namespace scope as the Pod guard. A Job webhook that can refuse kube-system is the same hazard.
+    namespaceSelector:
+      matchLabels:
+        platform.lkhun9311.github.io/gpu-quota-enforced: "true"
+    rules:
+      - apiGroups:
+          - batch
+        apiVersions:
+          - v1
+        # CREATE only. This exists to stop a reservation being made, and the reservation is made at create.
+        operations:
+          - CREATE
+        resources:
+          - jobs
