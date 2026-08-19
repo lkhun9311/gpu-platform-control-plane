@@ -119,9 +119,10 @@ did.
   collector's arrival runs 0.4 to 2.4 seconds against residuals under one, and the kubelet's field is
   quantised to the second. Nothing sub-second here is resolved, and this harness cannot be made to resolve it
   by running more of the same.
-- **One trace, one dose.** `self-completing`, where an ignoring victim finishes its own service. The
-  `grace-bounded` regime — where it is cut at the termination grace period — is a different experiment and
-  has not been run.
+- **One trace, one dose here.** `self-completing`, where an ignoring victim finishes its own service. The
+  `grace-bounded` regime has since been run and gives the OPPOSITE answer for the same arm — see
+  [queuelab-grace-boundary.md](queuelab-grace-boundary.md). That comparison, not this page's magnitudes, is
+  what the experiment turned out to be for.
 
 ## Reproducing
 

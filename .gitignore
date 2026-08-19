@@ -35,6 +35,7 @@ docs/superpowers/*
 !/hack/queuelab-reclaim-first-result.md
 !/hack/quota-bypass-guard.md
 !/hack/queue-load-under-concurrency.md
+!/hack/queuelab-grace-boundary.md
 !/docs/0[0-7]*.md
 !/docs/09*.md
 !/docs/10_WHAT_I_GOT_WRONG.md

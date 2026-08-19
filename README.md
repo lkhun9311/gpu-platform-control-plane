@@ -84,6 +84,14 @@ delivery time. Nothing sub-second in this experiment is resolved. The GPU is sim
 records say so. Details, and what the result does not support, are in
 [hack/queuelab-reclaim-first-result.md](hack/queuelab-reclaim-first-result.md).
 
+**The result that survived contact with review** is the other regime. An unresponsive workload defeats
+quota reclaim completely while its remaining service fits inside the Pod's termination grace period — it
+finishes, nothing is discarded, and the owner waits the whole of that service with the preemption recorded
+as ineffective. Once remaining service exceeds grace, it is killed at exactly the grace boundary. So
+`terminationGracePeriodSeconds`, set per Pod by the tenant being preempted, is the bound on how badly a
+quota-restoration promise can be broken:
+[hack/queuelab-grace-boundary.md](hack/queuelab-grace-boundary.md).
+
 What follows is the account of the withdrawn one, kept because the reason it was wrong is the reason the
 gates exist.
 
