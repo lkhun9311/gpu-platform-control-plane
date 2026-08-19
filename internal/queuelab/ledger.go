@@ -54,6 +54,19 @@ type LifecycleEvent struct {
 	Iterations *int `json:"iterations,omitempty"`
 	// Job is the trace job name this event belongs to, resolved by the collector through the UID chain.
 	Job string `json:"job"`
+	// FinishedUnixNanos is the kubelet's own wall clock for the container stopping, absent unless this event
+	// is a stop whose terminated status carried one.
+	FinishedUnixNanos *int64 `json:"finishedUnixNanos,omitempty"`
+	// ObservedLagNs is how long after that instant this collector saw the event.
+	//
+	// It is the instrument's resolution, recorded per event rather than assumed. Every interval in this
+	// ledger is a difference of ARRIVAL times, so each one carries the lag of both its endpoints; without
+	// this field a reader cannot tell a slow termination from a slow watch.
+	//
+	// It compares two machines' wall clocks and can therefore come out negative, which is reported rather
+	// than clamped: a negative value is evidence of skew between the kubelet's node and this host, and
+	// hiding it would turn a known unknown into an unknown one.
+	ObservedLagNs *int64 `json:"observedLagNs,omitempty"`
 	// Tenant and GPUCount used to sit here, described as the submitting tenant and the quota occupancy is
 	// weighted by. Nothing ever wrote them: LedgerBuilder.Observe is the only constructor of a LifecycleEvent
 	// and it never set either, so every event in every record this build has ever produced carried "" and 0

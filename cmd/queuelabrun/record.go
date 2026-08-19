@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/lkhun9311/gpu-mlops-platform-control-plane/internal/queuelab"
@@ -73,7 +74,7 @@ import (
 // file, when what they are holding is a perfectly good record from a build in which the operator's Pod
 // template was not yet part of what a reading covered. The version is the only thing in either document that
 // can tell those apart.
-const recordSchemaVersion = 10
+const recordSchemaVersion = 11
 
 // runRecord is what a non-preview invocation leaves behind.
 //
@@ -319,6 +320,64 @@ type measurement struct {
 	// Workload states what the counted work actually was, and travels beside the count so the two cannot be
 	// separated by anyone reading the record.
 	Workload workloadProvenance `json:"workload"`
+	// Resolution is how far this harness's own observations lag the events they describe.
+	//
+	// It sits in the measurement block rather than beside the ledger because it qualifies every number here:
+	// each interval is a difference of ARRIVAL times, so it carries the lag of both its endpoints. A waste
+	// figure of 40.99 against a 40s dose says something quite different depending on whether the harness sees
+	// events 30ms or 900ms late.
+	Resolution *observationResolution `json:"resolution,omitempty"`
+}
+
+// observationResolution summarises the gap between when the kubelet said a container stopped and when this
+// collector heard about it.
+//
+// Reported as a spread rather than a single figure because it is not a constant: it depends on the apiserver,
+// the watch, and the two machines' clocks agreeing. The minimum is the more useful end — a lag cannot be
+// smaller than the clock skew, so a minimum near zero is evidence the clocks are close, while a large
+// minimum means every number here is offset by at least that much.
+type observationResolution struct {
+	// Samples is how many stop events carried a kubelet timestamp to compare against.
+	Samples int `json:"samples"`
+	// MinNs, MedianNs and MaxNs describe the observed lag.
+	MinNs    int64 `json:"minNs"`
+	MedianNs int64 `json:"medianNs"`
+	MaxNs    int64 `json:"maxNs"`
+	// QuantisationNs is the granularity of the reference clock itself.
+	//
+	// metav1.Time serialises to RFC3339 with SECOND precision, so the kubelet's finishedAt arrives with its
+	// nanoseconds zeroed — checked, not assumed: every observed value ends in nine zeros. Each lag below is
+	// therefore the true lag plus up to one second of truncation, and the instrument measuring the
+	// instrument is itself no finer than that.
+	QuantisationNs int64 `json:"quantisationNs"`
+	// Note names what the reader must not do with the intervals in this record.
+	Note string `json:"note"`
+}
+
+// resolutionOf summarises the per-event lag the ledger carried, or nil when no event could be compared.
+//
+// nil is the honest answer rather than a zero: "no stop reported a kubelet timestamp" and "the harness is
+// perfectly prompt" are different states, and only one of them is good news.
+func resolutionOf(events []queuelab.LifecycleEvent) *observationResolution {
+	lags := make([]int64, 0, len(events))
+	for _, e := range events {
+		if e.ObservedLagNs != nil {
+			lags = append(lags, *e.ObservedLagNs)
+		}
+	}
+	if len(lags) == 0 {
+		return nil
+	}
+	sort.Slice(lags, func(i, j int) bool { return lags[i] < lags[j] })
+	return &observationResolution{
+		Samples:        len(lags),
+		QuantisationNs: int64(time.Second),
+		MinNs:          lags[0],
+		MedianNs:       lags[len(lags)/2],
+		MaxNs:          lags[len(lags)-1],
+		Note: "every interval in this record is a difference of ARRIVAL times and carries the lag of both " +
+			"its endpoints; a residual smaller than this spread is not resolved by this harness",
+	}
 }
 
 // workloadProvenance records what produced the iteration counts, so a reader cannot take them for device
@@ -784,6 +843,7 @@ func measurementOf(res *queuelab.LabResult, horizonNs int64, events []queuelab.L
 	return &measurement{
 		DiscardedIterations:       discardedIterations(events),
 		Workload:                  cpuOnlyWorkload(),
+		Resolution:                resolutionOf(events),
 		HorizonNs:                 horizonNs,
 		WastedGPUSeconds:          res.TotalWastedGPUSeconds,
 		WasteLowerBoundGPUSeconds: res.TotalWasteLowerBoundGPUSeconds,

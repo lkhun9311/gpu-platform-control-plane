@@ -45,14 +45,32 @@ Subtracting what the protocol set leaves what the cluster actually contributed:
 | A-honor discarded | 40.0 | 40.993, 40.888 | **+0.993, +0.888** |
 | A-ignore owner wait | 20.0 | 19.373, 19.385 | **−0.627, −0.615** |
 
-Those residuals are the measurement. The first is the control plane's own cost: about **0.94 seconds** from
-Kueue deciding to preempt to the container actually being gone — a SIGTERM delivered, a process handling it,
-a Pod reaching a terminal phase, a watch reporting it. The second is negative because the owner's Pod becomes
-Ready slightly before the victim's nominal service would have ended: its admission and startup overlap the
-tail of the victim's run by about **0.62 seconds**.
+I called the first residual the control plane's own cost — about 0.94 seconds from Kueue deciding to preempt
+to the container being gone. **That was wrong, and the harness now says so itself.**
 
-Neither number would appear in a design document. Both are properties of this cluster, and they are the only
-quantities here that a different trace would not have decided in advance.
+Every time in this ledger is `col.elapsed()`: the collector's clock when a watch event ARRIVED, not when the
+event happened. So each interval carries the delivery lag of both its endpoints, and that lag had never been
+measured. The record now measures it, by capturing the kubelet's own `finishedAt` beside the collector's
+observation time:
+
+| run | discarded | lag min | lag median | lag max |
+|---|---|---|---|---|
+| res1 | 41.014 | 945.7 ms | 2113.0 ms | 2113.0 ms |
+| res2 | 41.232 | 430.1 ms | 2389.2 ms | 2389.2 ms |
+
+**The lag is of the same size as the residual, and varies by more than it.** A 0.94-second gap cannot be
+attributed to termination when the instrument reporting it is between 0.4 and 2.4 seconds late, and late by a
+different amount at each endpoint. The residual is not resolved by this harness.
+
+Worse for precision, the reference clock is coarse. `metav1.Time` serialises with SECOND precision, so the
+kubelet's `finishedAt` arrives with its nanoseconds zeroed — checked rather than assumed: every observed
+value ends in nine zeros. Each lag above is the true lag plus up to a second of truncation, so the instrument
+that measures the instrument is itself no finer than one second.
+
+What survives is what the arms differ in, which is a whole order of magnitude larger than the lag: 41 seconds
+against 0, and 19.4 seconds against 2.2. Those differences are real. The sub-second residual inside them is
+not something this harness can see, and no number of repetitions fixes that — it is a resolution problem, not
+a noise problem.
 
 ## What it says
 
@@ -69,11 +87,14 @@ That is the trade the lab was built to show, and neither arm is simply better. A
 quota owners a bounded time-to-start has to make preemption effective, and making it effective means
 someone's partial work is destroyed.
 
-What the four runs support is the SHAPE of that trade and the control-plane cost of executing it, not a
-magnitude anyone should quote. "41 GPU-seconds per preemption" would be quoting the trace back at itself: a
-job preempted one minute in would discard a minute. The transferable number is the 0.94 seconds the
-preemption itself took, and the fact that an unresponsive victim converts the whole of its remaining service
-into the owner's waiting time.
+What the runs support is the SHAPE of that trade, not a magnitude anyone should quote. "41 GPU-seconds per
+preemption" would be quoting the trace back at itself: a job preempted one minute in would discard a minute.
+And the sub-second residual is inside the harness's own delivery lag, so it is not a transferable number
+either.
+
+What transfers is categorical: an unresponsive victim converts the whole of its remaining service into the
+owner's waiting time, and the reclamation is recorded as ineffective while it does. Measuring how long a
+preemption takes to take effect needs an instrument at least an order of magnitude finer than this one.
 
 `preemptionIneffective` is the field that separates them, and it is derived rather than asserted: the
 reconstruction pairs the preemption decision with the attempt that was supposed to end and checks whether it
@@ -91,7 +112,8 @@ did.
   interleaved replications for the intervals to overlap — or for one honouring run to show no discarded work,
   or one ignoring run to terminate promptly.
 - **The magnitudes are the trace's.** 41 and 19.4 are the dose and the remaining service, to within a second.
-  Only the residuals above were measured.
+- **The residuals are inside the instrument.** Delivery lag runs 0.4 to 2.4 seconds against residuals under
+  one, and the reference clock is quantised to the second. Nothing sub-second here is resolved.
 - **One trace, one dose.** `self-completing`, where an ignoring victim finishes its own service. The
   `grace-bounded` regime — where it is cut at the termination grace period — is a different experiment and
   has not been run.

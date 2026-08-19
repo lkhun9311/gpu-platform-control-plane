@@ -110,6 +110,11 @@ func (b *LedgerBuilder) Observe(delta DeltaType, kind, uid, job string, st Obser
 			Reason:        st.Reason,
 			ExitCode:      st.ExitCode,
 			Iterations:    st.Iterations,
+			// Carried through so the ledger holds both clocks for the same instant: when the kubelet says the
+			// container stopped, and when this collector heard about it. Their difference is the harness's
+			// own delivery lag, which every interval in this file silently contains.
+			FinishedUnixNanos: st.FinishedUnixNanos,
+			ObservedLagNs:     lagNs(b.wallAnchorNs, elapsedNs, st.FinishedUnixNanos),
 		})
 		b.lastEvent[uid] = st.Event
 		switch st.Event {
@@ -158,4 +163,17 @@ func (b *LedgerBuilder) Err() error {
 		return fmt.Errorf("run invalid: %s", b.invalid)
 	}
 	return nil
+}
+
+// lagNs is how long after the kubelet's timestamp this collector observed the event.
+//
+// It needs the wall anchor because the collector's own times are monotonic offsets from t0; without an
+// anchor there is no common frame with a timestamp from another machine, and the honest answer is that the
+// lag is unknown rather than zero.
+func lagNs(wallAnchorNs, elapsedNs int64, finishedUnixNanos *int64) *int64 {
+	if finishedUnixNanos == nil || wallAnchorNs == 0 {
+		return nil
+	}
+	d := (wallAnchorNs + elapsedNs) - *finishedUnixNanos
+	return &d
 }

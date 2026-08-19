@@ -43,6 +43,19 @@ type ObservedState struct {
 	Invalid bool
 	// InvalidReason explains the invalidation.
 	InvalidReason string
+	// FinishedUnixNanos is when the KUBELET says the container stopped, as a wall clock.
+	//
+	// It exists because every other time in this ledger is the collector's own clock at the moment a watch
+	// event ARRIVED, which is not when the thing happened. The difference between the two is this harness's
+	// delivery lag, and until it is recorded every interval computed from arrival times carries an unknown
+	// amount of it: a 0.94-second gap between "ready" and "stopped" could be 0.9s of termination and 0.04s of
+	// lag, or the reverse, and nothing in the record could tell them apart.
+	//
+	// A pointer because the kubelet does not always fill it and a zero time is a different fact from a late
+	// one. It is a WALL clock from another machine, so it is comparable to the collector's wall anchor only
+	// as far as the two clocks agree — which is why the record reports the difference rather than correcting
+	// anything by it.
+	FinishedUnixNanos *int64
 	// ExitCode is the terminated container's status, and it is what tells one kind of stop from another.
 	//
 	// Reason carries the Pod PHASE, which is "Failed" both for a workload that honoured SIGTERM and exited
@@ -121,9 +134,9 @@ func ClassifyJob(job *batchv1.Job) ObservedState {
 // measured to it would undercount exactly the grace window this event exists to capture.
 func ClassifyPod(pod *corev1.Pod) ObservedState {
 	if pod.Status.Phase == corev1.PodSucceeded || pod.Status.Phase == corev1.PodFailed {
-		code, iters := soleTerminated(pod)
+		code, iters, finished := soleTerminated(pod)
 		return ObservedState{Event: EventAttemptStopped, Reason: string(pod.Status.Phase),
-			ExitCode: code, Iterations: iters}
+			ExitCode: code, Iterations: iters, FinishedUnixNanos: finished}
 	}
 	if pod.Status.Phase == corev1.PodRunning && podConditionTrue(pod, corev1.PodReady) {
 		return ObservedState{Event: EventPodReady, Reason: string(corev1.PodReady)}
@@ -158,22 +171,27 @@ func podConditionTrue(pod *corev1.Pod, condType corev1.PodConditionType) bool {
 // grew a sidecar would make any choice here a guess presented as a measurement. nil then reports that the
 // stop was observed but its kind could not be established, which is a weaker claim than a number and the
 // only true one.
-func soleTerminated(pod *corev1.Pod) (*int32, *int) {
+func soleTerminated(pod *corev1.Pod) (*int32, *int, *int64) {
 	var code *int32
 	var iters *int
+	var finished *int64
 	for i := range pod.Status.ContainerStatuses {
 		t := pod.Status.ContainerStatuses[i].State.Terminated
 		if t == nil {
 			continue
 		}
 		if code != nil {
-			return nil, nil
+			return nil, nil, nil
 		}
 		c := t.ExitCode
 		code = &c
 		iters = itersFromMessage(t.Message)
+		if !t.FinishedAt.IsZero() {
+			f := t.FinishedAt.UnixNano()
+			finished = &f
+		}
 	}
-	return code, iters
+	return code, iters, finished
 }
 
 // itersFromMessage reads the workload's own count out of the terminated status message.

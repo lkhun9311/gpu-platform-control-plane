@@ -1566,14 +1566,14 @@ func TestARecordFromAnEarlierSchemaIsRefused(t *testing.T) {
 	// The version is pinned so a wire change cannot ship without someone deciding to bump it. Version 10
 	// removed LifecycleEvent.tenant and .gpuCount: nothing ever wrote them, so every event in every record
 	// this build had produced carried "" and 0 beneath two sentences saying they meant something.
-	if recordSchemaVersion != 10 {
+	if recordSchemaVersion != 11 {
 		t.Fatalf("recordSchemaVersion is %d; if the wire format changed again, bump this and say what changed",
 			recordSchemaVersion)
 	}
 	// Both predecessors, not only the immediate one. DisallowUnknownFields makes a version-9 document fail on
 	// the removed fields and a version-8 one fail on the version alone, and a decoder that accepted either
 	// would be reading a document whose fields do not mean what this build thinks they do.
-	for _, older := range []int{8, 9} {
+	for _, older := range []int{9, 10} {
 		b := fmt.Appendf(nil, `{"schemaVersion":%d,"dose":"self-completing","runID":"r7","arm":"A-honor",`+
 			`"disposition":"completed-implemented-checks-passed",%s}`, older, refusedValidity)
 		if _, err := decodeRunRecord(b); err == nil {
