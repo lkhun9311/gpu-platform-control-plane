@@ -34,6 +34,7 @@ func testJournal() journal {
 		TxID:      "tx-1111",
 		RunID:     "r7",
 		Arm:       "A-honor",
+		Kind:      ownerRun,
 		Study:     "reclaim",
 		Variant:   "reclaim-on",
 		Namespace: "queuelab-r7",
@@ -554,7 +555,7 @@ func heldByAnother(t *testing.T, residueRaw string) *corev1.Node {
 	t.Helper()
 	j := journal{
 		Schema: journalSchema, TxID: "tx-old", RunID: "r7", Arm: "reclaim-on",
-		Study: "reclaim", Variant: "reclaim-on", Namespace: "queuelab-r7",
+		Kind: ownerRun, Study: "reclaim", Variant: "reclaim-on", Namespace: "queuelab-r7",
 		Node: "platform-worker", NodeUID: "uid-node", TakenAt: "t0",
 		Installed: installedTuple{LabelValue: "r7", TaintValue: "r7", TaintEffect: corev1.TaintEffectNoSchedule},
 	}

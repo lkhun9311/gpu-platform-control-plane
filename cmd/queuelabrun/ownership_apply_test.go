@@ -1529,7 +1529,7 @@ func heldWithResidue(t *testing.T) (journal, *corev1.Node) {
 	t.Helper()
 	j := journal{
 		Schema: journalSchema, TxID: "tx-1", RunID: "r7", Arm: "reclaim-on",
-		Study: "reclaim", Variant: "reclaim-on", Namespace: "queuelab-r7",
+		Kind: ownerRun, Study: "reclaim", Variant: "reclaim-on", Namespace: "queuelab-r7",
 		Node: "platform-worker", NodeUID: "uid-node", TakenAt: "t0",
 		Installed: installedTuple{LabelValue: "r7", TaintValue: "r7", TaintEffect: corev1.TaintEffectNoSchedule},
 	}
@@ -1673,7 +1673,7 @@ func TestClearQuarantineRemovesTheResidueRecord(t *testing.T) {
 func TestStampResidueRefusesANodeThisTransactionNoLongerHolds(t *testing.T) {
 	j := journal{
 		Schema: journalSchema, TxID: "tx-1", RunID: "r7", Arm: "reclaim-on",
-		Study: "reclaim", Variant: "reclaim-on", Namespace: "queuelab-r7",
+		Kind: ownerRun, Study: "reclaim", Variant: "reclaim-on", Namespace: "queuelab-r7",
 		Node: "platform-worker", NodeUID: "uid-node", TakenAt: "t0",
 		Installed: installedTuple{LabelValue: "r7", TaintValue: "r7", TaintEffect: corev1.TaintEffectNoSchedule},
 	}
@@ -1933,7 +1933,7 @@ func TestReleaseOnANonConflictFailureSeparatesAFreeNodeFromAStolenOne(t *testing
 							// real -force-release plus a fresh acquire leaves behind.
 							thief, jerr := encodeJournal(journal{
 								Schema: journalSchema, TxID: tc.stolenBy, RunID: "r-thief", Arm: "A-honor",
-								Study: "reclaim", Variant: "reclaim-on", Namespace: "queuelab-r-thief",
+								Kind: ownerRun, Study: "reclaim", Variant: "reclaim-on", Namespace: "queuelab-r-thief",
 								Node: "platform-worker", NodeUID: string(cur.UID), TakenAt: "2026-08-15T00:00:00Z",
 								Installed: installedTuple{
 									LabelValue: tc.stolenBy, TaintValue: tc.stolenBy,
@@ -1978,7 +1978,7 @@ func TestReleaseOnANonConflictFailureSeparatesAFreeNodeFromAStolenOne(t *testing
 
 // acquisitionSeed builds the seed acquisition now takes, so a spec that only cares about the transaction, run and
 // arm does not have to spell out the recovery fields the journal carries.
-func acquisitionSeed(txID, runID, arm string) seed {
+func acquisitionSeed(txID, runID, arm string) ownerIdentity {
 	return seed{
 		Schema:    teardownSeedSchema,
 		TxID:      txID,
@@ -1987,5 +1987,5 @@ func acquisitionSeed(txID, runID, arm string) seed {
 		Study:     queuelab.StudyReclaim,
 		Variant:   "reclaim-on",
 		Namespace: "queuelab-" + runID,
-	}
+	}.identity()
 }

@@ -83,6 +83,19 @@ type seed struct {
 // The Schema it stamps is teardownSeedSchema, not the journal's: enumerate refuses a seed whose schema is not
 // its own, and the two version independently. A journal written by an older binary is rejected at
 // decodeJournal, before this is ever reached.
+// identity is the ownerIdentity a run's seed acquires under.
+func (s seed) identity() ownerIdentity {
+	return ownerIdentity{
+		Kind:      ownerRun,
+		TxID:      s.TxID,
+		RunID:     s.RunID,
+		Arm:       s.Arm,
+		Namespace: s.Namespace,
+		Study:     string(s.Study),
+		Variant:   s.Variant,
+	}
+}
+
 func seedFromJournal(j journal) seed {
 	return seed{
 		Schema:    teardownSeedSchema,

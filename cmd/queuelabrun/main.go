@@ -798,7 +798,7 @@ func run(ctx context.Context, connect clusterClientFunc, arm queuelab.Arm, runID
 
 	// Ownership is taken before any namespace or fixture exists, so a refused run leaves nothing of its own
 	// behind for the next one to trip over.
-	j, err := acquireWorker(ctx, c, worker, s)
+	j, err := acquireWorker(ctx, c, worker, s.identity())
 	if err != nil {
 		o = phaseFailure(dispAcquisitionRefused, fmt.Sprintf("acquire worker %s", worker), err)
 		return o, events, res,

@@ -18,6 +18,8 @@ package main
 
 import (
 	"errors"
+	corev1 "k8s.io/api/core/v1"
+	"strings"
 	"testing"
 
 	"github.com/lkhun9311/gpu-mlops-platform-control-plane/internal/queuelab"
@@ -258,7 +260,7 @@ func TestAJournalAloneRegeneratesTheDeletionSet(t *testing.T) {
 
 	// The journal a real acquisition would write, built through decideAcquire rather than by hand so this
 	// spec fails if that function stops carrying the recovery fields.
-	j, err := decideAcquire(ownership{NodeName: "platform-worker", NodeUID: "uid-1"}, s, "2026-08-18T00:00:00Z")
+	j, err := decideAcquire(ownership{NodeName: "platform-worker", NodeUID: "uid-1"}, s.identity(), "2026-08-18T00:00:00Z")
 	if err != nil {
 		t.Fatalf("decide acquire: %v", err)
 	}
@@ -279,5 +281,87 @@ func TestAJournalAloneRegeneratesTheDeletionSet(t *testing.T) {
 		if recovered[i] != direct[i] {
 			t.Fatalf("target %d differs: recovered %+v, run would delete %+v", i, recovered[i], direct[i])
 		}
+	}
+}
+
+// The canary holds a worker too, and it recovers by a different route: it builds no fixtures, so a journal
+// claiming a study and a variant would be describing objects that do not exist.
+//
+// An earlier version gave it synthetic values purely to satisfy the journal's non-empty checks. The document
+// then looked recoverable and enumerate failed on it every single time — a field that passes a validator
+// without being true, which is the exact failure this record exists to prevent.
+//
+// Mutation that turns this red: let a canary journal carry a study and a variant.
+func TestACanaryJournalCarriesNoFixtureFields(t *testing.T) {
+	id := ownerIdentity{
+		Kind: ownerCanary, TxID: "tx-c", RunID: "canary-r", Arm: "termination-canary",
+		Namespace: "queuelab-canary", CanaryID: "abcdef12-3456",
+	}
+	j, err := decideAcquire(ownership{NodeName: "w", NodeUID: "uid"}, id, "2026-08-19T00:00:00Z")
+	if err != nil {
+		t.Fatalf("decide acquire: %v", err)
+	}
+	if j.Study != "" || j.Variant != "" {
+		t.Fatalf("a canary journal claims fixtures it never built: study=%q variant=%q", j.Study, j.Variant)
+	}
+	if j.CanaryID != id.CanaryID {
+		t.Fatalf("the canary id is not recoverable from the journal: %q", j.CanaryID)
+	}
+
+	// It must survive the round trip, or a stuck node is one no tool can read.
+	raw, err := encodeJournal(j)
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	back, err := decodeJournal(raw)
+	if err != nil {
+		t.Fatalf("a canary's own journal cannot be decoded, so the worker it holds cannot be released: %v", err)
+	}
+	if back.Kind != ownerCanary || back.CanaryID != id.CanaryID {
+		t.Fatalf("round trip lost the canary identity: %+v", back)
+	}
+}
+
+// A journal that says "run" while carrying nothing to regenerate from is refused rather than half-read,
+// because enumerate would otherwise be handed a seed whose empty fields name a different, wrong object.
+//
+// Mutation that turns this red: drop the per-kind checks from decodeJournal.
+func TestAJournalIsRefusedWhenItsKindAndItsFieldsDisagree(t *testing.T) {
+	base := func(mutate func(*journal)) string {
+		j := journal{
+			Schema: journalSchema, Kind: ownerRun, TxID: "tx", RunID: "r", Arm: "A-honor",
+			Node: "w", NodeUID: "uid", Namespace: "queuelab-r",
+			Study: "reclaim", Variant: "reclaim-on", TakenAt: "t",
+			Installed: installedTuple{LabelValue: "r", TaintValue: "r", TaintEffect: corev1.TaintEffectNoSchedule},
+		}
+		mutate(&j)
+		raw, err := encodeJournal(j)
+		if err != nil {
+			t.Fatalf("encode: %v", err)
+		}
+		return raw
+	}
+	for _, row := range []struct {
+		name   string
+		mutate func(*journal)
+		blames string
+	}{
+		{"a run with no study", func(j *journal) { j.Study = "" }, "study"},
+		{"a run with no variant", func(j *journal) { j.Variant = "" }, "variant"},
+		{"a canary with no id", func(j *journal) {
+			j.Kind, j.Study, j.Variant = ownerCanary, "", ""
+		}, "canaryID"},
+		{"a canary claiming fixtures", func(j *journal) { j.Kind, j.CanaryID = ownerCanary, "c1" }, "builds no fixtures"},
+		{"a kind nobody writes", func(j *journal) { j.Kind = "operator" }, "neither"},
+	} {
+		t.Run(row.name, func(t *testing.T) {
+			_, err := decodeJournal(base(row.mutate))
+			if err == nil {
+				t.Fatal("accepted a journal whose kind and fields disagree")
+			}
+			if !strings.Contains(err.Error(), row.blames) {
+				t.Fatalf("error does not name %q: %v", row.blames, err)
+			}
+		})
 	}
 }
