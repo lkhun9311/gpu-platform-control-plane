@@ -66,18 +66,30 @@ leaving it to be inferred. Two distinctions worth stating plainly, because they 
 
 **Flagship benchmark:** KV-cache-aware noisy-neighbor p99 protection — a real-GPU benchmark that compares premium tenant latency under baseline, colocated long-context noisy-neighbor, and Gateway admission-guard modes. The harness, the guard and the pre-registered checks are written and tested; **it has never been run on a GPU, so there are no numbers.**
 
-## Correction: the queuelab reclaim result is withdrawn
+## The queuelab reclaim result: withdrawn once, and now re-measured
 
-On 2026-08-02 this repository published a live measurement of Kueue quota-reclaim preemption. **It was
-wrong, and it is withdrawn. There are currently zero valid queuelab experimental numbers.**
+On 2026-08-02 this repository published a live measurement of Kueue quota-reclaim preemption. **It was wrong
+and it was withdrawn.** On 2026-08-19 the experiment produced its first result the runner's own gates accept:
+four runs, two per arm, each carrying `verdict: admissible-under-implemented-gates` with no failed claims.
+
+Honouring SIGTERM under reclaim discards 41 GPU-seconds of work; ignoring it discards none and leaves the
+quota owner waiting 19.4 seconds instead of 2.2, with the preemption recorded as ineffective. Both arms
+reproduce across their two runs. The GPU is simulated, so those are seconds of RESERVATION and the records
+say so. Details, and what the result does not support, are in
+[hack/queuelab-reclaim-first-result.md](hack/queuelab-reclaim-first-result.md).
+
+What follows is the account of the withdrawn one, kept because the reason it was wrong is the reason the
+gates exist.
 
 Nothing was ever preempted: the lab's workload ran `sleep` as PID 1, and a container's PID 1 ignores
 `SIGTERM` without an explicit handler, so the jobs ran to completion and were re-executed. A later review
 found the experiment's design confounded as well, independently of that bug.
 
-`queuelabrun` now **refuses by design to emit a countable result** — it exits non-zero and names the
-validity gates it does not yet have. That refusal is the current state of this milestone. The earlier
-result counted because a run that looked fine was allowed to count.
+`queuelabrun` **refuses by design to emit a countable result it cannot stand behind** — it exits non-zero and
+names the validity claims that failed. The earlier result counted because a run that looked fine was allowed
+to count; the runs above count because each one proves it held its worker exclusively for the whole window,
+qualified the node it ran on, and observed continuously, and says so in a record a reader can re-derive the
+verdict from.
 
 The full account — five mistakes, what each one's evidence was, and what changed — is in
 [docs/10_WHAT_I_GOT_WRONG.md](docs/10_WHAT_I_GOT_WRONG.md).
