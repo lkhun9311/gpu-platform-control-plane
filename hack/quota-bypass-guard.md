@@ -114,9 +114,31 @@ The Job path is different again and needs the owner check: Kueue governs a Job t
 does not propagate the label down, so a Pod the Job controller created for a queued Job carries neither
 label. Also checked.
 
-## What it breaks, and why it is not enabled anywhere
+## Putting serving on the quota path
 
-An `InferenceDeployment` — a first-class API of this platform — cannot create its Pods in a governed
+Serving Pods were denied because nothing charged them, so the fix is to charge them.
+
+The `InferenceDeployment` controller now stamps `kueue.x-k8s.io/queue-name` on the Deployment it renders,
+derived from the namespace's `GPUQuotaPolicy` rather than taken from the InferenceDeployment spec. That
+choice is the point: a tenant naming its own queue could name ANOTHER tenant's and spend somebody else's
+budget. Serving does not get to choose which budget it spends.
+
+Measured end to end after deploying:
+
+    Deployment queue-label=gpu-premium
+    quota-serving-79c86774f-r8p4r   Running   queue=gpu-premium   managed=true
+    WL: pod-quota-serving-...-5c1eb   gpu-premium   gpu-premium   True     <- admitted
+
+Then with the guard turned ON in that namespace: the serving Pod is admitted (zero denial events), and a bare
+GPU Pod is still Forbidden. The two now coexist, which they did not before.
+
+The namespace is unlabelled again at the end of the check, because the order matters: existing serving
+Deployments do not carry the label until their controller reconciles them, and turning the guard on first
+would deny their Pods in the window between.
+
+## What it broke before that, and how it was found
+
+An `InferenceDeployment` — a first-class API of this platform — could not create its Pods in a governed
 namespace. Verified rather than reasoned about:
 
     Warning  FailedCreate  replicaset-controller

@@ -78,9 +78,16 @@ func (r *InferenceDeploymentReconciler) Reconcile(ctx context.Context, req ctrl.
 		return r.markDegraded(ctx, &infd, infdReasonConflict, "a Deployment of the same name is not owned by this InferenceDeployment")
 	}
 
+	// Resolved before the mutation rather than inside it, because CreateOrUpdate's callback runs more than
+	// once on conflict and a List per attempt would multiply reads for an answer that cannot change mid-call.
+	queue, err := r.servingQueue(ctx, infd.Namespace)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
 	dep := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: infd.Name, Namespace: infd.Namespace}}
 	if _, err := controllerutil.CreateOrUpdate(ctx, r.Client, dep, func() error {
-		r.mutateDeployment(&infd, dep)
+		r.mutateDeployment(&infd, dep, queue)
 		return controllerutil.SetControllerReference(&infd, dep, r.Scheme)
 	}); err != nil {
 		return ctrl.Result{}, fmt.Errorf("sync deployment %s/%s: %w", infd.Namespace, infd.Name, err)
@@ -128,6 +135,25 @@ func servingPort(infd *platformv1.InferenceDeployment) int32 {
 	return infd.Spec.Port
 }
 
+// servingQueue is the LocalQueue this namespace's serving Pods are charged against, or "" when no policy
+// governs it.
+//
+// A miss is not an error: a namespace with no GPUQuotaPolicy is one this platform makes no quota claim about,
+// and refusing to reconcile serving there would make the policy a prerequisite for running at all.
+func (r *InferenceDeploymentReconciler) servingQueue(ctx context.Context, ns string) (string, error) {
+	var policies platformv1.GPUQuotaPolicyList
+	if err := r.List(ctx, &policies); err != nil {
+		return "", fmt.Errorf("list quota policies: %w", err)
+	}
+	for i := range policies.Items {
+		p := &policies.Items[i]
+		if p.Spec.TargetNamespace == ns && p.Spec.TrainingQuota {
+			return kueueQueueName(p.Spec.Tenant), nil
+		}
+	}
+	return "", nil
+}
+
 // infdLabels is the recommended label set applied to the owned Deployment and Service.
 func infdLabels(infd *platformv1.InferenceDeployment) map[string]string {
 	return map[string]string{
@@ -141,8 +167,19 @@ func infdLabels(infd *platformv1.InferenceDeployment) map[string]string {
 // mutateDeployment sets only the fields this controller manages on the Deployment.
 //
 // The selector is set once and never changed, because it is immutable after create.
-func (r *InferenceDeploymentReconciler) mutateDeployment(infd *platformv1.InferenceDeployment, dep *appsv1.Deployment) {
+func (r *InferenceDeploymentReconciler) mutateDeployment(infd *platformv1.InferenceDeployment, dep *appsv1.Deployment, queue string) {
 	labels := infdLabels(infd)
+	// The queue label puts this Deployment's Pods on the tenant's quota, and Kueue propagates it down to them
+	// along with its own managed marker.
+	//
+	// It is derived from the namespace's GPUQuotaPolicy rather than taken from the InferenceDeployment spec,
+	// which is the point: a tenant naming its own queue could name another tenant's and be charged against
+	// somebody else's budget. Serving does not get to choose which budget it spends.
+	//
+	// Empty when no policy governs this namespace, in which case nothing is charged and nothing claims to be.
+	if queue != "" {
+		labels[kueueQueueLabel] = queue
+	}
 	port := servingPort(infd)
 
 	dep.Labels = labels
