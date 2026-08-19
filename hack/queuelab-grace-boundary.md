@@ -108,8 +108,21 @@ reading the code.
   19.4 is the 20 s that remained. What is NOT the trace's is the discontinuity itself — that the same arm
   produces 0 discarded on one side of the boundary and 51.5 on the other.
 - **Two runs per cell.** Repeatable, not a distribution.
-- **One grace period.** 30 seconds, the default. The boundary was not swept; it was crossed once from each
-  side.
+- **One grace period, and the boundary cannot be swept with this harness.** 30 seconds, the default.
+
+  `TerminationContractTrace` refuses any dose whose remaining service does not match the declared regime:
+  `self-completing` errors if remaining is at or above the grace period, `grace-bounded` errors if it is
+  below. The guard is right to exist — it stops a run silently sitting in a regime other than the one it
+  claims — but it also writes `terminationGraceSec = 30` into the harness as an AXIOM and refuses every
+  configuration that would test it. Remaining service of 28 or 32 seconds cannot be run under either regime.
+
+  So what is established is that a victim with 20 s left finishes on its own and one with 40 s left is
+  stopped at 30 s — the latter observed twice, `Preempted t=24s -> AttemptStopped t=54s`. What is NOT
+  established is that the switch happens at exactly 30 rather than at 27 or 33. An earlier draft of this page
+  said the boundary "was not swept", which understates it: it cannot be, without changing the guard.
+
+  The sweep was done outside the lab instead, on plain Pods where the parameter is free, and the model it
+  implied holds: [grace-holds-the-device.md](grace-holds-the-device.md).
 
 ## Reproducing
 

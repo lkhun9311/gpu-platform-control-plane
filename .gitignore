@@ -36,6 +36,7 @@ docs/superpowers/*
 !/hack/quota-bypass-guard.md
 !/hack/queue-load-under-concurrency.md
 !/hack/queuelab-grace-boundary.md
+!/hack/grace-holds-the-device.md
 !/docs/0[0-7]*.md
 !/docs/09*.md
 !/docs/10_WHAT_I_GOT_WRONG.md
