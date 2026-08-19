@@ -73,7 +73,7 @@ import (
 // file, when what they are holding is a perfectly good record from a build in which the operator's Pod
 // template was not yet part of what a reading covered. The version is the only thing in either document that
 // can tell those apart.
-const recordSchemaVersion = 9
+const recordSchemaVersion = 10
 
 // runRecord is what a non-preview invocation leaves behind.
 //

@@ -1562,15 +1562,23 @@ func TestMeasurementOfCarriesWhatTheRunActuallyMeasured(t *testing.T) {
 // counting exists to end and this field carries into the artifact.
 //
 // Mutation that turns this red: leave recordSchemaVersion at 8 — both halves.
-func TestARecordFromBeforeDiscardedIterationsIsRefused(t *testing.T) {
-	if recordSchemaVersion != 9 {
-		t.Fatalf("recordSchemaVersion is %d; the record now carries the work a run discarded, and a document "+
-			"without it cannot say whether its waste figure covered any computation at all", recordSchemaVersion)
+func TestARecordFromAnEarlierSchemaIsRefused(t *testing.T) {
+	// The version is pinned so a wire change cannot ship without someone deciding to bump it. Version 10
+	// removed LifecycleEvent.tenant and .gpuCount: nothing ever wrote them, so every event in every record
+	// this build had produced carried "" and 0 beneath two sentences saying they meant something.
+	if recordSchemaVersion != 10 {
+		t.Fatalf("recordSchemaVersion is %d; if the wire format changed again, bump this and say what changed",
+			recordSchemaVersion)
 	}
-	older := fmt.Appendf(nil, `{"schemaVersion":8,"dose":"self-completing","runID":"r7","arm":"A-honor",`+
-		`"disposition":"completed-implemented-checks-passed",%s}`, refusedValidity)
-	if _, err := decodeRunRecord(older); err == nil {
-		t.Fatal("a record from before the iteration count decoded under today's rules")
+	// Both predecessors, not only the immediate one. DisallowUnknownFields makes a version-9 document fail on
+	// the removed fields and a version-8 one fail on the version alone, and a decoder that accepted either
+	// would be reading a document whose fields do not mean what this build thinks they do.
+	for _, older := range []int{8, 9} {
+		b := fmt.Appendf(nil, `{"schemaVersion":%d,"dose":"self-completing","runID":"r7","arm":"A-honor",`+
+			`"disposition":"completed-implemented-checks-passed",%s}`, older, refusedValidity)
+		if _, err := decodeRunRecord(b); err == nil {
+			t.Fatalf("a schema-%d record decoded under today's rules", older)
+		}
 	}
 }
 

@@ -310,8 +310,18 @@ func reportRun(stdout, stderr io.Writer, write recordWriter, verify recordVerifi
 				"They are kept because they may be this run's only remaining account, not because they can be "+
 				"quoted.")
 		}
-		if r.Result != nil && o.Disposition == dispChecksPassed {
+		// Gated on Preview for the same reason the ledger below is, and it was NOT — which made the two
+		// accounts of one guarantee disagree. buildRecord omits measurement from a preview because "handing
+		// back the numbers directly would return exactly what the withholding protects", and this line then
+		// printed wastedGPUSeconds, totalOccupancyGPUSeconds, admittedWaitP95 and every per-row figure to
+		// stdout, where a shell redirect captures them just as well as a file would. The banner was the only
+		// thing separating those numbers from a real run's.
+		switch {
+		case r.Result != nil && o.Disposition == dispChecksPassed && !r.Preview:
 			_, _ = fmt.Fprint(publish, "\n"+queuelab.RenderResult(*r.Result))
+		case r.Result != nil && o.Disposition == dispChecksPassed:
+			_, _ = fmt.Fprintln(publish, "\n  (withheld: this invocation was declared a smoke check, and its "+
+				"numbers read the same as a run's once they are out of this process)")
 		}
 		_, _ = fmt.Fprintf(publish, "\nledger: %d events\n", len(r.Events))
 		// A preview record deliberately carries a count and no events, so that an invocation its own author

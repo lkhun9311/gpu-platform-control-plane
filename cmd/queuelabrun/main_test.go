@@ -110,7 +110,7 @@ func TestReconstructHorizonIsTheStampedInstantNotWhateverShutdownTook(t *testing
 	// One offered row that is submitted and then never admitted, because its censored wait is exactly
 	// horizon - submitted: the boundary itself, readable straight off the result.
 	trace := []queuelab.TrainingTraceRow{
-		{Index: 0, Name: "victim", Tenant: "a", GPUCount: 1, DurationSec: 40},
+		{Index: 0, Name: "victim", DurationSec: 40},
 	}
 	events := []queuelab.LifecycleEvent{
 		{ElapsedNs: int64(submittedAt), Kind: kindMLTrainingJob, Type: queuelab.EventSubmitted, Job: "victim"},
@@ -672,6 +672,48 @@ func TestReportRunWithholdsTheLedgerFromAPreview(t *testing.T) {
 	}
 	if !strings.Contains(out, previewBanner) {
 		t.Fatalf("preview output must stay bracketed by the banner, got %q", out)
+	}
+}
+
+// The other half of the same guarantee, and the half that was missing.
+//
+// buildRecord omits measurement from a preview because handing back the numbers directly returns exactly what
+// the withheld ledger protects. The rendered result was not gated the same way, so a preview printed
+// wastedGPUSeconds, the occupancy total and the wait percentile to stdout — where a shell redirect captures
+// them as well as a file does. Withholding one channel while the other prints the same figures is not a
+// guarantee, it is a formality.
+//
+// Mutation that turns this red: render the result for a preview as before.
+func TestReportRunWithholdsTheNumbersFromAPreview(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	res := &queuelab.LabResult{TotalWastedGPUSeconds: 41.5}
+	reportRun(&stdout, &stderr, func(string, any) error { return nil }, readsBackFine, runReport{
+		Outcome: outcome{Disposition: dispChecksPassed},
+		Result:  res,
+		Record:  previewRecord{SchemaVersion: recordSchemaVersion},
+		Path:    "/tmp/run.json",
+		Preview: true,
+	})
+
+	out := stdout.String()
+	if strings.Contains(out, "41.5") {
+		t.Fatalf("a preview printed the very number its record withholds, got %q", out)
+	}
+	if !strings.Contains(out, "withheld") {
+		t.Fatalf("a preview that prints no numbers must say so, or the absence reads as a run that measured "+
+			"nothing, got %q", out)
+	}
+
+	// The control: a real run must still print them, or the change has replaced a leak with a blackout.
+	var runOut, runErr bytes.Buffer
+	reportRun(&runOut, &runErr, func(string, any) error { return nil }, readsBackFine, runReport{
+		Outcome: outcome{Disposition: dispChecksPassed},
+		Result:  res,
+		Record:  previewRecord{SchemaVersion: recordSchemaVersion},
+		Path:    "/tmp/run.json",
+	})
+	if !strings.Contains(runOut.String(), "41.5") {
+		t.Fatalf("a real run no longer reports its own measurement, got %q", runOut.String())
 	}
 }
 

@@ -349,17 +349,17 @@ func f1UnattributedBannerTrace() []TrainingTraceRow {
 // horizon at all (47 GPU-seconds, cause unknown).
 func f1UnattributedBannerEvents() []LifecycleEvent {
 	return []LifecycleEvent{
-		{ElapsedNs: 0, Kind: "MLTrainingJob", Type: EventSubmitted, Job: "r1", GPUCount: 1},
-		{ElapsedNs: 1 * sec, Kind: "Workload", Type: EventAdmitted, Job: "r1", GPUCount: 1},
-		{ElapsedNs: 2 * sec, Kind: "Pod", Type: EventPodReady, Job: "r1", GPUCount: 1, ObjectUID: "pod-r1"},
-		{ElapsedNs: 10 * sec, Kind: "Workload", Type: EventPreempted, Job: "r1", GPUCount: 1, Reason: "InCohortReclamation"},
+		{ElapsedNs: 0, Kind: "MLTrainingJob", Type: EventSubmitted, Job: "r1"},
+		{ElapsedNs: 1 * sec, Kind: "Workload", Type: EventAdmitted, Job: "r1"},
+		{ElapsedNs: 2 * sec, Kind: "Pod", Type: EventPodReady, Job: "r1", ObjectUID: "pod-r1"},
+		{ElapsedNs: 10 * sec, Kind: "Workload", Type: EventPreempted, Job: "r1", Reason: "InCohortReclamation"},
 		// r1 ignores the signal and finishes on its own: 35 - 2 = 33 GPU-seconds, cause established.
-		{ElapsedNs: 35 * sec, Kind: "Pod", Type: EventAttemptStopped, Job: "r1", GPUCount: 1, ObjectUID: "pod-r1", Reason: StopReasonSucceeded},
+		{ElapsedNs: 35 * sec, Kind: "Pod", Type: EventAttemptStopped, Job: "r1", ObjectUID: "pod-r1", Reason: StopReasonSucceeded},
 
-		{ElapsedNs: 0, Kind: "MLTrainingJob", Type: EventSubmitted, Job: "r2", GPUCount: 1},
-		{ElapsedNs: 1 * sec, Kind: "Workload", Type: EventAdmitted, Job: "r2", GPUCount: 1},
-		{ElapsedNs: 3 * sec, Kind: "Pod", Type: EventPodReady, Job: "r2", GPUCount: 1, ObjectUID: "pod-r2"},
-		{ElapsedNs: 20 * sec, Kind: "Workload", Type: EventPreempted, Job: "r2", GPUCount: 1, Reason: "InCohortReclamation"},
+		{ElapsedNs: 0, Kind: "MLTrainingJob", Type: EventSubmitted, Job: "r2"},
+		{ElapsedNs: 1 * sec, Kind: "Workload", Type: EventAdmitted, Job: "r2"},
+		{ElapsedNs: 3 * sec, Kind: "Pod", Type: EventPodReady, Job: "r2", ObjectUID: "pod-r2"},
+		{ElapsedNs: 20 * sec, Kind: "Workload", Type: EventPreempted, Job: "r2", Reason: "InCohortReclamation"},
 		// r2 reaches no terminal phase at all: charged 50 - 3 = 47 to the horizon, cause unknown.
 	}
 }

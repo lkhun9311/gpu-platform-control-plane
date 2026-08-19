@@ -54,10 +54,15 @@ type LifecycleEvent struct {
 	Iterations *int `json:"iterations,omitempty"`
 	// Job is the trace job name this event belongs to, resolved by the collector through the UID chain.
 	Job string `json:"job"`
-	// Tenant is the submitting tenant.
-	Tenant string `json:"tenant"`
-	// GPUCount is the job's requested quota, carried so occupancy and waste can be weighted.
-	GPUCount int `json:"gpuCount"`
+	// Tenant and GPUCount used to sit here, described as the submitting tenant and the quota occupancy is
+	// weighted by. Nothing ever wrote them: LedgerBuilder.Observe is the only constructor of a LifecycleEvent
+	// and it never set either, so every event in every record this build has ever produced carried "" and 0
+	// under two sentences saying otherwise.
+	//
+	// They are removed rather than populated because the builder is a pure observer of Kubernetes objects and
+	// neither value is one: both are properties of the TRACE, which the record already carries as arm and
+	// dose, and Reconstruct weights from the trace-seeded timeline for exactly that reason. Populating them
+	// would mean handing the builder the trace so it could copy back what the reader already has.
 	// ObjectUID is the observed object's UID; for Pod events it is the attempt identity that preemption
 	// waste is paired on, so a duplicate delta or an unrelated Pod stop cannot truncate another attempt.
 	ObjectUID string `json:"objectUID,omitempty"`
