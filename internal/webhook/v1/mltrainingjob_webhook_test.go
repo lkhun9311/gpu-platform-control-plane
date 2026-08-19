@@ -131,6 +131,9 @@ func TestValidateUpdateRefusesBakedEditsOnceTheJobExists(t *testing.T) {
 		// admitted. The edit is stored and the controller loops on it forever, which reads as a controller bug
 		// rather than as the rejected edit it is.
 		{"queue", func(m *platformv1.MLTrainingJob) { m.Spec.Queue = "team-b" }, "spec.queue"},
+		// Completions is immutable on a batch/v1 Job; parallelism is not. Confirmed against a real apiserver
+		// in envtest, which accepts a parallelism change and answers "field is immutable" for completions.
+		{"completions", func(m *platformv1.MLTrainingJob) { m.Spec.Completions = 4 }, "spec.completions"},
 	}
 	for _, row := range rows {
 		t.Run(row.name, func(t *testing.T) {
@@ -147,12 +150,14 @@ func TestValidateUpdateRefusesBakedEditsOnceTheJobExists(t *testing.T) {
 }
 
 func TestValidateUpdateAllowsFieldsTheReconcilerStillSyncs(t *testing.T) {
-	// Parallelism and Completions are written on EVERY reconcile, not only at create, so an edit to them does
-	// take effect and refusing it would block a change the controller honours.
+	// Parallelism is written on EVERY reconcile and the apiserver accepts the change, so refusing it would
+	// block something the controller honours. Completions is written on every reconcile too and the apiserver
+	// does NOT accept it — the reconciler makes no distinction and this spec used to repeat that mistake by
+	// asserting both were allowed.
 	//
-	// Mutation that turns this red: add either field to bakedFieldEdits.
+	// Mutation that turns this red: add Parallelism to bakedFieldEdits.
 	v := validatorWith(t, ownedJob())
-	updated := job(func(m *platformv1.MLTrainingJob) { m.Spec.Parallelism = 4; m.Spec.Completions = 4 })
+	updated := job(func(m *platformv1.MLTrainingJob) { m.Spec.Parallelism = 4 })
 	if _, err := v.ValidateUpdate(context.Background(), job(nil), updated); err != nil {
 		t.Fatalf("refused an edit the reconciler re-applies every pass: %v", err)
 	}

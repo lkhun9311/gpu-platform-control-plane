@@ -245,6 +245,8 @@ func errorCode(status int) string {
 		return "bad_gateway"
 	case http.StatusGatewayTimeout:
 		return "upstream_timeout"
+	case http.StatusServiceUnavailable:
+		return "gateway_unavailable"
 	default:
 		return "internal_error"
 	}

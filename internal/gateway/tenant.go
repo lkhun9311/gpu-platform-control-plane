@@ -18,6 +18,8 @@ package gateway
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -25,25 +27,36 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 )
 
+// ErrKeyStoreUnavailable reports that the api-keys Secret could not be read, which is a different fact from
+// a key that is not in it.
+//
+// It exists because the two used to collapse into one boolean. A Secret the gateway could not read — RBAC
+// revoked, the object deleted, the apiserver briefly unreachable — answered every request 401, so a caller
+// with a perfectly valid key was told their credential was wrong. That sends an operator to rotate keys
+// while the actual fault is on the cluster, and it does so uniformly for every tenant at once, which is the
+// shape of an outage rather than of an auth failure.
+var ErrKeyStoreUnavailable = errors.New("api-keys secret could not be read")
+
 // resolveTenant maps the request's Bearer API key to a tenant via the api-keys Secret.
 //
-// It returns ok=false for a missing or unknown key.
-func (s *Server) resolveTenant(ctx context.Context, r *http.Request) (string, bool) {
+// It returns ok=false for a missing or unknown key, and ErrKeyStoreUnavailable when the answer could not be
+// established at all.
+func (s *Server) resolveTenant(ctx context.Context, r *http.Request) (string, bool, error) {
 	h := r.Header.Get("Authorization")
 	// Split the header into scheme and credential on the first space.
 	scheme, credential, found := strings.Cut(h, " ")
 	// HTTP auth schemes are case-insensitive per RFC 7235, so compare with EqualFold.
 	if !found || !strings.EqualFold(scheme, "Bearer") {
-		return "", false
+		return "", false, nil
 	}
 	key := strings.TrimSpace(credential)
 	if key == "" {
-		return "", false
+		return "", false, nil
 	}
 	var sec corev1.Secret
 	if err := s.Client.Get(ctx, types.NamespacedName{Name: s.APIKeySecret, Namespace: s.Namespace}, &sec); err != nil {
-		return "", false
+		return "", false, fmt.Errorf("%w: %v", ErrKeyStoreUnavailable, err)
 	}
 	tenant, ok := sec.Data[key]
-	return string(tenant), ok && len(tenant) > 0
+	return string(tenant), ok && len(tenant) > 0, nil
 }

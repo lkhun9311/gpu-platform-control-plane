@@ -269,7 +269,15 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 	r.Header.Set("X-Request-Id", rid)
 
 	// 2. Resolve the API key to a tenant.
-	tenant, ok := s.resolveTenant(ctx, r)
+	tenant, ok, err := s.resolveTenant(ctx, r)
+	if err != nil {
+		// 503, not 401. The gateway could not establish whether this key is valid, and answering
+		// Unauthorized asserts that it did — for every tenant at once, since they all read the same Secret.
+		// An operator seeing a fleet of 401s rotates credentials; one seeing 503s looks at the cluster.
+		log.FromContext(ctx).Error(err, "cannot read the api-keys secret", "request_id", rid)
+		s.fail(w, "", "", http.StatusServiceUnavailable)
+		return
+	}
 	if !ok {
 		s.fail(w, "", "", http.StatusUnauthorized)
 		return

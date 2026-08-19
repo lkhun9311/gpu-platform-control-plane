@@ -172,6 +172,16 @@ func bakedFieldEdits(oldSpec, newSpec *platformv1.MLTrainingJobSpec) field.Error
 	if !slices.Equal(oldSpec.Command, newSpec.Command) {
 		errs = append(errs, field.Invalid(specPath.Child("command"), newSpec.Command, because))
 	}
+	// Completions is immutable on a batch/v1 Job and parallelism is not, which is a distinction the reconciler
+	// does not make: it writes both on every pass. Verified against a real apiserver rather than assumed —
+	// parallelism goes from 2 to 4 without complaint, and completions is refused with "field is immutable".
+	//
+	// So an edit here was stored and then failed on every reconcile afterwards, indefinitely, and what the
+	// user saw was a controller erroring about an object they had successfully updated.
+	if oldSpec.Completions != newSpec.Completions {
+		errs = append(errs, field.Invalid(specPath.Child("completions"), newSpec.Completions,
+			"completions is immutable on the owned Job; delete and recreate the MLTrainingJob to change it"))
+	}
 	// Queue is not part of the pod template, so it needs its own sentence: the reconciler copies the desired
 	// labels — including Kueue's queue-name label — onto the live Job on every pass, and Kueue's own webhook
 	// refuses that label being changed on a Job it has already admitted. Without this rule the edit is stored
