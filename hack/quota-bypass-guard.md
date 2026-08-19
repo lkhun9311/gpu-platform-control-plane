@@ -85,6 +85,30 @@ The refusal:
     submit an MLTrainingJob, or label the owning Job kueue.x-k8s.io/queue-name=<queue>, or annotate
     the Pod platform.lkhun9311.github.io/quota-exempt to take the device outside the budget on purpose
 
+## What it breaks, and why it is not enabled anywhere
+
+An `InferenceDeployment` — a first-class API of this platform — cannot create its Pods in a governed
+namespace. Verified rather than reasoned about:
+
+    Warning  FailedCreate  replicaset-controller
+      Error creating: admission webhook "vgpupod.kb.io" denied the request:
+      "system:serviceaccount:kube-system:replicaset-controller" is asking for 1 nvidia.com/gpu directly
+      rather than through a queue
+
+Serving Pods are owned by a ReplicaSet, and the guard accepts only a Job. That is not an oversight in the
+rule; it is the rule being right about a platform that is wrong. In this cluster Kueue's `deployment` and
+`pod` integrations are not among the enabled frameworks, so a serving Pod is invisible to Kueue **however it
+is labelled** — there is no queue for it to belong to. Admitting it would mean accepting a label Kueue never
+reads, which is the string check this guard exists to replace.
+
+So the guard is correct and **the `serving` namespace has been unlabelled again**. No namespace in this
+repository is currently governed by it. That is the honest state: the enforcement mechanism is built, tested
+against forgery, and cannot be turned on until serving genuinely has a quota to be charged against.
+
+The next step is not to weaken the guard. It is to put serving on the quota path — Kueue's `deployment`
+integration already charges a labelled serving Deployment against the same ClusterQueue a training Job uses,
+which `hack/kueue-deployment-integration.md` measured before any of this was written.
+
 ## What it costs
 
 **Availability.** `failurePolicy: Fail` means that while the webhook is down, no GPU Pod can be created in a
