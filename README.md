@@ -72,10 +72,14 @@ On 2026-08-02 this repository published a live measurement of Kueue quota-reclai
 and it was withdrawn.** On 2026-08-19 the experiment produced its first result the runner's own gates accept:
 four runs, two per arm, each carrying `verdict: admissible-under-implemented-gates` with no failed claims.
 
-Honouring SIGTERM under reclaim discards 41 GPU-seconds of work; ignoring it discards none and leaves the
-quota owner waiting 19.4 seconds instead of 2.2, with the preemption recorded as ineffective. Both arms
-reproduce across their two runs. The GPU is simulated, so those are seconds of RESERVATION and the records
-say so. Details, and what the result does not support, are in
+Honouring SIGTERM under reclaim discards the work in flight; ignoring it discards none and converts the
+victim's remaining service into the quota owner's waiting time, with the preemption recorded as ineffective.
+Both arms reproduce across their two runs.
+
+The magnitudes — 41 GPU-seconds and 19.4 — are the protocol's dose and remaining service, not discoveries;
+the measured quantities are the residuals, about 0.94s of control-plane cost to execute a preemption and
+0.62s of overlap as the owner starts. The GPU is simulated, so these are seconds of RESERVATION and the
+records say so. Details, and what the result does not support, are in
 [hack/queuelab-reclaim-first-result.md](hack/queuelab-reclaim-first-result.md).
 
 What follows is the account of the withdrawn one, kept because the reason it was wrong is the reason the

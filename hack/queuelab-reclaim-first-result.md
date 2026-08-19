@@ -31,6 +31,29 @@ under `reclaimWithinCohort`.
 
 Both arms reproduce to within 0.1 GPU-seconds and 12 milliseconds across their two runs.
 
+## What is measured and what is arithmetic
+
+The protocol fixes the victim's service at 60 seconds and preempts it 40 seconds in
+(`cmd/queuelabrun/spine.go`). So before any run happened, the trace already determined that a responsive
+victim would discard about 40 seconds and that an unresponsive one would hold the device about 20 seconds
+longer. **Both headline magnitudes are constructed, not discovered.**
+
+Subtracting what the protocol set leaves what the cluster actually contributed:
+
+| quantity | protocol says | observed | residual |
+|---|---|---|---|
+| A-honor discarded | 40.0 | 40.993, 40.888 | **+0.993, +0.888** |
+| A-ignore owner wait | 20.0 | 19.373, 19.385 | **−0.627, −0.615** |
+
+Those residuals are the measurement. The first is the control plane's own cost: about **0.94 seconds** from
+Kueue deciding to preempt to the container actually being gone — a SIGTERM delivered, a process handling it,
+a Pod reaching a terminal phase, a watch reporting it. The second is negative because the owner's Pod becomes
+Ready slightly before the victim's nominal service would have ended: its admission and startup overlap the
+tail of the victim's run by about **0.62 seconds**.
+
+Neither number would appear in a design document. Both are properties of this cluster, and they are the only
+quantities here that a different trace would not have decided in advance.
+
 ## What it says
 
 **Honouring SIGTERM discards work.** The victim stops when told to, and the 41 GPU-seconds it had spent are
@@ -42,10 +65,15 @@ the preemption, so no work is lost — and the quota owner waits 19.4 seconds to
 ledger shows why: `Preempted` at t=44s, `AttemptStopped reason=Succeeded` at t=1m3s. The reclamation was
 issued and did not reclaim anything for nineteen seconds.
 
-That is the trade the lab was built to measure, and neither arm is simply better. A platform that guarantees
-its quota owners a bounded time-to-start has to make preemption effective, and making it effective means
-someone's partial work is destroyed. The cost of the guarantee is 41 GPU-seconds per preemption in this
-trace; the cost of not making it is a quota that is advisory for as long as the incumbent chooses.
+That is the trade the lab was built to show, and neither arm is simply better. A platform that guarantees its
+quota owners a bounded time-to-start has to make preemption effective, and making it effective means
+someone's partial work is destroyed.
+
+What the four runs support is the SHAPE of that trade and the control-plane cost of executing it, not a
+magnitude anyone should quote. "41 GPU-seconds per preemption" would be quoting the trace back at itself: a
+job preempted one minute in would discard a minute. The transferable number is the 0.94 seconds the
+preemption itself took, and the fact that an unresponsive victim converts the whole of its remaining service
+into the owner's waiting time.
 
 `preemptionIneffective` is the field that separates them, and it is derived rather than asserted: the
 reconstruction pairs the preemption decision with the attempt that was supposed to end and checks whether it
@@ -58,7 +86,12 @@ did.
   rate. `measurement.workload.deviceUseEstablished` is false in all four records, with the reason beside it.
   These are GPU-*seconds of reservation*, not of computation.
 - **Two runs per arm is two runs per arm.** The reproduction is encouraging and is not a distribution. No
-  variance is claimed and none should be quoted.
+  variance is claimed and none should be quoted, and no arm EFFECT is established: four executions show
+  repeatability, not a causal difference. Falsifying the arm difference would need enough randomised,
+  interleaved replications for the intervals to overlap — or for one honouring run to show no discarded work,
+  or one ignoring run to terminate promptly.
+- **The magnitudes are the trace's.** 41 and 19.4 are the dose and the remaining service, to within a second.
+  Only the residuals above were measured.
 - **One trace, one dose.** `self-completing`, where an ignoring victim finishes its own service. The
   `grace-bounded` regime — where it is cut at the termination grace period — is a different experiment and
   has not been run.
