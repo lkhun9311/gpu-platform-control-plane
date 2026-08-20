@@ -22,13 +22,19 @@ This page used to claim the lab could not reach this axis at all, and that claim
 measures the grace period DIRECTLY, inside every validity gate it has, as the difference between its two arms
 in the `grace-bounded` regime:
 
-| dose regime | A-honor discards | A-ignore discards | difference | run's own floor |
-|---|---|---|---|---|
-| grace-bounded | 21.312 GPU-s | 51.296 GPU-s | **29.98 s** | 1.878 s |
+| dose regime | quantity | A-honor | A-ignore | difference | floor |
+|---|---|---|---|---|---|
+| grace-bounded | quota owner waited | 2.759 s | 30.869 s | **28.1 s** | 1.938 s |
+| grace-bounded | borrower discarded | 21.316 GPU-s | 51.247 GPU-s | 29.9 s | 1.938 s |
 
-That difference IS the grace period, recovered from the experiment rather than assumed by it, over four
+Both differences are the grace period, recovered from the experiment rather than assumed by it, over four
 interleaved runs with an exclusive-worker window, a termination canary, continuous list/watch observation and
-a containment audit behind each one. `queuelabrun -compare` re-derives it from the records.
+a containment audit behind each one, and replicated across a second session on a different binary.
+`queuelabrun -compare` re-derives them from the records.
+
+The first row is the one that matters to a platform: it is the quota owner's own waiting time, and it is what
+a reclaim promise is judged on. The second is the borrower's loss, which is real and is not a service-level
+objective.
 
 So the load-bearing half of the finding — that an unresponsive victim converts grace into the owner's waiting
 time — is gated. What is NOT gated is the SHAPE of the curve across grace values, and that is what remains
