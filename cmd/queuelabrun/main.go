@@ -90,8 +90,25 @@ func main() {
 		clearQuarantineFlag  = flag.Bool("clear-quarantine", false, "clear -worker's quarantine record named -quarantine-id")
 		quarantineIDFlag     = flag.String("quarantine-id", "", "the quarantine record to clear")
 		confirmOwnerDeadFlag = flag.Bool("confirm-owner-dead", false, "attest that the process which held -worker is confirmed dead (required by -release-stale and -clear-quarantine)")
+
+		compareFlag = flag.String("compare", "", "offline: comma-separated record paths or globs to compare, "+
+			"reporting whether their between-arm differences exceed what the runs could resolve")
+		compareOutFlag = flag.String("compare-out", "", "path to write the -compare document; without it the "+
+			"comparison is printed and not persisted, which makes the conclusion unciteable")
 	)
 	flag.Parse()
+
+	// -compare dispatches before anything else, including the record path below, because it touches no
+	// cluster, holds no worker and produces no RUN record. Putting it here is what lets a conclusion be
+	// re-derived from files on a machine that has no access to the lab at all, which is the whole point of
+	// making the conclusion an artifact: a reviewer with the ex/ directory can reproduce it.
+	if *compareFlag != "" {
+		if err := runCompare(*compareFlag, *compareOutFlag); err != nil {
+			fmt.Fprintln(os.Stderr, "ERROR:", err)
+			os.Exit(1)
+		}
+		os.Exit(0)
+	}
 
 	// The window a record reports has to open before the first refusal can fire, because the refusals below
 	// are records too: a run that is refused is precisely the run that used to leave nothing behind, and the
