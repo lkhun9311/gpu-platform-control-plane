@@ -93,6 +93,7 @@ type GPUQuotaPolicyReconciler struct {
 // +kubebuilder:rbac:groups=platform.lkhun9311.github.io,resources=gpuquotapolicies/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=platform.lkhun9311.github.io,resources=gpuquotapolicies/finalizers,verbs=update
 // +kubebuilder:rbac:groups="",resources=resourcequotas,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch;patch
 
 // Reconcile syncs a namespace ResourceQuota from the GPUQuotaPolicy: the GPU ceiling is enforced as a hard requests.nvidia.com/gpu limit, kept in sync against drift, and removed on deletion.
 func (r *GPUQuotaPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -146,6 +147,24 @@ func (r *GPUQuotaPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 			return ctrl.Result{}, err
 		}
 		return ctrl.Result{}, nil
+	}
+
+	// Turn the admission guards on for this namespace BEFORE syncing any ceiling into it.
+	//
+	// The order is the argument, and it is the opposite of the convenient one. Syncing a quota into a
+	// namespace where the guards are off publishes a ceiling that a bare Pod walks straight past -- measured,
+	// not supposed: a Pod asking for two devices ran in a namespace with a synced policy and no Kueue
+	// Workload behind it. Doing the enforcement first means the worst case of a half-finished reconcile is a
+	// guarded namespace with no ceiling yet, rather than a ceiling nobody has to respect.
+	//
+	// A failure here fails the whole reconcile rather than degrading, and that is deliberate. The obvious
+	// alternative -- carry on and record a condition -- reproduces exactly the state this exists to end: a
+	// policy that reads Synced while the bypass it was written to close is open. A missing RBAC grant is
+	// loud, diagnosable and fixed once; a silently unguarded namespace is none of those.
+	if err := r.ensureNamespaceEnforced(ctx, policy.Spec.TargetNamespace); err != nil {
+		return r.markDegraded(ctx, &policy, "EnforcementNotApplied", fmt.Sprintf(
+			"could not mark namespace %q as GPU-quota-enforced, so this policy's ceiling would not be "+
+				"enforced against direct device requests: %v", policy.Spec.TargetNamespace, err))
 	}
 
 	// Sync the namespace ResourceQuota for any non-training quota, then the Kueue ClusterQueue for training quota.
@@ -366,4 +385,35 @@ func (r *GPUQuotaPolicyReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Owns(&kueuev1beta1.LocalQueue{}).
 		Named("gpuquotapolicy").
 		Complete(r)
+}
+
+// ensureNamespaceEnforced stamps the guard's selector label on the policy's target namespace.
+//
+// It patches rather than updates so it cannot clobber labels it did not write, and it reads first so the
+// ordinary steady-state reconcile issues no write at all -- this runs on every reconcile of every policy,
+// and an unconditional patch would be a write per reconcile forever.
+//
+// It never REMOVES the label, including when a policy is deleted. That asymmetry is deliberate: turning
+// enforcement off is the operation that re-opens a bypass, and it would fire on a policy deleted by mistake,
+// on a finalizer race, or on any reconcile that saw a stale cache. Leaving a namespace guarded after its
+// policy is gone costs a refusal message that names a ClusterQueue nobody is using; removing it costs the
+// guarantee. An operator who genuinely wants the namespace unguarded can remove one label by hand, which is
+// the correct amount of friction for that direction.
+func (r *GPUQuotaPolicyReconciler) ensureNamespaceEnforced(ctx context.Context, name string) error {
+	var ns corev1.Namespace
+	if err := r.Get(ctx, types.NamespacedName{Name: name}, &ns); err != nil {
+		return fmt.Errorf("read namespace %q: %w", name, err)
+	}
+	if ns.Labels[platformv1.QuotaEnforcedLabel] == platformv1.QuotaEnforcedValue {
+		return nil
+	}
+	patch := client.MergeFrom(ns.DeepCopy())
+	if ns.Labels == nil {
+		ns.Labels = map[string]string{}
+	}
+	ns.Labels[platformv1.QuotaEnforcedLabel] = platformv1.QuotaEnforcedValue
+	if err := r.Patch(ctx, &ns, patch); err != nil {
+		return fmt.Errorf("label namespace %q: %w", name, err)
+	}
+	return nil
 }

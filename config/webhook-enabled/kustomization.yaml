@@ -11,8 +11,11 @@
 # for this rule but a confusing way to discover a missing dependency, so install cert-manager first.
 resources:
   - ../default
-  - ../webhook
-  - ../certmanager
+
+# The guards themselves live in a component shared with config/operator, so the overlay Argo CD reconciles
+# and the one a developer applies on kind cannot disagree about whether admission validation exists.
+components:
+  - ../webhook-component
 
 # A concrete tag, because this image is SIDE-LOADED into kind rather than pulled.
 #
@@ -24,21 +27,6 @@ images:
     newTag: webhook-v1
 
 patches:
-  # Point the manager at the certificate. Without --webhook-cert-path it logs that admission validation is
-  # NOT running and starts anyway, which is right for the default overlay and wrong here.
-  - path: manager_webhook_patch.yaml
-    target:
-      kind: Deployment
-      name: controller-manager
-
-  # Mount the certificate the flag above refers to.
-  - path: manager_webhook_volume_patch.yaml
-
-  # The CA annotation is a static patch now that the Certificate's name and namespace are fixed. An earlier
-  # version derived it from the Certificate with a replacements block, which read as more robust and produced
-  # "system/serving-cert" — a reference to a namespace that does not exist.
-  - path: webhook_cainjection_patch.yaml
-
   # IfNotPresent for the same side-loading reason as the tag above.
   - target:
       kind: Deployment

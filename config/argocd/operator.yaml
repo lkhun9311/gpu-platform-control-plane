@@ -19,7 +19,10 @@ spec:
   source:
     repoURL: https://github.com/lkhun9311/gpu-platform-control-plane.git
     targetRevision: main
-    path: config/operator
+    # config/operator-webhook, not config/operator: the guards are layered ABOVE the namePrefix rather
+    # than inside it. See that overlay for what putting them inside does to the Service name, and to every
+    # governed write in the cluster once the TLS name stops matching.
+    path: config/operator-webhook
   destination:
     server: https://kubernetes.default.svc
     namespace: gpu-platform-control-plane-system
