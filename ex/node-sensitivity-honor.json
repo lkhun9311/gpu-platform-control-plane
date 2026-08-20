@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "arm": "A-honor",
+  "factor": "node",
+  "doses": [
+    {
+      "dose": "platform-worker",
+      "n": 2,
+      "runIDs": [
+        "e15gh1",
+        "e15gh2"
+      ],
+      "ownerWaitSecondsMean": 2.1533887625,
+      "ownerWaitRuns": 2
+    },
+    {
+      "dose": "platform-worker2",
+      "n": 2,
+      "runIDs": [
+        "e15wh1",
+        "e15wh2"
+      ],
+      "ownerWaitSecondsMean": 2.2587686839999996,
+      "ownerWaitRuns": 2
+    }
+  ],
+  "floorSeconds": 6.442971546,
+  "bounded": true,
+  "interleaved": false,
+  "spreadSeconds": 0.10537992149999953,
+  "movesWithDose": false,
+  "statement": "the owner's wait under A-honor moves 0.105 s across 2 levels of node, INSIDE the 6.443 s floor. The harness cannot see it responding to node -- which is not proof that it does not, and is the condition a baseline needs: a quantity that varies with node could not be quoted as a property of the platform"
+}

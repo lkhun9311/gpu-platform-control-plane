@@ -898,7 +898,8 @@ func computeBaseline(recs []runRecord) (baseline, error) {
 		"spanning %d dose regime(s) and %d node(s), with a spread of %.0f ms against a worst-run floor of "+
 		"%.3f s. A session differencing against this must add its own floor to that one; the difference of "+
 		"two independently measured means carries both of their errors",
-		arm, b.OwnerWaitSecondsMean, b.N, len(b.Doses), len(b.Nodes), b.OwnerWaitSpreadSeconds, b.FloorSeconds)
+		arm, b.OwnerWaitSecondsMean, b.N, len(b.Doses), len(b.Nodes), b.OwnerWaitSpreadSeconds*1000,
+		b.FloorSeconds)
 	return b, nil
 }
 

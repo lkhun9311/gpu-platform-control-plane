@@ -642,3 +642,20 @@ func TestTheModelRefusesASingleRegime(t *testing.T) {
 		t.Fatal("one regime produced a model verdict; any model fits a single point")
 	}
 }
+
+// The statement's spread is in milliseconds and the field is in seconds, which is exactly the kind of unit
+// slip that ships. It shipped once: a 930 ms spread printed as "a spread of 1 ms" in the sentence a reader
+// quotes, beside the correct figure in the line below it.
+func TestBaselineStatementReportsTheSpreadInMilliseconds(t *testing.T) {
+	recs := []runRecord{
+		nodeRec(withOwnerWait(cmpRec("h1", "A-honor", "grace-bounded", "2026-08-20T05:00:00Z", 21.3, int64(time.Second)), 1.688), "platform-worker"),
+		nodeRec(withOwnerWait(cmpRec("h2", "A-honor", "grace-bounded", "2026-08-20T05:10:00Z", 21.3, int64(time.Second)), 2.619), "platform-worker"),
+	}
+	b, err := computeBaseline(recs)
+	if err != nil {
+		t.Fatalf("baseline: %v", err)
+	}
+	if !strings.Contains(b.Statement, "931 ms") {
+		t.Fatalf("the statement's spread is not the 931 ms the runs show: %s", b.Statement)
+	}
+}

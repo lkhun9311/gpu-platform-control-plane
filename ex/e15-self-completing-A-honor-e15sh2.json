@@ -1,0 +1,309 @@
+{
+  "schemaVersion": 15,
+  "dose": "self-completing",
+  "measurement": {
+    "horizonNs": 150000000000,
+    "wastedGPUSeconds": 41.642223041,
+    "wasteLowerBoundGPUSeconds": 41.642223041,
+    "unfinishedAtHorizon": 2,
+    "discardedIterations": 17138,
+    "workload": {
+      "kind": "pure-python-float-arithmetic",
+      "countedUnit": "50000 float multiply-modulo operations",
+      "deviceUseEstablished": false,
+      "whyNot": "the cluster advertises nvidia.com/gpu through a fake device plugin and the workload makes no driver call, so nothing here can distinguish a device that was used from one that was only reserved"
+    },
+    "ownerAdmitToReadyNs": 2500189643,
+    "resolution": {
+      "samples": 10,
+      "minNs": 64558653,
+      "medianNs": 714859560,
+      "maxNs": 2698336945,
+      "quantisationNs": 1000000000,
+      "resolvedToNs": 3633778292,
+      "note": "resolvedToNs is the operative figure: a difference smaller than it is not resolved by this run, and no number of repetitions changes that because a resolution limit is not a noise level. The skew figures it comes from are a bound, not a delivery time -- they mix propagation, the offset between two unsynchronised clocks and one-second truncation, and nothing here separates them. Every interval in this record is a difference of ARRIVAL times"
+    }
+  },
+  "runID": "e15sh2",
+  "arm": "A-honor",
+  "startedAt": "2026-08-20T11:13:40Z",
+  "endedAt": "2026-08-20T11:16:20Z",
+  "disposition": "completed-implemented-checks-passed",
+  "events": [
+    {
+      "elapsedNs": 62701164,
+      "wallUnixNanos": 1787224420854890213,
+      "kind": "MLTrainingJob",
+      "type": "Submitted",
+      "job": "a1",
+      "objectUID": "86d31611-f058-4b52-920f-9f234539905f"
+    },
+    {
+      "elapsedNs": 103812034,
+      "wallUnixNanos": 1787224420896001083,
+      "kind": "Workload",
+      "type": "Admitted",
+      "job": "a1",
+      "componentStampUnixNanos": 1787224420000000000,
+      "observedSkewNs": 896001083,
+      "objectUID": "ace4d17a-5572-4226-ba8f-fdd02a3a3939",
+      "reason": "Admitted"
+    },
+    {
+      "elapsedNs": 707555198,
+      "wallUnixNanos": 1787224421499744247,
+      "kind": "Pod",
+      "type": "PodReady",
+      "job": "a1",
+      "componentStampUnixNanos": 1787224421000000000,
+      "observedSkewNs": 499744247,
+      "objectUID": "39885a84-3599-4872-9764-b1e8c25196ec",
+      "reason": "Ready"
+    },
+    {
+      "elapsedNs": 2078114201,
+      "wallUnixNanos": 1787224422870303250,
+      "kind": "MLTrainingJob",
+      "type": "Submitted",
+      "job": "a2-borrow",
+      "objectUID": "7460752c-70f0-4f6c-bb78-aec86f8d3c0b"
+    },
+    {
+      "elapsedNs": 2110807365,
+      "wallUnixNanos": 1787224422902996414,
+      "kind": "Workload",
+      "type": "Admitted",
+      "job": "a2-borrow",
+      "componentStampUnixNanos": 1787224422000000000,
+      "observedSkewNs": 902996414,
+      "objectUID": "6f760d3b-12c1-4857-ab67-b39e90459a87",
+      "reason": "Admitted"
+    },
+    {
+      "elapsedNs": 2710524916,
+      "wallUnixNanos": 1787224423502713965,
+      "kind": "Pod",
+      "type": "PodReady",
+      "job": "a2-borrow",
+      "componentStampUnixNanos": 1787224423000000000,
+      "observedSkewNs": 502713965,
+      "objectUID": "42a1a961-158e-499c-b67c-836207e2e5d4",
+      "reason": "Ready"
+    },
+    {
+      "elapsedNs": 44109188031,
+      "wallUnixNanos": 1787224464901377080,
+      "kind": "MLTrainingJob",
+      "type": "Submitted",
+      "job": "b1-owner",
+      "objectUID": "715c03e7-5932-4f04-8c71-b4b808736252"
+    },
+    {
+      "elapsedNs": 44151403549,
+      "wallUnixNanos": 1787224464943592598,
+      "kind": "Workload",
+      "type": "Preempted",
+      "job": "a2-borrow",
+      "objectUID": "6f760d3b-12c1-4857-ab67-b39e90459a87",
+      "reason": "InCohortReclamation"
+    },
+    {
+      "elapsedNs": 44272369604,
+      "wallUnixNanos": 1787224465064558653,
+      "kind": "Workload",
+      "type": "Admitted",
+      "job": "b1-owner",
+      "componentStampUnixNanos": 1787224465000000000,
+      "observedSkewNs": 64558653,
+      "objectUID": "03a0bbd2-1d4b-4d3d-9d4c-344b067ab367",
+      "reason": "Admitted"
+    },
+    {
+      "elapsedNs": 44352747957,
+      "wallUnixNanos": 1787224465144937006,
+      "kind": "Pod",
+      "type": "AttemptStopped",
+      "exitCode": 143,
+      "iterations": 17138,
+      "job": "a2-borrow",
+      "componentStampUnixNanos": 1787224464000000000,
+      "observedSkewNs": 1144937006,
+      "objectUID": "42a1a961-158e-499c-b67c-836207e2e5d4",
+      "reason": "Failed"
+    },
+    {
+      "elapsedNs": 46772559247,
+      "wallUnixNanos": 1787224467564748296,
+      "kind": "Pod",
+      "type": "PodReady",
+      "job": "b1-owner",
+      "componentStampUnixNanos": 1787224467000000000,
+      "observedSkewNs": 564748296,
+      "objectUID": "58fc858b-c7bc-475b-be3e-9b5445abb8d2",
+      "reason": "Ready"
+    },
+    {
+      "elapsedNs": 107906147896,
+      "wallUnixNanos": 1787224528698336945,
+      "kind": "Pod",
+      "type": "AttemptStopped",
+      "exitCode": 0,
+      "iterations": 23088,
+      "job": "b1-owner",
+      "componentStampUnixNanos": 1787224526000000000,
+      "observedSkewNs": 2698336945,
+      "objectUID": "58fc858b-c7bc-475b-be3e-9b5445abb8d2",
+      "reason": "Succeeded"
+    },
+    {
+      "elapsedNs": 108892427910,
+      "wallUnixNanos": 1787224529684616959,
+      "kind": "Job",
+      "type": "Completed",
+      "job": "b1-owner",
+      "objectUID": "0166c041-b9ac-4c4f-8cab-081d48ee0c61",
+      "reason": "Complete"
+    },
+    {
+      "elapsedNs": 109922670511,
+      "wallUnixNanos": 1787224530714859560,
+      "kind": "Workload",
+      "type": "Admitted",
+      "job": "a2-borrow",
+      "componentStampUnixNanos": 1787224530000000000,
+      "observedSkewNs": 714859560,
+      "objectUID": "6f760d3b-12c1-4857-ab67-b39e90459a87",
+      "reason": "Admitted"
+    },
+    {
+      "elapsedNs": 110844270295,
+      "wallUnixNanos": 1787224531636459344,
+      "kind": "Pod",
+      "type": "PodReady",
+      "job": "a2-borrow",
+      "componentStampUnixNanos": 1787224531000000000,
+      "observedSkewNs": 636459344,
+      "objectUID": "5b8fb096-5187-4cec-b553-51cc7fa4014a",
+      "reason": "Ready"
+    }
+  ],
+  "qualification": {
+    "node": "platform-worker",
+    "nodeUID": "97d49080-1223-4fd8-9a73-43d838f04d5e",
+    "allocatableGPU": 2,
+    "requiredGPU": 2,
+    "requiredFrom": "nominal nvidia.com/gpu quota summed over 2 ClusterQueue(s) on flavor queuelab-gpu-e15sh2 = 2; largest single trace row \"a1\" = 1",
+    "requiredBoundBy": "nominal-quota-sum",
+    "ready": true,
+    "schedulable": true,
+    "podsOnNode": 13,
+    "terminationCanary": {
+      "canaryID": "61ef88b9-dce3-46a3-b1e9-caac0b07d9e8",
+      "qualifiedAt": "2026-08-20T11:07:46Z",
+      "key": {
+        "image": "python:3.12-alpine@sha256:78098ea6a3a9c6a7727a5d4674e4a44e57e01fac878ee9cb4d24a86bd93916ff",
+        "honorCommand": [
+          "python3",
+          "-c",
+          "import signal,sys,time\nseconds=float(sys.argv[1]); honor=sys.argv[2]==\"honor\"; n=0\ntry: tl=open(\"/dev/termination-log\",\"w\")\nexcept Exception: tl=None\ndef mark():\n    if tl is None: return\n    tl.seek(0); tl.write(\"iters=%d\"%n); tl.truncate(); tl.flush()\ndef stop(*_):\n    mark(); print(\"terminated iters=%d\"%n,flush=True); sys.exit(143)\nif honor: signal.signal(signal.SIGTERM,stop)\nend=time.monotonic()+seconds; x=1.0\nmark()\nwhile time.monotonic()\u003cend:\n    for _ in range(50000): x=(x*1.0000001)%1000000.0\n    n+=1\n    if n%20==0: mark(); print(\"iters=%d\"%n,flush=True)\nmark(); print(\"finished iters=%d\"%n,flush=True)",
+          "600",
+          "honor"
+        ],
+        "ignoreCommand": [
+          "python3",
+          "-c",
+          "import signal,sys,time\nseconds=float(sys.argv[1]); honor=sys.argv[2]==\"honor\"; n=0\ntry: tl=open(\"/dev/termination-log\",\"w\")\nexcept Exception: tl=None\ndef mark():\n    if tl is None: return\n    tl.seek(0); tl.write(\"iters=%d\"%n); tl.truncate(); tl.flush()\ndef stop(*_):\n    mark(); print(\"terminated iters=%d\"%n,flush=True); sys.exit(143)\nif honor: signal.signal(signal.SIGTERM,stop)\nend=time.monotonic()+seconds; x=1.0\nmark()\nwhile time.monotonic()\u003cend:\n    for _ in range(50000): x=(x*1.0000001)%1000000.0\n    n+=1\n    if n%20==0: mark(); print(\"iters=%d\"%n,flush=True)\nmark(); print(\"finished iters=%d\"%n,flush=True)",
+          "600",
+          "ignore"
+        ],
+        "graceSec": 30,
+        "honorExitCode": 143,
+        "nodeUID": "97d49080-1223-4fd8-9a73-43d838f04d5e",
+        "kubeletVersion": "v1.31.0",
+        "containerRuntime": "containerd://1.7.18",
+        "podTemplateHash": "baba6dd7993c2e75314e15edc46d3a6399f62c25bb7f1934c3c0f8ea351484d4"
+      },
+      "honorStoppedAfterMs": 1070,
+      "ignoreStoppedAfterMs": 31150
+    }
+  },
+  "window": {
+    "node": "platform-worker",
+    "nodeUID": "97d49080-1223-4fd8-9a73-43d838f04d5e",
+    "txID": "297ebc48-199c-42fa-94af-f098fd1e90b2",
+    "baselineResourceVersion": "1758064",
+    "openedAt": "2026-08-20T11:13:40Z",
+    "closedAt": "2026-08-20T11:16:10Z",
+    "nodeVersionsObserved": 1,
+    "ending": "closed by the run",
+    "violationsObserved": 0,
+    "restoration": {
+      "before": {
+        "observed": true,
+        "nodeUID": "97d49080-1223-4fd8-9a73-43d838f04d5e",
+        "hasLabel": true,
+        "labelValue": "e15sh2",
+        "ownershipTaintValues": [
+          "e15sh2"
+        ],
+        "hasJournal": true
+      },
+      "after": {
+        "observed": true,
+        "nodeUID": "97d49080-1223-4fd8-9a73-43d838f04d5e",
+        "hasLabel": false,
+        "hasJournal": false
+      },
+      "ourMarkersRemoved": true
+    }
+  },
+  "observation": {
+    "namespace": "queuelab-e15sh2",
+    "horizonNs": 150000000000,
+    "established": true,
+    "establishedNs": 55859185,
+    "establishBudgetNs": 15000000000,
+    "streams": [
+      {
+        "kind": "MLTrainingJob",
+        "baselineResourceVersion": "1758075",
+        "baselineObjects": 0,
+        "ended": true,
+        "cancelled": true,
+        "stopped": false
+      },
+      {
+        "kind": "Job",
+        "baselineResourceVersion": "1758076",
+        "baselineObjects": 0,
+        "ended": true,
+        "cancelled": true,
+        "stopped": false
+      },
+      {
+        "kind": "Workload",
+        "baselineResourceVersion": "1758076",
+        "baselineObjects": 0,
+        "ended": true,
+        "cancelled": true,
+        "stopped": false
+      },
+      {
+        "kind": "Pod",
+        "baselineResourceVersion": "1758076",
+        "baselineObjects": 0,
+        "ended": true,
+        "cancelled": true,
+        "stopped": false
+      }
+    ]
+  },
+  "validity": {
+    "verdict": "admissible-under-implemented-gates",
+    "unimplementedGates": [
+      "termination canary coverage: the recorded canary probes a Pod built from the very template this build's operator would render, carrying the arm's own image and command and no device request, and the key it is matched on fingerprints that template, so a change to it both refuses the reading and is exercised by the re-take; what is still not travelled is the operator's reconcile loop and the Job controller — nothing here submits an MLTrainingJob, so Kueue admits nothing and no Job creates the Pod, which therefore carries no owner reference and none of the labels a Job stamps on its Pods — and the template is rendered by THIS BINARY, not by the operator image running on the cluster",
+      "device use: nothing in this build can establish that a GPU was USED rather than reserved. The workload in internal/queuelab/submit.go is pure Python float arithmetic making no driver call, and the cluster advertises nvidia.com/gpu through a fake device plugin, so a Pod that dropped the resource request entirely would compute exactly the same iterations at exactly the same rate. measurement.discardedIterations therefore counts CPU work performed by a Pod HOLDING a reservation, and measurement.workload states the same thing beside the number; neither is discarded GPU computation. This entry is no longer the only place that fact lives, and that is the point of validity.deviceEvidence: a consumer reads the axis instead of this paragraph, and the axis is the field a run on real hardware would move"
+    ],
+    "deviceEvidence": "device-not-observed"
+  }
+}

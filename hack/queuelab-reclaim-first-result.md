@@ -30,83 +30,107 @@ under `reclaimWithinCohort`.
 
 ## Result
 
-| dose | arm | run | owner waited | discarded GPU-s | discarded iterations | that run's floor |
+| dose | arm | run | node | owner running after admission | discarded GPU-s | that run's floor |
 |---|---|---|---|---|---|---|
-| self-completing | A-honor | e14sh1 | 2.589 s | 41.503 | 17 967 | 1.672 s |
-| self-completing | A-honor | e14sh2 | 2.685 s | 41.414 | 17 480 | 1.762 s |
-| self-completing | A-ignore | e14si1 | **19.665 s** | **0.000** | 23 373 | 1.280 s |
-| self-completing | A-ignore | e14si2 | **19.733 s** | **0.000** | 26 144 | 2.364 s |
-| grace-bounded | A-honor | e14gh1 | 2.729 s | 21.349 | 9 245 | 1.000 s |
-| grace-bounded | A-honor | e14gh2 | 2.789 s | 21.283 | 9 103 | 1.876 s |
-| grace-bounded | A-ignore | e14gi1 | **30.846 s** | **51.262** | 21 480 | 1.938 s |
-| grace-bounded | A-ignore | e14gi2 | **30.891 s** | **51.233** | 21 320 | 1.000 s |
+| self-completing | A-honor | e15sh1 | worker | 2.410 s | 41.706 | 3.191 s |
+| self-completing | A-honor | e15sh2 | worker | 2.500 s | 41.642 | 3.634 s |
+| self-completing | A-ignore | e15si1 | worker | **19.516 s** | **0.000** | 3.210 s |
+| self-completing | A-ignore | e15si2 | worker | **19.617 s** | **0.000** | 2.876 s |
+| grace-bounded | A-honor | e15gh1 | worker | 2.619 s | 21.464 | 3.052 s |
+| grace-bounded | A-honor | e15gh2 | worker | **1.688 s** | 21.382 | 2.180 s |
+| grace-bounded | A-ignore | e15gi1 | worker | **30.687 s** | **51.419** | 2.199 s |
+| grace-bounded | A-ignore | e15gi2 | worker | **30.779 s** | **51.403** | 2.200 s |
+| grace-bounded | A-honor | e15wh1 | worker2 | 2.254 s | 20.817 | — |
+| grace-bounded | A-honor | e15wh2 | worker2 | 2.264 s | 20.810 | — |
+| grace-bounded | A-ignore | e15wi1 | worker2 | 31.249 s | 50.875 | — |
+| grace-bounded | A-ignore | e15wi2 | worker2 | 31.302 s | 50.816 | — |
 
 **The left-hand number is the one a platform is judged on.** Everything else here describes what the
 preempted borrower lost, and a platform does not promise anybody that. It promises that a tenant's own quota
-comes back. The lab computed the owner's admission-to-running wait from its first run and never carried it
-out of the reconstruction, so for a long time answering "how long did the owner wait" meant parsing the
-ledger by hand — which is what the comparison below exists to stop, reached by a different route.
+comes back. It is the reclaim-side half of that promise: the tenant's queueing time before Kueue admits it is
+outside the interval, and so is anything the container does after it starts.
 
-Every run carries its own floor now, derived from the spread between the kubelet's stamp for a stop and this
-collector's arrival time for it. The floor is built from the SPREAD rather than the median because a harness
-uniformly late measures every interval exactly; the second of stamp quantisation sits under it because the
-skews it is computed from each absorbed up to that much truncation.
+**The floors are two to three times what they were a day ago, and that is a correction rather than a
+regression.** The bound was `max(spread, quantisation)` when it should have been their sum — the kubelet's
+stamp truncates downward, so truncation compresses the observed spread as readily as it widens it — and it
+was sampled only at container stops while the interval above runs from a Kueue admission to a kubelet
+readiness. Neither endpoint was ever compared against the component that produced it. Both are fixed, and
+the instrument is coarser than this page used to claim.
 
-## The conclusion is an artifact
+**`e15gh2` is worth looking at.** Its 1.688 s sits most of a second below the other three honouring runs,
+and four runs show a spread of 931 ms where two runs showed 200. Two per cell could not have shown it.
+
+## The conclusion is an artifact## The conclusion is an artifact
 
 The runs were always reproducible. The SENTENCE they were gathered to support lived in this file and in
 arithmetic typed at a shell, so nobody could re-derive it from anything. `queuelabrun -compare` now reads a
 named set of records and answers the three questions those records can settle:
 
-    $ queuelabrun -compare 'ex/e14-grace-bounded-*.json'
+    $ queuelabrun -compare 'ex/e15-grace-bounded-*-e15g??.json'
     ===== COMPARISON (dose grace-bounded) =====
-    floor=1.938s -- the coarsest resolution among the contributing runs
+    worstRunFloor=3.052s -- orientation only; each finding below is tested against the SUM of its two
+      arms' floors, because a difference carries both of their errors
     interleaved: the arms alternated in time
     no effect is claimed: this tool reports resolution and confounding, not inference
-    device: NOT OBSERVED -- every GPU-second below is a second of RESERVATION. No run behind this
-      comparison established that a device did work, so nothing here is a statement about GPU computation
-      A-honor   n=2 waste mean=21.316 runs=e14gh1,e14gh2
-        ownerWait mean=2.759 min=2.729 max=2.789 over 2 of 2 runs
-      A-ignore  n=2 waste mean=51.247 runs=e14gi1,e14gi2
-        ownerWait mean=30.869 min=30.846 max=30.891 over 2 of 2 runs
-      [wastedGPUSeconds] A-honor discarded 21.3 GPU-s and A-ignore discarded 51.2, a difference of 29.9 s
-        against a 1.938 s floor, over n=2 and n=2 runs
-      [ownerAdmitToReadySeconds] the quota owner waited 2.759 s under A-honor and 30.869 s under A-ignore
-        -- a difference of 28.1 s against a 1.938 s floor, over n=2 and n=2 restored runs. This is the
-        number a reclaim promise is judged on; the discarded seconds beside it are the borrower's loss
+    device: NOT OBSERVED -- every GPU-second below is a second of RESERVATION
+      A-honor   n=2 waste mean=21.423 runs=e15gh1,e15gh2
+        ownerWait mean=2.153 min=1.688 max=2.619 over 2 of 2 runs
+      A-ignore  n=2 waste mean=51.411 runs=e15gi1,e15gi2
+        ownerWait mean=30.733 min=30.687 max=30.779 over 2 of 2 runs
+      [wastedGPUSeconds] a difference of 30.0 s against a 5.252 s floor, over n=2 and n=2 runs
+      [ownerAdmitToReadySeconds] the quota owner was running 2.153 s AFTER KUEUE ADMITTED IT under
+        A-honor and 30.733 s under A-ignore -- a difference of 28.6 s against a 5.252 s floor
 
 It refuses rather than excludes: a record whose own gates failed, a second dose regime, a single arm — each
 stops the comparison instead of quietly shrinking it, because a document whose file list does not describe
 its evidence is the reproducibility it exists to provide. Returning "not resolved" is its main job, not its
 failure mode.
 
-**The grace-bounded difference is the strongest number this lab has produced.** Twenty-nine point nine
-seconds of discarded work between the arms and 28.1 seconds of the owner's waiting, against a 1.938 second
-floor, over four interleaved runs. That difference IS the termination grace period, recovered from the
-experiment rather than assumed by it — and unlike the sweep in
-[grace-holds-the-device.md](grace-holds-the-device.md), it was measured under real Kueue preemption with an
-exclusive-worker window, a termination canary, continuous observation and a containment audit behind each
-run.
+**The grace-bounded difference is the strongest number this lab has produced.** Thirty seconds of discarded
+work between the arms and 28.6 seconds of the owner's waiting, against a 5.252 second floor, over four
+interleaved runs. That difference IS the termination grace period, recovered from the experiment rather than
+assumed by it.
 
-## It replicated across a rebuild
+And it is no longer only a difference. `-mode model` turns the claim into arithmetic and tests both regimes
+against one rule:
 
-The eight runs above are the SECOND set. An earlier eight, taken hours before at record schema 13 on a
-different binary and behind a separately re-taken termination canary, produced:
+    $ queuelabrun -compare 'ex/e15-self-completing-*.json,ex/e15-grace-bounded-*-e15g??.json' -mode model
+    ===== MODEL: held = min(remaining service, grace) =====
+    held = min(remaining service, 30 s grace) predicts every regime's owner wait to within the 7.268 s
+    floor, once the 2.304 s the honouring arm shows restoration costs by itself is added
+      protocol: victimService=60s selfCompletingDose=40s graceBoundedDose=20s grace=30s
+      grace-bounded    remaining=40s binds on termination grace  predicted=32.304 observed=30.733 residual=-1.571 INSIDE
+      self-completing  remaining=20s binds on remaining service  predicted=22.304 observed=19.566 residual=-2.738 INSIDE
 
-| cell | discarded, then / now | owner waited, then / now |
-|---|---|---|
-| grace-bounded A-honor | 21.312 / 21.316 | 2.766 / 2.759 |
-| grace-bounded A-ignore | 51.296 / 51.247 | 30.807 / **30.869** |
-| self-completing A-honor | 40.999 / 41.459 | 2.598 / 2.637 |
-| self-completing A-ignore | 0.000 / 0.000 | 19.686 / 19.699 |
+The two regimes put the victim on opposite sides of the grace period, so the same rule has to predict a
+thirty-second hold in one and a twenty-second hold in the other. A model fitted to either alone would miss
+the other by ten seconds. It can also print REFUTED, and a test proves it can — a refutation nobody can
+trigger is not one.
 
-This is worth more than four more runs inside one session would have been, because it crosses a rebuild and a
-re-qualification rather than repeating under a frozen setup. The owner's wait agrees to between 7 and 62
-milliseconds in every cell, and it agrees BETTER than the discarded seconds do in every cell — which is the
-second reason to treat it as the headline figure rather than the appendix it used to be.
+The floor it is judged against, 7.268 s, is loose. Both residuals are comfortably inside it and both are
+NEGATIVE, which the harness cannot currently resolve and this page will not interpret.
 
-It is still not a distribution. Two sessions of two runs per cell show that the protocol reproduces; they do
-not characterise variance, and `-compare` says so in the document rather than leaving it to a reader.
+## It ran on a second node, and the first attempt was refused
+
+Everything above is one worker. Four more runs put the same regime on `platform-worker2`:
+
+    $ queuelabrun -compare 'ex/e15-grace-bounded-A-honor-*.json' -mode node
+    the owner's wait under A-honor moves 0.105 s across 2 levels of node, INSIDE the 6.443 s floor
+      platform-worker  n=2 ownerWait mean=2.153
+      platform-worker2 n=2 ownerWait mean=2.259
+    NOT INTERLEAVED: the node levels did not alternate in time
+
+The ignoring arm agrees: 0.542 s across the two nodes against a 5.716 s floor. Neither is a demonstration of
+independence — what it supports is that any node response is smaller than about six seconds.
+
+**The first attempt on that node was refused, and the refusal is the better story.** `platform-worker2` had
+one of its two devices held by the platform's own serving workload, which the ownership taint does not evict,
+so the run wrote a record naming the Pod and stopped rather than measuring on a node it could not hold
+exclusively. Scaling the Deployment down did not help either: this repository's own InferenceDeployment
+controller reconciled the replica count straight back, which is the platform working as designed. The
+`InferenceDeployment` had to be scaled instead, and was restored afterwards.
+
+That is what the exclusivity gate is for, and it had never fired on a real obstruction before.
 
 ## What is measured and what is arithmetic
 
@@ -119,7 +143,7 @@ Subtracting what the protocol set leaves what the cluster actually contributed:
 
 | quantity | protocol says | observed | residual | that run's floor |
 |---|---|---|---|---|
-| A-honor discarded, self-completing | 40.0 | 41.503, 41.414 | +1.503, +1.414 | 1.672, 1.762 |
+| A-honor discarded, self-completing | 40.0 | 41.706, 41.642 | +1.706, +1.642 | 3.191, 3.634 |
 | A-honor discarded, grace-bounded | 20.0 | 21.349, 21.283 | +1.349, +1.283 | 1.000, 1.876 |
 
 I called the first residual the control plane's own cost — about 0.94 seconds from Kueue deciding to preempt
@@ -145,7 +169,8 @@ differs at each endpoint. The residual is therefore not resolved by this harness
 repetitions changes that — a resolution problem is not a noise problem.
 
 What survives is what the arms differ in, which is an order of magnitude larger than the floor: 41.0 seconds
-against 0 in the self-completing regime, and 29.98 seconds between the arms in the grace-bounded one. Those
+against 0 in the self-completing regime, and 28.6 seconds of the owner's waiting between the arms in the
+grace-bounded one. Those
 differences are real, and `-compare` is what says so from the files rather than from this page. The sub-second residual inside them is
 not something this harness can see, and no number of repetitions fixes that — it is a resolution problem, not
 a noise problem.
@@ -193,7 +218,7 @@ did.
   document itself rather than leaving it to a reader's memory — it reports resolution and confounding, not
   inference, because these runs are not a sample of anything and their variance has never been characterised.
 - **The magnitudes are the trace's.** 41 and 21 are the dose and the remaining service, to within a floor.
-  The one number that is NOT the trace's is the 29.98 s between the grace-bounded arms, which is the grace
+  The one number that is NOT the trace's is the 28.6 s between the grace-bounded arms, which is the grace
   period the cluster defaults to and which the protocol never sets.
 - **The residuals are inside each run's own floor.** Compare the two right-hand columns of the residual table
   above: every residual is smaller than the floor of the run it came from. Nothing sub-second here is

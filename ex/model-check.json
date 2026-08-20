@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "protocol": {
+    "victimServiceSec": 60,
+    "selfCompletingDoseSec": 40,
+    "graceBoundedDoseSec": 20,
+    "terminationGraceSec": 30
+  },
+  "platformCostSeconds": 2.304360051,
+  "cases": [
+    {
+      "dose": "grace-bounded",
+      "remainingServiceSec": 40,
+      "bindingTerm": "termination grace",
+      "predictedSeconds": 32.304360051,
+      "observedSeconds": 30.7334057345,
+      "residualSeconds": -1.5709543165000035,
+      "insideFloor": true,
+      "n": 2
+    },
+    {
+      "dose": "self-completing",
+      "remainingServiceSec": 20,
+      "bindingTerm": "remaining service",
+      "predictedSeconds": 22.304360051,
+      "observedSeconds": 19.566480351000003,
+      "residualSeconds": -2.737879699999997,
+      "insideFloor": true,
+      "n": 2
+    }
+  ],
+  "floorSeconds": 7.267556584,
+  "bounded": true,
+  "holds": true,
+  "statement": "held = min(remaining service, 30 s grace) predicts every regime's owner wait to within the 7.268 s floor, once the 2.304 s the honouring arm shows restoration costs by itself is added. Both regimes are predicted by the same arithmetic and they differ by 20 s, so a model fitted to one would have missed the other"
+}

@@ -18,48 +18,64 @@ platform never promised anybody anything about. The owner's wait is what a recla
 
 ## The baseline, already measured
 
-Eight observations, on a three-node kind cluster with a fake `nvidia.com/gpu` device plugin: two dose
-regimes, two runs per arm, across two separate sessions on different binaries with independently re-taken
-termination canaries.
+**This section was wrong once, and the correction is the reason to trust the rest of the page.** It fixed the
+baseline at "2.690 s mean, 2.534-2.792 s, spread 258 ms, 8 observations" — a table assembled at a shell from
+four records that were then deleted, sitting beside machine-generated figures in the same document that
+reproduce to the digit. The value 2.534 appears in no record that exists. It was the last hand-typed number
+in this lab and it was the one an entire session is defined against.
 
-| | |
-|---|---|
-| range | 2.534 – 2.792 s |
-| mean | 2.690 s |
-| spread | 258 ms |
-| dose varies across these by | 2× (20 s vs 40 s of remaining service) |
+It is emitted by the harness now, and the whole point is that the reader can run the command:
 
-**It does not move with the dose**, and that is checked by the harness rather than asserted here:
+    $ queuelabrun -compare 'ex/e15-self-completing-A-honor-*.json,ex/e15-grace-bounded-A-honor-e15gh?.json' \
+        -mode baseline
+    ===== BASELINE (arm A-honor) =====
+    under A-honor the quota owner was running 2.304 s after admission, over 4 runs spanning 2 dose
+    regime(s) and 1 node(s), with a spread of 931 ms against a worst-run floor of 3.634 s. A session
+    differencing against this must add its own floor to that one; the difference of two independently
+    measured means carries both of their errors
+      ownerWait mean=2.304 min=1.688 max=2.619 spread=931ms n=4
+      runs=e15gh1,e15gh2,e15sh1,e15sh2
+      doses=grace-bounded,self-completing
+      nodes=platform-worker
+      NOT INTERLEAVED: the dose regimes did not alternate in time
+      device: NOT OBSERVED -- this baseline was taken where no run established that a device did work, so
+      it is a control-plane figure and not a statement about hardware
 
-    $ queuelabrun -compare 'ex/e14-*-A-honor-*.json' -dose-sensitivity
-    ===== DOSE SENSITIVITY (arm A-honor) =====
-    the owner's wait under A-honor moves 0.122 s across 2 dose regimes, INSIDE the 1.876 s floor. The
-    harness cannot see it responding to the dose -- which is not proof that it does not, and is the
-    condition a baseline needs: a quantity the dose determines could not be differenced against a session
-    whose workload has a different service time
-      grace-bounded    n=2 ownerWait mean=2.759 over 2 restored runs=e14gh1,e14gh2
-      self-completing  n=2 ownerWait mean=2.637 over 2 restored runs=e14sh1,e14sh2
+**The spread is 931 ms, not the 258 ms the deleted table claimed.** That figure was not merely
+unreproducible, it was optimistic — two runs per cell could not show the variation four runs show, which is
+exactly what a reviewer said two-run means would hide. One of the four (`e15gh2`, 1.688 s) sits most of a
+second below the other three.
 
-A check that can only ever return "no response" establishes nothing, so the other arm is the control:
+**And the regimes were run in blocks, so this baseline is not interleaved.** The runner took both
+self-completing runs before both grace-bounded ones, so anything that drifted over that half hour moves with
+the regime. The tool says so rather than leaving it to be noticed. A session that wants a tighter baseline
+should interleave the regimes and take more than two runs per cell; this page states what the current one is
+rather than what it should be.
 
-    $ queuelabrun -compare 'ex/e14-*-A-ignore-*.json' -dose-sensitivity
-    the owner's wait under A-ignore moves 11.170 s across 2 dose regimes, which EXCEEDS the 2.364 s floor:
-    this quantity responds to the dose and cannot serve as a baseline for a session whose workload has a
-    different service time
+### It does not move with the dose, or with the node
 
-That contrast is the whole argument. Under the ignoring arm the owner's wait IS the dose-dependent quantity
--- whatever the victim had left, bounded by grace -- and the check sees it move by eleven seconds. Under the
-honouring arm the victim stops when told to, what remains is the platform's own mechanics, and the check
-cannot see the dose in it at all. The tool holds the arm fixed and refuses to pool the two, because pooling
-them would measure the arm difference and report it as a dose response.
+Both are checked by the harness rather than asserted here:
 
-This is a statement about what the harness can SEE, not a proof of independence. The honest reading is that
-any dose response is smaller than 1.876 seconds, which is the condition a baseline needs and is not the same
-claim as there being none.
+    $ queuelabrun -compare 'ex/e15-grace-bounded-A-honor-e15gh?.json,\
+        ex/e15-self-completing-A-honor-*.json' -mode dose
+    the owner's wait under A-honor moves 0.302 s across 2 levels of dose, INSIDE the 6.686 s floor
 
-It decomposes, in principle, into the kubelet releasing the device allocation, the device plugin
-re-advertising, the scheduler binding, and the container starting. **This harness cannot separate those**,
-and the pre-registration does not pretend it will: see the resolution section.
+    $ queuelabrun -compare 'ex/e15-grace-bounded-A-honor-*.json' -mode node
+    the owner's wait under A-honor moves 0.105 s across 2 levels of node, INSIDE the 6.443 s floor
+      platform-worker  n=2 ownerWait mean=2.153
+      platform-worker2 n=2 ownerWait mean=2.259
+    NOT INTERLEAVED: the node levels did not alternate in time
+
+A check that can only ever return "no response" establishes nothing, so the other arm is the control — and
+under A-ignore the same check reports 11.167 s across the dose levels against a 5.410 s floor, which it calls a response. Under the
+ignoring arm the owner's wait IS the dose-dependent quantity; under the honouring arm what remains is the
+platform's own mechanics, and neither factor shows in it.
+
+The node check is qualified twice over and both qualifications are in the output. The levels are blocked in
+time, because the second worker had to be freed before it could be used at all — the platform's own serving
+workload held one of its two devices, and the run refused to measure there rather than measure on a node it
+could not hold exclusively. And "cannot see a response" is not "there is none": what it supports is that any
+node response is smaller than 6.443 s, which is what a baseline needs and is a weaker claim than independence.
 
 ## What the session adds, and where the interval actually ends
 
@@ -147,7 +163,7 @@ assert.
 
    Stated this way rather than as "the arms stop differing", because the harness is built to refuse the
    second: an unresolved difference is not a demonstrated equality, and every other page here says so. What
-   IS checkable is that a difference resolved at 28.1 s against a 1.938 s floor in the baseline stops
+   IS checkable is that a difference resolved at 28.6 s against a 5.252 s floor in the baseline stops
    clearing the session's floor. If driver cleanup dominates and both arms converge, the termination
    contract stops mattering and the 120-second cap loses the justification it was given — the single most
    useful thing this session could discover.

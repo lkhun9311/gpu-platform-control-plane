@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "arm": "A-honor",
+  "factor": "dose",
+  "doses": [
+    {
+      "dose": "grace-bounded",
+      "n": 2,
+      "runIDs": [
+        "e15gh1",
+        "e15gh2"
+      ],
+      "ownerWaitSecondsMean": 2.1533887625,
+      "ownerWaitRuns": 2
+    },
+    {
+      "dose": "self-completing",
+      "n": 2,
+      "runIDs": [
+        "e15sh1",
+        "e15sh2"
+      ],
+      "ownerWaitSecondsMean": 2.4553313395,
+      "ownerWaitRuns": 2
+    }
+  ],
+  "floorSeconds": 6.685541797,
+  "bounded": true,
+  "interleaved": false,
+  "spreadSeconds": 0.3019425769999997,
+  "movesWithDose": false,
+  "statement": "the owner's wait under A-honor moves 0.302 s across 2 levels of dose, INSIDE the 6.686 s floor. The harness cannot see it responding to dose -- which is not proof that it does not, and is the condition a baseline needs: a quantity that varies with dose could not be quoted as a property of the platform"
+}

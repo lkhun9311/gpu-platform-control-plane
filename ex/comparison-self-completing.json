@@ -1,0 +1,71 @@
+{
+  "schemaVersion": 1,
+  "dose": "self-completing",
+  "arms": [
+    {
+      "arm": "A-honor",
+      "n": 2,
+      "runIDs": [
+        "e15sh1",
+        "e15sh2"
+      ],
+      "wastedGPUSecondsMean": 41.6743296295,
+      "wastedGPUSecondsMin": 41.642223041,
+      "wastedGPUSecondsMax": 41.706436218,
+      "ownerWaitSecondsMean": 2.4553313395,
+      "ownerWaitSecondsMin": 2.410473036,
+      "ownerWaitSecondsMax": 2.500189643,
+      "ownerWaitRuns": 2,
+      "floorSeconds": 3.633778292,
+      "bounded": true,
+      "firstStartedAt": "2026-08-20T11:07:46Z",
+      "lastStartedAt": "2026-08-20T11:13:40Z"
+    },
+    {
+      "arm": "A-ignore",
+      "n": 2,
+      "runIDs": [
+        "e15si1",
+        "e15si2"
+      ],
+      "wastedGPUSecondsMean": 0,
+      "wastedGPUSecondsMin": 0,
+      "wastedGPUSecondsMax": 0,
+      "ownerWaitSecondsMean": 19.566480351000003,
+      "ownerWaitSecondsMin": 19.516037392,
+      "ownerWaitSecondsMax": 19.61692331,
+      "ownerWaitRuns": 2,
+      "floorSeconds": 3.20955837,
+      "bounded": true,
+      "firstStartedAt": "2026-08-20T11:10:28Z",
+      "lastStartedAt": "2026-08-20T11:16:20Z"
+    }
+  ],
+  "worstRunFloorSeconds": 3.633778292,
+  "bounded": true,
+  "interleaved": true,
+  "deviceEvidence": "device-not-observed",
+  "findings": [
+    {
+      "quantity": "wastedGPUSeconds",
+      "armA": "A-honor",
+      "armB": "A-ignore",
+      "valueA": 41.6743296295,
+      "valueB": 0,
+      "differenceSeconds": 41.6743296295,
+      "resolved": true,
+      "statement": "A-honor discarded 41.7 GPU-s and A-ignore discarded 0.0, a difference of 41.7 s against a 6.843 s floor, over n=2 and n=2 runs"
+    },
+    {
+      "quantity": "ownerAdmitToReadySeconds",
+      "armA": "A-honor",
+      "armB": "A-ignore",
+      "valueA": 2.4553313395,
+      "valueB": 19.566480351000003,
+      "differenceSeconds": 17.111149011500004,
+      "resolved": true,
+      "statement": "the quota owner was running 2.455 s AFTER KUEUE ADMITTED IT under A-honor and 19.566 s under A-ignore -- a difference of 17.1 s against a 6.843 s floor, over n=2 and n=2 restored runs. It is the reclaim-side half of what a tenant experiences and the half a reclaim promise is judged on; the time from SUBMISSION to admission is not in it, and neither is anything after the container starts. The discarded seconds beside it are the borrower's loss, not a promise"
+    }
+  ],
+  "note": "this document reports whether a difference exceeded the coarsest resolution among the runs behind it, whether the arms were interleaved in time, and how many runs each arm has. It makes no claim of statistical significance and establishes no effect: these runs are not a sample of anything and their variance has never been characterised"
+}
