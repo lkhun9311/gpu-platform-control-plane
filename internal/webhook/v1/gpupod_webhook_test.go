@@ -322,3 +322,54 @@ func TestTheGraceCapDoesNotTouchAPodWithNoDevice(t *testing.T) {
 		t.Fatalf("a Pod with no device request was capped: %s", res.Result.Message)
 	}
 }
+
+// The bypass an architectural review found, as a test: a tenant needs no Job, no owner and no exemption to
+// hold a device past any reclaim. A queue label is enough, and the queue label is a bill the tenant is happy
+// to pay -- metered capacity held for an hour is still held for an hour.
+//
+// This is the guard's own thesis turned on the guard: the cap was expressed correctly and then placed behind
+// two returns that admit, so the field the tenant writes decided the outcome after all.
+//
+// Mutation that turns this red: move graceTooLong back below the queue-label branch.
+func TestALabelledPodCannotHoldADeviceForAnHour(t *testing.T) {
+	v := gpuValidator(t)
+	hour := int64(3600)
+	res := ask(t, v, tenantUser, gpuPod(2, func(p *corev1.Pod) {
+		p.Labels = map[string]string{kueueQueueLabel: "gpu-premium"}
+		p.Spec.TerminationGracePeriodSeconds = &hour
+	}))
+	if res.Allowed {
+		t.Fatal("a tenant held two devices for an hour against the owner that reclaimed them, by paying for them")
+	}
+	if !strings.Contains(res.Result.Message, "3600") {
+		t.Fatalf("the refusal does not name the value that was asked for: %s", res.Result.Message)
+	}
+}
+
+// The exemption is about who PAYS for a device, not about how long it is held after someone else reclaimed
+// it. Conflating the two is what put the cap behind an early return in the first place.
+func TestAnExemptPodIsStillCappedOnGrace(t *testing.T) {
+	v := gpuValidator(t)
+	hour := int64(3600)
+	res := ask(t, v, "system:serviceaccount:kube-system:daemon-set-controller", gpuPod(1, func(p *corev1.Pod) {
+		p.Annotations = map[string]string{QuotaExemptAnnotation: "true"}
+		p.Spec.TerminationGracePeriodSeconds = &hour
+	}))
+	if res.Allowed {
+		t.Fatal("an unaccounted device holder was also allowed to hold it for an hour")
+	}
+}
+
+// And the legitimate labelled Pod still passes, or the fix above would be refusing every serving Pod on the
+// platform rather than closing a bypass.
+func TestALabelledPodWithAnOrdinaryGracePeriodStillPasses(t *testing.T) {
+	v := gpuValidator(t)
+	ok := int64(90)
+	res := ask(t, v, tenantUser, gpuPod(1, func(p *corev1.Pod) {
+		p.Labels = map[string]string{kueueQueueLabel: "gpu-premium"}
+		p.Spec.TerminationGracePeriodSeconds = &ok
+	}))
+	if !res.Allowed {
+		t.Fatalf("refused a checkpointing workload Kueue would charge: %s", res.Result.Message)
+	}
+}

@@ -145,6 +145,26 @@ func (v *GPUPodValidator) Handle(ctx context.Context, req admission.Request) adm
 	if devices == 0 {
 		return admission.Allowed("")
 	}
+	// Checked FIRST, above every branch that admits, because grace is a property of the Pod alone: it needs
+	// no reads, no owner, and no queue, and it costs the reclaiming owner the same whichever of those decided
+	// the Pod was allowed to exist.
+	//
+	// It used to sit further down, after the exemption branch and after the queue-label branch, and both of
+	// those return Allowed. So a tenant applying a bare Pod with a queue label, two devices and
+	// terminationGracePeriodSeconds: 3600 was admitted without the cap ever being consulted -- the exact
+	// bypass this guard exists to close, reached by the exact mechanism its own thesis names, a guarantee
+	// expressed in a field the tenant writes. The tests did not catch it because both grace tests came in as
+	// the job controller and the queue-label test carried no grace.
+	//
+	// The cause was treating grace as part of the ACCOUNTING decision -- who pays for this device -- when it
+	// is a decision about how long the device is held after someone else has already reclaimed it. Those are
+	// independent questions, and ordering one behind the other is what let two early returns hide it. Hoisted
+	// here it cannot be re-hidden by a branch added later, which is the property that matters more than the
+	// three lines it moves.
+	if why := graceTooLong(&pod.Spec); why != "" {
+		return admission.Denied(why)
+	}
+
 	user := req.UserInfo.Username
 
 	if _, exempt := pod.Annotations[QuotaExemptAnnotation]; exempt {
@@ -193,12 +213,6 @@ func (v *GPUPodValidator) Handle(ctx context.Context, req admission.Request) adm
 			user, devices, gpuResource, kueueQueueLabel))
 	}
 
-	// Checked before the queue lookup because it is a property of the Pod alone and needs no reads, and
-	// because a Pod that fails it fails regardless of which queue it belongs to.
-	if why := graceTooLong(&pod.Spec); why != "" {
-		return admission.Denied(why)
-	}
-
 	queued, err := v.tracesToAQueue(ctx, &pod)
 	if err != nil {
 		// Fail closed, for the same reason the webhook's failurePolicy is Fail: a guard that stops applying
@@ -221,10 +235,17 @@ func (v *GPUPodValidator) Handle(ctx context.Context, req admission.Request) adm
 // carries no such label. A guard reading the Pod alone would refuse every legitimate training Pod this
 // platform creates.
 //
-// Only a batch/v1 Job owner is accepted, because in this cluster that is the only shape Kueue governs: its
-// `pod` and `deployment` integrations are not among the enabled frameworks, so a Pod owned by a ReplicaSet is
-// invisible to Kueue however it is labelled. Admitting it on a label Kueue never reads would be a guard that
-// checks a string rather than a fact.
+// Only a batch/v1 Job owner is accepted, and the reason written here used to be FALSE: it said Kueue's `pod`
+// and `deployment` integrations were not among the enabled frameworks. They are -- seventeen of them -- and
+// the correction was already made forty lines above, in the branch that admits a queue-labelled Pod, while
+// this sentence went on asserting the retracted claim underneath it. One file, two contradictory statements
+// about the same cluster, and the newer one was load-bearing.
+//
+// The real reason is narrower and does not depend on which integrations are on. Everything reaching this
+// function was created by the Job controller, because the identity check above admits nothing else, and the
+// Job controller creates Pods owned by Jobs. A non-Job owner here therefore describes a relationship that
+// cannot have been formed by the requester the Pod claims to come from, and refusing it is the safe reading
+// of a contradiction rather than a claim about Kueue's configuration.
 func (v *GPUPodValidator) tracesToAQueue(ctx context.Context, pod *corev1.Pod) (bool, error) {
 	owner := metav1.GetControllerOf(pod)
 	if owner == nil {
