@@ -74,6 +74,14 @@ type armSummary struct {
 	WastedGPUSecondsMean float64 `json:"wastedGPUSecondsMean"`
 	WastedGPUSecondsMin  float64 `json:"wastedGPUSecondsMin"`
 	WastedGPUSecondsMax  float64 `json:"wastedGPUSecondsMax"`
+	// OwnerWaitSecondsMean is the quota owner's admission-to-running wait, averaged over this arm's runs, and
+	// OwnerWaitRuns is how many of them restored their owner at all. The count is carried rather than implied
+	// because a mean over a subset of the arm is a different statistic from a mean over the arm, and the run
+	// where the owner never came back is the one a reader most needs to know about.
+	OwnerWaitSecondsMean float64 `json:"ownerWaitSecondsMean,omitempty"`
+	OwnerWaitSecondsMin  float64 `json:"ownerWaitSecondsMin,omitempty"`
+	OwnerWaitSecondsMax  float64 `json:"ownerWaitSecondsMax,omitempty"`
+	OwnerWaitRuns        int     `json:"ownerWaitRuns"`
 	FirstStartedAt       string  `json:"firstStartedAt"`
 	LastStartedAt        string  `json:"lastStartedAt"`
 }
@@ -156,6 +164,7 @@ func compareRecords(recs []runRecord) (comparison, error) {
 	for i := 0; i < len(c.Arms); i++ {
 		for j := i + 1; j < len(c.Arms); j++ {
 			c.Findings = append(c.Findings, compareWaste(c.Arms[i], c.Arms[j], floorNs, bounded, c.Interleaved))
+			c.Findings = append(c.Findings, compareOwnerWait(c.Arms[i], c.Arms[j], floorNs, bounded, c.Interleaved))
 		}
 	}
 	return c, nil
@@ -250,6 +259,28 @@ func summariseArm(arm string, recs []runRecord) armSummary {
 		}
 	}
 	s.WastedGPUSecondsMean = sum / float64(len(recs))
+
+	var waitSum float64
+	for _, r := range recs {
+		if r.Measurement.OwnerAdmitToReadyNs == nil {
+			continue
+		}
+		w := float64(*r.Measurement.OwnerAdmitToReadyNs) / float64(time.Second)
+		if s.OwnerWaitRuns == 0 {
+			s.OwnerWaitSecondsMin, s.OwnerWaitSecondsMax = w, w
+		}
+		if w < s.OwnerWaitSecondsMin {
+			s.OwnerWaitSecondsMin = w
+		}
+		if w > s.OwnerWaitSecondsMax {
+			s.OwnerWaitSecondsMax = w
+		}
+		waitSum += w
+		s.OwnerWaitRuns++
+	}
+	if s.OwnerWaitRuns > 0 {
+		s.OwnerWaitSecondsMean = waitSum / float64(s.OwnerWaitRuns)
+	}
 	return s
 }
 
@@ -300,6 +331,47 @@ func wasteStatement(f finding, floorNs int64, bounded, interleaved bool, a, b ar
 	return sb.String()
 }
 
+// compareOwnerWait states what the two arms cost the quota OWNER, which is the only quantity here that a
+// platform promises anybody.
+//
+// The discarded seconds beside it are the borrower's loss: real, and not a service-level objective. "Your
+// reclaimed capacity comes back within X" is, and this is X.
+func compareOwnerWait(a, b armSummary, floorNs int64, bounded, interleaved bool) finding {
+	f := finding{Quantity: "ownerAdmitToReadySeconds", ArmA: a.Arm, ArmB: b.Arm}
+	if a.OwnerWaitRuns == 0 || b.OwnerWaitRuns == 0 {
+		f.Statement = fmt.Sprintf("NOT COMPUTED: %s restored its owner in %d of %d runs and %s in %d of %d; "+
+			"an arm whose owner never came back has no wait to average, and averaging the others would "+
+			"report the best case of an arm defined by its worst",
+			a.Arm, a.OwnerWaitRuns, a.N, b.Arm, b.OwnerWaitRuns, b.N)
+		return f
+	}
+	f.ValueA, f.ValueB = a.OwnerWaitSecondsMean, b.OwnerWaitSecondsMean
+	diff := f.ValueA - f.ValueB
+	if diff < 0 {
+		diff = -diff
+	}
+	f.DifferenceSeconds = diff
+	f.Resolved = bounded && diff > float64(floorNs)/float64(time.Second)
+	floor := float64(floorNs) / float64(time.Second)
+	switch {
+	case !bounded:
+		f.Statement = fmt.Sprintf("NOT RESOLVED: a contributing run bounded nothing, so the %.1f s gap "+
+			"between %s and %s is not known to be larger than what the harness could see", diff, a.Arm, b.Arm)
+	case !f.Resolved:
+		f.Statement = fmt.Sprintf("NOT RESOLVED: the owner waited %.3f s under %s and %.3f s under %s, a "+
+			"difference inside this comparison's %.3f s floor", f.ValueA, a.Arm, f.ValueB, b.Arm, floor)
+	default:
+		f.Statement = fmt.Sprintf("the quota owner waited %.3f s under %s and %.3f s under %s -- a difference "+
+			"of %.1f s against a %.3f s floor, over n=%d and n=%d restored runs. This is the number a "+
+			"reclaim promise is judged on; the discarded seconds beside it are the borrower's loss",
+			f.ValueA, a.Arm, f.ValueB, b.Arm, diff, floor, a.OwnerWaitRuns, b.OwnerWaitRuns)
+	}
+	if f.Resolved && !interleaved {
+		f.Statement += ". CONFOUNDED: the arms did not alternate in time"
+	}
+	return f
+}
+
 // renderComparison prints the comparison, leading with what it does not establish.
 //
 // The order is the argument. A reader who stops after the first screen should have read the limits, not the
@@ -328,6 +400,12 @@ func renderComparison(c comparison) string {
 		fmt.Fprintf(&b, "  %-9s n=%d waste mean=%.3f min=%.3f max=%.3f runs=%s\n    %s .. %s\n",
 			a.Arm, a.N, a.WastedGPUSecondsMean, a.WastedGPUSecondsMin, a.WastedGPUSecondsMax,
 			strings.Join(a.RunIDs, ","), a.FirstStartedAt, a.LastStartedAt)
+		if a.OwnerWaitRuns == 0 {
+			fmt.Fprintf(&b, "    ownerWait: NONE of %d runs restored the quota owner\n", a.N)
+			continue
+		}
+		fmt.Fprintf(&b, "    ownerWait mean=%.3f min=%.3f max=%.3f over %d of %d runs\n",
+			a.OwnerWaitSecondsMean, a.OwnerWaitSecondsMin, a.OwnerWaitSecondsMax, a.OwnerWaitRuns, a.N)
 	}
 	for _, f := range c.Findings {
 		fmt.Fprintf(&b, "  [%s] %s\n", f.Quantity, f.Statement)

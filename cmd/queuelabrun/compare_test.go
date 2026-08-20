@@ -6,6 +6,18 @@ import (
 	"time"
 )
 
+// findingFor picks one quantity out of a comparison, since every arm pair now produces several.
+func findingFor(t *testing.T, c comparison, quantity string) finding {
+	t.Helper()
+	for _, f := range c.Findings {
+		if f.Quantity == quantity {
+			return f
+		}
+	}
+	t.Fatalf("the comparison reports no %s finding", quantity)
+	return finding{}
+}
+
 // cmpRec builds a minimal admissible record for the comparison tests.
 func cmpRec(runID, arm, dose, startedAt string, waste float64, floorNs int64) runRecord {
 	m := &measurement{WastedGPUSeconds: waste}
@@ -37,11 +49,12 @@ func TestCompareResolvesTheCategoricalDifference(t *testing.T) {
 	if !c.Bounded || !c.Interleaved {
 		t.Fatalf("bounded=%v interleaved=%v, want both true", c.Bounded, c.Interleaved)
 	}
-	if len(c.Findings) != 1 || !c.Findings[0].Resolved {
-		t.Fatalf("a 41s difference against a 1.959s floor must resolve: %+v", c.Findings)
+	waste := findingFor(t, c, "wastedGPUSeconds")
+	if !waste.Resolved {
+		t.Fatalf("a 41s difference against a 1.959s floor must resolve: %+v", waste)
 	}
-	if strings.Contains(c.Findings[0].Statement, "CONFOUNDED") {
-		t.Fatalf("alternating runs reported as confounded: %s", c.Findings[0].Statement)
+	if strings.Contains(waste.Statement, "CONFOUNDED") {
+		t.Fatalf("alternating runs reported as confounded: %s", waste.Statement)
 	}
 }
 
@@ -57,12 +70,13 @@ func TestCompareRefusesADifferenceInsideTheFloor(t *testing.T) {
 	if err != nil {
 		t.Fatalf("compare: %v", err)
 	}
-	if c.Findings[0].Resolved {
-		t.Fatalf("0.94s resolved against a 1.959s floor: %+v", c.Findings[0])
+	waste := findingFor(t, c, "wastedGPUSeconds")
+	if waste.Resolved {
+		t.Fatalf("0.94s resolved against a 1.959s floor: %+v", waste)
 	}
-	if !strings.Contains(c.Findings[0].Statement, "NOT RESOLVED") ||
-		!strings.Contains(c.Findings[0].Statement, "not a noise level") {
-		t.Fatalf("statement does not tell the reader repetition will not help: %s", c.Findings[0].Statement)
+	if !strings.Contains(waste.Statement, "NOT RESOLVED") ||
+		!strings.Contains(waste.Statement, "not a noise level") {
+		t.Fatalf("statement does not tell the reader repetition will not help: %s", waste.Statement)
 	}
 }
 
@@ -79,7 +93,7 @@ func TestComparePoolsTheCoarsestFloor(t *testing.T) {
 	if c.FloorSeconds != 6 {
 		t.Fatalf("pooled floor = %v, want the coarsest contributor's 6s", c.FloorSeconds)
 	}
-	if c.Findings[0].Resolved {
+	if findingFor(t, c, "wastedGPUSeconds").Resolved {
 		t.Fatal("a 5s difference resolved against a 6s floor")
 	}
 }
@@ -93,7 +107,7 @@ func TestCompareIsUnboundedWhenAnyRunBoundedNothing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("compare: %v", err)
 	}
-	if c.Bounded || c.Findings[0].Resolved {
+	if c.Bounded || findingFor(t, c, "wastedGPUSeconds").Resolved {
 		t.Fatalf("an unbounded contributor produced a resolved finding: %+v", c)
 	}
 	if !strings.Contains(renderComparison(c), "UNBOUNDED") {
@@ -116,8 +130,9 @@ func TestCompareFlagsArmsThatDidNotAlternate(t *testing.T) {
 	if c.Interleaved {
 		t.Fatal("A,A,B,B was reported as interleaved")
 	}
-	if !strings.Contains(c.Findings[0].Statement, "CONFOUNDED") {
-		t.Fatalf("the confound is missing from the finding a reader quotes: %s", c.Findings[0].Statement)
+	if !strings.Contains(findingFor(t, c, "wastedGPUSeconds").Statement, "CONFOUNDED") {
+		t.Fatalf("the confound is missing from the finding a reader quotes: %s",
+			findingFor(t, c, "wastedGPUSeconds").Statement)
 	}
 }
 
@@ -206,5 +221,74 @@ func TestCompareTakesTheWeakestDeviceAxis(t *testing.T) {
 	}
 	if c.DeviceEvidence != deviceNotObserved {
 		t.Fatalf("one silent run was laundered into %q", c.DeviceEvidence)
+	}
+}
+
+// withOwnerWait attaches an owner restoration time to a comparison fixture.
+func withOwnerWait(r runRecord, seconds float64) runRecord {
+	ns := int64(seconds * float64(time.Second))
+	r.Measurement.OwnerAdmitToReadyNs = &ns
+	return r
+}
+
+// The number a reclaim promise is judged on. The lab measured it from the first run and never carried it out
+// of the reconstruction, so answering "how long did the owner wait" meant parsing the ledger by hand -- the
+// state this tool exists to end.
+func TestCompareReportsWhatTheQuotaOwnerWaited(t *testing.T) {
+	c, err := compareRecords([]runRecord{
+		withOwnerWait(cmpRec("gh1", "A-honor", "grace-bounded", "2026-08-20T00:57:03Z", 21.336, 1878*int64(time.Millisecond)), 2.740),
+		withOwnerWait(cmpRec("gi1", "A-ignore", "grace-bounded", "2026-08-20T00:59:29Z", 51.315, 1878*int64(time.Millisecond)), 30.806),
+		withOwnerWait(cmpRec("gh2", "A-honor", "grace-bounded", "2026-08-20T01:02:21Z", 21.288, 1878*int64(time.Millisecond)), 2.792),
+		withOwnerWait(cmpRec("gi2", "A-ignore", "grace-bounded", "2026-08-20T01:04:48Z", 51.278, 1878*int64(time.Millisecond)), 30.807),
+	})
+	if err != nil {
+		t.Fatalf("compare: %v", err)
+	}
+	var owner *finding
+	for i := range c.Findings {
+		if c.Findings[i].Quantity == "ownerAdmitToReadySeconds" {
+			owner = &c.Findings[i]
+		}
+	}
+	if owner == nil {
+		t.Fatal("the comparison reports the borrower's loss and not the owner's wait")
+	}
+	if !owner.Resolved {
+		t.Fatalf("a 28 s difference against a 1.878 s floor did not resolve: %+v", owner)
+	}
+	if !strings.Contains(owner.Statement, "reclaim promise is judged on") {
+		t.Fatalf("the statement does not say which of the two numbers is the promise: %s", owner.Statement)
+	}
+	for _, a := range c.Arms {
+		if a.OwnerWaitRuns != 2 {
+			t.Fatalf("arm %s counted %d restored runs, want 2", a.Arm, a.OwnerWaitRuns)
+		}
+	}
+}
+
+// An arm whose owner never came back has no wait to average, and averaging the runs that did would report
+// the best case of an arm defined by its worst.
+func TestCompareRefusesToAverageAwayAnOwnerThatNeverReturned(t *testing.T) {
+	c, err := compareRecords([]runRecord{
+		withOwnerWait(cmpRec("h1", "A-honor", "self-completing", "2026-08-20T00:45:14Z", 41.0, int64(time.Second)), 2.5),
+		cmpRec("i1", "A-ignore", "self-completing", "2026-08-20T00:47:57Z", 0.0, int64(time.Second)),
+	})
+	if err != nil {
+		t.Fatalf("compare: %v", err)
+	}
+	var owner *finding
+	for i := range c.Findings {
+		if c.Findings[i].Quantity == "ownerAdmitToReadySeconds" {
+			owner = &c.Findings[i]
+		}
+	}
+	if owner == nil || owner.Resolved {
+		t.Fatalf("a comparison resolved an owner wait one arm never produced: %+v", owner)
+	}
+	if !strings.Contains(owner.Statement, "NOT COMPUTED") {
+		t.Fatalf("the statement does not say it could not be computed: %s", owner.Statement)
+	}
+	if !strings.Contains(renderComparison(c), "NONE of 1 runs restored the quota owner") {
+		t.Fatalf("the render hides an arm that never restored its owner:\n%s", renderComparison(c))
 	}
 }

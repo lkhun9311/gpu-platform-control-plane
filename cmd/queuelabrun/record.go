@@ -88,7 +88,13 @@ import (
 // older file is told they have a record from a build in which nothing could distinguish a device that did
 // work from one that was held, rather than being told their file is corrupt. Every record this lab has
 // produced is in exactly that state, which is why the message matters more here than the guard.
-const recordSchemaVersion = 13
+// Version 14 adds measurement.ownerAdmitToReadyNs, and its asymmetry is the ordinary one for this file with
+// an unusual twist: the field is a POINTER, so an older record decodes to nil rather than to a dangerous
+// zero, and nil is a value this build genuinely writes. That is the problem. A version-13 record would read
+// as a run whose owner never came back -- the worst outcome the experiment can produce -- when in truth it
+// is a run from a build that never asked. The bump separates "the owner did not return" from "nobody
+// measured whether it did", and nothing in the document itself can.
+const recordSchemaVersion = 14
 
 // runRecord is what a non-preview invocation leaves behind.
 //
@@ -360,6 +366,23 @@ type measurement struct {
 	// Workload states what the counted work actually was, and travels beside the count so the two cannot be
 	// separated by anyone reading the record.
 	Workload workloadProvenance `json:"workload"`
+	// OwnerAdmitToReadyNs is how long the quota OWNER waited between Kueue admitting it and its Pod running.
+	//
+	// It is here because everything else in this block measures what the preempted borrower LOST, and a
+	// platform does not promise anybody that. What it promises is that a tenant's own quota comes back, and
+	// this is the only number in the record that says whether it did and how fast. The lab computed it from
+	// the first run onward -- WorkloadOutcome.AdmitToReadyNs, whose own comment says admission is a QUOTA
+	// RESERVATION rather than the start of execution -- and then never carried it out of the reconstruction,
+	// so answering "how long did the owner wait" meant parsing the ledger by hand. That is exactly the state
+	// the comparison tool was built to end, reached by a different route.
+	//
+	// It is also the better-behaved figure. Across the recorded runs the two ignoring executions of the
+	// grace-bounded regime agree to a MILLISECOND on it, against fifty on the discarded seconds.
+	//
+	// A pointer, because "the owner never ran" is a real outcome of this experiment and not a zero wait. A
+	// zero would be the strongest possible claim -- instant restoration -- asserted by precisely the runs
+	// where restoration never happened.
+	OwnerAdmitToReadyNs *int64 `json:"ownerAdmitToReadyNs,omitempty"`
 	// Resolution is how far this harness's own observations lag the events they describe.
 	//
 	// It sits in the measurement block rather than beside the ledger because it qualifies every number here:
@@ -922,6 +945,7 @@ func measurementOf(res *queuelab.LabResult, horizonNs int64, events []queuelab.L
 		return nil
 	}
 	return &measurement{
+		OwnerAdmitToReadyNs:       ownerAdmitToReady(res),
 		DiscardedIterations:       discardedIterations(events),
 		Workload:                  cpuOnlyWorkload(),
 		Resolution:                resolutionOf(events),
@@ -1153,6 +1177,27 @@ func checkValidity(r runRecord) error {
 		return fmt.Errorf("decode record: the record claims device evidence %q while its own measurement "+
 			"supports %q; an axis that cannot be re-derived from the evidence beside it is an assertion",
 			r.Validity.DeviceEvidence, want)
+	}
+	return nil
+}
+
+// ownerAdmitToReady is the quota owner's wait, or nil when this run never restored it.
+//
+// It requires BOTH Admitted and Executed, and the pair is the point rather than belt-and-braces. Admission
+// is a reservation Kueue makes in its own accounting; execution is the owner's Pod actually running on a
+// device the borrower has let go of. The whole finding this lab exists for is that those two can be half a
+// minute apart, so a figure derived from either one alone would erase the thing being measured.
+func ownerAdmitToReady(res *queuelab.LabResult) *int64 {
+	for i := range res.Outcomes {
+		o := &res.Outcomes[i]
+		if o.Job != queuelab.OwnerRow {
+			continue
+		}
+		if !o.Admitted || !o.Executed {
+			return nil
+		}
+		v := o.AdmitToReadyNs
+		return &v
 	}
 	return nil
 }

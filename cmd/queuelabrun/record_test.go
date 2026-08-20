@@ -1577,15 +1577,17 @@ func TestARecordFromAnEarlierSchemaIsRefused(t *testing.T) {
 	// strongest claim the field can make -- so every earlier record would assert perfect resolution in the
 	// one field a consumer is meant to act on. Version 13 added validity.deviceEvidence, so that whether a
 	// run established device WORK is a field a consumer classifies on rather than a paragraph of English in
-	// unimplementedGates.
-	if recordSchemaVersion != 13 {
+	// unimplementedGates. Version 14 added measurement.ownerAdmitToReadyNs, where the absent value is nil --
+	// which this build genuinely writes, for a run whose owner never came back. Without the bump an older
+	// record reads as the experiment's worst outcome rather than as a run nobody measured it on.
+	if recordSchemaVersion != 14 {
 		t.Fatalf("recordSchemaVersion is %d; if the wire format changed again, bump this and say what changed",
 			recordSchemaVersion)
 	}
 	// Both predecessors, not only the immediate one. DisallowUnknownFields makes a version-9 document fail on
 	// the removed fields and a version-8 one fail on the version alone, and a decoder that accepted either
 	// would be reading a document whose fields do not mean what this build thinks they do.
-	for _, older := range []int{9, 10, 11, 12} {
+	for _, older := range []int{9, 10, 11, 12, 13} {
 		b := fmt.Appendf(nil, `{"schemaVersion":%d,"dose":"self-completing","runID":"r7","arm":"A-honor",`+
 			`"disposition":"completed-implemented-checks-passed",%s}`, older, refusedValidity)
 		if _, err := decodeRunRecord(b); err == nil {
@@ -1738,5 +1740,58 @@ func TestARecordCannotAssertDeviceWorkItsMeasurementDoesNotSupport(t *testing.T)
 		`"validity":{"verdict":"refused","failures":["observation-not-continuous"]}}`, recordSchemaVersion)
 	if _, err := decodeRunRecord(blank); err == nil {
 		t.Fatal("a record with no device axis decoded")
+	}
+}
+
+// The owner's wait requires BOTH admission and execution, and dropping either half is the worst mutation
+// this field admits -- not because the number goes wrong, but because of WHICH number it goes to.
+//
+// AdmitToReadyNs is documented as valid only when the row was both Admitted and Executed, so a derivation
+// that checks admission alone reads the field on a run where the owner never ran and finds its zero value.
+// The record would then report that the quota owner was restored INSTANTLY, on precisely the runs where it
+// was never restored at all. That is the dangerous-zero pattern this file exists to keep out, arriving
+// through a two-word condition.
+//
+// Mutation that turns this red: drop either !o.Admitted or !o.Executed from ownerAdmitToReady.
+func TestTheOwnersWaitNeedsBothAdmissionAndExecution(t *testing.T) {
+	res := func(admitted, executed bool, ns int64) *queuelab.LabResult {
+		return &queuelab.LabResult{Outcomes: []queuelab.WorkloadOutcome{
+			{Job: queuelab.OwnRow, Admitted: true, Executed: true, AdmitToReadyNs: 999},
+			{Job: queuelab.OwnerRow, Admitted: admitted, Executed: executed, AdmitToReadyNs: ns},
+		}}
+	}
+
+	// Admitted and never ran: Kueue reserved the quota, the borrower kept the device, and the owner's Pod
+	// never started. AdmitToReadyNs is zero here and means nothing.
+	if got := ownerAdmitToReady(res(true, false, 0)); got != nil {
+		t.Fatalf("an owner that was admitted and never ran reported a wait of %d ns; a record saying zero "+
+			"claims instant restoration for the run where restoration never happened", *got)
+	}
+	// Never admitted at all.
+	if got := ownerAdmitToReady(res(false, false, 0)); got != nil {
+		t.Fatalf("an owner that was never admitted reported a wait of %d ns", *got)
+	}
+	// Both: the ordinary case, and the value must be the owner's rather than another row's.
+	got := ownerAdmitToReady(res(true, true, 30806000000))
+	if got == nil {
+		t.Fatal("a restored owner reported no wait")
+	}
+	if *got != 30806000000 {
+		t.Fatalf("wait = %d ns, want the owner row's 30806000000 and not another row's", *got)
+	}
+	// Ready observed without an admission. The cluster cannot do this -- Kueue admits before a Pod runs --
+	// but the RECONSTRUCTION can: a collector that misses the Workload Admitted event while the Pod Ready
+	// arrives leaves admitNs at zero, and AdmitToReadyNs becomes firstReady minus nothing, which is the whole
+	// elapsed run rather than a wait. The admission half of the condition is what refuses that, and this is
+	// the case that makes it more than decoration.
+	if got := ownerAdmitToReady(res(false, true, 63854000000)); got != nil {
+		t.Fatalf("a run whose admission was never observed reported a %d ns wait; with admitNs at zero that "+
+			"figure is the elapsed run, not the owner's wait", *got)
+	}
+
+	// A trace with no owner row at all is not an owner that waited zero.
+	empty := &queuelab.LabResult{Outcomes: []queuelab.WorkloadOutcome{{Job: queuelab.OwnRow, Admitted: true, Executed: true}}}
+	if got := ownerAdmitToReady(empty); got != nil {
+		t.Fatalf("a result with no owner row reported a wait of %d ns", *got)
 	}
 }
