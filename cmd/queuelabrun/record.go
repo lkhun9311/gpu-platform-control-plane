@@ -82,7 +82,13 @@ import (
 // as a measurement. The four blocks above bump the version to stop an absent field reading as a claim
 // nobody made; this one bumps it to stop an absent field reading as the claim that was already made wrongly
 // once.
-const recordSchemaVersion = 12
+// Version 13 adds validity.deviceEvidence, and its asymmetry is not about a zero value that reads as a
+// claim -- it is about a question the document could not be ASKED. A version-12 record decodes with a blank
+// axis, and blank is refused, so the bump buys the diagnosis rather than the refusal: an operator holding an
+// older file is told they have a record from a build in which nothing could distinguish a device that did
+// work from one that was held, rather than being told their file is corrupt. Every record this lab has
+// produced is in exactly that state, which is why the message matters more here than the guard.
+const recordSchemaVersion = 13
 
 // runRecord is what a non-preview invocation leaves behind.
 //
@@ -186,6 +192,30 @@ const (
 	verdictPreview = "preview-not-evidence"
 )
 
+// The device-evidence axis. It is SEPARATE from the verdict above, and the separation is the whole point.
+//
+// validity exists because a reader classifies on a field instead of parsing prose. Device use broke that
+// promise: the fact that nothing here can tell a used device from a reserved one lived in
+// unimplementedGates as a paragraph of English, so a consumer reading verdict saw
+// "admissible-under-implemented-gates" and had no machine-readable way to learn that the GPU-seconds beside
+// it are seconds of RESERVATION. Every record this lab has produced says exactly that, and the verdict on
+// every one of them reads the same as a record from a run on real hardware would.
+//
+// That is the defect a GPU stage cannot survive. The entire reason to spend money on a device is to move
+// this axis, and a harness where moving it changes no field a consumer classifies on cannot tell anyone
+// whether the money bought anything. So the axis is derived, it is refused when blank, and today it reads
+// device-not-observed on every record — which is the correct answer, stated in a form that can change.
+const (
+	// deviceWorkObserved means something in the run established that the device did work, as opposed to
+	// having been held. No build has yet written it, and the constant exists so that the axis has a value to
+	// move TO rather than as a slot for a future writer: without it the not-observed case is a boolean
+	// dressed as a string.
+	deviceWorkObserved = "device-work-observed"
+	// deviceNotObserved means the run establishes reservation and nothing about computation. It is the
+	// honest reading of every record this lab has produced.
+	deviceNotObserved = "device-not-observed"
+)
+
 // The claims a record can fail to support, each named after the claim rather than after its cause.
 //
 // The naming is what makes them usable on refusals as well as passes. "environment-not-established" is true
@@ -270,7 +300,9 @@ func recordUnchecked() []string {
 			"resource request entirely would compute exactly the same iterations at exactly the same rate. " +
 			"measurement.discardedIterations therefore counts CPU work performed by a Pod HOLDING a reservation, " +
 			"and measurement.workload states the same thing beside the number; neither is discarded GPU " +
-			"computation, and this entry is what stops an admissible verdict from being read as saying it is",
+			"computation. This entry is no longer the only place that fact lives, and that is the point of " +
+			"validity.deviceEvidence: a consumer reads the axis instead of this paragraph, and the axis is the " +
+			"field a run on real hardware would move",
 	}
 }
 
@@ -451,6 +483,12 @@ type validity struct {
 	// schema change, and it still fits what it holds, since a check this build cannot perform and a gate it has
 	// not implemented are the same thing described from the two ends.
 	UnimplementedGates []string `json:"unimplementedGates,omitempty"`
+	// DeviceEvidence says whether this run established that a GPU did WORK, and it is deliberately not part
+	// of Verdict. A run can be fully admissible -- exclusive worker, qualified environment, continuous
+	// observation, contained teardown -- and still say nothing whatever about a device, which is the state
+	// every record here is in. Folding the two together would force a choice between refusing every run this
+	// lab has ever taken and letting an admissible verdict imply hardware it never touched.
+	DeviceEvidence string `json:"deviceEvidence"`
 }
 
 // deriveValidity reads the fields the record persists and nothing else.
@@ -459,8 +497,12 @@ type validity struct {
 // anyone holding the file: a reader who disagrees can re-derive it from the same JSON. Nothing here reads
 // o.Reason, and nothing may: that string is the human's account of whichever failure came first.
 func deriveValidity(o outcome, left []recordResidue, qual *qualification, win *ownershipWindow,
-	obs *observationEvidence, preview bool) validity {
-	v := validity{Verdict: verdictAdmissible, UnimplementedGates: recordUnchecked()}
+	obs *observationEvidence, m *measurement, preview bool) validity {
+	v := validity{
+		Verdict:            verdictAdmissible,
+		UnimplementedGates: recordUnchecked(),
+		DeviceEvidence:     deviceEvidenceOf(m),
+	}
 	// The disposition is a claim of its own rather than a summary of the four below it. A run can hold its
 	// worker, qualify it, observe continuously and still be cancelled at the horizon, and a record that only
 	// listed gate failures would call that one admissible.
@@ -492,6 +534,25 @@ func deriveValidity(o outcome, left []recordResidue, qual *qualification, win *o
 		v.Verdict = verdictPreview
 	}
 	return v
+}
+
+// deviceEvidenceOf reads the axis off the workload provenance, and can only ever narrow it.
+//
+// It takes the measurement rather than the bool so that the absent case is decided here rather than at each
+// call site: a run with no measurement observed no device, and that is the same answer as a run whose
+// workload made no driver call. Both are device-not-observed, and neither may be silent -- a blank axis is
+// refused on decode for the reason a blank verdict is.
+//
+// The one direction this must never go is the generous one. A workload that reports its own device use is
+// not evidence of it, in the same way that a Pod carrying a quota-exempt annotation is not evidence that it
+// may bypass quota: both are claims made by the party the check exists to constrain. When a writer for
+// deviceWorkObserved arrives it has to be an observer the workload cannot write to, and this comment is
+// where that requirement is recorded so the next person does not wire the workload's own stdout into it.
+func deviceEvidenceOf(m *measurement) string {
+	if m == nil || !m.Workload.DeviceUseEstablished {
+		return deviceNotObserved
+	}
+	return deviceWorkObserved
 }
 
 // observationContinuous asks whether the streams covered the run, reading their own endings.
@@ -880,7 +941,7 @@ func buildRecord(o outcome, events []queuelab.LifecycleEvent, left []residue, qu
 	// Derived from the PROJECTION rather than from `left`, so the verdict is taken over the same array the
 	// document carries: a residue entry that failed to project would otherwise be counted by a verdict nobody
 	// reading the file could reproduce.
-	v := deriveValidity(o, persistedResidue, qual, win, obs, preview)
+	v := deriveValidity(o, persistedResidue, qual, win, obs, m, preview)
 	startedAt := started.UTC().Format(time.RFC3339)
 	endedAt := ended.UTC().Format(time.RFC3339)
 	if preview {
@@ -1056,7 +1117,7 @@ func checkValidity(r runRecord) error {
 	case verdictPreview:
 	case verdictAdmissible:
 		want := deriveValidity(outcome{Disposition: disposition(r.Disposition)}, r.Residue, r.Qualification,
-			r.Window, r.Observation, r.Preview)
+			r.Window, r.Observation, r.Measurement, r.Preview)
 		if want.Verdict != verdictAdmissible {
 			return fmt.Errorf("decode record: the record claims %q while its own fields do not support it (%v); "+
 				"a verdict that cannot be re-derived from the evidence beside it is an assertion, not evidence",
@@ -1070,6 +1131,28 @@ func checkValidity(r runRecord) error {
 		return fmt.Errorf("decode record: the verdict is %q, which is none of %q, %q or %q; a document whose "+
 			"verdict is unreadable has not been judged as far as any reader can tell",
 			r.Validity.Verdict, verdictAdmissible, verdictRefused, verdictPreview)
+	}
+	// Checked for EVERY verdict, including refused and preview, and outside the switch above so it cannot be
+	// skipped by adding a case. A refused run still carries a measurement on some paths, and a reader asking
+	// "did anything here touch a device" is asking a question the verdict does not answer in any of the three
+	// states -- so the axis has to be readable in all of them or it is readable in none.
+	switch r.Validity.DeviceEvidence {
+	case deviceWorkObserved, deviceNotObserved:
+	case "":
+		return fmt.Errorf("decode record: the record states no device-evidence axis; a blank axis is not the " +
+			"cautious reading, it is a value a consumer classifies on that means nothing at all, and this " +
+			"document's GPU-seconds are seconds of reservation unless something says otherwise")
+	default:
+		return fmt.Errorf("decode record: the device-evidence axis is %q, which is neither %q nor %q",
+			r.Validity.DeviceEvidence, deviceWorkObserved, deviceNotObserved)
+	}
+	// The axis is derived, so a document may not assert one its own evidence does not produce. This is the
+	// check that stops a record claiming device work on the strength of a hand-edited field, which is the
+	// only way the value could appear at all in a build with no observer.
+	if want := deviceEvidenceOf(r.Measurement); want != r.Validity.DeviceEvidence {
+		return fmt.Errorf("decode record: the record claims device evidence %q while its own measurement "+
+			"supports %q; an axis that cannot be re-derived from the evidence beside it is an assertion",
+			r.Validity.DeviceEvidence, want)
 	}
 	return nil
 }

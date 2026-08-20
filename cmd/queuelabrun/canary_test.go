@@ -728,7 +728,7 @@ func TestARecordWhoseRunStoodOnNoCanaryDoesNotCallItselfAdmissible(t *testing.T)
 	q := testQualification()
 	q.TerminationCanary = nil
 
-	v := deriveValidity(outcome{Disposition: dispChecksPassed}, nil, q, testWindow(), testObservation(), false)
+	v := deriveValidity(outcome{Disposition: dispChecksPassed}, nil, q, testWindow(), testObservation(), nil, false)
 	if v.Verdict != verdictRefused {
 		t.Fatalf("a run that stood on no termination qualification called itself %q; every number in its "+
 			"environment block is fine, which is exactly why the verdict must not be derived from them alone",
@@ -746,7 +746,7 @@ func TestARecordWhoseRunStoodOnNoCanaryDoesNotCallItselfAdmissible(t *testing.T)
 
 	// And the passing fixture still passes, or the clause above would be refusing everything.
 	if got := deriveValidity(outcome{Disposition: dispChecksPassed}, nil, testQualification(), testWindow(),
-		testObservation(), false); got.Verdict != verdictAdmissible {
+		testObservation(), nil, false); got.Verdict != verdictAdmissible {
 		t.Fatalf("a run that did stand on one was refused: %v", got.Failures)
 	}
 }

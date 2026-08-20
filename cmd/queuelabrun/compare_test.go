@@ -19,7 +19,7 @@ func cmpRec(runID, arm, dose, startedAt string, waste float64, floorNs int64) ru
 		Dose:          dose,
 		StartedAt:     startedAt,
 		Measurement:   m,
-		Validity:      validity{Verdict: verdictAdmissible},
+		Validity:      validity{Verdict: verdictAdmissible, DeviceEvidence: deviceNotObserved},
 	}
 }
 
@@ -173,5 +173,38 @@ func TestRenderComparisonLeadsWithWhatItDoesNotEstablish(t *testing.T) {
 	headline := strings.Index(out, "wastedGPUSeconds")
 	if noEffect < 0 || headline < 0 || noEffect > headline {
 		t.Fatalf("the disclaimer must precede the finding:\n%s", out)
+	}
+}
+
+// A comparison over runs that observed no device must say the GPU-seconds are reservation, on the same
+// screen as the numbers. Without it the headline reads as a statement about hardware nothing touched.
+func TestCompareStatesThatNoDeviceWasObserved(t *testing.T) {
+	c, err := compareRecords([]runRecord{
+		cmpRec("a1", "A-honor", "self-completing", "2026-08-19T05:00:00Z", 41.0, int64(time.Second)),
+		cmpRec("b1", "A-ignore", "self-completing", "2026-08-19T05:05:00Z", 0.0, int64(time.Second)),
+	})
+	if err != nil {
+		t.Fatalf("compare: %v", err)
+	}
+	if c.DeviceEvidence != deviceNotObserved {
+		t.Fatalf("device axis = %q over runs on a fake device plugin", c.DeviceEvidence)
+	}
+	if !strings.Contains(renderComparison(c), "second of RESERVATION") {
+		t.Fatalf("the render did not say what the GPU-seconds are:\n%s", renderComparison(c))
+	}
+}
+
+// One run that observed nothing makes the whole comparison observe nothing: the strongest contributor must
+// not launder the weakest one's silence.
+func TestCompareTakesTheWeakestDeviceAxis(t *testing.T) {
+	strong := cmpRec("a1", "A-honor", "self-completing", "2026-08-19T05:00:00Z", 41.0, int64(time.Second))
+	strong.Validity.DeviceEvidence = deviceWorkObserved
+	weak := cmpRec("b1", "A-ignore", "self-completing", "2026-08-19T05:05:00Z", 0.0, int64(time.Second))
+	c, err := compareRecords([]runRecord{strong, weak})
+	if err != nil {
+		t.Fatalf("compare: %v", err)
+	}
+	if c.DeviceEvidence != deviceNotObserved {
+		t.Fatalf("one silent run was laundered into %q", c.DeviceEvidence)
 	}
 }

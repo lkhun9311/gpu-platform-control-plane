@@ -54,6 +54,7 @@ func TestRunRecordRoundTrips(t *testing.T) {
 			Verdict:            verdictRefused,
 			Failures:           []string{failureObservation, failureExclusivity},
 			UnimplementedGates: recordUnchecked(),
+			DeviceEvidence:     deviceNotObserved,
 		},
 	}
 	b, err := encodeRecord(in)
@@ -85,7 +86,11 @@ func TestDecodeRunRecordRefusesAnUnknownSchema(t *testing.T) {
 // guard ORDER is what keeps the refusal fixtures honest in the other direction — the qualification, window
 // and observation guards all run before the verdict is looked at, so each of those documents is still
 // refused by the specific check its test is about rather than by a missing verdict.
-const refusedValidity = `"validity":{"verdict":"refused","failures":["observation-not-continuous"]}`
+// The device-evidence axis is in here for the same reason the verdict is: it is required of every record,
+// and a fixture without one is refused for a reason its test did not write. device-not-observed is what a
+// record with no measurement derives, so these fixtures state the value their own fields support.
+const refusedValidity = `"validity":{"verdict":"refused","failures":["observation-not-continuous"],` +
+	`"deviceEvidence":"device-not-observed"}`
 
 // A field the schema does not define must be refused, not silently dropped, or a hand-edited or
 // future-schema document could carry content decodeRunRecord never validated.
@@ -197,7 +202,8 @@ func TestWriteRecordLeavesNoPartialFile(t *testing.T) {
 		// A verdict is required of every record, so this fixture carries the one its own fields support: no
 		// observation, no window and no qualification means it establishes nothing, whatever its disposition
 		// says.
-		Validity: validity{Verdict: verdictRefused, Failures: []string{failureRunIncomplete}},
+		Validity: validity{Verdict: verdictRefused, Failures: []string{failureRunIncomplete},
+			DeviceEvidence: deviceNotObserved},
 	}
 	if err := writeRecord(path, want); err != nil {
 		t.Fatalf("write: %v", err)
@@ -953,7 +959,7 @@ func TestValidityKeepsTheExclusivityFailureTheReasonHasLost(t *testing.T) {
 	// The observation is intact in this fixture on purpose: the desync reached the ledger but the record's
 	// stream evidence would show a lost Pod stream too, and leaving that in would let the exclusivity failure
 	// be "found" by a derivation that only looked at the streams.
-	v := deriveValidity(o, nil, testQualification(), win, testObservation(), false)
+	v := deriveValidity(o, nil, testQualification(), win, testObservation(), nil, false)
 
 	if strings.Contains(o.Reason, "worker") || strings.Contains(o.Reason, "exclusiv") {
 		t.Fatalf("this fixture only proves anything while the reason is silent about exclusivity, got %q", o.Reason)
@@ -1072,7 +1078,7 @@ func TestValidityNamesTheClaimTheFieldsActuallyFail(t *testing.T) {
 		{"two claims fail at once", pass, []recordResidue{{Kind: "Namespace", Name: "queuelab-r7", Absence: "present"}},
 			testQualification(), testWindow(), lostStream, []string{failureObservation, failureContainment}},
 	} {
-		v := deriveValidity(tc.o, tc.left, tc.qual, tc.win, tc.obs, false)
+		v := deriveValidity(tc.o, tc.left, tc.qual, tc.win, tc.obs, nil, false)
 		if !reflect.DeepEqual(v.Failures, tc.want) {
 			t.Errorf("%s: failures = %v, want %v", tc.name, v.Failures, tc.want)
 		}
@@ -1137,7 +1143,7 @@ func TestDecodeRunRecordRefusesAVerdictNoBuildEverWrote(t *testing.T) {
 // arm. Both documents below then decode, and a reader is handed "admissible" over a worker that was shared
 // mid-run and over a run that never opened a stream.
 func TestDecodeRunRecordRefusesAnAdmissibleVerdictItsFieldsDoNotSupport(t *testing.T) {
-	admissible := `{"verdict":"admissible-under-implemented-gates"}`
+	admissible := `{"verdict":"admissible-under-implemented-gates","deviceEvidence":"device-not-observed"}`
 	window := `{"node":"platform-worker","nodeUID":"uid-node","txID":"tx-1111",` +
 		`"baselineResourceVersion":"1000","openedAt":"t","nodeVersionsObserved":9,"ending":"closed by the run",` +
 		`"violationsObserved":%d,"restoration":{"before":{"observed":true},"after":{"observed":true},` +
@@ -1502,7 +1508,8 @@ func TestARecordFromBeforeTheMeasurementBlockIsRefused(t *testing.T) {
 	b, err := encodeRecord(runRecord{
 		SchemaVersion: recordSchemaVersion, RunID: "r7", Arm: "A-honor", Dose: "self-completing",
 		Disposition: string(dispChecksPassed), Measurement: m,
-		Validity: validity{Verdict: verdictRefused, Failures: []string{failureObservation}},
+		Validity: validity{Verdict: verdictRefused, Failures: []string{failureObservation},
+			DeviceEvidence: deviceNotObserved},
 	})
 	if err != nil {
 		t.Fatalf("encode: %v", err)
@@ -1568,15 +1575,17 @@ func TestARecordFromAnEarlierSchemaIsRefused(t *testing.T) {
 	// this build had produced carried "" and 0 beneath two sentences saying they meant something. Version 12
 	// added measurement.resolution.resolvedToNs, where an absent value decodes to zero and zero is the
 	// strongest claim the field can make -- so every earlier record would assert perfect resolution in the
-	// one field a consumer is meant to act on.
-	if recordSchemaVersion != 12 {
+	// one field a consumer is meant to act on. Version 13 added validity.deviceEvidence, so that whether a
+	// run established device WORK is a field a consumer classifies on rather than a paragraph of English in
+	// unimplementedGates.
+	if recordSchemaVersion != 13 {
 		t.Fatalf("recordSchemaVersion is %d; if the wire format changed again, bump this and say what changed",
 			recordSchemaVersion)
 	}
 	// Both predecessors, not only the immediate one. DisallowUnknownFields makes a version-9 document fail on
 	// the removed fields and a version-8 one fail on the version alone, and a decoder that accepted either
 	// would be reading a document whose fields do not mean what this build thinks they do.
-	for _, older := range []int{9, 10, 11} {
+	for _, older := range []int{9, 10, 11, 12} {
 		b := fmt.Appendf(nil, `{"schemaVersion":%d,"dose":"self-completing","runID":"r7","arm":"A-honor",`+
 			`"disposition":"completed-implemented-checks-passed",%s}`, older, refusedValidity)
 		if _, err := decodeRunRecord(b); err == nil {
@@ -1677,5 +1686,57 @@ func TestResolutionOfRefusesToInventABound(t *testing.T) {
 	one := int64(50)
 	if r := resolutionOf([]queuelab.LifecycleEvent{{ObservedSkewNs: &one}}); r != nil {
 		t.Fatalf("a single reading bounded a spread: %+v", r)
+	}
+}
+
+// Every record this lab has produced establishes reservation and nothing about computation, and the axis has
+// to say so in a field rather than in the prose a consumer skips.
+func TestEveryRunHereReadsDeviceNotObserved(t *testing.T) {
+	v := deriveValidity(outcome{Disposition: dispChecksPassed}, nil, testQualification(), testWindow(),
+		testObservation(), &measurement{WastedGPUSeconds: 41.0, Workload: cpuOnlyWorkload()}, false)
+	if v.Verdict != verdictAdmissible {
+		t.Fatalf("the fixture must be admissible or this test proves nothing: %v", v.Failures)
+	}
+	if v.DeviceEvidence != deviceNotObserved {
+		t.Fatalf("a fully admissible run on a fake device plugin claims %q", v.DeviceEvidence)
+	}
+}
+
+// A run that got nowhere near a measurement observed no device either, and the absent case must not be
+// silent: silence is the value that means nothing at all.
+func TestARefusedRunStillStatesTheDeviceAxis(t *testing.T) {
+	v := deriveValidity(outcome{Disposition: dispRefusedBeforeCluster}, nil, nil, nil, nil, nil, false)
+	if v.Verdict != verdictRefused {
+		t.Fatalf("fixture should refuse: %+v", v)
+	}
+	if v.DeviceEvidence != deviceNotObserved {
+		t.Fatalf("a refused run left the axis %q", v.DeviceEvidence)
+	}
+}
+
+// The axis is derived, so a hand-edited document cannot assert device work its own measurement does not
+// support. In a build with no observer this is the ONLY way the value could appear, which makes it the check
+// that matters most.
+func TestARecordCannotAssertDeviceWorkItsMeasurementDoesNotSupport(t *testing.T) {
+	b, err := encodeRecord(runRecord{
+		SchemaVersion: recordSchemaVersion, RunID: "r7", Arm: "A-honor", Dose: "self-completing",
+		Disposition: string(dispChecksPassed),
+		Measurement: &measurement{WastedGPUSeconds: 41.0, Workload: cpuOnlyWorkload()},
+		Validity: validity{Verdict: verdictRefused, Failures: []string{failureObservation},
+			DeviceEvidence: deviceWorkObserved},
+	})
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	if _, err := decodeRunRecord(b); err == nil {
+		t.Fatal("a record claimed device work while its workload states no driver call was ever made")
+	}
+
+	// And a blank axis is refused rather than read as the cautious answer.
+	blank := fmt.Appendf(nil, `{"schemaVersion":%d,"dose":"self-completing","runID":"r7","arm":"A-honor",`+
+		`"disposition":"completed-implemented-checks-passed",`+
+		`"validity":{"verdict":"refused","failures":["observation-not-continuous"]}}`, recordSchemaVersion)
+	if _, err := decodeRunRecord(blank); err == nil {
+		t.Fatal("a record with no device axis decoded")
 	}
 }

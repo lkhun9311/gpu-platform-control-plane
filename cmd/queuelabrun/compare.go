@@ -47,6 +47,11 @@ type comparison struct {
 	// When false, every difference below is confounded with time: node warming, image cache state and any
 	// drift in the cluster all move together with the arm, and nothing in the numbers can separate them.
 	Interleaved bool `json:"interleaved"`
+	// DeviceEvidence is the weakest axis among the contributing runs, because a comparison can establish
+	// device work only if every run behind it did. One run that observed nothing makes the whole document a
+	// statement about seconds of RESERVATION, and stating the strongest contributor's value instead would
+	// launder that run's silence through its neighbours.
+	DeviceEvidence string `json:"deviceEvidence"`
 	// Findings is one entry per quantity and arm pair.
 	Findings []finding `json:"findings"`
 	// Note states, in the document, what this comparison is not.
@@ -128,11 +133,12 @@ func compareRecords(recs []runRecord) (comparison, error) {
 
 	floorNs, bounded := pooledFloorNs(recs)
 	c := comparison{
-		SchemaVersion: comparisonSchemaVersion,
-		Dose:          dose,
-		FloorSeconds:  float64(floorNs) / float64(time.Second),
-		Bounded:       bounded,
-		Interleaved:   armsInterleave(recs),
+		SchemaVersion:  comparisonSchemaVersion,
+		Dose:           dose,
+		FloorSeconds:   float64(floorNs) / float64(time.Second),
+		Bounded:        bounded,
+		Interleaved:    armsInterleave(recs),
+		DeviceEvidence: pooledDeviceEvidence(recs),
 		Note: "this document reports whether a difference exceeded the coarsest resolution among the runs " +
 			"behind it, whether the arms were interleaved in time, and how many runs each arm has. It makes " +
 			"no claim of statistical significance and establishes no effect: these runs are not a sample of " +
@@ -153,6 +159,17 @@ func compareRecords(recs []runRecord) (comparison, error) {
 		}
 	}
 	return c, nil
+}
+
+// pooledDeviceEvidence is the weakest axis among the contributors, for the same reason the floor is the
+// coarsest: a set of runs establishes only what its weakest member did.
+func pooledDeviceEvidence(recs []runRecord) string {
+	for _, r := range recs {
+		if r.Validity.DeviceEvidence != deviceWorkObserved {
+			return deviceNotObserved
+		}
+	}
+	return deviceWorkObserved
 }
 
 // pooledFloorNs is the coarsest floor among the contributing runs, and false when any of them had none.
@@ -302,6 +319,11 @@ func renderComparison(c comparison) string {
 		b.WriteString("interleaved: the arms alternated in time\n")
 	}
 	b.WriteString("no effect is claimed: this tool reports resolution and confounding, not inference\n")
+	if c.DeviceEvidence != deviceWorkObserved {
+		b.WriteString("device: NOT OBSERVED -- every GPU-second below is a second of RESERVATION. No run " +
+			"behind this comparison established that a device did work, so nothing here is a statement " +
+			"about GPU computation\n")
+	}
 	for _, a := range c.Arms {
 		fmt.Fprintf(&b, "  %-9s n=%d waste mean=%.3f min=%.3f max=%.3f runs=%s\n    %s .. %s\n",
 			a.Arm, a.N, a.WastedGPUSecondsMean, a.WastedGPUSecondsMin, a.WastedGPUSecondsMax,
