@@ -8,7 +8,15 @@ all four claims held.
     verdict: admissible-under-implemented-gates
     failures: []
 
-Four runs, two per arm, on a three-node kind cluster with a fake `nvidia.com/gpu` device plugin.
+Eight runs, two per arm in each of two dose regimes, on a three-node kind cluster with a fake
+`nvidia.com/gpu` device plugin.
+
+**These are not the runs this page first reported, and the reason is worth recording.** The original four
+were written at record schema 10, before the harness could measure its own resolution at all: their events
+carry no kubelet timestamp, so the 0.4-2.4 second bound quoted for them below came from two OTHER runs taken
+six hours later. Two schema bumps since then mean no build in this tree can decode any of them. This page
+claimed the figures could be re-derived from the files rather than taken from the page, and for those files
+that had become false. They were re-run on a build that can read them back.
 
 ## What the two arms differ in
 
@@ -22,14 +30,51 @@ under `reclaimWithinCohort`.
 
 ## Result
 
-| arm | run | discarded GPU-s | unattributed occupancy | owner's readyLatency | preemption ineffective |
+| dose | arm | run | discarded GPU-s | discarded iterations | that run's own floor |
 |---|---|---|---|---|---|
-| A-honor | r001 | 41.0 | 0.0 | 2.234s | false |
-| A-honor | r003 | 40.9 | 0.0 | 2.336s | false |
-| A-ignore | r002 | **0.0** | 59.3 | **19.373s** | **true** |
-| A-ignore | r004 | **0.0** | 59.3 | **19.385s** | **true** |
+| self-completing | A-honor | e13sh1 | 41.558 | 17 722 | 1.635 s |
+| self-completing | A-honor | e13sh2 | 40.439 | 15 874 | 1.743 s |
+| self-completing | A-ignore | e13si1 | **0.000** | 22 857 | 1.256 s |
+| self-completing | A-ignore | e13si2 | **0.000** | 25 811 | 2.367 s |
+| grace-bounded | A-honor | e13gh1 | 21.336 | 8 324 | 1.813 s |
+| grace-bounded | A-honor | e13gh2 | 21.288 | 9 327 | 1.874 s |
+| grace-bounded | A-ignore | e13gi1 | **51.315** | 21 880 | 1.878 s |
+| grace-bounded | A-ignore | e13gi2 | **51.278** | 20 460 | 1.000 s |
 
-Both arms reproduce to within 0.1 GPU-seconds and 12 milliseconds across their two runs.
+Every run carries its own floor now, derived from the spread between the kubelet's stamp for a stop and this
+collector's arrival time for it. The floor is built from the SPREAD rather than the median because a harness
+uniformly late measures every interval exactly; the second of stamp quantisation sits under it because the
+skews it is computed from each absorbed up to that much truncation.
+
+## The conclusion is an artifact
+
+The runs were always reproducible. The SENTENCE they were gathered to support lived in this file and in
+arithmetic typed at a shell, so nobody could re-derive it from anything. `queuelabrun -compare` now reads a
+named set of records and answers the three questions those records can settle:
+
+    $ queuelabrun -compare 'ex/e13-grace-bounded-*.json'
+    ===== COMPARISON (dose grace-bounded) =====
+    floor=1.878s -- the coarsest resolution among the contributing runs
+    interleaved: the arms alternated in time
+    no effect is claimed: this tool reports resolution and confounding, not inference
+    device: NOT OBSERVED -- every GPU-second below is a second of RESERVATION. No run behind this
+      comparison established that a device did work, so nothing here is a statement about GPU computation
+      A-honor   n=2 waste mean=21.312 min=21.288 max=21.336 runs=e13gh1,e13gh2
+      A-ignore  n=2 waste mean=51.296 min=51.278 max=51.315 runs=e13gi1,e13gi2
+      [wastedGPUSeconds] A-honor discarded 21.3 GPU-s and A-ignore discarded 51.3, a difference of 30.0 s
+        against a 1.878 s floor, over n=2 and n=2 runs
+
+It refuses rather than excludes: a record whose own gates failed, a second dose regime, a single arm — each
+stops the comparison instead of quietly shrinking it, because a document whose file list does not describe
+its evidence is the reproducibility it exists to provide. Returning "not resolved" is its main job, not its
+failure mode.
+
+**The grace-bounded difference is the strongest number this lab has produced.** 29.98 seconds between the
+arms, against a 1.878 second floor, over four interleaved runs. That difference IS the termination grace
+period, recovered from the experiment rather than assumed by it — and unlike the sweep in
+[grace-holds-the-device.md](grace-holds-the-device.md), it was measured under real Kueue preemption with an
+exclusive-worker window, a termination canary, continuous observation and a containment audit behind each
+run.
 
 ## What is measured and what is arithmetic
 
@@ -40,23 +85,20 @@ longer. **Both headline magnitudes are constructed, not discovered.**
 
 Subtracting what the protocol set leaves what the cluster actually contributed:
 
-| quantity | protocol says | observed | residual |
-|---|---|---|---|
-| A-honor discarded | 40.0 | 40.993, 40.888 | **+0.993, +0.888** |
-| A-ignore owner wait | 20.0 | 19.373, 19.385 | **−0.627, −0.615** |
+| quantity | protocol says | observed | residual | that run's floor |
+|---|---|---|---|---|
+| A-honor discarded, self-completing | 40.0 | 41.558, 40.439 | +1.558, +0.439 | 1.635, 1.743 |
+| A-honor discarded, grace-bounded | 20.0 | 21.336, 21.288 | +1.336, +1.288 | 1.813, 1.874 |
 
 I called the first residual the control plane's own cost — about 0.94 seconds from Kueue deciding to preempt
-to the container being gone. **That was wrong, and the harness now says so itself.**
+to the container being gone. **That was wrong, and the harness now refuses to let it be said again.**
 
 Every time in this ledger is `col.elapsed()`: the collector's clock when a watch event ARRIVED, not when the
 event happened. So each interval carries however far behind those arrivals are, and that had never been
-bounded. The record now bounds it, by capturing the kubelet's own `finishedAt` beside the collector's
-observation time:
-
-| run | discarded | skew min | skew median | skew max |
-|---|---|---|---|---|
-| res1 | 41.014 | 945.7 ms | 2113.0 ms | 2113.0 ms |
-| res2 | 41.232 | 430.1 ms | 2389.2 ms | 2389.2 ms |
+bounded. The record bounds it by capturing the kubelet's own `finishedAt` beside the collector's observation
+time — and, since the retraction, DERIVES a `resolvedToNs` from it and prints it beside every magnitude. Put
+the two columns above side by side and every residual is inside its own run's floor. That is not a close
+call to be argued about; it is the same statement the record now makes as a field.
 
 **This is a bound, not a delivery time, and the distinction is the point.** The two stamps come from
 unsynchronised clocks on different machines, and `metav1.Time` serialises with SECOND precision so the
@@ -70,8 +112,9 @@ size is not resolved below it.** The residual was under a second. The gap runs f
 differs at each endpoint. The residual is therefore not resolved by this harness, and no number of
 repetitions changes that — a resolution problem is not a noise problem.
 
-What survives is what the arms differ in, which is a whole order of magnitude larger than the lag: 41 seconds
-against 0, and 19.4 seconds against 2.2. Those differences are real. The sub-second residual inside them is
+What survives is what the arms differ in, which is an order of magnitude larger than the floor: 41.0 seconds
+against 0 in the self-completing regime, and 29.98 seconds between the arms in the grace-bounded one. Those
+differences are real, and `-compare` is what says so from the files rather than from this page. The sub-second residual inside them is
 not something this harness can see, and no number of repetitions fixes that — it is a resolution problem, not
 a noise problem.
 
@@ -107,30 +150,45 @@ did.
 
 - **Nothing about GPU behaviour.** The workload is pure Python float arithmetic and the device plugin is
   fake, so a Pod that dropped its `nvidia.com/gpu` request would compute the same iterations at the same
-  rate. `measurement.workload.deviceUseEstablished` is false in all four records, with the reason beside it.
-  These are GPU-*seconds of reservation*, not of computation.
+  rate. This is no longer only a sentence on a page: `validity.deviceEvidence` reads `device-not-observed`
+  on every record, it is DERIVED from the measurement rather than written, a blank value is refused on
+  decode, and the comparison carries the weakest contributor's axis rather than the strongest. It exists
+  because a consumer reading `verdict` saw `admissible-under-implemented-gates` and had no machine-readable
+  way to learn that these are GPU-*seconds of reservation*. A run on real hardware would read identically
+  until something moves that field, which is the whole reason the field is there.
 - **Two runs per arm is two runs per arm.** The reproduction is encouraging and is not a distribution. No
-  variance is claimed and none should be quoted, and no arm EFFECT is established: four executions show
-  repeatability, not a causal difference. Falsifying the arm difference would need enough randomised,
-  interleaved replications for the intervals to overlap — or for one honouring run to show no discarded work,
-  or one ignoring run to terminate promptly.
-- **The magnitudes are the trace's.** 41 and 19.4 are the dose and the remaining service, to within a second.
-- **The residuals are inside the instrument's own uncertainty.** The gap between the kubelet's stamp and the
-  collector's arrival runs 0.4 to 2.4 seconds against residuals under one, and the kubelet's field is
-  quantised to the second. Nothing sub-second here is resolved, and this harness cannot be made to resolve it
-  by running more of the same.
-- **One trace, one dose here.** `self-completing`, where an ignoring victim finishes its own service. The
-  `grace-bounded` regime has since been run and gives the OPPOSITE answer for the same arm — see
-  [queuelab-grace-boundary.md](queuelab-grace-boundary.md). That comparison, not this page's magnitudes, is
-  what the experiment turned out to be for.
+  variance is claimed and none should be quoted, and no arm EFFECT is established: `-compare` says so in the
+  document itself rather than leaving it to a reader's memory — it reports resolution and confounding, not
+  inference, because these runs are not a sample of anything and their variance has never been characterised.
+- **The magnitudes are the trace's.** 41 and 21 are the dose and the remaining service, to within a floor.
+  The one number that is NOT the trace's is the 29.98 s between the grace-bounded arms, which is the grace
+  period the cluster defaults to and which the protocol never sets.
+- **The residuals are inside each run's own floor.** Compare the two right-hand columns of the residual table
+  above: every residual is smaller than the floor of the run it came from. Nothing sub-second here is
+  resolved, and this harness cannot be made to resolve it by running more of the same — a resolution limit is
+  not a noise level.
+- **Both regimes are here now.** `self-completing`, where an ignoring victim finishes its own service, and
+  `grace-bounded`, where the grace period cuts it short — and the same arm gives OPPOSITE answers in the two.
+  See [queuelab-grace-boundary.md](queuelab-grace-boundary.md). That contrast, not this page's magnitudes, is
+  what the experiment turned out to be for. `-compare` refuses to pool them, because two regimes measuring
+  different quantities produce a difference that answers no single question.
 
 ## Reproducing
 
     go build -o queuelabrun ./cmd/queuelabrun
     ./queuelabrun -inspect-worker -worker platform-worker        # must print FREE
     ./queuelabrun -preview -arm A-honor -runid pv1 -worker platform-worker -out ./ex/preview.json
-    ./queuelabrun -arm A-honor  -runid r001 -worker platform-worker -out ./ex/run-A-honor-r001.json
-    ./queuelabrun -arm A-ignore -runid r002 -worker platform-worker -out ./ex/run-A-ignore-r002.json
+    ./queuelabrun -termination-canary -worker platform-worker    # must print QUALIFIED
+    ./queuelabrun -dose self-completing -arm A-honor  -runid h1 -worker platform-worker -out ./ex/h1.json
+    ./queuelabrun -dose self-completing -arm A-ignore -runid i1 -worker platform-worker -out ./ex/i1.json
+    ./queuelabrun -compare 'ex/h*.json,ex/i*.json' -compare-out ./ex/comparison.json
+
+Take the arms alternately. The comparison checks that they did and says CONFOUNDED on the finding itself when
+they did not — a block of one arm followed by a block of the other moves with everything else that changed
+between the two blocks, and no arithmetic separates them afterwards.
+
+The canary must be re-taken whenever the harness commit changes: the qualification is keyed to it, so a
+reading from an earlier build refuses rather than silently qualifying a different mechanism.
 
 The preview runs and checks exactly as a real run does and withholds both the ledger and the numbers, so it
 is the right way to find out whether the cluster is in a state that can produce evidence before spending a

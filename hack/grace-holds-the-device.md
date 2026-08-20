@@ -1,27 +1,53 @@
-# The device is held for min(remaining service, grace period)
+# A Pod survives its own deletion for min(remaining service, grace period)
 
-The reclaim experiment showed that a workload ignoring SIGTERM defeats quota reclaim while its remaining
-service fits inside the termination grace period, and is cut off at grace once it does not. Two points, one
-on each side. It implied a model and did not test one:
+The title used to say "the device is held", and that was an inference this repository refuses everywhere
+else. What the script below measures is how long a Pod OBJECT survives after `kubectl delete`, on Pods that
+request no device at all, on a cluster whose `nvidia.com/gpu` capacity comes from a fake device plugin. Every
+run record in this lab carries `deviceUseEstablished: false` precisely so that GPU-seconds are never read as
+computation; a title claiming otherwise was the same overclaim with the caveat moved to the bottom of the
+page. It is corrected here rather than quietly deleted, because the correction is the point: the model below
+is about Pod lifetime, and device occupancy FOLLOWS Pod lifetime, which is a second step this page does not
+take.
+
+The model:
 
     held = min(remaining service, grace period)
 
-That model is why the admission guard caps grace at 120 seconds for device holders, so it should be measured
-rather than assumed.
+It matters because the admission guard caps grace at 120 seconds for device holders, and a cap wants a
+measured curve rather than an assumed one.
 
-## Why not through the queuelab
+## What the lab establishes without this script
 
-Two reasons, and the second is the more interesting.
+This page used to claim the lab could not reach this axis at all, and that claim was too strong. The lab
+measures the grace period DIRECTLY, inside every validity gate it has, as the difference between its two arms
+in the `grace-bounded` regime:
 
-`MLTrainingJob` has no grace field, so the lab cannot vary this axis at all.
+| dose regime | A-honor discards | A-ignore discards | difference | run's own floor |
+|---|---|---|---|---|
+| grace-bounded | 21.312 GPU-s | 51.296 GPU-s | **29.98 s** | 1.878 s |
 
-More to the point, `TerminationContractTrace` **refuses** any dose whose remaining service does not match the
-declared regime — `self-completing` errors at or above the grace period, `grace-bounded` errors below it. The
-guard is right to exist: it stops a run silently sitting in a regime other than the one it claims. But it
-also writes `terminationGraceSec = 30` into the harness as an axiom and rejects every configuration that
-would probe it. The lab cannot answer where the knee is, because it will not run the points near it.
+That difference IS the grace period, recovered from the experiment rather than assumed by it, over four
+interleaved runs with an exclusive-worker window, a termination canary, continuous list/watch observation and
+a containment audit behind each one. `queuelabrun -compare` re-derives it from the records.
 
-So this uses plain Pods, where the parameter is free.
+So the load-bearing half of the finding — that an unresponsive victim converts grace into the owner's waiting
+time — is gated. What is NOT gated is the SHAPE of the curve across grace values, and that is what remains
+below.
+
+## Why the sweep still runs outside the lab
+
+`MLTrainingJob` has no grace field, so the lab cannot vary this axis.
+
+`TerminationContractTrace` also refuses any dose whose remaining service does not match the declared regime —
+`self-completing` errors at or above the grace period, `grace-bounded` errors below it. That guard is right
+to exist: it stops a run silently sitting in a regime other than the one it claims.
+
+Adding the field was proposed and rejected under review. `terminationGraceSec = 30` is not an axiom the lab
+asserts: it is the apiserver's own default, and `judgeCanary` REFUSES to qualify a worker whose stored value
+is anything else. Making the harness set grace would turn that environment check into a tautology, dissolve
+the four other constants sized against 30, and expose a field that would let a tenant quadruple the worst-case
+reclaim the cap exists to bound. The sweep stays out here, on plain Pods, where the parameter is free and
+where what is measured is honestly a Pod's lifetime.
 
 ## Result
 
@@ -42,9 +68,11 @@ it the hold tracks remaining service and stops responding to grace at all. Resid
 
 ## What it means for the platform
 
-**A borrower holds a reclaimed device for `min(its remaining work, its own grace period)`.** Both terms are
-the tenant's: it chooses the workload and it chooses the grace. The platform's only lever is a cap on the
-second, which is why one exists.
+**A borrower's Pod survives reclamation for `min(its remaining work, its own grace period)`, and a device is
+released when its Pod is gone.** Both terms are the tenant's: it chooses the workload and it chooses the
+grace. The platform's only lever is a cap on the second, which is why one exists. The second clause is the
+step this page does not measure — it is how Kubernetes accounts for extended resources, not an observation
+made here.
 
 The cap turns an unbounded hold into a bounded one. At `grace ≤ 120` the worst case is 120 seconds regardless
 of how long the workload would otherwise have run — the second row of the table, generalised. Without it,
@@ -57,9 +85,11 @@ owner the most.
 
 ## What it does not say
 
-- **No GPU.** These Pods request no device at all; the quantity measured is how long a Pod object survives
-  its own deletion, which is what a device-holder's occupancy would follow. The reclaim experiment measured
-  the device-holding version and agrees at the two points it can reach.
+- **No GPU, and no device at all.** These Pods request none; the quantity measured is how long a Pod object
+  survives its own deletion. That a device-holder's occupancy follows its Pod's lifetime is how Kubernetes
+  accounts for extended resources, not something observed here — and on this cluster the capacity is
+  advertised by a fake device plugin, so even the reclaim experiment measures seconds of RESERVATION. The
+  physical-device claim stays an inference until a real-GPU stage.
 - **One workload shape.** `sleep` as PID 1. A workload that handles SIGTERM and exits promptly holds the
   device for as long as its handler takes, which this does not measure.
 - **Five points, one run each.** The knee is located between 30 and 60 by two points either side of 43, not
