@@ -1579,15 +1579,18 @@ func TestARecordFromAnEarlierSchemaIsRefused(t *testing.T) {
 	// run established device WORK is a field a consumer classifies on rather than a paragraph of English in
 	// unimplementedGates. Version 14 added measurement.ownerAdmitToReadyNs, where the absent value is nil --
 	// which this build genuinely writes, for a run whose owner never came back. Without the bump an older
-	// record reads as the experiment's worst outcome rather than as a run nobody measured it on.
-	if recordSchemaVersion != 14 {
+	// record reads as the experiment's worst outcome rather than as a run nobody measured it on. Version 15
+	// changed what resolvedToNs MEANS (spread + quantisation, not max) and where the ledger's component
+	// stamps are sampled (every endpoint kind, not stops alone), so an older record carries the same field
+	// names holding different quantities.
+	if recordSchemaVersion != 15 {
 		t.Fatalf("recordSchemaVersion is %d; if the wire format changed again, bump this and say what changed",
 			recordSchemaVersion)
 	}
 	// Both predecessors, not only the immediate one. DisallowUnknownFields makes a version-9 document fail on
 	// the removed fields and a version-8 one fail on the version alone, and a decoder that accepted either
 	// would be reading a document whose fields do not mean what this build thinks they do.
-	for _, older := range []int{9, 10, 11, 12, 13} {
+	for _, older := range []int{9, 10, 11, 12, 13, 14} {
 		b := fmt.Appendf(nil, `{"schemaVersion":%d,"dose":"self-completing","runID":"r7","arm":"A-honor",`+
 			`"disposition":"completed-implemented-checks-passed",%s}`, older, refusedValidity)
 		if _, err := decodeRunRecord(b); err == nil {

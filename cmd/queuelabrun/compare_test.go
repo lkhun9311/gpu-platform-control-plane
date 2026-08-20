@@ -51,7 +51,7 @@ func TestCompareResolvesTheCategoricalDifference(t *testing.T) {
 	}
 	waste := findingFor(t, c, "wastedGPUSeconds")
 	if !waste.Resolved {
-		t.Fatalf("a 41s difference against a 1.959s floor must resolve: %+v", waste)
+		t.Fatalf("a 41s difference against a 3.918s difference floor must resolve: %+v", waste)
 	}
 	if strings.Contains(waste.Statement, "CONFOUNDED") {
 		t.Fatalf("alternating runs reported as confounded: %s", waste.Statement)
@@ -72,7 +72,7 @@ func TestCompareRefusesADifferenceInsideTheFloor(t *testing.T) {
 	}
 	waste := findingFor(t, c, "wastedGPUSeconds")
 	if waste.Resolved {
-		t.Fatalf("0.94s resolved against a 1.959s floor: %+v", waste)
+		t.Fatalf("0.94s resolved against a 3.918s difference floor: %+v", waste)
 	}
 	if !strings.Contains(waste.Statement, "NOT RESOLVED") ||
 		!strings.Contains(waste.Statement, "not a noise level") {
@@ -90,11 +90,13 @@ func TestComparePoolsTheCoarsestFloor(t *testing.T) {
 	if err != nil {
 		t.Fatalf("compare: %v", err)
 	}
-	if c.FloorSeconds != 6 {
-		t.Fatalf("pooled floor = %v, want the coarsest contributor's 6s", c.FloorSeconds)
+	if c.WorstRunFloorSeconds != 6 {
+		t.Fatalf("worst-run floor = %v, want the coarsest contributor's 6s", c.WorstRunFloorSeconds)
 	}
+	// The finding is tested against the SUM of the two arms' floors, not the larger, because the difference
+	// carries both errors: 0.1 + 6 = 6.1 s here.
 	if findingFor(t, c, "wastedGPUSeconds").Resolved {
-		t.Fatal("a 5s difference resolved against a 6s floor")
+		t.Fatal("a 5s difference resolved against a 6.1s difference floor")
 	}
 }
 
@@ -254,7 +256,7 @@ func TestCompareReportsWhatTheQuotaOwnerWaited(t *testing.T) {
 		t.Fatal("the comparison reports the borrower's loss and not the owner's wait")
 	}
 	if !owner.Resolved {
-		t.Fatalf("a 28 s difference against a 1.878 s floor did not resolve: %+v", owner)
+		t.Fatalf("a 28 s difference against a 3.756 s difference floor did not resolve: %+v", owner)
 	}
 	if !strings.Contains(owner.Statement, "reclaim promise is judged on") {
 		t.Fatalf("the statement does not say which of the two numbers is the promise: %s", owner.Statement)
@@ -362,5 +364,106 @@ func TestDoseSensitivityRefusesToPoolArms(t *testing.T) {
 	}
 	if _, err := checkDoseSensitivity(absent); err == nil {
 		t.Fatal("a regime whose owner never returned was folded into a dose response")
+	}
+}
+
+// A difference between two arms carries BOTH of their errors, and they can lean opposite ways, so the
+// resolution of the difference is the sum of the two floors and never the larger.
+//
+// Mutation that turns this red: return max(a.FloorSeconds, b.FloorSeconds) from differenceFloor.
+func TestTheDifferenceFloorIsTheSumOfBothArms(t *testing.T) {
+	c, err := compareRecords([]runRecord{
+		cmpRec("a1", "A-honor", "self-completing", "2026-08-20T05:00:00Z", 10.0, 2*int64(time.Second)),
+		cmpRec("b1", "A-ignore", "self-completing", "2026-08-20T05:05:00Z", 7.0, 2*int64(time.Second)),
+	})
+	if err != nil {
+		t.Fatalf("compare: %v", err)
+	}
+	// 3 s of difference against two 2 s arms. Under the larger-of-the-two rule this resolved; it must not.
+	if findingFor(t, c, "wastedGPUSeconds").Resolved {
+		t.Fatal("a 3 s difference resolved against two arms each bounded at 2 s; the error budget is 4 s")
+	}
+	// And 5 s does clear it, so the rule is a bound rather than a refusal to ever conclude.
+	c2, err := compareRecords([]runRecord{
+		cmpRec("a1", "A-honor", "self-completing", "2026-08-20T05:00:00Z", 10.0, 2*int64(time.Second)),
+		cmpRec("b1", "A-ignore", "self-completing", "2026-08-20T05:05:00Z", 5.0, 2*int64(time.Second)),
+	})
+	if err != nil {
+		t.Fatalf("compare: %v", err)
+	}
+	if !findingFor(t, c2, "wastedGPUSeconds").Resolved {
+		t.Fatal("a 5 s difference did not clear a 4 s budget; the floor has stopped being a bound")
+	}
+}
+
+// A mean over the runs whose owner came back omits the slow tail, and the tail is exactly what a reader
+// worried about an arm wants to see. The figures stay; the verdict does not.
+func TestASurvivorMeanIsNeverResolved(t *testing.T) {
+	c, err := compareRecords([]runRecord{
+		withOwnerWait(cmpRec("a1", "A-honor", "self-completing", "2026-08-20T05:00:00Z", 41.0, int64(time.Second)), 2.5),
+		withOwnerWait(cmpRec("a2", "A-honor", "self-completing", "2026-08-20T05:10:00Z", 41.0, int64(time.Second)), 2.6),
+		withOwnerWait(cmpRec("b1", "A-ignore", "self-completing", "2026-08-20T05:05:00Z", 0.0, int64(time.Second)), 30.0),
+		cmpRec("b2", "A-ignore", "self-completing", "2026-08-20T05:15:00Z", 0.0, int64(time.Second)),
+	})
+	if err != nil {
+		t.Fatalf("compare: %v", err)
+	}
+	owner := findingFor(t, c, "ownerAdmitToReadySeconds")
+	if owner.Resolved {
+		t.Fatal("a 27 s difference resolved while one arm's mean was over its survivors only")
+	}
+	if !strings.Contains(owner.Statement, "SURVIVOR MEAN") {
+		t.Fatalf("the statement does not name the bias: %s", owner.Statement)
+	}
+}
+
+// The dose check refuses a regime that did not restore its owner every time, rather than reporting a mean
+// with a known direction of bias. It licenses a baseline for a session nobody can re-run cheaply.
+func TestDoseSensitivityRefusesASurvivorMean(t *testing.T) {
+	recs := []runRecord{
+		withOwnerWait(cmpRec("gh1", "A-honor", "grace-bounded", "2026-08-20T05:00:00Z", 21.3, int64(time.Second)), 2.7),
+		withOwnerWait(cmpRec("gh2", "A-honor", "grace-bounded", "2026-08-20T05:10:00Z", 21.3, int64(time.Second)), 2.8),
+		withOwnerWait(cmpRec("sh1", "A-honor", "self-completing", "2026-08-20T05:05:00Z", 41.5, int64(time.Second)), 2.6),
+		cmpRec("sh2", "A-honor", "self-completing", "2026-08-20T05:15:00Z", 41.4, int64(time.Second)),
+	}
+	if _, err := checkDoseSensitivity(recs); err == nil {
+		t.Fatal("a regime that restored its owner once out of twice produced a dose verdict")
+	}
+}
+
+// Blocked regimes are confounded with whatever changed between the blocks, and this document had no such
+// check while the arm comparison did — in the direction where its absence hurts most, since "no response" is
+// the verdict that licenses a baseline.
+func TestDoseSensitivityReportsWhetherTheRegimesAlternated(t *testing.T) {
+	blocked := []runRecord{
+		withOwnerWait(cmpRec("gh1", "A-honor", "grace-bounded", "2026-08-20T05:00:00Z", 21.3, int64(time.Second)), 2.7),
+		withOwnerWait(cmpRec("gh2", "A-honor", "grace-bounded", "2026-08-20T05:05:00Z", 21.3, int64(time.Second)), 2.8),
+		withOwnerWait(cmpRec("sh1", "A-honor", "self-completing", "2026-08-20T09:00:00Z", 41.5, int64(time.Second)), 2.6),
+		withOwnerWait(cmpRec("sh2", "A-honor", "self-completing", "2026-08-20T09:05:00Z", 41.4, int64(time.Second)), 2.65),
+	}
+	d, err := checkDoseSensitivity(blocked)
+	if err != nil {
+		t.Fatalf("dose sensitivity: %v", err)
+	}
+	if d.Interleaved {
+		t.Fatal("two blocks of runs were reported as alternating")
+	}
+	if !strings.Contains(renderDoseSensitivity(d), "NOT INTERLEAVED") {
+		t.Fatalf("the render hides the confound:\n%s", renderDoseSensitivity(d))
+	}
+
+	// And the alternating case is reported as such, or the check is a constant.
+	alternating := []runRecord{
+		withOwnerWait(cmpRec("gh1", "A-honor", "grace-bounded", "2026-08-20T05:00:00Z", 21.3, int64(time.Second)), 2.7),
+		withOwnerWait(cmpRec("sh1", "A-honor", "self-completing", "2026-08-20T05:05:00Z", 41.5, int64(time.Second)), 2.6),
+		withOwnerWait(cmpRec("gh2", "A-honor", "grace-bounded", "2026-08-20T05:10:00Z", 21.3, int64(time.Second)), 2.8),
+		withOwnerWait(cmpRec("sh2", "A-honor", "self-completing", "2026-08-20T05:15:00Z", 41.4, int64(time.Second)), 2.65),
+	}
+	da, err := checkDoseSensitivity(alternating)
+	if err != nil {
+		t.Fatalf("dose sensitivity: %v", err)
+	}
+	if !da.Interleaved {
+		t.Fatal("alternating regimes were reported as blocked")
 	}
 }

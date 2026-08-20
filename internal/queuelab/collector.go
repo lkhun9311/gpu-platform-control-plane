@@ -110,10 +110,13 @@ func (b *LedgerBuilder) Observe(delta DeltaType, kind, uid, job string, st Obser
 			Reason:        st.Reason,
 			ExitCode:      st.ExitCode,
 			Iterations:    st.Iterations,
-			// Both clocks for the same instant: when the kubelet says the container stopped, and when this
-			// collector heard about it. Their difference bounds how finely any interval here can be read.
-			FinishedUnixNanos: st.FinishedUnixNanos,
-			ObservedSkewNs:    skewNs(b.wallAnchorNs, elapsedNs, st.FinishedUnixNanos),
+			// Both clocks for the same instant: the component's own stamp for the state, and when this
+			// collector heard about it. Their difference is what bounds how finely intervals ENDING AT THIS
+			// KIND OF EVENT can be read -- which is why the stamp is now taken at admissions and readiness
+			// too, and not only at stops. A bound sampled at one kind of endpoint says nothing about an
+			// interval between two others.
+			ComponentStampUnixNanos: st.ComponentStampUnixNanos,
+			ObservedSkewNs:          skewNs(b.wallAnchorNs, elapsedNs, st.ComponentStampUnixNanos),
 		})
 		b.lastEvent[uid] = st.Event
 		switch st.Event {

@@ -94,7 +94,23 @@ import (
 // as a run whose owner never came back -- the worst outcome the experiment can produce -- when in truth it
 // is a run from a build that never asked. The bump separates "the owner did not return" from "nobody
 // measured whether it did", and nothing in the document itself can.
-const recordSchemaVersion = 14
+// Version 15 carries two corrections to the same machinery, and a record from before it is refused because
+// both changed what a stored number MEANS rather than adding one.
+//
+// measurement.resolution.resolvedToNs was max(spread, quantisation) and is now spread + quantisation. The
+// old rule under-bounded by up to a full second in every configuration with a nonzero spread: the kubelet's
+// stamp truncates downward, so truncation can COMPRESS the observed spread as easily as widen it, and the
+// true lag spread is bounded by observed + 1s rather than by either alone. A version-14 record carries the
+// smaller number under the same field name, so a build applying today's rules to it would credit the run
+// with a resolution it never had.
+//
+// events[].finishedUnixNanos became componentStampUnixNanos, and the rename is the smaller half of a
+// measurement fix. The stamp used to be taken only where a container stopped, while the interval this lab
+// publishes as its headline runs from a Kueue admission to a kubelet readiness -- so the bound was derived
+// from events neither of its endpoints was. Admissions and readiness now carry their components' own stamps.
+// A version-14 record's ledger therefore samples a different population than today's, and pooling the two
+// would mix a stop-only bound with an all-endpoints one.
+const recordSchemaVersion = 15
 
 // runRecord is what a non-preview invocation leaves behind.
 //
@@ -400,7 +416,8 @@ type measurement struct {
 // with no way here to separate them. What it supports is one statement: an interval is not resolved below
 // this spread. It does not support "the watch is N milliseconds late".
 type observationResolution struct {
-	// Samples is how many stop events carried a kubelet timestamp to compare against.
+	// Samples is how many events carried their component's own timestamp: admissions, readiness transitions
+	// and stops alike, since all three are endpoints of intervals this record publishes.
 	Samples int `json:"samples"`
 	// MinNs, MedianNs and MaxNs describe the observed lag.
 	MinNs    int64 `json:"minNs"`

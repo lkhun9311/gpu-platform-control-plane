@@ -54,9 +54,14 @@ type LifecycleEvent struct {
 	Iterations *int `json:"iterations,omitempty"`
 	// Job is the trace job name this event belongs to, resolved by the collector through the UID chain.
 	Job string `json:"job"`
-	// FinishedUnixNanos is the kubelet's own wall clock for the container stopping, absent unless this event
-	// is a stop whose terminated status carried one.
-	FinishedUnixNanos *int64 `json:"finishedUnixNanos,omitempty"`
+	// ComponentStampUnixNanos is the cluster component's own wall clock for the state this event describes:
+	// the kubelet's finishedAt for a stop, its Ready condition transition for a running Pod, Kueue's Admitted
+	// transition for an admission. Absent when the component published none.
+	//
+	// It is beside ElapsedNs, which is when this collector HEARD about the state, and the gap between them is
+	// what ObservedSkewNs carries. Both are kept because a reader holding only one of them cannot tell a slow
+	// cluster from a slow watch.
+	ComponentStampUnixNanos *int64 `json:"componentStampUnixNanos,omitempty"`
 	// ObservedSkewNs is the gap between the kubelet's stamp and this collector's arrival time, in the
 	// collector's own frame.
 	//

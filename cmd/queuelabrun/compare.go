@@ -36,9 +36,13 @@ type comparison struct {
 	Dose string `json:"dose"`
 	// Arms summarises each arm's contributing runs.
 	Arms []armSummary `json:"arms"`
-	// FloorSeconds is the coarsest resolution any contributing run had, and it governs the whole comparison:
-	// a set of runs cannot distinguish something more finely than its worst-resolved member could.
-	FloorSeconds float64 `json:"floorSeconds"`
+	// WorstRunFloorSeconds is the coarsest single-run bound among the contributors, reported for orientation.
+	//
+	// It is NOT what any finding is tested against, and the distinction cost a review to notice. A finding
+	// compares two arms, so it carries both arms' errors and is tested against the SUM of their floors --
+	// see armSummary.FloorSeconds and differenceFloor. Publishing this number as though it governed the
+	// findings understates their error budget by up to a factor of two.
+	WorstRunFloorSeconds float64 `json:"worstRunFloorSeconds"`
 	// Bounded is false when any contributing run bounded nothing, in which case nothing here is resolved.
 	// The zero value is the safe one: an unbounded comparison resolves nothing.
 	Bounded bool `json:"bounded"`
@@ -82,8 +86,15 @@ type armSummary struct {
 	OwnerWaitSecondsMin  float64 `json:"ownerWaitSecondsMin,omitempty"`
 	OwnerWaitSecondsMax  float64 `json:"ownerWaitSecondsMax,omitempty"`
 	OwnerWaitRuns        int     `json:"ownerWaitRuns"`
-	FirstStartedAt       string  `json:"firstStartedAt"`
-	LastStartedAt        string  `json:"lastStartedAt"`
+	// FloorSeconds is the coarsest resolution among THIS arm's runs. It is per-arm because a difference
+	// between two arms carries both of their errors, and they can be opposite-signed: the resolution of the
+	// difference is the SUM of the two, never the larger. Taking the larger bounds one side and forgets the
+	// other, which understates the error budget by up to a factor of two.
+	FloorSeconds float64 `json:"floorSeconds"`
+	// Bounded is false when any of this arm's runs bounded nothing.
+	Bounded        bool   `json:"bounded"`
+	FirstStartedAt string `json:"firstStartedAt"`
+	LastStartedAt  string `json:"lastStartedAt"`
 }
 
 // finding is one quantity compared across one pair of arms.
@@ -141,12 +152,12 @@ func compareRecords(recs []runRecord) (comparison, error) {
 
 	floorNs, bounded := pooledFloorNs(recs)
 	c := comparison{
-		SchemaVersion:  comparisonSchemaVersion,
-		Dose:           dose,
-		FloorSeconds:   float64(floorNs) / float64(time.Second),
-		Bounded:        bounded,
-		Interleaved:    armsInterleave(recs),
-		DeviceEvidence: pooledDeviceEvidence(recs),
+		SchemaVersion:        comparisonSchemaVersion,
+		Dose:                 dose,
+		WorstRunFloorSeconds: float64(floorNs) / float64(time.Second),
+		Bounded:              bounded,
+		Interleaved:          armsInterleave(recs),
+		DeviceEvidence:       pooledDeviceEvidence(recs),
 		Note: "this document reports whether a difference exceeded the coarsest resolution among the runs " +
 			"behind it, whether the arms were interleaved in time, and how many runs each arm has. It makes " +
 			"no claim of statistical significance and establishes no effect: these runs are not a sample of " +
@@ -163,8 +174,9 @@ func compareRecords(recs []runRecord) (comparison, error) {
 	}
 	for i := 0; i < len(c.Arms); i++ {
 		for j := i + 1; j < len(c.Arms); j++ {
-			c.Findings = append(c.Findings, compareWaste(c.Arms[i], c.Arms[j], floorNs, bounded, c.Interleaved))
-			c.Findings = append(c.Findings, compareOwnerWait(c.Arms[i], c.Arms[j], floorNs, bounded, c.Interleaved))
+			floor, ok := differenceFloor(c.Arms[i], c.Arms[j])
+			c.Findings = append(c.Findings, compareWaste(c.Arms[i], c.Arms[j], floor, ok, c.Interleaved))
+			c.Findings = append(c.Findings, compareOwnerWait(c.Arms[i], c.Arms[j], floor, ok, c.Interleaved))
 		}
 	}
 	return c, nil
@@ -211,9 +223,20 @@ func pooledFloorNs(recs []runRecord) (int64, bool) {
 // confounding either happened or cannot be ruled out, and those two are the same for a reader deciding how
 // much to trust the difference.
 func armsInterleave(recs []runRecord) bool {
+	return armsInterleaveBy(recs, func(r runRecord) string { return r.Arm })
+}
+
+// armsInterleaveBy is the same test over any grouping of the runs.
+//
+// It is generalised because the dose-sensitivity check needs exactly this question about REGIMES and went
+// without it: the arm comparison warned about blocked runs while the document that licenses a GPU baseline
+// did not, and the bias runs the wrong way there. Its favourable verdict is "no response", and undetected
+// drift between two blocks manufactures a response rather than hiding one -- so the missing check made the
+// document harder to trust in the direction it was least able to notice.
+func armsInterleaveBy(recs []runRecord, key func(runRecord) string) bool {
 	type started struct {
-		at  time.Time
-		arm string
+		at    time.Time
+		group string
 	}
 	seq := make([]started, 0, len(recs))
 	distinct := map[string]struct{}{}
@@ -222,13 +245,14 @@ func armsInterleave(recs []runRecord) bool {
 		if err != nil {
 			return false
 		}
-		seq = append(seq, started{at: t, arm: r.Arm})
-		distinct[r.Arm] = struct{}{}
+		g := key(r)
+		seq = append(seq, started{at: t, group: g})
+		distinct[g] = struct{}{}
 	}
 	sort.Slice(seq, func(i, j int) bool { return seq[i].at.Before(seq[j].at) })
 	blocks := 0
 	for i, s := range seq {
-		if i == 0 || seq[i-1].arm != s.arm {
+		if i == 0 || seq[i-1].group != s.group {
 			blocks++
 		}
 	}
@@ -281,11 +305,27 @@ func summariseArm(arm string, recs []runRecord) armSummary {
 	if s.OwnerWaitRuns > 0 {
 		s.OwnerWaitSecondsMean = waitSum / float64(s.OwnerWaitRuns)
 	}
+	floorNs, bounded := pooledFloorNs(recs)
+	s.FloorSeconds, s.Bounded = float64(floorNs)/float64(time.Second), bounded
 	return s
 }
 
+// differenceFloor is the resolution of a difference between two arms: the SUM of their floors.
+//
+// Each arm's figure carries its own error, the two are measured independently, and nothing forces them to
+// lean the same way. An arm biased high against one biased low produces a difference wrong by both amounts,
+// so the larger of the two bounds one side and silently drops the other. The current published differences
+// survive the correction with an order of magnitude to spare; a GPU session's expected two-to-five second
+// effect would not, which is why this is worth getting right before the money rather than after.
+func differenceFloor(a, b armSummary) (float64, bool) {
+	if !a.Bounded || !b.Bounded {
+		return 0, false
+	}
+	return a.FloorSeconds + b.FloorSeconds, true
+}
+
 // compareWaste states what the two arms' discarded work supports, and nothing beyond it.
-func compareWaste(a, b armSummary, floorNs int64, bounded, interleaved bool) finding {
+func compareWaste(a, b armSummary, floor float64, bounded, interleaved bool) finding {
 	diff := a.WastedGPUSecondsMean - b.WastedGPUSecondsMean
 	if diff < 0 {
 		diff = -diff
@@ -297,9 +337,9 @@ func compareWaste(a, b armSummary, floorNs int64, bounded, interleaved bool) fin
 		ValueA:            a.WastedGPUSecondsMean,
 		ValueB:            b.WastedGPUSecondsMean,
 		DifferenceSeconds: diff,
-		Resolved:          bounded && diff > float64(floorNs)/float64(time.Second),
+		Resolved:          bounded && diff > floor,
 	}
-	f.Statement = wasteStatement(f, floorNs, bounded, interleaved, a, b)
+	f.Statement = wasteStatement(f, floor, bounded, interleaved, a, b)
 	return f
 }
 
@@ -308,14 +348,13 @@ func compareWaste(a, b armSummary, floorNs int64, bounded, interleaved bool) fin
 // It is generated rather than written by hand because the failure this whole file exists to prevent is a
 // sentence that outlives the numbers it was true of. A hand-written line saying "honouring SIGTERM costs 41
 // GPU-seconds" stayed correct-looking after the harness learned it could not resolve the residual inside it.
-func wasteStatement(f finding, floorNs int64, bounded, interleaved bool, a, b armSummary) string {
+func wasteStatement(f finding, floor float64, bounded, interleaved bool, a, b armSummary) string {
 	var sb strings.Builder
 	if !bounded {
 		fmt.Fprintf(&sb, "NOT RESOLVED: a contributing run bounded nothing, so the %.1f s gap between %s and %s "+
 			"is not known to be larger than what the harness could see", f.DifferenceSeconds, f.ArmA, f.ArmB)
 		return sb.String()
 	}
-	floor := float64(floorNs) / float64(time.Second)
 	if !f.Resolved {
 		fmt.Fprintf(&sb, "NOT RESOLVED: %s and %s differ by %.3f s, which is inside this comparison's %.3f s "+
 			"floor. No number of repetitions changes that -- a resolution limit is not a noise level",
@@ -336,7 +375,7 @@ func wasteStatement(f finding, floorNs int64, bounded, interleaved bool, a, b ar
 //
 // The discarded seconds beside it are the borrower's loss: real, and not a service-level objective. "Your
 // reclaimed capacity comes back within X" is, and this is X.
-func compareOwnerWait(a, b armSummary, floorNs int64, bounded, interleaved bool) finding {
+func compareOwnerWait(a, b armSummary, floor float64, bounded, interleaved bool) finding {
 	f := finding{Quantity: "ownerAdmitToReadySeconds", ArmA: a.Arm, ArmB: b.Arm}
 	if a.OwnerWaitRuns == 0 || b.OwnerWaitRuns == 0 {
 		f.Statement = fmt.Sprintf("NOT COMPUTED: %s restored its owner in %d of %d runs and %s in %d of %d; "+
@@ -351,8 +390,20 @@ func compareOwnerWait(a, b armSummary, floorNs int64, bounded, interleaved bool)
 		diff = -diff
 	}
 	f.DifferenceSeconds = diff
-	f.Resolved = bounded && diff > float64(floorNs)/float64(time.Second)
-	floor := float64(floorNs) / float64(time.Second)
+	f.Resolved = bounded && diff > floor
+	// A mean taken over the runs whose owner came back is a SURVIVOR mean, and it is biased in a known
+	// direction: the runs excluded are the slow tail, up to and including never. Comparing one against an
+	// arm that restored every time understates exactly the arm that restored less often, which is the arm a
+	// reader is most likely to be worried about. The figures are still reported -- they are what happened --
+	// but nothing derived from them may be called resolved.
+	if a.OwnerWaitRuns < a.N || b.OwnerWaitRuns < b.N {
+		f.Resolved = false
+		f.Statement = fmt.Sprintf("SURVIVOR MEAN, NOT RESOLVED: %s restored its owner in %d of %d runs and %s "+
+			"in %d of %d. The means below are over the runs that came back, so they omit the slow tail of "+
+			"whichever arm omitted more of it: %.3f s under %s against %.3f s under %s",
+			a.Arm, a.OwnerWaitRuns, a.N, b.Arm, b.OwnerWaitRuns, b.N, f.ValueA, a.Arm, f.ValueB, b.Arm)
+		return f
+	}
 	switch {
 	case !bounded:
 		f.Statement = fmt.Sprintf("NOT RESOLVED: a contributing run bounded nothing, so the %.1f s gap "+
@@ -382,7 +433,8 @@ func renderComparison(c comparison) string {
 	if !c.Bounded {
 		b.WriteString("UNBOUNDED: a contributing run carried no resolution, so nothing below is resolved\n")
 	} else {
-		fmt.Fprintf(&b, "floor=%.3fs -- the coarsest resolution among the contributing runs\n", c.FloorSeconds)
+		fmt.Fprintf(&b, "worstRunFloor=%.3fs -- orientation only; each finding below is tested against the SUM "+
+			"of its two arms' floors, because a difference carries both of their errors\n", c.WorstRunFloorSeconds)
 	}
 	if !c.Interleaved {
 		b.WriteString("NOT INTERLEAVED: the arms did not alternate in time, so every difference below is " +
@@ -508,9 +560,16 @@ type doseSensitivity struct {
 	Arm           string `json:"arm"`
 	// Doses is one entry per regime, each summarising that regime's runs of this arm.
 	Doses []doseGroup `json:"doses"`
-	// FloorSeconds is the coarsest resolution among every contributing run.
+	// FloorSeconds is the SUM of the two regimes' floors, because the spread below is a difference between
+	// two independently measured means and carries both of their errors.
 	FloorSeconds float64 `json:"floorSeconds"`
 	Bounded      bool    `json:"bounded"`
+	// Interleaved is whether the regimes alternate in the order the runs were taken. When false, any response
+	// this reports moves together with everything else that changed between the two blocks -- node warming,
+	// image cache, cluster drift -- and the check cannot tell them apart. It was missing from this document
+	// while the arm comparison had it, which is exactly the direction the bias runs: the verdict that licenses
+	// a GPU baseline is "no response", and undetected drift makes a response appear rather than disappear.
+	Interleaved bool `json:"interleaved"`
 	// SpreadSeconds is the largest gap between any two regimes' mean owner wait.
 	SpreadSeconds float64 `json:"spreadSeconds"`
 	// MovesWithDose is true when that spread EXCEEDS the floor, meaning the harness can see the quantity
@@ -556,9 +615,8 @@ func checkDoseSensitivity(recs []runRecord) (doseSensitivity, error) {
 		return doseSensitivity{}, fmt.Errorf("every record is dose %q: nothing varies", recs[0].Dose)
 	}
 
-	floorNs, bounded := pooledFloorNs(recs)
-	d := doseSensitivity{SchemaVersion: comparisonSchemaVersion, Arm: arm,
-		FloorSeconds: float64(floorNs) / float64(time.Second), Bounded: bounded}
+	d := doseSensitivity{SchemaVersion: comparisonSchemaVersion, Arm: arm, Interleaved: armsInterleaveBy(recs,
+		func(r runRecord) string { return r.Dose })}
 
 	doses := make([]string, 0, len(byDose))
 	for k := range byDose {
@@ -577,27 +635,46 @@ func checkDoseSensitivity(recs []runRecord) (doseSensitivity, error) {
 			sum += float64(*r.Measurement.OwnerAdmitToReadyNs) / float64(time.Second)
 			g.OwnerWaitRuns++
 		}
-		if g.OwnerWaitRuns == 0 {
-			return doseSensitivity{}, fmt.Errorf("no run of dose %q restored its owner, so there is no wait "+
-				"to test against the dose", dose)
+		// EVERY run must have restored its owner, not merely one. A mean over the runs that came back is a
+		// survivor mean, and it omits the slow tail -- which is the part a dose response would show up in
+		// first. This document exists to license a baseline for a session nobody can re-run cheaply, so it
+		// refuses rather than reports a figure with a known direction of bias.
+		if g.OwnerWaitRuns != g.N {
+			return doseSensitivity{}, fmt.Errorf("dose %q restored its owner in %d of %d runs; a mean over the "+
+				"survivors omits the slow tail, which is where a dose response would appear first",
+				dose, g.OwnerWaitRuns, g.N)
 		}
 		g.OwnerWaitSecondsMean = sum / float64(g.OwnerWaitRuns)
 		d.Doses = append(d.Doses, g)
 	}
 
 	lo, hi := d.Doses[0].OwnerWaitSecondsMean, d.Doses[0].OwnerWaitSecondsMean
+	loDose, hiDose := d.Doses[0].Dose, d.Doses[0].Dose
 	for _, g := range d.Doses {
 		if g.OwnerWaitSecondsMean < lo {
-			lo = g.OwnerWaitSecondsMean
+			lo, loDose = g.OwnerWaitSecondsMean, g.Dose
 		}
 		if g.OwnerWaitSecondsMean > hi {
-			hi = g.OwnerWaitSecondsMean
+			hi, hiDose = g.OwnerWaitSecondsMean, g.Dose
 		}
 	}
 	d.SpreadSeconds = hi - lo
-	d.MovesWithDose = bounded && d.SpreadSeconds > d.FloorSeconds
+	// The floor is the sum of the two extreme regimes' own floors, for the reason differenceFloor gives: the
+	// spread is a difference between independently measured means and carries both of their errors.
+	var floor float64
+	d.Bounded = true
+	for _, dose := range []string{loDose, hiDose} {
+		f, ok := pooledFloorNs(byDose[dose])
+		if !ok {
+			d.Bounded = false
+			break
+		}
+		floor += float64(f) / float64(time.Second)
+	}
+	d.FloorSeconds = floor
+	d.MovesWithDose = d.Bounded && d.SpreadSeconds > d.FloorSeconds
 	switch {
-	case !bounded:
+	case !d.Bounded:
 		d.Statement = "UNBOUNDED: a contributing run bounded nothing, so no conclusion about the dose follows"
 	case d.MovesWithDose:
 		d.Statement = fmt.Sprintf("the owner's wait under %s moves %.3f s across %d dose regimes, which "+
@@ -618,6 +695,10 @@ func checkDoseSensitivity(recs []runRecord) (doseSensitivity, error) {
 func renderDoseSensitivity(d doseSensitivity) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "===== DOSE SENSITIVITY (arm %s) =====\n%s\n", d.Arm, d.Statement)
+	if !d.Interleaved {
+		b.WriteString("NOT INTERLEAVED: the regimes did not alternate in time, so anything reported above " +
+			"moves together with whatever else changed between the two blocks of runs\n")
+	}
 	for _, g := range d.Doses {
 		fmt.Fprintf(&b, "  %-16s n=%d ownerWait mean=%.3f over %d restored runs=%s\n",
 			g.Dose, g.N, g.OwnerWaitSecondsMean, g.OwnerWaitRuns, strings.Join(g.RunIDs, ","))

@@ -450,7 +450,7 @@ func TestRenderResultStatesUncreditedLossOnReExecutedIneffectiveRow(t *testing.T
 func TestRenderResultAlwaysStatesTheFloor(t *testing.T) {
 	bounded := SpreadOf([]LifecycleEvent{skewed(430 * int64(time.Millisecond)), skewed(2389 * int64(time.Millisecond))})
 	out := RenderResult(LabResult{Arm: "A-honor", TotalWastedGPUSeconds: 41.0, Spread: bounded})
-	if !strings.Contains(out, "observationFloor=1.959s") {
+	if !strings.Contains(out, "observationFloor=2.959s") {
 		t.Fatalf("floor absent or wrong:\n%s", out)
 	}
 	if !strings.Contains(out, "NOT resolved") {

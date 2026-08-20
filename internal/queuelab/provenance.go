@@ -43,19 +43,22 @@ type ObservedState struct {
 	Invalid bool
 	// InvalidReason explains the invalidation.
 	InvalidReason string
-	// FinishedUnixNanos is when the KUBELET says the container stopped, as a wall clock.
+	// ComponentStampUnixNanos is the CLUSTER COMPONENT's own wall clock for the state this observation
+	// describes: the kubelet's finishedAt for a stopped container, the kubelet's Ready condition transition
+	// for a running one, Kueue's Admitted condition transition for an admission.
 	//
-	// It exists because every other time in this ledger is the collector's own clock at the moment a watch
-	// event ARRIVED, which is not when the thing happened. The difference between the two is this harness's
-	// delivery lag, and until it is recorded every interval computed from arrival times carries an unknown
-	// amount of it: a 0.94-second gap between "ready" and "stopped" could be 0.9s of termination and 0.04s of
-	// lag, or the reverse, and nothing in the record could tell them apart.
+	// It used to be finished-only, and that narrowness was a measurement defect rather than a naming one.
+	// The spread between this stamp and the collector's arrival time is what bounds how finely an interval
+	// can be read — and every interval this lab publishes has endpoints that are NOT container stops. The
+	// headline is admission to running, so neither of its endpoints was sampled, and the bound derived from
+	// stop events was being applied to intervals it did not describe. Two reviewers found it independently.
 	//
-	// A pointer because the kubelet does not always fill it and a zero time is a different fact from a late
-	// one. It is a WALL clock from another machine, so it is comparable to the collector's wall anchor only
-	// as far as the two clocks agree — which is why the record reports the difference rather than correcting
-	// anything by it.
-	FinishedUnixNanos *int64
+	// Every source is quantised to the second, because metav1.Time serialises RFC3339 without fractions. The
+	// arithmetic that turns these into a bound lives in resolution.go and accounts for that.
+	//
+	// A pointer, because an observation whose component published no timestamp must not read as one stamped
+	// at the epoch.
+	ComponentStampUnixNanos *int64
 	// ExitCode is the terminated container's status, and it is what tells one kind of stop from another.
 	//
 	// Reason carries the Pod PHASE, which is "Failed" both for a workload that honoured SIGTERM and exited
@@ -99,7 +102,8 @@ func ClassifyWorkload(wl *kueuev1beta2.Workload) ObservedState {
 		}
 	}
 	if admitted, _ := conditionTrue(wl.Status.Conditions, kueuev1beta2.WorkloadAdmitted); admitted && wl.Status.Admission != nil {
-		return ObservedState{Event: EventAdmitted, Reason: kueuev1beta2.WorkloadAdmitted}
+		return ObservedState{Event: EventAdmitted, Reason: kueuev1beta2.WorkloadAdmitted,
+			ComponentStampUnixNanos: conditionStamp(wl.Status.Conditions, kueuev1beta2.WorkloadAdmitted)}
 	}
 	return ObservedState{}
 }
@@ -136,10 +140,11 @@ func ClassifyPod(pod *corev1.Pod) ObservedState {
 	if pod.Status.Phase == corev1.PodSucceeded || pod.Status.Phase == corev1.PodFailed {
 		code, iters, finished := soleTerminated(pod)
 		return ObservedState{Event: EventAttemptStopped, Reason: string(pod.Status.Phase),
-			ExitCode: code, Iterations: iters, FinishedUnixNanos: finished}
+			ExitCode: code, Iterations: iters, ComponentStampUnixNanos: finished}
 	}
 	if pod.Status.Phase == corev1.PodRunning && podConditionTrue(pod, corev1.PodReady) {
-		return ObservedState{Event: EventPodReady, Reason: string(corev1.PodReady)}
+		return ObservedState{Event: EventPodReady, Reason: string(corev1.PodReady),
+			ComponentStampUnixNanos: podConditionStamp(pod, corev1.PodReady)}
 	}
 	return ObservedState{}
 }
@@ -214,4 +219,43 @@ func itersFromMessage(msg string) *int {
 		return nil
 	}
 	return &n
+}
+
+// conditionStamp is the component's own transition time for a metav1 condition, or nil when it published none.
+//
+// Kueue writes lastTransitionTime on the Admitted condition, so this is Kueue's clock for the admission
+// rather than the collector's clock for hearing about it. That distinction is the entire reason the field
+// exists: an interval between two arrival times carries the difference of their delivery lags, and nothing
+// bounds that difference unless both endpoints can be compared against the component that produced them.
+func conditionStamp(conditions []metav1.Condition, condType string) *int64 {
+	for i := range conditions {
+		if conditions[i].Type != condType {
+			continue
+		}
+		if conditions[i].LastTransitionTime.IsZero() {
+			return nil
+		}
+		ns := conditions[i].LastTransitionTime.UnixNano()
+		return &ns
+	}
+	return nil
+}
+
+// podConditionStamp is conditionStamp for a Pod's own condition type, which uses a different struct.
+//
+// The kubelet writes lastTransitionTime on the Ready condition, so this is the kubelet's clock for the
+// container becoming ready — the far endpoint of the owner's wait, and the one that went unsampled while the
+// harness bounded that wait with the spread of container STOPS.
+func podConditionStamp(pod *corev1.Pod, condType corev1.PodConditionType) *int64 {
+	for i := range pod.Status.Conditions {
+		if pod.Status.Conditions[i].Type != condType {
+			continue
+		}
+		if pod.Status.Conditions[i].LastTransitionTime.IsZero() {
+			return nil
+		}
+		ns := pod.Status.Conditions[i].LastTransitionTime.UnixNano()
+		return &ns
+	}
+	return nil
 }

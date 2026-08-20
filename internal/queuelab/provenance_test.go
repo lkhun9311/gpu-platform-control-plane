@@ -18,6 +18,7 @@ package queuelab
 
 import (
 	"testing"
+	"time"
 
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -224,5 +225,69 @@ func TestClassifyPodReadsTheWorkCompletedFromTheTerminatedStatus(t *testing.T) {
 				t.Fatalf("read %d, want %d", *got, *tc.want)
 			}
 		})
+	}
+}
+
+// Every endpoint kind must carry the component's own stamp, not only container stops.
+//
+// This is the regression guard for a measurement defect two reviewers found independently: the harness
+// bounded the resolution of its intervals with the spread of container STOP skews, while the interval it
+// publishes as its headline runs from a Kueue admission to a kubelet readiness. Neither endpoint was
+// sampled, so the bound described events the interval did not contain.
+//
+// Mutation that turns this red: drop ComponentStampUnixNanos from either branch of ClassifyPod, or from the
+// admitted branch of ClassifyWorkload.
+func TestEveryEndpointCarriesItsComponentsOwnStamp(t *testing.T) {
+	at := metav1.Date(2026, 8, 20, 5, 0, 30, 0, time.UTC)
+
+	ready := &corev1.Pod{Status: corev1.PodStatus{
+		Phase: corev1.PodRunning,
+		Conditions: []corev1.PodCondition{{
+			Type: corev1.PodReady, Status: corev1.ConditionTrue, LastTransitionTime: at,
+		}},
+	}}
+	got := ClassifyPod(ready)
+	if got.Event != EventPodReady {
+		t.Fatalf("event = %v, want PodReady", got.Event)
+	}
+	if got.ComponentStampUnixNanos == nil {
+		t.Fatal("a running Pod's readiness carried no kubelet stamp; the far endpoint of the owner's wait " +
+			"would go unsampled and the interval's bound would come from events it does not contain")
+	}
+	if *got.ComponentStampUnixNanos != at.UnixNano() {
+		t.Fatalf("stamp = %d, want the Ready condition's own transition time %d",
+			*got.ComponentStampUnixNanos, at.UnixNano())
+	}
+
+	// The near endpoint: Kueue's own clock for the admission. Without it the owner's wait is bounded at
+	// neither end, which is the state the whole rename corrects.
+	admitted := &kueuev1beta2.Workload{Status: kueuev1beta2.WorkloadStatus{
+		Conditions: []metav1.Condition{{
+			Type: kueuev1beta2.WorkloadAdmitted, Status: metav1.ConditionTrue,
+			Reason: "Admitted", LastTransitionTime: at,
+		}},
+		Admission: &kueuev1beta2.Admission{},
+	}}
+	gotWL := ClassifyWorkload(admitted)
+	if gotWL.Event != EventAdmitted {
+		t.Fatalf("event = %v, want Admitted", gotWL.Event)
+	}
+	if gotWL.ComponentStampUnixNanos == nil {
+		t.Fatal("an admission carried no Kueue stamp; the near endpoint of the owner's wait would go " +
+			"unsampled and the interval's bound would again come from events it does not contain")
+	}
+	if *gotWL.ComponentStampUnixNanos != at.UnixNano() {
+		t.Fatalf("stamp = %d, want the Admitted condition's own transition time %d",
+			*gotWL.ComponentStampUnixNanos, at.UnixNano())
+	}
+
+	// A Pod whose component published no transition time must read as unsampled rather than as stamped at
+	// the epoch, which would present a fifty-six year skew as a measurement.
+	blank := &corev1.Pod{Status: corev1.PodStatus{
+		Phase:      corev1.PodRunning,
+		Conditions: []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionTrue}},
+	}}
+	if s := ClassifyPod(blank).ComponentStampUnixNanos; s != nil {
+		t.Fatalf("a Ready condition with no transition time produced a stamp of %d", *s)
 	}
 }
