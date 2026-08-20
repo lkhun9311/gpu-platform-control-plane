@@ -1565,15 +1565,18 @@ func TestMeasurementOfCarriesWhatTheRunActuallyMeasured(t *testing.T) {
 func TestARecordFromAnEarlierSchemaIsRefused(t *testing.T) {
 	// The version is pinned so a wire change cannot ship without someone deciding to bump it. Version 10
 	// removed LifecycleEvent.tenant and .gpuCount: nothing ever wrote them, so every event in every record
-	// this build had produced carried "" and 0 beneath two sentences saying they meant something.
-	if recordSchemaVersion != 11 {
+	// this build had produced carried "" and 0 beneath two sentences saying they meant something. Version 12
+	// added measurement.resolution.resolvedToNs, where an absent value decodes to zero and zero is the
+	// strongest claim the field can make -- so every earlier record would assert perfect resolution in the
+	// one field a consumer is meant to act on.
+	if recordSchemaVersion != 12 {
 		t.Fatalf("recordSchemaVersion is %d; if the wire format changed again, bump this and say what changed",
 			recordSchemaVersion)
 	}
 	// Both predecessors, not only the immediate one. DisallowUnknownFields makes a version-9 document fail on
 	// the removed fields and a version-8 one fail on the version alone, and a decoder that accepted either
 	// would be reading a document whose fields do not mean what this build thinks they do.
-	for _, older := range []int{9, 10} {
+	for _, older := range []int{9, 10, 11} {
 		b := fmt.Appendf(nil, `{"schemaVersion":%d,"dose":"self-completing","runID":"r7","arm":"A-honor",`+
 			`"disposition":"completed-implemented-checks-passed",%s}`, older, refusedValidity)
 		if _, err := decodeRunRecord(b); err == nil {
@@ -1629,5 +1632,50 @@ func TestDiscardedIterationsSumsOnlyWhatTheLedgerCarried(t *testing.T) {
 	if exitedZero == nil || *exitedZero != 900 {
 		t.Fatalf("summed %v, want 900: an attempt that exited cleanly and was never credited still lost its "+
 			"work", exitedZero)
+	}
+}
+
+// The record's resolution block and the report's floor have to be the same number, and the way two numbers
+// like that stop being the same is by being derived twice. This asserts the projection is a projection.
+//
+// Mutation that turns this red: compute ResolvedToNs here as MedianNs, which is the figure a reader reaches
+// for first and the wrong one — a harness uniformly late measures intervals exactly.
+func TestResolutionOfProjectsTheReconstructionsOwnSpread(t *testing.T) {
+	skew := func(ns int64) queuelab.LifecycleEvent {
+		v := ns
+		return queuelab.LifecycleEvent{ObservedSkewNs: &v}
+	}
+	events := []queuelab.LifecycleEvent{
+		skew(430 * int64(time.Millisecond)),
+		skew(1200 * int64(time.Millisecond)),
+		skew(2389 * int64(time.Millisecond)),
+	}
+	got := resolutionOf(events)
+	want := queuelab.SpreadOf(events)
+	if got == nil || want == nil {
+		t.Fatal("three skewed events bounded nothing")
+	}
+	if got.ResolvedToNs != want.FloorNs {
+		t.Fatalf("record says resolvedTo=%d, reconstruction says floor=%d; the two derivations have drifted",
+			got.ResolvedToNs, want.FloorNs)
+	}
+	if got.Samples != want.Samples || got.MinNs != want.MinNs || got.MaxNs != want.MaxNs ||
+		got.MedianNs != want.MedianNs || got.QuantisationNs != want.QuantisationNs {
+		t.Fatalf("projection lost a field: got %+v want %+v", got, want)
+	}
+	if got.ResolvedToNs == 0 {
+		t.Fatal("a present resolution block carrying a zero floor claims perfect resolution")
+	}
+}
+
+// A run whose events bounded nothing must produce no block at all, because a zero-valued block would say
+// this run resolved everything — the one reading the version-12 bump exists to prevent.
+func TestResolutionOfRefusesToInventABound(t *testing.T) {
+	if r := resolutionOf(nil); r != nil {
+		t.Fatalf("unbounded run produced a resolution block: %+v", r)
+	}
+	one := int64(50)
+	if r := resolutionOf([]queuelab.LifecycleEvent{{ObservedSkewNs: &one}}); r != nil {
+		t.Fatalf("a single reading bounded a spread: %+v", r)
 	}
 }

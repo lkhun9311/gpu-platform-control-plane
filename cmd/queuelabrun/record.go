@@ -20,7 +20,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"sort"
 	"time"
 
 	"github.com/lkhun9311/gpu-mlops-platform-control-plane/internal/queuelab"
@@ -74,7 +73,16 @@ import (
 // file, when what they are holding is a perfectly good record from a build in which the operator's Pod
 // template was not yet part of what a reading covered. The version is the only thing in either document that
 // can tell those apart.
-const recordSchemaVersion = 11
+// Version 12 adds `resolvedToNs` to the resolution block, and its asymmetry is the sharpest in this list
+// because of which direction the missing value fails in. A version-11 record decodes into today's struct
+// with ResolvedToNs at zero, and zero on this field is not a spare slot or an absent reading: it is the
+// STRONGEST claim the field can carry, "this run distinguished differences down to nothing". Every earlier
+// record would therefore assert, silently and in the one field a consumer is meant to act on, the exact
+// property those runs did not have — and they are the very records whose sub-second residual was published
+// as a measurement. The four blocks above bump the version to stop an absent field reading as a claim
+// nobody made; this one bumps it to stop an absent field reading as the claim that was already made wrongly
+// once.
+const recordSchemaVersion = 12
 
 // runRecord is what a non-preview invocation leaves behind.
 //
@@ -350,34 +358,45 @@ type observationResolution struct {
 	// carries up to a second of truncation on top of everything else, which is why they bound rather than
 	// measure.
 	QuantisationNs int64 `json:"quantisationNs"`
+	// ResolvedToNs is the magnitude below which this run distinguished nothing, and it is the field a
+	// consumer is meant to act on. The three figures above describe the skew; this one says what follows
+	// from it.
+	//
+	// It is derived from the spread rather than from MedianNs because every interval in this record is a
+	// difference of ARRIVAL times, so a constant lag cancels and only the DIFFERENCE between two endpoints'
+	// lags survives into the number. queuelab.ObservationSpread carries the derivation and the argument for
+	// the quantisation floor sitting under it.
+	ResolvedToNs int64 `json:"resolvedToNs"`
 	// Note names what the reader must not do with the intervals in this record.
 	Note string `json:"note"`
 }
 
-// resolutionOf summarises the per-event lag the ledger carried, or nil when no event could be compared.
+// resolutionOf projects the reconstruction's own spread into the record's shape.
 //
-// nil is the honest answer rather than a zero: "no stop reported a kubelet timestamp" and "the harness is
+// It derives NOTHING itself, and that is deliberate. This block and the floor the report prints have to
+// agree, and the way two such numbers stop agreeing is by being computed twice from the same inputs by two
+// pieces of code that drift apart. queuelab.SpreadOf is the one derivation; this function is a projection
+// of it, so a change to the rule reaches the terminal output and the durable artifact together.
+//
+// nil is the honest answer rather than a zero: "no stop reported a kubelet timestamp" and "this harness is
 // perfectly prompt" are different states, and only one of them is good news.
 func resolutionOf(events []queuelab.LifecycleEvent) *observationResolution {
-	lags := make([]int64, 0, len(events))
-	for _, e := range events {
-		if e.ObservedSkewNs != nil {
-			lags = append(lags, *e.ObservedSkewNs)
-		}
-	}
-	if len(lags) == 0 {
+	s := queuelab.SpreadOf(events)
+	if s == nil {
 		return nil
 	}
-	sort.Slice(lags, func(i, j int) bool { return lags[i] < lags[j] })
 	return &observationResolution{
-		Samples:        len(lags),
-		QuantisationNs: int64(time.Second),
-		MinNs:          lags[0],
-		MedianNs:       lags[len(lags)/2],
-		MaxNs:          lags[len(lags)-1],
-		Note: "a bound, not a delivery time: it mixes propagation, the offset between two unsynchronised " +
-			"clocks and one-second truncation. Every interval here is a difference of ARRIVAL times, so a " +
-			"residual smaller than this spread is not resolved by this harness",
+		Samples:        s.Samples,
+		QuantisationNs: s.QuantisationNs,
+		MinNs:          s.MinNs,
+		MedianNs:       s.MedianNs,
+		MaxNs:          s.MaxNs,
+		ResolvedToNs:   s.FloorNs,
+		Note: "resolvedToNs is the operative figure: a difference smaller than it is not resolved by this " +
+			"run, and no number of repetitions changes that because a resolution limit is not a noise " +
+			"level. The skew figures it comes from are a bound, not a delivery time -- they mix propagation, " +
+			"the offset between two unsynchronised clocks and one-second truncation, and nothing here " +
+			"separates them. Every interval in this record is a difference of ARRIVAL times",
 	}
 }
 

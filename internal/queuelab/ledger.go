@@ -284,6 +284,14 @@ type LabResult struct {
 	// admitted-only p95 a defensible estimate of the offered-work p95; when false, treat AdmittedWaitP95Ns
 	// as a within-survivors descriptor only.
 	WaitP95FullyObserved bool
+	// Spread is how finely this run's own observations can distinguish an interval, or nil when the events
+	// bounded nothing.
+	//
+	// It sits on the result beside the magnitudes it qualifies because the failure it exists to prevent is a
+	// reader holding a magnitude WITHOUT it: a 0.9 second residual was published from this lab as a
+	// measurement while the run's own spread ran from 0.4 to 2.4 seconds. Every consumer of the totals below
+	// is expected to ask Spread.Resolves before calling a difference an effect.
+	Spread *ObservationSpread
 	// TotalWastedGPUSeconds is the run's total EXACT discarded (restart-from-zero) work.
 	TotalWastedGPUSeconds float64
 	// TotalWasteLowerBoundGPUSeconds is >= the exact total, counting censored attempts up to the horizon.
@@ -374,7 +382,10 @@ func Reconstruct(arm string, trace []TrainingTraceRow, events []LifecycleEvent, 
 		}
 	}
 
-	res := LabResult{Arm: arm, Offered: len(trace)}
+	// The spread is derived from the same events the intervals below are, so a reader can never hold one
+	// without the other. Carrying it on the result rather than computing it in the runner is what stops a
+	// second, looser derivation appearing beside a number that was already published once without one.
+	res := LabResult{Arm: arm, Offered: len(trace), Spread: SpreadOf(events)}
 	var admitWaits []float64
 	for _, job := range order {
 		t := byJob[job]

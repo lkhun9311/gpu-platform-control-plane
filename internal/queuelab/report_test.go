@@ -21,6 +21,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 // TestRenderResultAlwaysExposesExecutionStart is the regression guard for the published overclaim: a report
@@ -440,5 +441,31 @@ func TestRenderResultStatesUncreditedLossOnReExecutedIneffectiveRow(t *testing.T
 		if !strings.Contains(banner, s) {
 			t.Fatalf("banner must state that the completed attempt's work was %q: %q", s, banner)
 		}
+	}
+}
+
+// The floor line is not optional decoration: it is the only thing on the screen that tells a reader the
+// magnitudes above it have a size below which they say nothing. A render that drops it hands back exactly
+// the output that produced the retracted 0.94 second claim.
+func TestRenderResultAlwaysStatesTheFloor(t *testing.T) {
+	bounded := SpreadOf([]LifecycleEvent{skewed(430 * int64(time.Millisecond)), skewed(2389 * int64(time.Millisecond))})
+	out := RenderResult(LabResult{Arm: "A-honor", TotalWastedGPUSeconds: 41.0, Spread: bounded})
+	if !strings.Contains(out, "observationFloor=1.959s") {
+		t.Fatalf("floor absent or wrong:\n%s", out)
+	}
+	if !strings.Contains(out, "NOT resolved") {
+		t.Fatalf("floor stated without saying what it forbids:\n%s", out)
+	}
+}
+
+// A run that bounded nothing must say so more loudly than one that bounded something coarsely, because the
+// silence is the more dangerous of the two states.
+func TestRenderResultShoutsWhenNothingBoundedTheIntervals(t *testing.T) {
+	out := RenderResult(LabResult{Arm: "A-honor", TotalWastedGPUSeconds: 41.0})
+	if !strings.Contains(out, "observationFloor=UNBOUNDED") {
+		t.Fatalf("an unbounded run rendered without saying so:\n%s", out)
+	}
+	if !strings.Contains(out, "unverified") {
+		t.Fatalf("unbounded run did not tell the reader what to do with the magnitudes:\n%s", out)
 	}
 }
