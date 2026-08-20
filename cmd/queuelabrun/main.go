@@ -95,9 +95,10 @@ func main() {
 			"reporting whether their between-arm differences exceed what the runs could resolve")
 		compareOutFlag = flag.String("compare-out", "", "path to write the -compare document; without it the "+
 			"comparison is printed and not persisted, which makes the conclusion unciteable")
-		doseSensitivityFlag = flag.Bool("dose-sensitivity", false, "with -compare: hold the ARM fixed and vary "+
-			"the dose, reporting whether the quota owner's wait responds to it. A quantity the dose determines "+
-			"cannot be a baseline for a session whose workload has a different service time")
+		compareModeFlag = flag.String("mode", "", "with -compare: \"dose\" or \"node\" holds the ARM fixed and "+
+			"varies that factor, reporting whether the quota owner's wait responds to it; \"baseline\" pools "+
+			"one arm's runs into the restoration figure a later session differences against; \"model\" tests "+
+			"held = min(remaining service, grace) against both regimes at once. Empty compares the arms")
 	)
 	flag.Parse()
 
@@ -106,7 +107,7 @@ func main() {
 	// re-derived from files on a machine that has no access to the lab at all, which is the whole point of
 	// making the conclusion an artifact: a reviewer with the ex/ directory can reproduce it.
 	if *compareFlag != "" {
-		if err := runCompare(*compareFlag, *compareOutFlag, *doseSensitivityFlag); err != nil {
+		if err := runCompare(*compareFlag, *compareOutFlag, *compareModeFlag); err != nil {
 			fmt.Fprintln(os.Stderr, "ERROR:", err)
 			os.Exit(1)
 		}

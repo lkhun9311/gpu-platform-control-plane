@@ -106,6 +106,16 @@ Thumbs.db
 # stray local build of cmd/queuelabrun, anchored so it cannot also swallow new files under cmd/queuelabrun/
 /queuelabrun
 
-# Raw chaos-run records. Curated evidence lives in hack/chaos-fr004-degraded-node.md, following the same
-# split as the M6 artifacts above: the run writes here, the reviewed numbers are committed as prose.
-ex/
+# Raw chaos-run records were excluded here, and queuelab inherited the rule without anyone asking whether it
+# fit. It does not. This lab's thesis is that the record outlives the terminal and that a conclusion nobody
+# can re-derive is prose -- and its records sat outside version control while committed documents told
+# readers to run `queuelabrun -compare 'ex/e14-*.json'` against files that do not ship.
+#
+# It cost what you would expect. A pre-registration fixed the GPU session's baseline at a figure assembled at
+# a shell from records that were then deleted, and the number appears in no record that exists. Git is the
+# notary a pre-registration needs; declining it left half the evidence with an mtime and nothing else.
+#
+# So run records are committed and the rest of ex/ -- scratch output, ad-hoc blobs -- is not. The whole
+# directory is 248 KB.
+ex/*
+!ex/*.json

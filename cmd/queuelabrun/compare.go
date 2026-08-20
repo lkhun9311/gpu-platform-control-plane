@@ -8,6 +8,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/lkhun9311/gpu-mlops-platform-control-plane/internal/queuelab"
 )
 
 // comparisonSchemaVersion is versioned for the same reason the run record's is: a consumer classifies on the
@@ -469,7 +471,15 @@ func renderComparison(c comparison) string {
 //
 // It writes the document only when asked, and the flag's help says what declining costs: a comparison that
 // exists on a terminal and nowhere else is exactly the state this file was written to end.
-func runCompare(spec, outPath string, doseCheck bool) error {
+// The -mode values that produce a document other than an arm comparison.
+const (
+	// modeBaseline emits the pooled restoration figure a later session differences against.
+	modeBaseline = "baseline"
+	// modeModel tests held = min(remaining service, grace) as arithmetic rather than as a judgement.
+	modeModel = "model"
+)
+
+func runCompare(spec, outPath, mode string) error {
 	paths, err := expandRecordSpec(spec)
 	if err != nil {
 		return err
@@ -487,14 +497,32 @@ func runCompare(spec, outPath string, doseCheck bool) error {
 		recs = append(recs, r)
 	}
 	var doc any
-	if doseCheck {
-		d, err := checkDoseSensitivity(recs)
+	switch {
+	case mode == modeBaseline:
+		b, err := computeBaseline(recs)
+		if err != nil {
+			return err
+		}
+		fmt.Print(renderBaseline(b))
+		doc = b
+	case mode == modeModel:
+		mc, err := checkModel(recs)
+		if err != nil {
+			return err
+		}
+		fmt.Print(renderModel(mc))
+		doc = mc
+	case mode == factorDose || mode == factorNode:
+		d, err := checkSensitivity(recs, mode)
 		if err != nil {
 			return err
 		}
 		fmt.Print(renderDoseSensitivity(d))
 		doc = d
-	} else {
+	case mode != "":
+		return fmt.Errorf("unknown -mode %q; want %q, %q, %q or %q",
+			mode, modeBaseline, modeModel, factorDose, factorNode)
+	default:
 		c, err := compareRecords(recs)
 		if err != nil {
 			return err
@@ -558,7 +586,13 @@ func expandRecordSpec(spec string) ([]string, error) {
 type doseSensitivity struct {
 	SchemaVersion int    `json:"schemaVersion"`
 	Arm           string `json:"arm"`
-	// Doses is one entry per regime, each summarising that regime's runs of this arm.
+	// Factor names what was varied while the arm was held fixed: the dose regime, or the worker node.
+	//
+	// The node is here because "one cluster, one pinned worker" was the largest unqualified limit on every
+	// figure this lab has produced. A result that holds on one node and not another is a property of that
+	// node, and until the node is varied nothing in the record distinguishes the two readings.
+	Factor string `json:"factor"`
+	// Doses is one entry per level of the factor, each summarising that level's runs of this arm.
 	Doses []doseGroup `json:"doses"`
 	// FloorSeconds is the SUM of the two regimes' floors, because the spread below is a difference between
 	// two independently measured means and carries both of their errors.
@@ -581,6 +615,7 @@ type doseSensitivity struct {
 
 // doseGroup is one regime's runs of the arm under test.
 type doseGroup struct {
+	// Dose is the level of the factor this group holds -- a regime name, or a node name.
 	Dose                 string   `json:"dose"`
 	N                    int      `json:"n"`
 	RunIDs               []string `json:"runIDs"`
@@ -590,6 +625,37 @@ type doseGroup struct {
 
 // checkDoseSensitivity builds the document, or refuses.
 func checkDoseSensitivity(recs []runRecord) (doseSensitivity, error) {
+	return checkSensitivity(recs, factorDose)
+}
+
+// The factors a sensitivity check can vary. They are constants because the document persists one and a
+// reader classifies on it.
+const (
+	factorDose = "dose"
+	factorNode = "node"
+)
+
+// levelOf extracts a record's level of the named factor, or "" when the record cannot say.
+//
+// The node comes from the qualification rather than from the ownership window, because the qualification is
+// what the run inspected BEFORE creating anything -- the window's node is the same value observed later, and
+// preferring the earlier one keeps the grouping independent of how the run ended.
+func levelOf(r runRecord, factor string) string {
+	switch factor {
+	case factorDose:
+		return r.Dose
+	case factorNode:
+		if r.Qualification == nil {
+			return ""
+		}
+		return r.Qualification.Node
+	}
+	return ""
+}
+
+// checkSensitivity holds the arm fixed, varies one named factor, and reports whether the owner's wait
+// responds to it.
+func checkSensitivity(recs []runRecord, factor string) (doseSensitivity, error) {
 	if len(recs) < 2 {
 		return doseSensitivity{}, fmt.Errorf("a dose-sensitivity check needs at least 2 records, got %d", len(recs))
 	}
@@ -609,14 +675,33 @@ func checkDoseSensitivity(recs []runRecord) (doseSensitivity, error) {
 				"check varies the dose and holds the arm fixed, or it measures the arms and calls it a dose",
 				recs[0].RunID, arm, r.RunID, r.Arm)
 		}
-		byDose[r.Dose] = append(byDose[r.Dose], r)
+		level := levelOf(r, factor)
+		if level == "" {
+			return doseSensitivity{}, fmt.Errorf("run %q does not state its %s, so it cannot be grouped by one",
+				r.RunID, factor)
+		}
+		byDose[level] = append(byDose[level], r)
 	}
 	if len(byDose) < 2 {
-		return doseSensitivity{}, fmt.Errorf("every record is dose %q: nothing varies", recs[0].Dose)
+		return doseSensitivity{}, fmt.Errorf("every record is %s %q: nothing varies",
+			factor, levelOf(recs[0], factor))
+	}
+	// When the node is the factor, the DOSE must be held fixed, and vice versa. Varying two things and
+	// reporting one of them is how a node difference gets published as a dose response.
+	held := factorDose
+	if factor == factorDose {
+		held = factorNode
+	}
+	fixed := levelOf(recs[0], held)
+	for _, r := range recs {
+		if levelOf(r, held) != fixed {
+			return doseSensitivity{}, fmt.Errorf("this varies %s, so %s must be held fixed: run %q is %s %q "+
+				"and run %q is %q", factor, held, recs[0].RunID, held, fixed, r.RunID, levelOf(r, held))
+		}
 	}
 
-	d := doseSensitivity{SchemaVersion: comparisonSchemaVersion, Arm: arm, Interleaved: armsInterleaveBy(recs,
-		func(r runRecord) string { return r.Dose })}
+	d := doseSensitivity{SchemaVersion: comparisonSchemaVersion, Arm: arm, Factor: factor,
+		Interleaved: armsInterleaveBy(recs, func(r runRecord) string { return levelOf(r, factor) })}
 
 	doses := make([]string, 0, len(byDose))
 	for k := range byDose {
@@ -640,9 +725,9 @@ func checkDoseSensitivity(recs []runRecord) (doseSensitivity, error) {
 		// first. This document exists to license a baseline for a session nobody can re-run cheaply, so it
 		// refuses rather than reports a figure with a known direction of bias.
 		if g.OwnerWaitRuns != g.N {
-			return doseSensitivity{}, fmt.Errorf("dose %q restored its owner in %d of %d runs; a mean over the "+
-				"survivors omits the slow tail, which is where a dose response would appear first",
-				dose, g.OwnerWaitRuns, g.N)
+			return doseSensitivity{}, fmt.Errorf("%s %q restored its owner in %d of %d runs; a mean over the "+
+				"survivors omits the slow tail, which is where a response would appear first",
+				factor, dose, g.OwnerWaitRuns, g.N)
 		}
 		g.OwnerWaitSecondsMean = sum / float64(g.OwnerWaitRuns)
 		d.Doses = append(d.Doses, g)
@@ -677,16 +762,16 @@ func checkDoseSensitivity(recs []runRecord) (doseSensitivity, error) {
 	case !d.Bounded:
 		d.Statement = "UNBOUNDED: a contributing run bounded nothing, so no conclusion about the dose follows"
 	case d.MovesWithDose:
-		d.Statement = fmt.Sprintf("the owner's wait under %s moves %.3f s across %d dose regimes, which "+
-			"EXCEEDS the %.3f s floor: this quantity responds to the dose and cannot serve as a baseline for "+
-			"a session whose workload has a different service time",
-			arm, d.SpreadSeconds, len(d.Doses), d.FloorSeconds)
+		d.Statement = fmt.Sprintf("the owner's wait under %s moves %.3f s across %d levels of %s, which "+
+			"EXCEEDS the %.3f s floor: this quantity responds to %s, and a figure that responds to %s cannot "+
+			"be quoted as a property of the platform",
+			arm, d.SpreadSeconds, len(d.Doses), factor, d.FloorSeconds, factor, factor)
 	default:
-		d.Statement = fmt.Sprintf("the owner's wait under %s moves %.3f s across %d dose regimes, INSIDE the "+
-			"%.3f s floor. The harness cannot see it responding to the dose -- which is not proof that it does "+
-			"not, and is the condition a baseline needs: a quantity the dose determines could not be "+
-			"differenced against a session whose workload has a different service time",
-			arm, d.SpreadSeconds, len(d.Doses), d.FloorSeconds)
+		d.Statement = fmt.Sprintf("the owner's wait under %s moves %.3f s across %d levels of %s, INSIDE the "+
+			"%.3f s floor. The harness cannot see it responding to %s -- which is not proof that it does not, "+
+			"and is the condition a baseline needs: a quantity that varies with %s could not be quoted as a "+
+			"property of the platform",
+			arm, d.SpreadSeconds, len(d.Doses), factor, d.FloorSeconds, factor, factor)
 	}
 	return d, nil
 }
@@ -694,14 +779,341 @@ func checkDoseSensitivity(recs []runRecord) (doseSensitivity, error) {
 // renderDoseSensitivity prints the check, leading with the statement rather than the numbers.
 func renderDoseSensitivity(d doseSensitivity) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "===== DOSE SENSITIVITY (arm %s) =====\n%s\n", d.Arm, d.Statement)
+	fmt.Fprintf(&b, "===== SENSITIVITY TO %s (arm %s) =====\n%s\n",
+		strings.ToUpper(d.Factor), d.Arm, d.Statement)
 	if !d.Interleaved {
-		b.WriteString("NOT INTERLEAVED: the regimes did not alternate in time, so anything reported above " +
-			"moves together with whatever else changed between the two blocks of runs\n")
+		fmt.Fprintf(&b, "NOT INTERLEAVED: the %s levels did not alternate in time, so anything reported above "+
+			"moves together with whatever else changed between the blocks of runs\n", d.Factor)
 	}
 	for _, g := range d.Doses {
 		fmt.Fprintf(&b, "  %-16s n=%d ownerWait mean=%.3f over %d restored runs=%s\n",
 			g.Dose, g.N, g.OwnerWaitSecondsMean, g.OwnerWaitRuns, strings.Join(g.RunIDs, ","))
 	}
 	return b.String()
+}
+
+// baseline is the pooled restoration figure a later session differences against, emitted as an artifact.
+//
+// It exists because it was the last hand-typed number in this lab, and it was wrong. A pre-registration
+// fixed the GPU session's baseline at "2.690 s mean, 2.534-2.792 s, spread 258 ms, 8 observations" — a table
+// assembled at a shell from four records that were subsequently deleted, beside machine-generated figures in
+// the same document that reproduce to the digit. The value 2.534 appears in no record that exists. Every
+// other conclusion in this lab had already been converted from arithmetic into a document; this one had not,
+// and it is the one the entire session is defined against.
+//
+// So it refuses more than the comparisons do. One arm, every run admissible, every owner restored, at least
+// two runs — because a baseline is quoted long after the runs are gone, by someone who will not re-derive it.
+type baseline struct {
+	SchemaVersion int    `json:"schemaVersion"`
+	Arm           string `json:"arm"`
+	N             int    `json:"n"`
+	// RunIDs, Doses and Nodes name exactly what stands behind the figure, so a reader can go and check rather
+	// than take it. The pre-registration's table could not be checked, which is how it stayed wrong.
+	RunIDs []string `json:"runIDs"`
+	Doses  []string `json:"doses"`
+	Nodes  []string `json:"nodes"`
+
+	OwnerWaitSecondsMean   float64 `json:"ownerWaitSecondsMean"`
+	OwnerWaitSecondsMin    float64 `json:"ownerWaitSecondsMin"`
+	OwnerWaitSecondsMax    float64 `json:"ownerWaitSecondsMax"`
+	OwnerWaitSpreadSeconds float64 `json:"ownerWaitSpreadSeconds"`
+
+	// FloorSeconds is the coarsest single-run bound among the contributors. A later session differencing
+	// against this figure must ADD its own floor to this one, for the reason differenceFloor gives.
+	FloorSeconds float64 `json:"floorSeconds"`
+	Bounded      bool    `json:"bounded"`
+	// DeviceEvidence is the weakest axis among the contributors, so a baseline taken on a fake device plugin
+	// cannot be quoted as though a device were involved.
+	DeviceEvidence string `json:"deviceEvidence"`
+	Interleaved    bool   `json:"interleaved"`
+	Statement      string `json:"statement"`
+}
+
+// computeBaseline pools one arm's runs into the figure, or refuses.
+func computeBaseline(recs []runRecord) (baseline, error) {
+	if len(recs) < 2 {
+		return baseline{}, fmt.Errorf("a baseline needs at least 2 runs, got %d", len(recs))
+	}
+	arm := recs[0].Arm
+	b := baseline{SchemaVersion: comparisonSchemaVersion, Arm: arm, N: len(recs)}
+	seenDose, seenNode := map[string]bool{}, map[string]bool{}
+	for _, r := range recs {
+		if r.Arm != arm {
+			return baseline{}, fmt.Errorf("run %q is arm %q and run %q is arm %q: a baseline is one arm's "+
+				"figure, and pooling two would average the very difference the arms exist to show",
+				recs[0].RunID, arm, r.RunID, r.Arm)
+		}
+		if r.Validity.Verdict != verdictAdmissible {
+			return baseline{}, fmt.Errorf("run %q has verdict %q", r.RunID, r.Validity.Verdict)
+		}
+		if r.Measurement == nil || r.Measurement.OwnerAdmitToReadyNs == nil {
+			return baseline{}, fmt.Errorf("run %q never restored its quota owner; a baseline averaged over "+
+				"the runs that came back omits the slow tail and would be quoted as the platform's floor",
+				r.RunID)
+		}
+		b.RunIDs = append(b.RunIDs, r.RunID)
+		if !seenDose[r.Dose] {
+			seenDose[r.Dose] = true
+			b.Doses = append(b.Doses, r.Dose)
+		}
+		if n := levelOf(r, factorNode); n != "" && !seenNode[n] {
+			seenNode[n] = true
+			b.Nodes = append(b.Nodes, n)
+		}
+	}
+	sort.Strings(b.Doses)
+	sort.Strings(b.Nodes)
+
+	var sum float64
+	for i, r := range recs {
+		w := float64(*r.Measurement.OwnerAdmitToReadyNs) / float64(time.Second)
+		if i == 0 {
+			b.OwnerWaitSecondsMin, b.OwnerWaitSecondsMax = w, w
+		}
+		if w < b.OwnerWaitSecondsMin {
+			b.OwnerWaitSecondsMin = w
+		}
+		if w > b.OwnerWaitSecondsMax {
+			b.OwnerWaitSecondsMax = w
+		}
+		sum += w
+	}
+	b.OwnerWaitSecondsMean = sum / float64(len(recs))
+	b.OwnerWaitSpreadSeconds = b.OwnerWaitSecondsMax - b.OwnerWaitSecondsMin
+
+	floorNs, bounded := pooledFloorNs(recs)
+	b.FloorSeconds, b.Bounded = float64(floorNs)/float64(time.Second), bounded
+	b.DeviceEvidence = pooledDeviceEvidence(recs)
+	b.Interleaved = armsInterleaveBy(recs, func(r runRecord) string { return r.Dose })
+	b.Statement = fmt.Sprintf("under %s the quota owner was running %.3f s after admission, over %d runs "+
+		"spanning %d dose regime(s) and %d node(s), with a spread of %.0f ms against a worst-run floor of "+
+		"%.3f s. A session differencing against this must add its own floor to that one; the difference of "+
+		"two independently measured means carries both of their errors",
+		arm, b.OwnerWaitSecondsMean, b.N, len(b.Doses), len(b.Nodes), b.OwnerWaitSpreadSeconds, b.FloorSeconds)
+	return b, nil
+}
+
+// renderBaseline prints the figure with what qualifies it, never the figure alone.
+func renderBaseline(b baseline) string {
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "===== BASELINE (arm %s) =====\n%s\n", b.Arm, b.Statement)
+	fmt.Fprintf(&sb, "  ownerWait mean=%.3f min=%.3f max=%.3f spread=%.0fms n=%d\n",
+		b.OwnerWaitSecondsMean, b.OwnerWaitSecondsMin, b.OwnerWaitSecondsMax,
+		b.OwnerWaitSpreadSeconds*1000, b.N)
+	fmt.Fprintf(&sb, "  runs=%s\n  doses=%s\n  nodes=%s\n",
+		strings.Join(b.RunIDs, ","), strings.Join(b.Doses, ","), strings.Join(b.Nodes, ","))
+	if !b.Bounded {
+		sb.WriteString("  UNBOUNDED: a contributing run bounded nothing\n")
+	}
+	if !b.Interleaved {
+		sb.WriteString("  NOT INTERLEAVED: the dose regimes did not alternate in time\n")
+	}
+	if b.DeviceEvidence != deviceWorkObserved {
+		sb.WriteString("  device: NOT OBSERVED -- this baseline was taken where no run established that a " +
+			"device did work, so it is a control-plane figure and not a statement about hardware\n")
+	}
+	return sb.String()
+}
+
+// modelCheck tests the lab's central claim as arithmetic instead of as a judgement.
+//
+// The claim is that a workload ignoring SIGTERM holds its device for min(remaining service, termination
+// grace period), and that the quota owner waits that long plus whatever the platform itself costs. Two
+// reviewers pointed out, independently, that nothing in this repository turned that into a prediction: the
+// pre-registration listed "the ignoring arm stops tracking the grace period" as a refutation condition while
+// no code computed what tracking would look like and no tolerance was stated. A refutation nobody can
+// evaluate is not a refutation, and deciding after the fact whether 33 s still counts as tracking 30 s is
+// exactly what a pre-registration exists to prevent.
+//
+// The prediction is available because the two regimes place the victim on opposite sides of the grace period
+// with everything else held fixed. Under grace-bounded the victim has 40 s of service left against a 30 s
+// grace, so the grace binds; under self-completing it has 20 s left, so its own service does. Both
+// predictions come from the same model, they differ by ten seconds, and a model that fitted one while
+// missing the other would be caught.
+//
+// The residual is tested against the run's own floor, PLUS the platform's own cost measured on the
+// honouring arm — because the prediction is about the device being held, and the owner's wait also contains
+// the scheduling and container start that the honouring arm isolates.
+type modelCheck struct {
+	SchemaVersion int `json:"schemaVersion"`
+	// Protocol states the constants the prediction was computed from, so a reader can check the arithmetic
+	// rather than trust it. They live in this binary rather than in the record, so a record from a build with
+	// different constants would be mispredicted silently -- printing them is what makes that visible.
+	Protocol modelProtocol `json:"protocol"`
+	// PlatformCostSeconds is the honouring arm's mean owner wait, subtracted before comparing against the
+	// model: it is what restoration costs when nothing is holding the device.
+	PlatformCostSeconds float64     `json:"platformCostSeconds"`
+	Cases               []modelCase `json:"cases"`
+	FloorSeconds        float64     `json:"floorSeconds"`
+	Bounded             bool        `json:"bounded"`
+	Holds               bool        `json:"holds"`
+	Statement           string      `json:"statement"`
+}
+
+// modelProtocol is the arithmetic's inputs.
+type modelProtocol struct {
+	VictimServiceSec      int `json:"victimServiceSec"`
+	SelfCompletingDoseSec int `json:"selfCompletingDoseSec"`
+	GraceBoundedDoseSec   int `json:"graceBoundedDoseSec"`
+	TerminationGraceSec   int `json:"terminationGraceSec"`
+}
+
+// modelCase is one regime's prediction against its observation.
+type modelCase struct {
+	Dose                string  `json:"dose"`
+	RemainingServiceSec int     `json:"remainingServiceSec"`
+	BindingTerm         string  `json:"bindingTerm"`
+	PredictedSeconds    float64 `json:"predictedSeconds"`
+	ObservedSeconds     float64 `json:"observedSeconds"`
+	ResidualSeconds     float64 `json:"residualSeconds"`
+	InsideFloor         bool    `json:"insideFloor"`
+	N                   int     `json:"n"`
+}
+
+// checkModel builds the check from one node's runs of both arms and both regimes.
+func checkModel(recs []runRecord) (modelCheck, error) {
+	m := modelCheck{SchemaVersion: comparisonSchemaVersion, Protocol: modelProtocol{
+		VictimServiceSec:      victimServiceSec,
+		SelfCompletingDoseSec: doseSec,
+		GraceBoundedDoseSec:   graceBoundedDoseSec,
+		TerminationGraceSec:   terminationGraceSec,
+	}}
+
+	// The honouring arm gives the platform's own cost; the ignoring arm is what the model predicts.
+	honor := map[string][]float64{}
+	ignore := map[string][]float64{}
+	for _, r := range recs {
+		if r.Validity.Verdict != verdictAdmissible {
+			return modelCheck{}, fmt.Errorf("run %q has verdict %q", r.RunID, r.Validity.Verdict)
+		}
+		if r.Measurement == nil || r.Measurement.OwnerAdmitToReadyNs == nil {
+			return modelCheck{}, fmt.Errorf("run %q never restored its owner, so it predicts nothing", r.RunID)
+		}
+		w := float64(*r.Measurement.OwnerAdmitToReadyNs) / float64(time.Second)
+		switch r.Arm {
+		case string(queuelab.ArmAHonor):
+			honor[r.Dose] = append(honor[r.Dose], w)
+		case string(queuelab.ArmAIgnore):
+			ignore[r.Dose] = append(ignore[r.Dose], w)
+		default:
+			return modelCheck{}, fmt.Errorf("run %q is arm %q; the model is stated over the two termination "+
+				"contract arms", r.RunID, r.Arm)
+		}
+	}
+	if len(honor) == 0 || len(ignore) == 0 {
+		return modelCheck{}, fmt.Errorf("the check needs both arms: the honouring one measures what restoration " +
+			"costs when nothing holds the device, and the ignoring one is what the model predicts")
+	}
+	if len(ignore) < 2 {
+		return modelCheck{}, fmt.Errorf("the check needs both dose regimes: one prediction can be fitted by " +
+			"any model, and the two regimes put the victim on opposite sides of the grace period")
+	}
+
+	var hSum float64
+	var hN int
+	for _, v := range honor {
+		for _, w := range v {
+			hSum += w
+			hN++
+		}
+	}
+	m.PlatformCostSeconds = hSum / float64(hN)
+
+	floorNs, bounded := pooledFloorNs(recs)
+	// Two floors, because the residual is a difference between the observed wait and a prediction built from
+	// another measured mean: it carries the error of both.
+	m.FloorSeconds, m.Bounded = 2*float64(floorNs)/float64(time.Second), bounded
+	m.Holds = bounded
+
+	doses := make([]string, 0, len(ignore))
+	for d := range ignore {
+		doses = append(doses, d)
+	}
+	sort.Strings(doses)
+	for _, d := range doses {
+		remaining, err := remainingServiceFor(d)
+		if err != nil {
+			return modelCheck{}, err
+		}
+		held, binding := remaining, "remaining service"
+		if terminationGraceSec < remaining {
+			held, binding = terminationGraceSec, "termination grace"
+		}
+		var sum float64
+		for _, w := range ignore[d] {
+			sum += w
+		}
+		obs := sum / float64(len(ignore[d]))
+		c := modelCase{
+			Dose:                d,
+			RemainingServiceSec: remaining,
+			BindingTerm:         binding,
+			PredictedSeconds:    float64(held) + m.PlatformCostSeconds,
+			ObservedSeconds:     obs,
+			N:                   len(ignore[d]),
+		}
+		c.ResidualSeconds = c.ObservedSeconds - c.PredictedSeconds
+		r := c.ResidualSeconds
+		if r < 0 {
+			r = -r
+		}
+		c.InsideFloor = bounded && r <= m.FloorSeconds
+		if !c.InsideFloor {
+			m.Holds = false
+		}
+		m.Cases = append(m.Cases, c)
+	}
+
+	switch {
+	case !bounded:
+		m.Statement = "UNBOUNDED: a contributing run bounded nothing, so no residual can be judged"
+	case m.Holds:
+		m.Statement = fmt.Sprintf("held = min(remaining service, %d s grace) predicts every regime's owner "+
+			"wait to within the %.3f s floor, once the %.3f s the honouring arm shows restoration costs by "+
+			"itself is added. Both regimes are predicted by the same arithmetic and they differ by %d s, so a "+
+			"model fitted to one would have missed the other",
+			terminationGraceSec, m.FloorSeconds, m.PlatformCostSeconds,
+			m.Protocol.VictimServiceSec-m.Protocol.GraceBoundedDoseSec-(m.Protocol.VictimServiceSec-m.Protocol.SelfCompletingDoseSec))
+	default:
+		m.Statement = fmt.Sprintf("REFUTED: at least one regime's owner wait falls outside the %.3f s floor "+
+			"of what held = min(remaining service, %d s grace) predicts", m.FloorSeconds, terminationGraceSec)
+	}
+	return m, nil
+}
+
+// remainingServiceFor is how much service the victim has left when it is preempted, per regime.
+func remainingServiceFor(dose string) (int, error) {
+	switch queuelab.DoseRegime(dose) {
+	case queuelab.DoseSelfCompleting:
+		return victimServiceSec - doseSec, nil
+	case queuelab.DoseGraceBounded:
+		return victimServiceSec - graceBoundedDoseSec, nil
+	}
+	return 0, fmt.Errorf("unknown dose regime %q", dose)
+}
+
+// renderModel prints the prediction beside the observation, never one without the other.
+func renderModel(m modelCheck) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "===== MODEL: held = min(remaining service, grace) =====\n%s\n", m.Statement)
+	fmt.Fprintf(&b, "  protocol: victimService=%ds selfCompletingDose=%ds graceBoundedDose=%ds grace=%ds\n",
+		m.Protocol.VictimServiceSec, m.Protocol.SelfCompletingDoseSec, m.Protocol.GraceBoundedDoseSec,
+		m.Protocol.TerminationGraceSec)
+	fmt.Fprintf(&b, "  platform cost (honouring arm, n over both regimes): %.3f s\n", m.PlatformCostSeconds)
+	for _, c := range m.Cases {
+		fmt.Fprintf(&b, "  %-16s remaining=%2ds binds on %-18s predicted=%6.3f observed=%6.3f residual=%+.3f %s (n=%d)\n",
+			c.Dose, c.RemainingServiceSec, c.BindingTerm, c.PredictedSeconds, c.ObservedSeconds,
+			c.ResidualSeconds, insideMark(c.InsideFloor), c.N)
+	}
+	fmt.Fprintf(&b, "  residuals judged against a %.3f s floor (two runs' worth, since a residual is a "+
+		"difference against a measured mean)\n", m.FloorSeconds)
+	return b.String()
+}
+
+// insideMark names the verdict on one residual.
+func insideMark(inside bool) string {
+	if inside {
+		return "INSIDE"
+	}
+	return "OUTSIDE"
 }

@@ -7,6 +7,11 @@ import (
 )
 
 // findingFor picks one quantity out of a comparison, since every arm pair now produces several.
+// checkSensitivity2 keeps the dose-factor call site short in tests.
+func checkSensitivity2(recs []runRecord) (doseSensitivity, error) {
+	return checkSensitivity(recs, factorDose)
+}
+
 func findingFor(t *testing.T, c comparison, quantity string) finding {
 	t.Helper()
 	for _, f := range c.Findings {
@@ -305,7 +310,7 @@ func TestDoseSensitivitySeparatesABaselineFromAQuantityTheDoseDetermines(t *test
 		withOwnerWait(cmpRec("sh1", "A-honor", "self-completing", "2026-08-20T02:44:00Z", 41.503, 1672*int64(time.Millisecond)), 2.589),
 		withOwnerWait(cmpRec("sh2", "A-honor", "self-completing", "2026-08-20T02:49:00Z", 41.414, 1762*int64(time.Millisecond)), 2.685),
 	}
-	d, err := checkDoseSensitivity(honor)
+	d, err := checkSensitivity2(honor)
 	if err != nil {
 		t.Fatalf("dose sensitivity: %v", err)
 	}
@@ -324,14 +329,14 @@ func TestDoseSensitivitySeparatesABaselineFromAQuantityTheDoseDetermines(t *test
 		withOwnerWait(cmpRec("si1", "A-ignore", "self-completing", "2026-08-20T02:46:00Z", 0.0, 1280*int64(time.Millisecond)), 19.665),
 		withOwnerWait(cmpRec("si2", "A-ignore", "self-completing", "2026-08-20T02:51:00Z", 0.0, 2364*int64(time.Millisecond)), 19.733),
 	}
-	di, err := checkDoseSensitivity(ignore)
+	di, err := checkSensitivity2(ignore)
 	if err != nil {
 		t.Fatalf("dose sensitivity: %v", err)
 	}
 	if !di.MovesWithDose {
 		t.Fatalf("an 11 s response against a 2.364 s floor was not seen; the check cannot detect anything: %+v", di)
 	}
-	if !strings.Contains(di.Statement, "cannot serve as a baseline") {
+	if !strings.Contains(di.Statement, "cannot be quoted as a property of the platform") {
 		t.Fatalf("the statement does not say what the response costs: %s", di.Statement)
 	}
 }
@@ -343,7 +348,7 @@ func TestDoseSensitivityRefusesToPoolArms(t *testing.T) {
 		withOwnerWait(cmpRec("gh1", "A-honor", "grace-bounded", "2026-08-20T02:42:43Z", 21.3, int64(time.Second)), 2.729),
 		withOwnerWait(cmpRec("si1", "A-ignore", "self-completing", "2026-08-20T02:46:00Z", 0.0, int64(time.Second)), 19.665),
 	}
-	if _, err := checkDoseSensitivity(mixed); err == nil {
+	if _, err := checkSensitivity2(mixed); err == nil {
 		t.Fatal("two arms were pooled into a dose response")
 	}
 
@@ -352,7 +357,7 @@ func TestDoseSensitivityRefusesToPoolArms(t *testing.T) {
 		withOwnerWait(cmpRec("gh1", "A-honor", "grace-bounded", "2026-08-20T02:42:43Z", 21.3, int64(time.Second)), 2.729),
 		withOwnerWait(cmpRec("gh2", "A-honor", "grace-bounded", "2026-08-20T02:47:58Z", 21.2, int64(time.Second)), 2.789),
 	}
-	if _, err := checkDoseSensitivity(same); err == nil {
+	if _, err := checkSensitivity2(same); err == nil {
 		t.Fatal("a single dose regime produced a dose-sensitivity result")
 	}
 
@@ -362,7 +367,7 @@ func TestDoseSensitivityRefusesToPoolArms(t *testing.T) {
 		withOwnerWait(cmpRec("gh1", "A-honor", "grace-bounded", "2026-08-20T02:42:43Z", 21.3, int64(time.Second)), 2.729),
 		cmpRec("sh1", "A-honor", "self-completing", "2026-08-20T02:44:00Z", 41.5, int64(time.Second)),
 	}
-	if _, err := checkDoseSensitivity(absent); err == nil {
+	if _, err := checkSensitivity2(absent); err == nil {
 		t.Fatal("a regime whose owner never returned was folded into a dose response")
 	}
 }
@@ -426,7 +431,7 @@ func TestDoseSensitivityRefusesASurvivorMean(t *testing.T) {
 		withOwnerWait(cmpRec("sh1", "A-honor", "self-completing", "2026-08-20T05:05:00Z", 41.5, int64(time.Second)), 2.6),
 		cmpRec("sh2", "A-honor", "self-completing", "2026-08-20T05:15:00Z", 41.4, int64(time.Second)),
 	}
-	if _, err := checkDoseSensitivity(recs); err == nil {
+	if _, err := checkSensitivity2(recs); err == nil {
 		t.Fatal("a regime that restored its owner once out of twice produced a dose verdict")
 	}
 }
@@ -441,7 +446,7 @@ func TestDoseSensitivityReportsWhetherTheRegimesAlternated(t *testing.T) {
 		withOwnerWait(cmpRec("sh1", "A-honor", "self-completing", "2026-08-20T09:00:00Z", 41.5, int64(time.Second)), 2.6),
 		withOwnerWait(cmpRec("sh2", "A-honor", "self-completing", "2026-08-20T09:05:00Z", 41.4, int64(time.Second)), 2.65),
 	}
-	d, err := checkDoseSensitivity(blocked)
+	d, err := checkSensitivity2(blocked)
 	if err != nil {
 		t.Fatalf("dose sensitivity: %v", err)
 	}
@@ -459,11 +464,181 @@ func TestDoseSensitivityReportsWhetherTheRegimesAlternated(t *testing.T) {
 		withOwnerWait(cmpRec("gh2", "A-honor", "grace-bounded", "2026-08-20T05:10:00Z", 21.3, int64(time.Second)), 2.8),
 		withOwnerWait(cmpRec("sh2", "A-honor", "self-completing", "2026-08-20T05:15:00Z", 41.4, int64(time.Second)), 2.65),
 	}
-	da, err := checkDoseSensitivity(alternating)
+	da, err := checkSensitivity2(alternating)
 	if err != nil {
 		t.Fatalf("dose sensitivity: %v", err)
 	}
 	if !da.Interleaved {
 		t.Fatal("alternating regimes were reported as blocked")
+	}
+}
+
+// nodeRec puts a record on a named worker, which the baseline and the node-sensitivity check group by.
+func nodeRec(r runRecord, node string) runRecord {
+	r.Qualification = &qualification{Node: node}
+	return r
+}
+
+// The last hand-typed number in this lab, as an artifact. It refuses more than the comparisons do, because a
+// baseline is quoted long after its runs are gone by someone who will not re-derive it — which is exactly
+// what happened to the figure this replaces.
+func TestBaselineNamesEverythingBehindIt(t *testing.T) {
+	recs := []runRecord{
+		nodeRec(withOwnerWait(cmpRec("gh1", "A-honor", "grace-bounded", "2026-08-20T05:00:00Z", 21.3, 1876*int64(time.Millisecond)), 2.729), "platform-worker"),
+		nodeRec(withOwnerWait(cmpRec("sh1", "A-honor", "self-completing", "2026-08-20T05:05:00Z", 41.5, 1672*int64(time.Millisecond)), 2.589), "platform-worker"),
+		nodeRec(withOwnerWait(cmpRec("gh2", "A-honor", "grace-bounded", "2026-08-20T05:10:00Z", 21.3, 1000*int64(time.Millisecond)), 2.789), "platform-worker2"),
+		nodeRec(withOwnerWait(cmpRec("sh2", "A-honor", "self-completing", "2026-08-20T05:15:00Z", 41.4, 1762*int64(time.Millisecond)), 2.685), "platform-worker2"),
+	}
+	b, err := computeBaseline(recs)
+	if err != nil {
+		t.Fatalf("baseline: %v", err)
+	}
+	if b.N != 4 || len(b.RunIDs) != 4 {
+		t.Fatalf("n=%d runs=%v, want all four named", b.N, b.RunIDs)
+	}
+	if len(b.Doses) != 2 || len(b.Nodes) != 2 {
+		t.Fatalf("doses=%v nodes=%v; a baseline must name what it spans", b.Doses, b.Nodes)
+	}
+	if b.OwnerWaitSecondsMin != 2.589 || b.OwnerWaitSecondsMax != 2.789 {
+		t.Fatalf("min=%v max=%v, want the observed extremes", b.OwnerWaitSecondsMin, b.OwnerWaitSecondsMax)
+	}
+	if b.DeviceEvidence != deviceNotObserved {
+		t.Fatalf("device axis = %q on a fake device plugin", b.DeviceEvidence)
+	}
+	out := renderBaseline(b)
+	if !strings.Contains(out, "control-plane figure and not a statement about hardware") {
+		t.Fatalf("the render lets a fake-plugin baseline read as hardware:\n%s", out)
+	}
+	if !strings.Contains(b.Statement, "add its own floor") {
+		t.Fatalf("the statement does not tell a later session how to difference against it: %s", b.Statement)
+	}
+}
+
+// A run whose owner never came back cannot contribute to a floor: averaging the ones that did produces the
+// platform's best case wearing the name of its baseline.
+func TestBaselineRefusesARunThatNeverRestoredItsOwner(t *testing.T) {
+	recs := []runRecord{
+		nodeRec(withOwnerWait(cmpRec("h1", "A-honor", "grace-bounded", "2026-08-20T05:00:00Z", 21.3, int64(time.Second)), 2.7), "platform-worker"),
+		nodeRec(cmpRec("h2", "A-honor", "grace-bounded", "2026-08-20T05:10:00Z", 21.3, int64(time.Second)), "platform-worker"),
+	}
+	if _, err := computeBaseline(recs); err == nil {
+		t.Fatal("a baseline was pooled over a run whose owner never returned")
+	}
+
+	// And two arms are never one baseline.
+	mixed := []runRecord{
+		nodeRec(withOwnerWait(cmpRec("h1", "A-honor", "grace-bounded", "2026-08-20T05:00:00Z", 21.3, int64(time.Second)), 2.7), "platform-worker"),
+		nodeRec(withOwnerWait(cmpRec("i1", "A-ignore", "grace-bounded", "2026-08-20T05:10:00Z", 51.3, int64(time.Second)), 30.8), "platform-worker"),
+	}
+	if _, err := computeBaseline(mixed); err == nil {
+		t.Fatal("two arms were averaged into one baseline, erasing the difference they exist to show")
+	}
+}
+
+// The node is the factor "one cluster, one pinned worker" left unqualified on every figure this lab has
+// produced. Varying it requires holding the dose fixed, or a node difference gets published as a dose one.
+func TestNodeSensitivityHoldsTheDoseFixed(t *testing.T) {
+	varied := []runRecord{
+		nodeRec(withOwnerWait(cmpRec("a", "A-honor", "grace-bounded", "2026-08-20T05:00:00Z", 21.3, int64(time.Second)), 2.7), "platform-worker"),
+		nodeRec(withOwnerWait(cmpRec("b", "A-honor", "self-completing", "2026-08-20T05:05:00Z", 41.5, int64(time.Second)), 2.6), "platform-worker2"),
+	}
+	if _, err := checkSensitivity(varied, factorNode); err == nil {
+		t.Fatal("the node and the dose varied together and a node response was reported")
+	}
+
+	held := []runRecord{
+		nodeRec(withOwnerWait(cmpRec("a1", "A-honor", "grace-bounded", "2026-08-20T05:00:00Z", 21.3, int64(time.Second)), 2.70), "platform-worker"),
+		nodeRec(withOwnerWait(cmpRec("b1", "A-honor", "grace-bounded", "2026-08-20T05:05:00Z", 21.3, int64(time.Second)), 2.75), "platform-worker2"),
+		nodeRec(withOwnerWait(cmpRec("a2", "A-honor", "grace-bounded", "2026-08-20T05:10:00Z", 21.3, int64(time.Second)), 2.72), "platform-worker"),
+		nodeRec(withOwnerWait(cmpRec("b2", "A-honor", "grace-bounded", "2026-08-20T05:15:00Z", 21.3, int64(time.Second)), 2.78), "platform-worker2"),
+	}
+	d, err := checkSensitivity(held, factorNode)
+	if err != nil {
+		t.Fatalf("node sensitivity: %v", err)
+	}
+	if d.Factor != factorNode || len(d.Doses) != 2 {
+		t.Fatalf("factor=%q levels=%d, want node over two workers", d.Factor, len(d.Doses))
+	}
+	if d.MovesWithDose {
+		t.Fatalf("a 60 ms difference between nodes resolved against a %.3f s floor", d.FloorSeconds)
+	}
+	if !strings.Contains(renderDoseSensitivity(d), "SENSITIVITY TO NODE") {
+		t.Fatalf("the render does not name the factor:\n%s", renderDoseSensitivity(d))
+	}
+}
+
+// The lab's central claim, as arithmetic. Two regimes put the victim on opposite sides of the grace period,
+// so the same model must predict a 30 s hold in one and a 20 s hold in the other — a model fitted to either
+// alone would miss the other by ten seconds.
+func TestTheModelPredictsBothRegimesFromOneRule(t *testing.T) {
+	// Honouring: restoration with nothing holding the device. Ignoring: the model's subject.
+	// grace-bounded leaves 40 s remaining against a 30 s grace, so grace binds: 30 + 2.76 = 32.76.
+	// self-completing leaves 20 s, so the victim's own service binds: 20 + 2.76 = 22.76.
+	recs := []runRecord{
+		withOwnerWait(cmpRec("gh1", "A-honor", "grace-bounded", "2026-08-20T05:00:00Z", 21.3, int64(time.Second)), 2.73),
+		withOwnerWait(cmpRec("gh2", "A-honor", "grace-bounded", "2026-08-20T05:05:00Z", 21.3, int64(time.Second)), 2.79),
+		withOwnerWait(cmpRec("sh1", "A-honor", "self-completing", "2026-08-20T05:10:00Z", 41.5, int64(time.Second)), 2.73),
+		withOwnerWait(cmpRec("sh2", "A-honor", "self-completing", "2026-08-20T05:15:00Z", 41.4, int64(time.Second)), 2.79),
+		withOwnerWait(cmpRec("gi1", "A-ignore", "grace-bounded", "2026-08-20T05:20:00Z", 51.3, int64(time.Second)), 32.7),
+		withOwnerWait(cmpRec("gi2", "A-ignore", "grace-bounded", "2026-08-20T05:25:00Z", 51.3, int64(time.Second)), 32.8),
+		withOwnerWait(cmpRec("si1", "A-ignore", "self-completing", "2026-08-20T05:30:00Z", 0.0, int64(time.Second)), 22.7),
+		withOwnerWait(cmpRec("si2", "A-ignore", "self-completing", "2026-08-20T05:35:00Z", 0.0, int64(time.Second)), 22.8),
+	}
+	m, err := checkModel(recs)
+	if err != nil {
+		t.Fatalf("model: %v", err)
+	}
+	if !m.Holds {
+		t.Fatalf("the model failed on data generated from it: %+v", m.Cases)
+	}
+	if len(m.Cases) != 2 {
+		t.Fatalf("cases = %d, want one per regime", len(m.Cases))
+	}
+	byDose := map[string]modelCase{}
+	for _, c := range m.Cases {
+		byDose[c.Dose] = c
+	}
+	if byDose["grace-bounded"].BindingTerm != "termination grace" {
+		t.Fatalf("40 s of remaining service against a 30 s grace must bind on grace: %+v", byDose["grace-bounded"])
+	}
+	if byDose["self-completing"].BindingTerm != "remaining service" {
+		t.Fatalf("20 s of remaining service against a 30 s grace must bind on service: %+v", byDose["self-completing"])
+	}
+	// The protocol's constants are printed, because the record does not carry them and a build with different
+	// ones would mispredict silently.
+	if !strings.Contains(renderModel(m), "grace=30s") {
+		t.Fatalf("the render does not state the arithmetic's inputs:\n%s", renderModel(m))
+	}
+}
+
+// And it can fail. A refutation nobody can trigger is not one — this is the test that the check is a test.
+func TestTheModelCanBeRefuted(t *testing.T) {
+	recs := []runRecord{
+		withOwnerWait(cmpRec("gh1", "A-honor", "grace-bounded", "2026-08-20T05:00:00Z", 21.3, int64(time.Second)), 2.73),
+		withOwnerWait(cmpRec("sh1", "A-honor", "self-completing", "2026-08-20T05:10:00Z", 41.5, int64(time.Second)), 2.79),
+		// The grace-bounded victim held its device for a minute rather than the grace period.
+		withOwnerWait(cmpRec("gi1", "A-ignore", "grace-bounded", "2026-08-20T05:20:00Z", 51.3, int64(time.Second)), 62.7),
+		withOwnerWait(cmpRec("si1", "A-ignore", "self-completing", "2026-08-20T05:30:00Z", 0.0, int64(time.Second)), 22.7),
+	}
+	m, err := checkModel(recs)
+	if err != nil {
+		t.Fatalf("model: %v", err)
+	}
+	if m.Holds {
+		t.Fatal("a victim that held its device for twice the grace period did not refute the model")
+	}
+	if !strings.Contains(m.Statement, "REFUTED") {
+		t.Fatalf("the statement does not say it was refuted: %s", m.Statement)
+	}
+}
+
+// One regime can be fitted by any model, so the check refuses to conclude from one.
+func TestTheModelRefusesASingleRegime(t *testing.T) {
+	recs := []runRecord{
+		withOwnerWait(cmpRec("gh1", "A-honor", "grace-bounded", "2026-08-20T05:00:00Z", 21.3, int64(time.Second)), 2.73),
+		withOwnerWait(cmpRec("gi1", "A-ignore", "grace-bounded", "2026-08-20T05:20:00Z", 51.3, int64(time.Second)), 32.7),
+	}
+	if _, err := checkModel(recs); err == nil {
+		t.Fatal("one regime produced a model verdict; any model fits a single point")
 	}
 }
