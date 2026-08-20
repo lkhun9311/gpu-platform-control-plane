@@ -101,6 +101,25 @@ type qualification struct {
 	// cluster does not use. A run that inspected fourteen Pods and found none holding a device has established
 	// something; a run that inspected zero has established that it looked in an empty place.
 	PodsOnNode int `json:"podsOnNode"`
+	// GPUConsumersElsewhere names device holders on OTHER nodes, and it is recorded rather than gated on.
+	//
+	// Nothing about them can stop this run: they hold no capacity this worker owns. What they do is make two
+	// records comparable or not. A node comparison in this lab was run with the platform's own serving
+	// workload up on one side and scaled to zero on the other, because the second node could not be held
+	// exclusively until it was — so the node and the cluster's occupancy varied together and the result
+	// attributed to the node was confounded. Nothing in the record said so, and nothing could have: the
+	// qualification looked only at the worker.
+	GPUConsumersElsewhere []gpuConsumer `json:"gpuConsumersElsewhere,omitempty"`
+	// OperatorImageID is the image the controller-manager is ACTUALLY running, by digest.
+	//
+	// The measured Pods are rendered by that image, and until now nothing in a record identified it. The
+	// canary fingerprints a Pod template rendered by THIS BINARY, so a harness built at HEAD against a
+	// cluster running a stale manager would hash a template nobody ran, match itself, and qualify. Recording
+	// the digest makes that visible; the canary key uses it so it also refuses.
+	//
+	// Empty when the manager could not be identified, which is a fact worth keeping rather than a zero to
+	// paper over: it means the run cannot say what rendered its workloads.
+	OperatorImageID string `json:"operatorImageID,omitempty"`
 	// GPUConsumers is empty on every qualified run, which is why it is omitempty: a record carrying one is
 	// always a record of a refusal.
 	GPUConsumers []gpuConsumer `json:"gpuConsumers,omitempty"`
@@ -358,12 +377,16 @@ func qualify(n *corev1.Node, pods []corev1.Pod, req gpuRequirement, contract can
 		PodsOnNode:      onNode,
 		GPUConsumers:    consumers,
 	}
+	// Set before the canary is consulted, because its key now includes the digest: a canary checked against
+	// an empty operator image would match a reading taken under a known one.
+	q.GPUConsumersElsewhere = gpuConsumersOffNode(pods, n.Name)
+	q.OperatorImageID = operatorImageID(pods)
 
 	// The canary is consulted here, alongside the capacity checks and not before them, so that a worker with
 	// three things wrong with it still reports all three in one refusal. The reference is attached whenever it
 	// matched, on the same principle the block's other fields follow: what was observed goes into the record
 	// whichever way the verdict went.
-	canary, cerr := checkTerminationCanary(n, contract)
+	canary, cerr := checkTerminationCanary(n, contract, q.OperatorImageID)
 	q.TerminationCanary = canary
 
 	var failed []string
@@ -437,4 +460,59 @@ func qualifyWorker(ctx context.Context, c client.Client, nodeName string,
 	}
 	q, err := qualify(&n, pods.Items, req, contract)
 	return &q, err
+}
+
+// gpuConsumersOffNode names device holders anywhere but the run's own worker.
+//
+// It is the complement of gpuConsumersOn, and it exists for comparability rather than for admission: two
+// runs taken with different workloads holding devices elsewhere in the cluster are two runs on two different
+// machines, whatever their own node looked like.
+func gpuConsumersOffNode(pods []corev1.Pod, node string) []gpuConsumer {
+	var out []gpuConsumer
+	for i := range pods {
+		p := &pods[i]
+		if p.Spec.NodeName == node || !holdsDevices(p) {
+			continue
+		}
+		n := podGPURequest(&p.Spec)
+		if n == 0 {
+			continue
+		}
+		out = append(out, gpuConsumer{
+			Namespace:   p.Namespace,
+			Name:        p.Name,
+			Phase:       string(p.Status.Phase),
+			Terminating: p.DeletionTimestamp != nil,
+			GPUs:        n,
+		})
+	}
+	return out
+}
+
+// operatorImageID is the resolved digest of the image the controller-manager is running, or "" when no
+// single manager Pod can be identified.
+//
+// It reads imageID rather than image because the tag is mutable and the whole point is to pin what actually
+// ran: `controller:latest` names one thing today and another tomorrow, and the Makefile's default IMG is
+// exactly that tag. Ambiguity returns empty rather than a guess — two managers Ready at once during a
+// rollout is a real state, and picking one of them would record a digest that rendered only half the run's
+// Pods.
+func operatorImageID(pods []corev1.Pod) string {
+	var found string
+	for i := range pods {
+		p := &pods[i]
+		if p.Labels["control-plane"] != "controller-manager" || p.Status.Phase != corev1.PodRunning {
+			continue
+		}
+		for _, cs := range p.Status.ContainerStatuses {
+			if cs.Name != "manager" || cs.ImageID == "" {
+				continue
+			}
+			if found != "" && found != cs.ImageID {
+				return ""
+			}
+			found = cs.ImageID
+		}
+	}
+	return found
 }

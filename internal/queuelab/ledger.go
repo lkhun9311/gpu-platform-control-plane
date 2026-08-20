@@ -140,11 +140,14 @@ const (
 // attempt is one Pod's execution, keyed by Pod UID, so preemption waste is paired to the exact Pod that
 // ran rather than to whichever stop happened to be recorded next.
 type attempt struct {
-	uid        string
-	readyNs    int64
-	stopped    bool
-	stopNs     int64
-	stopReason string // the terminal Pod phase, which is what makes a stop attributable or not
+	// readyStampNs is the KUBELET's own clock for the readiness this attempt reached, beside readyNs which
+	// is when the collector heard about it. Zero when the component published none.
+	readyStampNs int64
+	uid          string
+	readyNs      int64
+	stopped      bool
+	stopNs       int64
+	stopReason   string // the terminal Pod phase, which is what makes a stop attributable or not
 }
 
 // jobTimeline reconstructs one job's story from its events. It is SEEDED from the frozen trace row, not
@@ -159,8 +162,11 @@ type jobTimeline struct {
 	submittedNs int64
 	admitted    bool
 	admitNs     int64
-	completed   bool
-	completedNs int64
+	// admitStampNs is KUEUE's own clock for the admission, beside admitNs which is when the collector heard
+	// about it. Zero when the component published none.
+	admitStampNs int64
+	completed    bool
+	completedNs  int64
 
 	attempts    map[string]*attempt
 	attemptSeq  []string // insertion order of attempt UIDs, for deterministic pairing
@@ -181,6 +187,13 @@ type WorkloadOutcome struct {
 	// ReadyLatencyNs is submitted -> first observed Pod Ready, a client-observed propagation gap; valid only
 	// when Executed is true.
 	ReadyLatencyNs int64
+	// AdmitToReadyStampNs is the same interval measured on the CLUSTER COMPONENTS' own clocks -- Kueue's
+	// Admitted transition to the kubelet's Ready transition -- rather than on this collector's.
+	//
+	// nil when either component published no timestamp. It exists because the arrival-based figure below
+	// scattered across a second between otherwise identical runs while this one did not move at all, which
+	// is how the scatter was identified as watch jitter rather than as the cluster behaving differently.
+	AdmitToReadyStampNs *int64
 	// AdmitToReadyNs is admission -> first observed Pod Ready, a client-observed propagation gap; valid only
 	// when the row was both Admitted and Executed.
 	//
@@ -501,17 +514,20 @@ func foldEvent(byJob map[string]*jobTimeline, e *LifecycleEvent, horizonElapsedN
 		if !t.admitted {
 			t.admitted = true
 			t.admitNs = e.ElapsedNs
+			t.admitStampNs = stampOf(e)
 		} else if e.ElapsedNs < t.admitNs {
 			t.admitNs = e.ElapsedNs
+			t.admitStampNs = stampOf(e)
 		}
 	case EventPodReady:
 		a, ok := t.attempts[e.ObjectUID]
 		if !ok {
-			a = &attempt{uid: e.ObjectUID, readyNs: e.ElapsedNs}
+			a = &attempt{uid: e.ObjectUID, readyNs: e.ElapsedNs, readyStampNs: stampOf(e)}
 			t.attempts[e.ObjectUID] = a
 			t.attemptSeq = append(t.attemptSeq, e.ObjectUID)
 		} else if e.ElapsedNs < a.readyNs {
 			a.readyNs = e.ElapsedNs
+			a.readyStampNs = stampOf(e)
 		}
 	case EventPreempted:
 		t.preemptedNs = append(t.preemptedNs, e.ElapsedNs)
@@ -610,9 +626,11 @@ func chargeWaste(t *jobTimeline, horizonElapsedNs int64, out *WorkloadOutcome) e
 		// readyNs; picking attemptSeq[0] would silently misreport a re-executed row whose retry's PodReady
 		// happened to be folded first.
 		firstReady := t.attempts[t.attemptSeq[0]].readyNs
+		firstReadyStamp := t.attempts[t.attemptSeq[0]].readyStampNs
 		for _, uid := range t.attemptSeq[1:] {
 			if r := t.attempts[uid].readyNs; r < firstReady {
 				firstReady = r
+				firstReadyStamp = t.attempts[uid].readyStampNs
 			}
 		}
 		out.Executed = true
@@ -627,6 +645,23 @@ func chargeWaste(t *jobTimeline, horizonElapsedNs int64, out *WorkloadOutcome) e
 			// this gap can legally be slightly negative when deliveries are reordered across watches; erroring
 			// on that would discard a valid run, so the raw value is left as-is, unclamped.
 			out.AdmitToReadyNs = firstReady - t.admitNs
+			// The same interval read off the two COMPONENTS' clocks instead of this collector's, and it is
+			// carried beside rather than instead of the arrival-based figure because the two bound different
+			// error sources and neither dominates.
+			//
+			// The arrival figure is fine-grained and carries the delivery lag of two independent watches,
+			// which the recorded runs put at whole seconds. This one has no watch lag at all, and instead
+			// carries up to a second of truncation at each end plus the offset between Kueue's clock and
+			// the kubelet's. The offset is a CONSTANT for a given pair of machines, so it cancels in a
+			// difference between two arms measured on the same node -- and does not cancel between nodes,
+			// which is why a node comparison must not use this figure.
+			//
+			// Where they agree, that is corroboration from two directions. Where they disagree by more than
+			// both bounds allow, something is wrong and the run should not be published either way.
+			if t.admitStampNs != 0 && firstReadyStamp != 0 {
+				v := firstReadyStamp - t.admitStampNs
+				out.AdmitToReadyStampNs = &v
+			}
 		}
 	}
 	for _, uid := range t.attemptSeq {
@@ -777,4 +812,12 @@ func percentileNs(sorted []float64, q float64) float64 {
 	rank = max(rank, 0)
 	rank = min(rank, len(sorted)-1)
 	return sorted[rank]
+}
+
+// stampOf is the component's own clock for an event, or zero when it published none.
+func stampOf(e *LifecycleEvent) int64 {
+	if e.ComponentStampUnixNanos == nil {
+		return 0
+	}
+	return *e.ComponentStampUnixNanos
 }

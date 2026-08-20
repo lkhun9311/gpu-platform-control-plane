@@ -251,7 +251,7 @@ func TestTheCanaryRecordsAPassingQualificationOnTheWorkerItsProbes(t *testing.T)
 	if err := c.Get(context.Background(), client.ObjectKey{Name: "platform-worker"}, &worker); err != nil {
 		t.Fatalf("read the worker: %v", err)
 	}
-	ref, err := checkTerminationCanary(&worker, mustHarnessContract(t))
+	ref, err := checkTerminationCanary(&worker, mustHarnessContract(t), "")
 	if err != nil {
 		t.Fatalf("the qualification this canary just recorded does not satisfy the gate that consults it: %v", err)
 	}
@@ -320,7 +320,7 @@ func TestAFailingCanaryOverwritesTheQualificationItJustFalsified(t *testing.T) {
 	if err := c.Get(context.Background(), client.ObjectKey{Name: "platform-worker"}, &after); err != nil {
 		t.Fatalf("read the worker: %v", err)
 	}
-	if _, cerr := checkTerminationCanary(&after, mustHarnessContract(t)); cerr == nil {
+	if _, cerr := checkTerminationCanary(&after, mustHarnessContract(t), ""); cerr == nil {
 		t.Fatal("a worker carrying a failed canary passed the consult")
 	}
 	if !strings.Contains(out.String(), "NOT QUALIFIED") {

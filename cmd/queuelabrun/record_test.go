@@ -1583,14 +1583,14 @@ func TestARecordFromAnEarlierSchemaIsRefused(t *testing.T) {
 	// changed what resolvedToNs MEANS (spread + quantisation, not max) and where the ledger's component
 	// stamps are sampled (every endpoint kind, not stops alone), so an older record carries the same field
 	// names holding different quantities.
-	if recordSchemaVersion != 15 {
+	if recordSchemaVersion != 16 {
 		t.Fatalf("recordSchemaVersion is %d; if the wire format changed again, bump this and say what changed",
 			recordSchemaVersion)
 	}
 	// Both predecessors, not only the immediate one. DisallowUnknownFields makes a version-9 document fail on
 	// the removed fields and a version-8 one fail on the version alone, and a decoder that accepted either
 	// would be reading a document whose fields do not mean what this build thinks they do.
-	for _, older := range []int{9, 10, 11, 12, 13, 14} {
+	for _, older := range []int{9, 10, 11, 12, 13, 14, 15} {
 		b := fmt.Appendf(nil, `{"schemaVersion":%d,"dose":"self-completing","runID":"r7","arm":"A-honor",`+
 			`"disposition":"completed-implemented-checks-passed",%s}`, older, refusedValidity)
 		if _, err := decodeRunRecord(b); err == nil {
@@ -1796,5 +1796,41 @@ func TestTheOwnersWaitNeedsBothAdmissionAndExecution(t *testing.T) {
 	empty := &queuelab.LabResult{Outcomes: []queuelab.WorkloadOutcome{{Job: queuelab.OwnRow, Admitted: true, Executed: true}}}
 	if got := ownerAdmitToReady(empty); got != nil {
 		t.Fatalf("a result with no owner row reported a wait of %d ns", *got)
+	}
+}
+
+// The owner's wait, read off the two components' own clocks instead of this collector's arrival times.
+//
+// It earned its place immediately: across four otherwise identical grace-bounded runs on two nodes the
+// arrival figure scattered by 931 ms while this one did not move at all, which is how the scatter was
+// identified as watch jitter rather than as the cluster behaving differently — and how a node-sensitivity
+// claim built on that scatter was caught before it was published.
+//
+// Mutation that turns this red: drop either precondition from ownerAdmitToReadyStamp, or return the arrival
+// figure from it.
+func TestTheOwnersWaitIsAlsoReadOffTheComponentsClocks(t *testing.T) {
+	stamp := int64(31_000_000_000)
+	res := func(admitted, executed bool, s *int64) *queuelab.LabResult {
+		return &queuelab.LabResult{Outcomes: []queuelab.WorkloadOutcome{
+			{Job: queuelab.OwnRow, Admitted: true, Executed: true, AdmitToReadyNs: 7, AdmitToReadyStampNs: &stamp},
+			{Job: queuelab.OwnerRow, Admitted: admitted, Executed: executed,
+				AdmitToReadyNs: 30_687_000_000, AdmitToReadyStampNs: s},
+		}}
+	}
+	got := ownerAdmitToReadyStamp(res(true, true, &stamp))
+	if got == nil {
+		t.Fatal("a restored owner whose components both stamped their transitions reported no stamp interval")
+	}
+	if *got != stamp {
+		t.Fatalf("stamp interval = %d, want the owner row's %d and not another row's or the arrival figure",
+			*got, stamp)
+	}
+	// Same preconditions as the arrival figure: an owner that never ran has no interval, on either clock.
+	if s := ownerAdmitToReadyStamp(res(true, false, &stamp)); s != nil {
+		t.Fatalf("an owner that was admitted and never ran reported a stamp interval of %d", *s)
+	}
+	// And a run whose components published nothing reports nothing rather than a zero interval.
+	if s := ownerAdmitToReadyStamp(res(true, true, nil)); s != nil {
+		t.Fatalf("an unstamped run reported a stamp interval of %d, claiming instant restoration", *s)
 	}
 }

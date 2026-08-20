@@ -1288,3 +1288,115 @@ func TestReconstructStillRefusesAnInHorizonStopWithNoReadiness(t *testing.T) {
 		t.Fatal("a stop inside the window for a Pod never seen Ready was folded as if it were ordinary")
 	}
 }
+
+// stamped builds an event carrying both clocks: when the collector heard about it, and the component's own.
+func stamped(kind, job, reason string, ev EventType, elapsedNs, stampNs int64) LifecycleEvent {
+	e := LifecycleEvent{Kind: kind, Job: job, Reason: reason, Type: ev, ElapsedNs: elapsedNs, ObjectUID: job + "-uid"}
+	if stampNs != 0 {
+		s := stampNs
+		e.ComponentStampUnixNanos = &s
+	}
+	return e
+}
+
+// The reconstruction must carry the interval on the components' own clocks beside the arrival-based one,
+// because they bound different error sources and the pair is what separates watch jitter from the cluster
+// behaving differently.
+//
+// The numbers are the shape the recorded runs actually took: an admission and a readiness whose ARRIVALS are
+// 30.687 s apart while the components' own transitions are exactly 31 s apart, the arrival figure carrying
+// the two watches' delivery lag and the stamp figure carrying a second of truncation instead.
+//
+// Mutation that turns this red: stop emitting AdmitToReadyStampNs in Reconstruct, or take the stamp from the
+// wrong endpoint.
+func TestReconstructCarriesTheIntervalOnBothClocks(t *testing.T) {
+	trace := []TrainingTraceRow{{Index: 0, Name: "b1", OffsetMs: 0, Tenant: "tenant-b", GPUCount: 1, DurationSec: 60}}
+	const admitArrival, readyArrival = int64(24_217_000_000), int64(54_904_000_000)
+	const admitStamp, readyStamp = int64(1_700_000_024_000_000_000), int64(1_700_000_055_000_000_000)
+
+	res, err := Reconstruct("A-ignore", trace, []LifecycleEvent{
+		stamped("MLTrainingJob", "b1", "", EventSubmitted, 0, 0),
+		stamped("Workload", "b1", "Admitted", EventAdmitted, admitArrival, admitStamp),
+		stamped("Pod", "b1", "Ready", EventPodReady, readyArrival, readyStamp),
+	}, 150_000_000_000)
+	if err != nil {
+		t.Fatalf("reconstruct: %v", err)
+	}
+	o := res.Outcomes[0]
+	if o.AdmitToReadyNs != readyArrival-admitArrival {
+		t.Fatalf("arrival interval = %d, want %d", o.AdmitToReadyNs, readyArrival-admitArrival)
+	}
+	if o.AdmitToReadyStampNs == nil {
+		t.Fatal("both components stamped their transitions and the reconstruction carried no stamp interval; " +
+			"the run's scatter could then not be told from the cluster behaving differently")
+	}
+	if *o.AdmitToReadyStampNs != readyStamp-admitStamp {
+		t.Fatalf("stamp interval = %d, want %d", *o.AdmitToReadyStampNs, readyStamp-admitStamp)
+	}
+	// The two must be different here, or the test would pass against a build that returned the arrival figure
+	// from both.
+	if *o.AdmitToReadyStampNs == o.AdmitToReadyNs {
+		t.Fatal("the fixture no longer distinguishes the two clocks")
+	}
+}
+
+// A run whose components published no transition times reports the arrival figure alone rather than a zero
+// interval, which would claim the owner was running the instant it was admitted.
+func TestReconstructReportsNoStampIntervalWhenTheComponentsPublishedNone(t *testing.T) {
+	trace := []TrainingTraceRow{{Index: 0, Name: "b1", OffsetMs: 0, Tenant: "tenant-b", GPUCount: 1, DurationSec: 60}}
+	res, err := Reconstruct("A-ignore", trace, []LifecycleEvent{
+		stamped("MLTrainingJob", "b1", "", EventSubmitted, 0, 0),
+		stamped("Workload", "b1", "Admitted", EventAdmitted, 24_217_000_000, 0),
+		stamped("Pod", "b1", "Ready", EventPodReady, 54_904_000_000, 0),
+	}, 150_000_000_000)
+	if err != nil {
+		t.Fatalf("reconstruct: %v", err)
+	}
+	if s := res.Outcomes[0].AdmitToReadyStampNs; s != nil {
+		t.Fatalf("an unstamped run reported a stamp interval of %d", *s)
+	}
+}
+
+// A re-executed row has several attempts, the earliest-observed Ready is the minimum over them, and the
+// STAMP must come from that same attempt.
+//
+// If it does not, the interval is built from two different Pods: one attempt's readiness on the components'
+// clocks against another's on the collector's. The two figures would then disagree for a reason that has
+// nothing to do with watch lag, which is the one thing the pair exists to tell apart.
+//
+// attemptSeq is observation-insertion order rather than chronological order, so this is reachable: the
+// fixture below folds the LATER attempt first, exactly as a reordered watch would deliver it.
+func TestTheStampFollowsTheAttemptItsArrivalCameFrom(t *testing.T) {
+	trace := []TrainingTraceRow{{Index: 0, Name: "b1", OffsetMs: 0, Tenant: "tenant-b", GPUCount: 1, DurationSec: 60}}
+	const admitArrival, admitStamp = int64(10_000_000_000), int64(1_700_000_010_000_000_000)
+	// A row runs one attempt at a time, so the first must stop before the second is Ready — the
+	// reconstruction refuses overlapping attempts and is right to.
+	early := stamped("Pod", "b1", "Ready", EventPodReady, 20_000_000_000, 1_700_000_020_000_000_000)
+	early.ObjectUID = "attempt-early"
+	earlyStop := stamped("Pod", "b1", "Failed", EventAttemptStopped, 30_000_000_000, 1_700_000_030_000_000_000)
+	earlyStop.ObjectUID = "attempt-early"
+	late := stamped("Pod", "b1", "Ready", EventPodReady, 40_000_000_000, 1_700_000_040_000_000_000)
+	late.ObjectUID = "attempt-late"
+
+	// The LATER attempt is folded first, exactly as a reordered watch would deliver it: attemptSeq is
+	// observation-insertion order, not chronological order, which is what makes the mismatch reachable.
+	res, err := Reconstruct("A-ignore", trace, []LifecycleEvent{
+		stamped("MLTrainingJob", "b1", "", EventSubmitted, 0, 0),
+		stamped("Workload", "b1", "Admitted", EventAdmitted, admitArrival, admitStamp),
+		late, early, earlyStop,
+	}, 150_000_000_000)
+	if err != nil {
+		t.Fatalf("reconstruct: %v", err)
+	}
+	o := res.Outcomes[0]
+	if o.AdmitToReadyNs != 10_000_000_000 {
+		t.Fatalf("arrival interval = %d, want the EARLIEST attempt's 10s", o.AdmitToReadyNs)
+	}
+	if o.AdmitToReadyStampNs == nil {
+		t.Fatal("a re-executed row carried no stamp interval")
+	}
+	if *o.AdmitToReadyStampNs != 10_000_000_000 {
+		t.Fatalf("stamp interval = %d ns, want 10s: it was taken from a different attempt than the arrival "+
+			"figure, so the two clocks are measuring two different Pods", *o.AdmitToReadyStampNs)
+	}
+}

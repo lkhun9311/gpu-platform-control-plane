@@ -110,7 +110,18 @@ import (
 // from events neither of its endpoints was. Admissions and readiness now carry their components' own stamps.
 // A version-14 record's ledger therefore samples a different population than today's, and pooling the two
 // would mix a stop-only bound with an all-endpoints one.
-const recordSchemaVersion = 15
+// Version 16 adds measurement.ownerAdmitToReadyStampNs, the owner's wait read off the two cluster
+// components' own clocks instead of this collector's arrival times, and it is an addition rather than a
+// reinterpretation -- so the asymmetry is the ordinary one for a pointer. A version-15 record decodes with
+// nil, which this build genuinely writes for a run whose components published no timestamps, and the bump
+// separates that from a run taken before anything looked.
+//
+// It also adds the environment block, and that half is not optional detail. Every figure this lab has
+// published was taken with the cluster in some state nobody recorded: which other workloads held devices,
+// how many pods sat on the worker, which operator image actually rendered the measured Pods. A run at
+// version 15 cannot answer any of those, so two of its records cannot be told apart from two taken under
+// different conditions -- which is exactly the confound a node comparison ran into.
+const recordSchemaVersion = 16
 
 // runRecord is what a non-preview invocation leaves behind.
 //
@@ -399,6 +410,21 @@ type measurement struct {
 	// zero would be the strongest possible claim -- instant restoration -- asserted by precisely the runs
 	// where restoration never happened.
 	OwnerAdmitToReadyNs *int64 `json:"ownerAdmitToReadyNs,omitempty"`
+	// OwnerAdmitToReadyStampNs is the same interval read off the two cluster components' own clocks --
+	// Kueue's Admitted transition to the kubelet's Ready transition -- instead of off this collector's
+	// arrival times.
+	//
+	// It is carried BESIDE the figure above rather than instead of it, because the two bound different error
+	// sources and neither dominates. The arrival figure is fine-grained and carries the delivery lag of two
+	// independent watches; this one has no watch lag and instead carries up to a second of truncation at each
+	// end, plus a constant offset between the two components' clocks that cancels in an arm difference taken
+	// on one node and does NOT cancel between nodes.
+	//
+	// The pair earned its place immediately. Across four otherwise identical grace-bounded runs on two nodes,
+	// the arrival figure scattered by 931 ms while this one did not move at all -- which is how that scatter
+	// was identified as watch jitter rather than as the cluster doing something different, and how a claim
+	// about node sensitivity built on it was caught before it was published.
+	OwnerAdmitToReadyStampNs *int64 `json:"ownerAdmitToReadyStampNs,omitempty"`
 	// Resolution is how far this harness's own observations lag the events they describe.
 	//
 	// It sits in the measurement block rather than beside the ledger because it qualifies every number here:
@@ -963,6 +989,7 @@ func measurementOf(res *queuelab.LabResult, horizonNs int64, events []queuelab.L
 	}
 	return &measurement{
 		OwnerAdmitToReadyNs:       ownerAdmitToReady(res),
+		OwnerAdmitToReadyStampNs:  ownerAdmitToReadyStamp(res),
 		DiscardedIterations:       discardedIterations(events),
 		Workload:                  cpuOnlyWorkload(),
 		Resolution:                resolutionOf(events),
@@ -1214,6 +1241,26 @@ func ownerAdmitToReady(res *queuelab.LabResult) *int64 {
 			return nil
 		}
 		v := o.AdmitToReadyNs
+		return &v
+	}
+	return nil
+}
+
+// ownerAdmitToReadyStamp is the owner's wait on the components' own clocks, or nil when either published none.
+//
+// It applies the same Admitted-and-Executed precondition as ownerAdmitToReady, and for the same reason: the
+// underlying field is only meaningful when the row reached both states, and a zero read from a row that never
+// ran would report instant restoration for the run where restoration never happened.
+func ownerAdmitToReadyStamp(res *queuelab.LabResult) *int64 {
+	for i := range res.Outcomes {
+		o := &res.Outcomes[i]
+		if o.Job != queuelab.OwnerRow {
+			continue
+		}
+		if !o.Admitted || !o.Executed || o.AdmitToReadyStampNs == nil {
+			return nil
+		}
+		v := *o.AdmitToReadyStampNs
 		return &v
 	}
 	return nil

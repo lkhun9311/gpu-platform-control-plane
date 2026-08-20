@@ -735,6 +735,10 @@ func terminationCanary(ctx context.Context, c client.Client, nodeName string,
 			// build that took the reading renders, not something observed on the cluster, so it is recorded and
 			// compared out of the same place on both sides.
 			PodTemplateHash: contract.PodTemplateHash,
+			// Observed, like the grace period and unlike the template hash: it is which manager image is
+			// running on this cluster right now. A reading taken under one digest must not qualify a run
+			// under another, and recording it here is the half that makes canaryKeyFor's comparison possible.
+			OperatorImageID: operatorImageIDFrom(ctx, c),
 		},
 		Honor:    *probes[0],
 		Ignore:   *probes[1],
@@ -798,4 +802,19 @@ func reportCanary(out io.Writer, q canaryQualification) {
 	for _, f := range q.Failures {
 		_, _ = fmt.Fprintf(out, "  - %s\n", f)
 	}
+}
+
+// operatorImageIDFrom reads the running controller-manager's image digest, or "" when it cannot tell.
+//
+// It exists beside operatorImageID rather than replacing it because the two callers hold different things:
+// qualify is already given every Pod in the cluster and must not list them twice, while the canary take path
+// has only a client. A read failure returns "" for the same reason ambiguity does -- the honest answer to
+// "which image rendered this" is sometimes "nobody here can say", and a canary keyed on that matches only
+// another run equally unable to say.
+func operatorImageIDFrom(ctx context.Context, c client.Client) string {
+	var pods corev1.PodList
+	if err := c.List(ctx, &pods, client.MatchingLabels{"control-plane": "controller-manager"}); err != nil {
+		return ""
+	}
+	return operatorImageID(pods.Items)
 }
