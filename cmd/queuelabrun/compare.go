@@ -376,7 +376,14 @@ func wasteStatement(f finding, floor float64, bounded, interleaved bool, a, b ar
 // platform promises anybody.
 //
 // The discarded seconds beside it are the borrower's loss: real, and not a service-level objective. "Your
-// reclaimed capacity comes back within X" is, and this is X.
+// reclaimed capacity comes back within X" is, and this is most of X.
+//
+// Most, not all, and the gap is named rather than left implied. The interval starts when Kueue ADMITS the
+// owner, so the tenant's queueing time before that is outside it -- the reconstruction computes that half as
+// AdmitLatencyNs and the record does not carry it. It ends at Pod Ready, which for a container with no
+// readiness probe is container start, so anything the process does to make itself useful is outside it too.
+// What sits between those two points is the part reclamation governs, which is why it is the arm contrast;
+// what sits outside them is why the field is called ownerAdmitToReady and not "the owner's wait".
 func compareOwnerWait(a, b armSummary, floor float64, bounded, interleaved bool) finding {
 	f := finding{Quantity: "ownerAdmitToReadySeconds", ArmA: a.Arm, ArmB: b.Arm}
 	if a.OwnerWaitRuns == 0 || b.OwnerWaitRuns == 0 {
@@ -414,9 +421,11 @@ func compareOwnerWait(a, b armSummary, floor float64, bounded, interleaved bool)
 		f.Statement = fmt.Sprintf("NOT RESOLVED: the owner waited %.3f s under %s and %.3f s under %s, a "+
 			"difference inside this comparison's %.3f s floor", f.ValueA, a.Arm, f.ValueB, b.Arm, floor)
 	default:
-		f.Statement = fmt.Sprintf("the quota owner waited %.3f s under %s and %.3f s under %s -- a difference "+
-			"of %.1f s against a %.3f s floor, over n=%d and n=%d restored runs. This is the number a "+
-			"reclaim promise is judged on; the discarded seconds beside it are the borrower's loss",
+		f.Statement = fmt.Sprintf("the quota owner was running %.3f s AFTER KUEUE ADMITTED IT under %s and "+
+			"%.3f s under %s -- a difference of %.1f s against a %.3f s floor, over n=%d and n=%d restored "+
+			"runs. It is the reclaim-side half of what a tenant experiences and the half a reclaim promise is "+
+			"judged on; the time from SUBMISSION to admission is not in it, and neither is anything after the "+
+			"container starts. The discarded seconds beside it are the borrower's loss, not a promise",
 			f.ValueA, a.Arm, f.ValueB, b.Arm, diff, floor, a.OwnerWaitRuns, b.OwnerWaitRuns)
 	}
 	if f.Resolved && !interleaved {

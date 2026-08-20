@@ -61,16 +61,35 @@ It decomposes, in principle, into the kubelet releasing the device allocation, t
 re-advertising, the scheduler binding, and the container starting. **This harness cannot separate those**,
 and the pre-registration does not pretend it will: see the resolution section.
 
-## What the session adds
+## What the session adds, and where the interval actually ends
 
-The same protocol with a workload that actually touches the device. The restoration floor becomes
+The same protocol with a workload that touches the device. The restoration figure becomes
 
-    2.690 s  +  driver and runtime cleanup after container exit
-             +  device plugin re-advertisement of a real card
-             +  the replacement container's CUDA initialisation
+    baseline  +  driver and runtime cleanup after container exit
+              +  device plugin re-advertisement of a real card
 
-and the SESSION'S RESULT IS THAT SUM MINUS THE BASELINE. Nothing else in the session needs a GPU to be
-interesting; this does, and it is the only term no amount of CPU work can produce.
+and the SESSION'S RESULT IS THAT SUM MINUS THE BASELINE.
+
+**An earlier draft of this page added a third term — the replacement container's CUDA initialisation — and
+that was wrong in a way worth spelling out, because it would have manufactured a false result rather than a
+wrong one.** The interval ends at `EventPodReady`, which is `PodRunning` plus the Pod's `Ready` condition
+(`internal/queuelab/provenance.go`). `BuildJob` renders a container with no readiness probe and no startup
+probe (`internal/controller/mltrainingjob_controller.go`), so `Ready` fires when the container STARTS.
+Initialisation happens inside the running process, after the endpoint. The first two terms land inside the
+interval; the third — plausibly the largest of the three — lands structurally outside it.
+
+Left uncorrected, the most likely session outcome was: measured term small, reported as "not resolved", and
+this page had already blessed that null as a finding worth having. It would have been a sentence about a
+device manufactured by an endpoint that never contained the term it named.
+
+So the sum has two terms, and the "not resolved" outcome below means something narrower and true: the
+device's SCHEDULING-side return is fast relative to the control plane's. It says nothing about
+initialisation.
+
+**If the session wants the initialisation term, it cannot simply add a readiness probe and subtract.** A
+probe gated on device readiness changes what `Ready` means, and a difference between two intervals is only a
+measurement when both ends are alike. Adding one requires re-taking the baseline under the same probe, on
+both arms, and saying so — at which point the number below is superseded rather than differenced.
 
 ## The resolution this instrument has, stated in advance
 
@@ -98,17 +117,40 @@ not currently have and that does not survive a managed cluster.
 The model this lab arrived at is that a preempted workload holds its device for
 `min(remaining service, termination grace period)`, and that the owner's wait tracks it.
 
-It is refuted if, on real hardware:
+Each condition names the command that decides it, because a refutation nobody can evaluate is not one. Two
+of these were unfalsifiable as first written — "stops tracking" had no arithmetic anywhere in the repository
+and no tolerance, and "stop differing" asked the harness to assert an equality its own rules forbid it to
+assert.
 
-1. **The honouring arm's restoration stops being dose-independent.** The baseline's usefulness rests on it,
-   and a real workload's shutdown may not be prompt in the way a Python loop's is — a training step with a
-   kernel in flight cannot stop the way the termination canary's probe stopped in 1.2 seconds.
-2. **The ignoring arm's owner wait stops tracking the grace period.** If the device is not returned at
-   container exit but at some later driver event, the grace period stops being the bound and the platform's
-   120-second cap stops being the lever it was justified as.
-3. **The two arms stop differing.** If driver cleanup dominates, both arms converge and the termination
-   contract stops mattering — which would make the cap pointless and is the single most useful thing this
-   session could discover.
+1. **The honouring arm's restoration stops being node- or dose-independent.**
+
+       queuelabrun -compare '<session records>' -mode dose
+       queuelabrun -compare '<session records>' -mode node
+
+   Refuted when either reports the wait moving by more than the summed floor. The baseline's usefulness
+   rests on it, and a real workload's shutdown may not be prompt the way a Python loop's is: a training step
+   with a kernel in flight cannot stop the way the termination canary's probe stopped in 1.2 seconds.
+
+2. **The ignoring arm's owner wait stops matching `min(remaining service, grace)`.**
+
+       queuelabrun -compare '<session records>' -mode model
+
+   Refuted when it prints REFUTED — that is, when either regime's residual falls outside the floor, after
+   the honouring arm's own restoration cost is subtracted. The two regimes put the victim on opposite sides
+   of the grace period, so one rule has to predict a 30-second hold in one and a 20-second hold in the other;
+   a model fitted to either alone misses the other by ten seconds. If the device is returned at some later
+   driver event rather than at container exit, this is where it shows.
+
+3. **The arm difference falls below the session's own floor.**
+
+       queuelabrun -compare '<session records>'
+
+   Stated this way rather than as "the arms stop differing", because the harness is built to refuse the
+   second: an unresolved difference is not a demonstrated equality, and every other page here says so. What
+   IS checkable is that a difference resolved at 28.1 s against a 1.938 s floor in the baseline stops
+   clearing the session's floor. If driver cleanup dominates and both arms converge, the termination
+   contract stops mattering and the 120-second cap loses the justification it was given — the single most
+   useful thing this session could discover.
 
 Any of the three is a better outcome than a confirmation, because all three change what the platform should
 do and a confirmation changes nothing.
