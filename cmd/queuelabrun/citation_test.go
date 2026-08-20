@@ -129,3 +129,45 @@ func dedupe(in []string) []string {
 
 // unusedStringsImport keeps the import list honest if the matchers above are edited.
 var _ = strings.TrimSpace
+
+// Every run record in ex/ must decode under THIS build's rules, not merely exist.
+//
+// The citation test above closes half the hole and this closes the other half, which was found the way these
+// things are found: by re-creating the defect an hour after fixing it. The committed documents cited records
+// that were present, so that test passed, while a schema bump in the same session had made every one of them
+// undecodable — `-compare` refused the entire evidence set and the figures in the documents could not be
+// re-derived by anyone, which is the exact state the pre-registration was corrected out of.
+//
+// Existence was never the property that mattered. What a reader needs is that the commands in the documents
+// RUN, and a record the current binary refuses is worth no more to them than a missing file. The schema guard
+// is right and stays; what this adds is that the guard cannot fire against the repository's own evidence
+// without someone noticing.
+//
+// The consequence is deliberate and is the point: a schema bump now breaks the build until the evidence is
+// re-taken. That is the coupling that was missing. Six bumps in one day each silently orphaned the previous
+// run, and nothing failed.
+//
+// Only run records are checked. The derived documents beside them -- comparisons, baselines, model checks --
+// are a different shape and decodeRunRecord would rightly refuse them; they are re-derivable from the records
+// in one command, which is the whole reason they are derived.
+func TestEveryRunRecordDecodesUnderThisBuild(t *testing.T) {
+	files, err := filepath.Glob(filepath.Join("..", "..", "ex", "e[0-9][0-9]-*.json"))
+	if err != nil {
+		t.Fatalf("glob ex: %v", err)
+	}
+	if len(files) == 0 {
+		t.Fatal("no run records under ex/; the documents in hack/ quote figures from records that must be there")
+	}
+	for _, f := range files {
+		b, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatalf("read %s: %v", f, err)
+		}
+		if _, err := decodeRunRecord(b); err != nil {
+			t.Errorf("%s does not decode under this build: %v\n"+
+				"    The committed documents quote figures from this record and tell readers to run -compare\n"+
+				"    against it. Re-take the evidence at the current schema, or the repository ships numbers\n"+
+				"    nobody can reproduce -- including whoever wrote them.", filepath.Base(f), err)
+		}
+	}
+}
