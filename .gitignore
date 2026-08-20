@@ -38,6 +38,7 @@ docs/superpowers/*
 !/hack/queuelab-grace-boundary.md
 !/hack/grace-holds-the-device.md
 !/hack/tenant-writable-fields.md
+!/hack/gpu-session-preregistration.md
 !/docs/0[0-7]*.md
 !/docs/09*.md
 !/docs/10_WHAT_I_GOT_WRONG.md

@@ -292,3 +292,75 @@ func TestCompareRefusesToAverageAwayAnOwnerThatNeverReturned(t *testing.T) {
 		t.Fatalf("the render hides an arm that never restored its owner:\n%s", renderComparison(c))
 	}
 }
+
+// The check that decides whether the real-GPU session has a baseline at all, with its own positive control
+// beside it. A test that only ever reports "no response" would prove nothing, so both arms are asserted: the
+// honouring one must come back inside the floor and the ignoring one must come back outside it.
+func TestDoseSensitivitySeparatesABaselineFromAQuantityTheDoseDetermines(t *testing.T) {
+	honor := []runRecord{
+		withOwnerWait(cmpRec("gh1", "A-honor", "grace-bounded", "2026-08-20T02:42:43Z", 21.349, 1876*int64(time.Millisecond)), 2.729),
+		withOwnerWait(cmpRec("gh2", "A-honor", "grace-bounded", "2026-08-20T02:47:58Z", 21.283, 1000*int64(time.Millisecond)), 2.789),
+		withOwnerWait(cmpRec("sh1", "A-honor", "self-completing", "2026-08-20T02:44:00Z", 41.503, 1672*int64(time.Millisecond)), 2.589),
+		withOwnerWait(cmpRec("sh2", "A-honor", "self-completing", "2026-08-20T02:49:00Z", 41.414, 1762*int64(time.Millisecond)), 2.685),
+	}
+	d, err := checkDoseSensitivity(honor)
+	if err != nil {
+		t.Fatalf("dose sensitivity: %v", err)
+	}
+	if d.MovesWithDose {
+		t.Fatalf("the honouring arm's restoration moved with the dose: %+v", d)
+	}
+	if !strings.Contains(d.Statement, "not proof that it does not") {
+		t.Fatalf("a negative result was stated as proof of no response: %s", d.Statement)
+	}
+
+	// Positive control. In the ignoring arm the owner's wait IS the dose-dependent quantity -- what the victim
+	// had left, bounded by grace -- so a check that could not see this one respond could not see anything.
+	ignore := []runRecord{
+		withOwnerWait(cmpRec("gi1", "A-ignore", "grace-bounded", "2026-08-20T02:45:05Z", 51.262, 1938*int64(time.Millisecond)), 30.846),
+		withOwnerWait(cmpRec("gi2", "A-ignore", "grace-bounded", "2026-08-20T02:50:20Z", 51.233, 1000*int64(time.Millisecond)), 30.891),
+		withOwnerWait(cmpRec("si1", "A-ignore", "self-completing", "2026-08-20T02:46:00Z", 0.0, 1280*int64(time.Millisecond)), 19.665),
+		withOwnerWait(cmpRec("si2", "A-ignore", "self-completing", "2026-08-20T02:51:00Z", 0.0, 2364*int64(time.Millisecond)), 19.733),
+	}
+	di, err := checkDoseSensitivity(ignore)
+	if err != nil {
+		t.Fatalf("dose sensitivity: %v", err)
+	}
+	if !di.MovesWithDose {
+		t.Fatalf("an 11 s response against a 2.364 s floor was not seen; the check cannot detect anything: %+v", di)
+	}
+	if !strings.Contains(di.Statement, "cannot serve as a baseline") {
+		t.Fatalf("the statement does not say what the response costs: %s", di.Statement)
+	}
+}
+
+// Holding the arm fixed is the whole method. Pooling arms would measure the arm difference and report it as a
+// dose response, which is exactly the confusion the GPU session's baseline must not inherit.
+func TestDoseSensitivityRefusesToPoolArms(t *testing.T) {
+	mixed := []runRecord{
+		withOwnerWait(cmpRec("gh1", "A-honor", "grace-bounded", "2026-08-20T02:42:43Z", 21.3, int64(time.Second)), 2.729),
+		withOwnerWait(cmpRec("si1", "A-ignore", "self-completing", "2026-08-20T02:46:00Z", 0.0, int64(time.Second)), 19.665),
+	}
+	if _, err := checkDoseSensitivity(mixed); err == nil {
+		t.Fatal("two arms were pooled into a dose response")
+	}
+
+	// One regime is not a variation.
+	same := []runRecord{
+		withOwnerWait(cmpRec("gh1", "A-honor", "grace-bounded", "2026-08-20T02:42:43Z", 21.3, int64(time.Second)), 2.729),
+		withOwnerWait(cmpRec("gh2", "A-honor", "grace-bounded", "2026-08-20T02:47:58Z", 21.2, int64(time.Second)), 2.789),
+	}
+	if _, err := checkDoseSensitivity(same); err == nil {
+		t.Fatal("a single dose regime produced a dose-sensitivity result")
+	}
+
+	// A regime where the owner never came back has no wait to test, and averaging the other regime's runs
+	// would answer a question nobody asked.
+	absent := []runRecord{
+		withOwnerWait(cmpRec("gh1", "A-honor", "grace-bounded", "2026-08-20T02:42:43Z", 21.3, int64(time.Second)), 2.729),
+		cmpRec("sh1", "A-honor", "self-completing", "2026-08-20T02:44:00Z", 41.5, int64(time.Second)),
+	}
+	if _, err := checkDoseSensitivity(absent); err == nil {
+		t.Fatal("a regime whose owner never returned was folded into a dose response")
+	}
+}

@@ -417,7 +417,7 @@ func renderComparison(c comparison) string {
 //
 // It writes the document only when asked, and the flag's help says what declining costs: a comparison that
 // exists on a terminal and nowhere else is exactly the state this file was written to end.
-func runCompare(spec, outPath string) error {
+func runCompare(spec, outPath string, doseCheck bool) error {
 	paths, err := expandRecordSpec(spec)
 	if err != nil {
 		return err
@@ -434,15 +434,26 @@ func runCompare(spec, outPath string) error {
 		}
 		recs = append(recs, r)
 	}
-	c, err := compareRecords(recs)
-	if err != nil {
-		return err
+	var doc any
+	if doseCheck {
+		d, err := checkDoseSensitivity(recs)
+		if err != nil {
+			return err
+		}
+		fmt.Print(renderDoseSensitivity(d))
+		doc = d
+	} else {
+		c, err := compareRecords(recs)
+		if err != nil {
+			return err
+		}
+		fmt.Print(renderComparison(c))
+		doc = c
 	}
-	fmt.Print(renderComparison(c))
 	if outPath == "" {
 		return nil
 	}
-	b, err := json.MarshalIndent(c, "", "  ")
+	b, err := json.MarshalIndent(doc, "", "  ")
 	if err != nil {
 		return fmt.Errorf("encode comparison: %w", err)
 	}
@@ -479,4 +490,137 @@ func expandRecordSpec(spec string) ([]string, error) {
 	}
 	sort.Strings(out)
 	return out, nil
+}
+
+// doseSensitivity is whether a quantity moves with the protocol's dose.
+//
+// It is a separate document from comparison because it answers a separate question, and because compareRecords
+// REFUSES to pool records from two dose regimes -- correctly, since the regimes measure different quantities
+// and a difference between them answers nothing. That refusal is right about the borrower's discarded seconds,
+// which the trace determines outright, and it is too coarse for the owner's wait: whether THAT moves with the
+// dose is not an assumption to be protected, it is the question.
+//
+// It exists because the answer decides whether the real-GPU session has a baseline at all. A GPU workload will
+// not have this one's service time, so any quantity the dose determines cannot be differenced against these
+// runs. A quantity that does not move with it can.
+type doseSensitivity struct {
+	SchemaVersion int    `json:"schemaVersion"`
+	Arm           string `json:"arm"`
+	// Doses is one entry per regime, each summarising that regime's runs of this arm.
+	Doses []doseGroup `json:"doses"`
+	// FloorSeconds is the coarsest resolution among every contributing run.
+	FloorSeconds float64 `json:"floorSeconds"`
+	Bounded      bool    `json:"bounded"`
+	// SpreadSeconds is the largest gap between any two regimes' mean owner wait.
+	SpreadSeconds float64 `json:"spreadSeconds"`
+	// MovesWithDose is true when that spread EXCEEDS the floor, meaning the harness can see the quantity
+	// responding to the dose. False means it could not see a response, which is not the same as proving there
+	// is none -- Statement says which of the two this is.
+	MovesWithDose bool   `json:"movesWithDose"`
+	Statement     string `json:"statement"`
+}
+
+// doseGroup is one regime's runs of the arm under test.
+type doseGroup struct {
+	Dose                 string   `json:"dose"`
+	N                    int      `json:"n"`
+	RunIDs               []string `json:"runIDs"`
+	OwnerWaitSecondsMean float64  `json:"ownerWaitSecondsMean"`
+	OwnerWaitRuns        int      `json:"ownerWaitRuns"`
+}
+
+// checkDoseSensitivity builds the document, or refuses.
+func checkDoseSensitivity(recs []runRecord) (doseSensitivity, error) {
+	if len(recs) < 2 {
+		return doseSensitivity{}, fmt.Errorf("a dose-sensitivity check needs at least 2 records, got %d", len(recs))
+	}
+	arm := recs[0].Arm
+	byDose := map[string][]runRecord{}
+	for _, r := range recs {
+		if r.Validity.Verdict != verdictAdmissible {
+			return doseSensitivity{}, fmt.Errorf("run %q has verdict %q", r.RunID, r.Validity.Verdict)
+		}
+		if r.Measurement == nil {
+			return doseSensitivity{}, fmt.Errorf("run %q carries no measurement", r.RunID)
+		}
+		// One arm only. Pooling arms here would measure the arm difference and call it a dose response, which
+		// is the confusion this whole document exists to keep out of the GPU session's baseline.
+		if r.Arm != arm {
+			return doseSensitivity{}, fmt.Errorf("run %q is arm %q and run %q is arm %q: a dose-sensitivity "+
+				"check varies the dose and holds the arm fixed, or it measures the arms and calls it a dose",
+				recs[0].RunID, arm, r.RunID, r.Arm)
+		}
+		byDose[r.Dose] = append(byDose[r.Dose], r)
+	}
+	if len(byDose) < 2 {
+		return doseSensitivity{}, fmt.Errorf("every record is dose %q: nothing varies", recs[0].Dose)
+	}
+
+	floorNs, bounded := pooledFloorNs(recs)
+	d := doseSensitivity{SchemaVersion: comparisonSchemaVersion, Arm: arm,
+		FloorSeconds: float64(floorNs) / float64(time.Second), Bounded: bounded}
+
+	doses := make([]string, 0, len(byDose))
+	for k := range byDose {
+		doses = append(doses, k)
+	}
+	sort.Strings(doses)
+	for _, dose := range doses {
+		g := doseGroup{Dose: dose}
+		var sum float64
+		for _, r := range byDose[dose] {
+			g.N++
+			g.RunIDs = append(g.RunIDs, r.RunID)
+			if r.Measurement.OwnerAdmitToReadyNs == nil {
+				continue
+			}
+			sum += float64(*r.Measurement.OwnerAdmitToReadyNs) / float64(time.Second)
+			g.OwnerWaitRuns++
+		}
+		if g.OwnerWaitRuns == 0 {
+			return doseSensitivity{}, fmt.Errorf("no run of dose %q restored its owner, so there is no wait "+
+				"to test against the dose", dose)
+		}
+		g.OwnerWaitSecondsMean = sum / float64(g.OwnerWaitRuns)
+		d.Doses = append(d.Doses, g)
+	}
+
+	lo, hi := d.Doses[0].OwnerWaitSecondsMean, d.Doses[0].OwnerWaitSecondsMean
+	for _, g := range d.Doses {
+		if g.OwnerWaitSecondsMean < lo {
+			lo = g.OwnerWaitSecondsMean
+		}
+		if g.OwnerWaitSecondsMean > hi {
+			hi = g.OwnerWaitSecondsMean
+		}
+	}
+	d.SpreadSeconds = hi - lo
+	d.MovesWithDose = bounded && d.SpreadSeconds > d.FloorSeconds
+	switch {
+	case !bounded:
+		d.Statement = "UNBOUNDED: a contributing run bounded nothing, so no conclusion about the dose follows"
+	case d.MovesWithDose:
+		d.Statement = fmt.Sprintf("the owner's wait under %s moves %.3f s across %d dose regimes, which "+
+			"EXCEEDS the %.3f s floor: this quantity responds to the dose and cannot serve as a baseline for "+
+			"a session whose workload has a different service time",
+			arm, d.SpreadSeconds, len(d.Doses), d.FloorSeconds)
+	default:
+		d.Statement = fmt.Sprintf("the owner's wait under %s moves %.3f s across %d dose regimes, INSIDE the "+
+			"%.3f s floor. The harness cannot see it responding to the dose -- which is not proof that it does "+
+			"not, and is the condition a baseline needs: a quantity the dose determines could not be "+
+			"differenced against a session whose workload has a different service time",
+			arm, d.SpreadSeconds, len(d.Doses), d.FloorSeconds)
+	}
+	return d, nil
+}
+
+// renderDoseSensitivity prints the check, leading with the statement rather than the numbers.
+func renderDoseSensitivity(d doseSensitivity) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "===== DOSE SENSITIVITY (arm %s) =====\n%s\n", d.Arm, d.Statement)
+	for _, g := range d.Doses {
+		fmt.Fprintf(&b, "  %-16s n=%d ownerWait mean=%.3f over %d restored runs=%s\n",
+			g.Dose, g.N, g.OwnerWaitSecondsMean, g.OwnerWaitRuns, strings.Join(g.RunIDs, ","))
+	}
+	return b.String()
 }
