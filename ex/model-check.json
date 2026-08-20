@@ -6,15 +6,15 @@
     "graceBoundedDoseSec": 20,
     "terminationGraceSec": 30
   },
-  "platformCostSeconds": 2.304360051,
+  "platformCostSeconds": 2.4684454075,
   "cases": [
     {
       "dose": "grace-bounded",
       "remainingServiceSec": 40,
       "bindingTerm": "termination grace",
-      "predictedSeconds": 32.304360051,
-      "observedSeconds": 30.7334057345,
-      "residualSeconds": -1.5709543165000035,
+      "predictedSeconds": 32.4684454075,
+      "observedSeconds": 30.7538048025,
+      "residualSeconds": -1.7146406049999996,
       "insideFloor": true,
       "n": 2
     },
@@ -22,15 +22,15 @@
       "dose": "self-completing",
       "remainingServiceSec": 20,
       "bindingTerm": "remaining service",
-      "predictedSeconds": 22.304360051,
-      "observedSeconds": 19.566480351000003,
-      "residualSeconds": -2.737879699999997,
+      "predictedSeconds": 22.4684454075,
+      "observedSeconds": 19.839958169,
+      "residualSeconds": -2.6284872385,
       "insideFloor": true,
       "n": 2
     }
   ],
-  "floorSeconds": 7.267556584,
+  "floorSeconds": 6.42367156,
   "bounded": true,
   "holds": true,
-  "statement": "held = min(remaining service, 30 s grace) predicts every regime's owner wait to within the 7.268 s floor, once the 2.304 s the honouring arm shows restoration costs by itself is added. Both regimes are predicted by the same arithmetic and they differ by 20 s, so a model fitted to one would have missed the other"
+  "statement": "held = min(remaining service, 30 s grace) predicts every regime's owner wait to within the 6.424 s floor, once the 2.468 s the honouring arm shows restoration costs by itself is added. Both regimes are predicted by the same arithmetic and they differ by 20 s, so a model fitted to one would have missed the other"
 }

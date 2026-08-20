@@ -6,42 +6,42 @@
       "arm": "A-honor",
       "n": 2,
       "runIDs": [
-        "e15sh1",
-        "e15sh2"
+        "e16sh1",
+        "e16sh2"
       ],
-      "wastedGPUSecondsMean": 41.6743296295,
-      "wastedGPUSecondsMin": 41.642223041,
-      "wastedGPUSecondsMax": 41.706436218,
-      "ownerWaitSecondsMean": 2.4553313395,
-      "ownerWaitSecondsMin": 2.410473036,
-      "ownerWaitSecondsMax": 2.500189643,
+      "wastedGPUSecondsMean": 41.340255683500004,
+      "wastedGPUSecondsMin": 41.233888827,
+      "wastedGPUSecondsMax": 41.44662254,
+      "ownerWaitSecondsMean": 2.2631435724999998,
+      "ownerWaitSecondsMin": 1.870593999,
+      "ownerWaitSecondsMax": 2.655693146,
       "ownerWaitRuns": 2,
-      "floorSeconds": 3.633778292,
+      "floorSeconds": 3.198758579,
       "bounded": true,
-      "firstStartedAt": "2026-08-20T11:07:46Z",
-      "lastStartedAt": "2026-08-20T11:13:40Z"
+      "firstStartedAt": "2026-08-20T13:01:41Z",
+      "lastStartedAt": "2026-08-20T13:18:04Z"
     },
     {
       "arm": "A-ignore",
       "n": 2,
       "runIDs": [
-        "e15si1",
-        "e15si2"
+        "e16si1",
+        "e16si2"
       ],
       "wastedGPUSecondsMean": 0,
       "wastedGPUSecondsMin": 0,
       "wastedGPUSecondsMax": 0,
-      "ownerWaitSecondsMean": 19.566480351000003,
-      "ownerWaitSecondsMin": 19.516037392,
-      "ownerWaitSecondsMax": 19.61692331,
+      "ownerWaitSecondsMean": 19.839958169,
+      "ownerWaitSecondsMin": 19.729865948,
+      "ownerWaitSecondsMax": 19.95005039,
       "ownerWaitRuns": 2,
-      "floorSeconds": 3.20955837,
+      "floorSeconds": 3.21183578,
       "bounded": true,
-      "firstStartedAt": "2026-08-20T11:10:28Z",
-      "lastStartedAt": "2026-08-20T11:16:20Z"
+      "firstStartedAt": "2026-08-20T13:04:24Z",
+      "lastStartedAt": "2026-08-20T13:20:47Z"
     }
   ],
-  "worstRunFloorSeconds": 3.633778292,
+  "worstRunFloorSeconds": 3.21183578,
   "bounded": true,
   "interleaved": true,
   "deviceEvidence": "device-not-observed",
@@ -50,21 +50,21 @@
       "quantity": "wastedGPUSeconds",
       "armA": "A-honor",
       "armB": "A-ignore",
-      "valueA": 41.6743296295,
+      "valueA": 41.340255683500004,
       "valueB": 0,
-      "differenceSeconds": 41.6743296295,
+      "differenceSeconds": 41.340255683500004,
       "resolved": true,
-      "statement": "A-honor discarded 41.7 GPU-s and A-ignore discarded 0.0, a difference of 41.7 s against a 6.843 s floor, over n=2 and n=2 runs"
+      "statement": "A-honor discarded 41.3 GPU-s and A-ignore discarded 0.0, a difference of 41.3 s against a 6.411 s floor, over n=2 and n=2 runs"
     },
     {
       "quantity": "ownerAdmitToReadySeconds",
       "armA": "A-honor",
       "armB": "A-ignore",
-      "valueA": 2.4553313395,
-      "valueB": 19.566480351000003,
-      "differenceSeconds": 17.111149011500004,
+      "valueA": 2.2631435724999998,
+      "valueB": 19.839958169,
+      "differenceSeconds": 17.5768145965,
       "resolved": true,
-      "statement": "the quota owner was running 2.455 s AFTER KUEUE ADMITTED IT under A-honor and 19.566 s under A-ignore -- a difference of 17.1 s against a 6.843 s floor, over n=2 and n=2 restored runs. It is the reclaim-side half of what a tenant experiences and the half a reclaim promise is judged on; the time from SUBMISSION to admission is not in it, and neither is anything after the container starts. The discarded seconds beside it are the borrower's loss, not a promise"
+      "statement": "the quota owner was running 2.263 s AFTER KUEUE ADMITTED IT under A-honor and 19.840 s under A-ignore -- a difference of 17.6 s against a 6.411 s floor, over n=2 and n=2 restored runs. It is the reclaim-side half of what a tenant experiences and the half a reclaim promise is judged on; the time from SUBMISSION to admission is not in it, and neither is anything after the container starts. The discarded seconds beside it are the borrower's loss, not a promise"
     }
   ],
   "note": "this document reports whether a difference exceeded the coarsest resolution among the runs behind it, whether the arms were interleaved in time, and how many runs each arm has. It makes no claim of statistical significance and establishes no effect: these runs are not a sample of anything and their variance has never been characterised"

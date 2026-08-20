@@ -7,27 +7,27 @@
       "dose": "grace-bounded",
       "n": 2,
       "runIDs": [
-        "e15gh1",
-        "e15gh2"
+        "e16gh1",
+        "e16gh2"
       ],
-      "ownerWaitSecondsMean": 2.1533887625,
+      "ownerWaitSecondsMean": 2.6737472425,
       "ownerWaitRuns": 2
     },
     {
       "dose": "self-completing",
       "n": 2,
       "runIDs": [
-        "e15sh1",
-        "e15sh2"
+        "e16sh1",
+        "e16sh2"
       ],
-      "ownerWaitSecondsMean": 2.4553313395,
+      "ownerWaitSecondsMean": 2.2631435724999998,
       "ownerWaitRuns": 2
     }
   ],
-  "floorSeconds": 6.685541797,
+  "floorSeconds": 6.357687663,
   "bounded": true,
-  "interleaved": false,
-  "spreadSeconds": 0.3019425769999997,
+  "interleaved": true,
+  "spreadSeconds": 0.4106036700000004,
   "movesWithDose": false,
-  "statement": "the owner's wait under A-honor moves 0.302 s across 2 levels of dose, INSIDE the 6.686 s floor. The harness cannot see it responding to dose -- which is not proof that it does not, and is the condition a baseline needs: a quantity that varies with dose could not be quoted as a property of the platform"
+  "statement": "the owner's wait under A-honor moves 0.411 s across 2 levels of dose, INSIDE the 6.358 s floor. The harness cannot see it responding to dose -- which is not proof that it does not, and is the condition a baseline needs: a quantity that varies with dose could not be quoted as a property of the platform"
 }

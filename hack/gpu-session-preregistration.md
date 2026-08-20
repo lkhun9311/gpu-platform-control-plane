@@ -26,56 +26,71 @@ in this lab and it was the one an entire session is defined against.
 
 It is emitted by the harness now, and the whole point is that the reader can run the command:
 
-    $ queuelabrun -compare 'ex/e15-self-completing-A-honor-*.json,ex/e15-grace-bounded-A-honor-e15gh?.json' \
-        -mode baseline
+    $ queuelabrun -compare 'ex/e16-*-A-honor-e16?h?.json' -mode baseline
     ===== BASELINE (arm A-honor) =====
-    under A-honor the quota owner was running 2.304 s after admission, over 4 runs spanning 2 dose
-    regime(s) and 1 node(s), with a spread of 931 ms against a worst-run floor of 3.634 s. A session
+    under A-honor the quota owner was running 2.493 s after admission, over 6 runs spanning 2 dose
+    regime(s) and 2 node(s), with a spread of 903 ms against a worst-run floor of 3.199 s. A session
     differencing against this must add its own floor to that one; the difference of two independently
     measured means carries both of their errors
-      ownerWait mean=2.304 min=1.688 max=2.619 spread=931ms n=4
-      runs=e15gh1,e15gh2,e15sh1,e15sh2
+      ownerWait mean=2.493 min=1.871 max=2.773 spread=903ms n=6
+      runs=e16gh1,e16gh2,e16wh1,e16wh2,e16sh1,e16sh2
       doses=grace-bounded,self-completing
-      nodes=platform-worker
-      NOT INTERLEAVED: the dose regimes did not alternate in time
+      nodes=platform-worker,platform-worker2
       device: NOT OBSERVED -- this baseline was taken where no run established that a device did work, so
       it is a control-plane figure and not a statement about hardware
 
-**The spread is 931 ms, not the 258 ms the deleted table claimed.** That figure was not merely
-unreproducible, it was optimistic — two runs per cell could not show the variation four runs show, which is
-exactly what a reviewer said two-run means would hide. One of the four (`e15gh2`, 1.688 s) sits most of a
-second below the other three.
+**The spread is 903 ms, not the 258 ms the deleted table claimed.** That figure was not merely
+unreproducible, it was optimistic — two runs per cell could not show the variation six runs show, which is
+exactly what a reviewer said two-run means would hide.
 
-**And the regimes were run in blocks, so this baseline is not interleaved.** The runner took both
-self-completing runs before both grace-bounded ones, so anything that drifted over that half hour moves with
-the regime. The tool says so rather than leaving it to be noticed. A session that wants a tighter baseline
-should interleave the regimes and take more than two runs per cell; this page states what the current one is
-rather than what it should be.
+**These twelve runs interleave all three factors**, so no line above carries a confounding warning. The set
+before them blocked the regimes, and the one before that also varied the cluster's occupancy alongside the
+node — the second worker could not be held exclusively until the platform's own serving workload was scaled
+away, so a node result and an occupancy result were the same number. This set holds the occupancy fixed on
+both workers for its whole duration and alternates arm, regime and node.
+
+### The same interval, read off the components' own clocks
+
+The record carries the owner's wait twice: as a difference of watch ARRIVAL times, and as a difference of the
+two components' own transition stamps — Kueue's Admitted and the kubelet's Ready. The pair bounds different
+error sources, and it earned its place immediately:
+
+| run | node | arrival | component stamp |
+|---|---|---|---|
+| e16gi1 | worker | 30.649 s | **31.000 s** |
+| e16gi2 | worker | 30.859 s | **31.000 s** |
+| e16wi1 | worker2 | 30.546 s | **31.000 s** |
+| e16wi2 | worker2 | 30.716 s | **31.000 s** |
+
+The arrival figure scatters across 313 ms and the stamp figure does not move at all, on either node. That
+scatter is watch delivery jitter, and an earlier version of this page was about to attribute a smaller
+version of it to the machine.
+
+The stamp figure is quantised to the second, so it flips between 2 and 3 where the true value sits near a
+boundary — which the honouring runs do. What it cannot carry is watch lag; what it carries instead is a
+second of truncation at each end plus the offset between two components' clocks, constant for a pair of
+machines and cancelling in an arm difference taken on ONE node. **It does not cancel between nodes**, so the
+node comparison below uses the arrival figure only.
 
 ### It does not move with the dose, or with the node
 
 Both are checked by the harness rather than asserted here:
 
-    $ queuelabrun -compare 'ex/e15-grace-bounded-A-honor-e15gh?.json,\
-        ex/e15-self-completing-A-honor-*.json' -mode dose
-    the owner's wait under A-honor moves 0.302 s across 2 levels of dose, INSIDE the 6.686 s floor
+    $ queuelabrun -compare 'ex/e16-grace-bounded-A-honor-e16gh?.json,\
+        ex/e16-self-completing-A-honor-*.json' -mode dose
+    the owner's wait under A-honor moves 0.411 s across 2 levels of dose, INSIDE the 6.358 s floor
 
-    $ queuelabrun -compare 'ex/e15-grace-bounded-A-honor-*.json' -mode node
-    the owner's wait under A-honor moves 0.105 s across 2 levels of node, INSIDE the 6.443 s floor
-      platform-worker  n=2 ownerWait mean=2.153
-      platform-worker2 n=2 ownerWait mean=2.259
-    NOT INTERLEAVED: the node levels did not alternate in time
+    $ queuelabrun -compare 'ex/e16-grace-bounded-A-honor-*.json' -mode node
+    the owner's wait under A-honor moves 0.132 s across 2 levels of node, INSIDE the 6.334 s floor
+      platform-worker  n=2 ownerWait mean=2.674
+      platform-worker2 n=2 ownerWait mean=2.542
 
-A check that can only ever return "no response" establishes nothing, so the other arm is the control — and
-under A-ignore the same check reports 11.167 s across the dose levels against a 5.410 s floor, which it calls a response. Under the
-ignoring arm the owner's wait IS the dose-dependent quantity; under the honouring arm what remains is the
-platform's own mechanics, and neither factor shows in it.
+The ignoring arm agrees on the node (0.123 s against a 5.443 s floor) and disagrees on the dose, which is the
+control: there the owner's wait IS the dose-dependent quantity, and the same check reports 11 s. A check that
+can only ever return "no response" establishes nothing.
 
-The node check is qualified twice over and both qualifications are in the output. The levels are blocked in
-time, because the second worker had to be freed before it could be used at all — the platform's own serving
-workload held one of its two devices, and the run refused to measure there rather than measure on a node it
-could not hold exclusively. And "cannot see a response" is not "there is none": what it supports is that any
-node response is smaller than 6.443 s, which is what a baseline needs and is a weaker claim than independence.
+Neither is a demonstration of independence. What they support is that any response is smaller than about six
+seconds, which is what a baseline needs and is a weaker claim.
 
 ## What the session adds, and where the interval actually ends
 
@@ -163,7 +178,7 @@ assert.
 
    Stated this way rather than as "the arms stop differing", because the harness is built to refuse the
    second: an unresolved difference is not a demonstrated equality, and every other page here says so. What
-   IS checkable is that a difference resolved at 28.6 s against a 5.252 s floor in the baseline stops
+   IS checkable is that a difference resolved at 28.1 s against a 5.387 s floor in the baseline stops
    clearing the session's floor. If driver cleanup dominates and both arms converge, the termination
    contract stops mattering and the 120-second cap loses the justification it was given — the single most
    useful thing this session could discover.

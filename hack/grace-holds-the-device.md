@@ -24,13 +24,13 @@ in the `grace-bounded` regime:
 
 | dose regime | quantity | A-honor | A-ignore | difference | floor |
 |---|---|---|---|---|---|
-| grace-bounded | quota owner running after admission | 2.153 s | 30.733 s | **28.6 s** | 5.252 s |
-| grace-bounded | borrower discarded | 21.423 GPU-s | 51.411 GPU-s | 30.0 s | 5.252 s |
+| grace-bounded | quota owner running after admission | 2.674 s | 30.754 s | **28.1 s** | 5.387 s |
+| grace-bounded | borrower discarded | 21.408 GPU-s | 51.382 GPU-s | 30.0 s | 5.387 s |
 
 Both differences are the grace period, recovered from the experiment rather than assumed by it, over four
 interleaved runs with an exclusive-worker window, a termination canary, continuous list/watch observation and
-a containment audit behind each one, and reproduced on a second worker node (0.105 s apart under the
-honouring arm, against a 6.443 s floor).
+a containment audit behind each one, and reproduced on a second worker node with the cluster's occupancy
+held fixed (0.132 s apart under the honouring arm, against a 6.334 s floor).
 `queuelabrun -compare` re-derives them from the records.
 
 The first row is the one that matters to a platform: it is the quota owner's own waiting time, and it is what
