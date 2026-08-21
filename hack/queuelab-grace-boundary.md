@@ -19,26 +19,48 @@ longer than the Pod's termination grace period?**
 
 ## Result
 
-Nine runs. Grace period is the Kubernetes default, 30 seconds.
+Twelve runs at record schema 16, on two worker nodes with the cluster's occupancy held fixed, arm and regime
+and node all interleaved. Grace period is the Kubernetes default, 30 seconds — verified per node by a
+termination canary rather than assumed.
 
-| dose regime | remaining service | arm | runs | discarded GPU-s | owner waited | preemption effective |
-|---|---|---|---|---|---|---|
-| self-completing | 20 s (**under** grace) | A-ignore | 2 | **0** | 19.37, 19.38 s | **no** |
-| grace-bounded | 40 s (**over** grace) | A-ignore | 2 | **51.5, 51.6** | 30.68, 30.65 s | **yes** |
-| self-completing | — | A-honor | 4 | 40.9–41.2 | 2.21–3.04 s | yes |
-| grace-bounded | — | A-honor | 1 | 21.5 | 2.72 s | yes |
+**The quantity below is the DEVICE HOLD**: from the moment Kueue admitted the owner to the moment the
+victim's Pod reached a terminal phase. That is the interval this page is about — how long the borrower keeps
+the device after the platform has committed it to someone else — and it is not the same as the owner's wait,
+which adds scheduling and container start on top. An earlier version of this page reported the wait.
 
-The ledger shows the mechanism directly. Preemption is issued and the victim stops:
+| dose regime | remaining service | arm | runs | device hold | within-cell spread |
+|---|---|---|---|---|---|
+| self-completing | 18.9 s (**under** grace) | A-ignore | 2 | **18.496, 18.512 s** | 16 ms |
+| grace-bounded | 38.8 s (**over** grace) | A-ignore | 4 | **30.044 – 30.062 s** | **17 ms** |
+| either | — | A-honor | 6 | 0.036 – 0.050 s | 14 ms |
 
-    self-completing, ignoring   Preempted t=44s  ->  AttemptStopped t=1m3s    (19s: its own service ended)
-    grace-bounded,  ignoring    Preempted t=24s  ->  AttemptStopped t=54s     (30s: the grace period, exactly)
-    either regime,  honouring   Preempted t=T    ->  AttemptStopped t=T       (within the same second)
+    $ queuelabrun -compare 'ex/e16-self-completing-*.json,ex/e16-grace-bounded-*-e16g??.json' -mode model
+    grace-bounded    binds on termination grace  predicted=30.000 observed=30.059 residual=+0.059 INSIDE
+    self-completing  binds on remaining service  predicted=18.883 observed=18.504 residual=-0.378 INSIDE
+    CONTRAST self-completing -> grace-bounded: predicted=11.117 observed=11.555 residual=+0.438 INSIDE
+
+**The grace-bounded hold is the grace period to within seventeen milliseconds, four times, on two machines.**
+The honouring arm holds the device for forty-five milliseconds, which is what makes the other figure the
+borrower's rather than the scheduler's: nothing is subtracted from anything.
+
+Note that "remaining service" above is 18.9 and 38.8 rather than the declared 20 and 40. The schedule gates
+the owner on a two-second poll, so every run overran its declared dose by about 1.2 seconds. The prediction
+uses what the run achieved; the page used to use what it declared.
+
+The ledger shows the mechanism directly:
+
+    self-completing, ignoring   owner admitted  ->  victim stopped   18.5 s  (its own service ended)
+    grace-bounded,  ignoring    owner admitted  ->  victim stopped   30.1 s  (the grace period, exactly)
+    either regime,  honouring   owner admitted  ->  victim stopped   0.045 s (it stopped when asked)
 
 ## What it says
 
 **An unresponsive workload defeats reclaim completely while its remaining service fits inside the grace
 period.** It finishes its work — nothing is discarded — and the owner waits the whole of that remaining
-service. `preemptionIneffective` is true: the reclamation was issued and reclaimed nothing.
+service. The reconstruction derives this as `preemptionIneffective` by pairing the preemption decision with
+the attempt that was supposed to end and checking whether it did — a field on the reconstruction, not on the
+record, so a reader checks it by replaying the ledger the record carries rather than by reading a key out of
+the file.
 
 **The grace period is the cap on how long it can do that.** Once remaining service exceeds grace, the victim
 is SIGKILLed at exactly the grace boundary. The owner waits 30 seconds rather than however long the victim

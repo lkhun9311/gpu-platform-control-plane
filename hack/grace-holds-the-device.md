@@ -31,7 +31,10 @@ Both differences are the grace period, recovered from the experiment rather than
 interleaved runs with an exclusive-worker window, a termination canary, continuous list/watch observation and
 a containment audit behind each one, and reproduced on a second worker node with the cluster's occupancy
 held fixed (0.132 s apart under the honouring arm, against a 6.334 s floor).
-`queuelabrun -compare` re-derives them from the records.
+`queuelabrun -compare` re-derives them from the records:
+
+    $ queuelabrun -compare 'ex/e16-grace-bounded-*-e16g??.json'
+    $ queuelabrun -compare 'ex/e16-self-completing-*.json,ex/e16-grace-bounded-*-e16g??.json' -mode model
 
 The first row is the one that matters to a platform: it is the quota owner's own waiting time, and it is what
 a reclaim promise is judged on. The second is the borrower's loss, which is real and is not a service-level

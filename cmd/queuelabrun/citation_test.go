@@ -71,6 +71,21 @@ func TestCommittedDocumentsCiteEvidenceThatExists(t *testing.T) {
 			}
 		}
 
+		// A document that publishes this lab's figures must cite at least one record, or it is outside both
+		// checks above by simply not mentioning them. That is not hypothetical: hack/queuelab-grace-boundary.md
+		// sat five schema versions stale at HEAD, publishing a nine-run table whose numbers no record produces,
+		// and passed every test here because it named no path and quoted no run identifier. The guard was
+		// opt-in by the document it guarded.
+		//
+		// The arm names are the detector because they are this lab's own vocabulary: a page that discusses
+		// A-honor and A-ignore is reporting these experiments, whatever else it does.
+		if strings.Contains(text, "A-honor") && strings.Contains(text, "A-ignore") &&
+			len(exPath.FindAllString(text, -1)) == 0 {
+			t.Errorf("%s reports this lab's arms and cites no record under ex/. A page with figures and no "+
+				"provenance is outside every check here by construction, which is how one of them stayed five "+
+				"schema versions stale at HEAD", name)
+		}
+
 		for _, id := range dedupe(runID.FindAllString(text, -1)) {
 			if !known[id] {
 				t.Errorf("%s quotes run %q, which is in no record under ex/. Either the run was deleted "+
@@ -126,9 +141,6 @@ func dedupe(in []string) []string {
 	sort.Strings(out)
 	return out
 }
-
-// unusedStringsImport keeps the import list honest if the matchers above are edited.
-var _ = strings.TrimSpace
 
 // Every run record in ex/ must decode under THIS build's rules, not merely exist.
 //

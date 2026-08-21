@@ -2,35 +2,46 @@
   "schemaVersion": 1,
   "protocol": {
     "victimServiceSec": 60,
-    "selfCompletingDoseSec": 40,
-    "graceBoundedDoseSec": 20,
     "terminationGraceSec": 30
   },
-  "platformCostSeconds": 2.4684454075,
+  "controlHoldSeconds": 0.04546793775,
+  "controlRuns": 4,
   "cases": [
     {
       "dose": "grace-bounded",
-      "remainingServiceSec": 40,
+      "declaredDoseSec": 20,
+      "achievedDoseSeconds": 21.204902288,
+      "remainingSeconds": 38.795097712,
       "bindingTerm": "termination grace",
-      "predictedSeconds": 32.4684454075,
-      "observedSeconds": 30.7538048025,
-      "residualSeconds": -1.7146406049999996,
+      "predictedSeconds": 30,
+      "observedSeconds": 30.059163917,
+      "residualSeconds": 0.059163916999999344,
       "insideFloor": true,
       "n": 2
     },
     {
       "dose": "self-completing",
-      "remainingServiceSec": 20,
+      "declaredDoseSec": 40,
+      "achievedDoseSeconds": 41.117464082,
+      "remainingSeconds": 18.882535918000002,
       "bindingTerm": "remaining service",
-      "predictedSeconds": 22.4684454075,
-      "observedSeconds": 19.839958169,
-      "residualSeconds": -2.6284872385,
+      "predictedSeconds": 18.882535918000002,
+      "observedSeconds": 18.504049823499997,
+      "residualSeconds": -0.3784860945000048,
       "insideFloor": true,
       "n": 2
     }
   ],
-  "floorSeconds": 6.42367156,
+  "contrast": {
+    "from": "self-completing",
+    "to": "grace-bounded",
+    "predictedSeconds": 11.117464081999998,
+    "observedSeconds": 11.555114093500002,
+    "residualSeconds": 0.43765001150000415,
+    "insideFloor": true
+  },
+  "floorSeconds": 3.023489512,
   "bounded": true,
   "holds": true,
-  "statement": "held = min(remaining service, 30 s grace) predicts every regime's owner wait to within the 6.424 s floor, once the 2.468 s the honouring arm shows restoration costs by itself is added. Both regimes are predicted by the same arithmetic and they differ by 20 s, so a model fitted to one would have missed the other"
+  "statement": "the device hold in every regime is CONSISTENT WITH held = min(remaining service, 30 s grace), to within the 3.023 s floor and with nothing subtracted from anything. The honouring arm holds the device for 0.045 s over 4 runs, which is what shows the interval contains no platform work: a thirty-second hold in the other arm is the borrower's and not the scheduler's. Two runs per cell, evaluated on the runs that produced them -- this is consistency, not validation"
 }

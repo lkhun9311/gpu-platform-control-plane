@@ -86,9 +86,26 @@ type ObservationSpread struct {
 // as wide as either — but it is not a per-endpoint characterisation, and a caller wanting the lag of one
 // specific stream will not find it here.
 func SpreadOf(events []LifecycleEvent) *ObservationSpread {
+	return SpreadOfMatching(events, func(*LifecycleEvent) bool { return true })
+}
+
+// SpreadOfMatching is SpreadOf over a chosen subset of the events.
+//
+// It exists because pooling every endpoint kind into one population over-charges every interval by the worst
+// behaviour of an endpoint it does not contain. In all twelve recorded runs the widest skew belongs to the
+// OWNER'S OWN COMPLETION -- an endpoint of no published interval -- and it sets the floor for all of them.
+// Restricting to the endpoints an interval actually uses roughly halves it: 1.20-1.96 s against a pooled
+// 2.20-3.22 s, and for the two Workload-watch endpoints of the device hold the observed run-to-run scatter is
+// under twenty MILLISECONDS.
+//
+// A caller that passes a filter is asserting which events its interval is built from, so the filter and the
+// interval must be edited together. That coupling is the cost of the accuracy, and it is why this is a
+// parameter rather than a heuristic that guesses from the numbers.
+func SpreadOfMatching(events []LifecycleEvent, keep func(*LifecycleEvent) bool) *ObservationSpread {
 	skews := make([]int64, 0, len(events))
-	for _, e := range events {
-		if e.ObservedSkewNs != nil {
+	for i := range events {
+		e := &events[i]
+		if e.ObservedSkewNs != nil && keep(e) {
 			skews = append(skews, *e.ObservedSkewNs)
 		}
 	}

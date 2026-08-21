@@ -925,53 +925,79 @@ func renderBaseline(b baseline) string {
 	return sb.String()
 }
 
-// modelCheck tests the lab's central claim as arithmetic instead of as a judgement.
+// modelCheck tests the lab's central claim against the quantity the claim is about.
 //
-// The claim is that a workload ignoring SIGTERM holds its device for min(remaining service, termination
-// grace period), and that the quota owner waits that long plus whatever the platform itself costs. Two
-// reviewers pointed out, independently, that nothing in this repository turned that into a prediction: the
-// pre-registration listed "the ignoring arm stops tracking the grace period" as a refutation condition while
-// no code computed what tracking would look like and no tolerance was stated. A refutation nobody can
-// evaluate is not a refutation, and deciding after the fact whether 33 s still counts as tracking 30 s is
-// exactly what a pre-registration exists to prevent.
+// held = min(remaining service, termination grace period) is a statement about how long a preempted borrower
+// keeps its DEVICE after the platform has committed that capacity to its owner. An earlier version of this
+// check tested it against the owner's admission-to-running wait instead, which contains the hold and then the
+// scheduling, the image and the container start on top — so it could only reach the model by subtracting an
+// estimate of those, borrowed from the honouring arm.
 //
-// The prediction is available because the two regimes place the victim on opposite sides of the grace period
-// with everything else held fixed. Under grace-bounded the victim has 40 s of service left against a 30 s
-// grace, so the grace binds; under self-completing it has 20 s left, so its own service does. Both
-// predictions come from the same model, they differ by ten seconds, and a model that fitted one while
-// missing the other would be caught.
+// Two reviews took that apart independently and both were right. The borrowed term is not arm-independent:
+// the owner's Pod spends the grace window pending against the device, so restoration after release costs
+// about 1.6 s LESS in the arm being predicted than in the arm the estimate came from, which is the entire
+// magnitude and sign of the residuals that version published. And the term could not be validated either way
+// — at the floor it ran against, deleting the subtraction altogether left both residuals inside.
 //
-// The residual is tested against the run's own floor, PLUS the platform's own cost measured on the
-// honouring arm — because the prediction is about the device being held, and the owner's wait also contains
-// the scheduling and container start that the honouring arm isolates.
+// So the subtraction is gone rather than corrected. The hold needs no platform-cost term because it contains
+// no platform work, the honouring arm becomes a genuine zero-hold control instead of a subtrahend, and the
+// interval is three orders of magnitude quieter than the one it replaces: tens of milliseconds of within-cell
+// scatter against an owner-wait floor of seconds.
+//
+// The prediction is built from the dose the run ACHIEVED rather than the one it declared. Every recorded run
+// overran its declared dose by 1.0 to 1.4 seconds, systematically, because the schedule gates the owner on a
+// two-second poll — and the declared value is what the old prediction used.
 type modelCheck struct {
 	SchemaVersion int `json:"schemaVersion"`
 	// Protocol states the constants the prediction was computed from, so a reader can check the arithmetic
 	// rather than trust it. They live in this binary rather than in the record, so a record from a build with
-	// different constants would be mispredicted silently -- printing them is what makes that visible.
+	// different constants would be mispredicted silently — printing them is what makes that visible.
 	Protocol modelProtocol `json:"protocol"`
-	// PlatformCostSeconds is the honouring arm's mean owner wait, subtracted before comparing against the
-	// model: it is what restoration costs when nothing is holding the device.
-	PlatformCostSeconds float64     `json:"platformCostSeconds"`
-	Cases               []modelCase `json:"cases"`
-	FloorSeconds        float64     `json:"floorSeconds"`
-	Bounded             bool        `json:"bounded"`
-	Holds               bool        `json:"holds"`
-	Statement           string      `json:"statement"`
+	// ControlHoldSeconds is the honouring arm's own hold, and it is a CONTROL rather than a correction.
+	//
+	// Nothing is subtracted from anything. What it establishes is that the interval contains no platform work:
+	// when the borrower honours the signal the hold collapses to a few tens of milliseconds, so a hold of
+	// thirty seconds in the other arm is the borrower's, not the scheduler's.
+	ControlHoldSeconds float64     `json:"controlHoldSeconds"`
+	ControlRuns        int         `json:"controlRuns"`
+	Cases              []modelCase `json:"cases"`
+	// Contrast is the difference BETWEEN the regimes, and it is the only part of this check that tests the
+	// model's kink rather than its levels.
+	//
+	// Each level can be fitted by a rule that just happens to land there; the contrast cannot. min() says the
+	// hold follows remaining service on one side of the grace period and stops following it on the other, so
+	// the gap between the two regimes must equal grace minus the shorter remaining service — a prediction that
+	// no term common to both regimes can move, because it cancels.
+	Contrast     *modelContrast `json:"contrast,omitempty"`
+	FloorSeconds float64        `json:"floorSeconds"`
+	Bounded      bool           `json:"bounded"`
+	Holds        bool           `json:"holds"`
+	Statement    string         `json:"statement"`
 }
 
 // modelProtocol is the arithmetic's inputs.
 type modelProtocol struct {
-	VictimServiceSec      int `json:"victimServiceSec"`
-	SelfCompletingDoseSec int `json:"selfCompletingDoseSec"`
-	GraceBoundedDoseSec   int `json:"graceBoundedDoseSec"`
-	TerminationGraceSec   int `json:"terminationGraceSec"`
+	VictimServiceSec    int `json:"victimServiceSec"`
+	TerminationGraceSec int `json:"terminationGraceSec"`
+}
+
+// modelContrast is the difference between two regimes' holds, predicted and observed.
+type modelContrast struct {
+	From             string  `json:"from"`
+	To               string  `json:"to"`
+	PredictedSeconds float64 `json:"predictedSeconds"`
+	ObservedSeconds  float64 `json:"observedSeconds"`
+	ResidualSeconds  float64 `json:"residualSeconds"`
+	InsideFloor      bool    `json:"insideFloor"`
 }
 
 // modelCase is one regime's prediction against its observation.
 type modelCase struct {
-	Dose                string  `json:"dose"`
-	RemainingServiceSec int     `json:"remainingServiceSec"`
+	Dose string `json:"dose"`
+	// DeclaredDoseSec and AchievedDoseSeconds are both carried because their difference is the correction.
+	DeclaredDoseSec     int     `json:"declaredDoseSec"`
+	AchievedDoseSeconds float64 `json:"achievedDoseSeconds"`
+	RemainingSeconds    float64 `json:"remainingSeconds"`
 	BindingTerm         string  `json:"bindingTerm"`
 	PredictedSeconds    float64 `json:"predictedSeconds"`
 	ObservedSeconds     float64 `json:"observedSeconds"`
@@ -983,55 +1009,63 @@ type modelCase struct {
 // checkModel builds the check from one node's runs of both arms and both regimes.
 func checkModel(recs []runRecord) (modelCheck, error) {
 	m := modelCheck{SchemaVersion: comparisonSchemaVersion, Protocol: modelProtocol{
-		VictimServiceSec:      victimServiceSec,
-		SelfCompletingDoseSec: doseSec,
-		GraceBoundedDoseSec:   graceBoundedDoseSec,
-		TerminationGraceSec:   terminationGraceSec,
+		VictimServiceSec:    victimServiceSec,
+		TerminationGraceSec: terminationGraceSec,
 	}}
 
-	// The honouring arm gives the platform's own cost; the ignoring arm is what the model predicts.
-	honor := map[string][]float64{}
-	ignore := map[string][]float64{}
+	type sample struct{ hold, dose float64 }
+	ignore := map[string][]sample{}
+	var controlSum float64
+	// One node only. The hold's endpoints are arrival times from two watches, and pooling nodes would add a
+	// second collector's delivery behaviour to an interval whose whole value is that it is quiet.
+	node := ""
 	for _, r := range recs {
 		if r.Validity.Verdict != verdictAdmissible {
 			return modelCheck{}, fmt.Errorf("run %q has verdict %q", r.RunID, r.Validity.Verdict)
 		}
-		if r.Measurement == nil || r.Measurement.OwnerAdmitToReadyNs == nil {
-			return modelCheck{}, fmt.Errorf("run %q never restored its owner, so it predicts nothing", r.RunID)
+		if n := levelOf(r, factorNode); n != "" {
+			if node == "" {
+				node = n
+			} else if n != node {
+				return modelCheck{}, fmt.Errorf("run %q is on node %q and run %q is on %q: the hold is read "+
+					"from two watches' arrival times, so pooling nodes pools two collectors' delivery behaviour "+
+					"into an interval whose value is that it is quiet", recs[0].RunID, node, r.RunID, n)
+			}
 		}
-		w := float64(*r.Measurement.OwnerAdmitToReadyNs) / float64(time.Second)
+		hold := queuelab.DeviceHoldNs(r.Events)
+		if hold == nil {
+			return modelCheck{}, fmt.Errorf("run %q's ledger does not carry the device hold", r.RunID)
+		}
+		h := float64(*hold) / float64(time.Second)
 		switch r.Arm {
 		case string(queuelab.ArmAHonor):
-			honor[r.Dose] = append(honor[r.Dose], w)
+			controlSum += h
+			m.ControlRuns++
 		case string(queuelab.ArmAIgnore):
-			ignore[r.Dose] = append(ignore[r.Dose], w)
+			dose := queuelab.AchievedDoseNs(r.Events)
+			if dose == nil {
+				return modelCheck{}, fmt.Errorf("run %q's ledger does not carry the achieved dose", r.RunID)
+			}
+			ignore[r.Dose] = append(ignore[r.Dose], sample{hold: h, dose: float64(*dose) / float64(time.Second)})
 		default:
 			return modelCheck{}, fmt.Errorf("run %q is arm %q; the model is stated over the two termination "+
 				"contract arms", r.RunID, r.Arm)
 		}
 	}
-	if len(honor) == 0 || len(ignore) == 0 {
-		return modelCheck{}, fmt.Errorf("the check needs both arms: the honouring one measures what restoration " +
-			"costs when nothing holds the device, and the ignoring one is what the model predicts")
+	if m.ControlRuns == 0 {
+		return modelCheck{}, fmt.Errorf("the check needs the honouring arm as its zero-hold control: without " +
+			"it nothing shows the interval contains no platform work")
 	}
 	if len(ignore) < 2 {
 		return modelCheck{}, fmt.Errorf("the check needs both dose regimes: one prediction can be fitted by " +
 			"any model, and the two regimes put the victim on opposite sides of the grace period")
 	}
+	m.ControlHoldSeconds = controlSum / float64(m.ControlRuns)
 
-	var hSum float64
-	var hN int
-	for _, v := range honor {
-		for _, w := range v {
-			hSum += w
-			hN++
-		}
-	}
-	m.PlatformCostSeconds = hSum / float64(hN)
-
-	floorNs, bounded := pooledFloorNs(recs)
-	// Two floors, because the residual is a difference between the observed wait and a prediction built from
-	// another measured mean: it carries the error of both.
+	// The floor is restricted to the endpoints the hold is actually built from — the owner's admission and the
+	// victim's stop — rather than pooled over every event kind. Pooling charges this interval the worst
+	// behaviour of the owner's own completion, which it does not contain.
+	floorNs, bounded := holdFloorNs(recs)
 	m.FloorSeconds, m.Bounded = 2*float64(floorNs)/float64(time.Second), bounded
 	m.Holds = bounded
 
@@ -1041,27 +1075,23 @@ func checkModel(recs []runRecord) (modelCheck, error) {
 	}
 	sort.Strings(doses)
 	for _, d := range doses {
-		remaining, err := remainingServiceFor(d)
+		declared, err := declaredDoseFor(d)
 		if err != nil {
 			return modelCheck{}, err
 		}
-		held, binding := remaining, "remaining service"
-		if terminationGraceSec < remaining {
-			held, binding = terminationGraceSec, "termination grace"
+		var holdSum, doseSum float64
+		for _, s := range ignore[d] {
+			holdSum += s.hold
+			doseSum += s.dose
 		}
-		var sum float64
-		for _, w := range ignore[d] {
-			sum += w
+		n := float64(len(ignore[d]))
+		c := modelCase{Dose: d, DeclaredDoseSec: declared, AchievedDoseSeconds: doseSum / n, N: len(ignore[d])}
+		c.RemainingSeconds = float64(victimServiceSec) - c.AchievedDoseSeconds
+		c.PredictedSeconds, c.BindingTerm = c.RemainingSeconds, "remaining service"
+		if float64(terminationGraceSec) < c.RemainingSeconds {
+			c.PredictedSeconds, c.BindingTerm = float64(terminationGraceSec), "termination grace"
 		}
-		obs := sum / float64(len(ignore[d]))
-		c := modelCase{
-			Dose:                d,
-			RemainingServiceSec: remaining,
-			BindingTerm:         binding,
-			PredictedSeconds:    float64(held) + m.PlatformCostSeconds,
-			ObservedSeconds:     obs,
-			N:                   len(ignore[d]),
-		}
+		c.ObservedSeconds = holdSum / n
 		c.ResidualSeconds = c.ObservedSeconds - c.PredictedSeconds
 		r := c.ResidualSeconds
 		if r < 0 {
@@ -1074,30 +1104,79 @@ func checkModel(recs []runRecord) (modelCheck, error) {
 		m.Cases = append(m.Cases, c)
 	}
 
+	// The contrast, when both regimes are present. Anything common to them cancels in it, so it is the test
+	// the model cannot pass by accident.
+	if len(m.Cases) == 2 {
+		lo, hi := m.Cases[0], m.Cases[1]
+		if lo.PredictedSeconds > hi.PredictedSeconds {
+			lo, hi = hi, lo
+		}
+		c := &modelContrast{
+			From:             lo.Dose,
+			To:               hi.Dose,
+			PredictedSeconds: hi.PredictedSeconds - lo.PredictedSeconds,
+			ObservedSeconds:  hi.ObservedSeconds - lo.ObservedSeconds,
+		}
+		c.ResidualSeconds = c.ObservedSeconds - c.PredictedSeconds
+		r := c.ResidualSeconds
+		if r < 0 {
+			r = -r
+		}
+		c.InsideFloor = bounded && r <= m.FloorSeconds
+		if !c.InsideFloor {
+			m.Holds = false
+		}
+		m.Contrast = c
+	}
+
 	switch {
 	case !bounded:
 		m.Statement = "UNBOUNDED: a contributing run bounded nothing, so no residual can be judged"
 	case m.Holds:
-		m.Statement = fmt.Sprintf("held = min(remaining service, %d s grace) predicts every regime's owner "+
-			"wait to within the %.3f s floor, once the %.3f s the honouring arm shows restoration costs by "+
-			"itself is added. Both regimes are predicted by the same arithmetic and they differ by %d s, so a "+
-			"model fitted to one would have missed the other",
-			terminationGraceSec, m.FloorSeconds, m.PlatformCostSeconds,
-			m.Protocol.VictimServiceSec-m.Protocol.GraceBoundedDoseSec-(m.Protocol.VictimServiceSec-m.Protocol.SelfCompletingDoseSec))
+		// "consistent with" rather than "validates", and the distinction is not modesty. Two runs per cell is
+		// not an inferential study, the residuals are tested against a floor rather than an interval, and a
+		// check evaluated on the same runs that produced it is in-sample. What the check does establish is
+		// that no regime's hold falls outside the instrument's own bound of the prediction -- and that the
+		// CONTRAST between the regimes, which nothing common to them can move, lands where the kink says.
+		m.Statement = fmt.Sprintf("the device hold in every regime is CONSISTENT WITH held = min(remaining "+
+			"service, %d s grace), to within the %.3f s floor and with nothing subtracted from anything. The "+
+			"honouring arm holds the device for %.3f s over %d runs, which is what shows the interval contains "+
+			"no platform work: a thirty-second hold in the other arm is the borrower's and not the scheduler's. "+
+			"Two runs per cell, evaluated on the runs that produced them -- this is consistency, not validation",
+			terminationGraceSec, m.FloorSeconds, m.ControlHoldSeconds, m.ControlRuns)
 	default:
-		m.Statement = fmt.Sprintf("REFUTED: at least one regime's owner wait falls outside the %.3f s floor "+
+		m.Statement = fmt.Sprintf("REFUTED: at least one regime's device hold falls outside the %.3f s floor "+
 			"of what held = min(remaining service, %d s grace) predicts", m.FloorSeconds, terminationGraceSec)
 	}
 	return m, nil
 }
 
-// remainingServiceFor is how much service the victim has left when it is preempted, per regime.
-func remainingServiceFor(dose string) (int, error) {
+// holdFloorNs is the coarsest bound among the contributing runs, restricted to the hold's own endpoints.
+func holdFloorNs(recs []runRecord) (int64, bool) {
+	var worst int64
+	for _, r := range recs {
+		s := queuelab.SpreadOfMatching(r.Events, func(e *queuelab.LifecycleEvent) bool {
+			return (e.Job == queuelab.OwnerRow && e.Type == queuelab.EventAdmitted) ||
+				(e.Job == queuelab.VictimRow && e.Type == queuelab.EventAttemptStopped)
+		})
+		if s == nil {
+			return 0, false
+		}
+		if s.FloorNs > worst {
+			worst = s.FloorNs
+		}
+	}
+	return worst, worst > 0
+}
+
+// declaredDoseFor is the dose the protocol declared for a regime, kept so the achieved value can be shown
+// against it rather than silently replacing it.
+func declaredDoseFor(dose string) (int, error) {
 	switch queuelab.DoseRegime(dose) {
 	case queuelab.DoseSelfCompleting:
-		return victimServiceSec - doseSec, nil
+		return doseSec, nil
 	case queuelab.DoseGraceBounded:
-		return victimServiceSec - graceBoundedDoseSec, nil
+		return graceBoundedDoseSec, nil
 	}
 	return 0, fmt.Errorf("unknown dose regime %q", dose)
 }
@@ -1105,18 +1184,26 @@ func remainingServiceFor(dose string) (int, error) {
 // renderModel prints the prediction beside the observation, never one without the other.
 func renderModel(m modelCheck) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "===== MODEL: held = min(remaining service, grace) =====\n%s\n", m.Statement)
-	fmt.Fprintf(&b, "  protocol: victimService=%ds selfCompletingDose=%ds graceBoundedDose=%ds grace=%ds\n",
-		m.Protocol.VictimServiceSec, m.Protocol.SelfCompletingDoseSec, m.Protocol.GraceBoundedDoseSec,
-		m.Protocol.TerminationGraceSec)
-	fmt.Fprintf(&b, "  platform cost (honouring arm, n over both regimes): %.3f s\n", m.PlatformCostSeconds)
+	fmt.Fprintf(&b, "===== MODEL: held = min(remaining service, grace), tested on the DEVICE HOLD =====\n%s\n",
+		m.Statement)
+	fmt.Fprintf(&b, "  protocol: victimService=%ds grace=%ds\n",
+		m.Protocol.VictimServiceSec, m.Protocol.TerminationGraceSec)
+	fmt.Fprintf(&b, "  control: the honouring arm held the device %.3f s over %d runs (nothing is subtracted)\n",
+		m.ControlHoldSeconds, m.ControlRuns)
 	for _, c := range m.Cases {
-		fmt.Fprintf(&b, "  %-16s remaining=%2ds binds on %-18s predicted=%6.3f observed=%6.3f residual=%+.3f %s (n=%d)\n",
-			c.Dose, c.RemainingServiceSec, c.BindingTerm, c.PredictedSeconds, c.ObservedSeconds,
-			c.ResidualSeconds, insideMark(c.InsideFloor), c.N)
+		fmt.Fprintf(&b, "  %-16s dose declared=%ds achieved=%6.3f -> remaining=%6.3f binds on %-18s "+
+			"predicted=%6.3f observed=%6.3f residual=%+.3f %s (n=%d)\n",
+			c.Dose, c.DeclaredDoseSec, c.AchievedDoseSeconds, c.RemainingSeconds, c.BindingTerm,
+			c.PredictedSeconds, c.ObservedSeconds, c.ResidualSeconds, insideMark(c.InsideFloor), c.N)
 	}
-	fmt.Fprintf(&b, "  residuals judged against a %.3f s floor (two runs' worth, since a residual is a "+
-		"difference against a measured mean)\n", m.FloorSeconds)
+	if c := m.Contrast; c != nil {
+		fmt.Fprintf(&b, "  CONTRAST %s -> %s: predicted=%6.3f observed=%6.3f residual=%+.3f %s "+
+			"(the kink; anything common to both regimes cancels here)\n",
+			c.From, c.To, c.PredictedSeconds, c.ObservedSeconds, c.ResidualSeconds, insideMark(c.InsideFloor))
+	}
+	fmt.Fprintf(&b, "  residuals judged against a %.3f s floor, restricted to the hold's own endpoints "+
+		"(the owner's admission and the victim's stop) rather than pooled over every event kind\n",
+		m.FloorSeconds)
 	return b.String()
 }
 

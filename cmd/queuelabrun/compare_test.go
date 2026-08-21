@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/lkhun9311/gpu-mlops-platform-control-plane/internal/queuelab"
 )
 
 // findingFor picks one quantity out of a comparison, since every arm pair now produces several.
@@ -567,22 +569,51 @@ func TestNodeSensitivityHoldsTheDoseFixed(t *testing.T) {
 	}
 }
 
-// The lab's central claim, as arithmetic. Two regimes put the victim on opposite sides of the grace period,
-// so the same model must predict a 30 s hold in one and a 20 s hold in the other — a model fitted to either
-// alone would miss the other by ten seconds.
-func TestTheModelPredictsBothRegimesFromOneRule(t *testing.T) {
-	// Honouring: restoration with nothing holding the device. Ignoring: the model's subject.
-	// grace-bounded leaves 40 s remaining against a 30 s grace, so grace binds: 30 + 2.76 = 32.76.
-	// self-completing leaves 20 s, so the victim's own service binds: 20 + 2.76 = 22.76.
+// holdRec gives a record a ledger the hold and dose can be read from.
+//
+// The events are the shape the recorded runs take: the victim becomes Ready, the owner is submitted a dose
+// later, Kueue admits it, and the victim's Pod reaches a terminal phase after holding the device.
+func holdRec(r runRecord, doseSeconds, holdSeconds float64) runRecord {
+	const victimReady = 2 * float64(time.Second)
+	submitted := victimReady + doseSeconds*float64(time.Second)
+	admitted := submitted + 1.1*float64(time.Second)
+	r.Events = []queuelab.LifecycleEvent{
+		{Job: queuelab.VictimRow, Type: queuelab.EventPodReady, ElapsedNs: int64(victimReady)},
+		{Job: queuelab.OwnerRow, Type: queuelab.EventSubmitted, ElapsedNs: int64(submitted)},
+		{Job: queuelab.OwnerRow, Type: queuelab.EventAdmitted, ElapsedNs: int64(admitted)},
+		{Job: queuelab.VictimRow, Type: queuelab.EventAttemptStopped,
+			ElapsedNs: int64(admitted + holdSeconds*float64(time.Second))},
+	}
+	// Both of the hold's endpoints must carry a skew, or the floor cannot be derived and the check refuses.
+	for i := range r.Events {
+		e := &r.Events[i]
+		if e.Type == queuelab.EventAdmitted || e.Type == queuelab.EventAttemptStopped {
+			v := int64(200 * time.Millisecond)
+			if e.Type == queuelab.EventAttemptStopped {
+				v = int64(700 * time.Millisecond)
+			}
+			e.ObservedSkewNs = &v
+		}
+	}
+	r.Qualification = &qualification{Node: "platform-worker"}
+	return r
+}
+
+// The lab's central claim, tested on the quantity the claim is about.
+//
+// The honouring arm is a CONTROL rather than a subtrahend: its hold is near zero, which is what shows the
+// interval contains no scheduling or container start. Nothing is subtracted from anything.
+//
+// Mutation that turns this red: subtract the control from the prediction, or take the declared dose instead
+// of the achieved one.
+func TestTheModelPredictsTheDeviceHoldFromOneRule(t *testing.T) {
+	// Achieved doses overrun their declared 20 and 40 by 1.2 s, as every recorded run does. Remaining service
+	// is then 38.8 (grace binds, hold 30) and 18.8 (service binds, hold 18.8).
 	recs := []runRecord{
-		withOwnerWait(cmpRec("gh1", "A-honor", "grace-bounded", "2026-08-20T05:00:00Z", 21.3, int64(time.Second)), 2.73),
-		withOwnerWait(cmpRec("gh2", "A-honor", "grace-bounded", "2026-08-20T05:05:00Z", 21.3, int64(time.Second)), 2.79),
-		withOwnerWait(cmpRec("sh1", "A-honor", "self-completing", "2026-08-20T05:10:00Z", 41.5, int64(time.Second)), 2.73),
-		withOwnerWait(cmpRec("sh2", "A-honor", "self-completing", "2026-08-20T05:15:00Z", 41.4, int64(time.Second)), 2.79),
-		withOwnerWait(cmpRec("gi1", "A-ignore", "grace-bounded", "2026-08-20T05:20:00Z", 51.3, int64(time.Second)), 32.7),
-		withOwnerWait(cmpRec("gi2", "A-ignore", "grace-bounded", "2026-08-20T05:25:00Z", 51.3, int64(time.Second)), 32.8),
-		withOwnerWait(cmpRec("si1", "A-ignore", "self-completing", "2026-08-20T05:30:00Z", 0.0, int64(time.Second)), 22.7),
-		withOwnerWait(cmpRec("si2", "A-ignore", "self-completing", "2026-08-20T05:35:00Z", 0.0, int64(time.Second)), 22.8),
+		holdRec(cmpRec("gh1", "A-honor", "grace-bounded", "2026-08-21T05:00:00Z", 21.3, 0), 21.2, 0.045),
+		holdRec(cmpRec("gi1", "A-ignore", "grace-bounded", "2026-08-21T05:05:00Z", 51.3, 0), 21.2, 30.050),
+		holdRec(cmpRec("sh1", "A-honor", "self-completing", "2026-08-21T05:10:00Z", 41.4, 0), 41.1, 0.045),
+		holdRec(cmpRec("si1", "A-ignore", "self-completing", "2026-08-21T05:15:00Z", 0.0, 0), 41.1, 18.850),
 	}
 	m, err := checkModel(recs)
 	if err != nil {
@@ -591,55 +622,155 @@ func TestTheModelPredictsBothRegimesFromOneRule(t *testing.T) {
 	if !m.Holds {
 		t.Fatalf("the model failed on data generated from it: %+v", m.Cases)
 	}
-	if len(m.Cases) != 2 {
-		t.Fatalf("cases = %d, want one per regime", len(m.Cases))
-	}
 	byDose := map[string]modelCase{}
 	for _, c := range m.Cases {
 		byDose[c.Dose] = c
 	}
 	if byDose["grace-bounded"].BindingTerm != "termination grace" {
-		t.Fatalf("40 s of remaining service against a 30 s grace must bind on grace: %+v", byDose["grace-bounded"])
+		t.Fatalf("38.8 s of remaining service against a 30 s grace must bind on grace: %+v", byDose["grace-bounded"])
 	}
 	if byDose["self-completing"].BindingTerm != "remaining service" {
-		t.Fatalf("20 s of remaining service against a 30 s grace must bind on service: %+v", byDose["self-completing"])
+		t.Fatalf("18.8 s of remaining service must bind on service: %+v", byDose["self-completing"])
 	}
-	// The protocol's constants are printed, because the record does not carry them and a build with different
-	// ones would mispredict silently.
-	if !strings.Contains(renderModel(m), "grace=30s") {
-		t.Fatalf("the render does not state the arithmetic's inputs:\n%s", renderModel(m))
+	// The achieved dose is used, not the declared one — 20 would put remaining at 40 and predict the same
+	// hold, but 40 declared against 41.1 achieved moves the prediction by 1.1 s and the test would fail.
+	if got := byDose["self-completing"].AchievedDoseSeconds; got < 41 || got > 41.2 {
+		t.Fatalf("achieved dose = %v, want the measured 41.1 rather than the declared 40", got)
+	}
+	// The observed hold is the raw measurement. Nothing is subtracted from it -- the control exists to show
+	// the interval contains no platform work, not to correct it, and an earlier version of this check
+	// subtracted a term it had borrowed from the other arm.
+	if got := byDose["grace-bounded"].ObservedSeconds; got < 30.04 || got > 30.06 {
+		t.Fatalf("observed hold = %v, want the raw 30.050; something was subtracted from it", got)
+	}
+	if m.ControlRuns != 2 || m.ControlHoldSeconds > 0.1 {
+		t.Fatalf("control = %.3f s over %d runs; the honouring arm must hold the device for approximately "+
+			"nothing, which is what shows the interval contains no platform work",
+			m.ControlHoldSeconds, m.ControlRuns)
 	}
 }
 
-// And it can fail. A refutation nobody can trigger is not one — this is the test that the check is a test.
+// The contrast is the only part of the check that tests the model's kink. Anything common to both regimes
+// cancels in it, so a rule that happened to fit both levels by coincidence cannot fit their difference.
+func TestTheModelTestsTheContrastBetweenRegimes(t *testing.T) {
+	recs := []runRecord{
+		holdRec(cmpRec("gh1", "A-honor", "grace-bounded", "2026-08-21T05:00:00Z", 21.3, 0), 21.2, 0.045),
+		holdRec(cmpRec("gi1", "A-ignore", "grace-bounded", "2026-08-21T05:05:00Z", 51.3, 0), 21.2, 30.050),
+		holdRec(cmpRec("sh1", "A-honor", "self-completing", "2026-08-21T05:10:00Z", 41.4, 0), 41.1, 0.045),
+		holdRec(cmpRec("si1", "A-ignore", "self-completing", "2026-08-21T05:15:00Z", 0.0, 0), 41.1, 18.850),
+	}
+	m, err := checkModel(recs)
+	if err != nil {
+		t.Fatalf("model: %v", err)
+	}
+	if m.Contrast == nil {
+		t.Fatal("both regimes were present and no contrast was computed; the levels alone can be fitted by a " +
+			"rule that just happens to land there")
+	}
+	// grace 30 against remaining 18.9: the kink says the gap is 11.1 s.
+	if d := m.Contrast.PredictedSeconds; d < 11 || d > 11.2 {
+		t.Fatalf("predicted contrast = %v, want about 11.1 (30 - 18.9)", d)
+	}
+	if !m.Contrast.InsideFloor {
+		t.Fatalf("the contrast fell outside the floor on data generated from the model: %+v", m.Contrast)
+	}
+	if !strings.Contains(renderModel(m), "the kink") {
+		t.Fatalf("the render does not say what the contrast is for:\n%s", renderModel(m))
+	}
+}
+
+// And it can fail. A refutation nobody can trigger is not one.
 func TestTheModelCanBeRefuted(t *testing.T) {
 	recs := []runRecord{
-		withOwnerWait(cmpRec("gh1", "A-honor", "grace-bounded", "2026-08-20T05:00:00Z", 21.3, int64(time.Second)), 2.73),
-		withOwnerWait(cmpRec("sh1", "A-honor", "self-completing", "2026-08-20T05:10:00Z", 41.5, int64(time.Second)), 2.79),
-		// The grace-bounded victim held its device for a minute rather than the grace period.
-		withOwnerWait(cmpRec("gi1", "A-ignore", "grace-bounded", "2026-08-20T05:20:00Z", 51.3, int64(time.Second)), 62.7),
-		withOwnerWait(cmpRec("si1", "A-ignore", "self-completing", "2026-08-20T05:30:00Z", 0.0, int64(time.Second)), 22.7),
+		holdRec(cmpRec("gh1", "A-honor", "grace-bounded", "2026-08-21T05:00:00Z", 21.3, 0), 21.2, 0.045),
+		// The borrower held the device for twice the grace period.
+		holdRec(cmpRec("gi1", "A-ignore", "grace-bounded", "2026-08-21T05:05:00Z", 51.3, 0), 21.2, 60.0),
+		holdRec(cmpRec("sh1", "A-honor", "self-completing", "2026-08-21T05:10:00Z", 41.4, 0), 41.1, 0.045),
+		holdRec(cmpRec("si1", "A-ignore", "self-completing", "2026-08-21T05:15:00Z", 0.0, 0), 41.1, 18.850),
 	}
 	m, err := checkModel(recs)
 	if err != nil {
 		t.Fatalf("model: %v", err)
 	}
 	if m.Holds {
-		t.Fatal("a victim that held its device for twice the grace period did not refute the model")
+		t.Fatal("a borrower that held the device for twice the grace period did not refute the model")
 	}
 	if !strings.Contains(m.Statement, "REFUTED") {
 		t.Fatalf("the statement does not say it was refuted: %s", m.Statement)
 	}
 }
 
-// One regime can be fitted by any model, so the check refuses to conclude from one.
-func TestTheModelRefusesASingleRegime(t *testing.T) {
+// The statement must not claim more than two runs per cell evaluated in-sample can support.
+func TestTheModelClaimsConsistencyRatherThanValidation(t *testing.T) {
 	recs := []runRecord{
-		withOwnerWait(cmpRec("gh1", "A-honor", "grace-bounded", "2026-08-20T05:00:00Z", 21.3, int64(time.Second)), 2.73),
-		withOwnerWait(cmpRec("gi1", "A-ignore", "grace-bounded", "2026-08-20T05:20:00Z", 51.3, int64(time.Second)), 32.7),
+		holdRec(cmpRec("gh1", "A-honor", "grace-bounded", "2026-08-21T05:00:00Z", 21.3, 0), 21.2, 0.045),
+		holdRec(cmpRec("gi1", "A-ignore", "grace-bounded", "2026-08-21T05:05:00Z", 51.3, 0), 21.2, 30.050),
+		holdRec(cmpRec("sh1", "A-honor", "self-completing", "2026-08-21T05:10:00Z", 41.4, 0), 41.1, 0.045),
+		holdRec(cmpRec("si1", "A-ignore", "self-completing", "2026-08-21T05:15:00Z", 0.0, 0), 41.1, 18.850),
 	}
-	if _, err := checkModel(recs); err == nil {
-		t.Fatal("one regime produced a model verdict; any model fits a single point")
+	m, err := checkModel(recs)
+	if err != nil {
+		t.Fatalf("model: %v", err)
+	}
+	if !strings.Contains(m.Statement, "consistency, not validation") {
+		t.Fatalf("the statement overclaims what two runs per cell, evaluated on themselves, support: %s",
+			m.Statement)
+	}
+}
+
+// The hold's endpoints are arrival times from two watches, so pooling nodes pools two collectors' delivery
+// behaviour into an interval whose entire value is that it is quiet.
+func TestTheModelRefusesToPoolNodes(t *testing.T) {
+	// A complete set, so the ONLY thing wrong is the node. An earlier version of this test used a single
+	// regime and passed on the "needs both dose regimes" refusal instead -- it asserted that an error came
+	// back without checking which one, and a mutation removing the node guard survived it.
+	one := []runRecord{
+		holdRec(cmpRec("gh1", "A-honor", "grace-bounded", "2026-08-21T05:00:00Z", 21.3, 0), 21.2, 0.045),
+		holdRec(cmpRec("gi1", "A-ignore", "grace-bounded", "2026-08-21T05:05:00Z", 51.3, 0), 21.2, 30.050),
+		holdRec(cmpRec("sh1", "A-honor", "self-completing", "2026-08-21T05:10:00Z", 41.4, 0), 41.1, 0.045),
+		holdRec(cmpRec("si1", "A-ignore", "self-completing", "2026-08-21T05:15:00Z", 0.0, 0), 41.1, 18.850),
+	}
+	if _, err := checkModel(one); err != nil {
+		t.Fatalf("the single-node fixture must pass, or this test proves nothing: %v", err)
+	}
+	mixed := append([]runRecord{}, one...)
+	mixed[3].Qualification = &qualification{Node: "platform-worker2"}
+	_, err := checkModel(mixed)
+	if err == nil {
+		t.Fatal("two nodes were pooled into one hold measurement")
+	}
+	if !strings.Contains(err.Error(), "node") {
+		t.Fatalf("refused for the wrong reason: %v", err)
+	}
+}
+
+// The levels can both land inside the floor while their DIFFERENCE does not, and that case is the whole
+// reason the contrast is computed: a rule fitted to two levels by coincidence cannot also fit their gap.
+func TestTheContrastFailsWhereTheLevelsPass(t *testing.T) {
+	// Each level is 1.4 s off its prediction -- inside the ~3 s floor -- but in OPPOSITE directions, so the
+	// contrast is 2.8 s out. Widen it until it clears the floor while each level stays within.
+	recs := []runRecord{
+		holdRec(cmpRec("gh1", "A-honor", "grace-bounded", "2026-08-21T05:00:00Z", 21.3, 0), 21.2, 0.045),
+		holdRec(cmpRec("gi1", "A-ignore", "grace-bounded", "2026-08-21T05:05:00Z", 51.3, 0), 21.2, 32.9),
+		holdRec(cmpRec("sh1", "A-honor", "self-completing", "2026-08-21T05:10:00Z", 41.4, 0), 41.1, 0.045),
+		holdRec(cmpRec("si1", "A-ignore", "self-completing", "2026-08-21T05:15:00Z", 0.0, 0), 41.1, 16.0),
+	}
+	m, err := checkModel(recs)
+	if err != nil {
+		t.Fatalf("model: %v", err)
+	}
+	for _, c := range m.Cases {
+		if !c.InsideFloor {
+			t.Fatalf("the fixture is meant to keep every LEVEL inside the floor: %s residual %+.3f against %.3f",
+				c.Dose, c.ResidualSeconds, m.FloorSeconds)
+		}
+	}
+	if m.Contrast == nil || m.Contrast.InsideFloor {
+		t.Fatalf("levels that each land inside the floor with opposite errors must fail the contrast: %+v",
+			m.Contrast)
+	}
+	if m.Holds {
+		t.Fatal("the check reported the model holding while its kink was refuted")
 	}
 }
 
