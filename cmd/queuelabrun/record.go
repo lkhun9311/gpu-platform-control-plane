@@ -546,16 +546,44 @@ func cpuOnlyWorkload() workloadProvenance {
 // the middle, or a card that was allocated and idle. Those send someone to five different places.
 func workloadFrom(obs *queuelab.DeviceObservation, podUID string, fromNs, toNs int64) workloadProvenance {
 	w := workloadProvenance{
-		Kind:        "pure-python-float-arithmetic",
+		Kind:        cpuOnlyWorkloadKind,
 		CountedUnit: "50000 float multiply-modulo operations",
 	}
 	established, why := queuelab.EstablishesDeviceWork(obs, podUID, fromNs, toNs)
+	// The record must not contradict itself, and the direction of the refusal is the point.
+	//
+	// This build renders a workload that makes no driver call. An observation claiming that workload's card
+	// did work is not evidence about the card -- it is evidence that the OBSERVER is attributing somebody
+	// else's activity to this Pod, which is the failure mode a fake or misconfigured exporter produces and the
+	// one nothing else here would catch. Believing it would let the axis move for a run where moving it is
+	// impossible by construction.
+	//
+	// It was found by pointing the real path at a fake exporter that reports 94% for every Pod holding a
+	// device. The axis moved, and the record it produced said in one field that the workload was pure Python
+	// arithmetic and in another that its GPU had been working.
+	//
+	// When the session's workload starts making driver calls, its Kind changes with it and this stops firing.
+	// That coupling is deliberate: the check is keyed to what this build actually submits, so it cannot be
+	// left behind by a workload change.
+	if established && w.Kind == cpuOnlyWorkloadKind {
+		established = false
+		why = fmt.Sprintf("an observer reported device work for a %s workload, which makes no driver call: "+
+			"that is evidence the observer is attributing another Pod's activity to this one, not evidence "+
+			"that this card did anything", cpuOnlyWorkloadKind)
+	}
 	w.DeviceUseEstablished = established
 	if !established {
 		w.WhyNot = why
 	}
 	return w
 }
+
+// cpuOnlyWorkloadKind names what this build renders: arithmetic that touches no device.
+//
+// It is a constant rather than a literal because two places have to agree about it -- the provenance a record
+// carries, and the contradiction check above -- and a workload change that edited one would otherwise leave
+// the other silently guarding nothing.
+const cpuOnlyWorkloadKind = "pure-python-float-arithmetic"
 
 type validity struct {
 	Verdict string `json:"verdict"`

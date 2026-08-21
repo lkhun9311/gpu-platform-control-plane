@@ -1855,8 +1855,11 @@ func TestTheDeviceAxisIsDerivedFromAnObserverRatherThanHardcoded(t *testing.T) {
 		t.Fatal("the axis did not follow the provenance")
 	}
 
-	// And with an admissible observer that watched a busy card, the axis moves — which is the property that
-	// makes a GPU session worth paying for.
+	// The axis CANNOT move in this build, and that is a stronger statement than "it moves given a good
+	// observation". The workload renders arithmetic that makes no driver call, so an observation claiming
+	// otherwise is refused by the contradiction check — see the test below. What this half asserts is that the
+	// observation is consulted at all: a well-formed one reaches the check and is turned away by the workload
+	// rather than ignored, which is the difference between a derived answer and a hardcoded one.
 	obs := &queuelab.DeviceObservation{
 		Observer: queuelab.ObserverDCGM, ObserverIdentity: "dcgm@sha256:abc",
 		StartedNs: 0, EndedNs: 40_000_000_000,
@@ -1867,14 +1870,60 @@ func TestTheDeviceAxisIsDerivedFromAnObserverRatherThanHardcoded(t *testing.T) {
 		})
 	}
 	seen := workloadFrom(obs, "victim-uid", 10_000_000_000, 30_000_000_000)
-	if !seen.DeviceUseEstablished {
-		t.Fatalf("an independently observed busy card did not establish device work: %s", seen.WhyNot)
+	if seen.DeviceUseEstablished {
+		t.Fatal("this build's workload makes no driver call and the axis moved anyway")
 	}
-	if seen.WhyNot != "" {
-		t.Fatalf("an established claim carried a reason: %s", seen.WhyNot)
+	// The reason must be the CONTRADICTION and not the absence of an observer, or the observation was never
+	// consulted and the derivation is hardcoding wearing a function call.
+	if strings.Contains(seen.WhyNot, "no device observer ran") {
+		t.Fatalf("a well-formed observation was never consulted: %s", seen.WhyNot)
 	}
-	if deviceEvidenceOf(&measurement{Workload: seen}) != deviceWorkObserved {
-		t.Fatal("the axis did not move when the observation established work; a GPU session would report the " +
-			"same verdict as kind and the money would be spent for nothing")
+	if !strings.Contains(seen.WhyNot, "makes no driver call") {
+		t.Fatalf("the refusal does not name what turned the observation away: %s", seen.WhyNot)
+	}
+	// The observation contract itself is satisfied -- what refuses it is this build's workload, and when the
+	// session's workload starts making driver calls that refusal stops firing.
+	if ok, why := queuelab.EstablishesDeviceWork(obs, "victim-uid", 10_000_000_000, 30_000_000_000); !ok {
+		t.Fatalf("the observation contract rejected a well-formed observation: %s", why)
+	}
+}
+
+// A record must not contradict itself, and the direction of the refusal is the point.
+//
+// This build renders a workload that makes no driver call. An observation claiming that workload's card did
+// work is not evidence about the card — it is evidence that the OBSERVER is attributing somebody else's
+// activity to this Pod. Believing it would move the axis for a run where moving it is impossible by
+// construction.
+//
+// It was found by pointing the real path at a fake exporter reporting 94% for every device-holding Pod: the
+// axis moved, and the record said in one field that the workload was Python arithmetic and in another that
+// its GPU had been working.
+//
+// Mutation that turns this red: drop the Kind comparison, or let the observation win.
+func TestAnObservationCannotContradictTheWorkloadsOwnProvenance(t *testing.T) {
+	obs := &queuelab.DeviceObservation{
+		Observer: queuelab.ObserverDCGM, ObserverIdentity: "fake@sha256:abc",
+		StartedNs: 0, EndedNs: 40_000_000_000,
+	}
+	for at := int64(0); at <= 40_000_000_000; at += 1_000_000_000 {
+		obs.Samples = append(obs.Samples, queuelab.DeviceSample{
+			AtNs: at, DeviceUUID: "GPU-fake-0000", PodUID: "victim-uid", UtilisationPercent: 94,
+		})
+	}
+	// The observation itself is impeccable: admissible source, named build, one card, full coverage, busy.
+	if ok, why := queuelab.EstablishesDeviceWork(obs, "victim-uid", 10_000_000_000, 30_000_000_000); !ok {
+		t.Fatalf("the fixture must satisfy the observation contract, or this tests the wrong thing: %s", why)
+	}
+	// And the record still refuses it, because this build's workload cannot have done what it reports.
+	w := workloadFrom(obs, "victim-uid", 10_000_000_000, 30_000_000_000)
+	if w.DeviceUseEstablished {
+		t.Fatal("a record certified device work for a workload that makes no driver call; one field would say " +
+			"pure Python arithmetic while another said its GPU had been working")
+	}
+	if !strings.Contains(w.WhyNot, "attributing another Pod's activity") {
+		t.Fatalf("the refusal blames the card rather than the observer: %s", w.WhyNot)
+	}
+	if deviceEvidenceOf(&measurement{Workload: w}) != deviceNotObserved {
+		t.Fatal("the axis moved on a contradicted observation")
 	}
 }

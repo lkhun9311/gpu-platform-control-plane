@@ -25,6 +25,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -95,6 +96,12 @@ func main() {
 			"reporting whether their between-arm differences exceed what the runs could resolve")
 		compareOutFlag = flag.String("compare-out", "", "path to write the -compare document; without it the "+
 			"comparison is printed and not persisted, which makes the conclusion unciteable")
+		deviceMetricsFlag = flag.String("device-metrics", "", "URL of a DCGM exporter's /metrics for this run's "+
+			"worker. Without it the run establishes that a device was RESERVED and nothing about whether it "+
+			"was used, which is what every record here says today. The endpoint has to be reachable from "+
+			"wherever this binary runs -- a port-forward or a NodePort -- because the runner talks to the "+
+			"apiserver and not to the cluster network")
+
 		compareModeFlag = flag.String("mode", "", "with -compare: \"dose\" or \"node\" holds the ARM fixed and "+
 			"varies that factor, reporting whether the quota owner's wait responds to it; \"baseline\" pools "+
 			"one arm's runs into the restoration figure a later session differences against; \"model\" tests "+
@@ -245,13 +252,8 @@ func main() {
 	// outcome AFTER the return value has been chosen, so anything written from inside it could be
 	// contradicted a moment later. By the time these seven values exist here, every defer has finished
 	// amending them.
-	o, events, res, left, qual, win, obs := run(ctx, newClusterClient, arm, *runID, namespace, *worker, protocol, horizon,
-		recordPath, os.Stderr, time.Now, time.Sleep)
-
-	// No device observer is wired yet, so this is nil and the record says device-not-observed for the reason
-	// the check gives rather than a hardcoded one. The scraper that fills it is the GPU session's first task;
-	// what exists today is the whole path from an observation to the verdict, tested against payloads.
-	var deviceObs *queuelab.DeviceObservation
+	o, events, res, left, qual, win, obs, deviceObs := run(ctx, newClusterClient, arm, *runID, namespace,
+		*worker, protocol, horizon, *deviceMetricsFlag, recordPath, os.Stderr, time.Now, time.Sleep)
 
 	os.Exit(reportRun(os.Stdout, os.Stderr, writeRecord, verifyRecordReadable, runReport{
 		Outcome: o,
@@ -761,15 +763,16 @@ func phaseFailure(phase disposition, what string, err error) outcome {
 // horizon rather than beside worker deliberately — runID, namespace and worker are already three adjacent
 // strings a caller can transpose in silence, and a fourth would make that worse.
 func run(ctx context.Context, connect clusterClientFunc, arm queuelab.Arm, runID, namespace, worker string,
-	protocol doseProtocol, horizon time.Duration, recordPath string, stderr io.Writer, now func() time.Time,
-	sleep func(time.Duration)) (o outcome, events []queuelab.LifecycleEvent, res *queuelab.LabResult,
-	left []residue, qual *qualification, win *ownershipWindow, obs *observationEvidence) {
+	protocol doseProtocol, horizon time.Duration, deviceMetricsURL string, recordPath string, stderr io.Writer,
+	now func() time.Time, sleep func(time.Duration)) (o outcome, events []queuelab.LifecycleEvent,
+	res *queuelab.LabResult, left []residue, qual *qualification, win *ownershipWindow,
+	obs *observationEvidence, device *queuelab.DeviceObservation) {
 	study := queuelab.StudyReclaim
 	c, err := connect()
 	if err != nil {
 		o = phaseFailure(dispClientFailed, "connecting to the cluster", err)
 		return o, events, res,
-			left, qual, win, obs
+			left, qual, win, obs, device
 	}
 
 	// The corrected trace gives the victim its own duration instead of sharing one with the co-tenant, so the
@@ -778,14 +781,14 @@ func run(ctx context.Context, connect clusterClientFunc, arm queuelab.Arm, runID
 	if err != nil {
 		o = phaseFailure(dispProtocolBuildFailed, "building the trace", err)
 		return o, events, res,
-			left, qual, win, obs
+			left, qual, win, obs, device
 	}
 	// ValidateTrace still runs because the corrected trace must satisfy the reclaim study's semantic rules,
 	// not just the termination-contract shape.
 	if err := queuelab.ValidateTrace(study, trace); err != nil {
 		o = phaseFailure(dispProtocolBuildFailed, "trace invalid", err)
 		return o, events, res,
-			left, qual, win, obs
+			left, qual, win, obs, device
 	}
 	// The SAME resolved protocol the trace came from, not the package constant. Passing doseSec here while the
 	// trace was built from protocol.DoseSec is the exact disagreement the schedule's own guard refuses, and it
@@ -795,7 +798,7 @@ func run(ctx context.Context, connect clusterClientFunc, arm queuelab.Arm, runID
 	if err != nil {
 		o = phaseFailure(dispProtocolBuildFailed, "building the schedule", err)
 		return o, events, res,
-			left, qual, win, obs
+			left, qual, win, obs, device
 	}
 
 	// Everything teardown needs is computed BEFORE the worker is acquired, because the journal that takes
@@ -811,7 +814,7 @@ func run(ctx context.Context, connect clusterClientFunc, arm queuelab.Arm, runID
 	if err != nil {
 		o = phaseFailure(dispSetupFailed, "resolving the arm's policy variant", err)
 		return o, events, res,
-			left, qual, win, obs
+			left, qual, win, obs, device
 	}
 	txID := newTxID()
 	fs, err := queuelab.BuildFixtures(study, policyVariant, queuelab.FixtureIdentity{
@@ -820,7 +823,7 @@ func run(ctx context.Context, connect clusterClientFunc, arm queuelab.Arm, runID
 	if err != nil {
 		o = phaseFailure(dispSetupFailed, "building fixtures", err)
 		return o, events, res,
-			left, qual, win, obs
+			left, qual, win, obs, device
 	}
 	s := seed{
 		Schema:    teardownSeedSchema,
@@ -838,7 +841,7 @@ func run(ctx context.Context, connect clusterClientFunc, arm queuelab.Arm, runID
 	if err != nil {
 		o = phaseFailure(dispAcquisitionRefused, fmt.Sprintf("acquire worker %s", worker), err)
 		return o, events, res,
-			left, qual, win, obs
+			left, qual, win, obs, device
 	}
 	releaseAttempted := false
 	// workerHeldForResidue is the deliberate refusal to release, not a release that failed. Teardown sets it
@@ -911,7 +914,7 @@ func run(ctx context.Context, connect clusterClientFunc, arm queuelab.Arm, runID
 		_, _ = fmt.Fprintf(stderr, "OWNERSHIP WINDOW NOT OPENED: %v\n", serr)
 		o = phaseFailure(dispSetupFailed, "opening the continuous ownership view of the worker", serr)
 		return o, events, res,
-			left, qual, win, obs
+			left, qual, win, obs, device
 	}
 	// releaseAudit is set by whichever release ran INLINE; the deferred emergency release attaches its own to
 	// the published window instead, because it runs after this defer has already published it.
@@ -992,7 +995,7 @@ func run(ctx context.Context, connect clusterClientFunc, arm queuelab.Arm, runID
 	if err != nil {
 		o = phaseFailure(dispEnvironmentUnqualified, "sizing the worker against this run's fixtures and trace", err)
 		return o, events, res,
-			left, qual, win, obs
+			left, qual, win, obs, device
 	}
 	var qerr error
 	// The observation is assigned to the named return before the error is inspected, so the refusal path
@@ -1007,14 +1010,14 @@ func run(ctx context.Context, connect clusterClientFunc, arm queuelab.Arm, runID
 		_, _ = fmt.Fprintf(stderr, "ENVIRONMENT NOT QUALIFIED: %v\n", cerr)
 		o = phaseFailure(dispEnvironmentUnqualified, "building the termination contract", cerr)
 		return o, events, res,
-			left, qual, win, obs
+			left, qual, win, obs, device
 	}
 	qual, qerr = qualifyWorker(ctx, c, worker, req, contract)
 	if qerr != nil {
 		_, _ = fmt.Fprintf(stderr, "ENVIRONMENT NOT QUALIFIED: %v\n", qerr)
 		o = phaseFailure(dispEnvironmentUnqualified, fmt.Sprintf("qualifying worker %s", worker), qerr)
 		return o, events, res,
-			left, qual, win, obs
+			left, qual, win, obs, device
 	}
 	fmt.Printf("  worker %s qualified: %d allocatable %s (this arm needs %d, bound by the %s), %d pod(s) on "+
 		"the node and none holding a device\n", worker, qual.AllocatableGPU, gpuResourceName, qual.RequiredGPU,
@@ -1033,12 +1036,12 @@ func run(ctx context.Context, connect clusterClientFunc, arm queuelab.Arm, runID
 	if err := ensureNamespace(ctx, c, namespace, txID); err != nil {
 		o = phaseFailure(dispSetupFailed, fmt.Sprintf("ensuring namespace %s", namespace), err)
 		return o, events, res,
-			left, qual, win, obs
+			left, qual, win, obs, device
 	}
 	if err := applyFixtures(ctx, c, fs, policyVariant, txID); err != nil {
 		o = phaseFailure(dispSetupFailed, "applying fixtures", err)
 		return o, events, res,
-			left, qual, win, obs
+			left, qual, win, obs, device
 	}
 
 	fmt.Printf("run %s: arm=%s ns=%s worker=%s horizon=%s\n",
@@ -1077,7 +1080,7 @@ func run(ctx context.Context, connect clusterClientFunc, arm queuelab.Arm, runID
 		events = col.builder.Events()
 		o = phaseFailure(dispSetupFailed, "opening the observation streams", err)
 		return o, events, res,
-			left, qual, win, obs
+			left, qual, win, obs, device
 	}
 	// Nothing is submitted until every stream is proven open, and that ordering is the point rather than
 	// tidiness. This used to be col.start(cctx) followed immediately by the submit loop: a watch that had not
@@ -1093,8 +1096,47 @@ func run(ctx context.Context, connect clusterClientFunc, arm queuelab.Arm, runID
 		events = col.builder.Events()
 		o = phaseFailure(dispSetupFailed, "establishing the observation streams", err)
 		return o, events, res,
-			left, qual, win, obs
+			left, qual, win, obs, device
 	}
+	// The device observer starts HERE and not earlier, and the ordering is the same argument the submit loop
+	// makes above. Its samples are attributed through the collector's own registry of Pod names, so a scrape
+	// landing before the streams are established resolves nothing and counts as unattributed -- an observation
+	// that looks partial for a reason that is about start-up rather than about the cluster.
+	//
+	// Nothing here can fail the run. An observer that will not start leaves the observation nil, which is what
+	// every record says today, and the reason travels into the record through EstablishesDeviceWork rather
+	// than stopping a run that is otherwise fine. A device claim is an addition to what this lab establishes,
+	// not a precondition for it.
+	var deviceDone chan struct{}
+	if deviceMetricsURL != "" {
+		scraper := &queuelab.DeviceScraper{
+			Observer: queuelab.ObserverDCGM,
+			Identity: deviceMetricsURL,
+			Interval: deviceScrapeInterval,
+			Resolve:  col.DevicePods(),
+			Elapsed:  func() int64 { return col.elapsed().Nanoseconds() },
+			Fetch:    func(fctx context.Context) ([]byte, error) { return fetchMetrics(fctx, deviceMetricsURL) },
+		}
+		deviceDone = make(chan struct{})
+		dctx, dcancel := context.WithCancel(cctx)
+		defer dcancel()
+		go func() {
+			defer close(deviceDone)
+			o, missed, derr := scraper.Observe(dctx)
+			device = o
+			if derr != nil {
+				fmt.Fprintln(stderr, "  device observer:", derr)
+			}
+			if missed > 0 {
+				fmt.Fprintf(stderr, "  device observer: %d sample(s) named Pods this run never saw\n", missed)
+			}
+		}()
+		defer func() {
+			dcancel()
+			<-deviceDone
+		}()
+	}
+
 	// What establishment cost is printed because it is spent out of the observation window and nothing else
 	// reports it: t0 is stamped when the collector is built, so a cluster that took ten seconds to accept four
 	// watches leaves ten seconds less window for the schedule to finish in, and the operator would otherwise
@@ -1120,7 +1162,7 @@ func run(ctx context.Context, connect clusterClientFunc, arm queuelab.Arm, runID
 					fmt.Sprintf("observation cancelled while waiting for a barrier before step %d (%s)",
 						i, step.Row.Name), err)
 				return o, events, res,
-					left, qual, win, obs
+					left, qual, win, obs, device
 			}
 			// col.desync rather than col.builder.Desync: the four watch goroutines are still running and still
 			// calling Observe, and the builder has no locking of its own.
@@ -1137,7 +1179,7 @@ func run(ctx context.Context, connect clusterClientFunc, arm queuelab.Arm, runID
 			events = col.builder.Events()
 			o = phaseFailure(dispSetupFailed, fmt.Sprintf("submit %s", step.Row.Name), err)
 			return o, events, res,
-				left, qual, win, obs
+				left, qual, win, obs, device
 		}
 		fmt.Printf("  submitted %s (t=%s)\n", step.Row.Name, col.elapsed().Round(time.Second))
 	}
@@ -1183,7 +1225,7 @@ func run(ctx context.Context, connect clusterClientFunc, arm queuelab.Arm, runID
 		// rather than through some observation-failure disposition that no code path could ever produce.
 		o = phaseFailure(dispCancelled, "observing until the horizon", werr)
 		return o, events, res,
-			left, qual, win, obs
+			left, qual, win, obs, device
 	}
 
 	// Validity is decided before anything is published, because a non-zero exit cannot retract a number
@@ -1192,7 +1234,7 @@ func run(ctx context.Context, connect clusterClientFunc, arm queuelab.Arm, runID
 		_, _ = fmt.Fprintf(stderr, "\nRUN INVALIDATED: %v\n", err)
 		o = phaseFailure(dispCollectorDesync, "run invalidated", err)
 		return o, events, res,
-			left, qual, win, obs
+			left, qual, win, obs, device
 	}
 	result, err := reconstructAtHorizon(col, arm, trace, events)
 	if err != nil {
@@ -1200,7 +1242,7 @@ func run(ctx context.Context, connect clusterClientFunc, arm queuelab.Arm, runID
 		// Same reasoning as the invalidation path above: a failed reconstruction is not a result either.
 		o = phaseFailure(dispReconstructRefused, "reconstruct failed", err)
 		return o, events, res,
-			left, qual, win, obs
+			left, qual, win, obs, device
 	}
 	// The victim is identified by ordinal position now, not by cross-watch causal inference, so an unexpected
 	// preemption count means that pairing was not actually unambiguous and this reconstruction must be refused
@@ -1209,7 +1251,7 @@ func run(ctx context.Context, connect clusterClientFunc, arm queuelab.Arm, runID
 		_, _ = fmt.Fprintf(stderr, "\nRUN INVALIDATED: %v\n", err)
 		o = phaseFailure(dispCardinalityRefused, "cardinality check failed", err)
 		return o, events, res,
-			left, qual, win, obs
+			left, qual, win, obs, device
 	}
 
 	// Teardown runs here, INLINE and above the release, rather than being left to the defer registered
@@ -1255,7 +1297,7 @@ func run(ctx context.Context, connect clusterClientFunc, arm queuelab.Arm, runID
 			// two.
 			o = classifyReleaseFailure(err)
 			return o, events, res,
-				left, qual, win, obs
+				left, qual, win, obs, device
 		}
 	}
 
@@ -1266,12 +1308,12 @@ func run(ctx context.Context, connect clusterClientFunc, arm queuelab.Arm, runID
 	// number it computed is not published under a disposition that says the checks passed.
 	if o.Disposition != "" {
 		return o, events, res,
-			left, qual, win, obs
+			left, qual, win, obs, device
 	}
 	res = &result
 	o = outcome{Disposition: dispChecksPassed}
 	return o, events, res,
-		left, qual, win, obs
+		left, qual, win, obs, device
 }
 
 // reconstructAtHorizon reconstructs the run's result against the horizon the collector stamped before the
@@ -1314,4 +1356,32 @@ func printEvents(w io.Writer, events []queuelab.LifecycleEvent) {
 		_, _ = fmt.Fprintf(w, "  t=%-8s %-14s %-14s job=%-10s reason=%s\n",
 			time.Duration(e.ElapsedNs).Round(time.Second), e.Kind, e.Type, e.Job, e.Reason)
 	}
+}
+
+// deviceScrapeInterval is how often the device observer polls.
+//
+// Half a second, which leaves room under the two-second gap a run may blink through: an interval at the limit
+// turns one slow response into an uncovered window that the run only discovers when its verdict is computed.
+const deviceScrapeInterval = 500 * time.Millisecond
+
+// fetchMetrics reads one scrape from a metrics endpoint.
+//
+// Plain HTTP with the run's context and nothing else -- no retry, no backoff. The scraper above already
+// decides what a failure means, and a transport that quietly retried would hide the very gap the verdict is
+// meant to catch.
+func fetchMetrics(ctx context.Context, url string) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("device metrics endpoint returned %s", resp.Status)
+	}
+	// Bounded, because an endpoint that streams forever would otherwise consume the run rather than a scrape.
+	return io.ReadAll(io.LimitReader(resp.Body, 8<<20))
 }
