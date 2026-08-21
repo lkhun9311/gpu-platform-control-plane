@@ -51,8 +51,53 @@ module "eks" {
       }
     }
 
-    # The GPU node group is added in M5-b: desired=0, On-Demand g5.xlarge,
-    # taint nvidia.com/gpu=present:NoSchedule, pinned to public_subnets[0].
+    # The GPU node group the device-work observer and the real device plugin need.
+    #
+    # desired_size = 0 is the important number and it is not a placeholder: a g5.xlarge is charged by the
+    # hour whether or not anything is scheduled on it, and this repository's whole cost discipline is that
+    # nothing bills while nobody is running an experiment. Scaling it to 1 is a deliberate act at the start
+    # of a session and back to 0 at the end. min_size = 0 is what makes that possible.
+    gpu = {
+      subnet_ids     = [module.vpc.public_subnets[0]]
+      instance_types = [var.gpu_node_instance_type]
+      # On-Demand rather than Spot. A reclaimed Spot node mid-run does not fail the experiment cleanly -- it
+      # ends the observation and leaves the run indistinguishable from one whose worker died, which is a
+      # class of refusal the lab already has and does not need a second cause for. The session is measured in
+      # hours, so the premium is small against the cost of an unusable run.
+      capacity_type = "ON_DEMAND"
+      min_size      = 0
+      max_size      = 1
+      desired_size  = 0
+
+      # The AMI with the NVIDIA driver already in it. Without this the device plugin has nothing to talk to
+      # and the node advertises no capacity, which reads downstream as "no GPU nodes" rather than as "the
+      # driver is missing".
+      ami_type = "AL2023_x86_64_NVIDIA"
+
+      # The taint keeps ordinary workloads off the expensive node; the label is what the DCGM exporter and
+      # the device plugin select on.
+      #
+      # The label is this repository's own rather than nvidia.com/gpu.present, which is produced by NVIDIA's
+      # GPU Feature Discovery -- not deployed here. Selecting on a label nothing sets leaves the observer
+      # unschedulable and silently absent, and a run then reports "no device observer ran" without anything
+      # saying why. config/dcgm-exporter/daemonset.yaml selects on this one.
+      labels = {
+        "platform.lkhun9311.github.io/gpu" = "true"
+      }
+      taints = {
+        gpu = {
+          key    = "nvidia.com/gpu"
+          value  = "present"
+          effect = "NO_SCHEDULE"
+        }
+      }
+
+      metadata_options = {
+        http_endpoint               = "enabled"
+        http_tokens                 = "required"
+        http_put_response_hop_limit = 1
+      }
+    }
   }
 
   tags = var.tags

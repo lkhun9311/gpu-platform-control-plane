@@ -1,0 +1,70 @@
+# The real NVIDIA device plugin: what makes a GPU node advertise nvidia.com/gpu capacity the kubelet will not
+# overwrite.
+#
+# It is MUTUALLY EXCLUSIVE with config/device-plugin, which is the simulator advertising fake capacity on
+# nodes with no card. Both registered at once would have two plugins claiming the same resource name on the
+# same node, and the lab would be measuring reservations against a number nobody owns. The simulator's own
+# header says the same thing from the other side.
+#
+# Which one is deployed is the difference between every record reading device-not-observed and a record that
+# can say otherwise, so it is a manifest rather than a step in somebody's shell history.
+#
+# One property is load-bearing for the verdict in internal/queuelab/device.go: this plugin allocates WHOLE
+# cards. It is not configured for time-slicing, MPS, or MIG, and that is deliberate -- under any of those a
+# device's utilisation is shared and the exclusivity clause refuses to attribute it, so a session configured
+# that way would spend hardware to produce "not attributable" on every run. If sharing is ever the subject of
+# an experiment, it needs a different verdict, not a different plugin config.
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: nvidia-device-plugin
+  namespace: system
+  labels:
+    app.kubernetes.io/name: gpu-platform-control-plane
+    app.kubernetes.io/component: nvidia-device-plugin
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: gpu-platform-control-plane
+      app.kubernetes.io/component: nvidia-device-plugin
+  updateStrategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: gpu-platform-control-plane
+        app.kubernetes.io/component: nvidia-device-plugin
+    spec:
+      # It has to run on the node whose card it is registering, which carries the taint the GPU node group
+      # sets (infra/aws/cluster/eks.tf).
+      tolerations:
+        - key: nvidia.com/gpu
+          operator: Exists
+          effect: NoSchedule
+      # This repository's own label, not nvidia.com/gpu.present: that one comes from GPU Feature Discovery,
+      # which is not deployed here, and selecting on it would leave the plugin unschedulable and the node
+      # advertising nothing -- which reads downstream as "no GPU nodes" rather than as "the plugin never ran".
+      nodeSelector:
+        platform.lkhun9311.github.io/gpu: "true"
+      priorityClassName: system-node-critical
+      containers:
+        - name: plugin
+          # A version tag, and it should be a digest, for the reason config/dcgm-exporter/daemonset.yaml
+          # gives: pinning one requires pulling the image, which cannot be done from a cluster with no GPU
+          # node to pull it onto. Resolve and pin as the first step of the session.
+          image: nvcr.io/nvidia/k8s-device-plugin:v0.16.2
+          env:
+            # Refuse to start rather than register a node whose driver is missing. The alternative -- starting
+            # and advertising nothing -- is the failure that reads as an absent node group.
+            - name: FAIL_ON_INIT_ERROR
+              value: "true"
+          securityContext:
+            privileged: true
+          volumeMounts:
+            - name: device-plugin
+              mountPath: /var/lib/kubelet/device-plugins
+      volumes:
+        - name: device-plugin
+          hostPath:
+            path: /var/lib/kubelet/device-plugins

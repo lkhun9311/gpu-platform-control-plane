@@ -28,6 +28,15 @@ variable "node_instance_type" {
   default     = "t3.large"
 }
 
+variable "gpu_node_instance_type" {
+  description = "Instance type for the GPU managed node group, which runs at desired_size 0 until a session."
+  type        = string
+  # One A10G, which is the smallest thing that is a real card rather than a fraction of one. The lab's claims
+  # are about a device being held and released, not about how fast it computes, so a larger instance would buy
+  # nothing the experiment reads and would bill for it by the hour.
+  default = "g5.xlarge"
+}
+
 variable "tags" {
   description = "Owner and TTL tags applied to every resource."
   type        = map(string)
