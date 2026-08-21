@@ -240,3 +240,72 @@ func TestTwoBusyRowsFromOneInstantAreNotAState(t *testing.T) {
 		t.Fatalf("busy at two distinct instants did not establish work: %s", why)
 	}
 }
+
+// The clause that turns a utilisation reading into an attribution.
+//
+// DCGM_FI_DEV_GPU_UTIL is DEVICE utilisation; the Kubernetes labels beside it say what the device is
+// ALLOCATED to, not which process made it busy. Under time-slicing, MPS, a MIG parent, or a stale label at
+// the exit transition, a positive reading under this Pod's name can be somebody else's work entirely.
+//
+// So the premise is required rather than the conclusion inferred: every entity this Pod was seen on must
+// have carried no other Pod's label anywhere in the observation.
+//
+// Mutation that turns this red: skip the exclusivity scan, or restrict it to samples inside the interval.
+func TestASharedDeviceCannotAttributeWorkToEither(t *testing.T) {
+	o := goodObservation()
+	// Another tenant on the same card, mid-interval: time-slicing, MPS, or a MIG parent reported whole.
+	o.Samples = append(o.Samples, DeviceSample{
+		AtNs: 20_000_000_000, DeviceUUID: "GPU-1234",
+		PodRef: "other-tenant/greedy-abc", PodUID: "other-uid", UtilisationPercent: 71,
+	})
+	ok, why := EstablishesDeviceWork(o, "victim-uid", 10_000_000_000, 30_000_000_000)
+	if ok {
+		t.Fatal("a device carrying two Pods' labels attributed its utilisation to one of them")
+	}
+	if !strings.Contains(why, "not attributable to either") {
+		t.Fatalf("the refusal does not say the reading belongs to nobody: %s", why)
+	}
+}
+
+// The stale-label case: another Pod held the card a second BEFORE the window. Restricting the scan to the
+// interval would miss it, and that transition is exactly when DCGM's labels lag the kubelet.
+func TestALabelFromBeforeTheWindowStillDefeatsAttribution(t *testing.T) {
+	o := goodObservation()
+	o.Samples = append(o.Samples, DeviceSample{
+		AtNs: 5_000_000_000, DeviceUUID: "GPU-1234",
+		PodRef: "other-tenant/previous-xyz", PodUID: "previous-uid", UtilisationPercent: 64,
+	})
+	if ok, _ := EstablishesDeviceWork(o, "victim-uid", 10_000_000_000, 30_000_000_000); ok {
+		t.Fatal("a label belonging to another Pod just before the window left attribution intact")
+	}
+}
+
+// A Pod the run never saw is the same problem wearing no identity, and it is why the parser keeps
+// unattributable samples instead of dropping them.
+func TestAnUnresolvablePodOnTheSameDeviceAlsoDefeatsAttribution(t *testing.T) {
+	o := goodObservation()
+	o.Samples = append(o.Samples, DeviceSample{
+		AtNs: 22_000_000_000, DeviceUUID: "GPU-1234",
+		PodRef: "somewhere-else/unknown-pod", UtilisationPercent: 50,
+	})
+	ok, why := EstablishesDeviceWork(o, "victim-uid", 10_000_000_000, 30_000_000_000)
+	if ok {
+		t.Fatal("a device shared with a Pod the run could not identify still attributed work")
+	}
+	if !strings.Contains(why, "somewhere-else/unknown-pod") {
+		t.Fatalf("the refusal does not name the other tenant: %s", why)
+	}
+}
+
+// And exclusivity on a DIFFERENT device is not this Pod's problem: a busy neighbour card says nothing about
+// the one the victim held, or the check would refuse every multi-GPU node.
+func TestAnotherPodOnAnotherDeviceIsNotAConflict(t *testing.T) {
+	o := goodObservation()
+	o.Samples = append(o.Samples, DeviceSample{
+		AtNs: 20_000_000_000, DeviceUUID: "GPU-9999",
+		PodRef: "other-tenant/neighbour-abc", PodUID: "neighbour-uid", UtilisationPercent: 99,
+	})
+	if ok, why := EstablishesDeviceWork(o, "victim-uid", 10_000_000_000, 30_000_000_000); !ok {
+		t.Fatalf("a busy neighbour on a different card defeated attribution: %s", why)
+	}
+}

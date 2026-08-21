@@ -35,6 +35,10 @@ type PodResolver func(namespace, name string) string
 // silently dropped those would be reporting a clean observation of a cluster it did not fully see. Samples
 // with no Pod label at all are a different thing and are not counted: an idle card belongs to nobody, and
 // DCGM emits it every scrape.
+//
+// Unattributable samples are also RETURNED rather than merely counted. They cannot credit work to anyone,
+// and they are what the exclusivity clause needs: a device carrying two Pods' labels has utilisation that
+// belongs to neither, and a parser that dropped the second label would hide that.
 func ParseDCGMUtilisation(body []byte, atNs int64, resolve PodResolver) ([]DeviceSample, int, error) {
 	if resolve == nil {
 		return nil, 0, fmt.Errorf("no Pod resolver: the observer labels by name and something else has to say " +
@@ -57,18 +61,23 @@ func ParseDCGMUtilisation(body []byte, atNs int64, resolve PodResolver) ([]Devic
 		if labels["pod"] == "" {
 			continue
 		}
-		uid := resolve(labels["namespace"], labels["pod"])
-		if uid == "" {
-			unattributed++
-			continue
-		}
 		if labels["UUID"] == "" {
 			return nil, 0, fmt.Errorf("scrape at %d ns: a sample for pod %s/%s names no device UUID",
 				atNs, labels["namespace"], labels["pod"])
 		}
+		uid := resolve(labels["namespace"], labels["pod"])
+		if uid == "" {
+			unattributed++
+		}
+		// KEPT even when it cannot be attributed, which is a change from dropping it and the reason is the
+		// exclusivity clause in EstablishesDeviceWork. A sample naming a Pod this run never saw is useless for
+		// crediting work and decisive for refusing it: if that Pod is on the same device, the device was not
+		// exclusively the victim's, and a parser that discarded the row would leave the verdict blind to
+		// precisely the case that makes a utilisation reading unattributable.
 		out = append(out, DeviceSample{
 			AtNs:               atNs,
 			DeviceUUID:         labels["UUID"],
+			PodRef:             labels["namespace"] + "/" + labels["pod"],
 			PodUID:             uid,
 			UtilisationPercent: value,
 		})

@@ -70,8 +70,16 @@ type DeviceSample struct {
 	// DeviceUUID is the physical device. It is required: a sample that cannot say which card it watched
 	// cannot establish that the card this Pod held did anything.
 	DeviceUUID string
+	// PodRef is the namespace/name the exporter labelled the sample with, kept even when it cannot be
+	// resolved to a UID.
+	//
+	// It is here for the exclusivity check below rather than for attribution. A sample naming a Pod this run
+	// never saw is useless for crediting work, and decisive for refusing it: if that Pod is on the same
+	// device, the device was not exclusively the victim's and nothing about its utilisation belongs to
+	// anybody in particular.
+	PodRef string
 	// PodUID ties the sample to one Pod, and it is the UID rather than the name because the UID is what the
-	// API guarantees unique across TIME.
+	// API guarantees unique across TIME. It is empty for a Pod this run did not observe.
 	//
 	// An earlier version of this comment justified it by claiming a re-executed row produces two Pods with the
 	// same name. It does not -- a Job's Pods carry random suffixes, and the recorded runs show the victim's two
@@ -163,6 +171,41 @@ func EstablishesDeviceWork(obs *DeviceObservation, podUID string, fromNs, toNs i
 		}
 		mine = append(mine, s)
 		devices[s.DeviceUUID] = true
+	}
+	// EXCLUSIVITY, and it is the clause that turns a utilisation reading into an attribution.
+	//
+	// DCGM_FI_DEV_GPU_UTIL is DEVICE utilisation. The Kubernetes labels beside it come from the kubelet's
+	// pod-resources socket and say which Pod the device is ALLOCATED to; they do not say which process made
+	// it busy. Under time-slicing, MPS, a MIG parent, a stale label during the exit transition, or anything
+	// outside Kubernetes touching the card, a positive reading under this Pod's name can be somebody else's
+	// work entirely.
+	//
+	// Rather than infer attribution, this refuses unless the premise holds: every entity this Pod was
+	// observed on must have carried NO other Pod's label anywhere in the observation -- not merely inside the
+	// interval, because a label that belonged to another tenant a second before the window is exactly the
+	// stale-label case. Whatever DCGM reports as the entity is the granularity that matters, so a MIG
+	// instance allocated exclusively passes and a shared parent device does not.
+	//
+	// This is the same move the worker qualification makes: a node with another Pod's device on it is refused
+	// rather than reasoned about.
+	for _, s := range obs.Samples {
+		if !devices[s.DeviceUUID] {
+			continue
+		}
+		if s.PodUID == podUID {
+			continue
+		}
+		other := s.PodRef
+		if other == "" {
+			other = s.PodUID
+		}
+		if other == "" {
+			continue
+		}
+		return false, fmt.Sprintf("device %s carried Pod %s's label as well as %s's during this observation, "+
+			"so its utilisation is not attributable to either: DCGM reports what the DEVICE did and the "+
+			"labels say only what it was allocated to, which time-slicing, MPS, a MIG parent or a stale label "+
+			"at the exit transition all make ambiguous", s.DeviceUUID, other, podUID)
 	}
 	if len(mine) == 0 {
 		return false, fmt.Sprintf("the observer ran across the interval and produced no sample for Pod %s; a "+

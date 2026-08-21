@@ -40,6 +40,13 @@ func TestParseDCGMTakesUtilisationAndAttributesIt(t *testing.T) {
 		t.Fatalf("samples = %d, want 2 (the idle card has no Pod and DCGM_FI_DEV_FB_USED is not utilisation): %+v",
 			len(got), got)
 	}
+	// Both carry the name the exporter used as well as the identity the API supplied, because the exclusivity
+	// clause reads names and the attribution reads identities.
+	for _, smp := range got {
+		if smp.PodRef == "" {
+			t.Fatalf("a sample carries no PodRef: %+v", smp)
+		}
+	}
 	byUID := map[string]DeviceSample{}
 	for _, s := range got {
 		byUID[s.PodUID] = s
@@ -76,11 +83,20 @@ func TestAPodTheCollectorNeverSawIsCounted(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
-	if len(got) != 0 {
-		t.Fatalf("an unresolvable Pod produced a sample: %+v", got)
-	}
 	if unattributed != 1 {
 		t.Fatalf("unattributed = %d, want 1", unattributed)
+	}
+	// It is KEPT rather than dropped, carrying no UID and the name the exporter used. It can credit work to
+	// nobody, and it is what the exclusivity clause needs: a device carrying two Pods' labels has utilisation
+	// belonging to neither, and a parser that discarded the second label would hide exactly that.
+	if len(got) != 1 {
+		t.Fatalf("an unresolvable sample was dropped; the exclusivity check would be blind to it: %+v", got)
+	}
+	if got[0].PodUID != "" {
+		t.Fatalf("an unresolvable sample was given the UID %q", got[0].PodUID)
+	}
+	if got[0].PodRef != "other/stranger-9xk" {
+		t.Fatalf("PodRef = %q, want the name the exporter used", got[0].PodRef)
 	}
 }
 
