@@ -123,8 +123,9 @@ func TestAnObserverThatStartedLateHasNotCoveredTheInterval(t *testing.T) {
 	}
 }
 
-// Attribution is to the Pod UID, not the name, because a re-executed row produces two Pods with the same
-// name — and crediting the second attempt's activity to the first is the misattribution this prevents.
+// Attribution is to the Pod UID, not the name, because the UID is what the API guarantees unique across time:
+// a name is free for reuse the moment its Pod is deleted, and an observer labelling by name is read against
+// whatever holds that name when the mapping is resolved.
 func TestSamplesForAnotherPodDoNotCount(t *testing.T) {
 	o := goodObservation()
 	for i := range o.Samples {

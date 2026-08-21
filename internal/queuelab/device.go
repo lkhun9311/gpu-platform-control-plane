@@ -60,10 +60,15 @@ type DeviceSample struct {
 	// DeviceUUID is the physical device. It is required: a sample that cannot say which card it watched
 	// cannot establish that the card this Pod held did anything.
 	DeviceUUID string
-	// PodUID ties the sample to one Pod, and it is the Pod's UID rather than its name because names are
-	// reused across attempts. A re-executed row produces two Pods with the same name and different UIDs, and
-	// crediting the second attempt's activity to the first would be the exact misattribution this field
-	// exists to prevent.
+	// PodUID ties the sample to one Pod, and it is the UID rather than the name because the UID is what the
+	// API guarantees unique across TIME.
+	//
+	// An earlier version of this comment justified it by claiming a re-executed row produces two Pods with the
+	// same name. It does not -- a Job's Pods carry random suffixes, and the recorded runs show the victim's two
+	// attempts under two names and two UIDs. The real reason is narrower and survives: a name is free for reuse
+	// the moment its Pod is deleted, and an observer that labels by name is read against whatever holds that
+	// name when the mapping is resolved. This lab creates bare Pods on the quota-guard path where the name is
+	// chosen rather than generated, so the case is reachable here rather than hypothetical.
 	PodUID string
 	// UtilisationPercent is what the observer reported, 0 to 100.
 	UtilisationPercent int

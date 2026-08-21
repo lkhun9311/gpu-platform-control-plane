@@ -205,7 +205,7 @@ requires, per Pod attempt and across the interval being measured:
 | an admissible observer (DCGM exporter, or a node-local nvidia-smi poll) | the workload is not a witness: a Pod reporting its own device use is a claim by the party the check exists to constrain |
 | the observer's own build identity | "DCGM said so" is not provenance if nobody can say which DCGM |
 | the physical device UUID, and only one of them | an observation that cannot say which card it watched cannot establish that the card this Pod held did anything |
-| attribution by Pod UID, not name | a re-executed row produces two Pods with the same name; crediting the second attempt's activity to the first is the misattribution this prevents |
+| attribution by Pod UID, not name | the UID is what the API guarantees unique across time; a name is free for reuse the moment its Pod is deleted, and an observer labelling by name is read against whatever holds that name when the mapping is resolved |
 | coverage of the whole interval, no gap over 2 s | a gap that size can hide an entire preemption |
 | at least two samples showing the card working | one non-zero reading is what a driver reports while another process initialises; an allocated idle card is the exact state this axis exists to distinguish |
 
