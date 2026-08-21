@@ -75,6 +75,14 @@ type collector struct {
 	deadline time.Time
 	builder  *queuelab.LedgerBuilder
 
+	// devicePods maps the Pod names a device exporter reports back to the identities the API guarantees.
+	//
+	// It is filled from this collector's own watch rather than a live lookup, because by the time a run is
+	// reconstructed its Pods are gone -- and a live lookup would resolve nothing, or resolve a name that has
+	// since been reused. It is the half of the device observation that the exporter is not allowed to supply:
+	// DCGM says which card and which NAME, and this says which object that name was.
+	devicePods queuelab.PodRegistry
+
 	// streams is this run's view of the cluster, one per watched kind, and is written only by start and read
 	// only by the main goroutine afterwards — the consumer goroutines are handed their own stream and never
 	// look at the slice.
@@ -464,6 +472,12 @@ func (col *collector) handle(kind string, et watch.EventType, obj client.Object)
 
 	uid := string(obj.GetUID())
 	col.cache[uid] = queuelab.ObservedFrom(kind, obj)
+	if kind == kindPod {
+		// Noted on every event rather than only on create, because a Pod observed first through an update --
+		// which a resumed watch delivers -- would otherwise never be resolvable, and every sample naming it
+		// would count as unattributed for the rest of the run.
+		col.devicePods.Note(obj.GetNamespace(), obj.GetName(), uid)
+	}
 
 	state := classify(kind, obj)
 	delta := queuelab.DeltaUpsert
@@ -1163,4 +1177,12 @@ func sameFlavor(w, g *kueuev1beta2.ResourceFlavor) error {
 		}
 	}
 	return nil
+}
+
+// DevicePods is the resolver a device observer's samples are attributed through.
+//
+// It is exposed rather than passed at construction because the scraper starts after the streams do: the
+// registry has to be filling before the first scrape lands, or the earliest samples resolve to nothing.
+func (col *collector) DevicePods() queuelab.PodResolver {
+	return col.devicePods.Resolve
 }

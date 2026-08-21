@@ -85,3 +85,44 @@ func TestHoldTakesTheEarliestStopOfAReExecutedRow(t *testing.T) {
 		t.Fatalf("hold = %v, want 30s from the EARLIEST stop; the ledger is observation order, not time order", got)
 	}
 }
+
+// The window a device observation must cover is the HOLD, not the run: whether the card the borrower held did
+// work while its owner waited for it.
+func TestTheDeviceWindowIsTheHold(t *testing.T) {
+	ev := []LifecycleEvent{
+		held(VictimRow, EventPodReady, 2_000_000_000),
+		held(OwnerRow, EventAdmitted, 24_000_000_000),
+		held(VictimRow, EventAttemptStopped, 54_000_000_000),
+		held(OwnerRow, EventPodReady, 56_000_000_000),
+	}
+	from, to, ok := DeviceHoldWindow(ev)
+	if !ok {
+		t.Fatal("a ledger carrying both endpoints produced no window")
+	}
+	if from != 24_000_000_000 || to != 54_000_000_000 {
+		t.Fatalf("window = %d..%d, want the owner's admission to the victim's stop", from, to)
+	}
+	if _, _, ok := DeviceHoldWindow(ev[:1]); ok {
+		t.Fatal("a ledger with no admission produced a window")
+	}
+}
+
+// The attempt a device sample is attributed to is the one whose stop ENDS the hold. A re-executed row has
+// several, and the later ones ran after the owner already had its capacity back — evidence about those is
+// evidence about a Pod nobody was waiting for.
+//
+// Mutation that turns this red: take the latest stop, or the first one folded.
+func TestTheAttributedAttemptIsTheOneThatEndedTheHold(t *testing.T) {
+	first := held(VictimRow, EventAttemptStopped, 54_000_000_000)
+	first.ObjectUID = "held-the-device"
+	later := held(VictimRow, EventAttemptStopped, 120_000_000_000)
+	later.ObjectUID = "ran-after-the-owner-was-back"
+	// Folded in the wrong order, as a reordered watch would deliver them.
+	if got := VictimAttemptUID([]LifecycleEvent{later, first}); got != "held-the-device" {
+		t.Fatalf("attributed to %q; a device sample would then be evidence about a Pod the owner was never "+
+			"waiting for", got)
+	}
+	if got := VictimAttemptUID(nil); got != "" {
+		t.Fatalf("an empty ledger named the attempt %q", got)
+	}
+}

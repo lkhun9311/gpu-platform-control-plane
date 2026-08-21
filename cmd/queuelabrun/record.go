@@ -1005,7 +1005,8 @@ func discardedIterations(events []queuelab.LifecycleEvent) *int {
 	return &total
 }
 
-func measurementOf(res *queuelab.LabResult, horizonNs int64, events []queuelab.LifecycleEvent) *measurement {
+func measurementOf(res *queuelab.LabResult, horizonNs int64, events []queuelab.LifecycleEvent,
+	obs *queuelab.DeviceObservation) *measurement {
 	if res == nil {
 		return nil
 	}
@@ -1013,7 +1014,7 @@ func measurementOf(res *queuelab.LabResult, horizonNs int64, events []queuelab.L
 		OwnerAdmitToReadyNs:       ownerAdmitToReady(res),
 		OwnerAdmitToReadyStampNs:  ownerAdmitToReadyStamp(res),
 		DiscardedIterations:       discardedIterations(events),
-		Workload:                  cpuOnlyWorkload(),
+		Workload:                  workloadOf(obs, events),
 		Resolution:                resolutionOf(events),
 		HorizonNs:                 horizonNs,
 		WastedGPUSeconds:          res.TotalWastedGPUSeconds,
@@ -1286,4 +1287,22 @@ func ownerAdmitToReadyStamp(res *queuelab.LabResult) *int64 {
 		return &v
 	}
 	return nil
+}
+
+// workloadOf derives the provenance from what a device observer saw over the interval the claim is about.
+//
+// The interval is the device HOLD -- the owner's admission to the victim's stop -- rather than the whole run,
+// because that is the window the claim concerns: whether the card the borrower was holding did work while its
+// owner waited for it. An observation covering the run but not this window watched the wrong part, and the
+// coverage check inside EstablishesDeviceWork is what says so.
+//
+// A ledger that cannot name the window or the attempt yields the same answer an absent observer does, and for
+// the same reason: nothing here established device use. It is not treated as a softer failure, because a run
+// whose own events cannot locate the hold cannot attribute anything to it either.
+func workloadOf(obs *queuelab.DeviceObservation, events []queuelab.LifecycleEvent) workloadProvenance {
+	from, to, ok := queuelab.DeviceHoldWindow(events)
+	if !ok {
+		return workloadFrom(nil, "", 0, 0)
+	}
+	return workloadFrom(obs, queuelab.VictimAttemptUID(events), from, to)
 }

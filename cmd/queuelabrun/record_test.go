@@ -1376,7 +1376,7 @@ func TestTheRecordsUncheckedListNamesTheResidualAndNothingWider(t *testing.T) {
 //
 // Mutation that turns this red: drop Workload from measurementOf.
 func TestTheMeasurementSaysWhatProducedItsIterations(t *testing.T) {
-	m := measurementOf(&queuelab.LabResult{}, 1, nil)
+	m := measurementOf(&queuelab.LabResult{}, 1, nil, nil)
 	if m == nil {
 		t.Fatal("no measurement was produced")
 	}
@@ -1535,7 +1535,7 @@ func TestARecordFromBeforeTheMeasurementBlockIsRefused(t *testing.T) {
 // Mutations that turn this red: hard-code Censored to false; or return a zero block instead of nil for a run
 // that never reconstructed.
 func TestMeasurementOfCarriesWhatTheRunActuallyMeasured(t *testing.T) {
-	if m := measurementOf(nil, 150e9, nil); m != nil {
+	if m := measurementOf(nil, 150e9, nil, nil); m != nil {
 		t.Fatalf("a run that never reconstructed must project no measurement, got %+v; a block of zeroes reads "+
 			"as a run that measured nothing rather than one that never got to measure", m)
 	}
@@ -1545,7 +1545,7 @@ func TestMeasurementOfCarriesWhatTheRunActuallyMeasured(t *testing.T) {
 		AnyWasteCensored:               true,
 		UnfinishedAtHorizon:            2,
 	}
-	m := measurementOf(res, 150e9, nil)
+	m := measurementOf(res, 150e9, nil, nil)
 	if m == nil {
 		t.Fatal("a run that reconstructed must project a measurement")
 	}

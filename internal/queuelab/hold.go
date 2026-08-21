@@ -85,3 +85,38 @@ func firstElapsed(events []LifecycleEvent, job string, match func(*LifecycleEven
 	}
 	return out
 }
+
+// VictimAttemptUID is the Pod that held the device across the preemption, or "" when the ledger cannot say.
+//
+// It is the attempt whose terminal phase ENDS the hold, which is not the same as "the victim's Pod": a
+// re-executed row has several, and the later ones ran after the owner already had its capacity back. A device
+// observation attributed to one of those would be evidence about a Pod that was not holding anything the
+// owner was waiting for.
+func VictimAttemptUID(events []LifecycleEvent) string {
+	var uid string
+	var at int64
+	for i := range events {
+		e := &events[i]
+		if e.Job != VictimRow || e.Type != EventAttemptStopped || e.ObjectUID == "" {
+			continue
+		}
+		if uid == "" || e.ElapsedNs < at {
+			uid, at = e.ObjectUID, e.ElapsedNs
+		}
+	}
+	return uid
+}
+
+// DeviceHoldWindow is the interval a device observation has to cover, as offsets from the run's t0.
+//
+// It is the hold itself rather than the whole run, because that is the window the claim is about: whether
+// the card the borrower was holding did work while its owner waited for it. An observation covering the run
+// but not this interval has watched the wrong part.
+func DeviceHoldWindow(events []LifecycleEvent) (fromNs, toNs int64, ok bool) {
+	admitted := firstElapsed(events, OwnerRow, func(e *LifecycleEvent) bool { return e.Type == EventAdmitted })
+	stopped := firstElapsed(events, VictimRow, func(e *LifecycleEvent) bool { return e.Type == EventAttemptStopped })
+	if admitted == nil || stopped == nil || *stopped <= *admitted {
+		return 0, 0, false
+	}
+	return *admitted, *stopped, true
+}

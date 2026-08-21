@@ -248,13 +248,18 @@ func main() {
 	o, events, res, left, qual, win, obs := run(ctx, newClusterClient, arm, *runID, namespace, *worker, protocol, horizon,
 		recordPath, os.Stderr, time.Now, time.Sleep)
 
+	// No device observer is wired yet, so this is nil and the record says device-not-observed for the reason
+	// the check gives rather than a hardcoded one. The scraper that fills it is the GPU session's first task;
+	// what exists today is the whole path from an observation to the verdict, tested against payloads.
+	var deviceObs *queuelab.DeviceObservation
+
 	os.Exit(reportRun(os.Stdout, os.Stderr, writeRecord, verifyRecordReadable, runReport{
 		Outcome: o,
 		Events:  events,
 		Result:  res,
 		Record: buildRecord(o, events, left, qual, win, obs,
 			recordIdentity{RunID: *runID, Arm: string(arm), Dose: string(protocol.Regime)},
-			measurementOf(res, horizon.Nanoseconds(), events), *preview, started, time.Now()),
+			measurementOf(res, horizon.Nanoseconds(), events, deviceObs), *preview, started, time.Now()),
 		Path:    recordPath,
 		Preview: *preview,
 	}))
