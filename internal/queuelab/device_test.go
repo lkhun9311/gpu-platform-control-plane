@@ -10,9 +10,9 @@ import (
 func goodObservation() *DeviceObservation {
 	o := &DeviceObservation{
 		Observer:         ObserverDCGM,
-		ObserverIdentity: "nvcr.io/nvidia/k8s/dcgm-exporter@sha256:abc",
-		StartedNs:        0,
-		EndedNs:          40_000_000_000,
+		ObserverIdentity: "nvcr.io/nvidia/k8s/dcgm-exporter@sha256:abc", Declared: true,
+		StartedNs: 0,
+		EndedNs:   40_000_000_000,
 	}
 	for at := int64(0); at <= 40_000_000_000; at += int64(time.Second) {
 		o.Samples = append(o.Samples, DeviceSample{
@@ -171,5 +171,72 @@ func TestTheDeviceMustBeIdentifiedAndSingular(t *testing.T) {
 	}
 	if !strings.Contains(why, "which card") {
 		t.Fatalf("the refusal does not name the ambiguity: %s", why)
+	}
+}
+
+// A URL is not an identity. It says where the bytes came from, not what produced them, and any HTTP server
+// can be at a URL — which is exactly the attack a fake exporter demonstrated on this very code.
+func TestAnEndpointIsNotAnIdentity(t *testing.T) {
+	o := goodObservation()
+	o.Endpoint = "http://127.0.0.1:9400/metrics"
+	o.ObserverIdentity = o.Endpoint
+	ok, why := EstablishesDeviceWork(o, "victim-uid", 10_000_000_000, 30_000_000_000)
+	if ok {
+		t.Fatal("an observation whose provenance was its own URL established device work")
+	}
+	if !strings.Contains(why, "where the bytes came from") {
+		t.Fatalf("the refusal does not say what a URL is not: %s", why)
+	}
+}
+
+// The observer's kind is DECLARED by whoever configured the run, and the record has to carry that admission.
+// Nothing here can tell a DCGM exporter from a text file served over HTTP; a record that omitted the
+// admission would read as though something had checked.
+func TestAnObservationMustAdmitItsSourceWasDeclared(t *testing.T) {
+	o := goodObservation()
+	o.Declared = false
+	ok, why := EstablishesDeviceWork(o, "victim-uid", 10_000_000_000, 30_000_000_000)
+	if ok {
+		t.Fatal("an observation that did not record its source as declared established device work")
+	}
+	if !strings.Contains(why, "DECLARED rather") {
+		t.Fatalf("the refusal does not name the missing admission: %s", why)
+	}
+}
+
+// Two busy rows from ONE instant are a reading, not a state. DCGM emits duplicated device-wide series, and
+// MIG and label drift make that ordinary — so the count has to be over distinct times.
+//
+// Mutation that turns this red: count busy rows instead of distinct busy instants.
+func TestTwoBusyRowsFromOneInstantAreNotAState(t *testing.T) {
+	o := &DeviceObservation{
+		Observer: ObserverDCGM, ObserverIdentity: "dcgm@sha256:abc", Declared: true,
+		StartedNs: 0, EndedNs: 40_000_000_000,
+	}
+	// Idle samples every second so coverage holds, and two BUSY rows sharing a single timestamp.
+	for at := int64(0); at <= 40_000_000_000; at += int64(time.Second) {
+		o.Samples = append(o.Samples, DeviceSample{
+			AtNs: at, DeviceUUID: "GPU-1234", PodUID: "victim-uid", UtilisationPercent: 0,
+		})
+	}
+	for range 2 {
+		o.Samples = append(o.Samples, DeviceSample{
+			AtNs: 20_000_000_000, DeviceUUID: "GPU-1234", PodUID: "victim-uid", UtilisationPercent: 88,
+		})
+	}
+	ok, why := EstablishesDeviceWork(o, "victim-uid", 10_000_000_000, 30_000_000_000)
+	if ok {
+		t.Fatal("two busy rows from one scrape established that the card was working")
+	}
+	if !strings.Contains(why, "ONE instant") {
+		t.Fatalf("the refusal does not say why one instant is not enough: %s", why)
+	}
+
+	// Spread across two instants, and it is a state.
+	o.Samples = append(o.Samples, DeviceSample{
+		AtNs: 25_000_000_000, DeviceUUID: "GPU-1234", PodUID: "victim-uid", UtilisationPercent: 88,
+	})
+	if ok, why := EstablishesDeviceWork(o, "victim-uid", 10_000_000_000, 30_000_000_000); !ok {
+		t.Fatalf("busy at two distinct instants did not establish work: %s", why)
 	}
 }

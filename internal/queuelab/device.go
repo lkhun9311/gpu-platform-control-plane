@@ -20,8 +20,18 @@ import (
 // exemption — both are claims by the party the check exists to constrain. The observation has to come from
 // something the workload cannot write to, and Source is where that is asserted and checked.
 
-// DeviceObserver names what produced an observation. It is a closed set because a record persists one and a
-// reader classifies on it, and because an open string would eventually hold "the workload said so".
+// DeviceObserver names what an observation is DECLARED to have come from.
+//
+// Declared, not verified, and the distinction was security theatre until a review said so. Nothing here can
+// tell a DCGM exporter from a text file served over HTTP: the payload is a format anyone can emit, and the
+// harness that stamps this value is the same one reading the URL. A closed set that rejects honest new
+// observers while admitting arbitrary bytes under an accepted name is worse than an open one, because it
+// reads as a check.
+//
+// So the set stays closed for the reason a vocabulary is closed -- a reader classifies on it -- and the
+// TRUST comes from where the endpoint was deployed and who can reach it, which is a property of the cluster
+// and not of this code. DeviceObservation.Declared carries that admission into the record, so nobody reading
+// one mistakes a name for an attestation.
 type DeviceObserver string
 
 const (
@@ -80,8 +90,16 @@ type DeviceObservation struct {
 	// ObserverIdentity is which build of the observer produced this -- an image digest or version string.
 	//
 	// It is required for the reason the operator image digest is required in the canary key: "DCGM said so"
-	// is not provenance if nobody can say which DCGM.
+	// is not provenance if nobody can say which DCGM. An endpoint URL is NOT an identity and is refused as
+	// one: it says where the bytes came from, not what produced them, and the runner filled this field with
+	// the URL until a review pointed out that it made the requirement vacuous.
 	ObserverIdentity string
+	// Endpoint is where the bytes came from, kept beside the identity rather than standing in for it.
+	Endpoint string
+	// Declared records that Observer above was asserted by whoever configured the run rather than established
+	// by anything here. It is required to be true: this build has no way to verify an exporter, and a record
+	// that left the field false would be claiming one.
+	Declared bool
 	// StartedNs and EndedNs bound what the observer was actually running for. An interval outside them is not
 	// covered, whatever the samples happen to contain.
 	StartedNs int64
@@ -109,6 +127,17 @@ func EstablishesDeviceWork(obs *DeviceObservation, podUID string, fromNs, toNs i
 	if obs.ObserverIdentity == "" {
 		return false, fmt.Sprintf("observer %q did not say which build of it produced these readings; "+
 			"\"%s said so\" is not provenance if nobody can say which %s", obs.Observer, obs.Observer, obs.Observer)
+	}
+	if obs.Endpoint != "" && obs.ObserverIdentity == obs.Endpoint {
+		return false, fmt.Sprintf("observer %q gave its endpoint %q as its identity: that says where the bytes "+
+			"came from, not what produced them, and any HTTP server can be at a URL",
+			obs.Observer, obs.Endpoint)
+	}
+	if !obs.Declared {
+		return false, fmt.Sprintf("observation from %q does not record that its source was DECLARED rather "+
+			"than verified. Nothing here can tell a %s from a text file served over HTTP, and a record that "+
+			"omitted the admission would read as though something had checked",
+			obs.Observer, obs.Observer)
 	}
 	if podUID == "" {
 		return false, "the interval names no Pod UID, so no sample can be attributed to the attempt that " +
@@ -157,16 +186,22 @@ func EstablishesDeviceWork(obs *DeviceObservation, podUID string, fromNs, toNs i
 			podUID, time.Duration(toNs-prev))
 	}
 
-	busy := 0
+	// Busy samples at DISTINCT times, not merely busy rows. A scrape carrying the same device-wide series
+	// twice -- which DCGM does emit, and which MIG and duplicated labels make ordinary -- would otherwise
+	// satisfy "two samples" from one instant, and one instant is a reading rather than a state. The comment
+	// on minBusySamples said "spaced across the interval" while the code counted rows; a review found the gap.
+	busyAt := map[int64]bool{}
 	for _, s := range mine {
 		if s.UtilisationPercent > 0 {
-			busy++
+			busyAt[s.AtNs] = true
 		}
 	}
+	busy := len(busyAt)
 	if busy < minBusySamples {
 		return false, fmt.Sprintf("the device held by Pod %s was observed working in %d of %d samples; a card "+
 			"that is allocated and idle is the state this whole axis exists to distinguish from one that is "+
-			"computing", podUID, busy, len(mine))
+			"computing, and two busy rows from ONE instant are a reading rather than a state",
+			podUID, busy, len(mine))
 	}
 	if len(devices) > 1 {
 		return false, fmt.Sprintf("samples for Pod %s name %d different devices; the run cannot say which card "+

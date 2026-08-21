@@ -96,6 +96,12 @@ func main() {
 			"reporting whether their between-arm differences exceed what the runs could resolve")
 		compareOutFlag = flag.String("compare-out", "", "path to write the -compare document; without it the "+
 			"comparison is printed and not persisted, which makes the conclusion unciteable")
+		deviceObserverFlag = flag.String("device-observer", "", "the exporter's image digest or version, "+
+			"recorded as this observation's provenance. It is DECLARED, not verified: nothing here can tell a "+
+			"DCGM exporter from a text file served over HTTP, so the trust comes from where the endpoint was "+
+			"deployed and who can reach it. Required whenever -device-metrics is given, and it must not be "+
+			"the URL")
+
 		deviceMetricsFlag = flag.String("device-metrics", "", "URL of a DCGM exporter's /metrics for this run's "+
 			"worker. Without it the run establishes that a device was RESERVED and nothing about whether it "+
 			"was used, which is what every record here says today. The endpoint has to be reachable from "+
@@ -253,7 +259,8 @@ func main() {
 	// contradicted a moment later. By the time these seven values exist here, every defer has finished
 	// amending them.
 	o, events, res, left, qual, win, obs, deviceObs := run(ctx, newClusterClient, arm, *runID, namespace,
-		*worker, protocol, horizon, *deviceMetricsFlag, recordPath, os.Stderr, time.Now, time.Sleep)
+		*worker, protocol, horizon, *deviceMetricsFlag, *deviceObserverFlag, recordPath, os.Stderr,
+		time.Now, time.Sleep)
 
 	os.Exit(reportRun(os.Stdout, os.Stderr, writeRecord, verifyRecordReadable, runReport{
 		Outcome: o,
@@ -763,7 +770,8 @@ func phaseFailure(phase disposition, what string, err error) outcome {
 // horizon rather than beside worker deliberately — runID, namespace and worker are already three adjacent
 // strings a caller can transpose in silence, and a fourth would make that worse.
 func run(ctx context.Context, connect clusterClientFunc, arm queuelab.Arm, runID, namespace, worker string,
-	protocol doseProtocol, horizon time.Duration, deviceMetricsURL string, recordPath string, stderr io.Writer,
+	protocol doseProtocol, horizon time.Duration, deviceMetricsURL, deviceObserverIdentity string,
+	recordPath string, stderr io.Writer,
 	now func() time.Time, sleep func(time.Duration)) (o outcome, events []queuelab.LifecycleEvent,
 	res *queuelab.LabResult, left []residue, qual *qualification, win *ownershipWindow,
 	obs *observationEvidence, device *queuelab.DeviceObservation) {
@@ -1110,8 +1118,10 @@ func run(ctx context.Context, connect clusterClientFunc, arm queuelab.Arm, runID
 	var deviceDone chan struct{}
 	if deviceMetricsURL != "" {
 		scraper := &queuelab.DeviceScraper{
+			// Declared by configuration, not verified here, and the observation carries that admission.
 			Observer: queuelab.ObserverDCGM,
-			Identity: deviceMetricsURL,
+			Identity: deviceObserverIdentity,
+			Endpoint: deviceMetricsURL,
 			Interval: deviceScrapeInterval,
 			Resolve:  col.DevicePods(),
 			Elapsed:  func() int64 { return col.elapsed().Nanoseconds() },

@@ -1861,7 +1861,7 @@ func TestTheDeviceAxisIsDerivedFromAnObserverRatherThanHardcoded(t *testing.T) {
 	// observation is consulted at all: a well-formed one reaches the check and is turned away by the workload
 	// rather than ignored, which is the difference between a derived answer and a hardcoded one.
 	obs := &queuelab.DeviceObservation{
-		Observer: queuelab.ObserverDCGM, ObserverIdentity: "dcgm@sha256:abc",
+		Observer: queuelab.ObserverDCGM, ObserverIdentity: "dcgm@sha256:abc", Declared: true,
 		StartedNs: 0, EndedNs: 40_000_000_000,
 	}
 	for at := int64(0); at <= 40_000_000_000; at += 1_000_000_000 {
@@ -1902,7 +1902,7 @@ func TestTheDeviceAxisIsDerivedFromAnObserverRatherThanHardcoded(t *testing.T) {
 // Mutation that turns this red: drop the Kind comparison, or let the observation win.
 func TestAnObservationCannotContradictTheWorkloadsOwnProvenance(t *testing.T) {
 	obs := &queuelab.DeviceObservation{
-		Observer: queuelab.ObserverDCGM, ObserverIdentity: "fake@sha256:abc",
+		Observer: queuelab.ObserverDCGM, ObserverIdentity: "fake@sha256:abc", Declared: true,
 		StartedNs: 0, EndedNs: 40_000_000_000,
 	}
 	for at := int64(0); at <= 40_000_000_000; at += 1_000_000_000 {
