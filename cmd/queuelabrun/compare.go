@@ -1036,6 +1036,22 @@ func checkModel(recs []runRecord) (modelCheck, error) {
 		if hold == nil {
 			return modelCheck{}, fmt.Errorf("run %q's ledger does not carry the device hold", r.RunID)
 		}
+		// The two readings of that hold have to agree, and this is the check a comment beside the second one
+		// promised and nothing performed. A stamp figure recorded and never compared is decoration: a clock
+		// step between Kueue's machine and a kubelet would corrupt it silently, and watch pathology would
+		// corrupt the arrival figure with the stamp fine.
+		//
+		// It sharpens nothing -- truncation swamps the differential lag in every recorded run -- and that is
+		// not what it is for. It catches the arrival figure going wrong, which is the figure every published
+		// number is built from.
+		if runFloor, ok := holdFloorNs([]runRecord{r}); ok {
+			if bad, gap, tol := queuelab.ClocksDisagree(r.Events, runFloor); bad {
+				return modelCheck{}, fmt.Errorf("run %q's two readings of the device hold differ by %s against "+
+					"a %s tolerance: the collector's arrival times and the components' own stamps describe "+
+					"different intervals, so neither can be published",
+					r.RunID, time.Duration(gap), time.Duration(tol))
+			}
+		}
 		h := float64(*hold) / float64(time.Second)
 		switch r.Arm {
 		case string(queuelab.ArmAHonor):

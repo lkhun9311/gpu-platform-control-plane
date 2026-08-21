@@ -120,3 +120,69 @@ func DeviceHoldWindow(events []LifecycleEvent) (fromNs, toNs int64, ok bool) {
 	}
 	return *admitted, *stopped, true
 }
+
+// DeviceHoldStampNs is the same hold read off the two components' own clocks, or nil when either published
+// none.
+//
+// Kueue stamps its Admitted transition and the kubelet stamps the container's finish. Both are truncated to
+// the second, so this figure lands on whole seconds and is coarser than the arrival reading -- and it carries
+// no watch delivery lag at all, which is the half the arrival reading cannot avoid.
+func DeviceHoldStampNs(events []LifecycleEvent) *int64 {
+	admitted := firstStamp(events, OwnerRow, func(e *LifecycleEvent) bool { return e.Type == EventAdmitted })
+	stopped := firstStamp(events, VictimRow, func(e *LifecycleEvent) bool { return e.Type == EventAttemptStopped })
+	if admitted == nil || stopped == nil {
+		return nil
+	}
+	v := *stopped - *admitted
+	return &v
+}
+
+// firstStamp is the component stamp of the earliest matching event for a row, or nil when there is none.
+//
+// Earliest by ARRIVAL, so it names the same event firstElapsed does: the two readings of one interval have to
+// come from one pair of events, or their disagreement measures which events were picked rather than how the
+// clocks differ.
+func firstStamp(events []LifecycleEvent, job string, match func(*LifecycleEvent) bool) *int64 {
+	var at *int64
+	var stamp *int64
+	for i := range events {
+		e := &events[i]
+		if e.Job != job || !match(e) || e.ComponentStampUnixNanos == nil {
+			continue
+		}
+		if at == nil || e.ElapsedNs < *at {
+			v, s := e.ElapsedNs, *e.ComponentStampUnixNanos
+			at, stamp = &v, &s
+		}
+	}
+	return stamp
+}
+
+// ClocksDisagree reports whether a run's two readings of the device hold are further apart than their own
+// bounds allow, and by how much.
+//
+// The check was promised in a comment beside the second reading and never written, which a review found: the
+// stamp figure was recorded and consumed by nothing, so a clock step between Kueue's machine and a kubelet
+// would have corrupted it silently, and watch pathology would have corrupted the arrival figure with the
+// stamp fine. A second reading that nothing compares against the first is decoration.
+//
+// The tolerance is derived rather than chosen. Each stamp is truncated DOWNWARD to the second, so their
+// difference carries up to a second of truncation; the arrival figure carries the differential delivery lag
+// of two watches, which is what floorNs bounds. Anything inside that sum is the two instruments agreeing.
+//
+// What it does NOT do is sharpen anything. The truncation term swamps the lag in every recorded run -- the
+// two readings differ by 36 to 512 ms against a bound of seconds -- so this cannot calibrate the arrival
+// figure, only catch it going wrong.
+func ClocksDisagree(events []LifecycleEvent, floorNs int64) (bool, int64, int64) {
+	arrival := DeviceHoldNs(events)
+	stamp := DeviceHoldStampNs(events)
+	if arrival == nil || stamp == nil {
+		return false, 0, 0
+	}
+	gap := *arrival - *stamp
+	if gap < 0 {
+		gap = -gap
+	}
+	tolerance := stampQuantisationNs + floorNs
+	return gap > tolerance, gap, tolerance
+}

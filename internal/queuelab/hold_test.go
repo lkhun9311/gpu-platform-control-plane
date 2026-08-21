@@ -1,6 +1,9 @@
 package queuelab
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 // held builds a ledger event for a row at an arrival time.
 func held(job string, ev EventType, elapsedNs int64) LifecycleEvent {
@@ -124,5 +127,45 @@ func TestTheAttributedAttemptIsTheOneThatEndedTheHold(t *testing.T) {
 	}
 	if got := VictimAttemptUID(nil); got != "" {
 		t.Fatalf("an empty ledger named the attempt %q", got)
+	}
+}
+
+// Both readings of the hold must be built from the SAME pair of events.
+//
+// A re-executed row has several stops. If the arrival figure takes the earliest and the stamp figure takes
+// the latest, their disagreement measures which events were picked rather than how the clocks differ — and
+// the gate built on that disagreement would fire on healthy runs and stay silent on a real clock step.
+//
+// Mutation that turns this red: take the latest arrival in firstStamp.
+func TestBothReadingsComeFromTheSameEvents(t *testing.T) {
+	stampAt := func(e LifecycleEvent, ns int64) LifecycleEvent {
+		v := ns
+		e.ComponentStampUnixNanos = &v
+		return e
+	}
+	const base = int64(1_700_000_000_000_000_000)
+	ev := []LifecycleEvent{
+		stampAt(held(OwnerRow, EventAdmitted, 24_000_000_000), base),
+		// The attempt that ended the hold: earliest arrival, and its stamp is 30 s after the admission.
+		stampAt(held(VictimRow, EventAttemptStopped, 54_000_000_000), base+30_000_000_000),
+		// A later attempt, which ran after the owner already had its capacity back.
+		stampAt(held(VictimRow, EventAttemptStopped, 120_000_000_000), base+96_000_000_000),
+	}
+	arrival := DeviceHoldNs(ev)
+	stamp := DeviceHoldStampNs(ev)
+	if arrival == nil || stamp == nil {
+		t.Fatal("a ledger carrying both endpoints produced no reading")
+	}
+	if *arrival != 30_000_000_000 {
+		t.Fatalf("arrival hold = %d, want the earliest stop's 30s", *arrival)
+	}
+	if *stamp != 30_000_000_000 {
+		t.Fatalf("stamp hold = %d ns, want 30s from the SAME attempt; a later attempt's stamp makes the two "+
+			"readings describe different intervals, and the gate then measures which events were picked",
+			*stamp)
+	}
+	// And they therefore agree, which is what a healthy run must look like to the gate.
+	if bad, gap, tol := ClocksDisagree(ev, int64(1500*time.Millisecond)); bad {
+		t.Fatalf("a healthy run was reported as disagreeing by %s against %s", time.Duration(gap), time.Duration(tol))
 	}
 }

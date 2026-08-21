@@ -790,3 +790,51 @@ func TestBaselineStatementReportsTheSpreadInMilliseconds(t *testing.T) {
 		t.Fatalf("the statement's spread is not the 931 ms the runs show: %s", b.Statement)
 	}
 }
+
+// stampedHoldRec gives a record a ledger whose two readings of the hold can be made to disagree.
+func stampedHoldRec(r runRecord, doseSeconds, arrivalHold, stampHold float64) runRecord {
+	r = holdRec(r, doseSeconds, arrivalHold)
+	base := int64(1_700_000_000_000_000_000)
+	for i := range r.Events {
+		e := &r.Events[i]
+		switch e.Type {
+		case queuelab.EventAdmitted:
+			v := base
+			e.ComponentStampUnixNanos = &v
+		case queuelab.EventAttemptStopped:
+			v := base + int64(stampHold*float64(time.Second))
+			e.ComponentStampUnixNanos = &v
+		}
+	}
+	return r
+}
+
+// Two readings of one interval that describe different intervals mean neither can be published. The check was
+// promised in a comment beside the second reading and performed nowhere, so a clock step would have corrupted
+// it in silence.
+//
+// Mutation that turns this red: drop the ClocksDisagree call, or widen the tolerance without bound.
+func TestARunWhoseTwoClocksDisagreeIsRefused(t *testing.T) {
+	agree := []runRecord{
+		stampedHoldRec(cmpRec("gh1", "A-honor", "grace-bounded", "2026-08-21T05:00:00Z", 21.3, 0), 21.2, 0.045, 0),
+		stampedHoldRec(cmpRec("gi1", "A-ignore", "grace-bounded", "2026-08-21T05:05:00Z", 51.3, 0), 21.2, 30.050, 30),
+		stampedHoldRec(cmpRec("sh1", "A-honor", "self-completing", "2026-08-21T05:10:00Z", 41.4, 0), 41.1, 0.045, 0),
+		stampedHoldRec(cmpRec("si1", "A-ignore", "self-completing", "2026-08-21T05:15:00Z", 0.0, 0), 41.1, 18.850, 18),
+	}
+	if _, err := checkModel(agree); err != nil {
+		t.Fatalf("readings agreeing within truncation must pass, or this tests nothing: %v", err)
+	}
+
+	// The stamps now say the hold was twelve seconds while the arrivals say thirty. Truncation cannot span
+	// that, so the two instruments are describing different intervals.
+	disagree := append([]runRecord{}, agree...)
+	disagree[1] = stampedHoldRec(cmpRec("gi1", "A-ignore", "grace-bounded", "2026-08-21T05:05:00Z", 51.3, 0),
+		21.2, 30.050, 12)
+	_, err := checkModel(disagree)
+	if err == nil {
+		t.Fatal("a run whose clocks disagreed by eighteen seconds was folded into the model")
+	}
+	if !strings.Contains(err.Error(), "different intervals") {
+		t.Fatalf("the refusal does not say what the disagreement means: %v", err)
+	}
+}

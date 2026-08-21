@@ -143,6 +143,44 @@ this cluster carry no `eventTime` — the kubelet writes the legacy `firstTimest
 so the API surface offers nothing better. A node-side clock would, at the cost of a dependency the lab does
 not currently have and that does not survive a managed cluster.
 
+## Three limits that survive, and what each would actually take
+
+These are named here rather than fixed, because the fix for each is either impossible with what is recorded
+or costs more than it buys before the session.
+
+**The instrument cannot be sharpened from the existing ledger.** The device hold reproduces to 8-17 ms within
+a cell and is judged against a floor of about 3 s. That is a precision figure against a conservative accuracy
+bound, not evidence the bound is 200x too large -- and nothing recorded can calibrate the difference. The
+hold's endpoints come from two watches, so its error is their differential delivery lag, and there is no
+interval in this system with independently known truth that spans the same two streams. The one same-watch
+interval with a declared truth, the owner's Pod Ready to its Succeeded against a 60 s service, tests the Pod
+watch against itself and identifies nothing about the Workload watch.
+
+Reading the hold on the components' own clocks does not close it either, and the data says so: across the
+twelve records the two readings differ by 36 to 512 ms, a range the second-truncation of two stamps explains
+entirely. The lag is inside it and cannot be separated. What that second reading DOES buy is a check -- if
+the two ever describe different intervals, neither is publishable -- and that check now exists rather than
+being promised in a comment.
+
+Closing this needs a new causal timing reference: one API transaction producing two independently watched
+objects with a common reference instant, or trace timestamps at the watch boundary. Both are new instruments,
+not more runs.
+
+**Two runs per cell is not fixed by more runs.** Under an uncalibrated instrument, repetition improves an
+estimate of repeatability and does not turn a sub-floor result into an accuracy-established one. What IS
+worth changing is the allocation: the current set is four runs in each grace-bounded arm and two in each
+self-completing one, which is weakest exactly where the model's kink is tested. Three complete arm x dose
+blocks, with worker and ordering balanced across them and one block held out of any parameter fitting, would
+extract more from the same twelve runs -- and would give the model an out-of-sample test it does not have.
+
+**Cluster diversity cannot be had here at all.** kind runs three containers on one host: the two workers share
+a kernel and a clock, so the inter-component offset the two-clock design reasons about is zero by
+construction and untested exactly where it will matter. A second cluster on the same machine is a
+contamination check, not diversity. The real answer is a second host -- which the GPU session on EKS is, with
+a different kernel, a different clock and real hardware. This limit is therefore answered BY the session
+rather than before it, and the session's first result should be read with that in mind: the first time these
+figures are taken anywhere but one laptop is the first time the offset assumption is exercised.
+
 ## What would refute the model
 
 The model this lab arrived at is that a preempted workload holds its device for
