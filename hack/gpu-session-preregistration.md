@@ -196,5 +196,22 @@ the harness will say so in the field a consumer classifies on rather than in a f
 moves it has to be something the workload cannot write to — a Pod reporting its own device use is evidence of
 nothing, for the same reason a Pod carrying a `quota-exempt` annotation is not evidence of exemption.
 
-That observer does not exist yet. Building it is the first task of the session, before any measurement, and
-no figure taken before it exists may be published as a GPU result.
+The observer's CONTRACT now exists, in `internal/queuelab/device.go`, and the path from an observation to the
+axis is derived rather than hardcoded — so a session plugs a scraper in instead of editing a boolean. What it
+requires, per Pod attempt and across the interval being measured:
+
+| requirement | why it refuses without it |
+|---|---|
+| an admissible observer (DCGM exporter, or a node-local nvidia-smi poll) | the workload is not a witness: a Pod reporting its own device use is a claim by the party the check exists to constrain |
+| the observer's own build identity | "DCGM said so" is not provenance if nobody can say which DCGM |
+| the physical device UUID, and only one of them | an observation that cannot say which card it watched cannot establish that the card this Pod held did anything |
+| attribution by Pod UID, not name | a re-executed row produces two Pods with the same name; crediting the second attempt's activity to the first is the misattribution this prevents |
+| coverage of the whole interval, no gap over 2 s | a gap that size can hide an entire preemption |
+| at least two samples showing the card working | one non-zero reading is what a driver reports while another process initialises; an allocated idle card is the exact state this axis exists to distinguish |
+
+**What does not exist yet is the scraper** that fills it in — the DaemonSet, the endpoint, and the collector
+step that samples it across a run. That is the session's first task, before any measurement, and no figure
+taken before it exists may be published as a GPU result.
+
+Every refusal above is under test today, on a cluster with no GPU. That is the half that can be validated
+without hardware, and it is the half that decides whether the hardware buys anything.

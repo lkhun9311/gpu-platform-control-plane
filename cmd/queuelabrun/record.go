@@ -526,13 +526,35 @@ type workloadProvenance struct {
 // It is a constructor rather than a literal at the call site so that a build which gains a real kernel has
 // one place to change, and so that no run can be assembled without stating this at all.
 func cpuOnlyWorkload() workloadProvenance {
-	return workloadProvenance{
-		Kind:                 "pure-python-float-arithmetic",
-		CountedUnit:          "50000 float multiply-modulo operations",
-		DeviceUseEstablished: false,
-		WhyNot: "the cluster advertises nvidia.com/gpu through a fake device plugin and the workload makes no " +
-			"driver call, so nothing here can distinguish a device that was used from one that was only reserved",
+	return workloadFrom(nil, "", 0, 0)
+}
+
+// workloadFrom derives the provenance from what an independent observer saw, or from its absence.
+//
+// The absent case is every run this lab has taken and produces exactly what cpuOnlyWorkload used to hardcode,
+// so nothing about the current evidence moves. What changes is that the answer is now DERIVED: the path from
+// an observation to the deviceEvidence axis exists and is tested, and a GPU session plugs a scraper into it
+// rather than editing a boolean.
+//
+// That distinction is the whole point of building this before the hardware. Scheduling these Pods onto a real
+// card would not change the verdict by itself -- the iteration counter stays healthy while every operation
+// runs on the CPU -- so without this path a GPU run comes back byte-identical to a kind run and the money is
+// spent for nothing. queuelab.EstablishesDeviceWork carries the contract and the five ways it refuses.
+//
+// The reason string comes from the check rather than from here, because a run that fails has to tell an
+// operator WHICH of the five went wrong: no observer, an inadmissible one, an interval not covered, a gap in
+// the middle, or a card that was allocated and idle. Those send someone to five different places.
+func workloadFrom(obs *queuelab.DeviceObservation, podUID string, fromNs, toNs int64) workloadProvenance {
+	w := workloadProvenance{
+		Kind:        "pure-python-float-arithmetic",
+		CountedUnit: "50000 float multiply-modulo operations",
 	}
+	established, why := queuelab.EstablishesDeviceWork(obs, podUID, fromNs, toNs)
+	w.DeviceUseEstablished = established
+	if !established {
+		w.WhyNot = why
+	}
+	return w
 }
 
 type validity struct {

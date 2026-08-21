@@ -1834,3 +1834,47 @@ func TestTheOwnersWaitIsAlsoReadOffTheComponentsClocks(t *testing.T) {
 		t.Fatalf("an unstamped run reported a stamp interval of %d, claiming instant restoration", *s)
 	}
 }
+
+// The path from an observation to the device axis, with no observer — which is every run this lab has taken.
+//
+// It must produce exactly what the hardcoded version produced, or the current evidence would have moved for
+// a reason that is not a measurement. What it adds is that the answer is derived: a GPU session plugs a
+// scraper in rather than editing a boolean, and the axis can move.
+//
+// Mutation that turns this red: return a fixed WhyNot string instead of the check's reason, or set
+// DeviceUseEstablished without consulting the observer.
+func TestTheDeviceAxisIsDerivedFromAnObserverRatherThanHardcoded(t *testing.T) {
+	none := workloadFrom(nil, "", 0, 0)
+	if none.DeviceUseEstablished {
+		t.Fatal("a run with no observer established device work")
+	}
+	if !strings.Contains(none.WhyNot, "RESERVED") {
+		t.Fatalf("the reason does not say what the run DOES establish: %s", none.WhyNot)
+	}
+	if deviceEvidenceOf(&measurement{Workload: none}) != deviceNotObserved {
+		t.Fatal("the axis did not follow the provenance")
+	}
+
+	// And with an admissible observer that watched a busy card, the axis moves — which is the property that
+	// makes a GPU session worth paying for.
+	obs := &queuelab.DeviceObservation{
+		Observer: queuelab.ObserverDCGM, ObserverIdentity: "dcgm@sha256:abc",
+		StartedNs: 0, EndedNs: 40_000_000_000,
+	}
+	for at := int64(0); at <= 40_000_000_000; at += 1_000_000_000 {
+		obs.Samples = append(obs.Samples, queuelab.DeviceSample{
+			AtNs: at, DeviceUUID: "GPU-1234", PodUID: "victim-uid", UtilisationPercent: 91,
+		})
+	}
+	seen := workloadFrom(obs, "victim-uid", 10_000_000_000, 30_000_000_000)
+	if !seen.DeviceUseEstablished {
+		t.Fatalf("an independently observed busy card did not establish device work: %s", seen.WhyNot)
+	}
+	if seen.WhyNot != "" {
+		t.Fatalf("an established claim carried a reason: %s", seen.WhyNot)
+	}
+	if deviceEvidenceOf(&measurement{Workload: seen}) != deviceWorkObserved {
+		t.Fatal("the axis did not move when the observation established work; a GPU session would report the " +
+			"same verdict as kind and the money would be spent for nothing")
+	}
+}
