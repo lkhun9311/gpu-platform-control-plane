@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -359,5 +360,50 @@ func TestOlderWorkloadIsADeterministicOrder(t *testing.T) {
 	}}
 	if !olderWorkload(sameA, sameB) || olderWorkload(sameB, sameA) {
 		t.Fatal("two Workloads created in the same second do not order deterministically")
+	}
+}
+
+// A Pod that asks for a device must say which driver libraries it needs, because it cannot say so later.
+//
+// nvidia-container-toolkit bind-mounts the host's driver libraries and decides WHICH at container creation,
+// from NVIDIA_DRIVER_CAPABILITIES. Nothing inside the container can influence that: by the time a process
+// runs, the mounts are made. Leaving it unset takes the toolkit's default, which was historically "utility"
+// -- nvidia-smi and libnvidia-ml, and not libcuda.so.1, which is the one a CUDA program loads.
+//
+// The failure is silent: a device is allocated, the Pod starts, loading libcuda raises, the workload falls
+// back to its CPU loop, and the run completes with plausible numbers and no device evidence -- exactly what
+// a cluster with no cards produces. That is the outcome the alpine-to-glibc image move was made to prevent,
+// and the move fixed the linkage half while leaving this half to a default that varies by AMI and toolkit
+// version.
+//
+// Mutations that turn this red: drop the Env, set only "utility", or set it for a Pod requesting no device.
+func TestAGPURequestingPodDeclaresTheDriverLibrariesItNeeds(t *testing.T) {
+	envOf := func(gpu int32) []corev1.EnvVar {
+		job := BuildJob(&platformv1.MLTrainingJob{
+			ObjectMeta: metav1.ObjectMeta{Name: "j", Namespace: "n"},
+			Spec:       platformv1.MLTrainingJobSpec{Image: "i", Queue: "q", GPUCount: gpu},
+		})
+		return job.Spec.Template.Spec.Containers[0].Env
+	}
+	var caps string
+	for _, e := range envOf(1) {
+		if e.Name == "NVIDIA_DRIVER_CAPABILITIES" {
+			caps = e.Value
+		}
+	}
+	if caps == "" {
+		t.Fatal("a Pod requesting a GPU declares no driver capabilities, so whether libcuda.so.1 is mounted " +
+			"into it is decided by whatever the toolkit on that node happens to default to")
+	}
+	if !strings.Contains(caps, "compute") {
+		t.Fatalf("the declared capabilities are %q and do not include compute, which is the one that mounts "+
+			"libcuda.so.1; utility alone mounts nvidia-smi and leaves a CUDA program unable to start", caps)
+	}
+
+	// And a Pod that asked for no device must not claim capabilities on hardware it was never given.
+	for _, e := range envOf(0) {
+		if e.Name == "NVIDIA_DRIVER_CAPABILITIES" {
+			t.Fatalf("a Pod requesting no GPU declares driver capabilities: %+v", e)
+		}
 	}
 }

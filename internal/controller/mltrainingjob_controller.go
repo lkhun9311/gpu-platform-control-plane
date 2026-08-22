@@ -158,6 +158,7 @@ func BuildJob(mltj *platformv1.MLTrainingJob) *batchv1.Job {
 						Name:    "trainer",
 						Image:   mltj.Spec.Image,
 						Command: mltj.Spec.Command,
+						Env:     driverCapabilities(mltj.Spec.GPUCount),
 						Resources: corev1.ResourceRequirements{
 							Limits: corev1.ResourceList{nvidiaGPUResource: *resource.NewQuantity(int64(mltj.Spec.GPUCount), resource.DecimalSI)},
 						},
@@ -166,6 +167,24 @@ func BuildJob(mltj *platformv1.MLTrainingJob) *batchv1.Job {
 			},
 		},
 	}
+}
+
+// driverCapabilities states which NVIDIA driver libraries this Pod needs mounted into it, for a Pod that asks for a device.
+//
+// nvidia-container-toolkit does not ship a CUDA runtime into a container: it bind-mounts the HOST's driver libraries, and which of them it mounts is decided by NVIDIA_DRIVER_CAPABILITIES at container CREATION. The workload cannot set it, because by the time any process in the container runs, the mounts have already been decided.
+//
+// Leaving it unset means taking whatever the toolkit on that node defaults to, and the default is the problem. Historically it was "utility", which mounts nvidia-smi and libnvidia-ml and NOT libcuda.so.1 -- "compute" is what mounts the one a CUDA program loads. Newer toolkit builds default to "utility,compute" and CDI-based setups are more permissive still, so whether a container gets libcuda depends on the AMI, the toolkit version and the runtime mode rather than on anything this repository states.
+//
+// The failure that produces is silent and expensive. A GPU is allocated, the Pod starts, the workload's ctypes.CDLL("libcuda.so.1") raises, it falls back to the CPU loop, and the run completes with plausible iteration counts and device-not-observed -- indistinguishable from a cluster with no cards at all. That is exactly the outcome the alpine-to-glibc image move was made to prevent; the move fixed the linkage half and left this half to a default.
+//
+// It is set only when a device is requested. A Pod asking for no GPU that declared driver capabilities anyway would be making a claim about hardware it has not been given.
+//
+// This changes the rendered Pod template, so it changes podTemplateHashOf and invalidates every termination canary taken before it -- by design, and the reason to do it before a GPU node exists rather than after: the re-take is free on a cluster whose workers are already there.
+func driverCapabilities(gpuCount int32) []corev1.EnvVar {
+	if gpuCount <= 0 {
+		return nil
+	}
+	return []corev1.EnvVar{{Name: "NVIDIA_DRIVER_CAPABILITIES", Value: "compute,utility"}}
 }
 
 // defaultOne returns v, or 1 when v is not positive.
