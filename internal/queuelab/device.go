@@ -85,12 +85,16 @@ const staleLabelMargin = 2 * maxObserverGap
 const StaleLabelMargin = staleLabelMargin
 
 // DeviceSample is one observation of one physical device at one instant.
+// The fields carry json tags because a record PERSISTS these samples as its device evidence, and the rest
+// of that document is lowerCamel. Without them Go marshals the field names and the artifact reads as two
+// schemas in one file. It was free to add: schema 18 declares the block and no committed record carries a
+// sample yet.
 type DeviceSample struct {
 	// AtNs is when the OBSERVER took the reading, on its own clock, as an offset from the run's t0.
-	AtNs int64
+	AtNs int64 `json:"atNs"`
 	// DeviceUUID is the physical device. It is required: a sample that cannot say which card it watched
 	// cannot establish that the card this Pod held did anything.
-	DeviceUUID string
+	DeviceUUID string `json:"deviceUUID"`
 	// PodRef is the namespace/name the exporter labelled the sample with, kept even when it cannot be
 	// resolved to a UID.
 	//
@@ -98,7 +102,7 @@ type DeviceSample struct {
 	// never saw is useless for crediting work, and decisive for refusing it: if that Pod is on the same
 	// device, the device was not exclusively the victim's and nothing about its utilisation belongs to
 	// anybody in particular.
-	PodRef string
+	PodRef string `json:"podRef,omitempty"`
 	// PodUID ties the sample to one Pod, and it is the UID rather than the name because the UID is what the
 	// API guarantees unique across TIME. It is empty for a Pod this run did not observe.
 	//
@@ -108,9 +112,9 @@ type DeviceSample struct {
 	// the moment its Pod is deleted, and an observer that labels by name is read against whatever holds that
 	// name when the mapping is resolved. This lab creates bare Pods on the quota-guard path where the name is
 	// chosen rather than generated, so the case is reachable here rather than hypothetical.
-	PodUID string
+	PodUID string `json:"podUID,omitempty"`
 	// UtilisationPercent is what the observer reported, 0 to 100.
-	UtilisationPercent int
+	UtilisationPercent int `json:"utilisationPercent"`
 }
 
 // DeviceObservation is everything one observer saw over one run.

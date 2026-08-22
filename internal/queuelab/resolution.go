@@ -140,8 +140,33 @@ func (s *ObservationSpread) Resolves(magnitudeNs int64) bool {
 	if s == nil {
 		return false
 	}
+	return ResolvesAgainst(magnitudeNs, s.FloorNs)
+}
+
+// ResolvesAgainst is the comparison itself, for a caller holding a floor this package did not derive.
+//
+// It exists because the method above was not enough. Every consumer that actually needed the rule had a
+// floor of its own -- a pooled one, or the sum of two arms' -- so none of them could call a method on a
+// spread, and each reimplemented `magnitude > floor` inline. That is how a rule with a helper and a comment
+// ends up not being applied to the one figure it most mattered for.
+//
+// The direction is the whole point and it is easy to invert: a magnitude LARGER than the floor is resolved.
+// Anything at or below it is a quantity this harness cannot see, which is not the same as a quantity it
+// measured to be small. An absent bound resolves nothing, which is why callers pair this with their own
+// `bounded`.
+//
+// The sign is taken off the magnitude because a difference may be computed in either order and its
+// resolvability does not depend on which.
+func ResolvesAgainst(magnitudeNs, floorNs int64) bool {
 	if magnitudeNs < 0 {
 		magnitudeNs = -magnitudeNs
 	}
-	return magnitudeNs > s.FloorNs
+	return magnitudeNs > floorNs
 }
+
+// SecondsToNs converts a floor or a magnitude a comparison layer holds in seconds.
+//
+// The comparison layer works in float seconds because that is what it publishes; the rule works in
+// nanoseconds because that is what the ledger carries. This is the one conversion between them, so a caller
+// cannot quietly compare a magnitude in one unit against a floor in the other.
+func SecondsToNs(v float64) int64 { return int64(v * float64(time.Second)) }

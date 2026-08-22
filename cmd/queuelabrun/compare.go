@@ -339,7 +339,7 @@ func compareWaste(a, b armSummary, floor float64, bounded, interleaved bool) fin
 		ValueA:            a.WastedGPUSecondsMean,
 		ValueB:            b.WastedGPUSecondsMean,
 		DifferenceSeconds: diff,
-		Resolved:          bounded && diff > floor,
+		Resolved:          bounded && queuelab.ResolvesAgainst(queuelab.SecondsToNs(diff), queuelab.SecondsToNs(floor)),
 	}
 	f.Statement = wasteStatement(f, floor, bounded, interleaved, a, b)
 	return f
@@ -399,7 +399,7 @@ func compareOwnerWait(a, b armSummary, floor float64, bounded, interleaved bool)
 		diff = -diff
 	}
 	f.DifferenceSeconds = diff
-	f.Resolved = bounded && diff > floor
+	f.Resolved = bounded && queuelab.ResolvesAgainst(queuelab.SecondsToNs(diff), queuelab.SecondsToNs(floor))
 	// A mean taken over the runs whose owner came back is a SURVIVOR mean, and it is biased in a known
 	// direction: the runs excluded are the slow tail, up to and including never. Comparing one against an
 	// arm that restored every time understates exactly the arm that restored less often, which is the arm a
@@ -766,7 +766,8 @@ func checkSensitivity(recs []runRecord, factor string) (doseSensitivity, error) 
 		floor += float64(f) / float64(time.Second)
 	}
 	d.FloorSeconds = floor
-	d.MovesWithDose = d.Bounded && d.SpreadSeconds > d.FloorSeconds
+	d.MovesWithDose = d.Bounded && queuelab.ResolvesAgainst(
+		queuelab.SecondsToNs(d.SpreadSeconds), queuelab.SecondsToNs(d.FloorSeconds))
 	switch {
 	case !d.Bounded:
 		d.Statement = "UNBOUNDED: a contributing run bounded nothing, so no conclusion about the dose follows"
@@ -968,9 +969,17 @@ type modelCheck struct {
 	//
 	// The inversion this avoids is named in resolution.go: turning "the harness cannot see this" into "the
 	// harness measured this". It happened here, in the one figure the model check's whole chain rests on.
-	ControlHoldSeconds float64     `json:"controlHoldSeconds"`
-	ControlRuns        int         `json:"controlRuns"`
-	Cases              []modelCase `json:"cases"`
+	ControlHoldSeconds float64 `json:"controlHoldSeconds"`
+	ControlRuns        int     `json:"controlRuns"`
+	// ControlResolved says whether the control is a quantity this harness can SEE, and it is a field rather
+	// than a sentence because that is the difference between a rule and a hope.
+	//
+	// The statement carried the qualification in prose for exactly one commit before this. Prose is what a
+	// consumer skips: a document whose control is unresolved and whose text says so is still a document a
+	// script reads as a measured near-zero. Derived through queuelab.ResolvesAgainst, which is now the one
+	// place the comparison's direction lives.
+	ControlResolved bool        `json:"controlResolved"`
+	Cases           []modelCase `json:"cases"`
 	// Contrast is the difference BETWEEN the regimes, and it is the only part of this check that tests the
 	// model's kink rather than its levels.
 	//
@@ -1112,6 +1121,11 @@ func checkModel(recs []runRecord) (modelCheck, error) {
 	// behaviour of the owner's own completion, which it does not contain.
 	floorNs, bounded := holdFloorNs(recs)
 	m.FloorSeconds, m.Bounded = 2*float64(floorNs)/float64(time.Second), bounded
+	// The control is judged by the same rule as everything else, and it does not pass it. Deriving this
+	// rather than asserting it is what stops the statement drifting back to "shows the interval contains no
+	// platform work" the next time someone edits the sentence.
+	m.ControlResolved = m.Bounded && queuelab.ResolvesAgainst(
+		queuelab.SecondsToNs(m.ControlHoldSeconds), queuelab.SecondsToNs(m.FloorSeconds))
 	m.Holds = bounded
 
 	doses := make([]string, 0, len(ignore))
@@ -1185,14 +1199,15 @@ func checkModel(recs []runRecord) (modelCheck, error) {
 		// CONTRAST between the regimes, which nothing common to them can move, lands where the kink says.
 		m.Statement = fmt.Sprintf("the device hold in every regime is CONSISTENT WITH held = min(remaining "+
 			"service, %d s grace), to within the %.3f s floor and with nothing subtracted from anything. The "+
-			"honouring arm's hold over %d runs measures %.3f s, which is far BELOW this floor and is therefore "+
-			"unresolved -- it lies somewhere in [0, %.3f s], and reading it as a measured near-zero would be "+
+			"honouring arm's hold over %d runs measures %.3f s, which is %s -- it lies somewhere in "+
+			"[0, %.3f s], and reading it as a measured near-zero would be "+
 			"the inversion this harness's resolution rule exists to prevent. What the arms support is that "+
 			"their difference is far larger than the floor. Two runs per cell, evaluated on the runs that "+
 			"produced them; the self-completing cell's prediction is built from its own achieved dose, so its "+
 			"residual is an instrumentation offset rather than a test of the rule -- this is consistency, and "+
 			"weaker than validation",
-			terminationGraceSec, m.FloorSeconds, m.ControlRuns, m.ControlHoldSeconds, m.FloorSeconds)
+			terminationGraceSec, m.FloorSeconds, m.ControlRuns, m.ControlHoldSeconds,
+			resolvedWord(m.ControlResolved), m.FloorSeconds)
 	default:
 		m.Statement = fmt.Sprintf("REFUTED: at least one regime's device hold falls outside the %.3f s floor "+
 			"of what held = min(remaining service, %d s grace) predicts", m.FloorSeconds, terminationGraceSec)
@@ -1231,6 +1246,15 @@ func declaredDoseFor(dose string) (int, error) {
 }
 
 // renderModel prints the prediction beside the observation, never one without the other.
+// resolvedWord renders the control's verdict so the sentence follows the field rather than the other way
+// round. If a future control ever does clear the floor, the statement says so instead of being wrong.
+func resolvedWord(resolved bool) string {
+	if resolved {
+		return "ABOVE this floor and therefore resolved"
+	}
+	return "far BELOW this floor and therefore unresolved"
+}
+
 func renderModel(m modelCheck) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "===== MODEL: held = min(remaining service, grace), tested on the DEVICE HOLD =====\n%s\n",

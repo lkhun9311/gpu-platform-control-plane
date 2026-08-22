@@ -744,6 +744,16 @@ type deviceObservationEvidence struct {
 	// Samples is what the gate read, restricted to the window it reads. It is the evidence rather than a
 	// count of it, so the verdict can be recomputed rather than believed.
 	Samples []queuelab.DeviceSample `json:"samples,omitempty"`
+	// UnlabelledBusySamples is a gate INPUT, and leaving it out made this block's own claim false.
+	//
+	// EstablishesDeviceWork reads it to separate two refusals that otherwise read the same: a card nobody
+	// used, and a card working while attribution is broken -- which is what an exporter with its kubernetes
+	// mapping off produces. Without it a round-tripped record diagnoses the first when the run diagnosed the
+	// second, sending a reader to the workload instead of the exporter.
+	//
+	// The verdict does not change; the DIAGNOSIS does, and this block exists so a reader can re-derive the
+	// verdict from what the gate actually saw.
+	UnlabelledBusySamples int `json:"unlabelledBusySamples,omitempty"`
 }
 
 type validity struct {
@@ -1572,6 +1582,24 @@ func checkValidity(r runRecord) error {
 				"observation to support it; the claim is an assertion rather than evidence, and no build " +
 				"writes one")
 		}
+		// The block must be answering the LEDGER's question, not its own.
+		//
+		// It records which Pod and which window the gate was asked about, and the decoder used to re-run the
+		// gate against those recorded values -- so a document could widen its own window or name a different
+		// Pod's card and pass, while the ledger replay independently validated the real ones. Both checks
+		// succeeded on a record where they were checking different things.
+		from, to, ok := queuelab.DeviceHoldWindow(r.Events)
+		uid := queuelab.VictimAttemptUID(r.Events)
+		if !ok {
+			return fmt.Errorf("decode record: the record claims a device did this Pod's work and its ledger " +
+				"cannot locate the hold the claim is about")
+		}
+		if e.PodUID != uid || e.HoldFromNs != from || e.HoldToNs != to {
+			return fmt.Errorf("decode record: the device observation says it judged Pod %q over [%d, %d] and "+
+				"this record's own ledger puts the hold at Pod %q over [%d, %d]; the evidence answers a "+
+				"different question from the one the measurement asked",
+				e.PodUID, e.HoldFromNs, e.HoldToNs, uid, from, to)
+		}
 		if ok, why := queuelab.EstablishesDeviceWork(
 			observationFromEvidence(e), e.PodUID, e.HoldFromNs, e.HoldToNs); !ok {
 			return fmt.Errorf("decode record: the record claims a device did this Pod's work, and re-running "+
@@ -1653,6 +1681,7 @@ func deviceObservationOf(obs *queuelab.DeviceObservation, events []queuelab.Life
 	e := &deviceObservationEvidence{
 		Observer: string(obs.Observer), Identity: obs.ObserverIdentity, Endpoint: obs.Endpoint,
 		Declared: obs.Declared, StartedNs: obs.StartedNs, EndedNs: obs.EndedNs, PodUID: uid,
+		UnlabelledBusySamples: obs.UnlabelledBusySamples,
 	}
 	if !ok {
 		// A ledger that cannot locate the hold gets the observation's bounds and no samples: there is no
@@ -1683,6 +1712,7 @@ func observationFromEvidence(e *deviceObservationEvidence) *queuelab.DeviceObser
 	return &queuelab.DeviceObservation{
 		Observer: queuelab.DeviceObserver(e.Observer), ObserverIdentity: e.Identity, Endpoint: e.Endpoint,
 		Declared: e.Declared, StartedNs: e.StartedNs, EndedNs: e.EndedNs, Samples: e.Samples,
+		UnlabelledBusySamples: e.UnlabelledBusySamples,
 	}
 }
 

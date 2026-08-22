@@ -42,27 +42,57 @@ func TestTheFlavourToleratesEveryTaintTheGPUNodeGroupDeclares(t *testing.T) {
 			"rewritten rather than deleted")
 	}
 	flavor := labResourceFlavor(FixtureIdentity{RunID: "r1"}, StudyReclaim, "v")
-	tolerates := func(key string) bool {
+	// A toleration must actually TOLERATE the taint, not merely mention its key. The first version of this
+	// accepted any entry with a matching key, so operator, value and effect could all be wrong -- a
+	// `nvidia.com/gpu=wrong:NoExecute` toleration would have passed while leaving every Pod Pending against
+	// the node's `nvidia.com/gpu=present:NoSchedule`. A test that checks the name of the thing rather than
+	// the thing is the failure this file exists to catch, committed inside the file.
+	//
+	// The rule is Kubernetes': Exists matches any value, Equal matches only its own, and an empty effect
+	// matches every effect.
+	tolerates := func(t corev1.Taint) bool {
 		for _, tol := range flavor.Spec.Tolerations {
-			if tol.Key != key {
+			if tol.Key != t.Key {
 				continue
 			}
-			if tol.Operator == corev1.TolerationOpExists {
-				return true
+			if tol.Effect != "" && tol.Effect != t.Effect {
+				continue
 			}
-			return true
+			switch tol.Operator {
+			case corev1.TolerationOpExists:
+				return true
+			case corev1.TolerationOpEqual, "":
+				if tol.Value == t.Value {
+					return true
+				}
+			}
 		}
 		return false
 	}
-	for _, m := range keys {
+	// The effect and value are read from the terraform beside the key, so the toleration is checked against
+	// the taint as declared rather than against its name alone.
+	effects := regexp.MustCompile(`(?m)^\s*effect\s*=\s*"([^"]+)"`).FindAllStringSubmatch(tf, -1)
+	values := regexp.MustCompile(`(?m)^\s*value\s*=\s*"([^"]+)"`).FindAllStringSubmatch(tf, -1)
+	for i, m := range keys {
 		key := m[1]
 		// The lab's own ownership taint is keyed per run and is applied by the harness, not by terraform.
 		if strings.HasPrefix(key, "queuelab.") {
 			continue
 		}
-		if !tolerates(key) {
-			t.Fatalf("the GPU node group taints %q and the run's ResourceFlavor does not tolerate it, so "+
-				"every trace Pod stays Pending while Kueue reports the Workload admitted", key)
+		taint := corev1.Taint{Key: key}
+		if i < len(values) {
+			taint.Value = values[i][1]
+		}
+		if i < len(effects) {
+			// Terraform spells the effect NO_SCHEDULE; the API spells it NoSchedule.
+			taint.Effect = corev1.TaintEffect(
+				strings.ReplaceAll(strings.Title(strings.ToLower(
+					strings.ReplaceAll(effects[i][1], "_", " "))), " ", ""))
+		}
+		if !tolerates(taint) {
+			t.Fatalf("the GPU node group taints %s=%s:%s and the run's ResourceFlavor does not tolerate it, "+
+				"so every trace Pod stays Pending while Kueue reports the Workload admitted",
+				taint.Key, taint.Value, taint.Effect)
 		}
 	}
 }
@@ -79,9 +109,13 @@ func TestTheFlavourToleratesEveryTaintTheGPUNodeGroupDeclares(t *testing.T) {
 // stale-label margin the exclusivity clause allows.
 func TestTheExporterManifestEmitsWhatTheParserReads(t *testing.T) {
 	ds := repoFile(t, "config/dcgm-exporter/daemonset.yaml")
-	if !strings.Contains(ds, "DCGM_EXPORTER_KUBERNETES") {
-		t.Fatal("the exporter does not enable the kubernetes mapping, so no sample will carry a pod label " +
-			"and every device claim will fail attribution for a reason that is not about the card")
+	// The VALUE, not the name. Checking only that the variable appears accepts `value: "false"`, which
+	// disables the very mapping this test exists to require -- the same name-not-thing mistake the
+	// toleration check above was making.
+	if !regexp.MustCompile(`name:\s*DCGM_EXPORTER_KUBERNETES\s*\n\s*value:\s*"true"`).MatchString(ds) {
+		t.Fatal("the exporter does not enable the kubernetes mapping with value \"true\", so no sample will " +
+			"carry a pod label and every device claim will fail attribution for a reason that is not about " +
+			"the card")
 	}
 	m := regexp.MustCompile(`-\s*"-c"\s*\n\s*-\s*"(\d+)"`).FindStringSubmatch(ds)
 	if m == nil {

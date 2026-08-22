@@ -119,7 +119,7 @@ against one rule:
     ===== MODEL: held = min(remaining service, grace), tested on the DEVICE HOLD =====
     the device hold in every regime is CONSISTENT WITH held = min(remaining service, 30 s grace), to
     within the 2.940 s floor and with nothing subtracted from anything. The honouring arm's hold over
-    4 runs measures 0.041 s, which is far BELOW this floor and is therefore unresolved -- it lies
+    4 runs measures 0.041 s, which is far BELOW this floor and therefore unresolved -- it lies
     somewhere in [0, 2.940 s], and reading it as a measured near-zero would be the inversion this
     harness's resolution rule exists to prevent. What the arms support is that their difference is far
     larger than the floor. Two runs per cell, evaluated on the runs that produced them; the

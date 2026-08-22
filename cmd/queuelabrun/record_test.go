@@ -2285,3 +2285,132 @@ func TestTheHeadlineNumbersAreReDerivedFromTheRecordsOwnLedger(t *testing.T) {
 			"what its comment says: %v", err)
 	}
 }
+
+// The device evidence must answer the LEDGER's question, not one of its own.
+//
+// The block records which Pod and which window the gate was asked about, and the decoder re-runs the gate
+// against those recorded values. A review pointed out that nothing tied them to the ledger: a document could
+// widen its own hold window, or name a Pod holding a different card, and pass — while the ledger replay
+// beside it independently validated the real ones. Both checks succeeding on a record where they are
+// checking different things is worse than either check being absent, because it reads as corroboration.
+//
+// This is also the first record in this repository, real or synthetic, that claims a device did any work.
+// Every committed one carries deviceObservation: null, so the positive path had never been decoded. It is
+// built from a committed record rather than from nothing, so the parts not under test — the ledger, the
+// replayed measurement, the resolution block — are what the write path actually produces.
+//
+// Mutation that turns this red: drop the comparison binding the block to the ledger.
+func TestTheDeviceEvidenceMustAnswerTheLedgersQuestion(t *testing.T) {
+	// An IGNORING record, because the honouring arm's hold is 29 ms and a fixture cannot put two scrapes
+	// inside it. That is the gate working -- minBusySamples wants two distinct instants -- and it is also a
+	// fact worth having in a test: the arm this lab calls its zero-hold control is too short for an observer
+	// running at any realistic interval to say anything about.
+	raw, err := os.ReadFile(filepath.Join("..", "..", "ex", "e17-grace-bounded-A-ignore-e17gi1.json"))
+	if err != nil {
+		t.Fatalf("no committed record with a long hold to build on: %v", err)
+	}
+	base, err := decodeRunRecord(raw)
+	if err != nil {
+		t.Fatalf("the committed record must decode before it can be built on: %v", err)
+	}
+	from, to, ok := queuelab.DeviceHoldWindow(base.Events)
+	if !ok {
+		t.Fatal("the committed record's ledger cannot locate its hold, so this fixture cannot be built")
+	}
+	uid := queuelab.VictimAttemptUID(base.Events)
+
+	// A document with a device path: the ledger's victim reports launching kernels, and an observer covering
+	// the hold saw its card busy. Everything else is the committed run's.
+	deviceDoc := func() map[string]any {
+		var doc map[string]any
+		if err := json.Unmarshal(raw, &doc); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		doc["runID"] = "forged"
+		for _, e := range doc["events"].([]any) {
+			ev := e.(map[string]any)
+			if ev["type"] == string(queuelab.EventAttemptStopped) && ev["objectUID"] == uid {
+				ev["workloadKind"] = queuelab.KindCUDAFMA
+				ev["deviceStatus"] = queuelab.DeviceOK
+			}
+		}
+		w := doc["measurement"].(map[string]any)["workload"].(map[string]any)
+		w["kind"] = "cuda-driver-fma-kernel"
+		w["countedUnit"] = "1024x256 threads x 20000 fused multiply-adds per launch"
+		w["deviceUseEstablished"] = true
+		delete(w, "whyNot")
+		doc["validity"].(map[string]any)["deviceEvidence"] = deviceWorkObserved
+		return doc
+	}
+	// Samples covering the window the gate reads: the hold, widened by the stale-label margin, one card,
+	// one tenant, busy throughout.
+	samples := func() []any {
+		var out []any
+		for at := from - int64(queuelab.StaleLabelMargin); at <= to; at += int64(time.Second) {
+			out = append(out, map[string]any{
+				"atNs": at, "deviceUUID": "GPU-0000", "podUID": uid, "utilisationPercent": 93,
+			})
+		}
+		return out
+	}
+	evidence := func(podUID string, holdFrom, holdTo int64) map[string]any {
+		return map[string]any{
+			"observer": string(queuelab.ObserverDCGM), "identity": "dcgm@sha256:abc",
+			"endpoint": "http://127.0.0.1:9400/metrics", "declared": true,
+			"startedNs": from - 2*int64(queuelab.StaleLabelMargin), "endedNs": to + int64(time.Second),
+			"holdFromNs": holdFrom, "holdToNs": holdTo, "podUID": podUID, "samples": samples(),
+		}
+	}
+	decode := func(doc map[string]any) error {
+		b, err := json.Marshal(doc)
+		if err != nil {
+			t.Fatalf("marshal: %v", err)
+		}
+		_, err = decodeRunRecord(b)
+		return err
+	}
+
+	// The honest document decodes. Without this half the test could not tell a working guard from a decoder
+	// that refuses every device claim — which is the shape a session would meet on its first success.
+	honest := deviceDoc()
+	honest["deviceObservation"] = evidence(uid, from, to)
+	if err := decode(honest); err != nil {
+		t.Fatalf("a record whose evidence answers its ledger's own question was refused, so the first "+
+			"successful GPU run would be rejected by its own decoder: %v", err)
+	}
+
+	for _, tc := range []struct {
+		name string
+		doc  map[string]any
+	}{
+		{"a window widened past the hold", func() map[string]any {
+			d := deviceDoc()
+			d["deviceObservation"] = evidence(uid, from-5*int64(time.Second), to+5*int64(time.Second))
+			return d
+		}()},
+		{"a window narrowed inside the hold", func() map[string]any {
+			d := deviceDoc()
+			d["deviceObservation"] = evidence(uid, from+int64(time.Second), to-int64(time.Second))
+			return d
+		}()},
+		// The sharpest one: the gate is satisfied, on another Pod's card. Replay validates the real victim,
+		// the evidence check validates a stranger, and neither notices.
+		{"another Pod's card entirely", func() map[string]any {
+			d := deviceDoc()
+			d["deviceObservation"] = evidence("some-other-pod-uid", from, to)
+			return d
+		}()},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := decode(tc.doc)
+			if err == nil {
+				t.Fatal("the evidence answered a different question from the measurement and the record " +
+					"decoded, which reads as two independent checks corroborating each other")
+			}
+			if !strings.Contains(err.Error(), "different question") {
+				t.Fatalf("the refusal does not say that the evidence and the ledger disagree about what was "+
+					"judged: %v", err)
+			}
+		})
+	}
+}
