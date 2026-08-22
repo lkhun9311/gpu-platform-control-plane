@@ -107,5 +107,12 @@ if [[ $STATUS -eq 0 ]]; then
   echo "  kubectl port-forward -n $NS pod/$POD ${LOCAL_PORT}:9400"
   echo "and pass to each run:"
   echo "  -device-metrics $URL -device-observer $OBSERVER"
+  echo
+  # The ordering is not a convenience. This preflight has just pulled the workload image onto the node, so
+  # every run after it starts warm; a run taken before it would pull inside its own observation window,
+  # pushing container stops later and possibly past the horizon, which turns its waste figure into a floor.
+  # The estimand this lab publishes is warm-node reclaim, and this is what makes it true.
+  echo "run the protocol AFTER this, not before: the node is warm now, and a run taken cold pulls inside"
+  echo "its own observation window and can censor its own waste figure."
 fi
 exit $STATUS

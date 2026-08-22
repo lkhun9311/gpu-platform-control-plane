@@ -168,3 +168,53 @@ func TestTheDevicePreflightIsAnOperatorModeLikeTheOthers(t *testing.T) {
 		t.Fatalf("the mode's budget is shorter than the wait it contains, so it can only ever time out")
 	}
 }
+
+// Warmth is read from the DIGEST, not from the whole image reference.
+//
+// The kubelet reports what it pulled. For a digest-pinned image that is "docker.io/library/python@sha256:..."
+// -- repository plus digest, without the tag this build's constant carries -- so comparing the references
+// whole reports every warm node as cold. The first execution of this check did exactly that on a node the
+// image had been sitting on for an hour.
+//
+// A cold node is not an error, but it is a fact about the first run's timings: the pull happens inside the
+// observation window, pushes every container stop later, and can push one past the horizon, which flips
+// measurement.censored and turns wastedGPUSeconds from a value into a floor.
+//
+// Mutation that turns this red: compare the whole reference again.
+func TestNodeWarmthIsReadFromTheImageDigest(t *testing.T) {
+	digest := queuelab.WorkloadImage
+	at := strings.Index(digest, "@")
+	if at < 0 {
+		t.Fatal("the workload image is not pinned by digest, so nothing here can identify the bytes a node " +
+			"holds; this test is checking a shape that has moved and must be rewritten rather than deleted")
+	}
+	digest = digest[at+1:]
+
+	// What a kubelet actually reports for this image, and what it would report for a different one.
+	kubeletNames := []string{"docker.io/library/python@" + digest}
+	other := []string{"docker.io/library/python@sha256:" + strings.Repeat("a", 64),
+		"docker.io/library/python:3.12-alpine"}
+
+	warm := func(names []string) bool {
+		for _, n := range names {
+			if strings.Contains(n, digest) {
+				return true
+			}
+		}
+		return false
+	}
+	if !warm(kubeletNames) {
+		t.Fatalf("a node holding this exact image reads as cold: kubelet reports %v, the build wants %q",
+			kubeletNames, queuelab.WorkloadImage)
+	}
+	if warm(other) {
+		t.Fatalf("a node holding a DIFFERENT image reads as warm: %v", other)
+	}
+	// And the trap that produced the defect: the whole reference never matches what a kubelet reports.
+	for _, n := range kubeletNames {
+		if n == queuelab.WorkloadImage {
+			t.Fatal("the kubelet's name and the build's constant are equal in this fixture, so it no longer " +
+				"reproduces the mismatch it exists to guard")
+		}
+	}
+}

@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -122,6 +123,10 @@ func devicePreflight(ctx context.Context, c client.Client, nodeName, metricsURL,
 			err = fmt.Errorf("release worker %s after the preflight: %w", nodeName, rerr)
 		}
 	}()
+
+	// Read the node's image list BEFORE applying anything, because this is the last moment the answer is
+	// still about the node rather than about this preflight.
+	reportNodeWarmth(ctx, c, nodeName, out)
 
 	if nerr := ensureCanaryNamespace(ctx, c); nerr != nil {
 		return fmt.Errorf("ensure the preflight namespace: %w", nerr)
@@ -267,6 +272,51 @@ func startPreflightObserver(ctx context.Context, pod *corev1.Pod, metricsURL, id
 		p.obs, p.missed, p.err = scraper.Observe(dctx)
 	}()
 	return p
+}
+
+// reportNodeWarmth says whether the workload's image was already on the node when the preflight arrived.
+//
+// It matters because this Pod is about to put it there. Everything after the preflight runs on a warm node:
+// the layer cache is populated, so the protocol's own Pods start without a pull.
+//
+// That is desirable and it is also a property of the measurement rather than of the platform, which is why
+// it is reported rather than left implicit. A cold first run pulls inside the observation window, pushes
+// every container stop later, and can push one past the horizon -- which flips measurement.censored and
+// turns wastedGPUSeconds from a value into a floor, with nothing in the terminal saying why. So the
+// preflight is not merely a check that happens to warm the node; running it is what makes every subsequent
+// run comparable to every other.
+//
+// A failure to read the node is not fatal. This is a diagnostic, and refusing a preflight because the
+// warmth of a node could not be established would refuse the check for the sake of its footnote.
+func reportNodeWarmth(ctx context.Context, c client.Client, nodeName string, out io.Writer) {
+	var n corev1.Node
+	if err := c.Get(ctx, client.ObjectKey{Name: nodeName}, &n); err != nil {
+		_, _ = fmt.Fprintf(out, "  node warmth: unknown (%v)\n", err)
+		return
+	}
+	// Matched on the DIGEST rather than the whole reference. The kubelet reports what it pulled, which for a
+	// digest-pinned image is "docker.io/library/python@sha256:..." -- repository plus digest, without the tag
+	// this build's constant carries. Comparing the strings whole reported every warm node as cold, which the
+	// first run of this check showed immediately.
+	//
+	// The digest is the right key anyway: it is what identifies the bytes, and it is why the image is pinned
+	// by one.
+	digest := queuelab.WorkloadImage
+	if at := strings.Index(digest, "@"); at >= 0 {
+		digest = digest[at+1:]
+	}
+	for _, img := range n.Status.Images {
+		for _, name := range img.Names {
+			if strings.Contains(name, digest) {
+				_, _ = fmt.Fprintf(out, "  node warmth: WARM -- the workload image is already on %s, so the "+
+					"runs after this one start without a pull\n", nodeName)
+				return
+			}
+		}
+	}
+	_, _ = fmt.Fprintf(out, "  node warmth: COLD -- the workload image is not on %s yet. This preflight is "+
+		"about to pull it, so the protocol's runs will start warm and this preflight will not; do not "+
+		"compare its timings with theirs\n", nodeName)
 }
 
 // preflightCommand renders the workload the preflight runs.

@@ -287,6 +287,28 @@ different afternoons: `no-libcuda` is a base image or a container runtime that n
 compile. On rented hardware the difference between naming one of those and reporting "device not established"
 is the cost of the session.
 
+### The estimand is warm-node reclaim, and the preflight is what makes it so
+
+Running the preflight pulls the workload image onto the node. Every run after it therefore starts without a
+pull, and that is not a side effect to be tolerated -- it is the thing that makes the runs comparable to each
+other. A cold first run pulls inside the observation window, pushes every container stop later, and can push
+one past the horizon: `measurement.censored` flips, `wastedGPUSeconds` becomes a floor rather than a value,
+and nothing in the terminal says why.
+
+So the preflight reports what it found before it changed it:
+
+    node warmth: WARM -- the workload image is already on ip-10-0-x-y, so the runs after this one start
+    without a pull
+
+What this does and does not cost is worth being exact about. **Between-arm differences are unaffected**: the
+arms alternate in time, so warmth is uniform across them and cancels in every difference this study
+publishes. **The absolute baseline is affected**, and that figure is quoted as a property of the platform --
+so it is a property of a WARM one, measured on a node whose layer cache already holds the image and whose
+driver has already been initialised. A session quoting it against a cold node is quoting the wrong number.
+
+The preflight's own timings are not comparable with the runs' when it reports COLD, because it is the thing
+doing the pull. That is the one case where its eight seconds mean something different from theirs.
+
 It was executed against the kind cluster, where the honest answer is a refusal, and it gave it:
 
     ERROR: DEVICE NOT USABLE on platform-worker: the workload fell back to the CPU loop, reporting
