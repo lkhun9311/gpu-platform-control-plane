@@ -585,18 +585,40 @@ func holdRec(r runRecord, doseSeconds, holdSeconds float64) runRecord {
 			ElapsedNs: int64(admitted + holdSeconds*float64(time.Second))},
 	}
 	// Both of the hold's endpoints must carry a skew, or the floor cannot be derived and the check refuses.
+	// They must also carry the components' own stamps: the hold is read on two clocks and a run offering only
+	// one is refused, so a fixture without them would be testing the refusal rather than the model.
+	//
+	// The stamps are the arrival figure TRUNCATED to the second, which is what a real run produces -- both
+	// components serialise through metav1.Time -- so the two readings agree to within truncation exactly as
+	// the recorded runs do.
+	stampBase := int64(1_700_000_000_000_000_000)
+	stampHoldSeconds := int64(holdSecondsOf(r))
 	for i := range r.Events {
 		e := &r.Events[i]
 		if e.Type == queuelab.EventAdmitted || e.Type == queuelab.EventAttemptStopped {
 			v := int64(200 * time.Millisecond)
+			stamp := stampBase
 			if e.Type == queuelab.EventAttemptStopped {
 				v = int64(700 * time.Millisecond)
+				stamp = stampBase + stampHoldSeconds*int64(time.Second)
 			}
 			e.ObservedSkewNs = &v
+			st := stamp
+			e.ComponentStampUnixNanos = &st
 		}
 	}
 	r.Qualification = &qualification{Node: "platform-worker"}
 	return r
+}
+
+// holdSecondsOf is the whole-second part of the hold this fixture was built with, which is what a
+// second-truncated component stamp would report.
+func holdSecondsOf(r runRecord) int {
+	h := queuelab.DeviceHoldNs(r.Events)
+	if h == nil {
+		return 0
+	}
+	return int(*h / int64(time.Second))
 }
 
 // The lab's central claim, tested on the quantity the claim is about.
@@ -836,5 +858,42 @@ func TestARunWhoseTwoClocksDisagreeIsRefused(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "different intervals") {
 		t.Fatalf("the refusal does not say what the disagreement means: %v", err)
+	}
+}
+
+// "The hold is read on two clocks" has to mean two readings EXIST, not merely that two agree when both
+// happen to be present. A run carrying one reading has an arrival figure checked against nothing, and
+// ClocksDisagree answers "no disagreement" for it — the honest answer to the question it was asked, and the
+// wrong basis for admitting the run.
+//
+// Mutation that turns this red: drop the DeviceHoldStampNs nil check and rely on ClocksDisagree alone.
+func TestARunReadOnOneClockIsRefused(t *testing.T) {
+	full := []runRecord{
+		stampedHoldRec(cmpRec("gh1", "A-honor", "grace-bounded", "2026-08-22T05:00:00Z", 21.3, 0), 21.2, 0.045, 0),
+		stampedHoldRec(cmpRec("gi1", "A-ignore", "grace-bounded", "2026-08-22T05:05:00Z", 51.3, 0), 21.2, 30.050, 30),
+		stampedHoldRec(cmpRec("sh1", "A-honor", "self-completing", "2026-08-22T05:10:00Z", 41.4, 0), 41.1, 0.045, 0),
+		stampedHoldRec(cmpRec("si1", "A-ignore", "self-completing", "2026-08-22T05:15:00Z", 0.0, 0), 41.1, 18.850, 18),
+	}
+	if _, err := checkModel(full); err != nil {
+		t.Fatalf("a complete set must pass, or this tests nothing: %v", err)
+	}
+
+	// Strip the victim's stop stamp from one run: the arrival figure survives, the second reading does not.
+	oneClock := append([]runRecord{}, full...)
+	stripped := stampedHoldRec(cmpRec("gi1", "A-ignore", "grace-bounded", "2026-08-22T05:05:00Z", 51.3, 0),
+		21.2, 30.050, 30)
+	for i := range stripped.Events {
+		if stripped.Events[i].Type == queuelab.EventAttemptStopped {
+			stripped.Events[i].ComponentStampUnixNanos = nil
+		}
+	}
+	oneClock[1] = stripped
+	_, err := checkModel(oneClock)
+	if err == nil {
+		t.Fatal("a run whose hold was read on one clock entered the model; its arrival figure was corroborated " +
+			"by nothing")
+	}
+	if !strings.Contains(err.Error(), "nothing corroborates") {
+		t.Fatalf("the refusal does not say what is missing: %v", err)
 	}
 }

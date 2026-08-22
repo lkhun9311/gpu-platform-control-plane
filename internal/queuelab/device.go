@@ -39,14 +39,18 @@ const (
 	// sample with the physical device UUID and the Pod it was serving. The tenant's container cannot write to
 	// it, which is the property that matters.
 	ObserverDCGM DeviceObserver = "dcgm-exporter"
-	// ObserverNvidiaSMI is a node-local nvidia-smi poll. Admissible but weaker: correlating a compute process
-	// back to a Pod goes through the PID namespace rather than through a label the driver itself emitted.
-	ObserverNvidiaSMI DeviceObserver = "nvidia-smi"
 )
+
+// deviceObservers held a second name, nvidia-smi, and it is deleted rather than kept for later.
+//
+// Nothing emitted it: the runner declares dcgm-exporter and the parser reads DCGM's format only. What it was
+// in practice is a name a hand-authored record could claim, which is this file's own definition of
+// worse-than-nothing -- an accepted name over arbitrary bytes reads as a check. It comes back when a pipeline
+// produces it.
 
 // deviceObservers is the set an observation may claim. A value outside it is refused rather than trusted,
 // which is what stops "workload-self-report" from ever being one.
-var deviceObservers = map[DeviceObserver]bool{ObserverDCGM: true, ObserverNvidiaSMI: true}
+var deviceObservers = map[DeviceObserver]bool{ObserverDCGM: true}
 
 // maxObserverGap is how long an observation may see nothing before it stops covering the interval.
 //
@@ -62,6 +66,15 @@ const maxObserverGap = 2 * time.Second
 // and does not pretend to be — it exists so that a single stray non-zero utilisation, of the kind a driver
 // reports while another process initialises, cannot carry the claim.
 const minBusySamples = 2
+
+// staleLabelMargin is how far before the interval another Pod's label still counts against exclusivity.
+//
+// DCGM's Kubernetes labels come from the kubelet's pod-resources socket, which the exporter polls: when a
+// container exits, its name can persist on the entity for a scrape or two while that view catches up. A
+// margin shorter than the observation's own granularity would let exactly that carry into the window
+// unnoticed, so it is twice the longest gap a run may blink through -- two scrapes' worth at the coarsest
+// rate this build accepts.
+const staleLabelMargin = 2 * maxObserverGap
 
 // DeviceSample is one observation of one physical device at one instant.
 type DeviceSample struct {
@@ -128,9 +141,9 @@ func EstablishesDeviceWork(obs *DeviceObservation, podUID string, fromNs, toNs i
 			"establishes that a device was RESERVED and nothing about whether it was used"
 	}
 	if !deviceObservers[obs.Observer] {
-		return false, fmt.Sprintf("observer %q is not one this build accepts (%q, %q). The workload is not a "+
+		return false, fmt.Sprintf("observer %q is not one this build accepts (%q). The workload is not a "+
 			"witness: a Pod reporting its own device use is a claim by the party the check exists to constrain",
-			obs.Observer, ObserverDCGM, ObserverNvidiaSMI)
+			obs.Observer, ObserverDCGM)
 	}
 	if obs.ObserverIdentity == "" {
 		return false, fmt.Sprintf("observer %q did not say which build of it produced these readings; "+
@@ -181,10 +194,22 @@ func EstablishesDeviceWork(obs *DeviceObservation, podUID string, fromNs, toNs i
 	// work entirely.
 	//
 	// Rather than infer attribution, this refuses unless the premise holds: every entity this Pod was
-	// observed on must have carried NO other Pod's label anywhere in the observation -- not merely inside the
-	// interval, because a label that belonged to another tenant a second before the window is exactly the
-	// stale-label case. Whatever DCGM reports as the entity is the granularity that matters, so a MIG
-	// instance allocated exclusively passes and a shared parent device does not.
+	// observed on must have carried no other Pod's label DURING the interval, or in the stale-label margin
+	// just before it. Whatever DCGM reports as the entity is the granularity that matters, so a MIG instance
+	// allocated exclusively passes and a shared parent device does not.
+	//
+	// The scope is the window plus a margin, and it used to be the whole observation. That was wrong in a way
+	// worth writing down, because it made this clause refuse the experiment it was built to serve: the run's
+	// defining event is a HANDOVER -- the borrower releases the card and the owner takes it, on a node with
+	// exactly the two devices the protocol needs -- so the owner's label lands on the victim's entity a few
+	// seconds after the hold ends, inside the same observation, in every arm. Every run would have been
+	// refused device attribution, deterministically, by the gate meant to license it. A review found it by
+	// running the experiment's own shape through this function.
+	//
+	// The threats the clause exists for are all CONCURRENT with the hold or immediately before it:
+	// time-slicing, MPS and a MIG parent put two tenants on one entity at the same time, and a stale label
+	// carries the previous tenant's name into the start of the window while the kubelet's pod-resources view
+	// catches up. Serial reallocation AFTER the window is not ambiguity, it is the thing being measured.
 	//
 	// This is the same move the worker qualification makes: a node with another Pod's device on it is refused
 	// rather than reasoned about.
@@ -195,6 +220,9 @@ func EstablishesDeviceWork(obs *DeviceObservation, podUID string, fromNs, toNs i
 		if s.PodUID == podUID {
 			continue
 		}
+		if s.AtNs > toNs || s.AtNs < fromNs-int64(staleLabelMargin) {
+			continue
+		}
 		other := s.PodRef
 		if other == "" {
 			other = s.PodUID
@@ -202,7 +230,7 @@ func EstablishesDeviceWork(obs *DeviceObservation, podUID string, fromNs, toNs i
 		if other == "" {
 			continue
 		}
-		return false, fmt.Sprintf("device %s carried Pod %s's label as well as %s's during this observation, "+
+		return false, fmt.Sprintf("device %s carried Pod %s's label as well as %s's during the hold, "+
 			"so its utilisation is not attributable to either: DCGM reports what the DEVICE did and the "+
 			"labels say only what it was allocated to, which time-slicing, MPS, a MIG parent or a stale label "+
 			"at the exit transition all make ambiguous", s.DeviceUUID, other, podUID)

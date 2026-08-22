@@ -267,18 +267,12 @@ func TestASharedDeviceCannotAttributeWorkToEither(t *testing.T) {
 	}
 }
 
-// The stale-label case: another Pod held the card a second BEFORE the window. Restricting the scan to the
-// interval would miss it, and that transition is exactly when DCGM's labels lag the kubelet.
-func TestALabelFromBeforeTheWindowStillDefeatsAttribution(t *testing.T) {
-	o := goodObservation()
-	o.Samples = append(o.Samples, DeviceSample{
-		AtNs: 5_000_000_000, DeviceUUID: "GPU-1234",
-		PodRef: "other-tenant/previous-xyz", PodUID: "previous-uid", UtilisationPercent: 64,
-	})
-	if ok, _ := EstablishesDeviceWork(o, "victim-uid", 10_000_000_000, 30_000_000_000); ok {
-		t.Fatal("a label belonging to another Pod just before the window left attribution intact")
-	}
-}
+// Superseded by TestALabelInTheStaleMarginStillDefeatsAttribution.
+//
+// This asserted that a label ANY time before the window defeated attribution, which was the whole-observation
+// scope -- and that scope refused the protocol's own handover in every arm. The replacement tests both sides
+// of the derived margin instead: inside it a stale label still convicts, outside it a tenant that gave the
+// card up long ago does not.
 
 // A Pod the run never saw is the same problem wearing no identity, and it is why the parser keeps
 // unattributable samples instead of dropping them.
@@ -307,5 +301,67 @@ func TestAnotherPodOnAnotherDeviceIsNotAConflict(t *testing.T) {
 	})
 	if ok, why := EstablishesDeviceWork(o, "victim-uid", 10_000_000_000, 30_000_000_000); !ok {
 		t.Fatalf("a busy neighbour on a different card defeated attribution: %s", why)
+	}
+}
+
+// The experiment's DEFINING event is a handover: the borrower releases the card and the owner takes it, on a
+// node with exactly the two devices the protocol needs. The owner's label therefore lands on the victim's
+// entity a few seconds after the hold ends, in every arm.
+//
+// The exclusivity clause used to scan the whole observation and refused exactly that — so every run would
+// have been denied device attribution, deterministically, by the gate meant to license it. Serial
+// reallocation after the window is not ambiguity; it is the thing being measured.
+//
+// Mutation that turns this red: widen the scan back to the whole observation.
+func TestTheProtocolsOwnHandoverDoesNotDefeatAttribution(t *testing.T) {
+	o := goodObservation()
+	o.EndedNs = 120_000_000_000
+	// The owner picks up the freed card once the hold ends at 30 s.
+	for at := int64(35_000_000_000); at <= 120_000_000_000; at += int64(time.Second) {
+		o.Samples = append(o.Samples, DeviceSample{
+			AtNs: at, DeviceUUID: "GPU-1234", PodRef: "lab/b1-owner", PodUID: "owner-uid",
+			UtilisationPercent: 91,
+		})
+	}
+	if ok, why := EstablishesDeviceWork(o, "victim-uid", 10_000_000_000, 30_000_000_000); !ok {
+		t.Fatalf("the protocol's own handover defeated attribution: %s", why)
+	}
+}
+
+// A label inside the window is still a conflict — that is time-slicing, MPS or a MIG parent, and it is what
+// the clause is for.
+func TestALabelInsideTheWindowStillDefeatsAttribution(t *testing.T) {
+	o := goodObservation()
+	o.Samples = append(o.Samples, DeviceSample{
+		AtNs: 20_000_000_000, DeviceUUID: "GPU-1234", PodRef: "lab/greedy", PodUID: "greedy-uid",
+		UtilisationPercent: 71,
+	})
+	if ok, _ := EstablishesDeviceWork(o, "victim-uid", 10_000_000_000, 30_000_000_000); ok {
+		t.Fatal("two tenants on one entity during the hold attributed its utilisation to one of them")
+	}
+}
+
+// And so is one in the stale-label margin just before it: when a container exits its name can persist on the
+// entity for a scrape or two while the kubelet's pod-resources view catches up, and that carries the previous
+// tenant's activity into the start of the window.
+func TestALabelInTheStaleMarginStillDefeatsAttribution(t *testing.T) {
+	o := goodObservation()
+	o.Samples = append(o.Samples, DeviceSample{
+		AtNs: 9_000_000_000, DeviceUUID: "GPU-1234", PodRef: "lab/previous", PodUID: "previous-uid",
+		UtilisationPercent: 64,
+	})
+	if ok, _ := EstablishesDeviceWork(o, "victim-uid", 10_000_000_000, 30_000_000_000); ok {
+		t.Fatal("a label one second before the window left attribution intact")
+	}
+	// Well before it is the same handover case seen from the other side: a tenant that had the card long ago
+	// and gave it up is not sharing it.
+	far := goodObservation()
+	far.StartedNs = 0
+	far.Samples = append(far.Samples, DeviceSample{
+		AtNs: 1_000_000_000, DeviceUUID: "GPU-1234", PodRef: "lab/long-gone", PodUID: "long-gone-uid",
+		UtilisationPercent: 64,
+	})
+	if ok, why := EstablishesDeviceWork(far, "victim-uid", 10_000_000_000, 30_000_000_000); !ok {
+		t.Fatalf("a label nine seconds before the window defeated attribution: %s", why)
 	}
 }

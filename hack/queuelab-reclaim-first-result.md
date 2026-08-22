@@ -100,20 +100,32 @@ And it is no longer only a difference. `-mode model` turns the claim into arithm
 against one rule:
 
     $ queuelabrun -compare 'ex/e16-self-completing-*.json,ex/e16-grace-bounded-*-e16g??.json' -mode model
-    ===== MODEL: held = min(remaining service, grace) =====
-    held = min(remaining service, 30 s grace) predicts every regime's owner wait to within the 6.424 s
-    floor, once the 2.468 s the honouring arm shows restoration costs by itself is added
-      protocol: victimService=60s selfCompletingDose=40s graceBoundedDose=20s grace=30s
-      grace-bounded    remaining=40s binds on termination grace  predicted=32.468 observed=30.754 residual=-1.715 INSIDE
-      self-completing  remaining=20s binds on remaining service  predicted=22.468 observed=19.840 residual=-2.628 INSIDE
+    ===== MODEL: held = min(remaining service, grace), tested on the DEVICE HOLD =====
+    the device hold in every regime is CONSISTENT WITH held = min(remaining service, 30 s grace), to
+    within the 3.023 s floor and with nothing subtracted from anything. The honouring arm holds the
+    device for 0.045 s over 4 runs, which is what shows the interval contains no platform work: a
+    thirty-second hold in the other arm is the borrower's and not the scheduler's. Two runs per cell,
+    evaluated on the runs that produced them -- this is consistency, not validation
+      protocol: victimService=60s grace=30s
+      control: the honouring arm held the device 0.045 s over 4 runs (nothing is subtracted)
+      grace-bounded    dose declared=20s achieved=21.205 -> remaining=38.795 binds on termination grace
+        predicted=30.000 observed=30.059 residual=+0.059 INSIDE (n=2)
+      self-completing  dose declared=40s achieved=41.117 -> remaining=18.883 binds on remaining service
+        predicted=18.883 observed=18.504 residual=-0.378 INSIDE (n=2)
+      CONTRAST self-completing -> grace-bounded: predicted=11.117 observed=11.555 residual=+0.438 INSIDE
+        (the kink; anything common to both regimes cancels here)
 
 The two regimes put the victim on opposite sides of the grace period, so the same rule has to predict a
-thirty-second hold in one and a twenty-second hold in the other. A model fitted to either alone would miss
-the other by ten seconds. It can also print REFUTED, and a test proves it can — a refutation nobody can
+thirty-second hold in one and a nineteen-second hold in the other. A model fitted to either alone would miss
+the other by eleven seconds. It can also print REFUTED, and a test proves it can — a refutation nobody can
 trigger is not one.
 
-The floor it is judged against, 6.424 s, is loose, and both residuals are NEGATIVE by one to three seconds.
-The harness cannot resolve that and this page will not interpret it.
+**This page printed the previous version of that check until a review found it.** The old one tested the
+model against the owner's WAIT and reached it by subtracting a platform-cost term borrowed from the other
+arm; its residuals were −1.715 and −2.628 s against a 6.424 s floor. Both the estimand and the arithmetic
+changed, the artifact changed with them, and this page did not. The citation test that guards these documents
+checks that cited records exist and decode — it says in its own comment that it cannot check whether a number
+in a table came from them, and this is what that gap looks like.
 
 ## It ran on a second node, with the cluster's occupancy held fixed
 

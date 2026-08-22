@@ -1044,6 +1044,16 @@ func checkModel(recs []runRecord) (modelCheck, error) {
 		// It sharpens nothing -- truncation swamps the differential lag in every recorded run -- and that is
 		// not what it is for. It catches the arrival figure going wrong, which is the figure every published
 		// number is built from.
+		// BOTH readings are required, not merely consistent when both happen to be there. ClocksDisagree
+		// answers "no disagreement" for a run carrying only one of them -- which is the honest answer to the
+		// question it was asked and the wrong basis for admitting the run, because a rule stated as "the hold
+		// is read on two clocks" is satisfied by neither reading being checked against anything. A review
+		// found the gap: the check refused two readings that disagreed and never required two to exist.
+		if queuelab.DeviceHoldStampNs(r.Events) == nil {
+			return modelCheck{}, fmt.Errorf("run %q carries no component-stamp reading of the device hold, so "+
+				"its arrival figure was never checked against anything: one of the two endpoints' components "+
+				"published no timestamp, and a hold read on one clock is a hold nothing corroborates", r.RunID)
+		}
 		if runFloor, ok := holdFloorNs([]runRecord{r}); ok {
 			if bad, gap, tol := queuelab.ClocksDisagree(r.Events, runFloor); bad {
 				return modelCheck{}, fmt.Errorf("run %q's two readings of the device hold differ by %s against "+

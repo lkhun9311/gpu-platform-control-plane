@@ -1746,6 +1746,53 @@ func TestARecordCannotAssertDeviceWorkItsMeasurementDoesNotSupport(t *testing.T)
 	}
 }
 
+// The write path cannot produce this pairing, so a document carrying it was hand-edited or written by a build
+// whose observer was misattributing -- and either way it is the exact forgery that matters here.
+//
+// This was reproduced, not imagined: two committed records were edited to deviceUseEstablished:true with kind
+// left at the CPU loop, and `-mode baseline` printed a table with the "device: NOT OBSERVED" banner gone. The
+// axis check above did not catch it, because these records set the axis consistently too -- the contradiction
+// lives entirely between the workload's own two fields.
+//
+// Mutation that turns this red: delete the pairing check from checkValidity.
+func TestARecordCannotClaimDeviceWorkForAWorkloadThatMakesNoDriverCall(t *testing.T) {
+	forged := cpuOnlyWorkload()
+	forged.DeviceUseEstablished = true
+	forged.WhyNot = ""
+	if forged.Kind != cpuOnlyWorkloadKind {
+		t.Fatalf("this fixture only forges anything while the CPU loop is the kind on record, got %q", forged.Kind)
+	}
+	b, err := encodeRecord(runRecord{
+		SchemaVersion: recordSchemaVersion, RunID: "r7", Arm: "A-honor", Dose: "self-completing",
+		Disposition: string(dispChecksPassed),
+		Measurement: &measurement{WastedGPUSeconds: 41.0, Workload: forged},
+		Validity: validity{Verdict: verdictRefused, Failures: []string{failureObservation},
+			DeviceEvidence: deviceWorkObserved},
+	})
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	if _, err := decodeRunRecord(b); err == nil {
+		t.Fatal("a record claimed observed device work for a pure-CPU workload and decoded")
+	}
+
+	// The honest pairing still decodes: refusing both would make the guard indistinguishable from a decoder
+	// that rejects every measurement it is handed.
+	honest, err := encodeRecord(runRecord{
+		SchemaVersion: recordSchemaVersion, RunID: "r7", Arm: "A-honor", Dose: "self-completing",
+		Disposition: string(dispChecksPassed),
+		Measurement: &measurement{WastedGPUSeconds: 41.0, Workload: cpuOnlyWorkload()},
+		Validity: validity{Verdict: verdictRefused, Failures: []string{failureObservation},
+			DeviceEvidence: deviceNotObserved},
+	})
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	if _, err := decodeRunRecord(honest); err != nil {
+		t.Fatalf("the pairing every run on this cluster actually writes was refused: %v", err)
+	}
+}
+
 // The owner's wait requires BOTH admission and execution, and dropping either half is the worst mutation
 // this field admits -- not because the number goes wrong, but because of WHICH number it goes to.
 //

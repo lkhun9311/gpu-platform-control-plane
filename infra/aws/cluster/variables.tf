@@ -31,10 +31,22 @@ variable "node_instance_type" {
 variable "gpu_node_instance_type" {
   description = "Instance type for the GPU managed node group, which runs at desired_size 0 until a session."
   type        = string
-  # One A10G, which is the smallest thing that is a real card rather than a fraction of one. The lab's claims
-  # are about a device being held and released, not about how fast it computes, so a larger instance would buy
-  # nothing the experiment reads and would bill for it by the hour.
-  default = "g5.xlarge"
+  # FOUR T4s, and the count is the requirement rather than a preference.
+  #
+  # The protocol needs TWO devices on ONE node at the same time: the trace runs a1 inside the tenant's quota
+  # and a2-borrow beyond it concurrently, and the lab pins both to a single worker it holds exclusively. Every
+  # recorded run carries requiredGPU 2 against allocatable 2, and qualifyWorker refuses a node that cannot
+  # meet it.
+  #
+  # This was g5.xlarge, which has ONE A10G. A review caught it before any money was spent: the node group
+  # would have provisioned, the first run would have been refused at qualification for a node too small to
+  # measure on, and the bill would already have started. Nothing in terraform can check a Kubernetes-side
+  # requirement, so it is written here where the number is chosen.
+  #
+  # g4dn.12xlarge is the cheapest instance carrying more than one GPU that DCGM supports properly -- Turing,
+  # four T4s. The two spare cards cost nothing the experiment reads; what would cost is a node the run cannot
+  # qualify. Anything with two or more well-supported devices works.
+  default = "g4dn.12xlarge"
 }
 
 variable "tags" {

@@ -562,9 +562,15 @@ func workloadFrom(obs *queuelab.DeviceObservation, podUID string, fromNs, toNs i
 	// device. The axis moved, and the record it produced said in one field that the workload was pure Python
 	// arithmetic and in another that its GPU had been working.
 	//
-	// When the session's workload starts making driver calls, its Kind changes with it and this stops firing.
-	// That coupling is deliberate: the check is keyed to what this build actually submits, so it cannot be
-	// left behind by a workload change.
+	// There is NO automatic seam here, and the comment used to claim one -- that when the session's workload
+	// starts making driver calls its Kind changes with it and this stops firing. Kind is not derived from what
+	// was submitted; it is the literal below. The natural edit when the workload changes is to change that
+	// literal's VALUE, which leaves this guard firing on the genuine GPU workload and refusing every
+	// observation of it. The correct edit is to stop comparing against it, and nothing enforces that.
+	//
+	// So it is written here as an instruction rather than as a mechanism: whoever replaces the workload with
+	// one that makes driver calls must delete this branch in the same change. A review found the false promise
+	// and it is worth more as an admission than as reassurance.
 	if established && w.Kind == cpuOnlyWorkloadKind {
 		established = false
 		why = fmt.Sprintf("an observer reported device work for a %s workload, which makes no driver call: "+
@@ -1265,9 +1271,24 @@ func checkValidity(r runRecord) error {
 		return fmt.Errorf("decode record: the device-evidence axis is %q, which is neither %q nor %q",
 			r.Validity.DeviceEvidence, deviceWorkObserved, deviceNotObserved)
 	}
+	// The bool the axis is derived FROM must itself be consistent with the workload beside it.
+	//
+	// Without this the guard below only checks that the axis matches the bool, and a record with both flipped
+	// is self-consistent and accepted -- which is exactly the forgery the comment used to claim it stopped. A
+	// review demonstrated it against this binary: two committed records edited to say deviceUseEstablished
+	// true and device-work-observed, with kind left at the CPU-only workload, decoded and produced a baseline
+	// with the "device: NOT OBSERVED" banner gone.
+	//
+	// The record persists no device samples, so a full re-derivation is not available here. What IS available
+	// is the contradiction the write path already refuses, and refusing it again on the way in costs nothing.
+	if m := r.Measurement; m != nil && m.Workload.DeviceUseEstablished && m.Workload.Kind == cpuOnlyWorkloadKind {
+		return fmt.Errorf("decode record: the record claims device work for a %s workload, which makes no "+
+			"driver call; the write path refuses that pairing and a document carrying it was either "+
+			"hand-edited or produced by a build whose observer was misattributing", cpuOnlyWorkloadKind)
+	}
 	// The axis is derived, so a document may not assert one its own evidence does not produce. This is the
-	// check that stops a record claiming device work on the strength of a hand-edited field, which is the
-	// only way the value could appear at all in a build with no observer.
+	// check that stops the axis and the bool drifting apart; the pairing above is what stops both being
+	// flipped together.
 	if want := deviceEvidenceOf(r.Measurement); want != r.Validity.DeviceEvidence {
 		return fmt.Errorf("decode record: the record claims device evidence %q while its own measurement "+
 			"supports %q; an axis that cannot be re-derived from the evidence beside it is an assertion",
