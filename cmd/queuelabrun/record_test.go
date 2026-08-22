@@ -2414,3 +2414,72 @@ func TestTheDeviceEvidenceMustAnswerTheLedgersQuestion(t *testing.T) {
 		})
 	}
 }
+
+// A row that was preempted, re-executed and then finished discarded the preempted attempt's work.
+//
+// The filter used to credit the whole ROW on seeing a Completed event and exclude every attempt belonging to
+// it, so exactly the case this lab exists to measure — work thrown away by a preemption — reported zero.
+// The number would have been published as "no work was lost" on a run where a full attempt was.
+//
+// It is invisible in every committed record because the horizon ends before a re-executed row completes.
+// That is a property of a 60-second victim on a quiet kind cluster, not of the measurement, and it would
+// stop holding on hardware where runs are longer and contention makes re-execution ordinary.
+//
+// Mutation that turns this red: credit by job again, or credit the FIRST stop instead of the last.
+func TestAReExecutedRowStillDiscardsTheAttemptItLost(t *testing.T) {
+	stop := func(job, uid string, at int64, iters int, reason string) queuelab.LifecycleEvent {
+		n := iters
+		return queuelab.LifecycleEvent{
+			Job: job, ObjectUID: uid, Type: queuelab.EventAttemptStopped,
+			ElapsedNs: at, Iterations: &n, Reason: reason,
+		}
+	}
+	completed := func(job string, at int64) queuelab.LifecycleEvent {
+		return queuelab.LifecycleEvent{Job: job, Type: queuelab.EventCompleted, ElapsedNs: at}
+	}
+
+	// The preempted attempt's 900 iterations are gone; the 1200 that finished the row are not.
+	got := discardedIterations([]queuelab.LifecycleEvent{
+		stop(queuelab.VictimRow, "first", 10_000_000_000, 900, "Failed"),
+		stop(queuelab.VictimRow, "second", 50_000_000_000, 1200, "Succeeded"),
+		completed(queuelab.VictimRow, 51_000_000_000),
+	})
+	if got == nil {
+		t.Fatal("a ledger carrying two stopped attempts reported no count at all")
+	}
+	if *got != 900 {
+		t.Fatalf("discarded = %d, want 900: the re-executed row's first attempt lost its work and the "+
+			"second's was credited", *got)
+	}
+
+	// The two streams can be delivered in either order, so the credit must not depend on Completed arriving
+	// after the attempt's terminal phase. Keying on "the last stop at or before Completed" would credit
+	// nothing here and discard the successful attempt's work as well.
+	got = discardedIterations([]queuelab.LifecycleEvent{
+		stop(queuelab.VictimRow, "first", 10_000_000_000, 900, "Failed"),
+		completed(queuelab.VictimRow, 49_000_000_000),
+		stop(queuelab.VictimRow, "second", 50_000_000_000, 1200, "Succeeded"),
+	})
+	if got == nil || *got != 900 {
+		t.Fatalf("discarded = %v with Completed delivered before the attempt's stop; the credit must not "+
+			"depend on the order two watches deliver in", got)
+	}
+
+	// The shapes that must not move. A row that never completed discards everything, including a container
+	// that exited zero — the self-completing victim does exactly that and is re-executed from zero anyway.
+	got = discardedIterations([]queuelab.LifecycleEvent{
+		stop(queuelab.VictimRow, "only", 10_000_000_000, 900, "Succeeded"),
+	})
+	if got == nil || *got != 900 {
+		t.Fatalf("discarded = %v for a row that never completed; a zero exit is not a credit, which is the "+
+			"whole reason this reads the ledger rather than the exit code", got)
+	}
+	got = discardedIterations([]queuelab.LifecycleEvent{
+		stop(queuelab.OwnerRow, "only", 90_000_000_000, 25973, "Succeeded"),
+		completed(queuelab.OwnerRow, 91_000_000_000),
+	})
+	if got == nil || *got != 0 {
+		t.Fatalf("discarded = %v for a row that ran straight through; counting its work as thrown away is "+
+			"the defect this filter was added for", got)
+	}
+}

@@ -1179,6 +1179,24 @@ type recordIdentity struct {
 // suspended Job's finished attempt. Reading the exit code instead would call that work saved when the whole
 // experiment is about it being lost.
 //
+// The credit is per ATTEMPT and not per row, which is the correction a review forced. It used to mark the
+// whole job credited on seeing a Completed event and then exclude every attempt belonging to it -- so a row
+// that was preempted, re-executed and then finished reported ZERO discarded work, when the preempted
+// attempt's iterations were thrown away exactly as the experiment says. That is the case this lab is about,
+// reported as its own opposite.
+//
+// It is invisible in every committed record because none has a re-executed row that later completed: the
+// horizon ends first. It would not stay invisible on hardware, where runs are longer and contention makes
+// re-execution ordinary, and the decoder's claim that every headline figure follows from the ledger was not
+// generally true for this one.
+//
+// The credited attempt is the LAST stop of a completed row rather than the last stop at or before the
+// Completed event, and the difference is watch ordering. Completed arrives on the Workload or Job stream and
+// the attempt's terminal phase on the Pod stream, so the two can be delivered in either order; keying on
+// "at or before" would credit nothing on a run where Completed arrived first, and discard the successful
+// attempt's work as well. A row completes when its final attempt succeeds and no further attempt runs after
+// that, so the last stop is the credited one however the two streams interleave.
+//
 // Counted off the LEDGER rather than off the reconstruction, because the ledger is what the record persists:
 // a number derived from anything the document does not carry could not be re-derived by a reader holding it.
 func discardedIterations(events []queuelab.LifecycleEvent) *int {
@@ -1188,15 +1206,26 @@ func discardedIterations(events []queuelab.LifecycleEvent) *int {
 			credited[e.Job] = true
 		}
 	}
+	// The one attempt per credited row whose work was kept: its last stop.
+	lastStop := make(map[string]int)
+	for i, e := range events {
+		if e.Type != queuelab.EventAttemptStopped || e.Iterations == nil || !credited[e.Job] {
+			continue
+		}
+		if prev, ok := lastStop[e.Job]; !ok || e.ElapsedNs >= events[prev].ElapsedNs {
+			lastStop[e.Job] = i
+		}
+	}
 	total, seen := 0, false
-	for _, e := range events {
+	for i, e := range events {
 		if e.Type != queuelab.EventAttemptStopped || e.Iterations == nil {
 			continue
 		}
 		seen = true
-		if !credited[e.Job] {
-			total += *e.Iterations
+		if kept, ok := lastStop[e.Job]; ok && kept == i {
+			continue
 		}
+		total += *e.Iterations
 	}
 	if !seen {
 		return nil
