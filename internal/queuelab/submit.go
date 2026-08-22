@@ -56,8 +56,31 @@ const WorkloadImage = "python:3.12-slim@sha256:2c941e860699f878900b0edc2403613c2
 // the device path adds nothing to the image at all. The kernel is PTX loaded with cuModuleLoadData and
 // JIT-compiled by the driver, which is the same mechanism Numba and PyTorch's JIT paths use.
 //
-// The PTX was compiled with ptxas for sm_50, sm_75 and sm_89 before it shipped. That check runs without a
-// GPU, and it is the difference between a session that fails on a typo and one that does not.
+// The PTX is compiled by TestTheEmbeddedPTXCompiles, which shells out to ptxas when one is on PATH. That
+// check runs without a GPU and is the difference between a session that fails on a typo and one that does
+// not. It used to be a claim in this comment with no check anywhere in the repository, which a review found:
+// the one verification the file named as available without hardware was the one it did not have.
+//
+// The target is sm_75 -- Turing, which is the T4 in the instance type this study rents -- and not a lower
+// floor. CUDA 13 dropped Maxwell and Pascal outright, so a driver from that generation refuses a
+// .target sm_50 module even when the physical card is newer. A compatibility floor below the oldest card
+// this lab could plausibly rent buys nothing and can only refuse.
+//
+// .version travels WITH the target and cannot be left behind: ISA 6.0 is CUDA 9.0 and predates Turing, so
+// `.version 6.0 / .target sm_75` is rejected outright with "does not support". That pairing shipped for
+// several minutes, and the ptxas test below is what found it -- which is the argument for the test rather
+// than for the comment that used to stand in its place.
+//
+// The kernel arguments are BOUND INTO the launch closure, and that default argument is load-bearing rather
+// than style. kernelParams is an array of raw addresses: ctypes copies the integer and keeps no reference,
+// and the closure captures only the names it mentions. Without the binding, buf and inner are freed the
+// moment cuda() returns, and every launch in the loop dereferences reclaimed memory -- while the FIRST
+// launch, the one inside cuda() that sets dev="ok", succeeds because they are still alive. So the workload
+// would report a healthy device path and then either abort with an illegal address or, worse, run with a
+// garbage iteration count: one launch doing a hundred thousand times the intended work blocks
+// cuCtxSynchronize past the grace period with the GIL released, which makes the HONOURING arm miss its
+// SIGTERM and exit 137 like the ignoring one. That inverts the study's only experimental axis. Demonstrated
+// with a control before it was fixed, and TestTheKernelArgumentsOutliveTheirBuilder is the regression.
 //
 // It stays runnable with NO device, and that is forced rather than chosen: the termination canary strips the
 // GPU limit from its probe Pods so they can schedule on a node whose devices are spoken for, and a workload
@@ -92,8 +115,8 @@ const WorkloadImage = "python:3.12-slim@sha256:2c941e860699f878900b0edc2403613c2
 const workloadScript = `import ctypes,signal,sys,time
 seconds=float(sys.argv[1]); honor=sys.argv[2]=="honor"
 n=0; kind="cpu-float"; dev="not-attempted"
-PTX=b""".version 6.0
-.target sm_50
+PTX=b""".version 6.3
+.target sm_75
 .address_size 64
 .visible .entry burn(.param .u64 p, .param .u32 iter)
 {
@@ -140,6 +163,11 @@ def cuda():
         dev=tag; return True
     try: lib=ctypes.CDLL("libcuda.so.1")
     except Exception: dev="no-libcuda"; return None
+    lib.cuMemAlloc_v2.argtypes=[ctypes.POINTER(ctypes.c_ulonglong),ctypes.c_size_t]
+    lib.cuMemsetD32_v2.argtypes=[ctypes.c_ulonglong,ctypes.c_uint,ctypes.c_size_t]
+    lib.cuLaunchKernel.argtypes=[ctypes.c_void_p,ctypes.c_uint,ctypes.c_uint,ctypes.c_uint,
+        ctypes.c_uint,ctypes.c_uint,ctypes.c_uint,ctypes.c_uint,ctypes.c_void_p,
+        ctypes.POINTER(ctypes.c_void_p),ctypes.c_void_p]
     if bad(lib.cuInit(0),"cuinit-failed"): return None
     d=ctypes.c_int(0)
     if bad(lib.cuDeviceGet(ctypes.byref(d),0),"no-device"): return None
@@ -155,7 +183,7 @@ def cuda():
     inner=ctypes.c_uint(20000)
     args=(ctypes.c_void_p*2)(ctypes.cast(ctypes.byref(buf),ctypes.c_void_p),
                              ctypes.cast(ctypes.byref(inner),ctypes.c_void_p))
-    def launch():
+    def launch(_keep=(buf,inner,args,mod,ctx)):
         rc=lib.cuLaunchKernel(fn,1024,1,1,256,1,1,0,None,args,None)
         return rc if rc!=0 else lib.cuCtxSynchronize()
     if bad(launch(),"launch-failed"): return None

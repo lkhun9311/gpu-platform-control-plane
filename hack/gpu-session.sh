@@ -43,8 +43,15 @@ if [[ -z "$POD" ]]; then
   exit 1
 fi
 
+# The container is named "exporter" (the DAEMONSET is named dcgm-exporter). This queried the daemonset's
+# name for its container's, matched nothing, and exited one line later -- on every real deployment, as the
+# first command of the session. It passed a stand-in check only because the stand-in was written to match
+# this script instead of the manifest, which is the failure of building the fixture to fit the code.
+#
+# The name is taken from the manifest rather than hardcoded again, so the two cannot drift apart silently.
+CONTAINER="$(kubectl get pod -n "$NS" "$POD" -o jsonpath='{.spec.containers[0].name}')"
 OBSERVER="$(kubectl get pod -n "$NS" "$POD" \
-  -o jsonpath='{.status.containerStatuses[?(@.name=="dcgm-exporter")].imageID}')"
+  -o jsonpath="{.status.containerStatuses[?(@.name==\"$CONTAINER\")].imageID}")"
 if [[ -z "$OBSERVER" ]]; then
   echo "the exporter pod $POD reports no imageID, so nothing can name what produced its numbers." >&2
   exit 1
@@ -82,5 +89,23 @@ fi
 
 echo "route up     : $URL"
 echo
-exec ./queuelabrun -device-preflight -worker "$WORKER" \
+
+# NOT exec. exec replaces this shell, which destroys the EXIT trap above -- so the comment promising the
+# forward is torn down on every path described the opposite of what the code did, and the forward was left
+# either orphaned or dying with the runner.
+#
+# The exit status is carried through deliberately: a caller scripting the session reads it, and the whole
+# point of this mode is that its status decides whether the protocol runs.
+set +e
+./queuelabrun -device-preflight -worker "$WORKER" \
   -device-metrics "$URL" -device-observer "$OBSERVER" "$@"
+STATUS=$?
+set -e
+if [[ $STATUS -eq 0 ]]; then
+  echo
+  echo "the route is torn down with this script. For the runs, hold it open in another shell:"
+  echo "  kubectl port-forward -n $NS pod/$POD ${LOCAL_PORT}:9400"
+  echo "and pass to each run:"
+  echo "  -device-metrics $URL -device-observer $OBSERVER"
+fi
+exit $STATUS

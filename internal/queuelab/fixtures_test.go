@@ -17,6 +17,7 @@ limitations under the License.
 package queuelab
 
 import (
+	corev1 "k8s.io/api/core/v1"
 	"strings"
 	"testing"
 
@@ -117,11 +118,19 @@ func TestFixtureNamesAreUniquePerRun(t *testing.T) {
 	if len(a.Flavor.Spec.NodeTaints) != 1 || a.Flavor.Spec.NodeTaints[0].Value != runA {
 		t.Fatalf("flavor should taint the dedicated worker for the run, got %v", a.Flavor.Spec.NodeTaints)
 	}
-	if len(a.Flavor.Spec.Tolerations) != 1 || a.Flavor.Spec.Tolerations[0].Value != runA {
-		t.Fatalf("flavor should tolerate its own worker taint, got %v", a.Flavor.Spec.Tolerations)
+	// The worker toleration must be PRESENT, not the only one. The count used to be pinned at 1, which broke
+	// the moment the flavour also had to tolerate the GPU node group's own nvidia.com/gpu taint -- a
+	// toleration whose absence left every trace Pod Pending on real hardware. What matters here is that the
+	// taint this flavour applies is one this flavour tolerates; how many others it carries is not this
+	// test's business.
+	var worker *corev1.Toleration
+	for i := range a.Flavor.Spec.Tolerations {
+		if a.Flavor.Spec.Tolerations[i].Key == a.Flavor.Spec.NodeTaints[0].Key {
+			worker = &a.Flavor.Spec.Tolerations[i]
+		}
 	}
-	if a.Flavor.Spec.NodeTaints[0].Key != a.Flavor.Spec.Tolerations[0].Key {
-		t.Fatalf("taint and toleration keys must match for admitted pods to schedule")
+	if worker == nil || worker.Value != runA {
+		t.Fatalf("flavor should tolerate its own worker taint, got %v", a.Flavor.Spec.Tolerations)
 	}
 	// Lab objects must be labelled for the reset audit.
 	if a.ClusterQueue[0].Labels[runLabel] != runA {

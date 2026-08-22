@@ -74,6 +74,31 @@ spec:
             # the manifest and internal/queuelab/dcgm.go describing the same thing.
             - "-f"
             - "/etc/dcgm-exporter/queuelab-metrics.csv"
+            # Collect once a second. The default is 30000 ms, and dcgm-exporter serves a CACHED snapshot
+            # between collections -- so at the default a scrape every 500 ms buys sixty copies of one
+            # reading, an eight-second preflight can miss every collection entirely, and the pod-to-device
+            # mapping inside a served snapshot can be half a minute stale against a stale-label margin of
+            # four seconds. Every one of those reads as a device fault.
+            #
+            # It must stay under internal/queuelab/device.go's maxObserverGap for the same reason the
+            # scrape interval must: a collection slower than the gap a run may blink through cannot cover
+            # the interval it is asked about.
+            - "-c"
+            - "1000"
+          env:
+            # WITHOUT THIS THE EXPORTER EMITS NO POD LABELS AT ALL, and every gate downstream reads that as
+            # an idle or absent card.
+            #
+            # The kubernetes mapping defaults to OFF. Mounting the kubelet's pod-resources socket is
+            # necessary and not sufficient -- this is what makes the exporter open it. ParseDCGMUtilisation
+            # skips every sample whose pod label is empty, so a fully healthy exporter reporting 100%
+            # utilisation would produce zero attributable samples and the preflight would say the observer
+            # could not attribute, sending an operator after the driver.
+            #
+            # The header of this file used to claim the socket mount was where the labels came from. It is
+            # where they are READ from; this is what turns them on.
+            - name: DCGM_EXPORTER_KUBERNETES
+              value: "true"
           ports:
             - name: metrics
               containerPort: 9400

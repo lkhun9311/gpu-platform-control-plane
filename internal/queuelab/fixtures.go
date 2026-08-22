@@ -270,6 +270,29 @@ func labResourceFlavor(id FixtureIdentity, study Study, variant string) *kueuev1
 				Operator: corev1.TolerationOpEqual,
 				Value:    id.RunID,
 				Effect:   corev1.TaintEffectNoSchedule,
+			}, {
+				// The GPU node group taints itself nvidia.com/gpu=present:NoSchedule to keep ordinary
+				// workloads off an expensive machine (infra/aws/cluster/eks.tf). Nothing else in this
+				// repository tolerates it: BuildJob adds no tolerations, MLTrainingJobSpec has no field for
+				// them, and the ownership taint is APPENDED to the node's existing ones rather than
+				// replacing them.
+				//
+				// Without this entry every trace Pod on a real GPU node stays Pending, and the failure is
+				// quiet in the worst way: Kueue checks a podset's tolerations against the FLAVOR's declared
+				// taints, not the node's real ones, so the Workload is admitted, the Job unsuspends, the
+				// ledger records Admitted -- and then the scheduler refuses the Pod. The run dies at a
+				// barrier with a desync, deterministically, in every arm.
+				//
+				// Neither gate would have caught it. The termination canary and the device preflight both
+				// build their Pods through probePodFrom, which sets spec.nodeName and bypasses the
+				// scheduler entirely; NoSchedule is a scheduler predicate, not a kubelet admission check.
+				// So both would report the node healthy and only the run itself would fail.
+				//
+				// It costs no canary re-take: flavour tolerations are injected by Kueue at admission and
+				// are not part of the Pod template podTemplateHashOf fingerprints.
+				Key:      "nvidia.com/gpu",
+				Operator: corev1.TolerationOpExists,
+				Effect:   corev1.TaintEffectNoSchedule,
 			}},
 		},
 	}
