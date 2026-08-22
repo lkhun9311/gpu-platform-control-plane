@@ -734,9 +734,26 @@ func TestTheModelClaimsConsistencyRatherThanValidation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("model: %v", err)
 	}
-	if !strings.Contains(m.Statement, "consistency, not validation") {
+	if !strings.Contains(m.Statement, "consistency") || strings.Contains(m.Statement, "VALIDATED") {
 		t.Fatalf("the statement overclaims what two runs per cell, evaluated on themselves, support: %s",
 			m.Statement)
+	}
+	// The two retractions a review forced, each defended here so the statement cannot slide back.
+	//
+	// The control is a few tens of milliseconds against a floor of seconds, so it is UNRESOLVED. The
+	// statement used to say it "shows the interval contains no platform work", which is exactly the
+	// inversion resolution.go exists to prevent: "the harness cannot see this" printed as "the harness
+	// measured this". The whole model chain rests on that one figure.
+	if !strings.Contains(m.Statement, "unresolved") {
+		t.Fatalf("the control is printed without saying it is below the floor, so a reader takes a number "+
+			"this harness cannot resolve as a measured near-zero: %s", m.Statement)
+	}
+	// And the self-completing cell's prediction is built from its own achieved dose, so its residual reduces
+	// to an instrumentation offset -- every term of the rule cancels out of it. A statement that presents it
+	// as a test of min(remaining service, grace) is claiming a cell that cannot refute anything.
+	if !strings.Contains(m.Statement, "instrumentation offset") {
+		t.Fatalf("the statement presents the self-completing cell as a test of the rule, when its prediction "+
+			"is built from the same run's own timings: %s", m.Statement)
 	}
 }
 

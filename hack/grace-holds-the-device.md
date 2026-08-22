@@ -27,7 +27,11 @@ in the `grace-bounded` regime:
 | grace-bounded | quota owner running after admission | 2.180 s | 31.213 s | **29.0 s** | 5.906 s |
 | grace-bounded | borrower discarded | 20.895 GPU-s | 50.904 GPU-s | 30.0 s | 5.906 s |
 
-Both differences are the grace period, recovered from the experiment rather than assumed by it, over four
+Both differences are **consistent with** the configured grace period — not a recovery of it, which is what
+this line used to claim. The value is a compiled constant on both sides: the harness sets it on the Pods and
+uses the same constant to build the regimes, so a difference landing near thirty seconds is a value read
+back rather than discovered. What the runs establish is that the difference is far larger than the floor and
+falls where the configured value predicts. That is over four
 interleaved runs with an exclusive-worker window, a termination canary, continuous list/watch observation and
 a containment audit behind each one, and reproduced on a second worker node with the cluster's occupancy
 held fixed (0.476 s apart under the honouring arm, against a 5.860 s floor).

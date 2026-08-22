@@ -955,19 +955,38 @@ type modelCheck struct {
 	Protocol modelProtocol `json:"protocol"`
 	// ControlHoldSeconds is the honouring arm's own hold, and it is a CONTROL rather than a correction.
 	//
-	// Nothing is subtracted from anything. What it establishes is that the interval contains no platform work:
-	// when the borrower honours the signal the hold collapses to a few tens of milliseconds, so a hold of
-	// thirty seconds in the other arm is the borrower's, not the scheduler's.
+	// Nothing is subtracted from anything. It is a few tens of milliseconds, and a review established that
+	// this figure is BELOW THIS HARNESS'S OWN RESOLUTION by more than an order of magnitude: the per-run
+	// floor for the hold's endpoints is around a second, and the control is around forty milliseconds.
+	//
+	// So it does not establish that the interval contains no platform work, and the earlier version of this
+	// comment and of the printed statement said it did. What it establishes is weaker and still worth
+	// printing: the honouring arm's hold is UNRESOLVED, somewhere in [0, floor], while the ignoring arm's is
+	// thirty seconds -- a difference far larger than the floor. The thirty seconds are the borrower's rather
+	// than the scheduler's because the two arms differ by nothing except whether the victim honours the
+	// signal, not because the control was measured to be small.
+	//
+	// The inversion this avoids is named in resolution.go: turning "the harness cannot see this" into "the
+	// harness measured this". It happened here, in the one figure the model check's whole chain rests on.
 	ControlHoldSeconds float64     `json:"controlHoldSeconds"`
 	ControlRuns        int         `json:"controlRuns"`
 	Cases              []modelCase `json:"cases"`
 	// Contrast is the difference BETWEEN the regimes, and it is the only part of this check that tests the
 	// model's kink rather than its levels.
 	//
-	// Each level can be fitted by a rule that just happens to land there; the contrast cannot. min() says the
-	// hold follows remaining service on one side of the grace period and stops following it on the other, so
-	// the gap between the two regimes must equal grace minus the shorter remaining service — a prediction that
-	// no term common to both regimes can move, because it cancels.
+	// min() says the hold follows remaining service on one side of the grace period and stops following it on
+	// the other, so the gap between the two regimes must equal grace minus the shorter remaining service.
+	//
+	// It is NOT independent evidence, and the earlier version of this comment implied it was. The contrast
+	// residual is identically the difference of the two case residuals -- observed and predicted are both
+	// differences of the same two cells -- so it carries no degree of freedom the levels do not, and it is
+	// already constrained to twice the floor before any datum is read.
+	//
+	// What cancels is a confound that is ADDITIVE and the same in both regimes. A dose-dependent one does
+	// not: the two predictions are not symmetric, one being a compiled constant and the other a measured
+	// achieved dose, so the self-completing cell's instrumentation offset enters the contrast with a single
+	// sign. The contrast's real content is insensitivity to a common additive bias, which is worth having
+	// and is less than "the test the model cannot pass by accident".
 	Contrast     *modelContrast `json:"contrast,omitempty"`
 	FloorSeconds float64        `json:"floorSeconds"`
 	Bounded      bool           `json:"bounded"`
@@ -1166,10 +1185,14 @@ func checkModel(recs []runRecord) (modelCheck, error) {
 		// CONTRAST between the regimes, which nothing common to them can move, lands where the kink says.
 		m.Statement = fmt.Sprintf("the device hold in every regime is CONSISTENT WITH held = min(remaining "+
 			"service, %d s grace), to within the %.3f s floor and with nothing subtracted from anything. The "+
-			"honouring arm holds the device for %.3f s over %d runs, which is what shows the interval contains "+
-			"no platform work: a thirty-second hold in the other arm is the borrower's and not the scheduler's. "+
-			"Two runs per cell, evaluated on the runs that produced them -- this is consistency, not validation",
-			terminationGraceSec, m.FloorSeconds, m.ControlHoldSeconds, m.ControlRuns)
+			"honouring arm's hold over %d runs measures %.3f s, which is far BELOW this floor and is therefore "+
+			"unresolved -- it lies somewhere in [0, %.3f s], and reading it as a measured near-zero would be "+
+			"the inversion this harness's resolution rule exists to prevent. What the arms support is that "+
+			"their difference is far larger than the floor. Two runs per cell, evaluated on the runs that "+
+			"produced them; the self-completing cell's prediction is built from its own achieved dose, so its "+
+			"residual is an instrumentation offset rather than a test of the rule -- this is consistency, and "+
+			"weaker than validation",
+			terminationGraceSec, m.FloorSeconds, m.ControlRuns, m.ControlHoldSeconds, m.FloorSeconds)
 	default:
 		m.Statement = fmt.Sprintf("REFUTED: at least one regime's device hold falls outside the %.3f s floor "+
 			"of what held = min(remaining service, %d s grace) predicts", m.FloorSeconds, terminationGraceSec)

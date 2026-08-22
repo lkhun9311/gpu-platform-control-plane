@@ -210,12 +210,22 @@ assert.
    rests on it, and a real workload's shutdown may not be prompt the way a Python loop's is: a training step
    with a kernel in flight cannot stop the way the termination canary's probe stopped in 1.2 seconds.
 
-2. **The ignoring arm's owner wait stops matching `min(remaining service, grace)`.**
+2. **The device hold stops matching `min(remaining service, grace)`.**
 
        queuelabrun -compare '<session records>' -mode model
 
-   Refuted when it prints REFUTED — that is, when either regime's residual falls outside the floor, after
-   the honouring arm's own restoration cost is subtracted. The two regimes put the victim on opposite sides
+   Refuted when it prints REFUTED — that is, when either regime's residual falls outside the floor. Nothing
+   is subtracted from anything, and this condition previously said the opposite: it named the owner's WAIT
+   as the estimand and required the honouring arm's restoration cost to be subtracted from it. That is the
+   check this lab retracted, described in the one document whose job is to be exact in advance. The
+   estimand has been the device hold since the retraction; the falsification criterion had not caught up.
+
+   Two things about this condition are weaker than they read, and both were found by review rather than
+   confessed here first. The self-completing regime's prediction is built from its own achieved dose, so
+   its residual reduces to an instrumentation offset and that cell cannot refute the rule. And every
+   refutation reachable on a qualified node — a residual exceeding roughly three seconds — would be a
+   control-plane latency fault, printed as a refutation of the termination contract. The channel is real
+   and it is mislabelled. The two regimes put the victim on opposite sides
    of the grace period, so one rule has to predict a 30-second hold in one and a 20-second hold in the other;
    a model fitted to either alone misses the other by ten seconds. If the device is returned at some later
    driver event rather than at container exit, this is where it shows.
@@ -236,10 +246,13 @@ do and a confirmation changes nothing.
 
 ## The first sixty seconds on the node
 
-    $ queuelabrun -device-preflight -worker <gpu-node>
-    DEVICE USABLE: on <gpu-node> the workload loaded its PTX through the CUDA driver and completed
-    1200 kernel launches in 8 s. A run on this node can establish device work, given an observer that
-    covers the hold.
+On a node with a working card the preflight passes and prints, from
+`cmd/queuelabrun/device_preflight.go`, a line beginning `DEVICE USABLE:` with the launch count and the
+duration. **This page previously printed that line as a transcript, under a `$` prompt, with wording the
+tool cannot produce** — an extra clause naming the node and a second sentence that appears nowhere in the
+tree. No GPU has run this, which the page said; what it did not say is that the quotation was invented and
+attributed to the tool. It is gone rather than corrected, because a transcript of a run that has not
+happened is not a transcript however accurately it is worded.
 
 Run this before the protocol, and read its exit status. It takes one Pod and about a minute, and it answers
 the one question that decides whether the session produces a number or a receipt.

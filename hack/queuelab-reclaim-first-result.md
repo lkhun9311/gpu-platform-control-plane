@@ -93,8 +93,18 @@ failure mode.
 
 **The grace-bounded difference is the strongest number this lab has produced.** Thirty seconds of discarded
 work between the arms and 29.0 seconds of the owner's waiting, against a 5.906 second floor, over four
-interleaved runs. That difference IS the termination grace period, recovered from the experiment rather than
-assumed by it.
+interleaved runs.
+
+**This sentence used to end "that difference IS the termination grace period, recovered from the experiment
+rather than assumed by it", and that was false.** The grace period is not recovered here; it is compiled in
+on both sides. `internal/queuelab/trace.go` sets `terminationGraceSec` on the Pods and
+`cmd/queuelabrun/spine.go` uses the same constant to build the horizon and the regimes, so a difference
+landing near thirty seconds is the harness reading back a value it set. What the runs support is that the
+difference is **consistent with** the configured grace period and far larger than the floor — which is worth
+having, and is a weaker claim than an independent measurement of a platform constant.
+
+The nearest thing to a direct measurement of the grace period in this repository is the termination canary,
+which records how long the ignoring probe outlasted its deletion. It is not the number quoted above.
 
 And it is no longer only a difference. `-mode model` turns the claim into arithmetic and tests both regimes
 against one rule:
@@ -102,10 +112,14 @@ against one rule:
     $ queuelabrun -compare 'ex/e17-self-completing-*.json,ex/e17-grace-bounded-*-e17g??.json' -mode model
     ===== MODEL: held = min(remaining service, grace), tested on the DEVICE HOLD =====
     the device hold in every regime is CONSISTENT WITH held = min(remaining service, 30 s grace), to
-    within the 2.940 s floor and with nothing subtracted from anything. The honouring arm holds the
-    device for 0.041 s over 4 runs, which is what shows the interval contains no platform work: a
-    thirty-second hold in the other arm is the borrower's and not the scheduler's. Two runs per cell,
-    evaluated on the runs that produced them -- this is consistency, not validation
+    within the 2.940 s floor and with nothing subtracted from anything. The honouring arm's hold over
+    4 runs measures 0.041 s, which is far BELOW this floor and is therefore unresolved -- it lies
+    somewhere in [0, 2.940 s], and reading it as a measured near-zero would be the inversion this
+    harness's resolution rule exists to prevent. What the arms support is that their difference is far
+    larger than the floor. Two runs per cell, evaluated on the runs that produced them; the
+    self-completing cell's prediction is built from its own achieved dose, so its residual is an
+    instrumentation offset rather than a test of the rule -- this is consistency, and weaker than
+    validation
       protocol: victimService=60s grace=30s
       control: the honouring arm held the device 0.041 s over 4 runs (nothing is subtracted)
       grace-bounded    dose declared=20s achieved=20.731 -> remaining=39.269 binds on termination grace
@@ -114,11 +128,32 @@ against one rule:
         predicted=19.263 observed=18.512 residual=-0.751 INSIDE (n=2)
       CONTRAST self-completing -> grace-bounded: predicted=10.737 observed=11.542 residual=+0.805 INSIDE
         (the kink; anything common to both regimes cancels here)
+      residuals judged against a 2.940 s floor, restricted to the hold's own endpoints (the owner's
+        admission and the victim's stop) rather than pooled over every event kind
 
 The two regimes put the victim on opposite sides of the grace period, so the same rule has to predict a
 thirty-second hold in one and a nineteen-second hold in the other. A model fitted to either alone would miss
 the other by eleven seconds. It can also print REFUTED, and a test proves it can — a refutation nobody can
 trigger is not one.
+
+**Three qualifications a review forced, none of which this page arrived at on its own.**
+
+The self-completing cell tests nothing. Its prediction is `victimService − achievedDose`, and the achieved
+dose is measured from the same run's own events, so expanding the algebra cancels `min`, the grace period
+and preemption alike: what remains is the victim's observed Ready-to-terminal span minus its declared
+service, plus the owner's submit-to-admit latency. The published `residual=-0.751` reconstructs exactly that
+way from the two records. It is an instrumentation offset printed under the heading of a model test.
+
+The CONTRAST is not independent of the two levels. Both its predicted and observed values are differences of
+the same two cells, so its residual is identically `+0.054 − (−0.751) = +0.805` — no new degree of freedom,
+and already bounded by twice the floor before any datum is read. "Anything common to both regimes cancels"
+holds for an ADDITIVE, dose-invariant confound and not for a dose-dependent one, and the two predictions are
+asymmetric — one a compiled constant, one a measurement — so the self-completing cell's offset enters the
+contrast with a single sign.
+
+Every refutation reachable on a qualified node is a latency fault. Both regimes require a residual above
+about three seconds, which on this cluster means Kueue's admit-after-preempt lag or the delete-to-terminal
+chain blowing out. That would be printed as a refutation of the termination contract, which it is not.
 
 **This page printed the previous version of that check until a review found it.** The old one tested the
 model against the owner's WAIT and reached it by subtracting a platform-cost term borrowed from the other

@@ -19,7 +19,7 @@ longer than the Pod's termination grace period?**
 
 ## Result
 
-Twelve runs at record schema 16, on two worker nodes with the cluster's occupancy held fixed, arm and regime
+Twelve runs at record schema 18, on two worker nodes with the cluster's occupancy held fixed, arm and regime
 and node all interleaved. Grace period is the Kubernetes default, 30 seconds — verified per node by a
 termination canary rather than assumed.
 
@@ -39,19 +39,33 @@ which adds scheduling and container start on top. An earlier version of this pag
     self-completing  binds on remaining service  predicted=19.263 observed=18.512 residual=-0.751 INSIDE
     CONTRAST self-completing -> grace-bounded: predicted=10.737 observed=11.542 residual=+0.805 INSIDE
 
-**The grace-bounded hold is the grace period to within seventeen milliseconds, four times, on two machines.**
-The honouring arm holds the device for forty-five milliseconds, which is what makes the other figure the
-borrower's rather than the scheduler's: nothing is subtracted from anything.
+**The grace-bounded hold lands within 60 ms of the configured grace period on four runs across two
+machines, and reproduces to 17 ms within a cell.** Those are two different figures and this line used to
+conflate them: 17 ms is the run-to-run SPREAD, and the deviation from 30.000 is 40–57 ms.
 
-Note that "remaining service" above is 18.9 and 38.8 rather than the declared 20 and 40. The schedule gates
-the owner on a two-second poll, so every run overran its declared dose by about 1.2 seconds. The prediction
-uses what the run achieved; the page used to use what it declared.
+Neither is an accuracy statement. This harness's floor for the hold's own endpoints is about a second per
+run, so by its own rule — `internal/queuelab/resolution.go`: "a difference smaller than this is not a small
+effect, it is an effect this harness cannot see" — the honest reading is 30.05 ± 1.05 s, which is equally
+consistent with a 29- or 31-second grace period. Tight reproducibility against a loose bound is precision,
+not accuracy, and `hack/gpu-session-preregistration.md` names that move and disavows it. This page was
+committing it.
+
+The honouring arm's hold is 41 ms over the four runs the model check reads, and it is **below the floor and
+therefore unresolved**: it lies somewhere in [0, 2.94 s]. It is not evidence that the interval contains no
+platform work — the tool used to print that and no longer does. What makes the thirty seconds the
+borrower's rather than the scheduler's is that the two arms differ by nothing except whether the victim
+honours the signal.
+
+Note that "remaining service" above is 19.3 and 39.3 rather than the declared 20 and 40. The schedule gates
+the owner on a two-second poll, so every run overran its declared dose by about 0.73 seconds — the page said
+1.2 seconds, from a record set that has been replaced twice since. The prediction uses what the run
+achieved; the page used to use what it declared.
 
 The ledger shows the mechanism directly:
 
     self-completing, ignoring   owner admitted  ->  victim stopped   18.5 s  (its own service ended)
-    grace-bounded,  ignoring    owner admitted  ->  victim stopped   30.1 s  (the grace period, exactly)
-    either regime,  honouring   owner admitted  ->  victim stopped   0.041 s (it stopped when asked)
+    grace-bounded,  ignoring    owner admitted  ->  victim stopped   30.1 s  (where grace predicts)
+    either regime,  honouring   owner admitted  ->  victim stopped   0.041 s (unresolved: below the floor)
 
 ## What it says
 
@@ -63,7 +77,8 @@ record, so a reader checks it by replaying the ledger the record carries rather 
 the file.
 
 **The grace period is the cap on how long it can do that.** Once remaining service exceeds grace, the victim
-is SIGKILLed at exactly the grace boundary. The owner waits 30 seconds rather than however long the victim
+is SIGKILLed at the grace boundary — within the tens of milliseconds this instrument can compare across
+runs, and within the second or so it can actually resolve. The owner waits 30 seconds rather than however long the victim
 had left, and the victim's work is discarded.
 
 So `terminationGracePeriodSeconds` is not only a shutdown courtesy. On a platform that promises quota owners
