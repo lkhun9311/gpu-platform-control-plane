@@ -26,22 +26,25 @@ in this lab and it was the one an entire session is defined against.
 
 It is emitted by the harness now, and the whole point is that the reader can run the command:
 
-    $ queuelabrun -compare 'ex/e16-*-A-honor-e16?h?.json' -mode baseline
+    $ queuelabrun -compare 'ex/e17-*-A-honor-e17?h?.json' -mode baseline
     ===== BASELINE (arm A-honor) =====
-    under A-honor the quota owner was running 2.493 s after admission, over 6 runs spanning 2 dose
-    regime(s) and 2 node(s), with a spread of 903 ms against a worst-run floor of 3.199 s. A session
+    under A-honor the quota owner was running 2.604 s after admission, over 6 runs spanning 2 dose
+    regime(s) and 2 node(s), with a spread of 1488 ms against a worst-run floor of 3.514 s. A session
     differencing against this must add its own floor to that one; the difference of two independently
     measured means carries both of their errors
-      ownerWait mean=2.493 min=1.871 max=2.773 spread=903ms n=6
-      runs=e16gh1,e16gh2,e16wh1,e16wh2,e16sh1,e16sh2
+      ownerWait mean=2.604 min=1.937 max=3.425 spread=1488ms n=6
+      runs=e17gh1,e17gh2,e17wh1,e17wh2,e17sh1,e17sh2
       doses=grace-bounded,self-completing
       nodes=platform-worker,platform-worker2
       device: NOT OBSERVED -- this baseline was taken where no run established that a device did work, so
       it is a control-plane figure and not a statement about hardware
 
-**The spread is 903 ms, not the 258 ms the deleted table claimed.** That figure was not merely
+**The spread is 1488 ms, not the 258 ms the deleted table claimed.** That figure was not merely
 unreproducible, it was optimistic — two runs per cell could not show the variation six runs show, which is
-exactly what a reviewer said two-run means would hide.
+exactly what a reviewer said two-run means would hide. It grew again when the workload was replaced: the
+same six cells under a workload that reaches for a device before falling back to the CPU spread half a
+second wider than under one that never tried, which is the kind of movement a two-run mean cannot report at
+all.
 
 **These twelve runs interleave all three factors**, so no line above carries a confounding warning. The set
 before them blocked the regimes, and the one before that also varied the cluster's occupancy alongside the
@@ -57,14 +60,19 @@ error sources, and it earned its place immediately:
 
 | run | node | arrival | component stamp |
 |---|---|---|---|
-| e16gi1 | worker | 30.649 s | **31.000 s** |
-| e16gi2 | worker | 30.859 s | **31.000 s** |
-| e16wi1 | worker2 | 30.546 s | **31.000 s** |
-| e16wi2 | worker2 | 30.716 s | **31.000 s** |
+| e17gi1 | worker | 31.477 s | **32.000 s** |
+| e17gi2 | worker | 31.487 s | **32.000 s** |
+| e17wi1 | worker2 | 30.913 s | **31.000 s** |
+| e17wi2 | worker2 | 30.944 s | **31.000 s** |
 
-The arrival figure scatters across 313 ms and the stamp figure does not move at all, on either node. That
+The arrival figure scatters across 574 ms and the stamp figure does not move at all WITHIN a node. That
 scatter is watch delivery jitter, and an earlier version of this page was about to attribute a smaller
 version of it to the machine.
+
+This set also shows the stamp's other half in one table. The two nodes differ by about half a second in
+arrivals, and that half second happens to straddle a second boundary — so the stamps differ by a full one.
+A node comparison run on the stamp figure would have read a 550 ms difference as 1000 ms, which is why the
+one below uses arrivals.
 
 The stamp figure is quantised to the second, so it flips between 2 and 3 where the true value sits near a
 boundary — which the honouring runs do. What it cannot carry is watch lag; what it carries instead is a
@@ -76,18 +84,18 @@ node comparison below uses the arrival figure only.
 
 Both are checked by the harness rather than asserted here:
 
-    $ queuelabrun -compare 'ex/e16-grace-bounded-A-honor-e16gh?.json,\
-        ex/e16-self-completing-A-honor-*.json' -mode dose
-    the owner's wait under A-honor moves 0.411 s across 2 levels of dose, INSIDE the 6.358 s floor
+    $ queuelabrun -compare 'ex/e17-grace-bounded-A-honor-e17gh?.json,\
+        ex/e17-self-completing-A-honor-*.json' -mode dose
+    the owner's wait under A-honor moves 0.420 s across 2 levels of dose, INSIDE the 6.717 s floor
 
-    $ queuelabrun -compare 'ex/e16-grace-bounded-A-honor-*.json' -mode node
-    the owner's wait under A-honor moves 0.132 s across 2 levels of node, INSIDE the 6.334 s floor
-      platform-worker  n=2 ownerWait mean=2.674
-      platform-worker2 n=2 ownerWait mean=2.542
+    $ queuelabrun -compare 'ex/e17-grace-bounded-A-honor-*.json' -mode node
+    the owner's wait under A-honor moves 0.481 s across 2 levels of node, INSIDE the 6.686 s floor
+      platform-worker  n=2 ownerWait mean=2.905
+      platform-worker2 n=2 ownerWait mean=2.424
 
-The ignoring arm agrees on the node (0.123 s against a 5.443 s floor) and disagrees on the dose, which is the
-control: there the owner's wait IS the dose-dependent quantity, and the same check reports 11 s. A check that
-can only ever return "no response" establishes nothing.
+The ignoring arm agrees on the node (0.553 s against a 6.409 s floor) and disagrees on the dose, which is the
+control: there the owner's wait IS the dose-dependent quantity, and the same check reports 12.003 s and says
+EXCEEDS. A check that can only ever return "no response" establishes nothing.
 
 Neither is a demonstration of independence. What they support is that any response is smaller than about six
 seconds, which is what a baseline needs and is a weaker claim.

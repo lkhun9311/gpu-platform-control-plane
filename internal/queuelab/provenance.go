@@ -79,6 +79,19 @@ type ObservedState struct {
 	// nil for the same reason ExitCode is: a status that could not be read, or a message that does not carry a
 	// count, is a different fact from zero iterations.
 	Iterations *int
+	// WorkloadKind and DeviceStatus are the workload's own account of WHICH loop produced Iterations, read
+	// out of the same terminated status message.
+	//
+	// They exist because the count alone cannot tell a device run from a CPU run: both paths increment it,
+	// both finish healthy, and a card the scheduler reserved and nothing touched produces the same plausible
+	// figures as one that computed. Without this the harness could only assert device work from an EXTERNAL
+	// observer, which is a claim about the exporter as much as about the card -- and a fake exporter was made
+	// to satisfy it.
+	//
+	// Both are closed-set tokens or empty. A message this build cannot parse into a known pair yields all
+	// three fields empty rather than a guess, because the message is a channel the workload controls.
+	WorkloadKind string
+	DeviceStatus string
 }
 
 // ClassifyWorkload reads a Workload's conditions into the authoritative admission/preemption state.
@@ -138,9 +151,10 @@ func ClassifyJob(job *batchv1.Job) ObservedState {
 // measured to it would undercount exactly the grace window this event exists to capture.
 func ClassifyPod(pod *corev1.Pod) ObservedState {
 	if pod.Status.Phase == corev1.PodSucceeded || pod.Status.Phase == corev1.PodFailed {
-		code, iters, finished := soleTerminated(pod)
+		code, iters, finished, kind, device := soleTerminated(pod)
 		return ObservedState{Event: EventAttemptStopped, Reason: string(pod.Status.Phase),
-			ExitCode: code, Iterations: iters, ComponentStampUnixNanos: finished}
+			ExitCode: code, Iterations: iters, ComponentStampUnixNanos: finished,
+			WorkloadKind: kind, DeviceStatus: device}
 	}
 	if pod.Status.Phase == corev1.PodRunning && podConditionTrue(pod, corev1.PodReady) {
 		return ObservedState{Event: EventPodReady, Reason: string(corev1.PodReady),
@@ -176,49 +190,93 @@ func podConditionTrue(pod *corev1.Pod, condType corev1.PodConditionType) bool {
 // grew a sidecar would make any choice here a guess presented as a measurement. nil then reports that the
 // stop was observed but its kind could not be established, which is a weaker claim than a number and the
 // only true one.
-func soleTerminated(pod *corev1.Pod) (*int32, *int, *int64) {
-	var code *int32
-	var iters *int
-	var finished *int64
+func soleTerminated(pod *corev1.Pod) (code *int32, iters *int, finished *int64, kind, device string) {
 	for i := range pod.Status.ContainerStatuses {
 		t := pod.Status.ContainerStatuses[i].State.Terminated
 		if t == nil {
 			continue
 		}
 		if code != nil {
-			return nil, nil, nil
+			return nil, nil, nil, "", ""
 		}
 		c := t.ExitCode
 		code = &c
-		iters = itersFromMessage(t.Message)
+		iters, kind, device = reportFromMessage(t.Message)
 		if !t.FinishedAt.IsZero() {
 			f := t.FinishedAt.UnixNano()
 			finished = &f
 		}
 	}
-	return code, iters, finished
+	return code, iters, finished, kind, device
 }
 
-// itersFromMessage reads the workload's own count out of the terminated status message.
+// Workload kind tokens, as the workload spells them in its own report.
+//
+// They are exported because the record's provenance block is derived from them and its writer must not keep
+// a second copy: a workload change that edited one spelling and not the other would leave the contradiction
+// check comparing against a kind nothing emits, which is guarding nothing while looking like a guard.
+const (
+	// KindCPUFloat is the fallback loop: pure Python arithmetic that makes no driver call.
+	KindCPUFloat = "cpu-float"
+	// KindCUDAFMA is the device loop: a PTX kernel launched through the CUDA driver API.
+	KindCUDAFMA = "cuda-fma"
+)
+
+// DeviceOK is the only device status that means a kernel actually ran.
+const DeviceOK = "ok"
+
+// deviceStatuses is every device-path outcome the workload can report, one per call it makes.
+//
+// The set is closed and each member sends a reader somewhere different: no-libcuda is a base image or a
+// container runtime that never injected the driver, no-device is a card that was not passed through,
+// ptx-load-failed is a kernel this driver would not JIT, and launch-failed-midrun is a card that worked and
+// then stopped. Collapsing them into a bool would turn every one of those into the same shrug.
+var deviceStatuses = map[string]bool{
+	DeviceOK: true, "not-attempted": true, "no-libcuda": true, "cuinit-failed": true, "no-device": true,
+	"ctx-failed": true, "ptx-load-failed": true, "no-kernel": true, "alloc-failed": true,
+	"memset-failed": true, "launch-failed": true, "launch-failed-midrun": true,
+}
+
+// reportFromMessage reads the workload's own account out of the terminated status message.
 //
 // The kubelet copies /dev/termination-log there, and the workload rewrites that file from inside its loop, so
-// this arrives even for a container SIGKILLed at the grace boundary — the arm whose discarded work the
+// this arrives even for a container SIGKILLed at the grace boundary -- the arm whose discarded work the
 // experiment is about, and the one that can print no final line because SIGKILL cannot be handled.
 //
-// Anything that is not exactly the expected shape yields nil rather than a guess. The message is a channel the
-// workload controls, and a number parsed loosely out of it would be a measurement invented from whatever
-// happened to be in a file.
-func itersFromMessage(msg string) *int {
-	const prefix = "iters="
-	msg = strings.TrimSpace(msg)
-	if !strings.HasPrefix(msg, prefix) {
-		return nil
+// Anything that is not exactly the expected shape yields nothing rather than a guess, and the count is
+// refused ALONGSIDE the tokens rather than kept. They are three readings of one sentence: a message this
+// build cannot parse is a message whose iteration count it also has no reason to trust, and keeping the
+// number from a sentence whose other half was unintelligible is how a measurement gets invented from
+// whatever happened to be in a file.
+//
+// The two tokens are checked against each other, not just against their own sets. dev=ok means a kernel
+// launched, so it cannot appear beside the CPU fallback; and the device kind can only carry ok or the
+// mid-run failure, because every earlier failure returns before the kind is set. A pair outside that
+// relation was not written by this workload.
+func reportFromMessage(msg string) (iters *int, kind, device string) {
+	fields := strings.Fields(strings.TrimSpace(msg))
+	if len(fields) != 3 {
+		return nil, "", ""
 	}
-	n, err := strconv.Atoi(strings.TrimSpace(strings.TrimPrefix(msg, prefix)))
-	if err != nil || n < 0 {
-		return nil
+	n, err := strconv.Atoi(strings.TrimPrefix(fields[0], "iters="))
+	if !strings.HasPrefix(fields[0], "iters=") || err != nil || n < 0 {
+		return nil, "", ""
 	}
-	return &n
+	if !strings.HasPrefix(fields[1], "kind=") || !strings.HasPrefix(fields[2], "dev=") {
+		return nil, "", ""
+	}
+	k := strings.TrimPrefix(fields[1], "kind=")
+	d := strings.TrimPrefix(fields[2], "dev=")
+	if !deviceStatuses[d] {
+		return nil, "", ""
+	}
+	switch {
+	case k == KindCPUFloat && d != DeviceOK:
+	case k == KindCUDAFMA && (d == DeviceOK || d == "launch-failed-midrun"):
+	default:
+		return nil, "", ""
+	}
+	return &n, k, d
 }
 
 // conditionStamp is the component's own transition time for a metav1 condition, or nil when it published none.

@@ -24,17 +24,17 @@ in the `grace-bounded` regime:
 
 | dose regime | quantity | A-honor | A-ignore | difference | floor |
 |---|---|---|---|---|---|
-| grace-bounded | quota owner running after admission | 2.674 s | 30.754 s | **28.1 s** | 5.387 s |
-| grace-bounded | borrower discarded | 21.408 GPU-s | 51.382 GPU-s | 30.0 s | 5.387 s |
+| grace-bounded | quota owner running after admission | 2.905 s | 31.482 s | **28.6 s** | 6.706 s |
+| grace-bounded | borrower discarded | 21.687 GPU-s | 51.128 GPU-s | 29.4 s | 6.706 s |
 
 Both differences are the grace period, recovered from the experiment rather than assumed by it, over four
 interleaved runs with an exclusive-worker window, a termination canary, continuous list/watch observation and
 a containment audit behind each one, and reproduced on a second worker node with the cluster's occupancy
-held fixed (0.132 s apart under the honouring arm, against a 6.334 s floor).
+held fixed (0.481 s apart under the honouring arm, against a 6.686 s floor).
 `queuelabrun -compare` re-derives them from the records:
 
-    $ queuelabrun -compare 'ex/e16-grace-bounded-*-e16g??.json'
-    $ queuelabrun -compare 'ex/e16-self-completing-*.json,ex/e16-grace-bounded-*-e16g??.json' -mode model
+    $ queuelabrun -compare 'ex/e17-grace-bounded-*-e17g??.json'
+    $ queuelabrun -compare 'ex/e17-self-completing-*.json,ex/e17-grace-bounded-*-e17g??.json' -mode model
 
 The first row is the one that matters to a platform: it is the quota owner's own waiting time, and it is what
 a reclaim promise is judged on. The second is the borrower's loss, which is real and is not a service-level

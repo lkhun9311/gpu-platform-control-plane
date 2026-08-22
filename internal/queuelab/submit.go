@@ -26,63 +26,155 @@ import (
 	platformv1 "github.com/lkhun9311/gpu-mlops-platform-control-plane/api/v1"
 )
 
-// WorkloadImage is the CPU-only image the trace jobs run, pinned by digest.
+// WorkloadImage is the image the trace jobs run, pinned by manifest-list digest.
 //
-// The review caught that a mutable tag (busybox:1.36) lets the image drift between runs, so the same study
-// re-run months later could execute different bytes; pinning the multi-arch manifest-list digest freezes
-// exactly what runs while still resolving on whatever architecture the kind node uses.
-// WorkloadImage is exported so a caller that must check it against its own copy has no copy to keep.
+// A mutable tag lets the image drift between runs, so the same study re-run months later could execute
+// different bytes; pinning the multi-arch index digest freezes exactly what runs while still resolving on
+// whatever architecture the node uses. WorkloadImage is exported so a caller that must check it against its
+// own copy has no copy to keep.
 //
-// cmd/queuelabrun's canary asserted a hardcoded prefix of this string, which is the duplication that test's
-// own comment warns against — it broke the moment the workload legitimately changed, and it would not have
-// caught the canary drifting to a different pinned image at all.
-const WorkloadImage = "python:3.12-alpine@sha256:78098ea6a3a9c6a7727a5d4674e4a44e57e01fac878ee9cb4d24a86bd93916ff"
+// It moved from python:3.12-alpine to python:3.12-slim when the workload gained its device path, and the
+// reason is musl. nvidia-container-toolkit does not ship a CUDA runtime into the container; it bind-mounts
+// the HOST's driver libraries, which are linked against glibc. On an alpine base libcuda.so.1 is present and
+// unloadable, so every run would have taken the CPU fallback with dev=no-libcuda and looked exactly like a
+// node with no GPU. That is the worst possible failure here: silent, plausible, and indistinguishable from
+// the honest answer.
+const WorkloadImage = "python:3.12-slim@sha256:2c941e860699f878900b0edc2403613c234d4b32eda3cc9fa7036991a2a63c4a"
 
-// workloadScript is the trace's workload, and it computes rather than sleeps.
+// workloadScript is the trace's workload. It tries to compute on the DEVICE, falls back to the CPU, and says
+// which of the two it did.
 //
-// A sleeping workload holds a device allocation and leaves it idle, so on real hardware the run's headline
-// number is discarded RESERVATION rather than discarded work — and nothing in the harness refuses that. The
-// simulated cluster cannot show the difference, because there is no device behind the advertised resource and
-// "Pod alive" and "device busy" are the same proposition there.
+// The self-report is the point of this file. Before it, the harness had no way to distinguish a run where the
+// GPU worked from one where the same Python fell back to the CPU on a card the scheduler had reserved and
+// nothing touched -- both produce a healthy iteration count and a plausible number, which is why a GPU run
+// used to come back byte-identical to a kind run. The provenance a record carries is now this string's
+// content rather than a literal in the writer, so the record cannot claim a kernel that never launched.
 //
-// The count is written to /dev/termination-log as well as printed, and that is what makes it survive.
+// The device path is the CUDA DRIVER API through ctypes, not torch or cupy, and that is a cost decision as
+// much as a dependency one: those images are gigabytes, and the pull lands inside the window the experiment
+// measures. libcuda.so.1 is injected by nvidia-container-toolkit for any container that requests a GPU, so
+// the device path adds nothing to the image at all. The kernel is PTX loaded with cuModuleLoadData and
+// JIT-compiled by the driver, which is the same mechanism Numba and PyTorch's JIT paths use.
 //
-// The kubelet copies that file into the container's terminated status, which the collector already watches —
-// soleTerminated reads the same struct. So the number arrives inside the Pod object rather than needing the
-// logs subresource, a second client, extra RBAC, and a read that races teardown. It is written from INSIDE
-// the loop rather than from the termination handler, because the ignoring arm is SIGKILLed at the grace
-// boundary and SIGKILL cannot be handled: a count written only on the way out would be missing from exactly
+// The PTX was compiled with ptxas for sm_50, sm_75 and sm_89 before it shipped. That check runs without a
+// GPU, and it is the difference between a session that fails on a typo and one that does not.
+//
+// It stays runnable with NO device, and that is forced rather than chosen: the termination canary strips the
+// GPU limit from its probe Pods so they can schedule on a node whose devices are spoken for, and a workload
+// that could not start without CUDA would break the gate every run depends on. So a missing device is an
+// ordinary fallback rather than an error -- but it is a REPORTED one, and dev= names which of the eight
+// driver calls refused.
+//
+// The count and the report are written to /dev/termination-log from INSIDE the loop.
+//
+// The kubelet copies that file into the container's terminated status, which the collector already watches --
+// soleTerminated reads the same struct. So the report arrives inside the Pod object rather than needing the
+// logs subresource, a second client, extra RBAC, and a read that races teardown. Writing it from inside the
+// loop rather than from the termination handler matters because the ignoring arm is SIGKILLed at the grace
+// boundary and SIGKILL cannot be handled: a report written only on the way out would be missing from exactly
 // the arm whose discarded work the experiment is about.
 //
-// It reports progress, and that half is the point rather than decoration. A compute loop nobody counts is the
-// same kind of claim the sleeper was: a loop that silently fell back, or barely advanced, would produce the
-// same plausible numbers with no signal anywhere. With a count, discarded GPU-seconds are backed by discarded
-// ITERATIONS, and a workload that did nothing says iters=0 out loud.
+// Marking is time-based rather than every N iterations because the two paths differ in rate by orders of
+// magnitude -- a kernel launch is milliseconds, a 50000-step Python float loop is not -- and a fixed
+// iteration cadence would rewrite the file hundreds of times a second on the device path.
+//
+// The handler is installed BEFORE the device path runs. Context creation takes a noticeable fraction of a
+// second on a cold card, and a SIGTERM arriving in that window against no handler kills the honoring arm
+// under the ignoring arm's contract.
+//
+// Work per launch is FIXED -- 1024 blocks of 256 threads, 20000 fused multiply-adds each -- rather than
+// calibrated to the card. An adaptive size would make "one iteration" mean something different on every run,
+// and discarded iterations are compared across runs.
 //
 // It is carried in the command rather than baked into an image on purpose. The command is part of the Pod
 // template the termination canary fingerprints, so changing the workload forces a re-take; an image would
 // only do that when its digest moved, and a script edited inside the same tag would not move it.
-//
-// The arithmetic is pure Python with no imports beyond the standard library. Stage A establishes the shape —
-// compute, count, honour or ignore — on a cluster with no devices; the GPU stage swaps the inner kernel and
-// keeps everything around it, which is why the kernel is one line.
-const workloadScript = `import signal,sys,time
-seconds=float(sys.argv[1]); honor=sys.argv[2]=="honor"; n=0
+const workloadScript = `import ctypes,signal,sys,time
+seconds=float(sys.argv[1]); honor=sys.argv[2]=="honor"
+n=0; kind="cpu-float"; dev="not-attempted"
+PTX=b""".version 6.0
+.target sm_50
+.address_size 64
+.visible .entry burn(.param .u64 p, .param .u32 iter)
+{
+.reg .pred %p<2>;
+.reg .f32 %f<3>;
+.reg .b32 %r<7>;
+.reg .b64 %rd<5>;
+ld.param.u64 %rd1, [p];
+ld.param.u32 %r2, [iter];
+cvta.to.global.u64 %rd2, %rd1;
+mov.u32 %r3, %ctaid.x;
+mov.u32 %r4, %ntid.x;
+mov.u32 %r5, %tid.x;
+mad.lo.s32 %r6, %r3, %r4, %r5;
+mul.wide.s32 %rd3, %r6, 4;
+add.s64 %rd4, %rd2, %rd3;
+ld.global.f32 %f1, [%rd4];
+mov.f32 %f2, 0f3F800001;
+mov.u32 %r1, 0;
+LOOP:
+fma.rn.f32 %f1, %f1, %f2, %f2;
+add.s32 %r1, %r1, 1;
+setp.lt.s32 %p1, %r1, %r2;
+@%p1 bra LOOP;
+st.global.f32 [%rd4], %f1;
+ret;
+}
+"""
 try: tl=open("/dev/termination-log","w")
 except Exception: tl=None
+def msg(): return "iters=%d kind=%s dev=%s"%(n,kind,dev)
 def mark():
     if tl is None: return
-    tl.seek(0); tl.write("iters=%d"%n); tl.truncate(); tl.flush()
+    tl.seek(0); tl.write(msg()); tl.truncate(); tl.flush()
 def stop(*_):
-    mark(); print("terminated iters=%d"%n,flush=True); sys.exit(EXITCODE)
+    mark(); print("terminated "+msg(),flush=True); sys.exit(EXITCODE)
 if honor: signal.signal(signal.SIGTERM,stop)
-end=time.monotonic()+seconds; x=1.0
+THREADS=1024*256
+def cuda():
+    global dev
+    def bad(rc,tag):
+        global dev
+        if rc==0: return False
+        dev=tag; return True
+    try: lib=ctypes.CDLL("libcuda.so.1")
+    except Exception: dev="no-libcuda"; return None
+    if bad(lib.cuInit(0),"cuinit-failed"): return None
+    d=ctypes.c_int(0)
+    if bad(lib.cuDeviceGet(ctypes.byref(d),0),"no-device"): return None
+    ctx=ctypes.c_void_p()
+    if bad(lib.cuCtxCreate_v2(ctypes.byref(ctx),0,d),"ctx-failed"): return None
+    mod=ctypes.c_void_p()
+    if bad(lib.cuModuleLoadData(ctypes.byref(mod),PTX),"ptx-load-failed"): return None
+    fn=ctypes.c_void_p()
+    if bad(lib.cuModuleGetFunction(ctypes.byref(fn),mod,b"burn"),"no-kernel"): return None
+    buf=ctypes.c_ulonglong(0)
+    if bad(lib.cuMemAlloc_v2(ctypes.byref(buf),ctypes.c_size_t(THREADS*4)),"alloc-failed"): return None
+    if bad(lib.cuMemsetD32_v2(buf,ctypes.c_uint(0x3F800000),ctypes.c_size_t(THREADS)),"memset-failed"): return None
+    inner=ctypes.c_uint(20000)
+    args=(ctypes.c_void_p*2)(ctypes.cast(ctypes.byref(buf),ctypes.c_void_p),
+                             ctypes.cast(ctypes.byref(inner),ctypes.c_void_p))
+    def launch():
+        rc=lib.cuLaunchKernel(fn,1024,1,1,256,1,1,0,None,args,None)
+        return rc if rc!=0 else lib.cuCtxSynchronize()
+    if bad(launch(),"launch-failed"): return None
+    dev="ok"; return launch
+launch=cuda()
+if launch is not None: kind="cuda-fma"
+end=time.monotonic()+seconds; last=time.monotonic(); x=1.0
 mark()
 while time.monotonic()<end:
-    for _ in range(50000): x=(x*1.0000001)%1000000.0
+    if launch is None:
+        for _ in range(50000): x=(x*1.0000001)%1000000.0
+    else:
+        rc=launch()
+        if rc!=0:
+            dev="launch-failed-midrun"; mark(); print("aborted "+msg(),flush=True); sys.exit(1)
     n+=1
-    if n%20==0: mark(); print("iters=%d"%n,flush=True)
-mark(); print("finished iters=%d"%n,flush=True)`
+    t=time.monotonic()
+    if t-last>0.5: last=t; mark(); print(msg(),flush=True)
+mark(); print("finished "+msg(),flush=True)`
 
 // localQueueName is the deterministic LocalQueue name a tenant's jobs are admitted through.
 //

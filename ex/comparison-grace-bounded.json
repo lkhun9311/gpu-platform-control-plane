@@ -6,42 +6,42 @@
       "arm": "A-honor",
       "n": 2,
       "runIDs": [
-        "e16gh1",
-        "e16gh2"
+        "e17gh1",
+        "e17gh2"
       ],
-      "wastedGPUSecondsMean": 21.407950341499998,
-      "wastedGPUSecondsMin": 21.306849521,
-      "wastedGPUSecondsMax": 21.509051162,
-      "ownerWaitSecondsMean": 2.6737472425,
-      "ownerWaitSecondsMin": 2.574004555,
-      "ownerWaitSecondsMax": 2.77348993,
+      "wastedGPUSecondsMean": 21.686947886,
+      "wastedGPUSecondsMin": 21.653843092,
+      "wastedGPUSecondsMax": 21.72005268,
+      "ownerWaitSecondsMean": 2.9048736005,
+      "ownerWaitSecondsMin": 2.384874017,
+      "ownerWaitSecondsMax": 3.424873184,
       "ownerWaitRuns": 2,
-      "floorSeconds": 3.158929084,
+      "floorSeconds": 3.5137445,
       "bounded": true,
-      "firstStartedAt": "2026-08-20T12:51:15Z",
-      "lastStartedAt": "2026-08-20T13:07:36Z"
+      "firstStartedAt": "2026-08-22T04:41:17Z",
+      "lastStartedAt": "2026-08-22T04:57:52Z"
     },
     {
       "arm": "A-ignore",
       "n": 2,
       "runIDs": [
-        "e16gi1",
-        "e16gi2"
+        "e17gi1",
+        "e17gi2"
       ],
-      "wastedGPUSecondsMean": 51.381896173,
-      "wastedGPUSecondsMin": 51.265626207,
-      "wastedGPUSecondsMax": 51.498166139,
-      "ownerWaitSecondsMean": 30.7538048025,
-      "ownerWaitSecondsMin": 30.649108773,
-      "ownerWaitSecondsMax": 30.858500832,
+      "wastedGPUSecondsMean": 51.1280257505,
+      "wastedGPUSecondsMin": 50.615948398,
+      "wastedGPUSecondsMax": 51.640103103,
+      "ownerWaitSecondsMean": 31.48195209,
+      "ownerWaitSecondsMin": 31.476943734,
+      "ownerWaitSecondsMax": 31.486960446,
       "ownerWaitRuns": 2,
-      "floorSeconds": 2.227952905,
+      "floorSeconds": 3.192390165,
       "bounded": true,
-      "firstStartedAt": "2026-08-20T12:55:57Z",
-      "lastStartedAt": "2026-08-20T13:12:20Z"
+      "firstStartedAt": "2026-08-22T04:38:25Z",
+      "lastStartedAt": "2026-08-22T04:55:00Z"
     }
   ],
-  "worstRunFloorSeconds": 3.158929084,
+  "worstRunFloorSeconds": 3.5137445,
   "bounded": true,
   "interleaved": true,
   "deviceEvidence": "device-not-observed",
@@ -50,21 +50,21 @@
       "quantity": "wastedGPUSeconds",
       "armA": "A-honor",
       "armB": "A-ignore",
-      "valueA": 21.407950341499998,
-      "valueB": 51.381896173,
-      "differenceSeconds": 29.973945831500004,
+      "valueA": 21.686947886,
+      "valueB": 51.1280257505,
+      "differenceSeconds": 29.441077864500002,
       "resolved": true,
-      "statement": "A-honor discarded 21.4 GPU-s and A-ignore discarded 51.4, a difference of 30.0 s against a 5.387 s floor, over n=2 and n=2 runs"
+      "statement": "A-honor discarded 21.7 GPU-s and A-ignore discarded 51.1, a difference of 29.4 s against a 6.706 s floor, over n=2 and n=2 runs"
     },
     {
       "quantity": "ownerAdmitToReadySeconds",
       "armA": "A-honor",
       "armB": "A-ignore",
-      "valueA": 2.6737472425,
-      "valueB": 30.7538048025,
-      "differenceSeconds": 28.08005756,
+      "valueA": 2.9048736005,
+      "valueB": 31.48195209,
+      "differenceSeconds": 28.5770784895,
       "resolved": true,
-      "statement": "the quota owner was running 2.674 s AFTER KUEUE ADMITTED IT under A-honor and 30.754 s under A-ignore -- a difference of 28.1 s against a 5.387 s floor, over n=2 and n=2 restored runs. It is the reclaim-side half of what a tenant experiences and the half a reclaim promise is judged on; the time from SUBMISSION to admission is not in it, and neither is anything after the container starts. The discarded seconds beside it are the borrower's loss, not a promise"
+      "statement": "the quota owner was running 2.905 s AFTER KUEUE ADMITTED IT under A-honor and 31.482 s under A-ignore -- a difference of 28.6 s against a 6.706 s floor, over n=2 and n=2 restored runs. It is the reclaim-side half of what a tenant experiences and the half a reclaim promise is judged on; the time from SUBMISSION to admission is not in it, and neither is anything after the container starts. The discarded seconds beside it are the borrower's loss, not a promise"
     }
   ],
   "note": "this document reports whether a difference exceeded the coarsest resolution among the runs behind it, whether the arms were interleaved in time, and how many runs each arm has. It makes no claim of statistical significance and establishes no effect: these runs are not a sample of anything and their variance has never been characterised"

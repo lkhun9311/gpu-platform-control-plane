@@ -30,14 +30,14 @@ which adds scheduling and container start on top. An earlier version of this pag
 
 | dose regime | remaining service | arm | runs | device hold | within-cell spread |
 |---|---|---|---|---|---|
-| self-completing | 18.9 s (**under** grace) | A-ignore | 2 | **18.496, 18.512 s** | 16 ms |
-| grace-bounded | 38.8 s (**over** grace) | A-ignore | 4 | **30.044 – 30.062 s** | **17 ms** |
-| either | — | A-honor | 6 | 0.036 – 0.050 s | 14 ms |
+| self-completing | 18.5 s (**under** grace) | A-ignore | 2 | **18.503, 18.507 s** | 4 ms |
+| grace-bounded | 39.0 s (**over** grace) | A-ignore | 4 | **30.034 – 30.052 s** | **18 ms** |
+| either | — | A-honor | 6 | 0.029 – 0.071 s | 42 ms |
 
-    $ queuelabrun -compare 'ex/e16-self-completing-*.json,ex/e16-grace-bounded-*-e16g??.json' -mode model
-    grace-bounded    binds on termination grace  predicted=30.000 observed=30.059 residual=+0.059 INSIDE
-    self-completing  binds on remaining service  predicted=18.883 observed=18.504 residual=-0.378 INSIDE
-    CONTRAST self-completing -> grace-bounded: predicted=11.117 observed=11.555 residual=+0.438 INSIDE
+    $ queuelabrun -compare 'ex/e17-self-completing-*.json,ex/e17-grace-bounded-*-e17g??.json' -mode model
+    grace-bounded    binds on termination grace  predicted=30.000 observed=30.046 residual=+0.046 INSIDE
+    self-completing  binds on remaining service  predicted=18.519 observed=18.505 residual=-0.014 INSIDE
+    CONTRAST self-completing -> grace-bounded: predicted=11.481 observed=11.542 residual=+0.061 INSIDE
 
 **The grace-bounded hold is the grace period to within seventeen milliseconds, four times, on two machines.**
 The honouring arm holds the device for forty-five milliseconds, which is what makes the other figure the
@@ -51,7 +51,7 @@ The ledger shows the mechanism directly:
 
     self-completing, ignoring   owner admitted  ->  victim stopped   18.5 s  (its own service ended)
     grace-bounded,  ignoring    owner admitted  ->  victim stopped   30.1 s  (the grace period, exactly)
-    either regime,  honouring   owner admitted  ->  victim stopped   0.045 s (it stopped when asked)
+    either regime,  honouring   owner admitted  ->  victim stopped   0.050 s (it stopped when asked)
 
 ## What it says
 

@@ -198,13 +198,39 @@ func TestClassifyPodReadsTheWorkCompletedFromTheTerminatedStatus(t *testing.T) {
 		msg  string
 		want *int
 	}{
-		{"a killed workload's last written count", "iters=137", func() *int { v := 137; return &v }()},
-		{"trailing newline from the file", "iters=40\n", func() *int { v := 40; return &v }()},
-		{"zero is a count, not an absence", "iters=0", func() *int { v := 0; return &v }()},
-		{"a message that is not a count", "OOMKilled", nil},
+		{"a killed workload's last written report", "iters=137 kind=cpu-float dev=no-libcuda",
+			func() *int { v := 137; return &v }()},
+		{"trailing newline from the file", "iters=40 kind=cpu-float dev=no-libcuda\n",
+			func() *int { v := 40; return &v }()},
+		{"zero is a count, not an absence", "iters=0 kind=cpu-float dev=no-libcuda",
+			func() *int { v := 0; return &v }()},
+		{"the device path, which is the pair the session exists to produce", "iters=9001 kind=cuda-fma dev=ok",
+			func() *int { v := 9001; return &v }()},
+		{"a card that worked and then stopped", "iters=12 kind=cuda-fma dev=launch-failed-midrun",
+			func() *int { v := 12; return &v }()},
+		{"a message that is not a report", "OOMKilled", nil},
 		{"an empty termination log", "", nil},
-		{"something shaped like a count but not one", "iters=many", nil},
-		{"a negative count", "iters=-3", nil},
+		{"something shaped like a count but not one", "iters=many kind=cpu-float dev=no-libcuda", nil},
+		{"a negative count", "iters=-3 kind=cpu-float dev=no-libcuda", nil},
+		// The count is refused ALONGSIDE the tokens rather than kept. A message this build cannot parse is a
+		// message whose number it also has no reason to trust, and the old shape -- a bare count with nothing
+		// saying which loop produced it -- is exactly what a version-16 workload wrote.
+		{"the count alone, which is what the previous workload wrote", "iters=137", nil},
+		{"a kind no workload here emits", "iters=5 kind=torch dev=ok", nil},
+		{"a device status outside the closed set", "iters=5 kind=cuda-fma dev=probably-fine", nil},
+		// The same unknown status beside the FALLBACK, which is the row that makes the closed-set check
+		// load-bearing. The cross-token clause below catches the device-kind row above on its own -- an
+		// unknown status is not ok and not the mid-run failure -- so without this row the whole set could be
+		// deleted and the suite would stay green, and any string at all would be recorded as a device status
+		// for a reader to interpret.
+		{"an unknown device status beside the fallback", "iters=5 kind=cpu-float dev=probably-fine", nil},
+		// The two tokens are checked against EACH OTHER, and these two rows are why that clause exists. Both
+		// halves are individually valid and the pair is impossible: dev=ok means a kernel launched, so it
+		// cannot sit beside the fallback; and every device failure before the launch returns before the kind
+		// is set, so the device kind cannot carry one.
+		{"the fallback claiming a kernel ran", "iters=5 kind=cpu-float dev=ok", nil},
+		{"the device kind wearing a pre-launch failure", "iters=5 kind=cuda-fma dev=no-libcuda", nil},
+		{"a report missing its device status", "iters=5 kind=cuda-fma", nil},
 		// The row that makes the prefix check load-bearing. Every other rejection above is caught by Atoi
 		// failing, so without this one the check could be deleted and the suite would stay green — a bare
 		// number would then be read as an iteration count. The termination log is a file anything in the

@@ -1,0 +1,314 @@
+{
+  "schemaVersion": 17,
+  "dose": "grace-bounded",
+  "measurement": {
+    "horizonNs": 130000000000,
+    "wastedGPUSeconds": 21.653843092,
+    "wasteLowerBoundGPUSeconds": 21.653843092,
+    "unfinishedAtHorizon": 2,
+    "discardedIterations": 8822,
+    "workload": {
+      "kind": "pure-python-float-arithmetic",
+      "countedUnit": "50000 float multiply-modulo operations",
+      "deviceUseEstablished": false,
+      "whyNot": "no device observer ran: nothing outside the workload watched the card, so this run establishes that a device was RESERVED and nothing about whether it was used"
+    },
+    "ownerAdmitToReadyNs": 3424873184,
+    "ownerAdmitToReadyStampNs": 4000000000,
+    "resolution": {
+      "samples": 10,
+      "minNs": 165629993,
+      "medianNs": 638496326,
+      "maxNs": 2332492959,
+      "quantisationNs": 1000000000,
+      "resolvedToNs": 3166862966,
+      "note": "resolvedToNs is the operative figure: a difference smaller than it is not resolved by this run, and no number of repetitions changes that because a resolution limit is not a noise level. The skew figures it comes from are a bound, not a delivery time -- they mix propagation, the offset between two unsynchronised clocks and one-second truncation, and nothing here separates them. Every interval in this record is a difference of ARRIVAL times"
+    }
+  },
+  "runID": "e17gh1",
+  "arm": "A-honor",
+  "startedAt": "2026-08-22T04:41:17Z",
+  "endedAt": "2026-08-22T04:43:43Z",
+  "disposition": "completed-implemented-checks-passed",
+  "events": [
+    {
+      "elapsedNs": 64108396,
+      "wallUnixNanos": 1787373677593666842,
+      "kind": "MLTrainingJob",
+      "type": "Submitted",
+      "job": "a1",
+      "objectUID": "bd293a23-76c1-4c18-bd03-bdf655f81758"
+    },
+    {
+      "elapsedNs": 108937880,
+      "wallUnixNanos": 1787373677638496326,
+      "kind": "Workload",
+      "type": "Admitted",
+      "job": "a1",
+      "componentStampUnixNanos": 1787373677000000000,
+      "observedSkewNs": 638496326,
+      "objectUID": "672c561a-975c-4ceb-b918-586203a93d69",
+      "reason": "Admitted"
+    },
+    {
+      "elapsedNs": 636071547,
+      "wallUnixNanos": 1787373678165629993,
+      "kind": "Pod",
+      "type": "PodReady",
+      "job": "a1",
+      "componentStampUnixNanos": 1787373678000000000,
+      "observedSkewNs": 165629993,
+      "objectUID": "6b71852d-02fd-4eae-bea9-e0371a1680db",
+      "reason": "Ready"
+    },
+    {
+      "elapsedNs": 2079641721,
+      "wallUnixNanos": 1787373679609200167,
+      "kind": "MLTrainingJob",
+      "type": "Submitted",
+      "job": "a2-borrow",
+      "objectUID": "ac187c18-45da-4115-90b7-8c25af5420fe"
+    },
+    {
+      "elapsedNs": 2121284191,
+      "wallUnixNanos": 1787373679650842637,
+      "kind": "Workload",
+      "type": "Admitted",
+      "job": "a2-borrow",
+      "componentStampUnixNanos": 1787373679000000000,
+      "observedSkewNs": 650842637,
+      "objectUID": "f826b3e4-2941-4bec-a770-dfebbf5e6ca0",
+      "reason": "Admitted"
+    },
+    {
+      "elapsedNs": 2641185731,
+      "wallUnixNanos": 1787373680170744177,
+      "kind": "Pod",
+      "type": "PodReady",
+      "job": "a2-borrow",
+      "componentStampUnixNanos": 1787373680000000000,
+      "observedSkewNs": 170744177,
+      "objectUID": "ae31812d-6086-469d-b6a7-7c086ebe0033",
+      "reason": "Ready"
+    },
+    {
+      "elapsedNs": 24100241888,
+      "wallUnixNanos": 1787373701629800334,
+      "kind": "MLTrainingJob",
+      "type": "Submitted",
+      "job": "b1-owner",
+      "objectUID": "5d48a4ec-731d-4fb0-972d-d4602783f919"
+    },
+    {
+      "elapsedNs": 24135622550,
+      "wallUnixNanos": 1787373701665180996,
+      "kind": "Workload",
+      "type": "Preempted",
+      "job": "a2-borrow",
+      "objectUID": "f826b3e4-2941-4bec-a770-dfebbf5e6ca0",
+      "reason": "InCohortReclamation"
+    },
+    {
+      "elapsedNs": 24246767466,
+      "wallUnixNanos": 1787373701776325912,
+      "kind": "Workload",
+      "type": "Admitted",
+      "job": "b1-owner",
+      "componentStampUnixNanos": 1787373701000000000,
+      "observedSkewNs": 776325912,
+      "objectUID": "0dc54585-d5d7-433f-b5a5-6cc328393951",
+      "reason": "Admitted"
+    },
+    {
+      "elapsedNs": 24295028823,
+      "wallUnixNanos": 1787373701824587269,
+      "kind": "Pod",
+      "type": "AttemptStopped",
+      "exitCode": 143,
+      "iterations": 8822,
+      "workloadKind": "cpu-float",
+      "deviceStatus": "no-libcuda",
+      "job": "a2-borrow",
+      "componentStampUnixNanos": 1787373701000000000,
+      "observedSkewNs": 824587269,
+      "objectUID": "ae31812d-6086-469d-b6a7-7c086ebe0033",
+      "reason": "Failed"
+    },
+    {
+      "elapsedNs": 27671640650,
+      "wallUnixNanos": 1787373705201199096,
+      "kind": "Pod",
+      "type": "PodReady",
+      "job": "b1-owner",
+      "componentStampUnixNanos": 1787373705000000000,
+      "observedSkewNs": 201199096,
+      "objectUID": "2a2192a8-4199-4313-b637-dfd511d43705",
+      "reason": "Ready"
+    },
+    {
+      "elapsedNs": 88802934513,
+      "wallUnixNanos": 1787373766332492959,
+      "kind": "Pod",
+      "type": "AttemptStopped",
+      "exitCode": 0,
+      "iterations": 25164,
+      "workloadKind": "cpu-float",
+      "deviceStatus": "no-libcuda",
+      "job": "b1-owner",
+      "componentStampUnixNanos": 1787373764000000000,
+      "observedSkewNs": 2332492959,
+      "objectUID": "2a2192a8-4199-4313-b637-dfd511d43705",
+      "reason": "Succeeded"
+    },
+    {
+      "elapsedNs": 89792870109,
+      "wallUnixNanos": 1787373767322428555,
+      "kind": "Job",
+      "type": "Completed",
+      "job": "b1-owner",
+      "objectUID": "e7785180-eb2b-4fbe-be8f-f86754d83d5f",
+      "reason": "Complete"
+    },
+    {
+      "elapsedNs": 90824628455,
+      "wallUnixNanos": 1787373768354186901,
+      "kind": "Workload",
+      "type": "Admitted",
+      "job": "a2-borrow",
+      "componentStampUnixNanos": 1787373768000000000,
+      "observedSkewNs": 354186901,
+      "objectUID": "f826b3e4-2941-4bec-a770-dfebbf5e6ca0",
+      "reason": "Admitted"
+    },
+    {
+      "elapsedNs": 91756321074,
+      "wallUnixNanos": 1787373769285879520,
+      "kind": "Pod",
+      "type": "PodReady",
+      "job": "a2-borrow",
+      "componentStampUnixNanos": 1787373769000000000,
+      "observedSkewNs": 285879520,
+      "objectUID": "50612385-ee2f-44d4-a11d-13e13f0a9601",
+      "reason": "Ready"
+    }
+  ],
+  "qualification": {
+    "node": "platform-worker",
+    "nodeUID": "97d49080-1223-4fd8-9a73-43d838f04d5e",
+    "allocatableGPU": 2,
+    "requiredGPU": 2,
+    "requiredFrom": "nominal nvidia.com/gpu quota summed over 2 ClusterQueue(s) on flavor queuelab-gpu-e17gh1 = 2; largest single trace row \"a1\" = 1",
+    "requiredBoundBy": "nominal-quota-sum",
+    "ready": true,
+    "schedulable": true,
+    "podsOnNode": 13,
+    "terminationCanary": {
+      "canaryID": "f2b9f7a2-44fc-4168-a500-2ca071bca23e",
+      "qualifiedAt": "2026-08-22T01:50:02Z",
+      "key": {
+        "image": "python:3.12-slim@sha256:2c941e860699f878900b0edc2403613c234d4b32eda3cc9fa7036991a2a63c4a",
+        "honorCommand": [
+          "python3",
+          "-c",
+          "import ctypes,signal,sys,time\nseconds=float(sys.argv[1]); honor=sys.argv[2]==\"honor\"\nn=0; kind=\"cpu-float\"; dev=\"not-attempted\"\nPTX=b\"\"\".version 6.0\n.target sm_50\n.address_size 64\n.visible .entry burn(.param .u64 p, .param .u32 iter)\n{\n.reg .pred %p\u003c2\u003e;\n.reg .f32 %f\u003c3\u003e;\n.reg .b32 %r\u003c7\u003e;\n.reg .b64 %rd\u003c5\u003e;\nld.param.u64 %rd1, [p];\nld.param.u32 %r2, [iter];\ncvta.to.global.u64 %rd2, %rd1;\nmov.u32 %r3, %ctaid.x;\nmov.u32 %r4, %ntid.x;\nmov.u32 %r5, %tid.x;\nmad.lo.s32 %r6, %r3, %r4, %r5;\nmul.wide.s32 %rd3, %r6, 4;\nadd.s64 %rd4, %rd2, %rd3;\nld.global.f32 %f1, [%rd4];\nmov.f32 %f2, 0f3F800001;\nmov.u32 %r1, 0;\nLOOP:\nfma.rn.f32 %f1, %f1, %f2, %f2;\nadd.s32 %r1, %r1, 1;\nsetp.lt.s32 %p1, %r1, %r2;\n@%p1 bra LOOP;\nst.global.f32 [%rd4], %f1;\nret;\n}\n\"\"\"\ntry: tl=open(\"/dev/termination-log\",\"w\")\nexcept Exception: tl=None\ndef msg(): return \"iters=%d kind=%s dev=%s\"%(n,kind,dev)\ndef mark():\n    if tl is None: return\n    tl.seek(0); tl.write(msg()); tl.truncate(); tl.flush()\ndef stop(*_):\n    mark(); print(\"terminated \"+msg(),flush=True); sys.exit(143)\nif honor: signal.signal(signal.SIGTERM,stop)\nTHREADS=1024*256\ndef cuda():\n    global dev\n    def bad(rc,tag):\n        global dev\n        if rc==0: return False\n        dev=tag; return True\n    try: lib=ctypes.CDLL(\"libcuda.so.1\")\n    except Exception: dev=\"no-libcuda\"; return None\n    if bad(lib.cuInit(0),\"cuinit-failed\"): return None\n    d=ctypes.c_int(0)\n    if bad(lib.cuDeviceGet(ctypes.byref(d),0),\"no-device\"): return None\n    ctx=ctypes.c_void_p()\n    if bad(lib.cuCtxCreate_v2(ctypes.byref(ctx),0,d),\"ctx-failed\"): return None\n    mod=ctypes.c_void_p()\n    if bad(lib.cuModuleLoadData(ctypes.byref(mod),PTX),\"ptx-load-failed\"): return None\n    fn=ctypes.c_void_p()\n    if bad(lib.cuModuleGetFunction(ctypes.byref(fn),mod,b\"burn\"),\"no-kernel\"): return None\n    buf=ctypes.c_ulonglong(0)\n    if bad(lib.cuMemAlloc_v2(ctypes.byref(buf),ctypes.c_size_t(THREADS*4)),\"alloc-failed\"): return None\n    if bad(lib.cuMemsetD32_v2(buf,ctypes.c_uint(0x3F800000),ctypes.c_size_t(THREADS)),\"memset-failed\"): return None\n    inner=ctypes.c_uint(20000)\n    args=(ctypes.c_void_p*2)(ctypes.cast(ctypes.byref(buf),ctypes.c_void_p),\n                             ctypes.cast(ctypes.byref(inner),ctypes.c_void_p))\n    def launch():\n        rc=lib.cuLaunchKernel(fn,1024,1,1,256,1,1,0,None,args,None)\n        return rc if rc!=0 else lib.cuCtxSynchronize()\n    if bad(launch(),\"launch-failed\"): return None\n    dev=\"ok\"; return launch\nlaunch=cuda()\nif launch is not None: kind=\"cuda-fma\"\nend=time.monotonic()+seconds; last=time.monotonic(); x=1.0\nmark()\nwhile time.monotonic()\u003cend:\n    if launch is None:\n        for _ in range(50000): x=(x*1.0000001)%1000000.0\n    else:\n        rc=launch()\n        if rc!=0:\n            dev=\"launch-failed-midrun\"; mark(); print(\"aborted \"+msg(),flush=True); sys.exit(1)\n    n+=1\n    t=time.monotonic()\n    if t-last\u003e0.5: last=t; mark(); print(msg(),flush=True)\nmark(); print(\"finished \"+msg(),flush=True)",
+          "600",
+          "honor"
+        ],
+        "ignoreCommand": [
+          "python3",
+          "-c",
+          "import ctypes,signal,sys,time\nseconds=float(sys.argv[1]); honor=sys.argv[2]==\"honor\"\nn=0; kind=\"cpu-float\"; dev=\"not-attempted\"\nPTX=b\"\"\".version 6.0\n.target sm_50\n.address_size 64\n.visible .entry burn(.param .u64 p, .param .u32 iter)\n{\n.reg .pred %p\u003c2\u003e;\n.reg .f32 %f\u003c3\u003e;\n.reg .b32 %r\u003c7\u003e;\n.reg .b64 %rd\u003c5\u003e;\nld.param.u64 %rd1, [p];\nld.param.u32 %r2, [iter];\ncvta.to.global.u64 %rd2, %rd1;\nmov.u32 %r3, %ctaid.x;\nmov.u32 %r4, %ntid.x;\nmov.u32 %r5, %tid.x;\nmad.lo.s32 %r6, %r3, %r4, %r5;\nmul.wide.s32 %rd3, %r6, 4;\nadd.s64 %rd4, %rd2, %rd3;\nld.global.f32 %f1, [%rd4];\nmov.f32 %f2, 0f3F800001;\nmov.u32 %r1, 0;\nLOOP:\nfma.rn.f32 %f1, %f1, %f2, %f2;\nadd.s32 %r1, %r1, 1;\nsetp.lt.s32 %p1, %r1, %r2;\n@%p1 bra LOOP;\nst.global.f32 [%rd4], %f1;\nret;\n}\n\"\"\"\ntry: tl=open(\"/dev/termination-log\",\"w\")\nexcept Exception: tl=None\ndef msg(): return \"iters=%d kind=%s dev=%s\"%(n,kind,dev)\ndef mark():\n    if tl is None: return\n    tl.seek(0); tl.write(msg()); tl.truncate(); tl.flush()\ndef stop(*_):\n    mark(); print(\"terminated \"+msg(),flush=True); sys.exit(143)\nif honor: signal.signal(signal.SIGTERM,stop)\nTHREADS=1024*256\ndef cuda():\n    global dev\n    def bad(rc,tag):\n        global dev\n        if rc==0: return False\n        dev=tag; return True\n    try: lib=ctypes.CDLL(\"libcuda.so.1\")\n    except Exception: dev=\"no-libcuda\"; return None\n    if bad(lib.cuInit(0),\"cuinit-failed\"): return None\n    d=ctypes.c_int(0)\n    if bad(lib.cuDeviceGet(ctypes.byref(d),0),\"no-device\"): return None\n    ctx=ctypes.c_void_p()\n    if bad(lib.cuCtxCreate_v2(ctypes.byref(ctx),0,d),\"ctx-failed\"): return None\n    mod=ctypes.c_void_p()\n    if bad(lib.cuModuleLoadData(ctypes.byref(mod),PTX),\"ptx-load-failed\"): return None\n    fn=ctypes.c_void_p()\n    if bad(lib.cuModuleGetFunction(ctypes.byref(fn),mod,b\"burn\"),\"no-kernel\"): return None\n    buf=ctypes.c_ulonglong(0)\n    if bad(lib.cuMemAlloc_v2(ctypes.byref(buf),ctypes.c_size_t(THREADS*4)),\"alloc-failed\"): return None\n    if bad(lib.cuMemsetD32_v2(buf,ctypes.c_uint(0x3F800000),ctypes.c_size_t(THREADS)),\"memset-failed\"): return None\n    inner=ctypes.c_uint(20000)\n    args=(ctypes.c_void_p*2)(ctypes.cast(ctypes.byref(buf),ctypes.c_void_p),\n                             ctypes.cast(ctypes.byref(inner),ctypes.c_void_p))\n    def launch():\n        rc=lib.cuLaunchKernel(fn,1024,1,1,256,1,1,0,None,args,None)\n        return rc if rc!=0 else lib.cuCtxSynchronize()\n    if bad(launch(),\"launch-failed\"): return None\n    dev=\"ok\"; return launch\nlaunch=cuda()\nif launch is not None: kind=\"cuda-fma\"\nend=time.monotonic()+seconds; last=time.monotonic(); x=1.0\nmark()\nwhile time.monotonic()\u003cend:\n    if launch is None:\n        for _ in range(50000): x=(x*1.0000001)%1000000.0\n    else:\n        rc=launch()\n        if rc!=0:\n            dev=\"launch-failed-midrun\"; mark(); print(\"aborted \"+msg(),flush=True); sys.exit(1)\n    n+=1\n    t=time.monotonic()\n    if t-last\u003e0.5: last=t; mark(); print(msg(),flush=True)\nmark(); print(\"finished \"+msg(),flush=True)",
+          "600",
+          "ignore"
+        ],
+        "graceSec": 30,
+        "honorExitCode": 143,
+        "nodeUID": "97d49080-1223-4fd8-9a73-43d838f04d5e",
+        "kubeletVersion": "v1.31.0",
+        "containerRuntime": "containerd://1.7.18",
+        "podTemplateHash": "baba6dd7993c2e75314e15edc46d3a6399f62c25bb7f1934c3c0f8ea351484d4"
+      },
+      "honorStoppedAfterMs": 1208,
+      "ignoreStoppedAfterMs": 31049
+    }
+  },
+  "window": {
+    "node": "platform-worker",
+    "nodeUID": "97d49080-1223-4fd8-9a73-43d838f04d5e",
+    "txID": "348028cd-1c03-4b6f-8aef-ec657f682b73",
+    "baselineResourceVersion": "2246028",
+    "openedAt": "2026-08-22T04:41:17Z",
+    "closedAt": "2026-08-22T04:43:27Z",
+    "nodeVersionsObserved": 2,
+    "ending": "closed by the run",
+    "violationsObserved": 0,
+    "restoration": {
+      "before": {
+        "observed": true,
+        "nodeUID": "97d49080-1223-4fd8-9a73-43d838f04d5e",
+        "hasLabel": true,
+        "labelValue": "e17gh1",
+        "ownershipTaintValues": [
+          "e17gh1"
+        ],
+        "hasJournal": true
+      },
+      "after": {
+        "observed": true,
+        "nodeUID": "97d49080-1223-4fd8-9a73-43d838f04d5e",
+        "hasLabel": false,
+        "hasJournal": false
+      },
+      "ourMarkersRemoved": true
+    }
+  },
+  "observation": {
+    "namespace": "queuelab-e17gh1",
+    "horizonNs": 130000000000,
+    "established": true,
+    "establishedNs": 57368189,
+    "establishBudgetNs": 15000000000,
+    "streams": [
+      {
+        "kind": "MLTrainingJob",
+        "baselineResourceVersion": "2246039",
+        "baselineObjects": 0,
+        "ended": true,
+        "cancelled": true,
+        "stopped": false
+      },
+      {
+        "kind": "Job",
+        "baselineResourceVersion": "2246040",
+        "baselineObjects": 0,
+        "ended": true,
+        "cancelled": true,
+        "stopped": false
+      },
+      {
+        "kind": "Workload",
+        "baselineResourceVersion": "2246040",
+        "baselineObjects": 0,
+        "ended": true,
+        "cancelled": true,
+        "stopped": false
+      },
+      {
+        "kind": "Pod",
+        "baselineResourceVersion": "2246040",
+        "baselineObjects": 0,
+        "ended": true,
+        "cancelled": true,
+        "stopped": false
+      }
+    ]
+  },
+  "validity": {
+    "verdict": "admissible-under-implemented-gates",
+    "unimplementedGates": [
+      "termination canary coverage: the recorded canary probes a Pod built from the very template this build's operator would render, carrying the arm's own image and command and no device request, and the key it is matched on fingerprints that template, so a change to it both refuses the reading and is exercised by the re-take; what is still not travelled is the operator's reconcile loop and the Job controller — nothing here submits an MLTrainingJob, so Kueue admits nothing and no Job creates the Pod, which therefore carries no owner reference and none of the labels a Job stamps on its Pods — and the template is rendered by THIS BINARY, not by the operator image running on the cluster",
+      "device use: nothing in this build can establish that a GPU was USED rather than reserved. The workload in internal/queuelab/submit.go is pure Python float arithmetic making no driver call, and the cluster advertises nvidia.com/gpu through a fake device plugin, so a Pod that dropped the resource request entirely would compute exactly the same iterations at exactly the same rate. measurement.discardedIterations therefore counts CPU work performed by a Pod HOLDING a reservation, and measurement.workload states the same thing beside the number; neither is discarded GPU computation. This entry is no longer the only place that fact lives, and that is the point of validity.deviceEvidence: a consumer reads the axis instead of this paragraph, and the axis is the field a run on real hardware would move"
+    ],
+    "deviceEvidence": "device-not-observed"
+  }
+}

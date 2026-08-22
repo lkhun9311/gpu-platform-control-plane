@@ -1387,8 +1387,11 @@ func TestTheMeasurementSaysWhatProducedItsIterations(t *testing.T) {
 		t.Fatal("device use is unestablished and the record does not say why, which reads as an oversight " +
 			"rather than a stated limit")
 	}
-	if !strings.Contains(m.Workload.Kind, "python") {
-		t.Fatalf("the workload kind does not name what actually runs: %q", m.Workload.Kind)
+	// A measurement built from no events cannot know which loop ran, and it says so rather than naming the
+	// fallback. Defaulting to the CPU kind here would publish a genuine device run under the fallback's name
+	// on any run whose ledger this build could not read -- which is the same guess the literal used to be.
+	if m.Workload.Kind != unreportedWorkloadKind {
+		t.Fatalf("a measurement with no ledger named a workload anyway: %q", m.Workload.Kind)
 	}
 	if strings.TrimSpace(m.Workload.CountedUnit) == "" {
 		t.Fatal("one iteration is unexplained, so the count has no unit a reader can size")
@@ -1583,14 +1586,18 @@ func TestARecordFromAnEarlierSchemaIsRefused(t *testing.T) {
 	// changed what resolvedToNs MEANS (spread + quantisation, not max) and where the ledger's component
 	// stamps are sampled (every endpoint kind, not stops alone), so an older record carries the same field
 	// names holding different quantities.
-	if recordSchemaVersion != 16 {
+	// Version 17 made the workload's provenance evidence rather than an assertion: events carry the kind and
+	// device status the container itself reported, and measurement.workload is derived from them. A
+	// version-16 record says "pure Python arithmetic" because its build hardcoded that, not because anything
+	// in the run said so, and nothing in the document distinguishes the two.
+	if recordSchemaVersion != 17 {
 		t.Fatalf("recordSchemaVersion is %d; if the wire format changed again, bump this and say what changed",
 			recordSchemaVersion)
 	}
 	// Both predecessors, not only the immediate one. DisallowUnknownFields makes a version-9 document fail on
 	// the removed fields and a version-8 one fail on the version alone, and a decoder that accepted either
 	// would be reading a document whose fields do not mean what this build thinks they do.
-	for _, older := range []int{9, 10, 11, 12, 13, 14, 15} {
+	for _, older := range []int{9, 10, 11, 12, 13, 14, 15, 16} {
 		b := fmt.Appendf(nil, `{"schemaVersion":%d,"dose":"self-completing","runID":"r7","arm":"A-honor",`+
 			`"disposition":"completed-implemented-checks-passed",%s}`, older, refusedValidity)
 		if _, err := decodeRunRecord(b); err == nil {
@@ -1882,18 +1889,45 @@ func TestTheOwnersWaitIsAlsoReadOffTheComponentsClocks(t *testing.T) {
 	}
 }
 
-// The path from an observation to the device axis, with no observer — which is every run this lab has taken.
+// busyObservation is an impeccable observation of one card: admissible source, named build, full coverage,
+// one device UUID, busy at every instant.
 //
-// It must produce exactly what the hardcoded version produced, or the current evidence would have moved for
-// a reason that is not a measurement. What it adds is that the answer is derived: a GPU session plugs a
-// scraper in rather than editing a boolean, and the axis can move.
+// It is shared by the tests below so that what differs between them is the WORKLOAD's report and nothing
+// else. A fixture rebuilt per test drifts, and a drifting fixture turns "the workload decided this" into
+// "something about these two observations differed".
+func busyObservation(uuid string) *queuelab.DeviceObservation {
+	obs := &queuelab.DeviceObservation{
+		Observer: queuelab.ObserverDCGM, ObserverIdentity: "dcgm@sha256:abc", Declared: true,
+		StartedNs: 0, EndedNs: 40_000_000_000,
+	}
+	for at := int64(0); at <= 40_000_000_000; at += 1_000_000_000 {
+		obs.Samples = append(obs.Samples, queuelab.DeviceSample{
+			AtNs: at, DeviceUUID: uuid, PodUID: "victim-uid", UtilisationPercent: 91,
+		})
+	}
+	return obs
+}
+
+// The axis MOVES, and until the workload gained a device path nothing in this repository could show that.
 //
-// Mutation that turns this red: return a fixed WhyNot string instead of the check's reason, or set
-// DeviceUseEstablished without consulting the observer.
-func TestTheDeviceAxisIsDerivedFromAnObserverRatherThanHardcoded(t *testing.T) {
-	none := workloadFrom(nil, "", 0, 0)
+// The old version of this test asserted the opposite -- that the axis could not move in this build -- because
+// the workload made no driver call and the contradiction check refused every observation of it. That was
+// honest but it left the positive path untested: a GPU session would have been the first execution ever of
+// the branch that publishes device work, and a defect there would have surfaced with the meter running.
+//
+// Mutations that turn this red, both run: set DeviceUseEstablished without consulting the observer (the
+// no-observer half catches it), and drop the reported-kind comparison so the CPU fallback also passes (the
+// third half catches it).
+func TestTheDeviceAxisMovesOnlyWhenBothTheWorkloadAndTheObserverSayItDid(t *testing.T) {
+	gpu := workloadKinds[queuelab.KindCUDAFMA]
+	gpu.DeviceStatus = queuelab.DeviceOK
+	cpu := workloadKinds[queuelab.KindCPUFloat]
+	cpu.DeviceStatus = "no-libcuda"
+
+	// No observer: the workload's word alone is not evidence about the card. It is the party with the motive.
+	none := workloadFrom(nil, "", 0, 0, gpu)
 	if none.DeviceUseEstablished {
-		t.Fatal("a run with no observer established device work")
+		t.Fatal("a run with no observer established device work on the workload's say-so")
 	}
 	if !strings.Contains(none.WhyNot, "RESERVED") {
 		t.Fatalf("the reason does not say what the run DOES establish: %s", none.WhyNot)
@@ -1902,75 +1936,156 @@ func TestTheDeviceAxisIsDerivedFromAnObserverRatherThanHardcoded(t *testing.T) {
 		t.Fatal("the axis did not follow the provenance")
 	}
 
-	// The axis CANNOT move in this build, and that is a stronger statement than "it moves given a good
-	// observation". The workload renders arithmetic that makes no driver call, so an observation claiming
-	// otherwise is refused by the contradiction check — see the test below. What this half asserts is that the
-	// observation is consulted at all: a well-formed one reaches the check and is turned away by the workload
-	// rather than ignored, which is the difference between a derived answer and a hardcoded one.
-	obs := &queuelab.DeviceObservation{
-		Observer: queuelab.ObserverDCGM, ObserverIdentity: "dcgm@sha256:abc", Declared: true,
-		StartedNs: 0, EndedNs: 40_000_000_000,
+	// Both agree: this is the one combination that publishes device work, and the session depends on it.
+	obs := busyObservation("GPU-1234")
+	seen := workloadFrom(obs, "victim-uid", 10_000_000_000, 30_000_000_000, gpu)
+	if !seen.DeviceUseEstablished {
+		t.Fatalf("a launched kernel watched by an admissible observer established nothing: %s", seen.WhyNot)
 	}
-	for at := int64(0); at <= 40_000_000_000; at += 1_000_000_000 {
-		obs.Samples = append(obs.Samples, queuelab.DeviceSample{
-			AtNs: at, DeviceUUID: "GPU-1234", PodUID: "victim-uid", UtilisationPercent: 91,
-		})
+	if seen.WhyNot != "" {
+		t.Fatalf("an established run carries a refusal reason: %s", seen.WhyNot)
 	}
-	seen := workloadFrom(obs, "victim-uid", 10_000_000_000, 30_000_000_000)
-	if seen.DeviceUseEstablished {
-		t.Fatal("this build's workload makes no driver call and the axis moved anyway")
+	if seen.Kind != "cuda-driver-fma-kernel" {
+		t.Fatalf("the record published kind %q for a device run", seen.Kind)
 	}
-	// The reason must be the CONTRADICTION and not the absence of an observer, or the observation was never
-	// consulted and the derivation is hardcoding wearing a function call.
-	if strings.Contains(seen.WhyNot, "no device observer ran") {
-		t.Fatalf("a well-formed observation was never consulted: %s", seen.WhyNot)
+	if deviceEvidenceOf(&measurement{Workload: seen}) == deviceNotObserved {
+		t.Fatal("the axis stayed put on a run where the card demonstrably worked")
 	}
-	if !strings.Contains(seen.WhyNot, "makes no driver call") {
-		t.Fatalf("the refusal does not name what turned the observation away: %s", seen.WhyNot)
+
+	// Same observation, CPU report: the observer is consulted and then overruled by the container.
+	fell := workloadFrom(obs, "victim-uid", 10_000_000_000, 30_000_000_000, cpu)
+	if fell.DeviceUseEstablished {
+		t.Fatal("a card reported busy while the Pod holding it never reached a driver call was credited to it")
 	}
-	// The observation contract itself is satisfied -- what refuses it is this build's workload, and when the
-	// session's workload starts making driver calls that refusal stops firing.
-	if ok, why := queuelab.EstablishesDeviceWork(obs, "victim-uid", 10_000_000_000, 30_000_000_000); !ok {
-		t.Fatalf("the observation contract rejected a well-formed observation: %s", why)
+	if strings.Contains(fell.WhyNot, "no device observer ran") {
+		t.Fatalf("a well-formed observation was never consulted: %s", fell.WhyNot)
 	}
 }
 
-// A record must not contradict itself, and the direction of the refusal is the point.
-//
-// This build renders a workload that makes no driver call. An observation claiming that workload's card did
-// work is not evidence about the card — it is evidence that the OBSERVER is attributing somebody else's
-// activity to this Pod. Believing it would move the axis for a run where moving it is impossible by
-// construction.
+// The contradiction, which is the shape a fake or misconfigured exporter produces -- and the shape an
+// UNLABELLED intruder produces, which nothing else here can catch.
 //
 // It was found by pointing the real path at a fake exporter reporting 94% for every device-holding Pod: the
 // axis moved, and the record said in one field that the workload was Python arithmetic and in another that
 // its GPU had been working.
 //
-// Mutation that turns this red: drop the Kind comparison, or let the observation win.
-func TestAnObservationCannotContradictTheWorkloadsOwnProvenance(t *testing.T) {
-	obs := &queuelab.DeviceObservation{
-		Observer: queuelab.ObserverDCGM, ObserverIdentity: "fake@sha256:abc", Declared: true,
-		StartedNs: 0, EndedNs: 40_000_000_000,
-	}
-	for at := int64(0); at <= 40_000_000_000; at += 1_000_000_000 {
-		obs.Samples = append(obs.Samples, queuelab.DeviceSample{
-			AtNs: at, DeviceUUID: "GPU-fake-0000", PodUID: "victim-uid", UtilisationPercent: 94,
-		})
-	}
-	// The observation itself is impeccable: admissible source, named build, one card, full coverage, busy.
+// The exclusivity clause in EstablishesDeviceWork convicts a SECOND Pod label on the same card. A host
+// process outside Kubernetes wears no label at all, so that clause sees one tenant and waves it through --
+// the review named this as an open false-accept. The workload's own report closes it: the only Pod on that
+// card says it computed nothing, so the utilisation belongs to somebody the cluster cannot see.
+//
+// Mutation that turns this red: drop the reported-kind comparison, or let the observation win.
+func TestAnObservationCannotContradictTheWorkloadsOwnReport(t *testing.T) {
+	obs := busyObservation("GPU-fake-0000")
+	// The observation itself is impeccable: admissible source, named build, one card, full coverage, busy, and
+	// no second label anywhere for the exclusivity clause to convict.
 	if ok, why := queuelab.EstablishesDeviceWork(obs, "victim-uid", 10_000_000_000, 30_000_000_000); !ok {
 		t.Fatalf("the fixture must satisfy the observation contract, or this tests the wrong thing: %s", why)
 	}
-	// And the record still refuses it, because this build's workload cannot have done what it reports.
-	w := workloadFrom(obs, "victim-uid", 10_000_000_000, 30_000_000_000)
+	cpu := workloadKinds[queuelab.KindCPUFloat]
+	cpu.DeviceStatus = "no-libcuda"
+	w := workloadFrom(obs, "victim-uid", 10_000_000_000, 30_000_000_000, cpu)
 	if w.DeviceUseEstablished {
-		t.Fatal("a record certified device work for a workload that makes no driver call; one field would say " +
+		t.Fatal("a record certified device work for a workload that made no driver call; one field would say " +
 			"pure Python arithmetic while another said its GPU had been working")
 	}
-	if !strings.Contains(w.WhyNot, "attributing another Pod's activity") {
-		t.Fatalf("the refusal blames the card rather than the observer: %s", w.WhyNot)
+	if !strings.Contains(w.WhyNot, "another process's activity") {
+		t.Fatalf("the refusal blames the card rather than the intruder: %s", w.WhyNot)
+	}
+	if !strings.Contains(w.WhyNot, "no-libcuda") {
+		t.Fatalf("the refusal does not name which driver call refused, which is where it sends an operator: %s",
+			w.WhyNot)
 	}
 	if deviceEvidenceOf(&measurement{Workload: w}) != deviceNotObserved {
 		t.Fatal("the axis moved on a contradicted observation")
+	}
+
+	// A ledger that never reported at all is refused too, and NOT by falling back to the CPU kind: that would
+	// let a genuine device run be published under the fallback's name.
+	un := workloadFrom(obs, "victim-uid", 10_000_000_000, 30_000_000_000,
+		reportedWorkload{Kind: unreportedWorkloadKind, Unit: "unreported"})
+	if un.DeviceUseEstablished {
+		t.Fatal("a run whose workload said nothing about itself established device work")
+	}
+	if un.Kind == cpuOnlyWorkloadKind {
+		t.Fatal("an unreported run was published as the CPU fallback, which is a guess wearing a measurement")
+	}
+}
+
+// The provenance is read from the VICTIM's attempt, and reading any stopped container instead is a defect
+// that survives every other test in this file.
+//
+// The device claim is about the card the victim was holding while its owner waited. Every row in the trace
+// stops, and they do not have to agree: an owner that reached the driver beside a victim that did not is
+// exactly the shape a partial device passthrough produces on a two-device node, and it is a condition someone
+// needs to be told about rather than averaged away.
+//
+// The in-quota row stops FIRST here, which is what makes the fixture bite. A derivation that took the first
+// stopped container it found would read a1's report, publish "the device worked", and attribute it to a
+// victim that never left the CPU.
+//
+// Mutation that turns this red: drop the ObjectUID comparison from reportedWorkloadOf.
+func TestTheProvenanceComesFromTheVictimsAttemptAndNotAnyStop(t *testing.T) {
+	stopped := func(job, uid, kind, dev string, at int64) queuelab.LifecycleEvent {
+		return queuelab.LifecycleEvent{
+			Job: job, ObjectUID: uid, Type: queuelab.EventAttemptStopped, ElapsedNs: at,
+			WorkloadKind: kind, DeviceStatus: dev,
+		}
+	}
+	events := []queuelab.LifecycleEvent{
+		stopped("a1-inquota", "a1-uid", queuelab.KindCUDAFMA, queuelab.DeviceOK, 5_000_000_000),
+		stopped(queuelab.VictimRow, "victim-uid", queuelab.KindCPUFloat, "no-libcuda", 30_000_000_000),
+		stopped(queuelab.OwnerRow, "owner-uid", queuelab.KindCUDAFMA, queuelab.DeviceOK, 90_000_000_000),
+	}
+	if uid := queuelab.VictimAttemptUID(events); uid != "victim-uid" {
+		t.Fatalf("this fixture only tests anything while the victim attempt is %q, got %q", "victim-uid", uid)
+	}
+	got := reportedWorkloadOf(events)
+	if got.Token != queuelab.KindCPUFloat {
+		t.Fatalf("the provenance came from another row's container: token %q, want %q",
+			got.Token, queuelab.KindCPUFloat)
+	}
+
+	// A re-executed victim row has several attempts, and the later ones ran after the owner already had its
+	// capacity back. The one that ENDS the hold is the earliest, and it is the only one the claim is about.
+	reexecuted := append([]queuelab.LifecycleEvent{}, events...)
+	reexecuted = append(reexecuted,
+		stopped(queuelab.VictimRow, "victim-retry-uid", queuelab.KindCUDAFMA, queuelab.DeviceOK, 60_000_000_000))
+	if got := reportedWorkloadOf(reexecuted); got.Token != queuelab.KindCPUFloat {
+		t.Fatalf("a later attempt of the victim row, which ran after the hold ended, supplied the provenance: "+
+			"token %q", got.Token)
+	}
+}
+
+// A ledger this build cannot read yields "unreported", and NOT the CPU fallback.
+//
+// The difference matters in one direction only, and it is the expensive one: a genuine device run whose
+// termination message was garbled -- a two-container Pod, a truncated log, a workload from a newer build --
+// would be published under the fallback's name, as arithmetic that makes no driver call. Every downstream
+// reader, including the decode-time guard that refuses device work paired with that kind, would then be
+// acting on a guess the record presents as the workload's own account.
+//
+// Mutation that turns this red: return the CPU fallback when the kind token is unknown.
+func TestALedgerThatNamesNoKnownWorkloadIsUnreportedRatherThanAssumed(t *testing.T) {
+	for _, tc := range []struct{ name, kind, dev string }{
+		// What an unparseable termination message actually leaves behind: the parser refuses the message
+		// whole, so nothing reaches the ledger at all.
+		{"a message this build could not parse", "", ""},
+		// And what a record from a build with a third workload looks like to this one.
+		{"a kind from a build this one does not know", "cuda-graph-replay", "ok"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := reportedWorkloadOf([]queuelab.LifecycleEvent{{
+				Job: queuelab.VictimRow, ObjectUID: "victim-uid", Type: queuelab.EventAttemptStopped,
+				WorkloadKind: tc.kind, DeviceStatus: tc.dev,
+			}})
+			if got.Kind != unreportedWorkloadKind {
+				t.Fatalf("an unreadable report was published as %q, which is a guess wearing a measurement",
+					got.Kind)
+			}
+			if got.Token == queuelab.KindCPUFloat || got.Token == queuelab.KindCUDAFMA {
+				t.Fatalf("an unreadable report resolved to the known token %q", got.Token)
+			}
+		})
 	}
 }

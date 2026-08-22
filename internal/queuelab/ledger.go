@@ -52,6 +52,16 @@ type LifecycleEvent struct {
 	// Iterations is how much work the attempt had completed when it stopped, absent when no single container's
 	// terminated status carried a count. It is what makes a discarded GPU-second a discarded unit of work.
 	Iterations *int `json:"iterations,omitempty"`
+	// WorkloadKind and DeviceStatus are the workload's own account of which loop produced Iterations, and they
+	// are in the LEDGER rather than derived at write time on purpose.
+	//
+	// The record's workload provenance is the claim "this run's device was used", and a claim whose support
+	// lives only in the writer is a claim the artifact cannot be audited for. Carrying the tokens here means a
+	// reader holding nothing but the JSON can re-derive the provenance from the same evidence the writer had.
+	//
+	// Absent together with Iterations, for the same reason: they are three readings of one message.
+	WorkloadKind string `json:"workloadKind,omitempty"`
+	DeviceStatus string `json:"deviceStatus,omitempty"`
 	// Job is the trace job name this event belongs to, resolved by the collector through the UID chain.
 	Job string `json:"job"`
 	// ComponentStampUnixNanos is the cluster component's own wall clock for the state this event describes:

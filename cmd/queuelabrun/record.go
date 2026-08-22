@@ -121,7 +121,14 @@ import (
 // how many pods sat on the worker, which operator image actually rendered the measured Pods. A run at
 // version 15 cannot answer any of those, so two of its records cannot be told apart from two taken under
 // different conditions -- which is exactly the confound a node comparison ran into.
-const recordSchemaVersion = 16
+// Version 17 makes the workload's provenance EVIDENCE rather than an assertion. Events gained workloadKind
+// and deviceStatus, which the container writes into its own termination message, and measurement.workload is
+// now derived from those rather than from a literal in the writer. A version-16 record cannot be read forward
+// into this shape: its workload block says "pure Python arithmetic" because that is what its build hardcoded,
+// not because anything in that run said so, and there is no way to tell from the document which it meant.
+// Every figure at 16 was also taken against a workload with no device path at all, so those records answer a
+// different question and the bump is the honest place to say so.
+const recordSchemaVersion = 17
 
 // runRecord is what a non-preview invocation leaves behind.
 //
@@ -526,7 +533,7 @@ type workloadProvenance struct {
 // It is a constructor rather than a literal at the call site so that a build which gains a real kernel has
 // one place to change, and so that no run can be assembled without stating this at all.
 func cpuOnlyWorkload() workloadProvenance {
-	return workloadFrom(nil, "", 0, 0)
+	return workloadFrom(nil, "", 0, 0, workloadKinds[queuelab.KindCPUFloat])
 }
 
 // workloadFrom derives the provenance from what an independent observer saw, or from its absence.
@@ -544,38 +551,37 @@ func cpuOnlyWorkload() workloadProvenance {
 // The reason string comes from the check rather than from here, because a run that fails has to tell an
 // operator WHICH of the five went wrong: no observer, an inadmissible one, an interval not covered, a gap in
 // the middle, or a card that was allocated and idle. Those send someone to five different places.
-func workloadFrom(obs *queuelab.DeviceObservation, podUID string, fromNs, toNs int64) workloadProvenance {
-	w := workloadProvenance{
-		Kind:        cpuOnlyWorkloadKind,
-		CountedUnit: "50000 float multiply-modulo operations",
-	}
+func workloadFrom(obs *queuelab.DeviceObservation, podUID string, fromNs, toNs int64,
+	reported reportedWorkload) workloadProvenance {
+	w := workloadProvenance{Kind: reported.Kind, CountedUnit: reported.Unit}
 	established, why := queuelab.EstablishesDeviceWork(obs, podUID, fromNs, toNs)
 	// The record must not contradict itself, and the direction of the refusal is the point.
 	//
-	// This build renders a workload that makes no driver call. An observation claiming that workload's card
-	// did work is not evidence about the card -- it is evidence that the OBSERVER is attributing somebody
-	// else's activity to this Pod, which is the failure mode a fake or misconfigured exporter produces and the
-	// one nothing else here would catch. Believing it would let the axis move for a run where moving it is
-	// impossible by construction.
+	// The workload says which loop ran. An observer claiming that card did work while the workload says it
+	// never reached a driver call is not evidence about the card -- it is evidence that somebody ELSE's
+	// activity is arriving under this Pod's label, which is the failure mode a fake or misconfigured exporter
+	// produces and the one nothing else here would catch.
 	//
 	// It was found by pointing the real path at a fake exporter that reports 94% for every Pod holding a
 	// device. The axis moved, and the record it produced said in one field that the workload was pure Python
 	// arithmetic and in another that its GPU had been working.
 	//
-	// There is NO automatic seam here, and the comment used to claim one -- that when the session's workload
-	// starts making driver calls its Kind changes with it and this stops firing. Kind is not derived from what
-	// was submitted; it is the literal below. The natural edit when the workload changes is to change that
-	// literal's VALUE, which leaves this guard firing on the genuine GPU workload and refusing every
-	// observation of it. The correct edit is to stop comparing against it, and nothing enforces that.
+	// This used to compare against a LITERAL, and the comment beside it admitted the trap: the natural edit
+	// when the workload changed was to change that literal's value, which would leave the guard firing on the
+	// genuine GPU workload and refusing every observation of it. The literal is gone. Kind is now the token
+	// the container itself wrote into its termination message, carried in the ledger, so the comparison is
+	// between what RAN and what was WATCHED rather than between the observer and a constant in the writer.
 	//
-	// So it is written here as an instruction rather than as a mechanism: whoever replaces the workload with
-	// one that makes driver calls must delete this branch in the same change. A review found the false promise
-	// and it is worth more as an admission than as reassurance.
-	if established && w.Kind == cpuOnlyWorkloadKind {
+	// That also closes a hole the earlier review left open. An unlabelled host process busy on the victim's
+	// card wears no second Pod label, so the exclusivity clause has nothing to convict it with -- but the
+	// victim's own workload still says it fell back to the CPU, and a card that was busy while the only Pod
+	// on it computed nothing is precisely that intruder.
+	if established && reported.Token != queuelab.KindCUDAFMA {
 		established = false
-		why = fmt.Sprintf("an observer reported device work for a %s workload, which makes no driver call: "+
-			"that is evidence the observer is attributing another Pod's activity to this one, not evidence "+
-			"that this card did anything", cpuOnlyWorkloadKind)
+		why = fmt.Sprintf("an observer reported device work over the hold, but the workload's own report says "+
+			"it ran %q (%s): a card busy while the Pod holding it made no driver call is another process's "+
+			"activity arriving under this Pod's label, not evidence that this card did this Pod's work",
+			reported.Kind, reported.DeviceStatus)
 	}
 	w.DeviceUseEstablished = established
 	if !established {
@@ -584,11 +590,83 @@ func workloadFrom(obs *queuelab.DeviceObservation, podUID string, fromNs, toNs i
 	return w
 }
 
-// cpuOnlyWorkloadKind names what this build renders: arithmetic that touches no device.
+// reportedWorkload is the container's own account of itself, resolved from the ledger into record terms.
+type reportedWorkload struct {
+	// Token is the workload's own spelling, as it appears in the termination message and the ledger.
+	//
+	// It is carried BESIDE the record spelling rather than being folded into it, because the guard below has
+	// to compare against one vocabulary and the record has to publish the other. Folding them let the first
+	// version of this function compare the record spelling against the token: "cuda-driver-fma-kernel" is
+	// never equal to "cuda-fma", so the guard refused the genuine device run and every session would have
+	// come back with the axis stuck. A test written for the positive path caught it; nothing else would have,
+	// because no run in this repository had ever reached that branch.
+	Token string
+	// Kind is the workload kind the record publishes, which is the token's spelling rather than the token.
+	Kind string
+	// Unit names what one iteration is, in the terms that kind of loop uses.
+	Unit string
+	// DeviceStatus is the device-path outcome the container reported, carried so a refusal can name it.
+	DeviceStatus string
+}
+
+// unreportedWorkload is what a run whose ledger carries no readable report gets.
 //
-// It is a constant rather than a literal because two places have to agree about it -- the provenance a record
-// carries, and the contradiction check above -- and a workload change that edited one would otherwise leave
-// the other silently guarding nothing.
+// It is a distinct kind rather than a default to the CPU loop, because those are different facts and the
+// second is a guess. A run whose victim never terminated, whose Pod had two containers, or whose termination
+// message this build could not parse has not told anyone which loop ran -- and answering "the CPU one" would
+// let a genuine device run be published under the fallback's name, or the reverse.
+const unreportedWorkloadKind = "unreported"
+
+// workloadKinds maps each token the workload can emit to what a record says about it.
+//
+// The table is here rather than in the workload package because these strings are the ARTIFACT's vocabulary:
+// they appear in published records and a reader has to be able to look them up. The tokens are the wire
+// format and are owned by the workload that writes them.
+var workloadKinds = map[string]reportedWorkload{
+	queuelab.KindCPUFloat: {
+		Token: queuelab.KindCPUFloat,
+		Kind:  cpuOnlyWorkloadKind,
+		Unit:  "50000 float multiply-modulo operations",
+	},
+	queuelab.KindCUDAFMA: {
+		Token: queuelab.KindCUDAFMA,
+		Kind:  "cuda-driver-fma-kernel",
+		Unit:  "1024x256 threads x 20000 fused multiply-adds per launch",
+	},
+}
+
+// reportedWorkloadOf reads the victim attempt's own report out of the ledger.
+//
+// It reads the VICTIM's attempt specifically, and not any stopped container, because the device claim is
+// about the card the victim was holding. The owner's container reports its own loop, and on a two-device node
+// those can differ -- an owner that reached the driver and a victim that did not is exactly the shape a
+// partial device passthrough produces, and averaging them would hide it.
+func reportedWorkloadOf(events []queuelab.LifecycleEvent) reportedWorkload {
+	uid := queuelab.VictimAttemptUID(events)
+	unreported := reportedWorkload{Kind: unreportedWorkloadKind, Unit: "unreported"}
+	if uid == "" {
+		return unreported
+	}
+	for i := range events {
+		e := events[i]
+		if e.Type != queuelab.EventAttemptStopped || e.ObjectUID != uid {
+			continue
+		}
+		known, ok := workloadKinds[e.WorkloadKind]
+		if !ok {
+			return unreported
+		}
+		known.DeviceStatus = e.DeviceStatus
+		return known
+	}
+	return unreported
+}
+
+// cpuOnlyWorkloadKind names the fallback loop: arithmetic that touches no device.
+//
+// It is a constant rather than a literal because two places have to agree about it -- the table above, which
+// is what a record carries, and the decode-time guard that refuses a document pairing this kind with observed
+// device work.
 const cpuOnlyWorkloadKind = "pure-python-float-arithmetic"
 
 type validity struct {
@@ -1349,9 +1427,10 @@ func ownerAdmitToReadyStamp(res *queuelab.LabResult) *int64 {
 // the same reason: nothing here established device use. It is not treated as a softer failure, because a run
 // whose own events cannot locate the hold cannot attribute anything to it either.
 func workloadOf(obs *queuelab.DeviceObservation, events []queuelab.LifecycleEvent) workloadProvenance {
+	reported := reportedWorkloadOf(events)
 	from, to, ok := queuelab.DeviceHoldWindow(events)
 	if !ok {
-		return workloadFrom(nil, "", 0, 0)
+		return workloadFrom(nil, "", 0, 0, reported)
 	}
-	return workloadFrom(obs, queuelab.VictimAttemptUID(events), from, to)
+	return workloadFrom(obs, queuelab.VictimAttemptUID(events), from, to, reported)
 }
