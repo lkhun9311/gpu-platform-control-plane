@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"time"
 
 	"github.com/lkhun9311/gpu-mlops-platform-control-plane/internal/queuelab"
@@ -1268,6 +1269,107 @@ func buildRecord(o outcome, events []queuelab.LifecycleEvent, left []residue, qu
 	}
 }
 
+// replayAgreesWithRecord re-derives the measurement from the record's ledger and refuses any disagreement.
+//
+// The replay is the WRITE path, called again: doseProtocolFor, TerminationContractTrace, Reconstruct and
+// measurementOf, in the order the run used. That matters more than it looks. A private re-implementation
+// here would drift from the writer and start refusing honest documents, and the first person to meet that
+// would be someone holding a record from a machine that no longer exists.
+//
+// WhyNot is deliberately not compared. It is prose from a gate whose inputs include samples outside the
+// window the record persists, so an honest record can carry a reason this replay would phrase differently --
+// and a mismatch in a sentence is not evidence of a mismatch in a number.
+func replayAgreesWithRecord(r runRecord) error {
+	if r.Measurement == nil {
+		return nil
+	}
+	// A measurement with no ledger is refused, and the claim behind that is checked rather than assumed:
+	// Reconstruct rejects an empty ledger outright ("job a1 has no Submitted event"), so measurementOf can
+	// never be reached without events and no run writes this pairing. It is stated here rather than left to
+	// the field comparison because the two say different things to a reader -- "your waste figure is wrong"
+	// sends them to the number, and the real fact is that the evidence for every figure is missing.
+	if len(r.Events) == 0 {
+		return fmt.Errorf("decode record: the record carries a measurement and no ledger, so none of its " +
+			"figures can be re-derived from it; a run cannot write that pairing, because the measurement is " +
+			"reconstructed from the events and reconstruction refuses an empty ledger")
+	}
+	p, err := doseProtocolFor(r.Dose)
+	if err != nil {
+		return fmt.Errorf("decode record: replaying the ledger: %w", err)
+	}
+	trace, err := queuelab.TerminationContractTrace(p.VictimServiceSec, p.DoseSec, p.Regime)
+	if err != nil {
+		return fmt.Errorf("decode record: replaying the ledger: %w", err)
+	}
+	res, err := queuelab.Reconstruct(r.Arm, trace, r.Events, r.Measurement.HorizonNs)
+	if err != nil {
+		return fmt.Errorf("decode record: the ledger this record carries cannot be replayed to its own "+
+			"horizon: %w", err)
+	}
+	want := measurementOf(&res, r.Measurement.HorizonNs, r.Events, observationFromEvidence(r.DeviceObservation))
+	if want == nil {
+		return fmt.Errorf("decode record: replaying the ledger produced no measurement while the record " +
+			"carries one")
+	}
+	got := r.Measurement
+	for _, d := range []struct {
+		field     string
+		got, want any
+	}{
+		{"wastedGPUSeconds", got.WastedGPUSeconds, want.WastedGPUSeconds},
+		{"wasteLowerBoundGPUSeconds", got.WasteLowerBoundGPUSeconds, want.WasteLowerBoundGPUSeconds},
+		{"censored", got.Censored, want.Censored},
+		{"unfinishedAtHorizon", got.UnfinishedAtHorizon, want.UnfinishedAtHorizon},
+		{"discardedIterations", intPtrValue(got.DiscardedIterations), intPtrValue(want.DiscardedIterations)},
+		{"ownerAdmitToReadyNs", int64PtrValue(got.OwnerAdmitToReadyNs), int64PtrValue(want.OwnerAdmitToReadyNs)},
+		{"ownerAdmitToReadyStampNs", int64PtrValue(got.OwnerAdmitToReadyStampNs),
+			int64PtrValue(want.OwnerAdmitToReadyStampNs)},
+		{"workload.kind", got.Workload.Kind, want.Workload.Kind},
+		{"workload.countedUnit", got.Workload.CountedUnit, want.Workload.CountedUnit},
+		{"workload.deviceUseEstablished", got.Workload.DeviceUseEstablished,
+			want.Workload.DeviceUseEstablished},
+	} {
+		if d.got != d.want {
+			return fmt.Errorf("decode record: measurement.%s is %v and replaying this record's own ledger "+
+				"gives %v; the number in the document did not come from the evidence beside it", d.field,
+				d.got, d.want)
+		}
+	}
+	// Compared by VALUE. The field is a pointer, and comparing the pointers is always a mismatch -- which
+	// this caught immediately by refusing every honest record, the one way that mistake is cheap.
+	if !reflect.DeepEqual(got.Resolution, want.Resolution) {
+		return fmt.Errorf("decode record: measurement.resolution is %s and replaying this record's own "+
+			"ledger gives %s; the bound every figure here is judged against was not derived from them",
+			describeResolution(got.Resolution), describeResolution(want.Resolution))
+	}
+	return nil
+}
+
+// describeResolution renders a resolution for a refusal, without dereferencing an absent one.
+func describeResolution(r *observationResolution) string {
+	if r == nil {
+		return "absent"
+	}
+	return fmt.Sprintf("%+v", *r)
+}
+
+// intPtrValue and int64PtrValue flatten an optional number to something comparable, using a sentinel for
+// absent rather than dereferencing. Absent and zero are different facts in this record -- a run whose owner
+// never came back versus one restored instantly -- so they must not compare equal.
+func intPtrValue(p *int) any {
+	if p == nil {
+		return "absent"
+	}
+	return *p
+}
+
+func int64PtrValue(p *int64) any {
+	if p == nil {
+		return "absent"
+	}
+	return *p
+}
+
 func encodeRecord(v any) ([]byte, error) {
 	b, err := json.MarshalIndent(v, "", "  ")
 	if err != nil {
@@ -1438,6 +1540,22 @@ func checkValidity(r runRecord) error {
 	//
 	// The record persists no device samples, so a full re-derivation is not available here. What IS available
 	// is the contradiction the write path already refuses, and refusing it again on the way in costs nothing.
+	// The HEADLINE numbers are re-derived from the record's own ledger, which is the check the citation test
+	// says in its own comment it cannot make: it proves a cited record exists and decodes, and cannot prove
+	// that a figure in a table came from it.
+	//
+	// Nothing checked them before. wastedGPUSeconds, discardedIterations, unfinishedAtHorizon and the owner's
+	// wait were copied into the document at write time and believed at read time, so a hand-edited file could
+	// claim any of them beside a ledger that said otherwise -- reproduced, not argued: a copy of a committed
+	// record with wastedGPUSeconds set to 999.999 and its events untouched produced a comparison document
+	// reporting a thousand discarded GPU-seconds against a six-second floor.
+	//
+	// Everything needed was already here and unwired. The record carries its arm, its dose and its ledger,
+	// and measurement.horizonNs exists -- as its own comment says -- "so a reader holding the events can
+	// replay them to the same boundary". This is that reader.
+	if err := replayAgreesWithRecord(r); err != nil {
+		return err
+	}
 	// The device claim is re-derived from the record's OWN evidence, which is the whole reason the samples
 	// are persisted. Before this the boolean was believed: a document could assert that a GPU did this Pod's
 	// work and carry nothing a reader could check it against, in a repository that persists watch resume

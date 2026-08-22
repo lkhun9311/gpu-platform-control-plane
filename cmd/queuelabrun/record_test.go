@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"reflect"
 	"runtime"
 	"slices"
@@ -1527,27 +1528,35 @@ func TestARecordFromBeforeTheMeasurementBlockIsRefused(t *testing.T) {
 		t.Fatal("a record from before the measurement block decoded under today's rules, so its silence about " +
 			"censoring reads as a run whose waste was fully measured")
 	}
-	// A censored run must round-trip carrying the flag, or the field is decoration.
-	m := &measurement{HorizonNs: 150e9, WastedGPUSeconds: 12.5, WasteLowerBoundGPUSeconds: 12.5,
-		Censored: true, UnfinishedAtHorizon: 2}
-	b, err := encodeRecord(runRecord{
-		SchemaVersion: recordSchemaVersion, RunID: "r7", Arm: "A-honor", Dose: "self-completing",
-		Disposition: string(dispChecksPassed), Measurement: m,
-		Validity: validity{Verdict: verdictRefused, Failures: []string{failureObservation},
-			DeviceEvidence: deviceNotObserved},
-	})
+	// The censoring flag must MEAN something in a decoded record, and after the decoder began re-deriving
+	// the measurement there is exactly one way to test that: a document may carry the flag its own ledger
+	// produces, and may not carry the other one.
+	//
+	// This used to hand-build a censored measurement and assert it round-tripped. That fixture cannot exist
+	// now, and its impossibility is the feature -- a record claiming its waste is a floor, on a ledger where
+	// every attempt stopped inside the horizon, is a record that has downgraded its own headline for free.
+	real := committedRecord(t)
+	got, err := decodeRunRecord(real)
 	if err != nil {
-		t.Fatalf("encode: %v", err)
+		t.Fatalf("a record this build wrote must decode: %v", err)
 	}
-	got, err := decodeRunRecord(b)
+	if got.Measurement == nil {
+		t.Fatal("the measurement block did not survive the wire")
+	}
+	if got.Measurement.HorizonNs == 0 {
+		t.Fatal("the horizon did not survive, so a reader holding the ledger cannot replay it to the same " +
+			"boundary and none of the numbers could be recomputed even in principle")
+	}
+	doc := committedRecordDoc(t)
+	doc["measurement"].(map[string]any)["censored"] = !got.Measurement.Censored
+	flipped, err := json.Marshal(doc)
 	if err != nil {
-		t.Fatalf("a record carrying a measurement must decode: %v", err)
+		t.Fatalf("marshal: %v", err)
 	}
-	if got.Measurement == nil || !got.Measurement.Censored {
-		t.Fatalf("the censoring flag did not survive the wire: %+v", got.Measurement)
-	}
-	if got.Measurement.HorizonNs != m.HorizonNs {
-		t.Fatalf("the horizon did not survive the wire: %d", got.Measurement.HorizonNs)
+	if _, err := decodeRunRecord(flipped); err == nil {
+		t.Fatal("a record whose censoring flag contradicts its own ledger decoded; the flag is what tells a " +
+			"reader whether wastedGPUSeconds is a value or a floor, and either direction is a free rewrite " +
+			"of the headline")
 	}
 }
 
@@ -1789,39 +1798,29 @@ func TestARecordCannotAssertDeviceWorkItsMeasurementDoesNotSupport(t *testing.T)
 //
 // Mutation that turns this red: delete the pairing check from checkValidity.
 func TestARecordCannotClaimDeviceWorkForAWorkloadThatMakesNoDriverCall(t *testing.T) {
-	forged := cpuOnlyWorkload()
-	forged.DeviceUseEstablished = true
-	forged.WhyNot = ""
-	if forged.Kind != cpuOnlyWorkloadKind {
-		t.Fatalf("this fixture only forges anything while the CPU loop is the kind on record, got %q", forged.Kind)
+	// Built on a document the write path produced, and edited in the one place the forgery lives. The old
+	// version assembled a record field by field, which the decoder's ledger replay now refuses for a reason
+	// that has nothing to do with the pairing under test -- so the fixture would have failed while telling
+	// nobody whether the pairing was still caught.
+	doc := committedRecordDoc(t)
+	w := doc["measurement"].(map[string]any)["workload"].(map[string]any)
+	if w["kind"] != cpuOnlyWorkloadKind {
+		t.Fatalf("this fixture only forges anything while the CPU loop is the kind on record, got %v", w["kind"])
 	}
-	b, err := encodeRecord(runRecord{
-		SchemaVersion: recordSchemaVersion, RunID: "r7", Arm: "A-honor", Dose: "self-completing",
-		Disposition: string(dispChecksPassed),
-		Measurement: &measurement{WastedGPUSeconds: 41.0, Workload: forged},
-		Validity: validity{Verdict: verdictRefused, Failures: []string{failureObservation},
-			DeviceEvidence: deviceWorkObserved},
-	})
+	w["deviceUseEstablished"] = true
+	delete(w, "whyNot")
+	doc["validity"].(map[string]any)["deviceEvidence"] = deviceWorkObserved
+	forged, err := json.Marshal(doc)
 	if err != nil {
-		t.Fatalf("encode: %v", err)
+		t.Fatalf("marshal: %v", err)
 	}
-	if _, err := decodeRunRecord(b); err == nil {
+	if _, err := decodeRunRecord(forged); err == nil {
 		t.Fatal("a record claimed observed device work for a pure-CPU workload and decoded")
 	}
 
 	// The honest pairing still decodes: refusing both would make the guard indistinguishable from a decoder
 	// that rejects every measurement it is handed.
-	honest, err := encodeRecord(runRecord{
-		SchemaVersion: recordSchemaVersion, RunID: "r7", Arm: "A-honor", Dose: "self-completing",
-		Disposition: string(dispChecksPassed),
-		Measurement: &measurement{WastedGPUSeconds: 41.0, Workload: cpuOnlyWorkload()},
-		Validity: validity{Verdict: verdictRefused, Failures: []string{failureObservation},
-			DeviceEvidence: deviceNotObserved},
-	})
-	if err != nil {
-		t.Fatalf("encode: %v", err)
-	}
-	if _, err := decodeRunRecord(honest); err != nil {
+	if _, err := decodeRunRecord(committedRecord(t)); err != nil {
 		t.Fatalf("the pairing every run on this cluster actually writes was refused: %v", err)
 	}
 }
@@ -2113,5 +2112,176 @@ func TestALedgerThatNamesNoKnownWorkloadIsUnreportedRatherThanAssumed(t *testing
 				t.Fatalf("an unreadable report resolved to the known token %q", got.Token)
 			}
 		})
+	}
+}
+
+// committedRecord loads a record this build's write path actually produced.
+//
+// Decode tests used to hand-build their fixtures, and that stopped being possible when the decoder began
+// re-deriving the measurement from the ledger: a record assembled field by field carries numbers no ledger
+// supports, which is precisely what the decoder now refuses. Basing them on a real document is not a
+// workaround for that -- it is the same lesson the fake exporter and the stand-in exporter both taught here,
+// that a fixture built to fit the code confirms only that the code agrees with itself.
+func committedRecord(t *testing.T) []byte {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join("..", "..", "ex", "e17-self-completing-A-honor-e17sh1.json"))
+	if err != nil {
+		t.Fatalf("no committed record to build on, so this test verifies nothing: %v", err)
+	}
+	return b
+}
+
+// committedRecordDoc is committedRecord as a mutable document.
+func committedRecordDoc(t *testing.T) map[string]any {
+	t.Helper()
+	var doc map[string]any
+	if err := json.Unmarshal(committedRecord(t), &doc); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	doc["runID"] = "forged"
+	return doc
+}
+
+// The headline numbers must follow from the ledger in the same document.
+//
+// This is the check the citation test says in its own comment it cannot make. That test proves a cited
+// record exists and decodes; it cannot prove a figure in a published table came from it. So every number in
+// every document this lab has produced entered through a channel where the only thing standing between a
+// hand edit and a comparison document was that nobody had tried.
+//
+// Reproduced before it was fixed: a copy of a committed record with wastedGPUSeconds set to 999.999 and its
+// events untouched produced a comparison reporting a thousand discarded GPU-seconds against a six-second
+// floor, with the ledger beside it saying 40.9.
+//
+// The fixture is a REAL record rather than a synthesised one, because the replay must agree with what the
+// write path actually produces. A hand-built record would let this test pass while every honest document
+// from the field was refused -- which is exactly what happened on the first attempt, where the resolution
+// block was compared by pointer and every real record failed at once.
+//
+// Mutation that turns this red: skip any field in replayAgreesWithRecord's table, or return nil early.
+func TestTheHeadlineNumbersAreReDerivedFromTheRecordsOwnLedger(t *testing.T) {
+	// Repo-relative, like the citation test's globs: the test binary runs in the package directory and the
+	// evidence lives at the root. A skip here would be worthless -- the whole point is to replay a document
+	// the write path actually produced.
+	real, err := os.ReadFile(filepath.Join("..", "..", "ex", "e17-self-completing-A-honor-e17sh1.json"))
+	if err != nil {
+		t.Fatalf("no committed record to replay, so this check verifies nothing: %v", err)
+	}
+	if _, err := decodeRunRecord(real); err != nil {
+		t.Fatalf("a record this build wrote does not survive its own replay, so the check refuses honest "+
+			"documents rather than forged ones: %v", err)
+	}
+	for _, tc := range []struct {
+		name  string
+		edit  func(map[string]any)
+		wants string
+	}{
+		{"discarded GPU-seconds", func(m map[string]any) { m["wastedGPUSeconds"] = 999.999 },
+			"wastedGPUSeconds"},
+		{"the lower bound", func(m map[string]any) { m["wasteLowerBoundGPUSeconds"] = 1.0 },
+			"wasteLowerBoundGPUSeconds"},
+		{"the owner's wait", func(m map[string]any) { m["ownerAdmitToReadyNs"] = 1 },
+			"ownerAdmitToReadyNs"},
+		{"the component-stamp wait", func(m map[string]any) { m["ownerAdmitToReadyStampNs"] = 1 },
+			"ownerAdmitToReadyStampNs"},
+		{"the discarded work", func(m map[string]any) { m["discardedIterations"] = 1 },
+			"discardedIterations"},
+		{"the censoring flag", func(m map[string]any) { m["censored"] = true }, "censored"},
+		{"what was still running", func(m map[string]any) { m["unfinishedAtHorizon"] = 7 },
+			"unfinishedAtHorizon"},
+		// The bound every other figure is judged against. Widening it is the edit that makes a difference
+		// look unresolved, and narrowing it is the edit that makes noise look like a finding.
+		{"the resolution", func(m map[string]any) {
+			m["resolution"].(map[string]any)["resolvedToNs"] = 1
+		}, "resolution"},
+		{"the workload's own account", func(m map[string]any) {
+			m["workload"].(map[string]any)["countedUnit"] = "furlongs"
+		}, "workload.countedUnit"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var doc map[string]any
+			if err := json.Unmarshal(real, &doc); err != nil {
+				t.Fatalf("unmarshal: %v", err)
+			}
+			doc["runID"] = "forged"
+			tc.edit(doc["measurement"].(map[string]any))
+			b, err := json.Marshal(doc)
+			if err != nil {
+				t.Fatalf("marshal: %v", err)
+			}
+			_, err = decodeRunRecord(b)
+			if err == nil {
+				t.Fatalf("a record whose %s does not follow from its own ledger decoded, so it would reach a "+
+					"published table with nothing having checked it", tc.name)
+			}
+			if !strings.Contains(err.Error(), tc.wants) {
+				t.Fatalf("the refusal does not name the field that disagrees (%q): %v", tc.wants, err)
+			}
+		})
+	}
+
+	// A measurement with no ledger cannot be re-derived at all, and that pairing is refused rather than
+	// waved through: it is what a forger produces after learning that the events are what convict them.
+	var doc map[string]any
+	if err := json.Unmarshal(real, &doc); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	doc["runID"] = "forged"
+	delete(doc, "events")
+	b, _ := json.Marshal(doc)
+	_, err = decodeRunRecord(b)
+	if err == nil {
+		t.Fatal("a record carrying a measurement and no ledger decoded, so stripping the evidence is a way " +
+			"to keep the number")
+	}
+	// Refused on the NUMBER, not on the pairing. An earlier version of the decoder refused a measurement
+	// with no events outright, claiming no build writes one -- and two other tests in this file build exactly
+	// that. The claim was unsupported, so it is gone: stripping the ledger from a real record now fails
+	// because forty discarded GPU-seconds do not follow from no events, which is a fact about this document
+	// rather than an assertion about what builds do.
+	if !strings.Contains(err.Error(), "no ledger") {
+		t.Fatalf("a record with its ledger stripped was refused for some other reason, which sends a reader "+
+			"to a number when the fact is that the evidence is gone: %v", err)
+	}
+
+	// Absent and zero must not compare equal, which is the dangerous-zero pattern this file exists to keep
+	// out: a document saying 0 for the owner's wait claims the quota owner was restored INSTANTLY -- the
+	// experiment's best possible outcome -- on exactly the runs where it was never restored at all.
+	//
+	// This fixture does NOT reach the comparison that would prove it, and saying so is worth more than a
+	// green line. Reconstruct refuses a ledger carrying a stop with no readiness before it, so removing the
+	// owner's PodReady fails the replay outright rather than producing a nil wait to compare against a
+	// zero. The sentinel in intPtrValue is therefore defence behind a guard that fires first, and a mutation
+	// flattening absent to 0 survives this suite. It is kept because the ordering is a property of today's
+	// Reconstruct rather than of the record format, and the field it protects is the one where a zero is
+	// the most flattering possible lie.
+	if err := json.Unmarshal(real, &doc); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	doc["runID"] = "forged"
+	doc["measurement"].(map[string]any)["ownerAdmitToReadyNs"] = 0
+	kept := []any{}
+	for _, e := range doc["events"].([]any) {
+		ev := e.(map[string]any)
+		if ev["job"] == queuelab.OwnerRow && ev["type"] == string(queuelab.EventPodReady) {
+			continue
+		}
+		kept = append(kept, e)
+	}
+	if len(kept) == len(doc["events"].([]any)) {
+		t.Fatal("the fixture removed no owner-readiness event, so the replay would still produce a wait and " +
+			"this asserts nothing")
+	}
+	doc["events"] = kept
+	b, _ = json.Marshal(doc)
+	_, err = decodeRunRecord(b)
+	if err == nil {
+		t.Fatal("a record claiming the quota owner was running 0 ns after admission decoded beside a ledger " +
+			"that never saw it become ready, which is the experiment's best outcome asserted on a run where " +
+			"it did not happen")
+	}
+	if !strings.Contains(err.Error(), "cannot be replayed") {
+		t.Fatalf("the refusal came from somewhere other than the replay, so this fixture no longer tests "+
+			"what its comment says: %v", err)
 	}
 }
