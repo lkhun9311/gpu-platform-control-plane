@@ -99,6 +99,9 @@ func operatorModeContext(mode operatorMode) (context.Context, context.CancelFunc
 	if mode == modeTerminationCanary {
 		return context.WithTimeout(context.Background(), canaryModeTimeout)
 	}
+	if mode == modeDevicePreflight {
+		return context.WithTimeout(context.Background(), preflightModeTimeout)
+	}
 	return context.WithTimeout(context.Background(), operatorModeTimeout)
 }
 

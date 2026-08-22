@@ -201,7 +201,7 @@ func soleTerminated(pod *corev1.Pod) (code *int32, iters *int, finished *int64, 
 		}
 		c := t.ExitCode
 		code = &c
-		iters, kind, device = reportFromMessage(t.Message)
+		iters, kind, device = ReportFromMessage(t.Message)
 		if !t.FinishedAt.IsZero() {
 			f := t.FinishedAt.UnixNano()
 			finished = &f
@@ -237,7 +237,11 @@ var deviceStatuses = map[string]bool{
 	"memset-failed": true, "launch-failed": true, "launch-failed-midrun": true,
 }
 
-// reportFromMessage reads the workload's own account out of the terminated status message.
+// ReportFromMessage reads the workload's own account out of the terminated status message.
+//
+// It is exported because the device preflight reads the same sentence from a Pod it applied directly, without
+// a ledger anywhere: one parser for one wire format, so a preflight that passes cannot be followed by a run
+// whose collector reads the same container differently.
 //
 // The kubelet copies /dev/termination-log there, and the workload rewrites that file from inside its loop, so
 // this arrives even for a container SIGKILLed at the grace boundary -- the arm whose discarded work the
@@ -253,7 +257,7 @@ var deviceStatuses = map[string]bool{
 // launched, so it cannot appear beside the CPU fallback; and the device kind can only carry ok or the
 // mid-run failure, because every earlier failure returns before the kind is set. A pair outside that
 // relation was not written by this workload.
-func reportFromMessage(msg string) (iters *int, kind, device string) {
+func ReportFromMessage(msg string) (iters *int, kind, device string) {
 	fields := strings.Fields(strings.TrimSpace(msg))
 	if len(fields) != 3 {
 		return nil, "", ""

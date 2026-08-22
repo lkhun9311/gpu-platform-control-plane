@@ -245,7 +245,7 @@ func TestTheShippedWorkloadActuallyRunsAndReportsWhatTheParserExpects(t *testing
 	}
 	final := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(
 		lastLine(string(out))), "finished "))
-	iters, kind, device := reportFromMessage(final)
+	iters, kind, device := ReportFromMessage(final)
 	if iters == nil {
 		t.Fatalf("the parser could not read the report the shipped workload writes: %q\nfull output:\n%s",
 			final, out)
@@ -308,7 +308,7 @@ func TestTheHonoringArmActuallyExitsOnSIGTERM(t *testing.T) {
 			"natural completion\n%s", exit.ExitCode(), termExitCode, buf.String())
 	}
 	final := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(lastLine(buf.String())), "terminated "))
-	if iters, _, _ := reportFromMessage(final); iters == nil {
+	if iters, _, _ := ReportFromMessage(final); iters == nil {
 		t.Fatalf("the preempted workload left no readable report, which is the evidence the arm exists to "+
 			"produce: %q\n%s", final, buf.String())
 	}

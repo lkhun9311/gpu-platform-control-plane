@@ -213,6 +213,11 @@ type operatorModeArgs struct {
 	// a run the two would deadlock on each other.
 	TerminationCanary bool
 
+	// DevicePreflight sits beside TerminationCanary for the same reason, and answers the question the canary
+	// structurally cannot: the canary's probes have their device request stripped, so nothing it reports is
+	// about a card. This one keeps the request and asks whether the workload reaches the driver at all.
+	DevicePreflight bool
+
 	ReleaseStale bool
 	TxID         string
 
@@ -281,11 +286,12 @@ const (
 	modeForceRelease
 	modeClearQuarantine
 	modeTerminationCanary
+	modeDevicePreflight
 )
 
-// decideOperatorMode is the pure validation layer for the five non-run modes — the four recovery ones and
-// the termination canary: it decides which mode (if any) was requested and whether the invocation is
-// well-formed, entirely without touching the cluster.
+// decideOperatorMode is the pure validation layer for the six non-run modes — the four recovery ones, the
+// termination canary and the device preflight: it decides which mode (if any) was requested and whether the
+// invocation is well-formed, entirely without touching the cluster.
 //
 // This has to run, in full, before anything that needs a kubeconfig: an operator on a box with no cluster
 // access who mistypes a flag combination must see the flag-combination refusal, not a "kubeconfig: ..."
@@ -296,7 +302,8 @@ const (
 // than fall through). The two are distinguished by err, not by the mode value alone.
 func decideOperatorMode(a operatorModeArgs) (operatorMode, error) {
 	requested := 0
-	for _, on := range []bool{a.Inspect, a.ReleaseStale, a.ForceRelease, a.ClearQuarantine, a.TerminationCanary} {
+	for _, on := range []bool{a.Inspect, a.ReleaseStale, a.ForceRelease, a.ClearQuarantine, a.TerminationCanary,
+		a.DevicePreflight} {
 		if on {
 			requested++
 		}
@@ -307,7 +314,7 @@ func decideOperatorMode(a operatorModeArgs) (operatorMode, error) {
 	if requested > 1 {
 		return modeNone, fmt.Errorf(
 			"only one of -inspect-worker, -release-stale, -force-release, -clear-quarantine, " +
-				"-termination-canary may be given at a time")
+				"-termination-canary, -device-preflight may be given at a time")
 	}
 	// An operator mode is a recovery tool, not a run, so combining one with -arm would let "recover the
 	// node" and "run an arm" be read as a single invocation.
@@ -334,6 +341,10 @@ func decideOperatorMode(a operatorModeArgs) (operatorMode, error) {
 		// anything — it takes the worker through the ordinary transaction, which refuses a node somebody else
 		// holds, and everything it creates it names and deletes itself.
 		return modeTerminationCanary, nil
+	case a.DevicePreflight:
+		// No attestation, for the canary's reason: it takes the worker through the ordinary transaction, which
+		// refuses a node somebody else holds, and the one Pod it creates it names and deletes itself.
+		return modeDevicePreflight, nil
 	case a.ReleaseStale:
 		if a.TxID == "" {
 			return modeNone, fmt.Errorf("-release-stale requires -txid")

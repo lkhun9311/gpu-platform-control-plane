@@ -80,6 +80,10 @@ func main() {
 		// Not a recovery mode, but it belongs with them for the same reason they are here: it is not a run, and
 		// it has to work on a node no run can be allowed on — qualifyWorker refuses a worker with no recorded
 		// canary, so a canary that could only be taken by a run could never be taken at all.
+		devicePreflightFlag = flag.Bool("device-preflight", false,
+			"read-only about the study, but it applies one Pod: run the workload on -worker WITH a device "+
+				"request and report whether it reached the CUDA driver. It is the check the termination canary "+
+				"cannot make, because the canary strips the device request from its probes")
 		terminationCanaryFlag = flag.Bool("termination-canary", false,
 			"qualify -worker for the one thing the arms differ by: that a Pod asked to stop actually stops. "+
 				"Records the result on the Node; runs consult it and refuse without one")
@@ -197,6 +201,7 @@ func main() {
 		Inspect: *inspectWorkerFlag,
 
 		TerminationCanary: *terminationCanaryFlag,
+		DevicePreflight:   *devicePreflightFlag,
 
 		ReleaseStale: *releaseStaleFlag,
 		TxID:         *txidFlag,
@@ -487,6 +492,10 @@ func dispatchOperatorMode(connect clusterClientFunc, args operatorModeArgs) (fir
 		// container start, both of which are things happening on a cluster rather than intervals a test needs to
 		// skip past. The injection exists so the tests can drive the loops without spending them.
 		return true, terminationCanary(ctx, c, args.Worker, time.Now, time.Sleep, os.Stdout)
+	case modeDevicePreflight:
+		// The real clock, like the canary's: this mode's budget is an image pull and a driver context, both of
+		// which are things happening on a cluster rather than intervals a test needs to skip past.
+		return true, devicePreflight(ctx, c, args.Worker, time.Now, time.Sleep, os.Stdout)
 	case modeReleaseStale:
 		return true, releaseStale(ctx, c, args.Worker, args.TxID)
 	case modeForceRelease:
@@ -494,7 +503,7 @@ func dispatchOperatorMode(connect clusterClientFunc, args operatorModeArgs) (fir
 	case modeClearQuarantine:
 		return true, clearQuarantine(ctx, c, args.Worker, args.QuarantineID)
 	default:
-		// decideOperatorMode's own switch is exhaustive over the same five modes, so reaching this means the
+		// decideOperatorMode's own switch is exhaustive over the same six modes, so reaching this means the
 		// two switches drifted apart, not that the operator did anything wrong.
 		return true, fmt.Errorf("internal error: unhandled operator mode %d", mode)
 	}

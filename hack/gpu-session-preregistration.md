@@ -232,6 +232,35 @@ assert.
 Any of the three is a better outcome than a confirmation, because all three change what the platform should
 do and a confirmation changes nothing.
 
+## The first sixty seconds on the node
+
+    $ queuelabrun -device-preflight -worker <gpu-node>
+    DEVICE USABLE: on <gpu-node> the workload loaded its PTX through the CUDA driver and completed
+    1200 kernel launches in 8 s. A run on this node can establish device work, given an observer that
+    covers the hold.
+
+Run this before the protocol, and read its exit status. It takes one Pod and about a minute, and it answers
+the one question that decides whether the session produces a number or a receipt.
+
+The termination canary cannot answer it. The canary STRIPS the device request from its probes, deliberately —
+a probe that needed a free card would fail on a node whose devices are legitimately held, and allocation is
+not what it measures. So nothing the canary reports is about a card. The preflight is its mirror: the same
+Pod template, the same placement, the same finalizer, and the device request put back.
+
+A run cannot answer it either, not in time. It answers at the end, after the protocol has spent its minutes,
+and it answers with a refused record rather than with which of the eight driver calls said no. Those are
+different afternoons: `no-libcuda` is a base image or a container runtime that never injected the driver,
+`no-device` is a card that was not passed through, `ptx-load-failed` is a kernel this driver would not
+compile. On rented hardware the difference between naming one of those and reporting "device not established"
+is the cost of the session.
+
+It was executed against the kind cluster, where the honest answer is a refusal, and it gave it:
+
+    ERROR: DEVICE NOT USABLE on platform-worker: the workload fell back to the CPU loop, reporting
+    dev="no-libcuda" after 3335 iterations. A run here would complete and refuse to attribute device
+    work, so its GPU-seconds would be seconds of RESERVATION exactly as they are on a cluster with no
+    cards
+
 ## What makes the session count at all
 
 `validity.deviceEvidence` must read `device-work-observed`.
@@ -242,13 +271,20 @@ the harness will say so in the field a consumer classifies on rather than in a f
 moves it has to be something the workload cannot write to — a Pod reporting its own device use is evidence of
 nothing, for the same reason a Pod carrying a `quota-exempt` annotation is not evidence of exemption.
 
+The workload now DOES report on itself, and the direction of that report is the whole of why it is allowed
+to. It can only ever REFUSE. A container saying it launched kernels moves nothing; a container saying it fell
+back to the CPU overrules an observer that claims its card was busy, because a card busy while the only Pod
+on it made no driver call is somebody else's process arriving under this Pod's label. The party with the
+motive is permitted to testify against itself and not for itself, and that asymmetry is what closes the
+unlabelled-intruder hole the exclusivity clause cannot see.
+
 The observer's CONTRACT now exists, in `internal/queuelab/device.go`, and the path from an observation to the
 axis is derived rather than hardcoded — so a session plugs a scraper in instead of editing a boolean. What it
 requires, per Pod attempt and across the interval being measured:
 
 | requirement | why it refuses without it |
 |---|---|
-| an admissible observer (DCGM exporter, or a node-local nvidia-smi poll) | the workload is not a witness: a Pod reporting its own device use is a claim by the party the check exists to constrain |
+| an admissible observer (a DCGM exporter; the set is closed and currently has one member) | the workload is not a witness FOR itself: a Pod reporting its own device use is a claim by the party the check exists to constrain |
 | the observer's own build identity | "DCGM said so" is not provenance if nobody can say which DCGM |
 | the physical device UUID, and only one of them | an observation that cannot say which card it watched cannot establish that the card this Pod held did anything |
 | attribution by Pod UID, not name | the UID is what the API guarantees unique across time; a name is free for reuse the moment its Pod is deleted, and an observer labelling by name is read against whatever holds that name when the mapping is resolved |
