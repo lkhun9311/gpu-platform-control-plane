@@ -128,7 +128,11 @@ import (
 // not because anything in that run said so, and there is no way to tell from the document which it meant.
 // Every figure at 16 was also taken against a workload with no device path at all, so those records answer a
 // different question and the bump is the honest place to say so.
-const recordSchemaVersion = 17
+// Version 18 makes the device claim FALSIFIABLE. Records carry deviceObservation -- the observer's
+// declared identity and endpoint, the window the claim was judged over, and the samples the gate read --
+// and decodeRunRecord re-runs EstablishesDeviceWork against them. A version-17 record carries a boolean and
+// nothing to check it against, which is a different kind of document however the boolean reads.
+const recordSchemaVersion = 18
 
 // runRecord is what a non-preview invocation leaves behind.
 //
@@ -200,6 +204,23 @@ type runRecord struct {
 	// observation of a namespace named "" that established nothing, which reads as a truncated run rather than
 	// as a run that never began observing — the exact confusion this block exists to remove.
 	Observation *observationEvidence `json:"observation,omitempty"`
+	// DeviceObservation is what an external observer saw of the card, carried as EVIDENCE rather than as a
+	// summary.
+	//
+	// Before it, the entire device claim was one boolean plus a sentence. This repository persists watch
+	// resume points, node version counts and a SHA-256 of the operator's rendered Pod template -- and then
+	// reduced "a GPU did this Pod's work" to true. A reader holding the file had strictly more support for
+	// the fact that a watch resumed cleanly than for the headline the whole session is bought to produce.
+	//
+	// internal/queuelab/device.go says "'DCGM said so' is not provenance if nobody can say which DCGM". The
+	// record did not say which DCGM. It does now, and it carries the samples the verdict was taken over, so
+	// decodeRunRecord re-runs EstablishesDeviceWork against them and refuses a document whose claim its own
+	// evidence does not support. That is the difference between a boolean to be trusted and one that can be
+	// falsified.
+	//
+	// The samples are bounded by the window the gate reads, not the run: a hold is at most the grace period
+	// and the exporter collects about once a second, so this is tens of entries rather than thousands.
+	DeviceObservation *deviceObservationEvidence `json:"deviceObservation,omitempty"`
 	// Validity is this record's verdict on itself, derived from the fields above.
 	//
 	// It is a value rather than a pointer, and that is deliberate: every record can be judged, including one
@@ -325,7 +346,7 @@ const (
 //
 // It is a function rather than a package-level slice because a slice would be mutable from anywhere, and a
 // caller that appended to what it was handed would edit what every later record claims about itself.
-func recordUnchecked() []string {
+func recordUnchecked(w workloadProvenance) []string {
 	return []string{
 		"termination canary coverage: the recorded canary probes a Pod built from the very template this " +
 			"build's operator would render, carrying the arm's own image and command and no device request, and " +
@@ -334,16 +355,48 @@ func recordUnchecked() []string {
 			"Job controller — nothing here submits an MLTrainingJob, so Kueue admits nothing and no Job creates " +
 			"the Pod, which therefore carries no owner reference and none of the labels a Job stamps on its " +
 			"Pods — and the template is rendered by THIS BINARY, not by the operator image running on the cluster",
-		"device use: nothing in this build can establish that a GPU was USED rather than reserved. The " +
-			"workload in internal/queuelab/submit.go is pure Python float arithmetic making no driver call, and " +
-			"the cluster advertises nvidia.com/gpu through a fake device plugin, so a Pod that dropped the " +
-			"resource request entirely would compute exactly the same iterations at exactly the same rate. " +
-			"measurement.discardedIterations therefore counts CPU work performed by a Pod HOLDING a reservation, " +
-			"and measurement.workload states the same thing beside the number; neither is discarded GPU " +
-			"computation. This entry is no longer the only place that fact lives, and that is the point of " +
-			"validity.deviceEvidence: a consumer reads the axis instead of this paragraph, and the axis is the " +
-			"field a run on real hardware would move",
+		deviceUseEntry(w),
 	}
+}
+
+// workloadOfMeasurement is the measurement's provenance, or the zero one when a record carries no
+// measurement -- a refused invocation, a preview. The zero value establishes no device use, which is the
+// correct thing to say about a run that produced no measurement at all.
+func workloadOfMeasurement(m *measurement) workloadProvenance {
+	if m == nil {
+		return workloadProvenance{}
+	}
+	return m.Workload
+}
+
+// deviceUseEntry says what this RUN establishes about device use, derived rather than asserted.
+//
+// It was a literal, and the literal went false. It said "nothing in this build can establish that a GPU was
+// USED rather than reserved" and that the workload "is pure Python float arithmetic making no driver call" --
+// which stopped being true the moment the workload gained a device path, while continuing to be written
+// verbatim into every record. On a successful GPU run the same document would have carried
+// validity.deviceEvidence: "device-work-observed" beside a paragraph saying that is impossible.
+//
+// The function's own rule is that every entry must be verifiable in the build that wrote it. An entry that
+// contradicts the record it sits in is the sharpest possible violation of that, and it survived because a
+// constant cannot notice the world moving under it.
+func deviceUseEntry(w workloadProvenance) string {
+	if w.DeviceUseEstablished {
+		return "device use: this run established that a device did this Pod's work -- the workload reported " +
+			"launching kernels through the CUDA driver, and an independent observer covering the hold " +
+			"attributed a busy card to that Pod's UID with no second tenant on it. What remains unchecked is " +
+			"EXCLUSIVITY AGAINST UNLABELLED ACTIVITY: the observer convicts a second Pod's label, and a host " +
+			"process outside the kubelet's allocation wears none, so the claim is that the exclusively " +
+			"allocated device was busy while this Pod reported successful launches -- not that no other " +
+			"process contributed to that utilisation. record.deviceObservation carries the samples the verdict " +
+			"was taken over, so a reader can re-derive it rather than take it"
+	}
+	return "device use: this run did NOT establish that a GPU was used rather than reserved, and " +
+		"measurement.workload.whyNot names which of the gate's conditions was not met. The workload does " +
+		"attempt the CUDA driver and reports which loop it ran, so a fallback is a reading rather than a " +
+		"constant: measurement.discardedIterations counts work performed by a Pod HOLDING a reservation, and " +
+		"whether that work touched a device is the axis at validity.deviceEvidence rather than this " +
+		"paragraph"
 }
 
 // validity states, once and in the record, what the evidence beside it supports.
@@ -669,6 +722,29 @@ func reportedWorkloadOf(events []queuelab.LifecycleEvent) reportedWorkload {
 // device work.
 const cpuOnlyWorkloadKind = "pure-python-float-arithmetic"
 
+// deviceObservationEvidence is an observer's account of one hold, with everything the gate reads.
+type deviceObservationEvidence struct {
+	// Observer, Identity and Endpoint are the provenance, and all three are DECLARED by whoever configured
+	// the run rather than verified by anything here. Carrying them is what lets a reader judge the
+	// declaration; carrying only the verdict let them judge nothing.
+	Observer string `json:"observer"`
+	Identity string `json:"identity"`
+	Endpoint string `json:"endpoint"`
+	Declared bool   `json:"declared"`
+	// StartedNs and EndedNs bound what the observer watched, on the collector's clock.
+	StartedNs int64 `json:"startedNs"`
+	EndedNs   int64 `json:"endedNs"`
+	// HoldFromNs, HoldToNs and PodUID are the question that was asked of it. They are recorded beside the
+	// answer because the gate's coverage rule is about this interval and not the run: an observation that
+	// watched the wrong part refuses, and a reader has to be able to see which part it watched.
+	HoldFromNs int64  `json:"holdFromNs"`
+	HoldToNs   int64  `json:"holdToNs"`
+	PodUID     string `json:"podUID"`
+	// Samples is what the gate read, restricted to the window it reads. It is the evidence rather than a
+	// count of it, so the verdict can be recomputed rather than believed.
+	Samples []queuelab.DeviceSample `json:"samples,omitempty"`
+}
+
 type validity struct {
 	Verdict string `json:"verdict"`
 	// Failures is every claim this record does not support, in a fixed order so two records of the same shape
@@ -700,7 +776,7 @@ func deriveValidity(o outcome, left []recordResidue, qual *qualification, win *o
 	obs *observationEvidence, m *measurement, preview bool) validity {
 	v := validity{
 		Verdict:            verdictAdmissible,
-		UnimplementedGates: recordUnchecked(),
+		UnimplementedGates: recordUnchecked(workloadOfMeasurement(m)),
 		DeviceEvidence:     deviceEvidenceOf(m),
 	}
 	// The disposition is a claim of its own rather than a summary of the four below it. A run can hold its
@@ -1137,8 +1213,8 @@ func measurementOf(res *queuelab.LabResult, horizonNs int64, events []queuelab.L
 }
 
 func buildRecord(o outcome, events []queuelab.LifecycleEvent, left []residue, qual *qualification,
-	win *ownershipWindow, obs *observationEvidence, id recordIdentity, m *measurement, preview bool,
-	started, ended time.Time) any {
+	win *ownershipWindow, obs *observationEvidence, deviceObs *queuelab.DeviceObservation,
+	id recordIdentity, m *measurement, preview bool, started, ended time.Time) any {
 	o = classified(o)
 	persistedResidue := residueForRecord(left)
 	// Derived from the PROJECTION rather than from `left`, so the verdict is taken over the same array the
@@ -1185,7 +1261,10 @@ func buildRecord(o outcome, events []queuelab.LifecycleEvent, left []residue, qu
 		Qualification: qual,
 		Window:        win,
 		Observation:   obs,
-		Validity:      v,
+		// The preview above carries none of this, deliberately. It withholds the ledger so its output cannot
+		// be reconstructed into a number, and the device samples are part of that reconstruction.
+		DeviceObservation: deviceObservationOf(deviceObs, events),
+		Validity:          v,
 	}
 }
 
@@ -1359,6 +1438,28 @@ func checkValidity(r runRecord) error {
 	//
 	// The record persists no device samples, so a full re-derivation is not available here. What IS available
 	// is the contradiction the write path already refuses, and refusing it again on the way in costs nothing.
+	// The device claim is re-derived from the record's OWN evidence, which is the whole reason the samples
+	// are persisted. Before this the boolean was believed: a document could assert that a GPU did this Pod's
+	// work and carry nothing a reader could check it against, in a repository that persists watch resume
+	// points and a hash of the operator's Pod template.
+	//
+	// Only one direction is enforced, and the asymmetry is deliberate. A claim of established device work
+	// must be SUPPORTED by the block. The converse -- a block that would establish work beside a record that
+	// declined to claim it -- is what the contradiction rule produces when the workload reports it never
+	// reached a driver, and refusing that pairing here would refuse the correct outcome.
+	if m := r.Measurement; m != nil && m.Workload.DeviceUseEstablished {
+		e := r.DeviceObservation
+		if e == nil {
+			return fmt.Errorf("decode record: the record claims a device did this Pod's work and carries no " +
+				"observation to support it; the claim is an assertion rather than evidence, and no build " +
+				"writes one")
+		}
+		if ok, why := queuelab.EstablishesDeviceWork(
+			observationFromEvidence(e), e.PodUID, e.HoldFromNs, e.HoldToNs); !ok {
+			return fmt.Errorf("decode record: the record claims a device did this Pod's work, and re-running "+
+				"the gate over the observation the record itself carries refuses it: %s", why)
+		}
+	}
 	if m := r.Measurement; m != nil && m.Workload.DeviceUseEstablished && m.Workload.Kind == cpuOnlyWorkloadKind {
 		return fmt.Errorf("decode record: the record claims device work for a %s workload, which makes no "+
 			"driver call; the write path refuses that pairing and a document carrying it was either "+
@@ -1414,6 +1515,57 @@ func ownerAdmitToReadyStamp(res *queuelab.LabResult) *int64 {
 		return &v
 	}
 	return nil
+}
+
+// deviceObservationOf captures the observation as evidence, bounded by the window the gate actually reads.
+//
+// The bound is the gate's own: the hold, widened by the stale-label margin the exclusivity clause scans back
+// through. Persisting the whole run's samples would carry scrapes from before the borrower held anything,
+// which no clause reads and which would make the block look like a log; persisting only the hold would drop
+// exactly the samples the exclusivity clause needs to convict a previous tenant.
+//
+// Nil when there was no observer, which is every run this lab has taken on a cluster with no cards.
+func deviceObservationOf(obs *queuelab.DeviceObservation, events []queuelab.LifecycleEvent,
+) *deviceObservationEvidence {
+	if obs == nil {
+		return nil
+	}
+	from, to, ok := queuelab.DeviceHoldWindow(events)
+	uid := queuelab.VictimAttemptUID(events)
+	e := &deviceObservationEvidence{
+		Observer: string(obs.Observer), Identity: obs.ObserverIdentity, Endpoint: obs.Endpoint,
+		Declared: obs.Declared, StartedNs: obs.StartedNs, EndedNs: obs.EndedNs, PodUID: uid,
+	}
+	if !ok {
+		// A ledger that cannot locate the hold gets the observation's bounds and no samples: there is no
+		// window to bound them by, and a block full of scrapes nobody can place against an interval is the
+		// log this field is not.
+		return e
+	}
+	e.HoldFromNs, e.HoldToNs = from, to
+	lo := from - int64(queuelab.StaleLabelMargin)
+	for i := range obs.Samples {
+		if obs.Samples[i].AtNs < lo || obs.Samples[i].AtNs > to {
+			continue
+		}
+		e.Samples = append(e.Samples, obs.Samples[i])
+	}
+	return e
+}
+
+// observationFromEvidence rebuilds the observation a persisted block describes.
+//
+// It exists so decodeRunRecord can put the record's own evidence back through the gate that judged it. The
+// samples are already bounded to the window, so the reconstruction is exact for every clause the gate
+// applies to that window.
+func observationFromEvidence(e *deviceObservationEvidence) *queuelab.DeviceObservation {
+	if e == nil {
+		return nil
+	}
+	return &queuelab.DeviceObservation{
+		Observer: queuelab.DeviceObserver(e.Observer), ObserverIdentity: e.Identity, Endpoint: e.Endpoint,
+		Declared: e.Declared, StartedNs: e.StartedNs, EndedNs: e.EndedNs, Samples: e.Samples,
+	}
 }
 
 // workloadOf derives the provenance from what a device observer saw over the interval the claim is about.

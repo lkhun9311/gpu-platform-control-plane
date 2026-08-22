@@ -76,6 +76,14 @@ const minBusySamples = 2
 // rate this build accepts.
 const staleLabelMargin = 2 * maxObserverGap
 
+// StaleLabelMargin is staleLabelMargin, exported so a writer persisting the samples this gate reads can
+// bound them by the same margin the gate scans back through.
+//
+// It is exported rather than duplicated because a record that carried a narrower window than the gate reads
+// would drop exactly the samples the exclusivity clause needs, and a reader re-running the gate over that
+// record would reach a verdict the run did not.
+const StaleLabelMargin = staleLabelMargin
+
 // DeviceSample is one observation of one physical device at one instant.
 type DeviceSample struct {
 	// AtNs is when the OBSERVER took the reading, on its own clock, as an offset from the run's t0.
@@ -126,6 +134,14 @@ type DeviceObservation struct {
 	StartedNs int64
 	EndedNs   int64
 	Samples   []DeviceSample
+	// UnlabelledBusySamples counts rows that showed a card WORKING while naming no Pod at all.
+	//
+	// It exists to separate two failures that produce the same refusal. "No sample for this Pod" is what a
+	// card nobody used looks like -- and it is also what a healthy card looks like when the exporter's
+	// kubernetes mapping is off, its pod-resources mount is wrong, or its permissions fail: full utilisation
+	// with nothing naming a tenant. The first sends an operator to the workload, the second to the exporter,
+	// and without this counter the refusal sent them to the first in both cases.
+	UnlabelledBusySamples int `json:"unlabelledBusySamples,omitempty"`
 }
 
 // EstablishesDeviceWork reports whether an observation supports the claim that the named Pod's device did
@@ -236,6 +252,13 @@ func EstablishesDeviceWork(obs *DeviceObservation, podUID string, fromNs, toNs i
 			"at the exit transition all make ambiguous", s.DeviceUUID, other, podUID)
 	}
 	if len(mine) == 0 {
+		if obs.UnlabelledBusySamples > 0 {
+			return false, fmt.Sprintf("the observer produced no sample naming Pod %s, and %d sample(s) showed "+
+				"a card WORKING while naming no Pod at all. That is not a card nobody used: it is attribution "+
+				"failing while the hardware runs, which is what an exporter with its kubernetes mapping off "+
+				"or its pod-resources mount broken produces. Fix the observer, not the workload",
+				podUID, obs.UnlabelledBusySamples)
+		}
 		return false, fmt.Sprintf("the observer ran across the interval and produced no sample for Pod %s; a "+
 			"device held by a Pod nothing sampled is a reservation", podUID)
 	}

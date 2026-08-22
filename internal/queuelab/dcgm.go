@@ -3,6 +3,7 @@ package queuelab
 import (
 	"bufio"
 	"bytes"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -14,6 +15,10 @@ import (
 // axis asks -- did the card do work -- rather than how much memory was reserved, which is allocation again
 // under a different name.
 const dcgmUtilisationMetric = "DCGM_FI_DEV_GPU_UTIL"
+
+// errUnreadableValue marks one exposition line this build cannot read, as distinct from a scrape it cannot
+// read. It is a sentinel rather than a string so the caller can tell the two apart without matching prose.
+var errUnreadableValue = errors.New("utilisation value is not an integer percent")
 
 // PodResolver maps a namespace and Pod NAME to the Pod's UID, or "" when the caller never observed it.
 //
@@ -39,13 +44,14 @@ type PodResolver func(namespace, name string) string
 // Unattributable samples are also RETURNED rather than merely counted. They cannot credit work to anyone,
 // and they are what the exclusivity clause needs: a device carrying two Pods' labels has utilisation that
 // belongs to neither, and a parser that dropped the second label would hide that.
-func ParseDCGMUtilisation(body []byte, atNs int64, resolve PodResolver) ([]DeviceSample, int, error) {
+func ParseDCGMUtilisation(body []byte, atNs int64, resolve PodResolver) ([]DeviceSample, int, int, error) {
 	if resolve == nil {
-		return nil, 0, fmt.Errorf("no Pod resolver: the observer labels by name and something else has to say " +
+		return nil, 0, 0, fmt.Errorf("no Pod resolver: the observer labels by name and something else has to say " +
 			"which object that name referred to")
 	}
 	var out []DeviceSample
 	unattributed := 0
+	unlabelledBusy := 0
 	sc := bufio.NewScanner(bytes.NewReader(body))
 	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	for sc.Scan() {
@@ -54,15 +60,28 @@ func ParseDCGMUtilisation(body []byte, atNs int64, resolve PodResolver) ([]Devic
 			continue
 		}
 		labels, value, err := splitMetricLine(line)
-		if err != nil {
-			return nil, 0, fmt.Errorf("scrape at %d ns: %w", atNs, err)
+		switch {
+		case errors.Is(err, errUnreadableValue):
+			continue
+		case err != nil:
+			return nil, 0, 0, fmt.Errorf("scrape at %d ns: %w", atNs, err)
 		}
-		// An idle card carries no Pod labels. It is not an attribution failure, it is a card nobody is using.
+		// A card with no Pod label is EITHER idle and unowned OR busy and unattributed, and those are not the
+		// same fact. The second is what a kubelet mapping that is off or broken produces: full utilisation
+		// with nothing naming a tenant. Skipping both silently sent an operator after the driver, because
+		// the only message left was that the observer produced no sample for the Pod -- which reads as an
+		// absent card rather than as absent attribution.
+		//
+		// Idle-and-unowned is still skipped without comment; a card nobody is using is not evidence about
+		// anything. Busy-and-unlabelled is counted, so a caller can say which of the two it is looking at.
 		if labels["pod"] == "" {
+			if value > 0 {
+				unlabelledBusy++
+			}
 			continue
 		}
 		if labels["UUID"] == "" {
-			return nil, 0, fmt.Errorf("scrape at %d ns: a sample for pod %s/%s names no device UUID",
+			return nil, 0, 0, fmt.Errorf("scrape at %d ns: a sample for pod %s/%s names no device UUID",
 				atNs, labels["namespace"], labels["pod"])
 		}
 		uid := resolve(labels["namespace"], labels["pod"])
@@ -83,9 +102,9 @@ func ParseDCGMUtilisation(body []byte, atNs int64, resolve PodResolver) ([]Devic
 		})
 	}
 	if err := sc.Err(); err != nil {
-		return nil, 0, fmt.Errorf("read scrape at %d ns: %w", atNs, err)
+		return nil, 0, 0, fmt.Errorf("read scrape at %d ns: %w", atNs, err)
 	}
-	return out, unattributed, nil
+	return out, unattributed, unlabelledBusy, nil
 }
 
 // splitMetricLine pulls the labels and the value out of one Prometheus exposition line.
@@ -110,9 +129,24 @@ func splitMetricLine(line string) (map[string]string, int, error) {
 	raw := strings.TrimSpace(line[closeAt+1:])
 	// Utilisation is an integer percent. A float would parse and then round somewhere invisible, so it is
 	// refused here where the reason can be given.
+	if raw == "" {
+		// STRUCTURAL, not transient: a line with a label set and nothing after it is not a sample whose value
+		// this build cannot read, it is not a sample. Skipping it would let an exposition format that stopped
+		// carrying values at all be read as a card nobody was using.
+		return nil, 0, fmt.Errorf("no value in %q", line)
+	}
 	v, err := strconv.Atoi(raw)
 	if err != nil {
-		return nil, 0, fmt.Errorf("value %q in %q is not an integer percent", raw, line)
+		// An UNREADABLE ROW rather than a broken scrape, and the difference decides whether one bad line
+		// ends the run's observation. DCGM renders unsupported or transiently unavailable field values as
+		// the string "N/A" -- around driver initialisation, a GPU reset, an XID event. Treating that as a
+		// fatal parse error ends the scrape loop, truncates the observation at that instant, and the run
+		// then fails COVERAGE twenty seconds later with a message about an interval that was never watched.
+		// The actual cause reaches nobody: it is one stderr line, and it is not in the record.
+		//
+		// So it is skipped and counted, exactly as an unattributable sample is, and the caller decides what
+		// a scrape full of them means.
+		return nil, 0, errUnreadableValue
 	}
 	if v < 0 || v > 100 {
 		return nil, 0, fmt.Errorf("utilisation %d in %q is outside 0-100", v, line)

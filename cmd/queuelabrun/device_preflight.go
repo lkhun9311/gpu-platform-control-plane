@@ -149,7 +149,7 @@ func devicePreflight(ctx context.Context, c client.Client, nodeName, metricsURL,
 	watcher := startPreflightObserver(ctx, pod, metricsURL, observerIdentity, elapsed)
 
 	term, fromNs, toNs, werr := awaitPreflightStopped(ctx, c, pod, now, elapsed, sleep)
-	obs, missed := watcher.stop()
+	obs, missed, oerr := watcher.stop()
 	if werr != nil {
 		return werr
 	}
@@ -168,6 +168,13 @@ func devicePreflight(ctx context.Context, c client.Client, nodeName, metricsURL,
 			"nothing about whether an observer would attribute that work. A run on this node would still "+
 			"record device-not-observed.\n")
 		return nil
+	}
+	// The scrape's own error is reported BEFORE the gate, because the gate can only ever describe an
+	// interval and this describes why there was nothing to judge over it.
+	if oerr != nil {
+		return fmt.Errorf("OBSERVER FAILED on %s: %w. Nothing below is a statement about the card: the "+
+			"attribution gate would report a coverage gap for this, which is a message about an interval "+
+			"produced by an error somewhere else", nodeName, oerr)
 	}
 	if missed > 0 {
 		// Not fatal: it means the exporter saw Pods this preflight did not, which on a shared node is
@@ -204,19 +211,24 @@ type preflightObserver struct {
 	cancel context.CancelFunc
 	obs    *queuelab.DeviceObservation
 	missed int
+	// err is the scrape's own failure, and discarding it was a diagnostic hole rather than tidiness. A
+	// refused HTTP request, a malformed payload or a parser incompatibility all end the observation early,
+	// and the attribution gate then reports a coverage gap -- a message about an interval, produced by an
+	// error somewhere else entirely.
+	err error
 }
 
 // stop ends the scrape and returns what it saw.
 //
 // A nil observer returns a nil observation, which is exactly what EstablishesDeviceWork refuses on, so the
 // no-endpoint case needs no special handling downstream.
-func (p *preflightObserver) stop() (*queuelab.DeviceObservation, int) {
+func (p *preflightObserver) stop() (*queuelab.DeviceObservation, int, error) {
 	if p == nil {
-		return nil, 0
+		return nil, 0, nil
 	}
 	p.cancel()
 	<-p.done
-	return p.obs, p.missed
+	return p.obs, p.missed, p.err
 }
 
 // startPreflightObserver begins scraping the exporter for the duration of the preflight.
@@ -252,7 +264,7 @@ func startPreflightObserver(ctx context.Context, pod *corev1.Pod, metricsURL, id
 	p := &preflightObserver{done: make(chan struct{}), cancel: dcancel}
 	go func() {
 		defer close(p.done)
-		p.obs, p.missed, _ = scraper.Observe(dctx)
+		p.obs, p.missed, p.err = scraper.Observe(dctx)
 	}()
 	return p
 }
@@ -354,7 +366,25 @@ func awaitPreflightStopped(ctx context.Context, c client.Client, pod *corev1.Pod
 				// the coverage check stricter, never falsely pass it.
 				fromNs = 0
 			}
-			return t, fromNs, elapsed(), nil
+			// The far end comes from the KUBELET's own finishedAt where there is one, not from the poll that
+			// happened to notice. This loop polls every two seconds and the gate allows a two-second gap, so
+			// a poll-derived end is up to a full budget late: the Pod's label leaves the exporter's view
+			// within a scrape of the real stop, and the last attributed sample then sits further from the
+			// interval's end than the gate permits. A healthy card refused on a race with the poll phase.
+			//
+			// finishedAt is on the kubelet's wall clock and the samples are on this process's elapsed one,
+			// so it is converted through the poll that observed it rather than used raw; when the kubelet
+			// published none, the poll time is all there is and the previous poll bounds it.
+			to := elapsed()
+			if !t.FinishedAt.IsZero() {
+				if lag := now().Sub(t.FinishedAt.Time); lag > 0 && lag < preflightPollInterval {
+					to -= lag.Nanoseconds()
+				}
+			}
+			if to < fromNs {
+				to = fromNs
+			}
+			return t, fromNs, to, nil
 		}
 		if trouble := probeTrouble(&live); trouble != "" {
 			last = trouble

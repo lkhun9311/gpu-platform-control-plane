@@ -29,7 +29,7 @@ func resolver(ns, name string) string {
 // The ordinary scrape: two attributed samples, the idle card skipped, the other metric ignored, and the
 // comma inside a model name not breaking the label split.
 func TestParseDCGMTakesUtilisationAndAttributesIt(t *testing.T) {
-	got, unattributed, err := ParseDCGMUtilisation([]byte(realScrape), 5_000_000_000, resolver)
+	got, unattributed, _, err := ParseDCGMUtilisation([]byte(realScrape), 5_000_000_000, resolver)
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
@@ -64,7 +64,7 @@ func TestParseDCGMTakesUtilisationAndAttributesIt(t *testing.T) {
 // A card nobody is using carries no Pod labels every scrape. That is not an attribution failure and must not
 // be counted as one, or every observation would look partial.
 func TestAnIdleCardIsNotAnAttributionFailure(t *testing.T) {
-	_, unattributed, err := ParseDCGMUtilisation(
+	_, unattributed, _, err := ParseDCGMUtilisation(
 		[]byte(`DCGM_FI_DEV_GPU_UTIL{gpu="0",UUID="GPU-cccc",Hostname="w1"} 0`+"\n"), 1, resolver)
 	if err != nil {
 		t.Fatalf("parse: %v", err)
@@ -79,7 +79,7 @@ func TestAnIdleCardIsNotAnAttributionFailure(t *testing.T) {
 // the node, and dropping it silently would report a clean observation of a cluster nobody fully saw.
 func TestAPodTheCollectorNeverSawIsCounted(t *testing.T) {
 	line := `DCGM_FI_DEV_GPU_UTIL{gpu="0",UUID="GPU-dddd",namespace="other",pod="stranger-9xk"} 55` + "\n"
-	got, unattributed, err := ParseDCGMUtilisation([]byte(line), 1, resolver)
+	got, unattributed, _, err := ParseDCGMUtilisation([]byte(line), 1, resolver)
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
@@ -104,7 +104,7 @@ func TestAPodTheCollectorNeverSawIsCounted(t *testing.T) {
 // skip: silently dropping it would hide a broken exporter behind a thinner observation.
 func TestASampleWithoutADeviceUUIDIsAnError(t *testing.T) {
 	line := `DCGM_FI_DEV_GPU_UTIL{gpu="0",namespace="queuelab-r1",pod="a2-borrow-x7k2p"} 40` + "\n"
-	if _, _, err := ParseDCGMUtilisation([]byte(line), 1, resolver); err == nil {
+	if _, _, _, err := ParseDCGMUtilisation([]byte(line), 1, resolver); err == nil {
 		t.Fatal("a sample naming no device parsed")
 	}
 }
@@ -114,12 +114,11 @@ func TestASampleWithoutADeviceUUIDIsAnError(t *testing.T) {
 func TestMalformedScrapesAreRefusedRatherThanSkipped(t *testing.T) {
 	for name, line := range map[string]string{
 		"no label set":    `DCGM_FI_DEV_GPU_UTIL 97`,
-		"non-integer":     `DCGM_FI_DEV_GPU_UTIL{UUID="G",namespace="queuelab-r1",pod="a2-borrow-x7k2p"} 97.5`,
 		"out of range":    `DCGM_FI_DEV_GPU_UTIL{UUID="G",namespace="queuelab-r1",pod="a2-borrow-x7k2p"} 4000`,
 		"label with no =": `DCGM_FI_DEV_GPU_UTIL{UUID="G",broken,namespace="queuelab-r1",pod="a2-borrow-x7k2p"} 10`,
 		"no value at all": `DCGM_FI_DEV_GPU_UTIL{UUID="G",namespace="queuelab-r1",pod="a2-borrow-x7k2p"}`,
 	} {
-		if _, _, err := ParseDCGMUtilisation([]byte(line+"\n"), 1, resolver); err == nil {
+		if _, _, _, err := ParseDCGMUtilisation([]byte(line+"\n"), 1, resolver); err == nil {
 			t.Errorf("%s: parsed without error", name)
 		}
 	}
@@ -128,11 +127,75 @@ func TestMalformedScrapesAreRefusedRatherThanSkipped(t *testing.T) {
 // The observer labels by name; something else has to say which object that name referred to. Without a
 // resolver there is nothing to attribute to, and inventing an identity is the one thing this must not do.
 func TestParsingWithoutAResolverIsRefused(t *testing.T) {
-	_, _, err := ParseDCGMUtilisation([]byte(realScrape), 1, nil)
+	_, _, _, err := ParseDCGMUtilisation([]byte(realScrape), 1, nil)
 	if err == nil {
 		t.Fatal("a scrape parsed with nothing to resolve Pod identity")
 	}
 	if !strings.Contains(err.Error(), "which object that name referred to") {
 		t.Fatalf("the refusal does not say what is missing: %v", err)
+	}
+}
+
+// A value this build cannot read is one unreadable ROW, not a broken scrape, and that distinction decides
+// whether one bad line ends a run's observation.
+//
+// DCGM renders unsupported or transiently unavailable field values as "N/A" -- around driver initialisation,
+// a GPU reset, an XID event. Treating that as a fatal parse error ends the scrape loop, truncates the
+// observation at that instant, and the run then fails COVERAGE twenty seconds later with a message about an
+// interval that was never watched. The actual cause reaches nobody: it is one line on stderr and it is not
+// in the record.
+//
+// A value that is ABSENT is a different thing and stays fatal. A line carrying a label set and nothing after
+// it is not a sample whose value went unavailable; it is not a sample, and skipping it would let an
+// exposition format that stopped carrying values be read as a card nobody was using.
+//
+// Mutation that turns this red: make the non-integer case fatal again, or make the empty case skip.
+func TestATransientlyUnreadableValueSkipsItsRowRatherThanTheScrape(t *testing.T) {
+	resolve := func(ns, name string) string { return "uid-1" }
+	body := []byte(`DCGM_FI_DEV_GPU_UTIL{UUID="G0",namespace="queuelab-r1",pod="a2-borrow-x7k2p"} N/A
+DCGM_FI_DEV_GPU_UTIL{UUID="G0",namespace="queuelab-r1",pod="a2-borrow-x7k2p"} 91
+DCGM_FI_DEV_GPU_UTIL{UUID="G1",namespace="queuelab-r1",pod="a2-borrow-x7k2p"} 97.5
+`)
+	samples, _, _, err := ParseDCGMUtilisation(body, 1_000, resolve)
+	if err != nil {
+		t.Fatalf("one unreadable value ended the whole scrape, which truncates the observation and surfaces "+
+			"twenty seconds later as a coverage failure about an interval nobody watched: %v", err)
+	}
+	if len(samples) != 1 || samples[0].UtilisationPercent != 91 {
+		t.Fatalf("the readable rows did not survive alongside the unreadable ones: %+v", samples)
+	}
+
+	// Absent is still fatal.
+	if _, _, _, err := ParseDCGMUtilisation(
+		[]byte(`DCGM_FI_DEV_GPU_UTIL{UUID="G0",namespace="queuelab-r1",pod="a2-borrow-x7k2p"}`+"\n"),
+		1_000, resolve); err == nil {
+		t.Fatal("a line carrying no value at all parsed, so an exposition that stopped carrying values would " +
+			"read as a card nobody was using")
+	}
+}
+
+// A busy card with no Pod label is attribution failing while the hardware runs, and it must not read as an
+// idle card.
+//
+// This is what an exporter whose kubernetes mapping is off produces -- and that mapping is OFF BY DEFAULT.
+// Both cases used to be skipped in silence, so the only message an operator saw was that the observer
+// produced no sample for the Pod, which sends them to the workload when the fault is in the exporter.
+//
+// Mutation that turns this red: drop the counter, or count idle rows too.
+func TestABusyCardWithNoPodLabelIsCountedRatherThanTreatedAsIdle(t *testing.T) {
+	resolve := func(ns, name string) string { return "uid-1" }
+	body := []byte(`DCGM_FI_DEV_GPU_UTIL{UUID="G0",device="nvidia0"} 94
+DCGM_FI_DEV_GPU_UTIL{UUID="G1",device="nvidia1"} 0
+`)
+	samples, _, unlabelledBusy, err := ParseDCGMUtilisation(body, 1_000, resolve)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(samples) != 0 {
+		t.Fatalf("a row naming no Pod was attributed to one: %+v", samples)
+	}
+	if unlabelledBusy != 1 {
+		t.Fatalf("unlabelledBusy = %d, want 1: the idle card must not be counted and the busy one must, or "+
+			"the two failures this counter separates collapse back together", unlabelledBusy)
 	}
 }

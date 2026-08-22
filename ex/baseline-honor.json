@@ -18,13 +18,13 @@
     "platform-worker",
     "platform-worker2"
   ],
-  "ownerWaitSecondsMean": 2.6044430585,
-  "ownerWaitSecondsMin": 1.937277385,
-  "ownerWaitSecondsMax": 3.424873184,
-  "ownerWaitSpreadSeconds": 1.487595799,
-  "floorSeconds": 3.5137445,
+  "ownerWaitSecondsMean": 2.3487251936666667,
+  "ownerWaitSecondsMin": 1.207775427,
+  "ownerWaitSecondsMax": 3.21038564,
+  "ownerWaitSpreadSeconds": 2.002610213,
+  "floorSeconds": 3.413560434,
   "bounded": true,
   "deviceEvidence": "device-not-observed",
   "interleaved": true,
-  "statement": "under A-honor the quota owner was running 2.604 s after admission, over 6 runs spanning 2 dose regime(s) and 2 node(s), with a spread of 1488 ms against a worst-run floor of 3.514 s. A session differencing against this must add its own floor to that one; the difference of two independently measured means carries both of their errors"
+  "statement": "under A-honor the quota owner was running 2.349 s after admission, over 6 runs spanning 2 dose regime(s) and 2 node(s), with a spread of 2003 ms against a worst-run floor of 3.414 s. A session differencing against this must add its own floor to that one; the difference of two independently measured means carries both of their errors"
 }

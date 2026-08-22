@@ -153,7 +153,7 @@ func main() {
 		rec := buildRecord(outcome{Disposition: dispRefusedBeforeCluster, Reason: err.Error()},
 			// The dose is left empty on purpose: this refusal fires before the flags are resolved, so no regime
 			// has been chosen and naming one would put a claim in the record that no run stood behind.
-			nil, nil, nil, nil, nil, recordIdentity{RunID: recordRunID(*runID), Arm: *armFlag}, nil, *preview,
+			nil, nil, nil, nil, nil, nil, recordIdentity{RunID: recordRunID(*runID), Arm: *armFlag}, nil, *preview,
 			started, time.Now())
 		if werr := writeRecord(recordPath, rec); werr != nil {
 			// The record that failed to persist cannot report its own failure, so this is the one outcome that
@@ -273,7 +273,7 @@ func main() {
 		Outcome: o,
 		Events:  events,
 		Result:  res,
-		Record: buildRecord(o, events, left, qual, win, obs,
+		Record: buildRecord(o, events, left, qual, win, obs, deviceObs,
 			recordIdentity{RunID: *runID, Arm: string(arm), Dose: string(protocol.Regime)},
 			measurementOf(res, horizon.Nanoseconds(), events, deviceObs), *preview, started, time.Now()),
 		Path:    recordPath,

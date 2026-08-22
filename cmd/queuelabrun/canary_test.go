@@ -760,7 +760,7 @@ func TestARecordWhoseRunStoodOnNoCanaryDoesNotCallItselfAdmissible(t *testing.T)
 func TestDecodeRefusesACanaryReferenceThatNamesNothing(t *testing.T) {
 	q := testQualification()
 	q.TerminationCanary = &canaryReference{}
-	rec := buildRecord(outcome{Disposition: dispChecksPassed}, nil, nil, q, testWindow(), testObservation(), recordIdentity{RunID: "r7", Arm: "A-honor"}, nil, false, time.Now(), time.Now())
+	rec := buildRecord(outcome{Disposition: dispChecksPassed}, nil, nil, q, testWindow(), testObservation(), nil, recordIdentity{RunID: "r7", Arm: "A-honor"}, nil, false, time.Now(), time.Now())
 	b, err := encodeRecord(rec)
 	if err != nil {
 		t.Fatalf("encode: %v", err)
@@ -784,7 +784,7 @@ func TestDecodeRefusesACanaryReferenceThatNamesNoTemplate(t *testing.T) {
 	ref := *testCanaryReference()
 	ref.Key.PodTemplateHash = ""
 	q.TerminationCanary = &ref
-	rec := buildRecord(outcome{Disposition: dispChecksPassed}, nil, nil, q, testWindow(), testObservation(), recordIdentity{RunID: "r7", Arm: "A-honor"}, nil, false, time.Now(), time.Now())
+	rec := buildRecord(outcome{Disposition: dispChecksPassed}, nil, nil, q, testWindow(), testObservation(), nil, recordIdentity{RunID: "r7", Arm: "A-honor"}, nil, false, time.Now(), time.Now())
 	b, err := encodeRecord(rec)
 	if err != nil {
 		t.Fatalf("encode: %v", err)

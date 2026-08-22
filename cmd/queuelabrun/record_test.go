@@ -53,7 +53,7 @@ func TestRunRecordRoundTrips(t *testing.T) {
 		Validity: validity{
 			Verdict:            verdictRefused,
 			Failures:           []string{failureObservation, failureExclusivity},
-			UnimplementedGates: recordUnchecked(),
+			UnimplementedGates: recordUnchecked(workloadProvenance{}),
 			DeviceEvidence:     deviceNotObserved,
 		},
 	}
@@ -336,7 +336,7 @@ func TestVerifyRecordReadableAcceptsARecordThisBuildJustWrote(t *testing.T) {
 		Absence: absenceUnknown,
 	}}
 	rec := buildRecord(outcome{Disposition: dispResidueLeft, Reason: "teardown left 1 object(s)"}, nil, left,
-		nil, nil, nil, recordIdentity{RunID: "r7", Arm: "A-honor"}, nil, false, time.Now(), time.Now())
+		nil, nil, nil, nil, recordIdentity{RunID: "r7", Arm: "A-honor"}, nil, false, time.Now(), time.Now())
 
 	path := t.TempDir() + "/run.json"
 	if err := writeRecord(path, rec); err != nil {
@@ -385,7 +385,7 @@ func TestVerifyRecordReadableRefusesAPreviewWhoseFieldsDriftedIntoARuns(t *testi
 	dir := t.TempDir()
 
 	good := dir + "/preview.json"
-	if err := writeRecord(good, buildRecord(outcome{Disposition: dispChecksPassed}, nil, nil, nil, nil, nil, recordIdentity{RunID: "r7", Arm: "A-honor"}, nil, true, time.Now(), time.Now())); err != nil {
+	if err := writeRecord(good, buildRecord(outcome{Disposition: dispChecksPassed}, nil, nil, nil, nil, nil, nil, recordIdentity{RunID: "r7", Arm: "A-honor"}, nil, true, time.Now(), time.Now())); err != nil {
 		t.Fatalf("write: %v", err)
 	}
 	if err := verifyRecordReadable(good, true); err != nil {
@@ -393,7 +393,7 @@ func TestVerifyRecordReadableRefusesAPreviewWhoseFieldsDriftedIntoARuns(t *testi
 	}
 
 	drifted := dir + "/drifted.json"
-	if err := writeRecord(drifted, buildRecord(outcome{Disposition: dispChecksPassed}, nil, nil, nil, nil, nil, recordIdentity{RunID: "r7", Arm: "A-honor"}, nil, false, time.Now(), time.Now())); err != nil {
+	if err := writeRecord(drifted, buildRecord(outcome{Disposition: dispChecksPassed}, nil, nil, nil, nil, nil, nil, recordIdentity{RunID: "r7", Arm: "A-honor"}, nil, false, time.Now(), time.Now())); err != nil {
 		t.Fatalf("write: %v", err)
 	}
 	if err := verifyRecordReadable(drifted, true); err == nil {
@@ -454,7 +454,7 @@ func TestRunRecordCarriesTheResidueAndStillDecodes(t *testing.T) {
 	}}
 
 	rec := buildRecord(outcome{Disposition: dispResidueLeft, Reason: "teardown left 1 object(s)"}, nil, left, nil, nil,
-		nil, recordIdentity{RunID: "r7", Arm: "A-honor"}, nil, false, time.Now(), time.Now())
+		nil, nil, recordIdentity{RunID: "r7", Arm: "A-honor"}, nil, false, time.Now(), time.Now())
 	b, err := encodeRecord(rec)
 	if err != nil {
 		t.Fatalf("encode: %v", err)
@@ -534,7 +534,7 @@ func TestPreviewRecordCarriesResidueToo(t *testing.T) {
 		},
 		Absence: absencePresent,
 	}}
-	pr, ok := buildRecord(outcome{Disposition: dispResidueLeft}, nil, left, nil, nil, nil, recordIdentity{RunID: "r7", Arm: "A-honor"}, nil, true,
+	pr, ok := buildRecord(outcome{Disposition: dispResidueLeft}, nil, left, nil, nil, nil, nil, recordIdentity{RunID: "r7", Arm: "A-honor"}, nil, true,
 		time.Now(), time.Now()).(previewRecord)
 	if !ok {
 		t.Fatal("a preview invocation must build a previewRecord")
@@ -576,7 +576,7 @@ func TestRunRecordCarriesTheQualificationAndStillDecodes(t *testing.T) {
 		},
 	}
 	rec := buildRecord(outcome{Disposition: dispEnvironmentUnqualified, Reason: "a GPU Pod was already there"},
-		nil, nil, q, nil, nil, recordIdentity{RunID: "r7", Arm: "A-honor"}, nil, false, time.Now(), time.Now())
+		nil, nil, q, nil, nil, nil, recordIdentity{RunID: "r7", Arm: "A-honor"}, nil, false, time.Now(), time.Now())
 	b, err := encodeRecord(rec)
 	if err != nil {
 		t.Fatalf("encode: %v", err)
@@ -610,7 +610,7 @@ func TestRunRecordCarriesTheQualificationAndStillDecodes(t *testing.T) {
 // on a node with no name means "not checked".
 func TestARecordWithNoQualificationCarriesNoQualificationKey(t *testing.T) {
 	rec := buildRecord(outcome{Disposition: dispAcquisitionRefused, Reason: "held by another run"},
-		nil, nil, nil, nil, nil, recordIdentity{RunID: "r7", Arm: "A-honor"}, nil, false, time.Now(), time.Now())
+		nil, nil, nil, nil, nil, nil, recordIdentity{RunID: "r7", Arm: "A-honor"}, nil, false, time.Now(), time.Now())
 	b, err := encodeRecord(rec)
 	if err != nil {
 		t.Fatalf("encode: %v", err)
@@ -637,7 +637,7 @@ func TestARecordWithNoQualificationCarriesNoQualificationKey(t *testing.T) {
 func TestPreviewRecordCarriesTheQualificationToo(t *testing.T) {
 	q := &qualification{Node: "platform-worker", NodeUID: "uid-node", AllocatableGPU: 2, RequiredGPU: 2,
 		Ready: true, Schedulable: true, PodsOnNode: 3}
-	pr, ok := buildRecord(outcome{Disposition: dispChecksPassed}, nil, nil, q, nil, nil, recordIdentity{RunID: "r7", Arm: "A-honor"}, nil, true,
+	pr, ok := buildRecord(outcome{Disposition: dispChecksPassed}, nil, nil, q, nil, nil, nil, recordIdentity{RunID: "r7", Arm: "A-honor"}, nil, true,
 		time.Now(), time.Now()).(previewRecord)
 	if !ok {
 		t.Fatal("a preview invocation must build a previewRecord")
@@ -756,7 +756,7 @@ func testWindow() *ownershipWindow {
 // end and the state the fourth gate would have to investigate from scratch.
 func TestRunRecordCarriesTheWindowAndStillDecodes(t *testing.T) {
 	w := testWindow()
-	rec := buildRecord(outcome{Disposition: dispChecksPassed}, nil, nil, nil, w, nil, recordIdentity{RunID: "r7", Arm: "A-honor"}, nil, false,
+	rec := buildRecord(outcome{Disposition: dispChecksPassed}, nil, nil, nil, w, nil, nil, recordIdentity{RunID: "r7", Arm: "A-honor"}, nil, false,
 		time.Now(), time.Now())
 	b, err := encodeRecord(rec)
 	if err != nil {
@@ -795,7 +795,7 @@ func TestARefusedRunRecordsWhatTheWindowSaw(t *testing.T) {
 		ObservedTaints: "(none)",
 	}}
 	rec := buildRecord(outcome{Disposition: dispCollectorDesync, Reason: "run invalidated"}, nil, nil, nil, w,
-		nil, recordIdentity{RunID: "r7", Arm: "A-honor"}, nil, false, time.Now(), time.Now())
+		nil, nil, recordIdentity{RunID: "r7", Arm: "A-honor"}, nil, false, time.Now(), time.Now())
 	b, err := encodeRecord(rec)
 	if err != nil {
 		t.Fatalf("encode: %v", err)
@@ -818,7 +818,7 @@ func TestARefusedRunRecordsWhatTheWindowSaw(t *testing.T) {
 //
 // Mutation that turns this red: delete `Window: win` from buildRecord's previewRecord branch.
 func TestPreviewRecordCarriesTheWindowToo(t *testing.T) {
-	pr, ok := buildRecord(outcome{Disposition: dispChecksPassed}, nil, nil, nil, testWindow(), nil, recordIdentity{RunID: "r7", Arm: "A-honor"}, nil, true, time.Now(), time.Now()).(previewRecord)
+	pr, ok := buildRecord(outcome{Disposition: dispChecksPassed}, nil, nil, nil, testWindow(), nil, nil, recordIdentity{RunID: "r7", Arm: "A-honor"}, nil, true, time.Now(), time.Now()).(previewRecord)
 	if !ok {
 		t.Fatal("a preview invocation must build a previewRecord")
 	}
@@ -907,7 +907,7 @@ func testQualification() *qualification {
 func TestRunRecordCarriesTheObservationAndStillDecodes(t *testing.T) {
 	obs := testObservation()
 	rec := buildRecord(outcome{Disposition: dispChecksPassed}, nil, nil, testQualification(), testWindow(),
-		obs, recordIdentity{RunID: "r7", Arm: "A-honor"}, nil, false, time.Now(), time.Now())
+		obs, nil, recordIdentity{RunID: "r7", Arm: "A-honor"}, nil, false, time.Now(), time.Now())
 	b, err := encodeRecord(rec)
 	if err != nil {
 		t.Fatalf("encode: %v", err)
@@ -928,7 +928,7 @@ func TestRunRecordCarriesTheObservationAndStillDecodes(t *testing.T) {
 	if got.Validity.Verdict != verdictAdmissible || len(got.Validity.Failures) != 0 {
 		t.Fatalf("a run with every gate's evidence intact is %q, got %+v", verdictAdmissible, got.Validity)
 	}
-	if !reflect.DeepEqual(got.Validity.UnimplementedGates, recordUnchecked()) {
+	if !reflect.DeepEqual(got.Validity.UnimplementedGates, recordUnchecked(workloadProvenance{})) {
 		t.Fatalf("an admissible record must carry what this build cannot check at all, and exactly that: %v",
 			got.Validity.UnimplementedGates)
 	}
@@ -1104,7 +1104,7 @@ func TestValidityNamesTheClaimTheFieldsActuallyFail(t *testing.T) {
 // cluster then writes a record that says it is admissible, which is the one thing -preview exists to stop.
 func TestAPreviewIsNeverAdmissibleHoweverWellItWent(t *testing.T) {
 	pr, ok := buildRecord(outcome{Disposition: dispChecksPassed}, nil, nil, testQualification(), testWindow(),
-		testObservation(), recordIdentity{RunID: "r7", Arm: "A-honor"}, nil, true, time.Now(), time.Now()).(previewRecord)
+		testObservation(), nil, recordIdentity{RunID: "r7", Arm: "A-honor"}, nil, true, time.Now(), time.Now()).(previewRecord)
 	if !ok {
 		t.Fatal("a preview invocation must build a previewRecord")
 	}
@@ -1275,7 +1275,7 @@ func TestDecodeRunRecordRefusesAnAdmissibleVerdictHidingALossBehindADuplicateStr
 // form of that, and it fails all three clauses at once.
 func TestTheRecordsUncheckedListDescribesTheBuildNotTheRoadmap(t *testing.T) {
 	rec, ok := buildRecord(outcome{Disposition: dispChecksPassed}, nil, nil, testQualification(), testWindow(),
-		testObservation(), recordIdentity{RunID: "r7", Arm: "A-honor"}, nil, false, time.Now(), time.Now()).(runRecord)
+		testObservation(), nil, recordIdentity{RunID: "r7", Arm: "A-honor"}, nil, false, time.Now(), time.Now()).(runRecord)
 	if !ok {
 		t.Fatal("a non-preview invocation must build a runRecord")
 	}
@@ -1307,12 +1307,12 @@ func TestTheRecordsUncheckedListDescribesTheBuildNotTheRoadmap(t *testing.T) {
 //
 // Those four kept a list of missing work from decaying in three specific ways — going empty, naming something
 // already built, being widened back after somebody narrowed it — and the list they guarded no longer exists.
-// The list that survives is recordUnchecked(), which is strictly more consequential: the old one was printed
+// The list that survives is recordUnchecked(workloadProvenance{}), which is strictly more consequential: the old one was printed
 // once on a terminal and could be over-broad at no cost, while this one is persisted into every record ever
 // written and read by someone who has only the file. So the same three pressures move here, applied to the
 // stronger list.
 //
-// The test asserts on recordUnchecked() directly rather than through a record, unlike the test above it, and
+// The test asserts on recordUnchecked(workloadProvenance{}) directly rather than through a record, unlike the test above it, and
 // the two are not redundant. That one proves the list REACHES the document; this one proves the list still
 // SAYS the four things the residual consists of. Either alone leaves a hole: a correct list that buildRecord
 // dropped, or a faithfully persisted list narrowed to a sentence that means nothing.
@@ -1323,11 +1323,11 @@ func TestTheRecordsUncheckedListDescribesTheBuildNotTheRoadmap(t *testing.T) {
 // operator image on the cluster does. Truncating any one of them is an overclaim about coverage, which is the
 // direction this whole list exists to guard.
 //
-// Mutation that turns this red: have recordUnchecked() return nil, or drop any one of the four clauses below
+// Mutation that turns this red: have recordUnchecked(workloadProvenance{}) return nil, or drop any one of the four clauses below
 // from its entry — for instance the last, on the grounds that the template is keyed and probed and therefore
 // "covered", which is precisely the overclaim the entry was narrowed twice to avoid making.
 func TestTheRecordsUncheckedListNamesTheResidualAndNothingWider(t *testing.T) {
-	unchecked := recordUnchecked()
+	unchecked := recordUnchecked(workloadProvenance{})
 	// Two entries, and the count is asserted so the list cannot grow into a roadmap. Each has to be justified
 	// the same way the first was: verifiable in the code of the build that wrote the document, because a reader
 	// holding the file has nothing else to check it against.
@@ -1355,18 +1355,40 @@ func TestTheRecordsUncheckedListNamesTheResidualAndNothingWider(t *testing.T) {
 				"does not travel: %q", want, unchecked[0])
 		}
 	}
-	// The device-use entry. Its whole job is to stop discardedIterations being read as discarded GPU
-	// computation, so it must name the number it qualifies and say what the workload actually does; an entry
-	// that only says "no GPU" leaves the reader to guess which figure it bears on.
+	// The device-use entry, which is DERIVED and therefore has two shapes to check rather than one literal
+	// to pin.
+	//
+	// It used to be a constant, and the constant went false: it said this build's workload "is pure Python
+	// float arithmetic making no driver call" and kept saying it into every record after the workload gained
+	// a device path. On a successful GPU run the same document would have carried
+	// validity.deviceEvidence: "device-work-observed" beside a paragraph saying that was impossible.
+	//
+	// This test pinned "fake device plugin" and so shared the defect: that is a property of the CLUSTER a run
+	// happens on, not of the build, and on the hardware this study rents the plugin is real. What is asserted
+	// now is what each shape must say for the entry to do its job.
 	for _, want := range []string{
 		"discardedIterations", // the field it qualifies, by name
-		"fake device plugin",  // why the cluster cannot tell use from reservation
-		"driver call",         // why the workload cannot either
+		"did NOT establish",   // the claim itself, unambiguously
+		"whyNot",              // where the specific reason lives, so this is not the only place to look
 		"reservation",         // what the count actually describes
 	} {
 		if !strings.Contains(unchecked[1], want) {
-			t.Fatalf("the device-use entry no longer names %q, so an admissible verdict can be read as saying "+
-				"a GPU did the counted work: %q", want, unchecked[1])
+			t.Fatalf("the unestablished device-use entry no longer names %q, so an admissible verdict can be "+
+				"read as saying a GPU did the counted work: %q", want, unchecked[1])
+		}
+	}
+	// And the shape a successful session writes, which no run has produced yet and which must not read as an
+	// unqualified claim. What it still cannot check is exclusivity against activity wearing no Pod label at
+	// all, and saying so is the entry's whole purpose on that path.
+	established := recordUnchecked(workloadProvenance{DeviceUseEstablished: true})[1]
+	for _, want := range []string{
+		"established",       // it says what the run did establish
+		"UNLABELLED",        // and the one thing the observer structurally cannot see
+		"deviceObservation", // and where the evidence for it is, so a reader can re-derive rather than trust
+	} {
+		if !strings.Contains(established, want) {
+			t.Fatalf("the established device-use entry no longer names %q, so it claims more than the "+
+				"observer can support: %q", want, established)
 		}
 	}
 }
@@ -1589,15 +1611,19 @@ func TestARecordFromAnEarlierSchemaIsRefused(t *testing.T) {
 	// Version 17 made the workload's provenance evidence rather than an assertion: events carry the kind and
 	// device status the container itself reported, and measurement.workload is derived from them. A
 	// version-16 record says "pure Python arithmetic" because its build hardcoded that, not because anything
-	// in the run said so, and nothing in the document distinguishes the two.
-	if recordSchemaVersion != 17 {
+	// in the run said so, and nothing in the document distinguishes the two. Version 17 made the device
+	// claim a boolean derived from an observation the record did not carry; version 18 carries the
+	// observation -- the observer's declared identity and endpoint, the window judged, and the samples the
+	// gate read -- and re-runs the gate over them at decode. A version-17 record asserts; an 18 can be
+	// refuted.
+	if recordSchemaVersion != 18 {
 		t.Fatalf("recordSchemaVersion is %d; if the wire format changed again, bump this and say what changed",
 			recordSchemaVersion)
 	}
 	// Both predecessors, not only the immediate one. DisallowUnknownFields makes a version-9 document fail on
 	// the removed fields and a version-8 one fail on the version alone, and a decoder that accepted either
 	// would be reading a document whose fields do not mean what this build thinks they do.
-	for _, older := range []int{9, 10, 11, 12, 13, 14, 15, 16} {
+	for _, older := range []int{9, 10, 11, 12, 13, 14, 15, 16, 17} {
 		b := fmt.Appendf(nil, `{"schemaVersion":%d,"dose":"self-completing","runID":"r7","arm":"A-honor",`+
 			`"disposition":"completed-implemented-checks-passed",%s}`, older, refusedValidity)
 		if _, err := decodeRunRecord(b); err == nil {

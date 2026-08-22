@@ -10,7 +10,7 @@
         "e17gh1",
         "e17gh2"
       ],
-      "ownerWaitSecondsMean": 2.9048736005,
+      "ownerWaitSecondsMean": 2.1804721125,
       "ownerWaitRuns": 2
     },
     {
@@ -20,14 +20,14 @@
         "e17wh1",
         "e17wh2"
       ],
-      "ownerWaitSecondsMean": 2.4237547425,
+      "ownerWaitSecondsMean": 2.656622935,
       "ownerWaitRuns": 2
     }
   ],
-  "floorSeconds": 6.685750602000001,
+  "floorSeconds": 5.859728443,
   "bounded": true,
   "interleaved": true,
-  "spreadSeconds": 0.4811188580000003,
+  "spreadSeconds": 0.4761508225000002,
   "movesWithDose": false,
-  "statement": "the owner's wait under A-honor moves 0.481 s across 2 levels of node, INSIDE the 6.686 s floor. The harness cannot see it responding to node -- which is not proof that it does not, and is the condition a baseline needs: a quantity that varies with node could not be quoted as a property of the platform"
+  "statement": "the owner's wait under A-honor moves 0.476 s across 2 levels of node, INSIDE the 5.860 s floor. The harness cannot see it responding to node -- which is not proof that it does not, and is the condition a baseline needs: a quantity that varies with node could not be quoted as a property of the platform"
 }

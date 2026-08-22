@@ -83,7 +83,7 @@ func TestProtocolConstantsMatchTheDesignOfRecord(t *testing.T) {
 // go with them.
 //
 // They existed to stop a list of missing work from decaying: from going empty, from naming something already
-// built, from being quietly widened back after somebody narrowed it. That list is now recordUnchecked(), it
+// built, from being quietly widened back after somebody narrowed it. That list is now recordUnchecked(workloadProvenance{}), it
 // is persisted into every record rather than printed once, and the successor to all four is
 // TestTheRecordsUncheckedListNamesTheResidualAndNothingWider in record_test.go, which applies the same three
 // pressures to it. Deleting these without a successor would have left the surviving list guarded only by

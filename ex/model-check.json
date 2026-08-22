@@ -4,30 +4,30 @@
     "victimServiceSec": 60,
     "terminationGraceSec": 30
   },
-  "controlHoldSeconds": 0.05005849575,
+  "controlHoldSeconds": 0.04115476875,
   "controlRuns": 4,
   "cases": [
     {
       "dose": "grace-bounded",
       "declaredDoseSec": 20,
-      "achievedDoseSeconds": 20.9616951935,
-      "remainingSeconds": 39.0383048065,
+      "achievedDoseSeconds": 20.73087367,
+      "remainingSeconds": 39.26912633,
       "bindingTerm": "termination grace",
       "predictedSeconds": 30,
-      "observedSeconds": 30.0463636185,
-      "residualSeconds": 0.04636361849999915,
+      "observedSeconds": 30.0541667815,
+      "residualSeconds": 0.05416678150000109,
       "insideFloor": true,
       "n": 2
     },
     {
       "dose": "self-completing",
       "declaredDoseSec": 40,
-      "achievedDoseSeconds": 41.480816896,
-      "remainingSeconds": 18.519183104,
+      "achievedDoseSeconds": 40.736626636500006,
+      "remainingSeconds": 19.263373363499994,
       "bindingTerm": "remaining service",
-      "predictedSeconds": 18.519183104,
-      "observedSeconds": 18.504849375,
-      "residualSeconds": -0.014333729000000517,
+      "predictedSeconds": 19.263373363499994,
+      "observedSeconds": 18.512066588499998,
+      "residualSeconds": -0.7513067749999962,
       "insideFloor": true,
       "n": 2
     }
@@ -35,13 +35,13 @@
   "contrast": {
     "from": "self-completing",
     "to": "grace-bounded",
-    "predictedSeconds": 11.480816896,
-    "observedSeconds": 11.5415142435,
-    "residualSeconds": 0.060697347499999665,
+    "predictedSeconds": 10.736626636500006,
+    "observedSeconds": 11.542100193000003,
+    "residualSeconds": 0.8054735564999973,
     "insideFloor": true
   },
-  "floorSeconds": 4.141562566,
+  "floorSeconds": 2.939598448,
   "bounded": true,
   "holds": true,
-  "statement": "the device hold in every regime is CONSISTENT WITH held = min(remaining service, 30 s grace), to within the 4.142 s floor and with nothing subtracted from anything. The honouring arm holds the device for 0.050 s over 4 runs, which is what shows the interval contains no platform work: a thirty-second hold in the other arm is the borrower's and not the scheduler's. Two runs per cell, evaluated on the runs that produced them -- this is consistency, not validation"
+  "statement": "the device hold in every regime is CONSISTENT WITH held = min(remaining service, 30 s grace), to within the 2.940 s floor and with nothing subtracted from anything. The honouring arm holds the device for 0.041 s over 4 runs, which is what shows the interval contains no platform work: a thirty-second hold in the other arm is the borrower's and not the scheduler's. Two runs per cell, evaluated on the runs that produced them -- this is consistency, not validation"
 }
