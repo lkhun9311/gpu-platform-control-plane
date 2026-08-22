@@ -76,7 +76,7 @@ const preflightModeTimeout = preflightBudget + 3*time.Minute
 //
 // It is not a run and writes no record. The verdict here is a yes/no about hardware, and putting it in a
 // document whose schema describes measured intervals would let a reader take it for one.
-func devicePreflight(ctx context.Context, c client.Client, nodeName string,
+func devicePreflight(ctx context.Context, c client.Client, nodeName, metricsURL, observerIdentity string,
 	now func() time.Time, sleep func(time.Duration), out io.Writer) (err error) {
 	contract, cerr := harnessTerminationContract()
 	if cerr != nil {
@@ -141,11 +141,120 @@ func devicePreflight(ctx context.Context, c client.Client, nodeName string,
 		releaseProbes(relCtx, c, []*corev1.Pod{pod}, out)
 	}()
 
-	term, werr := awaitPreflightStopped(ctx, c, pod, now, sleep)
+	// The observer runs WHILE the Pod holds the device, because that is the only moment there is anything to
+	// see. It is started before the wait and stopped after it, so the window it covers is the window the
+	// workload occupied.
+	t0 := now()
+	elapsed := func() int64 { return now().Sub(t0).Nanoseconds() }
+	watcher := startPreflightObserver(ctx, pod, metricsURL, observerIdentity, elapsed)
+
+	term, fromNs, toNs, werr := awaitPreflightStopped(ctx, c, pod, now, elapsed, sleep)
+	obs, missed := watcher.stop()
 	if werr != nil {
 		return werr
 	}
-	return reportPreflight(out, nodeName, term)
+	// Both verdicts are computed before either is reported, because their COMBINATION is a third answer that
+	// neither carries alone. A workload on the CPU beside an observer reporting its card busy is not two
+	// independent failures; it is the fake-exporter shape, and the record refuses exactly that pairing. A
+	// preflight that returned on the first failure would never look at the second and would send an operator
+	// to replace a driver when the problem was a misattributing exporter.
+	wl := preflightWorkload(term)
+	if metricsURL == "" {
+		if wl.err != nil {
+			return wl.err
+		}
+		_, _ = fmt.Fprint(out, wl.pass)
+		_, _ = fmt.Fprint(out, "OBSERVER NOT CHECKED: no -device-metrics was given, so this preflight says "+
+			"nothing about whether an observer would attribute that work. A run on this node would still "+
+			"record device-not-observed.\n")
+		return nil
+	}
+	if missed > 0 {
+		// Not fatal: it means the exporter saw Pods this preflight did not, which on a shared node is
+		// ordinary. It is printed because on a node that should be exclusive it is not.
+		_, _ = fmt.Fprintf(out, "  device observer: %d sample(s) named Pods this preflight never applied\n",
+			missed)
+	}
+	attributed, why := queuelab.EstablishesDeviceWork(obs, string(pod.UID), fromNs, toNs)
+	switch {
+	case attributed && !wl.usedDevice:
+		return fmt.Errorf("OBSERVER CONTRADICTS THE WORKLOAD on %s: the exporter at %s says this Pod's card "+
+			"was busy, and the Pod itself reports it never reached a driver call (kind=%q dev=%q). A card busy "+
+			"while the only tenant on it computed nothing is another process's activity arriving under this "+
+			"Pod's label, and a run here would refuse the observation for the same reason -- so this is an "+
+			"exporter or a node to fix, not a device to trust", nodeName, obs.Endpoint, wl.kind, wl.device)
+	case wl.err != nil:
+		// The device did not work AND nothing claimed otherwise, which is the ordinary honest failure.
+		return wl.err
+	case !attributed:
+		return fmt.Errorf("OBSERVER CANNOT ATTRIBUTE on %s: %s. The card worked and nothing outside the "+
+			"workload can say so, which is the same record a run with no exporter at all produces -- so a "+
+			"session started now would spend its minutes and come back device-not-observed", nodeName, why)
+	}
+	_, _ = fmt.Fprint(out, wl.pass)
+	_, _ = fmt.Fprintf(out, "OBSERVER ATTRIBUTES: over the %.1f s the preflight Pod held the device, the "+
+		"exporter at %s named its UID on exactly one card and showed it busy, with no second tenant. A run on "+
+		"this node can reach device-work-observed.\n", float64(toNs-fromNs)/1e9, obs.Endpoint)
+	return nil
+}
+
+// preflightObserver is the running device scrape, or the absence of one.
+type preflightObserver struct {
+	done   chan struct{}
+	cancel context.CancelFunc
+	obs    *queuelab.DeviceObservation
+	missed int
+}
+
+// stop ends the scrape and returns what it saw.
+//
+// A nil observer returns a nil observation, which is exactly what EstablishesDeviceWork refuses on, so the
+// no-endpoint case needs no special handling downstream.
+func (p *preflightObserver) stop() (*queuelab.DeviceObservation, int) {
+	if p == nil {
+		return nil, 0
+	}
+	p.cancel()
+	<-p.done
+	return p.obs, p.missed
+}
+
+// startPreflightObserver begins scraping the exporter for the duration of the preflight.
+//
+// The resolver knows exactly one Pod, which is the whole difference from a run's: a run resolves through the
+// collector's registry of everything it watched, and this has one object whose UID it holds already. Samples
+// naming any other Pod resolve to "" and are KEPT rather than dropped -- unattributable, but present, because
+// the exclusivity clause needs to see a second tenant on the card to convict one.
+func startPreflightObserver(ctx context.Context, pod *corev1.Pod, metricsURL, identity string,
+	elapsed func() int64) *preflightObserver {
+	if metricsURL == "" {
+		return nil
+	}
+	uid := string(pod.UID)
+	scraper := &queuelab.DeviceScraper{
+		// Declared by configuration, not verified here, exactly as a run declares it. The preflight cannot
+		// check an exporter's identity any more than a run can; what it checks is that the endpoint answers,
+		// parses, and names this Pod on a card.
+		Observer: queuelab.ObserverDCGM,
+		Identity: identity,
+		Endpoint: metricsURL,
+		Interval: deviceScrapeInterval,
+		Elapsed:  elapsed,
+		Resolve: func(namespace, name string) string {
+			if namespace == pod.Namespace && name == pod.Name {
+				return uid
+			}
+			return ""
+		},
+		Fetch: func(fctx context.Context) ([]byte, error) { return fetchMetrics(fctx, metricsURL) },
+	}
+	dctx, dcancel := context.WithCancel(ctx)
+	p := &preflightObserver{done: make(chan struct{}), cancel: dcancel}
+	go func() {
+		defer close(p.done)
+		p.obs, p.missed, _ = scraper.Observe(dctx)
+	}()
+	return p
 }
 
 // preflightCommand renders the workload the preflight runs.
@@ -214,23 +323,38 @@ func shortID(id string) string {
 // starts and then cannot reach the driver is exactly the case this exists to catch: it runs, it reports, and
 // it exits zero. Readiness would have called that a pass.
 func awaitPreflightStopped(ctx context.Context, c client.Client, pod *corev1.Pod,
-	now func() time.Time, sleep func(time.Duration)) (*corev1.ContainerStateTerminated, error) {
+	now func() time.Time, elapsed func() int64, sleep func(time.Duration),
+) (term *corev1.ContainerStateTerminated, fromNs, toNs int64, err error) {
 	deadline := now().Add(preflightBudget)
 	var last string
+	// The window opens when the container is first seen RUNNING rather than when the Pod was applied. An
+	// image pull can take minutes, and charging the observer with covering it would refuse every cold node
+	// for a gap that is not about the card.
+	fromNs = -1
 	for {
 		var live corev1.Pod
 		err := c.Get(ctx, types.NamespacedName{Namespace: pod.Namespace, Name: pod.Name}, &live)
 		switch {
 		case apierrors.IsNotFound(err):
 			// Deleted by something other than this process, so the reading is gone rather than negative.
-			return nil, fmt.Errorf("the preflight pod %s/%s disappeared before it terminated; something "+
+			return nil, 0, 0, fmt.Errorf("the preflight pod %s/%s disappeared before it terminated; something "+
 				"outside this invocation deleted it, and no verdict about the device can come from that",
 				pod.Namespace, pod.Name)
 		case err != nil:
-			return nil, fmt.Errorf("read the preflight pod: %w", err)
+			return nil, 0, 0, fmt.Errorf("read the preflight pod: %w", err)
+		}
+		if fromNs < 0 && probeRunning(&live) {
+			fromNs = elapsed()
 		}
 		if t := terminatedState(&live); t != nil {
-			return t, nil
+			if fromNs < 0 {
+				// It terminated without this loop ever catching it Running, which a short workload on a fast
+				// node can do between polls. The Pod's own start time is not on this clock, so the window is
+				// taken from the beginning rather than invented: an interval that is too WIDE can only make
+				// the coverage check stricter, never falsely pass it.
+				fromNs = 0
+			}
+			return t, fromNs, elapsed(), nil
 		}
 		if trouble := probeTrouble(&live); trouble != "" {
 			last = trouble
@@ -239,7 +363,7 @@ func awaitPreflightStopped(ctx context.Context, c client.Client, pod *corev1.Pod
 			if last == "" {
 				last = fmt.Sprintf("phase %s", live.Status.Phase)
 			}
-			return nil, fmt.Errorf("the preflight pod did not terminate within %s: %s. A device request that "+
+			return nil, 0, 0, fmt.Errorf("the preflight pod did not terminate within %s: %s. A device request that "+
 				"no node can satisfy looks exactly like this, so check that %s advertises %s before reading it "+
 				"as a driver fault", preflightBudget, last, pod.Spec.NodeName, gpuResourceName)
 		}
@@ -254,27 +378,49 @@ func awaitPreflightStopped(ctx context.Context, c client.Client, pod *corev1.Pod
 // driver; "no-device" is a card that was not passed through; "ptx-load-failed" is a kernel this driver would
 // not compile. Those send an operator to three different places, and a session that discovered the difference
 // from a refused record would have paid for the protocol to find out.
-func reportPreflight(out io.Writer, nodeName string, t *corev1.ContainerStateTerminated) error {
+type workloadVerdict struct {
+	// usedDevice is whether the workload reached a driver call at all, which is the fact the contradiction
+	// check needs and which `err` alone cannot carry: an unreadable report is also an error, and it is NOT
+	// evidence that the device went unused.
+	usedDevice bool
+	kind       string
+	device     string
+	// pass is what to print when nothing else refuses. It is held rather than written because a verdict that
+	// printed as it decided could put "DEVICE USABLE" above a refusal.
+	pass string
+	err  error
+}
+
+// preflightWorkload turns the container's own report into a verdict, without printing.
+//
+// The failing cases name the DEVICE STATUS TOKEN, and that is the whole reason this mode exists. A preflight
+// that said "the device did not work" would leave an operator with a rented GPU node and eight candidate
+// causes. no-libcuda is a base image or a runtime that never injected the driver; no-device is a card that
+// was not passed through; ptx-load-failed is a kernel this driver would not compile. Three different
+// afternoons.
+func preflightWorkload(t *corev1.ContainerStateTerminated) workloadVerdict {
 	iters, kind, device := queuelab.ReportFromMessage(t.Message)
 	if iters == nil {
-		return fmt.Errorf("the preflight workload left no report this build can read (exit %d, message %q). "+
-			"That is not a statement about the device: it is the workload and this harness disagreeing about "+
-			"the wire format, and a run on this node would record its provenance as unreported",
-			t.ExitCode, t.Message)
+		return workloadVerdict{err: fmt.Errorf(
+			"the preflight workload left no report this build can read (exit %d, message %q). That is not a "+
+				"statement about the device: it is the workload and this harness disagreeing about the wire "+
+				"format, and a run on this node would record its provenance as unreported",
+			t.ExitCode, t.Message)}
 	}
-	if kind != queuelab.KindCUDAFMA {
-		return fmt.Errorf("DEVICE NOT USABLE on %s: the workload fell back to the CPU loop, reporting dev=%q "+
+	v := workloadVerdict{kind: kind, device: device, usedDevice: kind == queuelab.KindCUDAFMA}
+	switch {
+	case !v.usedDevice:
+		v.err = fmt.Errorf("DEVICE NOT USABLE: the workload fell back to the CPU loop, reporting dev=%q "+
 			"after %d iterations. A run here would complete and refuse to attribute device work, so its "+
 			"GPU-seconds would be seconds of RESERVATION exactly as they are on a cluster with no cards",
-			nodeName, device, *iters)
-	}
-	if device != queuelab.DeviceOK {
-		return fmt.Errorf("DEVICE UNRELIABLE on %s: kernels launched and then stopped (dev=%q after %d "+
+			device, *iters)
+	case device != queuelab.DeviceOK:
+		v.err = fmt.Errorf("DEVICE UNRELIABLE: kernels launched and then stopped (dev=%q after %d "+
 			"launches). A run here would abort mid-protocol rather than produce a refused record",
-			nodeName, device, *iters)
+			device, *iters)
+	default:
+		v.pass = fmt.Sprintf("DEVICE USABLE: the workload loaded its PTX through the CUDA driver and "+
+			"completed %d kernel launches in %d s.\n", *iters, preflightDurationSec)
 	}
-	_, _ = fmt.Fprintf(out, "DEVICE USABLE: on %s the workload loaded its PTX through the CUDA driver and "+
-		"completed %d kernel launches in %d s. A run on this node can establish device work, given an "+
-		"observer that covers the hold.\n", nodeName, *iters, preflightDurationSec)
-	return nil
+	return v
 }

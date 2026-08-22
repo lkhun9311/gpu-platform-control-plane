@@ -218,6 +218,12 @@ type operatorModeArgs struct {
 	// about a card. This one keeps the request and asks whether the workload reaches the driver at all.
 	DevicePreflight bool
 
+	// DeviceMetrics and DeviceObserver configure the preflight's observer check, and belong to that mode
+	// alone. They are refused beside the others for the same reason the run-only flags are: an invocation
+	// that names an exporter and then never scrapes it reads to its author as configured.
+	DeviceMetrics  string
+	DeviceObserver string
+
 	ReleaseStale bool
 	TxID         string
 
@@ -325,6 +331,13 @@ func decideOperatorMode(a operatorModeArgs) (operatorMode, error) {
 	// that names a run id, an output path, a preview or a horizon and then quietly does none of those things
 	// reads to its author as configured, which is the worst kind of no-op: they will believe the recovery
 	// they just ran was the one they described.
+	// The device flags are the preflight's own, and mean nothing to the five other modes.
+	if !a.DevicePreflight && (a.DeviceMetrics != "" || a.DeviceObserver != "") {
+		return modeNone, fmt.Errorf(
+			"-device-metrics and -device-observer belong to -device-preflight and to a run; no other " +
+				"operator mode scrapes anything, so this invocation would have looked configured while " +
+				"doing nothing of the kind")
+	}
 	if len(a.RunOnlyFlags) > 0 {
 		return modeNone, fmt.Errorf(
 			"an operator mode cannot be combined with %s: a recovery mode ignores every run-only flag, so "+
@@ -342,6 +355,14 @@ func decideOperatorMode(a operatorModeArgs) (operatorMode, error) {
 		// holds, and everything it creates it names and deletes itself.
 		return modeTerminationCanary, nil
 	case a.DevicePreflight:
+		// An endpoint with no identity would be scraped, parsed, and then refused by EstablishesDeviceWork for
+		// a reason about provenance rather than about the card -- after the Pod ran. Refusing here costs the
+		// operator a second instead of a minute, and says the thing worth saying.
+		if a.DeviceMetrics != "" && a.DeviceObserver == "" {
+			return modeNone, fmt.Errorf(
+				"-device-metrics requires -device-observer: an observation whose source cannot be named is " +
+					"refused by the same gate a run uses, so scraping without it can only ever fail")
+		}
 		// No attestation, for the canary's reason: it takes the worker through the ordinary transaction, which
 		// refuses a node somebody else holds, and the one Pod it creates it names and deletes itself.
 		return modeDevicePreflight, nil

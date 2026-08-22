@@ -202,6 +202,8 @@ func main() {
 
 		TerminationCanary: *terminationCanaryFlag,
 		DevicePreflight:   *devicePreflightFlag,
+		DeviceMetrics:     *deviceMetricsFlag,
+		DeviceObserver:    *deviceObserverFlag,
 
 		ReleaseStale: *releaseStaleFlag,
 		TxID:         *txidFlag,
@@ -495,7 +497,8 @@ func dispatchOperatorMode(connect clusterClientFunc, args operatorModeArgs) (fir
 	case modeDevicePreflight:
 		// The real clock, like the canary's: this mode's budget is an image pull and a driver context, both of
 		// which are things happening on a cluster rather than intervals a test needs to skip past.
-		return true, devicePreflight(ctx, c, args.Worker, time.Now, time.Sleep, os.Stdout)
+		return true, devicePreflight(ctx, c, args.Worker, args.DeviceMetrics, args.DeviceObserver,
+			time.Now, time.Sleep, os.Stdout)
 	case modeReleaseStale:
 		return true, releaseStale(ctx, c, args.Worker, args.TxID)
 	case modeForceRelease:

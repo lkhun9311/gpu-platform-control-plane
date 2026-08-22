@@ -84,7 +84,7 @@ func TestThePreflightVerdictNamesWhichDriverCallRefused(t *testing.T) {
 	}
 	for _, tc := range []struct {
 		name, msg, wants string
-		ok               bool
+		ok, usedDevice   bool
 	}{
 		{name: "a driver that was never injected", msg: "iters=9 kind=cpu-float dev=no-libcuda",
 			wants: "no-libcuda"},
@@ -93,38 +93,40 @@ func TestThePreflightVerdictNamesWhichDriverCallRefused(t *testing.T) {
 		{name: "a kernel this driver would not compile", msg: "iters=9 kind=cpu-float dev=ptx-load-failed",
 			wants: "ptx-load-failed"},
 		// Kernels ran and then stopped, which is a different afternoon again: the node is not unusable, it is
-		// unreliable, and a run would abort mid-protocol rather than come back refused.
+		// unreliable, and a run would abort mid-protocol rather than come back refused. usedDevice stays TRUE
+		// here, because the card demonstrably worked -- an observer reporting it busy is corroboration rather
+		// than the contradiction the CPU rows would make it.
 		{name: "a card that worked and then stopped", msg: "iters=400 kind=cuda-fma dev=launch-failed-midrun",
-			wants: "launch-failed-midrun"},
+			wants: "launch-failed-midrun", usedDevice: true},
 		// A message this build cannot parse is not evidence about the device at all, and saying so is the
 		// difference between cancelling a session and fixing a wire format.
 		{name: "a report in a shape this build cannot read", msg: "iters=9", wants: "wire format"},
-		{name: "the pass", msg: "iters=1200 kind=cuda-fma dev=ok", ok: true},
+		{name: "the pass", msg: "iters=1200 kind=cuda-fma dev=ok", ok: true, usedDevice: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			var out strings.Builder
-			err := reportPreflight(&out, "gpu-node-1", term(tc.msg))
+			v := preflightWorkload(term(tc.msg))
+			if v.usedDevice != tc.usedDevice {
+				t.Fatalf("usedDevice = %v, want %v; this field decides whether a busy card is corroboration "+
+					"or a contradiction", v.usedDevice, tc.usedDevice)
+			}
 			if tc.ok {
-				if err != nil {
-					t.Fatalf("a launched kernel was reported as a failure: %v", err)
+				if v.err != nil {
+					t.Fatalf("a launched kernel was reported as a failure: %v", v.err)
 				}
-				if !strings.Contains(out.String(), "DEVICE USABLE") {
-					t.Fatalf("the pass does not say so: %q", out.String())
-				}
-				if !strings.Contains(out.String(), "1200") {
-					t.Fatalf("the pass does not report how much ran, so a workload that launched once reads "+
-						"the same as one that saturated the card: %q", out.String())
+				if !strings.Contains(v.pass, "DEVICE USABLE") || !strings.Contains(v.pass, "1200") {
+					t.Fatalf("the pass does not say so, or does not report how much ran -- a workload that "+
+						"launched once would read the same as one that saturated the card: %q", v.pass)
 				}
 				return
 			}
-			if err == nil {
+			if v.err == nil {
 				t.Fatalf("message %q was reported as a usable device", tc.msg)
 			}
-			if !strings.Contains(err.Error(), tc.wants) {
-				t.Fatalf("the verdict does not name what refused (%q): %v", tc.wants, err)
+			if !strings.Contains(v.err.Error(), tc.wants) {
+				t.Fatalf("the verdict does not name what refused (%q): %v", tc.wants, v.err)
 			}
-			if strings.Contains(out.String(), "DEVICE USABLE") {
-				t.Fatalf("a failing preflight also printed a pass: %q", out.String())
+			if strings.Contains(v.pass, "DEVICE USABLE") {
+				t.Fatalf("a failing verdict also carries a pass line: %q", v.pass)
 			}
 		})
 	}
