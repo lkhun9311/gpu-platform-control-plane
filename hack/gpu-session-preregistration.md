@@ -86,8 +86,7 @@ node comparison below uses the arrival figure only.
 
 Both are checked by the harness rather than asserted here:
 
-    $ queuelabrun -compare 'ex/e17-grace-bounded-A-honor-e17gh?.json,\
-        ex/e17-self-completing-A-honor-*.json' -mode dose
+    $ queuelabrun -compare 'ex/e17-grace-bounded-A-honor-e17gh?.json,ex/e17-self-completing-A-honor-*.json' -mode dose
     the owner's wait under A-honor moves 0.029 s across 2 levels of dose, INSIDE the 5.552 s floor
 
     $ queuelabrun -compare 'ex/e17-grace-bounded-A-honor-*.json' -mode node
@@ -135,7 +134,7 @@ both arms, and saying so — at which point the number below is superseded rathe
 ## The resolution this instrument has, stated in advance
 
 Every interval here is a difference of watch ARRIVAL times, and the records bound how far those lag the
-events they describe. Across the eight baseline runs the per-run floor ran **1.000 – 2.364 s**.
+events they describe. Across the six baseline runs the per-run floor ran **2.430 – 3.414 s**.
 
 So:
 
@@ -158,8 +157,9 @@ not currently have and that does not survive a managed cluster.
 These are named here rather than fixed, because the fix for each is either impossible with what is recorded
 or costs more than it buys before the session.
 
-**The instrument cannot be sharpened from the existing ledger.** The device hold reproduces to 8-17 ms within
-a cell and is judged against a floor of about 3 s. That is a precision figure against a conservative accuracy
+**The instrument cannot be sharpened from the existing ledger.** The device hold reproduces to between 5 and
+85 ms within a cell — the page said 8-17 ms, which held for five of the six cells and not for the
+self-completing ignoring one and is judged against a floor of about 3 s. That is a precision figure against a conservative accuracy
 bound, not evidence the bound is 200x too large -- and nothing recorded can calibrate the difference. The
 hold's endpoints come from two watches, so its error is their differential delivery lag, and there is no
 interval in this system with independently known truth that spans the same two streams. The one same-watch
@@ -167,8 +167,8 @@ interval with a declared truth, the owner's Pod Ready to its Succeeded against a
 watch against itself and identifies nothing about the Workload watch.
 
 Reading the hold on the components' own clocks does not close it either, and the data says so: across the
-twelve records the two readings differ by 36 to 512 ms, a range the second-truncation of two stamps explains
-entirely. The lag is inside it and cannot be separated. What that second reading DOES buy is a check -- if
+twelve records the hold's two endpoint readings differ by 117 to 1004 ms, a range the second-truncation of
+two stamps explains entirely — and one that reaches a full second, not the 512 ms this page used to claim. The lag is inside it and cannot be separated. What that second reading DOES buy is a check -- if
 the two ever describe different intervals, neither is publishable -- and that check now exists rather than
 being promised in a comment.
 
@@ -236,7 +236,7 @@ assert.
 
    Stated this way rather than as "the arms stop differing", because the harness is built to refuse the
    second: an unresolved difference is not a demonstrated equality, and every other page here says so. What
-   IS checkable is that a difference resolved at 28.1 s against a 5.387 s floor in the baseline stops
+   IS checkable is that a difference resolved at 29.0 s against a 5.906 s floor in the baseline stops
    clearing the session's floor. If driver cleanup dominates and both arms converge, the termination
    contract stops mattering and the 120-second cap loses the justification it was given — the single most
    useful thing this session could discover.

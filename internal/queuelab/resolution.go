@@ -129,8 +129,13 @@ func SpreadOfMatching(events []LifecycleEvent, keep func(*LifecycleEvent) bool) 
 //
 // It is a method rather than a comparison at each call site because the comparison has a direction that is
 // easy to invert, and inverting it turns "the harness cannot see this" into "the harness measured this".
-// That inversion is not hypothetical: a residual of 0.94 seconds was published from this lab as the control
-// plane's own cost while the run's spread ran from 0.4 to 2.4 seconds.
+// That inversion is not hypothetical, and it has happened twice. A residual of 0.94 seconds was published
+// from this lab as the control plane's own cost while the run's spread ran into the seconds. And the model
+// check printed its honouring-arm control -- about 41 ms, against a floor of about a second -- as evidence
+// that the measured interval contained no platform work, which is this function's exact subject.
+//
+// The second time, this method could not have prevented it: nothing outside tests calls it. A rule that
+// lives in a helper nobody invokes is a rule the code does not have.
 func (s *ObservationSpread) Resolves(magnitudeNs int64) bool {
 	if s == nil {
 		return false

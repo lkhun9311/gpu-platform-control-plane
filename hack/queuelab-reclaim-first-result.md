@@ -8,7 +8,7 @@ all four claims held.
     verdict: admissible-under-implemented-gates
     failures: []
 
-Eight runs, two per arm in each of two dose regimes, on a three-node kind cluster with a fake
+Twelve runs, two per arm in each of two dose regimes and on each of two workers, on a three-node kind cluster with a fake
 `nvidia.com/gpu` device plugin.
 
 **These are not the runs this page first reported, and the reason is worth recording.** The original four
@@ -53,9 +53,12 @@ away, so the node and the occupancy varied together and a node result was also a
 
 **The owner's wait is read on two clocks.** The left figure is a difference of watch ARRIVAL times; the right
 is a difference of the two components' own transition stamps — Kueue's Admitted and the kubelet's Ready. Look
-at the four ignoring grace-bounded runs: the arrival figure scatters across 313 ms over two nodes and the
-stamp figure is 31.000 on every one of them. **The scatter is watch jitter.** An earlier version of this page
-was about to attribute a smaller version of it to the machine.
+at the four ignoring grace-bounded runs: the arrival figure scatters across 41 ms over two nodes while the
+stamp figure is 31.000 on three of them and 32.000 on the fourth — a whole second appearing from a 41 ms
+spread, because the truncation boundary happens to fall inside it. **The scatter is watch jitter and the
+stamp's jump is quantisation.** An earlier version of this page said 313 ms and "31.000 on every one",
+which were true of a record set that has since been replaced twice; the figures here are computed from the
+twelve records this page cites.
 
 The stamp figure is quantised to the second, which is why the honouring runs flip between 2 and 3 — their
 true value sits near a boundary. It carries no watch lag at all; it carries truncation at each end plus the
@@ -80,9 +83,12 @@ named set of records and answers the three questions those records can settle:
     interleaved: the arms alternated in time
     no effect is claimed: this tool reports resolution and confounding, not inference
     device: NOT OBSERVED -- every GPU-second below is a second of RESERVATION
-      A-honor   n=2 ownerWait mean=2.180 runs=e17gh1,e17gh2
-      A-ignore  n=2 ownerWait mean=31.213 runs=e17gi1,e17gi2
-      [wastedGPUSeconds] a difference of 30.0 s against a 5.906 s floor, over n=2 and n=2 runs
+      A-honor   n=2 waste mean=20.895 min=20.888 max=20.901 runs=e17gh1,e17gh2
+        ownerWait mean=2.180 min=2.177 max=2.184 over 2 of 2 runs
+      A-ignore  n=2 waste mean=50.904 min=50.901 max=50.906 runs=e17gi1,e17gi2
+        ownerWait mean=31.213 min=31.206 max=31.219 over 2 of 2 runs
+      [wastedGPUSeconds] A-honor discarded 20.9 GPU-s and A-ignore discarded 50.9, a difference of
+        30.0 s against a 5.906 s floor, over n=2 and n=2 runs
       [ownerAdmitToReadySeconds] the quota owner was running 2.180 s AFTER KUEUE ADMITTED IT under
         A-honor and 31.213 s under A-ignore -- a difference of 29.0 s against a 5.906 s floor
 
@@ -216,8 +222,9 @@ available here separates them. Saying "the watch is 900 ms late" would claim a m
 cannot make without clock synchronisation or distributed tracing.
 
 What it does support is one statement, and it is enough: **an interval whose endpoints carry a gap of this
-size is not resolved below it.** The residual was under a second. The gap runs from 0.4 to 2.4 seconds and
-differs at each endpoint. The residual is therefore not resolved by this harness, and no number of
+size is not resolved below it.** The residual was under a second. Across the twelve records the gap runs from 0.028 to 2.675 seconds and
+differs at each endpoint — the page carried "0.4 to 2.4" from two runs of the schema-10 era long after
+those records were deleted. The residual is therefore not resolved by this harness, and no number of
 repetitions changes that — a resolution problem is not a noise problem.
 
 What survives is what the arms differ in, which is an order of magnitude larger than the floor: 40.9 seconds
@@ -234,7 +241,7 @@ thrown away — 16,857 and 17,846 iterations across the two runs, which is what 
 discarded quantity of something rather than an interval.
 
 **Ignoring SIGTERM discards nothing and defeats the reclaim.** The victim runs to completion 19 seconds past
-the preemption, so no work is lost — and the quota owner waits 19.4 seconds to start instead of 2.2. The
+the preemption, so no work is lost — and the quota owner waits 19.2 seconds to start instead of 2.2. The
 ledger shows why: `Preempted` at t=44s, `AttemptStopped reason=Succeeded` at t=1m3s. The reclamation was
 issued and did not reclaim anything for nineteen seconds.
 

@@ -35,9 +35,12 @@ which adds scheduling and container start on top. An earlier version of this pag
 | either | — | A-honor | 6 | 0.029 – 0.052 s | 23 ms |
 
     $ queuelabrun -compare 'ex/e17-self-completing-*.json,ex/e17-grace-bounded-*-e17g??.json' -mode model
-    grace-bounded    binds on termination grace  predicted=30.000 observed=30.054 residual=+0.054 INSIDE
-    self-completing  binds on remaining service  predicted=19.263 observed=18.512 residual=-0.751 INSIDE
+    grace-bounded    dose declared=20s achieved=20.731 -> remaining=39.269 binds on termination grace
+      predicted=30.000 observed=30.054 residual=+0.054 INSIDE (n=2)
+    self-completing  dose declared=40s achieved=40.737 -> remaining=19.263 binds on remaining service
+      predicted=19.263 observed=18.512 residual=-0.751 INSIDE (n=2)
     CONTRAST self-completing -> grace-bounded: predicted=10.737 observed=11.542 residual=+0.805 INSIDE
+      (the kink; anything common to both regimes cancels here)
 
 **The grace-bounded hold lands within 60 ms of the configured grace period on four runs across two
 machines, and reproduces to 17 ms within a cell.** Those are two different figures and this line used to
@@ -91,8 +94,9 @@ considerate setting; here it is the one that lets a borrower hold a device longe
 ## Why this experiment is resolvable and the previous residual was not
 
 Everything above is 19 to 51 seconds, and the two regimes differ by 20 to 30 seconds. The harness's own
-observation uncertainty — the gap between the kubelet's stamp and the collector's arrival — runs 0.4 to 2.4
-seconds and is recorded in every one of these records.
+observation uncertainty — the gap between the kubelet's stamp and the collector's arrival — runs 0.028 to
+2.675 seconds across these records. The page said "0.4 to 2.4 … recorded in every one of these records",
+which was carried from a record set replaced twice since.
 
 The differences here are an order of magnitude above that. The sub-second residual the earlier write-up
 tried to quote was not, which is why it was withdrawn. Same instrument, different question, and only the
@@ -141,9 +145,9 @@ reading the code.
 
 - **Nothing about GPUs.** Pure Python arithmetic against a fake device plugin. These are seconds of
   RESERVATION; `deviceUseEstablished` is false in every record.
-- **The magnitudes are still partly the trace's.** 51.5 is 20 s of service plus 30 s of grace plus about 1.5;
+- **The magnitudes are still partly the trace's.** 50.9 is 20 s of service plus 30 s of grace plus about 1.5;
   19.4 is the 20 s that remained. What is NOT the trace's is the discontinuity itself — that the same arm
-  produces 0 discarded on one side of the boundary and 51.5 on the other.
+  produces 0 discarded on one side of the boundary and 50.9 on the other.
 - **Two runs per cell.** Repeatable, not a distribution.
 - **One grace period, and the boundary cannot be swept with this harness.** 30 seconds, the default.
 
@@ -154,7 +158,7 @@ reading the code.
   configuration that would test it. Remaining service of 28 or 32 seconds cannot be run under either regime.
 
   So what is established is that a victim with 20 s left finishes on its own and one with 40 s left is
-  stopped at 30 s — the latter observed twice, `Preempted t=24s -> AttemptStopped t=54s`. What is NOT
+  stopped at 30 s — the latter observed four times, `Preempted t=24s -> AttemptStopped t=54s`. What is NOT
   established is that the switch happens at exactly 30 rather than at 27 or 33. An earlier draft of this page
   said the boundary "was not swept", which understates it: it cannot be, without changing the guard.
 

@@ -12,9 +12,16 @@ package queuelab
 // owner's Pod spends the grace window pending against the device, so restoration after release costs about
 // 1.6 s LESS in the arm the model predicts than in the arm the estimate came from.
 //
-// The hold itself needs no such term, and it is three orders of magnitude quieter: across the recorded runs
-// its within-cell spread is 8 to 17 milliseconds against an owner-wait floor of one to three seconds. The
-// honouring arm becomes a genuine zero-hold control at about 43 ms rather than a source of a subtrahend.
+// The hold itself needs no such term, and it reproduces far more tightly: across the recorded runs its
+// within-cell spread is 5 to 85 milliseconds against a floor of seconds. The wider end is the
+// self-completing ignoring cell; an earlier version of this comment said "8 to 17", which was true of five
+// cells out of six and of a record set that has since been replaced.
+//
+// The honouring arm is a zero-hold CONTROL rather than a source of a subtrahend, and its measured value --
+// about 41 ms -- is far below this harness's own floor and therefore UNRESOLVED. It does not establish that
+// the interval is quiet; what the two arms establish is that their difference is far larger than the floor.
+// Reading the control as a measured near-zero is the inversion resolution.go exists to prevent, and it was
+// published from here before a review caught it.
 
 // DeviceHoldNs is how long the borrower kept the device after Kueue admitted its owner, or nil when the run's
 // ledger cannot say.
@@ -171,8 +178,9 @@ func firstStamp(events []LifecycleEvent, job string, match func(*LifecycleEvent)
 // of two watches, which is what floorNs bounds. Anything inside that sum is the two instruments agreeing.
 //
 // What it does NOT do is sharpen anything. The truncation term swamps the lag in every recorded run -- the
-// two readings differ by 36 to 512 ms against a bound of seconds -- so this cannot calibrate the arrival
-// figure, only catch it going wrong.
+// two readings at the hold's own endpoints differ by 117 to 1004 ms against a bound of seconds -- so this
+// cannot calibrate the arrival figure, only catch it going wrong. The figure was "36 to 512" here and
+// understated the top of the range by a factor of two.
 func ClocksDisagree(events []LifecycleEvent, floorNs int64) (bool, int64, int64) {
 	arrival := DeviceHoldNs(events)
 	stamp := DeviceHoldStampNs(events)
