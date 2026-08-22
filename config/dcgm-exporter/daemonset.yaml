@@ -63,10 +63,12 @@ spec:
           # tag means that recorded identity can name something other than what ran -- the same defect the
           # canary key's operator digest exists to close.
           #
-          # It is a tag here because pinning one requires pulling the image and reading its digest, which
-          # cannot be done from a cluster with no GPU node to pull it onto. Resolve it and pin it as the
-          # first step of the session, and pass THAT digest to -device-observer rather than this tag.
-          image: nvcr.io/nvidia/k8s/dcgm-exporter:3.3.9-3.6.1-ubuntu22.04
+          # It was a tag here, on the stated grounds that pinning one required pulling the image onto a GPU
+          # node. That was wrong: a manifest digest is what the registry ANSWERS WITH, so a HEAD against
+          # nvcr.io resolves it from any machine with a network, and no GPU is involved. Pass this digest to
+          # -device-observer; the observation's identity is declared and unverifiable, so the least a
+          # declaration can do is name something immutable.
+          image: nvcr.io/nvidia/k8s/dcgm-exporter:3.3.9-3.6.1-ubuntu22.04@sha256:3d4e0dfa5fc4d7d12689d29fc6b56cd6c610750e8d187a393882e341fbba6c12
           args:
             # The one series the verdict reads. Collecting the default set would work too; naming it keeps
             # the manifest and internal/queuelab/dcgm.go describing the same thing.

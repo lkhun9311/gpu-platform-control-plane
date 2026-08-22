@@ -242,6 +242,37 @@ do and a confirmation changes nothing.
 Run this before the protocol, and read its exit status. It takes one Pod and about a minute, and it answers
 the one question that decides whether the session produces a number or a receipt.
 
+With `-device-metrics` it answers the other half too: whether anything OUTSIDE the workload can see that work.
+The route to the exporter is the part of a session that used to exist only as prose, so it is a script now:
+
+    $ ./hack/gpu-session.sh <gpu-node>
+    exporter pod : dcgm-exporter-abc12 (on <gpu-node>)
+    observer id  : nvcr.io/nvidia/k8s/dcgm-exporter@sha256:...
+    route up     : http://127.0.0.1:9400/metrics
+
+It picks the exporter Pod BY NODE, and that selector is the whole reason it exists. The Service in front of
+the exporter is headless on purpose -- a round-robin one would answer alternate scrapes from a different
+node's card -- so there is no cluster IP to forward to, and the forward has to name a Pod. Naming the wrong
+one fails silently: it scrapes cleanly, parses cleanly, and reports that this run's Pod was never seen on any
+card, which reads as a device fault. It also reads the observer's identity from the RUNNING Pod's imageID
+rather than from the manifest, because the manifest says what should be deployed and the declaration should
+name what is.
+
+The preflight then applies the run's own gate, `EstablishesDeviceWork`, over the interval its Pod held the
+card. Using the same gate rather than a private check is the point: a preflight with weaker criteria would
+pass on a node where the session then refuses.
+
+And it reads the two answers TOGETHER, because their combination is a third one. A workload on the CPU beside
+an exporter reporting its card busy is the fake-exporter shape, and it is reported as such rather than as two
+failures:
+
+    ERROR: OBSERVER CONTRADICTS THE WORKLOAD on platform-worker: the exporter says this Pod's card was
+    busy, and the Pod itself reports it never reached a driver call (kind="cpu-float" dev="no-libcuda")
+
+That was produced by serving a deliberately dishonest exporter to a preflight on the GPU-less cluster. Two
+branches cannot be reached without a card -- a working device with a broken observer, and both working -- and
+they are the two a GPU node reaches first.
+
 The termination canary cannot answer it. The canary STRIPS the device request from its probes, deliberately —
 a probe that needed a free card would fail on a node whose devices are legitimately held, and allocation is
 not what it measures. So nothing the canary reports is about a card. The preflight is its mirror: the same

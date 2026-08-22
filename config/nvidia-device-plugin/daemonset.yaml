@@ -50,10 +50,11 @@ spec:
       priorityClassName: system-node-critical
       containers:
         - name: plugin
-          # A version tag, and it should be a digest, for the reason config/dcgm-exporter/daemonset.yaml
-          # gives: pinning one requires pulling the image, which cannot be done from a cluster with no GPU
-          # node to pull it onto. Resolve and pin as the first step of the session.
-          image: nvcr.io/nvidia/k8s-device-plugin:v0.16.2
+          # Pinned by digest for the reason config/dcgm-exporter/daemonset.yaml gives, and resolved the same
+          # way: from the registry, without a GPU node and without pulling anything. What this daemonset
+          # advertises is the resource every gate in this study counts, so a tag that moved under it would
+          # change what "2 allocatable" means between a qualification and the run it qualified.
+          image: nvcr.io/nvidia/k8s-device-plugin:v0.16.2@sha256:ed39e22c8b71343fb996737741a99da88ce6c75dd83b5c520e0b3d8e8a884c47
           env:
             # Refuse to start rather than register a node whose driver is missing. The alternative -- starting
             # and advertising nothing -- is the failure that reads as an absent node group.
