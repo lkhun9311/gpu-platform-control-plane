@@ -1,9 +1,13 @@
 package queuelab
 
 import (
+	"crypto/sha256"
+	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -178,29 +182,60 @@ func TestTheKernelArgumentsOutliveTheirBuilder(t *testing.T) {
 	}
 }
 
-// The PTX is compiled, rather than asserted to have been compiled.
+// The PTX in the tree must be the PTX somebody compiled.
 //
-// A comment in submit.go used to claim it had been checked with ptxas for three architectures. There was no
-// such check anywhere in the repository -- no test, no target, no script -- so the one verification the file
-// named as available without a GPU was the one it did not have.
-func TestTheEmbeddedPTXCompiles(t *testing.T) {
-	ptxas, err := exec.LookPath("ptxas")
-	if err != nil {
-		t.Skip("no ptxas on this host; install nvidia-cuda-nvcc to run this check (it needs no GPU)")
-	}
+// This used to shell out to ptxas and SKIP when there was none, which is how it behaves on every machine
+// without a CUDA toolkit -- including this one. A check that disappears silently proves nothing, and a green
+// suite was reading as evidence that the one verification submit.go names as available without a GPU had
+// been done. Before that, the comment claimed the compilation had happened and no check existed anywhere in
+// the repository at all.
+//
+// So the compilation is done deliberately by hack/verify-ptx.sh, which stores its result keyed to a hash of
+// the PTX it compiled. This is the termination canary's shape: a stored qualification, refused the moment
+// the thing it qualified changes. What it establishes is that this exact text compiled somewhere, for the
+// listed targets, and that nobody has edited it since -- weaker than "ptxas ran just now", stronger than a
+// skip, and honest about which.
+//
+// It earned its place immediately on the first attempt: moving the target to sm_75, which is the T4 this
+// study rents, made .version 6.0 illegal because ISA 6.0 predates Turing. The pairing shipped for minutes.
+//
+// Mutation that turns this red: edit one character of the PTX without re-running the script.
+func TestTheEmbeddedPTXWasCompiled(t *testing.T) {
 	script := workloadScript
 	start := strings.Index(script, `PTX=b"""`)
 	if start < 0 {
-		t.Fatal("the workload carries no PTX")
+		t.Fatal("the workload carries no PTX; this test is checking a shape that has moved")
 	}
 	body := script[start+len(`PTX=b"""`):]
 	body = body[:strings.Index(body, `"""`)]
-	f := filepath.Join(t.TempDir(), "burn.ptx")
-	if err := os.WriteFile(f, []byte(body), 0o600); err != nil {
-		t.Fatalf("write: %v", err)
+	sum := fmt.Sprintf("%x", sha256.Sum256([]byte(body)))
+
+	raw, err := os.ReadFile(filepath.Join("testdata", "ptx-verification.json"))
+	if err != nil {
+		t.Fatalf("no PTX verification on record: %v\nRun hack/verify-ptx.sh (it needs no GPU)", err)
 	}
-	if out, err := exec.Command(ptxas, "-arch=sm_75", "-o", os.DevNull, f).CombinedOutput(); err != nil {
-		t.Fatalf("the shipped PTX does not compile for sm_75, which is the architecture of the card this "+
-			"study rents: %v\n%s", err, out)
+	var att struct {
+		PTXSHA256    string   `json:"ptxSHA256"`
+		PTXASVersion string   `json:"ptxasVersion"`
+		Targets      []string `json:"targets"`
 	}
+	if err := json.Unmarshal(raw, &att); err != nil {
+		t.Fatalf("the PTX verification does not parse: %v", err)
+	}
+	if att.PTXSHA256 != sum {
+		t.Fatalf("the PTX in the tree is not the PTX that was compiled.\n  tree: %s\n  attested: %s\n"+
+			"Run hack/verify-ptx.sh; it needs no GPU, and until it is run nothing establishes that this "+
+			"kernel assembles for any architecture.", sum, att.PTXSHA256)
+	}
+	// The target the study actually rents. A verification for architectures the session will never see is
+	// not a verification of the session.
+	want := "sm_75"
+	if !slices.Contains(att.Targets, want) {
+		t.Fatalf("the PTX was verified for %v and not for %s, which is the T4 this study rents",
+			att.Targets, want)
+	}
+	if strings.TrimSpace(att.PTXASVersion) == "" {
+		t.Fatal("the verification names no ptxas, so nobody can say which assembler accepted this kernel")
+	}
+	t.Logf("PTX %s... compiled for %v by %s", sum[:16], att.Targets, att.PTXASVersion)
 }
