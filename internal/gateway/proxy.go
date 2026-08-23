@@ -54,13 +54,13 @@ var ErrNoModel = errors.New("request body has no model field")
 type RequestMeta struct {
 	// Model is the requested model name, already validated non-empty by readRequestMeta.
 	Model string
-	// EstInputTokens is a conservative, text-only estimate of the prompt's input tokens.
+	// EstInputTokens is a text-only estimate of the prompt's input tokens: the ceiling of the total prompt byte length divided by 4, never an exact count.
 	//
-	// It is the ceiling of the total prompt byte length divided by 4, never an exact count.
+	// It is NOT conservative, which this comment used to claim.
 	//
-	// Byte length is used deliberately: it equals the character count for ASCII and over-counts for multibyte UTF-8, which keeps the estimate conservative (it never reads lower than the true token cost implies).
+	// The calibration is now measured rather than argued -- internal/bench/testdata/tokenizer_calibration.json, against Qwen2.5's tokenizer and chat template -- and the error changes sign with length. The chat template costs a fixed ~25 tokens, which dominates a short prompt: 200 characters estimate at 50 and measure at 68, so the estimate reads 36 percent LOW. Prose runs about 5.2 characters per token, so at 40,000 characters the same formula estimates 10,000 against a measured 7,695 and reads 30 percent high. A request scored at exactly the 4096 threshold measures 3,171 real tokens.
 	//
-	// The gateway never claims to know the true token count; a real tokenizer calibration is a later GPU-free step, not this one.
+	// So the guard rejects a band of standard requests whose true input is below its threshold, and under-counts the shortest prompts. Neither is corrected here: the threshold is pre-registered for the M5-b arms, and moving it after measuring is the post-hoc tuning the control arm exists to rule out. Byte length is still what is measured, since it equals the character count for ASCII and over-counts for multibyte UTF-8 -- that part of the original reasoning holds.
 	EstInputTokens int
 	// NonTextContent is true when at least one message's content was not a plain string.
 	//
