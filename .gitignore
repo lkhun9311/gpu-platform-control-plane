@@ -30,6 +30,7 @@ docs/superpowers/*
 !/hack/argocd-kind.md
 !/hack/kueue-deployment-integration.md
 !/hack/kserve-queue-label-propagation.md
+!/hack/m5b-vllm-sizing.md
 !/hack/queue-drain-under-load.md
 !/hack/alert-firing-verification.md
 !/hack/queuelab-reclaim-first-result.md

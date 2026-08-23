@@ -1,0 +1,237 @@
+/*
+Copyright 2026.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package bench
+
+import (
+	"encoding/json"
+	"os"
+	"strconv"
+	"strings"
+	"testing"
+
+	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
+	"sigs.k8s.io/yaml"
+)
+
+// The manifest's numbers are only as good as the measurements they came from, and prose in a header cannot
+// keep the two in step. These tests read config/vllm/deployment.yaml and the recorded calibration and fail
+// when an edit to either breaks the relationship the other depends on.
+//
+// Each case below corresponds to something that has actually gone wrong -- an engine that refused to start,
+// an engine that started and served the wrong thing, or a Pod that never scheduled at all.
+
+// calibration is the measured tokenizer record; see testdata/tokenizer_calibration.json.
+type calibration struct {
+	PromptCorpusSHA256 string `json:"promptCorpusSHA256"`
+	Tokenizer          string `json:"tokenizer"`
+	Samples            []struct {
+		PromptLenChars int `json:"promptLenChars"`
+		ActualTokens   int `json:"actualTokens"`
+	} `json:"samples"`
+}
+
+func loadCalibration(t *testing.T) calibration {
+	t.Helper()
+	b, err := os.ReadFile("testdata/tokenizer_calibration.json")
+	if err != nil {
+		t.Fatalf("read calibration: %v", err)
+	}
+	var c calibration
+	if err := json.Unmarshal(b, &c); err != nil {
+		t.Fatalf("parse calibration: %v", err)
+	}
+	return c
+}
+
+func loadVLLMDeployment(t *testing.T) appsv1.Deployment {
+	t.Helper()
+	b, err := os.ReadFile("../../config/vllm/deployment.yaml")
+	if err != nil {
+		t.Fatalf("read deployment: %v", err)
+	}
+	var d appsv1.Deployment
+	if err := yaml.Unmarshal(b, &d); err != nil {
+		t.Fatalf("parse deployment: %v", err)
+	}
+	return d
+}
+
+func vllmContainer(t *testing.T, d appsv1.Deployment) corev1.Container {
+	t.Helper()
+	for _, c := range d.Spec.Template.Spec.Containers {
+		if c.Name == "vllm" {
+			return c
+		}
+	}
+	t.Fatal("deployment has no container named vllm")
+	return corev1.Container{}
+}
+
+// argValue returns the value of a --flag=value argument, and whether it was present.
+func argValue(args []string, flag string) (string, bool) {
+	for _, a := range args {
+		if v, ok := strings.CutPrefix(a, flag+"="); ok {
+			return v, true
+		}
+	}
+	return "", false
+}
+
+// The calibration was measured against one tokenizer; the Deployment must serve that model.
+//
+// Every token count this experiment reports -- the contender's 7,695, the false-positive band around the
+// guard's threshold -- is a property of a specific vocabulary and chat template. Serving a different model
+// leaves those numbers in the report describing traffic that was never sent.
+func TestServedModelIsTheOneTheCalibrationWasMeasuredAgainst(t *testing.T) {
+	cal := loadCalibration(t)
+	c := vllmContainer(t, loadVLLMDeployment(t))
+
+	served := ""
+	for _, a := range c.Args {
+		if !strings.HasPrefix(a, "-") {
+			served = a
+			break
+		}
+	}
+	if served != cal.Tokenizer {
+		t.Fatalf("deployment serves %q but the calibration was measured against %q", served, cal.Tokenizer)
+	}
+	if cal.PromptCorpusSHA256 != PromptCorpusSHA256 {
+		t.Fatalf("calibration was measured against corpus %s but this binary sends %s",
+			cal.PromptCorpusSHA256, PromptCorpusSHA256)
+	}
+}
+
+// The context window must hold the largest prompt the trace actually sends, plus its output.
+//
+// vLLM rejects an over-long request with a 400, and the harness records a 400 as an http error rather than
+// as a rejection -- so a context window one token too small would empty the contender population from every
+// arm at once and leave four arms that agree because none of them ran the experiment.
+func TestContextWindowHoldsTheLargestMeasuredPrompt(t *testing.T) {
+	cal := loadCalibration(t)
+	c := vllmContainer(t, loadVLLMDeployment(t))
+
+	raw, ok := argValue(c.Args, "--max-model-len")
+	if !ok {
+		t.Fatal("deployment does not set --max-model-len")
+	}
+	maxLen, err := strconv.Atoi(raw)
+	if err != nil {
+		t.Fatalf("--max-model-len %q is not a number: %v", raw, err)
+	}
+
+	largest := 0
+	for _, s := range cal.Samples {
+		if s.ActualTokens > largest {
+			largest = s.ActualTokens
+		}
+	}
+	if largest == 0 {
+		t.Fatal("calibration records no samples")
+	}
+	// 64 is the largest MaxOutputTokens any tenant in cmd/benchharness asks for.
+	const largestOutput = 64
+	if maxLen < largest+largestOutput {
+		t.Fatalf("--max-model-len=%d cannot hold the largest measured prompt (%d tokens) plus its output (%d)",
+			maxLen, largest, largestOutput)
+	}
+}
+
+// A T4 is sm_75 and vLLM refuses bfloat16 below sm_80, so the dtype is a startup condition, not a preference.
+func TestDtypeIsOneATuringCardCanStart(t *testing.T) {
+	c := vllmContainer(t, loadVLLMDeployment(t))
+
+	v, ok := argValue(c.Args, "--dtype")
+	if !ok {
+		t.Fatal("deployment does not set --dtype; vLLM would infer bfloat16 from the model config and refuse to start on a T4")
+	}
+	if v != "half" && v != "float16" {
+		t.Fatalf("--dtype=%s is not startable on sm_75; vLLM raises \"Bfloat16 is only supported on GPUs with compute capability of at least 8.0\"", v)
+	}
+}
+
+// The engine needs 160 MiB of /dev/shm for one worker and a container's default is 64 MiB.
+//
+// Observed directly: without this mount the engine core dies during startup with "Insufficient space in
+// /dev/shm: 160 MiB required, 64 MiB free". The Pod would restart forever and no arm would ever run.
+func TestSharedMemoryIsMountedLargeEnoughForTheEngine(t *testing.T) {
+	d := loadVLLMDeployment(t)
+	c := vllmContainer(t, d)
+
+	mounted := false
+	for _, m := range c.VolumeMounts {
+		if m.MountPath == "/dev/shm" {
+			mounted = true
+			for _, v := range d.Spec.Template.Spec.Volumes {
+				if v.Name != m.Name {
+					continue
+				}
+				if v.EmptyDir == nil || v.EmptyDir.Medium != corev1.StorageMediumMemory {
+					t.Fatalf("/dev/shm volume %q is not a memory-backed emptyDir", v.Name)
+				}
+				if v.EmptyDir.SizeLimit == nil {
+					t.Fatalf("/dev/shm volume %q sets no sizeLimit", v.Name)
+				}
+				const measuredFloorBytes = 160 << 20
+				if v.EmptyDir.SizeLimit.Value() < measuredFloorBytes {
+					t.Fatalf("/dev/shm sizeLimit %s is below the measured 160Mi the engine requires", v.EmptyDir.SizeLimit)
+				}
+			}
+		}
+	}
+	if !mounted {
+		t.Fatal("no volume is mounted at /dev/shm; the engine dies at startup on the default 64 MiB")
+	}
+}
+
+// One replica is the assertion the KV-aware arm rests on, and nothing downstream can detect its violation.
+func TestExactlyOneEngineBacksTheService(t *testing.T) {
+	d := loadVLLMDeployment(t)
+	if d.Spec.Replicas == nil || *d.Spec.Replicas != 1 {
+		t.Fatalf("replicas must be exactly 1 so the scraped KV pool is the one requests fill, got %v", d.Spec.Replicas)
+	}
+	if d.Spec.Strategy.Type != appsv1.RecreateDeploymentStrategyType {
+		t.Fatalf("strategy %q allows a second Pod during rollout, which is a second KV pool", d.Spec.Strategy.Type)
+	}
+}
+
+// The Pod must tolerate every taint the GPU node group declares, or it never schedules.
+func TestEngineToleratesTheGPUNodeTaint(t *testing.T) {
+	d := loadVLLMDeployment(t)
+	tf, err := os.ReadFile("../../infra/aws/cluster/eks.tf")
+	if err != nil {
+		t.Fatalf("read eks.tf: %v", err)
+	}
+	if !strings.Contains(string(tf), "nvidia.com/gpu") {
+		t.Skip("eks.tf declares no nvidia.com/gpu taint to tolerate")
+	}
+	for _, tol := range d.Spec.Template.Spec.Tolerations {
+		if tol.Key == "nvidia.com/gpu" && tol.Value == "present" && tol.Effect == corev1.TaintEffectNoSchedule {
+			return
+		}
+	}
+	t.Fatal("no toleration matches the nvidia.com/gpu=present:NoSchedule taint eks.tf puts on the GPU node group")
+}
+
+// The image must be pinned by digest, like every other fixture this experiment's numbers are tied to.
+func TestEngineImageIsPinnedByDigest(t *testing.T) {
+	c := vllmContainer(t, loadVLLMDeployment(t))
+	if !strings.Contains(c.Image, "@sha256:") {
+		t.Fatalf("image %q is not digest-pinned; the run would not be reproducible from the manifest", c.Image)
+	}
+}
