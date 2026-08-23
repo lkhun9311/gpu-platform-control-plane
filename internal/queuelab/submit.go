@@ -56,7 +56,8 @@ const WorkloadImage = "python:3.12-slim@sha256:2c941e860699f878900b0edc2403613c2
 // the device path adds nothing to the image at all. The kernel is PTX loaded with cuModuleLoadData and
 // JIT-compiled by the driver, which is the same mechanism Numba and PyTorch's JIT paths use.
 //
-// The PTX is compiled by TestTheEmbeddedPTXCompiles, which shells out to ptxas when one is on PATH. That
+// The PTX is compiled by hack/verify-ptx.sh, which stores an attestation keyed to a hash of the PTX it
+// compiled; TestTheEmbeddedPTXWasCompiled refuses a mismatch. That
 // check runs without a GPU and is the difference between a session that fails on a typo and one that does
 // not. It used to be a claim in this comment with no check anywhere in the repository, which a review found:
 // the one verification the file named as available without hardware was the one it did not have.

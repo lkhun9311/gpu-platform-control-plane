@@ -53,10 +53,15 @@ variable "gpu_node_instance_type" {
   # cards would absorb it at admission in both arms and the 29-second difference would collapse below the
   # floor, with every other figure in the record looking exactly as it does now.
   #
-  # The spare cards are therefore excluded rather than tolerated: config/nvidia-device-plugin restricts what
-  # the plugin exposes, and the run's own qualification refuses a node advertising more devices than the
-  # protocol needs. Anything with two or more well-supported devices works, because the surplus is taken
-  # away rather than trusted to be harmless.
+  # The spare cards are therefore excluded rather than tolerated. The first attempt at that was a
+  # NVIDIA_VISIBLE_DEVICES setting on the device plugin, which two reviews then established almost certainly
+  # does not restrict what the plugin advertises -- see the comment beside it in
+  # config/nvidia-device-plugin/daemonset.yaml. The exclusion the run actually relies on is its own: the
+  # qualification refuses a node advertising more devices than the protocol needs, and the run occupies the
+  # surplus itself so that what it measures is a node with exactly the scarcity the contrast depends on.
+  #
+  # Anything with two or more well-supported devices works, because the surplus is taken away by the harness
+  # rather than trusted to be harmless or trusted to a manifest nobody can check without hardware.
   default = "g4dn.12xlarge"
 }
 

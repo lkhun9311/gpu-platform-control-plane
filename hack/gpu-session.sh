@@ -57,6 +57,69 @@ if [[ -z "$OBSERVER" ]]; then
   exit 1
 fi
 
+# Hold the surplus devices before anything measures on this node.
+#
+# The arm contrast is physical card scarcity, so a node advertising more devices than the protocol needs
+# destroys it silently -- and no rentable instance carries exactly two well-supported cards. The run's
+# qualification refuses a node whose SCHEDULABLE device count is not exactly the requirement, so the surplus
+# has to be held by something the gate recognises.
+#
+# The occupier is deployed for the whole session rather than per run: devices appearing and disappearing
+# around each measurement is the state the study is trying not to be in.
+REQUIRED="${REQUIRED:-2}"
+ALLOCATABLE="$(kubectl get node "$WORKER" -o jsonpath='{.status.allocatable.nvidia\.com/gpu}')"
+: "${ALLOCATABLE:=0}"
+if [[ "$ALLOCATABLE" -gt "$REQUIRED" ]]; then
+  SURPLUS=$((ALLOCATABLE - REQUIRED))
+  # The workload's own pinned image, read from the source rather than restated. An unpinned tag here would
+  # be the drift this repository refuses everywhere else, and a silent fallback to one would be worse than
+  # failing: the occupier would still hold the cards, so nothing downstream would notice.
+  OCCUPIER_IMAGE="$(grep -oE '"python:[^"]+"' internal/queuelab/submit.go | head -1 | tr -d '"')"
+  if [[ -z "$OCCUPIER_IMAGE" ]]; then
+    echo "cannot read the pinned workload image from internal/queuelab/submit.go" >&2
+    exit 1
+  fi
+  echo "surplus      : $WORKER advertises $ALLOCATABLE devices and the protocol needs $REQUIRED;"
+  echo "               holding $SURPLUS so the owner's Pod has to wait for the victim's card"
+  kubectl apply -f - <<EOF >/dev/null
+apiVersion: v1
+kind: Pod
+metadata:
+  name: queuelab-surplus-occupier
+  namespace: $NS
+  labels:
+    queuelab.gpu-platform/surplus-occupier: "holds the cards the protocol must not have"
+spec:
+  restartPolicy: Never
+  nodeName: $WORKER
+  tolerations:
+    - key: nvidia.com/gpu
+      operator: Exists
+      effect: NoSchedule
+  containers:
+    - name: hold
+      image: $OCCUPIER_IMAGE
+      command: ["python3", "-c", "import signal,sys,time; signal.signal(signal.SIGTERM, lambda *_: sys.exit(0)); time.sleep(10**9)"]
+      resources:
+        limits:
+          nvidia.com/gpu: "$SURPLUS"
+EOF
+  echo -n "               waiting for it to hold them"
+  for _ in $(seq 1 60); do
+    [[ "$(kubectl get pod -n "$NS" queuelab-surplus-occupier -o jsonpath='{.status.phase}' 2>/dev/null)" == "Running" ]] && break
+    echo -n "."; sleep 2
+  done
+  echo
+  if [[ "$(kubectl get pod -n "$NS" queuelab-surplus-occupier -o jsonpath='{.status.phase}' 2>/dev/null)" != "Running" ]]; then
+    echo "the surplus occupier did not start; without it the run's qualification will refuse this node," >&2
+    echo "which is the correct outcome and not one to work around by removing the requirement." >&2
+    exit 1
+  fi
+elif [[ "$ALLOCATABLE" -lt "$REQUIRED" ]]; then
+  echo "$WORKER advertises $ALLOCATABLE devices and the protocol needs $REQUIRED" >&2
+  exit 1
+fi
+
 echo "exporter pod : $POD (on $WORKER)"
 echo "observer id  : $OBSERVER"
 

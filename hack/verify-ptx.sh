@@ -52,10 +52,18 @@ else
     pip install -q nvidia-cuda-nvcc-cu12 2>/dev/null
     P=$(find / -name ptxas -type f 2>/dev/null | head -1)
     "$P" --version | tr "\n" " "')"
+  # set -e INSIDE the container, and no `&& echo`. Without both, a failed target is swallowed: the loop's
+  # status is its last iteration's, so sm_50 failing and sm_75 succeeding exits 0 and this script writes an
+  # attestation listing an architecture that did not compile. Verified by execution -- a PTX that fails
+  # sm_50 and passes sm_75 exited 0 through the old form.
   docker run --rm -v "$TMP:/w" -w /w "$IMG" sh -c "
+    set -e
     pip install -q nvidia-cuda-nvcc-cu12 2>/dev/null
     P=\$(find / -name ptxas -type f 2>/dev/null | head -1)
-    for A in $TARGETS; do \"\$P\" -arch=\$A -o /dev/null burn.ptx && echo \"  compiled for \$A\"; done"
+    for A in $TARGETS; do
+      \"\$P\" -arch=\$A -o /dev/null burn.ptx
+      echo \"  compiled for \$A\"
+    done"
 fi
 
 python3 - "$HASH" "$VERSION" "$TARGETS" > "$OUT" <<'PY'

@@ -39,6 +39,20 @@ import (
 // for this, and it does not export the constant.
 const gpuResourceName = corev1.ResourceName("nvidia.com/gpu")
 
+// surplusOccupierLabel marks a Pod deployed to hold devices the protocol must NOT have.
+//
+// The contrast this study measures is physical card scarcity -- the owner's Pod waits because the victim
+// holds the only free device -- so a node carrying more devices than the protocol needs destroys it
+// silently. No rentable instance carries exactly two well-supported cards, and the device plugin has no
+// supported way to advertise a subset: config/nvidia-device-plugin/daemonset.yaml tried and records why
+// that probably does not work. So the surplus is HELD, and this label is how the gate tells a Pod holding
+// devices to keep the node scarce from a foreign tenant holding them to compute.
+//
+// The value is free-form on purpose. What matters is that somebody declared these devices excluded rather
+// than measured, and the value is where a session records why. A Pod holding devices WITHOUT it is a
+// foreign tenant and refuses the run, which is the behaviour that must not change.
+const surplusOccupierLabel = "queuelab.gpu-platform/surplus-occupier"
+
 // gpuConsumer is one Pod already holding devices on the worker, in the spelling the run record persists.
 //
 // The phase and the terminating flag are both carried because they are what tells an operator which cluster
@@ -80,7 +94,14 @@ type qualification struct {
 	// the available amount BECAUSE GPUConsumers below is empty; the two fields are one claim, and a reader who
 	// has one without the other has been told nothing about what this run could actually schedule.
 	AllocatableGPU int64 `json:"allocatableGPU"`
-	RequiredGPU    int64 `json:"requiredGPU"`
+	// OccupiedGPU is how many of those devices were held OUT of the experiment by a surplus occupier.
+	//
+	// It is recorded because a reader comparing two runs has to be able to see that one measured a node with
+	// two devices and the other a node with four, two of them pinned -- those are the same experiment only
+	// if the pinning worked, and this is where the document says whether it did. AllocatableGPU minus this
+	// is what the run could actually schedule, and the gate requires that to equal the requirement exactly.
+	OccupiedGPU int64 `json:"occupiedGPU,omitempty"`
+	RequiredGPU int64 `json:"requiredGPU"`
 	// RequiredFrom names where the requirement came from, because a bare number invites exactly the hard-coded
 	// constant this derivation exists to avoid: a later reader has to be able to tell whether 2 was computed
 	// from this run's own fixtures or typed in by somebody who knew what the cluster happened to have. It
@@ -304,7 +325,7 @@ func holdsDevices(p *corev1.Pod) bool {
 // is acquired and before the run's first Create, so ownership of everything found here is decided by
 // position rather than by a label filter — and a filter keyed on this attempt's transaction id would be a
 // filter that can never match, which is worse than none because it reads as a check.
-func gpuConsumersOn(pods []corev1.Pod, node string) (consumers []gpuConsumer, onNode int) {
+func gpuConsumersOn(pods []corev1.Pod, node string) (consumers []gpuConsumer, onNode int, occupied int64) {
 	for i := range pods {
 		p := &pods[i]
 		if p.Spec.NodeName != node {
@@ -318,6 +339,12 @@ func gpuConsumersOn(pods []corev1.Pod, node string) (consumers []gpuConsumer, on
 		if n == 0 {
 			continue
 		}
+		if p.Labels[surplusOccupierLabel] != "" {
+			// Held to keep the node scarce, not to compute on. Counted so the record can say how many
+			// devices were excluded rather than measured, and kept out of the foreign-tenant list.
+			occupied += n
+			continue
+		}
 		consumers = append(consumers, gpuConsumer{
 			Namespace:   p.Namespace,
 			Name:        p.Name,
@@ -326,7 +353,7 @@ func gpuConsumersOn(pods []corev1.Pod, node string) (consumers []gpuConsumer, on
 			GPUs:        n,
 		})
 	}
-	return consumers, onNode
+	return consumers, onNode, occupied
 }
 
 // nodeReady reports whether the node's Ready condition is True.
@@ -364,11 +391,12 @@ func nodeReady(n *corev1.Node) bool {
 func qualify(n *corev1.Node, pods []corev1.Pod, req gpuRequirement, contract canaryContract) (qualification,
 	error) {
 	allocatable := n.Status.Allocatable[gpuResourceName]
-	consumers, onNode := gpuConsumersOn(pods, n.Name)
+	consumers, onNode, occupied := gpuConsumersOn(pods, n.Name)
 	q := qualification{
 		Node:            n.Name,
 		NodeUID:         string(n.UID),
 		AllocatableGPU:  allocatable.Value(),
+		OccupiedGPU:     occupied,
 		RequiredGPU:     req.Total,
 		RequiredFrom:    req.From,
 		RequiredBoundBy: req.BoundBy,
@@ -417,21 +445,24 @@ func qualify(n *corev1.Node, pods []corev1.Pod, req gpuRequirement, contract can
 	// the run a node advertising what it needs: config/nvidia-device-plugin restricts which devices the
 	// plugin exposes for exactly this reason, since no rentable instance carries only two well-supported
 	// cards.
+	available := q.AllocatableGPU - q.OccupiedGPU
 	switch {
-	case q.AllocatableGPU < req.Total:
+	case available < req.Total:
 		failed = append(failed, fmt.Sprintf(
-			"it advertises %d allocatable %s and this run needs %d, bound by the %s (%s); the arm would "+
-				"complete against a smaller machine and report the contrast it never produced",
-			q.AllocatableGPU, gpuResourceName, req.Total, req.BoundBy, req.From))
-	case q.AllocatableGPU > req.Total:
+			"it advertises %d allocatable %s with %d held by a surplus occupier, leaving %d, and this run "+
+				"needs %d, bound by the %s (%s); the arm would complete against a smaller machine and report "+
+				"the contrast it never produced",
+			q.AllocatableGPU, gpuResourceName, q.OccupiedGPU, available, req.Total, req.BoundBy, req.From))
+	case available > req.Total:
 		failed = append(failed, fmt.Sprintf(
-			"it advertises %d allocatable %s and this run needs exactly %d, bound by the %s (%s). The spare "+
-				"%d would absorb the owner's Pod the moment Kueue admits it, so the owner would never wait "+
-				"for the victim's card and the arm difference this study measures would collapse below the "+
-				"floor -- while every other figure looked normal. Restrict what the device plugin exposes "+
+			"it advertises %d allocatable %s with %d held by a surplus occupier, leaving %d schedulable, and "+
+				"this run needs exactly %d, bound by the %s (%s). The spare %d would absorb the owner's Pod "+
+				"the moment Kueue admits it, so the owner would never wait for the victim's card and the arm "+
+				"difference this study measures would collapse below the floor -- while every other figure "+
+				"looked normal. Hold the surplus with a Pod labelled %s (hack/gpu-session.sh applies one) "+
 				"rather than trusting the instance type",
-			q.AllocatableGPU, gpuResourceName, req.Total, req.BoundBy, req.From,
-			q.AllocatableGPU-req.Total))
+			q.AllocatableGPU, gpuResourceName, q.OccupiedGPU, available, req.Total, req.BoundBy, req.From,
+			available-req.Total, surplusOccupierLabel))
 	}
 	if len(consumers) > 0 {
 		// Every field below came out of the apiserver and this sentence is printed straight to an operator's

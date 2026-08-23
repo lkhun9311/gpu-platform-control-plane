@@ -75,11 +75,25 @@ spec:
             # headline had been destroyed by the instance type. The preregistration's third refutation
             # condition would then read the artifact as the session's most useful discovery.
             #
-            # So the plugin is told which devices exist. The run's qualification refuses a node advertising
-            # more than it needs, which is what makes this a mechanism rather than a note in a runbook: the
-            # two halves fail loudly if they disagree.
+            # THIS PROBABLY DOES NOT WORK, and it is left here with the reason rather than deleted, because
+            # the alternative someone will reach for first is exactly this.
             #
-            # The indices are the protocol's device count. On a two-card node this changes nothing.
+            # It was committed as though it restricted what the plugin ADVERTISES. Two independent reviews
+            # found otherwise and neither has been contradicted. NVIDIA_VISIBLE_DEVICES is read by the
+            # container runtime hook to decide which already-allocated devices to inject; the plugin
+            # enumerates through NVML over whatever its own container can see. This container is
+            # `privileged: true`, which hands it every host device node regardless of the hook, so NVML
+            # should find all four. NVIDIA/k8s-device-plugin#435 is a user setting exactly this on the
+            # plugin and getting all eight GPUs still advertised; it was closed as not planned, and the
+            # plugin's README documents no mechanism for restricting what it advertises.
+            #
+            # Nothing here has ever run against a card, so this is a prediction and not a measurement --
+            # which is precisely the status the line originally claimed for itself and had not earned.
+            #
+            # What the run does about it is NOT this variable. The qualification refuses a node advertising
+            # more devices than the protocol needs, and when it does the run occupies the surplus itself and
+            # records which devices it held to exclude rather than to measure. That path is in the harness,
+            # where it can be tested, rather than in a manifest nobody can check without hardware.
             - name: NVIDIA_VISIBLE_DEVICES
               value: "0,1"
           securityContext:

@@ -634,19 +634,52 @@ func TestANodeWithSpareDevicesIsRefused(t *testing.T) {
 			},
 		}
 	}
+	// A Pod holding devices to keep the node SCARCE, which is what makes a four-card instance measurable.
+	occupier := func(gpus int64) []corev1.Pod {
+		return []corev1.Pod{{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: "gpu-platform-control-plane-system", Name: "surplus-occupier",
+				Labels: map[string]string{surplusOccupierLabel: "holds the cards the protocol must not have"},
+			},
+			Spec: corev1.PodSpec{
+				NodeName: "platform-worker",
+				Containers: []corev1.Container{{
+					Name: "hold",
+					Resources: corev1.ResourceRequirements{Limits: corev1.ResourceList{
+						gpuResourceName: *resource.NewQuantity(gpus, resource.DecimalSI),
+					}},
+				}},
+			},
+			Status: corev1.PodStatus{Phase: corev1.PodRunning},
+		}}
+	}
+	// The same Pod without the label is a foreign tenant, and must stay refused.
+	foreign := func(gpus int64) []corev1.Pod {
+		p := occupier(gpus)
+		p[0].Labels = nil
+		p[0].Name = "somebody-elses-training-job"
+		return p
+	}
 	for _, tc := range []struct {
 		name        string
 		allocatable int64
+		pods        []corev1.Pod
 		wantFail    string
 	}{
-		{"exactly what the protocol needs", 2, ""},
-		{"a smaller machine", 1, "the contrast it never produced"},
+		{"exactly what the protocol needs", 2, nil, ""},
+		{"a smaller machine", 1, nil, "the contrast it never produced"},
 		// The g4dn.12xlarge case: four T4s, two of them spare.
-		{"the instance this study actually rents", 4, "collapse below the floor"},
-		{"one spare device", 3, "collapse below the floor"},
+		{"the instance this study actually rents", 4, nil, "collapse below the floor"},
+		{"one spare device", 3, nil, "collapse below the floor"},
+		// The same instance with the surplus held: measurable, because what the run can schedule is two.
+		{"four cards with the surplus held", 4, occupier(2), ""},
+		{"four cards with too little held", 4, occupier(1), "collapse below the floor"},
+		{"four cards with too much held", 4, occupier(3), "the contrast it never produced"},
+		// An unlabelled holder is somebody else's work and still refuses the run, occupier or not.
+		{"a foreign tenant holding the surplus", 4, foreign(2), "already hold"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := qualify(node(tc.allocatable), nil, testReq(2), mustHarnessContract(t))
+			_, err := qualify(node(tc.allocatable), tc.pods, testReq(2), mustHarnessContract(t))
 			if tc.wantFail == "" {
 				if err != nil && strings.Contains(err.Error(), "allocatable") {
 					t.Fatalf("a node advertising exactly the requirement was refused on device count: %v", err)
