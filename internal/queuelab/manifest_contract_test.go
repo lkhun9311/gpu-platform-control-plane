@@ -1,6 +1,7 @@
 package queuelab
 
 import (
+	"fmt"
 	"os"
 	"regexp"
 	"strconv"
@@ -265,5 +266,83 @@ func TestTheSessionScriptHoldsTheDeviceCountTheHarnessDerives(t *testing.T) {
 		t.Fatalf("the session script holds the surplus down to %d devices and the study's fixtures need %d; "+
 			"the occupier would hold the wrong number of cards and the run would refuse on rented hardware",
 			scripted, sum)
+	}
+}
+
+// Growing the study's repetitions must not break the orderings its comparisons depend on.
+//
+// n=2 per cell was the kind allocation and the weakest thing about the design: a cell's spread is one
+// number and cannot be told from its own noise. Raising it is the cheapest axis this study can buy on
+// rented hardware -- about three minutes a run -- so the session script repeats a block rather than
+// carrying a hand-written list per size.
+//
+// That only works if the block composes. Every comparison the script prints requires ITS OWN factor to
+// alternate in time; a blocked sequence makes the harness print CONFOUNDED and the study cannot use its own
+// records. The subsets matter: the dose comparison reads the grace runs on the FIRST worker only, so a
+// check that pooled both workers' grace runs would report a break that no published comparison has. That
+// mistake was made while writing this, which is why the subsets here are the globs the script prints
+// rather than the factors in the abstract.
+func TestGrowingTheRepetitionsKeepsEveryComparisonInterleaved(t *testing.T) {
+	sh := repoFile(t, "hack/gpu-session.sh")
+	if !strings.Contains(sh, `REPS="${REPS:-`) {
+		t.Fatal("the session script no longer parameterises repetitions; this test is checking a shape " +
+			"that has moved and must be rewritten rather than deleted")
+	}
+	type run struct{ dose, arm, id, node string }
+	block := func(twoWorkers bool, r int) []run {
+		if twoWorkers {
+			return []run{
+				{"self", "h", fmt.Sprintf("sh%d", r), "W1"}, {"grace", "i", fmt.Sprintf("wi%d", r), "W2"},
+				{"grace", "h", fmt.Sprintf("wh%d", r), "W2"}, {"grace", "i", fmt.Sprintf("gi%d", r), "W1"},
+				{"grace", "h", fmt.Sprintf("gh%d", r), "W1"}, {"self", "i", fmt.Sprintf("si%d", r), "W1"},
+			}
+		}
+		return []run{
+			{"self", "h", fmt.Sprintf("sh%d", r), "W1"}, {"grace", "i", fmt.Sprintf("gi%d", r), "W1"},
+			{"grace", "h", fmt.Sprintf("gh%d", r), "W1"}, {"self", "i", fmt.Sprintf("si%d", r), "W1"},
+		}
+	}
+	alternates := func(v []string) bool {
+		for i := 0; i+1 < len(v); i++ {
+			if v[i] == v[i+1] {
+				return false
+			}
+		}
+		return true
+	}
+	for _, twoWorkers := range []bool{false, true} {
+		for _, reps := range []int{2, 3, 4, 6} {
+			var seq []run
+			for r := 1; r <= reps; r++ {
+				seq = append(seq, block(twoWorkers, r)...)
+			}
+			// Keyed by the glob each printed command selects with.
+			subsets := map[string][]string{}
+			for _, r := range seq {
+				onW1Grace := r.dose == "grace" && r.id[0] == 'g'
+				if r.dose == "self" {
+					subsets["arm | self-completing-*"] = append(subsets["arm | self-completing-*"], r.arm)
+				}
+				if onW1Grace {
+					subsets["arm | grace-bounded-*-g??"] = append(subsets["arm | grace-bounded-*-g??"], r.arm)
+				}
+				if r.arm == "h" && (r.dose == "self" || onW1Grace) {
+					subsets["dose | A-honor"] = append(subsets["dose | A-honor"], r.dose)
+				}
+				if r.arm == "i" && (r.dose == "self" || onW1Grace) {
+					subsets["dose | A-ignore"] = append(subsets["dose | A-ignore"], r.dose)
+				}
+				if twoWorkers && r.dose == "grace" {
+					k := "node | grace-A-" + map[string]string{"h": "honor", "i": "ignore"}[r.arm] + "-*"
+					subsets[k] = append(subsets[k], r.node)
+				}
+			}
+			for name, v := range subsets {
+				if !alternates(v) {
+					t.Errorf("workers=%d reps=%d: %s does not alternate: %v",
+						map[bool]int{false: 1, true: 2}[twoWorkers], reps, name, v)
+				}
+			}
+		}
 	}
 }

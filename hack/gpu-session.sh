@@ -25,6 +25,11 @@ cd "$(dirname "$0")/.."
 NS="${NS:-gpu-platform-control-plane-system}"
 REQUIRED="${REQUIRED:-2}"
 START_AT="${START_AT:-1}"
+# Repetitions per cell. Two was the kind study's allocation and it is the weakest thing about the design:
+# with n=2 a cell's spread is one number and cannot be told from its own noise. Four is where a within-cell
+# spread starts to mean something, and on rented hardware it costs about three minutes a run -- the cheapest
+# axis this study can buy.
+REPS="${REPS:-4}"
 
 if [[ $# -lt 1 ]]; then
   cat >&2 <<USAGE
@@ -298,25 +303,28 @@ fi
 # With one worker the node axis is not delivered at all -- `-compare -mode node` refuses a set in which
 # nothing varies -- so the eight-run form is the honest whole of what a one-node session returns.
 mkdir -p ex
+# The block below is ONE repetition of every cell, in the order the comparisons need. Repeating it REPS
+# times keeps every alternation intact, because each block ends on the same arm the next one does not start
+# with -- so arm still alternates across the join, and so do dose and node within each comparison's own
+# subset. Growing n by repeating a correct block is what keeps the ordering property from having to be
+# re-argued every time the allocation changes.
 W1="${WORKERS[0]}"
-if [[ ${#WORKERS[@]} -ge 2 ]]; then
-  W2="${WORKERS[1]}"
-  SEQUENCE=(
-    "self-completing A-honor  sh1 $W1" "grace-bounded   A-ignore wi1 $W2"
-    "grace-bounded   A-honor  wh1 $W2" "grace-bounded   A-ignore gi1 $W1"
-    "grace-bounded   A-honor  gh1 $W1" "self-completing A-ignore si1 $W1"
-    "self-completing A-honor  sh2 $W1" "grace-bounded   A-ignore wi2 $W2"
-    "grace-bounded   A-honor  wh2 $W2" "grace-bounded   A-ignore gi2 $W1"
-    "grace-bounded   A-honor  gh2 $W1" "self-completing A-ignore si2 $W1"
-  )
-else
-  SEQUENCE=(
-    "self-completing A-honor  sh1 $W1" "grace-bounded   A-ignore gi1 $W1"
-    "grace-bounded   A-honor  gh1 $W1" "self-completing A-ignore si1 $W1"
-    "self-completing A-honor  sh2 $W1" "grace-bounded   A-ignore gi2 $W1"
-    "grace-bounded   A-honor  gh2 $W1" "self-completing A-ignore si2 $W1"
-  )
-fi
+SEQUENCE=()
+for ((r = 1; r <= REPS; r++)); do
+  if [[ ${#WORKERS[@]} -ge 2 ]]; then
+    W2="${WORKERS[1]}"
+    SEQUENCE+=(
+      "self-completing A-honor  sh$r $W1" "grace-bounded   A-ignore wi$r $W2"
+      "grace-bounded   A-honor  wh$r $W2" "grace-bounded   A-ignore gi$r $W1"
+      "grace-bounded   A-honor  gh$r $W1" "self-completing A-ignore si$r $W1"
+    )
+  else
+    SEQUENCE+=(
+      "self-completing A-honor  sh$r $W1" "grace-bounded   A-ignore gi$r $W1"
+      "grace-bounded   A-honor  gh$r $W1" "self-completing A-ignore si$r $W1"
+    )
+  fi
+done
 
 # A START_AT past the end skipped every run and then printed "all runs completed" -- a false success in the
 # one wrapper that spends money, whose printed compare commands would then have read a PREVIOUS attempt's
