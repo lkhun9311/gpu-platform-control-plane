@@ -22,6 +22,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -80,6 +81,11 @@ func main() {
 		// Not a recovery mode, but it belongs with them for the same reason they are here: it is not a run, and
 		// it has to work on a node no run can be allowed on — qualifyWorker refuses a worker with no recorded
 		// canary, so a canary that could only be taken by a run could never be taken at all.
+		requireDeviceFlag = flag.Bool("require-device", false,
+			"declare that device evidence is this run's deliverable: refuse the invocation without an "+
+				"observer, and INVALIDATE the run if the observation does not establish that a device did "+
+				"the victim's work. Without it a run whose observer was never wired up completes normally "+
+				"and records device-not-observed, which on rented hardware is a CPU run that cost money")
 		devicePreflightFlag = flag.Bool("device-preflight", false,
 			"read-only about the study, but it applies one Pod: run the workload on -worker WITH a device "+
 				"request and report whether it reached the CUDA driver. It is the check the termination canary "+
@@ -226,6 +232,17 @@ func main() {
 		os.Exit(0)
 	}
 
+	// Refused before anything touches the cluster, for the reason decideOperatorMode gives for its own
+	// checks: an operator who declared the expensive case and forgot the endpoint must be told that, not a
+	// kubeconfig error, and not two minutes of protocol later.
+	if *requireDeviceFlag && (*deviceMetricsFlag == "" || *deviceObserverFlag == "") {
+		err := errors.New("-require-device declares that device evidence is this run's deliverable and no " +
+			"observer is configured; give -device-metrics and -device-observer, which hack/gpu-session.sh " +
+			"prints for the node it verified. Without them the run would complete, write a well-formed " +
+			"record, and say device-not-observed")
+		fmt.Fprintln(os.Stderr, "ERROR:", err)
+		refuseInvocation(err)
+	}
 	if err := requireRunID(*runID); err != nil {
 		fmt.Fprintln(os.Stderr, "ERROR:", err)
 		refuseInvocation(err)
@@ -269,16 +286,57 @@ func main() {
 		*worker, protocol, horizon, *deviceMetricsFlag, *deviceObserverFlag, recordPath, os.Stderr,
 		time.Now, time.Sleep)
 
+	// The measurement is computed once, here, because -require-device has to judge it before the record is
+	// built and this is the first point at which every value is final: run()'s deferred teardown and its
+	// device-observer goroutine both amend their outputs after the function body returns.
+	m := measurementOf(res, horizon.Nanoseconds(), events, deviceObs)
+	o = requireDeviceEvidence(o, m, *requireDeviceFlag, os.Stderr)
+
 	os.Exit(reportRun(os.Stdout, os.Stderr, writeRecord, verifyRecordReadable, runReport{
 		Outcome: o,
 		Events:  events,
 		Result:  res,
 		Record: buildRecord(o, events, left, qual, win, obs, deviceObs,
 			recordIdentity{RunID: *runID, Arm: string(arm), Dose: string(protocol.Regime)},
-			measurementOf(res, horizon.Nanoseconds(), events, deviceObs), *preview, started, time.Now()),
+			m, *preview, started, time.Now()),
 		Path:    recordPath,
 		Preview: *preview,
 	}))
+}
+
+// requireDeviceEvidence turns a run that produced no device evidence into a failed one, when the operator
+// declared that evidence was the point.
+//
+// Device observation is an OPTIONAL axis everywhere else, deliberately: a run with no exporter is still a
+// valid control-plane measurement, and refusing it would make every kind run impossible. On rented hardware
+// that default inverts. A run whose observer was never wired up, or whose exporter died three scrapes into
+// the protocol, completes normally, writes a well-formed record, and says device-not-observed -- which this
+// lab's own pages call "a CPU run that cost money". The harness was very good at preserving the wrong
+// deliverable.
+//
+// So the requirement is declared rather than inferred. Nothing the run can see distinguishes a real card
+// from the fake plugin's advertisement -- both report allocatable devices -- so the harness cannot decide
+// for itself that this is the expensive case. The operator says so, and then the harness holds them to it.
+//
+// It amends the outcome rather than refusing to write a record: the record is how anyone finds out what
+// went wrong, and a run that spent its window has evidence about the cluster even when it has none about a
+// device.
+func requireDeviceEvidence(o outcome, m *measurement, required bool, stderr io.Writer) outcome {
+	if !required || m == nil || m.Workload.DeviceUseEstablished {
+		return o
+	}
+	// A run that already failed keeps its own reason. The first failure is the one an operator acts on, and
+	// overwriting it with this one would hide a desync behind a missing observer.
+	if o.Disposition != dispChecksPassed {
+		return o
+	}
+	why := m.Workload.WhyNot
+	if why == "" {
+		why = "the record establishes no device use and gives no reason, which is itself a defect"
+	}
+	_, _ = fmt.Fprintf(stderr, "\nRUN INVALIDATED: -require-device was given and this run establishes no "+
+		"device work: %s\n", why)
+	return phaseFailure(dispDeviceNotEstablished, "device evidence was required", errors.New(why))
 }
 
 // runReport is everything the publish-or-not decision needs, in named fields.

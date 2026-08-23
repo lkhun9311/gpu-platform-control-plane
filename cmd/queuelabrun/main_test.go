@@ -2761,3 +2761,41 @@ func TestRunTellsItsWriterTheWorkerWentBackWhenItDid(t *testing.T) {
 		}
 	}
 }
+
+// A run bought for device evidence that returns none is a failed run.
+//
+// Device observation is an optional axis everywhere else, and that default is right: a run with no exporter
+// is still a valid control-plane measurement, and requiring one would make every kind run impossible. On
+// rented hardware the default inverts. A run whose observer was never wired up, or whose exporter died three
+// scrapes in, completes normally and writes a well-formed record saying device-not-observed -- which these
+// pages call "a CPU run that cost money". The harness was very good at preserving the wrong deliverable.
+//
+// Mutations that turn this red: ignore the flag; overwrite an earlier failure with this one; invalidate a
+// run that DID establish device work.
+func TestARunBoughtForDeviceEvidenceFailsWithoutIt(t *testing.T) {
+	established := &measurement{Workload: workloadProvenance{DeviceUseEstablished: true}}
+	absent := &measurement{Workload: workloadProvenance{WhyNot: "no device observer ran"}}
+	passed := outcome{Disposition: dispChecksPassed}
+
+	if got := requireDeviceEvidence(passed, absent, false, io.Discard); got.Disposition != dispChecksPassed {
+		t.Fatalf("a run that did not declare device evidence as its deliverable was failed anyway: %v", got)
+	}
+	got := requireDeviceEvidence(passed, absent, true, io.Discard)
+	if got.Disposition != dispDeviceNotEstablished {
+		t.Fatalf("a run bought for device evidence returned none and still passed: %v", got)
+	}
+	if !strings.Contains(got.Reason, "no device observer ran") {
+		t.Fatalf("the failure does not carry the gate's own reason, so an operator cannot tell a missing "+
+			"exporter from a card that was idle: %q", got.Reason)
+	}
+	if got := requireDeviceEvidence(passed, established, true, io.Discard); got.Disposition != dispChecksPassed {
+		t.Fatalf("a run that established device work was failed by the requirement it satisfied: %v", got)
+	}
+
+	// An earlier failure keeps its own reason. The first failure is what an operator acts on, and a desync
+	// hidden behind "no device evidence" sends them to the exporter for a broken watch stream.
+	desynced := outcome{Disposition: dispCollectorDesync, Reason: "the Pod stream ended on its own"}
+	if got := requireDeviceEvidence(desynced, absent, true, io.Discard); got.Disposition != dispCollectorDesync {
+		t.Fatalf("a run that had already failed had its reason replaced: %v", got)
+	}
+}

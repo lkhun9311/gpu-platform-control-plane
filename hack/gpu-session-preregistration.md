@@ -272,6 +272,15 @@ happened is not a transcript however accurately it is worded.
 Run this before the protocol, and read its exit status. It takes one Pod and about a minute, and it answers
 the one question that decides whether the session produces a number or a receipt.
 
+**Then give every run `-require-device`.** Device observation is an optional axis everywhere else, and on a
+cluster with no cards that is right — a run with no exporter is still a valid control-plane measurement. On
+rented hardware the default inverts: a run whose port-forward died, or which was launched without the
+observer flags at all, completes normally and writes a well-formed record saying `device-not-observed`. That
+is the outcome this session exists to avoid, reached by omission rather than by failure, and the harness was
+better at preserving it than at preventing it. With the flag the run refuses before touching the cluster if
+no observer is configured, and invalidates itself with `device-not-established` if the observation
+establishes nothing. The script prints the full command.
+
 With `-device-metrics` it answers the other half too: whether anything OUTSIDE the workload can see that work.
 The route to the exporter is the part of a session that used to exist only as prose, so it is a script now:
 

@@ -105,8 +105,16 @@ if [[ $STATUS -eq 0 ]]; then
   echo
   echo "the route is torn down with this script. For the runs, hold it open in another shell:"
   echo "  kubectl port-forward -n $NS pod/$POD ${LOCAL_PORT}:9400"
-  echo "and pass to each run:"
-  echo "  -device-metrics $URL -device-observer $OBSERVER"
+  echo "and give every run BOTH the observer and -require-device:"
+  echo "  -require-device -device-metrics $URL -device-observer $OBSERVER"
+  echo
+  # -require-device is the half of this that cannot be forgotten silently. Without it a run whose forward
+  # died, or which was launched without these flags at all, completes normally and writes a well-formed
+  # record saying device-not-observed -- the outcome this whole session exists to avoid, reached by omission
+  # rather than by failure. With it the run refuses before touching the cluster if the observer is missing,
+  # and invalidates itself if the observation establishes nothing.
+  echo "  (-require-device refuses up front without an observer, and invalidates a run that returns no"
+  echo "   device evidence; without it such a run completes and quietly records device-not-observed)"
   echo
   # The ordering is not a convenience. This preflight has just pulled the workload image onto the node, so
   # every run after it starts warm; a run taken before it would pull inside its own observation window,
