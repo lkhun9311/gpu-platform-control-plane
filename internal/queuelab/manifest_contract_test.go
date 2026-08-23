@@ -289,17 +289,58 @@ func TestGrowingTheRepetitionsKeepsEveryComparisonInterleaved(t *testing.T) {
 			"that has moved and must be rewritten rather than deleted")
 	}
 	type run struct{ dose, arm, id, node string }
-	block := func(twoWorkers bool, r int) []run {
+	// PARSED from the script, not transcribed into Go. A hand-copied block is a fixture written to fit the
+	// code: edit the shell and this test keeps checking the copy. That is the failure this repository has
+	// made repeatedly, and it was made here first -- the block below was a Go transcription until a mutation
+	// of the copy proved the copy was all that was being checked.
+	blockFor := func(twoWorkers bool) []run {
+		body := sh[strings.Index(sh, "SEQUENCE=()"):]
+		branch := body[strings.Index(body, "if [[ ${#WORKERS[@]} -ge 2 ]]; then"):]
 		if twoWorkers {
-			return []run{
-				{"self", "h", fmt.Sprintf("sh%d", r), "W1"}, {"grace", "i", fmt.Sprintf("wi%d", r), "W2"},
-				{"grace", "h", fmt.Sprintf("wh%d", r), "W2"}, {"grace", "i", fmt.Sprintf("gi%d", r), "W1"},
-				{"grace", "h", fmt.Sprintf("gh%d", r), "W1"}, {"self", "i", fmt.Sprintf("si%d", r), "W1"},
-			}
+			branch = branch[:strings.Index(branch, "\n  else")]
+		} else {
+			branch = branch[strings.Index(branch, "\n  else"):]
+			branch = branch[:strings.Index(branch, "\n  fi")]
 		}
-		return []run{
-			{"self", "h", fmt.Sprintf("sh%d", r), "W1"}, {"grace", "i", fmt.Sprintf("gi%d", r), "W1"},
-			{"grace", "h", fmt.Sprintf("gh%d", r), "W1"}, {"self", "i", fmt.Sprintf("si%d", r), "W1"},
+		var out []run
+		for _, m := range regexp.MustCompile(`"(\S+)\s+(A-\S+)\s+(\S+)\s+\$(W\d)"`).
+			FindAllStringSubmatch(branch, -1) {
+			dose := "self"
+			if strings.HasPrefix(m[1], "grace") {
+				dose = "grace"
+			}
+			arm := "h"
+			if strings.HasSuffix(m[2], "ignore") {
+				arm = "i"
+			}
+			out = append(out, run{dose, arm, m[3], m[4]})
+		}
+		return out
+	}
+	for _, tw := range []bool{false, true} {
+		want := 4
+		if tw {
+			want = 6
+		}
+		if got := len(blockFor(tw)); got != want {
+			t.Fatalf("parsed %d runs from the %d-worker block, want %d; the script's shape has moved and "+
+				"this test is reading the wrong region", got, map[bool]int{false: 1, true: 2}[tw], want)
+		}
+	}
+	// Every (dose, arm) cell must appear EXACTLY ONCE per block. That is what makes repetition safe: with
+	// one of each, every comparison's subset alternates however the block is ordered, and with two of any
+	// the alternation breaks at the duplicate no matter how the rest is arranged.
+	for _, tw := range []bool{false, true} {
+		seen := map[string]int{}
+		for _, r := range blockFor(tw) {
+			seen[r.dose+"/"+r.arm+"/"+r.node]++
+		}
+		for cell, n := range seen {
+			if n != 1 {
+				t.Fatalf("the %d-worker block runs cell %s %d times; repeating a block with a duplicated "+
+					"cell breaks the alternation its comparison depends on",
+					map[bool]int{false: 1, true: 2}[tw], cell, n)
+			}
 		}
 	}
 	alternates := func(v []string) bool {
@@ -314,7 +355,10 @@ func TestGrowingTheRepetitionsKeepsEveryComparisonInterleaved(t *testing.T) {
 		for _, reps := range []int{2, 3, 4, 6} {
 			var seq []run
 			for r := 1; r <= reps; r++ {
-				seq = append(seq, block(twoWorkers, r)...)
+				for _, b := range blockFor(twoWorkers) {
+					b.id = fmt.Sprintf("%s%d", strings.TrimSuffix(b.id, "$r"), r)
+					seq = append(seq, b)
+				}
 			}
 			// Keyed by the glob each printed command selects with.
 			subsets := map[string][]string{}
