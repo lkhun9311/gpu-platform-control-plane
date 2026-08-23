@@ -263,10 +263,17 @@ assert.
    convergence this condition calls the session's most useful discovery, out of the instance type. The
    cheapest rentable instance with more than one well-supported card carries four.
 
-   So the convergence is evidence about driver cleanup only if the node advertised exactly what the
-   protocol needs. The run's qualification now refuses anything else and the device plugin is configured to
-   expose only that many, which is what makes this a mechanism rather than a caution: a session that got it
-   wrong produces no records at all.
+   So the convergence is evidence about driver cleanup only if what the node could SCHEDULE was exactly
+   what the protocol needs. The qualification refuses anything else, and the surplus is held by an occupier
+   Pod it recognises — `hack/gpu-session.sh` applies one per worker and the gate counts its devices out.
+   That is what makes this a mechanism rather than a caution: a session that got it wrong produces no
+   records at all.
+
+   This condition previously said the device plugin was "configured to expose only that many", which was
+   the first attempt and does not work: `NVIDIA_VISIBLE_DEVICES` is read by the container runtime hook and
+   the plugin enumerates through NVML over whatever its privileged container can see. The manifest carries
+   the evidence against itself. The retraction had reached the manifest and not this page, which is the
+   document that governs the reading.
 
 Any of the three is a better outcome than a confirmation, because all three change what the platform should
 do and a confirmation changes nothing.

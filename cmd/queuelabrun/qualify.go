@@ -444,12 +444,16 @@ func qualify(n *corev1.Node, pods []corev1.Pod, req gpuRequirement, contract can
 	// "if driver cleanup dominates and both arms converge, the termination contract stops mattering." The
 	// harness would have manufactured its own most interesting result out of the instance type.
 	//
-	// It is a refusal rather than an accommodation because the alternative -- occupying the spares from
-	// inside the run -- adds Pods to the very node whose exclusivity is a gate, and a device this run holds
-	// to keep somebody else off it is indistinguishable in the record from one it holds to measure. Present
-	// the run a node advertising what it needs: config/nvidia-device-plugin restricts which devices the
-	// plugin exposes for exactly this reason, since no rentable instance carries only two well-supported
-	// cards.
+	// What makes a four-card instance measurable is not this gate but the surplus OCCUPIER it recognises: a
+	// Pod labelled surplusOccupierLabel holds the devices the protocol must not have, hack/gpu-session.sh
+	// applies one per worker, and the count above is what the run can actually schedule rather than what the
+	// node advertises.
+	//
+	// This comment used to send a reader to config/nvidia-device-plugin, on the grounds that it "restricts
+	// which devices the plugin exposes". Two reviews established that it almost certainly does not -- the
+	// manifest now carries the evidence against itself -- and the retraction reached the refusal string and
+	// not this paragraph beside it. That is the third time a retraction has been written where the claim was
+	// noticed rather than everywhere it appears.
 	available := q.AllocatableGPU - q.OccupiedGPU
 	switch {
 	case available < req.Total:

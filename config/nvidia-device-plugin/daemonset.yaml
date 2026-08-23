@@ -90,10 +90,12 @@ spec:
             # Nothing here has ever run against a card, so this is a prediction and not a measurement --
             # which is precisely the status the line originally claimed for itself and had not earned.
             #
-            # What the run does about it is NOT this variable. The qualification refuses a node advertising
-            # more devices than the protocol needs, and when it does the run occupies the surplus itself and
-            # records which devices it held to exclude rather than to measure. That path is in the harness,
-            # where it can be tested, rather than in a manifest nobody can check without hardware.
+            # What the session does about it is NOT this variable. hack/gpu-session.sh applies a Pod
+            # labelled queuelab.gpu-platform/surplus-occupier on each worker, holding the devices the
+            # protocol must not have; the run's qualification counts those out and requires what remains to
+            # equal the requirement exactly. The run RECOGNISES the occupier rather than creating one -- an
+            # earlier version of this comment said the run occupies the surplus itself, which is false and
+            # would have sent someone looking for code that is not there.
             - name: NVIDIA_VISIBLE_DEVICES
               value: "0,1"
           securityContext:
