@@ -65,6 +65,12 @@ type RunManifest struct {
 	TraceChecksum string `json:"traceChecksum"`
 	// Model is the model name every replayed request targets.
 	Model string `json:"model"`
+	// PromptCorpusSHA identifies the prompt text the run's binary sends, which traceChecksum cannot cover:
+	// the trace records prompt LENGTHS and the text is synthesised at send time. LoadManifest refuses a
+	// manifest whose corpus is not the one compiled into this binary, so a run frozen against different
+	// prompt bytes cannot be replayed or reported as if it were the same traffic.
+	PromptCorpusSHA string `json:"promptCorpusSHA"`
+
 	// TokenizerRev records the tokenizer/chat-template revision the estimator was calibrated
 	// against.
 	//
@@ -172,6 +178,7 @@ func (m *RunManifest) validateFields() error {
 		{"tracePath", m.TracePath},
 		{"traceChecksum", m.TraceChecksum},
 		{"model", m.Model},
+		{"promptCorpusSHA", m.PromptCorpusSHA},
 		{"primaryEndpoint", m.PrimaryEndpoint},
 		{"matchTolerance", m.MatchTolerance},
 	}
@@ -179,6 +186,11 @@ func (m *RunManifest) validateFields() error {
 		if f.value == "" {
 			return fmt.Errorf("missing required field %q", f.name)
 		}
+	}
+
+	if m.PromptCorpusSHA != PromptCorpusSHA256 {
+		return fmt.Errorf("promptCorpusSHA mismatch: manifest declares %s but this binary sends corpus %s",
+			m.PromptCorpusSHA, PromptCorpusSHA256)
 	}
 
 	if !allowedArms[m.Arm] {

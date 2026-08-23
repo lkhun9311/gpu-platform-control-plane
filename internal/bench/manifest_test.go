@@ -38,7 +38,8 @@ func writeTestManifest(dir string, mutate func(m *RunManifest)) string {
 	sum := Checksum(traceContent)
 
 	m := RunManifest{
-		SchemaVersion:   "v1",
+		SchemaVersion:   "v2",
+		PromptCorpusSHA: PromptCorpusSHA256,
 		Arm:             "R1",
 		GatewayURL:      "http://gateway.example:8080",
 		TracePath:       "trace.jsonl",
@@ -81,6 +82,22 @@ var _ = Describe("LoadManifest", func() {
 		_, err := LoadManifest(path)
 		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).To(ContainSubstring("checksum"))
+	})
+
+	It("refuses a manifest frozen against prompt bytes this binary does not send", func() {
+		// traceChecksum cannot catch this. The trace records prompt LENGTHS and the text is synthesised at
+		// send time, so a binary built from a different corpus replays the same checksummed trace as
+		// different bytes on the wire -- and a report comparing that arm against another would attribute
+		// the difference to the policy under test. Here the trace file is untouched and its checksum still
+		// matches; only the corpus differs, and that alone must be enough to refuse the load.
+		dir := GinkgoT().TempDir()
+		path := writeTestManifest(dir, func(m *RunManifest) {
+			m.PromptCorpusSHA = "1111111111111111111111111111111111111111111111111111111111111111"
+		})
+
+		_, err := LoadManifest(path)
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("promptCorpusSHA mismatch"))
 	})
 
 	It("errors when the trace file the manifest points at does not exist", func() {

@@ -257,7 +257,7 @@ func (h *HTTPSender) Send(ctx context.Context, row TraceRow, sendUnixNanos int64
 
 	body := chatRequest{
 		Model:     h.model,
-		Messages:  []chatReqMsg{{Role: "user", Content: strings.Repeat("x", row.PromptLenChars)}},
+		Messages:  []chatReqMsg{{Role: "user", Content: PromptText(row.PromptLenChars)}},
 		MaxTokens: row.MaxOutputTokens,
 		Stream:    true,
 	}

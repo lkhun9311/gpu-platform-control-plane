@@ -124,7 +124,8 @@ func genTrace(args []string) error {
 	}
 
 	m := bench.RunManifest{
-		SchemaVersion:   "v1",
+		SchemaVersion:   "v2",
+		PromptCorpusSHA: bench.PromptCorpusSHA256,
 		Arm:             *arm,
 		GatewayURL:      *gatewayURL,
 		TracePath:       *traceOut,

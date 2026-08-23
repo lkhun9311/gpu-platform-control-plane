@@ -18,6 +18,7 @@ package bench
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
@@ -93,6 +94,34 @@ var _ = Describe("HTTPSender", func() {
 		// Six token frames for max_tokens: 6. The role frame is not one of them, and neither is [DONE].
 		Expect(res.OutputTokens).To(Equal(6))
 		Expect(time.Unix(0, res.FirstTokenUnixNanos)).To(BeTemporally(">=", start.Add(prefillPause)))
+	})
+
+	It("puts the corpus text on the wire, which is the only place the payload can be checked", func() {
+		// PromptText being correct proves nothing on its own: the sender could still build its own payload,
+		// and for the whole life of this harness it did -- strings.Repeat("x", n), which a byte-pair
+		// tokenizer collapses by a factor that depends on the served model's vocabulary. Reverting the
+		// sender to that passed every other test in this package, including all of PromptText's own, so
+		// this reads the body the server actually received.
+		var gotContent string
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			var req struct {
+				Messages []struct {
+					Content string `json:"content"`
+				} `json:"messages"`
+			}
+			Expect(json.NewDecoder(r.Body).Decode(&req)).To(Succeed())
+			Expect(req.Messages).To(HaveLen(1))
+			gotContent = req.Messages[0].Content
+			w.Header().Set("Content-Type", "text/event-stream")
+			_, _ = fmt.Fprint(w, "data: [DONE]\n\n")
+		}))
+		defer srv.Close()
+
+		const promptChars = 40000
+		sender := NewHTTPSender(srv.URL, "m", nil, 5*time.Second, SenderConn{MaxIdleConnsPerHost: 8, DrainForReuse: true})
+		sender.Send(context.Background(), TraceRow{Tenant: "standard-noisy", PromptLenChars: promptChars, MaxOutputTokens: 16}, time.Now().UnixNano())
+
+		Expect(gotContent).To(Equal(PromptText(promptChars)))
 	})
 
 	It("records a 429 as a rejection, not a completed request", func() {
