@@ -117,6 +117,14 @@ func TestTheExporterManifestEmitsWhatTheParserReads(t *testing.T) {
 			"carry a pod label and every device claim will fail attribution for a reason that is not about " +
 			"the card")
 	}
+	// The exporter's device-to-Pod mapping is per node and it has to know which node it is on. NVIDIA's own
+	// reference DaemonSet sets NODE_NAME from the downward API; this manifest omitted it, and a review
+	// predicted empty Pod attribution on a real cluster -- indistinguishable downstream from a card nobody
+	// used, which is the failure the mapping flag above exists to prevent.
+	if !regexp.MustCompile(`name:\s*NODE_NAME\s*\n\s*valueFrom:\s*\n\s*fieldRef:\s*\n\s*fieldPath:\s*spec\.nodeName`).MatchString(ds) {
+		t.Fatal("the exporter does not learn its own node name from the downward API, so its per-node " +
+			"device-to-Pod mapping has nothing to key on and its samples may carry no pod label at all")
+	}
 	m := regexp.MustCompile(`-\s*"-c"\s*\n\s*-\s*"(\d+)"`).FindStringSubmatch(ds)
 	if m == nil {
 		t.Fatal("the exporter names no collection interval, so it takes the 30 s default while serving a " +
@@ -207,5 +215,55 @@ func TestTheGPUNodeGroupCanRunTheAxesThePreregistrationPromises(t *testing.T) {
 	if !regexp.MustCompile(`desired_size\s*=\s*0`).MatchString(gpu) {
 		t.Fatal("the GPU node group does not default to zero nodes, so it bills whether or not anybody is " +
 			"running an experiment")
+	}
+}
+
+// The session script's device count must be the one the harness derives.
+//
+// hack/gpu-session.sh sizes the surplus occupier from a REQUIRED constant. The harness derives the same
+// number from the run's own fixtures and trace, and qualify.go's own comment names a hard-coded copy of it
+// as "the constant this derivation exists to avoid". Two truths, and nothing kept them in step: a drifted
+// script would hold the wrong number of cards and the run would refuse -- after the canary and the preflight
+// had spent their minutes on a rented node.
+//
+// Mutation that turns this red: change REQUIRED in the script without changing the fixtures.
+func TestTheSessionScriptHoldsTheDeviceCountTheHarnessDerives(t *testing.T) {
+	sh := repoFile(t, "hack/gpu-session.sh")
+	m := regexp.MustCompile(`REQUIRED="\$\{REQUIRED:-(\d+)\}"`).FindStringSubmatch(sh)
+	if m == nil {
+		t.Fatal("the session script names no REQUIRED default; this test is checking a shape that has moved")
+	}
+	scripted, cerr := strconv.Atoi(m[1])
+	if cerr != nil {
+		t.Fatalf("REQUIRED %q is not a number: %v", m[1], cerr)
+	}
+	// The same two bounds qualify() uses: the nominal quota summed over the study's ClusterQueues, and the
+	// largest single row. Derived here from the fixtures rather than restated.
+	fs, err := BuildFixtures(StudyReclaim, "Never", FixtureIdentity{TxID: "tx-1", RunID: "r1", Namespace: "ns"})
+	if err != nil {
+		t.Fatalf("build the study's fixtures: %v", err)
+	}
+	var sum int64
+	for _, cq := range fs.ClusterQueue {
+		if cq == nil {
+			continue
+		}
+		for _, rg := range cq.Spec.ResourceGroups {
+			for _, fq := range rg.Flavors {
+				for _, r := range fq.Resources {
+					if r.Name == "nvidia.com/gpu" {
+						sum += r.NominalQuota.Value()
+					}
+				}
+			}
+		}
+	}
+	if sum == 0 {
+		t.Fatal("no nvidia.com/gpu quota found in the study's fixtures; this test would pass vacuously")
+	}
+	if int64(scripted) != sum {
+		t.Fatalf("the session script holds the surplus down to %d devices and the study's fixtures need %d; "+
+			"the occupier would hold the wrong number of cards and the run would refuse on rented hardware",
+			scripted, sum)
 	}
 }

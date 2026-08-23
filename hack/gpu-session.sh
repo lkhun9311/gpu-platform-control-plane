@@ -42,9 +42,23 @@ USAGE
   exit 2
 fi
 WORKERS=("$@")
+# Two workers at most, and they must differ. The sequence chooses its twelve-run form from the ARGUMENT
+# COUNT, so `gpu-session.sh nodeA nodeA` used to prepare one machine twice, open two routes to the same
+# exporter, run all twelve there, and still print the node-comparison command -- twelve paid runs after an
+# input that could never deliver the axis they were bought for. A third worker was prepared and billed and
+# then never appeared in the sequence at all.
+if [[ ${#WORKERS[@]} -gt 2 ]]; then
+  echo "at most two workers: the study's sequence uses two, and a third would be prepared and billed" >&2
+  echo "  without contributing a record" >&2
+  exit 2
+fi
+if [[ ${#WORKERS[@]} -eq 2 && "${WORKERS[0]}" == "${WORKERS[1]}" ]]; then
+  echo "the two workers are the same node (${WORKERS[0]}); the node axis needs the node to vary" >&2
+  exit 2
+fi
 
 # Per worker, filled in by prepare().
-declare -A URL_OF OBSERVER_OF POD_OF
+declare -A URL_OF OBSERVER_OF POD_OF PORT_OF OCCUPIER_OF
 FORWARDS=()
 OCCUPIERS=()
 
@@ -104,7 +118,9 @@ occupySurplus() {
   # The workload's own pinned image, read from the source rather than restated. An unpinned tag here would be
   # the drift this repository refuses everywhere else, and a silent fallback to one would be worse than
   # failing: the occupier would still hold the cards and nothing downstream would notice.
-  image="$(grep -oE '"python:[^"]+"' internal/queuelab/submit.go | head -1 | tr -d '"')"
+  # `|| true` because under `set -euo pipefail` a non-matching grep kills the script at the assignment,
+  # BEFORE the guard below -- so the diagnostic could never run. Verified: the old form exited 1 silently.
+  image="$(grep -oE '"python:[^"]+"' internal/queuelab/submit.go | head -1 | tr -d '"' || true)"
   if [[ -z "$image" ]]; then
     echo "cannot read the pinned workload image from internal/queuelab/submit.go" >&2
     return 1
@@ -131,15 +147,29 @@ spec:
     - key: nvidia.com/gpu
       operator: Exists
       effect: NoSchedule
+  # system-node-critical, and cpu/memory REQUESTS rather than a device limit alone. Without them this Pod is
+  # BestEffort with restartPolicy Never and no priority: the first thing evicted under node pressure. If it
+  # goes, the surplus cards free up mid-run, Kueue's admitted owner binds immediately instead of waiting for
+  # the victim's card, and the arm contrast collapses -- producing exactly the plausible, internally
+  # consistent record the qualification's own comment names as the undetectable failure, through the
+  # mechanism added to prevent it. It is the one path in this script that yields a wrong number rather than
+  # a refusal.
+  priorityClassName: system-node-critical
   containers:
     - name: hold
       image: $image
       command: ["python3","-c","import signal,sys,time; signal.signal(signal.SIGTERM, lambda *_: sys.exit(0)); time.sleep(10**9)"]
       resources:
+        requests:
+          cpu: 10m
+          memory: 32Mi
         limits:
+          cpu: 100m
+          memory: 64Mi
           nvidia.com/gpu: "$surplus"
 EOF
   OCCUPIERS+=("$name")
+  OCCUPIER_OF["$worker"]="$name"
   for _ in $(seq 1 60); do
     phase="$(kubectl get pod -n "$NS" "$name" -o jsonpath='{.status.phase}' 2>/dev/null || true)"
     [[ "$phase" == "Running" ]] && return 0
@@ -195,12 +225,15 @@ openRoute() {
     echo "  config/dcgm-exporter/daemonset.yaml against the series internal/queuelab/dcgm.go reads." >&2
     return 1
   fi
-  if ! grep -q 'pod="' "$body"; then
+  # On the SAME sample and non-empty. Two independent greps passed on a body whose utilisation rows carried
+  # `pod=""` and whose pod label lived on an unrelated metric.
+  if ! grep -qE '^DCGM_FI_DEV_GPU_UTIL\{[^}]*pod="[^"]+"' "$body"; then
     echo "the exporter at $url emits no pod labels, so nothing it reports can be attributed." >&2
     echo "  DCGM_EXPORTER_KUBERNETES must be true and the kubelet pod-resources socket must be mounted." >&2
     return 1
   fi
   POD_OF["$worker"]="$pod"
+  PORT_OF["$worker"]="$port"
   URL_OF["$worker"]="$url"
   OBSERVER_OF["$worker"]="$observer"
 }
@@ -224,6 +257,12 @@ prepare() {
     -device-metrics "${URL_OF[$worker]}" -device-observer "${OBSERVER_OF[$worker]}" \
     | sed 's/^/    /'
 }
+
+# The script's first act is to call ./queuelabrun, and a fresh checkout has no such file: the binary is
+# gitignored and no Makefile target builds it. The entry point could not run from the state it is committed
+# in, which is a poor property for the thing that spends the money.
+echo "building the runner"
+go build -o queuelabrun ./cmd/queuelabrun
 
 PORT=$BASE_PORT
 for W in "${WORKERS[@]}"; do
@@ -268,6 +307,14 @@ else
   )
 fi
 
+# A START_AT past the end skipped every run and then printed "all runs completed" -- a false success in the
+# one wrapper that spends money, whose printed compare commands would then have read a PREVIOUS attempt's
+# records. Range-checked here rather than tolerated.
+if ! [[ "$START_AT" =~ ^[0-9]+$ ]] || (( START_AT < 1 || START_AT > ${#SEQUENCE[@]} )); then
+  echo "START_AT must be between 1 and ${#SEQUENCE[@]} for this ${#WORKERS[@]}-worker session; got ${START_AT@Q}" >&2
+  exit 2
+fi
+
 echo "running ${#SEQUENCE[@]} runs, starting at $START_AT"
 echo
 N=0
@@ -278,6 +325,26 @@ for SPEC in "${SEQUENCE[@]}"; do
   N=$((N + 1))
   (( N < START_AT )) && { echo "[$N/${#SEQUENCE[@]}] $ID  skipped (START_AT=$START_AT)"; continue; }
   echo "[$N/${#SEQUENCE[@]}] $ID  $DOSE  $ARM  on $ON"
+  # The route was verified once, at prepare time, and then trusted for the whole session. On EKS the forward
+  # traverses an idle-timing load balancer and a worker's tunnel can sit unused for half an hour between its
+  # runs. A dead tunnel does not stop the run: the device observer is explicitly non-fatal, so the full
+  # protocol executes, spends its window, and is invalidated at the end by -require-device. Checking here
+  # costs one HTTP request and turns that into a reconnect.
+  if ! curl -sf -m 3 "${URL_OF[$ON]}" >/dev/null 2>&1; then
+    echo "        the route to $ON is not answering; reopening it"
+    openRoute "$ON" "${PORT_OF[$ON]}" \
+      || { echo "could not reopen the route to $ON; resume with START_AT=$N once it is back" >&2; exit 1; }
+  fi
+  # And the surplus must still be held. An evicted occupier frees the spare cards mid-session, and the run
+  # that follows would measure a node whose scarcity has quietly gone -- the one wrong-number path here.
+  if [[ -n "${OCCUPIER_OF[$ON]:-}" ]]; then
+    OCC_PHASE="$(kubectl get pod -n "$NS" "${OCCUPIER_OF[$ON]}" -o jsonpath='{.status.phase}' 2>/dev/null || true)"
+    if [[ "$OCC_PHASE" != "Running" ]]; then
+      echo "the surplus occupier on $ON is ${OCC_PHASE:-gone}; the spare cards are free and the arm" >&2
+      echo "  contrast would collapse without saying so. Re-prepare, then resume: START_AT=$N" >&2
+      exit 1
+    fi
+  fi
   # No `|| true`. A run that fails has lost the thing the session is buying, and the ones after it would
   # spend node time on a route or a node that has already stopped working. START_AT is how the rest is
   # recovered once the cause is fixed, without re-running what already succeeded.
