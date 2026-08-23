@@ -53,10 +53,20 @@ module "eks" {
 
     # The GPU node group the device-work observer and the real device plugin need.
     #
-    # desired_size = 0 is the important number and it is not a placeholder: a g5.xlarge is charged by the
+    # desired_size = 0 is the important number and it is not a placeholder: a GPU instance is charged by the
     # hour whether or not anything is scheduled on it, and this repository's whole cost discipline is that
-    # nothing bills while nobody is running an experiment. Scaling it to 1 is a deliberate act at the start
-    # of a session and back to 0 at the end. min_size = 0 is what makes that possible.
+    # nothing bills while nobody is running an experiment. Scaling it up is a deliberate act at the start of
+    # a session and back to 0 at the end. min_size = 0 is what makes that possible.
+    #
+    # max_size is a CAPABILITY and desired_size is the cost control, and conflating the two cost this study
+    # an axis. The cap was 1, which saved nothing -- nothing bills at desired_size = 0 either way -- and made
+    # the node comparison the preregistration promises impossible to run: `-compare -mode node` refuses a
+    # record set in which nothing varies, so a session on one node cannot deliver that half however it is
+    # invoked. It is 2 so the choice is the operator's at session time rather than made here by a number
+    # nobody argued for.
+    #
+    # Scaling to 2 doubles the burn for as long as both are up, and the node axis is the only thing it buys.
+    # hack/gpu-session-preregistration.md says what the session delivers with one node and what it does not.
     gpu = {
       subnet_ids     = [module.vpc.public_subnets[0]]
       instance_types = [var.gpu_node_instance_type]
@@ -66,7 +76,7 @@ module "eks" {
       # hours, so the premium is small against the cost of an unusable run.
       capacity_type = "ON_DEMAND"
       min_size      = 0
-      max_size      = 1
+      max_size      = 2
       desired_size  = 0
 
       # The AMI with the NVIDIA driver already in it. Without this the device plugin has nothing to talk to

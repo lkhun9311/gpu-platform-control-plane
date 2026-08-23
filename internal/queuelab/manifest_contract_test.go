@@ -163,3 +163,49 @@ func TestTheSessionScriptAddressesTheExportersRealContainer(t *testing.T) {
 			"trap promises to clean up is either orphaned or dies with the runner")
 	}
 }
+
+// The infrastructure must be able to run the axes the preregistration promises.
+//
+// The GPU node group was capped at one node while the preregistration promised a node comparison. The cap
+// saved nothing -- desired_size is 0 either way, and nothing bills at zero -- so a number nobody had argued
+// for made a preregistered axis unrunnable. The failure would not have been silent (`-compare -mode node`
+// refuses a set in which nothing varies) but it would have been discovered on the rented node.
+//
+// This ties the promise to the capability. If the node axis is ever withdrawn from the preregistration, this
+// test should be deleted with it rather than left asserting a requirement nothing has.
+//
+// Mutation that turns this red: put the cap back to 1.
+func TestTheGPUNodeGroupCanRunTheAxesThePreregistrationPromises(t *testing.T) {
+	prereg := repoFile(t, "hack/gpu-session-preregistration.md")
+	if !strings.Contains(prereg, "-mode node") {
+		t.Skip("the preregistration no longer promises a node axis, so nothing here is required")
+	}
+	tf := repoFile(t, "infra/aws/cluster/eks.tf")
+	// The GPU group is the block carrying the NVIDIA AMI; read its cap rather than the first one in the file.
+	gpu := tf[strings.Index(tf, "gpu = {"):]
+	if i := strings.Index(gpu, "AL2023_x86_64_NVIDIA"); i < 0 {
+		t.Fatal("the GPU node group is not the block this test thinks it is; it must be rewritten rather " +
+			"than left matching the wrong sizes")
+	}
+	m := regexp.MustCompile(`max_size\s*=\s*(\d+)`).FindStringSubmatch(gpu)
+	if m == nil {
+		t.Fatal("the GPU node group declares no max_size")
+	}
+	max, err := strconv.Atoi(m[1])
+	if err != nil {
+		t.Fatalf("max_size %q is not a number", m[1])
+	}
+	// Two, because a node comparison needs the node to vary and one node cannot.
+	if max < 2 {
+		t.Fatalf("the GPU node group caps at %d node(s) and the preregistration promises a node comparison, "+
+			"which needs the node to vary; -compare -mode node refuses a set in which nothing does, so a "+
+			"session would discover this on the rented hardware. desired_size is 0 either way, so the cap "+
+			"buys no cost discipline -- it only removes the choice", max)
+	}
+	// And the cost control must still be there: a group that defaults to running is the discipline this
+	// repository is built around, lost.
+	if !regexp.MustCompile(`desired_size\s*=\s*0`).MatchString(gpu) {
+		t.Fatal("the GPU node group does not default to zero nodes, so it bills whether or not anybody is " +
+			"running an experiment")
+	}
+}

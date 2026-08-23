@@ -98,6 +98,18 @@ The ignoring arm agrees on the node (0.000 s against a 6.650 s floor) and disagr
 control: there the owner's wait IS the dose-dependent quantity, and the same check reports 11.997 s and says
 EXCEEDS. A check that can only ever return "no response" establishes nothing.
 
+**On the rented cluster this axis costs a second GPU node, and the session may decide not to buy it.** Both
+figures above come from two kind workers, which are containers on one host — they vary the kubelet and the
+node object, not the machine, and that is worth knowing but is not what a reader hears in "two nodes". A GPU
+session that scales its node group to one delivers no node axis at all: `-compare -mode node` refuses a set
+in which nothing varies, so the failure is loud rather than a number computed from one node and labelled as
+two. The infrastructure permits a second node so the choice is the operator's; the burn doubles for as long
+as both are up, and the node axis is the only thing it buys.
+
+If the session runs on one node, what it returns is the arm contrast, the dose axis and the device evidence,
+and the node axis remains what it is today: a control-plane result from two containers on one host, which
+says nothing about a second machine's driver or its card.
+
 Neither is a demonstration of independence. What they support is that any response is smaller than about six
 seconds, which is what a baseline needs and is a weaker claim.
 
