@@ -68,9 +68,15 @@ func genTrace(args []string) error {
 	fs := flag.NewFlagSet("gen-trace", flag.ExitOnError)
 	seed := fs.Int64("seed", 1, "trace generator seed")
 	durationMs := fs.Int64("duration-ms", 60_000, "trace duration in ms")
-	rate := fs.Float64("rate", 20, "mean total arrival rate per second")
+	// 20/s is calibrated for hack/m5b-harness-dryrun.sh, whose stub backend costs nothing to serve. It is
+	// NOT a value a GPU can take: see hack/m5b-vllm-sizing.md, where sustaining half of it in contender
+	// traffic works out to 7.3x a T4's theoretical peak. Set it from the ceiling derived there.
+	rate := fs.Float64("rate", 20, "mean total arrival rate per second (stub-calibrated; see hack/m5b-vllm-sizing.md before a GPU run)")
 	premiumChars := fs.Int("premium-prompt-chars", 200, "premium tenant prompt length in chars")
-	noisyChars := fs.Int("noisy-prompt-chars", 40_000, "noisy tenant prompt length in chars (>= 4x the guard threshold)")
+	// The old help here said ">= 4x the guard threshold" and that was wrong: ceil(40000/4) is 10,000 against
+	// a 4,096 threshold, which is 2.44x. Corrected rather than restated, since the margin is the reason the
+	// contender population is unambiguously eligible and a wrong multiple invites someone to shrink it.
+	noisyChars := fs.Int("noisy-prompt-chars", 40_000, "noisy tenant prompt length in chars (estimates at 10,000 tokens, 2.44x the 4,096 guard threshold)")
 	premiumWeight := fs.Float64("premium-weight", 1, "premium tenant arrival share")
 	noisyWeight := fs.Float64("noisy-weight", 1, "noisy tenant arrival share")
 	arm := fs.String("arm", "off", "arm this manifest measures (R1|off|static-cap|kv-aware)")

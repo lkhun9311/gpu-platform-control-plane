@@ -65,3 +65,46 @@ cost. A separate single-card node group is the cheaper shape if the two runs are
 - The `/metrics` magnitudes. The committed fixture was captured from the CPU build, so it pins series names,
   types, label sets and number formatting — not values. Recapture from this Deployment before quoting any
   KV-usage figure as characteristic.
+
+## The arrival rate the card can actually take
+
+`cmd/benchharness` defaults to `--rate 20` and `--duration-ms 60000`. Those are calibrated for
+`hack/m5b-harness-dryrun.sh`, whose stub backend answers instantly. Against a T4 they are not merely
+optimistic, they are impossible, and the arithmetic does not depend on any efficiency assumption:
+
+Half of 20/s is contender traffic, each contender is 7,695 measured prompt tokens, so the offered prefill
+load is **76,950 tokens/s**. A forward pass costs about `2 x params` FLOPs per token, so that is
+
+    2 x 3.09e9 x 76,950 = 4.76e14 FLOP/s = 476 TFLOPS
+
+against a T4's fp16 tensor-core peak of **65 TFLOPS**. The default demands **7.3x the card's theoretical
+maximum**, before decode and before any overhead. What would actually happen is an unbounded queue, every
+premium request eventually hitting the 30-second timeout, more than 1% censored — and `EvaluateChecks`
+disqualifying every arm. The run would cost a full GPU session and certify nothing.
+
+The ceiling, and a workable setting:
+
+| assumption | prefill tokens/s | contender/s | total rate |
+|---|---|---|---|
+| 100% of peak (unreachable) | 10,518 | 1.37 | 2.73/s |
+| 45% MFU (realistic) | 4,733 | 0.62 | **1.23/s** |
+
+At 0.62 contenders/s and equal tenant weights, premium also arrives at ~0.62/s, so reaching
+`MinTailSamples` — the 100 premium completions below which a nearest-rank p99 is just the slowest request —
+takes under three minutes, and a defensible **500 completions takes about 14 minutes per arm**: roughly
+**55 minutes for four arms at one repetition**, doubled for the two repetitions the block bootstrap needs.
+Budget about two hours of card time for the confirmatory run, plus model load and warmup.
+
+The 45% figure is the one estimate here. Check it in the session's first minute: a single contender request
+against an otherwise idle engine has a TTFT that *is* the prefill time, and 7,695 / TTFT gives the real
+prefill rate. Set `--rate` from that measurement, not from this table.
+
+## What the trace does not test
+
+Every contender estimates at 10,000 tokens and every premium request at 50, against a guard threshold of
+4,096. Nothing in the trace lands anywhere near it, so **any threshold between 51 and 10,000 produces
+identical behaviour in every arm**. The experiment measures the engage/release policy and the tier split;
+it does not measure the threshold, and the false-positive band recorded in
+`internal/bench/testdata/tokenizer_calibration.json` (a request scored 4,096 measures 3,171 real tokens) is
+never exercised. Testing the threshold would need a third tenant sending prompts near it, which is a design
+change rather than a parameter change.

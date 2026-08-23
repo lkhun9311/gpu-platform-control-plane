@@ -113,6 +113,31 @@ var _ = Describe("EvaluateChecks", func() {
 		Expect(c.OverallPass).To(BeTrue())
 	})
 
+	It("disqualifies a run whose tail is thin enough that its p99 is just the slowest request", func() {
+		// 99 is the largest count at which nearest-rank p99 still lands on the maximum: index
+		// ceil(0.99*99)-1 = 98 of 0..98. Every check below would otherwise pass on it -- the numbers are the
+		// ones from the passing case above -- so the disqualification has to come from the sample size
+		// alone, which is the whole point.
+		r1 := ArmSummary{Arm: "R1", TTFTMsP99: 100, TailSampleSize: 500}
+		staticCap := ArmSummary{Arm: "static-cap", TTFTMsP99: 200, OfferedInputTokens: 1000, AdmittedInputTokens: 500, TailSampleSize: 500}
+		kvAware := ArmSummary{Arm: "kv-aware", TTFTMsP99: 110, OfferedInputTokens: 1000, AdmittedInputTokens: 510, TailSampleSize: 99}
+		c := EvaluateChecks(r1, staticCap, kvAware, CI{Lo: 0.45, Hi: 0.65}, 0.05)
+		Expect(c.Invalid).To(BeTrue())
+		Expect(c.InvalidReason).To(ContainSubstring("99 premium completions"))
+		Expect(c.OverallPass).To(BeFalse())
+	})
+
+	It("accepts the smallest tail at which the p99 is no longer the maximum", func() {
+		// One more completion than the case above, and the same numbers, so this pins the boundary rather
+		// than merely re-testing the passing case: 100 is where ceil(0.99*n)-1 first falls below n-1.
+		r1 := ArmSummary{Arm: "R1", TTFTMsP99: 100, TailSampleSize: 100}
+		staticCap := ArmSummary{Arm: "static-cap", TTFTMsP99: 200, OfferedInputTokens: 1000, AdmittedInputTokens: 500, TailSampleSize: 100}
+		kvAware := ArmSummary{Arm: "kv-aware", TTFTMsP99: 110, OfferedInputTokens: 1000, AdmittedInputTokens: 510, TailSampleSize: 100}
+		c := EvaluateChecks(r1, staticCap, kvAware, CI{Lo: 0.45, Hi: 0.65}, 0.05)
+		Expect(c.Invalid).To(BeFalse())
+		Expect(c.OverallPass).To(BeTrue())
+	})
+
 	It("fails incremental value when C does not beat the admission-matched B (just load shedding)", func() {
 		r1 := ArmSummary{Arm: "R1", TTFTMsP99: 100, TailSampleSize: 500}
 		staticCap := ArmSummary{Arm: "static-cap", TTFTMsP99: 115, OfferedInputTokens: 1000, AdmittedInputTokens: 500, TailSampleSize: 500}

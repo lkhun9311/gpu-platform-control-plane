@@ -240,6 +240,20 @@ type Checks struct {
 	OverallPass bool
 }
 
+// MinTailSamples is the smallest premium-completion count at which the reported p99 is not simply the
+// largest observation.
+//
+// It is derived, not chosen. The percentile is nearest-rank: index ceil(0.99*n)-1, clamped to n-1. Solve
+// ceil(0.99*n)-1 < n-1 and the smallest integer that satisfies it is 100 -- at n=99 the index lands on 98
+// of 0..98, the maximum, and every value below 99 does the same. So a run with fewer than 100 premium
+// completions reports its slowest request and calls it a tail.
+//
+// This mattered because nothing read TailSampleSize. It was computed, stored, asserted on in unit tests,
+// and never consulted by any production path: not printed, not gating validity. A sixty-second run at a
+// rate the engine cannot serve yields a few dozen completions, and the report would have presented that
+// maximum with exactly the authority of a p99 over five thousand.
+const MinTailSamples = 100
+
 // EvaluateChecks computes the design's pre-registered checks from the four arms' aggregated p99 values and admission-work fractions.
 //
 // r1P99, offP99 are provenance context; the checks compare C against R1 (absolute) and against B (incremental). incrementalCI is the bootstrap CI of the C/B ratio, produced by the caller from per-repetition ratios.
@@ -251,6 +265,11 @@ func EvaluateChecks(r1, staticCap, kvAware ArmSummary, incrementalCI CI, matchTo
 		if s.TailSampleSize == 0 {
 			c.Invalid = true
 			c.InvalidReason = fmt.Sprintf("arm %s completed no premium requests, so its tail is undefined", s.Arm)
+		}
+		if s.TailSampleSize > 0 && s.TailSampleSize < MinTailSamples {
+			c.Invalid = true
+			c.InvalidReason = fmt.Sprintf("arm %s has %d premium completions, below the %d a nearest-rank p99 needs to be anything other than the maximum",
+				s.Arm, s.TailSampleSize, MinTailSamples)
 		}
 		if s.Censored {
 			c.Invalid = true
@@ -286,14 +305,20 @@ func EvaluateChecks(r1, staticCap, kvAware ArmSummary, incrementalCI CI, matchTo
 func FormatReport(summaries []ArmSummary, checks Checks, matchTolerance float64) string {
 	var b strings.Builder
 	b.WriteString("M5-b benchmark report\n\n")
-	fmt.Fprintf(&b, "%-12s %8s %8s %8s %8s %8s %8s %8s\n", "arm", "total", "done", "429", "timeout", "ttftP50", "ttftP95", "ttftP99")
+	fmt.Fprintf(&b, "%-12s %8s %8s %8s %8s %8s %8s %8s %8s\n", "arm", "total", "done", "429", "timeout", "ttftP50", "ttftP95", "ttftP99", "tailN")
 	for _, s := range summaries {
 		censored := ""
 		if s.Censored {
 			censored = " (p99 censored: >1% timeouts, lower bound)"
 		}
-		fmt.Fprintf(&b, "%-12s %8d %8d %8d %8d %8.1f %8.1f %8.1f%s\n",
-			s.Arm, s.Total, s.Completed, s.Rejected, s.TimedOut, s.TTFTMsP50, s.TTFTMsP95, s.TTFTMsP99, censored)
+		// tailN is printed because the p99 beside it is meaningless without it, and because a reader who
+		// cannot see the sample count has no way to tell a tail from a maximum.
+		thin := ""
+		if s.TailSampleSize > 0 && s.TailSampleSize < MinTailSamples {
+			thin = fmt.Sprintf(" (p99 is the maximum: %d < %d premium completions)", s.TailSampleSize, MinTailSamples)
+		}
+		fmt.Fprintf(&b, "%-12s %8d %8d %8d %8d %8.1f %8.1f %8.1f %8d%s%s\n",
+			s.Arm, s.Total, s.Completed, s.Rejected, s.TimedOut, s.TTFTMsP50, s.TTFTMsP95, s.TTFTMsP99, s.TailSampleSize, censored, thin)
 	}
 	b.WriteString("\nPre-registered checks (primary endpoint: TTFT p99)\n")
 	fmt.Fprintf(&b, "  absolute protection  C/R1 = %.3f  (<= 1.25)  %s\n", checks.AbsoluteProtectionRatio, pass(checks.AbsoluteProtectionPass))
