@@ -22,6 +22,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"time"
 
@@ -53,6 +54,45 @@ var _ = Describe("HTTPSender", func() {
 		Expect(res.OutputTokens).To(Equal(3))
 		Expect(res.FirstTokenUnixNanos).To(BeNumerically(">", 0))
 		Expect(res.EndUnixNanos).To(BeNumerically(">=", res.FirstTokenUnixNanos))
+	})
+
+	It("replays a real captured vLLM stream and does not let the role frame claim first-token", func() {
+		// The bytes a vLLM 0.27.1 server actually wrote; see testdata/PROVENANCE.txt.
+		//
+		// Its first frame is "delta":{"role":"assistant","content":""} -- text-free, and emitted before the
+		// model has produced anything. Serving it, then pausing, then serving the six token frames means a
+		// sender that stamped first-token on any frame would report a TTFT from before the pause. The pause
+		// is the assertion: it is what makes the two behaviours distinguishable in the number.
+		raw, err := os.ReadFile("testdata/vllm_sse_stream.txt")
+		Expect(err).NotTo(HaveOccurred())
+		frames := strings.SplitAfter(string(raw), "\n\n")
+
+		const prefillPause = 40 * time.Millisecond
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "text/event-stream")
+			f := w.(http.Flusher)
+			for i, frame := range frames {
+				if frame == "" {
+					continue
+				}
+				if i == 1 {
+					time.Sleep(prefillPause)
+				}
+				_, _ = fmt.Fprint(w, frame)
+				f.Flush()
+			}
+		}))
+		defer srv.Close()
+
+		sender := NewHTTPSender(srv.URL, "Qwen/Qwen2.5-0.5B-Instruct", nil, 5*time.Second, SenderConn{MaxIdleConnsPerHost: 8, DrainForReuse: true})
+		start := time.Now()
+		res := sender.Send(context.Background(), TraceRow{Tenant: "premium-1", PromptLenChars: 20, MaxOutputTokens: 6}, start.UnixNano())
+
+		Expect(res.HTTPStatus).To(Equal(200))
+		Expect(res.ErrorKind).To(BeEmpty())
+		// Six token frames for max_tokens: 6. The role frame is not one of them, and neither is [DONE].
+		Expect(res.OutputTokens).To(Equal(6))
+		Expect(time.Unix(0, res.FirstTokenUnixNanos)).To(BeTemporally(">=", start.Add(prefillPause)))
 	})
 
 	It("records a 429 as a rejection, not a completed request", func() {

@@ -80,15 +80,33 @@ func baseScraperConfig(clock clockFunc) scraperConfig {
 // --- Exposition parser -------------------------------------------------------
 
 var _ = Describe("parseKVMetrics", func() {
-	It("parses the committed golden fixture's usage and waiting series", func() {
+	It("parses the two series it reads out of a real captured vLLM scrape", func() {
 		f, err := os.Open("testdata/vllm_metrics_golden.txt")
 		Expect(err).NotTo(HaveOccurred())
 		defer func() { _ = f.Close() }()
 
 		sample, err := parseKVMetrics(f)
 		Expect(err).NotTo(HaveOccurred())
-		Expect(sample.CacheUsage).To(Equal(0.42))
-		Expect(sample.Waiting).To(Equal(5))
+		// The exact bytes a real 0.27.1 server wrote, not values chosen to suit the parser.
+		Expect(sample.CacheUsage).To(Equal(0.0058629534628068525))
+		Expect(sample.Waiting).To(Equal(32))
+	})
+
+	It("reads vllm:num_requests_waiting and not the by_reason family whose name extends it", func() {
+		// 0.27.1 added vllm:num_requests_waiting_by_reason. Its name has the series the guard reads as a
+		// strict prefix, and in the captured scrape its "capacity" series carries the same 32 the guard
+		// wants -- so a prefix-matching reader would look correct here and be wrong the moment the two
+		// diverge. Give the guard only the by_reason family and it must refuse rather than answer 32.
+		text := `# HELP vllm:kv_cache_usage_perc x
+# TYPE vllm:kv_cache_usage_perc gauge
+vllm:kv_cache_usage_perc{engine="0"} 0.5
+# HELP vllm:num_requests_waiting_by_reason x
+# TYPE vllm:num_requests_waiting_by_reason gauge
+vllm:num_requests_waiting_by_reason{engine="0",reason="capacity"} 32.0
+vllm:num_requests_waiting_by_reason{engine="0",reason="deferred"} 0.0
+`
+		_, err := parseKVMetrics(strings.NewReader(text))
+		Expect(err).To(MatchError(ContainSubstring("missing vllm:num_requests_waiting")))
 	})
 
 	It("falls back to the V0 alias when only vllm:gpu_cache_usage_perc is present", func() {
