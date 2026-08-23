@@ -21,12 +21,15 @@ NS="${NS:-gpu-platform-control-plane-system}"
 LOCAL_PORT="${LOCAL_PORT:-9400}"
 
 if [[ -z "$WORKER" ]]; then
-  echo "usage: $0 <worker-node> [-- <extra queuelabrun flags>]" >&2
+  echo "usage: $0 <worker-node> [second-worker-node]" >&2
+  echo "  RUN_STUDY=1 runs the study through the verified route; without it the script verifies and stops" >&2
   echo "  env: NS=$NS LOCAL_PORT=$LOCAL_PORT" >&2
   exit 2
 fi
 shift || true
-[[ "${1:-}" == "--" ]] && shift || true
+# A second worker is optional and is what makes the node axis runnable. Without it the study is eight runs
+# and the node comparison is not delivered, which the preregistration says plainly.
+SECOND_WORKER="${1:-}"
 
 # The exporter's own image digest is what -device-observer declares, and it is read from the RUNNING Pod
 # rather than from the manifest. The manifest says what should be deployed; this says what is, and a cluster
@@ -88,7 +91,15 @@ metadata:
   name: queuelab-surplus-occupier
   namespace: $NS
   labels:
-    queuelab.gpu-platform/surplus-occupier: "holds the cards the protocol must not have"
+    # The key is the marker; the value is not read by the gate. Label values cannot carry prose -- the API
+    # server rejects anything outside alphanumerics, dashes, dots and underscores -- so the explanation is
+    # an annotation.
+    queuelab.gpu-platform/surplus-occupier: "session"
+  annotations:
+    queuelab.gpu-platform/why: >-
+      Holds the devices the protocol must not have. The arm contrast is physical card scarcity, so a node
+      advertising more devices than the run needs would let the owner's Pod bind at admission in both arms
+      and collapse the difference below the floor.
 spec:
   restartPolicy: Never
   nodeName: $WORKER
@@ -161,29 +172,85 @@ echo
 # point of this mode is that its status decides whether the protocol runs.
 set +e
 ./queuelabrun -device-preflight -worker "$WORKER" \
-  -device-metrics "$URL" -device-observer "$OBSERVER" "$@"
+  -device-metrics "$URL" -device-observer "$OBSERVER"
 STATUS=$?
 set -e
-if [[ $STATUS -eq 0 ]]; then
+if [[ $STATUS -ne 0 ]]; then
+  exit $STATUS
+fi
+
+# Everything above verified the node. What follows RUNS THE STUDY through the same forward, and that is the
+# point of the mode rather than a convenience.
+#
+# The script used to stop here, print the flags, and tear the verified route down -- leaving the operator to
+# open another forward and add two flags to twelve invocations by hand. A review ranked the resulting loss
+# the most likely avoidable one of the whole session: miss either flag, or have the second forward die
+# quietly, and the runs complete, write well-formed records, and say device-not-observed. -require-device
+# makes each such run fail loudly, which is a mitigation; not needing a second forward at all is the fix.
+if [[ "${RUN_STUDY:-}" != "1" ]]; then
   echo
-  echo "the route is torn down with this script. For the runs, hold it open in another shell:"
+  echo "the node is verified. To run the study through this same route:"
+  echo "  RUN_STUDY=1 $0 $WORKER${SECOND_WORKER:+ $SECOND_WORKER}"
+  echo
+  echo "and if you would rather drive the runs yourself, hold a forward open in another shell:"
   echo "  kubectl port-forward -n $NS pod/$POD ${LOCAL_PORT}:9400"
-  echo "and give every run BOTH the observer and -require-device:"
+  echo "giving every run BOTH the observer and -require-device:"
   echo "  -require-device -device-metrics $URL -device-observer $OBSERVER"
-  echo
-  # -require-device is the half of this that cannot be forgotten silently. Without it a run whose forward
-  # died, or which was launched without these flags at all, completes normally and writes a well-formed
-  # record saying device-not-observed -- the outcome this whole session exists to avoid, reached by omission
-  # rather than by failure. With it the run refuses before touching the cluster if the observer is missing,
-  # and invalidates itself if the observation establishes nothing.
   echo "  (-require-device refuses up front without an observer, and invalidates a run that returns no"
   echo "   device evidence; without it such a run completes and quietly records device-not-observed)"
   echo
-  # The ordering is not a convenience. This preflight has just pulled the workload image onto the node, so
-  # every run after it starts warm; a run taken before it would pull inside its own observation window,
-  # pushing container stops later and possibly past the horizon, which turns its waste figure into a floor.
-  # The estimand this lab publishes is warm-node reclaim, and this is what makes it true.
   echo "run the protocol AFTER this, not before: the node is warm now, and a run taken cold pulls inside"
   echo "its own observation window and can censor its own waste figure."
+  exit 0
 fi
-exit $STATUS
+
+# The order is the one the study's comparisons need, and it is checked rather than trusted: every
+# comparison this lab publishes requires its factor to alternate in time, so the sequence alternates arm on
+# every run and alternates dose and node within each pair of runs a comparison reads. A blocked sequence
+# produces the CONFOUNDED warnings the harness prints and the study then cannot use.
+#
+# With one node the node axis is not delivered at all -- `-compare -mode node` refuses a set in which
+# nothing varies -- so the eight-run form is the honest whole of what a one-node session returns.
+mkdir -p ex
+if [[ -n "${SECOND_WORKER:-}" ]]; then
+  SEQUENCE=(
+    "self-completing A-honor  sh1 $WORKER"        "grace-bounded A-ignore wi1 $SECOND_WORKER"
+    "grace-bounded   A-honor  wh1 $SECOND_WORKER" "grace-bounded A-ignore gi1 $WORKER"
+    "grace-bounded   A-honor  gh1 $WORKER"        "self-completing A-ignore si1 $WORKER"
+    "self-completing A-honor  sh2 $WORKER"        "grace-bounded A-ignore wi2 $SECOND_WORKER"
+    "grace-bounded   A-honor  wh2 $SECOND_WORKER" "grace-bounded A-ignore gi2 $WORKER"
+    "grace-bounded   A-honor  gh2 $WORKER"        "self-completing A-ignore si2 $WORKER"
+  )
+else
+  SEQUENCE=(
+    "self-completing A-honor  sh1 $WORKER" "grace-bounded   A-ignore gi1 $WORKER"
+    "grace-bounded   A-honor  gh1 $WORKER" "self-completing A-ignore si1 $WORKER"
+    "self-completing A-honor  sh2 $WORKER" "grace-bounded   A-ignore gi2 $WORKER"
+    "grace-bounded   A-honor  gh2 $WORKER" "self-completing A-ignore si2 $WORKER"
+  )
+fi
+
+echo "running ${#SEQUENCE[@]} runs through the verified route"
+echo
+N=0
+for SPEC in "${SEQUENCE[@]}"; do
+  # shellcheck disable=SC2086
+  set -- $SPEC
+  DOSE=$1 ARM=$2 ID=$3 ON=$4
+  N=$((N + 1))
+  OUT="ex/gpu-$DOSE-$ARM-$ID.json"
+  echo "[$N/${#SEQUENCE[@]}] $ID  $DOSE  $ARM  on $ON"
+  # No `|| true`. A run that fails has lost the thing the session is buying, and the ones after it would
+  # spend node time on a route or a node that has already stopped working. Stopping here is what makes the
+  # remaining budget recoverable.
+  ./queuelabrun -require-device -dose "$DOSE" -arm "$ARM" -runid "$ID" -worker "$ON" \
+    -device-metrics "$URL" -device-observer "$OBSERVER" -out "$OUT"
+done
+
+echo
+echo "all ${#SEQUENCE[@]} runs completed. Compare them:"
+echo "  ./queuelabrun -compare 'ex/gpu-*.json'"
+echo "  ./queuelabrun -compare 'ex/gpu-*.json' -mode model"
+if [[ -n "${SECOND_WORKER:-}" ]]; then
+  echo "  ./queuelabrun -compare 'ex/gpu-grace-bounded-A-honor-*.json' -mode node"
+fi

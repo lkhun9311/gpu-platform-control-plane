@@ -639,7 +639,10 @@ func TestANodeWithSpareDevicesIsRefused(t *testing.T) {
 		return []corev1.Pod{{
 			ObjectMeta: metav1.ObjectMeta{
 				Namespace: "gpu-platform-control-plane-system", Name: "surplus-occupier",
-				Labels: map[string]string{surplusOccupierLabel: "holds the cards the protocol must not have"},
+				// A valid label value: alphanumeric with dashes, dots and underscores. The first version of
+				// this fixture used a sentence, which a fake client accepts and a real API server rejects --
+				// so the unit test passed while the manifest the session applies was invalid.
+				Labels: map[string]string{surplusOccupierLabel: "session"},
 			},
 			Spec: corev1.PodSpec{
 				NodeName: "platform-worker",

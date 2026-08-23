@@ -48,9 +48,14 @@ const gpuResourceName = corev1.ResourceName("nvidia.com/gpu")
 // that probably does not work. So the surplus is HELD, and this label is how the gate tells a Pod holding
 // devices to keep the node scarce from a foreign tenant holding them to compute.
 //
-// The value is free-form on purpose. What matters is that somebody declared these devices excluded rather
-// than measured, and the value is where a session records why. A Pod holding devices WITHOUT it is a
-// foreign tenant and refuses the run, which is the behaviour that must not change.
+// The KEY is the marker and the value is not read. That is not laxity, it is what Kubernetes allows: a
+// label value must be alphanumeric with dashes, underscores and dots, so the prose this comment originally
+// proposed to put there is rejected by the API server outright -- which the session script duly hit the
+// first time it was run against a real cluster, and which its own unit fixture had not caught because a
+// fake client does not validate. Anything a session wants to say about WHY belongs in an annotation.
+//
+// A Pod holding devices WITHOUT this key is a foreign tenant and refuses the run, which is the behaviour
+// that must not change.
 const surplusOccupierLabel = "queuelab.gpu-platform/surplus-occupier"
 
 // gpuConsumer is one Pod already holding devices on the worker, in the spelling the run record persists.
@@ -339,7 +344,7 @@ func gpuConsumersOn(pods []corev1.Pod, node string) (consumers []gpuConsumer, on
 		if n == 0 {
 			continue
 		}
-		if p.Labels[surplusOccupierLabel] != "" {
+		if _, held := p.Labels[surplusOccupierLabel]; held {
 			// Held to keep the node scarce, not to compute on. Counted so the record can say how many
 			// devices were excluded rather than measured, and kept out of the foreign-tenant list.
 			occupied += n

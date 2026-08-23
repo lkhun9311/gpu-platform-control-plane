@@ -284,7 +284,20 @@ happened is not a transcript however accurately it is worded.
 Run this before the protocol, and read its exit status. It takes one Pod and about a minute, and it answers
 the one question that decides whether the session produces a number or a receipt.
 
-**Then give every run `-require-device`.** Device observation is an optional axis everywhere else, and on a
+**And let the script run them.** `RUN_STUDY=1 ./hack/gpu-session.sh <gpu-node> [second-node]` verifies the
+node and then runs the study through the same forward it verified, in the order the comparisons need —
+alternating arm on every run and alternating dose and node within each pair a comparison reads, because a
+blocked sequence produces the CONFOUNDED warnings the harness prints and the study then cannot use. It stops
+at the first failed run rather than spending the rest of the budget on a route that has stopped working.
+
+With one node it runs eight and the node axis is not delivered, which is the honest whole of what a one-node
+session returns.
+
+The script used to stop after the preflight, print the flags, and tear the verified route down — leaving the
+operator to open another forward and add two flags to twelve invocations by hand. A review ranked the
+resulting loss the most likely avoidable one of the session.
+
+**If you drive the runs yourself, give every one `-require-device`.** Device observation is an optional axis everywhere else, and on a
 cluster with no cards that is right — a run with no exporter is still a valid control-plane measurement. On
 rented hardware the default inverts: a run whose port-forward died, or which was launched without the
 observer flags at all, completes normally and writes a well-formed record saying `device-not-observed`. That
