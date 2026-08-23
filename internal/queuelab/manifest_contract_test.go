@@ -390,3 +390,59 @@ func TestGrowingTheRepetitionsKeepsEveryComparisonInterleaved(t *testing.T) {
 		}
 	}
 }
+
+// Every GPU node group must carry the label the observer and device plugin select on.
+//
+// eks.tf's own comment names this failure and it is worth a test rather than a paragraph: the DaemonSets
+// select on platform.lkhun9311.github.io/gpu, which is this repository's label rather than NVIDIA's
+// GPU Feature Discovery one. A node group that is tainted for GPUs but missing the label schedules the
+// tenant's Pods and not the observer, so the card is used and nothing watches it -- and the run reports
+// "no device observer ran" without anything saying why the observer was absent.
+//
+// It exists because a second GPU group was added. The quota granted for ap-northeast-2 on 2026-08-24 was
+// 8 vCPU against a request for 96, which cannot start the 48-vCPU node queuelab needs but comfortably
+// starts the 4-vCPU one M5-b needs, so the two experiments now sit on different machines. Copying a node
+// group is exactly the edit that drops a label, and it costs a GPU session to find out.
+func TestEveryGPUTaintedNodeGroupCarriesTheObserverLabel(t *testing.T) {
+	tf := repoFile(t, "infra/aws/cluster/eks.tf")
+
+	// Node groups are the keys of eks_managed_node_groups, one indent level in. Splitting on that opening
+	// line gives one chunk per group, each running to the start of the next.
+	blockStart := regexp.MustCompile(`(?m)^    ([a-z_]+) = \{$`)
+	idx := blockStart.FindAllStringSubmatchIndex(tf, -1)
+	if len(idx) == 0 {
+		t.Fatal("no node-group blocks found in eks.tf; this test is reading a shape that has moved and must " +
+			"be rewritten rather than deleted")
+	}
+
+	const observerLabel = `"platform.lkhun9311.github.io/gpu" = "true"`
+	const gpuTaintKey = `key    = "nvidia.com/gpu"`
+
+	tainted := 0
+	for i, m := range idx {
+		name := tf[m[2]:m[3]]
+		end := len(tf)
+		if i+1 < len(idx) {
+			end = idx[i+1][0]
+		}
+		block := tf[m[0]:end]
+		if !strings.Contains(block, gpuTaintKey) {
+			continue
+		}
+		tainted++
+		if !strings.Contains(block, observerLabel) {
+			t.Errorf("node group %q is tainted for GPUs but does not carry %s, so the observer cannot be "+
+				"scheduled on it and a run there reports an absent observer without a cause", name, observerLabel)
+		}
+	}
+	if tainted == 0 {
+		t.Fatal("no GPU-tainted node group found in eks.tf; this test would pass vacuously")
+	}
+	// Both experiments need a machine, and they need different ones: queuelab wants two devices on one node
+	// (48 vCPU, since no G size has exactly two GPUs) and M5-b wants exactly one. A single group cannot be
+	// both, so finding only one here means the split was undone.
+	if tainted < 2 {
+		t.Errorf("found %d GPU node group(s); queuelab needs a multi-GPU node and M5-b needs a single-card "+
+			"one, and the granted quota cannot start the former", tainted)
+	}
+}

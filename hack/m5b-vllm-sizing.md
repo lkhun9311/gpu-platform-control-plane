@@ -52,10 +52,16 @@ only form of prediction that counts.
 
 ## Instance shape
 
-One engine needs one T4. `g4dn.xlarge` (1 x T4, 4 vCPU) is what M5-b actually requires;
-`infra/aws/cluster/eks.tf` currently provisions `g4dn.12xlarge` (4 x T4, 48 vCPU) because queuelab needs two
-cards on one node. Running M5-b on the queuelab node group works and wastes three cards' worth of hourly
-cost. A separate single-card node group is the cheaper shape if the two runs are not on the same day.
+One engine needs one T4, so M5-b runs on `g4dn.xlarge` (1 x T4, 4 vCPU) via the `gpu_single` node group in
+`infra/aws/cluster/eks.tf`. queuelab keeps the separate `gpu` group on `g4dn.12xlarge` (4 x T4, 48 vCPU),
+which it needs because its protocol requires two devices on one node and **no G-family size has exactly two
+GPUs** -- g4dn, g5 and g6 all run 1, 1, 1, 1 and then jump to 4 at their 12xlarge.
+
+The split is not only about waste. On 2026-08-24 this account's ap-northeast-2 quota for "Running On-Demand
+G and VT instances" was granted at **8 vCPU** against a request for 96. That cannot start a 48-vCPU node, so
+queuelab is blocked on a support case; it starts a 4-vCPU one with room to spare, so **M5-b is not blocked**.
+Running the M5-b session is also the only lever left on the quota decision, since AWS weighs an account's
+actual usage history.
 
 ## What is still unmeasured
 

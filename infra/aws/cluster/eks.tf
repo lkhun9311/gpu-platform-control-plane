@@ -108,6 +108,48 @@ module "eks" {
         http_put_response_hop_limit = 1
       }
     }
+
+    # A second GPU group, one card wide, because the two experiments need different machines and the quota
+    # only allows one of them.
+    #
+    # queuelab needs TWO devices on ONE node, and the G family has no two-GPU instance: the sizes run
+    # 1, 1, 1, 1, then jump to 4 at g4dn.12xlarge, which is 48 vCPU. M5-b needs exactly one card, and its
+    # engine Deployment asserts replicas = 1 for the single-KV-pool reason. Putting M5-b on the 12xlarge
+    # works and wastes three cards' worth of hourly charge; more importantly, on 2026-08-24 the Seoul
+    # account's "Running On-Demand G and VT instances" quota was granted at 8 vCPU against a request for 96,
+    # so the 48-vCPU group cannot start at all and this 4-vCPU one can. The M5-b run is not blocked on a
+    # support case.
+    #
+    # Same desired_size = 0 discipline, same taint and label, so the observer and device plugin need no
+    # special case. max_size is 1 rather than 2: a second node here buys nothing, because the arms are
+    # compared against one engine and a second KV pool is the one thing config/vllm forbids.
+    gpu_single = {
+      subnet_ids     = [module.vpc.public_subnets[0]]
+      instance_types = [var.gpu_single_node_instance_type]
+      capacity_type  = "ON_DEMAND"
+      min_size       = 0
+      max_size       = 1
+      desired_size   = 0
+
+      ami_type = "AL2023_x86_64_NVIDIA"
+
+      labels = {
+        "platform.lkhun9311.github.io/gpu" = "true"
+      }
+      taints = {
+        gpu = {
+          key    = "nvidia.com/gpu"
+          value  = "present"
+          effect = "NO_SCHEDULE"
+        }
+      }
+
+      metadata_options = {
+        http_endpoint               = "enabled"
+        http_tokens                 = "required"
+        http_put_response_hop_limit = 1
+      }
+    }
   }
 
   tags = var.tags
