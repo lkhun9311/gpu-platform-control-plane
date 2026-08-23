@@ -23,7 +23,6 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 NS="${NS:-gpu-platform-control-plane-system}"
-BASE_PORT="${BASE_PORT:-9400}"
 REQUIRED="${REQUIRED:-2}"
 START_AT="${START_AT:-1}"
 
@@ -58,7 +57,7 @@ if [[ ${#WORKERS[@]} -eq 2 && "${WORKERS[0]}" == "${WORKERS[1]}" ]]; then
 fi
 
 # Per worker, filled in by prepare().
-declare -A URL_OF OBSERVER_OF POD_OF PORT_OF OCCUPIER_OF
+declare -A URL_OF OBSERVER_OF POD_OF OCCUPIER_OF
 FORWARDS=()
 OCCUPIERS=()
 
@@ -183,7 +182,7 @@ EOF
 
 # openRoute finds the exporter on this worker and forwards to it on its own local port.
 openRoute() {
-  local worker="$1" port="$2" pod observer container url
+  local worker="$1" pod observer container url port
   pod="$(kubectl get pods -n "$NS" -l app.kubernetes.io/component=dcgm-exporter \
     --field-selector "spec.nodeName=$worker,status.phase=Running" \
     -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"
@@ -203,8 +202,23 @@ openRoute() {
     return 1
   fi
 
+  # A FREE port chosen by the OS, not a fixed one, and the forward's own liveness checked before its
+  # answer is trusted.
+  #
+  # With a fixed port, anything already listening on it makes `kubectl port-forward` exit immediately --
+  # and the checks below then talk to that other process. A local listener serving one plausible DCGM line
+  # satisfies both of them, and the preflight and every run afterwards trust an unrelated program. That is
+  # the "text server accepted as DCGM" failure this repository has already made twice inside the Go code,
+  # reachable here one level above it.
+  port="$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()')"
   kubectl port-forward -n "$NS" "pod/$pod" "$port:9400" >"/tmp/queuelab-pf-$worker.log" 2>&1 &
-  FORWARDS+=("$!")
+  local pf=$!
+  FORWARDS+=("$pf")
+  sleep 1
+  if ! kill -0 "$pf" 2>/dev/null; then
+    echo "the port-forward to $pod exited immediately; see /tmp/queuelab-pf-$worker.log" >&2
+    return 1
+  fi
   url="http://127.0.0.1:${port}/metrics"
   for _ in $(seq 1 30); do
     curl -sf -m 2 "$url" >/dev/null 2>&1 && break
@@ -233,13 +247,12 @@ openRoute() {
     return 1
   fi
   POD_OF["$worker"]="$pod"
-  PORT_OF["$worker"]="$port"
   URL_OF["$worker"]="$url"
   OBSERVER_OF["$worker"]="$observer"
 }
 
 prepare() {
-  local worker="$1" port="$2"
+  local worker="$1"
   echo "== $worker"
   refuseFakePlugin "$worker"
   occupySurplus "$worker"
@@ -248,7 +261,7 @@ prepare() {
   echo "  canary     : taking it (the qualification refuses a worker without one)"
   ./queuelabrun -termination-canary -worker "$worker" >"/tmp/queuelab-canary-$worker.log" 2>&1 \
     || { echo "the termination canary failed on $worker; see /tmp/queuelab-canary-$worker.log" >&2; return 1; }
-  openRoute "$worker" "$port"
+  openRoute "$worker"
   echo "  exporter   : ${POD_OF[$worker]}"
   echo "  observer   : ${OBSERVER_OF[$worker]}"
   echo "  route      : ${URL_OF[$worker]}"
@@ -264,10 +277,8 @@ prepare() {
 echo "building the runner"
 go build -o queuelabrun ./cmd/queuelabrun
 
-PORT=$BASE_PORT
 for W in "${WORKERS[@]}"; do
-  prepare "$W" "$PORT"
-  PORT=$((PORT + 1))
+  prepare "$W"
   echo
 done
 
@@ -332,7 +343,7 @@ for SPEC in "${SEQUENCE[@]}"; do
   # costs one HTTP request and turns that into a reconnect.
   if ! curl -sf -m 3 "${URL_OF[$ON]}" >/dev/null 2>&1; then
     echo "        the route to $ON is not answering; reopening it"
-    openRoute "$ON" "${PORT_OF[$ON]}" \
+    openRoute "$ON" \
       || { echo "could not reopen the route to $ON; resume with START_AT=$N once it is back" >&2; exit 1; }
   fi
   # And the surplus must still be held. An evicted occupier frees the spare cards mid-session, and the run
