@@ -143,7 +143,9 @@ reading the code.
 
 ## What this does not say
 
-- **Nothing about GPUs.** Pure Python arithmetic against a fake device plugin. These are seconds of
+- **Nothing about GPUs.** The workload attempts the CUDA driver API and these twelve executions all fell
+  back to the Python loop with `dev=no-libcuda`, against a fake device plugin. The line used to say the
+  workload was pure Python arithmetic, which stopped being true when it gained a device path. These are seconds of
   RESERVATION; `deviceUseEstablished` is false in every record.
 - **The magnitudes are still partly the trace's.** 50.9 is 20 s of service plus 30 s of grace plus about 1.5;
   19.4 is the 20 s that remained. What is NOT the trace's is the discontinuity itself — that the same arm

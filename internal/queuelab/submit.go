@@ -248,15 +248,18 @@ func RenderMLTrainingJob(row TrainingTraceRow, namespace string) (*platformv1.ML
 // RenderMLTrainingJobWithContract turns one immutable trace row into the MLTrainingJob to submit into
 // namespace, with an explicit workload termination contract.
 //
-// The workload is a CPU compute loop in a digest-pinned Python image, not the busybox sleeper this comment
-// used to describe. The change was deliberate: a sleeper holds the quota and computes nothing, so on real
+// The workload attempts the CUDA driver API and falls back to a CPU compute loop, in a digest-pinned Python
+// image. This comment described it as CPU-only for several commits after it gained the device path, which is
+// the same drift the pages were audited for. The change was deliberate: a sleeper holds the quota and computes nothing, so on real
 // hardware "GPU-seconds discarded" would be GPU-seconds of discarded BOOKING, and nothing in the harness
 // could tell the two apart. The loop also reports its progress, which is what turns a discarded GPU-second
 // into a discarded unit of work.
 //
-// It stays CPU-only, and that is forced rather than chosen: the termination canary strips the GPU limit from
-// its probe Pods so they can schedule on a node whose devices are spoken for, and a workload requiring CUDA
-// to start would break the gate every run depends on.
+// It must remain RUNNABLE WITHOUT A DEVICE, and that is forced rather than chosen: the termination canary
+// strips the GPU limit from its probe Pods so they can schedule on a node whose devices are spoken for, and
+// a workload requiring CUDA to start would break the gate every run depends on. That is why the device path
+// is an attempt with a fallback rather than a requirement -- and why the fallback is REPORTED, so a run that
+// took it cannot be mistaken for one that did not.
 //
 // The study still runs on kind with simulated nvidia.com/gpu capacity and no real GPU; what is under test is
 // Kueue admission and reclaim, not GPU computation.

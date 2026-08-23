@@ -44,8 +44,19 @@ variable "gpu_node_instance_type" {
   # requirement, so it is written here where the number is chosen.
   #
   # g4dn.12xlarge is the cheapest instance carrying more than one GPU that DCGM supports properly -- Turing,
-  # four T4s. The two spare cards cost nothing the experiment reads; what would cost is a node the run cannot
-  # qualify. Anything with two or more well-supported devices works.
+  # four T4s.
+  #
+  # This comment used to say "the two spare cards cost nothing the experiment reads". That was asserted
+  # without measuring and it was false. The study's headline is the owner's wait, and the records show what
+  # produces it: Kueue admits the owner within 0.1 s of the preemption decision, and the owner's Pod then
+  # becomes Ready one to two seconds after the VICTIM'S terminal phase -- it is waiting for a card. Two idle
+  # cards would absorb it at admission in both arms and the 29-second difference would collapse below the
+  # floor, with every other figure in the record looking exactly as it does now.
+  #
+  # The spare cards are therefore excluded rather than tolerated: config/nvidia-device-plugin restricts what
+  # the plugin exposes, and the run's own qualification refuses a node advertising more devices than the
+  # protocol needs. Anything with two or more well-supported devices works, because the surplus is taken
+  # away rather than trusted to be harmless.
   default = "g4dn.12xlarge"
 }
 

@@ -278,7 +278,10 @@ did.
   inference, because these runs are not a sample of anything and their variance has never been characterised.
 - **The magnitudes are the trace's.** 41 and 21 are the dose and the remaining service, to within a floor.
   The one number that is NOT the trace's is the 29.0 s between the grace-bounded arms, which is the grace
-  period the cluster defaults to and which the protocol never sets.
+  period the protocol sets on its Pods and reads back. An earlier version of this line said the cluster
+  defaults to it "and the protocol never sets" it; that is the claim retracted two sections above, which
+  survived here because the retraction was written where the claim was noticed rather than everywhere it
+  appears.
 - **The residuals are inside each run's own floor.** Compare the two right-hand columns of the residual table
   above: every residual is smaller than the floor of the run it came from. Nothing sub-second here is
   resolved, and this harness cannot be made to resolve it by running more of the same — a resolution limit is

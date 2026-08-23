@@ -56,8 +56,9 @@ below.
 `self-completing` errors at or above the grace period, `grace-bounded` errors below it. That guard is right
 to exist: it stops a run silently sitting in a regime other than the one it claims.
 
-Adding the field was proposed and rejected under review. `terminationGraceSec = 30` is not an axiom the lab
-asserts: it is the apiserver's own default, and `judgeCanary` REFUSES to qualify a worker whose stored value
+Adding the field was proposed and rejected under review. `terminationGraceSec = 30` is a constant this lab
+COMPILES IN on both sides -- `internal/queuelab/trace.go` puts it on the Pods and `cmd/queuelabrun/spine.go`
+builds the horizon and the regimes from it -- and it happens to equal the apiserver's own default, and `judgeCanary` REFUSES to qualify a worker whose stored value
 is anything else. Making the harness set grace would turn that environment check into a tautology, dissolve
 the four other constants sized against 30, and expose a field that would let a tenant quadruple the worst-case
 reclaim the cap exists to bound. The sweep stays out here, on plain Pods, where the parameter is free and

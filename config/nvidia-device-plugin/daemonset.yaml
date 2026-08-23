@@ -60,6 +60,28 @@ spec:
             # and advertising nothing -- is the failure that reads as an absent node group.
             - name: FAIL_ON_INIT_ERROR
               value: "true"
+            # THE EXPERIMENT DEPENDS ON SCARCITY, so the node must advertise exactly what the protocol
+            # needs and not what the instance happens to carry.
+            #
+            # The contrast this lab publishes is physical card contention: in every recorded run the owner
+            # becomes Ready one to two seconds AFTER the victim's terminal phase, in both arms, because
+            # Kueue admits the owner within 0.1 s of the preemption decision and its Pod then waits for a
+            # card. The 29-second arm difference is that wait.
+            #
+            # The cheapest rentable instance with more than one well-supported card is a g4dn.12xlarge,
+            # which carries four. Two spare devices would absorb the owner's Pod at admission in both arms,
+            # the wait would collapse to a container start on each side, and the difference would fall below
+            # the floor -- producing a plausible, internally consistent record set in which the study's
+            # headline had been destroyed by the instance type. The preregistration's third refutation
+            # condition would then read the artifact as the session's most useful discovery.
+            #
+            # So the plugin is told which devices exist. The run's qualification refuses a node advertising
+            # more than it needs, which is what makes this a mechanism rather than a note in a runbook: the
+            # two halves fail loudly if they disagree.
+            #
+            # The indices are the protocol's device count. On a two-card node this changes nothing.
+            - name: NVIDIA_VISIBLE_DEVICES
+              value: "0,1"
           securityContext:
             privileged: true
           volumeMounts:

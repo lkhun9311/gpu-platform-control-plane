@@ -9,7 +9,8 @@ import (
 // The contract a device observation has to satisfy before a run may claim its GPU did work.
 //
 // It exists because every record this lab has produced reads device-not-observed, and the reason is not
-// modesty. The workload is arithmetic that makes no driver call, the cluster advertises nvidia.com/gpu
+// modesty. The workload FALLS BACK to arithmetic that makes no driver call wherever the driver is absent,
+// which is every run this lab has taken; the cluster advertises nvidia.com/gpu
 // through a fake plugin, and a Pod that dropped the resource request entirely would compute the same
 // iterations at the same rate. Scheduling those Pods onto real hardware would not change that verdict by
 // itself — the iteration counter stays healthy while every operation runs on the CPU — so a session could

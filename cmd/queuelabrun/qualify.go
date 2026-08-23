@@ -396,11 +396,42 @@ func qualify(n *corev1.Node, pods []corev1.Pod, req gpuRequirement, contract can
 	if !q.Schedulable {
 		failed = append(failed, "it is cordoned (spec.unschedulable), so nothing this run submits can land on it")
 	}
-	if q.AllocatableGPU < req.Total {
+	// EXACTLY the requirement, not at least it. The direction that is obviously dangerous is too few
+	// devices; the direction that quietly destroys the experiment is too many.
+	//
+	// The contrast this lab publishes is physical card scarcity. In every recorded run the owner becomes
+	// Ready one to two seconds AFTER the victim's terminal phase, in both arms -- the owner's Pod is
+	// admitted by Kueue within 0.1 s of the preemption decision and then waits for a card. The 29-second arm
+	// difference IS that wait. On a node advertising two spare devices the owner's Pod binds at admission in
+	// both arms, the wait collapses to a container start on each side, and the difference falls below the
+	// floor while every other figure looks normal.
+	//
+	// That failure is not detectable afterwards. It produces a plausible, internally consistent record set,
+	// and the preregistration's third refutation condition would read it as the session's marquee discovery:
+	// "if driver cleanup dominates and both arms converge, the termination contract stops mattering." The
+	// harness would have manufactured its own most interesting result out of the instance type.
+	//
+	// It is a refusal rather than an accommodation because the alternative -- occupying the spares from
+	// inside the run -- adds Pods to the very node whose exclusivity is a gate, and a device this run holds
+	// to keep somebody else off it is indistinguishable in the record from one it holds to measure. Present
+	// the run a node advertising what it needs: config/nvidia-device-plugin restricts which devices the
+	// plugin exposes for exactly this reason, since no rentable instance carries only two well-supported
+	// cards.
+	switch {
+	case q.AllocatableGPU < req.Total:
 		failed = append(failed, fmt.Sprintf(
 			"it advertises %d allocatable %s and this run needs %d, bound by the %s (%s); the arm would "+
 				"complete against a smaller machine and report the contrast it never produced",
 			q.AllocatableGPU, gpuResourceName, req.Total, req.BoundBy, req.From))
+	case q.AllocatableGPU > req.Total:
+		failed = append(failed, fmt.Sprintf(
+			"it advertises %d allocatable %s and this run needs exactly %d, bound by the %s (%s). The spare "+
+				"%d would absorb the owner's Pod the moment Kueue admits it, so the owner would never wait "+
+				"for the victim's card and the arm difference this study measures would collapse below the "+
+				"floor -- while every other figure looked normal. Restrict what the device plugin exposes "+
+				"rather than trusting the instance type",
+			q.AllocatableGPU, gpuResourceName, req.Total, req.BoundBy, req.From,
+			q.AllocatableGPU-req.Total))
 	}
 	if len(consumers) > 0 {
 		// Every field below came out of the apiserver and this sentence is printed straight to an operator's

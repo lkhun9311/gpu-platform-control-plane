@@ -138,7 +138,10 @@ events they describe. Across the six baseline runs the per-run floor ran **2.430
 
 So:
 
-- a GPU-specific term **larger than about 2.4 s** will be resolved
+- a GPU-specific term **larger than about 6 s** will be resolved — the session's own floor plus this
+  baseline's, because the tool's output above says in as many words that a session differencing against
+  this must add its own floor to that one. This line promised 2.4 s, which is one floor where the rule
+  requires two, and quoted it from a record set since replaced
 - a term **smaller than that will not be**, and the session must report "not resolved" rather than a number
 
 That second outcome is a legitimate result and is pre-registered as one. It would say the device's own return
@@ -238,8 +241,20 @@ assert.
    second: an unresolved difference is not a demonstrated equality, and every other page here says so. What
    IS checkable is that a difference resolved at 29.0 s against a 5.906 s floor in the baseline stops
    clearing the session's floor. If driver cleanup dominates and both arms converge, the termination
-   contract stops mattering and the 120-second cap loses the justification it was given — the single most
-   useful thing this session could discover.
+   contract stops mattering and the 120-second cap loses the justification it was given.
+
+   **Before that reading is taken, the node's device count must be ruled out, and this condition used to
+   invite the opposite.** The arm difference IS physical card scarcity: in every recorded run the owner is
+   admitted within 0.1 s of the preemption decision and becomes Ready one to two seconds after the victim's
+   terminal phase, in both arms, because its Pod is waiting for a card. A node advertising even one spare
+   device absorbs the owner at admission in both arms and the difference collapses — producing exactly the
+   convergence this condition calls the session's most useful discovery, out of the instance type. The
+   cheapest rentable instance with more than one well-supported card carries four.
+
+   So the convergence is evidence about driver cleanup only if the node advertised exactly what the
+   protocol needs. The run's qualification now refuses anything else and the device plugin is configured to
+   expose only that many, which is what makes this a mechanism rather than a caution: a session that got it
+   wrong produces no records at all.
 
 Any of the three is a better outcome than a confirmation, because all three change what the platform should
 do and a confirmation changes nothing.
@@ -359,9 +374,14 @@ requires, per Pod attempt and across the interval being measured:
 | coverage of the whole interval, no gap over 2 s | a gap that size can hide an entire preemption |
 | at least two samples showing the card working | one non-zero reading is what a driver reports while another process initialises; an allocated idle card is the exact state this axis exists to distinguish |
 
-**What does not exist yet is the scraper** that fills it in — the DaemonSet, the endpoint, and the collector
-step that samples it across a run. That is the session's first task, before any measurement, and no figure
-taken before it exists may be published as a GPU result.
+**That scraper now exists** — `config/dcgm-exporter/`, `internal/queuelab/scraper.go`,
+`internal/queuelab/dcgm.go`, the collector step in `cmd/queuelabrun/main.go`, and the route in
+`hack/gpu-session.sh`. This line said it did not for several commits after it was built, and it survived the
+pass that corrected eleven stale figures: that pass verified numbers and not statements of existence, which
+is worth recording as the shape of its blind spot.
+
+What has still never happened is any of it meeting a GPU. No figure taken before the preflight passes on the
+node may be published as a GPU result.
 
 Every refusal above is under test today, on a cluster with no GPU. That is the half that can be validated
 without hardware, and it is the half that decides whether the hardware buys anything.

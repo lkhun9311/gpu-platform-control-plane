@@ -604,3 +604,63 @@ func mustHarnessContract(t *testing.T) canaryContract {
 	}
 	return c
 }
+
+// A node with MORE devices than the protocol needs is refused, and that direction is the dangerous one.
+//
+// Too few devices is obviously fatal and was already refused. Too many destroys the experiment silently:
+// the contrast this lab publishes is physical card scarcity, and every recorded run shows it directly --
+// Kueue admits the owner within 0.1 s of the preemption decision, and the owner's Pod becomes Ready one to
+// two seconds after the VICTIM'S terminal phase, in both arms. It is waiting for a card. The 29-second arm
+// difference is that wait.
+//
+// Give the run two spare devices and the owner's Pod binds at admission in both arms. The wait collapses to
+// a container start on each side, the difference falls below the floor, and every other figure in the
+// record looks exactly as it does today. Nothing downstream could tell that from a real finding -- and the
+// preregistration's third refutation condition would read it as the session's most useful discovery.
+//
+// The instance this study rents carries four cards because no rentable one carries two, so this is not
+// hypothetical: it is the default in infra/aws/cluster/variables.tf.
+//
+// Mutation that turns this red: restore `AllocatableGPU < req.Total` as the only device check.
+func TestANodeWithSpareDevicesIsRefused(t *testing.T) {
+	node := func(allocatable int64) *corev1.Node {
+		return &corev1.Node{
+			ObjectMeta: metav1.ObjectMeta{Name: "platform-worker", UID: "n1"},
+			Status: corev1.NodeStatus{
+				Allocatable: corev1.ResourceList{
+					gpuResourceName: *resource.NewQuantity(allocatable, resource.DecimalSI),
+				},
+				Conditions: []corev1.NodeCondition{{Type: corev1.NodeReady, Status: corev1.ConditionTrue}},
+			},
+		}
+	}
+	for _, tc := range []struct {
+		name        string
+		allocatable int64
+		wantFail    string
+	}{
+		{"exactly what the protocol needs", 2, ""},
+		{"a smaller machine", 1, "the contrast it never produced"},
+		// The g4dn.12xlarge case: four T4s, two of them spare.
+		{"the instance this study actually rents", 4, "collapse below the floor"},
+		{"one spare device", 3, "collapse below the floor"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := qualify(node(tc.allocatable), nil, testReq(2), mustHarnessContract(t))
+			if tc.wantFail == "" {
+				if err != nil && strings.Contains(err.Error(), "allocatable") {
+					t.Fatalf("a node advertising exactly the requirement was refused on device count: %v", err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("a node advertising %d devices against a requirement of 2 qualified",
+					tc.allocatable)
+			}
+			if !strings.Contains(err.Error(), tc.wantFail) {
+				t.Fatalf("a node advertising %d devices was not refused for the right reason (want %q): %v",
+					tc.allocatable, tc.wantFail, err)
+			}
+		})
+	}
+}
