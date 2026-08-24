@@ -229,6 +229,14 @@ spec:
                   describes.
                 format: int64
                 type: integer
+              observedUnhealthy:
+                description: |-
+                  observedUnhealthy records that the target was seen in a non-healthy state at least once.
+
+                  Without it a recovery cannot be told from a target that was never broken. Every run starts with its
+                  target healthy, so "first healthy observation" is second zero -- and a run whose target never came
+                  back would report Recovered at 0s on the strength of the state it began in.
+                type: boolean
               phase:
                 description: phase is the run's lifecycle position.
                 enum:
@@ -244,7 +252,7 @@ spec:
                 type: string
               recoveredAtSeconds:
                 description: recoveredAtSeconds is when the target was first observed
-                  healthy, if it was.
+                  healthy AFTER being observed unhealthy.
                 format: int32
                 type: integer
               startedAt:

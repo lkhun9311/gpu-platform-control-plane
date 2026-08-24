@@ -367,3 +367,50 @@ func TestApplyModelPathRefusesATypoInsteadOfServingTheDefaults(t *testing.T) {
 		})
 	}
 }
+
+// A stub that is ready the instant it binds cannot stand in for a server that loads.
+//
+// This exists because M7's pod-kill scenario was unobservable without it: the replacement Pod went healthy
+// inside a second, the outage fell between the recorder's polls, and successive runs disagreed about
+// whether the failure had happened. A readiness delay is not test-rigging -- it is the stub being less
+// unlike a real engine, which loads weights before it serves.
+func TestTheStubCanReportUnreadyWhileItIsStillStarting(t *testing.T) {
+	p := stubProfile{tokens: 1, readyAfter: 400 * time.Millisecond}
+	srv := httptest.NewServer(stubMux(p, newStubStats()))
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/health")
+	if err != nil {
+		t.Fatalf("probe: %v", err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("/health answered %d while still starting; a probe would mark the Pod ready immediately and "+
+			"the outage a kill produces would be shorter than anything can observe", resp.StatusCode)
+	}
+
+	time.Sleep(500 * time.Millisecond)
+	resp2, err := http.Get(srv.URL + "/health")
+	if err != nil {
+		t.Fatalf("probe after the delay: %v", err)
+	}
+	_ = resp2.Body.Close()
+	if resp2.StatusCode != http.StatusOK {
+		t.Fatalf("/health still answered %d after the delay elapsed; the Pod would never become ready", resp2.StatusCode)
+	}
+}
+
+// Zero keeps the behaviour every other caller depends on.
+func TestTheStubIsReadyImmediatelyWhenNoDelayIsAsked(t *testing.T) {
+	srv := httptest.NewServer(stubMux(stubProfile{tokens: 1}, newStubStats()))
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/health")
+	if err != nil {
+		t.Fatalf("probe: %v", err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("a stub with no readiness delay answered %d; every other caller expects it ready at once", resp.StatusCode)
+	}
+}

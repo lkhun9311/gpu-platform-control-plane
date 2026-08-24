@@ -48,6 +48,8 @@ func main() {
 	flag.StringVar(&name, "name", "", "the WorkloadRun to drive")
 	flag.StringVar(&namespace, "namespace", "default", "its namespace")
 	flag.DurationVar(&timeout, "timeout", 5*time.Minute, "give up if the run has not reached a terminal phase")
+	var poll time.Duration
+	flag.DurationVar(&poll, "poll", 0, "how often to look at the open window; zero uses the controller's default")
 	flag.Parse()
 
 	ctrl.SetLogger(zap.New(zap.UseDevMode(true)))
@@ -71,7 +73,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	r := &controller.WorkloadRunReconciler{Client: c, Scheme: scheme}
+	r := &controller.WorkloadRunReconciler{Client: c, Scheme: scheme, Poll: poll}
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 

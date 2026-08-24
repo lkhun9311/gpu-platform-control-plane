@@ -227,6 +227,16 @@ type stubProfile struct {
 	tokens int
 	ttft   time.Duration
 	itl    time.Duration
+	// readyAfter is how long after start /health reports healthy.
+	//
+	// A real engine loads weights and profiles memory before it serves; this stub is ready the instant it
+	// binds, and that difference is not cosmetic where readiness is the thing under observation. M7's
+	// pod-kill scenario was unobservable because of it: the replacement Pod went healthy inside a second,
+	// so the outage fell between polls and the evidence trail recorded a platform that never changed. Runs
+	// disagreed with each other about whether the failure had happened at all.
+	//
+	// Zero keeps the old behaviour, which is what every other caller wants.
+	readyAfter time.Duration
 }
 
 // validate refuses a profile that would serve a backend other than the one declared.
@@ -241,6 +251,9 @@ func (p stubProfile) validate() error {
 	}
 	if p.ttft < 0 {
 		return fmt.Errorf("stub profile: ttft is %s; a negative delay is served as no delay", p.ttft)
+	}
+	if p.readyAfter < 0 {
+		return fmt.Errorf("stub profile: ready-after is %s; a negative delay is served as no delay", p.readyAfter)
 	}
 	if p.itl < 0 {
 		return fmt.Errorf("stub profile: itl is %s; a negative delay is served as no delay", p.itl)
@@ -295,9 +308,9 @@ func (p *stubProfile) applyModelPath(modelPath string) error {
 	// is accepted, since the whole point is that the author believed they had set something.
 	for key := range q {
 		switch key {
-		case "tokens", "ttft-ms", "itl-ms":
+		case "tokens", "ttft-ms", "itl-ms", "ready-after-ms":
 		default:
-			return fmt.Errorf("model path %q: unknown parameter %q; the stub accepts tokens, ttft-ms and itl-ms",
+			return fmt.Errorf("model path %q: unknown parameter %q; the stub accepts tokens, ttft-ms, itl-ms and ready-after-ms",
 				modelPath, key)
 		}
 	}
@@ -329,9 +342,14 @@ func (p *stubProfile) applyModelPath(modelPath string) error {
 	if err != nil {
 		return err
 	}
+	readyMs, err := intParam("ready-after-ms", int(p.readyAfter/time.Millisecond))
+	if err != nil {
+		return err
+	}
 	p.tokens = tokens
 	p.ttft = time.Duration(ttftMs) * time.Millisecond
 	p.itl = time.Duration(itlMs) * time.Millisecond
+	p.readyAfter = time.Duration(readyMs) * time.Millisecond
 	return nil
 }
 
@@ -378,7 +396,7 @@ func stubServe(args []string) error {
 
 	stats := newStubStats()
 	mux := stubMux(profile, stats)
-	fmt.Printf("stub backend listening on %s (tokens=%d ttft=%s itl=%s)\n", *addr, profile.tokens, profile.ttft, profile.itl)
+	fmt.Printf("stub backend listening on %s (tokens=%d ttft=%s itl=%s readyAfter=%s)\n", *addr, profile.tokens, profile.ttft, profile.itl, profile.readyAfter)
 	srv := &http.Server{
 		Addr:              *addr,
 		Handler:           mux,
@@ -449,7 +467,17 @@ func stubMux(profile stubProfile, stats *stubStats) *http.ServeMux {
 	// /health is on the serving port and not a separate one because the InferenceDeployment controller
 	// hardcodes both probes to GET /health on the container's named "http" port; without it the pod never
 	// becomes ready and the Service it backs never gets an endpoint.
+	//
+	// Before readyAfter has elapsed it reports 503, which is what a serving container looks like while it is
+	// still loading. Without that this stub is ready the instant it binds, and a scenario that kills a Pod
+	// has nothing observable to show: the replacement is healthy before the next poll, and the evidence
+	// trail records a platform that never changed.
+	startedAt := time.Now()
 	mux.HandleFunc("/health", func(w http.ResponseWriter, _ *http.Request) {
+		if profile.readyAfter > 0 && time.Since(startedAt) < profile.readyAfter {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
 		w.WriteHeader(http.StatusOK)
 	})
 	writeStats := func(w http.ResponseWriter, snap stubStatsSnapshot) {

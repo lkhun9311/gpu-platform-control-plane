@@ -192,9 +192,14 @@ var _ = Describe("WorkloadRun", func() {
 	})
 
 	It("does not re-judge a run that already reached a terminal state", func() {
+		// Degraded then Ready, so the run has a failure to recover from and reaches Complete. Starting it
+		// healthy would now end in Refused -- correctly, since nothing was observed to fail -- and this spec
+		// is about terminality rather than about the verdict.
 		createRun(10, 5, tgtName)
-		setTargetPhase("Ready")
+		setTargetPhase("Degraded")
 		tick(0)
+		setTargetPhase("Ready")
+		tick(4 * time.Second)
 		tick(10 * time.Second)
 		Expect(load().Status.Phase).To(Equal(platformv1.WorkloadRunComplete))
 
@@ -206,5 +211,109 @@ var _ = Describe("WorkloadRun", func() {
 		after := load()
 		Expect(after.Status.Verdict).To(Equal(before.Status.Verdict))
 		Expect(after.Status.Observations).To(HaveLen(len(before.Status.Observations)))
+	})
+})
+
+var _ = Describe("WorkloadRun recovery semantics", func() {
+	const ns = "default"
+	var (
+		ctx     context.Context
+		clock   time.Time
+		rec     *WorkloadRunReconciler
+		runName string
+		tgtName string
+	)
+
+	tick := func(d time.Duration) {
+		clock = clock.Add(d)
+		_, err := rec.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Name: runName, Namespace: ns}})
+		Expect(err).NotTo(HaveOccurred())
+	}
+	load := func() platformv1.WorkloadRun {
+		var run platformv1.WorkloadRun
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: runName, Namespace: ns}, &run)).To(Succeed())
+		return run
+	}
+	setPhase := func(phase string) {
+		var infd platformv1.InferenceDeployment
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: tgtName, Namespace: ns}, &infd)).To(Succeed())
+		infd.Status.Phase = phase
+		Expect(k8sClient.Status().Update(ctx, &infd)).To(Succeed())
+	}
+
+	BeforeEach(func() {
+		ctx = context.Background()
+		clock = time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC)
+		rec = &WorkloadRunReconciler{Client: k8sClient, Scheme: k8sClient.Scheme(), Now: func() time.Time { return clock }}
+		wrSeq++
+		tgtName = fmt.Sprintf("wr-rec-target-%d", wrSeq)
+		runName = fmt.Sprintf("wr-rec-run-%d", wrSeq)
+		Expect(k8sClient.Create(ctx, &platformv1.InferenceDeployment{
+			ObjectMeta: metav1.ObjectMeta{Name: tgtName, Namespace: ns},
+			Spec: platformv1.InferenceDeploymentSpec{
+				Model:    platformv1.InferenceModel{Name: "demo", StorageURI: "stub://demo"},
+				Image:    "registry.k8s.io/pause:3.9",
+				GPUCount: 0, Replicas: 1, Port: 8090,
+			},
+		})).To(Succeed())
+		Expect(k8sClient.Create(ctx, &platformv1.WorkloadRun{
+			ObjectMeta: metav1.ObjectMeta{Name: runName, Namespace: ns},
+			Spec: platformv1.WorkloadRunSpec{
+				Scenario:                 platformv1.ScenarioServingPodKilled,
+				Target:                   platformv1.WorkloadRunTarget{Kind: "InferenceDeployment", Name: tgtName, Namespace: ns},
+				ObservationWindowSeconds: 30,
+				RecoversWithinSeconds:    25,
+			},
+		})).To(Succeed())
+	})
+
+	// The defect the first end-to-end run exposed, and the reason envtest had not.
+	//
+	// Every run starts with its target healthy, so crediting the FIRST healthy observation makes the
+	// recovery second zero -- before the failure was even injected. The specs above all start their target
+	// Degraded, which is the one shape where "first healthy" and "first healthy after failing" agree.
+	It("does not credit the healthy state it started in as a recovery", func() {
+		setPhase("Ready")
+		tick(0)
+		tick(10 * time.Second)
+		setPhase("Pending")
+		tick(5 * time.Second)
+		setPhase("Ready")
+		tick(5 * time.Second)
+
+		run := load()
+		Expect(run.Status.RecoveredAtSeconds).NotTo(BeNil())
+		Expect(*run.Status.RecoveredAtSeconds).To(Equal(int32(20)),
+			"the recovery is the return to health after the failure, not the state the run began in")
+	})
+
+	// A run whose target never moved has not measured a recovery, and must not report one.
+	It("refuses when nothing was ever observed to fail", func() {
+		setPhase("Ready")
+		tick(0)
+		for range 4 {
+			tick(10 * time.Second)
+		}
+
+		run := load()
+		Expect(run.Status.Phase).To(Equal(platformv1.WorkloadRunRefused))
+		Expect(run.Status.Reason).To(ContainSubstring("never observed unhealthy"))
+		Expect(run.Status.Verdict).To(BeEmpty(),
+			"a pass here would be the strongest claim resting on the weakest evidence: the platform's phase never moved")
+	})
+
+	// A target that fails and stays failed is NotRecovered, not refused: the failure was observed, so there
+	// is a recovery to judge and its answer is no.
+	It("calls a failure that never comes back NotRecovered rather than refusing", func() {
+		setPhase("Ready")
+		tick(0)
+		setPhase("Pending")
+		for range 4 {
+			tick(10 * time.Second)
+		}
+
+		run := load()
+		Expect(run.Status.Phase).To(Equal(platformv1.WorkloadRunComplete))
+		Expect(run.Status.Verdict).To(Equal(platformv1.VerdictNotRecovered))
 	})
 })

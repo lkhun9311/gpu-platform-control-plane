@@ -35,14 +35,23 @@ import (
 )
 
 const (
-	// workloadRunPoll is how often an open window is looked at.
-	workloadRunPoll = 5 * time.Second
-	// workloadRunMaxGap is how long a trail may go unobserved before it stops being one.
+	// workloadRunPoll is the DEFAULT cadence for looking at an open window.
 	//
-	// Three polls. A single missed reconcile is ordinary -- a leader election, a slow apiserver -- and
-	// refusing on it would make the type useless. Three consecutive is a controller that was not running,
-	// and a verdict computed across that is a claim about a window nobody watched.
-	workloadRunMaxGap = 3 * workloadRunPoll
+	// It is a default rather than a constant because the right cadence depends on what is being watched: a
+	// recovery that takes two seconds is invisible to a five-second poll, and a run recorded that way says
+	// the platform never left its healthy state. That is not a small inaccuracy -- it is the trail reporting
+	// a constant, which is what this whole type exists to stop.
+	workloadRunPoll = 5 * time.Second
+	// workloadRunMaxGapPolls is how many missed looks make a hole rather than a hiccup.
+	//
+	// A single missed reconcile is ordinary -- a leader election, a slow apiserver -- and refusing on it
+	// would make the type useless. Three consecutive is a controller that was not running, and a verdict
+	// computed across that is a claim about a window nobody watched.
+	//
+	// It is a multiple of the POLL rather than a duration, so tightening the cadence tightens the tolerance
+	// with it. A fixed tolerance beside a configurable poll would silently accept three-second holes in a
+	// run that looks every second.
+	workloadRunMaxGapPolls = 3
 	// workloadRunHealthyPhase is the phase both watchable kinds use for "serving normally".
 	//
 	// InferenceDeployment and NodeHealth happen to agree on the word, and this constant is deliberately
@@ -61,6 +70,25 @@ type WorkloadRunReconciler struct {
 	Scheme *runtime.Scheme
 	// Now is injectable so tests can drive a window without waiting for one.
 	Now func() time.Time
+	// Poll is how often an open window is looked at; zero selects workloadRunPoll.
+	//
+	// Configurable because a recovery faster than the cadence is invisible, and a trail that missed it
+	// reports a platform that never changed. hack/m7-evidence-trail.sh tightens it for exactly that reason:
+	// a Pod on kind is replaced in a couple of seconds.
+	Poll time.Duration
+}
+
+// poll is the cadence this reconciler runs at.
+func (r *WorkloadRunReconciler) poll() time.Duration {
+	if r.Poll > 0 {
+		return r.Poll
+	}
+	return workloadRunPoll
+}
+
+// maxGap is how long the trail may go unobserved before it stops being one, derived from the cadence.
+func (r *WorkloadRunReconciler) maxGap() time.Duration {
+	return workloadRunMaxGapPolls * r.poll()
 }
 
 // +kubebuilder:rbac:groups=platform.lkhun9311.github.io,resources=workloadruns,verbs=get;list;watch;create;update;patch;delete
@@ -124,16 +152,16 @@ func (r *WorkloadRunReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			return ctrl.Result{}, err
 		}
 		log.Info("Observing", "run", req.String(), "scenario", run.Spec.Scenario)
-		return ctrl.Result{RequeueAfter: workloadRunPoll}, nil
+		return ctrl.Result{RequeueAfter: r.poll()}, nil
 	}
 
 	// The gap check comes before anything is recorded, so a controller that was down cannot append an
 	// observation that makes the trail look continuous.
-	if last := run.Status.LastObservedAt; last != nil && now.Sub(last.Time) > workloadRunMaxGap {
+	if last := run.Status.LastObservedAt; last != nil && now.Sub(last.Time) > r.maxGap() {
 		return r.refuse(ctx, &run, fmt.Sprintf(
 			"nothing was observed for %s, which is longer than the %s this run's poll interval allows: the "+
 				"trail has a hole and a verdict across it would be a claim about a window nobody watched",
-			now.Sub(last.Time).Round(time.Second), workloadRunMaxGap))
+			now.Sub(last.Time).Round(time.Second), r.maxGap()))
 	}
 
 	if !found {
@@ -151,7 +179,20 @@ func (r *WorkloadRunReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		if err := r.Status().Update(ctx, &run); err != nil {
 			return ctrl.Result{}, err
 		}
-		return ctrl.Result{RequeueAfter: workloadRunPoll}, nil
+		return ctrl.Result{RequeueAfter: r.poll()}, nil
+	}
+
+	// Nothing was ever observed to fail, so there is no recovery to judge.
+	//
+	// Refused rather than Recovered, because a pass here would be the strongest possible claim resting on
+	// the weakest possible evidence: the scenario was injected and the platform's own phase never moved. The
+	// honest reading is that the run did not see the failure -- the injection missed, or the outage was
+	// shorter than the poll -- and both send an operator somewhere a false pass would not.
+	if !run.Status.ObservedUnhealthy {
+		return r.refuse(ctx, &run, fmt.Sprintf(
+			"the target was never observed unhealthy during the %ds window, so nothing was observed to "+
+				"recover from; a verdict here would rest on a failure this run did not see",
+			run.Spec.ObservationWindowSeconds))
 	}
 
 	// The window closed over a covered observation, so there is something to stand behind.
@@ -197,7 +238,17 @@ func (r *WorkloadRunReconciler) record(run *platformv1.WorkloadRun, now time.Tim
 			Healthy:        healthy,
 		})
 	}
-	if healthy && run.Status.RecoveredAtSeconds == nil {
+	// A recovery is a return to health AFTER something was observed to fail, and the distinction is not
+	// pedantic: the target is healthy when a run starts, so crediting the first healthy observation makes
+	// every run recover at second zero -- including one whose target never came back. The first end-to-end
+	// run against a real cluster reported exactly that, verdict Recovered at 0s, while its own trail showed
+	// the failure arriving ten seconds later. envtest missed it because those specs start the target
+	// already degraded, which is the one shape where the two readings agree.
+	if !healthy {
+		run.Status.ObservedUnhealthy = true
+		return
+	}
+	if run.Status.ObservedUnhealthy && run.Status.RecoveredAtSeconds == nil {
 		at := elapsed
 		run.Status.RecoveredAtSeconds = &at
 	}

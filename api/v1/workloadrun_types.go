@@ -168,7 +168,14 @@ type WorkloadRunStatus struct {
 	// no answer, rather than an answer of "no".
 	// +optional
 	Verdict WorkloadRunVerdict `json:"verdict,omitempty"`
-	// recoveredAtSeconds is when the target was first observed healthy, if it was.
+	// observedUnhealthy records that the target was seen in a non-healthy state at least once.
+	//
+	// Without it a recovery cannot be told from a target that was never broken. Every run starts with its
+	// target healthy, so "first healthy observation" is second zero -- and a run whose target never came
+	// back would report Recovered at 0s on the strength of the state it began in.
+	// +optional
+	ObservedUnhealthy bool `json:"observedUnhealthy,omitempty"`
+	// recoveredAtSeconds is when the target was first observed healthy AFTER being observed unhealthy.
 	// +optional
 	RecoveredAtSeconds *int32 `json:"recoveredAtSeconds,omitempty"`
 	// reason explains the phase, and for Refused it names which part of the observation is missing so the
