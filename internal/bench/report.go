@@ -33,6 +33,39 @@ const errKindTimeout = "timeout"
 // ArmSummary is the analysis of one arm's raw evidence for one repetition.
 //
 // Latency percentiles are in milliseconds, computed from the client-side raw timestamps.
+// thresholdProbePrefix names the probe tenants the trace generator creates to straddle the guard's
+// eligibility threshold. Matching on a prefix rather than an exact pair keeps the report from having to be
+// edited every time a probe is added, and keeps the two files from disagreeing about a literal.
+const thresholdProbePrefix = "standard-probe-"
+
+// The threshold probes, defined here because the report keys on them and the trace generator builds them.
+//
+// They lived in cmd/benchharness first, and the test for them transcribed the numbers -- so setting both
+// probes to the same length passed everything while silently removing the only traffic that touches the
+// threshold. One definition, read by both sides, is what makes that mutation fail.
+//
+// The gateway scores (chars+3)/4, so these land one point either side of a 4096 threshold: 16,380 scores
+// 4,095 and passes an engaged guard, 16,384 scores 4,096 and does not. Four characters apart.
+const (
+	ProbeUnderTenant = thresholdProbePrefix + "under"
+	ProbeOverTenant  = thresholdProbePrefix + "over"
+	ProbeUnderChars  = 16_380
+	ProbeOverChars   = 16_384
+)
+
+// isThresholdProbe reports whether tenant is one of the threshold probes.
+func isThresholdProbe(tenant string) bool { return strings.HasPrefix(tenant, thresholdProbePrefix) }
+
+// ProbeOutcome is one probe tenant's admission tally, and the real token cost the estimate stood in for.
+type ProbeOutcome struct {
+	// Total is how many of this tenant's requests the arm sent.
+	Total int
+	// Rejected is how many came back 429.
+	Rejected int
+	// EstInputTokens is the score the gateway assigned, which is what the threshold is compared against.
+	EstInputTokens int
+}
+
 type ArmSummary struct {
 	// Arm names the condition.
 	Arm string
@@ -59,6 +92,14 @@ type ArmSummary struct {
 	// Their ratio is the admitted-work fraction the design uses to check that arm B is admission-matched to arm C.
 	OfferedInputTokens  int64
 	AdmittedInputTokens int64
+	// ThresholdProbe records how the guard's eligibility threshold behaved, keyed by tenant.
+	//
+	// The rest of this summary cannot show it. Contender and premium traffic sit thousands of tokens either
+	// side of the threshold, so their admission outcome is the same for any threshold in a wide range, and a
+	// report built only from them describes a guard whose configured number never mattered. The probe
+	// tenants straddle it by four characters; this is where their opposite outcomes become visible.
+	ThresholdProbe map[string]ProbeOutcome
+
 	// Censored is true when more than 1% of the premium requests timed out, so the tail is a lower bound rather than an exact p99 (design spec: report it as at least the timeout, never drop it).
 	Censored bool
 	// TailSampleSize is the number of completed premium requests the tail percentiles were computed over.
@@ -95,6 +136,24 @@ func Summarize(arm string, rows []RawRow) ArmSummary {
 			if r.HTTPStatus != httpStatusTooManyRequests {
 				s.AdmittedInputTokens += int64(r.EstInputTokens)
 			}
+		}
+
+		// The probe tally is keyed by tenant rather than by a flag on the row, because what makes a request a
+		// probe is the prompt length the trace gave it, and the tenant name is where that choice is recorded.
+		// Any tenant whose name marks it a probe is counted; the report does not need to know how many there
+		// are, only that their outcomes are reported separately from the populations that cannot see the
+		// threshold.
+		if isThresholdProbe(r.Tenant) {
+			if s.ThresholdProbe == nil {
+				s.ThresholdProbe = map[string]ProbeOutcome{}
+			}
+			o := s.ThresholdProbe[r.Tenant]
+			o.Total++
+			o.EstInputTokens = r.EstInputTokens
+			if r.HTTPStatus == httpStatusTooManyRequests {
+				o.Rejected++
+			}
+			s.ThresholdProbe[r.Tenant] = o
 		}
 
 		// Overall outcome counts cover every offered request, so load shedding is always visible as a rejection.
@@ -320,6 +379,35 @@ func FormatReport(summaries []ArmSummary, checks Checks, matchTolerance float64)
 		fmt.Fprintf(&b, "%-12s %8d %8d %8d %8d %8.1f %8.1f %8.1f %8d%s%s\n",
 			s.Arm, s.Total, s.Completed, s.Rejected, s.TimedOut, s.TTFTMsP50, s.TTFTMsP95, s.TTFTMsP99, s.TailSampleSize, censored, thin)
 	}
+	// The threshold's own evidence, printed before the checks because it qualifies them: the checks compare
+	// arms, and this says whether the number those arms were configured with did any work at all.
+	probed := false
+	for _, sm := range summaries {
+		if len(sm.ThresholdProbe) > 0 {
+			probed = true
+			break
+		}
+	}
+	if probed {
+		b.WriteString("\nEligibility threshold (probe tenants, four characters apart)\n")
+		for _, sm := range summaries {
+			names := make([]string, 0, len(sm.ThresholdProbe))
+			for n := range sm.ThresholdProbe {
+				names = append(names, n)
+			}
+			sort.Strings(names)
+			for _, n := range names {
+				o := sm.ThresholdProbe[n]
+				fmt.Fprintf(&b, "  %-12s %-22s est=%d  sent=%d  rejected=%d\n", sm.Arm, n, o.EstInputTokens, o.Total, o.Rejected)
+			}
+		}
+		b.WriteString("  the estimate is what the threshold compares; the measured real cost of these prompts is\n")
+		b.WriteString("  about 3171 tokens, so a rejection here fires on an over-estimate of roughly 29 percent\n")
+	} else {
+		b.WriteString("\nEligibility threshold: NOT TESTED -- no probe tenant straddled it, so any threshold in a wide\n")
+		b.WriteString("  range would have produced these same arms. The configured value is not evidenced by this run.\n")
+	}
+
 	b.WriteString("\nPre-registered checks (primary endpoint: TTFT p99)\n")
 	fmt.Fprintf(&b, "  absolute protection  C/R1 = %.3f  (<= 1.25)  %s\n", checks.AbsoluteProtectionRatio, pass(checks.AbsoluteProtectionPass))
 	fmt.Fprintf(&b, "  incremental value    C/B  = %.3f  CI[%.3f, %.3f]  (<= 0.90, CI hi < 1.0)  %s\n",

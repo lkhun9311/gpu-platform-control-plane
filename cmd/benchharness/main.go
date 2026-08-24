@@ -81,6 +81,11 @@ func genTrace(args []string) error {
 	noisyChars := fs.Int("noisy-prompt-chars", 40_000, "noisy tenant prompt length in chars (estimates at 10,000 tokens, 2.44x the 4,096 guard threshold)")
 	premiumWeight := fs.Float64("premium-weight", 1, "premium tenant arrival share")
 	noisyWeight := fs.Float64("noisy-weight", 1, "noisy tenant arrival share")
+	// Small on purpose. These are a probe population, not a load driver: each carries about 3,171 real
+	// tokens, so a large share would move the pressure the arms are supposed to differ under.
+	probeWeight := fs.Float64("probe-weight", 0.1, "arrival share of EACH threshold-probe tenant; 0 disables them")
+	probeUnderChars := fs.Int("probe-under-chars", bench.ProbeUnderChars, "probe prompt scoring just BELOW the guard threshold")
+	probeOverChars := fs.Int("probe-over-chars", bench.ProbeOverChars, "probe prompt scoring exactly AT the guard threshold")
 	arm := fs.String("arm", "off", "arm this manifest measures (R1|off|static-cap|kv-aware)")
 	gatewayURL := fs.String("gateway-url", "http://localhost:8080", "gateway URL the replay targets")
 	model := fs.String("model", "llama-3-8b", "model name")
@@ -93,9 +98,31 @@ func genTrace(args []string) error {
 		return err
 	}
 
+	// Two probe tenants that straddle the guard's eligibility threshold, four characters apart.
+	//
+	// Without them the trace does not test the threshold at all: the contender estimates at 10,000 tokens and
+	// premium at 50, so ANY threshold between 51 and 10,000 produces identical behaviour in every arm, and the
+	// number the guard is configured with is decorative. These two make it load-bearing. The gateway scores
+	// (chars+3)/4, so 16,380 characters score 4,095 and pass while 16,384 score 4,096 and are rejected -- one
+	// real token apart, opposite decisions.
+	//
+	// They also walk into the false-positive band the calibration measured: both prompts carry about 3,171
+	// real tokens against a threshold of 4,096, so the rejected one is rejected on an over-estimate of 29
+	// percent. That band was measurable before and unreachable; now the run reports how often it fires.
+	//
+	// IsNoisy is true for both, and it is not a claim that they are contenders. The field's operational
+	// meaning is "not the victim whose tail is the primary endpoint" -- it gates exactly two things, the
+	// tail's population and R1's filter, and a probe tenant belongs in neither. Marking them false would put
+	// borderline traffic inside the p99 the whole experiment is judged on.
 	tenants := []bench.TenantSpec{
 		{Tenant: "premium-1", Weight: *premiumWeight, PromptLenChars: *premiumChars, MaxOutputTokens: 64, IsNoisy: false},
 		{Tenant: "standard-noisy", Weight: *noisyWeight, PromptLenChars: *noisyChars, MaxOutputTokens: 16, IsNoisy: true},
+	}
+	if *probeWeight > 0 {
+		tenants = append(tenants,
+			bench.TenantSpec{Tenant: bench.ProbeUnderTenant, Weight: *probeWeight, PromptLenChars: *probeUnderChars, MaxOutputTokens: 8, IsNoisy: true},
+			bench.TenantSpec{Tenant: bench.ProbeOverTenant, Weight: *probeWeight, PromptLenChars: *probeOverChars, MaxOutputTokens: 8, IsNoisy: true},
+		)
 	}
 
 	rows, err := bench.GenerateTrace(bench.TraceParams{
