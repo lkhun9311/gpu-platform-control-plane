@@ -283,3 +283,31 @@ func TestTheSharingOverlaysAreExclusiveAndDifferOnlyInTheMechanism(t *testing.T)
 			"share the card as well as in how", a[1], b[1])
 	}
 }
+
+// The write-up must not claim to be finished while it still has placeholders in it.
+//
+// M5-d is written before the run so its reasoning cannot be fitted to whatever the card produces, which
+// means it ships full of markers. That is fine while it says so; it stops being fine the moment the page
+// presents itself as a result. This is the check that keeps those two states apart, and it is the same
+// discipline the report applies to an arm whose tail is too thin to be a tail.
+func TestTheWriteUpDoesNotClaimNumbersItStillMarksAsMissing(t *testing.T) {
+	b, err := os.ReadFile("../../hack/m5d-writeup.md")
+	if err != nil {
+		t.Fatalf("read the write-up: %v", err)
+	}
+	text := string(b)
+
+	markers := regexp.MustCompile(`\[\[[A-Z0-9_]+\]\]`).FindAllString(text, -1)
+	// The page's own title is the declaration that the numbers are absent. If it is edited to drop that,
+	// every marker below becomes a claim.
+	declares := strings.Contains(text, "with the numbers left out")
+
+	switch {
+	case len(markers) > 0 && !declares:
+		t.Errorf("the write-up carries %d unfilled marker(s) and no longer says the numbers are missing; a "+
+			"reader would take %q for a result", len(markers), markers[0])
+	case len(markers) == 0 && declares:
+		t.Error("every marker is filled but the write-up still announces that its numbers are missing, which " +
+			"understates a finished result as badly as the other direction overstates an unfinished one")
+	}
+}
