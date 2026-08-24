@@ -8,17 +8,15 @@ real device plugin**: every recorded run used the fake one and produced no DCGM 
 Counts: 16 refusals in `internal/queuelab/device.go`, 5 in `cmd/queuelabrun/qualify.go`, 16 in
 `cmd/queuelabrun/device_preflight.go`.
 
-## 1. A structural defect, found by this audit and NOT fixed
+## 1. A structural defect, found by this audit and FIXED
 
-**The busyness gate is judged over the device hold, and in the honouring arm the victim is exiting.**
+**The busyness gate was judged over the device hold, and in the honouring arm the victim is exiting.**
 
-`cmd/queuelabrun/record.go` passes `DeviceHoldWindow`'s bounds — owner `Admitted` to victim
-`AttemptStopped` — straight into `EstablishesDeviceWork`, and the decode path re-runs the gate bound to the
-same two stamps. Inside that window the victim is *being terminated*; that is what the window is. The gate
-requires `minBusySamples` (2) distinct instants showing the card working, and refuses with "a card that is
-allocated and idle is the state this whole axis exists to distinguish from one that is computing".
+`EstablishesDeviceWork` took one interval and asked every clause over it. The hold -- owner `Admitted` to
+victim `AttemptStopped` -- is the tail of the attempt during which the victim is *being terminated*, and the
+gate wanted two distinct instants showing the card working inside it.
 
-In the arm that honours SIGTERM those two requirements contradict each other:
+In the arm that honours SIGTERM those requirements contradicted each other:
 
 The holds below are read off the committed records, not restated from another page. Re-derive them with:
 
@@ -29,23 +27,32 @@ The holds below are read off the committed records, not restated from another pa
 | A-honor | 2.171 – 3.210 s | has stopped computing | 2–3, reading idle |
 | A-ignore | 31.192 – 31.233 s | still computing | ~31, reading busy |
 
-So `-require-device` does not fail evenly. It refuses the short arm and keeps the long one, **leaving no
-contrast to form** — and the contrast is the result.
+`-require-device` did not fail evenly. It refused the short arm and kept the long one, **leaving no contrast
+to form** — and the contrast is the result.
 
-`internal/queuelab/device_holdwindow_test.go` characterises it: the honouring shape is refused, the
-ignoring shape passes, and the test says what to do if the refusal ever stops happening.
+**The fix** is to ask the two questions over the two intervals they were always about. `DeviceClaim` now
+carries both:
 
-Two candidate fixes, neither taken, because both change what the record's device evidence MEANS and the
-decode-time re-check is bound to the hold stamps:
+- **exclusivity, coverage, continuity, single-device** read the **hold**: was this card exclusively that
+  Pod's, watched without a blink, while the owner waited for it;
+- **busyness** reads the **victim's own attempt** (`VictimWorkWindow`: its Pod becoming Ready to it
+  stopping): did this Pod use the card at all.
 
-- judge "this Pod did device work" over the victim's own attempt rather than over the hold, which is the
-  interval the question is actually about;
-- keep the hold-bound check and make it conditional on the hold being long enough to contain the samples it
-  demands, turning a silent refusal into a stated limit.
+Coverage is deliberately not required across the attempt — the claim is "busy at two separate instants",
+which partial observation supports, and demanding continuity there would refuse an observer that started
+after the Pod did.
 
-**Session mitigation, whichever is chosen later:** run the study WITHOUT `-require-device` first. The timing
-result — the hold, the dose axis, the model check — does not depend on device evidence, and it is the result
-the milestone is for. Attempt `-require-device` afterwards, on the same card, as a separate question.
+Six mutations hold it: putting busyness back on the hold, moving exclusivity onto the attempt, accepting an
+empty attempt window, counting busyness on a card the hold never identified, and both directions of the
+scope boundary. The last two were added because the first attempt at these tests did not touch the
+boundaries and two mutants survived.
+
+**Schema went to 19, with one narrow exception.** A schema-18 record carrying a device observation was
+judged by the collapsed question and is refused. One carrying none is byte-identical in meaning under both,
+and is accepted — every run this lab has taken ran on a fake device plugin with no observer, and refusing
+them would orphan the twelve runs the committed documents quote. That has happened here before: two bumps
+once left no build in the tree able to decode the set, and the page quoting it went stale unnoticed. Both
+sides of the rule are asserted.
 
 ## 2. Closed by evidence, without a GPU
 

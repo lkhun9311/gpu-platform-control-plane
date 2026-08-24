@@ -149,6 +149,47 @@ type DeviceObservation struct {
 	UnlabelledBusySamples int `json:"unlabelledBusySamples,omitempty"`
 }
 
+// DeviceClaim is the question put to an observation: which Pod, over which two intervals.
+//
+// Two intervals rather than one, because the claim is two claims. Exclusivity, coverage and continuity are
+// about the HOLD -- was this card exclusively that Pod's, watched without a blink, while the owner waited
+// for it. Whether the Pod used the card at all is about its ATTEMPT, and the hold is only the tail of the
+// attempt, during which the victim is being terminated.
+//
+// Collapsing them was a defect with a direction. In the arm that honours SIGTERM the hold is ~2 s and the
+// victim has already stopped computing, so a busyness test over the hold refuses that arm for behaving as
+// the arm is defined to behave; the ignoring arm computes through its ~31 s hold and passes. -require-device
+// therefore removed the short arm and kept the long one, and the contrast between them is the whole result.
+type DeviceClaim struct {
+	// PodUID is the attempt the samples must name. A name is not enough: it is free for reuse the moment its
+	// Pod is deleted, and this lab creates bare Pods whose names it chooses.
+	PodUID string
+	// WorkFromNs and WorkToNs are the victim attempt's own interval, from its Pod becoming Ready to it
+	// stopping. The busyness clause reads this.
+	WorkFromNs int64
+	WorkToNs   int64
+	// HoldFromNs and HoldToNs are the device hold, from the owner's admission to the victim's stop. Coverage,
+	// continuity and exclusivity read this.
+	HoldFromNs int64
+	HoldToNs   int64
+}
+
+// SameWindowClaim builds a claim whose two intervals coincide.
+//
+// It is for callers that genuinely have ONE interval -- the device preflight's probe has no owner waiting on
+// it, so its attempt and its hold are the same window -- and for specs written before the intervals were
+// separated, where collapsing them is a faithful translation of what those specs asserted.
+//
+// It is NOT a convenience for the run path. A run that used it would be asking the busyness question over
+// the hold, which is the defect DeviceClaim exists to remove.
+func SameWindowClaim(podUID string, fromNs, toNs int64) DeviceClaim {
+	return DeviceClaim{
+		PodUID:     podUID,
+		WorkFromNs: fromNs, WorkToNs: toNs,
+		HoldFromNs: fromNs, HoldToNs: toNs,
+	}
+}
+
 // EstablishesDeviceWork reports whether an observation supports the claim that the named Pod's device did
 // work across the whole of an interval, and why not when it does not.
 //
@@ -156,7 +197,9 @@ type DeviceObservation struct {
 // the five things went wrong -- no observer, wrong observer, the interval not covered, a gap in the middle,
 // or the device idle throughout -- because those send someone to five different places, and because a run
 // that comes back "not established" without saying why is indistinguishable from one nobody looked at.
-func EstablishesDeviceWork(obs *DeviceObservation, podUID string, fromNs, toNs int64) (bool, string) {
+func EstablishesDeviceWork(obs *DeviceObservation, claim DeviceClaim) (bool, string) {
+	podUID := claim.PodUID
+	fromNs, toNs := claim.HoldFromNs, claim.HoldToNs
 	if obs == nil {
 		return false, "no device observer ran: nothing outside the workload watched the card, so this run " +
 			"establishes that a device was RESERVED and nothing about whether it was used"
@@ -285,22 +328,51 @@ func EstablishesDeviceWork(obs *DeviceObservation, podUID string, fromNs, toNs i
 			podUID, time.Duration(toNs-prev))
 	}
 
+	// BUSYNESS is judged over the victim's ATTEMPT, not over the hold, and that is the fix for a defect the
+	// gate had in one direction.
+	//
+	// The question is whether this Pod used the card. The hold is the tail of the attempt during which the
+	// Pod is being terminated, so in the arm that honours SIGTERM it is idle by definition -- the gate was
+	// refusing that arm for doing what the arm exists to do, while the arm that ignores the signal computed
+	// through its hold and passed. See DeviceClaim.
+	//
+	// Coverage is NOT required across the work window. The claim is "it was busy at two separate instants",
+	// which partial observation can support; demanding continuity there would refuse an observer that
+	// started after the Pod did, for no gain.
+	//
 	// Busy samples at DISTINCT times, not merely busy rows. A scrape carrying the same device-wide series
 	// twice -- which DCGM does emit, and which MIG and duplicated labels make ordinary -- would otherwise
 	// satisfy "two samples" from one instant, and one instant is a reading rather than a state. The comment
 	// on minBusySamples said "spaced across the interval" while the code counted rows; a review found the gap.
+	work := claim.WorkFromNs
+	workEnd := claim.WorkToNs
+	if work >= workEnd {
+		// A ledger that cannot locate the attempt cannot support the use claim either, and saying so is not
+		// the same as saying the card was idle.
+		return false, fmt.Sprintf("the attempt's own interval is empty (%d..%d ns), so nothing can establish "+
+			"that Pod %s used the card rather than merely being allocated one", work, workEnd, podUID)
+	}
 	busyAt := map[int64]bool{}
-	for _, s := range mine {
+	seen := 0
+	for _, s := range obs.Samples {
+		if s.PodUID != podUID || s.AtNs < work || s.AtNs > workEnd {
+			continue
+		}
+		// Only the device the hold identified. A busy reading on some other card is not evidence about this one.
+		if !devices[s.DeviceUUID] {
+			continue
+		}
+		seen++
 		if s.UtilisationPercent > 0 {
 			busyAt[s.AtNs] = true
 		}
 	}
 	busy := len(busyAt)
 	if busy < minBusySamples {
-		return false, fmt.Sprintf("the device held by Pod %s was observed working in %d of %d samples; a card "+
-			"that is allocated and idle is the state this whole axis exists to distinguish from one that is "+
-			"computing, and two busy rows from ONE instant are a reading rather than a state",
-			podUID, busy, len(mine))
+		return false, fmt.Sprintf("the device held by Pod %s was observed working in %d of %d samples across "+
+			"the attempt (%d..%d ns); a card that is allocated and idle is the state this whole axis exists "+
+			"to distinguish from one that is computing, and two busy rows from ONE instant are a reading "+
+			"rather than a state", podUID, busy, seen, work, workEnd)
 	}
 	if len(devices) > 1 {
 		return false, fmt.Sprintf("samples for Pod %s name %d different devices; the run cannot say which card "+

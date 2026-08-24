@@ -128,6 +128,29 @@ func DeviceHoldWindow(events []LifecycleEvent) (fromNs, toNs int64, ok bool) {
 	return *admitted, *stopped, true
 }
 
+// VictimWorkWindow is the victim attempt's own interval: its Pod becoming Ready to that Pod stopping.
+//
+// It exists because the device claim is really TWO questions with two intervals, and asking both over the
+// hold made one of them unanswerable in one arm.
+//
+// "Was the card exclusively this Pod's while its owner waited" is about the HOLD. "Did this Pod use the
+// card at all" is about the ATTEMPT -- and the hold is the tail of the attempt during which the victim is
+// being terminated. In the arm that honours SIGTERM that tail is two seconds long and the victim has
+// already stopped computing, so a busyness test over the hold refuses the arm for doing exactly what the
+// arm is for. The ignoring arm keeps computing for its whole thirty-second hold and passes trivially, so
+// the refusal is not even-handed: it removes the short arm and leaves the long one, and the contrast
+// between them is the result.
+//
+// The work window contains the hold, so nothing here widens what the exclusivity clause scans.
+func VictimWorkWindow(events []LifecycleEvent) (fromNs, toNs int64, ok bool) {
+	ready := firstElapsed(events, VictimRow, func(e *LifecycleEvent) bool { return e.Type == EventPodReady })
+	stopped := firstElapsed(events, VictimRow, func(e *LifecycleEvent) bool { return e.Type == EventAttemptStopped })
+	if ready == nil || stopped == nil || *stopped <= *ready {
+		return 0, 0, false
+	}
+	return *ready, *stopped, true
+}
+
 // DeviceHoldStampNs is the same hold read off the two components' own clocks, or nil when either published
 // none.
 //

@@ -187,7 +187,14 @@ func devicePreflight(ctx context.Context, c client.Client, nodeName, metricsURL,
 		_, _ = fmt.Fprintf(out, "  device observer: %d sample(s) named Pods this preflight never applied\n",
 			missed)
 	}
-	attributed, why := queuelab.EstablishesDeviceWork(obs, string(pod.UID), fromNs, toNs)
+	// The preflight's probe has no ledger and no owner waiting on it, so its attempt and its "hold" are the
+	// same interval: the window it ran for. Passing it twice is not a shortcut here -- there is genuinely
+	// only one interval, and the gate's two clauses both apply to it.
+	attributed, why := queuelab.EstablishesDeviceWork(obs, queuelab.DeviceClaim{
+		PodUID:     string(pod.UID),
+		WorkFromNs: fromNs, WorkToNs: toNs,
+		HoldFromNs: fromNs, HoldToNs: toNs,
+	})
 	switch {
 	case attributed && !wl.usedDevice:
 		return fmt.Errorf("OBSERVER CONTRADICTS THE WORKLOAD on %s: the exporter at %s says this Pod's card "+

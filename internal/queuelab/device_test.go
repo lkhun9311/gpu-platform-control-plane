@@ -24,7 +24,7 @@ func goodObservation() *DeviceObservation {
 
 // The ordinary case, so every refusal below is a refusal of something and not of everything.
 func TestAWatchedBusyDeviceEstablishesWork(t *testing.T) {
-	ok, why := EstablishesDeviceWork(goodObservation(), "victim-uid", 10_000_000_000, 30_000_000_000)
+	ok, why := EstablishesDeviceWork(goodObservation(), SameWindowClaim("victim-uid", 10_000_000_000, 30_000_000_000))
 	if !ok {
 		t.Fatalf("a card sampled every second at 97%% across the interval did not establish work: %s", why)
 	}
@@ -37,7 +37,7 @@ func TestAWatchedBusyDeviceEstablishesWork(t *testing.T) {
 func TestTheWorkloadIsNotAWitness(t *testing.T) {
 	o := goodObservation()
 	o.Observer = "workload-self-report"
-	ok, why := EstablishesDeviceWork(o, "victim-uid", 10_000_000_000, 30_000_000_000)
+	ok, why := EstablishesDeviceWork(o, SameWindowClaim("victim-uid", 10_000_000_000, 30_000_000_000))
 	if ok {
 		t.Fatal("a Pod's own report of its device use established that the device was used")
 	}
@@ -49,7 +49,7 @@ func TestTheWorkloadIsNotAWitness(t *testing.T) {
 // No observer at all is the state every record this lab has produced is in, and it must say so rather than
 // come back with a bare false.
 func TestNoObserverSaysWhatTheRunDoesEstablish(t *testing.T) {
-	ok, why := EstablishesDeviceWork(nil, "victim-uid", 0, 10)
+	ok, why := EstablishesDeviceWork(nil, SameWindowClaim("victim-uid", 0, 10))
 	if ok {
 		t.Fatal("a run with no observer established device work")
 	}
@@ -65,7 +65,7 @@ func TestAnIdleCardDoesNotEstablishWork(t *testing.T) {
 	for i := range o.Samples {
 		o.Samples[i].UtilisationPercent = 0
 	}
-	ok, why := EstablishesDeviceWork(o, "victim-uid", 10_000_000_000, 30_000_000_000)
+	ok, why := EstablishesDeviceWork(o, SameWindowClaim("victim-uid", 10_000_000_000, 30_000_000_000))
 	if ok {
 		t.Fatal("a card that was allocated and idle established that it did work")
 	}
@@ -79,12 +79,12 @@ func TestAnIdleCardDoesNotEstablishWork(t *testing.T) {
 	// t=5 s busy, outside the window, so it was filtered before the count and the mutation that accepted a
 	// single busy sample survived.
 	o.Samples[20].UtilisationPercent = 60
-	if ok, _ := EstablishesDeviceWork(o, "victim-uid", 10_000_000_000, 30_000_000_000); ok {
+	if ok, _ := EstablishesDeviceWork(o, SameWindowClaim("victim-uid", 10_000_000_000, 30_000_000_000)); ok {
 		t.Fatal("a single non-zero sample established that the device did work")
 	}
 	// And two inside the window do carry it, or the threshold would be a refusal of everything.
 	o.Samples[21].UtilisationPercent = 60
-	if ok, why := EstablishesDeviceWork(o, "victim-uid", 10_000_000_000, 30_000_000_000); !ok {
+	if ok, why := EstablishesDeviceWork(o, SameWindowClaim("victim-uid", 10_000_000_000, 30_000_000_000)); !ok {
 		t.Fatalf("two busy samples across the interval did not establish work: %s", why)
 	}
 }
@@ -101,7 +101,7 @@ func TestAGapLongEnoughToHideAPreemptionRefuses(t *testing.T) {
 		kept = append(kept, s)
 	}
 	o.Samples = kept
-	ok, why := EstablishesDeviceWork(o, "victim-uid", 10_000_000_000, 30_000_000_000)
+	ok, why := EstablishesDeviceWork(o, SameWindowClaim("victim-uid", 10_000_000_000, 30_000_000_000))
 	if ok {
 		t.Fatal("an observation blind for five seconds in the middle established continuous work")
 	}
@@ -114,7 +114,7 @@ func TestAGapLongEnoughToHideAPreemptionRefuses(t *testing.T) {
 func TestAnObserverThatStartedLateHasNotCoveredTheInterval(t *testing.T) {
 	o := goodObservation()
 	o.StartedNs = 15_000_000_000
-	ok, why := EstablishesDeviceWork(o, "victim-uid", 10_000_000_000, 30_000_000_000)
+	ok, why := EstablishesDeviceWork(o, SameWindowClaim("victim-uid", 10_000_000_000, 30_000_000_000))
 	if ok {
 		t.Fatal("an observer that started inside the interval covered it")
 	}
@@ -131,7 +131,7 @@ func TestSamplesForAnotherPodDoNotCount(t *testing.T) {
 	for i := range o.Samples {
 		o.Samples[i].PodUID = "some-other-attempt-uid"
 	}
-	ok, why := EstablishesDeviceWork(o, "victim-uid", 10_000_000_000, 30_000_000_000)
+	ok, why := EstablishesDeviceWork(o, SameWindowClaim("victim-uid", 10_000_000_000, 30_000_000_000))
 	if ok {
 		t.Fatal("another attempt's device activity established this one's")
 	}
@@ -145,7 +145,7 @@ func TestSamplesForAnotherPodDoNotCount(t *testing.T) {
 func TestAnObserverMustSayWhichBuildItWas(t *testing.T) {
 	o := goodObservation()
 	o.ObserverIdentity = ""
-	if ok, why := EstablishesDeviceWork(o, "victim-uid", 10_000_000_000, 30_000_000_000); ok {
+	if ok, why := EstablishesDeviceWork(o, SameWindowClaim("victim-uid", 10_000_000_000, 30_000_000_000)); ok {
 		t.Fatalf("an anonymous observer established device work (%s)", why)
 	}
 }
@@ -155,7 +155,7 @@ func TestAnObserverMustSayWhichBuildItWas(t *testing.T) {
 func TestTheDeviceMustBeIdentifiedAndSingular(t *testing.T) {
 	anon := goodObservation()
 	anon.Samples[3].DeviceUUID = ""
-	if ok, why := EstablishesDeviceWork(anon, "victim-uid", 0, 30_000_000_000); ok {
+	if ok, why := EstablishesDeviceWork(anon, SameWindowClaim("victim-uid", 0, 30_000_000_000)); ok {
 		t.Fatalf("a sample naming no device established work (%s)", why)
 	}
 
@@ -165,7 +165,7 @@ func TestTheDeviceMustBeIdentifiedAndSingular(t *testing.T) {
 			two.Samples[i].DeviceUUID = "GPU-5678"
 		}
 	}
-	ok, why := EstablishesDeviceWork(two, "victim-uid", 10_000_000_000, 30_000_000_000)
+	ok, why := EstablishesDeviceWork(two, SameWindowClaim("victim-uid", 10_000_000_000, 30_000_000_000))
 	if ok {
 		t.Fatal("samples naming two different cards established which one the hold was about")
 	}
@@ -180,7 +180,7 @@ func TestAnEndpointIsNotAnIdentity(t *testing.T) {
 	o := goodObservation()
 	o.Endpoint = "http://127.0.0.1:9400/metrics"
 	o.ObserverIdentity = o.Endpoint
-	ok, why := EstablishesDeviceWork(o, "victim-uid", 10_000_000_000, 30_000_000_000)
+	ok, why := EstablishesDeviceWork(o, SameWindowClaim("victim-uid", 10_000_000_000, 30_000_000_000))
 	if ok {
 		t.Fatal("an observation whose provenance was its own URL established device work")
 	}
@@ -195,7 +195,7 @@ func TestAnEndpointIsNotAnIdentity(t *testing.T) {
 func TestAnObservationMustAdmitItsSourceWasDeclared(t *testing.T) {
 	o := goodObservation()
 	o.Declared = false
-	ok, why := EstablishesDeviceWork(o, "victim-uid", 10_000_000_000, 30_000_000_000)
+	ok, why := EstablishesDeviceWork(o, SameWindowClaim("victim-uid", 10_000_000_000, 30_000_000_000))
 	if ok {
 		t.Fatal("an observation that did not record its source as declared established device work")
 	}
@@ -224,7 +224,7 @@ func TestTwoBusyRowsFromOneInstantAreNotAState(t *testing.T) {
 			AtNs: 20_000_000_000, DeviceUUID: "GPU-1234", PodUID: "victim-uid", UtilisationPercent: 88,
 		})
 	}
-	ok, why := EstablishesDeviceWork(o, "victim-uid", 10_000_000_000, 30_000_000_000)
+	ok, why := EstablishesDeviceWork(o, SameWindowClaim("victim-uid", 10_000_000_000, 30_000_000_000))
 	if ok {
 		t.Fatal("two busy rows from one scrape established that the card was working")
 	}
@@ -236,7 +236,7 @@ func TestTwoBusyRowsFromOneInstantAreNotAState(t *testing.T) {
 	o.Samples = append(o.Samples, DeviceSample{
 		AtNs: 25_000_000_000, DeviceUUID: "GPU-1234", PodUID: "victim-uid", UtilisationPercent: 88,
 	})
-	if ok, why := EstablishesDeviceWork(o, "victim-uid", 10_000_000_000, 30_000_000_000); !ok {
+	if ok, why := EstablishesDeviceWork(o, SameWindowClaim("victim-uid", 10_000_000_000, 30_000_000_000)); !ok {
 		t.Fatalf("busy at two distinct instants did not establish work: %s", why)
 	}
 }
@@ -258,7 +258,7 @@ func TestASharedDeviceCannotAttributeWorkToEither(t *testing.T) {
 		AtNs: 20_000_000_000, DeviceUUID: "GPU-1234",
 		PodRef: "other-tenant/greedy-abc", PodUID: "other-uid", UtilisationPercent: 71,
 	})
-	ok, why := EstablishesDeviceWork(o, "victim-uid", 10_000_000_000, 30_000_000_000)
+	ok, why := EstablishesDeviceWork(o, SameWindowClaim("victim-uid", 10_000_000_000, 30_000_000_000))
 	if ok {
 		t.Fatal("a device carrying two Pods' labels attributed its utilisation to one of them")
 	}
@@ -282,7 +282,7 @@ func TestAnUnresolvablePodOnTheSameDeviceAlsoDefeatsAttribution(t *testing.T) {
 		AtNs: 22_000_000_000, DeviceUUID: "GPU-1234",
 		PodRef: "somewhere-else/unknown-pod", UtilisationPercent: 50,
 	})
-	ok, why := EstablishesDeviceWork(o, "victim-uid", 10_000_000_000, 30_000_000_000)
+	ok, why := EstablishesDeviceWork(o, SameWindowClaim("victim-uid", 10_000_000_000, 30_000_000_000))
 	if ok {
 		t.Fatal("a device shared with a Pod the run could not identify still attributed work")
 	}
@@ -299,7 +299,7 @@ func TestAnotherPodOnAnotherDeviceIsNotAConflict(t *testing.T) {
 		AtNs: 20_000_000_000, DeviceUUID: "GPU-9999",
 		PodRef: "other-tenant/neighbour-abc", PodUID: "neighbour-uid", UtilisationPercent: 99,
 	})
-	if ok, why := EstablishesDeviceWork(o, "victim-uid", 10_000_000_000, 30_000_000_000); !ok {
+	if ok, why := EstablishesDeviceWork(o, SameWindowClaim("victim-uid", 10_000_000_000, 30_000_000_000)); !ok {
 		t.Fatalf("a busy neighbour on a different card defeated attribution: %s", why)
 	}
 }
@@ -323,7 +323,7 @@ func TestTheProtocolsOwnHandoverDoesNotDefeatAttribution(t *testing.T) {
 			UtilisationPercent: 91,
 		})
 	}
-	if ok, why := EstablishesDeviceWork(o, "victim-uid", 10_000_000_000, 30_000_000_000); !ok {
+	if ok, why := EstablishesDeviceWork(o, SameWindowClaim("victim-uid", 10_000_000_000, 30_000_000_000)); !ok {
 		t.Fatalf("the protocol's own handover defeated attribution: %s", why)
 	}
 }
@@ -336,7 +336,7 @@ func TestALabelInsideTheWindowStillDefeatsAttribution(t *testing.T) {
 		AtNs: 20_000_000_000, DeviceUUID: "GPU-1234", PodRef: "lab/greedy", PodUID: "greedy-uid",
 		UtilisationPercent: 71,
 	})
-	if ok, _ := EstablishesDeviceWork(o, "victim-uid", 10_000_000_000, 30_000_000_000); ok {
+	if ok, _ := EstablishesDeviceWork(o, SameWindowClaim("victim-uid", 10_000_000_000, 30_000_000_000)); ok {
 		t.Fatal("two tenants on one entity during the hold attributed its utilisation to one of them")
 	}
 }
@@ -350,7 +350,7 @@ func TestALabelInTheStaleMarginStillDefeatsAttribution(t *testing.T) {
 		AtNs: 9_000_000_000, DeviceUUID: "GPU-1234", PodRef: "lab/previous", PodUID: "previous-uid",
 		UtilisationPercent: 64,
 	})
-	if ok, _ := EstablishesDeviceWork(o, "victim-uid", 10_000_000_000, 30_000_000_000); ok {
+	if ok, _ := EstablishesDeviceWork(o, SameWindowClaim("victim-uid", 10_000_000_000, 30_000_000_000)); ok {
 		t.Fatal("a label one second before the window left attribution intact")
 	}
 	// Well before it is the same handover case seen from the other side: a tenant that had the card long ago
@@ -361,7 +361,7 @@ func TestALabelInTheStaleMarginStillDefeatsAttribution(t *testing.T) {
 		AtNs: 1_000_000_000, DeviceUUID: "GPU-1234", PodRef: "lab/long-gone", PodUID: "long-gone-uid",
 		UtilisationPercent: 64,
 	})
-	if ok, why := EstablishesDeviceWork(far, "victim-uid", 10_000_000_000, 30_000_000_000); !ok {
+	if ok, why := EstablishesDeviceWork(far, SameWindowClaim("victim-uid", 10_000_000_000, 30_000_000_000)); !ok {
 		t.Fatalf("a label nine seconds before the window defeated attribution: %s", why)
 	}
 }

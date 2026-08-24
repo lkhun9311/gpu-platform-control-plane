@@ -69,7 +69,7 @@ func TestObserveRecordsWhatItActuallyCovered(t *testing.T) {
 	}
 	// And that claim must actually be refused: an interval beginning before the observer attached is not
 	// covered, whatever the samples inside it show.
-	if ok, why := EstablishesDeviceWork(obs, "victim-uid", 0, obs.EndedNs); ok {
+	if ok, why := EstablishesDeviceWork(obs, SameWindowClaim("victim-uid", 0, obs.EndedNs)); ok {
 		t.Fatalf("an interval starting before the observer attached was reported as covered (%s)", why)
 	}
 	if obs.ObserverIdentity == "" || obs.Observer != ObserverDCGM {
@@ -118,7 +118,7 @@ func TestARepeatedlyFailingExporterEndsTheObservation(t *testing.T) {
 		t.Fatalf("the error does not say the failures were consecutive: %v", err)
 	}
 	// And what it did cover must not establish anything.
-	if ok, _ := EstablishesDeviceWork(obs, "victim-uid", obs.StartedNs, obs.EndedNs); ok {
+	if ok, _ := EstablishesDeviceWork(obs, SameWindowClaim("victim-uid", obs.StartedNs, obs.EndedNs)); ok {
 		t.Fatal("an observation from an exporter that never answered established device work")
 	}
 }

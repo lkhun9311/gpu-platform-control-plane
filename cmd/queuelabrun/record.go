@@ -133,7 +133,7 @@ import (
 // declared identity and endpoint, the window the claim was judged over, and the samples the gate read --
 // and decodeRunRecord re-runs EstablishesDeviceWork against them. A version-17 record carries a boolean and
 // nothing to check it against, which is a different kind of document however the boolean reads.
-const recordSchemaVersion = 18
+const recordSchemaVersion = 19
 
 // runRecord is what a non-preview invocation leaves behind.
 //
@@ -587,7 +587,7 @@ type workloadProvenance struct {
 // It is a constructor rather than a literal at the call site so that a build which gains a real kernel has
 // one place to change, and so that no run can be assembled without stating this at all.
 func cpuOnlyWorkload() workloadProvenance {
-	return workloadFrom(nil, "", 0, 0, workloadKinds[queuelab.KindCPUFloat])
+	return workloadFrom(nil, queuelab.DeviceClaim{}, workloadKinds[queuelab.KindCPUFloat])
 }
 
 // workloadFrom derives the provenance from what an independent observer saw, or from its absence.
@@ -605,10 +605,10 @@ func cpuOnlyWorkload() workloadProvenance {
 // The reason string comes from the check rather than from here, because a run that fails has to tell an
 // operator WHICH of the five went wrong: no observer, an inadmissible one, an interval not covered, a gap in
 // the middle, or a card that was allocated and idle. Those send someone to five different places.
-func workloadFrom(obs *queuelab.DeviceObservation, podUID string, fromNs, toNs int64,
+func workloadFrom(obs *queuelab.DeviceObservation, claim queuelab.DeviceClaim,
 	reported reportedWorkload) workloadProvenance {
 	w := workloadProvenance{Kind: reported.Kind, CountedUnit: reported.Unit}
-	established, why := queuelab.EstablishesDeviceWork(obs, podUID, fromNs, toNs)
+	established, why := queuelab.EstablishesDeviceWork(obs, claim)
 	// The record must not contradict itself, and the direction of the refusal is the point.
 	//
 	// The workload says which loop ran. An observer claiming that card did work while the workload says it
@@ -738,8 +738,15 @@ type deviceObservationEvidence struct {
 	// HoldFromNs, HoldToNs and PodUID are the question that was asked of it. They are recorded beside the
 	// answer because the gate's coverage rule is about this interval and not the run: an observation that
 	// watched the wrong part refuses, and a reader has to be able to see which part it watched.
-	HoldFromNs int64  `json:"holdFromNs"`
-	HoldToNs   int64  `json:"holdToNs"`
+	HoldFromNs int64 `json:"holdFromNs"`
+	HoldToNs   int64 `json:"holdToNs"`
+	// WorkFromNs and WorkToNs are the victim attempt's own interval, which the busyness clause reads.
+	//
+	// Recorded because a reader re-running the gate must ask the SAME question, and the two intervals are
+	// different questions: without this a re-check would fall back to the hold and reproduce the defect the
+	// split removed -- refusing the honouring arm for being idle while being terminated.
+	WorkFromNs int64  `json:"workFromNs"`
+	WorkToNs   int64  `json:"workToNs"`
 	PodUID     string `json:"podUID"`
 	// Samples is what the gate read, restricted to the window it reads. It is the evidence rather than a
 	// count of it, so the verdict can be recomputed rather than believed.
@@ -1440,7 +1447,26 @@ func decodeRunRecord(b []byte) (runRecord, error) {
 		return runRecord{}, fmt.Errorf("decode record: trailing data after the record")
 	}
 	if r.SchemaVersion != recordSchemaVersion {
-		return runRecord{}, fmt.Errorf("decode record: schema %d is not %d", r.SchemaVersion, recordSchemaVersion)
+		// ONE narrow exception, and it is narrow on purpose.
+		//
+		// Schema 19 changed exactly one thing: the device claim is now asked over two intervals instead of
+		// one, because asking the busyness question over the hold refused the arm that honours SIGTERM for
+		// being idle while it was terminated. A document that carries NO device observation is therefore
+		// byte-identical in meaning under 18 and 19 -- there is no claim for the change to have changed --
+		// and every record this lab has taken is of that kind, because they ran on a fake device plugin with
+		// no observer at all.
+		//
+		// Refusing them would orphan the twelve runs the committed documents quote, to no benefit: this
+		// build reads them correctly, and a schema version exists to refuse what a reader cannot read. It has
+		// happened before -- two bumps once left no build in the tree able to decode the set, and the page
+		// quoting it went stale unnoticed.
+		//
+		// A schema-18 document that DOES carry a device observation is still refused: that one was judged by
+		// the collapsed question, and re-running the split gate over it would reach a verdict its run never
+		// took.
+		if !(r.SchemaVersion == 18 && recordSchemaVersion == 19 && r.DeviceObservation == nil) {
+			return runRecord{}, fmt.Errorf("decode record: schema %d is not %d", r.SchemaVersion, recordSchemaVersion)
+		}
 	}
 	if r.Preview && len(r.Events) > 0 {
 		return runRecord{}, fmt.Errorf("decode record: a preview record carries %d events; preview output is not evidence",
@@ -1623,14 +1649,18 @@ func checkValidity(r runRecord) error {
 			return fmt.Errorf("decode record: the record claims a device did this Pod's work and its ledger " +
 				"cannot locate the hold the claim is about")
 		}
-		if e.PodUID != uid || e.HoldFromNs != from || e.HoldToNs != to {
+		wf, wt, _ := queuelab.VictimWorkWindow(r.Events)
+		if e.PodUID != uid || e.HoldFromNs != from || e.HoldToNs != to || e.WorkFromNs != wf || e.WorkToNs != wt {
 			return fmt.Errorf("decode record: the device observation says it judged Pod %q over [%d, %d] and "+
 				"this record's own ledger puts the hold at Pod %q over [%d, %d]; the evidence answers a "+
 				"different question from the one the measurement asked",
 				e.PodUID, e.HoldFromNs, e.HoldToNs, uid, from, to)
 		}
-		if ok, why := queuelab.EstablishesDeviceWork(
-			observationFromEvidence(e), e.PodUID, e.HoldFromNs, e.HoldToNs); !ok {
+		if ok, why := queuelab.EstablishesDeviceWork(observationFromEvidence(e), queuelab.DeviceClaim{
+			PodUID:     e.PodUID,
+			WorkFromNs: e.WorkFromNs, WorkToNs: e.WorkToNs,
+			HoldFromNs: e.HoldFromNs, HoldToNs: e.HoldToNs,
+		}); !ok {
 			return fmt.Errorf("decode record: the record claims a device did this Pod's work, and re-running "+
 				"the gate over the observation the record itself carries refuses it: %s", why)
 		}
@@ -1719,7 +1749,14 @@ func deviceObservationOf(obs *queuelab.DeviceObservation, events []queuelab.Life
 		return e
 	}
 	e.HoldFromNs, e.HoldToNs = from, to
+	e.WorkFromNs, e.WorkToNs, _ = queuelab.VictimWorkWindow(events)
+	// The persisted window must cover BOTH clauses' intervals, or a re-check reads fewer samples than the run
+	// did and reaches a verdict the run never took. The attempt starts before the hold, so its start bounds
+	// the block; the stale-label margin still widens it, because the exclusivity clause scans back through.
 	lo := from - int64(queuelab.StaleLabelMargin)
+	if e.WorkFromNs != 0 && e.WorkFromNs-int64(queuelab.StaleLabelMargin) < lo {
+		lo = e.WorkFromNs - int64(queuelab.StaleLabelMargin)
+	}
 	for i := range obs.Samples {
 		if obs.Samples[i].AtNs < lo || obs.Samples[i].AtNs > to {
 			continue
@@ -1759,7 +1796,15 @@ func workloadOf(obs *queuelab.DeviceObservation, events []queuelab.LifecycleEven
 	reported := reportedWorkloadOf(events)
 	from, to, ok := queuelab.DeviceHoldWindow(events)
 	if !ok {
-		return workloadFrom(nil, "", 0, 0, reported)
+		return workloadFrom(nil, queuelab.DeviceClaim{}, reported)
 	}
-	return workloadFrom(obs, queuelab.VictimAttemptUID(events), from, to, reported)
+	// The attempt's own interval is looked up separately and is allowed to be missing: a ledger with a hold
+	// but no PodReady cannot support the USE half of the claim, and the gate says that in its own words
+	// rather than being handed a zero window that reads as "idle".
+	wf, wt, _ := queuelab.VictimWorkWindow(events)
+	return workloadFrom(obs, queuelab.DeviceClaim{
+		PodUID:     queuelab.VictimAttemptUID(events),
+		WorkFromNs: wf, WorkToNs: wt,
+		HoldFromNs: from, HoldToNs: to,
+	}, reported)
 }

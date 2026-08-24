@@ -1625,7 +1625,17 @@ func TestARecordFromAnEarlierSchemaIsRefused(t *testing.T) {
 	// observation -- the observer's declared identity and endpoint, the window judged, and the samples the
 	// gate read -- and re-runs the gate over them at decode. A version-17 record asserts; an 18 can be
 	// refuted.
-	if recordSchemaVersion != 18 {
+	//
+	// Version 19 split the device claim into the two intervals it was always two questions about: the
+	// exclusivity, coverage and continuity clauses read the HOLD, and the busyness clause reads the victim's
+	// own ATTEMPT. Asking all of them over the hold refused the arm that honours SIGTERM for being idle while
+	// it was being terminated -- and passed the arm that ignores it, which computes through its whole hold --
+	// so -require-device removed the short arm and kept the long one, leaving no contrast to form. A
+	// version-18 record that CARRIES an observation was judged by the collapsed question and is refused; one
+	// that carries none is byte-identical in meaning under both, and is accepted, because every run this lab
+	// has taken ran on a fake device plugin with no observer and refusing them would orphan the set the
+	// committed documents quote.
+	if recordSchemaVersion != 19 {
 		t.Fatalf("recordSchemaVersion is %d; if the wire format changed again, bump this and say what changed",
 			recordSchemaVersion)
 	}
@@ -1638,6 +1648,34 @@ func TestARecordFromAnEarlierSchemaIsRefused(t *testing.T) {
 		if _, err := decodeRunRecord(b); err == nil {
 			t.Fatalf("a schema-%d record decoded under today's rules", older)
 		}
+	}
+
+	// 18 is the one exception and it is conditional, so both sides of the condition are asserted here rather
+	// than left to the sentence above.
+	//
+	// Without an observation there is no device claim for the split to have changed, and the twelve runs this
+	// repository quotes are all of that kind: refusing them would orphan the set to no benefit, which has
+	// happened here before.
+	noObs := fmt.Appendf(nil, `{"schemaVersion":18,"dose":"self-completing","runID":"r7","arm":"A-honor",`+
+		`"disposition":"completed-implemented-checks-passed",%s}`, refusedValidity)
+	if _, err := decodeRunRecord(noObs); err != nil {
+		t.Fatalf("a schema-18 record with no device observation was refused (%v); every committed record is "+
+			"of that shape and this build reads them correctly", err)
+	}
+
+	// WITH one, it was judged by the collapsed question -- busyness over the hold -- and re-running the split
+	// gate over it would reach a verdict its run never took. That is a different document, not an older
+	// spelling of this one.
+	withObs := fmt.Appendf(nil, `{"schemaVersion":18,"dose":"self-completing","runID":"r7","arm":"A-honor",`+
+		`"disposition":"completed-implemented-checks-passed",`+
+		`"deviceObservation":{"observer":"dcgm","identity":"dcgm@sha256:abc","endpoint":"http://x/metrics",`+
+		`"declared":true,"startedNs":0,"endedNs":1,"holdFromNs":0,"holdToNs":1,"workFromNs":0,"workToNs":1,`+
+		`"podUID":"victim-uid"},%s}`, refusedValidity)
+	if _, err := decodeRunRecord(withObs); err == nil {
+		t.Fatal("a schema-18 record carrying a device observation decoded; its claim was judged by the " +
+			"collapsed question and this build asks a different one")
+	} else if !strings.Contains(err.Error(), "schema 18 is not 19") {
+		t.Fatalf("refused for an unexpected reason, so this is not testing the schema rule: %v", err)
 	}
 }
 
@@ -1950,7 +1988,7 @@ func TestTheDeviceAxisMovesOnlyWhenBothTheWorkloadAndTheObserverSayItDid(t *test
 	cpu.DeviceStatus = "no-libcuda"
 
 	// No observer: the workload's word alone is not evidence about the card. It is the party with the motive.
-	none := workloadFrom(nil, "", 0, 0, gpu)
+	none := workloadFrom(nil, queuelab.DeviceClaim{}, gpu)
 	if none.DeviceUseEstablished {
 		t.Fatal("a run with no observer established device work on the workload's say-so")
 	}
@@ -1963,7 +2001,7 @@ func TestTheDeviceAxisMovesOnlyWhenBothTheWorkloadAndTheObserverSayItDid(t *test
 
 	// Both agree: this is the one combination that publishes device work, and the session depends on it.
 	obs := busyObservation("GPU-1234")
-	seen := workloadFrom(obs, "victim-uid", 10_000_000_000, 30_000_000_000, gpu)
+	seen := workloadFrom(obs, queuelab.SameWindowClaim("victim-uid", 10_000_000_000, 30_000_000_000), gpu)
 	if !seen.DeviceUseEstablished {
 		t.Fatalf("a launched kernel watched by an admissible observer established nothing: %s", seen.WhyNot)
 	}
@@ -1978,7 +2016,7 @@ func TestTheDeviceAxisMovesOnlyWhenBothTheWorkloadAndTheObserverSayItDid(t *test
 	}
 
 	// Same observation, CPU report: the observer is consulted and then overruled by the container.
-	fell := workloadFrom(obs, "victim-uid", 10_000_000_000, 30_000_000_000, cpu)
+	fell := workloadFrom(obs, queuelab.SameWindowClaim("victim-uid", 10_000_000_000, 30_000_000_000), cpu)
 	if fell.DeviceUseEstablished {
 		t.Fatal("a card reported busy while the Pod holding it never reached a driver call was credited to it")
 	}
@@ -2004,12 +2042,12 @@ func TestAnObservationCannotContradictTheWorkloadsOwnReport(t *testing.T) {
 	obs := busyObservation("GPU-fake-0000")
 	// The observation itself is impeccable: admissible source, named build, one card, full coverage, busy, and
 	// no second label anywhere for the exclusivity clause to convict.
-	if ok, why := queuelab.EstablishesDeviceWork(obs, "victim-uid", 10_000_000_000, 30_000_000_000); !ok {
+	if ok, why := queuelab.EstablishesDeviceWork(obs, queuelab.SameWindowClaim("victim-uid", 10_000_000_000, 30_000_000_000)); !ok {
 		t.Fatalf("the fixture must satisfy the observation contract, or this tests the wrong thing: %s", why)
 	}
 	cpu := workloadKinds[queuelab.KindCPUFloat]
 	cpu.DeviceStatus = "no-libcuda"
-	w := workloadFrom(obs, "victim-uid", 10_000_000_000, 30_000_000_000, cpu)
+	w := workloadFrom(obs, queuelab.SameWindowClaim("victim-uid", 10_000_000_000, 30_000_000_000), cpu)
 	if w.DeviceUseEstablished {
 		t.Fatal("a record certified device work for a workload that made no driver call; one field would say " +
 			"pure Python arithmetic while another said its GPU had been working")
@@ -2027,7 +2065,7 @@ func TestAnObservationCannotContradictTheWorkloadsOwnReport(t *testing.T) {
 
 	// A ledger that never reported at all is refused too, and NOT by falling back to the CPU kind: that would
 	// let a genuine device run be published under the fallback's name.
-	un := workloadFrom(obs, "victim-uid", 10_000_000_000, 30_000_000_000,
+	un := workloadFrom(obs, queuelab.SameWindowClaim("victim-uid", 10_000_000_000, 30_000_000_000),
 		reportedWorkload{Kind: unreportedWorkloadKind, Unit: "unreported"})
 	if un.DeviceUseEstablished {
 		t.Fatal("a run whose workload said nothing about itself established device work")
@@ -2318,6 +2356,11 @@ func TestTheDeviceEvidenceMustAnswerTheLedgersQuestion(t *testing.T) {
 		t.Fatal("the committed record's ledger cannot locate its hold, so this fixture cannot be built")
 	}
 	uid := queuelab.VictimAttemptUID(base.Events)
+	workFrom, workTo, wok := queuelab.VictimWorkWindow(base.Events)
+	if !wok {
+		t.Fatal("the committed record's ledger cannot locate the victim's attempt, so the work window this " +
+			"fixture must answer cannot be built")
+	}
 
 	// A document with a device path: the ledger's victim reports launching kernels, and an observer covering
 	// the hold saw its card busy. Everything else is the committed run's.
@@ -2327,6 +2370,9 @@ func TestTheDeviceEvidenceMustAnswerTheLedgersQuestion(t *testing.T) {
 			t.Fatalf("unmarshal: %v", err)
 		}
 		doc["runID"] = "forged"
+		// The forgery is a schema-19 document. Its predecessor asked the busyness question over the hold, and
+		// a record carrying an observation under that question is refused rather than reinterpreted.
+		doc["schemaVersion"] = recordSchemaVersion
 		for _, e := range doc["events"].([]any) {
 			ev := e.(map[string]any)
 			if ev["type"] == string(queuelab.EventAttemptStopped) && ev["objectUID"] == uid {
@@ -2346,7 +2392,11 @@ func TestTheDeviceEvidenceMustAnswerTheLedgersQuestion(t *testing.T) {
 	// one tenant, busy throughout.
 	samples := func() []any {
 		var out []any
-		for at := from - int64(queuelab.StaleLabelMargin); at <= to; at += int64(time.Second) {
+		lo := from - int64(queuelab.StaleLabelMargin)
+		if workFrom-int64(queuelab.StaleLabelMargin) < lo {
+			lo = workFrom - int64(queuelab.StaleLabelMargin)
+		}
+		for at := lo; at <= to; at += int64(time.Second) {
 			out = append(out, map[string]any{
 				"atNs": at, "deviceUUID": "GPU-0000", "podUID": uid, "utilisationPercent": 93,
 			})
@@ -2358,7 +2408,11 @@ func TestTheDeviceEvidenceMustAnswerTheLedgersQuestion(t *testing.T) {
 			"observer": string(queuelab.ObserverDCGM), "identity": "dcgm@sha256:abc",
 			"endpoint": "http://127.0.0.1:9400/metrics", "declared": true,
 			"startedNs": from - 2*int64(queuelab.StaleLabelMargin), "endedNs": to + int64(time.Second),
-			"holdFromNs": holdFrom, "holdToNs": holdTo, "podUID": podUID, "samples": samples(),
+			"holdFromNs": holdFrom, "holdToNs": holdTo,
+			// The attempt's interval is part of the question now, and the decode check binds it the same way
+			// it binds the hold: evidence that answered a different attempt is evidence about another run.
+			"workFromNs": workFrom, "workToNs": workTo,
+			"podUID": podUID, "samples": samples(),
 		}
 	}
 	decode := func(doc map[string]any) error {
@@ -2398,6 +2452,16 @@ func TestTheDeviceEvidenceMustAnswerTheLedgersQuestion(t *testing.T) {
 		{"another Pod's card entirely", func() map[string]any {
 			d := deviceDoc()
 			d["deviceObservation"] = evidence("some-other-pod-uid", from, to)
+			return d
+		}()},
+		// The attempt window is the new half of the question, and it has to be bound as tightly as the hold.
+		// Evidence that judged a different attempt is evidence about a different run, and before the split
+		// there was no field here for it to disagree in.
+		{"an attempt window that is not this ledger's", func() map[string]any {
+			d := deviceDoc()
+			e := evidence(uid, from, to)
+			e["workFromNs"] = workFrom - 7*int64(time.Second)
+			d["deviceObservation"] = e
 			return d
 		}()},
 	} {
