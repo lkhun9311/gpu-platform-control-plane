@@ -48,19 +48,23 @@ directly from the [Releases](https://github.com/lkhun9311/gpu-platform-control-p
 | [M4-b](https://github.com/lkhun9311/gpu-platform-control-plane/releases/tag/m4-serving) | Tenant-aware serving gateway: API key → tenant, token bucket → 429, model routing, proxy, metrics | Done |
 | [M5-a](https://github.com/lkhun9311/gpu-platform-control-plane/releases/tag/m5-a-hosting) | AWS hosting: Terraform state bootstrap, EKS, OIDC CI → ECR, Argo CD GitOps, ephemeral apply/destroy with a TTL kill switch | Code done, offline-validated; **never applied to AWS** |
 | [M5-b](https://github.com/lkhun9311/gpu-platform-control-plane/releases/tag/m5-b-admission-guard) | Three-arm KV-cache-aware admission guard and open-loop benchmark harness, with pre-registered checks that refuse to call load shedding a win | GPU-free half done and tested; **no GPU run yet** |
-| M5-c | Cost/fairness frontier and sharing-mode matrix (exclusive / time-slicing / MPS) — hardens the M5-b evidence | Planned |
+| M5-c | Cost/fairness frontier and sharing-mode matrix (exclusive / time-slicing) — hardens the M5-b evidence | Card chosen by arithmetic, manifests and run script written and tested; **never run**. MPS arm not built ([sizing](hack/m5c-sharing-sizing.md)) |
 | M5-d | Technical write-up with the measured numbers | Planned |
 | [M6](https://github.com/lkhun9311/gpu-platform-control-plane/releases/tag/m6-training-admission) | Training admission: `MLTrainingJob` → Job + Kueue Workload; two-tenant cohort borrowing and quota-reclaim preemption, run end to end on kind | Done ([evidence](hack/m6-kind-e2e.md)) |
-| [queuelab](https://github.com/lkhun9311/gpu-platform-control-plane/releases/tag/queuelab) | Queue-policy measurement lab: censoring-aware list/watch lifecycle ledger replayed against real Kueue | **Result retracted — no valid experimental number.** See the correction below |
+| [queuelab](https://github.com/lkhun9311/gpu-platform-control-plane/releases/tag/queuelab) | Queue-policy measurement lab: censoring-aware list/watch lifecycle ledger replayed against real Kueue | Withdrawn once, then re-measured: twelve runs the runner's own gates accept ([result](hack/queuelab-reclaim-first-result.md)). **Simulated GPU** |
 | M7 | Inject failure scenarios and record an operational evidence trail (`WorkloadRun`) | Sketched |
 
 **What has not been exercised.** Every GPU in this project is simulated by a fake device plugin. Nothing
 here has ever run against real hardware, and the State and Status columns above say so per row rather than
 leaving it to be inferred. Two distinctions worth stating plainly, because they are easy to blur:
 
-- The admission guard and its benchmark harness are **written and unit-tested but have never seen a GPU**,
-  and the guard's vLLM metrics fixture is synthetic — labelled as such in the fixture itself — so its
-  engage/release thresholds are unvalidated.
+- The admission guard and its benchmark harness have **never seen a GPU**, and that is now the only thing
+  missing rather than the whole of it. The metrics fixture is a real capture from the pinned vLLM image and
+  replaced a synthetic one whose assumptions it falsified; the guard has been driven through engage and
+  release against a running vLLM; and the whole chain — harness, gateway, engine — has carried a request and
+  returned a `kv_cache_pressure` rejection ([evidence](hack/m5b-chain-live-evidence.log)). All of that was on
+  a CPU build, where the engine queues before its cache fills, so the WAITING arm of the engage condition is
+  exercised and the **KV-usage arm is not**. That arm is what the paid run is for.
 - The contention benchmark, the SQLite ledger and `platformctl` are **not coded at all**. They are design
   documents. Earlier revisions of this README described them as if they existed; that was wrong.
 
@@ -69,18 +73,24 @@ leaving it to be inferred. Two distinctions worth stating plainly, because they 
 ## The queuelab reclaim result: withdrawn once, and now re-measured
 
 On 2026-08-02 this repository published a live measurement of Kueue quota-reclaim preemption. **It was wrong
-and it was withdrawn.** On 2026-08-19 the experiment produced its first result the runner's own gates accept:
-four runs, two per arm, each carrying `verdict: admissible-under-implemented-gates` with no failed claims.
+and it was withdrawn.** The experiment has since produced a result the runner's own gates accept: twelve
+runs, two per cell across two dose regimes, two arms and two workers, carrying
+`verdict: admissible-under-implemented-gates` with no failed claims.
 
 Honouring SIGTERM under reclaim discards the work in flight; ignoring it discards none and converts the
 victim's remaining service into the quota owner's waiting time, with the preemption recorded as ineffective.
 Both arms reproduce across their two runs.
 
-The magnitudes — 41 GPU-seconds and 19.4 — are the protocol's dose and remaining service, not discoveries;
-the residuals inside them turned out to be smaller than the harness's own uncertainty, which the record now
-bounds per event: every ledger time is when a watch event ARRIVED, and the gap to the kubelet's own stamp
-runs 0.4 to 2.4 seconds — a bound mixing propagation, clock offset and one-second truncation, not a measured
-delivery time. Nothing sub-second in this experiment is resolved. The GPU is simulated, so these are seconds of RESERVATION and the
+The magnitudes are NOT restated here, deliberately: they were, and they drifted -- this paragraph claimed
+four runs after the set had grown to twelve. The result page carries them and is re-derivable from the
+records with `queuelabrun -compare`.
+
+What the result supports is a MODEL, `held = min(remaining service, grace)`, checked in both dose regimes
+and at the kink between them, rather than any single figure: the owner's wait responds to dose by twelve
+seconds across two levels, so it is not a property of the platform and must not be quoted as one. The
+honouring arm's own hold measures below the harness's resolution floor and is reported as unresolved rather
+than as a small number. Every ledger time is when a watch event ARRIVED, and the gap to the kubelet's own
+stamp bounds what is resolvable at all. The GPU is simulated, so these are seconds of RESERVATION and the
 records say so. Details, and what the result does not support, are in
 [hack/queuelab-reclaim-first-result.md](hack/queuelab-reclaim-first-result.md).
 

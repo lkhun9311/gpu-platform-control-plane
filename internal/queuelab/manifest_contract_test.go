@@ -3,6 +3,7 @@ package queuelab
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -465,5 +466,43 @@ func TestEveryGPUTaintedNodeGroupCarriesExactlyOneModeLabel(t *testing.T) {
 	}
 	if sharing < 1 {
 		t.Error("no sharing node group; M5-c's matrix has nowhere to run that is not also observed")
+	}
+}
+
+// The README's run count must match the record set it describes.
+//
+// This is the drift that actually happened rather than one imagined for a test: the paragraph said "four
+// runs, two per arm" long after the set had grown to twelve, and nothing noticed because a sentence and a
+// directory have no relationship a compiler can see. A reader who takes the README at its word is being
+// told the experiment is a third of its size.
+//
+// The magnitudes were removed from the README at the same time for the same reason -- a number restated in
+// two places drifts in one of them -- so the count is what is left to hold.
+func TestTheReadmeRunCountMatchesTheRecordsOnDisk(t *testing.T) {
+	readme := repoFile(t, "README.md")
+
+	m := regexp.MustCompile(`accept: ([a-z]+)\s*\n?runs,`).FindStringSubmatch(readme)
+	if m == nil {
+		t.Fatal("the README no longer states a run count in the shape this reads; if the sentence moved, " +
+			"point this test at the new one rather than deleting it -- the drift it guards is silent")
+	}
+	words := map[string]int{
+		"four": 4, "six": 6, "eight": 8, "ten": 10, "twelve": 12, "sixteen": 16, "twenty": 20, "twenty-four": 24,
+	}
+	claimed, ok := words[m[1]]
+	if !ok {
+		t.Fatalf("the README claims %q runs, which this test cannot compare against a count", m[1])
+	}
+
+	files, err := filepath.Glob("../../ex/e17-*.json")
+	if err != nil {
+		t.Fatalf("glob the record set: %v", err)
+	}
+	if len(files) == 0 {
+		t.Fatal("no e17 records on disk; this test would pass vacuously against any claim")
+	}
+	if claimed != len(files) {
+		t.Errorf("the README says %d runs and %d records are on disk; a reader is being told the experiment "+
+			"is a different size than it is", claimed, len(files))
 	}
 }
