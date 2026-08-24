@@ -28,6 +28,20 @@ variable "node_instance_type" {
   default     = "t3.large"
 }
 
+variable "gpu_shared_node_instance_type" {
+  description = "Instance type for the sharing node group M5-c runs its matrix on."
+  type        = string
+  # ONE A10G, and 24 GB is the requirement rather than a preference.
+  #
+  # The matrix puts two Qwen2.5-3B engines on one card. Time-slicing does not partition memory, so each gets
+  # half: on a T4 that leaves 10 MiB of KV per engine -- 284 tokens against a 7,695-token contender prompt --
+  # and internal/bench.SharingPlan refuses it. An A10G leaves 3.6 GiB each.
+  #
+  # Four vCPU, the same as g4dn.xlarge, so the 8 vCPU granted for ap-northeast-2 on 2026-08-24 covers it:
+  # M5-c is not blocked on the support case either.
+  default = "g5.xlarge"
+}
+
 variable "gpu_single_node_instance_type" {
   description = "Instance type for the one-card GPU node group that M5-b runs on."
   type        = string

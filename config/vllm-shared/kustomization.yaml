@@ -1,0 +1,6 @@
+# Applied only for an M5-c session. Needs config/nvidia-device-plugin-timeslicing on the same node, or the
+# second engine stays Pending against a card that advertises one device.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - engines.yaml

@@ -150,6 +150,49 @@ module "eks" {
         http_put_response_hop_limit = 1
       }
     }
+
+    # The sharing node group, and it deliberately does NOT carry the observer label.
+    #
+    # M5-c puts two engines on one card through time-slicing, and under time-slicing a busy SM belongs to no
+    # single Pod: DCGM cannot attribute it, and queuelab's exclusivity clause refuses to. Giving this node
+    # platform.lkhun9311.github.io/gpu would schedule the exclusive device plugin and the observer here, and
+    # two plugins registering nvidia.com/gpu against one kubelet socket is not something worth debugging on a
+    # rented card. The label split is the mechanism; the comment is only the reason.
+    #
+    # An A10G rather than a T4, decided by arithmetic before renting anything: two Qwen2.5-3B engines leave
+    # 10 MiB of KV each on a T4, which is 284 tokens against a 7,695-token contender prompt.
+    # internal/bench.SharingPlan refuses that plan. g5.xlarge is four vCPU, the same as g4dn.xlarge, so the
+    # granted G-family quota covers it.
+    #
+    # max_size 1 is what makes co-location certain. Two engines on two nodes are not sharing a card, and
+    # nothing downstream could tell that apart from a sharing result.
+    gpu_shared = {
+      subnet_ids     = [module.vpc.public_subnets[0]]
+      instance_types = [var.gpu_shared_node_instance_type]
+      capacity_type  = "ON_DEMAND"
+      min_size       = 0
+      max_size       = 1
+      desired_size   = 0
+
+      ami_type = "AL2023_x86_64_NVIDIA"
+
+      labels = {
+        "platform.lkhun9311.github.io/gpu-sharing" = "true"
+      }
+      taints = {
+        gpu = {
+          key    = "nvidia.com/gpu"
+          value  = "present"
+          effect = "NO_SCHEDULE"
+        }
+      }
+
+      metadata_options = {
+        http_endpoint               = "enabled"
+        http_tokens                 = "required"
+        http_put_response_hop_limit = 1
+      }
+    }
   }
 
   tags = var.tags

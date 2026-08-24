@@ -17,6 +17,9 @@ limitations under the License.
 package bench
 
 import (
+	"os"
+	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -121,5 +124,66 @@ func TestAPlanIsRefusedWhileItsCacheIsTooSmallToBatch(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "eviction") {
 		t.Errorf("the refusal does not say what such an arm would actually measure: %v", err)
+	}
+}
+
+// The committed manifests must form a plan Validate accepts, or the arithmetic is decoration.
+//
+// SharingPlan can refuse a bad plan and cannot refuse a bad manifest. What ties them is this test: it reads
+// the engines' --gpu-memory-utilization and their count out of config/vllm-shared, and the replicas out of
+// the time-slicing plugin's ConfigMap, and builds the plan those files actually describe.
+func TestTheCommittedSharedEnginesFormAPlanThatValidates(t *testing.T) {
+	engines, err := os.ReadFile("../../config/vllm-shared/engines.yaml")
+	if err != nil {
+		t.Fatalf("read the shared engines: %v", err)
+	}
+	utils := regexp.MustCompile(`--gpu-memory-utilization=([0-9.]+)`).FindAllStringSubmatch(string(engines), -1)
+	if len(utils) == 0 {
+		t.Fatal("the shared engines set no --gpu-memory-utilization; under time-slicing that defaults each " +
+			"engine to most of the card and the second one has nowhere to live")
+	}
+
+	// Every engine must claim the same slice: the matrix compares one mode against another, and engines
+	// that differed in memory would differ in cache size too, which is the thing the mode is supposed to
+	// change.
+	first := utils[0][1]
+	for _, u := range utils[1:] {
+		if u[1] != first {
+			t.Fatalf("engines claim different slices (%s and %s); the arms would differ in cache size as "+
+				"well as in sharing mode", first, u[1])
+		}
+	}
+	util, err := strconv.ParseFloat(first, 64)
+	if err != nil {
+		t.Fatalf("--gpu-memory-utilization %q is not a number: %v", first, err)
+	}
+
+	plan := SharingPlan{
+		Card: CardA10G, Model: ModelQwen3B,
+		Engines:              len(utils),
+		UtilizationPerEngine: util,
+		NonKVOverheadMiB:     sizingOverheadMiB,
+	}
+	if err := plan.Validate(); err != nil {
+		t.Fatalf("the committed manifests describe a plan that cannot produce a result: %v", err)
+	}
+
+	// The plugin must advertise at least as many devices as there are engines, or the extra engines stay
+	// Pending -- which looks like a scheduling problem and is a configuration one.
+	cm, err := os.ReadFile("../../config/nvidia-device-plugin-timeslicing/configmap.yaml")
+	if err != nil {
+		t.Fatalf("read the sharing config: %v", err)
+	}
+	m := regexp.MustCompile(`replicas:\s*(\d+)`).FindStringSubmatch(string(cm))
+	if m == nil {
+		t.Fatal("the time-slicing ConfigMap declares no replicas; the plugin would advertise one device per card")
+	}
+	replicas, err := strconv.Atoi(m[1])
+	if err != nil {
+		t.Fatalf("replicas %q is not a number: %v", m[1], err)
+	}
+	if replicas < len(utils) {
+		t.Errorf("the plugin advertises %d device(s) and the manifests ask for %d engines; the surplus engines "+
+			"stay Pending", replicas, len(utils))
 	}
 }
