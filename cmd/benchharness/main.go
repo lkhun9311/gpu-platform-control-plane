@@ -47,6 +47,8 @@ func main() {
 		err = replay(os.Args[2:])
 	case "report":
 		err = report(os.Args[2:])
+	case "print-prompt":
+		printPrompt(os.Args[2:])
 	case "stub-serve":
 		err = stubServe(os.Args[2:])
 	default:
@@ -60,7 +62,7 @@ func main() {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: benchharness <gen-trace|replay|report|stub-serve> [flags]")
+	fmt.Fprintln(os.Stderr, "usage: benchharness <gen-trace|replay|report|print-prompt|stub-serve> [flags]")
 }
 
 // genTrace generates an immutable trace file and a frozen manifest that pins its checksum.
@@ -337,4 +339,25 @@ func report(args []string) error {
 	}
 	fmt.Printf("wrote report to %s\n", *out)
 	return nil
+}
+
+// printPrompt writes the exact prompt text a trace row of the given length produces, and nothing else.
+//
+// It exists so a session can MEASURE with the bytes it will later SEND. The paid run derives its arrival
+// rate from one contender prefill against an idle engine, and a prefill's cost is in tokens rather than
+// characters -- so measuring with a stand-in payload measures the wrong thing. A run of one character is
+// the worst possible stand-in: a byte-pair tokenizer collapses 40,000 of them to about 5,000 tokens where
+// the corpus gives 7,695, so the card would look half again faster than it is and the derived rate would
+// oversubscribe it.
+func printPrompt(args []string) {
+	fs := flag.NewFlagSet("print-prompt", flag.ExitOnError)
+	chars := fs.Int("chars", 0, "prompt length in characters")
+	if err := fs.Parse(args); err != nil {
+		os.Exit(2)
+	}
+	if *chars <= 0 {
+		fmt.Fprintln(os.Stderr, "print-prompt: --chars must be positive")
+		os.Exit(2)
+	}
+	fmt.Print(bench.PromptText(*chars))
 }
