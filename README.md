@@ -52,7 +52,7 @@ directly from the [Releases](https://github.com/lkhun9311/gpu-platform-control-p
 | M5-d | Technical write-up with the measured numbers | Planned |
 | [M6](https://github.com/lkhun9311/gpu-platform-control-plane/releases/tag/m6-training-admission) | Training admission: `MLTrainingJob` → Job + Kueue Workload; two-tenant cohort borrowing and quota-reclaim preemption, run end to end on kind | Done ([evidence](hack/m6-kind-e2e.md)) |
 | [queuelab](https://github.com/lkhun9311/gpu-platform-control-plane/releases/tag/queuelab) | Queue-policy measurement lab: censoring-aware list/watch lifecycle ledger replayed against real Kueue | Withdrawn once, then re-measured: twelve runs the runner's own gates accept ([result](hack/queuelab-reclaim-first-result.md)). **Simulated GPU** |
-| M7 | Inject failure scenarios and record an operational evidence trail (`WorkloadRun`) | Sketched |
+| M7 | Inject failure scenarios and record an operational evidence trail (`WorkloadRun`) | CRD and controller built and tested on envtest; the trail refuses rather than concludes when it has a hole. Injection stays in the chaos scripts, and **no scenario has been driven through it end to end** |
 
 **What has not been exercised.** Every GPU in this project is simulated by a fake device plugin. Nothing
 here has ever run against real hardware, and the State and Status columns above say so per row rather than

@@ -20,6 +20,10 @@ allocated and idle is the state this whole axis exists to distinguish from one t
 
 In the arm that honours SIGTERM those two requirements contradict each other:
 
+The holds below are read off the committed records, not restated from another page. Re-derive them with:
+
+    queuelabrun -compare 'ex/e17-*-e17[gs]*.json' -mode model
+
 | | recorded hold | victim during the hold | samples inside at 1 s scrape |
 |---|---|---|---|
 | A-honor | 2.171 – 3.210 s | has stopped computing | 2–3, reading idle |

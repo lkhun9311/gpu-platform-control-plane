@@ -214,6 +214,13 @@ func main() {
 		setupLog.Error(err, "Failed to create controller", "controller", "gpuquotapolicy")
 		os.Exit(1)
 	}
+	if err := (&controller.WorkloadRunReconciler{
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "Failed to create controller", "controller", "workloadrun")
+		os.Exit(1)
+	}
 	if err := (&controller.InferenceDeploymentReconciler{
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
