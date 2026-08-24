@@ -11,6 +11,15 @@
 #
 #   shared        one engine, whole card, both tenants routed to it        (M5-b's topology)
 #   timeSlicing   two engines, half card each, one tenant routed to each
+#   mps           the same two engines, sharing through MPS instead
+#
+# MPS is not a third topology, it is a second mechanism for the same one, and the difference is worth
+# stating because it is the reason both arms exist. Time-slicing interleaves kernels and does NOT partition
+# memory -- the two engines draw on one pool and only convention keeps their utilizations summing below 1.
+# MPS runs their kernels concurrently in one context AND caps each client's memory: the pinned control
+# daemon issues set_default_device_pinned_mem_limit, read out of the binary rather than the documentation.
+# So the arms differ in whether the tenants contend for SM time serially or concurrently, and in whether
+# their memory ceiling is enforced or agreed.
 #
 # The routing is built from mechanisms this control plane already has: the gateway resolves a backend from
 # the requesting tenant's GPUQuotaPolicy targetNamespace, so putting each engine in its own namespace and
@@ -34,6 +43,9 @@ OUT="${OUT:-hack/m5c-run-$(date +%Y%m%d-%H%M%S)}"
 LOG="$OUT/evidence.log"
 GW_IMAGE="${GW_IMAGE:-gateway:m5c}"
 REPS="${REPS:-2}"
+# Which sharing mechanism the shared arm uses. Both are run in a full matrix; a session that only has time
+# for one should say which rather than silently getting the default.
+ARMS="${ARMS:-shared timeSlicing mps}"
 
 k() { kubectl --context "$KCTX" "$@"; }
 say() { echo "== $*" | tee -a "$LOG"; }
@@ -83,17 +95,37 @@ fi
 SCALED_UP=1
 [ "$shared_nodes" -eq 1 ] || fail "$shared_nodes sharing nodes are up; two engines on two nodes are not sharing a card, and nothing downstream could tell that apart from a sharing result"
 
-say "apply the time-slicing device plugin"
-k apply -k config/nvidia-device-plugin-timeslicing >/dev/null || fail "apply the time-slicing plugin"
-say "wait for the card to advertise two devices"
-for i in $(seq 1 60); do
-  adv=$(k get nodes -l 'platform.lkhun9311.github.io/gpu-sharing=true' \
-    -o jsonpath='{.items[0].status.allocatable.nvidia\.com/gpu}' 2>/dev/null)
-  [ "${adv:-0}" -ge 2 ] 2>/dev/null && break
-  [ "$i" = 60 ] && fail "the node advertises ${adv:-0} device(s) after applying a time-slicing config that asks for 2: the plugin is ignoring CONFIG_FILE, and both engines would compete for one device"
-  sleep 10
-done
-say "node advertises $adv devices for one physical card"
+# The two sharing overlays select the SAME node, so exactly one may be applied at a time: two plugins
+# registering nvidia.com/gpu against one kubelet socket is not a configuration worth debugging on a rented
+# card. Deleting the other one first is the mechanism; remembering is not.
+apply_sharing_plugin() {
+  local mode="$1" other keep
+  case "$mode" in
+    timeSlicing) keep=config/nvidia-device-plugin-timeslicing; other=config/nvidia-device-plugin-mps ;;
+    mps)         keep=config/nvidia-device-plugin-mps;         other=config/nvidia-device-plugin-timeslicing ;;
+    *) fail "apply_sharing_plugin: unknown mode $mode" ;;
+  esac
+  k delete -k "$other" --ignore-not-found --wait=true >/dev/null 2>&1
+  k apply -k "$keep" >/dev/null || fail "apply the $mode plugin"
+
+  say "wait for the card to advertise two devices under $mode"
+  for i in $(seq 1 60); do
+    adv=$(k get nodes -l 'platform.lkhun9311.github.io/gpu-sharing=true' \
+      -o jsonpath='{.items[0].status.allocatable.nvidia\.com/gpu}' 2>/dev/null)
+    [ "${adv:-0}" -ge 2 ] 2>/dev/null && break
+    [ "$i" = 60 ] && fail "the node advertises ${adv:-0} device(s) after applying a $mode config that asks for 2: the plugin is ignoring CONFIG_FILE, and both engines would compete for one device -- which is a one-engine arm wearing a two-engine label"
+    sleep 10
+  done
+  say "node advertises $adv devices for one physical card under $mode"
+
+  # MPS has a second failure that time-slicing does not: the control daemon can be absent or unreachable
+  # while the plugin still advertises, and every client then silently runs WITHOUT MPS. An arm that fell
+  # back that way is the time-slicing arm under another name, and nothing downstream could tell.
+  if [ "$mode" = mps ]; then
+    k rollout status ds/nvidia-mps-control-daemon -n system --timeout=180s >/dev/null \
+      || fail "the MPS control daemon never became ready; clients would fall back to running without MPS and the arm would be time-slicing under another name"
+  fi
+}
 
 say "build and push the gateway"
 CGO_ENABLED=0 GOOS=linux go build -o "$WORK/gateway" ./cmd/gateway || fail "build gateway"
@@ -135,7 +167,8 @@ deploy_arm() {
       routing_record "$NS_A" vllm-qwen25-3b
       PREMIUM_NS="$NS_A"; STANDARD_NS="$NS_A"
       ;;
-    timeSlicing)
+    timeSlicing|mps)
+      apply_sharing_plugin "$arm"
       k apply -f config/vllm-shared/engine-a.yaml -n "$NS_A" >/dev/null || fail "apply engine a"
       k apply -f config/vllm-shared/engine-b.yaml -n "$NS_B" >/dev/null || fail "apply engine b"
       k rollout status deploy/vllm-shared-a -n "$NS_A" --timeout=900s >/dev/null || fail "engine a never became ready"
@@ -215,7 +248,7 @@ DURATION_MS=$(python3 -c "print(int(500 / (float('$RATE')/2) * 1000))")
 say "rate ${RATE}/s, duration $((DURATION_MS/1000))s per arm, ${REPS} repetitions, output $OUT"
 
 for rep in $(seq 1 "$REPS"); do
-  for arm in shared timeSlicing; do
+  for arm in $ARMS; do
     say "rep $rep arm $arm"
     deploy_arm "$arm"
     [ -n "$PF_PID" ] && kill "$PF_PID" 2>/dev/null
@@ -252,5 +285,5 @@ Compare raw-shared-*.jsonl against raw-timeSlicing-*.jsonl on premium TTFT inste
 EOF
 
 say "MATRIX DONE. Raw evidence in $OUT (see its README.txt before analysing)."
-say "The comparison is premium TTFT p99 between the two sharing modes at equal offered load."
+say "The comparison is premium TTFT p99 across the sharing modes at equal offered load."
 say "Per-engine GPU utilisation is deliberately absent: under time-slicing nothing can attribute it."

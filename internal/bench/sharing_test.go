@@ -199,3 +199,87 @@ func TestTheCommittedSharedEnginesFormAPlanThatValidates(t *testing.T) {
 			"stay Pending", replicas, len(utils))
 	}
 }
+
+// The two sharing overlays must be mutually exclusive on one node, and equal in everything but the mechanism.
+//
+// They select the same node label on purpose -- MPS and time-slicing are two arms of one matrix on one
+// machine, run at different times -- which makes applying both a live hazard rather than a hypothetical:
+// two plugins registering nvidia.com/gpu against one kubelet socket, on a rented card. The script deletes
+// one before applying the other; this checks the properties that make that both necessary and sufficient.
+func TestTheSharingOverlaysAreExclusiveAndDifferOnlyInTheMechanism(t *testing.T) {
+	ts, err := os.ReadFile("../../config/nvidia-device-plugin-timeslicing/daemonset.yaml")
+	if err != nil {
+		t.Fatalf("read the time-slicing overlay: %v", err)
+	}
+	mps, err := os.ReadFile("../../config/nvidia-device-plugin-mps/daemonset.yaml")
+	if err != nil {
+		t.Fatalf("read the MPS overlay: %v", err)
+	}
+
+	sel := regexp.MustCompile(`platform\.lkhun9311\.github\.io/gpu-sharing:\s*"true"`)
+	if !sel.MatchString(string(ts)) || !sel.MatchString(string(mps)) {
+		t.Fatal("the two overlays no longer select the same node, so the script's delete-then-apply is " +
+			"guarding an exclusion that no longer exists and both could run at once elsewhere")
+	}
+
+	// Distinct DaemonSet names, or applying one adopts the other's pods and the delete never happens.
+	nameOf := regexp.MustCompile(`(?m)^  name:\s*(\S+)`)
+	names := map[string]string{}
+	for label, b := range map[string][]byte{"timeslicing": ts, "mps": mps} {
+		for _, m := range nameOf.FindAllStringSubmatch(string(b), -1) {
+			if prev, dup := names[m[1]]; dup && prev != label {
+				t.Errorf("both overlays declare %q; applying one would adopt the other's DaemonSet instead "+
+					"of replacing it", m[1])
+			}
+			names[m[1]] = label
+		}
+	}
+
+	// Same plugin digest. Sharing is a configuration of one binary, and arms that differed in the plugin
+	// would differ in more than the mechanism under test.
+	// Exactly 64 hex, because prose in these files abbreviates digests and a truncated one is not a pin.
+	// The first version of this matched `sha256:ed39e22c...` inside a comment and reported the two arms as
+	// running different builds -- a false alarm that would have been read as a real one.
+	dig := regexp.MustCompile(`k8s-device-plugin:[^@\s]+@(sha256:[a-f0-9]{64})`)
+	tsDig := dig.FindStringSubmatch(string(ts))
+	mpsDig := dig.FindStringSubmatch(string(mps))
+	if tsDig == nil || mpsDig == nil {
+		t.Fatal("one of the overlays does not pin the plugin by digest")
+	}
+	if tsDig[1] != mpsDig[1] {
+		t.Errorf("the arms run different plugin builds (%s and %s); the comparison would carry that "+
+			"difference as well as the sharing mechanism", tsDig[1], mpsDig[1])
+	}
+
+	// Both must set CONFIG_FILE. Without it the plugin ignores the mounted config and advertises one device
+	// per card -- the EXCLUSIVE behaviour under a manifest that says otherwise, which is an arm in name only.
+	// Anchored on the whole env-var name. A substring check passed a manifest whose variable had been
+	// renamed to CONFIG_FILE_DISABLED, which the plugin ignores exactly as it ignores an absent one.
+	cfgVar := regexp.MustCompile(`(?m)^\s*-\s*name:\s*CONFIG_FILE\s*$`)
+	for label, b := range map[string][]byte{"timeslicing": ts, "mps": mps} {
+		if !cfgVar.MatchString(string(b)) {
+			t.Errorf("the %s overlay does not set CONFIG_FILE; the plugin would ignore its sharing config "+
+				"and the arm would be the exclusive one wearing another name", label)
+		}
+	}
+
+	// Equal replica counts. The matrix varies the mechanism and holds the tenant count fixed; arms that
+	// differed here would be measuring the count.
+	rep := regexp.MustCompile(`replicas:\s*(\d+)`)
+	tsCM, err := os.ReadFile("../../config/nvidia-device-plugin-timeslicing/configmap.yaml")
+	if err != nil {
+		t.Fatalf("read the time-slicing config: %v", err)
+	}
+	mpsCM, err := os.ReadFile("../../config/nvidia-device-plugin-mps/configmap.yaml")
+	if err != nil {
+		t.Fatalf("read the MPS config: %v", err)
+	}
+	a, b := rep.FindStringSubmatch(string(tsCM)), rep.FindStringSubmatch(string(mpsCM))
+	if a == nil || b == nil {
+		t.Fatal("a sharing config declares no replicas; the plugin would advertise one device per card")
+	}
+	if a[1] != b[1] {
+		t.Errorf("time-slicing advertises %s replicas and MPS %s; the arms would differ in how many tenants "+
+			"share the card as well as in how", a[1], b[1])
+	}
+}
