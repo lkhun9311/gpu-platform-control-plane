@@ -33,11 +33,16 @@
 # Qwen2.5-7B was ruled out by arithmetic rather than by preference: 15.2 GB of fp16 weights leave too
 # little for a cache once two of them have to fit for the matrix, and quantising to fit would put a
 # quantisation confound inside an experiment about admission control.
+# No namespace here, deliberately. hack/m5b-gpu-session.sh and hack/m5c-matrix.sh each place this engine
+# where their run needs it, and a pinned `namespace: system` silently defeated that: `kubectl apply -k`
+# keeps a namespace the object already carries, so the M5-b session would have deployed into system while
+# waiting for a rollout in its own namespace, and `apply -f -n` refuses outright. The matrix needs the
+# freedom for a further reason -- it puts one engine per namespace so the gateway can route one tenant to
+# each, which is the whole of what its time-slicing arm varies.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: vllm-qwen25-3b
-  namespace: system
   labels:
     app.kubernetes.io/name: gpu-platform-control-plane
     app.kubernetes.io/component: vllm

@@ -18,6 +18,7 @@ package bench
 
 import (
 	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -133,9 +134,20 @@ func TestAPlanIsRefusedWhileItsCacheIsTooSmallToBatch(t *testing.T) {
 // the engines' --gpu-memory-utilization and their count out of config/vllm-shared, and the replicas out of
 // the time-slicing plugin's ConfigMap, and builds the plan those files actually describe.
 func TestTheCommittedSharedEnginesFormAPlanThatValidates(t *testing.T) {
-	engines, err := os.ReadFile("../../config/vllm-shared/engines.yaml")
-	if err != nil {
-		t.Fatalf("read the shared engines: %v", err)
+	// Globbed rather than named: the engines live one per file so each can be applied into its own
+	// namespace, and a test that named one file would stop counting the moment a third engine was added --
+	// silently, by validating a two-engine plan for a three-engine deployment.
+	files, err := filepath.Glob("../../config/vllm-shared/engine-*.yaml")
+	if err != nil || len(files) == 0 {
+		t.Fatalf("no shared engine manifests found: %v", err)
+	}
+	var engines []byte
+	for _, f := range files {
+		b, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatalf("read %s: %v", f, err)
+		}
+		engines = append(engines, b...)
 	}
 	utils := regexp.MustCompile(`--gpu-memory-utilization=([0-9.]+)`).FindAllStringSubmatch(string(engines), -1)
 	if len(utils) == 0 {

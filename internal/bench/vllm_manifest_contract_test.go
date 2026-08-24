@@ -19,6 +19,7 @@ package bench
 import (
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -170,9 +171,17 @@ func TestTheFlagshipAndTheSharingMatrixAgreeOnModelAndDtype(t *testing.T) {
 		t.Fatal("the flagship engine sets no --dtype; it would be inferred from the model config and could differ from the matrix's")
 	}
 
-	shared, err := os.ReadFile("../../config/vllm-shared/engines.yaml")
-	if err != nil {
-		t.Fatalf("read the sharing engines: %v", err)
+	files, err := filepath.Glob("../../config/vllm-shared/engine-*.yaml")
+	if err != nil || len(files) == 0 {
+		t.Fatalf("no sharing engine manifests found: %v", err)
+	}
+	var shared []byte
+	for _, f := range files {
+		b, rerr := os.ReadFile(f)
+		if rerr != nil {
+			t.Fatalf("read %s: %v", f, rerr)
+		}
+		shared = append(shared, b...)
 	}
 	dtypes := regexp.MustCompile(`--dtype=([A-Za-z0-9]+)`).FindAllStringSubmatch(string(shared), -1)
 	if len(dtypes) == 0 {
@@ -195,6 +204,35 @@ func TestTheFlagshipAndTheSharingMatrixAgreeOnModelAndDtype(t *testing.T) {
 	if !strings.Contains(string(shared), flagshipModel) {
 		t.Errorf("the flagship serves %q and the sharing engines do not; the exclusive arm of the matrix is "+
 			"supposed to be the flagship's own measurement", flagshipModel)
+	}
+}
+
+// No engine manifest may pin a namespace, because both runs place their engines themselves.
+//
+// A pinned `namespace: system` defeated that silently in two different ways at once. `kubectl apply -k`
+// keeps a namespace the object already carries and ignores -n, so the M5-b session would have deployed the
+// engine into system and then waited for a rollout in its own namespace until the timeout; `kubectl apply
+// -f -n` refuses outright with a message about a mismatch. The matrix needs the freedom for a further
+// reason: it puts one engine per namespace so the gateway can route one tenant to each, and that routing
+// IS its time-slicing arm.
+func TestNoEngineManifestPinsANamespace(t *testing.T) {
+	files, err := filepath.Glob("../../config/vllm-shared/engine-*.yaml")
+	if err != nil {
+		t.Fatalf("glob the sharing engines: %v", err)
+	}
+	files = append(files, "../../config/vllm/deployment.yaml", "../../config/vllm/service.yaml")
+
+	pinned := regexp.MustCompile(`(?m)^\s+namespace:\s*\S`)
+	for _, f := range files {
+		b, rerr := os.ReadFile(f)
+		if rerr != nil {
+			t.Fatalf("read %s: %v", f, rerr)
+		}
+		if loc := pinned.FindString(string(b)); loc != "" {
+			t.Errorf("%s pins a namespace (%q); the session and matrix scripts place these engines "+
+				"themselves, and a pinned namespace makes `apply -k -n` deploy somewhere else while the "+
+				"script waits where it asked", f, strings.TrimSpace(loc))
+		}
 	}
 }
 
