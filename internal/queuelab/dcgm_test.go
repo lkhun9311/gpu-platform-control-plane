@@ -5,13 +5,28 @@ import (
 	"testing"
 )
 
-// realScrape is the shape a DCGM exporter actually emits, including the series this ignores, an idle card
+// renderedScrape is the shape a DCGM exporter actually emits, including the series this ignores, an idle card
 // with no Pod labels, and a model name containing a comma.
-const realScrape = `# HELP DCGM_FI_DEV_GPU_UTIL GPU utilization (in %).
+// renderedScrape follows the template the PINNED exporter binary carries, read out of
+// nvcr.io/nvidia/k8s/dcgm-exporter@sha256:3d4e0dfa... rather than out of the documentation:
+//
+//	{{ $counter.FieldName }}{gpu="…",{{ $metric.UUID }}="…",pci_bus_id="…",device="…",modelName="…"
+//	  {{if $metric.MigProfile}},GPU_I_PROFILE="…",GPU_I_ID="…"{{end}}
+//	  {{if $metric.Hostname}},Hostname="…"{{end}}
+//	  {{- range $k, $v := $metric.Attributes -}},{{ $k }}="{{ $v }}"{{- end -}}} value
+//
+// It is RENDERED, not captured: nv-hostengine in that image exposes no fake-GPU mode, so no exposition
+// could be produced without a card. That is better than documentation and weaker than a scrape, and the
+// name says so -- it used to be called renderedScrape, which it never was.
+//
+// pci_bus_id was missing until this audit. Harmless, because labels split on commas outside quotes and the
+// key ends at the first '=' -- but a fixture that does not match the shape it stands in for cannot be
+// evidence about that shape.
+const renderedScrape = `# HELP DCGM_FI_DEV_GPU_UTIL GPU utilization (in %).
 # TYPE DCGM_FI_DEV_GPU_UTIL gauge
-DCGM_FI_DEV_GPU_UTIL{gpu="0",UUID="GPU-aaaa",device="nvidia0",modelName="NVIDIA A10G",Hostname="w1",container="trainer",namespace="queuelab-r1",pod="a2-borrow-x7k2p"} 97
-DCGM_FI_DEV_GPU_UTIL{gpu="1",UUID="GPU-bbbb",device="nvidia1",modelName="NVIDIA A100-SXM4-40GB, MIG 1g.5gb",Hostname="w1",container="trainer",namespace="queuelab-r1",pod="b1-owner-m4t9q"} 3
-DCGM_FI_DEV_GPU_UTIL{gpu="2",UUID="GPU-cccc",device="nvidia2",modelName="NVIDIA A10G",Hostname="w1"} 0
+DCGM_FI_DEV_GPU_UTIL{gpu="0",UUID="GPU-aaaa",pci_bus_id="00000000:00:1E.0",device="nvidia0",modelName="NVIDIA A10G",Hostname="w1",container="trainer",namespace="queuelab-r1",pod="a2-borrow-x7k2p"} 97
+DCGM_FI_DEV_GPU_UTIL{gpu="1",UUID="GPU-bbbb",pci_bus_id="00000000:00:1F.0",device="nvidia1",modelName="NVIDIA A100-SXM4-40GB, MIG 1g.5gb",Hostname="w1",container="trainer",namespace="queuelab-r1",pod="b1-owner-m4t9q"} 3
+DCGM_FI_DEV_GPU_UTIL{gpu="2",UUID="GPU-cccc",pci_bus_id="00000000:00:20.0",device="nvidia2",modelName="NVIDIA A10G",Hostname="w1"} 0
 DCGM_FI_DEV_FB_USED{gpu="0",UUID="GPU-aaaa",Hostname="w1",namespace="queuelab-r1",pod="a2-borrow-x7k2p"} 8192
 `
 
@@ -29,7 +44,7 @@ func resolver(ns, name string) string {
 // The ordinary scrape: two attributed samples, the idle card skipped, the other metric ignored, and the
 // comma inside a model name not breaking the label split.
 func TestParseDCGMTakesUtilisationAndAttributesIt(t *testing.T) {
-	got, unattributed, _, err := ParseDCGMUtilisation([]byte(realScrape), 5_000_000_000, resolver)
+	got, unattributed, _, err := ParseDCGMUtilisation([]byte(renderedScrape), 5_000_000_000, resolver)
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
@@ -127,7 +142,7 @@ func TestMalformedScrapesAreRefusedRatherThanSkipped(t *testing.T) {
 // The observer labels by name; something else has to say which object that name referred to. Without a
 // resolver there is nothing to attribute to, and inventing an identity is the one thing this must not do.
 func TestParsingWithoutAResolverIsRefused(t *testing.T) {
-	_, _, _, err := ParseDCGMUtilisation([]byte(realScrape), 1, nil)
+	_, _, _, err := ParseDCGMUtilisation([]byte(renderedScrape), 1, nil)
 	if err == nil {
 		t.Fatal("a scrape parsed with nothing to resolve Pod identity")
 	}

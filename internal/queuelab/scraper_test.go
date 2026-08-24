@@ -53,7 +53,7 @@ func TestObserveRecordsWhatItActuallyCovered(t *testing.T) {
 	// of the run, and EstablishesDeviceWork's coverage check -- obs.StartedNs > fromNs -- would then never
 	// fire for an observer that attached late.
 	clock := &fakeClock{now: int64(30 * time.Second), step: int64(100 * time.Millisecond)}
-	s, ctx, cancel := scraperOver(t, clock, realScrape, realScrape, realScrape)
+	s, ctx, cancel := scraperOver(t, clock, renderedScrape, renderedScrape, renderedScrape)
 	defer cancel()
 	obs, unattributed, err := s.Observe(ctx)
 	if err != nil {
@@ -148,7 +148,7 @@ func TestAnIntervalAtOrOverTheGapLimitIsRefused(t *testing.T) {
 	for _, d := range []time.Duration{0, -time.Second, maxObserverGap, maxObserverGap + time.Second} {
 		s := &DeviceScraper{
 			Observer: ObserverDCGM, Identity: "x", Interval: d, Resolve: resolver, Elapsed: clock.elapsed,
-			Fetch: func(context.Context) ([]byte, error) { return []byte(realScrape), nil },
+			Fetch: func(context.Context) ([]byte, error) { return []byte(renderedScrape), nil },
 		}
 		if _, _, err := s.Observe(context.Background()); err == nil {
 			t.Errorf("interval %s was accepted", d)
@@ -162,7 +162,7 @@ func TestAScraperNeedsATransportAResolverAndTheCollectorsClock(t *testing.T) {
 		return &DeviceScraper{
 			Observer: ObserverDCGM, Identity: "x", Interval: 10 * time.Millisecond,
 			Resolve: resolver, Elapsed: (&fakeClock{step: 1}).elapsed,
-			Fetch: func(context.Context) ([]byte, error) { return []byte(realScrape), nil },
+			Fetch: func(context.Context) ([]byte, error) { return []byte(renderedScrape), nil },
 		}
 	}
 	for name, break_ := range map[string]func(*DeviceScraper){
