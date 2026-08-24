@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# The M5-b paid session: one T4, four arms, and a bill that stops when the script does.
+# The M5-b paid session: one A10G, four arms, and a bill that stops when the script does.
 #
 # Everything before this has run against a stub or a CPU engine. hack/m5b-chain-live.sh proved the chain
 # carries a request and that the guard engages on a real engine's telemetry; what it could not produce is a
@@ -24,7 +24,7 @@ KCTX="${KCTX:-$(kubectl config current-context 2>/dev/null)}"
 ENGINE=vllm-qwen25-3b
 MODEL="Qwen/Qwen2.5-3B-Instruct"
 # From hack/m5b-vllm-sizing.md. Predicted BEFORE the run so the engine can contradict it.
-PREDICTED_KV_TOKENS=186000
+PREDICTED_KV_TOKENS=382270
 PREDICTED_CONTENDER_TOKENS=7695
 LOG=hack/m5b-gpu-session-evidence.log
 WORK="$(mktemp -d)"

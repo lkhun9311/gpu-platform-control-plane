@@ -43,6 +43,40 @@ variable "gpu_shared_node_instance_type" {
 }
 
 variable "gpu_single_node_instance_type" {
+  description = "Instance type for the one-card GPU node group that M5-b runs its four arms on."
+  type        = string
+  # ONE A10G, and it is the same card the sharing matrix needs -- which is the point.
+  #
+  # This was g4dn.xlarge (a T4) until the M5-c sizing forced an A10G: two Qwen2.5-3B engines leave 10 MiB of
+  # KV each on a T4, so the matrix cannot run there at all. Leaving M5-b on the T4 would have put the
+  # flagship and the matrix on different silicon, and the exclusive arm of the matrix IS the flagship's
+  # configuration -- one engine with the card to itself. On one card class they are the same measurement and
+  # M5-c does not have to pay for that arm twice.
+  #
+  # Four vCPU, the same as g4dn.xlarge, so the 8 vCPU granted for ap-northeast-2 on 2026-08-24 still covers
+  # it, and the A10G's higher throughput means each arm takes less wall-clock despite the higher hourly rate.
+  #
+  # config/vllm/deployment.yaml keeps --dtype=half, which on sm_86 is a CHOICE rather than the startup
+  # condition it was on sm_75. It stays because the matrix and the flagship must not differ in dtype and
+  # nothing has been measured that would justify moving.
+  default = "g5.xlarge"
+}
+
+variable "gpu_shared_node_instance_type" {
+  description = "Instance type for the sharing node group M5-c runs its matrix on."
+  type        = string
+  # ONE A10G, and 24 GB is the requirement rather than a preference.
+  #
+  # The matrix puts two Qwen2.5-3B engines on one card. Time-slicing does not partition memory, so each gets
+  # half: on a T4 that leaves 10 MiB of KV per engine -- 284 tokens against a 7,695-token contender prompt --
+  # and internal/bench.SharingPlan refuses it. An A10G leaves 3.6 GiB each.
+  #
+  # Four vCPU, the same as g4dn.xlarge, so the 8 vCPU granted for ap-northeast-2 on 2026-08-24 covers it:
+  # M5-c is not blocked on the support case either.
+  default = "g5.xlarge"
+}
+
+variable "gpu_single_node_instance_type" {
   description = "Instance type for the one-card GPU node group that M5-b runs on."
   type        = string
   # ONE T4, and one is the requirement rather than a saving.

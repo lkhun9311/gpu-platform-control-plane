@@ -19,6 +19,7 @@ package bench
 import (
 	"encoding/json"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -152,16 +153,89 @@ func TestContextWindowHoldsTheLargestMeasuredPrompt(t *testing.T) {
 	}
 }
 
-// A T4 is sm_75 and vLLM refuses bfloat16 below sm_80, so the dtype is a startup condition, not a preference.
-func TestDtypeIsOneATuringCardCanStart(t *testing.T) {
-	c := vllmContainer(t, loadVLLMDeployment(t))
-
-	v, ok := argValue(c.Args, "--dtype")
+// The flagship and the sharing matrix must serve the same model at the same dtype, or they measure two things.
+//
+// This assertion used to be that dtype is startable on a T4: vLLM's platforms/cuda.py refuses bfloat16
+// below sm_80, so on sm_75 fp16 was a startup condition. The card is an A10G now (sm_86), which accepts
+// bfloat16 -- so that reason is gone, and asserting it would be asserting something false.
+//
+// The reason that replaced it is stronger, because it binds two files instead of restating a vendor limit.
+// M5-c's exclusive arm IS this configuration, one engine with the card to itself, so the flagship's result
+// is that arm. Engines that differed in dtype would make the matrix compare sharing mode AND numerics, and
+// the difference would be attributed to the mode.
+func TestTheFlagshipAndTheSharingMatrixAgreeOnModelAndDtype(t *testing.T) {
+	flagship := vllmContainer(t, loadVLLMDeployment(t))
+	flagshipDtype, ok := argValue(flagship.Args, "--dtype")
 	if !ok {
-		t.Fatal("deployment does not set --dtype; vLLM would infer bfloat16 from the model config and refuse to start on a T4")
+		t.Fatal("the flagship engine sets no --dtype; it would be inferred from the model config and could differ from the matrix's")
 	}
-	if v != "half" && v != "float16" {
-		t.Fatalf("--dtype=%s is not startable on sm_75; vLLM raises \"Bfloat16 is only supported on GPUs with compute capability of at least 8.0\"", v)
+
+	shared, err := os.ReadFile("../../config/vllm-shared/engines.yaml")
+	if err != nil {
+		t.Fatalf("read the sharing engines: %v", err)
+	}
+	dtypes := regexp.MustCompile(`--dtype=([A-Za-z0-9]+)`).FindAllStringSubmatch(string(shared), -1)
+	if len(dtypes) == 0 {
+		t.Fatal("the sharing engines set no --dtype")
+	}
+	for _, d := range dtypes {
+		if d[1] != flagshipDtype {
+			t.Errorf("the flagship serves at --dtype=%s and a sharing engine at --dtype=%s; the matrix would "+
+				"compare sharing mode and numerics together", flagshipDtype, d[1])
+		}
+	}
+
+	flagshipModel := ""
+	for _, a := range flagship.Args {
+		if !strings.HasPrefix(a, "-") {
+			flagshipModel = a
+			break
+		}
+	}
+	if !strings.Contains(string(shared), flagshipModel) {
+		t.Errorf("the flagship serves %q and the sharing engines do not; the exclusive arm of the matrix is "+
+			"supposed to be the flagship's own measurement", flagshipModel)
+	}
+}
+
+// The sequence cap must sit ABOVE the concurrency that fills the cache, or it becomes the binding limit.
+//
+// This is the defect that moving from a T4 to an A10G introduced, and it introduces nothing visible. With
+// --max-num-seqs below the block limit the engine simply never runs out of blocks: KV usage plateaus under
+// the engage threshold, the guard's cache arm never fires, and the arm under test degenerates into the
+// waiting arm. Every number still looks reasonable.
+//
+// 32 was right on a T4, where 24 concurrent contenders filled the cache. The A10G's cache takes 50.
+func TestTheSequenceCapDoesNotBindBeforeTheKVCacheDoes(t *testing.T) {
+	c := vllmContainer(t, loadVLLMDeployment(t))
+	raw, ok := argValue(c.Args, "--max-num-seqs")
+	if !ok {
+		t.Fatal("the engine sets no --max-num-seqs; vLLM's default would decide whether the cap or the cache binds")
+	}
+	seqs, err := strconv.Atoi(raw)
+	if err != nil {
+		t.Fatalf("--max-num-seqs %q is not a number: %v", raw, err)
+	}
+
+	util, ok := argValue(c.Args, "--gpu-memory-utilization")
+	if !ok {
+		t.Fatal("the engine sets no --gpu-memory-utilization, so its cache size is not derivable from the manifest")
+	}
+	u, err := strconv.ParseFloat(util, 64)
+	if err != nil {
+		t.Fatalf("--gpu-memory-utilization %q is not a number: %v", util, err)
+	}
+
+	plan := SharingPlan{Card: CardA10G, Model: ModelQwen3B, Engines: 1, UtilizationPerEngine: u, NonKVOverheadMiB: 1400}
+	if err := plan.Validate(); err != nil {
+		t.Fatalf("the flagship's own plan does not validate: %v", err)
+	}
+	// The largest measured prompt in the trace; the cache fills when this many of them are resident.
+	const contenderTokens = 7695
+	fills := plan.KVTokensPerEngine() / contenderTokens
+	if seqs <= fills {
+		t.Errorf("--max-num-seqs=%d is at or below the %d concurrent contenders that fill the cache, so the "+
+			"sequence cap binds first and the guard's KV-usage arm can never fire", seqs, fills)
 	}
 }
 

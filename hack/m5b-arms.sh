@@ -30,7 +30,7 @@ k() { kubectl --context "$KCTX" "$@"; }
 say() { echo "== $*" | tee -a "$LOG"; }
 fail() { echo "ARMS FAILED: $*" | tee -a "$LOG" >&2; exit 1; }
 
-[ -n "${RATE:-}" ] || fail "RATE is unset. It must come from hack/m5b-gpu-session.sh's prefill measurement on THIS card, not from a default: the harness default of 20/s demands 7.3x a T4's theoretical peak, and a run at it censors every arm's tail and is disqualified by EvaluateChecks after the card has been paid for."
+[ -n "${RATE:-}" ] || fail "RATE is unset. It must come from hack/m5b-gpu-session.sh's prefill measurement on THIS card, not from a default: the harness default of 20/s demands 3.8x an A10G's theoretical peak, and 7.3x a T4's, and a run at it censors every arm's tail and is disqualified by EvaluateChecks after the card has been paid for."
 
 mkdir -p "$OUT" || fail "cannot create $OUT"
 : > "$LOG"
