@@ -607,6 +607,11 @@ type doseSensitivity struct {
 	// two independently measured means and carries both of their errors.
 	FloorSeconds float64 `json:"floorSeconds"`
 	Bounded      bool    `json:"bounded"`
+	// Resolved is whether the mean above clears its own floor.
+	//
+	// It exists because it did not, and the omission was an asymmetry rather than an oversight: the model
+	// check refuses to read a sub-floor magnitude as measured, and this printed one as though it were.
+	Resolved bool `json:"resolved"`
 	// Interleaved is whether the regimes alternate in the order the runs were taken. When false, any response
 	// this reports moves together with everything else that changed between the two blocks -- node warming,
 	// image cache, cluster drift -- and the check cannot tell them apart. It was missing from this document
@@ -832,6 +837,13 @@ type baseline struct {
 	// against this figure must ADD its own floor to this one, for the reason differenceFloor gives.
 	FloorSeconds float64 `json:"floorSeconds"`
 	Bounded      bool    `json:"bounded"`
+	// Resolved is whether the mean above clears its own floor.
+	//
+	// It exists because it did not, and the omission was an asymmetry rather than an oversight: the model
+	// check refuses to read a sub-floor magnitude as a measured near-zero, and this printed one as though it
+	// were measured. An unresolved baseline is exactly the case where a later session would difference
+	// against a number nobody measured.
+	Resolved bool `json:"resolved"`
 	// DeviceEvidence is the weakest axis among the contributors, so a baseline taken on a fake device plugin
 	// cannot be quoted as though a device were involved.
 	DeviceEvidence string `json:"deviceEvidence"`
@@ -895,12 +907,26 @@ func computeBaseline(recs []runRecord) (baseline, error) {
 	b.FloorSeconds, b.Bounded = float64(floorNs)/float64(time.Second), bounded
 	b.DeviceEvidence = pooledDeviceEvidence(recs)
 	b.Interleaved = armsInterleaveBy(recs, func(r runRecord) string { return r.Dose })
+	// The harness's own resolution rule, applied to the harness's own baseline.
+	//
+	// It was not, and a hostile review found the asymmetry: the model check refuses to read the honouring
+	// arm's 0.041 s hold as a measured near-zero because it sits under the floor, while this printed a mean
+	// under ITS floor as though it were measured. The rule does not become optional when the figure is one
+	// this lab wants to quote -- an unresolved baseline is exactly the case where a later session would
+	// difference against a number nobody measured.
+	b.Resolved = queuelab.ResolvesAgainst(queuelab.SecondsToNs(b.OwnerWaitSecondsMean), queuelab.SecondsToNs(b.FloorSeconds))
+	qualifier := ""
+	if !b.Resolved {
+		qualifier = fmt.Sprintf(" THIS MEAN IS BELOW ITS OWN FLOOR and is therefore UNRESOLVED: it lies "+
+			"somewhere in [0, %.3f s] and must not be quoted as a measured duration, only differenced against "+
+			"with both floors added.", b.FloorSeconds)
+	}
 	b.Statement = fmt.Sprintf("under %s the quota owner was running %.3f s after admission, over %d runs "+
 		"spanning %d dose regime(s) and %d node(s), with a spread of %.0f ms against a worst-run floor of "+
 		"%.3f s. A session differencing against this must add its own floor to that one; the difference of "+
-		"two independently measured means carries both of their errors",
+		"two independently measured means carries both of their errors.%s",
 		arm, b.OwnerWaitSecondsMean, b.N, len(b.Doses), len(b.Nodes), b.OwnerWaitSpreadSeconds*1000,
-		b.FloorSeconds)
+		b.FloorSeconds, qualifier)
 	return b, nil
 }
 
@@ -918,6 +944,22 @@ func renderBaseline(b baseline) string {
 	}
 	if !b.Interleaved {
 		sb.WriteString("  NOT INTERLEAVED: the dose regimes did not alternate in time\n")
+	}
+	// Dispersion is judged against the FLOOR, not against the mean, and the difference matters.
+	//
+	// The first version compared the spread to the mean, which is a ratio with no instrument in it: it would
+	// call a tight set "dispersed" merely for having a small mean. The floor is what this harness can see, so
+	// runs that disagree by more than it disagree about something the harness did NOT control -- and runs
+	// that disagree by less than it do not disagree at all, however large the gap looks. Nothing else gates
+	// on within-cell dispersion, so this is the only place it is a judgement rather than two numbers to
+	// subtract.
+	//
+	// On the committed set it does not fire: the honouring arm spans 1.208 s to 3.210 s, which looks alarming
+	// and is entirely inside a 3.106 s floor.
+	if b.OwnerWaitSpreadSeconds > b.FloorSeconds {
+		fmt.Fprintf(&sb, "  DISPERSED: the runs spread %.0f ms, which exceeds the %.3f s this harness can "+
+			"resolve, so they disagree about something it did not control\n",
+			b.OwnerWaitSpreadSeconds*1000, b.FloorSeconds)
 	}
 	if b.DeviceEvidence != deviceWorkObserved {
 		sb.WriteString("  device: NOT OBSERVED -- this baseline was taken where no run established that a " +

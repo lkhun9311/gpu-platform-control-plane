@@ -183,3 +183,66 @@ func TestEveryRunRecordDecodesUnderThisBuild(t *testing.T) {
 		}
 	}
 }
+
+// No committed document may claim that anything in this repository SETS the victim's grace period.
+//
+// Two of them did, in opposite directions, and the one that mattered was the correction: a page whose whole
+// purpose is scrupulousness said internal/queuelab/trace.go sets terminationGraceSec on the Pods. Nothing
+// does. The only code touching TerminationGracePeriodSeconds outside tests is the termination canary's own
+// probes and a read-only cap check in the admission webhook; trace.go's constant is a MIRROR, and says so in
+// its own comment. The victim runs on the API server default.
+//
+// The arithmetic never depended on it -- the default equals the mirrored constant -- which is precisely why
+// nothing caught it. The citation test that guards figures cannot guard mechanism prose, so this guards the
+// one mechanism claim that has already been wrong twice.
+func TestNoDocumentClaimsThisRepositorySetsTheGracePeriod(t *testing.T) {
+	// Verify the premise before enforcing it: if a setter is ever added, this test must be rewritten rather
+	// than kept, because then the documents would be allowed to say so.
+	var setters []string
+	for _, dir := range []string{"../../internal", "../../cmd", "../../api"} {
+		_ = filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+			if err != nil || info.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+				return nil
+			}
+			b, rerr := os.ReadFile(path)
+			if rerr != nil {
+				return nil
+			}
+			for _, line := range strings.Split(string(b), "\n") {
+				// An assignment TO the field, not a read of it.
+				if regexp.MustCompile(`\.TerminationGracePeriodSeconds\s*=`).MatchString(line) {
+					setters = append(setters, path)
+				}
+			}
+			return nil
+		})
+	}
+	// The canary sets it on its own probes, which is not the victim's path.
+	var victimSetters []string
+	for _, s := range setters {
+		if !strings.Contains(s, "canary") {
+			victimSetters = append(victimSetters, s)
+		}
+	}
+	if len(victimSetters) > 0 {
+		t.Fatalf("something now sets the grace period outside the canary (%v); the documents may say so, and "+
+			"this test must be rewritten rather than deleted", victimSetters)
+	}
+
+	claim := regexp.MustCompile(`(?i)(trace\.go|the protocol|this lab|the harness)[^.\n]{0,60}sets\s+` +
+		`(the\s+)?(termination\s*)?grace`)
+	docs, gerr := filepath.Glob(filepath.Join("..", "..", "hack", "*.md"))
+	if gerr != nil || len(docs) == 0 {
+		t.Fatalf("no committed markdown to check: %v", gerr)
+	}
+	for _, doc := range docs {
+		b, err := os.ReadFile(doc)
+		if err != nil {
+			t.Fatalf("read %s: %v", doc, err)
+		}
+		if m := claim.FindString(string(b)); m != "" {
+			t.Errorf("%s claims %q, and nothing in this repository sets the victim's grace period; the "+
+				"victim runs on the API server default", filepath.Base(doc), strings.TrimSpace(m))
+		}
+	}
+}

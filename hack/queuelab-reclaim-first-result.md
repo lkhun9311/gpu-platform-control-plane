@@ -25,7 +25,7 @@ policy, the cohort, the worker — is identical, and `sameMechanism` refuses to 
 any field that defines the experiment.
 
 The trace is three rows. `a1` and `a2-borrow` belong to tenant A, which borrows beyond its nominal quota;
-`b1-owner` belongs to tenant B and arrives at t=44s to reclaim what it owns. Kueue preempts `a2-borrow`
+`b1-owner` belongs to tenant B and arrives to reclaim what it owns partway through the victim's service -- at t=24s in the grace-bounded regime and t=44s in the self-completing one, since the arrival is placed relative to the dose rather than fixed. Eight of the twelve runs are grace-bounded, so the single figure this line used to quote described the minority. Kueue preempts `a2-borrow`
 under `reclaimWithinCohort`.
 
 ## Result
@@ -102,15 +102,35 @@ work between the arms and 29.0 seconds of the owner's waiting, against a 5.906 s
 interleaved runs.
 
 **This sentence used to end "that difference IS the termination grace period, recovered from the experiment
-rather than assumed by it", and that was false.** The grace period is not recovered here; it is compiled in
-on both sides. `internal/queuelab/trace.go` sets `terminationGraceSec` on the Pods and
-`cmd/queuelabrun/spine.go` uses the same constant to build the horizon and the regimes, so a difference
-landing near thirty seconds is the harness reading back a value it set. What the runs support is that the
-difference is **consistent with** the configured grace period and far larger than the floor — which is worth
-having, and is a weaker claim than an independent measurement of a platform constant.
+rather than assumed by it", and that was false.** The grace period is not recovered here.
 
-The nearest thing to a direct measurement of the grace period in this repository is the termination canary,
-which records how long the ignoring probe outlasted its deletion. It is not the number quoted above.
+**The correction that replaced it was also false, and a hostile review caught it.** It said
+`internal/queuelab/trace.go` sets `terminationGraceSec` on the Pods. It does not. `grep -rn
+TerminationGracePeriodSeconds --include=*.go` finds no setter on the victim's path at all — only the
+termination canary's own probes and a read-only cap check in the admission webhook. `trace.go`'s constant
+says so in its own comment: *"mirrored here so the trace can reason about the worst-case restoration
+window."* The victim runs on the **API server default**, which is thirty seconds.
+
+So the mechanism is one step less direct than either sentence claimed, and the arithmetic is unchanged: the
+default equals the constant the harness assumes, `cmd/queuelabrun/spine.go` builds the horizon and the
+regimes from that assumption, and a difference landing near thirty seconds is the harness reading back a
+value it did not set but did assume. What the runs support is that the difference is **consistent with** the
+grace period in force and far larger than the floor. `hack/queuelab-grace-boundary.md` had it right the
+whole time — "the Kubernetes default, 30 seconds, verified per node by a canary" — and two committed
+documents disagreeing about the provenance of the one constant the result reads back is the defect, not the
+number.
+
+**And the magnitude was in hand before the first run.** Every record's qualification block carries the
+termination canary's own measurement: `ignoreStoppedAfterMs` of 31,043 to 31,193, taken at `07:40:27Z`
+against runs that started at `09:15` and later. A pod that ignores SIGTERM outlasting its deletion by
+thirty-one seconds was therefore measured by the gate an hour and a half before the experiment measured the
+owner waiting thirty-one seconds for the device it held.
+
+That is not a coincidence and it is not a discovery. What the runs add to the canary is narrower and worth
+stating exactly: the reclaiming owner's wait is that *whole* contract — nothing releases the device early,
+nothing overlaps, and Kueue admits the owner about 0.1 s after the preemption decision so the wait is spent
+against the device rather than in the queue. The self-completing regime adds the other half, that a victim
+which finishes first releases first. Those two sentences are the result; the thirty seconds is the setting.
 
 And it is no longer only a difference. `-mode model` turns the claim into arithmetic and tests both regimes
 against one rule:

@@ -914,3 +914,47 @@ func TestARunReadOnOneClockIsRefused(t *testing.T) {
 		t.Fatalf("the refusal does not say what is missing: %v", err)
 	}
 }
+
+// The resolution rule applies to the baseline too, and it did not until a hostile review found the asymmetry.
+//
+// The model check refuses to read the honouring arm's 0.041 s hold as a measured near-zero because it sits
+// under the floor. The baseline printed a mean under ITS floor as though it were measured -- and a baseline
+// is exactly the figure a later session differences against, so an unresolved one propagates into a
+// comparison nobody can support.
+func TestTheBaselineAppliesTheResolutionRuleToItself(t *testing.T) {
+	b := baseline{
+		Arm: "A-honor", N: 4,
+		OwnerWaitSecondsMean: 2.195, OwnerWaitSecondsMin: 1.208, OwnerWaitSecondsMax: 3.210,
+		OwnerWaitSpreadSeconds: 2.003,
+		FloorSeconds:           3.106,
+	}
+	b.Resolved = queuelab.ResolvesAgainst(queuelab.SecondsToNs(b.OwnerWaitSecondsMean), queuelab.SecondsToNs(b.FloorSeconds))
+	if b.Resolved {
+		t.Fatal("a mean of 2.195 s was called resolved against a 3.106 s floor")
+	}
+
+	// And one that clears its floor must NOT be qualified, or the warning becomes noise a reader learns to
+	// skip past on the figures it does apply to.
+	ok := baseline{Arm: "A-ignore", OwnerWaitSecondsMean: 31.213, FloorSeconds: 3.338}
+	ok.Resolved = queuelab.ResolvesAgainst(queuelab.SecondsToNs(ok.OwnerWaitSecondsMean), queuelab.SecondsToNs(ok.FloorSeconds))
+	if !ok.Resolved {
+		t.Fatal("a mean of 31.213 s was called unresolved against a 3.338 s floor")
+	}
+}
+
+// Dispersion is judged against what the harness can see, not against the figure's own size.
+func TestDispersionIsJudgedAgainstTheFloorRatherThanTheMean(t *testing.T) {
+	// The committed honouring arm: 1.208 s to 3.210 s looks alarming and is entirely inside the floor, so
+	// the runs do not disagree about anything this harness could have seen.
+	tight := baseline{Arm: "A-honor", OwnerWaitSecondsMean: 2.195, OwnerWaitSpreadSeconds: 2.003, FloorSeconds: 3.106}
+	if got := renderBaseline(tight); strings.Contains(got, "DISPERSED") {
+		t.Errorf("a spread inside the floor was called dispersed; comparing it to the mean instead of the "+
+			"instrument is a ratio with no instrument in it:\n%s", got)
+	}
+
+	// Runs that disagree by more than the floor disagree about something nothing controlled.
+	loose := baseline{Arm: "A-honor", OwnerWaitSecondsMean: 6.0, OwnerWaitSpreadSeconds: 9.0, FloorSeconds: 3.106}
+	if got := renderBaseline(loose); !strings.Contains(got, "DISPERSED") {
+		t.Errorf("a spread of 9 s against a 3.106 s floor was not flagged:\n%s", got)
+	}
+}
