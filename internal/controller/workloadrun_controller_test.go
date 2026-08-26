@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"testing"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -373,3 +374,33 @@ var _ = Describe("WorkloadRun scenario coverage", func() {
 		Expect(run.Status.Reason).To(ContainSubstring("never observed unhealthy"))
 	})
 })
+
+// The recorder and the kinds it watches must agree on the word for healthy.
+//
+// workloadRunHealthyPhase is deliberately a separate constant from either controller's, so that a rename on
+// either side is a decision rather than a silent reinterpretation of every recorded run. This is the test
+// that turns it into one.
+//
+// The failure it guards is not loud. If NodeHealth renamed its ready phase, the recorder would read every
+// sample as unhealthy: the target would be observed to fail, never observed to recover, and every
+// DegradedNode run would report NotRecovered -- blaming the platform for a vocabulary mismatch. Nothing in
+// the trail would say otherwise, because the trail would be accurate about what the recorder saw.
+func TestTheRecorderAndTheWatchedKindsAgreeOnHealthy(t *testing.T) {
+	if workloadRunHealthyPhase != phaseReady {
+		t.Errorf("the recorder treats %q as healthy and NodeHealth publishes %q; a DegradedNode run would "+
+			"read every sample as unhealthy and report NotRecovered for a rename",
+			workloadRunHealthyPhase, phaseReady)
+	}
+	if workloadRunHealthyPhase != infdPhaseReady {
+		t.Errorf("the recorder treats %q as healthy and InferenceDeployment publishes %q; a ServingPodKilled "+
+			"run would never observe a recovery", workloadRunHealthyPhase, infdPhaseReady)
+	}
+	// And the phases that are NOT healthy must not be, or a degradation is invisible and the run refuses for
+	// having seen nothing fail.
+	for _, unhealthy := range []string{phasePending, phaseQuarantine} {
+		if unhealthy == workloadRunHealthyPhase {
+			t.Errorf("%q is treated as healthy; a target in that state would not register as a failure and "+
+				"the run would refuse for having observed nothing to recover from", unhealthy)
+		}
+	}
+}
