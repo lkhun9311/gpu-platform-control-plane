@@ -1020,8 +1020,16 @@ type modelCheck struct {
 	// consumer skips: a document whose control is unresolved and whose text says so is still a document a
 	// script reads as a measured near-zero. Derived through queuelab.ResolvesAgainst, which is now the one
 	// place the comparison's direction lives.
-	ControlResolved bool        `json:"controlResolved"`
-	Cases           []modelCase `json:"cases"`
+	ControlResolved bool `json:"controlResolved"`
+	// Interleaved is whether the two dose regimes alternated in the order the runs were actually taken.
+	//
+	// Every other comparison here checks it and this one did not, which an independent review found. The
+	// model check is the one carrying the headline, and it POOLS the two regimes: if they were run in blocks
+	// rather than alternating, anything that drifted over the session -- cluster warmth, an image cache
+	// filling, another tenant arriving -- lands entirely on one regime and arrives as the kink. That is
+	// precisely the confound interleaving exists to rule out.
+	Interleaved bool        `json:"interleaved"`
+	Cases       []modelCase `json:"cases"`
 	// Contrast is the difference BETWEEN the regimes, and it is the only part of this check that tests the
 	// model's kink rather than its levels.
 	//
@@ -1166,6 +1174,7 @@ func checkModel(recs []runRecord) (modelCheck, error) {
 	// The control is judged by the same rule as everything else, and it does not pass it. Deriving this
 	// rather than asserting it is what stops the statement drifting back to "shows the interval contains no
 	// platform work" the next time someone edits the sentence.
+	m.Interleaved = armsInterleaveBy(recs, func(r runRecord) string { return r.Dose })
 	m.ControlResolved = m.Bounded && queuelab.ResolvesAgainst(
 		queuelab.SecondsToNs(m.ControlHoldSeconds), queuelab.SecondsToNs(m.FloorSeconds))
 	m.Holds = bounded
@@ -1315,6 +1324,10 @@ func renderModel(m modelCheck) string {
 		fmt.Fprintf(&b, "  CONTRAST %s -> %s: predicted=%6.3f observed=%6.3f residual=%+.3f %s "+
 			"(the kink; anything common to both regimes cancels here)\n",
 			c.From, c.To, c.PredictedSeconds, c.ObservedSeconds, c.ResidualSeconds, insideMark(c.InsideFloor))
+	}
+	if !m.Interleaved {
+		b.WriteString("  NOT INTERLEAVED: the dose regimes did not alternate in time, so anything that drifted " +
+			"over the session lands on one of them and arrives as the kink this check reads\n")
 	}
 	fmt.Fprintf(&b, "  residuals judged against a %.3f s floor, restricted to the hold's own endpoints "+
 		"(the owner's admission and the victim's stop) rather than pooled over every event kind\n",

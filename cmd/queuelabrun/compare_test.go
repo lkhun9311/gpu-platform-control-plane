@@ -958,3 +958,59 @@ func TestDispersionIsJudgedAgainstTheFloorRatherThanTheMean(t *testing.T) {
 		t.Errorf("a spread of 9 s against a 3.106 s floor was not flagged:\n%s", got)
 	}
 }
+
+// The model check pools two dose regimes, so it has to say when they were not interleaved.
+//
+// Every other comparison in this file checked it and this one did not, which an independent review found.
+// It is the comparison carrying the headline: if the regimes were run in blocks rather than alternating,
+// anything that drifted over the session lands entirely on one of them and arrives as the kink. The
+// committed set IS interleaved, so the warning correctly stays silent there -- which is exactly why the
+// omission survived.
+func TestTheModelCheckSaysWhenTheRegimesWereNotInterleaved(t *testing.T) {
+	blocked := modelCheck{
+		Interleaved:     false,
+		FloorSeconds:    2.940,
+		ControlResolved: false,
+	}
+	if got := renderModel(blocked); !strings.Contains(got, "NOT INTERLEAVED") {
+		t.Errorf("a blocked model check printed no warning, so a reader takes a kink that could be session "+
+			"drift for a property of the protocol:\n%s", got)
+	}
+
+	interleaved := modelCheck{Interleaved: true, FloorSeconds: 2.940}
+	if got := renderModel(interleaved); strings.Contains(got, "NOT INTERLEAVED") {
+		t.Errorf("an interleaved model check was warned about; the warning becomes noise a reader skips on "+
+			"the runs where it matters:\n%s", got)
+	}
+
+	// And the flag has to be COMPUTED from the runs, not merely rendered. The first version of this test
+	// built modelCheck structs by hand, so hardcoding Interleaved = true in checkModel passed it -- the
+	// renderer was proven correct about a field nothing derived. That is the same shape as a helper that is
+	// correct while its caller never calls it, which this repository has been bitten by more than once.
+	//
+	// Same four runs both times; only the ORDER they were started in differs.
+	alternating := []runRecord{
+		holdRec(cmpRec("gh1", "A-honor", "grace-bounded", "2026-08-21T05:00:00Z", 21.3, 0), 21.2, 0.045),
+		holdRec(cmpRec("sh1", "A-honor", "self-completing", "2026-08-21T05:05:00Z", 41.4, 0), 41.1, 0.045),
+		holdRec(cmpRec("gi1", "A-ignore", "grace-bounded", "2026-08-21T05:10:00Z", 51.3, 0), 21.2, 30.050),
+		holdRec(cmpRec("si1", "A-ignore", "self-completing", "2026-08-21T05:15:00Z", 0.0, 0), 41.1, 18.850),
+	}
+	if m, err := checkModel(alternating); err != nil {
+		t.Fatalf("model over alternating runs: %v", err)
+	} else if !m.Interleaved {
+		t.Error("runs that alternate by dose were reported as blocked")
+	}
+
+	blockedRuns := []runRecord{
+		holdRec(cmpRec("gh1", "A-honor", "grace-bounded", "2026-08-21T05:00:00Z", 21.3, 0), 21.2, 0.045),
+		holdRec(cmpRec("gi1", "A-ignore", "grace-bounded", "2026-08-21T05:05:00Z", 51.3, 0), 21.2, 30.050),
+		holdRec(cmpRec("sh1", "A-honor", "self-completing", "2026-08-21T05:10:00Z", 41.4, 0), 41.1, 0.045),
+		holdRec(cmpRec("si1", "A-ignore", "self-completing", "2026-08-21T05:15:00Z", 0.0, 0), 41.1, 18.850),
+	}
+	if m, err := checkModel(blockedRuns); err != nil {
+		t.Fatalf("model over blocked runs: %v", err)
+	} else if m.Interleaved {
+		t.Error("both grace-bounded runs were taken before both self-completing ones and the check called " +
+			"that interleaved; session drift would land entirely on one regime and arrive as the kink")
+	}
+}
