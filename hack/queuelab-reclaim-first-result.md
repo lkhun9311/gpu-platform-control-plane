@@ -18,6 +18,19 @@ six hours later. Two schema bumps since then mean no build in this tree can deco
 claimed the figures could be re-derived from the files rather than taken from the page, and for those files
 that had become false. They were re-run on a build that can read them back.
 
+**These twelve are the second generation of this record set, and the first was replaced rather than
+re-interpreted.** Commit `1af01be` deleted twelve `e16-*` records in the same commit that added these,
+because the workload changed underneath them: until then it never reached for a device at all, so a run on
+real hardware would have come back byte-identical to a run on kind. Records produced by a different
+workload describe a different experiment and were not worth keeping beside these.
+
+That is worth stating because `ex/` shows twelve files and no history, and a reader entitled to ask whether
+this is simply the take that came out clean cannot answer it from the directory. The refusal gates select on
+PROCEDURE rather than outcome — a run is refused for failing to qualify its worker, not for producing an
+inconvenient number — so a re-take cannot be steered toward a result. But nothing in the record set records
+how many takes there were, and the honest answer is: this is the second, the first was superseded by a
+workload change, and the schema-10 originals before it are the ones the paragraph above describes.
+
 ## What the two arms differ in
 
 One knob: whether the victim's workload honours SIGTERM. Everything else — the trace, the dose, the queue
