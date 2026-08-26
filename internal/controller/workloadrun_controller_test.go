@@ -317,3 +317,59 @@ var _ = Describe("WorkloadRun recovery semantics", func() {
 		Expect(run.Status.Verdict).To(Equal(platformv1.VerdictNotRecovered))
 	})
 })
+
+// Why BackendFallback is not a WorkloadRun scenario, pinned as a fact rather than left as a comment.
+//
+// That scenario injects its fault by scaling the head backend to zero, and the InferenceDeployment
+// controller reports an intentional zero-replica state as READY -- correctly, since nobody asked for
+// replicas. A recovery watcher pointed at that target therefore sees it healthy for the entire window and
+// ends Refused, forever, by construction. The enum used to promise it.
+//
+// If this test ever fails because a scaled-to-zero backend stops reporting Ready, the scenario becomes
+// recordable and the enum should get it back -- which is the opposite of deleting this test.
+var _ = Describe("WorkloadRun scenario coverage", func() {
+	It("cannot see a backend scaled to zero, which is why fallback is not a scenario", func() {
+		ctx := context.Background()
+		wrSeq++
+		name := fmt.Sprintf("wr-zero-%d", wrSeq)
+
+		infd := &platformv1.InferenceDeployment{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default"},
+			Spec: platformv1.InferenceDeploymentSpec{
+				Model:    platformv1.InferenceModel{Name: "demo", StorageURI: "stub://demo"},
+				Image:    "registry.k8s.io/pause:3.9",
+				GPUCount: 0, Replicas: 0, Port: 8090,
+			},
+		}
+		Expect(k8sClient.Create(ctx, infd)).To(Succeed())
+
+		// The phase the operator publishes for a deliberately empty backend.
+		infd.Status.Phase = "Ready"
+		Expect(k8sClient.Status().Update(ctx, infd)).To(Succeed())
+
+		clock := time.Date(2026, 8, 26, 12, 0, 0, 0, time.UTC)
+		rec := &WorkloadRunReconciler{Client: k8sClient, Scheme: k8sClient.Scheme(), Now: func() time.Time { return clock }}
+		runName := fmt.Sprintf("wr-zero-run-%d", wrSeq)
+		Expect(k8sClient.Create(ctx, &platformv1.WorkloadRun{
+			ObjectMeta: metav1.ObjectMeta{Name: runName, Namespace: "default"},
+			Spec: platformv1.WorkloadRunSpec{
+				Scenario:                 platformv1.ScenarioServingPodKilled,
+				Target:                   platformv1.WorkloadRunTarget{Kind: "InferenceDeployment", Name: name, Namespace: "default"},
+				ObservationWindowSeconds: 20,
+				RecoversWithinSeconds:    15,
+			},
+		})).To(Succeed())
+
+		for range 4 {
+			_, err := rec.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Name: runName, Namespace: "default"}})
+			Expect(err).NotTo(HaveOccurred())
+			clock = clock.Add(10 * time.Second)
+		}
+
+		var run platformv1.WorkloadRun
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: runName, Namespace: "default"}, &run)).To(Succeed())
+		Expect(run.Status.Phase).To(Equal(platformv1.WorkloadRunRefused),
+			"a backend with zero replicas reports Ready, so a recovery watcher has nothing to see")
+		Expect(run.Status.Reason).To(ContainSubstring("never observed unhealthy"))
+	})
+})

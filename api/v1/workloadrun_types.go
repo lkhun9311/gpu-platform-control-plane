@@ -38,15 +38,29 @@ import (
 //
 // A closed set, because a free-form string would let a run describe an injection nobody can reproduce, and
 // the evidence would then be about an event with no definition.
-// +kubebuilder:validation:Enum=ServingPodKilled;BackendFallback;DegradedNode
+// The set is the scenarios this recorder can actually record, which is narrower than the set of scenarios
+// this repository injects. A WorkloadRun watches ONE target's reported phase and judges a recovery in it, so
+// a scenario whose observable is something else does not belong here however interesting it is.
+//
+// BackendFallback (hack/chaos-fr002b-backend-fallback.sh) is the one that was removed, and it is worth
+// recording why rather than leaving a gap. Its observable is the gateway's backend_fallbacks_total moving,
+// not a target recovering; and its injection is scaling the head backend to zero, which the
+// InferenceDeployment controller reports as READY -- an intentional zero-replica state is Ready by design.
+// A run watching that target would therefore see it healthy for the whole window and end Refused, forever,
+// by construction. An enum value that can never produce a verdict is a promise this type does not keep.
+// TestScalingABackendToZeroIsInvisibleToARecoveryWatcher pins the reason.
+// +kubebuilder:validation:Enum=ServingPodKilled;DegradedNode
 type WorkloadRunScenario string
 
 const (
 	// ScenarioServingPodKilled deletes a serving Pod under load; hack/chaos-fr002-serving-pod-killed.sh.
 	ScenarioServingPodKilled WorkloadRunScenario = "ServingPodKilled"
-	// ScenarioBackendFallback removes the head backend so routing must walk the tail; hack/chaos-fr002b-backend-fallback.sh.
-	ScenarioBackendFallback WorkloadRunScenario = "BackendFallback"
 	// ScenarioDegradedNode marks a node unhealthy so the taint path runs; hack/chaos-fr004-degraded-node.sh.
+	//
+	// It fits the recorder -- NodeHealth reports Ready, Pending and Quarantine, so a degradation and its
+	// recovery are both visible -- but hack/m7-evidence-trail.sh does not drive it. The injection stops a
+	// kubelet, which is disruptive to whatever else is on the cluster, and the script adopts a cluster it
+	// does not own. Driving it needs a machine whose disruption nobody minds.
 	ScenarioDegradedNode WorkloadRunScenario = "DegradedNode"
 )
 

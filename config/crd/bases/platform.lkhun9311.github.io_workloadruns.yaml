@@ -81,7 +81,6 @@ spec:
                   would leave observations attributed to an event that did not happen.
                 enum:
                 - ServingPodKilled
-                - BackendFallback
                 - DegradedNode
                 type: string
                 x-kubernetes-validations:
