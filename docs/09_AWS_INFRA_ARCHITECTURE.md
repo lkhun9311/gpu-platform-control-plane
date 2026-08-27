@@ -1,6 +1,8 @@
 # AWS Infrastructure Architecture (M5-a / M5-b)
 
-> **Status (2026-08-07): code written and offline-validated; never applied to AWS.** Design of record: an internal integration design (v3.2) reconciled from two independent AI reviews that raised 20 findings between them; that working document is not published. Terraform (`infra/aws/`), the GitHub Actions workflows (`.github/workflows/`), and the gateway Dockerfile all exist in the repository and pass offline validation (`make infra-validate`: `terraform validate`/plan, `kustomize build`, `actionlint`). Nothing in this doc has been `terraform apply`'d — zero AWS resources have ever been provisioned.
+> **Status (2026-08-27): `bootstrap` is applied; `cluster` is planned and not applied.** The state bucket, its KMS key, the GitHub OIDC provider, the three CI roles, the ECR repository and the budget alarms exist in account `007635145730` (`ap-northeast-2`). The `cluster` state has been planned against that account — 89 resources — and never applied, so no VPC, EKS cluster, node or NAT gateway exists and nothing is currently billing beyond a few cents of S3 and KMS. `argo-bootstrap` has never been initialised.
+>
+> Design of record: an internal integration design (v3.2) reconciled from two independent AI reviews that raised 20 findings between them; that working document is not published. The network design in this document supersedes v3.2's public-subnet topology — see *What is deliberately absent*.
 
 The operator is cloud-agnostic; its only AWS dependency is hosting. Scope split, stated precisely: the AWS/GitOps **hosting layer is optional** around the operator, but the **M5-b real-GPU benchmark is required** for M5's definition of done (doc 04) — the hosting exists so that run can happen credibly. Everything is built ephemeral-first: teardown is a control, not an intention.
 
@@ -15,18 +17,22 @@ GitHub repo (public — Argo CD reads it anonymously; source of truth)
         delete Argo apps -> destroy argo-bootstrap state -> residue check -> destroy cluster state
 
 Terraform (3 separate states; bootstrap starts on LOCAL state, then migrates into its own bucket)
-  ├── bootstrap:      S3 state bucket + DynamoDB lock + GitHub OIDC provider + ECR
+  ├── bootstrap:      S3 state bucket (locks on <key>.tflock) + GitHub OIDC provider + ECR
   ├── cluster:        VPC + EKS (pinned recent version) + managed add-ons + node groups + IAM + access entries
   └── argo-bootstrap: initial Argo CD install only (run once, never on routine applies)
 
-VPC (demo-only threat model)
-  ├── public subnet AZ-a (map_public_ip_on_launch=true, IGW route):
-  │     CPU node group (all nodes pinned here)
-  │     └── [M5-b window] GPU node group: g5.xlarge On-Demand, desired=0,
-  │         taint nvidia.com/gpu=present:NoSchedule
-  └── public subnet AZ-b: no nodes — exists because EKS CreateCluster requires >=2 AZs
+VPC (3 AZ; nodes hold no public address)
+  ├── public subnet x3 (ELB-tagged, NO instances):
+  │     NAT gateway (ONE, in AZ-a) + internet gateway route
+  └── private subnet x3 (no auto public IP, default route -> NAT):
+        EKS control-plane ENIs
+        CPU node group (pinned to AZ-a, the NAT's zone)
+        [session] GPU node groups: desired=0, subnets derived from instance-type offerings,
+                  taint nvidia.com/gpu=present:NoSchedule
+        S3 gateway endpoint (free) -- ECR layers live in S3, so image pulls bypass the NAT
 
-EKS (public endpoint; auth = EKS access entries: dev admin + CI apply role)
+EKS (private endpoint always; public endpoint only for explicitly named CIDRs -- default none)
+  auth = EKS access entries: dev admin + CI apply role
   ├── managed add-ons (Terraform-owned, pinned): VPC CNI, CoreDNS, kube-proxy
   ├── operator + gateway (Kustomize config/, deployed by Argo CD, image by digest)
   ├── Argo CD app-of-apps: crds -> operator/gateway -> [profiles: observability, device-plugin, samples]
@@ -43,22 +49,41 @@ Guardrails
 
 | State            | Contains                                                    | Why separate                                                                                                                                                                                   |
 |------------------|-------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `bootstrap`      | S3 state bucket, DynamoDB lock, GitHub OIDC provider, ECR   | Must exist before anything else; almost never changes. **Chicken-and-egg is explicit:** it begins on local state and runs `terraform init -migrate-state` once into the bucket it just created |
+| `bootstrap`      | S3 state bucket, GitHub OIDC provider, ECR                  | Must exist before anything else; almost never changes. **Chicken-and-egg is explicit:** it begins on local state and runs `terraform init -migrate-state` once into the bucket it just created |
 | `cluster`        | VPC, EKS, managed add-ons, node groups, IAM, access entries | The blast radius of routine work — plan/apply cycles touch only this                                                                                                                           |
 | `argo-bootstrap` | Initial Argo CD Helm install only                           | Terraform installs Argo CD once, then Argo CD owns the cluster; keeping it in `cluster` state would make every plan fight Argo CD's drift                                                      |
 
-S3 state controls (v3): versioning, SSE-KMS with a scoped key policy, public-access block, bucket policy denying non-TLS and non-KMS writes, least-privileged state roles; DynamoDB lock encrypted + PITR + deletion protection.
+S3 state controls (v3): versioning, SSE-KMS with a scoped key policy, public-access block, bucket policy denying non-TLS and non-KMS writes, least-privileged state roles. Locking is the backend's own `use_lockfile` (Terraform ≥ 1.10) rather than a DynamoDB table — see the note below.
 
 ## Network
 
-| Decision              | Value                                                                                                                 | Why                                                                                                                                  |
-|-----------------------|-----------------------------------------------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------|
-| Subnets               | Public subnets in **two AZs**                                                                                         | EKS `CreateCluster` rejects fewer than 2 AZs — a single-AZ VPC fails at first apply                                                  |
-| Node reachability     | `map_public_ip_on_launch=true`, IGW route, **public EKS endpoint** — nodes reach the EKS API/ECR/S3 over the internet | Without auto-assigned public IPs, public-subnet nodes cannot bootstrap at all (no NAT exists to fall back on)                        |
-| Node placement        | All node groups pinned to **one AZ**                                                                                  | Avoids **workload** cross-AZ traffic between nodes; EKS control-plane ENI traffic across AZs may remain and is expected to be minor  |
-| NAT                   | None — public subnets only                                                                                            | One NAT gateway is ~$1.08/day before data processing (×2 for 2-AZ HA) — pointless for a demo cluster holding no private data         |
-| Compensating controls | Tight security groups, IMDSv2 (below), no public SSH, minimal node IAM                                                | Public subnets change the threat model; these controls are the explicit price, and this is labeled **demo-only, not production EKS** |
-| Region                | `us-east-1`                                                                                                           | Cost basis for the M5-b budget (doc 04); recorded in every run report                                                                |
+| Decision              | Value                                                                                                      | Why                                                                                                                                                                                                              |
+|-----------------------|------------------------------------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Subnets               | **Three AZs, public + private in each**                                                                     | EKS `CreateCluster` rejects fewer than 2 AZs. The third exists because `g5` is offered in `2a/2c/2d` but **not** `2b`, so two zones can leave the A10G groups one home                                             |
+| Node reachability     | Private subnets, **no public IP**, default route to NAT; **private EKS endpoint**                            | A node with a routable address makes its security group the only thing between the internet and a kubelet. The private endpoint is what lets addressless workers reach the API without leaving the VPC             |
+| API endpoint exposure | `endpoint_private_access=true`; public half derived from `api_public_access_cidrs` (**default empty**)      | The module default is `0.0.0.0/0` and this repo never set the argument. Reaching the endpoint ≠ authenticating to it, but a world-reachable endpoint is one a leaked credential works from anywhere. `0.0.0.0/0` now fails validation |
+| Node placement        | CPU group pinned to AZ-a (the NAT's zone); GPU groups derived from instance-type offerings (`placement.tf`) | Keeps CPU egress in-zone; GPU placement must follow capacity, not subnet index                                                                                                                                     |
+| NAT                   | **One** gateway, not one per AZ                                                                              | Per-AZ NAT buys AZ-fault isolation, worth less than its hourly rate on a cluster whose failure mode is a re-run. Price: cross-AZ egress from two zones at $0.01/GB each way                                        |
+| VPC endpoints         | **S3 gateway only.** No interface endpoints                                                                  | The gateway endpoint is free and removes image-layer traffic from the NAT. A fully private cluster needs ~9 interface endpoints, billed per hour per AZ — more than the single NAT they would replace              |
+| Node shell access     | **SSM Session Manager**, no bastion                                                                          | No inbound port at all; the agent dials out and access is an IAM decision CloudTrail records. A bastion is a permanently billed instance whose job is to hold an open SSH port                                     |
+| Region                | `ap-northeast-2`                                                                                            | Where the G/VT quota was granted (52 vCPU, 2026-08-26). State bucket, cluster and registry all live beside it                                                                                                       |
+
+### What is deliberately absent, and why
+
+The 3-tier reference architecture this project's author built as an AWS SA puts an ALB in the public subnet,
+WAF and Shield in front of it, CloudFront over an S3 origin, and a bastion in the public subnet. Each of those
+is the right answer to a question this workload does not ask.
+
+| Service            | Verdict | Reason                                                                                                                                                                                                                                                                                                              |
+|--------------------|---------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| ALB in front of the **EKS API** | **Cannot** | The API endpoint is AWS-managed and its TLS certificate is issued for `*.eks.amazonaws.com`. An ALB terminates TLS and presents its own, so `kubectl` fails certificate validation unless the kubeconfig is told to skip it. The private endpoint's ENI addresses are also not a documented, stable target set. Passthrough would need an NLB — and WAF does not attach to NLB |
+| WAF                | **No**  | WAF inspects L7 HTTP for web-application attacks and attaches to CloudFront/ALB/API Gateway. There is no public HTTP application here. Against `kubectl` traffic its managed rule groups would produce false positives and block nothing real — the API's actual defence is SigV4 + RBAC + the CIDR allow-list |
+| ALB in front of the **gateway** | **Correct, and still off** | This *is* the true analogue of the reference architecture's WAS tier, and the public subnets carry `kubernetes.io/role/elb` so one can land. It stays off because the flagship number is TTFT p99: a load balancer in the request path is a hop whose latency would be inside the measurement. If the gateway is ever exposed for a demo rather than a measurement, ALB + ACM + WAF is the shape |
+| CloudFront         | **No**  | A CDN for static origins. The only S3 bucket here holds Terraform state, which must never be publicly readable — fronting it with CloudFront points the wrong way |
+| Bastion host       | **No**  | Replaced, not supplemented, by SSM (above) |
+| RDS / ElastiCache tier | **N/A** | There is no database. The stateful thing in this system is the KV cache, which is GPU memory on the node and cannot be moved to a data tier |
+| Secrets Manager    | **Deferred** | The gateway's tenant API keys are created by a session script as a Kubernetes Secret. External Secrets + Secrets Manager is the correct production shape at ~$0.40/secret/month; deferred because the only secret today is a literal `premium-key` in a cluster that lives for hours, and adding a dependency to the measurement path before the measurement runs is the wrong order |
+| KMS                | **Already in use** | Terraform state bucket key, and EKS envelope encryption for Kubernetes Secrets |
 
 ## Identity and access
 
@@ -135,8 +160,8 @@ The repo is public, so Argo CD reads it anonymously — no deploy credential to 
 ## Build order (M5-a → M5-b)
 
 ```
-M5-a  0. bootstrap state (local -> migrate): S3/DynamoDB + GitHub OIDC + ECR   <- start here
-      1. cluster state: VPC (2-AZ subnets) + EKS + managed add-ons + CPU node group + access entries
+M5-a  0. bootstrap state (local -> migrate): S3 + GitHub OIDC + ECR            <- start here
+      1. cluster state: VPC (3 AZ, public + private) + NAT + EKS + add-ons + CPU node group + access entries
       2. ci.yml builds + pushes the operator image to ECR (gateway joins after M4-b)
       3. operator via Kustomize (plain apply first, then Argo CD)
       4. argo-bootstrap state + app-of-apps (crds/operator; profiles off)
@@ -149,7 +174,8 @@ Rule: observability and the NVIDIA plugin must not precede a working operator pa
 
 ## Non-goals
 
-- Multi-AZ high availability, private subnets/NAT, multi-region — this is an ephemeral demo, and pretending otherwise would be dishonest hardening theater.
+- Multi-AZ **high availability** (one NAT, one CPU node), multi-region, and per-AZ redundancy — this cluster is ephemeral and its failure mode is a re-run.
+- Private subnets and NAT were on this list until 2026-08-27, on the argument that they were hardening theater for a four-hour cluster. Pricing the NAT ended the argument: $0.059/hour against a session that already burns G-family instances by the hour. The list keeps only the items whose cost still exceeds what they buy here.
 - Cluster upgrades (recreate instead) and production-grade EKS security posture beyond the listed compensating controls.
 - Autoscaling the GPU node group (Karpenter/Cluster Autoscaler) — one auditable `workflow_dispatch` switch is the point.
 - Spot instances for authoritative benchmark runs (interruption invalidates latency data).
