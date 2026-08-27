@@ -104,13 +104,6 @@ jobs:
             -var "cluster_endpoint=$ENDPOINT" \
             -var "cluster_ca=$CA"
 
-      # Inventory anything that commonly lingers, so a failed destroy is visible rather than silent.
-      - name: Residue check
-        run: |
-          echo "EC2 instances:"; aws ec2 describe-instances --filters "Name=tag:project,Values=gpu-platform-control-plane" --query 'Reservations[].Instances[].InstanceId' --output text
-          echo "Load balancers:"; aws elbv2 describe-load-balancers --query 'LoadBalancers[].LoadBalancerArn' --output text
-          echo "EBS volumes:"; aws ec2 describe-volumes --filters "Name=tag:project,Values=gpu-platform-control-plane" --query 'Volumes[].VolumeId' --output text
-
       - name: Destroy cluster state
         working-directory: infra/aws/cluster
         run: |
@@ -118,6 +111,41 @@ jobs:
             -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" \
             -backend-config="kms_key_id=${{ vars.TF_STATE_KMS_KEY }}"
           terraform destroy -input=false -auto-approve
+
+      # Inventory what commonly lingers, so a failed destroy is visible rather than silent.
+      #
+      # This ran BEFORE the destroy until 2026-08-27, which made it useless in the one situation it exists
+      # for: everything it listed was the cluster that had not been destroyed yet, so the output looked
+      # identical whether the teardown was about to succeed or about to fail. It runs after now, where a
+      # non-empty line means something survived.
+      #
+      # `if: always()` matters as much as the ordering. The step that most needs an inventory is the one that
+      # follows a FAILED destroy, and a step that only runs on success would be silent exactly then.
+      #
+      # The list gained NAT gateways, Elastic IPs and network interfaces when the nodes moved into private
+      # subnets. Those are the residues that bill: a NAT gateway is $0.059/hour whether or not anything
+      # routes through it, and an unassociated EIP is charged by the hour precisely because it is idle. An
+      # ENI left behind by a load balancer or a VPC endpoint also blocks the subnet and VPC from ever being
+      # deleted, which turns a residue into a stuck state.
+      #
+      # The load-balancer query is scoped to this VPC. It used to list every load balancer in the account,
+      # so an unrelated one anywhere in the region read as residue from this cluster.
+      - name: Residue check
+        if: always()
+        run: |
+          set +e
+          VPC=$(aws ec2 describe-vpcs \
+            --filters "Name=tag:Name,Values=gpu-platform-vpc" \
+            --query 'Vpcs[].VpcId' --output text)
+          echo "VPC:               ${VPC:-<none>}"
+          echo "EC2 instances:     $(aws ec2 describe-instances --filters 'Name=tag:project,Values=gpu-platform-control-plane' 'Name=instance-state-name,Values=pending,running,stopping,stopped' --query 'Reservations[].Instances[].InstanceId' --output text)"
+          echo "EBS volumes:       $(aws ec2 describe-volumes --filters 'Name=tag:project,Values=gpu-platform-control-plane' --query 'Volumes[].VolumeId' --output text)"
+          echo "NAT gateways:      $(aws ec2 describe-nat-gateways --filter 'Name=state,Values=pending,available,deleting' --query 'NatGateways[].NatGatewayId' --output text)"
+          echo "Unassociated EIPs: $(aws ec2 describe-addresses --query 'Addresses[?AssociationId==null].AllocationId' --output text)"
+          if [ -n "$VPC" ]; then
+            echo "Load balancers:    $(aws elbv2 describe-load-balancers --query "LoadBalancers[?VpcId=='$VPC'].LoadBalancerArn" --output text)"
+            echo "Network ifaces:    $(aws ec2 describe-network-interfaces --filters "Name=vpc-id,Values=$VPC" --query 'NetworkInterfaces[].NetworkInterfaceId' --output text)"
+          fi
 
       # A failed teardown is an operational event, not just a red check.
       #
