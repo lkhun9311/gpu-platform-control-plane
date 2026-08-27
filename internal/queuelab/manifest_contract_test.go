@@ -191,27 +191,68 @@ func TestTheGPUNodeGroupCanRunTheAxesThePreregistrationPromises(t *testing.T) {
 		t.Skip("the preregistration no longer promises a node axis, so nothing here is required")
 	}
 	tf := repoFile(t, "infra/aws/cluster/eks.tf")
-	// The GPU group is the block carrying the NVIDIA AMI; read its cap rather than the first one in the file.
-	gpu := tf[strings.Index(tf, "gpu = {"):]
+	// The GPU group is the block carrying the NVIDIA AMI; read its cap rather than the first one in the file,
+	// and read ONLY its block.
+	//
+	// This used to slice from "gpu = {" to end-of-file, which worked while the cap was a literal. When it
+	// became max_size = var.gpu_max_nodes the numeric regex stopped matching inside the gpu block and
+	// silently matched gpu_single's max_size = 1 further down -- so the test asserted about the wrong node
+	// group while naming the right one. Bounded now.
+	start := strings.Index(tf, "gpu = {")
+	if start < 0 {
+		t.Fatal("eks.tf declares no gpu node group")
+	}
+	gpu := tf[start:]
+	if end := strings.Index(gpu, "gpu_single = {"); end > 0 {
+		gpu = gpu[:end]
+	}
 	if i := strings.Index(gpu, "AL2023_x86_64_NVIDIA"); i < 0 {
 		t.Fatal("the GPU node group is not the block this test thinks it is; it must be rewritten rather " +
 			"than left matching the wrong sizes")
 	}
-	m := regexp.MustCompile(`max_size\s*=\s*(\d+)`).FindStringSubmatch(gpu)
+
+	m := regexp.MustCompile(`max_size\s*=\s*(\S+)`).FindStringSubmatch(gpu)
 	if m == nil {
 		t.Fatal("the GPU node group declares no max_size")
 	}
-	max, err := strconv.Atoi(m[1])
+	raw := m[1]
+	if raw == "var.gpu_max_nodes" {
+		vars := repoFile(t, "infra/aws/cluster/variables.tf")
+		d := regexp.MustCompile(`(?s)variable "gpu_max_nodes".*?default\s*=\s*(\d+)`).FindStringSubmatch(vars)
+		if d == nil {
+			t.Fatal("max_size is var.gpu_max_nodes but variables.tf declares no default for it")
+		}
+		raw = d[1]
+	}
+	max, err := strconv.Atoi(raw)
 	if err != nil {
-		t.Fatalf("max_size %q is not a number", m[1])
+		t.Fatalf("max_size %q is neither a number nor var.gpu_max_nodes", m[1])
 	}
-	// Two, because a node comparison needs the node to vary and one node cannot.
+
+	// A cap of one is allowed, but only as a RECORDED constraint rather than a silent regression.
+	//
+	// The preregistration promises a node axis and says plainly what a one-node session delivers instead --
+	// the arm contrast, the dose axis and the device evidence -- with -compare -mode node refusing rather
+	// than fabricating. What must never happen is the cap dropping to one because somebody edited a number.
+	//
+	// So at one, two things must hold: the cap is carried by the variable that exists to record the decision,
+	// and the quota that forces it is actually read. Two g4dn.12xlarge is 96 vCPU against the 52 granted on
+	// 2026-08-26, so today the cap is arithmetic rather than preference.
 	if max < 2 {
-		t.Fatalf("the GPU node group caps at %d node(s) and the preregistration promises a node comparison, "+
-			"which needs the node to vary; -compare -mode node refuses a set in which nothing does, so a "+
-			"session would discover this on the rented hardware. desired_size is 0 either way, so the cap "+
-			"buys no cost discipline -- it only removes the choice", max)
+		if m[1] != "var.gpu_max_nodes" {
+			t.Fatalf("the GPU node group caps at %d node(s) as a literal. One is acceptable only as a "+
+				"quota-gated decision carried by var.gpu_max_nodes, because -compare -mode node refuses a "+
+				"set in which the node does not vary and a session would discover that on rented hardware", max)
+		}
+		placement := repoFile(t, "infra/aws/cluster/placement.tf")
+		if !strings.Contains(placement, "L-DB2E81BA") {
+			t.Fatal("the GPU node group caps at one node and nothing reads the On-Demand G/VT quota, so the " +
+				"cap is a preference rather than a constraint. Either restore the axis, or keep the quota " +
+				"precondition that explains why it cannot run")
+		}
+		t.Logf("node axis not delivered at cap %d: gated on the G/VT quota, see placement.tf", max)
 	}
+
 	// And the cost control must still be there: a group that defaults to running is the discipline this
 	// repository is built around, lost.
 	if !regexp.MustCompile(`desired_size\s*=\s*0`).MatchString(gpu) {
