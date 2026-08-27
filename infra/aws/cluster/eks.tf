@@ -109,6 +109,23 @@ module "eks" {
       # ends the observation and leaves the run indistinguishable from one whose worker died, which is a
       # class of refusal the lab already has and does not need a second cause for. The session is measured in
       # hours, so the premium is small against the cost of an unusable run.
+      # On-Demand, and the reason is measurement rather than cost -- which is the opposite of where this
+      # started.
+      #
+      # The first version of this comment said a reclaimed Spot node "does not fail the experiment cleanly"
+      # and leaves the run indistinguishable from one whose worker died. That argument does not survive
+      # contact with this repository: telling those apart is exactly what the validity gates and the refusal
+      # register were built for, and a vanished node is one of the easiest things they catch.
+      #
+      # The argument that does survive is narrower and only applies HERE. queuelab measures preemption. A
+      # Spot reclamation is a two-minute warning followed by a cordon and drain, and a drain EVICTS the
+      # victim Pod -- which truncates the victim's work window (PodReady -> AttemptStopped) that the held
+      # time is computed over. A truncated window reports a SHORTER hold, which flatters the headline. It is
+      # not that the run would break; it is that it might quietly read better.
+      #
+      # A bias toward the result you want is the one failure mode this study cannot afford, and $2.75/hour is
+      # not enough to buy it. The M5-b and M5-c groups measure admission under KV pressure, where an
+      # interruption aborts without biasing, and they run on Spot for that reason.
       capacity_type = "ON_DEMAND"
       min_size      = 0
       max_size      = 2
@@ -161,10 +178,26 @@ module "eks" {
     gpu_single = {
       subnet_ids     = local.gpu_single_subnets
       instance_types = [var.gpu_single_node_instance_type]
-      capacity_type  = "ON_DEMAND"
-      min_size       = 0
-      max_size       = 1
-      desired_size   = 0
+
+      # Spot, because what this group measures is not harmed by being interrupted.
+      #
+      # M5-b compares four admission arms against one engine under KV pressure. An interruption ends the arm;
+      # it does not bias it, and a run that ends without records is refused rather than reported. That is the
+      # difference from the queuelab group above, where a drain-induced eviction shortens the very window the
+      # headline is computed over.
+      #
+      # The discount is not marginal. On 2026-08-27 the Seoul spot history for g5.xlarge was $0.357 (2d),
+      # $0.403 (2c) and $0.424 (2a) against an On-Demand $1.237 -- 66 to 71 percent off. Even assuming every
+      # session is interrupted once and half the work is redone, the expected cost is well under half of
+      # On-Demand.
+      #
+      # What this buys is not a smaller bill so much as more runs for the same money, and the study's weakest
+      # axis is repetition count: two reviews scored its statistical power at 30 percent and said the
+      # sequence itself encoded the limit. Spot converts the same budget into REPS.
+      capacity_type = "SPOT"
+      min_size      = 0
+      max_size      = 1
+      desired_size  = 0
 
       ami_type = "AL2023_x86_64_NVIDIA"
 
@@ -204,10 +237,15 @@ module "eks" {
     gpu_shared = {
       subnet_ids     = local.gpu_shared_subnets
       instance_types = [var.gpu_shared_node_instance_type]
-      capacity_type  = "ON_DEMAND"
-      min_size       = 0
-      max_size       = 1
-      desired_size   = 0
+
+      # Spot, for the same reason as gpu_single: the sharing matrix measures what two engines do to each
+      # other's latency on one card, and an interruption ends a cell rather than skewing it. A cell that did
+      # not finish leaves no record, and a matrix missing a cell is refused at comparison rather than
+      # averaged over.
+      capacity_type = "SPOT"
+      min_size      = 0
+      max_size      = 1
+      desired_size  = 0
 
       ami_type = "AL2023_x86_64_NVIDIA"
 

@@ -85,7 +85,50 @@ is the right answer to a question this workload does not ask.
 | Secrets Manager    | **Deferred** | The gateway's tenant API keys are created by a session script as a Kubernetes Secret. External Secrets + Secrets Manager is the correct production shape at ~$0.40/secret/month; deferred because the only secret today is a literal `premium-key` in a cluster that lives for hours, and adding a dependency to the measurement path before the measurement runs is the wrong order |
 | KMS                | **Already in use** | Terraform state bucket key, and EKS envelope encryption for Kubernetes Secrets |
 
+### Where this lab and a production cluster diverge
+
+The Reliability pillar is the one this design deliberately fails, and a deliberate failure has to be written
+down or it is indistinguishable from an oversight. Each row states what this lab does, what a production
+system would do instead, and the trigger that would move this cluster to the right-hand column.
+
+| Concern | This lab | Production | Why the lab is where it is | What would move it |
+|---|---|---|---|---|
+| NAT | One gateway, one AZ | One per AZ | An AZ outage costs a re-run, not an incident. Second and third gateway = +$0.118/hr for isolation worth less than that here | Any workload whose interruption loses data rather than a measurement |
+| Worker capacity | One `t3.large`, `desired=1` | ≥3 nodes across AZs, PodDisruptionBudgets, `topologySpreadConstraints` | Nothing here is serving users; the operator and gateway are the subject of measurement, not a dependency of anyone | A consumer other than the benchmark harness |
+| GPU capacity | Spot for the admission arms, On-Demand for the preemption study | On-Demand or Capacity Reservations for anything user-facing | An interrupted measurement is refused; an interrupted inference request is an SLO breach | Serving traffic that is not synthetic |
+| Region | Single (`ap-northeast-2`) | Multi-region DR, or single-region with documented RTO/RPO | Everything is reproducible from Git plus Terraform; the only durable artifact is the evidence directory, which lives in Git | Durable state that cannot be rebuilt from code |
+| State durability | S3 versioning + KMS | Same, plus cross-region replication and AWS Backup | The Terraform state describes a cluster that is recreated, never repaired | State whose loss cannot be recovered by re-applying |
+| Cluster lifecycle | Recreated on a pinned version, never upgraded | In-place control-plane upgrade with blue/green node groups and a drain plan | The cluster's lifetime is shorter than an upgrade cycle | A cluster that outlives a Kubernetes minor release |
+| Observability | Prometheus/Grafana during a session, `port-forward` only | Always-on, remote-write to durable storage, alert routing with an on-call rotation | There is nobody to page, and a session is watched by the person who started it | Anyone other than the operator depending on it |
+| Secrets | Kubernetes Secret created by a session script, envelope-encrypted by KMS | External Secrets Operator against Secrets Manager, with rotation | The only secret is a literal tenant key in a cluster that lives for hours | Any credential whose disclosure outlives the cluster |
+| Teardown | Nightly cron + manual `destroy.yml` | Nothing to tear down; the cluster is permanent | Cost discipline is the point | Permanence |
+
+The honest summary: **this cluster is optimised for the cost of being wrong being a re-run.** Every row above is
+a bet on that sentence, and every row names the observation that would void the bet.
+
+### The demo path, which exists as a plan rather than as code
+
+The measurement path and a demonstration path are different products and must not be confused. The benchmark
+reaches the gateway by `port-forward` because an ALB in the request path adds queueing, retries, idle timeouts
+and target-group health flapping that the run's record cannot tell apart from engine behaviour.
+
+None of that argues against having a demo path, and the reference architecture behind this repository already
+demonstrated its pieces. When the M5-b and M5-c measurements are finished, the demo path is:
+
+```
+Route 53 (existing domain)
+  -> CloudFront            [optional; only if a static evidence page is served alongside]
+  -> AWS WAF web ACL       [managed rule groups + the geo-block rule demonstrated in 2023]
+  -> ALB (public subnets, ACM certificate)     $0.0225/hr + $0.008/LCU-hr
+  -> target group -> gateway Service (private subnets, AWS Load Balancer Controller Ingress)
+```
+
+The public subnets already carry `kubernetes.io/role/elb`, so the controller has somewhere to place it. Two
+constraints on the day it is built: the benchmark must not be re-run through it, and it must be torn down with
+the cluster like everything else.
+
 ## Identity and access
+
 
 | Principal            | Mechanism                                                      | Constraints                                                                                                                                                                                                                                                                                                                    |
 |----------------------|----------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
@@ -96,7 +139,26 @@ is the right answer to a question this workload does not ask.
 | Node instances       | IMDSv2: `httpTokens=required` + `httpPutResponseHopLimit=1`    | An **instance** option, not a pod control: it blocks IMDS from pod-network containers (extra hop), but hostNetwork pods still reach it — that exception is documented, not hidden. Node bootstrap/ECR pull must be tested at hop-limit 1                                                                                       |
 | Cluster access       | **EKS access entries**: dev admin entry + CI apply-role entry  | The apply role needs kubectl to run pre-destroy (delete Argo apps) — without its access entry, `destroy.yml` cannot do ordered teardown                                                                                                                                                                                        |
 
+### The one long-lived credential, and how it goes away
+
+CI holds no long-lived key: GitHub OIDC exchanges a workflow identity for a short-lived role session, and the
+plan and apply roles have separate trusts. Local work does not match that standard — it uses an access key
+belonging to the IAM user `user-1`. That key is the only credential here that does not expire on its own, and
+it is the last real gap in the Security pillar.
+
+| Option | Verdict | Reasoning |
+|---|---|---|
+| **IAM Identity Center** + `aws sso login` | **The answer** | Free. Requires an AWS Organization, which for a single account costs nothing to create. Local credentials become a session with a bounded lifetime, refreshed by a browser login; there is no static secret on the laptop to leak, and every assumption is a CloudTrail event with a human identity attached. This is what a company would do. |
+| MFA + `sts:AssumeRole` with a session policy | Interim | Keeps the access key but reduces it to a key that can do nothing except assume a role after an MFA prompt, with a session TTL. Strictly better than today and achievable in minutes; strictly worse than Identity Center because a static secret still exists. |
+| **HashiCorp Vault** AWS secrets engine | **Over-engineering here, and it is worth knowing why** | Vault's AWS secrets engine issues dynamic IAM credentials with a TTL and revokes them on expiry — genuinely the strongest version of this control. The cost is that Vault itself becomes infrastructure: HA, unseal, storage, upgrades, audit, and a new component whose compromise is worse than the credential it protects. It earns that cost when secrets span **multiple clouds**, when they are **not IAM** (database passwords, PKI, SSH CA), or when the consumers are **outside the AWS account**. This project is one cloud, one account, one human, and one credential type. Identity Center gives the same expiry-by-default property for free. |
+| IAM Roles Anywhere | Not applicable | Solves X.509-identified workloads outside AWS — an on-premises server, not a laptop with a browser. |
+
+Sequence: disable the access key at the end of the current session, create the Organization and enable
+Identity Center, and move local work to `aws sso login`. Nothing in `infra/aws/` changes — the roles and trust
+policies are unaffected, because the credential is how a human reaches AWS, not what Terraform describes.
+
 ## Cluster add-ons (ownership explicit, same rule as CRDs)
+
 
 | Add-on                           | Owner                                                | Note                                                                                                                                                    |
 |----------------------------------|------------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------|
@@ -141,11 +203,84 @@ The repo is public, so Argo CD reads it anonymously — no deploy credential to 
 | Control           | Value                                                                                                                                                                                                            |
 |-------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | EKS version       | Pinned recent at provisioning. Ephemeral clusters are **recreated, not upgraded** — which is also how the $0.10/hr standard-support rate stays true (extended support is $0.60/hr; this design never reaches it) |
-| Idle cost         | CPU-only cluster ≈ $4–6/day (EKS control plane $0.10/hr + small nodes)                                                                                                                                           |
-| GPU cost          | `g5.xlarge` ≈ $1.0/hr On-Demand (us-east-1), existing only during M5-b/M5-c windows                                                                                                                              |
+| Idle cost         | $0.263/hr — EKS control plane $0.100 + `t3.large` $0.104 + NAT gateway $0.059. All figures `ap-northeast-2`, AWS Pricing API, 2026-08-27                                                                          |
+| GPU cost          | `g5.xlarge` **Spot $0.357–0.424** (On-Demand $1.237) for M5-b/M5-c; `g4dn.12xlarge` **On-Demand $4.812** for queuelab. Existing only during a session — see the Spot split below                                  |
 | Budget alarm      | $10/day with escalation; hard review at $30 cumulative                                                                                                                                                           |
 | Scheduled destroy | `destroy.yml` nightly cron; failure path is operational, not just an alert: retry once → residue inventory (EC2, ELB, EBS, ECR, CloudWatch, orphaned TF state) → break-glass manual runbook                      |
 | Residue controls  | TTL/owner tags, PVC/PV + LoadBalancer audit, ECR lifecycle (untagged/PR images only), CloudWatch log retention, snapshot cleanup                                                                                 |
+
+### Why Spot for two GPU groups and not the third
+
+Spot was excluded on the argument that a reclaimed node "does not fail the experiment cleanly". That argument
+does not survive contact with this repository — telling a vanished worker apart from a real result is exactly
+what the validity gates exist for, and it is one of the easier cases.
+
+The argument that does survive is per-experiment:
+
+| Group | Capacity | Because |
+|---|---|---|
+| `gpu` (queuelab, `g4dn.12xlarge`) | **On-Demand** | queuelab measures **preemption**. A Spot reclamation is a two-minute warning followed by a cordon and drain, and the drain evicts the victim Pod — truncating the `PodReady → AttemptStopped` window the held time is computed over. A truncated window reports a **shorter** hold, which flatters the headline. The failure mode is not a broken run; it is a run that quietly reads better |
+| `gpu_single` (M5-b, `g5.xlarge`) | **Spot** | Measures admission under KV pressure. An interruption ends the arm without biasing it, and an arm that produced no records is refused rather than reported |
+| `gpu_shared` (M5-c, `g5.xlarge`) | **Spot** | Measures what two engines do to each other on one card. An interruption ends a cell; a matrix missing a cell is refused at comparison rather than averaged over |
+
+What Spot buys is not primarily a smaller bill. The study's weakest axis is repetition count — two reviews
+scored its statistical power at 30% and said the run sequence itself encoded the limit. At 66–71% off, the
+same budget buys roughly three times the repetitions.
+
+### When an interface VPC endpoint is cheaper than a NAT gateway, and when it is not
+
+Both charge per hour and per GB, and which wins is entirely a question of how many GB flow through that one
+service. The rates (`ap-northeast-2`, Pricing API, 2026-08-27):
+
+| | Hourly | Per GB |
+|---|---|---|
+| NAT gateway | $0.059 | $0.059 |
+| Interface endpoint (per service, per AZ) | $0.013 | $0.010 (first 1 PB/mo) |
+| **S3/DynamoDB gateway endpoint** | **$0** | **$0** |
+
+An interface endpoint saves **$0.049/GB** and costs **$0.312/day** per service per AZ, so it pays for itself
+above:
+
+```
+$0.312 / $0.049  ≈  6.4 GB per day, per service, per AZ
+```
+
+**Where it clearly wins.** A cluster shipping 500 GB/day of container logs to CloudWatch:
+
+```
+through NAT       500 GB x $0.059              = $29.50/day
+through endpoint  24h x $0.013 + 500 x $0.010  =  $5.31/day     -> saves $24.19/day
+```
+
+**Where it clearly loses — this cluster.** A six-hour session pulling ~12 GB of images and ~1 GB of everything
+else:
+
+```
+Option A (what this repo does): NAT + S3 gateway endpoint
+  NAT hours      6 x $0.059                 = $0.354
+  ECR layers     12 GB via S3 gateway       = $0.000     <- layers live in S3
+  other egress   1 GB x $0.059              = $0.059
+                                              -------
+                                              $0.413
+
+Option B: no NAT, nine interface endpoints in one AZ
+  endpoint hours 9 x 6 x $0.013             = $0.702
+  data           ~1 GB x $0.010             = $0.010
+                                              -------
+                                              $0.712     <- 1.7x Option A
+```
+
+And Option B does not merely cost more — **it does not work.** There is no VPC endpoint for GitHub, so Argo CD
+cannot pull the repository it treats as the source of truth. The same is true of Helm chart repositories and
+of any `curl` in a bootstrap script. Removing the NAT removes general internet egress, and this architecture
+needs some.
+
+**Option C, the mixed case, is the one the reference architecture actually meant.** Keep the NAT, and add an
+interface endpoint only for a service whose traffic exceeds the 6.4 GB/day line. In this cluster the largest
+flow is image layers, and those already cost $0 through the free S3 gateway endpoint — so nothing else comes
+close to the line. The nine-endpoint configuration is what you build to remove the NAT, and that is a
+*security* posture (no internet route at all), not a cost optimisation. This lab does not need it, because
+the security it buys is already bought by the private subnets.
 
 ## Execution boundary (what exists today)
 
