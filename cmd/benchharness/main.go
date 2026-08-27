@@ -270,6 +270,7 @@ func report(args []string) error {
 	byArm := map[string][]bench.RawRow{}
 	repP99 := map[string][]float64{}
 	repTail := map[string][]int{}
+	repRows := map[string][]int{}
 	armChecksum := map[string]string{}
 	armTolerance := map[string]float64{}
 	for _, path := range rawFiles {
@@ -296,6 +297,7 @@ func report(args []string) error {
 		rs := bench.Summarize(arm, rows)
 		repP99[arm] = append(repP99[arm], rs.TTFTMsP99)
 		repTail[arm] = append(repTail[arm], rs.TailSampleSize)
+		repRows[arm] = append(repRows[arm], len(rows))
 		armChecksum[arm] = rows[0].TraceChecksum
 		armTolerance[arm] = rows[0].MatchTolerance
 	}
@@ -319,6 +321,57 @@ func report(args []string) error {
 		} else if sum != wantSum {
 			return fmt.Errorf("arm %s replayed a different trace (%s) than the other contended arms (%s);"+
 				" a valid comparison needs one immutable trace", arm, sum, wantSum)
+		}
+	}
+
+	// The same trace must also have produced the same NUMBER of records.
+	//
+	// The checksum above proves the arms replayed identical traffic. It says nothing about whether the
+	// recording of that traffic finished, and the two are different questions with no shared symptom: a run
+	// cut off partway -- a reclaimed node, a killed port-forward, a resumed session, a short duration -- leaves
+	// every row it did write COMPLETE. Nothing is censored, no repetition is thin, the tail clears its floor,
+	// and the arm is simply shorter than the trace it claims to have replayed.
+	//
+	// The direction is what makes this the worst of the set. Contention builds over a trace, so the requests
+	// that arrive late are the slow ones; dropping the tail of the recording drops exactly the evidence that
+	// would fail the arm. An adversarial review demonstrated it on this binary: complete evidence printed
+	//
+	//     absolute protection  C/R1 = 3.434  FAIL   ...  VERDICT: not all checks passed
+	//
+	// and the identical evidence truncated to its first 60% of rows printed
+	//
+	//     absolute protection  C/R1 = 1.066  PASS   ...  VERDICT: all checks passed; the guard protects
+	//
+	// with kv-aware at 960 recorded rows against 1,600 for the two arms it shares a trace with, unremarked.
+	// A genuine FAIL certified as protection is the one outcome this study must never produce.
+	//
+	// This is a refusal rather than a check result, and it sits beside the checksum test for that reason: two
+	// arms of different lengths cannot be compared at all, which is a statement about the evidence rather than
+	// about the guard.
+	contended := []string{"off", "static-cap", "kv-aware"}
+	wantRows, wantFrom := 0, ""
+	for _, arm := range contended {
+		for i, n := range repRows[arm] {
+			if wantRows == 0 {
+				wantRows, wantFrom = n, fmt.Sprintf("%s[%d]", arm, i)
+				continue
+			}
+			if n != wantRows {
+				return fmt.Errorf("arm %s repetition %d recorded %d rows but %s recorded %d;"+
+					" these arms share one immutable trace, so a shorter recording means a run that did not finish,"+
+					" and the requests it is missing are the late ones contention makes slow",
+					arm, i, n, wantFrom, wantRows)
+			}
+		}
+	}
+
+	// R1 replays the same trace with the contender filtered out, so its count legitimately differs from the
+	// contended arms -- but not from itself.
+	for i, n := range repRows["R1"] {
+		if n != repRows["R1"][0] {
+			return fmt.Errorf("arm R1 repetition %d recorded %d rows but repetition 0 recorded %d;"+
+				" its repetitions replay one trace and must record the same number of rows",
+				i, n, repRows["R1"][0])
 		}
 	}
 

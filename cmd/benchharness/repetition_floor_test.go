@@ -26,9 +26,14 @@ import (
 	"github.com/lkhun9311/gpu-mlops-platform-control-plane/internal/bench"
 )
 
-// writeRepetition writes one repetition file: n completed premium rows with increasing TTFT, plus enough
-// contender rows to give the arm an admitted-work fraction the match check will accept.
-func writeRepetition(t *testing.T, dir, name, arm string, n int, ttftBaseMs int64, admitted int) string {
+// writeRepetition writes one repetition file: n completed premium rows with increasing TTFT, then rejected
+// premium rows (HTTP 429) so the TOTAL row count can be held constant while the completion count varies, plus
+// one contender row carrying the arm's admitted work.
+//
+// Holding rows constant matters: the arms share one immutable trace, so `report` refuses outright when their
+// recorded row counts differ. A fixture that shortened a file would exercise that refusal instead of the
+// per-repetition floor it is meant to test.
+func writeRepetition(t *testing.T, dir, name, arm string, n int, ttftBaseMs int64, admitted int, rejected int) string {
 	t.Helper()
 	path := filepath.Join(dir, name)
 	f, err := os.Create(path)
@@ -49,10 +54,20 @@ func writeRepetition(t *testing.T, dir, name, arm string, n int, ttftBaseMs int6
 			t.Fatalf("encode: %v", err)
 		}
 	}
+	for i := range rejected {
+		r := bench.RawRow{
+			Index: n + i, Arm: arm, Tenant: "premium", HTTPStatus: 429,
+			SendUnixNanos: 1, EstInputTokens: 10, MatchTolerance: 0.05,
+			TraceChecksum: "0000000000000000000000000000000000000000000000000000000000000000",
+		}
+		if err := enc.Encode(r); err != nil {
+			t.Fatalf("encode rejected: %v", err)
+		}
+	}
 	// One contender row carrying the offered/admitted work, so admittedWorkFraction is well defined and
 	// identical across arms — the admission-match check must not be what refuses these runs.
 	c := bench.RawRow{
-		Index: n, Arm: arm, Tenant: "contender", IsNoisy: true, HTTPStatus: 200,
+		Index: n + rejected, Arm: arm, Tenant: "contender", IsNoisy: true, HTTPStatus: 200,
 		SendUnixNanos: 1, FirstTokenUnixNanos: 2, EndUnixNanos: 3,
 		EstInputTokens: admitted, MatchTolerance: 0.05, TraceChecksum: "0000000000000000000000000000000000000000000000000000000000000000",
 	}
@@ -78,12 +93,13 @@ func TestReportRefusesATruncatedRepetitionThroughTheRealCommand(t *testing.T) {
 	// Every arm gets TWO repetitions so the counts match and the incremental CI is computed. Otherwise the
 	// unequal-repetition refusal fires first and this test would pass without the floor existing at all.
 	raw := []string{
-		writeRepetition(t, dir, "r1a.jsonl", "R1", 500, 100, 250),
-		writeRepetition(t, dir, "r1b.jsonl", "R1", 500, 100, 250),
-		writeRepetition(t, dir, "ba.jsonl", "static-cap", 500, 200, 250),
-		writeRepetition(t, dir, "bb.jsonl", "static-cap", 500, 200, 250),
-		writeRepetition(t, dir, "c1.jsonl", "kv-aware", 500, 110, 255),
-		writeRepetition(t, dir, "c2.jsonl", "kv-aware", 30, 110, 255),
+		writeRepetition(t, dir, "r1a.jsonl", "R1", 500, 100, 250, 0),
+		writeRepetition(t, dir, "r1b.jsonl", "R1", 500, 100, 250, 0),
+		writeRepetition(t, dir, "ba.jsonl", "static-cap", 500, 200, 250, 0),
+		writeRepetition(t, dir, "bb.jsonl", "static-cap", 500, 200, 250, 0),
+		writeRepetition(t, dir, "c1.jsonl", "kv-aware", 500, 110, 255, 0),
+		// Same row total, but this repetition completed 30 premium requests and rejected 470.
+		writeRepetition(t, dir, "c2.jsonl", "kv-aware", 30, 110, 255, 470),
 	}
 
 	outPath := filepath.Join(dir, "report.txt")
@@ -119,12 +135,12 @@ func TestReportRefusesATruncatedRepetitionThroughTheRealCommand(t *testing.T) {
 func TestReportAcceptsEqualHealthyRepetitions(t *testing.T) {
 	dir := t.TempDir()
 	raw := []string{
-		writeRepetition(t, dir, "r1a.jsonl", "R1", 500, 100, 250),
-		writeRepetition(t, dir, "r1b.jsonl", "R1", 500, 100, 250),
-		writeRepetition(t, dir, "ba.jsonl", "static-cap", 500, 200, 250),
-		writeRepetition(t, dir, "bb.jsonl", "static-cap", 500, 200, 250),
-		writeRepetition(t, dir, "c1.jsonl", "kv-aware", 500, 110, 255),
-		writeRepetition(t, dir, "c2.jsonl", "kv-aware", 500, 110, 255),
+		writeRepetition(t, dir, "r1a.jsonl", "R1", 500, 100, 250, 0),
+		writeRepetition(t, dir, "r1b.jsonl", "R1", 500, 100, 250, 0),
+		writeRepetition(t, dir, "ba.jsonl", "static-cap", 500, 200, 250, 0),
+		writeRepetition(t, dir, "bb.jsonl", "static-cap", 500, 200, 250, 0),
+		writeRepetition(t, dir, "c1.jsonl", "kv-aware", 500, 110, 255, 0),
+		writeRepetition(t, dir, "c2.jsonl", "kv-aware", 500, 110, 255, 0),
 	}
 	outPath := filepath.Join(dir, "report.txt")
 	args := []string{"-out", outPath}
@@ -140,5 +156,69 @@ func TestReportAcceptsEqualHealthyRepetitions(t *testing.T) {
 	}
 	if strings.Contains(string(b), "premium completions, below") {
 		t.Errorf("healthy equal repetitions were refused by the floor:\n%s", string(b))
+	}
+}
+
+// TestReportRefusesAnArmRecordedShorterThanTheTraceItShares is the fifth certification hole.
+//
+// The four earlier fixes all guard the SHAPE of a tail that is present — is it censored, is it big enough,
+// does an interval exist. None guards whether the recording FINISHED. An arm cut off partway leaves every row
+// it did write complete: nothing censors, no repetition is thin, the tail clears its floor, and the arm is
+// simply shorter than the trace it claims to have replayed.
+//
+// The direction is what makes it the worst of the set. Contention builds over a trace, so the requests that
+// arrive late are the slow ones, and dropping the tail of the RECORDING drops exactly the evidence that would
+// fail the arm. An adversarial review demonstrated a genuine FAIL (C/R1 = 3.434) becoming
+// "all checks passed" (C/R1 = 1.066) by truncating the arm under test to its first 60% of rows.
+func TestReportRefusesAnArmRecordedShorterThanTheTraceItShares(t *testing.T) {
+	dir := t.TempDir()
+
+	// off, static-cap and kv-aware share one immutable trace, verified by checksum. kv-aware here recorded
+	// 300 rows against their 500 — a run that stopped early, with every recorded row complete.
+	raw := []string{
+		writeRepetition(t, dir, "r1.jsonl", "R1", 500, 100, 500, 0),
+		writeRepetition(t, dir, "off.jsonl", "off", 500, 300, 500, 0),
+		writeRepetition(t, dir, "b.jsonl", "static-cap", 500, 200, 500, 0),
+		writeRepetition(t, dir, "c.jsonl", "kv-aware", 300, 110, 500, 0),
+	}
+	outPath := filepath.Join(dir, "report.txt")
+	args := []string{"-out", outPath}
+	for _, p := range raw {
+		args = append(args, "-raw", p)
+	}
+
+	err := report(args)
+	if err == nil {
+		b, _ := os.ReadFile(outPath)
+		t.Fatalf("an arm recorded 300 rows against 500 for the arms it shares a trace with was not refused; report said:\n%s", string(b))
+	}
+	if !strings.Contains(err.Error(), "recorded 301 rows") {
+		t.Errorf("the refusal did not name the short recording: %v", err)
+	}
+	if !strings.Contains(err.Error(), "immutable trace") {
+		t.Errorf("the refusal did not say why equal counts are required: %v", err)
+	}
+}
+
+// TestReportAcceptsR1BeingShorterThanTheContendedArms is the control that keeps the rule honest.
+//
+// R1 replays the same trace with the contender filtered out, so it legitimately records fewer rows. A rule
+// that simply demanded every arm match would refuse every valid run — and would still have passed the test
+// above, which is why this exists.
+func TestReportAcceptsR1BeingShorterThanTheContendedArms(t *testing.T) {
+	dir := t.TempDir()
+	raw := []string{
+		writeRepetition(t, dir, "r1.jsonl", "R1", 250, 100, 500, 0),
+		writeRepetition(t, dir, "off.jsonl", "off", 500, 300, 500, 0),
+		writeRepetition(t, dir, "b.jsonl", "static-cap", 500, 200, 500, 0),
+		writeRepetition(t, dir, "c.jsonl", "kv-aware", 500, 110, 500, 0),
+	}
+	outPath := filepath.Join(dir, "report.txt")
+	args := []string{"-out", outPath}
+	for _, p := range raw {
+		args = append(args, "-raw", p)
+	}
+	if err := report(args); err != nil {
+		t.Fatalf("R1 being shorter than the contended arms was refused, which would refuse every valid run: %v", err)
 	}
 }
