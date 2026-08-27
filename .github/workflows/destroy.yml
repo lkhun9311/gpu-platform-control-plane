@@ -146,7 +146,19 @@ jobs:
             -var "cluster_endpoint=$ENDPOINT" \
             -var "cluster_ca=$CA"
 
+      # `!cancelled()` rather than the default, because the step that must not be skipped is the one after a
+      # failure.
+      #
+      # Every preceding step is a preparation for this one. If the ordered Argo phase times out, or the
+      # argo-bootstrap destroy errors, the default behaviour skips this step -- and then the cluster, its NAT
+      # gateway and any node group left running survive the night while the run shows a red X that says
+      # teardown "failed" rather than "did not happen". A red X plus a destroyed cluster is a far better
+      # outcome than a red X plus a billing one.
+      #
+      # It is not `always()`: a cancelled run is a human deciding to stop, and destroying infrastructure
+      # after that decision is not this workflow's call to make.
       - name: Destroy cluster state
+        if: ${{ !cancelled() }}
         working-directory: infra/aws/cluster
         run: |
           terraform init -input=false \

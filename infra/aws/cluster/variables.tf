@@ -136,10 +136,24 @@ variable "tags" {
   }
 }
 
-variable "ci_apply_role_arn" {
-  description = "ARN of the CI apply role (bootstrap output) granted cluster admin via an access entry."
+variable "ci_apply_role_name" {
+  description = "Name of the CI apply role (created by infra/aws/bootstrap) granted cluster admin via an access entry. Empty disables the entry."
   type        = string
-  default     = ""
+
+  # A NAME that is looked up, not an ARN that must be passed in.
+  #
+  # This was `ci_apply_role_arn`, defaulting to "", and iam.tf counts the access entry on it being non-empty.
+  # Nothing ever passed it -- not infra.yml, not destroy.yml, not any local invocation -- so `count` was 0 on
+  # every plan this repository has ever produced and the CI role has never had an access entry. The nightly
+  # teardown's kubectl phase could not have authenticated even from inside the VPC.
+  #
+  # The bug is not that someone forgot the flag. It is that the design required a value to be carried by hand
+  # from one Terraform state to another across three call sites, and a value carried by hand is a value that
+  # gets dropped. Looking the role up by its known name makes the wiring structural: there is nothing left to
+  # forget, and if bootstrap has not run the data source fails loudly instead of silently producing count 0.
+  #
+  # Empty still disables it, for a cluster deliberately built without CI access.
+  default = "gpu-platform-ci-apply"
 }
 
 variable "api_public_access_cidrs" {
