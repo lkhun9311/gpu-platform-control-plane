@@ -31,6 +31,21 @@ START_AT="${START_AT:-1}"
 # axis this study can buy.
 REPS="${REPS:-4}"
 
+# Records go in a directory of this session's own, and the comparisons are scoped to it.
+#
+# They used to be written flat into ex/ and compared with globs like 'ex/gpu-*-A-honor-*.json'. Those globs
+# match every record any previous session ever wrote there. A resumed session, a second attempt after a
+# botched arm, or simply a second day would silently pool evidence from different clusters, different nodes
+# and different engine builds into one comparison -- and nothing in the record identifies which session it
+# came from, so nothing downstream could notice.
+#
+# A directory is the cheap half of the fix and it removes the accident. The other half is a session identity
+# stamped INTO each record so a hand-written glob spanning two sessions is refused rather than merely
+# unlikely; that needs a record schema bump and is not done.
+#
+# EXDIR can be set to re-enter an interrupted session deliberately, which is what START_AT is for.
+EXDIR="${EXDIR:-ex/session-$(date -u +%Y%m%dT%H%M%SZ)}"
+
 if [[ $# -lt 1 ]]; then
   cat >&2 <<USAGE
 usage: $0 <worker-node> [second-worker-node]
@@ -334,6 +349,8 @@ if ! [[ "$START_AT" =~ ^[0-9]+$ ]] || (( START_AT < 1 || START_AT > ${#SEQUENCE[
   exit 2
 fi
 
+mkdir -p "$EXDIR" || { echo "cannot create $EXDIR" >&2; exit 1; }
+echo "records for this session go in $EXDIR"
 echo "running ${#SEQUENCE[@]} runs, starting at $START_AT"
 echo
 N=0
@@ -369,7 +386,7 @@ for SPEC in "${SEQUENCE[@]}"; do
   # recovered once the cause is fixed, without re-running what already succeeded.
   ./queuelabrun -require-device -dose "$DOSE" -arm "$ARM" -runid "$ID" -worker "$ON" \
     -device-metrics "${URL_OF[$ON]}" -device-observer "${OBSERVER_OF[$ON]}" \
-    -out "ex/gpu-$DOSE-$ARM-$ID.json" \
+    -out "$EXDIR/gpu-$DOSE-$ARM-$ID.json" \
     || { echo; echo "run $ID failed. Fix the cause, then resume: START_AT=$N RUN_STUDY=1 $0 ${WORKERS[*]}" >&2; exit 1; }
 done
 
@@ -379,10 +396,10 @@ done
 # exactly those.
 echo
 echo "all runs completed. Compare them:"
-echo "  ./queuelabrun -compare 'ex/gpu-self-completing-*.json'"
-echo "  ./queuelabrun -compare 'ex/gpu-grace-bounded-*-g??.json'"
-echo "  ./queuelabrun -compare 'ex/gpu-self-completing-*.json,ex/gpu-grace-bounded-*-g??.json' -mode model"
-echo "  ./queuelabrun -compare 'ex/gpu-*-A-honor-*.json' -mode baseline"
+echo "  ./queuelabrun -compare '$EXDIR/gpu-self-completing-*.json'"
+echo "  ./queuelabrun -compare '$EXDIR/gpu-grace-bounded-*-g??.json'"
+echo "  ./queuelabrun -compare '$EXDIR/gpu-self-completing-*.json,$EXDIR/gpu-grace-bounded-*-g??.json' -mode model"
+echo "  ./queuelabrun -compare '$EXDIR/gpu-*-A-honor-*.json' -mode baseline"
 if [[ ${#WORKERS[@]} -ge 2 ]]; then
-  echo "  ./queuelabrun -compare 'ex/gpu-grace-bounded-A-honor-*.json' -mode node"
+  echo "  ./queuelabrun -compare '$EXDIR/gpu-grace-bounded-A-honor-*.json' -mode node"
 fi
