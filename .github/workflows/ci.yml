@@ -11,7 +11,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  AWS_REGION: us-east-1
+  AWS_REGION: ap-northeast-2
   ECR_REPOSITORY: gpu-platform-operator
 
 jobs:

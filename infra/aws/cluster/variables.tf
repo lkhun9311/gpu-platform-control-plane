@@ -22,7 +22,25 @@ variable "cluster_name" {
 variable "cluster_version" {
   description = "Pinned EKS Kubernetes version. Clusters are recreated, never upgraded."
   type        = string
-  default     = "1.31"
+
+  # 1.35, because 1.31 left STANDARD support on 2025-11-26 and this cluster would have been billed at the
+  # extended-support rate -- which AWS publishes at $0.60/cluster-hour against the $0.10 this repository's
+  # cost model quotes. Six times the control-plane cost, on a line item the cost table called verified.
+  #
+  # The version status is not a matter of opinion and does not need a documentation lookup:
+  #   aws eks describe-cluster-versions --region ap-northeast-2
+  # returned EXTENDED_SUPPORT for 1.31, 1.32 and 1.33 on 2026-08-27, and STANDARD_SUPPORT for 1.34
+  # (standard until 2026-12-02), 1.35 (2027-03-27) and 1.36 (2027-08-02, the current default).
+  #
+  # 1.35 rather than the 1.36 default: an ephemeral cluster gains nothing from the newest minor, and 1.35's
+  # standard support outlasts any plausible session here by months. 1.34 was rejected because its standard
+  # support ends in December, which is close enough that a later session would silently land on the extended
+  # rate again -- the exact failure being fixed.
+  #
+  # Changing this REQUIRES re-resolving the add-on versions in eks.tf against
+  # `aws eks describe-addon-versions --kubernetes-version <v>`. A pinned add-on built for another minor is
+  # not a warning; it is a CreateAddon failure at apply.
+  default = "1.35"
 }
 
 variable "vpc_cidr" {

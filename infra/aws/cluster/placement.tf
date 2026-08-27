@@ -85,3 +85,74 @@ resource "terraform_data" "gpu_placement" {
     }
   }
 }
+
+# Quota is a second axis, and nothing checked it.
+#
+# The offerings data above answers "does this zone sell this instance type". It does not answer "is this
+# account allowed to run one", and those are different questions with the same symptom: a node group that
+# creates cleanly at desired_size = 0 and fails at the first scale-up of a paid session.
+#
+# The specific miss this exists to prevent: on 2026-08-26 the account was granted 52 vCPU of
+# "Running On-Demand G and VT instances" (L-DB2E81BA), and that was read as permission to run G instances.
+# AWS meters Spot under a SEPARATE quota -- "All G and VT Spot Instance Requests" (L-3819A6DF), which is 0
+# here and was never requested. Two node groups were switched to SPOT on that misreading, and nothing in
+# terraform would have objected: capacity_type is not validated against a quota, and desired_size = 0 means
+# no instance is ever launched at apply.
+#
+# aws_servicequotas_service_quota is a data source rather than a resource on purpose. Managing the quota
+# would make terraform try to raise it, which is a support case with a human on the other end, not a
+# resource. This only reads it and refuses.
+data "aws_servicequotas_service_quota" "gpu_on_demand" {
+  quota_code   = "L-DB2E81BA"
+  service_code = "ec2"
+}
+
+data "aws_servicequotas_service_quota" "gpu_spot" {
+  quota_code   = "L-3819A6DF"
+  service_code = "ec2"
+}
+
+locals {
+  # vCPU counts are hardcoded because they are properties of the instance type, and the alternative -- a
+  # describe-instance-types lookup -- would make the precondition depend on a call that can fail for reasons
+  # unrelated to what is being checked.
+  gpu_vcpus = {
+    "g4dn.xlarge"   = 4
+    "g5.xlarge"     = 4
+    "g4dn.12xlarge" = 48
+    "g5.12xlarge"   = 48
+  }
+
+  # The largest single node any group would launch. Groups run one at a time in a session, so this is a
+  # floor on the quota rather than a sum.
+  gpu_vcpus_needed = max(
+    lookup(local.gpu_vcpus, var.gpu_node_instance_type, 48),
+    lookup(local.gpu_vcpus, var.gpu_single_node_instance_type, 4),
+    lookup(local.gpu_vcpus, var.gpu_shared_node_instance_type, 4),
+  )
+
+  # Which purchasing options the configuration actually asks for, so the Spot quota is only load-bearing
+  # when something is set to SPOT. Kept as a literal list rather than derived from eks.tf because module
+  # inputs are not readable back out; if a group's capacity_type changes, this changes with it.
+  gpu_capacity_types = ["ON_DEMAND"]
+}
+
+resource "terraform_data" "gpu_quota" {
+  input = {
+    on_demand_vcpus = data.aws_servicequotas_service_quota.gpu_on_demand.value
+    spot_vcpus      = data.aws_servicequotas_service_quota.gpu_spot.value
+    needed          = local.gpu_vcpus_needed
+    capacity_types  = join(",", local.gpu_capacity_types)
+  }
+
+  lifecycle {
+    precondition {
+      condition     = !contains(local.gpu_capacity_types, "ON_DEMAND") || data.aws_servicequotas_service_quota.gpu_on_demand.value >= local.gpu_vcpus_needed
+      error_message = "Running On-Demand G and VT instances (L-DB2E81BA) is ${data.aws_servicequotas_service_quota.gpu_on_demand.value} vCPU, and the largest GPU node group needs ${local.gpu_vcpus_needed}. The node groups would create at desired_size 0 and fail at the first scale-up of a paid session. Request the increase before applying."
+    }
+    precondition {
+      condition     = !contains(local.gpu_capacity_types, "SPOT") || data.aws_servicequotas_service_quota.gpu_spot.value >= local.gpu_vcpus_needed
+      error_message = "A node group is set to SPOT but All G and VT Spot Instance Requests (L-3819A6DF) is ${data.aws_servicequotas_service_quota.gpu_spot.value} vCPU. The On-Demand increase does NOT raise this -- it is a separate quota. Either request it or set capacity_type back to ON_DEMAND."
+    }
+  }
+}

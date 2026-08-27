@@ -60,18 +60,77 @@ mkdir -p "$OUT" || fail "cannot create $OUT"
 WORK="$(mktemp -d)"
 PF_PID=""
 SCALED_UP=""
+NODEGROUP=""
+
+# Scaling the node group back to zero, which this file's header claimed and this function did not do.
+#
+# It printed a banner. A banner is not a control: it depends on a human reading a terminal that may have
+# scrolled, or that no longer exists because the laptop closed. The node group keeps desiredSize=1, the ASG
+# keeps a GPU node, and this matrix's g5.xlarge bills $1.237/hour with nothing scheduled on it.
+#
+# The names are derived rather than asked for, because a prompt in a trap is a prompt nobody answers:
+# the cluster comes from the kubeconfig context's EKS ARN and the node group from the node's own
+# eks.amazonaws.com/nodegroup label. If either cannot be derived the function says so and prints the manual
+# command -- degrading to the old behaviour rather than failing silently.
+#
+# KEEP_NODE=1 skips it, for a re-run against a node that is already warm rather than paying for a fresh
+# warmup. The matrix has no separate re-run script, so this matters less here than in m5b-gpu-session.sh.
+#
+# What this does NOT solve, stated so it is not mistaken for solved: a trap cannot run after the laptop dies,
+# loses power, or has its shell killed with SIGKILL. The backstop for that is the nightly destroy workflow,
+# and an external TTL watchdog is the control this repository still does not have.
+gpu_scale_down() {
+  [ -n "$SCALED_UP" ] || return 0
+  if [ "${KEEP_NODE:-}" = "1" ]; then
+    echo "KEEP_NODE=1: leaving $NODEGROUP at its current size. It bills by the hour." >&2
+    return 0
+  fi
+
+  CLUSTER="${CLUSTER:-$(kubectl config view --minify -o jsonpath='{.clusters[0].name}' 2>/dev/null | sed 's|.*cluster/||')}"
+  if [ -z "$CLUSTER" ] || [ -z "${NODEGROUP:-}" ]; then
+    echo
+    echo "############################################################"
+    echo "#  COULD NOT DERIVE cluster/nodegroup. SCALE TO 0 BY HAND. #"
+    echo "#  It bills by the hour with nothing scheduled on it.      #"
+    echo "#    aws eks update-nodegroup-config \\"
+    echo "#      --cluster-name <cluster> --nodegroup-name <ng> \\"
+    echo "#      --scaling-config minSize=0,maxSize=1,desiredSize=0  #"
+    echo "############################################################"
+    return 0
+  fi
+
+  echo "scaling $CLUSTER/$NODEGROUP to desiredSize=0" >&2
+  if ! aws eks update-nodegroup-config --cluster-name "$CLUSTER" --nodegroup-name "$NODEGROUP" \
+        --scaling-config "minSize=0,maxSize=1,desiredSize=0" >/dev/null 2>&1; then
+    echo
+    echo "############################################################"
+    echo "#  SCALE-DOWN CALL FAILED. THE NODE IS STILL BILLING.      #"
+    echo "#  Run this now:                                           #"
+    echo "#    aws eks update-nodegroup-config --cluster-name $CLUSTER \\"
+    echo "#      --nodegroup-name $NODEGROUP \\"
+    echo "#      --scaling-config minSize=0,maxSize=1,desiredSize=0  #"
+    echo "############################################################"
+    return 0
+  fi
+
+  # Confirm it took. An accepted API call that left desiredSize at 1 is the failure this whole function
+  # exists to make impossible, and it is silent unless something reads the value back.
+  DESIRED=$(aws eks describe-nodegroup --cluster-name "$CLUSTER" --nodegroup-name "$NODEGROUP" \
+    --query 'nodegroup.scalingConfig.desiredSize' --output text 2>/dev/null)
+  if [ "$DESIRED" = "0" ]; then
+    echo "$CLUSTER/$NODEGROUP is at desiredSize=0" >&2
+  else
+    echo "WARNING: $CLUSTER/$NODEGROUP reports desiredSize=$DESIRED after the scale-down. It is billing." >&2
+  fi
+}
+
 cleanup() {
   [ -n "$PF_PID" ] && kill "$PF_PID" 2>/dev/null
   k delete namespace "$NS_A" "$NS_B" --wait=false >/dev/null 2>&1
   k delete gpuquotapolicy m5c-premium m5c-standard >/dev/null 2>&1
   k delete clusterrolebinding m5c-gateway-role >/dev/null 2>&1
   rm -rf "$WORK"
-  if [ -n "$SCALED_UP" ]; then
-    echo
-    echo "############################################################"
-    echo "#  SCALE THE gpu_shared NODE GROUP BACK TO 0 NOW.          #"
-    echo "############################################################"
-  fi
+  gpu_scale_down
 }
 trap cleanup EXIT INT TERM
 
@@ -93,6 +152,16 @@ EOF
   fail "no node carries platform.lkhun9311.github.io/gpu-sharing"
 fi
 SCALED_UP=1
+
+# The node group name comes from the node the session just qualified, not from a constant.
+#
+# EKS stamps eks.amazonaws.com/nodegroup on every managed-node-group member, so the node this session is
+# about names the group that must be scaled back down. A hardcoded "gpu_single" would be wrong the moment a
+# group is renamed, and wrong silently: the scale-down would return a ResourceNotFoundException that nobody
+# reads, on the exit path of the script that spends money.
+NODEGROUP=$(k get node -l 'platform.lkhun9311.github.io/gpu-sharing=true' \
+  -o jsonpath='{.items[0].metadata.labels.eks\.amazonaws\.com/nodegroup}' 2>/dev/null)
+[ -n "$NODEGROUP" ] || say "could not read the node's nodegroup label; exit will print the manual scale-down instead"
 [ "$shared_nodes" -eq 1 ] || fail "$shared_nodes sharing nodes are up; two engines on two nodes are not sharing a card, and nothing downstream could tell that apart from a sharing result"
 
 # The two sharing overlays select the SAME node, so exactly one may be applied at a time: two plugins

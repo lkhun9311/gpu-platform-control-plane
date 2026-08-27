@@ -29,18 +29,21 @@ module "eks" {
   #
   # Argo CD never touches these.
   #
-  # Versions are pinned to the AWS defaults for EKS 1.31.
+  # Versions pinned to the AWS defaults for EKS 1.35, read from the API on 2026-08-27:
   #
-  # Re-verify them against aws eks describe-addon-versions before provisioning, since AWS revises eksbuild numbers over time.
+  #   aws eks describe-addon-versions --addon-name <name> --kubernetes-version 1.35 --region ap-northeast-2
+  #
+  # These move with var.cluster_version and are not independent choices. An add-on built for another minor
+  # fails CreateAddon at apply rather than warning, so re-resolve all three whenever the version changes.
   cluster_addons = {
     coredns = {
-      addon_version = "v1.11.3-eksbuild.1"
+      addon_version = "v1.13.2-eksbuild.21"
     }
     kube-proxy = {
-      addon_version = "v1.31.0-eksbuild.5"
+      addon_version = "v1.35.3-eksbuild.21"
     }
     vpc-cni = {
-      addon_version = "v1.18.3-eksbuild.3"
+      addon_version = "v1.22.4-eksbuild.3"
     }
   }
 
@@ -179,22 +182,27 @@ module "eks" {
       subnet_ids     = local.gpu_single_subnets
       instance_types = [var.gpu_single_node_instance_type]
 
-      # Spot, because what this group measures is not harmed by being interrupted.
+      # ON_DEMAND, and this is a retreat from a decision that was right on the reasoning and unbuildable on
+      # this account.
       #
-      # M5-b compares four admission arms against one engine under KV pressure. An interruption ends the arm;
-      # it does not bias it, and a run that ends without records is refused rather than reported. That is the
-      # difference from the queuelab group above, where a drain-induced eviction shortens the very window the
-      # headline is computed over.
+      # The reasoning stands, and it is kept because it is what makes the retreat temporary: M5-b measures
+      # admission under KV pressure, an interruption ends an arm without biasing it, and an arm that produced
+      # no records is refused rather than reported. Seoul spot for g5.xlarge was $0.357-$0.424 against an
+      # On-Demand $1.237 -- 66 to 71 percent off, which this study needs as repetitions rather than savings.
       #
-      # The discount is not marginal. On 2026-08-27 the Seoul spot history for g5.xlarge was $0.357 (2d),
-      # $0.403 (2c) and $0.424 (2a) against an On-Demand $1.237 -- 66 to 71 percent off. Even assuming every
-      # session is interrupted once and half the work is redone, the expected cost is well under half of
-      # On-Demand.
+      # What killed it is that AWS meters Spot under a SEPARATE quota, and this account has none:
       #
-      # What this buys is not a smaller bill so much as more runs for the same money, and the study's weakest
-      # axis is repetition count: two reviews scored its statistical power at 30 percent and said the
-      # sequence itself encoded the limit. Spot converts the same budget into REPS.
-      capacity_type = "SPOT"
+      #   L-DB2E81BA  Running On-Demand G and VT instances   52     <- granted 2026-08-26
+      #   L-3819A6DF  All G and VT Spot Instance Requests     0     <- never requested
+      #
+      # An On-Demand increase does not raise the Spot limit. A SPOT node group is created without complaint
+      # at desired_size = 0, and the FIRST SCALE-UP OF A PAID SESSION fails on the quota -- the same shape as
+      # the region defaulting to us-east-1 and the node groups pinned to subnet zero, and the third time this
+      # repository has shipped a GPU setting whose failure waits for the moment money is being spent.
+      #
+      # terraform_data.gpu_quota in placement.tf refuses at plan time now instead. Flip this back only after
+      # the Spot quota is granted; that precondition is what will say when.
+      capacity_type = "ON_DEMAND"
       min_size      = 0
       max_size      = 1
       desired_size  = 0
@@ -238,11 +246,10 @@ module "eks" {
       subnet_ids     = local.gpu_shared_subnets
       instance_types = [var.gpu_shared_node_instance_type]
 
-      # Spot, for the same reason as gpu_single: the sharing matrix measures what two engines do to each
-      # other's latency on one card, and an interruption ends a cell rather than skewing it. A cell that did
-      # not finish leaves no record, and a matrix missing a cell is refused at comparison rather than
-      # averaged over.
-      capacity_type = "SPOT"
+      # ON_DEMAND for the same reason as gpu_single: the G-family Spot quota is 0 on this account, so a Spot
+      # group would create cleanly and then fail at the first scale-up of a paid session. The measurement
+      # argument for Spot is unchanged and is written out beside gpu_single.
+      capacity_type = "ON_DEMAND"
       min_size      = 0
       max_size      = 1
       desired_size  = 0

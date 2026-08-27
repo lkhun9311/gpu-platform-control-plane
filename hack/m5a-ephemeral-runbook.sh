@@ -13,7 +13,7 @@
 # if this script hangs or the terminal dies, so a forgotten cluster cannot bill indefinitely.
 #
 # Usage:
-#   AWS_PROFILE=... AWS_REGION=us-east-1 M5A_CONFIRM=yes ./hack/m5a-ephemeral-runbook.sh
+#   AWS_PROFILE=... AWS_REGION=ap-northeast-2 M5A_CONFIRM=yes ./hack/m5a-ephemeral-runbook.sh
 #
 # Nothing that touches AWS runs unless M5A_CONFIRM=yes is set.
 set -uo pipefail
@@ -21,7 +21,7 @@ set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 export PATH="$PWD/bin:$PATH"
 
-REGION="${AWS_REGION:-us-east-1}"
+REGION="${AWS_REGION:-ap-northeast-2}"
 CLUSTER="${M5A_CLUSTER:-gpu-platform}"
 TTL_MINUTES="${M5A_TTL_MINUTES:-90}"
 EVIDENCE_DIR="${M5A_EVIDENCE_DIR:-storage/gpu-platform-control-plane/evidence/m5a-$(date -u +%Y%m%dT%H%M%SZ)}"

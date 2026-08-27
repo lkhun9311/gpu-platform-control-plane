@@ -14,7 +14,7 @@ permissions: {}
 #
 # They complete the cluster's partial S3 backend at init time, since those values are chosen at bootstrap.
 env:
-  AWS_REGION: us-east-1
+  AWS_REGION: ap-northeast-2
   TF_VERSION: 1.16.0
 
 jobs:
