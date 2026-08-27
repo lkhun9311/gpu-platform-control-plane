@@ -160,11 +160,30 @@ variable "api_public_access_cidrs" {
   # the API through SSM.
   default = []
 
+  # Two checks, and what they are is worth being precise about: these are ACCIDENT GUARDS, not a security
+  # boundary. The security boundary is IAM plus RBAC. A CIDR list only decides who can reach the endpoint to
+  # be rejected by them, and a review pointed out that calling the first check an "allow-list validator"
+  # overstated it -- rejecting the literal 0.0.0.0/0 leaves 0.0.0.0/1 plus 128.0.0.0/1, or forty ranges
+  # covering nearly all of IPv4, passing untouched.
+  #
+  # The second check is what closes that. Together they stop the two ways this field goes wrong by accident:
+  # inheriting the module's world-open default, and pasting something far broader than intended.
   validation {
-    # 0.0.0.0/0 here is indistinguishable from not setting the argument at all, which is the state this
-    # variable exists to end. Someone who genuinely wants a world-reachable endpoint can delete this check
-    # and explain why in the commit; what must not happen is arriving there by leaving a field blank.
+    # 0.0.0.0/0 is indistinguishable from not setting the argument at all, which is the state this variable
+    # exists to end. Someone who genuinely wants a world-reachable endpoint can delete these checks and
+    # explain why in the commit; what must not happen is arriving there by leaving a field blank.
     condition     = !contains(var.api_public_access_cidrs, "0.0.0.0/0")
     error_message = "0.0.0.0/0 is not an allow-list. Name the addresses, or leave the list empty and reach the API through SSM."
+  }
+
+  validation {
+    # /24 admits a home or small-office egress range and refuses anything that reads as a region-sized block.
+    # It is a breadth cap rather than a judgement about any particular network: a single operator's address
+    # is a /32, and a list of /8s is a mistake regardless of whose /8 it is.
+    condition = alltrue([
+      for c in var.api_public_access_cidrs :
+      can(cidrhost(c, 0)) && tonumber(split("/", c)[1]) >= 24
+    ])
+    error_message = "Every entry must be a valid IPv4 CIDR of /24 or narrower. A broader block is either a mistake or a decision that belongs in a commit message rather than in this list."
   }
 }

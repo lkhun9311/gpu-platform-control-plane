@@ -238,12 +238,23 @@ service. The rates (`ap-northeast-2`, Pricing API, 2026-08-27):
 | Interface endpoint (per service, per AZ) | $0.013 | $0.010 (first 1 PB/mo) |
 | **S3/DynamoDB gateway endpoint** | **$0** | **$0** |
 
-An interface endpoint saves **$0.049/GB** and costs **$0.312/day** per service per AZ, so it pays for itself
-above:
+An interface endpoint saves **$0.049/GB** and costs **$0.312/day per ENI**, and an endpoint gets one ENI per
+AZ it is placed in. So the break-even depends on how many AZs it spans:
 
 ```
-$0.312 / $0.049  ≈  6.4 GB per day, per service, per AZ
+marginal endpoint, NAT already present:
+    break-even  =  ($0.013 x 24 x ENIs) / ($0.059 - $0.010)
+
+    1 AZ:   6.4 GB/day        2 AZ:  12.7 GB/day        3 AZ:  19.1 GB/day
 ```
+
+Two cautions on using that number, both of which the first version of this section got wrong:
+
+- The hourly cost scales with **ENI count**, not with services. Applying the 1-AZ figure to a three-AZ
+  deployment understates the fixed cost by 3x.
+- It is the formula for **adding** an endpoint while the NAT stays. Deciding whether the NAT can go away is a
+  different comparison: the avoided `$0.059/hr` is a **single** saving shared across the whole endpoint set,
+  not one that can be credited to each service in turn.
 
 **Where it clearly wins.** A cluster shipping 500 GB/day of container logs to CloudWatch:
 
@@ -270,10 +281,20 @@ Option B: no NAT, nine interface endpoints in one AZ
                                               $0.712     <- 1.7x Option A
 ```
 
-And Option B does not merely cost more — **it does not work.** There is no VPC endpoint for GitHub, so Argo CD
-cannot pull the repository it treats as the source of truth. The same is true of Helm chart repositories and
-of any `curl` in a bootstrap script. Removing the NAT removes general internet egress, and this architecture
-needs some.
+And Option B does not merely cost more — **it does not work with this repository's artifact sources.** There
+is no VPC endpoint that reaches public `github.com`, and Argo CD pulls a public GitHub repository as its
+source of truth. The same applies to Helm chart repositories, model downloads, and any `curl` in a bootstrap
+script.
+
+That is a statement about *these sources*, not about no-NAT EKS in general, and the distinction matters
+because the general claim would be false: a cluster that mirrors its Git, charts and model weights into
+ECR/S3 and adds the matching AWS endpoints runs with no internet route at all. That mirroring is real work
+with real ongoing cost, and it is not work this lab needs — but "we did not mirror our artifacts" is the
+honest reason, not "it cannot be done".
+
+The `$0.712` figure above is also specific to its assumptions: one AZ of endpoints, a count asserted as
+"roughly nine" rather than derived from the AWS calls the pods actually make, and a six-hour window.
+Endpoints bill for every cluster hour, so a longer-lived cluster shifts the ratio.
 
 **Option C, the mixed case, is the one the reference architecture actually meant.** Keep the NAT, and add an
 interface endpoint only for a service whose traffic exceeds the 6.4 GB/day line. In this cluster the largest

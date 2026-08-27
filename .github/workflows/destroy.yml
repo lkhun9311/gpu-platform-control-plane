@@ -71,15 +71,52 @@ jobs:
             exit 1
           fi
 
+      # Whether the Kubernetes API is reachable from THIS runner, which is a different question from whether
+      # the cluster exists.
+      #
+      # The cluster defaults to a private-only endpoint (api_public_access_cidrs = []). A GitHub-hosted runner
+      # is not in the VPC and not on a connected network, so `describe-cluster` succeeds -- it is an AWS API
+      # call -- and `update-kubeconfig` succeeds, and then every kubectl call hangs until it times out.
+      # IAM cluster-admin grants authorization, not a network path.
+      #
+      # Without this probe the two Kubernetes-dependent steps below fail the job, and a failed job means the
+      # cluster is never destroyed: the thing this workflow exists to guarantee is exactly what a private
+      # endpoint takes away.
+      #
+      # So the probe is explicit and the steps become conditional. An unreachable API is logged loudly rather
+      # than silently skipped, because the ordered phase is a real control -- deleting Argo Applications
+      # first is what stops Argo recreating resources mid-teardown and what removes any LoadBalancer that
+      # would otherwise block the VPC destroy -- and losing it is a fact the operator must see.
+      #
+      # `terraform destroy` on the cluster state does NOT need the Kubernetes API. It is all AWS calls, and it
+      # takes the cluster with Argo inside it. The residue check at the end is the backstop that says whether
+      # anything survived.
+      - name: Check whether the Kubernetes API is reachable from this runner
+        id: api
+        if: steps.cluster.outputs.exists == 'true'
+        run: |
+          set +e
+          aws eks update-kubeconfig --name "$CLUSTER_NAME" --region "$AWS_REGION"
+          kubectl --request-timeout=20s get --raw /readyz >/dev/null 2>&1
+          RC=$?
+          set -e
+          if [ "$RC" -eq 0 ]; then
+            echo "reachable=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "reachable=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Kubernetes API is not reachable from this runner. The cluster endpoint is private and this runner is outside the VPC."
+            echo "::warning::Skipping the ordered Argo teardown. terraform destroy still runs; the residue check at the end is the backstop."
+            echo "::warning::To restore ordered teardown, run this workflow from a VPC-attached runner or open the endpoint to a known CIDR first."
+          fi
+
       # Delete the Argo CD Applications first so Argo stops reconciling as resources are removed.
       #
       # The apply role reaches the cluster through the access entry created in the cluster root.
       #
       # Teardown halts here if the Applications do not finish deleting within the timeout.
       - name: Delete Argo CD applications
-        if: steps.cluster.outputs.exists == 'true'
+        if: steps.cluster.outputs.exists == 'true' && steps.api.outputs.reachable == 'true'
         run: |
-          aws eks update-kubeconfig --name "$CLUSTER_NAME" --region "$AWS_REGION"
           # Delete the root app first so it stops re-creating the children mid-teardown.
           #
           # The cascade finalizer on each Application then removes the underlying workloads, including any LoadBalancer that would otherwise block the VPC destroy.
@@ -88,8 +125,13 @@ jobs:
           kubectl wait --for=delete application --all -n argocd --timeout=300s
 
       # Destroy argo-bootstrap before cluster, or the Argo Helm release state is orphaned.
+      # Skipped when the API is unreachable: the helm and kubernetes providers cannot plan a destroy they
+      # cannot connect to. The Argo release lives inside the cluster, so destroying the cluster state removes
+      # it -- what is left behind is the argo-bootstrap STATE FILE describing resources that no longer exist,
+      # which the next run must `terraform state rm` or re-init from empty. That is a known, visible cost of
+      # the private endpoint rather than a silent one.
       - name: Destroy argo-bootstrap state
-        if: steps.cluster.outputs.exists == 'true'
+        if: steps.cluster.outputs.exists == 'true' && steps.api.outputs.reachable == 'true'
         working-directory: infra/aws/argo-bootstrap
         run: |
           # The argo-bootstrap providers need the cluster connection to plan the helm_release destroy.
