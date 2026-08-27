@@ -3,11 +3,6 @@ output "state_bucket" {
   value       = aws_s3_bucket.state.id
 }
 
-output "lock_table" {
-  description = "DynamoDB table name for Terraform locks."
-  value       = aws_dynamodb_table.lock.name
-}
-
 output "state_kms_key_arn" {
   description = "KMS key ARN encrypting the state bucket."
   value       = aws_kms_key.state.arn

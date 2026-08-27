@@ -9,12 +9,13 @@ on:
 
 permissions: {}
 
-# TF_STATE_BUCKET, TF_LOCK_TABLE, and TF_STATE_KMS_KEY are repository variables holding the bootstrap state bucket, lock table, and state KMS key.
+# TF_STATE_BUCKET and TF_STATE_KMS_KEY are repository variables holding the bootstrap state bucket and state KMS key.
+# There is no lock table variable: the S3 backend locks on a <key>.tflock object since Terraform 1.10.
 #
 # They complete the cluster's partial S3 backend at init time, since those values are chosen at bootstrap.
 env:
   AWS_REGION: us-east-1
-  TF_VERSION: 1.9.8
+  TF_VERSION: 1.16.0
 
 jobs:
   plan:
@@ -51,7 +52,6 @@ jobs:
         run: |
           terraform init -input=false \
             -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" \
-            -backend-config="dynamodb_table=${{ vars.TF_LOCK_TABLE }}" \
             -backend-config="kms_key_id=${{ vars.TF_STATE_KMS_KEY }}"
           terraform plan -input=false -no-color
 
@@ -94,6 +94,5 @@ jobs:
         run: |
           terraform init -input=false \
             -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" \
-            -backend-config="dynamodb_table=${{ vars.TF_LOCK_TABLE }}" \
             -backend-config="kms_key_id=${{ vars.TF_STATE_KMS_KEY }}"
           terraform apply -input=false -auto-approve

@@ -47,18 +47,22 @@ resource "aws_iam_role_policy_attachment" "ci_plan_readonly" {
 
 # ReadOnlyAccess covers reading state from S3 but not the lock write or the state decrypt that plan needs.
 #
-# This inline policy grants exactly the DynamoDB lock operations and the KMS decrypt for the state key.
+# The lock used to be a DynamoDB row, so this policy used to grant GetItem/PutItem/DeleteItem on the table.
+# With the backend's use_lockfile the lock is an object next to the state, so the grant follows it there:
+# write and delete on *.tflock, and nothing else in the bucket. ReadOnlyAccess still supplies the reads.
+#
+# Scoped to the suffix rather than the whole bucket on purpose -- plan must be able to take a lock and must
+# not be able to overwrite a state file.
 data "aws_iam_policy_document" "ci_plan_state" {
   statement {
     effect = "Allow"
 
     actions = [
-      "dynamodb:GetItem",
-      "dynamodb:PutItem",
-      "dynamodb:DeleteItem",
+      "s3:PutObject",
+      "s3:DeleteObject",
     ]
 
-    resources = [aws_dynamodb_table.lock.arn]
+    resources = ["${aws_s3_bucket.state.arn}/*.tflock"]
   }
 
   statement {

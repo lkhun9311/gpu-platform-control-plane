@@ -1,6 +1,6 @@
 # infra/aws/bootstrap
 
-Creates the Terraform state backend (S3 + DynamoDB), the GitHub OIDC provider,
+Creates the Terraform state backend (S3, locking on a state-adjacent object), the GitHub OIDC provider,
 the CI IAM roles, and the ECR repository. This root is the chicken-and-egg base:
 it begins on local state, then migrates into the bucket it just created.
 
@@ -21,9 +21,9 @@ terraform {
   backend "s3" {
     bucket         = "<globally-unique-name>"
     key            = "bootstrap/terraform.tfstate"
-    region         = "us-east-1"
-    dynamodb_table = "gpu-platform-tf-lock"
+    region         = "ap-northeast-2"
     encrypt        = true
+    use_lockfile   = true
     kms_key_id     = "<state_kms_key_arn from the step 1 output>"
   }
 }
@@ -68,5 +68,4 @@ Secrets:
 
 Variables:
 - `TF_STATE_BUCKET` from output `state_bucket`
-- `TF_LOCK_TABLE` from output `lock_table`
 - `TF_STATE_KMS_KEY` from output `state_kms_key_arn`

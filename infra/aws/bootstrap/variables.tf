@@ -18,12 +18,6 @@ variable "state_bucket_name" {
   type        = string
 }
 
-variable "lock_table_name" {
-  description = "DynamoDB table name for Terraform state locks."
-  type        = string
-  default     = "gpu-platform-tf-lock"
-}
-
 variable "operator_repo_name" {
   description = "ECR repository name for the operator image."
   type        = string

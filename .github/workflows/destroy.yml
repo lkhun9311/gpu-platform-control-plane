@@ -10,7 +10,7 @@ permissions: {}
 
 env:
   AWS_REGION: us-east-1
-  TF_VERSION: 1.9.8
+  TF_VERSION: 1.16.0
   CLUSTER_NAME: gpu-platform
 
 jobs:
@@ -99,7 +99,6 @@ jobs:
           CA=$(aws eks describe-cluster --name "$CLUSTER_NAME" --query 'cluster.certificateAuthority.data' --output text)
           terraform init -input=false \
             -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" \
-            -backend-config="dynamodb_table=${{ vars.TF_LOCK_TABLE }}" \
             -backend-config="kms_key_id=${{ vars.TF_STATE_KMS_KEY }}"
           terraform destroy -input=false -auto-approve \
             -var "cluster_endpoint=$ENDPOINT" \
@@ -117,7 +116,6 @@ jobs:
         run: |
           terraform init -input=false \
             -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" \
-            -backend-config="dynamodb_table=${{ vars.TF_LOCK_TABLE }}" \
             -backend-config="kms_key_id=${{ vars.TF_STATE_KMS_KEY }}"
           terraform destroy -input=false -auto-approve
 
