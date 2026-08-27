@@ -454,14 +454,32 @@ func report(args []string) error {
 	checks := bench.EvaluateChecks(summ["R1"], summ["static-cap"], summ["kv-aware"], incCI, matchTolerance)
 	text := bench.FormatReport(summaries, checks, matchTolerance)
 
-	if *out == "" {
+	if *out != "" {
+		if err := os.WriteFile(*out, []byte(text), 0o600); err != nil {
+			return fmt.Errorf("write report %s: %w", *out, err)
+		}
+		fmt.Printf("wrote report to %s\n", *out)
+	} else {
 		fmt.Print(text)
-		return nil
 	}
-	if err := os.WriteFile(*out, []byte(text), 0o600); err != nil {
-		return fmt.Errorf("write report %s: %w", *out, err)
+
+	// An INVALID run exits non-zero. A run that merely fails its checks does not.
+	//
+	// The distinction is the whole point. "Not all checks passed" is a scientific result -- the guard did not
+	// protect, and that is a finding worth recording. "Run invalid" means the evidence cannot answer the
+	// question at all, and the paid wrapper was treating the two identically: hack/m5b-arms.sh runs
+	//
+	//     benchharness report ... || fail "report"
+	//
+	// and this command returned 0 for both, so a session whose evidence had been disqualified printed a
+	// success line and moved on to the next arm. Every hole closed today -- the missing arm, the transport
+	// censoring, the absent interval, the thin repetition, the short recording -- reaches the operator through
+	// this exit code, and until now none of them did.
+	//
+	// The report file is still written first, so the refusal is preserved as evidence rather than discarded.
+	if checks.Invalid {
+		return fmt.Errorf("run invalid: %s", checks.InvalidReason)
 	}
-	fmt.Printf("wrote report to %s\n", *out)
 	return nil
 }
 

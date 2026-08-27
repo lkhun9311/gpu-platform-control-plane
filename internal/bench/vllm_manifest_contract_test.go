@@ -415,3 +415,39 @@ func keysOf(m map[string]bool) []string {
 	sort.Strings(out)
 	return out
 }
+
+// TestRepetitionDefaultsAgreeAcrossTheSessionScripts binds the three scripts that each carry their own REPS
+// default.
+//
+// hack/gpu-session.sh defaulted to 4 and the two re-run scripts to 2. They do not read each other, so a
+// re-run bought half the repetitions the study was designed around -- silently, and in the direction that
+// weakens it: two independent reviews scored the design's power at 30% when n was 2 per cell and named the
+// run count as the binding limit.
+//
+// This is the same defect shape as a region default that agreed in one file and not the others. The fix is
+// not the number; it is that a disagreement now fails.
+func TestRepetitionDefaultsAgreeAcrossTheSessionScripts(t *testing.T) {
+	scripts := []string{"hack/gpu-session.sh", "hack/m5b-arms.sh", "hack/m5c-matrix.sh"}
+	// Anchored to a whole line so the explanatory comment above each assignment cannot satisfy the match --
+	// a guard a comment can satisfy is not a guard, which this file already learned once.
+	re := regexp.MustCompile(`(?m)^REPS="\$\{REPS:-(\d+)\}"\s*$`)
+
+	want, wantFrom := "", ""
+	for _, script := range scripts {
+		m := re.FindStringSubmatch(readRepoFile(t, script))
+		if m == nil {
+			t.Fatalf("%s has no REPS default in the expected form", script)
+		}
+		if want == "" {
+			want, wantFrom = m[1], script
+			continue
+		}
+		if m[1] != want {
+			t.Errorf("%s defaults REPS to %s but %s defaults to %s; the study's repetition count cannot depend on which script the operator ran",
+				script, m[1], wantFrom, want)
+		}
+	}
+	if want != "4" {
+		t.Errorf("the shared REPS default is %s; the design is four per cell and below that the incremental interval is a bootstrap over very few blocks", want)
+	}
+}

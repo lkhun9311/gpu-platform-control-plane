@@ -107,13 +107,19 @@ func TestReportRefusesATruncatedRepetitionThroughTheRealCommand(t *testing.T) {
 	for _, p := range raw {
 		args = append(args, "-raw", p)
 	}
-	if err := report(args); err != nil {
-		t.Fatalf("report: %v", err)
+	// report exits non-zero on an invalid run, and still writes the report first so the refusal survives as
+	// evidence.
+	err := report(args)
+	if err == nil {
+		t.Fatal("a run with a 30-completion repetition exited zero")
+	}
+	if !strings.Contains(err.Error(), "run invalid") {
+		t.Errorf("the error did not identify the run as invalid: %v", err)
 	}
 
-	b, err := os.ReadFile(outPath)
-	if err != nil {
-		t.Fatalf("read report: %v", err)
+	b, rerr := os.ReadFile(outPath)
+	if rerr != nil {
+		t.Fatalf("read report: %v", rerr)
 	}
 	got := string(b)
 
@@ -207,11 +213,17 @@ func TestReportRefusesAnArmRecordedShorterThanTheTraceItShares(t *testing.T) {
 // above, which is why this exists.
 func TestReportAcceptsR1BeingShorterThanTheContendedArms(t *testing.T) {
 	dir := t.TempDir()
+	// Two repetitions per arm so the incremental interval is real: with one each, the run is refused for a
+	// reason about the CI and this control would pass without the row rule being exercised at all.
 	raw := []string{
-		writeRepetition(t, dir, "r1.jsonl", "R1", 250, 100, 500, 0),
-		writeRepetition(t, dir, "off.jsonl", "off", 500, 300, 500, 0),
-		writeRepetition(t, dir, "b.jsonl", "static-cap", 500, 200, 500, 0),
-		writeRepetition(t, dir, "c.jsonl", "kv-aware", 500, 110, 500, 0),
+		writeRepetition(t, dir, "r1a.jsonl", "R1", 250, 100, 250, 0),
+		writeRepetition(t, dir, "r1b.jsonl", "R1", 250, 100, 250, 0),
+		writeRepetition(t, dir, "offa.jsonl", "off", 500, 300, 250, 0),
+		writeRepetition(t, dir, "offb.jsonl", "off", 500, 300, 250, 0),
+		writeRepetition(t, dir, "ba.jsonl", "static-cap", 500, 200, 250, 0),
+		writeRepetition(t, dir, "bb.jsonl", "static-cap", 500, 200, 250, 0),
+		writeRepetition(t, dir, "ca.jsonl", "kv-aware", 500, 110, 255, 0),
+		writeRepetition(t, dir, "cb.jsonl", "kv-aware", 500, 110, 255, 0),
 	}
 	outPath := filepath.Join(dir, "report.txt")
 	args := []string{"-out", outPath}

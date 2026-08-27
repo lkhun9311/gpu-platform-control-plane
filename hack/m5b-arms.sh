@@ -22,7 +22,17 @@ MODEL="Qwen/Qwen2.5-3B-Instruct"
 GW_IMAGE="${GW_IMAGE:-gateway:m5b}"
 # Reps: the block bootstrap cannot bound its own variance from one repetition -- the interval degenerates
 # to the point estimate and the report says so. Two is the floor, not a target.
-REPS="${REPS:-2}"
+# Four, matching hack/gpu-session.sh and the design.
+#
+# This defaulted to 2, and the session script it is meant to complement defaults to 4. The scripts do not
+# read each other, so a re-run bought half the repetitions the study was designed around -- silently, and in
+# the direction that weakens it. Two independent reviews scored the design's statistical power at 30% when
+# n was 2 per cell and named the run count as the binding limit; that is the number this default was quietly
+# restoring every time an arm was re-run.
+#
+# Below four the incremental interval is a bootstrap over very few blocks. Two is a floor the report will
+# tolerate, not a target anything argued for.
+REPS="${REPS:-4}"
 OUT="${OUT:-hack/m5b-run-$(date +%Y%m%d-%H%M%S)}"
 LOG="$OUT/evidence.log"
 

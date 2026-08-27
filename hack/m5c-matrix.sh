@@ -42,7 +42,17 @@ MODEL="Qwen/Qwen2.5-3B-Instruct"
 OUT="${OUT:-hack/m5c-run-$(date +%Y%m%d-%H%M%S)}"
 LOG="$OUT/evidence.log"
 GW_IMAGE="${GW_IMAGE:-gateway:m5c}"
-REPS="${REPS:-2}"
+# Four, matching hack/gpu-session.sh and the design.
+#
+# This defaulted to 2, and the session script it is meant to complement defaults to 4. The scripts do not
+# read each other, so a re-run bought half the repetitions the study was designed around -- silently, and in
+# the direction that weakens it. Two independent reviews scored the design's statistical power at 30% when
+# n was 2 per cell and named the run count as the binding limit; that is the number this default was quietly
+# restoring every time an arm was re-run.
+#
+# Below four the incremental interval is a bootstrap over very few blocks. Two is a floor the report will
+# tolerate, not a target anything argued for.
+REPS="${REPS:-4}"
 # Which sharing mechanism the shared arm uses. Both are run in a full matrix; a session that only has time
 # for one should say which rather than silently getting the default.
 ARMS="${ARMS:-shared timeSlicing mps}"

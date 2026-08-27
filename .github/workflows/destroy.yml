@@ -191,23 +191,43 @@ jobs:
           VPC=$(aws ec2 describe-vpcs \
             --filters "Name=tag:Name,Values=gpu-platform-vpc" \
             --query 'Vpcs[].VpcId' --output text)
-          echo "VPC:               ${VPC:-<none>}"
-          echo "EC2 instances:     $(aws ec2 describe-instances --filters 'Name=tag:project,Values=gpu-platform-control-plane' 'Name=instance-state-name,Values=pending,running,stopping,stopped' --query 'Reservations[].Instances[].InstanceId' --output text)"
-          echo "EBS volumes:       $(aws ec2 describe-volumes --filters 'Name=tag:project,Values=gpu-platform-control-plane' --query 'Volumes[].VolumeId' --output text)"
-          echo "NAT gateways:      $(aws ec2 describe-nat-gateways --filter 'Name=state,Values=pending,available,deleting' --query 'NatGateways[].NatGatewayId' --output text)"
-          echo "Unassociated EIPs: $(aws ec2 describe-addresses --query 'Addresses[?AssociationId==null].AllocationId' --output text)"
+          EC2=$(aws ec2 describe-instances --filters 'Name=tag:project,Values=gpu-platform-control-plane' 'Name=instance-state-name,Values=pending,running,stopping,stopped' --query 'Reservations[].Instances[].InstanceId' --output text)
+          EBS=$(aws ec2 describe-volumes --filters 'Name=tag:project,Values=gpu-platform-control-plane' --query 'Volumes[].VolumeId' --output text)
+          NAT=$(aws ec2 describe-nat-gateways --filter 'Name=state,Values=pending,available,deleting' --query 'NatGateways[].NatGatewayId' --output text)
+          EIP=$(aws ec2 describe-addresses --query 'Addresses[?AssociationId==null].AllocationId' --output text)
+          LB=""
+          ENI=""
           if [ -n "$VPC" ]; then
-            echo "Load balancers:    $(aws elbv2 describe-load-balancers --query "LoadBalancers[?VpcId=='$VPC'].LoadBalancerArn" --output text)"
-            echo "Network ifaces:    $(aws ec2 describe-network-interfaces --filters "Name=vpc-id,Values=$VPC" --query 'NetworkInterfaces[].NetworkInterfaceId' --output text)"
+            LB=$(aws elbv2 describe-load-balancers --query "LoadBalancers[?VpcId=='$VPC'].LoadBalancerArn" --output text)
+            ENI=$(aws ec2 describe-network-interfaces --filters "Name=vpc-id,Values=$VPC" --query 'NetworkInterfaces[].NetworkInterfaceId' --output text)
           fi
 
-      # A failed teardown is an operational event, not just a red check.
-      #
-      # This step fires only on failure and points at the manual break-glass runbook.
-      - name: Break-glass on failure
-        if: failure()
-        run: |
-          echo "Teardown failed. Re-run this workflow once via workflow_dispatch."
-          echo "If it fails again, follow the manual residue-inventory and break-glass runbook in docs/09."
-          echo "Check the budget alarm and escalate if cumulative spend is near the ceiling."
-          exit 1
+          echo "VPC:               ${VPC:-<none>}"
+          echo "EC2 instances:     ${EC2:-<none>}"
+          echo "EBS volumes:       ${EBS:-<none>}"
+          echo "NAT gateways:      ${NAT:-<none>}"
+          echo "Unassociated EIPs: ${EIP:-<none>}"
+          echo "Load balancers:    ${LB:-<none>}"
+          echo "Network ifaces:    ${ENI:-<none>}"
+
+          # A check that cannot fail is not a check.
+          #
+          # This step printed the inventory and always exited 0, so a run that listed a surviving NAT gateway
+          # showed a green tick -- and it is described elsewhere in this repository as "the backstop". A NAT
+          # gateway bills $0.059/hour whether or not anything routes through it, and an unassociated EIP is
+          # charged BECAUSE it is idle, so the two residues that cost money were the ones most likely to be
+          # scrolled past.
+          #
+          # Any non-empty line now fails the job. The teardown has already run at this point, so failing here
+          # cannot prevent a destroy -- it can only make a surviving resource impossible to miss.
+          RESIDUE=""
+          for pair in "vpc:$VPC" "ec2:$EC2" "ebs:$EBS" "nat:$NAT" "eip:$EIP" "elb:$LB" "eni:$ENI"; do
+            case "$pair" in *:) continue ;; esac
+            RESIDUE="$RESIDUE ${pair%%:*}"
+          done
+          if [ -n "$RESIDUE" ]; then
+            echo "::error::teardown left billable or blocking residue:$RESIDUE"
+            echo "Follow the break-glass runbook in docs/09. A NAT gateway and an unassociated EIP bill by the hour."
+            exit 1
+          fi
+          echo "no residue"
