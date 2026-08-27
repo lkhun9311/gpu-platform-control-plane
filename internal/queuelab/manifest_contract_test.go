@@ -567,3 +567,39 @@ func TestTerraformDeclaresEachVariableOnceAndSizesTheGPUGroupsForTheirCard(t *te
 			"measurement and cannot be taken on different silicon", one[1], two[1])
 	}
 }
+
+// Every terraform region must be the one the GPU quota was granted in, and they must all agree.
+//
+// The failure this guards does not happen at apply time, which is why it would have survived one. Every GPU
+// node group runs at desired_size 0, so `terraform apply` in the wrong region succeeds: it builds a VPC, a
+// cluster and four node groups, none of which launches a G instance. The quota error arrives later, when a
+// session scales one up -- on a cluster that has looked healthy for hours, at the start of the window the
+// card is being paid for.
+//
+// The account's "Running On-Demand G and VT instances" quota was raised to 52 vCPU in ap-northeast-2 on
+// 2026-08-26. Everything terraform builds has to live there: a region set in the cluster but not the state
+// backend, or in the backend but not the registry, is the same failure with an extra step.
+func TestEveryTerraformRegionIsWhereTheGPUQuotaLives(t *testing.T) {
+	const quotaRegion = "ap-northeast-2"
+
+	files := map[string]string{
+		"infra/aws/cluster/variables.tf":        `(?s)variable "region" \{.*?default\s*=\s*"([^"]+)"`,
+		"infra/aws/bootstrap/variables.tf":      `(?s)variable "region" \{.*?default\s*=\s*"([^"]+)"`,
+		"infra/aws/argo-bootstrap/variables.tf": `(?s)variable "region" \{.*?default\s*=\s*"([^"]+)"`,
+		"infra/aws/cluster/backend.tf":          `region\s*=\s*"([^"]+)"`,
+		"infra/aws/argo-bootstrap/backend.tf":   `region\s*=\s*"([^"]+)"`,
+	}
+	for path, pat := range files {
+		body := repoFile(t, path)
+		m := regexp.MustCompile(pat).FindStringSubmatch(body)
+		if m == nil {
+			t.Errorf("%s declares no region in the shape this reads; if the file moved, point this test at "+
+				"the new one rather than deleting it -- the failure it guards arrives at session time", path)
+			continue
+		}
+		if m[1] != quotaRegion {
+			t.Errorf("%s uses region %q and the GPU quota was granted in %q; the apply would succeed and the "+
+				"scale-up would fail with the card already being paid for", path, m[1], quotaRegion)
+		}
+	}
+}
