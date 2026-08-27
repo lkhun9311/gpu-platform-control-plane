@@ -66,6 +66,23 @@ module "eks" {
   #
   # This is the one policy attachment that buys a control the security groups cannot.
   eks_managed_node_group_defaults = {
+    # Node group names are fixed rather than prefixed, because the operator has to type them.
+    #
+    # terraform-aws-modules/eks defaults to use_name_prefix, which turns the map key "gpu_single" into a real
+    # name like gpu_single-20260827123456789012345678. Every place this repository tells an operator to scale a
+    # group up prints the bare key -- hack/m5b-gpu-session.sh and hack/m5c-matrix.sh both do -- and that command
+    # returns ResourceNotFoundException. It is the first command of a paid session, and nothing in the
+    # repository checked that the name it prints exists.
+    #
+    # The prefix exists so a group can be replaced with create_before_destroy without a name collision. This
+    # cluster is destroyed and recreated whole and never mutated in place, so that protection buys nothing here
+    # and costs the usability of every printed command. If a group ever does need in-place replacement, this is
+    # the line to revisit.
+    #
+    # The scale-DOWN path does not depend on this: it reads the node's own eks.amazonaws.com/nodegroup label.
+    # Fixed names are what make the scale-UP instructions true.
+    use_name_prefix = false
+
     iam_role_additional_policies = {
       AmazonSSMManagedInstanceCore = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
     }
@@ -73,6 +90,7 @@ module "eks" {
 
   eks_managed_node_groups = {
     cpu = {
+      name = "cpu"
       # Pin the node group to the first AZ to avoid cross-AZ workload traffic. It is also the zone holding
       # the single NAT gateway, so this group's egress stays in-zone.
       subnet_ids     = [module.vpc.private_subnets[0]]
@@ -106,6 +124,7 @@ module "eks" {
     # Scaling to 2 doubles the burn for as long as both are up, and the node axis is the only thing it buys.
     # hack/gpu-session-preregistration.md says what the session delivers with one node and what it does not.
     gpu = {
+      name           = "gpu"
       subnet_ids     = local.gpu_subnets
       instance_types = [var.gpu_node_instance_type]
       # On-Demand rather than Spot. A reclaimed Spot node mid-run does not fail the experiment cleanly -- it
@@ -179,6 +198,7 @@ module "eks" {
     # special case. max_size is 1 rather than 2: a second node here buys nothing, because the arms are
     # compared against one engine and a second KV pool is the one thing config/vllm forbids.
     gpu_single = {
+      name           = "gpu_single"
       subnet_ids     = local.gpu_single_subnets
       instance_types = [var.gpu_single_node_instance_type]
 
@@ -243,6 +263,7 @@ module "eks" {
     # max_size 1 is what makes co-location certain. Two engines on two nodes are not sharing a card, and
     # nothing downstream could tell that apart from a sharing result.
     gpu_shared = {
+      name           = "gpu_shared"
       subnet_ids     = local.gpu_shared_subnets
       instance_types = [var.gpu_shared_node_instance_type]
 

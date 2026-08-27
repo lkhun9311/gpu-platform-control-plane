@@ -21,6 +21,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"testing"
@@ -346,4 +347,71 @@ func TestEngineImageIsPinnedByDigest(t *testing.T) {
 	if !strings.Contains(c.Image, "@sha256:") {
 		t.Fatalf("image %q is not digest-pinned; the run would not be reproducible from the manifest", c.Image)
 	}
+}
+
+// TestPrintedNodeGroupNamesExistInTerraform binds the names the session scripts tell an operator to type to
+// the names terraform actually creates.
+//
+// The two had drifted, and nothing could see it. terraform-aws-modules/eks defaults to use_name_prefix, so
+// the map key "gpu_single" becomes a real node group called gpu_single-<random suffix>; both session scripts
+// printed the bare key. The operator's FIRST command of a paid session -- the scale-up -- would return
+// ResourceNotFoundException.
+//
+// eks.tf now pins use_name_prefix = false and gives each group an explicit name. This test is what makes that
+// stay true: it fails if a script prints a name no node group declares, and it fails if the prefix behaviour
+// comes back.
+func TestPrintedNodeGroupNamesExistInTerraform(t *testing.T) {
+	tf := readRepoFile(t, "infra/aws/cluster/eks.tf")
+
+	// Anchored to a whole line, because the unanchored form matched the COMMENT above the setting -- which
+	// quotes `use_name_prefix = false` while explaining it. Flipping the real setting to true then left this
+	// test green, and a guard a comment can satisfy is not a guard. Found by mutating the setting and watching
+	// nothing go red.
+	if !regexp.MustCompile(`(?m)^\s*use_name_prefix\s*=\s*false\s*$`).MatchString(tf) {
+		t.Fatal("eks.tf does not set use_name_prefix = false; node group names will carry a random suffix and every printed --nodegroup-name is wrong")
+	}
+
+	declared := map[string]bool{}
+	for _, m := range regexp.MustCompile(`(?m)^\s*name\s*=\s*"([a-z0-9_]+)"\s*$`).FindAllStringSubmatch(tf, -1) {
+		declared[m[1]] = true
+	}
+	if len(declared) == 0 {
+		t.Fatal("no explicit node group names found in eks.tf")
+	}
+
+	// Only the concrete names matter. A script printing a placeholder like <ng> is telling the operator to
+	// substitute, which is honest; a script printing gpu_single is making a claim about terraform.
+	printed := regexp.MustCompile(`--nodegroup-name\s+([a-zA-Z0-9_-]+)`)
+	for _, script := range []string{"hack/m5b-gpu-session.sh", "hack/m5c-matrix.sh"} {
+		body := readRepoFile(t, script)
+		for _, m := range printed.FindAllStringSubmatch(body, -1) {
+			name := m[1]
+			if strings.HasPrefix(name, "$") || strings.HasPrefix(name, "\"$") {
+				continue // derived at runtime from the node's own label
+			}
+			if !declared[name] {
+				t.Errorf("%s prints --nodegroup-name %q, which eks.tf does not declare; declared: %v",
+					script, name, keysOf(declared))
+			}
+		}
+	}
+}
+
+// readRepoFile reads a file relative to the repository root.
+func readRepoFile(t *testing.T, rel string) string {
+	t.Helper()
+	b, err := os.ReadFile("../../" + rel)
+	if err != nil {
+		t.Fatalf("read %s: %v", rel, err)
+	}
+	return string(b)
+}
+
+func keysOf(m map[string]bool) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }
