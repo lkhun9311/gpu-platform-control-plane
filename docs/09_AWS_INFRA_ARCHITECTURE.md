@@ -231,6 +231,29 @@ On-Demand — roughly $1–2 across the whole campaign. `g6.xlarge` becomes the 
 is not bound to this preregistration; the scripts would not mechanically catch a substitution, so it must
 stay a declared choice.
 
+### Evidence provenance
+
+A paid run's numbers belong to a build, and once the cluster is gone the record is the only place that
+association can live. Two things had to change for that to be true rather than intended.
+
+**CI publishes what GitOps deploys.** `config/gateway/deployment.yaml` carried `image: gateway:latest`, a name
+nothing published, while each paid session script built its own copy under a local tag. `ci.yml` now builds
+`Dockerfile.gateway`, pushes it to `gpu-platform-gateway`, and pins both kustomizations in **one** PR — two
+would let the cluster run a gateway from one commit against an operator from another with nothing recording
+which pair was live.
+
+**The manifest carries the build, and refuses a tag.** `RunManifest.GatewaySHA` and `ImageDigests` were
+declared for provenance and never set by anything. `gen-trace` accepts `--gateway-sha`, `--gateway-image` and
+`--engine-image`; `replay --require-provenance` refuses a manifest that omits them, and refuses a reference
+that is a tag rather than a digest — `gateway:m5b` names whatever was pushed under it most recently and
+identifies nothing after the next build. The paid script resolves its own pushed image through `RepoDigests`,
+reads the engine's image off the running Deployment, and stamps the working tree's commit with `-dirty` when
+it is not clean: a paid run built from uncommitted code is a legitimate thing to do and an illegitimate thing
+to hide.
+
+`--require-provenance` is opt-in for the same reason `-require-device` is: a kind run against a stub has no
+build worth pinning, and demanding one from every free run would push an operator toward inventing a value.
+
 ## Identity and access
 
 
@@ -423,7 +446,7 @@ the security it buys is already bought by the private subnets.
 |-------------------------------|----------------------------------------------------------------------------------------------------|
 | Terraform code (`infra/aws/`) | **Written** (`bootstrap`, `cluster`, `argo-bootstrap` states) and offline-validated — never `terraform apply`'d |
 | GitHub workflows              | **Written** (`ci.yml`, `infra.yml`, `destroy.yml`, `lint.yml`, `test.yml`, `test-e2e.yml`) — never run against real AWS credentials or infrastructure. `gpu.yml`, the GPU node-group switch this document describes, is **designed only and does not exist** |
-| Gateway image                 | `Dockerfile.gateway` and `config/gateway/` manifests **exist**; `ci.yml` still builds/pushes only the operator image — the gateway image has never been built by CI or deployed |
+| Gateway image                 | **Built and pushed by `ci.yml`** to its own ECR repository, with the digest pinned into `config/gateway/kustomization.yaml` in the same PR as the operator's. Never yet run against a real cluster |
 | Operator custom metrics       | **Implemented** (`internal/controller/metrics.go` — taints, degraded transitions, quota drift)     |
 | Everything in this doc        | Code written per this design (v3.2) and offline-validated; zero AWS resources have ever been provisioned |
 
