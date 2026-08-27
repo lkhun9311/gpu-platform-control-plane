@@ -142,9 +142,14 @@ and an independent adversarial verdict. Each row names the observation that reve
 **On 1.** The preregistration is explicit that a one-node session delivers the arm contrast, the dose axis and
 the device evidence, and that `-compare -mode node` refuses rather than inventing an axis it does not have.
 The second node doubles queuelab burn from $4.812/hr to $9.624/hr for that axis alone. There is also a reason
-to keep the quota low that has nothing to do with the axis: **at 52 vCPU the account itself is a hard cap at
-one node.** A Budgets alarm lags by hours; a service quota refuses instantly. Until the axis is scheduled,
-the unraised quota is the cheapest spending control in this account, and raising it removes that.
+to keep the quota low that has nothing to do with the axis: **at 52 vCPU the account itself refuses a second
+48-vCPU node at the launch API.** (It does not cap the account at one instance — 48 + 4 fits, so one
+`g4dn.12xlarge` and one `g5.xlarge` can run concurrently at $6.05/hr. What it forbids is the second big one.)
+A Budgets alarm is detection after spend has accrued; a service quota is prevention at the API. Until the
+axis is scheduled, the unraised quota is the cheapest spending control in this account, and raising it
+removes that. AWS publishes no approval-time SLA and no rule that prior usage eases an On-Demand G/VT
+request — the documented usage-based auto-adjustment applies to **Spot** quotas only — so "ask after a
+session and it is easier" was an assumption, not a fact.
 
 **On 2.** A quota request creates no instance and costs nothing, so the lead time is worth removing now. What
 must not follow automatically is *use*: a grant is permission, not a methodological waiver.
@@ -174,12 +179,26 @@ teardown still running on that exit. Injection-tested against a deleted arm and 
 the single-card groups move to Spot, which at Seoul's observed prices takes `g5.xlarge` from $1.2370/hr to
 $0.3522/hr.
 
-**On 3.** Seoul is 23% above `us-east-1`/`us-west-2` on On-Demand for every relevant type — $0.231/hr on
-`g5.xlarge`, $0.900/hr on `g4dn.12xlarge`. It is also the only region with a granted G/VT quota, and its
-single-card **Spot** prices are the lowest of the three ($0.2065/hr for `g6.xlarge` against $0.4552 in
-`us-west-2` and $0.7463 in `us-east-1`). Moving would put the first paid apply behind a second support case
-and a re-bootstrapped state bucket, KMS key and registry. Quota and bootstrap readiness dominate a modest
-hourly premium on a short-lived lab.
+**On 3.** The verdict stands and **its original main argument does not.** "Moving puts the first apply behind
+another support case" assumed a quota wait is expensive; in practice it is at most about three days, which is
+cheap. Priced at zero, that argument dies.
+
+What carries it instead is the size of the prize. Against the preregistered session shape — queuelab is eight
+~3-minute runs (0.4 GPU-hours) and M5-b/M5-c are `REPS=4` blocks — moving to `us-west-2` saves $0.900/hr on
+queuelab and $0.231/hr on the single-card work: **under $3 for a whole session**, and under $15 across every
+session plausibly planned. Against that sits an unexercised regional path — a new state bucket, KMS key and
+registry, images re-pushed, and the teardown drill re-run somewhere it has never been run — introduced
+immediately before the first paid apply.
+
+And the sign flips if Spot is ever enabled: Seoul's single-card Spot is the cheapest of the three ($0.3522/hr
+for `g5.xlarge` against $0.5086 in `us-west-2` and $0.5583 in `us-east-1`) and carries the best Spot Placement
+Score (3,3,3 against 1–2 elsewhere). Moving would then **cost** money on the only instances that would ever
+be Spot.
+
+The residual risk is On-Demand `g4dn.12xlarge` capacity in Seoul, which no API measures — Spot Placement Score
+covers Spot only, and no public AWS source establishes a chronic G-family On-Demand problem there. The
+containment is not a region change but an **On-Demand Capacity Reservation** taken minutes before the scale-up,
+which costs the same hourly rate as running the instance and converts a capacity risk into a booking.
 
 **On 4.** `g6.xlarge` (L4) carries the identical 22,888 MiB and 4 vCPU, is offered in the same zones, and is
 20% cheaper On-Demand and 41% cheaper on Spot. The M5-c sizing that rejected the T4 is pure memory arithmetic
@@ -188,11 +207,19 @@ roughly halved (A10G ≈ 600 GB/s, L4 ≈ 300 GB/s, vendor figures not independe
 decode is bandwidth-bound. That sits in the causal path of token service time, queue residence and KV-pressure
 duration — the quantities M5-b and M5-c measure.
 
-It would not invalidate an internally complete all-L4 comparison. It **would** invalidate reusing the A10G
-sizing page, reporting the result as the promised A10G measurement, or carrying absolute latencies across.
-The saving is $0.247/hr On-Demand. Re-preregistering a one-shot study to save that is a bad trade, and the
-repository deliberately put M5-b's exclusive arm and M5-c on one card class. `g6.xlarge` becomes the default
-for the next study that is not bound to this preregistration.
+**That mechanism is withdrawn as a reason.** Vendor bandwidth is a hardware fact, not a prediction of this
+stack's end-to-end throughput: AWS advertises G6/L4 at up to 2x G4dn inference performance, and vLLM's own
+benchmark material warns that results are highly parameter-sensitive. No controlled A10G-versus-L4 result
+exists for this model, precision, prompt mix, concurrency and vLLM version, so "L4 must be slower here" was
+an inference presented as a finding.
+
+What survives is narrower and sufficient: **the session is preregistered and calibrated for A10G.** The
+sizing page's predicted KV tokens, the measured-rate derivation and the warmup are all frozen against that
+card, and the repository deliberately put M5-b's exclusive arm and M5-c on one card class. Substituting the
+device yields an L4-specific session rather than the preregistered A10G evidence. The saving is $0.247/hr
+On-Demand — roughly $1–2 across the whole campaign. `g6.xlarge` becomes the default for the next study that
+is not bound to this preregistration; the scripts would not mechanically catch a substitution, so it must
+stay a declared choice.
 
 ## Identity and access
 
