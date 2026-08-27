@@ -623,12 +623,27 @@ func TestTerraformDeclaresEachVariableOnceAndSizesTheGPUGroupsForTheirCard(t *te
 func TestEveryTerraformRegionIsWhereTheGPUQuotaLives(t *testing.T) {
 	const quotaRegion = "ap-northeast-2"
 
+	// The workflows and the runbook script are in this list because THEY are what regressed.
+	//
+	// This test was written after the terraform default was found pointing at us-east-1, and it covered the
+	// five terraform files -- while .github/workflows/{infra,destroy,ci}.yml and hack/m5a-ephemeral-runbook.sh
+	// still carried the same wrong region. A later review found those, and this test had been green
+	// throughout: it excluded exactly the callers that had the bug.
+	//
+	// The consequence for destroy.yml was the worst of them. Its first call is
+	// `aws eks describe-cluster --region "$AWS_REGION"`, which returns ResourceNotFoundException in Virginia,
+	// so the nightly teardown logged "cluster not found; skipping" and exited clean while Seoul kept billing.
+	// ci.yml would have pushed the operator image to a registry that does not exist there.
 	files := map[string]string{
 		"infra/aws/cluster/variables.tf":        `(?s)variable "region" \{.*?default\s*=\s*"([^"]+)"`,
 		"infra/aws/bootstrap/variables.tf":      `(?s)variable "region" \{.*?default\s*=\s*"([^"]+)"`,
 		"infra/aws/argo-bootstrap/variables.tf": `(?s)variable "region" \{.*?default\s*=\s*"([^"]+)"`,
 		"infra/aws/cluster/backend.tf":          `region\s*=\s*"([^"]+)"`,
 		"infra/aws/argo-bootstrap/backend.tf":   `region\s*=\s*"([^"]+)"`,
+		".github/workflows/infra.yml":           `(?m)^\s*AWS_REGION:\s*(\S+)\s*$`,
+		".github/workflows/destroy.yml":         `(?m)^\s*AWS_REGION:\s*(\S+)\s*$`,
+		".github/workflows/ci.yml":              `(?m)^\s*AWS_REGION:\s*(\S+)\s*$`,
+		"hack/m5a-ephemeral-runbook.sh":         `(?m)^REGION="\$\{AWS_REGION:-([^}]+)\}"\s*$`,
 	}
 	for path, pat := range files {
 		body := repoFile(t, path)
