@@ -143,6 +143,12 @@ func (s *Server) InitRateLimiter() { s.buckets = newBucketRegistry() }
 func (s *Server) SetAdmitter(mode AdmissionMode, a Admitter) {
 	s.mode = mode
 	s.admitter = a
+
+	// Publish the mode here rather than in main, for the same reason mode travels through this call at
+	// all: this is the one place that knows which Admitter is actually installed, so the series cannot
+	// claim a mode the gateway is not running.
+	admissionModeActive.Reset()
+	admissionModeActive.WithLabelValues(string(mode)).Set(1)
 }
 
 // readyz returns 200 only once the cache has synced, else 503 so the Pod stays out of Service endpoints.
@@ -208,12 +214,12 @@ func (s *Server) failReason(w http.ResponseWriter, tenant, model string, code in
 // resolveBackend resolves a model to its backend.
 //
 // It prefers the test hook over the real backendFor.
-func (s *Server) resolveBackend(ctx context.Context, policy *platformv1.GPUQuotaPolicy, model string) (*BackendRef, error) {
+func (s *Server) resolveBackend(ctx context.Context, policy *platformv1.GPUQuotaPolicy, model string) ([]*BackendRef, error) {
 	if s.backendOverride != nil {
 		// The hook only fabricates a URL; Namespace/Name/Port stay zero-valued, since tests using it only need the pipeline to reach an httptest server, not a real backend's identity.
-		return &BackendRef{URL: s.backendOverride(model), Model: model}, nil
+		return []*BackendRef{{URL: s.backendOverride(model), Model: model}}, nil
 	}
-	return s.backendFor(ctx, policy, model)
+	return s.backendsFor(ctx, policy, model)
 }
 
 // chatCompletions serves the OpenAI-compatible chat completions pipeline.
@@ -263,7 +269,15 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 	r.Header.Set("X-Request-Id", rid)
 
 	// 2. Resolve the API key to a tenant.
-	tenant, ok := s.resolveTenant(ctx, r)
+	tenant, ok, err := s.resolveTenant(ctx, r)
+	if err != nil {
+		// 503, not 401. The gateway could not establish whether this key is valid, and answering
+		// Unauthorized asserts that it did — for every tenant at once, since they all read the same Secret.
+		// An operator seeing a fleet of 401s rotates credentials; one seeing 503s looks at the cluster.
+		log.FromContext(ctx).Error(err, "cannot read the api-keys secret", "request_id", rid)
+		s.fail(w, "", "", http.StatusServiceUnavailable)
+		return
+	}
 	if !ok {
 		s.fail(w, "", "", http.StatusUnauthorized)
 		return
@@ -289,6 +303,15 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 4. Take a token from the tenant's bucket.
+	// An unfinished Server is answered 503, not 429. Both are refusals, but 429 tells the caller they exceeded
+	// a budget that in this state was never being applied, and the retry it invites will be refused the same
+	// way forever.
+	if !s.buckets.configured() {
+		log.FromContext(ctx).Error(nil, "rate limiter was never initialised; refusing rather than serving unlimited",
+			"request_id", rid)
+		s.fail(w, tenant, "", http.StatusServiceUnavailable)
+		return
+	}
 	if !s.buckets.Allow(tenant, policy.Spec.RateLimit) {
 		// Counted separately from requests{code="429"}; the two answer different questions.
 		rateLimited.WithLabelValues(tenant).Inc()
@@ -303,6 +326,13 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 	// All three are the client's to fix.
 	body, meta, err := readRequestMeta(r)
 	if err != nil {
+		// A body over the cap is not malformed, and 400 told the caller to fix their JSON when the JSON was
+		// fine. MaxBytesReader reports the case as a distinguishable type precisely so it can be separated.
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			s.fail(w, tenant, "", http.StatusRequestEntityTooLarge)
+			return
+		}
 		s.fail(w, tenant, "", http.StatusBadRequest)
 		return
 	}
@@ -320,7 +350,7 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 	r.Body, _ = r.GetBody()
 
 	// 6. Resolve the model to a backend.
-	target, err := s.resolveBackend(ctx, policy, meta.Model)
+	targets, err := s.resolveBackend(ctx, policy, meta.Model)
 	if errors.Is(err, ErrNoRoute) {
 		// An ordinary "no such model" outcome, so Info rather than Error.
 		//
@@ -334,6 +364,15 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 		s.failUnresolvedModel(w, tenant, meta.Model, http.StatusBadGateway)
 		return
 	}
+
+	// The reachable set is decided ONCE, here, and every stage below sees the same slice.
+	//
+	// tryBackends caps attempts at maxBackendAttempts and used to apply that cap itself, on its own copy. That
+	// was invisible while admission only ever consulted targets[0]. Once admission started asking every
+	// candidate, a third backend the request could never reach could reject it on its own pressure — a refusal
+	// attributable to a machine that was never going to serve. Registration has the same problem in the other
+	// direction: a scraper started for a backend outside the reachable set is telemetry nothing can act on.
+	targets = capBackendAttempts(targets)
 
 	// 7. Admission control: decide whether the request may proceed.
 	//
@@ -353,14 +392,11 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 	//
 	// scraperManager.Register is idempotent, so calling it on every request only actually
 	// starts a scraper the first time a given backend is seen.
-	if reg, ok := admitter.(backendRegistrar); ok {
-		reg.RegisterBackend(target)
-	}
 	mode := s.mode
 	if mode == "" {
 		mode = AdmissionOff
 	}
-	admit, reason := admitter.Admit(ctx, meta, target, tenant, tier)
+	admit, reason := admitCandidates(ctx, admitter, meta, targets, tenant, tier)
 	decision := "admit"
 	if !admit {
 		decision = "reject"
@@ -369,6 +405,14 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 	admissionDecisions.WithLabelValues(string(mode), tenant, meta.Model, decision, reason).Inc()
 	admissionInputTokens.WithLabelValues(string(mode), tenant, decision).Add(float64(meta.EstInputTokens))
 	if !admit {
+		// A request larger than the bucket can ever hold is refused permanently, so it must not carry the
+		// retry hint failReason attaches: a client obeying it would retry an arithmetically impossible request
+		// forever. 413 rather than 429 for the same reason — the caller's action is a smaller prompt, not a
+		// later one.
+		if reason == reasonInputExceedsBurst {
+			s.fail(w, tenant, meta.Model, http.StatusRequestEntityTooLarge)
+			return
+		}
 		s.failReason(w, tenant, meta.Model, http.StatusTooManyRequests, reason)
 		return
 	}
@@ -376,11 +420,53 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 	// 8. From here the response is the upstream's, passed through rather than composed.
 	start := time.Now()
 	rec := &statusRecorder{ResponseWriter: w, code: http.StatusOK}
-	newReverseProxy(target.URL, s.sharedTransport(), func(c int) {
+	// Each candidate is tried until one answers, and the two conditions below are what make that safe rather
+	// than merely useful.
+	//
+	// A retry is only possible while NOTHING has reached the client. Once the upstream has written a status
+	// line or a token, the client is mid-response and a second backend cannot take over — it would splice two
+	// answers together. att.wrote is that latch, and for a streaming response it closes on the first token.
+	//
+	// It also needs the request body back. A POST is not replayable on its own, and this is exactly what
+	// r.GetBody was already installed for one stage earlier: the factory reads from a buffer held in memory,
+	// so rewinding costs nothing and cannot fail. Without it there would be no second attempt to make.
+	// The LAST failure code seen, kept so a request that ended without any backend answering is not published
+	// as the recorder's seeded 200. That happened on every cancelled request: the callback only wrote rec.code
+	// on a final attempt, the guards inside tryBackends stopped the loop before any final attempt ran, and a
+	// request nobody served went into requests_total as a success.
+	lastFailure := 0
+	urls := make([]*url.URL, 0, len(targets))
+	for _, t := range targets {
+		urls = append(urls, t.URL)
+	}
+	advanced := tryBackends(rec, r, urls, s.sharedTransport(), func(code int, final bool) {
 		upstreamErrors.WithLabelValues(tenant, meta.Model).Inc()
-		// ErrorHandler writes its code via writeJSONError, which may not pass through statusRecorder, so record it here to keep the metric consistent with what the client actually received.
-		rec.code = c
-	}).ServeHTTP(rec, r)
+		lastFailure = code
+		if final {
+			rec.code = code
+		}
+	})
+	// Nothing ever reached the client, so no backend answered. rec.code is still its default 200 and would
+	// publish a failed request as a success; the last failure code is what actually happened.
+	//
+	// The rec.answered guard is load-bearing rather than defensive: a request whose FIRST attempt failed and
+	// whose retry SUCCEEDED also leaves lastFailure set, and without the guard that genuine 200 would be
+	// overwritten by the failure that was recovered from.
+	if !rec.answered && lastFailure != 0 {
+		rec.code = lastFailure
+	}
+	// advanced is tryBackends reporting that it REALLY tried another candidate, not the failure callback
+	// guessing. The callback fires before the retry guards run, so latching on it counted a fallback whenever
+	// a non-final attempt failed — including the cancelled requests where no retry ever happened, which the
+	// benchmark harness produces on every timeout.
+	//
+	// A successful status is still required on top: a fallback that also failed is not a rescue, and counting
+	// it as one inverts what the ratio means. The range is 2xx and 3xx rather than everything below 500,
+	// because a 4xx from the spare means the request reached it and was refused on its own merits — the
+	// fallback path carried the request but never served an answer, and the metric's name says "served".
+	if advanced && rec.code >= 200 && rec.code < 400 {
+		backendFallbacks.WithLabelValues(tenant, meta.Model).Inc()
+	}
 
 	// ServeHTTP returning means the response finished sending (for a stream, that the stream closed).
 	//
@@ -475,4 +561,52 @@ func NewCache(ctx context.Context, cfg *rest.Config, scheme *runtime.Scheme, nam
 		return nil, nil, fmt.Errorf("new delegating client: %w", err)
 	}
 	return ca, cl, nil
+}
+
+// admitCandidates registers every backend that could serve this request and meters the one that will be
+// tried first.
+//
+// The two halves take different sets, and that asymmetry is the point rather than an inconsistency.
+//
+// EVERY candidate is registered, because registration starts a telemetry scraper and a backend that can serve
+// traffic has to be observable before it does. Registering only the head meant that when the head went down
+// its scraper hit the same dead Service, its snapshot went stale, and the kv-aware guard — which fails OPEN on
+// staleness — admitted everything, while the spare absorbing all of the traffic had no scraper at all. The
+// guard went blind exactly when fallback made it matter, and nothing reported it, because every request still
+// succeeded. Register is idempotent, so this starts a scraper only the first time a backend is seen.
+//
+// WHICH candidates are ASKED depends on whether asking costs anything.
+//
+// Asking only the head was wrong in the same shape as registering only the head, and for the same reason.
+// Admission runs before any attempt, so it cannot know which backend will serve; the head is merely the one
+// that will be TRIED first. When the head is unreachable its telemetry goes stale, the kv-aware guard
+// bypasses on staleness — correctly, since refusing traffic on a number nobody could read would be worse —
+// and the request then travels to a spare that was never consulted. The guard is at its most permissive
+// exactly when the backend under real pressure is the one about to receive the request.
+//
+// So a stateless admitter is asked about every candidate, and one dissent rejects. It is the conservative
+// reading and deliberately so: a request is admitted only if every backend it could reach would take it. The
+// cost is that a loaded spare can now shed a long standard-tier request the head would have served. That
+// costs something only while a spare is genuinely under KV pressure, which on this routing table means it is
+// already absorbing traffic.
+//
+// A STATEFUL admitter is still asked once, about the head. static-cap's Admit spends EstInputTokens from a
+// per-backend limiter, so asking it about each candidate would bill one request several times and the arm
+// would stop measuring offered load. One request, one charge, decided up front.
+func admitCandidates(ctx context.Context, admitter Admitter, meta RequestMeta,
+	targets []*BackendRef, tenant, tier string) (bool, string) {
+	if reg, ok := admitter.(backendRegistrar); ok {
+		for _, t := range targets {
+			reg.RegisterBackend(t)
+		}
+	}
+	if _, stateless := admitter.(statelessAdmitter); !stateless {
+		return admitter.Admit(ctx, meta, targets[0], tenant, tier)
+	}
+	for _, t := range targets {
+		if ok, reason := admitter.Admit(ctx, meta, t, tenant, tier); !ok {
+			return false, reason
+		}
+	}
+	return true, ""
 }

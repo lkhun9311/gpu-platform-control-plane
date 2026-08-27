@@ -251,7 +251,7 @@ func TestTheCanaryRecordsAPassingQualificationOnTheWorkerItsProbes(t *testing.T)
 	if err := c.Get(context.Background(), client.ObjectKey{Name: "platform-worker"}, &worker); err != nil {
 		t.Fatalf("read the worker: %v", err)
 	}
-	ref, err := checkTerminationCanary(&worker, harnessTerminationContract())
+	ref, err := checkTerminationCanary(&worker, mustHarnessContract(t), "")
 	if err != nil {
 		t.Fatalf("the qualification this canary just recorded does not satisfy the gate that consults it: %v", err)
 	}
@@ -320,7 +320,7 @@ func TestAFailingCanaryOverwritesTheQualificationItJustFalsified(t *testing.T) {
 	if err := c.Get(context.Background(), client.ObjectKey{Name: "platform-worker"}, &after); err != nil {
 		t.Fatalf("read the worker: %v", err)
 	}
-	if _, cerr := checkTerminationCanary(&after, harnessTerminationContract()); cerr == nil {
+	if _, cerr := checkTerminationCanary(&after, mustHarnessContract(t), ""); cerr == nil {
 		t.Fatal("a worker carrying a failed canary passed the consult")
 	}
 	if !strings.Contains(out.String(), "NOT QUALIFIED") {
@@ -369,7 +369,7 @@ func TestTheCanaryCanStillReadAProbeThatHasBeenDeleted(t *testing.T) {
 // Mutation that turns this red: pin TerminationGracePeriodSeconds in probePodFrom (it then differs from the
 // template's nil), or swap nodeName for a NodeSelector.
 func TestTheProbePodIsTheWorkloadAsTheRunWouldSubmitIt(t *testing.T) {
-	c := harnessTerminationContract()
+	c := mustHarnessContract(t)
 	honor, _ := canaryProbeSpecs("abcd1234-5678", c)
 	p, err := canaryPod("abcd1234-5678", "platform-worker", "canary-abcd1234", c, honor)
 	if err != nil {
@@ -432,7 +432,7 @@ func TestTheProbePodIsTheWorkloadAsTheRunWouldSubmitIt(t *testing.T) {
 // Mutation that turns this red: hand-build the probe's PodSpec in probePodFrom instead of adopting tpl (every
 // row below vanishes from the Pod), or copy only the containers across (the three Pod-level rows survive).
 func TestTheProbeCarriesWhatTheOperatorAddsToTheTemplate(t *testing.T) {
-	c := harnessTerminationContract()
+	c := mustHarnessContract(t)
 	honor, _ := canaryProbeSpecs("abcd1234-5678", c)
 
 	for _, tc := range []struct {
@@ -651,7 +651,7 @@ func TestTheProbeAsksForNoDeviceThoughTheTemplateDoes(t *testing.T) {
 			templateProbeJob().Spec.GPUCount)
 	}
 
-	c := harnessTerminationContract()
+	c := mustHarnessContract(t)
 	honor, _ := canaryProbeSpecs("abcd1234-5678", c)
 	p, err := canaryPod("abcd1234-5678", "platform-worker", "canary-abcd1234", c, honor)
 	if err != nil {
@@ -675,7 +675,7 @@ func TestTheProbeAsksForNoDeviceThoughTheTemplateDoes(t *testing.T) {
 func TestAProbeCannotBeBuiltFromATemplateWithNoTrainerContainer(t *testing.T) {
 	tpl := renderedPodTemplate(templateProbeJob())
 	tpl.Spec.Containers[0].Name = "worker"
-	c := harnessTerminationContract()
+	c := mustHarnessContract(t)
 	honor, _ := canaryProbeSpecs("abcd1234-5678", c)
 
 	_, err := probePodFrom(tpl, "abcd1234-5678", "platform-worker", "canary-abcd1234", c, honor)
@@ -714,7 +714,7 @@ func TestAProbeCannotBeBuiltFromATemplateWithNoTrainerContainer(t *testing.T) {
 //     Limits, so `want` has no Requests to model and deleting both lines leaves this green.
 //   - The strip being per-container rather than trainer-only, since there is only ever one container here.
 func TestTheProbeIsTheTemplateAndTheThreeDocumentedChanges(t *testing.T) {
-	c := harnessTerminationContract()
+	c := mustHarnessContract(t)
 	honor, _ := canaryProbeSpecs("abcd1234-5678", c)
 	got, err := canaryPod("abcd1234-5678", "platform-worker", "canary-abcd1234", c, honor)
 	if err != nil {
@@ -1117,7 +1117,7 @@ func TestAProbeThatEndedBeforeItWasAskedToStopRefusesImmediately(t *testing.T) {
 // Mutation that turns this red: give both probes the same name. One Create then overwrites the other and the
 // contrast is measured between a Pod and itself.
 func TestTheTwoProbesAreNamedApart(t *testing.T) {
-	honor, ignore := canaryProbeSpecs("0123456789abcdef", harnessTerminationContract())
+	honor, ignore := canaryProbeSpecs("0123456789abcdef", mustHarnessContract(t))
 	if honor.name == ignore.name {
 		t.Fatal("both probes carry the same name, so one Create would overwrite the other and the contrast " +
 			"would be a Pod against itself")

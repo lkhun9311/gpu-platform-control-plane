@@ -18,12 +18,15 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+
+	"github.com/lkhun9311/gpu-mlops-platform-control-plane/internal/queuelab"
 )
 
 // The kubelet and runtime the test worker reports. They are plausible kind values rather than placeholders
@@ -44,7 +47,10 @@ const (
 // package's own output and against the literal exit code, decodeCanary refuses a document whose key is
 // missing any of them, and every mismatch test below supplies a literal that differs.
 func passingCanary() canaryQualification {
-	c := harnessTerminationContract()
+	// No *testing.T here, and the error cannot fire: harnessTerminationContract passes package constants and
+	// the renderer's only failure is an unknown contract. Every test that CAN report an error uses
+	// mustHarnessContract instead.
+	c, _ := harnessTerminationContract()
 	return canaryQualification{
 		Schema:          canarySchema,
 		CanaryID:        "canary-0001",
@@ -70,7 +76,7 @@ func passingCanary() canaryQualification {
 // The two probe readings a healthy cluster produces: the honouring workload stops in under a second with the
 // trap's own code, and the ignoring one spends the whole grace period and is killed at the end of it.
 func passingHonorProbe() canaryProbe {
-	c := harnessTerminationContract()
+	c, _ := harnessTerminationContract()
 	return canaryProbe{
 		Pod: "tc-abcd1234-honor", Contract: "HonorsSIGTERM", Command: c.HonorCommand,
 		GraceSec: terminationGraceSec, Terminated: true, ExitCode: honorExitCode, Reason: "Error",
@@ -79,7 +85,7 @@ func passingHonorProbe() canaryProbe {
 }
 
 func passingIgnoreProbe() canaryProbe {
-	c := harnessTerminationContract()
+	c, _ := harnessTerminationContract()
 	return canaryProbe{
 		Pod: "tc-abcd1234-ignore", Contract: "IgnoresSIGTERM", Command: c.IgnoreCommand,
 		GraceSec: terminationGraceSec, Terminated: true, ExitCode: killExitCode, Reason: "Error",
@@ -148,27 +154,42 @@ func canaryReferenceJSON(t *testing.T) string {
 // Mutation that turns this red: replace harnessTerminationContract's renderer calls with literals for the
 // image or either command, or change honorExitCode to anything the trap does not use.
 func TestCanaryContractMirrorsWhatTheHarnessActuallyRenders(t *testing.T) {
-	c := harnessTerminationContract()
+	c := mustHarnessContract(t)
 
-	if !strings.HasPrefix(c.Image, "busybox:1.36@sha256:") {
-		t.Fatalf("the canary probes image %q, which is not the pinned sleeper the arm runs: a canary that "+
-			"qualifies different bytes than the run submits qualifies nothing", c.Image)
+	// Compared against the measurement package's own constant rather than a literal copied to here. The copy
+	// this replaces broke the moment the workload legitimately changed image, and it would not have caught the
+	// case it existed for: a canary quietly pinned to a DIFFERENT digest still matched the prefix.
+	if c.Image != queuelab.WorkloadImage {
+		t.Fatalf("the canary probes image %q, which is not the %q the arm runs: a canary that qualifies "+
+			"different bytes than the run submits qualifies nothing", c.Image, queuelab.WorkloadImage)
+	}
+	if !strings.Contains(c.Image, "@sha256:") {
+		t.Fatalf("the workload image %q is not pinned by digest, so the same study re-run later could execute "+
+			"different bytes", c.Image)
 	}
 	honor := strings.Join(c.HonorCommand, " ")
 	ignore := strings.Join(c.IgnoreCommand, " ")
-	for _, want := range []string{"trap", "TERM", "wait"} {
+	for _, want := range []string{"signal.SIGTERM", "honor"} {
 		if !strings.Contains(honor, want) {
 			t.Fatalf("the honouring command %q does not contain %q, so it is not the workload that stops when "+
 				"asked", honor, want)
 		}
 	}
-	if !strings.Contains(honor, "exit 143") {
-		t.Fatalf("the honouring command is %q; honorExitCode is %d and the command's own trap must exit with "+
-			"it, or the canary is looking for a code nothing produces", honor, honorExitCode)
+	// honorExitCode is a local copy of a private constant, so it is checked against the rendered command's own
+	// text rather than against itself: if the measurement package changes what its handler exits with, this
+	// stops matching.
+	if !strings.Contains(honor, fmt.Sprintf("exit(%d)", honorExitCode)) {
+		t.Fatalf("the honouring command is %q; honorExitCode is %d and the workload's own handler must exit "+
+			"with it, or the canary is looking for a code nothing produces", honor, honorExitCode)
 	}
-	if strings.Contains(ignore, "trap") {
-		t.Fatalf("the ignoring command %q traps SIGTERM, so the two probes would be the same probe and the "+
-			"contrast would be between a workload and itself", ignore)
+	// The two probes must be different probes. They share one script and differ by the contract argument, so
+	// the check is on that argument: identical commands would make the contrast one between a workload and
+	// itself, which is the single thing this canary exists to rule out.
+	if honor == ignore {
+		t.Fatalf("both probes run the same command %q, so the canary would compare a workload with itself", honor)
+	}
+	if !strings.HasSuffix(ignore, " ignore") || !strings.HasSuffix(honor, " honor") {
+		t.Fatalf("the probes are not the two contract arms: honour=%q ignore=%q", honor, ignore)
 	}
 	if c.GraceSec != terminationGraceSec {
 		t.Fatalf("the contract requires a %ds grace period, but the protocol's horizon is derived from %ds",
@@ -372,7 +393,7 @@ func TestQualifyRefusesAWorkerNoCanaryHasEverQualified(t *testing.T) {
 	// a Ready condition, so a test about the absence has to create the absence.
 	bare := node(nil, map[string]string{canaryAnnotationKey: ""})
 
-	q, err := qualify(bare, nil, testReq(2), harnessTerminationContract())
+	q, err := qualify(bare, nil, testReq(2), mustHarnessContract(t))
 	if err == nil {
 		t.Fatal("a worker whose ability to stop a Pod nothing had ever checked was accepted: the arms differ " +
 			"only by whether the workload stops when asked, so this is the one property whose absence makes the " +
@@ -398,7 +419,7 @@ func TestQualifyRefusesAWorkerWhoseRecordedCanaryFailed(t *testing.T) {
 		q.Failures = judgeCanary(q.Honor, q.Ignore)
 	})})
 
-	_, err := qualify(failed, nil, testReq(2), harnessTerminationContract())
+	_, err := qualify(failed, nil, testReq(2), mustHarnessContract(t))
 	if err == nil {
 		t.Fatal("a worker carrying a canary that failed was accepted: the document proving the arms collapse " +
 			"on this cluster was read as the document proving they do not")
@@ -423,7 +444,7 @@ func TestAFailedCanaryFromAnotherCombinationIsReportedAsTheWrongCombination(t *t
 		q.Failures = judgeCanary(q.Honor, q.Ignore)
 	})})
 
-	_, err := qualify(stale, nil, testReq(2), harnessTerminationContract())
+	_, err := qualify(stale, nil, testReq(2), mustHarnessContract(t))
 	if err == nil {
 		t.Fatal("a worker whose only qualification was taken on another image was accepted")
 	}
@@ -444,7 +465,7 @@ func TestAFailedCanaryFromAnotherCombinationIsReportedAsTheWrongCombination(t *t
 		q.Ignore.StoppedAfterMs = 90
 		q.Failures = judgeCanary(q.Honor, q.Ignore)
 	})})
-	_, err = qualify(own, nil, testReq(2), harnessTerminationContract())
+	_, err = qualify(own, nil, testReq(2), mustHarnessContract(t))
 	if err == nil {
 		t.Fatal("a worker whose canary failed on this run's own combination was accepted")
 	}
@@ -505,7 +526,7 @@ func TestQualifyRefusesACanaryTakenOnADifferentCombination(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			n := node(nil, map[string]string{canaryAnnotationKey: canaryAnnotation(t, tc.mutate)})
-			_, err := qualify(n, nil, testReq(2), harnessTerminationContract())
+			_, err := qualify(n, nil, testReq(2), mustHarnessContract(t))
 			if err == nil {
 				t.Fatalf("%s did not invalidate the qualification: it is a statement about one combination and "+
 					"says nothing about another", tc.name)
@@ -538,7 +559,7 @@ func TestQualifyRefusesACanaryTakenOnADifferentCombination(t *testing.T) {
 // diffs` — with any one comparison missing, which makes the mismatch match.
 func TestEveryFieldOfTheKeyCanRefuseOnItsOwn(t *testing.T) {
 	base := passingCanary().Key
-	rt := reflect.TypeOf(base)
+	rt := reflect.TypeFor[canaryKey]()
 	for i := 0; i < rt.NumField(); i++ {
 		f := rt.Field(i)
 		got := base
@@ -640,7 +661,7 @@ func TestCanaryDocumentWithNothingInItIsNotAQualification(t *testing.T) {
 	if err != nil {
 		t.Fatalf("a document this build wrote must decode: %v", err)
 	}
-	if got.CanaryID != "canary-0001" || got.Key.Image != harnessTerminationContract().Image {
+	if got.CanaryID != "canary-0001" || got.Key.Image != mustHarnessContract(t).Image {
 		t.Fatalf("round trip lost the qualification's identity: %+v", got)
 	}
 }
@@ -654,7 +675,7 @@ func TestQualifyRefusesACanaryItCannotRead(t *testing.T) {
 	broken := node(nil, map[string]string{canaryAnnotationKey: `{"schema":1,"canaryID":"c",` +
 		`"unexpectedField":"from a newer build"}`})
 
-	_, err := qualify(broken, nil, testReq(2), harnessTerminationContract())
+	_, err := qualify(broken, nil, testReq(2), mustHarnessContract(t))
 	if err == nil {
 		t.Fatal("a worker carrying an unreadable qualification was accepted")
 	}
@@ -673,7 +694,7 @@ func TestQualifyRefusesACanaryItCannotRead(t *testing.T) {
 // or drop the assignment in qualify. The run still proceeds, and its record silently stops saying what it
 // stood on — which is also what makes environmentEstablished refuse it.
 func TestAQualifiedWorkerRecordsWhichCanaryTheRunStoodOn(t *testing.T) {
-	q, err := qualify(node(nil, nil), nil, testReq(2), harnessTerminationContract())
+	q, err := qualify(node(nil, nil), nil, testReq(2), mustHarnessContract(t))
 	if err != nil {
 		t.Fatalf("a worker with a passing canary for exactly this combination was refused: %v", err)
 	}
@@ -685,7 +706,7 @@ func TestAQualifiedWorkerRecordsWhichCanaryTheRunStoodOn(t *testing.T) {
 	if ref.CanaryID != "canary-0001" || ref.QualifiedAt != "2026-08-15T00:00:00Z" {
 		t.Fatalf("the reference must identify the qualification, got %+v", ref)
 	}
-	if ref.Key.Image != harnessTerminationContract().Image || ref.Key.NodeUID != "uid-node" {
+	if ref.Key.Image != mustHarnessContract(t).Image || ref.Key.NodeUID != "uid-node" {
 		t.Fatalf("the reference must carry the combination that was qualified, got %+v", ref.Key)
 	}
 	// The measured contrast travels with it: an id alone points into a cluster the reader may not have, and
@@ -707,7 +728,7 @@ func TestARecordWhoseRunStoodOnNoCanaryDoesNotCallItselfAdmissible(t *testing.T)
 	q := testQualification()
 	q.TerminationCanary = nil
 
-	v := deriveValidity(outcome{Disposition: dispChecksPassed}, nil, q, testWindow(), testObservation(), false)
+	v := deriveValidity(outcome{Disposition: dispChecksPassed}, nil, q, testWindow(), testObservation(), nil, false)
 	if v.Verdict != verdictRefused {
 		t.Fatalf("a run that stood on no termination qualification called itself %q; every number in its "+
 			"environment block is fine, which is exactly why the verdict must not be derived from them alone",
@@ -725,7 +746,7 @@ func TestARecordWhoseRunStoodOnNoCanaryDoesNotCallItselfAdmissible(t *testing.T)
 
 	// And the passing fixture still passes, or the clause above would be refusing everything.
 	if got := deriveValidity(outcome{Disposition: dispChecksPassed}, nil, testQualification(), testWindow(),
-		testObservation(), false); got.Verdict != verdictAdmissible {
+		testObservation(), nil, false); got.Verdict != verdictAdmissible {
 		t.Fatalf("a run that did stand on one was refused: %v", got.Failures)
 	}
 }
@@ -739,8 +760,7 @@ func TestARecordWhoseRunStoodOnNoCanaryDoesNotCallItselfAdmissible(t *testing.T)
 func TestDecodeRefusesACanaryReferenceThatNamesNothing(t *testing.T) {
 	q := testQualification()
 	q.TerminationCanary = &canaryReference{}
-	rec := buildRecord(outcome{Disposition: dispChecksPassed}, nil, nil, q, testWindow(), testObservation(),
-		"r7", "A-honor", false, time.Now(), time.Now())
+	rec := buildRecord(outcome{Disposition: dispChecksPassed}, nil, nil, q, testWindow(), testObservation(), nil, recordIdentity{RunID: "r7", Arm: "A-honor"}, nil, false, time.Now(), time.Now())
 	b, err := encodeRecord(rec)
 	if err != nil {
 		t.Fatalf("encode: %v", err)
@@ -764,8 +784,7 @@ func TestDecodeRefusesACanaryReferenceThatNamesNoTemplate(t *testing.T) {
 	ref := *testCanaryReference()
 	ref.Key.PodTemplateHash = ""
 	q.TerminationCanary = &ref
-	rec := buildRecord(outcome{Disposition: dispChecksPassed}, nil, nil, q, testWindow(), testObservation(),
-		"r7", "A-honor", false, time.Now(), time.Now())
+	rec := buildRecord(outcome{Disposition: dispChecksPassed}, nil, nil, q, testWindow(), testObservation(), nil, recordIdentity{RunID: "r7", Arm: "A-honor"}, nil, false, time.Now(), time.Now())
 	b, err := encodeRecord(rec)
 	if err != nil {
 		t.Fatalf("encode: %v", err)
@@ -948,7 +967,7 @@ func TestTheTemplateKeyDoesNotMoveWithWhatARunSubmits(t *testing.T) {
 			"those are per-row, so every run would refuse the reading taken before it")
 	}
 
-	c := harnessTerminationContract()
+	c := mustHarnessContract(t)
 	tpl := renderedPodTemplate(probe)
 	ctr := tpl.Spec.Containers[0]
 	if ctr.Image == c.Image {
@@ -1013,7 +1032,7 @@ func TestACanaryFromBeforeTheTemplateKeyIsRefusedRatherThanReinterpreted(t *test
 		t.Fatalf("marshal: %v", err)
 	}
 	n := node(nil, map[string]string{canaryAnnotationKey: string(raw)})
-	_, err = qualify(n, nil, testReq(2), harnessTerminationContract())
+	_, err = qualify(n, nil, testReq(2), mustHarnessContract(t))
 	if err == nil {
 		t.Fatal("a reading taken before the operator's template was part of the key was stood on")
 	}
@@ -1032,9 +1051,13 @@ func TestACanaryFromBeforeTheTemplateKeyIsRefusedRatherThanReinterpreted(t *test
 // the diagnosis rather than the refusal — recordSchemaVersion's own comment argues that, and it is thinner
 // than the four bumps before it.
 //
+// The floor is asserted rather than an exact version, so a LATER deliberate bump does not have to edit the
+// test that documents an EARLIER one. Each bump brings its own document that must stop decoding; this one
+// owns the version-5 document below, and the newest bump owns its own test beside this file.
+//
 // Mutation that turns this red: leave recordSchemaVersion at 5 — both halves, the constant and the document.
 func TestARecordFromBeforeTheTemplateKeyIsRefusedRatherThanReinterpreted(t *testing.T) {
-	if recordSchemaVersion != 6 {
+	if recordSchemaVersion < 6 {
 		t.Fatalf("recordSchemaVersion is %d; the pod template joined the key a record's reference carries, and "+
 			"a reader cannot tell a run gated on the template from one that could not be", recordSchemaVersion)
 	}

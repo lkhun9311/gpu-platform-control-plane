@@ -19,8 +19,10 @@ package gateway
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -29,6 +31,7 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -160,7 +163,24 @@ var _ = Describe("the shared outbound transport", func() {
 		t := newTransport(30 * time.Second)
 		Expect(t.ResponseHeaderTimeout).To(Equal(30 * time.Second))
 		Expect(t.MaxIdleConnsPerHost).To(Equal(maxIdleConnsPerHost))
-		Expect(t.MaxIdleConns).To(Equal(0), "a total cap makes one backend's pool depend on how busy the others are")
+		// Finite, and high enough that it cannot bind in any measured topology.
+		//
+		// This asserted 0 — unlimited — on the reasoning that a total cap makes one backend's pool depend on
+		// how busy the others are, which is the coupling this gateway exists to detect. That reasoning holds
+		// and rested on an unenforced premise: "the number of backends is bounded by the configured
+		// InferenceDeployments" is not a bound, since users create them and churn leaves dead hosts holding
+		// sockets for the full idle timeout.
+		//
+		// Both properties are kept by sizing the cap past any topology this is measured in: eight backends can
+		// each hold a full per-host pool before eviction begins, and the largest measured case is one model
+		// with a head and a spare.
+		//
+		// Mutation that turns this red: restore MaxIdleConns = 0, or drop the assignment so Clone's inherited
+		// 100 binds silently.
+		Expect(t.MaxIdleConns).To(Equal(maxIdleConnsPerHost*maxIdleBackends),
+			"an unbounded idle pool is a file-descriptor exhaustion path, not a bound")
+		Expect(t.MaxIdleConns).To(BeNumerically(">", maxIdleConnsPerHost),
+			"the total cap must not bind before a single backend's own pool is full")
 	})
 
 	It("falls back to the default response-header timeout when given zero", func() {
@@ -825,6 +845,16 @@ var _ = Describe("readRequestMeta", func() {
 
 		_, _, err := readRequestMeta(r)
 		Expect(err).To(HaveOccurred())
+
+		// The type matters as much as the error. Every readRequestMeta failure used to reach the client as 400,
+		// which tells a caller their JSON is malformed when the JSON was fine and only the size was wrong; they
+		// would look for a syntax bug that is not there. MaxBytesReader reports the case distinguishably for
+		// exactly this reason.
+		//
+		// Mutation that turns this red: map every readRequestMeta error to 400 again.
+		var tooLarge *http.MaxBytesError
+		Expect(errors.As(err, &tooLarge)).To(BeTrue(),
+			"an oversized body is indistinguishable from malformed JSON, so it cannot be answered 413")
 	})
 
 	It("rejects a body with no model field", func() {
@@ -880,3 +910,500 @@ var _ = Describe("readRequestMeta", func() {
 
 // A compile-time assertion: if the type stops satisfying the interface, this fails to build.
 var _ client.Object = &platformv1.InferenceDeployment{}
+
+// A dead backend must not become a dead request while another backend serves the same model.
+//
+// backendsFor used to log a second deployment as an operator problem and discard it, so a model with a spare
+// still failed whenever the one chosen backend was down. The spare is now the fallback, and these specs pin
+// the two conditions that make retrying safe rather than merely useful.
+var _ = Describe("backend fallback", func() {
+	// A body the second attempt can replay. This is what r.GetBody was installed for one stage earlier, and
+	// without it there is no second attempt to make.
+	post := func(url string) *http.Request {
+		r, err := http.NewRequest(http.MethodPost, url, strings.NewReader(`{"model":"m","messages":[]}`))
+		Expect(err).NotTo(HaveOccurred())
+		buf := []byte(`{"model":"m","messages":[]}`)
+		r.GetBody = func() (io.ReadCloser, error) { return io.NopCloser(bytes.NewReader(buf)), nil }
+		r.Body, _ = r.GetBody()
+		return r
+	}
+
+	It("serves the request from the next backend when the first refuses the connection", func() {
+		var served int
+		up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			served++
+			body, _ := io.ReadAll(r.Body)
+			// The replayed body must arrive intact, or the second backend answers a different question.
+			Expect(string(body)).To(ContainSubstring(`"model":"m"`))
+			w.Header().Set("Content-Type", "text/event-stream")
+			_, _ = fmt.Fprint(w, "data: [DONE]\n\n")
+		}))
+		defer up.Close()
+
+		// A listener that is closed, so dialling it fails at once rather than hanging.
+		dead := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+		deadURL, err := url.Parse(dead.URL)
+		Expect(err).NotTo(HaveOccurred())
+		dead.Close()
+		liveURL, err := url.Parse(up.URL)
+		Expect(err).NotTo(HaveOccurred())
+
+		rec := httptest.NewRecorder()
+		req := post("http://gw/v1/chat/completions")
+		tryBackends(rec, req, []*url.URL{deadURL, liveURL}, http.DefaultTransport, nil)
+
+		Expect(served).To(Equal(1), "the live backend never saw the request")
+		Expect(rec.Code).To(Equal(http.StatusOK), "the client was told about an attempt that another backend served")
+		Expect(rec.Body.String()).To(ContainSubstring("[DONE]"))
+
+		// The failed attempt's headers must not survive into the winning response. ErrorHandler sets
+		// Content-Type: application/json before it writes, and ReverseProxy copies the upstream's headers in
+		// with Add rather than Set — so a shared header map hands the client two Content-Type values with
+		// application/json first, and anything that branches on it to decide whether to parse SSE mis-handles
+		// a valid stream. Body and status alone do not catch this; only the header does.
+		//
+		// Mutation that turns this red: delete attemptWriter.Header, so every attempt shares the real map.
+		ct := rec.Result().Header.Values("Content-Type")
+		Expect(ct).To(HaveLen(1), "the abandoned attempt's Content-Type survived into the served response")
+		Expect(ct[0]).To(ContainSubstring("text/event-stream"))
+	})
+
+	// Mutation that turns this red: drop the att.wrote check from the fallback loop's break condition.
+	It("does not retry once bytes have reached the client", func() {
+		var served int
+		flaky := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			served++
+			w.Header().Set("Content-Type", "text/event-stream")
+			_, _ = fmt.Fprint(w, "data: first\n\n")
+			w.(http.Flusher).Flush()
+			// The upstream dies mid-stream; the client already holds a token.
+			panic(http.ErrAbortHandler)
+		}))
+		defer flaky.Close()
+		spare := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			served += 100
+			_, _ = fmt.Fprint(w, "data: second\n\n")
+		}))
+		defer spare.Close()
+		flakyURL, _ := url.Parse(flaky.URL)
+		spareURL, _ := url.Parse(spare.URL)
+
+		rec := httptest.NewRecorder()
+		tryBackends(rec, post("http://gw/v1/chat/completions"), []*url.URL{flakyURL, spareURL}, http.DefaultTransport, nil)
+
+		Expect(served).To(Equal(1),
+			"the spare was tried after the client already held a token, which splices two answers into one response")
+		Expect(rec.Body.String()).To(ContainSubstring("first"))
+		Expect(rec.Body.String()).NotTo(ContainSubstring("second"))
+	})
+})
+
+// A client that hung up is not a backend that failed.
+//
+// RoundTrip returns context.Canceled, which is not a net.Error, so ErrorHandler maps it to 502 and the loop
+// would walk every remaining candidate — each cloning the same already-cancelled context and failing at once.
+// One disconnect then produced N upstream errors and N-1 fallbacks, poisoning the ratio the fallback counter
+// exists to provide. The harness cancels every request outstanding past its timeout, so this is routine.
+//
+// Mutation that turns this red: delete the r.Context().Err() guard from tryBackends.
+var _ = Describe("fallback and the client's own cancellation", func() {
+	It("does not walk the candidate list after the client has gone", func() {
+		// Atomic because the handlers run on the server's own goroutines while the spec body reads the count;
+		// a plain int here is a data race that -race reports, and a counter two goroutines disagree about is
+		// not evidence of anything.
+		var hits atomic.Int64
+		slow := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			hits.Add(1)
+			<-r.Context().Done()
+		}))
+		defer slow.Close()
+		spare := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			hits.Add(100)
+		}))
+		defer spare.Close()
+		slowURL, _ := url.Parse(slow.URL)
+		spareURL, _ := url.Parse(spare.URL)
+
+		ctx, cancel := context.WithCancel(context.Background())
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://gw/v1/chat/completions", nil)
+		Expect(err).NotTo(HaveOccurred())
+		buf := []byte(`{"model":"m"}`)
+		req.GetBody = func() (io.ReadCloser, error) { return io.NopCloser(bytes.NewReader(buf)), nil }
+		req.Body, _ = req.GetBody()
+
+		go func() { time.Sleep(120 * time.Millisecond); cancel() }()
+		var failures int
+		tryBackends(httptest.NewRecorder(), req, []*url.URL{slowURL, spareURL}, http.DefaultTransport,
+			func(int, bool) { failures++ })
+
+		Expect(hits.Load()).To(Equal(int64(1)), "the spare was tried after the client had already gone")
+		Expect(failures).To(Equal(1), "one disconnect was counted as several upstream failures")
+	})
+
+	// The failure callback fires BEFORE the guards decide whether a retry is possible, so a caller latching on
+	// it counts a fallback that never happened. tryBackends reporting whether it actually advanced is the only
+	// thing that can tell the two apart, and a cancelled request is the case where they differ.
+	//
+	// Mutation that turns this red: set advanced = true at the top of the loop instead of past the guards.
+	It("reports that it did not advance when the client hung up", func() {
+		var hits int
+		slow := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			time.Sleep(400 * time.Millisecond)
+		}))
+		defer slow.Close()
+		spare := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			hits++
+			w.WriteHeader(http.StatusOK)
+		}))
+		defer spare.Close()
+		slowURL, _ := url.Parse(slow.URL)
+		spareURL, _ := url.Parse(spare.URL)
+
+		ctx, cancel := context.WithCancel(context.Background())
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://gw/v1/chat/completions", nil)
+		Expect(err).NotTo(HaveOccurred())
+		buf := []byte(`{"model":"m"}`)
+		req.GetBody = func() (io.ReadCloser, error) { return io.NopCloser(bytes.NewReader(buf)), nil }
+		req.Body, _ = req.GetBody()
+
+		go func() { time.Sleep(120 * time.Millisecond); cancel() }()
+		advanced := tryBackends(httptest.NewRecorder(), req, []*url.URL{slowURL, spareURL},
+			http.DefaultTransport, func(int, bool) {})
+
+		Expect(advanced).To(BeFalse(), "a cancelled request reported a fallback that never happened")
+		Expect(hits).To(Equal(0), "the spare was tried after the client had already gone")
+	})
+
+	// The control. Without it, always returning false would satisfy the spec above and the counter would stop
+	// recording the fallbacks that do happen.
+	//
+	// Mutation that turns this red: return false unconditionally.
+	It("reports that it advanced when a spare really served the request", func() {
+		var hits int
+		dead := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+		deadURL, _ := url.Parse(dead.URL)
+		dead.Close()
+		spare := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			hits++
+			w.WriteHeader(http.StatusOK)
+		}))
+		defer spare.Close()
+		spareURL, _ := url.Parse(spare.URL)
+
+		req, err := http.NewRequest(http.MethodPost, "http://gw/v1/chat/completions", nil)
+		Expect(err).NotTo(HaveOccurred())
+		buf := []byte(`{"model":"m"}`)
+		req.GetBody = func() (io.ReadCloser, error) { return io.NopCloser(bytes.NewReader(buf)), nil }
+		req.Body, _ = req.GetBody()
+
+		rec := &statusRecorder{ResponseWriter: httptest.NewRecorder(), code: http.StatusOK}
+		advanced := tryBackends(rec, req, []*url.URL{deadURL, spareURL}, http.DefaultTransport, func(int, bool) {})
+
+		Expect(advanced).To(BeTrue(), "a real retry was not reported")
+		Expect(hits).To(Equal(1))
+		Expect(rec.answered).To(BeTrue(), "the spare's answer was not recorded as having reached the client")
+	})
+
+	// A request nobody answered must not be publishable as the recorder's seeded 200.
+	//
+	// This needs a NON-final attempt to fail and the retry to be refused, which is the only way the loop ends
+	// with nothing written: on a final attempt the ErrorHandler's 502 goes straight through to the client and
+	// the recorder is answered, correctly. A first version of this spec used a single target and asserted the
+	// recorder still held 200 — it held 502, because that is the right answer for that case.
+	//
+	// Mutation that turns this red: make statusRecorder stop tracking answered.
+	It("leaves the recorder unanswered when a non-final attempt fails and no retry follows", func() {
+		slow := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			time.Sleep(400 * time.Millisecond)
+		}))
+		defer slow.Close()
+		spare := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		}))
+		defer spare.Close()
+		slowURL, _ := url.Parse(slow.URL)
+		spareURL, _ := url.Parse(spare.URL)
+
+		ctx, cancel := context.WithCancel(context.Background())
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://gw/v1/chat/completions", nil)
+		Expect(err).NotTo(HaveOccurred())
+		buf := []byte(`{"model":"m"}`)
+		req.GetBody = func() (io.ReadCloser, error) { return io.NopCloser(bytes.NewReader(buf)), nil }
+		req.Body, _ = req.GetBody()
+
+		go func() { time.Sleep(120 * time.Millisecond); cancel() }()
+		rec := &statusRecorder{ResponseWriter: httptest.NewRecorder(), code: http.StatusOK}
+		var last int
+		tryBackends(rec, req, []*url.URL{slowURL, spareURL}, http.DefaultTransport,
+			func(c int, final bool) { last = c })
+
+		Expect(rec.answered).To(BeFalse(), "nothing reached the client, so the recorder must not claim it did")
+		Expect(rec.code).To(Equal(http.StatusOK),
+			"the recorder still holds its seed, which is why the handler has to substitute the failure code")
+		Expect(last).NotTo(BeZero(), "the failure the handler would substitute was never reported")
+	})
+
+	// A backend answering 503 is not a proxy failure and is no longer reported as one.
+	//
+	// This spec used to assert the opposite, because a non-final 503 was converted into a synthetic error so
+	// the loop could retry on it. With that conversion gone the 503 is simply the response: ErrorHandler never
+	// runs, so nothing is counted as a failed ATTEMPT, and the status reaches the client and
+	// requests_total{code="503"} where it belongs.
+	//
+	// Mutation that turns this red: convert a retryable upstream status into an error again.
+	It("does not count a backend's own 503 as a failed attempt", func() {
+		loading := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusServiceUnavailable)
+		}))
+		defer loading.Close()
+		spare := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		}))
+		defer spare.Close()
+		loadingURL, _ := url.Parse(loading.URL)
+		spareURL, _ := url.Parse(spare.URL)
+
+		req, err := http.NewRequest(http.MethodPost, "http://gw/v1/chat/completions", nil)
+		Expect(err).NotTo(HaveOccurred())
+		buf := []byte(`{"model":"m"}`)
+		req.GetBody = func() (io.ReadCloser, error) { return io.NopCloser(bytes.NewReader(buf)), nil }
+		req.Body, _ = req.GetBody()
+
+		var reported []int
+		rec := &statusRecorder{ResponseWriter: httptest.NewRecorder(), code: http.StatusOK}
+		advanced := tryBackends(rec, req, []*url.URL{loadingURL, spareURL}, http.DefaultTransport,
+			func(c int, final bool) { reported = append(reported, c) })
+
+		Expect(advanced).To(BeFalse(), "a non-idempotent POST was replayed after a backend answered it")
+		Expect(reported).To(BeEmpty(),
+			"a backend's own answer was counted as an attempt the proxy failed to make")
+		Expect(rec.code).To(Equal(http.StatusServiceUnavailable),
+			"the backend's status did not reach the client")
+	})
+
+	// The control: a genuine transport failure must still be 502, or the change has replaced one wrong code
+	// with another.
+	//
+	// Mutation that turns this red: report every failure as the upstream status, defaulting to 200.
+	It("still reports an unreachable backend as a proxy failure", func() {
+		dead := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+		deadURL, _ := url.Parse(dead.URL)
+		dead.Close()
+		spare := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		}))
+		defer spare.Close()
+		spareURL, _ := url.Parse(spare.URL)
+
+		req, err := http.NewRequest(http.MethodPost, "http://gw/v1/chat/completions", nil)
+		Expect(err).NotTo(HaveOccurred())
+		buf := []byte(`{"model":"m"}`)
+		req.GetBody = func() (io.ReadCloser, error) { return io.NopCloser(bytes.NewReader(buf)), nil }
+		req.Body, _ = req.GetBody()
+
+		var reported []int
+		tryBackends(httptest.NewRecorder(), req, []*url.URL{deadURL, spareURL}, http.DefaultTransport,
+			func(c int, final bool) { reported = append(reported, c) })
+
+		Expect(reported).To(Equal([]int{http.StatusBadGateway}),
+			"a refused connection is a proxy failure and must stay 502")
+	})
+
+	// A caller must not be able to read the cluster's topology out of a failed request.
+	//
+	// The whole existing suite passed while the raw transport error was being written to the client, which
+	// means nothing asserted what the BODY says — only what the status code is. That gap is why the leak
+	// survived: every spec was watching the half that was right.
+	//
+	// Mutation that turns this red: pass err.Error() to writeJSONError instead of publicUpstreamMessage.
+	It("tells the client nothing about where the backend lives", func() {
+		dead := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+		deadURL, _ := url.Parse(dead.URL)
+		dead.Close()
+
+		req, err := http.NewRequest(http.MethodPost, "http://gw/v1/chat/completions", nil)
+		Expect(err).NotTo(HaveOccurred())
+		rec := httptest.NewRecorder()
+		tryBackends(rec, req, []*url.URL{deadURL}, http.DefaultTransport, nil)
+
+		body := rec.Body.String()
+		Expect(rec.Code).To(Equal(http.StatusBadGateway), "the status still has to say which failure this was")
+		Expect(body).To(ContainSubstring("could not be reached"))
+		// The address the proxy failed to dial, in every form it appears in a transport error.
+		Expect(body).NotTo(ContainSubstring(deadURL.Host), "the body names the backend's address")
+		Expect(body).NotTo(ContainSubstring("dial tcp"), "the body carries the raw transport error")
+		Expect(body).NotTo(ContainSubstring("connection refused"))
+		Expect(body).NotTo(ContainSubstring("127.0.0.1"))
+	})
+
+	// Mutation that turns this red: remove the maxBackendAttempts truncation.
+	It("stops after the cap however many stale backends a model has", func() {
+		var dialled int
+		dead := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+		deadURL, _ := url.Parse(dead.URL)
+		dead.Close()
+		urls := []*url.URL{deadURL, deadURL, deadURL, deadURL}
+
+		req, err := http.NewRequest(http.MethodPost, "http://gw/v1/chat/completions", nil)
+		Expect(err).NotTo(HaveOccurred())
+		buf := []byte(`{"model":"m"}`)
+		req.GetBody = func() (io.ReadCloser, error) { return io.NopCloser(bytes.NewReader(buf)), nil }
+		req.Body, _ = req.GetBody()
+
+		tryBackends(httptest.NewRecorder(), req, urls, http.DefaultTransport, func(int, bool) { dialled++ })
+		Expect(dialled).To(Equal(maxBackendAttempts),
+			"a request walked every stale backend, each costing a full timeout")
+	})
+})
+
+// "Up but not serving" is the ordinary shape for a model server, and it used to go entirely uncovered.
+//
+// att.failed was set only by ErrorHandler, which ReverseProxy calls only when the round trip itself failed.
+// A backend that accepted the connection and answered 503 — loading weights, post-OOM, at capacity — was a
+// successful round trip, so its status went to the client with a healthy spare one list entry away.
+var _ = Describe("fallback on a retryable upstream status", func() {
+	post := func() *http.Request {
+		buf := []byte(`{"model":"m","messages":[]}`)
+		r, err := http.NewRequest(http.MethodPost, "http://gw/v1/chat/completions", bytes.NewReader(buf))
+		Expect(err).NotTo(HaveOccurred())
+		r.GetBody = func() (io.ReadCloser, error) { return io.NopCloser(bytes.NewReader(buf)), nil }
+		r.Body, _ = r.GetBody()
+		return r
+	}
+	serving := func(code int, body string) (*url.URL, *int) {
+		hits := 0
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			hits++
+			if code != http.StatusOK {
+				w.WriteHeader(code)
+				return
+			}
+			w.Header().Set("Content-Type", "text/event-stream")
+			_, _ = fmt.Fprint(w, body)
+		}))
+		DeferCleanup(srv.Close)
+		u, err := url.Parse(srv.URL)
+		Expect(err).NotTo(HaveOccurred())
+		return u, &hits
+	}
+
+	// This spec asserted the opposite until a review pointed out what a status actually proves. A 503 says the
+	// request ARRIVED; it does not say the backend declined to work on it. A model server can accept a
+	// completion, spend GPU seconds on it and fail on the way out, and replaying it there bills the tenant
+	// twice and can emit a second set of tokens, with no counter anywhere recording that it happened.
+	//
+	// So the head's own answer goes to the client and the spare stays untried. What is given up — falling
+	// through a 503 that really did refuse at the door — needs the backends to state an idempotency contract,
+	// not the gateway to assume one.
+	//
+	// Mutation that turns this red: replay on a retryable status again, by ORing retryableStatus into the
+	// att.replayable gate.
+	It("does not replay a POST the head already answered, even with a 503", func() {
+		headURL, headHits := serving(http.StatusServiceUnavailable, "")
+		spareURL, spareHits := serving(http.StatusOK, "data: [DONE]\n\n")
+
+		rec := httptest.NewRecorder()
+		tryBackends(rec, post(), []*url.URL{headURL, spareURL}, http.DefaultTransport, nil)
+
+		Expect(*headHits).To(Equal(1))
+		Expect(*spareHits).To(Equal(0), "a non-idempotent completion was sent to a second backend")
+		Expect(rec.Code).To(Equal(http.StatusServiceUnavailable),
+			"the head's own answer was replaced rather than passed through")
+	})
+
+	// Trailers are written AFTER the body, which is after the attempt has committed, and they were landing in
+	// the scratch map that only an uncommitted attempt should be using.
+	//
+	// This is not a theoretical HTTP corner for this gateway: a streaming completion reports its token usage
+	// in a trailer, so the tenant's own accounting arrived nowhere while the response itself looked perfect.
+	//
+	// Mutation that turns this red: return the scratch map from Header() unconditionally.
+	It("delivers a trailer the backend writes after the body", func() {
+		upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Trailer", "X-Usage-Total")
+			w.Header().Set("Content-Type", "text/event-stream")
+			w.WriteHeader(http.StatusOK)
+			_, _ = fmt.Fprint(w, "data: [DONE]\n\n")
+			w.Header().Set("X-Usage-Total", "512")
+		}))
+		DeferCleanup(upstream.Close)
+		u, err := url.Parse(upstream.URL)
+		Expect(err).NotTo(HaveOccurred())
+
+		rec := httptest.NewRecorder()
+		tryBackends(rec, post(), []*url.URL{u}, http.DefaultTransport, nil)
+
+		res := rec.Result()
+		defer func() { _ = res.Body.Close() }()
+		_, _ = io.ReadAll(res.Body)
+		Expect(res.Trailer.Get("X-Usage-Total")).To(Equal("512"),
+			"the backend's trailer never left the attempt's scratch headers")
+	})
+
+	// The dangerous half, and the one a status check cannot reach.
+	//
+	// A backend that ACCEPTS the connection, reads the request and then dies mid-flight produces a transport
+	// error, so ErrorHandler fires and the attempt is marked failed — the same state a refused connection
+	// leaves behind. The difference is that this backend received the request and may have spent GPU seconds
+	// on it before dying, so replaying it charges the tenant twice for one completion.
+	//
+	// Mutation that turns this red: make neverReachedBackend return true for anything other than a dial
+	// failure, which is what "the client saw nothing, so nothing happened" amounts to.
+	It("does not replay a POST the backend accepted and then dropped", func() {
+		dropped := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Read the body first, so the request provably arrived in full before the connection dies.
+			_, _ = io.ReadAll(r.Body)
+			hj, ok := w.(http.Hijacker)
+			if !ok {
+				return
+			}
+			conn, _, err := hj.Hijack()
+			if err != nil {
+				return
+			}
+			_ = conn.Close()
+		}))
+		DeferCleanup(dropped.Close)
+		droppedURL, err := url.Parse(dropped.URL)
+		Expect(err).NotTo(HaveOccurred())
+
+		spareURL, spareHits := serving(http.StatusOK, "data: [DONE]\n\n")
+
+		rec := httptest.NewRecorder()
+		advanced := tryBackends(rec, post(), []*url.URL{droppedURL, spareURL}, http.DefaultTransport, nil)
+
+		Expect(advanced).To(BeFalse(), "a completion the backend had already received was sent again")
+		Expect(*spareHits).To(Equal(0), "a non-idempotent completion reached a second backend")
+	})
+
+	// The client must be able to tell which side failed, which means the backend's status reaches them
+	// unchanged rather than becoming ErrorHandler's 502.
+	//
+	// Mutation that turns this red: convert a retryable upstream status into a proxy error.
+	It("passes a backend's own status through instead of a gateway error", func() {
+		aURL, aHits := serving(http.StatusServiceUnavailable, "")
+		bURL, bHits := serving(http.StatusServiceUnavailable, "")
+
+		rec := httptest.NewRecorder()
+		tryBackends(rec, post(), []*url.URL{aURL, bURL}, http.DefaultTransport, nil)
+
+		Expect(*aHits).To(Equal(1))
+		Expect(*bHits).To(Equal(0))
+		Expect(rec.Code).To(Equal(http.StatusServiceUnavailable),
+			"the model's 503 reached the caller as a gateway error, so they cannot tell which side failed")
+	})
+
+	// 500 is not retryable: it usually means the request broke something, and replaying it spends a second
+	// backend to fail the same way while doubling the blast radius of a request that can crash an engine.
+	It("does not spend a second backend on a 500", func() {
+		headURL, headHits := serving(http.StatusInternalServerError, "")
+		spareURL, spareHits := serving(http.StatusOK, "data: [DONE]\n\n")
+
+		rec := httptest.NewRecorder()
+		tryBackends(rec, post(), []*url.URL{headURL, spareURL}, http.DefaultTransport, nil)
+
+		Expect(*headHits).To(Equal(1))
+		Expect(*spareHits).To(Equal(0), "a 500 was replayed on another backend")
+		Expect(rec.Code).To(Equal(http.StatusInternalServerError))
+	})
+})

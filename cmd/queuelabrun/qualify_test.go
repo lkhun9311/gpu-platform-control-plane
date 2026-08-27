@@ -132,7 +132,7 @@ func testFixtures(t *testing.T, study queuelab.Study, variant string) *queuelab.
 // string (the synthetic case catches it); or build the provenance with len(fs.ClusterQueue) instead of the
 // contributing count (the "2 ClusterQueue(s)" assertion catches that one).
 func TestRequiredGPUIsDerivedFromTheFixturesNotHardCoded(t *testing.T) {
-	reclaimTrace, err := queuelab.TerminationContractTrace(victimServiceSec, doseSec)
+	reclaimTrace, err := queuelab.TerminationContractTrace(victimServiceSec, doseSec, queuelab.DoseSelfCompleting)
 	if err != nil {
 		t.Fatalf("build the reclaim trace: %v", err)
 	}
@@ -232,7 +232,7 @@ func TestRequiredGPUTakesTheLargestSingleRowWhenItExceedsTheQuotaSum(t *testing.
 	// A node that satisfies the sum and not the row must still refuse, which is the whole reason the bound is
 	// computed at all: the aggregate looks fine and exactly one Pod is unschedulable forever.
 	twoGPU := node(nil, nil)
-	if _, err := qualify(twoGPU, nil, req, harnessTerminationContract()); err == nil {
+	if _, err := qualify(twoGPU, nil, req, mustHarnessContract(t)); err == nil {
 		t.Fatal("a 2-GPU node was accepted for a trace containing a 3-GPU row: the run proceeds, the head job " +
 			"never schedules, and the study reports a comparison it never made")
 	}
@@ -285,7 +285,7 @@ func TestRequiredGPURefusesAProtocolThatAsksForNoDevice(t *testing.T) {
 // proceeds onto a machine with one of its two GPUs already spoken for.
 func TestQualifyRefusesAWorkerThatAlreadyHoldsAForeignGPUPod(t *testing.T) {
 	q, err := qualify(node(nil, nil), []corev1.Pod{*gpuPod("tenant-a", "train-7", "platform-worker", 1)},
-		testReq(2), harnessTerminationContract())
+		testReq(2), mustHarnessContract(t))
 	if err == nil {
 		t.Fatal("a worker running somebody else's GPU Pod qualified: the run would admit against capacity it " +
 			"does not have and report a number measured on a different machine")
@@ -310,7 +310,7 @@ func TestQualifyRefusesAWorkerThatAlreadyHoldsAForeignGPUPod(t *testing.T) {
 // keyed on the node advertising the resource, on the priority class, or on the Pod's own name — every
 // variant that "looks GPU-ish" rather than asking what was requested.
 func TestQualifyDoesNotRejectTheDevicePluginThatProvidesTheResource(t *testing.T) {
-	q, err := qualify(node(nil, nil), []corev1.Pod{*simulatorPod("platform-worker")}, testReq(2), harnessTerminationContract())
+	q, err := qualify(node(nil, nil), []corev1.Pod{*simulatorPod("platform-worker")}, testReq(2), mustHarnessContract(t))
 	if err != nil {
 		t.Fatalf("the gpu-simulator DaemonSet was treated as a GPU consumer, so every run against every "+
 			"cluster this lab has would refuse: %v", err)
@@ -336,7 +336,7 @@ func TestQualifyCountsATerminatingGPUPodBecauseItStillHoldsTheDevice(t *testing.
 	dying.DeletionTimestamp = &ts
 	dying.Finalizers = []string{"kubernetes"}
 
-	q, err := qualify(node(nil, nil), []corev1.Pod{*dying}, testReq(2), harnessTerminationContract())
+	q, err := qualify(node(nil, nil), []corev1.Pod{*dying}, testReq(2), mustHarnessContract(t))
 	if err == nil {
 		t.Fatal("a terminating GPU Pod was treated as gone: it holds both devices until the kubelet finishes, " +
 			"and the run would have measured against nothing at all")
@@ -365,7 +365,7 @@ func TestQualifyCountsAPendingGPUPodBecauseTheDeviceIsAlreadyReservedForIt(t *te
 	starting := gpuPod("tenant-a", "train-12", "platform-worker", 2)
 	starting.Status.Phase = corev1.PodPending
 
-	q, err := qualify(node(nil, nil), []corev1.Pod{*starting}, testReq(2), harnessTerminationContract())
+	q, err := qualify(node(nil, nil), []corev1.Pod{*starting}, testReq(2), mustHarnessContract(t))
 	if err == nil {
 		t.Fatal("a Pending GPU Pod already assigned to this node was treated as consuming nothing: the " +
 			"scheduler has reserved both devices for it, and it will hold them before this run submits a thing")
@@ -390,7 +390,7 @@ func TestQualifyIgnoresPodsOnOtherNodesAndPodsThatHaveFinished(t *testing.T) {
 	failed := gpuPod("tenant-b", "train-crashed", "platform-worker", 2)
 	failed.Status.Phase = corev1.PodFailed
 
-	q, err := qualify(node(nil, nil), []corev1.Pod{*elsewhere, *finished, *failed}, testReq(2), harnessTerminationContract())
+	q, err := qualify(node(nil, nil), []corev1.Pod{*elsewhere, *finished, *failed}, testReq(2), mustHarnessContract(t))
 	if err != nil {
 		t.Fatalf("a worker whose only GPU Pods are on another node or already finished was refused: %v", err)
 	}
@@ -410,7 +410,7 @@ func TestQualifyIgnoresPodsOnOtherNodesAndPodsThatHaveFinished(t *testing.T) {
 // Mutation that turns this red: add a "the node carries no NoSchedule taint" condition to qualify.
 func TestQualifyAcceptsTheRunsOwnOwnershipTaint(t *testing.T) {
 	ours := node(map[string]string{workerLabelKey: "r7"}, nil, ourTaint())
-	if _, err := qualify(ours, nil, testReq(2), harnessTerminationContract()); err != nil {
+	if _, err := qualify(ours, nil, testReq(2), mustHarnessContract(t)); err != nil {
 		t.Fatalf("the worker was refused for the marker this run installed on it a moment earlier: %v", err)
 	}
 }
@@ -425,7 +425,7 @@ func TestQualifyRefusesANodeTooSmallForTheArm(t *testing.T) {
 	small.Status.Allocatable[gpuResourceName] = *resource.NewQuantity(1, resource.DecimalSI)
 
 	q, err := qualify(small, nil, gpuRequirement{Total: 2, BoundBy: boundByQuotaSum,
-		From: "nominal quota over 2 ClusterQueue(s)"}, harnessTerminationContract())
+		From: "nominal quota over 2 ClusterQueue(s)"}, mustHarnessContract(t))
 	if err == nil {
 		t.Fatal("a one-device node was accepted for a two-device arm: the run completes and reports the " +
 			"contrast it structurally could not produce")
@@ -449,20 +449,20 @@ func TestQualifyRefusesANodeTooSmallForTheArm(t *testing.T) {
 func TestQualifyRefusesANodeThatIsNotReadyOrIsCordoned(t *testing.T) {
 	notReady := node(nil, nil)
 	notReady.Status.Conditions = []corev1.NodeCondition{{Type: corev1.NodeReady, Status: corev1.ConditionFalse}}
-	if _, err := qualify(notReady, nil, testReq(2), harnessTerminationContract()); err == nil {
+	if _, err := qualify(notReady, nil, testReq(2), mustHarnessContract(t)); err == nil {
 		t.Fatal("a NotReady worker was accepted")
 	}
 
 	silent := node(nil, nil)
 	silent.Status.Conditions = nil
-	if _, err := qualify(silent, nil, testReq(2), harnessTerminationContract()); err == nil {
+	if _, err := qualify(silent, nil, testReq(2), mustHarnessContract(t)); err == nil {
 		t.Fatal("a Node reporting no Ready condition at all was accepted: an unclassifiable machine must fail " +
 			"toward the refusal, not toward the measurement")
 	}
 
 	cordoned := node(nil, nil)
 	cordoned.Spec.Unschedulable = true
-	q, err := qualify(cordoned, nil, testReq(2), harnessTerminationContract())
+	q, err := qualify(cordoned, nil, testReq(2), mustHarnessContract(t))
 	if err == nil {
 		t.Fatal("a cordoned worker was accepted: nothing this run submits can land on it, so the whole run " +
 			"would time out at its first barrier with no explanation")
@@ -485,7 +485,7 @@ func TestQualifyReportsEveryConditionItFailedNotJustTheFirst(t *testing.T) {
 	bad.Status.Allocatable[gpuResourceName] = *resource.NewQuantity(1, resource.DecimalSI)
 	bad.Spec.Unschedulable = true
 
-	_, err := qualify(bad, []corev1.Pod{*gpuPod("tenant-a", "train-7", "platform-worker", 1)}, testReq(2), harnessTerminationContract())
+	_, err := qualify(bad, []corev1.Pod{*gpuPod("tenant-a", "train-7", "platform-worker", 1)}, testReq(2), mustHarnessContract(t))
 	if err == nil {
 		t.Fatal("a node that failed three conditions qualified")
 	}
@@ -545,7 +545,7 @@ func TestQualifyWorkerRefusesWhenItCannotSeeThePods(t *testing.T) {
 			},
 		}).Build()
 
-	q, err := qualifyWorker(context.Background(), fc, "platform-worker", testReq(2), harnessTerminationContract())
+	q, err := qualifyWorker(context.Background(), fc, "platform-worker", testReq(2), mustHarnessContract(t))
 	if err == nil {
 		t.Fatal("a worker whose Pods could not be listed was qualified, which is exactly how an RBAC gap on " +
 			"Pods would present itself: as a clean cluster")
@@ -568,7 +568,7 @@ func TestQualifyWorkerReturnsWhatItSawEvenWhenItRefuses(t *testing.T) {
 		Build()
 
 	q, err := qualifyWorker(context.Background(), fc, "platform-worker",
-		gpuRequirement{Total: 2, BoundBy: boundByQuotaSum, From: "nominal quota"}, harnessTerminationContract())
+		gpuRequirement{Total: 2, BoundBy: boundByQuotaSum, From: "nominal quota"}, mustHarnessContract(t))
 	if err == nil {
 		t.Fatal("the contaminated worker qualified")
 	}
@@ -588,5 +588,115 @@ func TestQualifyWorkerReturnsWhatItSawEvenWhenItRefuses(t *testing.T) {
 	if q.PodsOnNode != 2 || len(q.GPUConsumers) != 1 {
 		t.Fatalf("PodsOnNode = %d and %d consumer(s): the verdict and its denominator are one claim",
 			q.PodsOnNode, len(q.GPUConsumers))
+	}
+}
+
+// mustHarnessContract is harnessTerminationContract for tests, which have no use for an error that the
+// package's own constants cannot produce.
+//
+// It exists so the specs read as they did before the renderer grew an error return, while the production
+// callers still handle it — the point of that change was the operator command, not these.
+func mustHarnessContract(t *testing.T) canaryContract {
+	t.Helper()
+	c, err := harnessTerminationContract()
+	if err != nil {
+		t.Fatalf("harness termination contract: %v", err)
+	}
+	return c
+}
+
+// A node with MORE devices than the protocol needs is refused, and that direction is the dangerous one.
+//
+// Too few devices is obviously fatal and was already refused. Too many destroys the experiment silently:
+// the contrast this lab publishes is physical card scarcity, and every recorded run shows it directly --
+// Kueue admits the owner within 0.1 s of the preemption decision, and the owner's Pod becomes Ready one to
+// two seconds after the VICTIM'S terminal phase, in both arms. It is waiting for a card. The 29-second arm
+// difference is that wait.
+//
+// Give the run two spare devices and the owner's Pod binds at admission in both arms. The wait collapses to
+// a container start on each side, the difference falls below the floor, and every other figure in the
+// record looks exactly as it does today. Nothing downstream could tell that from a real finding -- and the
+// preregistration's third refutation condition would read it as the session's most useful discovery.
+//
+// The instance this study rents carries four cards because no rentable one carries two, so this is not
+// hypothetical: it is the default in infra/aws/cluster/variables.tf.
+//
+// Mutation that turns this red: restore `AllocatableGPU < req.Total` as the only device check.
+func TestANodeWithSpareDevicesIsRefused(t *testing.T) {
+	node := func(allocatable int64) *corev1.Node {
+		return &corev1.Node{
+			ObjectMeta: metav1.ObjectMeta{Name: "platform-worker", UID: "n1"},
+			Status: corev1.NodeStatus{
+				Allocatable: corev1.ResourceList{
+					gpuResourceName: *resource.NewQuantity(allocatable, resource.DecimalSI),
+				},
+				Conditions: []corev1.NodeCondition{{Type: corev1.NodeReady, Status: corev1.ConditionTrue}},
+			},
+		}
+	}
+	// A Pod holding devices to keep the node SCARCE, which is what makes a four-card instance measurable.
+	occupier := func(gpus int64) []corev1.Pod {
+		return []corev1.Pod{{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: "gpu-platform-control-plane-system", Name: "surplus-occupier",
+				// A valid label value: alphanumeric with dashes, dots and underscores. The first version of
+				// this fixture used a sentence, which a fake client accepts and a real API server rejects --
+				// so the unit test passed while the manifest the session applies was invalid.
+				Labels: map[string]string{surplusOccupierLabel: "session"},
+			},
+			Spec: corev1.PodSpec{
+				NodeName: "platform-worker",
+				Containers: []corev1.Container{{
+					Name: "hold",
+					Resources: corev1.ResourceRequirements{Limits: corev1.ResourceList{
+						gpuResourceName: *resource.NewQuantity(gpus, resource.DecimalSI),
+					}},
+				}},
+			},
+			Status: corev1.PodStatus{Phase: corev1.PodRunning},
+		}}
+	}
+	// The same Pod without the label is a foreign tenant, and must stay refused.
+	foreign := func(gpus int64) []corev1.Pod {
+		p := occupier(gpus)
+		p[0].Labels = nil
+		p[0].Name = "somebody-elses-training-job"
+		return p
+	}
+	for _, tc := range []struct {
+		name        string
+		allocatable int64
+		pods        []corev1.Pod
+		wantFail    string
+	}{
+		{"exactly what the protocol needs", 2, nil, ""},
+		{"a smaller machine", 1, nil, "the contrast it never produced"},
+		// The g4dn.12xlarge case: four T4s, two of them spare.
+		{"the instance this study actually rents", 4, nil, "collapse below the floor"},
+		{"one spare device", 3, nil, "collapse below the floor"},
+		// The same instance with the surplus held: measurable, because what the run can schedule is two.
+		{"four cards with the surplus held", 4, occupier(2), ""},
+		{"four cards with too little held", 4, occupier(1), "collapse below the floor"},
+		{"four cards with too much held", 4, occupier(3), "the contrast it never produced"},
+		// An unlabelled holder is somebody else's work and still refuses the run, occupier or not.
+		{"a foreign tenant holding the surplus", 4, foreign(2), "already hold"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := qualify(node(tc.allocatable), tc.pods, testReq(2), mustHarnessContract(t))
+			if tc.wantFail == "" {
+				if err != nil && strings.Contains(err.Error(), "allocatable") {
+					t.Fatalf("a node advertising exactly the requirement was refused on device count: %v", err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("a node advertising %d devices against a requirement of 2 qualified",
+					tc.allocatable)
+			}
+			if !strings.Contains(err.Error(), tc.wantFail) {
+				t.Fatalf("a node advertising %d devices was not refused for the right reason (want %q): %v",
+					tc.allocatable, tc.wantFail, err)
+			}
+		})
 	}
 }

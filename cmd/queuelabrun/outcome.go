@@ -53,7 +53,14 @@ const (
 	dispCollectorDesync    = disposition("collector-desync")
 	dispReconstructRefused = disposition("reconstruct-refused")
 	dispCardinalityRefused = disposition("cardinality-refused")
-	dispWorkerNotRestored  = disposition("worker-not-restored")
+	// dispDeviceNotEstablished is a run that completed its checks and produced no device evidence, on an
+	// invocation that declared device evidence was the deliverable.
+	//
+	// It is a distinct disposition rather than a desync because nothing about the CLUSTER went wrong: the
+	// protocol ran, the ledger is intact, and the control-plane figures in the record are as good as any
+	// other run's. What failed is that the run was bought for something it did not return.
+	dispDeviceNotEstablished = disposition("device-not-established")
+	dispWorkerNotRestored    = disposition("worker-not-restored")
 	// dispResidueLeft is a fact about the cluster, not a failure to compute one: teardown ran and something is
 	// still standing at one of this run's names. Usually that is an object this run created; it can also be
 	// one another transaction holds, which this run may not touch and which the next run under this id will

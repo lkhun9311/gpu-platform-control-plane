@@ -19,6 +19,8 @@ package controller
 import (
 	"context"
 	"fmt"
+	"strings"
+	"testing"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -43,7 +45,7 @@ var _ = Describe("MLTrainingJob Controller", func() {
 		var key types.NamespacedName
 
 		reconciler := func() *MLTrainingJobReconciler {
-			return &MLTrainingJobReconciler{Client: k8sClient, Scheme: k8sClient.Scheme()}
+			return &MLTrainingJobReconciler{Client: cachedClient, Scheme: cachedClient.Scheme()}
 		}
 
 		// reconcileUntilSteady drives Reconcile a few times so the finalizer is added and the owned Job is created.
@@ -242,6 +244,8 @@ var _ = Describe("MLTrainingJob Controller", func() {
 			}}
 			Expect(k8sClient.Status().Update(ctx, wl)).To(Succeed())
 
+			awaitCachedWorkload(wl.Name, wl.Namespace, hasAdmittedCondition)
+
 			By("reconciling so the MLTrainingJob picks up the Workload's Admitted condition")
 			_, err := reconciler().Reconcile(ctx, reconcile.Request{NamespacedName: key})
 			Expect(err).NotTo(HaveOccurred())
@@ -303,6 +307,8 @@ var _ = Describe("MLTrainingJob Controller", func() {
 			}}
 			Expect(k8sClient.Status().Update(ctx, wl)).To(Succeed())
 
+			awaitCachedWorkload(wl.Name, wl.Namespace, hasAdmittedCondition)
+
 			By("reconciling to trigger the phase transition to Admitted")
 			_, err := reconciler().Reconcile(ctx, reconcile.Request{NamespacedName: key})
 			Expect(err).NotTo(HaveOccurred())
@@ -320,3 +326,84 @@ var _ = Describe("MLTrainingJob Controller", func() {
 		})
 	})
 })
+
+// Duplicate Workloads must resolve to the SAME one every time.
+//
+// Kueue keeps one Workload per Job UID, so more than one is an upstream invariant violation — but the
+// reconciler still has to make progress, and "the first the cache returned" is not a rule. List order can
+// differ between reconciles, so the phase written to status could oscillate between two Workloads with
+// nothing having changed.
+//
+// Mutation that turns this red: take the first match instead of the oldest.
+func TestOlderWorkloadIsADeterministicOrder(t *testing.T) {
+	older := &kueuev1beta1.Workload{ObjectMeta: metav1.ObjectMeta{
+		Name: "wl-b", CreationTimestamp: metav1.Unix(1000, 0),
+	}}
+	newer := &kueuev1beta1.Workload{ObjectMeta: metav1.ObjectMeta{
+		Name: "wl-a", CreationTimestamp: metav1.Unix(2000, 0),
+	}}
+
+	if !olderWorkload(older, newer) {
+		t.Fatal("the earlier creation timestamp must win regardless of name")
+	}
+	if olderWorkload(newer, older) {
+		t.Fatal("the ordering is not antisymmetric")
+	}
+
+	// Same second, which metav1.Time cannot separate: the name is the tie-break, and without one the answer
+	// would still depend on list order for the case duplicates are most likely to hit.
+	sameA := &kueuev1beta1.Workload{ObjectMeta: metav1.ObjectMeta{
+		Name: "wl-a", CreationTimestamp: metav1.Unix(1000, 0),
+	}}
+	sameB := &kueuev1beta1.Workload{ObjectMeta: metav1.ObjectMeta{
+		Name: "wl-b", CreationTimestamp: metav1.Unix(1000, 0),
+	}}
+	if !olderWorkload(sameA, sameB) || olderWorkload(sameB, sameA) {
+		t.Fatal("two Workloads created in the same second do not order deterministically")
+	}
+}
+
+// A Pod that asks for a device must say which driver libraries it needs, because it cannot say so later.
+//
+// nvidia-container-toolkit bind-mounts the host's driver libraries and decides WHICH at container creation,
+// from NVIDIA_DRIVER_CAPABILITIES. Nothing inside the container can influence that: by the time a process
+// runs, the mounts are made. Leaving it unset takes the toolkit's default, which was historically "utility"
+// -- nvidia-smi and libnvidia-ml, and not libcuda.so.1, which is the one a CUDA program loads.
+//
+// The failure is silent: a device is allocated, the Pod starts, loading libcuda raises, the workload falls
+// back to its CPU loop, and the run completes with plausible numbers and no device evidence -- exactly what
+// a cluster with no cards produces. That is the outcome the alpine-to-glibc image move was made to prevent,
+// and the move fixed the linkage half while leaving this half to a default that varies by AMI and toolkit
+// version.
+//
+// Mutations that turn this red: drop the Env, set only "utility", or set it for a Pod requesting no device.
+func TestAGPURequestingPodDeclaresTheDriverLibrariesItNeeds(t *testing.T) {
+	envOf := func(gpu int32) []corev1.EnvVar {
+		job := BuildJob(&platformv1.MLTrainingJob{
+			ObjectMeta: metav1.ObjectMeta{Name: "j", Namespace: "n"},
+			Spec:       platformv1.MLTrainingJobSpec{Image: "i", Queue: "q", GPUCount: gpu},
+		})
+		return job.Spec.Template.Spec.Containers[0].Env
+	}
+	var caps string
+	for _, e := range envOf(1) {
+		if e.Name == "NVIDIA_DRIVER_CAPABILITIES" {
+			caps = e.Value
+		}
+	}
+	if caps == "" {
+		t.Fatal("a Pod requesting a GPU declares no driver capabilities, so whether libcuda.so.1 is mounted " +
+			"into it is decided by whatever the toolkit on that node happens to default to")
+	}
+	if !strings.Contains(caps, "compute") {
+		t.Fatalf("the declared capabilities are %q and do not include compute, which is the one that mounts "+
+			"libcuda.so.1; utility alone mounts nvidia-smi and leaves a CUDA program unable to start", caps)
+	}
+
+	// And a Pod that asked for no device must not claim capabilities on hardware it was never given.
+	for _, e := range envOf(0) {
+		if e.Name == "NVIDIA_DRIVER_CAPABILITIES" {
+			t.Fatalf("a Pod requesting no GPU declares driver capabilities: %+v", e)
+		}
+	}
+}

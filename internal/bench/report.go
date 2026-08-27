@@ -33,6 +33,39 @@ const errKindTimeout = "timeout"
 // ArmSummary is the analysis of one arm's raw evidence for one repetition.
 //
 // Latency percentiles are in milliseconds, computed from the client-side raw timestamps.
+// thresholdProbePrefix names the probe tenants the trace generator creates to straddle the guard's
+// eligibility threshold. Matching on a prefix rather than an exact pair keeps the report from having to be
+// edited every time a probe is added, and keeps the two files from disagreeing about a literal.
+const thresholdProbePrefix = "standard-probe-"
+
+// The threshold probes, defined here because the report keys on them and the trace generator builds them.
+//
+// They lived in cmd/benchharness first, and the test for them transcribed the numbers -- so setting both
+// probes to the same length passed everything while silently removing the only traffic that touches the
+// threshold. One definition, read by both sides, is what makes that mutation fail.
+//
+// The gateway scores (chars+3)/4, so these land one point either side of a 4096 threshold: 16,380 scores
+// 4,095 and passes an engaged guard, 16,384 scores 4,096 and does not. Four characters apart.
+const (
+	ProbeUnderTenant = thresholdProbePrefix + "under"
+	ProbeOverTenant  = thresholdProbePrefix + "over"
+	ProbeUnderChars  = 16_380
+	ProbeOverChars   = 16_384
+)
+
+// isThresholdProbe reports whether tenant is one of the threshold probes.
+func isThresholdProbe(tenant string) bool { return strings.HasPrefix(tenant, thresholdProbePrefix) }
+
+// ProbeOutcome is one probe tenant's admission tally, and the real token cost the estimate stood in for.
+type ProbeOutcome struct {
+	// Total is how many of this tenant's requests the arm sent.
+	Total int
+	// Rejected is how many came back 429.
+	Rejected int
+	// EstInputTokens is the score the gateway assigned, which is what the threshold is compared against.
+	EstInputTokens int
+}
+
 type ArmSummary struct {
 	// Arm names the condition.
 	Arm string
@@ -59,7 +92,34 @@ type ArmSummary struct {
 	// Their ratio is the admitted-work fraction the design uses to check that arm B is admission-matched to arm C.
 	OfferedInputTokens  int64
 	AdmittedInputTokens int64
-	// Censored is true when more than 1% of the premium requests timed out, so the tail is a lower bound rather than an exact p99 (design spec: report it as at least the timeout, never drop it).
+	// ThresholdProbe records how the guard's eligibility threshold behaved, keyed by tenant.
+	//
+	// The rest of this summary cannot show it. Contender and premium traffic sit thousands of tokens either
+	// side of the threshold, so their admission outcome is the same for any threshold in a wide range, and a
+	// report built only from them describes a guard whose configured number never mattered. The probe
+	// tenants straddle it by four characters; this is where their opposite outcomes become visible.
+	ThresholdProbe map[string]ProbeOutcome
+
+	// RepetitionCount and MinRepetitionTail describe the arm's repetitions rather than its pooled rows, and
+	// they exist because pooling hides a truncated repetition.
+	//
+	// TailSampleSize is computed over every row in the arm. An arm whose repetitions completed 500, 500, 500
+	// and 30 premium requests therefore reports 1,530 -- far above MinTailSamples -- while one quarter of the
+	// evidence is a p99 taken over thirty requests, which is that repetition's MAXIMUM. That fourth value is
+	// then resampled with equal weight by the incremental bootstrap.
+	//
+	// The floor is the same number and the same derivation as MinTailSamples, applied per repetition because
+	// that is the unit the bootstrap resamples: below 100, nearest-rank p99 lands on the maximum.
+	//
+	// Zero means the caller did not supply them (Summarize cannot know how its rows were split), and the
+	// check is then skipped rather than failing closed on absence -- the harness fills them and the unit
+	// tests that build summaries by hand do not.
+	RepetitionCount int
+
+	// MinRepetitionTail is the smallest premium-completion count among the arm's repetitions.
+	MinRepetitionTail int
+
+	// Censored is true when more than 1% of the premium requests failed to complete for a non-admission reason -- a timeout OR a transport/stream error -- so the tail is a lower bound rather than an exact p99 (design spec: report it as at least the timeout, never drop it).
 	Censored bool
 	// TailSampleSize is the number of completed premium requests the tail percentiles were computed over.
 	//
@@ -87,7 +147,7 @@ func Summarize(arm string, rows []RawRow) ArmSummary {
 	}
 
 	var ttft, e2e []float64
-	var premiumTotal, premiumTimedOut int
+	var premiumTotal, premiumTimedOut, premiumLost int
 	for _, r := range rows {
 		// Admitted-work accounting covers the eligible population (the long requests the controls gate), for the admission-match check.
 		if r.EstInputTokens >= threshold {
@@ -95,6 +155,24 @@ func Summarize(arm string, rows []RawRow) ArmSummary {
 			if r.HTTPStatus != httpStatusTooManyRequests {
 				s.AdmittedInputTokens += int64(r.EstInputTokens)
 			}
+		}
+
+		// The probe tally is keyed by tenant rather than by a flag on the row, because what makes a request a
+		// probe is the prompt length the trace gave it, and the tenant name is where that choice is recorded.
+		// Any tenant whose name marks it a probe is counted; the report does not need to know how many there
+		// are, only that their outcomes are reported separately from the populations that cannot see the
+		// threshold.
+		if isThresholdProbe(r.Tenant) {
+			if s.ThresholdProbe == nil {
+				s.ThresholdProbe = map[string]ProbeOutcome{}
+			}
+			o := s.ThresholdProbe[r.Tenant]
+			o.Total++
+			o.EstInputTokens = r.EstInputTokens
+			if r.HTTPStatus == httpStatusTooManyRequests {
+				o.Rejected++
+			}
+			s.ThresholdProbe[r.Tenant] = o
 		}
 
 		// Overall outcome counts cover every offered request, so load shedding is always visible as a rejection.
@@ -122,7 +200,23 @@ func Summarize(arm string, rows []RawRow) ArmSummary {
 			premiumTimedOut++
 			continue
 		}
-		if r.HTTPStatus == httpStatusTooManyRequests || r.ErrorKind != "" {
+		if r.HTTPStatus == httpStatusTooManyRequests {
+			continue
+		}
+		if r.ErrorKind != "" {
+			// A transport or stream error is a LOST OBSERVATION, exactly like a timeout, and it was not
+			// counted as one.
+			//
+			// The censoring rule read only premiumTimedOut, so a run whose premium requests died on
+			// connection resets kept an uncensored tail. That is the failure mode of a node going away --
+			// a reclaimed Spot instance, an evicted engine Pod, an OOM kill, a network blip -- and none of
+			// them produce timeouts. An adversarial review demonstrated it by feeding this function an arm
+			// truncated at 120 premium completions with 380 transport failures, and the report printed
+			// "all checks passed".
+			//
+			// A 429 stays excluded because a rejection is the treatment, not a lost measurement: shedding
+			// is what the guard is for and it is accounted separately in Rejected.
+			premiumLost++
 			continue
 		}
 		t, okT := r.TTFTNanos()
@@ -142,8 +236,13 @@ func Summarize(arm string, rows []RawRow) ArmSummary {
 	s.TTFTMsP99 = percentile(ttft, 0.99)
 	s.E2EMsP99 = percentile(e2e, 0.99)
 
-	// The tail is censored when more than 1% of the PREMIUM requests timed out, since those missing slow requests are exactly the ones a p99 should capture.
-	if premiumTotal > 0 && float64(premiumTimedOut)/float64(premiumTotal) > 0.01 {
+	// The tail is censored when more than 1% of the PREMIUM requests did not complete for a reason other than
+	// admission, since those missing requests are exactly the ones a p99 should capture.
+	//
+	// Timeouts and transport/stream errors are both counted. They are the same thing for this purpose -- a
+	// premium request whose latency is unknown and was probably long -- and separating them let a whole class
+	// of degraded run through uncensored.
+	if premiumTotal > 0 && float64(premiumTimedOut+premiumLost)/float64(premiumTotal) > 0.01 {
 		s.Censored = true
 	}
 	return s
@@ -176,6 +275,15 @@ func percentile(sorted []float64, q float64) float64 {
 type CI struct {
 	Lo float64
 	Hi float64
+
+	// Valid distinguishes "the interval is [0,0]" from "there is no interval".
+	//
+	// The zero CI used to be indistinguishable from a computed one, and the incremental gate reads
+	// `incrementalCI.Hi < 1.0`. When repetition counts differ between arms the caller skips the bootstrap and
+	// leaves the zero value, so Hi is 0.0 and the STRICTEST check in the design passes vacuously -- a
+	// truncated run disarms the gate instead of tripping it. Making the zero value invalid by construction is
+	// what stops that, rather than relying on every caller to remember.
+	Valid bool
 }
 
 // BootstrapCI returns a percentile-bootstrap confidence interval for the mean of values.
@@ -188,7 +296,11 @@ func BootstrapCI(values []float64, iterations int, seed int64, alpha float64) CI
 		return CI{}
 	}
 	if len(values) == 1 {
-		// A single repetition cannot bound its own variance, so the interval degenerates to the point estimate.
+		// A single repetition cannot bound its own variance, so the interval degenerates to the point estimate
+		// -- and a point estimate is not a confidence interval. It is returned for display and marked INVALID,
+		// because the incremental gate asks whether the interval's upper bound clears 1.0 and a degenerate
+		// "interval" answers that question vacuously. This function said as much in its own comment while
+		// returning a value the gate could not tell apart from a real one.
 		return CI{Lo: values[0], Hi: values[0]}
 	}
 
@@ -206,8 +318,9 @@ func BootstrapCI(values []float64, iterations int, seed int64, alpha float64) CI
 	}
 	sort.Float64s(means)
 	return CI{
-		Lo: percentile(means, alpha/2),
-		Hi: percentile(means, 1-alpha/2),
+		Lo:    percentile(means, alpha/2),
+		Hi:    percentile(means, 1-alpha/2),
+		Valid: true,
 	}
 }
 
@@ -240,6 +353,20 @@ type Checks struct {
 	OverallPass bool
 }
 
+// MinTailSamples is the smallest premium-completion count at which the reported p99 is not simply the
+// largest observation.
+//
+// It is derived, not chosen. The percentile is nearest-rank: index ceil(0.99*n)-1, clamped to n-1. Solve
+// ceil(0.99*n)-1 < n-1 and the smallest integer that satisfies it is 100 -- at n=99 the index lands on 98
+// of 0..98, the maximum, and every value below 99 does the same. So a run with fewer than 100 premium
+// completions reports its slowest request and calls it a tail.
+//
+// This mattered because nothing read TailSampleSize. It was computed, stored, asserted on in unit tests,
+// and never consulted by any production path: not printed, not gating validity. A sixty-second run at a
+// rate the engine cannot serve yields a few dozen completions, and the report would have presented that
+// maximum with exactly the authority of a p99 over five thousand.
+const MinTailSamples = 100
+
 // EvaluateChecks computes the design's pre-registered checks from the four arms' aggregated p99 values and admission-work fractions.
 //
 // r1P99, offP99 are provenance context; the checks compare C against R1 (absolute) and against B (incremental). incrementalCI is the bootstrap CI of the C/B ratio, produced by the caller from per-repetition ratios.
@@ -252,9 +379,19 @@ func EvaluateChecks(r1, staticCap, kvAware ArmSummary, incrementalCI CI, matchTo
 			c.Invalid = true
 			c.InvalidReason = fmt.Sprintf("arm %s completed no premium requests, so its tail is undefined", s.Arm)
 		}
+		if s.TailSampleSize > 0 && s.TailSampleSize < MinTailSamples {
+			c.Invalid = true
+			c.InvalidReason = fmt.Sprintf("arm %s has %d premium completions, below the %d a nearest-rank p99 needs to be anything other than the maximum",
+				s.Arm, s.TailSampleSize, MinTailSamples)
+		}
+		if s.RepetitionCount > 0 && s.MinRepetitionTail < MinTailSamples {
+			c.Invalid = true
+			c.InvalidReason = fmt.Sprintf("arm %s has a repetition with %d premium completions, below the %d a nearest-rank p99 needs; pooling its %d rows hides that one repetition's p99 is a maximum",
+				s.Arm, s.MinRepetitionTail, MinTailSamples, s.TailSampleSize)
+		}
 		if s.Censored {
 			c.Invalid = true
-			c.InvalidReason = fmt.Sprintf("arm %s tail is censored (>1%% premium timeouts), so its p99 is only a lower bound", s.Arm)
+			c.InvalidReason = fmt.Sprintf("arm %s tail is censored (>1%% of premium requests did not complete), so its p99 is only a lower bound", s.Arm)
 		}
 	}
 
@@ -267,7 +404,12 @@ func EvaluateChecks(r1, staticCap, kvAware ArmSummary, incrementalCI CI, matchTo
 		c.IncrementalRatio = kvAware.TTFTMsP99 / staticCap.TTFTMsP99
 	}
 	c.IncrementalRatioCI = incrementalCI
-	c.IncrementalValuePass = c.IncrementalRatio <= 0.90 && incrementalCI.Hi < 1.0
+	// An absent interval fails the gate rather than satisfying it. See the comment on CI.Valid.
+	c.IncrementalValuePass = c.IncrementalRatio <= 0.90 && incrementalCI.Valid && incrementalCI.Hi < 1.0
+	if !incrementalCI.Valid {
+		c.Invalid = true
+		c.InvalidReason = "no incremental confidence interval was computed (unequal or insufficient repetitions), so the incremental-value check cannot be evaluated"
+	}
 
 	wB := admittedWorkFraction(staticCap)
 	wC := admittedWorkFraction(kvAware)
@@ -286,15 +428,50 @@ func EvaluateChecks(r1, staticCap, kvAware ArmSummary, incrementalCI CI, matchTo
 func FormatReport(summaries []ArmSummary, checks Checks, matchTolerance float64) string {
 	var b strings.Builder
 	b.WriteString("M5-b benchmark report\n\n")
-	fmt.Fprintf(&b, "%-12s %8s %8s %8s %8s %8s %8s %8s\n", "arm", "total", "done", "429", "timeout", "ttftP50", "ttftP95", "ttftP99")
+	fmt.Fprintf(&b, "%-12s %8s %8s %8s %8s %8s %8s %8s %8s\n", "arm", "total", "done", "429", "timeout", "ttftP50", "ttftP95", "ttftP99", "tailN")
 	for _, s := range summaries {
 		censored := ""
 		if s.Censored {
 			censored = " (p99 censored: >1% timeouts, lower bound)"
 		}
-		fmt.Fprintf(&b, "%-12s %8d %8d %8d %8d %8.1f %8.1f %8.1f%s\n",
-			s.Arm, s.Total, s.Completed, s.Rejected, s.TimedOut, s.TTFTMsP50, s.TTFTMsP95, s.TTFTMsP99, censored)
+		// tailN is printed because the p99 beside it is meaningless without it, and because a reader who
+		// cannot see the sample count has no way to tell a tail from a maximum.
+		thin := ""
+		if s.TailSampleSize > 0 && s.TailSampleSize < MinTailSamples {
+			thin = fmt.Sprintf(" (p99 is the maximum: %d < %d premium completions)", s.TailSampleSize, MinTailSamples)
+		}
+		fmt.Fprintf(&b, "%-12s %8d %8d %8d %8d %8.1f %8.1f %8.1f %8d%s%s\n",
+			s.Arm, s.Total, s.Completed, s.Rejected, s.TimedOut, s.TTFTMsP50, s.TTFTMsP95, s.TTFTMsP99, s.TailSampleSize, censored, thin)
 	}
+	// The threshold's own evidence, printed before the checks because it qualifies them: the checks compare
+	// arms, and this says whether the number those arms were configured with did any work at all.
+	probed := false
+	for _, sm := range summaries {
+		if len(sm.ThresholdProbe) > 0 {
+			probed = true
+			break
+		}
+	}
+	if probed {
+		b.WriteString("\nEligibility threshold (probe tenants, four characters apart)\n")
+		for _, sm := range summaries {
+			names := make([]string, 0, len(sm.ThresholdProbe))
+			for n := range sm.ThresholdProbe {
+				names = append(names, n)
+			}
+			sort.Strings(names)
+			for _, n := range names {
+				o := sm.ThresholdProbe[n]
+				fmt.Fprintf(&b, "  %-12s %-22s est=%d  sent=%d  rejected=%d\n", sm.Arm, n, o.EstInputTokens, o.Total, o.Rejected)
+			}
+		}
+		b.WriteString("  the estimate is what the threshold compares; the measured real cost of these prompts is\n")
+		b.WriteString("  about 3171 tokens, so a rejection here fires on an over-estimate of roughly 29 percent\n")
+	} else {
+		b.WriteString("\nEligibility threshold: NOT TESTED -- no probe tenant straddled it, so any threshold in a wide\n")
+		b.WriteString("  range would have produced these same arms. The configured value is not evidenced by this run.\n")
+	}
+
 	b.WriteString("\nPre-registered checks (primary endpoint: TTFT p99)\n")
 	fmt.Fprintf(&b, "  absolute protection  C/R1 = %.3f  (<= 1.25)  %s\n", checks.AbsoluteProtectionRatio, pass(checks.AbsoluteProtectionPass))
 	fmt.Fprintf(&b, "  incremental value    C/B  = %.3f  CI[%.3f, %.3f]  (<= 0.90, CI hi < 1.0)  %s\n",

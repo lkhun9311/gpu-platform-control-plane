@@ -38,10 +38,19 @@ const (
 	phaseResourceFlavor                      // last: every referencing ClusterQueue must be absent
 )
 
+// The kind strings are constants because they are a persisted vocabulary, not incidental literals: enumerate
+// writes them, observeTarget switches on them, and the residue record carries them to the next operator. A
+// typo in one copy produces a target nothing recognises and a record nobody can join back to it.
+const (
+	kindNamespace      = "Namespace"
+	kindClusterQueue   = "ClusterQueue"
+	kindResourceFlavor = "ResourceFlavor"
+)
+
 // target is one object enumerate says must be deleted, and the phase it must be deleted in.
 type target struct {
 	Phase teardownPhase
-	Kind  string // "Namespace", "ClusterQueue", "ResourceFlavor"
+	Kind  string // kindNamespace, kindClusterQueue, kindResourceFlavor
 	Name  string
 }
 
@@ -64,6 +73,41 @@ type seed struct {
 // concurrent or later run happens to own, so the deletion set would drift from "what THIS run created" to
 // "what currently matches a label selector" — exactly the ambiguity a seed recorded before creation exists
 // to remove.
+// seedFromJournal rebuilds the teardown seed from what a node's own journal carries.
+//
+// This is the reason the journal carries Study, Variant and Namespace at all. Before it did, a crash after
+// acquisition left fixtures on the cluster and a marked node, and the only durable record named the
+// transaction without naming a single object it had created — so recovery had nothing to enumerate and the
+// operator was left reading annotations by hand.
+//
+// The Schema it stamps is teardownSeedSchema, not the journal's: enumerate refuses a seed whose schema is not
+// its own, and the two version independently. A journal written by an older binary is rejected at
+// decodeJournal, before this is ever reached.
+// identity is the ownerIdentity a run's seed acquires under.
+func (s seed) identity() ownerIdentity {
+	return ownerIdentity{
+		Kind:      ownerRun,
+		TxID:      s.TxID,
+		RunID:     s.RunID,
+		Arm:       s.Arm,
+		Namespace: s.Namespace,
+		Study:     string(s.Study),
+		Variant:   s.Variant,
+	}
+}
+
+func seedFromJournal(j journal) seed {
+	return seed{
+		Schema:    teardownSeedSchema,
+		TxID:      j.TxID,
+		RunID:     j.RunID,
+		Arm:       j.Arm,
+		Study:     queuelab.Study(j.Study),
+		Variant:   j.Variant,
+		Namespace: j.Namespace,
+	}
+}
+
 func enumerate(s seed) ([]target, error) {
 	if s.Schema != teardownSeedSchema {
 		return nil, fmt.Errorf("seed schema %d does not match enumerate's schema %d: "+
@@ -99,7 +143,7 @@ func enumerate(s seed) ([]target, error) {
 		return nil, fmt.Errorf("rebuild fixture names from seed: %w", err)
 	}
 
-	targets := []target{{Phase: phaseNamespace, Kind: "Namespace", Name: s.Namespace}}
+	targets := []target{{Phase: phaseNamespace, Kind: kindNamespace, Name: s.Namespace}}
 
 	// LocalQueues are deliberately not enumerated: they are namespaced objects that live inside s.Namespace,
 	// so deleting the namespace already removes them. Listing them here as separate targets would make the
@@ -129,9 +173,9 @@ func enumerate(s seed) ([]target, error) {
 	// that were removable the whole time — which, because residue holds the worker, over-holds a GPU node.
 	// Revisit this when a node needs to come back sooner than a stuck namespace allows, not before.
 	for _, cq := range fs.ClusterQueue {
-		targets = append(targets, target{Phase: phaseClusterQueue, Kind: "ClusterQueue", Name: cq.GetName()})
+		targets = append(targets, target{Phase: phaseClusterQueue, Kind: kindClusterQueue, Name: cq.GetName()})
 	}
-	targets = append(targets, target{Phase: phaseResourceFlavor, Kind: "ResourceFlavor", Name: fs.Flavor.GetName()})
+	targets = append(targets, target{Phase: phaseResourceFlavor, Kind: kindResourceFlavor, Name: fs.Flavor.GetName()})
 
 	return targets, nil
 }

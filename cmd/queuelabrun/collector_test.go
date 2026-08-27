@@ -231,12 +231,12 @@ func TestCollectorDesyncIsSerialisedWithTheWatchGoroutines(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		for i := 0; i < rounds; i++ {
+		for i := range rounds {
 			col.submitObserved(queuelab.TrainingTraceRow{Name: "victim"}, fmt.Sprintf("uid-%d", i),
 				&platformv1.MLTrainingJob{})
 		}
 	}()
-	for i := 0; i < rounds; i++ {
+	for range rounds {
 		col.desync("barrier before step 0 (victim): deadline")
 	}
 	<-done
@@ -438,6 +438,19 @@ func TestApplyFixturesAdoptsOnlyItsOwnStamp(t *testing.T) {
 		return fs
 	}
 
+	// The pre-existing object is built from the SPEC BuildFixtures produces, with only its labels varied.
+	//
+	// Earlier versions of these cases seeded a bare ResourceFlavor carrying labels and no spec at all. That is
+	// not what a leftover looks like: anything an earlier attempt created came from BuildFixtures and carries
+	// the node selector, taint and toleration that isolate the run. Adopting a spec-less flavor would give the
+	// run no isolation at all, so once adoption started checking the spec these cases were asserting that a
+	// contaminating object gets adopted.
+	leftover := func(fs *queuelab.FixtureSet, labels map[string]string) client.Object {
+		rf := fs.Flavor.DeepCopy()
+		rf.Labels = labels
+		return rf
+	}
+
 	for _, tc := range []struct {
 		name       string
 		preexist   func(fs *queuelab.FixtureSet) client.Object
@@ -447,18 +460,14 @@ func TestApplyFixturesAdoptsOnlyItsOwnStamp(t *testing.T) {
 		{
 			name: "our own stamp",
 			preexist: func(fs *queuelab.FixtureSet) client.Object {
-				return &kueuev1beta2.ResourceFlavor{ObjectMeta: metav1.ObjectMeta{
-					Name: fs.Flavor.GetName(), Labels: map[string]string{queuelab.TxLabel: "tx-1", variantLabelKey: "Any"},
-				}}
+				return leftover(fs, map[string]string{queuelab.TxLabel: "tx-1", variantLabelKey: "Any"})
 			},
 			wantAdopt: true,
 		},
 		{
 			name: "another transaction",
 			preexist: func(fs *queuelab.FixtureSet) client.Object {
-				return &kueuev1beta2.ResourceFlavor{ObjectMeta: metav1.ObjectMeta{
-					Name: fs.Flavor.GetName(), Labels: map[string]string{queuelab.TxLabel: "tx-2", variantLabelKey: "Any"},
-				}}
+				return leftover(fs, map[string]string{queuelab.TxLabel: "tx-2", variantLabelKey: "Any"})
 			},
 			wantAdopt:  false,
 			wantErrSub: "transaction",
@@ -468,9 +477,7 @@ func TestApplyFixturesAdoptsOnlyItsOwnStamp(t *testing.T) {
 			// rerun against real leftovers hits, not a hypothetical.
 			name: "no stamp at all",
 			preexist: func(fs *queuelab.FixtureSet) client.Object {
-				return &kueuev1beta2.ResourceFlavor{ObjectMeta: metav1.ObjectMeta{
-					Name: fs.Flavor.GetName(), Labels: map[string]string{variantLabelKey: "Any"},
-				}}
+				return leftover(fs, map[string]string{variantLabelKey: "Any"})
 			},
 			wantAdopt:  false,
 			wantErrSub: "transaction",
@@ -584,8 +591,7 @@ func TestCollectorRefusesANamespaceThatAlreadyHoldsWatchedObjects(t *testing.T) 
 	leftover := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{
 		Namespace: "ns", Name: "victim-0", UID: types.UID("pod-from-a-previous-attempt")}}
 	col := newCollector(streamingFake(t, []client.Object{leftover}, nil), "ns", "r1", time.Hour)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	err := col.start(ctx)
 	if err == nil {

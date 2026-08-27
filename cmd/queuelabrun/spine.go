@@ -35,6 +35,15 @@ const (
 	victimServiceSec = 60
 	doseSec          = 40
 
+	// graceBoundedDoseSec returns the owner early enough that the victim still has more service left than the
+	// grace period, so an ignoring victim is cut short by the grace period rather than finishing on its own.
+	//
+	// 20 s leaves 40 s of remaining service against a 30 s grace. It is a second CONSTANT rather than a free
+	// flag for the reason the pair above is: the previous CLI let the duration be chosen freely and the dose
+	// silently became 49 s instead of 40. A closed set of two named regimes keeps the arithmetic pinned while
+	// letting the experiment reach the side of the grace period it could not reach at all before.
+	graceBoundedDoseSec = 20
+
 	// terminationGraceSec mirrors internal/queuelab's private terminationGraceSec (the Pod termination grace
 	// period the fixture runs with). It is duplicated rather than imported because that package must not
 	// change for this fix and does not export the constant.
@@ -53,16 +62,54 @@ const (
 // so it sums all four rather than approximating one of them away.
 const horizonSec = doseSec + victimServiceSec + terminationGraceSec + startupMarginSec
 
+// doseProtocol is the fixed timing of one dose regime, resolved together so the horizon cannot be computed
+// from one regime's dose while the trace is built from another's.
+//
+// That pairing is the point. The horizon is DERIVED from the dose, so a second regime with its own dose and
+// a horizon still summed from the first would truncate the run — the failure horizonSec exists to rule out,
+// reintroduced by the change that added the regime.
+type doseProtocol struct {
+	Regime           queuelab.DoseRegime
+	VictimServiceSec int
+	DoseSec          int
+}
+
+// HorizonSec sums the same four terms horizonSec does, for this regime's own dose.
+func (p doseProtocol) HorizonSec() int {
+	return p.DoseSec + p.VictimServiceSec + terminationGraceSec + startupMarginSec
+}
+
+// doseProtocolFor resolves a regime name against the closed set, refusing anything else.
+//
+// An unknown name is an error rather than a fallback to the default, for the reason SenderConnForMode gives
+// for the same shape: silently running the regime the operator did not ask for produces a number nobody
+// would think to question, and the two regimes measure different things.
+func doseProtocolFor(name string) (doseProtocol, error) {
+	switch queuelab.DoseRegime(name) {
+	case queuelab.DoseSelfCompleting:
+		return doseProtocol{queuelab.DoseSelfCompleting, victimServiceSec, doseSec}, nil
+	case queuelab.DoseGraceBounded:
+		return doseProtocol{queuelab.DoseGraceBounded, victimServiceSec, graceBoundedDoseSec}, nil
+	default:
+		return doseProtocol{}, fmt.Errorf("unknown dose regime %q; want %q or %q",
+			name, queuelab.DoseSelfCompleting, queuelab.DoseGraceBounded)
+	}
+}
+
 // horizonFor returns the observation horizon for local iteration, refusing anything short of the protocol's
 // fixed window.
 //
-// A flag that could go below horizonSec would reintroduce the exact truncation this constant exists to rule
-// out, so requested only widens the window and never narrows it.
-func horizonFor(requested time.Duration) (time.Duration, error) {
-	minHorizon := time.Duration(horizonSec) * time.Second
+// A flag that could go below the window would reintroduce the exact truncation the derivation exists to rule
+// out, so requested only widens the window and never narrows it. Zero means "this regime's own window",
+// which is the default: a fixed default computed from one regime's dose would silently truncate the other.
+func horizonFor(requested time.Duration, p doseProtocol) (time.Duration, error) {
+	minHorizon := time.Duration(p.HorizonSec()) * time.Second
+	if requested == 0 {
+		return minHorizon, nil
+	}
 	if requested < minHorizon {
-		return 0, fmt.Errorf("-horizon %s is below the protocol's fixed window %s; "+
-			"the horizon cannot be shortened without truncating the run", requested, minHorizon)
+		return 0, fmt.Errorf("-horizon %s is below the %s window %s; "+
+			"the horizon cannot be shortened without truncating the run", requested, p.Regime, minHorizon)
 	}
 	return requested, nil
 }
@@ -166,6 +213,17 @@ type operatorModeArgs struct {
 	// a run the two would deadlock on each other.
 	TerminationCanary bool
 
+	// DevicePreflight sits beside TerminationCanary for the same reason, and answers the question the canary
+	// structurally cannot: the canary's probes have their device request stripped, so nothing it reports is
+	// about a card. This one keeps the request and asks whether the workload reaches the driver at all.
+	DevicePreflight bool
+
+	// DeviceMetrics and DeviceObserver configure the preflight's observer check, and belong to that mode
+	// alone. They are refused beside the others for the same reason the run-only flags are: an invocation
+	// that names an exporter and then never scrapes it reads to its author as configured.
+	DeviceMetrics  string
+	DeviceObserver string
+
 	ReleaseStale bool
 	TxID         string
 
@@ -234,11 +292,12 @@ const (
 	modeForceRelease
 	modeClearQuarantine
 	modeTerminationCanary
+	modeDevicePreflight
 )
 
-// decideOperatorMode is the pure validation layer for the five non-run modes — the four recovery ones and
-// the termination canary: it decides which mode (if any) was requested and whether the invocation is
-// well-formed, entirely without touching the cluster.
+// decideOperatorMode is the pure validation layer for the six non-run modes — the four recovery ones, the
+// termination canary and the device preflight: it decides which mode (if any) was requested and whether the
+// invocation is well-formed, entirely without touching the cluster.
 //
 // This has to run, in full, before anything that needs a kubeconfig: an operator on a box with no cluster
 // access who mistypes a flag combination must see the flag-combination refusal, not a "kubeconfig: ..."
@@ -249,7 +308,8 @@ const (
 // than fall through). The two are distinguished by err, not by the mode value alone.
 func decideOperatorMode(a operatorModeArgs) (operatorMode, error) {
 	requested := 0
-	for _, on := range []bool{a.Inspect, a.ReleaseStale, a.ForceRelease, a.ClearQuarantine, a.TerminationCanary} {
+	for _, on := range []bool{a.Inspect, a.ReleaseStale, a.ForceRelease, a.ClearQuarantine, a.TerminationCanary,
+		a.DevicePreflight} {
 		if on {
 			requested++
 		}
@@ -260,7 +320,7 @@ func decideOperatorMode(a operatorModeArgs) (operatorMode, error) {
 	if requested > 1 {
 		return modeNone, fmt.Errorf(
 			"only one of -inspect-worker, -release-stale, -force-release, -clear-quarantine, " +
-				"-termination-canary may be given at a time")
+				"-termination-canary, -device-preflight may be given at a time")
 	}
 	// An operator mode is a recovery tool, not a run, so combining one with -arm would let "recover the
 	// node" and "run an arm" be read as a single invocation.
@@ -271,6 +331,13 @@ func decideOperatorMode(a operatorModeArgs) (operatorMode, error) {
 	// that names a run id, an output path, a preview or a horizon and then quietly does none of those things
 	// reads to its author as configured, which is the worst kind of no-op: they will believe the recovery
 	// they just ran was the one they described.
+	// The device flags are the preflight's own, and mean nothing to the five other modes.
+	if !a.DevicePreflight && (a.DeviceMetrics != "" || a.DeviceObserver != "") {
+		return modeNone, fmt.Errorf(
+			"-device-metrics and -device-observer belong to -device-preflight and to a run; no other " +
+				"operator mode scrapes anything, so this invocation would have looked configured while " +
+				"doing nothing of the kind")
+	}
 	if len(a.RunOnlyFlags) > 0 {
 		return modeNone, fmt.Errorf(
 			"an operator mode cannot be combined with %s: a recovery mode ignores every run-only flag, so "+
@@ -287,6 +354,18 @@ func decideOperatorMode(a operatorModeArgs) (operatorMode, error) {
 		// anything — it takes the worker through the ordinary transaction, which refuses a node somebody else
 		// holds, and everything it creates it names and deletes itself.
 		return modeTerminationCanary, nil
+	case a.DevicePreflight:
+		// An endpoint with no identity would be scraped, parsed, and then refused by EstablishesDeviceWork for
+		// a reason about provenance rather than about the card -- after the Pod ran. Refusing here costs the
+		// operator a second instead of a minute, and says the thing worth saying.
+		if a.DeviceMetrics != "" && a.DeviceObserver == "" {
+			return modeNone, fmt.Errorf(
+				"-device-metrics requires -device-observer: an observation whose source cannot be named is " +
+					"refused by the same gate a run uses, so scraping without it can only ever fail")
+		}
+		// No attestation, for the canary's reason: it takes the worker through the ordinary transaction, which
+		// refuses a node somebody else holds, and the one Pod it creates it names and deletes itself.
+		return modeDevicePreflight, nil
 	case a.ReleaseStale:
 		if a.TxID == "" {
 			return modeNone, fmt.Errorf("-release-stale requires -txid")
@@ -346,3 +425,9 @@ func decideOperatorMode(a operatorModeArgs) (operatorMode, error) {
 // The record's own statement of what it cannot speak for is recordUnchecked, in record.go, and it is
 // deliberately not a copy of the roadmap this refusal used to print. See its comment for why one list could
 // not serve both.
+
+// selfCompletingProtocol is the default regime, resolved once so callers cannot assemble a doseProtocol whose
+// dose and horizon disagree by hand.
+func selfCompletingProtocol() doseProtocol {
+	return doseProtocol{queuelab.DoseSelfCompleting, victimServiceSec, doseSec}
+}

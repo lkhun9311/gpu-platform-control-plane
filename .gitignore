@@ -23,6 +23,26 @@ docs/superpowers/*
 !/infra/**/README.md
 !/hack/m6-kind-e2e.md
 !/hack/m5b-gateway-path.md
+!/hack/chaos-fr004-degraded-node.md
+!/hack/observability-kind.md
+!/hack/chaos-fr002-serving-pod-killed.md
+!/hack/chaos-fr002b-backend-fallback.md
+!/hack/argocd-kind.md
+!/hack/kueue-deployment-integration.md
+!/hack/kserve-queue-label-propagation.md
+!/hack/m5d-writeup.md
+!/hack/queuelab-refusal-register.md
+!/hack/m5c-sharing-sizing.md
+!/hack/m5b-vllm-sizing.md
+!/hack/queue-drain-under-load.md
+!/hack/alert-firing-verification.md
+!/hack/queuelab-reclaim-first-result.md
+!/hack/quota-bypass-guard.md
+!/hack/queue-load-under-concurrency.md
+!/hack/queuelab-grace-boundary.md
+!/hack/grace-holds-the-device.md
+!/hack/tenant-writable-fields.md
+!/hack/gpu-session-preregistration.md
 !/docs/0[0-7]*.md
 !/docs/09*.md
 !/docs/10_WHAT_I_GOT_WRONG.md
@@ -89,3 +109,17 @@ Thumbs.db
 
 # stray local build of cmd/queuelabrun, anchored so it cannot also swallow new files under cmd/queuelabrun/
 /queuelabrun
+
+# Raw chaos-run records were excluded here, and queuelab inherited the rule without anyone asking whether it
+# fit. It does not. This lab's thesis is that the record outlives the terminal and that a conclusion nobody
+# can re-derive is prose -- and its records sat outside version control while committed documents told
+# readers to run `queuelabrun -compare 'ex/e14-*.json'` against files that do not ship.
+#
+# It cost what you would expect. A pre-registration fixed the GPU session's baseline at a figure assembled at
+# a shell from records that were then deleted, and the number appears in no record that exists. Git is the
+# notary a pre-registration needs; declining it left half the evidence with an mtime and nothing else.
+#
+# So run records are committed and the rest of ex/ -- scratch output, ad-hoc blobs -- is not. The whole
+# directory is 248 KB.
+ex/*
+!ex/*.json

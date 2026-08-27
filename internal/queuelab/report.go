@@ -24,10 +24,19 @@ import (
 
 // RenderResult renders one arm's reconstruction as text.
 //
-// It lives in the pure package rather than the runner so the rule that matters can be enforced by a test:
-// every admission is printed next to the execution start it does NOT imply. The published result reported
+// It lives in the pure package rather than the runner so the rules that matter can be enforced by tests,
+// and there are two of them now. Both were written after a published result said something the numbers did
+// not support.
+//
+// Every admission is printed next to the execution start it does NOT imply. The published result reported
 // "owner admitted in ~120 ms" while the owner did not begin executing for another 9.4 seconds, and nothing
 // in the code prevented that framing.
+//
+// Every magnitude is printed next to the floor below which this run resolved nothing. The published result
+// subtracted the protocol's own dose from the observed waste and called the 0.94 second remainder the
+// control plane's cost, while the run's observations were spread across two seconds. The floor line makes
+// that subtraction visibly illegitimate on the same screen as the number that invites it, which is the only
+// place it can be caught by someone who is not already looking for it.
 func RenderResult(res LabResult) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "===== RESULT (arm %s) =====\n", res.Arm)
@@ -36,6 +45,7 @@ func RenderResult(res LabResult) string {
 	fmt.Fprintf(&b, "wastedGPUSeconds(attributable)=%.1f lowerBound=%.1f censored=%v\n",
 		res.TotalWastedGPUSeconds, res.TotalWasteLowerBoundGPUSeconds, res.AnyWasteCensored)
 	fmt.Fprintf(&b, "unattributedOccupancyGPUSeconds=%.1f\n", res.TotalUnattributedOccupancyGPUSeconds)
+	b.WriteString(renderFloor(res.Spread))
 	// The run-level occupancy and re-execution count sit in the header because that is the part of a report a
 	// reader carries away; the published run put re-execution nowhere a reader would look.
 	fmt.Fprintf(&b, "totalOccupancyGPUSeconds=%.1f reExecutedRows=%d\n",
@@ -121,4 +131,20 @@ func censoredMark(c bool) string {
 		return " censored"
 	}
 	return ""
+}
+
+// renderFloor states what this run could not see, and is never omitted.
+//
+// An absent line would be read as "no such limit", which is the opposite of what an absent spread means: a
+// run whose events carried no kubelet stamp has NO bound on its intervals at all, and that is a worse
+// position than a known-coarse one, not a better one. So the nil case is the louder of the two.
+func renderFloor(s *ObservationSpread) string {
+	if s == nil {
+		return "observationFloor=UNBOUNDED -- no stop carried a kubelet timestamp to compare against," +
+			" so NO interval above is bounded; treat every magnitude as unverified\n"
+	}
+	return fmt.Sprintf("observationFloor=%s -- differences smaller than this are NOT resolved by this run"+
+		" (skew %s..%s over %d samples, kubelet stamp quantised to %s)\n",
+		time.Duration(s.FloorNs), time.Duration(s.MinNs), time.Duration(s.MaxNs), s.Samples,
+		time.Duration(s.QuantisationNs))
 }

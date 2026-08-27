@@ -80,15 +80,33 @@ func baseScraperConfig(clock clockFunc) scraperConfig {
 // --- Exposition parser -------------------------------------------------------
 
 var _ = Describe("parseKVMetrics", func() {
-	It("parses the committed golden fixture's usage and waiting series", func() {
+	It("parses the two series it reads out of a real captured vLLM scrape", func() {
 		f, err := os.Open("testdata/vllm_metrics_golden.txt")
 		Expect(err).NotTo(HaveOccurred())
 		defer func() { _ = f.Close() }()
 
 		sample, err := parseKVMetrics(f)
 		Expect(err).NotTo(HaveOccurred())
-		Expect(sample.CacheUsage).To(Equal(0.42))
-		Expect(sample.Waiting).To(Equal(5))
+		// The exact bytes a real 0.27.1 server wrote, not values chosen to suit the parser.
+		Expect(sample.CacheUsage).To(Equal(0.0058629534628068525))
+		Expect(sample.Waiting).To(Equal(32))
+	})
+
+	It("reads vllm:num_requests_waiting and not the by_reason family whose name extends it", func() {
+		// 0.27.1 added vllm:num_requests_waiting_by_reason. Its name has the series the guard reads as a
+		// strict prefix, and in the captured scrape its "capacity" series carries the same 32 the guard
+		// wants -- so a prefix-matching reader would look correct here and be wrong the moment the two
+		// diverge. Give the guard only the by_reason family and it must refuse rather than answer 32.
+		text := `# HELP vllm:kv_cache_usage_perc x
+# TYPE vllm:kv_cache_usage_perc gauge
+vllm:kv_cache_usage_perc{engine="0"} 0.5
+# HELP vllm:num_requests_waiting_by_reason x
+# TYPE vllm:num_requests_waiting_by_reason gauge
+vllm:num_requests_waiting_by_reason{engine="0",reason="capacity"} 32.0
+vllm:num_requests_waiting_by_reason{engine="0",reason="deferred"} 0.0
+`
+		_, err := parseKVMetrics(strings.NewReader(text))
+		Expect(err).To(MatchError(ContainSubstring("missing vllm:num_requests_waiting")))
 	})
 
 	It("falls back to the V0 alias when only vllm:gpu_cache_usage_perc is present", func() {
@@ -526,6 +544,170 @@ var _ = Describe("kvAwareAdmitter.Admit", func() {
 
 // --- Scraper manager lifecycle ---------------------------------------------------
 
+var _ = Describe("scraperManager idle eviction", func() {
+	// Unregister existed with no production caller, so every backend ever routed to kept a goroutine, an HTTP
+	// client, a scrape every interval, and a live gauge until the process exited. A deleted or renamed model
+	// left admission_guard_engaged=1 on a machine that no longer exists — a reading of something that is not
+	// there, which is worse than losing the series.
+	//
+	// The clock is injected and sweep is driven directly, so nothing here waits on a ticker.
+	//
+	// Mutation that turns this red: make sweep a no-op, or stamp lastRouted only when a scraper is created.
+	It("stops a scraper nothing has routed to, and removes its gauges", func() {
+		up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(minimalValidMetrics))
+		}))
+		defer up.Close()
+
+		now := time.Now()
+		m := newScraperManager(scraperConfig{
+			scrapeInterval: time.Hour, maxStaleness: time.Hour, httpTimeout: time.Second,
+			idleTimeout: 30 * time.Minute,
+			clock:       func() time.Time { return now },
+		})
+		defer m.Stop()
+
+		// The count is taken against a baseline rather than zero: backendTelemetryFresh is a package-level Vec
+		// shared by every spec in this suite.
+		//
+		// And the wait is on the METRIC, not on snapshotFor. snapshotFor answers true as soon as Register puts
+		// the scraper in the map, which is before its first scrape has published anything — a first version of
+		// this spec waited on it, evicted a backend whose gauge had never been created, and passed while
+		// asserting nothing.
+		baseline := testutil.CollectAndCount(backendTelemetryFresh)
+
+		ref := newTestRef("ns", "b1", up.URL)
+		m.Register(ref)
+		Eventually(func() int {
+			return testutil.CollectAndCount(backendTelemetryFresh)
+		}, 2*time.Second, 10*time.Millisecond).Should(Equal(baseline+1),
+			"the scraper never published a gauge, so there is nothing for eviction to remove")
+
+		// Still inside the window: a sweep must leave it alone, or the eviction is just a timer that fires.
+		now = now.Add(20 * time.Minute)
+		m.sweep()
+		_, ok := m.snapshotFor(backendKey(ref))
+		Expect(ok).To(BeTrue(), "a backend routed to 20 minutes ago was evicted under a 30-minute timeout")
+
+		// Routing to it again must postpone eviction, which is the whole reason Register stamps before its
+		// early return rather than after.
+		m.Register(ref)
+		now = now.Add(20 * time.Minute)
+		m.sweep()
+		_, ok = m.snapshotFor(backendKey(ref))
+		Expect(ok).To(BeTrue(), "re-routing to a live backend did not postpone its eviction")
+
+		now = now.Add(31 * time.Minute)
+		m.sweep()
+		_, ok = m.snapshotFor(backendKey(ref))
+		Expect(ok).To(BeFalse(), "a backend idle past the timeout kept its scraper")
+		Expect(testutil.CollectAndCount(backendTelemetryFresh)).To(Equal(baseline),
+			"the evicted backend's gauge is still being reported for a machine nothing is scraping")
+	})
+})
+
+// The race the first version of sweep had: it read the stale set, released the lock, and only then called
+// Unregister. A request arriving in that window re-registered the backend — stamping lastRouted and returning
+// early because the scraper still existed — and the eviction then stopped a scraper serving live traffic and
+// deleted its gauges.
+//
+// Driven with -race and a Register hammering concurrently, so the assertion is about the invariant rather
+// than about winning a timing lottery: a backend routed to throughout must never lose its scraper.
+//
+// Mutation that turns this red: collect the stale set under the lock, release it, then Unregister.
+// The race the first version of sweep had: it read the stale set, released the lock, and only then called
+// Unregister. A request arriving in that window re-registered the backend — stamping lastRouted and returning
+// early because the scraper still existed — and the eviction then stopped a scraper serving live traffic and
+// deleted its gauges.
+//
+// The interleaving is forced rather than hoped for. Each trial makes the backend genuinely stale, then runs
+// one sweep against a Register spinning beside it. Under the bug the Register lands in the gap, succeeds
+// against the still-present entry, and is undone by the Unregister that follows — leaving NO scraper, which
+// is a state the fixed code cannot reach: there, whichever of the two wins the lock, the backend ends up
+// registered.
+//
+// Mutation that turns this red: collect the stale set under the lock, release it, then Unregister.
+var _ = Describe("scraperManager eviction under concurrent routing", func() {
+	It("never leaves a routed-to backend unregistered", func() {
+		up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(minimalValidMetrics))
+		}))
+		defer up.Close()
+
+		for trial := range 200 {
+			// Atomic because the backend's own scrape loop reads this clock on its own goroutine, so a plain
+			// variable advanced from here is a data race -race reports.
+			var nowNs atomic.Int64
+			nowNs.Store(time.Now().UnixNano())
+			m := newScraperManager(scraperConfig{
+				scrapeInterval: time.Hour, maxStaleness: time.Hour, httpTimeout: time.Second,
+				idleTimeout: time.Minute,
+				clock:       func() time.Time { return time.Unix(0, nowNs.Load()) },
+			})
+			ref := newTestRef("ns", "hot", up.URL)
+
+			m.Register(ref)
+			// Past the idle timeout, so the sweep below genuinely wants to evict it.
+			nowNs.Add(int64(2 * time.Minute))
+
+			var wg sync.WaitGroup
+			wg.Add(2)
+			start := make(chan struct{})
+			go func() { defer wg.Done(); <-start; m.sweep() }()
+			go func() { defer wg.Done(); <-start; m.Register(ref) }()
+			close(start)
+			wg.Wait()
+
+			_, ok := m.snapshotFor(backendKey(ref))
+			m.Stop()
+			Expect(ok).To(BeTrue(),
+				"trial %d: a Register that landed between the stale check and the removal was undone, leaving "+
+					"a backend that is being routed to with no scraper and no gauges", trial)
+		}
+	})
+})
+
+// Shutdown has to survive being called twice and has to end registration, because on this gateway Register
+// runs on the request path: a completion draining after Stop would otherwise start a scraper that outlives
+// every other goroutine in the process.
+//
+// Mutation that turns either of these red: drop the stopped check from Register, or the early return from Stop.
+var _ = Describe("scraperManager shutdown", func() {
+	newStopped := func() (*scraperManager, *BackendRef, *httptest.Server) {
+		up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(minimalValidMetrics))
+		}))
+		m := newScraperManager(scraperConfig{
+			scrapeInterval: time.Hour, maxStaleness: time.Hour, httpTimeout: time.Second,
+			idleTimeout: time.Hour, clock: time.Now,
+		})
+		return m, newTestRef("ns", "late", up.URL), up
+	}
+
+	It("starts no scraper for a request that arrives after Stop", func() {
+		m, ref, up := newStopped()
+		defer up.Close()
+		m.Stop()
+
+		m.Register(ref)
+		_, ok := m.snapshotFor(backendKey(ref))
+		Expect(ok).To(BeFalse(),
+			"a request draining during shutdown started a scraper that nothing will ever stop")
+	})
+
+	It("can be stopped twice", func() {
+		m, _, up := newStopped()
+		defer up.Close()
+		m.Stop()
+		// The second close of janitorStop panicked, which turns an ordinary double-shutdown — a signal
+		// handler and a defer, say — into a crash on the way out.
+		Expect(func() { m.Stop() }).NotTo(Panic())
+	})
+})
+
 var _ = Describe("scraperManager lifecycle", func() {
 	It("Register is idempotent: a second call for the same backend does not start a second scraper", func() {
 		up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -683,3 +865,152 @@ var _ = Describe("kv-aware admission pipeline placement", func() {
 		Expect(rr.Code).To(Equal(http.StatusOK))
 	})
 })
+
+// recordingAdmitter observes what admitCandidates registers and what it meters.
+type recordingAdmitter struct {
+	registered []string
+	metered    []string
+}
+
+func (r *recordingAdmitter) RegisterBackend(b *BackendRef) {
+	r.registered = append(r.registered, b.Name)
+}
+
+func (r *recordingAdmitter) Admit(_ context.Context, _ RequestMeta, b *BackendRef, _, _ string) (bool, string) {
+	r.metered = append(r.metered, b.Name)
+	return true, ""
+}
+
+// statelessRecorder is a recordingAdmitter that declares its Admit free of side effects, and rejects for
+// exactly one named backend so the specs below can put the rejection anywhere in the candidate list.
+type statelessRecorder struct {
+	recordingAdmitter
+	rejectFor string
+}
+
+func (s *statelessRecorder) AdmitIsStateless() {}
+
+func (s *statelessRecorder) Admit(_ context.Context, _ RequestMeta, b *BackendRef, _, _ string) (bool, string) {
+	s.metered = append(s.metered, b.Name)
+	if b.Name == s.rejectFor {
+		return false, "kv_cache_pressure"
+	}
+	return true, ""
+}
+
+// Registration covers every candidate. Which candidates are ASKED depends on whether asking costs anything.
+//
+// Registering only the head meant that when the head went down its scraper hit the same dead Service, its
+// snapshot went stale, and the kv-aware guard — which fails OPEN on staleness — admitted everything, while
+// the spare absorbing all the traffic had no scraper at all. The guard went blind exactly when fallback made
+// it matter, and nothing reported it: every request still succeeded.
+//
+// Asking only the head was the same shape of mistake one level up. The head is the backend TRIED first, not
+// the one that will serve, so a stale head bypassing the guard let the request reach a spare nobody
+// consulted. A stateless admitter is now asked about every candidate and one dissent rejects; a stateful one
+// is still asked once, because static-cap spends tokens per call and billing one request several times would
+// make the arm measure something other than offered load.
+//
+// Mutations that turn these red: register targets[0] only; ask targets[0] only for a stateless admitter; ask
+// every candidate regardless of statelessness; or take the last verdict rather than the first dissent.
+var _ = Describe("admitCandidates", func() {
+	It("registers every candidate and meters only the first, for a stateful admitter", func() {
+		rec := &recordingAdmitter{}
+		targets := []*BackendRef{
+			{Name: "head", Namespace: "ns", Model: "m"},
+			{Name: "spare", Namespace: "ns", Model: "m"},
+		}
+
+		admit, reason := admitCandidates(context.Background(), rec, RequestMeta{Model: "m"}, targets, "t1", "premium")
+
+		Expect(admit).To(BeTrue())
+		Expect(reason).To(BeEmpty())
+		Expect(rec.registered).To(Equal([]string{"head", "spare"}),
+			"a backend that can serve traffic was left without a telemetry scraper")
+		Expect(rec.metered).To(Equal([]string{"head"}),
+			"one request was charged against more than one backend's budget")
+	})
+
+	It("asks a stateless admitter about every candidate", func() {
+		rec := &statelessRecorder{}
+		targets := []*BackendRef{
+			{Name: "head", Namespace: "ns", Model: "m"},
+			{Name: "spare", Namespace: "ns", Model: "m"},
+		}
+
+		admit, _ := admitCandidates(context.Background(), rec, RequestMeta{Model: "m"}, targets, "t1", "standard")
+
+		Expect(admit).To(BeTrue())
+		Expect(rec.metered).To(Equal([]string{"head", "spare"}))
+	})
+
+	// The defect this closes: the head bypasses (stale telemetry, or simply healthy), the request travels to a
+	// spare that is under pressure, and nothing ever asked the spare.
+	It("rejects when a candidate other than the head refuses", func() {
+		rec := &statelessRecorder{rejectFor: "spare"}
+		targets := []*BackendRef{
+			{Name: "head", Namespace: "ns", Model: "m"},
+			{Name: "spare", Namespace: "ns", Model: "m"},
+		}
+
+		admit, reason := admitCandidates(context.Background(), rec, RequestMeta{Model: "m"}, targets, "t1", "standard")
+
+		Expect(admit).To(BeFalse())
+		Expect(reason).To(Equal("kv_cache_pressure"))
+	})
+
+	// Asking stops at the first dissent, so a rejecting head is never overruled by a permissive spare behind
+	// it. Without this a "take the last verdict" implementation would satisfy the two specs above.
+	// The regression the all-candidate change introduced: forwarding tries at most maxBackendAttempts, so a
+	// candidate past that cap can never serve, and letting it vote meant a request could be refused on the
+	// pressure of a machine it would never have reached. The caller caps once and every stage shares the
+	// slice; this asserts the shared slice is what admission sees.
+	It("never consults a candidate the request could not reach", func() {
+		rec := &statelessRecorder{rejectFor: "third"}
+		resolved := []*BackendRef{
+			{Name: "head", Namespace: "ns", Model: "m"},
+			{Name: "spare", Namespace: "ns", Model: "m"},
+			{Name: "third", Namespace: "ns", Model: "m"},
+		}
+
+		admit, _ := admitCandidates(context.Background(), rec, RequestMeta{Model: "m"},
+			capBackendAttempts(resolved), "t1", "standard")
+
+		Expect(admit).To(BeTrue())
+		Expect(rec.metered).To(Equal([]string{"head", "spare"}))
+		Expect(rec.registered).To(Equal([]string{"head", "spare"}),
+			"a scraper was started for a backend no request can reach")
+	})
+
+	It("stops at the first candidate that refuses", func() {
+		rec := &statelessRecorder{rejectFor: "head"}
+		targets := []*BackendRef{
+			{Name: "head", Namespace: "ns", Model: "m"},
+			{Name: "spare", Namespace: "ns", Model: "m"},
+		}
+
+		admit, _ := admitCandidates(context.Background(), rec, RequestMeta{Model: "m"}, targets, "t1", "standard")
+
+		Expect(admit).To(BeFalse())
+		Expect(rec.metered).To(Equal([]string{"head"}))
+	})
+
+	// An admitter that does not register at all must still be metered — off and static-cap do not implement
+	// backendRegistrar, and a type assertion that silently skipped admission would disable those arms.
+	It("meters an admitter that cannot register", func() {
+		plain := admitterFunc(func(context.Context, RequestMeta, *BackendRef, string, string) (bool, string) {
+			return false, "over_budget"
+		})
+		admit, reason := admitCandidates(context.Background(), plain, RequestMeta{Model: "m"},
+			[]*BackendRef{{Name: "only", Model: "m"}}, "t1", "premium")
+		Expect(admit).To(BeFalse())
+		Expect(reason).To(Equal("over_budget"))
+	})
+})
+
+// admitterFunc adapts a function to Admitter without implementing backendRegistrar.
+type admitterFunc func(context.Context, RequestMeta, *BackendRef, string, string) (bool, string)
+
+func (f admitterFunc) Admit(ctx context.Context, m RequestMeta, b *BackendRef, t, tier string) (bool, string) {
+	return f(ctx, m, b, t, tier)
+}

@@ -20,6 +20,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
+	"slices"
 	"sync"
 	"time"
 
@@ -73,6 +75,14 @@ type collector struct {
 	deadline time.Time
 	builder  *queuelab.LedgerBuilder
 
+	// devicePods maps the Pod names a device exporter reports back to the identities the API guarantees.
+	//
+	// It is filled from this collector's own watch rather than a live lookup, because by the time a run is
+	// reconstructed its Pods are gone -- and a live lookup would resolve nothing, or resolve a name that has
+	// since been reused. It is the half of the device observation that the exporter is not allowed to supply:
+	// DCGM says which card and which NAME, and this says which object that name was.
+	devicePods queuelab.PodRegistry
+
 	// streams is this run's view of the cluster, one per watched kind, and is written only by start and read
 	// only by the main goroutine afterwards — the consumer goroutines are handed their own stream and never
 	// look at the slice.
@@ -96,6 +106,17 @@ type kindStream struct {
 	stream *watchStream
 }
 
+// newAnchoredBuilder returns a ledger builder that can date its events in wall-clock terms.
+//
+// The anchor is the run's own t0, so every event's WallUnixNanos is that instant plus the event's monotonic
+// offset. Sampling the wall clock at each observation instead would let two events land out of order in the
+// very field meant to date them.
+func newAnchoredBuilder(t0 time.Time) *queuelab.LedgerBuilder {
+	b := queuelab.NewLedgerBuilder()
+	b.AnchorWallClock(t0)
+	return b
+}
+
 func newCollector(c client.WithWatch, ns, runID string, horizon time.Duration) *collector {
 	t0 := time.Now()
 	return &collector{
@@ -104,7 +125,7 @@ func newCollector(c client.WithWatch, ns, runID string, horizon time.Duration) *
 		runID:    runID,
 		t0:       t0,
 		deadline: t0.Add(horizon),
-		builder:  queuelab.NewLedgerBuilder(),
+		builder:  newAnchoredBuilder(t0),
 		cache:    map[string]queuelab.ObservedObject{},
 		readyAt:  map[string]time.Time{},
 	}
@@ -451,6 +472,12 @@ func (col *collector) handle(kind string, et watch.EventType, obj client.Object)
 
 	uid := string(obj.GetUID())
 	col.cache[uid] = queuelab.ObservedFrom(kind, obj)
+	if kind == kindPod {
+		// Noted on every event rather than only on create, because a Pod observed first through an update --
+		// which a resumed watch delivers -- would otherwise never be resolvable, and every sample naming it
+		// would count as unattributed for the rest of the run.
+		col.devicePods.Note(obj.GetNamespace(), obj.GetName(), uid)
+	}
 
 	state := classify(kind, obj)
 	delta := queuelab.DeltaUpsert
@@ -647,8 +674,12 @@ func barrierHolds(ctx context.Context, c client.Client, ns string, b queuelab.Ba
 	case queuelab.BarrierPending:
 		return phaseIs(ctx, c, ns, b.Job, "Pending")
 	case queuelab.BarrierFlavorUsage:
-		n, err := runningCount(ctx, c, ns)
-		return n >= b.Count, err
+		// Still >=, and deliberately so despite the contract's word "equals". Usage is sampled by polling, so
+		// an exact match can be stepped over between two reads and the barrier would then wait out its whole
+		// deadline on a run that had already reached the state. The contract wording is corrected to say
+		// "reaches" rather than "equals"; the threshold is what was always meant.
+		n, err := flavorUsage(ctx, c, queuelab.FlavorName(col.runID))
+		return n >= int64(b.Count), err
 	case queuelab.BarrierDelayFromReady:
 		col.mu.Lock()
 		ready, ok := col.readyAt[b.Job]
@@ -673,18 +704,35 @@ func phaseIs(ctx context.Context, c client.Client, ns, name, want string) (bool,
 	return mltj.Status.Phase == want, nil
 }
 
-func runningCount(ctx context.Context, c client.Client, ns string) (int, error) {
-	var list platformv1.MLTrainingJobList
-	if err := c.List(ctx, &list, client.InNamespace(ns)); err != nil {
+// flavorUsage returns the GPU total Kueue reports as used against this run's ResourceFlavor.
+//
+// This barrier's contract is that the flavor's OBSERVED usage reached Count, which is what establishes that
+// borrowing took effect before the next step is submitted. The implementation used to sum the declared
+// Spec.GPUCount of MLTrainingJobs this operator had marked Running — three steps removed from the claim:
+// it read our own phase field rather than Kueue's accounting, it counted what a job ASKED for rather than
+// what was charged, and it summed a whole namespace rather than one flavor. Every one of those can hold
+// while Kueue has admitted nothing, and this barrier exists precisely to decide that question.
+//
+// Reading the ClusterQueue's status is the observation the contract already promised.
+func flavorUsage(ctx context.Context, c client.Client, flavor string) (int64, error) {
+	var list kueuev1beta2.ClusterQueueList
+	if err := c.List(ctx, &list); err != nil {
 		return 0, err
 	}
-	n := 0
+	var total int64
 	for i := range list.Items {
-		if list.Items[i].Status.Phase == phaseRunning {
-			n += int(list.Items[i].Spec.GPUCount)
+		for _, fu := range list.Items[i].Status.FlavorsUsage {
+			if string(fu.Name) != flavor {
+				continue
+			}
+			for _, r := range fu.Resources {
+				if r.Name == gpuResourceName {
+					total += r.Total.Value()
+				}
+			}
 		}
 	}
-	return n, nil
+	return total, nil
 }
 
 // submit renders and creates the trace job under its own row's contract, then records its Submitted event.
@@ -697,7 +745,10 @@ func submit(ctx context.Context, c client.Client, col *collector, arm queuelab.A
 	if err != nil {
 		return err
 	}
-	mltj := queuelab.RenderMLTrainingJobWithContract(row, ns, contract)
+	mltj, err := queuelab.RenderMLTrainingJobWithContract(row, ns, contract)
+	if err != nil {
+		return err
+	}
 	if err := c.Create(ctx, mltj); err != nil {
 		return err
 	}
@@ -840,6 +891,19 @@ func applyFixtures(ctx context.Context, c client.Client, fs *queuelab.FixtureSet
 func createOwned(ctx context.Context, c client.Client, o client.Object, txID string) error {
 	err := c.Create(ctx, o)
 	if err == nil {
+		// A successful Create is not proof the stamp landed. controller-runtime decodes the apiserver's
+		// response back into o, so what stands in o now is what admission stored — the same reason
+		// ensureNamespace checks its own object here rather than issuing a second read. An admission plugin
+		// that dropped or rewrote TxLabel would leave an object no teardown of this run can recognise as ours,
+		// and the run would go on to measure inside it.
+		//
+		// A re-read would answer the same question for the cost of another round trip. This does not need one.
+		if got := o.GetLabels()[queuelab.TxLabel]; got != txID {
+			return deleteUnstampedObject(ctx, c, o, fmt.Errorf(
+				"%T %s/%s was created carrying transaction %q rather than this run's %q; an object this "+
+					"run created but cannot recognise as its own is one no teardown of this run will remove",
+				o, o.GetNamespace(), o.GetName(), got, txID))
+		}
 		return nil
 	}
 	if !apierrors.IsAlreadyExists(err) {
@@ -865,5 +929,260 @@ func createOwned(ctx context.Context, c client.Client, o client.Object, txID str
 		return fmt.Errorf("already exists under transaction %q, not this run's %q; "+
 			"clear it before rerunning rather than running inside another attempt's object", got, txID)
 	}
+	// Same transaction is not the same object. The label says who created it; it says nothing about WHAT was
+	// created, and what was created is the mechanism this lab exists to measure. A ClusterQueue adopted here
+	// with a different reclaimWithinCohort would let the run report an arm it never executed — the exact
+	// failure the variant precheck guards for ResourceFlavors, generalised to the specs that carry the knob.
+	if merr := sameMechanism(o, existing); merr != nil {
+		return fmt.Errorf("already exists under this transaction but %w; clear it before rerunning rather than "+
+			"measuring a mechanism this arm did not declare", merr)
+	}
 	return nil
+}
+
+// deleteUnstampedObject removes an object whose stamp did not land, guarded by the UID this run just created.
+//
+// The precondition is what keeps this from deleting somebody else's object of the same name: if the thing on
+// the cluster is no longer the one Create returned, the delete fails rather than widening the blast radius.
+func deleteUnstampedObject(ctx context.Context, c client.Client, created client.Object, cause error) error {
+	uid := created.GetUID()
+	stub, ok := created.DeepCopyObject().(client.Object)
+	if !ok {
+		return fmt.Errorf("%w; and it could not be prepared for deletion", cause)
+	}
+	derr := c.Delete(ctx, stub, client.Preconditions{UID: &uid})
+	// NotFound is the state this function exists to reach, by someone else's hand. Anything else leaves an
+	// object on the cluster under no stamp any teardown can recognise, which needs a pair of hands rather
+	// than the ordinary "the stamp did not land" refusal.
+	if derr != nil && !apierrors.IsNotFound(derr) {
+		return fmt.Errorf("%w; and it could not be deleted: %w — it is on the cluster under no stamp this run's "+
+			"teardown can recognise and has to be removed by hand", cause, derr)
+	}
+	return cause
+}
+
+// sameMechanism reports whether an adopted object still implements the experiment this arm declared.
+//
+// Not whole-spec equality: the apiserver defaults and mutates fields the experiment does not care about, and
+// comparing everything would refuse every adoption for reasons unrelated to what is being measured. What is
+// compared is every field that DEFINES the experiment, enumerated explicitly so that adding a study forces a
+// decision about its knob rather than silently inheriting an incomplete check.
+//
+// The first version compared only the reclaim study's knob and the cohort. It therefore let a StrictFIFO
+// queue satisfy a BestEffortFIFO arm — the exact contamination it existed to prevent, for the OTHER of the
+// two studies, whose one varied knob is queueingStrategy. A check that covers one study's mechanism and not
+// the other's is worse than none, because it reads as coverage.
+func sameMechanism(want, got client.Object) error {
+	switch w := want.(type) {
+	case *kueuev1beta2.ClusterQueue:
+		g, ok := got.(*kueuev1beta2.ClusterQueue)
+		if !ok {
+			return fmt.Errorf("is a %T where a ClusterQueue was expected", got)
+		}
+		return sameClusterQueue(w, g)
+	case *kueuev1beta2.LocalQueue:
+		g, ok := got.(*kueuev1beta2.LocalQueue)
+		if !ok {
+			return fmt.Errorf("is a %T where a LocalQueue was expected", got)
+		}
+		// A LocalQueue pointing at another ClusterQueue routes this arm's jobs into another arm's quota.
+		if w.Spec.ClusterQueue != g.Spec.ClusterQueue {
+			return fmt.Errorf("it points at ClusterQueue %q, not %q", g.Spec.ClusterQueue, w.Spec.ClusterQueue)
+		}
+		// A LocalQueue carries its own stop policy, and a stopped one holds every submission at this end
+		// however healthy the ClusterQueue behind it is.
+		if stopPolicy(w.Spec.StopPolicy) != stopPolicy(g.Spec.StopPolicy) {
+			return fmt.Errorf("its stopPolicy is %q, not the %q this arm declared",
+				stopPolicy(g.Spec.StopPolicy), stopPolicy(w.Spec.StopPolicy))
+		}
+	case *kueuev1beta2.ResourceFlavor:
+		g, ok := got.(*kueuev1beta2.ResourceFlavor)
+		if !ok {
+			return fmt.Errorf("is a %T where a ResourceFlavor was expected", got)
+		}
+		return sameFlavor(w, g)
+	}
+	return nil
+}
+
+// sameClusterQueue compares the fields that decide what a ClusterQueue admits and how it preempts.
+func sameClusterQueue(w, g *kueuev1beta2.ClusterQueue) error {
+	// The FIFO study's ONE varied knob.
+	if w.Spec.QueueingStrategy != g.Spec.QueueingStrategy {
+		return fmt.Errorf("its queueingStrategy is %q, not the %q this arm declared",
+			g.Spec.QueueingStrategy, w.Spec.QueueingStrategy)
+	}
+	// The reclaim study's one varied knob, plus the in-queue policy that decides whether a waiting workload
+	// can displace a running one. Both are preemption behaviour; a run adopting either from another arm
+	// measures that arm.
+	wp, gp := w.Spec.Preemption, g.Spec.Preemption
+	if (wp == nil) != (gp == nil) {
+		return fmt.Errorf("one of the two has no preemption policy at all")
+	}
+	if wp != nil && gp != nil {
+		if wp.ReclaimWithinCohort != gp.ReclaimWithinCohort {
+			return fmt.Errorf("its reclaimWithinCohort is %q, not the %q this arm declared",
+				gp.ReclaimWithinCohort, wp.ReclaimWithinCohort)
+		}
+		if wp.WithinClusterQueue != gp.WithinClusterQueue {
+			return fmt.Errorf("its withinClusterQueue is %q, not the %q this arm declared",
+				gp.WithinClusterQueue, wp.WithinClusterQueue)
+		}
+		// The third preemption knob. It decides whether a workload may preempt in order to keep BORROWING
+		// rather than to fit inside its own nominal quota, which is a distinct behaviour from the two above
+		// and the one the reclaim study's cohort arrangement exists to exercise.
+		if borrowPolicy(wp.BorrowWithinCohort) != borrowPolicy(gp.BorrowWithinCohort) {
+			return fmt.Errorf("its borrowWithinCohort policy is %q, not the %q this arm declared",
+				borrowPolicy(gp.BorrowWithinCohort), borrowPolicy(wp.BorrowWithinCohort))
+		}
+	}
+	// A stopped queue admits nothing at all, so an arm that adopted one would record a run in which the
+	// mechanism under test never ran, with no error anywhere to say so.
+	if stopPolicy(w.Spec.StopPolicy) != stopPolicy(g.Spec.StopPolicy) {
+		return fmt.Errorf("its stopPolicy is %q, not the %q this arm declared",
+			stopPolicy(g.Spec.StopPolicy), stopPolicy(w.Spec.StopPolicy))
+	}
+	// The fixture declares an empty selector, meaning every namespace may submit to this queue. A selector
+	// that is absent or narrowed can exclude this run's own namespace, and Kueue reports that by simply not
+	// admitting: the arm would measure a queue nothing reached.
+	if selectsAllNamespaces(w) != selectsAllNamespaces(g) {
+		return fmt.Errorf("it admits from %s, where this arm declared %s",
+			admittedNamespaceScope(g), admittedNamespaceScope(w))
+	}
+	// Fungibility decides whether a workload waits for its preferred flavor or spills to the next one, which
+	// changes which flavor a run's pods land on and therefore which node.
+	if fungibility(w.Spec.FlavorFungibility) != fungibility(g.Spec.FlavorFungibility) {
+		return fmt.Errorf("its flavorFungibility is %q, not the %q this arm declared",
+			fungibility(g.Spec.FlavorFungibility), fungibility(w.Spec.FlavorFungibility))
+	}
+	// Cohort membership decides who can borrow from whom, which is the whole subject of the reclaim study.
+	if w.Spec.CohortName != g.Spec.CohortName {
+		return fmt.Errorf("it belongs to cohort %q, not %q", g.Spec.CohortName, w.Spec.CohortName)
+	}
+	// Quota is capacity, and capacity decides whether borrowing was ever possible. A queue adopted with a
+	// different nominal quota changes what the run is able to observe before any policy applies.
+	if err := sameQuota(w.Spec.ResourceGroups, g.Spec.ResourceGroups); err != nil {
+		return err
+	}
+	return nil
+}
+
+// The four helpers below render an optional policy field as a single comparable string.
+//
+// Each of these is a pointer or a nested struct where "unset" and "set to the zero value" are different
+// facts, and comparing the pointers directly would compare addresses. Rendering both sides through the same
+// function is also what puts the same spelling in the comparison and in the error message.
+func stopPolicy(p *kueuev1beta2.StopPolicy) string {
+	if p == nil {
+		return "None"
+	}
+	return string(*p)
+}
+
+func borrowPolicy(b *kueuev1beta2.BorrowWithinCohort) string {
+	if b == nil {
+		return "Never"
+	}
+	return string(b.Policy)
+}
+
+func fungibility(f *kueuev1beta2.FlavorFungibility) string {
+	if f == nil {
+		return "default"
+	}
+	return fmt.Sprintf("%s/%s", f.WhenCanBorrow, f.WhenCanPreempt)
+}
+
+// selectsAllNamespaces reports whether the queue's selector matches every namespace, which is what an empty
+// (but present) selector means. A nil selector matches NOTHING, so the two are opposites rather than
+// variations, and the distinction is the whole reason this is not a nil check.
+func selectsAllNamespaces(cq *kueuev1beta2.ClusterQueue) bool {
+	s := cq.Spec.NamespaceSelector
+	return s != nil && len(s.MatchLabels) == 0 && len(s.MatchExpressions) == 0
+}
+
+func admittedNamespaceScope(cq *kueuev1beta2.ClusterQueue) string {
+	if selectsAllNamespaces(cq) {
+		return "every namespace"
+	}
+	if cq.Spec.NamespaceSelector == nil {
+		return "no namespace (its selector is absent)"
+	}
+	return fmt.Sprintf("a restricted set of namespaces (%v)", cq.Spec.NamespaceSelector)
+}
+
+// sameQuota compares covered resources, the flavor each is charged against, and the nominal amounts.
+func sameQuota(want, got []kueuev1beta2.ResourceGroup) error {
+	if len(want) != len(got) {
+		return fmt.Errorf("it declares %d resource groups, not %d", len(got), len(want))
+	}
+	for i := range want {
+		if !slices.Equal(want[i].CoveredResources, got[i].CoveredResources) {
+			return fmt.Errorf("its covered resources are %v, not %v", got[i].CoveredResources, want[i].CoveredResources)
+		}
+		if len(want[i].Flavors) != len(got[i].Flavors) {
+			return fmt.Errorf("it declares %d flavors, not %d", len(got[i].Flavors), len(want[i].Flavors))
+		}
+		for j := range want[i].Flavors {
+			wf, gf := want[i].Flavors[j], got[i].Flavors[j]
+			if wf.Name != gf.Name {
+				return fmt.Errorf("its quota is charged against flavor %q, not %q", gf.Name, wf.Name)
+			}
+			if len(wf.Resources) != len(gf.Resources) {
+				return fmt.Errorf("flavor %q declares %d resources, not %d", wf.Name, len(gf.Resources), len(wf.Resources))
+			}
+			for k := range wf.Resources {
+				wr, gr := wf.Resources[k], gf.Resources[k]
+				if wr.Name != gr.Name {
+					return fmt.Errorf("flavor %q covers %q, not %q", wf.Name, gr.Name, wr.Name)
+				}
+				if wr.NominalQuota.Cmp(gr.NominalQuota) != 0 {
+					return fmt.Errorf("flavor %q gives %q a nominal quota of %s, not %s",
+						wf.Name, wr.Name, gr.NominalQuota.String(), wr.NominalQuota.String())
+				}
+			}
+		}
+	}
+	return nil
+}
+
+// sameFlavor compares the fields that isolate one run's workloads onto its own dedicated node.
+//
+// The variant label on a flavor says which arm it was BUILT for and nothing about whether its isolation is
+// intact. A flavor adopted without its node selector, taint or toleration lets this run's pods land beside
+// another run's, which contaminates every timing the run then reports.
+func sameFlavor(w, g *kueuev1beta2.ResourceFlavor) error {
+	if !maps.Equal(w.Spec.NodeLabels, g.Spec.NodeLabels) {
+		return fmt.Errorf("its nodeLabels are %v, not the %v that pin this run to its own worker",
+			g.Spec.NodeLabels, w.Spec.NodeLabels)
+	}
+	if len(w.Spec.NodeTaints) != len(g.Spec.NodeTaints) {
+		return fmt.Errorf("it carries %d node taints, not %d", len(g.Spec.NodeTaints), len(w.Spec.NodeTaints))
+	}
+	for i := range w.Spec.NodeTaints {
+		wt, gt := w.Spec.NodeTaints[i], g.Spec.NodeTaints[i]
+		if wt.Key != gt.Key || wt.Value != gt.Value || wt.Effect != gt.Effect {
+			return fmt.Errorf("its node taint is %s=%s:%s, not %s=%s:%s",
+				gt.Key, gt.Value, gt.Effect, wt.Key, wt.Value, wt.Effect)
+		}
+	}
+	if len(w.Spec.Tolerations) != len(g.Spec.Tolerations) {
+		return fmt.Errorf("it carries %d tolerations, not %d", len(g.Spec.Tolerations), len(w.Spec.Tolerations))
+	}
+	for i := range w.Spec.Tolerations {
+		wt, gt := w.Spec.Tolerations[i], g.Spec.Tolerations[i]
+		if wt.Key != gt.Key || wt.Value != gt.Value || wt.Effect != gt.Effect {
+			return fmt.Errorf("its toleration is %s=%s:%s, not %s=%s:%s",
+				gt.Key, gt.Value, gt.Effect, wt.Key, wt.Value, wt.Effect)
+		}
+	}
+	return nil
+}
+
+// DevicePods is the resolver a device observer's samples are attributed through.
+//
+// It is exposed rather than passed at construction because the scraper starts after the streams do: the
+// registry has to be filling before the first scrape lands, or the earliest samples resolve to nothing.
+func (col *collector) DevicePods() queuelab.PodResolver {
+	return col.devicePods.Resolve
 }

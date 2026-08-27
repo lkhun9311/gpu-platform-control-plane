@@ -35,6 +35,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
+
+	webhookv1 "github.com/lkhun9311/gpu-mlops-platform-control-plane/internal/webhook/v1"
 	kueuev1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 
 	platformv1 "github.com/lkhun9311/gpu-mlops-platform-control-plane/api/v1"
@@ -212,6 +214,13 @@ func main() {
 		setupLog.Error(err, "Failed to create controller", "controller", "gpuquotapolicy")
 		os.Exit(1)
 	}
+	if err := (&controller.WorkloadRunReconciler{
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "Failed to create controller", "controller", "workloadrun")
+		os.Exit(1)
+	}
 	if err := (&controller.InferenceDeploymentReconciler{
 		Client: mgr.GetClient(),
 		Scheme: mgr.GetScheme(),
@@ -225,6 +234,35 @@ func main() {
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "mltrainingjob")
 		os.Exit(1)
+	}
+	// The webhook is registered only when a certificate was supplied, because the manager cannot serve TLS
+	// without one and would fail to start.
+	//
+	// Its failurePolicy is Fail, so a cluster that has the ValidatingWebhookConfiguration installed but no
+	// running webhook rejects every MLTrainingJob write. That is the correct direction for this rule: it
+	// exists to stop writes that are silently ignored, and a rule that disappears when the server is down
+	// would go missing exactly when the cluster is least healthy.
+	if len(webhookCertPath) > 0 {
+		if err := webhookv1.SetupMLTrainingJobWebhookWithManager(mgr); err != nil {
+			setupLog.Error(err, "Failed to create webhook", "webhook", "mltrainingjob")
+			os.Exit(1)
+		}
+		// The Pod guard is what makes the tenant GPU budget a boundary rather than a convention. Without it a
+		// Pod created directly, with a device request and no queue, is admitted by nobody and counted by
+		// nobody — demonstrated on this cluster before the guard existed.
+		if err := webhookv1.SetupGPUPodWebhookWithManager(mgr); err != nil {
+			setupLog.Error(err, "Failed to create webhook", "webhook", "gpupod")
+			os.Exit(1)
+		}
+		// Refusing the Pod is too late: Kueue admits a Job by looking at the Job, and a Job whose Pods are
+		// rejected keeps its admission and holds quota while running nothing.
+		if err := webhookv1.SetupGPUJobWebhookWithManager(mgr); err != nil {
+			setupLog.Error(err, "Failed to create webhook", "webhook", "gpujob")
+			os.Exit(1)
+		}
+	} else {
+		setupLog.Info("No webhook certificate supplied; MLTrainingJob admission validation is NOT running, " +
+			"and neither is the GPU quota guard — a Pod can take a device without passing through a queue")
 	}
 	// +kubebuilder:scaffold:builder
 

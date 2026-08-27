@@ -41,10 +41,31 @@ const (
 	// same trap forceQuarantine's comment names. This record exists so the next operator can tell a run that
 	// is legitimately in flight from one that finished and could not remove its namespace.
 	residueKey       = "queuelab.gpu-platform/residue"
-	journalSchema    = 1
+	journalSchema    = 3
 	quarantineSchema = 1
 	residueSchema    = 1
 )
+
+// ownerRun and ownerCanary are the two things that can hold a worker, and they recover by different routes:
+// a run regenerates fixtures from its study, variant and namespace; the canary names two Pods from its id.
+const (
+	ownerRun    = "run"
+	ownerCanary = "canary"
+)
+
+// ownerIdentity is what acquisition writes into the journal, and it is a union over the two holders rather
+// than the run's own seed. Passing the seed made the canary invent a study and a variant it does not have.
+type ownerIdentity struct {
+	Kind      string
+	TxID      string
+	RunID     string
+	Arm       string
+	Namespace string
+	// Study and Variant are set for ownerRun; CanaryID for ownerCanary.
+	Study    string
+	Variant  string
+	CanaryID string
+}
 
 // installedTuple is exactly what this transaction wrote, so release can prove nothing moved before it
 // removes anything.
@@ -57,12 +78,37 @@ type installedTuple struct {
 // journal identifies the transaction by a generated TxID rather than the human run id, because a reused
 // run id is already a known confound and must not be able to authorise a release.
 type journal struct {
-	Schema    int            `json:"schema"`
-	TxID      string         `json:"txID"`
-	RunID     string         `json:"runID"`
-	Arm       string         `json:"arm"`
-	Node      string         `json:"node"`
-	NodeUID   string         `json:"nodeUID"`
+	Schema  int    `json:"schema"`
+	TxID    string `json:"txID"`
+	RunID   string `json:"runID"`
+	Arm     string `json:"arm"`
+	Node    string `json:"node"`
+	NodeUID string `json:"nodeUID"`
+	// Kind says WHAT holds this worker, and it exists because the two holders recover differently.
+	//
+	// A run's objects regenerate from Study, Variant and Namespace through the fixture builder. The canary
+	// builds no fixtures at all: it creates two Pods whose names are derived from its own id, inside a SHARED
+	// namespace that must never be deleted. A first attempt gave the canary synthetic study and variant
+	// values purely to satisfy this document's non-empty checks — which made the journal look recoverable
+	// while enumerate failed on it every time, the precise defect this whole record exists to prevent.
+	Kind string `json:"kind"`
+	// CanaryID is set for ownerCanary only, and is enough to rebuild both probe names.
+	CanaryID string `json:"canaryID,omitempty"`
+	// Study, Variant and Namespace are here so that teardown can be reconstructed from the NODE alone.
+	//
+	// The teardown seed was documented as durable and written before the first fixture is created. It was
+	// neither: it lived as a local variable handed to an in-process defer, so a crash between acquiring the
+	// worker and finishing the run left fixtures on the cluster and a node marked, with nothing durable
+	// naming what to delete. enumerate refuses a seed missing any of these — correctly, since an empty
+	// RunID makes a flavor name that can match an unrelated run's leftovers — so recovery could not even be
+	// attempted.
+	//
+	// They are written in the SAME patch that takes ownership, because a second write is a second place to
+	// crash: the gap this closes is precisely the interval between two writes.
+	// Study and Variant are set for ownerRun only.
+	Study     string         `json:"study,omitempty"`
+	Variant   string         `json:"variant,omitempty"`
+	Namespace string         `json:"namespace"`
 	TakenAt   string         `json:"takenAt"`
 	Installed installedTuple `json:"installed"`
 }
@@ -94,12 +140,34 @@ func decodeJournal(s string) (journal, error) {
 	}
 	for name, v := range map[string]string{
 		"txID": j.TxID, "runID": j.RunID, "arm": j.Arm, "node": j.Node, "nodeUID": j.NodeUID,
+		"kind": j.Kind, "namespace": j.Namespace,
 		"installed.labelValue": j.Installed.LabelValue, "installed.taintValue": j.Installed.TaintValue,
 		"installed.taintEffect": string(j.Installed.TaintEffect),
 	} {
 		if v == "" {
 			return journal{}, fmt.Errorf("decode journal: %s is empty", name)
 		}
+	}
+	// Checked per kind rather than across the union, because a field required of one holder and meaningless
+	// to the other cannot be validated by one list without forcing somebody to write a placeholder — which is
+	// exactly what the canary was made to do, and what made its journal read as recoverable when it was not.
+	switch j.Kind {
+	case ownerRun:
+		if j.Study == "" || j.Variant == "" {
+			return journal{}, fmt.Errorf("decode journal: a %s journal needs study and variant to regenerate "+
+				"its fixtures, and this one has study=%q variant=%q", ownerRun, j.Study, j.Variant)
+		}
+	case ownerCanary:
+		if j.CanaryID == "" {
+			return journal{}, fmt.Errorf("decode journal: a %s journal needs canaryID to name its probe Pods",
+				ownerCanary)
+		}
+		if j.Study != "" || j.Variant != "" {
+			return journal{}, fmt.Errorf("decode journal: a %s journal carries study=%q variant=%q; the canary "+
+				"builds no fixtures, so these describe nothing", ownerCanary, j.Study, j.Variant)
+		}
+	default:
+		return journal{}, fmt.Errorf("decode journal: kind %q is neither %s nor %s", j.Kind, ownerRun, ownerCanary)
 	}
 	return j, nil
 }
@@ -276,7 +344,8 @@ func observe(n *corev1.Node) ownership {
 // taking the object beside the reduction gave one fact two sources in the function that decides who owns a
 // GPU worker: a caller that reduced one node and passed another would record a journal naming a node the
 // decision was not made about. decideForce, decideClear and decideRelease all take obs alone.
-func decideAcquire(obs ownership, txID, runID, arm, takenAt string) (journal, error) {
+func decideAcquire(obs ownership, id ownerIdentity, takenAt string) (journal, error) {
+	txID, runID, arm := id.TxID, id.RunID, id.Arm
 	if obs.QuarantineRaw != "" {
 		return journal{}, refuse(reasonQuarantined,
 			"node %s carries a quarantine record; clear it deliberately before any run", obs.NodeName)
@@ -307,13 +376,18 @@ func decideAcquire(obs ownership, txID, runID, arm, takenAt string) (journal, er
 			obs.NodeName)
 	}
 	return journal{
-		Schema:  journalSchema,
-		TxID:    txID,
-		RunID:   runID,
-		Arm:     arm,
-		Node:    obs.NodeName,
-		NodeUID: obs.NodeUID,
-		TakenAt: takenAt,
+		Schema:    journalSchema,
+		TxID:      txID,
+		RunID:     runID,
+		Arm:       arm,
+		Node:      obs.NodeName,
+		NodeUID:   obs.NodeUID,
+		Kind:      id.Kind,
+		CanaryID:  id.CanaryID,
+		Study:     id.Study,
+		Variant:   id.Variant,
+		Namespace: id.Namespace,
+		TakenAt:   takenAt,
 		Installed: installedTuple{
 			LabelValue:  runID,
 			TaintValue:  runID,

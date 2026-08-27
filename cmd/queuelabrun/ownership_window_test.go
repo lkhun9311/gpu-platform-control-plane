@@ -128,8 +128,7 @@ func awaitVersions(t *testing.T, s *ownershipSentinel, n int) {
 // ownershipSentinel.observe (or make it return before recording). The window then counts node versions,
 // reports the hold as unbroken, and the run publishes a number measured on a shared machine.
 func TestOwnershipWindowSeesATaintStrippedAndRestored(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	stripped := heldWorker(t, "1001")
 	stripped.Spec.Taints = nil
@@ -166,8 +165,7 @@ func TestOwnershipWindowSeesATaintStrippedAndRestored(t *testing.T) {
 // `if err == nil && len(obs.AllTaints) != len(obs.Taints) { err = refuse(reasonInstalledDiverged, "…") }`.
 // Every run on a node the operator's own controller touches is then invalid.
 func TestOwnershipWindowIgnoresUnrelatedLabelsAndTaints(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	drifted := heldWorker(t, "1001", operatorTaint())
 	drifted.Labels["someone-elses/label"] = "true"
@@ -194,8 +192,7 @@ func TestOwnershipWindowIgnoresUnrelatedLabelsAndTaints(t *testing.T) {
 // (`j := s.j; j.NodeUID = obs.NodeUID; verifyInstalled(obs, j)`) — a plausible-looking simplification that
 // keeps every marker check and silently stops noticing that the machine changed underneath the run.
 func TestOwnershipWindowSeesTheWorkerReplacedUnderTheSameName(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	recreated := heldWorker(t, "1001")
 	recreated.UID = types.UID("uid-a-different-machine")
@@ -221,8 +218,7 @@ func TestOwnershipWindowSeesTheWorkerReplacedUnderTheSameName(t *testing.T) {
 // The deletion then folds as an ordinary version, passes, and the window reports an unbroken hold on a node
 // that no longer exists.
 func TestOwnershipWindowSeesTheWorkerDeleted(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	gone := heldWorker(t, "1001")
 	s, _ := sentinelOnScript(ctx, t, heldWorker(t, "1000"),
@@ -258,8 +254,7 @@ func TestOwnershipWindowSeesTheWorkerDeleted(t *testing.T) {
 // than that: running against this client-go, it cannot tell a bookmark swallowed inside RetryWatcher from one
 // forwarded and dropped by the name guard, so it asserts only that feeding one produces no violation.
 func TestOwnershipWindowIgnoresOtherNodesAndBookmarks(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	other := &corev1.Node{ObjectMeta: metav1.ObjectMeta{
 		Name: "platform-worker2", UID: types.UID("uid-other"), ResourceVersion: "1001"}}
@@ -351,8 +346,7 @@ func TestOwnershipWindowInvalidatesWhenTheViewEndsOnItsOwn(t *testing.T) {
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			ctx, cancel := context.WithCancel(context.Background())
-			defer cancel()
+			ctx := t.Context()
 
 			s, _ := sentinelOnScript(ctx, t, heldWorker(t, "1000"), tc.open...)
 			defer s.Close()
@@ -377,8 +371,7 @@ func TestOwnershipWindowInvalidatesWhenTheViewEndsOnItsOwn(t *testing.T) {
 // Mutation that turns this red: make ownershipSentinel.consume record reasonWindowLost for any ending rather
 // than only for the two the caller did not cause.
 func TestOwnershipWindowClosedByTheRunIsNotAViolation(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	held := watch.NewFake()
 	defer held.Stop()
@@ -405,8 +398,7 @@ func TestOwnershipWindowClosedByTheRunIsNotAViolation(t *testing.T) {
 // startOwnershipSentinel. NodeVersionsObserved is then 0 on a healthy run, which is a window that compared
 // nothing reporting that nothing deviated.
 func TestOwnershipWindowOpensFromTheBaselineAndReadsTheWorkerOnce(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	held := watch.NewFake()
 	defer held.Stop()
@@ -442,8 +434,7 @@ func TestOwnershipWindowOpensFromTheBaselineAndReadsTheWorkerOnce(t *testing.T) 
 // Mutation that turns this red: in startOwnershipSentinel, log the Get failure and return the sentinel with
 // a nil error.
 func TestStartOwnershipSentinelRefusesAWorkerItCannotRead(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	c := fake.NewClientBuilder().WithScheme(fullScheme(t)).WithObjects(heldWorker(t, "1000")).
 		WithInterceptorFuncs(interceptor.Funcs{
@@ -496,8 +487,7 @@ func TestStartOwnershipSentinelRefusesAWorkerItCannotRead(t *testing.T) {
 // startOwnershipSentinel. The refusal then arrives at the end of the run instead of before it, as a lost
 // window rather than as an unopened one, and this test's own call returns a healthy sentinel.
 func TestStartOwnershipSentinelRefusesAViewThatNeverAttaches(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	forbidden := apierrors.NewForbidden(schema.GroupResource{Resource: "nodes"}, "",
 		errors.New("no watch permission"))
@@ -540,8 +530,7 @@ func TestStartOwnershipSentinelRefusesAViewThatNeverAttaches(t *testing.T) {
 // bound) or drop the ViolationsObserved counter (the count then agrees with the truncated list and the
 // record understates what happened).
 func TestOwnershipWindowCapsTheDetailAndNeverTheCount(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	versions := make([]*corev1.Node, 0, windowViolationCap+5)
 	for i := range windowViolationCap + 5 {

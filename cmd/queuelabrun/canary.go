@@ -169,13 +169,26 @@ const canaryProbeDurationSec = 600
 //
 // The row is synthetic and its name and tenant are irrelevant: only the image and the command come out of it,
 // and both are functions of the contract and the duration alone.
-func harnessTerminationContract() canaryContract {
+func harnessTerminationContract() (canaryContract, error) {
 	row := queuelab.TrainingTraceRow{
 		Index: 0, Name: "termination-canary", Tenant: "canary",
 		GPUCount: 1, DurationSec: canaryProbeDurationSec,
 	}
-	honor := queuelab.RenderMLTrainingJobWithContract(row, canaryNamespace, queuelab.HonorsSIGTERM)
-	ignore := queuelab.RenderMLTrainingJobWithContract(row, canaryNamespace, queuelab.IgnoresSIGTERM)
+	// The errors are propagated rather than discarded, even though both arguments are constants of this
+	// package and the renderer's only failure is an unknown contract.
+	//
+	// An earlier version dropped them and dereferenced the results on the next line. That was safe on the
+	// arguments as written and stops being safe the moment the renderer grows a rule — a nil-pointer panic in
+	// an operator command, arriving through a path nothing tests because it "cannot happen". Returning the
+	// error costs one line at each caller and removes the class.
+	honor, err := queuelab.RenderMLTrainingJobWithContract(row, canaryNamespace, queuelab.HonorsSIGTERM)
+	if err != nil {
+		return canaryContract{}, fmt.Errorf("render the honouring probe: %w", err)
+	}
+	ignore, err := queuelab.RenderMLTrainingJobWithContract(row, canaryNamespace, queuelab.IgnoresSIGTERM)
+	if err != nil {
+		return canaryContract{}, fmt.Errorf("render the ignoring probe: %w", err)
+	}
 	return canaryContract{
 		Image:            honor.Spec.Image,
 		HonorCommand:     honor.Spec.Command,
@@ -184,7 +197,7 @@ func harnessTerminationContract() canaryContract {
 		GraceSec:         terminationGraceSec,
 		HonorExitCode:    honorExitCode,
 		PodTemplateHash:  podTemplateHashOf(renderedPodTemplate(templateProbeJob())),
-	}
+	}, nil
 }
 
 // templateProbeJob is the MLTrainingJob the operator's renderer is keyed AT.
@@ -384,6 +397,18 @@ type canaryKey struct {
 	// exactly as it was before this field existed, and no key computed in this process can reach that; only
 	// submitting an MLTrainingJob and reading back the Job the cluster's own operator produced can.
 	PodTemplateHash string `json:"podTemplateHash"`
+	// OperatorImageID is the digest of the image the controller-manager is actually running.
+	//
+	// It closes the gap PodTemplateHash could not. That hash is a constant of THIS BINARY: it fingerprints
+	// the template this build's BuildJob renders, so a harness built at HEAD against a cluster running a
+	// stale manager hashes a template nobody ran, matches itself, and qualifies. The digest is a fact about
+	// the cluster, like NodeUID beside it, and keying on it means a canary taken under one manager image
+	// cannot qualify a run under another.
+	//
+	// Empty is allowed and means the manager could not be identified -- during a rollout, or with two
+	// Running managers on different digests. A canary taken then keys on empty and matches only another run
+	// that also could not tell, which is the correct amount of suspicion for that state.
+	OperatorImageID string `json:"operatorImageID,omitempty"`
 }
 
 // canaryKeyFor builds the key a run requires of a recorded qualification: this build's mechanism, on this
@@ -393,8 +418,9 @@ type canaryKey struct {
 // it is a REQUIREMENT: 30 is what spine.go's horizon is built on, and a recorded qualification taken under a
 // cluster that defaulted something else must not match, which is precisely what happens when the recorded
 // key carries what was observed and this one carries what is needed.
-func canaryKeyFor(n *corev1.Node, c canaryContract) canaryKey {
+func canaryKeyFor(n *corev1.Node, c canaryContract, operatorImageID string) canaryKey {
 	return canaryKey{
+		OperatorImageID:  operatorImageID,
 		Image:            c.Image,
 		HonorCommand:     c.HonorCommand,
 		IgnoreCommand:    c.IgnoreCommand,
@@ -672,6 +698,18 @@ func keyDifferences(want, got canaryKey) []string {
 			"expected exit code: this run's honouring workload exits %d, the recorded qualification looked for %d",
 			want.HonorExitCode, got.HonorExitCode))
 	}
+	if want.OperatorImageID != got.OperatorImageID {
+		// Named separately from the template hash, and the pair is the point. The hash says what THIS BINARY
+		// renders; this says what the cluster's manager is actually running. A mismatch on the hash means the
+		// operator's code changed and the reading must be re-taken; a mismatch here means the code may be
+		// identical and the cluster is running a different build of it — the case a mutable `controller:latest`
+		// tag produces, and the one the hash alone could never see, because a harness built at HEAD against a
+		// stale manager hashes a template nobody ran and matches itself.
+		diffs = append(diffs, fmt.Sprintf(
+			"operator image: this run's cluster is running %q, the recorded qualification was taken while it "+
+				"ran %q; the Pods this run measures are rendered by that image, so the reading describes a "+
+				"different mechanism", want.OperatorImageID, got.OperatorImageID))
+	}
 	if want.PodTemplateHash != got.PodTemplateHash {
 		// Named as a change to the OPERATOR rather than as a mismatched hash, because the two send an operator to
 		// different places: nothing is wrong with the reading or with the node, and what moved is a file in this
@@ -694,7 +732,7 @@ func keyDifferences(want, got canaryKey) []string {
 //
 // Every refusal below names what was expected and what was found, and every one of them ends the run before
 // it creates anything, which is the shape the capacity gate established.
-func checkTerminationCanary(n *corev1.Node, c canaryContract) (*canaryReference, error) {
+func checkTerminationCanary(n *corev1.Node, c canaryContract, operatorImageID string) (*canaryReference, error) {
 	raw := n.Annotations[canaryAnnotationKey]
 	if raw == "" {
 		return nil, fmt.Errorf(
@@ -717,7 +755,7 @@ func checkTerminationCanary(n *corev1.Node, c canaryContract) (*canaryReference,
 	// truth is "that reading is about a different machine", not "this cluster cannot stop a Pod". Tested the
 	// other way round, that stale document produced the most alarming sentence this file can print, and it was
 	// also the one branch that offered no way forward.
-	want := canaryKeyFor(n, c)
+	want := canaryKeyFor(n, c, operatorImageID)
 	if matched, diffs := canaryKeyMatches(want, q.Key); !matched {
 		var b strings.Builder
 		fmt.Fprintf(&b, "its termination canary was taken on a different combination than this run needs "+

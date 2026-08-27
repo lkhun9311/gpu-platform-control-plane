@@ -47,7 +47,21 @@ const (
 	gpuQuotaFinalizer = "gpuquotapolicy.platform.lkhun9311.github.io/finalizer"
 
 	// conditionSynced reports whether the namespace ResourceQuota matches the policy.
-	conditionSynced     = "Synced"
+	conditionSynced = "Synced"
+	// conditionAdmitting reports whether the Kueue ClusterQueue this policy owns can actually admit work.
+	//
+	// It exists because Synced answers a narrower question than a reader assumes: it says the objects were
+	// WRITTEN. A ClusterQueue can be written exactly as specified and still admit nothing — most obviously
+	// when the shared ResourceFlavor it references is absent, which Kueue reports as Active=False
+	// FlavorNotFound. That happened on a live cluster: the policy read Synced=True, phase=Synced, and every
+	// training Job submitted to it sat suspended forever with the tenant's quota apparently in place.
+	//
+	// Two facts, two conditions. Collapsing them means the only signal a reader has cannot distinguish a
+	// quota that exists from a quota that works.
+	conditionAdmitting  = "Admitting"
+	reasonQueueActive   = "ClusterQueueActive"
+	reasonQueueInactive = "ClusterQueueInactive"
+	reasonQueueUnread   = "ClusterQueueUnreadable"
 	reasonQuotaSynced   = "QuotaSynced"
 	reasonQuotaConflict = "QuotaConflict"
 
@@ -79,6 +93,7 @@ type GPUQuotaPolicyReconciler struct {
 // +kubebuilder:rbac:groups=platform.lkhun9311.github.io,resources=gpuquotapolicies/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=platform.lkhun9311.github.io,resources=gpuquotapolicies/finalizers,verbs=update
 // +kubebuilder:rbac:groups="",resources=resourcequotas,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch;patch
 
 // Reconcile syncs a namespace ResourceQuota from the GPUQuotaPolicy: the GPU ceiling is enforced as a hard requests.nvidia.com/gpu limit, kept in sync against drift, and removed on deletion.
 func (r *GPUQuotaPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -134,6 +149,24 @@ func (r *GPUQuotaPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		return ctrl.Result{}, nil
 	}
 
+	// Turn the admission guards on for this namespace BEFORE syncing any ceiling into it.
+	//
+	// The order is the argument, and it is the opposite of the convenient one. Syncing a quota into a
+	// namespace where the guards are off publishes a ceiling that a bare Pod walks straight past -- measured,
+	// not supposed: a Pod asking for two devices ran in a namespace with a synced policy and no Kueue
+	// Workload behind it. Doing the enforcement first means the worst case of a half-finished reconcile is a
+	// guarded namespace with no ceiling yet, rather than a ceiling nobody has to respect.
+	//
+	// A failure here fails the whole reconcile rather than degrading, and that is deliberate. The obvious
+	// alternative -- carry on and record a condition -- reproduces exactly the state this exists to end: a
+	// policy that reads Synced while the bypass it was written to close is open. A missing RBAC grant is
+	// loud, diagnosable and fixed once; a silently unguarded namespace is none of those.
+	if err := r.ensureNamespaceEnforced(ctx, policy.Spec.TargetNamespace); err != nil {
+		return r.markDegraded(ctx, &policy, "EnforcementNotApplied", fmt.Sprintf(
+			"could not mark namespace %q as GPU-quota-enforced, so this policy's ceiling would not be "+
+				"enforced against direct device requests: %v", policy.Spec.TargetNamespace, err))
+	}
+
 	// Sync the namespace ResourceQuota for any non-training quota, then the Kueue ClusterQueue for training quota.
 	//
 	// A conflict or a create race in the ResourceQuota sync short-circuits this reconcile.
@@ -165,6 +198,15 @@ func (r *GPUQuotaPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		Message:            syncedMessage,
 		ObservedGeneration: policy.Generation,
 	})
+	// Reported only for a policy that has a queue at all. Without training quota the GPU ceiling is the
+	// namespace ResourceQuota, which admits nothing and is not supposed to.
+	if policy.Spec.TrainingQuota {
+		cond := r.admittingCondition(ctx, &policy)
+		cond.ObservedGeneration = policy.Generation
+		meta.SetStatusCondition(&desired.Conditions, cond)
+	} else {
+		meta.RemoveStatusCondition(&desired.Conditions, conditionAdmitting)
+	}
 
 	if !equality.Semantic.DeepEqual(policy.Status, *desired) {
 		policy.Status = *desired
@@ -287,6 +329,43 @@ func (r *GPUQuotaPolicyReconciler) markDegraded(ctx context.Context, policy *pla
 	return ctrl.Result{RequeueAfter: time.Minute}, nil
 }
 
+// admittingCondition asks the ClusterQueue whether it can admit, and reports its answer verbatim.
+//
+// Kueue's own Active condition is the authority and its reason is carried through unchanged rather than
+// reworded: an operator searching for "FlavorNotFound" should find it here, and a reason this controller
+// invented would be one more string to correlate.
+//
+// An unreadable queue is reported as not admitting rather than as an error on the reconcile. The policy's
+// other guarantees still hold and failing the whole reconcile would hide them behind a read that may recover
+// on its own; what must not happen is the condition silently staying True from a previous pass.
+func (r *GPUQuotaPolicyReconciler) admittingCondition(ctx context.Context, policy *platformv1.GPUQuotaPolicy) metav1.Condition {
+	name := kueueQueueName(policy.Spec.Tenant)
+	var cq kueuev1beta1.ClusterQueue
+	if err := r.Get(ctx, types.NamespacedName{Name: name}, &cq); err != nil {
+		return metav1.Condition{
+			Type: conditionAdmitting, Status: metav1.ConditionFalse, Reason: reasonQueueUnread,
+			Message: fmt.Sprintf("could not read ClusterQueue %s: %v", name, err),
+		}
+	}
+	active := meta.FindStatusCondition(cq.Status.Conditions, "Active")
+	if active == nil {
+		return metav1.Condition{
+			Type: conditionAdmitting, Status: metav1.ConditionFalse, Reason: reasonQueueInactive,
+			Message: fmt.Sprintf("ClusterQueue %s has not reported whether it is active", name),
+		}
+	}
+	if active.Status != metav1.ConditionTrue {
+		return metav1.Condition{
+			Type: conditionAdmitting, Status: metav1.ConditionFalse, Reason: reasonQueueInactive,
+			Message: fmt.Sprintf("ClusterQueue %s admits nothing: %s: %s", name, active.Reason, active.Message),
+		}
+	}
+	return metav1.Condition{
+		Type: conditionAdmitting, Status: metav1.ConditionTrue, Reason: reasonQueueActive,
+		Message: fmt.Sprintf("ClusterQueue %s is admitting", name),
+	}
+}
+
 // setQuotaPhase updates the phase and bumps lastTransitionTime only when the phase changes.
 func setQuotaPhase(status *platformv1.GPUQuotaPolicyStatus, phase string) {
 	if status.Phase == phase {
@@ -306,4 +385,35 @@ func (r *GPUQuotaPolicyReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Owns(&kueuev1beta1.LocalQueue{}).
 		Named("gpuquotapolicy").
 		Complete(r)
+}
+
+// ensureNamespaceEnforced stamps the guard's selector label on the policy's target namespace.
+//
+// It patches rather than updates so it cannot clobber labels it did not write, and it reads first so the
+// ordinary steady-state reconcile issues no write at all -- this runs on every reconcile of every policy,
+// and an unconditional patch would be a write per reconcile forever.
+//
+// It never REMOVES the label, including when a policy is deleted. That asymmetry is deliberate: turning
+// enforcement off is the operation that re-opens a bypass, and it would fire on a policy deleted by mistake,
+// on a finalizer race, or on any reconcile that saw a stale cache. Leaving a namespace guarded after its
+// policy is gone costs a refusal message that names a ClusterQueue nobody is using; removing it costs the
+// guarantee. An operator who genuinely wants the namespace unguarded can remove one label by hand, which is
+// the correct amount of friction for that direction.
+func (r *GPUQuotaPolicyReconciler) ensureNamespaceEnforced(ctx context.Context, name string) error {
+	var ns corev1.Namespace
+	if err := r.Get(ctx, types.NamespacedName{Name: name}, &ns); err != nil {
+		return fmt.Errorf("read namespace %q: %w", name, err)
+	}
+	if ns.Labels[platformv1.QuotaEnforcedLabel] == platformv1.QuotaEnforcedValue {
+		return nil
+	}
+	patch := client.MergeFrom(ns.DeepCopy())
+	if ns.Labels == nil {
+		ns.Labels = map[string]string{}
+	}
+	ns.Labels[platformv1.QuotaEnforcedLabel] = platformv1.QuotaEnforcedValue
+	if err := r.Patch(ctx, &ns, patch); err != nil {
+		return fmt.Errorf("label namespace %q: %w", name, err)
+	}
+	return nil
 }

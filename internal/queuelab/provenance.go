@@ -18,6 +18,8 @@ package queuelab
 
 import (
 	"fmt"
+	"strconv"
+	"strings"
 
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -41,6 +43,55 @@ type ObservedState struct {
 	Invalid bool
 	// InvalidReason explains the invalidation.
 	InvalidReason string
+	// ComponentStampUnixNanos is the CLUSTER COMPONENT's own wall clock for the state this observation
+	// describes: the kubelet's finishedAt for a stopped container, the kubelet's Ready condition transition
+	// for a running one, Kueue's Admitted condition transition for an admission.
+	//
+	// It used to be finished-only, and that narrowness was a measurement defect rather than a naming one.
+	// The spread between this stamp and the collector's arrival time is what bounds how finely an interval
+	// can be read — and every interval this lab publishes has endpoints that are NOT container stops. The
+	// headline is admission to running, so neither of its endpoints was sampled, and the bound derived from
+	// stop events was being applied to intervals it did not describe. Two reviewers found it independently.
+	//
+	// Every source is quantised to the second, because metav1.Time serialises RFC3339 without fractions. The
+	// arithmetic that turns these into a bound lives in resolution.go and accounts for that.
+	//
+	// A pointer, because an observation whose component published no timestamp must not read as one stamped
+	// at the epoch.
+	ComponentStampUnixNanos *int64
+	// ExitCode is the terminated container's status, and it is what tells one kind of stop from another.
+	//
+	// Reason carries the Pod PHASE, which is "Failed" both for a workload that honoured SIGTERM and exited
+	// promptly and for one that ignored it and was SIGKILLed at the end of the grace period. Those are the two
+	// arms of this experiment, so a ledger that records only the phase cannot say which of them it observed —
+	// the termination canary distinguishes them by exit status (143 against 137) and the run itself could not.
+	//
+	// It is a pointer because "no terminated container status to read" is a different fact from "exited 0",
+	// and nil is the only honest spelling of the first.
+	ExitCode *int32
+	// Iterations is how much work the container had completed when it stopped, read out of the same terminated
+	// status the exit code comes from.
+	//
+	// It is what turns a discarded GPU-second into a discarded UNIT OF WORK. Without it the waste figure says
+	// how long a device was held and nothing about what was lost, and a workload that computed nothing looks
+	// exactly like one that saturated the card.
+	//
+	// nil for the same reason ExitCode is: a status that could not be read, or a message that does not carry a
+	// count, is a different fact from zero iterations.
+	Iterations *int
+	// WorkloadKind and DeviceStatus are the workload's own account of WHICH loop produced Iterations, read
+	// out of the same terminated status message.
+	//
+	// They exist because the count alone cannot tell a device run from a CPU run: both paths increment it,
+	// both finish healthy, and a card the scheduler reserved and nothing touched produces the same plausible
+	// figures as one that computed. Without this the harness could only assert device work from an EXTERNAL
+	// observer, which is a claim about the exporter as much as about the card -- and a fake exporter was made
+	// to satisfy it.
+	//
+	// Both are closed-set tokens or empty. A message this build cannot parse into a known pair yields all
+	// three fields empty rather than a guess, because the message is a channel the workload controls.
+	WorkloadKind string
+	DeviceStatus string
 }
 
 // ClassifyWorkload reads a Workload's conditions into the authoritative admission/preemption state.
@@ -64,7 +115,8 @@ func ClassifyWorkload(wl *kueuev1beta2.Workload) ObservedState {
 		}
 	}
 	if admitted, _ := conditionTrue(wl.Status.Conditions, kueuev1beta2.WorkloadAdmitted); admitted && wl.Status.Admission != nil {
-		return ObservedState{Event: EventAdmitted, Reason: kueuev1beta2.WorkloadAdmitted}
+		return ObservedState{Event: EventAdmitted, Reason: kueuev1beta2.WorkloadAdmitted,
+			ComponentStampUnixNanos: conditionStamp(wl.Status.Conditions, kueuev1beta2.WorkloadAdmitted)}
 	}
 	return ObservedState{}
 }
@@ -99,10 +151,14 @@ func ClassifyJob(job *batchv1.Job) ObservedState {
 // measured to it would undercount exactly the grace window this event exists to capture.
 func ClassifyPod(pod *corev1.Pod) ObservedState {
 	if pod.Status.Phase == corev1.PodSucceeded || pod.Status.Phase == corev1.PodFailed {
-		return ObservedState{Event: EventAttemptStopped, Reason: string(pod.Status.Phase)}
+		code, iters, finished, kind, device := soleTerminated(pod)
+		return ObservedState{Event: EventAttemptStopped, Reason: string(pod.Status.Phase),
+			ExitCode: code, Iterations: iters, ComponentStampUnixNanos: finished,
+			WorkloadKind: kind, DeviceStatus: device}
 	}
 	if pod.Status.Phase == corev1.PodRunning && podConditionTrue(pod, corev1.PodReady) {
-		return ObservedState{Event: EventPodReady, Reason: string(corev1.PodReady)}
+		return ObservedState{Event: EventPodReady, Reason: string(corev1.PodReady),
+			ComponentStampUnixNanos: podConditionStamp(pod, corev1.PodReady)}
 	}
 	return ObservedState{}
 }
@@ -125,4 +181,143 @@ func podConditionTrue(pod *corev1.Pod, condType corev1.PodConditionType) bool {
 		}
 	}
 	return false
+}
+
+// soleTerminated returns the exit status and iteration count when exactly one container terminated, and nil otherwise.
+//
+// The ambiguity is refused rather than resolved by picking a container, because this package has no way to
+// know which one carried the workload: the trace's Pods have a single container today, and a template that
+// grew a sidecar would make any choice here a guess presented as a measurement. nil then reports that the
+// stop was observed but its kind could not be established, which is a weaker claim than a number and the
+// only true one.
+func soleTerminated(pod *corev1.Pod) (code *int32, iters *int, finished *int64, kind, device string) {
+	for i := range pod.Status.ContainerStatuses {
+		t := pod.Status.ContainerStatuses[i].State.Terminated
+		if t == nil {
+			continue
+		}
+		if code != nil {
+			return nil, nil, nil, "", ""
+		}
+		c := t.ExitCode
+		code = &c
+		iters, kind, device = ReportFromMessage(t.Message)
+		if !t.FinishedAt.IsZero() {
+			f := t.FinishedAt.UnixNano()
+			finished = &f
+		}
+	}
+	return code, iters, finished, kind, device
+}
+
+// Workload kind tokens, as the workload spells them in its own report.
+//
+// They are exported because the record's provenance block is derived from them and its writer must not keep
+// a second copy: a workload change that edited one spelling and not the other would leave the contradiction
+// check comparing against a kind nothing emits, which is guarding nothing while looking like a guard.
+const (
+	// KindCPUFloat is the fallback loop: pure Python arithmetic that makes no driver call.
+	KindCPUFloat = "cpu-float"
+	// KindCUDAFMA is the device loop: a PTX kernel launched through the CUDA driver API.
+	KindCUDAFMA = "cuda-fma"
+)
+
+// DeviceOK is the only device status that means a kernel actually ran.
+const DeviceOK = "ok"
+
+// deviceStatuses is every device-path outcome the workload can report, one per call it makes.
+//
+// The set is closed and each member sends a reader somewhere different: no-libcuda is a base image or a
+// container runtime that never injected the driver, no-device is a card that was not passed through,
+// ptx-load-failed is a kernel this driver would not JIT, and launch-failed-midrun is a card that worked and
+// then stopped. Collapsing them into a bool would turn every one of those into the same shrug.
+var deviceStatuses = map[string]bool{
+	DeviceOK: true, "not-attempted": true, "no-libcuda": true, "cuinit-failed": true, "no-device": true,
+	"ctx-failed": true, "ptx-load-failed": true, "no-kernel": true, "alloc-failed": true,
+	"memset-failed": true, "launch-failed": true, "launch-failed-midrun": true,
+}
+
+// ReportFromMessage reads the workload's own account out of the terminated status message.
+//
+// It is exported because the device preflight reads the same sentence from a Pod it applied directly, without
+// a ledger anywhere: one parser for one wire format, so a preflight that passes cannot be followed by a run
+// whose collector reads the same container differently.
+//
+// The kubelet copies /dev/termination-log there, and the workload rewrites that file from inside its loop, so
+// this arrives even for a container SIGKILLed at the grace boundary -- the arm whose discarded work the
+// experiment is about, and the one that can print no final line because SIGKILL cannot be handled.
+//
+// Anything that is not exactly the expected shape yields nothing rather than a guess, and the count is
+// refused ALONGSIDE the tokens rather than kept. They are three readings of one sentence: a message this
+// build cannot parse is a message whose iteration count it also has no reason to trust, and keeping the
+// number from a sentence whose other half was unintelligible is how a measurement gets invented from
+// whatever happened to be in a file.
+//
+// The two tokens are checked against each other, not just against their own sets. dev=ok means a kernel
+// launched, so it cannot appear beside the CPU fallback; and the device kind can only carry ok or the
+// mid-run failure, because every earlier failure returns before the kind is set. A pair outside that
+// relation was not written by this workload.
+func ReportFromMessage(msg string) (iters *int, kind, device string) {
+	fields := strings.Fields(strings.TrimSpace(msg))
+	if len(fields) != 3 {
+		return nil, "", ""
+	}
+	n, err := strconv.Atoi(strings.TrimPrefix(fields[0], "iters="))
+	if !strings.HasPrefix(fields[0], "iters=") || err != nil || n < 0 {
+		return nil, "", ""
+	}
+	if !strings.HasPrefix(fields[1], "kind=") || !strings.HasPrefix(fields[2], "dev=") {
+		return nil, "", ""
+	}
+	k := strings.TrimPrefix(fields[1], "kind=")
+	d := strings.TrimPrefix(fields[2], "dev=")
+	if !deviceStatuses[d] {
+		return nil, "", ""
+	}
+	switch {
+	case k == KindCPUFloat && d != DeviceOK:
+	case k == KindCUDAFMA && (d == DeviceOK || d == "launch-failed-midrun"):
+	default:
+		return nil, "", ""
+	}
+	return &n, k, d
+}
+
+// conditionStamp is the component's own transition time for a metav1 condition, or nil when it published none.
+//
+// Kueue writes lastTransitionTime on the Admitted condition, so this is Kueue's clock for the admission
+// rather than the collector's clock for hearing about it. That distinction is the entire reason the field
+// exists: an interval between two arrival times carries the difference of their delivery lags, and nothing
+// bounds that difference unless both endpoints can be compared against the component that produced them.
+func conditionStamp(conditions []metav1.Condition, condType string) *int64 {
+	for i := range conditions {
+		if conditions[i].Type != condType {
+			continue
+		}
+		if conditions[i].LastTransitionTime.IsZero() {
+			return nil
+		}
+		ns := conditions[i].LastTransitionTime.UnixNano()
+		return &ns
+	}
+	return nil
+}
+
+// podConditionStamp is conditionStamp for a Pod's own condition type, which uses a different struct.
+//
+// The kubelet writes lastTransitionTime on the Ready condition, so this is the kubelet's clock for the
+// container becoming ready — the far endpoint of the owner's wait, and the one that went unsampled while the
+// harness bounded that wait with the spread of container STOPS.
+func podConditionStamp(pod *corev1.Pod, condType corev1.PodConditionType) *int64 {
+	for i := range pod.Status.Conditions {
+		if pod.Status.Conditions[i].Type != condType {
+			continue
+		}
+		if pod.Status.Conditions[i].LastTransitionTime.IsZero() {
+			return nil
+		}
+		ns := pod.Status.Conditions[i].LastTransitionTime.UnixNano()
+		return &ns
+	}
+	return nil
 }

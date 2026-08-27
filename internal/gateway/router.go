@@ -21,9 +21,9 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"slices"
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	platformv1 "github.com/lkhun9311/gpu-mlops-platform-control-plane/api/v1"
 )
@@ -79,7 +79,7 @@ func olderInfD(a, b *platformv1.InferenceDeployment) bool {
 	return a.CreationTimestamp.Before(&b.CreationTimestamp)
 }
 
-// backendFor resolves the requested model to the Service URL of the InferenceDeployment serving it, or ErrNoRoute if none does.
+// backendsFor resolves the requested model to every InferenceDeployment serving it, ordered head first, or ErrNoRoute if none does.
 //
 // Design rationale (design spec Components section): the lookup goes through the ModelNameIndex field index on the cache, so it needs no CR field selector and no per-request apiserver call.
 //
@@ -88,7 +88,8 @@ func olderInfD(a, b *platformv1.InferenceDeployment) bool {
 // Design rationale (design spec Identity model section): nothing stops two InferenceDeployments from serving the same model.
 //
 // Requests must not bounce between backends in that case, so exactly one is chosen by a deterministic rule (oldest wins, ties break on ascending name) and the duplicate is logged.
-func (s *Server) backendFor(ctx context.Context, policy *platformv1.GPUQuotaPolicy, model string) (*BackendRef, error) {
+// backendsFor returns every backend serving the model, ordered, head first.
+func (s *Server) backendsFor(ctx context.Context, policy *platformv1.GPUQuotaPolicy, model string) ([]*BackendRef, error) {
 	var list platformv1.InferenceDeploymentList
 	if err := s.Client.List(ctx, &list,
 		client.InNamespace(policy.Spec.TargetNamespace),
@@ -99,31 +100,40 @@ func (s *Server) backendFor(ctx context.Context, policy *platformv1.GPUQuotaPoli
 		return nil, ErrNoRoute
 	}
 
-	// Pick the oldest of the matches; the loop above guarantees at least one item.
-	oldest := &list.Items[0]
+	// Sorted oldest-first, and the ORDER is the routing policy rather than a tidiness detail.
+	//
+	// A second deployment serving the same model used to be logged as an operator problem and then discarded.
+	// It is the ordinary shape of a served model — a rollout, a second replica set, a spare — and discarding it
+	// meant a request failed whenever the one chosen backend was down, while a healthy alternative sat one
+	// list entry away. The head stays exactly what it was, so a single-backend model routes identically and no
+	// existing behaviour moves; the tail is what fallback walks.
+	//
+	// Oldest-first rather than newest, because a request must resolve deterministically across gateway
+	// replicas: two gateways picking different heads for the same model would make latency depend on which
+	// one a client happened to reach.
+	sorted := make([]*platformv1.InferenceDeployment, 0, len(list.Items))
 	for i := range list.Items {
-		if olderInfD(&list.Items[i], oldest) {
-			oldest = &list.Items[i]
+		sorted = append(sorted, &list.Items[i])
+	}
+	slices.SortFunc(sorted, func(a, b *platformv1.InferenceDeployment) int {
+		switch {
+		case olderInfD(a, b):
+			return -1
+		case olderInfD(b, a):
+			return 1
+		default:
+			return 0
 		}
+	})
+	refs := make([]*BackendRef, 0, len(sorted))
+	for _, d := range sorted {
+		port := servingPort(d)
+		// The controller names the Service after the InferenceDeployment in the same namespace, so the in-cluster address is http://<name>.<namespace>.svc:<port>.
+		u, err := url.Parse(fmt.Sprintf("http://%s.%s.svc:%d", d.Name, d.Namespace, port))
+		if err != nil {
+			return nil, fmt.Errorf("parse backend url: %w", err)
+		}
+		refs = append(refs, &BackendRef{Namespace: d.Namespace, Name: d.Name, Port: port, URL: u, Model: model})
 	}
-
-	// A duplicate is an operator-visible problem, but the request itself resolves deterministically, so warn rather than fail.
-	if len(list.Items) > 1 {
-		log.FromContext(ctx).Info("multiple InferenceDeployments for model; using oldest",
-			"model", model, "chosen", oldest.Name)
-	}
-
-	port := servingPort(oldest)
-	// The controller names the Service after the InferenceDeployment in the same namespace, so the in-cluster address is http://<name>.<namespace>.svc:<port>.
-	u, err := url.Parse(fmt.Sprintf("http://%s.%s.svc:%d", oldest.Name, oldest.Namespace, port))
-	if err != nil {
-		return nil, fmt.Errorf("parse backend url: %w", err)
-	}
-	return &BackendRef{
-		Namespace: oldest.Namespace,
-		Name:      oldest.Name,
-		Port:      port,
-		URL:       u,
-		Model:     model,
-	}, nil
+	return refs, nil
 }

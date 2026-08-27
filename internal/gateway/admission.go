@@ -93,6 +93,15 @@ func tierForPolicy(policy *platformv1.GPUQuotaPolicy) string {
 // Design rationale (design spec Config and API section): distinct from the RPM limiter's "rate_limited" code, since the two answer different questions (request rate vs offered input-token volume) and a client needs to tell them apart to know what to back off on.
 const reasonInputRateLimit = "input_rate_limit"
 
+// reasonInputExceedsBurst is reported when a request's estimated input can never fit the bucket at all.
+//
+// rate.Limiter.AllowN refuses n > burst unconditionally: the bucket never holds that many tokens, so no
+// amount of waiting changes the answer. Reporting that as input_rate_limit told the caller their request was
+// momentarily over budget and gave them a five-second Retry-After, so a well-behaved client retried a request
+// that was arithmetically impossible to admit, forever. It is a size problem, not a timing one, and the only
+// action that resolves it is a smaller prompt.
+const reasonInputExceedsBurst = "input_exceeds_burst"
+
 // offAdmitter always admits.
 //
 // It is the implementation behind AdmissionOff, the default mode, so a gateway that never configures admission control behaves exactly as it did before this guard existed.
@@ -175,6 +184,13 @@ func (a *staticCapAdmitter) Admit(_ context.Context, meta RequestMeta, backend *
 	eligible := tier == tierStandard && meta.EstInputTokens >= a.longThreshold
 	if !eligible {
 		return true, ""
+	}
+
+	// Checked before AllowN rather than inferred from its refusal, because the two are indistinguishable
+	// afterwards: AllowN returns false both for a bucket that is momentarily empty and for a request larger
+	// than the bucket will ever hold.
+	if meta.EstInputTokens > a.burst {
+		return false, reasonInputExceedsBurst
 	}
 
 	limiter := a.limiterFor(backendKey(backend))

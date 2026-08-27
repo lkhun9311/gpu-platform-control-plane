@@ -39,6 +39,25 @@ import (
 // for this, and it does not export the constant.
 const gpuResourceName = corev1.ResourceName("nvidia.com/gpu")
 
+// surplusOccupierLabel marks a Pod deployed to hold devices the protocol must NOT have.
+//
+// The contrast this study measures is physical card scarcity -- the owner's Pod waits because the victim
+// holds the only free device -- so a node carrying more devices than the protocol needs destroys it
+// silently. No rentable instance carries exactly two well-supported cards, and the device plugin has no
+// supported way to advertise a subset: config/nvidia-device-plugin/daemonset.yaml tried and records why
+// that probably does not work. So the surplus is HELD, and this label is how the gate tells a Pod holding
+// devices to keep the node scarce from a foreign tenant holding them to compute.
+//
+// The KEY is the marker and the value is not read. That is not laxity, it is what Kubernetes allows: a
+// label value must be alphanumeric with dashes, underscores and dots, so the prose this comment originally
+// proposed to put there is rejected by the API server outright -- which the session script duly hit the
+// first time it was run against a real cluster, and which its own unit fixture had not caught because a
+// fake client does not validate. Anything a session wants to say about WHY belongs in an annotation.
+//
+// A Pod holding devices WITHOUT this key is a foreign tenant and refuses the run, which is the behaviour
+// that must not change.
+const surplusOccupierLabel = "queuelab.gpu-platform/surplus-occupier"
+
 // gpuConsumer is one Pod already holding devices on the worker, in the spelling the run record persists.
 //
 // The phase and the terminating flag are both carried because they are what tells an operator which cluster
@@ -80,7 +99,14 @@ type qualification struct {
 	// the available amount BECAUSE GPUConsumers below is empty; the two fields are one claim, and a reader who
 	// has one without the other has been told nothing about what this run could actually schedule.
 	AllocatableGPU int64 `json:"allocatableGPU"`
-	RequiredGPU    int64 `json:"requiredGPU"`
+	// OccupiedGPU is how many of those devices were held OUT of the experiment by a surplus occupier.
+	//
+	// It is recorded because a reader comparing two runs has to be able to see that one measured a node with
+	// two devices and the other a node with four, two of them pinned -- those are the same experiment only
+	// if the pinning worked, and this is where the document says whether it did. AllocatableGPU minus this
+	// is what the run could actually schedule, and the gate requires that to equal the requirement exactly.
+	OccupiedGPU int64 `json:"occupiedGPU,omitempty"`
+	RequiredGPU int64 `json:"requiredGPU"`
 	// RequiredFrom names where the requirement came from, because a bare number invites exactly the hard-coded
 	// constant this derivation exists to avoid: a later reader has to be able to tell whether 2 was computed
 	// from this run's own fixtures or typed in by somebody who knew what the cluster happened to have. It
@@ -101,6 +127,25 @@ type qualification struct {
 	// cluster does not use. A run that inspected fourteen Pods and found none holding a device has established
 	// something; a run that inspected zero has established that it looked in an empty place.
 	PodsOnNode int `json:"podsOnNode"`
+	// GPUConsumersElsewhere names device holders on OTHER nodes, and it is recorded rather than gated on.
+	//
+	// Nothing about them can stop this run: they hold no capacity this worker owns. What they do is make two
+	// records comparable or not. A node comparison in this lab was run with the platform's own serving
+	// workload up on one side and scaled to zero on the other, because the second node could not be held
+	// exclusively until it was — so the node and the cluster's occupancy varied together and the result
+	// attributed to the node was confounded. Nothing in the record said so, and nothing could have: the
+	// qualification looked only at the worker.
+	GPUConsumersElsewhere []gpuConsumer `json:"gpuConsumersElsewhere,omitempty"`
+	// OperatorImageID is the image the controller-manager is ACTUALLY running, by digest.
+	//
+	// The measured Pods are rendered by that image, and until now nothing in a record identified it. The
+	// canary fingerprints a Pod template rendered by THIS BINARY, so a harness built at HEAD against a
+	// cluster running a stale manager would hash a template nobody ran, match itself, and qualify. Recording
+	// the digest makes that visible; the canary key uses it so it also refuses.
+	//
+	// Empty when the manager could not be identified, which is a fact worth keeping rather than a zero to
+	// paper over: it means the run cannot say what rendered its workloads.
+	OperatorImageID string `json:"operatorImageID,omitempty"`
 	// GPUConsumers is empty on every qualified run, which is why it is omitempty: a record carrying one is
 	// always a record of a refusal.
 	GPUConsumers []gpuConsumer `json:"gpuConsumers,omitempty"`
@@ -285,7 +330,7 @@ func holdsDevices(p *corev1.Pod) bool {
 // is acquired and before the run's first Create, so ownership of everything found here is decided by
 // position rather than by a label filter — and a filter keyed on this attempt's transaction id would be a
 // filter that can never match, which is worse than none because it reads as a check.
-func gpuConsumersOn(pods []corev1.Pod, node string) (consumers []gpuConsumer, onNode int) {
+func gpuConsumersOn(pods []corev1.Pod, node string) (consumers []gpuConsumer, onNode int, occupied int64) {
 	for i := range pods {
 		p := &pods[i]
 		if p.Spec.NodeName != node {
@@ -299,6 +344,12 @@ func gpuConsumersOn(pods []corev1.Pod, node string) (consumers []gpuConsumer, on
 		if n == 0 {
 			continue
 		}
+		if _, held := p.Labels[surplusOccupierLabel]; held {
+			// Held to keep the node scarce, not to compute on. Counted so the record can say how many
+			// devices were excluded rather than measured, and kept out of the foreign-tenant list.
+			occupied += n
+			continue
+		}
 		consumers = append(consumers, gpuConsumer{
 			Namespace:   p.Namespace,
 			Name:        p.Name,
@@ -307,7 +358,7 @@ func gpuConsumersOn(pods []corev1.Pod, node string) (consumers []gpuConsumer, on
 			GPUs:        n,
 		})
 	}
-	return consumers, onNode
+	return consumers, onNode, occupied
 }
 
 // nodeReady reports whether the node's Ready condition is True.
@@ -345,11 +396,12 @@ func nodeReady(n *corev1.Node) bool {
 func qualify(n *corev1.Node, pods []corev1.Pod, req gpuRequirement, contract canaryContract) (qualification,
 	error) {
 	allocatable := n.Status.Allocatable[gpuResourceName]
-	consumers, onNode := gpuConsumersOn(pods, n.Name)
+	consumers, onNode, occupied := gpuConsumersOn(pods, n.Name)
 	q := qualification{
 		Node:            n.Name,
 		NodeUID:         string(n.UID),
 		AllocatableGPU:  allocatable.Value(),
+		OccupiedGPU:     occupied,
 		RequiredGPU:     req.Total,
 		RequiredFrom:    req.From,
 		RequiredBoundBy: req.BoundBy,
@@ -358,12 +410,16 @@ func qualify(n *corev1.Node, pods []corev1.Pod, req gpuRequirement, contract can
 		PodsOnNode:      onNode,
 		GPUConsumers:    consumers,
 	}
+	// Set before the canary is consulted, because its key now includes the digest: a canary checked against
+	// an empty operator image would match a reading taken under a known one.
+	q.GPUConsumersElsewhere = gpuConsumersOffNode(pods, n.Name)
+	q.OperatorImageID = operatorImageID(pods)
 
 	// The canary is consulted here, alongside the capacity checks and not before them, so that a worker with
 	// three things wrong with it still reports all three in one refusal. The reference is attached whenever it
 	// matched, on the same principle the block's other fields follow: what was observed goes into the record
 	// whichever way the verdict went.
-	canary, cerr := checkTerminationCanary(n, contract)
+	canary, cerr := checkTerminationCanary(n, contract, q.OperatorImageID)
 	q.TerminationCanary = canary
 
 	var failed []string
@@ -373,11 +429,49 @@ func qualify(n *corev1.Node, pods []corev1.Pod, req gpuRequirement, contract can
 	if !q.Schedulable {
 		failed = append(failed, "it is cordoned (spec.unschedulable), so nothing this run submits can land on it")
 	}
-	if q.AllocatableGPU < req.Total {
+	// EXACTLY the requirement, not at least it. The direction that is obviously dangerous is too few
+	// devices; the direction that quietly destroys the experiment is too many.
+	//
+	// The contrast this lab publishes is physical card scarcity. In every recorded run the owner becomes
+	// Ready one to two seconds AFTER the victim's terminal phase, in both arms -- the owner's Pod is
+	// admitted by Kueue within 0.1 s of the preemption decision and then waits for a card. The 29-second arm
+	// difference IS that wait. On a node advertising two spare devices the owner's Pod binds at admission in
+	// both arms, the wait collapses to a container start on each side, and the difference falls below the
+	// floor while every other figure looks normal.
+	//
+	// That failure is not detectable afterwards. It produces a plausible, internally consistent record set,
+	// and the preregistration's third refutation condition would read it as the session's marquee discovery:
+	// "if driver cleanup dominates and both arms converge, the termination contract stops mattering." The
+	// harness would have manufactured its own most interesting result out of the instance type.
+	//
+	// What makes a four-card instance measurable is not this gate but the surplus OCCUPIER it recognises: a
+	// Pod labelled surplusOccupierLabel holds the devices the protocol must not have, hack/gpu-session.sh
+	// applies one per worker, and the count above is what the run can actually schedule rather than what the
+	// node advertises.
+	//
+	// This comment used to send a reader to config/nvidia-device-plugin, on the grounds that it "restricts
+	// which devices the plugin exposes". Two reviews established that it almost certainly does not -- the
+	// manifest now carries the evidence against itself -- and the retraction reached the refusal string and
+	// not this paragraph beside it. That is the third time a retraction has been written where the claim was
+	// noticed rather than everywhere it appears.
+	available := q.AllocatableGPU - q.OccupiedGPU
+	switch {
+	case available < req.Total:
 		failed = append(failed, fmt.Sprintf(
-			"it advertises %d allocatable %s and this run needs %d, bound by the %s (%s); the arm would "+
-				"complete against a smaller machine and report the contrast it never produced",
-			q.AllocatableGPU, gpuResourceName, req.Total, req.BoundBy, req.From))
+			"it advertises %d allocatable %s with %d held by a surplus occupier, leaving %d, and this run "+
+				"needs %d, bound by the %s (%s); the arm would complete against a smaller machine and report "+
+				"the contrast it never produced",
+			q.AllocatableGPU, gpuResourceName, q.OccupiedGPU, available, req.Total, req.BoundBy, req.From))
+	case available > req.Total:
+		failed = append(failed, fmt.Sprintf(
+			"it advertises %d allocatable %s with %d held by a surplus occupier, leaving %d schedulable, and "+
+				"this run needs exactly %d, bound by the %s (%s). The spare %d would absorb the owner's Pod "+
+				"the moment Kueue admits it, so the owner would never wait for the victim's card and the arm "+
+				"difference this study measures would collapse below the floor -- while every other figure "+
+				"looked normal. Hold the surplus with a Pod labelled %s (hack/gpu-session.sh applies one) "+
+				"rather than trusting the instance type",
+			q.AllocatableGPU, gpuResourceName, q.OccupiedGPU, available, req.Total, req.BoundBy, req.From,
+			available-req.Total, surplusOccupierLabel))
 	}
 	if len(consumers) > 0 {
 		// Every field below came out of the apiserver and this sentence is printed straight to an operator's
@@ -437,4 +531,59 @@ func qualifyWorker(ctx context.Context, c client.Client, nodeName string,
 	}
 	q, err := qualify(&n, pods.Items, req, contract)
 	return &q, err
+}
+
+// gpuConsumersOffNode names device holders anywhere but the run's own worker.
+//
+// It is the complement of gpuConsumersOn, and it exists for comparability rather than for admission: two
+// runs taken with different workloads holding devices elsewhere in the cluster are two runs on two different
+// machines, whatever their own node looked like.
+func gpuConsumersOffNode(pods []corev1.Pod, node string) []gpuConsumer {
+	var out []gpuConsumer
+	for i := range pods {
+		p := &pods[i]
+		if p.Spec.NodeName == node || !holdsDevices(p) {
+			continue
+		}
+		n := podGPURequest(&p.Spec)
+		if n == 0 {
+			continue
+		}
+		out = append(out, gpuConsumer{
+			Namespace:   p.Namespace,
+			Name:        p.Name,
+			Phase:       string(p.Status.Phase),
+			Terminating: p.DeletionTimestamp != nil,
+			GPUs:        n,
+		})
+	}
+	return out
+}
+
+// operatorImageID is the resolved digest of the image the controller-manager is running, or "" when no
+// single manager Pod can be identified.
+//
+// It reads imageID rather than image because the tag is mutable and the whole point is to pin what actually
+// ran: `controller:latest` names one thing today and another tomorrow, and the Makefile's default IMG is
+// exactly that tag. Ambiguity returns empty rather than a guess — two managers Ready at once during a
+// rollout is a real state, and picking one of them would record a digest that rendered only half the run's
+// Pods.
+func operatorImageID(pods []corev1.Pod) string {
+	var found string
+	for i := range pods {
+		p := &pods[i]
+		if p.Labels["control-plane"] != "controller-manager" || p.Status.Phase != corev1.PodRunning {
+			continue
+		}
+		for _, cs := range p.Status.ContainerStatuses {
+			if cs.Name != "manager" || cs.ImageID == "" {
+				continue
+			}
+			if found != "" && found != cs.ImageID {
+				return ""
+			}
+			found = cs.ImageID
+		}
+	}
+	return found
 }
