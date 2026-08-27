@@ -27,6 +27,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -268,6 +269,7 @@ func report(args []string) error {
 	// Group rows and per-file p99 repetitions by arm, and capture each arm's frozen provenance.
 	byArm := map[string][]bench.RawRow{}
 	repP99 := map[string][]float64{}
+	repTail := map[string][]int{}
 	armChecksum := map[string]string{}
 	armTolerance := map[string]float64{}
 	for _, path := range rawFiles {
@@ -285,7 +287,15 @@ func report(args []string) error {
 		}
 		arm := rows[0].Arm
 		byArm[arm] = append(byArm[arm], rows...)
-		repP99[arm] = append(repP99[arm], bench.Summarize(arm, rows).TTFTMsP99)
+		// Keep the whole per-repetition summary, not just its p99.
+		//
+		// This line used to discard everything except TTFTMsP99, which is how a truncated repetition became
+		// invisible: the pooled arm summary sums every row, so three healthy repetitions carry a fourth whose
+		// p99 is a maximum over thirty requests -- and the bootstrap then resamples that fourth value with
+		// equal weight.
+		rs := bench.Summarize(arm, rows)
+		repP99[arm] = append(repP99[arm], rs.TTFTMsP99)
+		repTail[arm] = append(repTail[arm], rs.TailSampleSize)
 		armChecksum[arm] = rows[0].TraceChecksum
 		armTolerance[arm] = rows[0].MatchTolerance
 	}
@@ -328,6 +338,12 @@ func report(args []string) error {
 	for _, arm := range order {
 		if rows, ok := byArm[arm]; ok {
 			s := bench.Summarize(arm, rows)
+			// Summarize sees pooled rows and cannot know how they were split, so the repetition shape is
+			// attached here where the split is known.
+			if tails := repTail[arm]; len(tails) > 0 {
+				s.RepetitionCount = len(tails)
+				s.MinRepetitionTail = slices.Min(tails)
+			}
 			summaries = append(summaries, s)
 			summ[arm] = s
 		}

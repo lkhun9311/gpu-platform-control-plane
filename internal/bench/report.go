@@ -100,6 +100,25 @@ type ArmSummary struct {
 	// tenants straddle it by four characters; this is where their opposite outcomes become visible.
 	ThresholdProbe map[string]ProbeOutcome
 
+	// RepetitionCount and MinRepetitionTail describe the arm's repetitions rather than its pooled rows, and
+	// they exist because pooling hides a truncated repetition.
+	//
+	// TailSampleSize is computed over every row in the arm. An arm whose repetitions completed 500, 500, 500
+	// and 30 premium requests therefore reports 1,530 -- far above MinTailSamples -- while one quarter of the
+	// evidence is a p99 taken over thirty requests, which is that repetition's MAXIMUM. That fourth value is
+	// then resampled with equal weight by the incremental bootstrap.
+	//
+	// The floor is the same number and the same derivation as MinTailSamples, applied per repetition because
+	// that is the unit the bootstrap resamples: below 100, nearest-rank p99 lands on the maximum.
+	//
+	// Zero means the caller did not supply them (Summarize cannot know how its rows were split), and the
+	// check is then skipped rather than failing closed on absence -- the harness fills them and the unit
+	// tests that build summaries by hand do not.
+	RepetitionCount int
+
+	// MinRepetitionTail is the smallest premium-completion count among the arm's repetitions.
+	MinRepetitionTail int
+
 	// Censored is true when more than 1% of the premium requests failed to complete for a non-admission reason -- a timeout OR a transport/stream error -- so the tail is a lower bound rather than an exact p99 (design spec: report it as at least the timeout, never drop it).
 	Censored bool
 	// TailSampleSize is the number of completed premium requests the tail percentiles were computed over.
@@ -365,9 +384,14 @@ func EvaluateChecks(r1, staticCap, kvAware ArmSummary, incrementalCI CI, matchTo
 			c.InvalidReason = fmt.Sprintf("arm %s has %d premium completions, below the %d a nearest-rank p99 needs to be anything other than the maximum",
 				s.Arm, s.TailSampleSize, MinTailSamples)
 		}
+		if s.RepetitionCount > 0 && s.MinRepetitionTail < MinTailSamples {
+			c.Invalid = true
+			c.InvalidReason = fmt.Sprintf("arm %s has a repetition with %d premium completions, below the %d a nearest-rank p99 needs; pooling its %d rows hides that one repetition's p99 is a maximum",
+				s.Arm, s.MinRepetitionTail, MinTailSamples, s.TailSampleSize)
+		}
 		if s.Censored {
 			c.Invalid = true
-			c.InvalidReason = fmt.Sprintf("arm %s tail is censored (>1%% premium timeouts), so its p99 is only a lower bound", s.Arm)
+			c.InvalidReason = fmt.Sprintf("arm %s tail is censored (>1%% of premium requests did not complete), so its p99 is only a lower bound", s.Arm)
 		}
 	}
 

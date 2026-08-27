@@ -259,3 +259,53 @@ var _ = Describe("the two ways a truncated arm used to certify itself", func() {
 		Expect(ci.Hi).To(BeNumerically(">", 0))
 	})
 })
+
+var _ = Describe("the truncated repetition that pooling hides", func() {
+	// The residual hole after censoring and CI.Valid were closed: an arm whose repetitions completed
+	// 500/500/500/30 pools to 1,530 premium completions, clears MinTailSamples by a wide margin, and carries
+	// one repetition whose p99 is a maximum over thirty requests -- which the incremental bootstrap then
+	// resamples with equal weight.
+
+	base := func(arm string, p99 float64, admitted int64) ArmSummary {
+		return ArmSummary{Arm: arm, TTFTMsP99: p99, OfferedInputTokens: 1000, AdmittedInputTokens: admitted, TailSampleSize: 1530}
+	}
+
+	It("invalidates an arm whose weakest repetition is below the floor, however healthy the pool looks", func() {
+		r1 := base("R1", 100, 500)
+		staticCap := base("static-cap", 200, 500)
+		kvAware := base("kv-aware", 110, 510)
+		kvAware.RepetitionCount = 4
+		kvAware.MinRepetitionTail = 30
+
+		c := EvaluateChecks(r1, staticCap, kvAware, CI{Lo: 0.45, Hi: 0.65, Valid: true}, 0.05)
+		Expect(c.Invalid).To(BeTrue())
+		Expect(c.InvalidReason).To(ContainSubstring("30 premium completions"))
+		Expect(c.InvalidReason).To(ContainSubstring("1530"), "the message names the pooled figure that hid it")
+		Expect(c.OverallPass).To(BeFalse())
+	})
+
+	It("accepts an arm whose weakest repetition is exactly at the floor", func() {
+		// Pins the boundary rather than re-testing the passing case: 100 is where ceil(0.99*n)-1 first falls
+		// below n-1, and it is the same derivation as MinTailSamples.
+		r1 := base("R1", 100, 500)
+		staticCap := base("static-cap", 200, 500)
+		kvAware := base("kv-aware", 110, 510)
+		kvAware.RepetitionCount = 4
+		kvAware.MinRepetitionTail = MinTailSamples
+
+		c := EvaluateChecks(r1, staticCap, kvAware, CI{Lo: 0.45, Hi: 0.65, Valid: true}, 0.05)
+		Expect(c.Invalid).To(BeFalse())
+		Expect(c.OverallPass).To(BeTrue())
+	})
+
+	It("skips the check when the caller did not supply a repetition shape", func() {
+		// Summarize sees pooled rows and cannot know how they were split, so absence must not fail closed --
+		// otherwise every hand-built summary in this file would be invalid for a reason about plumbing.
+		r1 := base("R1", 100, 500)
+		staticCap := base("static-cap", 200, 500)
+		kvAware := base("kv-aware", 110, 510)
+
+		c := EvaluateChecks(r1, staticCap, kvAware, CI{Lo: 0.45, Hi: 0.65, Valid: true}, 0.05)
+		Expect(c.Invalid).To(BeFalse())
+	})
+})
