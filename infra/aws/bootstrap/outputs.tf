@@ -27,3 +27,8 @@ output "ci_image_push_role_arn" {
   description = "IAM role ARN for pushing the operator image to ECR."
   value       = aws_iam_role.ci_image_push.arn
 }
+
+output "gateway_repo_url" {
+  description = "ECR repository URL for the gateway image."
+  value       = aws_ecr_repository.gateway.repository_url
+}

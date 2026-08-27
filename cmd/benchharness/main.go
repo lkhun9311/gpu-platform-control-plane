@@ -93,6 +93,18 @@ func genTrace(args []string) error {
 	timeoutMs := fs.Int("timeout-ms", 30_000, "per-request timeout in ms")
 	matchTol := fs.String("match-tolerance", "0.05", "admission-work match tolerance")
 	longThreshold := fs.Int("admission-long-threshold", 4096, "eligible-population token threshold the guard gates on")
+	// Provenance the record has to carry, because nothing else can reconstruct it later.
+	//
+	// RunManifest has declared gatewaySHA and imageDigests since it was written and nothing ever filled them:
+	// no flag accepted them, no script passed them, and every manifest this repository has produced left them
+	// empty. A paid run's numbers belong to a build, and after the cluster is gone the record is the only
+	// place that association can live.
+	//
+	// The image flags take `name@sha256:...` references. replay -require-provenance refuses a tag, because a
+	// tag names whatever was pushed under it most recently.
+	gatewaySHA := fs.String("gateway-sha", "", "commit SHA of the gateway build under test")
+	gatewayImage := fs.String("gateway-image", "", "digest-pinned gateway image reference (name@sha256:...)")
+	engineImage := fs.String("engine-image", "", "digest-pinned inference engine image reference (name@sha256:...)")
 	traceOut := fs.String("trace-out", "trace.jsonl", "trace file to write")
 	manifestOut := fs.String("manifest-out", "manifest.yaml", "manifest file to write")
 	if err := fs.Parse(args); err != nil {
@@ -172,6 +184,18 @@ func genTrace(args []string) error {
 		PrimaryEndpoint: "ttft_p99",
 		MatchTolerance:  *matchTol,
 		LongThreshold:   *longThreshold,
+		GatewaySHA:      *gatewaySHA,
+	}
+	// Only set the map when something was supplied, so a free run's manifest carries no empty scaffolding
+	// that could later be mistaken for a recorded value.
+	for role, ref := range map[string]string{"gateway": *gatewayImage, "engine": *engineImage} {
+		if ref == "" {
+			continue
+		}
+		if m.ImageDigests == nil {
+			m.ImageDigests = map[string]string{}
+		}
+		m.ImageDigests[role] = ref
 	}
 	if err := writeManifest(*manifestOut, m); err != nil {
 		return err
@@ -193,6 +217,13 @@ func replay(args []string) error {
 	// connections per host. It exists for a before/after comparison and for nothing else; a run that reports
 	// latency should always use the derived pool. The name written here used to be "go-default", which the
 	// flag has never accepted, so an operator copying it out of this rationale got "unknown sender mode".
+	// The paid path's counterpart to -require-device.
+	//
+	// Opt-in rather than always-on: a kind run against a stub has no build worth pinning, and demanding one
+	// from every free run would push an operator toward inventing a value. Where the record has to outlive
+	// the cluster, it is required.
+	requireProvenance := fs.Bool("require-provenance", false,
+		"refuse a manifest that does not name the gateway build and digest-pin every image the number depends on")
 	connMode := fs.String("conn-mode", bench.SenderModePooled,
 		"client connection handling: \"pooled\" (pool sized from the run, plus the drain that lets it be "+
 			"used), \"drain-only\", or \"legacy\" (the pre-fix client: http.DefaultTransport, no drain)")
@@ -203,6 +234,11 @@ func replay(args []string) error {
 	m, err := bench.LoadManifest(*manifestPath)
 	if err != nil {
 		return err
+	}
+	if *requireProvenance {
+		if perr := m.RequireProvenance(); perr != nil {
+			return fmt.Errorf("manifest %s: %w", *manifestPath, perr)
+		}
 	}
 	rows, err := readTraceFile(m.TracePath)
 	if err != nil {

@@ -13,6 +13,7 @@ concurrency:
 env:
   AWS_REGION: ap-northeast-2
   ECR_REPOSITORY: gpu-platform-operator
+  ECR_GATEWAY_REPOSITORY: gpu-platform-gateway
 
 jobs:
   infra-validate:
@@ -80,10 +81,31 @@ jobs:
           DIGEST_REF=$(docker inspect --format='{{index .RepoDigests 0}}' "$IMG")
           echo "digest_ref=$DIGEST_REF" >> "$GITHUB_OUTPUT"
 
+      # The gateway image, which CI did not build.
+      #
+      # config/gateway/deployment.yaml carried `image: gateway:latest` -- a name nothing publishes -- so Argo
+      # CD would deploy it and the Pod would sit in ImagePullBackOff. Meanwhile each paid session script built
+      # its own copy under a local tag and pushed it wherever REGISTRY pointed, which meant the component
+      # under test on two of the four arms had no published build and no recorded identity.
+      #
+      # Built from Dockerfile.gateway rather than through make, because the Makefile's docker targets are the
+      # operator's and this repository does not run make targets that invoke controller-gen.
+      - name: Build and push the gateway image
+        id: build_gateway
+        env:
+          REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        run: |
+          IMG="$REGISTRY/$ECR_GATEWAY_REPOSITORY:$GITHUB_SHA"
+          docker build -f Dockerfile.gateway -t "$IMG" .
+          docker push "$IMG"
+          DIGEST_REF=$(docker inspect --format='{{index .RepoDigests 0}}' "$IMG")
+          echo "digest_ref=$DIGEST_REF" >> "$GITHUB_OUTPUT"
+
       - name: Open an operator image digest-bump PR
         env:
           GH_TOKEN: ${{ github.token }}
           DIGEST_REF: ${{ steps.build.outputs.digest_ref }}
+          GATEWAY_DIGEST_REF: ${{ steps.build_gateway.outputs.digest_ref }}
         run: |
           set -euo pipefail
           # Pin the operator image to the digest just pushed, so Argo CD deploys exactly this build.
@@ -91,12 +113,17 @@ jobs:
           # The bump lands via a PR rather than a direct push, keeping Git the source of truth.
           make kustomize
           ( cd config/manager && "$GITHUB_WORKSPACE/bin/kustomize" edit set image "controller=${DIGEST_REF}" )
+          # The gateway is pinned in the same PR as the operator.
+          #
+          # Two PRs would let the cluster run a gateway from one commit against an operator from another, and
+          # nothing downstream records which pair was live.
+          ( cd config/gateway && "$GITHUB_WORKSPACE/bin/kustomize" edit set image "gateway=${GATEWAY_DIGEST_REF}" )
           BRANCH="bot/operator-digest-${GITHUB_SHA:0:12}"
           git config user.name "gpu-platform-ci"
           git config user.email "ci@users.noreply.github.com"
           git checkout -b "$BRANCH"
-          git add config/manager/kustomization.yaml
-          git commit -m "chore: pin operator image to digest ${GITHUB_SHA:0:12}"
+          git add config/manager/kustomization.yaml config/gateway/kustomization.yaml
+          git commit -m "chore: pin operator and gateway images to digest ${GITHUB_SHA:0:12}"
           # Embed the token in the remote URL, since persist-credentials is false above.
           git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
           # Use force-with-lease so a re-run of this job for the same commit does not fail on a non-fast-forward push.
@@ -104,7 +131,7 @@ jobs:
           # Skip PR creation if a re-run already opened one for this branch.
           if [ -z "$(gh pr list --head "$BRANCH" --json number --jq '.[].number')" ]; then
             gh pr create --base main --head "$BRANCH" \
-              --title "chore: bump operator image digest" \
+              --title "chore: bump operator and gateway image digests" \
               --body "Automated digest pin from commit ${GITHUB_SHA}. Argo CD will deploy this exact build once merged."
           else
             echo "A digest-bump PR for $BRANCH already exists; skipping create."

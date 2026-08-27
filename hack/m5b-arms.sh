@@ -72,6 +72,16 @@ if [ -n "${REGISTRY:-}" ]; then
   docker tag "$GW_IMAGE" "$REGISTRY/$GW_IMAGE" && docker push "$REGISTRY/$GW_IMAGE" >/dev/null \
     || fail "push gateway image to $REGISTRY"
   GW_IMAGE="$REGISTRY/$GW_IMAGE"
+  # Resolve the tag to the digest that was just pushed, and use THAT everywhere after this line.
+  #
+  # The tag is how the push is addressed; it is not what the record may claim. gateway:m5b names whatever was
+  # pushed under it most recently, so a manifest carrying it identifies nothing after the next build -- and
+  # the manifest fields for this (gatewaySHA, imageDigests) had never been filled by anything at all.
+  GW_DIGEST_REF="$(docker inspect --format='{{index .RepoDigests 0}}' "$GW_IMAGE" 2>/dev/null || true)"
+  case "$GW_DIGEST_REF" in
+    *@sha256:*) GW_IMAGE="$GW_DIGEST_REF" ;;
+    *) fail "could not resolve $GW_IMAGE to a digest after pushing it; the run would record a tag, which names nothing after the next build" ;;
+  esac
 else
   fail "REGISTRY is unset. A kind cluster can side-load an image; EKS cannot, so the gateway image must be pushed somewhere the nodes can pull from (ECR). Set REGISTRY=<account>.dkr.ecr.<region>.amazonaws.com"
 fi
@@ -156,9 +166,25 @@ EOF
   k rollout status deploy/gateway -n "$NS" --timeout=180s >/dev/null || fail "gateway ($mode) never became ready"
 }
 
+# The build the gateway binary came from, and the engine image the numbers are produced against.
+#
+# GW_SHA is the working tree's commit, with -dirty when it is not clean: a paid run built from uncommitted
+# code is a legitimate thing to do and an illegitimate thing to hide.
+GW_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
+git diff --quiet 2>/dev/null || GW_SHA="$GW_SHA-dirty"
+
+ENGINE_IMAGE="$(k get deploy -n "$NS" "$ENGINE" -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null || true)"
+case "$ENGINE_IMAGE" in
+  *@sha256:*) ;;
+  *) fail "the engine deployment runs image '${ENGINE_IMAGE:-<none>}', which is not digest-pinned; the record could not name what produced its latencies" ;;
+esac
+say "provenance: gateway $GW_SHA / $GW_IMAGE"
+say "            engine  $ENGINE_IMAGE"
+
 say "generate the shared trace once"
 "$WORK/benchharness" gen-trace --seed 7 --duration-ms "$DURATION_MS" --rate "$RATE" \
   --arm off --gateway-url "http://127.0.0.1:18080" \
+  --gateway-sha "$GW_SHA" --gateway-image "$GW_IMAGE" --engine-image "$ENGINE_IMAGE" \
   --trace-out "$OUT/trace.jsonl" --manifest-out "$OUT/manifest-off.yaml" || fail "gen-trace"
 
 for rep in $(seq 1 "$REPS"); do
@@ -177,9 +203,11 @@ for rep in $(seq 1 "$REPS"); do
 
     "$WORK/benchharness" gen-trace --seed 7 --duration-ms "$DURATION_MS" --rate "$RATE" \
       --arm "$arm" --gateway-url "http://127.0.0.1:18080" \
+      --gateway-sha "$GW_SHA" --gateway-image "$GW_IMAGE" --engine-image "$ENGINE_IMAGE" \
       --trace-out "$OUT/trace-$arm-$rep.jsonl" --manifest-out "$OUT/manifest-$arm-$rep.yaml" \
       || fail "gen-trace $arm"
     "$WORK/benchharness" replay --manifest "$OUT/manifest-$arm-$rep.yaml" \
+      --require-provenance \
       --target "http://127.0.0.1:18080" \
       --api-keys "premium-1=premium-key,standard-noisy=standard-key" \
       --raw-out "$OUT/raw-$arm-$rep.jsonl" || fail "replay $arm"

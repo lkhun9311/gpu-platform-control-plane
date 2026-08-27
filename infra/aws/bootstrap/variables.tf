@@ -57,3 +57,9 @@ variable "use_immutable_sub" {
   type        = bool
   default     = false
 }
+
+variable "gateway_repo_name" {
+  description = "ECR repository name for the gateway image."
+  type        = string
+  default     = "gpu-platform-gateway"
+}

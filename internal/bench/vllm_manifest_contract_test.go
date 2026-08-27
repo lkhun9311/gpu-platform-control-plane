@@ -451,3 +451,73 @@ func TestRepetitionDefaultsAgreeAcrossTheSessionScripts(t *testing.T) {
 		t.Errorf("the shared REPS default is %s; the design is four per cell and below that the incremental interval is a bootstrap over very few blocks", want)
 	}
 }
+
+// TestThePaidArmsScriptRequiresItsOwnProvenance binds the script to the check.
+//
+// RunManifest declared gatewaySHA and imageDigests for provenance and nothing ever set them: no flag accepted
+// them, no script passed them, every manifest left them empty. Adding the flags and the RequireProvenance
+// check does not fix that by itself -- the script has to pass one and ask for the other, and a script that
+// stopped doing either would leave every unit spec green.
+//
+// That is the same defect class as a Terraform variable no caller passed, and it has now appeared often
+// enough in this repository to be worth a test rather than a comment.
+func TestThePaidArmsScriptRequiresItsOwnProvenance(t *testing.T) {
+	body := readRepoFile(t, "hack/m5b-arms.sh")
+
+	for _, want := range []string{
+		"--require-provenance",
+		"--gateway-sha",
+		"--gateway-image",
+		"--engine-image",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("hack/m5b-arms.sh does not pass %s; a paid run would record numbers it cannot attribute to a build", want)
+		}
+	}
+
+	// The image it records must be the digest it resolved, not the tag it pushed under. A script that
+	// recorded GW_IMAGE straight after `docker tag` would satisfy the flag check above and record nothing
+	// durable, so the resolution step is asserted too.
+	if !strings.Contains(body, "RepoDigests") {
+		t.Error("hack/m5b-arms.sh never resolves the pushed image to a digest; it would record a tag, which names whatever was pushed under it most recently")
+	}
+	if !strings.Contains(body, "not digest-pinned") {
+		t.Error("hack/m5b-arms.sh does not refuse an engine image that is not digest-pinned")
+	}
+}
+
+// TestCIPublishesEveryImageGitOpsDeploys binds the two halves of the supply chain.
+//
+// config/gateway/deployment.yaml carried `image: gateway:latest` and ci.yml built and pushed only the
+// operator. Argo CD would deploy a name nothing publishes and the Pod would sit in ImagePullBackOff, while
+// each paid session script built its own copy under a local tag -- so the component under test on two of the
+// four arms had no published build and no recorded identity.
+//
+// The check is deliberately about the WIRING rather than the tag. `gateway:latest` is fine as a placeholder
+// once something replaces it: kustomize's image transform rewrites it to a digest in the same PR as the
+// operator's. What must not happen is the placeholder existing with no publisher.
+func TestCIPublishesEveryImageGitOpsDeploys(t *testing.T) {
+	ci := readRepoFile(t, ".github/workflows/ci.yml")
+
+	for _, want := range []string{
+		"Dockerfile.gateway",
+		"ECR_GATEWAY_REPOSITORY",
+		"config/gateway",
+	} {
+		if !strings.Contains(ci, want) {
+			t.Errorf("ci.yml does not reference %s; the gateway manifests deploy an image CI never publishes", want)
+		}
+	}
+
+	// The digest pin must land in the same commit as the operator's. Two PRs would let the cluster run a
+	// gateway from one commit against an operator from another, with nothing recording which pair was live.
+	if !strings.Contains(ci, "config/manager/kustomization.yaml config/gateway/kustomization.yaml") {
+		t.Error("ci.yml does not stage both kustomizations in one commit; the operator and gateway digests could diverge")
+	}
+
+	// And terraform must actually create the repository CI pushes to.
+	ecr := readRepoFile(t, "infra/aws/bootstrap/ecr.tf")
+	if !strings.Contains(ecr, `resource "aws_ecr_repository" "gateway"`) {
+		t.Error("infra/aws/bootstrap declares no gateway ECR repository, so the push in ci.yml has nowhere to go")
+	}
+}

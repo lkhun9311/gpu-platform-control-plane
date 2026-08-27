@@ -187,7 +187,12 @@ data "aws_iam_policy_document" "ci_image_push" {
       "ecr:CompleteLayerUpload",
       "ecr:PutImage",
     ]
-    resources = [aws_ecr_repository.operator.arn]
+    # Both repositories, because the gateway is now published by CI too. Scoped to these two rather than
+    # ecr:* so the push role cannot write to a repository nobody reviewed.
+    resources = [
+      aws_ecr_repository.operator.arn,
+      aws_ecr_repository.gateway.arn,
+    ]
   }
 }
 
