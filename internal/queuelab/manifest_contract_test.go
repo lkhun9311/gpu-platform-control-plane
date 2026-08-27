@@ -506,3 +506,64 @@ func TestTheReadmeRunCountMatchesTheRecordsOnDisk(t *testing.T) {
 			"is a different size than it is", claimed, len(files))
 	}
 }
+
+// No terraform variable may be declared twice, and no GPU group may point at a card the sizing was not done for.
+//
+// Both halves of this were broken at once, and the first `terraform plan` would have been where anyone
+// found out. Editing variables.tf to move M5-b and M5-c onto one card class left the previous declarations
+// in place, so `gpu_shared_node_instance_type` and `gpu_single_node_instance_type` each appeared twice --
+// which terraform rejects outright as a duplicate declaration, meaning the committed configuration did not
+// parse. Worse if it had: one of the stale copies still defaulted to a T4, and every figure in
+// hack/m5b-vllm-sizing.md is derived for an A10G's 23,028 MiB. A run on the wrong card would have produced
+// numbers that looked ordinary.
+func TestTerraformDeclaresEachVariableOnceAndSizesTheGPUGroupsForTheirCard(t *testing.T) {
+	tf := repoFile(t, "infra/aws/cluster/variables.tf")
+
+	decl := regexp.MustCompile(`(?m)^variable "([^"]+)"`)
+	seen := map[string]int{}
+	for _, m := range decl.FindAllStringSubmatch(tf, -1) {
+		seen[m[1]]++
+	}
+	for name, n := range seen {
+		if n > 1 {
+			t.Errorf("variable %q is declared %d times; terraform refuses a duplicate declaration, so this "+
+				"configuration does not parse", name, n)
+		}
+	}
+
+	// The card each GPU group provisions, against what its milestone was sized for.
+	//
+	// queuelab needs two devices on ONE node and no G-family size has exactly two, so its smallest machine
+	// is a 12xlarge. M5-b and M5-c share one card class deliberately: the matrix's exclusive arm IS the
+	// flagship's configuration, and two Qwen2.5-3B engines do not fit on a T4.
+	want := map[string]string{
+		"gpu_node_instance_type":        "g4dn.12xlarge",
+		"gpu_single_node_instance_type": "g5.",
+		"gpu_shared_node_instance_type": "g5.",
+	}
+	for name, prefix := range want {
+		block := regexp.MustCompile(`(?s)variable "` + name + `" \{.*?\n\}`).FindString(tf)
+		if block == "" {
+			t.Errorf("variable %q is missing; a node group would fall back to a default nobody sized for", name)
+			continue
+		}
+		def := regexp.MustCompile(`default\s*=\s*"([^"]+)"`).FindStringSubmatch(block)
+		if def == nil {
+			t.Errorf("variable %q declares no default", name)
+			continue
+		}
+		if !strings.HasPrefix(def[1], prefix) {
+			t.Errorf("variable %q defaults to %q, and its milestone is sized for a %s* card; a run on the "+
+				"wrong card produces numbers that look ordinary", name, def[1], prefix)
+		}
+	}
+
+	// And the two that must agree, must. M5-b and M5-c on different silicon would confound the one arm they
+	// share, which is the whole reason they were consolidated.
+	one := regexp.MustCompile(`(?s)variable "gpu_single_node_instance_type" \{.*?default\s*=\s*"([^"]+)"`).FindStringSubmatch(tf)
+	two := regexp.MustCompile(`(?s)variable "gpu_shared_node_instance_type" \{.*?default\s*=\s*"([^"]+)"`).FindStringSubmatch(tf)
+	if one != nil && two != nil && one[1] != two[1] {
+		t.Errorf("M5-b provisions %q and M5-c provisions %q; the matrix's exclusive arm is the flagship's own "+
+			"measurement and cannot be taken on different silicon", one[1], two[1])
+	}
+}
