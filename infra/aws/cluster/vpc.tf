@@ -17,7 +17,7 @@ module "vpc" {
   cidr = var.vpc_cidr
 
   azs            = local.azs
-  public_subnets = [cidrsubnet(var.vpc_cidr, 4, 0), cidrsubnet(var.vpc_cidr, 4, 1)]
+  public_subnets = [cidrsubnet(var.vpc_cidr, 4, 0), cidrsubnet(var.vpc_cidr, 4, 1), cidrsubnet(var.vpc_cidr, 4, 2)]
 
   # Public subnets only.
   #

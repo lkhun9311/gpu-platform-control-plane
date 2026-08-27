@@ -68,7 +68,7 @@ module "eks" {
     # Scaling to 2 doubles the burn for as long as both are up, and the node axis is the only thing it buys.
     # hack/gpu-session-preregistration.md says what the session delivers with one node and what it does not.
     gpu = {
-      subnet_ids     = [module.vpc.public_subnets[0]]
+      subnet_ids     = local.gpu_subnets
       instance_types = [var.gpu_node_instance_type]
       # On-Demand rather than Spot. A reclaimed Spot node mid-run does not fail the experiment cleanly -- it
       # ends the observation and leaves the run indistinguishable from one whose worker died, which is a
@@ -124,7 +124,7 @@ module "eks" {
     # special case. max_size is 1 rather than 2: a second node here buys nothing, because the arms are
     # compared against one engine and a second KV pool is the one thing config/vllm forbids.
     gpu_single = {
-      subnet_ids     = [module.vpc.public_subnets[0]]
+      subnet_ids     = local.gpu_single_subnets
       instance_types = [var.gpu_single_node_instance_type]
       capacity_type  = "ON_DEMAND"
       min_size       = 0
@@ -167,7 +167,7 @@ module "eks" {
     # max_size 1 is what makes co-location certain. Two engines on two nodes are not sharing a card, and
     # nothing downstream could tell that apart from a sharing result.
     gpu_shared = {
-      subnet_ids     = [module.vpc.public_subnets[0]]
+      subnet_ids     = local.gpu_shared_subnets
       instance_types = [var.gpu_shared_node_instance_type]
       capacity_type  = "ON_DEMAND"
       min_size       = 0

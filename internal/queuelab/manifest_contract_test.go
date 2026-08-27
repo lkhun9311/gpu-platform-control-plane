@@ -603,3 +603,56 @@ func TestEveryTerraformRegionIsWhereTheGPUQuotaLives(t *testing.T) {
 		}
 	}
 }
+
+// No GPU node group may pin itself to a subnet index, because an index does not know what runs there.
+//
+// Every group used module.vpc.public_subnets[0], which is whichever zone happened to come back first. In
+// ap-northeast-2 that is 2a and g5 is offered there, so it worked -- and would have kept working until the
+// day 2a dropped out of the available list, when the slice becomes [2b, 2c], subnet zero becomes 2b, and
+// g5 is not offered in 2b at all.
+//
+// Like the region, this fails at SESSION time rather than at apply: the groups run at desired_size 0, so
+// terraform builds them and launches nothing. placement.tf derives each group's subnets from where its own
+// instance type is actually offered and stops the plan when that set is empty. This keeps the derivation.
+func TestNoGPUNodeGroupPinsItselfToASubnetIndex(t *testing.T) {
+	tf := repoFile(t, "infra/aws/cluster/eks.tf")
+
+	blockStart := regexp.MustCompile(`(?m)^    ([a-z_]+) = \{$`)
+	idx := blockStart.FindAllStringSubmatchIndex(tf, -1)
+	if len(idx) == 0 {
+		t.Fatal("no node-group blocks found in eks.tf; this test reads a shape that has moved")
+	}
+	indexed := regexp.MustCompile(`public_subnets\[\d+\]`)
+	gpuTaint := regexp.MustCompile(`key\s*=\s*"nvidia\.com/gpu"`)
+
+	checked := 0
+	for i, m := range idx {
+		name := tf[m[2]:m[3]]
+		end := len(tf)
+		if i+1 < len(idx) {
+			end = idx[i+1][0]
+		}
+		block := tf[m[0]:end]
+		if !gpuTaint.MatchString(block) {
+			continue
+		}
+		checked++
+		if loc := indexed.FindString(block); loc != "" {
+			t.Errorf("GPU node group %q pins %s; a subnet index does not know whether its zone offers the "+
+				"group's instance type, and the mismatch surfaces when a session scales up rather than at "+
+				"apply", name, loc)
+		}
+	}
+	if checked == 0 {
+		t.Fatal("no GPU-tainted node group found; this test would pass vacuously")
+	}
+
+	// And the derivation has to exist, or the groups are pinned to nothing at all.
+	place := repoFile(t, "infra/aws/cluster/placement.tf")
+	for _, want := range []string{"aws_ec2_instance_type_offerings", "precondition"} {
+		if !strings.Contains(place, want) {
+			t.Errorf("placement.tf no longer contains %q; the subnets would be derived from something other "+
+				"than where the instance type is offered, or an empty set would reach apply silently", want)
+		}
+	}
+}
