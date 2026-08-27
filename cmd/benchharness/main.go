@@ -350,8 +350,14 @@ func report(args []string) error {
 		// Unequal repetition counts leave the incremental CI at the degenerate point estimate.
 		//
 		// That would make the CI-upper-bound gate trivially true.
+		// Left as a warning here on purpose: the refusal now lives in the checks rather than in this branch.
+		//
+		// It used to be the ONLY response to unequal repetitions, and it refused nothing -- the caller then
+		// passed the zero CI into EvaluateChecks, whose incremental gate reads `Hi < 1.0`, and 0.0 satisfies
+		// it. Truncation disarmed the strictest check in the design instead of tripping it. CI.Valid closes
+		// that; this line stays so the operator learns WHY the run was refused without reading the code.
 		fmt.Fprintf(os.Stderr, "warning: static-cap has %d repetitions but kv-aware has %d;"+
-			" the incremental C/B interval is a point estimate, not a real CI\n", len(b), len(c))
+			" no incremental CI will be computed and the comparison will be refused\n", len(b), len(c))
 	}
 
 	// Name the arms that are absent, because the refusal downstream cannot.

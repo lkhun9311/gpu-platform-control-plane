@@ -100,7 +100,7 @@ type ArmSummary struct {
 	// tenants straddle it by four characters; this is where their opposite outcomes become visible.
 	ThresholdProbe map[string]ProbeOutcome
 
-	// Censored is true when more than 1% of the premium requests timed out, so the tail is a lower bound rather than an exact p99 (design spec: report it as at least the timeout, never drop it).
+	// Censored is true when more than 1% of the premium requests failed to complete for a non-admission reason -- a timeout OR a transport/stream error -- so the tail is a lower bound rather than an exact p99 (design spec: report it as at least the timeout, never drop it).
 	Censored bool
 	// TailSampleSize is the number of completed premium requests the tail percentiles were computed over.
 	//
@@ -128,7 +128,7 @@ func Summarize(arm string, rows []RawRow) ArmSummary {
 	}
 
 	var ttft, e2e []float64
-	var premiumTotal, premiumTimedOut int
+	var premiumTotal, premiumTimedOut, premiumLost int
 	for _, r := range rows {
 		// Admitted-work accounting covers the eligible population (the long requests the controls gate), for the admission-match check.
 		if r.EstInputTokens >= threshold {
@@ -181,7 +181,23 @@ func Summarize(arm string, rows []RawRow) ArmSummary {
 			premiumTimedOut++
 			continue
 		}
-		if r.HTTPStatus == httpStatusTooManyRequests || r.ErrorKind != "" {
+		if r.HTTPStatus == httpStatusTooManyRequests {
+			continue
+		}
+		if r.ErrorKind != "" {
+			// A transport or stream error is a LOST OBSERVATION, exactly like a timeout, and it was not
+			// counted as one.
+			//
+			// The censoring rule read only premiumTimedOut, so a run whose premium requests died on
+			// connection resets kept an uncensored tail. That is the failure mode of a node going away --
+			// a reclaimed Spot instance, an evicted engine Pod, an OOM kill, a network blip -- and none of
+			// them produce timeouts. An adversarial review demonstrated it by feeding this function an arm
+			// truncated at 120 premium completions with 380 transport failures, and the report printed
+			// "all checks passed".
+			//
+			// A 429 stays excluded because a rejection is the treatment, not a lost measurement: shedding
+			// is what the guard is for and it is accounted separately in Rejected.
+			premiumLost++
 			continue
 		}
 		t, okT := r.TTFTNanos()
@@ -201,8 +217,13 @@ func Summarize(arm string, rows []RawRow) ArmSummary {
 	s.TTFTMsP99 = percentile(ttft, 0.99)
 	s.E2EMsP99 = percentile(e2e, 0.99)
 
-	// The tail is censored when more than 1% of the PREMIUM requests timed out, since those missing slow requests are exactly the ones a p99 should capture.
-	if premiumTotal > 0 && float64(premiumTimedOut)/float64(premiumTotal) > 0.01 {
+	// The tail is censored when more than 1% of the PREMIUM requests did not complete for a reason other than
+	// admission, since those missing requests are exactly the ones a p99 should capture.
+	//
+	// Timeouts and transport/stream errors are both counted. They are the same thing for this purpose -- a
+	// premium request whose latency is unknown and was probably long -- and separating them let a whole class
+	// of degraded run through uncensored.
+	if premiumTotal > 0 && float64(premiumTimedOut+premiumLost)/float64(premiumTotal) > 0.01 {
 		s.Censored = true
 	}
 	return s
@@ -235,6 +256,15 @@ func percentile(sorted []float64, q float64) float64 {
 type CI struct {
 	Lo float64
 	Hi float64
+
+	// Valid distinguishes "the interval is [0,0]" from "there is no interval".
+	//
+	// The zero CI used to be indistinguishable from a computed one, and the incremental gate reads
+	// `incrementalCI.Hi < 1.0`. When repetition counts differ between arms the caller skips the bootstrap and
+	// leaves the zero value, so Hi is 0.0 and the STRICTEST check in the design passes vacuously -- a
+	// truncated run disarms the gate instead of tripping it. Making the zero value invalid by construction is
+	// what stops that, rather than relying on every caller to remember.
+	Valid bool
 }
 
 // BootstrapCI returns a percentile-bootstrap confidence interval for the mean of values.
@@ -247,7 +277,11 @@ func BootstrapCI(values []float64, iterations int, seed int64, alpha float64) CI
 		return CI{}
 	}
 	if len(values) == 1 {
-		// A single repetition cannot bound its own variance, so the interval degenerates to the point estimate.
+		// A single repetition cannot bound its own variance, so the interval degenerates to the point estimate
+		// -- and a point estimate is not a confidence interval. It is returned for display and marked INVALID,
+		// because the incremental gate asks whether the interval's upper bound clears 1.0 and a degenerate
+		// "interval" answers that question vacuously. This function said as much in its own comment while
+		// returning a value the gate could not tell apart from a real one.
 		return CI{Lo: values[0], Hi: values[0]}
 	}
 
@@ -265,8 +299,9 @@ func BootstrapCI(values []float64, iterations int, seed int64, alpha float64) CI
 	}
 	sort.Float64s(means)
 	return CI{
-		Lo: percentile(means, alpha/2),
-		Hi: percentile(means, 1-alpha/2),
+		Lo:    percentile(means, alpha/2),
+		Hi:    percentile(means, 1-alpha/2),
+		Valid: true,
 	}
 }
 
@@ -345,7 +380,12 @@ func EvaluateChecks(r1, staticCap, kvAware ArmSummary, incrementalCI CI, matchTo
 		c.IncrementalRatio = kvAware.TTFTMsP99 / staticCap.TTFTMsP99
 	}
 	c.IncrementalRatioCI = incrementalCI
-	c.IncrementalValuePass = c.IncrementalRatio <= 0.90 && incrementalCI.Hi < 1.0
+	// An absent interval fails the gate rather than satisfying it. See the comment on CI.Valid.
+	c.IncrementalValuePass = c.IncrementalRatio <= 0.90 && incrementalCI.Valid && incrementalCI.Hi < 1.0
+	if !incrementalCI.Valid {
+		c.Invalid = true
+		c.InvalidReason = "no incremental confidence interval was computed (unequal or insufficient repetitions), so the incremental-value check cannot be evaluated"
+	}
 
 	wB := admittedWorkFraction(staticCap)
 	wC := admittedWorkFraction(kvAware)
