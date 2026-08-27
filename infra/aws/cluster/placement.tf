@@ -100,33 +100,45 @@ data "aws_servicequotas_service_quota" "gpu_spot" {
   service_code = "ec2"
 }
 
-locals {
-  # vCPU counts are hardcoded because they are properties of the instance type, and the alternative -- a
-  # describe-instance-types lookup -- would make the precondition depend on a call that can fail for reasons
-  # unrelated to what is being checked.
-  gpu_vcpus = {
-    "g4dn.xlarge"   = 4
-    "g5.xlarge"     = 4
-    "g4dn.12xlarge" = 48
-    "g5.12xlarge"   = 48
-  }
+# vCPU counts come from EC2, not from a table in this file.
+#
+# They were a hand-written map with a lookup default: 48 for the multi-GPU type and 4 for the single-card
+# ones. That default is a fail-open on exactly the change the guard exists to catch. Point
+# gpu_single_node_instance_type at g6.12xlarge -- 48 vCPU -- and the lookup returns 4, the precondition
+# compares 4 against the quota, the plan passes, and the failure waits for the scale-up of a paid session.
+#
+# The old comment defended the map by saying a describe call "can fail for reasons unrelated to what is being
+# checked". It can, and a failed data source stops the plan loudly, which is the correct outcome. A silent
+# wrong answer is not.
+data "aws_ec2_instance_type" "gpu" {
+  instance_type = var.gpu_node_instance_type
+}
 
+data "aws_ec2_instance_type" "gpu_single" {
+  instance_type = var.gpu_single_node_instance_type
+}
+
+data "aws_ec2_instance_type" "gpu_shared" {
+  instance_type = var.gpu_shared_node_instance_type
+}
+
+locals {
   # The largest vCPU demand any single group can reach, which is its max_size times its instance -- not one
   # instance.
   #
   # This was a max() over the three instance types, giving 48, and 52 vCPU passed it. That hid the case the
-  # study actually promises: queuelab's preregistration includes a TWO-NODE axis, and gpu.max_size is 2, so
-  # a two-node run asks for 2 x 48 = 96 vCPU against a granted 52. The node group would scale to one node,
-  # stall, and the second node would never arrive -- during a session, on a machine billing $4.812/hour.
+  # study actually promises: queuelab's preregistration includes a TWO-NODE axis, so a two-node run asks for
+  # 2 x 48 = 96 vCPU against a granted 52. The node group would scale to one node, stall, and the second
+  # would never arrive -- during a session, on a machine billing $4.812/hour.
   #
-  # Groups run one at a time, so this is a max across groups rather than a sum. The max_size values are
-  # mirrored from eks.tf; they are three numbers rather than a hand-maintained list of capacity types, and
-  # the precondition names the group so a mismatch is legible rather than a number that does not add up.
+  # Groups run one at a time, so this is a max across groups rather than a sum. The two "* 1" factors mirror
+  # the single-card groups' max_size in eks.tf and are the only hand-carried numbers left in this file.
   gpu_group_vcpus = {
-    gpu        = lookup(local.gpu_vcpus, var.gpu_node_instance_type, 48) * var.gpu_max_nodes
-    gpu_single = lookup(local.gpu_vcpus, var.gpu_single_node_instance_type, 4) * 1
-    gpu_shared = lookup(local.gpu_vcpus, var.gpu_shared_node_instance_type, 4) * 1
+    gpu        = data.aws_ec2_instance_type.gpu.default_vcpus * var.gpu_max_nodes
+    gpu_single = data.aws_ec2_instance_type.gpu_single.default_vcpus * 1
+    gpu_shared = data.aws_ec2_instance_type.gpu_shared.default_vcpus * 1
   }
+
 
   gpu_vcpus_needed = max(values(local.gpu_group_vcpus)...)
   gpu_hungriest    = [for k, v in local.gpu_group_vcpus : k if v == local.gpu_vcpus_needed][0]
