@@ -3,10 +3,17 @@ data "aws_availability_zones" "available" {
 }
 
 locals {
-  # EKS CreateCluster requires subnets in at least two AZs.
+  # EKS CreateCluster requires subnets in at least two AZs, and GPU capacity wants a third.
   #
-  # The second AZ exists only to satisfy that; all node groups pin to the first AZ.
-  azs = slice(data.aws_availability_zones.available.names, 0, 2)
+  # The node groups no longer pin to the first AZ -- placement.tf derives each one's subnets from the zones
+  # that actually offer its instance type. That is what makes the third zone worth having: in
+  # ap-northeast-2 g5 is offered in a, c and d but NOT in b, so with two zones the A10G groups get exactly
+  # one home and an InsufficientInstanceCapacity there ends the session. G instances are the ones AWS runs
+  # out of.
+  #
+  # This list and public_subnets below MUST stay the same length: placement.tf zips them together, and a
+  # mismatch is not a syntax error -- `terraform validate` accepts it and `plan` is where it fails.
+  azs = slice(data.aws_availability_zones.available.names, 0, 3)
 }
 
 module "vpc" {
