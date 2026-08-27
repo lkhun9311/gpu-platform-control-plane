@@ -5,8 +5,25 @@ module "eks" {
   cluster_name    = var.cluster_name
   cluster_version = var.cluster_version
 
-  # Public endpoint: demo-only threat model, documented in docs/09.
-  cluster_endpoint_public_access = true
+  # The API server is reachable from inside the VPC always, and from the internet only if someone names the
+  # addresses.
+  #
+  # The private endpoint is what lets the workers -- which no longer have public addresses -- talk to the API
+  # without leaving the VPC. It is not optional once the nodes are private.
+  #
+  # The public half is derived rather than set: an empty api_public_access_cidrs turns it off entirely, and a
+  # non-empty one restricts it to those addresses. variables.tf rejects 0.0.0.0/0 outright, which is what the
+  # module default used to be and what this cluster ran with until it was measured against the threat model
+  # in docs/09. Reaching the endpoint is not the same as authenticating to it -- IAM and RBAC still stand --
+  # but an endpoint the whole internet can reach is one a leaked credential can be used from anywhere, and
+  # narrowing it costs nothing.
+  #
+  # Note what the default of [] implies for tooling: `terraform apply` here only calls AWS APIs and works
+  # fine, but infra/aws/argo-bootstrap drives the Kubernetes API through the helm and kubernetes providers
+  # and cannot run from outside the VPC. Its README says how.
+  cluster_endpoint_private_access      = true
+  cluster_endpoint_public_access       = length(var.api_public_access_cidrs) > 0
+  cluster_endpoint_public_access_cidrs = var.api_public_access_cidrs
 
   # Terraform owns the cluster-lifecycle add-ons.
   #
@@ -27,17 +44,35 @@ module "eks" {
     }
   }
 
-  vpc_id     = module.vpc.vpc_id
-  subnet_ids = module.vpc.public_subnets
+  vpc_id = module.vpc.vpc_id
+
+  # Private subnets: both the control-plane ENIs and every node group live here. The public subnets hold the
+  # NAT gateway and nothing else.
+  subnet_ids = module.vpc.private_subnets
 
   # EKS access entries are the auth path; the CI apply role entry is added in iam.tf.
   authentication_mode                      = "API"
   enable_cluster_creator_admin_permissions = true
 
+  # SSM Session Manager, which is what replaces the bastion host rather than supplementing it.
+  #
+  # A private node with no public address still has to be reachable when a session goes wrong -- the usual
+  # answer is a bastion in the public subnet, which is a permanently billed instance whose whole job is to
+  # hold an open SSH port. Session Manager needs no inbound port at all: the agent (already in AL2023) dials
+  # out through the NAT gateway, and access is an IAM decision that CloudTrail records.
+  #
+  # This is the one policy attachment that buys a control the security groups cannot.
+  eks_managed_node_group_defaults = {
+    iam_role_additional_policies = {
+      AmazonSSMManagedInstanceCore = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+    }
+  }
+
   eks_managed_node_groups = {
     cpu = {
-      # Pin the node group to the first AZ to avoid cross-AZ workload traffic.
-      subnet_ids     = [module.vpc.public_subnets[0]]
+      # Pin the node group to the first AZ to avoid cross-AZ workload traffic. It is also the zone holding
+      # the single NAT gateway, so this group's egress stays in-zone.
+      subnet_ids     = [module.vpc.private_subnets[0]]
       instance_types = [var.node_instance_type]
       min_size       = 1
       max_size       = 2

@@ -123,3 +123,30 @@ variable "ci_apply_role_arn" {
   type        = string
   default     = ""
 }
+
+variable "api_public_access_cidrs" {
+  description = "CIDRs allowed to reach the EKS public API endpoint. Empty disables the public endpoint entirely."
+  type        = list(string)
+
+  # Empty by default, which means no public endpoint at all.
+  #
+  # The module's own default is ["0.0.0.0/0"], and because the repository never set this argument that is
+  # what the cluster would have been built with -- an API server every scanner on the internet can reach.
+  # IAM and RBAC still stand in front of it, so this is not an open cluster; it is an open FRONT DOOR, and
+  # the difference matters exactly when a credential leaks.
+  #
+  # A session that wants kubectl from a laptop passes its own address:
+  #   terraform apply -var='api_public_access_cidrs=["203.0.113.7/32"]'
+  # That is a home or office egress address, so the allowance covers everything behind that router, and it
+  # changes when the ISP reassigns it. The alternative with no such caveat is to leave this empty and reach
+  # the API through SSM.
+  default = []
+
+  validation {
+    # 0.0.0.0/0 here is indistinguishable from not setting the argument at all, which is the state this
+    # variable exists to end. Someone who genuinely wants a world-reachable endpoint can delete this check
+    # and explain why in the commit; what must not happen is arriving there by leaving a field blank.
+    condition     = !contains(var.api_public_access_cidrs, "0.0.0.0/0")
+    error_message = "0.0.0.0/0 is not an allow-list. Name the addresses, or leave the list empty and reach the API through SSM."
+  }
+}

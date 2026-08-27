@@ -48,8 +48,9 @@ data "aws_ec2_instance_type_offerings" "gpu_shared" {
 }
 
 locals {
-  # The VPC module builds one public subnet per AZ, in order, so this pairs them.
-  az_subnet = zipmap(local.azs, module.vpc.public_subnets)
+  # The VPC module builds one private subnet per AZ, in order, so this pairs them. Node groups live in the
+  # private tier now; the public subnets hold the NAT gateway and no instances.
+  az_subnet = zipmap(local.azs, module.vpc.private_subnets)
 
   # Subnets whose zone actually offers the type. Ordered by local.azs so the choice is deterministic
   # rather than dependent on the order AWS happened to return offerings in.
