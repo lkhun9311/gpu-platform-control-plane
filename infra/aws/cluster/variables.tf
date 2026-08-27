@@ -201,3 +201,28 @@ variable "api_public_access_cidrs" {
     error_message = "Every entry must be a valid IPv4 CIDR of /24 or narrower. A broader block is either a mistake or a decision that belongs in a commit message rather than in this list."
   }
 }
+
+variable "gpu_max_nodes" {
+  description = "max_size for the queuelab GPU node group. 2 enables the two-node axis and requires 96 vCPU of G/VT quota."
+  type        = number
+
+  # 1, and this default is a statement about the ACCOUNT rather than about the experiment.
+  #
+  # queuelab's preregistration includes a two-node axis, and the group's cap was deliberately raised to 2 for
+  # it -- the comment in eks.tf argues at length that a cap of 1 saved nothing and made a promised comparison
+  # impossible. That argument still holds. What it did not account for is that g4dn.12xlarge is 48 vCPU, so
+  # two of them ask for 96 against the 52 the account was granted on 2026-08-26.
+  #
+  # The failure would not have been a refusal. The group would scale to one node, stall, and the second node
+  # would simply never arrive -- during a session, while the first one bills $4.812/hour.
+  #
+  # So the capability is gated on the quota rather than removed. Raise this to 2 after the increase to at
+  # least 96 vCPU is granted; terraform_data.gpu_quota refuses the plan until then, which is what makes this
+  # a gate and not a note.
+  default = 1
+
+  validation {
+    condition     = var.gpu_max_nodes >= 1 && var.gpu_max_nodes <= 2
+    error_message = "The protocol uses one or two workers. Anything else is not a configuration this study describes."
+  }
+}

@@ -17,10 +17,6 @@ data "aws_ec2_instance_type_offerings" "gpu" {
     name   = "instance-type"
     values = [var.gpu_node_instance_type]
   }
-  filter {
-    name   = "location"
-    values = local.azs
-  }
 }
 
 data "aws_ec2_instance_type_offerings" "gpu_single" {
@@ -29,10 +25,6 @@ data "aws_ec2_instance_type_offerings" "gpu_single" {
     name   = "instance-type"
     values = [var.gpu_single_node_instance_type]
   }
-  filter {
-    name   = "location"
-    values = local.azs
-  }
 }
 
 data "aws_ec2_instance_type_offerings" "gpu_shared" {
@@ -40,10 +32,6 @@ data "aws_ec2_instance_type_offerings" "gpu_shared" {
   filter {
     name   = "instance-type"
     values = [var.gpu_shared_node_instance_type]
-  }
-  filter {
-    name   = "location"
-    values = local.azs
   }
 }
 
@@ -123,20 +111,33 @@ locals {
     "g5.12xlarge"   = 48
   }
 
-  # The largest single node any group would launch. Groups run one at a time in a session, so this is a
-  # floor on the quota rather than a sum.
-  gpu_vcpus_needed = max(
-    lookup(local.gpu_vcpus, var.gpu_node_instance_type, 48),
-    lookup(local.gpu_vcpus, var.gpu_single_node_instance_type, 4),
-    lookup(local.gpu_vcpus, var.gpu_shared_node_instance_type, 4),
-  )
+  # The largest vCPU demand any single group can reach, which is its max_size times its instance -- not one
+  # instance.
+  #
+  # This was a max() over the three instance types, giving 48, and 52 vCPU passed it. That hid the case the
+  # study actually promises: queuelab's preregistration includes a TWO-NODE axis, and gpu.max_size is 2, so
+  # a two-node run asks for 2 x 48 = 96 vCPU against a granted 52. The node group would scale to one node,
+  # stall, and the second node would never arrive -- during a session, on a machine billing $4.812/hour.
+  #
+  # Groups run one at a time, so this is a max across groups rather than a sum. The max_size values are
+  # mirrored from eks.tf; they are three numbers rather than a hand-maintained list of capacity types, and
+  # the precondition names the group so a mismatch is legible rather than a number that does not add up.
+  gpu_group_vcpus = {
+    gpu        = lookup(local.gpu_vcpus, var.gpu_node_instance_type, 48) * var.gpu_max_nodes
+    gpu_single = lookup(local.gpu_vcpus, var.gpu_single_node_instance_type, 4) * 1
+    gpu_shared = lookup(local.gpu_vcpus, var.gpu_shared_node_instance_type, 4) * 1
+  }
 
-  # Which purchasing options the configuration actually asks for, so the Spot quota is only load-bearing
-  # when something is set to SPOT. Kept as a literal list rather than derived from eks.tf because module
-  # inputs are not readable back out; if a group's capacity_type changes, this changes with it.
-  gpu_capacity_types = ["ON_DEMAND"]
+  gpu_vcpus_needed = max(values(local.gpu_group_vcpus)...)
+  gpu_hungriest    = [for k, v in local.gpu_group_vcpus : k if v == local.gpu_vcpus_needed][0]
+
+  # Which purchasing options the configuration asks for, read out of the node groups rather than restated.
+  #
+  # This was a hand-kept literal list, which is precisely the shape of the bug the quota guard was written
+  # after: a value maintained in one place and consumed in another, silently drifting. local.gpu_capacity is
+  # the single declaration; eks.tf reads the same map.
+  gpu_capacity_types = distinct(values(local.gpu_capacity))
 }
-
 resource "terraform_data" "gpu_quota" {
   input = {
     on_demand_vcpus = data.aws_servicequotas_service_quota.gpu_on_demand.value
@@ -148,7 +149,7 @@ resource "terraform_data" "gpu_quota" {
   lifecycle {
     precondition {
       condition     = !contains(local.gpu_capacity_types, "ON_DEMAND") || data.aws_servicequotas_service_quota.gpu_on_demand.value >= local.gpu_vcpus_needed
-      error_message = "Running On-Demand G and VT instances (L-DB2E81BA) is ${data.aws_servicequotas_service_quota.gpu_on_demand.value} vCPU, and the largest GPU node group needs ${local.gpu_vcpus_needed}. The node groups would create at desired_size 0 and fail at the first scale-up of a paid session. Request the increase before applying."
+      error_message = "Running On-Demand G and VT instances (L-DB2E81BA) is ${data.aws_servicequotas_service_quota.gpu_on_demand.value} vCPU. Node group '${local.gpu_hungriest}' can reach ${local.gpu_vcpus_needed} vCPU at its max_size. It would create at desired_size 0 and stall partway through a scale-up during a paid session. Request the increase, or lower that group's max_size."
     }
     precondition {
       condition     = !contains(local.gpu_capacity_types, "SPOT") || data.aws_servicequotas_service_quota.gpu_spot.value >= local.gpu_vcpus_needed

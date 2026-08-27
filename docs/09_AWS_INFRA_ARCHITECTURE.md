@@ -64,7 +64,7 @@ S3 state controls (v3): versioning, SSE-KMS with a scoped key policy, public-acc
 | API endpoint exposure | `endpoint_private_access=true`; public half derived from `api_public_access_cidrs` (**default empty**)      | The module default is `0.0.0.0/0` and this repo never set the argument. Reaching the endpoint ≠ authenticating to it, but a world-reachable endpoint is one a leaked credential works from anywhere. `0.0.0.0/0` now fails validation |
 | Node placement        | CPU group pinned to AZ-a (the NAT's zone); GPU groups derived from instance-type offerings (`placement.tf`) | Keeps CPU egress in-zone; GPU placement must follow capacity, not subnet index                                                                                                                                     |
 | NAT                   | **One** gateway, not one per AZ                                                                              | Per-AZ NAT buys AZ-fault isolation, worth less than its hourly rate on a cluster whose failure mode is a re-run. Price: cross-AZ egress from two zones at $0.01/GB each way                                        |
-| VPC endpoints         | **S3 gateway only.** No interface endpoints                                                                  | The gateway endpoint is free and removes image-layer traffic from the NAT. A fully private cluster needs ~9 interface endpoints, billed per hour per AZ — more than the single NAT they would replace              |
+| VPC endpoints         | **S3 gateway only.** No interface endpoints                                                                  | Free, and S3 traffic never leaves the VPC. It does **not** remove the image-pull cost — see the correction below. A fully private cluster needs ~9 interface endpoints, billed per hour per ENI — more than the single NAT they would replace |
 | Node shell access     | **SSM Session Manager**, no bastion                                                                          | No inbound port at all; the agent dials out and access is an IAM decision CloudTrail records. A bastion is a permanently billed instance whose job is to hold an open SSH port                                     |
 | Region                | `ap-northeast-2`                                                                                            | Where the G/VT quota was granted (52 vCPU, 2026-08-26). State bucket, cluster and registry all live beside it                                                                                                       |
 
@@ -263,8 +263,18 @@ through NAT       500 GB x $0.059              = $29.50/day
 through endpoint  24h x $0.013 + 500 x $0.010  =  $5.31/day     -> saves $24.19/day
 ```
 
+**A correction that matters more than the arithmetic.** The S3 gateway endpoint was justified here on the
+grounds that ECR stores image layers in S3, so the multi-GB engine image would bypass the NAT. **That is
+false for this cluster's images.** `vllm/vllm-openai` comes from Docker Hub and both NVIDIA components from
+`nvcr.io`; ECR holds only the operator and gateway images, which are Go binaries in the tens of megabytes. The
+bytes that dominate a fresh node's pull cross the NAT at $0.059/GB regardless. The endpoint stays because it
+is free and because S3 is genuinely used — for Terraform state and for the ECR-hosted images — not because it
+saves the image pull. Mirroring the three public images into ECR is the change that would make the original
+claim true, and it has not been done.
+
 **Where it clearly loses — this cluster.** A six-hour session pulling ~12 GB of images and ~1 GB of everything
-else:
+else. Note that under the correction above nearly all of that 12 GB crosses the NAT in **both** options, so
+it cancels out of the comparison rather than favouring option A:
 
 ```
 Option A (what this repo does): NAT + S3 gateway endpoint

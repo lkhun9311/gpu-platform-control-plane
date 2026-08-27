@@ -129,9 +129,9 @@ module "eks" {
       # A bias toward the result you want is the one failure mode this study cannot afford, and $2.75/hour is
       # not enough to buy it. The M5-b and M5-c groups measure admission under KV pressure, where an
       # interruption aborts without biasing, and they run on Spot for that reason.
-      capacity_type = "ON_DEMAND"
+      capacity_type = local.gpu_capacity["gpu"]
       min_size      = 0
-      max_size      = 2
+      max_size      = var.gpu_max_nodes
       desired_size  = 0
 
       # The AMI with the NVIDIA driver already in it. Without this the device plugin has nothing to talk to
@@ -202,7 +202,7 @@ module "eks" {
       #
       # terraform_data.gpu_quota in placement.tf refuses at plan time now instead. Flip this back only after
       # the Spot quota is granted; that precondition is what will say when.
-      capacity_type = "ON_DEMAND"
+      capacity_type = local.gpu_capacity["gpu_single"]
       min_size      = 0
       max_size      = 1
       desired_size  = 0
@@ -249,7 +249,7 @@ module "eks" {
       # ON_DEMAND for the same reason as gpu_single: the G-family Spot quota is 0 on this account, so a Spot
       # group would create cleanly and then fail at the first scale-up of a paid session. The measurement
       # argument for Spot is unchanged and is written out beside gpu_single.
-      capacity_type = "ON_DEMAND"
+      capacity_type = local.gpu_capacity["gpu_shared"]
       min_size      = 0
       max_size      = 1
       desired_size  = 0

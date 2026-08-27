@@ -3,18 +3,46 @@ data "aws_availability_zones" "available" {
 }
 
 locals {
-  # EKS CreateCluster requires subnets in at least two AZs, and GPU capacity wants a third.
+  # The zones are derived from what the GPU types are actually offered in, not from the first three the API
+  # returns.
   #
-  # The node groups no longer pin to the first AZ -- placement.tf derives each one's subnets from the zones
-  # that actually offer its instance type. That is what makes the third zone worth having: in
-  # ap-northeast-2 g5 is offered in a, c and d but NOT in b, so with two zones the A10G groups get exactly
-  # one home and an InsufficientInstanceCapacity there ends the session. G instances are the ones AWS runs
-  # out of.
+  # slice(names, 0, 3) gave 2a, 2b, 2c. In ap-northeast-2 that is exactly wrong for this workload: g5 is
+  # offered in 2a, 2c and 2d, so the slice DROPPED 2d -- a zone that can run the A10G groups, and the one
+  # with the cheapest spot price -- while KEEPING 2b, which cannot run g5 at all. Two of the three zones the
+  # single-card groups could use, and one that is dead weight for them.
   #
-  # This list and both subnet lists below MUST stay the same length: placement.tf zips azs with the private
-  # subnets, and a mismatch is not a syntax error -- `terraform validate` accepts it and `plan` is where it
-  # fails.
-  azs = slice(data.aws_availability_zones.available.names, 0, 3)
+  # It was not wrong in a way anything would report. Both A10G groups still had two homes, so the placement
+  # preconditions passed and the only symptom would have been an InsufficientInstanceCapacity in a session,
+  # with a usable zone sitting outside the VPC.
+  #
+  # The union is used rather than an intersection because the groups do not need the same zones: queuelab's
+  # g4dn.12xlarge runs in 2a/2b/2c and the A10G groups in 2a/2c/2d, so an intersection would discard 2b and
+  # 2d and hand each group a smaller pool than it has. placement.tf is what assigns each group its own subset.
+  gpu_zones = sort(distinct(concat(
+    tolist(data.aws_ec2_instance_type_offerings.gpu.locations),
+    tolist(data.aws_ec2_instance_type_offerings.gpu_single.locations),
+    tolist(data.aws_ec2_instance_type_offerings.gpu_shared.locations),
+  )))
+
+  # EKS CreateCluster rejects fewer than two AZs, so a region that offered the GPU types in one zone would
+  # need padding from the general list. Refusing instead would be wrong -- the CPU node group and the control
+  # plane do not care about G capacity -- so the general zones fill the gap, deterministically ordered.
+  azs = length(local.gpu_zones) >= 2 ? local.gpu_zones : distinct(concat(local.gpu_zones, slice(data.aws_availability_zones.available.names, 0, 2)))
+
+  # The purchasing option per GPU node group, declared once. eks.tf sets capacity_type from this map and
+  # placement.tf derives the quota preconditions from the same values, so a group cannot be switched to SPOT
+  # without the Spot quota check becoming load-bearing in the same edit.
+  gpu_capacity = {
+    gpu        = "ON_DEMAND"
+    gpu_single = "ON_DEMAND"
+    gpu_shared = "ON_DEMAND"
+  }
+
+  # Two /20 tiers, indexed off the same list so they cannot drift in length. placement.tf zips local.azs
+  # against the private subnets and a mismatch is a value-level error that `validate` accepts and only `plan`
+  # catches -- deriving both from one list is what removes that class of mistake rather than documenting it.
+  public_subnets  = [for i, _ in local.azs : cidrsubnet(var.vpc_cidr, 4, i)]
+  private_subnets = [for i, _ in local.azs : cidrsubnet(var.vpc_cidr, 4, i + length(local.azs))]
 }
 
 module "vpc" {
@@ -36,8 +64,8 @@ module "vpc" {
   # Public subnets keep two jobs and no nodes: they host the NAT gateway, and they are tagged for ELB so an
   # ingress load balancer has somewhere to land if one is ever wanted. See docs/09 for why the benchmark
   # forbids putting one in front of the engine.
-  public_subnets  = [cidrsubnet(var.vpc_cidr, 4, 0), cidrsubnet(var.vpc_cidr, 4, 1), cidrsubnet(var.vpc_cidr, 4, 2)]
-  private_subnets = [cidrsubnet(var.vpc_cidr, 4, 3), cidrsubnet(var.vpc_cidr, 4, 4), cidrsubnet(var.vpc_cidr, 4, 5)]
+  public_subnets  = local.public_subnets
+  private_subnets = local.private_subnets
 
   # ONE NAT gateway for all three private subnets, not one per AZ.
   #
@@ -70,16 +98,30 @@ module "vpc" {
   tags = var.tags
 }
 
-# The S3 gateway endpoint is free, and it is the one endpoint whose arithmetic is not close.
+# The S3 gateway endpoint is free, so it stays -- but the reason first written beside it was wrong.
 #
-# ECR stores image layers in S3, so a node pulling the vLLM image (several GB) sends that traffic through
-# whatever route reaches S3. Through the NAT gateway it is billed at the NAT data-processing rate; through a
-# gateway endpoint it costs nothing and never enters the NAT at all.
+# The claim was: ECR stores image layers in S3, so a node pulling the multi-GB vLLM image sends that traffic
+# through this endpoint instead of the NAT, and the endpoint therefore removes most of the session's NAT data
+# charge.
 #
-# The interface endpoints (ecr.api, ecr.dkr, sts, ec2, logs, ssm, ssmmessages, ec2messages, ...) are
-# deliberately absent. Going fully private would need roughly nine of them, each billed per hour per AZ, and
-# nine of those cost more per hour than the single NAT gateway they would replace. The private-subnet threat
-# model is already satisfied by the NAT; buying it a second time through PrivateLink is not.
+# The premise does not hold for this cluster's images. The three big pulls are not in ECR:
+#
+#   vllm/vllm-openai@sha256:0a51ea5b...          Docker Hub
+#   nvcr.io/nvidia/k8s-device-plugin:v0.16.2     NVIDIA NGC
+#   nvcr.io/nvidia/k8s/dcgm-exporter:3.3.9-...   NVIDIA NGC
+#
+# ECR holds only the operator and gateway images, which are Go binaries in the tens of megabytes. So the
+# bytes that dominate a fresh node's pull go over the NAT at $0.059/GB no matter what this endpoint does, and
+# the saving attributed to it here was close to zero rather than close to all of it.
+#
+# It stays anyway, on the reasons that survive: it costs nothing, S3 is reached for the Terraform state and
+# for whatever the operator and gateway images do pull from ECR, and traffic that takes it never leaves the
+# VPC. Those are worth a free route. They are not worth the sentence that was here.
+#
+# The honest number for a session is therefore "a few GB of NAT data processing per fresh node", and it has
+# not been measured. Mirroring the three public images into ECR would move that traffic onto this endpoint
+# and is the change that would make the original claim true -- see docs/09, where the same correction is
+# recorded against the endpoint arithmetic.
 #
 # This is a resource rather than a module argument because terraform-aws-modules/vpc moved its endpoints into
 # a submodule at v4 -- enable_s3_endpoint is a v3 input and v5.13.0 rejects it as an unsupported argument.
