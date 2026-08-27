@@ -135,7 +135,7 @@ and an independent adversarial verdict. Each row names the observation that reve
 | # | Decision | Reversed by |
 |---|---|---|
 | 1 | **Do not request 52 → 96 vCPU of `L-DB2E81BA` yet.** queuelab runs on one `g4dn.12xlarge` | The two-node axis being scheduled for a specific session |
-| 2 | **Request `L-3819A6DF` (Spot) now; keep every group On-Demand until the truncation gate below exists.** Then Spot for M5-b and M5-c only, never queuelab | The gate landing and being injection-tested |
+| 2 | **Spot quota requested 2026-08-27 (case 178783030700148, 8 vCPU, `CASE_OPENED`).** Every group stays On-Demand until the truncation gate is complete; then Spot for M5-b and M5-c only, never queuelab | M5-b's gate is **closed** (three fixes, injection-tested); **M5-c still has no analyzer**, so `gpu_shared` cannot move until it does |
 | 3 | **Stay in `ap-northeast-2`** | A target region with a confirmed G/VT quota, re-bootstrapped state, and a destroy-tested teardown — plus GPU-hours large enough for 23% to exceed that cost |
 | 4 | **Keep `g5.xlarge` (A10G) for the single-card groups** | A study not bound to the A10G preregistration; `g6.xlarge` (L4) is then the default |
 
@@ -172,12 +172,22 @@ that produced no records is refused" — is **half right, and the half that is w
   preferentially on later ones — informative censoring, not a smaller sample.
 - **M5-c has no analyzer at all**, so a matrix missing a cell has nothing to refuse it.
 
-The activation gate is therefore specific: an analyzer that enumerates the preregistered M5-b arms and every
-M5-c cell, requires the expected count of successful records per unit with matching configuration, refuses
-unequal repetitions instead of warning, and exits non-zero **before** any `VERDICT` line is printed — with
-teardown still running on that exit. Injection-tested against a deleted arm and a truncated one. Only then do
-the single-card groups move to Spot, which at Seoul's observed prices takes `g5.xlarge` from $1.2370/hr to
-$0.3522/hr.
+**Status of the gate.** Three of the four ways a degraded run could certify itself are now closed, each
+injection-tested:
+
+| Hole | Mechanism | Closed by |
+|---|---|---|
+| Missing arm | — | Already refused; `TailSampleSize == 0` disqualifies before any check. The harness now also names which arm is absent |
+| Tail lost to transport errors | Censoring counted `TimedOut` only, and a vanishing node produces connection resets, not timeouts | Censoring counts every premium non-completion that is not a 429 |
+| Absent confidence interval | Unequal repetitions skip the bootstrap; the zero `CI`'s `Hi = 0.0` satisfied `Hi < 1.0`, so the **absence** of an interval passed the strictest gate | `CI.Valid`, false by construction; a degenerate single-repetition interval is invalid too |
+| Truncated repetition inside a healthy arm | Pooled `TailSampleSize` hides a repetition of 30 among three of 500, and the bootstrap resamples its maximum-as-p99 with equal weight | Per-repetition floor at `MinTailSamples`, wired through `report` and covered by a command-level test as well as unit specs |
+
+**What remains before `gpu_shared` may use Spot: M5-c has no analyzer at all.** A matrix missing a cell has
+nothing to refuse it, so the sharing group stays On-Demand even after the Spot quota is granted. `gpu_single`
+(M5-b) is gated only on the quota now.
+
+None of this was a Spot problem. An evicted engine Pod, an OOM kill or a network blip produce the same rows,
+so until these landed **any** degraded run — On-Demand included — could print `all checks passed`.
 
 **On 3.** The verdict stands and **its original main argument does not.** "Moving puts the first apply behind
 another support case" assumed a quota wait is expensive; in practice it is at most about three days, which is
