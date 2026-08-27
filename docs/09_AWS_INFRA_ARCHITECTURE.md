@@ -127,6 +127,73 @@ The public subnets already carry `kubernetes.io/role/elb`, so the controller has
 constraints on the day it is built: the benchmark must not be re-run through it, and it must be torn down with
 the cluster like everything else.
 
+### Four decisions taken on 2026-08-27, and what would reverse each
+
+Settled against verified market data (AWS Pricing API and `describe-spot-price-history`, `ap-northeast-2`)
+and an independent adversarial verdict. Each row names the observation that reverses it.
+
+| # | Decision | Reversed by |
+|---|---|---|
+| 1 | **Do not request 52 → 96 vCPU of `L-DB2E81BA` yet.** queuelab runs on one `g4dn.12xlarge` | The two-node axis being scheduled for a specific session |
+| 2 | **Request `L-3819A6DF` (Spot) now; keep every group On-Demand until the truncation gate below exists.** Then Spot for M5-b and M5-c only, never queuelab | The gate landing and being injection-tested |
+| 3 | **Stay in `ap-northeast-2`** | A target region with a confirmed G/VT quota, re-bootstrapped state, and a destroy-tested teardown — plus GPU-hours large enough for 23% to exceed that cost |
+| 4 | **Keep `g5.xlarge` (A10G) for the single-card groups** | A study not bound to the A10G preregistration; `g6.xlarge` (L4) is then the default |
+
+**On 1.** The preregistration is explicit that a one-node session delivers the arm contrast, the dose axis and
+the device evidence, and that `-compare -mode node` refuses rather than inventing an axis it does not have.
+The second node doubles queuelab burn from $4.812/hr to $9.624/hr for that axis alone. There is also a reason
+to keep the quota low that has nothing to do with the axis: **at 52 vCPU the account itself is a hard cap at
+one node.** A Budgets alarm lags by hours; a service quota refuses instantly. Until the axis is scheduled,
+the unraised quota is the cheapest spending control in this account, and raising it removes that.
+
+**On 2.** A quota request creates no instance and costs nothing, so the lead time is worth removing now. What
+must not follow automatically is *use*: a grant is permission, not a methodological waiver.
+
+queuelab stays On-Demand permanently, and the mechanism is informative censoring rather than cost. A Spot
+reclamation drains the node, the drain evicts the victim Pod, `AttemptStopped` arrives early, and the
+`PodReady → AttemptStopped` window the held time is computed over is **shortened** — a reclaim that reads
+better than it was.
+
+For M5-b and M5-c the previous justification — "an interruption ends an arm without biasing it, and an arm
+that produced no records is refused" — is **half right, and the half that is wrong is the half that matters**:
+
+- **A missing arm IS refused.** `summ` is a map, a missing key yields the zero `ArmSummary`, and
+  `EvaluateChecks` disqualifies on `TailSampleSize == 0` before any check is read. Two independent reviewers
+  asserted the opposite; reading `internal/bench/report.go:319-335` settles it. The harness now also names
+  which arm is absent, because the refusal message interpolates an empty `s.Arm`.
+- **A TRUNCATED arm is not.** An arm interrupted after 120 premium completions clears
+  `MinTailSamples = 100` and is compared against arms with four times the samples. Unequal repetition counts
+  print a warning to stderr and refuse nothing. Arms run in a fixed order, so interruption lands
+  preferentially on later ones — informative censoring, not a smaller sample.
+- **M5-c has no analyzer at all**, so a matrix missing a cell has nothing to refuse it.
+
+The activation gate is therefore specific: an analyzer that enumerates the preregistered M5-b arms and every
+M5-c cell, requires the expected count of successful records per unit with matching configuration, refuses
+unequal repetitions instead of warning, and exits non-zero **before** any `VERDICT` line is printed — with
+teardown still running on that exit. Injection-tested against a deleted arm and a truncated one. Only then do
+the single-card groups move to Spot, which at Seoul's observed prices takes `g5.xlarge` from $1.2370/hr to
+$0.3522/hr.
+
+**On 3.** Seoul is 23% above `us-east-1`/`us-west-2` on On-Demand for every relevant type — $0.231/hr on
+`g5.xlarge`, $0.900/hr on `g4dn.12xlarge`. It is also the only region with a granted G/VT quota, and its
+single-card **Spot** prices are the lowest of the three ($0.2065/hr for `g6.xlarge` against $0.4552 in
+`us-west-2` and $0.7463 in `us-east-1`). Moving would put the first paid apply behind a second support case
+and a re-bootstrapped state bucket, KMS key and registry. Quota and bootstrap readiness dominate a modest
+hourly premium on a short-lived lab.
+
+**On 4.** `g6.xlarge` (L4) carries the identical 22,888 MiB and 4 vCPU, is offered in the same zones, and is
+20% cheaper On-Demand and 41% cheaper on Spot. The M5-c sizing that rejected the T4 is pure memory arithmetic
+and transfers unchanged — so the card is *feasible*. It is not *equivalent*: device-memory bandwidth is
+roughly halved (A10G ≈ 600 GB/s, L4 ≈ 300 GB/s, vendor figures not independently verified here), and LLM
+decode is bandwidth-bound. That sits in the causal path of token service time, queue residence and KV-pressure
+duration — the quantities M5-b and M5-c measure.
+
+It would not invalidate an internally complete all-L4 comparison. It **would** invalidate reusing the A10G
+sizing page, reporting the result as the promised A10G measurement, or carrying absolute latencies across.
+The saving is $0.247/hr On-Demand. Re-preregistering a one-shot study to save that is a bad trade, and the
+repository deliberately put M5-b's exclusive arm and M5-c on one card class. `g6.xlarge` becomes the default
+for the next study that is not bound to this preregistration.
+
 ## Identity and access
 
 

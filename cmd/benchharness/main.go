@@ -354,6 +354,28 @@ func report(args []string) error {
 			" the incremental C/B interval is a point estimate, not a real CI\n", len(b), len(c))
 	}
 
+	// Name the arms that are absent, because the refusal downstream cannot.
+	//
+	// summ is a map, so a missing arm yields the zero ArmSummary, whose TailSampleSize is 0, and
+	// EvaluateChecks disqualifies the comparison on exactly that. The refusal therefore WORKS -- a session cut
+	// short by a reclaimed node or an aborted run cannot be reported as a result. Two independent reviews
+	// asserted the opposite, and reading this path is what settled it.
+	//
+	// What the refusal cannot do is say WHICH arm. Its message interpolates s.Arm, which on a zero value is the
+	// empty string, so the operator reads "arm  completed no premium requests" and has to work out from the
+	// record directory what is missing. That is a bad minute to spend at the end of a paid session, and it is
+	// the difference between a gate that stops you and a gate that tells you what to re-run.
+	var missing []string
+	for _, arm := range []string{"R1", "static-cap", "kv-aware"} {
+		if _, ok := summ[arm]; !ok {
+			missing = append(missing, arm)
+		}
+	}
+	if len(missing) > 0 {
+		fmt.Fprintf(os.Stderr, "warning: no records for arm(s) %s; the comparison will be disqualified\n",
+			strings.Join(missing, ", "))
+	}
+
 	checks := bench.EvaluateChecks(summ["R1"], summ["static-cap"], summ["kv-aware"], incCI, matchTolerance)
 	text := bench.FormatReport(summaries, checks, matchTolerance)
 
