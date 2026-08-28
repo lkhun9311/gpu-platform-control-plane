@@ -21,8 +21,26 @@ jobs:
   plan:
     name: Terraform plan (cluster)
     runs-on: ubuntu-latest
-    # Skip cleanly until the bootstrap state bucket exists, since there is nothing to plan against.
-    if: github.event_name == 'pull_request' && vars.TF_STATE_BUCKET != ''
+    # Two conditions, and the second is a trust boundary rather than a convenience.
+    #
+    # `terraform plan` is not a read-only operation on untrusted input. It runs `terraform init`, which
+    # downloads providers and modules named by the configuration in the pull request, and then executes them.
+    # A pull request that adds a malicious provider source, or an external data source, or a provisioner, gets
+    # arbitrary code execution inside this job -- and this job holds an OIDC token for a role with account-wide
+    # ReadOnlyAccess and decrypt on the Terraform state key.
+    #
+    # For a `pull_request` event GitHub issues an OIDC token whose subject is the BASE repository's
+    # `repo:<owner>/<name>:pull_request`, which is exactly what the plan role trusts. So the head-repository
+    # check is what separates "a branch someone with write access pushed" from "anyone on the internet opened
+    # a pull request". Without it, the only thing standing between a fork PR and this account's read surface is
+    # whether GitHub happens to issue `id-token: write` to fork workflows -- a platform behaviour this
+    # repository would be depending on without stating it.
+    #
+    # The bootstrap check keeps this skipping cleanly until there is a state bucket to plan against.
+    if: >-
+      github.event_name == 'pull_request'
+      && github.event.pull_request.head.repo.full_name == github.repository
+      && vars.TF_STATE_BUCKET != ''
     timeout-minutes: 45
     concurrency:
       group: infra-plan-${{ github.ref }}

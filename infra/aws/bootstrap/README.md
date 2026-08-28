@@ -13,7 +13,11 @@ cd infra/aws/bootstrap
 
 # 1. Create the backend on local state.
 terraform init
-terraform apply -var 'state_bucket_name=<globally-unique-name>' -var 'github_repo=lkhun9311/gpu-platform-control-plane'
+terraform apply \
+  -var 'state_bucket_name=<globally-unique-name>' \
+  -var 'github_repo=<owner>/<name>' \
+  -var "github_repository_id=$(gh api repos/<owner>/<name> --jq .id)" \
+  -var "github_repository_owner_id=$(gh api repos/<owner>/<name> --jq .owner.id)"
 
 # 2. Migrate the local state into the bucket just created.
 cat > backend.tf <<'HCL'
