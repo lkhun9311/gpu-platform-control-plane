@@ -1,6 +1,6 @@
 # AWS Infrastructure Architecture (M5-a / M5-b)
 
-> **Status (2026-08-27): `bootstrap` is applied; `cluster` is planned and not applied.** The state bucket, its KMS key, the GitHub OIDC provider, the three CI roles, the ECR repository and the budget alarms exist in account `007635145730` (`ap-northeast-2`). The `cluster` state has been planned against that account — 89 resources — and never applied, so no VPC, EKS cluster, node or NAT gateway exists and nothing is currently billing beyond a few cents of S3 and KMS. `argo-bootstrap` has never been initialised.
+> **Status (2026-08-27): `bootstrap` is applied; `cluster` is planned and not applied.** The state bucket, its KMS key, the GitHub OIDC provider, the three CI roles, the ECR repository and the budget alarms exist in the project's AWS account (`ap-northeast-2`). The `cluster` state has been planned against that account — 89 resources — and never applied, so no VPC, EKS cluster, node or NAT gateway exists and nothing is currently billing beyond a few cents of S3 and KMS. `argo-bootstrap` has never been initialised.
 >
 > Design of record: an internal integration design (v3.2) reconciled from two independent AI reviews that raised 20 findings between them; that working document is not published. The network design in this document supersedes v3.2's public-subnet topology — see *What is deliberately absent*.
 
@@ -135,7 +135,7 @@ and an independent adversarial verdict. Each row names the observation that reve
 | # | Decision | Reversed by |
 |---|---|---|
 | 1 | **Do not request 52 → 96 vCPU of `L-DB2E81BA` yet.** queuelab runs on one `g4dn.12xlarge` | The two-node axis being scheduled for a specific session |
-| 2 | **Spot quota requested 2026-08-27 (case 178783030700148, 8 vCPU, `CASE_OPENED`).** Every group stays On-Demand until the truncation gate is complete; then Spot for M5-b and M5-c only, never queuelab | M5-b's gate is **closed** (three fixes, injection-tested); **M5-c still has no analyzer**, so `gpu_shared` cannot move until it does |
+| 2 | **Spot quota requested and granted at 8 vCPU on 2026-08-27.** Every group stays On-Demand until the truncation gate is complete; then Spot for M5-b and M5-c only, never queuelab | M5-b's gate is **closed** (three fixes, injection-tested); **M5-c still has no analyzer**, so `gpu_shared` cannot move until it does |
 | 3 | **Stay in `ap-northeast-2`** | A target region with a confirmed G/VT quota, re-bootstrapped state, and a destroy-tested teardown — plus GPU-hours large enough for 23% to exceed that cost |
 | 4 | **Keep `g5.xlarge` (A10G) for the single-card groups** | A study not bound to the A10G preregistration; `g6.xlarge` (L4) is then the default |
 
@@ -253,6 +253,26 @@ to hide.
 
 `--require-provenance` is opt-in for the same reason `-require-device` is: a kind run against a stub has no
 build worth pinning, and demanding one from every free run would push an operator toward inventing a value.
+
+### What this document does not say
+
+This repository is public, and the design is the point of it being so. Account-specific coordinates are not.
+
+Account ID, state bucket name, KMS key ARN, IAM role ARNs and support case numbers stay out of the published
+tree and live in the private engineering notes instead.
+
+**None of them is a credential**, and AWS classifies an account ID as not secret, sensitive or confidential
+([AWS account identifiers](https://docs.aws.amazon.com/accounts/latest/reference/manage-acct-identifiers.html)).
+The security boundary is the OIDC trust policy's `sub` condition, the bucket policy and the KMS key policy —
+not the secrecy of a name. What publishing the account ID buys an attacker is **targeting**: with the role
+names already visible in this repository's Terraform, it makes the exact role ARNs constructible, so a
+hypothetical trust-policy defect becomes immediately addressable rather than merely present.
+
+That is a reason to leave the coordinates out. It is not a reason to treat their past publication as an
+incident: an adversarial review of this exact question ranked the account ID **fifth of six** exposures in
+this repository, below the CI trust boundaries it sits beside.
+
+The rule, stated so it survives the next edit: **the reasoning is public, the coordinates are not.**
 
 ## Identity and access
 
