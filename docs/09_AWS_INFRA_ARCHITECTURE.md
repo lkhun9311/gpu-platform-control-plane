@@ -281,7 +281,7 @@ The rule, stated so it survives the next edit: **the reasoning is public, the co
 |----------------------|----------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | CI (image push)      | GitHub OIDC → image-push role                                  | Trust pins `aud=sts.amazonaws.com` + `sub` (repo/ref/environment)                                                                                                                                                                                                                                                              |
 | CI (terraform plan)  | GitHub OIDC → plan role (PR context)                           | **`terraform plan` is not read-only on untrusted input:** `init` fetches and executes providers and modules named by the pull request's own configuration, inside a job holding account-wide `ReadOnlyAccess` and state-key decrypt. The workflow therefore refuses to hand credentials to a pull request whose head is not this repository (`head.repo.full_name == github.repository`), rather than relying on whether GitHub issues `id-token: write` to fork workflows |
-| CI (terraform apply) | GitHub OIDC → apply role, gated on the `infra-apply` environment | Separate role and trust from plan. **The environment gate is not real until the environment exists and is protected:** GitHub creates a referenced-but-missing environment *without* protection rules, so the `sub` condition proves only that a job named `infra-apply`, not that anyone approved. All three trusts additionally pin `repository_id` and `repository_owner_id`, which are immutable — an earlier note here claimed AWS could match only `aud`/`sub` and that `job_workflow_ref` was unusable; AWS's current documentation lists all of these as GitHub OIDC context keys, so that note was stale |
+| CI (terraform apply) | GitHub OIDC → apply role, gated on the `infra-apply` environment | Separate role and trust from plan. The environment now exists with a deployment branch policy of `main` only, which is what makes the `sub` condition mean something. It did not until 2026-08-28: **GitHub creates a referenced-but-missing environment *without* protection rules**, so until then the condition proved only that a job had named `infra-apply`. **No required reviewer** — see below. All three trusts additionally pin `repository_id` and `repository_owner_id`, which are immutable — an earlier note here claimed AWS could match only `aud`/`sub` and that `job_workflow_ref` was unusable; AWS's current documentation lists all of these as GitHub OIDC context keys, so that note was stale |
 | Operator             | **No IRSA**                                                    | The manager calls only the Kubernetes API — an AWS role would be attack surface with no function                                                                                                                                                                                                                               |
 | Node instances       | IMDSv2: `httpTokens=required` + `httpPutResponseHopLimit=1`    | An **instance** option, not a pod control: it blocks IMDS from pod-network containers (extra hop), but hostNetwork pods still reach it — that exception is documented, not hidden. Node bootstrap/ECR pull must be tested at hop-limit 1                                                                                       |
 | Cluster access       | **EKS access entries**: dev admin entry + CI apply-role entry  | The apply role needs kubectl to run pre-destroy (delete Argo apps) — without its access entry, `destroy.yml` cannot do ordered teardown                                                                                                                                                                                        |
@@ -303,6 +303,25 @@ it is the last real gap in the Security pillar.
 Sequence: disable the access key at the end of the current session, create the Organization and enable
 Identity Center, and move local work to `aws sso login`. Nothing in `infra/aws/` changes — the roles and trust
 policies are unaffected, because the credential is how a human reaches AWS, not what Terraform describes.
+
+### Why the apply environment has no required reviewer
+
+A reviewer gate was configured and then removed the same day, and the reason is worth keeping.
+
+`destroy.yml` runs on a nightly cron and deploys to the same `infra-apply` environment, because its OIDC token
+has to satisfy the apply role's `sub` condition. A required reviewer therefore does not gate only the applies
+— it gates the **unattended teardown**, which would sit waiting for approval while a GPU node bills by the
+hour. The control that exists to stop an overnight bill would have been disarmed by the control meant to stop
+an unreviewed apply.
+
+With one contributor the reviewer half was buying little anyway: GitHub permits self-review by default, so it
+is a speed bump rather than separation of duties. The branch policy is the half that actually constrains —
+only a workflow running on `main` can deploy to this environment, and that is what the apply role's `sub`
+condition rests on.
+
+If a second contributor ever exists, the right shape is the one this repository's bootstrap README already
+describes: a separate `infra-destroy` environment with its own role, pinned to that environment and
+reviewer-free, so the reviewer gate can go back on `infra-apply` without costing the teardown.
 
 ## Cluster add-ons (ownership explicit, same rule as CRDs)
 

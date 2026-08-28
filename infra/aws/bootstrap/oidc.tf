@@ -109,6 +109,20 @@ resource "aws_iam_role_policy" "ci_plan_state" {
 #
 # This sub condition denies forked-PR and non-main assumption only when the infra-apply Environment has a deployment branch policy restricting it to main.
 #
+# That is not a caveat to file away: GitHub CREATES a referenced-but-missing environment, without protection
+# rules, the first time a workflow names it. So an unconfigured environment does not fail closed -- it
+# silently becomes an environment that permits everything, and this condition then proves only that some job
+# wrote `environment: infra-apply` in its YAML.
+#
+# Configured on 2026-08-28: deployment branch policy `main` only, and deliberately NO required reviewer.
+#
+# A reviewer was set and removed the same day. destroy.yml deploys to this same environment on a nightly cron,
+# so a reviewer gate would have paused the UNATTENDED TEARDOWN waiting for approval while a GPU node billed by
+# the hour -- the control against an overnight bill disarmed by the control against an unreviewed apply. With
+# one contributor, and GitHub permitting self-review, the reviewer half was a speed bump rather than
+# separation of duties. The branch policy is the half that constrains, and it is what this sub condition
+# rests on.
+#
 # That GitHub-side protection rule is a one-time manual setup documented in README.md.
 data "aws_iam_policy_document" "ci_apply_trust" {
   statement {
