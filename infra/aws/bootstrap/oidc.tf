@@ -26,6 +26,28 @@ data "aws_iam_policy_document" "ci_plan_trust" {
       values   = ["sts.amazonaws.com"]
     }
 
+    # Immutable identity, because `sub` names the repository by a string that can change hands.
+    #
+    # Every condition here keys off `repo:<owner>/<name>:...`, and both halves of that are mutable: a
+    # repository can be renamed or transferred, and GitHub then frees the old owner/name for anyone to claim.
+    # Someone who registered `lkhun9311` after a rename, or a repository moved to a new owner, would emit
+    # tokens whose `sub` still matches while being a different repository entirely.
+    #
+    # repository_id and repository_owner_id are the numeric identities GitHub never reuses. They pin the trust
+    # to THIS repository under THIS account rather than to a name that happens to look the same. AWS documents
+    # both as usable GitHub OIDC context keys.
+    condition {
+      test     = "StringEquals"
+      variable = "token.actions.githubusercontent.com:repository_id"
+      values   = [var.github_repository_id]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "token.actions.githubusercontent.com:repository_owner_id"
+      values   = [var.github_repository_owner_id]
+    }
+
     condition {
       test     = "StringEquals"
       variable = "token.actions.githubusercontent.com:sub"
@@ -104,6 +126,28 @@ data "aws_iam_policy_document" "ci_apply_trust" {
       values   = ["sts.amazonaws.com"]
     }
 
+    # Immutable identity, because `sub` names the repository by a string that can change hands.
+    #
+    # Every condition here keys off `repo:<owner>/<name>:...`, and both halves of that are mutable: a
+    # repository can be renamed or transferred, and GitHub then frees the old owner/name for anyone to claim.
+    # Someone who registered `lkhun9311` after a rename, or a repository moved to a new owner, would emit
+    # tokens whose `sub` still matches while being a different repository entirely.
+    #
+    # repository_id and repository_owner_id are the numeric identities GitHub never reuses. They pin the trust
+    # to THIS repository under THIS account rather than to a name that happens to look the same. AWS documents
+    # both as usable GitHub OIDC context keys.
+    condition {
+      test     = "StringEquals"
+      variable = "token.actions.githubusercontent.com:repository_id"
+      values   = [var.github_repository_id]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "token.actions.githubusercontent.com:repository_owner_id"
+      values   = [var.github_repository_owner_id]
+    }
+
     condition {
       test     = "StringEquals"
       variable = "token.actions.githubusercontent.com:sub"
@@ -155,6 +199,28 @@ data "aws_iam_policy_document" "ci_image_push_trust" {
       test     = "StringEquals"
       variable = "token.actions.githubusercontent.com:aud"
       values   = ["sts.amazonaws.com"]
+    }
+
+    # Immutable identity, because `sub` names the repository by a string that can change hands.
+    #
+    # Every condition here keys off `repo:<owner>/<name>:...`, and both halves of that are mutable: a
+    # repository can be renamed or transferred, and GitHub then frees the old owner/name for anyone to claim.
+    # Someone who registered `lkhun9311` after a rename, or a repository moved to a new owner, would emit
+    # tokens whose `sub` still matches while being a different repository entirely.
+    #
+    # repository_id and repository_owner_id are the numeric identities GitHub never reuses. They pin the trust
+    # to THIS repository under THIS account rather than to a name that happens to look the same. AWS documents
+    # both as usable GitHub OIDC context keys.
+    condition {
+      test     = "StringEquals"
+      variable = "token.actions.githubusercontent.com:repository_id"
+      values   = [var.github_repository_id]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "token.actions.githubusercontent.com:repository_owner_id"
+      values   = [var.github_repository_owner_id]
     }
 
     condition {

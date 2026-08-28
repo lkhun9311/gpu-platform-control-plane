@@ -63,3 +63,20 @@ variable "gateway_repo_name" {
   type        = string
   default     = "gpu-platform-gateway"
 }
+
+variable "github_repository_id" {
+  description = "Numeric GitHub repository ID, used as an immutable OIDC trust condition."
+  type        = string
+
+  # Numeric rather than the owner/name string, because names move.
+  #
+  # `gh api repos/<owner>/<name> --jq .id` prints it. It has no default: a wrong value here silently narrows
+  # the trust to nothing, and a default would let that pass review as "the value that was already there".
+}
+
+variable "github_repository_owner_id" {
+  description = "Numeric GitHub account ID of the repository owner, used as an immutable OIDC trust condition."
+  type        = string
+
+  # `gh api repos/<owner>/<name> --jq .owner.id`.
+}

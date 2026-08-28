@@ -521,3 +521,38 @@ func TestCIPublishesEveryImageGitOpsDeploys(t *testing.T) {
 		t.Error("infra/aws/bootstrap declares no gateway ECR repository, so the push in ci.yml has nowhere to go")
 	}
 }
+
+// TestCITrustBoundariesSurviveEditing pins the two controls that stand between a pull request and this
+// account's read surface.
+//
+// `terraform plan` is not read-only on untrusted input: `init` fetches and executes providers and modules
+// named by the pull request's own configuration, inside a job holding an OIDC token for a role with
+// account-wide ReadOnlyAccess and decrypt on the Terraform state key. Two things keep that from being
+// reachable by anyone who can open a pull request, and both are one edit away from disappearing silently.
+func TestCITrustBoundariesSurviveEditing(t *testing.T) {
+	infra := readRepoFile(t, ".github/workflows/infra.yml")
+
+	// 1. The plan job must refuse a pull request whose head is not this repository.
+	//
+	// For a `pull_request` event GitHub issues a token whose subject is the BASE repository's
+	// `repo:<owner>/<name>:pull_request` -- exactly what the plan role trusts. Without this check the only
+	// barrier is whether GitHub happens to issue `id-token: write` to fork workflows, which is a platform
+	// behaviour this repository would be depending on without stating it.
+	if !strings.Contains(infra, "github.event.pull_request.head.repo.full_name == github.repository") {
+		t.Error("infra.yml does not restrict the credentialed plan job to same-repository pull requests; " +
+			"a fork PR could reach a role with account-wide ReadOnlyAccess and state-key decrypt")
+	}
+
+	// 2. The OIDC trust must pin the immutable numeric identities, not only the owner/name string.
+	//
+	// `sub` keys off `repo:<owner>/<name>:...` and both halves are mutable: a rename or transfer frees the
+	// old owner/name for anyone to claim, and tokens from a different repository would then match.
+	oidc := readRepoFile(t, "infra/aws/bootstrap/oidc.tf")
+	for _, key := range []string{"repository_id", "repository_owner_id"} {
+		want := "token.actions.githubusercontent.com:" + key
+		// Three roles, three trust policies. Two of three would be a silent hole in whichever was missed.
+		if n := strings.Count(oidc, want); n < 3 {
+			t.Errorf("oidc.tf pins %s in %d trust policies, expected 3 (plan, apply, image-push)", key, n)
+		}
+	}
+}
