@@ -33,8 +33,34 @@ locals {
   # placement.tf derives the quota preconditions from the same values, so a group cannot be switched to SPOT
   # without the Spot quota check becoming load-bearing in the same edit.
   gpu_capacity = {
-    gpu        = "ON_DEMAND"
-    gpu_single = "ON_DEMAND"
+    # queuelab: On-Demand permanently, and not for cost. A Spot reclamation drains the node, the drain evicts
+    # the victim Pod, and that truncates the PodReady -> AttemptStopped window the held time is computed over
+    # -- a shorter hold flatters the headline. AWS documents that a managed node group's drain is best-effort
+    # and that Pods may be force-terminated without the two-minute notice, so this is not a tunable.
+    gpu = "ON_DEMAND"
+
+    # M5-b: Spot, now that the quota exists AND the evidence path refuses an interrupted run.
+    #
+    # The quota was granted on 2026-08-27 (case <support-case>, 8 vCPU). That was necessary and not
+    # sufficient: the decision recorded in docs/09 was to request it immediately and enable nothing until an
+    # interrupted arm could not be reported as a result. Five ways it could have been are now closed and each
+    # is injection-tested --
+    #
+    #   missing arm            TailSampleSize == 0 disqualifies before any check is read
+    #   transport-lost tail    censoring counts every non-admission non-completion, not just timeouts
+    #   absent interval        CI.Valid, false by construction, so its zero value cannot satisfy Hi < 1.0
+    #   thin repetition        per-repetition floor at MinTailSamples
+    #   short recording        arms sharing one trace must record the same number of rows
+    #
+    # An interruption therefore ends an arm; it cannot end it quietly. At $0.357/hour against $1.237 that is
+    # 71 percent off, and what it buys is repetitions -- the axis two reviews named as this study's binding
+    # limit.
+    gpu_single = "SPOT"
+
+    # M5-c: On-Demand, and the reason is a gap rather than a risk assessment. The sharing matrix has NO
+    # completeness analyzer at all -- nothing enumerates its cells, so a matrix missing one has nothing to
+    # refuse it. Spot is safe where an interrupted unit is refused; here it would not be. This flips when the
+    # analyzer exists, not when the quota changes.
     gpu_shared = "ON_DEMAND"
   }
 

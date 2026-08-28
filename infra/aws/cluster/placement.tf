@@ -140,32 +140,40 @@ locals {
   }
 
 
-  gpu_vcpus_needed = max(values(local.gpu_group_vcpus)...)
-  gpu_hungriest    = [for k, v in local.gpu_group_vcpus : k if v == local.gpu_vcpus_needed][0]
-
-  # Which purchasing options the configuration asks for, read out of the node groups rather than restated.
+  # Demand is per PURCHASING OPTION, because the quotas are.
   #
-  # This was a hand-kept literal list, which is precisely the shape of the bug the quota guard was written
-  # after: a value maintained in one place and consumed in another, silently drifting. local.gpu_capacity is
-  # the single declaration; eks.tf reads the same map.
-  gpu_capacity_types = distinct(values(local.gpu_capacity))
+  # This took a single max across every group and compared it to whichever quota was in play. With queuelab
+  # on On-Demand at 48 vCPU and only the 4-vCPU M5-b group on Spot, that compared 48 against the 8-vCPU Spot
+  # quota and refused a configuration that fits comfortably. The mirror of that error is worse: a coarse
+  # maximum can also pass a group whose own quota cannot hold it.
+  #
+  # Groups run one at a time within an option, so each side is a max rather than a sum.
+  gpu_on_demand_vcpus = [for k, v in local.gpu_group_vcpus : v if local.gpu_capacity[k] == "ON_DEMAND"]
+  gpu_spot_vcpus      = [for k, v in local.gpu_group_vcpus : v if local.gpu_capacity[k] == "SPOT"]
+
+  gpu_on_demand_needed = length(local.gpu_on_demand_vcpus) > 0 ? max(local.gpu_on_demand_vcpus...) : 0
+  gpu_spot_needed      = length(local.gpu_spot_vcpus) > 0 ? max(local.gpu_spot_vcpus...) : 0
+
+  gpu_on_demand_hungriest = join(",", [for k, v in local.gpu_group_vcpus : k if local.gpu_capacity[k] == "ON_DEMAND" && v == local.gpu_on_demand_needed])
+  gpu_spot_hungriest      = join(",", [for k, v in local.gpu_group_vcpus : k if local.gpu_capacity[k] == "SPOT" && v == local.gpu_spot_needed])
 }
+
 resource "terraform_data" "gpu_quota" {
   input = {
-    on_demand_vcpus = data.aws_servicequotas_service_quota.gpu_on_demand.value
-    spot_vcpus      = data.aws_servicequotas_service_quota.gpu_spot.value
-    needed          = local.gpu_vcpus_needed
-    capacity_types  = join(",", local.gpu_capacity_types)
+    on_demand_quota  = data.aws_servicequotas_service_quota.gpu_on_demand.value
+    spot_quota       = data.aws_servicequotas_service_quota.gpu_spot.value
+    on_demand_needed = local.gpu_on_demand_needed
+    spot_needed      = local.gpu_spot_needed
   }
 
   lifecycle {
     precondition {
-      condition     = !contains(local.gpu_capacity_types, "ON_DEMAND") || data.aws_servicequotas_service_quota.gpu_on_demand.value >= local.gpu_vcpus_needed
-      error_message = "Running On-Demand G and VT instances (L-DB2E81BA) is ${data.aws_servicequotas_service_quota.gpu_on_demand.value} vCPU. Node group '${local.gpu_hungriest}' can reach ${local.gpu_vcpus_needed} vCPU at its max_size. It would create at desired_size 0 and stall partway through a scale-up during a paid session. Request the increase, or lower that group's max_size."
+      condition     = local.gpu_on_demand_needed == 0 || data.aws_servicequotas_service_quota.gpu_on_demand.value >= local.gpu_on_demand_needed
+      error_message = "Running On-Demand G and VT instances (L-DB2E81BA) is ${data.aws_servicequotas_service_quota.gpu_on_demand.value} vCPU. On-Demand node group(s) '${local.gpu_on_demand_hungriest}' can reach ${local.gpu_on_demand_needed} vCPU at max_size. They would create at desired_size 0 and stall partway through a scale-up during a paid session. Request the increase, or lower that group's max_size."
     }
     precondition {
-      condition     = !contains(local.gpu_capacity_types, "SPOT") || data.aws_servicequotas_service_quota.gpu_spot.value >= local.gpu_vcpus_needed
-      error_message = "A node group is set to SPOT but All G and VT Spot Instance Requests (L-3819A6DF) is ${data.aws_servicequotas_service_quota.gpu_spot.value} vCPU. The On-Demand increase does NOT raise this -- it is a separate quota. Either request it or set capacity_type back to ON_DEMAND."
+      condition     = local.gpu_spot_needed == 0 || data.aws_servicequotas_service_quota.gpu_spot.value >= local.gpu_spot_needed
+      error_message = "All G and VT Spot Instance Requests (L-3819A6DF) is ${data.aws_servicequotas_service_quota.gpu_spot.value} vCPU. Spot node group(s) '${local.gpu_spot_hungriest}' can reach ${local.gpu_spot_needed} vCPU at max_size. The On-Demand increase does NOT raise this -- it is a separate quota. Either request it or set capacity_type back to ON_DEMAND."
     }
   }
 }
