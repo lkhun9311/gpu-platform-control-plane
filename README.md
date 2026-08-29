@@ -46,7 +46,7 @@ directly from the [Releases](https://github.com/lkhun9311/gpu-platform-control-p
 | [M3](https://github.com/lkhun9311/gpu-platform-control-plane/releases/tag/m3-enforcement) | Taint unhealthy nodes (NodeHealth enforcement) and sync per-tenant quota into ResourceQuota | Done |
 | [M4-a](https://github.com/lkhun9311/gpu-platform-control-plane/releases/tag/m4-serving) | `InferenceDeployment` → Deployment/Service with a phase ladder | Done |
 | [M4-b](https://github.com/lkhun9311/gpu-platform-control-plane/releases/tag/m4-serving) | Tenant-aware serving gateway: API key → tenant, token bucket → 429, model routing, proxy, metrics | Done |
-| [M5-a](https://github.com/lkhun9311/gpu-platform-control-plane/releases/tag/m5-a-hosting) | AWS hosting: Terraform state bootstrap, EKS, OIDC CI → ECR, Argo CD GitOps, ephemeral apply/destroy with a TTL kill switch | Code done, offline-validated; **never applied to AWS** |
+| [M5-a](https://github.com/lkhun9311/gpu-platform-control-plane/releases/tag/m5-a-hosting) | AWS hosting: Terraform state bootstrap, EKS, OIDC CI → ECR, Argo CD GitOps, ephemeral apply/destroy with a TTL kill switch | Code done and offline-validated. **`bootstrap` is applied** (state bucket, KMS key, OIDC provider, CI roles, ECR, budget); `cluster` is planned at 96 resources and not applied, so no VPC, EKS or GPU node exists |
 | [M5-b](https://github.com/lkhun9311/gpu-platform-control-plane/releases/tag/m5-b-admission-guard) | Three-arm KV-cache-aware admission guard and open-loop benchmark harness, with pre-registered checks that refuse to call load shedding a win | GPU-free half done and tested; **no GPU run yet** |
 | M5-c | Cost/fairness frontier and sharing-mode matrix (exclusive / time-slicing / MPS) — hardens the M5-b evidence | Card chosen by arithmetic; all three arms' manifests and the run script written and tested; **never run** ([sizing](hack/m5c-sharing-sizing.md)) |
 | M5-d | Technical write-up with the measured numbers | Reasoning, pre-registered checks and stated limits written BEFORE the run so they cannot be fitted to it; every figure is still a marker ([draft](hack/m5d-writeup.md)) |
@@ -181,7 +181,7 @@ internal/       the substance: four reconcilers, the serving gateway,
 cmd/            controller manager, gateway, benchmark harness, queuelab runner
 config/         kustomize manifests (CRD, RBAC, manager, Kueue fixtures)
 hack/           local cluster config and the M6 end-to-end script + evidence
-infra/          Terraform for the AWS hosting path (never applied)
+infra/          Terraform for the AWS hosting path (bootstrap applied; cluster planned only)
 docs/           design documents and specs
 test/           e2e test scaffolding
 ```
