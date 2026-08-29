@@ -20,19 +20,17 @@ terraform apply \
   -var "github_repository_owner_id=$(gh api repos/<owner>/<name> --jq .owner.id)"
 
 # 2. Migrate the local state into the bucket just created.
-cat > backend.tf <<'HCL'
-terraform {
-  backend "s3" {
-    bucket         = "<globally-unique-name>"
-    key            = "bootstrap/terraform.tfstate"
-    region         = "ap-northeast-2"
-    encrypt        = true
-    use_lockfile   = true
-    kms_key_id     = "<state_kms_key_arn from the step 1 output>"
-  }
-}
-HCL
-terraform init -migrate-state
+#
+# Done for this account on 2026-08-29. backend.tf is committed; bucket and kms_key_id are deliberately
+# absent from it, because they are account coordinates and this repository is public. Supply them here.
+terraform init -migrate-state \
+  -backend-config="bucket=$(terraform output -raw state_bucket)" \
+  -backend-config="kms_key_id=$(terraform output -raw state_kms_key_arn)"
+
+# 3. Remove the emptied local state. terraform leaves terraform.tfstate.backup; keep it until the S3 state
+#    has been read by a real plan, then delete it. A stale local state is the one way this migration can be
+#    undone by accident.
+rm -f terraform.tfstate
 ```
 
 After migration, `bootstrap` is applied only to rotate identity or the registry,
