@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"testing"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -66,6 +67,7 @@ var _ = BeforeSuite(func() {
 	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to load the manager image into Kind")
 
 	configureKubectlKubeRC()
+	installKueueCRDs()
 	setupCertManager()
 })
 
@@ -88,6 +90,26 @@ func configureKubectlKubeRC() {
 	} else {
 		_, _ = fmt.Fprintf(GinkgoWriter, "kubectl kuberc enabled (KUBECTL_KUBERC=true)\n")
 	}
+}
+
+// installKueueCRDs applies the Kueue CRDs the manager indexes against.
+//
+// At startup the manager builds a field index over kueue.x-k8s.io/v1beta1 Workloads, which fails with
+// "no matches for kind \"Workload\"" when the CRD is absent. That is a hard failure rather than a degraded
+// mode, and correctly so: an operator whose whole job is to hand work to a scheduler is worse silently
+// skipping the scheduler than refusing to start.
+//
+// In a Kind cluster with no Kueue installed, that put the manager in CrashLoopBackOff and every spec waiting
+// on the metrics endpoint timed out after three minutes -- reporting a timeout on an endpoint rather than a
+// missing dependency, which is why this suite was red without anyone reading why.
+//
+// The same files already back the admission suite through envtest's CRDDirectoryPaths. The Kind path did not
+// load them, and nothing said the two environments differed.
+func installKueueCRDs() {
+	By("installing the Kueue CRDs the manager indexes against")
+	cmd := exec.Command("kubectl", "apply", "-f", filepath.Join("..", "crd", "kueue"))
+	_, err := utils.Run(cmd)
+	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to install the Kueue CRDs")
 }
 
 // setupCertManager installs CertManager if needed for webhook tests.
