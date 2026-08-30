@@ -1,7 +1,7 @@
 package queuelab
 
 import (
-	"sort"
+	"slices"
 	"time"
 )
 
@@ -112,7 +112,7 @@ func SpreadOfMatching(events []LifecycleEvent, keep func(*LifecycleEvent) bool) 
 	if len(skews) < minimumSpreadSamples {
 		return nil
 	}
-	sort.Slice(skews, func(i, j int) bool { return skews[i] < skews[j] })
+	slices.Sort(skews)
 	spread := skews[len(skews)-1] - skews[0]
 	floor := spread + stampQuantisationNs
 	return &ObservationSpread{

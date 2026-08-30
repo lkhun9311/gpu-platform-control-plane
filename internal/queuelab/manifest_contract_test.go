@@ -87,9 +87,7 @@ func TestTheFlavourToleratesEveryTaintTheGPUNodeGroupDeclares(t *testing.T) {
 		}
 		if i < len(effects) {
 			// Terraform spells the effect NO_SCHEDULE; the API spells it NoSchedule.
-			taint.Effect = corev1.TaintEffect(
-				strings.ReplaceAll(strings.Title(strings.ToLower(
-					strings.ReplaceAll(effects[i][1], "_", " "))), " ", ""))
+			taint.Effect = corev1.TaintEffect(camelFromScreamingSnake(effects[i][1]))
 		}
 		if !tolerates(taint) {
 			t.Fatalf("the GPU node group taints %s=%s:%s and the run's ResourceFlavor does not tolerate it, "+
@@ -206,7 +204,7 @@ func TestTheGPUNodeGroupCanRunTheAxesThePreregistrationPromises(t *testing.T) {
 	if end := strings.Index(gpu, "gpu_single = {"); end > 0 {
 		gpu = gpu[:end]
 	}
-	if i := strings.Index(gpu, "AL2023_x86_64_NVIDIA"); i < 0 {
+	if found := strings.Contains(gpu, "AL2023_x86_64_NVIDIA"); !found {
 		t.Fatal("the GPU node group is not the block this test thinks it is; it must be rewritten rather " +
 			"than left matching the wrong sizes")
 	}
@@ -711,4 +709,21 @@ func TestNoGPUNodeGroupPinsItselfToASubnetIndex(t *testing.T) {
 				"than where the instance type is offered, or an empty set would reach apply silently", want)
 		}
 	}
+}
+
+// camelFromScreamingSnake turns NO_EXECUTE into NoExecute.
+//
+// This was strings.Title, which Go deprecated because its word boundaries are wrong for Unicode punctuation.
+// The inputs here are terraform enum spellings and will never be anything but ASCII, so the fix is to say
+// that in code rather than to pull in golang.org/x/text for a three-value vocabulary.
+func camelFromScreamingSnake(s string) string {
+	var b strings.Builder
+	for part := range strings.SplitSeq(strings.ToLower(s), "_") {
+		if part == "" {
+			continue
+		}
+		b.WriteString(strings.ToUpper(part[:1]))
+		b.WriteString(part[1:])
+	}
+	return b.String()
 }

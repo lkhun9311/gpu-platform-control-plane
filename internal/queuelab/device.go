@@ -193,13 +193,13 @@ func SameWindowClaim(podUID string, fromNs, toNs int64) DeviceClaim {
 // EstablishesDeviceWork reports whether an observation supports the claim that the named Pod's device did
 // work across the whole of an interval, and why not when it does not.
 //
-// The reason string is the product. A run that fails this check has to be able to tell an operator which of
-// the five things went wrong -- no observer, wrong observer, the interval not covered, a gap in the middle,
-// or the device idle throughout -- because those send someone to five different places, and because a run
-// that comes back "not established" without saying why is indistinguishable from one nobody looked at.
-func EstablishesDeviceWork(obs *DeviceObservation, claim DeviceClaim) (bool, string) {
-	podUID := claim.PodUID
-	fromNs, toNs := claim.HoldFromNs, claim.HoldToNs
+
+// admitsDeviceObserver refuses an observation before any of its numbers are read.
+//
+// Every clause here is about PROVENANCE rather than about the card: who produced the readings, whether they
+// said which build they were, and whether the record admits the source was declared rather than verified.
+// A number from an unidentified source is not a weaker measurement, it is not a measurement.
+func admitsDeviceObserver(obs *DeviceObservation) (bool, string) {
 	if obs == nil {
 		return false, "no device observer ran: nothing outside the workload watched the card, so this run " +
 			"establishes that a device was RESERVED and nothing about whether it was used"
@@ -224,31 +224,11 @@ func EstablishesDeviceWork(obs *DeviceObservation, claim DeviceClaim) (bool, str
 			"omitted the admission would read as though something had checked",
 			obs.Observer, obs.Observer)
 	}
-	if podUID == "" {
-		return false, "the interval names no Pod UID, so no sample can be attributed to the attempt that " +
-			"held the device rather than to another attempt of the same row"
-	}
-	if fromNs >= toNs {
-		return false, fmt.Sprintf("the interval to cover is empty (%d..%d ns)", fromNs, toNs)
-	}
-	if obs.StartedNs > fromNs || obs.EndedNs < toNs {
-		return false, fmt.Sprintf("the observer ran %d..%d ns and the interval to cover is %d..%d ns, so part "+
-			"of it was never watched", obs.StartedNs, obs.EndedNs, fromNs, toNs)
-	}
+	return true, ""
+}
 
-	mine := make([]DeviceSample, 0, len(obs.Samples))
-	devices := map[string]bool{}
-	for _, s := range obs.Samples {
-		if s.PodUID != podUID || s.AtNs < fromNs || s.AtNs > toNs {
-			continue
-		}
-		if s.DeviceUUID == "" {
-			return false, fmt.Sprintf("a sample at %d ns names no device: an observation that cannot say which "+
-				"card it watched cannot establish that the card this Pod held did anything", s.AtNs)
-		}
-		mine = append(mine, s)
-		devices[s.DeviceUUID] = true
-	}
+// exclusiveDuringHold refuses a hold whose device carried another Pod's label during it.
+func exclusiveDuringHold(obs *DeviceObservation, devices map[string]bool, podUID string, fromNs, toNs int64) (bool, string) {
 	// EXCLUSIVITY, and it is the clause that turns a utilisation reading into an attribution.
 	//
 	// DCGM_FI_DEV_GPU_UTIL is DEVICE utilisation. The Kubernetes labels beside it come from the kubelet's
@@ -299,35 +279,12 @@ func EstablishesDeviceWork(obs *DeviceObservation, claim DeviceClaim) (bool, str
 			"labels say only what it was allocated to, which time-slicing, MPS, a MIG parent or a stale label "+
 			"at the exit transition all make ambiguous", s.DeviceUUID, other, podUID)
 	}
-	if len(mine) == 0 {
-		if obs.UnlabelledBusySamples > 0 {
-			return false, fmt.Sprintf("the observer produced no sample naming Pod %s, and %d sample(s) showed "+
-				"a card WORKING while naming no Pod at all. That is not a card nobody used: it is attribution "+
-				"failing while the hardware runs, which is what an exporter with its kubernetes mapping off "+
-				"or its pod-resources mount broken produces. Fix the observer, not the workload",
-				podUID, obs.UnlabelledBusySamples)
-		}
-		return false, fmt.Sprintf("the observer ran across the interval and produced no sample for Pod %s; a "+
-			"device held by a Pod nothing sampled is a reservation", podUID)
-	}
-	sort.Slice(mine, func(i, j int) bool { return mine[i].AtNs < mine[j].AtNs })
+	return true, ""
+}
 
-	// Gaps are measured against the interval's own ends as well as between samples, so an observation that
-	// starts late or stops early inside a window it nominally covers is caught.
-	prev := fromNs
-	for _, s := range mine {
-		if s.AtNs-prev > int64(maxObserverGap) {
-			return false, fmt.Sprintf("the observer saw nothing for %s between %d and %d ns, which is longer "+
-				"than the %s a run may blink through; a gap that size can hide an entire preemption",
-				time.Duration(s.AtNs-prev), prev, s.AtNs, maxObserverGap)
-		}
-		prev = s.AtNs
-	}
-	if toNs-prev > int64(maxObserverGap) {
-		return false, fmt.Sprintf("the observer's last sample for Pod %s is %s before the interval ends",
-			podUID, time.Duration(toNs-prev))
-	}
-
+// busyDuringAttempt answers whether the Pod's own card was seen working at distinct instants of the attempt.
+func busyDuringAttempt(obs *DeviceObservation, devices map[string]bool, claim DeviceClaim) (bool, string) {
+	podUID := claim.PodUID
 	// BUSYNESS is judged over the victim's ATTEMPT, not over the hold, and that is the fix for a defect the
 	// gate had in one direction.
 	//
@@ -373,6 +330,79 @@ func EstablishesDeviceWork(obs *DeviceObservation, claim DeviceClaim) (bool, str
 			"the attempt (%d..%d ns); a card that is allocated and idle is the state this whole axis exists "+
 			"to distinguish from one that is computing, and two busy rows from ONE instant are a reading "+
 			"rather than a state", podUID, busy, seen, work, workEnd)
+	}
+	return true, ""
+}
+
+// The reason string is the product. A run that fails this check has to be able to tell an operator which of
+// the five things went wrong -- no observer, wrong observer, the interval not covered, a gap in the middle,
+// or the device idle throughout -- because those send someone to five different places, and because a run
+// that comes back "not established" without saying why is indistinguishable from one nobody looked at.
+func EstablishesDeviceWork(obs *DeviceObservation, claim DeviceClaim) (bool, string) {
+	podUID := claim.PodUID
+	fromNs, toNs := claim.HoldFromNs, claim.HoldToNs
+	if ok, why := admitsDeviceObserver(obs); !ok {
+		return false, why
+	}
+	if podUID == "" {
+		return false, "the interval names no Pod UID, so no sample can be attributed to the attempt that " +
+			"held the device rather than to another attempt of the same row"
+	}
+	if fromNs >= toNs {
+		return false, fmt.Sprintf("the interval to cover is empty (%d..%d ns)", fromNs, toNs)
+	}
+	if obs.StartedNs > fromNs || obs.EndedNs < toNs {
+		return false, fmt.Sprintf("the observer ran %d..%d ns and the interval to cover is %d..%d ns, so part "+
+			"of it was never watched", obs.StartedNs, obs.EndedNs, fromNs, toNs)
+	}
+
+	mine := make([]DeviceSample, 0, len(obs.Samples))
+	devices := map[string]bool{}
+	for _, s := range obs.Samples {
+		if s.PodUID != podUID || s.AtNs < fromNs || s.AtNs > toNs {
+			continue
+		}
+		if s.DeviceUUID == "" {
+			return false, fmt.Sprintf("a sample at %d ns names no device: an observation that cannot say which "+
+				"card it watched cannot establish that the card this Pod held did anything", s.AtNs)
+		}
+		mine = append(mine, s)
+		devices[s.DeviceUUID] = true
+	}
+	if ok, why := exclusiveDuringHold(obs, devices, podUID, fromNs, toNs); !ok {
+		return false, why
+	}
+	if len(mine) == 0 {
+		if obs.UnlabelledBusySamples > 0 {
+			return false, fmt.Sprintf("the observer produced no sample naming Pod %s, and %d sample(s) showed "+
+				"a card WORKING while naming no Pod at all. That is not a card nobody used: it is attribution "+
+				"failing while the hardware runs, which is what an exporter with its kubernetes mapping off "+
+				"or its pod-resources mount broken produces. Fix the observer, not the workload",
+				podUID, obs.UnlabelledBusySamples)
+		}
+		return false, fmt.Sprintf("the observer ran across the interval and produced no sample for Pod %s; a "+
+			"device held by a Pod nothing sampled is a reservation", podUID)
+	}
+	sort.Slice(mine, func(i, j int) bool { return mine[i].AtNs < mine[j].AtNs })
+
+	// Gaps are measured against the interval's own ends as well as between samples, so an observation that
+	// starts late or stops early inside a window it nominally covers is caught.
+	prev := fromNs
+	for _, s := range mine {
+		if s.AtNs-prev > int64(maxObserverGap) {
+			return false, fmt.Sprintf("the observer saw nothing for %s between %d and %d ns, which is longer "+
+				"than the %s a run may blink through; a gap that size can hide an entire preemption",
+				time.Duration(s.AtNs-prev), prev, s.AtNs, maxObserverGap)
+		}
+		prev = s.AtNs
+	}
+	if toNs-prev > int64(maxObserverGap) {
+		return false, fmt.Sprintf("the observer's last sample for Pod %s is %s before the interval ends",
+			podUID, time.Duration(toNs-prev))
+	}
+
+	if ok, why := busyDuringAttempt(obs, devices, claim); !ok {
+		return false, why
 	}
 	if len(devices) > 1 {
 		return false, fmt.Sprintf("samples for Pod %s name %d different devices; the run cannot say which card "+

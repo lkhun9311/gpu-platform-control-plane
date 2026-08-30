@@ -560,7 +560,7 @@ func runCompare(spec, outPath, mode string) error {
 // they had passed it.
 func expandRecordSpec(spec string) ([]string, error) {
 	var out []string
-	for _, part := range strings.Split(spec, ",") {
+	for part := range strings.SplitSeq(spec, ",") {
 		part = strings.TrimSpace(part)
 		if part == "" {
 			continue
@@ -635,11 +635,6 @@ type doseGroup struct {
 	RunIDs               []string `json:"runIDs"`
 	OwnerWaitSecondsMean float64  `json:"ownerWaitSecondsMean"`
 	OwnerWaitRuns        int      `json:"ownerWaitRuns"`
-}
-
-// checkDoseSensitivity builds the document, or refuses.
-func checkDoseSensitivity(recs []runRecord) (doseSensitivity, error) {
-	return checkSensitivity(recs, factorDose)
 }
 
 // The factors a sensitivity check can vary. They are constants because the document persists one and a
@@ -1084,35 +1079,37 @@ type modelCase struct {
 	N                   int     `json:"n"`
 }
 
-// checkModel builds the check from one node's runs of both arms and both regimes.
-func checkModel(recs []runRecord) (modelCheck, error) {
-	m := modelCheck{SchemaVersion: comparisonSchemaVersion, Protocol: modelProtocol{
-		VictimServiceSec:    victimServiceSec,
-		TerminationGraceSec: terminationGraceSec,
-	}}
+// holdSample pairs one run's device hold with the dose that run was actually given.
+type holdSample struct{ hold, dose float64 }
 
-	type sample struct{ hold, dose float64 }
-	ignore := map[string][]sample{}
+// collectHoldSamples validates every record and splits it into the control's holds and the ignoring arm's
+// dose/hold pairs.
+//
+// It is separate from checkModel because the two do different jobs: this refuses records, and checkModel
+// fits a model to whatever survives. Reading them together hid that the refusals outnumber the arithmetic.
+func collectHoldSamples(recs []runRecord) (map[string][]holdSample, float64, int, error) {
+	ignore := map[string][]holdSample{}
 	var controlSum float64
+	var controlRuns int
 	// One node only. The hold's endpoints are arrival times from two watches, and pooling nodes would add a
 	// second collector's delivery behaviour to an interval whose whole value is that it is quiet.
 	node := ""
 	for _, r := range recs {
 		if r.Validity.Verdict != verdictAdmissible {
-			return modelCheck{}, fmt.Errorf("run %q has verdict %q", r.RunID, r.Validity.Verdict)
+			return nil, 0, 0, fmt.Errorf("run %q has verdict %q", r.RunID, r.Validity.Verdict)
 		}
 		if n := levelOf(r, factorNode); n != "" {
 			if node == "" {
 				node = n
 			} else if n != node {
-				return modelCheck{}, fmt.Errorf("run %q is on node %q and run %q is on %q: the hold is read "+
+				return nil, 0, 0, fmt.Errorf("run %q is on node %q and run %q is on %q: the hold is read "+
 					"from two watches' arrival times, so pooling nodes pools two collectors' delivery behaviour "+
 					"into an interval whose value is that it is quiet", recs[0].RunID, node, r.RunID, n)
 			}
 		}
 		hold := queuelab.DeviceHoldNs(r.Events)
 		if hold == nil {
-			return modelCheck{}, fmt.Errorf("run %q's ledger does not carry the device hold", r.RunID)
+			return nil, 0, 0, fmt.Errorf("run %q's ledger does not carry the device hold", r.RunID)
 		}
 		// The two readings of that hold have to agree, and this is the check a comment beside the second one
 		// promised and nothing performed. A stamp figure recorded and never compared is decoration: a clock
@@ -1128,13 +1125,13 @@ func checkModel(recs []runRecord) (modelCheck, error) {
 		// is read on two clocks" is satisfied by neither reading being checked against anything. A review
 		// found the gap: the check refused two readings that disagreed and never required two to exist.
 		if queuelab.DeviceHoldStampNs(r.Events) == nil {
-			return modelCheck{}, fmt.Errorf("run %q carries no component-stamp reading of the device hold, so "+
+			return nil, 0, 0, fmt.Errorf("run %q carries no component-stamp reading of the device hold, so "+
 				"its arrival figure was never checked against anything: one of the two endpoints' components "+
 				"published no timestamp, and a hold read on one clock is a hold nothing corroborates", r.RunID)
 		}
 		if runFloor, ok := holdFloorNs([]runRecord{r}); ok {
 			if bad, gap, tol := queuelab.ClocksDisagree(r.Events, runFloor); bad {
-				return modelCheck{}, fmt.Errorf("run %q's two readings of the device hold differ by %s against "+
+				return nil, 0, 0, fmt.Errorf("run %q's two readings of the device hold differ by %s against "+
 					"a %s tolerance: the collector's arrival times and the components' own stamps describe "+
 					"different intervals, so neither can be published",
 					r.RunID, time.Duration(gap), time.Duration(tol))
@@ -1144,18 +1141,33 @@ func checkModel(recs []runRecord) (modelCheck, error) {
 		switch r.Arm {
 		case string(queuelab.ArmAHonor):
 			controlSum += h
-			m.ControlRuns++
+			controlRuns++
 		case string(queuelab.ArmAIgnore):
 			dose := queuelab.AchievedDoseNs(r.Events)
 			if dose == nil {
-				return modelCheck{}, fmt.Errorf("run %q's ledger does not carry the achieved dose", r.RunID)
+				return nil, 0, 0, fmt.Errorf("run %q's ledger does not carry the achieved dose", r.RunID)
 			}
-			ignore[r.Dose] = append(ignore[r.Dose], sample{hold: h, dose: float64(*dose) / float64(time.Second)})
+			ignore[r.Dose] = append(ignore[r.Dose], holdSample{hold: h, dose: float64(*dose) / float64(time.Second)})
 		default:
-			return modelCheck{}, fmt.Errorf("run %q is arm %q; the model is stated over the two termination "+
+			return nil, 0, 0, fmt.Errorf("run %q is arm %q; the model is stated over the two termination "+
 				"contract arms", r.RunID, r.Arm)
 		}
 	}
+	return ignore, controlSum, controlRuns, nil
+}
+
+// checkModel builds the check from one node's runs of both arms and both regimes.
+func checkModel(recs []runRecord) (modelCheck, error) {
+	m := modelCheck{SchemaVersion: comparisonSchemaVersion, Protocol: modelProtocol{
+		VictimServiceSec:    victimServiceSec,
+		TerminationGraceSec: terminationGraceSec,
+	}}
+
+	ignore, controlSum, controlRuns, err := collectHoldSamples(recs)
+	if err != nil {
+		return modelCheck{}, err
+	}
+	m.ControlRuns = controlRuns
 	if m.ControlRuns == 0 {
 		return modelCheck{}, fmt.Errorf("the check needs the honouring arm as its zero-hold control: without " +
 			"it nothing shows the interval contains no platform work")

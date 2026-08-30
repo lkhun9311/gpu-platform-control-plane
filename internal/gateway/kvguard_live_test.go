@@ -20,7 +20,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -107,9 +106,7 @@ func pressLive(base, model string, concurrency int) (stop func()) {
 		"stream":     false,
 	})
 	for range concurrency {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			client := &http.Client{Timeout: 120 * time.Second}
 			for ctx.Err() == nil {
 				req, err := http.NewRequestWithContext(ctx, http.MethodPost, base+"/v1/chat/completions", bytes.NewReader(body))
@@ -124,7 +121,7 @@ func pressLive(base, model string, concurrency int) (stop func()) {
 				_, _ = io.Copy(io.Discard, resp.Body)
 				_ = resp.Body.Close()
 			}
-		}()
+		})
 	}
 	return func() { cancel(); wg.Wait() }
 }
@@ -239,5 +236,5 @@ func waitFor(t *testing.T, budget time.Duration, what string, cond func() bool) 
 		}
 		time.Sleep(250 * time.Millisecond)
 	}
-	t.Fatal(fmt.Sprintf("timed out after %s waiting for %s", budget, what))
+	t.Fatalf("timed out after %s waiting for %s", budget, what)
 }

@@ -302,168 +302,16 @@ func report(args []string) error {
 		return fmt.Errorf("at least one --raw file is required")
 	}
 
-	// Group rows and per-file p99 repetitions by arm, and capture each arm's frozen provenance.
-	byArm := map[string][]bench.RawRow{}
-	repP99 := map[string][]float64{}
-	repTail := map[string][]int{}
-	repRows := map[string][]int{}
-	armChecksum := map[string]string{}
-	armTolerance := map[string]float64{}
-	for _, path := range rawFiles {
-		f, err := os.Open(path)
-		if err != nil {
-			return fmt.Errorf("open %s: %w", path, err)
-		}
-		rows, err := bench.ReadRawRows(f)
-		_ = f.Close()
-		if err != nil {
-			return err
-		}
-		if len(rows) == 0 {
-			continue
-		}
-		arm := rows[0].Arm
-		byArm[arm] = append(byArm[arm], rows...)
-		// Keep the whole per-repetition summary, not just its p99.
-		//
-		// This line used to discard everything except TTFTMsP99, which is how a truncated repetition became
-		// invisible: the pooled arm summary sums every row, so three healthy repetitions carry a fourth whose
-		// p99 is a maximum over thirty requests -- and the bootstrap then resamples that fourth value with
-		// equal weight.
-		rs := bench.Summarize(arm, rows)
-		repP99[arm] = append(repP99[arm], rs.TTFTMsP99)
-		repTail[arm] = append(repTail[arm], rs.TailSampleSize)
-		repRows[arm] = append(repRows[arm], len(rows))
-		armChecksum[arm] = rows[0].TraceChecksum
-		armTolerance[arm] = rows[0].MatchTolerance
+	e, err := loadArmEvidence(rawFiles)
+	if err != nil {
+		return err
 	}
-
-	// The contended arms must have replayed identical traffic, so their trace checksums must match.
-	//
-	// R1 legitimately differs (it is the same trace with the contender filtered out).
-	//
-	// So it is excluded from the identity check.
-	var wantSum string
-	for _, arm := range []string{"off", "static-cap", "kv-aware"} {
-		sum, ok := armChecksum[arm]
-		if !ok {
-			continue
-		}
-		if sum == "" {
-			return fmt.Errorf("arm %s carries no trace checksum; regenerate its manifest with a current gen-trace", arm)
-		}
-		if wantSum == "" {
-			wantSum = sum
-		} else if sum != wantSum {
-			return fmt.Errorf("arm %s replayed a different trace (%s) than the other contended arms (%s);"+
-				" a valid comparison needs one immutable trace", arm, sum, wantSum)
-		}
+	if err := e.refuseIfTracesDisagree(); err != nil {
+		return err
 	}
-
-	// The same trace must also have produced the same NUMBER of records.
-	//
-	// The checksum above proves the arms replayed identical traffic. It says nothing about whether the
-	// recording of that traffic finished, and the two are different questions with no shared symptom: a run
-	// cut off partway -- a reclaimed node, a killed port-forward, a resumed session, a short duration -- leaves
-	// every row it did write COMPLETE. Nothing is censored, no repetition is thin, the tail clears its floor,
-	// and the arm is simply shorter than the trace it claims to have replayed.
-	//
-	// The direction is what makes this the worst of the set. Contention builds over a trace, so the requests
-	// that arrive late are the slow ones; dropping the tail of the recording drops exactly the evidence that
-	// would fail the arm. An adversarial review demonstrated it on this binary: complete evidence printed
-	//
-	//     absolute protection  C/R1 = 3.434  FAIL   ...  VERDICT: not all checks passed
-	//
-	// and the identical evidence truncated to its first 60% of rows printed
-	//
-	//     absolute protection  C/R1 = 1.066  PASS   ...  VERDICT: all checks passed; the guard protects
-	//
-	// with kv-aware at 960 recorded rows against 1,600 for the two arms it shares a trace with, unremarked.
-	// A genuine FAIL certified as protection is the one outcome this study must never produce.
-	//
-	// This is a refusal rather than a check result, and it sits beside the checksum test for that reason: two
-	// arms of different lengths cannot be compared at all, which is a statement about the evidence rather than
-	// about the guard.
-	contended := []string{"off", "static-cap", "kv-aware"}
-	wantRows, wantFrom := 0, ""
-	for _, arm := range contended {
-		for i, n := range repRows[arm] {
-			if wantRows == 0 {
-				wantRows, wantFrom = n, fmt.Sprintf("%s[%d]", arm, i)
-				continue
-			}
-			if n != wantRows {
-				return fmt.Errorf("arm %s repetition %d recorded %d rows but %s recorded %d;"+
-					" these arms share one immutable trace, so a shorter recording means a run that did not finish,"+
-					" and the requests it is missing are the late ones contention makes slow",
-					arm, i, n, wantFrom, wantRows)
-			}
-		}
-	}
-
-	// R1 replays the same trace with the contender filtered out, so its count legitimately differs from the
-	// contended arms -- but not from itself.
-	for i, n := range repRows["R1"] {
-		if n != repRows["R1"][0] {
-			return fmt.Errorf("arm R1 repetition %d recorded %d rows but repetition 0 recorded %d;"+
-				" its repetitions replay one trace and must record the same number of rows",
-				i, n, repRows["R1"][0])
-		}
-	}
-
-	// The admission-match tolerance is the frozen one from the evidence, not a CLI default.
-	//
-	// So it cannot be loosened after the fact.
-	matchTolerance := *matchTolFlag
-	if tol, ok := armTolerance["kv-aware"]; ok && tol > 0 {
-		matchTolerance = tol
-	} else if tol, ok := armTolerance["static-cap"]; ok && tol > 0 {
-		matchTolerance = tol
-	}
-
-	order := []string{"R1", "off", "static-cap", "kv-aware"}
-	var summaries []bench.ArmSummary
-	summ := map[string]bench.ArmSummary{}
-	for _, arm := range order {
-		if rows, ok := byArm[arm]; ok {
-			s := bench.Summarize(arm, rows)
-			// Summarize sees pooled rows and cannot know how they were split, so the repetition shape is
-			// attached here where the split is known.
-			if tails := repTail[arm]; len(tails) > 0 {
-				s.RepetitionCount = len(tails)
-				s.MinRepetitionTail = slices.Min(tails)
-			}
-			summaries = append(summaries, s)
-			summ[arm] = s
-		}
-	}
-
-	// The incremental C/B CI resamples per-repetition ratios when both arms have matching repetitions.
-	//
-	// With a single repetition per arm it degenerates to the point estimate.
-	incCI := bench.CI{}
-	b, c := repP99["static-cap"], repP99["kv-aware"]
-	if len(b) == len(c) && len(b) > 0 {
-		ratios := make([]float64, len(b))
-		for i := range b {
-			if b[i] > 0 {
-				ratios[i] = c[i] / b[i]
-			}
-		}
-		incCI = bench.BootstrapCI(ratios, 2000, 1, 0.05)
-	} else if len(b) > 0 && len(c) > 0 {
-		// Unequal repetition counts leave the incremental CI at the degenerate point estimate.
-		//
-		// That would make the CI-upper-bound gate trivially true.
-		// Left as a warning here on purpose: the refusal now lives in the checks rather than in this branch.
-		//
-		// It used to be the ONLY response to unequal repetitions, and it refused nothing -- the caller then
-		// passed the zero CI into EvaluateChecks, whose incremental gate reads `Hi < 1.0`, and 0.0 satisfies
-		// it. Truncation disarmed the strictest check in the design instead of tripping it. CI.Valid closes
-		// that; this line stays so the operator learns WHY the run was refused without reading the code.
-		fmt.Fprintf(os.Stderr, "warning: static-cap has %d repetitions but kv-aware has %d;"+
-			" no incremental CI will be computed and the comparison will be refused\n", len(b), len(c))
-	}
+	matchTolerance := e.frozenMatchTolerance(*matchTolFlag)
+	summaries, summ := e.summarize()
+	incCI := e.incrementalCI()
 
 	// Name the arms that are absent, because the refusal downstream cannot.
 	//
@@ -517,6 +365,202 @@ func report(args []string) error {
 		return fmt.Errorf("run invalid: %s", checks.InvalidReason)
 	}
 	return nil
+}
+
+// armEvidence is every arm's rows plus the per-repetition shape the pooled rows cannot carry.
+//
+// It exists because report's refusals ask questions of the SPLIT -- did each repetition record the same
+// number of rows, is any repetition's tail thin -- and pooling answers none of them.
+type armEvidence struct {
+	byArm     map[string][]bench.RawRow
+	repP99    map[string][]float64
+	repTail   map[string][]int
+	repRows   map[string][]int
+	checksum  map[string]string
+	tolerance map[string]float64
+}
+
+// loadArmEvidence reads one raw file per repetition and groups it by arm.
+func loadArmEvidence(rawFiles []string) (*armEvidence, error) {
+	// Group rows and per-file p99 repetitions by arm, and capture each arm's frozen provenance.
+	e := &armEvidence{
+		byArm: map[string][]bench.RawRow{}, repP99: map[string][]float64{},
+		repTail: map[string][]int{}, repRows: map[string][]int{},
+		checksum: map[string]string{}, tolerance: map[string]float64{},
+	}
+	for _, path := range rawFiles {
+		f, err := os.Open(path)
+		if err != nil {
+			return nil, fmt.Errorf("open %s: %w", path, err)
+		}
+		rows, err := bench.ReadRawRows(f)
+		_ = f.Close()
+		if err != nil {
+			return nil, err
+		}
+		if len(rows) == 0 {
+			continue
+		}
+		arm := rows[0].Arm
+		e.byArm[arm] = append(e.byArm[arm], rows...)
+		// Keep the whole per-repetition summary, not just its p99.
+		//
+		// This line used to discard everything except TTFTMsP99, which is how a truncated repetition became
+		// invisible: the pooled arm summary sums every row, so three healthy repetitions carry a fourth whose
+		// p99 is a maximum over thirty requests -- and the bootstrap then resamples that fourth value with
+		// equal weight.
+		rs := bench.Summarize(arm, rows)
+		e.repP99[arm] = append(e.repP99[arm], rs.TTFTMsP99)
+		e.repTail[arm] = append(e.repTail[arm], rs.TailSampleSize)
+		e.repRows[arm] = append(e.repRows[arm], len(rows))
+		e.checksum[arm] = rows[0].TraceChecksum
+		e.tolerance[arm] = rows[0].MatchTolerance
+	}
+	return e, nil
+}
+
+// refuseIfTracesDisagree stops a comparison whose arms did not replay the same trace, or did not finish
+// replaying it.
+func (e *armEvidence) refuseIfTracesDisagree() error {
+	// The contended arms must have replayed identical traffic, so their trace checksums must match.
+	//
+	// R1 legitimately differs (it is the same trace with the contender filtered out).
+	//
+	// So it is excluded from the identity check.
+	var wantSum string
+	for _, arm := range []string{"off", "static-cap", "kv-aware"} {
+		sum, ok := e.checksum[arm]
+		if !ok {
+			continue
+		}
+		if sum == "" {
+			return fmt.Errorf("arm %s carries no trace checksum; regenerate its manifest with a current gen-trace", arm)
+		}
+		if wantSum == "" {
+			wantSum = sum
+		} else if sum != wantSum {
+			return fmt.Errorf("arm %s replayed a different trace (%s) than the other contended arms (%s);"+
+				" a valid comparison needs one immutable trace", arm, sum, wantSum)
+		}
+	}
+
+	// The same trace must also have produced the same NUMBER of records.
+	//
+	// The checksum above proves the arms replayed identical traffic. It says nothing about whether the
+	// recording of that traffic finished, and the two are different questions with no shared symptom: a run
+	// cut off partway -- a reclaimed node, a killed port-forward, a resumed session, a short duration -- leaves
+	// every row it did write COMPLETE. Nothing is censored, no repetition is thin, the tail clears its floor,
+	// and the arm is simply shorter than the trace it claims to have replayed.
+	//
+	// The direction is what makes this the worst of the set. Contention builds over a trace, so the requests
+	// that arrive late are the slow ones; dropping the tail of the recording drops exactly the evidence that
+	// would fail the arm. An adversarial review demonstrated it on this binary: complete evidence printed
+	//
+	//     absolute protection  C/R1 = 3.434  FAIL   ...  VERDICT: not all checks passed
+	//
+	// and the identical evidence truncated to its first 60% of rows printed
+	//
+	//     absolute protection  C/R1 = 1.066  PASS   ...  VERDICT: all checks passed; the guard protects
+	//
+	// with kv-aware at 960 recorded rows against 1,600 for the two arms it shares a trace with, unremarked.
+	// A genuine FAIL certified as protection is the one outcome this study must never produce.
+	//
+	// This is a refusal rather than a check result, and it sits beside the checksum test for that reason: two
+	// arms of different lengths cannot be compared at all, which is a statement about the evidence rather than
+	// about the guard.
+	contended := []string{"off", "static-cap", "kv-aware"}
+	wantRows, wantFrom := 0, ""
+	for _, arm := range contended {
+		for i, n := range e.repRows[arm] {
+			if wantRows == 0 {
+				wantRows, wantFrom = n, fmt.Sprintf("%s[%d]", arm, i)
+				continue
+			}
+			if n != wantRows {
+				return fmt.Errorf("arm %s repetition %d recorded %d rows but %s recorded %d;"+
+					" these arms share one immutable trace, so a shorter recording means a run that did not finish,"+
+					" and the requests it is missing are the late ones contention makes slow",
+					arm, i, n, wantFrom, wantRows)
+			}
+		}
+	}
+
+	// R1 replays the same trace with the contender filtered out, so its count legitimately differs from the
+	// contended arms -- but not from itself.
+	for i, n := range e.repRows["R1"] {
+		if n != e.repRows["R1"][0] {
+			return fmt.Errorf("arm R1 repetition %d recorded %d rows but repetition 0 recorded %d;"+
+				" its repetitions replay one trace and must record the same number of rows",
+				i, n, e.repRows["R1"][0])
+		}
+	}
+	return nil
+}
+
+// frozenMatchTolerance prefers the tolerance recorded in the evidence over the CLI default.
+func (e *armEvidence) frozenMatchTolerance(fallback float64) float64 {
+	// The admission-match tolerance is the frozen one from the evidence, not a CLI default.
+	//
+	// So it cannot be loosened after the fact.
+	matchTolerance := fallback
+	if tol, ok := e.tolerance["kv-aware"]; ok && tol > 0 {
+		matchTolerance = tol
+	} else if tol, ok := e.tolerance["static-cap"]; ok && tol > 0 {
+		matchTolerance = tol
+	}
+	return matchTolerance
+}
+
+// summarize builds the per-arm summaries in report order and attaches the repetition shape.
+func (e *armEvidence) summarize() ([]bench.ArmSummary, map[string]bench.ArmSummary) {
+	order := []string{"R1", "off", "static-cap", "kv-aware"}
+	var summaries []bench.ArmSummary
+	summ := map[string]bench.ArmSummary{}
+	for _, arm := range order {
+		if rows, ok := e.byArm[arm]; ok {
+			s := bench.Summarize(arm, rows)
+			// Summarize sees pooled rows and cannot know how they were split, so the repetition shape is
+			// attached here where the split is known.
+			if tails := e.repTail[arm]; len(tails) > 0 {
+				s.RepetitionCount = len(tails)
+				s.MinRepetitionTail = slices.Min(tails)
+			}
+			summaries = append(summaries, s)
+			summ[arm] = s
+		}
+	}
+	return summaries, summ
+}
+
+// incrementalCI resamples per-repetition C/B ratios, and warns when the repetitions do not line up.
+func (e *armEvidence) incrementalCI() bench.CI {
+	// The incremental C/B CI resamples per-repetition ratios when both arms have matching repetitions.
+	//
+	// With a single repetition per arm it degenerates to the point estimate.
+	incCI := bench.CI{}
+	b, c := e.repP99["static-cap"], e.repP99["kv-aware"]
+	if len(b) == len(c) && len(b) > 0 {
+		ratios := make([]float64, len(b))
+		for i := range b {
+			if b[i] > 0 {
+				ratios[i] = c[i] / b[i]
+			}
+		}
+		incCI = bench.BootstrapCI(ratios, 2000, 1, 0.05)
+	} else if len(b) > 0 && len(c) > 0 {
+		// Unequal repetition counts leave the incremental CI at the degenerate point estimate.
+		//
+		// That would make the CI-upper-bound gate trivially true.
+		// Left as a warning here on purpose: the refusal now lives in the checks rather than in this branch.
+		//
+		// It used to be the ONLY response to unequal repetitions, and it refused nothing -- the caller then
+		// passed the zero CI into EvaluateChecks, whose incremental gate reads `Hi < 1.0`, and 0.0 satisfies
+		// it. Truncation disarmed the strictest check in the design instead of tripping it. CI.Valid closes
+		// that; this line stays so the operator learns WHY the run was refused without reading the code.
+		fmt.Fprintf(os.Stderr, "warning: static-cap has %d repetitions but kv-aware has %d;"+
+			" no incremental CI will be computed and the comparison will be refused\n", len(b), len(c))
+	}
+	return incCI
 }
 
 // printPrompt writes the exact prompt text a trace row of the given length produces, and nothing else.

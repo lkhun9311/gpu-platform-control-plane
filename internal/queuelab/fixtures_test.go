@@ -17,9 +17,10 @@ limitations under the License.
 package queuelab
 
 import (
-	corev1 "k8s.io/api/core/v1"
 	"strings"
 	"testing"
+
+	corev1 "k8s.io/api/core/v1"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	kueuev1beta2 "sigs.k8s.io/kueue/apis/kueue/v1beta2"

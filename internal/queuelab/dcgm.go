@@ -120,11 +120,11 @@ func splitMetricLine(line string) (map[string]string, int, error) {
 	}
 	labels := map[string]string{}
 	for _, pair := range splitLabels(line[open+1 : closeAt]) {
-		eq := strings.IndexByte(pair, '=')
-		if eq < 0 {
+		before, after, ok := strings.Cut(pair, "=")
+		if !ok {
 			return nil, 0, fmt.Errorf("label %q in %q has no value", pair, line)
 		}
-		labels[strings.TrimSpace(pair[:eq])] = strings.Trim(strings.TrimSpace(pair[eq+1:]), `"`)
+		labels[strings.TrimSpace(before)] = strings.Trim(strings.TrimSpace(after), `"`)
 	}
 	raw := strings.TrimSpace(line[closeAt+1:])
 	// Utilisation is an integer percent. A float would parse and then round somewhere invisible, so it is
