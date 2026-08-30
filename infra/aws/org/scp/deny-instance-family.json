@@ -33,23 +33,6 @@
           ]
         }
       }
-    },
-    {
-      "Sid": "DenyUnapprovedInstanceTypesOnManagedNodeGroups",
-      "Effect": "Deny",
-      "Action": [
-        "eks:CreateNodegroup"
-      ],
-      "Resource": "*",
-      "Condition": {
-        "ForAnyValue:StringNotLike": {
-          "eks:instanceTypes": [
-            "t3.*",
-            "g4dn.*",
-            "g5.*"
-          ]
-        }
-      }
     }
   ]
 }

@@ -127,3 +127,44 @@ twice — once in the policy, once hardcoded in the script — so after the poli
 
 That is the sixth time this week a value has been carried by hand across two files with nothing failing when
 they drift. The first version of a checker is as prone to it as the thing being checked.
+
+## The third defect in one statement, and the one the simulation could not see
+
+`DenyUnapprovedInstanceTypesOnManagedNodeGroups` is gone. Organizations refuses to create a policy
+containing it: `eks:instanceTypes` is not a condition key EKS publishes, and the console rejects it with
+`Invalid Service Condition Key`.
+
+That statement had already been through two rounds of review. The first found that it also named
+`eks:UpdateNodegroupConfig`, a call on the teardown path that could never match its own condition. The
+second found that `simulate.sh` had duplicated the policy's action list by hand and kept warning after the
+policy stopped denying. **Neither round asked whether the condition key existed**, and the simulation
+structurally cannot: it substitutes recorded calls into the policy and reports what would have been denied,
+so a key that does not exist simply never matches and the run comes back clean.
+
+A deny that cannot fire and a deny that cannot be *created* look identical to a simulator that only asks
+what a policy would have done.
+
+`simulate.sh` now asks the other question first, through IAM Access Analyzer:
+
+```
+aws accessanalyzer validate-policy --policy-document file://<policy> \
+    --policy-type SERVICE_CONTROL_POLICY
+```
+
+which returns the same finding code the console shows. Verified by putting the rejected statement back and
+watching the run fail.
+
+### What this leaves uncovered
+
+Managed node groups are no longer constrained by instance type at the SCP layer. Three things still stand
+between the account and an unapproved family, and none of them is the guard that was removed:
+
+- `DenyUnapprovedInstanceTypesOnRunInstances` and the launch-template statement cover the EC2 calls a node
+  group's instances are launched through, **except where EKS uses a service-linked role** — SCPs do not
+  apply to service-linked roles, so this is partial.
+- The G/VT quota caps that family at 52 vCPU on demand and 8 on spot.
+- P-family quotas are **0** in both purchasing options, so the most expensive accelerators cannot launch at
+  all — which is what the removed statement was mostly protecting against.
+
+The gap is real and worth naming rather than papering over: an instance family with a nonzero default quota,
+launched by EKS through a service-linked role, is no longer denied by this directory.
