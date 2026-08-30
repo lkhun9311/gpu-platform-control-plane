@@ -5,7 +5,8 @@ control that can stop a teardown while a GPU bills by the hour. Both facts are w
 before the organization does: the policy is written, argued and simulated first, and the account is created
 second.
 
-Nothing here is attached yet. There is no organization.
+All three are attached, in organization `o-vzs8elbcfp`, since 2026-08-30. See "Where each policy is
+attached" below for which target carries which, and why they are not all in one place.
 
 ## What an SCP uniquely buys
 
@@ -127,3 +128,93 @@ twice — once in the policy, once hardcoded in the script — so after the poli
 
 That is the sixth time this week a value has been carried by hand across two files with nothing failing when
 they drift. The first version of a checker is as prone to it as the thing being checked.
+
+## The third defect in one statement, and the one the simulation could not see
+
+`DenyUnapprovedInstanceTypesOnManagedNodeGroups` is gone. Organizations refuses to create a policy
+containing it: `eks:instanceTypes` is not a condition key EKS publishes, and the console rejects it with
+`Invalid Service Condition Key`.
+
+That statement had already been through two rounds of review. The first found that it also named
+`eks:UpdateNodegroupConfig`, a call on the teardown path that could never match its own condition. The
+second found that `simulate.sh` had duplicated the policy's action list by hand and kept warning after the
+policy stopped denying. **Neither round asked whether the condition key existed**, and the simulation
+structurally cannot: it substitutes recorded calls into the policy and reports what would have been denied,
+so a key that does not exist simply never matches and the run comes back clean.
+
+A deny that cannot fire and a deny that cannot be *created* look identical to a simulator that only asks
+what a policy would have done.
+
+`simulate.sh` now asks the other question first, through IAM Access Analyzer:
+
+```
+aws accessanalyzer validate-policy --policy-document file://<policy> \
+    --policy-type SERVICE_CONTROL_POLICY
+```
+
+which returns the same finding code the console shows. Verified by putting the rejected statement back and
+watching the run fail.
+
+### What this leaves uncovered
+
+Managed node groups are no longer constrained by instance type at the SCP layer. Three things still stand
+between the account and an unapproved family, and none of them is the guard that was removed:
+
+- `DenyUnapprovedInstanceTypesOnRunInstances` and the launch-template statement cover the EC2 calls a node
+  group's instances are launched through, **except where EKS uses a service-linked role** — SCPs do not
+  apply to service-linked roles, so this is partial.
+- The G/VT quota caps that family at 52 vCPU on demand and 8 on spot.
+- P-family quotas are **0** in both purchasing options, so the most expensive accelerators cannot launch at
+  all — which is what the removed statement was mostly protecting against.
+
+The gap is real and worth naming rather than papering over: an instance family with a nonzero default quota,
+launched by EKS through a service-linked role, is no longer denied by this directory.
+
+## Where each policy is attached, and why not all in one place
+
+Two of these describe **this lab**, and one describes **the organization**. Attaching them to the same
+target would blur that distinction, and the distinction is what tells a later reader which line to edit.
+
+```
+Root  ──  FullAWSAccess          (AWS creates and attaches this; removing it denies everything)
+      ──  deny-escape            no member account may leave the organization or close itself
+
+Lab OU ── deny-region            this lab runs in ap-northeast-2
+       ── deny-instance-family   this lab runs t3 / g4dn / g5
+          │
+          └── 007635145730       inherits all four
+```
+
+`deny-region` and `deny-instance-family` are statements about a workload. A second OU holding something
+other than this lab should not inherit them, and putting them at Root would mean it did.
+
+`deny-escape` is a statement about the organization: **no member may remove itself from the ceiling.** A
+member account created tomorrow should be covered the day it is created, and only a Root attachment does
+that. It also protects the one asset in this project that code cannot rebuild — the GPU quota, which lives
+on account 007635145730 and disappears with it.
+
+The management account carries none of these, because SCPs never apply to it. That is also the recovery
+path: if a policy here breaks something, it is detached from a console that no policy here can reach.
+
+## What was verified after attaching
+
+Simulation against recorded calls is necessary and not sufficient, so the attached policies were exercised
+in both directions on 2026-08-30.
+
+| Direction | Call | Result |
+|---|---|---|
+| must deny | `ec2:DescribeInstances` in `us-west-2` | `explicit deny in a service control policy` |
+| must deny | `ec2:RunInstances` with `m5.large` | `UnauthorizedOperation ... explicit deny` |
+| must permit | `ec2:RunInstances` with `g5.xlarge`, `t3.large` | `DryRunOperation` — would have succeeded |
+| must permit | `TerminateInstances`, `Describe*`, `eks list-*` | not denied |
+| must permit | S3 state, KMS, ECR, IAM, `us-east-1` pricing and Organizations | not denied |
+| must permit | `terraform plan` → `apply` → `plan` on bootstrap | converged, `No changes` |
+
+The must-permit rows matter more than the must-deny ones. A denied `TerminateInstances` does not fail
+safely: the GPU keeps billing while cleanup is refused.
+
+The first attempt at the two `RunInstances` rows **proved nothing and looked like it passed**. It used a
+malformed AMI id, and EC2 validates the id before it evaluates authorization, so the approved and
+unapproved instance types returned the identical `InvalidAMIID.Malformed`. A test whose two arms fail the
+same way for a reason unrelated to what it is testing is not a test.
+
