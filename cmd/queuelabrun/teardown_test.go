@@ -18,9 +18,10 @@ package main
 
 import (
 	"errors"
-	corev1 "k8s.io/api/core/v1"
 	"strings"
 	"testing"
+
+	corev1 "k8s.io/api/core/v1"
 
 	"github.com/lkhun9311/gpu-mlops-platform-control-plane/internal/queuelab"
 )

@@ -225,6 +225,15 @@ const (
 // DeviceOK is the only device status that means a kernel actually ran.
 const DeviceOK = "ok"
 
+// DeviceLaunchFailedMidrun is a card that ran a kernel and then stopped, which is the one failure that says
+// something about the HARDWARE rather than about the image or the passthrough.
+//
+// It is a constant because the token crosses a language boundary: the embedded Python writes it into the
+// termination message and this package parses it back out, and a rename on one side would silently reclassify
+// a dying card as a run that never reached the device. TestTheWorkloadEmitsTheDeviceTokenThisPackageParses
+// holds the two together.
+const DeviceLaunchFailedMidrun = "launch-failed-midrun"
+
 // deviceStatuses is every device-path outcome the workload can report, one per call it makes.
 //
 // The set is closed and each member sends a reader somewhere different: no-libcuda is a base image or a
@@ -234,7 +243,7 @@ const DeviceOK = "ok"
 var deviceStatuses = map[string]bool{
 	DeviceOK: true, "not-attempted": true, "no-libcuda": true, "cuinit-failed": true, "no-device": true,
 	"ctx-failed": true, "ptx-load-failed": true, "no-kernel": true, "alloc-failed": true,
-	"memset-failed": true, "launch-failed": true, "launch-failed-midrun": true,
+	"memset-failed": true, "launch-failed": true, DeviceLaunchFailedMidrun: true,
 }
 
 // ReportFromMessage reads the workload's own account out of the terminated status message.
@@ -276,7 +285,7 @@ func ReportFromMessage(msg string) (iters *int, kind, device string) {
 	}
 	switch {
 	case k == KindCPUFloat && d != DeviceOK:
-	case k == KindCUDAFMA && (d == DeviceOK || d == "launch-failed-midrun"):
+	case k == KindCUDAFMA && (d == DeviceOK || d == DeviceLaunchFailedMidrun):
 	default:
 		return nil, "", ""
 	}

@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -98,12 +99,7 @@ func runRunner(t *testing.T, bin string, args []string) (string, error) {
 }
 
 func hasFlag(args []string, flag string) bool {
-	for _, a := range args {
-		if a == flag {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(args, flag)
 }
 
 // transcriptAfter collects the indented block a page prints beneath its command.

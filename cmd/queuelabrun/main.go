@@ -1205,10 +1205,10 @@ func run(ctx context.Context, connect clusterClientFunc, arm queuelab.Arm, runID
 			o, missed, derr := scraper.Observe(dctx)
 			device = o
 			if derr != nil {
-				fmt.Fprintln(stderr, "  device observer:", derr)
+				_, _ = fmt.Fprintln(stderr, "  device observer:", derr)
 			}
 			if missed > 0 {
-				fmt.Fprintf(stderr, "  device observer: %d sample(s) named Pods this run never saw\n", missed)
+				_, _ = fmt.Fprintf(stderr, "  device observer: %d sample(s) named Pods this run never saw\n", missed)
 			}
 		}()
 		defer func() {
@@ -1458,7 +1458,7 @@ func fetchMetrics(ctx context.Context, url string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("device metrics endpoint returned %s", resp.Status)
 	}

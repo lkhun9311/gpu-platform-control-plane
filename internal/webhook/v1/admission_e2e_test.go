@@ -5,11 +5,13 @@ import (
 	"crypto/tls"
 	"fmt"
 	"net"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	admissionv1 "k8s.io/api/admissionregistration/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -19,6 +21,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
+	"sigs.k8s.io/yaml"
 
 	platformv1 "github.com/lkhun9311/gpu-mlops-platform-control-plane/api/v1"
 )
@@ -77,9 +80,7 @@ func startAdmissionEnv(t *testing.T) (context.Context, client.Client) {
 	if err != nil {
 		t.Fatalf("build manager: %v", err)
 	}
-	if err := SetupMLTrainingJobWebhookWithManager(mgr); err != nil {
-		t.Fatalf("register webhook: %v", err)
-	}
+	registerEveryWebhookTheManifestDeclares(t, mgr)
 	// A precondition of every spec below rather than a spec of its own, because it is about how the validator
 	// is BUILT and the specs are about what it decides.
 	//
@@ -101,6 +102,65 @@ func startAdmissionEnv(t *testing.T) (context.Context, client.Client) {
 		t.Fatalf("build client: %v", err)
 	}
 	return ctx, c
+}
+
+// registerEveryWebhookTheManifestDeclares registers a handler for every path in the configuration envtest
+// installs, and refuses to run if the manifest names one this file does not know about.
+//
+// It used to register the MLTrainingJob validator and nothing else, while the manifest beside it declared
+// three webhooks with failurePolicy: Fail. So the apiserver called /validate-batch-v1-job on a manager that
+// did not serve it, got "the server could not find the requested resource", and refused the write -- which
+// is indistinguishable from the refusal a spec is trying to observe, and is why this suite was red.
+//
+// Driving registration FROM the manifest rather than beside it is the point. A webhook added to the
+// configuration and not here now stops the suite with a message naming the path, instead of turning every
+// governed write in the test cluster into a 404.
+func registerEveryWebhookTheManifestDeclares(t *testing.T, mgr manager.Manager) {
+	t.Helper()
+
+	setups := map[string]func(manager.Manager) error{
+		"/validate-platform-lkhun9311-github-io-v1-mltrainingjob": SetupMLTrainingJobWebhookWithManager,
+		"/validate--v1-pod":      SetupGPUPodWebhookWithManager,
+		"/validate-batch-v1-job": SetupGPUJobWebhookWithManager,
+	}
+
+	path := filepath.Join("..", "..", "..", "config", "webhook", "manifests.yaml")
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	var cfg admissionv1.ValidatingWebhookConfiguration
+	if err := yaml.Unmarshal(b, &cfg); err != nil {
+		t.Fatalf("parse %s: %v", path, err)
+	}
+	if len(cfg.Webhooks) == 0 {
+		t.Fatalf("%s declares no webhooks; this harness would serve an apiserver that consults nothing", path)
+	}
+
+	for _, w := range cfg.Webhooks {
+		if w.ClientConfig.Service == nil || w.ClientConfig.Service.Path == nil {
+			t.Fatalf("webhook %q names no handler path", w.Name)
+		}
+		p := *w.ClientConfig.Service.Path
+		setup, ok := setups[p]
+		if !ok {
+			t.Fatalf("the installed configuration declares webhook %q at %q and this harness has no setup "+
+				"for it; the apiserver would call a path this manager does not serve, and failurePolicy %v "+
+				"turns that into a refusal no spec can tell from a real one",
+				w.Name, p, policyOf(w.FailurePolicy))
+		}
+		if err := setup(mgr); err != nil {
+			t.Fatalf("register %s: %v", p, err)
+		}
+	}
+}
+
+// policyOf renders a failure policy for a message, since it is a pointer and the nil case means "default".
+func policyOf(p *admissionv1.FailurePolicyType) string {
+	if p == nil {
+		return "Fail (default)"
+	}
+	return string(*p)
 }
 
 // waitForWebhookServer blocks until the TLS listener accepts, so a refusal cannot be mistaken for a race.

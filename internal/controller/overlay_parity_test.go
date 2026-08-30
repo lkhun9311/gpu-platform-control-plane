@@ -48,7 +48,7 @@ func renderWebhookConfig(t *testing.T, overlay string) string {
 	if err != nil {
 		t.Fatalf("render %s: %v", overlay, err)
 	}
-	for _, doc := range strings.Split(string(out), "\n---\n") {
+	for doc := range strings.SplitSeq(string(out), "\n---\n") {
 		if strings.Contains(doc, "kind: ValidatingWebhookConfiguration") {
 			return doc
 		}

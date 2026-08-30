@@ -202,11 +202,11 @@ func TestTheKernelArgumentsOutliveTheirBuilder(t *testing.T) {
 // Mutation that turns this red: edit one character of the PTX without re-running the script.
 func TestTheEmbeddedPTXWasCompiled(t *testing.T) {
 	script := workloadScript
-	start := strings.Index(script, `PTX=b"""`)
-	if start < 0 {
+	_, after, ok := strings.Cut(script, `PTX=b"""`)
+	if !ok {
 		t.Fatal("the workload carries no PTX; this test is checking a shape that has moved")
 	}
-	body := script[start+len(`PTX=b"""`):]
+	body := after
 	body = body[:strings.Index(body, `"""`)]
 	sum := fmt.Sprintf("%x", sha256.Sum256([]byte(body)))
 

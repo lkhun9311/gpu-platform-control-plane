@@ -52,7 +52,15 @@ help: ## Display this help.
 
 .PHONY: manifests
 manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
-	"$(CONTROLLER_GEN)" rbac:roleName=manager-role crd webhook paths="./..." output:crd:artifacts:config=config/crd/bases
+	# The webhook output is redirected away from its default, which is config/webhook/manifests.yaml -- the file
+	# the cluster actually gets, and which is hand-written because controller-gen cannot express a
+	# namespaceSelector or the fully-qualified Service name this layout needs. Left at the default, every
+	# `make test` overwrote the deployed configuration with a weaker one and then tested the result; CI was red
+	# for exactly that reason. config/webhook/generated is what the markers say, and
+	# TestHandWrittenWebhookMatchesTheMarkers keeps the two from disagreeing.
+	"$(CONTROLLER_GEN)" rbac:roleName=manager-role crd webhook paths="./..." \
+		output:crd:artifacts:config=config/crd/bases \
+		output:webhook:artifacts:config=config/webhook/generated
 
 .PHONY: generate
 generate: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.
@@ -250,7 +258,10 @@ ENVTEST_K8S_VERSION ?= $(shell v='$(call gomodver,k8s.io/api)'; \
   printf '%s\n' "$$v" | sed -E 's/^v?[0-9]+\.([0-9]+).*/1.\1/')
 
 GOLANGCI_LINT_VERSION ?= v2.11.4
-TERRAFORM_VERSION ?= 1.9.8
+# Kept equal to TF_VERSION in the infra workflows on purpose, and TestTerraformVersionAgreesEverywhere fails
+# when it drifts. It drifted once already: this line sat at 1.9.8 while the roots moved to
+# `required_version = ">= 1.10"` for use_lockfile, and `make infra-validate` refused every root in CI.
+TERRAFORM_VERSION ?= 1.16.0
 ACTIONLINT_VERSION ?= v1.7.7
 .PHONY: kustomize
 kustomize: $(KUSTOMIZE) ## Download kustomize locally if necessary.
@@ -308,7 +319,11 @@ endef
 .PHONY: terraform
 terraform: $(TERRAFORM) ## Download terraform locally if necessary.
 $(TERRAFORM): $(LOCALBIN)
-	@test -x "$(TERRAFORM)" || { \
+	@# The version is checked, not just the file's existence. A cached binary from an earlier pin is the same
+	@# defect as a stale pin and hides behind the same `test -x`: bumping TERRAFORM_VERSION to 1.16.0 left an
+	@# existing bin/terraform at 1.9.8, so `make infra-validate` kept refusing every root locally while CI --
+	@# which starts with an empty bin/ -- passed.
+	@"$(TERRAFORM)" version 2>/dev/null | head -1 | grep -qx "Terraform v$(TERRAFORM_VERSION)" || { \
 		echo "Downloading terraform $(TERRAFORM_VERSION)"; \
 		curl -fsSL "https://releases.hashicorp.com/terraform/$(TERRAFORM_VERSION)/terraform_$(TERRAFORM_VERSION)_linux_amd64.zip" -o "$(LOCALBIN)/terraform.zip"; \
 		unzip -o "$(LOCALBIN)/terraform.zip" -d "$(LOCALBIN)" >/dev/null; \

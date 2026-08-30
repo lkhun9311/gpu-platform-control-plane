@@ -215,10 +215,8 @@ func run(ns, queue, metricsURL, out string, count, concurrency int, sampleEvery 
 	}
 	close(work)
 	var wg sync.WaitGroup
-	for w := 0; w < concurrency; w++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range concurrency {
+		wg.Go(func() {
 			for i := range work {
 				job := &platformv1.MLTrainingJob{
 					ObjectMeta: metav1.ObjectMeta{Name: fmt.Sprintf("load-%d", i), Namespace: ns},
@@ -233,7 +231,7 @@ func run(ns, queue, metricsURL, out string, count, concurrency int, sampleEvery 
 				}
 				created.Add(1)
 			}
-		}()
+		})
 	}
 	wg.Wait()
 	createMs := float64(time.Since(createStart).Microseconds()) / 1000.0
@@ -282,8 +280,8 @@ func run(ns, queue, metricsURL, out string, count, concurrency int, sampleEvery 
 		r := float64(reconciles) / (*drainMs / 1000.0)
 		rec.ReconcilesPerSec = &r
 	}
-	switch {
-	case peak == 0:
+	switch peak {
+	case 0:
 		rec.Verdict = "the queue never held anything: this run measured the client, not the operator"
 	default:
 		rec.Verdict = fmt.Sprintf("the queue backed up to %d items, so the operator was the bottleneck", peak)

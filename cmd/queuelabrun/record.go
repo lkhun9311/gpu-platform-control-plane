@@ -1464,7 +1464,7 @@ func decodeRunRecord(b []byte) (runRecord, error) {
 		// A schema-18 document that DOES carry a device observation is still refused: that one was judged by
 		// the collapsed question, and re-running the split gate over it would reach a verdict its run never
 		// took.
-		if !(r.SchemaVersion == 18 && recordSchemaVersion == 19 && r.DeviceObservation == nil) {
+		if r.SchemaVersion != 18 || recordSchemaVersion != 19 || r.DeviceObservation != nil {
 			return runRecord{}, fmt.Errorf("decode record: schema %d is not %d", r.SchemaVersion, recordSchemaVersion)
 		}
 	}

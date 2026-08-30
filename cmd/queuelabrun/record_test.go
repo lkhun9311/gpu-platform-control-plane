@@ -2392,10 +2392,7 @@ func TestTheDeviceEvidenceMustAnswerTheLedgersQuestion(t *testing.T) {
 	// one tenant, busy throughout.
 	samples := func() []any {
 		var out []any
-		lo := from - int64(queuelab.StaleLabelMargin)
-		if workFrom-int64(queuelab.StaleLabelMargin) < lo {
-			lo = workFrom - int64(queuelab.StaleLabelMargin)
-		}
+		lo := min(workFrom-int64(queuelab.StaleLabelMargin), from-int64(queuelab.StaleLabelMargin))
 		for at := lo; at <= to; at += int64(time.Second) {
 			out = append(out, map[string]any{
 				"atNs": at, "deviceUUID": "GPU-0000", "podUID": uid, "utilisationPercent": 93,

@@ -319,3 +319,19 @@ func lastLine(s string) string {
 	lines := strings.Split(strings.TrimSpace(s), "\n")
 	return lines[len(lines)-1]
 }
+
+// The embedded Python writes the device token and this package parses it back, so a rename on either side
+// reclassifies a dying card as a run that never reached the device -- and nothing else would say so.
+//
+// goconst found the pair by counting the literal, which is the whole argument for the linter: three copies of
+// a string that must agree is the same defect whether or not anyone has noticed it drift yet.
+func TestTheWorkloadEmitsTheDeviceTokenThisPackageParses(t *testing.T) {
+	if !strings.Contains(workloadScript, `dev="`+DeviceLaunchFailedMidrun+`"`) {
+		t.Fatalf("the workload script never sets dev=%q, so a card that stops mid-run reports something this "+
+			"package does not classify", DeviceLaunchFailedMidrun)
+	}
+	if !deviceStatuses[DeviceLaunchFailedMidrun] {
+		t.Fatalf("%q is not in deviceStatuses, so the workload's own report reads as an unknown status",
+			DeviceLaunchFailedMidrun)
+	}
+}

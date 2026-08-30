@@ -26,7 +26,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
@@ -116,9 +115,6 @@ type GPUPodValidator struct {
 }
 
 var _ admission.Handler = &GPUPodValidator{}
-
-// podGroupKind names the kind in the errors this validator returns.
-var podGroupKind = schema.GroupKind{Group: "", Kind: "Pod"}
 
 // SetupGPUPodWebhookWithManager registers the validator with the manager's webhook server.
 //

@@ -21,8 +21,9 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 	"strings"
+
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"

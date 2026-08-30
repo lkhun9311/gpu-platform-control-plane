@@ -397,6 +397,88 @@ func TestPrintedNodeGroupNamesExistInTerraform(t *testing.T) {
 	}
 }
 
+// TestTerraformVersionAgreesEverywhere fails when the pinned Terraform version drifts between the Makefile
+// and the workflows, or falls below what the roots require.
+//
+// This is the sixth instance in this repository of one defect shape -- a value that must agree across call
+// sites, carried by hand, with nothing that fails when it drifts -- and it is the first that went red in CI
+// rather than being found by reading. The Makefile pinned 1.9.8 while both workflows pinned 1.16.0 and every
+// root declared `required_version = ">= 1.10"` for use_lockfile, so `make infra-validate` refused all three
+// roots with "Unsupported Terraform Core version" on a change that touched none of them.
+func TestTerraformVersionAgreesEverywhere(t *testing.T) {
+	mk := regexp.MustCompile(`(?m)^TERRAFORM_VERSION \?= ([0-9.]+)\s*$`).
+		FindStringSubmatch(readRepoFile(t, "Makefile"))
+	if mk == nil {
+		t.Fatal("Makefile declares no TERRAFORM_VERSION; the version the tooling installs is unpinned")
+	}
+	pinned := mk[1]
+
+	// Every workflow that names a Terraform version has to name the same one. The list is derived rather than
+	// written down, so a new workflow is covered the day it is added.
+	found := 0
+	for _, wf := range []string{"infra.yml", "destroy.yml", "ci.yml"} {
+		path := filepath.Join(".github/workflows", wf)
+		body, err := os.ReadFile(filepath.Join("..", "..", path))
+		if err != nil {
+			continue
+		}
+		m := regexp.MustCompile(`(?m)^\s*TF_VERSION:\s*([0-9.]+)\s*$`).FindStringSubmatch(string(body))
+		if m == nil {
+			continue
+		}
+		found++
+		if m[1] != pinned {
+			t.Errorf("%s pins Terraform %s and the Makefile pins %s; CI and `make infra-validate` would run "+
+				"different binaries against the same configuration", path, m[1], pinned)
+		}
+	}
+	if found == 0 {
+		t.Fatal("no workflow declares TF_VERSION; this test would pass on a repository that pins nothing")
+	}
+
+	// And the pinned version has to satisfy what the roots demand, which is the half that actually broke.
+	roots, err := filepath.Glob(filepath.Join("..", "..", "infra", "aws", "*", "versions.tf"))
+	if err != nil || len(roots) == 0 {
+		t.Fatal("no terraform roots found; this test would pass on a repository with no infrastructure")
+	}
+	for _, root := range roots {
+		body, err := os.ReadFile(root)
+		if err != nil {
+			t.Fatalf("read %s: %v", root, err)
+		}
+		m := regexp.MustCompile(`required_version\s*=\s*">=\s*([0-9.]+)"`).FindStringSubmatch(string(body))
+		if m == nil {
+			continue
+		}
+		if compareVersions(pinned, m[1]) < 0 {
+			t.Errorf("%s requires Terraform >= %s and the pinned version is %s; every `terraform validate` "+
+				"in this root refuses before it reads a resource", root, m[1], pinned)
+		}
+	}
+}
+
+// compareVersions orders dotted numeric versions, with a missing component read as zero so 1.16 and 1.16.0
+// compare equal.
+func compareVersions(a, b string) int {
+	as, bs := strings.Split(a, "."), strings.Split(b, ".")
+	for i := 0; i < len(as) || i < len(bs); i++ {
+		x, y := 0, 0
+		if i < len(as) {
+			x, _ = strconv.Atoi(as[i])
+		}
+		if i < len(bs) {
+			y, _ = strconv.Atoi(bs[i])
+		}
+		if x != y {
+			if x < y {
+				return -1
+			}
+			return 1
+		}
+	}
+	return 0
+}
+
 // readRepoFile reads a file relative to the repository root.
 func readRepoFile(t *testing.T, rel string) string {
 	t.Helper()

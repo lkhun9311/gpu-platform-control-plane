@@ -208,7 +208,7 @@ func TestNoDocumentClaimsThisRepositorySetsTheGracePeriod(t *testing.T) {
 			if rerr != nil {
 				return nil
 			}
-			for _, line := range strings.Split(string(b), "\n") {
+			for line := range strings.SplitSeq(string(b), "\n") {
 				// An assignment TO the field, not a read of it.
 				if regexp.MustCompile(`\.TerminationGracePeriodSeconds\s*=`).MatchString(line) {
 					setters = append(setters, path)
