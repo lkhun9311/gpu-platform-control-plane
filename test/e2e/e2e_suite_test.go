@@ -109,8 +109,12 @@ func installKueueCRDs() {
 	By("installing the Kueue CRDs the manager indexes against")
 	// The path is from the PROJECT ROOT, not from this file. utils.Run rewrites cmd.Dir -- and chdirs the
 	// process -- to the module root before running anything, so a path relative to test/e2e resolves nowhere.
-	// The first version of this used ../crd/kueue and CI answered "the path does not exist".
-	cmd := exec.Command("kubectl", "apply", "-f", filepath.Join("test", "crd", "kueue"))
+	//
+	// Server-side, because client-side apply stores the whole manifest in a last-applied-configuration
+	// annotation and the Workload CRD is larger than the 262,144-byte annotation limit. The three smaller
+	// definitions went in and that one was rejected, which reads as a partial install rather than a size
+	// limit unless the message is read to the end.
+	cmd := exec.Command("kubectl", "apply", "--server-side", "-f", filepath.Join("test", "crd", "kueue"))
 	_, err := utils.Run(cmd)
 	ExpectWithOffset(1, err).NotTo(HaveOccurred(), "Failed to install the Kueue CRDs")
 }
