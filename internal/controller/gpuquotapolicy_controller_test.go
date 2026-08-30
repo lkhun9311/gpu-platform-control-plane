@@ -27,6 +27,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	platformv1 "github.com/lkhun9311/gpu-mlops-platform-control-plane/api/v1"
@@ -102,6 +103,84 @@ var _ = Describe("GPUQuotaPolicy Controller", func() {
 			cond := findCondition(got.Status.Conditions, conditionSynced)
 			Expect(cond).NotTo(BeNil())
 			Expect(cond.Status).To(Equal(metav1.ConditionTrue))
+		})
+
+		It("labels the target namespace so the admission guards actually apply there", func() {
+			reconcileUntilSteady()
+
+			ns := &corev1.Namespace{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: targetNS}, ns)).To(Succeed())
+			Expect(ns.Labels).To(HaveKeyWithValue(platformv1.QuotaEnforcedLabel, platformv1.QuotaEnforcedValue))
+		})
+
+		It("does not disturb labels it did not write", func() {
+			By("putting an unrelated label on the namespace first")
+			ns := &corev1.Namespace{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: targetNS}, ns)).To(Succeed())
+			patch := client.MergeFrom(ns.DeepCopy())
+			if ns.Labels == nil {
+				ns.Labels = map[string]string{}
+			}
+			ns.Labels["istio-injection"] = "enabled"
+			Expect(k8sClient.Patch(ctx, ns, patch)).To(Succeed())
+
+			reconcileUntilSteady()
+
+			got := &corev1.Namespace{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: targetNS}, got)).To(Succeed())
+			Expect(got.Labels).To(HaveKeyWithValue(platformv1.QuotaEnforcedLabel, platformv1.QuotaEnforcedValue))
+			Expect(got.Labels).To(HaveKeyWithValue("istio-injection", "enabled"))
+		})
+
+		// Turning enforcement OFF is the operation that re-opens a bypass, so deletion must not do it. A
+		// policy deleted by mistake, a finalizer race or a stale cache would each otherwise unguard a
+		// namespace that still holds running tenants.
+		It("leaves the namespace guarded after the policy is deleted", func() {
+			reconcileUntilSteady()
+
+			policy := &platformv1.GPUQuotaPolicy{}
+			Expect(k8sClient.Get(ctx, key, policy)).To(Succeed())
+			Expect(k8sClient.Delete(ctx, policy)).To(Succeed())
+			reconcileUntilSteady()
+
+			ns := &corev1.Namespace{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: targetNS}, ns)).To(Succeed())
+			Expect(ns.Labels).To(HaveKeyWithValue(platformv1.QuotaEnforcedLabel, platformv1.QuotaEnforcedValue),
+				"deleting a policy unguarded a namespace, which is the one direction that re-opens the bypass")
+		})
+
+		// A ceiling synced into an unguarded namespace is a ceiling a bare Pod walks past, so the reconcile
+		// refuses to publish Synced when it could not turn the guards on.
+		It("refuses to sync a ceiling into a namespace it cannot mark enforced", func() {
+			missing := &platformv1.GPUQuotaPolicy{
+				ObjectMeta: metav1.ObjectMeta{Name: "quota-for-absent-ns"},
+				Spec: platformv1.GPUQuotaPolicySpec{
+					Tenant:          "team-ghost",
+					TargetNamespace: "no-such-namespace",
+					GPUClass:        "l40s",
+					Limits:          platformv1.GPUQuotaLimits{GPUCount: 4},
+				},
+			}
+			Expect(k8sClient.Create(ctx, missing)).To(Succeed())
+			defer func() {
+				got := &platformv1.GPUQuotaPolicy{}
+				if err := k8sClient.Get(ctx, types.NamespacedName{Name: missing.Name}, got); err == nil {
+					got.Finalizers = nil
+					Expect(k8sClient.Update(ctx, got)).To(Succeed())
+					Expect(k8sClient.Delete(ctx, got)).To(Succeed())
+				}
+			}()
+
+			mkey := types.NamespacedName{Name: missing.Name}
+			for range 3 {
+				_, err := reconciler().Reconcile(ctx, reconcile.Request{NamespacedName: mkey})
+				Expect(err).NotTo(HaveOccurred())
+			}
+
+			got := &platformv1.GPUQuotaPolicy{}
+			Expect(k8sClient.Get(ctx, mkey, got)).To(Succeed())
+			Expect(got.Status.Phase).NotTo(Equal(phaseSynced),
+				"a policy reported Synced while the namespace it governs was never guarded")
 		})
 
 		It("is idempotent once steady", func() {

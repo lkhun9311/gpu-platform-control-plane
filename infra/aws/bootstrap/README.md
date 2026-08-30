@@ -1,6 +1,6 @@
 # infra/aws/bootstrap
 
-Creates the Terraform state backend (S3 + DynamoDB), the GitHub OIDC provider,
+Creates the Terraform state backend (S3, locking on a state-adjacent object), the GitHub OIDC provider,
 the CI IAM roles, and the ECR repository. This root is the chicken-and-egg base:
 it begins on local state, then migrates into the bucket it just created.
 
@@ -13,22 +13,24 @@ cd infra/aws/bootstrap
 
 # 1. Create the backend on local state.
 terraform init
-terraform apply -var 'state_bucket_name=<globally-unique-name>' -var 'github_repo=lkhun9311/gpu-platform-control-plane'
+terraform apply \
+  -var 'state_bucket_name=<globally-unique-name>' \
+  -var 'github_repo=<owner>/<name>' \
+  -var "github_repository_id=$(gh api repos/<owner>/<name> --jq .id)" \
+  -var "github_repository_owner_id=$(gh api repos/<owner>/<name> --jq .owner.id)"
 
 # 2. Migrate the local state into the bucket just created.
-cat > backend.tf <<'HCL'
-terraform {
-  backend "s3" {
-    bucket         = "<globally-unique-name>"
-    key            = "bootstrap/terraform.tfstate"
-    region         = "us-east-1"
-    dynamodb_table = "gpu-platform-tf-lock"
-    encrypt        = true
-    kms_key_id     = "<state_kms_key_arn from the step 1 output>"
-  }
-}
-HCL
-terraform init -migrate-state
+#
+# Done for this account on 2026-08-29. backend.tf is committed; bucket and kms_key_id are deliberately
+# absent from it, because they are account coordinates and this repository is public. Supply them here.
+terraform init -migrate-state \
+  -backend-config="bucket=$(terraform output -raw state_bucket)" \
+  -backend-config="kms_key_id=$(terraform output -raw state_kms_key_arn)"
+
+# 3. Remove the emptied local state. terraform leaves terraform.tfstate.backup; keep it until the S3 state
+#    has been read by a real plan, then delete it. A stale local state is the one way this migration can be
+#    undone by accident.
+rm -f terraform.tfstate
 ```
 
 After migration, `bootstrap` is applied only to rotate identity or the registry,
@@ -68,5 +70,4 @@ Secrets:
 
 Variables:
 - `TF_STATE_BUCKET` from output `state_bucket`
-- `TF_LOCK_TABLE` from output `lock_table`
 - `TF_STATE_KMS_KEY` from output `state_kms_key_arn`

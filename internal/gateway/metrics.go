@@ -92,17 +92,29 @@ var (
 		[]string{"tenant"},
 	)
 
-	// upstreamErrors counts failures to reach the backend, by tenant and model.
+	// backendFallbacks counts requests a second backend served after the first failed, and it is separate from
+	// upstream_errors_total on purpose: that counter rises on every failed attempt, including the ones a
+	// fallback then rescued, so on its own it cannot tell a degraded model from a broken one. The ratio
+	// between them is what says whether redundancy is absorbing the failures or merely counting them.
 	//
-	// Design rationale (design spec Observability section).
-	//
-	// 502/504 are the backend's fault, not the gateway's.
-	//
-	// Separating them answers "do I look at the gateway or the model server?" immediately.
+	// "Served" here means a 2xx or 3xx. It used to mean anything below 500, which counted a 401 or a 404 from
+	// the spare as redundancy working: the request did reach a second backend, but nothing was rescued, and
+	// on a model whose clients are sending bad requests the ratio would report healthy redundancy for a
+	// fallback path that has never actually served an answer.
+	backendFallbacks = promauto.With(metrics.Registry).NewCounterVec(
+		prometheus.CounterOpts{
+			Name: metricPrefix + "backend_fallbacks_total",
+			Help: "Requests a later backend answered 2xx or 3xx after an earlier one failed, by tenant and model.",
+		},
+		[]string{"tenant", "model"},
+	)
+
+	// upstreamErrors counts every failed ATTEMPT, including the ones a fallback then rescued, which is what
+	// makes it the denominator rather than a duplicate of the counter above.
 	upstreamErrors = promauto.With(metrics.Registry).NewCounterVec(
 		prometheus.CounterOpts{
 			Name: metricPrefix + "upstream_errors_total",
-			Help: "Total upstream connection failures by tenant and model.",
+			Help: "Failed backend ATTEMPTS by tenant and model; a retried request contributes more than one.",
 		},
 		[]string{"tenant", "model"},
 	)
@@ -131,6 +143,28 @@ var (
 			Help: "Total estimated input tokens seen by admission control by mode, tenant, and decision.",
 		},
 		[]string{"mode", "tenant", "decision"},
+	)
+
+	// admissionModeActive publishes which admission mode this process resolved --admission-mode to,
+	// as a 1 on exactly one mode label.
+	//
+	// Why a series just for a configuration value.
+	//
+	// Every other kv-aware series below is a Vec that only acquires a child once the guard has
+	// actually observed a backend, so all of them are simply ABSENT when the mode is "off" — and
+	// equally absent when the mode is "kv-aware" but the scraper never started or died. Prometheus
+	// cannot tell those two apart, which means an alert written over the guard's own gauges goes
+	// quiet in exactly the case it exists to catch.
+	//
+	// This series is set once at startup, before any request or scrape, so it is present whether or
+	// not the guard ever reports. It is what lets an alert say "the guard is configured on and is
+	// telling us nothing" rather than "the guard is telling us nothing".
+	admissionModeActive = promauto.With(metrics.Registry).NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: metricPrefix + "admission_mode_active",
+			Help: "The admission mode this gateway process is running, as a 1 on the active mode label.",
+		},
+		[]string{"mode"},
 	)
 
 	// admissionGuardEngaged reports the kv-aware guard's current pressure state per backend: 1

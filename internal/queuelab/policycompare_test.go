@@ -21,11 +21,11 @@ import (
 )
 
 func TestReclaimVariantsDifferOnlyInReclaimKnob(t *testing.T) {
-	never, err := BuildFixtures(StudyReclaim, "Never", "r1", "ns")
+	never, err := BuildFixtures(StudyReclaim, "Never", FixtureIdentity{TxID: "tx-1", RunID: "r1", Namespace: "ns"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	any, err := BuildFixtures(StudyReclaim, "Any", "r1", "ns")
+	any, err := BuildFixtures(StudyReclaim, "Any", FixtureIdentity{TxID: "tx-1", RunID: "r1", Namespace: "ns"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -35,11 +35,11 @@ func TestReclaimVariantsDifferOnlyInReclaimKnob(t *testing.T) {
 }
 
 func TestFIFOVariantsDifferOnlyInQueueingStrategy(t *testing.T) {
-	strict, err := BuildFixtures(StudyFIFO, "StrictFIFO", "f1", "ns")
+	strict, err := BuildFixtures(StudyFIFO, "StrictFIFO", FixtureIdentity{TxID: "tx-1", RunID: "f1", Namespace: "ns"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	best, err := BuildFixtures(StudyFIFO, "BestEffortFIFO", "f1", "ns")
+	best, err := BuildFixtures(StudyFIFO, "BestEffortFIFO", FixtureIdentity{TxID: "tx-1", RunID: "f1", Namespace: "ns"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,15 +51,15 @@ func TestFIFOVariantsDifferOnlyInQueueingStrategy(t *testing.T) {
 func TestOneKnobDiffWorksAcrossDifferentRunIDs(t *testing.T) {
 	// Live arms use different run ids, so their cohort/flavor/queue names all differ. Canonicalizing the run
 	// id must let the mechanism comparison still see a single-knob difference.
-	never, err := BuildFixtures(StudyReclaim, "Never", "runA", "ns")
+	never, err := BuildFixtures(StudyReclaim, "Never", FixtureIdentity{TxID: "tx-1", RunID: "run-a", Namespace: "ns"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	any, err := BuildFixtures(StudyReclaim, "Any", "runB", "ns")
+	any, err := BuildFixtures(StudyReclaim, "Any", FixtureIdentity{TxID: "tx-1", RunID: "run-b", Namespace: "ns"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := AssertOneKnobDiff(StudyReclaim, never, any, "runA", "runB"); err != nil {
+	if err := AssertOneKnobDiff(StudyReclaim, never, any, "run-a", "run-b"); err != nil {
 		t.Fatalf("cross-run reclaim comparison should still see one knob: %v", err)
 	}
 }
@@ -67,11 +67,11 @@ func TestOneKnobDiffWorksAcrossDifferentRunIDs(t *testing.T) {
 func TestOneKnobDiffCatchesLeakedDifference(t *testing.T) {
 	// If a variant silently changed a second mechanism field (here the nominal quota), the assertion must
 	// catch it rather than pass because the intended knob also changed.
-	never, err := BuildFixtures(StudyReclaim, "Never", "r1", "ns")
+	never, err := BuildFixtures(StudyReclaim, "Never", FixtureIdentity{TxID: "tx-1", RunID: "r1", Namespace: "ns"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	any, err := BuildFixtures(StudyReclaim, "Any", "r1", "ns")
+	any, err := BuildFixtures(StudyReclaim, "Any", FixtureIdentity{TxID: "tx-1", RunID: "r1", Namespace: "ns"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,11 +86,11 @@ func TestOneKnobDiffCatchesLeakedDifference(t *testing.T) {
 func TestOneKnobDiffCatchesNoDifference(t *testing.T) {
 	// Two identical variants (both Any) do not exercise the knob at all; the comparison must not silently
 	// pass a study that fails to vary its mechanism.
-	a, err := BuildFixtures(StudyReclaim, "Any", "r1", "ns")
+	a, err := BuildFixtures(StudyReclaim, "Any", FixtureIdentity{TxID: "tx-1", RunID: "r1", Namespace: "ns"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, err := BuildFixtures(StudyReclaim, "Any", "r1", "ns")
+	b, err := BuildFixtures(StudyReclaim, "Any", FixtureIdentity{TxID: "tx-1", RunID: "r1", Namespace: "ns"})
 	if err != nil {
 		t.Fatal(err)
 	}

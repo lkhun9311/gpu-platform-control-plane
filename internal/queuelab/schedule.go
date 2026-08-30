@@ -30,8 +30,16 @@ const (
 	// BarrierAdmittedReady waits until the referenced job's Workload is admitted and its Pod is Ready, so a
 	// later submission cannot race ahead of a job that has not yet started running.
 	BarrierAdmittedReady BarrierKind = "AdmittedReady"
-	// BarrierFlavorUsage waits until the run flavor's observed GPU usage equals Count, confirming borrowing
-	// actually took effect (usage 2 on a 1+1 cohort means tenant-a borrowed tenant-b's unit).
+	// BarrierFlavorUsage waits until the GPU usage Kueue reports against the run's ResourceFlavor REACHES
+	// Count, confirming borrowing actually took effect (usage 2 on a 1+1 cohort means tenant-a borrowed
+	// tenant-b's unit).
+	//
+	// "reaches" rather than "equals" because usage is sampled: an exact match can be stepped over between two
+	// polls, and a barrier waiting for equality would then time out on a run that had already got there.
+	//
+	// The observation is Kueue's own ClusterQueue status, not this operator's phase field. An earlier
+	// implementation summed the declared GPUCount of MLTrainingJobs marked Running, which could hold while
+	// Kueue had admitted nothing — and deciding exactly that is what this barrier is for.
 	BarrierFlavorUsage BarrierKind = "FlavorUsage"
 	// BarrierPending waits until the referenced job's Workload is Pending (not admitted), confirming the
 	// head job genuinely cannot fit yet, so the FIFO decision under test is real.
@@ -130,4 +138,56 @@ func fifoSchedule(trace []TrainingTraceRow) ([]Step, error) {
 		})
 	}
 	return steps, nil
+}
+
+// TerminationContractSchedule stages the termination-contract experiment: a1 runs, the victim borrows, and
+// the owner returns exactly doseSec after the victim's observed Pod Ready.
+//
+// The dose is a parameter rather than a subtraction of two trace offsets. The offset-derived form silently
+// produced 49 s where the design of record specified 40 s, and nothing would have caught it until the runs
+// were finished.
+func TerminationContractSchedule(trace []TrainingTraceRow, doseSec int) ([]Step, error) {
+	if len(trace) != 3 {
+		return nil, fmt.Errorf("termination-contract schedule needs 3 rows, got %d", len(trace))
+	}
+	if doseSec < 0 {
+		return nil, fmt.Errorf("dose %d s must not be negative", doseSec)
+	}
+	own, victim, owner := trace[0], trace[1], trace[2]
+	if own.Name != OwnRow || victim.Name != VictimRow || owner.Name != OwnerRow {
+		return nil, fmt.Errorf("rows must be %q, %q, %q in order, got %q, %q, %q",
+			OwnRow, VictimRow, OwnerRow, own.Name, victim.Name, owner.Name)
+	}
+	// Row names can collide with these constants without the rows meaning what they say (ReclaimScenario
+	// names its rows identically), so the guard against a1 releasing first checks the duration that actually
+	// governs release, not the name.
+	if minOwnDuration := victim.DurationSec + terminationGraceSec; own.DurationSec <= minOwnDuration {
+		return nil, fmt.Errorf("a1 duration %d s does not exceed victim service + grace (%d s); a1 could "+
+			"release before the victim and the owner's execution could no longer be attributed to reclamation",
+			own.DurationSec, minOwnDuration)
+	}
+	// The dose is stated on the owner row's offset as provenance by TerminationContractTrace; if the caller's
+	// doseSec disagrees, the schedule and the trace would silently run two different experiments.
+	if wantOffsetMs := victim.OffsetMs + int64(doseSec)*1_000; owner.OffsetMs != wantOffsetMs {
+		return nil, fmt.Errorf("dose %d s disagrees with the trace's provenance: owner offset %d ms implies a %d s dose",
+			doseSec, owner.OffsetMs, (owner.OffsetMs-victim.OffsetMs)/1_000)
+	}
+	return []Step{
+		{Row: own},
+		{
+			After: []Barrier{
+				{Kind: BarrierAdmittedReady, Job: own.Name},
+				{Kind: BarrierFlavorUsage, Count: 1},
+			},
+			Row: victim,
+		},
+		{
+			After: []Barrier{
+				{Kind: BarrierAdmittedReady, Job: victim.Name},
+				{Kind: BarrierFlavorUsage, Count: 2},
+				{Kind: BarrierDelayFromReady, Job: victim.Name, DelaySec: doseSec},
+			},
+			Row: owner,
+		},
+	}, nil
 }

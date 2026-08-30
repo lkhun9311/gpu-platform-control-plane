@@ -21,6 +21,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 // TestRenderResultAlwaysExposesExecutionStart is the regression guard for the published overclaim: a report
@@ -45,7 +46,7 @@ func TestRenderResultAlwaysExposesExecutionStart(t *testing.T) {
 func assertTimingLinesAdjacent(t *testing.T, out string, wantLines int) {
 	t.Helper()
 	timingLines := 0
-	for _, line := range strings.Split(out, "\n") {
+	for line := range strings.SplitSeq(out, "\n") {
 		if !strings.Contains(line, "admitLatency=") {
 			continue
 		}
@@ -132,7 +133,7 @@ func TestRenderResultSurfacesIneffectivePreemption(t *testing.T) {
 // hasLineWith reports whether any single line of out contains all the given substrings, which is how a
 // per-row field is pinned to its own row rather than to the output as a whole.
 func hasLineWith(out string, substrings ...string) bool {
-	for _, line := range strings.Split(out, "\n") {
+	for line := range strings.SplitSeq(out, "\n") {
 		all := true
 		for _, s := range substrings {
 			if !strings.Contains(line, s) {
@@ -215,7 +216,7 @@ func TestRenderResultShowsOccupancyExceedingDeclaredServiceTime(t *testing.T) {
 	}
 	out := RenderResult(res)
 	var line string
-	for _, l := range strings.Split(out, "\n") {
+	for l := range strings.SplitSeq(out, "\n") {
 		if strings.Contains(l, "totalOccupancy=") && strings.Contains(l, "serviceTime=40s") {
 			line = l
 		}
@@ -272,7 +273,7 @@ func TestRenderResultShowsCensoredWaitOnlyOnNeverAdmittedRows(t *testing.T) {
 	// paired with the row it belongs to and checked BOTH ways.
 	out := RenderResult(res)
 	var timing []string
-	for _, l := range strings.Split(out, "\n") {
+	for l := range strings.SplitSeq(out, "\n") {
 		if strings.Contains(l, "admitLatency=") {
 			timing = append(timing, l)
 		}
@@ -349,17 +350,17 @@ func f1UnattributedBannerTrace() []TrainingTraceRow {
 // horizon at all (47 GPU-seconds, cause unknown).
 func f1UnattributedBannerEvents() []LifecycleEvent {
 	return []LifecycleEvent{
-		{ElapsedNs: 0, Kind: "MLTrainingJob", Type: EventSubmitted, Job: "r1", GPUCount: 1},
-		{ElapsedNs: 1 * sec, Kind: "Workload", Type: EventAdmitted, Job: "r1", GPUCount: 1},
-		{ElapsedNs: 2 * sec, Kind: "Pod", Type: EventPodReady, Job: "r1", GPUCount: 1, ObjectUID: "pod-r1"},
-		{ElapsedNs: 10 * sec, Kind: "Workload", Type: EventPreempted, Job: "r1", GPUCount: 1, Reason: "InCohortReclamation"},
+		{ElapsedNs: 0, Kind: "MLTrainingJob", Type: EventSubmitted, Job: "r1"},
+		{ElapsedNs: 1 * sec, Kind: "Workload", Type: EventAdmitted, Job: "r1"},
+		{ElapsedNs: 2 * sec, Kind: "Pod", Type: EventPodReady, Job: "r1", ObjectUID: "pod-r1"},
+		{ElapsedNs: 10 * sec, Kind: "Workload", Type: EventPreempted, Job: "r1", Reason: "InCohortReclamation"},
 		// r1 ignores the signal and finishes on its own: 35 - 2 = 33 GPU-seconds, cause established.
-		{ElapsedNs: 35 * sec, Kind: "Pod", Type: EventAttemptStopped, Job: "r1", GPUCount: 1, ObjectUID: "pod-r1", Reason: StopReasonSucceeded},
+		{ElapsedNs: 35 * sec, Kind: "Pod", Type: EventAttemptStopped, Job: "r1", ObjectUID: "pod-r1", Reason: StopReasonSucceeded},
 
-		{ElapsedNs: 0, Kind: "MLTrainingJob", Type: EventSubmitted, Job: "r2", GPUCount: 1},
-		{ElapsedNs: 1 * sec, Kind: "Workload", Type: EventAdmitted, Job: "r2", GPUCount: 1},
-		{ElapsedNs: 3 * sec, Kind: "Pod", Type: EventPodReady, Job: "r2", GPUCount: 1, ObjectUID: "pod-r2"},
-		{ElapsedNs: 20 * sec, Kind: "Workload", Type: EventPreempted, Job: "r2", GPUCount: 1, Reason: "InCohortReclamation"},
+		{ElapsedNs: 0, Kind: "MLTrainingJob", Type: EventSubmitted, Job: "r2"},
+		{ElapsedNs: 1 * sec, Kind: "Workload", Type: EventAdmitted, Job: "r2"},
+		{ElapsedNs: 3 * sec, Kind: "Pod", Type: EventPodReady, Job: "r2", ObjectUID: "pod-r2"},
+		{ElapsedNs: 20 * sec, Kind: "Workload", Type: EventPreempted, Job: "r2", Reason: "InCohortReclamation"},
 		// r2 reaches no terminal phase at all: charged 50 - 3 = 47 to the horizon, cause unknown.
 	}
 }
@@ -428,7 +429,7 @@ func TestRenderResultStatesUncreditedLossOnReExecutedIneffectiveRow(t *testing.T
 	}
 	out := RenderResult(res)
 	banner := ""
-	for _, line := range strings.Split(out, "\n") {
+	for line := range strings.SplitSeq(out, "\n") {
 		if strings.Contains(line, "PREEMPTION INEFFECTIVE") {
 			banner = line
 		}
@@ -440,5 +441,31 @@ func TestRenderResultStatesUncreditedLossOnReExecutedIneffectiveRow(t *testing.T
 		if !strings.Contains(banner, s) {
 			t.Fatalf("banner must state that the completed attempt's work was %q: %q", s, banner)
 		}
+	}
+}
+
+// The floor line is not optional decoration: it is the only thing on the screen that tells a reader the
+// magnitudes above it have a size below which they say nothing. A render that drops it hands back exactly
+// the output that produced the retracted 0.94 second claim.
+func TestRenderResultAlwaysStatesTheFloor(t *testing.T) {
+	bounded := SpreadOf([]LifecycleEvent{skewed(430 * int64(time.Millisecond)), skewed(2389 * int64(time.Millisecond))})
+	out := RenderResult(LabResult{Arm: "A-honor", TotalWastedGPUSeconds: 41.0, Spread: bounded})
+	if !strings.Contains(out, "observationFloor=2.959s") {
+		t.Fatalf("floor absent or wrong:\n%s", out)
+	}
+	if !strings.Contains(out, "NOT resolved") {
+		t.Fatalf("floor stated without saying what it forbids:\n%s", out)
+	}
+}
+
+// A run that bounded nothing must say so more loudly than one that bounded something coarsely, because the
+// silence is the more dangerous of the two states.
+func TestRenderResultShoutsWhenNothingBoundedTheIntervals(t *testing.T) {
+	out := RenderResult(LabResult{Arm: "A-honor", TotalWastedGPUSeconds: 41.0})
+	if !strings.Contains(out, "observationFloor=UNBOUNDED") {
+		t.Fatalf("an unbounded run rendered without saying so:\n%s", out)
+	}
+	if !strings.Contains(out, "unverified") {
+		t.Fatalf("unbounded run did not tell the reader what to do with the magnitudes:\n%s", out)
 	}
 }

@@ -5,6 +5,8 @@ IMG ?= controller:latest
 GATEWAY_IMG ?= gateway:latest
 # gpu-simulator is a third, independent process (a DaemonSet, not a Deployment), so it takes its own tag for the same reason.
 GPU_SIMULATOR_IMG ?= gpu-simulator:latest
+# benchharness stub-serve runs in-cluster as the backend the gateway-path evidence routes to, so it needs its own tag too.
+BENCHHARNESS_IMG ?= benchharness:latest
 # YEAR defines the year value used for substituting the YEAR placeholder in the boilerplate header.
 YEAR ?= $(shell date +%Y)
 
@@ -50,7 +52,15 @@ help: ## Display this help.
 
 .PHONY: manifests
 manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
-	"$(CONTROLLER_GEN)" rbac:roleName=manager-role crd webhook paths="./..." output:crd:artifacts:config=config/crd/bases
+	# The webhook output is redirected away from its default, which is config/webhook/manifests.yaml -- the file
+	# the cluster actually gets, and which is hand-written because controller-gen cannot express a
+	# namespaceSelector or the fully-qualified Service name this layout needs. Left at the default, every
+	# `make test` overwrote the deployed configuration with a weaker one and then tested the result; CI was red
+	# for exactly that reason. config/webhook/generated is what the markers say, and
+	# TestHandWrittenWebhookMatchesTheMarkers keeps the two from disagreeing.
+	"$(CONTROLLER_GEN)" rbac:roleName=manager-role crd webhook paths="./..." \
+		output:crd:artifacts:config=config/crd/bases \
+		output:webhook:artifacts:config=config/webhook/generated
 
 .PHONY: generate
 generate: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.
@@ -153,6 +163,10 @@ docker-build-gpu-simulator: ## Build docker image with gpu-simulator.
 docker-push-gpu-simulator: ## Push docker image with gpu-simulator.
 	$(CONTAINER_TOOL) push ${GPU_SIMULATOR_IMG}
 
+.PHONY: docker-build-benchharness
+docker-build-benchharness: ## Build docker image with benchharness (entrypoint: stub-serve).
+	$(CONTAINER_TOOL) build -t ${BENCHHARNESS_IMG} -f Dockerfile.benchharness .
+
 # If you wish to build the manager image targeting other platforms you can use the --platform flag.
 # (i.e. docker build --platform linux/arm64). However, you must enable docker buildKit for it.
 # More info: https://docs.docker.com/develop/develop-images/build_enhancements/
@@ -244,7 +258,10 @@ ENVTEST_K8S_VERSION ?= $(shell v='$(call gomodver,k8s.io/api)'; \
   printf '%s\n' "$$v" | sed -E 's/^v?[0-9]+\.([0-9]+).*/1.\1/')
 
 GOLANGCI_LINT_VERSION ?= v2.11.4
-TERRAFORM_VERSION ?= 1.9.8
+# Kept equal to TF_VERSION in the infra workflows on purpose, and TestTerraformVersionAgreesEverywhere fails
+# when it drifts. It drifted once already: this line sat at 1.9.8 while the roots moved to
+# `required_version = ">= 1.10"` for use_lockfile, and `make infra-validate` refused every root in CI.
+TERRAFORM_VERSION ?= 1.16.0
 ACTIONLINT_VERSION ?= v1.7.7
 .PHONY: kustomize
 kustomize: $(KUSTOMIZE) ## Download kustomize locally if necessary.
@@ -302,7 +319,11 @@ endef
 .PHONY: terraform
 terraform: $(TERRAFORM) ## Download terraform locally if necessary.
 $(TERRAFORM): $(LOCALBIN)
-	@test -x "$(TERRAFORM)" || { \
+	@# The version is checked, not just the file's existence. A cached binary from an earlier pin is the same
+	@# defect as a stale pin and hides behind the same `test -x`: bumping TERRAFORM_VERSION to 1.16.0 left an
+	@# existing bin/terraform at 1.9.8, so `make infra-validate` kept refusing every root locally while CI --
+	@# which starts with an empty bin/ -- passed.
+	@"$(TERRAFORM)" version 2>/dev/null | head -1 | grep -qx "Terraform v$(TERRAFORM_VERSION)" || { \
 		echo "Downloading terraform $(TERRAFORM_VERSION)"; \
 		curl -fsSL "https://releases.hashicorp.com/terraform/$(TERRAFORM_VERSION)/terraform_$(TERRAFORM_VERSION)_linux_amd64.zip" -o "$(LOCALBIN)/terraform.zip"; \
 		unzip -o "$(LOCALBIN)/terraform.zip" -d "$(LOCALBIN)" >/dev/null; \

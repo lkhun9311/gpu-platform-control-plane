@@ -18,6 +18,8 @@ limitations under the License.
 package main
 
 import (
+	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"net/http"
@@ -60,7 +62,16 @@ const (
 	defaultAdmissionKVReleaseSustain = 30 * time.Second
 	defaultAdmissionKVScrapeInterval = 2 * time.Second
 	defaultAdmissionKVMaxStaleness   = 6 * time.Second // 3x defaultAdmissionKVScrapeInterval
-	defaultAdmissionKVScrapeTimeout  = 1 * time.Second
+	// A backend under steady traffic is routed to constantly, so this only ever expires one that has stopped
+	// receiving requests: it has either been deleted or has nothing to be under pressure about, and both want
+	// its scraper stopped and its gauges gone. Far above maxStaleness so a backend cannot be evicted while the
+	// guard is still treating its last reading as usable.
+	defaultAdmissionKVIdleTimeout = 15 * time.Minute
+	// shutdownGrace bounds how long in-flight requests are given after a signal. Under a default 30s
+	// terminationGracePeriodSeconds, so the decision to cut a request belongs to this program rather than to
+	// the kubelet's SIGKILL.
+	shutdownGrace                   = 25 * time.Second
+	defaultAdmissionKVScrapeTimeout = 1 * time.Second
 )
 
 func main() {
@@ -81,6 +92,7 @@ func main() {
 		admissionKVScrapeInterval time.Duration
 		admissionKVMaxStaleness   time.Duration
 		admissionKVScrapeTimeout  time.Duration
+		admissionKVIdleTimeout    time.Duration
 	)
 	flag.StringVar(&admissionModeFlag, "admission-mode", string(gateway.AdmissionOff),
 		"Admission control mode on the inference path: off, static-cap, or kv-aware.")
@@ -109,6 +121,9 @@ func main() {
 	flag.DurationVar(&admissionKVMaxStaleness, "admission-kv-max-staleness", defaultAdmissionKVMaxStaleness,
 		"kv-aware mode: how long since the last successful scrape before the guard bypasses "+
 			"(admits) rather than acting on stale telemetry.")
+	flag.DurationVar(&admissionKVIdleTimeout, "admission-kv-idle-timeout", defaultAdmissionKVIdleTimeout,
+		"how long a backend may go unrouted before its scraper is stopped and its gauges removed; "+
+			"must be well above --admission-kv-scrape-interval")
 	flag.DurationVar(&admissionKVScrapeTimeout, "admission-kv-scrape-timeout", defaultAdmissionKVScrapeTimeout,
 		"kv-aware mode: HTTP timeout for a single /metrics scrape.")
 	flag.Parse()
@@ -138,6 +153,7 @@ func main() {
 			ReleaseSustain: admissionKVReleaseSustain,
 			ScrapeInterval: admissionKVScrapeInterval,
 			MaxStaleness:   admissionKVMaxStaleness,
+			IdleTimeout:    admissionKVIdleTimeout,
 			HTTPTimeout:    admissionKVScrapeTimeout,
 			LongThreshold:  admissionLongThreshold,
 		},
@@ -146,13 +162,12 @@ func main() {
 		log.Error(err, "configure admission control", "mode", admissionModeFlag)
 		os.Exit(1)
 	}
-	// Stop any scrapers the admitter started (a no-op for off/static-cap) once the gateway is
-	// signaled to shut down, so a graceful stop never leaves scrape goroutines running past
-	// process shutdown.
-	go func() {
-		<-ctx.Done()
-		stopAdmitter()
-	}()
+	// stopAdmitter is called by the shutdown sequence below rather than from a goroutine of its own here.
+	//
+	// Two goroutines both waking on ctx.Done() raced, and the losing order was the likely one: the scrapers
+	// stopped while requests were still draining, so every completion still in flight was admitted by a guard
+	// that had lost its telemetry and failed open. Shutdown is one sequence — stop accepting, drain, then
+	// stop the machinery the drained requests were using.
 
 	cfg := ctrl.GetConfigOrDie()
 	// Settle the namespace before building the cache.
@@ -207,16 +222,53 @@ func main() {
 	}()
 
 	// Serve metrics/readiness on :8081 and the OpenAI-compatible API on :8080.
+	//
+	// Both are named servers rather than http.ListenAndServe, so both can be shut down.
+	//
+	// A signal previously ended the process while requests were mid-flight: SetupSignalHandler cancelled ctx,
+	// which stopped the cache and the scrapers, and nothing at all told the HTTP servers. Kubernetes sends
+	// SIGTERM and then waits out terminationGracePeriodSeconds, so every completion in flight — some of them
+	// streaming for minutes — was cut at whatever byte it had reached, and the client saw a truncated response
+	// rather than a refused one. On a gateway whose whole job is proxying long generations that is the failure
+	// mode most worth having.
+	api := &http.Server{Addr: ":8080", Handler: s.Handler()}
+	metrics := &http.Server{Addr: ":8081", Handler: s.MetricsHandler()}
+
 	go func() {
-		if err := http.ListenAndServe(":8081", s.MetricsHandler()); err != nil {
+		<-ctx.Done()
+		// Bounded, because Shutdown waits for every in-flight request and a stuck upstream would otherwise
+		// hold the process past the grace period — at which point the kubelet SIGKILLs it and the graceful
+		// path has bought nothing. The bound is deliberately under a default 30s grace period, so the
+		// difference between finishing and being killed belongs to this program rather than to the kubelet.
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownGrace)
+		defer cancel()
+		// Metrics first: readiness lives on that listener, so closing it takes this Pod out of Service
+		// endpoints before the API server stops accepting, and new requests stop arriving while the ones
+		// already here finish.
+		if err := metrics.Shutdown(shutdownCtx); err != nil {
+			log.Error(err, "metrics server did not shut down cleanly")
+		}
+		if err := api.Shutdown(shutdownCtx); err != nil {
+			log.Error(err, "in-flight requests were cut short by the shutdown deadline")
+		}
+		// Last, because until Shutdown returns there are requests being admitted, and admission reads what
+		// these scrapers publish. Stopping them first left the guard failing open over the whole drain.
+		stopAdmitter()
+	}()
+
+	go func() {
+		// ErrServerClosed is what Shutdown produces and is not a failure; reporting it would put an error in
+		// the log of every clean stop.
+		if err := metrics.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Error(err, "metrics server stopped")
 		}
 	}()
 	log.Info("serving", "addr", ":8080")
-	if err := http.ListenAndServe(":8080", s.Handler()); err != nil {
+	if err := api.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Error(err, "serving stopped")
 		os.Exit(1)
 	}
+	log.Info("stopped serving")
 }
 
 // envOr returns the environment value for key or def when unset.

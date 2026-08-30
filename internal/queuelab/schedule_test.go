@@ -101,3 +101,72 @@ func TestStudyScheduleRejectsWrongShape(t *testing.T) {
 		t.Fatalf("unknown study should error")
 	}
 }
+
+func TestTerminationContractScheduleUsesTheStatedDose(t *testing.T) {
+	trace, err := TerminationContractTrace(60, 40, DoseSelfCompleting)
+	if err != nil {
+		t.Fatal(err)
+	}
+	steps, err := TerminationContractSchedule(trace, 40)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(steps) != 3 {
+		t.Fatalf("got %d steps, want 3", len(steps))
+	}
+	owner := steps[2]
+	if owner.Row.Name != OwnerRow {
+		t.Fatalf("last step submits %q, want %q", owner.Row.Name, OwnerRow)
+	}
+	var delay *Barrier
+	for i := range owner.After {
+		if owner.After[i].Kind == BarrierDelayFromReady {
+			delay = &owner.After[i]
+		}
+	}
+	if delay == nil {
+		t.Fatal("the owner step must be gated on a delay from the victim's Ready")
+	}
+	if delay.Job != VictimRow {
+		t.Fatalf("delay measured from %q, want the victim %q", delay.Job, VictimRow)
+	}
+	// The whole point: 40 is what the protocol says, not 49 derived from two trace offsets.
+	if delay.DelaySec != 40 {
+		t.Fatalf("dose = %d s, want the stated 40 s", delay.DelaySec)
+	}
+
+	// Deriving the dose from the old trace builder is what produced 49; prove the two disagree so nobody
+	// reintroduces the derivation.
+	old, err := StudySchedule(StudyReclaim, ReclaimScenario(true, 60))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, b := range old[2].After {
+		if b.Kind == BarrierDelayFromReady && b.DelaySec == 40 {
+			t.Fatal("the offset-derived schedule now yields 40 s; this test's premise needs revisiting")
+		}
+	}
+}
+
+func TestTerminationContractScheduleRejectsADoseThatContradictsTheTrace(t *testing.T) {
+	// The trace states 40 s as provenance on the owner row's offset; a schedule asked for 5 s would silently
+	// run a different experiment than the one the trace records, which is the exact failure this branch
+	// exists to prevent.
+	trace, err := TerminationContractTrace(60, 40, DoseSelfCompleting)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := TerminationContractSchedule(trace, 5); err == nil {
+		t.Fatal("a dose that disagrees with the trace's stated provenance must be rejected")
+	}
+}
+
+func TestTerminationContractScheduleRejectsRowsThatDoNotOutliveTheWindow(t *testing.T) {
+	// ReclaimScenario names its rows a1 / a2-borrow / b1-owner, byte-identical to OwnRow / VictimRow /
+	// OwnerRow, so a name-only guard would pass this trace even though all three durations are equal and a1
+	// can release before the victim -- exactly the confound the branch removes. The check must be structural
+	// (durations), not the names that happen to match here.
+	if _, err := TerminationContractSchedule(ReclaimScenario(true, 600), 40); err == nil {
+		t.Fatal("a1 duration equal to the victim's must be rejected: a1 could release first")
+	}
+}

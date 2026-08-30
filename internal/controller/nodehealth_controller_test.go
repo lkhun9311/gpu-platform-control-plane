@@ -18,7 +18,9 @@ package controller
 
 import (
 	"context"
+	"fmt"
 
+	"github.com/go-logr/logr/funcr"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/prometheus/client_golang/prometheus/testutil"
@@ -26,6 +28,10 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	platformv1 "github.com/lkhun9311/gpu-mlops-platform-control-plane/api/v1"
@@ -304,9 +310,20 @@ var _ = Describe("NodeHealth Controller", func() {
 	Context("mapNodeToNodeHealth", func() {
 		ctx := context.Background()
 
-		It("returns requests only for NodeHealths matching the node name", func() {
-			r := &NodeHealthReconciler{Client: k8sClient, Scheme: k8sClient.Scheme()}
+		// newMapperClient builds a fake client with NodeNameIndex registered.
+		//
+		// The suite's envtest client cannot serve this lookup: it is uncached, so client.MatchingFields becomes a real field selector on the wire, and the apiserver supports no field selector over a CRD's spec fields.
+		//
+		// SetupWithManager installs the index on the manager's cache in production, so the fake client is given the same key and the same extractor to make MatchingFields resolve as it does there.
+		newMapperClient := func(objs ...client.Object) client.Client {
+			return fake.NewClientBuilder().
+				WithScheme(k8sClient.Scheme()).
+				WithIndex(&platformv1.NodeHealth{}, NodeNameIndex, indexNodeHealthByNodeName).
+				WithObjects(objs...).
+				Build()
+		}
 
+		It("returns requests only for NodeHealths matching the node name", func() {
 			match := &platformv1.NodeHealth{
 				ObjectMeta: metav1.ObjectMeta{Name: "map-match"},
 				Spec:       platformv1.NodeHealthSpec{NodeName: "map-node"},
@@ -315,18 +332,48 @@ var _ = Describe("NodeHealth Controller", func() {
 				ObjectMeta: metav1.ObjectMeta{Name: "map-other"},
 				Spec:       platformv1.NodeHealthSpec{NodeName: "different-node"},
 			}
-			Expect(k8sClient.Create(ctx, match)).To(Succeed())
-			Expect(k8sClient.Create(ctx, other)).To(Succeed())
-			defer func() {
-				Expect(k8sClient.Delete(ctx, match)).To(Succeed())
-				Expect(k8sClient.Delete(ctx, other)).To(Succeed())
-			}()
+			c := newMapperClient(match, other)
+			r := &NodeHealthReconciler{Client: c, Scheme: c.Scheme()}
 
 			node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "map-node"}}
 			reqs := r.mapNodeToNodeHealth(ctx, node)
 
 			Expect(reqs).To(HaveLen(1))
 			Expect(reqs[0].Name).To(Equal("map-match"))
+		})
+
+		// Pins that a failed lookup is reported rather than dropped.
+		//
+		// The regression this prevents: a map function has no error return, so the failure has nowhere to go but the log.
+		//
+		// Returning a bare nil leaves node-side drift silently unpropagated, and an operator looking at a NodeHealth that stopped updating has nothing at all to go on.
+		It("logs the node it could not map when the lookup fails", func() {
+			// A recording logger installed on the context the mapper is given, so the assertion reads the same call the production logger would receive.
+			var logged []string
+			recorder := funcr.New(func(prefix, args string) {
+				logged = append(logged, prefix+args)
+			}, funcr.Options{})
+
+			c := fake.NewClientBuilder().
+				WithScheme(k8sClient.Scheme()).
+				WithIndex(&platformv1.NodeHealth{}, NodeNameIndex, indexNodeHealthByNodeName).
+				WithInterceptorFuncs(interceptor.Funcs{
+					List: func(context.Context, client.WithWatch, client.ObjectList, ...client.ListOption) error {
+						return fmt.Errorf("cache read failed")
+					},
+				}).
+				Build()
+			r := &NodeHealthReconciler{Client: c, Scheme: c.Scheme()}
+
+			node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "unmappable-node"}}
+			reqs := r.mapNodeToNodeHealth(logf.IntoContext(ctx, recorder), node)
+
+			// Nothing to enqueue is still the right return; the point is that it is no longer the only thing that happens.
+			Expect(reqs).To(BeEmpty())
+			Expect(logged).To(HaveLen(1))
+			// The node name is the one piece of context that makes the line actionable, so it is asserted rather than just the message.
+			Expect(logged[0]).To(ContainSubstring("unmappable-node"))
+			Expect(logged[0]).To(ContainSubstring("cache read failed"))
 		})
 	})
 })

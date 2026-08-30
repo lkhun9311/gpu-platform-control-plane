@@ -145,3 +145,99 @@ func TestReadTraceRejectsReorderedOffsets(t *testing.T) {
 		t.Fatalf("a trace with decreasing offsets must be rejected")
 	}
 }
+
+func TestTerminationContractTraceKeepsOwnRowAlive(t *testing.T) {
+	rows, err := TerminationContractTrace(60, 40, DoseSelfCompleting)
+	if err != nil {
+		t.Fatalf("(60, 40) is the intended combination and must be accepted: %v", err)
+	}
+	if len(rows) != 3 {
+		t.Fatalf("got %d rows, want 3", len(rows))
+	}
+	byName := map[string]TrainingTraceRow{}
+	for _, r := range rows {
+		byName[r.Name] = r
+	}
+	own, victim := byName[OwnRow], byName[VictimRow]
+
+	// a1 must still be running when the owner is restored, or its natural release — not the victim's — can
+	// be what freed a device, which is exactly the confound that made the recorded run uninterpretable.
+	// The owner is restored at the earliest at the dose, and at the latest after the victim's full service
+	// plus the 30 s grace period, so a1 must outlive that with margin.
+	minimum := victim.DurationSec + 30
+	if own.DurationSec <= minimum {
+		t.Fatalf("a1 duration %d s must exceed victim service + grace (%d s) so it never releases first",
+			own.DurationSec, minimum)
+	}
+	if victim.DurationSec != 60 {
+		t.Fatalf("victim service = %d, want 60", victim.DurationSec)
+	}
+	if err := ValidateTrace(StudyReclaim, rows); err != nil {
+		t.Fatalf("trace must satisfy the reclaim study rules: %v", err)
+	}
+}
+
+func TestTerminationContractTraceRejectsADoseThatLeavesNothingToReclaim(t *testing.T) {
+	// A dose at or past the victim's full service means the owner returns after the victim would already be
+	// done, so the run would exercise ordinary sequencing rather than a mid-service reclamation.
+	if _, err := TerminationContractTrace(60, 600, DoseSelfCompleting); err == nil {
+		t.Fatal("a dose that exceeds the victim's service must be rejected")
+	}
+}
+
+func TestTerminationContractTraceRejectsADoseOutsideTheGracePeriod(t *testing.T) {
+	// A dose that leaves the victim's remaining service at or beyond the 30 s grace period does not pin the
+	// return inside the grace-period restoration window the experiment is about.
+	if _, err := TerminationContractTrace(60, 0, DoseSelfCompleting); err == nil {
+		t.Fatal("a dose that leaves remaining service outside the grace period must be rejected")
+	}
+}
+
+// The two dose regimes measure different quantities, so a dose that does not produce the regime the caller
+// declared must be refused rather than quietly measuring the other one.
+//
+// The guard this replaces permitted only the self-completing side while its own comment described the
+// grace-bounded side as the thing being excluded — so the experiment named "termination contract" could
+// never reach the regime where a termination contract actually binds. An ignoring victim with less service
+// left than the grace period finishes on its own; the platform's configured patience never applies, and
+// could be any value without changing the result.
+//
+// Mutation that turns this red: swap the two comparisons in the regime switch.
+func TestTerminationContractTraceRefusesADoseThatIsNotTheDeclaredRegime(t *testing.T) {
+	const grace = terminationGraceSec // 30
+	for _, tc := range []struct {
+		name       string
+		svc, dose  int
+		regime     DoseRegime
+		wantAccept bool
+	}{
+		{"self-completing with remaining inside the grace", 60, 40, DoseSelfCompleting, true},
+		{"self-completing with remaining at the grace", 60, 30, DoseSelfCompleting, false},
+		{"self-completing with remaining beyond the grace", 60, 20, DoseSelfCompleting, false},
+		{"grace-bounded with remaining beyond the grace", 60, 20, DoseGraceBounded, true},
+		{"grace-bounded with remaining exactly the grace", 60, 30, DoseGraceBounded, true},
+		{"grace-bounded with remaining inside the grace", 60, 40, DoseGraceBounded, false},
+		{"nothing left to reclaim, under either regime", 60, 60, DoseSelfCompleting, false},
+		{"nothing left to reclaim, grace-bounded too", 60, 60, DoseGraceBounded, false},
+		{"a regime the experiment never defined", 60, 40, DoseRegime("whatever"), false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rows, err := TerminationContractTrace(tc.svc, tc.dose, tc.regime)
+			if tc.wantAccept && err != nil {
+				t.Fatalf("%d s dose on a %d s victim (remaining %d, grace %d) was refused for %s: %v",
+					tc.dose, tc.svc, tc.svc-tc.dose, grace, tc.regime, err)
+			}
+			if !tc.wantAccept {
+				if err == nil {
+					t.Fatalf("%d s dose on a %d s victim (remaining %d, grace %d) was accepted as %s; that dose "+
+						"produces the other regime, so the run would measure a quantity it did not declare",
+						tc.dose, tc.svc, tc.svc-tc.dose, grace, tc.regime)
+				}
+				return
+			}
+			if len(rows) != 3 {
+				t.Fatalf("accepted trace has %d rows, want 3", len(rows))
+			}
+		})
+	}
+}

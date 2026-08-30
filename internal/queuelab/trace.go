@@ -105,6 +105,88 @@ func FIFOHeadOfLineScenario(longDurationSec, smallDurationSec int) []TrainingTra
 	return rows
 }
 
+// ownRowGraceMarginSec is how far a1's service must exceed the victim's service plus the termination grace
+// period.
+//
+// It exists because a1 releasing a GPU first destroys the experiment: with two units, whichever of a1 and
+// the victim releases first is what lets the owner run, so if a1 can finish during the restoration window
+// the owner's execution start cannot be attributed to the reclamation under test.
+const ownRowGraceMarginSec = 60
+
+// terminationGraceSec is the Pod termination grace period the fixture runs with, mirrored here so the trace
+// can reason about the worst-case restoration window.
+const terminationGraceSec = 30
+
+// DoseRegime names which side of the termination grace period the victim's remaining service falls on.
+//
+// It exists because the two sides measure different things, and the earlier guard permitted only one of them
+// while its own comment described the other. What an IGNORING victim costs the owner is:
+//
+//	DoseSelfCompleting  the victim's remaining service — the grace period never expires, so the platform's
+//	                    configured patience is irrelevant and could be any value without changing the result
+//	DoseGraceBounded    the grace period itself — a constant the platform sets, independent of how long the
+//	                    victim's job would otherwise have run
+//
+// Only the second is what a termination CONTRACT binds, and it is the operationally ordinary one: real
+// training jobs are long, so remaining service exceeds any sane grace period almost always. The first is
+// still worth running, because it is the regime that reproduces the confound this lineage was built on — a
+// preempted victim completing successfully, its work uncredited, the row re-executing from zero — which
+// cannot happen at all when the grace period cuts the victim short first.
+//
+// The regime is declared by the caller rather than inferred from the arithmetic, so a dose that does not
+// produce the regime the run says it is measuring is refused instead of quietly measuring the other one.
+type DoseRegime string
+
+const (
+	// DoseSelfCompleting returns while the victim has less service left than the grace period.
+	DoseSelfCompleting DoseRegime = "self-completing"
+	// DoseGraceBounded returns while the victim has at least a grace period of service left.
+	DoseGraceBounded DoseRegime = "grace-bounded"
+)
+
+// TerminationContractTrace builds the trace for the termination-contract experiment.
+//
+// victimServiceSec is the borrowed job's service time and doseSec is how long after the victim's Pod Ready
+// the owner returns; the dose is carried on the owner row's offset ONLY as provenance, because the schedule
+// gates the owner on the victim's observed Ready rather than on wall-clock offsets.
+//
+// A dose at or past the victim's full service is refused under either regime: it leaves nothing running to
+// reclaim, so there is no termination to contract about.
+func TerminationContractTrace(victimServiceSec, doseSec int, regime DoseRegime) ([]TrainingTraceRow, error) {
+	remaining := victimServiceSec - doseSec
+	if remaining <= 0 {
+		return nil, fmt.Errorf("dose %d s on a %d s victim leaves %d s of remaining service, so there is "+
+			"nothing running to reclaim", doseSec, victimServiceSec, remaining)
+	}
+	switch regime {
+	case DoseSelfCompleting:
+		if remaining >= terminationGraceSec {
+			return nil, fmt.Errorf("dose %d s on a %d s victim leaves %d s of remaining service, which the %d s "+
+				"grace period would cut short; that is %s, not %s",
+				doseSec, victimServiceSec, remaining, terminationGraceSec, DoseGraceBounded, DoseSelfCompleting)
+		}
+	case DoseGraceBounded:
+		if remaining < terminationGraceSec {
+			return nil, fmt.Errorf("dose %d s on a %d s victim leaves %d s of remaining service, so an ignoring "+
+				"victim would finish before the %d s grace period expired; that is %s, not %s",
+				doseSec, victimServiceSec, remaining, terminationGraceSec, DoseSelfCompleting, DoseGraceBounded)
+		}
+	default:
+		return nil, fmt.Errorf("unknown dose regime %q; want %q or %q", regime, DoseSelfCompleting, DoseGraceBounded)
+	}
+	return []TrainingTraceRow{
+		{
+			Index: 0, Name: OwnRow, OffsetMs: 0, Tenant: "tenant-a", GPUCount: 1,
+			DurationSec: victimServiceSec + terminationGraceSec + ownRowGraceMarginSec,
+		},
+		{Index: 1, Name: VictimRow, OffsetMs: 1_000, Tenant: "tenant-a", GPUCount: 1, DurationSec: victimServiceSec},
+		{
+			Index: 2, Name: OwnerRow, OffsetMs: int64(1_000 + doseSec*1_000), Tenant: "tenant-b",
+			GPUCount: 1, DurationSec: victimServiceSec,
+		},
+	}, nil
+}
+
 // WriteTrace serializes a trace as JSON Lines.
 func WriteTrace(w io.Writer, rows []TrainingTraceRow) error {
 	return exputil.WriteJSONL(w, rows)

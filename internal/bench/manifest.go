@@ -29,6 +29,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 
 	"sigs.k8s.io/yaml"
 )
@@ -65,6 +66,12 @@ type RunManifest struct {
 	TraceChecksum string `json:"traceChecksum"`
 	// Model is the model name every replayed request targets.
 	Model string `json:"model"`
+	// PromptCorpusSHA identifies the prompt text the run's binary sends, which traceChecksum cannot cover:
+	// the trace records prompt LENGTHS and the text is synthesised at send time. LoadManifest refuses a
+	// manifest whose corpus is not the one compiled into this binary, so a run frozen against different
+	// prompt bytes cannot be replayed or reported as if it were the same traffic.
+	PromptCorpusSHA string `json:"promptCorpusSHA"`
+
 	// TokenizerRev records the tokenizer/chat-template revision the estimator was calibrated
 	// against.
 	//
@@ -172,6 +179,7 @@ func (m *RunManifest) validateFields() error {
 		{"tracePath", m.TracePath},
 		{"traceChecksum", m.TraceChecksum},
 		{"model", m.Model},
+		{"promptCorpusSHA", m.PromptCorpusSHA},
 		{"primaryEndpoint", m.PrimaryEndpoint},
 		{"matchTolerance", m.MatchTolerance},
 	}
@@ -179,6 +187,11 @@ func (m *RunManifest) validateFields() error {
 		if f.value == "" {
 			return fmt.Errorf("missing required field %q", f.name)
 		}
+	}
+
+	if m.PromptCorpusSHA != PromptCorpusSHA256 {
+		return fmt.Errorf("promptCorpusSHA mismatch: manifest declares %s but this binary sends corpus %s",
+			m.PromptCorpusSHA, PromptCorpusSHA256)
 	}
 
 	if !allowedArms[m.Arm] {
@@ -193,5 +206,61 @@ func (m *RunManifest) validateFields() error {
 		return fmt.Errorf("matchTolerance %q is not a number: %w", m.MatchTolerance, err)
 	}
 
+	return nil
+}
+
+// ProvenanceRoles are the images a paid run's number depends on, and therefore the ones its evidence has to
+// name.
+//
+// The gateway is the component under test on arms C and B; the engine is what produces every latency the
+// report quotes. A record that cannot say which build of either produced it is a number without a subject.
+var ProvenanceRoles = []string{"gateway", "engine"}
+
+// digestPinned reports whether a reference names an immutable image.
+//
+// A tag is not provenance. `gateway:m5b` identifies whatever was pushed under that name most recently, so a
+// record carrying it says only that somebody ran something called m5b -- and the paid session scripts used
+// exactly that form. Only `name@sha256:...` survives a rebuild.
+func digestPinned(ref string) bool {
+	i := strings.Index(ref, "@sha256:")
+	if i <= 0 {
+		return false
+	}
+	// 64 hex characters after the prefix, and nothing else.
+	hex := ref[i+len("@sha256:"):]
+	if len(hex) != 64 {
+		return false
+	}
+	for _, c := range hex {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			return false
+		}
+	}
+	return true
+}
+
+// RequireProvenance refuses a manifest that cannot name the builds its numbers came from.
+//
+// GatewaySHA and ImageDigests were declared on RunManifest for exactly this and nothing ever set them: no
+// gen-trace flag accepted them, no script passed them, and every manifest this repository has produced left
+// them empty. The fields documented an intention.
+//
+// This is opt-in rather than always-on, in the manner of -require-device: a kind run against a stub has no
+// build worth pinning, and making every free run carry one would push operators toward inventing a value.
+// The paid path asks for it, because that is where the record has to outlive the cluster.
+func (m RunManifest) RequireProvenance() error {
+	if strings.TrimSpace(m.GatewaySHA) == "" {
+		return fmt.Errorf("manifest carries no gatewaySHA; a paid run's evidence must name the build that produced it")
+	}
+	for _, role := range ProvenanceRoles {
+		ref, ok := m.ImageDigests[role]
+		if !ok || strings.TrimSpace(ref) == "" {
+			return fmt.Errorf("manifest names no image for %q; imageDigests must pin every image the number depends on", role)
+		}
+		if !digestPinned(ref) {
+			return fmt.Errorf("manifest pins %q to %q, which is a tag rather than a digest;"+
+				" a tag names whatever was pushed under it most recently, so it identifies nothing after the next build", role, ref)
+		}
+	}
 	return nil
 }

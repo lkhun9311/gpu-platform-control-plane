@@ -7,6 +7,15 @@ rules:
 - apiGroups:
   - ""
   resources:
+  - namespaces
+  verbs:
+  - get
+  - list
+  - patch
+  - watch
+- apiGroups:
+  - ""
+  resources:
   - nodes
   verbs:
   - get
@@ -87,6 +96,7 @@ rules:
   - gpuquotapolicies
   - mltrainingjobs
   - nodehealths
+  - workloadruns
   verbs:
   - create
   - delete
@@ -110,6 +120,7 @@ rules:
   - inferencedeployments/status
   - mltrainingjobs/status
   - nodehealths/status
+  - workloadruns/status
   verbs:
   - get
   - patch

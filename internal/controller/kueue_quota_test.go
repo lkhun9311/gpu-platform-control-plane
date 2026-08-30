@@ -19,6 +19,8 @@ package controller
 import (
 	"context"
 
+	"k8s.io/apimachinery/pkg/api/meta"
+
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
@@ -126,6 +128,88 @@ var _ = Describe("GPUQuotaPolicy Kueue sync", func() {
 			Expect(k8sClient.Get(ctx, lqKey, lq)).To(Succeed())
 			Expect(string(lq.Spec.ClusterQueue)).To(Equal("gpu-" + tenant))
 			Expect(metav1.IsControlledBy(lq, got)).To(BeTrue())
+		})
+
+		// Synced answers a narrower question than a reader assumes: it says the objects were WRITTEN. A
+		// ClusterQueue written exactly as specified can still admit nothing — most obviously when the shared
+		// ResourceFlavor it references is absent, which Kueue reports as Active=False FlavorNotFound.
+		//
+		// That happened on a live cluster. The policy read Synced=True, phase=Synced, and every training Job
+		// submitted to it sat suspended forever with the tenant's quota apparently in place.
+		//
+		// envtest runs no Kueue controller, so the Active condition is written by hand here — which is the
+		// right fidelity for this spec: what is under test is whether the POLICY reads it, not whether Kueue
+		// sets it.
+		//
+		// Mutation that turns this red: drop the Admitting condition, or report it True regardless.
+		It("does not claim to be admitting when its ClusterQueue is not", func() {
+			policy := &platformv1.GPUQuotaPolicy{
+				ObjectMeta: metav1.ObjectMeta{Name: resourceName},
+				Spec: platformv1.GPUQuotaPolicySpec{
+					Tenant:          tenant,
+					TargetNamespace: targetNS,
+					Limits:          platformv1.GPUQuotaLimits{GPUCount: 4},
+					TrainingQuota:   true,
+				},
+			}
+			Expect(k8sClient.Create(ctx, policy)).To(Succeed())
+			reconcileUntilSteady()
+
+			// Kueue's own answer for a queue whose flavor does not exist.
+			cq := &kueuev1beta1.ClusterQueue{}
+			Expect(k8sClient.Get(ctx, cqKey, cq)).To(Succeed())
+			meta.SetStatusCondition(&cq.Status.Conditions, metav1.Condition{
+				Type: "Active", Status: metav1.ConditionFalse, Reason: "FlavorNotFound",
+				Message: "Can't admit new workloads: references missing ResourceFlavor(s): gpu.",
+			})
+			Expect(k8sClient.Status().Update(ctx, cq)).To(Succeed())
+
+			reconcileUntilSteady()
+
+			got := &platformv1.GPUQuotaPolicy{}
+			Expect(k8sClient.Get(ctx, key, got)).To(Succeed())
+
+			// Synced stays true, because it IS synced. The two facts are reported separately on purpose.
+			synced := meta.FindStatusCondition(got.Status.Conditions, conditionSynced)
+			Expect(synced).NotTo(BeNil())
+			Expect(synced.Status).To(Equal(metav1.ConditionTrue))
+
+			admitting := meta.FindStatusCondition(got.Status.Conditions, conditionAdmitting)
+			Expect(admitting).NotTo(BeNil(), "a policy with a queue reports nothing about whether it admits")
+			Expect(admitting.Status).To(Equal(metav1.ConditionFalse))
+			// Kueue's reason is carried through rather than reworded, so an operator searching for the string
+			// Kueue printed finds it here.
+			Expect(admitting.Message).To(ContainSubstring("FlavorNotFound"))
+		})
+
+		It("reports admitting once its ClusterQueue is active", func() {
+			policy := &platformv1.GPUQuotaPolicy{
+				ObjectMeta: metav1.ObjectMeta{Name: resourceName},
+				Spec: platformv1.GPUQuotaPolicySpec{
+					Tenant:          tenant,
+					TargetNamespace: targetNS,
+					Limits:          platformv1.GPUQuotaLimits{GPUCount: 4},
+					TrainingQuota:   true,
+				},
+			}
+			Expect(k8sClient.Create(ctx, policy)).To(Succeed())
+			reconcileUntilSteady()
+
+			cq := &kueuev1beta1.ClusterQueue{}
+			Expect(k8sClient.Get(ctx, cqKey, cq)).To(Succeed())
+			meta.SetStatusCondition(&cq.Status.Conditions, metav1.Condition{
+				Type: "Active", Status: metav1.ConditionTrue, Reason: "Ready", Message: "Can admit new workloads",
+			})
+			Expect(k8sClient.Status().Update(ctx, cq)).To(Succeed())
+
+			reconcileUntilSteady()
+
+			got := &platformv1.GPUQuotaPolicy{}
+			Expect(k8sClient.Get(ctx, key, got)).To(Succeed())
+			admitting := meta.FindStatusCondition(got.Status.Conditions, conditionAdmitting)
+			Expect(admitting).NotTo(BeNil())
+			Expect(admitting.Status).To(Equal(metav1.ConditionTrue),
+				"an active queue was still reported as not admitting, so the condition is a constant")
 		})
 
 		It("creates neither a ClusterQueue nor a LocalQueue when trainingQuota is false", func() {
