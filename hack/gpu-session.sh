@@ -437,14 +437,60 @@ mkdir -p "$EXDIR" || { echo "cannot create $EXDIR" >&2; exit 1; }
 echo "records for this session go in $EXDIR"
 echo "running ${#SEQUENCE[@]} runs, starting at $START_AT"
 echo
+# Stop before a run that cannot finish, rather than being cut in the middle of one.
+#
+# Nothing bounded this session's length. The per-run horizon is derived inside the runner and refuses to be
+# short, but the number of runs comes from REPS and the worker count, -horizon can be raised, and a slow
+# node stretches every run -- so the total was whatever it turned out to be, against a deadline that fires
+# at a fixed time. The TTL would then scale the node out from under a run in progress, and that run's record
+# is lost while every earlier one survives: the expensive half of the session is thrown away last.
+#
+# The budget is measured rather than declared. Copying the runner's horizon constants into this file is the
+# drift this repository keeps finding -- a value carried by hand across two call sites with nothing that
+# fails when they disagree. After the first run, the elapsed time IS the budget, and it accounts for the
+# node's real speed, the flags actually passed, and the per-run setup, none of which a constant would know.
+run_secs=0
+runs_done=0
+deadline_check() {
+  local remain projected per
+  remain=$(ttl_remaining_minutes "$GPU_CLUSTER" "$GPU_NODEGROUP" 2>/dev/null) || return 0
+  [[ -n "$remain" ]] || return 0
+  # Before the first run there is nothing measured to project from, but "nothing to project" is not the same
+  # as "fine". A resumed session inherits whatever is left of a deadline armed hours ago, and one that starts
+  # with minutes on the clock buys a node, prepares a worker, and is cut during the first run it attempts.
+  # The floor is deliberately crude because it only has to catch that.
+  if (( runs_done == 0 )); then
+    (( remain >= ${MIN_START_MINUTES:-15} )) && return 0
+    echo >&2
+    echo "STOPPING: the deadline fires in ${remain} min, which is not enough to finish a run." >&2
+    echo "  Re-arm with a longer TTL_MINUTES before resuming, or the first run would be cut and lost." >&2
+    return 1
+  fi
+  per=$(( run_secs / runs_done ))
+  projected=$(( (${#SEQUENCE[@]} - runs_done - skipped) * per / 60 ))
+  if (( projected > remain )); then
+    echo >&2
+    echo "STOPPING: $((${#SEQUENCE[@]} - runs_done - skipped)) runs left at ~$((per / 60)) min each needs about ${projected} min," >&2
+    echo "  and the deadline fires in ${remain} min. Being cut mid-run would lose that run's record while" >&2
+    echo "  keeping every earlier one, so the session stops on a boundary instead." >&2
+    echo "  ${runs_done} runs are complete in $EXDIR. Re-arm with a longer TTL_MINUTES and resume:" >&2
+    echo "    START_AT=$((N)) RUN_STUDY=1 $0 ${WORKERS[*]}" >&2
+    return 1
+  fi
+  return 0
+}
+
 N=0
+skipped=0
 for SPEC in "${SEQUENCE[@]}"; do
   # shellcheck disable=SC2086
   set -- $SPEC
   DOSE=$1 ARM=$2 ID=$3 ON=$4
   N=$((N + 1))
-  (( N < START_AT )) && { echo "[$N/${#SEQUENCE[@]}] $ID  skipped (START_AT=$START_AT)"; continue; }
+  (( N < START_AT )) && { echo "[$N/${#SEQUENCE[@]}] $ID  skipped (START_AT=$START_AT)"; skipped=$((skipped + 1)); continue; }
+  deadline_check || exit 1
   echo "[$N/${#SEQUENCE[@]}] $ID  $DOSE  $ARM  on $ON"
+  RUN_T0=$(date +%s)
   # The route was verified once, at prepare time, and then trusted for the whole session. On EKS the forward
   # traverses an idle-timing load balancer and a worker's tunnel can sit unused for half an hour between its
   # runs. A dead tunnel does not stop the run: the device observer is explicitly non-fatal, so the full
@@ -472,6 +518,8 @@ for SPEC in "${SEQUENCE[@]}"; do
     -device-metrics "${URL_OF[$ON]}" -device-observer "${OBSERVER_OF[$ON]}" \
     -out "$EXDIR/gpu-$DOSE-$ARM-$ID.json" \
     || { echo; echo "run $ID failed. Fix the cause, then resume: START_AT=$N RUN_STUDY=1 $0 ${WORKERS[*]}" >&2; exit 1; }
+  run_secs=$(( run_secs + $(date +%s) - RUN_T0 ))
+  runs_done=$((runs_done + 1))
 done
 
 # The globs are the ones the kind study uses, and they are narrow for reasons the tool enforces: an arm
