@@ -24,7 +24,7 @@ jobs:
     # For fully unattended nightly teardown, provision a separate infra-destroy environment and role without a reviewer gate.
     #
     # Skip cleanly until the bootstrap state bucket exists, so the nightly cron does not fail before AWS is provisioned.
-    if: vars.TF_STATE_BUCKET != ''
+    if: vars.INFRA_ENABLED == 'true'
     environment: infra-apply
     timeout-minutes: 45
     concurrency:
@@ -140,8 +140,8 @@ jobs:
           ENDPOINT=$(aws eks describe-cluster --name "$CLUSTER_NAME" --query 'cluster.endpoint' --output text)
           CA=$(aws eks describe-cluster --name "$CLUSTER_NAME" --query 'cluster.certificateAuthority.data' --output text)
           terraform init -input=false \
-            -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" \
-            -backend-config="kms_key_id=${{ vars.TF_STATE_KMS_KEY }}"
+            -backend-config="bucket=${{ secrets.TF_STATE_BUCKET }}" \
+            -backend-config="kms_key_id=${{ secrets.TF_STATE_KMS_KEY }}"
           terraform destroy -input=false -auto-approve \
             -var "cluster_endpoint=$ENDPOINT" \
             -var "cluster_ca=$CA"
@@ -162,8 +162,8 @@ jobs:
         working-directory: infra/aws/cluster
         run: |
           terraform init -input=false \
-            -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" \
-            -backend-config="kms_key_id=${{ vars.TF_STATE_KMS_KEY }}"
+            -backend-config="bucket=${{ secrets.TF_STATE_BUCKET }}" \
+            -backend-config="kms_key_id=${{ secrets.TF_STATE_KMS_KEY }}"
           terraform destroy -input=false -auto-approve
 
       # Inventory what commonly lingers, so a failed destroy is visible rather than silent.
