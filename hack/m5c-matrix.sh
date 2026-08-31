@@ -90,10 +90,17 @@ NODEGROUP=""
 # and the deadline this script registers with EventBridge Scheduler is what covers those.
 # See hack/lib/gpu-ttl.sh.
 gpu_scale_down() {
-  command -v ttl_disarm >/dev/null 2>&1 && ttl_disarm
-
+  # The deadline is NOT dropped here, and the ordering is the whole point.
+  #
+  # Removing it first means a scale-down that then fails leaves the account with a billing GPU and no
+  # remaining backstop -- the one arrangement worse than either failure alone. The schedule costs nothing
+  # while it waits and does nothing once the node is already at zero, so there is no reason to trade it away
+  # before the thing it protects against is known not to have happened. It comes off at the bottom of this
+  # function, after desiredSize has been read back as 0, and nowhere else.
+  #
+  # KEEP_NODE=1 keeps the node up; the deadline stays armed, so a session someone walks away from still ends.
   if [ "${KEEP_NODE:-}" = "1" ]; then
-    echo "KEEP_NODE=1: leaving $NODEGROUP at its current size. It bills by the hour." >&2
+    echo "KEEP_NODE=1: leaving $NODEGROUP up. The TTL deadline stays armed; it bills until then." >&2
     return 0
   fi
 
@@ -148,8 +155,11 @@ gpu_scale_down() {
     --query 'nodegroup.scalingConfig.desiredSize' --output text 2>/dev/null)
   if [ "$DESIRED" = "0" ]; then
     echo "$CLUSTER/$NODEGROUP is at desiredSize=0" >&2
+    # Only now. The deadline has nothing left to protect, and this is the single place that knows that.
+    command -v ttl_disarm >/dev/null 2>&1 && ttl_disarm
   else
     echo "WARNING: $CLUSTER/$NODEGROUP reports desiredSize=$DESIRED after the scale-down. It is billing." >&2
+    echo "The TTL deadline is left armed on purpose. It is what remains." >&2
   fi
 }
 
@@ -203,6 +213,33 @@ if [ -n "$NODEGROUP" ]; then
   . "$(dirname "$0")/lib/gpu-ttl.sh"
   ttl_arm "$CLUSTER" "$NODEGROUP" "${TTL_MINUTES:-240}" \
     || fail "could not register the TTL scale-down; refusing to run a paid session with no deadline"
+
+  # Refuse a matrix that cannot finish before its own deadline.
+  #
+  # The deadline was not chosen to fit this run; 240 was chosen because four hours is roughly one SSO
+  # session. Whether the matrix fits inside it depends on ARMS and REPS, which the operator can change, and
+  # on the rollout budgets written into this file. Nothing connected the two, so a run could be started that
+  # was arithmetically guaranteed to be cut off -- and the cut arrives in the last cells, after every dollar
+  # has already been spent.
+  #
+  # Per cell: the sharing arms roll out two engines sequentially at 900s each, plus a 180s gateway rollout,
+  # plus the replay itself. This uses the rollout budgets rather than observed times because a budget is what
+  # the script will actually wait for before giving up.
+  ttl_min="${TTL_MINUTES:-240}"
+  cells=0
+  for _a in $ARMS; do cells=$(( cells + REPS )); done
+  worst_total_min=$(( cells * (1800 + 180 + ${REPLAY_SECONDS:-300}) / 60 ))
+  echo "matrix: $cells cells, worst case ${worst_total_min} min against a ${ttl_min} min deadline" >&2
+  if [ "$worst_total_min" -gt "$ttl_min" ]; then
+    # Say what does fit rather than only what does not. The operator is standing at a rented card with a
+    # clock running, and "reduce something" is not an instruction they can act on quickly.
+    arm_count=0
+    for _a in $ARMS; do arm_count=$(( arm_count + 1 )); done
+    per_cell_min=$(( (1800 + 180 + ${REPLAY_SECONDS:-300}) / 60 ))
+    fits=$(( ttl_min / per_cell_min / arm_count ))
+    ttl_disarm
+    fail "this matrix needs up to ${worst_total_min} min but the deadline is ${ttl_min} min. The node would be scaled out from under the last cells, after the whole card has been paid for. Each cell budgets ${per_cell_min} min, so with these ${arm_count} arms the deadline holds REPS=${fits} (now ${REPS}). Either set REPS=${fits}, drop an arm, or raise TTL_MINUTES -- though a run longer than one SSO session cannot be torn down by the shell that started it."
+  fi
 fi
 [ "$shared_nodes" -eq 1 ] || fail "$shared_nodes sharing nodes are up; two engines on two nodes are not sharing a card, and nothing downstream could tell that apart from a sharing result"
 
