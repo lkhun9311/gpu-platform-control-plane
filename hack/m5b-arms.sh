@@ -52,7 +52,8 @@ say "rate ${RATE}/s, ${REPS} repetitions, output $OUT"
 WORK="$(mktemp -d)"
 PF_PID=""
 cleanup() { [ -n "$PF_PID" ] && kill "$PF_PID" 2>/dev/null; rm -rf "$WORK"; }
-trap cleanup EXIT INT TERM
+# HUP: a closed terminal sends it, and this script runs for over an hour on a rented card.
+trap cleanup EXIT INT TERM HUP
 
 go build -o "$WORK/benchharness" ./cmd/benchharness || fail "build benchharness"
 CGO_ENABLED=0 GOOS=linux go build -o "$WORK/gateway" ./cmd/gateway || fail "build gateway"
@@ -255,5 +256,29 @@ for f in "$OUT"/raw-*.jsonl; do args+=(--raw "$f"); done
 "$WORK/benchharness" report "${args[@]}" --out "$OUT/report.txt" || fail "report"
 cat "$OUT/report.txt" | tee -a "$LOG"
 
-grep -q "VERDICT:" "$OUT/report.txt" || fail "the report carries no verdict"
-say "ARMS DONE. Evidence in $OUT. Scale the GPU node group to 0 now."
+# Read the verdict, do not merely count it. The check was `grep -q "VERDICT:"`, which passes on the one
+# outcome that means the paid run produced nothing usable -- and then printed ARMS DONE and exited 0.
+#
+# The three outcomes are not equivalent and only one of them is a failure of this script:
+#   "all checks passed"     - the guard protected the tail. A result.
+#   "not all checks passed" - it did not. Also a result, and the one worth reporting honestly.
+#   "run invalid"           - the evidence does not support any claim. The card was paid for and there is
+#                             nothing to say, which is the case a zero exit status must not describe.
+verdict=$(grep -m1 "VERDICT:" "$OUT/report.txt") || fail "the report carries no verdict"
+case "$verdict" in
+  *"run invalid"*)
+    fail "the run is invalid and no claim can be made from it: $verdict. The card has been paid for; look at $OUT/report.txt before spending another one." ;;
+  *"not all checks passed"*)
+    say "ARMS DONE, and the guard did not protect the tail on this card: $verdict"
+    say "That is a result, not a failure of this script. Evidence in $OUT." ;;
+  *)
+    say "ARMS DONE. $verdict"
+    say "Evidence in $OUT." ;;
+esac
+
+# The deadline is still armed and the node is still billing until it fires or the session shell exits.
+if REMAIN=$(ttl_remaining_minutes "$CLUSTER" "$NODEGROUP" 2>/dev/null) && [ -n "$REMAIN" ]; then
+  say "the GPU node is still up. The deadline scales it down in ${REMAIN} min; stop the session shell to do it now."
+else
+  say "Scale the GPU node group to 0 now."
+fi
