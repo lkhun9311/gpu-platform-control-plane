@@ -62,13 +62,19 @@ NODEGROUP=""
 # refuses to continue if it cannot. See hack/lib/gpu-ttl.sh. The nightly destroy workflow is the second
 # backstop behind it, and as of 2026-08-31 it has run once, on an empty account.
 gpu_scale_down() {
-  # Drop the deadline first. If the scale-down below succeeds the schedule has nothing left to do, and if it
-  # fails the schedule is the reason this is survivable -- so it is removed only after a clean exit path is
-  # under way, never as a precondition for one.
-  command -v ttl_disarm >/dev/null 2>&1 && ttl_disarm
-
+  # The deadline is NOT dropped here, and the ordering is the whole point.
+  #
+  # Removing it first means a scale-down that then fails leaves the account with a billing GPU and no
+  # remaining backstop -- the one arrangement worse than either failure alone. The schedule costs nothing
+  # while it waits and does nothing once the node is already at zero, so there is no reason to trade it away
+  # before the thing it protects against is known not to have happened. It comes off at the bottom of this
+  # function, after desiredSize has been read back as 0, and nowhere else.
+  #
+  # KEEP_NODE=1 keeps the node for a re-run of hack/m5b-arms.sh against a warm engine. It is not a request
+  # to bill forever: the deadline stays armed, so a forgotten re-run still ends. Those were entangled before
+  # -- one flag disabled both the scale-down and the thing that catches a forgotten scale-down.
   if [ "${KEEP_NODE:-}" = "1" ]; then
-    echo "KEEP_NODE=1: leaving $NODEGROUP at its current size. It bills by the hour." >&2
+    echo "KEEP_NODE=1: leaving $NODEGROUP up for a re-run. The TTL deadline stays armed; it bills until then." >&2
     return 0
   fi
 
@@ -130,8 +136,11 @@ gpu_scale_down() {
     --query 'nodegroup.scalingConfig.desiredSize' --output text 2>/dev/null)
   if [ "$DESIRED" = "0" ]; then
     echo "$CLUSTER/$NODEGROUP is at desiredSize=0" >&2
+    # Only now. The deadline has nothing left to protect, and this is the single place that knows that.
+    command -v ttl_disarm >/dev/null 2>&1 && ttl_disarm
   else
     echo "WARNING: $CLUSTER/$NODEGROUP reports desiredSize=$DESIRED after the scale-down. It is billing." >&2
+    echo "The TTL deadline is left armed on purpose. It is what remains." >&2
   fi
 }
 

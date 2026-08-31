@@ -71,6 +71,27 @@ ttl_arm() {
 # Failure here is reported and not fatal: the schedule firing later is harmless -- it sets a node group that
 # is already at zero to zero -- whereas failing the session over a leftover deadline would be the tail
 # wagging the dog.
+# ttl_remaining_minutes CLUSTER NODEGROUP
+#
+# Prints how many minutes are left on the live deadline for that node group, or nothing if there is none.
+#
+# This exists because the script that spends the money is not always the script that armed the deadline:
+# hack/m5b-arms.sh runs in a second shell, with no TTL_SCHEDULE_NAME and no memory of TTL_MINUTES, and it is
+# the one that decides whether a run fits. Asking AWS is also the only honest answer -- the deadline may have
+# been armed an hour ago, and what matters is the time that is left, not the time it started with.
+ttl_remaining_minutes() {
+  local cluster="$1" nodegroup="$2" expr at now
+  expr=$(aws scheduler list-schedules --name-prefix "gpu-ttl-${cluster}-${nodegroup}-" \
+           --query 'Schedules[0].Name' --output text 2>/dev/null)
+  [ -n "$expr" ] && [ "$expr" != "None" ] || return 1
+  at=$(aws scheduler get-schedule --name "$expr" --query 'ScheduleExpression' --output text 2>/dev/null \
+         | sed -n 's/^at(\(.*\))$/\1/p')
+  [ -n "$at" ] || return 1
+  now=$(date -u '+%s')
+  at=$(date -u -d "${at}Z" '+%s' 2>/dev/null) || return 1
+  echo $(( (at - now) / 60 ))
+}
+
 ttl_disarm() {
   [ -n "$TTL_SCHEDULE_NAME" ] || return 0
   if aws scheduler delete-schedule --name "$TTL_SCHEDULE_NAME" >/dev/null 2>&1; then

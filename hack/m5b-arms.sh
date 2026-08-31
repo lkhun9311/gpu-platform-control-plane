@@ -33,6 +33,9 @@ GW_IMAGE="${GW_IMAGE:-gateway:m5b}"
 # Below four the incremental interval is a bootstrap over very few blocks. Two is a floor the report will
 # tolerate, not a target anything argued for.
 REPS="${REPS:-4}"
+
+# For ttl_remaining_minutes: this script spends the money in a shell that never armed the deadline.
+. "$(dirname "$0")/lib/gpu-ttl.sh"
 OUT="${OUT:-hack/m5b-run-$(date +%Y%m%d-%H%M%S)}"
 LOG="$OUT/evidence.log"
 
@@ -59,6 +62,36 @@ CGO_ENABLED=0 GOOS=linux go build -o "$WORK/gateway" ./cmd/gateway || fail "buil
 # completions is the target; premium is half the arrivals.
 DURATION_MS=$(python3 -c "print(int(500 / (float('$RATE')/2) * 1000))")
 say "duration per arm: $((DURATION_MS/1000))s, targeting 500 premium completions (min is 100)"
+
+# Refuse a run that cannot finish before the deadline cuts the node out from under it.
+#
+# This is the one check that has to live here rather than in hack/m5b-gpu-session.sh, because the length of
+# the run is decided here: it comes from RATE, which is measured on the actual card, times REPS, times the
+# four arms. The session script arms the deadline long before any of those numbers exist.
+#
+# Getting this wrong does not produce a warning. It produces a paid run that is killed partway through the
+# last arm, and a comparison missing one of the four things it exists to compare -- the money is spent and
+# the evidence is unusable. Refusing costs nothing by comparison: raise TTL_MINUTES, lower REPS, or accept
+# that the card is too slow for this shape of run.
+#
+# The 180 is the gateway rollout timeout used below, counted once per replay because the gateway is
+# redeployed for each arm of each repetition.
+# Derived here, the same way hack/m5b-gpu-session.sh derives them, because this script never had them: the
+# check above was written against ${CLUSTER:-} and ${NODEGROUP:-}, which are empty in this shell, so it took
+# the warning branch every time and could not have refused anything. A guard that cannot fire is worse than
+# no guard, because it reads like coverage.
+CLUSTER="${CLUSTER:-$(kubectl config view --minify -o jsonpath='{.clusters[0].name}' 2>/dev/null | sed 's|.*cluster/||')}"
+NODEGROUP="${NODEGROUP:-$(kubectl get node -l 'platform.lkhun9311.github.io/gpu=true' \
+  -o jsonpath='{.items[0].metadata.labels.eks\.amazonaws\.com/nodegroup}' 2>/dev/null)}"
+
+if REMAIN=$(ttl_remaining_minutes "$CLUSTER" "$NODEGROUP" 2>/dev/null) && [ -n "$REMAIN" ]; then
+  replays=$(( 4 * REPS ))
+  worst_min=$(( replays * (DURATION_MS / 1000 + 180) / 60 ))
+  say "worst case ${worst_min} min over ${replays} replays; ${REMAIN} min left on the deadline"
+  [ "$worst_min" -le "$REMAIN" ] || fail "this run needs up to ${worst_min} min but the TTL deadline fires in ${REMAIN} min. The node would be scaled out from under the last arm and the comparison would be incomplete. Re-arm with a longer TTL_MINUTES, or lower REPS (currently ${REPS})."
+else
+  say "WARNING: no TTL deadline found for ${CLUSTER:-?}/${NODEGROUP:-?}, so the run length was not checked against it. The node this is about to load has no remote backstop."
+fi
 
 say "build and push the gateway image"
 cat > "$WORK/Dockerfile" <<'EOF'
