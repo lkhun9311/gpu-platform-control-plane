@@ -76,6 +76,34 @@ if [[ ${#WORKERS[@]} -eq 2 && "${WORKERS[0]}" == "${WORKERS[1]}" ]]; then
   exit 2
 fi
 
+# The deadline is registered here, before anything is prepared, occupied, forwarded, or run.
+#
+# It cannot be registered before the node exists, because this script's contract is a list of worker node
+# NAMES and a node that has not joined has no name to pass. So a window remains, and it is stated rather
+# than papered over: from the moment the node group is scaled up by hand until this line runs, the card
+# bills with nothing scheduled to stop it. Closing that window means scaling up inside this script the way
+# m5b-gpu-session.sh now does, which changes the argument contract and is not this change.
+#
+# What this does close is everything after: a laptop that sleeps, a shell that is killed, an SSO session
+# that expires during the twelve runs. Those are the long windows.
+CLUSTER="${CLUSTER:-$(kubectl config view --minify -o jsonpath='{.clusters[0].name}' 2>/dev/null | sed 's|.*cluster/||')}"
+NODEGROUP="${NODEGROUP:-$(kubectl get node "${WORKERS[0]}" \
+  -o jsonpath='{.metadata.labels.eks\.amazonaws\.com/nodegroup}' 2>/dev/null)}"
+if [[ -n "$CLUSTER" && -n "$NODEGROUP" ]]; then
+  TTL_ROLE_ARN="${TTL_ROLE_ARN:-$(terraform -chdir=infra/aws/bootstrap output -raw ttl_scaledown_role_arn 2>/dev/null)}"
+  export TTL_ROLE_ARN
+  # shellcheck source=hack/lib/gpu-ttl.sh
+  . "$(dirname "$0")/lib/gpu-ttl.sh"
+  ttl_arm "$CLUSTER" "$NODEGROUP" "${TTL_MINUTES:-180}" || {
+    echo "could not register the TTL scale-down; refusing to run a paid study with no deadline" >&2
+    exit 1
+  }
+else
+  echo "could not derive cluster/nodegroup from worker ${WORKERS[0]}; refusing to run a paid study with no deadline" >&2
+  echo "  pass CLUSTER= and NODEGROUP= explicitly if this node is not in a managed node group" >&2
+  exit 1
+fi
+
 # Per worker, filled in by prepare().
 declare -A URL_OF OBSERVER_OF POD_OF OCCUPIER_OF
 FORWARDS=()
@@ -91,8 +119,51 @@ cleanup() {
   for spec in "${OCCUPIERS[@]:-}"; do
     [[ -n "$spec" ]] && kubectl delete pod -n "$NS" "$spec" --ignore-not-found --wait=false >/dev/null 2>&1 || true
   done
+
+  gpu_scale_down
 }
-trap cleanup EXIT
+
+# The same scale-down the M5 sessions carry, and it was missing here entirely.
+#
+# This is the paid entry point for the queuelab study, and until now it had no node group scale-down and no
+# deadline: the GPU it measures on was scaled up by hand and scaled down by hand, so a session that ended
+# badly left a card billing with nothing at all watching. The M5 scripts had a trap; this one did not even
+# have that for INT or TERM.
+gpu_scale_down() {
+  if [ "${KEEP_NODE:-}" = "1" ]; then
+    echo "KEEP_NODE=1: leaving $NODEGROUP at its current size. It bills by the hour." >&2
+    echo "The TTL deadline is still armed and will scale it to zero on schedule." >&2
+    return 0
+  fi
+  [ -n "${CLUSTER:-}" ] && [ -n "${NODEGROUP:-}" ] || return 0
+
+  echo "scaling $CLUSTER/$NODEGROUP to desiredSize=0" >&2
+  if ! aws eks update-nodegroup-config --cluster-name "$CLUSTER" --nodegroup-name "$NODEGROUP" \
+        --scaling-config "minSize=0,maxSize=1,desiredSize=0" >/dev/null; then
+    echo
+    echo "############################################################"
+    echo "#  SCALE-DOWN CALL FAILED. THE NODE IS STILL BILLING.      #"
+    echo "#  The TTL deadline is still armed. Or run this now:        #"
+    echo "#    aws eks update-nodegroup-config --cluster-name $CLUSTER \\"
+    echo "#      --nodegroup-name $NODEGROUP \\"
+    echo "#      --scaling-config minSize=0,maxSize=1,desiredSize=0  #"
+    echo "############################################################"
+    return 0
+  fi
+
+  DESIRED=$(aws eks describe-nodegroup --cluster-name "$CLUSTER" --nodegroup-name "$NODEGROUP" \
+    --query 'nodegroup.scalingConfig.desiredSize' --output text 2>/dev/null)
+  if [ "$DESIRED" = "0" ]; then
+    echo "$CLUSTER/$NODEGROUP is at desiredSize=0" >&2
+    command -v ttl_disarm >/dev/null 2>&1 && ttl_disarm
+  else
+    echo "WARNING: $CLUSTER/$NODEGROUP reports desiredSize=$DESIRED after the scale-down. It is billing." >&2
+  fi
+}
+
+# HUP, INT and TERM join EXIT. A closed terminal sends HUP and Ctrl-C sends INT, and this script used to
+# catch neither -- on the entry point that rents the card.
+trap cleanup EXIT INT TERM HUP
 
 # refuseFakePlugin stops a session whose node is advertising SIMULATED devices.
 #

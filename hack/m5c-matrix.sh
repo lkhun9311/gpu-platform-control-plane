@@ -191,6 +191,29 @@ export TTL_ROLE_ARN
 ttl_arm "$CLUSTER" "$NODEGROUP" "${TTL_MINUTES:-240}" \
   || fail "could not register the TTL scale-down; refusing to start a paid node with no deadline"
 
+# Refuse a matrix whose own declared worst case does not fit inside the deadline.
+#
+# The TTL bounds the COST -- the card cannot bill past it whatever happens. It does not bound the WASTE: a
+# run configured to need five hours under a four-hour deadline is a run that will be killed in the middle,
+# having spent the whole budget and produced nothing comparable. That is a worse outcome than refusing, and
+# nothing in this file used to notice it.
+#
+# The arithmetic is the script's own numbers, not an estimate: cells are REPS x ARMS, each cell tears down
+# and redeploys its namespaces and waits up to 900s per engine (twice for the two-engine arms), plus the
+# replay itself at 1000/RATE seconds.
+cells=0
+for _a in $ARMS; do cells=$((cells + REPS)); done
+worst_engine_s=$((900 * 2))
+replay_s=$(awk -v r="${RATE:-1.5}" 'BEGIN{printf "%d", 1000/r}')
+worst_total_min=$(( cells * (worst_engine_s + replay_s) / 60 ))
+ttl_min="${TTL_MINUTES:-240}"
+say "declared worst case: ${cells} cells, about ${worst_total_min} minutes; deadline ${ttl_min} minutes"
+if [ "$worst_total_min" -gt "$ttl_min" ]; then
+  fail "this matrix declares a worst case of ${worst_total_min} minutes against a ${ttl_min}-minute deadline.
+  The deadline would kill it mid-run, after paying for the whole thing. Reduce REPS or ARMS, or raise
+  TTL_MINUTES deliberately -- but a longer deadline is a longer bill, not a faster run."
+fi
+
 say "scale $CLUSTER/$NODEGROUP up to one card"
 current=$(aws eks describe-nodegroup --cluster-name "$CLUSTER" --nodegroup-name "$NODEGROUP" \
   --query 'nodegroup.scalingConfig.desiredSize' --output text 2>/dev/null)
