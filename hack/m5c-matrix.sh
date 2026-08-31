@@ -69,7 +69,6 @@ mkdir -p "$OUT" || fail "cannot create $OUT"
 
 WORK="$(mktemp -d)"
 PF_PID=""
-SCALED_UP=""
 NODEGROUP=""
 
 # Scaling the node group back to zero, which this file's header claimed and this function did not do.
@@ -88,15 +87,34 @@ NODEGROUP=""
 #
 # What this does NOT solve, stated so it is not mistaken for solved: a trap cannot run after the laptop dies,
 # loses power, or has its shell killed with SIGKILL. The backstop for that is the nightly destroy workflow,
-# and an external TTL watchdog is the control this repository still does not have.
+# and the deadline this script registers with EventBridge Scheduler is what covers those.
+# See hack/lib/gpu-ttl.sh.
 gpu_scale_down() {
-  [ -n "$SCALED_UP" ] || return 0
+  command -v ttl_disarm >/dev/null 2>&1 && ttl_disarm
+
   if [ "${KEEP_NODE:-}" = "1" ]; then
     echo "KEEP_NODE=1: leaving $NODEGROUP at its current size. It bills by the hour." >&2
     return 0
   fi
 
   CLUSTER="${CLUSTER:-$(kubectl config view --minify -o jsonpath='{.clusters[0].name}' 2>/dev/null | sed 's|.*cluster/||')}"
+
+  # Ask EKS what is billing rather than trusting a flag set after the preflight checks. The same reasoning is
+  # written out in m5b-gpu-session.sh: the refusals that run before the node group is identified used to exit
+  # through a cleanup that believed nothing had been started.
+  if [ -z "$NODEGROUP" ] && [ -n "$CLUSTER" ]; then
+    for ng in $(aws eks list-nodegroups --cluster-name "$CLUSTER" \
+                  --query 'nodegroups[?starts_with(@, `gpu`)]' --output text 2>/dev/null); do
+      size=$(aws eks describe-nodegroup --cluster-name "$CLUSTER" --nodegroup-name "$ng" \
+               --query 'nodegroup.scalingConfig.desiredSize' --output text 2>/dev/null)
+      if [ -n "$size" ] && [ "$size" != "0" ] && [ "$size" != "None" ]; then
+        NODEGROUP="$ng"
+        echo "found $CLUSTER/$ng at desiredSize=$size without this session having recorded it" >&2
+        break
+      fi
+    done
+  fi
+
   if [ -z "$CLUSTER" ] || [ -z "${NODEGROUP:-}" ]; then
     echo
     echo "############################################################"
@@ -110,8 +128,9 @@ gpu_scale_down() {
   fi
 
   echo "scaling $CLUSTER/$NODEGROUP to desiredSize=0" >&2
+  # stderr is kept, so a failed scale-down says why rather than only that.
   if ! aws eks update-nodegroup-config --cluster-name "$CLUSTER" --nodegroup-name "$NODEGROUP" \
-        --scaling-config "minSize=0,maxSize=1,desiredSize=0" >/dev/null 2>&1; then
+        --scaling-config "minSize=0,maxSize=1,desiredSize=0" >/dev/null; then
     echo
     echo "############################################################"
     echo "#  SCALE-DOWN CALL FAILED. THE NODE IS STILL BILLING.      #"
@@ -142,7 +161,7 @@ cleanup() {
   rm -rf "$WORK"
   gpu_scale_down
 }
-trap cleanup EXIT INT TERM
+trap cleanup EXIT INT TERM HUP
 
 say "preflight"
 case "$KCTX" in kind-*) fail "context $KCTX is a kind cluster; this is the paid matrix" ;; esac
@@ -161,7 +180,6 @@ No sharing node. Scale gpu_shared up, then re-run:
 EOF
   fail "no node carries platform.lkhun9311.github.io/gpu-sharing"
 fi
-SCALED_UP=1
 
 # The node group name comes from the node the session just qualified, not from a constant.
 #
@@ -172,6 +190,20 @@ SCALED_UP=1
 NODEGROUP=$(k get node -l 'platform.lkhun9311.github.io/gpu-sharing=true' \
   -o jsonpath='{.items[0].metadata.labels.eks\.amazonaws\.com/nodegroup}' 2>/dev/null)
 [ -n "$NODEGROUP" ] || say "could not read the node's nodegroup label; exit will print the manual scale-down instead"
+
+# Register the deadline with AWS before the matrix starts. Twelve cells with a 900-second rollout budget each
+# is the longest thing this repository runs, and it is the run most likely to outlive the session that
+# started it.
+if [ -n "$NODEGROUP" ]; then
+  CLUSTER="${CLUSTER:-$(kubectl config view --minify -o jsonpath='{.clusters[0].name}' 2>/dev/null | sed 's|.*cluster/||')}"
+  [ -n "$CLUSTER" ] || fail "could not determine the cluster name, so the TTL deadline cannot name a target"
+  TTL_ROLE_ARN="${TTL_ROLE_ARN:-$(terraform -chdir=infra/aws/bootstrap output -raw ttl_scaledown_role_arn 2>/dev/null)}"
+  export TTL_ROLE_ARN
+  # shellcheck source=hack/lib/gpu-ttl.sh
+  . "$(dirname "$0")/lib/gpu-ttl.sh"
+  ttl_arm "$CLUSTER" "$NODEGROUP" "${TTL_MINUTES:-240}" \
+    || fail "could not register the TTL scale-down; refusing to run a paid session with no deadline"
+fi
 [ "$shared_nodes" -eq 1 ] || fail "$shared_nodes sharing nodes are up; two engines on two nodes are not sharing a card, and nothing downstream could tell that apart from a sharing result"
 
 # The two sharing overlays select the SAME node, so exactly one may be applied at a time: two plugins
