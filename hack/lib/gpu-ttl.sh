@@ -23,9 +23,24 @@ ttl_arm() {
   local cluster="$1" nodegroup="$2" minutes="$3"
   local role name at
 
+  # Two ways to learn the role, because the first one has a failure mode that stops a paid session for a
+  # reason that has nothing to do with the session.
+  #
+  # The callers read TTL_ROLE_ARN from `terraform output`, which needs a working backend and live
+  # credentials for the state bucket's KMS key. It fails with InvalidGrantException on an expired SSO token
+  # -- observed on 2026-08-31 while the role itself was perfectly readable through the IAM API a second
+  # later. Refusing to start was the safe direction, but refusing because a state file could not be opened,
+  # when the thing being looked up is a role name that has not changed, is a bad trade.
+  #
+  # IAM is the fallback and the name is a constant here for the same reason the node group names are: it is
+  # set in infra/aws/bootstrap/ttl.tf and does not vary per session.
   role="${TTL_ROLE_ARN:-}"
   if [ -z "$role" ]; then
-    echo "TTL_ROLE_ARN is unset. Read it with: terraform -chdir=infra/aws/bootstrap output -raw ttl_scaledown_role_arn" >&2
+    role=$(aws iam get-role --role-name "${TTL_ROLE_NAME:-gpu-platform-ttl-scaledown}" \
+             --query 'Role.Arn' --output text 2>/dev/null)
+  fi
+  if [ -z "$role" ] || [ "$role" = "None" ]; then
+    echo "could not determine the TTL scale-down role. Apply infra/aws/bootstrap, or pass TTL_ROLE_ARN." >&2
     return 1
   fi
 
