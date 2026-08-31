@@ -178,41 +178,28 @@ case "$KCTX" in kind-*) fail "context $KCTX is a kind cluster; this is the paid 
 
 # The sharing node, and it must be the sharing one: the exclusive plugin advertises one device per card, so
 # the second engine would sit Pending and the arm would silently become a one-engine arm with half the memory.
-shared_nodes=$(k get nodes -l 'platform.lkhun9311.github.io/gpu-sharing=true' -o name 2>/dev/null | wc -l)
-if [ "$shared_nodes" -eq 0 ]; then
-  cat <<EOF
-
-No sharing node. Scale gpu_shared up, then re-run:
-
-    aws eks update-nodegroup-config --cluster-name <cluster> \\
-      --nodegroup-name gpu_shared --scaling-config minSize=0,maxSize=1,desiredSize=1
-
-EOF
-  fail "no node carries platform.lkhun9311.github.io/gpu-sharing"
-fi
-
-# The node group name comes from the node the session just qualified, not from a constant.
+# The deadline is registered BEFORE the card exists, which is why this script scales the group up itself.
 #
-# EKS stamps eks.amazonaws.com/nodegroup on every managed-node-group member, so the node this session is
-# about names the group that must be scaled back down. A hardcoded "gpu_single" would be wrong the moment a
-# group is renamed, and wrong silently: the scale-down would return a ResourceNotFoundException that nobody
-# reads, on the exit path of the script that spends money.
-NODEGROUP=$(k get node -l 'platform.lkhun9311.github.io/gpu-sharing=true' \
-  -o jsonpath='{.items[0].metadata.labels.eks\.amazonaws\.com/nodegroup}' 2>/dev/null)
-[ -n "$NODEGROUP" ] || say "could not read the node's nodegroup label; exit will print the manual scale-down instead"
+# It used to refuse when no sharing node was present, print the aws command, and wait to be re-run -- so a
+# person scaled up, the node billed and took minutes to join, and only a re-run registered a deadline. This
+# is the longest run in the repository and therefore the one most likely to outlive the shell that started
+# it; starting it with an unbacked card was the wrong end to be careless at.
+#
+# The name cannot come off a node label before a node exists, so it comes from a default verified against
+# EKS. A name that does not resolve would produce a schedule that is accepted and then fires into nothing.
+CLUSTER="${CLUSTER:-$(kubectl config view --minify -o jsonpath='{.clusters[0].name}' 2>/dev/null | sed 's|.*cluster/||')}"
+[ -n "$CLUSTER" ] || fail "could not determine the cluster name from the kubeconfig context"
+NODEGROUP="${NODEGROUP:-gpu_shared}"
+aws eks describe-nodegroup --cluster-name "$CLUSTER" --nodegroup-name "$NODEGROUP" >/dev/null 2>&1 \
+  || fail "no node group $NODEGROUP in $CLUSTER. The deadline must name a group that exists, or it fires into nothing. Set NODEGROUP if the name is different."
 
-# Register the deadline with AWS before the matrix starts. Twelve cells with a 900-second rollout budget each
-# is the longest thing this repository runs, and it is the run most likely to outlive the session that
-# started it.
-if [ -n "$NODEGROUP" ]; then
-  CLUSTER="${CLUSTER:-$(kubectl config view --minify -o jsonpath='{.clusters[0].name}' 2>/dev/null | sed 's|.*cluster/||')}"
-  [ -n "$CLUSTER" ] || fail "could not determine the cluster name, so the TTL deadline cannot name a target"
-  TTL_ROLE_ARN="${TTL_ROLE_ARN:-$(terraform -chdir=infra/aws/bootstrap output -raw ttl_scaledown_role_arn 2>/dev/null)}"
-  export TTL_ROLE_ARN
-  # shellcheck source=hack/lib/gpu-ttl.sh
-  . "$(dirname "$0")/lib/gpu-ttl.sh"
+TTL_ROLE_ARN="${TTL_ROLE_ARN:-$(terraform -chdir=infra/aws/bootstrap output -raw ttl_scaledown_role_arn 2>/dev/null)}"
+export TTL_ROLE_ARN
+# shellcheck source=hack/lib/gpu-ttl.sh
+. "$(dirname "$0")/lib/gpu-ttl.sh"
+if true; then
   ttl_arm "$CLUSTER" "$NODEGROUP" "${TTL_MINUTES:-240}" \
-    || fail "could not register the TTL scale-down; refusing to run a paid session with no deadline"
+    || fail "could not register the TTL scale-down; refusing to start a card with no deadline"
 
   # Refuse a matrix that cannot finish before its own deadline.
   #
@@ -241,6 +228,30 @@ if [ -n "$NODEGROUP" ]; then
     fail "this matrix needs up to ${worst_total_min} min but the deadline is ${ttl_min} min. The node would be scaled out from under the last cells, after the whole card has been paid for. Each cell budgets ${per_cell_min} min, so with these ${arm_count} arms the deadline holds REPS=${fits} (now ${REPS}). Either set REPS=${fits}, drop an arm, or raise TTL_MINUTES -- though a run longer than one SSO session cannot be torn down by the shell that started it."
   fi
 fi
+
+# The card starts here, after the deadline exists.
+shared_nodes=$(k get nodes -l 'platform.lkhun9311.github.io/gpu-sharing=true' -o name 2>/dev/null | wc -l)
+if [ "$shared_nodes" -eq 0 ]; then
+  say "no sharing node present; scaling $NODEGROUP to 1 -- the card starts billing here, and the deadline is already registered"
+  aws eks update-nodegroup-config --cluster-name "$CLUSTER" --nodegroup-name "$NODEGROUP" \
+    --scaling-config minSize=0,maxSize=1,desiredSize=1 >/dev/null || fail "could not scale $NODEGROUP up"
+  say "wait for the node to join (this takes a few minutes)"
+  for i in $(seq 1 60); do
+    shared_nodes=$(k get nodes -l 'platform.lkhun9311.github.io/gpu-sharing=true' -o name 2>/dev/null | wc -l)
+    [ "$shared_nodes" -gt 0 ] && break
+    [ "$i" = 60 ] && fail "the node never joined after ten minutes. The deadline will scale it down; to do it now: aws eks update-nodegroup-config --cluster-name $CLUSTER --nodegroup-name $NODEGROUP --scaling-config minSize=0,maxSize=1,desiredSize=0"
+    sleep 10
+  done
+fi
+
+# Cross-check, not re-derive: a node from a different group means the deadline would scale down a group this
+# matrix is not using while the one it is using bills on.
+node_ng=$(k get node -l 'platform.lkhun9311.github.io/gpu-sharing=true' \
+  -o jsonpath='{.items[0].metadata.labels.eks\.amazonaws\.com/nodegroup}' 2>/dev/null)
+if [ -n "$node_ng" ] && [ "$node_ng" != "$NODEGROUP" ]; then
+  fail "the deadline names $NODEGROUP but the sharing node belongs to $node_ng. Re-run with NODEGROUP=$node_ng."
+fi
+
 [ "$shared_nodes" -eq 1 ] || fail "$shared_nodes sharing nodes are up; two engines on two nodes are not sharing a card, and nothing downstream could tell that apart from a sharing result"
 
 # The two sharing overlays select the SAME node, so exactly one may be applied at a time: two plugins
