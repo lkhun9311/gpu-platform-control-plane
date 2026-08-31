@@ -24,7 +24,16 @@ jobs:
     # For fully unattended nightly teardown, provision a separate infra-destroy environment and role without a reviewer gate.
     #
     # Skip cleanly until the bootstrap state bucket exists, so the nightly cron does not fail before AWS is provisioned.
-    if: vars.INFRA_ENABLED == 'true'
+    # The teardown gets its own switch, separate from INFRA_ENABLED.
+    #
+    # INFRA_ENABLED also arms ci.yml's build-push, which pushes two images and then opens a digest-bump PR
+    # with github.token -- and this repository has "Allow GitHub Actions to create and approve pull requests"
+    # turned off, so that job pushes the images and then fails on the PR. Arming the cost backstop should not
+    # depend on settling that.
+    #
+    # One value doing two jobs is the defect shape this repository keeps finding, and the two jobs here are
+    # unrelated: one stops spend, the other publishes images.
+    if: vars.DESTROY_ENABLED == 'true'
     environment: infra-apply
     timeout-minutes: 45
     concurrency:
