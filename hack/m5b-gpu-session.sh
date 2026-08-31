@@ -260,9 +260,30 @@ say "check the KV capacity against the prediction"
 blocks=$(k logs -n "$NS" deploy/"$ENGINE" 2>/dev/null | grep -oE "GPU KV cache size: *[0-9,]+ tokens|# GPU blocks: *[0-9]+" | tail -1)
 note "engine reports: ${blocks:-<no block line found>}"
 note "sizing page predicted ~${PREDICTED_KV_TOKENS} tokens of KV cache"
-if [ -z "$blocks" ]; then
-  note "WARNING: could not read the capacity line. Record it by hand from the engine log before quoting any"
-  note "         concurrency figure; the 0.85 engage threshold is reached at a concurrency derived from it."
+
+# This used to print a warning and carry on, which contradicted the rule stated at the top of this file:
+# refuse rather than improvise. The warning was also the wrong shape of answer. Everything this session
+# produces is read against a concurrency, and the concurrency at which the 0.85 threshold engages is derived
+# from this number -- so an engine with a different KV capacity than the one the sizing page assumed does not
+# make the run slightly less precise, it makes every concurrency figure describe a card that was not rented.
+#
+# Both log formats are parsed because vLLM has printed both: a token count directly, and a block count that
+# has to be multiplied by the block size. Guessing which one is present is how a check quietly reads 0.
+kv_tokens=""
+case "$blocks" in
+  *"KV cache size"*) kv_tokens=$(printf '%s' "$blocks" | grep -oE '[0-9,]+' | tr -d ',') ;;
+  *"GPU blocks"*)    kv_tokens=$(( $(printf '%s' "$blocks" | grep -oE '[0-9]+' | tail -1) * ${KV_BLOCK_SIZE:-16} )) ;;
+esac
+[ -n "$kv_tokens" ] && [ "$kv_tokens" -gt 0 ] 2>/dev/null \
+  || fail "could not read the engine's KV capacity from its log. Every concurrency this session reports is derived from it, so there is nothing to report without it. Look at: kubectl logs -n $NS deploy/$ENGINE"
+
+# A factor rather than a percentage, because the prediction is a sizing estimate and being 20% out is
+# ordinary. Being half or double is the case the header calls "nothing like" the prediction.
+tol="${KV_TOLERANCE:-2}"
+lo=$(( PREDICTED_KV_TOKENS / tol )); hi=$(( PREDICTED_KV_TOKENS * tol ))
+note "engine KV capacity: ${kv_tokens} tokens (accepted band ${lo}-${hi})"
+if [ "$kv_tokens" -lt "$lo" ] || [ "$kv_tokens" -gt "$hi" ]; then
+  fail "the engine allocated ${kv_tokens} tokens of KV cache but the sizing page predicted ${PREDICTED_KV_TOKENS}. The concurrency at which the 0.85 threshold engages is derived from this number, so every figure this run would produce describes a card other than the one being paid for. Fix the sizing prediction or the engine's gpu-memory-utilization before spending the card, or set KV_TOLERANCE if the band is genuinely too tight."
 fi
 
 # ---------------------------------------------------------------- the rate
@@ -284,8 +305,22 @@ prompt=$("$WORK/benchharness" print-prompt --chars 40000) || fail "could not ren
 [ "${#prompt}" -eq 40000 ] || fail "contender prompt is ${#prompt} chars, expected 40000"
 printf '{"model":"%s","messages":[{"role":"user","content":"%s"}],"max_tokens":1,"stream":true}' \
   "$MODEL" "$prompt" > "$WORK/prefill.json"
-ttft=$(curl -s -o /dev/null -w '%{time_starttransfer}' -m 300 -X POST http://127.0.0.1:18000/v1/chat/completions \
+# curl reports a time for a 404 as readily as for a completion, and an error comes back fast. Discarding the
+# body to /dev/null and never reading the status meant a failed probe did not lose the measurement -- it
+# produced one several times too high, which then set the arrival rate for every arm, oversubscribed the
+# card, censored every tail, and got the run disqualified by EvaluateChecks after the card had been paid for.
+#
+# So the body is kept and three things are checked: that curl itself succeeded, that the engine answered
+# 200, and that what came back is a completion rather than an error object that happens to be valid JSON.
+probe=$(curl -s -o "$WORK/prefill.out" -w '%{http_code} %{time_starttransfer}' -m 300 \
+  -X POST http://127.0.0.1:18000/v1/chat/completions \
   -H 'Content-Type: application/json' -d @"$WORK/prefill.json")
+rc=$?
+[ "$rc" -eq 0 ] || fail "the prefill probe did not complete (curl exit $rc). A timeout or a dropped port-forward here would otherwise be measured as a prefill time."
+http_code=${probe%% *}; ttft=${probe##* }
+[ "$http_code" = "200" ] || fail "the prefill probe returned HTTP $http_code, and an error's response time is not a prefill time: $(head -c 300 "$WORK/prefill.out" 2>/dev/null)"
+grep -q '"choices"' "$WORK/prefill.out" 2>/dev/null \
+  || fail "the prefill probe returned 200 but no completion. The engine answered something other than the request that was sent: $(head -c 300 "$WORK/prefill.out" 2>/dev/null)"
 note "one contender prefill (${PREDICTED_CONTENDER_TOKENS} tokens) took ${ttft}s on an idle engine"
 RATE=$(python3 -c "
 t=float('$ttft')
@@ -293,6 +328,12 @@ if t<=0: print('0'); raise SystemExit
 per=1.0/t                       # contenders per second the card can prefill
 print(round(2*per*0.8, 3))      # both tenants, held at 80% of capacity so the queue is bursty, not divergent
 ")
+# The guard was "$RATE" = "0", which only catches the one case the python prints. A non-numeric ttft makes
+# float() raise, python exits with a traceback on stderr, and RATE is left EMPTY -- which is not "0", so the
+# run continued with no rate at all.
+case "$RATE" in
+  ''|*[!0-9.]*) fail "the prefill measurement produced no usable rate (ttft was '${ttft}'); refusing to guess one" ;;
+esac
 [ "$RATE" = "0" ] && fail "the prefill measurement returned no time; refusing to guess a rate"
 note "derived total arrival rate: ${RATE}/s  (the harness default of 20/s demands 7.3x this card's peak)"
 
