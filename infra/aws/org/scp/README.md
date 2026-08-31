@@ -117,7 +117,7 @@ aws eks update-nodegroup-config
 
 The API does not accept instance types at all — a node group's instance types are immutable after creation.
 So the statement could never deny anything, while sitting on the one path whose failure costs money rather
-than saving it. It now names `eks:CreateNodegroup` only.
+than saving it.
 
 The general form of the finding: **a deny that cannot fire is not free if it is on the cleanup path.** It
 survives review by being harmless in theory, and every future reader has to re-derive that it is harmless.
@@ -217,4 +217,50 @@ The first attempt at the two `RunInstances` rows **proved nothing and looked lik
 malformed AMI id, and EC2 validates the id before it evaluates authorization, so the approved and
 unapproved instance types returned the identical `InvalidAMIID.Malformed`. A test whose two arms fail the
 same way for a reason unrelated to what it is testing is not a test.
+
+## The launch-template statement is gone too, and the first cluster apply is what removed it
+
+`DenyUnapprovedInstanceTypesOnLaunchTemplates` denied every `ec2:CreateLaunchTemplate` call in the account.
+The first `terraform apply` on the cluster root failed on all four node groups:
+
+```
+Error: creating EC2 Launch Template (cpu-...): UnauthorizedOperation
+  ec2:CreateLaunchTemplate ... explicit deny in a service control policy: p-bzjfxxsk
+```
+
+**IAM's negated condition operators evaluate to true when the key is absent.** EKS managed node groups put
+the instance type on the node group, not in the launch template, so `ec2:InstanceType` was missing and
+`StringNotLike` matched everything. The statement did not restrict a family; it blocked the service.
+
+Adding `"Null": {"ec2:InstanceType": "false"}` so the deny applies only when the key is present fixed the
+outage and revealed the second half of the problem: with the guard in place, a launch template carrying
+`m5.large` was **also** permitted. The same key, in the same policy, denies `m5.large` on `ec2:RunInstances`
+and permits it on `ec2:CreateLaunchTemplate` — `ec2:InstanceType` is simply not populated for that action.
+
+So the statement cannot work either way: without the `Null` guard it denies everything, with it it denies
+nothing. It is removed rather than left as decoration, for the reason already given above about a deny that
+cannot fire.
+
+### Verified after removal, in both directions
+
+| Call | Result |
+|---|---|
+| `CreateLaunchTemplate` with no instance type (the shape EKS creates) | permitted |
+| `RunInstances` `g5.xlarge` | permitted |
+| `RunInstances` `m5.large` | **denied** |
+| `DescribeInstances` in `us-west-2` | **denied** |
+
+### What now guards instance family
+
+Only `ec2:RunInstances`, and **SCPs do not apply to service-linked roles**, so a managed node group's own
+launches are not covered by it. The real ceiling on accelerator spend is the quota: G/VT at 52 on-demand and
+8 spot, and **P-family at 0 in both purchasing options**.
+
+### The precondition this violated
+
+Step 5 of "Simulation before attachment" above says to attach only after a complete non-GPU apply/destroy
+cycle has run under the policy. That step was skipped: the SCPs were attached on 2026-08-30 with the cluster
+root never applied, and this defect surfaced on the first paid apply instead of before attachment. The
+rehearsal cost about $0.05 and ran 20 minutes; the same defect found during a GPU session would have cost
+the session.
 
