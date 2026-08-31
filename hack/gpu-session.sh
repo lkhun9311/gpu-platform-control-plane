@@ -76,10 +76,79 @@ if [[ ${#WORKERS[@]} -eq 2 && "${WORKERS[0]}" == "${WORKERS[1]}" ]]; then
   exit 2
 fi
 
+# Register the deadline with AWS before anything else, because everything after this point can be cut short
+# by a closed laptop and none of it stops the billing.
+#
+# See hack/lib/gpu-ttl.sh for why a trap is not enough: the scale-down is itself an AWS call, so the
+# credential that would stop the billing dies at the same moment the session does.
+#
+# What this cannot close, stated so it is not mistaken for solved: the worker names are arguments to this
+# script, so the node must already exist to be named, and the deadline is registered after it started
+# billing rather than before. The window is the minutes between scaling the group up by hand and running
+# this -- small, but not zero, and it is the operator's to keep short. Closing it properly means this script
+# owning the scale-up, which is a larger change than the one being made here.
+GPU_CLUSTER="${GPU_CLUSTER:-$(kubectl config view --minify -o jsonpath='{.clusters[0].name}' 2>/dev/null | sed 's|.*cluster/||')}"
+GPU_NODEGROUP="${GPU_NODEGROUP:-$(kubectl get node "${WORKERS[0]}" \
+  -o jsonpath='{.metadata.labels.eks\.amazonaws\.com/nodegroup}' 2>/dev/null)}"
+if [[ -n "$GPU_CLUSTER" && -n "$GPU_NODEGROUP" ]]; then
+  TTL_ROLE_ARN="${TTL_ROLE_ARN:-$(terraform -chdir=infra/aws/bootstrap output -raw ttl_scaledown_role_arn 2>/dev/null)}"
+  export TTL_ROLE_ARN
+  # shellcheck source=hack/lib/gpu-ttl.sh
+  . "$(dirname "$0")/lib/gpu-ttl.sh"
+  ttl_arm "$GPU_CLUSTER" "$GPU_NODEGROUP" "${TTL_MINUTES:-240}" \
+    || { echo "could not register the TTL scale-down; refusing to run a paid session with no deadline" >&2; exit 1; }
+else
+  # Not a warning to scroll past. A session on a node group this script cannot name is a session whose node
+  # it also cannot scale down on the way out, and that is the state this whole arrangement exists to avoid.
+  # The kind cluster is the legitimate case, and it is free, so it is the one exemption.
+  case "$GPU_CLUSTER" in
+    kind-*) echo "no EKS node group behind ${WORKERS[0]}; assuming the kind cluster, which costs nothing" >&2 ;;
+    *) echo "could not determine the EKS cluster and node group behind ${WORKERS[0]}, so this session could" >&2
+       echo "neither register a deadline nor scale the node down when it ends. Set GPU_CLUSTER and" >&2
+       echo "GPU_NODEGROUP explicitly if that derivation is wrong." >&2
+       exit 1 ;;
+  esac
+fi
+
 # Per worker, filled in by prepare().
 declare -A URL_OF OBSERVER_OF POD_OF OCCUPIER_OF
 FORWARDS=()
 OCCUPIERS=()
+
+# Scale the GPU node group back to zero, the same way hack/m5b-gpu-session.sh does.
+#
+# This file had no such thing. Its cleanup killed port-forwards and deleted occupier Pods -- Kubernetes
+# objects, all of them free -- and left the node group running. Deleting a Pod does not stop an EC2 instance;
+# the study could finish, or fail, or be interrupted, and the card kept billing either way. That was the
+# largest hole in the paid path and it was in the file that spends the most time on the card.
+gpu_scale_down() {
+  local desired
+  [[ -n "${GPU_CLUSTER:-}" && -n "${GPU_NODEGROUP:-}" ]] || return 0
+  if [[ "${KEEP_NODE:-}" == "1" ]]; then
+    echo "KEEP_NODE=1: leaving $GPU_NODEGROUP up. The TTL deadline stays armed; it bills until then." >&2
+    return 0
+  fi
+  if ! aws eks update-nodegroup-config --cluster-name "$GPU_CLUSTER" --nodegroup-name "$GPU_NODEGROUP" \
+       --scaling-config minSize=0,maxSize=1,desiredSize=0 >/dev/null 2>&1; then
+    echo "############################################################" >&2
+    echo "#  SCALE-DOWN CALL FAILED. THE NODE IS STILL BILLING.      #" >&2
+    echo "#    aws eks update-nodegroup-config --cluster-name $GPU_CLUSTER \\" >&2
+    echo "#      --nodegroup-name $GPU_NODEGROUP \\" >&2
+    echo "#      --scaling-config minSize=0,maxSize=1,desiredSize=0  #" >&2
+    echo "############################################################" >&2
+    return 0
+  fi
+  desired=$(aws eks describe-nodegroup --cluster-name "$GPU_CLUSTER" --nodegroup-name "$GPU_NODEGROUP" \
+    --query 'nodegroup.scalingConfig.desiredSize' --output text 2>/dev/null)
+  if [[ "$desired" == "0" ]]; then
+    echo "$GPU_CLUSTER/$GPU_NODEGROUP is at desiredSize=0" >&2
+    # Only after the node is confirmed down. A scale-down that failed is exactly when the deadline is needed.
+    command -v ttl_disarm >/dev/null 2>&1 && ttl_disarm
+  else
+    echo "WARNING: $GPU_CLUSTER/$GPU_NODEGROUP reports desiredSize=$desired after the scale-down. It is billing." >&2
+    echo "The TTL deadline is left armed on purpose. It is what remains." >&2
+  fi
+}
 
 cleanup() {
   for pid in "${FORWARDS[@]:-}"; do
@@ -88,11 +157,26 @@ cleanup() {
   # Occupiers are deleted rather than left: they hold devices, and a leftover one silently changes what the
   # next session's qualification computes. The gate would refuse rather than mismeasure, but refusing for a
   # reason nobody can see is a bad way to start an hour that costs money.
+  #
+  # The delete is now waited on. --wait=false returned as soon as the API accepted the deletion, so a resumed
+  # session starting a minute later could find the previous occupier still terminating and still holding a
+  # device: the new occupier cannot schedule, qualification is refused, and the card bills through a run that
+  # never starts. Waiting costs seconds; not waiting costs the difference between a session and a bill.
   for spec in "${OCCUPIERS[@]:-}"; do
-    [[ -n "$spec" ]] && kubectl delete pod -n "$NS" "$spec" --ignore-not-found --wait=false >/dev/null 2>&1 || true
+    [[ -n "$spec" ]] && kubectl delete pod -n "$NS" "$spec" --ignore-not-found \
+      --wait=true --timeout=90s >/dev/null 2>&1 || true
   done
+  for spec in "${OCCUPIERS[@]:-}"; do
+    if [[ -n "$spec" ]] && kubectl get pod -n "$NS" "$spec" >/dev/null 2>&1; then
+      echo "WARNING: occupier $spec is still present after the delete timed out. The next session's" >&2
+      echo "         qualification may be refused until it is gone: kubectl delete pod -n $NS $spec --force" >&2
+    fi
+  done
+  gpu_scale_down
 }
-trap cleanup EXIT
+# HUP is in the list because a closed terminal or a dropped SSH connection sends it, and that is the ordinary
+# way a long session ends -- not an exotic one. EXIT alone did not cover it.
+trap cleanup EXIT INT TERM HUP
 
 # refuseFakePlugin stops a session whose node is advertising SIMULATED devices.
 #
