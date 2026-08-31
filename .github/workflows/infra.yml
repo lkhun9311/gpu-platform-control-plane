@@ -90,7 +90,17 @@ jobs:
     # The environment gate plus the apply role's sub condition together deny forked-PR applies.
     #
     # Skip cleanly until the bootstrap state bucket exists, since there is nothing to apply against.
-    if: github.event_name == 'push' && vars.INFRA_ENABLED == 'true'
+    # A SECOND switch, and the split is the point.
+    #
+    # INFRA_ENABLED says "the AWS side exists": it arms the nightly teardown, the read-only plan, and the
+    # image push, none of which decide to spend. This job creates an EKS control plane and a NAT gateway,
+    # which bill from the moment they exist, and it does so on a merge rather than on a decision.
+    #
+    # Sharing one variable with the teardown would mean arming the backstop also arms an unattended apply --
+    # the same value doing two jobs, which is the defect shape this repository keeps finding. So the spend
+    # path gets its own switch, and it is left unset: the cluster comes up when someone runs terraform, not
+    # when a pull request merges.
+    if: github.event_name == 'push' && vars.INFRA_APPLY_ENABLED == 'true'
     environment: infra-apply
     timeout-minutes: 45
     concurrency:
