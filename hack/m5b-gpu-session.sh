@@ -94,9 +94,19 @@ gpu_scale_down() {
       size=$(aws eks describe-nodegroup --cluster-name "$CLUSTER" --nodegroup-name "$ng" \
                --query 'nodegroup.scalingConfig.desiredSize' --output text 2>/dev/null)
       if [ -n "$size" ] && [ "$size" != "0" ] && [ "$size" != "None" ]; then
-        NODEGROUP="$ng"
         echo "found $CLUSTER/$ng at desiredSize=$size without this session having recorded it" >&2
-        break
+        # No break. Taking the first one and stopping meant a second running group was discovered, ignored,
+        # and left billing -- by the function whose entire job is to find what is billing and stop it. The
+        # first is adopted as NODEGROUP so the code below reads it back; the rest are scaled down here,
+        # because a group nobody is tracking is exactly the one that will not be noticed.
+        if [ -z "$NODEGROUP" ]; then
+          NODEGROUP="$ng"
+        else
+          aws eks update-nodegroup-config --cluster-name "$CLUSTER" --nodegroup-name "$ng" \
+            --scaling-config minSize=0,maxSize=1,desiredSize=0 >/dev/null 2>&1 \
+            && echo "also scaled $CLUSTER/$ng to zero" >&2 \
+            || echo "WARNING: could not scale $CLUSTER/$ng down. IT IS STILL BILLING." >&2
+        fi
       fi
     done
   fi
@@ -193,6 +203,23 @@ CLUSTER="${CLUSTER:-$(kubectl config view --minify -o jsonpath='{.clusters[0].na
 NODEGROUP="${NODEGROUP:-gpu_single}"
 aws eks describe-nodegroup --cluster-name "$CLUSTER" --nodegroup-name "$NODEGROUP" >/dev/null 2>&1 \
   || fail "no node group $NODEGROUP in $CLUSTER. The deadline must name a group that exists, or it fires into nothing. Set NODEGROUP if the name is different."
+
+# One schedule names one node group, so a second GPU group left running is not covered by anything this
+# session registers. The deadline would fire, scale down the group it names, and leave the other billing --
+# and nothing in the run would look wrong.
+#
+# Refusing here rather than trying to cover both is deliberate. A session that finds another card already
+# running does not know whose it is: it may be another session mid-run, and scaling it down would destroy
+# someone else's paid work. Naming it and stopping is the only answer that is right in both cases.
+others=""
+for ng in $(aws eks list-nodegroups --cluster-name "$CLUSTER" \
+              --query 'nodegroups[?starts_with(@, `gpu`)]' --output text 2>/dev/null); do
+  [ "$ng" = "$NODEGROUP" ] && continue
+  sz=$(aws eks describe-nodegroup --cluster-name "$CLUSTER" --nodegroup-name "$ng" \
+         --query 'nodegroup.scalingConfig.desiredSize' --output text 2>/dev/null)
+  case "$sz" in ''|0|None) ;; *) others="$others $ng($sz)" ;; esac
+done
+[ -z "$others" ] || fail "another GPU node group is already running:$others. This session's deadline names only $NODEGROUP, so that card would keep billing after the deadline fires. Scale it to zero, or if another session owns it, wait for it."
 
 TTL_ROLE_ARN="${TTL_ROLE_ARN:-$(terraform -chdir=infra/aws/bootstrap output -raw ttl_scaledown_role_arn 2>/dev/null)}"
 export TTL_ROLE_ARN
