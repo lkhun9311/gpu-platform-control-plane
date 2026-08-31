@@ -36,7 +36,6 @@ say() { echo "== $*" | tee -a "$LOG"; }
 note() { echo "$*" | tee -a "$LOG"; }
 fail() { echo "SESSION REFUSED: $*" | tee -a "$LOG" >&2; exit 1; }
 
-SCALED_UP=""
 NODEGROUP=""
 
 # Scaling the node group back to zero, which this file's header claimed and this function did not do.
@@ -54,17 +53,48 @@ NODEGROUP=""
 # re-runs a botched arm against an already-warm node, and a session that scaled its node away on exit would
 # make that script pay for a fresh warmup every time.
 #
-# What this does NOT solve, stated so it is not mistaken for solved: a trap cannot run after the laptop dies,
-# loses power, or has its shell killed with SIGKILL. The backstop for that is the nightly destroy workflow,
-# and an external TTL watchdog is the control this repository still does not have.
+# What a trap cannot do, stated so it is not mistaken for solved: it does not run after the laptop dies,
+# loses power, or has its shell killed with SIGKILL, and it does not run usefully once the SSO session
+# expires -- the scale-down is itself an AWS call, so the credential that stops the billing dies with the
+# session.
+#
+# That is why this script registers a deadline with EventBridge Scheduler before it goes any further, and
+# refuses to continue if it cannot. See hack/lib/gpu-ttl.sh. The nightly destroy workflow is the second
+# backstop behind it, and as of 2026-08-31 it has run once, on an empty account.
 gpu_scale_down() {
-  [ -n "$SCALED_UP" ] || return 0
+  # Drop the deadline first. If the scale-down below succeeds the schedule has nothing left to do, and if it
+  # fails the schedule is the reason this is survivable -- so it is removed only after a clean exit path is
+  # under way, never as a precondition for one.
+  command -v ttl_disarm >/dev/null 2>&1 && ttl_disarm
+
   if [ "${KEEP_NODE:-}" = "1" ]; then
     echo "KEEP_NODE=1: leaving $NODEGROUP at its current size. It bills by the hour." >&2
     return 0
   fi
 
   CLUSTER="${CLUSTER:-$(kubectl config view --minify -o jsonpath='{.clusters[0].name}' 2>/dev/null | sed 's|.*cluster/||')}"
+
+  # Ask EKS what is running, rather than trusting a flag this function may never have seen set.
+  #
+  # SCALED_UP was set after the preflight checks, and the checks run before the node group is even
+  # identified -- so the likely first-session sequence was: scale up by hand, re-run, fail on a missing CRD,
+  # and exit through a cleanup that believed nothing had been started. The node billed anyway.
+  #
+  # A flag records what this process did. The desired size records what the account is being charged for,
+  # and that is the question being asked.
+  if [ -z "$NODEGROUP" ] && [ -n "$CLUSTER" ]; then
+    for ng in $(aws eks list-nodegroups --cluster-name "$CLUSTER" \
+                  --query 'nodegroups[?starts_with(@, `gpu`)]' --output text 2>/dev/null); do
+      size=$(aws eks describe-nodegroup --cluster-name "$CLUSTER" --nodegroup-name "$ng" \
+               --query 'nodegroup.scalingConfig.desiredSize' --output text 2>/dev/null)
+      if [ -n "$size" ] && [ "$size" != "0" ] && [ "$size" != "None" ]; then
+        NODEGROUP="$ng"
+        echo "found $CLUSTER/$ng at desiredSize=$size without this session having recorded it" >&2
+        break
+      fi
+    done
+  fi
+  [ -n "$NODEGROUP" ] || return 0
   if [ -z "$CLUSTER" ] || [ -z "${NODEGROUP:-}" ]; then
     echo
     echo "############################################################"
@@ -78,8 +108,11 @@ gpu_scale_down() {
   fi
 
   echo "scaling $CLUSTER/$NODEGROUP to desiredSize=0" >&2
+  # stderr is kept. It used to go to /dev/null with stdout, so the banner below said the call failed and
+  # threw away the sentence saying why -- expired credentials, a denied action and a missing node group all
+  # produced the same blank failure, at the one moment the operator needs to know which.
   if ! aws eks update-nodegroup-config --cluster-name "$CLUSTER" --nodegroup-name "$NODEGROUP" \
-        --scaling-config "minSize=0,maxSize=1,desiredSize=0" >/dev/null 2>&1; then
+        --scaling-config "minSize=0,maxSize=1,desiredSize=0" >/dev/null; then
     echo
     echo "############################################################"
     echo "#  SCALE-DOWN CALL FAILED. THE NODE IS STILL BILLING.      #"
@@ -107,7 +140,14 @@ cleanup() {
   gpu_scale_down
   rm -rf "$WORK"
 }
-trap cleanup EXIT INT TERM
+# HUP is in the list because a closed terminal or a dropped SSH connection sends it, and that is not an
+# exotic way for a session to end -- it is the ordinary one. The header used to claim this covered "every
+# exit path" while omitting the signal most likely to arrive.
+#
+# It still does not cover SIGKILL, the machine sleeping, or the SSO session expiring, and it cannot: all
+# three end the process or its credentials before any handler runs. That is what the TTL registered with
+# EventBridge Scheduler is for, and why it is armed before the GPU starts rather than after.
+trap cleanup EXIT INT TERM HUP
 
 : > "$LOG"
 
@@ -143,7 +183,6 @@ The node takes a few minutes to join and advertise nvidia.com/gpu.
 EOF
   fail "no GPU node"
 fi
-SCALED_UP=1
 
 # The node group name comes from the node the session just qualified, not from a constant.
 #
@@ -155,6 +194,27 @@ NODEGROUP=$(k get node -l 'platform.lkhun9311.github.io/gpu=true' \
   -o jsonpath='{.items[0].metadata.labels.eks\.amazonaws\.com/nodegroup}' 2>/dev/null)
 [ -n "$NODEGROUP" ] || note "could not read the node's nodegroup label; exit will print the manual scale-down instead"
 note "GPU nodes: $gpu_nodes"
+
+# Register the deadline with AWS before anything else, because everything after this point can be cut short
+# in a way no handler here survives: the laptop sleeping, the shell being SIGKILLed, the SSO session
+# expiring mid-wait. The trap below covers the exits this process gets to observe; the schedule covers the
+# ones it does not.
+#
+# Refusing to continue when the deadline cannot be registered is the point of the ordering. A GPU with no
+# deadline is the state this whole file exists to prevent, and it is exactly what a warn-and-continue would
+# produce.
+if [ -n "$NODEGROUP" ]; then
+  # The same derivation the scale-down uses, hoisted here because the deadline is registered long before
+  # cleanup runs and a schedule naming an empty cluster would be accepted and then do nothing.
+  CLUSTER="${CLUSTER:-$(kubectl config view --minify -o jsonpath='{.clusters[0].name}' 2>/dev/null | sed 's|.*cluster/||')}"
+  [ -n "$CLUSTER" ] || fail "could not determine the cluster name, so the TTL deadline cannot name a target"
+  TTL_ROLE_ARN="${TTL_ROLE_ARN:-$(terraform -chdir=infra/aws/bootstrap output -raw ttl_scaledown_role_arn 2>/dev/null)}"
+  export TTL_ROLE_ARN
+  # shellcheck source=hack/lib/gpu-ttl.sh
+  . "$(dirname "$0")/lib/gpu-ttl.sh"
+  ttl_arm "$CLUSTER" "$NODEGROUP" "${TTL_MINUTES:-120}" \
+    || fail "could not register the TTL scale-down; refusing to run a paid session with no deadline"
+fi
 
 say "wait for a device to be advertised"
 for i in $(seq 1 60); do
