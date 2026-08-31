@@ -177,20 +177,45 @@ k get deploy -A -o name 2>/dev/null | grep -q controller-manager \
 # The engine must land on a GPU node, and the node must advertise a device. Both are the operator's
 # problem in production and neither is checked anywhere else, so they are checked here where a wrong
 # answer costs money rather than a test run.
+# The deadline is registered BEFORE the card exists, and that ordering is the reason this script scales the
+# node group up itself instead of telling the operator to.
+#
+# It used to refuse when no GPU node was present, print the aws command, and wait to be re-run. So the
+# sequence was: a person scales up, the node bills, the node takes minutes to join, the person re-runs, and
+# only then is a deadline registered. Every minute of that is a billing card with no backstop, and it ends
+# badly in the ordinary way -- the re-run is forgotten, or the laptop closes between the two steps.
+#
+# Naming the group before a node exists means it cannot be read off a node label, so it comes from a default
+# that is verified against EKS rather than assumed. describe-nodegroup failing is the honest stop: a name
+# that does not resolve would produce a schedule that is accepted and then fires into nothing.
+CLUSTER="${CLUSTER:-$(kubectl config view --minify -o jsonpath='{.clusters[0].name}' 2>/dev/null | sed 's|.*cluster/||')}"
+[ -n "$CLUSTER" ] || fail "could not determine the cluster name from the kubeconfig context"
+NODEGROUP="${NODEGROUP:-gpu_single}"
+aws eks describe-nodegroup --cluster-name "$CLUSTER" --nodegroup-name "$NODEGROUP" >/dev/null 2>&1 \
+  || fail "no node group $NODEGROUP in $CLUSTER. The deadline must name a group that exists, or it fires into nothing. Set NODEGROUP if the name is different."
+
+TTL_ROLE_ARN="${TTL_ROLE_ARN:-$(terraform -chdir=infra/aws/bootstrap output -raw ttl_scaledown_role_arn 2>/dev/null)}"
+export TTL_ROLE_ARN
+# shellcheck source=hack/lib/gpu-ttl.sh
+. "$(dirname "$0")/lib/gpu-ttl.sh"
+ttl_arm "$CLUSTER" "$NODEGROUP" "${TTL_MINUTES:-120}" \
+  || fail "could not register the TTL scale-down; refusing to start a card with no deadline"
+note "deadline registered for $CLUSTER/$NODEGROUP before anything was started"
+
 gpu_nodes=$(k get nodes -l 'platform.lkhun9311.github.io/gpu=true' -o name 2>/dev/null | wc -l)
 if [ "$gpu_nodes" -eq 0 ]; then
-  cat <<EOF
-
-No GPU node is present. Scale the one-card node group up, then re-run:
-
-    aws eks update-nodegroup-config --cluster-name <cluster> \\
-      --nodegroup-name gpu_single --scaling-config minSize=0,maxSize=1,desiredSize=1
-
-  or set desired_size = 1 on the gpu_single group in infra/aws/cluster/eks.tf and terraform apply.
-
-The node takes a few minutes to join and advertise nvidia.com/gpu.
-EOF
-  fail "no GPU node"
+  say "no GPU node present; scaling $NODEGROUP to 1 -- the card starts billing here, and the deadline is already registered"
+  aws eks update-nodegroup-config --cluster-name "$CLUSTER" --nodegroup-name "$NODEGROUP" \
+    --scaling-config minSize=0,maxSize=1,desiredSize=1 >/dev/null \
+    || fail "could not scale $NODEGROUP up"
+  SCALED_UP=1
+  say "wait for the node to join (this takes a few minutes)"
+  for i in $(seq 1 60); do
+    gpu_nodes=$(k get nodes -l 'platform.lkhun9311.github.io/gpu=true' -o name 2>/dev/null | wc -l)
+    [ "$gpu_nodes" -gt 0 ] && break
+    [ "$i" = 60 ] && fail "the node never joined after ten minutes. It may still be billing: the deadline will scale it down, or scale it now with aws eks update-nodegroup-config --cluster-name $CLUSTER --nodegroup-name $NODEGROUP --scaling-config minSize=0,maxSize=1,desiredSize=0"
+    sleep 10
+  done
 fi
 
 # The node group name comes from the node the session just qualified, not from a constant.
@@ -199,9 +224,15 @@ fi
 # about names the group that must be scaled back down. A hardcoded "gpu_single" would be wrong the moment a
 # group is renamed, and wrong silently: the scale-down would return a ResourceNotFoundException that nobody
 # reads, on the exit path of the script that spends money.
-NODEGROUP=$(k get node -l 'platform.lkhun9311.github.io/gpu=true' \
+# Cross-check rather than re-derive. The deadline already names a group; if the node that actually joined
+# belongs to a different one, the schedule would scale down a group this session is not using while the one
+# it is using bills on. That is a worse state than either name being wrong on its own, so it stops here.
+node_ng=$(k get node -l 'platform.lkhun9311.github.io/gpu=true' \
   -o jsonpath='{.items[0].metadata.labels.eks\.amazonaws\.com/nodegroup}' 2>/dev/null)
-[ -n "$NODEGROUP" ] || note "could not read the node's nodegroup label; exit will print the manual scale-down instead"
+if [ -n "$node_ng" ] && [ "$node_ng" != "$NODEGROUP" ]; then
+  fail "the deadline names $NODEGROUP but the GPU node that joined belongs to $node_ng. The schedule would scale down a group this session is not using. Re-run with NODEGROUP=$node_ng."
+fi
+[ -n "$node_ng" ] || note "the node carries no nodegroup label; the deadline still names $NODEGROUP"
 note "GPU nodes: $gpu_nodes"
 
 # Register the deadline with AWS before anything else, because everything after this point can be cut short
@@ -212,19 +243,6 @@ note "GPU nodes: $gpu_nodes"
 # Refusing to continue when the deadline cannot be registered is the point of the ordering. A GPU with no
 # deadline is the state this whole file exists to prevent, and it is exactly what a warn-and-continue would
 # produce.
-if [ -n "$NODEGROUP" ]; then
-  # The same derivation the scale-down uses, hoisted here because the deadline is registered long before
-  # cleanup runs and a schedule naming an empty cluster would be accepted and then do nothing.
-  CLUSTER="${CLUSTER:-$(kubectl config view --minify -o jsonpath='{.clusters[0].name}' 2>/dev/null | sed 's|.*cluster/||')}"
-  [ -n "$CLUSTER" ] || fail "could not determine the cluster name, so the TTL deadline cannot name a target"
-  TTL_ROLE_ARN="${TTL_ROLE_ARN:-$(terraform -chdir=infra/aws/bootstrap output -raw ttl_scaledown_role_arn 2>/dev/null)}"
-  export TTL_ROLE_ARN
-  # shellcheck source=hack/lib/gpu-ttl.sh
-  . "$(dirname "$0")/lib/gpu-ttl.sh"
-  ttl_arm "$CLUSTER" "$NODEGROUP" "${TTL_MINUTES:-120}" \
-    || fail "could not register the TTL scale-down; refusing to run a paid session with no deadline"
-fi
-
 say "wait for a device to be advertised"
 for i in $(seq 1 60); do
   alloc=$(k get nodes -l 'platform.lkhun9311.github.io/gpu=true' \
