@@ -666,4 +666,53 @@ func TestTheDeadlineIsSizedFromTheRepetitionCountRatherThanALiteral(t *testing.T
 	if regexp.MustCompile(`replays?\s*=\s*16\b|\b16 \* \(replay`).MatchString(session) {
 		t.Error("hack/m5b-gpu-session.sh still hardcodes 16 replays; set REPS and the deadline stops matching the run")
 	}
+
+	// The completions target is the other half of the replay length, and it was a literal 500 in both
+	// scripts. Lowering it in the harness to buy a shorter run -- the cheaper of the two ways to shorten a
+	// session, and the one a review recommended over cutting repetitions -- would otherwise leave the
+	// session sizing its deadline for the run it used to be.
+	if !strings.Contains(session, "arms_target=") {
+		t.Fatal("hack/m5b-gpu-session.sh does not derive the per-replay completion target; the deadline it arms cannot track a change to it")
+	}
+	if regexp.MustCompile(`replay\s*=\s*500\s*/`).MatchString(session) {
+		t.Error("hack/m5b-gpu-session.sh still hardcodes 500 completions; change it in the harness and the deadline stops matching the run")
+	}
+}
+
+// TestTheDeadlineCeilingAdmitsTheShippedDesign keeps a cost guard from refusing the thing it guards.
+//
+// MAX_TTL_MINUTES caps how long a session may buy. At four repetitions and the rate an A10G is expected to
+// give, the design asks for 358 minutes -- and the ceiling was 360, so a card measuring a few percent slow
+// would have been refused at the re-arming step with the engine already warm and paid for. That is the same
+// defect as hack/m5c-matrix.sh budgeting 456 minutes against its own 240-minute deadline: a guard that
+// cannot pass the configuration the repository ships.
+func TestTheDeadlineCeilingAdmitsTheShippedDesign(t *testing.T) {
+	session := readRepoFile(t, "hack/m5b-gpu-session.sh")
+	m := regexp.MustCompile(`max_min="\$\{MAX_TTL_MINUTES:-(\d+)\}"`).FindStringSubmatch(session)
+	if m == nil {
+		t.Fatal("hack/m5b-gpu-session.sh has no MAX_TTL_MINUTES default in the expected form")
+	}
+	ceiling, err := strconv.Atoi(m[1])
+	if err != nil {
+		t.Fatalf("MAX_TTL_MINUTES default %q is not a number", m[1])
+	}
+	// Checked at a rate BELOW the expectation, not at it.
+	//
+	// The first version of this test used 1.142/s, the estimate itself, and passed against the old ceiling
+	// of 360 -- the design asks for 358 there, so two minutes of slack was enough to satisfy it. That made
+	// the test agree with the defect it was written for: the estimate is an estimate, the rate is not known
+	// until the probe runs on the actual card, and a ceiling with two minutes of room is a ceiling that
+	// refuses as soon as the card is a few percent slower than guessed.
+	//
+	// So the requirement is that the ceiling still admits the design at 1.0/s, about twelve percent below
+	// the estimate. Below that the card is slow enough that stopping to reconsider is the right answer,
+	// which is what the ceiling is for.
+	const slowRate = 1.0
+	replay := 500.0 / (slowRate / 2)
+	armsMin := int((16*(replay+180))/60) + 1
+	needed := armsMin*12/10 + 20
+	if ceiling < needed {
+		t.Errorf("MAX_TTL_MINUTES defaults to %d but the shipped design needs %d at %.2f/s, %d%% below the expected rate; a card that measures a little slow would be refused after it is warm and paid for",
+			ceiling, needed, slowRate, 12)
+	}
 }
