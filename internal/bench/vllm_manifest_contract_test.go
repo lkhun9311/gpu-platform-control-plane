@@ -638,3 +638,32 @@ func TestCITrustBoundariesSurviveEditing(t *testing.T) {
 		}
 	}
 }
+
+// TestTheDeadlineIsSizedFromTheRepetitionCountRatherThanALiteral pins the two call sites together.
+//
+// hack/m5b-gpu-session.sh re-arms the deadline for the run it just measured, and to do that it needs the
+// number of replays. It carried the literal 16 -- four arms times the default four repetitions -- which is
+// correct only while that default is four and nobody sets REPS. At REPS=2 it asked for twice the deadline
+// the run needed; raised, it would have armed a deadline too short for the run it was sizing, and a session
+// cut by its own backstop is the failure the backstop exists to prevent.
+//
+// This is the same defect class as the Region repeated across five files, the quota that had to agree with
+// the offerings, and the Go version in the Makefile: a value carried by hand across two call sites with
+// nothing that fails when they disagree. It has now appeared often enough here to be worth a test each time
+// a new instance is closed.
+func TestTheDeadlineIsSizedFromTheRepetitionCountRatherThanALiteral(t *testing.T) {
+	session := readRepoFile(t, "hack/m5b-gpu-session.sh")
+
+	// The arms script computes `4 * REPS`. The session script must reach the same product, and the only way
+	// it can be right for every REPS is by reading REPS rather than a number.
+	if !strings.Contains(session, "arms_reps=") {
+		t.Fatal("hack/m5b-gpu-session.sh does not derive a repetition count; the deadline it arms cannot track REPS")
+	}
+	if !strings.Contains(session, "replays = 4 * $arms_reps") {
+		t.Error("hack/m5b-gpu-session.sh does not size the deadline as four arms times the repetition count")
+	}
+	// Anchored to the arithmetic line so a comment mentioning 16 does not satisfy or trip this.
+	if regexp.MustCompile(`replays?\s*=\s*16\b|\b16 \* \(replay`).MatchString(session) {
+		t.Error("hack/m5b-gpu-session.sh still hardcodes 16 replays; set REPS and the deadline stops matching the run")
+	}
+}
