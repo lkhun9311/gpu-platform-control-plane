@@ -44,6 +44,33 @@ ttl_arm() {
     return 1
   fi
 
+  # A second schedule on the same node group is not a second layer of safety; it is a hidden earlier
+  # deadline. Names carry a timestamp so they never collide, which meant nothing stopped a session from
+  # arming on top of a leftover schedule from an interrupted run -- and the leftover, being older, fires
+  # first and scales the card out from under the new session. ttl_remaining_minutes would have been reading
+  # whichever one the API happened to return first, so the length guards would have been measuring the wrong
+  # clock as well.
+  #
+  # Refusing is the same answer used for a second running card, for the same reason: this process cannot
+  # tell an abandoned schedule from one another session is relying on. TTL_REPLACE=1 is the deliberate
+  # override for resuming a session whose own schedule is known to be stale.
+  local existing
+  existing=$(aws scheduler list-schedules --name-prefix "gpu-ttl-${cluster}-${nodegroup}-" \
+               --query 'Schedules[].Name' --output text 2>/dev/null)
+  if [ -n "$existing" ] && [ "$existing" != "None" ]; then
+    if [ "${TTL_REPLACE:-}" = "1" ]; then
+      for old_name in $existing; do
+        aws scheduler delete-schedule --name "$old_name" >/dev/null 2>&1 \
+          && echo "TTL_REPLACE=1: deleted the earlier schedule $old_name" >&2
+      done
+    else
+      echo "a deadline is already registered for $cluster/$nodegroup: $existing" >&2
+      echo "  An older schedule fires first and would cut this session short. If it is left over from an" >&2
+      echo "  interrupted run, re-run with TTL_REPLACE=1. If another session is using it, wait for that one." >&2
+      return 1
+    fi
+  fi
+
   # UTC, because Scheduler's at() expressions are not timezone-aware unless one is passed, and a session that
   # armed its deadline nine hours late would be worse than one that never armed it at all.
   at=$(date -u -d "+${minutes} minutes" '+%Y-%m-%dT%H:%M:%S')
@@ -67,10 +94,20 @@ ttl_arm() {
     return 1
   fi
 
+  # Claim the name BEFORE verifying it, so a schedule that exists is never one this process has forgotten
+  # about. The read-back below can fail on a transient API error after a create that actually succeeded; the
+  # old order returned failure with TTL_SCHEDULE_NAME still empty, which left a real schedule that no
+  # cleanup could delete and that would then cut the NEXT session on this node group short.
+  TTL_SCHEDULE_NAME="$name"
+
   # Read it back. An accepted create that produced no schedule is the failure this whole file exists to make
   # impossible, and it is silent unless something looks.
   if ! aws scheduler get-schedule --name "$name" >/dev/null 2>&1; then
-    echo "the TTL schedule $name was accepted but cannot be read back" >&2
+    echo "the TTL schedule $name was accepted but cannot be read back; deleting it so it cannot fire on a" >&2
+    echo "  session that never learned it existed" >&2
+    aws scheduler delete-schedule --name "$name" >/dev/null 2>&1 \
+      || echo "  WARNING: could not delete $name either. Delete it by hand before the next session." >&2
+    TTL_SCHEDULE_NAME=""
     return 1
   fi
 
@@ -96,12 +133,23 @@ ttl_arm() {
 # been armed an hour ago, and what matters is the time that is left, not the time it started with.
 ttl_remaining_minutes() {
   local cluster="$1" nodegroup="$2" expr at now
-  expr=$(aws scheduler list-schedules --name-prefix "gpu-ttl-${cluster}-${nodegroup}-" \
-           --query 'Schedules[0].Name' --output text 2>/dev/null)
-  [ -n "$expr" ] && [ "$expr" != "None" ] || return 1
-  at=$(aws scheduler get-schedule --name "$expr" --query 'ScheduleExpression' --output text 2>/dev/null \
-         | sed -n 's/^at(\(.*\))$/\1/p')
-  [ -n "$at" ] || return 1
+  # Every schedule on this target, not Schedules[0]. The API gives no ordering guarantee, and the answer
+  # that matters is the EARLIEST deadline -- that is the one that will actually cut the session. Reading an
+  # arbitrary one meant the length guards could be measuring a clock that fires an hour after the one that
+  # will really stop the card.
+  local names n at_n earliest=""
+  names=$(aws scheduler list-schedules --name-prefix "gpu-ttl-${cluster}-${nodegroup}-" \
+            --query 'Schedules[].Name' --output text 2>/dev/null)
+  [ -n "$names" ] && [ "$names" != "None" ] || return 1
+  for n in $names; do
+    at_n=$(aws scheduler get-schedule --name "$n" --query 'ScheduleExpression' --output text 2>/dev/null \
+             | sed -n 's/^at(\(.*\))$/\1/p')
+    [ -n "$at_n" ] || continue
+    if [ -z "$earliest" ] || [ "$at_n" \< "$earliest" ]; then earliest="$at_n"; fi
+  done
+  [ -n "$earliest" ] || return 1
+  expr="$earliest"
+  at="$expr"
   now=$(date -u '+%s')
   at=$(date -u -d "${at}Z" '+%s' 2>/dev/null) || return 1
   echo $(( (at - now) / 60 ))
@@ -111,8 +159,15 @@ ttl_disarm() {
   [ -n "$TTL_SCHEDULE_NAME" ] || return 0
   if aws scheduler delete-schedule --name "$TTL_SCHEDULE_NAME" >/dev/null 2>&1; then
     echo "TTL disarmed: $TTL_SCHEDULE_NAME" >&2
+    TTL_SCHEDULE_NAME=""
   else
-    echo "WARNING: could not delete the TTL schedule $TTL_SCHEDULE_NAME. It will fire and set an already-zero node group to zero, which is harmless." >&2
+    # The name is deliberately kept. Clearing it unconditionally meant a failed delete looked identical to a
+    # successful one: the EXIT trap's later cleanup had nothing left to retry with, and the schedule stayed.
+    # Harmless while it targets an already-zero group, but the next session on this node group inherits it
+    # as an earlier deadline -- which is exactly the state ttl_arm now refuses to start on.
+    echo "WARNING: could not delete the TTL schedule $TTL_SCHEDULE_NAME. It will fire against an" >&2
+    echo "  already-zero node group, which is harmless now, but the next session here will refuse to start" >&2
+    echo "  until it is gone: aws scheduler delete-schedule --name $TTL_SCHEDULE_NAME" >&2
+    return 1
   fi
-  TTL_SCHEDULE_NAME=""
 }

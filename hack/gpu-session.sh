@@ -150,7 +150,20 @@ gpu_scale_down() {
   fi
 }
 
+# A signal must also END the script, and these traps did not.
+#
+# `trap cleanup INT` runs cleanup and then RESUMES where the signal arrived. During the ten-minute wait for
+# a node to join, Ctrl-C therefore scaled the node group to zero, dropped the deadline, and went back to
+# waiting for the node it had just cancelled -- for another ten minutes, on a card the operator had just
+# asked to stop. The cost was cleaned up; the session was not.
+#
+# EXIT still runs cleanup for ordinary exits and for `fail`. The signal handlers do their own cleanup and
+# exit with the conventional 128+signal status, and the guard makes the second call a no-op so the EXIT
+# trap that follows does not repeat the work.
+CLEANED=0
 cleanup() {
+  [ "$CLEANED" = "1" ] && return 0
+  CLEANED=1
   for pid in "${FORWARDS[@]:-}"; do
     [[ -n "$pid" ]] && kill "$pid" 2>/dev/null || true
   done
@@ -176,7 +189,10 @@ cleanup() {
 }
 # HUP is in the list because a closed terminal or a dropped SSH connection sends it, and that is the ordinary
 # way a long session ends -- not an exotic one. EXIT alone did not cover it.
-trap cleanup EXIT INT TERM HUP
+trap cleanup EXIT
+trap 'cleanup; exit 130' INT
+trap 'cleanup; exit 143' TERM
+trap 'cleanup; exit 129' HUP
 
 # refuseFakePlugin stops a session whose node is advertising SIMULATED devices.
 #
@@ -451,30 +467,69 @@ echo
 # node's real speed, the flags actually passed, and the per-run setup, none of which a constant would know.
 run_secs=0
 runs_done=0
+DEADLINE_SEEN=0
 deadline_check() {
   local remain projected per
-  remain=$(ttl_remaining_minutes "$GPU_CLUSTER" "$GPU_NODEGROUP" 2>/dev/null) || return 0
-  [[ -n "$remain" ]] || return 0
-  # Before the first run there is nothing measured to project from, but "nothing to project" is not the same
-  # as "fine". A resumed session inherits whatever is left of a deadline armed hours ago, and one that starts
-  # with minutes on the clock buys a node, prepares a worker, and is cut during the first run it attempts.
-  # The floor is deliberately crude because it only has to catch that.
+  # A deadline that was readable and then is not means the answer is unknown, not fine. The old code
+  # returned 0 on any read failure, so the exact moment worth stopping for -- SSO expiring mid-session, the
+  # Scheduler API refusing -- was the moment the guard stopped guarding, while the remote deadline stayed
+  # armed and went on to cut a run in half. Once a deadline has been seen, losing sight of it stops the
+  # session; before that, there may genuinely be none (the kind cluster) and continuing is right.
+  if ! remain=$(ttl_remaining_minutes "$GPU_CLUSTER" "$GPU_NODEGROUP" 2>/dev/null) || [[ -z "$remain" ]]; then
+    if (( DEADLINE_SEEN == 1 )); then
+      echo >&2
+      echo "STOPPING: the deadline for $GPU_CLUSTER/$GPU_NODEGROUP was readable earlier and is not now." >&2
+      echo "  It is still armed and will still fire. Continuing would risk being cut inside a run." >&2
+      echo "  ${runs_done} runs are complete in $EXDIR. Resume with:" >&2
+      echo "    EXDIR=$EXDIR START_AT=$N RUN_STUDY=1 $0 ${WORKERS[*]}" >&2
+      echo "  EXDIR is not optional: without it the resumed runs land in a fresh directory and the compare" >&2
+      echo "  globs would pool half a session with nothing. The worker name will differ -- this exit scales" >&2
+      echo "  the node group away, so pass whatever the replacement node is called." >&2
+      return 1
+    fi
+    return 0
+  fi
+  DEADLINE_SEEN=1
+  # Before the first run there is nothing measured to project from, and the floor used to be a flat fifteen
+  # minutes -- a guess that is wrong in both directions. It is too generous for a raised -horizon, where a
+  # single run can exceed it and be cut anyway, and it is arbitrary otherwise.
+  #
+  # The runner knows the answer, so it is asked. -print-horizon touches no cluster and reports the same
+  # window the run will actually observe, derived from the same constants, including any -horizon widening.
+  # Copying those constants into this file is the drift this repository keeps finding.
   if (( runs_done == 0 )); then
-    (( remain >= ${MIN_START_MINUTES:-15} )) && return 0
+    local h longest=0
+    for d in self-completing grace-bounded; do
+      h=$(./queuelabrun -print-horizon -dose "$d" 2>/dev/null) || h=""
+      [[ "$h" =~ ^[0-9]+$ ]] && (( h > longest )) && longest=$h
+    done
+    if (( longest == 0 )); then
+      echo "could not ask the runner for its observation window; refusing to guess how long a run takes" >&2
+      return 1
+    fi
+    # The window is what the run OBSERVES. Preparing the worker, holding the surplus and tearing down are on
+    # top of it, so the floor is the longest window plus half again, rounded up to whole minutes.
+    local floor=$(( (longest * 3 / 2 + 59) / 60 ))
+    (( remain >= floor )) && return 0
     echo >&2
-    echo "STOPPING: the deadline fires in ${remain} min, which is not enough to finish a run." >&2
-    echo "  Re-arm with a longer TTL_MINUTES before resuming, or the first run would be cut and lost." >&2
+    echo "STOPPING: the deadline fires in ${remain} min and one run needs about ${floor} min end to end" >&2
+    echo "  (the runner reports a ${longest}s observation window). The first run would be cut and lost." >&2
+    echo "  Re-arm with a longer TTL_MINUTES before resuming." >&2
     return 1
   fi
-  per=$(( run_secs / runs_done ))
-  projected=$(( (${#SEQUENCE[@]} - runs_done - skipped) * per / 60 ))
-  if (( projected > remain )); then
+  # A fifth of headroom, and rounding up rather than down. The mean is not the worst case: runs differ by
+  # arm, by dose and by node, and a projection that only just fits under the deadline is one slightly slow
+  # run away from being cut. The comparison was also >= rather than >, so a projection exactly equal to the
+  # remaining time counted as fitting, with no time left for the teardown that follows the last run.
+  per=$(( (run_secs + runs_done - 1) / runs_done ))
+  projected=$(( ((${#SEQUENCE[@]} - runs_done - skipped) * per * 12 / 10 + 59) / 60 ))
+  if (( projected >= remain )); then
     echo >&2
     echo "STOPPING: $((${#SEQUENCE[@]} - runs_done - skipped)) runs left at ~$((per / 60)) min each needs about ${projected} min," >&2
     echo "  and the deadline fires in ${remain} min. Being cut mid-run would lose that run's record while" >&2
     echo "  keeping every earlier one, so the session stops on a boundary instead." >&2
     echo "  ${runs_done} runs are complete in $EXDIR. Re-arm with a longer TTL_MINUTES and resume:" >&2
-    echo "    START_AT=$((N)) RUN_STUDY=1 $0 ${WORKERS[*]}" >&2
+    echo "    EXDIR=$EXDIR START_AT=$((N)) RUN_STUDY=1 $0 ${WORKERS[*]}" >&2
     return 1
   fi
   return 0
@@ -499,7 +554,8 @@ for SPEC in "${SEQUENCE[@]}"; do
   if ! curl -sf -m 3 "${URL_OF[$ON]}" >/dev/null 2>&1; then
     echo "        the route to $ON is not answering; reopening it"
     openRoute "$ON" \
-      || { echo "could not reopen the route to $ON; resume with START_AT=$N once it is back" >&2; exit 1; }
+      || { echo "could not reopen the route to $ON. Resume once it is back with:" >&2
+           echo "    EXDIR=$EXDIR START_AT=$N RUN_STUDY=1 $0 ${WORKERS[*]}" >&2; exit 1; }
   fi
   # And the surplus must still be held. An evicted occupier frees the spare cards mid-session, and the run
   # that follows would measure a node whose scarcity has quietly gone -- the one wrong-number path here.
@@ -507,7 +563,8 @@ for SPEC in "${SEQUENCE[@]}"; do
     OCC_PHASE="$(kubectl get pod -n "$NS" "${OCCUPIER_OF[$ON]}" -o jsonpath='{.status.phase}' 2>/dev/null || true)"
     if [[ "$OCC_PHASE" != "Running" ]]; then
       echo "the surplus occupier on $ON is ${OCC_PHASE:-gone}; the spare cards are free and the arm" >&2
-      echo "  contrast would collapse without saying so. Re-prepare, then resume: START_AT=$N" >&2
+      echo "  contrast would collapse without saying so. Re-prepare, then resume with:" >&2
+      echo "    EXDIR=$EXDIR START_AT=$N RUN_STUDY=1 $0 ${WORKERS[*]}" >&2
       exit 1
     fi
   fi
@@ -517,7 +574,7 @@ for SPEC in "${SEQUENCE[@]}"; do
   ./queuelabrun -require-device -dose "$DOSE" -arm "$ARM" -runid "$ID" -worker "$ON" \
     -device-metrics "${URL_OF[$ON]}" -device-observer "${OBSERVER_OF[$ON]}" \
     -out "$EXDIR/gpu-$DOSE-$ARM-$ID.json" \
-    || { echo; echo "run $ID failed. Fix the cause, then resume: START_AT=$N RUN_STUDY=1 $0 ${WORKERS[*]}" >&2; exit 1; }
+    || { echo; echo "run $ID failed. Fix the cause, then resume: EXDIR=$EXDIR START_AT=$N RUN_STUDY=1 $0 ${WORKERS[*]}" >&2; exit 1; }
   run_secs=$(( run_secs + $(date +%s) - RUN_T0 ))
   runs_done=$((runs_done + 1))
 done

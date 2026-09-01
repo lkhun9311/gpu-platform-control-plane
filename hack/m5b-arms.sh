@@ -51,9 +51,29 @@ say "rate ${RATE}/s, ${REPS} repetitions, output $OUT"
 
 WORK="$(mktemp -d)"
 PF_PID=""
-cleanup() { [ -n "$PF_PID" ] && kill "$PF_PID" 2>/dev/null; rm -rf "$WORK"; }
+# A signal must also END the script, and these traps did not.
+#
+# `trap cleanup INT` runs cleanup and then RESUMES where the signal arrived. During the ten-minute wait for
+# a node to join, Ctrl-C therefore scaled the node group to zero, dropped the deadline, and went back to
+# waiting for the node it had just cancelled -- for another ten minutes, on a card the operator had just
+# asked to stop. The cost was cleaned up; the session was not.
+#
+# EXIT still runs cleanup for ordinary exits and for `fail`. The signal handlers do their own cleanup and
+# exit with the conventional 128+signal status, and the guard makes the second call a no-op so the EXIT
+# trap that follows does not repeat the work.
+CLEANED=0
+cleanup() {
+  [ "$CLEANED" = "1" ] && return 0
+  CLEANED=1
+  [ -n "$PF_PID" ] && kill "$PF_PID" 2>/dev/null
+  rm -rf "$WORK"
+  return 0
+}
 # HUP: a closed terminal sends it, and this script runs for over an hour on a rented card.
-trap cleanup EXIT INT TERM HUP
+trap cleanup EXIT
+trap 'cleanup; exit 130' INT
+trap 'cleanup; exit 143' TERM
+trap 'cleanup; exit 129' HUP
 
 go build -o "$WORK/benchharness" ./cmd/benchharness || fail "build benchharness"
 CGO_ENABLED=0 GOOS=linux go build -o "$WORK/gateway" ./cmd/gateway || fail "build gateway"
@@ -91,7 +111,17 @@ if REMAIN=$(ttl_remaining_minutes "$CLUSTER" "$NODEGROUP" 2>/dev/null) && [ -n "
   say "worst case ${worst_min} min over ${replays} replays; ${REMAIN} min left on the deadline"
   [ "$worst_min" -le "$REMAIN" ] || fail "this run needs up to ${worst_min} min but the TTL deadline fires in ${REMAIN} min. The node would be scaled out from under the last arm and the comparison would be incomplete. Re-arm with a longer TTL_MINUTES, or lower REPS (currently ${REPS})."
 else
-  say "WARNING: no TTL deadline found for ${CLUSTER:-?}/${NODEGROUP:-?}, so the run length was not checked against it. The node this is about to load has no remote backstop."
+  # A warning was the wrong answer. This script puts an hour of real load on a rented card in a shell that
+  # is not the one holding the session open, so "no remote backstop" is the state it least wants to be in --
+  # and the same branch is reached by an AWS error, a mis-derived cluster name, and a genuinely absent
+  # schedule, which are not equally acceptable but were treated identically.
+  #
+  # NO_TTL=1 is the deliberate override, for replaying against a node that is not on EKS at all.
+  if [ "${NO_TTL:-}" = "1" ]; then
+    say "NO_TTL=1: running without a remote deadline. Nothing here will stop the node."
+  else
+    fail "no TTL deadline found for ${CLUSTER:-?}/${NODEGROUP:-?}. This script loads a rented card for about an hour from a shell that does not own the session, so it will not start without a deadline that outlives this laptop. Check that hack/m5b-gpu-session.sh armed one, or set NO_TTL=1 if this node is not on EKS."
+  fi
 fi
 
 say "build and push the gateway image"
@@ -253,7 +283,13 @@ done
 say "report"
 args=()
 for f in "$OUT"/raw-*.jsonl; do args+=(--raw "$f"); done
-"$WORK/benchharness" report "${args[@]}" --out "$OUT/report.txt" || fail "report"
+# The report exits non-zero when the run is invalid, and `|| fail "report"` swallowed that into a generic
+# message -- which also made the "run invalid" branch below unreachable, a guard that cannot fire inside
+# the change that was about reading the verdict. The status is kept and the file is read either way,
+# because an invalid run still wrote the document that says why.
+report_rc=0
+"$WORK/benchharness" report "${args[@]}" --out "$OUT/report.txt" || report_rc=$?
+[ -s "$OUT/report.txt" ] || fail "the report exited $report_rc and wrote nothing; there is no evidence document for a paid run"
 cat "$OUT/report.txt" | tee -a "$LOG"
 
 # Read the verdict, do not merely count it. The check was `grep -q "VERDICT:"`, which passes on the one
@@ -267,11 +303,12 @@ cat "$OUT/report.txt" | tee -a "$LOG"
 verdict=$(grep -m1 "VERDICT:" "$OUT/report.txt") || fail "the report carries no verdict"
 case "$verdict" in
   *"run invalid"*)
-    fail "the run is invalid and no claim can be made from it: $verdict. The card has been paid for; look at $OUT/report.txt before spending another one." ;;
+    fail "the run is invalid and no claim can be made from it (report exit $report_rc): $verdict. The card has been paid for; look at $OUT/report.txt before spending another one." ;;
   *"not all checks passed"*)
     say "ARMS DONE, and the guard did not protect the tail on this card: $verdict"
     say "That is a result, not a failure of this script. Evidence in $OUT." ;;
   *)
+    [ "$report_rc" -eq 0 ] || fail "the report exited $report_rc but its verdict reads ${verdict@Q}. Those disagree, and a paid run is not the place to guess which one is right."
     say "ARMS DONE. $verdict"
     say "Evidence in $OUT." ;;
 esac

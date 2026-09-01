@@ -115,9 +115,19 @@ gpu_scale_down() {
       size=$(aws eks describe-nodegroup --cluster-name "$CLUSTER" --nodegroup-name "$ng" \
                --query 'nodegroup.scalingConfig.desiredSize' --output text 2>/dev/null)
       if [ -n "$size" ] && [ "$size" != "0" ] && [ "$size" != "None" ]; then
-        NODEGROUP="$ng"
         echo "found $CLUSTER/$ng at desiredSize=$size without this session having recorded it" >&2
-        break
+        # No break. The same fix went into hack/m5b-gpu-session.sh and this file was left with the old
+        # shape, so a claim that "every stray group is scaled down" was true of one script and not the
+        # other. Taking the first and stopping leaves the rest billing, in the function whose only job is
+        # to find what is billing and stop it.
+        if [ -z "$NODEGROUP" ]; then
+          NODEGROUP="$ng"
+        else
+          aws eks update-nodegroup-config --cluster-name "$CLUSTER" --nodegroup-name "$ng" \
+            --scaling-config minSize=0,maxSize=1,desiredSize=0 >/dev/null 2>&1 \
+            && echo "also scaled $CLUSTER/$ng to zero" >&2 \
+            || echo "WARNING: could not scale $CLUSTER/$ng down. IT IS STILL BILLING." >&2
+        fi
       fi
     done
   fi
@@ -163,7 +173,20 @@ gpu_scale_down() {
   fi
 }
 
+# A signal must also END the script, and these traps did not.
+#
+# `trap cleanup INT` runs cleanup and then RESUMES where the signal arrived. During the ten-minute wait for
+# a node to join, Ctrl-C therefore scaled the node group to zero, dropped the deadline, and went back to
+# waiting for the node it had just cancelled -- for another ten minutes, on a card the operator had just
+# asked to stop. The cost was cleaned up; the session was not.
+#
+# EXIT still runs cleanup for ordinary exits and for `fail`. The signal handlers do their own cleanup and
+# exit with the conventional 128+signal status, and the guard makes the second call a no-op so the EXIT
+# trap that follows does not repeat the work.
+CLEANED=0
 cleanup() {
+  [ "$CLEANED" = "1" ] && return 0
+  CLEANED=1
   [ -n "$PF_PID" ] && kill "$PF_PID" 2>/dev/null
   k delete namespace "$NS_A" "$NS_B" --wait=false >/dev/null 2>&1
   k delete gpuquotapolicy m5c-premium m5c-standard >/dev/null 2>&1
@@ -171,7 +194,10 @@ cleanup() {
   rm -rf "$WORK"
   gpu_scale_down
 }
-trap cleanup EXIT INT TERM HUP
+trap cleanup EXIT
+trap 'cleanup; exit 130' INT
+trap 'cleanup; exit 143' TERM
+trap 'cleanup; exit 129' HUP
 
 say "preflight"
 case "$KCTX" in kind-*) fail "context $KCTX is a kind cluster; this is the paid matrix" ;; esac
@@ -189,9 +215,16 @@ case "$KCTX" in kind-*) fail "context $KCTX is a kind cluster; this is the paid 
 # EKS. A name that does not resolve would produce a schedule that is accepted and then fires into nothing.
 CLUSTER="${CLUSTER:-$(kubectl config view --minify -o jsonpath='{.clusters[0].name}' 2>/dev/null | sed 's|.*cluster/||')}"
 [ -n "$CLUSTER" ] || fail "could not determine the cluster name from the kubeconfig context"
-NODEGROUP="${NODEGROUP:-gpu_shared}"
-aws eks describe-nodegroup --cluster-name "$CLUSTER" --nodegroup-name "$NODEGROUP" >/dev/null 2>&1 \
-  || fail "no node group $NODEGROUP in $CLUSTER. The deadline must name a group that exists, or it fires into nothing. Set NODEGROUP if the name is different."
+# Named into a candidate first, and promoted to NODEGROUP only once EKS confirms it exists.
+#
+# Assigning NODEGROUP before the check meant that when the check refused, the EXIT trap's scale-down saw a
+# node group name, skipped discovery, and called update-nodegroup-config against a group just proven not to
+# exist -- then printed THE NODE IS STILL BILLING for a session that had started nothing. A commit claimed
+# no refusal path calls update-nodegroup-config; this was the path that did.
+NG_CANDIDATE="${NODEGROUP:-gpu_shared}"
+aws eks describe-nodegroup --cluster-name "$CLUSTER" --nodegroup-name "$NG_CANDIDATE" >/dev/null 2>&1 \
+  || fail "no node group $NG_CANDIDATE in $CLUSTER. The deadline must name a group that exists, or it fires into nothing. Set NODEGROUP if the name is different."
+NODEGROUP="$NG_CANDIDATE"
 
 # One schedule names one node group, so a second GPU group left running is not covered by anything this
 # session registers. The deadline would fire, scale down the group it names, and leave the other billing --
@@ -200,13 +233,30 @@ aws eks describe-nodegroup --cluster-name "$CLUSTER" --nodegroup-name "$NODEGROU
 # Refusing here rather than trying to cover both is deliberate. A session that finds another card already
 # running does not know whose it is: it may be another session mid-run, and scaling it down would destroy
 # someone else's paid work. Naming it and stopping is the only answer that is right in both cases.
+# Every AWS call here is checked, because the previous shape failed OPEN. It ran the listing inside a
+# command substitution, threw away stderr and the exit status, and iterated the result -- so expired
+# credentials, a permissions error, or a network failure all produced an empty list, which reads exactly
+# like "no other card is running". The same held one level down: a describe that failed left sz empty,
+# which the case treated as zero.
+#
+# That is the wrong direction for this particular guard. It exists for the moments when something is wrong
+# with the account, and those are the moments an unchecked call returns nothing.
+if ! ng_list=$(aws eks list-nodegroups --cluster-name "$CLUSTER" \
+                 --query 'nodegroups[?starts_with(@, `gpu`)]' --output text 2>&1); then
+  fail "could not list the node groups in $CLUSTER, so this session cannot tell whether another card is already running: $ng_list"
+fi
 others=""
-for ng in $(aws eks list-nodegroups --cluster-name "$CLUSTER" \
-              --query 'nodegroups[?starts_with(@, `gpu`)]' --output text 2>/dev/null); do
+for ng in $ng_list; do
   [ "$ng" = "$NODEGROUP" ] && continue
-  sz=$(aws eks describe-nodegroup --cluster-name "$CLUSTER" --nodegroup-name "$ng" \
-         --query 'nodegroup.scalingConfig.desiredSize' --output text 2>/dev/null)
-  case "$sz" in ''|0|None) ;; *) others="$others $ng($sz)" ;; esac
+  if ! sz=$(aws eks describe-nodegroup --cluster-name "$CLUSTER" --nodegroup-name "$ng" \
+              --query 'nodegroup.scalingConfig.desiredSize' --output text 2>&1); then
+    fail "could not read the size of $CLUSTER/$ng: $sz. An unreadable node group is not a stopped one."
+  fi
+  case "$sz" in
+    0|None) ;;
+    ''|*[!0-9]*) fail "the size of $CLUSTER/$ng came back as ${sz@Q}, which is not a number. Refusing rather than reading it as zero." ;;
+    *) others="$others $ng($sz)" ;;
+  esac
 done
 [ -z "$others" ] || fail "another GPU node group is already running:$others. This session's deadline names only $NODEGROUP, so that card would keep billing after the deadline fires. Scale it to zero, or if another session owns it, wait for it."
 
@@ -218,31 +268,24 @@ if true; then
   ttl_arm "$CLUSTER" "$NODEGROUP" "${TTL_MINUTES:-240}" \
     || fail "could not register the TTL scale-down; refusing to start a card with no deadline"
 
-  # Refuse a matrix that cannot finish before its own deadline.
+  # What is checked here, and what is not.
   #
-  # The deadline was not chosen to fit this run; 240 was chosen because four hours is roughly one SSO
-  # session. Whether the matrix fits inside it depends on ARMS and REPS, which the operator can change, and
-  # on the rollout budgets written into this file. Nothing connected the two, so a run could be started that
-  # was arithmetically guaranteed to be cut off -- and the cut arrives in the last cells, after every dollar
-  # has already been spent.
+  # The first shape of this check multiplied the per-cell TIMEOUT budget by the cell count and refused if
+  # the product exceeded the deadline. At the shipped defaults that is 456 minutes against 240, so the
+  # design's own repetition count -- four, which a unit test pins because below it the incremental interval
+  # is a bootstrap over very few blocks -- could never start. Lowering REPS to make the arithmetic work was
+  # the wrong repair: it traded a statistical property for a scheduling one, quietly.
   #
-  # Per cell: the sharing arms roll out two engines sequentially at 900s each, plus a 180s gateway rollout,
-  # plus the replay itself. This uses the rollout budgets rather than observed times because a budget is what
-  # the script will actually wait for before giving up.
+  # Those 1800 seconds are two rollout TIMEOUTS, not two expected rollouts. A budget is what the script
+  # waits before giving up, and refusing a run because the worst case does not fit refuses most runs that
+  # would have finished. So the pessimistic product is gone and only the floor stays here: a deadline that
+  # cannot hold even one cell is a session with nothing to gain. The real bound is measured per cell, in
+  # the loop, where a slow matrix stops on a cell boundary with everything before it intact.
   ttl_min="${TTL_MINUTES:-240}"
-  cells=0
-  for _a in $ARMS; do cells=$(( cells + REPS )); done
-  worst_total_min=$(( cells * (1800 + 180 + ${REPLAY_SECONDS:-300}) / 60 ))
-  echo "matrix: $cells cells, worst case ${worst_total_min} min against a ${ttl_min} min deadline" >&2
-  if [ "$worst_total_min" -gt "$ttl_min" ]; then
-    # Say what does fit rather than only what does not. The operator is standing at a rented card with a
-    # clock running, and "reduce something" is not an instruction they can act on quickly.
-    arm_count=0
-    for _a in $ARMS; do arm_count=$(( arm_count + 1 )); done
-    per_cell_min=$(( (1800 + 180 + ${REPLAY_SECONDS:-300}) / 60 ))
-    fits=$(( ttl_min / per_cell_min / arm_count ))
+  cell_floor_min=$(( (1800 + 180 + ${REPLAY_SECONDS:-300} + 59) / 60 ))
+  if [ "$ttl_min" -lt "$cell_floor_min" ]; then
     ttl_disarm
-    fail "this matrix needs up to ${worst_total_min} min but the deadline is ${ttl_min} min. The node would be scaled out from under the last cells, after the whole card has been paid for. Each cell budgets ${per_cell_min} min, so with these ${arm_count} arms the deadline holds REPS=${fits} (now ${REPS}). Either set REPS=${fits}, drop an arm, or raise TTL_MINUTES -- though a run longer than one SSO session cannot be torn down by the shell that started it."
+    fail "the deadline is ${ttl_min} min but one cell can take up to ${cell_floor_min} min, so this session could not finish even a single cell. Raise TTL_MINUTES."
   fi
 fi
 
@@ -423,9 +466,36 @@ EOF
 DURATION_MS=$(python3 -c "print(int(500 / (float('$RATE')/2) * 1000))")
 say "rate ${RATE}/s, duration $((DURATION_MS/1000))s per arm, ${REPS} repetitions, output $OUT"
 
+# Measured, like the M6 wrapper's: after the first cell, the elapsed time IS the budget, and it knows the
+# node's real speed and how long the rollouts actually took rather than how long they were allowed to take.
+cells_total=0; for _a in $ARMS; do cells_total=$(( cells_total + REPS )); done
+cell_secs=0; cells_done=0; cell_n=0
+cell_deadline_check() {
+  local remain per projected
+  [ "$cells_done" -eq 0 ] && return 0
+  remain=$(ttl_remaining_minutes "$CLUSTER" "$NODEGROUP" 2>/dev/null) || return 0
+  [ -n "$remain" ] || return 0
+  per=$(( (cell_secs + cells_done - 1) / cells_done ))
+  # A fifth of headroom, because cells differ by arm -- the sharing arms roll out two engines and the
+  # exclusive arm rolls out one -- and a projection that only just fits is one slow cell from being cut.
+  projected=$(( ((cells_total - cells_done) * per * 12 / 10 + 59) / 60 ))
+  if [ "$projected" -ge "$remain" ]; then
+    echo >&2
+    echo "STOPPING: $(( cells_total - cells_done )) cells left at ~$(( per / 60 )) min each needs about ${projected} min," >&2
+    echo "  and the deadline fires in ${remain} min. Being cut mid-cell would waste that cell's rollouts and" >&2
+    echo "  leave a matrix missing one of the topologies it exists to compare, so it stops on a boundary." >&2
+    echo "  ${cells_done} of ${cells_total} cells are complete. Re-arm with a longer TTL_MINUTES to continue." >&2
+    return 1
+  fi
+  return 0
+}
+
 for rep in $(seq 1 "$REPS"); do
   for arm in $ARMS; do
-    say "rep $rep arm $arm"
+    cell_n=$(( cell_n + 1 ))
+    cell_deadline_check || exit 1
+    CELL_T0=$(date +%s)
+    say "rep $rep arm $arm  (cell $cell_n/$cells_total)"
     deploy_arm "$arm"
     [ -n "$PF_PID" ] && kill "$PF_PID" 2>/dev/null
     k port-forward -n "$NS_A" deploy/gateway 18080:8080 >/dev/null 2>&1 &
@@ -443,6 +513,8 @@ for rep in $(seq 1 "$REPS"); do
       --raw-out "$OUT/raw-$arm-$rep.jsonl" || fail "replay $arm"
     [ -s "$OUT/raw-$arm-$rep.jsonl" ] || fail "no raw evidence for $arm rep $rep"
     say "  $(wc -l < "$OUT/raw-$arm-$rep.jsonl") rows"
+    cell_secs=$(( cell_secs + $(date +%s) - CELL_T0 ))
+    cells_done=$(( cells_done + 1 ))
   done
 done
 
