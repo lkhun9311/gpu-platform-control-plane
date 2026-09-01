@@ -10,3 +10,19 @@ resources:
 - rbac.yaml
 - deployment.yaml
 - service.yaml
+
+# The digest lives here, not in the Deployment, because two consumers read these manifests and only one of
+# them can pull from ECR.
+#
+# `make deploy` runs `kustomize edit set image gateway=${IMG}`, which rewrites this transform -- so the kind
+# path builds locally, side-loads, and overrides the pin, while Argo CD builds the same directory unchanged
+# and gets the published digest. Putting the ECR reference in the Deployment removed the name the transform
+# matches on, so the override silently stopped applying and every e2e run failed on a Pod that could not
+# pull from a registry kind has no credentials for.
+#
+# ci.yml is written to update exactly this field in both kustomizations in one commit, so the operator and
+# the gateway can never be pinned from different builds.
+images:
+  - name: gateway
+    newName: 007635145730.dkr.ecr.ap-northeast-2.amazonaws.com/gpu-platform-gateway
+    digest: sha256:91050d2ad7fe4f856fe9eb005c7062929437a7f4c959477508c80a9b97d5685c
