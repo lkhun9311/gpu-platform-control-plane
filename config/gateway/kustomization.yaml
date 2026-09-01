@@ -10,3 +10,9 @@ resources:
 - rbac.yaml
 - deployment.yaml
 - service.yaml
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+images:
+- digest: sha256:869c0a609c5c2b205792824162dff535b54c9dfc8abff3efcb4746816ac0054c
+  name: gateway
+  newName: 007635145730.dkr.ecr.ap-northeast-2.amazonaws.com/gpu-platform-gateway
