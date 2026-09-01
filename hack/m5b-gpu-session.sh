@@ -154,7 +154,20 @@ gpu_scale_down() {
   fi
 }
 
+# A signal must also END the script, and these traps did not.
+#
+# `trap cleanup INT` runs cleanup and then RESUMES where the signal arrived. During the ten-minute wait for
+# a node to join, Ctrl-C therefore scaled the node group to zero, dropped the deadline, and went back to
+# waiting for the node it had just cancelled -- for another ten minutes, on a card the operator had just
+# asked to stop. The cost was cleaned up; the session was not.
+#
+# EXIT still runs cleanup for ordinary exits and for `fail`. The signal handlers do their own cleanup and
+# exit with the conventional 128+signal status, and the guard makes the second call a no-op so the EXIT
+# trap that follows does not repeat the work.
+CLEANED=0
 cleanup() {
+  [ "$CLEANED" = "1" ] && return 0
+  CLEANED=1
   [ -n "${PF_PID:-}" ] && kill "$PF_PID" 2>/dev/null
   gpu_scale_down
   rm -rf "$WORK"
@@ -166,7 +179,10 @@ cleanup() {
 # It still does not cover SIGKILL, the machine sleeping, or the SSO session expiring, and it cannot: all
 # three end the process or its credentials before any handler runs. That is what the TTL registered with
 # EventBridge Scheduler is for, and why it is armed before the GPU starts rather than after.
-trap cleanup EXIT INT TERM HUP
+trap cleanup EXIT
+trap 'cleanup; exit 130' INT
+trap 'cleanup; exit 143' TERM
+trap 'cleanup; exit 129' HUP
 
 : > "$LOG"
 
@@ -211,13 +227,30 @@ aws eks describe-nodegroup --cluster-name "$CLUSTER" --nodegroup-name "$NODEGROU
 # Refusing here rather than trying to cover both is deliberate. A session that finds another card already
 # running does not know whose it is: it may be another session mid-run, and scaling it down would destroy
 # someone else's paid work. Naming it and stopping is the only answer that is right in both cases.
+# Every AWS call here is checked, because the previous shape failed OPEN. It ran the listing inside a
+# command substitution, threw away stderr and the exit status, and iterated the result -- so expired
+# credentials, a permissions error, or a network failure all produced an empty list, which reads exactly
+# like "no other card is running". The same held one level down: a describe that failed left sz empty,
+# which the case treated as zero.
+#
+# That is the wrong direction for this particular guard. It exists for the moments when something is wrong
+# with the account, and those are the moments an unchecked call returns nothing.
+if ! ng_list=$(aws eks list-nodegroups --cluster-name "$CLUSTER" \
+                 --query 'nodegroups[?starts_with(@, `gpu`)]' --output text 2>&1); then
+  fail "could not list the node groups in $CLUSTER, so this session cannot tell whether another card is already running: $ng_list"
+fi
 others=""
-for ng in $(aws eks list-nodegroups --cluster-name "$CLUSTER" \
-              --query 'nodegroups[?starts_with(@, `gpu`)]' --output text 2>/dev/null); do
+for ng in $ng_list; do
   [ "$ng" = "$NODEGROUP" ] && continue
-  sz=$(aws eks describe-nodegroup --cluster-name "$CLUSTER" --nodegroup-name "$ng" \
-         --query 'nodegroup.scalingConfig.desiredSize' --output text 2>/dev/null)
-  case "$sz" in ''|0|None) ;; *) others="$others $ng($sz)" ;; esac
+  if ! sz=$(aws eks describe-nodegroup --cluster-name "$CLUSTER" --nodegroup-name "$ng" \
+              --query 'nodegroup.scalingConfig.desiredSize' --output text 2>&1); then
+    fail "could not read the size of $CLUSTER/$ng: $sz. An unreadable node group is not a stopped one."
+  fi
+  case "$sz" in
+    0|None) ;;
+    ''|*[!0-9]*) fail "the size of $CLUSTER/$ng came back as ${sz@Q}, which is not a number. Refusing rather than reading it as zero." ;;
+    *) others="$others $ng($sz)" ;;
+  esac
 done
 [ -z "$others" ] || fail "another GPU node group is already running:$others. This session's deadline names only $NODEGROUP, so that card would keep billing after the deadline fires. Scale it to zero, or if another session owns it, wait for it."
 
