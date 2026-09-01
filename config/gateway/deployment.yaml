@@ -34,7 +34,7 @@ spec:
           type: RuntimeDefault
       containers:
       - name: gateway
-        image: 007635145730.dkr.ecr.ap-northeast-2.amazonaws.com/gpu-platform-gateway@sha256:91050d2ad7fe4f856fe9eb005c7062929437a7f4c959477508c80a9b97d5685c
+        image: gateway:latest
         command:
         - /gateway
         ports:

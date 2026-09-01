@@ -716,3 +716,44 @@ func TestTheDeadlineCeilingAdmitsTheShippedDesign(t *testing.T) {
 			ceiling, needed, slowRate, 12)
 	}
 }
+
+// TestTheDigestIsInTheTransformNotTheDeployment keeps two consumers of one manifest from fighting.
+//
+// config/manager/manager.yaml and config/gateway/deployment.yaml are read by two paths that need different
+// images. `make deploy` runs `kustomize edit set image controller=${IMG}`, so the kind path builds locally,
+// side-loads, and overrides the pin; Argo CD builds the same directories untouched and must get the
+// published digest.
+//
+// Writing the ECR reference into the Deployment removed the name the transform matches on. The override
+// silently stopped applying, and every e2e run failed on a Pod that could not pull from a registry kind has
+// no credentials for -- a change that looked like pinning an image and was actually unpinning an override.
+func TestTheDigestIsInTheTransformNotTheDeployment(t *testing.T) {
+	for _, tc := range []struct{ manifest, kustomization, placeholder, name string }{
+		{"config/manager/manager.yaml", "config/manager/kustomization.yaml", "image: controller:latest", "controller"},
+		{"config/gateway/deployment.yaml", "config/gateway/kustomization.yaml", "image: gateway:latest", "gateway"},
+	} {
+		manifest := readRepoFile(t, tc.manifest)
+		if !strings.Contains(manifest, tc.placeholder) {
+			t.Errorf("%s does not carry %q; `kustomize edit set image %s=...` has nothing to match and the local override stops applying",
+				tc.manifest, tc.placeholder, tc.name)
+		}
+		if strings.Contains(manifest, "dkr.ecr.") {
+			t.Errorf("%s names a registry directly; the digest belongs in %s where the image transform can be overridden",
+				tc.manifest, tc.kustomization)
+		}
+
+		kust := readRepoFile(t, tc.kustomization)
+		if !strings.Contains(kust, "images:") {
+			t.Errorf("%s has no image transform, so Argo CD would deploy the %s placeholder, which no registry serves",
+				tc.kustomization, tc.placeholder)
+		}
+		if !strings.Contains(kust, "digest: sha256:") {
+			t.Errorf("%s pins by tag rather than digest; a tag names whatever was pushed under it most recently",
+				tc.kustomization)
+		}
+		if !strings.Contains(kust, "name: "+tc.name) {
+			t.Errorf("%s does not transform the image named %q, so the pin would not apply to the Deployment",
+				tc.kustomization, tc.name)
+		}
+	}
+}
