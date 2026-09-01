@@ -757,3 +757,72 @@ func TestTheDigestIsInTheTransformNotTheDeployment(t *testing.T) {
 		}
 	}
 }
+
+// TestCRDApplicationsDoNotPrune keeps a rename from deleting a cluster's data.
+//
+// Deleting a CustomResourceDefinition is not a schema change: the API server removes every instance of it
+// in the same operation. An Argo Application that owns CRDs with prune enabled will therefore delete every
+// Workload, LocalQueue, ClusterQueue and ResourceFlavor -- or every InferenceDeployment, GPUQuotaPolicy and
+// NodeHealth -- when a file is renamed, a path stops rendering one of them, or the child is removed from
+// the root Application. A cascade finalizer on the Application makes that last one a two-stage version of
+// the same thing.
+//
+// selfHeal is left on deliberately. Re-creating a definition someone deleted by hand is safe; removing one
+// because a file moved is not, and that is not a decision to make unattended.
+func TestCRDApplicationsDoNotPrune(t *testing.T) {
+	for _, app := range []string{"config/argocd/crds.yaml", "config/argocd/kueue-crds.yaml"} {
+		body := readRepoFile(t, app)
+		if strings.Contains(body, "prune: true") {
+			t.Errorf("%s prunes; a renamed file would delete the CRDs and every custom resource stored under them", app)
+		}
+		if !strings.Contains(body, "prune: false") {
+			t.Errorf("%s does not state prune: false, so the default could change under it", app)
+		}
+		if strings.Contains(body, "resources-finalizer.argocd.argoproj.io") {
+			t.Errorf("%s carries a cascade finalizer; deleting the Application would take the CRDs and their instances with it", app)
+		}
+	}
+
+	// And the CRDs the operator cannot start without must be owned by config/, not by a test fixture.
+	// They lived under test/crd/kueue, which made tidying a fixture a production change.
+	kueue := readRepoFile(t, "config/argocd/kueue-crds.yaml")
+	if !strings.Contains(kueue, "path: config/kueue-crds") {
+		t.Error("the Kueue CRD Application does not source config/kueue-crds; a runtime dependency should not be served out of test/")
+	}
+}
+
+// TestTheKueueCRDDirectoryHoldsOnlyCRDs keeps a helpful file from breaking three consumers.
+//
+// config/kueue-crds is read as a directory of Kubernetes objects by three things at once: Argo CD renders
+// the path, the e2e suite runs `kubectl apply --server-side -f` on it, and envtest loads it through
+// CRDDirectoryPaths. All three take every .yaml in the directory and send it somewhere that expects an
+// object with a kind.
+//
+// A kustomization.yaml was added here to describe the set, which is exactly the sort of thing that looks
+// like documentation and is not. The four CRDs applied and then the kustomization failed with
+// "error: resource mapping", and the e2e suite went red on a change that only moved files. Prose belongs in
+// a .md, which kubectl's directory expansion ignores -- verified, along with the fact that a stray .yaml
+// does not get ignored.
+func TestTheKueueCRDDirectoryHoldsOnlyCRDs(t *testing.T) {
+	const dir = "../../config/kueue-crds"
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("cannot read %s: %v", dir, err)
+	}
+
+	seen := 0
+	for _, e := range entries {
+		name := e.Name()
+		if !strings.HasSuffix(name, ".yaml") && !strings.HasSuffix(name, ".yml") && !strings.HasSuffix(name, ".json") {
+			continue // kubectl, Argo and envtest all skip these; prose is safe here
+		}
+		seen++
+		body := readRepoFile(t, "config/kueue-crds/"+name)
+		if !strings.Contains(body, "kind: CustomResourceDefinition") {
+			t.Errorf("config/kueue-crds/%s is not a CustomResourceDefinition; every consumer of this directory sends each .yaml to an API that expects one", name)
+		}
+	}
+	if seen != 4 {
+		t.Errorf("config/kueue-crds holds %d manifests, want the 4 Kueue definitions the operator's field index requires", seen)
+	}
+}
