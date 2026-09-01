@@ -202,26 +202,25 @@ module "eks" {
       subnet_ids     = local.gpu_single_subnets
       instance_types = [var.gpu_single_node_instance_type]
 
-      # ON_DEMAND, and this is a retreat from a decision that was right on the reasoning and unbuildable on
-      # this account.
+      # Spot, and the reason it is safe to be Spot is a refusal rather than an assumption.
       #
-      # The reasoning stands, and it is kept because it is what makes the retreat temporary: M5-b measures
-      # admission under KV pressure, an interruption ends an arm without biasing it, and an arm that produced
-      # no records is refused rather than reported. Seoul spot for g5.xlarge was $0.357-$0.424 against an
-      # On-Demand $1.237 -- 66 to 71 percent off, which this study needs as repetitions rather than savings.
+      # M5-b measures admission under KV pressure. An interruption ends an arm without biasing it, and an arm
+      # that produced no records is refused rather than reported -- so the failure mode of Spot here is a
+      # rerun, not a wrong number. Seoul g5.xlarge Spot runs $0.357-$0.424 against an On-Demand $1.237, which
+      # this study spends on repetitions rather than banks.
       #
-      # What killed it is that AWS meters Spot under a SEPARATE quota, and this account has none:
+      # Spot is metered under a SEPARATE quota from On-Demand, and an On-Demand increase does not raise it.
+      # A Spot node group creates without complaint at desired_size = 0 and fails at the first scale-up of a
+      # paid session, which is the shape this repository has shipped three times: the region defaulting to
+      # us-east-1, the node groups pinned to subnet zero, and this. terraform_data.gpu_quota in placement.tf
+      # reads both quotas and refuses at plan time instead.
       #
-      #   L-DB2E81BA  Running On-Demand G and VT instances   52     <- granted 2026-08-26
-      #   L-3819A6DF  All G and VT Spot Instance Requests     0     <- never requested
-      #
-      # An On-Demand increase does not raise the Spot limit. A SPOT node group is created without complaint
-      # at desired_size = 0, and the FIRST SCALE-UP OF A PAID SESSION fails on the quota -- the same shape as
-      # the region defaulting to us-east-1 and the node groups pinned to subnet zero, and the third time this
-      # repository has shipped a GPU setting whose failure waits for the moment money is being spent.
-      #
-      # terraform_data.gpu_quota in placement.tf refuses at plan time now instead. Flip this back only after
-      # the Spot quota is granted; that precondition is what will say when.
+      # The numbers are deliberately NOT written here. This comment used to carry a transcribed table saying
+      # the Spot quota was 0 and had never been requested. It was granted on 2026-08-27 and vpc.tf was
+      # flipped to SPOT the same day; the table was not touched, so for five days the file said the opposite
+      # of what it did -- and a review reading the comment concluded terraform would refuse to build, which
+      # it would not. A comment that restates a mutable number is a second source of truth that nothing
+      # fails when it drifts. placement.tf reads the live values; look there.
       capacity_type = local.gpu_capacity["gpu_single"]
       min_size      = 0
       max_size      = 1

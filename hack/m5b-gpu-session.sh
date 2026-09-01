@@ -470,16 +470,34 @@ note "derived total arrival rate: ${RATE}/s  (the harness default of 20/s demand
 # block. A unit test now pins it.
 arms_reps="${REPS:-$(sed -n 's/^REPS="${REPS:-\([0-9]*\)}"$/\1/p' hack/m5b-arms.sh)}"
 [ -n "$arms_reps" ] || fail "could not read the repetition count from hack/m5b-arms.sh, so the deadline cannot be sized for the run"
+# The completions target is read from hack/m5b-arms.sh for the same reason the repetition count is: it is
+# the other half of the replay length, and it sat as a literal 500 in both files with nothing failing when
+# they disagreed. Lowering it in the harness to shorten a run -- which is the cheaper of the two ways to buy
+# a shorter session -- would otherwise have left this sizing the deadline for the old, longer run.
+arms_target=$(sed -n 's/.*print(int(\([0-9]*\) \/ (float.*/\1/p' hack/m5b-arms.sh)
+[ -n "$arms_target" ] || fail "could not read the per-replay completion target from hack/m5b-arms.sh, so the deadline cannot be sized for the run"
 arms_min=$(python3 -c "
 rate = float('$RATE')
-replay = 500 / (rate / 2)          # seconds per replay, the same derivation hack/m5b-arms.sh uses
-replays = 4 * $arms_reps           # four arms, the same product hack/m5b-arms.sh computes
+replay = $arms_target / (rate / 2)   # seconds per replay, the same derivation hack/m5b-arms.sh uses
+replays = 4 * $arms_reps             # four arms, the same product hack/m5b-arms.sh computes
 print(int((replays * (replay + 180)) / 60) + 1)")
 needed_min=$(( arms_min * 12 / 10 + 20 ))   # a fifth of headroom, plus the handoff and teardown
-max_min="${MAX_TTL_MINUTES:-360}"
+# 420, not 360. At the rate an A10G is expected to give, the design's own default asks for 358 minutes --
+# two minutes under the old ceiling -- so a card measuring below about 1.13/s would have been refused at the
+# re-arm step with the engine already warm. A ceiling that refuses the configuration the repository ships is
+# the same defect as the matrix budgeting 456 minutes against a 240-minute deadline, one file over.
+#
+# It is still a ceiling and still refuses: 420 minutes of g5.xlarge is about $8.7, which is the honest price
+# of this design at four repetitions, and anything past it means the card is slow enough that the bill has
+# become the point.
+max_min="${MAX_TTL_MINUTES:-420}"
 note "the four arms at ${arms_reps} repetitions need about ${arms_min} min at ${RATE}/s; asking for a ${needed_min} min deadline"
 if [ "$needed_min" -gt "$max_min" ]; then
-  fail "this card is slow enough that the arms need about ${needed_min} min, over the ${max_min} min ceiling. At \$1.24/hour that is more than \$$(( needed_min * 124 / 6000 )). Raise MAX_TTL_MINUTES deliberately, or lower REPS in hack/m5b-arms.sh."
+  # No dollar figure. This node group is Spot (infra/aws/cluster/vpc.tf:58), so its price is a market
+  # number between roughly $0.36 and $0.42 rather than the $1.237 On-Demand rate this message used to
+  # multiply by -- which overstated the bill about threefold at the exact moment the operator decides
+  # whether to raise the ceiling. Hours are what this script actually knows.
+  fail "this card is slow enough that the arms need about ${needed_min} min -- $(( needed_min / 60 ))h$(( needed_min % 60 ))m -- over the ${max_min} min ceiling. Raise MAX_TTL_MINUTES deliberately, or lower REPS in hack/m5b-arms.sh."
 fi
 if [ "$needed_min" -gt "${TTL_MINUTES:-120}" ]; then
   TTL_REPLACE=1 ttl_arm "$CLUSTER" "$NODEGROUP" "$needed_min" \
