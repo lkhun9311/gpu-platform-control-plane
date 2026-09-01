@@ -1,0 +1,17 @@
+# The Kueue CRDs the operator indexes against, owned by config/ rather than by test/.
+#
+# These lived under test/crd/kueue, which made a test fixture the authoritative copy of something the
+# operator cannot start without on any cluster. The tests still read them -- envtest through
+# CRDDirectoryPaths, the e2e suite through kubectl apply -- but from here, so tidying a fixture cannot
+# quietly change what production deploys.
+#
+# They are the schema the manager's field index needs, NOT an installation of Kueue. go.mod pins
+# sigs.k8s.io/kueue v0.18.3; when the controller itself is installed it will own these same definitions,
+# and that transition has not been worked out.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - clusterqueues.yaml
+  - localqueues.yaml
+  - resourceflavors.yaml
+  - workloads.yaml
