@@ -3,6 +3,9 @@ kind: Kustomization
 
 resources:
   - root.yaml
+  # Ahead of crds.yaml in this list and at sync-wave -2, because config/operator-webhook cannot render a
+  # working webhook until cert-manager has issued its serving certificate.
+  - cert-manager.yaml
   - crds.yaml
   - operator.yaml
   - gateway.yaml
