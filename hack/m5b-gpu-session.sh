@@ -460,13 +460,24 @@ note "derived total arrival rate: ${RATE}/s  (the harness default of 20/s demand
 # So the deadline is re-armed here for what the run needs. MAX_TTL_MINUTES is the ceiling that keeps this
 # from becoming an open tab: past it the session refuses instead, because a deadline long enough to hide a
 # forgotten node is not a deadline.
+# The replay count is read from hack/m5b-arms.sh rather than written here. It was a literal 16 -- four arms
+# times the default four repetitions -- which is right only while that default is four and while nobody sets
+# REPS. Set REPS=2 and this asked for twice the deadline the run needed; raise it and the deadline would
+# have been too short for the run it was sizing, which is the direction that costs a session.
+#
+# This is the eighth or ninth time in this repository that a value carried by hand across two call sites
+# has been found disagreeing with itself, and it was introduced yesterday by the change that added this
+# block. A unit test now pins it.
+arms_reps="${REPS:-$(sed -n 's/^REPS="${REPS:-\([0-9]*\)}"$/\1/p' hack/m5b-arms.sh)}"
+[ -n "$arms_reps" ] || fail "could not read the repetition count from hack/m5b-arms.sh, so the deadline cannot be sized for the run"
 arms_min=$(python3 -c "
 rate = float('$RATE')
 replay = 500 / (rate / 2)          # seconds per replay, the same derivation hack/m5b-arms.sh uses
-print(int((16 * (replay + 180)) / 60) + 1)")
+replays = 4 * $arms_reps           # four arms, the same product hack/m5b-arms.sh computes
+print(int((replays * (replay + 180)) / 60) + 1)")
 needed_min=$(( arms_min * 12 / 10 + 20 ))   # a fifth of headroom, plus the handoff and teardown
 max_min="${MAX_TTL_MINUTES:-360}"
-note "the four arms need about ${arms_min} min at ${RATE}/s; asking for a ${needed_min} min deadline"
+note "the four arms at ${arms_reps} repetitions need about ${arms_min} min at ${RATE}/s; asking for a ${needed_min} min deadline"
 if [ "$needed_min" -gt "$max_min" ]; then
   fail "this card is slow enough that the arms need about ${needed_min} min, over the ${max_min} min ceiling. At \$1.24/hour that is more than \$$(( needed_min * 124 / 6000 )). Raise MAX_TTL_MINUTES deliberately, or lower REPS in hack/m5b-arms.sh."
 fi
