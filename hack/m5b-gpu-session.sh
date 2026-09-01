@@ -479,7 +479,11 @@ needed_min=$(( arms_min * 12 / 10 + 20 ))   # a fifth of headroom, plus the hand
 max_min="${MAX_TTL_MINUTES:-360}"
 note "the four arms at ${arms_reps} repetitions need about ${arms_min} min at ${RATE}/s; asking for a ${needed_min} min deadline"
 if [ "$needed_min" -gt "$max_min" ]; then
-  fail "this card is slow enough that the arms need about ${needed_min} min, over the ${max_min} min ceiling. At \$1.24/hour that is more than \$$(( needed_min * 124 / 6000 )). Raise MAX_TTL_MINUTES deliberately, or lower REPS in hack/m5b-arms.sh."
+  # No dollar figure. This node group is Spot (infra/aws/cluster/vpc.tf:58), so its price is a market
+  # number between roughly $0.36 and $0.42 rather than the $1.237 On-Demand rate this message used to
+  # multiply by -- which overstated the bill about threefold at the exact moment the operator decides
+  # whether to raise the ceiling. Hours are what this script actually knows.
+  fail "this card is slow enough that the arms need about ${needed_min} min -- $(( needed_min / 60 ))h$(( needed_min % 60 ))m -- over the ${max_min} min ceiling. Raise MAX_TTL_MINUTES deliberately, or lower REPS in hack/m5b-arms.sh."
 fi
 if [ "$needed_min" -gt "${TTL_MINUTES:-120}" ]; then
   TTL_REPLACE=1 ttl_arm "$CLUSTER" "$NODEGROUP" "$needed_min" \
