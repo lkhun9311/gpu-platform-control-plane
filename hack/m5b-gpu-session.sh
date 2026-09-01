@@ -197,8 +197,23 @@ esac
 
 k get crd inferencedeployments.platform.lkhun9311.github.io >/dev/null 2>&1 \
   || fail "the platform CRDs are not installed on this cluster"
-k get deploy -A -o name 2>/dev/null | grep -q controller-manager \
-  || fail "the operator is not running; the InferenceDeployment routing record would never be reconciled"
+# Available replicas, not the existence of a name.
+#
+# This was `get deploy -A -o name | grep -q controller-manager`, which passes on a Deployment that exists in
+# ImagePullBackOff -- and that is precisely what a fresh cluster has, because config/manager/manager.yaml
+# still names controller:latest and nothing has ever pushed an operator image. It also matched any
+# deployment whose name happens to contain the string.
+#
+# The gateway resolves backends from the CR directly, so nothing downstream would have noticed the operator
+# never ran: the session would spend a card and produce numbers from a control plane that was not running.
+op_ns=$(k get deploy -A -o jsonpath='{range .items[?(@.metadata.name=="gpu-platform-controller-manager")]}{.metadata.namespace}{"\n"}{end}' 2>/dev/null | head -1)
+[ -n "$op_ns" ] || op_ns=$(k get deploy -A -o jsonpath='{range .items[*]}{.metadata.namespace}{" "}{.metadata.name}{"\n"}{end}' 2>/dev/null \
+  | awk '$2 ~ /controller-manager$/ {print $1; exit}')
+[ -n "$op_ns" ] || fail "no operator controller-manager Deployment exists on this cluster"
+op_ready=$(k get deploy -n "$op_ns" -o jsonpath='{range .items[?(@.status.availableReplicas>0)]}{.metadata.name}{"\n"}{end}' 2>/dev/null \
+  | grep -c 'controller-manager$' || true)
+[ "${op_ready:-0}" -ge 1 ] \
+  || fail "the operator controller-manager exists in namespace $op_ns but has no available replica. A Deployment stuck in ImagePullBackOff satisfies a name check and reconciles nothing; look at: kubectl -n $op_ns get pods"
 
 # The engine must land on a GPU node, and the node must advertise a device. Both are the operator's
 # problem in production and neither is checked anywhere else, so they are checked here where a wrong
@@ -268,6 +283,28 @@ export TTL_ROLE_ARN
 ttl_arm "$CLUSTER" "$NODEGROUP" "${TTL_MINUTES:-120}" \
   || fail "could not register the TTL scale-down; refusing to start a card with no deadline"
 note "deadline registered for $CLUSTER/$NODEGROUP before anything was started"
+
+# The nightly teardown is a second clock, and it is not the deadline this session just armed.
+#
+# .github/workflows/destroy.yml runs at 03:00 UTC, which is noon in KST. It terraform-destroys the whole
+# cluster, not just the node group, so a session started on a Korean morning is deleted underneath itself --
+# node, engine, records in flight and all -- by a workflow that has nothing to do with this run and cannot
+# see it. The TTL deadline does not protect against this: it scales a node group down, while this removes
+# the cluster the node group is in.
+#
+# Cron drift is real here (this workflow has been observed firing between 03:53 and 14:57 UTC), so the check
+# is a warning band rather than a precise boundary, and it refuses only when the collision is certain.
+destroy_utc_hour=3
+now_min=$(( $(date -u '+%H') * 60 + $(date -u '+%M') ))
+destroy_min=$(( destroy_utc_hour * 60 ))
+[ "$destroy_min" -le "$now_min" ] && destroy_min=$(( destroy_min + 1440 ))
+until_destroy=$(( destroy_min - now_min ))
+note "the nightly destroy fires in about ${until_destroy} min (03:00 UTC, noon KST)"
+if [ "$until_destroy" -lt 120 ]; then
+  [ "${IGNORE_NIGHTLY_DESTROY:-}" = "1" ] \
+    || fail "the nightly destroy workflow fires in about ${until_destroy} min and removes this whole cluster, not just the node group -- the TTL deadline does not cover that. Start after it has run, disable the schedule for today, or set IGNORE_NIGHTLY_DESTROY=1 if you have confirmed it will not fire."
+  note "IGNORE_NIGHTLY_DESTROY=1: continuing into the destroy window"
+fi
 
 gpu_nodes=$(k get nodes -l 'platform.lkhun9311.github.io/gpu=true' -o name 2>/dev/null | wc -l)
 if [ "$gpu_nodes" -eq 0 ]; then
@@ -447,6 +484,16 @@ case "$RATE" in
 esac
 [ "$RATE" = "0" ] && fail "the prefill measurement returned no time; refusing to guess a rate"
 note "derived total arrival rate: ${RATE}/s  (the harness default of 20/s demands 7.3x this card's peak)"
+
+# Written down, because the alternative is a human retyping it into another shell.
+#
+# hack/m5b-arms.sh only checks that RATE is non-empty. Typing 11.4 for 1.14 passes every guard,
+# oversubscribes the card about tenfold, censors every tail, and disqualifies the run after the card has
+# been paid for -- and the number is transcribed across a shell boundary by hand at the one moment the
+# operator is busiest.
+RATE_FILE="${RATE_FILE:-$PWD/.m5b-rate}"
+printf '%s\n' "$RATE" > "$RATE_FILE" || fail "could not write the measured rate to $RATE_FILE"
+note "measured rate written to $RATE_FILE; hack/m5b-arms.sh reads it, so it does not have to be retyped"
 
 # Extend the deadline to cover the run that was just sized, because until this point nobody could size it.
 #

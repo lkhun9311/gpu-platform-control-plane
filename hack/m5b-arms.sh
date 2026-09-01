@@ -19,7 +19,9 @@ NS="${NS:-m5b}"
 KCTX="${KCTX:-$(kubectl config current-context 2>/dev/null)}"
 ENGINE=vllm-qwen25-3b
 MODEL="Qwen/Qwen2.5-3B-Instruct"
-GW_IMAGE="${GW_IMAGE:-gateway:m5b}"
+# gpu-platform-gateway, not gateway: that is the repository this account actually has, and ECR does not
+# create one on push. The old default named a repository that has never existed anywhere.
+GW_IMAGE="${GW_IMAGE:-gpu-platform-gateway:m5b}"
 # Reps: the block bootstrap cannot bound its own variance from one repetition -- the interval degenerates
 # to the point estimate and the report says so. Two is the floor, not a target.
 # Four, matching hack/gpu-session.sh and the design.
@@ -43,6 +45,25 @@ k() { kubectl --context "$KCTX" "$@"; }
 say() { echo "== $*" | tee -a "$LOG"; }
 fail() { echo "ARMS FAILED: $*" | tee -a "$LOG" >&2; exit 1; }
 
+# Read the measured rate from the file the session wrote, so it does not cross the shell boundary by hand.
+# An explicit RATE still wins -- re-running one arm against a rate that was measured earlier is a real
+# workflow -- but it is checked against the file when both exist, because the failure being prevented is a
+# typo that no other guard can see.
+RATE_FILE="${RATE_FILE:-$PWD/.m5b-rate}"
+if [ -f "$RATE_FILE" ]; then
+  file_rate=$(head -1 "$RATE_FILE" 2>/dev/null | tr -d '[:space:]')
+  if [ -z "${RATE:-}" ]; then
+    RATE="$file_rate"
+    say "rate ${RATE}/s read from $RATE_FILE"
+  elif [ -n "$file_rate" ] && [ "$RATE" != "$file_rate" ]; then
+    fail "RATE=$RATE was given but $RATE_FILE says $file_rate. One of them is a typo, and a rate that is wrong by a factor of ten oversubscribes the card, censors every tail, and disqualifies the run after it is paid for. Delete the file to override deliberately."
+  fi
+fi
+case "${RATE:-}" in
+  ''|*[!0-9.]*) ;;
+  *) awk -v r="$RATE" 'BEGIN{ if (r <= 0 || r > 50) exit 1 }' \
+       || fail "RATE=$RATE is outside anything this card can do. An A10G prefills about 1.1/s on this prompt; 50/s is past every card in the family." ;;
+esac
 [ -n "${RATE:-}" ] || fail "RATE is unset. It must come from hack/m5b-gpu-session.sh's prefill measurement on THIS card, not from a default: the harness default of 20/s demands 3.8x an A10G's theoretical peak, and 7.3x a T4's, and a run at it censors every arm's tail and is disqualified by EvaluateChecks after the card has been paid for."
 
 mkdir -p "$OUT" || fail "cannot create $OUT"
@@ -133,6 +154,22 @@ ENTRYPOINT ["/gateway"]
 EOF
 docker build -q -t "$GW_IMAGE" "$WORK" >/dev/null || fail "build gateway image"
 if [ -n "${REGISTRY:-}" ]; then
+  # Log in before pushing, and check the repository exists first.
+  #
+  # Neither was here. The push went to $REGISTRY/gateway:m5b while the repository in this account is called
+  # gpu-platform-gateway, and ECR does not create repositories on push; there was also no
+  # `aws ecr get-login-password | docker login` anywhere in this file, so the push would have failed on
+  # authentication even against the right name. Both failures land at the same place: after the GPU node is
+  # up, the engine is warm, and the session shell is holding a port-forward.
+  #
+  # The repository name is derived from the image name rather than assumed, so GW_IMAGE stays the one place
+  # that decides what this pushes.
+  ecr_repo="${GW_IMAGE%%:*}"
+  ecr_registry_host="${REGISTRY%%/*}"
+  aws ecr describe-repositories --repository-names "$ecr_repo" >/dev/null 2>&1 \
+    || fail "no ECR repository named $ecr_repo in this account. The push would fail after the card is warm; create it, or set GW_IMAGE to a repository that exists."
+  aws ecr get-login-password | docker login --username AWS --password-stdin "$ecr_registry_host" >/dev/null 2>&1 \
+    || fail "could not log in to $ecr_registry_host. docker push authenticates against ECR with a token that expires; without it the push fails with the GPU already billing."
   docker tag "$GW_IMAGE" "$REGISTRY/$GW_IMAGE" && docker push "$REGISTRY/$GW_IMAGE" >/dev/null \
     || fail "push gateway image to $REGISTRY"
   GW_IMAGE="$REGISTRY/$GW_IMAGE"
