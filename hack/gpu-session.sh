@@ -480,7 +480,11 @@ deadline_check() {
       echo >&2
       echo "STOPPING: the deadline for $GPU_CLUSTER/$GPU_NODEGROUP was readable earlier and is not now." >&2
       echo "  It is still armed and will still fire. Continuing would risk being cut inside a run." >&2
-      echo "  ${runs_done} runs are complete in $EXDIR. Resume with: START_AT=$N RUN_STUDY=1 $0 ${WORKERS[*]}" >&2
+      echo "  ${runs_done} runs are complete in $EXDIR. Resume with:" >&2
+      echo "    EXDIR=$EXDIR START_AT=$N RUN_STUDY=1 $0 ${WORKERS[*]}" >&2
+      echo "  EXDIR is not optional: without it the resumed runs land in a fresh directory and the compare" >&2
+      echo "  globs would pool half a session with nothing. The worker name will differ -- this exit scales" >&2
+      echo "  the node group away, so pass whatever the replacement node is called." >&2
       return 1
     fi
     return 0
@@ -525,7 +529,7 @@ deadline_check() {
     echo "  and the deadline fires in ${remain} min. Being cut mid-run would lose that run's record while" >&2
     echo "  keeping every earlier one, so the session stops on a boundary instead." >&2
     echo "  ${runs_done} runs are complete in $EXDIR. Re-arm with a longer TTL_MINUTES and resume:" >&2
-    echo "    START_AT=$((N)) RUN_STUDY=1 $0 ${WORKERS[*]}" >&2
+    echo "    EXDIR=$EXDIR START_AT=$((N)) RUN_STUDY=1 $0 ${WORKERS[*]}" >&2
     return 1
   fi
   return 0
@@ -550,7 +554,8 @@ for SPEC in "${SEQUENCE[@]}"; do
   if ! curl -sf -m 3 "${URL_OF[$ON]}" >/dev/null 2>&1; then
     echo "        the route to $ON is not answering; reopening it"
     openRoute "$ON" \
-      || { echo "could not reopen the route to $ON; resume with START_AT=$N once it is back" >&2; exit 1; }
+      || { echo "could not reopen the route to $ON. Resume once it is back with:" >&2
+           echo "    EXDIR=$EXDIR START_AT=$N RUN_STUDY=1 $0 ${WORKERS[*]}" >&2; exit 1; }
   fi
   # And the surplus must still be held. An evicted occupier frees the spare cards mid-session, and the run
   # that follows would measure a node whose scarcity has quietly gone -- the one wrong-number path here.
@@ -558,7 +563,8 @@ for SPEC in "${SEQUENCE[@]}"; do
     OCC_PHASE="$(kubectl get pod -n "$NS" "${OCCUPIER_OF[$ON]}" -o jsonpath='{.status.phase}' 2>/dev/null || true)"
     if [[ "$OCC_PHASE" != "Running" ]]; then
       echo "the surplus occupier on $ON is ${OCC_PHASE:-gone}; the spare cards are free and the arm" >&2
-      echo "  contrast would collapse without saying so. Re-prepare, then resume: START_AT=$N" >&2
+      echo "  contrast would collapse without saying so. Re-prepare, then resume with:" >&2
+      echo "    EXDIR=$EXDIR START_AT=$N RUN_STUDY=1 $0 ${WORKERS[*]}" >&2
       exit 1
     fi
   fi
@@ -568,7 +574,7 @@ for SPEC in "${SEQUENCE[@]}"; do
   ./queuelabrun -require-device -dose "$DOSE" -arm "$ARM" -runid "$ID" -worker "$ON" \
     -device-metrics "${URL_OF[$ON]}" -device-observer "${OBSERVER_OF[$ON]}" \
     -out "$EXDIR/gpu-$DOSE-$ARM-$ID.json" \
-    || { echo; echo "run $ID failed. Fix the cause, then resume: START_AT=$N RUN_STUDY=1 $0 ${WORKERS[*]}" >&2; exit 1; }
+    || { echo; echo "run $ID failed. Fix the cause, then resume: EXDIR=$EXDIR START_AT=$N RUN_STUDY=1 $0 ${WORKERS[*]}" >&2; exit 1; }
   run_secs=$(( run_secs + $(date +%s) - RUN_T0 ))
   runs_done=$((runs_done + 1))
 done

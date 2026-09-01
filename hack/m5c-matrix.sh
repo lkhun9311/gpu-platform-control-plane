@@ -215,9 +215,16 @@ case "$KCTX" in kind-*) fail "context $KCTX is a kind cluster; this is the paid 
 # EKS. A name that does not resolve would produce a schedule that is accepted and then fires into nothing.
 CLUSTER="${CLUSTER:-$(kubectl config view --minify -o jsonpath='{.clusters[0].name}' 2>/dev/null | sed 's|.*cluster/||')}"
 [ -n "$CLUSTER" ] || fail "could not determine the cluster name from the kubeconfig context"
-NODEGROUP="${NODEGROUP:-gpu_shared}"
-aws eks describe-nodegroup --cluster-name "$CLUSTER" --nodegroup-name "$NODEGROUP" >/dev/null 2>&1 \
-  || fail "no node group $NODEGROUP in $CLUSTER. The deadline must name a group that exists, or it fires into nothing. Set NODEGROUP if the name is different."
+# Named into a candidate first, and promoted to NODEGROUP only once EKS confirms it exists.
+#
+# Assigning NODEGROUP before the check meant that when the check refused, the EXIT trap's scale-down saw a
+# node group name, skipped discovery, and called update-nodegroup-config against a group just proven not to
+# exist -- then printed THE NODE IS STILL BILLING for a session that had started nothing. A commit claimed
+# no refusal path calls update-nodegroup-config; this was the path that did.
+NG_CANDIDATE="${NODEGROUP:-gpu_shared}"
+aws eks describe-nodegroup --cluster-name "$CLUSTER" --nodegroup-name "$NG_CANDIDATE" >/dev/null 2>&1 \
+  || fail "no node group $NG_CANDIDATE in $CLUSTER. The deadline must name a group that exists, or it fires into nothing. Set NODEGROUP if the name is different."
+NODEGROUP="$NG_CANDIDATE"
 
 # One schedule names one node group, so a second GPU group left running is not covered by anything this
 # session registers. The deadline would fire, scale down the group it names, and leave the other billing --

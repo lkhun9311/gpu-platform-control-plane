@@ -283,7 +283,13 @@ done
 say "report"
 args=()
 for f in "$OUT"/raw-*.jsonl; do args+=(--raw "$f"); done
-"$WORK/benchharness" report "${args[@]}" --out "$OUT/report.txt" || fail "report"
+# The report exits non-zero when the run is invalid, and `|| fail "report"` swallowed that into a generic
+# message -- which also made the "run invalid" branch below unreachable, a guard that cannot fire inside
+# the change that was about reading the verdict. The status is kept and the file is read either way,
+# because an invalid run still wrote the document that says why.
+report_rc=0
+"$WORK/benchharness" report "${args[@]}" --out "$OUT/report.txt" || report_rc=$?
+[ -s "$OUT/report.txt" ] || fail "the report exited $report_rc and wrote nothing; there is no evidence document for a paid run"
 cat "$OUT/report.txt" | tee -a "$LOG"
 
 # Read the verdict, do not merely count it. The check was `grep -q "VERDICT:"`, which passes on the one
@@ -297,11 +303,12 @@ cat "$OUT/report.txt" | tee -a "$LOG"
 verdict=$(grep -m1 "VERDICT:" "$OUT/report.txt") || fail "the report carries no verdict"
 case "$verdict" in
   *"run invalid"*)
-    fail "the run is invalid and no claim can be made from it: $verdict. The card has been paid for; look at $OUT/report.txt before spending another one." ;;
+    fail "the run is invalid and no claim can be made from it (report exit $report_rc): $verdict. The card has been paid for; look at $OUT/report.txt before spending another one." ;;
   *"not all checks passed"*)
     say "ARMS DONE, and the guard did not protect the tail on this card: $verdict"
     say "That is a result, not a failure of this script. Evidence in $OUT." ;;
   *)
+    [ "$report_rc" -eq 0 ] || fail "the report exited $report_rc but its verdict reads ${verdict@Q}. Those disagree, and a paid run is not the place to guess which one is right."
     say "ARMS DONE. $verdict"
     say "Evidence in $OUT." ;;
 esac

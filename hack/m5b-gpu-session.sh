@@ -216,9 +216,16 @@ k get deploy -A -o name 2>/dev/null | grep -q controller-manager \
 # that does not resolve would produce a schedule that is accepted and then fires into nothing.
 CLUSTER="${CLUSTER:-$(kubectl config view --minify -o jsonpath='{.clusters[0].name}' 2>/dev/null | sed 's|.*cluster/||')}"
 [ -n "$CLUSTER" ] || fail "could not determine the cluster name from the kubeconfig context"
-NODEGROUP="${NODEGROUP:-gpu_single}"
-aws eks describe-nodegroup --cluster-name "$CLUSTER" --nodegroup-name "$NODEGROUP" >/dev/null 2>&1 \
-  || fail "no node group $NODEGROUP in $CLUSTER. The deadline must name a group that exists, or it fires into nothing. Set NODEGROUP if the name is different."
+# Named into a candidate first, and promoted to NODEGROUP only once EKS confirms it exists.
+#
+# Assigning NODEGROUP before the check meant that when the check refused, the EXIT trap's scale-down saw a
+# node group name, skipped discovery, and called update-nodegroup-config against a group just proven not to
+# exist -- then printed THE NODE IS STILL BILLING for a session that had started nothing. A commit claimed
+# no refusal path calls update-nodegroup-config; this was the path that did.
+NG_CANDIDATE="${NODEGROUP:-gpu_single}"
+aws eks describe-nodegroup --cluster-name "$CLUSTER" --nodegroup-name "$NG_CANDIDATE" >/dev/null 2>&1 \
+  || fail "no node group $NG_CANDIDATE in $CLUSTER. The deadline must name a group that exists, or it fires into nothing. Set NODEGROUP if the name is different."
+NODEGROUP="$NG_CANDIDATE"
 
 # One schedule names one node group, so a second GPU group left running is not covered by anything this
 # session registers. The deadline would fire, scale down the group it names, and leave the other billing --
@@ -381,8 +388,34 @@ go build -o "$WORK/benchharness" ./cmd/benchharness || fail "build benchharness"
 # faster than it is and the derived rate would oversubscribe it.
 prompt=$("$WORK/benchharness" print-prompt --chars 40000) || fail "could not render the contender prompt"
 [ "${#prompt}" -eq 40000 ] || fail "contender prompt is ${#prompt} chars, expected 40000"
-printf '{"model":"%s","messages":[{"role":"user","content":"%s"}],"max_tokens":1,"stream":true}' \
-  "$MODEL" "$prompt" > "$WORK/prefill.json"
+# Built by a JSON encoder, not by printf. The corpus this prompt is tiled from ends each tile with a
+# newline, so a 40,000-character prompt carries 24 of them, and a raw newline inside a JSON string is an
+# invalid control character. Every prefill probe this repository has ever sent was malformed.
+#
+# It was invisible because of what it broke into. vLLM answers 400, and the probe used to read only the
+# time to first byte -- so the measurement did not fail, it succeeded with the response time of an error
+# and derived an arrival rate thousands of times too high. Adding the status check turned the same defect
+# into a refusal, which is better and still wrong: the refusal arrives after the node is up and the engine
+# is warm, and its message blames the engine.
+python3 -c '
+import json, sys
+model, prompt = sys.argv[1], sys.stdin.read()
+json.dump({"model": model,
+           "messages": [{"role": "user", "content": prompt}],
+           "max_tokens": 1, "stream": True}, open(sys.argv[2], "w"))
+' "$MODEL" "$WORK/prefill.json" < <(printf '%s' "$prompt") || fail "could not build the prefill request body"
+# Check the body that will be SENT, not the string it was built from. A here-string would have appended a
+# newline and made the request one character longer than the length asserted above -- small enough not to
+# matter to the token count, and exactly the kind of gap between what is verified and what is transmitted
+# that this file keeps finding elsewhere.
+python3 -c '
+import json, sys
+d = json.load(open(sys.argv[1]))
+sent = len(d["messages"][0]["content"])
+if sent != int(sys.argv[2]):
+    raise SystemExit(f"the request body carries {sent} characters, not {sys.argv[2]}")
+' "$WORK/prefill.json" "${#prompt}" \
+  || fail "the prefill request body is not valid JSON, or does not carry the prompt that was measured; the engine would answer 400 and there would be nothing to measure"
 # curl reports a time for a 404 as readily as for a completion, and an error comes back fast. Discarding the
 # body to /dev/null and never reading the status meant a failed probe did not lose the measurement -- it
 # produced one several times too high, which then set the arrival rate for every arm, oversubscribed the
@@ -414,6 +447,39 @@ case "$RATE" in
 esac
 [ "$RATE" = "0" ] && fail "the prefill measurement returned no time; refusing to guess a rate"
 note "derived total arrival rate: ${RATE}/s  (the harness default of 20/s demands 7.3x this card's peak)"
+
+# Extend the deadline to cover the run that was just sized, because until this point nobody could size it.
+#
+# The deadline is a spending bound, not a scientific one. It was armed at a default of 120 minutes before
+# the card existed, and how long the arms actually take is decided here: 16 replays of 500/(RATE/2) seconds
+# each, plus a gateway rollout apiece. At the rate an A10G really gives -- about 1.14/s, which is what the
+# prefill above measures -- that is 282 minutes. The session would therefore warm the engine, hand off to
+# hack/m5b-arms.sh, and be refused by its fit guard with the card already paid for and no way to re-arm
+# without ending the session and scaling the node away.
+#
+# So the deadline is re-armed here for what the run needs. MAX_TTL_MINUTES is the ceiling that keeps this
+# from becoming an open tab: past it the session refuses instead, because a deadline long enough to hide a
+# forgotten node is not a deadline.
+arms_min=$(python3 -c "
+rate = float('$RATE')
+replay = 500 / (rate / 2)          # seconds per replay, the same derivation hack/m5b-arms.sh uses
+print(int((16 * (replay + 180)) / 60) + 1)")
+needed_min=$(( arms_min * 12 / 10 + 20 ))   # a fifth of headroom, plus the handoff and teardown
+max_min="${MAX_TTL_MINUTES:-360}"
+note "the four arms need about ${arms_min} min at ${RATE}/s; asking for a ${needed_min} min deadline"
+if [ "$needed_min" -gt "$max_min" ]; then
+  fail "this card is slow enough that the arms need about ${needed_min} min, over the ${max_min} min ceiling. At \$1.24/hour that is more than \$$(( needed_min * 124 / 6000 )). Raise MAX_TTL_MINUTES deliberately, or lower REPS in hack/m5b-arms.sh."
+fi
+if [ "$needed_min" -gt "${TTL_MINUTES:-120}" ]; then
+  TTL_REPLACE=1 ttl_arm "$CLUSTER" "$NODEGROUP" "$needed_min" \
+    || fail "could not extend the deadline to ${needed_min} min. The arms would be refused by their own fit guard, so this session stops here rather than warming a card it cannot use."
+  note "deadline extended to ${needed_min} min"
+fi
+if [ "$needed_min" -gt 240 ]; then
+  note "WARNING: ${needed_min} min is longer than one SSO session. The deadline is registered with AWS and"
+  note "         does not need this laptop, but the scale-down at the end of hack/m5b-arms.sh does -- run"
+  note "         aws sso login again before it finishes, or let the deadline do the teardown."
+fi
 
 # ---------------------------------------------------------------- routing record
 
