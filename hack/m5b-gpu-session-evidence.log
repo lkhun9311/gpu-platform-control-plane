@@ -1,12 +1,12 @@
 == preflight
 context: gpu-platform
 deadline registered for gpu-platform/gpu_single before anything was started
-the nightly destroy fires in about 129 min (03:00 UTC, noon KST)
+the nightly destroy fires in about 1379 min (03:00 UTC, noon KST)
 == no GPU node present; scaling gpu_single to 1 -- the card starts billing here, and the deadline is already registered
 == wait for the node to join (this takes a few minutes)
 GPU nodes: 1
 == wait for a device to be advertised
-== no device yet; applying the device plugin and the observer
 allocatable nvidia.com/gpu on the GPU node: 1
 == deploy the engine
 == wait for the engine (weights download and memory profiling take minutes)
+SESSION REFUSED: the engine never became ready; check kubectl logs -n m5b deploy/vllm-qwen25-3b
