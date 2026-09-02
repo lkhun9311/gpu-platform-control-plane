@@ -1,31 +1,35 @@
 == preflight
 context: gpu-platform
 deadline registered for gpu-platform/gpu_single before anything was started
-the nightly destroy fires in about 1336 min (03:00 UTC, noon KST)
+the nightly destroy fires in about 1269 min (03:00 UTC, noon KST)
 == no GPU node present; scaling gpu_single to 1 -- the card starts billing here, and the deadline is already registered
 == wait for the node to join (this takes a few minutes)
 GPU nodes: 1
 == wait for a device to be advertised
 allocatable nvidia.com/gpu on the GPU node: 1
 == deploy the engine
-the engine deployment carries a previous attempt's failure (False ProgressDeadlineExceeded); restarting it so this session is measured on its own node
 == wait for the engine (weights download and memory profiling take minutes)
 == check the KV capacity against the prediction
 engine reports: GPU KV cache size: 376,000 tokens
 sizing page predicted ~382270 tokens of KV cache
 engine KV capacity: 376000 tokens (accepted band 191135-764540)
 == measure prefill on an idle engine
-one contender prefill (7695 tokens) took 0.093671s on an idle engine
-derived total arrival rate: 17.081/s  (the harness default of 20/s demands 7.3x this card's peak)
+prefill probe prompt is 40024 chars, prefixed so a warm cache cannot answer it
+one contender prefill (7695 tokens) took 1.022441s on an idle engine
+derived total arrival rate: 1.565/s  (the harness default of 20/s demands 7.3x this card's peak)
 measured rate written to /home/lkhun9311/workspace/gpu-platform-control-plane/.m5b-rate; hack/m5b-arms.sh reads it, so it does not have to be retyped
-the four arms at 4 repetitions need about 64 min at 17.081/s; asking for a 96 min deadline
+the four arms at 4 repetitions need about 219 min at 1.565/s; asking for a 282 min deadline
+deadline extended to 282 min
+WARNING: 282 min is longer than one SSO session. The deadline is registered with AWS and
+         does not need this laptop, but the scale-down at the end of hack/m5b-arms.sh does -- run
+         aws sso login again before it finishes, or let the deadline do the teardown.
 == create the routing record
 
 The engine is up, its capacity is recorded, and the arrival rate is derived from this card rather than
 from a table. What remains is the four-arm replay, which is hack/m5b-arms.sh's job and needs the gateway
 deployed once per arm. Run it now, from another shell, while this one holds the port-forward:
 
-    NS=m5b RATE=17.081 bash hack/m5b-arms.sh
+    NS=m5b RATE=1.565 bash hack/m5b-arms.sh
 
 When it finishes, scale the node group to 0. This script prints the command again on exit.
 == holding the engine. Ctrl-C when the arms are done.

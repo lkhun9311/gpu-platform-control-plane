@@ -1,0 +1,16 @@
+arm: R1
+gatewaySHA: 11e4ebd
+gatewayURL: http://127.0.0.1:18080
+imageDigests:
+  engine: vllm/vllm-openai@sha256:0a51ea5b4ae2dc5d81890e5173f54203d2a3ae0cfffe51b8fd2afd4391bfd967
+  gateway: 007635145730.dkr.ecr.ap-northeast-2.amazonaws.com/gpu-platform-gateway@sha256:fc9cd6a8535cd5e551b88e8b9b6c5d6ea9ddca193c523d172a6c5ee0b1f6fb49
+longThreshold: 4096
+matchTolerance: "0.05"
+model: llama-3-8b
+primaryEndpoint: ttft_p99
+promptCorpusSHA: dec1020701584417449f9c7efa5354073682cce69348af3b9fb5244705200a86
+schemaVersion: v2
+seed: 7
+timeoutMs: 30000
+traceChecksum: c984aa9d70f694b4a6da274a487f31853d539c3cce5194697ffbe5eca555ab83
+tracePath: trace-R1-4.jsonl
