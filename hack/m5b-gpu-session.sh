@@ -472,7 +472,7 @@ import json, sys
 model, prompt = sys.argv[1], sys.stdin.read()
 json.dump({"model": model,
            "messages": [{"role": "user", "content": prompt}],
-           "max_tokens": 1, "stream": True}, open(sys.argv[2], "w"))
+           "max_tokens": 1, "stream": False}, open(sys.argv[2], "w"))
 ' "$MODEL" "$WORK/prefill.json" < <(printf '%s' "$prompt") || fail "could not build the prefill request body"
 # Check the body that will be SENT, not the string it was built from. A here-string would have appended a
 # newline and made the request one character longer than the length asserted above -- small enough not to
@@ -486,6 +486,20 @@ if sent != int(sys.argv[2]):
     raise SystemExit(f"the request body carries {sent} characters, not {sys.argv[2]}")
 ' "$WORK/prefill.json" "${#prompt}" \
   || fail "the prefill request body is not valid JSON, or does not carry the prompt that was measured; the engine would answer 400 and there would be nothing to measure"
+# NOT streamed, and time_total rather than time_starttransfer.
+#
+# The premise here was that a request's time to first token is its prefill time. It is not, for a streamed
+# response: time_starttransfer is time to first BYTE, and vLLM emits the opening SSE chunk when it schedules
+# the request rather than when the prefill finishes. Measured on the card, unique prompt, caching off:
+#
+#   stream=true    TTFB 0.057 s   total 1.006 s
+#   stream=false   TTFB 1.003 s   total 1.003 s
+#
+# So the probe read a scheduling latency of about 60 ms as if it were a second of prefill, and derived an
+# arrival rate seventeen times too high -- which would have censored every tail and disqualified the run
+# after the card was paid for. With max_tokens=1 the non-streamed total is the prefill plus one decode step,
+# which is the number this measurement is for.
+#
 # curl reports a time for a 404 as readily as for a completion, and an error comes back fast. Discarding the
 # body to /dev/null and never reading the status meant a failed probe did not lose the measurement -- it
 # produced one several times too high, which then set the arrival rate for every arm, oversubscribed the
@@ -493,7 +507,7 @@ if sent != int(sys.argv[2]):
 #
 # So the body is kept and three things are checked: that curl itself succeeded, that the engine answered
 # 200, and that what came back is a completion rather than an error object that happens to be valid JSON.
-probe=$(curl -s -o "$WORK/prefill.out" -w '%{http_code} %{time_starttransfer}' -m 300 \
+probe=$(curl -s -o "$WORK/prefill.out" -w '%{http_code} %{time_total}' -m 300 \
   -X POST http://127.0.0.1:18000/v1/chat/completions \
   -H 'Content-Type: application/json' -d @"$WORK/prefill.json")
 rc=$?
