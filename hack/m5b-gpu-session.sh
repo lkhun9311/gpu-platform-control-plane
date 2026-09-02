@@ -445,6 +445,19 @@ go build -o "$WORK/benchharness" ./cmd/benchharness || fail "build benchharness"
 # faster than it is and the derived rate would oversubscribe it.
 prompt=$("$WORK/benchharness" print-prompt --chars 40000) || fail "could not render the contender prompt"
 [ "${#prompt}" -eq 40000 ] || fail "contender prompt is ${#prompt} chars, expected 40000"
+
+# A unique prefix, so this measures prefill rather than a cache lookup.
+#
+# config/vllm now passes --no-enable-prefix-caching and that is the real fix. This is the second one,
+# because the measurement that was wrong was wrong SILENTLY: the engine returned 200 with a completion in
+# 93.7 ms, every check in this probe passed, and the derived rate came out ten times too high. Nothing here
+# could tell a computed prefill from a cache lookup.
+#
+# The prefix costs a handful of tokens against 7,695 and removes the dependency on a flag set in another
+# file. If that flag is ever dropped again, this still measures work. The length assertion above stays
+# correct because it reads ${#prompt} after this line.
+prompt="m5b-$(date -u +%s%N) $prompt"
+note "prefill probe prompt is ${#prompt} chars, prefixed so a warm cache cannot answer it"
 # Built by a JSON encoder, not by printf. The corpus this prompt is tiled from ends each tile with a
 # newline, so a 40,000-character prompt carries 24 of them, and a raw newline inside a JSON string is an
 # invalid control character. Every prefill probe this repository has ever sent was malformed.
