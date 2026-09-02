@@ -124,7 +124,11 @@ module "eks" {
     # Scaling to 2 doubles the burn for as long as both are up, and the node axis is the only thing it buys.
     # hack/gpu-session-preregistration.md says what the session delivers with one node and what it does not.
     gpu = {
-      name           = "gpu"
+      name = "gpu"
+
+      # Same 100 GiB as gpu_single, and for the same measured reason: the vLLM image alone exceeds the 20 GiB
+      # EKS default. See the note on gpu_single for what was measured and how.
+      disk_size      = 100
       subnet_ids     = local.gpu_subnets
       instance_types = [var.gpu_node_instance_type]
       # On-Demand rather than Spot. A reclaimed Spot node mid-run does not fail the experiment cleanly -- it
@@ -198,7 +202,25 @@ module "eks" {
     # special case. max_size is 1 rather than 2: a second node here buys nothing, because the arms are
     # compared against one engine and a second KV pool is the one thing config/vllm forbids.
     gpu_single = {
-      name           = "gpu_single"
+      name = "gpu_single"
+      # 100 GiB, and the number comes from measurement rather than a round guess.
+      #
+      # EKS defaults to 20 GiB when disk_size is unset, and nothing here set it. The first paid session got as
+      # far as the engine rollout and then the node reported DiskPressure=True: kubelet evicted the vLLM Pod
+      # twice and left the third Pending, and the session refused after the card had been billing for fifteen
+      # minutes.
+      #
+      # What actually has to fit, measured without renting anything -- the image was pulled locally and the
+      # weights read from the Hugging Face API:
+      #
+      #   vllm/vllm-openai   9.11 GiB compressed, 21.7 GiB by docker history, 30.8 GiB by docker system df
+      #   Qwen2.5-3B-Instruct weights  6.18 GiB across two safetensors files
+      #   AL2023 NVIDIA AMI, kubelet, containerd, DCGM and the device plugin  roughly 5 GiB
+      #
+      # So the image alone does not fit in 20 GiB. 100 GiB covers the worst reading of all three plus room
+      # for two image versions coexisting during a rollout, and gp3 in Seoul is about $0.0125/hour for it --
+      # under ten cents for a six-hour session, against a card that costs thirty times that per hour.
+      disk_size      = 100
       subnet_ids     = local.gpu_single_subnets
       instance_types = [var.gpu_single_node_instance_type]
 
@@ -262,7 +284,11 @@ module "eks" {
     # max_size 1 is what makes co-location certain. Two engines on two nodes are not sharing a card, and
     # nothing downstream could tell that apart from a sharing result.
     gpu_shared = {
-      name           = "gpu_shared"
+      name = "gpu_shared"
+
+      # Same 100 GiB as gpu_single, and for the same measured reason: the vLLM image alone exceeds the 20 GiB
+      # EKS default. See the note on gpu_single for what was measured and how.
+      disk_size      = 100
       subnet_ids     = local.gpu_shared_subnets
       instance_types = [var.gpu_shared_node_instance_type]
 
