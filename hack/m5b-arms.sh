@@ -47,6 +47,9 @@ GW_IMAGE="${GW_IMAGE:-gpu-platform-gateway:m5b-$(date -u +%Y%m%d-%H%M%S)}"
 # tolerate, not a target anything argued for.
 REPS="${REPS:-4}"
 
+# The arm order the loop below walks, named once so the first-replay check can tell which arm is first.
+ARMS_ORDER="R1 off static-cap kv-aware"
+
 # For ttl_remaining_minutes: this script spends the money in a shell that never armed the deadline.
 . "$(dirname "$0")/lib/gpu-ttl.sh"
 OUT="${OUT:-hack/m5b-run-$(date +%Y%m%d-%H%M%S)}"
@@ -200,9 +203,31 @@ fi
 
 say "identity and policy"
 k get ns "$NS" >/dev/null 2>&1 || fail "namespace $NS does not exist; run hack/m5b-gpu-session.sh first"
+
+# The model the engine actually serves, read from the routing record rather than defaulted.
+#
+# gen-trace's --model defaults to llama-3-8b, which is a STUB name from hack/m5b-gateway-path.sh, and this
+# script never passed the flag. So the first paid run asked a real Qwen engine for a model no
+# InferenceDeployment served: the router returned ErrNoRoute and the gateway answered 404 to 907 of every
+# 999 requests. Three hours of card time recorded zero completions, and the only thing that noticed was the
+# report, at the end.
+#
+# Reading it from the cluster is what makes it agree by construction: the router resolves a request by
+# matching this same field, so a name taken from anywhere else can drift from what will actually route.
+MODEL=$(k get inferencedeployment -n "$NS" -o jsonpath='{.items[0].spec.model.name}' 2>/dev/null)
+[ -n "$MODEL" ] || fail "no InferenceDeployment in $NS to read the served model from; run hack/m5b-gpu-session.sh first"
+say "model: $MODEL (read from the routing record the gateway matches on)"
+# Four tenants, because the trace uses four.
+#
+# The secret carried two. gen-trace also emits standard-probe-over and standard-probe-under -- the pair that
+# measures where the eligibility threshold actually fires -- and the gateway answered 401 for every one of
+# them. In the first paid run that was 92 requests per replay rejected before they reached admission
+# control, which is the thing the probes exist to measure.
 k create secret generic gateway-api-keys -n "$NS" \
   --from-literal=premium-key=premium-1 \
-  --from-literal=standard-key=standard-noisy --dry-run=client -o yaml | k apply -f - >/dev/null
+  --from-literal=standard-key=standard-noisy \
+  --from-literal=probe-over-key=standard-probe-over \
+  --from-literal=probe-under-key=standard-probe-under --dry-run=client -o yaml | k apply -f - >/dev/null
 k apply -f - >/dev/null <<EOF || fail "apply policies"
 apiVersion: platform.lkhun9311.github.io/v1
 kind: GPUQuotaPolicy
@@ -311,7 +336,7 @@ say "            engine  $ENGINE_IMAGE"
 
 say "generate the shared trace once"
 "$WORK/benchharness" gen-trace --seed 7 --duration-ms "$DURATION_MS" --rate "$RATE" \
-  --arm off --gateway-url "http://127.0.0.1:18080" \
+  --model "$MODEL" --arm off --gateway-url "http://127.0.0.1:18080" \
   --gateway-sha "$GW_SHA" --gateway-image "$GW_IMAGE" --engine-image "$ENGINE_IMAGE" \
   --trace-out "$OUT/trace.jsonl" --manifest-out "$OUT/manifest-off.yaml" || fail "gen-trace"
 
@@ -329,7 +354,7 @@ for rep in $(seq 1 "$REPS"); do
     PF_PID=$!
     sleep 3
 
-    "$WORK/benchharness" gen-trace --seed 7 --duration-ms "$DURATION_MS" --rate "$RATE" \
+    "$WORK/benchharness" gen-trace --seed 7 --duration-ms "$DURATION_MS" --rate "$RATE" --model "$MODEL" \
       --arm "$arm" --gateway-url "http://127.0.0.1:18080" \
       --gateway-sha "$GW_SHA" --gateway-image "$GW_IMAGE" --engine-image "$ENGINE_IMAGE" \
       --trace-out "$OUT/trace-$arm-$rep.jsonl" --manifest-out "$OUT/manifest-$arm-$rep.yaml" \
@@ -341,6 +366,33 @@ for rep in $(seq 1 "$REPS"); do
       --raw-out "$OUT/raw-$arm-$rep.jsonl" || fail "replay $arm"
     [ -s "$OUT/raw-$arm-$rep.jsonl" ] || fail "no raw evidence for $arm rep $rep"
     say "  $(wc -l < "$OUT/raw-$arm-$rep.jsonl") rows recorded"
+
+    # Did anything actually complete? Ask after the FIRST replay, not in the report.
+    #
+    # The first paid run recorded 999 rows per replay for three hours and every one of them was an HTTP
+    # error: 404 because the trace asked for a model no InferenceDeployment served, 401 because two of the
+    # four tenants were missing from the API key secret. "rows recorded" counted them all, because a row is
+    # written whatever the response was -- which is correct for the record and useless as a signal.
+    #
+    # Nothing noticed until `report` refused at the end, by which time the card was paid for. One check
+    # against the first replay would have cost eleven minutes instead of three hours.
+    if [ "$rep" = "1" ] && [ "$arm" = "$(set -- $ARMS_ORDER; echo "$1")" ]; then
+      completed=$(python3 -c "
+import json,sys
+ok=0
+for line in open(sys.argv[1]):
+    d=json.loads(line)
+    if d.get('httpStatus') == 200: ok += 1
+print(ok)" "$OUT/raw-$arm-$rep.jsonl" 2>/dev/null || echo 0)
+      say "  $completed of them completed with HTTP 200"
+      if [ "${completed:-0}" -eq 0 ]; then
+        codes=$(python3 -c "
+import json,sys,collections
+c=collections.Counter(json.loads(l).get('httpStatus') for l in open(sys.argv[1]))
+print(', '.join(f'{k}x{v}' for k,v in c.most_common(4)))" "$OUT/raw-$arm-$rep.jsonl" 2>/dev/null)
+        fail "the first replay completed nothing: $codes. Every later replay would do the same, so this stops here rather than after sixteen of them. 404 means the trace asks for a model no InferenceDeployment serves; 401 means a tenant is missing from the gateway-api-keys secret."
+      fi
+    fi
   done
 done
 
