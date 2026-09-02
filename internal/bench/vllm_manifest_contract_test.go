@@ -857,3 +857,40 @@ func TestTheDevicePluginDoesNotNameDeviceIndices(t *testing.T) {
 		t.Errorf("NVIDIA_VISIBLE_DEVICES is %q; naming devices ties this manifest to one instance type, and the runtime refuses to start the container on any node that has fewer", m[1])
 	}
 }
+
+// TestGPUNodeGroupsHoldTheEngine keeps the node disk large enough for what has to land on it.
+//
+// EKS defaults to 20 GiB when disk_size is unset, and nothing set it. The first paid session reached the
+// engine rollout and the node reported DiskPressure=True: kubelet evicted the vLLM Pod twice and left the
+// third Pending, and the session refused with the card already billing.
+//
+// What must fit, measured rather than estimated -- the image pulled locally, the weights read from the
+// Hugging Face API:
+//
+//	vllm/vllm-openai      21.7 GiB by docker history, 30.8 GiB by docker system df
+//	Qwen2.5-3B weights     6.18 GiB
+//	AMI, kubelet, containerd, DCGM, device plugin   roughly 5 GiB
+//
+// The image alone exceeds the default. This pins a floor rather than the exact number, so raising it stays
+// easy and dropping it back to something that cannot hold the engine does not.
+func TestGPUNodeGroupsHoldTheEngine(t *testing.T) {
+	body := readRepoFile(t, "infra/aws/cluster/eks.tf")
+
+	// Counting the group blocks was tried and dropped: `gpu = {` also appears inside each group's labels,
+	// so the pattern matched six times and the test failed against a correct file. What matters is the
+	// setting, not the shape of the declaration around it.
+	const floorGiB = 60
+	sizes := regexp.MustCompile(`(?m)^\s*disk_size\s*=\s*(\d+)`).FindAllStringSubmatch(body, -1)
+	if len(sizes) < 3 {
+		t.Fatalf("eks.tf sets disk_size %d times; each GPU group needs one or EKS defaults to 20 GiB, which the vLLM image alone exceeds", len(sizes))
+	}
+	for _, m := range sizes {
+		got, err := strconv.Atoi(m[1])
+		if err != nil {
+			t.Fatalf("disk_size %q is not a number", m[1])
+		}
+		if got < floorGiB {
+			t.Errorf("a node group sets disk_size = %d; the engine image measures 21.7-30.8 GiB and the weights another 6.18, so anything under %d evicts the Pod after the card is warm", got, floorGiB)
+		}
+	}
+}
