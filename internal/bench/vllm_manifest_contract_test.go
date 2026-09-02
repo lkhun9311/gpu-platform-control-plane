@@ -876,13 +876,22 @@ func TestTheDevicePluginDoesNotNameDeviceIndices(t *testing.T) {
 func TestGPUNodeGroupsHoldTheEngine(t *testing.T) {
 	body := readRepoFile(t, "infra/aws/cluster/eks.tf")
 
-	// Counting the group blocks was tried and dropped: `gpu = {` also appears inside each group's labels,
-	// so the pattern matched six times and the test failed against a correct file. What matters is the
-	// setting, not the shape of the declaration around it.
+	// volume_size on a block_device_mappings block, NOT disk_size.
+	//
+	// The first version of this test read disk_size, and passed while the cluster kept the AMI default of
+	// 20 GiB: this module overrides disk_size to null whenever a custom launch template is used, which is
+	// the default, so terraform reported no change and the setting never reached a node. A test that reads
+	// the file rather than what the file does is exactly the shape it was written to catch.
+	//
+	// Counting the group blocks was also tried and dropped: `gpu = {` appears inside each group's labels,
+	// so the pattern matched six times and failed against a correct file.
 	const floorGiB = 60
-	sizes := regexp.MustCompile(`(?m)^\s*disk_size\s*=\s*(\d+)`).FindAllStringSubmatch(body, -1)
+	if regexp.MustCompile(`(?m)^\s*disk_size\s*=`).MatchString(body) {
+		t.Error("eks.tf sets disk_size; with a custom launch template this module discards it, so the node keeps the AMI default. Use block_device_mappings.")
+	}
+	sizes := regexp.MustCompile(`(?m)^\s*volume_size\s*=\s*(\d+)`).FindAllStringSubmatch(body, -1)
 	if len(sizes) < 3 {
-		t.Fatalf("eks.tf sets disk_size %d times; each GPU group needs one or EKS defaults to 20 GiB, which the vLLM image alone exceeds", len(sizes))
+		t.Fatalf("eks.tf sets volume_size %d times; each GPU group needs one or the node keeps the 20 GiB AMI default, which the vLLM image alone exceeds", len(sizes))
 	}
 	for _, m := range sizes {
 		got, err := strconv.Atoi(m[1])
