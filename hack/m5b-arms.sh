@@ -263,7 +263,23 @@ spec:
   template:
     metadata:
       labels: {app: m5b-gateway}
-      annotations: {arm: "$mode-$extra"}
+      # The flags, with the JSON punctuation stripped, because $extra is a JSON ARRAY FRAGMENT.
+      #
+      # It is built to be spliced into the args list on the line below -- `, "-admission-static-rate=1.565",
+      # "-admission-long-threshold=4096"` -- so interpolating it into a quoted YAML scalar put raw quotes
+      # and commas inside the quotes and broke the document:
+      #
+      #   error converting YAML to JSON: yaml: line 9: did not find expected ',' or '}'
+      #
+      # R1 and off pass an empty $extra, so the first two replays of the paid run succeeded and the third
+      # failed -- twenty minutes of card time in, with a message that said "apply gateway (static-cap)" and
+      # not why.
+      #
+      # Nothing reads this annotation; it is here so a human looking at the Pod can tell which arm's gateway
+      # is running. Stripping the punctuation keeps that legible and cannot break the parse.
+      annotations:
+        arm: "$mode"
+        armFlags: "$(printf '%s' "$extra" | tr -d '",' | tr -s ' ' | sed 's/^ *//')"
     spec:
       serviceAccountName: gateway
       containers:
