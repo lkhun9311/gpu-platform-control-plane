@@ -21,7 +21,18 @@ ENGINE=vllm-qwen25-3b
 MODEL="Qwen/Qwen2.5-3B-Instruct"
 # gpu-platform-gateway, not gateway: that is the repository this account actually has, and ECR does not
 # create one on push. The old default named a repository that has never existed anywhere.
-GW_IMAGE="${GW_IMAGE:-gpu-platform-gateway:m5b}"
+#
+# The tag carries a timestamp because this repository has IMMUTABLE tags, so a second run of this script
+# cannot reuse the first one's:
+#
+#   error from registry: The image tag 'm5b' already exists in the 'gpu-platform-gateway' repository
+#   and cannot be overwritten because the tag is immutable.
+#
+# That failure lands after the GPU node is up and the engine is warm, which is the expensive place for it.
+# A unique tag is also the honest one: the push is resolved to a digest a few lines below and the digest is
+# what the record cites, so the tag is only an address -- and an address that names one build rather than
+# whichever ran most recently.
+GW_IMAGE="${GW_IMAGE:-gpu-platform-gateway:m5b-$(date -u +%Y%m%d-%H%M%S)}"
 # Reps: the block bootstrap cannot bound its own variance from one repetition -- the interval degenerates
 # to the point estimate and the report says so. Two is the floor, not a target.
 # Four, matching hack/gpu-session.sh and the design.
