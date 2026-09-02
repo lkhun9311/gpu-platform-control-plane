@@ -352,7 +352,24 @@ for rep in $(seq 1 "$REPS"); do
     [ -n "$PF_PID" ] && kill "$PF_PID" 2>/dev/null
     k port-forward -n "$NS" deploy/gateway 18080:8080 >/dev/null 2>&1 &
     PF_PID=$!
-    sleep 3
+
+    # Wait for the forward to ANSWER, rather than sleeping and hoping.
+    #
+    # `sleep 3` assumed three seconds was enough and that the forward would stay up. Neither holds. A
+    # rollout has just finished, so the old Pod may still be terminating and port-forward can attach to it;
+    # the forward then dies the moment that Pod goes, and every request in the replay fails with a transport
+    # error rather than an HTTP status.
+    #
+    # In the second paid arms run that is exactly what happened, twice: static-cap recorded 999 rows in each
+    # of two repetitions and every one of them was status=0/transport, while the arms either side of it
+    # completed normally. The gateway was Running with zero restarts throughout -- it was never the gateway.
+    for _pf in $(seq 1 30); do
+      curl -sf -o /dev/null -m 2 "http://127.0.0.1:18080/healthz" 2>/dev/null && break
+      curl -s -o /dev/null -m 2 "http://127.0.0.1:18080/" 2>/dev/null && break
+      sleep 1
+    done
+    curl -s -o /dev/null -m 3 "http://127.0.0.1:18080/" 2>/dev/null \
+      || fail "the port-forward to the gateway is not answering for arm $arm; a replay against it would record transport errors for every row and look like a result"
 
     "$WORK/benchharness" gen-trace --seed 7 --duration-ms "$DURATION_MS" --rate "$RATE" --model "$MODEL" \
       --arm "$arm" --gateway-url "http://127.0.0.1:18080" \
@@ -362,7 +379,7 @@ for rep in $(seq 1 "$REPS"); do
     "$WORK/benchharness" replay --manifest "$OUT/manifest-$arm-$rep.yaml" \
       --require-provenance \
       --target "http://127.0.0.1:18080" \
-      --api-keys "premium-1=premium-key,standard-noisy=standard-key" \
+      --api-keys "premium-1=premium-key,standard-noisy=standard-key,standard-probe-over=probe-over-key,standard-probe-under=probe-under-key" \
       --raw-out "$OUT/raw-$arm-$rep.jsonl" || fail "replay $arm"
     [ -s "$OUT/raw-$arm-$rep.jsonl" ] || fail "no raw evidence for $arm rep $rep"
     say "  $(wc -l < "$OUT/raw-$arm-$rep.jsonl") rows recorded"
@@ -376,7 +393,17 @@ for rep in $(seq 1 "$REPS"); do
     #
     # Nothing noticed until `report` refused at the end, by which time the card was paid for. One check
     # against the first replay would have cost eleven minutes instead of three hours.
-    if [ "$rep" = "1" ] && [ "$arm" = "$(set -- $ARMS_ORDER; echo "$1")" ]; then
+    # EVERY replay, not the first of each arm.
+    #
+    # This checked only R1's first replay, so static-cap could record 999 transport errors in rep 1, again
+    # in rep 2, and nothing said anything until the report. Widening it to each arm's first repetition was
+    # still not enough: R1's SECOND repetition also recorded 460 transport errors in the same run, and a
+    # check that only looks at rep 1 would have passed R1 and missed it.
+    #
+    # A replay that completes nothing is dead whichever arm and whichever repetition it is, and there is no
+    # repetition whose emptiness is acceptable -- the report needs equal counts across arms, so one dead
+    # replay costs the whole run anyway. Checking all sixteen costs one pass over a file each time.
+    if true; then
       completed=$(python3 -c "
 import json,sys
 ok=0
