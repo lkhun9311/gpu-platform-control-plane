@@ -371,6 +371,26 @@ k get ns "$NS" >/dev/null 2>&1 || k create ns "$NS" >/dev/null
 # InferenceDeployment FIRST and the operator owns the name, mutateDeployment replaces the whole container,
 # and the engine is gone -- replaced by something the CRD can describe, which is not vLLM.
 k apply -k config/vllm -n "$NS" >/dev/null || fail "apply config/vllm"
+
+# Clear a previous attempt's verdict before waiting on this one.
+#
+# `kubectl apply` on an unchanged spec is a no-op, so a Deployment left by an earlier session keeps its
+# status -- including Progressing=False/ProgressDeadlineExceeded. `rollout status` reads that condition and
+# returns the failure IMMEDIATELY, so a session that had just scaled up a fresh node was refused one minute
+# in, with a message telling the operator to look at engine logs that were three hours old.
+#
+# Restarting the rollout resets the condition and starts a new ReplicaSet against the node this session
+# brought up, which is the thing being measured. A session is a fresh measurement or it is nothing.
+if k get deploy "$ENGINE" -n "$NS" >/dev/null 2>&1; then
+  prev=$(k get deploy "$ENGINE" -n "$NS" \
+    -o jsonpath='{range .status.conditions[?(@.type=="Progressing")]}{.status}{" "}{.reason}{end}' 2>/dev/null)
+  case "$prev" in
+    *ProgressDeadlineExceeded*|*False*)
+      note "the engine deployment carries a previous attempt's failure (${prev}); restarting it so this session is measured on its own node"
+      k rollout restart deploy/"$ENGINE" -n "$NS" >/dev/null 2>&1 || true ;;
+  esac
+fi
+
 say "wait for the engine (weights download and memory profiling take minutes)"
 k rollout status deploy/"$ENGINE" -n "$NS" --timeout=900s >/dev/null \
   || fail "the engine never became ready; check kubectl logs -n $NS deploy/$ENGINE"
