@@ -371,6 +371,26 @@ k get ns "$NS" >/dev/null 2>&1 || k create ns "$NS" >/dev/null
 # InferenceDeployment FIRST and the operator owns the name, mutateDeployment replaces the whole container,
 # and the engine is gone -- replaced by something the CRD can describe, which is not vLLM.
 k apply -k config/vllm -n "$NS" >/dev/null || fail "apply config/vllm"
+
+# Clear a previous attempt's verdict before waiting on this one.
+#
+# `kubectl apply` on an unchanged spec is a no-op, so a Deployment left by an earlier session keeps its
+# status -- including Progressing=False/ProgressDeadlineExceeded. `rollout status` reads that condition and
+# returns the failure IMMEDIATELY, so a session that had just scaled up a fresh node was refused one minute
+# in, with a message telling the operator to look at engine logs that were three hours old.
+#
+# Restarting the rollout resets the condition and starts a new ReplicaSet against the node this session
+# brought up, which is the thing being measured. A session is a fresh measurement or it is nothing.
+if k get deploy "$ENGINE" -n "$NS" >/dev/null 2>&1; then
+  prev=$(k get deploy "$ENGINE" -n "$NS" \
+    -o jsonpath='{range .status.conditions[?(@.type=="Progressing")]}{.status}{" "}{.reason}{end}' 2>/dev/null)
+  case "$prev" in
+    *ProgressDeadlineExceeded*|*False*)
+      note "the engine deployment carries a previous attempt's failure (${prev}); restarting it so this session is measured on its own node"
+      k rollout restart deploy/"$ENGINE" -n "$NS" >/dev/null 2>&1 || true ;;
+  esac
+fi
+
 say "wait for the engine (weights download and memory profiling take minutes)"
 k rollout status deploy/"$ENGINE" -n "$NS" --timeout=900s >/dev/null \
   || fail "the engine never became ready; check kubectl logs -n $NS deploy/$ENGINE"
@@ -425,6 +445,19 @@ go build -o "$WORK/benchharness" ./cmd/benchharness || fail "build benchharness"
 # faster than it is and the derived rate would oversubscribe it.
 prompt=$("$WORK/benchharness" print-prompt --chars 40000) || fail "could not render the contender prompt"
 [ "${#prompt}" -eq 40000 ] || fail "contender prompt is ${#prompt} chars, expected 40000"
+
+# A unique prefix, so this measures prefill rather than a cache lookup.
+#
+# config/vllm now passes --no-enable-prefix-caching and that is the real fix. This is the second one,
+# because the measurement that was wrong was wrong SILENTLY: the engine returned 200 with a completion in
+# 93.7 ms, every check in this probe passed, and the derived rate came out ten times too high. Nothing here
+# could tell a computed prefill from a cache lookup.
+#
+# The prefix costs a handful of tokens against 7,695 and removes the dependency on a flag set in another
+# file. If that flag is ever dropped again, this still measures work. The length assertion above stays
+# correct because it reads ${#prompt} after this line.
+prompt="m5b-$(date -u +%s%N) $prompt"
+note "prefill probe prompt is ${#prompt} chars, prefixed so a warm cache cannot answer it"
 # Built by a JSON encoder, not by printf. The corpus this prompt is tiled from ends each tile with a
 # newline, so a 40,000-character prompt carries 24 of them, and a raw newline inside a JSON string is an
 # invalid control character. Every prefill probe this repository has ever sent was malformed.
