@@ -128,7 +128,28 @@ module "eks" {
 
       # Same 100 GiB as gpu_single, and for the same measured reason: the vLLM image alone exceeds the 20 GiB
       # EKS default. See the note on gpu_single for what was measured and how.
-      disk_size      = 100
+      # On the launch template, not disk_size.
+      #
+      # disk_size was set here first and terraform reported no change at all: this module overrides it to
+      # null whenever a custom launch template is in play, which is the default --
+      #
+      #   disk_size = var.use_custom_launch_template ? null : var.disk_size
+      #     # if using a custom LT, set disk size on custom LT or else it will error here
+      #
+      # so the value sat in this file, passed a unit test that read this file, and never reached a node. The
+      # cluster kept the AMI default of 20 GiB and the engine kept being evicted. A setting the tooling
+      # silently discards is the same defect as a guard whose condition can never be true.
+      block_device_mappings = {
+        root = {
+          device_name = "/dev/xvda"
+          ebs = {
+            volume_size           = 100
+            volume_type           = "gp3"
+            encrypted             = true
+            delete_on_termination = true
+          }
+        }
+      }
       subnet_ids     = local.gpu_subnets
       instance_types = [var.gpu_node_instance_type]
       # On-Demand rather than Spot. A reclaimed Spot node mid-run does not fail the experiment cleanly -- it
@@ -220,7 +241,28 @@ module "eks" {
       # So the image alone does not fit in 20 GiB. 100 GiB covers the worst reading of all three plus room
       # for two image versions coexisting during a rollout, and gp3 in Seoul is about $0.0125/hour for it --
       # under ten cents for a six-hour session, against a card that costs thirty times that per hour.
-      disk_size      = 100
+      # On the launch template, not disk_size.
+      #
+      # disk_size was set here first and terraform reported no change at all: this module overrides it to
+      # null whenever a custom launch template is in play, which is the default --
+      #
+      #   disk_size = var.use_custom_launch_template ? null : var.disk_size
+      #     # if using a custom LT, set disk size on custom LT or else it will error here
+      #
+      # so the value sat in this file, passed a unit test that read this file, and never reached a node. The
+      # cluster kept the AMI default of 20 GiB and the engine kept being evicted. A setting the tooling
+      # silently discards is the same defect as a guard whose condition can never be true.
+      block_device_mappings = {
+        root = {
+          device_name = "/dev/xvda"
+          ebs = {
+            volume_size           = 100
+            volume_type           = "gp3"
+            encrypted             = true
+            delete_on_termination = true
+          }
+        }
+      }
       subnet_ids     = local.gpu_single_subnets
       instance_types = [var.gpu_single_node_instance_type]
 
@@ -288,7 +330,28 @@ module "eks" {
 
       # Same 100 GiB as gpu_single, and for the same measured reason: the vLLM image alone exceeds the 20 GiB
       # EKS default. See the note on gpu_single for what was measured and how.
-      disk_size      = 100
+      # On the launch template, not disk_size.
+      #
+      # disk_size was set here first and terraform reported no change at all: this module overrides it to
+      # null whenever a custom launch template is in play, which is the default --
+      #
+      #   disk_size = var.use_custom_launch_template ? null : var.disk_size
+      #     # if using a custom LT, set disk size on custom LT or else it will error here
+      #
+      # so the value sat in this file, passed a unit test that read this file, and never reached a node. The
+      # cluster kept the AMI default of 20 GiB and the engine kept being evicted. A setting the tooling
+      # silently discards is the same defect as a guard whose condition can never be true.
+      block_device_mappings = {
+        root = {
+          device_name = "/dev/xvda"
+          ebs = {
+            volume_size           = 100
+            volume_type           = "gp3"
+            encrypted             = true
+            delete_on_termination = true
+          }
+        }
+      }
       subnet_ids     = local.gpu_shared_subnets
       instance_types = [var.gpu_shared_node_instance_type]
 
