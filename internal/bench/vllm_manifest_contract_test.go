@@ -826,3 +826,34 @@ func TestTheKueueCRDDirectoryHoldsOnlyCRDs(t *testing.T) {
 		t.Errorf("config/kueue-crds holds %d manifests, want the 4 Kueue definitions the operator's field index requires", seen)
 	}
 }
+
+// TestTheDevicePluginDoesNotNameDeviceIndices keeps a manifest from depending on which card it lands on.
+//
+// The daemonset set NVIDIA_VISIBLE_DEVICES to "0,1". The queuelab node is a g4dn.12xlarge with four cards,
+// so both indices exist there; g5.xlarge has one A10G, so index 1 does not, and the NVIDIA container
+// runtime refuses to create the container at all:
+//
+//	failed to generate CDI spec for mode "auto": failed to construct device spec generators:
+//	failed to get device handle from index: Invalid Argument
+//
+// The plugin CrashLoopBackOff'd, nvidia.com/gpu was never advertised, and the paid session refused after the
+// card had been billing for ten minutes -- with a message that said the device plugin was not working and
+// could not say why.
+//
+// A device plugin advertises whatever the node has, so an index list is the wrong shape on every node, not
+// just the ones where it happens to be short. This is the same defect as a Region or a node group name
+// written into one file: a value that depends on the machine, carried by hand.
+func TestTheDevicePluginDoesNotNameDeviceIndices(t *testing.T) {
+	body := readRepoFile(t, "config/nvidia-device-plugin/daemonset.yaml")
+
+	m := regexp.MustCompile(`(?m)^\s*-\s*name:\s*NVIDIA_VISIBLE_DEVICES\s*\n\s*value:\s*"([^"]*)"`).FindStringSubmatch(body)
+	if m == nil {
+		t.Fatal("config/nvidia-device-plugin/daemonset.yaml does not set NVIDIA_VISIBLE_DEVICES in the expected form")
+	}
+	switch m[1] {
+	case "all", "void":
+		// all: advertise whatever the node has. void: no injection at all.
+	default:
+		t.Errorf("NVIDIA_VISIBLE_DEVICES is %q; naming devices ties this manifest to one instance type, and the runtime refuses to start the container on any node that has fewer", m[1])
+	}
+}
