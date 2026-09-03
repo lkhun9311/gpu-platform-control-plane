@@ -448,7 +448,19 @@ func loadArmEvidence(rawFiles []string) (*armEvidence, error) {
 		e.repP99[arm] = append(e.repP99[arm], rs.TTFTMsP99)
 		e.repTail[arm] = append(e.repTail[arm], rs.TailSampleSize)
 		e.repRows[arm] = append(e.repRows[arm], len(rows))
+		// Every repetition's checksum, not the last one's.
+		//
+		// This assigned, so loadArmEvidence kept only whichever file it read last and a repetition replayed
+		// from a different trace was invisible to refuseIfTracesDisagree -- the one check whose entire job is
+		// to prove the arms saw identical traffic. The trigger is a workflow this runner endorses: re-running
+		// one botched arm into the same output directory.
+		if prev, ok := e.checksum[arm]; ok && prev != rows[0].TraceChecksum {
+			return nil, fmt.Errorf("arm %s has repetitions replayed from different traces (%s and %s); its rows are pooled into one summary, so mixing them compares an arm against itself across two workloads", arm, prev, rows[0].TraceChecksum)
+		}
 		e.checksum[arm] = rows[0].TraceChecksum
+		if prev, ok := e.tolerance[arm]; ok && prev != rows[0].MatchTolerance {
+			return nil, fmt.Errorf("arm %s has repetitions carrying different admission-match tolerances (%v and %v); the pre-registered tolerance cannot be two values", arm, prev, rows[0].MatchTolerance)
+		}
 		e.tolerance[arm] = rows[0].MatchTolerance
 	}
 	return e, nil
