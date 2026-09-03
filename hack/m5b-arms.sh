@@ -79,8 +79,15 @@ ARMS_ORDER="R1 off static-cap kv-aware"
 STATIC_RATE=8000
 STATIC_BURST=30000
 # The C pilot's admitted fraction of eligible offered tokens, the target arm B is matched to.
+#
+# Provisional, and the tolerance says so. The pilot measured 0.8456 over standard-noisy alone, because its
+# two probe tenants were refused with 403 before admission and are excluded from the population entirely.
+# The simulation scores the population a CORRECTLY configured run will have, which includes the probes above
+# the threshold -- so the two fractions are over different populations and the agreement between them is an
+# estimate, not a match. The real admission-match check is |B-C|/C on the run's own evidence, where both
+# terms are measured over the same rows; this is only a pre-flight that stops a bucket which is off by half.
 PILOT_ADMITTED_FRACTION=0.8456
-PILOT_MATCH_TOLERANCE=0.02
+PILOT_MATCH_TOLERANCE=0.10
 
 # For ttl_remaining_minutes: this script spends the money in a shell that never armed the deadline.
 . "$(dirname "$0")/lib/gpu-ttl.sh"
@@ -412,7 +419,9 @@ say "every tenant in the trace has a key and a policy"
 max_est=$(python3 -c "
 import json,sys,math
 print(max(math.ceil(json.loads(l)['promptLenChars'] / 4) for l in open(sys.argv[1]) if l.strip()))" "$OUT/trace.jsonl")
-if [ "$max_est" -ge "$STATIC_BURST" ]; then
+# Strictly greater, matching the admitter: it refuses permanently on EstInputTokens > burst, so a prompt
+# exactly equal to the burst is admissible from a full bucket and this must not reject that configuration.
+if [ "$max_est" -gt "$STATIC_BURST" ]; then
   fail "the largest prompt in the trace estimates at $max_est tokens and STATIC_BURST is $STATIC_BURST. A request larger than the burst can never fit the bucket, so arm B would refuse every one of them with 413 and admit nothing -- the exact degenerate arm the 2026-09-03 run produced. Raise STATIC_BURST above $max_est or shrink the noisy prompt."
 fi
 say "arm B tuning: $STATIC_RATE tok/s, burst $STATIC_BURST, against a largest prompt of $max_est tokens"
