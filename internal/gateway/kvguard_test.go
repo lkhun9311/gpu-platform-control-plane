@@ -1067,3 +1067,35 @@ var _ = Describe("why the kv-aware guard admitted a request", func() {
 		Expect(reason).To(Equal(reasonKVCachePressure))
 	})
 })
+
+// What the guard SAW, not only what it decided.
+//
+// A request now records why it was admitted, which separates a guard that was blind from one that saw a calm
+// backend. It does not say how calm. "not_engaged" is the same string whether the cache was at 0.10 and the
+// load never pressured the engine, or at 0.83 against a threshold of 0.85 -- and those call for opposite
+// conclusions: the first says the experiment failed to create the condition it is testing, the second says
+// the threshold is set past where the damage happens.
+//
+// C/R1 came back at 83.747 in the last paid run with the guard rejecting 15.3% of eligible traffic, and the
+// evidence cannot distinguish those two explanations. That is the question the pilot exists to answer, so
+// the numbers the decision was made on travel with the request that made it.
+var _ = Describe("the pressure the guard was looking at", func() {
+	backend := &BackendRef{Namespace: "saw-ns", Name: "saw-backend"}
+
+	It("reports the snapshot the decision used", func() {
+		a := newKVAwareAdmitter(managerWithSnapshot(backendKey(backend),
+			&backendSnapshot{engaged: false, fresh: true, cacheUsage: 0.83, waiting: 7}), 4096)
+		state, ok := a.Observed(backend)
+		Expect(ok).To(BeTrue())
+		Expect(state.CacheUsage).To(BeNumerically("~", 0.83, 1e-9))
+		Expect(state.Waiting).To(Equal(7))
+		Expect(state.Engaged).To(BeFalse())
+		Expect(state.Fresh).To(BeTrue())
+	})
+
+	It("says it has nothing rather than reporting zeros for a backend it never scraped", func() {
+		a := newKVAwareAdmitter(newScraperManager(scraperConfig{clock: time.Now}), 4096)
+		_, ok := a.Observed(backend)
+		Expect(ok).To(BeFalse())
+	})
+})

@@ -46,6 +46,11 @@ const ModelNameIndex = ".spec.model.name"
 type Server struct {
 	// Client reads InferenceDeployment, GPUQuotaPolicy, and the api-keys Secret from the scoped cache.
 	Client client.Client
+	// reportBackendState makes a response carry the pressure reading its admission decision was made from.
+	//
+	// The benchmark needs it: "not_engaged" at a cache usage of 0.10 and at 0.83 against a 0.85 threshold are
+	// the same string and opposite conclusions. Nobody else does, so it defaults off.
+	reportBackendState bool
 	// Namespace and APIKeySecret locate the api-keys Secret used to resolve tenants.
 	Namespace    string
 	APIKeySecret string
@@ -140,6 +145,12 @@ func (s *Server) InitRateLimiter() { s.buckets = newBucketRegistry() }
 // Why this method exists (mirrors InitRateLimiter above): admitter is unexported, so cmd/gateway/main.go cannot populate it via a struct literal.
 //
 // mode travels through the same call so the two can never drift out of step with each other.
+// ReportBackendState turns the X-Backend-State header on or off.
+//
+// Off by default and turned on only by the benchmark: a deployment serving real tenants has no reason to
+// tell a caller how full its KV cache is.
+func (s *Server) ReportBackendState(on bool) { s.reportBackendState = on }
+
 func (s *Server) SetAdmitter(mode AdmissionMode, a Admitter) {
 	s.mode = mode
 	s.admitter = a
@@ -181,7 +192,26 @@ func (s *Server) readyz(w http.ResponseWriter, _ *http.Request) {
 const (
 	HeaderAdmissionTier   = "X-Admission-Tier"
 	HeaderAdmissionReason = "X-Admission-Reason"
+	// HeaderBackendState carries the pressure reading a pressure-driven admission control decided on.
+	//
+	// Off by default: backend occupancy is not a caller's business. The benchmark turns it on because the
+	// question it exists to answer -- whether the guard saw the pressure and let it through, or never saw
+	// pressure at all -- cannot be read from the decision alone.
+	HeaderBackendState = "X-Backend-State"
 )
+
+// formatBackendState renders a snapshot compactly enough to sit in a header and parse without ambiguity.
+func formatBackendState(st BackendState) string {
+	return fmt.Sprintf("kv=%.3f,waiting=%d,engaged=%d,fresh=%d",
+		st.CacheUsage, st.Waiting, boolToDigit(st.Engaged), boolToDigit(st.Fresh))
+}
+
+func boolToDigit(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
+}
 
 func (s *Server) fail(w http.ResponseWriter, tenant, model string, code int) {
 	requests.WithLabelValues(tenant, model, strconv.Itoa(code)).Inc()
@@ -428,6 +458,17 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 	// arm C's name, reporting as a clean scientific FAIL with nothing in the evidence to say otherwise.
 	if reason != "" {
 		w.Header().Set(HeaderAdmissionReason, reason)
+	}
+	// The numbers the decision was made from, when the operator asked for them and the mode has any.
+	if s.reportBackendState {
+		if obs, ok := admitter.(admissionObserver); ok {
+			for _, b := range targets {
+				if st, has := obs.Observed(b); has {
+					w.Header().Set(HeaderBackendState, formatBackendState(st))
+					break
+				}
+			}
+		}
 	}
 	// Recorded for every request, admitted or not, so the admit rate and admitted-vs-offered token fraction can both be read straight off these two series without diffing against requests_total.
 	admissionDecisions.WithLabelValues(string(mode), tenant, meta.Model, decision, reason).Inc()

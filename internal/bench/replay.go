@@ -78,6 +78,13 @@ type RawRow struct {
 	// prompt length, and this is measured on every admitted request, so a disagreement means the trace was
 	// stamped against a different tokenizer or a different prompt than the one that ran.
 	EngineInputTokens int `json:"engineInputTokens,omitempty"`
+	// BackendState is the pressure reading the guard's decision was made from, verbatim as the gateway
+	// reported it: "kv=0.834,waiting=7,engaged=0,fresh=1".
+	//
+	// Kept as the gateway's own string rather than parsed into fields here, so the evidence records what was
+	// said rather than this package's reading of it, and a format change shows up as an unparseable value
+	// instead of silently becoming zeros.
+	BackendState string `json:"backendState,omitempty"`
 	// Tier and AdmissionReason are what the GATEWAY decided, read off its response rather than assumed here.
 	//
 	// AdmissionReason is recorded for admits as well as refusals, because arm C admits for four different
@@ -126,6 +133,8 @@ type SendResult struct {
 	OutputTokens int
 	// PromptTokens is the engine's own count of the prompt, zero when it reported none.
 	PromptTokens int
+	// BackendState is the gateway's report of the pressure its decision used, empty when it reported none.
+	BackendState string
 	// HTTPStatus is the response status; 0 for a transport error or timeout.
 	HTTPStatus int
 	// ErrorKind names the failure, empty on success.
@@ -211,6 +220,7 @@ func Replay(ctx context.Context, sender Sender, trace []TraceRow, opts ReplayOpt
 				EstInputTokens:      estInput(tr.PromptLenChars),
 				ExactInputTokens:    tr.ExactInputTokens,
 				EngineInputTokens:   res.PromptTokens,
+				BackendState:        res.BackendState,
 				OutputTokens:        res.OutputTokens,
 				HTTPStatus:          res.HTTPStatus,
 				ErrorKind:           res.ErrorKind,

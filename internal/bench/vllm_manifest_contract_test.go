@@ -1211,3 +1211,34 @@ func TestTheTraceIsStampedWithExactTokens(t *testing.T) {
 		t.Error("the trace is stamped after the arms run, so the rows they replayed carried no measured count")
 	}
 }
+
+// TestTheGuardArmRecordsWhatItSaw keeps the one arm under test from running blind to its own inputs.
+//
+// A request records WHY it was admitted, which separates a guard that could not see from one that saw a calm
+// backend. It does not record how calm. "not_engaged" at a cache usage of 0.10 and at 0.83 against a 0.85
+// threshold are the same string and opposite conclusions: the first says the load never created the pressure
+// the experiment is about, the second says the threshold sits past where the damage happens.
+//
+// The last paid run returned C/R1 = 83.747 with the guard refusing 15.3 percent of eligible traffic, and its
+// evidence cannot tell those apart. That is the question the next run exists to answer, so the arm that has
+// a pressure reading has to record it.
+func TestTheGuardArmRecordsWhatItSaw(t *testing.T) {
+	runner, err := os.ReadFile(filepath.Join("..", "..", "hack", "m5b-arms.sh"))
+	if err != nil {
+		t.Fatalf("read runner: %v", err)
+	}
+	line := regexp.MustCompile(`(?m)^\s*kv-aware\)\s+deploy_gateway kv-aware .*$`).Find(runner)
+	if line == nil {
+		t.Fatal("no kv-aware deployment line in hack/m5b-arms.sh")
+	}
+	if !strings.Contains(string(line), "-admission-report-backend-state") {
+		t.Errorf("the kv-aware arm does not report the pressure its decisions were made from:\n  %s\nwithout it a run that fails to protect the tail cannot say whether the guard saw the pressure and let it through, or never saw pressure at all", strings.TrimSpace(string(line)))
+	}
+	// The other arms observe nothing, so asking them to report it would only add a header they cannot fill.
+	for _, arm := range []string{"R1|off", "static-cap"} {
+		other := regexp.MustCompile(`(?m)^\s*` + arm + `\)\s+deploy_gateway .*$`).Find(runner)
+		if other != nil && strings.Contains(string(other), "-admission-report-backend-state") {
+			t.Errorf("arm %s reports backend state it never reads", arm)
+		}
+	}
+}

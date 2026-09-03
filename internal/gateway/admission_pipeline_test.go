@@ -18,6 +18,7 @@ limitations under the License.
 package gateway
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -319,3 +320,65 @@ var _ = Describe("the gateway reporting its own decisions", func() {
 	// reaches the response at all.
 
 })
+
+var _ = Describe("reporting the pressure a decision was made on", func() {
+	var up *httptest.Server
+
+	BeforeEach(func() {
+		up = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		}))
+	})
+	AfterEach(func() { up.Close() })
+
+	// Backend occupancy is not a caller's business, so it travels only when the operator asks for it. The
+	// benchmark asks; a deployment serving real tenants does not.
+	It("says nothing unless the gateway was told to report it", func() {
+		s := newAdmissionServer(up.URL, tierStandard, AdmissionOff, offAdmitter{})
+		rr := httptest.NewRecorder()
+		s.Handler().ServeHTTP(rr, authedRequest(eligibleLongBody))
+		Expect(rr.Header().Get(HeaderBackendState)).To(BeEmpty())
+	})
+
+	It("reports nothing for an admission mode that observes nothing", func() {
+		s := newAdmissionServer(up.URL, tierStandard, AdmissionOff, offAdmitter{})
+		s.ReportBackendState(true)
+		rr := httptest.NewRecorder()
+		s.Handler().ServeHTTP(rr, authedRequest(eligibleLongBody))
+		Expect(rr.Code).To(Equal(http.StatusOK))
+		Expect(rr.Header().Get(HeaderBackendState)).To(BeEmpty())
+	})
+
+	// The emission itself, not only the formatting. An earlier version of this block checked the two
+	// negative cases and the formatter, so deleting the code that sets the header left every spec green --
+	// a guard that could not fire, in the file whose subject is guards that cannot fire.
+	//
+	// The stub observes without scraping, which is what lets a Server exercise the path: a real kv-aware
+	// admitter would start a scraper against a backend that does not exist.
+	It("reports the snapshot the decision was made from", func() {
+		s := newAdmissionServer(up.URL, tierStandard, AdmissionKVAware,
+			observingAdmitter{state: BackendState{CacheUsage: 0.83, Waiting: 7, Fresh: true}})
+		s.ReportBackendState(true)
+		rr := httptest.NewRecorder()
+		s.Handler().ServeHTTP(rr, authedRequest(eligibleLongBody))
+		Expect(rr.Code).To(Equal(http.StatusOK))
+		Expect(rr.Header().Get(HeaderBackendState)).To(Equal("kv=0.830,waiting=7,engaged=0,fresh=1"))
+	})
+
+	It("formats the snapshot so a replay can record it as numbers", func() {
+		Expect(formatBackendState(BackendState{CacheUsage: 0.8342, Waiting: 7, Engaged: false, Fresh: true})).
+			To(Equal("kv=0.834,waiting=7,engaged=0,fresh=1"))
+		Expect(formatBackendState(BackendState{CacheUsage: 0.91, Waiting: 0, Engaged: true, Fresh: true})).
+			To(Equal("kv=0.910,waiting=0,engaged=1,fresh=1"))
+	})
+})
+
+// observingAdmitter admits everything and reports a fixed snapshot, so a Server can exercise the reporting
+// path without a scraper.
+type observingAdmitter struct{ state BackendState }
+
+func (o observingAdmitter) Admit(context.Context, RequestMeta, *BackendRef, string, string) (bool, string) {
+	return true, reasonNotEngaged
+}
+
+func (o observingAdmitter) Observed(*BackendRef) (BackendState, bool) { return o.state, true }

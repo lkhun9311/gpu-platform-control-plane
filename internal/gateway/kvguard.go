@@ -814,6 +814,23 @@ func (a *kvAwareAdmitter) Admit(_ context.Context, meta RequestMeta, backend *Ba
 	return true, reasonBelowThreshold
 }
 
+// Observed reports the snapshot this admitter would decide on for backend, or false if it has none.
+//
+// It reads the same published snapshot Admit does, so the numbers a request records are the numbers its own
+// decision was made from rather than a second sample taken afterwards.
+func (a *kvAwareAdmitter) Observed(backend *BackendRef) (BackendState, bool) {
+	snap, ok := a.manager.snapshotFor(backendKey(backend))
+	if !ok {
+		return BackendState{}, false
+	}
+	return BackendState{
+		CacheUsage: snap.cacheUsage,
+		Waiting:    snap.waiting,
+		Engaged:    snap.engaged,
+		Fresh:      snap.fresh,
+	}, true
+}
+
 // KVAwareConfig configures the kv-aware admission mode's thresholds and scraper.
 //
 // Design rationale (design spec Config and API section, "Wire mode + flags"): the real

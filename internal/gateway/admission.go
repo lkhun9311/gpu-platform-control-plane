@@ -54,10 +54,38 @@ const (
 //
 // The request path runs Admit inline while holding the client's connection open, so any I/O here would turn a per-request decision into a per-request network call, defeating the point of a synchronous guard.
 type Admitter interface {
-	// Admit returns (true, "") to admit, or (false, reason) to reject with a 429.
+	// Admit returns whether the request may proceed, and a stable machine-readable reason either way.
 	//
-	// reason is empty on admission and a stable machine-readable string on rejection, reported as the JSON error body's "code" field.
+	// The reason is reported on both outcomes, not only refusals: arm C admits for four different reasons and
+	// two of them mean the guard was bypassed rather than satisfied. On a refusal it is also the JSON error
+	// body's "code" field. This comment used to promise an empty reason on admission, which is what the code
+	// did and what made a blind guard indistinguishable from a working one.
 	Admit(ctx context.Context, meta RequestMeta, backend *BackendRef, tenant, tier string) (bool, string)
+}
+
+// BackendState is what a pressure-driven admission control was looking at when it decided.
+//
+// The reason a request was admitted says whether the guard was engaged; this says how close it was. Those
+// are different questions with opposite answers: "not_engaged" at a cache usage of 0.10 means the load never
+// pressured the engine and the experiment failed to create the condition it is testing, while "not_engaged"
+// at 0.83 against a threshold of 0.85 means the threshold sits past where the damage happens. The last paid
+// run cannot tell them apart, and that is the question its successor exists to answer.
+type BackendState struct {
+	// CacheUsage is the KV-cache occupancy the guard read, from 0 to 1.
+	CacheUsage float64
+	// Waiting is the engine's queue depth.
+	Waiting int
+	// Engaged is whether the pressure state machine had tripped.
+	Engaged bool
+	// Fresh is whether the reading was recent enough to act on; when false the guard bypasses itself.
+	Fresh bool
+}
+
+// admissionObserver is implemented by an admitter whose decisions depend on observed backend state.
+//
+// Optional: off and static-cap observe nothing, and the server simply reports nothing for them.
+type admissionObserver interface {
+	Observed(backend *BackendRef) (BackendState, bool)
 }
 
 // tierAnnotation is the annotation key on GPUQuotaPolicy that opts a tenant into the premium tier.
