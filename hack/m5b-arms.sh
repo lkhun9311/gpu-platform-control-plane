@@ -17,8 +17,12 @@ export GOTOOLCHAIN=go1.26.0
 
 NS="${NS:-m5b}"
 KCTX="${KCTX:-$(kubectl config current-context 2>/dev/null)}"
-ENGINE=vllm-qwen25-3b
-MODEL="Qwen/Qwen2.5-3B-Instruct"
+# ENGINE and MODEL are read from the cluster further down, not set here.
+#
+# Both used to be assigned literals at this line and then overwritten by the cluster-derived values below,
+# so the literals were dead code that read as the authority -- the shape that has cost this project two paid
+# runs. Whatever the InferenceDeployment actually says is what the gateway routes on, so that is the only
+# answer worth having.
 # gpu-platform-gateway, not gateway: that is the repository this account actually has, and ECR does not
 # create one on push. The old default named a repository that has never existed anywhere.
 #
@@ -47,8 +51,38 @@ GW_IMAGE="${GW_IMAGE:-gpu-platform-gateway:m5b-$(date -u +%Y%m%d-%H%M%S)}"
 # tolerate, not a target anything argued for.
 REPS="${REPS:-4}"
 
-# The arm order the loop below walks, named once so the first-replay check can tell which arm is first.
+# How calm the engine must be before the next arm starts, and how long to wait for it.
+#
+# The usage bound is the guard's own release threshold: below it the guard considers the backend calm, so a
+# backend under it is one the next arm can be measured on without inheriting this one's pressure.
+WASHOUT_USAGE="${WASHOUT_USAGE:-0.75}"
+WASHOUT_TIMEOUT_S="${WASHOUT_TIMEOUT_S:-180}"
+
+# The arms, named once. The order they RUN in is rotated per block; see armsForBlock below.
 ARMS_ORDER="R1 off static-cap kv-aware"
+
+# armsForBlock prints the arm order for one repetition block, rotated so position is not confounded with arm.
+#
+# Every block used to run R1, off, static-cap, kv-aware in that order, so R1 was always measured first on a
+# cold engine and kv-aware always last on one that had been serving for an hour. Any drift over a block --
+# prefix cache filling, thermal behaviour, a Spot neighbour arriving -- lands on the arms in a fixed pattern
+# and is indistinguishable from the effect being measured. That is the confound, and no amount of extra
+# instrumentation removes it after the fact.
+#
+# A Latin square fixes it exactly: with four arms and four blocks, rotating by the block index puts each arm
+# in each position exactly once, so position effects cancel in the arm means instead of accumulating.
+#
+# It is worth saying what this does not fix. Order is balanced, not randomised, so a trend that happens to
+# align with the rotation still lands unevenly; and carry-over between adjacent arms is handled by the
+# washout below rather than by the square.
+armsForBlock() {
+  local block="$1" arms i n
+  read -r -a arms <<< "$ARMS_ORDER"
+  n=${#arms[@]}
+  for ((i = 0; i < n; i++)); do
+    printf '%s ' "${arms[$(((i + block - 1) % n))]}"
+  done
+}
 
 # Arm B's frozen tuning, in tokens -- which is what the flags measure and what the last run did not give them.
 #
@@ -253,6 +287,11 @@ k get ns "$NS" >/dev/null 2>&1 || fail "namespace $NS does not exist; run hack/m
 #
 # Reading it from the cluster is what makes it agree by construction: the router resolves a request by
 # matching this same field, so a name taken from anywhere else can drift from what will actually route.
+# The engine's own name, read from the same record the model name comes from.
+#
+# The washout polls this Service's /metrics, and the provenance step reads this Deployment's image digest.
+ENGINE=$(k get inferencedeployment -n "$NS" -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+[ -n "$ENGINE" ] || fail "no InferenceDeployment in $NS to read the engine name from; run hack/m5b-gpu-session.sh first"
 MODEL=$(k get inferencedeployment -n "$NS" -o jsonpath='{.items[0].spec.model.name}' 2>/dev/null)
 [ -n "$MODEL" ] || fail "no InferenceDeployment in $NS to read the served model from; run hack/m5b-gpu-session.sh first"
 say "model: $MODEL (read from the routing record the gateway matches on)"
@@ -437,9 +476,47 @@ say "arm B tuning: $STATIC_RATE tok/s, burst $STATIC_BURST, against a largest pr
   -target-admitted-fraction "$PILOT_ADMITTED_FRACTION" -tolerance "$PILOT_MATCH_TOLERANCE" \
   || fail "arm B's frozen tuning does not match the C pilot on this trace. Re-solve it with: benchharness sim-cap -trace $OUT/trace.jsonl -rate <r> -burst <b> -premium-tenants $premium_tenants"
 
+# washout waits until the engine has actually drained, and refuses to continue if it never does.
+#
+# Rotating the arm order removes the confound between arm and POSITION. It does nothing about carry-over:
+# the arm that runs after "off" starts against a KV cache that a thousand long prompts just filled, and a
+# guard measured on that backend is being measured on the previous arm's residue.
+#
+# Sleeping a fixed number of seconds would be the same assumption in a different costume. This reads the
+# engine's own counters -- the same series the guard scrapes -- and waits for the queue to empty and the
+# cache to fall below the level the guard treats as calm. A backend that never drains is a fact about the
+# run worth stopping for: whatever the next arm measured would be the tail of this one.
+ENGINE_PF_PID=""
+washout() {
+  local why="$1" deadline=$((SECONDS + WASHOUT_TIMEOUT_S)) usage waiting
+  if [ -z "$ENGINE_PF_PID" ] || ! kill -0 "$ENGINE_PF_PID" 2>/dev/null; then
+    k port-forward -n "$NS" "svc/$ENGINE" 18081:8000 >/dev/null 2>&1 &
+    ENGINE_PF_PID=$!
+    sleep 2
+  fi
+  while [ "$SECONDS" -lt "$deadline" ]; do
+    local body
+    body=$(curl -sf -m 5 "http://127.0.0.1:18081/metrics" 2>/dev/null) || { sleep 2; continue; }
+    waiting=$(printf '%s\n' "$body" | awk '/^vllm:num_requests_waiting/ {v=$NF} END {print (v==""?"":v)}')
+    usage=$(printf '%s\n' "$body" | awk '/^vllm:kv_cache_usage_perc/ {v=$NF} END {print v}')
+    [ -n "$usage" ] || usage=$(printf '%s\n' "$body" | awk '/^vllm:gpu_cache_usage_perc/ {v=$NF} END {print v}')
+    if [ -z "$waiting" ] || [ -z "$usage" ]; then
+      fail "the engine's /metrics carries neither a waiting-queue nor a cache-usage series, so a washout cannot be observed and every arm after the first would start on the previous one's residue"
+    fi
+    if awk -v w="$waiting" -v u="$usage" -v t="$WASHOUT_USAGE" 'BEGIN{exit !(w+0==0 && u+0<=t)}'; then
+      say "  washed out before $why (waiting 0, cache $usage <= $WASHOUT_USAGE)"
+      return 0
+    fi
+    sleep 3
+  done
+  fail "the engine did not drain within ${WASHOUT_TIMEOUT_S}s before $why (waiting=$waiting, cache=$usage). Whatever the next arm measured would be the previous arm's tail, so this stops rather than recording it as a result."
+}
+
 for rep in $(seq 1 "$REPS"); do
-  for arm in R1 off static-cap kv-aware; do
+  say "block $rep order: $(armsForBlock "$rep")"
+  for arm in $(armsForBlock "$rep"); do
     say "rep $rep arm $arm"
+    washout "rep $rep arm $arm"
     case "$arm" in
       R1|off)      deploy_gateway off "" ;;
       static-cap)  deploy_gateway static-cap ", \"-admission-static-rate=${STATIC_RATE}\", \"-admission-static-burst=${STATIC_BURST}\", \"-admission-long-threshold=4096\"" ;;
