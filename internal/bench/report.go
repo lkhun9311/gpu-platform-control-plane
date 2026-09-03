@@ -379,6 +379,12 @@ type CI struct {
 	// truncated run disarms the gate instead of tripping it. Making the zero value invalid by construction is
 	// what stops that, rather than relying on every caller to remember.
 	Valid bool
+
+	// InvalidReason says WHY there is no usable interval, because the two causes call for different actions.
+	//
+	// The gate reported "unequal or insufficient repetitions" for every invalid interval, so a run refused
+	// for scatter would have sent an operator to check repetition counts that were fine.
+	InvalidReason string
 }
 
 // BootstrapCI returns a percentile-bootstrap confidence interval for the mean of values.
@@ -460,6 +466,43 @@ func (c *Checks) invalidate(reason string) {
 	c.InvalidReason += reason
 }
 
+// MaxRatioScatter is the per-repetition coefficient of variation past which the incremental interval stops
+// meaning what it says.
+//
+// A percentile bootstrap over a handful of values is anti-conservative once those values spread out. Against
+// this package's own BootstrapCI at four repetitions, a true ratio of 1.00 -- no effect at all -- clears the
+// pre-registered gate 10.2 percent of the time at a coefficient of variation of 0.20, and 1.8 percent at
+// 0.10, against a nominal 5. The bound sits between them.
+//
+// The 2026-09-03 pilot measured 0.001 for the contended arms and 0.056 for the isolation-like ones, so this
+// is not expected to bind. It exists because the failure mode is a gate that PASSES when it should not, and
+// a run is not entitled to assume its variability stayed where the pilot's was. Reproduce the numbers with
+// "benchharness power".
+const MaxRatioScatter = 0.15
+
+// RatioScatterTooHigh reports whether per-repetition ratios are too scattered for their bootstrap interval
+// to be read as a 95 percent bound.
+//
+// Fewer than two values have no scatter to measure, and their interval is already invalid for that reason.
+func RatioScatterTooHigh(ratios []float64) bool {
+	if len(ratios) < 2 {
+		return false
+	}
+	mean := 0.0
+	for _, r := range ratios {
+		mean += r
+	}
+	mean /= float64(len(ratios))
+	if mean <= 0 {
+		return false
+	}
+	ss := 0.0
+	for _, r := range ratios {
+		ss += (r - mean) * (r - mean)
+	}
+	return math.Sqrt(ss/float64(len(ratios)-1))/mean > MaxRatioScatter
+}
+
 // MaxLostAdmissionFraction is the share of the eligible population whose admission verdict may go missing
 // before the admitted-work fraction stops describing the population it claims to.
 //
@@ -531,7 +574,11 @@ func EvaluateChecks(r1, staticCap, kvAware ArmSummary, incrementalCI CI, matchTo
 	// An absent interval fails the gate rather than satisfying it. See the comment on CI.Valid.
 	c.IncrementalValuePass = c.IncrementalRatio <= 0.90 && incrementalCI.Valid && incrementalCI.Hi < 1.0
 	if !incrementalCI.Valid {
-		c.invalidate("no incremental confidence interval was computed (unequal or insufficient repetitions), so the incremental-value check cannot be evaluated")
+		why := incrementalCI.InvalidReason
+		if why == "" {
+			why = "unequal or insufficient repetitions"
+		}
+		c.invalidate("the incremental-value check has no usable confidence interval (" + why + "), so it cannot be evaluated")
 	}
 
 	wB := admittedWorkFraction(staticCap)
