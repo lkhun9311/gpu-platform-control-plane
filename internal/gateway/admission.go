@@ -138,6 +138,15 @@ type staticCapAdmitter struct {
 
 	// mu guards limiters against concurrent access, mirroring bucketRegistry in ratelimit.go.
 	mu sync.Mutex
+	// now reads the clock, and is replaced only by the offline simulation the design spec's Arm B tuning
+	// procedure calls for.
+	//
+	// The procedure asks for the static bucket to be simulated against a pilot's arrival trace and the rate
+	// frozen before the confirmatory run. Without a seam here that simulation cannot use this code, and a
+	// reimplementation of a token bucket beside the real one would be a second copy to keep in step -- the
+	// shape that has already cost this project two paid runs. Production never sets it.
+	now func() time.Time
+
 	// limiters maps a backend key (namespace/name) to that backend's bucket.
 	//
 	// Design rationale (design spec Arm B section, "Per backend / KV pool (not global)"): a single global bucket would let contention on one backend throttle traffic to an unrelated one, which is not what the guard is meant to measure or protect.
@@ -152,6 +161,7 @@ func newStaticCapAdmitter(tokensPerSec float64, burst int, longThreshold int) *s
 		rate:          tokensPerSec,
 		burst:         burst,
 		longThreshold: longThreshold,
+		now:           time.Now,
 		limiters:      make(map[string]*rate.Limiter),
 	}
 }
@@ -195,7 +205,7 @@ func (a *staticCapAdmitter) Admit(_ context.Context, meta RequestMeta, backend *
 
 	limiter := a.limiterFor(backendKey(backend))
 	// Consume meta.EstInputTokens tokens rather than one, so cost tracks offered input volume rather than request count.
-	if limiter.AllowN(time.Now(), meta.EstInputTokens) {
+	if limiter.AllowN(a.now(), meta.EstInputTokens) {
 		return true, ""
 	}
 	return false, reasonInputRateLimit
@@ -206,4 +216,17 @@ func (a *staticCapAdmitter) Admit(_ context.Context, meta RequestMeta, backend *
 // Why an exported wrapper: staticCapAdmitter is unexported, so cmd/gateway/main.go needs this to assemble one from its own admission-mode flags.
 func NewStaticCapAdmitter(tokensPerSec float64, burst int, longThreshold int) Admitter {
 	return newStaticCapAdmitter(tokensPerSec, burst, longThreshold)
+}
+
+// NewStaticCapAdmitterAtClock is NewStaticCapAdmitter driven by a caller's clock instead of the wall clock.
+//
+// It exists for the design spec's Arm B tuning procedure, which asks for the bucket to be simulated against a
+// pilot's arrival trace and the rate frozen before the confirmatory run. Replaying a ten-minute trace in
+// milliseconds needs the arrival timestamps to be the clock, and running the real admitter against them is
+// what keeps the frozen number honest: a separate simulator would be a second token bucket to keep in step
+// with this one, and every defect this experiment has produced so far has been a value two places held apart.
+func NewStaticCapAdmitterAtClock(tokensPerSec float64, burst int, longThreshold int, now func() time.Time) Admitter {
+	a := newStaticCapAdmitter(tokensPerSec, burst, longThreshold)
+	a.now = now
+	return a
 }

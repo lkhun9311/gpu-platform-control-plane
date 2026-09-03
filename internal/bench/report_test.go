@@ -406,3 +406,24 @@ var _ = Describe("a threshold probe the gateway never evaluated", func() {
 		Expect(out).NotTo(ContainSubstring("VOID"))
 	})
 })
+
+var _ = Describe("admitted work when a request never reached admission", func() {
+	// The 413 fix put neverEvaluated into the probe tally and not into the admitted-work block directly above
+	// it, which is the same defect the fix was for, committed inside the fix. A 403 is not 429 and not 413, so
+	// shedByAdmission says false and the row was counted as work the guard admitted. In the paid run the
+	// probes estimate at 4,096 tokens against a 4,096 threshold, so all 180 of them per arm landed in the
+	// eligible population -- and static-cap, which admitted nothing at all, scored 737,280 admitted tokens.
+	//
+	// A request the gateway turned away on credentials is not admitted work and not offered work either: it
+	// is outside the population the guard was measured on, because the guard never saw it.
+	It("is neither offered nor admitted", func() {
+		rows := []RawRow{
+			completedRow(1, 10, 8000),
+			{Index: 2, SendUnixNanos: 1, Tenant: thresholdProbePrefix + "over", EstInputTokens: 4096, HTTPStatus: 403, ErrorKind: "http", LongThreshold: 4000},
+		}
+		rows[0].LongThreshold = 4000
+		s := Summarize("static-cap", rows)
+		Expect(s.OfferedInputTokens).To(Equal(int64(8000)))
+		Expect(s.AdmittedInputTokens).To(Equal(int64(8000)))
+	})
+})

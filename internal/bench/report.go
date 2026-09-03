@@ -187,8 +187,18 @@ func Summarize(arm string, rows []RawRow) ArmSummary {
 	var ttft, e2e []float64
 	var premiumTotal, premiumTimedOut, premiumLost int
 	for _, r := range rows {
-		// Admitted-work accounting covers the eligible population (the long requests the controls gate), for the admission-match check.
-		if r.EstInputTokens >= threshold {
+		// Admitted-work accounting covers the eligible population, for the admission-match check.
+		//
+		// The gateway's own rule is tier == standard AND EstInputTokens >= threshold; this reads only the
+		// threshold, because a RawRow does not record the tier the gateway resolved. Today the two agree,
+		// since the only premium tenant sends 50-token prompts and never reaches a 4,096 threshold. They
+		// would stop agreeing the moment a premium tenant sent a long prompt, and nothing here would notice.
+		//
+		// A request the gateway turned away before admission ran is outside that population entirely, in
+		// neither term of the fraction, because the guard never saw it. Counting it as offered-and-admitted
+		// scored 737,280 admitted tokens for an arm that admitted nothing: the paid run's probes estimate at
+		// exactly the 4,096 threshold, so all 180 of them per arm were eligible, and all 180 were 403.
+		if r.EstInputTokens >= threshold && !neverEvaluated(r) {
 			s.OfferedInputTokens += int64(r.EstInputTokens)
 			if !shedByAdmission(r) {
 				s.AdmittedInputTokens += int64(r.EstInputTokens)
