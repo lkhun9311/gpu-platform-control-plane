@@ -69,6 +69,18 @@ type RawRow struct {
 	//
 	// The report measures admitted-work over this same threshold, so if the paid run tuned it the report cannot silently score a different population than the guard gated.
 	LongThreshold int `json:"longThreshold,omitempty"`
+	// Tier and RejectReason are what the GATEWAY decided, read off its response rather than assumed here.
+	//
+	// Both were absent from the 2026-09-03 evidence and both had to be reconstructed months later from
+	// configuration the evidence did not contain. Tier decides membership of the eligible population -- the
+	// gateway gates on tier == standard AND the threshold, while a report with no tier could only read the
+	// threshold. RejectReason separates a bucket that is momentarily empty from a request larger than the
+	// bucket can ever hold, which is the difference between a tuning that is tight and one that is broken.
+	//
+	// Empty on evidence written before the gateway reported them, and every consumer treats empty as
+	// "not recorded" rather than as a value, so old runs keep scoring the way they did.
+	Tier         string `json:"tier,omitempty"`
+	RejectReason string `json:"rejectReason,omitempty"`
 	// MatchTolerance is the pre-registered admission-match tolerance, copied from the manifest.
 	//
 	// The report reads it from here rather than a CLI default, so the frozen tolerance cannot be loosened after the fact.
@@ -103,6 +115,12 @@ type SendResult struct {
 	HTTPStatus int
 	// ErrorKind names the failure, empty on success.
 	ErrorKind string
+	// Tier and RejectReason are what the gateway reported about its own admission decision.
+	//
+	// Empty against a gateway that does not report them, which is how evidence written before it did is
+	// distinguished from a gateway that decided "no tier".
+	Tier         string
+	RejectReason string
 }
 
 // Sender dispatches one request and reports its raw result.
@@ -179,6 +197,8 @@ func Replay(ctx context.Context, sender Sender, trace []TraceRow, opts ReplayOpt
 				OutputTokens:        res.OutputTokens,
 				HTTPStatus:          res.HTTPStatus,
 				ErrorKind:           res.ErrorKind,
+				Tier:                res.Tier,
+				RejectReason:        res.RejectReason,
 				TraceChecksum:       opts.TraceChecksum,
 				LongThreshold:       opts.LongThreshold,
 				MatchTolerance:      opts.MatchTolerance,

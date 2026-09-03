@@ -80,6 +80,14 @@ func isThresholdProbe(tenant string) bool { return strings.HasPrefix(tenant, thr
 //
 // Authentication and authorisation are decided ahead of admission, so a request refused there carries no
 // information about the guard: the threshold, the bucket, and the cap all never saw it.
+// eligibleTier reports whether the tier the gateway recorded admits this row to the gated population.
+func eligibleTier(r RawRow) bool {
+	return r.Tier == "" || r.Tier == tierStandard
+}
+
+// tierStandard is the gateway's name for the tier its admission controls gate.
+const tierStandard = "standard"
+
 func neverEvaluated(r RawRow) bool {
 	return r.HTTPStatus == httpStatusUnauthorized || r.HTTPStatus == httpStatusForbidden
 }
@@ -189,16 +197,18 @@ func Summarize(arm string, rows []RawRow) ArmSummary {
 	for _, r := range rows {
 		// Admitted-work accounting covers the eligible population, for the admission-match check.
 		//
-		// The gateway's own rule is tier == standard AND EstInputTokens >= threshold; this reads only the
-		// threshold, because a RawRow does not record the tier the gateway resolved. Today the two agree,
-		// since the only premium tenant sends 50-token prompts and never reaches a 4,096 threshold. They
-		// would stop agreeing the moment a premium tenant sent a long prompt, and nothing here would notice.
+		// The gateway gates on tier == standard AND EstInputTokens >= threshold, and this applies the same
+		// rule -- against the tier the gateway itself reported, not one inferred from a tenant name.
+		//
+		// A row with no tier predates the gateway reporting it and is scored on the threshold alone, as it
+		// always was. Treating "not recorded" as "not standard" would empty the eligible population of every
+		// run already on disk and silently rewrite its numbers.
 		//
 		// A request the gateway turned away before admission ran is outside that population entirely, in
 		// neither term of the fraction, because the guard never saw it. Counting it as offered-and-admitted
 		// scored 737,280 admitted tokens for an arm that admitted nothing: the paid run's probes estimate at
 		// exactly the 4,096 threshold, so all 180 of them per arm were eligible, and all 180 were 403.
-		if r.EstInputTokens >= threshold && !neverEvaluated(r) {
+		if r.EstInputTokens >= threshold && eligibleTier(r) && !neverEvaluated(r) {
 			s.OfferedInputTokens += int64(r.EstInputTokens)
 			if !shedByAdmission(r) {
 				s.AdmittedInputTokens += int64(r.EstInputTokens)

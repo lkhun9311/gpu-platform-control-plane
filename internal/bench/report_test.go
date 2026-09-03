@@ -427,3 +427,30 @@ var _ = Describe("admitted work when a request never reached admission", func() 
 		Expect(s.AdmittedInputTokens).To(Equal(int64(8000)))
 	})
 })
+
+var _ = Describe("the eligible population when the evidence records a tier", func() {
+	// The gateway's rule is tier == standard AND input over the threshold. Summarize read only the threshold,
+	// because a raw row had no tier to read, and the two agreed only because the paid run's sole premium
+	// tenant sent 50-token prompts against a 4,096 threshold. A premium tenant with a long prompt would have
+	// put premium tokens into both terms of the admission-match fraction, which is a comparison of how much
+	// STANDARD work each arm let through.
+	//
+	// Evidence written before the gateway reported its tier carries none, and must keep scoring the way it
+	// did -- otherwise fixing this would silently rewrite the numbers of every run already on disk.
+	row := func(tier string, est int) RawRow {
+		r := completedRow(1, 10, est)
+		r.Tier = tier
+		r.LongThreshold = 4000
+		return r
+	}
+
+	It("excludes a long premium request", func() {
+		s := Summarize("off", []RawRow{row("premium", 8000), row("standard", 8000)})
+		Expect(s.OfferedInputTokens).To(Equal(int64(8000)))
+	})
+
+	It("still counts a long request when the evidence predates the tier header", func() {
+		s := Summarize("off", []RawRow{row("", 8000)})
+		Expect(s.OfferedInputTokens).To(Equal(int64(8000)))
+	})
+})

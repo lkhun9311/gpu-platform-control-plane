@@ -173,6 +173,16 @@ func (s *Server) readyz(w http.ResponseWriter, _ *http.Request) {
 // The empty label records exactly that.
 //
 // The response body is the OpenAI-style JSON envelope from writeJSONError, not plaintext, so every gateway failure looks the same to a client regardless of which pipeline stage produced it.
+// HeaderAdmissionTier and HeaderAdmissionReason carry the gateway's own admission decision to the caller.
+//
+// They exist for the benchmark's evidence files, which recorded a status and nothing else: the tier the
+// gateway resolved and the reason it refused both had to be reconstructed afterwards from configuration that
+// the evidence did not contain. A header costs a few bytes on a response the caller is already receiving.
+const (
+	HeaderAdmissionTier   = "X-Admission-Tier"
+	HeaderAdmissionReason = "X-Admission-Reason"
+)
+
 func (s *Server) fail(w http.ResponseWriter, tenant, model string, code int) {
 	requests.WithLabelValues(tenant, model, strconv.Itoa(code)).Inc()
 	writeJSONError(w, code, http.StatusText(code))
@@ -380,6 +390,15 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 	//
 	// tier comes from the policy already fetched in step 3, not from the request, since tier is a property of the tenant's contract rather than something a caller can assert about itself.
 	tier := tierForPolicy(policy)
+	// The tier travels on the response so a replay's evidence records what the gateway decided rather than
+	// what the client assumed.
+	//
+	// The eligible population is tier == standard AND input over the threshold, and a raw row carried only
+	// the input estimate -- so the report scored the population on half the rule and agreed with the gateway
+	// by luck, the sole premium tenant happening to send prompts far below the threshold. Set before the
+	// admission stage, so a refused request carries it too: a request that was never admitted is exactly the
+	// one whose population membership decides whether the guard is being scored fairly.
+	w.Header().Set(HeaderAdmissionTier, tier)
 	admitter := s.admitter
 	if admitter == nil {
 		// SetAdmitter was never called, so behave exactly as if the guard did not exist.
@@ -409,6 +428,12 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 		// retry hint failReason attaches: a client obeying it would retry an arithmetically impossible request
 		// forever. 413 rather than 429 for the same reason — the caller's action is a smaller prompt, not a
 		// later one.
+		// The reason travels on the response for both refusals, including the 413, which does not go through
+		// failReason and so put its reason nowhere a client could record it.
+		//
+		// That is why the 1,788 refusals in the 2026-09-03 run had to be explained by reading the runner's
+		// flags and the gateway's defaults months later, instead of read off the evidence.
+		w.Header().Set(HeaderAdmissionReason, reason)
 		if reason == reasonInputExceedsBurst {
 			s.fail(w, tenant, meta.Model, http.StatusRequestEntityTooLarge)
 			return

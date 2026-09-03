@@ -308,3 +308,50 @@ var _ = Describe("HTTPSender", func() {
 		Expect(PoolSizeForTrace([]TraceRow{{Index: 0}}, 30*time.Second)).To(Equal(http.DefaultMaxIdleConnsPerHost))
 	})
 })
+
+var _ = Describe("the gateway's own decision in the evidence", func() {
+	// The 2026-09-03 run recorded a status and nothing else, so two analyses had to be reconstructed from
+	// configuration the evidence did not contain: which population a request belonged to (the gateway gates on
+	// tier AND input size, a raw row carried only input size) and why 1,788 requests were refused. The gateway
+	// now reports both on the response, and they are only useful if they survive into the raw row -- on the
+	// refusal path especially, which is exactly where they matter and exactly the path a streaming reader
+	// never touches.
+	send := func(h http.HandlerFunc) SendResult {
+		srv := httptest.NewServer(h)
+		defer srv.Close()
+		sender := NewHTTPSender(srv.URL, "m", nil, 5*time.Second, SenderConn{MaxIdleConnsPerHost: 8, DrainForReuse: true})
+		return sender.Send(context.Background(), TraceRow{Index: 1, PromptLenChars: 40, MaxOutputTokens: 4}, 1)
+	}
+
+	It("records the tier and the reason when the gateway refuses", func() {
+		res := send(func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("X-Admission-Tier", "standard")
+			w.Header().Set("X-Admission-Reason", "input_exceeds_burst")
+			w.WriteHeader(http.StatusRequestEntityTooLarge)
+		})
+		Expect(res.HTTPStatus).To(Equal(http.StatusRequestEntityTooLarge))
+		Expect(res.Tier).To(Equal("standard"))
+		Expect(res.RejectReason).To(Equal("input_exceeds_burst"))
+	})
+
+	It("records the tier when the gateway admits, and no reason", func() {
+		res := send(func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("X-Admission-Tier", "premium")
+			w.Header().Set("Content-Type", "text/event-stream")
+			f := w.(http.Flusher)
+			_, _ = fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"a\"}}]}\n\n")
+			f.Flush()
+			_, _ = fmt.Fprint(w, "data: [DONE]\n\n")
+			f.Flush()
+		})
+		Expect(res.HTTPStatus).To(Equal(http.StatusOK))
+		Expect(res.Tier).To(Equal("premium"))
+		Expect(res.RejectReason).To(BeEmpty())
+	})
+
+	It("leaves both empty against a gateway too old to report them", func() {
+		res := send(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusForbidden) })
+		Expect(res.Tier).To(BeEmpty())
+		Expect(res.RejectReason).To(BeEmpty())
+	})
+})
