@@ -903,3 +903,70 @@ func TestGPUNodeGroupsHoldTheEngine(t *testing.T) {
 		}
 	}
 }
+
+// TestEveryGeneratedTenantIsProvisioned pins the trace generator's tenant list to the paid run's tenant list.
+//
+// The two files have disagreed twice, and both times the run completed, reported, and passed its own checks.
+// The first paid run keyed two of the four tenants, so a quarter of every replay came back 401. The second
+// keyed all four but gave a GPUQuotaPolicy to only two, so the probe pair came back 403 and the report showed
+// their silence as "rejected=0" -- the absence of a measurement dressed as a result. Neither is visible from
+// inside either file; it takes reading both at once, which is what this does, without a cluster or a card.
+func TestEveryGeneratedTenantIsProvisioned(t *testing.T) {
+	genSrc, err := os.ReadFile("../../cmd/benchharness/main.go")
+	if err != nil {
+		t.Fatalf("read generator: %v", err)
+	}
+	// The generator names two tenants as literals and the probe pair through the constants below, so the
+	// constants are resolved here rather than matched as text.
+	generated := map[string]bool{ProbeUnderTenant: true, ProbeOverTenant: true}
+	for _, m := range regexp.MustCompile(`\{Tenant: "([^"]+)"`).FindAllSubmatch(genSrc, -1) {
+		generated[string(m[1])] = true
+	}
+	if len(generated) < 4 {
+		t.Fatalf("found only %d tenants in the generator; the pattern this test reads it with has drifted", len(generated))
+	}
+
+	runner, err := os.ReadFile("../../hack/m5b-arms.sh")
+	if err != nil {
+		t.Fatalf("read runner: %v", err)
+	}
+	block := regexp.MustCompile(`(?s)\nTENANTS=\((.*?)\n\)`).FindSubmatch(runner)
+	if block == nil {
+		t.Fatal("no TENANTS list in hack/m5b-arms.sh; the runner must name its tenants in one place")
+	}
+	provisioned := map[string]bool{}
+	for _, m := range regexp.MustCompile(`"([^":]+):([^":]+):([^"]*)"`).FindAllSubmatch(block[1], -1) {
+		provisioned[string(m[1])] = true
+	}
+
+	for tenant := range generated {
+		if !provisioned[tenant] {
+			t.Errorf("the trace generator emits tenant %q but hack/m5b-arms.sh gives it no key and no policy; every one of its requests would be refused before admission control and measure nothing", tenant)
+		}
+	}
+	for tenant := range provisioned {
+		if !generated[tenant] {
+			t.Errorf("hack/m5b-arms.sh provisions tenant %q that the trace generator never emits", tenant)
+		}
+	}
+}
+
+// TestTheRunnerDerivesItsApiKeysFromTheTenantList refuses a second hand-kept copy of the list.
+//
+// The check above compares the generator with TENANTS; it cannot see a --api-keys flag that was left behind
+// with its own literals, which is exactly the state the runner was in. A copy that agrees today is still the
+// shape that produced both failures.
+func TestTheRunnerDerivesItsApiKeysFromTheTenantList(t *testing.T) {
+	runner, err := os.ReadFile("../../hack/m5b-arms.sh")
+	if err != nil {
+		t.Fatalf("read runner: %v", err)
+	}
+	for _, line := range strings.Split(string(runner), "\n") {
+		if !strings.Contains(line, "--api-keys") {
+			continue
+		}
+		if strings.Contains(line, "=premium-key") || strings.Contains(line, "probe-over-key") {
+			t.Errorf("--api-keys spells its tenants out: %s\nderive it from TENANTS instead, so the list cannot be right in one place and stale in another", strings.TrimSpace(line))
+		}
+	}
+}

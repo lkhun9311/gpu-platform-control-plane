@@ -217,42 +217,59 @@ k get ns "$NS" >/dev/null 2>&1 || fail "namespace $NS does not exist; run hack/m
 MODEL=$(k get inferencedeployment -n "$NS" -o jsonpath='{.items[0].spec.model.name}' 2>/dev/null)
 [ -n "$MODEL" ] || fail "no InferenceDeployment in $NS to read the served model from; run hack/m5b-gpu-session.sh first"
 say "model: $MODEL (read from the routing record the gateway matches on)"
-# Four tenants, because the trace uses four.
+# One tenant list, because four hand-kept copies of it drifted twice.
 #
-# The secret carried two. gen-trace also emits standard-probe-over and standard-probe-under -- the pair that
-# measures where the eligibility threshold actually fires -- and the gateway answered 401 for every one of
-# them. In the first paid run that was 92 requests per replay rejected before they reached admission
-# control, which is the thing the probes exist to measure.
-k create secret generic gateway-api-keys -n "$NS" \
-  --from-literal=premium-key=premium-1 \
-  --from-literal=standard-key=standard-noisy \
-  --from-literal=probe-over-key=standard-probe-over \
-  --from-literal=probe-under-key=standard-probe-under --dry-run=client -o yaml | k apply -f - >/dev/null
-k apply -f - >/dev/null <<EOF || fail "apply policies"
-apiVersion: platform.lkhun9311.github.io/v1
-kind: GPUQuotaPolicy
-metadata:
-  name: m5b-premium
+# The trace generator names the tenants, and this list has to agree with it in three places at once: the API
+# key secret, the --api-keys flag the replay client authenticates with, and the GPUQuotaPolicy each tenant
+# needs to clear authorisation. The first paid run had two of the four in the secret, so a quarter of every
+# replay came back 401. The second had all four keyed but only two given a policy, so the two probe tenants
+# -- the ones that exist to measure where the eligibility threshold fires -- came back 403 and the report
+# presented their silence as "rejected=0". Both times the list was right in one place and wrong in another.
+#
+# Deriving all three from here removes the copies. The check after gen-trace is what makes the list binding
+# rather than merely central: a tenant the generator invents and this list has not heard of stops the run
+# before any card time is spent on it.
+#
+# Fields are tenant:key:tier, and an empty tier means the policy carries no tier annotation.
+TENANTS=(
+  "premium-1:premium-key:premium"
+  "standard-noisy:standard-key:"
+  "standard-probe-over:probe-over-key:"
+  "standard-probe-under:probe-under-key:"
+)
+
+secret_args=()
+api_keys=""
+policies=""
+for entry in "${TENANTS[@]}"; do
+  tenant="${entry%%:*}"; rest="${entry#*:}"; key="${rest%%:*}"; tier="${rest#*:}"
+  secret_args+=("--from-literal=$key=$tenant")
+  api_keys="${api_keys:+$api_keys,}$tenant=$key"
+  annotations=""
+  if [ -n "$tier" ]; then
+    annotations="
   annotations:
-    platform.lkhun9311.github.io/tier: premium
-spec:
-  tenant: premium-1
-  targetNamespace: $NS
-  gpuClass: t4
-  limits:
-    gpuCount: 1
+    platform.lkhun9311.github.io/tier: $tier"
+  fi
+  policies="$policies
 ---
 apiVersion: platform.lkhun9311.github.io/v1
 kind: GPUQuotaPolicy
 metadata:
-  name: m5b-standard
+  name: m5b-$tenant$annotations
 spec:
-  tenant: standard-noisy
+  tenant: $tenant
   targetNamespace: $NS
   gpuClass: t4
   limits:
-    gpuCount: 1
-EOF
+    gpuCount: 1"
+done
+
+k create secret generic gateway-api-keys -n "$NS" \
+  "${secret_args[@]}" --dry-run=client -o yaml | k apply -f - >/dev/null
+printf '%s\n' "$policies" | k apply -f - >/dev/null || fail "apply policies"
+say "identity for ${#TENANTS[@]} tenants: key and policy for each"
+
 k create serviceaccount gateway -n "$NS" --dry-run=client -o yaml | k apply -f - >/dev/null
 k create clusterrolebinding "m5b-gateway-role" --clusterrole=gateway-role \
   --serviceaccount="$NS:gateway" --dry-run=client -o yaml | k apply -f - >/dev/null
@@ -340,6 +357,19 @@ say "generate the shared trace once"
   --gateway-sha "$GW_SHA" --gateway-image "$GW_IMAGE" --engine-image "$ENGINE_IMAGE" \
   --trace-out "$OUT/trace.jsonl" --manifest-out "$OUT/manifest-off.yaml" || fail "gen-trace"
 
+# The trace is what actually names the tenants, so it is the authority the list above is checked against.
+#
+# Without this the list is just a fourth copy in a nicer shape. A generator that adds a tenant -- a third
+# probe, a second premium -- would hand it no key and no policy, and the run would record its 401s and 403s
+# as ordinary outcomes for three hours before the report said anything.
+missing=$(python3 -c "
+import json,sys
+known = set(sys.argv[2].split(','))
+seen = {json.loads(l)['tenant'] for l in open(sys.argv[1]) if l.strip()}
+print(','.join(sorted(seen - known)))" "$OUT/trace.jsonl" "$(printf '%s' "${TENANTS[*]}" | tr ' ' '\n' | cut -d: -f1 | paste -sd,)")
+[ -z "$missing" ] || fail "the trace uses tenants this script has no key or policy for: $missing. Add them to TENANTS in this file; a tenant without both is refused before admission and its requests measure nothing."
+say "every tenant in the trace has a key and a policy"
+
 for rep in $(seq 1 "$REPS"); do
   for arm in R1 off static-cap kv-aware; do
     say "rep $rep arm $arm"
@@ -379,7 +409,7 @@ for rep in $(seq 1 "$REPS"); do
     "$WORK/benchharness" replay --manifest "$OUT/manifest-$arm-$rep.yaml" \
       --require-provenance \
       --target "http://127.0.0.1:18080" \
-      --api-keys "premium-1=premium-key,standard-noisy=standard-key,standard-probe-over=probe-over-key,standard-probe-under=probe-under-key" \
+      --api-keys "$api_keys" \
       --raw-out "$OUT/raw-$arm-$rep.jsonl" || fail "replay $arm"
     [ -s "$OUT/raw-$arm-$rep.jsonl" ] || fail "no raw evidence for $arm rep $rep"
     say "  $(wc -l < "$OUT/raw-$arm-$rep.jsonl") rows recorded"
@@ -418,6 +448,19 @@ import json,sys,collections
 c=collections.Counter(json.loads(l).get('httpStatus') for l in open(sys.argv[1]))
 print(', '.join(f'{k}x{v}' for k,v in c.most_common(4)))" "$OUT/raw-$arm-$rep.jsonl" 2>/dev/null)
         fail "the first replay completed nothing: $codes. Every later replay would do the same, so this stops here rather than after sixteen of them. 404 means the trace asks for a model no InferenceDeployment serves; 401 means a tenant is missing from the gateway-api-keys secret."
+      fi
+
+      # A single 401 or 403 fails the run, because neither can be an experimental outcome.
+      #
+      # Both are decided before admission control runs, so a request that gets one measures nothing about the
+      # guard -- and the arm still completes, still reports, and still passes a check that only asks whether
+      # anything at all completed. The second paid run shed 92 probe requests per replay to 403 and finished
+      # all sixteen replays looking healthy; the eligibility-threshold section of its report is void.
+      unauthorised=$(python3 -c "
+import json,sys
+print(sum(1 for l in open(sys.argv[1]) if json.loads(l).get('httpStatus') in (401, 403)))" "$OUT/raw-$arm-$rep.jsonl" 2>/dev/null || echo 0)
+      if [ "${unauthorised:-0}" -ne 0 ]; then
+        fail "$unauthorised requests came back 401 or 403 in $arm replay $rep. That is a configuration fault, not a result: those requests never reached admission control, so whatever they were meant to measure went unmeasured. Check that every tenant in the trace has both a key in gateway-api-keys and a GPUQuotaPolicy."
       fi
     fi
   done
