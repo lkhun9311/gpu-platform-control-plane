@@ -252,7 +252,7 @@ var _ = Describe("the two ways a truncated arm used to certify itself", func() {
 		c := EvaluateChecks(r1, staticCap, kvAware, CI{}, 0.05)
 		Expect(c.IncrementalValuePass).To(BeFalse())
 		Expect(c.Invalid).To(BeTrue())
-		Expect(c.InvalidReason).To(ContainSubstring("no incremental confidence interval"))
+		Expect(c.InvalidReason).To(ContainSubstring("no usable confidence interval"))
 		Expect(c.OverallPass).To(BeFalse())
 	})
 
@@ -519,5 +519,26 @@ var _ = Describe("an eligible request that never got an admission verdict", func
 		checks := EvaluateChecks(r1, empty, empty, CI{}, 0.05)
 		Expect(checks.Invalid).To(BeTrue())
 		Expect(strings.Count(checks.InvalidReason, "arm ")).To(BeNumerically(">=", 2))
+	})
+})
+
+var _ = Describe("the incremental check when the repetition ratios scatter", func() {
+	// The percentile bootstrap over four values is anti-conservative once the per-repetition ratios spread
+	// out: simulated against this package's own BootstrapCI, a true ratio of 1.00 -- no effect whatsoever --
+	// clears the gate 10.2% of the time at a coefficient of variation of 0.20, against a nominal 5%.
+	//
+	// So the interval is only worth reading while the ratios are tight. The 2026-09-03 pilot measured 0.001
+	// for the contended arms and 0.056 for the isolation-like ones, well inside that, but a run is not
+	// entitled to assume it stayed there. This refuses rather than reports, because the direction matters:
+	// the failure mode is a gate that passes when it should not.
+	It("is refused when the ratios are too scattered for the interval to mean anything", func() {
+		Expect(RatioScatterTooHigh([]float64{0.9, 0.9, 0.9, 0.9})).To(BeFalse())
+		Expect(RatioScatterTooHigh([]float64{0.6, 0.9, 1.2, 1.5})).To(BeTrue())
+	})
+
+	It("says nothing about scatter it cannot measure", func() {
+		// One repetition has no spread to speak of, and the CI is already invalid for that reason.
+		Expect(RatioScatterTooHigh([]float64{0.9})).To(BeFalse())
+		Expect(RatioScatterTooHigh(nil)).To(BeFalse())
 	})
 })
