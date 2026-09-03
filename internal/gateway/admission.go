@@ -93,6 +93,30 @@ func tierForPolicy(policy *platformv1.GPUQuotaPolicy) string {
 // Design rationale (design spec Config and API section): distinct from the RPM limiter's "rate_limited" code, since the two answer different questions (request rate vs offered input-token volume) and a client needs to tell them apart to know what to back off on.
 const reasonInputRateLimit = "input_rate_limit"
 
+// The reasons an admission control let a request through.
+//
+// Admit used to return an empty reason for every one of these, so the evidence and the decisions metric
+// recorded four different facts as one. The difference that matters most is between a guard that saw a calm
+// backend and a guard that could not see at all: arm C bypasses itself whenever telemetry is stale or a
+// backend was never registered, and a run spent entirely in that bypass is arm A wearing arm C's name. It
+// would report as a clean scientific FAIL, and nothing in the evidence would say otherwise.
+const (
+	// reasonBackendUnregistered means no scraper has ever run for this backend, so the guard has no state.
+	reasonBackendUnregistered = "backend_unregistered"
+	// reasonTelemetryStale means the last successful scrape is older than maxStaleness, so the guard is bypassed.
+	reasonTelemetryStale = "telemetry_stale"
+	// reasonNotEngaged means the guard was watching and found no pressure.
+	reasonNotEngaged = "not_engaged"
+	// reasonPremiumTier means the caller is outside the gated population by tier.
+	reasonPremiumTier = "premium_tier"
+	// reasonBelowThreshold means the request is outside the gated population by input size.
+	reasonBelowThreshold = "below_threshold"
+	// reasonAdmissionOff means no admission control was installed.
+	reasonAdmissionOff = "admission_off"
+	// reasonWithinBudget means the static cap had room for this request.
+	reasonWithinBudget = "within_budget"
+)
+
 // reasonInputExceedsBurst is reported when a request's estimated input can never fit the bucket at all.
 //
 // rate.Limiter.AllowN refuses n > burst unconditionally: the bucket never holds that many tokens, so no
@@ -109,7 +133,7 @@ type offAdmitter struct{}
 
 // Admit always returns (true, "").
 func (offAdmitter) Admit(_ context.Context, _ RequestMeta, _ *BackendRef, _, _ string) (bool, string) {
-	return true, ""
+	return true, reasonAdmissionOff
 }
 
 // NewOffAdmitter returns the Admitter behind AdmissionOff.
@@ -193,7 +217,10 @@ func (a *staticCapAdmitter) limiterFor(key string) *rate.Limiter {
 func (a *staticCapAdmitter) Admit(_ context.Context, meta RequestMeta, backend *BackendRef, _, tier string) (bool, string) {
 	eligible := tier == tierStandard && meta.EstInputTokens >= a.longThreshold
 	if !eligible {
-		return true, ""
+		if tier != tierStandard {
+			return true, reasonPremiumTier
+		}
+		return true, reasonBelowThreshold
 	}
 
 	// Checked before AllowN rather than inferred from its refusal, because the two are indistinguishable
@@ -206,7 +233,7 @@ func (a *staticCapAdmitter) Admit(_ context.Context, meta RequestMeta, backend *
 	limiter := a.limiterFor(backendKey(backend))
 	// Consume meta.EstInputTokens tokens rather than one, so cost tracks offered input volume rather than request count.
 	if limiter.AllowN(a.now(), meta.EstInputTokens) {
-		return true, ""
+		return true, reasonWithinBudget
 	}
 	return false, reasonInputRateLimit
 }

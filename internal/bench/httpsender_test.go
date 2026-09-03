@@ -331,12 +331,13 @@ var _ = Describe("the gateway's own decision in the evidence", func() {
 		})
 		Expect(res.HTTPStatus).To(Equal(http.StatusRequestEntityTooLarge))
 		Expect(res.Tier).To(Equal("standard"))
-		Expect(res.RejectReason).To(Equal("input_exceeds_burst"))
+		Expect(res.AdmissionReason).To(Equal("input_exceeds_burst"))
 	})
 
-	It("records the tier when the gateway admits, and no reason", func() {
+	It("records the tier and the admit's reason when the gateway admits", func() {
 		res := send(func(w http.ResponseWriter, _ *http.Request) {
 			w.Header().Set("X-Admission-Tier", "premium")
+			w.Header().Set("X-Admission-Reason", "not_engaged")
 			w.Header().Set("Content-Type", "text/event-stream")
 			f := w.(http.Flusher)
 			_, _ = fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"a\"}}]}\n\n")
@@ -346,12 +347,14 @@ var _ = Describe("the gateway's own decision in the evidence", func() {
 		})
 		Expect(res.HTTPStatus).To(Equal(http.StatusOK))
 		Expect(res.Tier).To(Equal("premium"))
-		Expect(res.RejectReason).To(BeEmpty())
+		// An admit's reason is the point: "not_engaged" and "telemetry_stale" are both admits, and only one
+		// of them means the guard was working.
+		Expect(res.AdmissionReason).To(Equal("not_engaged"))
 	})
 
 	It("leaves both empty against a gateway too old to report them", func() {
 		res := send(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusForbidden) })
 		Expect(res.Tier).To(BeEmpty())
-		Expect(res.RejectReason).To(BeEmpty())
+		Expect(res.AdmissionReason).To(BeEmpty())
 	})
 })

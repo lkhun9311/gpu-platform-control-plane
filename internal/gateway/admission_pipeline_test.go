@@ -213,7 +213,7 @@ var _ = Describe("admission metrics", func() {
 		body := rr.Body.String()
 
 		Expect(body).To(ContainSubstring(
-			`gpuaas_gateway_admission_decisions_total{decision="admit",mode="off",model="` + testModel + `",reason="",tenant="` + tenant + `"} 1`))
+			`gpuaas_gateway_admission_decisions_total{decision="admit",mode="off",model="` + testModel + `",reason="admission_off",tenant="` + tenant + `"} 1`))
 		Expect(body).To(ContainSubstring(
 			`gpuaas_gateway_admission_input_tokens_total{decision="admit",mode="off",tenant="` + tenant + `"} 4096`))
 	})
@@ -300,10 +300,22 @@ var _ = Describe("the gateway reporting its own decisions", func() {
 		Expect(rr2.Header().Get("X-Admission-Reason")).To(Equal(reasonInputRateLimit))
 	})
 
-	It("says nothing about a reason when it admitted the request", func() {
-		s := newAdmissionServer(up.URL, tierStandard, AdmissionOff, offAdmitter{})
+	// An admit's reason is the one the evidence most needed and never had.
+	//
+	// arm C admits for four different reasons, and two of them mean the guard was not working: a backend it
+	// never registered, and telemetry too stale to read. A run spent entirely in that bypass is arm A wearing
+	// arm C's name, and it would report as a clean scientific FAIL.
+	It("says why it admitted, not only why it refused", func() {
+		off := newAdmissionServer(up.URL, tierStandard, AdmissionOff, offAdmitter{})
 		rr := httptest.NewRecorder()
-		s.Handler().ServeHTTP(rr, authedRequest(eligibleLongBody))
-		Expect(rr.Header().Get("X-Admission-Reason")).To(BeEmpty())
+		off.Handler().ServeHTTP(rr, authedRequest(eligibleLongBody))
+		Expect(rr.Code).To(Equal(http.StatusOK))
+		Expect(rr.Header().Get("X-Admission-Reason")).To(Equal(reasonAdmissionOff))
 	})
+
+	// The four reasons arm C admits for, and the fact that the two bypasses are distinguishable from the two
+	// healthy admits, are covered as units in kvguard_test.go. Driving them through a Server here would start
+	// a real scraper against a backend that does not exist; the case above is what proves an admit's reason
+	// reaches the response at all.
+
 })

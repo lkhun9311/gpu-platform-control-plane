@@ -420,6 +420,15 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 	if !admit {
 		decision = "reject"
 	}
+	// The reason travels on every decision, not only refusals.
+	//
+	// An admit had none, so four different facts about arm C arrived as one: a backend the guard never
+	// registered, telemetry too stale to read, a backend under no pressure, and a caller outside the gated
+	// population. The first two mean the guard was bypassed -- a run spent entirely in them is arm A under
+	// arm C's name, reporting as a clean scientific FAIL with nothing in the evidence to say otherwise.
+	if reason != "" {
+		w.Header().Set(HeaderAdmissionReason, reason)
+	}
 	// Recorded for every request, admitted or not, so the admit rate and admitted-vs-offered token fraction can both be read straight off these two series without diffing against requests_total.
 	admissionDecisions.WithLabelValues(string(mode), tenant, meta.Model, decision, reason).Inc()
 	admissionInputTokens.WithLabelValues(string(mode), tenant, decision).Add(float64(meta.EstInputTokens))
@@ -428,12 +437,9 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 		// retry hint failReason attaches: a client obeying it would retry an arithmetically impossible request
 		// forever. 413 rather than 429 for the same reason — the caller's action is a smaller prompt, not a
 		// later one.
-		// The reason travels on the response for both refusals, including the 413, which does not go through
-		// failReason and so put its reason nowhere a client could record it.
-		//
-		// That is why the 1,788 refusals in the 2026-09-03 run had to be explained by reading the runner's
-		// flags and the gateway's defaults months later, instead of read off the evidence.
-		w.Header().Set(HeaderAdmissionReason, reason)
+		// The 413 does not go through failReason, so before the header above existed its reason reached
+		// nowhere a client could record it. That is why the 1,788 refusals in the 2026-09-03 run had to be
+		// explained months later by reading the runner's flags and the gateway's defaults.
 		if reason == reasonInputExceedsBurst {
 			s.fail(w, tenant, meta.Model, http.StatusRequestEntityTooLarge)
 			return
