@@ -188,7 +188,12 @@ func Summarize(arm string, rows []RawRow) ArmSummary {
 	var premiumTotal, premiumTimedOut, premiumLost int
 	for _, r := range rows {
 		// Admitted-work accounting covers the eligible population (the long requests the controls gate), for the admission-match check.
-		if r.EstInputTokens >= threshold {
+		//
+		// A request the gateway turned away before admission ran is outside that population entirely, in
+		// neither term of the fraction, because the guard never saw it. Counting it as offered-and-admitted
+		// scored 737,280 admitted tokens for an arm that admitted nothing: the paid run's probes estimate at
+		// exactly the 4,096 threshold, so all 180 of them per arm were eligible, and all 180 were 403.
+		if r.EstInputTokens >= threshold && !neverEvaluated(r) {
 			s.OfferedInputTokens += int64(r.EstInputTokens)
 			if !shedByAdmission(r) {
 				s.AdmittedInputTokens += int64(r.EstInputTokens)

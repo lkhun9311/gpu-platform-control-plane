@@ -214,6 +214,16 @@ func wallSleepUntil(ctx context.Context, t time.Time) {
 
 // defaultEstInputTokens mirrors the gateway's conservative ceiling-of-bytes/4 estimate.
 func defaultEstInputTokens(promptLenChars int) int {
+	return EstInputTokensForChars(promptLenChars)
+}
+
+// EstInputTokensForChars is the gateway's ceiling-of-bytes/4 input estimate, exported for the offline
+// simulation that freezes arm B's bucket tuning.
+//
+// It is exported rather than copied because the simulation decides which rows the guard would have called
+// eligible, and a second copy of this arithmetic would answer that question its own way the first time either
+// side changed.
+func EstInputTokensForChars(promptLenChars int) int {
 	return (promptLenChars + 3) / 4
 }
 

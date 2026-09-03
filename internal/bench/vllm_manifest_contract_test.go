@@ -1033,4 +1033,14 @@ func TestArmBCanAdmitTheTraceItIsGiven(t *testing.T) {
 			t.Errorf("the runner does not pass %s; cmd/gateway's defaults exist only as placeholders and one of them silently made arm B degenerate", flag)
 		}
 	}
+
+	// The checks above are necessary and nowhere near sufficient: a pair can clear every one of them and
+	// still admit half of what C admits, which is what the first attempt at this tuning did. Only simulating
+	// the bucket against the trace answers the question the design spec asks, so the runner has to do it.
+	// Matched on the invocation rather than the bare name: the first version of this check looked for
+	// "sim-cap" anywhere, and the comment and failure message that mention it kept the check green with the
+	// call deleted. A guard that cannot fire is the defect this whole file exists to catch.
+	if !strings.Contains(string(runner), `"$WORK/benchharness" sim-cap`) || !strings.Contains(string(runner), `-target-admitted-fraction "$PILOT_ADMITTED_FRACTION"`) {
+		t.Error("the runner does not simulate arm B's bucket against the trace it generated; a rate and burst that pass a units check can still be nowhere near C's admitted-work fraction, and nothing else would notice before the card time was spent")
+	}
 }
