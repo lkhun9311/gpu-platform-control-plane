@@ -1034,3 +1034,68 @@ func TestArmBCanAdmitTheTraceItIsGiven(t *testing.T) {
 		}
 	}
 }
+
+// TestTheMirrorListsAgree keeps the ECR mirror map in one shape across the three files that hold it.
+//
+// The mirror exists because a fresh GPU node's pulls cross the NAT gateway at $0.059/GB, which came to $5.43
+// over three paid sessions -- the largest line on the bill, larger than every instance-hour combined. It only
+// helps for images it actually covers, and it covers them only if the Terraform that creates the repositories,
+// the script that fills them, and the manifests that name the images all mean the same thing. Three files
+// holding one list is the shape that has already cost this project two paid runs.
+func TestTheMirrorListsAgree(t *testing.T) {
+	read := func(rel string) string {
+		b, err := os.ReadFile(filepath.Join("..", "..", rel))
+		if err != nil {
+			t.Fatalf("read %s: %v", rel, err)
+		}
+		return string(b)
+	}
+
+	pairs := func(src, pattern string) map[string]string {
+		out := map[string]string{}
+		for _, m := range regexp.MustCompile(pattern).FindAllStringSubmatch(src, -1) {
+			out[m[1]] = m[2]
+		}
+		return out
+	}
+
+	tf := pairs(read("infra/aws/bootstrap/variables.tf"), `"(mirror/[^"]+)"\s*=\s*"([^"]+)"`)
+	sh := pairs(read("hack/mirror-public-images.sh"), `\["(mirror/[^"]+)"\]="([^"]+)"`)
+	if len(tf) == 0 || len(sh) == 0 {
+		t.Fatalf("found %d Terraform entries and %d script entries; the patterns this test reads them with have drifted", len(tf), len(sh))
+	}
+	for repo, upstream := range tf {
+		if sh[repo] != upstream {
+			t.Errorf("infra/aws/bootstrap/variables.tf maps %q to %q, hack/mirror-public-images.sh maps it to %q; the repository would exist under one name and be filled from another image, or not filled at all", repo, upstream, sh[repo])
+		}
+	}
+	for repo := range sh {
+		if _, ok := tf[repo]; !ok {
+			t.Errorf("hack/mirror-public-images.sh pushes to %q, which Terraform does not create; ECR repositories do not appear on push and the mirror would fail at the moment it is needed", repo)
+		}
+	}
+
+	// Every mirrored image must be pinned by digest somewhere in config/, since that digest is the whole
+	// verification: the script copies to it and then asks the registry to resolve it back.
+	var manifests strings.Builder
+	err := filepath.WalkDir(filepath.Join("..", "..", "config"), func(path string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".yaml") {
+			return err
+		}
+		b, rerr := os.ReadFile(path)
+		if rerr != nil {
+			return rerr
+		}
+		manifests.Write(b)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walk config: %v", err)
+	}
+	for repo, upstream := range sh {
+		pinned := regexp.MustCompile(`(?m)^\s*(?:- )?image:\s*` + regexp.QuoteMeta(upstream) + `[^\s@]*@sha256:[0-9a-f]{64}`)
+		if !pinned.MatchString(manifests.String()) {
+			t.Errorf("%s mirrors %q, but no manifest in config/ pins that image by digest; the script has nothing to copy and nothing to verify against", repo, upstream)
+		}
+	}
+}
