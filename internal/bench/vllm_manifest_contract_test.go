@@ -970,3 +970,67 @@ func TestTheRunnerDerivesItsApiKeysFromTheTenantList(t *testing.T) {
 		}
 	}
 }
+
+// TestArmBCanAdmitTheTraceItIsGiven catches the degenerate cap without a trace, a cluster, or a card.
+//
+// A token bucket can never admit a request larger than its burst. The generator's noisy prompt is 40,000
+// chars, which estimates at 10,000 tokens -- the number is in the generator's own flag help -- and the
+// gateway's default burst is 8,192, a number in cmd/gateway. Both were written down; neither file had reason
+// to read the other. The runner passed a request rate of 1.568/s into a flag measured in tokens per second
+// and never set the burst at all, so arm B refused all 447 eligible requests in all four repetitions with
+// 413 and admitted nothing. It reported as a healthy arm. C/B then equalled C/R1, because B was R1.
+func TestArmBCanAdmitTheTraceItIsGiven(t *testing.T) {
+	runner, err := os.ReadFile("../../hack/m5b-arms.sh")
+	if err != nil {
+		t.Fatalf("read runner: %v", err)
+	}
+	intVar := func(name string) int {
+		m := regexp.MustCompile(`(?m)^` + name + `=(\d+)$`).FindSubmatch(runner)
+		if m == nil {
+			t.Fatalf("no %s in hack/m5b-arms.sh; arm B's tuning must be stated in tokens, in one place", name)
+		}
+		n, cerr := strconv.Atoi(string(m[1]))
+		if cerr != nil {
+			t.Fatalf("%s is not a number: %v", name, cerr)
+		}
+		return n
+	}
+	burst := intVar("STATIC_BURST")
+	rate := intVar("STATIC_RATE")
+
+	genSrc, err := os.ReadFile("../../cmd/benchharness/main.go")
+	if err != nil {
+		t.Fatalf("read generator: %v", err)
+	}
+	m := regexp.MustCompile(`"noisy-prompt-chars", (\d[\d_]*)`).FindSubmatch(genSrc)
+	if m == nil {
+		t.Fatal("no noisy-prompt-chars default in the generator; the pattern this test reads it with has drifted")
+	}
+	chars, err := strconv.Atoi(strings.ReplaceAll(string(m[1]), "_", ""))
+	if err != nil {
+		t.Fatalf("noisy-prompt-chars is not a number: %v", err)
+	}
+	// The gateway estimates a prompt's input tokens as ceiling of chars over four.
+	est := (chars + 3) / 4
+
+	if burst <= est {
+		t.Errorf("the noisy prompt estimates at %d tokens and STATIC_BURST is %d; every eligible request would be refused with 413 and arm B would admit nothing, making it a second isolation arm rather than a competitor", est, burst)
+	}
+	// A rate below one eligible prompt per minute is a request rate that wandered into a token-rate flag,
+	// which is how the last run got here: it passed 1.568, the trace's requests per second.
+	//
+	// The bound is deliberately far below any real tuning -- the C pilot's 5,957 tokens/sec is thirty-six
+	// times it -- because this is an order-of-magnitude check on the units, not a judgement about the tuning.
+	// A rate that is wrong but plausible is the confirmatory run's problem, and no static test can see it.
+	if rate*60 < est {
+		t.Errorf("STATIC_RATE is %d tokens/sec, which cannot admit even one %d-token prompt per minute; that is a request rate in a flag measured in tokens", rate, est)
+	}
+
+	// Both flags must reach the gateway. The last run set one and inherited the other from a default that
+	// happened to be fatal.
+	for _, flag := range []string{"-admission-static-rate=${STATIC_RATE}", "-admission-static-burst=${STATIC_BURST}"} {
+		if !strings.Contains(string(runner), flag) {
+			t.Errorf("the runner does not pass %s; cmd/gateway's defaults exist only as placeholders and one of them silently made arm B degenerate", flag)
+		}
+	}
+}

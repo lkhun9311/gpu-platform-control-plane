@@ -50,6 +50,26 @@ REPS="${REPS:-4}"
 # The arm order the loop below walks, named once so the first-replay check can tell which arm is first.
 ARMS_ORDER="R1 off static-cap kv-aware"
 
+# Arm B's frozen tuning, in tokens -- which is what the flags measure and what the last run did not give them.
+#
+# The runner used to pass "-admission-static-rate=${RATE}", where RATE is the trace's REQUEST rate, 1.568/s.
+# The flag is tokens per second. It never passed -admission-static-burst at all, so the burst stayed at the
+# gateway's 8,192 default while every noisy prompt in the trace estimates at 10,000 tokens -- 40,000 chars,
+# a number written in the generator's own flag help. A request larger than the burst can never fit any
+# bucket, so the gateway refused all 447 of them with 413, in all four repetitions. Arm B admitted nothing.
+# It was not a badly tuned competitor; it was a second isolation arm, which is why C/B came out equal to
+# C/R1 and all three pre-registered checks failed for a reason that had nothing to do with the guard.
+#
+# The design spec's Arm B section asks for these to come from an offline simulation against a C pilot's
+# admitted-work fraction, frozen before the confirmatory run. The 2026-09-03 run is that pilot, and this is
+# its arithmetic: kv-aware admitted 3.78M of 4.47M eligible offered tokens, 84.6 percent, over a 635-second
+# replay -- a sustained 5,957 tokens/sec, steady to within 0.5 percent across all four repetitions.
+#
+# The burst is set above the largest prompt the trace offers rather than at it, because a burst equal to the
+# prompt admits it only from a completely full bucket and would shed on timing alone.
+STATIC_RATE=5957
+STATIC_BURST=12288
+
 # For ttl_remaining_minutes: this script spends the money in a shell that never armed the deadline.
 . "$(dirname "$0")/lib/gpu-ttl.sh"
 OUT="${OUT:-hack/m5b-run-$(date +%Y%m%d-%H%M%S)}"
@@ -370,12 +390,23 @@ print(','.join(sorted(seen - known)))" "$OUT/trace.jsonl" "$(printf '%s' "${TENA
 [ -z "$missing" ] || fail "the trace uses tenants this script has no key or policy for: $missing. Add them to TENANTS in this file; a tenant without both is refused before admission and its requests measure nothing."
 say "every tenant in the trace has a key and a policy"
 
+# A burst below the largest prompt makes arm B refuse every eligible request, which is not a tuning error
+# that shows up as a weak result -- it is a degenerate arm that reports cleanly and answers a question nobody
+# asked. The last run spent three hours and a card on it. The trace knows the number, so it is asked.
+max_est=$(python3 -c "
+import json,sys,math
+print(max(math.ceil(json.loads(l)['promptLenChars'] / 4) for l in open(sys.argv[1]) if l.strip()))" "$OUT/trace.jsonl")
+if [ "$max_est" -ge "$STATIC_BURST" ]; then
+  fail "the largest prompt in the trace estimates at $max_est tokens and STATIC_BURST is $STATIC_BURST. A request larger than the burst can never fit the bucket, so arm B would refuse every one of them with 413 and admit nothing -- the exact degenerate arm the 2026-09-03 run produced. Raise STATIC_BURST above $max_est or shrink the noisy prompt."
+fi
+say "arm B tuning: $STATIC_RATE tok/s, burst $STATIC_BURST, against a largest prompt of $max_est tokens"
+
 for rep in $(seq 1 "$REPS"); do
   for arm in R1 off static-cap kv-aware; do
     say "rep $rep arm $arm"
     case "$arm" in
       R1|off)      deploy_gateway off "" ;;
-      static-cap)  deploy_gateway static-cap ", \"-admission-static-rate=${RATE}\", \"-admission-long-threshold=4096\"" ;;
+      static-cap)  deploy_gateway static-cap ", \"-admission-static-rate=${STATIC_RATE}\", \"-admission-static-burst=${STATIC_BURST}\", \"-admission-long-threshold=4096\"" ;;
       kv-aware)    deploy_gateway kv-aware ", \"-admission-long-threshold=4096\"" ;;
     esac
 
