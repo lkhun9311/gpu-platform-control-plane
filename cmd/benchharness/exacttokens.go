@@ -74,7 +74,7 @@ func stampExactTokens(args []string) error {
 	sort.Ints(distinct)
 
 	keys := map[string]string{}
-	for _, pair := range strings.Split(*apiKeys, ",") {
+	for pair := range strings.SplitSeq(*apiKeys, ",") {
 		if k, v, ok := strings.Cut(pair, "="); ok {
 			keys[k] = v
 		}
