@@ -18,7 +18,9 @@ package bench
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -1106,6 +1108,84 @@ func TestTheMirrorListsAgree(t *testing.T) {
 		pinned := regexp.MustCompile(`(?m)^\s*(?:- )?image:\s*` + regexp.QuoteMeta(upstream) + `[^\s@]*@sha256:[0-9a-f]{64}`)
 		if !pinned.MatchString(manifests.String()) {
 			t.Errorf("%s mirrors %q, but no manifest in config/ pins that image by digest; the script has nothing to copy and nothing to verify against", repo, upstream)
+		}
+	}
+}
+
+// TestTheArmOrderIsBalanced keeps arm and position from being confounded again.
+//
+// Every block ran R1, off, static-cap, kv-aware in that order, so R1 was always measured first on a cold
+// engine and kv-aware always last on one that had been serving for an hour. Any drift across a block lands
+// on the arms in a fixed pattern and cannot be told apart from the effect being measured -- and unlike a
+// missing counter, no amount of extra instrumentation removes it afterwards.
+//
+// This runs the runner's own armsForBlock rather than re-deriving the rotation, so the property is checked
+// on the code that will actually order the run.
+func TestTheArmOrderIsBalanced(t *testing.T) {
+	script, err := filepath.Abs(filepath.Join("..", "..", "hack", "m5b-arms.sh"))
+	if err != nil {
+		t.Fatalf("resolve runner: %v", err)
+	}
+	src, err := os.ReadFile(script)
+	if err != nil {
+		t.Fatalf("read runner: %v", err)
+	}
+	fn := regexp.MustCompile(`(?s)\nARMS_ORDER=.*?\narmsForBlock\(\) \{.*?\n\}\n`).Find(src)
+	if fn == nil {
+		t.Fatal("no ARMS_ORDER and armsForBlock in hack/m5b-arms.sh; the run's arm order must be derived in one place")
+	}
+
+	position := map[string]map[int]int{}
+	blocks := 0
+	for block := 1; block <= 4; block++ {
+		out, cerr := exec.Command("bash", "-c", string(fn)+fmt.Sprintf("\narmsForBlock %d\n", block)).Output()
+		if cerr != nil {
+			t.Fatalf("run armsForBlock %d: %v", block, cerr)
+		}
+		arms := strings.Fields(string(out))
+		if len(arms) != 4 {
+			t.Fatalf("block %d yielded %d arms, want 4: %q", block, len(arms), out)
+		}
+		blocks++
+		for i, arm := range arms {
+			if position[arm] == nil {
+				position[arm] = map[int]int{}
+			}
+			position[arm][i]++
+		}
+	}
+
+	if len(position) != 4 {
+		t.Fatalf("the four blocks between them ran %d distinct arms, want 4", len(position))
+	}
+	for arm, seen := range position {
+		for i := range blocks {
+			if seen[i] != 1 {
+				t.Errorf("arm %s ran in position %d %d times across %d blocks, want exactly once; arm and position are confounded and the difference between them is not recoverable after the run",
+					arm, i, seen[i], blocks)
+			}
+		}
+	}
+}
+
+// TestTheEngineAndModelAreReadFromTheCluster refuses a literal that reads as the authority.
+//
+// Both were assigned literals at the top of the runner and then overwritten by cluster-derived values two
+// hundred lines later, so the literals were dead code in the position a reader trusts. The model name being
+// wrong in exactly this way cost one paid run: gen-trace defaulted to a stub name and the gateway answered
+// 404 to 907 of every 999 requests for three hours.
+func TestTheEngineAndModelAreReadFromTheCluster(t *testing.T) {
+	src, err := os.ReadFile(filepath.Join("..", "..", "hack", "m5b-arms.sh"))
+	if err != nil {
+		t.Fatalf("read runner: %v", err)
+	}
+	for _, name := range []string{"ENGINE", "MODEL"} {
+		literal := regexp.MustCompile(`(?m)^` + name + `=["']?[A-Za-z0-9][^\n$]*$`)
+		if m := literal.Find(src); m != nil {
+			t.Errorf("%s is assigned a literal (%s); read it from the InferenceDeployment instead, which is the record the gateway actually routes on", name, strings.TrimSpace(string(m)))
+		}
+		if !regexp.MustCompile(`(?m)^` + name + `=\$\(k get inferencedeployment`).Match(src) {
+			t.Errorf("%s is not read from the InferenceDeployment", name)
 		}
 	}
 }
