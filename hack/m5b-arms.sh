@@ -60,15 +60,27 @@ ARMS_ORDER="R1 off static-cap kv-aware"
 # It was not a badly tuned competitor; it was a second isolation arm, which is why C/B came out equal to
 # C/R1 and all three pre-registered checks failed for a reason that had nothing to do with the guard.
 #
-# The design spec's Arm B section asks for these to come from an offline simulation against a C pilot's
-# admitted-work fraction, frozen before the confirmatory run. The 2026-09-03 run is that pilot, and this is
-# its arithmetic: kv-aware admitted 3.78M of 4.47M eligible offered tokens, 84.6 percent, over a 635-second
-# replay -- a sustained 5,957 tokens/sec, steady to within 0.5 percent across all four repetitions.
+# The design spec's Arm B section asks for these to come from an OFFLINE SIMULATION against a C pilot's
+# admitted-work fraction, frozen before the confirmatory run. That simulation had never been run. The first
+# attempt at these numbers skipped it too and divided C's admitted tokens by the replay's duration --
+# 3.78M over 635s, 5,957 tokens/sec -- which is the average a matched bucket sustains, not the rate that
+# produces it. Simulated against the real trace, 5,957 tok/s at a burst of 12,288 admits 52.5 percent, not
+# 84.6: a 10,000-token withdrawal needs 1.68 seconds to refill and the arrivals do not wait for it.
 #
-# The burst is set above the largest prompt the trace offers rather than at it, because a burst equal to the
-# prompt admits it only from a completely full bucket and would shed on timing alone.
-STATIC_RATE=5957
-STATIC_BURST=12288
+# So these come from the simulation, on the 2026-09-03 pilot's own trace, via "benchharness sim-cap":
+#
+#   burst  = 3 x the largest eligible prompt, so a short run of long requests can pass without the bucket
+#            behaving like a per-request gate. Anything at or below 10,000 makes arm B degenerate outright.
+#   rate   = solved at that burst for the pilot's admitted fraction: 8,000 tok/s admits 0.8444 against the
+#            pilot's 0.8456, within 0.12 percentage points.
+#
+# The check below re-runs that simulation on the trace this run actually generated, so the pair has to keep
+# agreeing with the traffic rather than with the day it was chosen.
+STATIC_RATE=8000
+STATIC_BURST=30000
+# The C pilot's admitted fraction of eligible offered tokens, the target arm B is matched to.
+PILOT_ADMITTED_FRACTION=0.8456
+PILOT_MATCH_TOLERANCE=0.02
 
 # For ttl_remaining_minutes: this script spends the money in a shell that never armed the deadline.
 . "$(dirname "$0")/lib/gpu-ttl.sh"
@@ -260,11 +272,15 @@ TENANTS=(
 
 secret_args=()
 api_keys=""
+premium_tenants=""
 policies=""
 for entry in "${TENANTS[@]}"; do
   tenant="${entry%%:*}"; rest="${entry#*:}"; key="${rest%%:*}"; tier="${rest#*:}"
   secret_args+=("--from-literal=$key=$tenant")
   api_keys="${api_keys:+$api_keys,}$tenant=$key"
+  if [ "$tier" = "premium" ]; then
+    premium_tenants="${premium_tenants:+$premium_tenants,}$tenant"
+  fi
   annotations=""
   if [ -n "$tier" ]; then
     annotations="
@@ -400,6 +416,17 @@ if [ "$max_est" -ge "$STATIC_BURST" ]; then
   fail "the largest prompt in the trace estimates at $max_est tokens and STATIC_BURST is $STATIC_BURST. A request larger than the burst can never fit the bucket, so arm B would refuse every one of them with 413 and admit nothing -- the exact degenerate arm the 2026-09-03 run produced. Raise STATIC_BURST above $max_est or shrink the noisy prompt."
 fi
 say "arm B tuning: $STATIC_RATE tok/s, burst $STATIC_BURST, against a largest prompt of $max_est tokens"
+
+# The tuning procedure itself, run against the trace this run will actually replay.
+#
+# The burst check above only rules out the degenerate case. This one asks the question the design spec asks:
+# would this bucket admit the same share of eligible work that C admitted? It drives the gateway's own
+# admitter through the trace's arrival times, so it answers with the real bucket rather than a model of one.
+"$WORK/benchharness" sim-cap -trace "$OUT/trace.jsonl" \
+  -rate "$STATIC_RATE" -burst "$STATIC_BURST" -long-threshold 4096 \
+  -premium-tenants "$premium_tenants" \
+  -target-admitted-fraction "$PILOT_ADMITTED_FRACTION" -tolerance "$PILOT_MATCH_TOLERANCE" \
+  || fail "arm B's frozen tuning does not match the C pilot on this trace. Re-solve it with: benchharness sim-cap -trace $OUT/trace.jsonl -rate <r> -burst <b> -premium-tenants $premium_tenants"
 
 for rep in $(seq 1 "$REPS"); do
   for arm in R1 off static-cap kv-aware; do
