@@ -52,7 +52,7 @@ func simCap(args []string) error {
 	longThreshold := fs.Int("long-threshold", 4096, "minimum estimated input tokens for the eligible population")
 	premium := fs.String("premium-tenants", "", "comma-separated tenants the gateway resolves to the premium tier; every other tenant is standard")
 	target := fs.Float64("target-admitted-fraction", 0, "when set, exit non-zero unless the simulated fraction lands within -tolerance of it")
-	tolerance := fs.Float64("tolerance", 0.05, "absolute tolerance on -target-admitted-fraction")
+	tolerance := fs.Float64("tolerance", 0.05, "RELATIVE tolerance on -target-admitted-fraction, matching the design spec's |B-C|/C contract")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -71,8 +71,11 @@ func simCap(args []string) error {
 	}
 	defer f.Close() //nolint:errcheck // read-only
 
-	// The clock is the trace's own arrival offsets, so a ten-minute replay simulates in milliseconds and the
-	// bucket sees exactly the spacing the gateway would have seen.
+	// The clock is the trace's own arrival offsets, so a ten-minute replay simulates in milliseconds.
+	//
+	// These are the SCHEDULED offsets, not the times requests actually reached the gateway: the replay client
+	// dispatches open-loop and the recorded sendUnixNanos are not perfectly ordered by index. So this is the
+	// intended arrival pattern through the real bucket, not a reconstruction of one run's true spacing.
 	origin := time.Unix(0, 0)
 	var at time.Time
 	admitter := gateway.NewStaticCapAdmitterAtClock(*rate, *burst, *longThreshold, func() time.Time { return at })
@@ -119,8 +122,12 @@ func simCap(args []string) error {
 	fraction := float64(admitted) / float64(offered)
 	fmt.Printf("eligible=%d refused=%d offered=%d admitted=%d fraction=%.4f\n", eligible, refused, offered, admitted, fraction)
 	if *target > 0 {
-		if diff := fraction - *target; diff > *tolerance || diff < -*tolerance {
-			return fmt.Errorf("rate %.0f tok/s with burst %d admits %.4f of the eligible offered tokens, and the frozen target is %.4f +/- %.4f. The tuning and the traffic disagree, so arm B would not be admission-matched to C and the incremental-value comparison would measure the mismatch instead of the guard", *rate, *burst, fraction, *target, *tolerance)
+		// Relative, because the pre-registered admission-match check is |B-C|/C and an absolute band of the
+		// same width is a different, looser contract: at a target of 0.8456 an absolute 0.05 admits 0.796,
+		// which is 5.9 percent off relative and would fail the check this is meant to pre-empt.
+		rel := (fraction - *target) / *target
+		if rel > *tolerance || rel < -*tolerance {
+			return fmt.Errorf("rate %.0f tok/s with burst %d admits %.4f of the eligible offered tokens against a frozen target of %.4f, which is %.1f percent off relative and outside the %.1f percent allowed. The tuning and the traffic disagree, so arm B would not be admission-matched to C and the incremental-value comparison would measure the mismatch instead of the guard", *rate, *burst, fraction, *target, rel*100, *tolerance*100)
 		}
 	}
 	return nil
