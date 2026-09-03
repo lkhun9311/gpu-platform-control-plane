@@ -88,6 +88,15 @@ func eligibleTier(r RawRow) bool {
 // tierStandard is the gateway's name for the tier its admission controls gate.
 const tierStandard = "standard"
 
+// admissionUnknown reports whether this request left no record of what the guard decided about it.
+//
+// A transport error or a timeout means no response arrived, so there are no headers to read and no status to
+// classify. It is the admission-side twin of a censored latency observation, and it is treated the same way:
+// removed from the measurement rather than guessed at, counted, and disqualifying past a threshold.
+func admissionUnknown(r RawRow) bool {
+	return r.HTTPStatus == 0 || r.ErrorKind == errKindTimeout
+}
+
 func neverEvaluated(r RawRow) bool {
 	return r.HTTPStatus == httpStatusUnauthorized || r.HTTPStatus == httpStatusForbidden
 }
@@ -119,6 +128,15 @@ type ArmSummary struct {
 	Total int
 	// Completed counts requests that produced a full response (a first token and an end).
 	Completed int
+	// AdmissionLost is how many ELIGIBLE requests got no admission verdict at all, so the guard's behaviour
+	// toward them is unknown.
+	//
+	// A request that never received an HTTP response was not admitted and was not refused. Counting it as
+	// either invents an observation; counting it as admitted -- which is what happened -- let an arm whose
+	// traffic died in transport report a perfect admission match on work it never offered.
+	AdmissionLost int
+	// eligibleScored is how many eligible requests did get a verdict; AdmissionLost is judged against it.
+	eligibleScored int
 	// Rejected counts admission refusals (HTTP 429 or 413), the load the guard or static cap shed.
 	Rejected int
 	// TimedOut counts requests recorded with a timeout error kind.
@@ -209,9 +227,17 @@ func Summarize(arm string, rows []RawRow) ArmSummary {
 		// scored 737,280 admitted tokens for an arm that admitted nothing: the paid run's probes estimate at
 		// exactly the 4,096 threshold, so all 180 of them per arm were eligible, and all 180 were 403.
 		if r.EstInputTokens >= threshold && eligibleTier(r) && !neverEvaluated(r) {
-			s.OfferedInputTokens += int64(r.EstInputTokens)
-			if !shedByAdmission(r) {
-				s.AdmittedInputTokens += int64(r.EstInputTokens)
+			if admissionUnknown(r) {
+				// Out of both terms. The guard may have admitted this request and the connection died after,
+				// or it may never have arrived; the evidence cannot say which, and a fraction built on a
+				// guess is worse than one that reports how much it could not see.
+				s.AdmissionLost++
+			} else {
+				s.eligibleScored++
+				s.OfferedInputTokens += int64(r.EstInputTokens)
+				if !shedByAdmission(r) {
+					s.AdmittedInputTokens += int64(r.EstInputTokens)
+				}
 			}
 		}
 
@@ -305,7 +331,13 @@ func Summarize(arm string, rows []RawRow) ArmSummary {
 	// Timeouts and transport/stream errors are both counted. They are the same thing for this purpose -- a
 	// premium request whose latency is unknown and was probably long -- and separating them let a whole class
 	// of degraded run through uncensored.
-	if premiumTotal > 0 && float64(premiumTimedOut+premiumLost)/float64(premiumTotal) > 0.01 {
+	// >= rather than >, because at exactly one percent the p99 is already gone.
+	//
+	// A nearest-rank p99 over n observations is the ceil(0.99n)-th, so it rests on the slowest n/100 of them.
+	// Losing exactly that many -- 18 of 1,840, which the old boundary waved through -- can remove the entire
+	// quantile mass the statistic is made of, and the ones that vanish are the ones that were slow enough to
+	// die. The reported p99 then is a p98 wearing the other name.
+	if premiumTotal > 0 && float64(premiumTimedOut+premiumLost)/float64(premiumTotal) >= 0.01 {
 		s.Censored = true
 	}
 	return s
@@ -416,6 +448,31 @@ type Checks struct {
 	OverallPass bool
 }
 
+// invalidate records a reason a run cannot be certified, keeping every reason rather than the last.
+//
+// It used to assign, so a run broken three ways reported one problem and an operator fixed them one at a
+// time -- paying for a run each round to discover the next.
+func (c *Checks) invalidate(reason string) {
+	c.Invalid = true
+	if c.InvalidReason != "" {
+		c.InvalidReason += "; "
+	}
+	c.InvalidReason += reason
+}
+
+// MaxLostAdmissionFraction is the share of the eligible population whose admission verdict may go missing
+// before the admitted-work fraction stops describing the population it claims to.
+//
+// The same one percent the tail uses, for the same reason: past it the statistic is reporting on requests it
+// never saw.
+const MaxLostAdmissionFraction = 0.01
+
+// admissionScored is how many eligible requests did get a verdict, the denominator AdmissionLost is judged
+// against.
+func (s ArmSummary) admissionScored() int {
+	return s.eligibleScored
+}
+
 // MinTailSamples is the smallest premium-completion count at which the reported p99 is not simply the
 // largest observation.
 //
@@ -439,22 +496,26 @@ func EvaluateChecks(r1, staticCap, kvAware ArmSummary, incrementalCI CI, matchTo
 	// A comparison is disqualified before any check is read if a compared arm completed no premium requests or has a censored tail, since its p99 is then not a real tail.
 	for _, s := range []ArmSummary{r1, staticCap, kvAware} {
 		if s.TailSampleSize == 0 {
-			c.Invalid = true
-			c.InvalidReason = fmt.Sprintf("arm %s completed no premium requests, so its tail is undefined", s.Arm)
+			c.invalidate(fmt.Sprintf("arm %s completed no premium requests, so its tail is undefined", s.Arm))
 		}
 		if s.TailSampleSize > 0 && s.TailSampleSize < MinTailSamples {
-			c.Invalid = true
-			c.InvalidReason = fmt.Sprintf("arm %s has %d premium completions, below the %d a nearest-rank p99 needs to be anything other than the maximum",
-				s.Arm, s.TailSampleSize, MinTailSamples)
+			c.invalidate(fmt.Sprintf("arm %s has %d premium completions, below the %d a nearest-rank p99 needs to be anything other than the maximum",
+				s.Arm, s.TailSampleSize, MinTailSamples))
 		}
 		if s.RepetitionCount > 0 && s.MinRepetitionTail < MinTailSamples {
-			c.Invalid = true
-			c.InvalidReason = fmt.Sprintf("arm %s has a repetition with %d premium completions, below the %d a nearest-rank p99 needs; pooling its %d rows hides that one repetition's p99 is a maximum",
-				s.Arm, s.MinRepetitionTail, MinTailSamples, s.TailSampleSize)
+			c.invalidate(fmt.Sprintf("arm %s has a repetition with %d premium completions, below the %d a nearest-rank p99 needs; pooling its %d rows hides that one repetition's p99 is a maximum",
+				s.Arm, s.MinRepetitionTail, MinTailSamples, s.TailSampleSize))
 		}
 		if s.Censored {
-			c.Invalid = true
-			c.InvalidReason = fmt.Sprintf("arm %s tail is censored (>1%% of premium requests did not complete), so its p99 is only a lower bound", s.Arm)
+			c.invalidate(fmt.Sprintf("arm %s tail is censored (>1%% of premium requests did not complete), so its p99 is only a lower bound", s.Arm))
+		}
+		// An eligible request with no admission verdict is unknown work, not admitted work, and the
+		// admitted-work fraction is what the whole matched comparison rests on. The threshold is the tail's:
+		// past one percent the fraction is describing a population it could not see.
+		if eligible := s.AdmissionLost + s.admissionScored(); eligible > 0 &&
+			float64(s.AdmissionLost)/float64(eligible) >= MaxLostAdmissionFraction {
+			c.invalidate(fmt.Sprintf("arm %s lost the admission verdict for %d of %d eligible requests (>%.0f%%), so its admitted-work fraction is measured over a population it could not see",
+				s.Arm, s.AdmissionLost, eligible, MaxLostAdmissionFraction*100))
 		}
 	}
 
@@ -470,8 +531,7 @@ func EvaluateChecks(r1, staticCap, kvAware ArmSummary, incrementalCI CI, matchTo
 	// An absent interval fails the gate rather than satisfying it. See the comment on CI.Valid.
 	c.IncrementalValuePass = c.IncrementalRatio <= 0.90 && incrementalCI.Valid && incrementalCI.Hi < 1.0
 	if !incrementalCI.Valid {
-		c.Invalid = true
-		c.InvalidReason = "no incremental confidence interval was computed (unequal or insufficient repetitions), so the incremental-value check cannot be evaluated"
+		c.invalidate("no incremental confidence interval was computed (unequal or insufficient repetitions), so the incremental-value check cannot be evaluated")
 	}
 
 	wB := admittedWorkFraction(staticCap)

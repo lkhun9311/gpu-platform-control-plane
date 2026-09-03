@@ -17,6 +17,8 @@ limitations under the License.
 package bench
 
 import (
+	"strings"
+
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
@@ -52,6 +54,9 @@ var _ = Describe("Summarize", func() {
 			rows = append(rows, completedRow(i, float64(i), 100))
 		}
 		// One rejection and one timeout.
+		//
+		// Only the rejection is offered work. A timeout produced no response, so nothing says whether the
+		// guard admitted it or refused it, and the offered total is 8000 rather than 16000 for that reason.
 		rows = append(rows, RawRow{Index: 101, SendUnixNanos: 1, HTTPStatus: 429, EstInputTokens: 8000})
 		rows = append(rows, RawRow{Index: 102, SendUnixNanos: 1, ErrorKind: "timeout", EstInputTokens: 8000})
 
@@ -63,9 +68,15 @@ var _ = Describe("Summarize", func() {
 		Expect(s.TTFTMsP50).To(Equal(float64(50)))
 		Expect(s.TTFTMsP99).To(Equal(float64(99)))
 		Expect(s.TailSampleSize).To(Equal(100))
-		// Admitted-work over the eligible (>=4096-token) population: one offered (rejected) + one offered (timed out, not a 429 so counts as admitted work).
-		Expect(s.OfferedInputTokens).To(Equal(int64(16000)))
-		Expect(s.AdmittedInputTokens).To(Equal(int64(8000))) // the timeout row was admitted (not 429); the 429 was not
+		// Admitted-work over the eligible (>=4096-token) population.
+		//
+		// The rejection is offered and not admitted. The timeout is neither: no response arrived, so nothing
+		// says what the guard decided about it, and it is counted as a lost verdict instead. It used to be
+		// scored as admitted for the sole reason that it was not a 429, which is how an arm that transmitted
+		// nothing could report a perfect admission match.
+		Expect(s.OfferedInputTokens).To(Equal(int64(8000)))
+		Expect(s.AdmittedInputTokens).To(BeZero())
+		Expect(s.AdmissionLost).To(Equal(1))
 	})
 
 	It("flags the tail as censored when more than 1% of requests time out", func() {
@@ -452,5 +463,61 @@ var _ = Describe("the eligible population when the evidence records a tier", fun
 	It("still counts a long request when the evidence predates the tier header", func() {
 		s := Summarize("off", []RawRow{row("", 8000)})
 		Expect(s.OfferedInputTokens).To(Equal(int64(8000)))
+	})
+})
+
+var _ = Describe("an eligible request that never got an admission verdict", func() {
+	// A request the gateway never answered says nothing about what the guard admitted, and Summarize counted
+	// it as admitted work anyway: anything that was not 429, 413, 401 or 403 landed in both terms of the
+	// fraction. Driven through the real report binary, an arm whose noisy traffic died in transport -- a third
+	// of the arm gone -- printed "admission match |B-C|/C = 0.000 PASS".
+	//
+	// That is not a hypothetical failure mode. A port-forward dying mid-replay is the most frequent failure
+	// this project has observed, twice in one run, and the script checks the forward only BEFORE each replay.
+	//
+	// The rule is the one the tail already uses: a lost observation is neither a success nor a refusal. It
+	// leaves both terms and is counted, and past a threshold it disqualifies the comparison instead of
+	// quietly shrinking it.
+	dead := func(i int) RawRow {
+		return RawRow{Index: i, SendUnixNanos: 1, Tenant: "standard-noisy", IsNoisy: true,
+			EstInputTokens: 10000, HTTPStatus: 0, ErrorKind: "transport", LongThreshold: 4096}
+	}
+	admitted := func(i int) RawRow {
+		r := completedRow(i, 10, 10000)
+		r.Tenant = "standard-noisy"
+		r.IsNoisy = true
+		r.LongThreshold = 4096
+		return r
+	}
+
+	It("is in neither term of the admitted-work fraction", func() {
+		s := Summarize("static-cap", []RawRow{admitted(1), dead(2)})
+		Expect(s.OfferedInputTokens).To(Equal(int64(10000)))
+		Expect(s.AdmittedInputTokens).To(Equal(int64(10000)))
+		Expect(s.AdmissionLost).To(Equal(1))
+	})
+
+	It("disqualifies the comparison once more than 1% of the eligible population is lost", func() {
+		var rows []RawRow
+		for i := 1; i <= 98; i++ {
+			rows = append(rows, admitted(i))
+		}
+		rows = append(rows, dead(100), dead(101))
+		b := Summarize("static-cap", rows)
+		c := Summarize("kv-aware", rows[:98])
+		r1 := Summarize("R1", []RawRow{completedRow(1, 10, 50)})
+		checks := EvaluateChecks(r1, b, c, CI{}, 0.05)
+		Expect(checks.Invalid).To(BeTrue())
+		Expect(checks.InvalidReason).To(ContainSubstring("admission"))
+	})
+
+	It("keeps every reason when a run is broken in more than one way", func() {
+		// The reason was overwritten rather than accumulated, so a run failing three ways reported the last
+		// one and an operator fixed one problem at a time, paying for a run each round.
+		empty := Summarize("kv-aware", nil)
+		r1 := Summarize("R1", []RawRow{completedRow(1, 10, 50)})
+		checks := EvaluateChecks(r1, empty, empty, CI{}, 0.05)
+		Expect(checks.Invalid).To(BeTrue())
+		Expect(strings.Count(checks.InvalidReason, "arm ")).To(BeNumerically(">=", 2))
 	})
 })
