@@ -309,3 +309,100 @@ var _ = Describe("the truncated repetition that pooling hides", func() {
 		Expect(c.Invalid).To(BeFalse())
 	})
 })
+
+var _ = Describe("a request shed with 413", func() {
+	// The gateway refuses a request larger than the bucket can ever hold with 413 rather than 429, because the
+	// caller's remedy is a smaller prompt rather than a later one.
+	// The report knew only about 429, so the arm that shed the hardest was the one that reported shedding
+	// nothing: a paid static-cap replay refused 447 noisy requests and printed rejected=0.
+	// These rows are that run's shape -- status 413, error kind "http", no first token -- so the fix is pinned
+	// to the evidence that exposed it rather than to an invented one.
+	shed := func(index int, tenant string, noisy bool) RawRow {
+		return RawRow{
+			Index:          index,
+			SendUnixNanos:  1,
+			Tenant:         tenant,
+			IsNoisy:        noisy,
+			EstInputTokens: 8000,
+			HTTPStatus:     413,
+			ErrorKind:      "http",
+			LongThreshold:  4000,
+		}
+	}
+
+	It("is a rejection, not a failure", func() {
+		rows := []RawRow{completedRow(1, 10, 100), shed(2, "noisy", true), shed(3, "noisy", true)}
+		s := Summarize("static-cap", rows)
+		Expect(s.Rejected).To(Equal(2))
+		Expect(s.Failed).To(BeZero())
+	})
+
+	It("is not counted as admitted work", func() {
+		// Every one of these was refused, so an admission-match check reading this arm must see none of their
+		// tokens admitted. Counting them made a cap that admitted nothing look like a cap that admitted all.
+		rows := []RawRow{shed(1, "noisy", true), shed(2, "noisy", true)}
+		s := Summarize("static-cap", rows)
+		Expect(s.OfferedInputTokens).To(Equal(int64(16000)))
+		Expect(s.AdmittedInputTokens).To(BeZero())
+	})
+
+	It("does not censor the premium tail, because shedding is the treatment", func() {
+		// This is the distinction the 429 path already drew and this one did not: a rejection is the guard
+		// working, while a transport error is a measurement that got away. Ten refusals against 100 premium
+		// completions is far past the 1% censoring trigger, so a wrong answer here is visible.
+		var rows []RawRow
+		for i := 1; i <= 100; i++ {
+			r := completedRow(i, float64(i), 100)
+			r.Tenant = "premium"
+			r.LongThreshold = 4000
+			rows = append(rows, r)
+		}
+		for i := 101; i <= 110; i++ {
+			rows = append(rows, shed(i, "premium", false))
+		}
+		s := Summarize("static-cap", rows)
+		Expect(s.Censored).To(BeFalse())
+		Expect(s.Rejected).To(Equal(10))
+	})
+
+	It("counts against a threshold probe's rejections", func() {
+		rows := []RawRow{shed(1, thresholdProbePrefix+"long", false)}
+		s := Summarize("static-cap", rows)
+		Expect(s.ThresholdProbe[thresholdProbePrefix+"long"].Rejected).To(Equal(1))
+	})
+})
+
+var _ = Describe("a threshold probe the gateway never evaluated", func() {
+	// The probe tenants exist to prove the eligibility threshold discriminates between 4095 and 4096 estimated
+	// tokens. A 403 means the gateway refused the tenant before admission ever ran, so the threshold did not
+	// get to speak and the section has no evidence in it -- but it printed "rejected=0", which reads as the
+	// threshold having considered the probe and let it through. A paid run shipped 92 such rows per arm and the
+	// report presented them as a result.
+	probe := func(status int) ArmSummary {
+		return Summarize("off", []RawRow{{
+			Index:          1,
+			SendUnixNanos:  1,
+			Tenant:         thresholdProbePrefix + "over",
+			EstInputTokens: 4096,
+			HTTPStatus:     status,
+			ErrorKind:      "http",
+			LongThreshold:  4000,
+		}})
+	}
+
+	It("is tallied apart from a rejection", func() {
+		o := probe(403).ThresholdProbe[thresholdProbePrefix+"over"]
+		Expect(o.Unevaluated).To(Equal(1))
+		Expect(o.Rejected).To(BeZero())
+	})
+
+	It("voids the section rather than reporting a threshold result", func() {
+		out := FormatReport([]ArmSummary{probe(403)}, Checks{}, 0.05)
+		Expect(out).To(ContainSubstring("VOID"))
+	})
+
+	It("leaves the section standing when the probes were actually evaluated", func() {
+		out := FormatReport([]ArmSummary{probe(200)}, Checks{}, 0.05)
+		Expect(out).NotTo(ContainSubstring("VOID"))
+	})
+})

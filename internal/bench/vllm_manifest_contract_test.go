@@ -903,3 +903,134 @@ func TestGPUNodeGroupsHoldTheEngine(t *testing.T) {
 		}
 	}
 }
+
+// TestEveryGeneratedTenantIsProvisioned pins the trace generator's tenant list to the paid run's tenant list.
+//
+// The two files have disagreed twice, and both times the run completed, reported, and passed its own checks.
+// The first paid run keyed two of the four tenants, so a quarter of every replay came back 401. The second
+// keyed all four but gave a GPUQuotaPolicy to only two, so the probe pair came back 403 and the report showed
+// their silence as "rejected=0" -- the absence of a measurement dressed as a result. Neither is visible from
+// inside either file; it takes reading both at once, which is what this does, without a cluster or a card.
+func TestEveryGeneratedTenantIsProvisioned(t *testing.T) {
+	genSrc, err := os.ReadFile("../../cmd/benchharness/main.go")
+	if err != nil {
+		t.Fatalf("read generator: %v", err)
+	}
+	// The generator names two tenants as literals and the probe pair through the constants below, so the
+	// constants are resolved here rather than matched as text.
+	generated := map[string]bool{ProbeUnderTenant: true, ProbeOverTenant: true}
+	for _, m := range regexp.MustCompile(`\{Tenant: "([^"]+)"`).FindAllSubmatch(genSrc, -1) {
+		generated[string(m[1])] = true
+	}
+	if len(generated) < 4 {
+		t.Fatalf("found only %d tenants in the generator; the pattern this test reads it with has drifted", len(generated))
+	}
+
+	runner, err := os.ReadFile("../../hack/m5b-arms.sh")
+	if err != nil {
+		t.Fatalf("read runner: %v", err)
+	}
+	block := regexp.MustCompile(`(?s)\nTENANTS=\((.*?)\n\)`).FindSubmatch(runner)
+	if block == nil {
+		t.Fatal("no TENANTS list in hack/m5b-arms.sh; the runner must name its tenants in one place")
+	}
+	provisioned := map[string]bool{}
+	for _, m := range regexp.MustCompile(`"([^":]+):([^":]+):([^"]*)"`).FindAllSubmatch(block[1], -1) {
+		provisioned[string(m[1])] = true
+	}
+
+	for tenant := range generated {
+		if !provisioned[tenant] {
+			t.Errorf("the trace generator emits tenant %q but hack/m5b-arms.sh gives it no key and no policy; every one of its requests would be refused before admission control and measure nothing", tenant)
+		}
+	}
+	for tenant := range provisioned {
+		if !generated[tenant] {
+			t.Errorf("hack/m5b-arms.sh provisions tenant %q that the trace generator never emits", tenant)
+		}
+	}
+}
+
+// TestTheRunnerDerivesItsApiKeysFromTheTenantList refuses a second hand-kept copy of the list.
+//
+// The check above compares the generator with TENANTS; it cannot see a --api-keys flag that was left behind
+// with its own literals, which is exactly the state the runner was in. A copy that agrees today is still the
+// shape that produced both failures.
+func TestTheRunnerDerivesItsApiKeysFromTheTenantList(t *testing.T) {
+	runner, err := os.ReadFile("../../hack/m5b-arms.sh")
+	if err != nil {
+		t.Fatalf("read runner: %v", err)
+	}
+	for line := range strings.SplitSeq(string(runner), "\n") {
+		if !strings.Contains(line, "--api-keys") {
+			continue
+		}
+		if strings.Contains(line, "=premium-key") || strings.Contains(line, "probe-over-key") {
+			t.Errorf("--api-keys spells its tenants out: %s\nderive it from TENANTS instead, so the list cannot be right in one place and stale in another", strings.TrimSpace(line))
+		}
+	}
+}
+
+// TestArmBCanAdmitTheTraceItIsGiven catches the degenerate cap without a trace, a cluster, or a card.
+//
+// A token bucket can never admit a request larger than its burst. The generator's noisy prompt is 40,000
+// chars, which estimates at 10,000 tokens -- the number is in the generator's own flag help -- and the
+// gateway's default burst is 8,192, a number in cmd/gateway. Both were written down; neither file had reason
+// to read the other. The runner passed a request rate of 1.568/s into a flag measured in tokens per second
+// and never set the burst at all, so arm B refused all 447 eligible requests in all four repetitions with
+// 413 and admitted nothing. It reported as a healthy arm. C/B then equalled C/R1, because B was R1.
+func TestArmBCanAdmitTheTraceItIsGiven(t *testing.T) {
+	runner, err := os.ReadFile("../../hack/m5b-arms.sh")
+	if err != nil {
+		t.Fatalf("read runner: %v", err)
+	}
+	intVar := func(name string) int {
+		m := regexp.MustCompile(`(?m)^` + name + `=(\d+)$`).FindSubmatch(runner)
+		if m == nil {
+			t.Fatalf("no %s in hack/m5b-arms.sh; arm B's tuning must be stated in tokens, in one place", name)
+		}
+		n, cerr := strconv.Atoi(string(m[1]))
+		if cerr != nil {
+			t.Fatalf("%s is not a number: %v", name, cerr)
+		}
+		return n
+	}
+	burst := intVar("STATIC_BURST")
+	rate := intVar("STATIC_RATE")
+
+	genSrc, err := os.ReadFile("../../cmd/benchharness/main.go")
+	if err != nil {
+		t.Fatalf("read generator: %v", err)
+	}
+	m := regexp.MustCompile(`"noisy-prompt-chars", (\d[\d_]*)`).FindSubmatch(genSrc)
+	if m == nil {
+		t.Fatal("no noisy-prompt-chars default in the generator; the pattern this test reads it with has drifted")
+	}
+	chars, err := strconv.Atoi(strings.ReplaceAll(string(m[1]), "_", ""))
+	if err != nil {
+		t.Fatalf("noisy-prompt-chars is not a number: %v", err)
+	}
+	// The gateway estimates a prompt's input tokens as ceiling of chars over four.
+	est := (chars + 3) / 4
+
+	if burst <= est {
+		t.Errorf("the noisy prompt estimates at %d tokens and STATIC_BURST is %d; every eligible request would be refused with 413 and arm B would admit nothing, making it a second isolation arm rather than a competitor", est, burst)
+	}
+	// A rate below one eligible prompt per minute is a request rate that wandered into a token-rate flag,
+	// which is how the last run got here: it passed 1.568, the trace's requests per second.
+	//
+	// The bound is deliberately far below any real tuning -- the C pilot's 5,957 tokens/sec is thirty-six
+	// times it -- because this is an order-of-magnitude check on the units, not a judgement about the tuning.
+	// A rate that is wrong but plausible is the confirmatory run's problem, and no static test can see it.
+	if rate*60 < est {
+		t.Errorf("STATIC_RATE is %d tokens/sec, which cannot admit even one %d-token prompt per minute; that is a request rate in a flag measured in tokens", rate, est)
+	}
+
+	// Both flags must reach the gateway. The last run set one and inherited the other from a default that
+	// happened to be fatal.
+	for _, flag := range []string{"-admission-static-rate=${STATIC_RATE}", "-admission-static-burst=${STATIC_BURST}"} {
+		if !strings.Contains(string(runner), flag) {
+			t.Errorf("the runner does not pass %s; cmd/gateway's defaults exist only as placeholders and one of them silently made arm B degenerate", flag)
+		}
+	}
+}
