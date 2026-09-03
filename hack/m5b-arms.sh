@@ -500,36 +500,19 @@ for rep in $(seq 1 "$REPS"); do
     # A replay that completes nothing is dead whichever arm and whichever repetition it is, and there is no
     # repetition whose emptiness is acceptable -- the report needs equal counts across arms, so one dead
     # replay costs the whole run anyway. Checking all sixteen costs one pass over a file each time.
-    if true; then
-      completed=$(python3 -c "
-import json,sys
-ok=0
-for line in open(sys.argv[1]):
-    d=json.loads(line)
-    if d.get('httpStatus') == 200: ok += 1
-print(ok)" "$OUT/raw-$arm-$rep.jsonl" 2>/dev/null || echo 0)
-      say "  $completed of them completed with HTTP 200"
-      if [ "${completed:-0}" -eq 0 ]; then
-        codes=$(python3 -c "
-import json,sys,collections
-c=collections.Counter(json.loads(l).get('httpStatus') for l in open(sys.argv[1]))
-print(', '.join(f'{k}x{v}' for k,v in c.most_common(4)))" "$OUT/raw-$arm-$rep.jsonl" 2>/dev/null)
-        fail "the first replay completed nothing: $codes. Every later replay would do the same, so this stops here rather than after sixteen of them. 404 means the trace asks for a model no InferenceDeployment serves; 401 means a tenant is missing from the gateway-api-keys secret."
-      fi
-
-      # A single 401 or 403 fails the run, because neither can be an experimental outcome.
-      #
-      # Both are decided before admission control runs, so a request that gets one measures nothing about the
-      # guard -- and the arm still completes, still reports, and still passes a check that only asks whether
-      # anything at all completed. The second paid run shed 92 probe requests per replay to 403 and finished
-      # all sixteen replays looking healthy; the eligibility-threshold section of its report is void.
-      unauthorised=$(python3 -c "
-import json,sys
-print(sum(1 for l in open(sys.argv[1]) if json.loads(l).get('httpStatus') in (401, 403)))" "$OUT/raw-$arm-$rep.jsonl" 2>/dev/null || echo 0)
-      if [ "${unauthorised:-0}" -ne 0 ]; then
-        fail "$unauthorised requests came back 401 or 403 in $arm replay $rep. That is a configuration fault, not a result: those requests never reached admission control, so whatever they were meant to measure went unmeasured. Check that every tenant in the trace has both a key in gateway-api-keys and a GPUQuotaPolicy."
-      fi
-    fi
+    # Every replay is checked as it lands, by the same code the report uses.
+    #
+    # The rules are not repeated here. A copy of "usable" in bash would be a second definition, and the two
+    # would drift the first time either moved -- the shape that has already cost this project two paid runs.
+    # benchharness check-replay runs bench.Summarize and its thresholds, so the runner refuses exactly what
+    # the report would refuse, at the replay that broke instead of three hours later.
+    #
+    # What it stops on, all of which have actually happened here: a replay that completed nothing; any 401 or
+    # 403, which is decided before admission control and so measures nothing about the guard; eligible
+    # requests whose admission verdict was lost, which is what a port-forward dying mid-replay looks like; and
+    # a premium tail that lost more than one percent, since the tail is the primary endpoint.
+    "$WORK/benchharness" check-replay -raw "$OUT/raw-$arm-$rep.jsonl" -label "$arm replay $rep" \
+      || fail "replay $rep of arm $arm is unusable, so the run stops here rather than paying for the rest of it"
   done
 done
 

@@ -467,9 +467,9 @@ func (c *Checks) invalidate(reason string) {
 // never saw.
 const MaxLostAdmissionFraction = 0.01
 
-// admissionScored is how many eligible requests did get a verdict, the denominator AdmissionLost is judged
+// AdmissionScored is how many eligible requests did get a verdict, the denominator AdmissionLost is judged
 // against.
-func (s ArmSummary) admissionScored() int {
+func (s ArmSummary) AdmissionScored() int {
 	return s.eligibleScored
 }
 
@@ -512,7 +512,7 @@ func EvaluateChecks(r1, staticCap, kvAware ArmSummary, incrementalCI CI, matchTo
 		// An eligible request with no admission verdict is unknown work, not admitted work, and the
 		// admitted-work fraction is what the whole matched comparison rests on. The threshold is the tail's:
 		// past one percent the fraction is describing a population it could not see.
-		if eligible := s.AdmissionLost + s.admissionScored(); eligible > 0 &&
+		if eligible := s.AdmissionLost + s.AdmissionScored(); eligible > 0 &&
 			float64(s.AdmissionLost)/float64(eligible) >= MaxLostAdmissionFraction {
 			c.invalidate(fmt.Sprintf("arm %s lost the admission verdict for %d of %d eligible requests (>%.0f%%), so its admitted-work fraction is measured over a population it could not see",
 				s.Arm, s.AdmissionLost, eligible, MaxLostAdmissionFraction*100))
