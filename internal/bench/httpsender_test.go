@@ -358,3 +358,52 @@ var _ = Describe("the gateway's own decision in the evidence", func() {
 		Expect(res.AdmissionReason).To(BeEmpty())
 	})
 })
+
+var _ = Describe("the engine's own count of the prompt", func() {
+	// The design's admission-match criterion is defined over the served tokenizer's count, and every run so
+	// far scored it on ceil(chars/4). The engine knows the real number and will report it when asked, so the
+	// harness asks -- on every admitted request, which makes it a check on the trace's own measurement rather
+	// than a second guess at it.
+	It("asks for usage and records the prompt token count from the final chunk", func() {
+		var asked bool
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			var body map[string]any
+			Expect(json.NewDecoder(r.Body).Decode(&body)).To(Succeed())
+			if so, ok := body["stream_options"].(map[string]any); ok {
+				asked, _ = so["include_usage"].(bool)
+			}
+			w.Header().Set("Content-Type", "text/event-stream")
+			f := w.(http.Flusher)
+			_, _ = fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"a\"}}]}\n\n")
+			f.Flush()
+			// vLLM sends the usage chunk with an empty choices list, just before [DONE].
+			_, _ = fmt.Fprint(w, "data: {\"choices\":[],\"usage\":{\"prompt_tokens\":7695,\"completion_tokens\":1}}\n\n")
+			f.Flush()
+			_, _ = fmt.Fprint(w, "data: [DONE]\n\n")
+			f.Flush()
+		}))
+		defer srv.Close()
+
+		sender := NewHTTPSender(srv.URL, "m", nil, 5*time.Second, SenderConn{MaxIdleConnsPerHost: 8, DrainForReuse: true})
+		res := sender.Send(context.Background(), TraceRow{Index: 1, PromptLenChars: 40000, MaxOutputTokens: 4}, 1)
+
+		Expect(asked).To(BeTrue(), "the harness did not ask for usage, so the engine had no reason to report it")
+		Expect(res.PromptTokens).To(Equal(7695))
+		Expect(res.OutputTokens).To(Equal(1), "the usage chunk carries no content delta and must not count as an output token")
+	})
+
+	It("leaves the count at zero when the engine reports none", func() {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "text/event-stream")
+			f := w.(http.Flusher)
+			_, _ = fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"a\"}}]}\n\n")
+			f.Flush()
+			_, _ = fmt.Fprint(w, "data: [DONE]\n\n")
+			f.Flush()
+		}))
+		defer srv.Close()
+		sender := NewHTTPSender(srv.URL, "m", nil, 5*time.Second, SenderConn{MaxIdleConnsPerHost: 8, DrainForReuse: true})
+		res := sender.Send(context.Background(), TraceRow{Index: 1, PromptLenChars: 40, MaxOutputTokens: 4}, 1)
+		Expect(res.PromptTokens).To(BeZero())
+	})
+})

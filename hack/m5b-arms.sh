@@ -452,6 +452,19 @@ print(','.join(sorted(seen - known)))" "$OUT/trace.jsonl" "$(printf '%s' "${TENA
 [ -z "$missing" ] || fail "the trace uses tenants this script has no key or policy for: $missing. Add them to TENANTS in this file; a tenant without both is refused before admission and its requests measure nothing."
 say "every tenant in the trace has a key and a policy"
 
+# The trace is stamped with the engine's own count for each distinct prompt length, before any arm runs.
+#
+# The design defines the admission-match criterion over the served tokenizer's input-token count, and three
+# paid runs scored it on ceil(chars/4) -- 36 percent low on a 200-character prompt, 23 percent high on a
+# 40,000-character one, per this repository's own calibration. The criterion has never been evaluated.
+#
+# It has to be on the TRACE rather than only on responses, because a refused request never reaches the engine
+# and refused requests are the denominator of the fraction. The measurement uses the premium tenant, whose
+# requests no admission mode refuses, so a probe cannot be shed before it is counted.
+"$WORK/benchharness" stamp-exact-tokens -trace "$OUT/trace.jsonl" \
+  -gateway-url "http://127.0.0.1:18080" -model "$MODEL" -api-keys "$api_keys" -tenant "${premium_tenants%%,*}" \
+  || fail "the engine would not report its own input-token counts, so the admission-match criterion cannot be evaluated in the units the design defines it in"
+
 # A burst below the largest prompt makes arm B refuse every eligible request, which is not a tuning error
 # that shows up as a weak result -- it is a degenerate arm that reports cleanly and answers a question nobody
 # asked. The last run spent three hours and a card on it. The trace knows the number, so it is asked.

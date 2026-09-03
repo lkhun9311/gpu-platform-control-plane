@@ -542,3 +542,55 @@ var _ = Describe("the incremental check when the repetition ratios scatter", fun
 		Expect(RatioScatterTooHigh(nil)).To(BeFalse())
 	})
 })
+
+var _ = Describe("the admitted-work fraction over exact tokens", func() {
+	// The design defines the admission-match criterion over EXACT target-tokenizer input tokens. Every run so
+	// far computed it over ceil(chars/4), which this project's own calibration records as 36% low on a
+	// 200-character prompt and 23% high on a 40,000-character one. The pre-registered criterion has therefore
+	// never been evaluated -- a proxy for it has.
+	//
+	// Falling back to the estimate is exactly how that happened, so a report with no exact counts refuses the
+	// check instead of quietly answering a different question.
+	row := func(i, est, exact, engine, status int) RawRow {
+		r := completedRow(i, 10, est)
+		r.Tenant = "standard-noisy"
+		r.IsNoisy = true
+		r.LongThreshold = 4096
+		r.ExactInputTokens = exact
+		r.EngineInputTokens = engine
+		r.HTTPStatus = status
+		if status != 200 {
+			r.ErrorKind = "rejected"
+			r.FirstTokenUnixNanos, r.EndUnixNanos = 0, 0
+		}
+		return r
+	}
+
+	It("scores offered and admitted work in exact tokens, including the refused", func() {
+		// 10,000 estimated is 7,695 exact. One admitted, one refused.
+		s := Summarize("static-cap", []RawRow{row(1, 10000, 7695, 7695, 200), row(2, 10000, 7695, 0, 429)})
+		Expect(s.OfferedExactTokens).To(Equal(int64(15390)))
+		Expect(s.AdmittedExactTokens).To(Equal(int64(7695)))
+		Expect(s.ExactTokensMissing).To(BeZero())
+	})
+
+	It("counts an eligible row that carries no exact measurement", func() {
+		s := Summarize("static-cap", []RawRow{row(1, 10000, 0, 0, 200)})
+		Expect(s.ExactTokensMissing).To(Equal(1))
+	})
+
+	It("refuses the admission-match check rather than scoring it on estimates", func() {
+		unmeasured := Summarize("static-cap", []RawRow{row(1, 10000, 0, 0, 200)})
+		r1 := Summarize("R1", []RawRow{completedRow(1, 10, 50)})
+		checks := EvaluateChecks(r1, unmeasured, unmeasured, CI{}, 0.05)
+		Expect(checks.Invalid).To(BeTrue())
+		Expect(checks.InvalidReason).To(ContainSubstring("no measured input-token count"))
+	})
+
+	It("refuses when the engine's own count contradicts the trace's", func() {
+		// The trace is stamped once per prompt length; the engine reports on every admitted request. A
+		// disagreement means the trace was stamped against a different tokenizer, or a different prompt ran.
+		s := Summarize("static-cap", []RawRow{row(1, 10000, 7695, 6000, 200)})
+		Expect(s.ExactTokensContradicted).To(Equal(1))
+	})
+})

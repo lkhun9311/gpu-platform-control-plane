@@ -69,6 +69,15 @@ type RawRow struct {
 	//
 	// The report measures admitted-work over this same threshold, so if the paid run tuned it the report cannot silently score a different population than the guard gated.
 	LongThreshold int `json:"longThreshold,omitempty"`
+	// ExactInputTokens is the trace's measured count for this prompt, carried through so a refused request
+	// still contributes to the offered side of the admitted-work fraction.
+	ExactInputTokens int `json:"exactInputTokens,omitempty"`
+	// EngineInputTokens is what the engine itself reported for this request, when it answered one.
+	//
+	// It exists to check ExactInputTokens rather than to replace it: the trace's value is measured once per
+	// prompt length, and this is measured on every admitted request, so a disagreement means the trace was
+	// stamped against a different tokenizer or a different prompt than the one that ran.
+	EngineInputTokens int `json:"engineInputTokens,omitempty"`
 	// Tier and AdmissionReason are what the GATEWAY decided, read off its response rather than assumed here.
 	//
 	// AdmissionReason is recorded for admits as well as refusals, because arm C admits for four different
@@ -115,6 +124,8 @@ type SendResult struct {
 	EndUnixNanos int64
 	// OutputTokens is the response length in tokens.
 	OutputTokens int
+	// PromptTokens is the engine's own count of the prompt, zero when it reported none.
+	PromptTokens int
 	// HTTPStatus is the response status; 0 for a transport error or timeout.
 	HTTPStatus int
 	// ErrorKind names the failure, empty on success.
@@ -198,6 +209,8 @@ func Replay(ctx context.Context, sender Sender, trace []TraceRow, opts ReplayOpt
 				FirstTokenUnixNanos: res.FirstTokenUnixNanos,
 				EndUnixNanos:        res.EndUnixNanos,
 				EstInputTokens:      estInput(tr.PromptLenChars),
+				ExactInputTokens:    tr.ExactInputTokens,
+				EngineInputTokens:   res.PromptTokens,
 				OutputTokens:        res.OutputTokens,
 				HTTPStatus:          res.HTTPStatus,
 				ErrorKind:           res.ErrorKind,

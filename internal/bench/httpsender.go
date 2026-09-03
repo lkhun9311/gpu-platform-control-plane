@@ -243,6 +243,18 @@ type chatRequest struct {
 	Messages  []chatReqMsg `json:"messages"`
 	MaxTokens int          `json:"max_tokens"`
 	Stream    bool         `json:"stream"`
+	// StreamOptions asks the engine to append a usage chunk carrying its own count of the prompt.
+	//
+	// That count is the served tokenizer's, which is the unit the design's admission-match criterion is
+	// defined in and the unit no run has ever measured. It arrives on admitted requests only -- a refusal
+	// never reaches the engine -- so it checks the trace's per-prompt-length measurement rather than
+	// replacing it.
+	StreamOptions streamOptions `json:"stream_options"`
+}
+
+// streamOptions is the OpenAI streaming extension vLLM implements for usage reporting.
+type streamOptions struct {
+	IncludeUsage bool `json:"include_usage"`
 }
 
 type chatReqMsg struct {
@@ -258,10 +270,11 @@ func (h *HTTPSender) Send(ctx context.Context, row TraceRow, sendUnixNanos int64
 	defer cancel()
 
 	body := chatRequest{
-		Model:     h.model,
-		Messages:  []chatReqMsg{{Role: "user", Content: PromptText(row.PromptLenChars)}},
-		MaxTokens: row.MaxOutputTokens,
-		Stream:    true,
+		Model:         h.model,
+		Messages:      []chatReqMsg{{Role: "user", Content: PromptText(row.PromptLenChars)}},
+		MaxTokens:     row.MaxOutputTokens,
+		Stream:        true,
+		StreamOptions: streamOptions{IncludeUsage: true},
 	}
 	buf, err := json.Marshal(body)
 	if err != nil {
@@ -362,12 +375,19 @@ func (h *HTTPSender) readStream(ctx context.Context, resp *http.Response) SendRe
 					Content string `json:"content"`
 				} `json:"delta"`
 			} `json:"choices"`
+			// The usage chunk arrives last, with an empty choices list, so it contributes no output token.
+			Usage *struct {
+				PromptTokens int `json:"prompt_tokens"`
+			} `json:"usage"`
 		}
 		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
 			// A malformed chunk mid-stream is a stream error, but any first token already observed still stands.
 			res.ErrorKind = "stream"
 			res.EndUnixNanos = h.now().UnixNano()
 			return res
+		}
+		if chunk.Usage != nil && chunk.Usage.PromptTokens > 0 {
+			res.PromptTokens = chunk.Usage.PromptTokens
 		}
 		if len(chunk.Choices) > 0 && chunk.Choices[0].Delta.Content != "" {
 			if res.FirstTokenUnixNanos == 0 {
