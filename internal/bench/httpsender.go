@@ -28,6 +28,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/lkhun9311/gpu-mlops-platform-control-plane/internal/gateway"
 )
 
 // HTTPSender replays a trace row as a streaming OpenAI chat-completions request against the gateway.
@@ -307,10 +309,24 @@ func (h *HTTPSender) Send(ctx context.Context, row TraceRow, sendUnixNanos int64
 		if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode == http.StatusRequestEntityTooLarge {
 			kind = "rejected"
 		}
-		return SendResult{HTTPStatus: resp.StatusCode, ErrorKind: kind}
+		return h.withAdmissionDecision(resp, SendResult{HTTPStatus: resp.StatusCode, ErrorKind: kind})
 	}
 
-	return h.readStream(reqCtx, resp)
+	return h.withAdmissionDecision(resp, h.readStream(reqCtx, resp))
+}
+
+// withAdmissionDecision copies the gateway's reported tier and refusal reason onto a result.
+//
+// One function rather than a pair of assignments on each return path, because the path that needs them most
+// is the refusal path -- the one a streaming reader never touches, and the one that would be forgotten.
+//
+// The header names come from internal/gateway rather than string literals here: they are the contract between
+// the two packages, and a copy of a contract is how this project has produced most of its defects. Empty when
+// the gateway predates reporting them, which every consumer reads as "not recorded" rather than as a value.
+func (h *HTTPSender) withAdmissionDecision(resp *http.Response, res SendResult) SendResult {
+	res.Tier = resp.Header.Get(gateway.HeaderAdmissionTier)
+	res.RejectReason = resp.Header.Get(gateway.HeaderAdmissionReason)
+	return res
 }
 
 // readStream consumes the server-sent-events response, recording first-token and end times and counting output tokens.

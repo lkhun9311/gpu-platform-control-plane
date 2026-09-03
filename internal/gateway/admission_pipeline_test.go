@@ -244,3 +244,66 @@ var _ = Describe("admission metrics", func() {
 			`gpuaas_gateway_admission_input_tokens_total{decision="reject",mode="static-cap",tenant="` + tenant + `"} 4096`))
 	})
 })
+
+// The evidence a paid run leaves behind should record what the gateway DECIDED, not what a client assumed
+// about it.
+//
+// Two analyses of the 2026-09-03 run had to be reconstructed rather than read. The report scored its
+// eligible population on the token threshold alone, because a raw row carries no tier, while the gateway's
+// rule is tier == standard AND threshold -- they agreed only because the sole premium tenant happened to
+// send 50-token prompts. And the reason 447 requests were refused had to be inferred from the runner's flags
+// and the gateway's defaults, because a refusal recorded its status and nothing else. Both become a lookup
+// once the decision travels on the response.
+var _ = Describe("the gateway reporting its own decisions", func() {
+	var up *httptest.Server
+
+	BeforeEach(func() {
+		up = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		}))
+	})
+	AfterEach(func() { up.Close() })
+
+	It("names the tier it resolved, on a request it admits", func() {
+		s := newAdmissionServer(up.URL, tierStandard, AdmissionOff, offAdmitter{})
+		rr := httptest.NewRecorder()
+		s.Handler().ServeHTTP(rr, authedRequest(eligibleLongBody))
+		Expect(rr.Code).To(Equal(http.StatusOK))
+		Expect(rr.Header().Get("X-Admission-Tier")).To(Equal(tierStandard))
+	})
+
+	It("names the tier it resolved, on a request it refuses", func() {
+		s := newAdmissionServer(up.URL, tierStandard, AdmissionStaticCap, newStaticCapAdmitter(1000, 8, 4096))
+		rr := httptest.NewRecorder()
+		s.Handler().ServeHTTP(rr, authedRequest(eligibleLongBody))
+		Expect(rr.Code).To(Equal(http.StatusRequestEntityTooLarge))
+		Expect(rr.Header().Get("X-Admission-Tier")).To(Equal(tierStandard))
+	})
+
+	It("names why it refused, for both refusals", func() {
+		// 413: larger than the bucket can ever hold. This is the one the paid run hit 1,788 times and the
+		// one whose reason never reached the evidence, because it does not go through failReason.
+		burst := newAdmissionServer(up.URL, tierStandard, AdmissionStaticCap, newStaticCapAdmitter(1000, 8, 4096))
+		rr := httptest.NewRecorder()
+		burst.Handler().ServeHTTP(rr, authedRequest(eligibleLongBody))
+		Expect(rr.Code).To(Equal(http.StatusRequestEntityTooLarge))
+		Expect(rr.Header().Get("X-Admission-Reason")).To(Equal(reasonInputExceedsBurst))
+
+		// 429: momentarily out of budget.
+		limited := newAdmissionServer(up.URL, tierStandard, AdmissionStaticCap, newStaticCapAdmitter(0, 4096, 4096))
+		drain := httptest.NewRecorder()
+		limited.Handler().ServeHTTP(drain, authedRequest(eligibleLongBody))
+		Expect(drain.Code).To(Equal(http.StatusOK), "the draining request was itself refused")
+		rr2 := httptest.NewRecorder()
+		limited.Handler().ServeHTTP(rr2, authedRequest(eligibleLongBody))
+		Expect(rr2.Code).To(Equal(http.StatusTooManyRequests))
+		Expect(rr2.Header().Get("X-Admission-Reason")).To(Equal(reasonInputRateLimit))
+	})
+
+	It("says nothing about a reason when it admitted the request", func() {
+		s := newAdmissionServer(up.URL, tierStandard, AdmissionOff, offAdmitter{})
+		rr := httptest.NewRecorder()
+		s.Handler().ServeHTTP(rr, authedRequest(eligibleLongBody))
+		Expect(rr.Header().Get("X-Admission-Reason")).To(BeEmpty())
+	})
+})
