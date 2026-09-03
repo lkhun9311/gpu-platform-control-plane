@@ -796,19 +796,22 @@ func (a *kvAwareAdmitter) AdmitIsStateless() {}
 //   - engaged, standard tier, short -> admit.
 func (a *kvAwareAdmitter) Admit(_ context.Context, meta RequestMeta, backend *BackendRef, _, tier string) (bool, string) {
 	snap, ok := a.manager.snapshotFor(backendKey(backend))
-	if !ok || !snap.fresh {
-		return true, ""
+	if !ok {
+		return true, reasonBackendUnregistered
+	}
+	if !snap.fresh {
+		return true, reasonTelemetryStale
 	}
 	if !snap.engaged {
-		return true, ""
+		return true, reasonNotEngaged
 	}
 	if tier == tierPremium {
-		return true, ""
+		return true, reasonPremiumTier
 	}
 	if meta.EstInputTokens >= a.longThreshold {
 		return false, reasonKVCachePressure
 	}
-	return true, ""
+	return true, reasonBelowThreshold
 }
 
 // KVAwareConfig configures the kv-aware admission mode's thresholds and scraper.

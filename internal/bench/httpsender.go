@@ -325,7 +325,7 @@ func (h *HTTPSender) Send(ctx context.Context, row TraceRow, sendUnixNanos int64
 // the gateway predates reporting them, which every consumer reads as "not recorded" rather than as a value.
 func (h *HTTPSender) withAdmissionDecision(resp *http.Response, res SendResult) SendResult {
 	res.Tier = resp.Header.Get(gateway.HeaderAdmissionTier)
-	res.RejectReason = resp.Header.Get(gateway.HeaderAdmissionReason)
+	res.AdmissionReason = resp.Header.Get(gateway.HeaderAdmissionReason)
 	return res
 }
 

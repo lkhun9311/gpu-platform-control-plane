@@ -132,7 +132,7 @@ func TestCheckReplay(t *testing.T) {
 			"a replay whose premium tail lost more than one percent",
 			func() []bench.RawRow {
 				rows := healthy()
-				for i := 0; i < 3; i++ {
+				for i := range 3 {
 					rows[i].HTTPStatus = 0
 					rows[i].ErrorKind = "transport"
 					rows[i].FirstTokenUnixNanos, rows[i].EndUnixNanos = 0, 0

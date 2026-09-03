@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"os"
 	"sort"
+	"strings"
 
 	"github.com/lkhun9311/gpu-mlops-platform-control-plane/internal/bench"
 )
@@ -105,17 +106,17 @@ func statusHistogram(rows []bench.RawRow) string {
 		codes = append(codes, c)
 	}
 	sort.Slice(codes, func(i, j int) bool { return counts[codes[i]] > counts[codes[j]] })
-	out := ""
+	var out strings.Builder
 	for i, c := range codes {
 		if i == 4 {
 			break
 		}
 		if i > 0 {
-			out += ", "
+			out.WriteString(", ")
 		}
-		out += fmt.Sprintf("%dx%d", c, counts[c])
+		fmt.Fprintf(&out, "%dx%d", c, counts[c])
 	}
-	return out
+	return out.String()
 }
 
 // countUnauthorized counts responses decided before admission control ran.
