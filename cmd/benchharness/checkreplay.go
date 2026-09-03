@@ -36,6 +36,14 @@ import (
 // The rules live here rather than in the shell because they are the report's rules. A copy in bash would be
 // a second definition of "usable", and the two would drift the first time either moved: that shape has cost
 // this project two paid runs already. bench.Summarize is what decides, and the thresholds are its constants.
+//
+// This is NOT identical to what the report refuses, and the difference is deliberate. The two answer
+// different questions: this one asks whether the run should continue, the report asks what can be concluded
+// from evidence that already exists. A replay carrying 401s or 403s stops the run here, because a
+// misconfiguration should be fixed before another three hours are bought -- while the report scores the arm
+// comparisons on the rows that did reach admission and marks only the threshold section void, which is the
+// right granularity once the money is spent. An earlier version of this comment claimed the two refuse
+// exactly the same things. They do not.
 func checkReplay(args []string) error {
 	fs := flag.NewFlagSet("check-replay", flag.ExitOnError)
 	rawPath := fs.String("raw", "", "one replay's raw evidence file (required)")

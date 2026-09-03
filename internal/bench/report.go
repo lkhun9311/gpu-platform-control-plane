@@ -128,6 +128,21 @@ type ArmSummary struct {
 	Total int
 	// Completed counts requests that produced a full response (a first token and an end).
 	Completed int
+	// OfferedExactTokens and AdmittedExactTokens are the admitted-work fraction in the units the design
+	// actually specifies: the served tokenizer's own count, not ceil(chars/4).
+	//
+	// The estimate is not a neutral stand-in. This project's calibration measures it 36 percent low on a
+	// 200-character prompt and 23 percent high on a 40,000-character one, so a fraction built from it weighs
+	// the population differently than the criterion says to.
+	OfferedExactTokens  int64
+	AdmittedExactTokens int64
+	// ExactTokensMissing counts eligible requests with no measured count, and ExactTokensContradicted counts
+	// those whose engine-reported count disagrees with the trace's.
+	//
+	// Either one disqualifies the admission-match check. The alternative is to fall back to the estimate,
+	// which is how the criterion came to be unevaluated for three paid runs without anyone noticing.
+	ExactTokensMissing      int
+	ExactTokensContradicted int
 	// AdmissionLost is how many ELIGIBLE requests got no admission verdict at all, so the guard's behaviour
 	// toward them is unknown.
 	//
@@ -237,6 +252,17 @@ func Summarize(arm string, rows []RawRow) ArmSummary {
 				s.OfferedInputTokens += int64(r.EstInputTokens)
 				if !shedByAdmission(r) {
 					s.AdmittedInputTokens += int64(r.EstInputTokens)
+				}
+				switch {
+				case r.ExactInputTokens <= 0:
+					s.ExactTokensMissing++
+				case r.EngineInputTokens > 0 && r.EngineInputTokens != r.ExactInputTokens:
+					s.ExactTokensContradicted++
+				default:
+					s.OfferedExactTokens += int64(r.ExactInputTokens)
+					if !shedByAdmission(r) {
+						s.AdmittedExactTokens += int64(r.ExactInputTokens)
+					}
 				}
 			}
 		}
@@ -551,6 +577,15 @@ func EvaluateChecks(r1, staticCap, kvAware ArmSummary, incrementalCI CI, matchTo
 		}
 		if s.Censored {
 			c.invalidate(fmt.Sprintf("arm %s tail is censored (>1%% of premium requests did not complete), so its p99 is only a lower bound", s.Arm))
+		}
+		// The criterion is defined over exact tokens, so a population that cannot supply them cannot be
+		// scored against it. Refusing is the point: falling back to the estimate is what made three paid
+		// runs report a number nobody had asked for.
+		if s.ExactTokensMissing > 0 {
+			c.invalidate(fmt.Sprintf("arm %s has %d eligible requests with no measured input-token count, and the admission-match criterion is defined over the served tokenizer's own count rather than the ceil(chars/4) estimate", s.Arm, s.ExactTokensMissing))
+		}
+		if s.ExactTokensContradicted > 0 {
+			c.invalidate(fmt.Sprintf("arm %s has %d eligible requests whose engine-reported input-token count disagrees with the trace's measurement, so the trace was stamped against a different tokenizer or a different prompt ran", s.Arm, s.ExactTokensContradicted))
 		}
 		// An eligible request with no admission verdict is unknown work, not admitted work, and the
 		// admitted-work fraction is what the whole matched comparison rests on. The threshold is the tail's:

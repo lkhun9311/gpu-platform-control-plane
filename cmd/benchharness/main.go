@@ -74,6 +74,8 @@ func main() {
 		printPrompt(os.Args[2:])
 	case "power":
 		err = power(os.Args[2:])
+	case "stamp-exact-tokens":
+		err = stampExactTokens(os.Args[2:])
 	case "check-replay":
 		err = checkReplay(os.Args[2:])
 	case "sim-cap":
@@ -91,7 +93,7 @@ func main() {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: benchharness <gen-trace|replay|report|print-prompt|check-replay|sim-cap|power|stub-serve> [flags]")
+	fmt.Fprintln(os.Stderr, "usage: benchharness <gen-trace|replay|report|print-prompt|check-replay|stamp-exact-tokens|sim-cap|power|stub-serve> [flags]")
 }
 
 // genTrace generates an immutable trace file and a frozen manifest that pins its checksum.

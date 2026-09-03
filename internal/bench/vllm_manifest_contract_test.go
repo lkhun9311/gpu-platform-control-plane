@@ -1189,3 +1189,25 @@ func TestTheEngineAndModelAreReadFromTheCluster(t *testing.T) {
 		}
 	}
 }
+
+// TestTheTraceIsStampedWithExactTokens keeps the run from scoring its own criterion in the wrong units.
+//
+// The design defines the admission-match criterion over the served tokenizer's input-token count. Three paid
+// runs scored it over ceil(chars/4) instead, which this repository's calibration measures at 36 percent low
+// on a 200-character prompt and 23 percent high on a 40,000-character one -- so what was reported was a proxy
+// nobody had pre-registered, and nothing said so.
+func TestTheTraceIsStampedWithExactTokens(t *testing.T) {
+	runner, err := os.ReadFile(filepath.Join("..", "..", "hack", "m5b-arms.sh"))
+	if err != nil {
+		t.Fatalf("read runner: %v", err)
+	}
+	if !strings.Contains(string(runner), `"$WORK/benchharness" stamp-exact-tokens`) {
+		t.Error("the runner does not stamp the trace with the engine's own input-token counts; the admission-match check would be scored on the ceil(chars/4) estimate, which is not the quantity the design pre-registered")
+	}
+	// Before the arms, since a trace stamped afterwards cannot have been what they replayed.
+	stamp := strings.Index(string(runner), "stamp-exact-tokens -trace")
+	arms := strings.Index(string(runner), "for rep in $(seq 1")
+	if stamp < 0 || arms < 0 || stamp > arms {
+		t.Error("the trace is stamped after the arms run, so the rows they replayed carried no measured count")
+	}
+}
