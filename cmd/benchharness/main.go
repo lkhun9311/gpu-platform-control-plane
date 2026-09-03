@@ -72,6 +72,8 @@ func main() {
 		err = report(os.Args[2:])
 	case "print-prompt":
 		printPrompt(os.Args[2:])
+	case "check-replay":
+		err = checkReplay(os.Args[2:])
 	case "sim-cap":
 		err = simCap(os.Args[2:])
 	case "stub-serve":
@@ -87,7 +89,7 @@ func main() {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: benchharness <gen-trace|replay|report|print-prompt|sim-cap|stub-serve> [flags]")
+	fmt.Fprintln(os.Stderr, "usage: benchharness <gen-trace|replay|report|print-prompt|check-replay|sim-cap|stub-serve> [flags]")
 }
 
 // genTrace generates an immutable trace file and a frozen manifest that pins its checksum.
