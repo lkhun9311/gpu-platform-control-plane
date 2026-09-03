@@ -961,7 +961,7 @@ func TestTheRunnerDerivesItsApiKeysFromTheTenantList(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read runner: %v", err)
 	}
-	for _, line := range strings.Split(string(runner), "\n") {
+	for line := range strings.SplitSeq(string(runner), "\n") {
 		if !strings.Contains(line, "--api-keys") {
 			continue
 		}
