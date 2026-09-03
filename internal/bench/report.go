@@ -27,6 +27,18 @@ import (
 // httpStatusTooManyRequests is the status the gateway returns when an admission control rejects a request.
 const httpStatusTooManyRequests = 429
 
+// httpStatusInputExceedsBurst is the status the gateway returns when a prompt is larger than the bucket can ever hold.
+//
+// The gateway splits its refusals deliberately: 429 tells the caller to come back later, 413 tells it to send
+// something smaller, because a request that cannot fit any bucket would otherwise be retried forever.
+const httpStatusInputExceedsBurst = 413
+
+// httpStatusUnauthorized and httpStatusForbidden are the statuses the gateway returns before admission runs.
+const (
+	httpStatusUnauthorized = 401
+	httpStatusForbidden    = 403
+)
+
 // errKindTimeout is the RawRow.ErrorKind the replay client records when a request exceeds its deadline.
 const errKindTimeout = "timeout"
 
@@ -56,14 +68,40 @@ const (
 // isThresholdProbe reports whether tenant is one of the threshold probes.
 func isThresholdProbe(tenant string) bool { return strings.HasPrefix(tenant, thresholdProbePrefix) }
 
+// shedByAdmission reports whether the gateway refused this request as an admission decision.
+//
+// It reads the status rather than RawRow.ErrorKind because the replay client labelled only 429 "rejected" and
+// left 413 under the generic "http", so evidence already on disk carries the wrong label and the status is the
+// only field that was right at the time. Scoring off the status lets a finished paid run be re-scored.
+//
+// Counting only 429 made the arm that shed hardest the one that reported shedding nothing: a static-cap replay
+// refused 447 noisy requests with 413 and printed rejected=0, having filed all 447 under Failed instead.
+// neverEvaluated reports whether the gateway turned this request away before admission control ran.
+//
+// Authentication and authorisation are decided ahead of admission, so a request refused there carries no
+// information about the guard: the threshold, the bucket, and the cap all never saw it.
+func neverEvaluated(r RawRow) bool {
+	return r.HTTPStatus == httpStatusUnauthorized || r.HTTPStatus == httpStatusForbidden
+}
+
+func shedByAdmission(r RawRow) bool {
+	return r.HTTPStatus == httpStatusTooManyRequests || r.HTTPStatus == httpStatusInputExceedsBurst
+}
+
 // ProbeOutcome is one probe tenant's admission tally, and the real token cost the estimate stood in for.
 type ProbeOutcome struct {
 	// Total is how many of this tenant's requests the arm sent.
 	Total int
-	// Rejected is how many came back 429.
+	// Rejected is how many the gateway refused on admission, whether it said 429 or 413.
 	Rejected int
 	// EstInputTokens is the score the gateway assigned, which is what the threshold is compared against.
 	EstInputTokens int
+	// Unevaluated is how many the gateway turned away before admission ran, so the threshold never judged them.
+	//
+	// A probe refused for its credentials is not a probe that passed the threshold, and the difference is the
+	// difference between evidence and none. Without this the section printed rejected=0 for probes the guard
+	// had never seen, which reads as the threshold having considered them and let them through.
+	Unevaluated int
 }
 
 type ArmSummary struct {
@@ -73,7 +111,7 @@ type ArmSummary struct {
 	Total int
 	// Completed counts requests that produced a full response (a first token and an end).
 	Completed int
-	// Rejected counts admission rejections (HTTP 429), the load the guard or static cap shed.
+	// Rejected counts admission refusals (HTTP 429 or 413), the load the guard or static cap shed.
 	Rejected int
 	// TimedOut counts requests recorded with a timeout error kind.
 	TimedOut int
@@ -152,7 +190,7 @@ func Summarize(arm string, rows []RawRow) ArmSummary {
 		// Admitted-work accounting covers the eligible population (the long requests the controls gate), for the admission-match check.
 		if r.EstInputTokens >= threshold {
 			s.OfferedInputTokens += int64(r.EstInputTokens)
-			if r.HTTPStatus != httpStatusTooManyRequests {
+			if !shedByAdmission(r) {
 				s.AdmittedInputTokens += int64(r.EstInputTokens)
 			}
 		}
@@ -169,7 +207,10 @@ func Summarize(arm string, rows []RawRow) ArmSummary {
 			o := s.ThresholdProbe[r.Tenant]
 			o.Total++
 			o.EstInputTokens = r.EstInputTokens
-			if r.HTTPStatus == httpStatusTooManyRequests {
+			switch {
+			case neverEvaluated(r):
+				o.Unevaluated++
+			case shedByAdmission(r):
 				o.Rejected++
 			}
 			s.ThresholdProbe[r.Tenant] = o
@@ -179,7 +220,7 @@ func Summarize(arm string, rows []RawRow) ArmSummary {
 		switch {
 		case r.ErrorKind == errKindTimeout:
 			s.TimedOut++
-		case r.HTTPStatus == httpStatusTooManyRequests:
+		case shedByAdmission(r):
 			s.Rejected++
 		case r.ErrorKind != "":
 			s.Failed++
@@ -200,7 +241,7 @@ func Summarize(arm string, rows []RawRow) ArmSummary {
 			premiumTimedOut++
 			continue
 		}
-		if r.HTTPStatus == httpStatusTooManyRequests {
+		if shedByAdmission(r) {
 			continue
 		}
 		if r.ErrorKind != "" {
@@ -214,8 +255,10 @@ func Summarize(arm string, rows []RawRow) ArmSummary {
 			// truncated at 120 premium completions with 380 transport failures, and the report printed
 			// "all checks passed".
 			//
-			// A 429 stays excluded because a rejection is the treatment, not a lost measurement: shedding
-			// is what the guard is for and it is accounted separately in Rejected.
+			// An admission refusal stays excluded because a rejection is the treatment, not a lost
+			// measurement: shedding is what the guard is for and it is accounted separately in Rejected.
+			// That holds for 413 exactly as it does for 429, and reading only 429 here would have censored
+			// the tail of any arm whose premium traffic ran into the burst ceiling.
 			premiumLost++
 			continue
 		}
@@ -437,7 +480,7 @@ func FormatReport(summaries []ArmSummary, checks Checks, matchTolerance float64)
 	//
 	// A reader who cannot see the block count has no way to tell those apart, which is the same defect the
 	// tailN column exists to prevent one level down.
-	fmt.Fprintf(&b, "%-12s %8s %8s %8s %8s %8s %8s %8s %8s %8s\n", "arm", "total", "done", "429", "timeout", "ttftP50", "ttftP95", "ttftP99", "tailN", "reps")
+	fmt.Fprintf(&b, "%-12s %8s %8s %8s %8s %8s %8s %8s %8s %8s\n", "arm", "total", "done", "shed", "timeout", "ttftP50", "ttftP95", "ttftP99", "tailN", "reps")
 	for _, s := range summaries {
 		censored := ""
 		if s.Censored {
@@ -461,6 +504,7 @@ func FormatReport(summaries []ArmSummary, checks Checks, matchTolerance float64)
 			break
 		}
 	}
+	unevaluated := false
 	if probed {
 		b.WriteString("\nEligibility threshold (probe tenants, four characters apart)\n")
 		for _, sm := range summaries {
@@ -471,11 +515,22 @@ func FormatReport(summaries []ArmSummary, checks Checks, matchTolerance float64)
 			sort.Strings(names)
 			for _, n := range names {
 				o := sm.ThresholdProbe[n]
-				fmt.Fprintf(&b, "  %-12s %-22s est=%d  sent=%d  rejected=%d\n", sm.Arm, n, o.EstInputTokens, o.Total, o.Rejected)
+				void := ""
+				if o.Unevaluated > 0 {
+					unevaluated = true
+					void = fmt.Sprintf("  VOID: %d never reached admission (401/403)", o.Unevaluated)
+				}
+				fmt.Fprintf(&b, "  %-12s %-22s est=%d  sent=%d  rejected=%d%s\n", sm.Arm, n, o.EstInputTokens, o.Total, o.Rejected, void)
 			}
 		}
-		b.WriteString("  the estimate is what the threshold compares; the measured real cost of these prompts is\n")
-		b.WriteString("  about 3171 tokens, so a rejection here fires on an over-estimate of roughly 29 percent\n")
+		if unevaluated {
+			b.WriteString("  VOID: the gateway turned these probes away on credentials, so the threshold never judged them\n")
+			b.WriteString("  and rejected=0 above is the absence of a measurement rather than the threshold letting them\n")
+			b.WriteString("  through. This run does not evidence the configured threshold.\n")
+		} else {
+			b.WriteString("  the estimate is what the threshold compares; the measured real cost of these prompts is\n")
+			b.WriteString("  about 3171 tokens, so a rejection here fires on an over-estimate of roughly 29 percent\n")
+		}
 	} else {
 		b.WriteString("\nEligibility threshold: NOT TESTED -- no probe tenant straddled it, so any threshold in a wide\n")
 		b.WriteString("  range would have produced these same arms. The configured value is not evidenced by this run.\n")

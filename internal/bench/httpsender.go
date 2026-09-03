@@ -301,8 +301,10 @@ func (h *HTTPSender) Send(ctx context.Context, row TraceRow, sendUnixNanos int64
 		if h.drain {
 			drainForReuse(resp.Body)
 		}
+		// Both refusals are admission decisions and belong in the same bucket; labelling only 429 left the
+		// report to infer a 413's meaning from a status code, and for one paid run it inferred wrong.
 		kind := "http"
-		if resp.StatusCode == http.StatusTooManyRequests {
+		if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode == http.StatusRequestEntityTooLarge {
 			kind = "rejected"
 		}
 		return SendResult{HTTPStatus: resp.StatusCode, ErrorKind: kind}
