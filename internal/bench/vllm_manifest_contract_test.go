@@ -1293,7 +1293,7 @@ func TestTheMicrotestMeasuresTheEngineTheArmsMeasured(t *testing.T) {
 		t.Fatal("the microtest does not read the engine manifest; it could measure a different engine than the arms did")
 	}
 	for _, literal := range []string{"vllm/vllm-openai@sha256:", "Qwen/Qwen2.5"} {
-		for _, line := range strings.Split(src, "\n") {
+		for line := range strings.SplitSeq(src, "\n") {
 			if !strings.Contains(line, literal) {
 				continue
 			}
