@@ -24,6 +24,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
@@ -357,6 +358,12 @@ func report(args []string) error {
 	matchTolFlag := fs.Float64("match-tolerance", 0.05,
 		"fallback admission-work match tolerance when the evidence carries none")
 	out := fs.String("out", "", "report file to write (default stdout)")
+	// A machine-readable copy, because the paid raw evidence is gitignored and 7 MB.
+	//
+	// A number quoted in a write-up whose source is not in the repository is a number nobody can re-derive,
+	// and every overclaim this project has had to withdraw took that shape. This file is what a spec's table
+	// is checked against, so the derivation runs from the report code rather than from a hand copy.
+	jsonOut := fs.String("json-out", "", "machine-readable per-arm summary to write alongside the report")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -407,6 +414,17 @@ func report(args []string) error {
 		fmt.Printf("wrote report to %s\n", *out)
 	} else {
 		fmt.Print(text)
+	}
+
+	if *jsonOut != "" {
+		enc, merr := json.MarshalIndent(summaries, "", "  ")
+		if merr != nil {
+			return fmt.Errorf("encode summaries: %w", merr)
+		}
+		if werr := os.WriteFile(*jsonOut, append(enc, '\n'), 0o600); werr != nil {
+			return fmt.Errorf("write %s: %w", *jsonOut, werr)
+		}
+		fmt.Printf("wrote per-arm summaries to %s\n", *jsonOut)
 	}
 
 	// An INVALID run exits non-zero. A run that merely fails its checks does not.
