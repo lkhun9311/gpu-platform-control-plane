@@ -1242,3 +1242,35 @@ func TestTheGuardArmRecordsWhatItSaw(t *testing.T) {
 		}
 	}
 }
+
+// TestTheRunRecordsHowTheEngineWasConfigured keeps a run from being unable to explain itself later.
+//
+// The 2026-09-03 evidence records the engine's image digest and nothing else about its configuration. When
+// the premium tail turned out to be a staircase of one concurrent long prefill per step, the question became
+// what batch token budget vLLM had actually resolved -- and whether a 7,695-token prompt ran as one
+// scheduler step or several. The evidence could not say. The run was over and the cluster was gone.
+//
+// Reading the pinned release's source settled it afterwards (the budget resolves to 2,048, so the prefill was
+// chunked and the blocking is the scheduler's FCFS ordering rather than an indivisible step), which is
+// exactly the point: that answer came from source and arithmetic, not from the run, and a differently
+// configured engine would have left the same silence.
+//
+// A digest names the code. It does not name the flags, and it certainly does not name the defaults the
+// engine filled in for the flags nobody passed, which is the part that mattered.
+func TestTheRunRecordsHowTheEngineWasConfigured(t *testing.T) {
+	runner, err := os.ReadFile(filepath.Join("..", "..", "hack", "m5b-arms.sh"))
+	if err != nil {
+		t.Fatalf("read runner: %v", err)
+	}
+	src := string(runner)
+	if !strings.Contains(src, "engine-config.txt") {
+		t.Fatal("the runner does not record the engine's configuration into the evidence; a run that behaves unexpectedly will not be able to say what it was told to do")
+	}
+	// Both halves: what we asked for, and what the engine decided. The defaults are the interesting part.
+	if !strings.Contains(src, "containers[0].args") {
+		t.Error("the evidence does not capture the engine's argv, so a flag changed between runs would leave no trace")
+	}
+	if !strings.Contains(src, "max_num_batched") {
+		t.Error("the evidence does not capture the engine's resolved batch token budget, which is the setting that decides whether a long prefill runs as one scheduler step or several")
+	}
+}
