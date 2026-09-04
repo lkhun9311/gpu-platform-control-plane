@@ -433,6 +433,28 @@ esac
 say "provenance: gateway $GW_SHA / $GW_IMAGE"
 say "            engine  $ENGINE_IMAGE"
 
+# The engine's own resolved configuration, into the evidence directory.
+#
+# The 2026-09-03 evidence records the engine's image digest and nothing else about how it was configured.
+# So when the premium tail turned out to be a clean staircase of one full prefill per concurrent long
+# request -- 944.6 ms observed against 951 ms of arithmetic -- the obvious next question was whether vLLM
+# had been given a batch token budget large enough to swallow a 7,695-token prompt whole, and the evidence
+# could not answer it. The question is about the run, the run is over, and the cluster is gone.
+#
+# Both halves are captured. The container's argv is what we asked for; the startup log is what vLLM decided,
+# including the defaults it filled in for everything we did not ask about, which is exactly the part that
+# turned out to matter. Failure here does not stop the run: this is provenance, not a precondition.
+{
+  echo "== engine deployment argv"
+  k get deploy -n "$NS" "$ENGINE" -o jsonpath='{.spec.template.spec.containers[0].args}' 2>/dev/null
+  echo
+  echo "== engine resolved configuration, as the engine reported it at startup"
+  k logs -n "$NS" "deploy/$ENGINE" --tail=400 2>/dev/null \
+    | grep -iE "engineargs|chunked|max_num_batched|max_num_seqs|max_model_len|cache_config|scheduler|kv cache|gpu blocks" \
+    || echo "(no matching startup lines; the pod may have been restarted since)"
+} > "$OUT/engine-config.txt" 2>&1 || true
+say "engine configuration recorded to engine-config.txt"
+
 say "generate the shared trace once"
 "$WORK/benchharness" gen-trace --seed 7 --duration-ms "$DURATION_MS" --rate "$RATE" \
   --model "$MODEL" --arm off --gateway-url "http://127.0.0.1:18080" \
