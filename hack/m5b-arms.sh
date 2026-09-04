@@ -533,7 +533,7 @@ for rep in $(seq 1 "$REPS"); do
     case "$arm" in
       R1|off)      deploy_gateway off "" ;;
       static-cap)  deploy_gateway static-cap ", \"-admission-static-rate=${STATIC_RATE}\", \"-admission-static-burst=${STATIC_BURST}\", \"-admission-long-threshold=4096\"" ;;
-      kv-aware)    deploy_gateway kv-aware ", \"-admission-long-threshold=4096\"" ;;
+      kv-aware)    deploy_gateway kv-aware ", \"-admission-long-threshold=4096\", \"-admission-report-backend-state\"" ;;
     esac
 
     [ -n "$PF_PID" ] && kill "$PF_PID" 2>/dev/null

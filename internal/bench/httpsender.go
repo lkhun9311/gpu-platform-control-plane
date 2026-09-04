@@ -339,6 +339,7 @@ func (h *HTTPSender) Send(ctx context.Context, row TraceRow, sendUnixNanos int64
 func (h *HTTPSender) withAdmissionDecision(resp *http.Response, res SendResult) SendResult {
 	res.Tier = resp.Header.Get(gateway.HeaderAdmissionTier)
 	res.AdmissionReason = resp.Header.Get(gateway.HeaderAdmissionReason)
+	res.BackendState = resp.Header.Get(gateway.HeaderBackendState)
 	return res
 }
 
