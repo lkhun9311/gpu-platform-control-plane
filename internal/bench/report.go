@@ -143,6 +143,29 @@ type ArmSummary struct {
 	// which is how the criterion came to be unevaluated for three paid runs without anyone noticing.
 	ExactTokensMissing      int
 	ExactTokensContradicted int
+	// OutputTokens, OutputTokensPerSecond, TPOTMsP50/P99 and OutputTokensByTenant are what protection cost.
+	//
+	// Every check in this report is a TTFT ratio, and that is half an answer. The paid run's static-cap arm
+	// held the tail at the isolated arm's latency AND at its throughput -- 46.3 output tokens per second
+	// against 46.4 -- because it did not make the engine efficient, it discarded the long tenant's work
+	// entirely. The unprotected arm ran 24 percent faster in aggregate. None of that was visible.
+	//
+	// TPOT is the inter-token time a first-token metric cannot see: a guard that protects the first token and
+	// wrecks the stream after it would pass every check here. The rows have carried all of this from the
+	// start; only the report was not reading it.
+	OutputTokens int64
+	// ActiveSeconds is the wall clock the ARM occupied, and it is not derivable from pooled rows: a report
+	// pools four repetitions separated by washout pauses, so max(end) - min(send) over the pool charges the
+	// arm for minutes in which it sent nothing. Summarize fills this from the rows it is given, which is
+	// right for one repetition; a caller that pools MUST sum the per-repetition values instead, exactly as
+	// it already does for RepetitionCount and MinRepetitionTail.
+	ActiveSeconds         float64
+	OutputTokensPerSecond float64
+	TPOTMsP50             float64
+	TPOTMsP99             float64
+	// OutputTokensByTenant is the share each tenant actually received, which is how protection-by-discarding
+	// is told apart from protection.
+	OutputTokensByTenant map[string]int64
 	// AdmissionLost is how many ELIGIBLE requests got no admission verdict at all, so the guard's behaviour
 	// toward them is unknown.
 	//
@@ -225,9 +248,19 @@ func Summarize(arm string, rows []RawRow) ArmSummary {
 		threshold = rows[0].LongThreshold
 	}
 
-	var ttft, e2e []float64
+	var ttft, e2e, tpot []float64
 	var premiumTotal, premiumTimedOut, premiumLost int
+	var firstSend, lastEnd int64
 	for _, r := range rows {
+		// The wall clock the arm occupied, taken from the rows rather than from a timer the runner kept, so a
+		// re-scored evidence file yields the same throughput as the run that produced it.
+		if r.SendUnixNanos > 0 && (firstSend == 0 || r.SendUnixNanos < firstSend) {
+			firstSend = r.SendUnixNanos
+		}
+		if r.EndUnixNanos > lastEnd {
+			lastEnd = r.EndUnixNanos
+		}
+		tpot = s.tallyDelivered(r, tpot)
 		// Admitted-work accounting covers the eligible population, for the admission-match check.
 		//
 		// The gateway gates on tier == standard AND EstInputTokens >= threshold, and this applies the same
@@ -242,29 +275,7 @@ func Summarize(arm string, rows []RawRow) ArmSummary {
 		// scored 737,280 admitted tokens for an arm that admitted nothing: the paid run's probes estimate at
 		// exactly the 4,096 threshold, so all 180 of them per arm were eligible, and all 180 were 403.
 		if r.EstInputTokens >= threshold && eligibleTier(r) && !neverEvaluated(r) {
-			if admissionUnknown(r) {
-				// Out of both terms. The guard may have admitted this request and the connection died after,
-				// or it may never have arrived; the evidence cannot say which, and a fraction built on a
-				// guess is worse than one that reports how much it could not see.
-				s.AdmissionLost++
-			} else {
-				s.eligibleScored++
-				s.OfferedInputTokens += int64(r.EstInputTokens)
-				if !shedByAdmission(r) {
-					s.AdmittedInputTokens += int64(r.EstInputTokens)
-				}
-				switch {
-				case r.ExactInputTokens <= 0:
-					s.ExactTokensMissing++
-				case r.EngineInputTokens > 0 && r.EngineInputTokens != r.ExactInputTokens:
-					s.ExactTokensContradicted++
-				default:
-					s.OfferedExactTokens += int64(r.ExactInputTokens)
-					if !shedByAdmission(r) {
-						s.AdmittedExactTokens += int64(r.ExactInputTokens)
-					}
-				}
-			}
+			s.tallyEligibleWork(r)
 		}
 
 		// The probe tally is keyed by tenant rather than by a flag on the row, because what makes a request a
@@ -363,6 +374,10 @@ func Summarize(arm string, rows []RawRow) ArmSummary {
 	// Losing exactly that many -- 18 of 1,840, which the old boundary waved through -- can remove the entire
 	// quantile mass the statistic is made of, and the ones that vanish are the ones that were slow enough to
 	// die. The reported p99 then is a p98 wearing the other name.
+	s.SetActiveSeconds(nanosToMs(lastEnd-firstSend) / 1000)
+	s.TPOTMsP50 = percentile(tpot, 0.50)
+	s.TPOTMsP99 = percentile(tpot, 0.99)
+
 	if premiumTotal > 0 && float64(premiumTimedOut+premiumLost)/float64(premiumTotal) >= 0.01 {
 		s.Censored = true
 	}
@@ -627,6 +642,70 @@ func EvaluateChecks(r1, staticCap, kvAware ArmSummary, incrementalCI CI, matchTo
 	return c
 }
 
+// tallyEligibleWork scores one request of the eligible population into the admitted-work fraction.
+//
+// Split out of Summarize only to keep that function under the complexity limit; the eligibility test stays
+// at the call site because that predicate IS the population definition and belongs where it is read.
+func (s *ArmSummary) tallyEligibleWork(r RawRow) {
+	if admissionUnknown(r) {
+		// Out of both terms. The guard may have admitted this request and the connection died after, or it
+		// may never have arrived; the evidence cannot say which, and a fraction built on a guess is worse
+		// than one that reports how much it could not see.
+		s.AdmissionLost++
+		return
+	}
+	s.eligibleScored++
+	s.OfferedInputTokens += int64(r.EstInputTokens)
+	if !shedByAdmission(r) {
+		s.AdmittedInputTokens += int64(r.EstInputTokens)
+	}
+	switch {
+	case r.ExactInputTokens <= 0:
+		s.ExactTokensMissing++
+	case r.EngineInputTokens > 0 && r.EngineInputTokens != r.ExactInputTokens:
+		s.ExactTokensContradicted++
+	default:
+		s.OfferedExactTokens += int64(r.ExactInputTokens)
+		if !shedByAdmission(r) {
+			s.AdmittedExactTokens += int64(r.ExactInputTokens)
+		}
+	}
+}
+
+// tallyDelivered adds one row's delivered output to the arm's totals, appending its inter-token time.
+//
+// Split out of Summarize only to keep that function under the complexity limit; it is one step of the same
+// loop and holds no state of its own.
+func (s *ArmSummary) tallyDelivered(r RawRow, tpot []float64) []float64 {
+	// Tokens count only where a response actually produced them; a refusal carries none, and a stream that
+	// died partway delivered nothing the client could use.
+	if r.OutputTokens <= 0 || r.HTTPStatus != 200 {
+		return tpot
+	}
+	s.OutputTokens += int64(r.OutputTokens)
+	if s.OutputTokensByTenant == nil {
+		s.OutputTokensByTenant = map[string]int64{}
+	}
+	s.OutputTokensByTenant[r.Tenant] += int64(r.OutputTokens)
+	// Inter-token time needs at least two tokens to have a gap between them.
+	if r.OutputTokens > 1 && r.FirstTokenUnixNanos > 0 && r.EndUnixNanos > r.FirstTokenUnixNanos {
+		tpot = append(tpot, nanosToMs(r.EndUnixNanos-r.FirstTokenUnixNanos)/float64(r.OutputTokens-1))
+	}
+	return tpot
+}
+
+// SetActiveSeconds records the arm's active wall clock and derives the throughput from it.
+//
+// The division lives here and nowhere else so that a caller correcting the span for pooled repetitions
+// cannot end up with a rate computed from one number and a span printed from another.
+func (s *ArmSummary) SetActiveSeconds(seconds float64) {
+	s.ActiveSeconds = seconds
+	s.OutputTokensPerSecond = 0
+	if seconds > 0 {
+		s.OutputTokensPerSecond = float64(s.OutputTokens) / seconds
+	}
+}
+
 // FormatReport renders the summaries and checks as a plain-text report.
 //
 // It states explicitly when the comparison is invalid (admission match missed) or the tail is censored, so a reader is never handed a clean-looking number that the methodology already disqualified.
@@ -657,6 +736,29 @@ func FormatReport(summaries []ArmSummary, checks Checks, matchTolerance float64)
 		fmt.Fprintf(&b, "%-12s %8d %8d %8d %8d %8.1f %8.1f %8.1f %8d %8d%s%s\n",
 			s.Arm, s.Total, s.Completed, s.Rejected, s.TimedOut, s.TTFTMsP50, s.TTFTMsP95, s.TTFTMsP99, s.TailSampleSize, s.RepetitionCount, censored, thin)
 	}
+	// What the protection cost, printed beside what it bought.
+	//
+	// Every check below is a TTFT ratio, and the paid run showed that is half an answer: the arm that held
+	// the tail best also served the fewest tokens, because it was discarding one tenant's work rather than
+	// making the engine efficient. An arm's throughput and its tenants' shares belong next to its tail.
+	b.WriteString("\nWhat it cost\n")
+	fmt.Fprintf(&b, "%-12s %10s %10s %10s %10s\n", "arm", "out tok/s", "tpotP50", "tpotP99", "tenant shares")
+	for _, s := range summaries {
+		shares := make([]string, 0, len(s.OutputTokensByTenant))
+		names := make([]string, 0, len(s.OutputTokensByTenant))
+		for n := range s.OutputTokensByTenant {
+			names = append(names, n)
+		}
+		sort.Strings(names)
+		for _, n := range names {
+			if s.OutputTokens > 0 {
+				shares = append(shares, fmt.Sprintf("%s %.0f%%", n, 100*float64(s.OutputTokensByTenant[n])/float64(s.OutputTokens)))
+			}
+		}
+		fmt.Fprintf(&b, "%-12s %10.1f %10.1f %10.1f  %s\n",
+			s.Arm, s.OutputTokensPerSecond, s.TPOTMsP50, s.TPOTMsP99, strings.Join(shares, " · "))
+	}
+
 	// The threshold's own evidence, printed before the checks because it qualifies them: the checks compare
 	// arms, and this says whether the number those arms were configured with did any work at all.
 	probed := false
