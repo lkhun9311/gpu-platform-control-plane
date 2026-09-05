@@ -1,0 +1,247 @@
+#!/usr/bin/env bash
+#
+# A stand-in for the AWS CLI that records what it was asked to do and answers from a scenario.
+#
+# It exists because hack/m5b-scheduler-microtest.sh is about to be refactored, and the only honest way
+# to claim a refactor changed nothing is to have a recording of what it did before. Diffing the
+# generated user-data proves one thing -- that the remote workload is unchanged -- and says nothing
+# about launch arguments, zone retry, teardown, or how completion is detected. Those are the parts
+# that spend money when they are wrong.
+#
+# Every invocation appends one normalized line to $STUB_TRANSCRIPT. Volatile substrings (mktemp paths,
+# the output directory) are replaced with placeholders, so two runs of the same scenario produce byte-
+# identical transcripts and a diff means a behaviour change rather than a new temp file.
+set -uo pipefail
+
+state="${STUB_STATE:?STUB_STATE must point at a scratch directory}"
+mkdir -p "$state"
+
+# A per-operation call counter, so a scenario can say "DONE appears on the third poll".
+bump() {
+  local f="$state/count-$1" n=0
+  [ -f "$f" ] && n=$(cat "$f")
+  n=$((n + 1))
+  printf '%s' "$n" > "$f"
+  printf '%s' "$n"
+}
+
+# Normalization. mktemp paths and the run directory differ every invocation and mean nothing.
+normalize() {
+  sed -e "s#file://${TMPDIR:-/tmp}/[^ \"]*#file://<USERDATA>#g" \
+      -e "s#file:///tmp/[^ \"]*#file://<USERDATA>#g" \
+      -e "s#${STUB_OUT:-__no_out__}#<OUT>#g"
+}
+
+printf '%s\n' "aws $*" | normalize >> "$STUB_TRANSCRIPT"
+
+svc="${1:-}"; op="${2:-}"
+
+# The subnet id encodes its zone (subnet-<az>), so run-instances can decide per zone without the
+# scenario having to track which call is which.
+zone_of_subnet() {
+  local s="$1"
+  printf '%s' "${s#subnet-}"
+}
+
+in_list() {
+  local needle="$1"; shift
+  local x
+  for x in $*; do [ "$x" = "$needle" ] && return 0; done
+  return 1
+}
+
+arg_after() {
+  local want="$1"; shift
+  while [ $# -gt 0 ]; do
+    if [ "$1" = "$want" ]; then printf '%s' "${2:-}"; return 0; fi
+    shift
+  done
+  return 1
+}
+
+case "$svc $op" in
+  "sts get-caller-identity")
+    printf '%s\n' "${STUB_ACCOUNT:-000000000000}"
+    ;;
+
+  "s3api head-bucket")
+    [ "${STUB_BUCKET_EXISTS:-1}" = "1" ] || exit 254
+    ;;
+  "s3api create-bucket"|"s3api put-public-access-block"|"s3api put-bucket-lifecycle-configuration")
+    printf '{}\n'
+    ;;
+
+  "s3api head-object")
+    key=$(arg_after --key "$@" || true)
+    n=$(bump head-object)
+    # The stale-marker scenario models a marker left at the BUCKET ROOT by an earlier run, which is
+    # where the fixed keys used to put it. It is deliberately key-aware: a run that polls its own
+    # prefix must NOT see it, and a run that polls the bare root key must. Answering yes to every key
+    # would make the scenario pass no matter what the script asks for, which is the failure mode this
+    # whole harness exists to rule out.
+    if [ "${STUB_DONE_PRESENT_AT_START:-0}" = "1" ] && [ "$key" = "DONE" ]; then exit 0; fi
+    after="${STUB_DONE_AFTER:--1}"
+    if [ "$after" -ge 0 ] && [ "$n" -ge "$after" ]; then exit 0; fi
+    exit 254
+    ;;
+
+  "iam get-instance-profile")
+    [ "${STUB_PROFILE_EXISTS:-1}" = "1" ] || exit 254
+    ;;
+  "iam create-role"|"iam put-role-policy"|"iam create-instance-profile"|"iam add-role-to-instance-profile")
+    printf '{}\n'
+    ;;
+
+  "ssm get-parameter")
+    printf '%s\n' "${STUB_AMI:-ami-0stubgpu}"
+    ;;
+
+  "ec2 describe-instance-type-offerings")
+    printf '%s\n' "${STUB_ZONES:-ap-northeast-2a ap-northeast-2c}"
+    ;;
+
+  "ec2 describe-subnets")
+    # The zone arrives inside a filter argument, so it is pulled out by pattern rather than by position.
+    az=""
+    for a in "$@"; do
+      case "$a" in Name=availability-zone,Values=*) az="${a#Name=availability-zone,Values=}" ;; esac
+    done
+    if [ -n "$az" ] && in_list "$az" "${STUB_NO_SUBNET_ZONES:-}"; then
+      printf 'None\n'
+    else
+      printf 'subnet-%s\n' "$az"
+    fi
+    ;;
+
+  "ec2 run-instances")
+    # The user-data is opened, not just named.
+    #
+    # The transcript replaces the path with a placeholder, because it is a mktemp name that differs every
+    # run. That normalization also meant the stub never looked at WHICH file was passed: changing
+    # --user-data to point at the measurement script, or at a path that does not exist, produced an
+    # identical transcript and eight green scenarios for a launch AWS would reject or an instance that
+    # would boot with the wrong bootstrap. So the file is compared against the copy the run directory
+    # saved, which is the assertion that producer and consumer agree.
+    ud=$(arg_after --user-data "$@" || true)
+    udpath=""
+    case "$ud" in file://*) udpath="${ud#file://}" ;; esac
+    if [ -z "$udpath" ] || [ ! -f "$udpath" ]; then
+      printf 'user-data: MISSING (%s)\n' "$ud" >> "$STUB_TRANSCRIPT"
+      printf 'An error occurred (InvalidParameterValue) reading user-data\n' >&2
+      exit 254
+    elif [ -f "${STUB_OUT:-}/user-data.sh" ] && cmp -s "$udpath" "${STUB_OUT}/user-data.sh"; then
+      printf 'user-data: matches the copy saved in the run directory\n' >> "$STUB_TRANSCRIPT"
+    else
+      printf 'user-data: DIFFERS from the copy saved in the run directory\n' >> "$STUB_TRANSCRIPT"
+    fi
+
+    subnet=$(arg_after --subnet-id "$@" || true)
+    az=$(zone_of_subnet "$subnet")
+    if in_list "$az" "${STUB_LAUNCH_FAIL_ZONES:-}"; then
+      printf 'An error occurred (InsufficientInstanceCapacity) launching in %s\n' "$az" >&2
+      exit 254
+    fi
+    printf '%s\n' "${STUB_INSTANCE_ID:-i-0stub}"
+    ;;
+
+  "ec2 terminate-instances")
+    printf '{}\n'
+    ;;
+
+  "ec2 describe-instances")
+    n=$(bump describe-instances)
+    dead="${STUB_TERMINATED_AFTER:--1}"
+    if [ "$dead" -ge 0 ] && [ "$n" -ge "$dead" ]; then printf 'terminated\n'; else printf 'running\n'; fi
+    ;;
+
+  "s3 cp")
+    src="${3:-}"; dest="${4:-}"
+    # An UPLOAD is the other direction and has to be modelled separately.
+    #
+    # A runner that ships a binary to the instance uploads before it launches, and the first version of this
+    # branch treated every s3 cp as a download: it looked for the local file in the object store, did not
+    # find it, and failed the run. Uploading records the key so the transcript shows what was sent where,
+    # and refuses a source that does not exist, which is what AWS does.
+    case "$dest" in
+      s3://*)
+        if [ ! -f "$src" ]; then
+          printf 'upload: MISSING SOURCE %s\n' "$src" >> "$STUB_TRANSCRIPT"
+          printf 'The user-provided path %s does not exist.\n' "$src" >&2
+          exit 255
+        fi
+        # The shipped binary's size changes with every Go edit and is not behaviour, so it is elided the
+        # same way its checksum is. What matters -- that the binary was uploaded, to the run's own prefix,
+        # and that the checksum the instance will verify is the checksum of THAT file -- is asserted
+        # separately and stays in the golden.
+        case "${dest}" in
+          */bin/benchharness) printf 'upload: <SIZE> bytes to %s\n' "${dest#s3://}" >> "$STUB_TRANSCRIPT" ;;
+          *) printf 'upload: %s bytes to %s\n' "$(wc -c < "$src")" "${dest#s3://}" >> "$STUB_TRANSCRIPT" ;;
+        esac
+        exit 0
+        ;;
+    esac
+    # A download of an object that was never uploaded must FAIL and write nothing.
+    #
+    # The first version of this stub answered every key with canned content, which made a run whose
+    # instance died before uploading anything look like a run that succeeded -- the harness reported
+    # exit 0 for a scenario that cannot produce results. A stub that always answers is the same defect
+    # as a check that always passes.
+    #
+    # So which keys exist is part of the scenario. STUB_PRESENT_KEYS lists the basenames the instance
+    # got as far as uploading under its own prefix; the bucket root additionally holds a previous run's
+    # objects when STUB_DONE_PRESENT_AT_START is set.
+    base="${src##*/}"
+    rest="${src#s3://*/}"
+    at_root=1
+    case "$rest" in */*) at_root=0 ;; esac
+
+    # STUB_PRESENT_KEYS is what THIS run's instance managed to upload, wherever the script chose to put
+    # it -- which key it asks for is already recorded in the transcript, so existence only has to model
+    # whose data is available, not where. The bucket root separately holds a PREVIOUS run's objects
+    # when STUB_DONE_PRESENT_AT_START is set, and that is the only way a run can read data it did not
+    # produce.
+    exists=0
+    if in_list "$base" "${STUB_PRESENT_KEYS:-}"; then
+      exists=1
+    elif [ "$at_root" = "1" ] && [ "${STUB_DONE_PRESENT_AT_START:-0}" = "1" ]; then
+      exists=1
+    fi
+    if [ "$exists" = "0" ]; then
+      printf 'fatal error: An error occurred (404) when calling the HeadObject operation: Key "%s" does not exist\n' "$src" >&2
+      exit 1
+    fi
+
+    case "$base" in
+      evidence.tgz)
+        # An archive that arrived empty is its own failure: the marker said the run finished, but the tar
+        # step or the upload truncated. Without this case, relaxing the caller's `-s` check to `-f` changes
+        # nothing in any scenario, because the archive is either whole or absent.
+        if [ "${STUB_EMPTY_ARCHIVE:-0}" = "1" ]; then
+          : > "$dest"
+        else
+          # A real archive, because the runner untars it and a text file there would abort the run under
+          # errexit for a reason that has nothing to do with the behaviour being pinned.
+          local_tmp=$(mktemp -d)
+          mkdir -p "$local_tmp/evidence"
+          printf '{"arm":"stub"}\n' > "$local_tmp/evidence/raw-stub-1.jsonl"
+          tar -czf "$dest" -C "$local_tmp" evidence
+          rm -rf "$local_tmp"
+        fi
+        ;;
+      run.json)
+        printf '%s\n' '{"study":"price-of-protection-2026-09-05","arms":[{"arm":"R1","requested_budget":"engine default","resolved_budget":"2048","raw":["raw-R1-1.jsonl"]},{"arm":"default-fcfs","requested_budget":"engine default","resolved_budget":"2048","raw":["raw-default-fcfs-1.jsonl"]}]}' > "$dest"
+        ;;
+      results.json)
+        if [ "${STUB_RESULTS_EMPTY:-0}" = "1" ]; then : > "$dest"; else
+          printf '%s\n' '{"image":"stub","model":"stub","cells":[{"max_num_batched_tokens":512,"scheduling_policy":"fcfs","baseline_ms":80.0,"contended_median_ms":126.0,"ratio":1.575}]}' > "$dest"
+        fi
+        ;;
+      *) printf 'stub %s\n' "$src" > "$dest" ;;
+    esac
+    ;;
+
+  *)
+    printf 'stub aws: unhandled call: %s\n' "$*" >&2
+    exit 99
+    ;;
+esac

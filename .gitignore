@@ -91,6 +91,15 @@ bin/
 dist/
 build/
 
+# The characterization harness's stubs are source, not generated binaries.
+#
+# They live in a directory called bin/ because that is what goes on PATH, and the rule above swallowed
+# them: `git add hack/test` staged the driver and every golden file and silently left out the two files
+# that make the harness a harness. A fresh checkout would then prepend a directory containing nothing to
+# PATH and run the REAL aws and the REAL sleep against a real account.
+!/hack/test/spot-lifecycle/bin/
+!/hack/test/spot-lifecycle/bin/*
+
 # OS files
 .DS_Store
 Thumbs.db
