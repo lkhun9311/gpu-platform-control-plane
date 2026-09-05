@@ -370,6 +370,49 @@ fi
 # low placement score demands: an uploader watching the session directory, so a record reaches S3 within
 # seconds of being written rather than at the end. An interruption after six of eight runs must cost the
 # seventh and the eighth, not all of them.
+# ---------------------------------------------------------------- the device series, kept as evidence
+#
+# queuelabrun scrapes DCGM itself and records what it derives. That derivation is the measurement, and it is
+# also the only thing that survived: nothing kept the series it was derived FROM, so a reader could not plot
+# the run, check a suspicious number against the raw exposition, or see what the card was doing between two
+# records. This session rents the hardware once, and the exposition is the cheapest thing on the box.
+#
+# No Grafana. There is none deployed here -- config/prometheus carries a ServiceMonitor, a PodMonitor and a
+# dashboard for a cluster that has prometheus-operator, which this kind cluster does not -- and standing one
+# up would spend paid minutes to screenshot numbers that are already text. The series is captured here and
+# drawn afterwards by hack/plot-device-observation.py, which runs on a laptop for nothing.
+#
+# Only DCGM_FI_DEV_GPU_UTIL lines are kept at the sampling interval, because they carry the Pod and namespace
+# labels that make a utilisation figure attributable -- which is the whole point of this session. Two full
+# scrapes bracket the study so the reader can see the exposition those lines were cut from.
+kubectl port-forward -n gpu-platform-control-plane-system svc/dcgm-exporter 19400:9400 \
+  >/tmp/sampler-pf.log 2>&1 &
+SAMPLER_PF=$!
+for _ in $(seq 1 30); do
+  curl -fsS --max-time 2 http://127.0.0.1:19400/metrics >/tmp/scrape-first.txt 2>/dev/null && break
+  sleep 1
+done
+if [ -s /tmp/scrape-first.txt ]; then
+  upload /tmp/scrape-first.txt device-scrape-first.txt
+  (
+    # Two seconds, which is finer than the study's own resolution floor of 5.906 s, so a reader can see
+    # inside a record rather than only between them.
+    while :; do
+      ts=$(date -u +%s)
+      curl -fsS --max-time 2 http://127.0.0.1:19400/metrics 2>/dev/null \
+        | grep '^DCGM_FI_DEV_GPU_UTIL' | sed "s/^/$ts\t/" >> /tmp/device-util.tsv \
+        || echo -e "$ts\tSCRAPE_FAILED" >> /tmp/device-util.tsv
+      sleep 2
+    done
+  ) &
+  SAMPLER=$!
+else
+  # Not fatal, and not silent. The study's own -require-device is the gate on whether the run is valid; this
+  # sampler is evidence for the reader, and losing it must not read as losing the measurement.
+  echo "WARNING: could not reach the dcgm exporter for sampling; the series will be missing from the artifacts"
+  SAMPLER=""
+fi
+
 export EXDIR=/tmp/session
 mkdir -p "$EXDIR"
 
@@ -391,6 +434,20 @@ rc=0
 REPS="$REPS" EXDIR="$EXDIR" DOSES="$DOSES" \
   bash hack/gpu-session.sh qlgpu-worker >/tmp/study.log 2>&1 || rc=$?
 kill "$UPLOADER" 2>/dev/null || true
+
+# The sampler stops with the study, and its series goes up whether the study passed or not: a failed run's
+# series is how a reader tells "the card was idle" from "nothing ever scraped it".
+[ -n "${SAMPLER:-}" ] && kill "$SAMPLER" 2>/dev/null || true
+curl -fsS --max-time 3 http://127.0.0.1:19400/metrics > /tmp/scrape-last.txt 2>/dev/null \
+  && upload /tmp/scrape-last.txt device-scrape-last.txt
+kill "$SAMPLER_PF" 2>/dev/null || true
+if [ -s /tmp/device-util.tsv ]; then
+  gzip -c /tmp/device-util.tsv > /tmp/device-util.tsv.gz
+  upload /tmp/device-util.tsv.gz device-util.tsv.gz
+  echo "device series: $(wc -l < /tmp/device-util.tsv) sampled lines"
+else
+  echo "device series: EMPTY -- nothing was sampled"
+fi
 
 upload /tmp/study.log study.log
 tar -czf /tmp/session.tgz -C /tmp session
@@ -479,7 +536,8 @@ case "$marker_rc" in
   2) say "instance ended before writing DONE" ;;
 esac
 
-for k in session.tgz commit.txt log.txt preflight.txt preflight-nodes.txt preflight-nvidia-smi.csv; do
+for k in session.tgz commit.txt log.txt preflight.txt preflight-nodes.txt preflight-nvidia-smi.csv \
+         preflight-why.txt device-util.tsv.gz device-scrape-first.txt device-scrape-last.txt; do
   aws s3 cp "s3://$BUCKET/$RUN_ID/$k" "$OUT/$k" >/dev/null 2>&1 || true
 done
 aws s3 cp --recursive "s3://$BUCKET/$RUN_ID/runs" "$OUT/runs" >/dev/null 2>&1 || true

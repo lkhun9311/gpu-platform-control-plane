@@ -19,6 +19,10 @@ aws s3 cp s3://stub-bucket/run/log.txt <OUT>/log.txt
 aws s3 cp s3://stub-bucket/run/preflight.txt <OUT>/preflight.txt
 aws s3 cp s3://stub-bucket/run/preflight-nodes.txt <OUT>/preflight-nodes.txt
 aws s3 cp s3://stub-bucket/run/preflight-nvidia-smi.csv <OUT>/preflight-nvidia-smi.csv
+aws s3 cp s3://stub-bucket/run/preflight-why.txt <OUT>/preflight-why.txt
+aws s3 cp s3://stub-bucket/run/device-util.tsv.gz <OUT>/device-util.tsv.gz
+aws s3 cp s3://stub-bucket/run/device-scrape-first.txt <OUT>/device-scrape-first.txt
+aws s3 cp s3://stub-bucket/run/device-scrape-last.txt <OUT>/device-scrape-last.txt
 aws s3 cp --recursive s3://stub-bucket/run/runs <OUT>/runs
 recursive: 0 object(s) from stub-bucket/run/runs
 aws ec2 terminate-instances --region ap-northeast-2 --instance-ids i-0stub
