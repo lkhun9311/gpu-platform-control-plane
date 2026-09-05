@@ -59,7 +59,7 @@ now — with one correction the quota did not fix.
 | Spot, today | g5.2xlarge | 1 | ~0.45 | — | ok | **cannot run the protocol** |
 | Spot, today | g4dn.12xlarge | 4 × T4 | 2.22 | **1** | ok | cheapest, and AWS says the capacity is not there |
 | Spot, today | g6.12xlarge | 4 × L4 | 2.56 | 3 | **DENIED** | refused by `deny-instance-family` in every zone |
-| **Spot, today** | **g5.12xlarge** | **4 × A10G** | **3.15** | **3** | ok | 48 vCPU, exactly the quota. `sm_86`, which the PTX targets |
+| **Spot, today** | **g5.12xlarge** | **4 × A10G** | **3.27** | **3** | ok | 48 vCPU, exactly the quota. `sm_86`, which the PTX targets |
 | On-demand fallback | g5.12xlarge | 4 × A10G | 6.97 | — | ok | 48 vCPU against a 52 vCPU on-demand quota |
 
 **A quota is not capacity, and capacity is not permission.** Two constraints, neither of which the other
@@ -73,8 +73,14 @@ something an account administrator can override.
 
 So the instance is **`g5.12xlarge`** — allowed by the policy, scoring 3 like the g6, 48 vCPU which is
 exactly the Spot quota, and an A10G at `sm_86`, one of the four targets `hack/verify-ptx.sh` compiles the
-kernel for. It costs $3.15 an hour rather than $2.56, and that difference is the price of a guardrail
-working, which is a good reason to pay it.
+kernel for. It is offered in three availability zones rather than the g6's two, all three scoring 3, so the
+runner has one more zone to try before it gives up.
+
+**The price is the measured one, not the list one.** Spot history at the time of writing reads $3.2696 in
+`2a`, $3.2680 in `2c` and $3.1802 in `2d`. The table above carries the highest of the three, because a
+budget written from the cheapest zone is a budget that only holds if the launch is lucky. It costs $3.27 an
+hour rather than the g6's $2.56, and that difference is the price of a guardrail working, which is a good
+reason to pay it.
 
 **A score of three changes what the session must do.** A placement score of 3 is still low,
 so this run should expect to be interrupted rather than merely tolerate it. Every artifact therefore leaves
@@ -169,18 +175,21 @@ what was tried, publish the negative, and do not re-buy this instance type for t
 
 ## Budget and the stop rule
 
-At the g5's Spot price of $3.15 an hour:
+At the g5's measured Spot price of $3.27 an hour:
 
 | stage | wall clock | cost | gate |
 | ------------------------------ | ---------: | ----: | ------------------------------- |
-| instance up, driver, cluster | 25 min | $1.31 | — |
-| preflight, the four checks | 10 min | $0.53 | all four must pass |
-| eight runs, interleaved | 30 min | $1.58 | `-require-device` accepts each, and each uploads before the next begins |
-| evidence off the box, teardown | 10 min | $0.53 | — |
-| **total** | **75 min** | **$3.94** | |
-| hard stop | 120 min | $6.31 | terminate regardless |
+| instance up, driver, cluster | 25 min | $1.36 | — |
+| preflight, the four checks | 10 min | $0.55 | all four must pass |
+| eight runs, interleaved | 30 min | $1.64 | `-require-device` accepts each, and each uploads before the next begins |
+| evidence off the box, teardown | 10 min | $0.55 | — |
+| **total** | **75 min** | **$4.09** | |
+| hard stop | 120 min | $6.54 | terminate regardless |
 
-**The hard stop is a timer, not a judgement.** At $3.15 an hour a session that is going badly costs five
+`MAX_SPOT_PRICE` stays at $3.90, which is above all three zones' current price and below the on-demand rate,
+so a price spike loses the instance rather than quietly buying it at any price.
+
+**The hard stop is a timer, not a judgement.** At $3.27 an hour a session that is going badly costs five
 cents a minute to keep thinking about, which is cheap enough to be tempting and is exactly why the limit is
 written down before the instance exists.
 
