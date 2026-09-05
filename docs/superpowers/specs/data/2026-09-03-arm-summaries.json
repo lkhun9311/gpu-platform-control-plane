@@ -10,10 +10,17 @@
     "OutputTokens": 117760,
     "ActiveSeconds": 2538.6881036160003,
     "OutputTokensPerSecond": 46.38616292890317,
-    "TPOTMsP50": 15.322806253968254,
-    "TPOTMsP99": 15.79701019047619,
+    "TPOTMsP50": 15.217848492063492,
+    "TPOTMsP99": 15.971451174603175,
     "OutputTokensByTenant": {
       "premium-1": 117760
+    },
+    "OutputTokensFromFailedStreams": 0,
+    "TPOTMsP50ByTenant": {
+      "premium-1": 15.217848492063492
+    },
+    "TPOTMsP99ByTenant": {
+      "premium-1": 15.971451174603175
     },
     "AdmissionLost": 0,
     "Rejected": 0,
@@ -42,11 +49,20 @@
     "OutputTokens": 146368,
     "ActiveSeconds": 2553.2592929519997,
     "OutputTokensPerSecond": 57.32594429560416,
-    "TPOTMsP50": 16.919870936507937,
-    "TPOTMsP99": 18.094220800000002,
+    "TPOTMsP50": 74.7192822,
+    "TPOTMsP99": 266.84284406666666,
     "OutputTokensByTenant": {
       "premium-1": 117760,
       "standard-noisy": 28608
+    },
+    "OutputTokensFromFailedStreams": 0,
+    "TPOTMsP50ByTenant": {
+      "premium-1": 31.845625158730158,
+      "standard-noisy": 197.31953866666666
+    },
+    "TPOTMsP99ByTenant": {
+      "premium-1": 266.0407362857143,
+      "standard-noisy": 267.29257146666663
     },
     "AdmissionLost": 0,
     "Rejected": 0,
@@ -88,10 +104,17 @@
     "OutputTokens": 117760,
     "ActiveSeconds": 2542.347104738,
     "OutputTokensPerSecond": 46.31940295663746,
-    "TPOTMsP50": 15.327277285714286,
-    "TPOTMsP99": 15.795007507936507,
+    "TPOTMsP50": 15.213294365079365,
+    "TPOTMsP99": 15.959863269841271,
     "OutputTokensByTenant": {
       "premium-1": 117760
+    },
+    "OutputTokensFromFailedStreams": 0,
+    "TPOTMsP50ByTenant": {
+      "premium-1": 15.213294365079365
+    },
+    "TPOTMsP99ByTenant": {
+      "premium-1": 15.959863269841271
     },
     "AdmissionLost": 0,
     "Rejected": 1788,
@@ -133,11 +156,20 @@
     "OutputTokens": 141984,
     "ActiveSeconds": 2549.217628629,
     "OutputTokensPerSecond": 55.69708855197298,
-    "TPOTMsP50": 17.412436733333333,
-    "TPOTMsP99": 15.978313190476191,
+    "TPOTMsP50": 32.018495,
+    "TPOTMsP99": 265.13152553333333,
     "OutputTokensByTenant": {
       "premium-1": 117760,
       "standard-noisy": 24224
+    },
+    "OutputTokensFromFailedStreams": 0,
+    "TPOTMsP50ByTenant": {
+      "premium-1": 18.299996904761905,
+      "standard-noisy": 134.24959733333333
+    },
+    "TPOTMsP99ByTenant": {
+      "premium-1": 209.36404661904763,
+      "standard-noisy": 265.52047533333337
     },
     "AdmissionLost": 0,
     "Rejected": 274,

@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -43,39 +42,79 @@ func TestThePreRegistrationTableMatchesTheEvidenceItCitesFrom(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read spec: %v", err)
 	}
-	// | arm | premium TTFT p99 | output tok/s | premium share | noisy share |
-	row := regexp.MustCompile(`(?m)^\| \*{0,2}([A-Za-z0-9-]+)\*{0,2}[^|]*\| *([\d,]+\.\d) ms *\| *(\d+\.\d) *\| *(\d+)% *\| *(\S+) *\|$`)
-	matches := row.FindAllStringSubmatch(string(spec), -1)
-	if len(matches) != 4 {
-		t.Fatalf("found %d evidence rows in %s, want 4 (R1, off, static-cap, kv-aware)", len(matches), specPath)
+	// Cells are split on the pipe rather than matched with one regular expression.
+	//
+	// The table is pipe-aligned for the author's editor, so column widths change whenever a value does, and
+	// a regex that encodes the padding breaks on formatting rather than on a wrong number -- which is a
+	// check that fails for the wrong reason and gets relaxed until it stops failing at all.
+	type specRow struct {
+		arm, p99, rate, premium, noisy, tpot string
 	}
-	for _, m := range matches {
-		arm := m[1]
-		s, ok := byArm[arm]
-		if !ok {
-			t.Fatalf("the spec cites arm %q, which is not in %s", arm, dataPath)
-		}
-		wantP99 := mustFloat(t, strings.ReplaceAll(m[2], ",", ""))
-		if fmt.Sprintf("%.1f", s.TTFTMsP99) != fmt.Sprintf("%.1f", wantP99) {
-			t.Errorf("%s: spec says p99 %.1f ms, the evidence summary says %.1f", arm, wantP99, s.TTFTMsP99)
-		}
-		wantRate := mustFloat(t, m[3])
-		if fmt.Sprintf("%.1f", s.OutputTokensPerSecond) != fmt.Sprintf("%.1f", wantRate) {
-			t.Errorf("%s: spec says %.1f output tok/s, the evidence summary says %.1f",
-				arm, wantRate, s.OutputTokensPerSecond)
-		}
-		if got := sharePct(s, "premium-1"); fmt.Sprintf("%.0f", got) != m[4] {
-			t.Errorf("%s: spec says premium share %s%%, the evidence summary says %.0f%%", arm, m[4], got)
-		}
-		// The noisy column is the one the whole document turns on: an arm that "protected" the tail by
-		// deleting the contending tenant reads 0% here, and reading it as an em dash would hide exactly that.
-		wantNoisy := m[5]
-		gotNoisy := fmt.Sprintf("%.0f%%", sharePct(s, "standard-noisy"))
-		if _, served := s.OutputTokensByTenant["standard-noisy"]; !served && wantNoisy == "—" {
+	var rows []specRow
+	for line := range strings.SplitSeq(string(spec), "\n") {
+		if !strings.HasPrefix(strings.TrimSpace(line), "|") {
 			continue
 		}
-		if gotNoisy != wantNoisy {
-			t.Errorf("%s: spec says noisy share %s, the evidence summary says %s", arm, wantNoisy, gotNoisy)
+		var cells []string
+		for c := range strings.SplitSeq(strings.Trim(strings.TrimSpace(line), "|"), "|") {
+			cells = append(cells, strings.TrimSpace(c))
+		}
+		if len(cells) != 6 || !strings.HasSuffix(cells[1], " ms") {
+			continue
+		}
+		// "R1 (isolated)" names arm R1. The parenthetical is for the reader.
+		arm := strings.Fields(cells[0])[0]
+		rows = append(rows, specRow{arm, strings.TrimSuffix(cells[1], " ms"), cells[2], cells[3], cells[4], cells[5]})
+	}
+	if len(rows) != 4 {
+		t.Fatalf("found %d evidence rows in %s, want 4 (R1, off, static-cap, kv-aware)", len(rows), specPath)
+	}
+	for _, r := range rows {
+		s, ok := byArm[r.arm]
+		if !ok {
+			t.Fatalf("the spec cites arm %q, which is not in %s", r.arm, dataPath)
+		}
+		wantP99 := mustFloat(t, strings.ReplaceAll(r.p99, ",", ""))
+		if fmt.Sprintf("%.1f", s.TTFTMsP99) != fmt.Sprintf("%.1f", wantP99) {
+			t.Errorf("%s: spec says p99 %.1f ms, the evidence summary says %.1f", r.arm, wantP99, s.TTFTMsP99)
+		}
+		wantRate := mustFloat(t, r.rate)
+		if fmt.Sprintf("%.1f", s.OutputTokensPerSecond) != fmt.Sprintf("%.1f", wantRate) {
+			t.Errorf("%s: spec says %.1f output tok/s, the evidence summary says %.1f",
+				r.arm, wantRate, s.OutputTokensPerSecond)
+		}
+		if got := sharePct(s, "premium-1"); fmt.Sprintf("%.0f%%", got) != r.premium {
+			t.Errorf("%s: spec says premium share %s, the evidence summary says %.0f%%", r.arm, r.premium, got)
+		}
+		// The PREMIUM tenant's TPOT, not the arm-wide one.
+		//
+		// Reading 1 fails a cell on the protected tenant's stream, and the arm-wide figure pools every
+		// tenant: on kv-aware they are 265.1 and 209.4, so reconciling against the wrong one would let the
+		// document quote a number that describes the contender.
+		wantTPOT := mustFloat(t, strings.TrimSuffix(r.tpot, " ms"))
+		gotTPOT, ok := s.TPOTMsP99ByTenant[PremiumTenant]
+		if !ok {
+			t.Errorf("%s: the evidence summary carries no premium TPOT to compare against", r.arm)
+		} else if fmt.Sprintf("%.1f", gotTPOT) != fmt.Sprintf("%.1f", wantTPOT) {
+			t.Errorf("%s: spec says premium TPOT p99 %.1f ms, the evidence summary says %.1f",
+				r.arm, wantTPOT, gotTPOT)
+		}
+		// The noisy column is the one the whole document turns on: an arm that "protected" the tail by
+		// deleting the contending tenant reads 0% here.
+		//
+		// Only R1 may write an em dash, and only because its trace has no contending tenant to serve. For
+		// every other arm a missing map entry MEANS zero and has to be written as zero. The first version of
+		// this check skipped whenever the tenant was absent and the spec said "—", which permitted exactly
+		// the erasure the comment claimed to prevent: static-cap's 0% could have been quietly written as an
+		// em dash and this test would have passed.
+		if r.arm == ArmR1 {
+			if r.noisy != "—" {
+				t.Errorf("R1 has no contending tenant, so its noisy share must be an em dash, not %q", r.noisy)
+			}
+			continue
+		}
+		if got := fmt.Sprintf("%.0f%%", sharePct(s, "standard-noisy")); got != r.noisy {
+			t.Errorf("%s: spec says noisy share %s, the evidence summary says %s", r.arm, r.noisy, got)
 		}
 	}
 }
