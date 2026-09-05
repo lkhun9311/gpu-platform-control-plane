@@ -166,6 +166,24 @@ type ArmSummary struct {
 	// OutputTokensByTenant is the share each tenant actually received, which is how protection-by-discarding
 	// is told apart from protection.
 	OutputTokensByTenant map[string]int64
+	// OutputTokensFromFailedStreams is how much of OutputTokens arrived on a stream that then broke.
+	//
+	// Those tokens are counted, because the GPU produced them and the tenant received them, and dropping
+	// them would understate what a contending tenant got -- the exact quantity the share exists to
+	// measure. But a share that is a third truncated streams does not mean what an intact one means, and
+	// a quantity may not be described by a cause its ledger does not establish. So the amount is
+	// disclosed rather than folded in.
+	OutputTokensFromFailedStreams int64
+	// TPOTMsP50ByTenant and TPOTMsP99ByTenant split the inter-token time by who received it.
+	//
+	// The arm-wide TPOT above pools every tenant, because it is accumulated before the premium-only filter,
+	// and that answers "how did this arm's streams behave". The pre-registered criterion asks something
+	// else: whether the PROTECTED tenant paid for its fast first token with a slow stream. On the paid
+	// evidence the arm-wide figure is 266.8 ms for arms whose premium and noisy streams need not resemble
+	// each other, and quoting it against a premium criterion would describe one tenant with another's
+	// number.
+	TPOTMsP50ByTenant map[string]float64
+	TPOTMsP99ByTenant map[string]float64
 	// AdmissionLost is how many ELIGIBLE requests got no admission verdict at all, so the guard's behaviour
 	// toward them is unknown.
 	//
@@ -249,6 +267,7 @@ func Summarize(arm string, rows []RawRow) ArmSummary {
 	}
 
 	var ttft, e2e, tpot []float64
+	tpotByTenant := map[string][]float64{}
 	var premiumTotal, premiumTimedOut, premiumLost int
 	var firstSend, lastEnd int64
 	for _, r := range rows {
@@ -260,7 +279,7 @@ func Summarize(arm string, rows []RawRow) ArmSummary {
 		if r.EndUnixNanos > lastEnd {
 			lastEnd = r.EndUnixNanos
 		}
-		tpot = s.tallyDelivered(r, tpot)
+		tpot = s.tallyDelivered(r, tpot, tpotByTenant)
 		// Admitted-work accounting covers the eligible population, for the admission-match check.
 		//
 		// The gateway gates on tier == standard AND EstInputTokens >= threshold, and this applies the same
@@ -375,8 +394,24 @@ func Summarize(arm string, rows []RawRow) ArmSummary {
 	// quantile mass the statistic is made of, and the ones that vanish are the ones that were slow enough to
 	// die. The reported p99 then is a p98 wearing the other name.
 	s.SetActiveSeconds(nanosToMs(lastEnd-firstSend) / 1000)
+	// Sorted here for the same reason ttft and e2e are sorted above: percentile is nearest-rank over an
+	// ORDERED slice, and handing it arrival order returns whichever sample happens to sit at that index.
+	//
+	// This shipped unsorted. The metric's own test used a single observation, and with one sample every
+	// ordering is the same ordering, so nothing failed. Three samples arriving as 100, 1, 2 ms reported a
+	// p99 of 2 -- not a tail, and not even the second largest value.
+	sort.Float64s(tpot)
 	s.TPOTMsP50 = percentile(tpot, 0.50)
 	s.TPOTMsP99 = percentile(tpot, 0.99)
+	if len(tpotByTenant) > 0 {
+		s.TPOTMsP50ByTenant = map[string]float64{}
+		s.TPOTMsP99ByTenant = map[string]float64{}
+		for tenant, samples := range tpotByTenant {
+			sort.Float64s(samples)
+			s.TPOTMsP50ByTenant[tenant] = percentile(samples, 0.50)
+			s.TPOTMsP99ByTenant[tenant] = percentile(samples, 0.99)
+		}
+	}
 
 	if premiumTotal > 0 && float64(premiumTimedOut+premiumLost)/float64(premiumTotal) >= 0.01 {
 		s.Censored = true
@@ -676,7 +711,7 @@ func (s *ArmSummary) tallyEligibleWork(r RawRow) {
 //
 // Split out of Summarize only to keep that function under the complexity limit; it is one step of the same
 // loop and holds no state of its own.
-func (s *ArmSummary) tallyDelivered(r RawRow, tpot []float64) []float64 {
+func (s *ArmSummary) tallyDelivered(r RawRow, tpot []float64, byTenant map[string][]float64) []float64 {
 	// Tokens count only where a response actually produced them; a refusal carries none, and a stream that
 	// died partway delivered nothing the client could use.
 	if r.OutputTokens <= 0 || r.HTTPStatus != 200 {
@@ -687,9 +722,25 @@ func (s *ArmSummary) tallyDelivered(r RawRow, tpot []float64) []float64 {
 		s.OutputTokensByTenant = map[string]int64{}
 	}
 	s.OutputTokensByTenant[r.Tenant] += int64(r.OutputTokens)
+	// A stream that broke partway is not a measurement of inter-token time.
+	//
+	// The sender keeps HTTPStatus at 200 for these, because the response headers did arrive, and records
+	// the failure in ErrorKind instead. EndUnixNanos is then the moment the stream died -- for a timeout,
+	// the deadline -- so (end - firstToken) / (tokens - 1) reports the deadline divided by a token count.
+	// A 30-second timeout after two tokens enters the tail as a 30,000 ms inter-token time.
+	//
+	// That matters because reading 1 fails a cell whose TPOT p99 exceeds 1.25x the isolated baseline, so
+	// admitting deadlines would fail whichever arm timed out most on a statistic that never described its
+	// streams.
+	if r.ErrorKind != "" {
+		s.OutputTokensFromFailedStreams += int64(r.OutputTokens)
+		return tpot
+	}
 	// Inter-token time needs at least two tokens to have a gap between them.
 	if r.OutputTokens > 1 && r.FirstTokenUnixNanos > 0 && r.EndUnixNanos > r.FirstTokenUnixNanos {
-		tpot = append(tpot, nanosToMs(r.EndUnixNanos-r.FirstTokenUnixNanos)/float64(r.OutputTokens-1))
+		v := nanosToMs(r.EndUnixNanos-r.FirstTokenUnixNanos) / float64(r.OutputTokens-1)
+		tpot = append(tpot, v)
+		byTenant[r.Tenant] = append(byTenant[r.Tenant], v)
 	}
 	return tpot
 }
@@ -721,7 +772,7 @@ func FormatReport(summaries []ArmSummary, checks Checks, matchTolerance float64)
 	//
 	// A reader who cannot see the block count has no way to tell those apart, which is the same defect the
 	// tailN column exists to prevent one level down.
-	fmt.Fprintf(&b, "%-12s %8s %8s %8s %8s %8s %8s %8s %8s %8s\n", "arm", "total", "done", "shed", "timeout", "ttftP50", "ttftP95", "ttftP99", "tailN", "reps")
+	fmt.Fprintf(&b, "%-*s %8s %8s %8s %8s %8s %8s %8s %8s %8s\n", ArmColumnWidth, "arm", "total", "done", "shed", "timeout", "ttftP50", "ttftP95", "ttftP99", "tailN", "reps")
 	for _, s := range summaries {
 		censored := ""
 		if s.Censored {
@@ -733,8 +784,8 @@ func FormatReport(summaries []ArmSummary, checks Checks, matchTolerance float64)
 		if s.TailSampleSize > 0 && s.TailSampleSize < MinTailSamples {
 			thin = fmt.Sprintf(" (p99 is the maximum: %d < %d premium completions)", s.TailSampleSize, MinTailSamples)
 		}
-		fmt.Fprintf(&b, "%-12s %8d %8d %8d %8d %8.1f %8.1f %8.1f %8d %8d%s%s\n",
-			s.Arm, s.Total, s.Completed, s.Rejected, s.TimedOut, s.TTFTMsP50, s.TTFTMsP95, s.TTFTMsP99, s.TailSampleSize, s.RepetitionCount, censored, thin)
+		fmt.Fprintf(&b, "%-*s %8d %8d %8d %8d %8.1f %8.1f %8.1f %8d %8d%s%s\n",
+			ArmColumnWidth, s.Arm, s.Total, s.Completed, s.Rejected, s.TimedOut, s.TTFTMsP50, s.TTFTMsP95, s.TTFTMsP99, s.TailSampleSize, s.RepetitionCount, censored, thin)
 	}
 	// What the protection cost, printed beside what it bought.
 	//
@@ -742,7 +793,11 @@ func FormatReport(summaries []ArmSummary, checks Checks, matchTolerance float64)
 	// the tail best also served the fewest tokens, because it was discarding one tenant's work rather than
 	// making the engine efficient. An arm's throughput and its tenants' shares belong next to its tail.
 	b.WriteString("\nWhat it cost\n")
-	fmt.Fprintf(&b, "%-12s %10s %10s %10s %10s\n", "arm", "out tok/s", "tpotP50", "tpotP99", "tenant shares")
+	// premTPOT99 is printed beside the arm-wide figure because the pre-registered criterion is about the
+	// PROTECTED tenant's stream, and the arm-wide number pools every tenant. On the paid evidence they
+	// differ by 57 ms on one arm, which is the difference between quoting the right tenant and the wrong one.
+	fmt.Fprintf(&b, "%-*s %10s %10s %10s %10s %10s\n", ArmColumnWidth,
+		"arm", "out tok/s", "tpotP50", "tpotP99", "premTPOT99", "tenant shares")
 	for _, s := range summaries {
 		shares := make([]string, 0, len(s.OutputTokensByTenant))
 		names := make([]string, 0, len(s.OutputTokensByTenant))
@@ -755,8 +810,13 @@ func FormatReport(summaries []ArmSummary, checks Checks, matchTolerance float64)
 				shares = append(shares, fmt.Sprintf("%s %.0f%%", n, 100*float64(s.OutputTokensByTenant[n])/float64(s.OutputTokens)))
 			}
 		}
-		fmt.Fprintf(&b, "%-12s %10.1f %10.1f %10.1f  %s\n",
-			s.Arm, s.OutputTokensPerSecond, s.TPOTMsP50, s.TPOTMsP99, strings.Join(shares, " · "))
+		prem := "—"
+		if v, ok := s.TPOTMsP99ByTenant[PremiumTenant]; ok {
+			prem = fmt.Sprintf("%.1f", v)
+		}
+		fmt.Fprintf(&b, "%-*s %10.1f %10.1f %10.1f %10s  %s\n",
+			ArmColumnWidth,
+			s.Arm, s.OutputTokensPerSecond, s.TPOTMsP50, s.TPOTMsP99, prem, strings.Join(shares, " · "))
 	}
 
 	// The threshold's own evidence, printed before the checks because it qualifies them: the checks compare
@@ -784,7 +844,7 @@ func FormatReport(summaries []ArmSummary, checks Checks, matchTolerance float64)
 					unevaluated = true
 					void = fmt.Sprintf("  VOID: %d never reached admission (401/403)", o.Unevaluated)
 				}
-				fmt.Fprintf(&b, "  %-12s %-22s est=%d  sent=%d  rejected=%d%s\n", sm.Arm, n, o.EstInputTokens, o.Total, o.Rejected, void)
+				fmt.Fprintf(&b, "  %-*s %-22s est=%d  sent=%d  rejected=%d%s\n", ArmColumnWidth, sm.Arm, n, o.EstInputTokens, o.Total, o.Rejected, void)
 			}
 		}
 		if unevaluated {
