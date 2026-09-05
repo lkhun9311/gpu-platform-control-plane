@@ -30,6 +30,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -118,7 +119,11 @@ func genTrace(args []string) error {
 	probeWeight := fs.Float64("probe-weight", 0.1, "arrival share of EACH threshold-probe tenant; 0 disables them")
 	probeUnderChars := fs.Int("probe-under-chars", bench.ProbeUnderChars, "probe prompt scoring just BELOW the guard threshold")
 	probeOverChars := fs.Int("probe-over-chars", bench.ProbeOverChars, "probe prompt scoring exactly AT the guard threshold")
-	arm := fs.String("arm", "off", "arm this manifest measures (R1|off|static-cap|kv-aware)")
+	// Defaulted rather than required, because every existing caller is the M5-b gateway experiment and
+	// making them all pass a flag to keep working would be a migration with no reader.
+	study := fs.String("study", bench.StudyM5BGateway,
+		"pre-registered experiment this manifest belongs to; its registry decides which arms are admissible")
+	arm := fs.String("arm", "off", "arm this manifest measures, one of the named study's arms")
 	gatewayURL := fs.String("gateway-url", "http://localhost:8080", "gateway URL the replay targets")
 	model := fs.String("model", "llama-3-8b", "model name")
 	timeoutMs := fs.Int("timeout-ms", 30_000, "per-request timeout in ms")
@@ -205,6 +210,7 @@ func genTrace(args []string) error {
 	m := bench.RunManifest{
 		SchemaVersion:   "v2",
 		PromptCorpusSHA: bench.PromptCorpusSHA256,
+		Study:           *study,
 		Arm:             *arm,
 		GatewayURL:      *gatewayURL,
 		// Relative to the MANIFEST, not to the working directory.
@@ -330,7 +336,9 @@ func replay(args []string) error {
 		return fmt.Errorf("manifest matchTolerance %q is not a number: %w", m.MatchTolerance, err)
 	}
 	raw := bench.Replay(context.Background(), sender, rows, bench.ReplayOptions{
+		Study:          m.Study,
 		Arm:            m.Arm,
+		Priorities:     prio,
 		TraceChecksum:  m.TraceChecksum,
 		LongThreshold:  m.LongThreshold,
 		MatchTolerance: tol,
@@ -393,18 +401,30 @@ func report(args []string) error {
 	// empty string, so the operator reads "arm  completed no premium requests" and has to work out from the
 	// record directory what is missing. That is a bad minute to spend at the end of a paid session, and it is
 	// the difference between a gate that stops you and a gate that tells you what to re-run.
-	var missing []string
-	for _, arm := range []string{"R1", "static-cap", "kv-aware"} {
-		if _, ok := summ[arm]; !ok {
-			missing = append(missing, arm)
+	// The three checks below are M5-b's pre-registered comparison, and they name M5-b's arms.
+	//
+	// Running them for another experiment asked for static-cap and kv-aware, found neither, and reported
+	// the run disqualified -- a verdict about arms the experiment never had. Another study's readings are
+	// its own, so until they are implemented the report prints that study's tables and says plainly that
+	// it evaluated no criteria, rather than failing it against somebody else's.
+	var checks bench.Checks
+	if bench.CanonicalStudyID(e.study) == bench.StudyM5BGateway {
+		var missing []string
+		for _, arm := range []string{bench.ArmR1, "static-cap", "kv-aware"} {
+			if _, ok := summ[arm]; !ok {
+				missing = append(missing, arm)
+			}
 		}
+		if len(missing) > 0 {
+			fmt.Fprintf(os.Stderr, "warning: no records for arm(s) %s; the comparison will be disqualified\n",
+				strings.Join(missing, ", "))
+		}
+		checks = bench.EvaluateChecks(summ[bench.ArmR1], summ["static-cap"], summ["kv-aware"], incCI, matchTolerance)
+	} else {
+		fmt.Fprintf(os.Stderr,
+			"warning: study %s has no implemented readings, so this report shows its measurements and evaluates no criteria\n",
+			e.study)
 	}
-	if len(missing) > 0 {
-		fmt.Fprintf(os.Stderr, "warning: no records for arm(s) %s; the comparison will be disqualified\n",
-			strings.Join(missing, ", "))
-	}
-
-	checks := bench.EvaluateChecks(summ["R1"], summ["static-cap"], summ["kv-aware"], incCI, matchTolerance)
 	text := bench.FormatReport(summaries, checks, matchTolerance)
 
 	if *out != "" {
@@ -462,6 +482,78 @@ type armEvidence struct {
 	repSeconds map[string][]float64
 	checksum   map[string]string
 	tolerance  map[string]float64
+	// treatment is the canonical rendering of the priorities each arm's rows carried, so two replays that
+	// differ only in treatment cannot be pooled as repetitions of one condition.
+	treatment map[string]string
+	// study is the one pre-registered experiment every row in this report came from, and studyFrom is
+	// the file that established it, so a refusal can name both sides of the disagreement.
+	//
+	// studySeen is separate because the empty string is a legitimate value here -- it is what every raw
+	// file written before the study field existed carries. Using "" as the not-yet-set sentinel made
+	// unlabelled evidence silently adopt whatever study the next file named, which is the one mixing
+	// this check exists to prevent.
+	study string
+	// studyRecorded is what the file literally carried, kept alongside the normalized value so a refusal
+	// can say "unlabelled" instead of silently presenting old evidence as if it had named a study.
+	studyRecorded string
+	studySeen     bool
+	studyFrom     string
+}
+
+// singleStudy returns the one study every row in a file belongs to, or refuses.
+//
+// Normalization is applied before comparing, so an unlabelled legacy file and one that names
+// m5b-gateway-v1 explicitly are the same study rather than two.
+func singleStudy(path string, rows []bench.RawRow) (canonical, recorded string, err error) {
+	recorded = rows[0].Study
+	canonical = bench.CanonicalStudyID(recorded)
+	for i, r := range rows {
+		if got := bench.CanonicalStudyID(r.Study); got != canonical {
+			return "", "", fmt.Errorf("%s mixes studies within one file: row 0 carries %s but row %d carries %s;"+
+				" a raw file is one arm of one experiment",
+				path, studyLabel(canonical, recorded), i, studyLabel(got, r.Study))
+		}
+	}
+	return canonical, recorded, nil
+}
+
+// treatmentOf renders the priorities a file's rows carried, as a stable string.
+//
+// Derived from the rows rather than from a flag the runner claims to have passed, because the point is to
+// describe what the requests actually carried. Sorted so the same treatment always renders identically.
+func treatmentOf(rows []bench.RawRow) string {
+	seen := map[string]int{}
+	for _, r := range rows {
+		if r.Priority != nil {
+			seen[r.Tenant] = *r.Priority
+		}
+	}
+	if len(seen) == 0 {
+		return "none"
+	}
+	tenants := make([]string, 0, len(seen))
+	for t := range seen {
+		tenants = append(tenants, t)
+	}
+	sort.Strings(tenants)
+	parts := make([]string, 0, len(tenants))
+	for _, t := range tenants {
+		parts = append(parts, fmt.Sprintf("%s=%d", t, seen[t]))
+	}
+	return strings.Join(parts, ",")
+}
+
+// studyLabel renders a study for a refusal message, disclosing when the file did not name one.
+//
+// The comparison normalizes an empty study to the M5-b experiment, because unlabelled evidence IS that
+// experiment and refusing to pool it with evidence that says so would reject a legitimate comparison. The
+// message must not normalize as well: an operator reading "these are different experiments" needs to know
+// that one side was old evidence carrying no label, not a file naming a study they do not recognise.
+func studyLabel(canonical, recorded string) string {
+	if recorded == "" {
+		return canonical + " (unlabelled, predates the study field)"
+	}
+	return canonical
 }
 
 // loadArmEvidence reads one raw file per repetition and groups it by arm.
@@ -471,6 +563,7 @@ func loadArmEvidence(rawFiles []string) (*armEvidence, error) {
 		byArm: map[string][]bench.RawRow{}, repP99: map[string][]float64{},
 		repTail: map[string][]int{}, repRows: map[string][]int{}, repSeconds: map[string][]float64{},
 		checksum: map[string]string{}, tolerance: map[string]float64{},
+		treatment: map[string]string{},
 	}
 	for _, path := range rawFiles {
 		f, err := os.Open(path)
@@ -485,6 +578,33 @@ func loadArmEvidence(rawFiles []string) (*armEvidence, error) {
 		if len(rows) == 0 {
 			continue
 		}
+		// Two studies in one report is not a comparison, it is a category error.
+		//
+		// Nothing else catches it. Arm names are not unique across studies, and the trace checksum does
+		// not stand in for study identity either: refuseIfTracesDisagree only inspects three hard-coded
+		// M5-b arm names and skips anything it does not recognise, so rows from a different experiment
+		// pass through it untouched. This is the check, and it runs before a single row is pooled.
+		// EVERY row, not the first one.
+		//
+		// Reading rows[0] made the check defeatable by concatenation: a file whose first row is legacy and
+		// whose remaining rows belong to another experiment passed, and ReadRawRows sorts by index so which
+		// row lands first is not even under the operator's control among ties.
+		study, recorded, err := singleStudy(path, rows)
+		if err != nil {
+			return nil, err
+		}
+		if !e.studySeen {
+			e.study = study
+			e.studyRecorded = recorded
+			e.studySeen = true
+			e.studyFrom = path
+		} else if study != e.study {
+			return nil, fmt.Errorf("%s carries study %s but %s carries %s; these are different"+
+				" pre-registered experiments and their arms do not mean the same thing, so pooling them"+
+				" would report a comparison that was never run",
+				path, studyLabel(study, recorded), e.studyFrom, studyLabel(e.study, e.studyRecorded))
+		}
+
 		arm := rows[0].Arm
 		e.byArm[arm] = append(e.byArm[arm], rows...)
 		// Keep the whole per-repetition summary, not just its p99.
@@ -512,6 +632,19 @@ func loadArmEvidence(rawFiles []string) (*armEvidence, error) {
 			return nil, fmt.Errorf("arm %s has repetitions carrying different admission-match tolerances (%v and %v); the pre-registered tolerance cannot be two values", arm, prev, rows[0].MatchTolerance)
 		}
 		e.tolerance[arm] = rows[0].MatchTolerance
+		// The treatment is part of an arm's identity, exactly like its trace and its tolerance.
+		//
+		// Without this, replaying one manifest twice -- once with --priorities and once without -- produced
+		// two files a report happily pooled as repetitions of the same condition. The bootstrap would then
+		// resample across a treated and an untreated run and report the interval as if one thing had been
+		// measured four times.
+		treat := treatmentOf(rows)
+		if prev, ok := e.treatment[arm]; ok && prev != treat {
+			return nil, fmt.Errorf("arm %s has repetitions replayed under different priority treatments (%s and %s);"+
+				" they are two conditions, and pooling them reports an interval over a comparison rather than a repetition",
+				arm, prev, treat)
+		}
+		e.treatment[arm] = treat
 	}
 	return e, nil
 }
@@ -525,7 +658,7 @@ func (e *armEvidence) refuseIfTracesDisagree() error {
 	//
 	// So it is excluded from the identity check.
 	var wantSum string
-	for _, arm := range []string{"off", "static-cap", "kv-aware"} {
+	for _, arm := range e.contendedArms() {
 		sum, ok := e.checksum[arm]
 		if !ok {
 			continue
@@ -565,7 +698,7 @@ func (e *armEvidence) refuseIfTracesDisagree() error {
 	// This is a refusal rather than a check result, and it sits beside the checksum test for that reason: two
 	// arms of different lengths cannot be compared at all, which is a statement about the evidence rather than
 	// about the guard.
-	contended := []string{"off", "static-cap", "kv-aware"}
+	contended := e.contendedArms()
 	wantRows, wantFrom := 0, ""
 	for _, arm := range contended {
 		for i, n := range e.repRows[arm] {
@@ -608,9 +741,40 @@ func (e *armEvidence) frozenMatchTolerance(fallback float64) float64 {
 	return matchTolerance
 }
 
+// contendedArms are the study's arms that replay the full trace, so their traffic must be identical.
+//
+// R1 is excluded because it replays the same trace with the contending tenant filtered out, which is what
+// makes it a ceiling rather than a condition -- its record count legitimately differs.
+//
+// Derived from the study rather than listed, because the list used to be three M5-b names and every arm of
+// any other experiment therefore skipped the identity check entirely: refuseIfTracesDisagree looked at
+// nothing at all for the price-of-protection sweep.
+func (e *armEvidence) contendedArms() []string {
+	study, ok := bench.LookupStudy(e.study)
+	if !ok {
+		study, _ = bench.LookupStudy(bench.StudyM5BGateway)
+	}
+	arms := make([]string, 0, len(study.Arms))
+	for _, a := range study.Arms {
+		if a != bench.ArmR1 {
+			arms = append(arms, a)
+		}
+	}
+	return arms
+}
+
 // summarize builds the per-arm summaries in report order and attaches the repetition shape.
 func (e *armEvidence) summarize() ([]bench.ArmSummary, map[string]bench.ArmSummary) {
-	order := []string{"R1", "off", "static-cap", "kv-aware"}
+	// The order is the study's, not four literals.
+	//
+	// Hard-coded, this dropped nine of the price-of-protection sweep's ten arms on the floor: summarize
+	// kept only R1, because that is the one name the two studies share, and the report then complained
+	// about arms belonging to an experiment it was not reporting on.
+	study, ok := bench.LookupStudy(e.study)
+	if !ok {
+		study, _ = bench.LookupStudy(bench.StudyM5BGateway)
+	}
+	order := study.Arms
 	var summaries []bench.ArmSummary
 	summ := map[string]bench.ArmSummary{}
 	for _, arm := range order {
