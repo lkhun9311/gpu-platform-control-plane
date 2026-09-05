@@ -476,8 +476,20 @@ say "engine configuration recorded to engine-config.txt"
 # invisible in the evidence and would only surface as "the treatment had no effect" -- the most expensive
 # wrong conclusion this study could reach. So the claim is checked against the engine's own startup log
 # rather than against what we believe we launched it with.
+#
+# The pattern is written against what vLLM ACTUALLY prints, which is neither of the two forms an earlier
+# version of it assumed. The engine writes its resolved settings as a Python dict:
+#
+#   non-default args: {... 'max_num_batched_tokens': 512, 'max_num_seqs': 64, 'scheduling_policy': 'priority'}
+#
+# with a colon and a quote, not an equals sign. The old pattern required `scheduling_policy=` and so
+# matched nothing the engine emits -- it survived only because engine-config.txt also carries the
+# deployment argv, and it would have refused a correctly configured engine the moment the argv was not
+# available, which is exactly the case for a runner that reads docker logs. The separator is therefore
+# matched as "one to four non-alphanumeric characters", which covers the dict form, the equals form and
+# both flag forms without depending on which one a given vLLM version chooses.
 if [ "${PRIORITIES:-0}" = "1" ]; then
-  grep -qi "scheduling_policy=.priority\|scheduling-policy[= ]priority" "$OUT/engine-config.txt" \
+  grep -qiE "scheduling[-_]policy[^a-z0-9]{1,4}priority" "$OUT/engine-config.txt" \
     || fail "PRIORITIES=1 but the engine did not report the priority scheduling policy in its startup configuration; every request would carry a priority field the scheduler ignores, and the arm would silently replay the control"
   say "priority scheduling confirmed in the engine's own startup configuration"
 fi
