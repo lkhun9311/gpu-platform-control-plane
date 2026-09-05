@@ -367,6 +367,14 @@ scenarios_queuelab_gpu_session() {
     STUB_PRESENT_KEYS="session.tgz commit.txt log.txt runs" \
     run_scenario empty-archive bash "$TARGET"
 
+  # The user-data outgrew what EC2 accepts, and the runner has to say so before it calls RunInstances.
+  #
+  # It did not, once: comments pushed the encoded script past 25600 bytes, three zones each answered
+  # InvalidParameterValue, and the refusal that fired said only that the errors named neither authorization
+  # nor capacity. True, and no help. UD_LIMIT drives the guard here rather than inflating the script.
+  REQUIRE_CLEAN_TREE=0 STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 UD_LIMIT=100 \
+    run_scenario user-data-too-large bash "$TARGET"
+
   # No zone will take it, for the two reasons that end the same way and call for opposite responses. The
   # real session hit the first of these and the refusal named the second, attributing a policy denial to
   # Spot capacity. Both are pinned now.
