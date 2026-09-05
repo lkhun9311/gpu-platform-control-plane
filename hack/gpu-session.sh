@@ -394,8 +394,16 @@ prepare() {
 # The script's first act is to call ./queuelabrun, and a fresh checkout has no such file: the binary is
 # gitignored and no Makefile target builds it. The entry point could not run from the state it is committed
 # in, which is a poor property for the thing that spends the money.
-echo "building the runner"
-go build -o queuelabrun ./cmd/queuelabrun
+if [ "${QUEUELABRUN_PREBUILT:-0}" = "1" ]; then
+  # Shipped by the caller with a digest it already verified. Not merely "a file exists": a stale binary in
+  # somebody's working tree would then be used silently, and the reason to ship one is that its digest is
+  # known.
+  [ -x ./queuelabrun ] || { echo "QUEUELABRUN_PREBUILT=1 but ./queuelabrun is not executable" >&2; exit 1; }
+  echo "using the queuelabrun that was shipped: sha256 $(sha256sum ./queuelabrun | cut -c1-12)"
+else
+  echo "building the runner"
+  go build -o queuelabrun ./cmd/queuelabrun
+fi
 
 for W in "${WORKERS[@]}"; do
   prepare "$W"

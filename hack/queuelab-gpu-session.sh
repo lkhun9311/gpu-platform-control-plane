@@ -109,6 +109,23 @@ say "uploading the source archive"
 aws s3 cp "$OUT/source.tgz" "s3://$BUCKET/$RUN_ID/src/source.tgz" >/dev/null \
   || fail "could not upload the source archive"
 
+# queuelabrun is built HERE and shipped, because the instance has no Go.
+#
+# The deep-learning AMI carries a driver, not a toolchain, and gpu-session.sh opens by building the runner it
+# is about to call. A session reached that line with everything else working -- cards advertised, DCGM
+# answering -- and died on `go: command not found`, after paying for all of it.
+#
+# Installing a toolchain on a rented box would work and is the wrong shape. The other runner in this
+# directory already ships its binary with a checksum the instance verifies, and following that is both
+# cheaper and better provenance: what ran is a binary whose digest is recorded, not whatever a compiler on a
+# machine nobody kept produced.
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o "$OUT/queuelabrun" ./cmd/queuelabrun \
+  || fail "could not build queuelabrun; the instance has no Go and cannot build it either"
+RUNNER_SHA=$(sha256sum "$OUT/queuelabrun" | cut -d' ' -f1)
+say "queuelabrun $(du -h "$OUT/queuelabrun" | cut -f1), sha256 ${RUNNER_SHA:0:12}"
+aws s3 cp "$OUT/queuelabrun" "s3://$BUCKET/$RUN_ID/bin/queuelabrun" >/dev/null \
+  || fail "could not upload queuelabrun"
+
 AMI=$(spot_resolve_ami "$REGION" \
   /aws/service/deeplearning/ami/x86_64/base-oss-nvidia-driver-gpu-ubuntu-22.04/latest/ami-id) \
   || fail "could not resolve a GPU AMI"
@@ -128,6 +145,7 @@ set -x
 BUCKET="BUCKET_PLACEHOLDER"
 PREFIX="RUN_ID_PLACEHOLDER"
 SOURCE_SHA="SOURCE_SHA_PLACEHOLDER"
+RUNNER_SHA="RUNNER_SHA_PLACEHOLDER"
 COMMIT="COMMIT_PLACEHOLDER"
 REPS="REPS_PLACEHOLDER"
 DOSES="DOSES_PLACEHOLDER"
@@ -145,6 +163,20 @@ if [ "$got" != "$SOURCE_SHA" ]; then
 fi
 mkdir -p /src && tar -xzf /tmp/source.tgz -C /src
 cd /src
+
+# The runner binary, verified the same way and for the same reason as the source.
+#
+# QUEUELABRUN_PREBUILT is what tells gpu-session.sh not to build one. It is an explicit flag rather than a
+# bare "skip the build if a file is there", because a stale binary left in a working tree would then be used
+# silently -- and the whole point of shipping it is that its digest is known.
+aws s3 cp "s3://$BUCKET/$PREFIX/bin/queuelabrun" /src/queuelabrun
+chmod +x /src/queuelabrun
+got=$(sha256sum /src/queuelabrun | cut -d' ' -f1)
+if [ "$got" != "$RUNNER_SHA" ]; then
+  echo "queuelabrun checksum mismatch: expected $RUNNER_SHA, got $got"
+  exit 1
+fi
+export QUEUELABRUN_PREBUILT=1
 
 # ---------------------------------------------------------------- the cards, before anything else
 #
@@ -523,6 +555,7 @@ UD=$(mktemp)
       -e "s|BUCKET_PLACEHOLDER|$BUCKET|" \
       -e "s|RUN_ID_PLACEHOLDER|$RUN_ID|" \
       -e "s|SOURCE_SHA_PLACEHOLDER|$SOURCE_SHA|" \
+      -e "s|RUNNER_SHA_PLACEHOLDER|$RUNNER_SHA|" \
       -e "s|COMMIT_PLACEHOLDER|$COMMIT|" \
       -e "s|REPS_PLACEHOLDER|$REPS|" \
       -e "s|DOSES_PLACEHOLDER|$DOSES|" "$RUNSCRIPT" | tail -n +2 \

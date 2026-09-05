@@ -5,6 +5,7 @@ set -x
 BUCKET="stub-bucket"
 PREFIX="run"
 SOURCE_SHA="<SHA256>"
+RUNNER_SHA="<SHA>"
 COMMIT="<COMMIT>"
 REPS="4"
 DOSES="grace-bounded"
@@ -18,6 +19,14 @@ if [ "$got" != "$SOURCE_SHA" ]; then
 fi
 mkdir -p /src && tar -xzf /tmp/source.tgz -C /src
 cd /src
+aws s3 cp "s3://$BUCKET/$PREFIX/bin/queuelabrun" /src/queuelabrun
+chmod +x /src/queuelabrun
+got=$(sha256sum /src/queuelabrun | cut -d' ' -f1)
+if [ "$got" != "$RUNNER_SHA" ]; then
+  echo "queuelabrun checksum mismatch: expected $RUNNER_SHA, got $got"
+  exit 1
+fi
+export QUEUELABRUN_PREBUILT=1
 nvidia-smi --query-gpu=index,name,memory.total --format=csv > /tmp/nvidia-smi.csv || exit 1
 upload /tmp/nvidia-smi.csv preflight-nvidia-smi.csv
 cards=$(tail -n +2 /tmp/nvidia-smi.csv | wc -l)
