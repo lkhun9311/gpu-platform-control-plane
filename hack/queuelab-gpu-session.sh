@@ -240,6 +240,44 @@ kind create cluster --config /tmp/kind.yaml --kubeconfig "$KUBECONFIG" --wait 30
 # commands later as a Kueue manifest that would not validate, which reads like a Kueue problem.
 kubectl cluster-info || { echo "PREFLIGHT FAILED: the cluster is up but unreachable through $KUBECONFIG"; exit 1; }
 
+# The toolkit is needed INSIDE the node as well, and that is a second configuration, not the same one.
+#
+# Everything above configures the HOST's docker, which is what puts the cards into the kind node: the last
+# session proved it, with `nvidia-smi -L` inside qlgpu-worker listing four A10Gs. Pods do not run on the
+# host's docker. They run on the containerd inside that node, which knows nothing about any of it, so the
+# device plugin started with no NVML and died:
+#
+#   E factory.go:87] Incompatible strategy detected auto
+#   error creating plugin manager: unable to create plugin manager: invalid device discovery strategy
+#
+# and the DCGM exporter agreed: "NVML doesn't exist on this system". The node had the cards and the workloads
+# could not reach them.
+#
+# kindest/node ships neither nvidia-ctk nor /sbin/ldconfig.real -- checked, not assumed, by running the image
+# locally. So both are put there: the symlink because the container runtime hook is configured on this Ubuntu
+# host to call ldconfig.real, which Debian's node image does not have.
+docker exec qlgpu-worker ln -sf /sbin/ldconfig /sbin/ldconfig.real || exit 1
+docker exec qlgpu-worker bash -c '
+  set -e
+  export DEBIAN_FRONTEND=noninteractive
+  apt-get update -qq
+  apt-get install -y -qq curl gnupg ca-certificates
+  curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey \
+    | gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
+  curl -fsSL https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list \
+    | sed "s#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g" \
+    > /etc/apt/sources.list.d/nvidia-container-toolkit.list
+  apt-get update -qq
+  apt-get install -y -qq nvidia-container-toolkit
+  nvidia-ctk runtime configure --runtime=containerd --set-as-default
+' || { echo "PREFLIGHT FAILED: could not configure the container runtime inside qlgpu-worker"; exit 1; }
+
+# Restarting containerd takes the kubelet's runtime out from under it, so the node is waited for rather than
+# assumed back. Everything applied after this point would otherwise land on a node that is still NotReady.
+docker exec qlgpu-worker systemctl restart containerd || exit 1
+kubectl wait --for=condition=Ready node/qlgpu-worker --timeout=300s \
+  || { echo "PREFLIGHT FAILED: qlgpu-worker did not come back Ready after its containerd was restarted"; exit 1; }
+
 # ---------------------------------------------------------------- the platform under test
 kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases/download/v0.18.3/manifests.yaml
 kubectl -n kueue-system wait --for=condition=Available deploy/kueue-controller-manager --timeout=300s || exit 1

@@ -36,7 +36,7 @@ aws ec2 terminate-instances --region ap-northeast-2 --instance-ids i-0stub
 == source <COMMIT> <TREE STATE>
 == uploading the source archive
 == g5.12xlarge is offered in: ap-northeast-2a ap-northeast-2c
-== user-data: 13320 of 25600 encoded bytes
+== user-data: 14852 of 25600 encoded bytes
 == launching g5.12xlarge spot (max $3.90/h)
 == trying ap-northeast-2a (subnet-ap-northeast-2a)
 == trying ap-northeast-2c (subnet-ap-northeast-2c)

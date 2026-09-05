@@ -153,6 +153,27 @@ kubectl -n gpu-platform-control-plane-system rollout status \
 docker exec "$CLUSTER-worker" test -e /var/run/nvidia-container-devices/all \
   || fail "the worker node has no /var/run/nvidia-container-devices/all, so the container runtime is never asked for the cards"
 
+# The node's OWN runtime, which is a second configuration from the host's and the one a Pod actually uses.
+#
+# The host's docker is what puts the cards into the kind node; the containerd inside that node is what runs
+# the Pods, and a session got as far as four A10Gs visible in the node while the device plugin died on
+# "NVML doesn't exist on this system". Both halves are checkable here without a card: whether the toolkit is
+# installed in the node, and whether containerd was told to use it.
+docker exec "$CLUSTER-worker" test -x /usr/bin/nvidia-ctk \
+  || fail "nvidia-ctk is not installed inside the worker node, so its containerd was never configured"
+docker exec "$CLUSTER-worker" test -e /sbin/ldconfig.real \
+  || fail "the worker node has no /sbin/ldconfig.real, which the container runtime hook on this host calls"
+# Asked of the RUNNING containerd, not of a file.
+#
+# The first version of this check grepped /etc/containerd/config.toml and failed, while the configuration had
+# in fact worked: nvidia-ctk writes a drop-in to /etc/containerd/conf.d/ because kind's config.toml imports
+# that directory. Checking the file that happened to be named was a check of the wrong thing, and it would
+# have condemned a working fix. crictl reports what containerd actually loaded, which is the only version of
+# this question a Pod cares about.
+docker exec "$CLUSTER-worker" crictl info 2>/dev/null | grep -q '"defaultRuntimeName": "nvidia"' \
+  || fail "the worker node's containerd is not running with nvidia as its default runtime, so Pods get no NVML"
+
 say "bring-up rehearsed in ${elapsed}s: cluster reachable, Kueue up, CRD applied, worker labelled, operator Available"
+say "in-node runtime configured: nvidia-ctk installed, ldconfig.real present, containerd knows nvidia"
 say "device mount present in the node container (whether it yields cards needs hardware)"
 say "NOT rehearsed, and only a real card can: the device plugin, DCGM, and preflight checks 3 and 4"
