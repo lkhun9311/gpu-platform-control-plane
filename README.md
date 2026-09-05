@@ -20,7 +20,7 @@ no code in this repository, and saying which is which is more useful to a reader
 | Inference serving      | Manage serving workloads declaratively via `InferenceDeployment`                                 | Built |
 | Training admission     | Translate `MLTrainingJob` into queued `batch/v1` Jobs admitted through Kueue (M6)                | Built |
 | Gateway                | Tenant-aware serving gateway: API key → tenant, token bucket, model routing, proxy, metrics      | Built and unit-tested; **never deployed** |
-| Admission guard        | KV-cache-aware three-arm admission guard and open-loop benchmark harness (M5-b)                  | Built, never run on a GPU |
+| Admission guard        | KV-cache-aware three-arm admission guard and open-loop benchmark harness (M5-b)                  | Built and **run on a real A10G** (2026-09-03) — the result is negative: it did not protect the tail |
 | Performance isolation  | Measure multi-tenant noisy-neighbor p99 contention under GPU sharing                             | **Designed only** — no `GpuSharingBenchmark` CRD or code exists |
 | Failure & recovery     | Inject failure scenarios and validate the response path                                          | **Designed only** — M7, no code |
 | Ledger                 | A SQLite ledger projecting CR/status/events                                                      | **Designed only** — no code |
@@ -47,28 +47,34 @@ directly from the [Releases](https://github.com/lkhun9311/gpu-platform-control-p
 | [M4-a](https://github.com/lkhun9311/gpu-platform-control-plane/releases/tag/m4-serving) | `InferenceDeployment` → Deployment/Service with a phase ladder | Done |
 | [M4-b](https://github.com/lkhun9311/gpu-platform-control-plane/releases/tag/m4-serving) | Tenant-aware serving gateway: API key → tenant, token bucket → 429, model routing, proxy, metrics | Done |
 | [M5-a](https://github.com/lkhun9311/gpu-platform-control-plane/releases/tag/m5-a-hosting) | AWS hosting: Terraform state bootstrap, EKS, OIDC CI → ECR, Argo CD GitOps, ephemeral apply/destroy with a TTL kill switch | Code done and offline-validated. **`bootstrap` is applied** (state bucket, KMS key, OIDC provider, CI roles, ECR, budget); `cluster` is planned at 96 resources and not applied, so no VPC, EKS or GPU node exists |
-| [M5-b](https://github.com/lkhun9311/gpu-platform-control-plane/releases/tag/m5-b-admission-guard) | Three-arm KV-cache-aware admission guard and open-loop benchmark harness, with pre-registered checks that refuse to call load shedding a win | GPU-free half done and tested; **no GPU run yet** |
+| [M5-b](https://github.com/lkhun9311/gpu-platform-control-plane/releases/tag/m5-b-admission-guard) | Three-arm KV-cache-aware admission guard and open-loop benchmark harness, with pre-registered checks that refuse to call load shedding a win | **Run on a real A10G on 2026-09-03** — four arms, four repetitions, 1,840 premium completions per arm. **All three pre-registered checks failed and the claim was withdrawn**: the guard came in at 83.7x against a pre-registered 1.25x ([numbers](hack/m5d-writeup.md), [raw](hack/m5b-run-20260903-091356/)) |
 | M5-c | Cost/fairness frontier and sharing-mode matrix (exclusive / time-slicing / MPS) — hardens the M5-b evidence | Card chosen by arithmetic; all three arms' manifests and the run script written and tested; **never run** ([sizing](hack/m5c-sharing-sizing.md)) |
-| M5-d | Technical write-up with the measured numbers | Reasoning, pre-registered checks and stated limits written BEFORE the run so they cannot be fitted to it; every figure is still a marker ([draft](hack/m5d-writeup.md)) |
+| M5-d | Technical write-up with the measured numbers | Reasoning, pre-registered checks and stated limits written BEFORE the run so they cannot be fitted to it. **Figures are now filled in from the 2026-09-03 run and the 2026-09-04 microtest, and the reasoning above them was not edited to fit them** ([write-up](hack/m5d-writeup.md)) |
 | [M6](https://github.com/lkhun9311/gpu-platform-control-plane/releases/tag/m6-training-admission) | Training admission: `MLTrainingJob` → Job + Kueue Workload; two-tenant cohort borrowing and quota-reclaim preemption, run end to end on kind | Done ([evidence](hack/m6-kind-e2e.md)) |
 | [queuelab](https://github.com/lkhun9311/gpu-platform-control-plane/releases/tag/queuelab) | Queue-policy measurement lab: censoring-aware list/watch lifecycle ledger replayed against real Kueue | Withdrawn once, then re-measured: twelve runs the runner's own gates accept ([result](hack/queuelab-reclaim-first-result.md)). **Simulated GPU** |
 | M7 | Inject failure scenarios and record an operational evidence trail (`WorkloadRun`) | CRD, controller and a single-controller driver, tested on envtest; the trail refuses rather than concludes when it has a hole. `hack/m7-evidence-trail.sh` **has been run**: a real Pod deletion produced Ready → Pending → Ready in a trail nobody wrote by hand, and the run exposed a defect envtest could not (recovery credited to the healthy state the run began in). Two of three chaos scenarios are recordable: **DegradedNode** fits but needs a machine whose disruption nobody minds, and **BackendFallback** was removed from the type because its injection scales a backend to zero, which reports Ready |
 
-**What has not been exercised.** Every GPU in this project is simulated by a fake device plugin. Nothing
-here has ever run against real hardware, and the State and Status columns above say so per row rather than
-leaving it to be inferred. Two distinctions worth stating plainly, because they are easy to blur:
+**What has and has not touched a real GPU.** One milestone has. Earlier revisions of this README said
+nothing here had ever run against real hardware; that stopped being true on 2026-09-02, and the line below
+replaces it rather than being quietly deleted.
 
-- The admission guard and its benchmark harness have **never seen a GPU**, and that is now the only thing
-  missing rather than the whole of it. The metrics fixture is a real capture from the pinned vLLM image and
-  replaced a synthetic one whose assumptions it falsified; the guard has been driven through engage and
-  release against a running vLLM; and the whole chain — harness, gateway, engine — has carried a request and
-  returned a `kv_cache_pressure` rejection ([evidence](hack/m5b-chain-live-evidence.log)). All of that was on
-  a CPU build, where the engine queues before its cache fills, so the WAITING arm of the engage condition is
-  exercised and the **KV-usage arm is not**. That arm is what the paid run is for.
-- The contention benchmark, the SQLite ledger and `platformctl` are **not coded at all**. They are design
-  documents. Earlier revisions of this README described them as if they existed; that was wrong.
+- **M5-b / M5-d ran on a real A10G.** Three paid sessions, roughly ten dollars of GPU and cluster time
+  between them, and **the first two produced no valid measurement**. The third completed
+  ([raw](hack/m5b-run-20260903-091356/)). A follow-up engine-level microtest cost about $0.40
+  ([data](docs/superpowers/specs/data/2026-09-04-scheduler-microtest-results.json)).
+- **Everything else is still a fake device plugin** — queuelab, M6 training admission, M7's evidence trail,
+  and the device-plugin end-to-end. Their run records carry `validity.deviceEvidence: device-not-observed`
+  deliberately, so GPU-seconds in them are never read as computation.
+- **The contention benchmark, the SQLite ledger and `platformctl` are not coded at all.** They are design
+  documents. Earlier revisions described them as if they existed; that was wrong.
 
-**Flagship benchmark:** KV-cache-aware noisy-neighbor p99 protection — a real-GPU benchmark that compares premium tenant latency under baseline, colocated long-context noisy-neighbor, and Gateway admission-guard modes. The harness, the guard and the pre-registered checks are written and tested; **it has never been run on a GPU, so there are no numbers.**
+**Flagship benchmark:** KV-cache-aware noisy-neighbor p99 protection — a real-GPU benchmark comparing
+premium tenant latency under isolation, uncontrolled contention, a pressure-blind rate limit, and the
+KV-cache-aware guard. **It has been run, and the result is negative.** The guard did not protect the tail
+(83.7x against a pre-registered 1.25x), and the arm that matched isolation's latency did so by rejecting all
+1,788 of the contending tenant's requests — which four paid runs could not see, because every check the
+report made was a tail ratio. What the numbers cost, rather than what they protected, is
+[pre-registered](docs/superpowers/specs/2026-09-05-the-price-of-protection.md) and **not yet bought**.
 
 ## The queuelab reclaim result: withdrawn once, and now re-measured
 
