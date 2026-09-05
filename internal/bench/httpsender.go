@@ -402,6 +402,15 @@ func (h *HTTPSender) readStream(ctx context.Context, resp *http.Response) SendRe
 			// The usage chunk arrives last, with an empty choices list, so it contributes no output token.
 			Usage *struct {
 				PromptTokens int `json:"prompt_tokens"`
+				// The engine's own output count, which the frame tally below is not.
+				//
+				// OutputTokens counts SSE frames carrying content, one per frame. That equals the token
+				// count only while the server emits one token per frame, and nothing in the protocol
+				// promises it: a server that batched two tokens into a frame would halve every throughput
+				// number, every tenant share and every inter-token time this harness reports, without
+				// changing a single token the GPU produced. The request already asks for usage, so this
+				// count was arriving and being discarded.
+				CompletionTokens int `json:"completion_tokens"`
 			} `json:"usage"`
 		}
 		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
@@ -410,8 +419,13 @@ func (h *HTTPSender) readStream(ctx context.Context, resp *http.Response) SendRe
 			res.EndUnixNanos = h.now().UnixNano()
 			return res
 		}
-		if chunk.Usage != nil && chunk.Usage.PromptTokens > 0 {
-			res.PromptTokens = chunk.Usage.PromptTokens
+		if chunk.Usage != nil {
+			if chunk.Usage.PromptTokens > 0 {
+				res.PromptTokens = chunk.Usage.PromptTokens
+			}
+			if chunk.Usage.CompletionTokens > 0 {
+				res.EngineOutputTokens = chunk.Usage.CompletionTokens
+			}
 		}
 		if len(chunk.Choices) > 0 && chunk.Choices[0].Delta.Content != "" {
 			if res.FirstTokenUnixNanos == 0 {
