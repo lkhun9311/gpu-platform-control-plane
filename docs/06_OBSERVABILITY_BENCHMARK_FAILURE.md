@@ -17,15 +17,25 @@
 > backend through an `InferenceDeployment`; the admission webhook is deployed and verified end to end
 > (`hack/verify-webhook-live.sh`).
 >
-> **Built (code, unit-tested), never run on a GPU:** the M5-b admission-guard benchmark harness. Its vLLM
-> metrics fixture is synthetic, so its thresholds remain unvalidated.
+> **Built, and run on a paid GPU:** the M5-b admission-guard benchmark harness. Four repetitions on
+> 2026-09-03 and an engine-level scheduler microtest on 2026-09-04. The guard missed its pre-registered
+> 1.25x premium-tail target at 83.7x, and the harness declared the run invalid rather than reporting a
+> protection claim. The thresholds were not merely unvalidated — the run showed the gateway cannot observe
+> the pressure they gate on.
 >
-> **Designed only — no code:** the DCGM exporter layer (no DCGM, Xid, or ECC anywhere in the Go tree), the
+> **Designed only — no code:** Xid and ECC (nothing in the Go tree). The DCGM exporter layer is NOT in this
+> category and the claim that it was is corrected here: `config/dcgm-exporter/` deploys it and
+> `internal/queuelab/dcgm.go` reads `DCGM_FI_DEV_GPU_UTIL` from it. What is true is that it has never been
+> pointed at a real card, so every GPU-second this project has published is a second of reservation. Also
+> designed only:
 > eBPF layer, Nsight profiling, the SQLite/Postgres operations ledger, FR-001, FR-003, FR-005, and the
 > `evidence/` report tree shown below.
 >
-> **No GPU in this project is real.** Every number above was measured against simulated `nvidia.com/gpu`
-> capacity, and the chaos runs measure control-plane reaction rather than device behaviour.
+> **Which GPUs were real, and which were not.** Every kind cluster here advertises simulated
+> `nvidia.com/gpu` capacity through a fake device plugin, and the chaos runs measure control-plane reaction
+> rather than device behaviour. The two paid EC2 sessions used real cards. No run in either category has
+> yet attributed device utilisation to a Pod, which is why `queuelabrun -compare` still prints
+> `device: NOT OBSERVED`.
 
 This is the evidence center of the project — the proof that the platform actually operates workloads, not just defines types.
 
@@ -41,7 +51,7 @@ This is the evidence center of the project — the proof that the platform actua
 | Profiling            | Nsight Systems  | CUDA timeline (optional)                                                                                      |
 | Ledger               | Postgres/SQLite | workload_runs, benchmark_runs                                                                                 |
 
-GPU/eBPF/Nsight layers require a real GPU node and are **not implemented at all today** — zero DCGM/Xid/ECC code exists in the Go tree, and no eBPF or Nsight integration exists (see doc 01 execution boundary). Unmeasured layers are labeled, not faked.
+The eBPF and Nsight layers require a real GPU node and are **not implemented at all today**, and neither is Xid or ECC. The DCGM layer is different and this sentence used to be wrong about it: the reader, the Pod-attribution resolver, the exporter deployment and the pre-spend gate all exist, and what is missing is a card to point them at. Until one is rented, `queuelabrun -compare` prints `device: NOT OBSERVED` on every comparison and every GPU-second it reports is a second of reservation. Unmeasured layers are labeled, not faked.
 
 ## Failure reports (5)
 
