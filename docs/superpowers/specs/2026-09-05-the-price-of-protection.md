@@ -50,7 +50,16 @@ question. The evidence says the stream is the harder half, and a cell that holds
 at 200 ms has not protected anybody.
 
 `static-cap` matched isolation's latency **and** isolation's throughput, because it did not make the engine
-efficient — it deleted the long tenant. `off` served 24% more tokens than the arm that "won" on tail.
+efficient — it served none of the long tenant's work. `off` served 24% more tokens than the arm that "won"
+on tail.
+
+**And that arm was broken, which is a different sentence and a smaller claim.** Its bucket was configured
+with a burst below the contender's prompt size, so every eligible request was refused with 413 before any
+rate limit applied — all 1,788 of them, in the recorded evidence. `hack/m5b-arms.sh` now refuses to start a
+run in that state, and its message names this run as the one that produced it. So `static-cap` is not
+evidence that deleting a tenant protects a tail. It is an arm that admitted nothing, and the useful thing
+about it is what happened next: it produced a premium tail better than the isolated baseline's, and a
+reading that looked only at tails would have called that the best result in the study.
 
 An earlier draft of this paragraph said "every check the report made was a tail ratio, so this was
 invisible for four paid runs". That is false, and it is worth correcting precisely because it flatters the
@@ -68,8 +77,9 @@ counts admitted INPUT tokens, not delivered output by tenant, so it cannot tell 
 from work that was admitted and then starved. Per-tenant output accounting is what closes that, and it
 arrived afterwards rather than being part of the original design.
 
-The question this run asks is therefore not "can the tail be protected" — two arms already did that, one by
-discarding all contending work. It is:
+The question this run asks is therefore not "can the tail be protected". One arm did it by being
+misconfigured into serving nobody, which demonstrates nothing about protection and a great deal about
+reading tails alone. It is:
 
 > **Is there a configuration that protects the premium tail without deleting the contending tenant's work,
 > and what does it cost the tenant it protects?**

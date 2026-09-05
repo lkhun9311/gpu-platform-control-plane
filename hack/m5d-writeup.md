@@ -58,6 +58,35 @@ Run of 2026-09-03. Four arms, four repetitions each, one trace, 1,840 premium co
 | requests shed | — | 0 | 1,788 (413) | 274 (429) |
 | admitted-work fraction | — | 100.0% | 0.0% | 84.7% |
 
+### What it cost, which this page did not have when it was written
+
+Every number above is a tail. That is half an answer, and the half that was missing is what the tails were
+bought with. The report was extended to compute it from the same raw files, at no further spend:
+
+| | R1 | off | static-cap | kv-aware |
+|---|---|---|---|---|
+| output tokens/s | 46.4 | **57.3** | 46.3 | 55.7 |
+| premium share | 100% | 80.5% | 100% | 82.9% |
+| contender share | — | 19.5% | **0%** | 17.1% |
+| premium TPOT p99 (ms) | 16.0 | 266.0 | 16.0 | **209.4** |
+| contender TPOT p99 (ms) | — | 267.3 | — | 265.5 |
+
+Three things follow that the tail table cannot show.
+
+**The unprotected arm served the most.** `off` delivered 24% more tokens per second than the arm whose tail
+looked best. Reading the first table alone, `static-cap` is the result of this study.
+
+**The stream is the harder half, and nothing passed it.** A premium tail of 82.2 ms with a TPOT p99 of
+266.0 ms is a fast first token followed by a stream six times slower than isolation's. Every arm that left
+the contending tenant alive misses 1.25x the isolated baseline — 20.0 ms — by more than ten times. The guard
+moved premium TPOT from 266.0 to 209.4, a 21% improvement on a metric that needed 93%.
+
+**These numbers were wrong once.** TPOT was computed over unsorted samples and its first printing reported
+16.0 ms for `kv-aware`, whose real p99 is 209.4. The fingerprint was in the committed derivation: a p99 of
+15.98 ms below its own p50 of 17.41. The samples are sorted now, streams that broke are excluded from the
+tail because a stream killed at its deadline reports the deadline as an inter-token time, and the figures
+are split by tenant because the criterion is about the protected one while the pooled figure is not.
+
 Checks: absolute **FAIL** (C/R1 = 83.747 against ≤ 1.25) · incremental **FAIL** (C/B = 84.760,
 CI [80.670, 88.211], against ≤ 0.90 with the interval below 1.0) · admission match **FAIL**
 (|B−C|/C = 1.000 against ≤ 0.05).
