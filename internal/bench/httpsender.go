@@ -41,6 +41,8 @@ type HTTPSender struct {
 	model      string
 	// apiKeys maps a trace tenant to the API key the gateway resolves it from, so one sender can drive premium and standard tenants through the real identity chain.
 	apiKeys map[string]string
+	// priorities maps a trace tenant to the scheduling priority sent with its requests; absent means none.
+	priorities map[string]int
 	// timeout bounds a single request; on expiry the row is recorded as a timeout rather than dropped.
 	timeout time.Duration
 	// drain reports whether the unread tail of each response is consumed so its connection can be pooled.
@@ -154,6 +156,14 @@ func PoolSizeForTrace(trace []TraceRow, timeout time.Duration) int {
 // NewHTTPSender builds a sender targeting gatewayURL for model, resolving each tenant through apiKeys.
 //
 // conn selects the connection handling; pass SenderConnForMode(SenderModePooled, ...) for a real run.
+// SetPriorities configures the per-tenant scheduling priority the sender attaches to each request.
+//
+// Keyed by tenant rather than carried on the trace row, because priority is a property of the tenant's
+// contract -- the same rule internal/gateway states for tier, that it is "not something a caller can assert
+// about itself". A benchmark whose rows named their own priority would measure a mechanism no deployment
+// would ship. A tenant absent from the map sends no priority field at all.
+func (h *HTTPSender) SetPriorities(p map[string]int) { h.priorities = p }
+
 func NewHTTPSender(gatewayURL, model string, apiKeys map[string]string, timeout time.Duration, conn SenderConn) *HTTPSender {
 	return &HTTPSender{
 		client: &http.Client{
@@ -250,6 +260,16 @@ type chatRequest struct {
 	// never reaches the engine -- so it checks the trace's per-prompt-length measurement rather than
 	// replacing it.
 	StreamOptions streamOptions `json:"stream_options"`
+	// Priority is vLLM's per-request scheduling priority, omitted entirely when the tenant has none.
+	//
+	// Lower is more urgent. It is read only under --scheduling-policy=priority, and it is the one axis that
+	// moved the tail in the microtest: at a 512-token batch budget it took a short request behind a long one
+	// from 13.79x its uncontended time to 1.57x.
+	//
+	// A pointer so the field disappears from the body rather than defaulting to 0. Sending 0 for every
+	// tenant would make every request equally urgent under a policy that reads the field, which is a control
+	// arm that is not a control.
+	Priority *int `json:"priority,omitempty"`
 }
 
 // streamOptions is the OpenAI streaming extension vLLM implements for usage reporting.
@@ -275,6 +295,9 @@ func (h *HTTPSender) Send(ctx context.Context, row TraceRow, sendUnixNanos int64
 		MaxTokens:     row.MaxOutputTokens,
 		Stream:        true,
 		StreamOptions: streamOptions{IncludeUsage: true},
+	}
+	if p, ok := h.priorities[row.Tenant]; ok {
+		body.Priority = &p
 	}
 	buf, err := json.Marshal(body)
 	if err != nil {

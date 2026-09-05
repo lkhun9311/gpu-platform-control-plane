@@ -24,6 +24,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
@@ -265,10 +266,23 @@ func replay(args []string) error {
 	// the cluster, it is required.
 	requireProvenance := fs.Bool("require-provenance", false,
 		"refuse a manifest that does not name the gateway build and digest-pin every image the number depends on")
+	// The axis the paid evidence showed actually works, exposed so an arm can carry it.
+	//
+	// vLLM's priority scheduler reads a per-request field, and the microtest measured it moving the premium
+	// tail where every backend-telemetry signal the gateway could see did not. Without this flag the runner
+	// can only test admission, which is the axis that failed.
+	priorities := fs.String("priorities", "",
+		"comma-separated tenant=priority pairs sent with each request (lower is more urgent); "+
+			"requires the engine to run with --scheduling-policy=priority")
 	connMode := fs.String("conn-mode", bench.SenderModePooled,
 		"client connection handling: \"pooled\" (pool sized from the run, plus the drain that lets it be "+
 			"used), \"drain-only\", or \"legacy\" (the pre-fix client: http.DefaultTransport, no drain)")
 	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	// Parsed before anything is loaded or dialled, so a typo in the treatment costs nothing.
+	prio, err := parsePriorities(*priorities)
+	if err != nil {
 		return err
 	}
 
@@ -299,6 +313,14 @@ func replay(args []string) error {
 	fmt.Printf("client connection mode: %s (MaxIdleConnsPerHost=%d, drain=%t) for %d rows at timeout %s\n",
 		*connMode, conn.MaxIdleConnsPerHost, conn.DrainForReuse, len(rows), timeout)
 	sender := bench.NewHTTPSender(url, m.Model, parseAPIKeys(*apiKeys), timeout, conn)
+	// Printed for the same reason the connection mode is: which arm this replay actually was is part of what
+	// its rows mean, and a priority map that silently arrived empty must be visible in the run log.
+	if len(prio) > 0 {
+		sender.SetPriorities(prio)
+		fmt.Printf("request priorities: %v\n", prio)
+	} else {
+		fmt.Printf("request priorities: none (requests carry no priority field)\n")
+	}
 
 	// The frozen manifest's provenance is stamped into every raw row.
 	//
@@ -336,6 +358,12 @@ func report(args []string) error {
 	matchTolFlag := fs.Float64("match-tolerance", 0.05,
 		"fallback admission-work match tolerance when the evidence carries none")
 	out := fs.String("out", "", "report file to write (default stdout)")
+	// A machine-readable copy, because the paid raw evidence is gitignored and 7 MB.
+	//
+	// A number quoted in a write-up whose source is not in the repository is a number nobody can re-derive,
+	// and every overclaim this project has had to withdraw took that shape. This file is what a spec's table
+	// is checked against, so the derivation runs from the report code rather than from a hand copy.
+	jsonOut := fs.String("json-out", "", "machine-readable per-arm summary to write alongside the report")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -388,6 +416,17 @@ func report(args []string) error {
 		fmt.Print(text)
 	}
 
+	if *jsonOut != "" {
+		enc, merr := json.MarshalIndent(summaries, "", "  ")
+		if merr != nil {
+			return fmt.Errorf("encode summaries: %w", merr)
+		}
+		if werr := os.WriteFile(*jsonOut, append(enc, '\n'), 0o600); werr != nil {
+			return fmt.Errorf("write %s: %w", *jsonOut, werr)
+		}
+		fmt.Printf("wrote per-arm summaries to %s\n", *jsonOut)
+	}
+
 	// An INVALID run exits non-zero. A run that merely fails its checks does not.
 	//
 	// The distinction is the whole point. "Not all checks passed" is a scientific result -- the guard did not
@@ -413,12 +452,16 @@ func report(args []string) error {
 // It exists because report's refusals ask questions of the SPLIT -- did each repetition record the same
 // number of rows, is any repetition's tail thin -- and pooling answers none of them.
 type armEvidence struct {
-	byArm     map[string][]bench.RawRow
-	repP99    map[string][]float64
-	repTail   map[string][]int
-	repRows   map[string][]int
-	checksum  map[string]string
-	tolerance map[string]float64
+	byArm   map[string][]bench.RawRow
+	repP99  map[string][]float64
+	repTail map[string][]int
+	repRows map[string][]int
+	// repSeconds is each repetition's own wall clock, kept because the arm's throughput must be its tokens
+	// over the time it was actually sending -- not over a pooled span that includes the washout pauses
+	// between repetitions.
+	repSeconds map[string][]float64
+	checksum   map[string]string
+	tolerance  map[string]float64
 }
 
 // loadArmEvidence reads one raw file per repetition and groups it by arm.
@@ -426,7 +469,7 @@ func loadArmEvidence(rawFiles []string) (*armEvidence, error) {
 	// Group rows and per-file p99 repetitions by arm, and capture each arm's frozen provenance.
 	e := &armEvidence{
 		byArm: map[string][]bench.RawRow{}, repP99: map[string][]float64{},
-		repTail: map[string][]int{}, repRows: map[string][]int{},
+		repTail: map[string][]int{}, repRows: map[string][]int{}, repSeconds: map[string][]float64{},
 		checksum: map[string]string{}, tolerance: map[string]float64{},
 	}
 	for _, path := range rawFiles {
@@ -454,6 +497,7 @@ func loadArmEvidence(rawFiles []string) (*armEvidence, error) {
 		e.repP99[arm] = append(e.repP99[arm], rs.TTFTMsP99)
 		e.repTail[arm] = append(e.repTail[arm], rs.TailSampleSize)
 		e.repRows[arm] = append(e.repRows[arm], len(rows))
+		e.repSeconds[arm] = append(e.repSeconds[arm], rs.ActiveSeconds)
 		// Every repetition's checksum, not the last one's.
 		//
 		// This assigned, so loadArmEvidence kept only whichever file it read last and a repetition replayed
@@ -577,6 +621,15 @@ func (e *armEvidence) summarize() ([]bench.ArmSummary, map[string]bench.ArmSumma
 			if tails := e.repTail[arm]; len(tails) > 0 {
 				s.RepetitionCount = len(tails)
 				s.MinRepetitionTail = slices.Min(tails)
+			}
+			// The pooled span Summarize just computed spans the washouts between repetitions, so replace it
+			// with the sum of the repetitions' own spans, which is the time the arm was actually sending.
+			if spans := e.repSeconds[arm]; len(spans) > 0 {
+				total := 0.0
+				for _, v := range spans {
+					total += v
+				}
+				s.SetActiveSeconds(total)
 			}
 			summaries = append(summaries, s)
 			summ[arm] = s

@@ -481,6 +481,21 @@ func compareVersions(a, b string) int {
 	return 0
 }
 
+// sliceBetween returns the text between the first occurrence of start and the first end after it.
+func sliceBetween(t *testing.T, body, start, end string) string {
+	t.Helper()
+	i := strings.Index(body, start)
+	if i < 0 {
+		t.Fatalf("did not find %q", start)
+	}
+	rest := body[i+len(start):]
+	j := strings.Index(rest, end)
+	if j < 0 {
+		t.Fatalf("did not find %q after %q", end, start)
+	}
+	return rest[:j]
+}
+
 // readRepoFile reads a file relative to the repository root.
 func readRepoFile(t *testing.T, rel string) string {
 	t.Helper()
@@ -1325,5 +1340,81 @@ func TestTheMicrotestMeasuresTheEngineTheArmsMeasured(t *testing.T) {
 		if !strings.Contains(src, `"`+policy+`"`) {
 			t.Errorf("the runner does not test the %s scheduling policy, which the pre-registration names", policy)
 		}
+	}
+}
+
+// TestThePriorityMapIsDerivedFromTheOneTenantList keeps a fifth copy of the tenant list from appearing.
+//
+// The runner already derives the API key secret, the --api-keys flag and each GPUQuotaPolicy from one
+// TENANTS array, because four hand-kept copies drifted twice: the first paid run had two of four tenants in
+// the secret and answered a quarter of every replay with 401, the second gave two of them no policy and
+// answered their probes with 403. A priority map would fail more quietly than either -- a tenant missing
+// from it does not error, it silently sends no priority field and replays the control.
+func TestThePriorityMapIsDerivedFromTheOneTenantList(t *testing.T) {
+	runner := readRepoFile(t, "hack/m5b-arms.sh")
+	loop := sliceBetween(t, runner, `for entry in "${TENANTS[@]}"; do`, "\ndone")
+	for _, want := range []string{
+		`priorities="${priorities:+$priorities,}$tenant=0"`,
+		`priorities="${priorities:+$priorities,}$tenant=5"`,
+	} {
+		if !strings.Contains(loop, want) {
+			t.Errorf("the priority map is not derived inside the TENANTS loop: missing %s", want)
+		}
+	}
+	// A literal tenant name in the map would be the copy this test exists to prevent.
+	for _, tenant := range []string{"premium-1", "standard-noisy", "standard-probe-over", "standard-probe-under"} {
+		if strings.Contains(runner, tenant+"=0") || strings.Contains(runner, tenant+"=5") {
+			t.Errorf("the runner names %s in a priority pair; the map must come from TENANTS alone", tenant)
+		}
+	}
+}
+
+// TestThePriorityArmRefusesAnFCFSEngine fixes the failure that would be invisible in the evidence.
+//
+// vLLM accepts and ignores the per-request priority field under its default fcfs policy. Every request is
+// served, every row looks healthy, and the treatment arm reproduces the control exactly -- which would be
+// read as "priority does not help", the most expensive wrong conclusion available here. The runner must
+// check the engine's own startup log, not the flags it believes it passed.
+func TestThePriorityArmRefusesAnFCFSEngine(t *testing.T) {
+	runner := readRepoFile(t, "hack/m5b-arms.sh")
+	guard := sliceBetween(t, runner, `if [ "${PRIORITIES:-0}" = "1" ]; then`, "fi\n")
+	if !strings.Contains(guard, "engine-config.txt") {
+		t.Error("the priority guard does not read the engine's recorded startup configuration")
+	}
+	if !strings.Contains(guard, "fail ") {
+		t.Error("the priority guard does not stop the run when the engine is not on the priority policy")
+	}
+	// The guard's PATTERN is run, not merely inspected.
+	//
+	// Asserting that a guard exists is how a guard that never fires passes review: an earlier version of
+	// this test checked only that the block mentioned the config file and called fail, and a mangled grep
+	// expression sailed through it. A guard is verified by feeding it the input it is supposed to reject.
+	pattern := regexp.MustCompile(`grep -qi "([^"]+)"`).FindStringSubmatch(guard)
+	if pattern == nil {
+		t.Fatalf("the priority guard has no grep pattern to test:\n%s", guard)
+	}
+	for _, tc := range []struct {
+		name   string
+		config string
+		want   bool
+	}{
+		// The engine's own startup line, in both the forms vLLM has printed it.
+		{"priority policy, python repr", "scheduling_policy='priority', max_num_batched_tokens=512", true},
+		{"priority policy, flag echo", "args: --scheduling-policy priority --max-num-batched-tokens 512", true},
+		{"the default the guard exists to catch", "scheduling_policy='fcfs', max_num_batched_tokens=2048", false},
+		{"fcfs named as a flag", "args: --scheduling-policy fcfs --max-num-batched-tokens 2048", false},
+		{"policy absent entirely", "max_num_batched_tokens=2048, enable_chunked_prefill=True", false},
+	} {
+		cmd := exec.Command("grep", "-qi", pattern[1])
+		cmd.Stdin = strings.NewReader(tc.config + "\n")
+		matched := cmd.Run() == nil
+		if matched != tc.want {
+			t.Errorf("%s: the runner's own pattern %q matched=%v, want %v against %q",
+				tc.name, pattern[1], matched, tc.want, tc.config)
+		}
+	}
+	// The guard must come before any replay spends card time on an arm that is not an arm.
+	if strings.Index(runner, `if [ "${PRIORITIES:-0}" = "1" ]; then`) > strings.Index(runner, `"$WORK/benchharness" replay`) {
+		t.Error("the priority guard runs after the first replay; it must refuse before any card time is spent")
 	}
 }
