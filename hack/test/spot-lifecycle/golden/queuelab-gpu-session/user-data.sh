@@ -69,6 +69,24 @@ export KUBECONFIG=/tmp/kubeconfig
 echo "HOME=${HOME:-<unset>} KUBECONFIG=$KUBECONFIG"
 kind create cluster --config /tmp/kind.yaml --kubeconfig "$KUBECONFIG" --wait 300s || exit 1
 kubectl cluster-info || { echo "PREFLIGHT FAILED: the cluster is up but unreachable through $KUBECONFIG"; exit 1; }
+docker exec qlgpu-worker ln -sf /sbin/ldconfig /sbin/ldconfig.real || exit 1
+docker exec qlgpu-worker bash -c '
+  set -e
+  export DEBIAN_FRONTEND=noninteractive
+  apt-get update -qq
+  apt-get install -y -qq curl gnupg ca-certificates
+  curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey \
+    | gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
+  curl -fsSL https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list \
+    | sed "s#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g" \
+    > /etc/apt/sources.list.d/nvidia-container-toolkit.list
+  apt-get update -qq
+  apt-get install -y -qq nvidia-container-toolkit
+  nvidia-ctk runtime configure --runtime=containerd --set-as-default
+' || { echo "PREFLIGHT FAILED: could not configure the container runtime inside qlgpu-worker"; exit 1; }
+docker exec qlgpu-worker systemctl restart containerd || exit 1
+kubectl wait --for=condition=Ready node/qlgpu-worker --timeout=300s \
+  || { echo "PREFLIGHT FAILED: qlgpu-worker did not come back Ready after its containerd was restarted"; exit 1; }
 kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases/download/v0.18.3/manifests.yaml
 kubectl -n kueue-system wait --for=condition=Available deploy/kueue-controller-manager --timeout=300s || exit 1
 make docker-build IMG=controller:latest || exit 1
