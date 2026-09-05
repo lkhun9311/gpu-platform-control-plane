@@ -189,7 +189,10 @@ case "$svc $op" in
         # and that the checksum the instance will verify is the checksum of THAT file -- is asserted
         # separately and stays in the golden.
         case "${dest}" in
-          */bin/benchharness) printf 'upload: <SIZE> bytes to %s\n' "${dest#s3://}" >> "$STUB_TRANSCRIPT" ;;
+          */bin/benchharness|*/src/source.tgz)
+            # Both are builds of the tree, and their size moves with every commit. What matters -- that
+            # they were uploaded, to this run's own prefix -- stays.
+            printf 'upload: <SIZE> bytes to %s\n' "${dest#s3://}" >> "$STUB_TRANSCRIPT" ;;
           *) printf 'upload: %s bytes to %s\n' "$(wc -c < "$src")" "${dest#s3://}" >> "$STUB_TRANSCRIPT" ;;
         esac
         exit 0
