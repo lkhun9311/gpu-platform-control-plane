@@ -1389,27 +1389,59 @@ func TestThePriorityArmRefusesAnFCFSEngine(t *testing.T) {
 	// Asserting that a guard exists is how a guard that never fires passes review: an earlier version of
 	// this test checked only that the block mentioned the config file and called fail, and a mangled grep
 	// expression sailed through it. A guard is verified by feeding it the input it is supposed to reject.
-	pattern := regexp.MustCompile(`grep -qi "([^"]+)"`).FindStringSubmatch(guard)
+	pattern := regexp.MustCompile(`grep -qiE? "([^"]+)"`).FindStringSubmatch(guard)
 	if pattern == nil {
 		t.Fatalf("the priority guard has no grep pattern to test:\n%s", guard)
 	}
+
+	// The cases are the engine's OWN OUTPUT, not a rendering of it anybody typed.
+	//
+	// This is the second time this test has been rewritten, and the first rewrite is why. It ran the
+	// runner's real pattern -- the right mechanism -- against two lines invented for the occasion:
+	//
+	//     scheduling_policy='priority', max_num_batched_tokens=512
+	//
+	// described in a comment as one of "the forms vLLM has printed it". vLLM has never printed that. It
+	// writes a Python dict with a colon, 'scheduling_policy': 'priority', so the pattern under test could
+	// not match a single line the engine emits, and the test said it could. Running the real pattern
+	// against fabricated input is the same defect as not running it at all, one level deeper.
+	//
+	// So the input is a fixture captured from the paid 2026-09-04 microtest, and every cell in it is
+	// exercised: the three priority cells must match and the three fcfs cells must not.
+	for _, c := range parseStartupFixture(t) {
+		for _, line := range c.lines {
+			if !strings.Contains(line, "non-default args") {
+				continue
+			}
+			cmd := exec.Command("grep", "-qiE", pattern[1])
+			cmd.Stdin = strings.NewReader(line + "\n")
+			matched := cmd.Run() == nil
+			want := c.policy == "priority"
+			if matched != want {
+				t.Errorf("cell %s/%s: the runner pattern %q matched=%v, want %v against the engine's own line:\n  %s",
+					c.budget, c.policy, pattern[1], matched, want, line)
+			}
+		}
+	}
+
+	// The deployment argv is the other half of engine-config.txt, and it is a real form: the runner
+	// records it with kubectl jsonpath over the container args. Both spellings are covered because a
+	// manifest may use either.
 	for _, tc := range []struct {
 		name   string
 		config string
 		want   bool
 	}{
-		// The engine's own startup line, in both the forms vLLM has printed it.
-		{"priority policy, python repr", "scheduling_policy='priority', max_num_batched_tokens=512", true},
-		{"priority policy, flag echo", "args: --scheduling-policy priority --max-num-batched-tokens 512", true},
-		{"the default the guard exists to catch", "scheduling_policy='fcfs', max_num_batched_tokens=2048", false},
-		{"fcfs named as a flag", "args: --scheduling-policy fcfs --max-num-batched-tokens 2048", false},
-		{"policy absent entirely", "max_num_batched_tokens=2048, enable_chunked_prefill=True", false},
+		{"argv, space separated", "[--model,Qwen,--scheduling-policy priority,--max-num-batched-tokens 512]", true},
+		{"argv, equals separated", "[--model,Qwen,--scheduling-policy=priority,--max-num-batched-tokens=512]", true},
+		{"argv naming fcfs", "[--model,Qwen,--scheduling-policy=fcfs,--max-num-batched-tokens=2048]", false},
+		{"policy absent entirely", "[--model,Qwen,--max-num-batched-tokens=2048]", false},
 	} {
-		cmd := exec.Command("grep", "-qi", pattern[1])
+		cmd := exec.Command("grep", "-qiE", pattern[1])
 		cmd.Stdin = strings.NewReader(tc.config + "\n")
 		matched := cmd.Run() == nil
 		if matched != tc.want {
-			t.Errorf("%s: the runner's own pattern %q matched=%v, want %v against %q",
+			t.Errorf("%s: the runner pattern %q matched=%v, want %v against %q",
 				tc.name, pattern[1], matched, tc.want, tc.config)
 		}
 	}
@@ -1417,4 +1449,53 @@ func TestThePriorityArmRefusesAnFCFSEngine(t *testing.T) {
 	if strings.Index(runner, `if [ "${PRIORITIES:-0}" = "1" ]; then`) > strings.Index(runner, `"$WORK/benchharness" replay`) {
 		t.Error("the priority guard runs after the first replay; it must refuse before any card time is spent")
 	}
+}
+
+// startupCell is one cell's worth of captured engine output.
+type startupCell struct {
+	budget string
+	policy string
+	lines  []string
+}
+
+// parseStartupFixture reads the verbatim vLLM startup lines captured from the paid microtest.
+//
+// The fixture exists so that a guard against the engine's configuration is tested against what the
+// engine writes. Its header records the image, the model and the run it came from, because a fixture
+// whose provenance is unknown is only a slower way of inventing input.
+func parseStartupFixture(t *testing.T) []startupCell {
+	t.Helper()
+	body, err := os.ReadFile(filepath.Join("testdata", "vllm_startup_lines.txt"))
+	if err != nil {
+		t.Fatalf("read startup fixture: %v", err)
+	}
+	var cells []startupCell
+	header := regexp.MustCompile(`^\[cell\] max_num_batched_tokens=(\S+) scheduling_policy=(\S+)$`)
+	for line := range strings.SplitSeq(string(body), "\n") {
+		if m := header.FindStringSubmatch(line); m != nil {
+			cells = append(cells, startupCell{budget: m[1], policy: m[2]})
+			continue
+		}
+		if strings.HasPrefix(line, "#") || strings.TrimSpace(line) == "" || len(cells) == 0 {
+			continue
+		}
+		cells[len(cells)-1].lines = append(cells[len(cells)-1].lines, line)
+	}
+	// A fixture that silently emptied would make every assertion below vacuous.
+	if len(cells) != 6 {
+		t.Fatalf("startup fixture has %d cells, want the 6 the microtest measured", len(cells))
+	}
+	var priority int
+	for _, c := range cells {
+		if c.policy == "priority" {
+			priority++
+		}
+		if len(c.lines) == 0 {
+			t.Fatalf("cell %s/%s carries no captured lines", c.budget, c.policy)
+		}
+	}
+	if priority != 3 {
+		t.Fatalf("startup fixture has %d priority cells, want 3", priority)
+	}
+	return cells
 }
