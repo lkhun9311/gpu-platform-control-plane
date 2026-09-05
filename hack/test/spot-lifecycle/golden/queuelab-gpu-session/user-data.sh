@@ -82,7 +82,20 @@ apiVersion: kind.x-k8s.io/v1alpha4
 name: qlgpu
 nodes:
   - role: control-plane
+  # The mount is what makes accept-nvidia-visible-devices-as-volume-mounts mean anything.
+  #
+  # That setting tells the container runtime to read a mount under /var/run/nvidia-container-devices/ as if
+  # it were NVIDIA_VISIBLE_DEVICES, so mounting anything at .../all is how a kind node -- an ordinary
+  # container that nobody passes GPU environment to -- ends up with every card. The first session to get
+  # this far had the setting and not the mount, which is half a recipe: the toolkit was configured to honour
+  # a request that was never made, the node container saw no devices, and the plugin advertised 0 of 4.
+  #
+  # /dev/null is the conventional source because only the mount's PATH carries meaning; its contents are
+  # never read.
   - role: worker
+    extraMounts:
+      - hostPath: /dev/null
+        containerPath: /var/run/nvidia-container-devices/all
 KINDEOF
 # The kubeconfig path is told to kind rather than guessed from it.
 #
@@ -188,7 +201,37 @@ echo "worker advertises ${adv:-0} nvidia.com/gpu"
 kubectl get nodes -o wide > /tmp/preflight-nodes.txt
 upload /tmp/preflight-nodes.txt preflight-nodes.txt
 if [ "${adv:-0}" -lt 4 ]; then
-  echo "PREFLIGHT FAILED: the real device plugin advertises ${adv:-0} of 4 cards"
+  # Evidence, before the instance goes away.
+  #
+  # The first time this check failed it uploaded the number and nothing else: five minutes of a silent loop,
+  # then "0 of 4". Whether the plugin Pod was Pending, crashing, or running and finding no devices are three
+  # different faults with three different fixes, and telling them apart cost another instance. A refusal that
+  # does not say why is a refusal that has to be bought twice.
+  {
+    echo "=== node container: does it see any card at all? ==="
+    docker exec qlgpu-worker nvidia-smi -L 2>&1 || echo "(nvidia-smi failed inside the node container)"
+    echo
+    echo "=== the mount that should have put them there ==="
+    docker exec qlgpu-worker ls -la /var/run/nvidia-container-devices/ 2>&1 || echo "(no such directory in the node)"
+    echo
+    echo "=== docker default runtime ==="
+    docker info 2>/dev/null | grep -iA2 'runtime' || true
+    echo
+    echo "=== pods ==="
+    kubectl -n gpu-platform-control-plane-system get pods -o wide 2>&1
+    echo
+    echo "=== device plugin ==="
+    kubectl -n gpu-platform-control-plane-system describe ds nvidia-device-plugin 2>&1 | tail -30
+    kubectl -n gpu-platform-control-plane-system logs ds/nvidia-device-plugin --tail=60 2>&1
+    echo
+    echo "=== dcgm exporter ==="
+    kubectl -n gpu-platform-control-plane-system logs ds/dcgm-exporter --tail=30 2>&1
+    echo
+    echo "=== node allocatable, in full ==="
+    kubectl get node qlgpu-worker -o jsonpath='{.status.allocatable}' 2>&1; echo
+  } > /tmp/preflight-why.txt 2>&1
+  upload /tmp/preflight-why.txt preflight-why.txt
+  echo "PREFLIGHT FAILED: the real device plugin advertises ${adv:-0} of 4 cards; see preflight-why.txt"
   exit 1
 fi
 

@@ -144,5 +144,15 @@ kubectl -n gpu-platform-control-plane-system rollout status \
   deploy/gpu-platform-control-plane-controller-manager --timeout=180s \
   || fail "the operator was applied but never became Available; the image built and loaded, so look at the Pod"
 
+# The device mount is checkable without a device, and it is the half of the recipe that was missing.
+#
+# accept-nvidia-visible-devices-as-volume-mounts only means something if something is actually mounted under
+# /var/run/nvidia-container-devices/, and a session had the setting without the mount: the toolkit was
+# configured to honour a request nobody made, and the plugin advertised 0 of 4 cards. Whether the mount
+# EXISTS is a property of the kind config, so it is verifiable here; whether it then yields cards is not.
+docker exec "$CLUSTER-worker" test -e /var/run/nvidia-container-devices/all \
+  || fail "the worker node has no /var/run/nvidia-container-devices/all, so the container runtime is never asked for the cards"
+
 say "bring-up rehearsed in ${elapsed}s: cluster reachable, Kueue up, CRD applied, worker labelled, operator Available"
+say "device mount present in the node container (whether it yields cards needs hardware)"
 say "NOT rehearsed, and only a real card can: the device plugin, DCGM, and preflight checks 3 and 4"
