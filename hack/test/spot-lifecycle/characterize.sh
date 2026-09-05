@@ -291,9 +291,62 @@ scenarios_price_of_protection() {
     run_scenario stale-done bash "$TARGET"
 }
 
+scenarios_queuelab_gpu_session() {
+  # The refusal that protects the provenance, asserted first because it is the one thing this runner does
+  # before it touches AWS at all. Everything below overrides it, and the override prints a line saying so.
+  STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 \
+    run_scenario dirty-tree bash "$TARGET"
+
+  # The pilot: everything present, records come back.
+  REQUIRE_CLEAN_TREE=0 STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 STUB_DONE_AFTER=2 \
+    STUB_PRESENT_KEYS="session.tgz commit.txt log.txt runs" \
+    run_scenario pilot bash "$TARGET"
+
+  # A fresh account. The instance profile must carry GetObject, because this instance downloads the source
+  # archive it was sent.
+  REQUIRE_CLEAN_TREE=0 STUB_BUCKET_EXISTS=0 STUB_PROFILE_EXISTS=0 STUB_DONE_AFTER=2 \
+    STUB_PRESENT_KEYS="session.tgz commit.txt log.txt runs" \
+    run_scenario fresh bash "$TARGET"
+
+  # Spot has no capacity in the first zone, which at a placement score of 3 is the expected answer rather
+  # than a fault.
+  REQUIRE_CLEAN_TREE=0 STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 STUB_DONE_AFTER=2 \
+    STUB_LAUNCH_FAIL_ZONES="ap-northeast-2a" \
+    STUB_PRESENT_KEYS="session.tgz commit.txt log.txt runs" \
+    run_scenario zone-retry bash "$TARGET"
+
+  # THE ONE THIS RUNNER EXISTS TO SURVIVE: the instance is reclaimed partway. The watcher shipped records
+  # as they landed, so the refusal must report how many were recovered rather than treating the session as
+  # a total loss.
+  REQUIRE_CLEAN_TREE=0 STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 STUB_DONE_AFTER=-1 STUB_TERMINATED_AFTER=2 \
+    STUB_PRESENT_KEYS="log.txt runs" \
+    run_scenario interrupted-with-records bash "$TARGET"
+
+  # Reclaimed with nothing shipped at all.
+  REQUIRE_CLEAN_TREE=0 STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 STUB_DONE_AFTER=-1 STUB_TERMINATED_AFTER=2 \
+    STUB_PRESENT_KEYS="log.txt" \
+    run_scenario interrupted-with-nothing bash "$TARGET"
+
+  # The marker never arrives and the instance stays up: the hard stop is what ends this.
+  REQUIRE_CLEAN_TREE=0 STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 STUB_DONE_AFTER=-1 \
+    STUB_PRESENT_KEYS="log.txt" \
+    run_scenario poll-exhausted bash "$TARGET"
+
+  # The marker arrives and the archive is empty.
+  REQUIRE_CLEAN_TREE=0 STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 STUB_DONE_AFTER=2 STUB_EMPTY_ARCHIVE=1 \
+    STUB_PRESENT_KEYS="session.tgz commit.txt log.txt runs" \
+    run_scenario empty-archive bash "$TARGET"
+
+  # A previous session's marker at the bucket root. This runner scopes its keys and must not see it.
+  REQUIRE_CLEAN_TREE=0 STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 STUB_DONE_PRESENT_AT_START=1 \
+    STUB_PRESENT_KEYS="log.txt" \
+    run_scenario stale-done bash "$TARGET"
+}
+
 case "$SUITE" in
   m5b-scheduler-microtest)  scenarios_microtest ;;
   m5b-price-of-protection)  scenarios_price_of_protection ;;
+  queuelab-gpu-session)     scenarios_queuelab_gpu_session ;;
   *) printf 'FAIL: no scenarios defined for %s\n' "$SUITE" >&2; exit 2 ;;
 esac
 

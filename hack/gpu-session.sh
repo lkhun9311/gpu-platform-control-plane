@@ -441,6 +441,34 @@ for ((r = 1; r <= REPS; r++)); do
   fi
 done
 
+# DOSES narrows the sequence WITHOUT reordering it.
+#
+# The default is both regimes, which is what this script has always run. A session that wants one of them --
+# the device-observation session buys grace-bounded only, because that is where the arms separated and the
+# second regime doubles the bill for a comparison it is not making -- filters here rather than by editing
+# the block above.
+#
+# Filtering after the fact rather than building a narrower sequence is deliberate. The order is the design:
+# arm, dose and node alternate through it so no comparison carries a confounding warning, and a second
+# construction path is a second chance to get that wrong. Dropping entries cannot reorder the ones that stay.
+DOSES="${DOSES:-self-completing grace-bounded}"
+if [[ "$DOSES" != "self-completing grace-bounded" ]]; then
+  FILTERED=()
+  for SPEC in "${SEQUENCE[@]}"; do
+    # shellcheck disable=SC2086
+    set -- $SPEC
+    for d in $DOSES; do
+      [[ "$1" == "$d" ]] && { FILTERED+=("$SPEC"); break; }
+    done
+  done
+  if (( ${#FILTERED[@]} == 0 )); then
+    echo "DOSES=${DOSES@Q} selected no run out of ${#SEQUENCE[@]}; the known regimes are self-completing and grace-bounded" >&2
+    exit 2
+  fi
+  echo "DOSES=$DOSES selects ${#FILTERED[@]} of ${#SEQUENCE[@]} runs"
+  SEQUENCE=("${FILTERED[@]}")
+fi
+
 # A START_AT past the end skipped every run and then printed "all runs completed" -- a false success in the
 # one wrapper that spends money, whose printed compare commands would then have read a PREVIOUS attempt's
 # records. Range-checked here rather than tolerated.
