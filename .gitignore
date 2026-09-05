@@ -154,3 +154,11 @@ hack/qlgpu-*/
 hack/pop-*/
 hack/m5b-gpu-session-evidence.log
 .m5b-rate
+
+# Captures written by hack/capture-evidence.sh, and tracked on purpose.
+#
+# The run directories these come from are ignored and do not survive, so a number nobody can read later was
+# not worth measuring. Placed LAST because git applies the final matching rule: earlier in this file `docs/*`
+# hides the directory and `*.md` hides the index, and a negation above either of them does nothing.
+!docs/captures/
+!docs/captures/**
