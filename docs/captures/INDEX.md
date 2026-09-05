@@ -7,3 +7,4 @@ run directory it came from is gitignored and does not survive.
 - `microtest-20260904-084537` — [numbers](microtest-20260904-084537/numbers.md) · no device series
 - `qlgpu-20260905-165846` — [numbers](qlgpu-20260905-165846/numbers.md) · no device series
 - `qlgpu-20260905-180537` — [numbers](qlgpu-20260905-180537/numbers.md) · no device series
+- `qlgpu-20260905-193528` — [numbers](qlgpu-20260905-193528/numbers.md) · no device series
