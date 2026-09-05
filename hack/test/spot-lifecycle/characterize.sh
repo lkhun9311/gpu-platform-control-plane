@@ -110,6 +110,15 @@ run_scenario() {
     sed -i 's/HARNESS_SHA="[0-9a-f]\{64\}"/HARNESS_SHA="<SHA>"/' "$out/user-data.sh"
   fi
 
+  # A commit hash and the checksum of an archive of it change with every commit, and neither is behaviour.
+  # The goldens recorded before this normalization existed encoded the tree state of the machine that
+  # recorded them, so a clean checkout failed all nine scenarios twice over -- a golden that fails for a
+  # reason unrelated to what it pins is one that gets regenerated without being read.
+  if [ -f "$out/user-data.sh" ]; then
+    sed -i -e 's/SOURCE_SHA="[0-9a-f]\{64\}"/SOURCE_SHA="<SHA256>"/' \
+           -e 's/COMMIT="[0-9a-f]\{40\}"/COMMIT="<COMMIT>"/' "$out/user-data.sh"
+  fi
+
   # What the script SAID is part of the golden, not only what it called and what it returned.
   #
   # Without this, replacing the results check `[ -s ]` with `[ -f ]` -- accepting an empty results file
@@ -132,6 +141,7 @@ run_scenario() {
       -e "s#${TMPDIR:-/tmp}/tmp\.[A-Za-z0-9]*#<TMP>#g" \
       -e "s#/tmp/tmp\.[A-Za-z0-9]*#<TMP>#g" \
       -e "s#harness sha256 [0-9a-f]\{64\}#harness sha256 <SHA256>#g" \
+      -e "s#^== source [0-9a-f]\{40\}.*#== source <COMMIT> <TREE STATE>#" \
       "$work/stdout.txt" "$work/stderr.txt" > "$work/messages.txt"
 
   # The transcript alone would hide a script that recorded every AWS call correctly and then exited
@@ -292,10 +302,23 @@ scenarios_price_of_protection() {
 }
 
 scenarios_queuelab_gpu_session() {
+  # Every scenario below dirty-tree sets REQUIRE_CLEAN_TREE=0, so none of them depends on whether the
+  # person running the suite has uncommitted work. The provenance line they print is normalized for the
+  # same reason: what it says about a commit belongs to the run, not to this suite.
+
   # The refusal that protects the provenance, asserted first because it is the one thing this runner does
   # before it touches AWS at all. Everything below overrides it, and the override prints a line saying so.
+  #
+  # The scenario MAKES the tree dirty rather than assuming it is. The first version of this suite was
+  # recorded on a working tree that happened to be dirty, so the goldens encoded that fact and a clean
+  # checkout failed all nine of them -- and this scenario in particular cannot mean anything on a clean
+  # tree, because there would be nothing for the guard to refuse. A probe file is written into the
+  # repository and removed whatever happens.
+  local probe="$ROOT/.characterize-dirty-probe"
+  printf 'written by the characterization harness to make the tree dirty on purpose\n' > "$probe"
   STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 \
     run_scenario dirty-tree bash "$TARGET"
+  rm -f "$probe"
 
   # The pilot: everything present, records come back.
   REQUIRE_CLEAN_TREE=0 STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 STUB_DONE_AFTER=2 \

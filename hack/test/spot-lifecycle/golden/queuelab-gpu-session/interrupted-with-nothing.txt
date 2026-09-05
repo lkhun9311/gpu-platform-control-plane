@@ -2,7 +2,7 @@ aws sts get-caller-identity --query Account --output text
 aws s3api head-bucket --bucket stub-bucket
 aws iam get-instance-profile --instance-profile-name queuelab-gpu
 aws s3 cp <OUT>/source.tgz s3://stub-bucket/run/src/source.tgz
-upload: 20717799 bytes to stub-bucket/run/src/source.tgz
+upload: <SIZE> bytes to stub-bucket/run/src/source.tgz
 aws ssm get-parameter --region ap-northeast-2 --name /aws/service/deeplearning/ami/x86_64/base-oss-nvidia-driver-gpu-ubuntu-22.04/latest/ami-id --query Parameter.Value --output text
 aws ec2 describe-instance-type-offerings --region ap-northeast-2 --location-type availability-zone --filters Name=instance-type,Values=g6.12xlarge --query InstanceTypeOfferings[].Location --output text
 aws ec2 describe-subnets --region ap-northeast-2 --filters Name=default-for-az,Values=true Name=map-public-ip-on-launch,Values=true Name=availability-zone,Values=ap-northeast-2a --query Subnets[0].SubnetId --output text
@@ -27,7 +27,7 @@ aws ec2 terminate-instances --region ap-northeast-2 --instance-ids i-0stub
 == study  queuelab reclaim, with the device observed
 == doses  grace-bounded   reps 4   (both arms, interleaved by gpu-session.sh)
 == output <OUT>
-== source 77af78028f5ab928a14ffa18d9a5057d87834bf6, TREE IS DIRTY and REQUIRE_CLEAN_TREE=0 -- this archive does NOT match the working tree
+== source <COMMIT> <TREE STATE>
 == uploading the source archive
 == g6.12xlarge is offered in: ap-northeast-2a ap-northeast-2c
 == launching g6.12xlarge spot (max $3.20/h)
