@@ -487,9 +487,42 @@ UD=$(mktemp)
       -e "s|SOURCE_SHA_PLACEHOLDER|$SOURCE_SHA|" \
       -e "s|COMMIT_PLACEHOLDER|$COMMIT|" \
       -e "s|REPS_PLACEHOLDER|$REPS|" \
-      -e "s|DOSES_PLACEHOLDER|$DOSES|" "$RUNSCRIPT" | tail -n +2
+      -e "s|DOSES_PLACEHOLDER|$DOSES|" "$RUNSCRIPT" | tail -n +2 \
+    | sed -e '/^#/d' -e '/^[[:space:]]*$/d'
 } > "$UD"
+
+# The comments come off on the way out, and only on the way out.
+#
+# EC2 caps user-data at 25600 bytes ENCODED, and this script's explanations had grown past it: 19,914 raw
+# became 26,552 base64, and all three zones returned InvalidParameterValue. The comments are why anything
+# here is the way it is and they stay in the tracked file; what the instance runs does not need them, and
+# without them the same script encodes to about 13,000 bytes.
+#
+# Only column-0 comments are dropped. The indented ones inside the kind.yaml heredoc are YAML that a reader
+# of the launched configuration should still see, and deleting by indentation rather than by content is the
+# rule that cannot accidentally cut a line out of a string.
 cp "$UD" "$OUT/user-data.sh"
+
+# Refused here, with the number, rather than three zones later with an error that names no cause.
+#
+# The runner did reach its own last refusal -- "the errors name neither an authorization denial nor a
+# capacity shortfall" -- which was honest and useless. A limit that is known before the first API call
+# should be checked before the first API call.
+# UD_LIMIT is EC2's, and is a variable only so the characterization suite can drive the refusal. A guard
+# nothing has ever executed is a guard nobody knows the wording of, and this one's whole job is to be read.
+# Stripping is a text transformation on a script nothing will parse until it is on a rented machine, so the
+# result is parsed here. Dropping lines by indentation cannot cut a line out of the kind.yaml heredoc, whose
+# comments are indented -- but "cannot" is the kind of claim this session has spent money disproving.
+bash -n "$UD" || fail "the generated user-data does not parse after its comments were stripped; see $OUT/user-data.sh"
+grep -q 'containerPath: /var/run/nvidia-container-devices/all' "$UD" \
+  || fail "the generated user-data lost the device mount, so the stripping cut something that mattered"
+
+UD_LIMIT="${UD_LIMIT:-25600}"
+UD_ENCODED=$(base64 -w0 "$UD" | wc -c)
+if [ "$UD_ENCODED" -gt "$UD_LIMIT" ]; then
+  fail "the user-data encodes to $UD_ENCODED bytes and EC2 accepts $UD_LIMIT. It is $(wc -c < "$UD") bytes raw, in $(wc -l < "$UD") lines, after comments were stripped. Nothing was launched. Move the bulk out of the heredoc rather than trimming prose: see $OUT/user-data.sh"
+fi
+say "user-data: $UD_ENCODED of $UD_LIMIT encoded bytes"
 
 # ---------------------------------------------------------------- launch
 say "launching $INSTANCE_TYPE spot (max \$$MAX_SPOT_PRICE/h)"
