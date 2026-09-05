@@ -27,6 +27,18 @@ MAX_SPOT_PRICE="${MAX_SPOT_PRICE:-0.80}"
 BACKSTOP_SECONDS="${BACKSTOP_SECONDS:-5400}"
 OUT="${OUT:-hack/microtest-$(date -u +%Y%m%d-%H%M%S)}"
 STACK="m5b-microtest"
+# Every object this run writes lives under its own prefix, and the completion marker is one of them.
+#
+# The keys used to be fixed at the bucket root -- results.json, DONE -- against a bucket that keeps
+# objects for 30 days. So the second run of this script found the FIRST run's DONE on its opening
+# poll, downloaded the first run's results, printed them as its own readings and exited 0, having
+# launched and paid for a GPU instance that it then terminated seconds later without waiting for it.
+# A stale marker is indistinguishable from a fast one, and the recorded transcript for that case is
+# hack/test/spot-lifecycle/golden/stale-done.txt.
+#
+# Derived from the run directory rather than generated, so the local evidence and the S3 objects carry
+# the same name and either can be found from the other.
+RUN_ID="$(basename "$OUT")"
 
 say()  { printf '== %s\n' "$*"; }
 fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
@@ -127,16 +139,34 @@ IMAGE="ENGINE_IMAGE_PLACEHOLDER"
 MODEL="MODEL_PLACEHOLDER"
 BUCKET="BUCKET_PLACEHOLDER"
 
-upload() { aws s3 cp "$1" "s3://$BUCKET/$2" || true; }
+PREFIX="RUN_ID_PLACEHOLDER"
+
+# Keys are relative to this run's prefix, so no call site can write to the bucket root by forgetting.
+upload() { aws s3 cp "$1" "s3://$BUCKET/$PREFIX/$2" || true; }
 trap 'upload /var/log/microtest.log log.txt; shutdown -h now' EXIT
 
 docker pull "$IMAGE"
 mkdir -p /hf
 
-python3 /usr/local/bin/microtest.py > /tmp/results.json 2>/tmp/microtest.err
+rc=0
+python3 /usr/local/bin/microtest.py > /tmp/results.json 2>/tmp/microtest.err || rc=$?
 upload /tmp/results.json results.json
 upload /tmp/microtest.err stderr.txt
-touch /tmp/DONE && upload /tmp/DONE DONE
+
+# DONE is written only if the measurement actually produced parseable results.
+#
+# This script runs under set -x and NOT set -e, deliberately: a failed measurement still has to upload
+# its log and its stderr, which is exactly what an early exit would prevent. The cost of that choice
+# was that the next line ran unconditionally, so a Python process that died on its first cell still
+# announced success, and the host saw a completed run. The exit status is captured instead, and the
+# marker is gated on it together with results that parse -- an empty or truncated file is a failure
+# that looks like a success at every layer above it.
+if [ "$rc" -eq 0 ] && [ -s /tmp/results.json ] \
+   && python3 -c 'import json,sys; json.load(open("/tmp/results.json"))' 2>/dev/null; then
+  touch /tmp/DONE && upload /tmp/DONE DONE
+else
+  echo "measurement did not produce usable results (exit $rc); DONE withheld"
+fi
 USERDATA
 
 # The measurement itself, kept as its own file so the shell wrapper stays about lifecycle and this stays
@@ -246,6 +276,7 @@ UD=$(mktemp)
   echo "MEASUREEOF"
   echo "export IMAGE='$ENGINE_IMAGE' MODEL='$MODEL'"
   sed -e "s|BACKSTOP_SECONDS_PLACEHOLDER|$BACKSTOP_SECONDS|" \
+      -e "s|RUN_ID_PLACEHOLDER|$RUN_ID|" \
       -e "s|ENGINE_IMAGE_PLACEHOLDER|$ENGINE_IMAGE|" \
       -e "s|MODEL_PLACEHOLDER|$MODEL|" \
       -e "s|BUCKET_PLACEHOLDER|$BUCKET|" "$RUNSCRIPT" | tail -n +2
@@ -288,22 +319,36 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 say "waiting for results (the engine has an image and weights to pull first)"
+# Tracked explicitly, because "the loop ended" has three causes and only one of them is a result.
+done_seen=0
+ended_early=""
 for _ in $(seq 1 120); do
-  if aws s3api head-object --bucket "$BUCKET" --key DONE >/dev/null 2>&1; then
+  if aws s3api head-object --bucket "$BUCKET" --key "$RUN_ID/DONE" >/dev/null 2>&1; then
     say "results are up"
+    done_seen=1
     break
   fi
   state=$(aws ec2 describe-instances --region "$REGION" --instance-ids "$IID" \
     --query 'Reservations[0].Instances[0].State.Name' --output text 2>/dev/null || echo unknown)
   case "$state" in
-    terminated|shutting-down) say "instance ended before writing DONE"; break ;;
+    terminated|shutting-down) say "instance ended before writing DONE"; ended_early="$state"; break ;;
   esac
   sleep 30
 done
 
 for k in results.json log.txt stderr.txt; do
-  aws s3 cp "s3://$BUCKET/$k" "$OUT/$k" >/dev/null 2>&1 || true
+  aws s3 cp "s3://$BUCKET/$RUN_ID/$k" "$OUT/$k" >/dev/null 2>&1 || true
 done
+
+# Said before the results are read, and separately from them, because the two failures need different
+# answers: an instance that died has a log worth reading, and a run that timed out is probably still
+# alive and worth watching. Both used to arrive as the same "no results were written".
+if [ "$done_seen" -eq 0 ]; then
+  if [ -n "$ended_early" ]; then
+    fail "the instance was $ended_early before it wrote its completion marker; $OUT/log.txt is whatever it managed to upload"
+  fi
+  fail "no completion marker after 120 polls; the run either is still going or hung, and $IID has been terminated"
+fi
 
 if [ -s "$OUT/results.json" ]; then
   say "readings"

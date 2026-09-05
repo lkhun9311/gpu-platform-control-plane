@@ -101,13 +101,31 @@ IMAGE="vllm/vllm-openai@sha256:0a51ea5b4ae2dc5d81890e5173f54203d2a3ae0cfffe51b8f
 MODEL="Qwen/Qwen2.5-3B-Instruct"
 BUCKET="stub-bucket"
 
-upload() { aws s3 cp "$1" "s3://$BUCKET/$2" || true; }
+PREFIX="run"
+
+# Keys are relative to this run's prefix, so no call site can write to the bucket root by forgetting.
+upload() { aws s3 cp "$1" "s3://$BUCKET/$PREFIX/$2" || true; }
 trap 'upload /var/log/microtest.log log.txt; shutdown -h now' EXIT
 
 docker pull "$IMAGE"
 mkdir -p /hf
 
-python3 /usr/local/bin/microtest.py > /tmp/results.json 2>/tmp/microtest.err
+rc=0
+python3 /usr/local/bin/microtest.py > /tmp/results.json 2>/tmp/microtest.err || rc=$?
 upload /tmp/results.json results.json
 upload /tmp/microtest.err stderr.txt
-touch /tmp/DONE && upload /tmp/DONE DONE
+
+# DONE is written only if the measurement actually produced parseable results.
+#
+# This script runs under set -x and NOT set -e, deliberately: a failed measurement still has to upload
+# its log and its stderr, which is exactly what an early exit would prevent. The cost of that choice
+# was that the next line ran unconditionally, so a Python process that died on its first cell still
+# announced success, and the host saw a completed run. The exit status is captured instead, and the
+# marker is gated on it together with results that parse -- an empty or truncated file is a failure
+# that looks like a success at every layer above it.
+if [ "$rc" -eq 0 ] && [ -s /tmp/results.json ] \
+   && python3 -c 'import json,sys; json.load(open("/tmp/results.json"))' 2>/dev/null; then
+  touch /tmp/DONE && upload /tmp/DONE DONE
+else
+  echo "measurement did not produce usable results (exit $rc); DONE withheld"
+fi

@@ -15,13 +15,13 @@ aws ec2 describe-subnets --region ap-northeast-2 --filters Name=default-for-az,V
 aws ec2 describe-subnets --region ap-northeast-2 --filters Name=default-for-az,Values=true Name=map-public-ip-on-launch,Values=true Name=availability-zone,Values=ap-northeast-2a --query Subnets[0].SubnetId --output text
 aws ec2 run-instances --region ap-northeast-2 --image-id ami-0stubgpu --instance-type g5.xlarge --subnet-id subnet-ap-northeast-2a --iam-instance-profile Name=m5b-microtest --instance-initiated-shutdown-behavior terminate --block-device-mappings [{"DeviceName":"/dev/sda1","Ebs":{"VolumeSize":150,"VolumeType":"gp3","DeleteOnTermination":true}}] --instance-market-options {"MarketType":"spot","SpotOptions":{"MaxPrice":"0.80","SpotInstanceType":"one-time"}} --user-data file://<USERDATA> --tag-specifications ResourceType=instance,Tags=[{Key=Name,Value=m5b-microtest},{Key=purpose,Value=m5b-scheduler-microtest}] --query Instances[0].InstanceId --output text
 user-data: matches the copy saved in the run directory
-aws s3api head-object --bucket stub-bucket --key DONE
+aws s3api head-object --bucket stub-bucket --key run/DONE
 aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0stub --query Reservations[0].Instances[0].State.Name --output text
 sleep 30
-aws s3api head-object --bucket stub-bucket --key DONE
-aws s3 cp s3://stub-bucket/results.json <OUT>/results.json
-aws s3 cp s3://stub-bucket/log.txt <OUT>/log.txt
-aws s3 cp s3://stub-bucket/stderr.txt <OUT>/stderr.txt
+aws s3api head-object --bucket stub-bucket --key run/DONE
+aws s3 cp s3://stub-bucket/run/results.json <OUT>/results.json
+aws s3 cp s3://stub-bucket/run/log.txt <OUT>/log.txt
+aws s3 cp s3://stub-bucket/run/stderr.txt <OUT>/stderr.txt
 aws ec2 terminate-instances --region ap-northeast-2 --instance-ids i-0stub
 --- exit 0
 --- messages
