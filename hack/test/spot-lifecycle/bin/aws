@@ -155,6 +155,21 @@ case "$svc $op" in
     ;;
 
   "s3 cp")
+    # --recursive shifts the positional arguments, and the runner uses it to pull the per-run records the
+    # watcher shipped. Modelled rather than ignored, because "the records came back" is the thing an
+    # interrupted session depends on.
+    if [ "${3:-}" = "--recursive" ]; then
+      src="${4:-}"; dest="${5:-}"
+      mkdir -p "$dest"
+      if in_list "runs" "${STUB_PRESENT_KEYS:-}"; then
+        printf '{"runid":"gh1","arm":"A-honor"}\n' > "$dest/gpu-grace-bounded-A-honor-gh1.json"
+        printf '{"runid":"gi1","arm":"A-ignore"}\n' > "$dest/gpu-grace-bounded-A-ignore-gi1.json"
+        printf 'recursive: 2 object(s) from %s\n' "${src#s3://}" >> "$STUB_TRANSCRIPT"
+      else
+        printf 'recursive: 0 object(s) from %s\n' "${src#s3://}" >> "$STUB_TRANSCRIPT"
+      fi
+      exit 0
+    fi
     src="${3:-}"; dest="${4:-}"
     # An UPLOAD is the other direction and has to be modelled separately.
     #
@@ -227,6 +242,22 @@ case "$svc $op" in
           tar -czf "$dest" -C "$local_tmp" evidence
           rm -rf "$local_tmp"
         fi
+        ;;
+      session.tgz)
+        # A real archive for the same reason evidence.tgz is one: the runner untars it, and a text file
+        # there aborts the run under errexit for a reason unrelated to the behaviour being pinned.
+        if [ "${STUB_EMPTY_ARCHIVE:-0}" = "1" ]; then
+          : > "$dest"
+        else
+          local_tmp=$(mktemp -d)
+          mkdir -p "$local_tmp/session"
+          printf '{"runid":"gh1"}\n' > "$local_tmp/session/gpu-grace-bounded-A-honor-gh1.json"
+          tar -czf "$dest" -C "$local_tmp" session
+          rm -rf "$local_tmp"
+        fi
+        ;;
+      commit.txt)
+        printf '%s\n' "0000000000000000000000000000000000000000" > "$dest"
         ;;
       run.json)
         printf '%s\n' '{"study":"price-of-protection-2026-09-05","arms":[{"arm":"R1","requested_budget":"engine default","resolved_budget":"2048","raw":["raw-R1-1.jsonl"]},{"arm":"default-fcfs","requested_budget":"engine default","resolved_budget":"2048","raw":["raw-default-fcfs-1.jsonl"]}]}' > "$dest"
