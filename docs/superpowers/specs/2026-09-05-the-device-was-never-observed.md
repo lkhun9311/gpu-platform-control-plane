@@ -50,19 +50,30 @@ refuses to attribute it. The point of this session is attribution.
 AWS has no two-GPU instance in the G family, so the smallest that fits is a four-GPU one, with the surplus
 two held by an occupier Pod as `hack/gpu-session.sh` already does.
 
-| path | instance | cards | $/h | note |
-| ------------------ | -------------- | ------: | ----: | ------------------------------------------ |
-| Spot, today | g5.2xlarge | 1 | ~0.45 | **cannot run the protocol** |
-| **On-demand, today** | **g4dn.12xlarge** | **4 × T4** | **4.81** | 48 vCPU against a 52 vCPU on-demand quota |
-| On-demand, today | g5.12xlarge | 4 × A10G | 6.97 | no advantage here — see below |
-| Spot, after a quota case | g4dn.12xlarge | 4 × T4 | 2.22 | Spot G/VT quota is **8 vCPU**, needs 48 |
+**Amended after the quota case closed.** It was filed at 19:50 on 2026-09-05 and approved by 20:51: the
+Spot G and VT quota is **48 vCPU**, up from 8. That was the decision this section deferred, and it is made
+now — with one correction the quota did not fix.
 
-The T4 is `sm_75` and the shipped PTX targets it. This workload is a small FMA kernel, not an inference
-engine, so the A10G buys nothing for this run.
+| path | instance | cards | $/h | Spot placement score | note |
+| -------------------- | ----------------- | -------: | ----: | -------------------: | ---------------------------------------- |
+| Spot, today | g5.2xlarge | 1 | ~0.45 | — | **cannot run the protocol** |
+| Spot, today | g4dn.12xlarge | 4 × T4 | 2.22 | **1** | cheapest, and AWS says the capacity is not there |
+| **Spot, today** | **g6.12xlarge** | **4 × L4** | **2.56** | **3** | 48 vCPU, exactly the quota. `sm_89`, which the PTX targets |
+| Spot, today | g5.12xlarge | 4 × A10G | 3.15 | 3 | same score, 23% more |
+| On-demand fallback | g6.12xlarge | 4 × L4 | 5.66 | — | 48 vCPU against a 52 vCPU on-demand quota |
 
-**The Spot path is less than half the price and needs a quota case that costs nothing but days.** If that
-case is opened, this run waits for it. The figures below assume the on-demand path, which is the decision
-this document does not make.
+**A quota is not capacity, and this is where the plan changed.** The cheapest instance, `g4dn.12xlarge`,
+scores **1 out of 10** on Spot placement in every availability zone of this region, which is AWS saying the
+request will probably not be filled. `g6.12xlarge` scores 3 for 15% more per hour, and its L4 is `sm_89`,
+which the shipped PTX already targets. So the instance is the g6, chosen on capacity rather than on price.
+
+**A score of three changes what the session must do.** A placement score of 3 is still low,
+so this run should expect to be interrupted rather than merely tolerate it. Every artifact therefore leaves
+the box **as each run completes**, not once at the end: an interruption after six of eight runs must cost
+six runs' worth of nothing, and the original plan would have lost all of them. The occupier Pod holding the
+surplus two cards is unaffected either way.
+
+The 48 vCPU quota is exactly this instance's size, so nothing else in the G family can run beside it.
 
 ## What this session does NOT include
 
@@ -149,24 +160,30 @@ what was tried, publish the negative, and do not re-buy this instance type for t
 
 ## Budget and the stop rule
 
-| stage | wall clock | on-demand cost | gate |
-| ------------------------------ | ---------: | -------------: | ----------------------------- |
-| instance up, driver, cluster | 25 min | $2.01 | — |
-| preflight, the four checks | 10 min | $0.80 | all four must pass |
-| eight runs, interleaved | 30 min | $2.41 | `-require-device` accepts each |
-| evidence off the box, teardown | 10 min | $0.80 | — |
-| **total** | **75 min** | **$6.02** | |
-| hard stop | 120 min | $9.62 | terminate regardless |
+At the g6's Spot price of $2.56 an hour:
 
-**The hard stop is a timer, not a judgement.** At $4.81 an hour, a session that is going badly costs eight
-cents a minute to keep thinking about.
+| stage | wall clock | cost | gate |
+| ------------------------------ | ---------: | ----: | ------------------------------- |
+| instance up, driver, cluster | 25 min | $1.07 | — |
+| preflight, the four checks | 10 min | $0.43 | all four must pass |
+| eight runs, interleaved | 30 min | $1.28 | `-require-device` accepts each, and each uploads before the next begins |
+| evidence off the box, teardown | 10 min | $0.43 | — |
+| **total** | **75 min** | **$3.20** | |
+| hard stop | 120 min | $5.12 | terminate regardless |
+
+**The hard stop is a timer, not a judgement.** At $2.56 an hour a session that is going badly costs four
+cents a minute to keep thinking about, which is cheap enough to be tempting and is exactly why the limit is
+written down before the instance exists.
+
+The on-demand fallback is $5.66 an hour and doubles every figure above. It is not authorised here. If Spot
+will not fill, that is a decision to take again rather than a fallback to reach for at 2am.
 
 Every artifact leaves the box before teardown. An instance terminated with the only copy of its records on
 it has spent the money and bought nothing, which is the same outcome as reading 4 and more annoying.
 
 ## What this run cannot say
 
-It observes one card model on one driver on one AMI. It does not measure inference, it does not compare
+It observes one card model — an L4 — on one driver on one AMI. It does not measure inference, it does not compare
 sharing modes, and it says nothing about whether reservation tracks occupancy for any workload other than
 this kernel.
 
