@@ -197,9 +197,22 @@ nodes:
   - role: control-plane
   - role: worker
 KINDEOF
-kind create cluster --config /tmp/kind.yaml --wait 300s || exit 1
-export KUBECONFIG=/root/.kube/config
-kubectl cluster-info
+# The kubeconfig path is told to kind rather than guessed from it.
+#
+# The first session to reach this line lost the cluster it had just built. kind reported success and printed
+# `Set kubectl context to "kind-qlgpu"`, and the next kubectl went to localhost:8080 -- which is what kubectl
+# does when the file it was pointed at does not exist. kind writes to the home directory, and what HOME is
+# for a cloud-init user-data script is not something this script should be asserting: it never checked, and
+# the assumption cost the instance, the driver and the cluster before anything noticed.
+#
+# So the path is an argument, and both sides use the same variable.
+export KUBECONFIG=/tmp/kubeconfig
+echo "HOME=${HOME:-<unset>} KUBECONFIG=$KUBECONFIG"
+kind create cluster --config /tmp/kind.yaml --kubeconfig "$KUBECONFIG" --wait 300s || exit 1
+
+# Checked here, and fatal here, because this is the line that was wrong. Without it the failure surfaced two
+# commands later as a Kueue manifest that would not validate, which reads like a Kueue problem.
+kubectl cluster-info || { echo "PREFLIGHT FAILED: the cluster is up but unreachable through $KUBECONFIG"; exit 1; }
 
 # ---------------------------------------------------------------- the platform under test
 kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases/download/v0.18.3/manifests.yaml
