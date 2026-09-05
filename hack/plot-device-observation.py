@@ -79,8 +79,8 @@ def render(series, pods, failed, out_path, title):
     t1 = max(p[0] for pts in series.values() for p in pts)
     span = max(t1 - t0, 1)
 
-    W, H = 960, 120 * len(gpus) + 104
-    L, R, TOP = 64, 24, 72
+    W, H = 960, 120 * len(gpus) + 124
+    L, R, TOP = 64, 24, 96
     plot_w = W - L - R
     row_h = 90
     gap = 30
@@ -95,6 +95,20 @@ def render(series, pods, failed, out_path, title):
         + (f', {failed} failed scrape(s)' if failed else '')
         + '</text>',
     ]
+
+    # A snapshot drawn as a time series is a lie the axes tell for you.
+    #
+    # A session that died before its study ran left one scrape: every card had a single sample, at zero,
+    # and the drawing showed four flat empty panels that read exactly like four cards idling through a run
+    # that happened. Nothing in the picture said the run had not happened. The banner says it.
+    most = max(len(pts) for pts in series.values())
+    if most < 3:
+        parts.append(
+            f'<rect x="{L}" y="50" width="{plot_w}" height="22" fill="#fdf3e3" stroke="#d9a441"/>'
+            f'<text x="{L + 8}" y="65" fill="#8a5a00">'
+            f'SNAPSHOT, NOT A SERIES &#8212; {most} sample(s) per card over {span}s. '
+            'A flat line means nothing was watched.</text>'
+        )
 
     for i, gpu in enumerate(gpus):
         top = TOP + i * (row_h + gap)
