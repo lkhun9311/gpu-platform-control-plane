@@ -110,6 +110,20 @@ run_scenario() {
     sed -i 's/HARNESS_SHA="[0-9a-f]\{64\}"/HARNESS_SHA="<SHA>"/' "$out/user-data.sh"
   fi
 
+  # The same property for the other runner's binary: queuelab ships queuelabrun rather than building it on a
+  # box that has no Go, and what the instance verifies must be what was uploaded.
+  if [ -f "$out/user-data.sh" ] && [ -f "$out/queuelabrun" ]; then
+    local rembedded rbuilt
+    rembedded=$(grep -oE 'RUNNER_SHA="[0-9a-f]{64}"' "$out/user-data.sh" | head -1 | cut -d'"' -f2)
+    rbuilt=$(sha256sum "$out/queuelabrun" | cut -d' ' -f1)
+    if [ -n "$rembedded" ] && [ "$rembedded" = "$rbuilt" ]; then
+      printf 'queuelabrun checksum: user-data matches the uploaded binary\n' >> "$STUB_TRANSCRIPT"
+    else
+      printf 'queuelabrun checksum: MISMATCH (user-data %s, binary %s)\n' "${rembedded:-none}" "$rbuilt" >> "$STUB_TRANSCRIPT"
+    fi
+    sed -i 's/RUNNER_SHA="[0-9a-f]\{64\}"/RUNNER_SHA="<SHA>"/' "$out/user-data.sh"
+  fi
+
   # A commit hash and the checksum of an archive of it change with every commit, and neither is behaviour.
   # The goldens recorded before this normalization existed encoded the tree state of the machine that
   # recorded them, so a clean checkout failed all nine scenarios twice over -- a golden that fails for a
@@ -141,6 +155,7 @@ run_scenario() {
       -e "s#${TMPDIR:-/tmp}/tmp\.[A-Za-z0-9]*#<TMP>#g" \
       -e "s#/tmp/tmp\.[A-Za-z0-9]*#<TMP>#g" \
       -e "s#harness sha256 [0-9a-f]\{64\}#harness sha256 <SHA256>#g" \
+      -e "s#^== queuelabrun .*, sha256 [0-9a-f]\{12\}\$#== queuelabrun <SIZE>, sha256 <SHA12>#" \
       -e "s#^== source [0-9a-f]\{40\}.*#== source <COMMIT> <TREE STATE>#" \
       "$work/stdout.txt" "$work/stderr.txt" > "$work/messages.txt"
 

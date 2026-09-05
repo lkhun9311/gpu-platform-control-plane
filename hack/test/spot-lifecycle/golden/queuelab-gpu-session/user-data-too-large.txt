@@ -3,8 +3,11 @@ aws s3api head-bucket --bucket stub-bucket
 aws iam get-instance-profile --instance-profile-name queuelab-gpu
 aws s3 cp <OUT>/source.tgz s3://stub-bucket/run/src/source.tgz
 upload: <SIZE> bytes to stub-bucket/run/src/source.tgz
+aws s3 cp <OUT>/queuelabrun s3://stub-bucket/run/bin/queuelabrun
+upload: <SIZE> bytes to stub-bucket/run/bin/queuelabrun
 aws ssm get-parameter --region ap-northeast-2 --name /aws/service/deeplearning/ami/x86_64/base-oss-nvidia-driver-gpu-ubuntu-22.04/latest/ami-id --query Parameter.Value --output text
 aws ec2 describe-instance-type-offerings --region ap-northeast-2 --location-type availability-zone --filters Name=instance-type,Values=g5.12xlarge --query InstanceTypeOfferings[].Location --output text
+queuelabrun checksum: user-data matches the uploaded binary
 --- exit 1
 --- messages
 == study  queuelab reclaim, with the device observed
@@ -12,8 +15,10 @@ aws ec2 describe-instance-type-offerings --region ap-northeast-2 --location-type
 == output <OUT>
 == source <COMMIT> <TREE STATE>
 == uploading the source archive
+== queuelabrun <SIZE>, sha256 <SHA12>
 == g5.12xlarge is offered in: ap-northeast-2a ap-northeast-2c
-FAIL: the user-data encodes to 14852 bytes and EC2 accepts 100. It is 11138 bytes raw, in 222 lines, after comments were stripped. Nothing was launched. Move the bulk out of the heredoc rather than trimming prose: see <OUT>/user-data.sh
+FAIL: the user-data encodes to 15344 bytes and EC2 accepts 100. It is 11508 bytes raw, in 231 lines, after comments were stripped. Nothing was launched. Move the bulk out of the heredoc rather than trimming prose: see <OUT>/user-data.sh
 --- files
+./queuelabrun
 ./source.tgz
 ./user-data.sh
