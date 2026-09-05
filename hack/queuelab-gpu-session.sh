@@ -19,12 +19,17 @@
 # (config/nvidia-device-plugin) plus the DCGM exporter, on a machine that has four, and the difference is
 # the entire point: a fake plugin makes every GPU-second a reservation, which is the banner.
 #
-# WHY g6.12xlarge AND NOT THE CHEAPER ONE
+# WHY g5.12xlarge
 #
 # The reclaim protocol needs two devices held concurrently on the worker under test, and AWS has no
-# two-GPU G instance, so the floor is four. g4dn.12xlarge is cheaper and scores 1 out of 10 on Spot
-# placement in this region, which is AWS saying the request will probably not be filled. The g6 scores 3
-# and its L4 is sm_89, one of the four targets hack/verify-ptx.sh already compiles the kernel for.
+# two-GPU G instance, so the floor is four.
+#
+# Three candidates, and two constraints that do not agree. On Spot placement g4dn.12xlarge scores 1 out of
+# 10 in this region -- AWS saying the request will probably not be filled -- while g5 and g6 both score 3.
+# But the organisation's `deny-instance-family` service control policy allows only t3.*, g4dn.* and g5.*,
+# and an SCP is not something an account administrator can override. The g6 was tried first and refused by
+# it. That leaves the g5: 48 vCPU, which is exactly the Spot G quota, and an A10G at sm_86, one of the four
+# targets hack/verify-ptx.sh already compiles the kernel for.
 #
 # THREE IS STILL A LOW SCORE
 #
@@ -36,10 +41,10 @@ set -euo pipefail
 cd "$(dirname "$0")/.." || exit 1
 
 REGION="${AWS_REGION:-ap-northeast-2}"
-INSTANCE_TYPE="${INSTANCE_TYPE:-g6.12xlarge}"
-# Above the observed Spot price of about $2.56 with room for a rise, and far below the $5.66 on-demand
-# price the pre-registration deliberately does not authorise.
-MAX_SPOT_PRICE="${MAX_SPOT_PRICE:-3.20}"
+INSTANCE_TYPE="${INSTANCE_TYPE:-g5.12xlarge}"
+# Above the observed Spot price of about $3.15 with room for a rise, and below the on-demand price the
+# pre-registration deliberately does not authorise.
+MAX_SPOT_PRICE="${MAX_SPOT_PRICE:-3.90}"
 # The pre-registration's hard stop is 120 minutes. The backstop inside the instance is that plus a margin,
 # so the timer this script keeps is the one that fires first.
 BACKSTOP_SECONDS="${BACKSTOP_SECONDS:-8400}"
@@ -344,7 +349,22 @@ for z in $ZONES; do
     && [ -n "$IID" ] && [ "$IID" != "None" ] && break
   IID=""
 done
-[ -n "$IID" ] || fail "no zone would launch $INSTANCE_TYPE; see $OUT/launch-errors.txt. A placement score of 3 means this is a normal answer rather than a fault"
+# The refusal names the cause the errors actually give, rather than assuming capacity.
+#
+# The first version of this line said a placement score of 3 makes an empty result "a normal answer rather
+# than a fault". Every zone had in fact returned UnauthorizedOperation from a service control policy, and
+# the message attributed a policy denial to Spot capacity -- describing a quantity by a cause its own
+# evidence does not support, which is the defect this repository exists to avoid.
+if [ -z "$IID" ]; then
+  if grep -q "UnauthorizedOperation" "$OUT/launch-errors.txt" 2>/dev/null; then
+    scp=$(grep -o 'service_control_policy/[a-z0-9-]*' "$OUT/launch-errors.txt" | head -1)
+    fail "every zone refused $INSTANCE_TYPE with UnauthorizedOperation, not for want of capacity. An explicit deny in ${scp:-a service control policy} blocks ec2:RunInstances for this instance type, and an SCP is not something an account administrator can override. Check which families the policy allows before choosing another type. See $OUT/launch-errors.txt"
+  fi
+  if grep -qi "InsufficientInstanceCapacity\|capacity-not-available" "$OUT/launch-errors.txt" 2>/dev/null; then
+    fail "no zone had Spot capacity for $INSTANCE_TYPE. At a placement score of 3 that is a normal answer rather than a fault: try again, or raise MAX_SPOT_PRICE. See $OUT/launch-errors.txt"
+  fi
+  fail "no zone would launch $INSTANCE_TYPE, and the errors name neither an authorization denial nor a capacity shortfall. See $OUT/launch-errors.txt"
+fi
 echo "$IID" > "$OUT/instance-id"
 say "instance $IID"
 

@@ -367,6 +367,17 @@ scenarios_queuelab_gpu_session() {
     STUB_PRESENT_KEYS="session.tgz commit.txt log.txt runs" \
     run_scenario empty-archive bash "$TARGET"
 
+  # No zone will take it, for the two reasons that end the same way and call for opposite responses. The
+  # real session hit the first of these and the refusal named the second, attributing a policy denial to
+  # Spot capacity. Both are pinned now.
+  REQUIRE_CLEAN_TREE=0 STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 \
+    STUB_LAUNCH_FAIL_ZONES="ap-northeast-2a ap-northeast-2c" STUB_LAUNCH_FAILURE=unauthorized \
+    run_scenario all-zones-unauthorized bash "$TARGET"
+
+  REQUIRE_CLEAN_TREE=0 STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 \
+    STUB_LAUNCH_FAIL_ZONES="ap-northeast-2a ap-northeast-2c" STUB_LAUNCH_FAILURE=capacity \
+    run_scenario all-zones-no-capacity bash "$TARGET"
+
   # A previous session's marker at the bucket root. This runner scopes its keys and must not see it.
   REQUIRE_CLEAN_TREE=0 STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 STUB_DONE_PRESENT_AT_START=1 \
     STUB_PRESENT_KEYS="log.txt" \

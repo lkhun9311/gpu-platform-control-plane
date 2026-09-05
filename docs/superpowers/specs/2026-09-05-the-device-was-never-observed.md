@@ -54,18 +54,27 @@ two held by an occupier Pod as `hack/gpu-session.sh` already does.
 Spot G and VT quota is **48 vCPU**, up from 8. That was the decision this section deferred, and it is made
 now — with one correction the quota did not fix.
 
-| path | instance | cards | $/h | Spot placement score | note |
-| -------------------- | ----------------- | -------: | ----: | -------------------: | ---------------------------------------- |
-| Spot, today | g5.2xlarge | 1 | ~0.45 | — | **cannot run the protocol** |
-| Spot, today | g4dn.12xlarge | 4 × T4 | 2.22 | **1** | cheapest, and AWS says the capacity is not there |
-| **Spot, today** | **g6.12xlarge** | **4 × L4** | **2.56** | **3** | 48 vCPU, exactly the quota. `sm_89`, which the PTX targets |
-| Spot, today | g5.12xlarge | 4 × A10G | 3.15 | 3 | same score, 23% more |
-| On-demand fallback | g6.12xlarge | 4 × L4 | 5.66 | — | 48 vCPU against a 52 vCPU on-demand quota |
+| path | instance | cards | $/h | score | SCP | note |
+| ------------------ | ----------------- | -------: | ----: | ----: | :-: | ---------------------------------------- |
+| Spot, today | g5.2xlarge | 1 | ~0.45 | — | ok | **cannot run the protocol** |
+| Spot, today | g4dn.12xlarge | 4 × T4 | 2.22 | **1** | ok | cheapest, and AWS says the capacity is not there |
+| Spot, today | g6.12xlarge | 4 × L4 | 2.56 | 3 | **DENIED** | refused by `deny-instance-family` in every zone |
+| **Spot, today** | **g5.12xlarge** | **4 × A10G** | **3.15** | **3** | ok | 48 vCPU, exactly the quota. `sm_86`, which the PTX targets |
+| On-demand fallback | g5.12xlarge | 4 × A10G | 6.97 | — | ok | 48 vCPU against a 52 vCPU on-demand quota |
 
-**A quota is not capacity, and this is where the plan changed.** The cheapest instance, `g4dn.12xlarge`,
-scores **1 out of 10** on Spot placement in every availability zone of this region, which is AWS saying the
-request will probably not be filled. `g6.12xlarge` scores 3 for 15% more per hour, and its L4 is `sm_89`,
-which the shipped PTX already targets. So the instance is the g6, chosen on capacity rather than on price.
+**A quota is not capacity, and capacity is not permission.** Two constraints, neither of which the other
+knows about, and the plan changed twice.
+
+The cheapest instance, `g4dn.12xlarge`, scores **1 out of 10** on Spot placement in every availability zone
+of this region, which is AWS saying the request will probably not be filled. `g6.12xlarge` scores 3, so it
+was chosen. **Every zone then refused it with `UnauthorizedOperation`**: the organisation's
+`deny-instance-family` service control policy allows only `t3.*`, `g4dn.*` and `g5.*`, and an SCP is not
+something an account administrator can override.
+
+So the instance is **`g5.12xlarge`** — allowed by the policy, scoring 3 like the g6, 48 vCPU which is
+exactly the Spot quota, and an A10G at `sm_86`, one of the four targets `hack/verify-ptx.sh` compiles the
+kernel for. It costs $3.15 an hour rather than $2.56, and that difference is the price of a guardrail
+working, which is a good reason to pay it.
 
 **A score of three changes what the session must do.** A placement score of 3 is still low,
 so this run should expect to be interrupted rather than merely tolerate it. Every artifact therefore leaves
@@ -160,22 +169,22 @@ what was tried, publish the negative, and do not re-buy this instance type for t
 
 ## Budget and the stop rule
 
-At the g6's Spot price of $2.56 an hour:
+At the g5's Spot price of $3.15 an hour:
 
 | stage | wall clock | cost | gate |
 | ------------------------------ | ---------: | ----: | ------------------------------- |
-| instance up, driver, cluster | 25 min | $1.07 | — |
-| preflight, the four checks | 10 min | $0.43 | all four must pass |
-| eight runs, interleaved | 30 min | $1.28 | `-require-device` accepts each, and each uploads before the next begins |
-| evidence off the box, teardown | 10 min | $0.43 | — |
-| **total** | **75 min** | **$3.20** | |
-| hard stop | 120 min | $5.12 | terminate regardless |
+| instance up, driver, cluster | 25 min | $1.31 | — |
+| preflight, the four checks | 10 min | $0.53 | all four must pass |
+| eight runs, interleaved | 30 min | $1.58 | `-require-device` accepts each, and each uploads before the next begins |
+| evidence off the box, teardown | 10 min | $0.53 | — |
+| **total** | **75 min** | **$3.94** | |
+| hard stop | 120 min | $6.31 | terminate regardless |
 
-**The hard stop is a timer, not a judgement.** At $2.56 an hour a session that is going badly costs four
+**The hard stop is a timer, not a judgement.** At $3.15 an hour a session that is going badly costs five
 cents a minute to keep thinking about, which is cheap enough to be tempting and is exactly why the limit is
 written down before the instance exists.
 
-The on-demand fallback is $5.66 an hour and doubles every figure above. It is not authorised here. If Spot
+The on-demand fallback is $6.97 an hour and doubles every figure above. It is not authorised here. If Spot
 will not fill, that is a decision to take again rather than a fallback to reach for at 2am.
 
 Every artifact leaves the box before teardown. An instance terminated with the only copy of its records on
@@ -183,7 +192,7 @@ it has spent the money and bought nothing, which is the same outcome as reading 
 
 ## What this run cannot say
 
-It observes one card model — an L4 — on one driver on one AMI. It does not measure inference, it does not compare
+It observes one card model — an A10G — on one driver on one AMI. It does not measure inference, it does not compare
 sharing modes, and it says nothing about whether reservation tracks occupancy for any workload other than
 this kernel.
 

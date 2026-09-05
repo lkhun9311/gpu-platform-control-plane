@@ -138,7 +138,15 @@ case "$svc $op" in
     subnet=$(arg_after --subnet-id "$@" || true)
     az=$(zone_of_subnet "$subnet")
     if in_list "$az" "${STUB_LAUNCH_FAIL_ZONES:-}"; then
-      printf 'An error occurred (InsufficientInstanceCapacity) launching in %s\n' "$az" >&2
+      # Which refusal AWS gives is the scenario's choice, because the runner must tell them apart. A
+      # service control policy denying an instance family and a zone with no Spot capacity both end with
+      # no instance, and they call for opposite responses: stop and read the policy, or try again later.
+      case "${STUB_LAUNCH_FAILURE:-capacity}" in
+        unauthorized)
+          printf 'An error occurred (UnauthorizedOperation) when calling the RunInstances operation: not authorized to perform: ec2:RunInstances with an explicit deny in a service control policy: arn:aws:organizations::000000000000:policy/o-stub/service_control_policy/p-stub01\n' >&2 ;;
+        *)
+          printf 'An error occurred (InsufficientInstanceCapacity) launching in %s\n' "$az" >&2 ;;
+      esac
       exit 254
     fi
     printf '%s\n' "${STUB_INSTANCE_ID:-i-0stub}"
