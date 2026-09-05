@@ -34,7 +34,7 @@ harness checksum: user-data matches the uploaded binary
 == arms   R1::,default-fcfs::,mbt-0512-fcfs:512:fcfs,mbt-0512-priority:512:priority
 == output <OUT>
 == building the harness for the instance
-== harness sha256 e68c88f8bee813ced257db13d528782ea12050cb9e704fddf66ae12e6e45eeda
+== harness sha256 <SHA256>
 == creating results bucket stub-bucket
 {}
 {}

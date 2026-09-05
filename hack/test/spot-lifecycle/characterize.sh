@@ -119,9 +119,19 @@ run_scenario() {
   # coarse description of what a script did.
   #
   # Volatile substrings are replaced so two runs of one scenario agree.
+  # The shipped binary's checksum is elided here for the third and last time: it is in the user-data, in
+  # the upload line, and in what the runner prints. It changes with every Go edit and is not behaviour, and
+  # the property it stands for -- that the checksum the instance verifies is the checksum of the binary
+  # that was uploaded -- is asserted directly above and stays in the golden.
+  #
+  # Anchored to the line that carries it, NOT to the shape of a hex digest. The first version matched any
+  # 64 hex characters and erased the engine image digest out of the microtest's messages, which is the one
+  # string in that log identifying what was measured. The other suite failed immediately, which is the
+  # harness catching an over-broad normalization in itself.
   sed -e "s#$out#<OUT>#g" \
       -e "s#${TMPDIR:-/tmp}/tmp\.[A-Za-z0-9]*#<TMP>#g" \
       -e "s#/tmp/tmp\.[A-Za-z0-9]*#<TMP>#g" \
+      -e "s#harness sha256 [0-9a-f]\{64\}#harness sha256 <SHA256>#g" \
       "$work/stdout.txt" "$work/stderr.txt" > "$work/messages.txt"
 
   # The transcript alone would hide a script that recorded every AWS call correctly and then exited
