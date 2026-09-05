@@ -147,5 +147,10 @@ hack/m5c-run-*/
 # Microtest output: instance ids, user-data, and the raw results, which are copied into
 # docs/evidence when a run produces something worth keeping.
 hack/microtest-*/
+# The device-observation session writes a run directory per invocation. Ignored for the same reason as the
+# others, and for one more: this runner refuses to start when the tree is dirty, so its own output would
+# otherwise stop the next run.
+hack/qlgpu-*/
+hack/pop-*/
 hack/m5b-gpu-session-evidence.log
 .m5b-rate

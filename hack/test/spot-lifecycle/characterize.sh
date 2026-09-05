@@ -314,6 +314,13 @@ scenarios_queuelab_gpu_session() {
   # checkout failed all nine of them -- and this scenario in particular cannot mean anything on a clean
   # tree, because there would be nothing for the guard to refuse. A probe file is written into the
   # repository and removed whatever happens.
+  #
+  # WHAT THIS SCENARIO CANNOT DISTINGUISH. The probe is UNTRACKED, and the guard's two candidate
+  # implementations differ only on untracked files: `git diff --quiet` does not see them, `git status
+  # --porcelain` does. So this scenario separates the two only when the probe is the tree's ONLY change.
+  # Run it while tracked files are also modified -- which is most of the time during development -- and
+  # both implementations refuse, for different reasons, and the golden cannot tell them apart. The weaker
+  # implementation shipped and was found by hand rather than here.
   local probe="$ROOT/.characterize-dirty-probe"
   printf 'written by the characterization harness to make the tree dirty on purpose\n' > "$probe"
   STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 \

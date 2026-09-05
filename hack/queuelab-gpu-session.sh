@@ -78,7 +78,11 @@ say "output $OUT"
 # paid run and forgets, so the line below goes into the run log and into every golden that records one.
 REQUIRE_CLEAN_TREE="${REQUIRE_CLEAN_TREE:-1}"
 COMMIT=$(git rev-parse HEAD)
-if git diff --quiet && git diff --cached --quiet; then
+# --porcelain rather than `git diff`, because git diff does not see UNTRACKED files and git archive does not
+# include them either. A tree carrying a new script somebody is about to add passed this guard and shipped
+# an archive without it, which is precisely the mismatch the guard exists to refuse. Found because the
+# characterization scenario that asserts this refusal could not make it fire.
+if [ -z "$(git status --porcelain)" ]; then
   say "source $COMMIT, working tree clean"
 elif [ "$REQUIRE_CLEAN_TREE" = "1" ]; then
   fail "the working tree is dirty. This session records a commit as the provenance of its numbers, and a build from uncommitted changes is provenance that names nothing. Commit, or set REQUIRE_CLEAN_TREE=0 and accept that the archive will not match the tree you are looking at"
