@@ -102,5 +102,22 @@ grep -q 'qlgpu-cardsonly' "$WORK/captures/INDEX.md" \
   && ok "a capture outlives the run directory it came from" \
   || bad "the capture was removed when its run directory was"
 
+# 6. Capturing the same evidence twice produces the same bytes.
+#
+# It did not, and that was not cosmetic: the stamp came from the clock, so the Stop hook dirtied the working
+# tree whenever it rebuilt a capture -- and the session runner refuses to launch from a dirty tree. The
+# automation could block the very thing it exists to record.
+rm -rf "$WORK/captures" "$WORK/again"
+run > /dev/null
+cp -r "$WORK/captures" "$WORK/again"
+rm -rf "$WORK/captures"
+run > /dev/null
+if diff -r "$WORK/again" "$WORK/captures" > "$WORK/idem.txt" 2>&1; then
+  ok "capturing unchanged evidence twice produces identical bytes"
+else
+  bad "a second capture of the same evidence differs from the first"
+  sed 's/^/        /' "$WORK/idem.txt" | head -4
+fi
+
 printf 'capture-evidence: %d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

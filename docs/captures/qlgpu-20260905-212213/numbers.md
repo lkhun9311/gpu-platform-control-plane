@@ -1,6 +1,6 @@
 # qlgpu-20260905-212213
 
-captured 2026-09-05T22:52:11Z from hack/qlgpu-20260905-212213/
+captured 2026-09-05T21:26:32Z from hack/qlgpu-20260905-212213/ (stamped from the evidence, not the clock)
 session commit: 8c87f4eee3a92f493737b2da33146ee514fe3d28
 instance: i-0e7c52d96143f3a77
 

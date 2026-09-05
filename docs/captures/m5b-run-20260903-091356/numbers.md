@@ -1,6 +1,6 @@
 # m5b-run-20260903-091356
 
-captured 2026-09-05T18:54:48Z from hack/m5b-run-20260903-091356/
+captured 2026-09-03T00:56:57Z from hack/m5b-run-20260903-091356/ (stamped from the evidence, not the clock)
 
 ## records
 

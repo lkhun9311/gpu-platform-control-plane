@@ -1,6 +1,6 @@
 # qlgpu-20260905-165846
 
-captured 2026-09-05T18:54:48Z from hack/qlgpu-20260905-165846/
+captured 2026-09-05T16:59:51Z from hack/qlgpu-20260905-165846/ (stamped from the evidence, not the clock)
 instance: i-0792342737dc4ff71
 
 ## cards
