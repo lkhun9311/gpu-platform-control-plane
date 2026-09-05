@@ -18,6 +18,12 @@
 > repository's strongest measurement and still carries its own banner, `device: NOT OBSERVED`, because no
 > run has yet pointed the exporter at a real card. Every GPU in the kind clusters is simulated by a fake
 > device plugin. The GPUs in the two paid EC2 sessions were real.
+>
+> **Built, and the reason the paid numbers are worth reading:** a characterization harness that pins what
+> each GPU-renting script does before it may be run against a card. Three runners, 25 scenarios, each
+> driving the real script with recording stubs and diffing the AWS calls, the exit status, what the operator
+> was told and what the run directory held. It fixes the host side only, which is stated where it is used
+> rather than left to be assumed.
 
 A Kubernetes-native control plane for multi-tenant GPU inference workloads — GPU quota, node readiness, LLM serving, performance isolation, noisy-neighbor benchmarking, and observability-driven operations.
 
