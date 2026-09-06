@@ -1,0 +1,155 @@
+# Does reservation track use — pre-registration
+
+Date: 2026-09-06 · Pre-registered **before** the hardware is rented. Nothing here may be edited once the
+instance is running.
+
+## Why this exists
+
+The device-observation session answered its own first reading and could not answer its second.
+
+    A-honor    reserved 20.643   observed 20.137   difference 0.506
+    A-ignore   reserved 50.605   observed 50.480   difference 0.125
+    floor 3.295 s per arm
+
+Reserved GPU-seconds and observed device-seconds agreed to within a tenth of the run's floor. Read quickly
+that says reservation is a good proxy for use. It is not evidence of it.
+
+The trace workload computes continuously by construction: it launches a kernel, synchronises, and launches
+again until its service ends. A card allocated to it is a card doing work, so agreement was **the only answer
+that session could produce**. The reading exists for the opposite case — a tenant that holds a card and does
+not use it — and the lab had no way to be one.
+
+It has one now. A trace row can declare a duty cycle, the workload keeps its context and its allocation for
+the whole of its service and computes for a known fraction of it, and it reports the fraction it actually
+ran at in its own termination message. That report travels through the ledger into the record, and the
+record is refused if the ledger does not support it.
+
+So this session does not ask whether the two quantities happen to agree. It **plants a difference and asks
+whether the instrument recovers it**.
+
+## The experiment
+
+One axis. Two arms. Everything else constant.
+
+| | a1 | a2-borrow (the victim) | b1-owner |
+| ----------- | ------ | ---------------------- | -------- |
+| D-full | duty 1 | **duty 1** | duty 1 |
+| D-quarter | duty 1 | **duty 0.25** | duty 1 |
+| contract | honour | **ignore, in both arms** | honour |
+| policy | | `reclaimWithinCohort: Any`, both arms | |
+
+**The termination contract is the constant, and it is the ignoring one.** A honouring victim stops within
+milliseconds of the preemption decision, so its hold is shorter than a scrape interval and the observer has
+nothing inside it — the defect that invalidated a measured run in the previous session. The ignoring arm
+holds its card for tens of seconds, which is many scrapes.
+
+**The duty is on the victim alone.** Idling the owner or the co-tenant would change three manifests when one
+is meant to differ, and their occupancy is not what any reading here is about.
+
+**Dose:** grace-bounded only. **Repetitions:** three per arm, interleaved, six runs. Two per arm would give
+each cell a spread of one number, which cannot be told from its own noise.
+
+## What the arms should do, and why
+
+Reserved GPU-seconds are `gpuCount * (stop - ready)` for the preempted attempt. Kubernetes allocates the card
+for that whole interval and never consults the workload about it, so **the two arms should reserve the same
+amount**. Observed device-seconds are what DCGM saw the card doing inside that same interval, and the victim
+computes for a quarter of it in one arm and all of it in the other.
+
+If that is right, the arms are a controlled test of whether the instrument can see the difference between a
+card that is held and a card that is used.
+
+## Pre-registered readings
+
+Evaluated only against records `-require-device` accepted. A refused record is not evidence and is not
+scored. The comparison is `queuelabrun -compare 'gpu-grace-bounded-D-*.json'`, which refuses to fold records
+disagreeing on duty into one arm and prints a notice when the arms differ.
+
+### 1. Reserved seconds agree across the arms — the control
+
+Mean reserved GPU-seconds differ by **less than the sum of the two arms' floors**.
+
+They should, because reservation does not consult the workload. If they do not, something other than the duty
+moved between the arms and every reading below is about that instead. This is the reading that can invalidate
+the session, and it is first for that reason.
+
+### 2. Observed device-seconds separate by about four to one — the deliverable
+
+Mean observed device-seconds in D-quarter are **near a quarter of D-full's**, and the two differ by **more
+than the sum of the arms' floors**.
+
+Method, fixed here so it cannot be chosen after the numbers are in. Observed device-seconds is the **mean
+utilisation over the victim's samples inside the reserved interval, as a fraction, times that interval**,
+taken from each record's own `deviceObservation`.
+
+It is the mean utilisation and NOT the fraction of samples above zero, and the difference is the whole
+reading. `DCGM_FI_DEV_GPU_UTIL` is NVML's percentage of the last sample period during which a kernel was
+executing, so a workload computing for a quarter of every second reports about 25 on **every** sample rather
+than 100 on a quarter of them. Counting busy samples would return a fraction near 1.0 for both arms and
+report that the instrument saw nothing — which would be a conclusion about the method, published as a
+conclusion about the hardware.
+
+The previous session's samples say why this was worth catching before the run rather than after: 1,089 of
+them read 98 and 1,552 read 0, with six values in between. There is no middle there because that workload
+never idles. A quarter-duty victim lives in that middle, and only an integral can read it.
+
+"About a quarter" is bounded: the workload's period is one second and its service is tens of them, so
+boundary effects are a few percent, and DCGM's own collection interval is also one second. A ratio between
+**0.15 and 0.40** counts as recovered. Outside that range the instrument saw a difference it could not size,
+which is reading 4.
+
+### 3. Reservation is not a proxy for use — the consequence
+
+If 1 and 2 both hold, then two runs that reserved the same GPU-seconds used the card for amounts differing
+by a factor near four, **measured**. That settles what the previous session could only leave open, and it
+does so with a difference whose size was chosen before it was measured rather than discovered in the data.
+
+The honest scope stays narrow: it says reservation and use come apart for *this* workload at *this* duty on
+*this* card. It does not say by how much they come apart for anything else.
+
+### 4. The instrument cannot size the difference — INVALID, and the session says so
+
+If the observed seconds do not separate, or separate by a ratio outside 0.15–0.40, then DCGM's attribution
+cannot resolve a card held at quarter duty on this driver and AMI. Publish that. It is a fact about the
+instrument, and a more useful one than a number nobody can check.
+
+A D-quarter run refused by `-require-device` for want of busy samples belongs here too, and is a statement
+about the gate's sensitivity rather than about the workload: at a quarter of a fifty-second hold the card is
+busy for roughly twelve seconds, and a gate that cannot see that is a gate that cannot measure idling.
+
+That refusal is not expected, and the reason is worth writing down because it is the same fact the method
+above turns on. The gate counts samples whose utilisation is above zero, and a quarter-duty card reports
+about 25 rather than 0, so its samples are busy samples. The gate should pass comfortably. If it does not,
+the exporter is reporting something other than what this document assumes it reports, and every reading here
+is void rather than merely negative.
+
+## Budget and the stop rule
+
+At g5.12xlarge Spot, priced from the most expensive of the three zones offering it — $3.41 an hour at the
+time of writing, against $3.36 in the cheapest. A budget written from the cheapest only holds if the launch
+is lucky.
+
+| stage | wall clock | cost | gate |
+| ------------------------------ | ---------: | --------: | ------------------------------ |
+| instance up, driver, cluster | 12 min | $0.68 | |
+| preflight, the four checks | 5 min | $0.28 | all four must pass |
+| six runs, interleaved | 14 min | $0.80 | each uploads before the next |
+| evidence off the box, teardown | 4 min | $0.23 | |
+| **total** | **35 min** | **$1.99** | |
+| hard stop | 60 min | $3.41 | terminate regardless |
+
+The instance backstop is 140 minutes, which is the belt-and-braces case where the local process dies before
+its trap runs. That costs $7.96 and is not a budget, it is a bound.
+
+This is cheaper than the observation session because it buys one dose, one node and six runs rather than two
+doses and eight, and because the cluster it needs is one this repository has now brought up nine times.
+
+## What this run cannot say
+
+One card model, one driver, one AMI, one workload, one duty. It does not measure inference, it does not
+compare sharing modes, and it says nothing about whether reservation tracks use for a workload whose idling
+is bursty rather than periodic.
+
+It also cannot make the reclaim session's figures wrong. Those runs measured what they measured; if this one
+fires reading 3, the consequence is that their agreement between reserved and observed is a fact about a
+continuously computing workload rather than a general property of reservation.
