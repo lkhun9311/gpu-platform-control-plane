@@ -251,6 +251,13 @@ reservation, and for this kernel reservation tracked use. That is a narrower sta
 good proxy": the trace workload computes continuously by construction. It says nothing about a workload that
 holds a card and idles, which is the case the distinction exists for.
 
+**Answered on 2026-09-06.** A workload that holds a card and idles was built, and it was measured: two sets
+of runs reserved 51.084 and 50.802 GPU-seconds -- the same to within a twentieth of their floor -- while
+using the card for 48.115 and 12.193 observed device-seconds. Reservation and use come apart by a factor of
+four with every reservation-based figure unchanged. See
+[does reservation track use](2026-09-06-does-reservation-track-use.md); this paragraph's caution was the
+right one, and the successor is what settles it.
+
 ## Reading 3 — the result survived its own instrument. MET.
 
 | | kind cluster, fake plugin | this session, four A10Gs |
