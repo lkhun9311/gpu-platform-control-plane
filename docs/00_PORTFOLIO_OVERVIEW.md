@@ -14,10 +14,11 @@
 > hand. **Designed only — no CRD, no code:** `GpuSharingBenchmark` / performance isolation (though its
 > sizing arithmetic and run script exist), the SQLite ledger, the `platformctl` CLI. **Code written and
 > offline-validated, never applied to AWS:** the `cluster` half of the AWS hosting path. **Withdrawn once,
-> then re-measured:** the queuelab reclaim result — twelve runs the runner's own gates accept, which is the
-> repository's strongest measurement and still carries its own banner, `device: NOT OBSERVED`, because no
-> run has yet pointed the exporter at a real card. Every GPU in the kind clusters is simulated by a fake
-> device plugin. The GPUs in the two paid EC2 sessions were real.
+> then re-measured, then observed on hardware:** the queuelab reclaim result. Twelve runs on a kind cluster
+> carried the banner `device: NOT OBSERVED`; a $3.90 session then reproduced it on four A10Gs, eight runs
+> accepted by `-require-device`, and the banner is gone. Owner wait separates by 28.8 s there against 29.0 s
+> on kind, so the result survived its own instrument. Every GPU in the kind clusters is still simulated by a
+> fake device plugin, and those runs are still reservation.
 >
 > **Built, and the reason the paid numbers are worth reading:** a characterization harness that pins what
 > each GPU-renting script does before it may be run against a card. Three runners, 25 scenarios, each

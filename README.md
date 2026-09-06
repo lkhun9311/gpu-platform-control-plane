@@ -52,24 +52,29 @@ directly from the [Releases](https://github.com/lkhun9311/gpu-platform-control-p
 | M5-c | Cost/fairness frontier and sharing-mode matrix (exclusive / time-slicing / MPS) — hardens the M5-b evidence | Card chosen by arithmetic rather than by preference: `SharingPlan.Validate` refuses a T4, which leaves each engine 284 KV tokens against a 7,695-token prompt. All three arms' manifests and the run script are written and tested. **Never run** ([sizing](hack/m5c-sharing-sizing.md)) |
 | M5-d | Technical write-up with the measured numbers | Reasoning, pre-registered checks and stated limits were written BEFORE the run so they could not be fitted to it, and the markers are now filled from the paid evidence: premium TTFT p99 of 82.2 ms isolated against 6,882.0 ms under the guard, and all three checks FAIL ([draft](hack/m5d-writeup.md)) |
 | [M6](https://github.com/lkhun9311/gpu-platform-control-plane/releases/tag/m6-training-admission) | Training admission: `MLTrainingJob` → Job + Kueue Workload; two-tenant cohort borrowing and quota-reclaim preemption, run end to end on kind | Done ([evidence](hack/m6-kind-e2e.md)) |
-| [queuelab](https://github.com/lkhun9311/gpu-platform-control-plane/releases/tag/queuelab) | Queue-policy measurement lab: censoring-aware list/watch lifecycle ledger replayed against real Kueue | Withdrawn once, then re-measured: twelve runs the runner's own gates accept ([result](hack/queuelab-reclaim-first-result.md)). Its own tool still prints `device: NOT OBSERVED` on every comparison, so **every GPU-second it reports is a second of reservation**. The session that would remove that is pre-registered, costed at $3.20 and not yet bought ([pre-registration](docs/superpowers/specs/2026-09-05-the-device-was-never-observed.md), [runner](hack/queuelab-gpu-session.sh)) |
+| [queuelab](https://github.com/lkhun9311/gpu-platform-control-plane/releases/tag/queuelab) | Queue-policy measurement lab: censoring-aware list/watch lifecycle ledger replayed against real Kueue | Withdrawn once, re-measured, then observed on hardware. Twelve kind runs the runner's own gates accept ([result](hack/queuelab-reclaim-first-result.md)) carried the banner `device: NOT OBSERVED`, so every GPU-second in them is a second of reservation. A $3.90 session on four A10Gs then ran eight more, all accepted by `-require-device`, and **`queuelabrun -compare` prints its comparison without that line**. Owner wait separates by 28.8 s there against 29.0 s on kind, so the result survived its own instrument ([pre-registration and results](docs/superpowers/specs/2026-09-05-the-device-was-never-observed.md), [runner](hack/queuelab-gpu-session.sh)) |
 | M7 | Inject failure scenarios and record an operational evidence trail (`WorkloadRun`) | CRD, controller and a single-controller driver, tested on envtest; the trail refuses rather than concludes when it has a hole. `hack/m7-evidence-trail.sh` **has been run**: a real Pod deletion produced Ready → Pending → Ready in a trail nobody wrote by hand, and the run exposed a defect envtest could not (recovery credited to the healthy state the run began in). Two of three chaos scenarios are recordable: **DegradedNode** fits but needs a machine whose disruption nobody minds, and **BackendFallback** was removed from the type because its injection scales a backend to zero, which reports Ready |
 
-**What has not been exercised.** Every GPU in this project is simulated by a fake device plugin. Nothing
-here has ever run against real hardware, and the State and Status columns above say so per row rather than
-leaving it to be inferred. Two distinctions worth stating plainly, because they are easy to blur:
+**What has not been exercised.** Every GPU in the kind clusters is simulated by a fake device plugin, and
+most of this repository has only ever met one of those. Three sessions did not: two paid EC2 runs for M5-b
+and one for queuelab, and the State and Status columns above say per row which is which rather than leaving
+it to be inferred. This paragraph used to say nothing here had ever run against real hardware, which
+contradicted the two rows directly above it. Two distinctions worth stating plainly, because they are easy
+to blur:
 
-- The admission guard and its benchmark harness have **never seen a GPU**, and that is now the only thing
-  missing rather than the whole of it. The metrics fixture is a real capture from the pinned vLLM image and
-  replaced a synthetic one whose assumptions it falsified; the guard has been driven through engage and
-  release against a running vLLM; and the whole chain — harness, gateway, engine — has carried a request and
-  returned a `kv_cache_pressure` rejection ([evidence](hack/m5b-chain-live-evidence.log)). All of that was on
-  a CPU build, where the engine queues before its cache fills, so the WAITING arm of the engage condition is
-  exercised and the **KV-usage arm is not**. That arm is what the paid run is for.
+- The admission guard and its benchmark harness **have** seen a GPU: four paid repetitions on 2026-09-03,
+  which is where the numbers in the M5-b and M5-d rows come from. The sentence here used to say they never
+  had, and that was written before the run and not updated after it. What preceded the run still stands: the
+  metrics fixture is a real capture from the pinned vLLM image and replaced a synthetic one whose
+  assumptions it falsified; the guard has been driven through engage and release against a running vLLM; and
+  the whole chain — harness, gateway, engine — has carried a request and returned a `kv_cache_pressure`
+  rejection ([evidence](hack/m5b-chain-live-evidence.log)). That chain work was on a CPU build, where the
+  engine queues before its cache fills, so it exercised the WAITING arm of the engage condition and not the
+  KV-usage arm; the paid run is what exercised the second one.
 - The contention benchmark, the SQLite ledger and `platformctl` are **not coded at all**. They are design
   documents. Earlier revisions of this README described them as if they existed; that was wrong.
 
-**Flagship benchmark:** KV-cache-aware noisy-neighbor p99 protection — a real-GPU benchmark that compares premium tenant latency under baseline, colocated long-context noisy-neighbor, and Gateway admission-guard modes. The harness, the guard and the pre-registered checks are written and tested; **it has never been run on a GPU, so there are no numbers.**
+**Flagship benchmark:** KV-cache-aware noisy-neighbor p99 protection — a real-GPU benchmark that compares premium tenant latency under baseline, colocated long-context noisy-neighbor, and Gateway admission-guard modes. It **has** been run on a GPU, and the numbers are a negative result the pre-registered checks refused to call a win: premium TTFT p99 of 82.2 ms isolated against **6,882.0 ms** under the guard, missing the 1.25x target at 83.7x, and the run declared invalid ([write-up](hack/m5d-writeup.md)). This line used to say there were no numbers; there are, and they say the guard did not work.
 
 ## The queuelab reclaim result: withdrawn once, and now re-measured
 

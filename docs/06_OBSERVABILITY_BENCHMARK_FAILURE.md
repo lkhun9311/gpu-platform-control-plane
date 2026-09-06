@@ -25,17 +25,18 @@
 >
 > **Designed only — no code:** Xid and ECC (nothing in the Go tree). The DCGM exporter layer is NOT in this
 > category and the claim that it was is corrected here: `config/dcgm-exporter/` deploys it and
-> `internal/queuelab/dcgm.go` reads `DCGM_FI_DEV_GPU_UTIL` from it. What is true is that it has never been
-> pointed at a real card, so every GPU-second this project has published is a second of reservation. Also
-> designed only:
+> `internal/queuelab/dcgm.go` reads `DCGM_FI_DEV_GPU_UTIL` from it. It has now been pointed at real cards:
+> session `qlgpu-20260906-032038` ran eight runs on four A10Gs and every one carries
+> `deviceEvidence: device-work-observed`. Also designed only:
 > eBPF layer, Nsight profiling, the SQLite/Postgres operations ledger, FR-001, FR-003, FR-005, and the
 > `evidence/` report tree shown below.
 >
 > **Which GPUs were real, and which were not.** Every kind cluster here advertises simulated
 > `nvidia.com/gpu` capacity through a fake device plugin, and the chaos runs measure control-plane reaction
-> rather than device behaviour. The two paid EC2 sessions used real cards. No run in either category has
-> yet attributed device utilisation to a Pod, which is why `queuelabrun -compare` still prints
-> `device: NOT OBSERVED`.
+> rather than device behaviour. The paid EC2 sessions used real cards, and one of them attributed device
+> utilisation to Pods: `queuelabrun -compare` prints its comparison for `qlgpu-20260906-032038` with no
+> `device: NOT OBSERVED` line. That is one card model on one driver on one AMI, and it does not
+> retroactively make the kind runs device-observed -- those measured what they measured.
 
 This is the evidence center of the project — the proof that the platform actually operates workloads, not just defines types.
 
@@ -51,7 +52,7 @@ This is the evidence center of the project — the proof that the platform actua
 | Profiling            | Nsight Systems  | CUDA timeline (optional)                                                                                      |
 | Ledger               | Postgres/SQLite | workload_runs, benchmark_runs                                                                                 |
 
-The eBPF and Nsight layers require a real GPU node and are **not implemented at all today**, and neither is Xid or ECC. The DCGM layer is different and this sentence used to be wrong about it: the reader, the Pod-attribution resolver, the exporter deployment and the pre-spend gate all exist, and what is missing is a card to point them at. Until one is rented, `queuelabrun -compare` prints `device: NOT OBSERVED` on every comparison and every GPU-second it reports is a second of reservation. Unmeasured layers are labeled, not faked.
+The eBPF and Nsight layers require a real GPU node and are **not implemented at all today**, and neither is Xid or ECC. The DCGM layer is different and this sentence has been wrong twice about it. It once said no code existed; the reader, the Pod-attribution resolver, the exporter deployment and the pre-spend gate all do. It then said no card had been rented; one has. In session `qlgpu-20260906-032038` the exporter named Pods on four A10Gs, the two cards the protocol used were busy in 541 and 559 of 663 samples, and the two held by the surplus occupier in 0 of 663 -- so a GPU-second in that session is an observed device-second. Everything earlier remains a second of reservation, and is labelled as one. Unmeasured layers are labeled, not faked.
 
 ## Failure reports (5)
 
