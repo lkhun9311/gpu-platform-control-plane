@@ -29,6 +29,38 @@ export GOTOOLCHAIN=go1.26.0
 #
 # Without KCTX it builds a throwaway cluster, which is what a machine with no cluster needs and what a
 # machine at the default inotify limit cannot do.
+#
+# ServingPodKilled in throwaway mode does not currently work, and that predates the DegradedNode path rather
+# than being caused by it -- checked by running the script at the commit before this one, where it fails the
+# same way. The throwaway cluster installs CRDs and no operator, so nothing publishes the
+# InferenceDeployment's status.phase, and the wait for the target to report Ready cannot pass. The recorded
+# ServingPodKilled evidence in this repository came from an adopted cluster with the operator deployed, which
+# is what the paragraph above says is the better evidence anyway.
+#
+# DegradedNode does not have that problem because it deploys the operator, which it needs for a different
+# reason: a NodeHealth phase has no honest local substitute. Fixing the serving path is a separate change --
+# it would either deploy the operator too or publish before the wait -- and doing it inside this one would
+# mix a new scenario with a repair of an old one.
+# SCENARIO selects which injected failure this run records.
+#
+# ServingPodKilled is what this script has always driven. DegradedNode was declared in the CRD's enum and
+# never driven, and the type says why: "the injection stops a kubelet, which is disruptive to whatever else
+# is on the cluster, and the script adopts a cluster it does not own. Driving it needs a machine whose
+# disruption nobody minds."
+#
+# A throwaway kind cluster IS such a machine, and this script already builds one. What it did not build was
+# a cluster with a second node -- stopping the control plane's kubelet takes the apiserver with it, and a
+# recorder cannot watch a cluster it can no longer reach. DegradedNode therefore gets a worker, and the
+# kubelet that stops is the worker's.
+SCENARIO="${SCENARIO:-ServingPodKilled}"
+case "$SCENARIO" in
+  ServingPodKilled | DegradedNode) ;;
+  *)
+    echo "M7 FAILED: SCENARIO must be ServingPodKilled or DegradedNode; got '$SCENARIO'" >&2
+    exit 1
+    ;;
+esac
+
 CLUSTER="${CLUSTER:-m7-evidence}"
 ADOPTED=""
 if [ -n "${KCTX:-}" ]; then
@@ -109,7 +141,22 @@ fi
 
 if [ -z "$ADOPTED" ]; then
   say "create the throwaway cluster"
-  kind create cluster --name "$CLUSTER" --wait 120s >/dev/null 2>&1 || fail "create cluster"
+  if [ "$SCENARIO" = DegradedNode ]; then
+    # A worker, because the fault is a stopped kubelet and stopping the control plane's takes the apiserver
+    # with it. The recorder polls the apiserver, so a run that killed it would record nothing and blame the
+    # platform for the script's choice of node.
+    cat > "$WORK/kind.yaml" <<KINDEOF
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: $CLUSTER
+nodes:
+  - role: control-plane
+  - role: worker
+KINDEOF
+    kind create cluster --config "$WORK/kind.yaml" --wait 120s >/dev/null 2>&1 || fail "create cluster"
+  else
+    kind create cluster --name "$CLUSTER" --wait 120s >/dev/null 2>&1 || fail "create cluster"
+  fi
   say "install the CRDs"
   k apply -k config/crd >/dev/null || fail "apply CRDs"
   INSTALLED_CRD=1
@@ -125,8 +172,73 @@ fi
 k wait --for=condition=Established crd/workloadruns.platform.lkhun9311.github.io --timeout=60s >/dev/null \
   || fail "the WorkloadRun CRD never established"
 
-say "create the target"
+# The namespace holds the WorkloadRun in both scenarios, so it is created before the branch. It used to be
+# created inside the serving path, which is where the only run lived.
+say "create the run's namespace"
 k create ns "$NS" >/dev/null || fail "create namespace"
+
+if [ "$SCENARIO" = DegradedNode ]; then
+  # The operator runs, and that is the point rather than a convenience.
+  #
+  # This script's own header says an adopted cluster with the operator deployed is BETTER evidence, because
+  # the platform publishes the target's phase and the trail records transitions the script did not author.
+  # For a NodeHealth target there is no honest alternative: deriving the phase here would mean this script
+  # deciding whether the node it just broke counts as broken, which is the recorder judging its own work.
+  if [ -z "$ADOPTED" ]; then
+    # Kueue first, because the operator does not start without it.
+    #
+    # Measured rather than assumed: without these CRDs the manager exits 1 at startup with
+    #   Failed to create controller {"controller": "mltrainingjob",
+    #     "error": "index workloads by job ref: no matches for kind \"Workload\" in version
+    #      \"kueue.x-k8s.io/v1beta1\""}
+    # It builds a field index over Kueue Workloads before it serves anything, so a cluster without that kind
+    # gives a CrashLoopBackOff and nothing to publish the NodeHealth phase. The NodeHealth controller itself
+    # needs no Kueue; the binary they ship in does.
+    say "install Kueue, which the operator indexes at startup"
+    k apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases/download/v0.18.3/manifests.yaml >/dev/null \
+      || fail "install Kueue"
+    k -n kueue-system wait --for=condition=Available deploy/kueue-controller-manager --timeout=300s >/dev/null \
+      || fail "Kueue never became Available"
+
+    say "build and load the operator"
+    make docker-build IMG=controller:m7 >/dev/null 2>&1 || fail "build the operator image"
+    kind load docker-image controller:m7 --name "$CLUSTER" >/dev/null 2>&1 || fail "load the operator image"
+    # The manifests pin an ECR digest, and this cluster has no credentials for it. Repointing at the
+    # side-loaded tag is the same fix hack/queuelab-gpu-session.sh makes, for the same reason.
+    sed -i -e 's|^    newName: .*|    newName: controller|' \
+           -e 's|^    digest: .*|    newTag: m7|' config/manager/kustomization.yaml
+    say "deploy the operator"
+    k apply --server-side -k config/operator >/dev/null || fail "deploy the operator"
+    git checkout -- config/manager/kustomization.yaml
+    k -n gpu-platform-control-plane-system patch deploy gpu-platform-control-plane-controller-manager \
+      --type=json -p '[{"op":"add","path":"/spec/template/spec/containers/0/imagePullPolicy","value":"IfNotPresent"}]' \
+      >/dev/null || fail "patch the operator's pull policy"
+    k -n gpu-platform-control-plane-system rollout status \
+      deploy/gpu-platform-control-plane-controller-manager --timeout=180s >/dev/null \
+      || fail "the operator never became Available, so nothing would publish the NodeHealth phase"
+  fi
+
+  NODE="$CLUSTER-worker"
+  k get node "$NODE" >/dev/null 2>&1 || fail "no node named $NODE to degrade"
+  say "create the NodeHealth target for $NODE"
+  k apply -f - >/dev/null <<EOF || fail "create the NodeHealth"
+apiVersion: platform.lkhun9311.github.io/v1
+kind: NodeHealth
+metadata: {name: m7-$NODE}
+spec:
+  nodeName: $NODE
+  gpuClass: l40s
+EOF
+  for i in $(seq 1 60); do
+    ph=$(k get nodehealth "m7-$NODE" -o jsonpath='{.status.phase}' 2>/dev/null || true)
+    [ "$ph" = Ready ] && break
+    [ "$i" = 60 ] && fail "NodeHealth never reached Ready (phase ${ph:-<none>}); a run starting anywhere else records no recovery"
+    sleep 2
+  done
+  note "NodeHealth phase: $ph -- published by the operator, not by this script"
+else
+
+say "create the target"
 
 # The image is this repository's own stub, and it is the only one that satisfies the operator's contract:
 # the InferenceDeployment controller passes --model and --model-path to every serving container it builds
@@ -187,8 +299,27 @@ publish_phase() {
 }
 publish_phase >/dev/null
 
+fi
+
 say "create the WorkloadRun"
-k apply -n "$NS" -f - >/dev/null <<EOF || fail "apply the WorkloadRun"
+if [ "$SCENARIO" = DegradedNode ]; then
+  # A longer window than the pod scenario's, because the observable is slower and not by this platform's
+  # doing. A stopped kubelet becomes NotReady only after Kubernetes' own node-monitor-grace-period, which is
+  # tens of seconds on a default cluster; the NodeHealth controller's own reaction is a fraction of a second
+  # after that. hack/chaos-fr004-degraded-node.md separates the two latencies and only the second is ours.
+  k apply -f - >/dev/null <<EOF || fail "apply the WorkloadRun"
+apiVersion: platform.lkhun9311.github.io/v1
+kind: WorkloadRun
+metadata: {name: fr004, namespace: $NS}
+spec:
+  scenario: DegradedNode
+  target: {kind: NodeHealth, name: m7-$NODE}
+  observationWindowSeconds: 240
+  recoversWithinSeconds: 200
+EOF
+  RUN_NAME=fr004
+else
+  k apply -n "$NS" -f - >/dev/null <<EOF || fail "apply the WorkloadRun"
 apiVersion: platform.lkhun9311.github.io/v1
 kind: WorkloadRun
 metadata: {name: fr002}
@@ -198,6 +329,8 @@ spec:
   observationWindowSeconds: 60
   recoversWithinSeconds: 45
 EOF
+  RUN_NAME=fr002
+fi
 
 say "build and start the recorder"
 go build -o "$WORK/workloadrunctl" ./cmd/workloadrunctl || fail "build workloadrunctl"
@@ -206,7 +339,8 @@ KUBECONFIG_CTX="$KCTX" kubectl config use-context "$KCTX" >/dev/null 2>&1
 # and a five-second poll steps straight over the outage: the run then reports Recovered at 0s having never
 # seen the target leave Ready, which is a trail about a constant. The gap tolerance is a multiple of the
 # poll, so tightening one tightens the other and the hole check stays proportionate.
-"$WORK/workloadrunctl" -name fr002 -namespace "$NS" -poll 1s -timeout 4m > "$WORK/driver.out" 2>"$WORK/driver.err" &
+"$WORK/workloadrunctl" -name "$RUN_NAME" -namespace "$NS" -poll 1s -timeout 6m \
+  > "$WORK/driver.out" 2>"$WORK/driver.err" &
 DRIVER_PID=$!
 
 # Keep the target's published phase honest while the window is open. Without this the run would watch a
@@ -218,36 +352,74 @@ publisher() {
     sleep 2
   done
 }
-if [ -z "$ADOPTED" ]; then
+# Only the serving scenario needs a publisher. In DegradedNode the operator is deployed and publishes the
+# NodeHealth phase itself, which is the whole reason that path stands the cluster up: a script that wrote the
+# phase would be deciding whether the node it just broke counts as broken.
+if [ -z "$ADOPTED" ] && [ "$SCENARIO" != DegradedNode ]; then
   publisher &
   PUB_PID=$!
 fi
 
 sleep 8
-say "inject: delete the serving Pod"
-# The operator labels the Pods it builds with app.kubernetes.io/instance, not with whatever this script
-# would have chosen. Selecting on the wrong label found nothing and reported "no serving Pod to delete",
-# which reads as a platform that never started rather than as a query that never matched.
-sel="app.kubernetes.io/instance=m7-target"
-[ -z "$ADOPTED" ] && sel="app=m7-target"
-victim=$(k get pod -n "$NS" -l "$sel" -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
-[ -n "$victim" ] || fail "no serving Pod to delete"
-note "deleting $victim"
-k delete pod "$victim" -n "$NS" --wait=false >/dev/null || fail "delete the serving Pod"
+if [ "$SCENARIO" = DegradedNode ]; then
+  say "inject: stop the kubelet on $NODE"
+  # Stopped, not written. Setting NotReady in the Node's status measures nothing -- the live kubelet answers
+  # within a heartbeat, so the experiment would time how quickly the injection was overwritten.
+  # hack/chaos-fr004-degraded-node.md establishes that, and this uses the same injection for the same reason.
+  docker exec "$NODE" systemctl stop kubelet >/dev/null 2>&1 || fail "could not stop the kubelet on $NODE"
+  note "kubelet stopped; Kubernetes' node-monitor-grace-period decides when NotReady arrives, not this platform"
+
+  # Wait for the degradation to become visible, then undo it. The recorder is watching throughout; this only
+  # decides when the fault ends, and a fault that never ends produces a window with no recovery in it.
+  for i in $(seq 1 90); do
+    ph=$(k get nodehealth "m7-$NODE" -o jsonpath='{.status.phase}' 2>/dev/null || true)
+    [ "$ph" = Quarantine ] && break
+    sleep 2
+  done
+  if [ "${ph:-}" != Quarantine ]; then
+    docker exec "$NODE" systemctl start kubelet >/dev/null 2>&1 || true
+    fail "NodeHealth never left Ready (phase ${ph:-<none>}) within 180s of the kubelet stopping; either the grace period is longer than this window or the controller is not reacting"
+  fi
+  note "NodeHealth phase: Quarantine -- the platform saw the degradation"
+  say "recover: start the kubelet again"
+  docker exec "$NODE" systemctl start kubelet >/dev/null 2>&1 || fail "could not restart the kubelet on $NODE"
+else
+  say "inject: delete the serving Pod"
+  # The operator labels the Pods it builds with app.kubernetes.io/instance, not with whatever this script
+  # would have chosen. Selecting on the wrong label found nothing and reported "no serving Pod to delete",
+  # which reads as a platform that never started rather than as a query that never matched.
+  sel="app.kubernetes.io/instance=m7-target"
+  [ -z "$ADOPTED" ] && sel="app=m7-target"
+  victim=$(k get pod -n "$NS" -l "$sel" -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+  [ -n "$victim" ] || fail "no serving Pod to delete"
+  note "deleting $victim"
+  k delete pod "$victim" -n "$NS" --wait=false >/dev/null || fail "delete the serving Pod"
+fi
 
 wait "$DRIVER_PID"
 [ -n "${PUB_PID:-}" ] && kill "$PUB_PID" 2>/dev/null
 cat "$WORK/driver.out" | tee -a "$LOG"
+# The recorder's stderr is READ, not merely redirected. It was written to a file nobody opened, so when the
+# driver was pointed at a run that did not exist it said so into the void and the script reported a trail
+# with one observation as though the recorder had simply seen nothing happen.
+if [ -s "$WORK/driver.err" ]; then
+  say "the recorder wrote to stderr"
+  sed 's/^/  /' "$WORK/driver.err" | tee -a "$LOG"
+fi
 
 say "the trail"
-k get workloadrun fr002 -n "$NS" -o jsonpath='{.status.phase} verdict={.status.verdict} recoveredAt={.status.recoveredAtSeconds}s{"\n"}' | tee -a "$LOG"
-k get workloadrun fr002 -n "$NS" -o jsonpath='{range .status.observations[*]}  {.elapsedSeconds}s {.state} healthy={.healthy}{"\n"}{end}' | tee -a "$LOG"
+k get workloadrun "$RUN_NAME" -n "$NS" -o jsonpath='{.status.phase} verdict={.status.verdict} recoveredAt={.status.recoveredAtSeconds}s{"\n"}' | tee -a "$LOG"
+k get workloadrun "$RUN_NAME" -n "$NS" -o jsonpath='{range .status.observations[*]}  {.elapsedSeconds}s {.state} healthy={.healthy}{"\n"}{end}' | tee -a "$LOG"
 
-phase=$(k get workloadrun fr002 -n "$NS" -o jsonpath='{.status.phase}')
-obs=$(k get workloadrun fr002 -n "$NS" -o jsonpath='{.status.observations[*].state}' | wc -w)
+phase=$(k get workloadrun "$RUN_NAME" -n "$NS" -o jsonpath='{.status.phase}')
+obs=$(k get workloadrun "$RUN_NAME" -n "$NS" -o jsonpath='{.status.observations[*].state}' | wc -w)
 [ "$phase" = Complete ] || fail "the run ended in phase $phase rather than Complete; a trail that refuses is correct behaviour but is not the end-to-end evidence this script exists to produce"
 # More than one state, or the recorder watched something that never moved and this proves only that it can
 # poll. The injected failure is here precisely so the trail has a transition to carry.
 [ "$obs" -ge 2 ] || fail "the trail carries $obs state(s); the injected failure produced no observed transition, so this run is evidence about a constant"
 
-say "M7 OK: a real Pod deletion produced a real transition in a trail nobody wrote by hand."
+if [ "$SCENARIO" = DegradedNode ]; then
+  say "M7 OK: a stopped kubelet produced a real transition in a NodeHealth trail the operator published."
+else
+  say "M7 OK: a real Pod deletion produced a real transition in a trail nobody wrote by hand."
+fi
