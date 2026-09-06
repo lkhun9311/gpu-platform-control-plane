@@ -79,6 +79,14 @@ type DutyCycle float64
 // FullDuty is the historical behaviour: compute for the whole service time.
 const FullDuty DutyCycle = 1
 
+// QuarterDuty is the planted difference the idling study asks the instrument to recover.
+//
+// A quarter rather than a half because the question is whether reservation and occupancy can be told apart
+// at all, and the answer is clearest when the gap is large against the run's own floor. It is not so small
+// that the victim's device work becomes hard to observe: at a quarter of a fifty-second hold the card is
+// still busy for about twelve seconds, which is many scrape intervals.
+const QuarterDuty DutyCycle = 0.25
+
 // orFull maps the zero value to FullDuty, so a trace row that says nothing renders what it always did.
 func (d DutyCycle) orFull() DutyCycle {
 	if d == 0 {

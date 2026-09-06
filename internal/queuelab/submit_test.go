@@ -444,3 +444,54 @@ func TestTheDeclaredDutyIsRecoverableFromTheWorkloadItself(t *testing.T) {
 			quarter, half)
 	}
 }
+
+// TestAnArmsDutyReachesTheRenderedCommand is the step between a mapping and a manifest.
+//
+// DutyFor can be right while nothing applies it. The command is what the container runs and what the
+// termination canary fingerprints, so this checks the value arrives there for each arm and each row.
+func contractArg(c TerminationContract) string {
+	if c == HonorsSIGTERM {
+		return argHonor
+	}
+	return argIgnore
+}
+
+func TestAnArmsDutyReachesTheRenderedCommand(t *testing.T) {
+	for _, tc := range []struct {
+		arm  Arm
+		row  string
+		want string
+	}{
+		{ArmDFull, VictimRow, "1"},
+		{ArmDQuarter, VictimRow, "0.25"},
+		{ArmDQuarter, OwnRow, "1"},
+		{ArmDQuarter, OwnerRow, "1"},
+		{ArmAIgnore, VictimRow, "1"},
+	} {
+		duty, err := tc.arm.DutyFor(tc.row)
+		if err != nil {
+			t.Fatalf("%s/%s: %v", tc.arm, tc.row, err)
+		}
+		contract, err := tc.arm.ContractFor(tc.row)
+		if err != nil {
+			t.Fatalf("%s/%s: %v", tc.arm, tc.row, err)
+		}
+		// Rendered through RenderForArm, which is what the run path calls. Rendering with the pieces the
+		// test resolved itself would check that this test can assemble an arm, not that the run path does.
+		job, err := RenderForArm(tc.arm, TrainingTraceRow{
+			Index: 1, Name: tc.row, Tenant: "tenant-a", GPUCount: 1, DurationSec: 60,
+		}, "ns")
+		if err != nil {
+			t.Fatalf("%s/%s render: %v", tc.arm, tc.row, err)
+		}
+		got := job.Spec.Command[len(job.Spec.Command)-1]
+		if got != tc.want {
+			t.Errorf("%s/%s renders duty %q, want %q", tc.arm, tc.row, got, tc.want)
+		}
+		// The other half of what the arm decides, checked in the same render so the two cannot drift apart.
+		if arm := job.Spec.Command[len(job.Spec.Command)-2]; arm != contractArg(contract) {
+			t.Errorf("%s/%s renders contract arm %q, want the spelling of %q", tc.arm, tc.row, arm, contract)
+		}
+		_ = duty
+	}
+}
