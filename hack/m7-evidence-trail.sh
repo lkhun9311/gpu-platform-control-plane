@@ -30,17 +30,14 @@ export GOTOOLCHAIN=go1.26.0
 # Without KCTX it builds a throwaway cluster, which is what a machine with no cluster needs and what a
 # machine at the default inotify limit cannot do.
 #
-# ServingPodKilled in throwaway mode does not currently work, and that predates the DegradedNode path rather
-# than being caused by it -- checked by running the script at the commit before this one, where it fails the
-# same way. The throwaway cluster installs CRDs and no operator, so nothing publishes the
-# InferenceDeployment's status.phase, and the wait for the target to report Ready cannot pass. The recorded
-# ServingPodKilled evidence in this repository came from an adopted cluster with the operator deployed, which
-# is what the paragraph above says is the better evidence anyway.
+# The throwaway cluster deploys the operator, so the distinction the paragraph above draws no longer favours
+# adopting: the trail records transitions this script did not author in either mode.
 #
-# DegradedNode does not have that problem because it deploys the operator, which it needs for a different
-# reason: a NodeHealth phase has no honest local substitute. Fixing the serving path is a separate change --
-# it would either deploy the operator too or publish before the wait -- and doing it inside this one would
-# mix a new scenario with a repair of an old one.
+# That fixed ServingPodKilled in throwaway mode, which had never worked. The cluster installed CRDs and no
+# operator, nothing published the InferenceDeployment's status.phase, and the wait for the target to report
+# Ready could not pass. The script had been writing that phase itself from the Deployment's readyReplicas --
+# derived rather than asserted, but still the recorder's own author answering its own question. Standing the
+# operator up costs about ninety seconds and removes both.
 # SCENARIO selects which injected failure this run records.
 #
 # ServingPodKilled is what this script has always driven. DegradedNode was declared in the CRD's enum and
@@ -82,7 +79,6 @@ fail() { echo "M7 FAILED: $*" | tee -a "$LOG" >&2; exit 1; }
 
 cleanup() {
   [ -n "${DRIVER_PID:-}" ] && kill "$DRIVER_PID" 2>/dev/null
-  [ -n "${PUB_PID:-}" ] && kill "$PUB_PID" 2>/dev/null
   if [ -n "${KEEP:-}" ]; then
     say "KEEP set: leaving everything in place"
     rm -rf "$WORK"; return
@@ -172,6 +168,50 @@ fi
 k wait --for=condition=Established crd/workloadruns.platform.lkhun9311.github.io --timeout=60s >/dev/null \
   || fail "the WorkloadRun CRD never established"
 
+# The operator is deployed for BOTH scenarios, and that is a change in what this script's evidence is.
+#
+# It used to run only for DegradedNode, because a NodeHealth phase has no honest local substitute. The
+# serving path meanwhile derived its target's phase from the Deployment's readyReplicas and wrote it itself,
+# which the header calls the weaker evidence -- and which also meant ServingPodKilled could not work in a
+# throwaway cluster at all: the wait for the target to report Ready ran before anything published a phase.
+#
+# Standing the operator up costs about ninety seconds and removes both problems. The trail now records
+# transitions this script did not author in either scenario, on a cluster it owns.
+
+if [ -z "$ADOPTED" ]; then
+  # Kueue first, because the operator does not start without it.
+  #
+  # Measured rather than assumed: without these CRDs the manager exits 1 at startup with
+  #   Failed to create controller {"controller": "mltrainingjob",
+  #     "error": "index workloads by job ref: no matches for kind \"Workload\" in version
+  #      \"kueue.x-k8s.io/v1beta1\""}
+  # It builds a field index over Kueue Workloads before it serves anything, so a cluster without that kind
+  # gives a CrashLoopBackOff and nothing to publish the NodeHealth phase. The NodeHealth controller itself
+  # needs no Kueue; the binary they ship in does.
+  say "install Kueue, which the operator indexes at startup"
+  k apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases/download/v0.18.3/manifests.yaml >/dev/null \
+    || fail "install Kueue"
+  k -n kueue-system wait --for=condition=Available deploy/kueue-controller-manager --timeout=300s >/dev/null \
+    || fail "Kueue never became Available"
+
+  say "build and load the operator"
+  make docker-build IMG=controller:m7 >/dev/null 2>&1 || fail "build the operator image"
+  kind load docker-image controller:m7 --name "$CLUSTER" >/dev/null 2>&1 || fail "load the operator image"
+  # The manifests pin an ECR digest, and this cluster has no credentials for it. Repointing at the
+  # side-loaded tag is the same fix hack/queuelab-gpu-session.sh makes, for the same reason.
+  sed -i -e 's|^    newName: .*|    newName: controller|' \
+         -e 's|^    digest: .*|    newTag: m7|' config/manager/kustomization.yaml
+  say "deploy the operator"
+  k apply --server-side -k config/operator >/dev/null || fail "deploy the operator"
+  git checkout -- config/manager/kustomization.yaml
+  k -n gpu-platform-control-plane-system patch deploy gpu-platform-control-plane-controller-manager \
+    --type=json -p '[{"op":"add","path":"/spec/template/spec/containers/0/imagePullPolicy","value":"IfNotPresent"}]' \
+    >/dev/null || fail "patch the operator's pull policy"
+  k -n gpu-platform-control-plane-system rollout status \
+    deploy/gpu-platform-control-plane-controller-manager --timeout=180s >/dev/null \
+    || fail "the operator never became Available, so nothing would publish the target's phase"
+fi
+
 # The namespace holds the WorkloadRun in both scenarios, so it is created before the branch. It used to be
 # created inside the serving path, which is where the only run lived.
 say "create the run's namespace"
@@ -184,39 +224,6 @@ if [ "$SCENARIO" = DegradedNode ]; then
   # the platform publishes the target's phase and the trail records transitions the script did not author.
   # For a NodeHealth target there is no honest alternative: deriving the phase here would mean this script
   # deciding whether the node it just broke counts as broken, which is the recorder judging its own work.
-  if [ -z "$ADOPTED" ]; then
-    # Kueue first, because the operator does not start without it.
-    #
-    # Measured rather than assumed: without these CRDs the manager exits 1 at startup with
-    #   Failed to create controller {"controller": "mltrainingjob",
-    #     "error": "index workloads by job ref: no matches for kind \"Workload\" in version
-    #      \"kueue.x-k8s.io/v1beta1\""}
-    # It builds a field index over Kueue Workloads before it serves anything, so a cluster without that kind
-    # gives a CrashLoopBackOff and nothing to publish the NodeHealth phase. The NodeHealth controller itself
-    # needs no Kueue; the binary they ship in does.
-    say "install Kueue, which the operator indexes at startup"
-    k apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases/download/v0.18.3/manifests.yaml >/dev/null \
-      || fail "install Kueue"
-    k -n kueue-system wait --for=condition=Available deploy/kueue-controller-manager --timeout=300s >/dev/null \
-      || fail "Kueue never became Available"
-
-    say "build and load the operator"
-    make docker-build IMG=controller:m7 >/dev/null 2>&1 || fail "build the operator image"
-    kind load docker-image controller:m7 --name "$CLUSTER" >/dev/null 2>&1 || fail "load the operator image"
-    # The manifests pin an ECR digest, and this cluster has no credentials for it. Repointing at the
-    # side-loaded tag is the same fix hack/queuelab-gpu-session.sh makes, for the same reason.
-    sed -i -e 's|^    newName: .*|    newName: controller|' \
-           -e 's|^    digest: .*|    newTag: m7|' config/manager/kustomization.yaml
-    say "deploy the operator"
-    k apply --server-side -k config/operator >/dev/null || fail "deploy the operator"
-    git checkout -- config/manager/kustomization.yaml
-    k -n gpu-platform-control-plane-system patch deploy gpu-platform-control-plane-controller-manager \
-      --type=json -p '[{"op":"add","path":"/spec/template/spec/containers/0/imagePullPolicy","value":"IfNotPresent"}]' \
-      >/dev/null || fail "patch the operator's pull policy"
-    k -n gpu-platform-control-plane-system rollout status \
-      deploy/gpu-platform-control-plane-controller-manager --timeout=180s >/dev/null \
-      || fail "the operator never became Available, so nothing would publish the NodeHealth phase"
-  fi
 
   NODE="$CLUSTER-worker"
   k get node "$NODE" >/dev/null 2>&1 || fail "no node named $NODE to degrade"
@@ -280,24 +287,6 @@ for i in $(seq 1 60); do
 done
 note "target phase: $ph"
 
-# phaseOf mirrors what an operator would publish, derived from the Deployment's own readiness rather than
-# asserted: a script that simply wrote "Ready" would be testing the recorder against a constant.
-publish_phase() {
-  # In an adopted cluster the real operator owns this field. Writing it here would be this script
-  # answering its own question, so it stands aside and lets the platform report.
-  if [ -n "$ADOPTED" ]; then
-    k get inferencedeployment m7-target -n "$NS" -o jsonpath='{.status.phase}' 2>/dev/null
-    return
-  fi
-  local ready
-  ready=$(k get deploy m7-target -n "$NS" -o jsonpath='{.status.readyReplicas}' 2>/dev/null)
-  local phase=Degraded
-  [ "${ready:-0}" -ge 1 ] 2>/dev/null && phase=Ready
-  k patch inferencedeployment m7-target -n "$NS" --subresource=status --type=merge \
-    -p "{\"status\":{\"phase\":\"$phase\"}}" >/dev/null 2>&1
-  echo "$phase"
-}
-publish_phase >/dev/null
 
 fi
 
@@ -346,19 +335,9 @@ DRIVER_PID=$!
 # Keep the target's published phase honest while the window is open. Without this the run would watch a
 # field nobody updates and record a platform that never changed -- which is the shape of the hand-written
 # page this milestone replaces.
-publisher() {
-  while kill -0 "$DRIVER_PID" 2>/dev/null; do
-    publish_phase >/dev/null
-    sleep 2
-  done
-}
-# Only the serving scenario needs a publisher. In DegradedNode the operator is deployed and publishes the
-# NodeHealth phase itself, which is the whole reason that path stands the cluster up: a script that wrote the
-# phase would be deciding whether the node it just broke counts as broken.
-if [ -z "$ADOPTED" ] && [ "$SCENARIO" != DegradedNode ]; then
-  publisher &
-  PUB_PID=$!
-fi
+# No publisher. The operator publishes the target's phase in both scenarios now, on a cluster this script
+# owns, so there is nothing for it to keep honest on the platform's behalf. Keeping a writer here beside a
+# running controller would put two authors on one status field, and the trail could not say which it recorded.
 
 sleep 8
 if [ "$SCENARIO" = DegradedNode ]; then
@@ -388,8 +367,13 @@ else
   # The operator labels the Pods it builds with app.kubernetes.io/instance, not with whatever this script
   # would have chosen. Selecting on the wrong label found nothing and reported "no serving Pod to delete",
   # which reads as a platform that never started rather than as a query that never matched.
+  # One selector, because there is one thing building these Pods now.
+  #
+  # This used to branch on ADOPTED and look for app=m7-target in a throwaway cluster, which was right while
+  # nothing but this script created the Deployment there. The operator runs in both modes now, so the Pods
+  # carry its label in both, and the old override found nothing and reported "no serving Pod to delete" --
+  # which reads as a platform that never started rather than as a query that never matched.
   sel="app.kubernetes.io/instance=m7-target"
-  [ -z "$ADOPTED" ] && sel="app=m7-target"
   victim=$(k get pod -n "$NS" -l "$sel" -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
   [ -n "$victim" ] || fail "no serving Pod to delete"
   note "deleting $victim"
@@ -397,7 +381,6 @@ else
 fi
 
 wait "$DRIVER_PID"
-[ -n "${PUB_PID:-}" ] && kill "$PUB_PID" 2>/dev/null
 cat "$WORK/driver.out" | tee -a "$LOG"
 # The recorder's stderr is READ, not merely redirected. It was written to a file nobody opened, so when the
 # driver was pointed at a run that did not exist it said so into the void and the script reported a trail
