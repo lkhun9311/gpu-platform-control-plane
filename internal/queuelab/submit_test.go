@@ -425,14 +425,22 @@ func TestTheDeclaredDutyIsRecoverableFromTheWorkloadItself(t *testing.T) {
 		return n
 	}
 
+	// Ordered rather than measured against a target ratio, for the reason the device-path version of this
+	// records: iterations per second is not constant between a run that never rests and one that rests half
+	// the time, so a ratio drifts for reasons the knob has nothing to do with. An ignored argument produces
+	// three roughly equal counts, and that is what this has to exclude.
 	full := iters("1")
 	half := iters("0.5")
+	quarter := iters("0.25")
 	if full == 0 {
 		t.Fatal("the workload did nothing at full duty, so nothing below means anything")
 	}
-	ratio := float64(half) / float64(full)
-	if ratio < 0.35 || ratio > 0.65 {
-		t.Errorf("half duty did %d iterations against %d at full duty, a ratio of %.2f; the declared duty is "+
-			"not what decides how much work happens", half, full, ratio)
+	if half >= full*4/5 {
+		t.Errorf("half duty did %d iterations against %d at full duty; the declared duty is not what decides "+
+			"how much work happens", half, full)
+	}
+	if quarter >= half {
+		t.Errorf("quarter duty did %d iterations and half duty %d; the declared duty does not order them",
+			quarter, half)
 	}
 }

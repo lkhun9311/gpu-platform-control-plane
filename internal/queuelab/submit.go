@@ -229,6 +229,16 @@ func localQueueName(tenant string) string {
 // deliberately rather than inherited from how the command happened to be written.
 type TerminationContract string
 
+// argHonor and argIgnore are how the two contracts are spelled in the workload's own argv.
+//
+// They are constants for the reason the kind tokens are: the script compares argv[2] against one of them, and
+// a Go side that kept its own spelling could drift from the Python side without anything failing to compile.
+// TestTheContractTokensAreWhatTheScriptCompares holds the two together.
+const (
+	argHonor  = "honor"
+	argIgnore = "ignore"
+)
+
 const (
 	// HonorsSIGTERM keeps the shell as PID 1 with a TERM trap, so a preemption actually stops the work.
 	HonorsSIGTERM TerminationContract = "HonorsSIGTERM"
@@ -324,12 +334,12 @@ func sleeperCommand(durationSec int, contract TerminationContract, duty DutyCycl
 	if err := duty.validate(); err != nil {
 		return nil, err
 	}
-	var honor string
+	var arm string
 	switch contract {
 	case HonorsSIGTERM:
-		honor = "honor"
+		arm = argHonor
 	case IgnoresSIGTERM:
-		honor = "ignore"
+		arm = argIgnore
 	default:
 		return nil, fmt.Errorf("unknown TerminationContract %q", contract)
 	}
@@ -340,7 +350,7 @@ func sleeperCommand(durationSec int, contract TerminationContract, duty DutyCycl
 	// termination canary fingerprints, so two spellings of the same experiment would need two canaries and
 	// would compare as different mechanisms. One spelling.
 	return []string{
-		"python3", "-c", script, strconv.Itoa(durationSec), honor,
+		"python3", "-c", script, strconv.Itoa(durationSec), arm,
 		strconv.FormatFloat(float64(duty), 'f', -1, 64),
 	}, nil
 }
