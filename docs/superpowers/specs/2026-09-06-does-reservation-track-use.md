@@ -153,3 +153,94 @@ is bursty rather than periodic.
 It also cannot make the reclaim session's figures wrong. Those runs measured what they measured; if this one
 fires reading 3, the consequence is that their agreement between reserved and observed is a fact about a
 continuously computing workload rather than a general property of reservation.
+
+---
+
+# Results
+
+Appended 2026-09-06. **Nothing above this line was edited after the instance launched.**
+
+Run `qlgpu-20260906-103327`, instance `i-019e274661589ff33`, g5.12xlarge Spot in ap-northeast-2a, from commit
+`d2e38af`. Two runs of a planned six: the session stops on a failed run, and the second run failed.
+
+**Reading 4 fired.** The instrument could not size the difference, and it could not see it at all.
+
+## Reading 1 — the control. HOLDS.
+
+| arm | reserved GPU-s | floor |
+| --------- | -------------: | ----: |
+| D-full | 50.488 | 2.284 |
+| D-quarter | 50.520 | 3.111 |
+
+A difference of **0.032 s** against a summed floor of 5.396. Reservation did not consult the workload, as
+predicted. The experiment was controlled; what follows is about the observer and not about the arms.
+
+## The workload did what it was told, and its own counter says so
+
+| arm | kernel launches | kind / device / duty, as the container reported them |
+| --------- | --------------: | ---------------------------------------------------- |
+| D-full | 89,223 | `cuda-fma / ok / 1` |
+| D-quarter | 22,093 | `cuda-fma / ok / 0.25` |
+
+**22,093 / 89,223 = 0.2476** against a declared 0.25. The quarter-duty victim loaded its PTX, launched real
+kernels through the CUDA driver, and did almost exactly a quarter of the work.
+
+## Reading 2 — the observer saw none of it. REFUSED.
+
+| arm | victim's utilisation samples |
+| --------- | ---------------------------- |
+| D-full | 98 on 99 of 103 |
+| D-quarter | **0 on all 104** |
+
+Not "about 25", which is what this document predicted and wrote down. Zero, on every sample, while the card
+was executing 22,093 kernels.
+
+    RUN INVALIDATED: the device held by Pod 0c99a041-... was observed working in 0 of 101 samples
+    across the attempt; a card that is allocated and idle is the state this whole axis exists to
+    distinguish from one that is computing
+
+The exporter was working. In the SAME run it reported 98 for `a1`, the co-tenant, which computes
+continuously — and in both runs it named every Pod on every card. This is not attribution failing. It is
+attribution succeeding and reporting zero.
+
+## What the evidence establishes, and what it does not
+
+**Established:** a tenant that used an A10G for a quarter of every second, in bursts of a quarter second,
+was reported by DCGM as using it not at all, on 104 consecutive samples, while the same exporter in the same
+run correctly reported a continuously computing neighbour.
+
+**Not established:** why. The leading explanation is that the two periods are equal by construction and
+nothing here is measuring the phase between them. `internal/queuelab/submit.go` sets the workload's
+`PERIOD` to exactly 1.0 second; `config/dcgm-exporter` passes `-c 1000`, a collection interval of exactly
+1000 milliseconds. Two processes at the same frequency do not drift through each other's phase, so a sample
+that lands in the 0.75 s idle window lands there again, and again. The drawing supports it: the victim's
+card is 0 or 98 with no value between, in either arm, which is what an instantaneous read produces and not
+what an average over a second would.
+
+That is a hypothesis with a name and a test, not a finding. The test is cheap: give the workload a period
+incommensurate with the sampler's -- 0.37 s, say -- and the zeros should break up. If they do not, the
+explanation is somewhere else and this document should not have guessed.
+
+## What it cost, and what it bought
+
+14 minutes, about **$0.80** against a budgeted $1.99. The session stopped early because `gpu-session.sh`
+halts on a failed run, which is the behaviour that kept it cheap.
+
+It bought a sharper result than the one it was chasing. The question was whether reservation tracks use.
+The answer here is that **this lab cannot currently tell**, and the reason is not that reservation and use
+agree -- the workload's own counter separates them by a factor of four. It is that the observer this lab
+trusts to see use reports zero for a tenant it can plainly attribute.
+
+That is worth more than reading 3 would have been. Reading 3 would have said reservation and use come apart
+for one workload on one card. This says the instrument used to establish `device-work-observed` on every run
+in this repository has a blind spot, that the blind spot is shaped like a duty cycle, and that a run inside
+it is refused rather than mismeasured -- which is the one property that makes the refusal worth having.
+
+## What this run cannot say
+
+It observed one card model on one driver on one AMI, at one duty, with one workload period. It does not
+establish the period hypothesis, it does not measure how wide the blind spot is, and it says nothing about
+bursty workloads whose period is not one second.
+
+It also does not weaken the reclaim results. Those runs' victims computed continuously and were observed
+computing continuously; nothing about a blind spot at 0.25 duty touches a measurement taken at 1.0.
