@@ -115,6 +115,8 @@ const WorkloadImage = "python:3.12-slim@sha256:2c941e860699f878900b0edc2403613c2
 // only do that when its digest moved, and a script edited inside the same tag would not move it.
 const workloadScript = `import ctypes,signal,sys,time
 seconds=float(sys.argv[1]); honor=sys.argv[2]=="honor"
+duty=float(sys.argv[3]) if len(sys.argv)>3 else 1.0
+PERIOD=1.0
 n=0; kind="cpu-float"; dev="not-attempted"
 PTX=b""".version 6.3
 .target sm_75
@@ -194,15 +196,20 @@ if launch is not None: kind="cuda-fma"
 end=time.monotonic()+seconds; last=time.monotonic(); x=1.0
 mark()
 while time.monotonic()<end:
-    if launch is None:
-        for _ in range(50000): x=(x*1.0000001)%1000000.0
-    else:
-        rc=launch()
-        if rc!=0:
-            dev="launch-failed-midrun"; mark(); print("aborted "+msg(),flush=True); sys.exit(1)
-    n+=1
-    t=time.monotonic()
-    if t-last>0.5: last=t; mark(); print(msg(),flush=True)
+    seg=time.monotonic()+duty*PERIOD
+    while time.monotonic()<seg and time.monotonic()<end:
+        if launch is None:
+            for _ in range(50000): x=(x*1.0000001)%1000000.0
+        else:
+            rc=launch()
+            if rc!=0:
+                dev="launch-failed-midrun"; mark(); print("aborted "+msg(),flush=True); sys.exit(1)
+        n+=1
+        t=time.monotonic()
+        if t-last>0.5: last=t; mark(); print(msg(),flush=True)
+    if duty<1.0:
+        rest=end-time.monotonic()
+        if rest>0: time.sleep(min((1.0-duty)*PERIOD,rest))
 mark(); print("finished "+msg(),flush=True)`
 
 // localQueueName is the deterministic LocalQueue name a tenant's jobs are admitted through.
@@ -270,7 +277,7 @@ func RenderMLTrainingJob(row TrainingTraceRow, namespace string) (*platformv1.ML
 func RenderMLTrainingJobWithContract(
 	row TrainingTraceRow, namespace string, contract TerminationContract,
 ) (*platformv1.MLTrainingJob, error) {
-	command, err := sleeperCommand(row.DurationSec, contract)
+	command, err := sleeperCommand(row.DurationSec, contract, row.Duty.orFull())
 	if err != nil {
 		return nil, err
 	}
@@ -310,16 +317,30 @@ func RenderMLTrainingJobWithContract(
 // The contract is the experimental axis of this study, so an unrecognized value must not fall through to the
 // ignoring arm: that would run the contrast arm under the honoring arm's label and produce a plausible wrong
 // result, which is the exact failure class the measurement work exists to eliminate.
-func sleeperCommand(durationSec int, contract TerminationContract) ([]string, error) {
+func sleeperCommand(durationSec int, contract TerminationContract, duty DutyCycle) ([]string, error) {
 	// Substituted rather than formatted: the script is full of Python %d verbs and handing it to fmt.Sprintf
 	// makes Go try to interpret them, which go vet catches and a reader would not.
 	script := strings.Replace(workloadScript, "EXITCODE", strconv.Itoa(termExitCode), 1)
+	if err := duty.validate(); err != nil {
+		return nil, err
+	}
+	var honor string
 	switch contract {
 	case HonorsSIGTERM:
-		return []string{"python3", "-c", script, strconv.Itoa(durationSec), "honor"}, nil
+		honor = "honor"
 	case IgnoresSIGTERM:
-		return []string{"python3", "-c", script, strconv.Itoa(durationSec), "ignore"}, nil
+		honor = "ignore"
 	default:
 		return nil, fmt.Errorf("unknown TerminationContract %q", contract)
 	}
+	// The duty argument is always passed, even at 1.0.
+	//
+	// The workload defaults to 1.0 when the argument is absent, so omitting it at full duty would render the
+	// same behaviour -- and a DIFFERENT command string. The command is part of the Pod template the
+	// termination canary fingerprints, so two spellings of the same experiment would need two canaries and
+	// would compare as different mechanisms. One spelling.
+	return []string{
+		"python3", "-c", script, strconv.Itoa(durationSec), honor,
+		strconv.FormatFloat(float64(duty), 'f', -1, 64),
+	}, nil
 }

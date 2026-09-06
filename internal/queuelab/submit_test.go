@@ -20,7 +20,9 @@ import (
 	"bytes"
 	"errors"
 	"os/exec"
+	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -49,10 +51,15 @@ func TestRenderMLTrainingJobMatchesTraceAndQueue(t *testing.T) {
 	if job.Spec.Parallelism != 1 || job.Spec.Completions != 1 {
 		t.Fatalf("parallelism/completions must be pinned to 1 so gpuCount is the demand")
 	}
-	// The duration is an ARGUMENT now rather than text inside a shell string, which is what lets the two arms
+	// The duration is an ARGUMENT rather than text inside a shell string, which is what lets the two arms
 	// share one script: a workload spelled per-arm could drift between them without the compiler noticing.
-	if len(job.Spec.Command) != 5 || job.Spec.Command[0] != "python3" || job.Spec.Command[3] != "600" {
-		t.Fatalf("workload command = %v, want python3 -c <script> 600 <contract>", job.Spec.Command)
+	// The duty cycle joins it for the same reason, and is present even at 1.0 so one experiment has one
+	// spelling -- the command is what the termination canary fingerprints.
+	if len(job.Spec.Command) != 6 || job.Spec.Command[0] != "python3" || job.Spec.Command[3] != "600" {
+		t.Fatalf("workload command = %v, want python3 -c <script> 600 <contract> <duty>", job.Spec.Command)
+	}
+	if job.Spec.Command[5] != "1" {
+		t.Fatalf("duty argument = %q, want \"1\" for a trace row that declares none", job.Spec.Command[5])
 	}
 	if job.Labels["queuelab.gpu-platform/trace-index"] != "1" {
 		t.Fatalf("trace-index label = %q, want 1", job.Labels["queuelab.gpu-platform/trace-index"])
@@ -333,5 +340,99 @@ func TestTheWorkloadEmitsTheDeviceTokenThisPackageParses(t *testing.T) {
 	if !deviceStatuses[DeviceLaunchFailedMidrun] {
 		t.Fatalf("%q is not in deviceStatuses, so the workload's own report reads as an unknown status",
 			DeviceLaunchFailedMidrun)
+	}
+}
+
+// TestAnUnsetDutyRendersWhatThisTraceAlwaysRendered keeps the new axis from moving the old experiment.
+//
+// The command is part of the Pod template the termination canary fingerprints, so a row that says nothing
+// about duty must render one spelling, and it must be the spelling that means "compute throughout".
+func TestAnUnsetDutyRendersWhatThisTraceAlwaysRendered(t *testing.T) {
+	got, err := sleeperCommand(30, HonorsSIGTERM, DutyCycle(0).orFull())
+	if err != nil {
+		t.Fatalf("the historical row was refused: %v", err)
+	}
+	if n := len(got); n != 6 {
+		t.Fatalf("command has %d parts, want 6 (python3 -c script seconds honor duty): %q", n, got)
+	}
+	if got[len(got)-2] != "honor" || got[len(got)-1] != "1" {
+		t.Errorf("an unset duty rendered %q, want the full-duty spelling \"1\"", got[len(got)-2:])
+	}
+}
+
+// TestADeclaredDutyReachesTheWorkload is the axis itself.
+func TestADeclaredDutyReachesTheWorkload(t *testing.T) {
+	got, err := sleeperCommand(30, IgnoresSIGTERM, DutyCycle(0.25))
+	if err != nil {
+		t.Fatalf("a quarter-duty row was refused: %v", err)
+	}
+	if got[len(got)-1] != "0.25" {
+		t.Errorf("duty reached the workload as %q, want \"0.25\"", got[len(got)-1])
+	}
+	if !strings.Contains(got[2], "duty=float(sys.argv[3])") {
+		t.Error("the rendered script does not read a duty argument at all")
+	}
+	if !strings.Contains(got[2], "time.sleep(min((1.0-duty)*PERIOD,rest))") {
+		t.Error("the rendered script has no idle phase, so a declared duty would change nothing")
+	}
+}
+
+// TestAnImpossibleDutyIsRefusedRatherThanClamped is the measurement rule applied to a knob.
+//
+// Clamping 1.5 to 1.0 would let a trace ask for something it did not get while the record reported the value
+// it asked for. A refused trace is a trace nobody ran; a clamped one is a wrong number.
+func TestAnImpossibleDutyIsRefusedRatherThanClamped(t *testing.T) {
+	for _, d := range []DutyCycle{-1, 1.5, 2} {
+		if _, err := sleeperCommand(30, HonorsSIGTERM, d); err == nil {
+			t.Errorf("duty %v was accepted", float64(d))
+		}
+	}
+	// Zero reaches sleeperCommand only if a caller skipped orFull, and it is refused there too: a row that
+	// never computes cannot be told from one whose card was never observed.
+	if _, err := sleeperCommand(30, HonorsSIGTERM, DutyCycle(0)); err == nil {
+		t.Error("a zero duty was accepted; a row that never computes is indistinguishable from an unobserved one")
+	}
+}
+
+// TestTheDeclaredDutyIsRecoverableFromTheWorkloadItself runs the embedded script and measures it.
+//
+// The knob is only worth having if it changes what the workload does, and the two tests above check the
+// spelling rather than the behaviour: a script that read the argument and ignored it would pass both. This
+// runs the real embedded source on the CPU fallback path -- no GPU, no container -- and checks that halving
+// the duty roughly halves the work done in the same wall time.
+//
+// The tolerance is wide on purpose. A CPU iteration here is about a millisecond and the idle phase is a whole
+// second, so the boundary between them quantises; what is being checked is that the duty is the thing
+// deciding, not that it is exact.
+func TestTheDeclaredDutyIsRecoverableFromTheWorkloadItself(t *testing.T) {
+	python, err := exec.LookPath("python3")
+	if err != nil {
+		t.Skip("no python3 on PATH; this test runs the workload rather than reading it")
+	}
+	script := strings.Replace(workloadScript, "EXITCODE", strconv.Itoa(termExitCode), 1)
+
+	iters := func(duty string) int {
+		t.Helper()
+		out, err := exec.Command(python, "-c", script, "4", "ignore", duty).CombinedOutput()
+		if err != nil {
+			t.Fatalf("duty %s: the workload did not finish: %v\n%s", duty, err, out)
+		}
+		m := regexp.MustCompile(`iters=(\d+)`).FindAllStringSubmatch(string(out), -1)
+		if len(m) == 0 {
+			t.Fatalf("duty %s: the workload reported no iteration count:\n%s", duty, out)
+		}
+		n, _ := strconv.Atoi(m[len(m)-1][1])
+		return n
+	}
+
+	full := iters("1")
+	half := iters("0.5")
+	if full == 0 {
+		t.Fatal("the workload did nothing at full duty, so nothing below means anything")
+	}
+	ratio := float64(half) / float64(full)
+	if ratio < 0.35 || ratio > 0.65 {
+		t.Errorf("half duty did %d iterations against %d at full duty, a ratio of %.2f; the declared duty is "+
+			"not what decides how much work happens", half, full, ratio)
 	}
 }

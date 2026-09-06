@@ -37,6 +37,16 @@ func buildFakeCUDA(t *testing.T) string {
 
 // runWorkload executes the SHIPPED command with the fake driver on the library path.
 func runWorkload(t *testing.T, libDir string, env []string, seconds, arm string) (string, int) {
+	return runWorkloadAtDuty(t, libDir, env, seconds, arm, "1")
+}
+
+// runWorkloadAtDuty is the same, with the workload's third argument spelled out.
+//
+// The trailing arguments are replaced by POSITION FROM THE END, and there are three of them now. The
+// two-argument version of this helper overwrote the last two and, when duty was added, silently handed the
+// arm string to float() -- so every device-path test failed with a ValueError rather than with anything about
+// the device. Naming all three keeps the helper honest about what the command's shape is.
+func runWorkloadAtDuty(t *testing.T, libDir string, env []string, seconds, arm, duty string) (string, int) {
 	t.Helper()
 	python, err := exec.LookPath("python3")
 	if err != nil {
@@ -49,7 +59,10 @@ func runWorkload(t *testing.T, libDir string, env []string, seconds, arm string)
 		t.Fatalf("render: %v", err)
 	}
 	args := append([]string{}, job.Spec.Command[1:]...)
-	args[len(args)-2], args[len(args)-1] = seconds, arm
+	if len(args) < 5 {
+		t.Fatalf("the rendered command has %d arguments after python3; this helper replaces three", len(args))
+	}
+	args[len(args)-3], args[len(args)-2], args[len(args)-1] = seconds, arm, duty
 	cmd := exec.Command(python, args...)
 	cmd.Env = append(append(os.Environ(), "LD_LIBRARY_PATH="+libDir), env...)
 	out, err := cmd.CombinedOutput()
@@ -238,4 +251,48 @@ func TestTheEmbeddedPTXWasCompiled(t *testing.T) {
 		t.Fatal("the verification names no ptxas, so nobody can say which assembler accepted this kernel")
 	}
 	t.Logf("PTX %s... compiled for %v by %s", sum[:16], att.Targets, att.PTXASVersion)
+}
+
+// TestDutyReachesTheDevicePathAndNotJustTheFallback measures the knob where it has to work.
+//
+// The duty cycle exists so a run can hold a card and idle, which is the only way to tell a reserved
+// GPU-second from an observed device-second. A CPU-path check cannot show that: the fallback loop is Python
+// arithmetic and touches no driver. This runs the DEVICE branch against the shim, where every iteration is a
+// real cuLaunchKernel followed by cuCtxSynchronize, and checks that halving the declared duty roughly halves
+// the launches while the context and the allocation stay open throughout -- which is what "holding the card"
+// means.
+//
+// The tolerance is wide because the idle phase is a whole second and a launch is microseconds against this
+// shim, so the boundary quantises. What is under test is that the duty decides, not that it is exact.
+func TestDutyReachesTheDevicePathAndNotJustTheFallback(t *testing.T) {
+	lib := buildFakeCUDA(t)
+
+	launches := func(duty string) int {
+		t.Helper()
+		out, code := runWorkloadAtDuty(t, lib, nil, "4", "ignore", duty)
+		if code != 0 {
+			t.Fatalf("duty %s: the device path exited %d:\n%s", duty, code, out)
+		}
+		final := lastLine(out)
+		iters, kind, device := ReportFromMessage(strings.TrimSpace(strings.TrimPrefix(final, "finished ")))
+		if iters == nil {
+			t.Fatalf("duty %s: no readable report: %q", duty, final)
+		}
+		if kind != KindCUDAFMA || device != DeviceOK {
+			t.Fatalf("duty %s: ran kind=%q device=%q, so this measured the fallback rather than the device",
+				duty, kind, device)
+		}
+		return *iters
+	}
+
+	full := launches("1")
+	half := launches("0.5")
+	if full == 0 {
+		t.Fatal("the device path launched nothing at full duty")
+	}
+	ratio := float64(half) / float64(full)
+	if ratio < 0.35 || ratio > 0.65 {
+		t.Errorf("half duty launched %d kernels against %d at full duty, a ratio of %.2f; an idling tenant "+
+			"would still look exactly like a computing one", half, full, ratio)
+	}
 }
