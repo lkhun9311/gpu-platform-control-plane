@@ -108,7 +108,7 @@ func TestTheWorkloadsDevicePathRunsAgainstAFakeDriver(t *testing.T) {
 		t.Fatalf("the device path exited %d:\n%s", code, out)
 	}
 	final := lastLine(out)
-	iters, kind, device := ReportFromMessage(strings.TrimSpace(strings.TrimPrefix(final, "finished ")))
+	iters, kind, device, _ := ReportFromMessage(strings.TrimSpace(strings.TrimPrefix(final, "finished ")))
 	if iters == nil {
 		t.Fatalf("the device path left no readable report: %q\n%s", final, out)
 	}
@@ -137,7 +137,7 @@ func TestEachDriverRefusalProducesItsOwnToken(t *testing.T) {
 		t.Run(tc.symbol, func(t *testing.T) {
 			out, _ := runWorkload(t, lib, []string{"SHIM_FAIL_AT=" + tc.symbol}, "1", "ignore")
 			final := strings.TrimSpace(strings.TrimPrefix(lastLine(out), "finished "))
-			_, kind, device := ReportFromMessage(final)
+			_, kind, device, _ := ReportFromMessage(final)
 			if device != tc.token {
 				t.Fatalf("a driver refusing %s reported dev=%q, want %q\n%s", tc.symbol, device, tc.token, out)
 			}
@@ -154,7 +154,7 @@ func TestEachDriverRefusalProducesItsOwnToken(t *testing.T) {
 	// path to a non-zero exit from the loop rather than from the handler.
 	out, code := runWorkload(t, lib, []string{"SHIM_FAIL_LAUNCH_AFTER=3"}, "5", "ignore")
 	final := strings.TrimSpace(strings.TrimPrefix(lastLine(out), "aborted "))
-	_, kind, device := ReportFromMessage(final)
+	_, kind, device, _ := ReportFromMessage(final)
 	if kind != KindCUDAFMA || device != "launch-failed-midrun" {
 		t.Fatalf("a mid-run launch failure reported kind=%q dev=%q\n%s", kind, device, out)
 	}
@@ -274,7 +274,7 @@ func TestDutyReachesTheDevicePathAndNotJustTheFallback(t *testing.T) {
 			t.Fatalf("duty %s: the device path exited %d:\n%s", duty, code, out)
 		}
 		final := lastLine(out)
-		iters, kind, device := ReportFromMessage(strings.TrimSpace(strings.TrimPrefix(final, "finished ")))
+		iters, kind, device, _ := ReportFromMessage(strings.TrimSpace(strings.TrimPrefix(final, "finished ")))
 		if iters == nil {
 			t.Fatalf("duty %s: no readable report: %q", duty, final)
 		}
@@ -308,5 +308,30 @@ func TestDutyReachesTheDevicePathAndNotJustTheFallback(t *testing.T) {
 	if quarter >= half {
 		t.Errorf("quarter duty launched %d kernels and half duty %d; the declared duty does not order them",
 			quarter, half)
+	}
+}
+
+// TestTheWorkloadWritesTheDutyThisPackageParses closes the language boundary for the fourth field.
+//
+// The parser above is only as good as the sentence it is fed. This runs the embedded script against the fake
+// CUDA shim at a declared duty and parses its real termination message with the real parser, so a workload
+// that stopped reporting the field -- or reported it in another spelling -- fails here rather than at the
+// point where a session is being paid for.
+func TestTheWorkloadWritesTheDutyThisPackageParses(t *testing.T) {
+	lib := buildFakeCUDA(t)
+	out, code := runWorkloadAtDuty(t, lib, nil, "3", "ignore", "0.5")
+	if code != 0 {
+		t.Fatalf("the device path exited %d:\n%s", code, out)
+	}
+	final := strings.TrimSpace(strings.TrimPrefix(lastLine(out), "finished "))
+	iters, kind, device, duty := ReportFromMessage(final)
+	if iters == nil {
+		t.Fatalf("this package cannot parse the message its own workload wrote: %q", final)
+	}
+	if kind != KindCUDAFMA || device != DeviceOK {
+		t.Fatalf("kind=%q device=%q, so this measured the fallback rather than the device", kind, device)
+	}
+	if duty != 0.5 {
+		t.Errorf("the workload ran at a declared 0.5 and reported %v", duty)
 	}
 }
