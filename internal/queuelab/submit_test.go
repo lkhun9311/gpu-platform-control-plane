@@ -436,3 +436,32 @@ func TestTheDeclaredDutyIsRecoverableFromTheWorkloadItself(t *testing.T) {
 			"not what decides how much work happens", half, full, ratio)
 	}
 }
+
+// TestTheContractTokensAreWhatTheScriptCompares holds the Go constants to the Python that reads them.
+//
+// argHonor and argIgnore exist because the same word is spelled on both sides of a language boundary. A
+// constant on the Go side does not by itself stop the two from drifting -- it only stops Go from drifting
+// against itself -- so this asserts the script actually compares argv[2] against the same literal.
+func TestTheContractTokensAreWhatTheScriptCompares(t *testing.T) {
+	if !strings.Contains(workloadScript, `honor=sys.argv[2]=="`+argHonor+`"`) {
+		t.Errorf("the workload does not compare argv[2] against %q, so the honouring arm would run the "+
+			"ignoring workload under the honouring label", argHonor)
+	}
+	// The ignoring arm is everything the honouring one is not, so the script never spells argIgnore. What has
+	// to hold is that the two tokens differ; a single token would make both arms the same arm.
+	if argHonor == argIgnore {
+		t.Fatal("both contracts spell the same argv token")
+	}
+	honor, err := sleeperCommand(30, HonorsSIGTERM, FullDuty)
+	if err != nil {
+		t.Fatalf("honour: %v", err)
+	}
+	ignore, err := sleeperCommand(30, IgnoresSIGTERM, FullDuty)
+	if err != nil {
+		t.Fatalf("ignore: %v", err)
+	}
+	if honor[4] != argHonor || ignore[4] != argIgnore {
+		t.Errorf("the rendered arms carry %q and %q, want %q and %q",
+			honor[4], ignore[4], argHonor, argIgnore)
+	}
+}
