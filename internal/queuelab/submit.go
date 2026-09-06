@@ -150,7 +150,7 @@ ret;
 """
 try: tl=open("/dev/termination-log","w")
 except Exception: tl=None
-def msg(): return "iters=%d kind=%s dev=%s"%(n,kind,dev)
+def msg(): return "iters=%d kind=%s dev=%s duty=%g"%(n,kind,dev,duty)
 def mark():
     if tl is None: return
     tl.seek(0); tl.write(msg()); tl.truncate(); tl.flush()
