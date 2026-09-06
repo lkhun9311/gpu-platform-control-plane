@@ -244,3 +244,90 @@ bursty workloads whose period is not one second.
 
 It also does not weaken the reclaim results. Those runs' victims computed continuously and were observed
 computing continuously; nothing about a blind spot at 0.25 duty touches a measurement taken at 1.0.
+
+---
+
+# Results, second session
+
+Appended 2026-09-06 after `qlgpu-20260906-125451`, instance `i-074815420581e90a8`, from commit `70d8c35`.
+**Nothing in the pre-registration or in the first session's results was edited.**
+
+The first session fired reading 4 and named a hypothesis: the workload's duty cycle had a period of exactly
+1.0 second and the exporter collects every 1000 ms, so a sample landing in the idle part of the cycle landed
+there every time. The document said that needed a test rather than a paragraph. The period is 2.6 seconds
+now, and this is the test.
+
+## The hypothesis was right
+
+| | PERIOD = 1.0 | PERIOD = 2.6 |
+| --------------------------- | ------------------: | -------------------: |
+| D-quarter verdict | refused | **admissible** |
+| device evidence | device-not-observed | **device-work-observed** |
+| victim samples above zero | **0 of 104** | **30 of 102** |
+| mean utilisation | 0 | **22.8** |
+| values seen | 0 only | 98, 30, 24, 18, 12, 0 |
+
+The zeros broke up and intermediate values appeared, which is what a burst walking through the sampler's
+phase produces and what a phase-locked one cannot. Nothing else changed: same card model, same driver, same
+AMI, same duty, same exporter configuration.
+
+Six runs, none refused.
+
+## Reading 1 — the control. HOLDS.
+
+Mean reserved GPU-seconds: **51.084** (D-full) against **50.802** (D-quarter), a difference of **0.282 s**
+against a summed floor of 5.814. Reservation did not consult the workload.
+
+## Reading 2 — the deliverable. MET.
+
+| arm | n | reserved | mean utilisation | observed device-s | launches |
+| --------- | -: | -------: | ---------------: | ----------------: | -------: |
+| D-full | 3 | 51.084 | 94.2 | **48.115** | 89,231 |
+| D-quarter | 3 | 50.802 | 23.9 | **12.193** | 22,667 |
+
+Observed device-seconds differ by **35.922 s** against a floor of 5.814, at a ratio of **0.253** — inside the
+0.15–0.40 band this document fixed before the run.
+
+The workload's own counter agrees without being asked to: 22,667 launches against 89,231 is **0.2540**, and
+the observer's independent answer is 0.253. Two instruments that do not consult each other returned the same
+quarter.
+
+## Reading 3 — the consequence. ESTABLISHED.
+
+Two sets of runs reserved the same GPU-seconds to within a twentieth of their floor and used the card for
+amounts differing by a factor of four. **Reservation is not a proxy for use**, measured, with a difference
+whose size was chosen before it was measured.
+
+The scope stays where the pre-registration put it: this is one workload at one duty on one card model. It
+does not say by how much reservation and use come apart for anything else. What it does settle is that they
+CAN come apart while every reservation-based figure stays identical — which is what the first hardware
+session could not decide, and what its agreement between the two quantities was mistaken for.
+
+## Reading 4 — not reached this time, and that is the second finding
+
+The instrument sized the difference. But the first session establishes something the second cannot unsay:
+**a duty cycle synchronised with the sampler is invisible to it**, and invisible in a specific way —
+attributed correctly, reported as zero, and refused rather than mismeasured.
+
+The refusal is what makes that survivable. A gate that had reported 0% utilisation as a measurement would
+have published a card doing 22,093 kernel launches as an idle one. It refused instead, and the run that
+proved the point cost eighty cents.
+
+## What it cost
+
+| session | period | outcome | cost |
+| ---------------------- | -----: | ---------------------------------- | ----: |
+| qlgpu-20260906-103327 | 1.0 s | reading 4, stopped after two runs | $0.80 |
+| qlgpu-20260906-125451 | 2.6 s | readings 1, 2 and 3, six runs | $1.35 |
+
+$2.15 against a budgeted $1.99 for one session, for an answer plus the reason the first attempt could not
+give one.
+
+## What these runs cannot say
+
+One card model, one driver, one AMI, one duty, two periods. They do not measure how wide the blind spot is —
+only that 1.0 s is inside it and 2.6 s is outside. A workload whose idling is bursty rather than periodic is
+not represented here at all, and neither is any duty between 0.25 and 1.
+
+They also do not weaken the reclaim results. Those victims computed continuously and were observed computing
+continuously; a blind spot at a synchronised quarter duty does not touch a measurement taken at full duty.
