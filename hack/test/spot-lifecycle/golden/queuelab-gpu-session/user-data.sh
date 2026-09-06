@@ -157,21 +157,45 @@ if [ "${adv:-0}" -lt 4 ]; then
   echo "PREFLIGHT FAILED: the real device plugin advertises ${adv:-0} of 4 cards; see preflight-why.txt"
   exit 1
 fi
-kubectl port-forward -n gpu-platform-control-plane-system svc/dcgm-exporter 19400:9400 \
-  >/tmp/sampler-pf.log 2>&1 &
-SAMPLER_PF=$!
-for _ in $(seq 1 30); do
-  curl -fsS --max-time 2 http://127.0.0.1:19400/metrics >/tmp/scrape-first.txt 2>/dev/null && break
-  sleep 1
+SAMPLER=""
+SAMPLER_PF=""
+SAMPLER_URL=""
+for attempt in 1 2 3 4 5; do
+  dpod=$(kubectl -n gpu-platform-control-plane-system get pods \
+    -l app.kubernetes.io/component=dcgm-exporter --field-selector spec.nodeName=qlgpu-worker \
+    -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+  if [ -z "$dpod" ]; then sleep 5; continue; fi
+  sport=$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()')
+  kubectl port-forward -n gpu-platform-control-plane-system "pod/$dpod" "$sport:9400" \
+    >>/tmp/sampler-pf.log 2>&1 &
+  pf=$!
+  sleep 2
+  if ! kill -0 "$pf" 2>/dev/null; then
+    echo "sampler: port-forward to $dpod exited immediately (attempt $attempt)"
+    continue
+  fi
+  url="http://127.0.0.1:$sport/metrics"
+  for _ in $(seq 1 20); do
+    curl -fsS --max-time 2 "$url" >/tmp/scrape-first.txt 2>/dev/null && break
+    sleep 1
+  done
+  if [ -s /tmp/scrape-first.txt ]; then
+    SAMPLER_PF=$pf
+    SAMPLER_URL=$url
+    echo "sampler: reading $dpod through $url"
+    break
+  fi
+  kill "$pf" 2>/dev/null || true
+  echo "sampler: $dpod did not answer on $url (attempt $attempt)"
 done
-if [ -s /tmp/scrape-first.txt ]; then
+if [ -n "$SAMPLER_URL" ]; then
   upload /tmp/scrape-first.txt device-scrape-first.txt
   (
     # Two seconds, which is finer than the study's own resolution floor of 5.906 s, so a reader can see
     # inside a record rather than only between them.
     while :; do
       ts=$(date -u +%s)
-      curl -fsS --max-time 2 http://127.0.0.1:19400/metrics 2>/dev/null \
+      curl -fsS --max-time 2 "$SAMPLER_URL" 2>/dev/null \
         | grep '^DCGM_FI_DEV_GPU_UTIL' | sed "s/^/$ts\t/" >> /tmp/device-util.tsv \
         || echo -e "$ts\tSCRAPE_FAILED" >> /tmp/device-util.tsv
       sleep 2
@@ -181,8 +205,7 @@ if [ -s /tmp/scrape-first.txt ]; then
 else
   # Not fatal, and not silent. The study's own -require-device is the gate on whether the run is valid; this
   # sampler is evidence for the reader, and losing it must not read as losing the measurement.
-  echo "WARNING: could not reach the dcgm exporter for sampling; the series will be missing from the artifacts"
-  SAMPLER=""
+  echo "WARNING: could not reach the dcgm exporter for sampling; the series will be missing from the artifacts. See /tmp/sampler-pf.log"
 fi
 export EXDIR=/tmp/session
 mkdir -p "$EXDIR"
@@ -198,11 +221,11 @@ mkdir -p "$EXDIR"
 ) &
 UPLOADER=$!
 rc=0
-REPS="$REPS" EXDIR="$EXDIR" DOSES="$DOSES" \
+REPS="$REPS" EXDIR="$EXDIR" DOSES="$DOSES" RUN_STUDY=1 \
   bash hack/gpu-session.sh qlgpu-worker >/tmp/study.log 2>&1 || rc=$?
 kill "$UPLOADER" 2>/dev/null || true
 [ -n "${SAMPLER:-}" ] && kill "$SAMPLER" 2>/dev/null || true
-curl -fsS --max-time 3 http://127.0.0.1:19400/metrics > /tmp/scrape-last.txt 2>/dev/null \
+[ -n "${SAMPLER_URL:-}" ] && curl -fsS --max-time 3 "$SAMPLER_URL" > /tmp/scrape-last.txt 2>/dev/null \
   && upload /tmp/scrape-last.txt device-scrape-last.txt
 kill "$SAMPLER_PF" 2>/dev/null || true
 if [ -s /tmp/device-util.tsv ]; then

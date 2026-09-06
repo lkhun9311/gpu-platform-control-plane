@@ -455,21 +455,58 @@ fi
 # Only DCGM_FI_DEV_GPU_UTIL lines are kept at the sampling interval, because they carry the Pod and namespace
 # labels that make a utilisation figure attributable -- which is the whole point of this session. Two full
 # scrapes bracket the study so the reader can see the exposition those lines were cut from.
-kubectl port-forward -n gpu-platform-control-plane-system svc/dcgm-exporter 19400:9400 \
-  >/tmp/sampler-pf.log 2>&1 &
-SAMPLER_PF=$!
-for _ in $(seq 1 30); do
-  curl -fsS --max-time 2 http://127.0.0.1:19400/metrics >/tmp/scrape-first.txt 2>/dev/null && break
-  sleep 1
+# The route is built the way gpu-session.sh builds its own, because that file already learned this.
+#
+# The first version used a FIXED port and a Service. Both were wrong, and the session that proved it had
+# already reached DEVICE USABLE: the port-forward exited at once, the loop then curled a dead port thirty
+# times, and the series was lost from the one run that finally had something to show.
+#
+# A fixed port is the worse of the two. gpu-session.sh's own comment says why: anything already listening on
+# it makes kubectl exit immediately and the checks then talk to that other process -- a local listener
+# serving one plausible DCGM line would satisfy them. An ephemeral port cannot be squatted.
+#
+# And the port-forward itself is retried, not merely the scrape. Retrying only the curl treats a dead
+# forwarder as a slow one.
+SAMPLER=""
+SAMPLER_PF=""
+SAMPLER_URL=""
+for attempt in 1 2 3 4 5; do
+  dpod=$(kubectl -n gpu-platform-control-plane-system get pods \
+    -l app.kubernetes.io/component=dcgm-exporter --field-selector spec.nodeName=qlgpu-worker \
+    -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+  if [ -z "$dpod" ]; then sleep 5; continue; fi
+  sport=$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()')
+  kubectl port-forward -n gpu-platform-control-plane-system "pod/$dpod" "$sport:9400" \
+    >>/tmp/sampler-pf.log 2>&1 &
+  pf=$!
+  sleep 2
+  if ! kill -0 "$pf" 2>/dev/null; then
+    echo "sampler: port-forward to $dpod exited immediately (attempt $attempt)"
+    continue
+  fi
+  url="http://127.0.0.1:$sport/metrics"
+  for _ in $(seq 1 20); do
+    curl -fsS --max-time 2 "$url" >/tmp/scrape-first.txt 2>/dev/null && break
+    sleep 1
+  done
+  if [ -s /tmp/scrape-first.txt ]; then
+    SAMPLER_PF=$pf
+    SAMPLER_URL=$url
+    echo "sampler: reading $dpod through $url"
+    break
+  fi
+  kill "$pf" 2>/dev/null || true
+  echo "sampler: $dpod did not answer on $url (attempt $attempt)"
 done
-if [ -s /tmp/scrape-first.txt ]; then
+
+if [ -n "$SAMPLER_URL" ]; then
   upload /tmp/scrape-first.txt device-scrape-first.txt
   (
     # Two seconds, which is finer than the study's own resolution floor of 5.906 s, so a reader can see
     # inside a record rather than only between them.
     while :; do
       ts=$(date -u +%s)
-      curl -fsS --max-time 2 http://127.0.0.1:19400/metrics 2>/dev/null \
+      curl -fsS --max-time 2 "$SAMPLER_URL" 2>/dev/null \
         | grep '^DCGM_FI_DEV_GPU_UTIL' | sed "s/^/$ts\t/" >> /tmp/device-util.tsv \
         || echo -e "$ts\tSCRAPE_FAILED" >> /tmp/device-util.tsv
       sleep 2
@@ -479,8 +516,7 @@ if [ -s /tmp/scrape-first.txt ]; then
 else
   # Not fatal, and not silent. The study's own -require-device is the gate on whether the run is valid; this
   # sampler is evidence for the reader, and losing it must not read as losing the measurement.
-  echo "WARNING: could not reach the dcgm exporter for sampling; the series will be missing from the artifacts"
-  SAMPLER=""
+  echo "WARNING: could not reach the dcgm exporter for sampling; the series will be missing from the artifacts. See /tmp/sampler-pf.log"
 fi
 
 export EXDIR=/tmp/session
@@ -501,14 +537,23 @@ UPLOADER=$!
 rc=0
 # The worker is a POSITIONAL argument. gpu-session.sh takes WORKERS=("$@"), and calling it with none used
 # to reach `WORKERS[0]: unbound variable` after everything above had already been paid for.
-REPS="$REPS" EXDIR="$EXDIR" DOSES="$DOSES" \
+# RUN_STUDY=1, without which gpu-session.sh qualifies the worker and stops.
+#
+# It printed exactly that -- "To run the study through these same routes: RUN_STUDY=1 ..." -- and exited
+# zero, so the session paid for an instance, proved DEVICE USABLE and OBSERVER ATTRIBUTES on real hardware,
+# and then wrote no records because nothing asked it to. Its own instruction was in the log the whole time.
+#
+# One invocation is right rather than two: the qualification warms the node, and that file's closing note
+# says a run taken cold pulls its image inside its own observation window and can censor its own waste
+# figure. With this set, the preflight runs first and the study follows on a warm node.
+REPS="$REPS" EXDIR="$EXDIR" DOSES="$DOSES" RUN_STUDY=1 \
   bash hack/gpu-session.sh qlgpu-worker >/tmp/study.log 2>&1 || rc=$?
 kill "$UPLOADER" 2>/dev/null || true
 
 # The sampler stops with the study, and its series goes up whether the study passed or not: a failed run's
 # series is how a reader tells "the card was idle" from "nothing ever scraped it".
 [ -n "${SAMPLER:-}" ] && kill "$SAMPLER" 2>/dev/null || true
-curl -fsS --max-time 3 http://127.0.0.1:19400/metrics > /tmp/scrape-last.txt 2>/dev/null \
+[ -n "${SAMPLER_URL:-}" ] && curl -fsS --max-time 3 "$SAMPLER_URL" > /tmp/scrape-last.txt 2>/dev/null \
   && upload /tmp/scrape-last.txt device-scrape-last.txt
 kill "$SAMPLER_PF" 2>/dev/null || true
 if [ -s /tmp/device-util.tsv ]; then
