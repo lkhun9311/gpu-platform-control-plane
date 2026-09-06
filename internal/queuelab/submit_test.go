@@ -414,9 +414,14 @@ func TestTheDeclaredDutyIsRecoverableFromTheWorkloadItself(t *testing.T) {
 	}
 	script := strings.Replace(workloadScript, "EXITCODE", strconv.Itoa(termExitCode), 1)
 
+	// Two whole periods, for the reason the device-path version of this records: a window that is not a
+	// multiple of the workload's period truncates its last segment, and the ratio then measures the
+	// truncation rather than the duty.
+	seconds := strconv.FormatFloat(2*workloadPeriod(t), 'f', -1, 64)
+
 	iters := func(duty string) int {
 		t.Helper()
-		out, err := exec.Command(python, "-c", script, "4", "ignore", duty).CombinedOutput()
+		out, err := exec.Command(python, "-c", script, seconds, "ignore", duty).CombinedOutput()
 		if err != nil {
 			t.Fatalf("duty %s: the workload did not finish: %v\n%s", duty, err, out)
 		}
