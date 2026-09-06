@@ -9,7 +9,7 @@ RUNNER_SHA="<SHA>"
 COMMIT="<COMMIT>"
 REPS="4"
 DOSES="grace-bounded"
-STUDY="reclaim"
+STUDY="idling"
 upload() { aws s3 cp "$1" "s3://$BUCKET/$PREFIX/$2" || true; }
 trap 'upload /var/log/qlgpu.log log.txt; shutdown -h now' EXIT
 aws s3 cp "s3://$BUCKET/$PREFIX/src/source.tgz" /tmp/source.tgz

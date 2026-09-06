@@ -194,9 +194,24 @@ run_scenario() {
   # One file for every scenario, not one per scenario: the remote workload does not depend on which
   # zone answered or whether the bucket already existed, so eight copies would only mean eight places
   # for a real change to hide in a diff nobody reads.
+  #
+  # Except when a scenario changes the workload ON PURPOSE. The idling study renders a different STUDY into
+  # the user-data, and under one shared golden that is indistinguishable from a regression: the suite failed
+  # with "user-data changed" and the change was the thing being tested. A scenario that produces different
+  # bytes gets its own file, named after it, and every scenario that does not keeps sharing one -- so the
+  # property the comment above describes survives for the scenarios it was written about.
   if [ -f "$out/user-data.sh" ]; then
     local udg="$GOLDEN/user-data.sh"
+    if [ -f "$GOLDEN/user-data-$name.sh" ]; then
+      udg="$GOLDEN/user-data-$name.sh"
+    fi
     if [ "$UPDATE" = "1" ]; then
+      # A scenario whose user-data differs from the shared golden records its own, and one that matches does
+      # not -- so a scenario stops having a private golden the moment it stops needing one.
+      if [ "$udg" = "$GOLDEN/user-data.sh" ] && [ -f "$udg" ] \
+         && ! diff -q "$udg" "$out/user-data.sh" >/dev/null; then
+        udg="$GOLDEN/user-data-$name.sh"
+      fi
       cp "$out/user-data.sh" "$udg"
     elif [ ! -f "$udg" ]; then
       # Absent is not "nothing to compare". Deleting the golden used to turn this check off without
@@ -381,6 +396,18 @@ scenarios_queuelab_gpu_session() {
   REQUIRE_CLEAN_TREE=0 STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 STUB_DONE_AFTER=2 STUB_EMPTY_ARCHIVE=1 \
     STUB_PRESENT_KEYS="session.tgz commit.txt log.txt runs" \
     run_scenario empty-archive bash "$TARGET"
+
+  # The idling study's own path, pinned so a paid session is not the first thing to execute it.
+  #
+  # It changes the banner, the arms gpu-session.sh will run, and the STUDY value embedded in the user-data.
+  # None of those is exercised by the default session, and the last one is the kind of substitution that
+  # silently renders an empty value.
+  REQUIRE_CLEAN_TREE=0 STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 STUDY=idling \
+    run_scenario idling-study bash "$TARGET"
+
+  # An unknown study is refused before anything is uploaded or launched.
+  REQUIRE_CLEAN_TREE=0 STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 STUDY=sideways \
+    run_scenario unknown-study bash "$TARGET"
 
   # The user-data outgrew what EC2 accepts, and the runner has to say so before it calls RunInstances.
   #

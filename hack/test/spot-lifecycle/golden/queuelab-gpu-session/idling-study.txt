@@ -30,7 +30,8 @@ aws ec2 terminate-instances --region ap-northeast-2 --instance-ids i-0stub
 queuelabrun checksum: user-data matches the uploaded binary
 --- exit 1
 --- messages
-== study  queuelab reclaim, with the device observed
+== study  queuelab idling -- does a held card that is not used look different from one that is
+== arms   D-full and D-quarter, the termination contract held constant at the ignoring one
 == doses  grace-bounded   reps 4   (both arms, interleaved by gpu-session.sh)
 == output <OUT>
 == source <COMMIT> <TREE STATE>
@@ -48,7 +49,6 @@ FAIL: no completion marker within the hard stop; 0 record(s) were recovered and 
 --- files
 ./instance-id
 ./launch-errors.txt
-./log.txt
 ./queuelabrun
 ./source.tgz
 ./user-data.sh

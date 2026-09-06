@@ -53,11 +53,28 @@ REPS="${REPS:-4}"
 # Both arms always run: the study IS the contrast between them, and gpu-session.sh interleaves them.
 # The dose is narrowed, because the pre-registration buys grace-bounded only.
 DOSES="${DOSES:-grace-bounded}"
+
+# STUDY picks which experiment this session buys, and it changes the banner as well as the runs.
+#
+# reclaim is the termination-contract study, four runs a repetition. idling is the duty study, two a
+# repetition, and it exists because the reclaim session could not decide whether reserved GPU-seconds track
+# used ones -- its workload computes continuously, so agreement was the only answer available.
+STUDY="${STUDY:-reclaim}"
 OUT="${OUT:-hack/qlgpu-$(date -u +%Y%m%d-%H%M%S)}"
 STACK="queuelab-gpu"
 
 say()  { printf '== %s\n' "$*"; }
 fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
+
+# Validated HERE rather than beside its default, because fail() does not exist yet up there.
+#
+# The first version put this check next to STUDY's assignment, which reads better and does not work: an
+# unknown study produced "fail: command not found" and exit 127 instead of the sentence. A characterization
+# scenario for a bad value is what showed it -- the refusal was written, recorded, and was not a refusal.
+case "$STUDY" in
+  reclaim | idling) ;;
+  *) fail "STUDY must be reclaim or idling; got '$STUDY'. reclaim is the termination-contract study, idling is the duty one" ;;
+esac
 
 spot_say()  { say "$@"; }
 spot_fail() { fail "$@"; }
@@ -69,7 +86,14 @@ BUCKET="${BUCKET:-$STACK-$ACCOUNT}"
 RUN_ID="$(basename "$OUT")"
 
 mkdir -p "$OUT"
-say "study  queuelab reclaim, with the device observed"
+# The banner names the study, because a session that says "reclaim" while running the idling arms would put
+# the wrong sentence at the top of the only log a reader keeps.
+if [ "$STUDY" = "idling" ]; then
+  say "study  queuelab idling -- does a held card that is not used look different from one that is"
+  say "arms   D-full and D-quarter, the termination contract held constant at the ignoring one"
+else
+  say "study  queuelab reclaim, with the device observed"
+fi
 say "doses  $DOSES   reps $REPS   (both arms, interleaved by gpu-session.sh)"
 say "output $OUT"
 
@@ -149,6 +173,7 @@ RUNNER_SHA="RUNNER_SHA_PLACEHOLDER"
 COMMIT="COMMIT_PLACEHOLDER"
 REPS="REPS_PLACEHOLDER"
 DOSES="DOSES_PLACEHOLDER"
+STUDY="STUDY_PLACEHOLDER"
 
 upload() { aws s3 cp "$1" "s3://$BUCKET/$PREFIX/$2" || true; }
 trap 'upload /var/log/qlgpu.log log.txt; shutdown -h now' EXIT
@@ -546,7 +571,7 @@ rc=0
 # One invocation is right rather than two: the qualification warms the node, and that file's closing note
 # says a run taken cold pulls its image inside its own observation window and can censor its own waste
 # figure. With this set, the preflight runs first and the study follows on a warm node.
-REPS="$REPS" EXDIR="$EXDIR" DOSES="$DOSES" RUN_STUDY=1 \
+REPS="$REPS" EXDIR="$EXDIR" DOSES="$DOSES" STUDY="$STUDY" RUN_STUDY=1 \
   bash hack/gpu-session.sh qlgpu-worker >/tmp/study.log 2>&1 || rc=$?
 kill "$UPLOADER" 2>/dev/null || true
 
@@ -603,7 +628,8 @@ UD=$(mktemp)
       -e "s|RUNNER_SHA_PLACEHOLDER|$RUNNER_SHA|" \
       -e "s|COMMIT_PLACEHOLDER|$COMMIT|" \
       -e "s|REPS_PLACEHOLDER|$REPS|" \
-      -e "s|DOSES_PLACEHOLDER|$DOSES|" "$RUNSCRIPT" | tail -n +2 \
+      -e "s|DOSES_PLACEHOLDER|$DOSES|" \
+      -e "s|STUDY_PLACEHOLDER|$STUDY|" "$RUNSCRIPT" | tail -n +2 \
     | sed -e '/^#/d' -e '/^[[:space:]]*$/d'
 } > "$UD"
 

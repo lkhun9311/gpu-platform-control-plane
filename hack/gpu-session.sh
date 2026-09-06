@@ -468,7 +468,39 @@ mkdir -p ex
 # re-argued every time the allocation changes.
 W1="${WORKERS[0]}"
 SEQUENCE=()
+
+# STUDY selects which experiment's block is repeated, and the two do not mix.
+#
+# reclaim is what this script has always run: the axis is the victim's termination contract, and dose and
+# node alternate beside it. idling is the second study, whose axis is how much of its service the victim
+# spends computing -- D-full against D-quarter, with the contract held at the ignoring one so the observer
+# has samples inside the hold.
+#
+# They are separate sessions rather than a wider block because crossing the two axes gives four cells, twice
+# the bill, and a difference that carries both. `-compare` refuses to fold records that disagree on duty into
+# one arm, so a session that ran both and globbed them together would be refused rather than misread -- but
+# the refusal is a backstop, not the design.
+STUDY="${STUDY:-reclaim}"
+case "$STUDY" in
+  reclaim | idling) ;;
+  *)
+    echo "STUDY must be reclaim or idling; got '$STUDY'" >&2
+    exit 1
+    ;;
+esac
+
+if [[ "$STUDY" == "idling" ]]; then
+  # One dose and one node. The idling study asks one question, and every axis it does not vary is a cell it
+  # does not have to buy.
+  for ((r = 1; r <= REPS; r++)); do
+    SEQUENCE+=(
+      "grace-bounded   D-full    df$r $W1" "grace-bounded   D-quarter dq$r $W1"
+    )
+  done
+fi
+
 for ((r = 1; r <= REPS; r++)); do
+  [[ "$STUDY" == "idling" ]] && break
   if [[ ${#WORKERS[@]} -ge 2 ]]; then
     W2="${WORKERS[1]}"
     SEQUENCE+=(
@@ -656,10 +688,21 @@ done
 # exactly those.
 echo
 echo "all runs completed. Compare them:"
-echo "  ./queuelabrun -compare '$EXDIR/gpu-self-completing-*.json'"
-echo "  ./queuelabrun -compare '$EXDIR/gpu-grace-bounded-*-g??.json'"
-echo "  ./queuelabrun -compare '$EXDIR/gpu-self-completing-*.json,$EXDIR/gpu-grace-bounded-*-g??.json' -mode model"
-echo "  ./queuelabrun -compare '$EXDIR/gpu-*-A-honor-*.json' -mode baseline"
-if [[ ${#WORKERS[@]} -ge 2 ]]; then
-  echo "  ./queuelabrun -compare '$EXDIR/gpu-grace-bounded-A-honor-*.json' -mode node"
+# The hints are per study, because a glob for the other one returns nothing and reads as a session that
+# produced no records. This block printed the reclaim globs whatever ran, which is the shape of advice that
+# sends a reader looking for a fault in the run rather than in the command.
+if [[ "$STUDY" == "idling" ]]; then
+  echo "  ./queuelabrun -compare '$EXDIR/gpu-grace-bounded-D-*.json'"
+  echo
+  echo "the reading this study is for: reserved GPU-seconds against observed device-seconds, per arm."
+  echo "D-full held its card and used it throughout; D-quarter held the same card and used it for a"
+  echo "quarter of its service. If the two arms' waste figures agree, reservation is not tracking use."
+else
+  echo "  ./queuelabrun -compare '$EXDIR/gpu-self-completing-*.json'"
+  echo "  ./queuelabrun -compare '$EXDIR/gpu-grace-bounded-*-g??.json'"
+  echo "  ./queuelabrun -compare '$EXDIR/gpu-self-completing-*.json,$EXDIR/gpu-grace-bounded-*-g??.json' -mode model"
+  echo "  ./queuelabrun -compare '$EXDIR/gpu-*-A-honor-*.json' -mode baseline"
+  if [[ ${#WORKERS[@]} -ge 2 ]]; then
+    echo "  ./queuelabrun -compare '$EXDIR/gpu-grace-bounded-A-honor-*.json' -mode node"
+  fi
 fi

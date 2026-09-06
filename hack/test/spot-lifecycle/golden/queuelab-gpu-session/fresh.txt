@@ -52,7 +52,7 @@ queuelabrun checksum: user-data matches the uploaded binary
 == uploading the source archive
 == queuelabrun <SIZE>, sha256 <SHA12>
 == g5.12xlarge is offered in: ap-northeast-2a ap-northeast-2c
-== user-data: 16520 of 25600 encoded bytes
+== user-data: 16560 of 25600 encoded bytes
 == launching g5.12xlarge spot (max $3.90/h)
 == trying ap-northeast-2a (subnet-ap-northeast-2a)
 == instance i-0stub
