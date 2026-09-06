@@ -373,12 +373,33 @@ func EstablishesDeviceWork(obs *DeviceObservation, claim DeviceClaim) (bool, str
 		return false, why
 	}
 	if len(mine) == 0 {
-		if obs.UnlabelledBusySamples > 0 {
-			return false, fmt.Sprintf("the observer produced no sample naming Pod %s, and %d sample(s) showed "+
+		// Three different faults end here, and the refusal has to tell them apart.
+		//
+		// An unlabelled busy card alone does not establish a broken exporter. A session on real hardware
+		// refused with "its kubernetes mapping off or its pod-resources mount broken" while the same
+		// observation named nine distinct Pods across 667 of its 760 samples -- the mapping was plainly on,
+		// and the message sent an operator to fix a component that was working. This package's own rule is
+		// that a quantity must never be described by a cause its ledger does not establish; the accusation
+		// is a cause, and only the first branch below has the evidence for it.
+		named := map[string]bool{}
+		for _, s := range obs.Samples {
+			if s.PodUID != "" {
+				named[s.PodUID] = true
+			}
+		}
+		switch {
+		case obs.UnlabelledBusySamples > 0 && len(named) == 0:
+			return false, fmt.Sprintf("the observer produced no sample naming ANY Pod, and %d sample(s) showed "+
 				"a card WORKING while naming no Pod at all. That is not a card nobody used: it is attribution "+
 				"failing while the hardware runs, which is what an exporter with its kubernetes mapping off "+
 				"or its pod-resources mount broken produces. Fix the observer, not the workload",
-				podUID, obs.UnlabelledBusySamples)
+				obs.UnlabelledBusySamples)
+		case obs.UnlabelledBusySamples > 0:
+			return false, fmt.Sprintf("the observer produced no sample naming Pod %s, though it named %d other "+
+				"Pod(s) across %d sample(s), so its kubernetes mapping is working. %d sample(s) showed a card "+
+				"WORKING while naming no Pod at all. Why THIS Pod's work went unattributed is not established "+
+				"here: it is not a card nobody used, and it is not an exporter that names nobody",
+				podUID, len(named), len(obs.Samples), obs.UnlabelledBusySamples)
 		}
 		return false, fmt.Sprintf("the observer ran across the interval and produced no sample for Pod %s; a "+
 			"device held by a Pod nothing sampled is a reservation", podUID)

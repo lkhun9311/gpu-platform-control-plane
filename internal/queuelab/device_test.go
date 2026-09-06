@@ -365,3 +365,93 @@ func TestALabelInTheStaleMarginStillDefeatsAttribution(t *testing.T) {
 		t.Fatalf("a label nine seconds before the window defeated attribution: %s", why)
 	}
 }
+
+// TestAnUnattributedRunDoesNotAccuseTheExporterOfBeingOff is the distinction a paid session found missing.
+//
+// A run on real hardware was refused with "an exporter with its kubernetes mapping off or its pod-resources
+// mount broken" while the same observation named nine distinct Pods across 667 of its 760 samples. The
+// mapping was plainly on, and the message sent an operator to fix a component that was working. An
+// unlabelled busy card alone does not establish a broken exporter; only an exporter that names nobody does.
+func TestAnUnattributedRunDoesNotAccuseTheExporterOfBeingOff(t *testing.T) {
+	// The observer watched the whole interval and attributed plenty -- to somebody else.
+	o := &DeviceObservation{
+		Observer:         ObserverDCGM,
+		ObserverIdentity: "nvcr.io/nvidia/k8s/dcgm-exporter@sha256:abc", Declared: true,
+		StartedNs:             0,
+		EndedNs:               40_000_000_000,
+		UnlabelledBusySamples: 3,
+	}
+	for at := int64(0); at <= 40_000_000_000; at += int64(time.Second) {
+		o.Samples = append(o.Samples, DeviceSample{
+			AtNs: at, DeviceUUID: "GPU-1234", PodUID: "someone-else", UtilisationPercent: 97,
+		})
+		o.Samples = append(o.Samples, DeviceSample{
+			AtNs: at, DeviceUUID: "GPU-5678", PodUID: "the-occupier", UtilisationPercent: 0,
+		})
+	}
+
+	ok, why := EstablishesDeviceWork(o, SameWindowClaim("victim-uid", 10_000_000_000, 30_000_000_000))
+	if ok {
+		t.Fatal("work was established for a Pod no sample ever named")
+	}
+	if strings.Contains(why, "kubernetes mapping off") || strings.Contains(why, "pod-resources mount broken") {
+		t.Errorf("the refusal blamed the exporter while that same exporter named two other Pods: %s", why)
+	}
+	if !strings.Contains(why, "is working") {
+		t.Errorf("the refusal does not say the mapping was working, which is the fact that rules the exporter out: %s", why)
+	}
+	if !strings.Contains(why, "not established") {
+		t.Errorf("the refusal names a cause it cannot support instead of declining to: %s", why)
+	}
+}
+
+// TestAnExporterThatNamesNobodyIsStillAccused keeps the accusation that IS supported.
+//
+// Full utilisation with nothing naming a tenant is what a broken kubernetes mapping looks like, and the
+// refusal must still send the operator to the exporter rather than to the workload.
+func TestAnExporterThatNamesNobodyIsStillAccused(t *testing.T) {
+	o := &DeviceObservation{
+		Observer:         ObserverDCGM,
+		ObserverIdentity: "nvcr.io/nvidia/k8s/dcgm-exporter@sha256:abc", Declared: true,
+		StartedNs:             0,
+		EndedNs:               40_000_000_000,
+		UnlabelledBusySamples: 40,
+	}
+
+	ok, why := EstablishesDeviceWork(o, SameWindowClaim("victim-uid", 10_000_000_000, 30_000_000_000))
+	if ok {
+		t.Fatal("work was established from an observation with no attributed sample at all")
+	}
+	if !strings.Contains(why, "kubernetes mapping off") {
+		t.Errorf("an exporter that named nobody while cards worked was not accused: %s", why)
+	}
+	if !strings.Contains(why, "Fix the observer, not the workload") {
+		t.Errorf("the refusal does not send the operator to the exporter: %s", why)
+	}
+}
+
+// TestACardNobodyUsedIsNotAnExporterFault is the third of the three, unchanged and still distinct.
+func TestACardNobodyUsedIsNotAnExporterFault(t *testing.T) {
+	o := &DeviceObservation{
+		Observer:         ObserverDCGM,
+		ObserverIdentity: "nvcr.io/nvidia/k8s/dcgm-exporter@sha256:abc", Declared: true,
+		StartedNs: 0,
+		EndedNs:   40_000_000_000,
+	}
+	for at := int64(0); at <= 40_000_000_000; at += int64(time.Second) {
+		o.Samples = append(o.Samples, DeviceSample{
+			AtNs: at, DeviceUUID: "GPU-1234", PodUID: "someone-else", UtilisationPercent: 0,
+		})
+	}
+
+	ok, why := EstablishesDeviceWork(o, SameWindowClaim("victim-uid", 10_000_000_000, 30_000_000_000))
+	if ok {
+		t.Fatal("work was established for a Pod nothing sampled")
+	}
+	if !strings.Contains(why, "is a reservation") {
+		t.Errorf("a device held by a Pod nothing sampled was not called a reservation: %s", why)
+	}
+	if strings.Contains(why, "kubernetes mapping off") {
+		t.Errorf("the exporter was blamed when no card was ever seen working: %s", why)
+	}
+}
