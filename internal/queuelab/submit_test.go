@@ -19,7 +19,10 @@ package queuelab
 import (
 	"bytes"
 	"errors"
+	"math"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strconv"
@@ -493,5 +496,50 @@ func TestAnArmsDutyReachesTheRenderedCommand(t *testing.T) {
 			t.Errorf("%s/%s renders contract arm %q, want the spelling of %q", tc.arm, tc.row, arm, contract)
 		}
 		_ = duty
+	}
+}
+
+// TestTheWorkloadDoesNotShareItsPeriodWithTheSampler holds the two files together.
+//
+// The workload's duty cycle has a period, and the exporter collects on one too. When they were equal a
+// quarter-duty victim executing 22,093 real kernels was reported as working in zero of 104 samples: a
+// sample landing in the idle part of the cycle landed there every time, because two processes at the same
+// frequency do not drift through each other's phase.
+//
+// A comment in each file cannot hold that, because the two values live in different files and neither edit
+// looks wrong beside the other. This reads the exporter's manifest and refuses a workload period that
+// divides into it or is divided by it.
+func TestTheWorkloadDoesNotShareItsPeriodWithTheSampler(t *testing.T) {
+	m := regexp.MustCompile(`(?m)^PERIOD=([0-9.]+)$`).FindStringSubmatch(workloadScript)
+	if m == nil {
+		t.Fatal("the workload declares no PERIOD, so nothing here can check it against the sampler's")
+	}
+	period, err := strconv.ParseFloat(m[1], 64)
+	if err != nil {
+		t.Fatalf("PERIOD=%q is not a number", m[1])
+	}
+
+	manifest, err := os.ReadFile(filepath.Join("..", "..", "config", "dcgm-exporter", "daemonset.yaml"))
+	if err != nil {
+		t.Fatalf("cannot read the exporter manifest, so this check verifies nothing: %v", err)
+	}
+	cm := regexp.MustCompile(`(?m)^\s*-\s*"-c"\s*\n\s*-\s*"(\d+)"`).FindSubmatch(manifest)
+	if cm == nil {
+		t.Fatal("the exporter manifest carries no -c interval; if the flag was renamed this check is stale " +
+			"and must be updated rather than deleted")
+	}
+	ms, err := strconv.Atoi(string(cm[1]))
+	if err != nil {
+		t.Fatalf("the exporter's -c value %q is not a number", cm[1])
+	}
+	sampler := float64(ms) / 1000
+
+	// Equal is the case that was measured. Integer multiples in either direction are the same trap: the
+	// phase still repeats, it just takes longer to come round.
+	ratio := period / sampler
+	if math.Abs(ratio-math.Round(ratio)) < 0.05 || math.Abs(1/ratio-math.Round(1/ratio)) < 0.05 {
+		t.Errorf("the workload's period is %gs and the exporter collects every %gs, a ratio of %.3f; the "+
+			"burst does not walk through the sampler's phase and a duty cycle can hide behind it entirely, "+
+			"which is what session qlgpu-20260906-103327 measured", period, sampler, ratio)
 	}
 }
