@@ -99,7 +99,13 @@ for run in "${RUNS[@]}"; do
   {
     echo "# $id"
     echo
-    echo "captured $(date -u +%FT%TZ) from $run"
+    # Stamped from the EVIDENCE, not from the clock.
+    #
+    # `date -u` here made every recapture of an unchanged run produce different bytes, so the Stop hook
+    # dirtied the working tree on any session that rebuilt a capture -- and the session runner refuses to
+    # launch from a dirty tree, which means the automation could block the very thing it exists to record.
+    # A capture of evidence that has not changed must not change.
+    echo "captured $(date -u -r "$newest_src" +%FT%TZ) from $run (stamped from the evidence, not the clock)"
     [ -s "$run/commit.txt" ] && echo "session commit: $(cat "$run/commit.txt")"
     [ -s "$run/instance-id" ] && echo "instance: $(cat "$run/instance-id")"
     echo
