@@ -7,7 +7,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -267,9 +269,22 @@ func TestTheEmbeddedPTXWasCompiled(t *testing.T) {
 func TestDutyReachesTheDevicePathAndNotJustTheFallback(t *testing.T) {
 	lib := buildFakeCUDA(t)
 
+	// The window is a whole number of the workload's OWN periods, read from the script rather than assumed.
+	//
+	// It used to be a flat four seconds, which was fine while the period was one second and wrong the moment
+	// it became 2.6: four seconds holds one and a half periods, the last one is truncated mid-work, and half
+	// duty measured 0.81 of full on CI instead of 0.5. The threshold was not too tight -- the window was not
+	// a multiple of the thing being measured. Two whole periods contribute exactly duty*PERIOD of work each,
+	// so there is no boundary left to be wrong about.
+	//
+	// Passed as a DECIMAL, not rounded up to a whole second. Rounding 5.2 to 6 put a third of a period on the
+	// end and half duty measured 0.58 instead of 0.5 -- a smaller version of the same defect, in the line
+	// written to fix it. The workload parses its duration as a float.
+	seconds := strconv.FormatFloat(2*workloadPeriod(t), 'f', -1, 64)
+
 	launches := func(duty string) int {
 		t.Helper()
-		out, code := runWorkloadAtDuty(t, lib, nil, "4", "ignore", duty)
+		out, code := runWorkloadAtDuty(t, lib, nil, seconds, "ignore", duty)
 		if code != 0 {
 			t.Fatalf("duty %s: the device path exited %d:\n%s", duty, code, out)
 		}
@@ -334,4 +349,21 @@ func TestTheWorkloadWritesTheDutyThisPackageParses(t *testing.T) {
 	if duty != 0.5 {
 		t.Errorf("the workload ran at a declared 0.5 and reported %v", duty)
 	}
+}
+
+// workloadPeriod reads the duty cycle's period out of the workload the tests actually run.
+//
+// Tests that depend on it derive it rather than restating it, because a period changed in one place and
+// restated in another is a test measuring a window that no longer contains what it thinks it does.
+func workloadPeriod(t *testing.T) float64 {
+	t.Helper()
+	m := regexp.MustCompile(`(?m)^PERIOD=([0-9.]+)$`).FindStringSubmatch(workloadScript)
+	if m == nil {
+		t.Fatal("the workload declares no PERIOD, so a test window cannot be sized from it")
+	}
+	v, err := strconv.ParseFloat(m[1], 64)
+	if err != nil || v <= 0 {
+		t.Fatalf("PERIOD=%q is not a usable period", m[1])
+	}
+	return v
 }
