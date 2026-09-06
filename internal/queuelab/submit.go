@@ -284,6 +284,25 @@ func RenderMLTrainingJob(row TrainingTraceRow, namespace string) (*platformv1.ML
 //
 // Parallelism and completions are pinned to 1 so a row's gpuCount is exactly its demand (one Pod), which the
 // occupancy and demand-satisfaction accounting assumes.
+// RenderForArm renders one trace row as the given arm defines it.
+//
+// It exists so the two things an arm decides about a row -- the termination contract and the duty cycle --
+// cannot be applied one at a time. The caller used to resolve both and then set one of them on the row by
+// hand; deleting that one line compiled, rendered the other arm's workload under this arm's label, and no
+// test noticed. An arm is a closed set of experimental conditions, so resolving it is one operation.
+func RenderForArm(arm Arm, row TrainingTraceRow, namespace string) (*platformv1.MLTrainingJob, error) {
+	contract, err := arm.ContractFor(row.Name)
+	if err != nil {
+		return nil, err
+	}
+	duty, err := arm.DutyFor(row.Name)
+	if err != nil {
+		return nil, err
+	}
+	row.Duty = duty
+	return RenderMLTrainingJobWithContract(row, namespace, contract)
+}
+
 func RenderMLTrainingJobWithContract(
 	row TrainingTraceRow, namespace string, contract TerminationContract,
 ) (*platformv1.MLTrainingJob, error) {
