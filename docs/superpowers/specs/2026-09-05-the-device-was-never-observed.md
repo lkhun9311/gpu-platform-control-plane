@@ -208,3 +208,86 @@ this kernel.
 It also cannot make the kind study's twelve records retroactively device-observed. Those runs measured what
 they measured. If reading 2 fires, the honest consequence is that the earlier figures are relabelled as
 reservation rather than corrected — they were never wrong about reservation.
+
+---
+
+# Results
+
+Appended 2026-09-06. **Nothing above this line was edited after the first instance launched.** The
+pre-registration stands as written; this section reports against it.
+
+Run `qlgpu-20260906-032038`, instance `i-04f8cbf7c116a8ea1`, g5.12xlarge Spot in ap-northeast-2c, from commit
+`e56f7a9`. Eight runs, four per arm, interleaved, grace-bounded dose. All eight were accepted by
+`-require-device`.
+
+## Reading 1 — the banner comes off. MET.
+
+`queuelabrun -compare` prints its comparison with **no** `device: NOT OBSERVED` line. Every run carries
+`validity.deviceEvidence: device-work-observed` from a source the workload cannot write to: a DCGM exporter
+naming the Pod's UID on the card it held.
+
+The reported quantity changes meaning with it. GPU-seconds in this session are observed device-seconds, not
+seconds of reservation.
+
+## Reading 2 — reservation and occupancy AGREE. Does not fire.
+
+| arm | reserved GPU-s | observed device-s | busy fraction | difference |
+| ---------- | -------------: | ----------------: | ------------: | ---------: |
+| A-honor | 20.643 | 20.137 | 0.976 | 0.506 |
+| A-ignore | 50.605 | 50.480 | 0.998 | 0.125 |
+
+The pre-registered test was whether the two differ by more than the run's own floor. The floor is 3.295 s per
+arm; the differences are 0.506 and 0.125. They do not.
+
+Method, because this reading is an analysis rather than something the tool certified: reserved is the record's
+own `wastedGPUSeconds`, which is `gpuCount * (stop - ready)` for the preempted attempt. Observed is that same
+interval scaled by the fraction of the victim's samples in it that showed the card working, from the record's
+own `deviceObservation`. Sampling was about every half second -- 41 samples across A-honor's 20.5 s window and
+101 across A-ignore's 50.5 s -- so the fraction is an estimate with roughly half-second granularity, which is
+well below the difference it would have taken to fire.
+
+**So the earlier figures were not misdescribing this workload.** The kind study's GPU-seconds were
+reservation, and for this kernel reservation tracked use. That is a narrower statement than "reservation is a
+good proxy": the trace workload computes continuously by construction. It says nothing about a workload that
+holds a card and idles, which is the case the distinction exists for.
+
+## Reading 3 — the result survived its own instrument. MET.
+
+| | kind cluster, fake plugin | this session, four A10Gs |
+| ------------------------- | ------------------------: | -----------------------: |
+| owner wait difference | 29.0 s | **28.8 s** |
+| GPU-second difference | 30.0 | **30.0** |
+| resolution floor | 5.906 s | 6.546 s |
+
+    A-honor   n=4  waste mean=20.643  ownerWait mean=2.862   min=2.488  max=3.658
+    A-ignore  n=4  waste mean=50.605  ownerWait mean=31.706  min=31.582 max=31.823
+
+Both differences remain larger than the sum of the two arms' floors. The kind result was not an artifact of
+the fake device plugin's scheduling, which is what an unobserved device had left open.
+
+## Reading 4 — not reached. Attribution worked.
+
+DCGM attributed utilisation to Pods on this driver and AMI. Across the session's own sampling, 34 Pods were
+named; the two cards the protocol used were busy in 541 and 559 of 663 samples, and the two held by the
+surplus occupier were busy in 0 of 663 -- allocated and idle, which is what the occupier is for and what an
+exclusivity clause needs to be able to see.
+
+## What it cost, and what went wrong on the way
+
+Nine sessions, about $3.90 against a pre-registered $4.09. Eight of them bought a defect rather than a
+measurement, and the pre-registration's own claim -- that the preflight gate is charged first because it is
+the failure that wastes the session -- is what kept each one cheap.
+
+The one worth recording is the eighth. `-require-device` selected the victim's samples over the HOLD, which is
+the owner's admission to the victim's stop. In the arm that honours SIGTERM that window was 216 milliseconds
+while the exporter scrapes about once a second, so it could not contain a sample, and the run was refused
+while carrying 39 busy samples of exactly the Pod it was asking about. The gate was asymmetric by
+construction: the ignoring arm computes through a thirty-second hold and passes trivially. Half the
+experiment could never have been valid, and the contrast between those halves is the result. The USE question
+now reads the attempt; exclusivity and continuity still read the hold.
+
+## What this run still cannot say
+
+Everything the pre-registration already listed, unchanged: one card model, one driver, one AMI, no inference,
+no sharing modes. And one thing it can now say more precisely -- reservation tracked occupancy **for a kernel
+that never stops computing**, which is the easiest case for them to agree.
