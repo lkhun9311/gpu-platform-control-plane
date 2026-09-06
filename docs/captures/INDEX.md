@@ -10,3 +10,4 @@ run directory it came from is gitignored and does not survive.
 - `qlgpu-20260905-193528` — [numbers](qlgpu-20260905-193528/numbers.md) · no device series
 - `qlgpu-20260905-212213` — [numbers](qlgpu-20260905-212213/numbers.md) · [device.svg](qlgpu-20260905-212213/device.svg)
 - `qlgpu-20260906-002953` — [numbers](qlgpu-20260906-002953/numbers.md) · no device series
+- `qlgpu-20260906-012813` — [numbers](qlgpu-20260906-012813/numbers.md) · [device.svg](qlgpu-20260906-012813/device.svg)

@@ -410,6 +410,41 @@ for W in "${WORKERS[@]}"; do
   echo
 done
 
+# The preflight's Pod has to finish leaving before the first run qualifies the node.
+#
+# The device preflight applies a Pod that holds a card, and it releases the worker as soon as that Pod is
+# told to go -- not once it is gone. The first run then qualifies the node, finds a Pod still holding
+# nvidia.com/gpu, and refuses:
+#
+#   ENVIRONMENT NOT QUALIFIED: 1 Pod(s) already hold nvidia.com/gpu on it, which the ownership taint does
+#   not evict: "queuelab-canary"/"dp-..." (Running, terminating, 1 gpu)
+#
+# That refusal is right and stays: a run measured beside another tenant's work is not attributable, which is
+# the whole exclusivity clause. The bug is the race, not the guard, and the fix is to wait rather than to
+# soften what qualification accepts.
+#
+# The surplus occupier is deliberately NOT waited for. It holds the cards this protocol does not use, on
+# purpose, for the whole session, and qualification already accounts for it -- occupiedGPU against
+# requiredGPU. Only the preflight's own leftovers are transient.
+if [[ "${RUN_STUDY:-}" == "1" ]]; then
+  for W in "${WORKERS[@]}"; do
+    for _ in $(seq 1 60); do
+      leftover=$(kubectl get pods -A --field-selector "spec.nodeName=$W" \
+        -o jsonpath='{range .items[?(@.metadata.namespace=="queuelab-canary")]}{.metadata.name}{" "}{end}' 2>/dev/null || true)
+      # `|| true` on the assignment above, because under `set -e` a failing kubectl would kill the script
+      # here -- before the guard below could say what was wrong. This file has been bitten by that exact
+      # shape once already, at the image grep a few hundred lines up.
+      [ -z "${leftover// /}" ] && break
+      sleep 2
+    done
+    if [ -n "${leftover// /}" ]; then
+      echo "the device preflight's Pod(s) are still on $W after two minutes: $leftover" >&2
+      echo "the first run would refuse to qualify the node; not starting the study" >&2
+      exit 1
+    fi
+  done
+fi
+
 if [[ "${RUN_STUDY:-}" != "1" ]]; then
   echo "every worker is verified. To run the study through these same routes:"
   echo "  RUN_STUDY=1 $0 ${WORKERS[*]}"
