@@ -231,3 +231,80 @@ func TestBusynessOnAnotherCardDoesNotEstablishTheHeldOne(t *testing.T) {
 		t.Errorf("refused for an unexpected reason: %v", why)
 	}
 }
+
+// TestAHoldShorterThanAScrapeDoesNotDeleteTheHonouringArm is the run this gate threw away.
+//
+// Measured on real hardware, session qlgpu-20260906-015520, run gh1: the owner was admitted at 24.216 s and
+// the victim stopped at 24.432 s, so the hold was 216 ms while DCGM scrapes about once a second. The hold
+// could not contain a sample. The same observation carried 43 samples naming that Pod between 3.1 s and
+// 24.1 s, 39 of them busy on one card, and the run was refused for producing no evidence.
+//
+// The refusal was not even-handed, which is what makes it a defect rather than a strict gate: the arm that
+// ignores SIGTERM computes through a thirty-second hold and passes trivially, so the gate removed the short
+// arm and kept the long one. The contrast between those two arms is the entire result.
+func TestAHoldShorterThanAScrapeDoesNotDeleteTheHonouringArm(t *testing.T) {
+	const ready = 3_887_000_000
+	const ownerAdmitted = 24_216_000_000
+	const stopped = 24_432_000_000
+
+	o := &DeviceObservation{
+		Observer: ObserverDCGM, ObserverIdentity: "dcgm@sha256:abc", Declared: true,
+		StartedNs: 50_877_837, EndedNs: 130_000_439_072,
+	}
+	// The victim's own samples, at the cadence the exporter actually ran: one a second, busy, on one card,
+	// ending just before it stopped. None of them can land inside a 216 ms hold.
+	for at := int64(3_100_000_000); at <= 24_100_000_000; at += int64(500 * time.Millisecond) {
+		o.Samples = append(o.Samples, DeviceSample{
+			AtNs: at, DeviceUUID: "GPU-37cf5109", PodUID: "victim-uid", UtilisationPercent: 98,
+		})
+	}
+	// The occupier, on other cards, for the whole window. It is what a real node carries and it must not be
+	// mistaken for a second tenant on the held card.
+	for at := int64(0); at <= 130_000_000_000; at += int64(time.Second) {
+		o.Samples = append(o.Samples, DeviceSample{
+			AtNs: at, DeviceUUID: "GPU-occupier", PodUID: "occupier-uid", UtilisationPercent: 0,
+		})
+	}
+
+	ok, why := EstablishesDeviceWork(o, DeviceClaim{
+		PodUID:     "victim-uid",
+		WorkFromNs: ready, WorkToNs: stopped,
+		HoldFromNs: ownerAdmitted, HoldToNs: stopped,
+	})
+	if !ok {
+		t.Fatalf("a victim observed busy on one card for twenty seconds was refused because its hold was "+
+			"shorter than a scrape interval: %s", why)
+	}
+}
+
+// TestAVictimThatNeverTouchedACardIsStillRefused keeps the gate a gate.
+//
+// Widening the USE question to the attempt must not turn it into no question. A Pod whose attempt was
+// sampled and idle throughout has not established device work, however long its attempt was.
+func TestAVictimThatNeverTouchedACardIsStillRefused(t *testing.T) {
+	const ready = 3_887_000_000
+	const ownerAdmitted = 24_216_000_000
+	const stopped = 24_432_000_000
+
+	o := &DeviceObservation{
+		Observer: ObserverDCGM, ObserverIdentity: "dcgm@sha256:abc", Declared: true,
+		StartedNs: 0, EndedNs: 130_000_000_000,
+	}
+	for at := int64(3_100_000_000); at <= 24_100_000_000; at += int64(500 * time.Millisecond) {
+		o.Samples = append(o.Samples, DeviceSample{
+			AtNs: at, DeviceUUID: "GPU-37cf5109", PodUID: "victim-uid", UtilisationPercent: 0,
+		})
+	}
+
+	ok, why := EstablishesDeviceWork(o, DeviceClaim{
+		PodUID:     "victim-uid",
+		WorkFromNs: ready, WorkToNs: stopped,
+		HoldFromNs: ownerAdmitted, HoldToNs: stopped,
+	})
+	if ok {
+		t.Fatal("a card that was allocated and idle for the whole attempt established device work")
+	}
+	if !strings.Contains(why, "allocated and idle") {
+		t.Errorf("refused, but not for being idle: %s", why)
+	}
+}

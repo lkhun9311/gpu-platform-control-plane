@@ -341,6 +341,30 @@ func busyDuringAttempt(obs *DeviceObservation, devices map[string]bool, claim De
 func EstablishesDeviceWork(obs *DeviceObservation, claim DeviceClaim) (bool, string) {
 	podUID := claim.PodUID
 	fromNs, toNs := claim.HoldFromNs, claim.HoldToNs
+
+	// Two intervals, and which one each question is asked over decides whether one arm can ever pass.
+	//
+	// busyDuringAttempt was moved to the attempt window for a reason DeviceClaim states: the hold is the tail
+	// during which the victim is being terminated, so in the arm that honours SIGTERM it is idle by
+	// definition. The move stopped one level too high. The existence check below still selected samples over
+	// the HOLD, and reached "no sample names this Pod" before busyness was ever asked.
+	//
+	// On real hardware that is not a near miss. A measured A-honor run had a hold of 216 ms -- owner admitted
+	// at 24.216 s, victim stopped at 24.432 s -- while DCGM scrapes about once a second, so the hold could not
+	// contain a sample at all. The same observation carried 43 samples naming that Pod between 3.1 s and
+	// 24.1 s, 39 of them busy on one card. A valid run was refused, and the refusal was not even-handed: the
+	// ignoring arm computes through a thirty-second hold and passes, so the gate deleted the short arm and
+	// kept the long one -- and the contrast between those arms IS the study.
+	//
+	// So the USE question reads the attempt, and exclusivity and continuity keep reading the hold. The
+	// attempt contains the hold, so nothing here widens what the exclusivity clause scans.
+	workFrom, workTo := claim.WorkFromNs, claim.WorkToNs
+	if workFrom >= workTo {
+		// No attempt window in the ledger. The caller already treats that as a claim it cannot fully support;
+		// falling back to the hold keeps the old behaviour rather than inventing a wider one.
+		workFrom, workTo = fromNs, toNs
+	}
+
 	if ok, why := admitsDeviceObserver(obs); !ok {
 		return false, why
 	}
@@ -356,23 +380,47 @@ func EstablishesDeviceWork(obs *DeviceObservation, claim DeviceClaim) (bool, str
 			"of it was never watched", obs.StartedNs, obs.EndedNs, fromNs, toNs)
 	}
 
+	// attempt answers "did this Pod use a card". mine answers "was the observer watching across the hold".
+	attempt := make([]DeviceSample, 0, len(obs.Samples))
 	mine := make([]DeviceSample, 0, len(obs.Samples))
-	devices := map[string]bool{}
+	holdDevices := map[string]bool{}
+	attemptDevices := map[string]bool{}
 	for _, s := range obs.Samples {
-		if s.PodUID != podUID || s.AtNs < fromNs || s.AtNs > toNs {
+		if s.PodUID != podUID {
 			continue
 		}
-		if s.DeviceUUID == "" {
-			return false, fmt.Sprintf("a sample at %d ns names no device: an observation that cannot say which "+
-				"card it watched cannot establish that the card this Pod held did anything", s.AtNs)
+		if s.AtNs >= workFrom && s.AtNs <= workTo {
+			if s.DeviceUUID == "" {
+				return false, fmt.Sprintf("a sample at %d ns names no device: an observation that cannot say "+
+					"which card it watched cannot establish that the card this Pod held did anything", s.AtNs)
+			}
+			attempt = append(attempt, s)
+			attemptDevices[s.DeviceUUID] = true
 		}
-		mine = append(mine, s)
-		devices[s.DeviceUUID] = true
+		if s.AtNs >= fromNs && s.AtNs <= toNs {
+			mine = append(mine, s)
+			if s.DeviceUUID != "" {
+				holdDevices[s.DeviceUUID] = true
+			}
+		}
+	}
+
+	// Which card the hold was about is the hold's answer to give, and the attempt's only when the hold has
+	// nothing to say.
+	//
+	// The hold is the sharper witness: a Pod that touched two cards across its attempt but held one while its
+	// owner waited is a run about that one. Taking the device set from the attempt unconditionally made a
+	// fixture built on exactly that distinction refuse for ambiguity instead of for idleness, which is a
+	// worse answer to a question the hold could still answer. The fallback exists for the hold that cannot:
+	// 216 ms is shorter than a scrape interval, so it contains no sample and names no card.
+	devices := holdDevices
+	if len(devices) == 0 {
+		devices = attemptDevices
 	}
 	if ok, why := exclusiveDuringHold(obs, devices, podUID, fromNs, toNs); !ok {
 		return false, why
 	}
-	if len(mine) == 0 {
+	if len(attempt) == 0 {
 		// Three different faults end here, and the refusal has to tell them apart.
 		//
 		// An unlabelled busy card alone does not establish a broken exporter. A session on real hardware
