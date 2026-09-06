@@ -17,7 +17,7 @@ queuelabrun checksum: user-data matches the uploaded binary
 == uploading the source archive
 == queuelabrun <SIZE>, sha256 <SHA12>
 == g5.12xlarge is offered in: ap-northeast-2a ap-northeast-2c
-FAIL: the user-data encodes to 16520 bytes and EC2 accepts 100. It is 12389 bytes raw, in 254 lines, after comments were stripped. Nothing was launched. Move the bulk out of the heredoc rather than trimming prose: see <OUT>/user-data.sh
+FAIL: the user-data encodes to 16560 bytes and EC2 accepts 100. It is 12420 bytes raw, in 255 lines, after comments were stripped. Nothing was launched. Move the bulk out of the heredoc rather than trimming prose: see <OUT>/user-data.sh
 --- files
 ./queuelabrun
 ./source.tgz
