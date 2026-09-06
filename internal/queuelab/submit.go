@@ -113,10 +113,25 @@ const WorkloadImage = "python:3.12-slim@sha256:2c941e860699f878900b0edc2403613c2
 // It is carried in the command rather than baked into an image on purpose. The command is part of the Pod
 // template the termination canary fingerprints, so changing the workload forces a re-take; an image would
 // only do that when its digest moved, and a script edited inside the same tag would not move it.
+//
+// PERIOD is 2.6 seconds and must not be 1.0, which is what it was when the idling study first ran.
+//
+// The exporter collects every 1000 ms. A workload whose duty cycle also has a one-second period does not
+// drift through the sampler's phase: a sample that lands in the idle part of the cycle lands there again,
+// and again. Session qlgpu-20260906-103327 measured that -- a victim executing 22,093 real kernels at a
+// declared 0.25 duty was reported by DCGM as working in ZERO of 104 samples, while the same exporter in the
+// same run read 98 for a continuously computing neighbour and named every Pod on every card.
+//
+// 2.6 shares no period with 1000 ms, so the burst walks through the sampler's phase and cannot hide behind
+// it. It is also long enough that a quarter of it is 0.65 s, which is comfortably wider than the interval
+// NVML averages over, so a sample landing in a burst reads a burst rather than an edge.
+//
+// This is a fix and a test at once. If a quarter-duty run still reports zeros at this period, the phase
+// explanation was wrong and the blind spot is somewhere else.
 const workloadScript = `import ctypes,signal,sys,time
 seconds=float(sys.argv[1]); honor=sys.argv[2]=="honor"
 duty=float(sys.argv[3]) if len(sys.argv)>3 else 1.0
-PERIOD=1.0
+PERIOD=2.6
 n=0; kind="cpu-float"; dev="not-attempted"
 PTX=b""".version 6.3
 .target sm_75
