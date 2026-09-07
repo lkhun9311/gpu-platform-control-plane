@@ -270,7 +270,7 @@ sentence.
 | stage                                                                      |    cost | gate                                     |
 | -------------------------------------------------------------------------- | ------: | ---------------------------------------- |
 | harness development                                                        |      $0 | done — `stub-serve`, re-scored evidence   |
-| pilot: R1, `default-fcfs`, `mbt-0512-fcfs`, `mbt-0512-priority`, L1, 1 rep |  see below | reading 4 must not fire, and B₀ resolved |
+| pilot: R1, `default-fcfs`, `mbt-0512-fcfs`, `mbt-0512-priority`, L1, 1 rep |   $1.30 | reading 4 must not fire, and B₀ resolved |
 | confirmatory: 8 cells + control + R1 × 3 reps, L1                          |   $3.45 | readings evaluated                        |
 | L2: winning cell + control, 3 reps                                         |   $3.45 | only if reading 1 or 1b fired             |
 | unspent reserve                                                            |   $2.45 | —                                         |
@@ -284,6 +284,36 @@ have evaluated reading 4 (which compares the control against R1), and could not 
 effect from the policy effect. Four arms at one repetition is the smallest pilot that can do those three
 things. Before it is bought, one of two things must happen: a runtime estimate that shows four arms fit the
 hour, or an explicit decision to buy two hours. **Do not treat $0.65 as this pilot's price.**
+
+### The estimate, and what it decides — 2026-09-07
+
+**Four arms do not fit the hour. The pilot is two hours, $1.30.**
+
+The one measured input is the per-arm replay time at L1, and it is measured precisely because L1 *is* the
+2026-09-03 trace. That run wrote a manifest at the start of every arm-repetition, and the sixteen intervals
+between them are **10 to 11 minutes each**, stable across all four arms — the isolated arm and the
+uncontended one take the same wall time as the contended ones, so arm type does not move this number.
+
+Four arms at one repetition is therefore **about 44 minutes of replay before anything else happens**, and
+three things are added on top that the 2026-09-03 run did not pay:
+
+- **Four engine restarts.** `hack/m5b-arms.sh` held one engine across all its arms; this study varies
+  `--max-num-batched-tokens` and `--scheduling-policy`, so `hack/m5b-price-of-protection.sh` does
+  `docker rm -f vllm` and a fresh `docker run` per arm and then waits on `/health`. That wait is allowed
+  900 s. A warm restart from the mounted `/hf` cache has never been timed in this repository, so this
+  document does not claim a figure for it — but any credible value is minutes, and four of them.
+- **The first arm's weight download.** A fresh Spot instance has an empty `/hf`, so arm one pays a full
+  model fetch. `hack/m5b-gpu-session.sh` says as much where it waits: *"weights download and memory
+  profiling take minutes"*.
+- **Session setup** — instance boot and the pull of the digest-pinned vLLM image, which is large.
+
+44 minutes of replay leaves 16 minutes for four engine restarts, a model download and the whole bring-up.
+That does not close under any restart time worth writing down, so the estimate does not need one: the hour
+is already spent. **Buy two.** At the measured $0.65/h that is $1.30, and it comes out of the $2.45 reserve
+without touching the confirmatory or L2 lines.
+
+This is an estimate of wall time, not a promise. If the pilot overruns two hours the run is stopped and
+reported as stopped, in the same way `qlgpu-20260906-103327` was.
 
 The confirmatory line also now names its control and ceiling explicitly. The first draft's "8 cells × 3
 reps" did not include them, and neither reading 1 nor reading 3 can be evaluated without both.

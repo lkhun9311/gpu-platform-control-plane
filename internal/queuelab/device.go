@@ -68,6 +68,22 @@ const maxObserverGap = 2 * time.Second
 // reports while another process initialises, cannot carry the claim.
 const minBusySamples = 2
 
+// minBusySeparation is how far apart two busy samples must be before they count as two.
+//
+// "Spaced across the interval" is the whole of what minBusySamples means, and counting samples at distinct
+// TIMESTAMPS does not deliver it. dcgm-exporter collects on its own cadence and serves a CACHED snapshot
+// between collections, while this run scrapes faster than that on purpose -- so one collection is read
+// several times, at several distinct timestamps, carrying one instant's reading each time. Counting those
+// as two satisfied the gate from a single collection, which is precisely the "reading rather than a state"
+// the refusal message claims to prevent. Measured: at PERIOD = 2.6 s the victim's series repeats every value
+// in pairs, so its 30 busy samples are 15 busy collections.
+//
+// maxObserverGap is the right length because it is the bound the exporter's collection interval is already
+// required to stay under (see config/dcgm-exporter/daemonset.yaml). A snapshot is therefore served for less
+// than maxObserverGap, and two reads at least that far apart cannot be the same snapshot. This needs no
+// knowledge of the exporter's actual cadence, which the gate does not have and should not guess.
+const minBusySeparation = maxObserverGap
+
 // staleLabelMargin is how far before the interval another Pod's label still counts against exclusivity.
 //
 // DCGM's Kubernetes labels come from the kubelet's pod-resources socket, which the exporter polls: when a
@@ -324,12 +340,30 @@ func busyDuringAttempt(obs *DeviceObservation, devices map[string]bool, claim De
 			busyAt[s.AtNs] = true
 		}
 	}
-	busy := len(busyAt)
+	// Distinct timestamps first, then distinct INSTANTS. The samples arrive in whatever order the observation
+	// holds them, so they are sorted before spacing can mean anything.
+	times := make([]int64, 0, len(busyAt))
+	for at := range busyAt {
+		times = append(times, at)
+	}
+	sort.Slice(times, func(i, j int) bool { return times[i] < times[j] })
+	busy := 0
+	last := int64(0)
+	for i, at := range times {
+		if i == 0 || at-last >= int64(minBusySeparation) {
+			busy++
+			last = at
+		}
+	}
 	if busy < minBusySamples {
-		return false, fmt.Sprintf("the device held by Pod %s was observed working in %d of %d samples across "+
-			"the attempt (%d..%d ns); a card that is allocated and idle is the state this whole axis exists "+
-			"to distinguish from one that is computing, and two busy rows from ONE instant are a reading "+
-			"rather than a state", podUID, busy, seen, work, workEnd)
+		// Two counts, because they send a reader to two different places. A card busy at one instant and a
+		// card never busy at all are both refused here, and only the first one means the observer was too
+		// fast for its source.
+		return false, fmt.Sprintf("the device held by Pod %s was observed working at %d separate instants "+
+			"(%d busy samples of %d) across the attempt (%d..%d ns); a card that is allocated and idle is "+
+			"the state this whole axis exists to distinguish from one that is computing, and busy samples "+
+			"closer together than %s can all be one collection read several times, which is a reading "+
+			"rather than a state", podUID, busy, len(times), seen, work, workEnd, minBusySeparation)
 	}
 	return true, ""
 }

@@ -19,8 +19,9 @@
 > accepted by `-require-device`, and the banner is gone. Owner wait separates by 28.8 s there against 29.0 s
 > on kind, so the result survived its own instrument. A second study then showed reservation and use coming
 > apart by a factor of four while every reservation-based figure stayed the same, and found that a duty cycle
-> synchronised with the exporter's collection interval is invisible to it. Every GPU in the kind clusters is
-> still simulated by a fake device plugin, and those runs are still reservation.
+> synchronised with the exporter's collection interval is reported by whichever single phase the sampler
+> happens to sit on -- zero in the run that was measured, but as plausibly a full 98. Every GPU in the kind
+> clusters is still simulated by a fake device plugin, and those runs are still reservation.
 >
 > **Built, and the reason the paid numbers are worth reading:** a characterization harness that pins what
 > each GPU-renting script does before it may be run against a card. Three runners, 25 scenarios, each
