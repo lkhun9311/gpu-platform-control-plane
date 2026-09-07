@@ -328,7 +328,16 @@ say "waiting for results (the engine has an image and weights to pull first)"
 done_seen=0
 ended_early=""
 marker_rc=0
-ended_early=$(spot_wait_for_marker "$REGION" "$BUCKET" "$RUN_ID/DONE" "$IID" 160 30) || marker_rc=$?
+# The watcher has to outlast the instance's own backstop, or it terminates a run that was still working.
+# It was a fixed 160 polls at 30 s -- 80 minutes -- against a BACKSTOP_SECONDS of two hours, so the two
+# disagreed by forty minutes and the shorter one owned the trap. The pre-registration's own runtime estimate
+# puts the four-arm pilot near seventy minutes, which is inside that gap: the run would have been killed and
+# the card time spent for nothing. Deriving the count from the backstop is what keeps them from drifting
+# apart again, and the margin is for the upload the instance does after its backstop fires.
+POLL_INTERVAL=30
+POLL_ATTEMPTS=$(( BACKSTOP_SECONDS / POLL_INTERVAL + 10 ))
+say "watching for up to $(( POLL_ATTEMPTS * POLL_INTERVAL / 60 )) min against a $(( BACKSTOP_SECONDS / 60 )) min backstop"
+ended_early=$(spot_wait_for_marker "$REGION" "$BUCKET" "$RUN_ID/DONE" "$IID" "$POLL_ATTEMPTS" "$POLL_INTERVAL") || marker_rc=$?
 case "$marker_rc" in
   0) say "results are up"; done_seen=1 ;;
   2) say "instance ended before writing DONE" ;;
