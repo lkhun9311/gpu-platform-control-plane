@@ -197,6 +197,28 @@ def engine_config(name):
     return "\n".join(kept)
 
 
+def fingerprint(logs_text):
+    """Two numbers the engine reports for every arm, whether or not it states its batch budget.
+
+    B0 -- the budget an engine picks when nobody sets one -- is not printed. vLLM logs
+    "Chunked prefill is enabled with max_num_batched_tokens=N" ONLY when N was passed, and the control's log
+    carries no scheduler line at all even though chunked prefill is on. Two paid pilots confirmed it: the
+    whole log, both streams, and the number is not in it.
+
+    But the budget leaves marks. The compiler's range endpoint tracks it, and the KV cache the engine ends up
+    with is a deterministic function of the activation memory the budget reserves. Across two sessions on two
+    instances those marks were identical: unset gave (2048, 369,680) and 512 gave (512, 386,912), every time.
+
+    So B0 is resolved by CONSTRUCTION rather than by parsing: run an arm that states a budget, and if its
+    fingerprint matches the control's, the control was configured the same way. That is a match between two
+    engines this run started, not an inference about a field nobody documented.
+    """
+    ep = re.search(r"compile_ranges_endpoints': \[(\d+)\]", logs_text)
+    kv = re.search(r"GPU KV cache size: *([\d,]+)", logs_text)
+    return {"compileRangeEndpoint": int(ep.group(1)) if ep else None,
+            "kvCacheTokens": int(kv.group(1).replace(",", "")) if kv else None}
+
+
 def agrees(config, budget, policy):
     """Refuse an arm the engine does not agree it is.
 
@@ -241,6 +263,7 @@ for name, budget, policy in ARMS:
         manifest["arms"].append(entry); continue
 
     config = engine_config(name)
+    entry["fingerprint"] = fingerprint(open(f"{OUT}/engine-log-{name}.txt").read())
     # The resolved budget, recorded whether or not we asked for one. For the control this is B0, the number
     # the pre-registration deliberately refuses to guess.
     resolved = re.search(r"max_num_batched_tokens[^0-9]{1,4}(\d+)", config)
@@ -292,6 +315,22 @@ with open(f"{OUT}/run.json", "w") as f:
 
 # The exit status is what gates the completion marker. An arm that produced no rows is not a result.
 served = [a for a in manifest["arms"] if a.get("raw")]
+# B0 by construction: an arm that STATED its budget and produced the control's fingerprint was configured
+# the way the control configures itself. This is the only route the engine leaves open -- see fingerprint().
+stated = [a for a in manifest["arms"] if a.get("resolved_budget") and a.get("fingerprint")]
+for a in manifest["arms"]:
+    if not a.get("b0_unresolved") or not a.get("fingerprint"):
+        continue
+    if a["fingerprint"].get("compileRangeEndpoint") is None or a["fingerprint"].get("kvCacheTokens") is None:
+        continue
+    for m in stated:
+        if m["fingerprint"] == a["fingerprint"]:
+            a["resolved_budget"] = m["resolved_budget"]
+            a["b0_resolved_by"] = f"fingerprint match with {m['arm']}, which stated {m['resolved_budget']}"
+            a.pop("b0_unresolved", None)
+            print(f"B0 RESOLVED for {a['arm']}: {a['b0_resolved_by']} ({a['fingerprint']})", file=sys.stderr)
+            break
+
 unresolved = [a["arm"] for a in manifest["arms"] if a.get("b0_unresolved")]
 if unresolved:
     # Loud, and on stderr, because this is the pre-registration's own pilot gate: "reading 4 must not fire,
