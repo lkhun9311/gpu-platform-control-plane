@@ -136,9 +136,23 @@ request.
 
 **The guard's refusals landed where the damage was not.** 84 percent of them fired while no long prefill was
 running at all, a median of 16.9 seconds after the last one had produced its first token. Its engage
-threshold is a KV-cache occupancy of 0.85, which this workload needs about 42 concurrent requests to reach;
-the damage starts at one. The signal is downstream of the harm and the instrument's time constants are
-longer than the load's.
+threshold is a KV-cache occupancy of 0.85, which this workload needs about 43 concurrent requests to reach;
+the damage starts at one.
+
+An earlier version of this paragraph ended "the signal is downstream of the harm and the instrument's time
+constants are longer than the load's". That sentence is withdrawn, and the reason is that the real finding is
+both simpler and stronger. Re-analysing the same rows —
+`docs/superpowers/specs/2026-09-04-the-layer-not-the-signal.md`, no card time — shows the guard engages on
+occupancy **or** a waiting queue above 8, and that the occupancy limb was unreachable by construction: the
+engine reported a 386,912-token cache, a noisy prompt is 7,695 tokens, and the most this trace ever had in
+flight at once was 13, or 25.9 percent. **All 274 refusals came from the waiting-queue branch.** The signal
+the milestone was named for was never once consulted.
+
+"Downstream" was a story fitted to a negative result. It cannot be falsified on this evidence, because
+falsifying it would need a load that reaches 0.85 and this one never approaches it — and a claim this
+evidence cannot test is not a claim this evidence established. Two external reviews arrived at the same
+objection independently on 2026-09-07. The accurate sentence is the one that page already uses: at this
+load, the occupancy condition was unreachable.
 
 **A two-request microtest on one Spot instance, at about $0.40, showed the layer below has a lever.** With
 the engine's batch budget at 512 tokens and its scheduling policy set to priority, a short request behind a
