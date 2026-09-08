@@ -65,8 +65,13 @@ for run in "${RUNS[@]}"; do
   # the price-of-protection and scheduler measurements, which are the most expensive numbers here. They are
   # written as raw-*.jsonl and trace-*.jsonl. A capture step that quietly omits the best evidence is worse
   # than no capture step, because the directory it produces looks complete.
+  #
+  # evidence/ is in the list for the second half of that same lesson. The price-of-protection runner ships
+  # its rows home as an archive and unpacks them into a subdirectory, so the 2026-09-07 pilot captured its
+  # one-line run.json and none of the four raw files the run was bought for -- and the capture it produced
+  # said "1 record(s)" rather than saying anything was missing.
   shopt -s nullglob
-  records=("$run"/runs/*.json "$run"/session/*.json "$run"/*.json "$run"/*.jsonl)
+  records=("$run"/runs/*.json "$run"/session/*.json "$run"/evidence/*.jsonl "$run"/*.json "$run"/*.jsonl)
   shopt -u nullglob
 
   # nvidia-smi on real cards is a measurement too, and it is sometimes the only one a session got far enough

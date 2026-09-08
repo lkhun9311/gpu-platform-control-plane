@@ -34,6 +34,33 @@ INSTANCE_TYPE="${INSTANCE_TYPE:-g5.xlarge}"
 MAX_SPOT_PRICE="${MAX_SPOT_PRICE:-0.80}"
 BACKSTOP_SECONDS="${BACKSTOP_SECONDS:-7200}"
 REPS="${REPS:-1}"
+
+# The offered load, derived in docs/superpowers/specs/2026-09-08-the-load-needs-an-upper-gate.md.
+#
+# It is set here rather than left to gen-trace's defaults because those defaults are calibrated against a
+# stub backend that costs nothing to serve -- the flag's own help says so -- and the 2026-09-07 pilot ran
+# them straight at a GPU. Measured against that engine's own sustained prefill throughput, the trace offered
+# TEN TIMES the prefill it can do, and 95.9% of the control timed out. Every reading below reading 4 was
+# then a ratio over a remnant.
+#
+# The protected tenant is unchanged at about 9.25/s, because it was 5% of capacity and none of the
+# contention came from it. The contending tenant drops eighteen-fold and the probe pair with it: at 3,171
+# tokens each those two carried 78% of capacity while their flag help called them a small population. What
+# is left sits at roughly 60% of measured capacity, where one long prefill is in flight about half the time
+# -- which is a contended engine by a wide margin, since a single concurrent long prefill has already been
+# measured at fifteen times R1's premium tail.
+#
+# The duration follows from reading 4b rather than from taste. 100 contender completions is the floor. At the
+# realised 0.45/s a 300 s trace offers 135, which clears the floor only if better than three quarters of them
+# complete -- too thin a margin for the gate that voids the whole run, and Poisson arrivals scatter around
+# the mean besides. 420 s offers about 190. Lengthening is the safe direction to add margin in: raising the
+# rate instead would push utilisation back toward the saturation that voided the first pilot.
+RATE="${RATE:-9.85}"                  # total arrivals per second across all tenants
+DURATION_MS="${DURATION_MS:-420000}"  # 420 s of arrivals
+PREMIUM_WEIGHT="${PREMIUM_WEIGHT:-1}"
+NOISY_WEIGHT="${NOISY_WEIGHT:-0.054}" # 0.50/s against premium's 9.25/s
+PROBE_WEIGHT="${PROBE_WEIGHT:-0.0054}"
+
 OUT="${OUT:-hack/pop-$(date -u +%Y%m%d-%H%M%S)}"
 STACK="m5b-pop"
 STUDY="price-of-protection-2026-09-05"
@@ -54,6 +81,54 @@ spot_fail() { fail "$@"; }
 . "$(dirname "${BASH_SOURCE[0]}")/lib/spot-run.sh"
 
 ACCOUNT=$(spot_account) || fail "not authenticated"
+
+# Refuse to launch on credentials that expire before the run does.
+#
+# Being authenticated NOW is not the question. This script's cleanup trap terminates the instance by calling
+# the AWS API, so credentials that die mid-run leave a GPU instance billing with nothing able to stop it: the
+# only backstop left is the timer inside the instance, and that is two hours of spend nobody chose.
+#
+# It happened on 2026-09-08. A ten-arm run was launched with fifty-four minutes of credential left against a
+# hundred minutes of work, and the operator caught it rather than the script. The margin below is the run's
+# own estimate -- 15 min of fixed cost, 1.5 per arm, 7 per arm-repetition, fitted to three paid runs -- plus
+# half an hour, because an estimate that is exactly right is still no margin at all.
+#
+# The expiry is the LATEST live credential rather than the earliest of all cached ones. Checking the earliest
+# is how I read a fresh twelve-hour login as already expired: the cache also holds files for profiles this
+# run does not use, and theirs had lapsed hours before.
+require_credential_margin() {
+  local arms reps need
+  arms=$(awk -F, '{print NF}' <<<"$ARMS")
+  reps="$REPS"
+  need=$(( 15 + arms*3/2 + arms*reps*7 + 30 ))
+  python3 - "$need" <<'PY' || fail "not enough credential left to finish this run and terminate its instance"
+import datetime, glob, json, sys
+need = int(sys.argv[1])
+now = datetime.datetime.now(datetime.timezone.utc)
+best = None
+for f in glob.glob(f"{__import__('os').path.expanduser('~')}/.aws/cli/cache/*.json"):
+    try:
+        exp = (json.load(open(f)).get("Credentials") or {}).get("Expiration")
+    except Exception:
+        continue
+    if not exp:
+        continue
+    t = datetime.datetime.fromisoformat(str(exp).replace("Z", "+00:00"))
+    if t > now and (best is None or t > best):
+        best = t
+if best is None:
+    print("no live cached credentials; run aws sso login before a paid session", file=sys.stderr)
+    sys.exit(1)
+left = (best - now).total_seconds() / 60
+print(f"== credentials live for {left:.0f} min, this run needs about {need} min including margin")
+if left < need:
+    print(f"credentials expire in {left:.0f} min but this run needs about {need}; "
+          f"its cleanup would be unable to terminate the instance", file=sys.stderr)
+    sys.exit(1)
+PY
+}
+require_credential_margin
+
 BUCKET="${BUCKET:-$STACK-$ACCOUNT}"
 RUN_ID="$(basename "$OUT")"
 
@@ -145,13 +220,51 @@ def wait_healthy(deadline=900):
 
 
 def engine_config(name):
-    """Return the engine's own resolved startup lines, and save them beside the evidence."""
-    logs = subprocess.run(["docker", "logs", "vllm"], capture_output=True).stdout.decode("utf-8", "replace")
+    """Return the engine's own resolved startup lines, and save them AND the whole log beside the evidence.
+
+    The whole log is kept because the filtered version cannot answer the question the control arm exists to
+    answer. B0 -- the batch budget an engine picks when nobody sets one -- is by definition a DEFAULT, and
+    the filter's most informative pattern is `non-default args`, which excludes defaults by construction.
+    The engine also prints `Chunked prefill is enabled with max_num_batched_tokens=N` only when the flag was
+    passed. So on the 2026-09-07 pilot the control's budget was absent from everything kept, the full log was
+    not saved, and the instance was gone before anyone noticed: B0 was unrecoverable from a run bought to
+    resolve it.
+
+    Both streams are read for the same reason. docker logs writes the container's stdout and stderr
+    separately and this only took stdout, so anything the engine logged to stderr was discarded unseen.
+    """
+    p = subprocess.run(["docker", "logs", "vllm"], capture_output=True)
+    logs = (p.stdout.decode("utf-8", "replace") or "") + (p.stderr.decode("utf-8", "replace") or "")
+    with open(f"{OUT}/engine-log-{name}.txt", "w") as f:
+        f.write(logs)
     kept = [l.strip() for l in logs.splitlines()
-            if any(k in l for k in ("non-default args", "Chunked prefill", "scheduling", "KV cache"))]
+            if any(k in l for k in ("non-default args", "Chunked prefill", "scheduling", "KV cache",
+                                    "max_num_batched_tokens", "SchedulerConfig", "EngineArgs", "VllmConfig"))]
     with open(f"{OUT}/engine-config-{name}.txt", "w") as f:
         f.write("\n".join(kept) + "\n")
     return "\n".join(kept)
+
+
+def fingerprint(logs_text):
+    """Two numbers the engine reports for every arm, whether or not it states its batch budget.
+
+    B0 -- the budget an engine picks when nobody sets one -- is not printed. vLLM logs
+    "Chunked prefill is enabled with max_num_batched_tokens=N" ONLY when N was passed, and the control's log
+    carries no scheduler line at all even though chunked prefill is on. Two paid pilots confirmed it: the
+    whole log, both streams, and the number is not in it.
+
+    But the budget leaves marks. The compiler's range endpoint tracks it, and the KV cache the engine ends up
+    with is a deterministic function of the activation memory the budget reserves. Across two sessions on two
+    instances those marks were identical: unset gave (2048, 369,680) and 512 gave (512, 386,912), every time.
+
+    So B0 is resolved by CONSTRUCTION rather than by parsing: run an arm that states a budget, and if its
+    fingerprint matches the control's, the control was configured the same way. That is a match between two
+    engines this run started, not an inference about a field nobody documented.
+    """
+    ep = re.search(r"compile_ranges_endpoints': \[(\d+)\]", logs_text)
+    kv = re.search(r"GPU KV cache size: *([\d,]+)", logs_text)
+    return {"compileRangeEndpoint": int(ep.group(1)) if ep else None,
+            "kvCacheTokens": int(kv.group(1).replace(",", "")) if kv else None}
 
 
 def agrees(config, budget, policy):
@@ -198,10 +311,16 @@ for name, budget, policy in ARMS:
         manifest["arms"].append(entry); continue
 
     config = engine_config(name)
+    entry["fingerprint"] = fingerprint(open(f"{OUT}/engine-log-{name}.txt").read())
     # The resolved budget, recorded whether or not we asked for one. For the control this is B0, the number
     # the pre-registration deliberately refuses to guess.
     resolved = re.search(r"max_num_batched_tokens[^0-9]{1,4}(\d+)", config)
     entry["resolved_budget"] = resolved.group(1) if resolved else None
+    # An arm that asked for no budget IS the control, and an unread B0 means the study's own gate has not
+    # been met. The arm still runs -- its rows are paid for and worth having -- but the run must not end
+    # quietly, so this is carried to the exit status below rather than left as a null in a column.
+    if not budget and entry["resolved_budget"] is None:
+        entry["b0_unresolved"] = True
 
     why = agrees(config, budget, policy)
     if why:
@@ -217,6 +336,12 @@ for name, budget, policy in ARMS:
         raw = f"{OUT}/raw-{name}-{rep}.jsonl"
         gen = [HARNESS, "gen-trace", "--seed", "7", "--study", STUDY, "--arm", name,
                "--model", MODEL, "--gateway-url", BASE, "--engine-image", IMAGE,
+               # The load is passed rather than defaulted. gen-trace's defaults are stub-calibrated and the
+               # first pilot ran them at a GPU at ten times its prefill capacity.
+               "--rate", os.environ["RATE"], "--duration-ms", os.environ["DURATION_MS"],
+               "--premium-weight", os.environ["PREMIUM_WEIGHT"],
+               "--noisy-weight", os.environ["NOISY_WEIGHT"],
+               "--probe-weight", os.environ["PROBE_WEIGHT"],
                "--trace-out", trace, "--manifest-out", mani]
         r = subprocess.run(gen, capture_output=True)
         if r.returncode != 0:
@@ -238,6 +363,30 @@ with open(f"{OUT}/run.json", "w") as f:
 
 # The exit status is what gates the completion marker. An arm that produced no rows is not a result.
 served = [a for a in manifest["arms"] if a.get("raw")]
+# B0 by construction: an arm that STATED its budget and produced the control's fingerprint was configured
+# the way the control configures itself. This is the only route the engine leaves open -- see fingerprint().
+stated = [a for a in manifest["arms"] if a.get("resolved_budget") and a.get("fingerprint")]
+for a in manifest["arms"]:
+    if not a.get("b0_unresolved") or not a.get("fingerprint"):
+        continue
+    if a["fingerprint"].get("compileRangeEndpoint") is None or a["fingerprint"].get("kvCacheTokens") is None:
+        continue
+    for m in stated:
+        if m["fingerprint"] == a["fingerprint"]:
+            a["resolved_budget"] = m["resolved_budget"]
+            a["b0_resolved_by"] = f"fingerprint match with {m['arm']}, which stated {m['resolved_budget']}"
+            a.pop("b0_unresolved", None)
+            print(f"B0 RESOLVED for {a['arm']}: {a['b0_resolved_by']} ({a['fingerprint']})", file=sys.stderr)
+            break
+
+unresolved = [a["arm"] for a in manifest["arms"] if a.get("b0_unresolved")]
+if unresolved:
+    # Loud, and on stderr, because this is the pre-registration's own pilot gate: "reading 4 must not fire,
+    # and B0 resolved". A control whose batch budget nobody can read is not the control the study defined,
+    # and the 2026-09-07 pilot reported it as a null in a table and moved on.
+    print(f"B0 UNRESOLVED for {', '.join(unresolved)}: the engine's own log does not state the batch budget "
+          f"it chose. The rows are still evidence, but the study's control is undefined and the "
+          f"confirmatory run must not be bought on this. See engine-log-*.txt.", file=sys.stderr)
 print(json.dumps(manifest, indent=2))
 sys.exit(0 if served else 1)
 PYEOF
@@ -294,6 +443,9 @@ UD=$(mktemp)
   cat "$MEASURE"
   echo "MEASUREEOF"
   echo "export IMAGE='$ENGINE_IMAGE' MODEL='$MODEL' STUDY='$STUDY' ARMS='$ARMS' REPS='$REPS'"
+  # The load travels with the run. Leaving these to gen-trace's stub-calibrated defaults is what the first
+  # pilot did, and the instance is where that decision actually takes effect.
+  echo "export RATE='$RATE' DURATION_MS='$DURATION_MS' PREMIUM_WEIGHT='$PREMIUM_WEIGHT' NOISY_WEIGHT='$NOISY_WEIGHT' PROBE_WEIGHT='$PROBE_WEIGHT'"
   sed -e "s|BACKSTOP_SECONDS_PLACEHOLDER|$BACKSTOP_SECONDS|" \
       -e "s|RUN_ID_PLACEHOLDER|$RUN_ID|" \
       -e "s|ENGINE_IMAGE_PLACEHOLDER|$ENGINE_IMAGE|" \
@@ -328,7 +480,16 @@ say "waiting for results (the engine has an image and weights to pull first)"
 done_seen=0
 ended_early=""
 marker_rc=0
-ended_early=$(spot_wait_for_marker "$REGION" "$BUCKET" "$RUN_ID/DONE" "$IID" 160 30) || marker_rc=$?
+# The watcher has to outlast the instance's own backstop, or it terminates a run that was still working.
+# It was a fixed 160 polls at 30 s -- 80 minutes -- against a BACKSTOP_SECONDS of two hours, so the two
+# disagreed by forty minutes and the shorter one owned the trap. The pre-registration's own runtime estimate
+# puts the four-arm pilot near seventy minutes, which is inside that gap: the run would have been killed and
+# the card time spent for nothing. Deriving the count from the backstop is what keeps them from drifting
+# apart again, and the margin is for the upload the instance does after its backstop fires.
+POLL_INTERVAL=30
+POLL_ATTEMPTS=$(( BACKSTOP_SECONDS / POLL_INTERVAL + 10 ))
+say "watching for up to $(( POLL_ATTEMPTS * POLL_INTERVAL / 60 )) min against a $(( BACKSTOP_SECONDS / 60 )) min backstop"
+ended_early=$(spot_wait_for_marker "$REGION" "$BUCKET" "$RUN_ID/DONE" "$IID" "$POLL_ATTEMPTS" "$POLL_INTERVAL") || marker_rc=$?
 case "$marker_rc" in
   0) say "results are up"; done_seen=1 ;;
   2) say "instance ended before writing DONE" ;;
@@ -354,8 +515,16 @@ import json, sys
 d = json.load(open(sys.argv[1]))
 print(f"{'arm':<20} {'asked':>16} {'resolved':>10}  {'reps':>4}  note")
 for a in d.get("arms", []):
+    note = a.get("error", "")
+    if a.get("b0_unresolved"):
+        note = (note + "  " if note else "") + "B0 UNRESOLVED -- this arm is the control and its budget was not readable"
     print(f"{a['arm']:<20} {a.get('requested_budget',''):>16} {str(a.get('resolved_budget')):>10}"
-          f"  {len(a.get('raw',[])):>4}  {a.get('error','')}")
+          f"  {len(a.get('raw',[])):>4}  {note}")
+# The pilot's gate, restated where the operator is looking. A run that cannot say what its control was
+# configured as cannot buy the confirmatory run, however good the numbers above look.
+if any(a.get("b0_unresolved") for a in d.get("arms", [])):
+    print("\nPILOT GATE NOT MET: B0 is unresolved, so the control is undefined. The measurements stand;\n"
+          "the confirmatory run does not follow from them.", file=sys.stderr)
 PY
 
 say "the report is NOT run here: it needs every arm of the study and this may be a pilot"

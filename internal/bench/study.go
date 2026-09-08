@@ -59,6 +59,13 @@ var (
 // this repository has already paid twice for hand-kept copies of a tenant list drifting apart.
 const PremiumTenant = "premium-1"
 
+// NoisyTenant is the contending tenant whose work the positive readings require to survive.
+//
+// It was spelled as a literal in the trace builder and nowhere else, which was fine while nothing read it
+// back. The price-of-protection readings compare this tenant's output share against the control's, so the
+// name is now load-bearing in two places and belongs beside PremiumTenant for the reason stated above it.
+const NoisyTenant = "standard-noisy"
+
 // ArmR1 is the isolated premium baseline every study measures as its ceiling.
 //
 // It replays the same trace with the contending tenant filtered out, so its record count legitimately

@@ -187,13 +187,20 @@ kernels through the CUDA driver, and did almost exactly a quarter of the work.
 
 ## Reading 2 — the observer saw none of it. REFUSED.
 
-| arm | victim's utilisation samples |
-| --------- | ---------------------------- |
-| D-full | 98 on 99 of 103 |
-| D-quarter | **0 on all 104** |
+| arm | victim's utilisation collections |
+| --------- | -------------------------------- |
+| D-full | 98 on 50 of 52 |
+| D-quarter | **0 on all 52** |
 
-Not "about 25", which is what this document predicted and wrote down. Zero, on every sample, while the card
-was executing 22,093 kernels.
+Not "about 25", which is what this document predicted and wrote down. Zero, on every collection, while the
+card was executing 22,093 kernels.
+
+These are collections, not scrapes, and an earlier version of this page said scrapes. The exporter collects
+once a second (`config/dcgm-exporter/daemonset.yaml`, `-c 1000`) and serves a cached snapshot in between,
+while the run scrapes twice a second (`deviceScrapeInterval`, `cmd/queuelabrun/main.go`). Every collection is
+therefore read about twice, which is visible in the persisted series as values that repeat in pairs. The
+verdict is unaffected — `internal/queuelab/device.go` counts distinct timestamps — and so are every ratio and
+mean below. What was wrong was the amount of independent evidence claimed: the counts were doubled.
 
     RUN INVALIDATED: the device held by Pod 0c99a041-... was observed working in 0 of 101 samples
     across the attempt; a card that is allocated and idle is the state this whole axis exists to
@@ -233,14 +240,60 @@ trusts to see use reports zero for a tenant it can plainly attribute.
 
 That is worth more than reading 3 would have been. Reading 3 would have said reservation and use come apart
 for one workload on one card. This says the instrument used to establish `device-work-observed` on every run
-in this repository has a blind spot, that the blind spot is shaped like a duty cycle, and that a run inside
-it is refused rather than mismeasured -- which is the one property that makes the refusal worth having.
+in this repository has a blind spot, and that the blind spot is shaped like a duty cycle.
+
+An earlier version of this paragraph went on to say that a run inside the blind spot is "refused rather than
+mismeasured -- which is the one property that makes the refusal worth having". That claim does not survive
+the second session, and withdrawing it matters more than the finding it was attached to.
+
+At PERIOD = 1.0 s the sampler visits ONE phase of the workload's cycle and stays there, so what it reports is
+decided by where that single phase falls. It fell in the idle stretch, and the run was refused. Had it fallen
+inside the burst, every collection would have read 98, and a card computing at a quarter duty would have
+passed `-require-device` with observed device-seconds close to reserved -- the plausible wrong number this
+repository's rules put above every other failure. The refusal was a draw, not a property.
+
+The second session is what shows this, because it makes the phase structure visible. At PERIOD = 2.6 s the
+sampler steps through 13 phases spaced 0.2 s apart (13 collections = 5 periods), and the run's own edge
+values drift monotonically as the workload's true period misses 2.6 s by a few milliseconds: 12, 18, 24, 30
+across four cycles in `dq1`, and in `dq3` one edge climbing 68, 74, 79 while the other falls 78, 73, 67 with
+their sum conserved near 146. Those numbers are a phase sweep. At 1.0 s there is no sweep, only one draw.
+
+Counting the collections turned up a second defect, in the gate rather than in the instrument. `minBusySamples`
+required two busy samples and the code counted them at distinct TIMESTAMPS, which the comment glossed as
+"spaced across the interval". It is not the same thing when the observer scrapes faster than its source
+updates: one cached collection arrives at two distinct timestamps, so **a single collection satisfied the
+gate**, which is the "reading rather than a state" its own refusal message says it prevents. The gate now
+requires busy samples to be at least `maxObserverGap` apart, which no single snapshot can span because the
+exporter's collection interval is already required to stay under it. Replaying every paid series through the
+new rule changes no verdict -- the thinnest run has nine separated instants against a threshold of two -- so
+this closes a hole rather than revising a result. It would have mattered exactly in the blind spot, where one
+phase landing inside the burst is the whole of the evidence.
 
 ## What this run cannot say
 
 It observed one card model on one driver on one AMI, at one duty, with one workload period. It does not
-establish the period hypothesis, it does not measure how wide the blind spot is, and it says nothing about
-bursty workloads whose period is not one second.
+measure how wide the blind spot is, and it says nothing about bursty workloads whose period is not one
+second.
+
+It does now establish the period hypothesis, which this sentence originally denied. The 13-phase lattice and
+the drifting edge values described above are in the persisted series, and they are what a burst walking
+through a sampler's phase produces.
+
+What is still open is the sampler's averaging window. Fitting a rectangular burst against a backward
+averaging window to each `dq` run, with period, duty and phase free, profiles like this (RMS in percentage
+points, lower is better):
+
+| window | `dq1` | `dq2` | `dq3` |
+| -----: | ----: | ----: | ----: |
+| 0.08 s | 1.88 | **1.63** | 7.84 |
+| 0.15 s | **0.18** | 1.80 | 7.70 |
+| 0.25 s | 4.08 | 5.04 | 7.84 |
+
+`dq1` has a sharp minimum at 0.15 s, close to NVML's documented sample period. `dq2` is shallow and prefers a
+smaller value. `dq3` is flat at about 7.7 everywhere, which means the model does not fit that run at all
+rather than that its window is large -- an unexplained difference between runs of one arm. Three runs of the
+same workload therefore do not agree, so **this page names no window.** It should be settled by an experiment
+designed for it, not read off these three.
 
 It also does not weaken the reclaim results. Those runs' victims computed continuously and were observed
 computing continuously; nothing about a blind spot at 0.25 duty touches a measurement taken at 1.0.
@@ -263,7 +316,7 @@ now, and this is the test.
 | --------------------------- | ------------------: | -------------------: |
 | D-quarter verdict | refused | **admissible** |
 | device evidence | device-not-observed | **device-work-observed** |
-| victim samples above zero | **0 of 104** | **30 of 102** |
+| victim collections above zero | **0 of 52** | **15 of 51** |
 | mean utilisation | 0 | **22.8** |
 | values seen | 0 only | 98, 30, 24, 18, 12, 0 |
 

@@ -408,13 +408,40 @@ var _ = Describe("a threshold probe the gateway never evaluated", func() {
 	})
 
 	It("voids the section rather than reporting a threshold result", func() {
-		out := FormatReport([]ArmSummary{probe(403)}, Checks{}, 0.05)
+		out := FormatReport([]ArmSummary{probe(403)}, &Checks{}, 0.05)
 		Expect(out).To(ContainSubstring("VOID"))
 	})
 
 	It("leaves the section standing when the probes were actually evaluated", func() {
-		out := FormatReport([]ArmSummary{probe(200)}, Checks{}, 0.05)
+		out := FormatReport([]ArmSummary{probe(200)}, &Checks{}, 0.05)
 		Expect(out).NotTo(ContainSubstring("VOID"))
+	})
+})
+
+// A report for a study whose readings are not implemented must not read as a study that failed them.
+//
+// The price-of-protection pilot produced exactly this page: three lines of `0.000 FAIL` under
+// "Pre-registered checks", then "VERDICT: not all checks passed", for a study whose criteria the binary had
+// never evaluated. The caller was doing the right thing -- it passed an empty Checks and warned on stderr --
+// and an empty Checks is indistinguishable from a run that failed everything. Hence the pointer.
+//
+// Mutation that turns this red: make FormatReport treat a nil checks as Checks{} and render it.
+var _ = Describe("a report with no criteria to evaluate", func() {
+	It("prints no verdict and no check table", func() {
+		out := FormatReport([]ArmSummary{{Arm: "default-fcfs", TailSampleSize: 500}}, nil, 0.05)
+		Expect(out).NotTo(ContainSubstring("VERDICT"))
+		Expect(out).NotTo(ContainSubstring("absolute protection"))
+		Expect(out).NotTo(ContainSubstring("FAIL"))
+	})
+
+	It("says the checks do not apply, rather than staying silent about them", func() {
+		out := FormatReport([]ArmSummary{{Arm: "default-fcfs", TailSampleSize: 500}}, nil, 0.05)
+		Expect(out).To(ContainSubstring("NOT APPLICABLE"))
+	})
+
+	It("still prints the measurements, which are what the run bought", func() {
+		out := FormatReport([]ArmSummary{{Arm: "default-fcfs", TailSampleSize: 500}}, nil, 0.05)
+		Expect(out).To(ContainSubstring("default-fcfs"))
 	})
 })
 
