@@ -81,6 +81,54 @@ spot_fail() { fail "$@"; }
 . "$(dirname "${BASH_SOURCE[0]}")/lib/spot-run.sh"
 
 ACCOUNT=$(spot_account) || fail "not authenticated"
+
+# Refuse to launch on credentials that expire before the run does.
+#
+# Being authenticated NOW is not the question. This script's cleanup trap terminates the instance by calling
+# the AWS API, so credentials that die mid-run leave a GPU instance billing with nothing able to stop it: the
+# only backstop left is the timer inside the instance, and that is two hours of spend nobody chose.
+#
+# It happened on 2026-09-08. A ten-arm run was launched with fifty-four minutes of credential left against a
+# hundred minutes of work, and the operator caught it rather than the script. The margin below is the run's
+# own estimate -- 15 min of fixed cost, 1.5 per arm, 7 per arm-repetition, fitted to three paid runs -- plus
+# half an hour, because an estimate that is exactly right is still no margin at all.
+#
+# The expiry is the LATEST live credential rather than the earliest of all cached ones. Checking the earliest
+# is how I read a fresh twelve-hour login as already expired: the cache also holds files for profiles this
+# run does not use, and theirs had lapsed hours before.
+require_credential_margin() {
+  local arms reps need
+  arms=$(awk -F, '{print NF}' <<<"$ARMS")
+  reps="$REPS"
+  need=$(( 15 + arms*3/2 + arms*reps*7 + 30 ))
+  python3 - "$need" <<'PY' || fail "not enough credential left to finish this run and terminate its instance"
+import datetime, glob, json, sys
+need = int(sys.argv[1])
+now = datetime.datetime.now(datetime.timezone.utc)
+best = None
+for f in glob.glob(f"{__import__('os').path.expanduser('~')}/.aws/cli/cache/*.json"):
+    try:
+        exp = (json.load(open(f)).get("Credentials") or {}).get("Expiration")
+    except Exception:
+        continue
+    if not exp:
+        continue
+    t = datetime.datetime.fromisoformat(str(exp).replace("Z", "+00:00"))
+    if t > now and (best is None or t > best):
+        best = t
+if best is None:
+    print("no live cached credentials; run aws sso login before a paid session", file=sys.stderr)
+    sys.exit(1)
+left = (best - now).total_seconds() / 60
+print(f"== credentials live for {left:.0f} min, this run needs about {need} min including margin")
+if left < need:
+    print(f"credentials expire in {left:.0f} min but this run needs about {need}; "
+          f"its cleanup would be unable to terminate the instance", file=sys.stderr)
+    sys.exit(1)
+PY
+}
+require_credential_margin
+
 BUCKET="${BUCKET:-$STACK-$ACCOUNT}"
 RUN_ID="$(basename "$OUT")"
 
