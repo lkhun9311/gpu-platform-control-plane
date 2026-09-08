@@ -114,9 +114,19 @@ func genTrace(args []string) error {
 	noisyChars := fs.Int("noisy-prompt-chars", 40_000, "noisy tenant prompt length in chars (estimates at 10,000 tokens, 2.44x the 4,096 guard threshold)")
 	premiumWeight := fs.Float64("premium-weight", 1, "premium tenant arrival share")
 	noisyWeight := fs.Float64("noisy-weight", 1, "noisy tenant arrival share")
-	// Small on purpose. These are a probe population, not a load driver: each carries about 3,171 real
-	// tokens, so a large share would move the pressure the arms are supposed to differ under.
-	probeWeight := fs.Float64("probe-weight", 0.1, "arrival share of EACH threshold-probe tenant; 0 disables them")
+	// Meant to be small, and 0.1 is NOT small the way this comment used to claim.
+	//
+	// These are a probe population rather than a load driver, and each carries about 3,171 real tokens. The
+	// comment here said a large share would move the pressure the arms are supposed to differ under, and
+	// then left a default that does exactly that: measured on the 2026-09-07 price-of-protection pilot, the
+	// two probe tenants at 0.1 each carried 78% of the engine's prefill capacity between them, against the
+	// protected tenant's 5%. A weight is a share of the total arrival rate, so what it costs the engine
+	// depends on the prompt behind it, and 0.1 of a 3,171-token prompt is not 0.1 of the load.
+	//
+	// Left at 0.1 because lowering it silently would change every existing caller's trace. Set it from the
+	// engine's measured prefill capacity, as
+	// docs/superpowers/specs/2026-09-08-the-load-needs-an-upper-gate.md derives.
+	probeWeight := fs.Float64("probe-weight", 0.1, "arrival share of EACH threshold-probe tenant; 0 disables them (see the comment: 0.1 is not a small load)")
 	probeUnderChars := fs.Int("probe-under-chars", bench.ProbeUnderChars, "probe prompt scoring just BELOW the guard threshold")
 	probeOverChars := fs.Int("probe-over-chars", bench.ProbeOverChars, "probe prompt scoring exactly AT the guard threshold")
 	// Defaulted rather than required, because every existing caller is the M5-b gateway experiment and

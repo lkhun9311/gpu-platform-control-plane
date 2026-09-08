@@ -73,6 +73,48 @@ defects and this gap, and it did not buy a measurement of protection.
    against a stub backend that costs nothing to serve. Nothing in the pilot's configuration read that
    warning. The rate must be chosen so the control clears reading 4b with margin, and 4b is what refuses the
    run when it was not.
+
+   ### How far past capacity the pilot was, and what fits instead
+
+   This is a design input rather than a criterion, so unlike the threshold above it is derived from the
+   pilot — that is what a pilot is for. The engine's sustained prefill throughput is measured from the
+   control's own completions: 64 of them carrying about 247,800 real prompt tokens over 33.0 s, which is
+   **about 7,500 tok/s**. It is achieved under thrashing and is therefore a lower bound on what a calm
+   engine would do. Real token costs come from the probe calibration the report already prints, 3,171
+   tokens at 16,380 characters.
+
+   | tenant | offered | tokens each | prefill demand | of capacity |
+   | -------------------- | ------: | ----------: | -------------: | ----------: |
+   | `premium-1` | 9.25/s | 39 | 358 tok/s | 5% |
+   | `standard-noisy` | 9.07/s | 7,744 | 70,209 tok/s | **934%** |
+   | `standard-probe-over` | 0.88/s | 3,172 | 2,802 tok/s | 37% |
+   | `standard-probe-under` | 0.97/s | 3,171 | 3,065 tok/s | 41% |
+   | | | | **76,434 tok/s** | **1016%** |
+
+   The engine was offered **ten times** the prefill it can do. That is the whole of why 95.9% of the control
+   timed out, and it is not a subtle miscalibration.
+
+   Two things follow. **The protected tenant's load does not change** — premium is 5% of capacity, so
+   nothing about the contention is coming from it, and altering the load whose tail the study protects would
+   change what the result means. And the **probe pair is not the small population its flag help claims**: at
+   3,171 tokens each they carry 78% of capacity between them, against premium's 5%. Their arrival share has
+   to fall with the contender's.
+
+   Holding premium fixed and putting the rest at 60% of measured capacity gives **noisy at 0.50/s and each
+   probe at 0.05/s** — an eighteen-fold cut in the contender's rate. At that rate 100 noisy completions need
+   about 202 s of arrivals, so the trace duration goes from 60 s to **300 s**, which offers about 150 and
+   leaves room for reading 4b's floor rather than landing on it.
+
+   The contention survives the cut, which is the thing that could have made this unworkable. A noisy prefill
+   occupies the engine for about 1.03 s, so at 0.50/s at least one is in flight about half the time — and
+   `2026-09-04-the-layer-not-the-signal.md` measured premium TTFT p99 at 1,043 ms with a single concurrent
+   long prefill, against reading 4's floor of 5x R1. One is enough. The load has to come down by an order of
+   magnitude to be measurable and stays contended throughout.
+
+   **This lengthens the confirmatory run.** Thirty arm-repetitions at a 300 s trace is roughly four hours
+   rather than the pre-registration's budgeted figure, about $2.60 at the measured $0.65/h. That is inside
+   the $3.45 line but it is a different shape of spend, and it should be re-derived against a pilot that
+   actually clears 4b before it is bought.
 2. **B₀ must resolve.** The original pre-registration's pilot gate is still unmet, and
    `hack/m5b-price-of-protection.sh` now keeps the whole engine log and says loudly when the control's batch
    budget cannot be read from it.
