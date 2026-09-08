@@ -175,3 +175,96 @@ what makes them repetitions rather than three different experiments.
 
 This page may not be edited once the confirmatory run is bought, on the same terms as the document it
 amends.
+
+---
+
+# Results
+
+Three repetitions, ten arms, thirty raw files, 12,627 requests per contended arm and **no timeouts in any
+arm of any repetition**. `hack/pop-20260908-044443`, `-070534`, `-113422`, one repetition each, on three
+separate instances. Everything above this heading was written before the run was bought and is unedited.
+
+## Both gates held in all three repetitions
+
+| repetition | control tail / R1 | premium completions | contender completions |
+| ---------- | ----------------: | ------------------: | --------------------: |
+| 1 | 51.2x | 3,976 | 187 |
+| 2 | 50.9x | 3,976 | 187 |
+| 3 | 51.1x | 3,976 | 187 |
+
+B₀ resolved inside every repetition, by fingerprint match against that repetition's own 2048 cell.
+
+## No reading fired, and that is the finding
+
+The pre-registration's readings cover five outcomes. The evidence is none of them.
+
+```
+4   the load did not create contention        did not fire   (control is 51.0x R1)
+4b  the load was too high to measure          did not fire   (11,928 and 561 completions)
+1   protection without deletion               did not fire   (no cell met all four bars)
+1b  protection, bought with throughput        did not fire   (same tail bar)
+2   protection only by deletion               did not fire   (requires a cell that met the p99 bar)
+3   no cell beats the control                 did not fire   (the best beats it by 2,040 ms)
+```
+
+Reading 2 requires that **some** cell met the tail bar. Reading 3 requires that **no** cell beat the
+control. The evidence sits between them: the cells beat the control enormously and none comes close to the
+bar. That region has no reading, and the honest thing to record is that the design did not cover it rather
+than to name it now. A sixth reading written after seeing which way the numbers went would be the post-hoc
+decision this whole document exists to refuse.
+
+## What was measured
+
+R1's premium tail is 67.3 ms, so reading 1's bar is 134.6 ms and the TPOT bar is 22.9 ms.
+
+| cell | tail ms | / R1 | premium TPOT ms | / R1 | bars met |
+| ---------------------- | ------: | -----: | --------------: | ----: | -------: |
+| `default-fcfs` control | 3,435.4 | 51.0x | 139.1 | 7.6x | 2 of 4 |
+| `mbt-0256-fcfs` | 7,243.0 | 107.6x | 46.9 | 2.6x | 2 of 4 |
+| `mbt-0256-priority` | 1,619.7 | 24.1x | 46.5 | 2.5x | 2 of 4 |
+| `mbt-0512-fcfs` | 4,856.6 | 72.2x | 80.4 | 4.4x | 2 of 4 |
+| `mbt-0512-priority` | 1,476.9 | 21.9x | 81.1 | 4.4x | 2 of 4 |
+| `mbt-1024-fcfs` | 3,972.8 | 59.0x | 127.4 | 7.0x | 2 of 4 |
+| **`mbt-1024-priority`** | **1,395.3** | **20.7x** | 112.5 | 6.1x | 2 of 4 |
+| `mbt-2048-fcfs` | 3,434.2 | 51.0x | 139.3 | 7.6x | 2 of 4 |
+| `mbt-2048-priority` | 1,480.9 | 22.0x | 117.7 | 6.4x | 2 of 4 |
+
+Every cell scores exactly two of four, and the same two: the contending tenant keeps its work and the
+machine keeps its throughput in all nine, while the tail bar and the stream bar are missed in all nine.
+**Nothing here protects anything.** The question this run asked was what protection costs, and the answer is
+that at this load, on this card, no configuration of these two knobs buys any.
+
+Three structures are worth naming, and all three are measured rather than argued.
+
+**`priority` beats `fcfs` at every budget** — 107.6x to 24.1x, 72.2x to 21.9x, 59.0x to 20.7x, 51.0x to
+22.0x. The two-request microtest predicted this interaction and the open-loop trace reproduces it.
+
+**The budget moves the tail and the stream in opposite directions.** Down the `fcfs` column the premium
+stream improves monotonically as the budget shrinks, 139.3 to 46.9 ms, while the tail degrades monotonically,
+3,434 to 7,243 ms. A smaller chunk gives the decode loop more turns and gives a queued prompt fewer tokens
+per turn. Any single-number reading of "better" would have to pick one of them.
+
+**`mbt-2048-fcfs` reproduces the control to 1.2 ms** — 3,434.2 against 3,435.4. B₀ is 2048 and the default
+policy is fcfs, so that cell IS the control, configured explicitly rather than by omission. It was included
+to resolve B₀ by construction and it also serves as the run's own internal control on itself.
+
+## What this cannot say
+
+One model, one card, one load, one arrival trace, two knobs. The frontier this maps is a frontier of
+`max_num_batched_tokens` crossed with scheduling policy, and nothing here touches the other levers the
+literature reports — prefill/decode disaggregation, separate engines per tenant class, or admission at the
+gateway on a signal that leads the harm rather than follows it.
+
+It is also silent on whether a 2x bar was the right bar. The bar was pre-registered and is not moving, but a
+run in which every cell misses it by an order of magnitude says more about the distance than about the cells.
+
+## What it cost
+
+| | |
+| ------------------------------------------ | ----: |
+| three pilots, including two that bought defects rather than numbers | $1.06 |
+| confirmatory, three repetitions | $2.91 |
+| one launch aborted on expiring credentials | $0.01 |
+| **total** | **$3.98** |
+
+Against a budgeted $1.30 for the pilot and $3.45 for the confirmatory run.
