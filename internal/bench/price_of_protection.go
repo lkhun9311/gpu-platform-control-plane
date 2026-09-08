@@ -94,6 +94,38 @@ func EvaluatePriceOfProtection(r1, control ArmSummary, cells []ArmSummary, premi
 		return res
 	}
 
+	// Reading 4b, added by 2026-09-08-the-load-needs-an-upper-gate.md: reading 4 guards only the low side.
+	//
+	// A load can also be too high to measure. The pilot's control completed 17 of 555 premium requests and 26
+	// of 544 of the contending tenant's, everything else timing out -- and every reading below is a ratio of
+	// tails and shares over those handfuls. The floor is MinTailSamples, which is not a number chosen here:
+	// it is the point where a nearest-rank p99 stops being the largest observation, derived in report.go and
+	// already gating the other study. A control below it cannot supply a tail, and its output shares are
+	// computed over whatever few requests happened to survive.
+	fourB := PoPReading{ID: "4b", Name: "the load was too high to measure -- INVALID"}
+	controlNoisyDone := control.DispositionByTenant[noisyTenant].Completed
+	switch {
+	case control.TailSampleSize < MinTailSamples:
+		fourB.Fired = true
+		fourB.Detail = fmt.Sprintf("the control completed %d premium requests, below the %d a nearest-rank p99 needs to be anything other than the maximum",
+			control.TailSampleSize, MinTailSamples)
+	case len(control.DispositionByTenant) == 0:
+		fourB.NotEvaluable = true
+		fourB.Detail = "the control carries no per-tenant disposition, so how much of each tenant's work survived cannot be checked"
+	case controlNoisyDone < MinTailSamples:
+		fourB.Fired = true
+		fourB.Detail = fmt.Sprintf("the control completed %d of %s's %d requests, below the %d that the share clauses need to be measuring a population rather than a remnant",
+			controlNoisyDone, noisyTenant, control.DispositionByTenant[noisyTenant].Offered, MinTailSamples)
+	default:
+		fourB.Detail = fmt.Sprintf("the control completed %d premium and %d %s requests, both at or above %d",
+			control.TailSampleSize, controlNoisyDone, noisyTenant, MinTailSamples)
+	}
+	res.Readings = append(res.Readings, fourB)
+	if fourB.Fired || fourB.NotEvaluable {
+		res.Answer = answerOf(fourB)
+		return res
+	}
+
 	// The three bars every positive reading shares, measured per cell.
 	type scored struct {
 		ArmSummary

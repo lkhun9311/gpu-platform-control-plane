@@ -28,6 +28,12 @@ func popControl() ArmSummary {
 		OutputTokensPerSecond: 100,
 		RepetitionTTFTMsP99:   []float64{980, 1000, 1020},
 		RepetitionCount:       3,
+		// Both populations clear MinTailSamples, so reading 4b passes and the readings under it are reached.
+		// A control that does not clear it makes every ratio below a ratio over a remnant.
+		DispositionByTenant: map[string]Disposition{
+			PremiumTenant: {Offered: 600, Completed: 500, TimedOut: 100},
+			NoisyTenant:   {Offered: 600, Completed: 400, TimedOut: 200},
+		},
 	}
 }
 
@@ -58,6 +64,57 @@ var _ = Describe("the price-of-protection readings", func() {
 		// And nothing below it is scored: an uncontended load makes those comparisons meaningless, not
 		// negative, so reporting them as "did not fire" would be four wrong answers.
 		Expect(res.Readings).To(HaveLen(1))
+	})
+
+	It("fires reading 4b and stops when the load was too high to measure", func() {
+		// The 2026-09-07 pilot's control: contended past any doubt, and 17 premium completions of 555.
+		// Reading 4 passes it, every reading below it computes a tail and two shares over a remnant, and
+		// nothing in the original pre-registration would have said so.
+		control := popControl()
+		control.TailSampleSize = 17
+		control.DispositionByTenant = map[string]Disposition{
+			PremiumTenant: {Offered: 555, Completed: 17, TimedOut: 538},
+			NoisyTenant:   {Offered: 544, Completed: 26, TimedOut: 518},
+		}
+		res := EvaluatePriceOfProtection(popR1(), control,
+			[]ArmSummary{popCell("mbt-0512-priority", 1.5, 1.1, 0.9, 0.98)}, PremiumTenant, NoisyTenant)
+
+		Expect(readingByID(res, "4").Fired).To(BeFalse()) // the load WAS contended
+		Expect(readingByID(res, "4b").Fired).To(BeTrue())
+		Expect(res.Answer).To(Equal("4b"))
+		Expect(res.Readings).To(HaveLen(2)) // and nothing below is scored on a remnant
+	})
+
+	It("fires reading 4b when the premium tail collapses even though the contending tenant's survives", func() {
+		// The mirror of the case below, and it exists because the two clauses have to be pinned separately.
+		// A fixture that starves both populations at once passes whichever clause is left when the other is
+		// broken, so it cannot tell which one is doing the work -- and a mutation removing the premium clause
+		// went undetected until this case was added.
+		control := popControl()
+		control.TailSampleSize = 17
+		control.DispositionByTenant = map[string]Disposition{
+			PremiumTenant: {Offered: 555, Completed: 17, TimedOut: 538},
+			NoisyTenant:   {Offered: 600, Completed: 400},
+		}
+		res := EvaluatePriceOfProtection(popR1(), control,
+			[]ArmSummary{popCell("mbt-0512-priority", 1.5, 1.1, 0.9, 0.98)}, PremiumTenant, NoisyTenant)
+
+		Expect(readingByID(res, "4b").Fired).To(BeTrue())
+		Expect(readingByID(res, "4b").Detail).To(ContainSubstring("premium"))
+	})
+
+	It("fires reading 4b when the premium tail survives but the contending tenant's does not", func() {
+		control := popControl()
+		control.DispositionByTenant = map[string]Disposition{
+			PremiumTenant: {Offered: 600, Completed: 500},
+			NoisyTenant:   {Offered: 600, Completed: 12, TimedOut: 588},
+		}
+		res := EvaluatePriceOfProtection(popR1(), control,
+			[]ArmSummary{popCell("mbt-0512-priority", 1.5, 1.1, 0.9, 0.98)}, PremiumTenant, NoisyTenant)
+
+		// The share clauses divide by this tenant's share under the control. Twelve completions is not a share.
+		Expect(readingByID(res, "4b").Fired).To(BeTrue())
+		Expect(readingByID(res, "4b").Detail).To(ContainSubstring(NoisyTenant))
 	})
 
 	It("fires reading 1 for a cell that holds all four bars", func() {
