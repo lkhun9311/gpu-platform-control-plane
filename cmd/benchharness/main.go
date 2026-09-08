@@ -407,7 +407,7 @@ func report(args []string) error {
 	// the run disqualified -- a verdict about arms the experiment never had. Another study's readings are
 	// its own, so until they are implemented the report prints that study's tables and says plainly that
 	// it evaluated no criteria, rather than failing it against somebody else's.
-	var checks bench.Checks
+	var checks *bench.Checks
 	if bench.CanonicalStudyID(e.study) == bench.StudyM5BGateway {
 		var missing []string
 		for _, arm := range []string{bench.ArmR1, "static-cap", "kv-aware"} {
@@ -419,7 +419,8 @@ func report(args []string) error {
 			fmt.Fprintf(os.Stderr, "warning: no records for arm(s) %s; the comparison will be disqualified\n",
 				strings.Join(missing, ", "))
 		}
-		checks = bench.EvaluateChecks(summ[bench.ArmR1], summ["static-cap"], summ["kv-aware"], incCI, matchTolerance)
+		evaluated := bench.EvaluateChecks(summ[bench.ArmR1], summ["static-cap"], summ["kv-aware"], incCI, matchTolerance)
+		checks = &evaluated
 	} else {
 		fmt.Fprintf(os.Stderr,
 			"warning: study %s has no implemented readings, so this report shows its measurements and evaluates no criteria\n",
@@ -461,7 +462,11 @@ func report(args []string) error {
 	// this exit code, and until now none of them did.
 	//
 	// The report file is still written first, so the refusal is preserved as evidence rather than discarded.
-	if checks.Invalid {
+	//
+	// A study with no implemented readings reaches here with nil checks. It cannot be INVALID, because
+	// nothing evaluated it -- and it must not be reported as valid either. The exit code says only what this
+	// binary actually decided, and the report itself says the criteria were not evaluated.
+	if checks != nil && checks.Invalid {
 		return fmt.Errorf("run invalid: %s", checks.InvalidReason)
 	}
 	return nil

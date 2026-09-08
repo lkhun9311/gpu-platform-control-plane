@@ -38,6 +38,13 @@ printf 'index, name, memory.total [MiB]\n0, NVIDIA A10G, 23028 MiB\n' > hack/qlg
 mkdir -p hack/m5b-run-records
 echo '{"arm":"kv-aware"}' > hack/m5b-run-records/raw-kv-aware-1.jsonl
 
+# The price-of-protection runner unpacks its rows into evidence/ rather than leaving them at the top level,
+# so a run's most expensive files can sit one directory deeper than every earlier study put them.
+mkdir -p hack/pop-nested/evidence
+echo '{"arm":"default-fcfs"}' > hack/pop-nested/evidence/raw-default-fcfs-1.jsonl
+echo '{"arm":"mbt-0512-priority"}' > hack/pop-nested/evidence/raw-mbt-0512-priority-1.jsonl
+echo '{"study":"price-of-protection"}' > hack/pop-nested/run.json
+
 mkdir -p hack/qlgpu-nothing
 echo '#!/bin/bash' > hack/qlgpu-nothing/user-data.sh
 
@@ -59,6 +66,15 @@ run > "$WORK/out.txt"; rc=$?
   || bad "a run with nvidia-smi output was skipped"
 [ -s "$WORK/captures/m5b-run-records/numbers.md" ] && ok "a .jsonl record run is captured" \
   || bad "a run whose records are .jsonl was skipped -- this omitted every M5-b measurement once already"
+
+# Counting them, not just capturing the run: the pilot WAS captured, and its capture said "1 record(s)"
+# because it found run.json and none of the four raw files underneath evidence/.
+if grep -q 'raw-default-fcfs-1.jsonl' "$WORK/captures/pop-nested/numbers.md" 2>/dev/null \
+   && grep -q 'raw-mbt-0512-priority-1.jsonl' "$WORK/captures/pop-nested/numbers.md" 2>/dev/null; then
+  ok "rows under evidence/ are captured, not just the run.json beside them"
+else
+  bad "a run whose rows live in evidence/ was captured without them -- this is the 2026-09-07 pilot's capture"
+fi
 
 # 3. The drawing happens, and carries the attribution.
 if [ -s "$WORK/captures/qlgpu-withseries/device.svg" ] \

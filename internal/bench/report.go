@@ -760,7 +760,15 @@ func (s *ArmSummary) SetActiveSeconds(seconds float64) {
 // FormatReport renders the summaries and checks as a plain-text report.
 //
 // It states explicitly when the comparison is invalid (admission match missed) or the tail is censored, so a reader is never handed a clean-looking number that the methodology already disqualified.
-func FormatReport(summaries []ArmSummary, checks Checks, matchTolerance float64) string {
+// FormatReport renders the measurements, and the criteria only when there were criteria.
+//
+// checks is a POINTER because "not evaluated" has to be unrepresentable as a zero value. It used to be
+// passed by value, and a study whose readings are not implemented was handed an empty Checks{} -- which
+// rendered as three lines of `0.000 FAIL` under the heading "Pre-registered checks", followed by
+// "VERDICT: not all checks passed". Nothing had been evaluated. The caller was careful and said so on
+// stderr, and the page still printed a verdict a skimming reader would take for the study's result.
+// A nil pointer cannot be mistaken for a run that failed everything.
+func FormatReport(summaries []ArmSummary, checks *Checks, matchTolerance float64) string {
 	var b strings.Builder
 	b.WriteString("M5-b benchmark report\n\n")
 	// reps is printed for the same reason tailN is. The incremental interval below is a bootstrap over
@@ -858,6 +866,14 @@ func FormatReport(summaries []ArmSummary, checks Checks, matchTolerance float64)
 	} else {
 		b.WriteString("\nEligibility threshold: NOT TESTED -- no probe tenant straddled it, so any threshold in a wide\n")
 		b.WriteString("  range would have produced these same arms. The configured value is not evidenced by this run.\n")
+	}
+
+	if checks == nil {
+		// No heading that looks like a results table, and no VERDICT line. The measurements above stand on
+		// their own; what must not happen is a reader coming away with a judgement nobody made.
+		b.WriteString("\nPre-registered checks: NOT EVALUATED. This study's readings are not implemented in\n")
+		b.WriteString("  this binary, so the tables above are measurements and nothing here is a verdict on them.\n")
+		return b.String()
 	}
 
 	b.WriteString("\nPre-registered checks (primary endpoint: TTFT p99)\n")

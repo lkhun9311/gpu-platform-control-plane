@@ -145,10 +145,26 @@ def wait_healthy(deadline=900):
 
 
 def engine_config(name):
-    """Return the engine's own resolved startup lines, and save them beside the evidence."""
-    logs = subprocess.run(["docker", "logs", "vllm"], capture_output=True).stdout.decode("utf-8", "replace")
+    """Return the engine's own resolved startup lines, and save them AND the whole log beside the evidence.
+
+    The whole log is kept because the filtered version cannot answer the question the control arm exists to
+    answer. B0 -- the batch budget an engine picks when nobody sets one -- is by definition a DEFAULT, and
+    the filter's most informative pattern is `non-default args`, which excludes defaults by construction.
+    The engine also prints `Chunked prefill is enabled with max_num_batched_tokens=N` only when the flag was
+    passed. So on the 2026-09-07 pilot the control's budget was absent from everything kept, the full log was
+    not saved, and the instance was gone before anyone noticed: B0 was unrecoverable from a run bought to
+    resolve it.
+
+    Both streams are read for the same reason. docker logs writes the container's stdout and stderr
+    separately and this only took stdout, so anything the engine logged to stderr was discarded unseen.
+    """
+    p = subprocess.run(["docker", "logs", "vllm"], capture_output=True)
+    logs = (p.stdout.decode("utf-8", "replace") or "") + (p.stderr.decode("utf-8", "replace") or "")
+    with open(f"{OUT}/engine-log-{name}.txt", "w") as f:
+        f.write(logs)
     kept = [l.strip() for l in logs.splitlines()
-            if any(k in l for k in ("non-default args", "Chunked prefill", "scheduling", "KV cache"))]
+            if any(k in l for k in ("non-default args", "Chunked prefill", "scheduling", "KV cache",
+                                    "max_num_batched_tokens", "SchedulerConfig", "EngineArgs", "VllmConfig"))]
     with open(f"{OUT}/engine-config-{name}.txt", "w") as f:
         f.write("\n".join(kept) + "\n")
     return "\n".join(kept)
@@ -202,6 +218,11 @@ for name, budget, policy in ARMS:
     # the pre-registration deliberately refuses to guess.
     resolved = re.search(r"max_num_batched_tokens[^0-9]{1,4}(\d+)", config)
     entry["resolved_budget"] = resolved.group(1) if resolved else None
+    # An arm that asked for no budget IS the control, and an unread B0 means the study's own gate has not
+    # been met. The arm still runs -- its rows are paid for and worth having -- but the run must not end
+    # quietly, so this is carried to the exit status below rather than left as a null in a column.
+    if not budget and entry["resolved_budget"] is None:
+        entry["b0_unresolved"] = True
 
     why = agrees(config, budget, policy)
     if why:
@@ -238,6 +259,14 @@ with open(f"{OUT}/run.json", "w") as f:
 
 # The exit status is what gates the completion marker. An arm that produced no rows is not a result.
 served = [a for a in manifest["arms"] if a.get("raw")]
+unresolved = [a["arm"] for a in manifest["arms"] if a.get("b0_unresolved")]
+if unresolved:
+    # Loud, and on stderr, because this is the pre-registration's own pilot gate: "reading 4 must not fire,
+    # and B0 resolved". A control whose batch budget nobody can read is not the control the study defined,
+    # and the 2026-09-07 pilot reported it as a null in a table and moved on.
+    print(f"B0 UNRESOLVED for {', '.join(unresolved)}: the engine's own log does not state the batch budget "
+          f"it chose. The rows are still evidence, but the study's control is undefined and the "
+          f"confirmatory run must not be bought on this. See engine-log-*.txt.", file=sys.stderr)
 print(json.dumps(manifest, indent=2))
 sys.exit(0 if served else 1)
 PYEOF
@@ -363,8 +392,16 @@ import json, sys
 d = json.load(open(sys.argv[1]))
 print(f"{'arm':<20} {'asked':>16} {'resolved':>10}  {'reps':>4}  note")
 for a in d.get("arms", []):
+    note = a.get("error", "")
+    if a.get("b0_unresolved"):
+        note = (note + "  " if note else "") + "B0 UNRESOLVED -- this arm is the control and its budget was not readable"
     print(f"{a['arm']:<20} {a.get('requested_budget',''):>16} {str(a.get('resolved_budget')):>10}"
-          f"  {len(a.get('raw',[])):>4}  {a.get('error','')}")
+          f"  {len(a.get('raw',[])):>4}  {note}")
+# The pilot's gate, restated where the operator is looking. A run that cannot say what its control was
+# configured as cannot buy the confirmatory run, however good the numbers above look.
+if any(a.get("b0_unresolved") for a in d.get("arms", [])):
+    print("\nPILOT GATE NOT MET: B0 is unresolved, so the control is undefined. The measurements stand;\n"
+          "the confirmatory run does not follow from them.", file=sys.stderr)
 PY
 
 say "the report is NOT run here: it needs every arm of the study and this may be a pilot"
