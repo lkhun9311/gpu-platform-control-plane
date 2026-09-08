@@ -102,8 +102,13 @@ defects and this gap, and it did not buy a measurement of protection.
 
    Holding premium fixed and putting the rest at 60% of measured capacity gives **noisy at 0.50/s and each
    probe at 0.05/s** — an eighteen-fold cut in the contender's rate. At that rate 100 noisy completions need
-   about 202 s of arrivals, so the trace duration goes from 60 s to **300 s**, which offers about 150 and
-   leaves room for reading 4b's floor rather than landing on it.
+   about 202 s of arrivals, so the trace duration goes from 60 s to **420 s**.
+
+   300 s was the first figure here and it was too tight. It realises about 135 contender arrivals, so it
+   clears reading 4b's floor of 100 only if better than three quarters of them complete — too thin a margin
+   for the gate that voids the whole run, and Poisson arrivals scatter around the mean besides. 420 s offers
+   about 187, which needs 53%. Lengthening is the safe direction to add margin in: raising the rate instead
+   would push utilisation back toward the saturation being fixed. The run at 420 s completed all 187.
 
    The contention survives the cut, which is the thing that could have made this unworkable. A noisy prefill
    occupies the engine for about 1.03 s, so at 0.50/s at least one is in flight about half the time — and
@@ -111,15 +116,62 @@ defects and this gap, and it did not buy a measurement of protection.
    long prefill, against reading 4's floor of 5x R1. One is enough. The load has to come down by an order of
    magnitude to be measurable and stays contended throughout.
 
-   **This lengthens the confirmatory run.** Thirty arm-repetitions at a 300 s trace is roughly four hours
-   rather than the pre-registration's budgeted figure, about $2.60 at the measured $0.65/h. That is inside
-   the $3.45 line but it is a different shape of spend, and it should be re-derived against a pilot that
-   actually clears 4b before it is bought.
+   **This lengthens the confirmatory run**, and by how much is no longer a guess: the section below fits a
+   runtime model to three paid runs and costs it. It is inside the $3.45 line but it is a different shape of
+   spend.
 2. **B₀ must resolve.** The original pre-registration's pilot gate is still unmet, and
    `hack/m5b-price-of-protection.sh` now keeps the whole engine log and says loudly when the control's batch
    budget cannot be read from it.
 3. **Both gates are the confirmatory run's precondition**, and neither is satisfied by the 2026-09-07
    evidence.
+
+## Both gates are now met, and the confirmatory run is costed — 2026-09-08
+
+Written before the confirmatory run is bought, which is the only time this section can honestly be written.
+
+**Reading 4b passes.** `hack/pop-20260908-015929` at the derived load completed 3,976 of 3,976 premium and
+187 of 187 contender requests, with **no timeouts in any arm**, against 17 of 555 before. Reading 4 still
+does not fire either: the control's premium tail is 51.5x R1's, so an order of magnitude off the load left
+the engine plainly contended, as the derivation predicted.
+
+**B₀ is 2048, established by construction.** vLLM never prints it — two paid pilots, whole logs, both
+streams. `hack/pop-20260908-030550` ran the control beside an engine configured explicitly at 2048 and the
+two were indistinguishable: same compile range endpoint, same 369,680-token KV cache, and premium tails
+3,439.4 ms against 3,441.7 ms. That is 0.07% apart, from the workload rather than from the fingerprint logic.
+
+### The runtime model, fitted to three paid runs
+
+Runs 2 and 3 differ only in arm count, which separates the fixed cost from the per-arm cost:
+
+| | |
+| ------------------------------- | ------: |
+| fixed (boot, image pull) | 15.0 min |
+| per arm (engine restart) | 1.5 min |
+| per arm-repetition (420 s replay) | 7.0 min |
+
+Checked against run 1, which was not used to fit it: predicted 25 min against 25 measured, at a different
+trace length. Ten arms at three repetitions is then **240 min in one run**, about $2.40.
+
+### It is bought as three runs of one repetition, not one run of three
+
+**One four-hour run cannot survive its own backstop.** `BACKSTOP_SECONDS` is 7,200 s, so the instance would
+shut down at 120 minutes — and evidence uploads only at the end, so the whole spend would return nothing.
+Raising the backstop fixes that and leaves the real objection: four hours of Spot exposure with a single
+delivery point at the end, where an interruption in hour three costs everything.
+
+Three runs of ten arms at one repetition are 100 min each, inside the existing backstop untouched, and an
+interruption costs one repetition. They total about 300 min and **$2.90 to $3.25**, against the
+pre-registration's $3.45 line. The extra over a single run is the fixed cost paid three times.
+
+**Splitting repetitions across instances makes reading 3 stronger, not weaker.** Its threshold is the
+control's repetition-to-repetition spread, and repetitions on separate instances put instance-to-instance
+variation inside that spread where it belongs. The two control repetitions already in hand — different
+instances, different hours — differ by **0.8 ms** at the premium tail, so the threshold does not become
+uselessly wide by being made honest. Pooling them is what the report already does: one raw file is one
+repetition, and the traces are byte-identical across runs because the generator's seed is fixed, which is
+what makes them repetitions rather than three different experiments.
+
+---
 
 This page may not be edited once the confirmatory run is bought, on the same terms as the document it
 amends.
