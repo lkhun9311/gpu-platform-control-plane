@@ -2,6 +2,7 @@ package queuelab
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"time"
 )
@@ -346,7 +347,7 @@ func busyDuringAttempt(obs *DeviceObservation, devices map[string]bool, claim De
 	for at := range busyAt {
 		times = append(times, at)
 	}
-	sort.Slice(times, func(i, j int) bool { return times[i] < times[j] })
+	slices.Sort(times)
 	busy := 0
 	last := int64(0)
 	for i, at := range times {

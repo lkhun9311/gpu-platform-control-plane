@@ -76,66 +76,50 @@ const (
 func EvaluatePriceOfProtection(r1, control ArmSummary, cells []ArmSummary, premiumTenant, noisyTenant string) PoPResult {
 	var res PoPResult
 
-	// Reading 4 first: if the load made no contention, nothing below is a measurement of protection.
-	four := PoPReading{ID: "4", Name: "the load did not create contention -- INVALID"}
-	switch {
-	case r1.TTFTMsP99 <= 0:
-		four.NotEvaluable = true
-		four.Detail = "R1 has no premium tail to compare against"
-	default:
-		ratio := control.TTFTMsP99 / r1.TTFTMsP99
-		four.Fired = ratio < popContentionBar
-		four.Detail = fmt.Sprintf("control premium TTFT p99 is %.1fx R1's (%.1f ms against %.1f ms); the load is contended when this is at least %.2fx",
-			ratio, control.TTFTMsP99, r1.TTFTMsP99, popContentionBar)
-	}
-	res.Readings = append(res.Readings, four)
-	if four.Fired || four.NotEvaluable {
-		res.Answer = answerOf(four)
-		return res
+	// The two INVALID readings come first and short-circuit. Both say the trace rather than the
+	// configurations is what has to change, so scoring the cells underneath either one would be scoring
+	// comparisons that do not mean anything.
+	for _, r := range []PoPReading{
+		popReadingFour(r1, control),
+		popReadingFourB(control, noisyTenant),
+	} {
+		res.Readings = append(res.Readings, r)
+		if r.Fired || r.NotEvaluable {
+			res.Answer = answerOf(r)
+			return res
+		}
 	}
 
-	// Reading 4b, added by 2026-09-08-the-load-needs-an-upper-gate.md: reading 4 guards only the low side.
-	//
-	// A load can also be too high to measure. The pilot's control completed 17 of 555 premium requests and 26
-	// of 544 of the contending tenant's, everything else timing out -- and every reading below is a ratio of
-	// tails and shares over those handfuls. The floor is MinTailSamples, which is not a number chosen here:
-	// it is the point where a nearest-rank p99 stops being the largest observation, derived in report.go and
-	// already gating the other study. A control below it cannot supply a tail, and its output shares are
-	// computed over whatever few requests happened to survive.
-	fourB := PoPReading{ID: "4b", Name: "the load was too high to measure -- INVALID"}
-	controlNoisyDone := control.DispositionByTenant[noisyTenant].Completed
-	switch {
-	case control.TailSampleSize < MinTailSamples:
-		fourB.Fired = true
-		fourB.Detail = fmt.Sprintf("the control completed %d premium requests, below the %d a nearest-rank p99 needs to be anything other than the maximum",
-			control.TailSampleSize, MinTailSamples)
-	case len(control.DispositionByTenant) == 0:
-		fourB.NotEvaluable = true
-		fourB.Detail = "the control carries no per-tenant disposition, so how much of each tenant's work survived cannot be checked"
-	case controlNoisyDone < MinTailSamples:
-		fourB.Fired = true
-		fourB.Detail = fmt.Sprintf("the control completed %d of %s's %d requests, below the %d that the share clauses need to be measuring a population rather than a remnant",
-			controlNoisyDone, noisyTenant, control.DispositionByTenant[noisyTenant].Offered, MinTailSamples)
-	default:
-		fourB.Detail = fmt.Sprintf("the control completed %d premium and %d %s requests, both at or above %d",
-			control.TailSampleSize, controlNoisyDone, noisyTenant, MinTailSamples)
-	}
-	res.Readings = append(res.Readings, fourB)
-	if fourB.Fired || fourB.NotEvaluable {
-		res.Answer = answerOf(fourB)
-		return res
-	}
+	all := scoreCells(r1, control, cells, premiumTenant, noisyTenant)
+	res.Readings = append(res.Readings,
+		popReadingOne(all),
+		popReadingOneB(all),
+		popReadingTwo(all, noisyTenant),
+		popReadingThree(control, all),
+	)
 
-	// The three bars every positive reading shares, measured per cell.
-	type scored struct {
-		ArmSummary
-		ttft, tpot, share, thru float64
-		ttftOK, tpotOK          bool
-		shareOK, thruOK         bool
-		computable              bool
+	for _, r := range res.Readings {
+		if r.Fired {
+			res.Answer = answerOf(r)
+			break
+		}
 	}
+	return res
+}
+
+// scored is one cell measured against every bar, so each reading below asks about booleans rather than
+// recomputing ratios and risking two readings disagreeing about the same cell.
+type scored struct {
+	ArmSummary
+	ttft, tpot, share, thru float64
+	ttftOK, tpotOK          bool
+	shareOK, thruOK         bool
+	computable              bool
+}
+
+func scoreCells(r1, control ArmSummary, cells []ArmSummary, premiumTenant, noisyTenant string) []scored {
 	controlNoisy := shareOf(control, noisyTenant)
-	var all []scored
+	all := make([]scored, 0, len(cells))
 	for _, c := range cells {
 		s := scored{ArmSummary: c}
 		s.ttft = ratioOr(c.TTFTMsP99, r1.TTFTMsP99)
@@ -150,10 +134,56 @@ func EvaluatePriceOfProtection(r1, control ArmSummary, cells []ArmSummary, premi
 		s.thruOK = s.thru >= popThroughputBar
 		all = append(all, s)
 	}
+	return all
+}
 
-	// Reading 1: all four bars. Ties on noisy share go to the larger budget, which is the later cell in the
-	// study's own ordering -- the pre-registration says so and says why.
-	one := PoPReading{ID: "1", Name: "protection without deletion -- POSITIVE"}
+// popReadingFour: the load made no contention, so nothing below it is a measurement of protection.
+func popReadingFour(r1, control ArmSummary) PoPReading {
+	r := PoPReading{ID: "4", Name: "the load did not create contention -- INVALID"}
+	if r1.TTFTMsP99 <= 0 {
+		r.NotEvaluable = true
+		r.Detail = "R1 has no premium tail to compare against"
+		return r
+	}
+	ratio := control.TTFTMsP99 / r1.TTFTMsP99
+	r.Fired = ratio < popContentionBar
+	r.Detail = fmt.Sprintf("control premium TTFT p99 is %.1fx R1's (%.1f ms against %.1f ms); the load is contended when this is at least %.2fx",
+		ratio, control.TTFTMsP99, r1.TTFTMsP99, popContentionBar)
+	return r
+}
+
+// popReadingFourB, added by 2026-09-08-the-load-needs-an-upper-gate.md: reading 4 guards only the low side.
+//
+// A load can also be too high to measure. The first pilot's control completed 17 of 555 premium requests and
+// 26 of 544 of the contending tenant's, everything else timing out -- and every reading below is a ratio of
+// tails and shares over those handfuls. The floor is MinTailSamples, which is not a number chosen here: it
+// is the point where a nearest-rank p99 stops being the largest observation, derived in report.go and
+// already gating the other study.
+func popReadingFourB(control ArmSummary, noisyTenant string) PoPReading {
+	r := PoPReading{ID: "4b", Name: "the load was too high to measure -- INVALID"}
+	done := control.DispositionByTenant[noisyTenant].Completed
+	switch {
+	case control.TailSampleSize < MinTailSamples:
+		r.Fired = true
+		r.Detail = fmt.Sprintf("the control completed %d premium requests, below the %d a nearest-rank p99 needs to be anything other than the maximum",
+			control.TailSampleSize, MinTailSamples)
+	case len(control.DispositionByTenant) == 0:
+		r.NotEvaluable = true
+		r.Detail = "the control carries no per-tenant disposition, so how much of each tenant's work survived cannot be checked"
+	case done < MinTailSamples:
+		r.Fired = true
+		r.Detail = fmt.Sprintf("the control completed %d of %s's %d requests, below the %d that the share clauses need to be measuring a population rather than a remnant",
+			done, noisyTenant, control.DispositionByTenant[noisyTenant].Offered, MinTailSamples)
+	default:
+		r.Detail = fmt.Sprintf("the control completed %d premium and %d %s requests, both at or above %d",
+			control.TailSampleSize, done, noisyTenant, MinTailSamples)
+	}
+	return r
+}
+
+// popReadingOne: all four bars, which is the deliverable.
+func popReadingOne(all []scored) PoPReading {
+	r := PoPReading{ID: "1", Name: "protection without deletion -- POSITIVE"}
 	var won *scored
 	for i := range all {
 		s := &all[i]
@@ -167,108 +197,99 @@ func EvaluatePriceOfProtection(r1, control ArmSummary, cells []ArmSummary, premi
 			won = s
 		}
 	}
-	if won != nil {
-		one.Fired, one.Cell = true, won.Arm
-		one.Detail = fmt.Sprintf("%s holds TTFT p99 at %.2fx R1, TPOT p99 at %.2fx, noisy share at %.2f of the control's and throughput at %.2f of it",
-			won.Arm, won.ttft, won.tpot, won.share, won.thru)
-	} else {
-		one.Detail = "no cell met all four bars"
+	if won == nil {
+		r.Detail = "no cell met all four bars"
+		return r
 	}
-	res.Readings = append(res.Readings, one)
+	r.Fired, r.Cell = true, won.Arm
+	r.Detail = fmt.Sprintf("%s holds TTFT p99 at %.2fx R1, TPOT p99 at %.2fx, noisy share at %.2f of the control's and throughput at %.2f of it",
+		won.Arm, won.ttft, won.tpot, won.share, won.thru)
+	return r
+}
 
-	// Reading 1b: the same, minus the throughput clause, and only for cells that missed on throughput alone.
-	oneB := PoPReading{ID: "1b", Name: "protection, bought with throughput -- POSITIVE with a price"}
-	var wonB *scored
+// popReadingOneB: the same, minus the throughput clause, for cells that missed on throughput alone.
+func popReadingOneB(all []scored) PoPReading {
+	r := PoPReading{ID: "1b", Name: "protection, bought with throughput -- POSITIVE with a price"}
+	var won *scored
 	for i := range all {
 		s := &all[i]
 		if !s.computable || !s.ttftOK || !s.tpotOK || !s.shareOK || s.thruOK {
 			continue
 		}
-		if wonB == nil || s.thru > wonB.thru {
-			wonB = s
+		if won == nil || s.thru > won.thru {
+			won = s
 		}
 	}
-	if wonB != nil {
-		oneB.Fired, oneB.Cell = true, wonB.Arm
-		oneB.Detail = fmt.Sprintf("%s protects at %.2fx R1 with the noisy tenant's work intact, and costs %.0f%% of the control's throughput",
-			wonB.Arm, wonB.ttft, 100*(1-wonB.thru))
-	} else {
-		oneB.Detail = "no cell held the tail, the share and the stream while missing only on throughput"
+	if won == nil {
+		r.Detail = "no cell held the tail, the share and the stream while missing only on throughput"
+		return r
 	}
-	res.Readings = append(res.Readings, oneB)
+	r.Fired, r.Cell = true, won.Arm
+	r.Detail = fmt.Sprintf("%s protects at %.2fx R1 with the noisy tenant's work intact, and costs %.0f%% of the control's throughput",
+		won.Arm, won.ttft, 100*(1-won.thru))
+	return r
+}
 
-	// Reading 2: protection only by deletion. Requires cells that met the p99 bar, all of them failing the
-	// share bar, AND the per-tenant ledger showing the missing work was refused or discarded rather than late.
-	two := PoPReading{ID: "2", Name: "protection only by deletion -- NEGATIVE"}
+// popReadingTwo: protection only by deletion, which requires the ledger to show the work was refused or
+// discarded rather than merely late. A smaller share alone cannot tell those apart, and the pre-registration
+// forbids calling it deletion without the counts.
+func popReadingTwo(all []scored, noisyTenant string) PoPReading {
+	r := PoPReading{ID: "2", Name: "protection only by deletion -- NEGATIVE"}
 	var metTail []*scored
 	for i := range all {
 		if all[i].computable && all[i].ttftOK {
 			metTail = append(metTail, &all[i])
 		}
 	}
-	switch {
-	case len(metTail) == 0:
-		two.Detail = "no cell met the p99 bar, so this reading does not apply; that is reading 3"
-	default:
-		allDeleted, why := true, ""
-		for _, s := range metTail {
-			if s.shareOK {
-				allDeleted, why = false, fmt.Sprintf("%s met the p99 bar with the noisy tenant's share intact", s.Arm)
-				break
-			}
-			d, ok := s.DispositionByTenant[noisyTenant]
-			if !ok {
-				two.NotEvaluable = true
-				two.Detail = fmt.Sprintf("%s carries no per-tenant disposition for %s, and a smaller share is equally consistent with deletion, delay and starvation",
-					s.Arm, noisyTenant)
-				break
-			}
-			// Deletion means refused or discarded. A timeout is work that may merely have been late, and
-			// the pre-registration is explicit that those are different findings.
-			if d.Rejected+d.Failed == 0 {
-				allDeleted, why = false, fmt.Sprintf("%s lost %s's share with %d timeouts and no rejections or discards, which is delay rather than deletion",
-					s.Arm, noisyTenant, d.TimedOut)
-				break
-			}
+	if len(metTail) == 0 {
+		r.Detail = "no cell met the p99 bar, so this reading does not apply; that is reading 3"
+		return r
+	}
+	for _, s := range metTail {
+		if s.shareOK {
+			r.Detail = fmt.Sprintf("%s met the p99 bar with the noisy tenant's share intact", s.Arm)
+			return r
 		}
-		if !two.NotEvaluable {
-			two.Fired = allDeleted
-			if allDeleted {
-				two.Detail = fmt.Sprintf("every cell that met the p99 bar (%d of them) did so with %s's work rejected or discarded", len(metTail), noisyTenant)
-			} else {
-				two.Detail = why
-			}
+		d, ok := s.DispositionByTenant[noisyTenant]
+		if !ok {
+			r.NotEvaluable = true
+			r.Detail = fmt.Sprintf("%s carries no per-tenant disposition for %s, and a smaller share is equally consistent with deletion, delay and starvation",
+				s.Arm, noisyTenant)
+			return r
+		}
+		if d.Rejected+d.Failed == 0 {
+			r.Detail = fmt.Sprintf("%s lost %s's share with %d timeouts and no rejections or discards, which is delay rather than deletion",
+				s.Arm, noisyTenant, d.TimedOut)
+			return r
 		}
 	}
-	res.Readings = append(res.Readings, two)
+	r.Fired = true
+	r.Detail = fmt.Sprintf("every cell that met the p99 bar (%d of them) did so with %s's work rejected or discarded", len(metTail), noisyTenant)
+	return r
+}
 
-	// Reading 3: no cell beats the control by more than the control's own repetition-to-repetition spread.
-	// With one repetition there IS no spread, so this cannot be decided rather than being decided as false.
-	three := PoPReading{ID: "3", Name: "no cell beats the control -- INCONCLUSIVE"}
-	if spread, ok := repetitionSpread(control.RepetitionTTFTMsP99); !ok {
-		three.NotEvaluable = true
-		three.Detail = fmt.Sprintf("the control carries %d per-repetition tail(s); its repetition-to-repetition spread is what this reading compares against and needs at least 2",
+// popReadingThree: no cell beats the control by more than the control's own repetition-to-repetition spread.
+// With fewer than two repetitions there IS no spread, so this declines to decide rather than reporting every
+// cell as failing to beat noise nobody measured.
+func popReadingThree(control ArmSummary, all []scored) PoPReading {
+	r := PoPReading{ID: "3", Name: "no cell beats the control -- INCONCLUSIVE"}
+	spread, ok := repetitionSpread(control.RepetitionTTFTMsP99)
+	if !ok {
+		r.NotEvaluable = true
+		r.Detail = fmt.Sprintf("the control carries %d per-repetition tail(s); its repetition-to-repetition spread is what this reading compares against and needs at least 2",
 			len(control.RepetitionTTFTMsP99))
-	} else {
-		best := 0.0
-		for i := range all {
-			if imp := control.TTFTMsP99 - all[i].TTFTMsP99; imp > best {
-				best = imp
-			}
-		}
-		three.Fired = best <= spread
-		three.Detail = fmt.Sprintf("the best cell improves the control's premium TTFT p99 by %.1f ms against a repetition-to-repetition spread of %.1f ms",
-			best, spread)
+		return r
 	}
-	res.Readings = append(res.Readings, three)
-
-	for _, r := range res.Readings {
-		if r.Fired {
-			res.Answer = answerOf(r)
-			break
+	best := 0.0
+	for i := range all {
+		if imp := control.TTFTMsP99 - all[i].TTFTMsP99; imp > best {
+			best = imp
 		}
 	}
-	return res
+	r.Fired = best <= spread
+	r.Detail = fmt.Sprintf("the best cell improves the control's premium TTFT p99 by %.1f ms against a repetition-to-repetition spread of %.1f ms",
+		best, spread)
+	return r
 }
 
 func answerOf(r PoPReading) string {
