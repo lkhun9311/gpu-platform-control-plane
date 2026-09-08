@@ -34,6 +34,33 @@ INSTANCE_TYPE="${INSTANCE_TYPE:-g5.xlarge}"
 MAX_SPOT_PRICE="${MAX_SPOT_PRICE:-0.80}"
 BACKSTOP_SECONDS="${BACKSTOP_SECONDS:-7200}"
 REPS="${REPS:-1}"
+
+# The offered load, derived in docs/superpowers/specs/2026-09-08-the-load-needs-an-upper-gate.md.
+#
+# It is set here rather than left to gen-trace's defaults because those defaults are calibrated against a
+# stub backend that costs nothing to serve -- the flag's own help says so -- and the 2026-09-07 pilot ran
+# them straight at a GPU. Measured against that engine's own sustained prefill throughput, the trace offered
+# TEN TIMES the prefill it can do, and 95.9% of the control timed out. Every reading below reading 4 was
+# then a ratio over a remnant.
+#
+# The protected tenant is unchanged at about 9.25/s, because it was 5% of capacity and none of the
+# contention came from it. The contending tenant drops eighteen-fold and the probe pair with it: at 3,171
+# tokens each those two carried 78% of capacity while their flag help called them a small population. What
+# is left sits at roughly 60% of measured capacity, where one long prefill is in flight about half the time
+# -- which is a contended engine by a wide margin, since a single concurrent long prefill has already been
+# measured at fifteen times R1's premium tail.
+#
+# The duration follows from reading 4b rather than from taste. 100 contender completions is the floor. At the
+# realised 0.45/s a 300 s trace offers 135, which clears the floor only if better than three quarters of them
+# complete -- too thin a margin for the gate that voids the whole run, and Poisson arrivals scatter around
+# the mean besides. 420 s offers about 190. Lengthening is the safe direction to add margin in: raising the
+# rate instead would push utilisation back toward the saturation that voided the first pilot.
+RATE="${RATE:-9.85}"                  # total arrivals per second across all tenants
+DURATION_MS="${DURATION_MS:-420000}"  # 420 s of arrivals
+PREMIUM_WEIGHT="${PREMIUM_WEIGHT:-1}"
+NOISY_WEIGHT="${NOISY_WEIGHT:-0.054}" # 0.50/s against premium's 9.25/s
+PROBE_WEIGHT="${PROBE_WEIGHT:-0.0054}"
+
 OUT="${OUT:-hack/pop-$(date -u +%Y%m%d-%H%M%S)}"
 STACK="m5b-pop"
 STUDY="price-of-protection-2026-09-05"
@@ -238,6 +265,12 @@ for name, budget, policy in ARMS:
         raw = f"{OUT}/raw-{name}-{rep}.jsonl"
         gen = [HARNESS, "gen-trace", "--seed", "7", "--study", STUDY, "--arm", name,
                "--model", MODEL, "--gateway-url", BASE, "--engine-image", IMAGE,
+               # The load is passed rather than defaulted. gen-trace's defaults are stub-calibrated and the
+               # first pilot ran them at a GPU at ten times its prefill capacity.
+               "--rate", os.environ["RATE"], "--duration-ms", os.environ["DURATION_MS"],
+               "--premium-weight", os.environ["PREMIUM_WEIGHT"],
+               "--noisy-weight", os.environ["NOISY_WEIGHT"],
+               "--probe-weight", os.environ["PROBE_WEIGHT"],
                "--trace-out", trace, "--manifest-out", mani]
         r = subprocess.run(gen, capture_output=True)
         if r.returncode != 0:
@@ -323,6 +356,9 @@ UD=$(mktemp)
   cat "$MEASURE"
   echo "MEASUREEOF"
   echo "export IMAGE='$ENGINE_IMAGE' MODEL='$MODEL' STUDY='$STUDY' ARMS='$ARMS' REPS='$REPS'"
+  # The load travels with the run. Leaving these to gen-trace's stub-calibrated defaults is what the first
+  # pilot did, and the instance is where that decision actually takes effect.
+  echo "export RATE='$RATE' DURATION_MS='$DURATION_MS' PREMIUM_WEIGHT='$PREMIUM_WEIGHT' NOISY_WEIGHT='$NOISY_WEIGHT' PROBE_WEIGHT='$PROBE_WEIGHT'"
   sed -e "s|BACKSTOP_SECONDS_PLACEHOLDER|$BACKSTOP_SECONDS|" \
       -e "s|RUN_ID_PLACEHOLDER|$RUN_ID|" \
       -e "s|ENGINE_IMAGE_PLACEHOLDER|$ENGINE_IMAGE|" \
