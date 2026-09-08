@@ -199,6 +199,21 @@ type ArmSummary struct {
 	TimedOut int
 	// Failed counts other non-completing requests (transport or stream errors).
 	Failed int
+	// RepetitionTTFTMsP99 is each repetition's own premium TTFT p99, attached by the caller that knows the
+	// split. The price-of-protection run's reading 3 compares a cell's improvement against the CONTROL'S
+	// repetition-to-repetition spread, so without these the reading has no threshold and must decline to
+	// decide rather than report a cell as failing to beat noise nobody measured.
+	RepetitionTTFTMsP99 []float64
+	// DispositionByTenant is what happened to each tenant's offered requests, and it exists because a share
+	// alone cannot say why a share is small.
+	//
+	// The price-of-protection run's reading 2 fires only when the contending tenant's missing work was
+	// REJECTED OR DISCARDED rather than delayed, and it says why in its own text: a reduced share is equally
+	// consistent with work discarded, work delayed past the window, and work starved but still queued, which
+	// are three findings and only one of them is deletion. The arm-wide Rejected/TimedOut/Failed counts above
+	// cannot separate them per tenant, so a reading built on those would be attributing a quantity to a cause
+	// its ledger does not establish -- which is the one thing this package's rules forbid outright.
+	DispositionByTenant map[string]Disposition
 	// TTFTMsP50/P95/P99 are the time-to-first-token percentiles over COMPLETED requests, in ms.
 	TTFTMsP50 float64
 	TTFTMsP95 float64
@@ -319,20 +334,33 @@ func Summarize(arm string, rows []RawRow) ArmSummary {
 		}
 
 		// Overall outcome counts cover every offered request, so load shedding is always visible as a rejection.
+		// The same verdict is recorded against the tenant, because "why is this tenant's share small" is a
+		// different question from "how much did this arm shed", and only the second one is answerable here.
+		if s.DispositionByTenant == nil {
+			s.DispositionByTenant = map[string]Disposition{}
+		}
+		d := s.DispositionByTenant[r.Tenant]
+		d.Offered++
 		switch {
 		case r.ErrorKind == errKindTimeout:
 			s.TimedOut++
+			d.TimedOut++
 		case shedByAdmission(r):
 			s.Rejected++
+			d.Rejected++
 		case r.ErrorKind != "":
 			s.Failed++
+			d.Failed++
 		default:
 			if _, ok := r.TTFTNanos(); ok {
 				s.Completed++
+				d.Completed++
 			} else {
 				s.Failed++
+				d.Failed++
 			}
 		}
+		s.DispositionByTenant[r.Tenant] = d
 
 		// The tail is premium-only; the contender's requests never enter the protected metric.
 		if r.IsNoisy {
@@ -871,8 +899,12 @@ func FormatReport(summaries []ArmSummary, checks *Checks, matchTolerance float64
 	if checks == nil {
 		// No heading that looks like a results table, and no VERDICT line. The measurements above stand on
 		// their own; what must not happen is a reader coming away with a judgement nobody made.
-		b.WriteString("\nPre-registered checks: NOT EVALUATED. This study's readings are not implemented in\n")
-		b.WriteString("  this binary, so the tables above are measurements and nothing here is a verdict on them.\n")
+		// Deliberately says nothing about whether the study has criteria of its own. The three checks below
+		// are M5-b's, and a study that does not use them may still have readings, which are rendered
+		// separately by FormatPriceOfProtection. Claiming here that a run was not evaluated would be the
+		// same defect one level along.
+		b.WriteString("\nPre-registered checks: NOT APPLICABLE. The three checks above this line are the M5-b\n")
+		b.WriteString("  gateway study's, and this evidence is not from it. Nothing here is a verdict on these arms.\n")
 		return b.String()
 	}
 

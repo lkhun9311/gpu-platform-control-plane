@@ -165,7 +165,7 @@ func genTrace(args []string) error {
 	// borderline traffic inside the p99 the whole experiment is judged on.
 	tenants := []bench.TenantSpec{
 		{Tenant: "premium-1", Weight: *premiumWeight, PromptLenChars: *premiumChars, MaxOutputTokens: 64, IsNoisy: false},
-		{Tenant: "standard-noisy", Weight: *noisyWeight, PromptLenChars: *noisyChars, MaxOutputTokens: 16, IsNoisy: true},
+		{Tenant: bench.NoisyTenant, Weight: *noisyWeight, PromptLenChars: *noisyChars, MaxOutputTokens: 16, IsNoisy: true},
 	}
 	if *probeWeight > 0 {
 		tenants = append(tenants,
@@ -408,6 +408,7 @@ func report(args []string) error {
 	// its own, so until they are implemented the report prints that study's tables and says plainly that
 	// it evaluated no criteria, rather than failing it against somebody else's.
 	var checks *bench.Checks
+	var pop *bench.PoPResult
 	if bench.CanonicalStudyID(e.study) == bench.StudyM5BGateway {
 		var missing []string
 		for _, arm := range []string{bench.ArmR1, "static-cap", "kv-aware"} {
@@ -421,12 +422,17 @@ func report(args []string) error {
 		}
 		evaluated := bench.EvaluateChecks(summ[bench.ArmR1], summ["static-cap"], summ["kv-aware"], incCI, matchTolerance)
 		checks = &evaluated
+	} else if bench.CanonicalStudyID(e.study) == bench.StudyPriceOfProtection {
+		pop = evaluatePoP(summ, summaries)
 	} else {
 		fmt.Fprintf(os.Stderr,
 			"warning: study %s has no implemented readings, so this report shows its measurements and evaluates no criteria\n",
 			e.study)
 	}
 	text := bench.FormatReport(summaries, checks, matchTolerance)
+	if pop != nil {
+		text += bench.FormatPriceOfProtection(*pop)
+	}
 
 	if *out != "" {
 		if err := os.WriteFile(*out, []byte(text), 0o600); err != nil {
@@ -791,6 +797,9 @@ func (e *armEvidence) summarize() ([]bench.ArmSummary, map[string]bench.ArmSumma
 				s.RepetitionCount = len(tails)
 				s.MinRepetitionTail = slices.Min(tails)
 			}
+			// The per-repetition tails travel with the summary too, because the price-of-protection run's
+			// reading 3 needs the CONTROL'S spread as its threshold and a pooled p99 cannot supply it.
+			s.RepetitionTTFTMsP99 = append([]float64(nil), e.repP99[arm]...)
 			// The pooled span Summarize just computed spans the washouts between repetitions, so replace it
 			// with the sum of the repetitions' own spans, which is the time the arm was actually sending.
 			if spans := e.repSeconds[arm]; len(spans) > 0 {
@@ -864,4 +873,37 @@ func printPrompt(args []string) {
 		os.Exit(2)
 	}
 	fmt.Print(bench.PromptText(*chars))
+}
+
+// evaluatePoP scores the price-of-protection readings, or returns nil when the arms they need are absent.
+//
+// R1 and the control are not optional: every reading is a ratio against one or the other, and a report that
+// quietly scored the cells against a missing baseline would produce ratios against zero. Saying so on stderr
+// and returning nil puts the run in the "criteria not evaluated" state, which the report already renders
+// honestly, rather than inventing a verdict.
+func evaluatePoP(summ map[string]bench.ArmSummary, summaries []bench.ArmSummary) *bench.PoPResult {
+	r1, haveR1 := summ[bench.ArmR1]
+	control, haveControl := summ[bench.ArmDefaultFCFS]
+	if !haveR1 || !haveControl {
+		fmt.Fprintf(os.Stderr,
+			"warning: the price-of-protection readings need both %s and %s and this evidence has %s; no criteria were evaluated\n",
+			bench.ArmR1, bench.ArmDefaultFCFS, strings.Join(armNames(summaries), ", "))
+		return nil
+	}
+	var cells []bench.ArmSummary
+	for _, s := range summaries {
+		if s.Arm != bench.ArmR1 && s.Arm != bench.ArmDefaultFCFS {
+			cells = append(cells, s)
+		}
+	}
+	res := bench.EvaluatePriceOfProtection(r1, control, cells, bench.PremiumTenant, bench.NoisyTenant)
+	return &res
+}
+
+func armNames(summaries []bench.ArmSummary) []string {
+	names := make([]string, 0, len(summaries))
+	for _, s := range summaries {
+		names = append(names, s.Arm)
+	}
+	return names
 }

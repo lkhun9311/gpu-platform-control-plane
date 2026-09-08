@@ -434,9 +434,9 @@ var _ = Describe("a report with no criteria to evaluate", func() {
 		Expect(out).NotTo(ContainSubstring("FAIL"))
 	})
 
-	It("says the criteria were not evaluated, rather than staying silent about them", func() {
+	It("says the checks do not apply, rather than staying silent about them", func() {
 		out := FormatReport([]ArmSummary{{Arm: "default-fcfs", TailSampleSize: 500}}, nil, 0.05)
-		Expect(out).To(ContainSubstring("NOT EVALUATED"))
+		Expect(out).To(ContainSubstring("NOT APPLICABLE"))
 	})
 
 	It("still prints the measurements, which are what the run bought", func() {

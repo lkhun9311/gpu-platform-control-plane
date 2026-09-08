@@ -933,9 +933,11 @@ func TestEveryGeneratedTenantIsProvisioned(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read generator: %v", err)
 	}
-	// The generator names two tenants as literals and the probe pair through the constants below, so the
-	// constants are resolved here rather than matched as text.
-	generated := map[string]bool{ProbeUnderTenant: true, ProbeOverTenant: true}
+	// The generator names some tenants as literals and the rest through the constants below, so the
+	// constants are resolved here rather than matched as text. NoisyTenant joined them when the
+	// price-of-protection readings started comparing that tenant's output share and the name became
+	// load-bearing in two packages; resolving it is strictly better than matching a string that can move.
+	generated := map[string]bool{ProbeUnderTenant: true, ProbeOverTenant: true, NoisyTenant: true}
 	for _, m := range regexp.MustCompile(`\{Tenant: "([^"]+)"`).FindAllSubmatch(genSrc, -1) {
 		generated[string(m[1])] = true
 	}
