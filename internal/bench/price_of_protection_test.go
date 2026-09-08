@@ -197,6 +197,35 @@ var _ = Describe("the price-of-protection readings", func() {
 		Expect(readingByID(res, "3").Fired).To(BeTrue())
 	})
 
+	It("picks the highest noisy share when several cells qualify", func() {
+		// The confirmatory run offers eight cells at once and nothing until now has scored more than two.
+		res := EvaluatePriceOfProtection(popR1(), popControl(), []ArmSummary{
+			popCell("mbt-0256-fcfs", 5.0, 1.0, 1.00, 1.0),     // tail fails
+			popCell("mbt-0256-priority", 1.2, 1.1, 0.80, 1.0), // qualifies, share 0.80
+			popCell("mbt-0512-fcfs", 1.9, 5.0, 1.00, 1.0),     // TPOT fails
+			popCell("mbt-0512-priority", 1.3, 1.1, 0.95, 1.0), // qualifies, share 0.95 <- winner
+			popCell("mbt-1024-fcfs", 1.5, 1.1, 0.50, 1.0),     // share fails
+			popCell("mbt-1024-priority", 1.4, 1.1, 0.85, 1.0), // qualifies, share 0.85
+			popCell("mbt-2048-fcfs", 1.6, 1.1, 0.90, 0.50),    // throughput fails
+			popCell("mbt-2048-priority", 1.7, 1.1, 0.78, 1.0), // qualifies, share 0.78
+		}, PremiumTenant, NoisyTenant)
+
+		Expect(res.Answer).To(Equal("1 (mbt-0512-priority)"))
+	})
+
+	It("breaks an exact tie toward the larger budget", func() {
+		// The pre-registration says so and says why: the larger budget is the smaller change from the
+		// control, and its first draft broke ties the other way on a claim about operating cost that this
+		// run has no evidence for. Cells arrive in the study's order, which is ascending by budget, so the
+		// later of two equal shares is the larger budget.
+		res := EvaluatePriceOfProtection(popR1(), popControl(), []ArmSummary{
+			popCell("mbt-0256-priority", 1.2, 1.1, 0.90, 1.0),
+			popCell("mbt-2048-priority", 1.2, 1.1, 0.90, 1.0),
+		}, PremiumTenant, NoisyTenant)
+
+		Expect(res.Answer).To(Equal("1 (mbt-2048-priority)"))
+	})
+
 	It("reports no answer rather than a false one when nothing fired", func() {
 		// A cell that beats the control well past its spread, but misses every positive bar. None of the five
 		// applies, and the honest output is silence rather than the nearest negative.
