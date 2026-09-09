@@ -21,6 +21,7 @@ aws ec2 terminate-instances --region ap-northeast-2 --instance-ids i-0stub
 harness checksum: user-data matches the uploaded binary
 --- exit 1
 --- messages
+== credentials live for 720 min, this run needs about 79 min including margin
 == study  price-of-protection-2026-09-05
 == engine vllm/vllm-openai@sha256:0a51ea5b4ae2dc5d81890e5173f54203d2a3ae0cfffe51b8fd2afd4391bfd967
 == model  Qwen/Qwen2.5-3B-Instruct
@@ -34,6 +35,7 @@ harness checksum: user-data matches the uploaded binary
 == trying ap-northeast-2a (subnet-ap-northeast-2a)
 == instance i-0stub
 == waiting for results (the engine has an image and weights to pull first)
+== watching for up to 125 min against a 120 min backstop
 == instance ended before writing DONE
 == terminating i-0stub
 FAIL: the instance was terminated before it wrote its completion marker; <OUT>/log.txt is whatever it managed to upload

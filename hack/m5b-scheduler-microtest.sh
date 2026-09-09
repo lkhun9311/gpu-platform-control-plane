@@ -278,7 +278,16 @@ say "launching $INSTANCE_TYPE spot (max \$$MAX_SPOT_PRICE/h)"
 # Retried across zones, because "no capacity right now" is a normal Spot answer rather than a fault, and a
 # single-zone attempt turns it into an aborted run.
 TAGS="ResourceType=instance,Tags=[{Key=Name,Value=$STACK},{Key=purpose,Value=m5b-scheduler-microtest}]"
+# The trap is armed BEFORE the launch loop, not after it.
+#
+# It used to sit below `say "instance $IID"`, which left a window: run-instances had returned an id and
+# nothing would terminate it yet. Under `set -euo pipefail` a failed write of the instance-id file, a
+# SIGPIPE on stdout because this script was piped to something that had exited, or a Ctrl-C in that window
+# all exit with a GPU instance running and no terminator. spot_terminate returns 0 on an empty id, so
+# arming it early costs nothing and closes the window.
+cleanup() { spot_terminate "$REGION" "$IID"; }
 IID=""
+trap cleanup EXIT INT TERM
 for z in $ZONES; do
   SUBNET=$(spot_subnet_in_zone "$REGION" "$z") || continue
   say "trying $z ($SUBNET)"
@@ -294,8 +303,6 @@ say "instance $IID"
 # The trap stays here rather than in the library. Traps do not stack -- the last one for a signal replaces
 # the earlier one -- so a library that armed its own would silently discard whatever the caller installed,
 # and the thing being discarded is what stops an idle GPU instance from billing all night.
-cleanup() { spot_terminate "$REGION" "$IID"; }
-trap cleanup EXIT INT TERM
 
 say "waiting for results (the engine has an image and weights to pull first)"
 # The three endings are distinguished by exit status, because "the loop ended" has three causes and only

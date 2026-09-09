@@ -90,6 +90,18 @@ run_scenario() {
     export OUT="$out"
     export AWS_REGION=ap-northeast-2
     export BUCKET=stub-bucket
+    # A credential cache with a long life, because the runners refuse to launch on credentials that would
+    # expire before the run finishes, and that refusal reads the cache on disk rather than the stubbed CLI.
+    #
+    # Supplied here rather than weakened there. A skip switch inside a check that exists to stop a GPU
+    # billing unattended is a switch that eventually gets set in the wrong place. AWS_CLI_CACHE_DIR only
+    # says WHERE to look; the check still runs and still refuses. HOME is left alone because the runners
+    # build Go binaries and the build cache lives under it.
+    export AWS_CLI_CACHE_DIR="$work/awscache"
+    mkdir -p "$AWS_CLI_CACHE_DIR"
+    printf '{"Credentials":{"Expiration":"%s"}}\n' \
+      "$(date -u -d '+12 hours' +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -v+12H +%Y-%m-%dT%H:%M:%SZ)" \
+      > "$AWS_CLI_CACHE_DIR/stub.json"
     "$@" >"$work/stdout.txt" 2>"$work/stderr.txt"
   ) || rc=$?
 
@@ -250,6 +262,15 @@ STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 STUB_DONE_AFTER=2 \
 STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 STUB_DONE_AFTER=2 \
   STUB_LAUNCH_FAIL_ZONES="ap-northeast-2a" STUB_PRESENT_KEYS="results.json log.txt stderr.txt" \
   run_scenario zone-retry bash "$TARGET"
+
+# The terminate call is refused, the way it is when credentials lapse mid-run.
+#
+# spot_terminate used to end in `>/dev/null 2>&1 || true`, so this scenario would have printed "terminating
+# i-0stub" and said nothing else while the instance went on billing. That happened on 2026-09-08 with a real
+# instance. The golden transcript is what makes the fix's failure branch executed rather than asserted.
+STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 STUB_DONE_AFTER=2 \
+  STUB_TERMINATE_FAILS=1 STUB_PRESENT_KEYS="results.json log.txt stderr.txt" \
+  run_scenario terminate-refused bash "$TARGET"
 
 # No zone will take it. This must fail loudly and must not leave an instance behind.
 STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 \
@@ -433,6 +454,31 @@ scenarios_queuelab_gpu_session() {
     STUB_PRESENT_KEYS="log.txt" \
     run_scenario stale-done bash "$TARGET"
 }
+
+# The cleanup trap must be armed BEFORE anything can launch an instance.
+#
+# This is a source-order assertion rather than a scenario, and deliberately so: the window it guards is the
+# one where the script DIES between run-instances returning an id and the trap being armed, and a golden
+# transcript cannot see it. Moving the trap back below the launch leaves every scenario passing -- the AWS
+# calls and the messages are identical -- while a SIGPIPE, a failed write of the instance-id file, or a
+# Ctrl-C in that window strands a GPU instance with nothing to terminate it. So the order is checked where
+# the order lives.
+trap_armed_before_launch() {
+  local f="$ROOT/$TARGET" t l
+  t=$(grep -n '^trap cleanup EXIT INT TERM' "$f" | head -1 | cut -d: -f1)
+  l=$(grep -n 'spot_launch "$REGION"' "$f" | head -1 | cut -d: -f1)
+  if [ -z "$t" ] || [ -z "$l" ]; then
+    printf 'FAIL     trap-before-launch (no trap or no launch found in %s)\n' "$TARGET"
+    fail=$((fail + 1))
+  elif [ "$t" -lt "$l" ]; then
+    printf 'ok       the cleanup trap is armed before the launch\n'
+    pass=$((pass + 1))
+  else
+    printf 'FAIL     the cleanup trap is armed at line %s, AFTER the launch at line %s; an exit in between strands the instance\n' "$t" "$l"
+    fail=$((fail + 1))
+  fi
+}
+trap_armed_before_launch
 
 case "$SUITE" in
   m5b-scheduler-microtest)  scenarios_microtest ;;
