@@ -119,6 +119,32 @@ func TestAnAdmittedWorkloadWithNoStampHasNoWindowStart(t *testing.T) {
 	}
 }
 
+// A refusal that named the real cause must survive the transition that follows it.
+//
+// AdmittedAt is nil in two ways, and the Running branch cannot tell them apart from the field alone: either
+// this controller never saw the admission, or it saw it and Kueue carried no usable stamp. The second is
+// already recorded, accurately, one transition earlier. Running used to overwrite it with a message reading
+// "this job was already past admission when this controller first saw it" -- which is false, because the
+// controller saw it and said so. The unobserved counter was also incremented twice for one job.
+//
+// Mutation that turns this red: drop the existing-refusal check in the Running branch.
+func TestAStampMissingRefusalIsNotRewrittenAsNeverObserved(t *testing.T) {
+	var s platformv1.MLTrainingJobStatus
+
+	first := recordAdmitToRunning(&s, mltjPhasePending, mltjPhaseAdmitted, nil, at(1))
+	if first.UnobservedReason != reasonKueueStampMissing {
+		t.Fatalf("first reason = %q, want %q", first.UnobservedReason, reasonKueueStampMissing)
+	}
+
+	second := recordAdmitToRunning(&s, mltjPhaseAdmitted, mltjPhaseRunning, nil, at(4))
+	if second.UnobservedReason != "" {
+		t.Errorf("the same job was counted unobserved twice, the second time as %q", second.UnobservedReason)
+	}
+	if got := admitToRunningRefusal(&s); got != reasonKueueStampMissing {
+		t.Errorf("the condition now reads %q, so the accurate cause was replaced by one that did not happen", got)
+	}
+}
+
 // TestTheWindowIsRecordedOnce keeps a requeue from restamping a measurement.
 //
 // Reconcile runs on every watch event, and a job sitting in Running produces many of them. Only the

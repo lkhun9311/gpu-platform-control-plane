@@ -51,6 +51,18 @@ echo '#!/bin/bash' > hack/qlgpu-nothing/user-data.sh
 mkdir -p hack/qlgpu-unreadable
 printf '1788000000\tSCRAPE_FAILED\n' > hack/qlgpu-unreadable/device-util.tsv
 
+# A drawing left over from when this run's series WAS readable.
+#
+# Without it the "no drawing left in place" check below is vacuous: the fixture never had a device.svg, so
+# the assertion passed whether or not the capture removes one. Confirmed by deleting the removal line in
+# hack/capture-evidence.sh -- the suite stayed green. The stale drawing is the entire case that line exists
+# for, because the capture never clears the destination directory and its up-to-date check keys on
+# numbers.md alone. numbers.md is dated into the past so the capture does not skip the run as up to date.
+mkdir -p captures/qlgpu-unreadable
+printf 'stale drawing from a run whose series used to parse\n' > captures/qlgpu-unreadable/device.svg
+printf '# qlgpu-unreadable\n' > captures/qlgpu-unreadable/numbers.md
+touch -d '2000-01-01' captures/qlgpu-unreadable/numbers.md captures/qlgpu-unreadable/device.svg
+
 run() { PLOT="$PLOT" EVIDENCE="$WORK/captures" REPO="$WORK" bash "$SCRIPT" "$@" 2>"$WORK/err.txt"; }
 
 run > "$WORK/out.txt"; rc=$?
