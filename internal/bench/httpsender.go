@@ -28,6 +28,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/lkhun9311/gpu-mlops-platform-control-plane/internal/gateway"
 )
 
 // HTTPSender replays a trace row as a streaming OpenAI chat-completions request against the gateway.
@@ -39,6 +41,8 @@ type HTTPSender struct {
 	model      string
 	// apiKeys maps a trace tenant to the API key the gateway resolves it from, so one sender can drive premium and standard tenants through the real identity chain.
 	apiKeys map[string]string
+	// priorities maps a trace tenant to the scheduling priority sent with its requests; absent means none.
+	priorities map[string]int
 	// timeout bounds a single request; on expiry the row is recorded as a timeout rather than dropped.
 	timeout time.Duration
 	// drain reports whether the unread tail of each response is consumed so its connection can be pooled.
@@ -152,6 +156,14 @@ func PoolSizeForTrace(trace []TraceRow, timeout time.Duration) int {
 // NewHTTPSender builds a sender targeting gatewayURL for model, resolving each tenant through apiKeys.
 //
 // conn selects the connection handling; pass SenderConnForMode(SenderModePooled, ...) for a real run.
+// SetPriorities configures the per-tenant scheduling priority the sender attaches to each request.
+//
+// Keyed by tenant rather than carried on the trace row, because priority is a property of the tenant's
+// contract -- the same rule internal/gateway states for tier, that it is "not something a caller can assert
+// about itself". A benchmark whose rows named their own priority would measure a mechanism no deployment
+// would ship. A tenant absent from the map sends no priority field at all.
+func (h *HTTPSender) SetPriorities(p map[string]int) { h.priorities = p }
+
 func NewHTTPSender(gatewayURL, model string, apiKeys map[string]string, timeout time.Duration, conn SenderConn) *HTTPSender {
 	return &HTTPSender{
 		client: &http.Client{
@@ -241,6 +253,28 @@ type chatRequest struct {
 	Messages  []chatReqMsg `json:"messages"`
 	MaxTokens int          `json:"max_tokens"`
 	Stream    bool         `json:"stream"`
+	// StreamOptions asks the engine to append a usage chunk carrying its own count of the prompt.
+	//
+	// That count is the served tokenizer's, which is the unit the design's admission-match criterion is
+	// defined in and the unit no run has ever measured. It arrives on admitted requests only -- a refusal
+	// never reaches the engine -- so it checks the trace's per-prompt-length measurement rather than
+	// replacing it.
+	StreamOptions streamOptions `json:"stream_options"`
+	// Priority is vLLM's per-request scheduling priority, omitted entirely when the tenant has none.
+	//
+	// Lower is more urgent. It is read only under --scheduling-policy=priority, and it is the one axis that
+	// moved the tail in the microtest: at a 512-token batch budget it took a short request behind a long one
+	// from 13.79x its uncontended time to 1.57x.
+	//
+	// A pointer so the field disappears from the body rather than defaulting to 0. Sending 0 for every
+	// tenant would make every request equally urgent under a policy that reads the field, which is a control
+	// arm that is not a control.
+	Priority *int `json:"priority,omitempty"`
+}
+
+// streamOptions is the OpenAI streaming extension vLLM implements for usage reporting.
+type streamOptions struct {
+	IncludeUsage bool `json:"include_usage"`
 }
 
 type chatReqMsg struct {
@@ -256,10 +290,14 @@ func (h *HTTPSender) Send(ctx context.Context, row TraceRow, sendUnixNanos int64
 	defer cancel()
 
 	body := chatRequest{
-		Model:     h.model,
-		Messages:  []chatReqMsg{{Role: "user", Content: PromptText(row.PromptLenChars)}},
-		MaxTokens: row.MaxOutputTokens,
-		Stream:    true,
+		Model:         h.model,
+		Messages:      []chatReqMsg{{Role: "user", Content: PromptText(row.PromptLenChars)}},
+		MaxTokens:     row.MaxOutputTokens,
+		Stream:        true,
+		StreamOptions: streamOptions{IncludeUsage: true},
+	}
+	if p, ok := h.priorities[row.Tenant]; ok {
+		body.Priority = &p
 	}
 	buf, err := json.Marshal(body)
 	if err != nil {
@@ -301,14 +339,31 @@ func (h *HTTPSender) Send(ctx context.Context, row TraceRow, sendUnixNanos int64
 		if h.drain {
 			drainForReuse(resp.Body)
 		}
+		// Both refusals are admission decisions and belong in the same bucket; labelling only 429 left the
+		// report to infer a 413's meaning from a status code, and for one paid run it inferred wrong.
 		kind := "http"
-		if resp.StatusCode == http.StatusTooManyRequests {
+		if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode == http.StatusRequestEntityTooLarge {
 			kind = "rejected"
 		}
-		return SendResult{HTTPStatus: resp.StatusCode, ErrorKind: kind}
+		return h.withAdmissionDecision(resp, SendResult{HTTPStatus: resp.StatusCode, ErrorKind: kind})
 	}
 
-	return h.readStream(reqCtx, resp)
+	return h.withAdmissionDecision(resp, h.readStream(reqCtx, resp))
+}
+
+// withAdmissionDecision copies the gateway's reported tier and refusal reason onto a result.
+//
+// One function rather than a pair of assignments on each return path, because the path that needs them most
+// is the refusal path -- the one a streaming reader never touches, and the one that would be forgotten.
+//
+// The header names come from internal/gateway rather than string literals here: they are the contract between
+// the two packages, and a copy of a contract is how this project has produced most of its defects. Empty when
+// the gateway predates reporting them, which every consumer reads as "not recorded" rather than as a value.
+func (h *HTTPSender) withAdmissionDecision(resp *http.Response, res SendResult) SendResult {
+	res.Tier = resp.Header.Get(gateway.HeaderAdmissionTier)
+	res.AdmissionReason = resp.Header.Get(gateway.HeaderAdmissionReason)
+	res.BackendState = resp.Header.Get(gateway.HeaderBackendState)
+	return res
 }
 
 // readStream consumes the server-sent-events response, recording first-token and end times and counting output tokens.
@@ -344,12 +399,33 @@ func (h *HTTPSender) readStream(ctx context.Context, resp *http.Response) SendRe
 					Content string `json:"content"`
 				} `json:"delta"`
 			} `json:"choices"`
+			// The usage chunk arrives last, with an empty choices list, so it contributes no output token.
+			Usage *struct {
+				PromptTokens int `json:"prompt_tokens"`
+				// The engine's own output count, which the frame tally below is not.
+				//
+				// OutputTokens counts SSE frames carrying content, one per frame. That equals the token
+				// count only while the server emits one token per frame, and nothing in the protocol
+				// promises it: a server that batched two tokens into a frame would halve every throughput
+				// number, every tenant share and every inter-token time this harness reports, without
+				// changing a single token the GPU produced. The request already asks for usage, so this
+				// count was arriving and being discarded.
+				CompletionTokens int `json:"completion_tokens"`
+			} `json:"usage"`
 		}
 		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
 			// A malformed chunk mid-stream is a stream error, but any first token already observed still stands.
 			res.ErrorKind = "stream"
 			res.EndUnixNanos = h.now().UnixNano()
 			return res
+		}
+		if chunk.Usage != nil {
+			if chunk.Usage.PromptTokens > 0 {
+				res.PromptTokens = chunk.Usage.PromptTokens
+			}
+			if chunk.Usage.CompletionTokens > 0 {
+				res.EngineOutputTokens = chunk.Usage.CompletionTokens
+			}
 		}
 		if len(chunk.Choices) > 0 && chunk.Choices[0].Delta.Content != "" {
 			if res.FirstTokenUnixNanos == 0 {

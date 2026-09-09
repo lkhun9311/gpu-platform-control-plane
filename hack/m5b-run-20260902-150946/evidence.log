@@ -1,5 +1,0 @@
-== rate 1.565/s, 4 repetitions, output hack/m5b-run-20260902-150946
-== duration per arm: 638s, targeting 500 premium completions (min is 100)
-== worst case 218 min over 16 replays; 272 min left on the deadline
-== build and push the gateway image
-ARMS FAILED: push gateway image to 007635145730.dkr.ecr.ap-northeast-2.amazonaws.com

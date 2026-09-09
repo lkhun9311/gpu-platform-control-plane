@@ -308,3 +308,150 @@ var _ = Describe("HTTPSender", func() {
 		Expect(PoolSizeForTrace([]TraceRow{{Index: 0}}, 30*time.Second)).To(Equal(http.DefaultMaxIdleConnsPerHost))
 	})
 })
+
+var _ = Describe("the gateway's own decision in the evidence", func() {
+	// The 2026-09-03 run recorded a status and nothing else, so two analyses had to be reconstructed from
+	// configuration the evidence did not contain: which population a request belonged to (the gateway gates on
+	// tier AND input size, a raw row carried only input size) and why 1,788 requests were refused. The gateway
+	// now reports both on the response, and they are only useful if they survive into the raw row -- on the
+	// refusal path especially, which is exactly where they matter and exactly the path a streaming reader
+	// never touches.
+	send := func(h http.HandlerFunc) SendResult {
+		srv := httptest.NewServer(h)
+		defer srv.Close()
+		sender := NewHTTPSender(srv.URL, "m", nil, 5*time.Second, SenderConn{MaxIdleConnsPerHost: 8, DrainForReuse: true})
+		return sender.Send(context.Background(), TraceRow{Index: 1, PromptLenChars: 40, MaxOutputTokens: 4}, 1)
+	}
+
+	It("records the tier and the reason when the gateway refuses", func() {
+		res := send(func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("X-Admission-Tier", "standard")
+			w.Header().Set("X-Admission-Reason", "input_exceeds_burst")
+			w.WriteHeader(http.StatusRequestEntityTooLarge)
+		})
+		Expect(res.HTTPStatus).To(Equal(http.StatusRequestEntityTooLarge))
+		Expect(res.Tier).To(Equal("standard"))
+		Expect(res.AdmissionReason).To(Equal("input_exceeds_burst"))
+	})
+
+	It("records the tier and the admit's reason when the gateway admits", func() {
+		res := send(func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("X-Admission-Tier", "premium")
+			w.Header().Set("X-Admission-Reason", "not_engaged")
+			w.Header().Set("Content-Type", "text/event-stream")
+			f := w.(http.Flusher)
+			_, _ = fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"a\"}}]}\n\n")
+			f.Flush()
+			_, _ = fmt.Fprint(w, "data: [DONE]\n\n")
+			f.Flush()
+		})
+		Expect(res.HTTPStatus).To(Equal(http.StatusOK))
+		Expect(res.Tier).To(Equal("premium"))
+		// An admit's reason is the point: "not_engaged" and "telemetry_stale" are both admits, and only one
+		// of them means the guard was working.
+		Expect(res.AdmissionReason).To(Equal("not_engaged"))
+	})
+
+	It("leaves both empty against a gateway too old to report them", func() {
+		res := send(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusForbidden) })
+		Expect(res.Tier).To(BeEmpty())
+		Expect(res.AdmissionReason).To(BeEmpty())
+	})
+})
+
+var _ = Describe("the engine's own count of the prompt", func() {
+	// The design's admission-match criterion is defined over the served tokenizer's count, and every run so
+	// far scored it on ceil(chars/4). The engine knows the real number and will report it when asked, so the
+	// harness asks -- on every admitted request, which makes it a check on the trace's own measurement rather
+	// than a second guess at it.
+	It("asks for usage and records the prompt token count from the final chunk", func() {
+		var asked bool
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			var body map[string]any
+			Expect(json.NewDecoder(r.Body).Decode(&body)).To(Succeed())
+			if so, ok := body["stream_options"].(map[string]any); ok {
+				asked, _ = so["include_usage"].(bool)
+			}
+			w.Header().Set("Content-Type", "text/event-stream")
+			f := w.(http.Flusher)
+			_, _ = fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"a\"}}]}\n\n")
+			f.Flush()
+			// vLLM sends the usage chunk with an empty choices list, just before [DONE].
+			_, _ = fmt.Fprint(w, "data: {\"choices\":[],\"usage\":{\"prompt_tokens\":7695,\"completion_tokens\":1}}\n\n")
+			f.Flush()
+			_, _ = fmt.Fprint(w, "data: [DONE]\n\n")
+			f.Flush()
+		}))
+		defer srv.Close()
+
+		sender := NewHTTPSender(srv.URL, "m", nil, 5*time.Second, SenderConn{MaxIdleConnsPerHost: 8, DrainForReuse: true})
+		res := sender.Send(context.Background(), TraceRow{Index: 1, PromptLenChars: 40000, MaxOutputTokens: 4}, 1)
+
+		Expect(asked).To(BeTrue(), "the harness did not ask for usage, so the engine had no reason to report it")
+		Expect(res.PromptTokens).To(Equal(7695))
+		Expect(res.OutputTokens).To(Equal(1), "the usage chunk carries no content delta and must not count as an output token")
+	})
+
+	It("leaves the count at zero when the engine reports none", func() {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "text/event-stream")
+			f := w.(http.Flusher)
+			_, _ = fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"a\"}}]}\n\n")
+			f.Flush()
+			_, _ = fmt.Fprint(w, "data: [DONE]\n\n")
+			f.Flush()
+		}))
+		defer srv.Close()
+		sender := NewHTTPSender(srv.URL, "m", nil, 5*time.Second, SenderConn{MaxIdleConnsPerHost: 8, DrainForReuse: true})
+		res := sender.Send(context.Background(), TraceRow{Index: 1, PromptLenChars: 40, MaxOutputTokens: 4}, 1)
+		Expect(res.PromptTokens).To(BeZero())
+	})
+})
+
+var _ = Describe("the priority a request carries", func() {
+	// vLLM's scheduling-policy=priority reads a per-request `priority` field, and it is the only axis that
+	// moved the tail in the microtest: at a 512-token batch budget it took a short request behind a long one
+	// from 13.79x its uncontended time to 1.57x. The Go sender had no support for it at all, so the arms
+	// runner could not test the one setting that worked -- only the microtest's inline script could.
+	//
+	// Priority comes from a per-tenant map rather than from the trace row, because it is a property of the
+	// tenant's contract. That is the same rule internal/gateway states for tier: not something a caller
+	// asserts about itself. A benchmark that let each row name its own priority would be measuring a
+	// mechanism no deployment would ship.
+	capture := func(priorities map[string]int, tenant string) map[string]any {
+		var got map[string]any
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_ = json.NewDecoder(r.Body).Decode(&got)
+			w.Header().Set("Content-Type", "text/event-stream")
+			f := w.(http.Flusher)
+			_, _ = fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"a\"}}]}\n\n")
+			f.Flush()
+			_, _ = fmt.Fprint(w, "data: [DONE]\n\n")
+			f.Flush()
+		}))
+		defer srv.Close()
+		s := NewHTTPSender(srv.URL, "m", nil, 5*time.Second, SenderConn{MaxIdleConnsPerHost: 4, DrainForReuse: true})
+		s.SetPriorities(priorities)
+		s.Send(context.Background(), TraceRow{Index: 1, Tenant: tenant, PromptLenChars: 40, MaxOutputTokens: 4}, 1)
+		return got
+	}
+
+	It("sends the tenant's priority when one is configured", func() {
+		body := capture(map[string]int{"premium-1": 0, "standard-noisy": 1}, "premium-1")
+		Expect(body).To(HaveKeyWithValue("priority", BeNumerically("==", 0)))
+
+		body = capture(map[string]int{"premium-1": 0, "standard-noisy": 1}, "standard-noisy")
+		Expect(body).To(HaveKeyWithValue("priority", BeNumerically("==", 1)))
+	})
+
+	It("omits the field entirely when no priority is configured", func() {
+		// An engine running the default first-come policy ignores the field, but sending a default of 0 to
+		// every tenant would silently make every request equally urgent under a policy that does read it --
+		// a control arm that is not a control.
+		body := capture(nil, "premium-1")
+		Expect(body).NotTo(HaveKey("priority"))
+
+		body = capture(map[string]int{"other-tenant": 3}, "premium-1")
+		Expect(body).NotTo(HaveKey("priority"))
+	})
+})

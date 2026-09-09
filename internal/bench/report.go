@@ -27,6 +27,18 @@ import (
 // httpStatusTooManyRequests is the status the gateway returns when an admission control rejects a request.
 const httpStatusTooManyRequests = 429
 
+// httpStatusInputExceedsBurst is the status the gateway returns when a prompt is larger than the bucket can ever hold.
+//
+// The gateway splits its refusals deliberately: 429 tells the caller to come back later, 413 tells it to send
+// something smaller, because a request that cannot fit any bucket would otherwise be retried forever.
+const httpStatusInputExceedsBurst = 413
+
+// httpStatusUnauthorized and httpStatusForbidden are the statuses the gateway returns before admission runs.
+const (
+	httpStatusUnauthorized = 401
+	httpStatusForbidden    = 403
+)
+
 // errKindTimeout is the RawRow.ErrorKind the replay client records when a request exceeds its deadline.
 const errKindTimeout = "timeout"
 
@@ -56,14 +68,57 @@ const (
 // isThresholdProbe reports whether tenant is one of the threshold probes.
 func isThresholdProbe(tenant string) bool { return strings.HasPrefix(tenant, thresholdProbePrefix) }
 
+// shedByAdmission reports whether the gateway refused this request as an admission decision.
+//
+// It reads the status rather than RawRow.ErrorKind because the replay client labelled only 429 "rejected" and
+// left 413 under the generic "http", so evidence already on disk carries the wrong label and the status is the
+// only field that was right at the time. Scoring off the status lets a finished paid run be re-scored.
+//
+// Counting only 429 made the arm that shed hardest the one that reported shedding nothing: a static-cap replay
+// refused 447 noisy requests with 413 and printed rejected=0, having filed all 447 under Failed instead.
+// neverEvaluated reports whether the gateway turned this request away before admission control ran.
+//
+// Authentication and authorisation are decided ahead of admission, so a request refused there carries no
+// information about the guard: the threshold, the bucket, and the cap all never saw it.
+// eligibleTier reports whether the tier the gateway recorded admits this row to the gated population.
+func eligibleTier(r RawRow) bool {
+	return r.Tier == "" || r.Tier == tierStandard
+}
+
+// tierStandard is the gateway's name for the tier its admission controls gate.
+const tierStandard = "standard"
+
+// admissionUnknown reports whether this request left no record of what the guard decided about it.
+//
+// A transport error or a timeout means no response arrived, so there are no headers to read and no status to
+// classify. It is the admission-side twin of a censored latency observation, and it is treated the same way:
+// removed from the measurement rather than guessed at, counted, and disqualifying past a threshold.
+func admissionUnknown(r RawRow) bool {
+	return r.HTTPStatus == 0 || r.ErrorKind == errKindTimeout
+}
+
+func neverEvaluated(r RawRow) bool {
+	return r.HTTPStatus == httpStatusUnauthorized || r.HTTPStatus == httpStatusForbidden
+}
+
+func shedByAdmission(r RawRow) bool {
+	return r.HTTPStatus == httpStatusTooManyRequests || r.HTTPStatus == httpStatusInputExceedsBurst
+}
+
 // ProbeOutcome is one probe tenant's admission tally, and the real token cost the estimate stood in for.
 type ProbeOutcome struct {
 	// Total is how many of this tenant's requests the arm sent.
 	Total int
-	// Rejected is how many came back 429.
+	// Rejected is how many the gateway refused on admission, whether it said 429 or 413.
 	Rejected int
 	// EstInputTokens is the score the gateway assigned, which is what the threshold is compared against.
 	EstInputTokens int
+	// Unevaluated is how many the gateway turned away before admission ran, so the threshold never judged them.
+	//
+	// A probe refused for its credentials is not a probe that passed the threshold, and the difference is the
+	// difference between evidence and none. Without this the section printed rejected=0 for probes the guard
+	// had never seen, which reads as the threshold having considered them and let them through.
+	Unevaluated int
 }
 
 type ArmSummary struct {
@@ -73,12 +128,92 @@ type ArmSummary struct {
 	Total int
 	// Completed counts requests that produced a full response (a first token and an end).
 	Completed int
-	// Rejected counts admission rejections (HTTP 429), the load the guard or static cap shed.
+	// OfferedExactTokens and AdmittedExactTokens are the admitted-work fraction in the units the design
+	// actually specifies: the served tokenizer's own count, not ceil(chars/4).
+	//
+	// The estimate is not a neutral stand-in. This project's calibration measures it 36 percent low on a
+	// 200-character prompt and 23 percent high on a 40,000-character one, so a fraction built from it weighs
+	// the population differently than the criterion says to.
+	OfferedExactTokens  int64
+	AdmittedExactTokens int64
+	// ExactTokensMissing counts eligible requests with no measured count, and ExactTokensContradicted counts
+	// those whose engine-reported count disagrees with the trace's.
+	//
+	// Either one disqualifies the admission-match check. The alternative is to fall back to the estimate,
+	// which is how the criterion came to be unevaluated for three paid runs without anyone noticing.
+	ExactTokensMissing      int
+	ExactTokensContradicted int
+	// OutputTokens, OutputTokensPerSecond, TPOTMsP50/P99 and OutputTokensByTenant are what protection cost.
+	//
+	// Every check in this report is a TTFT ratio, and that is half an answer. The paid run's static-cap arm
+	// held the tail at the isolated arm's latency AND at its throughput -- 46.3 output tokens per second
+	// against 46.4 -- because it did not make the engine efficient, it discarded the long tenant's work
+	// entirely. The unprotected arm ran 24 percent faster in aggregate. None of that was visible.
+	//
+	// TPOT is the inter-token time a first-token metric cannot see: a guard that protects the first token and
+	// wrecks the stream after it would pass every check here. The rows have carried all of this from the
+	// start; only the report was not reading it.
+	OutputTokens int64
+	// ActiveSeconds is the wall clock the ARM occupied, and it is not derivable from pooled rows: a report
+	// pools four repetitions separated by washout pauses, so max(end) - min(send) over the pool charges the
+	// arm for minutes in which it sent nothing. Summarize fills this from the rows it is given, which is
+	// right for one repetition; a caller that pools MUST sum the per-repetition values instead, exactly as
+	// it already does for RepetitionCount and MinRepetitionTail.
+	ActiveSeconds         float64
+	OutputTokensPerSecond float64
+	TPOTMsP50             float64
+	TPOTMsP99             float64
+	// OutputTokensByTenant is the share each tenant actually received, which is how protection-by-discarding
+	// is told apart from protection.
+	OutputTokensByTenant map[string]int64
+	// OutputTokensFromFailedStreams is how much of OutputTokens arrived on a stream that then broke.
+	//
+	// Those tokens are counted, because the GPU produced them and the tenant received them, and dropping
+	// them would understate what a contending tenant got -- the exact quantity the share exists to
+	// measure. But a share that is a third truncated streams does not mean what an intact one means, and
+	// a quantity may not be described by a cause its ledger does not establish. So the amount is
+	// disclosed rather than folded in.
+	OutputTokensFromFailedStreams int64
+	// TPOTMsP50ByTenant and TPOTMsP99ByTenant split the inter-token time by who received it.
+	//
+	// The arm-wide TPOT above pools every tenant, because it is accumulated before the premium-only filter,
+	// and that answers "how did this arm's streams behave". The pre-registered criterion asks something
+	// else: whether the PROTECTED tenant paid for its fast first token with a slow stream. On the paid
+	// evidence the arm-wide figure is 266.8 ms for arms whose premium and noisy streams need not resemble
+	// each other, and quoting it against a premium criterion would describe one tenant with another's
+	// number.
+	TPOTMsP50ByTenant map[string]float64
+	TPOTMsP99ByTenant map[string]float64
+	// AdmissionLost is how many ELIGIBLE requests got no admission verdict at all, so the guard's behaviour
+	// toward them is unknown.
+	//
+	// A request that never received an HTTP response was not admitted and was not refused. Counting it as
+	// either invents an observation; counting it as admitted -- which is what happened -- let an arm whose
+	// traffic died in transport report a perfect admission match on work it never offered.
+	AdmissionLost int
+	// eligibleScored is how many eligible requests did get a verdict; AdmissionLost is judged against it.
+	eligibleScored int
+	// Rejected counts admission refusals (HTTP 429 or 413), the load the guard or static cap shed.
 	Rejected int
 	// TimedOut counts requests recorded with a timeout error kind.
 	TimedOut int
 	// Failed counts other non-completing requests (transport or stream errors).
 	Failed int
+	// RepetitionTTFTMsP99 is each repetition's own premium TTFT p99, attached by the caller that knows the
+	// split. The price-of-protection run's reading 3 compares a cell's improvement against the CONTROL'S
+	// repetition-to-repetition spread, so without these the reading has no threshold and must decline to
+	// decide rather than report a cell as failing to beat noise nobody measured.
+	RepetitionTTFTMsP99 []float64
+	// DispositionByTenant is what happened to each tenant's offered requests, and it exists because a share
+	// alone cannot say why a share is small.
+	//
+	// The price-of-protection run's reading 2 fires only when the contending tenant's missing work was
+	// REJECTED OR DISCARDED rather than delayed, and it says why in its own text: a reduced share is equally
+	// consistent with work discarded, work delayed past the window, and work starved but still queued, which
+	// are three findings and only one of them is deletion. The arm-wide Rejected/TimedOut/Failed counts above
+	// cannot separate them per tenant, so a reading built on those would be attributing a quantity to a cause
+	// its ledger does not establish -- which is the one thing this package's rules forbid outright.
+	DispositionByTenant map[string]Disposition
 	// TTFTMsP50/P95/P99 are the time-to-first-token percentiles over COMPLETED requests, in ms.
 	TTFTMsP50 float64
 	TTFTMsP95 float64
@@ -146,15 +281,35 @@ func Summarize(arm string, rows []RawRow) ArmSummary {
 		threshold = rows[0].LongThreshold
 	}
 
-	var ttft, e2e []float64
+	var ttft, e2e, tpot []float64
+	tpotByTenant := map[string][]float64{}
 	var premiumTotal, premiumTimedOut, premiumLost int
+	var firstSend, lastEnd int64
 	for _, r := range rows {
-		// Admitted-work accounting covers the eligible population (the long requests the controls gate), for the admission-match check.
-		if r.EstInputTokens >= threshold {
-			s.OfferedInputTokens += int64(r.EstInputTokens)
-			if r.HTTPStatus != httpStatusTooManyRequests {
-				s.AdmittedInputTokens += int64(r.EstInputTokens)
-			}
+		// The wall clock the arm occupied, taken from the rows rather than from a timer the runner kept, so a
+		// re-scored evidence file yields the same throughput as the run that produced it.
+		if r.SendUnixNanos > 0 && (firstSend == 0 || r.SendUnixNanos < firstSend) {
+			firstSend = r.SendUnixNanos
+		}
+		if r.EndUnixNanos > lastEnd {
+			lastEnd = r.EndUnixNanos
+		}
+		tpot = s.tallyDelivered(r, tpot, tpotByTenant)
+		// Admitted-work accounting covers the eligible population, for the admission-match check.
+		//
+		// The gateway gates on tier == standard AND EstInputTokens >= threshold, and this applies the same
+		// rule -- against the tier the gateway itself reported, not one inferred from a tenant name.
+		//
+		// A row with no tier predates the gateway reporting it and is scored on the threshold alone, as it
+		// always was. Treating "not recorded" as "not standard" would empty the eligible population of every
+		// run already on disk and silently rewrite its numbers.
+		//
+		// A request the gateway turned away before admission ran is outside that population entirely, in
+		// neither term of the fraction, because the guard never saw it. Counting it as offered-and-admitted
+		// scored 737,280 admitted tokens for an arm that admitted nothing: the paid run's probes estimate at
+		// exactly the 4,096 threshold, so all 180 of them per arm were eligible, and all 180 were 403.
+		if r.EstInputTokens >= threshold && eligibleTier(r) && !neverEvaluated(r) {
+			s.tallyEligibleWork(r)
 		}
 
 		// The probe tally is keyed by tenant rather than by a flag on the row, because what makes a request a
@@ -169,27 +324,43 @@ func Summarize(arm string, rows []RawRow) ArmSummary {
 			o := s.ThresholdProbe[r.Tenant]
 			o.Total++
 			o.EstInputTokens = r.EstInputTokens
-			if r.HTTPStatus == httpStatusTooManyRequests {
+			switch {
+			case neverEvaluated(r):
+				o.Unevaluated++
+			case shedByAdmission(r):
 				o.Rejected++
 			}
 			s.ThresholdProbe[r.Tenant] = o
 		}
 
 		// Overall outcome counts cover every offered request, so load shedding is always visible as a rejection.
+		// The same verdict is recorded against the tenant, because "why is this tenant's share small" is a
+		// different question from "how much did this arm shed", and only the second one is answerable here.
+		if s.DispositionByTenant == nil {
+			s.DispositionByTenant = map[string]Disposition{}
+		}
+		d := s.DispositionByTenant[r.Tenant]
+		d.Offered++
 		switch {
 		case r.ErrorKind == errKindTimeout:
 			s.TimedOut++
-		case r.HTTPStatus == httpStatusTooManyRequests:
+			d.TimedOut++
+		case shedByAdmission(r):
 			s.Rejected++
+			d.Rejected++
 		case r.ErrorKind != "":
 			s.Failed++
+			d.Failed++
 		default:
 			if _, ok := r.TTFTNanos(); ok {
 				s.Completed++
+				d.Completed++
 			} else {
 				s.Failed++
+				d.Failed++
 			}
 		}
+		s.DispositionByTenant[r.Tenant] = d
 
 		// The tail is premium-only; the contender's requests never enter the protected metric.
 		if r.IsNoisy {
@@ -200,7 +371,7 @@ func Summarize(arm string, rows []RawRow) ArmSummary {
 			premiumTimedOut++
 			continue
 		}
-		if r.HTTPStatus == httpStatusTooManyRequests {
+		if shedByAdmission(r) {
 			continue
 		}
 		if r.ErrorKind != "" {
@@ -214,8 +385,10 @@ func Summarize(arm string, rows []RawRow) ArmSummary {
 			// truncated at 120 premium completions with 380 transport failures, and the report printed
 			// "all checks passed".
 			//
-			// A 429 stays excluded because a rejection is the treatment, not a lost measurement: shedding
-			// is what the guard is for and it is accounted separately in Rejected.
+			// An admission refusal stays excluded because a rejection is the treatment, not a lost
+			// measurement: shedding is what the guard is for and it is accounted separately in Rejected.
+			// That holds for 413 exactly as it does for 429, and reading only 429 here would have censored
+			// the tail of any arm whose premium traffic ran into the burst ceiling.
 			premiumLost++
 			continue
 		}
@@ -242,7 +415,33 @@ func Summarize(arm string, rows []RawRow) ArmSummary {
 	// Timeouts and transport/stream errors are both counted. They are the same thing for this purpose -- a
 	// premium request whose latency is unknown and was probably long -- and separating them let a whole class
 	// of degraded run through uncensored.
-	if premiumTotal > 0 && float64(premiumTimedOut+premiumLost)/float64(premiumTotal) > 0.01 {
+	// >= rather than >, because at exactly one percent the p99 is already gone.
+	//
+	// A nearest-rank p99 over n observations is the ceil(0.99n)-th, so it rests on the slowest n/100 of them.
+	// Losing exactly that many -- 18 of 1,840, which the old boundary waved through -- can remove the entire
+	// quantile mass the statistic is made of, and the ones that vanish are the ones that were slow enough to
+	// die. The reported p99 then is a p98 wearing the other name.
+	s.SetActiveSeconds(nanosToMs(lastEnd-firstSend) / 1000)
+	// Sorted here for the same reason ttft and e2e are sorted above: percentile is nearest-rank over an
+	// ORDERED slice, and handing it arrival order returns whichever sample happens to sit at that index.
+	//
+	// This shipped unsorted. The metric's own test used a single observation, and with one sample every
+	// ordering is the same ordering, so nothing failed. Three samples arriving as 100, 1, 2 ms reported a
+	// p99 of 2 -- not a tail, and not even the second largest value.
+	sort.Float64s(tpot)
+	s.TPOTMsP50 = percentile(tpot, 0.50)
+	s.TPOTMsP99 = percentile(tpot, 0.99)
+	if len(tpotByTenant) > 0 {
+		s.TPOTMsP50ByTenant = map[string]float64{}
+		s.TPOTMsP99ByTenant = map[string]float64{}
+		for tenant, samples := range tpotByTenant {
+			sort.Float64s(samples)
+			s.TPOTMsP50ByTenant[tenant] = percentile(samples, 0.50)
+			s.TPOTMsP99ByTenant[tenant] = percentile(samples, 0.99)
+		}
+	}
+
+	if premiumTotal > 0 && float64(premiumTimedOut+premiumLost)/float64(premiumTotal) >= 0.01 {
 		s.Censored = true
 	}
 	return s
@@ -284,6 +483,12 @@ type CI struct {
 	// truncated run disarms the gate instead of tripping it. Making the zero value invalid by construction is
 	// what stops that, rather than relying on every caller to remember.
 	Valid bool
+
+	// InvalidReason says WHY there is no usable interval, because the two causes call for different actions.
+	//
+	// The gate reported "unequal or insufficient repetitions" for every invalid interval, so a run refused
+	// for scatter would have sent an operator to check repetition counts that were fine.
+	InvalidReason string
 }
 
 // BootstrapCI returns a percentile-bootstrap confidence interval for the mean of values.
@@ -353,6 +558,68 @@ type Checks struct {
 	OverallPass bool
 }
 
+// invalidate records a reason a run cannot be certified, keeping every reason rather than the last.
+//
+// It used to assign, so a run broken three ways reported one problem and an operator fixed them one at a
+// time -- paying for a run each round to discover the next.
+func (c *Checks) invalidate(reason string) {
+	c.Invalid = true
+	if c.InvalidReason != "" {
+		c.InvalidReason += "; "
+	}
+	c.InvalidReason += reason
+}
+
+// MaxRatioScatter is the per-repetition coefficient of variation past which the incremental interval stops
+// meaning what it says.
+//
+// A percentile bootstrap over a handful of values is anti-conservative once those values spread out. Against
+// this package's own BootstrapCI at four repetitions, a true ratio of 1.00 -- no effect at all -- clears the
+// pre-registered gate 10.2 percent of the time at a coefficient of variation of 0.20, and 1.8 percent at
+// 0.10, against a nominal 5. The bound sits between them.
+//
+// The 2026-09-03 pilot measured 0.001 for the contended arms and 0.056 for the isolation-like ones, so this
+// is not expected to bind. It exists because the failure mode is a gate that PASSES when it should not, and
+// a run is not entitled to assume its variability stayed where the pilot's was. Reproduce the numbers with
+// "benchharness power".
+const MaxRatioScatter = 0.15
+
+// RatioScatterTooHigh reports whether per-repetition ratios are too scattered for their bootstrap interval
+// to be read as a 95 percent bound.
+//
+// Fewer than two values have no scatter to measure, and their interval is already invalid for that reason.
+func RatioScatterTooHigh(ratios []float64) bool {
+	if len(ratios) < 2 {
+		return false
+	}
+	mean := 0.0
+	for _, r := range ratios {
+		mean += r
+	}
+	mean /= float64(len(ratios))
+	if mean <= 0 {
+		return false
+	}
+	ss := 0.0
+	for _, r := range ratios {
+		ss += (r - mean) * (r - mean)
+	}
+	return math.Sqrt(ss/float64(len(ratios)-1))/mean > MaxRatioScatter
+}
+
+// MaxLostAdmissionFraction is the share of the eligible population whose admission verdict may go missing
+// before the admitted-work fraction stops describing the population it claims to.
+//
+// The same one percent the tail uses, for the same reason: past it the statistic is reporting on requests it
+// never saw.
+const MaxLostAdmissionFraction = 0.01
+
+// AdmissionScored is how many eligible requests did get a verdict, the denominator AdmissionLost is judged
+// against.
+func (s ArmSummary) AdmissionScored() int {
+	return s.eligibleScored
+}
+
 // MinTailSamples is the smallest premium-completion count at which the reported p99 is not simply the
 // largest observation.
 //
@@ -376,22 +643,35 @@ func EvaluateChecks(r1, staticCap, kvAware ArmSummary, incrementalCI CI, matchTo
 	// A comparison is disqualified before any check is read if a compared arm completed no premium requests or has a censored tail, since its p99 is then not a real tail.
 	for _, s := range []ArmSummary{r1, staticCap, kvAware} {
 		if s.TailSampleSize == 0 {
-			c.Invalid = true
-			c.InvalidReason = fmt.Sprintf("arm %s completed no premium requests, so its tail is undefined", s.Arm)
+			c.invalidate(fmt.Sprintf("arm %s completed no premium requests, so its tail is undefined", s.Arm))
 		}
 		if s.TailSampleSize > 0 && s.TailSampleSize < MinTailSamples {
-			c.Invalid = true
-			c.InvalidReason = fmt.Sprintf("arm %s has %d premium completions, below the %d a nearest-rank p99 needs to be anything other than the maximum",
-				s.Arm, s.TailSampleSize, MinTailSamples)
+			c.invalidate(fmt.Sprintf("arm %s has %d premium completions, below the %d a nearest-rank p99 needs to be anything other than the maximum",
+				s.Arm, s.TailSampleSize, MinTailSamples))
 		}
 		if s.RepetitionCount > 0 && s.MinRepetitionTail < MinTailSamples {
-			c.Invalid = true
-			c.InvalidReason = fmt.Sprintf("arm %s has a repetition with %d premium completions, below the %d a nearest-rank p99 needs; pooling its %d rows hides that one repetition's p99 is a maximum",
-				s.Arm, s.MinRepetitionTail, MinTailSamples, s.TailSampleSize)
+			c.invalidate(fmt.Sprintf("arm %s has a repetition with %d premium completions, below the %d a nearest-rank p99 needs; pooling its %d rows hides that one repetition's p99 is a maximum",
+				s.Arm, s.MinRepetitionTail, MinTailSamples, s.TailSampleSize))
 		}
 		if s.Censored {
-			c.Invalid = true
-			c.InvalidReason = fmt.Sprintf("arm %s tail is censored (>1%% of premium requests did not complete), so its p99 is only a lower bound", s.Arm)
+			c.invalidate(fmt.Sprintf("arm %s tail is censored (>1%% of premium requests did not complete), so its p99 is only a lower bound", s.Arm))
+		}
+		// The criterion is defined over exact tokens, so a population that cannot supply them cannot be
+		// scored against it. Refusing is the point: falling back to the estimate is what made three paid
+		// runs report a number nobody had asked for.
+		if s.ExactTokensMissing > 0 {
+			c.invalidate(fmt.Sprintf("arm %s has %d eligible requests with no measured input-token count, and the admission-match criterion is defined over the served tokenizer's own count rather than the ceil(chars/4) estimate", s.Arm, s.ExactTokensMissing))
+		}
+		if s.ExactTokensContradicted > 0 {
+			c.invalidate(fmt.Sprintf("arm %s has %d eligible requests whose engine-reported input-token count disagrees with the trace's measurement, so the trace was stamped against a different tokenizer or a different prompt ran", s.Arm, s.ExactTokensContradicted))
+		}
+		// An eligible request with no admission verdict is unknown work, not admitted work, and the
+		// admitted-work fraction is what the whole matched comparison rests on. The threshold is the tail's:
+		// past one percent the fraction is describing a population it could not see.
+		if eligible := s.AdmissionLost + s.AdmissionScored(); eligible > 0 &&
+			float64(s.AdmissionLost)/float64(eligible) >= MaxLostAdmissionFraction {
+			c.invalidate(fmt.Sprintf("arm %s lost the admission verdict for %d of %d eligible requests (>%.0f%%), so its admitted-work fraction is measured over a population it could not see",
+				s.Arm, s.AdmissionLost, eligible, MaxLostAdmissionFraction*100))
 		}
 	}
 
@@ -407,8 +687,11 @@ func EvaluateChecks(r1, staticCap, kvAware ArmSummary, incrementalCI CI, matchTo
 	// An absent interval fails the gate rather than satisfying it. See the comment on CI.Valid.
 	c.IncrementalValuePass = c.IncrementalRatio <= 0.90 && incrementalCI.Valid && incrementalCI.Hi < 1.0
 	if !incrementalCI.Valid {
-		c.Invalid = true
-		c.InvalidReason = "no incremental confidence interval was computed (unequal or insufficient repetitions), so the incremental-value check cannot be evaluated"
+		why := incrementalCI.InvalidReason
+		if why == "" {
+			why = "unequal or insufficient repetitions"
+		}
+		c.invalidate("the incremental-value check has no usable confidence interval (" + why + "), so it cannot be evaluated")
 	}
 
 	wB := admittedWorkFraction(staticCap)
@@ -422,10 +705,98 @@ func EvaluateChecks(r1, staticCap, kvAware ArmSummary, incrementalCI CI, matchTo
 	return c
 }
 
+// tallyEligibleWork scores one request of the eligible population into the admitted-work fraction.
+//
+// Split out of Summarize only to keep that function under the complexity limit; the eligibility test stays
+// at the call site because that predicate IS the population definition and belongs where it is read.
+func (s *ArmSummary) tallyEligibleWork(r RawRow) {
+	if admissionUnknown(r) {
+		// Out of both terms. The guard may have admitted this request and the connection died after, or it
+		// may never have arrived; the evidence cannot say which, and a fraction built on a guess is worse
+		// than one that reports how much it could not see.
+		s.AdmissionLost++
+		return
+	}
+	s.eligibleScored++
+	s.OfferedInputTokens += int64(r.EstInputTokens)
+	if !shedByAdmission(r) {
+		s.AdmittedInputTokens += int64(r.EstInputTokens)
+	}
+	switch {
+	case r.ExactInputTokens <= 0:
+		s.ExactTokensMissing++
+	case r.EngineInputTokens > 0 && r.EngineInputTokens != r.ExactInputTokens:
+		s.ExactTokensContradicted++
+	default:
+		s.OfferedExactTokens += int64(r.ExactInputTokens)
+		if !shedByAdmission(r) {
+			s.AdmittedExactTokens += int64(r.ExactInputTokens)
+		}
+	}
+}
+
+// tallyDelivered adds one row's delivered output to the arm's totals, appending its inter-token time.
+//
+// Split out of Summarize only to keep that function under the complexity limit; it is one step of the same
+// loop and holds no state of its own.
+func (s *ArmSummary) tallyDelivered(r RawRow, tpot []float64, byTenant map[string][]float64) []float64 {
+	// Tokens count only where a response actually produced them; a refusal carries none, and a stream that
+	// died partway delivered nothing the client could use.
+	if r.OutputTokens <= 0 || r.HTTPStatus != 200 {
+		return tpot
+	}
+	s.OutputTokens += int64(r.OutputTokens)
+	if s.OutputTokensByTenant == nil {
+		s.OutputTokensByTenant = map[string]int64{}
+	}
+	s.OutputTokensByTenant[r.Tenant] += int64(r.OutputTokens)
+	// A stream that broke partway is not a measurement of inter-token time.
+	//
+	// The sender keeps HTTPStatus at 200 for these, because the response headers did arrive, and records
+	// the failure in ErrorKind instead. EndUnixNanos is then the moment the stream died -- for a timeout,
+	// the deadline -- so (end - firstToken) / (tokens - 1) reports the deadline divided by a token count.
+	// A 30-second timeout after two tokens enters the tail as a 30,000 ms inter-token time.
+	//
+	// That matters because reading 1 fails a cell whose TPOT p99 exceeds 1.25x the isolated baseline, so
+	// admitting deadlines would fail whichever arm timed out most on a statistic that never described its
+	// streams.
+	if r.ErrorKind != "" {
+		s.OutputTokensFromFailedStreams += int64(r.OutputTokens)
+		return tpot
+	}
+	// Inter-token time needs at least two tokens to have a gap between them.
+	if r.OutputTokens > 1 && r.FirstTokenUnixNanos > 0 && r.EndUnixNanos > r.FirstTokenUnixNanos {
+		v := nanosToMs(r.EndUnixNanos-r.FirstTokenUnixNanos) / float64(r.OutputTokens-1)
+		tpot = append(tpot, v)
+		byTenant[r.Tenant] = append(byTenant[r.Tenant], v)
+	}
+	return tpot
+}
+
+// SetActiveSeconds records the arm's active wall clock and derives the throughput from it.
+//
+// The division lives here and nowhere else so that a caller correcting the span for pooled repetitions
+// cannot end up with a rate computed from one number and a span printed from another.
+func (s *ArmSummary) SetActiveSeconds(seconds float64) {
+	s.ActiveSeconds = seconds
+	s.OutputTokensPerSecond = 0
+	if seconds > 0 {
+		s.OutputTokensPerSecond = float64(s.OutputTokens) / seconds
+	}
+}
+
 // FormatReport renders the summaries and checks as a plain-text report.
 //
 // It states explicitly when the comparison is invalid (admission match missed) or the tail is censored, so a reader is never handed a clean-looking number that the methodology already disqualified.
-func FormatReport(summaries []ArmSummary, checks Checks, matchTolerance float64) string {
+// FormatReport renders the measurements, and the criteria only when there were criteria.
+//
+// checks is a POINTER because "not evaluated" has to be unrepresentable as a zero value. It used to be
+// passed by value, and a study whose readings are not implemented was handed an empty Checks{} -- which
+// rendered as three lines of `0.000 FAIL` under the heading "Pre-registered checks", followed by
+// "VERDICT: not all checks passed". Nothing had been evaluated. The caller was careful and said so on
+// stderr, and the page still printed a verdict a skimming reader would take for the study's result.
+// A nil pointer cannot be mistaken for a run that failed everything.
+func FormatReport(summaries []ArmSummary, checks *Checks, matchTolerance float64) string {
 	var b strings.Builder
 	b.WriteString("M5-b benchmark report\n\n")
 	// reps is printed for the same reason tailN is. The incremental interval below is a bootstrap over
@@ -437,7 +808,7 @@ func FormatReport(summaries []ArmSummary, checks Checks, matchTolerance float64)
 	//
 	// A reader who cannot see the block count has no way to tell those apart, which is the same defect the
 	// tailN column exists to prevent one level down.
-	fmt.Fprintf(&b, "%-12s %8s %8s %8s %8s %8s %8s %8s %8s %8s\n", "arm", "total", "done", "429", "timeout", "ttftP50", "ttftP95", "ttftP99", "tailN", "reps")
+	fmt.Fprintf(&b, "%-*s %8s %8s %8s %8s %8s %8s %8s %8s %8s\n", ArmColumnWidth, "arm", "total", "done", "shed", "timeout", "ttftP50", "ttftP95", "ttftP99", "tailN", "reps")
 	for _, s := range summaries {
 		censored := ""
 		if s.Censored {
@@ -449,9 +820,41 @@ func FormatReport(summaries []ArmSummary, checks Checks, matchTolerance float64)
 		if s.TailSampleSize > 0 && s.TailSampleSize < MinTailSamples {
 			thin = fmt.Sprintf(" (p99 is the maximum: %d < %d premium completions)", s.TailSampleSize, MinTailSamples)
 		}
-		fmt.Fprintf(&b, "%-12s %8d %8d %8d %8d %8.1f %8.1f %8.1f %8d %8d%s%s\n",
-			s.Arm, s.Total, s.Completed, s.Rejected, s.TimedOut, s.TTFTMsP50, s.TTFTMsP95, s.TTFTMsP99, s.TailSampleSize, s.RepetitionCount, censored, thin)
+		fmt.Fprintf(&b, "%-*s %8d %8d %8d %8d %8.1f %8.1f %8.1f %8d %8d%s%s\n",
+			ArmColumnWidth, s.Arm, s.Total, s.Completed, s.Rejected, s.TimedOut, s.TTFTMsP50, s.TTFTMsP95, s.TTFTMsP99, s.TailSampleSize, s.RepetitionCount, censored, thin)
 	}
+	// What the protection cost, printed beside what it bought.
+	//
+	// Every check below is a TTFT ratio, and the paid run showed that is half an answer: the arm that held
+	// the tail best also served the fewest tokens, because it was discarding one tenant's work rather than
+	// making the engine efficient. An arm's throughput and its tenants' shares belong next to its tail.
+	b.WriteString("\nWhat it cost\n")
+	// premTPOT99 is printed beside the arm-wide figure because the pre-registered criterion is about the
+	// PROTECTED tenant's stream, and the arm-wide number pools every tenant. On the paid evidence they
+	// differ by 57 ms on one arm, which is the difference between quoting the right tenant and the wrong one.
+	fmt.Fprintf(&b, "%-*s %10s %10s %10s %10s %10s\n", ArmColumnWidth,
+		"arm", "out tok/s", "tpotP50", "tpotP99", "premTPOT99", "tenant shares")
+	for _, s := range summaries {
+		shares := make([]string, 0, len(s.OutputTokensByTenant))
+		names := make([]string, 0, len(s.OutputTokensByTenant))
+		for n := range s.OutputTokensByTenant {
+			names = append(names, n)
+		}
+		sort.Strings(names)
+		for _, n := range names {
+			if s.OutputTokens > 0 {
+				shares = append(shares, fmt.Sprintf("%s %.0f%%", n, 100*float64(s.OutputTokensByTenant[n])/float64(s.OutputTokens)))
+			}
+		}
+		prem := "—"
+		if v, ok := s.TPOTMsP99ByTenant[PremiumTenant]; ok {
+			prem = fmt.Sprintf("%.1f", v)
+		}
+		fmt.Fprintf(&b, "%-*s %10.1f %10.1f %10.1f %10s  %s\n",
+			ArmColumnWidth,
+			s.Arm, s.OutputTokensPerSecond, s.TPOTMsP50, s.TPOTMsP99, prem, strings.Join(shares, " · "))
+	}
+
 	// The threshold's own evidence, printed before the checks because it qualifies them: the checks compare
 	// arms, and this says whether the number those arms were configured with did any work at all.
 	probed := false
@@ -461,6 +864,7 @@ func FormatReport(summaries []ArmSummary, checks Checks, matchTolerance float64)
 			break
 		}
 	}
+	unevaluated := false
 	if probed {
 		b.WriteString("\nEligibility threshold (probe tenants, four characters apart)\n")
 		for _, sm := range summaries {
@@ -471,14 +875,37 @@ func FormatReport(summaries []ArmSummary, checks Checks, matchTolerance float64)
 			sort.Strings(names)
 			for _, n := range names {
 				o := sm.ThresholdProbe[n]
-				fmt.Fprintf(&b, "  %-12s %-22s est=%d  sent=%d  rejected=%d\n", sm.Arm, n, o.EstInputTokens, o.Total, o.Rejected)
+				void := ""
+				if o.Unevaluated > 0 {
+					unevaluated = true
+					void = fmt.Sprintf("  VOID: %d never reached admission (401/403)", o.Unevaluated)
+				}
+				fmt.Fprintf(&b, "  %-*s %-22s est=%d  sent=%d  rejected=%d%s\n", ArmColumnWidth, sm.Arm, n, o.EstInputTokens, o.Total, o.Rejected, void)
 			}
 		}
-		b.WriteString("  the estimate is what the threshold compares; the measured real cost of these prompts is\n")
-		b.WriteString("  about 3171 tokens, so a rejection here fires on an over-estimate of roughly 29 percent\n")
+		if unevaluated {
+			b.WriteString("  VOID: the gateway turned these probes away on credentials, so the threshold never judged them\n")
+			b.WriteString("  and rejected=0 above is the absence of a measurement rather than the threshold letting them\n")
+			b.WriteString("  through. This run does not evidence the configured threshold.\n")
+		} else {
+			b.WriteString("  the estimate is what the threshold compares; the measured real cost of these prompts is\n")
+			b.WriteString("  about 3171 tokens, so a rejection here fires on an over-estimate of roughly 29 percent\n")
+		}
 	} else {
 		b.WriteString("\nEligibility threshold: NOT TESTED -- no probe tenant straddled it, so any threshold in a wide\n")
 		b.WriteString("  range would have produced these same arms. The configured value is not evidenced by this run.\n")
+	}
+
+	if checks == nil {
+		// No heading that looks like a results table, and no VERDICT line. The measurements above stand on
+		// their own; what must not happen is a reader coming away with a judgement nobody made.
+		// Deliberately says nothing about whether the study has criteria of its own. The three checks below
+		// are M5-b's, and a study that does not use them may still have readings, which are rendered
+		// separately by FormatPriceOfProtection. Claiming here that a run was not evaluated would be the
+		// same defect one level along.
+		b.WriteString("\nPre-registered checks: NOT APPLICABLE. The three checks above this line are the M5-b\n")
+		b.WriteString("  gateway study's, and this evidence is not from it. Nothing here is a verdict on these arms.\n")
+		return b.String()
 	}
 
 	b.WriteString("\nPre-registered checks (primary endpoint: TTFT p99)\n")

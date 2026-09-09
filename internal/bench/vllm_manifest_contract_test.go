@@ -18,7 +18,9 @@ package bench
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -479,6 +481,21 @@ func compareVersions(a, b string) int {
 	return 0
 }
 
+// sliceBetween returns the text between the first occurrence of start and the first end after it.
+func sliceBetween(t *testing.T, body, start, end string) string {
+	t.Helper()
+	i := strings.Index(body, start)
+	if i < 0 {
+		t.Fatalf("did not find %q", start)
+	}
+	rest := body[i+len(start):]
+	j := strings.Index(rest, end)
+	if j < 0 {
+		t.Fatalf("did not find %q after %q", end, start)
+	}
+	return rest[:j]
+}
+
 // readRepoFile reads a file relative to the repository root.
 func readRepoFile(t *testing.T, rel string) string {
 	t.Helper()
@@ -902,4 +919,585 @@ func TestGPUNodeGroupsHoldTheEngine(t *testing.T) {
 			t.Errorf("a node group sets disk_size = %d; the engine image measures 21.7-30.8 GiB and the weights another 6.18, so anything under %d evicts the Pod after the card is warm", got, floorGiB)
 		}
 	}
+}
+
+// TestEveryGeneratedTenantIsProvisioned pins the trace generator's tenant list to the paid run's tenant list.
+//
+// The two files have disagreed twice, and both times the run completed, reported, and passed its own checks.
+// The first paid run keyed two of the four tenants, so a quarter of every replay came back 401. The second
+// keyed all four but gave a GPUQuotaPolicy to only two, so the probe pair came back 403 and the report showed
+// their silence as "rejected=0" -- the absence of a measurement dressed as a result. Neither is visible from
+// inside either file; it takes reading both at once, which is what this does, without a cluster or a card.
+func TestEveryGeneratedTenantIsProvisioned(t *testing.T) {
+	genSrc, err := os.ReadFile("../../cmd/benchharness/main.go")
+	if err != nil {
+		t.Fatalf("read generator: %v", err)
+	}
+	// The generator names some tenants as literals and the rest through the constants below, so the
+	// constants are resolved here rather than matched as text. NoisyTenant joined them when the
+	// price-of-protection readings started comparing that tenant's output share and the name became
+	// load-bearing in two packages; resolving it is strictly better than matching a string that can move.
+	generated := map[string]bool{ProbeUnderTenant: true, ProbeOverTenant: true, NoisyTenant: true}
+	for _, m := range regexp.MustCompile(`\{Tenant: "([^"]+)"`).FindAllSubmatch(genSrc, -1) {
+		generated[string(m[1])] = true
+	}
+	if len(generated) < 4 {
+		t.Fatalf("found only %d tenants in the generator; the pattern this test reads it with has drifted", len(generated))
+	}
+
+	runner, err := os.ReadFile("../../hack/m5b-arms.sh")
+	if err != nil {
+		t.Fatalf("read runner: %v", err)
+	}
+	block := regexp.MustCompile(`(?s)\nTENANTS=\((.*?)\n\)`).FindSubmatch(runner)
+	if block == nil {
+		t.Fatal("no TENANTS list in hack/m5b-arms.sh; the runner must name its tenants in one place")
+	}
+	provisioned := map[string]bool{}
+	for _, m := range regexp.MustCompile(`"([^":]+):([^":]+):([^"]*)"`).FindAllSubmatch(block[1], -1) {
+		provisioned[string(m[1])] = true
+	}
+
+	for tenant := range generated {
+		if !provisioned[tenant] {
+			t.Errorf("the trace generator emits tenant %q but hack/m5b-arms.sh gives it no key and no policy; every one of its requests would be refused before admission control and measure nothing", tenant)
+		}
+	}
+	for tenant := range provisioned {
+		if !generated[tenant] {
+			t.Errorf("hack/m5b-arms.sh provisions tenant %q that the trace generator never emits", tenant)
+		}
+	}
+}
+
+// TestTheRunnerDerivesItsApiKeysFromTheTenantList refuses a second hand-kept copy of the list.
+//
+// The check above compares the generator with TENANTS; it cannot see a --api-keys flag that was left behind
+// with its own literals, which is exactly the state the runner was in. A copy that agrees today is still the
+// shape that produced both failures.
+func TestTheRunnerDerivesItsApiKeysFromTheTenantList(t *testing.T) {
+	runner, err := os.ReadFile("../../hack/m5b-arms.sh")
+	if err != nil {
+		t.Fatalf("read runner: %v", err)
+	}
+	for line := range strings.SplitSeq(string(runner), "\n") {
+		if !strings.Contains(line, "--api-keys") {
+			continue
+		}
+		if strings.Contains(line, "=premium-key") || strings.Contains(line, "probe-over-key") {
+			t.Errorf("--api-keys spells its tenants out: %s\nderive it from TENANTS instead, so the list cannot be right in one place and stale in another", strings.TrimSpace(line))
+		}
+	}
+}
+
+// TestArmBCanAdmitTheTraceItIsGiven catches the degenerate cap without a trace, a cluster, or a card.
+//
+// A token bucket can never admit a request larger than its burst. The generator's noisy prompt is 40,000
+// chars, which estimates at 10,000 tokens -- the number is in the generator's own flag help -- and the
+// gateway's default burst is 8,192, a number in cmd/gateway. Both were written down; neither file had reason
+// to read the other. The runner passed a request rate of 1.568/s into a flag measured in tokens per second
+// and never set the burst at all, so arm B refused all 447 eligible requests in all four repetitions with
+// 413 and admitted nothing. It reported as a healthy arm. C/B then equalled C/R1, because B was R1.
+func TestArmBCanAdmitTheTraceItIsGiven(t *testing.T) {
+	runner, err := os.ReadFile("../../hack/m5b-arms.sh")
+	if err != nil {
+		t.Fatalf("read runner: %v", err)
+	}
+	intVar := func(name string) int {
+		m := regexp.MustCompile(`(?m)^` + name + `=(\d+)$`).FindSubmatch(runner)
+		if m == nil {
+			t.Fatalf("no %s in hack/m5b-arms.sh; arm B's tuning must be stated in tokens, in one place", name)
+		}
+		n, cerr := strconv.Atoi(string(m[1]))
+		if cerr != nil {
+			t.Fatalf("%s is not a number: %v", name, cerr)
+		}
+		return n
+	}
+	burst := intVar("STATIC_BURST")
+	rate := intVar("STATIC_RATE")
+
+	genSrc, err := os.ReadFile("../../cmd/benchharness/main.go")
+	if err != nil {
+		t.Fatalf("read generator: %v", err)
+	}
+	m := regexp.MustCompile(`"noisy-prompt-chars", (\d[\d_]*)`).FindSubmatch(genSrc)
+	if m == nil {
+		t.Fatal("no noisy-prompt-chars default in the generator; the pattern this test reads it with has drifted")
+	}
+	chars, err := strconv.Atoi(strings.ReplaceAll(string(m[1]), "_", ""))
+	if err != nil {
+		t.Fatalf("noisy-prompt-chars is not a number: %v", err)
+	}
+	// The gateway estimates a prompt's input tokens as ceiling of chars over four.
+	est := (chars + 3) / 4
+
+	if burst <= est {
+		t.Errorf("the noisy prompt estimates at %d tokens and STATIC_BURST is %d; every eligible request would be refused with 413 and arm B would admit nothing, making it a second isolation arm rather than a competitor", est, burst)
+	}
+	// A rate below one eligible prompt per minute is a request rate that wandered into a token-rate flag,
+	// which is how the last run got here: it passed 1.568, the trace's requests per second.
+	//
+	// The bound is deliberately far below any real tuning -- the C pilot's 5,957 tokens/sec is thirty-six
+	// times it -- because this is an order-of-magnitude check on the units, not a judgement about the tuning.
+	// A rate that is wrong but plausible is the confirmatory run's problem, and no static test can see it.
+	if rate*60 < est {
+		t.Errorf("STATIC_RATE is %d tokens/sec, which cannot admit even one %d-token prompt per minute; that is a request rate in a flag measured in tokens", rate, est)
+	}
+
+	// Both flags must reach the gateway. The last run set one and inherited the other from a default that
+	// happened to be fatal.
+	for _, flag := range []string{"-admission-static-rate=${STATIC_RATE}", "-admission-static-burst=${STATIC_BURST}"} {
+		if !strings.Contains(string(runner), flag) {
+			t.Errorf("the runner does not pass %s; cmd/gateway's defaults exist only as placeholders and one of them silently made arm B degenerate", flag)
+		}
+	}
+
+	// The checks above are necessary and nowhere near sufficient: a pair can clear every one of them and
+	// still admit half of what C admits, which is what the first attempt at this tuning did. Only simulating
+	// the bucket against the trace answers the question the design spec asks, so the runner has to do it.
+	// Matched on the invocation rather than the bare name: the first version of this check looked for
+	// "sim-cap" anywhere, and the comment and failure message that mention it kept the check green with the
+	// call deleted. A guard that cannot fire is the defect this whole file exists to catch.
+	if !strings.Contains(string(runner), `"$WORK/benchharness" sim-cap`) || !strings.Contains(string(runner), `-target-admitted-fraction "$PILOT_ADMITTED_FRACTION"`) {
+		t.Error("the runner does not simulate arm B's bucket against the trace it generated; a rate and burst that pass a units check can still be nowhere near C's admitted-work fraction, and nothing else would notice before the card time was spent")
+	}
+}
+
+// TestTheMirrorListsAgree keeps the ECR mirror map in one shape across the three files that hold it.
+//
+// The mirror exists because a fresh GPU node's pulls cross the NAT gateway at $0.059/GB, which came to $5.43
+// over three paid sessions -- the largest line on the bill, larger than every instance-hour combined. It only
+// helps for images it actually covers, and it covers them only if the Terraform that creates the repositories,
+// the script that fills them, and the manifests that name the images all mean the same thing. Three files
+// holding one list is the shape that has already cost this project two paid runs.
+func TestTheMirrorListsAgree(t *testing.T) {
+	read := func(rel string) string {
+		b, err := os.ReadFile(filepath.Join("..", "..", rel))
+		if err != nil {
+			t.Fatalf("read %s: %v", rel, err)
+		}
+		return string(b)
+	}
+
+	pairs := func(src, pattern string) map[string]string {
+		out := map[string]string{}
+		for _, m := range regexp.MustCompile(pattern).FindAllStringSubmatch(src, -1) {
+			out[m[1]] = m[2]
+		}
+		return out
+	}
+
+	tf := pairs(read("infra/aws/bootstrap/variables.tf"), `"(mirror/[^"]+)"\s*=\s*"([^"]+)"`)
+	sh := pairs(read("hack/mirror-public-images.sh"), `\["(mirror/[^"]+)"\]="([^"]+)"`)
+	if len(tf) == 0 || len(sh) == 0 {
+		t.Fatalf("found %d Terraform entries and %d script entries; the patterns this test reads them with have drifted", len(tf), len(sh))
+	}
+	for repo, upstream := range tf {
+		if sh[repo] != upstream {
+			t.Errorf("infra/aws/bootstrap/variables.tf maps %q to %q, hack/mirror-public-images.sh maps it to %q; the repository would exist under one name and be filled from another image, or not filled at all", repo, upstream, sh[repo])
+		}
+	}
+	for repo := range sh {
+		if _, ok := tf[repo]; !ok {
+			t.Errorf("hack/mirror-public-images.sh pushes to %q, which Terraform does not create; ECR repositories do not appear on push and the mirror would fail at the moment it is needed", repo)
+		}
+	}
+
+	// Every mirrored image must be pinned by digest somewhere in config/, since that digest is the whole
+	// verification: the script copies to it and then asks the registry to resolve it back.
+	var manifests strings.Builder
+	err := filepath.WalkDir(filepath.Join("..", "..", "config"), func(path string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".yaml") {
+			return err
+		}
+		b, rerr := os.ReadFile(path)
+		if rerr != nil {
+			return rerr
+		}
+		manifests.Write(b)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walk config: %v", err)
+	}
+	for repo, upstream := range sh {
+		pinned := regexp.MustCompile(`(?m)^\s*(?:- )?image:\s*` + regexp.QuoteMeta(upstream) + `[^\s@]*@sha256:[0-9a-f]{64}`)
+		if !pinned.MatchString(manifests.String()) {
+			t.Errorf("%s mirrors %q, but no manifest in config/ pins that image by digest; the script has nothing to copy and nothing to verify against", repo, upstream)
+		}
+	}
+}
+
+// TestTheArmOrderIsBalanced keeps arm and position from being confounded again.
+//
+// Every block ran R1, off, static-cap, kv-aware in that order, so R1 was always measured first on a cold
+// engine and kv-aware always last on one that had been serving for an hour. Any drift across a block lands
+// on the arms in a fixed pattern and cannot be told apart from the effect being measured -- and unlike a
+// missing counter, no amount of extra instrumentation removes it afterwards.
+//
+// This runs the runner's own armsForBlock rather than re-deriving the rotation, so the property is checked
+// on the code that will actually order the run.
+func TestTheArmOrderIsBalanced(t *testing.T) {
+	script, err := filepath.Abs(filepath.Join("..", "..", "hack", "m5b-arms.sh"))
+	if err != nil {
+		t.Fatalf("resolve runner: %v", err)
+	}
+	src, err := os.ReadFile(script)
+	if err != nil {
+		t.Fatalf("read runner: %v", err)
+	}
+	fn := regexp.MustCompile(`(?s)\nARMS_ORDER=.*?\narmsForBlock\(\) \{.*?\n\}\n`).Find(src)
+	if fn == nil {
+		t.Fatal("no ARMS_ORDER and armsForBlock in hack/m5b-arms.sh; the run's arm order must be derived in one place")
+	}
+
+	position := map[string]map[int]int{}
+	blocks := 0
+	for block := 1; block <= 4; block++ {
+		out, cerr := exec.Command("bash", "-c", string(fn)+fmt.Sprintf("\narmsForBlock %d\n", block)).Output()
+		if cerr != nil {
+			t.Fatalf("run armsForBlock %d: %v", block, cerr)
+		}
+		arms := strings.Fields(string(out))
+		if len(arms) != 4 {
+			t.Fatalf("block %d yielded %d arms, want 4: %q", block, len(arms), out)
+		}
+		blocks++
+		for i, arm := range arms {
+			if position[arm] == nil {
+				position[arm] = map[int]int{}
+			}
+			position[arm][i]++
+		}
+	}
+
+	if len(position) != 4 {
+		t.Fatalf("the four blocks between them ran %d distinct arms, want 4", len(position))
+	}
+	for arm, seen := range position {
+		for i := range blocks {
+			if seen[i] != 1 {
+				t.Errorf("arm %s ran in position %d %d times across %d blocks, want exactly once; arm and position are confounded and the difference between them is not recoverable after the run",
+					arm, i, seen[i], blocks)
+			}
+		}
+	}
+}
+
+// TestTheEngineAndModelAreReadFromTheCluster refuses a literal that reads as the authority.
+//
+// Both were assigned literals at the top of the runner and then overwritten by cluster-derived values two
+// hundred lines later, so the literals were dead code in the position a reader trusts. The model name being
+// wrong in exactly this way cost one paid run: gen-trace defaulted to a stub name and the gateway answered
+// 404 to 907 of every 999 requests for three hours.
+func TestTheEngineAndModelAreReadFromTheCluster(t *testing.T) {
+	src, err := os.ReadFile(filepath.Join("..", "..", "hack", "m5b-arms.sh"))
+	if err != nil {
+		t.Fatalf("read runner: %v", err)
+	}
+	for _, name := range []string{"ENGINE", "MODEL"} {
+		literal := regexp.MustCompile(`(?m)^` + name + `=["']?[A-Za-z0-9][^\n$]*$`)
+		if m := literal.Find(src); m != nil {
+			t.Errorf("%s is assigned a literal (%s); read it from the InferenceDeployment instead, which is the record the gateway actually routes on", name, strings.TrimSpace(string(m)))
+		}
+		if !regexp.MustCompile(`(?m)^` + name + `=\$\(k get inferencedeployment`).Match(src) {
+			t.Errorf("%s is not read from the InferenceDeployment", name)
+		}
+	}
+}
+
+// TestTheTraceIsStampedWithExactTokens keeps the run from scoring its own criterion in the wrong units.
+//
+// The design defines the admission-match criterion over the served tokenizer's input-token count. Three paid
+// runs scored it over ceil(chars/4) instead, which this repository's calibration measures at 36 percent low
+// on a 200-character prompt and 23 percent high on a 40,000-character one -- so what was reported was a proxy
+// nobody had pre-registered, and nothing said so.
+func TestTheTraceIsStampedWithExactTokens(t *testing.T) {
+	runner, err := os.ReadFile(filepath.Join("..", "..", "hack", "m5b-arms.sh"))
+	if err != nil {
+		t.Fatalf("read runner: %v", err)
+	}
+	if !strings.Contains(string(runner), `"$WORK/benchharness" stamp-exact-tokens`) {
+		t.Error("the runner does not stamp the trace with the engine's own input-token counts; the admission-match check would be scored on the ceil(chars/4) estimate, which is not the quantity the design pre-registered")
+	}
+	// Before the arms, since a trace stamped afterwards cannot have been what they replayed.
+	stamp := strings.Index(string(runner), "stamp-exact-tokens -trace")
+	arms := strings.Index(string(runner), "for rep in $(seq 1")
+	if stamp < 0 || arms < 0 || stamp > arms {
+		t.Error("the trace is stamped after the arms run, so the rows they replayed carried no measured count")
+	}
+}
+
+// TestTheGuardArmRecordsWhatItSaw keeps the one arm under test from running blind to its own inputs.
+//
+// A request records WHY it was admitted, which separates a guard that could not see from one that saw a calm
+// backend. It does not record how calm. "not_engaged" at a cache usage of 0.10 and at 0.83 against a 0.85
+// threshold are the same string and opposite conclusions: the first says the load never created the pressure
+// the experiment is about, the second says the threshold sits past where the damage happens.
+//
+// The last paid run returned C/R1 = 83.747 with the guard refusing 15.3 percent of eligible traffic, and its
+// evidence cannot tell those apart. That is the question the next run exists to answer, so the arm that has
+// a pressure reading has to record it.
+func TestTheGuardArmRecordsWhatItSaw(t *testing.T) {
+	runner, err := os.ReadFile(filepath.Join("..", "..", "hack", "m5b-arms.sh"))
+	if err != nil {
+		t.Fatalf("read runner: %v", err)
+	}
+	line := regexp.MustCompile(`(?m)^\s*kv-aware\)\s+deploy_gateway kv-aware .*$`).Find(runner)
+	if line == nil {
+		t.Fatal("no kv-aware deployment line in hack/m5b-arms.sh")
+	}
+	if !strings.Contains(string(line), "-admission-report-backend-state") {
+		t.Errorf("the kv-aware arm does not report the pressure its decisions were made from:\n  %s\nwithout it a run that fails to protect the tail cannot say whether the guard saw the pressure and let it through, or never saw pressure at all", strings.TrimSpace(string(line)))
+	}
+	// The other arms observe nothing, so asking them to report it would only add a header they cannot fill.
+	for _, arm := range []string{"R1|off", "static-cap"} {
+		other := regexp.MustCompile(`(?m)^\s*` + arm + `\)\s+deploy_gateway .*$`).Find(runner)
+		if other != nil && strings.Contains(string(other), "-admission-report-backend-state") {
+			t.Errorf("arm %s reports backend state it never reads", arm)
+		}
+	}
+}
+
+// TestTheRunRecordsHowTheEngineWasConfigured keeps a run from being unable to explain itself later.
+//
+// The 2026-09-03 evidence records the engine's image digest and nothing else about its configuration. When
+// the premium tail turned out to be a staircase of one concurrent long prefill per step, the question became
+// what batch token budget vLLM had actually resolved -- and whether a 7,695-token prompt ran as one
+// scheduler step or several. The evidence could not say. The run was over and the cluster was gone.
+//
+// Reading the pinned release's source settled it afterwards (the budget resolves to 2,048, so the prefill was
+// chunked and the blocking is the scheduler's FCFS ordering rather than an indivisible step), which is
+// exactly the point: that answer came from source and arithmetic, not from the run, and a differently
+// configured engine would have left the same silence.
+//
+// A digest names the code. It does not name the flags, and it certainly does not name the defaults the
+// engine filled in for the flags nobody passed, which is the part that mattered.
+func TestTheRunRecordsHowTheEngineWasConfigured(t *testing.T) {
+	runner, err := os.ReadFile(filepath.Join("..", "..", "hack", "m5b-arms.sh"))
+	if err != nil {
+		t.Fatalf("read runner: %v", err)
+	}
+	src := string(runner)
+	if !strings.Contains(src, "engine-config.txt") {
+		t.Fatal("the runner does not record the engine's configuration into the evidence; a run that behaves unexpectedly will not be able to say what it was told to do")
+	}
+	// Both halves: what we asked for, and what the engine decided. The defaults are the interesting part.
+	if !strings.Contains(src, "containers[0].args") {
+		t.Error("the evidence does not capture the engine's argv, so a flag changed between runs would leave no trace")
+	}
+	if !strings.Contains(src, "max_num_batched") {
+		t.Error("the evidence does not capture the engine's resolved batch token budget, which is the setting that decides whether a long prefill runs as one scheduler step or several")
+	}
+}
+
+// TestTheMicrotestMeasuresTheEngineTheArmsMeasured pins the microtest to the same engine and model.
+//
+// The microtest exists to explain the arms' result, so it has to run the engine the arms ran. A digest or a
+// model name typed into the runner would let it answer a question about a different scheduler while looking
+// like it answered this one -- and a model name defaulted rather than read cost one paid run three hours,
+// asking a Qwen engine for a model no deployment served.
+func TestTheMicrotestMeasuresTheEngineTheArmsMeasured(t *testing.T) {
+	runner, err := os.ReadFile(filepath.Join("..", "..", "hack", "m5b-scheduler-microtest.sh"))
+	if err != nil {
+		t.Fatalf("read microtest runner: %v", err)
+	}
+	src := string(runner)
+
+	// Both come out of the manifest, which is the record of what actually ran.
+	if !strings.Contains(src, "config/vllm/deployment.yaml") {
+		t.Fatal("the microtest does not read the engine manifest; it could measure a different engine than the arms did")
+	}
+	for _, literal := range []string{"vllm/vllm-openai@sha256:", "Qwen/Qwen2.5"} {
+		for line := range strings.SplitSeq(src, "\n") {
+			if !strings.Contains(line, literal) {
+				continue
+			}
+			// A mention inside a comment or a grep pattern is fine; an assignment is not.
+			trimmed := strings.TrimSpace(line)
+			if strings.HasPrefix(trimmed, "#") || strings.Contains(line, "grep") || strings.Contains(line, "startswith") {
+				continue
+			}
+			if strings.Contains(line, "=") {
+				t.Errorf("the microtest hardcodes %q:\n  %s\nread it from the manifest instead", literal, trimmed)
+			}
+		}
+	}
+
+	// The cells have to be the ones the pre-registration named, or the readings do not apply to them.
+	spec, err := os.ReadFile(filepath.Join("..", "..", "docs", "superpowers", "specs", "2026-09-04-scheduler-microtest.md"))
+	if err != nil {
+		t.Fatalf("read pre-registration: %v", err)
+	}
+	for _, budget := range []string{"512", "2048", "8192"} {
+		if !strings.Contains(src, budget) {
+			t.Errorf("the runner does not test a batch budget of %s, which the pre-registration names", budget)
+		}
+		if !strings.Contains(string(spec), budget) {
+			t.Errorf("the pre-registration does not name a batch budget of %s, which the runner tests", budget)
+		}
+	}
+	for _, policy := range []string{"fcfs", "priority"} {
+		if !strings.Contains(src, `"`+policy+`"`) {
+			t.Errorf("the runner does not test the %s scheduling policy, which the pre-registration names", policy)
+		}
+	}
+}
+
+// TestThePriorityMapIsDerivedFromTheOneTenantList keeps a fifth copy of the tenant list from appearing.
+//
+// The runner already derives the API key secret, the --api-keys flag and each GPUQuotaPolicy from one
+// TENANTS array, because four hand-kept copies drifted twice: the first paid run had two of four tenants in
+// the secret and answered a quarter of every replay with 401, the second gave two of them no policy and
+// answered their probes with 403. A priority map would fail more quietly than either -- a tenant missing
+// from it does not error, it silently sends no priority field and replays the control.
+func TestThePriorityMapIsDerivedFromTheOneTenantList(t *testing.T) {
+	runner := readRepoFile(t, "hack/m5b-arms.sh")
+	loop := sliceBetween(t, runner, `for entry in "${TENANTS[@]}"; do`, "\ndone")
+	for _, want := range []string{
+		`priorities="${priorities:+$priorities,}$tenant=0"`,
+		`priorities="${priorities:+$priorities,}$tenant=5"`,
+	} {
+		if !strings.Contains(loop, want) {
+			t.Errorf("the priority map is not derived inside the TENANTS loop: missing %s", want)
+		}
+	}
+	// A literal tenant name in the map would be the copy this test exists to prevent.
+	for _, tenant := range []string{"premium-1", "standard-noisy", "standard-probe-over", "standard-probe-under"} {
+		if strings.Contains(runner, tenant+"=0") || strings.Contains(runner, tenant+"=5") {
+			t.Errorf("the runner names %s in a priority pair; the map must come from TENANTS alone", tenant)
+		}
+	}
+}
+
+// TestThePriorityArmRefusesAnFCFSEngine fixes the failure that would be invisible in the evidence.
+//
+// vLLM accepts and ignores the per-request priority field under its default fcfs policy. Every request is
+// served, every row looks healthy, and the treatment arm reproduces the control exactly -- which would be
+// read as "priority does not help", the most expensive wrong conclusion available here. The runner must
+// check the engine's own startup log, not the flags it believes it passed.
+func TestThePriorityArmRefusesAnFCFSEngine(t *testing.T) {
+	runner := readRepoFile(t, "hack/m5b-arms.sh")
+	guard := sliceBetween(t, runner, `if [ "${PRIORITIES:-0}" = "1" ]; then`, "fi\n")
+	if !strings.Contains(guard, "engine-config.txt") {
+		t.Error("the priority guard does not read the engine's recorded startup configuration")
+	}
+	if !strings.Contains(guard, "fail ") {
+		t.Error("the priority guard does not stop the run when the engine is not on the priority policy")
+	}
+	// The guard's PATTERN is run, not merely inspected.
+	//
+	// Asserting that a guard exists is how a guard that never fires passes review: an earlier version of
+	// this test checked only that the block mentioned the config file and called fail, and a mangled grep
+	// expression sailed through it. A guard is verified by feeding it the input it is supposed to reject.
+	pattern := regexp.MustCompile(`grep -qiE? "([^"]+)"`).FindStringSubmatch(guard)
+	if pattern == nil {
+		t.Fatalf("the priority guard has no grep pattern to test:\n%s", guard)
+	}
+
+	// The cases are the engine's OWN OUTPUT, not a rendering of it anybody typed.
+	//
+	// This is the second time this test has been rewritten, and the first rewrite is why. It ran the
+	// runner's real pattern -- the right mechanism -- against two lines invented for the occasion:
+	//
+	//     scheduling_policy='priority', max_num_batched_tokens=512
+	//
+	// described in a comment as one of "the forms vLLM has printed it". vLLM has never printed that. It
+	// writes a Python dict with a colon, 'scheduling_policy': 'priority', so the pattern under test could
+	// not match a single line the engine emits, and the test said it could. Running the real pattern
+	// against fabricated input is the same defect as not running it at all, one level deeper.
+	//
+	// So the input is a fixture captured from the paid 2026-09-04 microtest, and every cell in it is
+	// exercised: the three priority cells must match and the three fcfs cells must not.
+	for _, c := range parseStartupFixture(t) {
+		for _, line := range c.lines {
+			if !strings.Contains(line, "non-default args") {
+				continue
+			}
+			cmd := exec.Command("grep", "-qiE", pattern[1])
+			cmd.Stdin = strings.NewReader(line + "\n")
+			matched := cmd.Run() == nil
+			want := c.policy == "priority"
+			if matched != want {
+				t.Errorf("cell %s/%s: the runner pattern %q matched=%v, want %v against the engine's own line:\n  %s",
+					c.budget, c.policy, pattern[1], matched, want, line)
+			}
+		}
+	}
+
+	// The deployment argv is the other half of engine-config.txt, and it is a real form: the runner
+	// records it with kubectl jsonpath over the container args. Both spellings are covered because a
+	// manifest may use either.
+	for _, tc := range []struct {
+		name   string
+		config string
+		want   bool
+	}{
+		{"argv, space separated", "[--model,Qwen,--scheduling-policy priority,--max-num-batched-tokens 512]", true},
+		{"argv, equals separated", "[--model,Qwen,--scheduling-policy=priority,--max-num-batched-tokens=512]", true},
+		{"argv naming fcfs", "[--model,Qwen,--scheduling-policy=fcfs,--max-num-batched-tokens=2048]", false},
+		{"policy absent entirely", "[--model,Qwen,--max-num-batched-tokens=2048]", false},
+	} {
+		cmd := exec.Command("grep", "-qiE", pattern[1])
+		cmd.Stdin = strings.NewReader(tc.config + "\n")
+		matched := cmd.Run() == nil
+		if matched != tc.want {
+			t.Errorf("%s: the runner pattern %q matched=%v, want %v against %q",
+				tc.name, pattern[1], matched, tc.want, tc.config)
+		}
+	}
+	// The guard must come before any replay spends card time on an arm that is not an arm.
+	if strings.Index(runner, `if [ "${PRIORITIES:-0}" = "1" ]; then`) > strings.Index(runner, `"$WORK/benchharness" replay`) {
+		t.Error("the priority guard runs after the first replay; it must refuse before any card time is spent")
+	}
+}
+
+// startupCell is one cell's worth of captured engine output.
+type startupCell struct {
+	budget string
+	policy string
+	lines  []string
+}
+
+// parseStartupFixture reads the verbatim vLLM startup lines captured from the paid microtest.
+//
+// The fixture exists so that a guard against the engine's configuration is tested against what the
+// engine writes. Its header records the image, the model and the run it came from, because a fixture
+// whose provenance is unknown is only a slower way of inventing input.
+func parseStartupFixture(t *testing.T) []startupCell {
+	t.Helper()
+	body, err := os.ReadFile(filepath.Join("testdata", "vllm_startup_lines.txt"))
+	if err != nil {
+		t.Fatalf("read startup fixture: %v", err)
+	}
+	var cells []startupCell
+	header := regexp.MustCompile(`^\[cell\] max_num_batched_tokens=(\S+) scheduling_policy=(\S+)$`)
+	for line := range strings.SplitSeq(string(body), "\n") {
+		if m := header.FindStringSubmatch(line); m != nil {
+			cells = append(cells, startupCell{budget: m[1], policy: m[2]})
+			continue
+		}
+		if strings.HasPrefix(line, "#") || strings.TrimSpace(line) == "" || len(cells) == 0 {
+			continue
+		}
+		cells[len(cells)-1].lines = append(cells[len(cells)-1].lines, line)
+	}
+	// A fixture that silently emptied would make every assertion below vacuous.
+	if len(cells) != 6 {
+		t.Fatalf("startup fixture has %d cells, want the 6 the microtest measured", len(cells))
+	}
+	var priority int
+	for _, c := range cells {
+		if c.policy == "priority" {
+			priority++
+		}
+		if len(c.lines) == 0 {
+			t.Fatalf("cell %s/%s carries no captured lines", c.budget, c.policy)
+		}
+	}
+	if priority != 3 {
+		t.Fatalf("startup fixture has %d priority cells, want 3", priority)
+	}
+	return cells
 }

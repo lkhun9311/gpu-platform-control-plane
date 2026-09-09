@@ -83,6 +83,37 @@ type MLTrainingJobStatus struct {
 	// +optional
 	LastTransitionTime *metav1.Time `json:"lastTransitionTime,omitempty"`
 
+	// admittedAt is when Kueue admitted this job's Workload, taken from Kueue's own condition stamp.
+	//
+	// It is recorded ONLY on a reconcile that saw this job admitted and not yet running. A controller that
+	// was down across the whole admission-to-running window can still read Kueue's stamp afterwards, and
+	// using it then would report a duration nobody watched -- which is the defect queuelab's ledger exists
+	// to refuse. So the field's presence means the window was observed, not merely that admission happened.
+	// +optional
+	AdmittedAt *metav1.Time `json:"admittedAt,omitempty"`
+
+	// runningObservedAt is when this controller first saw the Job report an active Pod.
+	//
+	// Named for what it is. Unlike admittedAt it is not a stamp written by the component that acted: it is
+	// this controller's observation, and it carries the watch lag between the kubelet starting a Pod and
+	// this reconcile seeing it. The two ends of admitToRunningSeconds are therefore read on different
+	// clocks, which is the same thing queuelab reports on two clocks and for the same reason.
+	// +optional
+	RunningObservedAt *metav1.Time `json:"runningObservedAt,omitempty"`
+
+	// admitToRunningSeconds is how long the tenant waited between having quota and using it.
+	//
+	// This is the quantity a quota owner cares about and the platform has never reported. The queuelab
+	// measured it under preemption -- 2.180 s when the preempted borrower honoured SIGTERM and 31.213 s when
+	// it did not -- and the admission webhook caps terminationGracePeriodSeconds because of that. Capping
+	// the worst case without reporting the actual one leaves the tenant who paid it unable to see the bill.
+	//
+	// A string so the value round-trips through YAML exactly, the same reason RunManifest.matchTolerance is
+	// one. Empty when the window was not observed, in which case the AdmitToRunningObserved condition says
+	// why -- absent and zero must not look alike.
+	// +optional
+	AdmitToRunningSeconds string `json:"admitToRunningSeconds,omitempty"`
+
 	// conditions represent the current state of the MLTrainingJob resource.
 	//
 	// The status of each condition is one of True, False, or Unknown.

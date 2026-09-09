@@ -24,11 +24,13 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -72,6 +74,14 @@ func main() {
 		err = report(os.Args[2:])
 	case "print-prompt":
 		printPrompt(os.Args[2:])
+	case "power":
+		err = power(os.Args[2:])
+	case "stamp-exact-tokens":
+		err = stampExactTokens(os.Args[2:])
+	case "check-replay":
+		err = checkReplay(os.Args[2:])
+	case "sim-cap":
+		err = simCap(os.Args[2:])
 	case "stub-serve":
 		err = stubServe(os.Args[2:])
 	default:
@@ -85,7 +95,7 @@ func main() {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: benchharness <gen-trace|replay|report|print-prompt|stub-serve> [flags]")
+	fmt.Fprintln(os.Stderr, "usage: benchharness <gen-trace|replay|report|print-prompt|check-replay|stamp-exact-tokens|sim-cap|power|stub-serve> [flags]")
 }
 
 // genTrace generates an immutable trace file and a frozen manifest that pins its checksum.
@@ -104,12 +114,26 @@ func genTrace(args []string) error {
 	noisyChars := fs.Int("noisy-prompt-chars", 40_000, "noisy tenant prompt length in chars (estimates at 10,000 tokens, 2.44x the 4,096 guard threshold)")
 	premiumWeight := fs.Float64("premium-weight", 1, "premium tenant arrival share")
 	noisyWeight := fs.Float64("noisy-weight", 1, "noisy tenant arrival share")
-	// Small on purpose. These are a probe population, not a load driver: each carries about 3,171 real
-	// tokens, so a large share would move the pressure the arms are supposed to differ under.
-	probeWeight := fs.Float64("probe-weight", 0.1, "arrival share of EACH threshold-probe tenant; 0 disables them")
+	// Meant to be small, and 0.1 is NOT small the way this comment used to claim.
+	//
+	// These are a probe population rather than a load driver, and each carries about 3,171 real tokens. The
+	// comment here said a large share would move the pressure the arms are supposed to differ under, and
+	// then left a default that does exactly that: measured on the 2026-09-07 price-of-protection pilot, the
+	// two probe tenants at 0.1 each carried 78% of the engine's prefill capacity between them, against the
+	// protected tenant's 5%. A weight is a share of the total arrival rate, so what it costs the engine
+	// depends on the prompt behind it, and 0.1 of a 3,171-token prompt is not 0.1 of the load.
+	//
+	// Left at 0.1 because lowering it silently would change every existing caller's trace. Set it from the
+	// engine's measured prefill capacity, as
+	// docs/superpowers/specs/2026-09-08-the-load-needs-an-upper-gate.md derives.
+	probeWeight := fs.Float64("probe-weight", 0.1, "arrival share of EACH threshold-probe tenant; 0 disables them (see the comment: 0.1 is not a small load)")
 	probeUnderChars := fs.Int("probe-under-chars", bench.ProbeUnderChars, "probe prompt scoring just BELOW the guard threshold")
 	probeOverChars := fs.Int("probe-over-chars", bench.ProbeOverChars, "probe prompt scoring exactly AT the guard threshold")
-	arm := fs.String("arm", "off", "arm this manifest measures (R1|off|static-cap|kv-aware)")
+	// Defaulted rather than required, because every existing caller is the M5-b gateway experiment and
+	// making them all pass a flag to keep working would be a migration with no reader.
+	study := fs.String("study", bench.StudyM5BGateway,
+		"pre-registered experiment this manifest belongs to; its registry decides which arms are admissible")
+	arm := fs.String("arm", "off", "arm this manifest measures, one of the named study's arms")
 	gatewayURL := fs.String("gateway-url", "http://localhost:8080", "gateway URL the replay targets")
 	model := fs.String("model", "llama-3-8b", "model name")
 	timeoutMs := fs.Int("timeout-ms", 30_000, "per-request timeout in ms")
@@ -151,7 +175,7 @@ func genTrace(args []string) error {
 	// borderline traffic inside the p99 the whole experiment is judged on.
 	tenants := []bench.TenantSpec{
 		{Tenant: "premium-1", Weight: *premiumWeight, PromptLenChars: *premiumChars, MaxOutputTokens: 64, IsNoisy: false},
-		{Tenant: "standard-noisy", Weight: *noisyWeight, PromptLenChars: *noisyChars, MaxOutputTokens: 16, IsNoisy: true},
+		{Tenant: bench.NoisyTenant, Weight: *noisyWeight, PromptLenChars: *noisyChars, MaxOutputTokens: 16, IsNoisy: true},
 	}
 	if *probeWeight > 0 {
 		tenants = append(tenants,
@@ -196,6 +220,7 @@ func genTrace(args []string) error {
 	m := bench.RunManifest{
 		SchemaVersion:   "v2",
 		PromptCorpusSHA: bench.PromptCorpusSHA256,
+		Study:           *study,
 		Arm:             *arm,
 		GatewayURL:      *gatewayURL,
 		// Relative to the MANIFEST, not to the working directory.
@@ -257,10 +282,23 @@ func replay(args []string) error {
 	// the cluster, it is required.
 	requireProvenance := fs.Bool("require-provenance", false,
 		"refuse a manifest that does not name the gateway build and digest-pin every image the number depends on")
+	// The axis the paid evidence showed actually works, exposed so an arm can carry it.
+	//
+	// vLLM's priority scheduler reads a per-request field, and the microtest measured it moving the premium
+	// tail where every backend-telemetry signal the gateway could see did not. Without this flag the runner
+	// can only test admission, which is the axis that failed.
+	priorities := fs.String("priorities", "",
+		"comma-separated tenant=priority pairs sent with each request (lower is more urgent); "+
+			"requires the engine to run with --scheduling-policy=priority")
 	connMode := fs.String("conn-mode", bench.SenderModePooled,
 		"client connection handling: \"pooled\" (pool sized from the run, plus the drain that lets it be "+
 			"used), \"drain-only\", or \"legacy\" (the pre-fix client: http.DefaultTransport, no drain)")
 	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	// Parsed before anything is loaded or dialled, so a typo in the treatment costs nothing.
+	prio, err := parsePriorities(*priorities)
+	if err != nil {
 		return err
 	}
 
@@ -291,6 +329,14 @@ func replay(args []string) error {
 	fmt.Printf("client connection mode: %s (MaxIdleConnsPerHost=%d, drain=%t) for %d rows at timeout %s\n",
 		*connMode, conn.MaxIdleConnsPerHost, conn.DrainForReuse, len(rows), timeout)
 	sender := bench.NewHTTPSender(url, m.Model, parseAPIKeys(*apiKeys), timeout, conn)
+	// Printed for the same reason the connection mode is: which arm this replay actually was is part of what
+	// its rows mean, and a priority map that silently arrived empty must be visible in the run log.
+	if len(prio) > 0 {
+		sender.SetPriorities(prio)
+		fmt.Printf("request priorities: %v\n", prio)
+	} else {
+		fmt.Printf("request priorities: none (requests carry no priority field)\n")
+	}
 
 	// The frozen manifest's provenance is stamped into every raw row.
 	//
@@ -300,7 +346,9 @@ func replay(args []string) error {
 		return fmt.Errorf("manifest matchTolerance %q is not a number: %w", m.MatchTolerance, err)
 	}
 	raw := bench.Replay(context.Background(), sender, rows, bench.ReplayOptions{
+		Study:          m.Study,
 		Arm:            m.Arm,
+		Priorities:     prio,
 		TraceChecksum:  m.TraceChecksum,
 		LongThreshold:  m.LongThreshold,
 		MatchTolerance: tol,
@@ -328,6 +376,12 @@ func report(args []string) error {
 	matchTolFlag := fs.Float64("match-tolerance", 0.05,
 		"fallback admission-work match tolerance when the evidence carries none")
 	out := fs.String("out", "", "report file to write (default stdout)")
+	// A machine-readable copy, because the paid raw evidence is gitignored and 7 MB.
+	//
+	// A number quoted in a write-up whose source is not in the repository is a number nobody can re-derive,
+	// and every overclaim this project has had to withdraw took that shape. This file is what a spec's table
+	// is checked against, so the derivation runs from the report code rather than from a hand copy.
+	jsonOut := fs.String("json-out", "", "machine-readable per-arm summary to write alongside the report")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -357,19 +411,38 @@ func report(args []string) error {
 	// empty string, so the operator reads "arm  completed no premium requests" and has to work out from the
 	// record directory what is missing. That is a bad minute to spend at the end of a paid session, and it is
 	// the difference between a gate that stops you and a gate that tells you what to re-run.
-	var missing []string
-	for _, arm := range []string{"R1", "static-cap", "kv-aware"} {
-		if _, ok := summ[arm]; !ok {
-			missing = append(missing, arm)
+	// The three checks below are M5-b's pre-registered comparison, and they name M5-b's arms.
+	//
+	// Running them for another experiment asked for static-cap and kv-aware, found neither, and reported
+	// the run disqualified -- a verdict about arms the experiment never had. Another study's readings are
+	// its own, so until they are implemented the report prints that study's tables and says plainly that
+	// it evaluated no criteria, rather than failing it against somebody else's.
+	var checks *bench.Checks
+	var pop *bench.PoPResult
+	if bench.CanonicalStudyID(e.study) == bench.StudyM5BGateway {
+		var missing []string
+		for _, arm := range []string{bench.ArmR1, "static-cap", "kv-aware"} {
+			if _, ok := summ[arm]; !ok {
+				missing = append(missing, arm)
+			}
 		}
+		if len(missing) > 0 {
+			fmt.Fprintf(os.Stderr, "warning: no records for arm(s) %s; the comparison will be disqualified\n",
+				strings.Join(missing, ", "))
+		}
+		evaluated := bench.EvaluateChecks(summ[bench.ArmR1], summ["static-cap"], summ["kv-aware"], incCI, matchTolerance)
+		checks = &evaluated
+	} else if bench.CanonicalStudyID(e.study) == bench.StudyPriceOfProtection {
+		pop = evaluatePoP(summ, summaries)
+	} else {
+		fmt.Fprintf(os.Stderr,
+			"warning: study %s has no implemented readings, so this report shows its measurements and evaluates no criteria\n",
+			e.study)
 	}
-	if len(missing) > 0 {
-		fmt.Fprintf(os.Stderr, "warning: no records for arm(s) %s; the comparison will be disqualified\n",
-			strings.Join(missing, ", "))
-	}
-
-	checks := bench.EvaluateChecks(summ["R1"], summ["static-cap"], summ["kv-aware"], incCI, matchTolerance)
 	text := bench.FormatReport(summaries, checks, matchTolerance)
+	if pop != nil {
+		text += bench.FormatPriceOfProtection(*pop)
+	}
 
 	if *out != "" {
 		if err := os.WriteFile(*out, []byte(text), 0o600); err != nil {
@@ -378,6 +451,17 @@ func report(args []string) error {
 		fmt.Printf("wrote report to %s\n", *out)
 	} else {
 		fmt.Print(text)
+	}
+
+	if *jsonOut != "" {
+		enc, merr := json.MarshalIndent(summaries, "", "  ")
+		if merr != nil {
+			return fmt.Errorf("encode summaries: %w", merr)
+		}
+		if werr := os.WriteFile(*jsonOut, append(enc, '\n'), 0o600); werr != nil {
+			return fmt.Errorf("write %s: %w", *jsonOut, werr)
+		}
+		fmt.Printf("wrote per-arm summaries to %s\n", *jsonOut)
 	}
 
 	// An INVALID run exits non-zero. A run that merely fails its checks does not.
@@ -394,7 +478,11 @@ func report(args []string) error {
 	// this exit code, and until now none of them did.
 	//
 	// The report file is still written first, so the refusal is preserved as evidence rather than discarded.
-	if checks.Invalid {
+	//
+	// A study with no implemented readings reaches here with nil checks. It cannot be INVALID, because
+	// nothing evaluated it -- and it must not be reported as valid either. The exit code says only what this
+	// binary actually decided, and the report itself says the criteria were not evaluated.
+	if checks != nil && checks.Invalid {
 		return fmt.Errorf("run invalid: %s", checks.InvalidReason)
 	}
 	return nil
@@ -405,12 +493,88 @@ func report(args []string) error {
 // It exists because report's refusals ask questions of the SPLIT -- did each repetition record the same
 // number of rows, is any repetition's tail thin -- and pooling answers none of them.
 type armEvidence struct {
-	byArm     map[string][]bench.RawRow
-	repP99    map[string][]float64
-	repTail   map[string][]int
-	repRows   map[string][]int
-	checksum  map[string]string
-	tolerance map[string]float64
+	byArm   map[string][]bench.RawRow
+	repP99  map[string][]float64
+	repTail map[string][]int
+	repRows map[string][]int
+	// repSeconds is each repetition's own wall clock, kept because the arm's throughput must be its tokens
+	// over the time it was actually sending -- not over a pooled span that includes the washout pauses
+	// between repetitions.
+	repSeconds map[string][]float64
+	checksum   map[string]string
+	tolerance  map[string]float64
+	// treatment is the canonical rendering of the priorities each arm's rows carried, so two replays that
+	// differ only in treatment cannot be pooled as repetitions of one condition.
+	treatment map[string]string
+	// study is the one pre-registered experiment every row in this report came from, and studyFrom is
+	// the file that established it, so a refusal can name both sides of the disagreement.
+	//
+	// studySeen is separate because the empty string is a legitimate value here -- it is what every raw
+	// file written before the study field existed carries. Using "" as the not-yet-set sentinel made
+	// unlabelled evidence silently adopt whatever study the next file named, which is the one mixing
+	// this check exists to prevent.
+	study string
+	// studyRecorded is what the file literally carried, kept alongside the normalized value so a refusal
+	// can say "unlabelled" instead of silently presenting old evidence as if it had named a study.
+	studyRecorded string
+	studySeen     bool
+	studyFrom     string
+}
+
+// singleStudy returns the one study every row in a file belongs to, or refuses.
+//
+// Normalization is applied before comparing, so an unlabelled legacy file and one that names
+// m5b-gateway-v1 explicitly are the same study rather than two.
+func singleStudy(path string, rows []bench.RawRow) (canonical, recorded string, err error) {
+	recorded = rows[0].Study
+	canonical = bench.CanonicalStudyID(recorded)
+	for i, r := range rows {
+		if got := bench.CanonicalStudyID(r.Study); got != canonical {
+			return "", "", fmt.Errorf("%s mixes studies within one file: row 0 carries %s but row %d carries %s;"+
+				" a raw file is one arm of one experiment",
+				path, studyLabel(canonical, recorded), i, studyLabel(got, r.Study))
+		}
+	}
+	return canonical, recorded, nil
+}
+
+// treatmentOf renders the priorities a file's rows carried, as a stable string.
+//
+// Derived from the rows rather than from a flag the runner claims to have passed, because the point is to
+// describe what the requests actually carried. Sorted so the same treatment always renders identically.
+func treatmentOf(rows []bench.RawRow) string {
+	seen := map[string]int{}
+	for _, r := range rows {
+		if r.Priority != nil {
+			seen[r.Tenant] = *r.Priority
+		}
+	}
+	if len(seen) == 0 {
+		return "none"
+	}
+	tenants := make([]string, 0, len(seen))
+	for t := range seen {
+		tenants = append(tenants, t)
+	}
+	sort.Strings(tenants)
+	parts := make([]string, 0, len(tenants))
+	for _, t := range tenants {
+		parts = append(parts, fmt.Sprintf("%s=%d", t, seen[t]))
+	}
+	return strings.Join(parts, ",")
+}
+
+// studyLabel renders a study for a refusal message, disclosing when the file did not name one.
+//
+// The comparison normalizes an empty study to the M5-b experiment, because unlabelled evidence IS that
+// experiment and refusing to pool it with evidence that says so would reject a legitimate comparison. The
+// message must not normalize as well: an operator reading "these are different experiments" needs to know
+// that one side was old evidence carrying no label, not a file naming a study they do not recognise.
+func studyLabel(canonical, recorded string) string {
+	if recorded == "" {
+		return canonical + " (unlabelled, predates the study field)"
+	}
+	return canonical
 }
 
 // loadArmEvidence reads one raw file per repetition and groups it by arm.
@@ -418,8 +582,9 @@ func loadArmEvidence(rawFiles []string) (*armEvidence, error) {
 	// Group rows and per-file p99 repetitions by arm, and capture each arm's frozen provenance.
 	e := &armEvidence{
 		byArm: map[string][]bench.RawRow{}, repP99: map[string][]float64{},
-		repTail: map[string][]int{}, repRows: map[string][]int{},
+		repTail: map[string][]int{}, repRows: map[string][]int{}, repSeconds: map[string][]float64{},
 		checksum: map[string]string{}, tolerance: map[string]float64{},
+		treatment: map[string]string{},
 	}
 	for _, path := range rawFiles {
 		f, err := os.Open(path)
@@ -434,6 +599,33 @@ func loadArmEvidence(rawFiles []string) (*armEvidence, error) {
 		if len(rows) == 0 {
 			continue
 		}
+		// Two studies in one report is not a comparison, it is a category error.
+		//
+		// Nothing else catches it. Arm names are not unique across studies, and the trace checksum does
+		// not stand in for study identity either: refuseIfTracesDisagree only inspects three hard-coded
+		// M5-b arm names and skips anything it does not recognise, so rows from a different experiment
+		// pass through it untouched. This is the check, and it runs before a single row is pooled.
+		// EVERY row, not the first one.
+		//
+		// Reading rows[0] made the check defeatable by concatenation: a file whose first row is legacy and
+		// whose remaining rows belong to another experiment passed, and ReadRawRows sorts by index so which
+		// row lands first is not even under the operator's control among ties.
+		study, recorded, err := singleStudy(path, rows)
+		if err != nil {
+			return nil, err
+		}
+		if !e.studySeen {
+			e.study = study
+			e.studyRecorded = recorded
+			e.studySeen = true
+			e.studyFrom = path
+		} else if study != e.study {
+			return nil, fmt.Errorf("%s carries study %s but %s carries %s; these are different"+
+				" pre-registered experiments and their arms do not mean the same thing, so pooling them"+
+				" would report a comparison that was never run",
+				path, studyLabel(study, recorded), e.studyFrom, studyLabel(e.study, e.studyRecorded))
+		}
+
 		arm := rows[0].Arm
 		e.byArm[arm] = append(e.byArm[arm], rows...)
 		// Keep the whole per-repetition summary, not just its p99.
@@ -446,8 +638,34 @@ func loadArmEvidence(rawFiles []string) (*armEvidence, error) {
 		e.repP99[arm] = append(e.repP99[arm], rs.TTFTMsP99)
 		e.repTail[arm] = append(e.repTail[arm], rs.TailSampleSize)
 		e.repRows[arm] = append(e.repRows[arm], len(rows))
+		e.repSeconds[arm] = append(e.repSeconds[arm], rs.ActiveSeconds)
+		// Every repetition's checksum, not the last one's.
+		//
+		// This assigned, so loadArmEvidence kept only whichever file it read last and a repetition replayed
+		// from a different trace was invisible to refuseIfTracesDisagree -- the one check whose entire job is
+		// to prove the arms saw identical traffic. The trigger is a workflow this runner endorses: re-running
+		// one botched arm into the same output directory.
+		if prev, ok := e.checksum[arm]; ok && prev != rows[0].TraceChecksum {
+			return nil, fmt.Errorf("arm %s has repetitions replayed from different traces (%s and %s); its rows are pooled into one summary, so mixing them compares an arm against itself across two workloads", arm, prev, rows[0].TraceChecksum)
+		}
 		e.checksum[arm] = rows[0].TraceChecksum
+		if prev, ok := e.tolerance[arm]; ok && prev != rows[0].MatchTolerance {
+			return nil, fmt.Errorf("arm %s has repetitions carrying different admission-match tolerances (%v and %v); the pre-registered tolerance cannot be two values", arm, prev, rows[0].MatchTolerance)
+		}
 		e.tolerance[arm] = rows[0].MatchTolerance
+		// The treatment is part of an arm's identity, exactly like its trace and its tolerance.
+		//
+		// Without this, replaying one manifest twice -- once with --priorities and once without -- produced
+		// two files a report happily pooled as repetitions of the same condition. The bootstrap would then
+		// resample across a treated and an untreated run and report the interval as if one thing had been
+		// measured four times.
+		treat := treatmentOf(rows)
+		if prev, ok := e.treatment[arm]; ok && prev != treat {
+			return nil, fmt.Errorf("arm %s has repetitions replayed under different priority treatments (%s and %s);"+
+				" they are two conditions, and pooling them reports an interval over a comparison rather than a repetition",
+				arm, prev, treat)
+		}
+		e.treatment[arm] = treat
 	}
 	return e, nil
 }
@@ -461,7 +679,7 @@ func (e *armEvidence) refuseIfTracesDisagree() error {
 	//
 	// So it is excluded from the identity check.
 	var wantSum string
-	for _, arm := range []string{"off", "static-cap", "kv-aware"} {
+	for _, arm := range e.contendedArms() {
 		sum, ok := e.checksum[arm]
 		if !ok {
 			continue
@@ -501,7 +719,7 @@ func (e *armEvidence) refuseIfTracesDisagree() error {
 	// This is a refusal rather than a check result, and it sits beside the checksum test for that reason: two
 	// arms of different lengths cannot be compared at all, which is a statement about the evidence rather than
 	// about the guard.
-	contended := []string{"off", "static-cap", "kv-aware"}
+	contended := e.contendedArms()
 	wantRows, wantFrom := 0, ""
 	for _, arm := range contended {
 		for i, n := range e.repRows[arm] {
@@ -544,9 +762,40 @@ func (e *armEvidence) frozenMatchTolerance(fallback float64) float64 {
 	return matchTolerance
 }
 
+// contendedArms are the study's arms that replay the full trace, so their traffic must be identical.
+//
+// R1 is excluded because it replays the same trace with the contending tenant filtered out, which is what
+// makes it a ceiling rather than a condition -- its record count legitimately differs.
+//
+// Derived from the study rather than listed, because the list used to be three M5-b names and every arm of
+// any other experiment therefore skipped the identity check entirely: refuseIfTracesDisagree looked at
+// nothing at all for the price-of-protection sweep.
+func (e *armEvidence) contendedArms() []string {
+	study, ok := bench.LookupStudy(e.study)
+	if !ok {
+		study, _ = bench.LookupStudy(bench.StudyM5BGateway)
+	}
+	arms := make([]string, 0, len(study.Arms))
+	for _, a := range study.Arms {
+		if a != bench.ArmR1 {
+			arms = append(arms, a)
+		}
+	}
+	return arms
+}
+
 // summarize builds the per-arm summaries in report order and attaches the repetition shape.
 func (e *armEvidence) summarize() ([]bench.ArmSummary, map[string]bench.ArmSummary) {
-	order := []string{"R1", "off", "static-cap", "kv-aware"}
+	// The order is the study's, not four literals.
+	//
+	// Hard-coded, this dropped nine of the price-of-protection sweep's ten arms on the floor: summarize
+	// kept only R1, because that is the one name the two studies share, and the report then complained
+	// about arms belonging to an experiment it was not reporting on.
+	study, ok := bench.LookupStudy(e.study)
+	if !ok {
+		study, _ = bench.LookupStudy(bench.StudyM5BGateway)
+	}
+	order := study.Arms
 	var summaries []bench.ArmSummary
 	summ := map[string]bench.ArmSummary{}
 	for _, arm := range order {
@@ -557,6 +806,18 @@ func (e *armEvidence) summarize() ([]bench.ArmSummary, map[string]bench.ArmSumma
 			if tails := e.repTail[arm]; len(tails) > 0 {
 				s.RepetitionCount = len(tails)
 				s.MinRepetitionTail = slices.Min(tails)
+			}
+			// The per-repetition tails travel with the summary too, because the price-of-protection run's
+			// reading 3 needs the CONTROL'S spread as its threshold and a pooled p99 cannot supply it.
+			s.RepetitionTTFTMsP99 = append([]float64(nil), e.repP99[arm]...)
+			// The pooled span Summarize just computed spans the washouts between repetitions, so replace it
+			// with the sum of the repetitions' own spans, which is the time the arm was actually sending.
+			if spans := e.repSeconds[arm]; len(spans) > 0 {
+				total := 0.0
+				for _, v := range spans {
+					total += v
+				}
+				s.SetActiveSeconds(total)
 			}
 			summaries = append(summaries, s)
 			summ[arm] = s
@@ -580,6 +841,13 @@ func (e *armEvidence) incrementalCI() bench.CI {
 			}
 		}
 		incCI = bench.BootstrapCI(ratios, 2000, 1, 0.05)
+		// A bootstrap interval over four values only bounds what it claims to while those values are tight.
+		// Marking it invalid rather than reporting it keeps a scattered run from clearing the gate on an
+		// interval that is narrower than the evidence supports; see bench.MaxRatioScatter.
+		if bench.RatioScatterTooHigh(ratios) {
+			incCI.Valid = false
+			incCI.InvalidReason = fmt.Sprintf("the per-repetition C/B ratios scatter beyond a coefficient of variation of %.2f, past which a percentile bootstrap over %d values fires on no effect at all more often than its nominal 5 percent", bench.MaxRatioScatter, len(ratios))
+		}
 	} else if len(b) > 0 && len(c) > 0 {
 		// Unequal repetition counts leave the incremental CI at the degenerate point estimate.
 		//
@@ -615,4 +883,37 @@ func printPrompt(args []string) {
 		os.Exit(2)
 	}
 	fmt.Print(bench.PromptText(*chars))
+}
+
+// evaluatePoP scores the price-of-protection readings, or returns nil when the arms they need are absent.
+//
+// R1 and the control are not optional: every reading is a ratio against one or the other, and a report that
+// quietly scored the cells against a missing baseline would produce ratios against zero. Saying so on stderr
+// and returning nil puts the run in the "criteria not evaluated" state, which the report already renders
+// honestly, rather than inventing a verdict.
+func evaluatePoP(summ map[string]bench.ArmSummary, summaries []bench.ArmSummary) *bench.PoPResult {
+	r1, haveR1 := summ[bench.ArmR1]
+	control, haveControl := summ[bench.ArmDefaultFCFS]
+	if !haveR1 || !haveControl {
+		fmt.Fprintf(os.Stderr,
+			"warning: the price-of-protection readings need both %s and %s and this evidence has %s; no criteria were evaluated\n",
+			bench.ArmR1, bench.ArmDefaultFCFS, strings.Join(armNames(summaries), ", "))
+		return nil
+	}
+	var cells []bench.ArmSummary
+	for _, s := range summaries {
+		if s.Arm != bench.ArmR1 && s.Arm != bench.ArmDefaultFCFS {
+			cells = append(cells, s)
+		}
+	}
+	res := bench.EvaluatePriceOfProtection(r1, control, cells, bench.PremiumTenant, bench.NoisyTenant)
+	return &res
+}
+
+func armNames(summaries []bench.ArmSummary) []string {
+	names := make([]string, 0, len(summaries))
+	for _, s := range summaries {
+		names = append(names, s.Arm)
+	}
+	return names
 }
