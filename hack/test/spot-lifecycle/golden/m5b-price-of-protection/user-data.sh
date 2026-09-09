@@ -32,13 +32,51 @@ def wait_healthy(deadline=900):
 
 
 def engine_config(name):
-    """Return the engine's own resolved startup lines, and save them beside the evidence."""
-    logs = subprocess.run(["docker", "logs", "vllm"], capture_output=True).stdout.decode("utf-8", "replace")
+    """Return the engine's own resolved startup lines, and save them AND the whole log beside the evidence.
+
+    The whole log is kept because the filtered version cannot answer the question the control arm exists to
+    answer. B0 -- the batch budget an engine picks when nobody sets one -- is by definition a DEFAULT, and
+    the filter's most informative pattern is `non-default args`, which excludes defaults by construction.
+    The engine also prints `Chunked prefill is enabled with max_num_batched_tokens=N` only when the flag was
+    passed. So on the 2026-09-07 pilot the control's budget was absent from everything kept, the full log was
+    not saved, and the instance was gone before anyone noticed: B0 was unrecoverable from a run bought to
+    resolve it.
+
+    Both streams are read for the same reason. docker logs writes the container's stdout and stderr
+    separately and this only took stdout, so anything the engine logged to stderr was discarded unseen.
+    """
+    p = subprocess.run(["docker", "logs", "vllm"], capture_output=True)
+    logs = (p.stdout.decode("utf-8", "replace") or "") + (p.stderr.decode("utf-8", "replace") or "")
+    with open(f"{OUT}/engine-log-{name}.txt", "w") as f:
+        f.write(logs)
     kept = [l.strip() for l in logs.splitlines()
-            if any(k in l for k in ("non-default args", "Chunked prefill", "scheduling", "KV cache"))]
+            if any(k in l for k in ("non-default args", "Chunked prefill", "scheduling", "KV cache",
+                                    "max_num_batched_tokens", "SchedulerConfig", "EngineArgs", "VllmConfig"))]
     with open(f"{OUT}/engine-config-{name}.txt", "w") as f:
         f.write("\n".join(kept) + "\n")
     return "\n".join(kept)
+
+
+def fingerprint(logs_text):
+    """Two numbers the engine reports for every arm, whether or not it states its batch budget.
+
+    B0 -- the budget an engine picks when nobody sets one -- is not printed. vLLM logs
+    "Chunked prefill is enabled with max_num_batched_tokens=N" ONLY when N was passed, and the control's log
+    carries no scheduler line at all even though chunked prefill is on. Two paid pilots confirmed it: the
+    whole log, both streams, and the number is not in it.
+
+    But the budget leaves marks. The compiler's range endpoint tracks it, and the KV cache the engine ends up
+    with is a deterministic function of the activation memory the budget reserves. Across two sessions on two
+    instances those marks were identical: unset gave (2048, 369,680) and 512 gave (512, 386,912), every time.
+
+    So B0 is resolved by CONSTRUCTION rather than by parsing: run an arm that states a budget, and if its
+    fingerprint matches the control's, the control was configured the same way. That is a match between two
+    engines this run started, not an inference about a field nobody documented.
+    """
+    ep = re.search(r"compile_ranges_endpoints': \[(\d+)\]", logs_text)
+    kv = re.search(r"GPU KV cache size: *([\d,]+)", logs_text)
+    return {"compileRangeEndpoint": int(ep.group(1)) if ep else None,
+            "kvCacheTokens": int(kv.group(1).replace(",", "")) if kv else None}
 
 
 def agrees(config, budget, policy):
@@ -85,10 +123,16 @@ for name, budget, policy in ARMS:
         manifest["arms"].append(entry); continue
 
     config = engine_config(name)
+    entry["fingerprint"] = fingerprint(open(f"{OUT}/engine-log-{name}.txt").read())
     # The resolved budget, recorded whether or not we asked for one. For the control this is B0, the number
     # the pre-registration deliberately refuses to guess.
     resolved = re.search(r"max_num_batched_tokens[^0-9]{1,4}(\d+)", config)
     entry["resolved_budget"] = resolved.group(1) if resolved else None
+    # An arm that asked for no budget IS the control, and an unread B0 means the study's own gate has not
+    # been met. The arm still runs -- its rows are paid for and worth having -- but the run must not end
+    # quietly, so this is carried to the exit status below rather than left as a null in a column.
+    if not budget and entry["resolved_budget"] is None:
+        entry["b0_unresolved"] = True
 
     why = agrees(config, budget, policy)
     if why:
@@ -104,6 +148,12 @@ for name, budget, policy in ARMS:
         raw = f"{OUT}/raw-{name}-{rep}.jsonl"
         gen = [HARNESS, "gen-trace", "--seed", "7", "--study", STUDY, "--arm", name,
                "--model", MODEL, "--gateway-url", BASE, "--engine-image", IMAGE,
+               # The load is passed rather than defaulted. gen-trace's defaults are stub-calibrated and the
+               # first pilot ran them at a GPU at ten times its prefill capacity.
+               "--rate", os.environ["RATE"], "--duration-ms", os.environ["DURATION_MS"],
+               "--premium-weight", os.environ["PREMIUM_WEIGHT"],
+               "--noisy-weight", os.environ["NOISY_WEIGHT"],
+               "--probe-weight", os.environ["PROBE_WEIGHT"],
                "--trace-out", trace, "--manifest-out", mani]
         r = subprocess.run(gen, capture_output=True)
         if r.returncode != 0:
@@ -125,10 +175,35 @@ with open(f"{OUT}/run.json", "w") as f:
 
 # The exit status is what gates the completion marker. An arm that produced no rows is not a result.
 served = [a for a in manifest["arms"] if a.get("raw")]
+# B0 by construction: an arm that STATED its budget and produced the control's fingerprint was configured
+# the way the control configures itself. This is the only route the engine leaves open -- see fingerprint().
+stated = [a for a in manifest["arms"] if a.get("resolved_budget") and a.get("fingerprint")]
+for a in manifest["arms"]:
+    if not a.get("b0_unresolved") or not a.get("fingerprint"):
+        continue
+    if a["fingerprint"].get("compileRangeEndpoint") is None or a["fingerprint"].get("kvCacheTokens") is None:
+        continue
+    for m in stated:
+        if m["fingerprint"] == a["fingerprint"]:
+            a["resolved_budget"] = m["resolved_budget"]
+            a["b0_resolved_by"] = f"fingerprint match with {m['arm']}, which stated {m['resolved_budget']}"
+            a.pop("b0_unresolved", None)
+            print(f"B0 RESOLVED for {a['arm']}: {a['b0_resolved_by']} ({a['fingerprint']})", file=sys.stderr)
+            break
+
+unresolved = [a["arm"] for a in manifest["arms"] if a.get("b0_unresolved")]
+if unresolved:
+    # Loud, and on stderr, because this is the pre-registration's own pilot gate: "reading 4 must not fire,
+    # and B0 resolved". A control whose batch budget nobody can read is not the control the study defined,
+    # and the 2026-09-07 pilot reported it as a null in a table and moved on.
+    print(f"B0 UNRESOLVED for {', '.join(unresolved)}: the engine's own log does not state the batch budget "
+          f"it chose. The rows are still evidence, but the study's control is undefined and the "
+          f"confirmatory run must not be bought on this. See engine-log-*.txt.", file=sys.stderr)
 print(json.dumps(manifest, indent=2))
 sys.exit(0 if served else 1)
 MEASUREEOF
 export IMAGE='vllm/vllm-openai@sha256:0a51ea5b4ae2dc5d81890e5173f54203d2a3ae0cfffe51b8fd2afd4391bfd967' MODEL='Qwen/Qwen2.5-3B-Instruct' STUDY='price-of-protection-2026-09-05' ARMS='R1::,default-fcfs::,mbt-0512-fcfs:512:fcfs,mbt-0512-priority:512:priority' REPS='1'
+export RATE='9.85' DURATION_MS='420000' PREMIUM_WEIGHT='1' NOISY_WEIGHT='0.054' PROBE_WEIGHT='0.0054'
 exec > >(tee /var/log/pop.log) 2>&1
 set -x
 ( sleep 7200; shutdown -h now ) &

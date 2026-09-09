@@ -226,6 +226,73 @@ var _ = Describe("the price-of-protection readings", func() {
 		Expect(res.Answer).To(Equal("1 (mbt-2048-priority)"))
 	})
 
+	// The four defects an adversarial review found on 2026-09-09, each pinned by the case that produced it.
+	It("refuses to score a cell that completed no premium requests", func() {
+		// This fired reading 1 POSITIVE and named the cell the deliverable. percentile returns 0 for an
+		// empty slice, so a cell whose premium traffic ALL timed out had a tail of 0, and 0 clears a 2x bar.
+		// The configuration that starved the protected tenant completely was reported as the one protecting
+		// it, which is the worst number this file could print.
+		starved := popCell("mbt-0256-fcfs", 1.0, 1.0, 1.0, 1.0)
+		starved.TTFTMsP99 = 0
+		starved.TailSampleSize = 0
+		starved.TPOTMsP99ByTenant = map[string]float64{}
+		res := EvaluatePriceOfProtection(popR1(), popControl(), []ArmSummary{starved}, PremiumTenant, NoisyTenant)
+
+		Expect(readingByID(res, "1").Fired).To(BeFalse())
+		Expect(res.Answer).NotTo(ContainSubstring("mbt-0256-fcfs"))
+		Expect(readingByID(res, "1").Detail).To(ContainSubstring("no tail"))
+	})
+
+	It("refuses to score a cell whose tail is thinner than a p99 needs, or censored", func() {
+		thin := popCell("mbt-0512-priority", 1.0, 1.0, 1.0, 1.0)
+		thin.TailSampleSize = 40
+		res := EvaluatePriceOfProtection(popR1(), popControl(), []ArmSummary{thin}, PremiumTenant, NoisyTenant)
+		Expect(readingByID(res, "1").Fired).To(BeFalse())
+		Expect(readingByID(res, "1").Detail).To(ContainSubstring("40 premium completions"))
+
+		censored := popCell("mbt-0512-priority", 1.0, 1.0, 1.0, 1.0)
+		censored.Censored = true
+		res = EvaluatePriceOfProtection(popR1(), popControl(), []ArmSummary{censored}, PremiumTenant, NoisyTenant)
+		Expect(readingByID(res, "1").Fired).To(BeFalse())
+		Expect(readingByID(res, "1").Detail).To(ContainSubstring("censored"))
+	})
+
+	It("does not call an unmeasured control an uncontended load", func() {
+		// 0/67 is under the 5x floor, so reading 4 fired INVALID saying the load made no contention -- the
+		// inverse of what happened -- and short-circuited ahead of 4b, which exists for exactly this case.
+		control := popControl()
+		control.TTFTMsP99 = 0
+		res := EvaluatePriceOfProtection(popR1(), control,
+			[]ArmSummary{popCell("mbt-0512-priority", 1.5, 1.1, 0.9, 0.98)}, PremiumTenant, NoisyTenant)
+
+		Expect(readingByID(res, "4").Fired).To(BeFalse())
+		Expect(readingByID(res, "4").NotEvaluable).To(BeTrue())
+		Expect(readingByID(res, "4").Detail).To(ContainSubstring("too high to measure"))
+	})
+
+	It("declines reading 3 rather than answering over cells nobody could score", func() {
+		// With no premium TPOT on R1 every cell is unscorable, and reading 3 -- the last one, the one that
+		// fires when the others did not -- turned that into an INCONCLUSIVE verdict about unscored evidence.
+		r1 := popR1()
+		r1.TPOTMsP99ByTenant = map[string]float64{}
+		res := EvaluatePriceOfProtection(r1, popControl(),
+			[]ArmSummary{popCell("mbt-0512-priority", 1.5, 1.1, 0.9, 0.98)}, PremiumTenant, NoisyTenant)
+
+		Expect(readingByID(res, "3").Fired).To(BeFalse())
+		Expect(readingByID(res, "3").NotEvaluable).To(BeTrue())
+		Expect(res.Answer).To(BeEmpty())
+	})
+
+	It("says a control ledger that does not carry the contender is unevaluable, not a starved tenant", func() {
+		control := popControl()
+		control.DispositionByTenant = map[string]Disposition{PremiumTenant: {Offered: 600, Completed: 500}}
+		res := EvaluatePriceOfProtection(popR1(), control,
+			[]ArmSummary{popCell("mbt-0512-priority", 1.5, 1.1, 0.9, 0.98)}, PremiumTenant, NoisyTenant)
+
+		Expect(readingByID(res, "4b").NotEvaluable).To(BeTrue())
+		Expect(readingByID(res, "4b").Fired).To(BeFalse())
+	})
+
 	It("reports no answer rather than a false one when nothing fired", func() {
 		// A cell that beats the control well past its spread, but misses every positive bar. None of the five
 		// applies, and the honest output is silence rather than the nearest negative.

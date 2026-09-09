@@ -114,6 +114,19 @@ func recordAdmitToRunning(
 			return admitToRunningOutcome{}
 		}
 		if status.AdmittedAt == nil {
+			// A start that is missing is not the same as a start that was never witnessed, and only one of
+			// those is this branch's business.
+			//
+			// AdmittedAt is nil in two ways. Either this controller never saw the Admitted transition, which
+			// is what reasonAdmissionNotObserved says and means. Or it DID see it and Kueue carried no usable
+			// stamp, which the Admitted branch above already recorded as reasonKueueStampMissing. Both arrive
+			// here identically, and this used to overwrite the second with a message reading "this job was
+			// already past admission when this controller first saw it" -- which is false, because the
+			// controller saw it and said so one transition earlier. The accurate refusal was replaced by an
+			// inaccurate one, and the unobserved counter was incremented twice for one job.
+			if r := admitToRunningRefusal(status); r != "" {
+				return admitToRunningOutcome{}
+			}
 			setUnobserved(status, reasonAdmissionNotObserved, now)
 			return admitToRunningOutcome{UnobservedReason: reasonAdmissionNotObserved}
 		}
@@ -215,4 +228,16 @@ func kueueAdmittedStamp(conds []metav1.Condition) *metav1.Time {
 		return &t
 	}
 	return nil
+}
+
+// admitToRunningRefusal is the reason already on the condition when it is a refusal, or "" when there is
+// none. It exists so a later transition can leave an earlier, more specific refusal standing.
+func admitToRunningRefusal(status *platformv1.MLTrainingJobStatus) string {
+	for i := range status.Conditions {
+		c := status.Conditions[i]
+		if c.Type == mltjCondAdmitToRunning && c.Status == metav1.ConditionFalse {
+			return c.Reason
+		}
+	}
+	return ""
 }

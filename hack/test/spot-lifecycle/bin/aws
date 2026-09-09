@@ -153,6 +153,13 @@ case "$svc $op" in
     ;;
 
   "ec2 terminate-instances")
+    # STUB_TERMINATE_FAILS makes the call refuse, the way expired credentials do. spot_terminate used to
+    # swallow that and report success, and this knob is what keeps the fixed version honest: without a way
+    # to fail the call, its failure branch is never executed and "it reports the problem" is a claim.
+    if [ "${STUB_TERMINATE_FAILS:-0}" = "1" ]; then
+      echo "An error occurred (ExpiredToken) when calling the TerminateInstances operation: token expired" >&2
+      exit 254
+    fi
     printf '{}\n'
     ;;
 

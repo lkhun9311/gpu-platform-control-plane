@@ -669,7 +669,16 @@ say "user-data: $UD_ENCODED of $UD_LIMIT encoded bytes"
 # ---------------------------------------------------------------- launch
 say "launching $INSTANCE_TYPE spot (max \$$MAX_SPOT_PRICE/h)"
 TAGS="ResourceType=instance,Tags=[{Key=Name,Value=$STACK},{Key=purpose,Value=queuelab-device-observation}]"
+# The trap is armed BEFORE the launch loop, not after it.
+#
+# It used to sit below `say "instance $IID"`, which left a window: run-instances had returned an id and
+# nothing would terminate it yet. Under `set -euo pipefail` a failed write of the instance-id file, a
+# SIGPIPE on stdout because this script was piped to something that had exited, or a Ctrl-C in that window
+# all exit with a GPU instance running and no terminator. spot_terminate returns 0 on an empty id, so
+# arming it early costs nothing and closes the window.
+cleanup() { spot_terminate "$REGION" "$IID"; }
 IID=""
+trap cleanup EXIT INT TERM
 for z in $ZONES; do
   SUBNET=$(spot_subnet_in_zone "$REGION" "$z") || continue
   say "trying $z ($SUBNET)"
@@ -697,8 +706,6 @@ fi
 echo "$IID" > "$OUT/instance-id"
 say "instance $IID"
 
-cleanup() { spot_terminate "$REGION" "$IID"; }
-trap cleanup EXIT INT TERM
 
 say "waiting for results (driver, cluster, operator and four preflight checks come first)"
 done_seen=0

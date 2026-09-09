@@ -485,6 +485,17 @@ func report(args []string) error {
 	if checks != nil && checks.Invalid {
 		return fmt.Errorf("run invalid: %s", checks.InvalidReason)
 	}
+	// The price-of-protection study reaches here with nil checks, so its INVALID readings used to exit 0 --
+	// and the paid runner calls this as `benchharness report ... || fail`, which is the whole reason the
+	// comment above says an invalid run exits non-zero. A run whose load made no contention, or whose load
+	// was too high to measure, printed its refusal and told the wrapper it had succeeded.
+	if pop != nil {
+		for _, r := range pop.Readings {
+			if r.Fired && (r.ID == "4" || r.ID == "4b") {
+				return fmt.Errorf("run invalid: reading %s fired -- %s", r.ID, r.Detail)
+			}
+		}
+	}
 	return nil
 }
 

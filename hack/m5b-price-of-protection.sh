@@ -102,11 +102,12 @@ require_credential_margin() {
   reps="$REPS"
   need=$(( 15 + arms*3/2 + arms*reps*7 + 30 ))
   python3 - "$need" <<'PY' || fail "not enough credential left to finish this run and terminate its instance"
-import datetime, glob, json, sys
+import datetime, glob, json, os, sys
 need = int(sys.argv[1])
 now = datetime.datetime.now(datetime.timezone.utc)
 best = None
-for f in glob.glob(f"{__import__('os').path.expanduser('~')}/.aws/cli/cache/*.json"):
+cache = os.environ.get("AWS_CLI_CACHE_DIR") or os.path.expanduser("~/.aws/cli/cache")
+for f in glob.glob(f"{cache}/*.json"):
     try:
         exp = (json.load(open(f)).get("Credentials") or {}).get("Expiration")
     except Exception:
@@ -459,7 +460,16 @@ cp "$MEASURE" "$OUT/pop.py"
 # ---------------------------------------------------------------- launch
 say "launching $INSTANCE_TYPE spot (max \$$MAX_SPOT_PRICE/h)"
 TAGS="ResourceType=instance,Tags=[{Key=Name,Value=$STACK},{Key=purpose,Value=price-of-protection}]"
+# The trap is armed BEFORE the launch loop, not after it.
+#
+# It used to sit below `say "instance $IID"`, which left a window: run-instances had returned an id and
+# nothing would terminate it yet. Under `set -euo pipefail` a failed write of the instance-id file, a
+# SIGPIPE on stdout because this script was piped to something that had exited, or a Ctrl-C in that window
+# all exit with a GPU instance running and no terminator. spot_terminate returns 0 on an empty id, so
+# arming it early costs nothing and closes the window.
+cleanup() { spot_terminate "$REGION" "$IID"; }
 IID=""
+trap cleanup EXIT INT TERM
 for z in $ZONES; do
   SUBNET=$(spot_subnet_in_zone "$REGION" "$z") || continue
   say "trying $z ($SUBNET)"
@@ -472,9 +482,6 @@ done
 echo "$IID" > "$OUT/instance-id"
 say "instance $IID"
 
-# The trap belongs to whoever owns the instance id. The library offers termination and arms nothing.
-cleanup() { spot_terminate "$REGION" "$IID"; }
-trap cleanup EXIT INT TERM
 
 say "waiting for results (the engine has an image and weights to pull first)"
 done_seen=0

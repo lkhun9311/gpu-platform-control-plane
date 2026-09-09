@@ -153,14 +153,39 @@ spot_launch() {
     --query 'Instances[0].InstanceId' --output text
 }
 
-# spot_terminate ends an instance, and says nothing if it is already gone.
+# spot_terminate ends an instance, and SHOUTS if it could not.
 #
 # Offered rather than trapped: traps do not stack, so whoever owns the instance id arms this.
+#
+# It used to end in `>/dev/null 2>&1 || true`, which discarded the reason and swallowed the failure, so a
+# termination that did not happen printed "terminating i-..." and returned success. On 2026-09-08 that is
+# exactly what it did: credentials expired mid-run, the trap fired, the API call was refused, and the line
+# on screen said the instance was being terminated while it went on billing until someone noticed and killed
+# it by hand. A cleanup path that cannot tell "did not run" from "passed" is the failure class this
+# repository has been bitten by most, and this is the one place where it costs money.
+#
+# It still returns 0. The caller arms this from an EXIT trap, and a trap that fails would overwrite the
+# run's own exit status with the cleanup's -- which is how a successful run would start reporting failure.
+# The report is the message, not the status.
 spot_terminate() {
-  local region="$1" instance_id="$2"
+  local region="$1" instance_id="$2" err state
   [ -n "$instance_id" ] || return 0
   spot_say "terminating $instance_id"
-  aws ec2 terminate-instances --region "$region" --instance-ids "$instance_id" >/dev/null 2>&1 || true
+  if ! err=$(aws ec2 terminate-instances --region "$region" --instance-ids "$instance_id" 2>&1 >/dev/null); then
+    printf 'TERMINATE FAILED for %s: %s\n' "$instance_id" "$err" >&2
+    # An instance that is already gone is not a problem, so ask before raising the alarm. The state call
+    # needs credentials too, and "unknown" means it could not be asked -- which is not the same as running,
+    # and both are worth saying out loud.
+    state=$(spot_instance_state "$region" "$instance_id")
+    case "$state" in
+      terminated|shutting-down)
+        printf 'it is %s anyway, so nothing is still billing\n' "$state" >&2 ;;
+      *)
+        printf 'STILL %s AND BILLING. Terminate it by hand:\n  aws ec2 terminate-instances --region %s --instance-ids %s\n' \
+          "$state" "$region" "$instance_id" >&2 ;;
+    esac
+  fi
+  return 0
 }
 
 # spot_instance_state echoes an instance's state, or "unknown".
