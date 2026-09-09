@@ -115,6 +115,24 @@ type scored struct {
 	ttftOK, tpotOK          bool
 	shareOK, thruOK         bool
 	computable              bool
+	// why says what makes a cell unscorable, so a reading can name it instead of quietly not firing.
+	why string
+}
+
+// cellNotScorable says, in words, why a cell cannot be held against the bars -- or "" when it can.
+func cellNotScorable(c ArmSummary, premiumTenant string) string {
+	switch {
+	case c.TTFTMsP99 <= 0:
+		return fmt.Sprintf("%s completed no premium requests, so it has no tail to hold against a bar", c.Arm)
+	case c.TPOTMsP99ByTenant[premiumTenant] <= 0:
+		return fmt.Sprintf("%s has no premium TPOT, so the stream bar cannot be applied to it", c.Arm)
+	case c.TailSampleSize < MinTailSamples:
+		return fmt.Sprintf("%s has %d premium completions, below the %d a nearest-rank p99 needs to be anything but the maximum",
+			c.Arm, c.TailSampleSize, MinTailSamples)
+	case c.Censored:
+		return fmt.Sprintf("%s has a censored tail, which is a lower bound rather than a p99", c.Arm)
+	}
+	return ""
 }
 
 func scoreCells(r1, control ArmSummary, cells []ArmSummary, premiumTenant, noisyTenant string) []scored {
@@ -126,8 +144,23 @@ func scoreCells(r1, control ArmSummary, cells []ArmSummary, premiumTenant, noisy
 		s.tpot = ratioOr(c.TPOTMsP99ByTenant[premiumTenant], r1.TPOTMsP99ByTenant[premiumTenant])
 		s.thru = ratioOr(c.OutputTokensPerSecond, control.OutputTokensPerSecond)
 		s.share = ratioOr(shareOf(c, noisyTenant), controlNoisy)
+		// A cell has to have a tail of its own before it can be compared to a tail bar.
+		//
+		// This used to check only the DENOMINATORS -- R1's tail, R1's TPOT, the control's throughput and
+		// share -- and a cell supplies the numerators. `percentile` returns 0 for an empty slice, so a cell
+		// whose premium requests ALL timed out arrived here with TTFTMsP99 of 0 and no TPOT entry, and
+		// 0/100 = 0 cleared the 2x bar while 0 cleared the 1.25x one. Reading 1 then fired POSITIVE and
+		// named it the deliverable: the cell that starved the protected tenant completely was reported as
+		// the configuration that protected it. That is the worst wrong number this file could print.
+		//
+		// MinTailSamples and Censored are here for the same reason one level down. A p99 over fewer than
+		// a hundred completions is the slowest request wearing a percentile's name, and a censored tail is
+		// a lower bound; neither is a tail a bar can be applied to.
 		s.computable = r1.TTFTMsP99 > 0 && r1.TPOTMsP99ByTenant[premiumTenant] > 0 &&
-			control.OutputTokensPerSecond > 0 && controlNoisy > 0
+			control.OutputTokensPerSecond > 0 && controlNoisy > 0 &&
+			c.TTFTMsP99 > 0 && c.TPOTMsP99ByTenant[premiumTenant] > 0 &&
+			c.TailSampleSize >= MinTailSamples && !c.Censored
+		s.why = cellNotScorable(c, premiumTenant)
 		s.ttftOK = s.ttft <= popTTFTBar
 		s.tpotOK = s.tpot <= popTPOTBar
 		s.shareOK = s.share >= popNoisyShareBar
@@ -143,6 +176,18 @@ func popReadingFour(r1, control ArmSummary) PoPReading {
 	if r1.TTFTMsP99 <= 0 {
 		r.NotEvaluable = true
 		r.Detail = "R1 has no premium tail to compare against"
+		return r
+	}
+	// A control with no tail is not an uncontended load, it is an unmeasured one.
+	//
+	// This divided straight into the ratio, so a control whose premium requests all timed out gave 0/67 = 0,
+	// which is under the 5x floor, and reading 4 fired INVALID saying the load created no contention -- the
+	// exact inverse of what had happened. Reading 4b exists for that case and never got the chance, because
+	// 4 short-circuits ahead of it.
+	if control.TTFTMsP99 <= 0 {
+		r.NotEvaluable = true
+		r.Detail = fmt.Sprintf("the control completed no premium requests, so there is no tail to compare against R1's %.1f ms; that is a load too high to measure rather than one that made no contention, and reading 4b names it",
+			r1.TTFTMsP99)
 		return r
 	}
 	ratio := control.TTFTMsP99 / r1.TTFTMsP99
@@ -167,7 +212,7 @@ func popReadingFourB(control ArmSummary, noisyTenant string) PoPReading {
 		r.Fired = true
 		r.Detail = fmt.Sprintf("the control completed %d premium requests, below the %d a nearest-rank p99 needs to be anything other than the maximum",
 			control.TailSampleSize, MinTailSamples)
-	case len(control.DispositionByTenant) == 0:
+	case len(control.DispositionByTenant) == 0, !hasTenant(control.DispositionByTenant, noisyTenant):
 		r.NotEvaluable = true
 		r.Detail = "the control carries no per-tenant disposition, so how much of each tenant's work survived cannot be checked"
 	case done < MinTailSamples:
@@ -198,7 +243,7 @@ func popReadingOne(all []scored) PoPReading {
 		}
 	}
 	if won == nil {
-		r.Detail = "no cell met all four bars"
+		r.Detail = "no cell met all four bars" + unscorableSuffix(all)
 		return r
 	}
 	r.Fired, r.Cell = true, won.Arm
@@ -221,7 +266,7 @@ func popReadingOneB(all []scored) PoPReading {
 		}
 	}
 	if won == nil {
-		r.Detail = "no cell held the tail, the share and the stream while missing only on throughput"
+		r.Detail = "no cell held the tail, the share and the stream while missing only on throughput" + unscorableSuffix(all)
 		return r
 	}
 	r.Fired, r.Cell = true, won.Arm
@@ -242,7 +287,7 @@ func popReadingTwo(all []scored, noisyTenant string) PoPReading {
 		}
 	}
 	if len(metTail) == 0 {
-		r.Detail = "no cell met the p99 bar, so this reading does not apply; that is reading 3"
+		r.Detail = "no cell met the p99 bar, so this reading does not apply; that is reading 3" + unscorableSuffix(all)
 		return r
 	}
 	for _, s := range metTail {
@@ -273,6 +318,16 @@ func popReadingTwo(all []scored, noisyTenant string) PoPReading {
 // cell as failing to beat noise nobody measured.
 func popReadingThree(control ArmSummary, all []scored) PoPReading {
 	r := PoPReading{ID: "3", Name: "no cell beats the control -- INCONCLUSIVE"}
+	// This reading is the one that fires when everything above it did not, so it is the one that would turn
+	// "nothing could be scored" into a verdict. It used to compare tails without asking whether any of them
+	// were comparable, and with an R1 that carried no premium TPOT every cell was unscorable, readings 1,
+	// 1b and 2 printed "no cell met..." as though they had looked, and this reading answered INCONCLUSIVE
+	// about evidence nobody had scored.
+	if scorable := countScorable(all); scorable == 0 && len(all) > 0 {
+		r.NotEvaluable = true
+		r.Detail = "no cell could be scored against the bars" + unscorableSuffix(all)
+		return r
+	}
 	spread, ok := repetitionSpread(control.RepetitionTTFTMsP99)
 	if !ok {
 		r.NotEvaluable = true
@@ -374,4 +429,38 @@ func FormatPriceOfProtection(res PoPResult) string {
 		fmt.Fprintf(&b, "ANSWER: reading %s.\n", res.Answer)
 	}
 	return b.String()
+}
+
+// countScorable is how many cells could be held against the bars at all.
+func countScorable(all []scored) int {
+	n := 0
+	for i := range all {
+		if all[i].computable {
+			n++
+		}
+	}
+	return n
+}
+
+// unscorableSuffix names the cells that could not be scored, so "no cell met the bar" is never confused with
+// "no cell could be measured". They are different findings and only one of them is about the configurations.
+func unscorableSuffix(all []scored) string {
+	var why []string
+	for i := range all {
+		if !all[i].computable && all[i].why != "" {
+			why = append(why, all[i].why)
+		}
+	}
+	if len(why) == 0 {
+		return ""
+	}
+	return "; not scorable: " + strings.Join(why, "; ")
+}
+
+// hasTenant says whether a per-tenant ledger actually carries this tenant, as opposed to carrying others.
+// A map lookup on a missing key gives a zero Disposition, which reads as "offered nothing, completed
+// nothing" -- indistinguishable from a tenant that was starved.
+func hasTenant(d map[string]Disposition, tenant string) bool {
+	_, ok := d[tenant]
+	return ok
 }
