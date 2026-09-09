@@ -164,6 +164,10 @@ type DeviceObservation struct {
 	// with nothing naming a tenant. The first sends an operator to the workload, the second to the exporter,
 	// and without this counter the refusal sent them to the first in both cases.
 	UnlabelledBusySamples int `json:"unlabelledBusySamples,omitempty"`
+	// UnavailableSamples counts rows the exporter answered with "N/A" -- a field it could not read at that
+	// instant. An observation that is empty because every row said N/A and one that is empty because nothing
+	// was there look identical without this, and they send an operator to different places.
+	UnavailableSamples int `json:"unavailableSamples,omitempty"`
 }
 
 // DeviceClaim is the question put to an observation: which Pod, over which two intervals.
@@ -326,6 +330,22 @@ func busyDuringAttempt(obs *DeviceObservation, devices map[string]bool, claim De
 		return false, fmt.Sprintf("the attempt's own interval is empty (%d..%d ns), so nothing can establish "+
 			"that Pod %s used the card rather than merely being allocated one", work, workEnd, podUID)
 	}
+	// Instants at which some OTHER Pod was also on one of these devices.
+	//
+	// Exclusivity is checked over the HOLD, because that is the window the claim is about and a tenant that
+	// left long before it is serial reallocation rather than ambiguity. Busyness reads the whole ATTEMPT,
+	// which is wider -- so a busy sample could sit at an instant where a neighbour's label was on the same
+	// card, outside the hold's reach, and be credited to this Pod anyway. A reading at an instant two Pods
+	// share says the CARD was working. It does not say which of them was working it, and the whole point of
+	// this clause is attributing work to one Pod.
+	shared := map[int64]bool{}
+	for _, s := range obs.Samples {
+		if s.PodUID == "" || s.PodUID == podUID || !devices[s.DeviceUUID] {
+			continue
+		}
+		shared[s.AtNs] = true
+	}
+
 	busyAt := map[int64]bool{}
 	seen := 0
 	for _, s := range obs.Samples {
@@ -337,7 +357,7 @@ func busyDuringAttempt(obs *DeviceObservation, devices map[string]bool, claim De
 			continue
 		}
 		seen++
-		if s.UtilisationPercent > 0 {
+		if s.UtilisationPercent > 0 && !shared[s.AtNs] {
 			busyAt[s.AtNs] = true
 		}
 	}
@@ -471,6 +491,15 @@ func EstablishesDeviceWork(obs *DeviceObservation, claim DeviceClaim) (bool, str
 			}
 		}
 		switch {
+		// An exporter that answered every row with something this build could not read leaves an observation
+		// that looks exactly like a card nobody touched. Named first, because it sends an operator to the
+		// exporter's value format rather than to the workload -- and because until this counter existed the
+		// skip was silent and there was nothing to name it with.
+		case obs.UnavailableSamples > 0 && len(obs.Samples) == 0:
+			return false, fmt.Sprintf("the observer produced no usable sample at all, and skipped %d row(s) "+
+				"whose value it could not read as an integer percent. That is not a card nobody used: the "+
+				"exporter answered and this build could not read what it said. Check the value format the "+
+				"exporter is emitting before looking at the workload", obs.UnavailableSamples)
 		case obs.UnlabelledBusySamples > 0 && len(named) == 0:
 			return false, fmt.Sprintf("the observer produced no sample naming ANY Pod, and %d sample(s) showed "+
 				"a card WORKING while naming no Pod at all. That is not a card nobody used: it is attribution "+

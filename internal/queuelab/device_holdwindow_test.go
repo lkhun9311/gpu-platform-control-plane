@@ -191,6 +191,60 @@ func TestANeighbourBeforeTheHoldDoesNotRefuseTheRun(t *testing.T) {
 	}
 }
 
+// A busy instant the card SHARED with another Pod cannot be credited to this one.
+//
+// Exclusivity is checked over the hold; busyness reads the whole attempt, which is wider. So a busy sample
+// could sit at an instant where a neighbour's label was on the same card, outside the hold's reach, and be
+// counted as this Pod's work anyway. A reading at an instant two Pods share says the CARD was working. It
+// does not say which of them worked it, and attributing work to one Pod is the whole point of this clause.
+//
+// The victim here is busy at exactly two instants and a neighbour shares one of them, so the run turns on
+// whether that shared instant counts. It must not.
+//
+// Mutation that turns this red: drop the shared-instant check in busyDuringAttempt.
+func TestABusyInstantSharedWithAnotherPodIsNotThisPodsWork(t *testing.T) {
+	const holdFrom = 20_000_000_000
+	const stopped = holdFrom + 2_177_000_000
+
+	o := &DeviceObservation{
+		Observer: ObserverDCGM, ObserverIdentity: "dcgm@sha256:abc", Declared: true,
+		StartedNs: 0, EndedNs: stopped + int64(time.Second),
+	}
+	// Idle everywhere the gate needs coverage, so only the two busy instants below can carry the claim.
+	for at := int64(0); at <= stopped; at += int64(time.Second) {
+		o.Samples = append(o.Samples, DeviceSample{
+			AtNs: at, DeviceUUID: "GPU-1234", PodUID: "victim-uid", UtilisationPercent: 0,
+		})
+	}
+	busy := func(at int64) {
+		for i := range o.Samples {
+			if o.Samples[i].AtNs == at && o.Samples[i].PodUID == "victim-uid" {
+				o.Samples[i].UtilisationPercent = 96
+			}
+		}
+	}
+	busy(2_000_000_000)
+	busy(8_000_000_000)
+	// A neighbour on the same card at one of those instants, well before the hold and its margin.
+	o.Samples = append(o.Samples, DeviceSample{
+		AtNs: 8_000_000_000, DeviceUUID: "GPU-1234",
+		PodRef: "other/earlier-tenant", PodUID: "earlier-uid", UtilisationPercent: 55,
+	})
+
+	ok, why := EstablishesDeviceWork(o, DeviceClaim{
+		PodUID:     "victim-uid",
+		WorkFromNs: 0, WorkToNs: stopped,
+		HoldFromNs: holdFrom, HoldToNs: stopped,
+	})
+	if ok {
+		t.Fatal("a busy instant the card shared with another Pod was credited to this one, so the gate " +
+			"attributed work it cannot tell apart")
+	}
+	if !strings.Contains(why, "separate instants") {
+		t.Errorf("the refusal did not name the busyness clause: %v", why)
+	}
+}
+
 // Busyness must be about the card the hold was about, not any card the Pod ever touched.
 //
 // A Pod whose held card sat idle, while a DIFFERENT device carried its label and was busy, has not shown
