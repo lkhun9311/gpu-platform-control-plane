@@ -311,3 +311,248 @@ func TestTheWriteUpDoesNotClaimNumbersItStillMarksAsMissing(t *testing.T) {
 			"understates a finished result as badly as the other direction overstates an unfinished one")
 	}
 }
+
+// devicePluginOverlays are the four configurations of one plugin the matrix switches between.
+//
+// Three of them belong to an arm: whole-card is `shared`, and the other two are the sharing modes. The
+// fourth is the production overlay that runs on the ordinary GPU node group and is here because the checks
+// below are about all of them agreeing on the things that are not the experiment.
+var devicePluginOverlays = []string{
+	"nvidia-device-plugin",
+	"nvidia-device-plugin-whole-card",
+	"nvidia-device-plugin-timeslicing",
+	"nvidia-device-plugin-mps",
+}
+
+// Every plugin overlay must render into the namespace the operator actually creates.
+//
+// `system` in these manifests is kubebuilder's placeholder: config/default rewrites it, and no namespace by
+// that name is ever created. An overlay that does not carry the rewrite renders `namespace: system` and is
+// refused at apply time with `namespaces "system" not found`.
+//
+// Both sharing overlays were in exactly that state, so neither sharing arm of the matrix could ever have
+// deployed. It survived because TestTheSharingOverlaysAreExclusiveAndDifferOnlyInTheMechanism compares the
+// two of them against EACH OTHER: they were identically wrong, and agreement is not correctness. This test
+// compares them against the cluster instead.
+func TestEveryDevicePluginOverlayRendersIntoTheOperatorsNamespace(t *testing.T) {
+	def, err := os.ReadFile("../../config/default/kustomization.yaml")
+	if err != nil {
+		t.Fatalf("read config/default/kustomization.yaml: %v", err)
+	}
+	nsLine := regexp.MustCompile(`(?m)^namespace:\s*(\S+)\s*$`)
+	m := nsLine.FindStringSubmatch(string(def))
+	if m == nil {
+		t.Fatal("config/default declares no namespace, so there is nothing to hold the overlays to")
+	}
+	want := m[1]
+	if want == "system" {
+		t.Fatal("config/default declares the literal namespace `system`; this test's whole premise is that it does not")
+	}
+
+	for _, o := range devicePluginOverlays {
+		path := "../../config/" + o + "/kustomization.yaml"
+		b, rerr := os.ReadFile(path)
+		if rerr != nil {
+			t.Errorf("read %s: %v", path, rerr)
+			continue
+		}
+		got := nsLine.FindStringSubmatch(string(b))
+		if got == nil {
+			t.Errorf("config/%s/kustomization.yaml sets no namespace, so it renders the placeholder "+
+				"`system` and every apply of it is refused with `namespaces \"system\" not found`; the arm "+
+				"using it could never deploy", o)
+			continue
+		}
+		if got[1] != want {
+			t.Errorf("config/%s/kustomization.yaml renders into %q but the operator creates %q", o, got[1], want)
+		}
+	}
+}
+
+// The `shared` arm needs a plugin advertising ONE device on the sharing node, and for a long time none
+// existed.
+//
+// config/nvidia-device-plugin selects platform.lkhun9311.github.io/gpu, a label the sharing node group
+// deliberately does not carry (infra/aws/cluster/eks.tf says why: two plugins on one kubelet socket). The
+// two sharing overlays select gpu-sharing and advertise two. So the control arm's engine -- the one the
+// pre-registration says every other number is measured against -- had a plugin for neither its node nor its
+// topology. On a fresh node it would have sat Pending to the 900-second rollout timeout; run after a sharing
+// arm it would have scheduled onto a leftover replica and reported a control that was quietly running on
+// half a card.
+//
+// These are the properties that make the whole-card overlay the `shared` arm's plugin rather than a copy of
+// one of the others.
+func TestTheWholeCardOverlayIsTheExclusivePluginOnTheSharingNode(t *testing.T) {
+	whole, err := os.ReadFile("../../config/nvidia-device-plugin-whole-card/daemonset.yaml")
+	if err != nil {
+		t.Fatalf("read the whole-card overlay: %v", err)
+	}
+
+	if !regexp.MustCompile(`platform\.lkhun9311\.github\.io/gpu-sharing:\s*"true"`).Match(whole) {
+		t.Error("the whole-card overlay does not select the sharing node, so the `shared` arm's engine would " +
+			"find nothing advertising a device and sit Pending to its rollout timeout")
+	}
+	if regexp.MustCompile(`(?m)^\s*platform\.lkhun9311\.github\.io/gpu:\s*"true"`).Match(whole) {
+		t.Error("the whole-card overlay selects the ordinary GPU label as well; it would land on the node " +
+			"the production plugin already serves and two plugins would register against one kubelet socket")
+	}
+
+	// No CONFIG_FILE, and that omission is the overlay.
+	//
+	// The plugin's default is one device per physical card, which is exactly what this arm needs. The check
+	// runs in the opposite direction from the one on the sharing overlays: there a missing CONFIG_FILE makes
+	// a sharing arm exclusive, here a present one would split the control's card.
+	if regexp.MustCompile(`(?m)^\s*-\s*name:\s*CONFIG_FILE\s*$`).Match(whole) {
+		t.Error("the whole-card overlay sets CONFIG_FILE; it would advertise a split card and the `shared` " +
+			"arm would be a sharing arm wearing the control's name")
+	}
+
+	// One digest across all four, so an arm cannot differ in the plugin build as well as in the mechanism.
+	dig := regexp.MustCompile(`k8s-device-plugin:[^@\s]+@(sha256:[a-f0-9]{64})`)
+	digests := map[string]string{}
+	for _, o := range devicePluginOverlays {
+		b, rerr := os.ReadFile("../../config/" + o + "/daemonset.yaml")
+		if rerr != nil {
+			t.Fatalf("read config/%s/daemonset.yaml: %v", o, rerr)
+		}
+		d := dig.FindStringSubmatch(string(b))
+		if d == nil {
+			t.Fatalf("config/%s does not pin the plugin by digest", o)
+		}
+		digests[o] = d[1]
+	}
+	for o, d := range digests {
+		if d != digests["nvidia-device-plugin"] {
+			t.Errorf("config/%s runs plugin %s but the production overlay runs %s; an arm would carry that "+
+				"difference as well as its topology", o, d, digests["nvidia-device-plugin"])
+		}
+	}
+
+	// Distinct DaemonSet names across all four, or applying one adopts another's Pods rather than replacing
+	// it -- and the production overlay is in that set on purpose, because a name collision there would
+	// retarget the plugin serving the ordinary GPU node group.
+	nameOf := regexp.MustCompile(`(?m)^  name:\s*(\S+)`)
+	owner := map[string]string{}
+	for _, o := range devicePluginOverlays {
+		b, _ := os.ReadFile("../../config/" + o + "/daemonset.yaml")
+		for _, n := range nameOf.FindAllStringSubmatch(string(b), -1) {
+			if prev, dup := owner[n[1]]; dup && prev != o {
+				t.Errorf("config/%s and config/%s both declare %q; applying one would adopt the other's "+
+					"DaemonSet instead of replacing it", prev, o, n[1])
+			}
+			owner[n[1]] = o
+		}
+	}
+}
+
+// The matrix must apply a device plugin for every arm it deploys, including the control.
+//
+// This is the check that would have caught the missing whole-card plugin. The script applied one for the two
+// sharing arms and nothing for `shared`, which reads as an omission only if you already know the sharing
+// node has no plugin of its own -- so the guard is mechanical: every arm in the case statement reaches
+// apply_device_plugin.
+func TestTheMatrixAppliesADevicePluginForEveryArm(t *testing.T) {
+	body, err := os.ReadFile("../../hack/m5c-matrix.sh")
+	if err != nil {
+		t.Fatalf("read the matrix: %v", err)
+	}
+	src := string(body)
+
+	for _, arm := range []string{"shared", "timeSlicing", "mps"} {
+		if !regexp.MustCompile(`(?m)^\s+`+arm+`\)\s`).MatchString(src) &&
+			!strings.Contains(src, arm+"|") && !strings.Contains(src, "|"+arm) {
+			t.Errorf("hack/m5c-matrix.sh has no case branch for the %s arm", arm)
+		}
+	}
+	if !strings.Contains(src, "apply_device_plugin shared") {
+		t.Error("hack/m5c-matrix.sh does not apply a device plugin for the `shared` arm; nothing advertises " +
+			"nvidia.com/gpu on the sharing node, so the control's engine would sit Pending or inherit the " +
+			"previous arm's split card")
+	}
+	if !strings.Contains(src, `apply_device_plugin "$arm"`) {
+		t.Error("hack/m5c-matrix.sh does not apply a device plugin for the sharing arms")
+	}
+	// Exactly, not at least: `-ge` reads the previous arm's larger advertisement as success, which is how a
+	// one-device arm starts on a card the last arm already split.
+	if !strings.Contains(src, `-eq "$want"`) {
+		t.Error("hack/m5c-matrix.sh does not require the node to advertise EXACTLY the arm's device count; " +
+			"a `-ge` comparison passes on the outgoing arm's stale advertisement")
+	}
+}
+
+// The matrix must pass the WHOLE load to gen-trace, and the served model with it.
+//
+// hack/m5b-price-of-protection.sh carries the lesson in one line beside its own gen-trace call: "gen-trace's
+// defaults are stub-calibrated and the first pilot ran them at a GPU at ten times its prefill capacity."
+// hack/m5c-matrix.sh asked its operator for RATE and left everything else defaulted, which is the larger
+// half of the same mistake and could not be fixed by any choice of RATE:
+//
+//   - The default mix is premium 1, noisy 1 and two probe tenants at 0.1, so the 40,000-character contender
+//     takes about 45% of arrivals. At roughly 1.03 s of engine per contender prompt -- the figure the paid
+//     evidence measured -- that is four to five times an A10G's prefill capacity at the rate this study
+//     would use, and every arm is censored.
+//   - Lowering RATE until the contender fits leaves the premium tenant below the MinTailSamples floor that
+//     reading 4b exists to enforce, so the run is INVALID from the other direction.
+//
+// And --model, which is a different failure with the same silence: gen-trace defaults to "llama-3-8b",
+// internal/gateway resolves a backend by matching the requested model against the InferenceDeployment index
+// in the tenant's namespace, and the routing records this script writes serve Qwen2.5-3B. Every request of
+// every arm would have come back ErrNoRoute, after both engines had finished loading.
+func TestTheMatrixPassesTheWholeLoadAndTheModelToGenTrace(t *testing.T) {
+	src, err := os.ReadFile("../../hack/m5c-matrix.sh")
+	if err != nil {
+		t.Fatalf("read the matrix: %v", err)
+	}
+	body := string(src)
+
+	// COMMENTS STRIPPED FIRST, and this is not tidiness.
+	//
+	// The first version of this test matched from the word "gen-trace" onwards over the whole file, and the
+	// rationale comment directly above the call names every flag it is arguing for -- including --model. So
+	// deleting `--model "$MODEL"` from the actual command left this test green, satisfied entirely by the
+	// prose explaining why the flag matters. Found by deleting the flag and watching nothing go red, which
+	// is the same way this repository found `use_name_prefix` and CONFIG_FILE being satisfied by comments.
+	var code strings.Builder
+	for line := range strings.SplitSeq(body, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "#") {
+			continue
+		}
+		code.WriteString(line)
+		code.WriteString("\n")
+	}
+	stripped := code.String()
+
+	gen := regexp.MustCompile(`(?s)benchharness" gen-trace.*?manifest-out[^\n]*\n`).FindString(stripped)
+	if gen == "" {
+		t.Fatal("hack/m5c-matrix.sh has no gen-trace invocation to check")
+	}
+	for _, flag := range []string{
+		"--rate", "--duration-ms", "--model",
+		"--premium-weight", "--noisy-weight", "--probe-weight",
+	} {
+		if !strings.Contains(gen, flag) {
+			t.Errorf("the matrix's gen-trace call does not pass %s, so it takes the harness's "+
+				"stub-calibrated default for it", flag)
+		}
+	}
+
+	// Refused, not defaulted. A default the operator never sees is how the stub calibration got onto a card
+	// the first time.
+	for _, v := range []string{"RATE", "PREMIUM_WEIGHT", "NOISY_WEIGHT", "PROBE_WEIGHT", "DURATION_MS"} {
+		if !strings.Contains(stripped, v) {
+			t.Errorf("the matrix never mentions %s", v)
+			continue
+		}
+		if regexp.MustCompile(`(?m)^` + v + `="\$\{` + v + `:-`).MatchString(stripped) {
+			t.Errorf("the matrix gives %s a default. Every part of the load has to be derived on the card "+
+				"this run is using; a default here is a number nobody measured arriving in the evidence", v)
+		}
+	}
+
+	// The derived trace length is gone, and it must stay gone: 500/(RATE/2) assumes the two tenants split
+	// arrivals evenly, which is true of the defaults this study is refusing and false of any mix it derives.
+	if regexp.MustCompile(`DURATION_MS=\$\(python3`).MatchString(stripped) {
+		t.Error("the matrix still derives DURATION_MS from RATE, overwriting whatever the caller measured; " +
+			"the arithmetic assumes an even tenant split, which is the premise a calibrated mix abandons")
+	}
+}

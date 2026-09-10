@@ -41,6 +41,16 @@ const (
 	//
 	// No gateway is in the path. The factors are vLLM's batch budget and its scheduling policy.
 	StudyPriceOfProtection = "price-of-protection-2026-09-05"
+	// StudySharingMatrix is the M5-c topology matrix pre-registered in
+	// docs/superpowers/specs/2026-09-10-does-splitting-the-card-buy-protection.md.
+	//
+	// Its arms are TOPOLOGIES, not admission modes, and giving it a study of its own is what lets the report
+	// tell them apart. hack/m5c-matrix.sh used to replay every arm as "off" -- the admission vocabulary's
+	// name for a disabled guard -- because that was the only arm name the harness would accept for it, and
+	// it then had to ship a README telling readers never to run `benchharness report` over the evidence,
+	// since pooling would collapse three topologies into one row. Evidence that has to arrive with a warning
+	// against using the tool that reads it is evidence one step from being read wrong.
+	StudySharingMatrix = "sharing-matrix-2026-09-10"
 )
 
 // The factors the price-of-protection sweep crosses.
@@ -71,6 +81,20 @@ const NoisyTenant = "standard-noisy"
 // It replays the same trace with the contending tenant filtered out, so its record count legitimately
 // differs from every other arm's and identity checks have to exclude it.
 const ArmR1 = "R1"
+
+// ArmShared and the two sharing arms are the M5-c matrix's topologies.
+//
+// They live here beside the other studies' arm names, and not in the evaluator that reads them, because the
+// registry below has to name them: a study whose arms are declared in the file that scores them cannot be
+// registered without that file, and the runner would then be free to write an arm nobody validates.
+//
+// The spellings are the ones hack/m5c-matrix.sh puts in its output paths, because those paths are what a
+// reader has in front of them when they run the report.
+const (
+	ArmShared      = "shared"
+	ArmTimeSlicing = "timeSlicing"
+	ArmMPS         = "mps"
+)
 
 // ArmDefaultFCFS is the price-of-protection control: the engine at its own default batch budget under
 // first-come-first-served, which is what an operator who configures nothing gets.
@@ -115,6 +139,10 @@ var studies = map[string]Study{
 		ID:   StudyPriceOfProtection,
 		Arms: priceOfProtectionArms(),
 	},
+	StudySharingMatrix: {
+		ID:   StudySharingMatrix,
+		Arms: []string{ArmR1, ArmShared, ArmTimeSlicing, ArmMPS},
+	},
 }
 
 // CanonicalStudyID resolves an identifier as recorded to the identifier it means.
@@ -144,9 +172,20 @@ func LookupStudy(id string) (Study, bool) {
 
 // KnownStudyIDs lists the registered studies, for a refusal that has to name the alternatives.
 func KnownStudyIDs() []string {
-	// Listed rather than ranged over the map, because a refusal message whose order changes between
-	// runs is a refusal message that cannot be tested.
-	return []string{StudyM5BGateway, StudyPriceOfProtection}
+	// DERIVED from the registry and then sorted, rather than hand-listed.
+	//
+	// The hand-written version said it was a list "because a refusal message whose order changes between
+	// runs is a refusal message that cannot be tested", which is a real requirement and the wrong fix for
+	// it. Sorting satisfies it too, and a hand-kept copy of the registry does not stay a copy: registering
+	// the sharing matrix left this returning two of three studies, so the refusal for a mistyped study ID
+	// would have listed the alternatives and omitted the one the operator was reaching for. This repository
+	// has paid twice for hand-kept lists drifting from what they list.
+	ids := make([]string, 0, len(studies))
+	for id := range studies {
+		ids = append(ids, id)
+	}
+	slices.Sort(ids)
+	return ids
 }
 
 // Admits reports whether arm is one of this study's conditions.
