@@ -419,6 +419,7 @@ func report(args []string) error {
 	// it evaluated no criteria, rather than failing it against somebody else's.
 	var checks *bench.Checks
 	var pop *bench.PoPResult
+	var sharing *bench.SharingResult
 	if bench.CanonicalStudyID(e.study) == bench.StudyM5BGateway {
 		var missing []string
 		for _, arm := range []string{bench.ArmR1, "static-cap", "kv-aware"} {
@@ -434,6 +435,8 @@ func report(args []string) error {
 		checks = &evaluated
 	} else if bench.CanonicalStudyID(e.study) == bench.StudyPriceOfProtection {
 		pop = evaluatePoP(summ, summaries)
+	} else if bench.CanonicalStudyID(e.study) == bench.StudySharingMatrix {
+		sharing = evaluateSharingMatrix(summ, summaries)
 	} else {
 		fmt.Fprintf(os.Stderr,
 			"warning: study %s has no implemented readings, so this report shows its measurements and evaluates no criteria\n",
@@ -442,6 +445,9 @@ func report(args []string) error {
 	text := bench.FormatReport(summaries, checks, matchTolerance)
 	if pop != nil {
 		text += bench.FormatPriceOfProtection(*pop)
+	}
+	if sharing != nil {
+		text += bench.FormatSharingMatrix(*sharing)
 	}
 
 	if *out != "" {
@@ -918,6 +924,35 @@ func evaluatePoP(summ map[string]bench.ArmSummary, summaries []bench.ArmSummary)
 		}
 	}
 	res := bench.EvaluatePriceOfProtection(r1, control, cells, bench.PremiumTenant, bench.NoisyTenant)
+	return &res
+}
+
+// evaluateSharingMatrix sorts the M5-c evidence into the roles its readings speak about.
+//
+// R1 and `shared` are required, and their absence is a warning with no readings rather than readings
+// computed against a zero ArmSummary. R1 is the denominator of both bars and `shared` is the control every
+// improvement is measured from; a zero value for either would make every ratio meaningless in a way that
+// still prints a number, which is the failure this file's other evaluator was fixed for.
+//
+// The sharing arms are taken as whatever else is present, rather than looked up by name. An operator running
+// ARMS="shared timeSlicing" gets a matrix with one sharing arm and readings that say so, instead of a
+// lookup miss reported as a mode that did not engage.
+func evaluateSharingMatrix(summ map[string]bench.ArmSummary, summaries []bench.ArmSummary) *bench.SharingResult {
+	r1, haveR1 := summ[bench.ArmR1]
+	shared, haveShared := summ[bench.ArmShared]
+	if !haveR1 || !haveShared {
+		fmt.Fprintf(os.Stderr,
+			"warning: the sharing-matrix readings need both %s and %s and this evidence has %s; no criteria were evaluated\n",
+			bench.ArmR1, bench.ArmShared, strings.Join(armNames(summaries), ", "))
+		return nil
+	}
+	arms := bench.SharingArms{R1: r1, Shared: shared}
+	for _, s := range summaries {
+		if s.Arm != bench.ArmR1 && s.Arm != bench.ArmShared {
+			arms.Sharing = append(arms.Sharing, s)
+		}
+	}
+	res := bench.EvaluateSharingMatrix(arms, bench.PremiumTenant, bench.NoisyTenant)
 	return &res
 }
 
