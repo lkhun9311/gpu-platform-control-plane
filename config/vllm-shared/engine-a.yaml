@@ -58,8 +58,33 @@ spec:
             - Qwen/Qwen2.5-3B-Instruct
             - --dtype=half
             - --max-model-len=16384
+            # Half the flagship's 64, so the CARD admits the same concurrency under either topology.
+            #
+            # Under `shared` both tenants compete for one engine's 64 slots; under a split each gets a
+            # guaranteed 32. That difference IS the mechanism being measured, and holding the total at 64 is
+            # what keeps it the only difference. Per-engine 64 would offer the card twice the concurrency in
+            # the split arms and confound separation with a larger batch.
             - --max-num-seqs=32
+            # Slices of one pool, not partitions of two: see this file's header.
             - --gpu-memory-utilization=0.475
+            # Prefix caching OFF, matching config/vllm/deployment.yaml, because this matrix varies TOPOLOGY.
+            #
+            # vLLM's V1 engine turns automatic prefix caching on by default and these manifests said nothing,
+            # so the split arms would have cached the prefix the exclusive arm recomputes on every request.
+            # The trace replays one prompt shape, so that is most of the prefill: the split arms would have
+            # beaten `shared` by a wide margin for a reason that is not the card being split, and the
+            # write-up would have credited it to separation. The flagship manifest argues this same flag at
+            # length for this same trace; this is that argument applied to the other half of the comparison.
+            - --no-enable-prefix-caching
+            # The batch budget is STATED rather than left to the engine, and 2048 is measured, not chosen.
+            #
+            # The price-of-protection run resolved the whole-card engine's default by running an arm that
+            # asked for 2048 explicitly and reproducing the control's throughput to 1.2 ms. That is B0. A
+            # half-card engine derives its own default from what it has, so leaving this unset risks the
+            # split arms running a different budget from the exclusive arm -- and that run measured the
+            # budget moving the premium tail about fivefold, which is the size of effect this matrix is
+            # looking for. Pinning it holds the knob still so topology is the only thing that moves.
+            - --max-num-batched-tokens=2048
             - --port=8000
           ports:
             - name: http
