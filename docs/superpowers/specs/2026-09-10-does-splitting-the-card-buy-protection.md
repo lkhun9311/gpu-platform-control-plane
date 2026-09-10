@@ -37,9 +37,73 @@ A premium request should then run *slower* but never *behind*.
 on an uncontended engine may land in the same place as one that queues briefly on a fast one. That is what
 makes it worth measuring rather than assuming.
 
+## Corrected on 2026-09-10, before any card time was bought
+
+This page was written on the strength of a sentence that turned out to be false: that the three arms were
+**"already built and tested in `hack/m5c-matrix.sh`"**. They were built. Nothing had ever run them, and
+`docs/00_PORTFOLIO_OVERVIEW.md` already said so of the whole cluster half of the AWS path — *"offline-validated,
+never applied to AWS"*. Reading the runner, rehearsing it on a real cluster, and writing the code for its own
+readings found **nine** defects, each of which would have ended or silently corrupted a paid session.
+
+**All nine were found and fixed before a card was rented, and this section is written before one is.** That
+is why editing this page now is legitimate: its freeze clause binds from the moment its pilot is bought, and
+the pilot is not bought. Nothing here reads a result, because there are no results.
+
+| # | what was wrong | what it would have cost |
+| --- | --- | --- |
+| 1 | The split engines did not pass `--no-enable-prefix-caching`; the exclusive one did | vLLM V1 caches by default and this trace repeats one prompt shape, so the split arms would have beaten `shared` by a wide margin **because of a cache**, and this page would have called it separation |
+| 2 | Both sharing overlays rendered `namespace: system`, a kubebuilder placeholder nothing creates | every apply refused with `namespaces "system" not found`; **neither sharing arm could ever deploy** |
+| 3 | Nothing advertised a device for the `shared` arm | the sharing node deliberately lacks the exclusive plugin's label, so the control's engine either sat Pending to a 900 s timeout or **inherited the previous arm's split card and reported numbers** |
+| 4 | The device count was checked with `-ge` | `timeSlicing` → `mps` both want 2, so the check passed on the outgoing arm's stale advertisement and MPS could begin as time-slicing |
+| 5 | `config/gateway/rbac.yaml` has the same placeholder namespace, and the matrix binds `gateway-role` without creating it | Kubernetes accepts a binding to a missing ClusterRole, so the gateway starts and **every request fails authorization**, with nothing looking wrong until the first replay |
+| 6 | No tenant weights were passed to `gen-trace` | the default mix puts the 40,000-character contender at 45% of arrivals — four to five times an A10G's prefill capacity — and **no choice of `RATE` fixes it**, because lowering it starves the premium tail below the sample floor |
+| 7 | No `--model` was passed to `gen-trace` | the default is `llama-3-8b`, the engines serve Qwen2.5-3B, and the gateway routes by model name: **every request `ErrNoRoute`**, after both engines had loaded |
+| 8 | This study's readings were not implemented anywhere in `internal/bench` | the readings below would have been evaluated by hand, which is not the pre-registered instrument |
+| 9 | **Reading 2 was unreachable.** Its condition — meets both bars *and* starves the contender — was a strict subset of reading 1's, and reading 1 is evaluated first | an arm that bought its tail by refusing the other tenant's work would have been reported as the **deliverable**, and the reading that exists to catch exactly that would never have run |
+
+All nine are fixed. Each is pinned by a test that was deliberately broken to confirm it goes red — including
+defect 9, whose test asserts that an arm meeting both bars with 170 of the contender's 300 requests *rejected*
+is reported NEGATIVE and not POSITIVE. Defect 5 is fixed as a refusal that names the file to apply.
+
+Defect 8's fix is `internal/bench/sharing_matrix.go`: all seven readings, evaluated in the registered order,
+dispatched from `benchharness report` on a study whose arms are the topologies. That last part removed
+something else — the run used to replay every arm as `off` and ship a README saying its evidence must never
+be given to `benchharness report`, because pooling would collapse three topologies into one row. Evidence
+that arrives with a warning against using the tool that reads it is one step from being read wrong.
+
+**Defect 9 is the one worth dwelling on**, because it was found by writing the code for defect 8 and by
+nothing else. Reading the page did not surface it; two readings that overlap look fine in prose and only
+collide when something has to decide which fires first. That is the argument for the gate: implementing the
+readings is not paperwork ahead of the pilot, it is the last review the design gets.
+
+Seven of the nine were found by reading or by implementing. Two — 5 and the confirmation that the gateway
+needs no operator —
+came from `hack/test/rehearse-m5c-deploy.sh`, which stands up a kind cluster with stub engines and proves a
+request travels key → tenant → `GPUQuotaPolicy` → namespace → `InferenceDeployment` → Service → Pod. It
+asserts that each tenant reached **its own** engine rather than that both got HTTP 200, because both
+tenants routed to one engine also returns two 200s, and that is the `shared` topology wearing a split arm's
+name.
+
+### The platform changed, and so did the budget
+
+The original budget — pilot ~$1.30, confirmatory ~$2.90 — was costed from the runtime model fitted to three
+paid runs that each rented **one self-contained Spot instance**. `hack/m5c-matrix.sh` does not do that. It
+drives an **EKS cluster with a GPU node group**, and no such cluster exists or has ever been applied. The
+figure was wrong for a reason that has nothing to do with the arithmetic: it costed a shape the runner does
+not have.
+
+The runner now takes `PLATFORM=eks|kind`. The `kind` path rents one Spot instance and builds a kind cluster
+on it with the real NVIDIA device plugin — the recipe `hack/queuelab-gpu-session.sh` already paid for and
+proved on A10Gs. The EKS path is untouched: its lines were moved into a function and not otherwise edited,
+which `git diff -w` shows.
+
+**`g5.2xlarge`, not `g5.xlarge`.** Measured on 2026-09-10 in `ap-northeast-2`: **$0.68/h against $0.58/h**,
+for 32 GiB of host memory instead of 16. A kind node, two vLLM engines and the harness on 16 GiB is the kind
+of margin that is discovered at the rollout timeout, and ten cents an hour is the wrong place to economise.
+
 ## Design
 
-Three arms, already built and tested in `hack/m5c-matrix.sh`, on one `g5.xlarge` (one A10G):
+Three arms, on one `g5.2xlarge` (one A10G), through `PLATFORM=kind`:
 
 | arm | topology |
 | ------------- | -------- |
@@ -57,6 +121,32 @@ engine, and `internal/queuelab`'s exclusivity clause refuses to attribute it. So
 CLIENTS observed — per-engine latency and throughput — and reports no per-engine GPU utilisation. The
 sharing modes get their own device-plugin configuration rather than replacing the exclusive one, because
 that config is what queuelab's device evidence depends on.
+
+### What the engines may and may not differ in
+
+The matrix varies topology. Every other engine setting has to be identical across the arms, or its effect
+arrives in the result wearing topology's name — which is what defect 1 was. Three settings are allowed to
+differ, and each is forced by the split rather than chosen:
+
+| setting | exclusive | each split engine | why it may differ |
+| --- | ---: | ---: | --- |
+| `--gpu-memory-utilization` | 0.90 | 0.475 | time-slicing does not partition memory; two engines draw on one pool, so the fractions must sum below 1 |
+| `--max-num-seqs` | 64 | 32 | half each, so **the card admits the same total concurrency under either topology**. Per-engine 64 would offer the card twice the concurrency in the split arms and confound separation with a larger batch |
+| the device-plugin overlay | whole-card, 1 device | time-slicing or MPS, 2 devices | this is the mechanism under test |
+
+Everything else must match, and `--max-num-batched-tokens=2048` is now **stated** on all three engines
+rather than left to the engine. 2048 is not a choice: the price-of-protection run established it by running
+an arm that asked for 2048 explicitly and reproducing its control's throughput to 1.2 ms. Left as a default
+it would have been a default resolved **from how much card the engine has**, so the split engines could
+silently have run a different budget from the exclusive one — and that run measured the budget moving the
+premium tail about fivefold, which is the size of effect this matrix is looking for.
+
+`internal/bench`'s contract tests hold this: any flag the exclusive engine passes must be passed identically
+by both split engines unless it is named in an allow-list with a reason, and a flag added to either side
+later fails the suite until somebody decides which case it is.
+
+**This run therefore reports nothing about what budget a half-card engine would choose for itself.** That is
+a real question and it is not this one.
 
 ## The bars do not move, and that is deliberate
 
@@ -100,14 +190,27 @@ registered outcome rather than a script detail.
 
 ### 1. Separation protects — POSITIVE, and this is the deliverable
 
-A sharing arm fires this if **both** hold against R1:
+A sharing arm fires this if **all three** hold against R1:
 
 - premium TTFT p99 at or below **2x**, and
-- premium TPOT p99 at or below **1.25x**.
+- premium TPOT p99 at or below **1.25x**, and
+- **reading 2 does not hold for that arm** — the tail was not bought by starving the contender.
 
 If both sharing arms fire, the answer is the one with the higher contender throughput. Exact ties go to
 `timeSlicing`, because MPS needs a control daemon that can be absent, and the simpler mechanism is the
 smaller claim.
+
+**The third clause was added on 2026-09-10, before any card, and it is a correction rather than a
+tightening.** This reading first listed only the two bars. Reading 2's condition — meets both bars *and*
+starves the contender — is then a strict subset of this one, and "the first that fires is the answer" would
+have reported an arm that bought its tail by taking the other tenant's work as POSITIVE, with reading 2
+never reached. **Reading 2 was unreachable.** That is the same defect class this page was written to close:
+the previous study's readings did not cover their own outcome space, and here two of them overlapped instead
+of leaving a gap. Found by implementing them, which is why implementation is a gate on renting a card.
+
+The price-of-protection evaluator does not have this problem because its reading 1 gates on the contender's
+share directly. This page deliberately removed that bar — splitting a card is *supposed* to cost capacity —
+and removing it is what left the overlap.
 
 **The price is reported, not gated on.** The write-up's first sentence must carry the premium tenant's
 throughput under the winning arm as a fraction of R1's. Protection that costs half the machine is a real
@@ -152,26 +255,53 @@ few percent of capacity and moving it changes what the result means, and set the
 offered prefill sits near 60% of what the split engine can do. Reading 4b is the backstop if that derivation
 is wrong.
 
+**And the mix, not only the rate.** Defect 6 above is the reason this is spelled out. `gen-trace` defaults
+to premium 1 / noisy 1 / two probes at 0.1, which puts the 40,000-character contender at 45% of arrivals; at
+about 1.03 s of engine per contender prompt that is four to five times an A10G's prefill capacity at any
+rate this study could use. Lowering `RATE` until the contender fits drops the premium tenant below the
+hundred-sample floor reading 4b enforces, so **no value of `RATE` alone produces a valid trace**. The
+price-of-protection run measured `RATE=9.85 PREMIUM_WEIGHT=1 NOISY_WEIGHT=0.054 PROBE_WEIGHT=0.0054
+DURATION_MS=420000` for one engine with a whole card; that is a starting point for the derivation, not its
+answer, because each engine here has half a card. The runner refuses to start without all five.
+
 **This is a pilot's job, not the confirmatory run's.** No confirmatory time may be bought until a pilot has
 cleared readings 4, 4b and 4c and produced a load whose derivation is written down.
 
 ## Budget
 
+Corrected on 2026-09-10 for the platform change, before any card time was bought. The old figures assumed a
+self-contained Spot instance the runner did not use; the new ones assume the one it now does.
+
 | stage | cost | gate |
 | ----------------------------------------- | ----: | ---- |
-| pilot: R1, `shared`, `timeSlicing`, `mps`, 1 rep | ~$1.30 | 4, 4b and 4c must not fire, and the load derived |
-| confirmatory: the same four arms x 3 reps | ~$2.90 | readings evaluated |
+| ~~prerequisite: implement this page's readings~~ | $0 | **done.** `internal/bench/sharing_matrix.go` evaluates 4, 4b, 4c, 1, 2, 3 and 5 in that order, dispatched from `benchharness report`; each was deliberately failed to confirm it fires. Writing it is what found defect 9 |
+| ~~prerequisite: `hack/m5c-gpu-session.sh`~~ | $0 | **done.** Nine characterization scenarios recorded and replayed, and its GPU-free bring-up rehearsed end to end on a real kind cluster through `hack/test/rehearse-bringup.sh` |
+| pilot: R1, `shared`, `timeSlicing`, `mps`, 1 rep | ~$0.90 | 4, 4b and 4c must not fire, and the load derived and written down |
+| confirmatory: the same four arms x 3 reps | ~$2.10 | readings evaluated by the code above, not by hand |
 | unspent reserve | ~$1.00 | — |
 
-Costed from the runtime model fitted to three paid runs in `2026-09-08-the-load-needs-an-upper-gate.md`:
-15 min fixed, 1.5 min per arm, 7 min per arm-repetition at a 420 s trace. Four arms at one repetition is
-about 55 min; at three repetitions about 105 min. Both fit the two-hour instance backstop, and the
-confirmatory run is bought as three runs of one repetition each for the reason that page gives — an
-interruption then costs one repetition rather than everything, and repetitions on separate instances put
-instance-to-instance variation inside the spread reading 3 uses as its threshold.
+**~$0.90, and it is lower than the original $1.30 rather than higher.** `g5.2xlarge` Spot is $0.68/h against
+the $0.58/h `g5.xlarge` this page first costed, but the EKS control plane at $0.100/h and the NAT gateway
+the cluster path implies are both gone. The runtime model is the one fitted to three paid runs in
+`2026-09-08-the-load-needs-an-upper-gate.md` — 15 min fixed, 1.5 min per arm, 7 min per arm-repetition at a
+420 s trace — with the fixed cost raised to about 25 min, because a kind session installs a driver, a
+container toolkit and a cluster where a `docker run` session installs nothing. Four arms at one repetition
+is then about 70 min; at three repetitions about 130 min.
 
-**A g5.xlarge Spot in a public subnet measured $0.58–0.60/h across three zones.** The runner refuses to
-launch on credentials that would expire before the run finishes.
+**130 minutes does not fit a two-hour backstop, and the confirmatory run is bought as three separate runs of
+one repetition for that reason as well as the original one** — an interruption costs one repetition rather
+than everything, and repetitions on separate instances put instance-to-instance variation inside the spread
+reading 3 uses as its threshold.
+
+The pilot's real gate is not its price. It is that a rented card can only tell us things a cluster cannot,
+and everything a cluster could tell us has now been asked: the deployment path is rehearsed, the routing is
+proved, and the eight defects above are closed. What is left needs an A10G.
+
+**Spot prices, read from `ec2 describe-spot-price-history` on 2026-09-10 in `ap-northeast-2`, all three
+zones:** `g5.2xlarge` $0.680–0.689/h, `g5.xlarge` $0.574–0.596/h. Both in a default public subnet, so
+inbound crosses an internet gateway rather than a NAT gateway — which is where earlier paid runs lost
+$0.059/GB on 15.6 GB of image and weights. The runner refuses to launch on credentials that would expire
+before the run finishes.
 
 ## What this run will not be able to say
 
@@ -190,3 +320,14 @@ launch on credentials that would expire before the run finishes.
 The bars, the arm set, the reading order, the outcome space including reading 5, the floor applied to every
 arm rather than the control alone, and the requirement that a pilot derive the load. Recorded here so that
 what a later reader compares the results against is this page rather than a memory of it.
+
+**And, from 2026-09-10 and still before any card:** the platform, the instance type, the corrected budget,
+which engine settings may differ between the arms and which may not, that the trace's tenant mix is derived
+rather than defaulted, and that the readings must exist in code before anything is rented.
+
+Every one of those was decided from arithmetic, from the previous run's evidence, or from a rehearsal on a
+free cluster. **None of them was decided from a result of this study, because this study has none.** The
+distinction is the whole value of a page like this, so it is worth being explicit: the corrections above are
+what a pre-registration is *supposed* to absorb — they were bought by reading and rehearsing rather than by
+a card, and they arrived while editing was still allowed. What may not happen after the pilot is bought is
+a change to the bars, the readings, or the order they are evaluated in.
