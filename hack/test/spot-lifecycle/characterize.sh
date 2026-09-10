@@ -352,6 +352,68 @@ scenarios_price_of_protection() {
     run_scenario stale-done bash "$TARGET"
 }
 
+scenarios_m5c_gpu_session() {
+  # This runner rents ONE card and builds a kind cluster on it, so its scenarios are about the lifecycle
+  # around that: what it refuses before spending, and what it does when the instance does not come back.
+  #
+  # REPS is set on every scenario because the runner refuses without it -- a pilot is one repetition and a
+  # confirmatory run is three, and neither is a thing to arrive at by forgetting a variable. The refusal
+  # itself is the first scenario, because it is the only guard that runs before AWS is touched at all.
+  run_scenario no-reps bash "$TARGET"
+
+  # The provenance guard, made to fire rather than assumed to. A probe file makes the tree dirty and is
+  # removed whatever happens; without it this scenario means nothing on a clean checkout.
+  local probe="$ROOT/.characterize-dirty-probe"
+  printf 'written by the characterization harness to make the tree dirty on purpose\n' > "$probe"
+  REPS=1 STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 \
+    run_scenario dirty-tree bash "$TARGET"
+  rm -f "$probe"
+
+  # The pilot: one repetition of every arm, everything present, evidence comes back.
+  REPS=1 REQUIRE_CLEAN_TREE=0 STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 STUB_DONE_AFTER=2 \
+    STUB_PRESENT_KEYS="evidence.tgz log.txt commit.txt nodes.txt" \
+    run_scenario pilot bash "$TARGET"
+
+  # A fresh account: the bucket and the profile are created, and the profile must carry GetObject because
+  # this instance downloads the source archive and both binaries it was sent.
+  REPS=1 REQUIRE_CLEAN_TREE=0 STUB_BUCKET_EXISTS=0 STUB_PROFILE_EXISTS=0 STUB_DONE_AFTER=2 \
+    STUB_PRESENT_KEYS="evidence.tgz log.txt commit.txt nodes.txt" \
+    run_scenario fresh bash "$TARGET"
+
+  # No capacity in the first zone, which is a normal answer and must not abort the run.
+  REPS=1 REQUIRE_CLEAN_TREE=0 STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 STUB_DONE_AFTER=2 \
+    STUB_LAUNCH_FAIL_ZONES="ap-northeast-2a" \
+    STUB_PRESENT_KEYS="evidence.tgz log.txt commit.txt nodes.txt" \
+    run_scenario zone-retry bash "$TARGET"
+
+  # The terminate call is refused, the way it is when credentials lapse mid-run. The transcript is what
+  # makes the SHOUTING branch executed rather than asserted; on 2026-09-08 the silent version of this let a
+  # real instance bill until somebody noticed.
+  REPS=1 REQUIRE_CLEAN_TREE=0 STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 STUB_DONE_AFTER=2 \
+    STUB_TERMINATE_FAILS=1 STUB_PRESENT_KEYS="evidence.tgz log.txt commit.txt nodes.txt" \
+    run_scenario terminate-refused bash "$TARGET"
+
+  # The instance is reclaimed before it writes its marker. Only the log made it up, so there is no archive
+  # to unpack and the run must refuse rather than report on an empty directory.
+  REPS=1 REQUIRE_CLEAN_TREE=0 STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 STUB_DONE_AFTER=-1 \
+    STUB_TERMINATED_AFTER=2 STUB_PRESENT_KEYS="log.txt" \
+    run_scenario instance-died bash "$TARGET"
+
+  # The marker never arrives and the instance stays up: the poll runs to exhaustion. A 25-minute bring-up
+  # means this loop is longer here than anywhere else, and its length has to be exercised rather than
+  # trusted -- shortening it would kill a run that is still pulling fifteen gigabytes of weights.
+  REPS=1 REQUIRE_CLEAN_TREE=0 STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 STUB_DONE_AFTER=-1 \
+    STUB_PRESENT_KEYS="log.txt" \
+    run_scenario poll-exhausted bash "$TARGET"
+
+  # A previous run's marker at the bucket root. This runner scopes its keys under the run id, so it must
+  # not see it -- the failure it protects against is downloading the previous run's evidence and reporting
+  # it as this run's.
+  REPS=1 REQUIRE_CLEAN_TREE=0 STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 STUB_DONE_PRESENT_AT_START=1 \
+    STUB_PRESENT_KEYS="log.txt" \
+    run_scenario stale-done bash "$TARGET"
+}
+
 scenarios_queuelab_gpu_session() {
   # Every scenario below dirty-tree sets REQUIRE_CLEAN_TREE=0, so none of them depends on whether the
   # person running the suite has uncommitted work. The provenance line they print is normalized for the
@@ -484,6 +546,7 @@ case "$SUITE" in
   m5b-scheduler-microtest)  scenarios_microtest ;;
   m5b-price-of-protection)  scenarios_price_of_protection ;;
   queuelab-gpu-session)     scenarios_queuelab_gpu_session ;;
+  m5c-gpu-session)          scenarios_m5c_gpu_session ;;
   *) printf 'FAIL: no scenarios defined for %s\n' "$SUITE" >&2; exit 2 ;;
 esac
 
