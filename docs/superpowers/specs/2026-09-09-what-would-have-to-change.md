@@ -59,6 +59,13 @@ Three levers can move that ratio, and each is a different study. This page names
 A successor is a pre-registration of its own, with its own readings, its own budget, and a pilot gate. It
 does not inherit this page's.
 
+**Lever 3 was picked on 2026-09-10** and pre-registered as
+`2026-09-10-does-splitting-the-card-buy-protection.md`. It keeps the 2x tail and 1.25x TPOT bars rather than
+setting new ones, on the grounds this page gives: carrying them forward is the only choice that cannot be
+accused of fitting, and no service objective independent of these results has been stated. It also closes
+the outcome-space gap named below, in advance, as a reading for a cell that improves on the control without
+reaching the bar.
+
 ## Two things this page fixes on its way past
 
 **The readings did not cover their own outcome space.** Reading 2 requires some cell to have met the tail
