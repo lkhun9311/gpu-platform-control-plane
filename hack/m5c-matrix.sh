@@ -645,6 +645,20 @@ engine_diagnosis() {
 deploy_arm() {
   local arm="$1"
   k delete namespace "$NS_A" "$NS_B" --wait=true >/dev/null 2>&1
+  # The policies go too, and they are NOT covered by deleting the namespaces.
+  #
+  # GPUQuotaPolicy is cluster-scoped, so it outlives both namespaces, and its targetNamespace is immutable:
+  # api/v1/gpuquotapolicy_types.go carries `XValidation: self == oldSelf` with the message "targetNamespace
+  # is immutable", because a policy enforces quota in exactly one namespace for its lifetime.
+  #
+  # Pointing one policy at each engine's namespace is this matrix's whole routing mechanism, and moving the
+  # contending tenant from NS_A to NS_B is exactly what the split arms do. Re-applying over a surviving
+  # object is therefore refused by the API, every time, on the first sharing arm -- `MATRIX FAILED: policies
+  # for timeSlicing`. The exclusive arms never hit it because both of their policies name NS_A.
+  #
+  # The paid run of 2026-09-11 did not reach this: its engine b timed out first, one step earlier in this
+  # same function. hack/test/rehearse-m5c-matrix.sh found it on a kind cluster for nothing.
+  k delete gpuquotapolicy m5c-premium m5c-standard --ignore-not-found --wait=true >/dev/null 2>&1
   k create ns "$NS_A" >/dev/null; k create ns "$NS_B" >/dev/null
   case "$arm" in
     R1|shared)
@@ -799,10 +813,35 @@ for rep in $(seq 1 "$REPS"); do
     CELL_T0=$(date +%s)
     say "rep $rep arm $arm  (cell $cell_n/$cells_total)"
     deploy_arm "$arm"
-    [ -n "$PF_PID" ] && kill "$PF_PID" 2>/dev/null
-    k port-forward -n "$NS_A" deploy/gateway 18080:8080 >/dev/null 2>&1 &
+    # The tunnel every request of this cell goes through, replaced between cells and then PROVED.
+    #
+    # This was `kill $PF_PID` followed immediately by a new port-forward and `sleep 3`. kill does not wait,
+    # so the new forward raced the old one's release of 18080, lost, and exited -- and because its output
+    # went to /dev/null nothing said so. The replay then sent every request of that cell into a port nothing
+    # was listening on and recorded them all with httpStatus 0, which the report describes as a censored
+    # tail: a plumbing failure wearing a load failure's name.
+    #
+    # It alternated, which is the signature. Cell 1 bound cleanly, cell 2 lost the race and died, cell 3
+    # found the port free because cell 2's forward was already gone, cell 4 lost it again. Two of four arms
+    # produced nothing. hack/test/rehearse-m5c-matrix.sh saw R1 and timeSlicing complete every request while
+    # shared and mps completed none; the paid runs never reached a second cell, so it had never been visible.
+    if [ -n "$PF_PID" ]; then
+      kill "$PF_PID" 2>/dev/null
+      # WAIT for it. This is the line whose absence caused the race.
+      wait "$PF_PID" 2>/dev/null
+    fi
+    # stderr is kept, because "why is the tunnel not up" is unanswerable without it.
+    k port-forward -n "$NS_A" deploy/gateway 18080:8080 >"$OUT/port-forward-$arm-$rep.log" 2>&1 &
     PF_PID=$!
-    sleep 3
+    # Proved rather than slept for. A fixed sleep is a guess about a machine's speed, and the failure it
+    # misses is silent.
+    pf_up=0
+    for _ in $(seq 1 40); do
+      if (exec 3<>/dev/tcp/127.0.0.1/18080) 2>/dev/null; then pf_up=1; exec 3<&- 2>/dev/null; break; fi
+      kill -0 "$PF_PID" 2>/dev/null || break
+      sleep 1
+    done
+    [ "$pf_up" = "1" ] || fail "the port-forward to the gateway never accepted a connection for $arm rep $rep. Every request of this cell would have been recorded with no HTTP status at all, and the report would have called the result a censored tail. See $OUT/port-forward-$arm-$rep.log"
 
     # The arm is the SHARING MODE, and it is now spelled that way in the manifest.
     #
