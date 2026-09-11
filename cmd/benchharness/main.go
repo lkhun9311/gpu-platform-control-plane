@@ -436,7 +436,7 @@ func report(args []string) error {
 	} else if bench.CanonicalStudyID(e.study) == bench.StudyPriceOfProtection {
 		pop = evaluatePoP(summ, summaries)
 	} else if bench.CanonicalStudyID(e.study) == bench.StudySharingMatrix {
-		sharing = evaluateSharingMatrix(summ, summaries)
+		sharing = evaluateSharingMatrix(summ, summaries, refusalsBeside(rawFiles))
 	} else {
 		fmt.Fprintf(os.Stderr,
 			"warning: study %s has no implemented readings, so this report shows its measurements and evaluates no criteria\n",
@@ -495,6 +495,16 @@ func report(args []string) error {
 	// and the paid runner calls this as `benchharness report ... || fail`, which is the whole reason the
 	// comment above says an invalid run exits non-zero. A run whose load made no contention, or whose load
 	// was too high to measure, printed its refusal and told the wrapper it had succeeded.
+	// The sharing study's INVALID readings exit non-zero too, for the reason the price-of-protection block
+	// below gives: automation that writes `benchharness report ... || fail` would otherwise accept a run the
+	// readings had just declared unusable.
+	if sharing != nil {
+		for _, r := range sharing.Readings {
+			if r.Fired && strings.Contains(r.Name, "INVALID") {
+				return fmt.Errorf("run invalid: reading %s fired -- %s", r.ID, r.Detail)
+			}
+		}
+	}
 	if pop != nil {
 		for _, r := range pop.Readings {
 			if r.Fired && (r.ID == "4" || r.ID == "4b") {
@@ -927,6 +937,49 @@ func evaluatePoP(summ map[string]bench.ArmSummary, summaries []bench.ArmSummary)
 	return &res
 }
 
+// refusalsBeside reads the arm refusals the runner wrote next to its raw evidence.
+//
+// Reading 4c is "the sharing mode did not engage", and it distinguishes a RECORDED refusal from an arm that
+// is merely absent -- because absence is equally consistent with an interruption or an operator running a
+// subset. Until this existed nothing populated that map outside the unit tests, so the one registered
+// outcome meant to identify an MPS engagement failure could never fire on evidence the runner produced: the
+// reason lived in evidence.log and `report` reads only raw files.
+//
+// Discovered rather than passed, because a flag an operator must remember is a flag that is forgotten on the
+// run that needed it. hack/m5c-matrix.sh writes refused-<arm>.txt into the same directory as the raw files.
+func refusalsBeside(rawFiles []string) map[string]string {
+	if len(rawFiles) == 0 {
+		return nil
+	}
+	out := map[string]string{}
+	seen := map[string]bool{}
+	for _, f := range rawFiles {
+		dir := filepath.Dir(f)
+		if seen[dir] {
+			continue
+		}
+		seen[dir] = true
+		matches, err := filepath.Glob(filepath.Join(dir, "refused-*.txt"))
+		if err != nil {
+			continue
+		}
+		for _, m := range matches {
+			arm := strings.TrimSuffix(strings.TrimPrefix(filepath.Base(m), "refused-"), ".txt")
+			b, rerr := os.ReadFile(m)
+			if rerr != nil {
+				continue
+			}
+			if why := strings.TrimSpace(string(b)); why != "" {
+				out[arm] = why
+			}
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
 // evaluateSharingMatrix sorts the M5-c evidence into the roles its readings speak about.
 //
 // R1 and `shared` are required, and their absence is a warning with no readings rather than readings
@@ -937,7 +990,7 @@ func evaluatePoP(summ map[string]bench.ArmSummary, summaries []bench.ArmSummary)
 // The sharing arms are taken as whatever else is present, rather than looked up by name. An operator running
 // ARMS="shared timeSlicing" gets a matrix with one sharing arm and readings that say so, instead of a
 // lookup miss reported as a mode that did not engage.
-func evaluateSharingMatrix(summ map[string]bench.ArmSummary, summaries []bench.ArmSummary) *bench.SharingResult {
+func evaluateSharingMatrix(summ map[string]bench.ArmSummary, summaries []bench.ArmSummary, refused map[string]string) *bench.SharingResult {
 	r1, haveR1 := summ[bench.ArmR1]
 	shared, haveShared := summ[bench.ArmShared]
 	if !haveR1 || !haveShared {
@@ -946,7 +999,7 @@ func evaluateSharingMatrix(summ map[string]bench.ArmSummary, summaries []bench.A
 			bench.ArmR1, bench.ArmShared, strings.Join(armNames(summaries), ", "))
 		return nil
 	}
-	arms := bench.SharingArms{R1: r1, Shared: shared}
+	arms := bench.SharingArms{R1: r1, Shared: shared, Refused: refused}
 	for _, s := range summaries {
 		if s.Arm != bench.ArmR1 && s.Arm != bench.ArmShared {
 			arms.Sharing = append(arms.Sharing, s)

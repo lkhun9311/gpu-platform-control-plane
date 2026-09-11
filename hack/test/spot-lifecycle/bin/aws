@@ -255,9 +255,24 @@ case "$svc $op" in
           # A real archive, because the runner untars it and a text file there would abort the run under
           # errexit for a reason that has nothing to do with the behaviour being pinned.
           local_tmp=$(mktemp -d)
-          mkdir -p "$local_tmp/evidence"
-          printf '{"arm":"stub"}\n' > "$local_tmp/evidence/raw-stub-1.jsonl"
-          tar -czf "$dest" -C "$local_tmp" evidence
+          if [ -n "${STUB_EVIDENCE_ARMS:-}" ]; then
+            # The M5-c shape: one raw file per ARM, under the directory that session unpacks.
+            #
+            # The single evidence/raw-stub-1.jsonl below is the price-of-protection runner's shape, and one
+            # stub was serving both. The m5c session checks that every arm it asked for came back -- a check
+            # that exists because a missing arm is left out of the report's table rather than complained
+            # about -- and a stub archive of the wrong shape made that check fire on every scenario. A stub
+            # that cannot produce what the real thing produces tests the caller against a fiction.
+            mkdir -p "$local_tmp/m5c-run"
+            for stub_arm in $STUB_EVIDENCE_ARMS; do
+              printf '{"arm":"%s"}\n' "$stub_arm" > "$local_tmp/m5c-run/raw-$stub_arm-1.jsonl"
+            done
+            tar -czf "$dest" -C "$local_tmp" m5c-run
+          else
+            mkdir -p "$local_tmp/evidence"
+            printf '{"arm":"stub"}\n' > "$local_tmp/evidence/raw-stub-1.jsonl"
+            tar -czf "$dest" -C "$local_tmp" evidence
+          fi
           rm -rf "$local_tmp"
         fi
         ;;

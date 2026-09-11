@@ -547,7 +547,12 @@ esac
 for k in evidence.tgz log.txt commit.txt nodes.txt preflight-nvidia-smi.csv preflight-node-cards.txt; do
   aws s3 cp "s3://$BUCKET/$RUN_ID/$k" "$OUT/$k" >/dev/null 2>&1 || true
 done
-[ -s "$OUT/evidence.tgz" ] && tar -xzf "$OUT/evidence.tgz" -C "$OUT" && say "evidence unpacked to $OUT/m5c-run"
+# Unpacked, and the unpacking is CHECKED. An `&&` chain that quietly does nothing is how a session ends by
+# naming an evidence directory it never created.
+if [ -s "$OUT/evidence.tgz" ]; then
+  tar -xzf "$OUT/evidence.tgz" -C "$OUT" || fail "the evidence archive came back and could not be unpacked; $OUT/evidence.tgz is whatever arrived"
+  say "evidence unpacked to $OUT/m5c-run"
+fi
 
 if [ "$done_seen" -eq 0 ]; then
   # Partial evidence is the point of uploading before the marker, so it is reported rather than discarded.
@@ -561,6 +566,28 @@ if [ "$done_seen" -eq 0 ]; then
   fi
   fail "no completion marker within the hard stop; $partial raw file(s) were recovered and $IID has been terminated"
 fi
+
+# A completion marker is the instance saying it finished. It is not evidence arriving.
+#
+# The instance's `upload` helper ends in `|| true`, deliberately, so that one failed upload cannot kill a run
+# that still has records to send. The cost of that choice is here: a marker can be written while the archive
+# that matters never made it, and without this check the session would print SESSION DONE and name a
+# directory that does not exist. hack/queuelab-gpu-session.sh refuses on exactly this and this file did not.
+[ -s "$OUT/evidence.tgz" ] \
+  || fail "the instance wrote its completion marker and no evidence archive arrived. $OUT/log.txt is whatever it managed to upload, and the run produced nothing this side can read"
+
+# And the archive must contain an arm's worth of evidence for every arm that was asked for.
+#
+# A tar that unpacks is not a run that measured. The readings need R1 and `shared` at minimum -- R1 is the
+# denominator of both bars -- and an arm whose raw file is missing is an arm the report will silently omit
+# from its table rather than one it complains about.
+missing=""
+for arm in $ARMS; do
+  compgen -G "$OUT/m5c-run/raw-$arm-"'*.jsonl' >/dev/null || missing="$missing $arm"
+done
+[ -z "$missing" ] \
+  || fail "the run finished and these arms have no raw evidence:$missing. The report would leave them out of its table rather than say they are absent, and any reading that divides by one of them would decline without naming it"
+say "every arm in [$ARMS] returned raw evidence"
 
 say "SESSION DONE. Evidence in $OUT/m5c-run"
 say "The readings are NOT evaluated here. Run them over the evidence:"

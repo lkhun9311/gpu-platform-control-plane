@@ -46,6 +46,7 @@ gateway checksum: user-data matches the uploaded binary
 == waiting for results (driver, toolkit, cluster and preflight come first; about 25 minutes before the first cell)
 == records are up
 == evidence unpacked to <OUT>/m5c-run
+== every arm in [R1 shared timeSlicing mps] returned raw evidence
 == SESSION DONE. Evidence in <OUT>/m5c-run
 == The readings are NOT evaluated here. Run them over the evidence:
 ==   args=; for f in <OUT>/m5c-run/raw-*.jsonl; do args="$args --raw $f"; done
@@ -59,11 +60,14 @@ STILL running AND BILLING. Terminate it by hand:
 ./benchharness
 ./commit.txt
 ./evidence.tgz
-./evidence/raw-stub-1.jsonl
 ./gateway
 ./instance-id
 ./launch-errors.txt
 ./log.txt
+./m5c-run/raw-R1-1.jsonl
+./m5c-run/raw-mps-1.jsonl
+./m5c-run/raw-shared-1.jsonl
+./m5c-run/raw-timeSlicing-1.jsonl
 ./nodes.txt
 ./source.tgz
 ./user-data.sh

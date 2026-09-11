@@ -36,7 +36,7 @@ func TestTheSharingReadingsAreNotEvaluatedWithoutTheirDenominators(t *testing.T)
 	}
 	order := []bench.ArmSummary{full[bench.ArmR1], full[bench.ArmShared], full[bench.ArmTimeSlicing]}
 
-	if got := evaluateSharingMatrix(full, order); got == nil {
+	if got := evaluateSharingMatrix(full, order, nil); got == nil {
 		t.Fatal("complete evidence produced no readings at all")
 	}
 
@@ -50,7 +50,7 @@ func TestTheSharingReadingsAreNotEvaluatedWithoutTheirDenominators(t *testing.T)
 			partial[name] = s
 			kept = append(kept, s)
 		}
-		if got := evaluateSharingMatrix(partial, kept); got != nil {
+		if got := evaluateSharingMatrix(partial, kept, nil); got != nil {
 			t.Errorf("evidence missing %s still produced readings; every ratio in them is built from a zero "+
 				"ArmSummary and would print as a measurement", missing)
 		}
@@ -69,7 +69,7 @@ func TestASubsetRunIsAMatrixWithFewerArmsRatherThanAFailedOne(t *testing.T) {
 	}
 	order := []bench.ArmSummary{summ[bench.ArmR1], summ[bench.ArmShared], summ[bench.ArmTimeSlicing]}
 
-	res := evaluateSharingMatrix(summ, order)
+	res := evaluateSharingMatrix(summ, order, nil)
 	if res == nil {
 		t.Fatal("a two-arm matrix produced no readings")
 	}

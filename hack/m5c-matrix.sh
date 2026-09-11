@@ -616,6 +616,61 @@ EOF
 # and the driver's reserve, which is the leading hypothesis for the engine b that would not start on
 # 2026-09-11 -- and a hypothesis is all it is, because that run captured nothing that could settle it. These
 # lines are what settle it next time, whether the arm succeeds or fails.
+# Whether the ENGINES are actually MPS clients, which the daemon being ready does not establish.
+#
+# config/nvidia-device-plugin-mps/daemonset.yaml says the failure in its own words: "the control daemon can
+# be absent or unreachable while the plugin still advertises, and every client then silently runs WITHOUT
+# MPS", and "the control daemon and every client must share one IPC namespace, or the clients cannot reach
+# the daemon's pipe". The only thing this runner checked was that the daemon had rolled out. That is the
+# server side of a two-sided arrangement.
+#
+# It matters more than it looks. An mps arm whose clients never connected IS the timeSlicing arm, so the
+# matrix would compare two mechanisms and have measured one of them twice -- and every number would look
+# ordinary. Reading 4c exists for precisely this outcome and had no evidence it could act on.
+#
+# WHAT IS CHECKED, and what is not. CUDA_MPS_PIPE_DIRECTORY is what the plugin sets on a client container at
+# allocation, and its presence plus a reachable pipe directory is what distinguishes a client from a process
+# that merely has the card. It does NOT prove kernels are being routed through the MPS server; only nvidia-smi
+# on the host can show that, and this runner deliberately puts no observer on the sharing node.
+#
+# It REFUSES rather than warns. An arm mislabelled as a mechanism it did not use is the one result this study
+# must not produce, and hack/m5c-matrix.sh's own header says MPS and time-slicing differing "is the reason
+# both arms exist".
+# Returns non-zero and RECORDS WHY, rather than ending the run.
+#
+# "The sharing mode did not engage" is reading 4c, and its own name says INVALID *for that arm*. A refused
+# MPS arm says nothing about the time-slicing arm beside it, and ending the session would throw away
+# measurements that were made and paid for. The reason goes to $OUT/refused-mps.txt, which is where
+# `benchharness report` looks: the readings run over raw files and would otherwise never learn that an arm
+# was declined, because the reason lived only in a log nothing reads back.
+mps_clients_connected() {
+  local ns_a="$1" dep_a="$2" ns_b="$3" dep_b="$4" ns dep out rc
+  for pair in "$ns_a:$dep_a" "$ns_b:$dep_b"; do
+    ns="${pair%%:*}"; dep="${pair##*:}"
+    out=$(k exec -n "$ns" "deploy/$dep" -- sh -c 'echo "PIPE=${CUDA_MPS_PIPE_DIRECTORY:-unset}"' 2>&1); rc=$?
+    if [ "$rc" != "0" ]; then
+      # A container with no shell is a DIFFERENT FACT from a client that did not connect, and calling the
+      # first the second would report a mechanism failure nothing established. vLLM's image has a shell.
+      arm_refused mps "could not ask $ns/$dep whether it is an MPS client, so this arm cannot be told apart from time-slicing: $(printf '%s' "$out" | tr '\n' ' ' | cut -c1-160)"
+      return 1
+    fi
+    case "$out" in
+      *PIPE=unset*)
+        arm_refused mps "$ns/$dep has no CUDA_MPS_PIPE_DIRECTORY, so it is not an MPS client and this arm would be the time-slicing arm under another name. The control daemon being ready is the server half only; config/nvidia-device-plugin-mps/daemonset.yaml says clients fall back silently."
+        return 1 ;;
+    esac
+    say "  $ns/$dep is an MPS client ($(printf '%s' "$out" | head -1))"
+  done
+}
+
+# arm_refused records a registered refusal where the readings can find it.
+arm_refused() {
+  local arm="$1" why="$2"
+  printf '%s\n' "$why" > "$OUT/refused-$arm.txt"
+  say "REFUSED $arm: $why"
+  say "  recorded in $OUT/refused-$arm.txt, which benchharness report reads as reading 4c"
+}
+
 engine_kv_report() {
   local ns="$1" deploy="$2"
   echo "--- $ns/$deploy: what the engine says it allocated ---"
@@ -705,6 +760,9 @@ deploy_arm() {
       na=$(k get pod -n "$NS_A" -l app.kubernetes.io/component=vllm-shared -o jsonpath='{.items[0].spec.nodeName}')
       nb=$(k get pod -n "$NS_B" -l app.kubernetes.io/component=vllm-shared -o jsonpath='{.items[0].spec.nodeName}')
       [ -n "$na" ] && [ "$na" = "$nb" ] || fail "the two engines are on different nodes ($na, $nb); that is not sharing a card"
+      if [ "$arm" = mps ] && ! mps_clients_connected "$NS_A" vllm-shared-a "$NS_B" vllm-shared-b; then
+        return 1
+      fi
       engine_kv_report "$NS_A" vllm-shared-a
       engine_kv_report "$NS_B" vllm-shared-b
       routing_record "$NS_A" vllm-shared-a
@@ -812,7 +870,11 @@ for rep in $(seq 1 "$REPS"); do
     cell_deadline_check || exit 1
     CELL_T0=$(date +%s)
     say "rep $rep arm $arm  (cell $cell_n/$cells_total)"
-    deploy_arm "$arm"
+    if ! deploy_arm "$arm"; then
+      say "skipping the rest of cell $cell_n: $arm was refused as a registered outcome, and the arms beside it stand"
+      cells_done=$(( cells_done + 1 ))
+      continue
+    fi
     # The tunnel every request of this cell goes through, replaced between cells and then PROVED.
     #
     # This was `kill $PF_PID` followed immediately by a new port-forward and `sleep 3`. kill does not wait,

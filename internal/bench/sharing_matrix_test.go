@@ -32,10 +32,14 @@ func healthyArm(name string, ttftP99, tpotP99 float64, contenderTokens int64) Ar
 	// zero would make every tenant's share zero and every arm unscorable -- the tests would then pass or
 	// fail for a reason that has nothing to do with what they are about.
 	return ArmSummary{
-		Arm:                   name,
-		Total:                 4000,
-		Completed:             3900,
-		OutputTokens:          50_000 + contenderTokens,
+		Arm:          name,
+		Total:        4000,
+		Completed:    3900,
+		OutputTokens: 50_000 + contenderTokens,
+		// ActiveSeconds is set because reading 1's price is the PREMIUM tenant's tokens per second, which is
+		// derived from per-tenant tokens and the arm's own sending time rather than read off the arm's
+		// aggregate rate. An arm without it has no premium throughput to report.
+		ActiveSeconds:         1000,
 		TTFTMsP99:             ttftP99,
 		TailSampleSize:        3000,
 		RepetitionCount:       3,
@@ -326,7 +330,12 @@ func TestAnExactTieGoesToTimeSlicing(t *testing.T) {
 func TestReadingOneReportsWhatTheProtectionCost(t *testing.T) {
 	m := healthyMatrix()
 	won := healthyArm(ArmTimeSlicing, 100, 20, 38_000)
-	won.OutputTokensPerSecond = 23 // half of R1's 46
+	// The same premium tokens over twice the time: half R1's premium throughput. The arm's AGGREGATE rate is
+	// deliberately left high, because reporting that instead of the premium tenant's is the defect this
+	// test pins -- an arm serving premium at half speed while a contender fills the gap reads as 1.00 if the
+	// aggregate is used.
+	won.ActiveSeconds = 2000
+	won.OutputTokensPerSecond = 999
 	m.Sharing = []ArmSummary{won}
 
 	res := EvaluateSharingMatrix(m, PremiumTenant, NoisyTenant)
@@ -394,5 +403,114 @@ func TestAnArmWithNoPremiumTPOTIsNotScoredAgainstTheStreamBar(t *testing.T) {
 	if !strings.Contains(one.Detail, "no premium TPOT") {
 		t.Errorf("reading 1 did not say WHY it could not score the arm, so a reader cannot tell it from a "+
 			"reading that looked and found nothing: %s", one.Detail)
+	}
+}
+
+// Reading 2 asks about the contender's OUTPUT, not its share of an arm's total.
+//
+// The two come apart exactly when the split costs both tenants alike, and a share ratio then reports that
+// nothing was lost. This is the case an independent review raised, with its numbers: a control producing
+// 60k premium and 40k contender against an arm producing 30k and 20k has given the contender half as much
+// work, while its share is 40 percent in both. Scored as a share the arm reports 1.00, reading 2 never
+// fires, and reading 1 calls an arm that discarded half the contender's work the deliverable.
+func TestTheContenderIsMeasuredByItsOutputAndNotItsShare(t *testing.T) {
+	m := healthyMatrix()
+	m.Shared = healthyArm(ArmShared, 1400, 80, 40_000)
+	m.Shared.OutputTokensByTenant = map[string]int64{PremiumTenant: 60_000, NoisyTenant: 40_000}
+	m.Shared.OutputTokens = 100_000
+
+	halved := healthyArm(ArmTimeSlicing, 100, 20, 20_000)
+	halved.OutputTokensByTenant = map[string]int64{PremiumTenant: 30_000, NoisyTenant: 20_000}
+	halved.OutputTokens = 50_000
+	// The ledger shows the missing work was refused rather than delayed.
+	halved.DispositionByTenant = map[string]Disposition{
+		NoisyTenant: {Offered: 300, Completed: 150, Rejected: 150},
+	}
+	m.Sharing = []ArmSummary{halved}
+
+	res := EvaluateSharingMatrix(m, PremiumTenant, NoisyTenant)
+
+	if one := sharingReadingByID(t, res, "1"); one.Fired {
+		t.Errorf("reading 1 fired POSITIVE for an arm that produced half the contender's output. Its SHARE "+
+			"is unchanged at 40 percent, which is why a share ratio misses this: %s", one.Detail)
+	}
+	two := sharingReadingByID(t, res, "2")
+	if !two.Fired {
+		t.Fatalf("reading 2 did not fire for an arm that halved the contender's output with the ledger "+
+			"showing refusals: %s", two.Detail)
+	}
+	if !strings.Contains(two.Detail, "0.50") {
+		t.Errorf("reading 2 reports the contender at something other than 0.50 of its output under the "+
+			"control, so it is still measuring a share: %s", two.Detail)
+	}
+}
+
+// A shortfall that is mostly timeouts is delay, and the pre-registration says delay is not this reading.
+//
+// The check was `Rejected+Failed > 0`, so a single broken stream among thousands of timeouts printed
+// "refused work, not merely late work" over a ledger that principally said late -- and Failed counts
+// transport breaks, which a flaky tunnel produces on its own.
+func TestOneBrokenStreamAmongManyTimeoutsIsNotStarvation(t *testing.T) {
+	m := healthyMatrix()
+	arm := healthyArm(ArmTimeSlicing, 100, 20, 5_000)
+	arm.DispositionByTenant = map[string]Disposition{
+		NoisyTenant: {Offered: 3000, Completed: 120, TimedOut: 2879, Failed: 1},
+	}
+	m.Sharing = []ArmSummary{arm}
+
+	res := EvaluateSharingMatrix(m, PremiumTenant, NoisyTenant)
+
+	if two := sharingReadingByID(t, res, "2"); two.Fired {
+		t.Errorf("reading 2 fired on 1 failure against 2879 timeouts. The refused work has to account for "+
+			"the deficit, not merely be non-zero: %s", two.Detail)
+	}
+}
+
+// A censored or thin R1 may not be divided by, because every bar is a ratio against it.
+func TestACensoredBaselineIsNotDividedBy(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		damage func(*ArmSummary)
+	}{
+		{"censored", func(s *ArmSummary) { s.Censored = true }},
+		{"below the sample floor", func(s *ArmSummary) { s.TailSampleSize = MinTailSamples - 1 }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := healthyMatrix()
+			tc.damage(&m.R1)
+			// Make the arms look excellent, so anything that scores them would fire POSITIVE.
+			m.Sharing = []ArmSummary{healthyArm(ArmTimeSlicing, 100, 20, 38_000)}
+
+			res := EvaluateSharingMatrix(m, PremiumTenant, NoisyTenant)
+
+			// Reading 1 must not fire POSITIVE. WHICH guard stops it is deliberately not asserted: a thin R1
+			// is caught by reading 4b, which declares the whole run invalid and short-circuits, while a
+			// censored R1 is caught by the scoring precondition further down. Both are correct and pinning
+			// one of them would fail the day the other became responsible.
+			for _, r := range res.Readings {
+				if r.ID == "1" && r.Fired {
+					t.Errorf("reading 1 fired POSITIVE against an R1 that is %s. Every bar is a ratio "+
+						"against that baseline, so the result is a lower bound wearing a measurement's "+
+						"name: %s", tc.name, r.Detail)
+				}
+			}
+			if res.Answer == "1" || strings.HasPrefix(res.Answer, "1 ") {
+				t.Errorf("the answer is %q for a run whose baseline is %s", res.Answer, tc.name)
+			}
+		})
+	}
+}
+
+// Reading 4c fires on a refusal the runner recorded, which is how an MPS arm that never engaged is reported.
+func TestARecordedRefusalIsWhatMakesFourCReachable(t *testing.T) {
+	m := healthyMatrix()
+	m.Sharing = []ArmSummary{healthyArm(ArmTimeSlicing, 900, 60, 38_000)}
+	m.Refused = map[string]string{ArmMPS: "the engines are not MPS clients"}
+
+	res := EvaluateSharingMatrix(m, PremiumTenant, NoisyTenant)
+	fourC := sharingReadingByID(t, res, "4c")
+	if !fourC.Fired || fourC.Cell != ArmMPS {
+		t.Fatalf("reading 4c did not fire for a recorded refusal of the mps arm: fired=%v cell=%q detail=%s",
+			fourC.Fired, fourC.Cell, fourC.Detail)
 	}
 }

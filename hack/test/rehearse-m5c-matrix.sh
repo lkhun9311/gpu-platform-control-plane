@@ -21,7 +21,9 @@
 #     the same names, the same Service names and the same nvidia.com/gpu request. What the matrix does with
 #     them -- roll them out, wait, route a tenant to each -- is unchanged.
 #   * the device plugins. The real ones enumerate devices through NVML, so the copy's overlays deploy
-#     config/device-plugin's simulator with FAKE_GPU_COUNT set to what each arm's topology advertises.
+#     config/device-plugin's simulator with FAKE_GPU_COUNT set to what each arm's topology advertises, and
+#     the stub engines carry the CUDA_MPS_PIPE_DIRECTORY a real plugin would set on an MPS client. Nothing
+#     here is MPS; what is exercised is that the matrix ASKS, not that the answer means anything.
 #
 # Nothing about the matrix is altered. It is read from the copy only so the substitutions have somewhere to
 # live, and the copy is made from the working tree so that what runs here is what is about to be committed.
@@ -107,7 +109,11 @@ CGO_ENABLED=0 GOOS=linux go build -o "$WORK/gateway" ./cmd/gateway || fail "buil
 CGO_ENABLED=0 GOOS=linux go build -o "$WORK/benchharness" ./cmd/benchharness || fail "build benchharness"
 printf 'FROM gcr.io/distroless/static:nonroot\nCOPY gateway /gateway\nUSER 65532:65532\nENTRYPOINT ["/gateway"]\n' > "$WORK/Dockerfile"
 docker build -q -t "$GW_IMAGE" "$WORK" >/dev/null || fail "build the gateway image"
-printf 'FROM gcr.io/distroless/static:nonroot\nCOPY benchharness /benchharness\nUSER 65532:65532\nENTRYPOINT ["/benchharness","stub-serve"]\n' > "$WORK/Dockerfile"
+# busybox rather than distroless, because the matrix ASKS the engine whether it is an MPS client and a
+# distroless image has no shell to answer with. The real vLLM image has one. Using distroless here made the
+# matrix refuse the mps arm for the right reason on the wrong evidence -- "could not ask" rather than "not a
+# client" -- which is a distinction the runner now draws and this rehearsal should not blur.
+printf 'FROM busybox:1.36\nCOPY benchharness /benchharness\nENTRYPOINT ["/benchharness","stub-serve"]\n' > "$WORK/Dockerfile"
 docker build -q -t "$STUB_IMAGE" "$WORK" >/dev/null || fail "build the stub image"
 docker build -q -t "$SIM_IMAGE" -f Dockerfile.gpu-simulator . >/dev/null || fail "build the simulator image"
 for img in "$GW_IMAGE" "$STUB_IMAGE" "$SIM_IMAGE"; do
@@ -144,6 +150,14 @@ spec:
           image: $STUB_IMAGE
           imagePullPolicy: IfNotPresent
           args: ["--addr=:8000"]
+          # The marker the matrix's MPS client check looks for, on a directory that exists.
+          #
+          # The real plugin sets this on a client container at allocation. The simulator does not, so without
+          # it the mps arm would refuse here -- correctly, since a stub is not an MPS client. Supplying it
+          # exercises that check's PASS path; its refusal path is mutation-tested rather than rehearsed,
+          # because a rehearsal that could not complete four arms would stop covering everything after them.
+          env:
+            - {name: CUDA_MPS_PIPE_DIRECTORY, value: /tmp}
           ports: [{containerPort: 8000, name: http}]
           resources:
             limits:
@@ -287,10 +301,25 @@ say "  no request was refused on credentials"
 say "evaluate the pre-registered readings over the evidence the matrix wrote"
 args=()
 for f in "$OUT_DIR"/raw-*.jsonl; do args+=(--raw "$f"); done
-go run ./cmd/benchharness report "${args[@]}" > "$WORK/report.txt" 2>"$WORK/report.err" \
-  || { cat "$WORK/report.err"; fail "the report refused the matrix's own evidence"; }
-grep -q "PRE-REGISTERED READINGS" "$WORK/report.txt" \
-  || { tail -20 "$WORK/report.txt"; cat "$WORK/report.err"; fail "the report evaluated no readings over four arms of this study's own evidence"; }
+# A NON-ZERO EXIT IS EXPECTED HERE, and distinguishing it from a crash is the point.
+#
+# An INVALID reading now exits non-zero, so that automation writing `report ... || fail` cannot accept a run
+# the readings have declared unusable. Stub engines answer in milliseconds and therefore produce no
+# contention at all, which is reading 4's INVALID -- the correct answer for this evidence. What this
+# rehearsal must tell apart is "the report said the run is invalid", which is a working instrument, from
+# "the report could not read the evidence", which is not.
+set +e
+go run ./cmd/benchharness report "${args[@]}" > "$WORK/report.txt" 2>"$WORK/report.err"
+report_rc=$?
+set -e
+if ! grep -q "PRE-REGISTERED READINGS" "$WORK/report.txt"; then
+  tail -20 "$WORK/report.txt"; cat "$WORK/report.err"
+  fail "the report exited $report_rc without evaluating any readings over four arms of this study's own evidence"
+fi
+if [ "$report_rc" != "0" ] && ! grep -qE '\[FIRED\] 4' "$WORK/report.txt"; then
+  cat "$WORK/report.err"
+  fail "the report exited $report_rc and no INVALID reading fired, so the non-zero status is a failure rather than a verdict"
+fi
 sed -n '/PRE-REGISTERED READINGS/,$p' "$WORK/report.txt" | sed 's/^/  /'
 
 # THE READINGS MUST HAVE BEEN ABLE TO LOOK, which is not the same as having run.

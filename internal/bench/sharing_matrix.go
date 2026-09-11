@@ -129,7 +129,7 @@ func EvaluateSharingMatrix(a SharingArms, premiumTenant, contenderTenant string)
 
 	all := scoreSharingArms(a, premiumTenant, contenderTenant)
 	res.Readings = append(res.Readings,
-		sharingReadingOne(a.R1, all),
+		sharingReadingOne(a.R1, premiumTenant, all),
 		sharingReadingTwo(all, contenderTenant),
 		sharingReadingThree(a.Shared, all),
 		sharingReadingFive(a.Shared, all),
@@ -161,13 +161,21 @@ func armNotScorable(c ArmSummary, premiumTenant string) string {
 }
 
 func scoreSharingArms(a SharingArms, premiumTenant, contenderTenant string) []sharingScored {
-	sharedContender := shareOf(a.Shared, contenderTenant)
+	// The contender's ABSOLUTE output under the control, not its share of it.
+	//
+	// shareOf divides by the arm's own total, and the pre-registration asks a different question: reading 2
+	// is "the contender's completed output falls below 75% of ITS OUTPUT under `shared`". Those come apart
+	// exactly when the split costs both tenants alike. A control producing 60k premium and 40k contender
+	// against a split arm producing 30k and 20k has given the contender HALF as much work, and its share is
+	// 40% in both -- so a share ratio reports 1.00, reading 2 never fires, and reading 1 calls an arm that
+	// discarded half the contender's work the deliverable.
+	sharedContender := float64(a.Shared.OutputTokensByTenant[contenderTenant])
 	out := make([]sharingScored, 0, len(a.Sharing))
 	for _, c := range a.Sharing {
 		s := sharingScored{ArmSummary: c}
 		s.ttft = ratioOr(c.TTFTMsP99, a.R1.TTFTMsP99)
 		s.tpot = ratioOr(c.TPOTMsP99ByTenant[premiumTenant], a.R1.TPOTMsP99ByTenant[premiumTenant])
-		s.contenderRel = ratioOr(shareOf(c, contenderTenant), sharedContender)
+		s.contenderRel = ratioOr(float64(c.OutputTokensByTenant[contenderTenant]), sharedContender)
 
 		// The arm's OWN numerators are checked, not only the denominators.
 		//
@@ -175,7 +183,14 @@ func scoreSharingArms(a SharingArms, premiumTenant, contenderTenant string) []sh
 		// file could print: percentile() returns 0 for an empty slice, so an arm whose premium requests all
 		// timed out arrives with TTFTMsP99 = 0, and 0/100 clears a 2x bar while 0 clears a 1.25x one. The
 		// arm that starved the protected tenant completely would be reported as the one that protected it.
+		// The DENOMINATORS are held to the same standard as the arm, which they were not.
+		//
+		// R1 is divided by twice and `shared` is the control every improvement is measured from. A censored
+		// R1 is a lower bound, so a ratio against it is a lower bound wearing a measurement's name, and an
+		// R1 below the sample floor is the slowest premium request calling itself a p99. Checking only that
+		// they are positive let a survivor-biased baseline produce a confident POSITIVE.
 		s.computable = a.R1.TTFTMsP99 > 0 && a.R1.TPOTMsP99ByTenant[premiumTenant] > 0 &&
+			a.R1.TailSampleSize >= MinTailSamples && !a.R1.Censored &&
 			sharedContender > 0 &&
 			c.TTFTMsP99 > 0 && c.TPOTMsP99ByTenant[premiumTenant] > 0 &&
 			c.TailSampleSize >= MinTailSamples && !c.Censored
@@ -191,8 +206,19 @@ func scoreSharingArms(a SharingArms, premiumTenant, contenderTenant string) []sh
 			switch {
 			case !ok:
 				s.starvationUnknown = true
-			case d.Rejected+d.Failed > 0:
-				s.starved = true
+			default:
+				// Refusals must ACCOUNT FOR the deficit, not merely be present.
+				//
+				// This was `d.Rejected+d.Failed > 0`, so one broken stream among thousands of timeouts
+				// printed "refused work, not merely late work" over a ledger that principally said late.
+				// Failed counts transport and mid-stream breaks, which a flaky tunnel produces on its own.
+				//
+				// The rule: the work that was REFUSED has to be at least as large as the work that went
+				// missing. Anything less and the shortfall is mostly delay, which the pre-registration says
+				// in as many words is a different finding and not this reading.
+				lost := d.Offered - d.Completed
+				refused := d.Rejected + d.Failed
+				s.starved = refused > 0 && lost > 0 && refused*2 >= lost
 			}
 		}
 		out = append(out, s)
@@ -317,7 +343,18 @@ func sharingReadingFourC(a SharingArms) PoPReading {
 // condition is otherwise a strict subset of this one, and "the first that fires is the answer" would report
 // an arm that bought its tail by taking the other tenant's work as POSITIVE with reading 2 never reached.
 // The pre-registration was corrected for this on 2026-09-10, before any card, and says so.
-func sharingReadingOne(r1 ArmSummary, all []sharingScored) PoPReading {
+// premiumRate is one tenant's output tokens per second of the arm's active time.
+//
+// Derived rather than read off, because ArmSummary carries per-tenant TOKENS and a whole-arm RATE, and the
+// two are not interchangeable the moment an arm serves more than one tenant.
+func premiumRate(s ArmSummary, tenant string) float64 {
+	if s.ActiveSeconds <= 0 {
+		return 0
+	}
+	return float64(s.OutputTokensByTenant[tenant]) / s.ActiveSeconds
+}
+
+func sharingReadingOne(r1 ArmSummary, premiumTenant string, all []sharingScored) PoPReading {
 	r := PoPReading{ID: "1", Name: "separation protects -- POSITIVE"}
 	if countSharingScorable(all) == 0 && len(all) > 0 {
 		r.NotEvaluable = true
@@ -349,7 +386,13 @@ func sharingReadingOne(r1 ArmSummary, all []sharingScored) PoPReading {
 	// THE PRICE IS IN THE HEADLINE, because the pre-registration requires it: "Protection that costs half
 	// the machine is a real answer and a different product from one that costs a tenth, and a pass/fail line
 	// would report them identically."
-	price := ratioOr(won.OutputTokensPerSecond, r1.OutputTokensPerSecond)
+	// The PREMIUM tenant's throughput, not the arm's.
+	//
+	// R1 serves premium alone, so its OutputTokensPerSecond is premium-only. A split arm's is both tenants
+	// added together, and dividing one by the other compares unlike things: an arm serving premium at 10
+	// tok/s and the contender at 10 against an R1 serving premium at 20 reports 1.00 when the premium tenant
+	// actually gets half. The pre-registration puts this number in the write-up's first sentence.
+	price := ratioOr(premiumRate(won.ArmSummary, premiumTenant), premiumRate(r1, premiumTenant))
 	r.Detail = fmt.Sprintf("%s holds the premium tail at %.2fx R1 and the stream at %.2fx, with the contender at %.2f of its output under `shared`; it runs at %.2f of R1's throughput",
 		won.Arm, won.ttft, won.tpot, won.contenderRel, price)
 	return r
