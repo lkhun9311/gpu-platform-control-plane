@@ -316,7 +316,8 @@ if ! grep -q "PRE-REGISTERED READINGS" "$WORK/report.txt"; then
   tail -20 "$WORK/report.txt"; cat "$WORK/report.err"
   fail "the report exited $report_rc without evaluating any readings over four arms of this study's own evidence"
 fi
-if [ "$report_rc" != "0" ] && ! grep -qE '\[FIRED\] 4' "$WORK/report.txt"; then
+# ANCHORED on the reading id, because "[FIRED] 4" also matches 4b and 4c and those are different verdicts.
+if [ "$report_rc" != "0" ] && ! grep -qE '^\s*\[FIRED\] (4|4b|4c) ' "$WORK/report.txt"; then
   cat "$WORK/report.err"
   fail "the report exited $report_rc and no INVALID reading fired, so the non-zero status is a failure rather than a verdict"
 fi
@@ -331,10 +332,25 @@ sed -n '/PRE-REGISTERED READINGS/,$p' "$WORK/report.txt" | sed 's/^/  /'
 #
 # Which readings FIRE is not asserted and must not be. That is the study's answer and it belongs to the
 # card, not to a stub that replies in a millisecond.
-if sed -n '/PRE-REGISTERED READINGS/,$p' "$WORK/report.txt" | grep -q '\[ N/E \] 4 '; then
+if sed -n '/PRE-REGISTERED READINGS/,$p' "$WORK/report.txt" | grep -qE '^\s*\[ N/E \] 4 '; then
   fail "reading 4 could not be evaluated over the matrix's own evidence, so nothing below it was evaluated either. The instrument ran and could not read what it wrote, which is the state this rehearsal exists to distinguish from a pass"
 fi
-say "  reading 4 was evaluable, so the readings below it were reached"
+
+# WHAT THIS CAN AND CANNOT SAY, stated because the line it replaces said more than it had.
+#
+# It used to print "the readings below it were reached". They are not: a fired reading 4 returns from the
+# evaluator immediately, so an INVALID verdict -- which is the correct verdict for stub evidence -- means
+# readings 1, 2, 3 and 5 were never evaluated at all. Claiming a verification that did not happen is worse
+# than not claiming one, because it is the line a reader trusts instead of scrolling.
+#
+# So the claim is the one this rehearsal can support: reading 4 had evidence it could read. Whether the
+# readings below it work is the business of the unit tests, which construct the summaries they need.
+if sed -n '/PRE-REGISTERED READINGS/,$p' "$WORK/report.txt" | grep -qE '^\s*\[FIRED\] 4'; then
+  say "  reading 4 (or 4b/4c) fired INVALID, which short-circuits the evaluator -- the readings below it were NOT reached"
+  say "  that is the correct verdict for stub evidence, and it is all this rehearsal can say about them"
+else
+  say "  reading 4 was evaluable and did not fire, so the readings below it were reached"
+fi
 
 say "REHEARSAL PASSED: the real matrix ran four arms end to end and its readings were evaluated."
 say "What this did NOT cover: every number, and whether two engines fit on one card."

@@ -1,4 +1,5 @@
 aws sts get-caller-identity --query Account --output text
+aws sts get-caller-identity --query Arn --output text
 --- exit 1
 --- messages
 == study  M5-c sharing matrix -- does giving each tenant its own engine on a shared card protect the tail

@@ -133,20 +133,43 @@ require_credential_margin() {
   # The LATEST live expiry, not the earliest. Taking min() across every file in the cache reads a stale
   # entry from another profile as this session's, which is how a fresh twelve-hour login was once reported
   # as expired.
+  # Matched to the credentials THIS run is using, not merely to the newest entry in a shared cache.
+  #
+  # Taking the latest expiry fixed an earlier bug where a stale entry from another profile made a fresh
+  # twelve-hour login read as expired. It did not establish identity: an active profile with twenty minutes
+  # left beside another profile's twelve-hour entry still reads as twelve hours, and the run then loses
+  # polling, download and termination partway through a paid session.
+  #
+  # The account and role of the credentials in use come from sts, and only cache entries whose assumed-role
+  # ARN matches are considered. An entry that carries no ARN is skipped rather than trusted: this check
+  # exists for the moments when something about the account is wrong, and those are the moments an
+  # unidentified entry is most likely to be the wrong one.
+  local whoami arn
+  whoami=$(aws sts get-caller-identity --query Arn --output text 2>/dev/null) || whoami=""
+  # The assumed-role ARN sts reports and the one a cached entry carries differ in their last segment (the
+  # session name), so they are compared on the role path.
+  arn=$(printf '%s' "$whoami" | cut -d/ -f1-2)
   newest=""
   for f in "$cache"/*.json; do
     [ -f "$f" ] || continue
     expiry=$(python3 -c "
 import json,sys
+want=sys.argv[2]
 try:
     d=json.load(open(sys.argv[1]))
-    print(d.get('Credentials',{}).get('Expiration',''))
+    c=d.get('Credentials',{})
+    who=(d.get('AssumedRoleUser') or {}).get('Arn','')
+    if want and who and not who.startswith(want):
+        print('')
+    else:
+        print(c.get('Expiration',''))
 except Exception:
     print('')
-" "$f" 2>/dev/null)
+" "$f" "$arn" 2>/dev/null)
     [ -n "$expiry" ] || continue
     if [ -z "$newest" ] || [[ "$expiry" > "$newest" ]]; then newest="$expiry"; fi
   done
+  [ -n "$arn" ] || say "could not identify the active role, so the expiry below is the newest in the cache rather than this run's"
   [ -n "$newest" ] || { say "no expiry found in $cache; skipping the check"; return 0; }
   left=$(python3 -c "
 import datetime,sys
@@ -252,7 +275,13 @@ PREMIUM_WEIGHT="PREMIUM_WEIGHT_PLACEHOLDER"
 NOISY_WEIGHT="NOISY_WEIGHT_PLACEHOLDER"
 PROBE_WEIGHT="PROBE_WEIGHT_PLACEHOLDER"
 DURATION_MS="DURATION_MS_PLACEHOLDER"
-DEADLINE_EPOCH=$(( $(date +%s) + BACKSTOP_SECONDS_PLACEHOLDER ))
+# The deadline the matrix budgets its cells against is the EARLIER of the two, not the instance's.
+#
+# The instance's own backstop is BACKSTOP_SECONDS and this shell gives up at HARD_STOP_SECONDS, which is
+# sooner. Handing the matrix the later one let it approve a remaining workload that fits the instance and
+# not the wrapper: the wrapper then terminates mid-cell, and because the evidence is archived only after the
+# matrix RETURNS, every cell completed before that point leaves with the instance.
+DEADLINE_EPOCH=$(( $(date +%s) + HARD_STOP_SECONDS_PLACEHOLDER ))
 
 upload() { aws s3 cp "$1" "s3://$BUCKET/$PREFIX/$2" || true; }
 trap 'upload /var/log/m5c.log log.txt; shutdown -h now' EXIT
@@ -452,6 +481,7 @@ UD="$(mktemp)"
   # exists to argue against.
   echo "#!/bin/bash"
   sed -e "s|BACKSTOP_SECONDS_PLACEHOLDER|$BACKSTOP_SECONDS|g" \
+      -e "s|HARD_STOP_SECONDS_PLACEHOLDER|$HARD_STOP_SECONDS|g" \
       -e "s|BUCKET_PLACEHOLDER|$BUCKET|" \
       -e "s|RUN_ID_PLACEHOLDER|$RUN_ID|" \
       -e "s|SOURCE_SHA_PLACEHOLDER|$SOURCE_SHA|" \
@@ -573,6 +603,18 @@ fi
 # that still has records to send. The cost of that choice is here: a marker can be written while the archive
 # that matters never made it, and without this check the session would print SESSION DONE and name a
 # directory that does not exist. hack/queuelab-gpu-session.sh refuses on exactly this and this file did not.
+# The evidence has to be THIS run's.
+#
+# RUN_ID is the output directory's basename, and the results bucket keeps objects for thirty days. Reuse a
+# basename and the previous session's DONE marker and archive are both still there and both still eligible:
+# the wait returns immediately, the download succeeds, the checks pass, and the operator reads a prior
+# experiment's numbers while this run's instance is terminated underneath them. The commit the instance
+# recorded is what settles it.
+if [ -s "$OUT/commit.txt" ]; then
+  got_commit=$(tr -d '[:space:]' < "$OUT/commit.txt")
+  [ "$got_commit" = "$COMMIT" ] \
+    || fail "the evidence in s3://$BUCKET/$RUN_ID was built from commit $got_commit and this session shipped $COMMIT. That is a previous run's evidence under a reused run id, and reporting it would attribute another experiment's numbers to this one. Use a fresh OUT."
+fi
 [ -s "$OUT/evidence.tgz" ] \
   || fail "the instance wrote its completion marker and no evidence archive arrived. $OUT/log.txt is whatever it managed to upload, and the run produced nothing this side can read"
 
@@ -581,13 +623,22 @@ fi
 # A tar that unpacks is not a run that measured. The readings need R1 and `shared` at minimum -- R1 is the
 # denominator of both bars -- and an arm whose raw file is missing is an arm the report will silently omit
 # from its table rather than one it complains about.
+# An arm REFUSED as a registered outcome is not a missing arm, and demanding evidence from it would turn a
+# working refusal into a failed session. hack/m5c-matrix.sh writes refused-<arm>.txt beside the raw files and
+# the report reads it as reading 4c.
 missing=""
+refused=""
 for arm in $ARMS; do
+  if [ -s "$OUT/m5c-run/refused-$arm.txt" ]; then
+    refused="$refused $arm"
+    continue
+  fi
   compgen -G "$OUT/m5c-run/raw-$arm-"'*.jsonl' >/dev/null || missing="$missing $arm"
 done
 [ -z "$missing" ] \
-  || fail "the run finished and these arms have no raw evidence:$missing. The report would leave them out of its table rather than say they are absent, and any reading that divides by one of them would decline without naming it"
-say "every arm in [$ARMS] returned raw evidence"
+  || fail "the run finished and these arms have no raw evidence and no recorded refusal either:$missing. The report would leave them out of its table rather than say they are absent, and any reading that divides by one of them would decline without naming it"
+[ -z "$refused" ] && say "every arm in [$ARMS] returned raw evidence" \
+  || say "arms refused as registered outcomes:$refused -- reading 4c will report them, and the arms beside them stand"
 
 say "SESSION DONE. Evidence in $OUT/m5c-run"
 say "The readings are NOT evaluated here. Run them over the evidence:"

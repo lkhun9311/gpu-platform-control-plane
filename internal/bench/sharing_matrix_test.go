@@ -261,9 +261,13 @@ func TestReadingFiveFiresOnARealImprovementThatMissesTheBar(t *testing.T) {
 		t.Fatalf("reading 5 did not fire; the evidence would then land in the same gap the previous study's "+
 			"readings left, which is exactly what this reading was added to close: %s", five.Detail)
 	}
-	if !strings.Contains(five.Detail, "against a 2.0x bar") {
-		t.Errorf("reading 5 does not report the remaining distance to the bar, which is the half of it that "+
-			"makes a partial result useful: %s", five.Detail)
+	// Both distances, because a partial result is only useful if a reader can see how far it still is, and
+	// an arm can be close on one bar and nowhere on the other.
+	for _, want := range []string{"against 2.0x", "against 1.25"} {
+		if !strings.Contains(five.Detail, want) {
+			t.Errorf("reading 5 does not report the remaining distance to %q, which is the half of it that "+
+				"makes a partial result useful: %s", want, five.Detail)
+		}
 	}
 }
 
@@ -361,15 +365,21 @@ func TestNoReadingFiringIsReportedAsAGapRatherThanAnAnswer(t *testing.T) {
 	res := EvaluateSharingMatrix(m, PremiumTenant, NoisyTenant)
 	out := FormatSharingMatrix(res)
 
-	if res.Answer != "" && !strings.Contains(res.Answer, "INVALID") {
-		t.Logf("answer: %q", res.Answer)
+	// ASSERTED, not logged. This block used to t.Logf an unexpected answer and then look for the substring
+	// "INVALID", which appears in reading NAMES whether or not one fired -- so it would have accepted an
+	// invented answer while claiming to test that none was invented.
+	for _, r := range res.Readings {
+		if r.ID == "1" && r.Fired {
+			t.Errorf("reading 1 fired on an arm whose tail is a lower bound rather than a p99: %s", r.Detail)
+		}
 	}
-	if strings.Contains(out, "[FIRED] 1 ") {
-		t.Error("reading 1 fired on an arm whose tail is a lower bound rather than a p99")
+	if res.Answer != "" {
+		t.Errorf("an answer of %q was produced from evidence in which the only sharing arm has a censored "+
+			"tail. No reading can conclude from a lower bound", res.Answer)
 	}
-	if !strings.Contains(out, "censored") && !strings.Contains(out, "INVALID") {
-		t.Errorf("the report neither names the censored tail nor declares the run invalid, so a reader cannot "+
-			"tell whether the readings looked at everything or at nothing:\n%s", out)
+	if !strings.Contains(out, "censored") {
+		t.Errorf("the report does not name the censored tail, so a reader cannot tell whether the readings "+
+			"looked at everything or at nothing:\n%s", out)
 	}
 }
 
@@ -512,5 +522,171 @@ func TestARecordedRefusalIsWhatMakesFourCReachable(t *testing.T) {
 	if !fourC.Fired || fourC.Cell != ArmMPS {
 		t.Fatalf("reading 4c did not fire for a recorded refusal of the mps arm: fired=%v cell=%q detail=%s",
 			fourC.Fired, fourC.Cell, fourC.Detail)
+	}
+}
+
+// The STREAM bar is a bar, and nothing was holding it.
+//
+// Reading 1 gates on two: the tail at 2x R1 and the stream at 1.25x. A mutation battery relaxing
+// m5cTPOTBar from 1.25 to 100 broke no test in this file, which means an arm whose inter-token time was
+// fifty times the baseline's could have been reported as the deliverable. TPOT is the half of the answer a
+// first-token metric cannot see -- a topology that protects the first token and wrecks the stream after it
+// passes every TTFT check there is -- and this study's own report header says so.
+func TestAnArmThatWrecksTheStreamDoesNotFireTheDeliverable(t *testing.T) {
+	m := healthyMatrix()
+	// A perfect tail, and a stream ten times R1's 17.8 ms.
+	wrecked := healthyArm(ArmTimeSlicing, 100, 178, 38_000)
+	m.Sharing = []ArmSummary{wrecked}
+
+	res := EvaluateSharingMatrix(m, PremiumTenant, NoisyTenant)
+
+	one := sharingReadingByID(t, res, "1")
+	if one.Fired {
+		t.Errorf("reading 1 fired POSITIVE for an arm holding the tail at 1.5x while its stream runs at 10x "+
+			"R1's. The pre-registration gates on both bars: %s", one.Detail)
+	}
+	// And it must be reading 5's business, not silence: the arm did improve on the control.
+	if five := sharingReadingByID(t, res, "5"); !five.Fired {
+		t.Errorf("no reading claimed an arm that beat the control on the tail and missed the stream bar; "+
+			"that is the gap in the outcome space this study was written to close: %s", five.Detail)
+	}
+}
+
+// And the tail bar, pinned the same way, because a battery that relaxes it must not pass either.
+func TestAnArmThatMissesTheTailBarDoesNotFireTheDeliverable(t *testing.T) {
+	m := healthyMatrix()
+	// Stream is fine; the tail is three times R1's 67.3 ms, against a 2x bar.
+	m.Sharing = []ArmSummary{healthyArm(ArmTimeSlicing, 202, 20, 38_000)}
+
+	res := EvaluateSharingMatrix(m, PremiumTenant, NoisyTenant)
+
+	if one := sharingReadingByID(t, res, "1"); one.Fired {
+		t.Errorf("reading 1 fired POSITIVE at 3x R1 against a 2x tail bar: %s", one.Detail)
+	}
+}
+
+// Reading 2 requires BOTH bars, and relaxing it to the tail alone broke no test until this one.
+//
+// The page's words are "if a sharing arm meets both bars while the contender's completed output falls
+// below 75%". An arm that starves the contender while missing the stream bar has not bought protection at
+// all, so calling it "protects only by starving" would credit it with a tail it did not deliver. That arm
+// is reading 5's: a real improvement that does not reach the bar.
+//
+// The gate is duplicated -- reading 2 and reading 5 both ask whether an arm met both bars -- and a mutation
+// battery that replaced only the first occurrence reported reading 5 as unprotected when it was reading 2
+// that had no test. Both sites are pinned now.
+func TestReadingTwoNeedsBothBarsAndNotTheTailAlone(t *testing.T) {
+	m := healthyMatrix()
+	// Tail well inside 2x, stream ten times R1's, and the contender's work refused.
+	arm := healthyArm(ArmTimeSlicing, 100, 178, 5_000)
+	arm.DispositionByTenant = map[string]Disposition{
+		NoisyTenant: {Offered: 300, Completed: 120, Rejected: 170, TimedOut: 10},
+	}
+	m.Sharing = []ArmSummary{arm}
+
+	res := EvaluateSharingMatrix(m, PremiumTenant, NoisyTenant)
+
+	if two := sharingReadingByID(t, res, "2"); two.Fired {
+		t.Errorf("reading 2 fired for an arm whose stream runs at 10x R1. Protection bought by starving the "+
+			"contender is only that if the protection was delivered, and this arm missed a bar: %s", two.Detail)
+	}
+	if five := sharingReadingByID(t, res, "5"); !five.Fired {
+		t.Errorf("no reading claimed an arm that improved on the control, missed the stream bar, and starved "+
+			"the contender. That is an outcome with no name again: %s", five.Detail)
+	}
+}
+
+// Tokens that arrived on a stream which then broke are not completed output.
+//
+// The sender keeps HTTPStatus at 200 for a broken stream because its headers arrived, so the partial tokens
+// land in OutputTokensByTenant. An arm that completes half the contender's responses and breaks the other
+// half after fifteen of sixteen tokens then looks like 97 percent of the control's output instead of 50,
+// reading 2 never fires, and reading 1 calls it the deliverable. The scenario and its numbers are an
+// independent review's.
+func TestBrokenStreamsDoNotCountAsCompletedOutput(t *testing.T) {
+	m := healthyMatrix()
+	m.Shared = healthyArm(ArmShared, 1400, 80, 6_400)
+	m.Shared.OutputTokensByTenant = map[string]int64{PremiumTenant: 60_000, NoisyTenant: 6_400}
+
+	half := healthyArm(ArmTimeSlicing, 100, 20, 6_200)
+	// 200 completed at 16 tokens, and 200 that broke after 15.
+	half.OutputTokensByTenant = map[string]int64{PremiumTenant: 60_000, NoisyTenant: 3_200 + 3_000}
+	half.OutputTokensFromFailedStreamsByTenant = map[string]int64{NoisyTenant: 3_000}
+	half.DispositionByTenant = map[string]Disposition{
+		NoisyTenant: {Offered: 400, Completed: 200, Rejected: 200},
+	}
+	m.Sharing = []ArmSummary{half}
+
+	res := EvaluateSharingMatrix(m, PremiumTenant, NoisyTenant)
+
+	if one := sharingReadingByID(t, res, "1"); one.Fired {
+		t.Errorf("reading 1 fired POSITIVE for an arm that delivered half the contender's completed output. "+
+			"Counting the tokens of streams that broke makes it look like 97 percent: %s", one.Detail)
+	}
+	if two := sharingReadingByID(t, res, "2"); !two.Fired {
+		t.Errorf("reading 2 did not fire for an arm at 0.50 of the control's completed output with 200 of "+
+			"400 requests rejected: %s", two.Detail)
+	}
+}
+
+// A contender whose requests failed in transport was not refused service, and must not read as starvation.
+//
+// Failed counts transport and mid-stream breaks. A backend whose connections fail produces hundreds while
+// the premium tenant stays healthy, which is broken delivery. The pre-registration's word is "refused", and
+// admission is what refuses.
+func TestTransportFailureIsNotRefusal(t *testing.T) {
+	m := healthyMatrix()
+	arm := healthyArm(ArmTimeSlicing, 100, 20, 5_000)
+	arm.DispositionByTenant = map[string]Disposition{
+		NoisyTenant: {Offered: 400, Completed: 200, Failed: 200},
+	}
+	m.Sharing = []ArmSummary{arm}
+
+	res := EvaluateSharingMatrix(m, PremiumTenant, NoisyTenant)
+
+	if two := sharingReadingByID(t, res, "2"); two.Fired {
+		t.Errorf("reading 2 fired on 200 transport failures and zero admission rejections. The evidence "+
+			"establishes broken delivery, not a system withholding service: %s", two.Detail)
+	}
+}
+
+// No sharing arm means no conclusion about sharing arms.
+//
+// The guards read `countSharingScorable(all) == 0 && len(all) > 0`, so an EMPTY slice slipped past them and
+// reading 3 fired "splitting the card changes nothing that matters" over evidence in which nothing was
+// split. bestImprovementOverShared returns a zero improvement when there is nothing to improve with.
+func TestNoSharingArmsMeansNoConclusionAboutThem(t *testing.T) {
+	m := healthyMatrix()
+	m.Sharing = nil
+
+	res := EvaluateSharingMatrix(m, PremiumTenant, NoisyTenant)
+
+	for _, id := range []string{"1", "3", "5"} {
+		r := sharingReadingByID(t, res, id)
+		if r.Fired {
+			t.Errorf("reading %s fired over evidence with no sharing arm in it at all: %s", id, r.Detail)
+		}
+	}
+}
+
+// The winner is the arm with the higher contender THROUGHPUT, which is not the larger token total.
+func TestTheWinnerIsChosenByThroughputAndNotVolume(t *testing.T) {
+	m := healthyMatrix()
+	// timeSlicing: more tokens, over a longer window. mps: fewer tokens, faster.
+	ts := healthyArm(ArmTimeSlicing, 100, 20, 3_000)
+	ts.ActiveSeconds = 450
+	mps := healthyArm(ArmMPS, 100, 20, 2_990)
+	mps.ActiveSeconds = 420
+	m.Sharing = []ArmSummary{ts, mps}
+
+	res := EvaluateSharingMatrix(m, PremiumTenant, NoisyTenant)
+
+	one := sharingReadingByID(t, res, "1")
+	if !one.Fired {
+		t.Fatalf("reading 1 did not fire for two arms that both met the bars: %s", one.Detail)
+	}
+	if one.Cell != ArmMPS {
+		t.Errorf("the winner is %q. timeSlicing produced 3000 tokens in 450 s and mps 2990 in 420 s, so mps "+
+			"has the higher contender throughput and the page chooses on throughput, not on volume", one.Cell)
 	}
 }

@@ -387,6 +387,8 @@ scenarios_m5c_gpu_session() {
   # The archive this runner unpacks holds one raw file per arm, and the session refuses a run whose arms did
   # not all come back. The stub is told which arms to produce so that it makes what the instance makes.
   export STUB_EVIDENCE_ARMS="R1 shared timeSlicing mps"
+  # The commit the session will ship, so its evidence-identity check has something that matches.
+  STUB_COMMIT=$(git -C "$ROOT" rev-parse HEAD); export STUB_COMMIT
 
   # This runner rents ONE card and builds a kind cluster on it, so its scenarios are about the lifecycle
   # around that: what it refuses before spending, and what it does when the instance does not come back.

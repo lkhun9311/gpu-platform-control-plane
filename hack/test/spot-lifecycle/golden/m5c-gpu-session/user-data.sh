@@ -15,7 +15,7 @@ PREMIUM_WEIGHT="1"
 NOISY_WEIGHT="0.054"
 PROBE_WEIGHT="0"
 DURATION_MS="420000"
-DEADLINE_EPOCH=$(( $(date +%s) + 9000 ))
+DEADLINE_EPOCH=$(( $(date +%s) + 8400 ))
 upload() { aws s3 cp "$1" "s3://$BUCKET/$PREFIX/$2" || true; }
 trap 'upload /var/log/m5c.log log.txt; shutdown -h now' EXIT
 aws s3 cp "s3://$BUCKET/$PREFIX/src/source.tgz" /tmp/source.tgz

@@ -1,4 +1,5 @@
 aws sts get-caller-identity --query Account --output text
+aws sts get-caller-identity --query Arn --output text
 aws s3api head-bucket --bucket stub-bucket
 aws iam get-instance-profile --instance-profile-name m5c-gpu
 aws s3 cp <OUT>/source.tgz s3://stub-bucket/run/src/source.tgz

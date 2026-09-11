@@ -254,8 +254,37 @@ neither this mechanism nor another sweep of it.
 
 ### 5. It protects but not to the bar — the outcome the last study had no name for
 
-If a sharing arm improves premium TTFT p99 over `shared` by more than the spread, but no arm meets the 2x
-bar, **that is this reading and it fires.**
+If a sharing arm improves premium TTFT p99 over `shared` by more than the spread, but no arm meets **both**
+bars, **that is this reading and it fires.**
+
+**"Both bars" is an amendment made on 2026-09-11, and the freeze clause at the top of this page had already
+begun.** It is recorded here rather than made quietly, and what follows is the argument for it. Disagree
+with the argument and the amendment should be reverted, not kept because it is already in the code.
+
+This reading first said "no arm meets the 2x bar" — the tail bar alone. Reading 1 gates on two bars, and so
+does reading 2. So an arm that holds the tail inside 2x while its stream runs at ten times R1's fires
+**nothing**: not 1 or 2, which want both bars, not 3, which wants no improvement over the control, and not
+this reading, which turned it away for having met the tail bar. **That is the identical gap this page was
+written to close**, one bar over from where the last study left it.
+
+Three things make the amendment legitimate rather than convenient:
+
+- **No paid run has produced a scorable result.** Three pilots have been bought and every one of them
+  ended in a defect; the only evidence ever scored came from stub engines in a rehearsal. There is no
+  outcome this change could be fitted to, because there are no outcomes.
+- **It moves no threshold.** 2x and 1.25x are untouched, and so is every other reading's condition. What
+  changes is which reading claims a region of the outcome space that currently belongs to none of them.
+- **It was found by a machine, not by a preference.** A mutation battery against the scorer showed the
+  stream bar was pinned by no test; writing that test produced the arm above, and the arm had no reading.
+
+With the amendment the four readings partition the improved-arm space: met both bars with the contender's
+work intact is 1, met both by starving it is 2, improved on the control without meeting both is this
+reading, and failed to improve beyond the control's own noise is 3.
+
+**What this does not claim.** The readings are still not mutually exclusive ACROSS ARMS — time-slicing can
+satisfy reading 1 while MPS satisfies reading 2 — and a large enough control spread can satisfy 1 and 3 at
+once. First-match ordering picks the answer; it does not make the predicates disjoint. That was true before
+this amendment and remains true after it.
 
 It exists because the previous study's readings did not cover their own outcome space. Reading 2 there
 required some cell to have met the bar; reading 3 required no cell to have beaten the control; the evidence

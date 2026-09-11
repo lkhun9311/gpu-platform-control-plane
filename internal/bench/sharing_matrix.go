@@ -129,7 +129,7 @@ func EvaluateSharingMatrix(a SharingArms, premiumTenant, contenderTenant string)
 
 	all := scoreSharingArms(a, premiumTenant, contenderTenant)
 	res.Readings = append(res.Readings,
-		sharingReadingOne(a.R1, premiumTenant, all),
+		sharingReadingOne(a.R1, premiumTenant, contenderTenant, all),
 		sharingReadingTwo(all, contenderTenant),
 		sharingReadingThree(a.Shared, all),
 		sharingReadingFive(a.Shared, all),
@@ -169,13 +169,13 @@ func scoreSharingArms(a SharingArms, premiumTenant, contenderTenant string) []sh
 	// against a split arm producing 30k and 20k has given the contender HALF as much work, and its share is
 	// 40% in both -- so a share ratio reports 1.00, reading 2 never fires, and reading 1 calls an arm that
 	// discarded half the contender's work the deliverable.
-	sharedContender := float64(a.Shared.OutputTokensByTenant[contenderTenant])
+	sharedContender := completedOutput(a.Shared, contenderTenant)
 	out := make([]sharingScored, 0, len(a.Sharing))
 	for _, c := range a.Sharing {
 		s := sharingScored{ArmSummary: c}
 		s.ttft = ratioOr(c.TTFTMsP99, a.R1.TTFTMsP99)
 		s.tpot = ratioOr(c.TPOTMsP99ByTenant[premiumTenant], a.R1.TPOTMsP99ByTenant[premiumTenant])
-		s.contenderRel = ratioOr(float64(c.OutputTokensByTenant[contenderTenant]), sharedContender)
+		s.contenderRel = ratioOr(completedOutput(c, contenderTenant), sharedContender)
 
 		// The arm's OWN numerators are checked, not only the denominators.
 		//
@@ -191,6 +191,9 @@ func scoreSharingArms(a SharingArms, premiumTenant, contenderTenant string) []sh
 		// they are positive let a survivor-biased baseline produce a confident POSITIVE.
 		s.computable = a.R1.TTFTMsP99 > 0 && a.R1.TPOTMsP99ByTenant[premiumTenant] > 0 &&
 			a.R1.TailSampleSize >= MinTailSamples && !a.R1.Censored &&
+			// `shared` is the control every improvement is measured FROM, so a censored control makes
+			// readings 3 and 5 comparisons against a lower bound. Only R1 was being held to this.
+			a.Shared.TTFTMsP99 > 0 && a.Shared.TailSampleSize >= MinTailSamples && !a.Shared.Censored &&
 			sharedContender > 0 &&
 			c.TTFTMsP99 > 0 && c.TPOTMsP99ByTenant[premiumTenant] > 0 &&
 			c.TailSampleSize >= MinTailSamples && !c.Censored
@@ -216,9 +219,25 @@ func scoreSharingArms(a SharingArms, premiumTenant, contenderTenant string) []sh
 				// The rule: the work that was REFUSED has to be at least as large as the work that went
 				// missing. Anything less and the shortfall is mostly delay, which the pre-registration says
 				// in as many words is a different finding and not this reading.
+				// REJECTIONS, not failures, and measured against what went missing.
+				//
+				// Two corrections live here. The first: Failed counts transport and mid-stream breaks, and a
+				// contender backend whose connections fail produces hundreds of them while the premium
+				// tenant stays healthy -- which is broken delivery, not a system withholding service. The
+				// pre-registration's word is "refused", and admission is what refuses. Failures are reported
+				// in the detail so a reader can see them, and they no longer establish the finding.
+				//
+				// The second: this counted REQUESTS while the reading is about OUTPUT. An arm can refuse a
+				// third of the requests and lose most of the output, or refuse many tiny ones and lose
+				// little. The rejected fraction is now required to be of the same order as the output that
+				// went missing, so the ledger has to explain the quantity the reading is actually about.
 				lost := d.Offered - d.Completed
-				refused := d.Rejected + d.Failed
-				s.starved = refused > 0 && lost > 0 && refused*2 >= lost
+				missingOutput := 1 - s.contenderRel
+				refusedFraction := 0.0
+				if d.Offered > 0 {
+					refusedFraction = float64(d.Rejected) / float64(d.Offered)
+				}
+				s.starved = d.Rejected > 0 && lost > 0 && refusedFraction*2 >= missingOutput
 			}
 		}
 		out = append(out, s)
@@ -343,6 +362,24 @@ func sharingReadingFourC(a SharingArms) PoPReading {
 // condition is otherwise a strict subset of this one, and "the first that fires is the answer" would report
 // an arm that bought its tail by taking the other tenant's work as POSITIVE with reading 2 never reached.
 // The pre-registration was corrected for this on 2026-09-10, before any card, and says so.
+// completedOutput is a tenant's output MINUS whatever arrived on a stream that then broke.
+//
+// The sender keeps HTTPStatus at 200 for a broken stream, because its headers did arrive, so the partial
+// tokens land in OutputTokensByTenant. Reading 2 asks about completed output and those tokens are not that:
+// report.go's own tallyDelivered says "a stream that died partway delivered nothing the client could use",
+// and until this existed the code did not honour its own comment.
+func completedOutput(s ArmSummary, tenant string) float64 {
+	return float64(s.OutputTokensByTenant[tenant] - s.OutputTokensFromFailedStreamsByTenant[tenant])
+}
+
+// contenderRate is the contender's completed output per second of the arm's sending time.
+func contenderRate(s ArmSummary, tenant string) float64 {
+	if s.ActiveSeconds <= 0 {
+		return 0
+	}
+	return completedOutput(s, tenant) / s.ActiveSeconds
+}
+
 // premiumRate is one tenant's output tokens per second of the arm's active time.
 //
 // Derived rather than read off, because ArmSummary carries per-tenant TOKENS and a whole-arm RATE, and the
@@ -354,9 +391,9 @@ func premiumRate(s ArmSummary, tenant string) float64 {
 	return float64(s.OutputTokensByTenant[tenant]) / s.ActiveSeconds
 }
 
-func sharingReadingOne(r1 ArmSummary, premiumTenant string, all []sharingScored) PoPReading {
+func sharingReadingOne(r1 ArmSummary, premiumTenant, contenderTenant string, all []sharingScored) PoPReading {
 	r := PoPReading{ID: "1", Name: "separation protects -- POSITIVE"}
-	if countSharingScorable(all) == 0 && len(all) > 0 {
+	if countSharingScorable(all) == 0 {
 		r.NotEvaluable = true
 		r.Detail = "no sharing arm could be scored against the bars" + sharingUnscorableSuffix(all)
 		return r
@@ -372,9 +409,12 @@ func sharingReadingOne(r1 ArmSummary, premiumTenant string, all []sharingScored)
 		switch {
 		case won == nil:
 			won = s
-		case s.contenderRel > won.contenderRel:
+		// Throughput, not volume. contenderRel divides by the same control for both candidates, so comparing
+		// it compares token TOTALS -- and an arm that took longer to drain can produce more tokens at a lower
+		// rate. The page says "the one with the higher contender throughput".
+		case contenderRate(s.ArmSummary, contenderTenant) > contenderRate(won.ArmSummary, contenderTenant):
 			won = s
-		case s.contenderRel == won.contenderRel && s.Arm == ArmTimeSlicing:
+		case contenderRate(s.ArmSummary, contenderTenant) == contenderRate(won.ArmSummary, contenderTenant) && s.Arm == ArmTimeSlicing:
 			won = s
 		}
 	}
@@ -421,8 +461,8 @@ func sharingReadingTwo(all []sharingScored, contenderTenant string) PoPReading {
 		if s.starved {
 			r.Fired, r.Cell = true, s.Arm
 			d := s.DispositionByTenant[contenderTenant]
-			r.Detail = fmt.Sprintf("%s met both bars with %s at %.2f of its output under `shared`, and the ledger shows %d rejected and %d failed against %d timed out -- refused work, not merely late work",
-				s.Arm, contenderTenant, s.contenderRel, d.Rejected, d.Failed, d.TimedOut)
+			r.Detail = fmt.Sprintf("%s met both bars with %s at %.2f of its output under `shared`, and the ledger shows %d of %d requests REJECTED at admission (%d failed in transport, %d timed out) -- refused work, not merely late work",
+				s.Arm, contenderTenant, s.contenderRel, d.Rejected, d.Offered, d.Failed, d.TimedOut)
 			return r
 		}
 	}
@@ -436,7 +476,7 @@ func sharingReadingTwo(all []sharingScored, contenderTenant string) PoPReading {
 // no spread, so this declines rather than reporting every arm as failing to beat noise nobody measured.
 func sharingReadingThree(shared ArmSummary, all []sharingScored) PoPReading {
 	r := PoPReading{ID: "3", Name: "splitting the card changes nothing that matters -- INCONCLUSIVE"}
-	if countSharingScorable(all) == 0 && len(all) > 0 {
+	if countSharingScorable(all) == 0 {
 		r.NotEvaluable = true
 		r.Detail = "no sharing arm could be scored against the bars" + sharingUnscorableSuffix(all)
 		return r
@@ -461,7 +501,7 @@ func sharingReadingThree(shared ArmSummary, all []sharingScored) PoPReading {
 // gap is closed in advance rather than after seeing which way the numbers went.
 func sharingReadingFive(shared ArmSummary, all []sharingScored) PoPReading {
 	r := PoPReading{ID: "5", Name: "it protects but not to the bar -- measured partial result"}
-	if countSharingScorable(all) == 0 && len(all) > 0 {
+	if countSharingScorable(all) == 0 {
 		r.NotEvaluable = true
 		r.Detail = "no sharing arm could be scored against the bars" + sharingUnscorableSuffix(all)
 		return r
@@ -473,9 +513,21 @@ func sharingReadingFive(shared ArmSummary, all []sharingScored) PoPReading {
 			len(shared.RepetitionTTFTMsP99))
 		return r
 	}
+	// BOTH bars, not the tail alone.
+	//
+	// This checked ttftOK only, which left a hole exactly where this reading was supposed to close one. An
+	// arm holding the tail at 1.5x R1 while its stream runs at 10x misses reading 1 (which gates on both),
+	// misses reading 2 (which needs both bars met), misses reading 3 (it improved on the control), and was
+	// then turned away here for having "met the 2x tail bar" -- so nothing fired at all. That is the same
+	// gap the previous study's readings left and that this page was written to close, reappearing one bar
+	// over.
+	//
+	// With both bars the four readings partition the space: met both and kept the contender's work is 1,
+	// met both by starving it is 2, improved on the control without meeting both is this reading, and did
+	// not improve beyond the control's own noise is 3.
 	for i := range all {
-		if all[i].computable && all[i].ttftOK {
-			r.Detail = fmt.Sprintf("%s met the 2x tail bar, so this reading does not apply", all[i].Arm)
+		if all[i].computable && all[i].ttftOK && all[i].tpotOK {
+			r.Detail = fmt.Sprintf("%s met both bars, so this reading does not apply", all[i].Arm)
 			return r
 		}
 	}
@@ -494,8 +546,15 @@ func sharingReadingFive(shared ArmSummary, all []sharingScored) PoPReading {
 		}
 	}
 	r.Cell = closest.Arm
-	r.Detail = fmt.Sprintf("%s improves the control's premium tail by %.1f ms against a %.1f ms spread, and still sits at %.1fx R1 against a %.1fx bar -- a real improvement that does not reach the bar",
-		closest.Arm, best, spread, closest.ttft, m5cTTFTBar)
+	missed := "the tail bar"
+	switch {
+	case closest.ttftOK && !closest.tpotOK:
+		missed = "the stream bar"
+	case !closest.ttftOK && !closest.tpotOK:
+		missed = "both bars"
+	}
+	r.Detail = fmt.Sprintf("%s improves the control's premium tail by %.1f ms against a %.1f ms spread, and misses %s: tail %.1fx R1 against %.1fx, stream %.2fx against %.2fx -- a real improvement that does not reach the bar",
+		closest.Arm, best, spread, missed, closest.ttft, m5cTTFTBar, closest.tpot, m5cTPOTBar)
 	return r
 }
 

@@ -528,8 +528,13 @@ apply_device_plugin() {
   # while the plugin still advertises, and every client then silently runs WITHOUT MPS. An arm that fell
   # back that way is the time-slicing arm under another name, and nothing downstream could tell.
   if [ "$mode" = mps ]; then
-    k rollout status ds/nvidia-mps-control-daemon -n "$PLUGIN_NS" --timeout=180s >/dev/null \
-      || fail "the MPS control daemon never became ready; clients would fall back to running without MPS and the arm would be time-slicing under another name"
+    # RECORDED and refused, not fatal. This is the same registered outcome as a client that never connected
+    # -- reading 4c, "INVALID for that arm" -- and ending the session here would discard the arms beside it
+    # and leave no evidence the report could read the refusal from.
+    if ! k rollout status ds/nvidia-mps-control-daemon -n "$PLUGIN_NS" --timeout=180s >/dev/null; then
+      arm_refused mps "the MPS control daemon never became ready, so clients would fall back to running without MPS and this arm would be time-slicing under another name"
+      return 1
+    fi
   fi
 }
 
@@ -743,7 +748,9 @@ deploy_arm() {
       PREMIUM_NS="$NS_A"; STANDARD_NS="$NS_A"
       ;;
     timeSlicing|mps)
-      apply_device_plugin "$arm"
+      # The plugin step can now REFUSE the arm rather than end the run -- an MPS control daemon that never
+      # became ready is reading 4c's business, not a reason to discard the arms beside it.
+      apply_device_plugin "$arm" || return 1
       k apply -f config/vllm-shared/engine-a.yaml -n "$NS_A" >/dev/null || fail "apply engine a"
       k apply -f config/vllm-shared/engine-b.yaml -n "$NS_B" >/dev/null || fail "apply engine b"
       # Both are diagnosed on failure, and BOTH are diagnosed when either fails.

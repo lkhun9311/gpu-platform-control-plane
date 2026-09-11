@@ -290,7 +290,14 @@ case "$svc $op" in
         fi
         ;;
       commit.txt)
-        printf '%s\n' "0000000000000000000000000000000000000000" > "$dest"
+        # The commit the SESSION shipped, so that a runner checking evidence identity sees a match.
+        #
+        # This was forty zeros, which is fine for a runner that only stores the value and became wrong the
+        # moment one compared it: hack/m5c-gpu-session.sh refuses evidence whose commit is not the one it
+        # sent, because a reused run id would otherwise hand back a previous experiment's numbers under this
+        # run's name. A stub that cannot produce a matching commit turns that guard into a permanent failure
+        # and would have been "fixed" by weakening the guard.
+        printf '%s\n' "${STUB_COMMIT:-0000000000000000000000000000000000000000}" > "$dest"
         ;;
       run.json)
         printf '%s\n' '{"study":"price-of-protection-2026-09-05","arms":[{"arm":"R1","requested_budget":"engine default","resolved_budget":"2048","raw":["raw-R1-1.jsonl"]},{"arm":"default-fcfs","requested_budget":"engine default","resolved_budget":"2048","raw":["raw-default-fcfs-1.jsonl"]}]}' > "$dest"
