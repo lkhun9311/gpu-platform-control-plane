@@ -42,10 +42,15 @@ makes it worth measuring rather than assuming.
 This page was written on the strength of a sentence that turned out to be false: that the three arms were
 **"already built and tested in `hack/m5c-matrix.sh`"**. They were built. Nothing had ever run them, and
 `docs/00_PORTFOLIO_OVERVIEW.md` already said so of the whole cluster half of the AWS path — *"offline-validated,
-never applied to AWS"*. Reading the runner, rehearsing it on a real cluster, and writing the code for its own
-readings found **nine** defects, each of which would have ended or silently corrupted a paid session.
+never applied to AWS"*. Reading the runner, rehearsing it on a real cluster, writing the code for its own
+readings, and finally running the runner itself on a cluster found **fourteen** defects, each of which would
+have ended or silently corrupted a paid session.
 
-**All nine were found and fixed before a card was rented, and this section is written before one is.** That
+**Nine were found before any card was rented. Three more were bought by pilots, for $2.03 in total, and two
+were then found by running the matrix on a free cluster.** Nothing in this section reads a result, because
+there are none: every entry below is a thing that stopped the instrument or falsified what it recorded.
+
+That
 is why editing this page now is legitimate: its freeze clause binds from the moment its pilot is bought, and
 the pilot is not bought. Nothing here reads a result, because there are no results.
 
@@ -60,8 +65,22 @@ the pilot is not bought. Nothing here reads a result, because there are no resul
 | 7 | No `--model` was passed to `gen-trace` | the default is `llama-3-8b`, the engines serve Qwen2.5-3B, and the gateway routes by model name: **every request `ErrNoRoute`**, after both engines had loaded |
 | 8 | This study's readings were not implemented anywhere in `internal/bench` | the readings below would have been evaluated by hand, which is not the pre-registered instrument |
 | 9 | **Reading 2 was unreachable.** Its condition — meets both bars *and* starves the contender — was a strict subset of reading 1's, and reading 1 is evaluated first | an arm that bought its tail by refusing the other tenant's work would have been reported as the **deliverable**, and the reading that exists to catch exactly that would never have run |
+| 10 | The matrix had **no R1 arm**. `deploy_arm` had cases for `shared` and the sharing pair and none for the isolated baseline | R1 is the denominator of both bars, so the readings declined to evaluate anything. Found by a pilot |
+| 11 | The trace sent four tenants and the replay carried keys for **two** | all 41 probe requests refused by the gateway, both probe rows VOID. `hack/lib/spot-run.sh` records this same failure twice before, so this was the third. Found by a pilot |
+| 12 | An engine that never became ready said only that | Pending, crash-looping, still pulling, or killed for memory are four faults with four fixes, and the run log held none of it. Found by a pilot |
+| 13 | `GPUQuotaPolicy` is cluster-scoped and its `targetNamespace` is **immutable**; the matrix moves the contender between namespaces every arm | the API refuses it on the first sharing arm. **This is the matrix's entire routing mechanism.** Invisible to reading, because the immutability and the mutation are in different files |
+| 14 | The port-forward was replaced between cells with a `kill` that does not wait, then slept at for three seconds | the new forward lost the race for the port and died with its output in `/dev/null`. **Two of four arms would have completed nothing**, recorded with no HTTP status, and the report would have called it a censored tail — a plumbing failure wearing a load failure's name |
 
-All nine are fixed. Each is pinned by a test that was deliberately broken to confirm it goes red — including
+**Defect 14 is the one to read twice.** The other thirteen stop the run. That one lets it finish and hands
+back a table, and the table's own wording — a censored tail — points at the load rather than at the tunnel.
+A reader would have re-derived the load and bought another card.
+
+All fourteen are fixed. Each is pinned by a test that was deliberately broken to confirm it goes red, or by
+`hack/test/rehearse-m5c-matrix.sh`, which runs the matrix itself on a kind cluster with stub engines and
+simulated devices and asserts that its readings could be *evaluated* over the evidence it wrote — not merely
+that they printed. Defects 13 and 14 were found by that rehearsal on its first pass and are not reachable by
+reading: in 13 the immutability and the mutation live in different files, and in 14 the symptom only appears
+from the second cell onward, which no paid run had ever reached. This is also
 defect 9, whose test asserts that an arm meeting both bars with 170 of the contender's 300 requests *rejected*
 is reported NEGATIVE and not POSITIVE. Defect 5 is fixed as a refusal that names the file to apply.
 
@@ -276,6 +295,8 @@ self-contained Spot instance the runner did not use; the new ones assume the one
 | ----------------------------------------- | ----: | ---- |
 | ~~prerequisite: implement this page's readings~~ | $0 | **done.** `internal/bench/sharing_matrix.go` evaluates 4, 4b, 4c, 1, 2, 3 and 5 in that order, dispatched from `benchharness report`; each was deliberately failed to confirm it fires. Writing it is what found defect 9 |
 | ~~prerequisite: `hack/m5c-gpu-session.sh`~~ | $0 | **done.** Nine characterization scenarios recorded and replayed, and its GPU-free bring-up rehearsed end to end on a real kind cluster through `hack/test/rehearse-bringup.sh` |
+| ~~prerequisite: run the matrix itself off a card~~ | $0 | **done.** `hack/test/rehearse-m5c-matrix.sh` runs all four arms end to end on kind and evaluates the readings over what they wrote. It found defects 13 and 14 |
+| already spent | **$2.03** | three pilots. The first bought nothing (defect in this session's own runner), the second bought defects 10-12 and a complete `shared` measurement, the third was cancelled on a credential margin |
 | pilot: R1, `shared`, `timeSlicing`, `mps`, 1 rep | ~$0.90 | 4, 4b and 4c must not fire, and the load derived and written down |
 | confirmatory: the same four arms x 3 reps | ~$2.10 | readings evaluated by the code above, not by hand |
 | unspent reserve | ~$1.00 | — |
