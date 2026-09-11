@@ -598,3 +598,40 @@ func TestEverySessionRunnerEmitsAShebangAndRefusesAPayloadWithout(t *testing.T) 
 		}
 	}
 }
+
+// The session script and the matrix must agree on which arms a default run measures.
+//
+// hack/m5c-gpu-session.sh EXPORTS ARMS into hack/m5c-matrix.sh, so when the two defaults differ the
+// session's wins silently and the matrix's is dead text. They did differ: the matrix gained R1 after the
+// first paid run showed its readings could not be evaluated without the isolated baseline, and the session
+// still carried the three-arm list, which would have bought a second run with no denominator.
+//
+// This is the same defect shape the repetition-count test above was written for, where two scripts that do
+// not read each other disagreed about REPS and a re-run silently bought half the repetitions the design was
+// built on. The fix is not the value. It is that a disagreement now fails.
+func TestTheSessionAndTheMatrixAgreeOnTheArms(t *testing.T) {
+	re := regexp.MustCompile(`(?m)^ARMS="\$\{ARMS:-([^}]*)\}"\s*$`)
+
+	want, wantFrom := "", ""
+	for _, script := range []string{"hack/m5c-matrix.sh", "hack/m5c-gpu-session.sh"} {
+		m := re.FindStringSubmatch(readRepoFile(t, script))
+		if m == nil {
+			t.Fatalf("%s has no ARMS default in the expected form", script)
+		}
+		if want == "" {
+			want, wantFrom = m[1], script
+			continue
+		}
+		if m[1] != want {
+			t.Errorf("%s defaults ARMS to %q but %s defaults to %q. The session exports this into the matrix, "+
+				"so the difference is not a preference: it decides which arms a paid run measures",
+				script, m[1], wantFrom, want)
+		}
+	}
+
+	// And R1 has to be among them, because it is the denominator of both of this study's bars.
+	if !strings.Contains(want, ArmR1) {
+		t.Errorf("the default arm set is %q and does not include %s, the isolated baseline both bars are "+
+			"ratios against. A run without it can produce numerators and nothing to divide them by", want, ArmR1)
+	}
+}

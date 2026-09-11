@@ -51,6 +51,8 @@ for stub in aws sleep; do
 done
 
 UPDATE=0
+# Whether this --update run has already refreshed the shared user-data golden; see run_scenario.
+ud_shared_refreshed=0
 ONLY=""
 for a in "$@"; do
   case "$a" in
@@ -122,6 +124,23 @@ run_scenario() {
     sed -i 's/HARNESS_SHA="[0-9a-f]\{64\}"/HARNESS_SHA="<SHA>"/' "$out/user-data.sh"
   fi
 
+  # The same property for the gateway, which hack/m5c-gpu-session.sh also builds here and ships.
+  #
+  # Added after its digit string landed in the goldens unnormalized, which would have broken this suite on
+  # every unrelated change to cmd/gateway. What is worth pinning is that the checksum the instance will
+  # verify is the checksum of the binary that was uploaded, not the value itself.
+  if [ -f "$out/user-data.sh" ] && [ -f "$out/gateway" ]; then
+    local gembedded gbuilt
+    gembedded=$(grep -oE 'GATEWAY_SHA="[0-9a-f]{64}"' "$out/user-data.sh" | head -1 | cut -d'"' -f2)
+    gbuilt=$(sha256sum "$out/gateway" | cut -d' ' -f1)
+    if [ -n "$gembedded" ] && [ "$gembedded" = "$gbuilt" ]; then
+      printf 'gateway checksum: user-data matches the uploaded binary\n' >> "$STUB_TRANSCRIPT"
+    else
+      printf 'gateway checksum: MISMATCH (user-data %s, binary %s)\n' "${gembedded:-none}" "$gbuilt" >> "$STUB_TRANSCRIPT"
+    fi
+    sed -i 's/GATEWAY_SHA="[0-9a-f]\{64\}"/GATEWAY_SHA="<SHA>"/' "$out/user-data.sh"
+  fi
+
   # The same property for the other runner's binary: queuelab ships queuelabrun rather than building it on a
   # box that has no Go, and what the instance verifies must be what was uploaded.
   if [ -f "$out/user-data.sh" ] && [ -f "$out/queuelabrun" ]; then
@@ -168,6 +187,7 @@ run_scenario() {
       -e "s#/tmp/tmp\.[A-Za-z0-9]*#<TMP>#g" \
       -e "s#harness sha256 [0-9a-f]\{64\}#harness sha256 <SHA256>#g" \
       -e "s#^== queuelabrun .*, sha256 [0-9a-f]\{12\}\$#== queuelabrun <SIZE>, sha256 <SHA12>#" \
+      -e "s#^==   gateway [0-9a-f]\{12\}, benchharness [0-9a-f]\{12\}\$#==   gateway <SHA12>, benchharness <SHA12>#" \
       -e "s#^== source [0-9a-f]\{40\}.*#== source <COMMIT> <TREE STATE>#" \
       "$work/stdout.txt" "$work/stderr.txt" > "$work/messages.txt"
 
@@ -220,9 +240,20 @@ run_scenario() {
     if [ "$UPDATE" = "1" ]; then
       # A scenario whose user-data differs from the shared golden records its own, and one that matches does
       # not -- so a scenario stops having a private golden the moment it stops needing one.
+      #
+      # THE FIRST SCENARIO OF AN UPDATE REFRESHES THE SHARED GOLDEN instead, and that exception is what makes
+      # the rule work. Without it, a change to the runner leaves the shared golden stale, every scenario then
+      # differs from it, and every scenario gets a private copy -- seven near-identical files plus an orphan
+      # nothing reads. That happened twice while this suite was being written, and both times the stale file
+      # was the one an operator would have opened to check the payload.
       if [ "$udg" = "$GOLDEN/user-data.sh" ] && [ -f "$udg" ] \
          && ! diff -q "$udg" "$out/user-data.sh" >/dev/null; then
-        udg="$GOLDEN/user-data-$name.sh"
+        if [ "$ud_shared_refreshed" = "0" ]; then
+          ud_shared_refreshed=1
+          rm -f "$GOLDEN"/user-data-*.sh
+        else
+          udg="$GOLDEN/user-data-$name.sh"
+        fi
       fi
       cp "$out/user-data.sh" "$udg"
     elif [ ! -f "$udg" ]; then

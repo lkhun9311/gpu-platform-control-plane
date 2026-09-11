@@ -5,15 +5,15 @@ set -x
 BUCKET="stub-bucket"
 PREFIX="run"
 SOURCE_SHA="<SHA256>"
-GATEWAY_SHA="e5b66db56336cdda8f386eac73b2d9074c82b1316ac6c5d515d2d6313ed85350"
+GATEWAY_SHA="<SHA>"
 HARNESS_SHA="<SHA>"
 COMMIT="<COMMIT>"
 REPS="1"
-ARMS="shared timeSlicing mps"
+ARMS="R1 shared timeSlicing mps"
 RATE="9.85"
 PREMIUM_WEIGHT="1"
 NOISY_WEIGHT="0.054"
-PROBE_WEIGHT="0.0054"
+PROBE_WEIGHT="0"
 DURATION_MS="420000"
 DEADLINE_EPOCH=$(( $(date +%s) + 9000 ))
 upload() { aws s3 cp "$1" "s3://$BUCKET/$PREFIX/$2" || true; }

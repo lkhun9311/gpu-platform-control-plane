@@ -67,9 +67,15 @@ GW_IMAGE="${GW_IMAGE:-gateway:m5c}"
 # Below four the incremental interval is a bootstrap over very few blocks. Two is a floor the report will
 # tolerate, not a target anything argued for.
 REPS="${REPS:-4}"
-# Which sharing mechanism the shared arm uses. Both are run in a full matrix; a session that only has time
-# for one should say which rather than silently getting the default.
-ARMS="${ARMS:-shared timeSlicing mps}"
+# The arms, in the order they are run.
+#
+# R1 FIRST, and it is not a formality: it is the isolated baseline both bars are ratios against, so a run
+# that is cut short after one cell should have the denominator rather than a numerator with nothing to
+# divide by. It was absent from this default until the first paid run, whose readings then declined to
+# evaluate anything for want of it.
+#
+# A session that only has time for a subset should say which rather than silently getting the default.
+ARMS="${ARMS:-R1 shared timeSlicing mps}"
 
 k() { kubectl --context "$KCTX" "$@"; }
 # Both tee to the evidence log ONCE IT EXISTS, and only print before that.
@@ -589,14 +595,51 @@ spec:
 EOF
 }
 
+# What an engine that never became ready was actually doing, captured before the refusal.
+#
+# `MATRIX FAILED: engine b never became ready` is what the first paid run of this matrix printed, and the
+# whole log said nothing else about it. Whether the Pod was Pending for want of a device, CrashLooping on a
+# CUDA error, still pulling fifteen gigabytes of image, or killed for memory are four different faults with
+# four different fixes, and telling them apart cost a card.
+#
+# It goes to stdout so it lands in the run log the instance uploads, which is the only thing that outlives
+# the machine. Everything here is best-effort: this function runs on the failure path, so a kubectl that
+# also fails must not replace the diagnosis with its own error.
+engine_diagnosis() {
+  local ns="$1" deploy="$2"
+  echo "=== why $ns/$deploy never became ready ==="
+  k get pods -n "$ns" -o wide 2>&1 | sed 's/^/  /'
+  echo "--- deployment conditions ---"
+  k get deploy "$deploy" -n "$ns" -o jsonpath='{range .status.conditions[*]}{.type}={.status} {.reason}: {.message}{"\n"}{end}' 2>&1 | sed 's/^/  /'
+  echo "--- pod events, which name a scheduling or image failure ---"
+  k get events -n "$ns" --sort-by=.lastTimestamp 2>&1 | tail -20 | sed 's/^/  /'
+  echo "--- the engine's own output, which names a CUDA or memory failure ---"
+  k logs -n "$ns" "deploy/$deploy" --tail=40 --all-containers 2>&1 | sed 's/^/  /'
+  k logs -n "$ns" "deploy/$deploy" --tail=40 --all-containers --previous 2>/dev/null | sed 's/^/  [previous] /'
+  echo "--- what the node had left to give ---"
+  k get node "${GPU_NODE:-}" -o jsonpath='{.status.allocatable}' 2>&1 | sed 's/^/  /'
+  echo
+  echo "=== end of diagnosis ==="
+}
+
 deploy_arm() {
   local arm="$1"
   k delete namespace "$NS_A" "$NS_B" --wait=true >/dev/null 2>&1
   k create ns "$NS_A" >/dev/null; k create ns "$NS_B" >/dev/null
   case "$arm" in
-    shared)
+    R1|shared)
       # One engine with the whole card. Both policies point at the same namespace, so both tenants resolve
       # to it -- which is exactly M5-b's topology and exactly what makes their KV caches one cache.
+      #
+      # R1 IS THIS TOPOLOGY, and it differs only in the trace. `benchharness gen-trace --arm R1` filters the
+      # contending tenant out of the SAME trace, so premium arrives on the identical schedule it has in the
+      # contended arms and the baseline is not inflated by running premium at twice its share. The matrix
+      # already passes --arm "$arm", so nothing else here has to know.
+      #
+      # It was missing entirely. deploy_arm had cases for shared and for the sharing pair and none for R1,
+      # so the runner could not produce the isolated baseline that is the DENOMINATOR of both of this
+      # study's bars. The first paid run made that concrete: the readings declined to evaluate anything,
+      # correctly, for want of an R1 the matrix had no way to measure.
       #
       # The plugin comes first and is not optional. This arm's engine asks for one nvidia.com/gpu, and until
       # config/nvidia-device-plugin-whole-card existed nothing advertised one on this node -- so the arm
@@ -604,7 +647,8 @@ deploy_arm() {
       apply_device_plugin shared
       k apply -f config/vllm/deployment.yaml -n "$NS_A" >/dev/null || fail "apply the exclusive engine"
       k apply -f config/vllm/service.yaml -n "$NS_A" >/dev/null || fail "apply the exclusive service"
-      k rollout status deploy/vllm-qwen25-3b -n "$NS_A" --timeout=900s >/dev/null || fail "the exclusive engine never became ready"
+      k rollout status deploy/vllm-qwen25-3b -n "$NS_A" --timeout=900s >/dev/null \
+        || { engine_diagnosis "$NS_A" vllm-qwen25-3b; fail "the exclusive engine never became ready -- the diagnosis above says what it was doing"; }
       routing_record "$NS_A" vllm-qwen25-3b
       PREMIUM_NS="$NS_A"; STANDARD_NS="$NS_A"
       ;;
@@ -612,8 +656,15 @@ deploy_arm() {
       apply_device_plugin "$arm"
       k apply -f config/vllm-shared/engine-a.yaml -n "$NS_A" >/dev/null || fail "apply engine a"
       k apply -f config/vllm-shared/engine-b.yaml -n "$NS_B" >/dev/null || fail "apply engine b"
-      k rollout status deploy/vllm-shared-a -n "$NS_A" --timeout=900s >/dev/null || fail "engine a never became ready"
-      k rollout status deploy/vllm-shared-b -n "$NS_B" --timeout=900s >/dev/null || fail "engine b never became ready"
+      # Both are diagnosed on failure, and BOTH are diagnosed when either fails.
+      #
+      # The engines share one card, so the one that came up is half the explanation for the one that did
+      # not: what engine a reserved is what engine b did not get. Reporting only the failing Pod would leave
+      # the reader with the symptom and not the arithmetic.
+      k rollout status deploy/vllm-shared-a -n "$NS_A" --timeout=900s >/dev/null \
+        || { engine_diagnosis "$NS_A" vllm-shared-a; fail "engine a never became ready -- the diagnosis above says what it was doing"; }
+      k rollout status deploy/vllm-shared-b -n "$NS_B" --timeout=900s >/dev/null \
+        || { engine_diagnosis "$NS_B" vllm-shared-b; engine_diagnosis "$NS_A" vllm-shared-a; fail "engine b never became ready -- the diagnosis above says what it and engine a were doing, and on one card those are the same question"; }
       # Both engines must be on the SAME node or they are not sharing a card. max_size 1 should guarantee
       # it; checking is cheap and the failure is invisible in the numbers.
       na=$(k get pod -n "$NS_A" -l app.kubernetes.io/component=vllm-shared -o jsonpath='{.items[0].spec.nodeName}')

@@ -25,20 +25,21 @@ aws s3 cp s3://stub-bucket/run/preflight-node-cards.txt <OUT>/preflight-node-car
 aws ec2 terminate-instances --region ap-northeast-2 --instance-ids i-0stub
 aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0stub --query Reservations[0].Instances[0].State.Name --output text
 harness checksum: user-data matches the uploaded binary
+gateway checksum: user-data matches the uploaded binary
 --- exit 0
 --- messages
 == study  M5-c sharing matrix -- does giving each tenant its own engine on a shared card protect the tail
-== arms   R1 plus [shared timeSlicing mps], 1 repetition(s) each
+== arms   [R1 shared timeSlicing mps], 1 repetition(s) each
 == output <OUT>
-== load   rate 9.85/s, 420000ms, weights premium=1 noisy=0.054 probe=0.0054
+== load   rate 9.85/s, 420000ms, weights premium=1 noisy=0.054 probe=0
 ==        (carried from the whole-card run; the pilot's job is to re-derive them for a half-card engine)
 == credentials expire in 719 min; this session needs about 74
 == source <COMMIT> <TREE STATE>
 == building the gateway and the harness for the instance, which has no Go
-==   gateway e5b66db56336, benchharness 78ad1b602c0a
+==   gateway <SHA12>, benchharness <SHA12>
 == uploading the source and the binaries
 == g5.2xlarge is offered in: ap-northeast-2a ap-northeast-2c
-== user-data: 8348 of 25600 encoded bytes
+== user-data: 8344 of 25600 encoded bytes
 == launching g5.2xlarge spot (max $1.10/h)
 == trying ap-northeast-2a (subnet-ap-northeast-2a)
 == instance i-0stub

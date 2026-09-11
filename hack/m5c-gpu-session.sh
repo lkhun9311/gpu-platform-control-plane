@@ -46,7 +46,14 @@ MAX_SPOT_PRICE="${MAX_SPOT_PRICE:-1.10}"
 # one on the machine that is billing.
 BACKSTOP_SECONDS="${BACKSTOP_SECONDS:-9000}"
 HARD_STOP_SECONDS="${HARD_STOP_SECONDS:-8400}"
-ARMS="${ARMS:-shared timeSlicing mps}"
+# The same arms, in the same order, as hack/m5c-matrix.sh's own default.
+#
+# This value is EXPORTED into the matrix, so when the two disagree this one wins and the matrix's default is
+# dead text. It said "shared timeSlicing mps" while the matrix said "R1 shared timeSlicing mps", which would
+# have bought a run with no isolated baseline for the second time running. A unit test now fails when they
+# drift, because this repository has already paid for exactly this shape once with REPS: two scripts that do
+# not read each other, one of them quietly halving what the study was designed around.
+ARMS="${ARMS:-R1 shared timeSlicing mps}"
 OUT="${OUT:-hack/m5c-$(date -u +%Y%m%d-%H%M%S)}"
 STACK="m5c-gpu"
 
@@ -74,7 +81,8 @@ RUN_ID="$(basename "$OUT")"
 mkdir -p "$OUT"
 
 say "study  M5-c sharing matrix -- does giving each tenant its own engine on a shared card protect the tail"
-say "arms   R1 plus [$ARMS], $REPS repetition(s) each"
+# The arm list as it is, not "R1 plus" it. R1 is now IN the list, and the old wording printed it twice.
+say "arms   [$ARMS], $REPS repetition(s) each"
 say "output $OUT"
 
 # ---------------------------------------------------------------- the load
@@ -90,7 +98,22 @@ say "output $OUT"
 RATE="${RATE:-9.85}"
 PREMIUM_WEIGHT="${PREMIUM_WEIGHT:-1}"
 NOISY_WEIGHT="${NOISY_WEIGHT:-0.054}"
-PROBE_WEIGHT="${PROBE_WEIGHT:-0.0054}"
+# ZERO, and this is a correction rather than a carried value.
+#
+# The probe tenants straddle the ADMISSION guard's eligibility threshold. This study runs the gateway with
+# -admission-mode=off, so they measure nothing here -- and they cost something: the first paid run sent 41
+# probe requests that the gateway turned away on credentials, because the replay carries API keys for the
+# premium and contending tenants and the trace generated four. The report said so in as many words, marking
+# both probe rows VOID.
+#
+# hack/lib/spot-run.sh's header records this exact failure happening twice before: "one paid run answered a
+# quarter of every replay with 401, the next answered its probe tenants with 403." That was the third. The
+# value here was carried from hack/m5b-price-of-protection.sh, which has NO gateway in its path and so needs
+# no key for anything.
+#
+# Zero removes the tenants rather than giving them keys, because a tenant that measures nothing this study
+# varies is load wearing a measurement's name. gen-trace omits them entirely at 0.
+PROBE_WEIGHT="${PROBE_WEIGHT:-0}"
 DURATION_MS="${DURATION_MS:-420000}"
 say "load   rate ${RATE}/s, ${DURATION_MS}ms, weights premium=$PREMIUM_WEIGHT noisy=$NOISY_WEIGHT probe=$PROBE_WEIGHT"
 say "       (carried from the whole-card run; the pilot's job is to re-derive them for a half-card engine)"
@@ -134,8 +157,11 @@ print(int((e-datetime.datetime.now(datetime.timezone.utc)).total_seconds()//60))
   [ "$left" -ge "$need_min" ] || fail "credentials expire in ${left} minutes and this session needs about ${need_min}. Re-authenticate first -- a run whose credentials die mid-flight cannot terminate its own instance, and the trap that tries will be refused. Type:  aws sso logout; aws sso login --profile <yours>"
 }
 # 25 min bring-up + 1.5 min per arm + 7 min per arm-repetition + 15 min for evidence and teardown.
+#
+# R1 is counted by the loop rather than added afterwards. It used to be a +1 beside it, from when the matrix
+# had no R1 arm and the baseline was imagined to come from somewhere else. Now that ARMS carries it, the
+# increment would charge the estimate for a fifth arm that does not exist.
 arm_count=0; for _a in $ARMS; do arm_count=$(( arm_count + 1 )); done
-arm_count=$(( arm_count + 1 ))   # R1
 require_credential_margin $(( 25 + arm_count * 3 / 2 + arm_count * REPS * 7 + 15 ))
 
 # ---------------------------------------------------------------- what the instance builds from
