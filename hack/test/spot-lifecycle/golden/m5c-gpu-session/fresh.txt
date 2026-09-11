@@ -40,7 +40,7 @@ gateway checksum: user-data matches the uploaded binary
 == output <OUT>
 == load   rate 9.85/s, 420000ms, weights premium=1 noisy=0.054 probe=0
 ==        (carried from the whole-card run; the pilot's job is to re-derive them for a half-card engine)
-== credentials expire in 719 min; this session needs about 74
+== credentials expire in 719 min; this session needs about 74 plus 30 of headroom
 == source <COMMIT> <TREE STATE>
 == building the gateway and the harness for the instance, which has no Go
 ==   gateway <SHA12>, benchharness <SHA12>

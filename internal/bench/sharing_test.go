@@ -635,3 +635,90 @@ func TestTheSessionAndTheMatrixAgreeOnTheArms(t *testing.T) {
 			"ratios against. A run without it can produce numerators and nothing to divide them by", want, ArmR1)
 	}
 }
+
+// Every arm the matrix runs by default must have a branch that can deploy it.
+//
+// ARMS and deploy_arm are the same list written twice, and they disagreed: the default named R1 and
+// deploy_arm had cases only for shared and for the sharing pair. A run would have reached the R1 cell,
+// fallen through the case with PREMIUM_NS unset, and deployed nothing before replaying at a gateway that
+// was not there.
+//
+// The version of this defect that was actually bought is the mirror image -- deploy_arm had no R1 case and
+// ARMS did not name it either, so the matrix simply could not produce the baseline both bars divide by, and
+// the readings declined to evaluate anything. Either way the check is the same: the two lists are one list.
+func TestEveryDefaultArmHasADeployBranch(t *testing.T) {
+	body := readRepoFile(t, "hack/m5c-matrix.sh")
+
+	armsRe := regexp.MustCompile(`(?m)^ARMS="\$\{ARMS:-([^}]*)\}"\s*$`)
+	m := armsRe.FindStringSubmatch(body)
+	if m == nil {
+		t.Fatal("hack/m5c-matrix.sh has no ARMS default in the expected form")
+	}
+
+	// The case labels deploy_arm offers, e.g. "R1|shared)" and "timeSlicing|mps)".
+	deploy := body[strings.Index(body, "deploy_arm() {"):]
+	if i := strings.Index(deploy, "\nrouting_record"); i > 0 {
+		deploy = deploy[:i]
+	}
+	branches := map[string]bool{}
+	for _, c := range regexp.MustCompile(`(?m)^\s{4}([A-Za-z0-9|]+)\)`).FindAllStringSubmatch(deploy, -1) {
+		for label := range strings.SplitSeq(c[1], "|") {
+			branches[label] = true
+		}
+	}
+	if len(branches) == 0 {
+		t.Fatal("no case branches found in deploy_arm; this check would pass vacuously")
+	}
+
+	for arm := range strings.FieldsSeq(m[1]) {
+		if !branches[arm] {
+			t.Errorf("the default arm set runs %q and deploy_arm has no branch for it, so that cell would "+
+				"deploy nothing and then replay against whatever the previous arm left behind", arm)
+		}
+	}
+}
+
+// Every tenant the trace can generate must have an API key, or not be generated at all.
+//
+// The gateway resolves a tenant from an API key and refuses a request that carries none. The matrix's replay
+// carries keys for the premium and contending tenants; gen-trace also emits two probe tenants whenever
+// their weight is above zero, and those have no key. The first working pilot sent 41 such requests and the
+// gateway turned every one away, which the report recorded as two VOID rows.
+//
+// hack/lib/spot-run.sh's header already names this failure twice -- "one paid run answered a quarter of
+// every replay with 401, the next answered its probe tenants with 403" -- so the run that found it was the
+// third. This is the check that makes a fourth fail here instead.
+func TestNoTenantIsSentWithoutAKey(t *testing.T) {
+	matrix := readRepoFile(t, "hack/m5c-matrix.sh")
+	session := readRepoFile(t, "hack/m5c-gpu-session.sh")
+
+	keys := regexp.MustCompile(`--api-keys "([^"]*)"`).FindStringSubmatch(matrix)
+	if keys == nil {
+		t.Fatal("the matrix's replay passes no --api-keys at all")
+	}
+	keyed := map[string]bool{}
+	for pair := range strings.SplitSeq(keys[1], ",") {
+		if name, _, ok := strings.Cut(pair, "="); ok {
+			keyed[strings.TrimSpace(name)] = true
+		}
+	}
+	for _, tenant := range []string{PremiumTenant, NoisyTenant} {
+		if !keyed[tenant] {
+			t.Errorf("the trace sends %s and the replay carries no key for it; the gateway would refuse "+
+				"every one of its requests", tenant)
+		}
+	}
+
+	// The probe tenants are the ones with no key. They may only be generated if they are given one.
+	probeWeight := regexp.MustCompile(`(?m)^PROBE_WEIGHT="\$\{PROBE_WEIGHT:-([^}]*)\}"`).FindStringSubmatch(session)
+	if probeWeight == nil {
+		t.Fatal("hack/m5c-gpu-session.sh has no PROBE_WEIGHT default in the expected form")
+	}
+	probesKeyed := keyed[ProbeUnderTenant] && keyed[ProbeOverTenant]
+	if probeWeight[1] != "0" && !probesKeyed {
+		t.Errorf("PROBE_WEIGHT defaults to %q, so gen-trace emits %s and %s, and the replay carries keys for "+
+			"neither. Either set it to 0 or give them keys -- requests the gateway refuses are not a "+
+			"measurement, and this run's report marks them VOID",
+			probeWeight[1], ProbeUnderTenant, ProbeOverTenant)
+	}
+}

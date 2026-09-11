@@ -605,6 +605,26 @@ EOF
 # It goes to stdout so it lands in the run log the instance uploads, which is the only thing that outlives
 # the machine. Everything here is best-effort: this function runs on the failure path, so a kubectl that
 # also fails must not replace the diagnosis with its own error.
+# What the engine ACTUALLY allocated, asked of the engine rather than computed.
+#
+# internal/bench/sharing.go sizes this run and says of its own arithmetic: "ESTIMATED, and the only
+# estimated input here. vLLM prints the block count it actually allocated; compare KVTokensPerEngine against
+# it at session start rather than trusting this." Nothing was doing the comparing.
+#
+# It matters most for the split arms and it is cheap everywhere, so it runs for every engine. Two engines at
+# --gpu-memory-utilization=0.475 claim 21,877 of an A10G's 23,028 MiB and leave 1,151 for two CUDA contexts
+# and the driver's reserve, which is the leading hypothesis for the engine b that would not start on
+# 2026-09-11 -- and a hypothesis is all it is, because that run captured nothing that could settle it. These
+# lines are what settle it next time, whether the arm succeeds or fails.
+engine_kv_report() {
+  local ns="$1" deploy="$2"
+  echo "--- $ns/$deploy: what the engine says it allocated ---"
+  k logs -n "$ns" "deploy/$deploy" --tail=400 2>/dev/null \
+    | grep -iE "KV cache|GPU blocks|gpu_memory_utilization|memory profiling|Available KV cache" \
+    | tail -8 | sed 's/^/  /' \
+    || echo "  (the engine printed no line naming its KV cache, which is itself worth knowing)"
+}
+
 engine_diagnosis() {
   local ns="$1" deploy="$2"
   echo "=== why $ns/$deploy never became ready ==="
@@ -649,6 +669,7 @@ deploy_arm() {
       k apply -f config/vllm/service.yaml -n "$NS_A" >/dev/null || fail "apply the exclusive service"
       k rollout status deploy/vllm-qwen25-3b -n "$NS_A" --timeout=900s >/dev/null \
         || { engine_diagnosis "$NS_A" vllm-qwen25-3b; fail "the exclusive engine never became ready -- the diagnosis above says what it was doing"; }
+      engine_kv_report "$NS_A" vllm-qwen25-3b
       routing_record "$NS_A" vllm-qwen25-3b
       PREMIUM_NS="$NS_A"; STANDARD_NS="$NS_A"
       ;;
@@ -670,6 +691,8 @@ deploy_arm() {
       na=$(k get pod -n "$NS_A" -l app.kubernetes.io/component=vllm-shared -o jsonpath='{.items[0].spec.nodeName}')
       nb=$(k get pod -n "$NS_B" -l app.kubernetes.io/component=vllm-shared -o jsonpath='{.items[0].spec.nodeName}')
       [ -n "$na" ] && [ "$na" = "$nb" ] || fail "the two engines are on different nodes ($na, $nb); that is not sharing a card"
+      engine_kv_report "$NS_A" vllm-shared-a
+      engine_kv_report "$NS_B" vllm-shared-b
       routing_record "$NS_A" vllm-shared-a
       routing_record "$NS_B" vllm-shared-b
       PREMIUM_NS="$NS_A"; STANDARD_NS="$NS_B"

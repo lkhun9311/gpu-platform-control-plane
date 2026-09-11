@@ -153,9 +153,35 @@ import datetime,sys
 e=datetime.datetime.fromisoformat(sys.argv[1].replace('Z','+00:00'))
 print(int((e-datetime.datetime.now(datetime.timezone.utc)).total_seconds()//60))
 " "$newest" 2>/dev/null || echo 0)
-  say "credentials expire in ${left} min; this session needs about ${need_min}"
-  [ "$left" -ge "$need_min" ] || fail "credentials expire in ${left} minutes and this session needs about ${need_min}. Re-authenticate first -- a run whose credentials die mid-flight cannot terminate its own instance, and the trap that tries will be refused. Type:  aws sso logout; aws sso login --profile <yours>"
+  # HEADROOM on top of the estimate, because the estimate is a model and the check is about money.
+  #
+  # This used to be a bare `left >= need`, and on 2026-09-11 it passed a launch with 86 minutes against an
+  # estimate of 74 -- twelve minutes of margin on a number nobody had measured. The run had to be killed by
+  # hand. A guard that permits a launch it would have refused one minute later is a rounding rule, not a
+  # guard.
+  #
+  # Thirty minutes, flat rather than proportional, because what it covers does not scale with the run: a
+  # slow image pull, a Spot interruption and a retry, an arm that hits its rollout timeout instead of its
+  # expected time. The evidence download and the terminate call both need credentials AFTER the last cell,
+  # and those are the two that cost something when they fail.
+  local margin_min="${CREDENTIAL_MARGIN_MIN:-30}"
+  say "credentials expire in ${left} min; this session needs about ${need_min} plus ${margin_min} of headroom"
+  [ "$left" -ge $(( need_min + margin_min )) ] || fail "credentials expire in ${left} minutes. This session estimates ${need_min} and requires ${margin_min} minutes of headroom on top, because the estimate is a model and the evidence download and the terminate call both come after the last cell. Re-authenticate first -- a run whose credentials die mid-flight cannot terminate its own instance, and the trap that tries will be refused. Type:  aws sso logout; aws sso login --profile <yours>"
 }
+# The runtime model, refitted on 2026-09-11 against a run that was actually measured.
+#
+# The first numbers were carried from hack/m5b-price-of-protection.sh, which rents a bare instance and runs
+# `docker run`. This one builds a cluster, so the shape is different. What the measured run did, from the
+# S3 object timestamps of a session that reached its second arm:
+#
+#   launch -> user-data executing            63 s
+#   -> driver, toolkit, kind, node toolkit    2 min 43 s   (the AMI already ships nvidia-ctk)
+#   -> CRDs, RBAC, plugin, first engine ready 8 min        (the 15.6 GB image pull dominates)
+#   -> one 420 s replay complete              7 min
+#
+# So about 11 minutes of bring-up, an 8-minute first engine, and roughly 9 minutes per cell after it. The
+# estimate below keeps 25 minutes of fixed cost rather than 11: the measured bring-up had a warm AMI and no
+# Spot retry, and a credential check is the wrong place to be optimistic.
 # 25 min bring-up + 1.5 min per arm + 7 min per arm-repetition + 15 min for evidence and teardown.
 #
 # R1 is counted by the loop rather than added afterwards. It used to be a +1 beside it, from when the matrix
