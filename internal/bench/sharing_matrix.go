@@ -286,6 +286,14 @@ func sharingReadingFourB(a SharingArms, premiumTenant, contenderTenant string) P
 		if s.TailSampleSize < MinTailSamples {
 			thin = append(thin, fmt.Sprintf("%s completed %d %s requests", s.Arm, s.TailSampleSize, premiumTenant))
 		}
+		// EVERY REPETITION, not the pool. Pooling adds the blocks together, so an arm of 3000, 3000 and 50
+		// completions clears the floor with 6050 while its third block's "p99" is that block's maximum --
+		// and the table prints reps=3 and a healthy pooled count with nothing saying one paid block was
+		// unusable. MinRepetitionTail is carried on the summary for exactly this and no reading used it.
+		if s.RepetitionCount > 1 && s.MinRepetitionTail > 0 && s.MinRepetitionTail < MinTailSamples {
+			thin = append(thin, fmt.Sprintf("%s has a repetition with only %d %s completions (pooled: %d over %d repetitions)",
+				s.Arm, s.MinRepetitionTail, premiumTenant, s.TailSampleSize, s.RepetitionCount))
+		}
 		if !wantContender {
 			return
 		}
@@ -303,6 +311,40 @@ func sharingReadingFourB(a SharingArms, premiumTenant, contenderTenant string) P
 	check(a.Shared, true)
 	for _, s := range a.Sharing {
 		check(s, true)
+	}
+
+	// The arms must have been repeated the same number of times.
+	//
+	// The confirmatory run is three separate single-repetition sessions pooled at report time, so an arm
+	// that lost a session is pooled from two while the others come from three. Reading 3's threshold is the
+	// control's repetition-to-repetition spread, and comparing an arm measured on two instances against a
+	// spread measured over three weights instance variation differently by arm -- while the report prints a
+	// perfectly ordinary POSITIVE or NEGATIVE.
+	counts := map[string]int{}
+	for _, s := range append([]ArmSummary{a.R1, a.Shared}, a.Sharing...) {
+		if s.Arm != "" {
+			counts[s.Arm] = s.RepetitionCount
+		}
+	}
+	want, from := 0, ""
+	for _, arm := range []string{ArmR1, ArmShared} {
+		if n, ok := counts[arm]; ok && n > 0 {
+			want, from = n, arm
+			break
+		}
+	}
+	if want > 0 {
+		var uneven []string
+		for arm, n := range counts {
+			if n != want {
+				uneven = append(uneven, fmt.Sprintf("%s has %d", arm, n))
+			}
+		}
+		if len(uneven) > 0 {
+			sort.Strings(uneven)
+			thin = append(thin, fmt.Sprintf("the arms were not repeated equally: %s has %d repetition(s) and %s",
+				from, want, strings.Join(uneven, ", ")))
+		}
 	}
 
 	if len(thin) == 0 {

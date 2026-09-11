@@ -293,8 +293,16 @@ func TestReadingThreeFiresWhenNoArmBeatsTheControlsOwnSpread(t *testing.T) {
 // One repetition means there is no spread, and the readings that compare against one must decline.
 func TestTheSpreadReadingsDeclineAtOneRepetition(t *testing.T) {
 	m := healthyMatrix()
-	m.Shared.RepetitionTTFTMsP99 = []float64{1400}
-	m.Shared.RepetitionCount = 1
+	// EVERY arm at one repetition, not only the control. Reading 4b now refuses a matrix whose arms were
+	// repeated unequally, because pooling two instances against a spread measured over three weights
+	// instance variation differently by arm -- so a fixture that changed the control alone was describing a
+	// run that would be refused before these readings were reached.
+	one := func(s *ArmSummary) { s.RepetitionCount = 1; s.RepetitionTTFTMsP99 = s.RepetitionTTFTMsP99[:1] }
+	one(&m.R1)
+	one(&m.Shared)
+	for i := range m.Sharing {
+		one(&m.Sharing[i])
+	}
 
 	res := EvaluateSharingMatrix(m, PremiumTenant, NoisyTenant)
 
@@ -688,5 +696,57 @@ func TestTheWinnerIsChosenByThroughputAndNotVolume(t *testing.T) {
 	if one.Cell != ArmMPS {
 		t.Errorf("the winner is %q. timeSlicing produced 3000 tokens in 450 s and mps 2990 in 420 s, so mps "+
 			"has the higher contender throughput and the page chooses on throughput, not on volume", one.Cell)
+	}
+}
+
+// Pooling adds repetitions together, so one unusable block disappears into two healthy ones.
+//
+// An arm of 3000, 3000 and 50 premium completions clears the hundred-sample floor with 6050 pooled, while
+// the third block's "p99" is that block's maximum. The table prints reps=3 and a healthy pooled count and
+// nothing says a paid block was unusable. MinRepetitionTail is carried on the summary for exactly this
+// question and no reading was asking it.
+func TestOneThinRepetitionIsNotHiddenByPooling(t *testing.T) {
+	m := healthyMatrix()
+	arm := healthyArm(ArmTimeSlicing, 900, 60, 38_000)
+	arm.TailSampleSize = 6050
+	arm.RepetitionCount = 3
+	arm.MinRepetitionTail = 50
+	m.Sharing = []ArmSummary{arm}
+
+	res := EvaluateSharingMatrix(m, PremiumTenant, NoisyTenant)
+
+	fourB := sharingReadingByID(t, res, "4b")
+	if !fourB.Fired {
+		t.Fatalf("reading 4b did not fire for an arm one of whose three repetitions completed 50 premium "+
+			"requests. Pooled it reads 6050, which is why the pooled count alone cannot see this: %s", fourB.Detail)
+	}
+	if !strings.Contains(fourB.Detail, "50") {
+		t.Errorf("reading 4b fired without naming the thin repetition, so a reader cannot tell which paid "+
+			"block was unusable: %s", fourB.Detail)
+	}
+}
+
+// Arms repeated a different number of times are not comparable, and the report would not say so.
+//
+// The confirmatory run is three separate single-repetition sessions pooled at report time. An arm that lost
+// a session is pooled from two while the others come from three, and reading 3's threshold is the control's
+// spread across those repetitions -- so instance variation ends up weighted differently by arm while the
+// output looks like an ordinary verdict.
+func TestArmsRepeatedUnequallyAreRefused(t *testing.T) {
+	m := healthyMatrix()
+	lost := healthyArm(ArmTimeSlicing, 900, 60, 38_000)
+	lost.RepetitionCount = 2
+	lost.RepetitionTTFTMsP99 = []float64{899, 901}
+	m.Sharing = []ArmSummary{lost, healthyArm(ArmMPS, 1000, 62, 37_000)}
+
+	res := EvaluateSharingMatrix(m, PremiumTenant, NoisyTenant)
+
+	fourB := sharingReadingByID(t, res, "4b")
+	if !fourB.Fired {
+		t.Fatalf("reading 4b did not fire for a matrix whose timeSlicing arm has 2 repetitions and whose "+
+			"others have 3: %s", fourB.Detail)
+	}
+	if !strings.Contains(fourB.Detail, "not repeated equally") {
+		t.Errorf("reading 4b fired for some other reason and not the unequal repetitions: %s", fourB.Detail)
 	}
 }

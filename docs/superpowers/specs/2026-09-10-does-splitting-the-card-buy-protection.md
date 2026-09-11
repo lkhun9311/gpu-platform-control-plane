@@ -201,6 +201,19 @@ the nearest-rank percentile, not chosen here.
 because the control was the denominator of every ratio. Here a split card gives each engine less to work
 with, so an arm collapsing is a live outcome for the arms themselves and not just for the baseline.
 
+**And to every REPETITION, not to the pool.** Added 2026-09-11 alongside the reading 5 amendment, and for
+the same reason: an independent review pointed out that pooling hides the thing the floor exists to catch.
+Three repetitions of 3000, 3000 and 50 premium completions clear a hundred-sample floor with 6050 pooled,
+while the third block's "p99" is that block's slowest request — and the table prints `reps=3` and a healthy
+count with nothing saying a paid block was unusable.
+
+**A matrix whose arms were repeated unequally is INVALID too.** The confirmatory run is three separate
+single-repetition sessions pooled at report time, so an arm that lost a session is pooled from two while
+the others come from three. Reading 3's threshold is the control's spread across its repetitions, and an arm
+measured on two instances held against a spread measured over three weights instance variation differently
+by arm — while the report prints a perfectly ordinary POSITIVE or NEGATIVE. Neither of these moves a
+threshold; both refuse evidence that cannot support the readings below them.
+
 ### 4c. The sharing mode did not engage — INVALID for that arm
 
 If the MPS arm ran without the control daemon reachable, it is the time-slicing arm under another name.
@@ -364,11 +377,32 @@ before the run finishes.
   arrival trace, two mechanisms.
 - **Anything about what this costs to operate.** Every cost here is capacity and tenant share, measured on
   Spot for under two hours. It is not an operating cost model.
+- **That a difference between the arms is caused by the topology rather than by the order they ran in.**
+  This one is a correction, and it is the clearest thing an independent review told this page that it had
+  got wrong.
+
+  Every run measures `R1 → shared → timeSlicing → mps`, always. R1 therefore always meets a cold engine and
+  a freshly built cluster, and `mps` always meets a card that has been under load for the best part of an
+  hour and a device plugin that has been swapped twice. Any thermal drift, clock behaviour or teardown
+  residue is **perfectly confounded with the arm**.
+
+  An earlier draft answered this by pointing at the confirmatory run's three separate instances. That answer
+  was about the wrong question. Separate instances widen the *spread* reading 3 compares against, which is an
+  estimate of variability; they do nothing about the ordering, because each of the three repeats the same
+  sequence. The confounding survives all three.
+
+  It is left in place rather than randomised, and the reason is a trade the page should state rather than
+  hide. R1 runs first so that a session cut short after one cell holds the denominator both bars divide by
+  instead of a numerator with nothing under it, and the plugin switches are cheaper in a fixed order than in
+  a shuffled one. What that buys is recoverability; what it costs is this. **A result here is a difference
+  between (arm, position) pairs, and a reader who wants the topology alone would need the order reversed in
+  a second run** — which this page does not budget for and does not pretend to.
 
 ## What was decided before any data
 
 The bars, the arm set, the reading order, the outcome space including reading 5, the floor applied to every
-arm rather than the control alone, and the requirement that a pilot derive the load. Recorded here so that
+arm rather than the control alone, the requirement that a pilot derive the load, and the decision to run the
+arms in a fixed order with what that costs written down beside what it buys. Recorded here so that
 what a later reader compares the results against is this page rather than a memory of it.
 
 **And, from 2026-09-10 and still before any card:** the platform, the instance type, the corrected budget,
