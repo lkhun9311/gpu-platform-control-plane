@@ -75,7 +75,9 @@ the pilot is not bought. Nothing here reads a result, because there are no resul
 back a table, and the table's own wording — a censored tail — points at the load rather than at the tunnel.
 A reader would have re-derived the load and bought another card.
 
-All fourteen are fixed. Each is pinned by a test that was deliberately broken to confirm it goes red, or by
+All fourteen are fixed. **Thirteen more followed on 2026-09-11**, from a second independent review and from
+a mutation battery run against the scorer's own tests, and they are listed in the section below this one.
+Each is pinned by a test that was deliberately broken to confirm it goes red, or by
 `hack/test/rehearse-m5c-matrix.sh`, which runs the matrix itself on a kind cluster with stub engines and
 simulated devices and asserts that its readings could be *evaluated* over the evidence it wrote — not merely
 that they printed. Defects 13 and 14 were found by that rehearsal on its first pass and are not reachable by
@@ -102,6 +104,49 @@ request travels key → tenant → `GPUQuotaPolicy` → namespace → `Inference
 asserts that each tenant reached **its own** engine rather than that both got HTTP 200, because both
 tenants routed to one engine also returns two 200s, and that is the `shared` topology wearing a split arm's
 name.
+
+### Thirteen more, on 2026-09-11
+
+Two of these came from running the matrix on a free cluster, three from a mutation battery run against the
+scorer's own tests, and the rest from a second independent review. **Most were in code written in the
+previous two days, and the unit tests were green throughout** — the fixtures happened to use numbers where
+the wrong quantity and the right one move together.
+
+| # | what was wrong | what a reader would have seen |
+| --- | --- | --- |
+| 15 | Nothing checked that the `mps` arm's engines were MPS **clients** — only that the control daemon had rolled out | the server half of a two-sided arrangement. An arm that fell back IS the time-slicing arm, so the study would have compared two mechanisms having measured one twice, with every number looking ordinary |
+| 16 | The session printed `SESSION DONE` naming an evidence directory it never created | the instance's uploader ends in `\|\| true` by design, so a marker can be written while the archive never arrives |
+| 17 | Reading 2 measured the contender's **share** of an arm's output; the page asks for its **output** | a control at 60k+40k against an arm at 30k+20k gave the contender half as much work and reported **1.00**, because the share is 40% in both. Reading 1 would have called it the deliverable |
+| 18 | Reading 1's price was the arm's **aggregate** throughput over R1's **premium-only** throughput | premium at 10 tok/s plus a contender at 10, against an R1 at 20, reads as **1.00** where premium actually got half. That number goes in the write-up's first sentence |
+| 19 | Reading 4c could not fire on anything the runner produced | nothing outside the unit tests populated its refusals map. The one registered outcome meant to identify an MPS failure was unreachable |
+| 20 | Any non-zero refusal counted as starvation | one broken stream among 2,879 timeouts printed "refused work, not merely late work" |
+| 21 | A censored or thin **R1** was divided by | every bar is a ratio against that baseline, so a lower bound was reported as a measurement |
+| 22 | An INVALID sharing run exited **zero** | automation writing `report … \|\| fail` would accept a run the readings had just declared unusable |
+| 23 | **The stream bar was pinned by no test**, and closing that left an outcome with no reading at all | an arm holding the tail inside 2x while its stream runs at 10x fires none of 1, 2, 3 or 5. **The identical gap this page was written to close, one bar over** |
+| 24 | Reading 2's own gate was equally unpinned | relaxing it to the tail alone would credit an arm with a tail it never delivered |
+| 25 | Tokens that arrived on a stream which then **broke** counted as completed output | the guard is on HTTP status and a broken stream keeps 200, so `report.go` was not honouring its own comment. Half the contender's output read as **97%** |
+| 26 | The **control's** censoring was never a precondition | R1 was fixed and `shared` was not, and `shared` is what every improvement is measured from |
+| 27 | Reading 3 could fire with **no sharing arm present at all** | the guard read `scorable == 0 && len(all) > 0`, so an empty set went past it and the report concluded "splitting the card changes nothing" over evidence in which nothing was split |
+| 28 | The winner was chosen by token **volume**, not throughput | `contenderRel` divides by the same control for both candidates, so an arm that took longer to drain wins with a lower rate |
+| 29 | The rehearsal claimed "the readings below it were reached" | a fired reading 4 returns immediately. It claimed a verification that had not happened. One scorer test was similarly weak, logging an unexpected answer and matching `INVALID` against reading *names* |
+| 30 | The refusal workflow was inconsistent | a failed MPS daemon rollout ended the session recording nothing, while the client check recorded and continued — and the session then demanded evidence from the arm it had refused |
+| 31 | The matrix budgeted cells against the **instance's** backstop while the wrapper gives up sooner | a workload fitting the instance and not the wrapper was approved, then cut — and evidence is archived only after the matrix returns, so every completed cell would have left with the instance |
+| 32 | The code and this document disagreed about reading 5 | recorded as an amendment above rather than left as a silent divergence |
+| 33 | Starvation counted **requests** while the reading is about **output**, and counted transport failures as refusals | a contender backend whose connections fail produces hundreds of those while premium stays healthy. That is broken delivery, not a system withholding service |
+| 34 | Nothing compared the commit the instance recorded against the one the session shipped | the run id is the output directory's basename and the bucket keeps objects for thirty days, so a reused name returns **a previous experiment's numbers** under this run's |
+| 35 | The credential check could pass on **another profile's** expiry | an active role with 20 minutes left beside another profile's 12 hours read as 12 hours, and the run would lose download and termination partway through |
+| 36 | Reading 4b's floor applied to the **pool**, which is what hides a bad block | 3000, 3000 and 50 completions clear a hundred-sample floor at 6,050 while the third block's p99 is its slowest request |
+| 37 | Arms repeated **unequally** were accepted | the confirmatory run is three separate sessions, so an arm that lost one is pooled from two against a spread measured over three |
+
+**Defects 23 and 27 are the ones to dwell on**, for opposite reasons. 23 was found by a machine attacking
+the tests rather than the code, and what it exposed was a hole in this document. 27 lets a reading make a
+universal claim — "no sharing arm improves" — about arms that were never measured, which is the same shape
+as reporting a censored tail as a p99.
+
+**And a note on the reviews themselves.** The first pass was a cheaper model and found six; the second was
+the strongest available and found eleven more, eight of which the first had walked past. Neither was
+reading its own code. That is the argument for the repository's dual-review hook, demonstrated rather than
+asserted.
 
 ### The platform changed, and so did the budget
 

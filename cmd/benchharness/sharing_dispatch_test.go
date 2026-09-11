@@ -17,6 +17,8 @@ limitations under the License.
 package main
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/lkhun9311/gpu-mlops-platform-control-plane/internal/bench"
@@ -81,5 +83,43 @@ func TestASubsetRunIsAMatrixWithFewerArmsRatherThanAFailedOne(t *testing.T) {
 	}
 	if fourC.Fired {
 		t.Errorf("reading 4c fired for an arm the operator simply did not run: %s", fourC.Detail)
+	}
+}
+
+// The refusal the runner writes must be the refusal the report finds, from a directory it discovers itself.
+//
+// Reading 4c can only fire on a recorded refusal, and nothing outside the unit tests populated that map
+// until refusalsBeside existed. The firing itself is covered in internal/bench; what is covered here is the
+// half that cannot be: that a file written beside the raw evidence is picked up without an operator
+// remembering a flag, and that an absent file yields no refusals rather than an empty-string entry.
+func TestTheReportFindsTheRefusalTheRunnerWroteBesideTheEvidence(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"raw-R1-1.jsonl", "raw-shared-1.jsonl"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("{}\n"), 0o600); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+	}
+
+	if got := refusalsBeside([]string{filepath.Join(dir, "raw-R1-1.jsonl")}); len(got) != 0 {
+		t.Errorf("a directory with no refusal file yielded %v; an arm that was never refused must not appear "+
+			"as one with an empty reason", got)
+	}
+
+	want := "the engines are not MPS clients"
+	if err := os.WriteFile(filepath.Join(dir, "refused-mps.txt"), []byte(want+"\n"), 0o600); err != nil {
+		t.Fatalf("write the refusal: %v", err)
+	}
+	got := refusalsBeside([]string{filepath.Join(dir, "raw-R1-1.jsonl"), filepath.Join(dir, "raw-shared-1.jsonl")})
+	if got["mps"] != want {
+		t.Errorf("the report read %q for the mps arm and the runner wrote %q. The reason lives beside the raw "+
+			"files precisely so that `benchharness report` needs no extra argument to see it", got["mps"], want)
+	}
+
+	// An empty file is not a refusal. The runner writes a reason or it writes nothing.
+	if err := os.WriteFile(filepath.Join(dir, "refused-timeSlicing.txt"), []byte("  \n"), 0o600); err != nil {
+		t.Fatalf("write the empty refusal: %v", err)
+	}
+	if _, ok := refusalsBeside([]string{filepath.Join(dir, "raw-R1-1.jsonl")})["timeSlicing"]; ok {
+		t.Error("an empty refusal file was read as a refusal, which would fire reading 4c with no reason to give")
 	}
 }

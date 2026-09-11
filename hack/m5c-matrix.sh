@@ -906,7 +906,18 @@ for rep in $(seq 1 "$REPS"); do
     # misses is silent.
     pf_up=0
     for _ in $(seq 1 40); do
-      if (exec 3<>/dev/tcp/127.0.0.1/18080) 2>/dev/null; then pf_up=1; exec 3<&- 2>/dev/null; break; fi
+      # The probe runs ENTIRELY inside its subshell, and the descriptor is never opened in this one.
+      #
+      # This line used to end with `exec 3<&- 2>/dev/null` in the parent. `exec` with redirections and no
+      # command applies them to the CURRENT SHELL, permanently -- so that fragment sent the matrix's own
+      # stderr to /dev/null for the rest of the run. Everything it says there went with it: `set -x` traces,
+      # the cell-budget's STOPPING message, and every `fail` after the first port-forward. The run that
+      # exposed it ended after one cell with no message at all, not even from its EXIT trap, and the log
+      # looked like a shell that had been killed.
+      #
+      # That is the defect this whole file keeps meeting: a failure that cannot be told apart from silence.
+      # It arrived in the fix for the port-forward race, which was itself a silence.
+      if (exec 3<>/dev/tcp/127.0.0.1/18080) 2>/dev/null; then pf_up=1; break; fi
       kill -0 "$PF_PID" 2>/dev/null || break
       sleep 1
     done

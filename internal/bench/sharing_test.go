@@ -722,3 +722,64 @@ func TestNoTenantIsSentWithoutAKey(t *testing.T) {
 			probeWeight[1], ProbeUnderTenant, ProbeOverTenant)
 	}
 }
+
+// No runner may apply a redirection to its own shell with a bare `exec`.
+//
+// `exec` with redirections and no command changes the CURRENT shell, permanently. hack/m5c-matrix.sh
+// briefly ended its port-forward probe with `exec 3<&- 2>/dev/null`, which sent the matrix's own stderr to
+// /dev/null for the rest of the run: `set -x` traces, the cell-budget's STOPPING message and every `fail`
+// after the first cell all vanished. The run that exposed it stopped after one cell having said nothing at
+// all, not even from its EXIT trap, and read exactly like a shell that had been killed.
+//
+// The line `exec > >(tee ...)` at the top of a user-data heredoc is the legitimate use -- a script
+// deliberately capturing its own output from the first line -- so it is allowed. What is not is a
+// redirection applied mid-script, which is always a mistake in these files: the intent is to silence one
+// command and the effect is to silence the rest of the run.
+func TestNoRunnerSilencesItsOwnShellMidScript(t *testing.T) {
+	runners := append([]string{"hack/m5c-matrix.sh"}, sessionRunners...)
+	// Scanned rather than matched at the start of a line, because the occurrence that caused this was in the
+	// MIDDLE of one: `then pf_up=1; exec 3<&- 2>/dev/null; break`. A line-anchored pattern walked straight
+	// past it, which is how the first version of this test passed while the defect was put back.
+	//
+	// What is allowed is `(exec ...` -- a subshell opening a descriptor, which is the probe's own form and
+	// affects nothing outside it -- and `exec > >(tee ...)`, a script deliberately capturing its own output
+	// from its first line.
+	capture := regexp.MustCompile(`exec\s*>\s*>\(tee`)
+	redir := regexp.MustCompile(`^\s*[0-9]*[<>]`)
+
+	for _, r := range runners {
+		for line := range strings.SplitSeq(readRepoFile(t, r), "\n") {
+			trimmed := strings.TrimSpace(line)
+			if strings.HasPrefix(trimmed, "#") || capture.MatchString(trimmed) {
+				continue
+			}
+			for i := 0; i+4 <= len(line); i++ {
+				if line[i:i+4] != "exec" {
+					continue
+				}
+				// A whole word, and not `(exec` which is the subshell form.
+				if i > 0 && line[i-1] == '(' {
+					continue
+				}
+				if i > 0 && (isWordByte(line[i-1])) {
+					continue
+				}
+				rest := line[i+4:]
+				if rest == "" || !redir.MatchString(rest) {
+					continue
+				}
+				t.Errorf("%s applies a redirection to its own shell: %q. `exec` with no command changes "+
+					"this shell for the rest of the run, so a fragment meant to silence one command "+
+					"silences every message the script has left to give", r, trimmed)
+				break
+			}
+		}
+	}
+}
+
+// isWordByte reports whether b could be part of a shell word, so that "exec" inside a longer name is not
+// mistaken for the builtin.
+func isWordByte(b byte) bool {
+	return b == '_' || b == '-' || b == '.' || b == '/' ||
+		(b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') || (b >= '0' && b <= '9')
+}
