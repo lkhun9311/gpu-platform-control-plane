@@ -1,10 +1,11 @@
+#!/bin/bash
 exec > >(tee /var/log/m5c.log) 2>&1
 set -x
 ( sleep 9000; shutdown -h now ) &
 BUCKET="stub-bucket"
 PREFIX="run"
 SOURCE_SHA="<SHA256>"
-GATEWAY_SHA="20672b7d0d7a621f48b168d73d5f6a009339a89264b7ef76368cea88ddc98820"
+GATEWAY_SHA="e5b66db56336cdda8f386eac73b2d9074c82b1316ac6c5d515d2d6313ed85350"
 HARNESS_SHA="<SHA>"
 COMMIT="<COMMIT>"
 REPS="1"

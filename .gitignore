@@ -144,6 +144,13 @@ ex/*
 # does not belong here is a growing pile of one-off measurements that no code reads.
 hack/m5b-run-*/
 hack/m5c-run-*/
+# The M5-c SESSION's own directory, which is not the matrix's.
+#
+# hack/m5c-matrix.sh writes hack/m5c-run-<stamp> and is covered by the line above. hack/m5c-gpu-session.sh
+# writes hack/m5c-<stamp>, one level out, and holds about 100 MB: the source archive plus the gateway and
+# harness binaries it ships to the instance. The pattern above does not match it, so the first failed run
+# left all of that untracked in the tree -- one `git add -A` from the mistake this block was written about.
+hack/m5c-2*/
 # Microtest output: instance ids, user-data, and the raw results, which are copied into
 # docs/evidence when a run produces something worth keeping.
 hack/microtest-*/

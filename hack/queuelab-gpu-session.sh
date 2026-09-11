@@ -655,6 +655,19 @@ cp "$UD" "$OUT/user-data.sh"
 # Stripping is a text transformation on a script nothing will parse until it is on a rented machine, so the
 # result is parsed here. Dropping lines by indentation cannot cut a line out of the kind.yaml heredoc, whose
 # comments are indented -- but "cannot" is the kind of claim this session has spent money disproving.
+# The FIRST thing checked about the payload, because it is the one `bash -n` cannot see.
+#
+# The stripping above begins with `tail -n +2`, which drops the heredoc's `#!/bin/bash`, and the line that
+# re-emits it is one line in a block nobody reads twice. cloud-init executes user-data as a script ONLY when
+# it begins with `#!`. A payload without one parses perfectly and does nothing: the instance boots, cloud-init
+# declines to run it, and the machine bills until its backstop with no log at all, because the trap that
+# uploads one lives inside the script that never ran.
+#
+# hack/m5c-gpu-session.sh was written from the shape of this file and dropped that line. Its first paid run
+# on 2026-09-11 held a g5.2xlarge for 145 minutes, about $1.64, and produced nothing. This guard is here so
+# the next omission costs a refusal instead.
+head -1 "$UD" | grep -q '^#!' \
+  || fail "the generated user-data does not begin with a shebang, so cloud-init would not execute it and the instance would boot, do nothing, and bill until its backstop. See $OUT/user-data.sh"
 bash -n "$UD" || fail "the generated user-data does not parse after its comments were stripped; see $OUT/user-data.sh"
 grep -q 'containerPath: /var/run/nvidia-container-devices/all' "$UD" \
   || fail "the generated user-data lost the device mount, so the stripping cut something that mattered"

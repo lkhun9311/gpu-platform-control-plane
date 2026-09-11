@@ -556,3 +556,45 @@ func TestTheMatrixPassesTheWholeLoadAndTheModelToGenTrace(t *testing.T) {
 			"the arithmetic assumes an even tenant split, which is the premise a calibrated mix abandons")
 	}
 }
+
+// sessionRunners are the scripts that build an EC2 user-data payload and launch an instance with it.
+var sessionRunners = []string{
+	"hack/m5b-scheduler-microtest.sh",
+	"hack/m5b-price-of-protection.sh",
+	"hack/queuelab-gpu-session.sh",
+	"hack/m5c-gpu-session.sh",
+}
+
+// Every runner that builds user-data must re-emit the shebang, and must refuse a payload that lacks one.
+//
+// These scripts keep the instance's script in a heredoc and strip it on the way out -- EC2 caps user-data at
+// 25600 encoded bytes and the explanations do not fit. The stripping starts with `tail -n +2`, which drops
+// line 1, which is `#!/bin/bash`. cloud-init executes user-data as a script ONLY when it begins with `#!`.
+//
+// hack/m5c-gpu-session.sh was written from the shape of the others and dropped that line. On 2026-09-11 its
+// first paid run launched a g5.2xlarge, cloud-init declined to execute the payload, and the instance sat
+// idle for 145 minutes -- about $1.64 -- and produced nothing. There was not even a log, because the trap
+// that uploads one lives inside the script that never ran.
+//
+// NOTHING CAUGHT IT, and that is why this test exists rather than a comment. `bash -n` passes on a script
+// with no shebang, since it parses fine. The characterization goldens pass because the stubs record the
+// launch without executing the payload. Every check was green and none of them could see it.
+func TestEverySessionRunnerEmitsAShebangAndRefusesAPayloadWithout(t *testing.T) {
+	for _, r := range sessionRunners {
+		body := readRepoFile(t, r)
+
+		// It must put the shebang back after stripping it.
+		if !strings.Contains(body, `echo "#!/bin/bash"`) {
+			t.Errorf("%s never re-emits a shebang. Its user-data stripping drops the heredoc's own with "+
+				"`tail -n +2`, so cloud-init would not execute the payload and the instance would boot, do "+
+				"nothing, and bill until its backstop", r)
+		}
+
+		// And it must refuse rather than launch if one is missing anyway -- a guard that only works when
+		// the code above it is right is not a guard.
+		if !regexp.MustCompile(`head -1 "\$UD" \| grep -q '\^#!'`).MatchString(body) {
+			t.Errorf("%s does not check that its generated user-data begins with a shebang before launching. "+
+				"`bash -n` cannot see this: a script without one parses perfectly and does not run", r)
+		}
+	}
+}

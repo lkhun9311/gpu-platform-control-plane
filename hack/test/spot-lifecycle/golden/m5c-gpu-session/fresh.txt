@@ -42,7 +42,7 @@ harness checksum: user-data matches the uploaded binary
 == credentials expire in 719 min; this session needs about 74
 == source <COMMIT> <TREE STATE>
 == building the gateway and the harness for the instance, which has no Go
-==   gateway 20672b7d0d7a, benchharness df986b1e5c39
+==   gateway e5b66db56336, benchharness 78ad1b602c0a
 == creating results bucket stub-bucket
 {}
 {}
@@ -52,7 +52,7 @@ harness checksum: user-data matches the uploaded binary
 == waiting for the instance profile to propagate
 == uploading the source and the binaries
 == g5.2xlarge is offered in: ap-northeast-2a ap-northeast-2c
-== user-data: 8332 of 25600 encoded bytes
+== user-data: 8348 of 25600 encoded bytes
 == launching g5.2xlarge spot (max $1.10/h)
 == trying ap-northeast-2a (subnet-ap-northeast-2a)
 == instance i-0stub

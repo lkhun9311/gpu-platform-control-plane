@@ -387,6 +387,18 @@ USERDATA
 
 UD="$(mktemp)"
 {
+  # The shebang, re-emitted because the stripping below removes the heredoc's own.
+  #
+  # `tail -n +2` drops line 1, which is `#!/bin/bash`, and cloud-init runs user-data as a script ONLY when
+  # it begins with `#!`. Without this line the instance boots, cloud-init treats the payload as an unknown
+  # content type, nothing executes, and the machine sits idle until its backstop -- with no log, because the
+  # trap that uploads one is inside the script that never ran.
+  #
+  # It is not a detail: omitting it cost a g5.2xlarge for 145 minutes on 2026-09-11, about $1.64, and bought
+  # nothing. Every other runner in this directory has this line; this file was written from the shape of
+  # theirs and dropped it, which is the "second copy written from memory of the first" that hack/lib/spot-run.sh
+  # exists to argue against.
+  echo "#!/bin/bash"
   sed -e "s|BACKSTOP_SECONDS_PLACEHOLDER|$BACKSTOP_SECONDS|g" \
       -e "s|BUCKET_PLACEHOLDER|$BUCKET|" \
       -e "s|RUN_ID_PLACEHOLDER|$RUN_ID|" \
@@ -413,6 +425,13 @@ UD="$(mktemp)"
 # see -- and deleting by indentation rather than by content is the rule that cannot cut a line out of a
 # string.
 cp "$UD" "$OUT/user-data.sh"
+# The FIRST thing checked, because it is the one `bash -n` cannot see.
+#
+# A script with no shebang parses perfectly and does not run. cloud-init needs `#!` on line 1 to execute the
+# payload at all, so this check is the difference between a run that fails and a run that silently does
+# nothing for two hours on a card that is billing.
+head -1 "$UD" | grep -q '^#!' \
+  || fail "the generated user-data does not begin with a shebang, so cloud-init would not execute it and the instance would boot, do nothing, and bill until its backstop. See $OUT/user-data.sh"
 bash -n "$UD" || fail "the generated user-data does not parse after its comments were stripped; see $OUT/user-data.sh"
 grep -q 'containerPath: /var/run/nvidia-container-devices/all' "$UD" \
   || fail "the generated user-data lost the device mount, so the stripping cut something that mattered"
