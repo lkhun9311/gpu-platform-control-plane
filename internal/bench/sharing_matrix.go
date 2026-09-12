@@ -270,17 +270,20 @@ func scoreSharingArms(a SharingArms, premiumTenant, contenderTenant string) []sh
 				// pre-registration's word is "refused", and admission is what refuses. Failures are reported
 				// in the detail so a reader can see them, and they no longer establish the finding.
 				//
-				// The second: this counted REQUESTS while the reading is about OUTPUT. An arm can refuse a
-				// third of the requests and lose most of the output, or refuse many tiny ones and lose
-				// little. The rejected fraction is now required to be of the same order as the output that
-				// went missing, so the ledger has to explain the quantity the reading is actually about.
+				// The second: the two sides of this test were in DIFFERENT UNITS, and the factor of two
+				// that used to sit here was a fudge for that. Rejections are requests; the deficit was
+				// measured as missing output share, and a refused request can carry any amount of output.
+				// Doubling one side to make the comparison work is not an argument, and an independent
+				// review reproduced what it let through: 400 offered, 200 completed, 100 rejected and 100
+				// TIMED OUT fired this reading and printed "refused work, not merely late work" over a
+				// ledger where refusals explain half the loss and delay explains the other half.
+				//
+				// Both sides are REQUESTS now, from the one ledger, and the rule is the plain one: the
+				// refusals have to account for the work that went missing. The 0.9 is slack for rounding
+				// and for a stray broken stream, not for a second cause.
 				lost := d.Offered - d.Completed
-				missingOutput := 1 - s.contenderRel
-				refusedFraction := 0.0
-				if d.Offered > 0 {
-					refusedFraction = float64(d.Rejected) / float64(d.Offered)
-				}
-				s.starved = d.Rejected > 0 && lost > 0 && refusedFraction*2 >= missingOutput
+				s.starved = d.Rejected > 0 && lost > 0 &&
+					float64(d.Rejected) >= 0.9*float64(lost)
 			}
 		}
 
@@ -291,14 +294,30 @@ func scoreSharingArms(a SharingArms, premiumTenant, contenderTenant string) []sh
 		// contender load actually land". An arm that was offered 238 requests and completed 120 with no
 		// rejections ran half the experiment, whatever its output ratio says.
 		//
-		// The same 0.75 reading 2 uses, and the same rule that refusals must ACCOUNT FOR the shortfall
-		// rather than merely be present. `starved` takes precedence: when the ledger does explain the loss,
-		// the finding is reading 2's and this flag would only hide it behind an unscorable arm.
+		// The same 0.75 reading 2 uses, and now EXHAUSTIVE with it rather than overlapping.
+		//
+		// `starved` and this flag used to have independent conditions, which left a gap between them: a
+		// loss that refusals explained partly was neither, so the arm stayed scorable and could carry a
+		// finding on a contender load that half evaporated. They now partition the same fact. The contender
+		// lost real work, and either the refusals account for it -- reading 2, a finding -- or they do not,
+		// and this arm cannot be scored. There is no third case and no arm falls between them.
 		if d, ok := c.DispositionByTenant[contenderTenant]; ok && d.Offered > 0 && !s.starved {
 			completedRel := float64(d.Completed) / float64(d.Offered)
-			refusedFraction := float64(d.Rejected) / float64(d.Offered)
-			if completedRel < m5cContenderShareBar && refusedFraction*2 < 1-completedRel {
+			if completedRel < m5cContenderShareBar {
 				s.contenderLost = true
+				// NOT SCORABLE, rather than excluded from one reading.
+				//
+				// The first version of this flag was only consulted by reading 1, and an independent review
+				// reproduced what that left open: an arm that lost half its contender work and missed both
+				// bars fired reading 5 as protection, and the same arm meeting both bars VETOED reading 5
+				// for a healthy arm beside it. Reading 2 printed that every qualifying arm had "kept the
+				// contender's work". One flag consulted in one place is how a partial fix looks.
+				//
+				// `computable` is the single gate every reading already asks about, and the honest answer
+				// for this arm is no: its premium tail cannot be held against a bar when the load it was
+				// supposed to be protected from did not arrive. `starved` arms stay computable on purpose --
+				// that is reading 2's finding and it is set only when this flag is not.
+				s.computable = false
 				// Only when armNotScorable found nothing to say. An arm can be both uncomputable and
 				// missing contender work, and the first reason is the one that came first.
 				if s.why == "" {
@@ -730,9 +749,7 @@ func countSharingScorable(all []sharingScored) int {
 func sharingUnscorableSuffix(all []sharingScored) string {
 	var why []string
 	for i := range all {
-		// contenderLost arms are listed too. They are computable -- every quantity is there -- and excluded
-		// anyway, so without this the reading would say "no sharing arm held both bars" and give no reason.
-		if (!all[i].computable || all[i].contenderLost) && all[i].why != "" {
+		if !all[i].computable && all[i].why != "" {
 			why = append(why, all[i].why)
 		}
 	}

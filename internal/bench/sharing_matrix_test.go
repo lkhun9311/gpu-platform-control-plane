@@ -856,3 +856,109 @@ func TestACensoredControlCannotBeReadAsTooLittleLoad(t *testing.T) {
 	// And 4b must still have been reached, or the refusal above simply moved the silence.
 	sharingReadingByID(t, res, "4b")
 }
+
+// An arm that lost the contender's work may not carry ANY reading, not merely reading 1.
+//
+// The first version of contenderLost was consulted in exactly one place, and an independent review
+// reproduced both halves of what that left open. Reading 5's eligibility and its veto, and reading 2's
+// "met both bars" set, all still asked only `computable && ttftOK && tpotOK`.
+func TestAnArmThatLostTheContendersWorkCarriesNoReadingAtAll(t *testing.T) {
+	broken := func(ttft, tpot float64) ArmSummary {
+		a := healthyArm(ArmTimeSlicing, ttft, tpot, 38_000)
+		// Every request accounted for, none refused, and half of them never came back.
+		a.DispositionByTenant = map[string]Disposition{
+			NoisyTenant: {Offered: 300, Completed: 140, TimedOut: 120, Failed: 40},
+		}
+		return a
+	}
+
+	t.Run("missing both bars, it must not fire reading 5 as protection", func(t *testing.T) {
+		m := healthyMatrix()
+		m.Sharing = []ArmSummary{broken(1200, 70)} // better than the control, short of the bars
+		res := EvaluateSharingMatrix(m, PremiumTenant, NoisyTenant)
+		if five := sharingReadingByID(t, res, "5"); five.Fired {
+			t.Errorf("reading 5 called an arm that lost 160 of the contender's 300 requests a protection "+
+				"that fell short of the bar: %s", five.Detail)
+		}
+	})
+
+	t.Run("meeting both bars, it must not veto a healthy arm's reading 5", func(t *testing.T) {
+		m := healthyMatrix()
+		healthy := healthyArm(ArmMPS, 1200, 70, 38_000) // a real partial improvement on the control
+		m.Sharing = []ArmSummary{broken(100, 20), healthy}
+		res := EvaluateSharingMatrix(m, PremiumTenant, NoisyTenant)
+		five := sharingReadingByID(t, res, "5")
+		if !five.Fired {
+			t.Errorf("an arm whose contender work went missing vetoed reading 5 for %s, which improved on "+
+				"the control on evidence of its own: %s", ArmMPS, five.Detail)
+		}
+	})
+
+	t.Run("reading 2 must not count it as having kept the contender's work", func(t *testing.T) {
+		m := healthyMatrix()
+		m.Sharing = []ArmSummary{broken(100, 20)} // meets both bars, on vanished load
+		res := EvaluateSharingMatrix(m, PremiumTenant, NoisyTenant)
+		two := sharingReadingByID(t, res, "2")
+		if two.Fired {
+			t.Errorf("reading 2 fired on an arm whose contender work went missing rather than being refused: %s", two.Detail)
+		}
+		// The exact sentence reading 2 ends on when nothing starved. The first version of this assertion
+		// looked for "kept the contender", which appears only in a source comment and never in output -- a
+		// check that could not fail, in a test about a fix that was itself incomplete.
+		if strings.Contains(two.Detail, "kept "+NoisyTenant+"'s work") {
+			t.Errorf("reading 2 reports that every arm meeting both bars kept the contender's work; this one "+
+				"completed 140 of 300 with none rejected: %s", two.Detail)
+		}
+	})
+}
+
+// Mixed refusal and delay is not starvation, and it is not scorable either.
+//
+// Reproduced by an independent review against the committed binary: 400 offered, 200 completed, 100
+// REJECTED and 100 TIMED OUT fired reading 2 and printed "refused work, not merely late work" over a
+// ledger in which refusals explain half the loss. The test that allowed it compared rejected REQUESTS
+// against missing OUTPUT share and doubled one side to make the units meet.
+//
+// The two flags now partition one fact: the contender lost work, and either the refusals account for it or
+// they do not. Nothing falls between them.
+func TestRefusalsMustAccountForTheWholeLossBeforeItIsCalledStarvation(t *testing.T) {
+	// The contender keeps HALF the control's output (20,000 of 40,000), and that number is chosen so the
+	// OLD rule fires and the new one does not. At 100 of 400 rejected the old test read
+	// refusedFraction*2 = 0.50 against a missing output share of 0.50 and called it starvation. A first
+	// version of this fixture used a fifth of the control's output, where the old rule declined anyway --
+	// so the test passed against the defect it was written for, which is the third blind check written in
+	// this session and the reason each one is now mutated before it is believed.
+	arm := func(rejected, timedOut int) ArmSummary {
+		a := healthyArm(ArmTimeSlicing, 100, 20, 20_000) // meets both bars, contender share halved
+		a.DispositionByTenant = map[string]Disposition{
+			NoisyTenant: {Offered: 400, Completed: 200, Rejected: rejected, TimedOut: timedOut},
+		}
+		return a
+	}
+
+	t.Run("half refused and half timed out is neither reading 2 nor a finding", func(t *testing.T) {
+		m := healthyMatrix()
+		m.Sharing = []ArmSummary{arm(100, 100)}
+		res := EvaluateSharingMatrix(m, PremiumTenant, NoisyTenant)
+		if two := sharingReadingByID(t, res, "2"); two.Fired {
+			t.Errorf("reading 2 called it starvation where refusals explain 100 of 200 lost requests: %s", two.Detail)
+		}
+		for _, id := range []string{"1", "5"} {
+			if r := sharingReadingByID(t, res, id); r.Fired {
+				t.Errorf("reading %s fired on an arm that lost 200 of the contender's 400 requests with only "+
+					"100 of them refused: %s", id, r.Detail)
+			}
+		}
+	})
+
+	t.Run("refusals accounting for the loss is still reading 2", func(t *testing.T) {
+		m := healthyMatrix()
+		m.Sharing = []ArmSummary{arm(195, 5)} // 195 of 200 lost were refused
+		res := EvaluateSharingMatrix(m, PremiumTenant, NoisyTenant)
+		two := sharingReadingByID(t, res, "2")
+		if !two.Fired {
+			t.Errorf("reading 2 did not fire where refusals account for 195 of 200 lost requests, so an arm "+
+				"that bought its tail by refusing work has no reading at all: %s", two.Detail)
+		}
+	})
+}
