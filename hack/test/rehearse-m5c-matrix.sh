@@ -260,7 +260,7 @@ set +e
     GATEWAY_BIN="$WORK/gateway" BENCHHARNESS_BIN="$WORK/benchharness" \
     RATE="$RATE" DURATION_MS="$DURATION_MS" \
     PREMIUM_WEIGHT=1 NOISY_WEIGHT=0.5 PROBE_WEIGHT=0 \
-    REPS=1 OUT="$OUT_DIR" \
+    REPS="${REPS:-1}" OUT="$OUT_DIR" \
     CELL_DONE_HOOK="$WORK/cell-hook" CELL_HOOK_LOG="$CELL_HOOK_LOG" \
     bash hack/m5c-matrix.sh ) 2>&1 | tee "$WORK/matrix.log"
 rc=${PIPESTATUS[0]}
@@ -288,12 +288,24 @@ print(' '.join(sorted(c)))
   || fail "the R1 arm's evidence carries tenants [$r1_tenants] and must carry only premium-1. R1 is the isolated baseline both bars divide by, and one that includes the contender is the contended case wearing the baseline's name"
 say "  R1 carries only premium-1"
 
-# EVERY cell must have been handed over as it completed, not just at the end.
-cells_written=$(ls "$OUT_DIR"/raw-*.jsonl 2>/dev/null | wc -l)
-cells_seen=$(wc -l < "$CELL_HOOK_LOG" 2>/dev/null || echo 0)
-[ "$cells_seen" = "$cells_written" ] \
-  || fail "the per-cell hook fired $cells_seen time(s) for $cells_written cell(s). On the instance that hook is what puts each cell in the bucket while the card is still running, so a cell it does not see is a cell a Spot interruption takes with it. What it saw: $(tr '\n' ';' < "$CELL_HOOK_LOG")"
-say "  every cell was handed over as it completed ($cells_seen of $cells_written)"
+# EVERY cell must have been handed over, and the check compares WHICH ONES rather than how many.
+#
+# The first version of this compared totals only, so four callbacks for R1 and none for the other three
+# would have passed -- a check for "once per cell" that could not tell one cell from another. The hook is
+# handed (file, arm, repetition), so the multiset of those triples is what has to match the files on disk.
+expected_cells=$(for f in "$OUT_DIR"/raw-*.jsonl; do
+  b=$(basename "$f" .jsonl); b=${b#raw-}
+  printf '%s %s %s\n' "${b%-*}" "${b##*-}" "$(basename "$f")"
+done | sort)
+seen_cells=$(sort "$CELL_HOOK_LOG" 2>/dev/null || true)
+if [ "$expected_cells" != "$seen_cells" ]; then
+  fail "the per-cell hook did not see exactly the cells that were written. On the instance that hook is what
+  puts each cell in the bucket while the card is still running, so a cell it does not see is a cell an
+  interruption takes with it.
+  expected: $(printf '%s' "$expected_cells" | tr '\n' ';')
+  seen:     $(printf '%s' "$seen_cells" | tr '\n' ';')"
+fi
+say "  every cell was handed over as it completed, by (arm, repetition): $(printf '%s' "$seen_cells" | tr '\n' ';')"
 
 shared_tenants=$(python3 -c "
 import json,sys,collections
