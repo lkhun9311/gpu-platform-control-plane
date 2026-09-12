@@ -211,7 +211,16 @@ print(int((e-datetime.datetime.now(datetime.timezone.utc)).total_seconds()//60))
 # had no R1 arm and the baseline was imagined to come from somewhere else. Now that ARMS carries it, the
 # increment would charge the estimate for a fifth arm that does not exist.
 arm_count=0; for _a in $ARMS; do arm_count=$(( arm_count + 1 )); done
-require_credential_margin $(( 25 + arm_count * 3 / 2 + arm_count * REPS * 7 + 15 ))
+# The replay minutes come from DURATION_MS, because that is what decides them.
+#
+# This was a hardcoded 7 per arm-repetition, from a run whose trace was 420 s. The load derivation for a
+# half-card engine puts the trace at 505 s and nothing here would have noticed: the check would have
+# approved a session on credentials that expire during it, and the first thing to fail would be the evidence
+# download -- after the card had been paid for. A ceiling division, plus one minute per cell for the replay
+# client's own drain, and never less than the old 7 so a short trace cannot make this optimistic.
+replay_min=$(( (DURATION_MS + 59999) / 60000 + 1 ))
+[ "$replay_min" -lt 7 ] && replay_min=7
+require_credential_margin $(( 25 + arm_count * 3 / 2 + arm_count * REPS * replay_min + 15 ))
 
 # ---------------------------------------------------------------- what the instance builds from
 #
