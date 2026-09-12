@@ -291,6 +291,56 @@ rm -rf "$WORK/run"
 
 fi
 
+# ---------------------------------------------------------------- 4. a split plugin that advertises wrongly
+#
+# THE SEVENTH PILOT DIED HERE, with three arms already measured and paid for.
+#
+# The device-count check called `fail`, which exits, so the session ended before it could run its own report
+# and the mps arm left no refusal for reading 4c. The caller's `apply_device_plugin "$arm" || return 1` had
+# been unreachable code since it was written. Nothing in this rehearsal covered the path, which is why a
+# green suite and a dead session were consistent with each other.
+#
+# The count is forced wrong by asking the time-slicing ConfigMap for a number the simulator will not
+# advertise, which is the same shape as a plugin that cannot honour its config on a real card.
+if want 4; then
+say "4. a split arm whose plugin advertises the wrong device count -- REFUSED, or does it end the session?"
+prepare_copy
+# ONLY the matrix's expectation moves. The ConfigMap is left alone on purpose: the failure being rehearsed
+# is "the node does not advertise what this arm needs", so the two have to DISAGREE. The first version of
+# this scenario changed both to 7, which made them agree, and the check passed -- a rehearsal of a failure
+# that was not failing.
+python3 - "$SRC/hack/m5c-matrix.sh" <<'PY2'
+import sys
+p=sys.argv[1]; s=open(p).read()
+s=s.replace('timeSlicing) keep=config/nvidia-device-plugin-timeslicing; ds=nvidia-device-plugin-timeslicing; want=2 ;;',
+            'timeSlicing) keep=config/nvidia-device-plugin-timeslicing; ds=nvidia-device-plugin-timeslicing; want=7 ;;')
+open(p,'w').write(s)
+PY2
+rm -rf "$WORK/run"
+set +e
+( cd "$SRC" && PLATFORM=kind KCTX="$KCTX" GPU_NODE="$GPU_NODE" \
+    DEADLINE_EPOCH=$(( $(date +%s) + 3600 )) \
+    GATEWAY_BIN="$WORK/gateway" BENCHHARNESS_BIN="$WORK/benchharness" \
+    RATE=12 DURATION_MS=8000 PREMIUM_WEIGHT=1 NOISY_WEIGHT=0.5 PROBE_WEIGHT=0 \
+    REPS=1 ARMS="shared timeSlicing" OUT="$WORK/run" \
+    bash hack/m5c-matrix.sh ) > "$WORK/fail-devcount.log" 2>&1
+set -e
+CURRENT_LOG="$WORK/fail-devcount.log"
+grep -q "REFUSED timeSlicing" "$WORK/fail-devcount.log" \
+  && ok "the arm was refused rather than ending the session" || bad "the wrong device count ended the session; the arms beside it were paid for"
+[ -s "$WORK/run/refused-timeSlicing.txt" ] \
+  && ok "refused-timeSlicing.txt was written where the report reads it" || bad "no refusal file, so reading 4c has nothing to fire on"
+compgen -G "$WORK/run/raw-shared-"'*.jsonl' >/dev/null \
+  && ok "the control beside it still produced evidence" || bad "the refused arm took the measured arm down with it"
+grep -q "what the plugin and the node report" "$WORK/fail-devcount.log" \
+  && ok "the diagnosis ran, so the refusal names evidence" || bad "the arm was refused with no diagnosis; the card is gone by the time anyone reads this"
+grep -q "ignoring CONFIG_FILE" "$WORK/fail-devcount.log" \
+  && bad "the refusal still asserts a cause a device count cannot establish" \
+  || ok "it reports the count without inventing the cause"
+rm -rf "$WORK/run"
+
+fi
+
 # ---------------------------------------------------------------- 3. a deadline that cannot hold the cells
 if want 3; then
 say "3. a deadline too short for the remaining cells -- does it stop on a boundary and say where?"
@@ -306,7 +356,7 @@ fi
 
 echo
 if [ "$failures" = "0" ]; then
-  say "ALL THREE FAILURE PATHS PINNED: each one ran, and each one said what a reader needs."
+  say "ALL FOUR FAILURE PATHS PINNED: each one ran, and each one said what a reader needs."
 else
   fail "$failures assertion(s) failed above. A refusal that does not say why is one that has to be bought twice."
 fi

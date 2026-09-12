@@ -489,6 +489,23 @@ k get clusterrole gateway-role >/dev/null 2>&1 \
 # worse, scheduled onto a leftover replica from the previous arm and produced numbers for a control running
 # on half a card. config/nvidia-device-plugin-whole-card is the plugin that was missing.
 PLUGIN_NS="${PLUGIN_NS:-gpu-platform-control-plane-system}"
+# plugin_diagnosis prints what the device plugin and the node actually reported.
+#
+# A refusal that names no evidence sends the next reader back to the card to find out what happened, and the
+# card is gone. The seventh pilot refused an arm on a device count and recorded nothing about the DaemonSet,
+# the Pods, the events or the node's own allocatable -- so "0 devices" was all anyone would ever know.
+plugin_diagnosis() {
+  local ds="$1"
+  say "--- $PLUGIN_NS/$ds: what the plugin and the node report ---"
+  k get ds "$ds" -n "$PLUGIN_NS" -o wide 2>&1 | sed 's/^/  /' | tee -a "$LOG" >&2
+  k get pods -n "$PLUGIN_NS" -o wide 2>&1 | sed 's/^/  /' | tee -a "$LOG" >&2
+  k logs -n "$PLUGIN_NS" "ds/$ds" --tail=40 2>&1 | sed 's/^/  /' | tee -a "$LOG" >&2
+  k get events -n "$PLUGIN_NS" --sort-by=.lastTimestamp 2>&1 | tail -20 | sed 's/^/  /' | tee -a "$LOG" >&2
+  k get nodes -l 'platform.lkhun9311.github.io/gpu-sharing=true' \
+    -o jsonpath='{range .items[*]}  node {.metadata.name} allocatable nvidia.com/gpu={.status.allocatable.nvidia\.com/gpu} capacity={.status.capacity.nvidia\.com/gpu}{"\n"}{end}' 2>&1 \
+    | tee -a "$LOG" >&2
+}
+
 apply_device_plugin() {
   local mode="$1" keep ds want other
   case "$mode" in
@@ -501,7 +518,21 @@ apply_device_plugin() {
     [ "$other" = "$keep" ] && continue
     k delete -k "$other" --ignore-not-found --wait=true >/dev/null 2>&1
   done
-  k apply -k "$keep" >/dev/null || fail "apply the $mode plugin"
+  # A split arm's setup failure is a REFUSAL OF THAT ARM. The control's is still fatal.
+  #
+  # `fail` calls exit, so every path below used to end the session -- and the caller's
+  # `apply_device_plugin "$arm" || return 1` at the split-arm site was unreachable code. The seventh pilot
+  # died on the device-count check with R1, shared and timeSlicing already measured and paid for: the
+  # session stopped before it could run its own report, and the mps arm left no refusal for reading 4c to
+  # read. R1 and `shared` keep `fail` because they are the baseline and the control, and nothing below them
+  # can be scored without both.
+  plugin_gone() {
+    if [ "$mode" = shared ]; then fail "$1"; fi
+    arm_refused "$mode" "$1"
+    return 1
+  }
+
+  k apply -k "$keep" >/dev/null || { plugin_gone "the $mode plugin could not be applied"; return 1; }
 
   # The KEPT plugin has to be running before its advertisement is believed, and this is not belt-and-braces.
   #
@@ -510,7 +541,7 @@ apply_device_plugin() {
   # still registering, and the MPS arm would have begun as time-slicing under another name. Waiting for THIS
   # DaemonSet is what tells the two apart, and the count check below then confirms what it registered.
   k rollout status "ds/$ds" -n "$PLUGIN_NS" --timeout=180s >/dev/null \
-    || fail "the $mode device plugin never became ready in $PLUGIN_NS; whatever the node is advertising belongs to the previous arm"
+    || { plugin_diagnosis "$ds"; plugin_gone "the $mode device plugin never became ready in $PLUGIN_NS; whatever the node is advertising belongs to the previous arm"; return 1; }
 
   say "wait for the card to advertise exactly $want device(s) under $mode"
   for i in $(seq 1 60); do
@@ -519,7 +550,16 @@ apply_device_plugin() {
     # Exactly, not at least. `-ge` reads the previous arm's larger number as success, which is how a
     # one-device arm would have started on a card the last arm had already split in two.
     [ "${adv:-0}" -eq "$want" ] 2>/dev/null && break
-    [ "$i" = 60 ] && fail "the node advertises ${adv:-0} device(s) after applying a $mode config that asks for $want: the plugin is ignoring CONFIG_FILE, and the arm would be running a topology other than the one it is labelled with"
+    # The COUNT is the evidence; the cause is not. This line used to assert "the plugin is ignoring
+    # CONFIG_FILE", which a device count cannot establish -- zero devices is equally consistent with an
+    # unhealthy device, a kubelet that has not re-registered, and a driver that went away. Naming a cause the
+    # ledger does not support is the thing this repository puts above every other failure, and the seventh
+    # pilot printed exactly that sentence about a card whose state it had not looked at.
+    if [ "$i" = 60 ]; then
+      plugin_diagnosis "$ds"
+      plugin_gone "the node advertises ${adv:-0} device(s) after applying a $mode config that asks for $want, so this arm would run a topology other than the one it is labelled with. The diagnosis above says what the plugin and the node reported; this line does not claim to know why."
+      return 1
+    fi
     sleep 10
   done
   say "node advertises $adv device(s) for one physical card under $mode"
@@ -766,8 +806,13 @@ deploy_arm() {
       # The plugin step can now REFUSE the arm rather than end the run -- an MPS control daemon that never
       # became ready is reading 4c's business, not a reason to discard the arms beside it.
       apply_device_plugin "$arm" || return 1
-      k apply -f config/vllm-shared/engine-a.yaml -n "$NS_A" >/dev/null || fail "apply engine a"
-      k apply -f config/vllm-shared/engine-b.yaml -n "$NS_B" >/dev/null || fail "apply engine b"
+      # A split engine that cannot be APPLIED refuses its arm, for the same reason one that cannot START
+      # does: the arms beside it were measured and a manifest this arm could not apply says nothing about
+      # them. These two were the last `fail` calls left inside the split-arm branch.
+      k apply -f config/vllm-shared/engine-a.yaml -n "$NS_A" >/dev/null || {
+        arm_refused "$arm" "engine a's manifest could not be applied to $NS_A, so this arm never had two engines"; return 1; }
+      k apply -f config/vllm-shared/engine-b.yaml -n "$NS_B" >/dev/null || {
+        arm_refused "$arm" "engine b's manifest could not be applied to $NS_B, so this arm never had two engines"; return 1; }
       # Both are diagnosed on failure, and BOTH are diagnosed when either fails.
       #
       # The engines share one card, so the one that came up is half the explanation for the one that did
@@ -800,7 +845,10 @@ deploy_arm() {
       # it; checking is cheap and the failure is invisible in the numbers.
       na=$(k get pod -n "$NS_A" -l app.kubernetes.io/component=vllm-shared -o jsonpath='{.items[0].spec.nodeName}')
       nb=$(k get pod -n "$NS_B" -l app.kubernetes.io/component=vllm-shared -o jsonpath='{.items[0].spec.nodeName}')
-      [ -n "$na" ] && [ "$na" = "$nb" ] || fail "the two engines are on different nodes ($na, $nb); that is not sharing a card"
+      if [ -z "$na" ] || [ "$na" != "$nb" ]; then
+        arm_refused "$arm" "the two engines are on different nodes (${na:-none}, ${nb:-none}), so this arm is two engines on two cards and not a shared one. Nothing it measured would be about sharing"
+        return 1
+      fi
       if [ "$arm" = mps ] && ! mps_clients_connected "$NS_A" vllm-shared-a "$NS_B" vllm-shared-b; then
         return 1
       fi
@@ -1000,28 +1048,15 @@ for rep in $(seq 1 "$REPS"); do
       kill -0 "$PF_PID" 2>/dev/null || break
       sleep 1
     done
-    # The socket check stays as a fallback for a build with no /readyz, and says so rather than passing
-    # silently: what it proves is weaker and a reader should know which one answered.
-    [ "$pf_up" = "1" ] || for _ in $(seq 1 10); do
-      # The probe runs ENTIRELY inside its subshell, and the descriptor is never opened in this one.
-      #
-      # This line used to end with `exec 3<&- 2>/dev/null` in the parent. `exec` with redirections and no
-      # command applies them to the CURRENT SHELL, permanently -- so that fragment sent the matrix's own
-      # stderr to /dev/null for the rest of the run. Everything it says there went with it: `set -x` traces,
-      # the cell-budget's STOPPING message, and every `fail` after the first port-forward. The run that
-      # exposed it ended after one cell with no message at all, not even from its EXIT trap, and the log
-      # looked like a shell that had been killed.
-      #
-      # That is the defect this whole file keeps meeting: a failure that cannot be told apart from silence.
-      # It arrived in the fix for the port-forward race, which was itself a silence.
-      if (exec 3<>/dev/tcp/127.0.0.1/18080) 2>/dev/null; then
-        pf_up=1
-        say "  WARNING: the tunnel accepts TCP but /readyz did not answer. That is a weaker guarantee -- the gateway may still be syncing its cache, and requests sent now can be refused."
-        break
-      fi
-      kill -0 "$PF_PID" 2>/dev/null || break
-      sleep 1
-    done
+    # There is NO TCP fallback any more, and removing it is the point.
+    #
+    # It set pf_up=1 when a plain connect to 127.0.0.1:18080 succeeded, which proves only that kubectl holds
+    # the local port -- exactly the thing defect 39 established is worthless, because the kubelet holds that
+    # socket whether or not the pod behind it answers. Keeping it as a "weaker guarantee" meant a cell could
+    # begin against a gateway that was not ready and record every request as transport failure, which the
+    # report then describes as a censored tail. The gateway this script deploys serves /readyz and carries a
+    # readinessProbe on it, so there is no build here for the fallback to be tolerant of: it could only ever
+    # turn a clear refusal into eleven minutes of plumbing errors wearing a workload's name.
     [ "$pf_up" = "1" ] || fail "the gateway never answered /readyz and its port never accepted a connection for $arm rep $rep. Every request of this cell would have been recorded with no HTTP status at all, and the report would have called the result a censored tail. See $OUT/port-forward-$arm-$rep.log"
 
     # The arm is the SHARING MODE, and it is now spelled that way in the manifest.
