@@ -520,10 +520,9 @@ answer, because each engine here has half a card. The runner refuses to start wi
 **This is a pilot's job, not the confirmatory run's.** No confirmatory time may be bought until a pilot has
 cleared readings 4, 4b and 4c and produced a load whose derivation is written down.
 
-### The derivation, done — 2026-09-12, from the seventh pilot
+### The derivation, from the seventh pilot — and its first version was wrong
 
-The seventh pilot measured the missing quantity, which is the whole reason it was bought. Three arms ran to
-completion on one A10G and the contender's ledger is the answer:
+The seventh pilot completed three arms on one A10G. The contender's ledger:
 
 | arm | contender offered | completed | timed out | premium TTFT p99 | /R1 |
 | --- | ---: | ---: | ---: | ---: | ---: |
@@ -531,43 +530,75 @@ completion on one A10G and the contender's ledger is the answer:
 | `shared` | 238 | **238** | 0 | 7,911.5 ms | 113.1x |
 | `timeSlicing` | 238 | **61** | 177 | 839.3 ms | 12.0x |
 
-**The split engine sustains 0.145 contender requests per second** — 61 completions over 420 s. It was
-offered 0.567/s, which is **3.9x** what it can serve, and three quarters of the contending load timed out.
-The same load on the whole card completed every request with no timeout at all.
+**The first derivation written here read 61 completions over 420 s as 0.145 req/s of capacity, and it was
+wrong.** It is described rather than deleted, because how it was wrong is the useful part.
 
-That figure is a **lower bound**, and deliberately used as one. The 177 requests that timed out consumed
-prefill before being discarded, so an engine that was not being overrun would complete more than 0.145/s.
-Sizing against the floor puts the real utilization below the target rather than above it.
+Bucketing the split arm's contender completions by time shows what actually happened:
 
-**The target is 0.6, and it is quoted from the paragraph above rather than chosen here.** That paragraph was
-written before any card was bought and says the contender's rate must put the offered prefill "near 60% of
-what the split engine can do". Applying it:
+| window | offered | completed | median time to first token |
+| --- | ---: | ---: | ---: |
+| 0–70 s | 30 | 30 | 5.1 s |
+| 70–140 s | 46 | 19 | 9.9 s |
+| 140–210 s | 39 | **0** | — |
+| 210–280 s | 32 | **0** | — |
+| 280–350 s | 43 | **0** | — |
+| 350–420 s | 48 | 12 | 22.3 s |
+
+**Zero completions across 280 seconds while 114 requests were offered.** An engine at its capacity limit
+still completes work, only more slowly. This is queue delay growing without bound and crossing the replay
+client's **30-second timeout**, after which requests are abandoned before they can finish. The completion
+count therefore measures the timeout, not the engine, and 0.145 req/s is not a property of the hardware.
+
+**What does measure the engine is how fast the queue grows.** For a saturated FIFO queue starting empty,
+waiting time climbs as `W(t) = (λ/μ − 1)·t`, so the slope of time-to-first-token against send time gives
+λ/μ. It has to be fitted on the window **before the first abandonment**, because abandonment censors
+exactly the slow requests the slope is made of: fitted over the whole run the slope reads +0.043, and over
+the uncensored window it is **+0.126**, three times steeper. The uncensored fit's intercept is **0.21 s**,
+which is the check that matters — the model assumes the queue starts empty and the data says it did. The
+full-run fit's intercept of 4.70 s is the censoring, not the engine.
 
 | | |
 | --- | --- |
-| split-engine contender capacity | **0.145 req/s** (measured, a floor) |
-| × the registered 0.6 | **0.087 req/s** |
-| completions needed | 100 is reading 4b's floor; **140** is the target, so that Poisson arrivals miss it 3.4σ of the time rather than 1.8σ |
-| duration per cell | 140 / 0.0871 = **1,607 s**, so `DURATION_MS=1610000` |
-| premium rate | **held at 9.24/s**, measured 3,882 over 420 s — the page requires it be held, because it is a few percent of capacity and moving it changes what the result means |
-| contender weight | 0.087 / 9.24 = **`NOISY_WEIGHT=0.00943`**, from 0.054 |
+| contender arrival rate | 238 / 420 s = **0.567 req/s** |
+| first abandonment | a request sent at **t = 97 s** |
+| slope on 0–97 s | **+0.126**, so λ/μ = 1.126 and **μ ≈ 0.503 req/s** |
+| completions ending within 0–97 s | 35, so **μ ≈ 0.361 req/s** |
 
-**And the two gates squeeze from opposite sides, so the corridor had to be checked rather than assumed.**
-Lowering the contender's rate enough for the split engine to serve it also lowers the contention the control
-produces, and reading 4 declares the run INVALID below 5x. The check is an occupancy argument rather than a
-prediction of the tail: a p99 is the slowest 1%, so the premium p99 lands inside a contender prefill
-whenever the engine is busy with contender work more than 1% of the time. At 0.087/s and about 1.03 s of
-engine per contender prompt that occupancy is **9.0%**, nine times over. The corridor runs from 0.0097/s
-(where reading 4 starts to fire) to 0.087/s (where the split arm starts to saturate) — **about nine times
-wide**, which is the first evidence this study has about whether a valid load exists at all. It does.
+**The two estimates disagree by 40%, and this page uses the lower one.** The slope method is insensitive to
+what is in flight at a window boundary; the count method is not, and early in a run the queue is still
+filling, so it counts against a pipeline that has not yet drained. Neither is clearly right at this sample
+size. Sizing against 0.361 is the conservative direction because the two gates are not symmetric: too much
+load is what invalidated this pilot, and too little is caught by reading 4 — which has an enormous margin
+here, as the corridor below shows.
 
-**What this costs.** Three arms at 1,607 s of replay is 80 minutes, plus four engine starts, the cluster and
-the driver: about **105 minutes and $1.19**. Four arms is about 134 minutes and $1.52. The runner's
-credential check needs that plus its 30 minutes of headroom.
+**The load.** The 0.6 is quoted from the paragraph above this section, written before any card was bought.
+It is not chosen now.
 
-**What this does not settle.** Whether the premium tail clears 2x at a load the contender survives. This
-pilot says the split holds it at 12.0x while dropping three quarters of the contending work, and those two
-facts cannot be separated on this evidence — which is what reading 4b fired to say.
+| | |
+| --- | --- |
+| split-engine contender capacity | **0.361 req/s** (the conservative estimate) |
+| × the registered 0.6 | **0.216 req/s** |
+| completions wanted | 100 is reading 4b's floor; **140** puts Poisson arrivals 3.4σ clear of it rather than 1.8σ |
+| duration per cell | 140 / 0.216 = **648 s**, so `DURATION_MS=650000` |
+| premium rate | **held at 9.24/s**, measured 3,882 over 420 s — this page requires it be held |
+| contender weight | 0.216 / 9.24 = **`NOISY_WEIGHT=0.0234`**, from 0.054 |
+
+**The corridor was checked rather than assumed.** Lowering the contender's rate also lowers the contention
+the control produces, and reading 4 invalidates the run below 5x. The check is an occupancy argument rather
+than a prediction of the tail: a p99 is the slowest 1%, so the premium p99 lands inside a contender prefill
+whenever the whole-card engine is busy with contender work more than 1% of the time. The whole card served
+the contender at **0.557 req/s** against a flat queue, so at 0.216 req/s its occupancy is **39%** — thirty-
+nine times the margin the gate needs.
+
+**What this costs.** Three arms at 648 s of replay is 32 minutes, plus four engine starts, the cluster and
+the driver: about **55 minutes and $0.62**. Four arms is about 70 minutes and $0.79, plus the runner's
+30 minutes of credential headroom.
+
+**One measurement worth keeping whatever the next run says.** The whole card serves the contender at
+0.557 req/s and the time-sliced half at 0.361–0.503 — **65% to 89%** of it — while the premium tail falls
+from 7,911 ms to 839 ms. If that survives a load the contender can absorb, it is the shape of an answer.
+This pilot cannot say it: 74% of the contending work never landed, and whether the tail is low from
+protection or from an absent contender is exactly what reading 4b fired to refuse.
 
 ## Budget
 
