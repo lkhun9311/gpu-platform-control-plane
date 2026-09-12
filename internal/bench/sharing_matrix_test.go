@@ -730,7 +730,11 @@ func TestOneThinRepetitionIsNotHiddenByPooling(t *testing.T) {
 	arm := healthyArm(ArmTimeSlicing, 900, 60, 38_000)
 	arm.TailSampleSize = 6050
 	arm.RepetitionCount = 3
+	// The per-repetition counts travel in the MAP now. MinRepetitionTail cannot tell a measured zero from a
+	// field nobody attached, and the floor needs that distinction: a repetition that completed nothing is
+	// the case it most exists for.
 	arm.MinRepetitionTail = 50
+	arm.MinRepetitionCompletedByTenant = map[string]int{PremiumTenant: 50, NoisyTenant: 250}
 	m.Sharing = []ArmSummary{arm}
 
 	res := EvaluateSharingMatrix(m, PremiumTenant, NoisyTenant)
@@ -961,4 +965,69 @@ func TestRefusalsMustAccountForTheWholeLossBeforeItIsCalledStarvation(t *testing
 				"that bought its tail by refusing work has no reading at all: %s", two.Detail)
 		}
 	})
+}
+
+// The contender's floor applies to EVERY repetition, not to the pool.
+//
+// Reproduced by an independent review against the committed binary: repetitions of 140, 140 and 50
+// contender completions, each offered 140, clear a hundred-completion floor at 330 pooled and fire reading
+// 1 POSITIVE. The pooled completion fraction is 78.6%, above the 0.75 bar, so `contenderLost` does not
+// catch it either -- both guards were reading the total while the unusable block sat inside it.
+//
+// The premium tenant has had a per-repetition check since defect 36. The contender never did, and the next
+// run is the first to use more than one repetition, which is what makes this live rather than theoretical.
+func TestTheContendersFloorAppliesToEveryRepetition(t *testing.T) {
+	m := healthyMatrix()
+	arm := healthyArm(ArmTimeSlicing, 900, 60, 38_000)
+	arm.RepetitionCount = 3
+	arm.MinRepetitionTail = 3000
+	arm.DispositionByTenant = map[string]Disposition{
+		NoisyTenant: {Offered: 420, Completed: 330, TimedOut: 90}, // pooled, and comfortably over 100
+	}
+	arm.MinRepetitionCompletedByTenant = map[string]int{PremiumTenant: 3000, NoisyTenant: 50}
+	m.Sharing = []ArmSummary{arm}
+
+	res := EvaluateSharingMatrix(m, PremiumTenant, NoisyTenant)
+
+	fourB := sharingReadingByID(t, res, "4b")
+	if !fourB.Fired {
+		t.Fatalf("reading 4b did not fire for an arm whose thinnest repetition completed 50 of the "+
+			"contender's 140 requests. Pooled it reads 330, which is why the pooled count cannot see it: %s",
+			fourB.Detail)
+	}
+	if !strings.Contains(fourB.Detail, NoisyTenant) || !strings.Contains(fourB.Detail, "50") {
+		t.Errorf("reading 4b fired without naming the contender or the thin repetition, so a reader cannot "+
+			"tell which paid block was unusable: %s", fourB.Detail)
+	}
+}
+
+// A repetition that completed NOTHING is below the floor, and the exemption that let it through is gone.
+//
+// The premium check read `MinRepetitionTail > 0 && MinRepetitionTail < 100`, so zero -- the worst case a
+// floor exists for -- was the one value it waved through. The exemption was really guarding against a field
+// nobody had attached; the per-tenant map carries that distinction explicitly, so the exemption is not
+// needed and the zero is caught.
+func TestARepetitionThatCompletedNothingIsBelowTheFloor(t *testing.T) {
+	m := healthyMatrix()
+	arm := healthyArm(ArmTimeSlicing, 900, 60, 38_000)
+	arm.RepetitionCount = 3
+	arm.MinRepetitionCompletedByTenant = map[string]int{PremiumTenant: 0, NoisyTenant: 250}
+	m.Sharing = []ArmSummary{arm}
+
+	res := EvaluateSharingMatrix(m, PremiumTenant, NoisyTenant)
+
+	if fourB := sharingReadingByID(t, res, "4b"); !fourB.Fired {
+		t.Errorf("reading 4b did not fire for an arm with a repetition that completed no %s requests at all: %s",
+			PremiumTenant, fourB.Detail)
+	}
+
+	// And an arm whose repetitions were never counted must NOT fire: absent is not zero.
+	m2 := healthyMatrix()
+	quiet := healthyArm(ArmTimeSlicing, 900, 60, 38_000)
+	quiet.RepetitionCount = 3 // no MinRepetitionCompletedByTenant attached at all
+	m2.Sharing = []ArmSummary{quiet}
+	if fourB := sharingReadingByID(t, EvaluateSharingMatrix(m2, PremiumTenant, NoisyTenant), "4b"); fourB.Fired {
+		t.Errorf("reading 4b fired on an arm whose per-repetition counts were never attached; that is "+
+			"'not measured', not 'measured at zero': %s", fourB.Detail)
+	}
 }

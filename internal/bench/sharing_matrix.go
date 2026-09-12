@@ -403,9 +403,17 @@ func sharingReadingFourB(a SharingArms, premiumTenant, contenderTenant string) P
 		// completions clears the floor with 6050 while its third block's "p99" is that block's maximum --
 		// and the table prints reps=3 and a healthy pooled count with nothing saying one paid block was
 		// unusable. MinRepetitionTail is carried on the summary for exactly this and no reading used it.
-		if s.RepetitionCount > 1 && s.MinRepetitionTail > 0 && s.MinRepetitionTail < MinTailSamples {
-			thin = append(thin, fmt.Sprintf("%s has a repetition with only %d %s completions (pooled: %d over %d repetitions)",
-				s.Arm, s.MinRepetitionTail, premiumTenant, s.TailSampleSize, s.RepetitionCount))
+		// The `> 0` exemption is gone, and the check reads the MAP instead of MinRepetitionTail.
+		//
+		// Zero is below a hundred, and a repetition that completed nothing is the worst case this floor
+		// exists for -- it was the one case the floor waved through. But MinRepetitionTail cannot tell a
+		// real zero from a field nobody attached, which is what the exemption was really guarding. The map
+		// can: a tenant PRESENT with zero was measured at zero, and a tenant absent was not measured.
+		if s.RepetitionCount > 1 {
+			if n, ok := s.MinRepetitionCompletedByTenant[premiumTenant]; ok && n < MinTailSamples {
+				thin = append(thin, fmt.Sprintf("%s has a repetition with only %d %s completions (pooled: %d over %d repetitions)",
+					s.Arm, n, premiumTenant, s.TailSampleSize, s.RepetitionCount))
+			}
 		}
 		if !wantContender {
 			return
@@ -417,6 +425,19 @@ func sharingReadingFourB(a SharingArms, premiumTenant, contenderTenant string) P
 		}
 		if d.Completed < MinTailSamples {
 			thin = append(thin, fmt.Sprintf("%s completed %d %s requests", s.Arm, d.Completed, contenderTenant))
+		}
+		// EVERY REPETITION for the contender too, and not only for the premium tenant.
+		//
+		// The line above applies the floor to the POOL, which is the same hiding place the premium floor
+		// was given a per-repetition check to close. An independent review reproduced the contender's
+		// version: repetitions of 140, 140 and 50 completions, each offered 140, clear a hundred at 330
+		// pooled and fire reading 1 POSITIVE. The pooled completion fraction is 78.6%, so `contenderLost`
+		// does not catch it either -- both guards look at the total and the bad block is inside it.
+		if s.RepetitionCount > 1 {
+			if n, ok := s.MinRepetitionCompletedByTenant[contenderTenant]; ok && n < MinTailSamples {
+				thin = append(thin, fmt.Sprintf("%s has a repetition with only %d %s completions (pooled: %d over %d repetitions)",
+					s.Arm, n, contenderTenant, d.Completed, s.RepetitionCount))
+			}
 		}
 	}
 
