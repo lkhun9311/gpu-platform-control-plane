@@ -144,32 +144,58 @@ require_credential_margin() {
   # ARN matches are considered. An entry that carries no ARN is skipped rather than trusted: this check
   # exists for the moments when something about the account is wrong, and those are the moments an
   # unidentified entry is most likely to be the wrong one.
-  local whoami arn
-  whoami=$(aws sts get-caller-identity --query Arn --output text 2>/dev/null) || whoami=""
-  # The assumed-role ARN sts reports and the one a cached entry carries differ in their last segment (the
-  # session name), so they are compared on the role path.
-  arn=$(printf '%s' "$whoami" | cut -d/ -f1-2)
+  # Identity is matched on whatever the ENTRY actually carries, which is not always an ARN.
+  #
+  # The cache holds two shapes. An assume-role entry carries AssumedRoleUser.Arn; an SSO entry -- which is
+  # what this account produces -- carries ProviderType "sso" and Credentials.AccountId and no ARN at all.
+  # Requiring an ARN would therefore have skipped every entry this machine has and turned the whole check
+  # into "no expiry found; skipping", which is worse than the hole it was closing: a guard that refuses to
+  # answer always passes.
+  #
+  # So: an ARN is compared EXACTLY on the role path (a prefix comparison let 'AdminAccess' match
+  # 'AdminAccessReadOnly'), an account id is compared exactly, and an entry carrying neither is skipped.
+  # Account identity is weaker than role identity and it is what the entry has; it still rules out the
+  # realistic confusion, which is another account's twelve hours standing in for this one's twenty minutes.
+  local arn account
+  arn=$(aws sts get-caller-identity --query Arn --output text 2>/dev/null | cut -d/ -f1-2) || arn=""
+  account=$(aws sts get-caller-identity --query Account --output text 2>/dev/null) || account=""
   newest=""
   for f in "$cache"/*.json; do
     [ -f "$f" ] || continue
     expiry=$(python3 -c "
 import json,sys
-want=sys.argv[2]
+want, want_account = sys.argv[2], sys.argv[3]
 try:
     d=json.load(open(sys.argv[1]))
     c=d.get('Credentials',{})
     who=(d.get('AssumedRoleUser') or {}).get('Arn','')
-    if want and who and not who.startswith(want):
-        print('')
+    # An entry with NO Arn is skipped, and the comment above has always said so while the code did the
+    # opposite: the old condition was 'want and who and not startswith', so an empty who fell through to
+    # the expiry. This guard exists for the moments when something about the account is wrong, and those
+    # are exactly the moments an unidentifiable entry is most likely to be the wrong one.
+    #
+    # And the comparison is EXACT on the role path rather than a prefix. 'assumed-role/AdminAccess' is a
+    # prefix of 'assumed-role/AdminAccessReadOnly', so startswith let a different role's twelve hours
+    # stand in for this one's twenty minutes.
+    acct = c.get('AccountId','')
+    if not want and not want_account:
+        print(c.get('Expiration',''))          # nothing to match against; the caller warns
+    elif who:
+        print(c.get('Expiration','') if '/'.join(who.split('/')[:2]) == want else '')
+    elif acct:
+        print(c.get('Expiration','') if acct == want_account else '')
     else:
-        print(c.get('Expiration',''))
+        print('')                              # carries no identity at all
 except Exception:
     print('')
-" "$f" "$arn" 2>/dev/null)
+" "$f" "$arn" "$account" 2>/dev/null)
     [ -n "$expiry" ] || continue
     if [ -z "$newest" ] || [[ "$expiry" > "$newest" ]]; then newest="$expiry"; fi
   done
-  [ -n "$arn" ] || say "could not identify the active role, so the expiry below is the newest in the cache rather than this run's"
+  if [ -z "$arn" ] && [ -z "$account" ]; then
+    say "WARNING: sts could not say which role is active, so every cache entry is being trusted and the"
+    say "  expiry below may belong to a different profile. This session will be launched on that basis."
+  fi
   [ -n "$newest" ] || { say "no expiry found in $cache; skipping the check"; return 0; }
   left=$(python3 -c "
 import datetime,sys
@@ -611,7 +637,12 @@ if [ -s "$OUT/evidence.tgz" ]; then
   say "evidence unpacked to $OUT/m5c-run"
 fi
 
-if [ "$done_seen" -eq 0 ]; then
+# The cells are pulled whenever the ARCHIVE did not arrive, marker or no marker.
+#
+# This was inside the `done_seen -eq 0` branch, so a run that wrote DONE and whose archive upload then
+# failed recovered nothing at all -- the marker says the instance finished, not that its evidence landed.
+# The two facts are separate and the recovery should follow the second.
+if [ ! -s "$OUT/m5c-run/README.txt" ] || ! compgen -G "$OUT/m5c-run/raw-*.jsonl" >/dev/null; then
   # The per-cell uploads are pulled down FIRST, because they are the only evidence an interruption leaves.
   #
   # Each cell is copied to s3://.../cells/ the moment it completes, and nothing here looked there. The
@@ -629,7 +660,9 @@ if [ "$done_seen" -eq 0 ]; then
   done < <(aws s3api list-objects-v2 --bucket "$BUCKET" --prefix "$RUN_ID/cells/" \
              --query 'Contents[].Key' --output text 2>/dev/null | tr '\t' '\n')
   [ "$cells_pulled" -gt 0 ] && say "recovered $cells_pulled cell(s) that were uploaded as they completed"
+fi
 
+if [ "$done_seen" -eq 0 ]; then
   # Partial evidence is the point of uploading before the marker, so it is reported rather than discarded.
   shopt -s nullglob
   recovered=("$OUT/m5c-run"/raw-*.jsonl)
