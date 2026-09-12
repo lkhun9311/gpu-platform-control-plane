@@ -169,6 +169,29 @@ which is the one of the three methods that costs nothing and was nearly skipped.
 | 54 | A gate that could not be **computed** exited **zero** | reproduced with 2% premium timeouts in the control: reading 4 came back N/E, 4b passed, and the report printed no verdict and no answer with exit status 0. `benchharness report ... \|\| fail` would have accepted a censored control as a good session |
 | 52 | The credential check hardcoded **seven minutes per replay**, ignoring `DURATION_MS` | the load derived above puts the trace at 505 s. The check would have approved a session on credentials that expire during it, and the first thing to fail would be the evidence download — after the card was paid for |
 
+### Two more before the run that uses repetitions
+
+Both were in the deferred list above, and both come off it for the same reason: **the next run is the first
+to use more than one repetition**, which is what makes them live.
+
+| # | defect | what it would have cost |
+| --- | --- | --- |
+| 55 | The contender's hundred-completion floor applied to the **pool**, and the premium floor exempted a **zero** | reproduced by the review: repetitions of 140, 140 and 50 contender completions, each offered 140, clear the floor at 330 pooled and fire **reading 1 POSITIVE**. The pooled completion fraction is 78.6%, above the 0.75 bar, so `contenderLost` does not catch it either — both guards read the total while the unusable block sits inside it. The premium check had a per-repetition limb since defect 36; the contender never did |
+| 56 | Every cell's evidence went up **only after the whole matrix returned** | the matrix's own failure paths all reach the archive, which is why the seventh pilot's three arms survived a failed session. An **interruption** reaches nothing. At two repetitions a run is six cells and about ninety minutes of rented card, all of it on local disk until the end |
+
+**55 carried a smaller defect inside it.** The premium floor read `MinRepetitionTail > 0 && ... < 100`, and
+that exemption looked like carelessness about zero. It was not: the field cannot tell a measured zero from
+one nobody attached, and the exemption was guarding the second case at the cost of the first. The
+per-tenant map carries the distinction explicitly — a tenant **present with zero** was measured at zero, a
+tenant **absent** was not measured — so the exemption is not needed and the zero is caught. A repetition
+that served a tenant nothing carries no disposition entry for it at all, so the minimum is taken over every
+repetition with a missing tenant counted as zero, or the search would skip exactly the block it is for.
+
+**56 is a hook rather than an uploader**, because this same script runs on a local kind cluster in three
+rehearsals where there is no bucket. Unset, the behaviour is exactly what it was — which is also how a hook
+quietly stops being called, so `hack/test/rehearse-m5c-matrix.sh` now asserts it fired once per cell and
+that assertion was checked by removing the call and watching it go red.
+
 **49 and 51 are the same mistake in two languages.** Both are a guard that exists, is correct where it is
 written, and is not consulted where it matters: an `|| return 1` the callee can never reach, and a flag
 three of four readings never ask about. Neither is visible in a diff of the fix, because the fix looks
@@ -225,10 +248,11 @@ search:
 - **TPOT has no sample floor of its own.** The premium completion floor of 100 protects TTFT, and TPOT
   only counts responses that produced at least two tokens, so the two can diverge. The gap is bounded by
   the fact that a completed premium response in this trace produces many tokens, and it is real.
-- **Per-repetition contender counts and censoring are pooled before some checks see them.** This run is a
-  single repetition, so it cannot bite here.
-- **Evidence is uploaded only after the whole matrix returns**, so a Spot interruption in the last arm
-  loses the cells already paid for. The cost is bounded by the session's own price.
+- ~~**Per-repetition contender counts and censoring are pooled before some checks see them.**~~ and
+  ~~**Evidence is uploaded only after the whole matrix returns.**~~ **Both were fixed on 2026-09-12 as
+  defects 55 and 56**, once the eighth pilot established that the next run needs two repetitions. The
+  reason for deferring them was that one repetition cannot trigger either; that reason expired the moment
+  the run that needs repetitions became the next one to buy.
 - **MPS engagement is proved by the engines reporting a pipe directory**, not by finding both workers in
   the daemon's client list.
 
