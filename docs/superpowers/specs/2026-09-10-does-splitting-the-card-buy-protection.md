@@ -248,11 +248,17 @@ search:
 - **TPOT has no sample floor of its own.** The premium completion floor of 100 protects TTFT, and TPOT
   only counts responses that produced at least two tokens, so the two can diverge. The gap is bounded by
   the fact that a completed premium response in this trace produces many tokens, and it is real.
-- ~~**Per-repetition contender counts and censoring are pooled before some checks see them.**~~ and
-  ~~**Evidence is uploaded only after the whole matrix returns.**~~ **Both were fixed on 2026-09-12 as
-  defects 55 and 56**, once the eighth pilot established that the next run needs two repetitions. The
-  reason for deferring them was that one repetition cannot trigger either; that reason expired the moment
-  the run that needs repetitions became the next one to buy.
+- **Per-repetition contender COUNTS** and ~~**evidence uploaded only after the whole matrix returns**~~
+  were fixed on 2026-09-12 as defects 55 and 56, once the eighth pilot established that the next run needs
+  two repetitions. The reason for deferring them was that one repetition cannot trigger either, and that
+  reason expired the moment the run needing repetitions became the next one to buy.
+
+  **Per-repetition CENSORING was not fixed, and this line said it was.** A review checked and found the
+  claim false: each repetition's `Censored` flag is still discarded when the summaries are built, and the
+  readings check the pooled one. Marking the second control repetition's 70 slowest premium responses as
+  timed out loses 1.50% of that repetition and 0.75% of the pool — the pool passes, both completion floors
+  pass, and reading 5 fires on a censored control. Contender loss fractions have the same shape: 100/139
+  and 139/139 clear both floors while the first repetition lost more than a quarter of its load.
 - **MPS engagement is proved by the engines reporting a pipe directory**, not by finding both workers in
   the daemon's client list.
 
@@ -471,9 +477,28 @@ repetition-to-repetition spread, and a single repetition has none. They reported
 evaluable** rather than passing or failing on a spread of zero — which is what this page registered them to
 do and what the previous study had no name for.
 
-**So the next run's missing input is `REPS`, and nothing else.** The load is derived and verified, the
-gates are quiet, the harness carries a paid run to its own report. Three arms at two repetitions is six
-cells: about 104 minutes of session against the runner's credential check, plus its 30 of headroom.
+**So the next run's missing SCIENTIFIC input is `REPS`.** The load is derived and verified against a card,
+the gates are quiet, and the harness carries a paid run to its own report.
+
+**But `REPS=2` on its own buys the wrong run, and saying otherwise was this page's mistake.** An earlier
+version of this paragraph said the missing input was "`REPS`, and nothing else", which is operationally
+false: `hack/m5c-gpu-session.sh` still defaults to `RATE=9.85`, `NOISY_WEIGHT=0.054`,
+`DURATION_MS=420000` — **the seventh pilot's load, the one reading 4b rejected** — and to four arms
+including `mps`, which has now failed to engage on this AMI three times. `REPS=2` alone therefore buys
+**eight cells at the rejected load**, which is about as wrong as a run can be while still completing.
+
+The eighth pilot's tuple has to be passed in full, and the arms named:
+
+```
+AWS_PROFILE=gpu-lab REPS=2 \
+  ARMS="R1 shared timeSlicing" \
+  RATE=9.4045 PREMIUM_WEIGHT=1 NOISY_WEIGHT=0.0260 PROBE_WEIGHT=0 DURATION_MS=505000 \
+  bash hack/m5c-gpu-session.sh
+```
+
+Six cells: about 104 minutes against the runner's credential check, plus its 30 of headroom. Dropping `mps`
+is a choice and not an oversight — three refusals are enough evidence that this AMI will not engage it, and
+a fourth costs a cell without adding one.
 
 ## The bars do not move, and that is deliberate
 
@@ -649,8 +674,12 @@ The seventh pilot completed three arms on one A10G:
 **Two wrong derivations were written here before the right one, and both are described rather than deleted.**
 
 **The first** read 61 completions over 420 s as 0.145 req/s of capacity. Bucketing shows why that is not a
-capacity: the split arm completed 30 requests in the first 70 s, 19 in the next, then **zero across 280
-seconds** while 114 more were offered, then 12 during the drain after arrivals stopped. An engine at its
+capacity: counted by when they finished, the split arm completed 23 requests in the first 70 s and 26 in
+the next, then **zero across the 210 seconds from 140 s to 350 s** while 114 more were offered, none from
+the 48 offered after that, and 12 during the drain once arrivals stopped. (An earlier version of this
+sentence said 30 and 19 and "280 seconds". Those counts are by the time each request was SENT, which is the
+right clock for offers and the wrong one for completions; mixing the two in one sentence is how "114 offers"
+came to sit beside an interval that is 210 seconds long.) An engine at its
 limit still completes work, only more slowly. This is queue delay growing without bound until it crosses the
 replay client's **30-second timeout**, after which requests are abandoned before they can finish. The
 completion count measures the timeout. It also divided by 420 s while counting completions that landed at
@@ -660,13 +689,26 @@ completion count measures the timeout. It also divided by 420 s while counting c
 before the first abandonment, since abandonment censors exactly the slow requests the slope is made of. That
 gave μ ≈ 0.503 req/s, and it is a sounder method than counting, but it is still an inference.
 
-**The third does not infer anything.** Among the contender's own rows there are requests that arrived while
-**no other contender request was in flight**, and their time to first token is the service time directly:
+**The third measures rather than infers, but it measures PREFILL and that is not the same as capacity.**
+Among the contender's own rows there are requests that arrived while **no other contender request was in
+flight**, and their time to first token is that engine's prefill time for this prompt, read off the wire:
 
-| topology | uncontended contender TTFT | n | service rate |
+| topology | uncontended contender TTFT | n | 1/TTFT |
 | --- | ---: | ---: | ---: |
 | `shared`, whole card | **1.05 s** (1.03–1.34) | 60 | 0.955 req/s |
 | `timeSlicing`, half card | **2.15 s** (2.10–2.21) | 4 | **0.466 req/s** |
+
+**What that last column is not.** A review took this apart and it was right to. `1/TTFT` is a **prefill**
+rate, and a request occupies the engine past its first token: the same four split requests took **2.60,
+4.66, 6.66 and 8.66 s** end to end, so a reciprocal of the median TOTAL would say 0.150 req/s instead of
+0.466. Neither number is the engine's request capacity. vLLM overlaps decode with the next prefill, so the
+truth is between them and this evidence does not locate it. The `n = 4` is thin too, and stricter isolation
+— nobody else arriving before the first token either — leaves **one** request, at 2.10 s.
+
+The earlier wording here said this method "does not infer anything" and called the utilisation figure "the
+whole explanation" for why one arm diverged. Both were overclaims. What the measurement supports is
+narrower: **the split engine's prefill for this prompt takes 2.05x what the whole card's does**, which is
+what time-slicing a card two ways should cost and had never been measured here.
 
 The whole-card figure independently reproduces the **1.03 s** that
 `2026-09-09-what-would-have-to-change.md` derived from a different run, which is the check that the method
