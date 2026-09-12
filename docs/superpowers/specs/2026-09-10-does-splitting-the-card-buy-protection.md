@@ -137,6 +137,7 @@ the wrong quantity and the right one move together.
 | 35 | The credential check could pass on **another profile's** expiry | an active role with 20 minutes left beside another profile's 12 hours read as 12 hours, and the run would lose download and termination partway through |
 | 36 | Reading 4b's floor applied to the **pool**, which is what hides a bad block | 3000, 3000 and 50 completions clear a hundred-sample floor at 6,050 while the third block's p99 is its slowest request |
 | 39 | The replay began before the gateway was **listening**: `rollout status` returns on a running container and the tunnel check proved only that the local port accepted TCP | **R1 completed 0 of 3,882 requests**, all `errorKind=transport`, and the run had no baseline. An independent review had named this exact gap the day before and it was read and not acted on |
+| 41 | `--gpu-memory-utilization` is a fraction of the **whole card**, so the second split engine to start took what the first had left | identical manifests produced **3.33 GiB and 1.52 GiB** of KV. The smaller engine timed out 188 of the contender's 238 requests and reading 4b called the run INVALID — for a load that was not the problem |
 | 40 | An engine that could not start ended the **session** rather than refusing its **arm** | the 2026-09-12 pilot stopped at the mps arm, so the three cells already bought were all it had, and the reason for the refusal lived only in a log `benchharness report` does not read |
 | 37 | Arms repeated **unequally** were accepted | the confirmatory run is three separate sessions, so an arm that lost one is pooled from two against a spread measured over three |
 
@@ -177,6 +178,54 @@ before the gateway was listening, and every row is `errorKind=transport`. The re
 they should have — *"R1 has no premium tail, so there is no baseline to hold the control against"* — rather
 than dividing by a baseline that was not there. That defect is fixed, and it is recorded below as 39 with
 the fact that it had been named in a review the day before and not acted on.
+
+### The fifth pilot: the first ANSWER, and it is INVALID
+
+2026-09-12, three arms, about $0.75. The instrument ran end to end and the readings returned a verdict:
+
+```
+[     ] 4   the control's premium TTFT p99 is 112.6x R1's (7892.4 ms against 70.1 ms), against 5.0x
+[FIRED] 4b  against a floor of 100: timeSlicing completed 50 standard-noisy requests
+
+ANSWER: 4b        run invalid
+```
+
+| arm | premium done | contender done | TTFT p99 | premium TPOT p99 |
+| --- | ---: | ---: | ---: | ---: |
+| R1 | 3,882 / 3,882 | — | 70.1 ms | 18.2 ms |
+| `shared` | 3,882 / 3,882 | 238 / 238 | 7,892.4 ms | 151.6 ms |
+| `timeSlicing` | 2,700 / 3,882 | **50 / 238** | 803.4 ms (censored) | 44.0 ms |
+
+**The numbers in that third row must not be read**, and the reading is why. `timeSlicing` looks like a large
+win — a tenth of the control's tail, a third of its TPOT — and it is censored evidence from an arm that
+dropped 79% of the contending tenant. Whether the tail is low because the split protects it or because
+there was nothing left to contend with is exactly what this evidence cannot say. **Reading 4b refused
+instead of reporting it**, which is the whole reason the floor was registered.
+
+**And the cause was not the load.** The engines' own startup reports, captured because a defect fixed the
+day before made the runner ask them:
+
+| | KV cache | tokens | contender prompts |
+| --- | ---: | ---: | ---: |
+| whole card (`shared`) | 12.69 GiB | 369,680 | 47.7 |
+| split engine **a** | 3.33 GiB | 97,056 | 12.5 |
+| split engine **b** | **1.52 GiB** | **44,144** | **5.7** |
+
+Two engines, identical manifests, caches differing by more than two to one. `--gpu-memory-utilization` is a
+fraction of the WHOLE CARD, and the engine that starts second sees the first's allocation as memory already
+consumed: it computed its own usage as 8.38 GiB against 6.56 and took what was left. The smaller engine is
+the one that timed out 188 of the contender's 238 requests.
+
+**A fraction cannot express "half the card" to a process that can see the other half.** vLLM says so in the
+line the runner captured — *"Replace gpu_memory_utilization config with `--kv-cache-memory=…`"* — and both
+split engines now carry an absolute budget of 3.2 GiB, derived from their own report rather than chosen:
+22.06 GiB visible, 7.32 GiB per engine of weights, activation and CUDA graphs, one GiB of driver reserve,
+halved. A test holds the two values equal, because the previous guard checked that the FRACTIONS agreed and
+went quiet the moment the fractions were replaced: the property moved and its guard did not.
+
+**This was not visible without a card.** The asymmetry only exists when two engines share one device, and
+every rehearsal in this repository substitutes a stub for the engine. It is the first thing in five paid
+runs that a free cluster could not have found.
 
 ### The platform changed, and so did the budget
 

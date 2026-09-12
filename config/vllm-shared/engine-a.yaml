@@ -65,8 +65,24 @@ spec:
             # what keeps it the only difference. Per-engine 64 would offer the card twice the concurrency in
             # the split arms and confound separation with a larger batch.
             - --max-num-seqs=32
-            # Slices of one pool, not partitions of two: see this file's header.
-            - --gpu-memory-utilization=0.475
+            # An ABSOLUTE KV budget, because the fraction is a fraction of the WHOLE CARD and not of a half.
+            #
+            # --gpu-memory-utilization=0.475 was measured producing two engines with different caches: the
+            # one that started second saw the first's allocation as memory already consumed, computed its
+            # own usage as 8.38 GiB against 6.56, and was left with 1.52 GiB of KV against 3.33 -- 44,144
+            # tokens against 97,056, which is 5.7 of this study's contender prompts against 12.5. The
+            # smaller engine then timed out 188 of the contender's 238 requests and reading 4b declared the
+            # run INVALID, correctly, for a floor it missed at 50.
+            #
+            # A fraction cannot express "half the card" to a process that can see what the other half is
+            # doing. vLLM says so itself in the line the runner captured: "Replace gpu_memory_utilization
+            # config with --kv-cache-memory=... to fit into requested memory."
+            #
+            # 3.2 GiB each, derived from the engines' own report rather than chosen: 22.06 GiB visible,
+            # 7.32 GiB per engine of weights, activation and CUDA graphs, and a gigabyte of driver reserve,
+            # leaves (22.06 - 14.64 - 1.0)/2. That is about 93,500 tokens per engine, twelve contender
+            # prompts, and the same on both sides whichever starts first.
+            - --kv-cache-memory=3435973836
             # Prefix caching OFF, matching config/vllm/deployment.yaml, because this matrix varies TOPOLOGY.
             #
             # vLLM's V1 engine turns automatic prefix caching on by default and these manifests said nothing,

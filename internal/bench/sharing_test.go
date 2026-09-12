@@ -783,3 +783,65 @@ func isWordByte(b byte) bool {
 	return b == '_' || b == '-' || b == '.' || b == '/' ||
 		(b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') || (b >= '0' && b <= '9')
 }
+
+// The split engines must claim the SAME KV budget as each other.
+//
+// The whole of the split arm is two engines treated alike, so an asymmetry between them is a second
+// variable inside the arm that is supposed to hold one. The 2026-09-12 pilot measured exactly that: at
+// --gpu-memory-utilization=0.475 the engine that started second saw the first's allocation as memory
+// already consumed and was left with 1.52 GiB of KV against 3.33 -- 44,144 tokens against 97,056, which is
+// 5.7 of this study's contender prompts against 12.5. The smaller engine timed out 188 of the contender's
+// 238 requests and reading 4b declared the run INVALID.
+//
+// An absolute --kv-cache-memory removes the start-order dependence, and this is what keeps the two values
+// equal. TestTheCommittedSharedEnginesFormAPlanThatValidates checks the FRACTIONS agree and went quiet the
+// moment the fractions were replaced, so the property moved and its guard did not.
+func TestTheSplitEnginesClaimTheSameKVBudget(t *testing.T) {
+	files, err := filepath.Glob("../../config/vllm-shared/engine-*.yaml")
+	if err != nil || len(files) == 0 {
+		t.Fatalf("no sharing engine manifests found: %v", err)
+	}
+
+	re := regexp.MustCompile(`--kv-cache-memory=(\d+)`)
+	want, wantFrom := "", ""
+	for _, f := range files {
+		b, rerr := os.ReadFile(f)
+		if rerr != nil {
+			t.Fatalf("read %s: %v", f, rerr)
+		}
+		m := re.FindStringSubmatch(string(b))
+		if m == nil {
+			t.Errorf("%s sets no --kv-cache-memory, so its cache is whatever the engine derives from a card "+
+				"another engine is already using -- which is the asymmetry that invalidated the 2026-09-12 pilot", f)
+			continue
+		}
+		if want == "" {
+			want, wantFrom = m[1], f
+			continue
+		}
+		if m[1] != want {
+			t.Errorf("%s claims %s bytes of KV and %s claims %s. The split arm is two engines treated alike; "+
+				"a difference here is a second variable inside the arm that is meant to hold one",
+				f, m[1], wantFrom, want)
+		}
+	}
+
+	// And the pair must fit the card with room for what is not cache.
+	//
+	// Derived from the engines' own startup report rather than from the sizing model: 22.06 GiB visible on
+	// an A10G, and 7.32 GiB per engine of weights, non-torch memory, peak activation and CUDA graphs.
+	if want == "" {
+		return
+	}
+	bytes, perr := strconv.ParseFloat(want, 64)
+	if perr != nil {
+		t.Fatalf("unparseable --kv-cache-memory %q", want)
+	}
+	const visibleGiB, fixedPerEngineGiB = 22.06, 7.32
+	kvGiB := bytes / (1 << 30)
+	if used := 2 * (kvGiB + fixedPerEngineGiB); used > visibleGiB {
+		t.Errorf("two engines at %.2f GiB of KV each need %.2f GiB with their weights and activations, and "+
+			"the card shows %.2f. The second engine would fail to start or start with less than it asked for",
+			kvGiB, used, visibleGiB)
+	}
+}

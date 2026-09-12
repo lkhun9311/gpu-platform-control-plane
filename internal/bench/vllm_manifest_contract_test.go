@@ -216,8 +216,19 @@ func TestTheFlagshipAndTheSharingMatrixAgreeOnModelAndDtype(t *testing.T) {
 // the direction the check has to run: the matrix varies TOPOLOGY, so a flag that differs without a reason
 // here is a second variable, and the write-up would attribute its effect to separation.
 var mustDifferAcrossTopology = map[string]string{
-	"--gpu-memory-utilization": "time-slicing does not partition memory, so two engines' fractions have to sum below 1",
-	"--max-num-seqs":           "half each, so the card admits the same total concurrency under either topology",
+	"--max-num-seqs": "half each, so the card admits the same total concurrency under either topology",
+}
+
+// mayReplaceAcrossTopology names a flag the split engines use INSTEAD of one the flagship uses, and why.
+//
+// This is a weaker relation than mustDiffer: the quantity is the same and only the way of expressing it
+// changes, so the check is that the replacement is present and the original absent.
+var mayReplaceAcrossTopology = map[string]string{
+	// A fraction is a fraction of the WHOLE card, and a process on a shared card can see what the other half
+	// has taken. Measured on 2026-09-12: at 0.475 each, the engine that started second computed its own
+	// consumed memory as 8.38 GiB against the first's 6.56 and was left with 1.52 GiB of KV against 3.33.
+	// An absolute budget says the same thing in a unit that does not depend on start order.
+	"--gpu-memory-utilization": "--kv-cache-memory",
 }
 
 // The sharing engines must match the flagship on every flag the split does not force them to change.
@@ -248,6 +259,17 @@ func TestTheSharingEnginesDifferFromTheFlagshipOnlyWhereTheSplitForcesIt(t *test
 			continue
 		}
 		for name, want := range flagship {
+			if replacement, replaced := mayReplaceAcrossTopology[name]; replaced {
+				if _, stillThere := got[name]; stillThere {
+					t.Errorf("%s still passes %s, which the split engines are supposed to express as %s instead",
+						f, name, replacement)
+				}
+				if _, ok := got[replacement]; !ok {
+					t.Errorf("%s passes neither %s nor its replacement %s, so this engine's memory budget is "+
+						"whatever the engine decides", f, name, replacement)
+				}
+				continue
+			}
 			reason, mayDiffer := mustDifferAcrossTopology[name]
 			have, present := got[name]
 			switch {
@@ -264,7 +286,14 @@ func TestTheSharingEnginesDifferFromTheFlagshipOnlyWhereTheSplitForcesIt(t *test
 					f, have, want, name)
 			}
 		}
+		replacements := map[string]bool{}
+		for _, r := range mayReplaceAcrossTopology {
+			replacements[r] = true
+		}
 		for name, have := range got {
+			if replacements[name] {
+				continue
+			}
 			if _, ok := flagship[name]; !ok {
 				t.Errorf("%s passes %q, which the flagship does not pass at all; the exclusive arm is "+
 					"supposed to be the flagship's own engine, so this is a knob only the split arms turn",
