@@ -455,6 +455,24 @@ export BENCHHARNESS_BIN=/src/bin/benchharness
 export RATE PREMIUM_WEIGHT NOISY_WEIGHT PROBE_WEIGHT DURATION_MS REPS ARMS
 export OUT=/src/m5c-run
 
+# Each cell goes up the moment it is bought, so an instance that STOPS does not take the cells before it.
+#
+# The archive below still runs and is still the complete record; this is a second copy of each raw file,
+# written while the card is still being paid for. A Spot interruption is the case: the matrix's own failure
+# paths all reach the archive, and an interruption reaches nothing.
+cat > /usr/local/bin/m5c-cell-done <<'CELLHOOK'
+#!/bin/bash
+# $1 raw file, $2 arm, $3 repetition. Failure here must not fail the cell: the evidence is on local disk
+# either way, and a transient S3 error is not a reason to discard a measurement that was paid for.
+set -u
+raw="$1"; arm="$2"; rep="$3"
+aws s3 cp "$raw" "s3://__BUCKET__/__PREFIX__/cells/$(basename "$raw")" >/dev/null 2>&1 || exit 1
+echo "  cell $arm rep $rep uploaded as it completed"
+CELLHOOK
+sed -i "s|__BUCKET__|$BUCKET|; s|__PREFIX__|$PREFIX|" /usr/local/bin/m5c-cell-done
+chmod +x /usr/local/bin/m5c-cell-done
+export CELL_DONE_HOOK=/usr/local/bin/m5c-cell-done
+
 bash hack/m5c-matrix.sh; matrix_rc=$?
 echo "matrix exited $matrix_rc"
 

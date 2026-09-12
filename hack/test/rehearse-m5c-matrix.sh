@@ -240,6 +240,20 @@ GPU_NODE=$(k get nodes -l '!node-role.kubernetes.io/control-plane' \
   || fail "this cluster has no worker node, so the matrix has nowhere to put an engine and its own node derivation would find nothing"
 say "  card node $GPU_NODE"
 OUT_DIR="$WORK/run"
+
+# A recorder in place of the instance's S3 uploader, so the per-cell hook is EXERCISED rather than assumed.
+#
+# On the instance this hook copies each cell's raw file to the bucket the moment the cell completes, which
+# is what stops a Spot interruption taking every cell before it. Unset it and the matrix behaves exactly as
+# it did; that is deliberate and it is also how a hook quietly stops being called. This proves it is.
+cat > "$WORK/cell-hook" <<'HOOK'
+#!/bin/bash
+printf '%s %s %s\n' "$2" "$3" "$(basename "$1")" >> "$CELL_HOOK_LOG"
+HOOK
+chmod +x "$WORK/cell-hook"
+export CELL_HOOK_LOG="$WORK/cells-seen.txt"
+: > "$CELL_HOOK_LOG"
+
 set +e
 ( cd "$SRC" && PLATFORM=kind KCTX="$KCTX" GPU_NODE="$GPU_NODE" \
     DEADLINE_EPOCH=$(( $(date +%s) + 3600 )) \
@@ -247,6 +261,7 @@ set +e
     RATE="$RATE" DURATION_MS="$DURATION_MS" \
     PREMIUM_WEIGHT=1 NOISY_WEIGHT=0.5 PROBE_WEIGHT=0 \
     REPS=1 OUT="$OUT_DIR" \
+    CELL_DONE_HOOK="$WORK/cell-hook" CELL_HOOK_LOG="$CELL_HOOK_LOG" \
     bash hack/m5c-matrix.sh ) 2>&1 | tee "$WORK/matrix.log"
 rc=${PIPESTATUS[0]}
 set -e
@@ -272,6 +287,13 @@ print(' '.join(sorted(c)))
 [ "$r1_tenants" = "premium-1" ] \
   || fail "the R1 arm's evidence carries tenants [$r1_tenants] and must carry only premium-1. R1 is the isolated baseline both bars divide by, and one that includes the contender is the contended case wearing the baseline's name"
 say "  R1 carries only premium-1"
+
+# EVERY cell must have been handed over as it completed, not just at the end.
+cells_written=$(ls "$OUT_DIR"/raw-*.jsonl 2>/dev/null | wc -l)
+cells_seen=$(wc -l < "$CELL_HOOK_LOG" 2>/dev/null || echo 0)
+[ "$cells_seen" = "$cells_written" ] \
+  || fail "the per-cell hook fired $cells_seen time(s) for $cells_written cell(s). On the instance that hook is what puts each cell in the bucket while the card is still running, so a cell it does not see is a cell a Spot interruption takes with it. What it saw: $(tr '\n' ';' < "$CELL_HOOK_LOG")"
+say "  every cell was handed over as it completed ($cells_seen of $cells_written)"
 
 shared_tenants=$(python3 -c "
 import json,sys,collections

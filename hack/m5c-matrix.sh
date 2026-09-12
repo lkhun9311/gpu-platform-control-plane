@@ -1082,6 +1082,21 @@ for rep in $(seq 1 "$REPS"); do
       --raw-out "$OUT/raw-$arm-$rep.jsonl" || fail "replay $arm"
     [ -s "$OUT/raw-$arm-$rep.jsonl" ] || fail "no raw evidence for $arm rep $rep"
     say "  $(wc -l < "$OUT/raw-$arm-$rep.jsonl") rows"
+    # This cell is BOUGHT. Hand it to the caller now rather than at the end of the matrix.
+    #
+    # Everything this script writes goes up as one archive after the whole matrix returns, which is fine for
+    # a matrix that fails -- the wrapper still archives what exists -- and worthless for an instance that
+    # STOPS. A Spot interruption on the last cell takes every cell before it, and at two repetitions a run
+    # is six cells and about ninety minutes of rented card.
+    #
+    # A hook rather than an uploader, because this script also runs on a local kind cluster in three
+    # rehearsals where there is no bucket and nothing to upload to. Unset, nothing happens and the behaviour
+    # is exactly what it was. A failing hook does NOT fail the cell: the evidence is already on disk, and a
+    # transient S3 error is not a reason to throw away a measurement that was paid for.
+    if [ -n "${CELL_DONE_HOOK:-}" ]; then
+      "$CELL_DONE_HOOK" "$OUT/raw-$arm-$rep.jsonl" "$arm" "$rep" \
+        || say "  WARNING: CELL_DONE_HOOK failed for $arm rep $rep; the cell is still on local disk and will go up with the rest"
+    fi
     cell_secs=$(( cell_secs + $(date +%s) - CELL_T0 ))
     cells_done=$(( cells_done + 1 ))
   done
