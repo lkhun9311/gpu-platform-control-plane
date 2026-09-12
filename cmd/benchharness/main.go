@@ -24,9 +24,11 @@ package main
 
 import (
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"flag"
 	"fmt"
+	"hash/fnv"
 	"os"
 	"path/filepath"
 	"slices"
@@ -528,7 +530,20 @@ type armEvidence struct {
 	// 50 contender completions, each offered 140, clear a hundred-completion floor at 330 pooled and fire
 	// reading 1 POSITIVE -- on a run containing one block the registration calls invalid.
 	repDone map[string][]map[string]int
-	repRows map[string][]int
+	// replayFrom maps a replay's IDENTITY to the file that carried it, so the same replay cannot be
+	// counted twice as two repetitions.
+	//
+	// A repetition is supposed to be an independent measurement. Nothing stopped the same file being
+	// passed twice, or copied under a second name: both produced RepetitionCount=2, equal counts across
+	// arms, and a control whose repetition-to-repetition spread is EXACTLY ZERO -- which is the threshold
+	// readings 3 and 5 compare an improvement against. A review reproduced it by passing each of the eighth
+	// pilot's files twice, and reading 5 fired on single-repetition evidence.
+	//
+	// The identity is the arm plus every row's send timestamp. Two real replays of the same trace start at
+	// different nanoseconds; a copy is bit-identical. The trace checksum cannot do this job -- repetitions
+	// of one arm are SUPPOSED to share it, and the check beside this one refuses them when they do not.
+	replayFrom map[string]string
+	repRows    map[string][]int
 	// repSeconds is each repetition's own wall clock, kept because the arm's throughput must be its tokens
 	// over the time it was actually sending -- not over a pooled span that includes the washout pauses
 	// between repetitions.
@@ -615,8 +630,9 @@ func loadArmEvidence(rawFiles []string) (*armEvidence, error) {
 	e := &armEvidence{
 		byArm: map[string][]bench.RawRow{}, repP99: map[string][]float64{},
 		repTail: map[string][]int{}, repRows: map[string][]int{}, repSeconds: map[string][]float64{},
-		repDone:  map[string][]map[string]int{},
-		checksum: map[string]string{}, tolerance: map[string]float64{},
+		repDone:    map[string][]map[string]int{},
+		replayFrom: map[string]string{},
+		checksum:   map[string]string{}, tolerance: map[string]float64{},
 		treatment: map[string]string{},
 	}
 	for _, path := range rawFiles {
@@ -660,6 +676,7 @@ func loadArmEvidence(rawFiles []string) (*armEvidence, error) {
 		}
 
 		arm := rows[0].Arm
+
 		e.byArm[arm] = append(e.byArm[arm], rows...)
 		// Keep the whole per-repetition summary, not just its p99.
 		//
@@ -667,6 +684,22 @@ func loadArmEvidence(rawFiles []string) (*armEvidence, error) {
 		// invisible: the pooled arm summary sums every row, so three healthy repetitions carry a fourth whose
 		// p99 is a maximum over thirty requests -- and the bootstrap then resamples that fourth value with
 		// equal weight.
+		// The same replay may not be counted twice.
+		h := fnv.New64a()
+		var buf [8]byte
+		for _, r := range rows {
+			binary.LittleEndian.PutUint64(buf[:], uint64(r.SendUnixNanos))
+			_, _ = h.Write(buf[:])
+		}
+		id := fmt.Sprintf("%s/%x", arm, h.Sum64())
+		if prev, dup := e.replayFrom[id]; dup {
+			return nil, fmt.Errorf("%s and %s carry the SAME replay of arm %s -- every row was sent at the"+
+				" same nanosecond, so one is a copy of the other. Counting it twice would report two"+
+				" repetitions whose spread is exactly zero, and that spread is what readings 3 and 5"+
+				" measure an improvement against", path, prev, arm)
+		}
+		e.replayFrom[id] = path
+
 		rs := bench.Summarize(arm, rows)
 		e.repP99[arm] = append(e.repP99[arm], rs.TTFTMsP99)
 		e.repTail[arm] = append(e.repTail[arm], rs.TailSampleSize)

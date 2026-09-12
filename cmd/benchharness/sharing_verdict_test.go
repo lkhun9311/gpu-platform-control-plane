@@ -17,6 +17,8 @@ limitations under the License.
 package main
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -87,5 +89,40 @@ func TestOnlyTheWholeRunGatesTheExitStatus(t *testing.T) {
 				t.Errorf("the error does not identify the run as invalid: %v", err)
 			}
 		})
+	}
+}
+
+// The same replay passed twice may not become two repetitions.
+//
+// A repetition is an independent measurement, and readings 3 and 5 compare an improvement against the
+// CONTROL'S repetition-to-repetition spread. Two copies of one replay have a spread of exactly zero, so
+// every improvement clears it. A review reproduced this by passing each of the eighth pilot's raw files
+// twice: RepetitionCount became 2, the equal-repetitions check passed, and reading 5 fired on evidence
+// that contained one repetition.
+func TestTheSameReplayCannotBeCountedTwice(t *testing.T) {
+	dir := t.TempDir()
+	a := writeRepetition(t, dir, "a.jsonl", "R1", 200, 100, 150, 0)
+
+	// A byte-for-byte copy under a different name is the case that matters: a second -raw of the SAME path
+	// could be caught by comparing paths, and that is not the defect.
+	b := filepath.Join(dir, "a-copy.jsonl")
+	blob, err := os.ReadFile(a)
+	if err != nil {
+		t.Fatalf("read %s: %v", a, err)
+	}
+	if err := os.WriteFile(b, blob, 0o600); err != nil {
+		t.Fatalf("write %s: %v", b, err)
+	}
+
+	err = report([]string{"-out", filepath.Join(dir, "report.txt"), "-raw", a, "-raw", b})
+	if err == nil {
+		t.Fatal("a replay and a copy of it were accepted as two repetitions; their spread is zero and that " +
+			"spread is the threshold readings 3 and 5 measure against")
+	}
+	for _, want := range []string{"same nanosecond", "copy", "spread"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the refusal does not say %q, so a reader cannot tell a duplicate from a real "+
+				"disagreement between repetitions: %v", want, err)
+		}
 	}
 }

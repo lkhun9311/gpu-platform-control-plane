@@ -197,6 +197,27 @@ func TestThePriceOfProtectionStudyReportsItsOwnArms(t *testing.T) {
 	}
 }
 
+// replayedAgain returns a copy of rows as a SECOND replay of the same trace: same content, later clock.
+//
+// Two repetitions are two independent measurements, and `report` now refuses a replay counted twice by
+// comparing the send timestamps of every row. Fixtures that handed the same rows to two files were
+// therefore duplicates by that definition -- which is correct of the fixture and not of the runner.
+func replayedAgain(rows []bench.RawRow) []bench.RawRow {
+	const laterNanos = 3_600_000_000_000 // an hour on, which is what a second cell of a matrix looks like
+	out := make([]bench.RawRow, len(rows))
+	copy(out, rows)
+	for i := range out {
+		out[i].SendUnixNanos += laterNanos
+		if out[i].FirstTokenUnixNanos > 0 {
+			out[i].FirstTokenUnixNanos += laterNanos
+		}
+		if out[i].EndUnixNanos > 0 {
+			out[i].EndUnixNanos += laterNanos
+		}
+	}
+	return out
+}
+
 // withPriority returns a copy of rows carrying a scheduling priority.
 func withPriority(rows []bench.RawRow, p int) []bench.RawRow {
 	out := make([]bench.RawRow, len(rows))
@@ -218,7 +239,7 @@ func TestTreatedAndUntreatedRepetitionsAreNotPooled(t *testing.T) {
 	dir := t.TempDir()
 	base := rowsFor(bench.StudyPriceOfProtection, "mbt-0512-priority", "T")
 	untreated := writeRaw(t, dir, "raw-mbt-0512-priority-1.jsonl", base)
-	treated := writeRaw(t, dir, "raw-mbt-0512-priority-2.jsonl", withPriority(base, 0))
+	treated := writeRaw(t, dir, "raw-mbt-0512-priority-2.jsonl", withPriority(replayedAgain(base), 0))
 
 	_, err := loadArmEvidence([]string{untreated, treated})
 	if err == nil {
@@ -234,7 +255,7 @@ func TestRepetitionsUnderTheSameTreatmentStillPool(t *testing.T) {
 	dir := t.TempDir()
 	base := rowsFor(bench.StudyPriceOfProtection, "mbt-0512-priority", "T")
 	a := writeRaw(t, dir, "raw-mbt-0512-priority-1.jsonl", withPriority(base, 0))
-	b := writeRaw(t, dir, "raw-mbt-0512-priority-2.jsonl", withPriority(base, 0))
+	b := writeRaw(t, dir, "raw-mbt-0512-priority-2.jsonl", withPriority(replayedAgain(base), 0))
 
 	if _, err := loadArmEvidence([]string{a, b}); err != nil {
 		t.Fatalf("two repetitions under one treatment must pool: %v", err)
