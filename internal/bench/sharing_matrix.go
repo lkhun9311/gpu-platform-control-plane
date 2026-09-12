@@ -121,6 +121,27 @@ type sharingScored struct {
 func EvaluateSharingMatrix(a SharingArms, premiumTenant, contenderTenant string) SharingResult {
 	var res SharingResult
 
+	// A REFUSED arm leaves the scored set here, and at one repetition that used to happen by itself.
+	//
+	// The runner declines an arm before replaying it, so a refused arm carried no evidence and the comment
+	// on reading 4c said, correctly, that excluding it needed no further step. That stops being true the
+	// moment REPS exceeds one: mps can complete repetition 1 and be refused at repetition 2, and then it is
+	// an arm with real rows and a recorded refusal. Reading 4b's equal-repetitions check would see 1 against
+	// the others' 2, fire, and declare the WHOLE RUN invalid -- before 4c, whose entire job is to say that a
+	// refusal belongs to one arm. The next run is the first with two repetitions, so this is due now.
+	//
+	// Its partial rows are not scored either. Half an arm held against a bar is a comparison between
+	// different amounts of evidence, and 4c already reports what happened to it.
+	if len(a.Refused) > 0 {
+		kept := make([]ArmSummary, 0, len(a.Sharing))
+		for _, s := range a.Sharing {
+			if _, refused := a.Refused[s.Arm]; !refused {
+				kept = append(kept, s)
+			}
+		}
+		a.Sharing = kept
+	}
+
 	// Readings 4 and 4b short-circuit, because each one says the TRACE rather than the topology is what has
 	// to change. Scoring arms underneath either would be scoring comparisons that do not mean anything.
 	// A gate that FIRED stops the evaluation. A gate that could not be COMPUTED does not stop the next gate.

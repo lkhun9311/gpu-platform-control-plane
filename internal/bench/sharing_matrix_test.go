@@ -1088,3 +1088,44 @@ func TestACensoredRepetitionDisqualifiesTheArmThePoolCallsClean(t *testing.T) {
 		}
 	})
 }
+
+// An arm refused PART WAY through must not invalidate the run before 4c can exempt it.
+//
+// At one repetition a refused arm carried no evidence, so excluding it from scoring happened by itself and
+// the evaluator said so. At two it can complete repetition 1 and be refused at repetition 2 — real rows and
+// a recorded refusal. Reading 4b's equal-repetitions check then sees 1 against the others' 2, fires, and
+// calls the WHOLE RUN invalid, which is the opposite of what 4c exists to say. MPS has failed to engage on
+// this AMI three times, so this is the expected shape of the next run and not a corner.
+func TestAnArmRefusedPartWayThroughDoesNotInvalidateTheOthers(t *testing.T) {
+	m := healthyMatrix()
+	twoReps := func(s ArmSummary) ArmSummary {
+		s.RepetitionCount = 2
+		s.MinRepetitionCompletedByTenant = map[string]int{PremiumTenant: 3000, NoisyTenant: 250}
+		return s
+	}
+	m.R1 = twoReps(m.R1)
+	m.Shared = twoReps(m.Shared)
+
+	// timeSlicing ran twice; mps managed one repetition and was then refused.
+	ts := twoReps(healthyArm(ArmTimeSlicing, 900, 60, 38_000))
+	half := healthyArm(ArmMPS, 1000, 62, 37_000)
+	half.RepetitionCount = 1
+	m.Sharing = []ArmSummary{ts, half}
+	m.Refused = map[string]string{ArmMPS: "the engines are not MPS clients"}
+
+	res := EvaluateSharingMatrix(m, PremiumTenant, NoisyTenant)
+
+	fourB := sharingReadingByID(t, res, "4b")
+	if fourB.Fired {
+		t.Fatalf("reading 4b invalidated the whole run because the REFUSED arm has one repetition against "+
+			"the others' two. A refusal belongs to one arm, which is what 4c says: %s", fourB.Detail)
+	}
+	fourC := sharingReadingByID(t, res, "4c")
+	if !fourC.Fired || fourC.Cell != ArmMPS {
+		t.Errorf("reading 4c did not report the refusal it owns (fired=%v cell=%q): %s", fourC.Fired, fourC.Cell, fourC.Detail)
+	}
+	// And the refused arm's partial rows are not scored beside the complete ones.
+	if strings.Contains(sharingReadingByID(t, res, "1").Detail, ArmMPS) {
+		t.Errorf("reading 1 considered the refused arm's partial evidence: %s", sharingReadingByID(t, res, "1").Detail)
+	}
+}
