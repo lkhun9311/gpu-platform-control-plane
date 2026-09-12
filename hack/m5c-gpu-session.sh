@@ -612,6 +612,24 @@ if [ -s "$OUT/evidence.tgz" ]; then
 fi
 
 if [ "$done_seen" -eq 0 ]; then
+  # The per-cell uploads are pulled down FIRST, because they are the only evidence an interruption leaves.
+  #
+  # Each cell is copied to s3://.../cells/ the moment it completes, and nothing here looked there. The
+  # archive above is written by the instance after the whole matrix returns, so a session that STOPS has no
+  # archive at all -- and this block would then count zero raw files and refuse, while five cells sat in
+  # the bucket already paid for. Existing files are not overwritten: the archive is the complete record
+  # when it exists, and these are the fallback.
+  mkdir -p "$OUT/m5c-run"
+  cells_pulled=0
+  while read -r key; do
+    [ -n "$key" ] || continue
+    base="$(basename "$key")"
+    [ -e "$OUT/m5c-run/$base" ] && continue
+    aws s3 cp "s3://$BUCKET/$key" "$OUT/m5c-run/$base" >/dev/null 2>&1 && cells_pulled=$(( cells_pulled + 1 ))
+  done < <(aws s3api list-objects-v2 --bucket "$BUCKET" --prefix "$RUN_ID/cells/" \
+             --query 'Contents[].Key' --output text 2>/dev/null | tr '\t' '\n')
+  [ "$cells_pulled" -gt 0 ] && say "recovered $cells_pulled cell(s) that were uploaded as they completed"
+
   # Partial evidence is the point of uploading before the marker, so it is reported rather than discarded.
   shopt -s nullglob
   recovered=("$OUT/m5c-run"/raw-*.jsonl)
