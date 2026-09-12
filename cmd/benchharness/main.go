@@ -543,6 +543,8 @@ type armEvidence struct {
 	// different nanoseconds; a copy is bit-identical. The trace checksum cannot do this job -- repetitions
 	// of one arm are SUPPOSED to share it, and the check beside this one refuses them when they do not.
 	replayFrom map[string]string
+	// repServed is each repetition's completed/offered per tenant, which the counts alone cannot express.
+	repServed map[string][]map[string]float64
 	// repCensored records whether ANY of an arm's repetitions was censored, which pooling hides.
 	repCensored map[string]bool
 	repRows     map[string][]int
@@ -635,6 +637,7 @@ func loadArmEvidence(rawFiles []string) (*armEvidence, error) {
 		repDone:     map[string][]map[string]int{},
 		replayFrom:  map[string]string{},
 		repCensored: map[string]bool{},
+		repServed:   map[string][]map[string]float64{},
 		checksum:    map[string]string{}, tolerance: map[string]float64{},
 		treatment: map[string]string{},
 	}
@@ -709,10 +712,15 @@ func loadArmEvidence(rawFiles []string) (*armEvidence, error) {
 		e.repRows[arm] = append(e.repRows[arm], len(rows))
 		e.repSeconds[arm] = append(e.repSeconds[arm], rs.ActiveSeconds)
 		done := map[string]int{}
+		served := map[string]float64{}
 		for tenant, d := range rs.DispositionByTenant {
 			done[tenant] = d.Completed
+			if d.Offered > 0 {
+				served[tenant] = float64(d.Completed) / float64(d.Offered)
+			}
 		}
 		e.repDone[arm] = append(e.repDone[arm], done)
+		e.repServed[arm] = append(e.repServed[arm], served)
 		if rs.Censored {
 			e.repCensored[arm] = true
 		}
@@ -881,6 +889,19 @@ func (e *armEvidence) summarize() ([]bench.ArmSummary, map[string]bench.ArmSumma
 			// Summarize sees pooled rows and cannot know how they were split, so the repetition shape is
 			// attached here where the split is known.
 			s.AnyRepetitionCensored = e.repCensored[arm]
+			// The worst fraction any repetition served, per tenant. A tenant absent from a repetition was
+			// offered nothing there, so that repetition says nothing about its fraction and is skipped --
+			// unlike the count, where absence means zero served.
+			if reps := e.repServed[arm]; len(reps) > 0 {
+				s.WorstRepetitionServedFractionByTenant = map[string]float64{}
+				for _, served := range reps {
+					for tenant, f := range served {
+						if prev, seen := s.WorstRepetitionServedFractionByTenant[tenant]; !seen || f < prev {
+							s.WorstRepetitionServedFractionByTenant[tenant] = f
+						}
+					}
+				}
+			}
 			if tails := e.repTail[arm]; len(tails) > 0 {
 				s.RepetitionCount = len(tails)
 				s.MinRepetitionTail = slices.Min(tails)

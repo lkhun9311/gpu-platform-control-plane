@@ -269,6 +269,15 @@ type ArmSummary struct {
 	// for the same reason RepetitionCount is.
 	AnyRepetitionCensored bool
 
+	// WorstRepetitionServedFractionByTenant is the lowest completed/offered any repetition reached, per tenant.
+	//
+	// A COUNT and a FRACTION are different questions and the floor only asked the first. Repetitions of
+	// 100/139 and 139/139 both clear a hundred-completion floor while the first lost 28% of its load, and a
+	// run whose contention was delivered that unevenly cannot be compared against one where it was not.
+	// Carried per tenant so the CONTROL is checked too: every ratio in this study is measured against
+	// `shared`, and a control that lost a third of its contender load is a weakened denominator.
+	WorstRepetitionServedFractionByTenant map[string]float64
+
 	// MinRepetitionCompletedByTenant is the thinnest repetition's completed count, per tenant.
 	//
 	// MinRepetitionTail answers the same question for the premium tenant only, which left the contender's

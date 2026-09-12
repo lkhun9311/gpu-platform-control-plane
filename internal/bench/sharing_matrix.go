@@ -500,6 +500,18 @@ func sharingReadingFourB(a SharingArms, premiumTenant, contenderTenant string) P
 					s.Arm, n, contenderTenant, d.Completed, s.RepetitionCount))
 			}
 		}
+		// A COUNT is not a FRACTION, and the floor above only asks the first.
+		//
+		// Repetitions of 100/139 and 139/139 both clear a hundred completions while the first lost 28% of
+		// its load, and an arm whose contention arrived that unevenly is not comparable with one where it
+		// did not. The bar is the same 0.75 reading 2 uses for the contender's share, applied to what was
+		// DELIVERED in a repetition rather than to what the pool totals. It runs for one repetition too:
+		// a single block that served two thirds of its contender load is the same defect without the
+		// pooling to hide it.
+		if f, ok := s.WorstRepetitionServedFractionByTenant[contenderTenant]; ok && f < m5cContenderShareBar {
+			thin = append(thin, fmt.Sprintf("%s has a repetition that served only %.0f%% of the %s load it was offered",
+				s.Arm, f*100, contenderTenant))
+		}
 	}
 
 	check(a.R1, false)

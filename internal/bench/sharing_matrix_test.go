@@ -1221,3 +1221,57 @@ func TestReadingFiveReportsTheContendersLedgerRatherThanAVerdict(t *testing.T) {
 		}
 	})
 }
+
+// A repetition that served only part of its contender load is unscorable, even when the counts clear.
+//
+// A count and a fraction are different questions and the floor only asked the first. Repetitions of 100/139
+// and 139/139 both clear a hundred completions while the first lost 28% of what it was offered, and an arm
+// whose contention arrived that unevenly is not comparable with one where it did not. The control is held
+// to it too: every ratio in this study is measured against `shared`, so a control that lost a third of its
+// contender load is a weakened denominator wearing a full one's name.
+func TestARepetitionThatServedPartOfItsContenderLoadIsUnscorable(t *testing.T) {
+	t.Run("a sharing arm", func(t *testing.T) {
+		m := healthyMatrix()
+		arm := healthyArm(ArmTimeSlicing, 900, 60, 38_000)
+		arm.RepetitionCount = 2
+		arm.DispositionByTenant = map[string]Disposition{
+			NoisyTenant: {Offered: 278, Completed: 239, TimedOut: 39}, // pooled: 86% served, over the bar
+		}
+		arm.MinRepetitionCompletedByTenant = map[string]int{PremiumTenant: 3000, NoisyTenant: 100}
+		arm.WorstRepetitionServedFractionByTenant = map[string]float64{NoisyTenant: 100.0 / 139.0} // 0.719
+		m.Sharing = []ArmSummary{arm}
+
+		fourB := sharingReadingByID(t, EvaluateSharingMatrix(m, PremiumTenant, NoisyTenant), "4b")
+		if !fourB.Fired {
+			t.Fatalf("reading 4b accepted an arm whose thinnest repetition served 100 of 139 contender "+
+				"requests. Its count clears the floor and its pooled fraction is 86%%, which is why neither "+
+				"of the existing guards sees it: %s", fourB.Detail)
+		}
+		if !strings.Contains(fourB.Detail, "72%") {
+			t.Errorf("reading 4b fired without naming the fraction that was served: %s", fourB.Detail)
+		}
+	})
+
+	t.Run("the control, whose ratios everything is measured against", func(t *testing.T) {
+		m := healthyMatrix()
+		m.Shared.WorstRepetitionServedFractionByTenant = map[string]float64{NoisyTenant: 0.60}
+
+		fourB := sharingReadingByID(t, EvaluateSharingMatrix(m, PremiumTenant, NoisyTenant), "4b")
+		if !fourB.Fired {
+			t.Errorf("reading 4b accepted a CONTROL that served 60%% of its contender load in a repetition; "+
+				"every improvement in this study is measured against that arm: %s", fourB.Detail)
+		}
+	})
+
+	t.Run("a healthy run is untouched", func(t *testing.T) {
+		m := healthyMatrix()
+		m.Shared.WorstRepetitionServedFractionByTenant = map[string]float64{NoisyTenant: 1.0}
+		arm := healthyArm(ArmTimeSlicing, 900, 60, 38_000)
+		arm.WorstRepetitionServedFractionByTenant = map[string]float64{NoisyTenant: 1.0}
+		m.Sharing = []ArmSummary{arm}
+
+		if fourB := sharingReadingByID(t, EvaluateSharingMatrix(m, PremiumTenant, NoisyTenant), "4b"); fourB.Fired {
+			t.Errorf("reading 4b fired on a run that served every contender request in every repetition: %s", fourB.Detail)
+		}
+	})
+}
