@@ -499,10 +499,8 @@ func report(args []string) error {
 	// below gives: automation that writes `benchharness report ... || fail` would otherwise accept a run the
 	// readings had just declared unusable.
 	if sharing != nil {
-		for _, r := range sharing.Readings {
-			if r.Fired && strings.Contains(r.Name, "INVALID") {
-				return fmt.Errorf("run invalid: reading %s fired -- %s", r.ID, r.Detail)
-			}
+		if err := sharingRunInvalid(*sharing); err != nil {
+			return err
 		}
 	}
 	if pop != nil {
@@ -1015,4 +1013,27 @@ func armNames(summaries []bench.ArmSummary) []string {
 		names = append(names, s.Arm)
 	}
 	return names
+}
+
+// sharingRunInvalid reports the error that must end the process, or nil when the run stands.
+//
+// Reading 4c is deliberately NOT in this list, and matching on the word INVALID used to put it there.
+//
+// 4 and 4b invalidate the RUN: they say the trace, not the topology, is what has to change, and nothing
+// measured under them means anything. 4c invalidates ONE ARM -- its name ends "INVALID for that arm" --
+// and the arm beside it was still measured and still paid for. Name matching could not tell those apart,
+// so a refused MPS arm made `benchharness report ... || fail` reject a run whose time-slicing arm had
+// produced a result. That is the expected case for this study rather than a corner: MPS has already been
+// measured failing to engage on this AMI. The IDs are listed explicitly so an exit status turns on which
+// reading fired rather than on how it was worded.
+//
+// A named function rather than a condition inside report(), because a rule that was wrong once should be
+// reachable from a test, and inline in a command that wants files on disk it is not.
+func sharingRunInvalid(res bench.SharingResult) error {
+	for _, r := range res.Readings {
+		if r.Fired && (r.ID == "4" || r.ID == "4b") {
+			return fmt.Errorf("run invalid: reading %s fired -- %s", r.ID, r.Detail)
+		}
+	}
+	return nil
 }
