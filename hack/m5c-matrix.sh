@@ -868,7 +868,16 @@ spec:
             - {name: GATEWAY_NAMESPACE, value: $NS_A}
             - {name: GATEWAY_API_KEY_SECRET, value: gateway-api-keys}
           ports: [{containerPort: 8080, name: http}]
-          # A READINESS PROBE, because without one `rollout status` means only that the container started.
+          # A READINESS PROBE, because without one "rollout status" means only that the container started.
+          #
+          # Quoted with "" and not with backticks, which is not a style note: this heredoc is unquoted so
+          # that $arm, $GW_IMAGE and $NS_A expand, and an unquoted heredoc expands backticks too. This line
+          # used to run "rollout status" as a command on every gateway deploy and print "rollout: command
+          # not found" to stderr four times a run. It was harmless only by luck -- the substitution landed
+          # inside a YAML comment -- and it put spurious errors in the log an operator reads for real ones.
+          #
+          # The first draft of this very comment quoted the offending command in backticks and put the
+          # defect straight back. internal/bench's TestNoUnquotedHeredocExecutesItsOwnProse caught that.
           #
           # The gateway serves /readyz and flips it only once its Kubernetes cache has synced -- it cannot
           # route before it can list the policies and deployments. Without the probe the rollout returns on a
