@@ -241,6 +241,9 @@ GPU_NODE=$(k get nodes -l '!node-role.kubernetes.io/control-plane' \
 say "  card node $GPU_NODE"
 OUT_DIR="$WORK/run"
 
+# One variable decides what the matrix runs AND what this script expects, so the two cannot disagree.
+ARMS_UNDER_TEST="${ARMS:-R1 shared timeSlicing mps}"
+
 # A recorder in place of the instance's S3 uploader, so the per-cell hook is EXERCISED rather than assumed.
 #
 # On the instance this hook copies each cell's raw file to the bucket the moment the cell completes, which
@@ -260,7 +263,7 @@ set +e
     GATEWAY_BIN="$WORK/gateway" BENCHHARNESS_BIN="$WORK/benchharness" \
     RATE="$RATE" DURATION_MS="$DURATION_MS" \
     PREMIUM_WEIGHT=1 NOISY_WEIGHT=0.5 PROBE_WEIGHT=0 \
-    REPS="${REPS:-1}" OUT="$OUT_DIR" \
+    REPS="${REPS:-1}" ARMS="$ARMS_UNDER_TEST" OUT="$OUT_DIR" \
     CELL_DONE_HOOK="$WORK/cell-hook" CELL_HOOK_LOG="$CELL_HOOK_LOG" \
     bash hack/m5c-matrix.sh ) 2>&1 | tee "$WORK/matrix.log"
 rc=${PIPESTATUS[0]}
@@ -268,41 +271,69 @@ set -e
 [ "$rc" = "0" ] || { tail -25 "$WORK/matrix.log"; fail "the matrix exited $rc -- the log above is what it said"; }
 
 # ---------------------------------------------------------------- what the run must have produced
+#
+# The expectation is ARMS x REPS, and it is built BEFORE looking at the directory.
+#
+# The first version of this section listed four arm names and repetition 1, and the per-cell check derived
+# what it expected from `ls raw-*.jsonl` -- so a run that silently produced no second repetition had no
+# repetition-2 files AND no repetition-2 callbacks, both sides shrank together, and the comparison passed.
+# A check whose expectation comes from the thing it is checking cannot fail. The arms come from ARMS for the
+# same reason: the next paid run is three arms, and a rehearsal that can only rehearse four is not
+# rehearsing it.
 say "check what the matrix wrote"
-for arm in R1 shared timeSlicing mps; do
-  [ -s "$OUT_DIR/raw-$arm-1.jsonl" ] \
-    || fail "no raw evidence for the $arm arm. The matrix reported success, so this is an arm that ran and wrote nothing"
+want_cells=""
+for arm in $ARMS_UNDER_TEST; do
+  for rep in $(seq 1 "${REPS:-1}"); do
+    [ -s "$OUT_DIR/raw-$arm-$rep.jsonl" ] \
+      || fail "no raw evidence for $arm repetition $rep. The matrix reported success, so this is a cell that ran and wrote nothing"
+    want_cells="$want_cells$arm $rep raw-$arm-$rep.jsonl
+"
+  done
 done
+want_cells=$(printf '%s' "$want_cells" | sort)
+# And nothing EXTRA: a file for an arm or repetition nobody asked for is a run that is not the one requested.
+got_files=$(for f in "$OUT_DIR"/raw-*.jsonl; do
+  b=$(basename "$f" .jsonl); b=${b#raw-}
+  printf '%s %s %s\n' "${b%-*}" "${b##*-}" "$(basename "$f")"
+done | sort)
+[ "$want_cells" = "$got_files" ] \
+  || fail "the evidence on disk is not ARMS x REPS.
+  wanted: $(printf '%s' "$want_cells" | tr '\n' ';')
+  found:  $(printf '%s' "$got_files" | tr '\n' ';')"
 
 # R1 IS THE POINT OF THIS CHECK. It is the isolated baseline, so its trace must carry the premium tenant and
 # nothing else -- gen-trace filters the contender out of the same trace when the arm is R1. A run whose R1
 # carried the contender would be measuring the contended case and dividing by it.
-r1_tenants=$(python3 -c "
+tenants_in() {
+  python3 -c "
 import json,sys,collections
 c=collections.Counter()
 for line in open(sys.argv[1]):
     c[json.loads(line).get('tenant','?')]+=1
 print(' '.join(sorted(c)))
-" "$OUT_DIR/raw-R1-1.jsonl")
-[ "$r1_tenants" = "premium-1" ] \
-  || fail "the R1 arm's evidence carries tenants [$r1_tenants] and must carry only premium-1. R1 is the isolated baseline both bars divide by, and one that includes the contender is the contended case wearing the baseline's name"
-say "  R1 carries only premium-1"
+" "$1"
+}
+# EVERY repetition, not the first. A repetition replayed from a different trace is a defect the runner
+# guards against elsewhere, and a rehearsal that only ever looked at repetition 1 was taking the guard's
+# word for it rather than checking the evidence.
+for rep in $(seq 1 "${REPS:-1}"); do
+  r1_tenants=$(tenants_in "$OUT_DIR/raw-R1-$rep.jsonl")
+  [ "$r1_tenants" = "premium-1" ] \
+    || fail "the R1 arm's repetition $rep carries tenants [$r1_tenants] and must carry only premium-1. R1 is the isolated baseline both bars divide by, and one that includes the contender is the contended case wearing the baseline's name"
+done
+say "  R1 carries only premium-1, in every repetition"
 
 # EVERY cell must have been handed over, and the check compares WHICH ONES rather than how many.
 #
 # The first version of this compared totals only, so four callbacks for R1 and none for the other three
 # would have passed -- a check for "once per cell" that could not tell one cell from another. The hook is
 # handed (file, arm, repetition), so the multiset of those triples is what has to match the files on disk.
-expected_cells=$(for f in "$OUT_DIR"/raw-*.jsonl; do
-  b=$(basename "$f" .jsonl); b=${b#raw-}
-  printf '%s %s %s\n' "${b%-*}" "${b##*-}" "$(basename "$f")"
-done | sort)
 seen_cells=$(sort "$CELL_HOOK_LOG" 2>/dev/null || true)
-if [ "$expected_cells" != "$seen_cells" ]; then
+if [ "$want_cells" != "$seen_cells" ]; then
   fail "the per-cell hook did not see exactly the cells that were written. On the instance that hook is what
   puts each cell in the bucket while the card is still running, so a cell it does not see is a cell an
   interruption takes with it.
-  expected: $(printf '%s' "$expected_cells" | tr '\n' ';')
+  expected: $(printf '%s' "$want_cells" | tr '\n' ';')
   seen:     $(printf '%s' "$seen_cells" | tr '\n' ';')"
 fi
 say "  every cell was handed over as it completed, by (arm, repetition): $(printf '%s' "$seen_cells" | tr '\n' ';')"
@@ -348,7 +379,7 @@ report_rc=$?
 set -e
 if ! grep -q "PRE-REGISTERED READINGS" "$WORK/report.txt"; then
   tail -20 "$WORK/report.txt"; cat "$WORK/report.err"
-  fail "the report exited $report_rc without evaluating any readings over four arms of this study's own evidence"
+  fail "the report exited $report_rc without evaluating any readings over this study's own evidence"
 fi
 # ANCHORED on the reading id, because "[FIRED] 4" also matches 4b and 4c and those are different verdicts.
 if [ "$report_rc" != "0" ] && ! grep -qE '^\s*\[FIRED\] (4|4b|4c) ' "$WORK/report.txt"; then
@@ -386,5 +417,5 @@ else
   say "  reading 4 was evaluable and did not fire, so the readings below it were reached"
 fi
 
-say "REHEARSAL PASSED: the real matrix ran four arms end to end and its readings were evaluated."
+say "REHEARSAL PASSED: the real matrix ran $ARMS_UNDER_TEST at ${REPS:-1} repetition(s) end to end and its readings were evaluated."
 say "What this did NOT cover: every number, and whether two engines fit on one card."
