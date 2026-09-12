@@ -520,6 +520,55 @@ answer, because each engine here has half a card. The runner refuses to start wi
 **This is a pilot's job, not the confirmatory run's.** No confirmatory time may be bought until a pilot has
 cleared readings 4, 4b and 4c and produced a load whose derivation is written down.
 
+### The derivation, done — 2026-09-12, from the seventh pilot
+
+The seventh pilot measured the missing quantity, which is the whole reason it was bought. Three arms ran to
+completion on one A10G and the contender's ledger is the answer:
+
+| arm | contender offered | completed | timed out | premium TTFT p99 | /R1 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `R1` | — | — | — | 69.9 ms | 1.0x |
+| `shared` | 238 | **238** | 0 | 7,911.5 ms | 113.1x |
+| `timeSlicing` | 238 | **61** | 177 | 839.3 ms | 12.0x |
+
+**The split engine sustains 0.145 contender requests per second** — 61 completions over 420 s. It was
+offered 0.567/s, which is **3.9x** what it can serve, and three quarters of the contending load timed out.
+The same load on the whole card completed every request with no timeout at all.
+
+That figure is a **lower bound**, and deliberately used as one. The 177 requests that timed out consumed
+prefill before being discarded, so an engine that was not being overrun would complete more than 0.145/s.
+Sizing against the floor puts the real utilization below the target rather than above it.
+
+**The target is 0.6, and it is quoted from the paragraph above rather than chosen here.** That paragraph was
+written before any card was bought and says the contender's rate must put the offered prefill "near 60% of
+what the split engine can do". Applying it:
+
+| | |
+| --- | --- |
+| split-engine contender capacity | **0.145 req/s** (measured, a floor) |
+| × the registered 0.6 | **0.087 req/s** |
+| completions needed | 100 is reading 4b's floor; **140** is the target, so that Poisson arrivals miss it 3.4σ of the time rather than 1.8σ |
+| duration per cell | 140 / 0.0871 = **1,607 s**, so `DURATION_MS=1610000` |
+| premium rate | **held at 9.24/s**, measured 3,882 over 420 s — the page requires it be held, because it is a few percent of capacity and moving it changes what the result means |
+| contender weight | 0.087 / 9.24 = **`NOISY_WEIGHT=0.00943`**, from 0.054 |
+
+**And the two gates squeeze from opposite sides, so the corridor had to be checked rather than assumed.**
+Lowering the contender's rate enough for the split engine to serve it also lowers the contention the control
+produces, and reading 4 declares the run INVALID below 5x. The check is an occupancy argument rather than a
+prediction of the tail: a p99 is the slowest 1%, so the premium p99 lands inside a contender prefill
+whenever the engine is busy with contender work more than 1% of the time. At 0.087/s and about 1.03 s of
+engine per contender prompt that occupancy is **9.0%**, nine times over. The corridor runs from 0.0097/s
+(where reading 4 starts to fire) to 0.087/s (where the split arm starts to saturate) — **about nine times
+wide**, which is the first evidence this study has about whether a valid load exists at all. It does.
+
+**What this costs.** Three arms at 1,607 s of replay is 80 minutes, plus four engine starts, the cluster and
+the driver: about **105 minutes and $1.19**. Four arms is about 134 minutes and $1.52. The runner's
+credential check needs that plus its 30 minutes of headroom.
+
+**What this does not settle.** Whether the premium tail clears 2x at a load the contender survives. This
+pilot says the split holds it at 12.0x while dropping three quarters of the contending work, and those two
+facts cannot be separated on this evidence — which is what reading 4b fired to say.
+
 ## Budget
 
 Corrected on 2026-09-10 for the platform change, before any card time was bought. The old figures assumed a
