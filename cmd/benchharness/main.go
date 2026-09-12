@@ -1034,6 +1034,18 @@ func sharingRunInvalid(res bench.SharingResult) error {
 		if r.Fired && (r.ID == "4" || r.ID == "4b") {
 			return fmt.Errorf("run invalid: reading %s fired -- %s", r.ID, r.Detail)
 		}
+		// A GATE that could not be computed is also not a run that stands.
+		//
+		// 4 and 4b are prerequisites: they ask whether the evidence can be assessed at all. When one of them
+		// comes back NotEvaluable the answer is "we could not tell", and this returned nil -- so a control
+		// whose premium tail is censored printed a report with no verdict, no answer and exit status zero,
+		// and `benchharness report ... || fail` accepted it as a successful run. Reproduced by an
+		// independent review with 2% premium timeouts in the control.
+		//
+		// Only the GATES. A reading below them coming back NotEvaluable is an ordinary "no finding here".
+		if r.NotEvaluable && (r.ID == "4" || r.ID == "4b") {
+			return fmt.Errorf("run invalid: reading %s could not be evaluated -- %s", r.ID, r.Detail)
+		}
 	}
 	return nil
 }

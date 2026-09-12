@@ -56,6 +56,24 @@ func TestOnlyTheWholeRunGatesTheExitStatus(t *testing.T) {
 			reading: bench.PoPReading{ID: "4", Name: "the load did not create contention -- INVALID"},
 			invalid: false,
 		},
+		{
+			// A gate that could not be computed is not a run that stands: it says the evidence could not be
+			// assessed. This exited zero, so the paid runner accepted a censored control as a good session.
+			name:    "4 could not be evaluated: the control's tail is censored",
+			reading: bench.PoPReading{ID: "4", Name: "the load did not create contention -- INVALID", NotEvaluable: true},
+			invalid: true,
+		},
+		{
+			name:    "4b could not be evaluated",
+			reading: bench.PoPReading{ID: "4b", Name: "the load was too high to measure -- INVALID", NotEvaluable: true},
+			invalid: true,
+		},
+		{
+			// But a reading BELOW the gates coming back NotEvaluable is an ordinary "no finding".
+			name:    "1 could not be evaluated",
+			reading: bench.PoPReading{ID: "1", Name: "separation protects -- POSITIVE", NotEvaluable: true},
+			invalid: false,
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			err := sharingRunInvalid(bench.SharingResult{Readings: []bench.PoPReading{tc.reading}})
