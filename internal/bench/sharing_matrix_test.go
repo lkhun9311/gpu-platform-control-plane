@@ -1129,3 +1129,43 @@ func TestAnArmRefusedPartWayThroughDoesNotInvalidateTheOthers(t *testing.T) {
 		t.Errorf("reading 1 considered the refused arm's partial evidence: %s", sharingReadingByID(t, res, "1").Detail)
 	}
 }
+
+// A missing baseline or control is an INVALID run, and it used to exit zero.
+//
+// Every reading divides by R1 or compares against `shared`. With either absent the gates came back
+// NotEvaluable one at a time, nothing fired, the answer was blank — and the exit status, which turns on a
+// FIRED gate, stayed zero. The paid runner calls `benchharness report ... || fail`, so it would have
+// accepted a session whose baseline never ran.
+func TestAMissingBaselineOrControlIsAnInvalidRun(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		drop func(*SharingArms)
+		says string
+	}{
+		{"no R1", func(m *SharingArms) { m.R1 = ArmSummary{} }, ArmR1},
+		{"no shared", func(m *SharingArms) { m.Shared = ArmSummary{} }, ArmShared},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := healthyMatrix()
+			tc.drop(&m)
+
+			res := EvaluateSharingMatrix(m, PremiumTenant, NoisyTenant)
+
+			four := sharingReadingByID(t, res, "4")
+			if !four.NotEvaluable {
+				t.Errorf("a run with no %s arm was not reported as uncomputable: %s", tc.says, four.Detail)
+			}
+			if !strings.Contains(four.Detail, tc.says) {
+				t.Errorf("the refusal does not name the arm that is missing: %s", four.Detail)
+			}
+			if res.Answer != "" {
+				t.Errorf("the answer is %q for a run missing %s", res.Answer, tc.says)
+			}
+			for _, id := range idsOf(res) {
+				if id != "4" {
+					t.Errorf("reading %s was evaluated without a %s arm", id, tc.says)
+				}
+			}
+		})
+	}
+}

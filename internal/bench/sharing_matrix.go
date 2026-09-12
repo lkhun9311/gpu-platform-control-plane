@@ -121,6 +121,31 @@ type sharingScored struct {
 func EvaluateSharingMatrix(a SharingArms, premiumTenant, contenderTenant string) SharingResult {
 	var res SharingResult
 
+	// A MISSING baseline or control is an invalid run, and it used to be a quiet one.
+	//
+	// Every reading below divides by R1 or compares against `shared`. With either arm absent the gates come
+	// back NotEvaluable one at a time, nothing fires, the answer is blank -- and `sharingRunInvalid` saw no
+	// fired gate and returned nil, so `benchharness report ... || fail` accepted it. The two arms are named
+	// here rather than inferred from a zero tail, because "this arm produced no evidence" and "this arm's
+	// evidence is unusable" are different sentences and only the first one is this.
+	for _, missing := range []struct {
+		arm  ArmSummary
+		name string
+		why  string
+	}{
+		{a.R1, ArmR1, "the isolated baseline both bars divide by"},
+		{a.Shared, ArmShared, "the control every improvement is measured from"},
+	} {
+		if missing.arm.Arm == "" {
+			res.Readings = append(res.Readings, PoPReading{
+				ID: "4", Name: "the load did not create contention -- INVALID", NotEvaluable: true,
+				Detail: fmt.Sprintf("there is no %s arm in this evidence, and it is %s; nothing below can be scored without it",
+					missing.name, missing.why),
+			})
+			return res
+		}
+	}
+
 	// A REFUSED arm leaves the scored set here, and at one repetition that used to happen by itself.
 	//
 	// The runner declines an arm before replaying it, so a refused arm carried no evidence and the comment
