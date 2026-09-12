@@ -1022,3 +1022,67 @@ func TestNoUnquotedHeredocExecutesItsOwnProse(t *testing.T) {
 		}
 	}
 }
+
+// A process the runner intends to KILL may not be launched through a shell-function wrapper.
+//
+// These scripts define `k() { kubectl --context "$KCTX" "$@"; }` and use it everywhere, which is good for
+// every call except one shape: `k something &` followed later by `kill $!`. Backgrounding a function runs
+// it in a SUBSHELL, and bash replaces that subshell with the command only when it has no traps left to
+// run -- these runners install three. So `$!` names the subshell, `kill` ends the subshell, `wait` reaps
+// it and returns promptly, and the real process keeps running as an orphan.
+//
+// Measured on a rented card on 2026-09-12: the R1 cell replayed 3,882 rows through a port-forward, the
+// next cell asked for the same local port and got "bind: address already in use", and the session ended
+// with one arm of four. The kill-and-wait that was added to close exactly that race had been waiting on
+// the wrong process since it was written, so the race it governed was never governed at all.
+//
+// It is invisible to `bash -n`, to a reading of the teardown, and to any rehearsal where the orphan
+// happens to die on its own when its target pod is replaced -- which is most of them, most of the time.
+func TestNothingTheRunnerWillKillIsLaunchedThroughAFunctionWrapper(t *testing.T) {
+	runners := append([]string{"hack/m5c-matrix.sh"}, sessionRunners...)
+	// Parsed by first word and last character rather than by a pattern over the middle.
+	//
+	// The first version of this test was a regex whose body excluded "&" so it would not catch "&&". The
+	// real line ends "2>&1 &", the redirection's ampersand stopped the match dead, and the test passed on a
+	// file that still had the defect in it. It was written to catch one specific line and could not see
+	// that line. Checking the command word and the trailing byte has no middle to get wrong.
+	isBackgroundedWrapper := func(line string) bool {
+		t := strings.TrimSpace(line)
+		if !strings.HasSuffix(t, "&") || strings.HasSuffix(t, "&&") {
+			return false
+		}
+		first, _, _ := strings.Cut(t, " ")
+		return first == "k"
+	}
+
+	for _, runner := range runners {
+		path := filepath.Join("../..", runner)
+		b, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s: %v", runner, err)
+		}
+		lines := strings.Split(string(b), "\n")
+
+		// Only a runner that actually kills something can be bitten by this.
+		kills := false
+		for _, line := range lines {
+			if strings.Contains(line, "kill ") && !strings.HasPrefix(strings.TrimSpace(line), "#") {
+				kills = true
+				break
+			}
+		}
+		if !kills {
+			continue
+		}
+		for i, line := range lines {
+			if strings.HasPrefix(strings.TrimSpace(line), "#") {
+				continue
+			}
+			if isBackgroundedWrapper(line) {
+				t.Errorf("%s:%d backgrounds the `k` function in a script that kills a pid, so $! is a "+
+					"subshell and the kill never reaches the real process:\n\t%s\nCall kubectl directly here",
+					runner, i+1, strings.TrimSpace(line))
+			}
+		}
+	}
+}

@@ -141,7 +141,7 @@ the wrong quantity and the right one move together.
 | 40 | An engine that could not start ended the **session** rather than refusing its **arm** | the 2026-09-12 pilot stopped at the mps arm, so the three cells already bought were all it had, and the reason for the refusal lived only in a log `benchharness report` does not read |
 | 37 | Arms repeated **unequally** were accepted | the confirmatory run is three separate sessions, so an arm that lost one is pooled from two against a spread measured over three |
 
-### Six more on 2026-09-12, and the first one was about to waste the whole run
+### Seven more on 2026-09-12, and two of them were fixes that could not work
 
 Found between the fifth pilot's fix and the sixth run. The first was found by reading the repository's own
 test suite; 43 to 46 by a cold review of the harness against the question "what would make the next $0.75
@@ -154,6 +154,7 @@ which is the one of the three methods that costs nothing and was nearly skipped.
 | 43 | Removing `--gpu-memory-utilization` in favour of the absolute cache **raised the startup gate to vLLM's 0.92 default** | `request_memory()` raises `ValueError` when free memory is below `utilization * total`, reads the fraction whether or not an absolute cache is set, and 0.92 of this card is **20.30 GiB**. The pilot measured the second engine to profile seeing **13.81 GiB**. Both split arms would have failed to start: the run would have bought R1 and `shared` and nothing the study is about |
 | 44 | Reading **4c** took the ANSWER from a scored arm, and made the whole run exit non-zero | 4c means "INVALID **for that arm**", and the evaluator's own comment says a refused arm says nothing about the arm beside it. The answer was still "the first reading that fired" over a list where 4c sits ahead of readings 1, 2, 3 and 5. **MPS has already been measured failing to engage on this AMI**, so this is the expected run, not a corner |
 | 45 | An arm that **lost** the contender's work without refusing it could fire reading 1 POSITIVE | `starved` needs rejections in the ledger and `starvationUnknown` needs the ledger to be absent; an arm with a full ledger showing zero rejections and half the contender's requests timing out is neither. The premium tail is calm because the load went missing, and reading 1 would have printed the collapsed contender share as the **price** |
+| 48 | The port-forward teardown killed a **shell subshell** and not `kubectl`, so every cell's tunnel outlived the kill meant to end it | `k` is a function; backgrounding one runs it in a subshell, and bash keeps that subshell alive when traps are installed — three are. `$!` named the subshell, `wait` reaped it promptly, and kubectl went on holding 18080 as an orphan. **The sixth pilot died on this**: R1 replayed 3,882 rows, the `shared` cell asked for the same port and got `bind: address already in use`, and one arm of four was bought. The fix for defect 14 had been waiting on the wrong process since the day it was written |
 | 47 | A YAML comment inside an **unquoted heredoc** quoted a command in backticks, and the shell ran it | the gateway manifest is built with `k apply -f - <<EOF`, unquoted so `$arm` and `$NS_A` expand — which expands backticks too. Every gateway deploy executed `rollout status` and printed **"rollout: command not found"** to stderr, four times a run, into the log an operator reads to find real faults. Harmless only by luck: the empty substitution landed inside a comment. `bash -n` is clean either way, and it took **running** the rehearsal to see it |
 | 46 | Reading **4** could diagnose "the load did not create contention" from a **censored** control | censor the slow requests and the survivors' p99 is small, the ratio falls under 5x, and the reading meaning "raise the load" fires on a control that was drowning — short-circuiting 4b, the reading that would have said the opposite. The run's one instruction to its successor would have been exactly backwards |
 
@@ -168,7 +169,15 @@ protection. The outcome for such an arm is now "cannot be scored" rather than "w
 renamed to say so. No bar moved and no threshold was retuned; what changed is which of the three outcomes
 this evidence maps to.
 
-**43 is the one to dwell on.** It was introduced by the fix for 41, it was invisible to every test in the
+**43 and 48 are a pair, and the pair is the lesson.** Both are FIXES THAT COULD NOT WORK. 43 removed a flag
+on the strength of what the engine's log advised and raised the startup gate it meant to lower. 48 added a
+`wait` to close a race and waited on a subshell instead of on the process holding the port — for four days,
+through two paid runs, while the comment above it explained in detail the race it was not closing. Neither
+was visible to a reading of the code, because in both cases the code says exactly what its author intended.
+What exposed them was checking the intent against the system: the pinned release's source for 43, and
+`ps` against a five-line reproduction for 48.
+
+**43 on its own.** It was introduced by the fix for 41, it was invisible to every test in the
 repository, and the engine's own advice is what caused it: vLLM prints *"Replace gpu_memory_utilization
 config with `--kv-cache-memory=…`"*, and the word **replace** is about sizing while the startup gate still
 reads the fraction. Reading the log message was not enough; reading `request_memory()` and `cache.py` in

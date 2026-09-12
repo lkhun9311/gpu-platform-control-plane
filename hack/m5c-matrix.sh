@@ -952,13 +952,40 @@ for rep in $(seq 1 "$REPS"); do
     # found the port free because cell 2's forward was already gone, cell 4 lost it again. Two of four arms
     # produced nothing. hack/test/rehearse-m5c-matrix.sh saw R1 and timeSlicing complete every request while
     # shared and mps completed none; the paid runs never reached a second cell, so it had never been visible.
+    # And the kill has to reach KUBECTL, which is why this one line does not go through `k`.
+    #
+    # `k` is a shell function. Backgrounding a function runs it in a SUBSHELL, and bash only replaces that
+    # subshell with the command when it has no traps to run -- this script installs three. So `$!` was the
+    # subshell's pid, `kill` killed the subshell, `wait` reaped it and returned, and kubectl went on living
+    # as an orphan holding 18080. The fix for the race could not have worked: it was waiting on a process
+    # that was never the one holding the port.
+    #
+    # Measured on 2026-09-12, on a rented card. R1 replayed 3,882 rows cleanly, the `shared` cell asked for
+    # the same port and got `bind: address already in use`, and the session ended with one arm of four. It
+    # had passed on earlier runs because the old forward usually dies on its own when its target pod is
+    # replaced -- usually, which is the word that makes it a race rather than a bug that shows up.
     if [ -n "$PF_PID" ]; then
       kill "$PF_PID" 2>/dev/null
-      # WAIT for it. This is the line whose absence caused the race.
       wait "$PF_PID" 2>/dev/null
     fi
+    # Then PROVE the port is free, rather than assuming the kill above was enough.
+    #
+    # This is the same rule the readiness probe below follows, applied to the other end: the previous check
+    # here assumed its own success, and an assumption is exactly what a race defeats. If something still
+    # holds the port after ten seconds, say so with the holder named -- that is a different morning from a
+    # gateway that never became ready, and the old message conflated them.
+    port_free=0
+    for _ in $(seq 1 10); do
+      if ! (exec 3<>/dev/tcp/127.0.0.1/18080) 2>/dev/null; then port_free=1; break; fi
+      sleep 1
+    done
+    if [ "$port_free" != "1" ]; then
+      say "  18080 is still held after the previous cell's forward was killed. What holds it:"
+      (ss -lptn 'sport = :18080' 2>/dev/null || lsof -i :18080 2>/dev/null || echo "  (no ss or lsof to ask)") | tee -a "$LOG" >&2
+      fail "port 18080 was still in use when $arm rep $rep asked for it, so this cell's tunnel could not be built. The previous cell's port-forward outlived the kill that was meant to end it."
+    fi
     # stderr is kept, because "why is the tunnel not up" is unanswerable without it.
-    k port-forward -n "$NS_A" deploy/gateway 18080:8080 >"$OUT/port-forward-$arm-$rep.log" 2>&1 &
+    kubectl --context "$KCTX" port-forward -n "$NS_A" deploy/gateway 18080:8080 >"$OUT/port-forward-$arm-$rep.log" 2>&1 &
     PF_PID=$!
     # Proved rather than slept for. A fixed sleep is a guess about a machine's speed, and the failure it
     # misses is silent.
