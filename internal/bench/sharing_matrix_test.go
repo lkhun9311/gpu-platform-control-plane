@@ -1170,46 +1170,54 @@ func TestAMissingBaselineOrControlIsAnInvalidRun(t *testing.T) {
 	}
 }
 
-// Reading 5 must say when the improvement was bought by refusing the contender's work.
+// Reading 5 must report the contender's LEDGER, not a verdict derived from a threshold.
 //
 // A starved arm stays computable on purpose: that is reading 2's finding. But reading 2 requires BOTH bars,
-// so an arm that refuses most of the contender's requests, improves the tail, and misses one bar falls out
-// of reading 2 and lands in reading 5 — where the sentence said "a real improvement that does not reach the
-// bar" and never mentioned the refusals. A review reproduced it. The improvement is real; a reader deciding
-// whether to ship this topology needs to know it came with a third of the contender turned away.
-func TestReadingFiveNamesTheRefusalsThatBoughtTheImprovement(t *testing.T) {
-	m := healthyMatrix()
-	// Improves on the control, misses the stream bar, and refuses most of the contender's work.
-	arm := healthyArm(ArmTimeSlicing, 900, 200, 5_000)
-	arm.DispositionByTenant = map[string]Disposition{
-		NoisyTenant: {Offered: 300, Completed: 120, Rejected: 175, TimedOut: 5},
+// so an arm that refuses contender work, improves the tail and misses one bar lands here — where the
+// sentence said only "a real improvement that does not reach the bar" and never mentioned the refusals.
+//
+// The first fix hung the sentence on the `starved` FLAG, and a review took that apart too: refusing 20 of
+// 139 requests leaves the flag false, so the line then claimed "with the contender's work intact" over a
+// ledger recording twenty refusals. A threshold is the wrong thing to hang a factual sentence on. The
+// counts are reported; whether they amount to starvation is reading 2's judgement, made elsewhere.
+func TestReadingFiveReportsTheContendersLedgerRatherThanAVerdict(t *testing.T) {
+	fire := func(t *testing.T, d Disposition) PoPReading {
+		t.Helper()
+		m := healthyMatrix()
+		arm := healthyArm(ArmTimeSlicing, 900, 200, 5_000) // improves, misses the stream bar
+		arm.DispositionByTenant = map[string]Disposition{NoisyTenant: d}
+		m.Sharing = []ArmSummary{arm}
+		five := sharingReadingByID(t, EvaluateSharingMatrix(m, PremiumTenant, NoisyTenant), "5")
+		if !five.Fired {
+			t.Fatalf("reading 5 did not fire on the partial-improvement shape, so this test checks nothing: %s", five.Detail)
+		}
+		return five
 	}
-	m.Sharing = []ArmSummary{arm}
 
-	res := EvaluateSharingMatrix(m, PremiumTenant, NoisyTenant)
+	t.Run("refusals well past the starvation threshold", func(t *testing.T) {
+		five := fire(t, Disposition{Offered: 300, Completed: 120, Rejected: 175, TimedOut: 5})
+		for _, want := range []string{"175 refused", "120 of 300"} {
+			if !strings.Contains(five.Detail, want) {
+				t.Errorf("reading 5 does not report %q: %s", want, five.Detail)
+			}
+		}
+	})
 
-	five := sharingReadingByID(t, res, "5")
-	if !five.Fired {
-		t.Fatalf("reading 5 did not fire for an arm that improved on the control and missed a bar, so this "+
-			"test cannot check what it says: %s", five.Detail)
-	}
-	if !strings.Contains(five.Detail, "REFUSED") || !strings.Contains(five.Detail, "175") {
-		t.Errorf("reading 5 reports an improvement without saying it refused 175 of the contender's 300 "+
-			"requests to get it: %s", five.Detail)
-	}
-}
+	t.Run("refusals BELOW it, which the starvation flag calls intact", func(t *testing.T) {
+		// 20 of 139 refused: `starved` is false, and the previous version printed "work intact" here.
+		five := fire(t, Disposition{Offered: 139, Completed: 119, Rejected: 20})
+		if strings.Contains(five.Detail, "intact") || strings.Contains(five.Detail, "all 139") {
+			t.Errorf("reading 5 calls the contender's work intact over a ledger with 20 refusals: %s", five.Detail)
+		}
+		if !strings.Contains(five.Detail, "20 refused") {
+			t.Errorf("reading 5 does not report the 20 refusals: %s", five.Detail)
+		}
+	})
 
-// And the healthy case still says the contender's work was intact, or the sentence above means nothing.
-func TestReadingFiveSaysTheContendersWorkWasIntactWhenItWas(t *testing.T) {
-	m := healthyMatrix()
-	m.Sharing = []ArmSummary{healthyArm(ArmTimeSlicing, 900, 200, 38_000)}
-
-	five := sharingReadingByID(t, EvaluateSharingMatrix(m, PremiumTenant, NoisyTenant), "5")
-	if !five.Fired {
-		t.Fatalf("reading 5 did not fire on the healthy partial-improvement shape: %s", five.Detail)
-	}
-	if !strings.Contains(five.Detail, "intact") {
-		t.Errorf("reading 5 does not distinguish an improvement that kept the contender's work from one "+
-			"that refused it: %s", five.Detail)
-	}
+	t.Run("nothing refused, nothing lost", func(t *testing.T) {
+		five := fire(t, Disposition{Offered: 139, Completed: 139})
+		if !strings.Contains(five.Detail, "all 139") {
+			t.Errorf("reading 5 does not distinguish a fully served contender from a partly refused one: %s", five.Detail)
+		}
+	})
 }

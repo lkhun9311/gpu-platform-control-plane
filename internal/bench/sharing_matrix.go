@@ -797,12 +797,19 @@ func sharingReadingFive(shared ArmSummary, all []sharingScored, contenderTenant 
 	// improves the tail, and misses a bar falls out of reading 2 and lands here, where the sentence read
 	// "a real improvement that does not reach the bar" and never mentioned the refusals. A review
 	// reproduced exactly that. The improvement is real; what it was bought with belongs in the same line.
-	bought := "with the contender's work intact"
-	if closest.starved {
-		if d, ok := closest.DispositionByTenant[contenderTenant]; ok {
-			bought = fmt.Sprintf("having REFUSED %d of the contender's %d requests at admission", d.Rejected, d.Offered)
-		} else {
-			bought = "having refused contender work at admission"
+	// The LEDGER, not the starvation flag. `starved` is a threshold, and a threshold is the wrong thing to
+	// hang a factual sentence on: refusing 20 of 139 requests per repetition leaves the flag false and this
+	// line said "with the contender's work intact" over a ledger that records twenty refusals. A review
+	// reproduced it. What a reader needs is the counts; whether they amount to starvation is reading 2's
+	// judgement and it is made elsewhere.
+	bought := "the contender's disposition was not recorded"
+	if d, ok := closest.DispositionByTenant[contenderTenant]; ok {
+		switch {
+		case d.Rejected == 0 && d.TimedOut == 0 && d.Failed == 0:
+			bought = fmt.Sprintf("with all %d of the contender's requests served", d.Offered)
+		default:
+			bought = fmt.Sprintf("with the contender at %d of %d served (%d refused, %d timed out, %d failed)",
+				d.Completed, d.Offered, d.Rejected, d.TimedOut, d.Failed)
 		}
 	}
 	r.Detail = fmt.Sprintf("%s improves the control's premium tail by %.1f ms against a %.1f ms spread, and misses %s: tail %.1fx R1 against %.1fx, stream %.2fx against %.2fx -- a real improvement that does not reach the bar, %s",
