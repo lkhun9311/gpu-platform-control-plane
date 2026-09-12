@@ -388,6 +388,69 @@ later fails the suite until somebody decides which case it is.
 **This run therefore reports nothing about what budget a half-card engine would choose for itself.** That is
 a real question and it is not this one.
 
+### The eighth pilot: the instrument worked, and the load was right
+
+2026-09-12, `hack/m5c-20260912-084918`, commit `ce0bb8e`. Four arms, one repetition, about 52 minutes and
+**$0.59**. The first session in eight to print `SESSION DONE`.
+
+**The derived load did what the derivation said it would**, which is the only test that derivation could
+have:
+
+| | derived | measured |
+| --- | ---: | ---: |
+| contender requests offered | 139 | **139** |
+| contender requests lost | near zero | **0**, in both arms |
+| queue-delay slope, `shared` | flat | **+0.0001** |
+| queue-delay slope, `timeSlicing` | flat | **+0.0025** |
+| contender TTFT median, split | ~2.15 s (the measured service time) | **2.33 s** |
+
+The seventh pilot's contender delay climbed 5.1 s → 22.3 s and 74% of its work was abandoned. Here it is
+flat and nothing is abandoned. Reading the capacity off **uncontended service time** rather than off a
+completion count is what made the difference, and the split arm's 2.33 s median against the 2.15 s the
+derivation was built on is that method checking itself.
+
+**All three gates behaved as registered, for the first time:**
+
+```
+[     ] 4   the control is 27.2x R1 (1891.1 ms against 69.6 ms), against a 5.0x threshold
+[     ] 4b  every arm completed at least 100 requests for both tenants
+[FIRED] 4c  mps: the node advertises 0 device(s) after applying a config that asks for 2
+```
+
+**4c fired and the readings below it were still reached.** That is defects 44, 49 and 50 confirmed on a
+card at once: the refusal was recorded in `refused-mps.txt` where the report reads it, the arm's diagnosis
+(DaemonSet, Pods, events, node allocatable) is in the log, the refusal states the count without asserting a
+cause, and the session did not end. Three arms stood. MPS has now failed to engage on this AMI three times.
+
+**What the card did:**
+
+| arm | premium TTFT p99 | /R1 | premium TPOT p99 | /R1 | timeouts |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `R1` | 69.6 ms | 1.0x | 18.2 ms | 1.0x | 0 |
+| `shared` | 1,891.1 ms | 27.2x | 89.1 ms | 4.9x | 0 |
+| `timeSlicing` | **1,008.7 ms** | **14.5x** | **44.1 ms** | **2.42x** | 0 |
+
+Both split engines took **93,200 tokens** of KV, equal to each other, as the absolute budget was meant to
+make them. Splitting the card roughly **halves** the control's premium tail while the contender keeps all
+of its work. It remains 14.5x an isolated baseline against a 2x bar.
+
+**And the run still has no answer, for a reason that is neither the load nor the harness:**
+
+```
+[ N/E ] 3   `shared` carries 1 per-repetition tail(s); needs at least 2
+[ N/E ] 5   `shared` carries 1 per-repetition tail(s), so there is no spread
+ANSWER: 4c (mps)
+```
+
+Readings 3 and 5 decide whether an improvement is real by comparing it against the control's
+repetition-to-repetition spread, and a single repetition has none. They reported themselves **not
+evaluable** rather than passing or failing on a spread of zero — which is what this page registered them to
+do and what the previous study had no name for.
+
+**So the next run's missing input is `REPS`, and nothing else.** The load is derived and verified, the
+gates are quiet, the harness carries a paid run to its own report. Three arms at two repetitions is six
+cells: about 104 minutes of session against the runner's credential check, plus its 30 of headroom.
+
 ## The bars do not move, and that is deliberate
 
 **Premium TTFT p99 at or below 2x R1. Premium TPOT p99 at or below 1.25x R1.** The same numbers the
@@ -646,8 +709,9 @@ self-contained Spot instance the runner did not use; the new ones assume the one
 | ~~prerequisite: implement this page's readings~~ | $0 | **done.** `internal/bench/sharing_matrix.go` evaluates 4, 4b, 4c, 1, 2, 3 and 5 in that order, dispatched from `benchharness report`; each was deliberately failed to confirm it fires. Writing it is what found defect 9 |
 | ~~prerequisite: `hack/m5c-gpu-session.sh`~~ | $0 | **done.** Nine characterization scenarios recorded and replayed, and its GPU-free bring-up rehearsed end to end on a real kind cluster through `hack/test/rehearse-bringup.sh` |
 | ~~prerequisite: run the matrix itself off a card~~ | $0 | **done.** `hack/test/rehearse-m5c-matrix.sh` runs all four arms end to end on kind and evaluates the readings over what they wrote. It found defects 13 and 14 |
-| already spent | **$2.03** | three pilots. The first bought nothing (defect in this session's own runner), the second bought defects 10-12 and a complete `shared` measurement, the third was cancelled on a credential margin |
+| already spent | **about $4.0** | EIGHT pilots, not three. The first three are the $2.03 this row used to hold: one bought nothing (a defect in this session's own runner), one bought defects 10-12 and a complete `shared` measurement, one was cancelled on a credential margin. The fourth to eighth are **estimated** from each instance's own log span at $0.68/h and are not billed figures. Only the eighth bought a measurement rather than a defect |
 | pilot: R1, `shared`, `timeSlicing`, `mps`, 1 rep | ~$0.90 | 4, 4b and 4c must not fire, and the load derived and written down |
+| — what the eighth pilot actually met | $0.59 | 4 and 4b silent, the load derived and written down. **4c fired for `mps` only**, which this row did not anticipate: it says "must not fire" of a reading whose own name ends "INVALID **for that arm**". A refusal of one arm is a registered outcome for that arm and leaves the other three standing, which is how the run was scored. What it did NOT meet is readings 3 and 5, and only because one repetition has no spread |
 | confirmatory: the same four arms x 3 reps | ~$2.10 | readings evaluated by the code above, not by hand |
 | unspent reserve | ~$1.00 | — |
 
