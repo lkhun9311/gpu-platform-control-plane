@@ -985,6 +985,13 @@ for rep in $(seq 1 "$REPS"); do
     say "rep $rep arm $arm  (cell $cell_n/$cells_total)"
     if ! deploy_arm "$arm"; then
       say "skipping the rest of cell $cell_n: $arm was refused as a registered outcome, and the arms beside it stand"
+      # The time it TOOK to be refused counts too.
+      #
+      # cells_done went up and cell_secs did not, so the budget divided real elapsed time by a cell count
+      # that included cells which contributed none of it -- and the projection for the cells still to come
+      # came out low. A refusal is not free: the mps arm spent ten minutes waiting for a device count before
+      # declining, which is most of a cell.
+      cell_secs=$(( cell_secs + $(date +%s) - CELL_T0 ))
       cells_done=$(( cells_done + 1 ))
       continue
     fi
@@ -1094,8 +1101,13 @@ for rep in $(seq 1 "$REPS"); do
     # is exactly what it was. A failing hook does NOT fail the cell: the evidence is already on disk, and a
     # transient S3 error is not a reason to throw away a measurement that was paid for.
     if [ -n "${CELL_DONE_HOOK:-}" ]; then
-      "$CELL_DONE_HOOK" "$OUT/raw-$arm-$rep.jsonl" "$arm" "$rep" \
-        || say "  WARNING: CELL_DONE_HOOK failed for $arm rep $rep; the cell is still on local disk and will go up with the rest"
+      # BOUNDED, because a hook that hangs costs card time the cell budget has already promised elsewhere.
+      #
+      # It cannot fail the cell -- the evidence is on local disk either way -- but without a limit a stalled
+      # upload blocks every cell behind it until the hard stop, and a merely slow one inflates the next
+      # cell's projection and can stop the matrix on a boundary it would otherwise have cleared.
+      timeout "${CELL_DONE_HOOK_TIMEOUT:-120}" "$CELL_DONE_HOOK" "$OUT/raw-$arm-$rep.jsonl" "$arm" "$rep" \
+        || say "  WARNING: CELL_DONE_HOOK failed or timed out for $arm rep $rep; the cell is still on local disk and will go up with the rest"
     fi
     cell_secs=$(( cell_secs + $(date +%s) - CELL_T0 ))
     cells_done=$(( cells_done + 1 ))
