@@ -136,6 +136,8 @@ the wrong quantity and the right one move together.
 | 34 | Nothing compared the commit the instance recorded against the one the session shipped | the run id is the output directory's basename and the bucket keeps objects for thirty days, so a reused name returns **a previous experiment's numbers** under this run's |
 | 35 | The credential check could pass on **another profile's** expiry | an active role with 20 minutes left beside another profile's 12 hours read as 12 hours, and the run would lose download and termination partway through |
 | 36 | Reading 4b's floor applied to the **pool**, which is what hides a bad block | 3000, 3000 and 50 completions clear a hundred-sample floor at 6,050 while the third block's p99 is its slowest request |
+| 39 | The replay began before the gateway was **listening**: `rollout status` returns on a running container and the tunnel check proved only that the local port accepted TCP | **R1 completed 0 of 3,882 requests**, all `errorKind=transport`, and the run had no baseline. An independent review had named this exact gap the day before and it was read and not acted on |
+| 40 | An engine that could not start ended the **session** rather than refusing its **arm** | the 2026-09-12 pilot stopped at the mps arm, so the three cells already bought were all it had, and the reason for the refusal lived only in a log `benchharness report` does not read |
 | 37 | Arms repeated **unequally** were accepted | the confirmatory run is three separate sessions, so an arm that lost one is pooled from two against a spread measured over three |
 
 **Defects 23 and 27 are the ones to dwell on**, for opposite reasons. 23 was found by a machine attacking
@@ -147,6 +149,34 @@ as reporting a censored tail as a p99.
 the strongest available and found eleven more, eight of which the first had walked past. Neither was
 reading its own code. That is the argument for the repository's dual-review hook, demonstrated rather than
 asserted.
+
+### What the fourth pilot measured, 2026-09-12
+
+The first three pilots bought only defects. This one bought two facts about the card, and neither is a
+result of the study — both are about whether the study can be run at all.
+
+**Two engines DO fit on one A10G.** `timeSlicing` replayed 4,120 requests and completed 3,943 of them, with
+both engines at `--gpu-memory-utilization=0.475`. The arithmetic that made this look doubtful — two engines
+claiming 21,877 of 23,028 MiB and leaving 1,151 for two CUDA contexts — was a hypothesis this page was
+careful not to act on, and it was wrong. **Nothing was changed on the strength of it, which is why the
+measurement was available to contradict it.**
+
+**MPS does not engage on this AMI.** Every Pod of the `mps` arm came back with
+
+> `Allocate failed due to no healthy devices present; cannot allocate unhealthy devices nvidia.com/gpu`
+
+The plugin advertises two devices and the kubelet refuses to allocate them.
+`config/nvidia-device-plugin-mps/daemonset.yaml` has said since it was written that this arrangement was
+*"NOT verified … on the AL2023 NVIDIA AMI. No card was available to run it."* It is verified now, and it does
+not work. That is **reading 4c**, INVALID for that arm, and the two sharing arms are no longer two: unless
+the plugin's MPS configuration is repaired, this study compares `shared` against `timeSlicing` and reports
+the MPS arm as a mode that could not be engaged.
+
+**The run produced no scorable result**, because R1 completed none of its 3,882 requests: the replay began
+before the gateway was listening, and every row is `errorKind=transport`. The readings refused exactly as
+they should have — *"R1 has no premium tail, so there is no baseline to hold the control against"* — rather
+than dividing by a baseline that was not there. That defect is fixed, and it is recorded below as 39 with
+the fact that it had been named in a review the day before and not acted on.
 
 ### The platform changed, and so did the budget
 

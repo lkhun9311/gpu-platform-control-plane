@@ -698,6 +698,21 @@ engine_diagnosis() {
   k logs -n "$ns" "deploy/$deploy" --tail=40 --all-containers --previous 2>/dev/null | sed 's/^/  [previous] /'
   echo "--- what the node had left to give ---"
   k get node "${GPU_NODE:-}" -o jsonpath='{.status.allocatable}' 2>&1 | sed 's/^/  /'
+
+  # THE PLUGIN AND THE MPS DAEMON, which live in another namespace and were the missing half.
+  #
+  # The 2026-09-12 pilot's mps arm failed with `Allocate failed due to no healthy devices present`. That is
+  # the kubelet quoting the device plugin, so the answer to "why" is in the plugin's own log and in the MPS
+  # control daemon's -- and this function captured neither, because it only ever looked in the engine's
+  # namespace. It bought the symptom and not the cause.
+  echo "--- the device plugins, which are what told the kubelet the devices are unhealthy ---"
+  k get pods -n "$PLUGIN_NS" -o wide 2>&1 | sed 's/^/  /'
+  for ds in nvidia-device-plugin-whole-card nvidia-device-plugin-timeslicing nvidia-device-plugin-mps nvidia-mps-control-daemon; do
+    if k get ds "$ds" -n "$PLUGIN_NS" >/dev/null 2>&1; then
+      echo "  --- $ds ---"
+      k logs -n "$PLUGIN_NS" "ds/$ds" --tail=30 --all-containers 2>&1 | sed 's/^/    /'
+    fi
+  done
   echo
   echo "=== end of diagnosis ==="
 }
@@ -758,10 +773,29 @@ deploy_arm() {
       # The engines share one card, so the one that came up is half the explanation for the one that did
       # not: what engine a reserved is what engine b did not get. Reporting only the failing Pod would leave
       # the reader with the symptom and not the arithmetic.
-      k rollout status deploy/vllm-shared-a -n "$NS_A" --timeout=900s >/dev/null \
-        || { engine_diagnosis "$NS_A" vllm-shared-a; fail "engine a never became ready -- the diagnosis above says what it was doing"; }
-      k rollout status deploy/vllm-shared-b -n "$NS_B" --timeout=900s >/dev/null \
-        || { engine_diagnosis "$NS_B" vllm-shared-b; engine_diagnosis "$NS_A" vllm-shared-a; fail "engine b never became ready -- the diagnosis above says what it and engine a were doing, and on one card those are the same question"; }
+      # An engine that cannot start is a REGISTERED OUTCOME for its own arm, not the end of the session.
+      #
+      # The 2026-09-12 pilot met this: under mps every Pod came back
+      # `Allocate failed due to no healthy devices present; cannot allocate unhealthy devices nvidia.com/gpu`
+      # -- the plugin advertises and the kubelet will not allocate, which is the MPS engagement failure
+      # reading 4c exists for. The session ended there, so the arm's refusal existed only in a log the report
+      # does not read, and the R1 and shared and timeSlicing cells that had already been bought were the only
+      # thing to show for it.
+      #
+      # Now the reason is written where `benchharness report` finds it and the matrix moves on. The
+      # diagnosis still runs first: what the Pods were doing is the evidence for the refusal, not a
+      # substitute for it.
+      if ! k rollout status deploy/vllm-shared-a -n "$NS_A" --timeout=900s >/dev/null; then
+        engine_diagnosis "$NS_A" vllm-shared-a
+        arm_refused "$arm" "engine a never became ready. The diagnosis in this run's log says what its Pods were doing; on one card, why one engine could not start is also why the other could not."
+        return 1
+      fi
+      if ! k rollout status deploy/vllm-shared-b -n "$NS_B" --timeout=900s >/dev/null; then
+        engine_diagnosis "$NS_B" vllm-shared-b
+        engine_diagnosis "$NS_A" vllm-shared-a
+        arm_refused "$arm" "engine b never became ready while engine a did. On one card what a came to hold is what b did not get, so both diagnoses are in this run's log."
+        return 1
+      fi
       # Both engines must be on the SAME node or they are not sharing a card. max_size 1 should guarantee
       # it; checking is cheap and the failure is invisible in the numbers.
       na=$(k get pod -n "$NS_A" -l app.kubernetes.io/component=vllm-shared -o jsonpath='{.items[0].spec.nodeName}')
@@ -834,6 +868,21 @@ spec:
             - {name: GATEWAY_NAMESPACE, value: $NS_A}
             - {name: GATEWAY_API_KEY_SECRET, value: gateway-api-keys}
           ports: [{containerPort: 8080, name: http}]
+          # A READINESS PROBE, because without one `rollout status` means only that the container started.
+          #
+          # The gateway serves /readyz and flips it only once its Kubernetes cache has synced -- it cannot
+          # route before it can list the policies and deployments. Without the probe the rollout returns on a
+          # process that is running and not yet listening, the port-forward accepts TCP because the kubelet
+          # holds the socket, and the replay pours every request into a connection the pod refuses.
+          #
+          # That is not hypothetical. On 2026-09-12 the R1 cell sent 3882 requests and completed ZERO, all of
+          # them errorKind=transport, and the port-forward log holds the reason: "failed to connect to
+          # localhost:8080 inside namespace ... connection refused". An independent review had named this
+          # exact gap the day before and it was read and not acted on.
+          readinessProbe:
+            httpGet: {path: /readyz, port: http}
+            periodSeconds: 2
+            failureThreshold: 60
 EOF
   k rollout status deploy/gateway -n "$NS_A" --timeout=180s >/dev/null || fail "gateway never became ready for $arm"
 }
@@ -904,8 +953,20 @@ for rep in $(seq 1 "$REPS"); do
     PF_PID=$!
     # Proved rather than slept for. A fixed sleep is a guess about a machine's speed, and the failure it
     # misses is silent.
+    # Proved by asking the GATEWAY, not by opening a socket.
+    #
+    # A TCP connect succeeds the moment kubectl holds the local port, whether or not anything answers at the
+    # other end -- so the previous check passed while the pod was still refusing connections. /readyz is the
+    # gateway's own answer and is false until its cache has synced.
     pf_up=0
-    for _ in $(seq 1 40); do
+    for _ in $(seq 1 60); do
+      if curl -fsS --max-time 2 -o /dev/null "http://127.0.0.1:18080/readyz" 2>/dev/null; then pf_up=1; break; fi
+      kill -0 "$PF_PID" 2>/dev/null || break
+      sleep 1
+    done
+    # The socket check stays as a fallback for a build with no /readyz, and says so rather than passing
+    # silently: what it proves is weaker and a reader should know which one answered.
+    [ "$pf_up" = "1" ] || for _ in $(seq 1 10); do
       # The probe runs ENTIRELY inside its subshell, and the descriptor is never opened in this one.
       #
       # This line used to end with `exec 3<&- 2>/dev/null` in the parent. `exec` with redirections and no
@@ -917,11 +978,15 @@ for rep in $(seq 1 "$REPS"); do
       #
       # That is the defect this whole file keeps meeting: a failure that cannot be told apart from silence.
       # It arrived in the fix for the port-forward race, which was itself a silence.
-      if (exec 3<>/dev/tcp/127.0.0.1/18080) 2>/dev/null; then pf_up=1; break; fi
+      if (exec 3<>/dev/tcp/127.0.0.1/18080) 2>/dev/null; then
+        pf_up=1
+        say "  WARNING: the tunnel accepts TCP but /readyz did not answer. That is a weaker guarantee -- the gateway may still be syncing its cache, and requests sent now can be refused."
+        break
+      fi
       kill -0 "$PF_PID" 2>/dev/null || break
       sleep 1
     done
-    [ "$pf_up" = "1" ] || fail "the port-forward to the gateway never accepted a connection for $arm rep $rep. Every request of this cell would have been recorded with no HTTP status at all, and the report would have called the result a censored tail. See $OUT/port-forward-$arm-$rep.log"
+    [ "$pf_up" = "1" ] || fail "the gateway never answered /readyz and its port never accepted a connection for $arm rep $rep. Every request of this cell would have been recorded with no HTTP status at all, and the report would have called the result a censored tail. See $OUT/port-forward-$arm-$rep.log"
 
     # The arm is the SHARING MODE, and it is now spelled that way in the manifest.
     #

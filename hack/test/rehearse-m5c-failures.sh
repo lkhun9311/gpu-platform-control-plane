@@ -190,6 +190,7 @@ PY
 run_matrix() {
   local arms="$1" deadline_s="$2" log="$3"
   CURRENT_LOG="$log"
+  rm -rf "$WORK/run"
   set +e
   ( cd "$SRC" && PLATFORM=kind KCTX="$KCTX" GPU_NODE="$GPU_NODE" \
       DEADLINE_EPOCH=$(( $(date +%s) + deadline_s )) \
@@ -199,7 +200,8 @@ run_matrix() {
       bash hack/m5c-matrix.sh ) > "$log" 2>&1
   local rc=$?
   set -e
-  rm -rf "$WORK/run"
+  # $WORK/run is NOT removed here: a scenario that refuses an arm writes its reason there and the assertions
+  # after the call have to read it. Each scenario clears it before its own run instead.
   return $rc
 }
 
@@ -213,7 +215,21 @@ prepare_copy
 # Pod's state at all.
 stub_engine "$SRC/config/vllm-shared/engine-b.yaml" vllm-shared-b "there-is-no-such-image:never"
 CURRENT_LOG="$WORK/fail-engine.log"
-run_matrix "timeSlicing" 3600 "$WORK/fail-engine.log" && bad "the matrix succeeded with an engine that cannot start"
+# Exiting ZERO is correct here, and asserting otherwise was this script's own staleness.
+#
+# An arm whose engine cannot start is a registered outcome -- reading 4c, INVALID for that arm -- so the
+# matrix records the refusal and carries on with the arms beside it. With `timeSlicing` as the only arm
+# there is nothing beside it, and a run that refused everything it was asked for still finished doing what
+# it was told. What must be true is that the refusal is announced and recorded, which is what the
+# assertions below actually check; the exit status is the goldens' business.
+run_matrix "timeSlicing" 3600 "$WORK/fail-engine.log" || true
+# The arm is REFUSED and recorded, not fatal. The 2026-09-12 pilot ended its session here instead, so the
+# three cells it had already bought were all it had to show and the reason lived in a log the report does
+# not read.
+grep -q "REFUSED timeSlicing" "$WORK/fail-engine.log" \
+  && ok "the arm was refused rather than ending the session" || bad "an unstartable engine ended the run instead of refusing its own arm"
+[ -s "$WORK/run/refused-timeSlicing.txt" ] \
+  && ok "the reason was written where the report reads it" || bad "no refused-timeSlicing.txt, so reading 4c has nothing to fire on"
 grep -q "why m5c-b/vllm-shared-b never became ready" "$WORK/fail-engine.log" \
   && ok "the diagnosis ran and named the engine" || bad "no diagnosis block for the failed engine"
 grep -qE "ImagePullBackOff|ErrImagePull|Failed to pull" "$WORK/fail-engine.log" \
