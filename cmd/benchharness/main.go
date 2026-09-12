@@ -1067,13 +1067,25 @@ func refusalsBeside(rawFiles []string) map[string]string {
 // ARMS="shared timeSlicing" gets a matrix with one sharing arm and readings that say so, instead of a
 // lookup miss reported as a mode that did not engage.
 func evaluateSharingMatrix(summ map[string]bench.ArmSummary, summaries []bench.ArmSummary, refused map[string]string) *bench.SharingResult {
+	// A missing baseline or control is REPORTED as an uncomputable gate, not returned as nil.
+	//
+	// Returning nil printed a warning to stderr and left `sharing` unset, so the verdict block never ran and
+	// `report` exited zero -- and the paid runner calls it as `benchharness report ... || fail`. The
+	// evaluator carries the same refusal for its own callers, and that one is unreachable from here because
+	// this function stops first: the fix belonged in both places and was put in only one.
 	r1, haveR1 := summ[bench.ArmR1]
 	shared, haveShared := summ[bench.ArmShared]
 	if !haveR1 || !haveShared {
-		fmt.Fprintf(os.Stderr,
-			"warning: the sharing-matrix readings need both %s and %s and this evidence has %s; no criteria were evaluated\n",
-			bench.ArmR1, bench.ArmShared, strings.Join(armNames(summaries), ", "))
-		return nil
+		want := bench.ArmR1
+		why := "the isolated baseline both bars divide by"
+		if haveR1 {
+			want, why = bench.ArmShared, "the control every improvement is measured from"
+		}
+		return &bench.SharingResult{Readings: []bench.PoPReading{{
+			ID: "4", Name: "the load did not create contention -- INVALID", NotEvaluable: true,
+			Detail: fmt.Sprintf("this evidence carries %s and no %s arm, which is %s; nothing below can be scored without it",
+				strings.Join(armNames(summaries), ", "), want, why),
+		}}}
 	}
 	arms := bench.SharingArms{R1: r1, Shared: shared, Refused: refused}
 	for _, s := range summaries {

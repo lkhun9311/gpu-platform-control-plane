@@ -19,6 +19,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/lkhun9311/gpu-mlops-platform-control-plane/internal/bench"
@@ -52,9 +53,35 @@ func TestTheSharingReadingsAreNotEvaluatedWithoutTheirDenominators(t *testing.T)
 			partial[name] = s
 			kept = append(kept, s)
 		}
-		if got := evaluateSharingMatrix(partial, kept, nil); got != nil {
-			t.Errorf("evidence missing %s still produced readings; every ratio in them is built from a zero "+
-				"ArmSummary and would print as a measurement", missing)
+		got := evaluateSharingMatrix(partial, kept, nil)
+		// AMENDED 2026-09-12. This used to require nil, and nil was worse than it looked: the caller only
+		// runs the verdict when this is non-nil, so `report` printed a stderr warning and exited ZERO --
+		// and the paid runner calls it as `... || fail`. The property worth holding is not "no result" but
+		// "no ratio computed from a zero ArmSummary", and one uncomputable gate says that out loud.
+		if got == nil {
+			t.Fatalf("evidence missing %s produced no result at all, so the verdict block never runs and the "+
+				"command exits zero on a run with no %s", missing, missing)
+		}
+		if len(got.Readings) != 1 {
+			t.Errorf("evidence missing %s produced %d readings; every ratio in them is built from a zero "+
+				"ArmSummary and would print as a measurement", missing, len(got.Readings))
+		}
+		if len(got.Readings) > 0 {
+			r := got.Readings[0]
+			if !r.NotEvaluable || r.Fired {
+				t.Errorf("the single reading for evidence missing %s is not a refusal (fired=%v, n/e=%v): %s",
+					missing, r.Fired, r.NotEvaluable, r.Detail)
+			}
+			if !strings.Contains(r.Detail, missing) {
+				t.Errorf("the refusal does not name the missing arm %s: %s", missing, r.Detail)
+			}
+		}
+		if got.Answer != "" {
+			t.Errorf("evidence missing %s produced the answer %q", missing, got.Answer)
+		}
+		// And it must reach the process's exit status, which is the thing the paid runner reads.
+		if err := sharingRunInvalid(*got); err == nil {
+			t.Errorf("a run with no %s arm exits zero; `benchharness report ... || fail` would accept it", missing)
 		}
 	}
 }
