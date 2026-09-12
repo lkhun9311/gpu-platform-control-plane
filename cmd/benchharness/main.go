@@ -521,6 +521,13 @@ type armEvidence struct {
 	byArm   map[string][]bench.RawRow
 	repP99  map[string][]float64
 	repTail map[string][]int
+	// repDone is each repetition's completed count per tenant: arm -> one map per repetition.
+	//
+	// repTail carries only the premium tenant's, so reading 4b's contender floor could be applied to the
+	// POOL and nothing else. An independent review reproduced what that allows: repetitions of 140, 140 and
+	// 50 contender completions, each offered 140, clear a hundred-completion floor at 330 pooled and fire
+	// reading 1 POSITIVE -- on a run containing one block the registration calls invalid.
+	repDone map[string][]map[string]int
 	repRows map[string][]int
 	// repSeconds is each repetition's own wall clock, kept because the arm's throughput must be its tokens
 	// over the time it was actually sending -- not over a pooled span that includes the washout pauses
@@ -608,6 +615,7 @@ func loadArmEvidence(rawFiles []string) (*armEvidence, error) {
 	e := &armEvidence{
 		byArm: map[string][]bench.RawRow{}, repP99: map[string][]float64{},
 		repTail: map[string][]int{}, repRows: map[string][]int{}, repSeconds: map[string][]float64{},
+		repDone:  map[string][]map[string]int{},
 		checksum: map[string]string{}, tolerance: map[string]float64{},
 		treatment: map[string]string{},
 	}
@@ -664,6 +672,11 @@ func loadArmEvidence(rawFiles []string) (*armEvidence, error) {
 		e.repTail[arm] = append(e.repTail[arm], rs.TailSampleSize)
 		e.repRows[arm] = append(e.repRows[arm], len(rows))
 		e.repSeconds[arm] = append(e.repSeconds[arm], rs.ActiveSeconds)
+		done := map[string]int{}
+		for tenant, d := range rs.DispositionByTenant {
+			done[tenant] = d.Completed
+		}
+		e.repDone[arm] = append(e.repDone[arm], done)
 		// Every repetition's checksum, not the last one's.
 		//
 		// This assigned, so loadArmEvidence kept only whichever file it read last and a repetition replayed
@@ -831,6 +844,31 @@ func (e *armEvidence) summarize() ([]bench.ArmSummary, map[string]bench.ArmSumma
 			if tails := e.repTail[arm]; len(tails) > 0 {
 				s.RepetitionCount = len(tails)
 				s.MinRepetitionTail = slices.Min(tails)
+			}
+			// The thinnest repetition per tenant, so a floor can be applied where the pool hides it.
+			//
+			// A tenant MISSING from a repetition counts as zero for that repetition, which is the whole
+			// point: a block that served the contender nothing carries no disposition entry for it, and
+			// taking the minimum over only the repetitions that mention the tenant would skip exactly the
+			// block the floor is looking for.
+			if reps := e.repDone[arm]; len(reps) > 0 {
+				tenants := map[string]bool{}
+				for _, done := range reps {
+					for tenant := range done {
+						tenants[tenant] = true
+					}
+				}
+				s.MinRepetitionCompletedByTenant = map[string]int{}
+				for tenant := range tenants {
+					minSeen := -1
+					for _, done := range reps {
+						n := done[tenant] // zero when this repetition served the tenant nothing
+						if minSeen < 0 || n < minSeen {
+							minSeen = n
+						}
+					}
+					s.MinRepetitionCompletedByTenant[tenant] = minSeen
+				}
 			}
 			// The per-repetition tails travel with the summary too, because the price-of-protection run's
 			// reading 3 needs the CONTROL'S spread as its threshold and a pooled p99 cannot supply it.

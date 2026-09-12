@@ -260,6 +260,13 @@ type ArmSummary struct {
 	// tests that build summaries by hand do not.
 	RepetitionCount int
 
+	// MinRepetitionCompletedByTenant is the thinnest repetition's completed count, per tenant.
+	//
+	// MinRepetitionTail answers the same question for the premium tenant only, which left the contender's
+	// floor applicable to the POOL and nowhere else. Attached by the caller that knows how the rows were
+	// split, for the same reason RepetitionCount is: Summarize sees pooled rows and cannot tell.
+	MinRepetitionCompletedByTenant map[string]int
+
 	// MinRepetitionTail is the smallest premium-completion count among the arm's repetitions.
 	MinRepetitionTail int
 
