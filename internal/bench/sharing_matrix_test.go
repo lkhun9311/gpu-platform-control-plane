@@ -126,14 +126,28 @@ func TestAnArmThatBuysItsTailByStarvingTheContenderIsNegativeNotPositive(t *test
 	}
 }
 
-// The same arm, losing the same share to DELAY rather than refusal, is not this reading.
-func TestAContenderThatWasMerelyDelayedIsNotStarvation(t *testing.T) {
+// The same arm, losing the same share to timeouts rather than refusal, is not reading 2 -- and not reading
+// 1 either.
+//
+// AMENDED 2026-09-12. This test used to require reading 1 to fire POSITIVE here, on the argument that work
+// which was not refused was "merely delayed". A cold review took the second half of that apart: the ledger
+// says 180 of the contender's 300 requests never came back, and a request that timed out was not served
+// late, it was not served. Calling that delay and then crediting the arm with a POSITIVE is the one way a
+// calm premium tail can be manufactured -- the tail is quiet because the load the arm was supposed to be
+// protected FROM evaporated. Reading 1's own detail line would have printed the collapsed contender share
+// as though it were the price of the protection.
+//
+// The first half of the original argument stands and is what this test still holds: a share that fell
+// without rejections is NOT starvation, because the pre-registration says starvation has to be shown in
+// the ledger rather than inferred from a smaller number. The correction is that the remaining outcome is
+// "this arm cannot be scored", not "this arm wins".
+func TestAContenderThatTimedOutRatherThanBeingRefusedIsNeitherStarvedNorProtected(t *testing.T) {
 	m := healthyMatrix()
-	delayed := healthyArm(ArmTimeSlicing, 100, 20, 5_000)
-	delayed.DispositionByTenant = map[string]Disposition{
+	lost := healthyArm(ArmTimeSlicing, 100, 20, 5_000)
+	lost.DispositionByTenant = map[string]Disposition{
 		NoisyTenant: {Offered: 300, Completed: 120, TimedOut: 180},
 	}
-	m.Sharing = []ArmSummary{delayed}
+	m.Sharing = []ArmSummary{lost}
 
 	res := EvaluateSharingMatrix(m, PremiumTenant, NoisyTenant)
 
@@ -141,9 +155,15 @@ func TestAContenderThatWasMerelyDelayedIsNotStarvation(t *testing.T) {
 		t.Errorf("reading 2 fired on a share that fell to timeouts with no rejections; the pre-registration "+
 			"says delay and deletion are different findings and only the second is this reading: %s", two.Detail)
 	}
-	if one := sharingReadingByID(t, res, "1"); !one.Fired {
-		t.Errorf("reading 1 did not fire for an arm that met both bars without refusing any of the "+
-			"contender's work: %s", one.Detail)
+	one := sharingReadingByID(t, res, "1")
+	if one.Fired {
+		t.Errorf("reading 1 fired POSITIVE for an arm that completed 120 of the contender's 300 requests "+
+			"with none rejected. Whether the premium tail is calm because the split protected it or because "+
+			"60%% of the contending load went missing is exactly what this evidence cannot say: %s", one.Detail)
+	}
+	if !strings.Contains(one.Detail, "went missing") {
+		t.Errorf("reading 1 declined without naming the lost contender work, leaving a reader to guess which "+
+			"of the arm's numbers disqualified it: %s", one.Detail)
 	}
 }
 
@@ -749,4 +769,90 @@ func TestArmsRepeatedUnequallyAreRefused(t *testing.T) {
 	if !strings.Contains(fourB.Detail, "not repeated equally") {
 		t.Errorf("reading 4b fired for some other reason and not the unequal repetitions: %s", fourB.Detail)
 	}
+}
+
+// A refused MPS arm must not take the answer away from a time-slicing arm that fired.
+//
+// Reading 4c's own name ends "INVALID for that arm", and the evaluator's comment says a refused arm says
+// nothing about the arm beside it. The answer was still chosen as "the first reading that fired" over a
+// list where 4c sits ahead of readings 1, 2, 3 and 5, so 4c won every time it fired. This is not a corner
+// case for this study: MPS has already been measured failing to engage on this AMI, so the expected shape
+// of a run is a refused MPS arm and a scored time-slicing one.
+func TestARefusedArmDoesNotTakeTheAnswerFromAnArmThatWasMeasured(t *testing.T) {
+	m := healthyMatrix()
+	// Time-slicing clears both bars; MPS never engaged and the runner recorded why.
+	m.Sharing = []ArmSummary{healthyArm(ArmTimeSlicing, 100, 20, 38_000)}
+	m.Refused = map[string]string{ArmMPS: "the engines are not MPS clients"}
+
+	res := EvaluateSharingMatrix(m, PremiumTenant, NoisyTenant)
+
+	fourC := sharingReadingByID(t, res, "4c")
+	if !fourC.Fired {
+		t.Fatalf("reading 4c did not fire on a recorded refusal, so this test is not about what it says: %s", fourC.Detail)
+	}
+	one := sharingReadingByID(t, res, "1")
+	if !one.Fired {
+		t.Fatalf("reading 1 did not fire for a time-slicing arm inside both bars, so this test cannot check "+
+			"which of the two becomes the answer: %s", one.Detail)
+	}
+	if res.Answer != answerOf(one) {
+		t.Errorf("the answer is %q; a refused MPS arm overrode a time-slicing result that was measured and "+
+			"paid for. 4c invalidates ONE ARM, and the readings below it were still reached", res.Answer)
+	}
+}
+
+// An arm whose contender work went missing without being refused must not fire reading 1.
+//
+// The premium tail is supposed to be protected FROM the contender's load. An arm that lost half of that
+// load to timeouts shows a calm premium tail for the one reason that is not protection, and neither of the
+// two existing exclusions caught it: `starved` needs rejections in the ledger and there are none, and
+// `starvationUnknown` needs the ledger to be missing and it is present. Reading 1 fired POSITIVE and
+// printed the collapsed contender share in its own detail line, as though it were the price.
+func TestAnArmThatLostTheContendersWorkWithoutRefusingItCannotBePositive(t *testing.T) {
+	m := healthyMatrix()
+	broken := healthyArm(ArmTimeSlicing, 100, 20, 38_000)
+	// Every request accounted for, none refused, and half of them simply never came back.
+	broken.DispositionByTenant = map[string]Disposition{
+		NoisyTenant: {Offered: 300, Completed: 140, TimedOut: 120, Failed: 40},
+	}
+	m.Sharing = []ArmSummary{broken}
+
+	res := EvaluateSharingMatrix(m, PremiumTenant, NoisyTenant)
+
+	one := sharingReadingByID(t, res, "1")
+	if one.Fired {
+		t.Errorf("reading 1 fired POSITIVE for an arm that completed 140 of the contender's 300 requests "+
+			"with none rejected. The tail is calm because the load went missing: %s", one.Detail)
+	}
+	if !strings.Contains(one.Detail, "went missing") {
+		t.Errorf("reading 1 declined without saying the contender's work went missing, so a reader is left "+
+			"to guess which of the arm's numbers disqualified it: %s", one.Detail)
+	}
+}
+
+// A control whose tail is censored must not let reading 4 diagnose a load that was too LOW.
+//
+// Censor enough slow requests and the p99 of the survivors is small, the ratio falls under 5x, and the
+// reading that means "raise the load" fires on a control that was drowning. It also short-circuited 4b,
+// the reading that would have said the opposite -- so the run's one instruction to its successor was to
+// add load. Reading 4 now refuses, and 4b is reached.
+func TestACensoredControlCannotBeReadAsTooLittleLoad(t *testing.T) {
+	m := healthyMatrix()
+	m.Shared.Censored = true
+	// The survivors are fast, which is what censoring the slow ones leaves behind.
+	m.Shared.TTFTMsP99 = 120
+
+	res := EvaluateSharingMatrix(m, PremiumTenant, NoisyTenant)
+
+	four := sharingReadingByID(t, res, "4")
+	if four.Fired {
+		t.Errorf("reading 4 called a censored control's fast survivors 'the load did not create contention', "+
+			"which points the next paid run at raising a load that was already too high: %s", four.Detail)
+	}
+	if !four.NotEvaluable {
+		t.Errorf("reading 4 reported a plain negative on evidence it cannot read; that is indistinguishable "+
+			"from having looked: %s", four.Detail)
+	}
+	// And 4b must still have been reached, or the refusal above simply moved the silence.
+	sharingReadingByID(t, res, "4b")
 }

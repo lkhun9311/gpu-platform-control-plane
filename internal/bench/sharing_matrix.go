@@ -96,8 +96,21 @@ type sharingScored struct {
 	starved bool
 	// starvationUnknown marks an arm whose ledger cannot tell deletion from delay.
 	starvationUnknown bool
-	computable        bool
-	why               string
+	// contenderLost marks an arm where the contender's work went MISSING without being refused.
+	//
+	// This is a third thing, and it was the gap between the other two. `starved` means the ledger shows
+	// refusals accounting for the shortfall, which is reading 2 and a real finding. `starvationUnknown`
+	// means there is no ledger. An arm with a full ledger showing zero rejections and a third of the
+	// contender's requests simply never completing is neither: nothing refused the work and nothing
+	// explains where it went. Timeouts and broken connections do that.
+	//
+	// It has to exclude the arm rather than merely be noted, because the direction is the dangerous one:
+	// the contender's load is what the premium tail is supposed to be protected FROM, so an arm that lost
+	// half of it shows a calm premium tail for the one reason that is not protection. Reading 1 would have
+	// fired POSITIVE and printed the contender's collapsed share in its own detail line as the price.
+	contenderLost bool
+	computable    bool
+	why           string
 }
 
 // EvaluateSharingMatrix scores the matrix against the pre-registered readings, in the registered order.
@@ -110,36 +123,66 @@ func EvaluateSharingMatrix(a SharingArms, premiumTenant, contenderTenant string)
 
 	// Readings 4 and 4b short-circuit, because each one says the TRACE rather than the topology is what has
 	// to change. Scoring arms underneath either would be scoring comparisons that do not mean anything.
+	// A gate that FIRED stops the evaluation. A gate that could not be COMPUTED does not stop the next gate.
+	//
+	// Those two were on the same footing -- the loop returned at the first reading that either fired or came
+	// back NotEvaluable -- and that let reading 4 silence 4b. It matters in exactly the case reading 4 now
+	// refuses: a control whose tail is censored makes 4 uncomputable, and 4b, the reading that would have
+	// said the load was too HIGH, never ran. The answer came back blank where a diagnosis was available.
+	//
+	// A fired gate still stops everything under it, including the other gate. Each one says the TRACE rather
+	// than the topology has to change, so anything scored below is a comparison that does not mean anything.
+	notEvaluable := false
 	for _, r := range []PoPReading{
 		sharingReadingFour(a.R1, a.Shared),
 		sharingReadingFourB(a, premiumTenant, contenderTenant),
 	} {
 		res.Readings = append(res.Readings, r)
-		if r.Fired || r.NotEvaluable {
+		if r.Fired {
 			res.Answer = answerOf(r)
 			return res
 		}
+		notEvaluable = notEvaluable || r.NotEvaluable
+	}
+	if notEvaluable {
+		// Answer stays "", which is what NotEvaluable means: nothing below this can be scored either.
+		return res
 	}
 
 	// 4c does NOT short-circuit, and the difference is in its own name: "INVALID for that arm". A refused
 	// MPS arm says nothing about the time-slicing arm beside it, and stopping here would throw away a
 	// measurement that was made and paid for. The refused arm is absent from a.Sharing already -- the runner
 	// declines it before replay -- so excluding it from the scoring needs no further step.
-	res.Readings = append(res.Readings, sharingReadingFourC(a))
+	fourC := sharingReadingFourC(a)
+	res.Readings = append(res.Readings, fourC)
 
 	all := scoreSharingArms(a, premiumTenant, contenderTenant)
-	res.Readings = append(res.Readings,
+	scored := []PoPReading{
 		sharingReadingOne(a.R1, premiumTenant, contenderTenant, all),
 		sharingReadingTwo(all, contenderTenant),
 		sharingReadingThree(a.Shared, all),
 		sharingReadingFive(a.Shared, all),
-	)
+	}
+	res.Readings = append(res.Readings, scored...)
 
-	for _, r := range res.Readings {
+	// The ANSWER is chosen from the scored readings FIRST, and 4c is the fallback rather than the winner.
+	//
+	// 4c is appended above them because that is the order a reader should meet the readings in, and the
+	// answer used to be the first fired reading in that same order -- so a refused MPS arm took the answer
+	// away from a time-slicing result that fired underneath it. That is the opposite of what 4c is for. Its
+	// name says "INVALID for that arm", the comment above says a refused arm says nothing about the arm
+	// beside it, and this repository has already MEASURED MPS failing to engage on this AMI: the case is
+	// not hypothetical, it is the expected one.
+	//
+	// 4c still becomes the answer when nothing else fired, because then the refused arm is all there is.
+	for _, r := range scored {
 		if r.Fired {
 			res.Answer = answerOf(r)
 			break
 		}
+	}
+	if res.Answer == "" && fourC.Fired {
+		res.Answer = answerOf(fourC)
 	}
 	return res
 }
@@ -240,6 +283,30 @@ func scoreSharingArms(a SharingArms, premiumTenant, contenderTenant string) []sh
 				s.starved = d.Rejected > 0 && lost > 0 && refusedFraction*2 >= missingOutput
 			}
 		}
+
+		// Work that vanished without being refused, which is neither starvation nor a price.
+		//
+		// Measured against what the contender was OFFERED rather than against the control's output, because
+		// the question here is different: not "did this arm serve the contender less" but "did this arm's
+		// contender load actually land". An arm that was offered 238 requests and completed 120 with no
+		// rejections ran half the experiment, whatever its output ratio says.
+		//
+		// The same 0.75 reading 2 uses, and the same rule that refusals must ACCOUNT FOR the shortfall
+		// rather than merely be present. `starved` takes precedence: when the ledger does explain the loss,
+		// the finding is reading 2's and this flag would only hide it behind an unscorable arm.
+		if d, ok := c.DispositionByTenant[contenderTenant]; ok && d.Offered > 0 && !s.starved {
+			completedRel := float64(d.Completed) / float64(d.Offered)
+			refusedFraction := float64(d.Rejected) / float64(d.Offered)
+			if completedRel < m5cContenderShareBar && refusedFraction*2 < 1-completedRel {
+				s.contenderLost = true
+				// Only when armNotScorable found nothing to say. An arm can be both uncomputable and
+				// missing contender work, and the first reason is the one that came first.
+				if s.why == "" {
+					s.why = fmt.Sprintf("%s: the contender completed %d of %d requests with %d rejected, so the work went missing rather than being refused",
+						s.Arm, d.Completed, d.Offered, d.Rejected)
+				}
+			}
+		}
 		out = append(out, s)
 	}
 	return out
@@ -258,6 +325,33 @@ func sharingReadingFour(r1, shared ArmSummary) PoPReading {
 		r.Detail = "the `shared` control completed no premium requests, so whether it produced contention cannot be read from its tail"
 		return r
 	}
+
+	// The operands have to be trustworthy before this reading is allowed to diagnose, and a positive number
+	// is not the same as a trustworthy one.
+	//
+	// This reading says the load was too LOW. The evidence that most resembles a low load is an overloaded
+	// control whose few survivors were fast: censor enough of the slow requests and the p99 of what is left
+	// is small, the ratio falls under 5x, and this fires. It would then short-circuit 4b -- the reading that
+	// exists to say the load was too HIGH -- and send the next paid run to raise the load that was already
+	// drowning it. The two gates sit next to each other and this is the one place they can be confused, so
+	// it refuses instead and lets 4b speak.
+	switch {
+	case shared.Censored:
+		r.NotEvaluable = true
+		r.Detail = "the control's premium tail is censored, so a low ratio here cannot be told apart from an overload that dropped its slow requests"
+		return r
+	case shared.TailSampleSize < MinTailSamples:
+		r.NotEvaluable = true
+		r.Detail = fmt.Sprintf("the control completed %d premium requests, below the %d this p99 needs, so its tail is the slowest survivor rather than a percentile",
+			shared.TailSampleSize, MinTailSamples)
+		return r
+	case r1.TailSampleSize < MinTailSamples:
+		r.NotEvaluable = true
+		r.Detail = fmt.Sprintf("R1 completed %d premium requests, below the %d this p99 needs; the baseline both bars divide by is the slowest survivor",
+			r1.TailSampleSize, MinTailSamples)
+		return r
+	}
+
 	ratio := shared.TTFTMsP99 / r1.TTFTMsP99
 	r.Fired = ratio < m5cContentionBar
 	r.Detail = fmt.Sprintf("the control's premium TTFT p99 is %.1fx R1's (%.1f ms against %.1f ms), against an INVALID threshold of %.1fx",
@@ -443,7 +537,7 @@ func sharingReadingOne(r1 ArmSummary, premiumTenant, contenderTenant string, all
 	var won *sharingScored
 	for i := range all {
 		s := &all[i]
-		if !s.computable || !s.ttftOK || !s.tpotOK || s.starved || s.starvationUnknown {
+		if !s.computable || !s.ttftOK || !s.tpotOK || s.starved || s.starvationUnknown || s.contenderLost {
 			continue
 		}
 		// Higher contender throughput wins. An EXACT tie goes to timeSlicing, because MPS needs a control
@@ -636,7 +730,9 @@ func countSharingScorable(all []sharingScored) int {
 func sharingUnscorableSuffix(all []sharingScored) string {
 	var why []string
 	for i := range all {
-		if !all[i].computable && all[i].why != "" {
+		// contenderLost arms are listed too. They are computable -- every quantity is there -- and excluded
+		// anyway, so without this the reading would say "no sharing arm held both bars" and give no reason.
+		if (!all[i].computable || all[i].contenderLost) && all[i].why != "" {
 			why = append(why, all[i].why)
 		}
 	}
