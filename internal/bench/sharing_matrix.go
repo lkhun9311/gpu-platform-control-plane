@@ -187,6 +187,14 @@ func EvaluateSharingMatrix(a SharingArms, premiumTenant, contenderTenant string)
 	return res
 }
 
+// censored reports whether an arm's tail is censored, in the pool OR in any single repetition.
+//
+// ArmSummary.Censored is computed from POOLED rows, and censoring is a fraction: a repetition that lost
+// 1.50% of its premium requests sits beside two clean ones as 0.75% of the pool and passes a 1% bar. The
+// readings that refuse a censored control therefore could not see it, and a review reproduced reading 5
+// firing on exactly that. Every reading asks this function now, so the two cannot drift apart again.
+func censored(s ArmSummary) bool { return s.Censored || s.AnyRepetitionCensored }
+
 // armNotScorable says, in words, why an arm cannot be held against the bars -- or "" when it can.
 func armNotScorable(c ArmSummary, premiumTenant string) string {
 	switch {
@@ -197,7 +205,7 @@ func armNotScorable(c ArmSummary, premiumTenant string) string {
 	case c.TailSampleSize < MinTailSamples:
 		return fmt.Sprintf("%s has %d premium completions, below the %d a nearest-rank p99 needs to be anything but the maximum",
 			c.Arm, c.TailSampleSize, MinTailSamples)
-	case c.Censored:
+	case censored(c):
 		return fmt.Sprintf("%s has a censored tail, which is a lower bound rather than a p99", c.Arm)
 	}
 	return ""
@@ -232,14 +240,15 @@ func scoreSharingArms(a SharingArms, premiumTenant, contenderTenant string) []sh
 		// R1 is a lower bound, so a ratio against it is a lower bound wearing a measurement's name, and an
 		// R1 below the sample floor is the slowest premium request calling itself a p99. Checking only that
 		// they are positive let a survivor-biased baseline produce a confident POSITIVE.
+		// censored() rather than .Censored, because pooling averages a censored repetition away.
 		s.computable = a.R1.TTFTMsP99 > 0 && a.R1.TPOTMsP99ByTenant[premiumTenant] > 0 &&
-			a.R1.TailSampleSize >= MinTailSamples && !a.R1.Censored &&
+			a.R1.TailSampleSize >= MinTailSamples && !censored(a.R1) &&
 			// `shared` is the control every improvement is measured FROM, so a censored control makes
 			// readings 3 and 5 comparisons against a lower bound. Only R1 was being held to this.
-			a.Shared.TTFTMsP99 > 0 && a.Shared.TailSampleSize >= MinTailSamples && !a.Shared.Censored &&
+			a.Shared.TTFTMsP99 > 0 && a.Shared.TailSampleSize >= MinTailSamples && !censored(a.Shared) &&
 			sharedContender > 0 &&
 			c.TTFTMsP99 > 0 && c.TPOTMsP99ByTenant[premiumTenant] > 0 &&
-			c.TailSampleSize >= MinTailSamples && !c.Censored
+			c.TailSampleSize >= MinTailSamples && !censored(c)
 		s.why = armNotScorable(c, premiumTenant)
 		s.ttftOK = s.ttft <= m5cTTFTBar
 		s.tpotOK = s.tpot <= m5cTPOTBar
@@ -355,9 +364,15 @@ func sharingReadingFour(r1, shared ArmSummary) PoPReading {
 	// drowning it. The two gates sit next to each other and this is the one place they can be confused, so
 	// it refuses instead and lets 4b speak.
 	switch {
-	case shared.Censored:
+	case censored(shared):
 		r.NotEvaluable = true
 		r.Detail = "the control's premium tail is censored, so a low ratio here cannot be told apart from an overload that dropped its slow requests"
+		return r
+	// R1 was never checked here, and it is the DENOMINATOR of this ratio and of both bars. A censored
+	// baseline makes every multiple of it a lower bound, including the one this gate compares against 5x.
+	case censored(r1):
+		r.NotEvaluable = true
+		r.Detail = "R1's premium tail is censored, so every ratio measured against it -- this one included -- is a lower bound rather than a multiple"
 		return r
 	case shared.TailSampleSize < MinTailSamples:
 		r.NotEvaluable = true

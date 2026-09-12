@@ -1031,3 +1031,60 @@ func TestARepetitionThatCompletedNothingIsBelowTheFloor(t *testing.T) {
 			"'not measured', not 'measured at zero': %s", fourB.Detail)
 	}
 }
+
+// A censored REPETITION must disqualify the arm even when the pool looks clean.
+//
+// Censoring is a fraction and pooling averages it: a repetition that lost 1.50% of its premium requests
+// sits beside two clean ones as 0.75% of the pool, under the 1% bar. A review reproduced it on the eighth
+// pilot's own rows -- mark the second control repetition's 70 slowest premium responses timed out, and
+// reading 5 fires on a censored control while both completion floors pass.
+func TestACensoredRepetitionDisqualifiesTheArmThePoolCallsClean(t *testing.T) {
+	t.Run("the control", func(t *testing.T) {
+		m := healthyMatrix()
+		m.Shared.Censored = false // the pool is clean, which is the whole point
+		m.Shared.AnyRepetitionCensored = true
+
+		res := EvaluateSharingMatrix(m, PremiumTenant, NoisyTenant)
+
+		four := sharingReadingByID(t, res, "4")
+		if !four.NotEvaluable {
+			t.Errorf("reading 4 read a control with a censored repetition as though its tail were exact: %s", four.Detail)
+		}
+		// And nothing below the gate is scored at all. A gate that cannot be computed stops the evaluation,
+		// so the right assertion is that readings 1 and 5 are ABSENT rather than present and silent -- the
+		// first version of this test asked for the latter and failed on its own fixture.
+		for _, id := range idsOf(res) {
+			if id == "1" || id == "5" {
+				t.Errorf("reading %s was scored under a gate that could not be computed", id)
+			}
+		}
+		if res.Answer != "" {
+			t.Errorf("the answer is %q for a run whose control has a censored repetition", res.Answer)
+		}
+	})
+
+	t.Run("R1, the denominator of both bars", func(t *testing.T) {
+		m := healthyMatrix()
+		m.R1.AnyRepetitionCensored = true
+
+		res := EvaluateSharingMatrix(m, PremiumTenant, NoisyTenant)
+
+		four := sharingReadingByID(t, res, "4")
+		if !four.NotEvaluable {
+			t.Errorf("reading 4 divided by a censored baseline; every multiple of it is a lower bound: %s", four.Detail)
+		}
+	})
+
+	t.Run("a sharing arm", func(t *testing.T) {
+		m := healthyMatrix()
+		arm := healthyArm(ArmTimeSlicing, 100, 20, 38_000)
+		arm.AnyRepetitionCensored = true
+		m.Sharing = []ArmSummary{arm}
+
+		res := EvaluateSharingMatrix(m, PremiumTenant, NoisyTenant)
+
+		if one := sharingReadingByID(t, res, "1"); one.Fired {
+			t.Errorf("reading 1 fired POSITIVE for an arm one of whose repetitions is censored: %s", one.Detail)
+		}
+	})
+}

@@ -260,6 +260,15 @@ type ArmSummary struct {
 	// tests that build summaries by hand do not.
 	RepetitionCount int
 
+	// AnyRepetitionCensored is true when ANY repetition was censored, whatever the pool says.
+	//
+	// Censoring is a fraction, and pooling averages it away: a repetition that lost 1.50% of its premium
+	// requests sits beside two clean ones as 0.75% of the pool, under the 1% bar, and the readings that
+	// refuse a censored control never see it. A review reproduced exactly that on the eighth pilot's rows
+	// and reading 5 fired on a censored control. Attached by the caller that knows how the rows were split,
+	// for the same reason RepetitionCount is.
+	AnyRepetitionCensored bool
+
 	// MinRepetitionCompletedByTenant is the thinnest repetition's completed count, per tenant.
 	//
 	// MinRepetitionTail answers the same question for the premium tenant only, which left the contender's

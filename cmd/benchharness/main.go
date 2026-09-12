@@ -543,7 +543,9 @@ type armEvidence struct {
 	// different nanoseconds; a copy is bit-identical. The trace checksum cannot do this job -- repetitions
 	// of one arm are SUPPOSED to share it, and the check beside this one refuses them when they do not.
 	replayFrom map[string]string
-	repRows    map[string][]int
+	// repCensored records whether ANY of an arm's repetitions was censored, which pooling hides.
+	repCensored map[string]bool
+	repRows     map[string][]int
 	// repSeconds is each repetition's own wall clock, kept because the arm's throughput must be its tokens
 	// over the time it was actually sending -- not over a pooled span that includes the washout pauses
 	// between repetitions.
@@ -630,9 +632,10 @@ func loadArmEvidence(rawFiles []string) (*armEvidence, error) {
 	e := &armEvidence{
 		byArm: map[string][]bench.RawRow{}, repP99: map[string][]float64{},
 		repTail: map[string][]int{}, repRows: map[string][]int{}, repSeconds: map[string][]float64{},
-		repDone:    map[string][]map[string]int{},
-		replayFrom: map[string]string{},
-		checksum:   map[string]string{}, tolerance: map[string]float64{},
+		repDone:     map[string][]map[string]int{},
+		replayFrom:  map[string]string{},
+		repCensored: map[string]bool{},
+		checksum:    map[string]string{}, tolerance: map[string]float64{},
 		treatment: map[string]string{},
 	}
 	for _, path := range rawFiles {
@@ -710,6 +713,9 @@ func loadArmEvidence(rawFiles []string) (*armEvidence, error) {
 			done[tenant] = d.Completed
 		}
 		e.repDone[arm] = append(e.repDone[arm], done)
+		if rs.Censored {
+			e.repCensored[arm] = true
+		}
 		// Every repetition's checksum, not the last one's.
 		//
 		// This assigned, so loadArmEvidence kept only whichever file it read last and a repetition replayed
@@ -874,6 +880,7 @@ func (e *armEvidence) summarize() ([]bench.ArmSummary, map[string]bench.ArmSumma
 			s := bench.Summarize(arm, rows)
 			// Summarize sees pooled rows and cannot know how they were split, so the repetition shape is
 			// attached here where the split is known.
+			s.AnyRepetitionCensored = e.repCensored[arm]
 			if tails := e.repTail[arm]; len(tails) > 0 {
 				s.RepetitionCount = len(tails)
 				s.MinRepetitionTail = slices.Min(tails)
