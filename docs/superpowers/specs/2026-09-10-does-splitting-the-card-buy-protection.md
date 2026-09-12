@@ -432,12 +432,18 @@ have:
 | contender requests lost | near zero | **0**, in both arms |
 | queue-delay slope, `shared` | flat | **+0.0001** |
 | queue-delay slope, `timeSlicing` | flat | **+0.0025** |
-| contender TTFT median, split | ~2.15 s (the measured service time) | **2.33 s** |
+| contender TTFT median, split | ~2.15 s (the measured uncontended prefill) | **2.33 s** |
 
 The seventh pilot's contender delay climbed 5.1 s → 22.3 s and 74% of its work was abandoned. Here it is
-flat and nothing is abandoned. Reading the capacity off **uncontended service time** rather than off a
-completion count is what made the difference, and the split arm's 2.33 s median against the 2.15 s the
-derivation was built on is that method checking itself.
+flat and nothing is abandoned. The split arm's 2.33 s median against the 2.15 s the derivation was built on
+is the prefill measurement agreeing with itself under load.
+
+**And what actually settles the load is this run, not the derivation.** The derivation sized the rate from
+an uncontended **prefill** time, which is not a request capacity — a request holds the engine past its
+first token, and reciprocating the median TOTAL response time would have said 0.150 req/s where
+reciprocating the prefill says 0.466. Neither is the capacity and this evidence does not locate it. What is
+now established is narrower and enough: **at 0.275 req/s both arms served every contender request with a
+flat queue.** The tuple is viable because it was run, not because it was derived.
 
 **All three gates behaved as registered, for the first time:**
 
@@ -715,16 +721,18 @@ The whole-card figure independently reproduces the **1.03 s** that
 is measuring what it claims. The split engine takes **2.05x** as long, which is what time-slicing a card two
 ways should cost and had never been measured here.
 
-So the seventh pilot offered 0.567 req/s into an engine that serves 0.466 — **122% of capacity** — while the
-same load on the whole card was 59% of it. One arm diverged and the other did not, and that is the whole
-explanation. `n = 4` is thin, and the slope method's 0.503 is the nearest independent check on it; the two
-agree to 8%.
+The seventh pilot offered **0.567 req/s** of contender load. Against the split engine's prefill rate of
+0.466 that is more than the engine can prefill; against the whole card's 0.955 it is well under. One arm's
+queue diverged and the other's did not, and the prefill gap is **consistent with** that — it is not
+established as the whole cause, because a request holds the engine past its first token and this evidence
+does not say by how much. `n = 4` is thin; the slope method's 0.503 is the nearest independent check and
+the two agree to 8%.
 
 **The load.** The 0.6 is quoted from the paragraph above this section, written before any card was bought.
 
 | | |
 | --- | --- |
-| split-engine contender capacity | **0.466 req/s** (measured service time, 1/2.15 s) |
+| split-engine contender **prefill** rate | **0.466 req/s** (1 / the measured 2.15 s, and NOT a request capacity — see above) |
 | × the registered 0.6 | **0.279 req/s** |
 | trace duration | **`DURATION_MS=505000`** |
 
