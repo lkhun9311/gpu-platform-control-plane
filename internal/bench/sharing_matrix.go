@@ -207,7 +207,7 @@ func EvaluateSharingMatrix(a SharingArms, premiumTenant, contenderTenant string)
 		sharingReadingOne(a.R1, premiumTenant, contenderTenant, all),
 		sharingReadingTwo(all, contenderTenant),
 		sharingReadingThree(a.Shared, all),
-		sharingReadingFive(a.Shared, all),
+		sharingReadingFive(a.Shared, all, contenderTenant),
 	}
 	res.Readings = append(res.Readings, scored...)
 
@@ -736,7 +736,7 @@ func sharingReadingThree(shared ArmSummary, all []sharingScored) PoPReading {
 // This is the reading the previous study had no name for. Its readings required either that some cell met
 // the bar or that no cell beat the control; the evidence landed between them and nothing fired. Here that
 // gap is closed in advance rather than after seeing which way the numbers went.
-func sharingReadingFive(shared ArmSummary, all []sharingScored) PoPReading {
+func sharingReadingFive(shared ArmSummary, all []sharingScored, contenderTenant string) PoPReading {
 	r := PoPReading{ID: "5", Name: "it protects but not to the bar -- measured partial result"}
 	if countSharingScorable(all) == 0 {
 		r.NotEvaluable = true
@@ -790,8 +790,23 @@ func sharingReadingFive(shared ArmSummary, all []sharingScored) PoPReading {
 	case !closest.ttftOK && !closest.tpotOK:
 		missed = "both bars"
 	}
-	r.Detail = fmt.Sprintf("%s improves the control's premium tail by %.1f ms against a %.1f ms spread, and misses %s: tail %.1fx R1 against %.1fx, stream %.2fx against %.2fx -- a real improvement that does not reach the bar",
-		closest.Arm, best, spread, missed, closest.ttft, m5cTTFTBar, closest.tpot, m5cTPOTBar)
+	// AND IT SAYS WHETHER THE CONTENDER WAS REFUSED, because that changes what the improvement is.
+	//
+	// A starved arm stays computable on purpose -- that is reading 2's finding and reading 2 is the one
+	// that names it. But reading 2 requires BOTH bars, so an arm that refuses most of the contender's work,
+	// improves the tail, and misses a bar falls out of reading 2 and lands here, where the sentence read
+	// "a real improvement that does not reach the bar" and never mentioned the refusals. A review
+	// reproduced exactly that. The improvement is real; what it was bought with belongs in the same line.
+	bought := "with the contender's work intact"
+	if closest.starved {
+		if d, ok := closest.DispositionByTenant[contenderTenant]; ok {
+			bought = fmt.Sprintf("having REFUSED %d of the contender's %d requests at admission", d.Rejected, d.Offered)
+		} else {
+			bought = "having refused contender work at admission"
+		}
+	}
+	r.Detail = fmt.Sprintf("%s improves the control's premium tail by %.1f ms against a %.1f ms spread, and misses %s: tail %.1fx R1 against %.1fx, stream %.2fx against %.2fx -- a real improvement that does not reach the bar, %s",
+		closest.Arm, best, spread, missed, closest.ttft, m5cTTFTBar, closest.tpot, m5cTPOTBar, bought)
 	return r
 }
 

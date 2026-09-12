@@ -1169,3 +1169,47 @@ func TestAMissingBaselineOrControlIsAnInvalidRun(t *testing.T) {
 		})
 	}
 }
+
+// Reading 5 must say when the improvement was bought by refusing the contender's work.
+//
+// A starved arm stays computable on purpose: that is reading 2's finding. But reading 2 requires BOTH bars,
+// so an arm that refuses most of the contender's requests, improves the tail, and misses one bar falls out
+// of reading 2 and lands in reading 5 — where the sentence said "a real improvement that does not reach the
+// bar" and never mentioned the refusals. A review reproduced it. The improvement is real; a reader deciding
+// whether to ship this topology needs to know it came with a third of the contender turned away.
+func TestReadingFiveNamesTheRefusalsThatBoughtTheImprovement(t *testing.T) {
+	m := healthyMatrix()
+	// Improves on the control, misses the stream bar, and refuses most of the contender's work.
+	arm := healthyArm(ArmTimeSlicing, 900, 200, 5_000)
+	arm.DispositionByTenant = map[string]Disposition{
+		NoisyTenant: {Offered: 300, Completed: 120, Rejected: 175, TimedOut: 5},
+	}
+	m.Sharing = []ArmSummary{arm}
+
+	res := EvaluateSharingMatrix(m, PremiumTenant, NoisyTenant)
+
+	five := sharingReadingByID(t, res, "5")
+	if !five.Fired {
+		t.Fatalf("reading 5 did not fire for an arm that improved on the control and missed a bar, so this "+
+			"test cannot check what it says: %s", five.Detail)
+	}
+	if !strings.Contains(five.Detail, "REFUSED") || !strings.Contains(five.Detail, "175") {
+		t.Errorf("reading 5 reports an improvement without saying it refused 175 of the contender's 300 "+
+			"requests to get it: %s", five.Detail)
+	}
+}
+
+// And the healthy case still says the contender's work was intact, or the sentence above means nothing.
+func TestReadingFiveSaysTheContendersWorkWasIntactWhenItWas(t *testing.T) {
+	m := healthyMatrix()
+	m.Sharing = []ArmSummary{healthyArm(ArmTimeSlicing, 900, 200, 38_000)}
+
+	five := sharingReadingByID(t, EvaluateSharingMatrix(m, PremiumTenant, NoisyTenant), "5")
+	if !five.Fired {
+		t.Fatalf("reading 5 did not fire on the healthy partial-improvement shape: %s", five.Detail)
+	}
+	if !strings.Contains(five.Detail, "intact") {
+		t.Errorf("reading 5 does not distinguish an improvement that kept the contender's work from one "+
+			"that refused it: %s", five.Detail)
+	}
+}
