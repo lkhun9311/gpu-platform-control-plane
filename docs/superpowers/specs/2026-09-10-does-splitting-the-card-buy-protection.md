@@ -158,6 +158,35 @@ which is the one of the three methods that costs nothing and was nearly skipped.
 | 47 | A YAML comment inside an **unquoted heredoc** quoted a command in backticks, and the shell ran it | the gateway manifest is built with `k apply -f - <<EOF`, unquoted so `$arm` and `$NS_A` expand — which expands backticks too. Every gateway deploy executed `rollout status` and printed **"rollout: command not found"** to stderr, four times a run, into the log an operator reads to find real faults. Harmless only by luck: the empty substitution landed inside a comment. `bash -n` is clean either way, and it took **running** the rehearsal to see it |
 | 46 | Reading **4** could diagnose "the load did not create contention" from a **censored** control | censor the slow requests and the survivors' p99 is small, the ratio falls under 5x, and the reading meaning "raise the load" fires on a control that was drowning — short-circuiting 4b, the reading that would have said the opposite. The run's one instruction to its successor would have been exactly backwards |
 
+### Six more after the seventh pilot, from a review that read the evidence rather than the prose
+
+| # | defect | what it would have cost |
+| --- | --- | --- |
+| 49 | Split-arm setup failures called `fail`, which **exits**, so the caller's `apply_device_plugin "$arm" \|\| return 1` had been **unreachable code since it was written** | the seventh pilot died here with R1, `shared` and `timeSlicing` measured and paid for. The session ended before it could run its own report, and the mps arm left no `refused-mps.txt` for reading 4c. Five paths: plugin apply, plugin rollout, device count, both engine applies, and the co-location check |
+| 50 | The device-count refusal asserted **"the plugin is ignoring CONFIG_FILE"** from a count | zero devices is equally consistent with an unhealthy device, a kubelet that has not re-registered, and a driver that went away. Naming a cause the ledger does not establish is what this repository puts above every other failure, and the refusal recorded no diagnosis at all — so "0 devices" was all a later reader would ever have |
+| 51 | `contenderLost` was consulted by **reading 1 only** | reproduced by the review: an arm that lost half its contender work and missed both bars fired **reading 5 as protection**; the same arm meeting both bars **vetoed reading 5** for a healthy arm beside it; and reading 2 printed that every qualifying arm "kept the contender's work". A fix that touches one of four call sites is a fix that has not been made |
+| 53 | The starvation test compared rejected **requests** against missing **output share**, with a factor of two on one side to make the units meet | reproduced: 400 offered, 200 completed, 100 rejected and 100 **timed out** fired reading 2 and printed "refused work, not merely late work" over a ledger where refusals explain half the loss and delay the other half. The two flags now partition one fact in one unit — either the refusals account for the missing requests, or the arm cannot be scored |
+| 54 | A gate that could not be **computed** exited **zero** | reproduced with 2% premium timeouts in the control: reading 4 came back N/E, 4b passed, and the report printed no verdict and no answer with exit status 0. `benchharness report ... \|\| fail` would have accepted a censored control as a good session |
+| 52 | The credential check hardcoded **seven minutes per replay**, ignoring `DURATION_MS` | the load derived above puts the trace at 505 s. The check would have approved a session on credentials that expire during it, and the first thing to fail would be the evidence download — after the card was paid for |
+
+**49 and 51 are the same mistake in two languages.** Both are a guard that exists, is correct where it is
+written, and is not consulted where it matters: an `|| return 1` the callee can never reach, and a flag
+three of four readings never ask about. Neither is visible in a diff of the fix, because the fix looks
+right. What found both was **executing the path** — a paid run for 49, a reproduction over saved evidence
+for 51.
+
+**Three tests written today were vacuous on their first run, and only a mutation found each one.** The
+heredoc guard's regex excluded `&` so it could not see the line `... 2>&1 &` it was written for. The
+reading-2 assertion looked for a phrase that appears only in a source comment. The starvation fixture gave
+the contender a fifth of the control's output, where the OLD rule declined anyway — so it passed against the
+defect it was written for. Each was caught by deliberately restoring the defect and finding the test still
+green, which is the repository's rule applied to itself: a check that cannot tell "did not run" from
+"passed" is worse than none.
+
+**And the test written for 51 was itself vacuous on its first run.** It asserted that reading 2 does not say
+"kept the contender", a phrase that appears only in a source comment and never in output. Corrected to the
+sentence the code actually prints, it goes red on all three reproductions instead of two.
+
 **45 changed an expectation this repository had already written down, and that is worth stating plainly.**
 A test named `TestAContenderThatWasMerelyDelayedIsNotStarvation` held a contender that completed 120 of 300
 requests with none rejected, and required reading 1 to fire POSITIVE on it — on the argument that work
@@ -520,9 +549,9 @@ answer, because each engine here has half a card. The runner refuses to start wi
 **This is a pilot's job, not the confirmatory run's.** No confirmatory time may be bought until a pilot has
 cleared readings 4, 4b and 4c and produced a load whose derivation is written down.
 
-### The derivation, from the seventh pilot — and its first version was wrong
+### The derivation, from the seventh pilot — and its first two versions were wrong
 
-The seventh pilot completed three arms on one A10G. The contender's ledger:
+The seventh pilot completed three arms on one A10G:
 
 | arm | contender offered | completed | timed out | premium TTFT p99 | /R1 |
 | --- | ---: | ---: | ---: | ---: | ---: |
@@ -530,75 +559,82 @@ The seventh pilot completed three arms on one A10G. The contender's ledger:
 | `shared` | 238 | **238** | 0 | 7,911.5 ms | 113.1x |
 | `timeSlicing` | 238 | **61** | 177 | 839.3 ms | 12.0x |
 
-**The first derivation written here read 61 completions over 420 s as 0.145 req/s of capacity, and it was
-wrong.** It is described rather than deleted, because how it was wrong is the useful part.
+**Two wrong derivations were written here before the right one, and both are described rather than deleted.**
 
-Bucketing the split arm's contender completions by time shows what actually happened:
+**The first** read 61 completions over 420 s as 0.145 req/s of capacity. Bucketing shows why that is not a
+capacity: the split arm completed 30 requests in the first 70 s, 19 in the next, then **zero across 280
+seconds** while 114 more were offered, then 12 during the drain after arrivals stopped. An engine at its
+limit still completes work, only more slowly. This is queue delay growing without bound until it crosses the
+replay client's **30-second timeout**, after which requests are abandoned before they can finish. The
+completion count measures the timeout. It also divided by 420 s while counting completions that landed at
+430–437 s, after the trace had ended.
 
-| window | offered | completed | median time to first token |
+**The second** inferred capacity from how fast the queue grew — `W(t) = (λ/μ − 1)·t`, fitted on the window
+before the first abandonment, since abandonment censors exactly the slow requests the slope is made of. That
+gave μ ≈ 0.503 req/s, and it is a sounder method than counting, but it is still an inference.
+
+**The third does not infer anything.** Among the contender's own rows there are requests that arrived while
+**no other contender request was in flight**, and their time to first token is the service time directly:
+
+| topology | uncontended contender TTFT | n | service rate |
 | --- | ---: | ---: | ---: |
-| 0–70 s | 30 | 30 | 5.1 s |
-| 70–140 s | 46 | 19 | 9.9 s |
-| 140–210 s | 39 | **0** | — |
-| 210–280 s | 32 | **0** | — |
-| 280–350 s | 43 | **0** | — |
-| 350–420 s | 48 | 12 | 22.3 s |
+| `shared`, whole card | **1.05 s** (1.03–1.34) | 60 | 0.955 req/s |
+| `timeSlicing`, half card | **2.15 s** (2.10–2.21) | 4 | **0.466 req/s** |
 
-**Zero completions across 280 seconds while 114 requests were offered.** An engine at its capacity limit
-still completes work, only more slowly. This is queue delay growing without bound and crossing the replay
-client's **30-second timeout**, after which requests are abandoned before they can finish. The completion
-count therefore measures the timeout, not the engine, and 0.145 req/s is not a property of the hardware.
+The whole-card figure independently reproduces the **1.03 s** that
+`2026-09-09-what-would-have-to-change.md` derived from a different run, which is the check that the method
+is measuring what it claims. The split engine takes **2.05x** as long, which is what time-slicing a card two
+ways should cost and had never been measured here.
 
-**What does measure the engine is how fast the queue grows.** For a saturated FIFO queue starting empty,
-waiting time climbs as `W(t) = (λ/μ − 1)·t`, so the slope of time-to-first-token against send time gives
-λ/μ. It has to be fitted on the window **before the first abandonment**, because abandonment censors
-exactly the slow requests the slope is made of: fitted over the whole run the slope reads +0.043, and over
-the uncensored window it is **+0.126**, three times steeper. The uncensored fit's intercept is **0.21 s**,
-which is the check that matters — the model assumes the queue starts empty and the data says it did. The
-full-run fit's intercept of 4.70 s is the censoring, not the engine.
-
-| | |
-| --- | --- |
-| contender arrival rate | 238 / 420 s = **0.567 req/s** |
-| first abandonment | a request sent at **t = 97 s** |
-| slope on 0–97 s | **+0.126**, so λ/μ = 1.126 and **μ ≈ 0.503 req/s** |
-| completions ending within 0–97 s | 35, so **μ ≈ 0.361 req/s** |
-
-**The two estimates disagree by 40%, and this page uses the lower one.** The slope method is insensitive to
-what is in flight at a window boundary; the count method is not, and early in a run the queue is still
-filling, so it counts against a pipeline that has not yet drained. Neither is clearly right at this sample
-size. Sizing against 0.361 is the conservative direction because the two gates are not symmetric: too much
-load is what invalidated this pilot, and too little is caught by reading 4 — which has an enormous margin
-here, as the corridor below shows.
+So the seventh pilot offered 0.567 req/s into an engine that serves 0.466 — **122% of capacity** — while the
+same load on the whole card was 59% of it. One arm diverged and the other did not, and that is the whole
+explanation. `n = 4` is thin, and the slope method's 0.503 is the nearest independent check on it; the two
+agree to 8%.
 
 **The load.** The 0.6 is quoted from the paragraph above this section, written before any card was bought.
-It is not chosen now.
 
 | | |
 | --- | --- |
-| split-engine contender capacity | **0.361 req/s** (the conservative estimate) |
-| × the registered 0.6 | **0.216 req/s** |
-| completions wanted | 100 is reading 4b's floor; **140** puts Poisson arrivals 3.4σ clear of it rather than 1.8σ |
-| duration per cell | 140 / 0.216 = **648 s**, so `DURATION_MS=650000` |
-| premium rate | **held at 9.24/s**, measured 3,882 over 420 s — this page requires it be held |
-| contender weight | 0.216 / 9.24 = **`NOISY_WEIGHT=0.0234`**, from 0.054 |
+| split-engine contender capacity | **0.466 req/s** (measured service time, 1/2.15 s) |
+| × the registered 0.6 | **0.279 req/s** |
+| trace duration | **`DURATION_MS=505000`** |
 
-**The corridor was checked rather than assumed.** Lowering the contender's rate also lowers the contention
-the control produces, and reading 4 invalidates the run below 5x. The check is an occupancy argument rather
-than a prediction of the tail: a p99 is the slowest 1%, so the premium p99 lands inside a contender prefill
-whenever the whole-card engine is busy with contender work more than 1% of the time. The whole card served
-the contender at **0.557 req/s** against a flat queue, so at 0.216 req/s its occupancy is **39%** — thirty-
-nine times the margin the gate needs.
+**The parameters are the whole tuple, and they were preflighted rather than predicted.** `RATE` is the
+**total** arrival rate across tenants, so changing a weight alone moves the premium rate too — and the trace
+generator takes a fixed `--seed 11`, which makes every offered count deterministic and checkable before a
+card is rented. Running `gen-trace` at the proposed tuple gives:
 
-**What this costs.** Three arms at 648 s of replay is 32 minutes, plus four engine starts, the cluster and
-the driver: about **55 minutes and $0.62**. Four arms is about 70 minutes and $0.79, plus the runner's
-30 minutes of credential headroom.
+```
+RATE=9.4045  PREMIUM_WEIGHT=1  NOISY_WEIGHT=0.0260  PROBE_WEIGHT=0  DURATION_MS=505000
+  -> premium-1      4655 offers  (9.218/s, against the 9.243/s being held)
+  -> standard-noisy  139 offers  (0.275/s, ρ = 0.59 of the split engine)
+```
+
+139 contender offers against reading 4b's floor of 100 leaves room to lose **39 of them**, and at ρ = 0.59
+the queue does not diverge, so losses should be near zero. This replaces an earlier argument on this page
+that reasoned about Poisson variance around a mean of 140: the draw is not random once the seed is fixed,
+and a count that can be computed should not be argued about.
+
+**The corridor was checked, not assumed.** Lowering the contender's rate also lowers the contention the
+control produces, and reading 4 invalidates the run below 5x. At 0.279 req/s the whole-card engine is busy
+with contender work **29%** of the time, against the 1% a p99 needs before it lands inside such a busy
+period. The margin is large but the inference is **not proven**: occupancy above 1% does not by itself put
+the p99 above 5x, since an arrival late in a busy period waits only for its remainder. What supports it is
+the control's own rows at the old load, where **1,869 of 3,882** premium requests exceeded one prefill time
+and **1,414** exceeded two — queueing, not isolated collisions. Queueing makes a no-queue estimate
+pessimistic about the control's tail, so the direction is safe. It is still the one number in this
+derivation that the next run tests rather than confirms.
+
+**What this costs.** Three arms at 505 s of replay is 25 minutes, plus four engine starts, the cluster and
+the driver: about **48 minutes and $0.54**. Four arms is about 60 minutes and $0.68. The runner's credential
+check now derives its replay minutes from `DURATION_MS` instead of assuming seven; at this trace it asks for
+86 minutes rather than 74.
 
 **One measurement worth keeping whatever the next run says.** The whole card serves the contender at
-0.557 req/s and the time-sliced half at 0.361–0.503 — **65% to 89%** of it — while the premium tail falls
-from 7,911 ms to 839 ms. If that survives a load the contender can absorb, it is the shape of an answer.
-This pilot cannot say it: 74% of the contending work never landed, and whether the tail is low from
-protection or from an absent contender is exactly what reading 4b fired to refuse.
+0.955 req/s and the time-sliced half at 0.466 — **49%**, almost exactly half, which is what the topology
+should cost — while the premium tail falls from 7,911 ms to 839 ms. If that survives a load the contender
+can absorb, it is the shape of an answer. This pilot cannot say it: 74% of the contending work never landed,
+and whether the tail is low from protection or from an absent contender is what reading 4b fired to refuse.
 
 ## Budget
 
