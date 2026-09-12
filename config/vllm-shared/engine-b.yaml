@@ -43,6 +43,7 @@ spec:
             - --dtype=half
             - --max-model-len=16384
             - --max-num-seqs=32
+            - --gpu-memory-utilization=0.475
             - --kv-cache-memory=3435973836
             - --no-enable-prefix-caching
             - --max-num-batched-tokens=2048

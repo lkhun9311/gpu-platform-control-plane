@@ -219,15 +219,23 @@ var mustDifferAcrossTopology = map[string]string{
 	"--max-num-seqs": "half each, so the card admits the same total concurrency under either topology",
 }
 
-// mayReplaceAcrossTopology names a flag the split engines use INSTEAD of one the flagship uses, and why.
+// mustAccompanyAcrossTopology names a flag the split engines add ALONGSIDE one the flagship passes, and why.
 //
-// This is a weaker relation than mustDiffer: the quantity is the same and only the way of expressing it
-// changes, so the check is that the replacement is present and the original absent.
-var mayReplaceAcrossTopology = map[string]string{
-	// A fraction is a fraction of the WHOLE card, and a process on a shared card can see what the other half
-	// has taken. Measured on 2026-09-12: at 0.475 each, the engine that started second computed its own
-	// consumed memory as 8.38 GiB against the first's 6.56 and was left with 1.52 GiB of KV against 3.33.
-	// An absolute budget says the same thing in a unit that does not depend on start order.
+// This began as mayReplace -- the split engines were to express the budget as an absolute and drop the
+// fraction. That was wrong, and reading vLLM v0.27.1 rather than its log message is what showed it. The two
+// flags do two different jobs:
+//
+//	--gpu-memory-utilization  is the startup ADMISSION GATE. request_memory() raises ValueError when free
+//	                          memory is below utilization * total. It reads the fraction whether or not an
+//	                          absolute cache is set, and its default is 0.92 -- 20.30 GiB of this card.
+//	--kv-cache-memory         is the SIZING, and it does override the fraction for that: vLLM skips
+//	                          profiling and logs "This does not respect the gpu_memory_utilization config."
+//
+// Dropping the fraction therefore does not relax the gate, it raises it to the default. The 2026-09-12
+// pilot measured the second engine to profile seeing 13.81 GiB free, so both split arms would have failed
+// to start on a card that had just been rented. The engine's own advice -- "Replace gpu_memory_utilization
+// config with --kv-cache-memory=..." -- is about sizing, and taking it literally is what nearly did it.
+var mustAccompanyAcrossTopology = map[string]string{
 	"--gpu-memory-utilization": "--kv-cache-memory",
 }
 
@@ -259,14 +267,20 @@ func TestTheSharingEnginesDifferFromTheFlagshipOnlyWhereTheSplitForcesIt(t *test
 			continue
 		}
 		for name, want := range flagship {
-			if replacement, replaced := mayReplaceAcrossTopology[name]; replaced {
-				if _, stillThere := got[name]; stillThere {
-					t.Errorf("%s still passes %s, which the split engines are supposed to express as %s instead",
-						f, name, replacement)
+			if companion, accompanied := mustAccompanyAcrossTopology[name]; accompanied {
+				have, present := got[name]
+				if !present {
+					t.Errorf("%s passes no %s, so vLLM applies its 0.92 default as the startup gate and "+
+						"demands 20.30 GiB free on a card the other engine is already holding: this engine "+
+						"would not start at all", f, name)
+				} else if have == want {
+					t.Errorf("%s passes %q, the same gate as the whole-card flagship. Two engines cannot "+
+						"each be admitted for most of one card", f, have)
 				}
-				if _, ok := got[replacement]; !ok {
-					t.Errorf("%s passes neither %s nor its replacement %s, so this engine's memory budget is "+
-						"whatever the engine decides", f, name, replacement)
+				if _, ok := got[companion]; !ok {
+					t.Errorf("%s passes %s but no %s, so its cache size is profiled against a card another "+
+						"engine is already using -- the asymmetry that invalidated the 2026-09-12 pilot",
+						f, name, companion)
 				}
 				continue
 			}
@@ -286,12 +300,12 @@ func TestTheSharingEnginesDifferFromTheFlagshipOnlyWhereTheSplitForcesIt(t *test
 					f, have, want, name)
 			}
 		}
-		replacements := map[string]bool{}
-		for _, r := range mayReplaceAcrossTopology {
-			replacements[r] = true
+		companions := map[string]bool{}
+		for _, r := range mustAccompanyAcrossTopology {
+			companions[r] = true
 		}
 		for name, have := range got {
-			if replacements[name] {
+			if companions[name] {
 				continue
 			}
 			if _, ok := flagship[name]; !ok {

@@ -131,8 +131,8 @@ func TestAPlanIsRefusedWhileItsCacheIsTooSmallToBatch(t *testing.T) {
 // The committed manifests must form a plan Validate accepts, or the arithmetic is decoration.
 //
 // SharingPlan can refuse a bad plan and cannot refuse a bad manifest. What ties them is this test: it reads
-// the engines' --gpu-memory-utilization and their count out of config/vllm-shared, and the replicas out of
-// the time-slicing plugin's ConfigMap, and builds the plan those files actually describe.
+// the engines' KV budget and their count out of config/vllm-shared, and the replicas out of the
+// time-slicing plugin's ConfigMap, and builds the plan those files actually describe.
 func TestTheCommittedSharedEnginesFormAPlanThatValidates(t *testing.T) {
 	// Globbed rather than named: the engines live one per file so each can be applied into its own
 	// namespace, and a test that named one file would stop counting the moment a third engine was added --
@@ -141,38 +141,64 @@ func TestTheCommittedSharedEnginesFormAPlanThatValidates(t *testing.T) {
 	if err != nil || len(files) == 0 {
 		t.Fatalf("no shared engine manifests found: %v", err)
 	}
-	var engines []byte
+	// Read the ARGS, with comments stripped, and never the file as a whole.
+	//
+	// The files are also read ONE AT A TIME now. Concatenating them first is what made the old count
+	// meaningless: a flag missing from one manifest was invisible as long as the other carried it.
+	//
+	// This test used to match --gpu-memory-utilization anywhere in the bytes. The 2026-09-12 fix replaced
+	// that flag with an absolute --kv-cache-memory and left a paragraph explaining why, so the only
+	// remaining match was in engine-a's PROSE: one hit across two engine files. The test went on passing
+	// while validating a ONE-engine plan at a fraction no engine is given, and the replicas check below
+	// compared the plugin's devices against 1 instead of 2 -- so a ConfigMap dropped to one device would
+	// have left an engine Pending with this suite green. A manifest test has to read what the engine will
+	// actually be handed, which is the args list and nothing else.
+	budgets := make([]int64, 0, len(files))
 	for _, f := range files {
-		b, err := os.ReadFile(f)
-		if err != nil {
-			t.Fatalf("read %s: %v", f, err)
+		b, rerr := os.ReadFile(f)
+		if rerr != nil {
+			t.Fatalf("read %s: %v", f, rerr)
 		}
-		engines = append(engines, b...)
-	}
-	utils := regexp.MustCompile(`--gpu-memory-utilization=([0-9.]+)`).FindAllStringSubmatch(string(engines), -1)
-	if len(utils) == 0 {
-		t.Fatal("the shared engines set no --gpu-memory-utilization; under time-slicing that defaults each " +
-			"engine to most of the card and the second one has nowhere to live")
+		args := stripYAMLComments(string(b))
+		m := regexp.MustCompile(`--kv-cache-memory=(\d+)`).FindAllStringSubmatch(args, -1)
+		if len(m) != 1 {
+			t.Fatalf("%s passes --kv-cache-memory %d times in its args; each engine manifest declares one "+
+				"engine and must state its cache exactly once, or this plan describes a deployment that "+
+				"does not exist", f, len(m))
+		}
+		// One engine per manifest is what makes len(files) the engine count. A replicas bump would put two
+		// processes on the card for one entry here and halve every per-engine figure below, silently.
+		if r := regexp.MustCompile(`(?m)^\s*replicas:\s*(\d+)`).FindStringSubmatch(args); r == nil || r[1] != "1" {
+			t.Fatalf("%s does not declare replicas: 1, so the card hosts more engines than this plan counts", f)
+		}
+		v, perr := strconv.ParseInt(m[0][1], 10, 64)
+		if perr != nil {
+			t.Fatalf("--kv-cache-memory %q in %s is not a number: %v", m[0][1], f, perr)
+		}
+		budgets = append(budgets, v)
 	}
 
-	// Every engine must claim the same slice: the matrix compares one mode against another, and engines
+	// Every engine must claim the same cache: the matrix compares one mode against another, and engines
 	// that differed in memory would differ in cache size too, which is the thing the mode is supposed to
-	// change.
-	first := utils[0][1]
-	for _, u := range utils[1:] {
-		if u[1] != first {
-			t.Fatalf("engines claim different slices (%s and %s); the arms would differ in cache size as "+
-				"well as in sharing mode", first, u[1])
+	// change. TestTheSplitEnginesClaimTheSameKVBudget argues this at length from the pilot that proved it.
+	for i, v := range budgets[1:] {
+		if v != budgets[0] {
+			t.Fatalf("engines claim different caches (%d and %d bytes); the arms would differ in cache size "+
+				"as well as in sharing mode", budgets[0], budgets[i+1])
 		}
 	}
-	util, err := strconv.ParseFloat(first, 64)
-	if err != nil {
-		t.Fatalf("--gpu-memory-utilization %q is not a number: %v", first, err)
-	}
+
+	// The plan is expressed as a fraction of the card, so an absolute cache is turned back into one: what
+	// an engine addresses is its cache plus its weights and overhead. The overhead here is the sizing
+	// model's 1400 MiB estimate and the card's measured per-engine cost is nearer 1600, which makes this
+	// the more permissive of the two arithmetics -- the measured fit is checked in
+	// TestTheSplitEnginesClaimTheSameKVBudget, and this one exists to catch the plan that cannot be a plan.
+	kvMiB := float64(budgets[0]) / (1 << 20)
+	util := (kvMiB + float64(ModelQwen3B.WeightsMiB) + float64(sizingOverheadMiB)) / float64(CardA10G.TotalMiB)
 
 	plan := SharingPlan{
 		Card: CardA10G, Model: ModelQwen3B,
-		Engines:              len(utils),
+		Engines:              len(files),
 		UtilizationPerEngine: util,
 		NonKVOverheadMiB:     sizingOverheadMiB,
 	}
@@ -194,10 +220,95 @@ func TestTheCommittedSharedEnginesFormAPlanThatValidates(t *testing.T) {
 	if err != nil {
 		t.Fatalf("replicas %q is not a number: %v", m[1], err)
 	}
-	if replicas < len(utils) {
+	if replicas < len(files) {
 		t.Errorf("the plugin advertises %d device(s) and the manifests ask for %d engines; the surplus engines "+
-			"stay Pending", replicas, len(utils))
+			"stay Pending", replicas, len(files))
 	}
+}
+
+// The second split engine must clear vLLM's startup gate while the first already holds the card.
+//
+// This is the check that decides whether a split arm runs at all, and it is not the same question as
+// whether the caches fit. vLLM v0.27.1's request_memory() raises ValueError when free memory is below
+// gpu_memory_utilization * total, it reads that fraction whether or not --kv-cache-memory is configured,
+// and its default is 0.92 -- 20.30 GiB of this card. The two engines start together, so whichever profiles
+// second sees the card minus the first engine's whole footprint: 6.57 GiB of weights and non-torch memory,
+// 0.59 for peak activation, 0.22 for CUDA graphs, and its cache. The 2026-09-12 pilot measured that second
+// engine seeing 13.81 GiB free.
+//
+// Dropping --gpu-memory-utilization therefore does not relax this gate, it raises it to the default and
+// both split arms fail to start. That was nearly bought: the flag was removed when the absolute cache was
+// added, on the strength of vLLM's own advice to "Replace gpu_memory_utilization config with
+// --kv-cache-memory=...", which is advice about sizing and not about admission.
+func TestTheSecondSplitEngineClearsTheStartupGate(t *testing.T) {
+	files, err := filepath.Glob("../../config/vllm-shared/engine-*.yaml")
+	if err != nil || len(files) == 0 {
+		t.Fatalf("no sharing engine manifests found: %v", err)
+	}
+
+	// Measured on the card, from the engines' own startup reports, not from the sizing model.
+	const (
+		totalGiB      = 22.06
+		weightsGiB    = 6.57 // consumed memory: weights + non-torch
+		activationGiB = 0.59
+		graphsGiB     = 0.22
+	)
+
+	for _, f := range files {
+		b, rerr := os.ReadFile(f)
+		if rerr != nil {
+			t.Fatalf("read %s: %v", f, rerr)
+		}
+		args := stripYAMLComments(string(b))
+
+		m := regexp.MustCompile(`--gpu-memory-utilization=([0-9.]+)`).FindStringSubmatch(args)
+		if m == nil {
+			t.Errorf("%s passes no --gpu-memory-utilization, so vLLM uses its 0.92 default and the engine "+
+				"demands %.2f GiB free. The second engine to profile has about %.2f. It would not start",
+				f, 0.92*totalGiB, totalGiB-(weightsGiB+activationGiB+graphsGiB+3.2))
+			continue
+		}
+		util, perr := strconv.ParseFloat(m[1], 64)
+		if perr != nil {
+			t.Fatalf("--gpu-memory-utilization %q in %s is not a number: %v", m[1], f, perr)
+		}
+
+		kv := regexp.MustCompile(`--kv-cache-memory=(\d+)`).FindStringSubmatch(args)
+		if kv == nil {
+			continue // TestTheSplitEnginesClaimTheSameKVBudget says what that costs.
+		}
+		kvBytes, kerr := strconv.ParseFloat(kv[1], 64)
+		if kerr != nil {
+			t.Fatalf("unparseable --kv-cache-memory %q in %s: %v", kv[1], f, kerr)
+		}
+		kvGiB := kvBytes / (1 << 30)
+
+		// What the gate demands, against what the card has left once one engine is up.
+		demands := util * totalGiB
+		freeForSecond := totalGiB - (weightsGiB + activationGiB + graphsGiB + kvGiB)
+		if demands > freeForSecond {
+			t.Errorf("%s asks to be admitted for %.2f GiB (utilization %.3f of %.2f), and the second engine "+
+				"to profile sees %.2f GiB once the first holds its weights and %.2f GiB of cache. "+
+				"request_memory() raises ValueError and the arm never starts",
+				f, demands, util, totalGiB, freeForSecond, kvGiB)
+		}
+	}
+}
+
+// stripYAMLComments removes whole-line and trailing comments so a manifest test reads args, not prose.
+//
+// It cuts at an unquoted '#', which is enough for these manifests: every arg here is a bare scalar, and a
+// '#' inside a quoted value would have to be added before this becomes wrong.
+func stripYAMLComments(s string) string {
+	var b strings.Builder
+	for line := range strings.SplitSeq(s, "\n") {
+		if i := strings.IndexByte(line, '#'); i >= 0 {
+			line = line[:i]
+		}
+		b.WriteString(line)
+		b.WriteByte('\n')
+	}
+	return b.String()
 }
 
 // The two sharing overlays must be mutually exclusive on one node, and equal in everything but the mechanism.
@@ -843,5 +954,71 @@ func TestTheSplitEnginesClaimTheSameKVBudget(t *testing.T) {
 		t.Errorf("two engines at %.2f GiB of KV each need %.2f GiB with their weights and activations, and "+
 			"the card shows %.2f. The second engine would fail to start or start with less than it asked for",
 			kvGiB, used, visibleGiB)
+	}
+}
+
+// No unquoted heredoc may contain an unescaped backtick, because the shell runs it.
+//
+// These runners build Kubernetes manifests with `k apply -f - <<EOF`, unquoted on purpose so that $arm,
+// $GW_IMAGE and $NS_A expand. An unquoted heredoc expands backticks too, so prose inside one is executed:
+// hack/m5c-matrix.sh carried a YAML comment reading "without one `rollout status` means only that the
+// container started", and every gateway deploy ran `rollout status` and printed "rollout: command not
+// found" to stderr. Four times a run, in the log an operator reads to find real faults.
+//
+// It was harmless only by accident -- the empty substitution landed inside a comment. The same line one
+// indent further left would have edited a manifest, and any backticked text naming a real command would
+// have run it against the rented cluster.
+//
+// `bash -n` cannot see this: the script is syntactically perfect. Only executing it shows the error, and
+// only a reader who noticed one unfamiliar line in several hundred would catch it there.
+func TestNoUnquotedHeredocExecutesItsOwnProse(t *testing.T) {
+	runners := append([]string{"hack/m5c-matrix.sh"}, sessionRunners...)
+	// <<EOF and <<-EOF expand; <<'EOF' and <<"EOF" do not. The delimiter is captured so the end of the
+	// heredoc is found rather than guessed.
+	//
+	// (?:^|[^<]) excludes the here-string `<<<`, and comment lines are skipped before this runs. Both were
+	// found by this test's own first run: it reported nine hits in the two session runners, every one of
+	// them the section marker `# <<< REHEARSABLE`. A guard that cries wolf on its first outing gets read as
+	// noise, which is the failure mode that matters more here than a missed case.
+	open := regexp.MustCompile(`(?:^|[^<])<<-?\s*([A-Za-z_][A-Za-z0-9_]*)\s*(\||$)`)
+
+	for _, runner := range runners {
+		path := filepath.Join("../..", runner)
+		b, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s: %v", runner, err)
+		}
+		var delim string
+		var startLine int
+		for i, line := range strings.Split(string(b), "\n") {
+			if delim == "" {
+				// A heredoc cannot be opened from inside a comment.
+				if strings.HasPrefix(strings.TrimSpace(line), "#") {
+					continue
+				}
+				if m := open.FindStringSubmatch(line); m != nil {
+					delim, startLine = m[1], i+1
+				}
+				continue
+			}
+			if strings.TrimSpace(line) == delim {
+				delim = ""
+				continue
+			}
+			// Inside an expanding heredoc. A backslash-escaped backtick is the deliberate form and is fine.
+			for j := 0; j < len(line); j++ {
+				if line[j] != '`' {
+					continue
+				}
+				if j > 0 && line[j-1] == '\\' {
+					continue
+				}
+				t.Errorf("%s:%d is inside the unquoted heredoc opened at line %d and contains an unescaped "+
+					"backtick, so the shell runs what is between them:\n\t%s\nQuote it with \"\" or escape "+
+					"it as \\`; the heredoc cannot be quoted because it needs its variables expanded",
+					runner, i+1, startLine, strings.TrimSpace(line))
+				break
+			}
+		}
 	}
 }

@@ -65,7 +65,23 @@ spec:
             # what keeps it the only difference. Per-engine 64 would offer the card twice the concurrency in
             # the split arms and confound separation with a larger batch.
             - --max-num-seqs=32
+            # BOTH memory flags are passed, and they do two different jobs. Dropping either one kills a run.
+            #
+            # --gpu-memory-utilization is the STARTUP ADMISSION GATE and nothing else here. vLLM's
+            # request_memory() raises ValueError when free memory is below utilization * total, it reads the
+            # fraction whether or not an absolute cache is configured, and the default is 0.92. On this card
+            # that would demand 20.30 GiB free; the 2026-09-12 pilot measured the second engine to profile
+            # seeing 13.81 GiB, because the first already held its weights and cache. Drop this flag and
+            # BOTH split arms fail to start -- which would have bought a card to measure nothing.
+            #
+            # 0.475 is not a slice of anything now. It is this engine asking "is my own half free?":
+            # (3.2 GiB of cache + 7.32 GiB of weights, activation and graphs) / 22.06 GiB is 0.477.
+            - --gpu-memory-utilization=0.475
             # An ABSOLUTE KV budget, because the fraction is a fraction of the WHOLE CARD and not of a half.
+            #
+            # This is the SIZING, and it overrides the fraction for that purpose: vLLM skips profiling and
+            # says so in its own log -- "reserved ... as specified by kv_cache_memory_bytes config and
+            # skipped memory profiling. This does not respect the gpu_memory_utilization config."
             #
             # --gpu-memory-utilization=0.475 was measured producing two engines with different caches: the
             # one that started second saw the first's allocation as memory already consumed, computed its
@@ -76,7 +92,10 @@ spec:
             #
             # A fraction cannot express "half the card" to a process that can see what the other half is
             # doing. vLLM says so itself in the line the runner captured: "Replace gpu_memory_utilization
-            # config with --kv-cache-memory=... to fit into requested memory."
+            # config with --kv-cache-memory=... to fit into requested memory." That line says REPLACE and
+            # taking it literally is the trap: it is advice about sizing, and the gate above still reads the
+            # fraction. Nothing in vLLM checks that this absolute value fits, either -- an over-large budget
+            # is an OOM during the run rather than a refusal at startup.
             #
             # 3.2 GiB each, derived from the engines' own report rather than chosen: 22.06 GiB visible,
             # 7.32 GiB per engine of weights, activation and CUDA graphs, and a gigabyte of driver reserve,
