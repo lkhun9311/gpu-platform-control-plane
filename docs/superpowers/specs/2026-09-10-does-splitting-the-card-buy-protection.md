@@ -141,6 +141,65 @@ the wrong quantity and the right one move together.
 | 40 | An engine that could not start ended the **session** rather than refusing its **arm** | the 2026-09-12 pilot stopped at the mps arm, so the three cells already bought were all it had, and the reason for the refusal lived only in a log `benchharness report` does not read |
 | 37 | Arms repeated **unequally** were accepted | the confirmatory run is three separate sessions, so an arm that lost one is pooled from two against a spread measured over three |
 
+### Six more on 2026-09-12, and the first one was about to waste the whole run
+
+Found between the fifth pilot's fix and the sixth run. The first was found by reading the repository's own
+test suite; 43 to 46 by a cold review of the harness against the question "what would make the next $0.75
+produce no answer, or a plausible wrong one"; and 47 by **running the rehearsal and reading its stderr**,
+which is the one of the three methods that costs nothing and was nearly skipped.
+
+| # | defect | what it would have cost |
+| --- | --- | --- |
+| 42 | The test that validates the engines' sizing matched `--gpu-memory-utilization` **anywhere in the file**, and the defect-41 fix left the old value in a comment explaining itself | one match across two engine files, so it validated a **one-engine** plan for a two-engine deployment and compared the plugin's device count against 1 instead of 2 — in green. **My own fix manufactured this silence**, and the sibling test written the same day to guard the symmetry did not guard the count |
+| 43 | Removing `--gpu-memory-utilization` in favour of the absolute cache **raised the startup gate to vLLM's 0.92 default** | `request_memory()` raises `ValueError` when free memory is below `utilization * total`, reads the fraction whether or not an absolute cache is set, and 0.92 of this card is **20.30 GiB**. The pilot measured the second engine to profile seeing **13.81 GiB**. Both split arms would have failed to start: the run would have bought R1 and `shared` and nothing the study is about |
+| 44 | Reading **4c** took the ANSWER from a scored arm, and made the whole run exit non-zero | 4c means "INVALID **for that arm**", and the evaluator's own comment says a refused arm says nothing about the arm beside it. The answer was still "the first reading that fired" over a list where 4c sits ahead of readings 1, 2, 3 and 5. **MPS has already been measured failing to engage on this AMI**, so this is the expected run, not a corner |
+| 45 | An arm that **lost** the contender's work without refusing it could fire reading 1 POSITIVE | `starved` needs rejections in the ledger and `starvationUnknown` needs the ledger to be absent; an arm with a full ledger showing zero rejections and half the contender's requests timing out is neither. The premium tail is calm because the load went missing, and reading 1 would have printed the collapsed contender share as the **price** |
+| 47 | A YAML comment inside an **unquoted heredoc** quoted a command in backticks, and the shell ran it | the gateway manifest is built with `k apply -f - <<EOF`, unquoted so `$arm` and `$NS_A` expand — which expands backticks too. Every gateway deploy executed `rollout status` and printed **"rollout: command not found"** to stderr, four times a run, into the log an operator reads to find real faults. Harmless only by luck: the empty substitution landed inside a comment. `bash -n` is clean either way, and it took **running** the rehearsal to see it |
+| 46 | Reading **4** could diagnose "the load did not create contention" from a **censored** control | censor the slow requests and the survivors' p99 is small, the ratio falls under 5x, and the reading meaning "raise the load" fires on a control that was drowning — short-circuiting 4b, the reading that would have said the opposite. The run's one instruction to its successor would have been exactly backwards |
+
+**45 changed an expectation this repository had already written down, and that is worth stating plainly.**
+A test named `TestAContenderThatWasMerelyDelayedIsNotStarvation` held a contender that completed 120 of 300
+requests with none rejected, and required reading 1 to fire POSITIVE on it — on the argument that work
+which was not refused was merely late. Half of that argument was right and is kept: a smaller share
+without rejections is not starvation, because the pre-registration says starvation must be shown in the
+ledger. The other half was wrong. **A request that timed out was not served late, it was not served**, and
+an arm that lost 60% of the contending load shows a calm premium tail for the one reason that is not
+protection. The outcome for such an arm is now "cannot be scored" rather than "wins", and the test is
+renamed to say so. No bar moved and no threshold was retuned; what changed is which of the three outcomes
+this evidence maps to.
+
+**43 is the one to dwell on.** It was introduced by the fix for 41, it was invisible to every test in the
+repository, and the engine's own advice is what caused it: vLLM prints *"Replace gpu_memory_utilization
+config with `--kv-cache-memory=…`"*, and the word **replace** is about sizing while the startup gate still
+reads the fraction. Reading the log message was not enough; reading `request_memory()` and `cache.py` in
+the pinned release is what settled it. Both flags are now passed, and the test that holds it computes what
+the second engine will actually have free rather than checking that a flag is present.
+
+**Seen in the same review and deliberately NOT fixed before this run.** Recorded so that "not mentioned"
+is never mistaken for "not found", and so the next reader can weigh the judgment rather than repeat the
+search:
+
+- **Throughput and TPOT count content-bearing SSE chunks, not the engine's reported completion tokens.**
+  A chunk carrying two tokens moves the statistics without moving the GPU's work. Real, and left alone on
+  purpose: every published number in M5-b and the price-of-protection run uses this definition, and
+  changing it now would make this study's figures incomparable with the ones it exists to be held against.
+  It belongs in a change that re-derives the earlier runs, not in a patch the hour before a paid session.
+- **TPOT has no sample floor of its own.** The premium completion floor of 100 protects TTFT, and TPOT
+  only counts responses that produced at least two tokens, so the two can diverge. The gap is bounded by
+  the fact that a completed premium response in this trace produces many tokens, and it is real.
+- **Per-repetition contender counts and censoring are pooled before some checks see them.** This run is a
+  single repetition, so it cannot bite here.
+- **Evidence is uploaded only after the whole matrix returns**, so a Spot interruption in the last arm
+  loses the cells already paid for. The cost is bounded by the session's own price.
+- **MPS engagement is proved by the engines reporting a pipe directory**, not by finding both workers in
+  the daemon's client list.
+
+The common reason for deferring all five: **each is a change to the scorer or the runner, and the last two
+defects in the table above were both introduced by a fix.** Defect 43 came from the fix for 41 and would
+have wasted the entire run. Making five more scoring changes in the hour before paying for a card is the
+pattern that has already cost this study two pilots, and the readings refuse rather than guess when any of
+these bite — which is the property that makes deferring them safe.
+
 **Defects 23 and 27 are the ones to dwell on**, for opposite reasons. 23 was found by a machine attacking
 the tests rather than the code, and what it exposed was a hole in this document. 27 lets a reading make a
 universal claim — "no sharing arm improves" — about arms that were never measured, which is the same shape
@@ -273,7 +332,7 @@ differ, and each is forced by the split rather than chosen:
 
 | setting | exclusive | each split engine | why it may differ |
 | --- | ---: | ---: | --- |
-| `--gpu-memory-utilization` | 0.90 | 0.475 | time-slicing does not partition memory; two engines draw on one pool, so the fractions must sum below 1 |
+| the KV budget | `--gpu-memory-utilization=0.90` | `--kv-cache-memory=3435973836` (3.2 GiB) | time-slicing does not partition memory; two engines draw on one pool. **Amended 2026-09-12 after the fifth pilot** — this row said `0.475` each, and a fraction is a fraction of the whole card, so the second engine to start took what the first had left. See *The fifth pilot* above |
 | `--max-num-seqs` | 64 | 32 | half each, so **the card admits the same total concurrency under either topology**. Per-engine 64 would offer the card twice the concurrency in the split arms and confound separation with a larger batch |
 | the device-plugin overlay | whole-card, 1 device | time-slicing or MPS, 2 devices | this is the mechanism under test |
 
@@ -501,6 +560,24 @@ before the run finishes.
   arrival trace, two mechanisms.
 - **Anything about what this costs to operate.** Every cost here is capacity and tenant share, measured on
   Spot for under two hours. It is not an operating cost model.
+- **How much of reading 5's price is the mechanism and how much is the duplicated weights.** Added
+  2026-09-12, from the fifth pilot's own measurements rather than from reasoning.
+
+  The whole-card engine holds **12.69 GiB of KV, 369,680 tokens, 47.7 contender prompts**. The split pair
+  holds 3.2 GiB each — about **6.4 GiB and 24 prompts between them**, half the control's. The card did not
+  shrink: each engine carries its own copy of the 5.9 GiB of weights and its own activation and graph
+  memory, so splitting spends roughly 7.3 GiB twice where the control spends it once, and what is left over
+  for cache is halved.
+
+  That is **not a flaw in the setup, it is the topology**. There is no way to put two engines on one card
+  and keep the control's total cache, so the duplication is inseparable from the thing being measured and
+  no arm could hold it constant.
+
+  It matters for how a result is read, and the two directions are not symmetric. Against **reading 1** the
+  confound runs the safe way: less cache should make the split arms *worse*, so protection shown in spite
+  of it is protection. Against **reading 5** it does not: a throughput price paid by the split arms is
+  partly the second copy of the weights and not only the sharing mechanism, and this page cannot separate
+  the two. A reading 5 result states the price the topology charges, not the price the mechanism charges.
 - **That a difference between the arms is caused by the topology rather than by the order they ran in.**
   This one is a correction, and it is the clearest thing an independent review told this page that it had
   got wrong.
