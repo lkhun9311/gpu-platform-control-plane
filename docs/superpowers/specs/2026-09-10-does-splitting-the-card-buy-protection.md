@@ -557,9 +557,13 @@ could measure this and not score it.
 | `shared` | 1,892.2 ms | 1,893.5 ms | **1.4 ms** |
 | `timeSlicing` | 1,001.9 ms | 1,014.2 ms | 12.3 ms |
 
-884.6 ms against the control's 1.375 ms range is **643x** it, and reading 3 did not fire for that reason.
+884.6 ms exceeds the control's 1.375 ms range, and reading 3 did not fire for that reason. An earlier
+version of this line quoted the quotient as a multiple — **643x** — which is a three-significant-figure
+ratio to a range of two numbers. It is dropped rather than corrected: the registered rule asks whether the
+improvement clears the range, not by how many multiples, and the multiple invites the reading the next
+paragraph exists to refuse.
 
-**What that ratio is and is not.** Two repetitions of the same trace, in the same order, on the same
+**What that range is and is not.** Two repetitions of the same trace, in the same order, on the same
 instance give a **range of two numbers** — not a confidence interval, not a bound on systematic error, and
 not a sample of workload variation. The registered rule asks whether the improvement exceeds the control's
 repetition range, and it does, by a wide margin. That is what fired. It is not a statistical test, and the
@@ -567,8 +571,9 @@ split arm's own range (12.27 ms) is nine times the control's. An earlier version
 "far outside the noise it would have to hide in", which claims more than a two-point range can carry.
 
 The eighth pilot, a different instance on a different card, measured the same control at **1,891.1 ms** —
-1.02 ms and 2.40 ms below the two repetitions here. (This page said "within a millisecond of both"; it is
-within a millisecond of one.)
+1.02 ms and 2.40 ms below the two repetitions here. (This page said "within a millisecond of both", then
+"within a millisecond of one". Neither is true: 1.02 ms is not within a millisecond either. The two
+differences are what they are, and the useful fact is that the control reproduces on a different card.)
 
 **What this study can now say.** For this model, this card and this load, giving each tenant a time-sliced
 half of the card **halves the premium tail without taking any of the contender's work**, and does not come
