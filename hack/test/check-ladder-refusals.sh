@@ -34,12 +34,15 @@ say() { echo "== $*"; }
 ok()  { echo "   ok: $*"; }
 bad() { echo "   FAIL: $*" >&2; failures=$(( failures + 1 )); }
 
+# The paid rows are gitignored, so the verdict checks that need them can be absent. THE SHELL CHECKS ARE
+# NOT ALLOWED TO BE.
+#
+# This script used to exit 0 the moment that file was missing -- which on a fresh clone is always -- so
+# deleting the production refusals it exists to pin left it green. A suite whose coverage depends on a
+# gitignored artefact is a suite that silently stops covering anything.
 SRC_ROWS=hack/m5c-20260913-011031/m5c-run/raw-shared-1.jsonl
-if [ ! -s "$SRC_ROWS" ]; then
-  echo "skipping: $SRC_ROWS is not in this tree (the paid evidence is gitignored)." >&2
-  echo "The refusals below are also covered by TestLadder* in internal/bench, which needs no evidence." >&2
-  exit 0
-fi
+HAVE_ROWS=1
+[ -s "$SRC_ROWS" ] || HAVE_ROWS=0
 
 go build -o "$WORK/benchharness" ./cmd/benchharness
 
@@ -63,6 +66,11 @@ with open(out,"w") as w:
 PY
 }
 
+if [ "$HAVE_ROWS" = 0 ]; then
+  say "1-3. SKIPPED: $SRC_ROWS is not in this tree, so the verdict scenarios have no rows to build from."
+  say "     TestLadder* in internal/bench covers the same decisions without evidence. The shell checks below still run."
+fi
+if [ "$HAVE_ROWS" = 1 ]; then
 say "1. both topologies breach -- does the verdict say STOP, and with the code the runner acts on?"
 fixture "$WORK/raw-rung01-shared-1.jsonl"      rung01-shared      1
 fixture "$WORK/raw-rung01-timeSlicing-1.jsonl" rung01-timeSlicing 1
@@ -92,6 +100,8 @@ set -e
 [ "$code" = "1" ] && ok "exit 1, which the runner tells apart from the stop's 10" || bad "exit $code, want 1"
 [ "$out" = "LADDER: INVALID" ] && ok "and it says INVALID rather than STOP" || bad "it printed ${out@Q}"
 grep -q "no timeSlicing cell" "$WORK/err3" && ok "and names the missing cell" || bad "the refusal does not name what is missing: $(cat "$WORK/err3")"
+
+fi
 
 say "4. does the runner refuse a load described twice?"
 check_refusal() {
@@ -148,21 +158,23 @@ say "7. does the session wrapper expect only the arms a skip-led ladder was told
 # The wrapper's end-of-session check is a different copy of "what should exist" from the runner's plan, and
 # the two disagreed: the repetition of rungs 2 and 3 bought and downloaded every cell, then failed demanding
 # rung01-shared and rung01-timeSlicing. The evidence was fine; the session's last word was not.
-expected=$(LADDER="skip 2:0.1 3:0.05" bash -c '
-  expected_arms=""; _rung=0
-  for _entry in $LADDER; do
-    _rung=$(( _rung + 1 ))
-    [ "$_entry" != skip ] || continue
-    expected_arms="$expected_arms $(printf "rung%02d-shared rung%02d-timeSlicing" "$_rung" "$_rung")"
-  done
-  printf "%s" "$expected_arms"')
+# THE WRAPPER'S OWN LINES ARE EXTRACTED AND EXECUTED, not retyped here.
+#
+# The first version of this check reconstructed the loop in this file and asserted on the reconstruction,
+# then grepped the real script for the guard. Commenting the guard out in the real script left both green:
+# the private copy stayed correct and grep found the disabled line inside the comment. A test that passes
+# because it is testing itself is the defect class this whole suite exists for.
+extracted=$(sed -n '/^  _rung=0$/,/^  done$/p' hack/m5c-gpu-session.sh)
+[ -n "$extracted" ] || bad "could not find the wrapper's expected-arms loop to execute"
+expected=$(LADDER="skip 2:0.1 3:0.05" bash -c "expected_arms=\"\"
+$extracted
+printf '%s' \"\$expected_arms\"")
 printf '%s' "$expected" | grep -q rung01 \
-  && bad "the wrapper still expects rung01 arms from a ladder whose first rung is skip: $expected" \
-  || ok "it expects only rung02 and rung03:$expected"
-# And the real script must carry the same guard, not just this reconstruction of it.
-grep -q '\[ "$_entry" != skip \] || continue' hack/m5c-gpu-session.sh \
-  && ok "and hack/m5c-gpu-session.sh carries that line" \
-  || bad "hack/m5c-gpu-session.sh does not skip skipped rungs when building what it expects"
+  && bad "the wrapper's own loop still expects rung01 arms from a ladder whose first rung is skip: $expected" \
+  || ok "the wrapper's own loop expects only rung02 and rung03:$expected"
+printf '%s' "$expected" | grep -q rung02-shared && printf '%s' "$expected" | grep -q rung03-timeSlicing \
+  && ok "and it names both topologies of both bought rungs" \
+  || bad "the wrapper's loop does not name both rungs' topologies: $expected"
 
 echo
 if [ "$failures" = "0" ]; then
