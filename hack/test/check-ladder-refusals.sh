@@ -126,6 +126,24 @@ check_session_refusal "LADDER beside REPS"         "REPS and LADDER are both set
 check_session_refusal "LADDER beside ARMS"         "ARMS and LADDER are both set"         ARMS=R1
 check_session_refusal "LADDER beside NOISY_WEIGHT" "NOISY_WEIGHT and LADDER are both set" NOISY_WEIGHT=0.02
 
+say "6. does a skipped rung hold its position rather than renumbering the ones below it?"
+# The whole point of `skip`: a repetition of rungs 2 and 3 must write rung02-* and rung03-*. If skip merely
+# dropped the entry, those cells would be named rung01-* and rung02-* and would pool with the first run's
+# cells at completely different offered loads.
+# The plan is printed before the card is touched, so this needs no cluster and no money.
+out=$(env PLATFORM=kind LADDER="skip 2:0.1 3:0.05" PREMIUM_WEIGHT=1 PROBE_WEIGHT=0 DURATION_MS=1000 \
+      OUT="$WORK/skiprun" KCTX=no-such-context bash hack/m5c-matrix.sh 2>&1 || true)
+plan=$(printf '%s' "$out" | grep '^== plan:' || true)
+[ -n "$plan" ] || bad "the runner did not print a plan before acquiring a card"
+printf '%s' "$plan" | grep -q "rung01-" \
+  && bad "a skipped rung 1 still produced rung01 cells, which would pool with the previous run's 1.16 req/s under that name: $plan"
+printf '%s' "$plan" | grep -q "rung02-shared" && printf '%s' "$plan" | grep -q "rung03-shared" \
+  && ok "the plan is rung02 and rung03, so skip held the positions" \
+  || bad "the plan does not carry rung02 and rung03: $plan"
+printf '%s' "$plan" | grep -q "5 cell" \
+  && ok "and it is 5 cells: two rungs times two topologies plus the baseline" \
+  || bad "the plan is not five cells: $plan"
+
 echo
 if [ "$failures" = "0" ]; then
   say "LADDER REFUSALS PINNED: the stop, the continue, the unscorable rung, and the double-described load in BOTH scripts."

@@ -157,6 +157,65 @@ fi
 for v in $REQUIRED_LOAD_VARS; do
   [ -n "${!v:-}" ] || fail "$v is unset. RATE alone does not describe this load: gen-trace's default mix puts the 40,000-character contender at 45% of arrivals, which is four to five times an A10G's prefill capacity at any rate this study could use, and lowering RATE to compensate starves the premium tail below the MinTailSamples floor. Derive the mix on the card and pass all four. hack/m5b-price-of-protection.sh measured RATE=9.85 PREMIUM_WEIGHT=1 NOISY_WEIGHT=0.054 PROBE_WEIGHT=0.0054 DURATION_MS=420000 for ONE engine with the whole card; this run gives each engine half of one, so it is a starting point and not an answer."
 done
+CELLS=()
+if [ -n "$LADDER" ]; then
+  # Which ladder this is. The two carry the same arm names and the same criterion and differ only in where
+  # their rungs sit, so the study id is what tells a reader -- and a report -- which experiment a row belongs
+  # to. Defaulted to the first so an existing caller keeps working.
+  STUDY="${LADDER_STUDY:-throughput-ladder-2026-09-13}"
+  case "$STUDY" in
+    throughput-ladder-2026-09-13|throughput-ladder-down-2026-09-13) ;;
+    *) fail "LADDER_STUDY is ${STUDY@Q}; internal/bench registers throughput-ladder-2026-09-13 and throughput-ladder-down-2026-09-13, and gen-trace refuses an arm the named study does not admit" ;;
+  esac
+  ladder_rung=0
+  for entry in $LADDER; do
+    ladder_rung=$(( ladder_rung + 1 ))
+    # `skip` holds a rung's POSITION without buying it.
+    #
+    # A repetition of rungs 2 and 3 must write rung02-* and rung03-*, not rung01-* and rung02-*: the arm name
+    # carries the rung so that two different offered loads can never pool into one summary, and a run that
+    # renumbered them would file 2.31 req/s under the name the first run gave 1.16 req/s. Dropping the entry
+    # instead of marking it would shift every rung below it by one.
+    case "$entry" in
+      skip) continue ;;
+      *:*) ;;
+      *) fail "LADDER entry ${entry@Q} is not RATE:NOISY_WEIGHT or the word skip" ;;
+    esac
+    rung_rate="${entry%%:*}"; rung_weight="${entry##*:}"
+    [ -n "$rung_rate" ] && [ -n "$rung_weight" ] || fail "LADDER entry ${entry@Q} is missing a rate or a weight"
+    # Odd rungs run the control first, even rungs run the split first.
+    #
+    # This is the counterbalance, and it is the whole reason the ladder can say anything about the topology
+    # rather than about the position: across the rungs each contended arm occupies the first and the second
+    # slot of a rung equally often. The frozen matrix cannot do this -- it registered a fixed order and says
+    # so -- and here it costs nothing.
+    if [ $(( ladder_rung % 2 )) -eq 1 ]; then rung_order="shared timeSlicing"; else rung_order="timeSlicing shared"; fi
+    for topology in $rung_order; do
+      CELLS+=("$topology|$(printf 'rung%02d' "$ladder_rung")-$topology|1|$rung_rate|$rung_weight|$ladder_rung")
+    done
+  done
+  [ "${#CELLS[@]}" -gt 0 ] || fail "LADDER is set but describes no rungs to buy -- every entry was skip, or the list is empty"
+  # One more cell than the rungs describe: the isolated baseline, bought once at whichever rung the ladder
+  # stops on. It is counted here so the deadline projection does not discover it at the end.
+  cells_total=$(( ${#CELLS[@]} + 1 ))
+else
+  STUDY=sharing-matrix-2026-09-10
+  for rep in $(seq 1 "$REPS"); do
+    for arm in $ARMS; do
+      CELLS+=("$arm|$arm|$rep|$RATE|$NOISY_WEIGHT|0")
+    done
+  done
+  cells_total=${#CELLS[@]}
+fi
+
+# THE PLAN IS PRINTED BEFORE THE CARD IS TOUCHED.
+#
+# It used to be built after the cluster was acquired, so the first thing an operator saw of what they were
+# buying was cell 1 of N already running. Everything here reads environment variables and nothing else, so
+# there is no reason for it to wait -- and a plan printed before the first billable second is a plan that can
+# be refused.
+say "plan: $cells_total cell(s): $(for c in "${CELLS[@]}"; do printf '%s ' "${c#*|}" | cut -d'|' -f1; done | tr '\n' ' ')"
+
 # Only EKS needs one. A kind node loads the image from the host daemon, and demanding a registry there would
 # push an operator into standing one up for a cluster that can side-load.
 [ "$PLATFORM" != eks ] || [ -n "${REGISTRY:-}" ] \
@@ -1021,49 +1080,6 @@ fi
 # Built up front rather than nested loops for two reasons. The deadline projection divides by a cell count,
 # so that count has to be real before the first cell rather than derived from two loop bounds; and the
 # ladder stops early, which a plan can express and a nested loop can only break out of.
-CELLS=()
-if [ -n "$LADDER" ]; then
-  # Which ladder this is. The two carry the same arm names and the same criterion and differ only in where
-  # their rungs sit, so the study id is what tells a reader -- and a report -- which experiment a row belongs
-  # to. Defaulted to the first so an existing caller keeps working.
-  STUDY="${LADDER_STUDY:-throughput-ladder-2026-09-13}"
-  case "$STUDY" in
-    throughput-ladder-2026-09-13|throughput-ladder-down-2026-09-13) ;;
-    *) fail "LADDER_STUDY is ${STUDY@Q}; internal/bench registers throughput-ladder-2026-09-13 and throughput-ladder-down-2026-09-13, and gen-trace refuses an arm the named study does not admit" ;;
-  esac
-  ladder_rung=0
-  for entry in $LADDER; do
-    ladder_rung=$(( ladder_rung + 1 ))
-    case "$entry" in
-      *:*) ;;
-      *) fail "LADDER entry ${entry@Q} is not RATE:NOISY_WEIGHT" ;;
-    esac
-    rung_rate="${entry%%:*}"; rung_weight="${entry##*:}"
-    [ -n "$rung_rate" ] && [ -n "$rung_weight" ] || fail "LADDER entry ${entry@Q} is missing a rate or a weight"
-    # Odd rungs run the control first, even rungs run the split first.
-    #
-    # This is the counterbalance, and it is the whole reason the ladder can say anything about the topology
-    # rather than about the position: across the rungs each contended arm occupies the first and the second
-    # slot of a rung equally often. The frozen matrix cannot do this -- it registered a fixed order and says
-    # so -- and here it costs nothing.
-    if [ $(( ladder_rung % 2 )) -eq 1 ]; then rung_order="shared timeSlicing"; else rung_order="timeSlicing shared"; fi
-    for topology in $rung_order; do
-      CELLS+=("$topology|$(printf 'rung%02d' "$ladder_rung")-$topology|1|$rung_rate|$rung_weight|$ladder_rung")
-    done
-  done
-  [ "${#CELLS[@]}" -gt 0 ] || fail "LADDER is set but describes no rungs"
-  # One more cell than the rungs describe: the isolated baseline, bought once at whichever rung the ladder
-  # stops on. It is counted here so the deadline projection does not discover it at the end.
-  cells_total=$(( ${#CELLS[@]} + 1 ))
-else
-  STUDY=sharing-matrix-2026-09-10
-  for rep in $(seq 1 "$REPS"); do
-    for arm in $ARMS; do
-      CELLS+=("$arm|$arm|$rep|$RATE|$NOISY_WEIGHT|0")
-    done
-  done
-  cells_total=${#CELLS[@]}
-fi
 cell_secs=0; cells_done=0; cell_n=0
 cell_deadline_check() {
   local remain per projected

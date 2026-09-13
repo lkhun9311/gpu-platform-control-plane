@@ -289,8 +289,10 @@ print(int((e-datetime.datetime.now(datetime.timezone.utc)).total_seconds()//60))
 # bound: the stopping rule can end the climb early, and a credential check is the wrong place to assume it
 # will. arm_count is reused as "engine rollouts to pay for", which is the same number either way.
 if [ -n "$LADDER" ]; then
-  rung_count=0; for _r in $LADDER; do rung_count=$(( rung_count + 1 )); done
-  [ "$rung_count" -gt 0 ] || fail "LADDER is set but describes no rungs"
+  # Skipped rungs hold a position and cost nothing, so they must not be charged for -- a credential margin
+  # built from the list length would demand time for cells this run will not buy.
+  rung_count=0; for _r in $LADDER; do case "$_r" in skip) ;; *) rung_count=$(( rung_count + 1 )) ;; esac; done
+  [ "$rung_count" -gt 0 ] || fail "LADDER is set but describes no rungs to buy -- every entry was skip, or the list is empty"
   arm_count=$(( rung_count * 2 + 1 ))
 else
   arm_count=0; for _a in $ARMS; do arm_count=$(( arm_count + 1 )); done
