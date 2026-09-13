@@ -378,7 +378,7 @@ Three arms, on one `g5.2xlarge` (one A10G), through `PLATFORM=kind`:
 | arm | topology |
 | ------------- | -------- |
 | `shared` | both tenants on ONE engine — the price-of-protection control's topology |
-| `timeSlicing` | one engine per tenant, each with its own cache on half the card |
+| `timeSlicing` | one engine per tenant, each with its own cache, both **time-slicing one card** -- shared access, not a memory partition |
 | `mps` | the same two engines, sharing through MPS instead |
 
 Plus **R1**, the isolated premium baseline, which every study here measures as its ceiling.
@@ -914,22 +914,29 @@ before the run finishes.
   memory, so splitting spends roughly 7.3 GiB twice where the control spends it once, and what is left over
   for cache is halved.
 
-  That is **not a flaw in the setup, it is the topology**. There is no way to put two engines on one card
-  and keep the control's total cache, so the duplication is inseparable from the thing being measured and
-  no arm could hold it constant.
+  The duplication is inseparable from **this arm set**, which is not the same as inseparable in principle:
+  a review pointed out that an additional whole-card control deliberately given a 6.4 GiB cache would hold
+  the total constant while varying only the topology. That arm was never run and is not budgeted, so the
+  contribution is **unmeasured** rather than impossible to measure. An earlier version of this page said
+  "no arm could hold it constant", which was wrong.
 
-  It matters for how a result is read, and the two directions are not symmetric. Against **reading 1** the
-  confound runs the safe way: less cache should make the split arms *worse*, so protection shown in spite
-  of it is protection. Against **reading 5** it does not: a throughput price paid by the split arms is
-  partly the second copy of the weights and not only the sharing mechanism, and this page cannot separate
-  the two. A reading 5 result states the price the topology charges, not the price the mechanism charges.
+  Nor is the direction established. This page previously argued that less cache "can only make protection
+  harder", so reading 1 was safe from it — but a smaller cache also limits how much contender work is
+  resident, which changes the interference itself. The sign of that is not known here. **A reading 5 result
+  states the price this topology charged at this cache split, and how much of it is the second copy of the
+  weights is not measured.**
 - **That a difference between the arms is caused by the topology rather than by the order they ran in.**
   This one is a correction, and it is the clearest thing an independent review told this page that it had
   got wrong.
 
-  Every run measures `R1 → shared → timeSlicing → mps`, always. R1 therefore always meets a cold engine and
-  a freshly built cluster, and `mps` always meets a card that has been under load for the best part of an
-  hour and a device plugin that has been swapped twice. Any thermal drift, clock behaviour or teardown
+  Every run measures the arms in one fixed order, always. R1 therefore meets the coldest card of any arm and
+  the last arm meets one that has been under load for the best part of an hour, with the device plugin
+  swapped between them.
+
+  **At two repetitions that description needed correcting**: R1 in repetition 2 does NOT meet a freshly
+  built cluster. It meets the cluster and the card the first repetition left behind, with only its engine
+  restarted. The two R1 repetitions differ by 0.179 ms, which says the arm is insensitive to that
+  difference and says nothing about whether the other arms are. Any thermal drift, clock behaviour or teardown
   residue is **perfectly confounded with the arm**.
 
   An earlier draft answered this by pointing at the confirmatory run's three separate instances. That answer
