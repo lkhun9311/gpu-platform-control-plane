@@ -336,6 +336,34 @@ func TestLadderWithNoEvidenceRefuses(t *testing.T) {
 	}
 }
 
+// The stopping rule is what the runner obeys between rungs, so each of its three answers is pinned.
+func TestLadderStoppingRule(t *testing.T) {
+	climbing := ladderAnswer(t, []ArmSummary{
+		ladderCell(1, ArmShared, 400), ladderCell(1, ArmTimeSlicing, 90),
+	})
+	if cont, detail := LadderShouldContinue(climbing, 1); !cont {
+		t.Fatalf("the ladder stopped while the split still met the target: %s", detail)
+	}
+
+	both := ladderAnswer(t, []ArmSummary{
+		ladderCell(1, ArmShared, 400), ladderCell(1, ArmTimeSlicing, 380),
+	})
+	cont, detail := LadderShouldContinue(both, 1)
+	if cont {
+		t.Fatalf("the ladder kept climbing after both topologies breached: %s", detail)
+	}
+	if !strings.Contains(detail, "registered stopping point") {
+		t.Fatalf("the stop does not say it is the registered rule: %q", detail)
+	}
+
+	// An incomplete rung is not a decision. Continuing on one would climb past a topology that was never
+	// measured at this load.
+	half := ladderAnswer(t, []ArmSummary{ladderCell(1, ArmShared, 60)})
+	if cont, detail := LadderShouldContinue(half, 1); cont {
+		t.Fatalf("the ladder climbed on a rung with one cell: %s", detail)
+	}
+}
+
 func readingDetail(res LadderResult, id string) string {
 	for _, r := range res.Readings {
 		if r.ID == id {

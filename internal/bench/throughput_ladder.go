@@ -432,6 +432,40 @@ func censoredNote(censored bool) string {
 	return ""
 }
 
+// LadderShouldContinue is the registered stopping rule, applied to the rung just measured.
+//
+// "Stop at the first rung where BOTH topologies have breached" -- one that still meets the target has not
+// been bracketed, and stopping there would report a bound for an arm the ladder never pushed. It is here
+// rather than in the runner because the threshold it compares against is here: a shell script holding its
+// own copy of 139.0 ms is a second place for the criterion to be edited, and the pre-registration's whole
+// claim is that the criterion was fixed before the rungs ran.
+//
+// The rung must be complete. A caller asking about a rung whose cells are not both present gets a refusal
+// to continue rather than a decision, because "this rung has no split cell" and "the split met the target"
+// are different facts and only one of them is a reason to climb.
+func LadderShouldContinue(res LadderResult, rung int) (bool, string) {
+	shared, split := findCell(res.Cells, rung, ArmShared), findCell(res.Cells, rung, ArmTimeSlicing)
+	if shared == nil || split == nil {
+		return false, fmt.Sprintf("rung %d is incomplete, so the stopping rule has nothing to apply", rung)
+	}
+	if shared.Invalid || split.Invalid {
+		return false, fmt.Sprintf("rung %d has a cell that cannot be scored, so climbing further would build on it", rung)
+	}
+	if shared.Met || split.Met {
+		var still []string
+		if shared.Met {
+			still = append(still, shared.Arm)
+		}
+		if split.Met {
+			still = append(still, split.Arm)
+		}
+		return true, fmt.Sprintf("rung %d: %s still met the %.1f ms target, so neither bracket is closed yet",
+			rung, strings.Join(still, " and "), ladderTTFTTargetMs)
+	}
+	return false, fmt.Sprintf("rung %d: both topologies breached the %.1f ms target (%s %.1f ms, %s %.1f ms), which is the registered stopping point",
+		rung, ladderTTFTTargetMs, shared.Arm, shared.TTFTMsP99, split.Arm, split.TTFTMsP99)
+}
+
 // FormatThroughputLadder renders the cells and the readings beneath the report's arm table.
 func FormatThroughputLadder(res LadderResult) string {
 	var b strings.Builder
