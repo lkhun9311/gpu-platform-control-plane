@@ -82,6 +82,8 @@ func main() {
 		err = stampExactTokens(os.Args[2:])
 	case "check-replay":
 		err = checkReplay(os.Args[2:])
+	case "ladder-verdict":
+		err = ladderVerdict(os.Args[2:])
 	case "sim-cap":
 		err = simCap(os.Args[2:])
 	case "stub-serve":
@@ -97,7 +99,7 @@ func main() {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: benchharness <gen-trace|replay|report|print-prompt|check-replay|stamp-exact-tokens|sim-cap|power|stub-serve> [flags]")
+	fmt.Fprintln(os.Stderr, "usage: benchharness <gen-trace|replay|report|ladder-verdict|print-prompt|check-replay|stamp-exact-tokens|sim-cap|power|stub-serve> [flags]")
 }
 
 // genTrace generates an immutable trace file and a frozen manifest that pins its checksum.
@@ -371,6 +373,62 @@ func replay(args []string) error {
 // report turns one raw file per arm into the design's pre-registered report.
 //
 // Each --raw file is one arm's evidence; multiple files for the same arm are treated as repetitions for the bootstrap.
+// ladderVerdictStop is the exit code that tells the runner to stop climbing.
+//
+// A distinct code rather than a non-zero, because the runner must tell "both topologies breached, which is
+// what we were climbing to find" apart from "something went wrong". The first is the successful end of a
+// ladder and the second must not be mistaken for it.
+const ladderVerdictStop = 10
+
+// ladderVerdict answers the one question the runner asks between rungs: climb again, or stop here?
+//
+// It exists so that the stopping rule lives in the same package as the criterion it applies. The
+// alternative was a shell script reading a p99 out of a table and comparing it to a threshold written down
+// twice -- and a threshold written down twice is a threshold that will eventually differ, in the direction
+// whoever edits it wants.
+//
+// It prints one line as well as setting an exit code. The line is what the runner asserts on, so a change
+// to either alone is caught rather than silently obeyed.
+func ladderVerdict(args []string) error {
+	fs := flag.NewFlagSet("ladder-verdict", flag.ExitOnError)
+	var rawFiles multiFlag
+	fs.Var(&rawFiles, "raw", "a raw evidence file (repeatable); pass every ladder cell measured so far")
+	rung := fs.Int("rung", 0, "the rung just measured")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if len(rawFiles) == 0 {
+		return fmt.Errorf("at least one --raw file is required")
+	}
+	if *rung <= 0 {
+		return fmt.Errorf("--rung is required and must name the rung just measured")
+	}
+	e, err := loadArmEvidence(rawFiles)
+	if err != nil {
+		return err
+	}
+	summaries, _ := e.summarize()
+	res := bench.EvaluateThroughputLadder(summaries)
+
+	// An unscorable cell stops the ladder for a different reason than a breach does, and says so.
+	for _, r := range res.Readings {
+		if r.Fired && r.ID == "L0" {
+			fmt.Println("LADDER: INVALID")
+			return fmt.Errorf("rung %d cannot be scored: %s", *rung, r.Detail)
+		}
+	}
+	cont, detail := bench.LadderShouldContinue(res, *rung)
+	if cont {
+		fmt.Println("LADDER: CONTINUE")
+		fmt.Fprintln(os.Stderr, detail)
+		return nil
+	}
+	fmt.Println("LADDER: STOP")
+	fmt.Fprintln(os.Stderr, detail)
+	os.Exit(ladderVerdictStop)
+	return nil
+}
+
 func report(args []string) error {
 	fs := flag.NewFlagSet("report", flag.ExitOnError)
 	var rawFiles multiFlag
