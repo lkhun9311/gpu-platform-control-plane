@@ -56,6 +56,13 @@ MODEL="Qwen/Qwen2.5-3B-Instruct"
 OUT="${OUT:-hack/m5c-run-$(date +%Y%m%d-%H%M%S)}"
 LOG="$OUT/evidence.log"
 GW_IMAGE="${GW_IMAGE:-gateway:m5c}"
+# Whether the CALLER set these, recorded before the defaults below overwrite the answer.
+#
+# The ladder mode further down refuses a run that was given both a ladder and a single load, and it cannot
+# ask that question after ARMS and REPS have been defaulted -- every run would look as though the operator
+# had set them. This is the whole reason the snapshot exists, and it has to stay above the defaults.
+ARMS_FROM_CALLER="${ARMS+set}"
+REPS_FROM_CALLER="${REPS+set}"
 # Four, matching hack/gpu-session.sh and the design.
 #
 # This defaulted to 2, and the session script it is meant to complement defaults to 4. The scripts do not
@@ -92,7 +99,32 @@ case "$PLATFORM" in
   *) fail "PLATFORM is ${PLATFORM@Q}; it must be eks or kind. Refusing rather than picking one: the two differ in what stops the card billing." ;;
 esac
 
-[ -n "${RATE:-}" ] || fail "RATE is unset. Measure it from a single contender prefill on THIS card, the way hack/m5b-gpu-session.sh does; the harness default of 20/s demands 3.8x an A10G's theoretical peak and would censor every arm."
+# LADDER turns this script into the capacity ladder of
+# docs/superpowers/specs/2026-09-13-what-the-split-costs-in-throughput.md, and unset it changes nothing.
+#
+# It is a mode of this script rather than a second script because everything below the load -- acquiring the
+# card, swapping the device plugin, rolling out one engine or two, the port-forward that is proved before it
+# is used, the per-cell handover, the deadline projection -- is the same instrument, and a copy of it would
+# be a copy that drifts. What differs is only which loads are offered and in which order.
+#
+# The format is one rung per whitespace-separated entry, "RATE:NOISY_WEIGHT", in climbing order. The values
+# are the pre-registration's, solved offline against the real gen-trace so that every rung offers the
+# contender 139 requests give or take two while the premium rate climbs. They are passed rather than
+# defaulted for the reason RATE is: a load this script chose for itself is a load nobody derived.
+LADDER="${LADDER:-}"
+if [ -n "$LADDER" ]; then
+  # RATE and the ladder both describe the load, and a run that was given both would obey one of them
+  # silently. Which one is not something an operator should have to read this file to find out.
+  [ -z "${RATE:-}" ] || fail "RATE and LADDER are both set. The ladder carries a rate per rung, so a single RATE is either ignored or overrides them -- refusing rather than picking."
+  [ -z "$ARMS_FROM_CALLER" ] || fail "ARMS and LADDER are both set. The ladder's arms are its two topologies plus one isolated baseline cell at the rung it stops on, which is not known until it stops."
+  # The frozen matrix pools repetitions of one load. The ladder's rungs are DIFFERENT loads, and a run that
+  # repeated them would write two files an arm summary would pool into a p99 for a load never offered.
+  # A borderline rung is repeated by re-running that rung, which the pre-registration says and this refuses
+  # to do by accident.
+  [ -z "$REPS_FROM_CALLER" ] || fail "REPS and LADDER are both set. Ladder rungs are different loads rather than repetitions of one, and pooling two of them would report a p99 for a load that was never offered."
+fi
+
+[ -n "${RATE:-}" ] || [ -n "$LADDER" ] || fail "RATE is unset. Measure it from a single contender prefill on THIS card, the way hack/m5b-gpu-session.sh does; the harness default of 20/s demands 3.8x an A10G's theoretical peak and would censor every arm."
 
 # The whole load, passed rather than defaulted -- and RATE alone was never enough.
 #
@@ -114,7 +146,15 @@ esac
 # DURATION_MS is here for the same reason. It used to be derived as 500/(RATE/2), an arithmetic that assumes
 # the two tenants split arrivals evenly -- true of the defaults above and false of any calibrated mix, so it
 # would have sized the trace from a premise the run had just abandoned.
-for v in PREMIUM_WEIGHT NOISY_WEIGHT PROBE_WEIGHT DURATION_MS; do
+# In ladder mode the contender's weight is a property of the RUNG, because that weight is what holds the
+# contender at a fixed absolute count while the premium rate climbs. A single NOISY_WEIGHT beside a ladder
+# would be silently ignored, so it is refused.
+REQUIRED_LOAD_VARS="PREMIUM_WEIGHT NOISY_WEIGHT PROBE_WEIGHT DURATION_MS"
+if [ -n "$LADDER" ]; then
+  [ -z "${NOISY_WEIGHT:-}" ] || fail "NOISY_WEIGHT and LADDER are both set. The ladder carries a contender weight per rung -- that is how it holds the contender fixed in absolute terms while the premium rate climbs -- so a single weight here would be ignored."
+  REQUIRED_LOAD_VARS="PREMIUM_WEIGHT PROBE_WEIGHT DURATION_MS"
+fi
+for v in $REQUIRED_LOAD_VARS; do
   [ -n "${!v:-}" ] || fail "$v is unset. RATE alone does not describe this load: gen-trace's default mix puts the 40,000-character contender at 45% of arrivals, which is four to five times an A10G's prefill capacity at any rate this study could use, and lowering RATE to compensate starves the premium tail below the MinTailSamples floor. Derive the mix on the card and pass all four. hack/m5b-price-of-protection.sh measured RATE=9.85 PREMIUM_WEIGHT=1 NOISY_WEIGHT=0.054 PROBE_WEIGHT=0.0054 DURATION_MS=420000 for ONE engine with the whole card; this run gives each engine half of one, so it is a starting point and not an answer."
 done
 # Only EKS needs one. A kind node loads the image from the host daemon, and demanding a registry there would
@@ -507,7 +547,9 @@ plugin_diagnosis() {
 }
 
 apply_device_plugin() {
-  local mode="$1" keep ds want other
+  # label is the arm name a refusal is recorded under, which in ladder mode names the rung as well as the
+  # topology. mode stays the topology, because it is what selects the overlay.
+  local mode="$1" label="${2:-$1}" keep ds want other
   case "$mode" in
     shared)      keep=config/nvidia-device-plugin-whole-card;  ds=nvidia-device-plugin-whole-card;  want=1 ;;
     timeSlicing) keep=config/nvidia-device-plugin-timeslicing; ds=nvidia-device-plugin-timeslicing; want=2 ;;
@@ -528,7 +570,7 @@ apply_device_plugin() {
   # can be scored without both.
   plugin_gone() {
     if [ "$mode" = shared ]; then fail "$1"; fi
-    arm_refused "$mode" "$1"
+    arm_refused "$label" "$1"
     return 1
   }
 
@@ -758,7 +800,11 @@ engine_diagnosis() {
 }
 
 deploy_arm() {
-  local arm="$1"
+  # arm is the TOPOLOGY -- what to deploy. label is the arm name the evidence carries, which in ladder mode
+  # also names the rung. They are the same string in the frozen matrix and differ in the ladder, and keeping
+  # them separate is what lets one deployment path serve both: a refusal has to be recorded under the name
+  # the readings look for, and the readings look for the arm in the rows.
+  local arm="$1" label="${2:-$1}"
   k delete namespace "$NS_A" "$NS_B" --wait=true >/dev/null 2>&1
   # The policies go too, and they are NOT covered by deleting the namespaces.
   #
@@ -793,7 +839,7 @@ deploy_arm() {
       # The plugin comes first and is not optional. This arm's engine asks for one nvidia.com/gpu, and until
       # config/nvidia-device-plugin-whole-card existed nothing advertised one on this node -- so the arm
       # either timed out Pending or inherited the previous arm's split card.
-      apply_device_plugin shared
+      apply_device_plugin shared "$label"
       k apply -f config/vllm/deployment.yaml -n "$NS_A" >/dev/null || fail "apply the exclusive engine"
       k apply -f config/vllm/service.yaml -n "$NS_A" >/dev/null || fail "apply the exclusive service"
       k rollout status deploy/vllm-qwen25-3b -n "$NS_A" --timeout=900s >/dev/null \
@@ -805,14 +851,14 @@ deploy_arm() {
     timeSlicing|mps)
       # The plugin step can now REFUSE the arm rather than end the run -- an MPS control daemon that never
       # became ready is reading 4c's business, not a reason to discard the arms beside it.
-      apply_device_plugin "$arm" || return 1
+      apply_device_plugin "$arm" "$label" || return 1
       # A split engine that cannot be APPLIED refuses its arm, for the same reason one that cannot START
       # does: the arms beside it were measured and a manifest this arm could not apply says nothing about
       # them. These two were the last `fail` calls left inside the split-arm branch.
       k apply -f config/vllm-shared/engine-a.yaml -n "$NS_A" >/dev/null || {
-        arm_refused "$arm" "engine a's manifest could not be applied to $NS_A, so this arm never had two engines"; return 1; }
+        arm_refused "$label" "engine a's manifest could not be applied to $NS_A, so this arm never had two engines"; return 1; }
       k apply -f config/vllm-shared/engine-b.yaml -n "$NS_B" >/dev/null || {
-        arm_refused "$arm" "engine b's manifest could not be applied to $NS_B, so this arm never had two engines"; return 1; }
+        arm_refused "$label" "engine b's manifest could not be applied to $NS_B, so this arm never had two engines"; return 1; }
       # Both are diagnosed on failure, and BOTH are diagnosed when either fails.
       #
       # The engines share one card, so the one that came up is half the explanation for the one that did
@@ -832,13 +878,13 @@ deploy_arm() {
       # substitute for it.
       if ! k rollout status deploy/vllm-shared-a -n "$NS_A" --timeout=900s >/dev/null; then
         engine_diagnosis "$NS_A" vllm-shared-a
-        arm_refused "$arm" "engine a never became ready. The diagnosis in this run's log says what its Pods were doing; on one card, why one engine could not start is also why the other could not."
+        arm_refused "$label" "engine a never became ready. The diagnosis in this run's log says what its Pods were doing; on one card, why one engine could not start is also why the other could not."
         return 1
       fi
       if ! k rollout status deploy/vllm-shared-b -n "$NS_B" --timeout=900s >/dev/null; then
         engine_diagnosis "$NS_B" vllm-shared-b
         engine_diagnosis "$NS_A" vllm-shared-a
-        arm_refused "$arm" "engine b never became ready while engine a did. On one card what a came to hold is what b did not get, so both diagnoses are in this run's log."
+        arm_refused "$label" "engine b never became ready while engine a did. On one card what a came to hold is what b did not get, so both diagnoses are in this run's log."
         return 1
       fi
       # Both engines must be on the SAME node or they are not sharing a card. max_size 1 should guarantee
@@ -846,7 +892,7 @@ deploy_arm() {
       na=$(k get pod -n "$NS_A" -l app.kubernetes.io/component=vllm-shared -o jsonpath='{.items[0].spec.nodeName}')
       nb=$(k get pod -n "$NS_B" -l app.kubernetes.io/component=vllm-shared -o jsonpath='{.items[0].spec.nodeName}')
       if [ -z "$na" ] || [ "$na" != "$nb" ]; then
-        arm_refused "$arm" "the two engines are on different nodes (${na:-none}, ${nb:-none}), so this arm is two engines on two cards and not a shared one. Nothing it measured would be about sharing"
+        arm_refused "$label" "the two engines are on different nodes (${na:-none}, ${nb:-none}), so this arm is two engines on two cards and not a shared one. Nothing it measured would be about sharing"
         return 1
       fi
       if [ "$arm" = mps ] && ! mps_clients_connected "$NS_A" vllm-shared-a "$NS_B" vllm-shared-b; then
@@ -905,7 +951,7 @@ spec:
   template:
     metadata:
       labels: {app: m5c-gateway}
-      annotations: {arm: "$arm"}
+      annotations: {arm: "$label"}
     spec:
       serviceAccountName: gateway
       containers:
@@ -950,12 +996,67 @@ EOF
 # This line used to recompute DURATION_MS as 500/(RATE/2), which silently overwrote whatever was passed --
 # so a caller that had derived a trace length on the card would have had it replaced by an arithmetic that
 # assumes an even tenant split.
-say "load: rate ${RATE}/s, ${DURATION_MS}ms per arm, weights premium=$PREMIUM_WEIGHT noisy=$NOISY_WEIGHT probe=$PROBE_WEIGHT"
-say "run:  ${REPS} repetitions of [$ARMS] on $PLATFORM, output $OUT"
+if [ -n "$LADDER" ]; then
+  # RATE and NOISY_WEIGHT do not exist in ladder mode -- they are per rung, and the refusals above make sure
+  # nobody passed one. Under `set -u` naming them here is not a cosmetic difference: the first ladder
+  # rehearsal died on this line with "RATE: unbound variable", after building the cluster and both images.
+  say "load: a ladder of $(printf '%s\n' $LADDER | wc -l | tr -d ' ') rungs, ${DURATION_MS}ms per cell, weights premium=$PREMIUM_WEIGHT probe=$PROBE_WEIGHT"
+  say "      rungs (rate:contender-weight): $LADDER"
+  say "run:  the two contended topologies at every rung, counterbalanced, plus one isolated baseline cell, on $PLATFORM, output $OUT"
+else
+  say "load: rate ${RATE}/s, ${DURATION_MS}ms per arm, weights premium=$PREMIUM_WEIGHT noisy=$NOISY_WEIGHT probe=$PROBE_WEIGHT"
+  say "run:  ${REPS} repetitions of [$ARMS] on $PLATFORM, output $OUT"
+fi
 
 # Measured, like the M6 wrapper's: after the first cell, the elapsed time IS the budget, and it knows the
 # node's real speed and how long the rollouts actually took rather than how long they were allowed to take.
-cells_total=0; for _a in $ARMS; do cells_total=$(( cells_total + REPS )); done
+# CELLS is the whole run plan, decided before the first cell, one entry per cell:
+#
+#     topology|label|repetition|rate|noisy-weight|rung
+#
+# topology is what to DEPLOY and label is the arm name the EVIDENCE carries. They are the same string for
+# the frozen sharing matrix and differ for the ladder, where the label also names the rung -- see
+# ThroughputLadderArm in internal/bench/study.go for why the rung has to be part of the arm identity.
+#
+# Built up front rather than nested loops for two reasons. The deadline projection divides by a cell count,
+# so that count has to be real before the first cell rather than derived from two loop bounds; and the
+# ladder stops early, which a plan can express and a nested loop can only break out of.
+CELLS=()
+if [ -n "$LADDER" ]; then
+  STUDY=throughput-ladder-2026-09-13
+  ladder_rung=0
+  for entry in $LADDER; do
+    ladder_rung=$(( ladder_rung + 1 ))
+    case "$entry" in
+      *:*) ;;
+      *) fail "LADDER entry ${entry@Q} is not RATE:NOISY_WEIGHT" ;;
+    esac
+    rung_rate="${entry%%:*}"; rung_weight="${entry##*:}"
+    [ -n "$rung_rate" ] && [ -n "$rung_weight" ] || fail "LADDER entry ${entry@Q} is missing a rate or a weight"
+    # Odd rungs run the control first, even rungs run the split first.
+    #
+    # This is the counterbalance, and it is the whole reason the ladder can say anything about the topology
+    # rather than about the position: across the rungs each contended arm occupies the first and the second
+    # slot of a rung equally often. The frozen matrix cannot do this -- it registered a fixed order and says
+    # so -- and here it costs nothing.
+    if [ $(( ladder_rung % 2 )) -eq 1 ]; then rung_order="shared timeSlicing"; else rung_order="timeSlicing shared"; fi
+    for topology in $rung_order; do
+      CELLS+=("$topology|$(printf 'rung%02d' "$ladder_rung")-$topology|1|$rung_rate|$rung_weight|$ladder_rung")
+    done
+  done
+  [ "${#CELLS[@]}" -gt 0 ] || fail "LADDER is set but describes no rungs"
+  # One more cell than the rungs describe: the isolated baseline, bought once at whichever rung the ladder
+  # stops on. It is counted here so the deadline projection does not discover it at the end.
+  cells_total=$(( ${#CELLS[@]} + 1 ))
+else
+  STUDY=sharing-matrix-2026-09-10
+  for rep in $(seq 1 "$REPS"); do
+    for arm in $ARMS; do
+      CELLS+=("$arm|$arm|$rep|$RATE|$NOISY_WEIGHT|0")
+    done
+  done
+  cells_total=${#CELLS[@]}
+fi
 cell_secs=0; cells_done=0; cell_n=0
 cell_deadline_check() {
   local remain per projected
@@ -977,142 +1078,195 @@ cell_deadline_check() {
   return 0
 }
 
-for rep in $(seq 1 "$REPS"); do
-  for arm in $ARMS; do
-    cell_n=$(( cell_n + 1 ))
-    cell_deadline_check || exit 1
-    CELL_T0=$(date +%s)
-    say "rep $rep arm $arm  (cell $cell_n/$cells_total)"
-    if ! deploy_arm "$arm"; then
-      say "skipping the rest of cell $cell_n: $arm was refused as a registered outcome, and the arms beside it stand"
-      # The time it TOOK to be refused counts too.
-      #
-      # cells_done went up and cell_secs did not, so the budget divided real elapsed time by a cell count
-      # that included cells which contributed none of it -- and the projection for the cells still to come
-      # came out low. A refusal is not free: the mps arm spent ten minutes waiting for a device count before
-      # declining, which is most of a cell.
-      cell_secs=$(( cell_secs + $(date +%s) - CELL_T0 ))
-      cells_done=$(( cells_done + 1 ))
-      continue
-    fi
-    # The tunnel every request of this cell goes through, replaced between cells and then PROVED.
-    #
-    # This was `kill $PF_PID` followed immediately by a new port-forward and `sleep 3`. kill does not wait,
-    # so the new forward raced the old one's release of 18080, lost, and exited -- and because its output
-    # went to /dev/null nothing said so. The replay then sent every request of that cell into a port nothing
-    # was listening on and recorded them all with httpStatus 0, which the report describes as a censored
-    # tail: a plumbing failure wearing a load failure's name.
-    #
-    # It alternated, which is the signature. Cell 1 bound cleanly, cell 2 lost the race and died, cell 3
-    # found the port free because cell 2's forward was already gone, cell 4 lost it again. Two of four arms
-    # produced nothing. hack/test/rehearse-m5c-matrix.sh saw R1 and timeSlicing complete every request while
-    # shared and mps completed none; the paid runs never reached a second cell, so it had never been visible.
-    # And the kill has to reach KUBECTL, which is why this one line does not go through `k`.
-    #
-    # `k` is a shell function. Backgrounding a function runs it in a SUBSHELL, and bash only replaces that
-    # subshell with the command when it has no traps to run -- this script installs three. So `$!` was the
-    # subshell's pid, `kill` killed the subshell, `wait` reaped it and returned, and kubectl went on living
-    # as an orphan holding 18080. The fix for the race could not have worked: it was waiting on a process
-    # that was never the one holding the port.
-    #
-    # Measured on 2026-09-12, on a rented card. R1 replayed 3,882 rows cleanly, the `shared` cell asked for
-    # the same port and got `bind: address already in use`, and the session ended with one arm of four. It
-    # had passed on earlier runs because the old forward usually dies on its own when its target pod is
-    # replaced -- usually, which is the word that makes it a race rather than a bug that shows up.
-    if [ -n "$PF_PID" ]; then
-      kill "$PF_PID" 2>/dev/null
-      wait "$PF_PID" 2>/dev/null
-    fi
-    # Then PROVE the port is free, rather than assuming the kill above was enough.
-    #
-    # This is the same rule the readiness probe below follows, applied to the other end: the previous check
-    # here assumed its own success, and an assumption is exactly what a race defeats. If something still
-    # holds the port after ten seconds, say so with the holder named -- that is a different morning from a
-    # gateway that never became ready, and the old message conflated them.
-    port_free=0
-    for _ in $(seq 1 10); do
-      if ! (exec 3<>/dev/tcp/127.0.0.1/18080) 2>/dev/null; then port_free=1; break; fi
-      sleep 1
-    done
-    if [ "$port_free" != "1" ]; then
-      say "  18080 is still held after the previous cell's forward was killed. What holds it:"
-      (ss -lptn 'sport = :18080' 2>/dev/null || lsof -i :18080 2>/dev/null || echo "  (no ss or lsof to ask)") | tee -a "$LOG" >&2
-      fail "port 18080 was still in use when $arm rep $rep asked for it, so this cell's tunnel could not be built. The previous cell's port-forward outlived the kill that was meant to end it."
-    fi
-    # stderr is kept, because "why is the tunnel not up" is unanswerable without it.
-    kubectl --context "$KCTX" port-forward -n "$NS_A" deploy/gateway 18080:8080 >"$OUT/port-forward-$arm-$rep.log" 2>&1 &
-    PF_PID=$!
-    # Proved rather than slept for. A fixed sleep is a guess about a machine's speed, and the failure it
-    # misses is silent.
-    # Proved by asking the GATEWAY, not by opening a socket.
-    #
-    # A TCP connect succeeds the moment kubectl holds the local port, whether or not anything answers at the
-    # other end -- so the previous check passed while the pod was still refusing connections. /readyz is the
-    # gateway's own answer and is false until its cache has synced.
-    pf_up=0
-    for _ in $(seq 1 60); do
-      if curl -fsS --max-time 2 -o /dev/null "http://127.0.0.1:18080/readyz" 2>/dev/null; then pf_up=1; break; fi
-      kill -0 "$PF_PID" 2>/dev/null || break
-      sleep 1
-    done
-    # There is NO TCP fallback any more, and removing it is the point.
-    #
-    # It set pf_up=1 when a plain connect to 127.0.0.1:18080 succeeded, which proves only that kubectl holds
-    # the local port -- exactly the thing defect 39 established is worthless, because the kubelet holds that
-    # socket whether or not the pod behind it answers. Keeping it as a "weaker guarantee" meant a cell could
-    # begin against a gateway that was not ready and record every request as transport failure, which the
-    # report then describes as a censored tail. The gateway this script deploys serves /readyz and carries a
-    # readinessProbe on it, so there is no build here for the fallback to be tolerant of: it could only ever
-    # turn a clear refusal into eleven minutes of plumbing errors wearing a workload's name.
-    [ "$pf_up" = "1" ] || fail "the gateway never answered /readyz and its port never accepted a connection for $arm rep $rep. Every request of this cell would have been recorded with no HTTP status at all, and the report would have called the result a censored tail. See $OUT/port-forward-$arm-$rep.log"
 
-    # The arm is the SHARING MODE, and it is now spelled that way in the manifest.
+# run_cell measures ONE cell: deploy the topology, prove the tunnel, generate this cell's load, replay it,
+# and hand the evidence over.
+#
+# It is a function rather than the inside of a loop because the ladder calls it from two places -- the rungs
+# it climbs, and the single isolated-baseline cell it buys at whichever rung it stopped on. A second copy of
+# this body for the second caller is the failure this repository has paid for more than once.
+run_cell() {
+  local arm="$1" label="$2" rep="$3" RATE_CELL="$4" NOISY_CELL="$5"
+  cell_n=$(( cell_n + 1 ))
+  cell_deadline_check || exit 1
+  CELL_T0=$(date +%s)
+  say "cell $cell_n/$cells_total: $label (rep $rep) at rate $RATE_CELL, contender weight $NOISY_CELL"
+  if ! deploy_arm "$arm" "$label"; then
+    say "skipping the rest of cell $cell_n: $label was refused as a registered outcome, and the arms beside it stand"
+    # The time it TOOK to be refused counts too.
     #
-    # It used to be spelled "off" -- the admission vocabulary's name for a disabled guard -- because that was
-    # the only arm name the harness would accept here, and the run then had to ship a README telling readers
-    # never to run `benchharness report` over its own evidence, since pooling would collapse three topologies
-    # into one row. internal/bench now carries a study whose arms ARE the topologies, so the evidence says
-    # what it is and the pre-registered readings can be evaluated by the code that was written for them.
-    # --model is not optional, and its absence would have been silent until the first request.
-    #
-    # gen-trace defaults to "llama-3-8b" and writes it into the manifest; replay sends it as the requested
-    # model; internal/gateway resolves a backend by matching that name against the InferenceDeployment index
-    # in the tenant's target namespace. The routing records this script writes serve Qwen2.5-3B, so every
-    # request of every arm would have come back ErrNoRoute -- after both engines had loaded.
-    "$WORK/benchharness" gen-trace --seed 11 --duration-ms "$DURATION_MS" --rate "$RATE" \
-      --study sharing-matrix-2026-09-10 --arm "$arm" --model "$MODEL" --gateway-url "http://127.0.0.1:18080" \
-      --premium-weight "$PREMIUM_WEIGHT" --noisy-weight "$NOISY_WEIGHT" --probe-weight "$PROBE_WEIGHT" \
-      --trace-out "$OUT/trace-$arm-$rep.jsonl" --manifest-out "$OUT/manifest-$arm-$rep.yaml" || fail "gen-trace $arm"
-    "$WORK/benchharness" replay --manifest "$OUT/manifest-$arm-$rep.yaml" \
-      --target "http://127.0.0.1:18080" \
-      --api-keys "premium-1=premium-key,standard-noisy=standard-key" \
-      --raw-out "$OUT/raw-$arm-$rep.jsonl" || fail "replay $arm"
-    [ -s "$OUT/raw-$arm-$rep.jsonl" ] || fail "no raw evidence for $arm rep $rep"
-    say "  $(wc -l < "$OUT/raw-$arm-$rep.jsonl") rows"
-    # This cell is BOUGHT. Hand it to the caller now rather than at the end of the matrix.
-    #
-    # Everything this script writes goes up as one archive after the whole matrix returns, which is fine for
-    # a matrix that fails -- the wrapper still archives what exists -- and worthless for an instance that
-    # STOPS. A Spot interruption on the last cell takes every cell before it, and at two repetitions a run
-    # is six cells and about ninety minutes of rented card.
-    #
-    # A hook rather than an uploader, because this script also runs on a local kind cluster in three
-    # rehearsals where there is no bucket and nothing to upload to. Unset, nothing happens and the behaviour
-    # is exactly what it was. A failing hook does NOT fail the cell: the evidence is already on disk, and a
-    # transient S3 error is not a reason to throw away a measurement that was paid for.
-    if [ -n "${CELL_DONE_HOOK:-}" ]; then
-      # BOUNDED, because a hook that hangs costs card time the cell budget has already promised elsewhere.
-      #
-      # It cannot fail the cell -- the evidence is on local disk either way -- but without a limit a stalled
-      # upload blocks every cell behind it until the hard stop, and a merely slow one inflates the next
-      # cell's projection and can stop the matrix on a boundary it would otherwise have cleared.
-      timeout "${CELL_DONE_HOOK_TIMEOUT:-120}" "$CELL_DONE_HOOK" "$OUT/raw-$arm-$rep.jsonl" "$arm" "$rep" \
-        || say "  WARNING: CELL_DONE_HOOK failed or timed out for $arm rep $rep; the cell is still on local disk and will go up with the rest"
-    fi
+    # cells_done went up and cell_secs did not, so the budget divided real elapsed time by a cell count
+    # that included cells which contributed none of it -- and the projection for the cells still to come
+    # came out low. A refusal is not free: the mps arm spent ten minutes waiting for a device count before
+    # declining, which is most of a cell.
     cell_secs=$(( cell_secs + $(date +%s) - CELL_T0 ))
     cells_done=$(( cells_done + 1 ))
+    continue
+  fi
+  # The tunnel every request of this cell goes through, replaced between cells and then PROVED.
+  #
+  # This was `kill $PF_PID` followed immediately by a new port-forward and `sleep 3`. kill does not wait,
+  # so the new forward raced the old one's release of 18080, lost, and exited -- and because its output
+  # went to /dev/null nothing said so. The replay then sent every request of that cell into a port nothing
+  # was listening on and recorded them all with httpStatus 0, which the report describes as a censored
+  # tail: a plumbing failure wearing a load failure's name.
+  #
+  # It alternated, which is the signature. Cell 1 bound cleanly, cell 2 lost the race and died, cell 3
+  # found the port free because cell 2's forward was already gone, cell 4 lost it again. Two of four arms
+  # produced nothing. hack/test/rehearse-m5c-matrix.sh saw R1 and timeSlicing complete every request while
+  # shared and mps completed none; the paid runs never reached a second cell, so it had never been visible.
+  # And the kill has to reach KUBECTL, which is why this one line does not go through `k`.
+  #
+  # `k` is a shell function. Backgrounding a function runs it in a SUBSHELL, and bash only replaces that
+  # subshell with the command when it has no traps to run -- this script installs three. So `$!` was the
+  # subshell's pid, `kill` killed the subshell, `wait` reaped it and returned, and kubectl went on living
+  # as an orphan holding 18080. The fix for the race could not have worked: it was waiting on a process
+  # that was never the one holding the port.
+  #
+  # Measured on 2026-09-12, on a rented card. R1 replayed 3,882 rows cleanly, the `shared` cell asked for
+  # the same port and got `bind: address already in use`, and the session ended with one arm of four. It
+  # had passed on earlier runs because the old forward usually dies on its own when its target pod is
+  # replaced -- usually, which is the word that makes it a race rather than a bug that shows up.
+  if [ -n "$PF_PID" ]; then
+    kill "$PF_PID" 2>/dev/null
+    wait "$PF_PID" 2>/dev/null
+  fi
+  # Then PROVE the port is free, rather than assuming the kill above was enough.
+  #
+  # This is the same rule the readiness probe below follows, applied to the other end: the previous check
+  # here assumed its own success, and an assumption is exactly what a race defeats. If something still
+  # holds the port after ten seconds, say so with the holder named -- that is a different morning from a
+  # gateway that never became ready, and the old message conflated them.
+  port_free=0
+  for _ in $(seq 1 10); do
+    if ! (exec 3<>/dev/tcp/127.0.0.1/18080) 2>/dev/null; then port_free=1; break; fi
+    sleep 1
   done
+  if [ "$port_free" != "1" ]; then
+    say "  18080 is still held after the previous cell's forward was killed. What holds it:"
+    (ss -lptn 'sport = :18080' 2>/dev/null || lsof -i :18080 2>/dev/null || echo "  (no ss or lsof to ask)") | tee -a "$LOG" >&2
+    fail "port 18080 was still in use when $label rep $rep asked for it, so this cell's tunnel could not be built. The previous cell's port-forward outlived the kill that was meant to end it."
+  fi
+  # stderr is kept, because "why is the tunnel not up" is unanswerable without it.
+  kubectl --context "$KCTX" port-forward -n "$NS_A" deploy/gateway 18080:8080 >"$OUT/port-forward-$label-$rep.log" 2>&1 &
+  PF_PID=$!
+  # Proved rather than slept for. A fixed sleep is a guess about a machine's speed, and the failure it
+  # misses is silent.
+  # Proved by asking the GATEWAY, not by opening a socket.
+  #
+  # A TCP connect succeeds the moment kubectl holds the local port, whether or not anything answers at the
+  # other end -- so the previous check passed while the pod was still refusing connections. /readyz is the
+  # gateway's own answer and is false until its cache has synced.
+  pf_up=0
+  for _ in $(seq 1 60); do
+    if curl -fsS --max-time 2 -o /dev/null "http://127.0.0.1:18080/readyz" 2>/dev/null; then pf_up=1; break; fi
+    kill -0 "$PF_PID" 2>/dev/null || break
+    sleep 1
+  done
+  # There is NO TCP fallback any more, and removing it is the point.
+  #
+  # It set pf_up=1 when a plain connect to 127.0.0.1:18080 succeeded, which proves only that kubectl holds
+  # the local port -- exactly the thing defect 39 established is worthless, because the kubelet holds that
+  # socket whether or not the pod behind it answers. Keeping it as a "weaker guarantee" meant a cell could
+  # begin against a gateway that was not ready and record every request as transport failure, which the
+  # report then describes as a censored tail. The gateway this script deploys serves /readyz and carries a
+  # readinessProbe on it, so there is no build here for the fallback to be tolerant of: it could only ever
+  # turn a clear refusal into eleven minutes of plumbing errors wearing a workload's name.
+  [ "$pf_up" = "1" ] || fail "the gateway never answered /readyz and its port never accepted a connection for $label rep $rep. Every request of this cell would have been recorded with no HTTP status at all, and the report would have called the result a censored tail. See $OUT/port-forward-$label-$rep.log"
+
+  # The arm is the SHARING MODE, and it is now spelled that way in the manifest.
+  #
+  # It used to be spelled "off" -- the admission vocabulary's name for a disabled guard -- because that was
+  # the only arm name the harness would accept here, and the run then had to ship a README telling readers
+  # never to run `benchharness report` over its own evidence, since pooling would collapse three topologies
+  # into one row. internal/bench now carries a study whose arms ARE the topologies, so the evidence says
+  # what it is and the pre-registered readings can be evaluated by the code that was written for them.
+  # --model is not optional, and its absence would have been silent until the first request.
+  #
+  # gen-trace defaults to "llama-3-8b" and writes it into the manifest; replay sends it as the requested
+  # model; internal/gateway resolves a backend by matching that name against the InferenceDeployment index
+  # in the tenant's target namespace. The routing records this script writes serve Qwen2.5-3B, so every
+  # request of every arm would have come back ErrNoRoute -- after both engines had loaded.
+  "$WORK/benchharness" gen-trace --seed 11 --duration-ms "$DURATION_MS" --rate "$RATE_CELL" \
+    --study "$STUDY" --arm "$label" --model "$MODEL" --gateway-url "http://127.0.0.1:18080" \
+    --premium-weight "$PREMIUM_WEIGHT" --noisy-weight "$NOISY_CELL" --probe-weight "$PROBE_WEIGHT" \
+    --trace-out "$OUT/trace-$label-$rep.jsonl" --manifest-out "$OUT/manifest-$label-$rep.yaml" || fail "gen-trace $label"
+  "$WORK/benchharness" replay --manifest "$OUT/manifest-$label-$rep.yaml" \
+    --target "http://127.0.0.1:18080" \
+    --api-keys "premium-1=premium-key,standard-noisy=standard-key" \
+    --raw-out "$OUT/raw-$label-$rep.jsonl" || fail "replay $label"
+  [ -s "$OUT/raw-$label-$rep.jsonl" ] || fail "no raw evidence for $label rep $rep"
+  say "  $(wc -l < "$OUT/raw-$label-$rep.jsonl") rows"
+  # This cell is BOUGHT. Hand it to the caller now rather than at the end of the matrix.
+  #
+  # Everything this script writes goes up as one archive after the whole matrix returns, which is fine for
+  # a matrix that fails -- the wrapper still archives what exists -- and worthless for an instance that
+  # STOPS. A Spot interruption on the last cell takes every cell before it, and at two repetitions a run
+  # is six cells and about ninety minutes of rented card.
+  #
+  # A hook rather than an uploader, because this script also runs on a local kind cluster in three
+  # rehearsals where there is no bucket and nothing to upload to. Unset, nothing happens and the behaviour
+  # is exactly what it was. A failing hook does NOT fail the cell: the evidence is already on disk, and a
+  # transient S3 error is not a reason to throw away a measurement that was paid for.
+  if [ -n "${CELL_DONE_HOOK:-}" ]; then
+    # BOUNDED, because a hook that hangs costs card time the cell budget has already promised elsewhere.
+    #
+    # It cannot fail the cell -- the evidence is on local disk either way -- but without a limit a stalled
+    # upload blocks every cell behind it until the hard stop, and a merely slow one inflates the next
+    # cell's projection and can stop the matrix on a boundary it would otherwise have cleared.
+    timeout "${CELL_DONE_HOOK_TIMEOUT:-120}" "$CELL_DONE_HOOK" "$OUT/raw-$label-$rep.jsonl" "$label" "$rep" \
+      || say "  WARNING: CELL_DONE_HOOK failed or timed out for $label rep $rep; the cell is still on local disk and will go up with the rest"
+  fi
+  cell_secs=$(( cell_secs + $(date +%s) - CELL_T0 ))
+  cells_done=$(( cells_done + 1 ))
+}
+
+for spec in "${CELLS[@]}"; do
+  IFS='|' read -r cell_topology cell_label cell_rep cell_rate cell_weight cell_rung <<<"$spec"
+  run_cell "$cell_topology" "$cell_label" "$cell_rep" "$cell_rate" "$cell_weight"
+  [ -n "$LADDER" ] || continue
+  # The stopping rule is asked of the INSTRUMENT, once both cells of a rung exist.
+  #
+  # The threshold it compares against lives in internal/bench beside the criterion that defines it. A copy
+  # of 139.0 ms in this file would be a second place for the pre-registration's number to be edited, and the
+  # pre-registration's whole claim is that the number was fixed before any rung ran.
+  [ $(( cell_n % 2 )) -eq 0 ] || continue
+  ladder_raws=()
+  for f in "$OUT"/raw-rung*.jsonl; do [ -e "$f" ] && ladder_raws+=(--raw "$f"); done
+  verdict_out="$OUT/ladder-verdict-rung$cell_rung.txt"
+  if "$WORK/benchharness" ladder-verdict "${ladder_raws[@]}" --rung "$cell_rung" >"$verdict_out" 2>>"$LOG"; then
+    grep -qx "LADDER: CONTINUE" "$verdict_out" \
+      || fail "ladder-verdict exited 0 for rung $cell_rung without saying CONTINUE. Its exit code and its line disagree, and this script will not guess which one meant to climb. See $verdict_out"
+    say "rung $cell_rung: at least one topology still meets the target, so the ladder climbs"
+    continue
+  fi
+  verdict_code=$?
+  if [ "$verdict_code" -eq 10 ]; then
+    grep -qx "LADDER: STOP" "$verdict_out" \
+      || fail "ladder-verdict exited 10 for rung $cell_rung without saying STOP. See $verdict_out"
+    say "rung $cell_rung: both topologies breached the target, which is the registered stopping point"
+    LADDER_STOPPED_AT="$cell_rung"
+    break
+  fi
+  fail "ladder-verdict could not score rung $cell_rung (exit $verdict_code). The cells it refused are named in $verdict_out and in this run's log; a rung that cannot be scored is not a rung that breached, and climbing past it would build the bracket on it."
 done
+
+# The isolated baseline, bought once, at the rung the ladder stopped on.
+#
+# Without it "the split ran out of capacity" and "one engine of this model on this card ran out of capacity"
+# are the same observation. It is one cell because the criterion is an absolute millisecond figure fixed
+# before the run, which is what makes a per-rung baseline unnecessary -- see the pre-registration.
+if [ -n "$LADDER" ]; then
+  ladder_top="${LADDER_STOPPED_AT:-$ladder_rung}"
+  say "buying the isolated baseline at rung $ladder_top, the rung this ladder ended on"
+  for spec in "${CELLS[@]}"; do
+    IFS='|' read -r cell_topology cell_label cell_rep cell_rate cell_weight cell_rung <<<"$spec"
+    [ "$cell_rung" = "$ladder_top" ] || continue
+    run_cell R1 "$(printf 'rung%02d' "$ladder_top")-R1" 1 "$cell_rate" "$cell_weight"
+    break
+  done
+fi
+
 
 # The raw files are NOT report inputs, and saying so here is cheaper than the confusion. Both arms replay
 # with --arm off, because the harness's arm vocabulary is the ADMISSION arms and the sharing mode is this
