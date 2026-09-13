@@ -528,8 +528,24 @@ absent rather than refused — it was not in `ARMS`, and absence is not a refusa
 | `shared` | 1,892.2 ms | 27.2x | 89.1 ms | 4.9x | 278/278 | 0 |
 | **`timeSlicing`** | **1,007.5 ms** | **14.5x** | **44.1 ms** | **2.42x** | **278/278** | 0 |
 
-**Splitting the card halves the premium tail and the contender keeps all of its work.** It is still 14.5x an
-isolated baseline against a 2x bar.
+**Splitting the card halves the premium tail. The contender keeps all of its work and pays for it in
+latency**, which the sentence above this one omitted until a review put the numbers beside it:
+
+| | `shared` | `timeSlicing` | |
+| --- | ---: | ---: | ---: |
+| contender TTFT median | 1,050.6 ms | **2,329.7 ms** | 2.2x |
+| contender completion median | 1.660 s | **4.697 s** | 2.8x |
+| contender completion p99 | 5.111 s | **16.251 s** | **3.2x** |
+| premium TTFT median | 59.1 ms | **108.0 ms** | 1.8x |
+| premium completion median | 1.257 s | **2.169 s** | 1.7x |
+| premium completion p99 | 6.712 s | **3.685 s** | **0.55x** |
+
+"No requests refused, none lost" is a statement about COUNTS. Reading 2 is the reading that asks whether
+work was refused, and it correctly did not fire. But a reader deciding whether to run this topology needs
+the rest: **the contender's tail triples**, and the premium tenant trades a worse median for a better tail.
+The headline improvement is in the premium p99 and it is real; it is not free to anyone.
+
+The premium tail is still 14.5x an isolated baseline against a 2x bar.
 
 **Why the two repetitions were what this run was for.** Readings 3 and 5 judge an improvement against the
 control's own repetition-to-repetition spread, and one repetition has none — which is why the eighth pilot
@@ -541,19 +557,32 @@ could measure this and not score it.
 | `shared` | 1,892.2 ms | 1,893.5 ms | **1.4 ms** |
 | `timeSlicing` | 1,001.9 ms | 1,014.2 ms | 12.3 ms |
 
-**884.6 ms against 1.4 ms is 632x the control's own variation.** The eighth pilot, a different instance on a
-different card, measured the same control at 1,891.1 ms — within a millisecond of both repetitions here.
-Reading 3 did not fire for exactly this reason: the improvement is far outside the noise it would have to
-hide in.
+884.6 ms against the control's 1.375 ms range is **643x** it, and reading 3 did not fire for that reason.
+
+**What that ratio is and is not.** Two repetitions of the same trace, in the same order, on the same
+instance give a **range of two numbers** — not a confidence interval, not a bound on systematic error, and
+not a sample of workload variation. The registered rule asks whether the improvement exceeds the control's
+repetition range, and it does, by a wide margin. That is what fired. It is not a statistical test, and the
+split arm's own range (12.27 ms) is nine times the control's. An earlier version of this paragraph said
+"far outside the noise it would have to hide in", which claims more than a two-point range can carry.
+
+The eighth pilot, a different instance on a different card, measured the same control at **1,891.1 ms** —
+1.02 ms and 2.40 ms below the two repetitions here. (This page said "within a millisecond of both"; it is
+within a millisecond of one.)
 
 **What this study can now say.** For this model, this card and this load, giving each tenant a time-sliced
 half of the card **halves the premium tail without taking any of the contender's work**, and does not come
 close to a 2x bar.
 
-**And what three studies now say together.** Admission (M5-b) missed the bar at 83.7x. Engine scheduling
-(the price-of-protection run) reached 20.7x at best. Dividing the card reaches **14.5x**. Every layer moves
-the tail the same direction and **none of them reaches 2x**, which is a result about the size of the gap
-rather than about any one mechanism.
+**What three studies say together, stated carefully.** Admission (M5-b) missed its bar at 83.7x. Engine
+scheduling (the price-of-protection run) reached 20.7x at best. This study reaches **14.5x**. Each missed
+its own bar, and that is the whole of the comparison.
+
+It is **not** a progression of mechanisms, and an earlier version of this paragraph said it was. The three
+studies ran different loads: this one deliberately cut the contender's arrival rate, and its own control
+moved from about **113x** R1 in the seventh pilot to **27x** here. Holding 20.7x beside 14.5x therefore
+compares two different amounts of contention, not two mechanisms against a fixed one. What the three share
+is that each failed to reach its own bar; the size of any incremental benefit between them is unmeasured.
 
 **The limitation this page registered in advance still applies**, and it is the reason reading 5's price is
 not the mechanism's price: two engines carry two copies of the weights, so the split arms hold about half
