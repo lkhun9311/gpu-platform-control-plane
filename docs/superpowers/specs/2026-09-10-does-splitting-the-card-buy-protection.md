@@ -575,9 +575,34 @@ The eighth pilot, a different instance on a different card, measured the same co
 "within a millisecond of one". Neither is true: 1.02 ms is not within a millisecond either. The two
 differences are what they are, and the useful fact is that the control reproduces on a different card.)
 
-**What this study can now say.** For this model, this card and this load, giving each tenant a time-sliced
-half of the card **halves the premium tail without taking any of the contender's work**, and does not come
-close to a 2x bar.
+**What this study can now say.** For this model, this card and this load, the `timeSlicing` arm **recorded a
+46.8% lower premium TTFT p99 than the control**, with both tenants completing every offered request, and
+does not come close to a 2x bar. An earlier version of this line said the topology "halves the premium
+tail". Two corrections are folded in: the sentence claimed a cause the fixed arm order cannot establish,
+and "a time-sliced half of the card" describes an enforced partition that time-slicing does not provide —
+it is shared access to the whole card, alternating.
+
+**And "halves" understates the arm at every percentile but the one the bar reads.** The p99 is the
+registered statistic, so it is what the readings score; it is also the least favourable single number the
+distribution has to offer. Recomputed from the same six raw files:
+
+| premium TTFT | `R1` | `shared` | `timeSlicing` |
+| --- | ---: | ---: | ---: |
+| p90 | 61.1 ms | 925.4 ms | **161.4 ms** |
+| p95 | 63.9 ms | 1,143.5 ms | 396.8 ms |
+| p99 | 69.5 ms | 1,892.2 ms | 1,007.5 ms |
+| p99.9 | 78.6 ms | 3,296.6 ms | 1,477.8 ms |
+| max | 387.0 ms | 3,782.0 ms | 1,723.3 ms |
+| share over the 2x bar (139 ms) | 0.08% | 29.18% | 17.81% |
+| share over 500 ms | 0% | 20.61% | **3.86%** |
+| share over 2 s | 0% | 0.77% (72 requests) | **0%** |
+
+The arm does not shift the tail uniformly. It **collapses the p90 by 5.7x, cuts the share over half a
+second by 5.3x, and empties the region beyond two seconds entirely**, while the p99 only halves. A reader
+choosing a topology is usually choosing against the 2-second region rather than against a percentile, and
+that region goes from 72 requests to none. This is free evidence from the run already bought — it is
+reported here because the registered statistic alone understates what was measured, not because the bar
+moved. **The bar did not move, and the arm still misses it.**
 
 **What three studies say together, stated carefully.** Admission (M5-b) missed its bar at 83.7x. Engine
 scheduling (the price-of-protection run) reached 20.7x at best. This study reaches **14.5x**. Each missed
