@@ -82,6 +82,45 @@ The estimate uses the rate this study actually measured rather than the 8.3 minu
 budgets used, which was a single-engine figure applied to cells that roll out two. Spent so far: about
 **$1.47**.
 
+## THE ANSWER: the two runs agree on every cell, and the bracket holds
+
+Added 2026-09-14 after the run. Nothing above this line has been edited since its first cell was bought.
+
+| cell | first run | repetition | difference | both runs |
+| --- | ---: | ---: | ---: | --- |
+| `rung02-shared` | 1,694.7 ms | 1,693.4 ms | **−1.3 ms** | BREACH |
+| **`rung02-timeSlicing`** | **130.4 ms** | **132.4 ms** | **+2.0 ms** | **met** |
+| `rung03-shared` | 2,303.3 ms | 2,309.1 ms | +5.8 ms | BREACH |
+| **`rung03-timeSlicing`** | **143.2 ms** | **143.5 ms** | **+0.3 ms** | **BREACH** |
+| `rung03-R1` | 64.0 ms | 63.7 ms | −0.3 ms | met |
+
+Every cell offered 1,164 or 2,327 premium requests and exactly 139 contender requests, as registered.
+
+**The combination rule registered above resolves to the first branch on all four contended cells: both runs
+agree, so each cell's verdict stands.** The split's sustainable premium rate is **at least 2.31 req/s and
+below 4.61**, and that bracket is no longer resting on one pair of cells.
+
+**The two cells that set the edge moved by 2.0 ms and 0.3 ms between independent sessions, on different
+instances and different physical cards.** Their distances from the target are 8.6 ms and 4.2 ms. So the
+margins are four times and fourteen times the repeat movement actually measured — which is what this page
+was bought to find out, and it could as easily have gone the other way.
+
+**What did not need buying, in hindsight, is nothing.** Before this run the edge rested on 130.4 and
+143.2 ms against a repeat noise figure borrowed from a different arm of a different study. Borrowing it was
+the only option; measuring it was worth $0.90.
+
+### A defect the run found in the session's last line
+
+The wrapper bought every cell, downloaded every cell, and then **failed its own end-of-session check**,
+demanding `rung01-shared` and `rung01-timeSlicing` — arms this page had explicitly told it not to buy. Its
+list of expected arms was written before `skip` existed and counted rung *positions* as purchases.
+
+Nothing was lost: the evidence above came out of that run, and the instance was terminated correctly. But
+**the session's last word on a successful run was FAIL**, which is the one thing an end-of-session check
+must never say wrongly — an operator who trusts it would have thrown the run away or bought it again.
+`hack/test/check-ladder-refusals.sh` now pins that the wrapper's expectation and the runner's plan agree
+about a skipped rung.
+
 ## What this run will not be able to say
 
 - **Anything about rung 1**, which it does not buy.
