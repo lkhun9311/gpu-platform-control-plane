@@ -108,9 +108,27 @@ check_refusal "LADDER beside REPS"         "REPS and LADDER are both set"       
 check_refusal "LADDER beside ARMS"         "ARMS and LADDER are both set"         ARMS=R1
 check_refusal "LADDER beside NOISY_WEIGHT" "NOISY_WEIGHT and LADDER are both set" NOISY_WEIGHT=0.02
 
+say "5. does the SESSION WRAPPER refuse a load described twice, before it rents anything?"
+check_session_refusal() {
+  local what="$1" want="$2"; shift 2
+  set +e
+  out=$(env "$@" LADDER="1:1" OUT="$WORK/sess" bash hack/m5c-gpu-session.sh 2>&1)
+  code=$?
+  set -e
+  [ "$code" != "0" ] || { bad "$what was accepted by the session wrapper"; return; }
+  printf '%s' "$out" | grep -q "$want" && ok "$what is refused before anything is rented" || bad "$what: $(printf '%s' "$out" | head -3)"
+}
+# The wrapper carries its own copy of these refusals on purpose: it EXPORTS into the matrix, so when the two
+# disagree the wrapper wins and the matrix's refusal is dead text. A run that reached the instance with both
+# a ladder and a single load would be refused on the card, after the bring-up was paid for.
+check_session_refusal "LADDER beside RATE"         "RATE and LADDER are both set"         RATE=9
+check_session_refusal "LADDER beside REPS"         "REPS and LADDER are both set"         REPS=2
+check_session_refusal "LADDER beside ARMS"         "ARMS and LADDER are both set"         ARMS=R1
+check_session_refusal "LADDER beside NOISY_WEIGHT" "NOISY_WEIGHT and LADDER are both set" NOISY_WEIGHT=0.02
+
 echo
 if [ "$failures" = "0" ]; then
-  say "LADDER REFUSALS PINNED: the stop, the continue, the unscorable rung and the four double-described loads."
+  say "LADDER REFUSALS PINNED: the stop, the continue, the unscorable rung, and the double-described load in BOTH scripts."
 else
   echo "FAILED: $failures assertion(s) above." >&2
   exit 1
