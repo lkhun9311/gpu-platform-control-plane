@@ -588,6 +588,52 @@ is that each failed to reach its own bar; the size of any incremental benefit be
 not the mechanism's price: two engines carry two copies of the weights, so the split arms hold about half
 the control's KV cache. That is inseparable from the topology and no arm could hold it constant.
 
+### What this evidence still cannot decide, and what would
+
+Added 2026-09-13 after a review of the ninth pilot's own conclusions.
+
+**The capacity half of this page's question is not answered.** Every arm delivered the same 595,840 premium
+output tokens, because the trace asks for a fixed amount of work and every arm finished it. Equal totals are
+consistent with ample headroom, with brief saturation, and with a backlog that drained afterwards — they do
+not distinguish the three. And the premium tenant's client concurrency reaches **52 against 32 engine
+sequence slots for about 38 seconds** in the split arm, so "the premium side was never saturated" is not
+available either.
+
+The reported premium throughputs (589.3 / 586.9 / 584.0 tok/s) also divide by the WHOLE ARM's elapsed time,
+and in the split arm the contender finishes **3.31 s after** the premium tenant. Measured against premium's
+own last completion the split reads **587.8 tok/s**, so even the apparent 0.9% gap partly charges the
+premium tenant for another tenant's drain. **Neither topology's maximum was located, so no percentage of
+capacity lost can be stated.**
+
+What the drains do support, measured and reproducible to a hundredth of a second across both repetitions:
+
+| | premium's own drain after its last arrival |
+| --- | ---: |
+| `R1` | **1.03 s** |
+| `shared` | **3.14 s** |
+| `timeSlicing` | **2.35 s** |
+
+The split leaves the premium tenant *less* backlog than the control does. The arm's total drain is longer
+(5.66 s) and that tail is the contender's engine finishing on its own half, which does not block premium.
+
+**What would answer it** is a registered definition of capacity — maximum completed throughput, or the
+maximum rate that still meets a stated service requirement — and several premium rates to bracket it, with
+the contender's arrival rate held fixed in absolute terms rather than by weight. One higher rate is not
+enough: it can overload both arms, neither, or leave the client timeout deciding the answer.
+
+**And the ordering confound is not broken by one reversed run.** Reversing `R1 → shared → timeSlicing` to
+`timeSlicing → shared → R1` leaves **`shared` in the middle in both**, so its position never varies and the
+shared-versus-split contrast stays entangled with position. A separate session also mixes order effects
+with session effects. What would work is counterbalancing the pair that matters — `shared → timeSlicing`
+and `timeSlicing → shared` within blocks, with startup and drain conditions standardised — and repetition
+enough to see carryover.
+
+**No numerical attribution of the 884.6 ms to position is available from this evidence.** The two
+repetitions show the difference reproduces (890.2 ms and 879.3 ms) and that R1 moves 0.179 ms when it meets
+a card the other arms have already used. That weakens an explanation built on simple drift. It does not
+bound the position contribution, which could be zero, all of it, or larger than all of it with the topology
+pulling the other way.
+
 ## The bars do not move, and that is deliberate
 
 **Premium TTFT p99 at or below 2x R1. Premium TPOT p99 at or below 1.25x R1.** The same numbers the
