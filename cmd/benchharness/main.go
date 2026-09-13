@@ -407,6 +407,15 @@ func ladderVerdict(args []string) error {
 	if err != nil {
 		return err
 	}
+	// The SAME evidence refusal the report applies, before a purchase decision is made on the evidence.
+	//
+	// It was absent here, so a rung whose two cells replayed different traces -- which `report` refuses with
+	// a non-zero exit -- produced LADDER: CONTINUE and bought the next rung. The cheap decision accepted
+	// evidence the expensive one would throw away.
+	if terr := e.refuseIfTracesDisagree(); terr != nil {
+		fmt.Println("LADDER: INVALID")
+		return fmt.Errorf("rung %d cannot be scored: %w", *rung, terr)
+	}
 	summaries, _ := e.summarize()
 	res := bench.EvaluateThroughputLadder(summaries)
 
@@ -416,6 +425,13 @@ func ladderVerdict(args []string) error {
 			fmt.Println("LADDER: INVALID")
 			return fmt.Errorf("rung %d cannot be scored: %s", *rung, r.Detail)
 		}
+	}
+	// An INCOMPLETE requested rung is not a stopping point, and the caller cannot tell the two apart from a
+	// boolean. Asking about a rung whose pair is not in the evidence used to print STOP and exit 10, which
+	// the runner acts on by ending the climb -- a missing cell reported as a registered result.
+	if !bench.LadderRungComplete(res, *rung) {
+		fmt.Println("LADDER: INVALID")
+		return fmt.Errorf("rung %d is not complete in this evidence, so there is no verdict to give: both contended topologies must be present and scorable", *rung)
 	}
 	cont, detail := bench.LadderShouldContinue(res, *rung)
 	if cont {
@@ -561,6 +577,11 @@ func report(args []string) error {
 			if r.Fired && r.ID == "L0" {
 				return fmt.Errorf("run invalid: reading L0 fired -- %s", r.Detail)
 			}
+		}
+		// A FINAL report needs the baseline; a between-rung verdict does not, which is why this is here and
+		// not in L0. ladderVerdict deliberately does not consult it.
+		if ladder.BaselineMissing {
+			return fmt.Errorf("run invalid: %s", ladder.BaselineNote)
 		}
 	}
 	return nil
