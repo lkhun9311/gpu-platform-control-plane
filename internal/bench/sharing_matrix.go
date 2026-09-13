@@ -884,7 +884,7 @@ func FormatSharingMatrix(res SharingResult) string {
 		mark := "     "
 		switch {
 		case r.Fired:
-			mark = "FIRED"
+			mark = readingFired
 		case r.NotEvaluable:
 			mark = " N/E "
 		}
