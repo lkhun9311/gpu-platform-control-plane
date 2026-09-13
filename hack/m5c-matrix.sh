@@ -1281,6 +1281,13 @@ for spec in "${CELLS[@]}"; do
       || fail "ladder-verdict exited 10 for rung $cell_rung without saying STOP. See $verdict_out"
     say "rung $cell_rung: both topologies breached the target, which is the registered stopping point"
     LADDER_STOPPED_AT="$cell_rung"
+    # The budget has to learn that the rungs above this one will not be bought.
+    #
+    # cells_total still counted every planned cell, so after a STOP at rung 1 of a four-rung ladder the
+    # deadline projection asked for seven more cells when only the baseline remained -- and would refuse to
+    # buy it with twenty minutes in hand. The stopping rule cancelled the purchases; nothing cancelled the
+    # estimate of them.
+    cells_total=$(( cells_done + 1 ))
     break
   fi
   fail "ladder-verdict could not score rung $cell_rung (exit $verdict_code). The cells it refused are named in $verdict_out and in this run's log; a rung that cannot be scored is not a rung that breached, and climbing past it would build the bracket on it."
@@ -1292,14 +1299,31 @@ done
 # are the same observation. It is one cell because the criterion is an absolute millisecond figure fixed
 # before the run, which is what makes a per-rung baseline unnecessary -- see the pre-registration.
 if [ -n "$LADDER" ]; then
-  ladder_top="${LADDER_STOPPED_AT:-$ladder_rung}"
+  # The fallback is the highest rung that HAS CELLS, not the last position in the list.
+  #
+  # $ladder_rung counts every entry including `skip`, so a ladder ending in a skip made ladder_top name a
+  # rung with no cells: the loop below matched nothing, bought no baseline, and the `say` line above it
+  # announced a purchase that did not happen. Nothing downstream said so until the session's final check,
+  # which is a long way from the decision.
+  ladder_planned_top=0
+  for spec in "${CELLS[@]}"; do
+    IFS='|' read -r _ _ _ _ _ cell_rung <<<"$spec"
+    [ "$cell_rung" -le "$ladder_planned_top" ] || ladder_planned_top=$cell_rung
+  done
+  ladder_top="${LADDER_STOPPED_AT:-$ladder_planned_top}"
   say "buying the isolated baseline at rung $ladder_top, the rung this ladder ended on"
+  ladder_baseline_bought=0
   for spec in "${CELLS[@]}"; do
     IFS='|' read -r cell_topology cell_label cell_rep cell_rate cell_weight cell_rung <<<"$spec"
     [ "$cell_rung" = "$ladder_top" ] || continue
     run_cell R1 "$(printf 'rung%02d' "$ladder_top")-R1" 1 "$cell_rate" "$cell_weight"
+    ladder_baseline_bought=1
     break
   done
+  # A loop that can find nothing must say so. Without this the run ends looking complete and the readings
+  # lose the cell that tells a topology's limit apart from this model's on this card.
+  [ "$ladder_baseline_bought" = 1 ] \
+    || fail "the ladder ended at rung $ladder_top and no cell of that rung is in the plan, so its isolated baseline was never bought. Without it, 'the split ran out of capacity' and 'one engine ran out of capacity' are the same observation"
 fi
 
 
