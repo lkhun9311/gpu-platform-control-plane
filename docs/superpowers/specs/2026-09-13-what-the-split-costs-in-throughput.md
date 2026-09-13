@@ -233,6 +233,55 @@ breaching cell from the ninth pilot's own rows with the first-token waits rewrit
 verdict says STOP, exits the code the runner breaks on, and is told apart from the exit an unscorable rung
 produces.
 
+## What the ladder answered, and why the answer was decided before it ran
+
+Added 2026-09-13 after the first cells were bought. Nothing above this line has been edited since, which is
+what this page promised.
+
+**The answer is reading L5: no qualified operating point at or above the bottom rung.** The two cells of
+rung 1 were measured on a fresh instance and a fresh card, and both breached the 139.0 ms target:
+
+| rung 1 cell | premium TTFT p50 | p90 | p99 | target |
+| --- | ---: | ---: | ---: | ---: |
+| `rung01-shared` | 59.1 ms | 927.6 ms | **1,896.0 ms** | 139.0 ms |
+| `rung01-timeSlicing` | 106.8 ms | 161.1 ms | **1,013.2 ms** | 139.0 ms |
+
+**That result was determined before any card was rented, and this page did not notice.** The ninth pilot
+measured exactly this load at 1,892.2 / 1,893.5 ms and 1,001.9 / 1,014.2 ms. The target is 139.0 ms. Both
+topologies therefore miss the bottom rung by a factor of seven, in numbers this page cites in its own second
+paragraph — so a ladder that CLIMBS from there could return nothing but L5, whatever the higher rungs did.
+
+The outcome space anticipated the shape and said the honest thing about it: "the ladder searched upward and
+the answer is below where it started". What it did not do is check, before spending, whether the bottom rung
+was already below the answer. **A search direction is part of a design, and this one was chosen without
+looking at the evidence that decided it.** Two cells were bought to re-confirm a number the study already
+had.
+
+**What the two cells are worth anyway.** They are a third independent replication of the ninth pilot's
+control and split, on a different instance and a different physical card: the control lands 2.5 ms and
+3.8 ms from its two earlier measurements and the split 11.3 ms and 1.0 ms from its own. That bounds the
+session-and-card effect on this comparison at a few milliseconds against a difference of 883 ms, which is
+the tie this page's rung 1 was designed to buy — and it is the only part of it that was not already known.
+
+**And a defect in the runner nearly hid the answer.** The verdict command scored rung 1 correctly, wrote
+`LADDER: STOP` and exited 10. The runner read the status with `$?` **after an `if`**, which is the `if`
+statement's status and not the command's — 0 when the condition failed and no `else` ran. So a correct stop
+arrived as 0 and the session ended reporting the rung *unscorable*, which is the one thing it was not.
+
+The rehearsal could not have caught it: a stub answers in milliseconds, so on a free cluster every rung
+CONTINUEs and the stopping branch never executes. The exit code had been pinned — of the **command**, not of
+the script's reading of it. `hack/test/rehearse-m5c-matrix.sh` now drives the real runner through that
+branch with a shim that answers only `ladder-verdict`, and the defect was confirmed to fail it before the
+fix was confirmed to pass it.
+
+**Cost of the day: about $0.40** — $0.05 for a session the host killed under memory pressure four minutes in
+(its exit trap terminated the instance correctly), and about $0.35 for the two cells above.
+
+**What a ladder that could answer the capacity question looks like is a different page**, because this one
+is frozen from the moment its first cell was bought. It has to search **downward** from 9.22 premium
+requests per second, and its rungs have to be chosen after looking at what the answered run already says
+about where the target lies.
+
 ## What this run will not be able to say
 
 - **Anything about maximum throughput.** The criterion is service-qualified. An arm that breaches 139.0 ms
