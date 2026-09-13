@@ -202,7 +202,7 @@ func genTrace(args []string) error {
 	// That way premium arrives on the identical schedule it has in the contended arms.
 	//
 	// So the 1.25x baseline is not inflated by running premium at double its share.
-	if *arm == "R1" {
+	if bench.IsIsolatedBaseline(*arm) {
 		premiumOnly := rows[:0]
 		for _, r := range rows {
 			if !r.IsNoisy {
@@ -814,7 +814,16 @@ func (e *armEvidence) refuseIfTracesDisagree() error {
 	// R1 legitimately differs (it is the same trace with the contender filtered out).
 	//
 	// So it is excluded from the identity check.
-	var wantSum string
+	// The identity holds WITHIN A COMPARISON GROUP, which is the whole study for every experiment that
+	// offers one load and one rung for the capacity ladder, which offers four.
+	//
+	// It was written as one group across all arms, and that is correct for every study that existed when it
+	// was written. The ladder broke it in the direction that matters: its rungs replay DIFFERENT traces on
+	// purpose -- that is what a rung is -- so the report refused the ladder's own evidence after the cells
+	// were bought. The first ladder rehearsal caught it on a free cluster; on a card it would have refused
+	// at the end of the session, with every cell paid for.
+	wantSum := map[string]string{}
+	wantSumFrom := map[string]string{}
 	for _, arm := range e.contendedArms() {
 		sum, ok := e.checksum[arm]
 		if !ok {
@@ -823,11 +832,14 @@ func (e *armEvidence) refuseIfTracesDisagree() error {
 		if sum == "" {
 			return fmt.Errorf("arm %s carries no trace checksum; regenerate its manifest with a current gen-trace", arm)
 		}
-		if wantSum == "" {
-			wantSum = sum
-		} else if sum != wantSum {
-			return fmt.Errorf("arm %s replayed a different trace (%s) than the other contended arms (%s);"+
-				" a valid comparison needs one immutable trace", arm, sum, wantSum)
+		g := comparisonGroup(arm)
+		if _, seen := wantSum[g]; !seen {
+			wantSum[g], wantSumFrom[g] = sum, arm
+			continue
+		}
+		if sum != wantSum[g] {
+			return fmt.Errorf("arm %s replayed a different trace (%s) than %s (%s);"+
+				" arms compared against each other need one immutable trace", arm, sum, wantSumFrom[g], wantSum[g])
 		}
 	}
 
@@ -856,33 +868,52 @@ func (e *armEvidence) refuseIfTracesDisagree() error {
 	// arms of different lengths cannot be compared at all, which is a statement about the evidence rather than
 	// about the guard.
 	contended := e.contendedArms()
-	wantRows, wantFrom := 0, ""
+	wantRows := map[string]int{}
+	wantFrom := map[string]string{}
 	for _, arm := range contended {
+		g := comparisonGroup(arm)
 		for i, n := range e.repRows[arm] {
-			if wantRows == 0 {
-				wantRows, wantFrom = n, fmt.Sprintf("%s[%d]", arm, i)
+			if wantRows[g] == 0 {
+				wantRows[g], wantFrom[g] = n, fmt.Sprintf("%s[%d]", arm, i)
 				continue
 			}
-			if n != wantRows {
+			if n != wantRows[g] {
 				return fmt.Errorf("arm %s repetition %d recorded %d rows but %s recorded %d;"+
 					" these arms share one immutable trace, so a shorter recording means a run that did not finish,"+
 					" and the requests it is missing are the late ones contention makes slow",
-					arm, i, n, wantFrom, wantRows)
+					arm, i, n, wantFrom[g], wantRows[g])
 			}
 		}
 	}
 
-	// R1 replays the same trace with the contender filtered out, so its count legitimately differs from the
-	// contended arms -- but not from itself.
-	for i, n := range e.repRows["R1"] {
-		if n != e.repRows["R1"][0] {
-			return fmt.Errorf("arm R1 repetition %d recorded %d rows but repetition 0 recorded %d;"+
-				" its repetitions replay one trace and must record the same number of rows",
-				i, n, e.repRows["R1"][0])
+	// A baseline replays the same trace with the contender filtered out, so its count legitimately differs
+	// from the contended arms -- but not from itself.
+	//
+	// Every baseline, not the literal "R1": the ladder's is called rung02-R1, and a loop over one hardcoded
+	// name would have checked nothing at all for it while looking exactly as though it had.
+	for arm, rows := range e.repRows {
+		if !bench.IsIsolatedBaseline(arm) {
+			continue
+		}
+		for i, n := range rows {
+			if n != rows[0] {
+				return fmt.Errorf("arm %s repetition %d recorded %d rows but repetition 0 recorded %d;"+
+					" its repetitions replay one trace and must record the same number of rows",
+					arm, i, n, rows[0])
+			}
 		}
 	}
 	return nil
 }
+
+// comparisonGroup names the set of arms an arm is compared against, which is what "one immutable trace"
+// has to hold within.
+//
+// Every study but one offers a single load, so every arm is in one group and the group name is empty. The
+// capacity ladder offers a different load per rung by design, so its group is the rung: rung01-shared and
+// rung01-timeSlicing must replay the same trace as each other and MUST NOT replay the same trace as
+// rung02's cells -- a ladder whose rungs agreed would be four measurements of one load.
+func comparisonGroup(arm string) string { return bench.ArmComparisonGroup(arm) }
 
 // frozenMatchTolerance prefers the tolerance recorded in the evidence over the CLI default.
 func (e *armEvidence) frozenMatchTolerance(fallback float64) float64 {
@@ -913,7 +944,7 @@ func (e *armEvidence) contendedArms() []string {
 	}
 	arms := make([]string, 0, len(study.Arms))
 	for _, a := range study.Arms {
-		if a != bench.ArmR1 {
+		if !bench.IsIsolatedBaseline(a) {
 			arms = append(arms, a)
 		}
 	}
