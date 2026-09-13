@@ -1194,7 +1194,7 @@ func evaluateRegisteredReadings(e *armEvidence, summ map[string]bench.ArmSummary
 		return nil, evaluatePoP(summ, summaries), nil, nil
 	case bench.StudySharingMatrix:
 		return nil, nil, evaluateSharingMatrix(summ, summaries, refusalsBeside(rawFiles)), nil
-	case bench.StudyThroughputLadder:
+	case bench.StudyThroughputLadder, bench.StudyThroughputLadderDown:
 		// The ladder takes the summaries rather than the arm map, because its cells are identified by rung
 		// and topology parsed out of the arm name and it has to see every one of them -- including arms this
 		// study does not name, which it ignores.

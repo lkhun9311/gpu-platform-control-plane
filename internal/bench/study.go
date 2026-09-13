@@ -60,6 +60,19 @@ const (
 	// a p99 for a load that was never offered. Its arm names carry the rung for the same reason -- see
 	// ThroughputLadderArm.
 	StudyThroughputLadder = "throughput-ladder-2026-09-13"
+	// StudyThroughputLadderDown is the second capacity ladder, pre-registered in
+	// docs/superpowers/specs/2026-09-13-the-ladder-has-to-search-downward.md.
+	//
+	// Same arms, same criterion, same readings, different RUNGS: the first ladder climbed from the load the
+	// sharing matrix answered, and both topologies already missed the target there by a factor of seven, so
+	// it could return nothing but "no qualified operating point at or above the bottom rung". This one places
+	// its rungs BELOW that load.
+	//
+	// A separate study rather than new rungs on the old one for the reason the old one's arm names carry
+	// their rung: rung01 means a different offered load in each, and evidence that pooled them would report a
+	// p99 for a load nobody offered. The trace-identity refusal would also catch it, but a refusal is not the
+	// same as a reader being able to tell two experiments apart.
+	StudyThroughputLadderDown = "throughput-ladder-down-2026-09-13"
 )
 
 // The factors the price-of-protection sweep crosses.
@@ -224,6 +237,10 @@ var studies = map[string]Study{
 	},
 	StudyThroughputLadder: {
 		ID:   StudyThroughputLadder,
+		Arms: throughputLadderArms(),
+	},
+	StudyThroughputLadderDown: {
+		ID:   StudyThroughputLadderDown,
 		Arms: throughputLadderArms(),
 	},
 }
