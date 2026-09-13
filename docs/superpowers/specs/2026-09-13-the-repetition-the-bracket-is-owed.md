@@ -130,6 +130,59 @@ must never say wrongly — an operator who trusts it would have thrown the run a
 `hack/test/check-ladder-refusals.sh` now pins that the wrapper's expectation and the runner's plan agree
 about a skipped rung.
 
+## What an adversarial review found afterwards
+
+Added 2026-09-14. An independent review was asked to attack the instrument and the claims, and was told the
+six defects already found so that it would look for the seventh. It found sixteen more of the same shape —
+a guard that exists and is not consulted, or a test that cannot reach what it claims to cover — and five
+claims on these pages that reached past the evidence. **It verified the result itself**: all 21,178 raw rows
+match their trace hashes, counts, indices, tenants and offsets; both topologies replay identical traces
+within each rung; repeated rungs replay identical traces across sessions; every pass/breach classification
+reproduces. **No verdict on this page changed.**
+
+### Fixed, with the counterexample each one was found by
+
+| what was wrong | what it would have produced |
+| --- | --- |
+| The ladder applied per-cell guards to **pooled** replays | Passing both paid sessions reported 278 contender offers where each offered 139; two replays of 300 completions and 70 contender offers each pooled into 600/140, cleared both floors, and returned a verdict on a cell where neither replay was scorable. **This page's own combination rule says the runs are never pooled, and the instrument had no way to enforce it.** It now refuses a pooled cell |
+| Heavy censoring was classified **unscorable before breach** | An arm losing a fifth of its premium requests to timeouts — which is what breaching looks like at a high offered rate — came back INVALID for having too few completions left to estimate a p99 from. The instrument refused to score its own clearest failure. Workload integrity is now asked first, then censoring as a **breach**, then the tail floor |
+| `ladder-verdict` skipped the trace-identity refusal | A rung whose two cells replayed different traces printed `LADDER: CONTINUE` and bought the next rung, on evidence `report` refuses with exit 1. The cheap decision accepted what the expensive one throws away |
+| A **missing** requested rung became a registered STOP | Asking about a rung that was never measured exited 10, which the runner acts on by ending the climb. A boolean cannot carry "not here" and "stop here"; there is now a separate completeness question |
+| The final report did not require the **baseline** | Removing the isolated-baseline file left the report at exit 0 saying "no isolated-baseline cell breached the target" when none had been measured. The requirement is now on the final report and deliberately **not** on between-rung verdicts, which run before the baseline is bought |
+| A STOP did not cancel the **budget** for the rungs it cancelled | After a stop at rung 1 of a four-rung ladder the deadline projection still asked for seven cells and would refuse to buy the baseline with twenty minutes in hand |
+| The baseline purchase could **silently buy nothing** | A ladder whose last entry is `skip` named a rung with no cells; the loop matched nothing, the line above it announced a purchase, and only the session's final check noticed |
+| The refusal suite **exited 0 without its gitignored fixture** | On a fresh clone — always — deleting the production refusals it exists to pin left it green. The shell checks now run regardless; only the three row-based scenarios skip |
+| The skip regression test **tested its own reconstruction** | Commenting out the real guard left it green: the private copy stayed correct and `grep` found the disabled line inside the comment. It now extracts and executes the wrapper's own lines |
+
+Every fix was confirmed by restoring the defect and watching a named test go red.
+
+### Known and not fixed, recorded rather than quietly carried
+
+- **Session identity.** Reusing an output prefix at the same commit can return a previous experiment's
+  evidence and terminate the newly launched instance. The commit guard establishes source identity, not
+  session identity; a run nonce is the fix and is not written.
+- **Row-level identity.** The loader validates study per row but arm and trace only on row zero, so
+  concatenated files pool under `rows[0].Arm`.
+- **An unknown study id falls through** to a warning and exit 0 rather than failing.
+- **The credential margin reads the newest matching-account SSO cache entry**, not the active provider, so
+  another role's longer-lived entry can vouch for a shorter-lived one.
+- **Load validation happens after rental**: a mistyped study, a malformed rung or a missing `DURATION_MS`
+  reaches the card before the refusal. Generating every planned trace locally before launch would move all
+  of it to $0.
+- **The paid matrix never passes the provenance flags**, so its manifests carry no build or image identity.
+- **The kind rehearsal cannot drive a skip-led ladder**, and its forced-STOP path exits before the
+  baseline-isolation and upload-hook assertions.
+
+None of these changes a number on this page. All of them are the same shape as the ones that did.
+
+### And the most dangerous thing that is not a bug
+
+**The stopping rule assumes a capacity boundary can be inferred from the first joint breach.** If batching
+made the split breach at 4.61 req/s and qualify again at 6, the instrument would behave exactly as
+registered — stop at 4.61, never buy 6, and support a confident "below 4.61" that is false. Repeating the
+same trace tests reproducibility at a sampled point; it does not test that assumption. The control's tail is
+already non-monotone across the four rates measured, which is the warning shot.
+
 ## What this run will not be able to say
 
 - **Anything about rung 1**, which it does not buy.
