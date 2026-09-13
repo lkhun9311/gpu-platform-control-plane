@@ -616,7 +616,9 @@ is that each failed to reach its own bar; the size of any incremental benefit be
 
 **The limitation this page registered in advance still applies**, and it is the reason reading 5's price is
 not the mechanism's price: two engines carry two copies of the weights, so the split arms hold about half
-the control's KV cache. That is inseparable from the topology and no arm could hold it constant.
+the control's KV cache. That is inseparable from **this arm set** — a whole-card control deliberately given
+a 6.4 GiB cache would hold the total constant, and was never budgeted. An earlier version of this sentence
+said "no arm could hold it constant", which is false and is corrected in the limits section below.
 
 ### What this evidence still cannot decide, and what would
 
