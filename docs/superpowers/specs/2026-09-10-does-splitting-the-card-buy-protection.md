@@ -781,22 +781,37 @@ gave μ ≈ 0.503 req/s, and it is a sounder method than counting, but it is sti
 Among the contender's own rows there are requests that arrived while **no other contender request was in
 flight**, and their time to first token is that engine's prefill time for this prompt, read off the wire:
 
-| topology | uncontended contender TTFT | n | 1/TTFT |
-| --- | ---: | ---: | ---: |
-| `shared`, whole card | **1.05 s** (1.03–1.34) | 60 | 0.955 req/s |
-| `timeSlicing`, half card | **2.15 s** (2.10–2.21) | 4 | **0.466 req/s** |
+| topology | contender client TTFT with no other contender in flight at arrival | n |
+| --- | ---: | ---: |
+| `shared`, one whole-card engine | **1.05 s** (1.03–1.34) | 60 |
+| `timeSlicing`, two engines time-slicing the card | **2.15 s** (2.10–2.21) | 4 |
 
-**What that last column is not.** A review took this apart and it was right to. `1/TTFT` is a **prefill**
-rate, and a request occupies the engine past its first token: the same four split requests took **2.60,
-4.66, 6.66 and 8.66 s** end to end, so a reciprocal of the median TOTAL would say 0.150 req/s instead of
-0.466. Neither number is the engine's request capacity. vLLM overlaps decode with the next prefill, so the
-truth is between them and this evidence does not locate it. The `n = 4` is thin too, and stricter isolation
-— nobody else arriving before the first token either — leaves **one** request, at 2.10 s.
+The reciprocal column this table used to carry is gone; see below for why.
 
-The earlier wording here said this method "does not infer anything" and called the utilisation figure "the
-whole explanation" for why one arm diverged. Both were overclaims. What the measurement supports is
-narrower: **the split engine's prefill for this prompt takes 2.05x what the whole card's does**, which is
-what time-slicing a card two ways should cost and had never been measured here.
+**What that last column is not — and the reciprocal is not a capacity, so it is withdrawn.**
+
+Two reviews took this apart and the second went further. `1/TTFT` is not even a clean prefill rate: client
+TTFT includes scheduling and delivery, the premium tenant is running throughout, and **three of the four
+"uncontended" requests receive another contender arrival before their first token**. Stricter isolation
+leaves **one** request. Reciprocals of a handful of selected latencies do not bracket a batched engine's
+sustainable throughput in any direction, so **0.466 req/s, 0.150 req/s, the "between them" bracket and the
+49% ratio are all withdrawn.** They are reciprocals of latencies and nothing more.
+
+The small-sample convention needs stating too, because the quoted median is not the conventional one. The
+four split TTFTs are **2.10058, 2.10421, 2.14531, 2.21089 s**: conventional median 2.12476 s, nearest-rank
+median 2.10421 s. This page quoted 2.15, the upper middle observation.
+
+**What survives is a sizing heuristic and its provenance.** A contender prompt's client TTFT on this card
+is about **1.05 s** with one engine and about **2.1 s** with two time-slicing it. That is what the load was
+sized from, and the eighth and ninth pilots then ran that load successfully — which is the evidence that
+the sizing worked, not evidence that an engine serves 0.466 requests per second.
+
+Everything downstream inherits the withdrawal: **"122% of capacity", "ρ = 0.59", "29% busy" and "the queue
+does not diverge" are not established**, because the denominator they divide by was never a capacity. What
+IS established is what the runs delivered: every contender request served with no losses, a contender TTFT
+slope of about **0.0025 s/s** (1.26 s of growth across 505 s, which bursty arrivals can produce without
+unstable queueing), and the drains recorded above. Sustained stability at this rate is not established by
+two runs of 505 seconds.
 
 The whole-card figure independently reproduces the **1.03 s** that
 `2026-09-09-what-would-have-to-change.md` derived from a different run, which is the check that the method
@@ -814,7 +829,7 @@ the two agree to 8%.
 
 | | |
 | --- | --- |
-| split-engine contender **prefill** rate | **0.466 req/s** (1 / the measured 2.15 s, and NOT a request capacity — see above) |
+| the sizing heuristic | **1 / 2.15 s**, used as a rate to size from. It is NOT a measured capacity — see the withdrawal above — and the load it produced was then validated by running it |
 | × the registered 0.6 | **0.279 req/s** |
 | trace duration | **`DURATION_MS=505000`** |
 
@@ -826,17 +841,19 @@ card is rented. Running `gen-trace` at the proposed tuple gives:
 ```
 RATE=9.4045  PREMIUM_WEIGHT=1  NOISY_WEIGHT=0.0260  PROBE_WEIGHT=0  DURATION_MS=505000
   -> premium-1      4655 offers  (9.218/s, against the 9.243/s being held)
-  -> standard-noisy  139 offers  (0.275/s, ρ = 0.59 of the split engine)
+  -> standard-noisy  139 offers  (0.275/s, 0.59 of the sizing heuristic -- not a measured utilisation)
 ```
 
-139 contender offers against reading 4b's floor of 100 leaves room to lose **39 of them**, and at ρ = 0.59
-the queue does not diverge, so losses should be near zero. This replaces an earlier argument on this page
+139 contender offers against reading 4b's floor of 100 leaves room to lose **39 of them**. Whether the
+queue would stay stable was a prediction from the heuristic, not a derivation from a measured utilisation;
+the eighth and ninth pilots then lost none. This replaces an earlier argument on this page
 that reasoned about Poisson variance around a mean of 140: the draw is not random once the seed is fixed,
 and a count that can be computed should not be argued about.
 
 **The corridor was checked, not assumed.** Lowering the contender's rate also lowers the contention the
 control produces, and reading 4 invalidates the run below 5x. At 0.279 req/s the whole-card engine is busy
-with contender work **29%** of the time, against the 1% a p99 needs before it lands inside such a busy
+with contender work about **29%** of the time by the same heuristic -- an occupancy estimate, not a
+measurement -- against the 1% a p99 needs before it lands inside such a busy
 period. The margin is large but the inference is **not proven**: occupancy above 1% does not by itself put
 the p99 above 5x, since an arrival late in a busy period waits only for its remainder. What supports it is
 the control's own rows at the old load, where **1,869 of 3,882** premium requests exceeded one prefill time
