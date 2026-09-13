@@ -144,6 +144,26 @@ printf '%s' "$plan" | grep -q "5 cell" \
   && ok "and it is 5 cells: two rungs times two topologies plus the baseline" \
   || bad "the plan is not five cells: $plan"
 
+say "7. does the session wrapper expect only the arms a skip-led ladder was told to buy?"
+# The wrapper's end-of-session check is a different copy of "what should exist" from the runner's plan, and
+# the two disagreed: the repetition of rungs 2 and 3 bought and downloaded every cell, then failed demanding
+# rung01-shared and rung01-timeSlicing. The evidence was fine; the session's last word was not.
+expected=$(LADDER="skip 2:0.1 3:0.05" bash -c '
+  expected_arms=""; _rung=0
+  for _entry in $LADDER; do
+    _rung=$(( _rung + 1 ))
+    [ "$_entry" != skip ] || continue
+    expected_arms="$expected_arms $(printf "rung%02d-shared rung%02d-timeSlicing" "$_rung" "$_rung")"
+  done
+  printf "%s" "$expected_arms"')
+printf '%s' "$expected" | grep -q rung01 \
+  && bad "the wrapper still expects rung01 arms from a ladder whose first rung is skip: $expected" \
+  || ok "it expects only rung02 and rung03:$expected"
+# And the real script must carry the same guard, not just this reconstruction of it.
+grep -q '\[ "$_entry" != skip \] || continue' hack/m5c-gpu-session.sh \
+  && ok "and hack/m5c-gpu-session.sh carries that line" \
+  || bad "hack/m5c-gpu-session.sh does not skip skipped rungs when building what it expects"
+
 echo
 if [ "$failures" = "0" ]; then
   say "LADDER REFUSALS PINNED: the stop, the continue, the unscorable rung, and the double-described load in BOTH scripts."
