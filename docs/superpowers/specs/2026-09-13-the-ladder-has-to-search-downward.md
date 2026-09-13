@@ -101,6 +101,78 @@ under either topology — a finding, not a failed run.
 Spent on this study so far: about **$0.40** — a session the host killed four minutes in, and the two cells
 that returned L5.
 
+**What it actually cost: about $1.07**, for 94 minutes of instance. The estimate used 8.3 minutes per cell,
+which is what the sharing matrix measured for cells that roll out ONE engine; five of this ladder's seven
+roll out two. Recorded here rather than quietly corrected, because a budget that is only ever right in
+hindsight is not a budget. **Total across both ladders and the killed session: about $1.47.**
+
+## THE ANSWER
+
+Added 2026-09-13 after the run. Nothing above this line has been edited since the first cell was bought.
+
+```
+ANSWER: L1 -- the topologies sustain different loads
+```
+
+**The split sustains premium load at a target the whole card does not meet at any rate this ladder offered.**
+
+| rung | premium offered | `shared` premium TTFT p99 | `timeSlicing` premium TTFT p99 |
+| ---: | ---: | ---: | ---: |
+| 1 | 1.16 req/s | 1,282.5 ms **BREACH** | **123.8 ms met** |
+| 2 | 2.31 req/s | 1,694.7 ms **BREACH** | **130.4 ms met** |
+| 3 | 4.61 req/s | 2,303.3 ms **BREACH** | 143.2 ms **BREACH** |
+| — | 9.22 req/s, measured three times before this ladder | 1,892 / 1,894 / 1,896 ms BREACH | 1,002 / 1,013 / 1,014 ms BREACH |
+
+The contender was held at **139 offers in every cell**, and completed **139 of 139 in every cell**.
+
+**The sustainable premium rate, as this page defined it before the run:**
+
+- **`timeSlicing`: at least 2.31 req/s, and below 4.61.**
+- **`shared`: below 1.16 req/s. The ladder did not locate it**, and could not: the sample floor puts the
+  bottom rung at about 1 req/s for this trace length.
+
+That is the capacity answer the sharing matrix could not produce, and it points the opposite way to the
+question's framing. The question asked what the premium tenant **pays** in capacity for separation. At this
+contender load the answer is that it **pays nothing and gains**: the whole card has no qualified operating
+point in the measured range and the split has one.
+
+**Why the control cannot be rescued by offering it less.** Its p99 gets *worse* as the premium rate falls
+toward the bottom rung only in the sense that it stays enormous — 1,282 ms at 1.16 req/s against 2,303 ms at
+4.61. The tail is not made of premium queueing behind premium. It is made of premium queueing behind a
+contender prefill, and there are 139 of those whatever the premium rate is. **Lowering premium load cannot
+fix a tail the other tenant produces**, which is the mechanism this study registered in its first page and
+the first time it has been shown at the bar.
+
+**The isolated baseline says the engine was not the limit.** `rung03-R1` measured **64.0 ms** at 4.61 req/s
+uncontended, so reading L4 is correctly silent: what rung 3 located is a topology's limit, not this model's
+on this card.
+
+### What is soft about this result, stated before anyone quotes it
+
+**Both cells that set the split's bracket are within a tenth of the target, and the registered repeat rule
+fired for both rungs.** 130.4 ms and 143.2 ms sit either side of 139.0 ms by 8.6 and 4.2 ms, and the
+instrument's own repeat noise on a control was 1.4 ms across repetitions of one trace. That is a margin of
+three to six times the measured noise, not a comfortable one. **The upper edge of [2.31, 4.61) rests on
+those two cells and a repetition of rungs 2 and 3 is owed.** The pre-registration asked for it in advance
+precisely so that it could not be skipped once the numbers were known.
+
+Nothing about the *direction* of the result is soft: `shared` misses by a factor of nine to seventeen at
+every rung, which no repetition moves.
+
+### What the split costs, since it is not free
+
+| at rung 1 (1.16 req/s) | `shared` | `timeSlicing` | |
+| --- | ---: | ---: | ---: |
+| premium TTFT median | 50.0 ms | 83.2 ms | **1.7x worse** |
+| premium TTFT p99 | 1,282.5 ms | 123.8 ms | **10.4x better** |
+| contender completion median | 1.284 s | 4.163 s | **3.2x worse** |
+| contender completion p99 | 3.942 s | 15.370 s | **3.9x worse** |
+
+The same trade the sharing matrix found, at the same shape: **premium buys its tail with its median, and the
+contender pays for both.** It loses no work — 139 of 139 everywhere — and it waits three to four times as
+long. A platform that runs this topology is choosing that, and should say so to the tenant it is charging
+for it.
+
 ## What this run will not be able to say
 
 - **Anything about rates below about 1 req/s**, for the sample-floor reason above.
