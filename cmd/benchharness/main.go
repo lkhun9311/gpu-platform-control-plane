@@ -419,37 +419,16 @@ func report(args []string) error {
 	// the run disqualified -- a verdict about arms the experiment never had. Another study's readings are
 	// its own, so until they are implemented the report prints that study's tables and says plainly that
 	// it evaluated no criteria, rather than failing it against somebody else's.
-	var checks *bench.Checks
-	var pop *bench.PoPResult
-	var sharing *bench.SharingResult
-	if bench.CanonicalStudyID(e.study) == bench.StudyM5BGateway {
-		var missing []string
-		for _, arm := range []string{bench.ArmR1, "static-cap", "kv-aware"} {
-			if _, ok := summ[arm]; !ok {
-				missing = append(missing, arm)
-			}
-		}
-		if len(missing) > 0 {
-			fmt.Fprintf(os.Stderr, "warning: no records for arm(s) %s; the comparison will be disqualified\n",
-				strings.Join(missing, ", "))
-		}
-		evaluated := bench.EvaluateChecks(summ[bench.ArmR1], summ["static-cap"], summ["kv-aware"], incCI, matchTolerance)
-		checks = &evaluated
-	} else if bench.CanonicalStudyID(e.study) == bench.StudyPriceOfProtection {
-		pop = evaluatePoP(summ, summaries)
-	} else if bench.CanonicalStudyID(e.study) == bench.StudySharingMatrix {
-		sharing = evaluateSharingMatrix(summ, summaries, refusalsBeside(rawFiles))
-	} else {
-		fmt.Fprintf(os.Stderr,
-			"warning: study %s has no implemented readings, so this report shows its measurements and evaluates no criteria\n",
-			e.study)
-	}
+	checks, pop, sharing, ladder := evaluateRegisteredReadings(e, summ, summaries, rawFiles, incCI, matchTolerance)
 	text := bench.FormatReport(summaries, checks, matchTolerance)
 	if pop != nil {
 		text += bench.FormatPriceOfProtection(*pop)
 	}
 	if sharing != nil {
 		text += bench.FormatSharingMatrix(*sharing)
+	}
+	if ladder != nil {
+		text += bench.FormatThroughputLadder(*ladder)
 	}
 
 	if *out != "" {
@@ -509,6 +488,20 @@ func report(args []string) error {
 		for _, r := range pop.Readings {
 			if r.Fired && (r.ID == "4" || r.ID == "4b") {
 				return fmt.Errorf("run invalid: reading %s fired -- %s", r.ID, r.Detail)
+			}
+		}
+	}
+	// The ladder's L0 is its only INVALID reading, and the distinction it draws is the one the runner acts
+	// on: a cell that could not be scored must stop the ladder, and a rung where both topologies BREACHED
+	// must not -- a breach is what the ladder is climbing to find.
+	//
+	// L5 is the same kind of result. "No qualified operating point at or above the bottom rung" is a
+	// finding about where the answer lies, not evidence that failed, and exiting non-zero for it would tell
+	// a wrapper that writes `benchharness report ... || fail` to discard a rung it paid for.
+	if ladder != nil {
+		for _, r := range ladder.Readings {
+			if r.Fired && r.ID == "L0" {
+				return fmt.Errorf("run invalid: reading L0 fired -- %s", r.Detail)
 			}
 		}
 	}
@@ -1075,6 +1068,55 @@ func refusalsBeside(rawFiles []string) map[string]string {
 		return nil
 	}
 	return out
+}
+
+// evaluateRegisteredReadings runs whichever study's readings the evidence belongs to, and none of anybody
+// else's.
+//
+// It is one function rather than four branches inside report for a reason worth keeping: a fifth study adds
+// a case here and nothing else, and report's job stays "load, evaluate, format, decide the exit code". The
+// three checks the M5-b branch names are M5-b's pre-registered comparison. Running them for another
+// experiment asked for static-cap and kv-aware, found neither, and reported the run disqualified -- a
+// verdict about arms the experiment never had. A study whose readings are not implemented gets its tables
+// and a line on stderr saying plainly that no criteria were evaluated, rather than a failure against
+// somebody else's.
+func evaluateRegisteredReadings(e *armEvidence, summ map[string]bench.ArmSummary, summaries []bench.ArmSummary,
+	rawFiles []string, incCI bench.CI, matchTolerance float64,
+) (*bench.Checks, *bench.PoPResult, *bench.SharingResult, *bench.LadderResult) {
+	switch bench.CanonicalStudyID(e.study) {
+	case bench.StudyM5BGateway:
+		// Name the arms that are absent, because the refusal downstream cannot: summ is a map, so a missing
+		// arm yields the zero ArmSummary and EvaluateChecks disqualifies on its zero TailSampleSize. The
+		// refusal WORKS; what it cannot do is say which arm, and that is a bad minute to spend at the end of
+		// a paid session.
+		var missing []string
+		for _, arm := range []string{bench.ArmR1, "static-cap", "kv-aware"} {
+			if _, ok := summ[arm]; !ok {
+				missing = append(missing, arm)
+			}
+		}
+		if len(missing) > 0 {
+			fmt.Fprintf(os.Stderr, "warning: no records for arm(s) %s; the comparison will be disqualified\n",
+				strings.Join(missing, ", "))
+		}
+		evaluated := bench.EvaluateChecks(summ[bench.ArmR1], summ["static-cap"], summ["kv-aware"], incCI, matchTolerance)
+		return &evaluated, nil, nil, nil
+	case bench.StudyPriceOfProtection:
+		return nil, evaluatePoP(summ, summaries), nil, nil
+	case bench.StudySharingMatrix:
+		return nil, nil, evaluateSharingMatrix(summ, summaries, refusalsBeside(rawFiles)), nil
+	case bench.StudyThroughputLadder:
+		// The ladder takes the summaries rather than the arm map, because its cells are identified by rung
+		// and topology parsed out of the arm name and it has to see every one of them -- including arms this
+		// study does not name, which it ignores.
+		evaluated := bench.EvaluateThroughputLadder(summaries)
+		return nil, nil, nil, &evaluated
+	default:
+		fmt.Fprintf(os.Stderr,
+			"warning: study %s has no implemented readings, so this report shows its measurements and evaluates no criteria\n",
+			e.study)
+		return nil, nil, nil, nil
+	}
 }
 
 // evaluateSharingMatrix sorts the M5-c evidence into the roles its readings speak about.
