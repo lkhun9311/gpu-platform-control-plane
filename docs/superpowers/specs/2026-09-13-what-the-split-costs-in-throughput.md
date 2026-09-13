@@ -176,7 +176,7 @@ reported as a ladder that searched in the wrong direction, and searching downwar
 
 | line | cost | note |
 | --- | ---: | --- |
-| implementation and rehearsal | $0 | the matrix takes one load tuple for the whole run; a per-rung load is a new loop dimension and must be rehearsed on kind before anything is rented |
+| ~~implementation and rehearsal~~ | $0 | **done, 2026-09-13, and it bought three defects.** See below |
 | rung 1 and 2, four cells | ~$0.55 | at the ninth pilot's demonstrated $0.68/h and ~8.3 min per cell plus ~25 min of fixed bring-up |
 | rungs 3 and 4 if reached, four cells | ~$0.45 | not spent if the stopping rule fires earlier |
 | the one `R1` cell | ~$0.10 | at whichever rung the ladder stops |
@@ -184,6 +184,44 @@ reported as a ladder that searched in the wrong direction, and searching downwar
 
 Nine pilots of the frozen page cost about $4.85. This page's ladder is priced against the same measured rate
 and does not assume a cheaper instance than the one that produced those figures.
+
+## What the free rehearsal bought, before any card
+
+Added 2026-09-13, after building the instrument and running it end to end on a kind cluster with stub
+engines. The ladder's five cells ran, in the counterbalanced order, and the readings answered **L6** — a
+lower bound, which is the only answer a cluster with no card can legitimately produce.
+
+Three defects were bought for nothing. All three would have surfaced on a rented instance, and two of them
+only after every cell had been paid for.
+
+**1. The report refused the ladder's own evidence.** `refuseIfTracesDisagree` requires every contended arm
+to carry one trace checksum, which is correct for every study that offers a single load. The ladder offers
+a different load per rung **on purpose** — that is what a rung is — so the report ended the run with
+`arm rung02-shared replayed a different trace than the other contended arms`. On a card that refusal
+arrives **after the last cell**, with the whole session spent. The identity now holds within a comparison
+group, which is the whole study for every other experiment and the rung for this one.
+
+**2. The baseline would not have been a baseline.** `gen-trace` filters the contending tenant out of the
+isolated arm's trace, and it decided whether to do that by asking `arm == "R1"`. This ladder's baseline is
+called `rung02-R1`, so the literal would have looked straight past it and produced a "baseline" **carrying
+the contender** — the contended case wearing the denominator's name, with nothing anywhere saying so. The
+question is now asked of a function that knows every study's baseline, and the rehearsal checks the
+tenants in the baseline's own rows rather than trusting it.
+
+**3. The runner died on a banner.** `RATE` and `NOISY_WEIGHT` do not exist in ladder mode, and the line
+that prints the load named them anyway. Under `set -u` that ends the script **after** the cluster and both
+images are built and **before** the first cell. Free here; on a card it is the bring-up time.
+
+The first two are the same shape as the defects the frozen page's journal records: a guard that exists, is
+correct where it was written, and was never told about the case that now matters. Neither announced itself
+as a bug — one refused correct evidence, the other would have accepted wrong evidence silently.
+
+**What the rehearsal still cannot reach** is the stopping rule's STOP branch: no stub is ever slow enough
+to breach a 139 ms target, so on a free cluster the ladder always climbs. That branch is pinned where it is
+decided instead — in `internal/bench`'s tests, and in `hack/test/check-ladder-refusals.sh`, which builds a
+breaching cell from the ninth pilot's own rows with the first-token waits rewritten and checks that the
+verdict says STOP, exits the code the runner breaks on, and is told apart from the exit an unscorable rung
+produces.
 
 ## What this run will not be able to say
 
