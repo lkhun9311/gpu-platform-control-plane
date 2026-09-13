@@ -864,12 +864,13 @@ The whole-card figure independently reproduces the **1.03 s** that
 is measuring what it claims. The split engine takes **2.05x** as long, which is what time-slicing a card two
 ways should cost and had never been measured here.
 
-The seventh pilot offered **0.567 req/s** of contender load. Against the split engine's prefill rate of
-0.466 that is more than the engine can prefill; against the whole card's 0.955 it is well under. One arm's
-queue diverged and the other's did not, and the prefill gap is **consistent with** that — it is not
-established as the whole cause, because a request holds the engine past its first token and this evidence
-does not say by how much. `n = 4` is thin; the slope method's 0.503 is the nearest independent check and
-the two agree to 8%.
+The seventh pilot offered **0.567 req/s** of contender load. The reciprocal of the split engine's median
+first-token wait is below that and the whole card's is above it. **Those reciprocals are not service rates**
+— the section above withdraws them as such, and this comparison is repeated here only as the sizing
+heuristic that chose the next run's load. One arm's queue diverged and the other's did not, and the
+heuristic ordered the two arms the same way the outcome did; it did not establish the cause, because a
+request holds the engine past its first token and this evidence does not say by how much. `n = 4` is thin;
+the slope method's 0.503 is the nearest independent check and the two agree to 8%.
 
 **The load.** The 0.6 is quoted from the paragraph above this section, written before any card was bought.
 
@@ -912,11 +913,18 @@ the driver: about **48 minutes and $0.54**. Four arms is about 60 minutes and $0
 check now derives its replay minutes from `DURATION_MS` instead of assuming seven; at this trace it asks for
 86 minutes rather than 74.
 
-**One measurement worth keeping whatever the next run says.** The whole card serves the contender at
-0.955 req/s and the time-sliced half at 0.466 — **49%**, almost exactly half, which is what the topology
-should cost — while the premium tail falls from 7,911 ms to 839 ms. If that survives a load the contender
-can absorb, it is the shape of an answer. This pilot cannot say it: 74% of the contending work never landed,
-and whether the tail is low from protection or from an absent contender is what reading 4b fired to refuse.
+**~~One measurement worth keeping whatever the next run says.~~ Withdrawn 2026-09-13.** This paragraph said
+the whole card "serves the contender at 0.955 req/s" and the time-sliced half at "0.466 — **49%**, almost
+exactly half, which is what the topology should cost". Those are the reciprocals of four selected client
+TTFTs, and the section above withdraws them: **a reciprocal of a latency is not a service rate**, and this
+run located no arm's maximum. The withdrawal was written into that section and this paragraph was left
+standing, under a header promising it would survive every future run — so a reader skimming for the
+takeaway met the withdrawn number first and the withdrawal second. Two independent reviews found it here.
+
+What the seventh pilot's four requests are still good for is stated where they are derived: a **sizing
+heuristic** that told the next run what load to offer, and that was then validated by the run landing.
+The premium tail falling from 7,911 ms to 839 ms in that pilot is also not usable as protection evidence:
+**74% of the contending work never landed**, which is what reading 4b fired to refuse.
 
 ## Budget
 
