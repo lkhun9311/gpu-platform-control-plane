@@ -651,12 +651,21 @@ maximum rate that still meets a stated service requirement — and several premi
 the contender's arrival rate held fixed in absolute terms rather than by weight. One higher rate is not
 enough: it can overload both arms, neither, or leave the client timeout deciding the answer.
 
-**And the ordering confound is not broken by one reversed run.** Reversing `R1 → shared → timeSlicing` to
-`timeSlicing → shared → R1` leaves **`shared` in the middle in both**, so its position never varies and the
-shared-versus-split contrast stays entangled with position. A separate session also mixes order effects
-with session effects. What would work is counterbalancing the pair that matters — `shared → timeSlicing`
-and `timeSlicing → shared` within blocks, with startup and drain conditions standardised — and repetition
-enough to see carryover.
+**And the ordering confound is not broken by the reversed run this page first proposed** — but it is
+cheaper to break than that draft claimed, and the claim was wrong in a way worth recording.
+
+Reversing the whole sequence, `R1 → shared → timeSlicing` to `timeSlicing → shared → R1`, leaves **`shared`
+in the middle in both**, so its position never varies and the contrast that matters stays entangled with
+position. From that this page concluded a single reversed session could not counterbalance and that blocks
+were required. **That does not follow.** Swap only the two contended arms — **`R1 → timeSlicing → shared`**
+— and R1 keeps position 1, which is the position it holds for a reason this page already states
+(a session cut short after one cell still holds the denominator both bars divide by), while `shared` and
+`timeSlicing` each occupy positions 2 and 3 exactly once across the two sessions. That is a proper
+counterbalance of the pair under test, for one more session rather than a block design.
+
+What a second session still mixes in is session effects: a different instance, a different physical card,
+a different Spot placement. The eighth pilot bounds that for the control alone — 1,891.1 ms on another card
+against 1,892.2 and 1,893.5 ms here — and bounds it for no other arm.
 
 **No numerical attribution of the 884.6 ms to position is available from this evidence.** The two
 repetitions show the difference reproduces (890.2 ms and 879.3 ms) and that R1 moves 0.179 ms when it meets
