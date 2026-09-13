@@ -369,6 +369,7 @@ NOISY_WEIGHT="NOISY_WEIGHT_PLACEHOLDER"
 PROBE_WEIGHT="PROBE_WEIGHT_PLACEHOLDER"
 DURATION_MS="DURATION_MS_PLACEHOLDER"
 LADDER="LADDER_PLACEHOLDER"
+LADDER_STUDY="LADDER_STUDY_PLACEHOLDER"
 # The deadline the matrix budgets its cells against is the EARLIER of the two, not the instance's.
 #
 # The instance's own backstop is BACKSTOP_SECONDS and this shell gives up at HARD_STOP_SECONDS, which is
@@ -545,7 +546,7 @@ export BENCHHARNESS_BIN=/src/bin/benchharness
 # question mean what it asks.
 if [ -n "$LADDER" ]; then
   unset RATE NOISY_WEIGHT ARMS REPS
-  export PREMIUM_WEIGHT PROBE_WEIGHT DURATION_MS LADDER
+  export PREMIUM_WEIGHT PROBE_WEIGHT DURATION_MS LADDER LADDER_STUDY
 else
   export RATE PREMIUM_WEIGHT NOISY_WEIGHT PROBE_WEIGHT DURATION_MS REPS ARMS
 fi
@@ -618,7 +619,8 @@ UD="$(mktemp)"
       -e "s|NOISY_WEIGHT_PLACEHOLDER|$NOISY_WEIGHT|" \
       -e "s|PROBE_WEIGHT_PLACEHOLDER|$PROBE_WEIGHT|" \
       -e "s|DURATION_MS_PLACEHOLDER|$DURATION_MS|" \
-      -e "s|LADDER_PLACEHOLDER|$LADDER|" "$RUNSCRIPT" | tail -n +2 \
+      -e "s|LADDER_PLACEHOLDER|$LADDER|" \
+      -e "s|LADDER_STUDY_PLACEHOLDER|${LADDER_STUDY:-}|" "$RUNSCRIPT" | tail -n +2 \
     | sed -e '/^#/d' -e '/^[[:space:]]*$/d'
 } > "$UD"
 

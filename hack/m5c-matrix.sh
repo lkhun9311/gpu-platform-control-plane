@@ -1023,7 +1023,14 @@ fi
 # ladder stops early, which a plan can express and a nested loop can only break out of.
 CELLS=()
 if [ -n "$LADDER" ]; then
-  STUDY=throughput-ladder-2026-09-13
+  # Which ladder this is. The two carry the same arm names and the same criterion and differ only in where
+  # their rungs sit, so the study id is what tells a reader -- and a report -- which experiment a row belongs
+  # to. Defaulted to the first so an existing caller keeps working.
+  STUDY="${LADDER_STUDY:-throughput-ladder-2026-09-13}"
+  case "$STUDY" in
+    throughput-ladder-2026-09-13|throughput-ladder-down-2026-09-13) ;;
+    *) fail "LADDER_STUDY is ${STUDY@Q}; internal/bench registers throughput-ladder-2026-09-13 and throughput-ladder-down-2026-09-13, and gen-trace refuses an arm the named study does not admit" ;;
+  esac
   ladder_rung=0
   for entry in $LADDER; do
     ladder_rung=$(( ladder_rung + 1 ))
