@@ -53,12 +53,38 @@ HARD_STOP_SECONDS="${HARD_STOP_SECONDS:-8400}"
 # have bought a run with no isolated baseline for the second time running. A unit test now fails when they
 # drift, because this repository has already paid for exactly this shape once with REPS: two scripts that do
 # not read each other, one of them quietly halving what the study was designed around.
+# LADDER rents a card for the capacity ladder of
+# docs/superpowers/specs/2026-09-13-what-the-split-costs-in-throughput.md instead of the sharing matrix.
+#
+# The refusals below mirror hack/m5c-matrix.sh's exactly, and they exist here as well as there for the
+# reason this file's header already gives about ARMS and REPS: two scripts that do not read each other will
+# eventually disagree, and the one that wins is whichever exports last. A run that reached the instance with
+# both a ladder and a single load would be refused ON THE CARD, after the bring-up was paid for.
+# Whether the CALLER set these, recorded before the defaults below answer the question for them.
+#
+# The refusals further down cannot ask it afterwards: ARMS is defaulted on the next line, so every run would
+# look as though an arm list had been passed beside the ladder. The first version of this took the snapshot
+# after the default and refused every ladder run with "ARMS and LADDER are both set" -- a refusal that was
+# right about nothing, found by hack/test/check-ladder-refusals.sh before it reached a card.
+#
+# The refusals themselves live below say() and fail(), because a refusal that calls an undefined function
+# prints "fail: command not found" and no reason at all. That was the version before this one.
+LADDER="${LADDER:-}"
+ARMS_FROM_CALLER="${ARMS+set}"
+REPS_FROM_CALLER="${REPS+set}"
 ARMS="${ARMS:-R1 shared timeSlicing mps}"
 OUT="${OUT:-hack/m5c-$(date -u +%Y%m%d-%H%M%S)}"
 STACK="m5c-gpu"
 
 say()  { printf '== %s\n' "$*"; }
 fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
+
+if [ -n "$LADDER" ]; then
+  [ -z "${RATE:-}" ]         || fail "RATE and LADDER are both set. The ladder carries a rate per rung, so a single RATE is either ignored or overrides them -- refusing rather than picking."
+  [ -z "${NOISY_WEIGHT:-}" ] || fail "NOISY_WEIGHT and LADDER are both set. The ladder carries a contender weight per rung -- that is how it holds the contender fixed in absolute terms while the premium rate climbs."
+  [ -z "$ARMS_FROM_CALLER" ] || fail "ARMS and LADDER are both set. The ladder's arms are its two topologies plus one isolated baseline cell at the rung it stops on, which is not known until it stops."
+  [ -z "$REPS_FROM_CALLER" ] || fail "REPS and LADDER are both set. Ladder rungs are different loads rather than repetitions of one, and pooling two of them would report a p99 for a load that was never offered."
+fi
 
 # REPS has no default here, and that is deliberate.
 #
@@ -67,8 +93,15 @@ fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
 # to four for its own reasons -- a statistical argument about bootstrap blocks -- and a session script that
 # quietly defaulted to something else would be the same defect this repository already recorded, where two
 # scripts disagreed about REPS and a re-run silently bought half the repetitions the design was built on.
-[ -n "${REPS:-}" ] || fail "REPS is unset. A pilot is REPS=1 and a confirmatory run is REPS=3. Which this is decides both the cost and what may be concluded, so it is not a default."
-case "$REPS" in ''|*[!0-9]*) fail "REPS is ${REPS@Q}, which is not a number" ;; esac
+if [ -n "$LADDER" ]; then
+  # The ladder has no repetitions to choose: each rung is one cell of a different load, and the one place it
+  # repeats -- a rung that lands within a tenth of the target -- is a re-run of that rung, registered in the
+  # pre-registration and not a count set here.
+  REPS=1
+else
+  [ -n "${REPS:-}" ] || fail "REPS is unset. A pilot is REPS=1 and a confirmatory run is REPS=3. Which this is decides both the cost and what may be concluded, so it is not a default."
+  case "$REPS" in ''|*[!0-9]*) fail "REPS is ${REPS@Q}, which is not a number" ;; esac
+fi
 
 spot_say()  { say "$@"; }
 spot_fail() { fail "$@"; }
@@ -82,7 +115,11 @@ mkdir -p "$OUT"
 
 say "study  M5-c sharing matrix -- does giving each tenant its own engine on a shared card protect the tail"
 # The arm list as it is, not "R1 plus" it. R1 is now IN the list, and the old wording printed it twice.
-say "arms   [$ARMS], $REPS repetition(s) each"
+if [ -n "$LADDER" ]; then
+  say "arms   the two contended topologies at every rung, counterbalanced, plus one isolated baseline cell"
+else
+  say "arms   [$ARMS], $REPS repetition(s) each"
+fi
 say "output $OUT"
 
 # ---------------------------------------------------------------- the load
@@ -95,9 +132,15 @@ say "output $OUT"
 # These are the price-of-protection run's measured values, which were derived against ONE engine holding the
 # WHOLE card. This run gives each engine half of one. They are therefore a starting point that the pilot's
 # job is to replace, and the pilot is not finished until its derivation is written down.
+# In ladder mode RATE and NOISY_WEIGHT are per rung and must stay EMPTY here, so that what reaches the
+# instance is a ladder and not a ladder with a single load beside it. The refusals above make sure nobody
+# passed one; these lines make sure this script does not invent one.
+if [ -n "$LADDER" ]; then RATE=""; NOISY_WEIGHT=""; else
 RATE="${RATE:-9.85}"
 PREMIUM_WEIGHT="${PREMIUM_WEIGHT:-1}"
 NOISY_WEIGHT="${NOISY_WEIGHT:-0.054}"
+fi
+PREMIUM_WEIGHT="${PREMIUM_WEIGHT:-1}"
 # ZERO, and this is a correction rather than a carried value.
 #
 # The probe tenants straddle the ADMISSION guard's eligibility threshold. This study runs the gateway with
@@ -115,8 +158,14 @@ NOISY_WEIGHT="${NOISY_WEIGHT:-0.054}"
 # varies is load wearing a measurement's name. gen-trace omits them entirely at 0.
 PROBE_WEIGHT="${PROBE_WEIGHT:-0}"
 DURATION_MS="${DURATION_MS:-420000}"
-say "load   rate ${RATE}/s, ${DURATION_MS}ms, weights premium=$PREMIUM_WEIGHT noisy=$NOISY_WEIGHT probe=$PROBE_WEIGHT"
-say "       (carried from the whole-card run; the pilot's job is to re-derive them for a half-card engine)"
+if [ -n "$LADDER" ]; then
+  say "load   a ladder, ${DURATION_MS}ms per cell, weights premium=$PREMIUM_WEIGHT probe=$PROBE_WEIGHT"
+  say "       rungs (rate:contender-weight): $LADDER"
+  say "       solved offline against the real gen-trace; every rung holds the contender at 139 offers +/- 2"
+else
+  say "load   rate ${RATE}/s, ${DURATION_MS}ms, weights premium=$PREMIUM_WEIGHT noisy=$NOISY_WEIGHT probe=$PROBE_WEIGHT"
+  say "       (carried from the whole-card run; the pilot's job is to re-derive them for a half-card engine)"
+fi
 
 # ---------------------------------------------------------------- credentials
 #
@@ -236,7 +285,16 @@ print(int((e-datetime.datetime.now(datetime.timezone.utc)).total_seconds()//60))
 # R1 is counted by the loop rather than added afterwards. It used to be a +1 beside it, from when the matrix
 # had no R1 arm and the baseline was imagined to come from somewhere else. Now that ARMS carries it, the
 # increment would charge the estimate for a fifth arm that does not exist.
-arm_count=0; for _a in $ARMS; do arm_count=$(( arm_count + 1 )); done
+# In ladder mode the cell count is two per rung plus the one isolated-baseline cell, and it is an UPPER
+# bound: the stopping rule can end the climb early, and a credential check is the wrong place to assume it
+# will. arm_count is reused as "engine rollouts to pay for", which is the same number either way.
+if [ -n "$LADDER" ]; then
+  rung_count=0; for _r in $LADDER; do rung_count=$(( rung_count + 1 )); done
+  [ "$rung_count" -gt 0 ] || fail "LADDER is set but describes no rungs"
+  arm_count=$(( rung_count * 2 + 1 ))
+else
+  arm_count=0; for _a in $ARMS; do arm_count=$(( arm_count + 1 )); done
+fi
 # The replay minutes come from DURATION_MS, because that is what decides them.
 #
 # This was a hardcoded 7 per arm-repetition, from a run whose trace was 420 s. The load derivation for a
@@ -310,6 +368,7 @@ PREMIUM_WEIGHT="PREMIUM_WEIGHT_PLACEHOLDER"
 NOISY_WEIGHT="NOISY_WEIGHT_PLACEHOLDER"
 PROBE_WEIGHT="PROBE_WEIGHT_PLACEHOLDER"
 DURATION_MS="DURATION_MS_PLACEHOLDER"
+LADDER="LADDER_PLACEHOLDER"
 # The deadline the matrix budgets its cells against is the EARLIER of the two, not the instance's.
 #
 # The instance's own backstop is BACKSTOP_SECONDS and this shell gives up at HARD_STOP_SECONDS, which is
@@ -478,7 +537,18 @@ export GPU_NODE=m5cgpu-worker
 export DEADLINE_EPOCH
 export GATEWAY_BIN=/src/bin/gateway
 export BENCHHARNESS_BIN=/src/bin/benchharness
-export RATE PREMIUM_WEIGHT NOISY_WEIGHT PROBE_WEIGHT DURATION_MS REPS ARMS
+# In ladder mode these are UNSET rather than emptied, and the difference is the whole thing.
+#
+# The matrix asks whether the caller SET ARMS with ${ARMS+set}, which is non-empty for a variable set to the
+# empty string. Exporting ARMS="" would therefore look exactly like an operator passing an arm list beside a
+# ladder, and the matrix would refuse -- on the rented card, after the bring-up. `unset` is what makes the
+# question mean what it asks.
+if [ -n "$LADDER" ]; then
+  unset RATE NOISY_WEIGHT ARMS REPS
+  export PREMIUM_WEIGHT PROBE_WEIGHT DURATION_MS LADDER
+else
+  export RATE PREMIUM_WEIGHT NOISY_WEIGHT PROBE_WEIGHT DURATION_MS REPS ARMS
+fi
 export OUT=/src/m5c-run
 
 # Each cell goes up the moment it is bought, so an instance that STOPS does not take the cells before it.
@@ -547,7 +617,8 @@ UD="$(mktemp)"
       -e "s|PREMIUM_WEIGHT_PLACEHOLDER|$PREMIUM_WEIGHT|" \
       -e "s|NOISY_WEIGHT_PLACEHOLDER|$NOISY_WEIGHT|" \
       -e "s|PROBE_WEIGHT_PLACEHOLDER|$PROBE_WEIGHT|" \
-      -e "s|DURATION_MS_PLACEHOLDER|$DURATION_MS|" "$RUNSCRIPT" | tail -n +2 \
+      -e "s|DURATION_MS_PLACEHOLDER|$DURATION_MS|" \
+      -e "s|LADDER_PLACEHOLDER|$LADDER|" "$RUNSCRIPT" | tail -n +2 \
     | sed -e '/^#/d' -e '/^[[:space:]]*$/d'
 } > "$UD"
 
@@ -579,6 +650,17 @@ if [ "$UD_ENCODED" -gt "$UD_LIMIT" ]; then
   fail "the user-data encodes to $UD_ENCODED bytes and EC2 accepts $UD_LIMIT. Nothing was launched. Move the bulk out of the heredoc rather than trimming prose: see $OUT/user-data.sh"
 fi
 say "user-data: $UD_ENCODED of $UD_LIMIT encoded bytes"
+
+# DRY_RUN stops here, with everything a launch depends on already built and checked.
+#
+# It exists because the only way to find out what this script sends to an instance used to be to rent one.
+# Every check above -- the shebang, the parse, the surviving placeholder, the device mount, the encoded size
+# -- runs first, so a dry run exercises them rather than skipping them. What it does not do is call
+# run-instances, which is the line below it and the only one that costs anything.
+if [ -n "${DRY_RUN:-}" ]; then
+  say "DRY RUN: nothing was launched and nothing is billing. The user-data this run would have sent is in $OUT/user-data.sh"
+  exit 0
+fi
 
 # ---------------------------------------------------------------- launch
 say "launching $INSTANCE_TYPE spot (max \$$MAX_SPOT_PRICE/h)"
@@ -706,16 +788,62 @@ fi
 # the report reads it as reading 4c.
 missing=""
 refused=""
-for arm in $ARMS; do
+# What the run was SUPPOSED to produce, derived from the plan rather than from the directory.
+#
+# For the matrix that is the arm list. For the ladder it is both topologies at every rung -- and NOT the
+# baseline cell, because which rung that belongs to depends on where the stopping rule fired, which this
+# script cannot know without reading the evidence it is checking. The baseline is checked separately below,
+# by existence rather than by name.
+expected_arms=""
+if [ -n "$LADDER" ]; then
+  _rung=0
+  for _entry in $LADDER; do
+    _rung=$(( _rung + 1 ))
+    expected_arms="$expected_arms $(printf 'rung%02d-shared rung%02d-timeSlicing' "$_rung" "$_rung")"
+  done
+else
+  expected_arms="$ARMS"
+fi
+# A ladder that stopped early legitimately has no cells ABOVE the rung it stopped on. Below and including
+# that rung, every expected cell must be there.
+#
+# The highest rung with evidence is what says where it stopped, and it is read from the evidence rather than
+# from the stopping rule, because this check exists to catch a run whose plan and whose output disagree.
+# Clearing `missing` wholesale would have been the easy version of this and the wrong one: it would hide a
+# missing cell at rung 1 as readily as an unbought rung 4.
+ladder_reached=0
+if [ -n "$LADDER" ]; then
+  for f in "$OUT/m5c-run"/raw-rung*.jsonl; do
+    [ -e "$f" ] || continue
+    _b=$(basename "$f"); _b=${_b#raw-rung}; _n=${_b%%-*}
+    _n=$(printf '%s' "$_n" | sed 's/^0*//'); [ -n "$_n" ] || _n=0
+    [ "$_n" -le "$ladder_reached" ] || ladder_reached=$_n
+  done
+  [ "$ladder_reached" -gt 0 ] \
+    || fail "the ladder finished and wrote no rung evidence at all"
+fi
+for arm in $expected_arms; do
+  if [ -n "$LADDER" ]; then
+    _r=${arm#rung}; _r=${_r%%-*}; _r=$(printf '%s' "$_r" | sed 's/^0*//'); [ -n "$_r" ] || _r=0
+    # Above the rung the ladder reached is not missing evidence; it is evidence the stopping rule declined
+    # to buy, which is the rule working.
+    [ "$_r" -le "$ladder_reached" ] || continue
+  fi
   if [ -s "$OUT/m5c-run/refused-$arm.txt" ]; then
     refused="$refused $arm"
     continue
   fi
   compgen -G "$OUT/m5c-run/raw-$arm-"'*.jsonl' >/dev/null || missing="$missing $arm"
 done
+# A ladder with no baseline cell at all is a fault whichever rung it ended on.
+if [ -n "$LADDER" ]; then
+  compgen -G "$OUT/m5c-run/raw-rung"'*-R1-*.jsonl' >/dev/null \
+    || fail "the ladder finished and bought no isolated baseline cell. Without it, 'the split ran out of capacity' and 'one engine of this model on this card ran out of capacity' are the same observation"
+  say "the ladder reached rung $ladder_reached and bought its baseline: $(cd "$OUT/m5c-run" && ls raw-rung*-R1-*.jsonl | tr '\n' ' ')"
+fi
 [ -z "$missing" ] \
   || fail "the run finished and these arms have no raw evidence and no recorded refusal either:$missing. The report would leave them out of its table rather than say they are absent, and any reading that divides by one of them would decline without naming it"
-[ -z "$refused" ] && say "every arm in [$ARMS] returned raw evidence" \
+[ -z "$refused" ] && say "every arm in [$expected_arms] returned raw evidence" \
   || say "arms refused as registered outcomes:$refused -- reading 4c will report them, and the arms beside them stand"
 
 say "SESSION DONE. Evidence in $OUT/m5c-run"
