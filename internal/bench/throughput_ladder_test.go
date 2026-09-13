@@ -416,6 +416,94 @@ func TestIsolatedBaselineIsRecognisedInEveryStudy(t *testing.T) {
 	}
 }
 
+// The registered combination rule says the two runs are never pooled. The instrument could not honour it --
+// an ArmSummary pools every file carrying its arm name -- so it refuses instead.
+//
+// An adversarial review built the counterexample: two replays of 300 premium completions and 70 contender
+// offers each pool into 600 and 140, clearing both floors, and the ladder returns a verdict on a cell where
+// neither replay would have been scorable.
+func TestLadderRefusesPooledReplays(t *testing.T) {
+	pooled := ladderCell(1, ArmTimeSlicing, 55)
+	pooled.RepetitionCount = 2
+	res := ladderAnswer(t, []ArmSummary{ladderCell(1, ArmShared, 60), pooled})
+	c := cellFor(res, ThroughputLadderArm(1, ArmTimeSlicing))
+	if c == nil || !c.Invalid {
+		t.Fatalf("a cell pooling two replays was scored rather than refused: %+v", c)
+	}
+	if !strings.Contains(c.InvalidReason, "pools 2 replays") {
+		t.Fatalf("the refusal does not say what is wrong: %q", c.InvalidReason)
+	}
+	if res.Answer != "L0" {
+		t.Fatalf("answer = %q, want L0", res.Answer)
+	}
+}
+
+// Censoring at or above one percent FAILS the registered criterion, so it is a breach. It used to be
+// reached only after the tail-sample floor, so an arm that lost a fifth of its premium requests to timeouts
+// -- which is what breaching looks like at a high offered rate -- came back INVALID for having too few
+// completions left to estimate a p99 from. The instrument refused to score its own clearest failure.
+func TestLadderHeavyCensoringIsABreachNotARefusal(t *testing.T) {
+	drowned := ladderCell(2, ArmTimeSlicing, 60)
+	drowned.Censored = true
+	drowned.TailSampleSize = ladderMinTailSamples - 100 // what is left after the timeouts
+	res := ladderAnswer(t, []ArmSummary{
+		ladderCell(1, ArmShared, 60), ladderCell(1, ArmTimeSlicing, 55),
+		ladderCell(2, ArmShared, 400), drowned,
+	})
+	c := cellFor(res, ThroughputLadderArm(2, ArmTimeSlicing))
+	if c == nil || c.Invalid {
+		t.Fatalf("a censored cell was refused instead of scored as a breach: %+v", c)
+	}
+	if c.Met {
+		t.Fatalf("a censored cell met the criterion, which requires censoring under 1%%: %+v", c)
+	}
+	if c.NearTarget {
+		t.Fatalf("a censored cell was judged close to the target on a p99 over the requests that survived")
+	}
+}
+
+// A final report needs the isolated baseline; a between-rung verdict does not, because the baseline is
+// bought last. Removing the baseline used to leave the report saying "no isolated-baseline cell breached
+// the target" when none had been measured at all.
+func TestLadderFinalReportRequiresABaseline(t *testing.T) {
+	without := ladderAnswer(t, []ArmSummary{
+		ladderCell(1, ArmShared, 60), ladderCell(1, ArmTimeSlicing, 55),
+		ladderCell(2, ArmShared, 400), ladderCell(2, ArmTimeSlicing, 380),
+	})
+	if !without.BaselineMissing {
+		t.Fatalf("a report with no baseline at the top rung did not say so")
+	}
+	if !strings.Contains(FormatThroughputLadder(without), "INVALID") {
+		t.Fatalf("the missing baseline is not visible in the report:\n%s", FormatThroughputLadder(without))
+	}
+	with := ladderAnswer(t, []ArmSummary{
+		ladderCell(1, ArmShared, 60), ladderCell(1, ArmTimeSlicing, 55),
+		ladderCell(2, ArmShared, 400), ladderCell(2, ArmTimeSlicing, 380), ladderR1(2, 70),
+	})
+	if with.BaselineMissing {
+		t.Fatalf("a report WITH a baseline at the top rung was told it had none")
+	}
+}
+
+// "This rung is not here" and "this rung stopped the ladder" are different facts, and a boolean cannot carry
+// the difference. Asking about an absent rung used to come back as a registered STOP.
+func TestLadderIncompleteRungIsNotAStop(t *testing.T) {
+	res := ladderAnswer(t, []ArmSummary{ladderCell(2, ArmShared, 60), ladderCell(2, ArmTimeSlicing, 55)})
+	if LadderRungComplete(res, 4) {
+		t.Fatalf("a rung with no cells was reported complete")
+	}
+	if !LadderRungComplete(res, 2) {
+		t.Fatalf("a rung with both topologies present and scorable was reported incomplete")
+	}
+	// And a rung whose pair exists but is unscorable is not complete either.
+	broken := ladderCell(3, ArmTimeSlicing, 55)
+	broken.TailSampleSize = 1
+	res2 := ladderAnswer(t, []ArmSummary{ladderCell(3, ArmShared, 60), broken})
+	if LadderRungComplete(res2, 3) {
+		t.Fatalf("a rung with an unscorable cell was reported complete")
+	}
+}
+
 // The stopping rule is what the runner obeys between rungs, so each of its three answers is pinned.
 func TestLadderStoppingRule(t *testing.T) {
 	climbing := ladderAnswer(t, []ArmSummary{

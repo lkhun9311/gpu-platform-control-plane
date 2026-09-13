@@ -128,6 +128,15 @@ type LadderResult struct {
 	Readings []PoPReading
 	// Answer is the ID of the reading that fired, or empty when none did.
 	Answer string
+	// BaselineMissing says no isolated-baseline cell was measured at the highest rung this evidence carries.
+	//
+	// It is NOT a reading, and that is the point. A verdict asked between rungs is provisional and the
+	// baseline is bought last, so demanding one there would stop every ladder at its first rung. A FINAL
+	// report is different: without the baseline, "the split ran out of capacity" and "one engine of this
+	// model on this card ran out of capacity" are the same observation, and the report used to say "no
+	// isolated-baseline cell breached the target" when none had been measured at all.
+	BaselineMissing bool
+	BaselineNote    string
 	// RepeatRequired lists the rungs that landed close enough to the target to need a repetition.
 	//
 	// It is not a reading. A rung needing a repetition does not change what the other rungs say, and
@@ -160,6 +169,20 @@ func EvaluateThroughputLadder(summaries []ArmSummary) LadderResult {
 		if c.NearTarget && !slices.Contains(res.RepeatRequired, c.Rung) {
 			res.RepeatRequired = append(res.RepeatRequired, c.Rung)
 		}
+	}
+	// The highest rung that carries a CONTENDED cell is the rung the ladder ended on, and that is where the
+	// baseline belongs. Derived from the evidence rather than from the runner's plan, because this is the
+	// check that catches a plan and an output disagreeing.
+	top := 0
+	for _, c := range res.Cells {
+		if c.Topology != ArmR1 && c.Rung > top {
+			top = c.Rung
+		}
+	}
+	if top > 0 && findCell(res.Cells, top, ArmR1) == nil {
+		res.BaselineMissing = true
+		res.BaselineNote = fmt.Sprintf("no isolated-baseline cell was measured at rung %d, the highest rung in this evidence. Without it a breach at that rung cannot be attributed to the topology rather than to this model on this card",
+			top)
 	}
 
 	// The order is the pre-registration's and the first that fires is the answer.
@@ -203,7 +226,37 @@ func scoreLadderCell(rung int, topology string, s ArmSummary) LadderCell {
 		c.ContenderOffers = d.Offered
 	}
 
+	// The order below is the order the questions have to be asked in, and it was wrong twice.
+	//
+	// WORKLOAD INTEGRITY FIRST. A cell that offered a different amount of contention, or that pooled two
+	// replays, is not a measurement of this rung at all -- whatever its p99 says.
+	//
+	// THEN CENSORING, because censoring at or above one percent FAILS THE REGISTERED CRITERION and is
+	// therefore a BREACH, not a refusal. It used to be reached after the tail-sample floor, so an arm that
+	// lost a fifth of its premium requests to timeouts -- which is what breaching looks like at a high
+	// offered rate -- came back INVALID for having too few completions left to estimate a p99 from. The
+	// instrument refused to score the clearest failure it can produce.
+	//
+	// THEN the tail floor, which is about whether an UNCENSORED p99 rests on enough observations.
 	switch {
+	case s.RepetitionCount > 1:
+		// The registered combination rule says the runs are NOT pooled: a pooled p99 can read "met" while one
+		// replay breached, and a pooled contender count reads 278 where each replay offered 139. This package
+		// cannot honour that rule by averaging, so it refuses instead, and the rule is executed by reading
+		// each run's own report.
+		c.Invalid = true
+		c.InvalidReason = fmt.Sprintf("this cell pools %d replays into one summary. The ladder's combination rule compares runs side by side and never pools them, because a pooled p99 can read met while one replay breached -- report each run separately",
+			s.RepetitionCount)
+	case topology != ArmR1 && offBy(c.ContenderOffers, ladderContenderOffers) > ladderContenderTolerance:
+		// R1 is exempt because it carries no contender by design, which is the same exemption the sharing
+		// matrix's contender floor makes for it.
+		c.Invalid = true
+		c.InvalidReason = fmt.Sprintf("the contender was offered %d requests where every rung holds it at %d +/- %d, so this rung varied two things at once",
+			c.ContenderOffers, ladderContenderOffers, ladderContenderTolerance)
+	case c.Censored:
+		// A BREACH with a reason, not a refusal. Met stays false and NearTarget stays false: a p99 over the
+		// requests that survived is not a number this cell gets to be judged close to the target on.
+		c.Met = false
 	case s.TTFTMsP99 <= 0:
 		c.Invalid = true
 		c.InvalidReason = "no premium tail was recorded, so this rung has no p99 to compare against the target"
@@ -211,16 +264,9 @@ func scoreLadderCell(rung int, topology string, s ArmSummary) LadderCell {
 		c.Invalid = true
 		c.InvalidReason = fmt.Sprintf("the premium tail rests on %d completed requests, below the registered floor of %d",
 			s.TailSampleSize, ladderMinTailSamples)
-	case topology != ArmR1 && offBy(c.ContenderOffers, ladderContenderOffers) > ladderContenderTolerance:
-		// R1 is exempt because it carries no contender by design, which is the same exemption the sharing
-		// matrix's contender floor makes for it.
-		c.Invalid = true
-		c.InvalidReason = fmt.Sprintf("the contender was offered %d requests where every rung holds it at %d +/- %d, so this rung varied two things at once",
-			c.ContenderOffers, ladderContenderOffers, ladderContenderTolerance)
 	default:
-		c.Met = s.TTFTMsP99 <= ladderTTFTTargetMs && !c.Censored
-		c.NearTarget = !c.Censored &&
-			s.TTFTMsP99 >= ladderTTFTTargetMs*(1-ladderRepeatMargin) &&
+		c.Met = s.TTFTMsP99 <= ladderTTFTTargetMs
+		c.NearTarget = s.TTFTMsP99 >= ladderTTFTTargetMs*(1-ladderRepeatMargin) &&
 			s.TTFTMsP99 <= ladderTTFTTargetMs*(1+ladderRepeatMargin)
 	}
 	return c
@@ -453,6 +499,16 @@ func censoredNote(censored bool) string {
 	return ""
 }
 
+// LadderRungComplete says whether a rung has both contended topologies present and scorable.
+//
+// It exists so that a caller can tell "this rung is not here" apart from "this rung stopped the ladder".
+// LadderShouldContinue answers false for both, and a boolean cannot carry the difference -- which is how a
+// request for a rung that was never measured came back as a registered STOP.
+func LadderRungComplete(res LadderResult, rung int) bool {
+	shared, split := findCell(res.Cells, rung, ArmShared), findCell(res.Cells, rung, ArmTimeSlicing)
+	return shared != nil && split != nil && !shared.Invalid && !split.Invalid
+}
+
 // LadderShouldContinue is the registered stopping rule, applied to the rung just measured.
 //
 // "Stop at the first rung where BOTH topologies have breached" -- one that still meets the target has not
@@ -519,6 +575,9 @@ func FormatThroughputLadder(res LadderResult) string {
 	}
 	if len(res.RepeatRequired) > 0 {
 		fmt.Fprintf(&b, "  rungs the pre-registration requires a repetition of: %v\n", res.RepeatRequired)
+	}
+	if res.BaselineMissing {
+		fmt.Fprintf(&b, "  INVALID: %s\n", res.BaselineNote)
 	}
 	b.WriteString("\n  readings, in the registered order:\n")
 	for _, r := range res.Readings {
