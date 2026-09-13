@@ -150,6 +150,40 @@ func ThroughputLadderArm(rung int, topology string) string {
 	return fmt.Sprintf("rung%02d-%s", rung, topology)
 }
 
+// IsIsolatedBaseline says whether an arm name is a study's uncontended premium baseline.
+//
+// It exists because "is this R1" was spelled as a literal string comparison in two places that decide
+// something load-bearing: gen-trace filters the contending tenant out of the baseline's trace, and the
+// trace-identity check exempts the baseline because its row count legitimately differs. The ladder's
+// baseline is called rung04-R1, so both would have looked straight past it -- producing a "baseline" that
+// carried the contender, and a refusal that the traces disagree. Neither would have announced itself.
+//
+// Asking a function rather than comparing a literal is what makes a third study's baseline work by
+// construction instead of by somebody remembering these two call sites.
+func IsIsolatedBaseline(arm string) bool {
+	if arm == ArmR1 {
+		return true
+	}
+	_, topology, ok := parseLadderArmName(arm)
+	return ok && topology == ArmR1
+}
+
+// ArmComparisonGroup names the set of arms an arm is compared against.
+//
+// Every study but one offers a single load, so all its arms are one group and the name is empty. The
+// capacity ladder offers a different load per rung by design, so its group is the rung: the two topologies
+// of rung 1 must replay the same trace as each other and must NOT replay rung 2's -- a ladder whose rungs
+// agreed would be four measurements of one load.
+//
+// The report's trace-identity refusal is written against one group and was correct for every study that
+// existed when it was written. It refused the ladder's own evidence the first time the ladder ran.
+func ArmComparisonGroup(arm string) string {
+	if rung, _, ok := parseLadderArmName(arm); ok {
+		return fmt.Sprintf("rung%02d", rung)
+	}
+	return ""
+}
+
 // throughputLadderRungs is how many rungs the pre-registration lists.
 //
 // The rung PARAMETERS -- the arrival rate and the tenant weights -- live in the runner and in the

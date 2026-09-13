@@ -138,7 +138,7 @@ type LadderResult struct {
 func EvaluateThroughputLadder(summaries []ArmSummary) LadderResult {
 	var res LadderResult
 	for _, s := range summaries {
-		rung, topology, ok := parseLadderArm(s.Arm)
+		rung, topology, ok := parseLadderArmName(s.Arm)
 		if !ok {
 			continue
 		}
@@ -354,8 +354,11 @@ func ladderReadingSameRung(cells []LadderCell) PoPReading {
 	return r
 }
 
-// parseLadderArm reads "rung02-shared" back into its rung and topology.
-func parseLadderArm(arm string) (int, string, bool) {
+// parseLadderArmName reads "rung02-shared" back into its rung and topology.
+//
+// It lives here with the readings and is used from study.go's IsIsolatedBaseline, which is the one thing
+// outside this file that has to know a ladder arm when it sees one.
+func parseLadderArmName(arm string) (int, string, bool) {
 	for rung := 1; rung <= throughputLadderRungs; rung++ {
 		for _, topology := range []string{ArmShared, ArmTimeSlicing, ArmR1} {
 			if arm == ThroughputLadderArm(rung, topology) {

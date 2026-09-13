@@ -336,6 +336,45 @@ func TestLadderWithNoEvidenceRefuses(t *testing.T) {
 	}
 }
 
+// Rungs must be their OWN comparison group, because they replay different traces on purpose. The report's
+// trace-identity refusal was written against a single group and refused the ladder's own evidence the first
+// time the ladder ran -- after all five cells had been measured.
+func TestEachRungIsItsOwnComparisonGroup(t *testing.T) {
+	if g := ArmComparisonGroup(ThroughputLadderArm(1, ArmShared)); g != "rung01" {
+		t.Fatalf("group of a rung-1 cell is %q, want rung01", g)
+	}
+	if ArmComparisonGroup(ThroughputLadderArm(1, ArmShared)) == ArmComparisonGroup(ThroughputLadderArm(2, ArmShared)) {
+		t.Fatalf("two rungs share a comparison group, so their traces would be required to agree -- which would make the ladder four measurements of one load")
+	}
+	if ArmComparisonGroup(ThroughputLadderArm(1, ArmShared)) != ArmComparisonGroup(ThroughputLadderArm(1, ArmTimeSlicing)) {
+		t.Fatalf("the two topologies of one rung are in different groups, so nothing would check that they replayed the same trace")
+	}
+	// Every other study stays one group, or their identity refusal stops refusing.
+	for _, arm := range []string{ArmR1, ArmShared, ArmTimeSlicing, ArmMPS, ArmDefaultFCFS, "static-cap", "kv-aware", "off"} {
+		if g := ArmComparisonGroup(arm); g != "" {
+			t.Fatalf("arm %q was put in group %q; every study but the ladder compares all its arms against each other", arm, g)
+		}
+	}
+}
+
+// Two call sites decide something load-bearing from "is this the baseline": gen-trace filters the
+// contender out of its trace, and the trace-identity check exempts it because its row count differs. A
+// ladder baseline they did not recognise would have carried the contender and then been refused for
+// disagreeing with the arms it was supposed to be the denominator of -- silently, in both directions.
+func TestIsolatedBaselineIsRecognisedInEveryStudy(t *testing.T) {
+	for _, arm := range []string{ArmR1, ThroughputLadderArm(1, ArmR1), ThroughputLadderArm(throughputLadderRungs, ArmR1)} {
+		if !IsIsolatedBaseline(arm) {
+			t.Fatalf("%q is a baseline and was not recognised as one", arm)
+		}
+	}
+	for _, arm := range []string{ArmShared, ArmTimeSlicing, ArmMPS, ArmDefaultFCFS,
+		ThroughputLadderArm(1, ArmShared), ThroughputLadderArm(2, ArmTimeSlicing), "", "R1-ish", "rung01-R1x"} {
+		if IsIsolatedBaseline(arm) {
+			t.Fatalf("%q is not a baseline and was treated as one, which would filter the contender out of its trace", arm)
+		}
+	}
+}
+
 // The stopping rule is what the runner obeys between rungs, so each of its three answers is pinned.
 func TestLadderStoppingRule(t *testing.T) {
 	climbing := ladderAnswer(t, []ArmSummary{
