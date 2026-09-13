@@ -256,6 +256,17 @@ ARMS_UNDER_TEST="${ARMS:-R1 shared timeSlicing mps}"
 # a stub that is never slow, and it is covered where it is decided: TestLadderStoppingRule in
 # internal/bench, and the ladder-verdict exit code checked in hack/test/check-m5c-static.sh.
 LADDER_UNDER_TEST="${LADDER:-}"
+# LADDER_FORCE_STOP drives the REAL runner through the branch a free cluster cannot reach.
+#
+# A stub answers in milliseconds, so every rung meets the target and the ladder always climbs. The stopping
+# branch therefore never executes here -- and the first paid ladder died in it: the runner read $? after an
+# `if`, which is the if statement's status and not the command's, so a verdict that correctly said STOP and
+# exited 10 arrived as 0 and was reported as an unscorable rung. The exit code had been pinned; the script's
+# READING of it had not.
+#
+# The shim forwards every subcommand to the real binary and answers only ladder-verdict, so what runs is the
+# real matrix, the real cells and the real evidence -- with one verdict replaced.
+LADDER_FORCE_STOP="${LADDER_FORCE_STOP:-}"
 # LADDER=default uses rungs solved offline against the real gen-trace for THIS rehearsal's trace length.
 #
 # They are not the pre-registration's rungs and must not be mistaken for them: those offer 4,655 premium
@@ -282,12 +293,27 @@ export CELL_HOOK_LOG="$WORK/cells-seen.txt"
 : > "$CELL_HOOK_LOG"
 
 set +e
+BH_FOR_MATRIX="$WORK/benchharness"
+if [ -n "$LADDER_FORCE_STOP" ]; then
+  cat > "$WORK/bh-shim" <<SHIM
+#!/bin/bash
+if [ "\$1" = ladder-verdict ]; then
+  echo "LADDER: STOP"
+  echo "forced by the rehearsal, to drive the runner's stopping branch" >&2
+  exit 10
+fi
+exec "$WORK/benchharness" "\$@"
+SHIM
+  chmod +x "$WORK/bh-shim"
+  BH_FOR_MATRIX="$WORK/bh-shim"
+fi
+
 if [ -n "$LADDER_UNDER_TEST" ]; then
   # RATE, ARMS, REPS and NOISY_WEIGHT are deliberately NOT passed: the script refuses a run that was given
   # both a ladder and a single load, and passing them here would rehearse a refusal instead of a ladder.
   ( cd "$SRC" && PLATFORM=kind KCTX="$KCTX" GPU_NODE="$GPU_NODE" \
       DEADLINE_EPOCH=$(( $(date +%s) + 3600 )) \
-      GATEWAY_BIN="$WORK/gateway" BENCHHARNESS_BIN="$WORK/benchharness" \
+      GATEWAY_BIN="$WORK/gateway" BENCHHARNESS_BIN="$BH_FOR_MATRIX" \
       DURATION_MS="$DURATION_MS" PREMIUM_WEIGHT=1 PROBE_WEIGHT=0 \
       LADDER="$LADDER_UNDER_TEST" OUT="$OUT_DIR" \
       CELL_DONE_HOOK="$WORK/cell-hook" CELL_HOOK_LOG="$CELL_HOOK_LOG" \
@@ -318,6 +344,26 @@ set -e
 # rehearsing it.
 say "check what the matrix wrote"
 want_cells=""
+if [ -n "$LADDER_FORCE_STOP" ]; then
+  # The forced verdict says STOP at the FIRST rung, so the run must be exactly three cells: the rung's two
+  # topologies and the isolated baseline bought at that rung. Nothing above it may exist.
+  #
+  # This is the assertion the first paid ladder needed and did not have. It ran the two cells of rung 1, got
+  # a correct STOP, misread the exit code and ended the session reporting the rung unscorable.
+  for want in rung01-shared rung01-timeSlicing rung01-R1; do
+    [ -s "$OUT_DIR/raw-$want-1.jsonl" ] \
+      || fail "a forced STOP at rung 1 must leave $want measured; the runner did not act on the stopping verdict"
+  done
+  if compgen -G "$OUT_DIR/raw-rung02-"'*.jsonl' >/dev/null; then
+    fail "the runner climbed past a rung it was told to stop at: $(cd "$OUT_DIR" && ls raw-rung02-*.jsonl | tr '\n' ' ')"
+  fi
+  grep -q "which is the registered stopping point" "$WORK/matrix.log" \
+    || fail "the runner stopped without saying it was the registered rule; on a paid run that message is the only thing distinguishing a stop from a failure"
+  grep -q "could not score rung" "$WORK/matrix.log" \
+    && fail "the runner read the stopping verdict as an unscorable rung -- which is exactly the defect that ended the first paid ladder"
+  say "REHEARSAL PASSED: a STOP verdict stopped the ladder at rung 1 and bought its baseline there, and nothing above it ran."
+  exit 0
+fi
 if [ -n "$LADDER_UNDER_TEST" ]; then
   # Derived from the LADDER SPEC, not from the files, for the reason the comment above gives. The order is
   # derived too: odd rungs run the control first and even rungs the split, and a rehearsal that accepted any
