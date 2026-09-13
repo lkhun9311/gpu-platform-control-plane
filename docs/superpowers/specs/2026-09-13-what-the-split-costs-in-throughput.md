@@ -180,7 +180,17 @@ reported as a ladder that searched in the wrong direction, and searching downwar
 | rung 1 and 2, four cells | ~$0.55 | at the ninth pilot's demonstrated $0.68/h and ~8.3 min per cell plus ~25 min of fixed bring-up |
 | rungs 3 and 4 if reached, four cells | ~$0.45 | not spent if the stopping rule fires earlier |
 | the one `R1` cell | ~$0.10 | at whichever rung the ladder stops |
-| **total if the ladder runs to the top** | **~$1.10** | one session |
+| **total if the ladder runs to the top** | **~$1.10 to ~$1.65** | one session, and the range is not hedging — see below |
+
+**Two numbers because two things are being estimated.** $1.10 is nine cells at the ninth pilot's *measured*
+8.3 minutes per cell. $1.65 is what the runner's own credential check demands before it will start: it
+asks for **143 minutes** for this ladder, from 25 minutes of bring-up, 1.5 per engine rollout, a replay
+minute derived from `DURATION_MS` plus one for the client's drain, and 15 for evidence and teardown. That
+check is deliberately pessimistic — a credential margin is the wrong place to be optimistic — and it is the
+number to budget against. The measured figure is what to expect.
+
+Both are upper bounds in one respect: **the stopping rule can end the climb at rung 2 or 3**, and the cells
+above it are not bought.
 
 Nine pilots of the frozen page cost about $4.85. This page's ladder is priced against the same measured rate
 and does not assume a cheaper instance than the one that produced those figures.
