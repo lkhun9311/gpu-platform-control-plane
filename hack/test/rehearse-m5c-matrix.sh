@@ -473,8 +473,9 @@ if [ -n "$LADDER_UNDER_TEST" ]; then
   # printed whether or not it fired. The first version of this line grepped the whole report and failed a
   # ladder whose five cells were all scored and whose answer was exactly the registered L6.
   #
-  # And `grep -q X && { ... }` is wrong here for a second reason this repository has paid for: when grep
-  # finds nothing the compound returns 1 and `set -e` ends the script between two lines with no message.
+  # (An earlier version of this comment also claimed `grep -q X && { ... }` would trip `set -e` here. It
+  # does not: bash exempts every command of an && list but the last, and `set -e; false && true; echo ok`
+  # prints ok. Checked rather than remembered, because a comment that states an invariant has to be true.)
   if grep -qE '^ +rung[0-9]+-[A-Za-z0-9]+ .*INVALID' "$WORK/report.txt"; then
     sed -n '/CAPACITY LADDER/,$p' "$WORK/report.txt"
     fail "a ladder cell was refused as unscorable; the rehearsal's own cells must be scorable or it is rehearsing a refusal"
