@@ -506,6 +506,59 @@ Six cells: about 104 minutes against the runner's credential check, plus its 30 
 is a choice and not an oversight — three refusals are enough evidence that this AMI will not engage it, and
 a fourth costs a cell without adding one.
 
+### THE ANSWER, from the ninth pilot — reading 5
+
+2026-09-13, `hack/m5c-20260913-011031`, commit `85ae2fa`. Three arms, **two repetitions**, six cells, about
+75 minutes and **$0.85**.
+
+```
+ANSWER: 5 (timeSlicing)
+```
+
+The ninth paid run is the first to produce one. Readings 4 and 4b stayed silent, 4c reported that `mps` was
+absent rather than refused — it was not in `ARMS`, and absence is not a refusal — and **reading 5 fired**:
+
+> `timeSlicing` improves the control's premium tail by **884.6 ms** against a **1.4 ms** spread, and misses
+> both bars: tail **14.5x** R1 against 2.0x, stream **2.42x** against 1.25x — a real improvement that does
+> not reach the bar, **with all 278 of the contender's requests served**.
+
+| arm | premium TTFT p99 | /R1 | premium TPOT p99 | /R1 | contender | timeouts |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `R1` | 69.5 ms | 1.0x | 18.2 ms | 1.0x | — | 0 |
+| `shared` | 1,892.2 ms | 27.2x | 89.1 ms | 4.9x | 278/278 | 0 |
+| **`timeSlicing`** | **1,007.5 ms** | **14.5x** | **44.1 ms** | **2.42x** | **278/278** | 0 |
+
+**Splitting the card halves the premium tail and the contender keeps all of its work.** It is still 14.5x an
+isolated baseline against a 2x bar.
+
+**Why the two repetitions were what this run was for.** Readings 3 and 5 judge an improvement against the
+control's own repetition-to-repetition spread, and one repetition has none — which is why the eighth pilot
+could measure this and not score it.
+
+| arm | repetition 1 | repetition 2 | spread |
+| --- | ---: | ---: | ---: |
+| `R1` | 69.5 ms | 69.6 ms | **0.2 ms** |
+| `shared` | 1,892.2 ms | 1,893.5 ms | **1.4 ms** |
+| `timeSlicing` | 1,001.9 ms | 1,014.2 ms | 12.3 ms |
+
+**884.6 ms against 1.4 ms is 632x the control's own variation.** The eighth pilot, a different instance on a
+different card, measured the same control at 1,891.1 ms — within a millisecond of both repetitions here.
+Reading 3 did not fire for exactly this reason: the improvement is far outside the noise it would have to
+hide in.
+
+**What this study can now say.** For this model, this card and this load, giving each tenant a time-sliced
+half of the card **halves the premium tail without taking any of the contender's work**, and does not come
+close to a 2x bar.
+
+**And what three studies now say together.** Admission (M5-b) missed the bar at 83.7x. Engine scheduling
+(the price-of-protection run) reached 20.7x at best. Dividing the card reaches **14.5x**. Every layer moves
+the tail the same direction and **none of them reaches 2x**, which is a result about the size of the gap
+rather than about any one mechanism.
+
+**The limitation this page registered in advance still applies**, and it is the reason reading 5's price is
+not the mechanism's price: two engines carry two copies of the weights, so the split arms hold about half
+the control's KV cache. That is inseparable from the topology and no arm could hold it constant.
+
 ## The bars do not move, and that is deliberate
 
 **Premium TTFT p99 at or below 2x R1. Premium TPOT p99 at or below 1.25x R1.** The same numbers the
