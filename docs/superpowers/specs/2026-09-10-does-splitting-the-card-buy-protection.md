@@ -1015,6 +1015,26 @@ before the run finishes.
   either of these and is not on this page.
 - **A general claim that separation cannot protect a tail**, if it does not. One model, one card, one
   arrival trace, two mechanisms.
+- **That the difference between the arms is the topology rather than the batch cap.** Added 2026-09-13,
+  from a review, and it is the largest alternative explanation this page had not written down.
+
+  The premium tenant's engine runs `--max-num-seqs=64` on the whole card (`config/vllm/deployment.yaml:83`)
+  and `--max-num-seqs=32` when split (`config/vllm-shared/engine-a.yaml:67`). The design section argues
+  that choice at the level of the **card** — 32 each keeps total admitted concurrency equal across the
+  topologies, and per-engine 64 would have given the split arms twice the card's concurrency. That argument
+  is correct and it is not the whole story: from the **premium tenant's own side**, the batch cap halved at
+  the same moment the topology changed, and the price-of-protection study measured the batch budget moving
+  the premium tail by about fivefold — larger than the 1.88x this study's split delivered.
+
+  The direction is arguable and is **not measured**. Premium concurrency peaks at **89 against 64 slots**
+  under `shared` (over the cap for 5.8 s) and **52 against 32** under `timeSlicing` (over it for 38.2 s),
+  so the split engine is the more oversubscribed of the two relative to its own cap, which would make a
+  smaller cap work *against* the split arm rather than for it. That is an argument from two peak counts,
+  not a measurement, and this page's own rule is that a quantity may not be described by a cause the ledger
+  does not establish. **A `shared` arm at `--max-num-seqs=32` would separate the two and was not run.**
+
+  One thing this does not touch: **R1 peaks at 26 concurrent requests against its 64 slots and never
+  reaches the cap**, so the baseline both bars divide by is not affected by the difference either way.
 - **Anything about what this costs to operate.** Every cost here is capacity and tenant share, measured on
   Spot for under two hours. It is not an operating cost model.
 - **How much of reading 5's price is the mechanism and how much is the duplicated weights.** Added
