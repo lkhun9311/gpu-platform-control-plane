@@ -315,7 +315,7 @@ if [ -n "$LADDER_UNDER_TEST" ]; then
       DEADLINE_EPOCH=$(( $(date +%s) + 3600 )) \
       GATEWAY_BIN="$WORK/gateway" BENCHHARNESS_BIN="$BH_FOR_MATRIX" \
       DURATION_MS="$DURATION_MS" PREMIUM_WEIGHT=1 PROBE_WEIGHT=0 \
-      LADDER="$LADDER_UNDER_TEST" OUT="$OUT_DIR" \
+      LADDER="$LADDER_UNDER_TEST" LADDER_STUDY="${LADDER_STUDY:-}" OUT="$OUT_DIR" \
       CELL_DONE_HOOK="$WORK/cell-hook" CELL_HOOK_LOG="$CELL_HOOK_LOG" \
       bash hack/m5c-matrix.sh ) 2>&1 | tee "$WORK/matrix.log"
 else
