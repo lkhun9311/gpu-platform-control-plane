@@ -51,6 +51,15 @@ const (
 	// since pooling would collapse three topologies into one row. Evidence that has to arrive with a warning
 	// against using the tool that reads it is evidence one step from being read wrong.
 	StudySharingMatrix = "sharing-matrix-2026-09-10"
+	// StudyThroughputLadder is the capacity ladder pre-registered in
+	// docs/superpowers/specs/2026-09-13-what-the-split-costs-in-throughput.md.
+	//
+	// It measures the same two topologies as StudySharingMatrix at four offered premium loads, and it is a
+	// separate study rather than more repetitions of that one for a reason worth stating: repetitions of the
+	// sharing matrix are POOLED, and pooling two different offered loads into one arm summary would produce
+	// a p99 for a load that was never offered. Its arm names carry the rung for the same reason -- see
+	// ThroughputLadderArm.
+	StudyThroughputLadder = "throughput-ladder-2026-09-13"
 )
 
 // The factors the price-of-protection sweep crosses.
@@ -129,6 +138,42 @@ func PriceOfProtectionArm(budget int, policy string) string {
 	return fmt.Sprintf("mbt-%04d-%s", budget, policy)
 }
 
+// ThroughputLadderArm is the canonical name of one cell of the capacity ladder: one topology at one rung.
+//
+// The rung is IN THE ARM NAME, and that is the point rather than a convenience. An arm summary pools every
+// row carrying its name, so two rungs sharing an arm name would be averaged into a p99 for an offered load
+// that was never offered -- a plausible wrong number of exactly the class this repository's rules put above
+// every other failure. Making the rung part of the identity makes that pooling unrepresentable.
+//
+// Zero-padded so that lexical order is numeric order, which is what the report's arm column is sorted by.
+func ThroughputLadderArm(rung int, topology string) string {
+	return fmt.Sprintf("rung%02d-%s", rung, topology)
+}
+
+// throughputLadderRungs is how many rungs the pre-registration lists.
+//
+// The rung PARAMETERS -- the arrival rate and the tenant weights -- live in the runner and in the
+// pre-registration, not here: this package scores evidence and never generates load. What it needs is only
+// how many names to admit.
+const throughputLadderRungs = 4
+
+// throughputLadderArms generates the ladder's arm names from the rungs rather than listing sixteen strings.
+//
+// Every rung admits both topologies and the isolated baseline, even though R1 is bought at ONE rung. Which
+// rung that is depends on where the stopping rule fires, which is not known until the run happens, and a
+// registry that admitted R1 at only one rung would have to be edited once the ladder chose -- an edit to the
+// instrument after seeing data, which is the thing the pre-registration exists to prevent.
+func throughputLadderArms() []string {
+	arms := make([]string, 0, throughputLadderRungs*3)
+	for rung := 1; rung <= throughputLadderRungs; rung++ {
+		arms = append(arms,
+			ThroughputLadderArm(rung, ArmShared),
+			ThroughputLadderArm(rung, ArmTimeSlicing),
+			ThroughputLadderArm(rung, ArmR1))
+	}
+	return arms
+}
+
 // studies is the registry every arm name is validated against.
 var studies = map[string]Study{
 	StudyM5BGateway: {
@@ -142,6 +187,10 @@ var studies = map[string]Study{
 	StudySharingMatrix: {
 		ID:   StudySharingMatrix,
 		Arms: []string{ArmR1, ArmShared, ArmTimeSlicing, ArmMPS},
+	},
+	StudyThroughputLadder: {
+		ID:   StudyThroughputLadder,
+		Arms: throughputLadderArms(),
 	},
 }
 
