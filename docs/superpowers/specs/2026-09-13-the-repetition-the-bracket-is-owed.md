@@ -89,19 +89,28 @@ Added 2026-09-14 after the run. Nothing above this line has been edited since it
 | cell | first run | repetition | difference | both runs |
 | --- | ---: | ---: | ---: | --- |
 | `rung02-shared` | 1,694.7 ms | 1,693.4 ms | **−1.3 ms** | BREACH |
-| **`rung02-timeSlicing`** | **130.4 ms** | **132.4 ms** | **+2.0 ms** | **met** |
+| **`rung02-timeSlicing`** | **130.363 ms** | **132.430 ms** | **+2.1 ms** | **met** |
 | `rung03-shared` | 2,303.3 ms | 2,309.1 ms | +5.8 ms | BREACH |
 | **`rung03-timeSlicing`** | **143.2 ms** | **143.5 ms** | **+0.3 ms** | **BREACH** |
 | `rung03-R1` | 64.0 ms | 63.7 ms | −0.3 ms | met |
 
-Every cell offered 1,164 or 2,327 premium requests and exactly 139 contender requests, as registered.
+Every **contended** cell offered 1,164 or 2,327 premium requests and exactly 139 contender requests, and
+completed 139 of 139, as registered. The baseline cell carries no contender rows by construction.
+
+The +2.1 ms is computed from the raw timestamps. An earlier version of this table said +2.0, which is the
+difference of two figures already rounded to one decimal — arithmetic on rounded summaries, in a table whose
+whole point is a margin of a few milliseconds. No verdict changes.
 
 **The combination rule registered above resolves to the first branch on all four contended cells: both runs
-agree, so each cell's verdict stands.** The split's sustainable premium rate is **at least 2.31 req/s and
-below 4.61**, and that bracket is no longer resting on one pair of cells.
+agree, so each cell's verdict stands.** The split **met the target at 2.31 req/s and missed it at 4.61**, in
+two independent sessions, and that pair of results is no longer resting on one pair of cells.
 
-**The two cells that set the edge moved by 2.0 ms and 0.3 ms between independent sessions, on different
-instances and different physical cards.** Their distances from the target are 8.6 ms and 4.2 ms. So the
+Stated as a bracket — "at least 2.31 and below 4.61" — that is a summary of two sampled loads and not a
+proof that nothing between them or above them qualifies. The downward ladder's own page records why the
+stronger reading is unavailable: the control's tail is not monotone in the premium rate.
+
+**The two cells that set the edge moved by 2.1 ms and 0.3 ms between independent sessions, on different
+instances and different physical cards** (GPU UUIDs `a36f5dec` and `d872290b`, checked rather than assumed). Their distances from the target are 8.6 ms and 4.2 ms. So the
 margins are four times and fourteen times the repeat movement actually measured — which is what this page
 was bought to find out, and it could as easily have gone the other way.
 

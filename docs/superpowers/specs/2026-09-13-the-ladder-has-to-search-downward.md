@@ -22,7 +22,9 @@ checking the evidence that already decided it. This page fixes that and nothing 
 
 **May:** the 139.0 ms target and where it comes from; the trace shape, model, engine settings and cache
 budgets; the harness, the readings and the counterbalance; and the measured fact that at 9.22 premium
-requests per second **both topologies breach**, three times over on three instances and three cards.
+requests per second **both topologies breach**, three times over on three instances and **two recorded
+cards** — the two ninth-pilot repetitions share one GPU UUID, which an adversarial review checked and this
+page had asserted wrongly.
 
 **May not:** any capacity number, because none has been measured; and the target itself, which was fixed
 before any rung of either ladder ran and is not recomputed from this one's evidence.
@@ -123,25 +125,39 @@ ANSWER: L1 -- the topologies sustain different loads
 | 3 | 4.61 req/s | 2,303.3 ms **BREACH** | 143.2 ms **BREACH** |
 | — | 9.22 req/s, measured three times before this ladder | 1,892 / 1,894 / 1,896 ms BREACH | 1,002 / 1,013 / 1,014 ms BREACH |
 
-The contender was held at **139 offers in every cell**, and completed **139 of 139 in every cell**.
+The contender was held at **139 offers in every CONTENDED cell**, and completed **139 of 139** in every
+one of them. The isolated-baseline cell carries 2,327 premium rows and no contender rows, by construction —
+an earlier version of this line said "every cell" and swept the baseline in with the rest.
 
 **The sustainable premium rate, as this page defined it before the run:**
 
-- **`timeSlicing`: at least 2.31 req/s, and below 4.61.**
-- **`shared`: below 1.16 req/s. The ladder did not locate it**, and could not: the sample floor puts the
-  bottom rung at about 1 req/s for this trace length.
+- **`timeSlicing`: met the target at 2.31 req/s and missed it at 4.61.**
+- **`shared`: missed it at every rate this ladder offered**, the lowest being 1.16 req/s. Where it would
+  qualify was not located, and could not be: the sample floor puts the bottom rung at about 1 req/s for this
+  trace length.
+
+**Those are pass/fail results at four sampled loads, not a proof that nothing between or above them
+qualifies.** The evidence forbids the stronger reading: `shared`'s tail is **not monotone in the premium
+rate** — 1,282 ms at 1.16, 1,695 at 2.31, 2,303 at 4.61 and **1,896 at 9.22**. It peaks in the middle of the
+range and comes back down. Nothing measured says a rate between 2.31 and 4.61, or above 9.22, cannot behave
+differently again. What the ladder establishes is the four points and the ordering between the two
+topologies at each of them.
 
 That is the capacity answer the sharing matrix could not produce, and it points the opposite way to the
 question's framing. The question asked what the premium tenant **pays** in capacity for separation. At this
 contender load the answer is that it **pays nothing and gains**: the whole card has no qualified operating
 point in the measured range and the split has one.
 
-**Why the control cannot be rescued by offering it less.** Its p99 gets *worse* as the premium rate falls
-toward the bottom rung only in the sense that it stays enormous — 1,282 ms at 1.16 req/s against 2,303 ms at
-4.61. The tail is not made of premium queueing behind premium. It is made of premium queueing behind a
-contender prefill, and there are 139 of those whatever the premium rate is. **Lowering premium load cannot
-fix a tail the other tenant produces**, which is the mechanism this study registered in its first page and
-the first time it has been shown at the bar.
+**Why offering the control less did not rescue it, over the range measured.** Its p99 falls as the premium
+rate falls — 2,303 ms at 4.61 to 1,282 ms at 1.16 — and **stays an order of magnitude over the target the
+whole way**. The tail is not made of premium queueing behind premium; it is made of premium queueing behind
+a contender prefill, and there are 139 of those whatever the premium rate is. That is the mechanism this
+study registered in its first page, and this is the first time it has been seen at the bar.
+
+An earlier version of this paragraph said "lowering premium load **cannot** fix a tail the other tenant
+produces". That is an extrapolation below the sampled range and this page does not have it: **the lowest
+rate measured is 1.16 req/s**, the trend over the four points is toward improvement as premium load falls,
+and where it would cross 139.0 ms is exactly what the sample floor prevented this ladder from looking for.
 
 **The isolated baseline says the engine was not the limit.** `rung03-R1` measured **64.0 ms** at 4.61 req/s
 uncontended, so reading L4 is correctly silent: what rung 3 located is a topology's limit, not this model's
@@ -160,6 +176,9 @@ Nothing about the *direction* of the result is soft: `shared` misses by a factor
 every rung, which no repetition moves.
 
 ### What the split costs, since it is not free
+
+These ratios are **rung 1's**, not the ladder's. At rung 3 the same comparison is about 3.60x on the
+median and 3.45x on the p99, so the penalty is of one size rather than one number.
 
 | at rung 1 (1.16 req/s) | `shared` | `timeSlicing` | |
 | --- | ---: | ---: | ---: |
