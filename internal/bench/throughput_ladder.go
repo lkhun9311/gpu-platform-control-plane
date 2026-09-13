@@ -116,6 +116,12 @@ type LadderCell struct {
 
 // LadderResult is every cell, the readings in registered order, and the one that answered.
 type LadderResult struct {
+	// Study is the identifier the evidence carries, so the report names the experiment it actually read.
+	//
+	// It was a literal in the formatter, and the second ladder -- same arms, same criterion, rungs in a
+	// different place -- printed the FIRST ladder's id over its own numbers. A report that names the wrong
+	// experiment is the cheapest possible way to file a result under the wrong question.
+	Study string
 	// Cells are in rung then topology order, which is the order the ladder ran them.
 	Cells []LadderCell
 	// Readings are evaluated in the registered order and the first that fires is the answer.
@@ -328,13 +334,13 @@ func ladderReadingSeparation(cells []LadderCell) PoPReading {
 	r.Fired = true
 	if splitTop > sharedTop {
 		r.Cell = ThroughputLadderArm(splitTop, ArmTimeSlicing)
-		r.Detail = fmt.Sprintf("the split sustained the %.1f ms target to rung %d and the whole-card control to rung %d, so the split buys headroom as well as a better tail",
-			ladderTTFTTargetMs, splitTop, sharedTop)
+		r.Detail = fmt.Sprintf("the split sustained the %.1f ms target %s and the whole-card control %s, so the split buys headroom as well as a better tail",
+			ladderTTFTTargetMs, rungPhrase(splitTop, splitOK), rungPhrase(sharedTop, sharedOK))
 		return r
 	}
 	r.Cell = ThroughputLadderArm(sharedTop, ArmShared)
-	r.Detail = fmt.Sprintf("the whole-card control sustained the %.1f ms target to rung %d and the split only to rung %d, so the split COSTS capacity and the tail improvement the sharing matrix measured was bought out of headroom -- the platform recommendation reverses",
-		ladderTTFTTargetMs, sharedTop, splitTop)
+	r.Detail = fmt.Sprintf("the whole-card control sustained the %.1f ms target %s and the split %s, so the split COSTS capacity and the tail improvement the sharing matrix measured was bought out of headroom -- the platform recommendation reverses",
+		ladderTTFTTargetMs, rungPhrase(sharedTop, sharedOK), rungPhrase(splitTop, splitOK))
 	return r
 }
 
@@ -358,6 +364,18 @@ func ladderReadingSameRung(cells []LadderCell) PoPReading {
 //
 // It lives here with the readings and is used from study.go's IsIsolatedBaseline, which is the one thing
 // outside this file that has to know a ladder arm when it sees one.
+// rungPhrase says where a topology's bracket closed, in words rather than in a rung number.
+//
+// A topology that never met the target has no rung, and printing "rung 0" for it reads as a rung the ladder
+// measured. The second ladder produced exactly that: the whole-card control met at no rung and the reading
+// said it "sustained the target to rung 0", which is a sentence about a cell that does not exist.
+func rungPhrase(rung int, met bool) string {
+	if !met {
+		return "at no rung this ladder offered"
+	}
+	return fmt.Sprintf("to rung %d", rung)
+}
+
 func parseLadderArmName(arm string) (int, string, bool) {
 	for rung := 1; rung <= throughputLadderRungs; rung++ {
 		for _, topology := range []string{ArmShared, ArmTimeSlicing, ArmR1} {
@@ -472,7 +490,11 @@ func LadderShouldContinue(res LadderResult, rung int) (bool, string) {
 // FormatThroughputLadder renders the cells and the readings beneath the report's arm table.
 func FormatThroughputLadder(res LadderResult) string {
 	var b strings.Builder
-	b.WriteString("\nCAPACITY LADDER (throughput-ladder-2026-09-13)\n")
+	study := res.Study
+	if study == "" {
+		study = StudyThroughputLadder
+	}
+	fmt.Fprintf(&b, "\nCAPACITY LADDER (%s)\n", study)
 	fmt.Fprintf(&b, "  criterion: premium TTFT p99 <= %.1f ms and premium censoring under 1%%\n", ladderTTFTTargetMs)
 	fmt.Fprintf(&b, "  %-22s %12s %8s %10s %9s  %s\n", "cell", "TTFT p99", "tail n", "contender", "verdict", "note")
 	for _, c := range res.Cells {

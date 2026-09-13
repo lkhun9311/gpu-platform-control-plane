@@ -1199,6 +1199,7 @@ func evaluateRegisteredReadings(e *armEvidence, summ map[string]bench.ArmSummary
 		// and topology parsed out of the arm name and it has to see every one of them -- including arms this
 		// study does not name, which it ignores.
 		evaluated := bench.EvaluateThroughputLadder(summaries)
+		evaluated.Study = bench.CanonicalStudyID(e.study)
 		return nil, nil, nil, &evaluated
 	default:
 		fmt.Fprintf(os.Stderr,

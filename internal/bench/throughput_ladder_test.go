@@ -87,6 +87,47 @@ func TestLadderSplitCostsCapacityReversesTheRecommendation(t *testing.T) {
 	}
 }
 
+// A topology that met at NO rung has no rung number, and the reading must not invent one. The second paid
+// ladder produced exactly this: the whole-card control breached at all three rungs and the reading said it
+// "sustained the target to rung 0" -- a sentence about a cell that does not exist.
+func TestLadderTopologyThatNeverMetHasNoRungNumber(t *testing.T) {
+	res := ladderAnswer(t, []ArmSummary{
+		ladderCell(1, ArmShared, 1282), ladderCell(1, ArmTimeSlicing, 124),
+		ladderCell(2, ArmShared, 1694), ladderCell(2, ArmTimeSlicing, 130),
+		ladderCell(3, ArmShared, 2303), ladderCell(3, ArmTimeSlicing, 143),
+	})
+	if res.Answer != "L1" {
+		t.Fatalf("answer = %q, want L1", res.Answer)
+	}
+	d := readingDetail(res, "L1")
+	if strings.Contains(d, "rung 0") {
+		t.Fatalf("the reading names a rung the ladder never offered: %q", d)
+	}
+	if !strings.Contains(d, "at no rung this ladder offered") {
+		t.Fatalf("the reading does not say the control qualified nowhere: %q", d)
+	}
+	if !strings.Contains(d, "to rung 2") {
+		t.Fatalf("the reading does not name the split's own bracket: %q", d)
+	}
+	// And both borderline rungs must be flagged for repetition, since the boundary rests on them.
+	if len(res.RepeatRequired) != 2 || res.RepeatRequired[0] != 2 || res.RepeatRequired[1] != 3 {
+		t.Fatalf("RepeatRequired = %v, want [2 3]", res.RepeatRequired)
+	}
+}
+
+// The report must name the experiment it actually read, not the first study that used this formatter.
+func TestLadderReportNamesTheStudyItRead(t *testing.T) {
+	res := ladderAnswer(t, []ArmSummary{ladderCell(1, ArmShared, 60), ladderCell(1, ArmTimeSlicing, 55)})
+	res.Study = StudyThroughputLadderDown
+	out := FormatThroughputLadder(res)
+	if !strings.Contains(out, StudyThroughputLadderDown) {
+		t.Fatalf("the report does not name the study it read:\n%s", out)
+	}
+	if strings.Contains(out, "CAPACITY LADDER ("+StudyThroughputLadder+")") {
+		t.Fatalf("the report names the wrong study, which files a result under the wrong question:\n%s", out)
+	}
+}
+
 func TestLadderBothBreachAtTheSameRung(t *testing.T) {
 	res := ladderAnswer(t, []ArmSummary{
 		ladderCell(1, ArmShared, 60), ladderCell(1, ArmTimeSlicing, 55),
