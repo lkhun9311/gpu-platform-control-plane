@@ -1234,13 +1234,25 @@ for spec in "${CELLS[@]}"; do
   ladder_raws=()
   for f in "$OUT"/raw-rung*.jsonl; do [ -e "$f" ] && ladder_raws+=(--raw "$f"); done
   verdict_out="$OUT/ladder-verdict-rung$cell_rung.txt"
-  if "$WORK/benchharness" ladder-verdict "${ladder_raws[@]}" --rung "$cell_rung" >"$verdict_out" 2>>"$LOG"; then
+  # The status is captured BESIDE the call, not read back afterwards.
+  #
+  # This was `if benchharness ladder-verdict ...; then ... fi` followed by `verdict_code=$?`, and $? after an
+  # `if` is the IF STATEMENT's status -- which is 0 when the condition failed and no else ran. So a verdict
+  # that correctly said STOP and exited 10 reached this script as 0 and fell through to the refusal below,
+  # which reported the rung unscorable and ended a paid session at its first stopping point. The verdict file
+  # said "LADDER: STOP" the whole time; nothing read it.
+  #
+  # The rehearsal could not have caught it: a stub answers in milliseconds, so on a free cluster every rung
+  # CONTINUEs and this branch never runs. The exit code was pinned in hack/test/check-ladder-refusals.sh --
+  # of the COMMAND, not of this script's reading of it. That gap is now closed there too.
+  verdict_code=0
+  "$WORK/benchharness" ladder-verdict "${ladder_raws[@]}" --rung "$cell_rung" >"$verdict_out" 2>>"$LOG" || verdict_code=$?
+  if [ "$verdict_code" -eq 0 ]; then
     grep -qx "LADDER: CONTINUE" "$verdict_out" \
       || fail "ladder-verdict exited 0 for rung $cell_rung without saying CONTINUE. Its exit code and its line disagree, and this script will not guess which one meant to climb. See $verdict_out"
     say "rung $cell_rung: at least one topology still meets the target, so the ladder climbs"
     continue
   fi
-  verdict_code=$?
   if [ "$verdict_code" -eq 10 ]; then
     grep -qx "LADDER: STOP" "$verdict_out" \
       || fail "ladder-verdict exited 10 for rung $cell_rung without saying STOP. See $verdict_out"
