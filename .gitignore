@@ -151,6 +151,14 @@ hack/m5c-run-*/
 # harness binaries it ships to the instance. The pattern above does not match it, so the first failed run
 # left all of that untracked in the tree -- one `git add -A` from the mistake this block was written about.
 hack/m5c-2*/
+# The capacity ladder's session directory, which is the same script under a different OUT.
+#
+# hack/m5c-gpu-session.sh writes wherever OUT points, and the ladder runs use hack/ladder-<stamp> so that a
+# ladder's evidence is not filed among the sharing matrix's. Ignored for the reason above and for the one
+# below: this runner REFUSES TO START when the tree is dirty, so a run's own output directory makes the
+# next run impossible. That is exactly what happened -- a killed ladder session left hack/ladder-<stamp>
+# untracked and the relaunch refused, with the card already released.
+hack/ladder-*/
 # Microtest output: instance ids, user-data, and the raw results, which are copied into
 # docs/evidence when a run produces something worth keeping.
 hack/microtest-*/
