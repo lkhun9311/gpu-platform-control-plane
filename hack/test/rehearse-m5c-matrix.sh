@@ -244,6 +244,30 @@ OUT_DIR="$WORK/run"
 # One variable decides what the matrix runs AND what this script expects, so the two cannot disagree.
 ARMS_UNDER_TEST="${ARMS:-R1 shared timeSlicing mps}"
 
+# LADDER rehearses the capacity ladder instead of the frozen matrix, on the same cluster.
+#
+# It is the same script under test either way. What differs is the plan it builds -- rungs of different
+# loads in a counterbalanced order, and one isolated-baseline cell at whichever rung it ends on -- and a
+# rehearsal that could only drive the matrix would leave every line of that plan unexecuted until a card was
+# paying for it, which is what this file exists to stop.
+#
+# A stub answers in milliseconds, so every rung MEETS the registered target and the ladder climbs to the
+# top. That is the CONTINUE path and the baseline purchase, end to end. The STOP path cannot be reached with
+# a stub that is never slow, and it is covered where it is decided: TestLadderStoppingRule in
+# internal/bench, and the ladder-verdict exit code checked in hack/test/check-m5c-static.sh.
+LADDER_UNDER_TEST="${LADDER:-}"
+# LADDER=default uses rungs solved offline against the real gen-trace for THIS rehearsal's trace length.
+#
+# They are not the pre-registration's rungs and must not be mistaken for them: those offer 4,655 premium
+# requests over 505 seconds, which is eight minutes of stub per cell for no information. What these
+# reproduce is the SHAPE the ladder's own refusals check -- the contender pinned at exactly 139 offers at
+# both rungs while the premium count doubles, and a premium tail above the registered 500-sample floor. A
+# rehearsal whose cells the evaluator would refuse is a rehearsal of a refusal.
+if [ "$LADDER_UNDER_TEST" = default ]; then
+  LADDER_UNDER_TEST="14.560234:0.18426137 26.350037:0.09098256"
+  DURATION_MS="${LADDER_DURATION_MS:-60000}"
+fi
+
 # A recorder in place of the instance's S3 uploader, so the per-cell hook is EXERCISED rather than assumed.
 #
 # On the instance this hook copies each cell's raw file to the bucket the moment the cell completes, which
@@ -258,14 +282,26 @@ export CELL_HOOK_LOG="$WORK/cells-seen.txt"
 : > "$CELL_HOOK_LOG"
 
 set +e
-( cd "$SRC" && PLATFORM=kind KCTX="$KCTX" GPU_NODE="$GPU_NODE" \
-    DEADLINE_EPOCH=$(( $(date +%s) + 3600 )) \
-    GATEWAY_BIN="$WORK/gateway" BENCHHARNESS_BIN="$WORK/benchharness" \
-    RATE="$RATE" DURATION_MS="$DURATION_MS" \
-    PREMIUM_WEIGHT=1 NOISY_WEIGHT=0.5 PROBE_WEIGHT=0 \
-    REPS="${REPS:-1}" ARMS="$ARMS_UNDER_TEST" OUT="$OUT_DIR" \
-    CELL_DONE_HOOK="$WORK/cell-hook" CELL_HOOK_LOG="$CELL_HOOK_LOG" \
-    bash hack/m5c-matrix.sh ) 2>&1 | tee "$WORK/matrix.log"
+if [ -n "$LADDER_UNDER_TEST" ]; then
+  # RATE, ARMS, REPS and NOISY_WEIGHT are deliberately NOT passed: the script refuses a run that was given
+  # both a ladder and a single load, and passing them here would rehearse a refusal instead of a ladder.
+  ( cd "$SRC" && PLATFORM=kind KCTX="$KCTX" GPU_NODE="$GPU_NODE" \
+      DEADLINE_EPOCH=$(( $(date +%s) + 3600 )) \
+      GATEWAY_BIN="$WORK/gateway" BENCHHARNESS_BIN="$WORK/benchharness" \
+      DURATION_MS="$DURATION_MS" PREMIUM_WEIGHT=1 PROBE_WEIGHT=0 \
+      LADDER="$LADDER_UNDER_TEST" OUT="$OUT_DIR" \
+      CELL_DONE_HOOK="$WORK/cell-hook" CELL_HOOK_LOG="$CELL_HOOK_LOG" \
+      bash hack/m5c-matrix.sh ) 2>&1 | tee "$WORK/matrix.log"
+else
+  ( cd "$SRC" && PLATFORM=kind KCTX="$KCTX" GPU_NODE="$GPU_NODE" \
+      DEADLINE_EPOCH=$(( $(date +%s) + 3600 )) \
+      GATEWAY_BIN="$WORK/gateway" BENCHHARNESS_BIN="$WORK/benchharness" \
+      RATE="$RATE" DURATION_MS="$DURATION_MS" \
+      PREMIUM_WEIGHT=1 NOISY_WEIGHT=0.5 PROBE_WEIGHT=0 \
+      REPS="${REPS:-1}" ARMS="$ARMS_UNDER_TEST" OUT="$OUT_DIR" \
+      CELL_DONE_HOOK="$WORK/cell-hook" CELL_HOOK_LOG="$CELL_HOOK_LOG" \
+      bash hack/m5c-matrix.sh ) 2>&1 | tee "$WORK/matrix.log"
+fi
 rc=${PIPESTATUS[0]}
 set -e
 [ "$rc" = "0" ] || { tail -25 "$WORK/matrix.log"; fail "the matrix exited $rc -- the log above is what it said"; }
@@ -282,14 +318,51 @@ set -e
 # rehearsing it.
 say "check what the matrix wrote"
 want_cells=""
-for arm in $ARMS_UNDER_TEST; do
-  for rep in $(seq 1 "${REPS:-1}"); do
-    [ -s "$OUT_DIR/raw-$arm-$rep.jsonl" ] \
-      || fail "no raw evidence for $arm repetition $rep. The matrix reported success, so this is a cell that ran and wrote nothing"
-    want_cells="$want_cells$arm $rep raw-$arm-$rep.jsonl
+if [ -n "$LADDER_UNDER_TEST" ]; then
+  # Derived from the LADDER SPEC, not from the files, for the reason the comment above gives. The order is
+  # derived too: odd rungs run the control first and even rungs the split, and a rehearsal that accepted any
+  # order would let the counterbalance -- the one thing this design buys over the frozen matrix -- silently
+  # stop happening.
+  want_order=""
+  reh_rung=0
+  for entry in $LADDER_UNDER_TEST; do
+    reh_rung=$(( reh_rung + 1 ))
+    if [ $(( reh_rung % 2 )) -eq 1 ]; then reh_order="shared timeSlicing"; else reh_order="timeSlicing shared"; fi
+    for reh_topology in $reh_order; do
+      reh_label=$(printf 'rung%02d-%s' "$reh_rung" "$reh_topology")
+      [ -s "$OUT_DIR/raw-$reh_label-1.jsonl" ] \
+        || fail "no raw evidence for $reh_label. The ladder reported success, so this is a cell that ran and wrote nothing"
+      want_cells="$want_cells$reh_label 1 raw-$reh_label-1.jsonl
 "
+      want_order="$want_order$reh_label
+"
+    done
   done
-done
+  # And the isolated baseline, once, at the rung the ladder ended on. With a stub every rung meets the
+  # target, so the ladder climbs to the top and the baseline belongs to the last rung.
+  LADDER_TOP_LABEL=$(printf 'rung%02d-R1' "$reh_rung")
+  [ -s "$OUT_DIR/raw-$LADDER_TOP_LABEL-1.jsonl" ] \
+    || fail "the ladder climbed every rung and never bought its isolated baseline. Without it, 'the split ran out of capacity' and 'one engine ran out of capacity' are the same observation"
+  want_cells="$want_cells$LADDER_TOP_LABEL 1 raw-$LADDER_TOP_LABEL-1.jsonl
+"
+  want_order="$want_order$LADDER_TOP_LABEL
+"
+  got_order=$(grep -oE 'cell [0-9]+/[0-9]+: rung[0-9]+-[A-Za-z0-9]+' "$WORK/matrix.log" | sed 's/.*: //')
+  [ "$(printf '%s' "$want_order")" = "$got_order" ] \
+    || fail "the ladder did not run its cells in the counterbalanced order.
+  wanted: $(printf '%s' "$want_order" | tr '\n' ';')
+  ran:    $(printf '%s' "$got_order" | tr '\n' ';')"
+  say "  the rungs alternated which topology went first, which is the counterbalance"
+else
+  for arm in $ARMS_UNDER_TEST; do
+    for rep in $(seq 1 "${REPS:-1}"); do
+      [ -s "$OUT_DIR/raw-$arm-$rep.jsonl" ] \
+        || fail "no raw evidence for $arm repetition $rep. The matrix reported success, so this is a cell that ran and wrote nothing"
+      want_cells="$want_cells$arm $rep raw-$arm-$rep.jsonl
+"
+    done
+  done
+fi
 want_cells=$(printf '%s' "$want_cells" | sort)
 # And nothing EXTRA: a file for an arm or repetition nobody asked for is a run that is not the one requested.
 got_files=$(for f in "$OUT_DIR"/raw-*.jsonl; do
@@ -316,12 +389,22 @@ print(' '.join(sorted(c)))
 # EVERY repetition, not the first. A repetition replayed from a different trace is a defect the runner
 # guards against elsewhere, and a rehearsal that only ever looked at repetition 1 was taking the guard's
 # word for it rather than checking the evidence.
-for rep in $(seq 1 "${REPS:-1}"); do
-  r1_tenants=$(tenants_in "$OUT_DIR/raw-R1-$rep.jsonl")
+if [ -n "$LADDER_UNDER_TEST" ]; then
+  # The ladder's baseline is called rung04-R1, and gen-trace's contender filter used to ask `arm == "R1"` --
+  # a literal that would have looked straight past it and produced a "baseline" carrying the contender.
+  # bench.IsIsolatedBaseline is what fixed that, and this is the cell that proves it on real evidence.
+  r1_tenants=$(tenants_in "$OUT_DIR/raw-$LADDER_TOP_LABEL-1.jsonl")
   [ "$r1_tenants" = "premium-1" ] \
-    || fail "the R1 arm's repetition $rep carries tenants [$r1_tenants] and must carry only premium-1. R1 is the isolated baseline both bars divide by, and one that includes the contender is the contended case wearing the baseline's name"
-done
-say "  R1 carries only premium-1, in every repetition"
+    || fail "the ladder's baseline $LADDER_TOP_LABEL carries tenants [$r1_tenants] and must carry only premium-1. A baseline that includes the contender is the contended case wearing the baseline's name"
+  say "  the ladder's baseline carries only premium-1, under a name that is not the literal R1"
+else
+  for rep in $(seq 1 "${REPS:-1}"); do
+    r1_tenants=$(tenants_in "$OUT_DIR/raw-R1-$rep.jsonl")
+    [ "$r1_tenants" = "premium-1" ] \
+      || fail "the R1 arm's repetition $rep carries tenants [$r1_tenants] and must carry only premium-1. R1 is the isolated baseline both bars divide by, and one that includes the contender is the contended case wearing the baseline's name"
+  done
+  say "  R1 carries only premium-1, in every repetition"
+fi
 
 # EVERY cell must have been handed over, and the check compares WHICH ONES rather than how many.
 #
@@ -338,13 +421,15 @@ if [ "$want_cells" != "$seen_cells" ]; then
 fi
 say "  every cell was handed over as it completed, by (arm, repetition): $(printf '%s' "$seen_cells" | tr '\n' ';')"
 
+# The contended cell these two checks read: the matrix's `shared` arm, or the ladder's first rung.
+if [ -n "$LADDER_UNDER_TEST" ]; then CONTENDED_CELL="raw-rung01-shared-1.jsonl"; else CONTENDED_CELL="raw-shared-1.jsonl"; fi
 shared_tenants=$(python3 -c "
 import json,sys,collections
 c=collections.Counter()
 for line in open(sys.argv[1]):
     c[json.loads(line).get('tenant','?')]+=1
 print(' '.join(sorted(c)))
-" "$OUT_DIR/raw-shared-1.jsonl")
+" "$OUT_DIR/$CONTENDED_CELL")
 [ "$shared_tenants" = "premium-1 standard-noisy" ] \
   || fail "the shared arm's evidence carries [$shared_tenants]; it must carry both tenants and no others, or the trace is not the one this study registered"
 say "  shared carries both tenants and no unauthenticated third"
@@ -357,7 +442,7 @@ for line in open(sys.argv[1]):
     d=json.loads(line)
     if d.get('status') in (401,403) or d.get('httpStatus') in (401,403): n+=1
 print(n)
-" "$OUT_DIR/raw-shared-1.jsonl")
+" "$OUT_DIR/$CONTENDED_CELL")
 [ "$refused" = "0" ] \
   || fail "$refused requests were refused on credentials. Every tenant the trace sends must have a key, and this is the fourth time that has not been true"
 say "  no request was refused on credentials"
@@ -366,6 +451,39 @@ say "  no request was refused on credentials"
 say "evaluate the pre-registered readings over the evidence the matrix wrote"
 args=()
 for f in "$OUT_DIR"/raw-*.jsonl; do args+=(--raw "$f"); done
+
+if [ -n "$LADDER_UNDER_TEST" ]; then
+  # The ladder's readings are its own, and what a stub produces is knowable in advance: it answers in
+  # milliseconds, so every rung meets the target, no bracket is closed, and the registered outcome is L6 --
+  # a lower bound on both topologies and explicitly not an extrapolation.
+  #
+  # Asserting the ANSWER here is safe in a way it is not for the sharing matrix, because this is not a
+  # measurement. It is the one reading a cluster with no card can legitimately produce, and if the ladder
+  # produced any other one over this evidence the instrument is not doing what the pre-registration says.
+  set +e
+  go run ./cmd/benchharness report "${args[@]}" > "$WORK/report.txt" 2>"$WORK/report.err"
+  report_rc=$?
+  set -e
+  [ "$report_rc" = "0" ] || { tail -20 "$WORK/report.txt"; cat "$WORK/report.err"; fail "the ladder report exited $report_rc over its own evidence"; }
+  grep -q "CAPACITY LADDER" "$WORK/report.txt" \
+    || { tail -20 "$WORK/report.txt"; fail "the report did not evaluate the ladder's readings over the ladder's own evidence"; }
+  grep -qE '^\s*ANSWER: L6$' "$WORK/report.txt" \
+    || { sed -n '/CAPACITY LADDER/,$p' "$WORK/report.txt"; fail "a stub meets the target at every rung, so the registered answer is L6 -- a lower bound. Anything else means the criterion or the stopping rule is not the one the pre-registration describes"; }
+  # ANCHORED ON THE CELL TABLE, because the word INVALID also appears in reading L0's NAME -- which is
+  # printed whether or not it fired. The first version of this line grepped the whole report and failed a
+  # ladder whose five cells were all scored and whose answer was exactly the registered L6.
+  #
+  # And `grep -q X && { ... }` is wrong here for a second reason this repository has paid for: when grep
+  # finds nothing the compound returns 1 and `set -e` ends the script between two lines with no message.
+  if grep -qE '^ +rung[0-9]+-[A-Za-z0-9]+ .*INVALID' "$WORK/report.txt"; then
+    sed -n '/CAPACITY LADDER/,$p' "$WORK/report.txt"
+    fail "a ladder cell was refused as unscorable; the rehearsal's own cells must be scorable or it is rehearsing a refusal"
+  fi
+  sed -n '/CAPACITY LADDER/,$p' "$WORK/report.txt" | sed 's/^/  /'
+  say "REHEARSAL PASSED: the real script ran the ladder end to end, in the counterbalanced order, bought its baseline at the rung it ended on, and its readings answered L6."
+  say "What this did NOT cover: every number, the STOP path (no stub is ever slow), and whether two engines fit on one card."
+  exit 0
+fi
 # A NON-ZERO EXIT IS EXPECTED HERE, and distinguishing it from a crash is the point.
 #
 # An INVALID reading now exits non-zero, so that automation writing `report ... || fail` cannot accept a run
