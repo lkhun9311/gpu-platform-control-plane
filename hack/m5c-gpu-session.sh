@@ -803,6 +803,14 @@ if [ -n "$LADDER" ]; then
   _rung=0
   for _entry in $LADDER; do
     _rung=$(( _rung + 1 ))
+    # A skipped rung holds its POSITION and buys nothing, so it must not be expected either.
+    #
+    # This loop was written before `skip` existed and kept counting positions as purchases. The repetition of
+    # rungs 2 and 3 therefore finished every cell, downloaded all of them, and then failed its own final
+    # check demanding rung01-shared and rung01-timeSlicing -- arms it had been told not to buy. Nothing was
+    # lost and the instance was terminated correctly, but the session's last word on a successful run was
+    # FAIL, which is the one thing an end-of-session check must never say wrongly.
+    [ "$_entry" != skip ] || continue
     expected_arms="$expected_arms $(printf 'rung%02d-shared rung%02d-timeSlicing' "$_rung" "$_rung")"
   done
 else
