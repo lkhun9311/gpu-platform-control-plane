@@ -156,19 +156,36 @@ reproduces. **No verdict on this page changed.**
 
 Every fix was confirmed by restoring the defect and watching a named test go red.
 
+### Then fixed as well, because each one either burns money or reports the wrong thing
+
+- **Load validation happened after rental.** A mistyped study, a rung the registry does not admit, or a
+  trace whose counts the readings would refuse reached the card before the refusal — about 25 minutes of
+  bring-up each time. The wrapper now runs the matrix in a plan-only mode before `run-instances`: it
+  generates every planned cell's trace with the real `gen-trace` and asks the real
+  `bench.LadderPlanRefusal` whether the readings could score it. **The thresholds stay in `internal/bench`**
+  — the shell counts what came out and asks, so no registered number is written down twice. The case that
+  motivated it is not hypothetical: omit `DURATION_MS` and the wrapper's default of 420000 generates **470
+  premium requests against a floor of 500** at the bottom rung.
+
+  Checking this also found a refusal of mine stating something untrue. It said "gen-trace refuses an arm the
+  named study does not admit". Run it: `gen-trace --arm not-an-arm-at-all` writes 297 rows and a manifest
+  and exits 0. The guard is in `replay`'s manifest validation, **on the rented card**.
+- **The credential margin read the credential cache, not the active credential.** It took the newest cache
+  entry whose account matched, which establishes "some credential for this account expires then". An active
+  credential with twenty minutes left, beside another role's twelve-hour entry, read as twelve hours. It now
+  asks `aws configure export-credentials` — the same chain every call in the session goes through — and
+  reads only the expiry field. The cache scan remains as the fallback for a CLI too old to have it.
+- **Session identity.** The S3 prefix now carries a per-launch nonce, and the completion marker carries it
+  too and is verified before anything is downloaded. Reusing an output name at the same commit used to
+  qualify the previous experiment's `DONE`, archive and commit file: the wrapper would download the old
+  session, print SESSION DONE, and terminate the instance it had just paid to launch.
+
 ### Known and not fixed, recorded rather than quietly carried
 
-- **Session identity.** Reusing an output prefix at the same commit can return a previous experiment's
-  evidence and terminate the newly launched instance. The commit guard establishes source identity, not
-  session identity; a run nonce is the fix and is not written.
 - **Row-level identity.** The loader validates study per row but arm and trace only on row zero, so
   concatenated files pool under `rows[0].Arm`.
-- **An unknown study id falls through** to a warning and exit 0 rather than failing.
-- **The credential margin reads the newest matching-account SSO cache entry**, not the active provider, so
-  another role's longer-lived entry can vouch for a shorter-lived one.
-- **Load validation happens after rental**: a mistyped study, a malformed rung or a missing `DURATION_MS`
-  reaches the card before the refusal. Generating every planned trace locally before launch would move all
-  of it to $0.
+- **An unknown study id falls through** to a warning and exit 0 rather than failing, in the report; the
+  runner and the plan check both refuse one.
 - **The paid matrix never passes the provenance flags**, so its manifests carry no build or image identity.
 - **The kind rehearsal cannot drive a skip-led ladder**, and its forced-STOP path exits before the
   baseline-isolation and upload-hook assertions.
