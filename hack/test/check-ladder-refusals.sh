@@ -176,6 +176,31 @@ printf '%s' "$expected" | grep -q rung02-shared && printf '%s' "$expected" | gre
   && ok "and it names both topologies of both bought rungs" \
   || bad "the wrapper's loop does not name both rungs' topologies: $expected"
 
+say "8. does the local plan check refuse, before launch, what used to be refused on the card?"
+# Each of these already had a guard. Each guard fired on the rented instance: replay validates the arm after
+# the engines are up, and the cell floors are applied after the replay finishes. The point of the plan check
+# is not new refusals, it is the same ones at $0.
+plan_case() {
+  local what="$1" want="$2" ladder="$3" dur="$4"
+  set +e
+  out=$(PLAN_ONLY=1 PLATFORM=kind KCTX=none BENCHHARNESS_BIN="$WORK/benchharness" \
+        LADDER="$ladder" LADDER_STUDY=throughput-ladder-down-2026-09-13 \
+        PREMIUM_WEIGHT=1 PROBE_WEIGHT=0 DURATION_MS="$dur" OUT="$WORK/plan-$RANDOM" \
+        bash hack/m5c-matrix.sh 2>&1)
+  local code=$?
+  set -e
+  if [ "$want" = ok ]; then
+    [ "$code" = 0 ] && ok "$what is accepted" || bad "$what was refused: $(printf '%s' "$out" | grep 'PLAN REFUSED' | head -1)"
+    return
+  fi
+  [ "$code" != 0 ] || { bad "$what was accepted and would have been refused on the card"; return; }
+  printf '%s' "$out" | grep -q "$want" && ok "$what is refused before launch" || bad "$what: $(printf '%s' "$out" | tail -2 | tr '\n' ' ')"
+}
+plan_case "the registered downward ladder" ok "1.431979:0.23386882 2.564749:0.11403366 4.847585:0.05746316" 505000
+plan_case "a trace too short for the sample floor" "below 500 completed" "1.431979:0.23386882" 420000
+plan_case "a rung the registry does not admit"     "is not one of study"  "skip skip skip skip 4.847585:0.05746316" 505000
+plan_case "a contender the rungs do not hold fixed" "varied two things at once" "2.564749:0.5" 505000
+
 echo
 if [ "$failures" = "0" ]; then
   say "LADDER REFUSALS PINNED: the stop, the continue, the unscorable rung, and the double-described load in BOTH scripts."
