@@ -165,7 +165,7 @@ if [ -n "$LADDER" ]; then
   STUDY="${LADDER_STUDY:-throughput-ladder-2026-09-13}"
   case "$STUDY" in
     throughput-ladder-2026-09-13|throughput-ladder-down-2026-09-13) ;;
-    *) fail "LADDER_STUDY is ${STUDY@Q}; internal/bench registers throughput-ladder-2026-09-13 and throughput-ladder-down-2026-09-13, and gen-trace refuses an arm the named study does not admit" ;;
+    *) fail "LADDER_STUDY is ${STUDY@Q}; internal/bench registers throughput-ladder-2026-09-13 and throughput-ladder-down-2026-09-13. This refusal is the one that stops it: gen-trace does NOT check the arm against the study -- it writes a manifest for any string -- and the check that does is in replay's manifest validation, which fires on the rented card after the engines are up" ;;
   esac
   ladder_rung=0
   for entry in $LADDER; do
