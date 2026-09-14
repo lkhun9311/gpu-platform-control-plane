@@ -499,6 +499,47 @@ func censoredNote(censored bool) string {
 	return ""
 }
 
+// LadderPlanRefusal says why a planned cell could never be scored, before it is bought.
+//
+// # WHY THIS IS HERE AND NOT IN THE RUNNER
+//
+// The floors it applies -- the contender's fixed count and its tolerance, and the minimum premium tail --
+// are this file's, and a shell script holding its own copy of them is a second place for a registered
+// number to be edited. The runner generates each planned trace locally, counts what came out, and asks
+// this function; nothing about the thresholds crosses into the shell.
+//
+// # WHY IT EXISTS AT ALL
+//
+// Every one of these refusals already existed and every one of them fired ON THE RENTED CARD: `replay`
+// validates the arm against the study after the engines are up, and the cell floors are applied by the
+// readings after the replay. A mistyped study, a rung the registry does not admit, or a trace whose counts
+// the readings would refuse therefore cost a bring-up each time. The same questions asked before launch
+// cost nothing.
+func LadderPlanRefusal(study, arm string, premiumOffers, contenderOffers int) error {
+	s, ok := LookupStudy(study)
+	if !ok {
+		return fmt.Errorf("study %q is not registered; known studies are %s", study, strings.Join(KnownStudyIDs(), ", "))
+	}
+	if !s.Admits(arm) {
+		return fmt.Errorf("arm %q is not one of study %s's arms (%s)", arm, s.ID, strings.Join(s.Arms, ", "))
+	}
+	if premiumOffers < ladderMinTailSamples {
+		return fmt.Errorf("the trace offers %d premium requests and the readings refuse a premium tail below %d completed, so this cell could not be scored even if every request succeeded",
+			premiumOffers, ladderMinTailSamples)
+	}
+	if IsIsolatedBaseline(arm) {
+		if contenderOffers != 0 {
+			return fmt.Errorf("the isolated baseline's trace carries %d contender requests and must carry none", contenderOffers)
+		}
+		return nil
+	}
+	if offBy(contenderOffers, ladderContenderOffers) > ladderContenderTolerance {
+		return fmt.Errorf("the trace offers %d contender requests where every rung holds it at %d +/- %d, so this cell would be refused as having varied two things at once",
+			contenderOffers, ladderContenderOffers, ladderContenderTolerance)
+	}
+	return nil
+}
+
 // LadderRungComplete says whether a rung has both contended topologies present and scorable.
 //
 // It exists so that a caller can tell "this rung is not here" apart from "this rung stopped the ladder".

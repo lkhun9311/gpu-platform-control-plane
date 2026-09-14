@@ -84,6 +84,8 @@ func main() {
 		err = checkReplay(os.Args[2:])
 	case "ladder-verdict":
 		err = ladderVerdict(os.Args[2:])
+	case "ladder-plan-check":
+		err = ladderPlanCheck(os.Args[2:])
 	case "sim-cap":
 		err = simCap(os.Args[2:])
 	case "stub-serve":
@@ -99,7 +101,7 @@ func main() {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: benchharness <gen-trace|replay|report|ladder-verdict|print-prompt|check-replay|stamp-exact-tokens|sim-cap|power|stub-serve> [flags]")
+	fmt.Fprintln(os.Stderr, "usage: benchharness <gen-trace|replay|report|ladder-verdict|ladder-plan-check|print-prompt|check-replay|stamp-exact-tokens|sim-cap|power|stub-serve> [flags]")
 }
 
 // genTrace generates an immutable trace file and a frozen manifest that pins its checksum.
@@ -373,6 +375,49 @@ func replay(args []string) error {
 // report turns one raw file per arm into the design's pre-registered report.
 //
 // Each --raw file is one arm's evidence; multiple files for the same arm are treated as repetitions for the bootstrap.
+// ladderPlanCheck asks, of a trace that has been generated but not replayed, whether the cell it describes
+// could ever be scored.
+//
+// It takes a generated trace file rather than counts on the command line, so the thing being checked is the
+// artefact the run will actually replay and not a number somebody typed twice.
+func ladderPlanCheck(args []string) error {
+	fs := flag.NewFlagSet("ladder-plan-check", flag.ExitOnError)
+	trace := fs.String("trace", "", "the generated trace file to check")
+	study := fs.String("study", "", "the study the cell belongs to")
+	arm := fs.String("arm", "", "the arm name the cell will record")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *trace == "" || *study == "" || *arm == "" {
+		return fmt.Errorf("--trace, --study and --arm are all required")
+	}
+	tf, err := os.Open(*trace)
+	if err != nil {
+		return fmt.Errorf("open trace %s: %w", *trace, err)
+	}
+	defer func() { _ = tf.Close() }()
+	rows, err := bench.ReadTrace(tf)
+	if err != nil {
+		return fmt.Errorf("read trace %s: %w", *trace, err)
+	}
+	premium, contender := 0, 0
+	for _, r := range rows {
+		switch r.Tenant {
+		case bench.PremiumTenant:
+			premium++
+		case bench.NoisyTenant:
+			contender++
+		}
+	}
+	if perr := bench.LadderPlanRefusal(*study, *arm, premium, contender); perr != nil {
+		return fmt.Errorf("%s: %w", *arm, perr)
+	}
+	fmt.Printf("%s: %d premium, %d contender -- scorable\n", *arm, premium, contender)
+	return nil
+}
+
+// ladderVerdictStop is the exit code that tells the runner to stop climbing.
+
 // ladderVerdictStop is the exit code that tells the runner to stop climbing.
 //
 // A distinct code rather than a non-zero, because the runner must tell "both topologies breached, which is
