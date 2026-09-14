@@ -344,6 +344,25 @@ set -e
 # rehearsing it.
 say "check what the matrix wrote"
 want_cells=""
+# tenants_in is defined HERE, above every caller.
+#
+# It used to sit two hundred lines below the forced-STOP branch that now calls it, which in bash is not a
+# forward declaration -- it is "tenants_in: command not found" and a failed assertion that looks like a
+# failed run. The same shape cost a paid session earlier today, in the wrapper, where a refusal was placed
+# above the definition of fail().
+# R1 IS THE POINT OF THIS CHECK. It is the isolated baseline, so its trace must carry the premium tenant and
+# nothing else -- gen-trace filters the contender out of the same trace when the arm is R1. A run whose R1
+# carried the contender would be measuring the contended case and dividing by it.
+tenants_in() {
+  python3 -c "
+import json,sys,collections
+c=collections.Counter()
+for line in open(sys.argv[1]):
+    c[json.loads(line).get('tenant','?')]+=1
+print(' '.join(sorted(c)))
+" "$1"
+}
+
 if [ -n "$LADDER_FORCE_STOP" ]; then
   # The forced verdict says STOP at the FIRST rung, so the run must be exactly three cells: the rung's two
   # topologies and the isolated baseline bought at that rung. Nothing above it may exist.
@@ -361,6 +380,21 @@ if [ -n "$LADDER_FORCE_STOP" ]; then
     || fail "the runner stopped without saying it was the registered rule; on a paid run that message is the only thing distinguishing a stop from a failure"
   grep -q "could not score rung" "$WORK/matrix.log" \
     && fail "the runner read the stopping verdict as an unscorable rung -- which is exactly the defect that ended the first paid ladder"
+  # THE ASSERTIONS THAT ARE NOT ABOUT STOPPING RUN HERE TOO.
+  #
+  # This branch used to exit before them, so breaking the baseline's tenant filter or the per-cell handover
+  # SPECIFICALLY on the stopping path left this mode green -- and the stopping path is the one a real ladder
+  # takes at its last rung, which is where the baseline is bought. A review pointed that out; the exit is
+  # now after them rather than before.
+  r1_tenants=$(tenants_in "$OUT_DIR/raw-rung01-R1-1.jsonl")
+  [ "$r1_tenants" = "premium-1" ] \
+    || fail "the baseline bought at the stopping rung carries tenants [$r1_tenants] and must carry only premium-1"
+  seen_cells=$(sort "$CELL_HOOK_LOG" 2>/dev/null || true)
+  for want in rung01-shared rung01-timeSlicing rung01-R1; do
+    printf '%s' "$seen_cells" | grep -q "^$want 1 raw-$want-1.jsonl$" \
+      || fail "the per-cell hook never saw $want. On the instance that hook is what puts each cell in the bucket while the card is still running, and the stopping path is where the last cell of a real ladder is bought"
+  done
+  say "  the baseline carries only premium-1, and all three cells were handed over as they completed"
   say "REHEARSAL PASSED: a STOP verdict stopped the ladder at rung 1 and bought its baseline there, and nothing above it ran."
   exit 0
 fi
@@ -371,8 +405,16 @@ if [ -n "$LADDER_UNDER_TEST" ]; then
   # stop happening.
   want_order=""
   reh_rung=0
+  reh_first=0
+  reh_last=0
   for entry in $LADDER_UNDER_TEST; do
     reh_rung=$(( reh_rung + 1 ))
+    # A skipped rung holds its position and buys nothing, so it is neither expected nor counted as the
+    # first or last purchase. This loop counted positions, so a skip-led ladder -- which is what a
+    # repetition of rungs 2 and 3 is -- demanded rung-1 files that were deliberately not bought.
+    [ "$entry" != skip ] || continue
+    [ "$reh_first" != 0 ] || reh_first=$reh_rung
+    reh_last=$reh_rung
     if [ $(( reh_rung % 2 )) -eq 1 ]; then reh_order="shared timeSlicing"; else reh_order="timeSlicing shared"; fi
     for reh_topology in $reh_order; do
       reh_label=$(printf 'rung%02d-%s' "$reh_rung" "$reh_topology")
@@ -386,7 +428,8 @@ if [ -n "$LADDER_UNDER_TEST" ]; then
   done
   # And the isolated baseline, once, at the rung the ladder ended on. With a stub every rung meets the
   # target, so the ladder climbs to the top and the baseline belongs to the last rung.
-  LADDER_TOP_LABEL=$(printf 'rung%02d-R1' "$reh_rung")
+  [ "$reh_last" != 0 ] || fail "the ladder under test buys no rung at all; every entry is skip"
+  LADDER_TOP_LABEL=$(printf 'rung%02d-R1' "$reh_last")
   [ -s "$OUT_DIR/raw-$LADDER_TOP_LABEL-1.jsonl" ] \
     || fail "the ladder climbed every rung and never bought its isolated baseline. Without it, 'the split ran out of capacity' and 'one engine ran out of capacity' are the same observation"
   want_cells="$want_cells$LADDER_TOP_LABEL 1 raw-$LADDER_TOP_LABEL-1.jsonl
@@ -420,18 +463,6 @@ done | sort)
   wanted: $(printf '%s' "$want_cells" | tr '\n' ';')
   found:  $(printf '%s' "$got_files" | tr '\n' ';')"
 
-# R1 IS THE POINT OF THIS CHECK. It is the isolated baseline, so its trace must carry the premium tenant and
-# nothing else -- gen-trace filters the contender out of the same trace when the arm is R1. A run whose R1
-# carried the contender would be measuring the contended case and dividing by it.
-tenants_in() {
-  python3 -c "
-import json,sys,collections
-c=collections.Counter()
-for line in open(sys.argv[1]):
-    c[json.loads(line).get('tenant','?')]+=1
-print(' '.join(sorted(c)))
-" "$1"
-}
 # EVERY repetition, not the first. A repetition replayed from a different trace is a defect the runner
 # guards against elsewhere, and a rehearsal that only ever looked at repetition 1 was taking the guard's
 # word for it rather than checking the evidence.
@@ -468,7 +499,12 @@ fi
 say "  every cell was handed over as it completed, by (arm, repetition): $(printf '%s' "$seen_cells" | tr '\n' ';')"
 
 # The contended cell these two checks read: the matrix's `shared` arm, or the ladder's first rung.
-if [ -n "$LADDER_UNDER_TEST" ]; then CONTENDED_CELL="raw-rung01-shared-1.jsonl"; else CONTENDED_CELL="raw-shared-1.jsonl"; fi
+if [ -n "$LADDER_UNDER_TEST" ]; then
+  # The FIRST rung this ladder bought, which is not rung 1 when the ladder is skip-led.
+  CONTENDED_CELL="raw-$(printf 'rung%02d' "$reh_first")-shared-1.jsonl"
+else
+  CONTENDED_CELL="raw-shared-1.jsonl"
+fi
 shared_tenants=$(python3 -c "
 import json,sys,collections
 c=collections.Counter()
