@@ -917,6 +917,27 @@ if [ -n "$LADDER" ]; then
   done
   [ "$ladder_reached" -gt 0 ] \
     || fail "the ladder finished and wrote no rung evidence at all"
+  # Rungs above the one reached are waived ONLY against a recorded STOP.
+  #
+  # This check derived the stopping point from whatever survived, so a run that wrote rung-1 files, recorded
+  # a verdict explicitly saying CONTINUE, and then died before rung 2 came back as SESSION DONE at exit 0 --
+  # an interrupted ladder reported as a complete one. The verdict file is in the evidence; reading it is the
+  # difference between "the stopping rule ended this" and "something did".
+  ladder_planned_top=0
+  _rung=0
+  for _entry in $LADDER; do
+    _rung=$(( _rung + 1 ))
+    [ "$_entry" != skip ] || continue
+    ladder_planned_top=$_rung
+  done
+  if [ "$ladder_reached" -lt "$ladder_planned_top" ]; then
+    verdict="$OUT/m5c-run/ladder-verdict-rung$ladder_reached.txt"
+    [ -s "$verdict" ] \
+      || fail "the ladder planned $ladder_planned_top rungs, reached $ladder_reached, and left no verdict for that rung. Rungs are waived only against a recorded STOP, and an interrupted ladder is not a finished one"
+    grep -qx "LADDER: STOP" "$verdict" \
+      || fail "the ladder planned $ladder_planned_top rungs and reached $ladder_reached, but the verdict at rung $ladder_reached says $(tr -d '[:space:]' < "$verdict"). Only a STOP waives the rungs above it; this run ended for some other reason and the evidence is partial"
+    say "rungs above $ladder_reached were waived against a recorded STOP at rung $ladder_reached"
+  fi
 fi
 for arm in $expected_arms; do
   if [ -n "$LADDER" ]; then
