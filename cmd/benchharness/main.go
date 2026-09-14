@@ -693,6 +693,27 @@ type armEvidence struct {
 //
 // Normalization is applied before comparing, so an unlabelled legacy file and one that names
 // m5b-gateway-v1 explicitly are the same study rather than two.
+// singleArm is singleStudy's twin: a raw file is ONE arm, and every row has to say so.
+//
+// It also checks the trace checksum, because the two travel together -- rows from another cell carry both a
+// different arm and a different trace, and a file doctored to fix one would still fail the other.
+func singleArm(path string, rows []bench.RawRow) (string, error) {
+	arm, sum := rows[0].Arm, rows[0].TraceChecksum
+	for i, r := range rows {
+		if r.Arm != arm {
+			return "", fmt.Errorf("%s mixes arms within one file: row 0 carries %q but row %d carries %q;"+
+				" a raw file is one arm of one experiment, and pooling two of them reports a cell nobody ran",
+				path, arm, i, r.Arm)
+		}
+		if r.TraceChecksum != sum {
+			return "", fmt.Errorf("%s mixes traces within one file: row 0 carries checksum %s but row %d carries %s;"+
+				" one replay of one immutable trace is what a raw file records",
+				path, sum, i, r.TraceChecksum)
+		}
+	}
+	return arm, nil
+}
+
 func singleStudy(path string, rows []bench.RawRow) (canonical, recorded string, err error) {
 	recorded = rows[0].Study
 	canonical = bench.CanonicalStudyID(recorded)
@@ -798,7 +819,39 @@ func loadArmEvidence(rawFiles []string) (*armEvidence, error) {
 				path, studyLabel(study, recorded), e.studyFrom, studyLabel(e.study, e.studyRecorded))
 		}
 
-		arm := rows[0].Arm
+		// EVERY row's arm and trace, for the reason every row's study is checked: a file is one arm of one
+		// experiment, and reading row zero made both defeatable by concatenation. An adversarial review
+		// appended one arm's rows to another's and watched the pooled p99 move from 1,694.7 ms to 1,179.3
+		// while the report exited 0.
+		arm, err := singleArm(path, rows)
+		if err != nil {
+			return nil, err
+		}
+		// An UNREGISTERED study is refused rather than warned about.
+		//
+		// A typo in the study id used to fall through: LookupStudy misses, the arm order falls back to
+		// M5-b's, every ladder arm drops out of the table, and the report exits 0 saying only that it
+		// evaluated no criteria. Evidence whose experiment this binary does not know is evidence it cannot
+		// place, and "no criteria evaluated" is what it says about a study whose readings are not written --
+		// a different thing, and one a reader has no way to tell apart.
+		//
+		// Rows written before studies existed carry an empty id, which CanonicalStudyID maps to M5-b, so
+		// this refusal only bites an id that was actually wrong.
+		st, known := bench.LookupStudy(study)
+		if !known {
+			return nil, fmt.Errorf("%s records study %s, which is not registered; known studies are %s."+
+				" A report cannot place evidence from an experiment it does not know, and reporting it under"+
+				" another study's arm order would be a comparison nobody ran",
+				path, studyLabel(study, recorded), strings.Join(bench.KnownStudyIDs(), ", "))
+		}
+		// And the arm must be one the study admits. An unknown arm is not a row this report can place: it
+		// falls out of the study's order, out of contendedArms, and out of every reading that names arms --
+		// silently, because nothing downstream asks whether it belonged.
+		if !st.Admits(arm) {
+			return nil, fmt.Errorf("%s records arm %q, which study %s does not admit (%s);"+
+				" a report cannot place a row whose arm its own registry does not name",
+				path, arm, st.ID, strings.Join(st.Arms, ", "))
+		}
 
 		e.byArm[arm] = append(e.byArm[arm], rows...)
 		// Keep the whole per-repetition summary, not just its p99.
