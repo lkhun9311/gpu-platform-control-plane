@@ -24,9 +24,11 @@ package main
 
 import (
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"flag"
 	"fmt"
+	"hash/fnv"
 	"os"
 	"path/filepath"
 	"slices"
@@ -80,6 +82,10 @@ func main() {
 		err = stampExactTokens(os.Args[2:])
 	case "check-replay":
 		err = checkReplay(os.Args[2:])
+	case "ladder-verdict":
+		err = ladderVerdict(os.Args[2:])
+	case "ladder-plan-check":
+		err = ladderPlanCheck(os.Args[2:])
 	case "sim-cap":
 		err = simCap(os.Args[2:])
 	case "stub-serve":
@@ -95,7 +101,7 @@ func main() {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: benchharness <gen-trace|replay|report|print-prompt|check-replay|stamp-exact-tokens|sim-cap|power|stub-serve> [flags]")
+	fmt.Fprintln(os.Stderr, "usage: benchharness <gen-trace|replay|report|ladder-verdict|ladder-plan-check|print-prompt|check-replay|stamp-exact-tokens|sim-cap|power|stub-serve> [flags]")
 }
 
 // genTrace generates an immutable trace file and a frozen manifest that pins its checksum.
@@ -198,7 +204,7 @@ func genTrace(args []string) error {
 	// That way premium arrives on the identical schedule it has in the contended arms.
 	//
 	// So the 1.25x baseline is not inflated by running premium at double its share.
-	if *arm == "R1" {
+	if bench.IsIsolatedBaseline(*arm) {
 		premiumOnly := rows[:0]
 		for _, r := range rows {
 			if !r.IsNoisy {
@@ -369,6 +375,121 @@ func replay(args []string) error {
 // report turns one raw file per arm into the design's pre-registered report.
 //
 // Each --raw file is one arm's evidence; multiple files for the same arm are treated as repetitions for the bootstrap.
+// ladderPlanCheck asks, of a trace that has been generated but not replayed, whether the cell it describes
+// could ever be scored.
+//
+// It takes a generated trace file rather than counts on the command line, so the thing being checked is the
+// artefact the run will actually replay and not a number somebody typed twice.
+func ladderPlanCheck(args []string) error {
+	fs := flag.NewFlagSet("ladder-plan-check", flag.ExitOnError)
+	trace := fs.String("trace", "", "the generated trace file to check")
+	study := fs.String("study", "", "the study the cell belongs to")
+	arm := fs.String("arm", "", "the arm name the cell will record")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *trace == "" || *study == "" || *arm == "" {
+		return fmt.Errorf("--trace, --study and --arm are all required")
+	}
+	tf, err := os.Open(*trace)
+	if err != nil {
+		return fmt.Errorf("open trace %s: %w", *trace, err)
+	}
+	defer func() { _ = tf.Close() }()
+	rows, err := bench.ReadTrace(tf)
+	if err != nil {
+		return fmt.Errorf("read trace %s: %w", *trace, err)
+	}
+	premium, contender := 0, 0
+	for _, r := range rows {
+		switch r.Tenant {
+		case bench.PremiumTenant:
+			premium++
+		case bench.NoisyTenant:
+			contender++
+		}
+	}
+	if perr := bench.LadderPlanRefusal(*study, *arm, premium, contender); perr != nil {
+		return fmt.Errorf("%s: %w", *arm, perr)
+	}
+	fmt.Printf("%s: %d premium, %d contender -- scorable\n", *arm, premium, contender)
+	return nil
+}
+
+// ladderVerdictStop is the exit code that tells the runner to stop climbing.
+
+// ladderVerdictStop is the exit code that tells the runner to stop climbing.
+//
+// A distinct code rather than a non-zero, because the runner must tell "both topologies breached, which is
+// what we were climbing to find" apart from "something went wrong". The first is the successful end of a
+// ladder and the second must not be mistaken for it.
+const ladderVerdictStop = 10
+
+// ladderVerdict answers the one question the runner asks between rungs: climb again, or stop here?
+//
+// It exists so that the stopping rule lives in the same package as the criterion it applies. The
+// alternative was a shell script reading a p99 out of a table and comparing it to a threshold written down
+// twice -- and a threshold written down twice is a threshold that will eventually differ, in the direction
+// whoever edits it wants.
+//
+// It prints one line as well as setting an exit code. The line is what the runner asserts on, so a change
+// to either alone is caught rather than silently obeyed.
+func ladderVerdict(args []string) error {
+	fs := flag.NewFlagSet("ladder-verdict", flag.ExitOnError)
+	var rawFiles multiFlag
+	fs.Var(&rawFiles, "raw", "a raw evidence file (repeatable); pass every ladder cell measured so far")
+	rung := fs.Int("rung", 0, "the rung just measured")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if len(rawFiles) == 0 {
+		return fmt.Errorf("at least one --raw file is required")
+	}
+	if *rung <= 0 {
+		return fmt.Errorf("--rung is required and must name the rung just measured")
+	}
+	e, err := loadArmEvidence(rawFiles)
+	if err != nil {
+		return err
+	}
+	// The SAME evidence refusal the report applies, before a purchase decision is made on the evidence.
+	//
+	// It was absent here, so a rung whose two cells replayed different traces -- which `report` refuses with
+	// a non-zero exit -- produced LADDER: CONTINUE and bought the next rung. The cheap decision accepted
+	// evidence the expensive one would throw away.
+	if terr := e.refuseIfTracesDisagree(); terr != nil {
+		fmt.Println("LADDER: INVALID")
+		return fmt.Errorf("rung %d cannot be scored: %w", *rung, terr)
+	}
+	summaries, _ := e.summarize()
+	res := bench.EvaluateThroughputLadder(summaries)
+
+	// An unscorable cell stops the ladder for a different reason than a breach does, and says so.
+	for _, r := range res.Readings {
+		if r.Fired && r.ID == "L0" {
+			fmt.Println("LADDER: INVALID")
+			return fmt.Errorf("rung %d cannot be scored: %s", *rung, r.Detail)
+		}
+	}
+	// An INCOMPLETE requested rung is not a stopping point, and the caller cannot tell the two apart from a
+	// boolean. Asking about a rung whose pair is not in the evidence used to print STOP and exit 10, which
+	// the runner acts on by ending the climb -- a missing cell reported as a registered result.
+	if !bench.LadderRungComplete(res, *rung) {
+		fmt.Println("LADDER: INVALID")
+		return fmt.Errorf("rung %d is not complete in this evidence, so there is no verdict to give: both contended topologies must be present and scorable", *rung)
+	}
+	cont, detail := bench.LadderShouldContinue(res, *rung)
+	if cont {
+		fmt.Println("LADDER: CONTINUE")
+		fmt.Fprintln(os.Stderr, detail)
+		return nil
+	}
+	fmt.Println("LADDER: STOP")
+	fmt.Fprintln(os.Stderr, detail)
+	os.Exit(ladderVerdictStop)
+	return nil
+}
+
 func report(args []string) error {
 	fs := flag.NewFlagSet("report", flag.ExitOnError)
 	var rawFiles multiFlag
@@ -417,31 +538,16 @@ func report(args []string) error {
 	// the run disqualified -- a verdict about arms the experiment never had. Another study's readings are
 	// its own, so until they are implemented the report prints that study's tables and says plainly that
 	// it evaluated no criteria, rather than failing it against somebody else's.
-	var checks *bench.Checks
-	var pop *bench.PoPResult
-	if bench.CanonicalStudyID(e.study) == bench.StudyM5BGateway {
-		var missing []string
-		for _, arm := range []string{bench.ArmR1, "static-cap", "kv-aware"} {
-			if _, ok := summ[arm]; !ok {
-				missing = append(missing, arm)
-			}
-		}
-		if len(missing) > 0 {
-			fmt.Fprintf(os.Stderr, "warning: no records for arm(s) %s; the comparison will be disqualified\n",
-				strings.Join(missing, ", "))
-		}
-		evaluated := bench.EvaluateChecks(summ[bench.ArmR1], summ["static-cap"], summ["kv-aware"], incCI, matchTolerance)
-		checks = &evaluated
-	} else if bench.CanonicalStudyID(e.study) == bench.StudyPriceOfProtection {
-		pop = evaluatePoP(summ, summaries)
-	} else {
-		fmt.Fprintf(os.Stderr,
-			"warning: study %s has no implemented readings, so this report shows its measurements and evaluates no criteria\n",
-			e.study)
-	}
+	checks, pop, sharing, ladder := evaluateRegisteredReadings(e, summ, summaries, rawFiles, incCI, matchTolerance)
 	text := bench.FormatReport(summaries, checks, matchTolerance)
 	if pop != nil {
 		text += bench.FormatPriceOfProtection(*pop)
+	}
+	if sharing != nil {
+		text += bench.FormatSharingMatrix(*sharing)
+	}
+	if ladder != nil {
+		text += bench.FormatThroughputLadder(*ladder)
 	}
 
 	if *out != "" {
@@ -489,11 +595,38 @@ func report(args []string) error {
 	// and the paid runner calls this as `benchharness report ... || fail`, which is the whole reason the
 	// comment above says an invalid run exits non-zero. A run whose load made no contention, or whose load
 	// was too high to measure, printed its refusal and told the wrapper it had succeeded.
+	// The sharing study's INVALID readings exit non-zero too, for the reason the price-of-protection block
+	// below gives: automation that writes `benchharness report ... || fail` would otherwise accept a run the
+	// readings had just declared unusable.
+	if sharing != nil {
+		if err := sharingRunInvalid(*sharing); err != nil {
+			return err
+		}
+	}
 	if pop != nil {
 		for _, r := range pop.Readings {
 			if r.Fired && (r.ID == "4" || r.ID == "4b") {
 				return fmt.Errorf("run invalid: reading %s fired -- %s", r.ID, r.Detail)
 			}
+		}
+	}
+	// The ladder's L0 is its only INVALID reading, and the distinction it draws is the one the runner acts
+	// on: a cell that could not be scored must stop the ladder, and a rung where both topologies BREACHED
+	// must not -- a breach is what the ladder is climbing to find.
+	//
+	// L5 is the same kind of result. "No qualified operating point at or above the bottom rung" is a
+	// finding about where the answer lies, not evidence that failed, and exiting non-zero for it would tell
+	// a wrapper that writes `benchharness report ... || fail` to discard a rung it paid for.
+	if ladder != nil {
+		for _, r := range ladder.Readings {
+			if r.Fired && r.ID == "L0" {
+				return fmt.Errorf("run invalid: reading L0 fired -- %s", r.Detail)
+			}
+		}
+		// A FINAL report needs the baseline; a between-rung verdict does not, which is why this is here and
+		// not in L0. ladderVerdict deliberately does not consult it.
+		if ladder.BaselineMissing {
+			return fmt.Errorf("run invalid: %s", ladder.BaselineNote)
 		}
 	}
 	return nil
@@ -507,7 +640,31 @@ type armEvidence struct {
 	byArm   map[string][]bench.RawRow
 	repP99  map[string][]float64
 	repTail map[string][]int
-	repRows map[string][]int
+	// repDone is each repetition's completed count per tenant: arm -> one map per repetition.
+	//
+	// repTail carries only the premium tenant's, so reading 4b's contender floor could be applied to the
+	// POOL and nothing else. An independent review reproduced what that allows: repetitions of 140, 140 and
+	// 50 contender completions, each offered 140, clear a hundred-completion floor at 330 pooled and fire
+	// reading 1 POSITIVE -- on a run containing one block the registration calls invalid.
+	repDone map[string][]map[string]int
+	// replayFrom maps a replay's IDENTITY to the file that carried it, so the same replay cannot be
+	// counted twice as two repetitions.
+	//
+	// A repetition is supposed to be an independent measurement. Nothing stopped the same file being
+	// passed twice, or copied under a second name: both produced RepetitionCount=2, equal counts across
+	// arms, and a control whose repetition-to-repetition spread is EXACTLY ZERO -- which is the threshold
+	// readings 3 and 5 compare an improvement against. A review reproduced it by passing each of the eighth
+	// pilot's files twice, and reading 5 fired on single-repetition evidence.
+	//
+	// The identity is the arm plus every row's send timestamp. Two real replays of the same trace start at
+	// different nanoseconds; a copy is bit-identical. The trace checksum cannot do this job -- repetitions
+	// of one arm are SUPPOSED to share it, and the check beside this one refuses them when they do not.
+	replayFrom map[string]string
+	// repServed is each repetition's completed/offered per tenant, which the counts alone cannot express.
+	repServed map[string][]map[string]float64
+	// repCensored records whether ANY of an arm's repetitions was censored, which pooling hides.
+	repCensored map[string]bool
+	repRows     map[string][]int
 	// repSeconds is each repetition's own wall clock, kept because the arm's throughput must be its tokens
 	// over the time it was actually sending -- not over a pooled span that includes the washout pauses
 	// between repetitions.
@@ -536,6 +693,27 @@ type armEvidence struct {
 //
 // Normalization is applied before comparing, so an unlabelled legacy file and one that names
 // m5b-gateway-v1 explicitly are the same study rather than two.
+// singleArm is singleStudy's twin: a raw file is ONE arm, and every row has to say so.
+//
+// It also checks the trace checksum, because the two travel together -- rows from another cell carry both a
+// different arm and a different trace, and a file doctored to fix one would still fail the other.
+func singleArm(path string, rows []bench.RawRow) (string, error) {
+	arm, sum := rows[0].Arm, rows[0].TraceChecksum
+	for i, r := range rows {
+		if r.Arm != arm {
+			return "", fmt.Errorf("%s mixes arms within one file: row 0 carries %q but row %d carries %q;"+
+				" a raw file is one arm of one experiment, and pooling two of them reports a cell nobody ran",
+				path, arm, i, r.Arm)
+		}
+		if r.TraceChecksum != sum {
+			return "", fmt.Errorf("%s mixes traces within one file: row 0 carries checksum %s but row %d carries %s;"+
+				" one replay of one immutable trace is what a raw file records",
+				path, sum, i, r.TraceChecksum)
+		}
+	}
+	return arm, nil
+}
+
 func singleStudy(path string, rows []bench.RawRow) (canonical, recorded string, err error) {
 	recorded = rows[0].Study
 	canonical = bench.CanonicalStudyID(recorded)
@@ -594,7 +772,11 @@ func loadArmEvidence(rawFiles []string) (*armEvidence, error) {
 	e := &armEvidence{
 		byArm: map[string][]bench.RawRow{}, repP99: map[string][]float64{},
 		repTail: map[string][]int{}, repRows: map[string][]int{}, repSeconds: map[string][]float64{},
-		checksum: map[string]string{}, tolerance: map[string]float64{},
+		repDone:     map[string][]map[string]int{},
+		replayFrom:  map[string]string{},
+		repCensored: map[string]bool{},
+		repServed:   map[string][]map[string]float64{},
+		checksum:    map[string]string{}, tolerance: map[string]float64{},
 		treatment: map[string]string{},
 	}
 	for _, path := range rawFiles {
@@ -637,7 +819,40 @@ func loadArmEvidence(rawFiles []string) (*armEvidence, error) {
 				path, studyLabel(study, recorded), e.studyFrom, studyLabel(e.study, e.studyRecorded))
 		}
 
-		arm := rows[0].Arm
+		// EVERY row's arm and trace, for the reason every row's study is checked: a file is one arm of one
+		// experiment, and reading row zero made both defeatable by concatenation. An adversarial review
+		// appended one arm's rows to another's and watched the pooled p99 move from 1,694.7 ms to 1,179.3
+		// while the report exited 0.
+		arm, err := singleArm(path, rows)
+		if err != nil {
+			return nil, err
+		}
+		// An UNREGISTERED study is refused rather than warned about.
+		//
+		// A typo in the study id used to fall through: LookupStudy misses, the arm order falls back to
+		// M5-b's, every ladder arm drops out of the table, and the report exits 0 saying only that it
+		// evaluated no criteria. Evidence whose experiment this binary does not know is evidence it cannot
+		// place, and "no criteria evaluated" is what it says about a study whose readings are not written --
+		// a different thing, and one a reader has no way to tell apart.
+		//
+		// Rows written before studies existed carry an empty id, which CanonicalStudyID maps to M5-b, so
+		// this refusal only bites an id that was actually wrong.
+		st, known := bench.LookupStudy(study)
+		if !known {
+			return nil, fmt.Errorf("%s records study %s, which is not registered; known studies are %s."+
+				" A report cannot place evidence from an experiment it does not know, and reporting it under"+
+				" another study's arm order would be a comparison nobody ran",
+				path, studyLabel(study, recorded), strings.Join(bench.KnownStudyIDs(), ", "))
+		}
+		// And the arm must be one the study admits. An unknown arm is not a row this report can place: it
+		// falls out of the study's order, out of contendedArms, and out of every reading that names arms --
+		// silently, because nothing downstream asks whether it belonged.
+		if !st.Admits(arm) {
+			return nil, fmt.Errorf("%s records arm %q, which study %s does not admit (%s);"+
+				" a report cannot place a row whose arm its own registry does not name",
+				path, arm, st.ID, strings.Join(st.Arms, ", "))
+		}
+
 		e.byArm[arm] = append(e.byArm[arm], rows...)
 		// Keep the whole per-repetition summary, not just its p99.
 		//
@@ -645,11 +860,40 @@ func loadArmEvidence(rawFiles []string) (*armEvidence, error) {
 		// invisible: the pooled arm summary sums every row, so three healthy repetitions carry a fourth whose
 		// p99 is a maximum over thirty requests -- and the bootstrap then resamples that fourth value with
 		// equal weight.
+		// The same replay may not be counted twice.
+		h := fnv.New64a()
+		var buf [8]byte
+		for _, r := range rows {
+			binary.LittleEndian.PutUint64(buf[:], uint64(r.SendUnixNanos))
+			_, _ = h.Write(buf[:])
+		}
+		id := fmt.Sprintf("%s/%x", arm, h.Sum64())
+		if prev, dup := e.replayFrom[id]; dup {
+			return nil, fmt.Errorf("%s and %s carry the SAME replay of arm %s -- every row was sent at the"+
+				" same nanosecond, so one is a copy of the other. Counting it twice would report two"+
+				" repetitions whose spread is exactly zero, and that spread is what readings 3 and 5"+
+				" measure an improvement against", path, prev, arm)
+		}
+		e.replayFrom[id] = path
+
 		rs := bench.Summarize(arm, rows)
 		e.repP99[arm] = append(e.repP99[arm], rs.TTFTMsP99)
 		e.repTail[arm] = append(e.repTail[arm], rs.TailSampleSize)
 		e.repRows[arm] = append(e.repRows[arm], len(rows))
 		e.repSeconds[arm] = append(e.repSeconds[arm], rs.ActiveSeconds)
+		done := map[string]int{}
+		served := map[string]float64{}
+		for tenant, d := range rs.DispositionByTenant {
+			done[tenant] = d.Completed
+			if d.Offered > 0 {
+				served[tenant] = float64(d.Completed) / float64(d.Offered)
+			}
+		}
+		e.repDone[arm] = append(e.repDone[arm], done)
+		e.repServed[arm] = append(e.repServed[arm], served)
+		if rs.Censored {
+			e.repCensored[arm] = true
+		}
 		// Every repetition's checksum, not the last one's.
 		//
 		// This assigned, so loadArmEvidence kept only whichever file it read last and a repetition replayed
@@ -689,7 +933,16 @@ func (e *armEvidence) refuseIfTracesDisagree() error {
 	// R1 legitimately differs (it is the same trace with the contender filtered out).
 	//
 	// So it is excluded from the identity check.
-	var wantSum string
+	// The identity holds WITHIN A COMPARISON GROUP, which is the whole study for every experiment that
+	// offers one load and one rung for the capacity ladder, which offers four.
+	//
+	// It was written as one group across all arms, and that is correct for every study that existed when it
+	// was written. The ladder broke it in the direction that matters: its rungs replay DIFFERENT traces on
+	// purpose -- that is what a rung is -- so the report refused the ladder's own evidence after the cells
+	// were bought. The first ladder rehearsal caught it on a free cluster; on a card it would have refused
+	// at the end of the session, with every cell paid for.
+	wantSum := map[string]string{}
+	wantSumFrom := map[string]string{}
 	for _, arm := range e.contendedArms() {
 		sum, ok := e.checksum[arm]
 		if !ok {
@@ -698,11 +951,14 @@ func (e *armEvidence) refuseIfTracesDisagree() error {
 		if sum == "" {
 			return fmt.Errorf("arm %s carries no trace checksum; regenerate its manifest with a current gen-trace", arm)
 		}
-		if wantSum == "" {
-			wantSum = sum
-		} else if sum != wantSum {
-			return fmt.Errorf("arm %s replayed a different trace (%s) than the other contended arms (%s);"+
-				" a valid comparison needs one immutable trace", arm, sum, wantSum)
+		g := comparisonGroup(arm)
+		if _, seen := wantSum[g]; !seen {
+			wantSum[g], wantSumFrom[g] = sum, arm
+			continue
+		}
+		if sum != wantSum[g] {
+			return fmt.Errorf("arm %s replayed a different trace (%s) than %s (%s);"+
+				" arms compared against each other need one immutable trace", arm, sum, wantSumFrom[g], wantSum[g])
 		}
 	}
 
@@ -731,33 +987,52 @@ func (e *armEvidence) refuseIfTracesDisagree() error {
 	// arms of different lengths cannot be compared at all, which is a statement about the evidence rather than
 	// about the guard.
 	contended := e.contendedArms()
-	wantRows, wantFrom := 0, ""
+	wantRows := map[string]int{}
+	wantFrom := map[string]string{}
 	for _, arm := range contended {
+		g := comparisonGroup(arm)
 		for i, n := range e.repRows[arm] {
-			if wantRows == 0 {
-				wantRows, wantFrom = n, fmt.Sprintf("%s[%d]", arm, i)
+			if wantRows[g] == 0 {
+				wantRows[g], wantFrom[g] = n, fmt.Sprintf("%s[%d]", arm, i)
 				continue
 			}
-			if n != wantRows {
+			if n != wantRows[g] {
 				return fmt.Errorf("arm %s repetition %d recorded %d rows but %s recorded %d;"+
 					" these arms share one immutable trace, so a shorter recording means a run that did not finish,"+
 					" and the requests it is missing are the late ones contention makes slow",
-					arm, i, n, wantFrom, wantRows)
+					arm, i, n, wantFrom[g], wantRows[g])
 			}
 		}
 	}
 
-	// R1 replays the same trace with the contender filtered out, so its count legitimately differs from the
-	// contended arms -- but not from itself.
-	for i, n := range e.repRows["R1"] {
-		if n != e.repRows["R1"][0] {
-			return fmt.Errorf("arm R1 repetition %d recorded %d rows but repetition 0 recorded %d;"+
-				" its repetitions replay one trace and must record the same number of rows",
-				i, n, e.repRows["R1"][0])
+	// A baseline replays the same trace with the contender filtered out, so its count legitimately differs
+	// from the contended arms -- but not from itself.
+	//
+	// Every baseline, not the literal "R1": the ladder's is called rung02-R1, and a loop over one hardcoded
+	// name would have checked nothing at all for it while looking exactly as though it had.
+	for arm, rows := range e.repRows {
+		if !bench.IsIsolatedBaseline(arm) {
+			continue
+		}
+		for i, n := range rows {
+			if n != rows[0] {
+				return fmt.Errorf("arm %s repetition %d recorded %d rows but repetition 0 recorded %d;"+
+					" its repetitions replay one trace and must record the same number of rows",
+					arm, i, n, rows[0])
+			}
 		}
 	}
 	return nil
 }
+
+// comparisonGroup names the set of arms an arm is compared against, which is what "one immutable trace"
+// has to hold within.
+//
+// Every study but one offers a single load, so every arm is in one group and the group name is empty. The
+// capacity ladder offers a different load per rung by design, so its group is the rung: rung01-shared and
+// rung01-timeSlicing must replay the same trace as each other and MUST NOT replay the same trace as
+// rung02's cells -- a ladder whose rungs agreed would be four measurements of one load.
+func comparisonGroup(arm string) string { return bench.ArmComparisonGroup(arm) }
 
 // frozenMatchTolerance prefers the tolerance recorded in the evidence over the CLI default.
 func (e *armEvidence) frozenMatchTolerance(fallback float64) float64 {
@@ -788,7 +1063,7 @@ func (e *armEvidence) contendedArms() []string {
 	}
 	arms := make([]string, 0, len(study.Arms))
 	for _, a := range study.Arms {
-		if a != bench.ArmR1 {
+		if !bench.IsIsolatedBaseline(a) {
 			arms = append(arms, a)
 		}
 	}
@@ -814,9 +1089,48 @@ func (e *armEvidence) summarize() ([]bench.ArmSummary, map[string]bench.ArmSumma
 			s := bench.Summarize(arm, rows)
 			// Summarize sees pooled rows and cannot know how they were split, so the repetition shape is
 			// attached here where the split is known.
+			s.AnyRepetitionCensored = e.repCensored[arm]
+			// The worst fraction any repetition served, per tenant. A tenant absent from a repetition was
+			// offered nothing there, so that repetition says nothing about its fraction and is skipped --
+			// unlike the count, where absence means zero served.
+			if reps := e.repServed[arm]; len(reps) > 0 {
+				s.WorstRepetitionServedFractionByTenant = map[string]float64{}
+				for _, served := range reps {
+					for tenant, f := range served {
+						if prev, seen := s.WorstRepetitionServedFractionByTenant[tenant]; !seen || f < prev {
+							s.WorstRepetitionServedFractionByTenant[tenant] = f
+						}
+					}
+				}
+			}
 			if tails := e.repTail[arm]; len(tails) > 0 {
 				s.RepetitionCount = len(tails)
 				s.MinRepetitionTail = slices.Min(tails)
+			}
+			// The thinnest repetition per tenant, so a floor can be applied where the pool hides it.
+			//
+			// A tenant MISSING from a repetition counts as zero for that repetition, which is the whole
+			// point: a block that served the contender nothing carries no disposition entry for it, and
+			// taking the minimum over only the repetitions that mention the tenant would skip exactly the
+			// block the floor is looking for.
+			if reps := e.repDone[arm]; len(reps) > 0 {
+				tenants := map[string]bool{}
+				for _, done := range reps {
+					for tenant := range done {
+						tenants[tenant] = true
+					}
+				}
+				s.MinRepetitionCompletedByTenant = map[string]int{}
+				for tenant := range tenants {
+					minSeen := -1
+					for _, done := range reps {
+						n := done[tenant] // zero when this repetition served the tenant nothing
+						if minSeen < 0 || n < minSeen {
+							minSeen = n
+						}
+					}
+					s.MinRepetitionCompletedByTenant[tenant] = minSeen
+				}
 			}
 			// The per-repetition tails travel with the summary too, because the price-of-protection run's
 			// reading 3 needs the CONTROL'S spread as its threshold and a pooled p99 cannot supply it.
@@ -921,10 +1235,179 @@ func evaluatePoP(summ map[string]bench.ArmSummary, summaries []bench.ArmSummary)
 	return &res
 }
 
+// refusalsBeside reads the arm refusals the runner wrote next to its raw evidence.
+//
+// Reading 4c is "the sharing mode did not engage", and it distinguishes a RECORDED refusal from an arm that
+// is merely absent -- because absence is equally consistent with an interruption or an operator running a
+// subset. Until this existed nothing populated that map outside the unit tests, so the one registered
+// outcome meant to identify an MPS engagement failure could never fire on evidence the runner produced: the
+// reason lived in evidence.log and `report` reads only raw files.
+//
+// Discovered rather than passed, because a flag an operator must remember is a flag that is forgotten on the
+// run that needed it. hack/m5c-matrix.sh writes refused-<arm>.txt into the same directory as the raw files.
+func refusalsBeside(rawFiles []string) map[string]string {
+	if len(rawFiles) == 0 {
+		return nil
+	}
+	out := map[string]string{}
+	seen := map[string]bool{}
+	for _, f := range rawFiles {
+		dir := filepath.Dir(f)
+		if seen[dir] {
+			continue
+		}
+		seen[dir] = true
+		matches, err := filepath.Glob(filepath.Join(dir, "refused-*.txt"))
+		if err != nil {
+			continue
+		}
+		for _, m := range matches {
+			arm := strings.TrimSuffix(strings.TrimPrefix(filepath.Base(m), "refused-"), ".txt")
+			b, rerr := os.ReadFile(m)
+			if rerr != nil {
+				continue
+			}
+			if why := strings.TrimSpace(string(b)); why != "" {
+				out[arm] = why
+			}
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// evaluateRegisteredReadings runs whichever study's readings the evidence belongs to, and none of anybody
+// else's.
+//
+// It is one function rather than four branches inside report for a reason worth keeping: a fifth study adds
+// a case here and nothing else, and report's job stays "load, evaluate, format, decide the exit code". The
+// three checks the M5-b branch names are M5-b's pre-registered comparison. Running them for another
+// experiment asked for static-cap and kv-aware, found neither, and reported the run disqualified -- a
+// verdict about arms the experiment never had. A study whose readings are not implemented gets its tables
+// and a line on stderr saying plainly that no criteria were evaluated, rather than a failure against
+// somebody else's.
+func evaluateRegisteredReadings(e *armEvidence, summ map[string]bench.ArmSummary, summaries []bench.ArmSummary,
+	rawFiles []string, incCI bench.CI, matchTolerance float64,
+) (*bench.Checks, *bench.PoPResult, *bench.SharingResult, *bench.LadderResult) {
+	switch bench.CanonicalStudyID(e.study) {
+	case bench.StudyM5BGateway:
+		// Name the arms that are absent, because the refusal downstream cannot: summ is a map, so a missing
+		// arm yields the zero ArmSummary and EvaluateChecks disqualifies on its zero TailSampleSize. The
+		// refusal WORKS; what it cannot do is say which arm, and that is a bad minute to spend at the end of
+		// a paid session.
+		var missing []string
+		for _, arm := range []string{bench.ArmR1, "static-cap", "kv-aware"} {
+			if _, ok := summ[arm]; !ok {
+				missing = append(missing, arm)
+			}
+		}
+		if len(missing) > 0 {
+			fmt.Fprintf(os.Stderr, "warning: no records for arm(s) %s; the comparison will be disqualified\n",
+				strings.Join(missing, ", "))
+		}
+		evaluated := bench.EvaluateChecks(summ[bench.ArmR1], summ["static-cap"], summ["kv-aware"], incCI, matchTolerance)
+		return &evaluated, nil, nil, nil
+	case bench.StudyPriceOfProtection:
+		return nil, evaluatePoP(summ, summaries), nil, nil
+	case bench.StudySharingMatrix:
+		return nil, nil, evaluateSharingMatrix(summ, summaries, refusalsBeside(rawFiles)), nil
+	case bench.StudyThroughputLadder, bench.StudyThroughputLadderDown:
+		// The ladder takes the summaries rather than the arm map, because its cells are identified by rung
+		// and topology parsed out of the arm name and it has to see every one of them -- including arms this
+		// study does not name, which it ignores.
+		evaluated := bench.EvaluateThroughputLadder(summaries)
+		evaluated.Study = bench.CanonicalStudyID(e.study)
+		return nil, nil, nil, &evaluated
+	default:
+		fmt.Fprintf(os.Stderr,
+			"warning: study %s has no implemented readings, so this report shows its measurements and evaluates no criteria\n",
+			e.study)
+		return nil, nil, nil, nil
+	}
+}
+
+// evaluateSharingMatrix sorts the M5-c evidence into the roles its readings speak about.
+//
+// R1 and `shared` are required, and their absence is a warning with no readings rather than readings
+// computed against a zero ArmSummary. R1 is the denominator of both bars and `shared` is the control every
+// improvement is measured from; a zero value for either would make every ratio meaningless in a way that
+// still prints a number, which is the failure this file's other evaluator was fixed for.
+//
+// The sharing arms are taken as whatever else is present, rather than looked up by name. An operator running
+// ARMS="shared timeSlicing" gets a matrix with one sharing arm and readings that say so, instead of a
+// lookup miss reported as a mode that did not engage.
+func evaluateSharingMatrix(summ map[string]bench.ArmSummary, summaries []bench.ArmSummary, refused map[string]string) *bench.SharingResult {
+	// A missing baseline or control is REPORTED as an uncomputable gate, not returned as nil.
+	//
+	// Returning nil printed a warning to stderr and left `sharing` unset, so the verdict block never ran and
+	// `report` exited zero -- and the paid runner calls it as `benchharness report ... || fail`. The
+	// evaluator carries the same refusal for its own callers, and that one is unreachable from here because
+	// this function stops first: the fix belonged in both places and was put in only one.
+	r1, haveR1 := summ[bench.ArmR1]
+	shared, haveShared := summ[bench.ArmShared]
+	if !haveR1 || !haveShared {
+		want := bench.ArmR1
+		why := "the isolated baseline both bars divide by"
+		if haveR1 {
+			want, why = bench.ArmShared, "the control every improvement is measured from"
+		}
+		return &bench.SharingResult{Readings: []bench.PoPReading{{
+			ID: "4", Name: "the load did not create contention -- INVALID", NotEvaluable: true,
+			Detail: fmt.Sprintf("this evidence carries %s and no %s arm, which is %s; nothing below can be scored without it",
+				strings.Join(armNames(summaries), ", "), want, why),
+		}}}
+	}
+	arms := bench.SharingArms{R1: r1, Shared: shared, Refused: refused}
+	for _, s := range summaries {
+		if s.Arm != bench.ArmR1 && s.Arm != bench.ArmShared {
+			arms.Sharing = append(arms.Sharing, s)
+		}
+	}
+	res := bench.EvaluateSharingMatrix(arms, bench.PremiumTenant, bench.NoisyTenant)
+	return &res
+}
+
 func armNames(summaries []bench.ArmSummary) []string {
 	names := make([]string, 0, len(summaries))
 	for _, s := range summaries {
 		names = append(names, s.Arm)
 	}
 	return names
+}
+
+// sharingRunInvalid reports the error that must end the process, or nil when the run stands.
+//
+// Reading 4c is deliberately NOT in this list, and matching on the word INVALID used to put it there.
+//
+// 4 and 4b invalidate the RUN: they say the trace, not the topology, is what has to change, and nothing
+// measured under them means anything. 4c invalidates ONE ARM -- its name ends "INVALID for that arm" --
+// and the arm beside it was still measured and still paid for. Name matching could not tell those apart,
+// so a refused MPS arm made `benchharness report ... || fail` reject a run whose time-slicing arm had
+// produced a result. That is the expected case for this study rather than a corner: MPS has already been
+// measured failing to engage on this AMI. The IDs are listed explicitly so an exit status turns on which
+// reading fired rather than on how it was worded.
+//
+// A named function rather than a condition inside report(), because a rule that was wrong once should be
+// reachable from a test, and inline in a command that wants files on disk it is not.
+func sharingRunInvalid(res bench.SharingResult) error {
+	for _, r := range res.Readings {
+		if r.Fired && (r.ID == "4" || r.ID == "4b") {
+			return fmt.Errorf("run invalid: reading %s fired -- %s", r.ID, r.Detail)
+		}
+		// A GATE that could not be computed is also not a run that stands.
+		//
+		// 4 and 4b are prerequisites: they ask whether the evidence can be assessed at all. When one of them
+		// comes back NotEvaluable the answer is "we could not tell", and this returned nil -- so a control
+		// whose premium tail is censored printed a report with no verdict, no answer and exit status zero,
+		// and `benchharness report ... || fail` accepted it as a successful run. Reproduced by an
+		// independent review with 2% premium timeouts in the control.
+		//
+		// Only the GATES. A reading below them coming back NotEvaluable is an ordinary "no finding here".
+		if r.NotEvaluable && (r.ID == "4" || r.ID == "4b") {
+			return fmt.Errorf("run invalid: reading %s could not be evaluated -- %s", r.ID, r.Detail)
+		}
+	}
+	return nil
 }

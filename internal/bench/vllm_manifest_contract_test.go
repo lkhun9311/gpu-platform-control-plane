@@ -210,6 +210,150 @@ func TestTheFlagshipAndTheSharingMatrixAgreeOnModelAndDtype(t *testing.T) {
 	}
 }
 
+// mustDifferAcrossTopology names the only engine flags a split card may change, and says why for each.
+//
+// Everything absent from this map has to be identical in the flagship and in both sharing engines. That is
+// the direction the check has to run: the matrix varies TOPOLOGY, so a flag that differs without a reason
+// here is a second variable, and the write-up would attribute its effect to separation.
+var mustDifferAcrossTopology = map[string]string{
+	"--max-num-seqs": "half each, so the card admits the same total concurrency under either topology",
+}
+
+// mustAccompanyAcrossTopology names a flag the split engines add ALONGSIDE one the flagship passes, and why.
+//
+// This began as mayReplace -- the split engines were to express the budget as an absolute and drop the
+// fraction. That was wrong, and reading vLLM v0.27.1 rather than its log message is what showed it. The two
+// flags do two different jobs:
+//
+//	--gpu-memory-utilization  is the startup ADMISSION GATE. request_memory() raises ValueError when free
+//	                          memory is below utilization * total. It reads the fraction whether or not an
+//	                          absolute cache is set, and its default is 0.92 -- 20.30 GiB of this card.
+//	--kv-cache-memory         is the SIZING, and it does override the fraction for that: vLLM skips
+//	                          profiling and logs "This does not respect the gpu_memory_utilization config."
+//
+// Dropping the fraction therefore does not relax the gate, it raises it to the default. The 2026-09-12
+// pilot measured the second engine to profile seeing 13.81 GiB free, so both split arms would have failed
+// to start on a card that had just been rented. The engine's own advice -- "Replace gpu_memory_utilization
+// config with --kv-cache-memory=..." -- is about sizing, and taking it literally is what nearly did it.
+var mustAccompanyAcrossTopology = map[string]string{
+	"--gpu-memory-utilization": "--kv-cache-memory",
+}
+
+// The sharing engines must match the flagship on every flag the split does not force them to change.
+//
+// This is the check that was missing, and its absence was not hypothetical. The sharing manifests carried no
+// --no-enable-prefix-caching while the flagship argues that flag at length for the same trace, so vLLM's V1
+// default would have left prefix caching ON in the split arms only. Every request in this trace repeats one
+// prompt shape, which is most of the prefill, so the split arms would have beaten the exclusive arm by a
+// wide margin because of a cache rather than because the card was divided -- and nothing in the run would
+// have looked wrong.
+//
+// The unclassified-flag branch is the part that keeps this from rotting: a flag added to the flagship later
+// fails here until someone either mirrors it into the sharing engines or writes down why it may differ.
+func TestTheSharingEnginesDifferFromTheFlagshipOnlyWhereTheSplitForcesIt(t *testing.T) {
+	flagship := vllmFlagsIn(t, "../../config/vllm/deployment.yaml")
+	if len(flagship) == 0 {
+		t.Fatal("no vLLM flags found in the flagship manifest; the comparison below would pass vacuously")
+	}
+
+	files, err := filepath.Glob("../../config/vllm-shared/engine-*.yaml")
+	if err != nil || len(files) == 0 {
+		t.Fatalf("no sharing engine manifests found: %v", err)
+	}
+	for _, f := range files {
+		got := vllmFlagsIn(t, f)
+		if len(got) == 0 {
+			t.Errorf("%s passes no vLLM flags at all", f)
+			continue
+		}
+		for name, want := range flagship {
+			if companion, accompanied := mustAccompanyAcrossTopology[name]; accompanied {
+				have, present := got[name]
+				if !present {
+					t.Errorf("%s passes no %s, so vLLM applies its 0.92 default as the startup gate and "+
+						"demands 20.30 GiB free on a card the other engine is already holding: this engine "+
+						"would not start at all", f, name)
+				} else if have == want {
+					t.Errorf("%s passes %q, the same gate as the whole-card flagship. Two engines cannot "+
+						"each be admitted for most of one card", f, have)
+				}
+				if _, ok := got[companion]; !ok {
+					t.Errorf("%s passes %s but no %s, so its cache size is profiled against a card another "+
+						"engine is already using -- the asymmetry that invalidated the 2026-09-12 pilot",
+						f, name, companion)
+				}
+				continue
+			}
+			reason, mayDiffer := mustDifferAcrossTopology[name]
+			have, present := got[name]
+			switch {
+			case !present:
+				t.Errorf("%s: the flagship passes %q and this engine passes no %s at all, so the two arms "+
+					"would run different engines and the matrix would credit the difference to topology",
+					f, want, name)
+			case mayDiffer && have == want:
+				t.Errorf("%s passes %q, the same as the flagship, but %s is supposed to differ on a split "+
+					"card: %s", f, have, name, reason)
+			case !mayDiffer && have != want:
+				t.Errorf("%s passes %q where the flagship passes %q; %s is not in mustDifferAcrossTopology, "+
+					"so the matrix would vary it alongside the topology it exists to measure",
+					f, have, want, name)
+			}
+		}
+		companions := map[string]bool{}
+		for _, r := range mustAccompanyAcrossTopology {
+			companions[r] = true
+		}
+		for name, have := range got {
+			if companions[name] {
+				continue
+			}
+			if _, ok := flagship[name]; !ok {
+				t.Errorf("%s passes %q, which the flagship does not pass at all; the exclusive arm is "+
+					"supposed to be the flagship's own engine, so this is a knob only the split arms turn",
+					f, have)
+			}
+		}
+	}
+}
+
+// vllmFlagsIn returns the --flag arguments a manifest passes to its vLLM container, keyed by flag name.
+//
+// Read textually rather than decoded because these files hold a Deployment and a Service in one stream and
+// sigs.k8s.io/yaml decodes a single document; the contract tests above read them the same way. Positional
+// arguments -- the served model -- are skipped, because TestTheFlagshipAndTheSharingMatrixAgreeOnModelAndDtype
+// already owns that comparison.
+func vllmFlagsIn(t *testing.T, path string) map[string]string {
+	t.Helper()
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	flags := map[string]string{}
+	inArgs := false
+	for line := range strings.SplitSeq(string(b), "\n") {
+		trimmed := strings.TrimSpace(line)
+		switch {
+		case trimmed == "args:":
+			inArgs = true
+		case !inArgs:
+			// Outside the block entirely.
+		case trimmed == "" || strings.HasPrefix(trimmed, "#"):
+			// Blank lines and the long rationale comments are part of the block, not the end of it.
+		case strings.HasPrefix(trimmed, "- "):
+			arg := strings.TrimSpace(strings.TrimPrefix(trimmed, "- "))
+			if strings.HasPrefix(arg, "--") {
+				name, _, _ := strings.Cut(arg, "=")
+				flags[name] = arg
+			}
+		default:
+			// Any other key at this indentation ends the list; `ports:` is the one that follows in practice.
+			inArgs = false
+		}
+	}
+	return flags
+}
+
 // No engine manifest may pin a namespace, because both runs place their engines themselves.
 //
 // A pinned `namespace: system` defeated that silently in two different ways at once. `kubectl apply -k`
