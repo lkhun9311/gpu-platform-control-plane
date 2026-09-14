@@ -79,6 +79,11 @@ STACK="m5c-gpu"
 say()  { printf '== %s\n' "$*"; }
 fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
 
+# The engine-pin waiver cannot reach a rented card. It exists for the kind rehearsal, whose substituted stub
+# engine has no registry digest, and a paid run that carried it would produce numbers naming no build.
+[ -z "${ENGINE_PIN_WAIVED:-}" ] \
+  || fail "ENGINE_PIN_WAIVED is set. That waiver exists for the GPU-free rehearsal, whose stub engine cannot be digest-pinned; a run that rents a card must be able to say which engine build produced its numbers"
+
 if [ -n "$LADDER" ]; then
   [ -z "${RATE:-}" ]         || fail "RATE and LADDER are both set. The ladder carries a rate per rung, so a single RATE is either ignored or overrides them -- refusing rather than picking."
   [ -z "${NOISY_WEIGHT:-}" ] || fail "NOISY_WEIGHT and LADDER are both set. The ladder carries a contender weight per rung -- that is how it holds the contender fixed in absolute terms while the premium rate climbs."
@@ -812,7 +817,14 @@ fi
 # This was inside the `done_seen -eq 0` branch, so a run that wrote DONE and whose archive upload then
 # failed recovered nothing at all -- the marker says the instance finished, not that its evidence landed.
 # The two facts are separate and the recovery should follow the second.
-if [ ! -s "$OUT/m5c-run/README.txt" ] || ! compgen -G "$OUT/m5c-run/raw-*.jsonl" >/dev/null; then
+# The cells are reconciled ALWAYS, not only when the archive is missing entirely.
+#
+# The gate here was "a README and at least one raw file exist", which is not the question. A partially
+# downloaded directory -- a reused OUT, an interrupted transfer, an archive that unpacked some of what it
+# held -- satisfies it while cells sit in the bucket already paid for, and nothing says so. Reconciling
+# costs one list-objects call and copies only what is not already on disk, so the cheap version of this
+# check is the complete one.
+if true; then
   # The per-cell uploads are pulled down FIRST, because they are the only evidence an interruption leaves.
   #
   # Each cell is copied to s3://.../cells/ the moment it completes, and nothing here looked there. The

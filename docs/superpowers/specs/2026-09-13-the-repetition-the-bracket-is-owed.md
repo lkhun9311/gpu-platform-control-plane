@@ -206,16 +206,31 @@ whatever survived.** A run that wrote rung-1 files, recorded a verdict explicitl
 died before rung 2 came back as `SESSION DONE` at exit 0 — an interrupted ladder reported as a complete
 one. Rungs above the one reached are now waived only against a **recorded STOP**, read out of the evidence.
 
-**What is still open, named rather than implied:**
+**And then the last three, on 2026-09-14:**
 
-- **`--require-provenance` is not enabled.** The manifests now carry the engine digest and the commit, but
-  the guard that demands them is not switched on, because `--gateway-image` has nothing true to put in it.
-- **Partial recovery is gated on near-total absence**: if a README and one raw file are already on disk,
-  per-cell uploads in S3 are not reconciled against what is missing.
-- **The first-cell deadline shortcut** returns early before the empirical projection exists, so it does not
-  notice an already-expired deadline.
+- **`--require-provenance` is enabled.** `--gateway-image` had nothing true to put in it because the
+  gateway is built on the instance and pushed nowhere — but `docker build -q` prints the image's own
+  content ID, which was going to `/dev/null`. A paid cell's manifest now carries the engine digest, that
+  image ID and the commit, and `replay` is asked to demand all three. The reference is **not pullable** and
+  does not pretend to be: it names the image that ran on the machine that ran it, which is the strongest
+  true statement available for an image built locally and never pushed.
+- **Partial recovery reconciles always.** The gate was "a README and at least one raw file exist", which is
+  not the question: a partially downloaded directory satisfies it while cells sit in the bucket already
+  paid for. Reconciling costs one list-objects call and copies only what is missing.
+- **The first-cell deadline check has a floor.** "No projection yet" was being read as "enough time", so a
+  matrix handed an already-expired deadline rolled out its engines, replayed, and was cut mid-cell with
+  nothing archived. No measurement is needed for a lower bound: **no cell can finish faster than its own
+  replay**, and `hack/test/rehearse-m5c-failures.sh` grew a fifth scenario that drives it.
 
-None of the three can produce a wrong number. All three can waste a session.
+**What this cost elsewhere, stated because it is a real weakening.** Every GPU-free path has to run with the
+engine pin **waived** — a stub engine built locally has no registry digest a kubelet can resolve — so no
+rehearsal drives `replay --require-provenance` down its accepting path. The waiver is named
+`ENGINE_PIN_WAIVED`, it prints a warning on every run that uses it, and **`hack/m5c-gpu-session.sh` refuses
+to pass it on**, so it cannot reach anything that rents a card. What is checked without a card is the
+artefact rather than the wiring: the manifest the matrix writes satisfies the guard, and one without
+provenance is refused by it. **The flag's own wiring is exercised only on a paid run.**
+
+All sixteen are now closed.
 
 ### And the most dangerous thing that is not a bug
 

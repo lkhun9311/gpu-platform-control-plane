@@ -201,6 +201,29 @@ plan_case "a trace too short for the sample floor" "below 500 completed" "1.4319
 plan_case "a rung the registry does not admit"     "is not one of study"  "skip skip skip skip 4.847585:0.05746316" 505000
 plan_case "a contender the rungs do not hold fixed" "varied two things at once" "2.564749:0.5" 505000
 
+say "9. does the manifest the matrix now writes satisfy --require-provenance, and one without it fail?"
+# THE ARTEFACT, not the wiring.
+#
+# Every GPU-free path has to waive the engine pin -- a stub engine built locally has no registry digest a
+# kubelet can resolve -- so no rehearsal can drive `replay --require-provenance` down its accepting path.
+# What CAN be checked here is the thing the matrix produces: a manifest carrying the engine digest, the
+# gateway image id and the commit. If that satisfies the guard, the only untested link is the flag itself,
+# and that is named as a limitation rather than assumed away.
+ENGINE_REF="vllm/vllm-openai@sha256:0a51ea5b4ae2dc5d81890e5173f54203d2a3ae0cfffe51b8fd2afd4391bfd967"
+GW_REF="gateway:m5c@sha256:$(printf 'a%.0s' $(seq 64))"
+"$WORK/benchharness" gen-trace --seed 11 --duration-ms 505000 --rate 1.431979   --study throughput-ladder-down-2026-09-13 --arm rung01-shared --model m   --premium-weight 1 --noisy-weight 0.23386882 --probe-weight 0   --engine-image "$ENGINE_REF" --gateway-image "$GW_REF" --gateway-sha deadbeef   --trace-out "$WORK/prov.jsonl" --manifest-out "$WORK/prov.yaml" >/dev/null 2>&1   || bad "gen-trace could not build a manifest carrying provenance"
+set +e
+out=$("$WORK/benchharness" replay --manifest "$WORK/prov.yaml" --require-provenance --target http://127.0.0.1:1       --api-keys "premium-1=k,standard-noisy=k" --raw-out "$WORK/prov-raw.jsonl" 2>&1)
+set -e
+printf '%s' "$out" | grep -qE "provenance|imageDigests|gatewaySHA"   && bad "the matrix's own manifest was refused by the provenance guard: $(printf '%s' "$out" | head -1)"   || ok "the manifest the matrix writes satisfies --require-provenance"
+
+"$WORK/benchharness" gen-trace --seed 11 --duration-ms 505000 --rate 1.431979   --study throughput-ladder-down-2026-09-13 --arm rung01-shared --model m   --premium-weight 1 --noisy-weight 0.23386882 --probe-weight 0   --trace-out "$WORK/bare.jsonl" --manifest-out "$WORK/bare.yaml" >/dev/null 2>&1
+set +e
+out=$("$WORK/benchharness" replay --manifest "$WORK/bare.yaml" --require-provenance --target http://127.0.0.1:1       --api-keys "premium-1=k,standard-noisy=k" --raw-out "$WORK/bare-raw.jsonl" 2>&1)
+code=$?
+set -e
+[ "$code" != 0 ] && printf '%s' "$out" | grep -q "gatewaySHA"   && ok "and a manifest without it is refused, naming what is missing"   || bad "a manifest carrying no provenance was accepted by --require-provenance"
+
 echo
 if [ "$failures" = "0" ]; then
   say "LADDER REFUSALS PINNED: the stop, the continue, the unscorable rung, and the double-described load in BOTH scripts."
