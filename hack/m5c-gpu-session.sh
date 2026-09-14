@@ -110,7 +110,21 @@ spot_fail() { fail "$@"; }
 
 ACCOUNT=$(spot_account) || fail "not authenticated. aws sso login --profile <yours>, and export AWS_PROFILE"
 BUCKET="${BUCKET:-$STACK-$ACCOUNT}"
-RUN_ID="$(basename "$OUT")"
+# The S3 prefix carries a NONCE, so one launch cannot read another launch's records.
+#
+# It used to be the output directory's basename alone. Reuse that basename at the same commit -- a re-run
+# after a failure, a name typed twice -- and the old DONE marker, the old archive and the old commit file
+# all qualify: the wrapper downloads the PREVIOUS experiment, prints SESSION DONE, and its exit trap
+# terminates the instance it has just paid to launch. The commit guard establishes that the SOURCE is the
+# same; it says nothing about which session's numbers came back.
+#
+# openssl when it is there, the kernel's random pool when it is not, and the clock as a last resort -- this
+# must never be the thing that stops a launch.
+RUN_NONCE="${RUN_NONCE:-$(openssl rand -hex 4 2>/dev/null \
+  || head -c4 /dev/urandom 2>/dev/null | od -An -tx1 | tr -d ' \n' \
+  || date +%s | tail -c 9)}"
+[ -n "$RUN_NONCE" ] || RUN_NONCE=$(date +%s | tail -c 9)
+RUN_ID="$(basename "$OUT")-$RUN_NONCE"
 mkdir -p "$OUT"
 
 say "study  M5-c sharing matrix -- does giving each tenant its own engine on a shared card protect the tail"
@@ -177,6 +191,40 @@ fi
 # The margin is the whole session plus the bring-up plus a tail for the download of the evidence.
 require_credential_margin() {
   local need_min="$1" cache newest expiry left
+
+  # THE ACTIVE CREDENTIAL'S OWN EXPIRY, ASKED OF THE PROVIDER, BEFORE ANY CACHE IS READ.
+  #
+  # Everything below this block scans ~/.aws/cli/cache and takes the newest entry whose account matches.
+  # That establishes "some credential for this account expires then", which is not the same fact: an active
+  # credential with twenty minutes left, beside another role's twelve-hour entry in the same account, reads
+  # as twelve hours. An adversarial review built exactly that pair of fixtures and watched this function
+  # print "credentials expire in 719 min" and approve a 150-minute session.
+  #
+  # `aws configure export-credentials` resolves the credentials the CLI would ACTUALLY use for this profile
+  # -- the same chain every aws call in this session goes through -- and reports their expiry. Only the
+  # Expiration field is read; the keys it also returns are never printed, logged or stored.
+  #
+  # The cache scan stays as the fallback for a CLI too old to have the subcommand (it arrived in v2.9) and
+  # for static credentials, which have no expiry at all.
+  local active_expiry=""
+  if active_expiry=$(aws configure export-credentials --format process 2>/dev/null \
+      | python3 -c "import json,sys
+try:
+    print(json.load(sys.stdin).get('Expiration',''))
+except Exception:
+    print('')" 2>/dev/null) && [ -n "$active_expiry" ]; then
+    left=$(python3 -c "
+import datetime,sys
+e=datetime.datetime.fromisoformat(sys.argv[1].replace('Z','+00:00'))
+print(int((e-datetime.datetime.now(datetime.timezone.utc)).total_seconds()//60))
+" "$active_expiry" 2>/dev/null || echo 0)
+    local margin_active="${CREDENTIAL_MARGIN_MIN:-30}"
+    say "credentials expire in ${left} min (asked of the active provider); this session needs about ${need_min} plus ${margin_active} of headroom"
+    [ "$left" -ge $(( need_min + margin_active )) ] || fail "the credentials this session would actually use expire in ${left} minutes. It estimates ${need_min} and requires ${margin_active} of headroom on top, because the evidence download and the terminate call both come after the last cell. Re-authenticate first:  aws sso logout; aws sso login --profile <yours>"
+    return 0
+  fi
+  say "the CLI could not export the active credential's expiry; falling back to scanning the credential cache"
+
   cache="${AWS_CLI_CACHE_DIR:-$HOME/.aws/cli/cache}"
   [ -d "$cache" ] || { say "no CLI credential cache at $cache; skipping the expiry check"; return 0; }
   # The LATEST live expiry, not the earliest. Taking min() across every file in the cache reads a stale
@@ -587,7 +635,7 @@ upload /tmp/nodes.txt nodes.txt
 # The marker is written LAST and only on success, because it is what the waiting shell reads as "the records
 # are up". A marker written unconditionally would report a matrix that failed as a matrix that finished.
 if [ "$matrix_rc" = "0" ]; then
-  echo done > /tmp/DONE
+  echo "RUN_NONCE_PLACEHOLDER" > /tmp/DONE
   aws s3 cp /tmp/DONE "s3://$BUCKET/$PREFIX/DONE"
 fi
 USERDATA
@@ -622,7 +670,8 @@ UD="$(mktemp)"
       -e "s|PROBE_WEIGHT_PLACEHOLDER|$PROBE_WEIGHT|" \
       -e "s|DURATION_MS_PLACEHOLDER|$DURATION_MS|" \
       -e "s|LADDER_PLACEHOLDER|$LADDER|" \
-      -e "s|LADDER_STUDY_PLACEHOLDER|${LADDER_STUDY:-}|" "$RUNSCRIPT" | tail -n +2 \
+      -e "s|LADDER_STUDY_PLACEHOLDER|${LADDER_STUDY:-}|" \
+      -e "s|RUN_NONCE_PLACEHOLDER|$RUN_NONCE|" "$RUNSCRIPT" | tail -n +2 \
     | sed -e '/^#/d' -e '/^[[:space:]]*$/d'
 } > "$UD"
 
@@ -734,7 +783,17 @@ marker_rc=0
 ended_early=$(spot_wait_for_marker "$REGION" "$BUCKET" "$RUN_ID/DONE" "$IID" \
               "$((HARD_STOP_SECONDS / 30))" 30) || marker_rc=$?
 case "$marker_rc" in
-  0) say "records are up"; done_seen=1 ;;
+  0)
+    # The marker must carry THIS launch's nonce. The prefix already does, so a stale marker can only appear
+    # if a nonce is reused or a prefix is hand-edited -- and both are exactly the case this verification is
+    # for. Reading it is one S3 GET and it is the difference between "the records are up" and "some records
+    # are up".
+    marker_says=$(aws s3 cp "s3://$BUCKET/$RUN_ID/DONE" - 2>/dev/null | tr -d '[:space:]')
+    if [ "$marker_says" != "$RUN_NONCE" ]; then
+      fail "the completion marker at s3://$BUCKET/$RUN_ID/DONE says ${marker_says@Q} and this launch's nonce is ${RUN_NONCE@Q}. That is another session's record, and the evidence under this prefix is not this run's. Nothing has been downloaded"
+    fi
+    say "records are up (marker carries this launch's nonce)"
+    done_seen=1 ;;
   2) say "instance ended before writing DONE" ;;
 esac
 
