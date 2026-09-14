@@ -228,6 +228,63 @@ WORK="$(mktemp -d)"
 PF_PID=""
 NODEGROUP=""
 
+# PLAN_ONLY generates every planned trace and asks whether each cell could EVER be scored, then stops.
+#
+# Every refusal it applies already existed, and every one of them fired on the rented card: `replay`
+# validates the arm against its study after the engines are up, and the cell floors are applied by the
+# readings after the replay has finished. A mistyped study, a rung the registry does not admit, or a load
+# whose counts the readings would refuse therefore cost a bring-up each time -- about 25 minutes of a
+# billing instance, for a question that can be answered here in seconds.
+#
+# It runs the REAL gen-trace and asks the REAL bench.LadderPlanRefusal, so nothing about the registered
+# floors is restated in this file. What it cannot check is anything that depends on results: whether an
+# engine starts, whether the card fits two of them, or what any latency will be.
+if [ -n "${PLAN_ONLY:-}" ]; then
+  [ -n "$LADDER" ] || fail "PLAN_ONLY is only implemented for a ladder; the frozen matrix's plan is its arm list"
+  if [ -n "${BENCHHARNESS_BIN:-}" ]; then
+    [ -x "$BENCHHARNESS_BIN" ] || fail "BENCHHARNESS_BIN=$BENCHHARNESS_BIN is not an executable file"
+    cp "$BENCHHARNESS_BIN" "$WORK/benchharness" || fail "could not take the shipped benchharness binary"
+  else
+    command -v go >/dev/null || fail "PLAN_ONLY needs either a Go toolchain or BENCHHARNESS_BIN"
+    go build -o "$WORK/benchharness" ./cmd/benchharness || fail "build benchharness"
+  fi
+  plan_top=0
+  for spec in "${CELLS[@]}"; do
+    IFS='|' read -r _ _ _ _ _ cell_rung <<<"$spec"
+    [ "$cell_rung" -le "$plan_top" ] || plan_top=$cell_rung
+  done
+  plan_failures=0
+  # The baseline is checked too, at the rung the ladder would end on if it ran every rung. That is the
+  # latest it can be bought, and the earliest this file can name it.
+  for spec in "${CELLS[@]}" "BASELINE"; do
+    if [ "$spec" = BASELINE ]; then
+      for s2 in "${CELLS[@]}"; do
+        IFS='|' read -r _ _ _ cell_rate cell_weight cell_rung <<<"$s2"
+        [ "$cell_rung" = "$plan_top" ] || continue
+        cell_topology=R1; cell_label="$(printf 'rung%02d' "$plan_top")-R1"
+        break
+      done
+    else
+      IFS='|' read -r cell_topology cell_label _ cell_rate cell_weight cell_rung <<<"$spec"
+    fi
+    "$WORK/benchharness" gen-trace --seed 11 --duration-ms "$DURATION_MS" --rate "$cell_rate" \
+      --study "$STUDY" --arm "$cell_label" --model "$MODEL" --gateway-url "http://127.0.0.1:18080" \
+      --premium-weight "$PREMIUM_WEIGHT" --noisy-weight "$cell_weight" --probe-weight "$PROBE_WEIGHT" \
+      --trace-out "$WORK/plan-$cell_label.jsonl" --manifest-out "$WORK/plan-$cell_label.yaml" >/dev/null \
+      || { echo "PLAN REFUSED: gen-trace could not build $cell_label's trace" >&2; plan_failures=$(( plan_failures + 1 )); continue; }
+    if ! out=$("$WORK/benchharness" ladder-plan-check --trace "$WORK/plan-$cell_label.jsonl" --study "$STUDY" --arm "$cell_label" 2>&1); then
+      echo "PLAN REFUSED: $out" >&2
+      plan_failures=$(( plan_failures + 1 ))
+      continue
+    fi
+    say "  $out"
+  done
+  [ "$plan_failures" = 0 ] \
+    || fail "$plan_failures planned cell(s) could not be scored as specified. Nothing was rented. Fix the load or the study and re-check -- this is the refusal that used to arrive after a bring-up"
+  say "PLAN OK: every planned cell generates a trace the readings can score. Nothing was rented."
+  exit 0
+fi
+
 # Scaling the node group back to zero, which this file's header claimed and this function did not do.
 #
 # It printed a banner. A banner is not a control: it depends on a human reading a terminal that may have
