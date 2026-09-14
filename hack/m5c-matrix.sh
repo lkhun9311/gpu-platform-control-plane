@@ -157,6 +157,27 @@ fi
 for v in $REQUIRED_LOAD_VARS; do
   [ -n "${!v:-}" ] || fail "$v is unset. RATE alone does not describe this load: gen-trace's default mix puts the 40,000-character contender at 45% of arrivals, which is four to five times an A10G's prefill capacity at any rate this study could use, and lowering RATE to compensate starves the premium tail below the MinTailSamples floor. Derive the mix on the card and pass all four. hack/m5b-price-of-protection.sh measured RATE=9.85 PREMIUM_WEIGHT=1 NOISY_WEIGHT=0.054 PROBE_WEIGHT=0.0054 DURATION_MS=420000 for ONE engine with the whole card; this run gives each engine half of one, so it is a starting point and not an answer."
 done
+# The engine build every arm runs, taken from the manifests rather than written here.
+#
+# The paid manifests carried no image identity at all: gen-trace has accepted --engine-image since it was
+# written and nothing ever passed it, so a run's numbers named no build. They are digest-pinned in the
+# YAML, which is the only place that can be true, and reading it here is what puts it in the record.
+#
+# The three files must AGREE. Two topologies running different engine builds is not a comparison of
+# topologies, and nothing else in this script would notice: each arm applies its own manifest.
+ENGINE_IMAGE=$(grep -m1 -o 'vllm/vllm-openai@sha256:[0-9a-f]*' config/vllm/deployment.yaml || true)
+[ -n "$ENGINE_IMAGE" ] \
+  || fail "config/vllm/deployment.yaml does not pin the engine image by digest, so this run could not record which build produced its numbers"
+for m in config/vllm-shared/engine-a.yaml config/vllm-shared/engine-b.yaml; do
+  other=$(grep -m1 -o 'vllm/vllm-openai@sha256:[0-9a-f]*' "$m" || true)
+  [ "$other" = "$ENGINE_IMAGE" ] \
+    || fail "$m pins ${other:-no engine image} and config/vllm/deployment.yaml pins $ENGINE_IMAGE. Two topologies on two engine builds is not a comparison of topologies"
+done
+# The gateway's identity is the COMMIT this tree is at. Its image is not digest-pinned -- the matrix builds
+# a binary and loads it into the node -- so --gateway-image is deliberately not passed rather than filled
+# with something that looks like a digest and is not one.
+SOURCE_COMMIT="${SOURCE_COMMIT:-$(git rev-parse HEAD 2>/dev/null || echo unknown)}"
+
 CELLS=()
 if [ -n "$LADDER" ]; then
   # Which ladder this is. The two carry the same arm names and the same criterion and differ only in where
@@ -1126,17 +1147,13 @@ fi
 
 # Measured, like the M6 wrapper's: after the first cell, the elapsed time IS the budget, and it knows the
 # node's real speed and how long the rollouts actually took rather than how long they were allowed to take.
-# CELLS is the whole run plan, decided before the first cell, one entry per cell:
+
+# The cell budget, measured rather than assumed: after the first cell the elapsed time IS the budget, and it
+# knows the node's real speed and how long the rollouts actually took rather than how long they were allowed
+# to take.
 #
-#     topology|label|repetition|rate|noisy-weight|rung
-#
-# topology is what to DEPLOY and label is the arm name the EVIDENCE carries. They are the same string for
-# the frozen sharing matrix and differ for the ladder, where the label also names the rung -- see
-# ThroughputLadderArm in internal/bench/study.go for why the rung has to be part of the arm identity.
-#
-# Built up front rather than nested loops for two reasons. The deadline projection divides by a cell count,
-# so that count has to be real before the first cell rather than derived from two loop bounds; and the
-# ladder stops early, which a plan can express and a nested loop can only break out of.
+# The plan the projection divides by is built much further up, before the card is touched; the comment that
+# described it used to sit here, orphaned above these counters, describing a block that had moved.
 cell_secs=0; cells_done=0; cell_n=0
 cell_deadline_check() {
   local remain per projected
@@ -1269,6 +1286,7 @@ run_cell() {
   # request of every arm would have come back ErrNoRoute -- after both engines had loaded.
   "$WORK/benchharness" gen-trace --seed 11 --duration-ms "$DURATION_MS" --rate "$RATE_CELL" \
     --study "$STUDY" --arm "$label" --model "$MODEL" --gateway-url "http://127.0.0.1:18080" \
+    --engine-image "$ENGINE_IMAGE" --gateway-sha "$SOURCE_COMMIT" \
     --premium-weight "$PREMIUM_WEIGHT" --noisy-weight "$NOISY_CELL" --probe-weight "$PROBE_WEIGHT" \
     --trace-out "$OUT/trace-$label-$rep.jsonl" --manifest-out "$OUT/manifest-$label-$rep.yaml" || fail "gen-trace $label"
   "$WORK/benchharness" replay --manifest "$OUT/manifest-$label-$rep.yaml" \
