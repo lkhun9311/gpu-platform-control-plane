@@ -655,6 +655,29 @@ if [ "$UD_ENCODED" -gt "$UD_LIMIT" ]; then
 fi
 say "user-data: $UD_ENCODED of $UD_LIMIT encoded bytes"
 
+# THE PURCHASE PLAN IS CHECKED LOCALLY, BEFORE run-instances.
+#
+# It runs the real matrix in PLAN_ONLY mode, which generates every planned cell's trace with the real
+# gen-trace and asks the real bench.LadderPlanRefusal whether the readings could score it. Every refusal it
+# applies used to arrive ON THE CARD: `replay` validates the arm against its study after the engines are up,
+# and the cell floors are applied after the replay finishes.
+#
+# The case that motivated it is not hypothetical. Omit DURATION_MS and this wrapper supplies 420000, which
+# at the registered downward ladder's bottom rung generates 470 premium requests against a floor of 500 --
+# a run that would have deployed, replayed and then been refused, for a bring-up each time.
+#
+# It uses the SAME binary the instance will run, so a check that passes here and fails there is a
+# difference in the world rather than in the code.
+if [ -n "$LADDER" ]; then
+  say "checking the purchase plan locally, before anything is rented"
+  if ! PLAN_ONLY=1 PLATFORM="$PLATFORM" KCTX="${KCTX:-none}" BENCHHARNESS_BIN="$OUT/benchharness" \
+       LADDER="$LADDER" LADDER_STUDY="${LADDER_STUDY:-}" \
+       PREMIUM_WEIGHT="$PREMIUM_WEIGHT" PROBE_WEIGHT="$PROBE_WEIGHT" DURATION_MS="$DURATION_MS" \
+       OUT="$OUT/plan-check" bash hack/m5c-matrix.sh; then
+    fail "the purchase plan was refused before launch, and nothing was rented. The refusals above name the cell and the reason"
+  fi
+fi
+
 # DRY_RUN stops here, with everything a launch depends on already built and checked.
 #
 # It exists because the only way to find out what this script sends to an instance used to be to rent one.
