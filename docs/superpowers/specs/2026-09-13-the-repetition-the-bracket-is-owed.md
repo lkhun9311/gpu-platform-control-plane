@@ -180,17 +180,42 @@ Every fix was confirmed by restoring the defect and watching a named test go red
   qualify the previous experiment's `DONE`, archive and commit file: the wrapper would download the old
   session, print SESSION DONE, and terminate the instance it had just paid to launch.
 
-### Known and not fixed, recorded rather than quietly carried
+### And then the remaining four, none of which changed a number here
 
-- **Row-level identity.** The loader validates study per row but arm and trace only on row zero, so
-  concatenated files pool under `rows[0].Arm`.
-- **An unknown study id falls through** to a warning and exit 0 rather than failing, in the report; the
-  runner and the plan check both refuse one.
-- **The paid matrix never passes the provenance flags**, so its manifests carry no build or image identity.
-- **The kind rehearsal cannot drive a skip-led ladder**, and its forced-STOP path exits before the
-  baseline-isolation and upload-hook assertions.
+- **Row-level identity.** The loader read `rows[0].Arm` and pooled the rest under it. Every row's arm and
+  trace checksum is now checked, the way every row's study already was. The counterexample was the review's:
+  appending one cell's rows to another's moved the reported p99 from 1,694.7 ms to 1,179.3 at exit 0.
+- **An unknown study id** fell through to the M5-b arm order, dropped every arm of the real study out of the
+  table, and exited 0 saying it had evaluated no criteria — which is what a report says about a study whose
+  readings are not written, a different thing a reader cannot tell apart. It is refused now. Evidence
+  written before the study field existed carries an empty id and still loads, which a test pins.
+- **The paid manifests named no build.** `gen-trace` has accepted `--engine-image` and `--gateway-sha` since
+  it was written and nothing ever passed them. The matrix now reads the engine's digest out of the
+  manifests it applies — and **refuses a run whose three engine manifests disagree**, because two topologies
+  on two engine builds is not a comparison of topologies. `--gateway-image` is still not passed: the
+  gateway runs from a binary built on the instance and there is no image digest to name, and filling the
+  field with something that looks like one would be worse than leaving it empty.
+- **The rehearsal could not drive a skip-led ladder**, which is the shape a repetition takes, and its
+  forced-STOP path exited before the assertions a stop does not change — so breaking the baseline's tenant
+  filter or the per-cell handover *specifically on the stopping path* left that mode green. Both are fixed
+  and both were re-run on kind. Moving the tenant helper turned out to matter: it was defined two hundred
+  lines below the branch that now calls it, which in bash is not a forward declaration.
 
-None of these changes a number on this page. All of them are the same shape as the ones that did.
+One more, found while writing this list: **the end-of-session check derived the stopping point from
+whatever survived.** A run that wrote rung-1 files, recorded a verdict explicitly saying CONTINUE, and then
+died before rung 2 came back as `SESSION DONE` at exit 0 — an interrupted ladder reported as a complete
+one. Rungs above the one reached are now waived only against a **recorded STOP**, read out of the evidence.
+
+**What is still open, named rather than implied:**
+
+- **`--require-provenance` is not enabled.** The manifests now carry the engine digest and the commit, but
+  the guard that demands them is not switched on, because `--gateway-image` has nothing true to put in it.
+- **Partial recovery is gated on near-total absence**: if a README and one raw file are already on disk,
+  per-cell uploads in S3 are not reconciled against what is missing.
+- **The first-cell deadline shortcut** returns early before the empirical projection exists, so it does not
+  notice an already-expired deadline.
+
+None of the three can produce a wrong number. All three can waste a session.
 
 ### And the most dangerous thing that is not a bug
 
