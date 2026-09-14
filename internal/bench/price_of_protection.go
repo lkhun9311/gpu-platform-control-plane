@@ -33,6 +33,12 @@ type Disposition struct {
 	Failed int
 }
 
+// readingFired is how all three studies' formatters mark the reading that answered.
+//
+// Spelled once because it is what a reader greps for in a report they were handed, and three copies of a
+// word that means "this is the answer" is three chances for one of them to differ by a capital letter.
+const readingFired = "FIRED"
+
 // PoPReading is one pre-registered outcome and whether the evidence fired it.
 type PoPReading struct {
 	// ID is the pre-registration's own numbering: "1", "1b", "2", "3", "4".
@@ -415,7 +421,7 @@ func FormatPriceOfProtection(res PoPResult) string {
 			// evidence could not be asked, and treating them alike is how a run reports an absence as a result.
 			state = "NOT EVALUABLE"
 		case r.Fired:
-			state = "FIRED"
+			state = readingFired
 		}
 		fmt.Fprintf(&b, "  %-3s %-52s %s\n", r.ID, r.Name, state)
 		if r.Detail != "" {

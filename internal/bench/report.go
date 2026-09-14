@@ -174,6 +174,15 @@ type ArmSummary struct {
 	// a quantity may not be described by a cause its ledger does not establish. So the amount is
 	// disclosed rather than folded in.
 	OutputTokensFromFailedStreams int64
+	// OutputTokensFromFailedStreamsByTenant is the same quantity per tenant, which is the form a reading needs.
+	//
+	// M5-c's reading 2 asks whether the contender's COMPLETED output fell below a fraction of its output
+	// under the control. OutputTokensByTenant does not answer that: the sender keeps HTTPStatus at 200 for a
+	// stream that broke after its headers arrived, so the tokens it managed to deliver are added there --
+	// which is the opposite of what tallyDelivered's own comment says it does. An arm that completes half
+	// the contender's responses and breaks the other half after fifteen of sixteen tokens then reports 97
+	// percent of the control's output instead of 50, and reading 2 never fires.
+	OutputTokensFromFailedStreamsByTenant map[string]int64
 	// TPOTMsP50ByTenant and TPOTMsP99ByTenant split the inter-token time by who received it.
 	//
 	// The arm-wide TPOT above pools every tenant, because it is accumulated before the premium-only filter,
@@ -250,6 +259,31 @@ type ArmSummary struct {
 	// check is then skipped rather than failing closed on absence -- the harness fills them and the unit
 	// tests that build summaries by hand do not.
 	RepetitionCount int
+
+	// AnyRepetitionCensored is true when ANY repetition was censored, whatever the pool says.
+	//
+	// Censoring is a fraction, and pooling averages it away: a repetition that lost 1.50% of its premium
+	// requests sits beside two clean ones as 0.75% of the pool, under the 1% bar, and the readings that
+	// refuse a censored control never see it. A review reproduced exactly that on the eighth pilot's rows
+	// and reading 5 fired on a censored control. Attached by the caller that knows how the rows were split,
+	// for the same reason RepetitionCount is.
+	AnyRepetitionCensored bool
+
+	// WorstRepetitionServedFractionByTenant is the lowest completed/offered any repetition reached, per tenant.
+	//
+	// A COUNT and a FRACTION are different questions and the floor only asked the first. Repetitions of
+	// 100/139 and 139/139 both clear a hundred-completion floor while the first lost 28% of its load, and a
+	// run whose contention was delivered that unevenly cannot be compared against one where it was not.
+	// Carried per tenant so the CONTROL is checked too: every ratio in this study is measured against
+	// `shared`, and a control that lost a third of its contender load is a weakened denominator.
+	WorstRepetitionServedFractionByTenant map[string]float64
+
+	// MinRepetitionCompletedByTenant is the thinnest repetition's completed count, per tenant.
+	//
+	// MinRepetitionTail answers the same question for the premium tenant only, which left the contender's
+	// floor applicable to the POOL and nowhere else. Attached by the caller that knows how the rows were
+	// split, for the same reason RepetitionCount is: Summarize sees pooled rows and cannot tell.
+	MinRepetitionCompletedByTenant map[string]int
 
 	// MinRepetitionTail is the smallest premium-completion count among the arm's repetitions.
 	MinRepetitionTail int
@@ -762,6 +796,10 @@ func (s *ArmSummary) tallyDelivered(r RawRow, tpot []float64, byTenant map[strin
 	// streams.
 	if r.ErrorKind != "" {
 		s.OutputTokensFromFailedStreams += int64(r.OutputTokens)
+		if s.OutputTokensFromFailedStreamsByTenant == nil {
+			s.OutputTokensFromFailedStreamsByTenant = map[string]int64{}
+		}
+		s.OutputTokensFromFailedStreamsByTenant[r.Tenant] += int64(r.OutputTokens)
 		return tpot
 	}
 	// Inter-token time needs at least two tokens to have a gap between them.

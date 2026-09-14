@@ -51,6 +51,8 @@ for stub in aws sleep; do
 done
 
 UPDATE=0
+# Whether this --update run has already refreshed the shared user-data golden; see run_scenario.
+ud_shared_refreshed=0
 ONLY=""
 for a in "$@"; do
   case "$a" in
@@ -122,6 +124,23 @@ run_scenario() {
     sed -i 's/HARNESS_SHA="[0-9a-f]\{64\}"/HARNESS_SHA="<SHA>"/' "$out/user-data.sh"
   fi
 
+  # The same property for the gateway, which hack/m5c-gpu-session.sh also builds here and ships.
+  #
+  # Added after its digit string landed in the goldens unnormalized, which would have broken this suite on
+  # every unrelated change to cmd/gateway. What is worth pinning is that the checksum the instance will
+  # verify is the checksum of the binary that was uploaded, not the value itself.
+  if [ -f "$out/user-data.sh" ] && [ -f "$out/gateway" ]; then
+    local gembedded gbuilt
+    gembedded=$(grep -oE 'GATEWAY_SHA="[0-9a-f]{64}"' "$out/user-data.sh" | head -1 | cut -d'"' -f2)
+    gbuilt=$(sha256sum "$out/gateway" | cut -d' ' -f1)
+    if [ -n "$gembedded" ] && [ "$gembedded" = "$gbuilt" ]; then
+      printf 'gateway checksum: user-data matches the uploaded binary\n' >> "$STUB_TRANSCRIPT"
+    else
+      printf 'gateway checksum: MISMATCH (user-data %s, binary %s)\n' "${gembedded:-none}" "$gbuilt" >> "$STUB_TRANSCRIPT"
+    fi
+    sed -i 's/GATEWAY_SHA="[0-9a-f]\{64\}"/GATEWAY_SHA="<SHA>"/' "$out/user-data.sh"
+  fi
+
   # The same property for the other runner's binary: queuelab ships queuelabrun rather than building it on a
   # box that has no Go, and what the instance verifies must be what was uploaded.
   if [ -f "$out/user-data.sh" ] && [ -f "$out/queuelabrun" ]; then
@@ -168,6 +187,7 @@ run_scenario() {
       -e "s#/tmp/tmp\.[A-Za-z0-9]*#<TMP>#g" \
       -e "s#harness sha256 [0-9a-f]\{64\}#harness sha256 <SHA256>#g" \
       -e "s#^== queuelabrun .*, sha256 [0-9a-f]\{12\}\$#== queuelabrun <SIZE>, sha256 <SHA12>#" \
+      -e "s#^==   gateway [0-9a-f]\{12\}, benchharness [0-9a-f]\{12\}\$#==   gateway <SHA12>, benchharness <SHA12>#" \
       -e "s#^== source [0-9a-f]\{40\}.*#== source <COMMIT> <TREE STATE>#" \
       "$work/stdout.txt" "$work/stderr.txt" > "$work/messages.txt"
 
@@ -220,9 +240,20 @@ run_scenario() {
     if [ "$UPDATE" = "1" ]; then
       # A scenario whose user-data differs from the shared golden records its own, and one that matches does
       # not -- so a scenario stops having a private golden the moment it stops needing one.
+      #
+      # THE FIRST SCENARIO OF AN UPDATE REFRESHES THE SHARED GOLDEN instead, and that exception is what makes
+      # the rule work. Without it, a change to the runner leaves the shared golden stale, every scenario then
+      # differs from it, and every scenario gets a private copy -- seven near-identical files plus an orphan
+      # nothing reads. That happened twice while this suite was being written, and both times the stale file
+      # was the one an operator would have opened to check the payload.
       if [ "$udg" = "$GOLDEN/user-data.sh" ] && [ -f "$udg" ] \
          && ! diff -q "$udg" "$out/user-data.sh" >/dev/null; then
-        udg="$GOLDEN/user-data-$name.sh"
+        if [ "$ud_shared_refreshed" = "0" ]; then
+          ud_shared_refreshed=1
+          rm -f "$GOLDEN"/user-data-*.sh
+        else
+          udg="$GOLDEN/user-data-$name.sh"
+        fi
       fi
       cp "$out/user-data.sh" "$udg"
     elif [ ! -f "$udg" ]; then
@@ -348,6 +379,74 @@ scenarios_price_of_protection() {
 
   # A previous run's marker sits at the bucket root. This runner scopes its keys, so it must not see it.
   STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 STUB_DONE_PRESENT_AT_START=1 \
+    STUB_PRESENT_KEYS="log.txt" \
+    run_scenario stale-done bash "$TARGET"
+}
+
+scenarios_m5c_gpu_session() {
+  # The archive this runner unpacks holds one raw file per arm, and the session refuses a run whose arms did
+  # not all come back. The stub is told which arms to produce so that it makes what the instance makes.
+  export STUB_EVIDENCE_ARMS="R1 shared timeSlicing mps"
+  # The commit the session will ship, so its evidence-identity check has something that matches.
+  STUB_COMMIT=$(git -C "$ROOT" rev-parse HEAD); export STUB_COMMIT
+
+  # This runner rents ONE card and builds a kind cluster on it, so its scenarios are about the lifecycle
+  # around that: what it refuses before spending, and what it does when the instance does not come back.
+  #
+  # REPS is set on every scenario because the runner refuses without it -- a pilot is one repetition and a
+  # confirmatory run is three, and neither is a thing to arrive at by forgetting a variable. The refusal
+  # itself is the first scenario, because it is the only guard that runs before AWS is touched at all.
+  run_scenario no-reps bash "$TARGET"
+
+  # The provenance guard, made to fire rather than assumed to. A probe file makes the tree dirty and is
+  # removed whatever happens; without it this scenario means nothing on a clean checkout.
+  local probe="$ROOT/.characterize-dirty-probe"
+  printf 'written by the characterization harness to make the tree dirty on purpose\n' > "$probe"
+  REPS=1 STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 \
+    run_scenario dirty-tree bash "$TARGET"
+  rm -f "$probe"
+
+  # The pilot: one repetition of every arm, everything present, evidence comes back.
+  REPS=1 REQUIRE_CLEAN_TREE=0 STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 STUB_DONE_AFTER=2 \
+    STUB_PRESENT_KEYS="evidence.tgz log.txt commit.txt nodes.txt" \
+    run_scenario pilot bash "$TARGET"
+
+  # A fresh account: the bucket and the profile are created, and the profile must carry GetObject because
+  # this instance downloads the source archive and both binaries it was sent.
+  REPS=1 REQUIRE_CLEAN_TREE=0 STUB_BUCKET_EXISTS=0 STUB_PROFILE_EXISTS=0 STUB_DONE_AFTER=2 \
+    STUB_PRESENT_KEYS="evidence.tgz log.txt commit.txt nodes.txt" \
+    run_scenario fresh bash "$TARGET"
+
+  # No capacity in the first zone, which is a normal answer and must not abort the run.
+  REPS=1 REQUIRE_CLEAN_TREE=0 STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 STUB_DONE_AFTER=2 \
+    STUB_LAUNCH_FAIL_ZONES="ap-northeast-2a" \
+    STUB_PRESENT_KEYS="evidence.tgz log.txt commit.txt nodes.txt" \
+    run_scenario zone-retry bash "$TARGET"
+
+  # The terminate call is refused, the way it is when credentials lapse mid-run. The transcript is what
+  # makes the SHOUTING branch executed rather than asserted; on 2026-09-08 the silent version of this let a
+  # real instance bill until somebody noticed.
+  REPS=1 REQUIRE_CLEAN_TREE=0 STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 STUB_DONE_AFTER=2 \
+    STUB_TERMINATE_FAILS=1 STUB_PRESENT_KEYS="evidence.tgz log.txt commit.txt nodes.txt" \
+    run_scenario terminate-refused bash "$TARGET"
+
+  # The instance is reclaimed before it writes its marker. Only the log made it up, so there is no archive
+  # to unpack and the run must refuse rather than report on an empty directory.
+  REPS=1 REQUIRE_CLEAN_TREE=0 STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 STUB_DONE_AFTER=-1 \
+    STUB_TERMINATED_AFTER=2 STUB_PRESENT_KEYS="log.txt" \
+    run_scenario instance-died bash "$TARGET"
+
+  # The marker never arrives and the instance stays up: the poll runs to exhaustion. A 25-minute bring-up
+  # means this loop is longer here than anywhere else, and its length has to be exercised rather than
+  # trusted -- shortening it would kill a run that is still pulling fifteen gigabytes of weights.
+  REPS=1 REQUIRE_CLEAN_TREE=0 STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 STUB_DONE_AFTER=-1 \
+    STUB_PRESENT_KEYS="log.txt" \
+    run_scenario poll-exhausted bash "$TARGET"
+
+  # A previous run's marker at the bucket root. This runner scopes its keys under the run id, so it must
+  # not see it -- the failure it protects against is downloading the previous run's evidence and reporting
+  # it as this run's.
+  REPS=1 REQUIRE_CLEAN_TREE=0 STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 STUB_DONE_PRESENT_AT_START=1 \
     STUB_PRESENT_KEYS="log.txt" \
     run_scenario stale-done bash "$TARGET"
 }
@@ -484,6 +583,7 @@ case "$SUITE" in
   m5b-scheduler-microtest)  scenarios_microtest ;;
   m5b-price-of-protection)  scenarios_price_of_protection ;;
   queuelab-gpu-session)     scenarios_queuelab_gpu_session ;;
+  m5c-gpu-session)          scenarios_m5c_gpu_session ;;
   *) printf 'FAIL: no scenarios defined for %s\n' "$SUITE" >&2; exit 2 ;;
 esac
 

@@ -17,7 +17,13 @@
 set -euo pipefail
 
 RUNNER="${RUNNER:-hack/queuelab-gpu-session.sh}"
-CLUSTER=qlgpu
+# CLUSTER is read out of the span below, not written here.
+#
+# It was the literal `qlgpu`, which was true of the one runner this rehearsal started with and silently
+# false of the second. hack/m5c-gpu-session.sh builds `m5cgpu`, so the cleanup would have deleted a cluster
+# that did not exist, reported success, and left a real one running with the developer's /tmp/kubeconfig
+# pointing at it -- a rehearsal whose whole subject is cluster bring-up leaking a cluster.
+CLUSTER=""
 KUBECONFIG_PATH="${KUBECONFIG_PATH:-$(mktemp -u /tmp/rehearse-kubeconfig-XXXXXX)}"
 KEEP="${KEEP:-0}"
 
@@ -49,6 +55,11 @@ SPAN=$(mktemp /tmp/rehearse-span-XXXXXX.sh)
 sed -n "$((first + 1)),$((last - 1))p" "$RUNNER" > "$SPAN"
 lines=$(wc -l < "$SPAN")
 [ "$lines" -gt 20 ] || fail "extracted only $lines lines between the REHEARSABLE markers"
+
+# The cluster's name comes from the kind config the span itself writes, so it cannot drift from the runner.
+CLUSTER=$(sed -n 's/^name: \([a-z0-9][a-z0-9-]*\)$/\1/p' "$SPAN" | head -1)
+[ -n "$CLUSTER" ] || fail "could not read a cluster name from the span's kind config; without it this rehearsal would build a cluster it cannot clean up"
+say "cluster $CLUSTER"
 say "extracted $lines lines from $RUNNER (lines $((first + 1))-$((last - 1)))"
 
 # The one substitution this rehearsal makes, and it is announced rather than hidden.
@@ -131,18 +142,55 @@ fi
 # difference between "did not fail" and "worked".
 export KUBECONFIG="$KUBECONFIG_PATH"
 kubectl get nodes >/dev/null 2>&1 || fail "the span exited zero but its cluster is unreachable through $KUBECONFIG_PATH"
-kubectl -n kueue-system get deploy kueue-controller-manager >/dev/null 2>&1 || fail "Kueue is not installed"
-kubectl get crd mltrainingjobs.platform.lkhun9311.github.io >/dev/null 2>&1 || fail "the MLTrainingJob CRD was not applied"
-label=$(kubectl get node "$CLUSTER-worker" -o jsonpath='{.metadata.labels.platform\.lkhun9311\.github\.io/gpu}' 2>/dev/null || true)
-[ "$label" = "true" ] || fail "the worker does not carry the label both DaemonSets select on (got '${label:-none}')"
+# WHAT THE SPAN WAS SUPPOSED TO BUILD, per runner.
+#
+# These were one flat list, which was true of the one runner this rehearsal started with. The second one
+# builds a deliberately smaller cluster -- no Kueue, no operator -- because hack/test/rehearse-m5c-deploy.sh
+# proved on a real cluster that the gateway resolves its backends by reading the CRs itself. Run against it,
+# the flat list failed on "Kueue is not installed", which is not a defect in the span: it is this file
+# asserting another runner's shape. Selected by runner for the same reason
+# hack/test/spot-lifecycle/characterize.sh selects its scenarios by suite -- holding a runner to another
+# runner's expectations reports the difference as a regression.
+assertions_queuelab_gpu_session() {
+  kubectl -n kueue-system get deploy kueue-controller-manager >/dev/null 2>&1 || fail "Kueue is not installed"
+  kubectl get crd mltrainingjobs.platform.lkhun9311.github.io >/dev/null 2>&1 || fail "the MLTrainingJob CRD was not applied"
+  label=$(kubectl get node "$CLUSTER-worker" -o jsonpath='{.metadata.labels.platform\.lkhun9311\.github\.io/gpu}' 2>/dev/null || true)
+  [ "$label" = "true" ] || fail "the worker does not carry the label both DaemonSets select on (got '${label:-none}')"
 
-# The operator has to RUN, not merely be applied. `make docker-build` and `kind load` both succeed for an
-# image whose binary crashes on start, and `kubectl apply` reports success for a Deployment that never
-# becomes Available. Without this the rehearsal would pass on a broken operator, which is the failure mode
-# it exists to prevent.
-kubectl -n gpu-platform-control-plane-system rollout status \
-  deploy/gpu-platform-control-plane-controller-manager --timeout=180s \
-  || fail "the operator was applied but never became Available; the image built and loaded, so look at the Pod"
+  # The operator has to RUN, not merely be applied. `make docker-build` and `kind load` both succeed for an
+  # image whose binary crashes on start, and `kubectl apply` reports success for a Deployment that never
+  # becomes Available. Without this the rehearsal would pass on a broken operator, which is the failure mode
+  # it exists to prevent.
+  kubectl -n gpu-platform-control-plane-system rollout status \
+    deploy/gpu-platform-control-plane-controller-manager --timeout=180s \
+    || fail "the operator was applied but never became Available; the image built and loaded, so look at the Pod"
+  say "queuelab shape verified: Kueue up, MLTrainingJob CRD applied, worker labelled, operator Available"
+}
+
+assertions_m5c_gpu_session() {
+  # The CRDs the gateway reads to route. Without InferenceDeployment there is no backend to resolve and
+  # without GPUQuotaPolicy there is no tenant to resolve it for.
+  for crd in inferencedeployments gpuquotapolicies; do
+    kubectl get crd "$crd.platform.lkhun9311.github.io" >/dev/null 2>&1 \
+      || fail "the $crd CRD was not applied; the gateway resolves every route by listing these"
+  done
+
+  # THE ONE THAT MATTERS HERE. hack/m5c-matrix.sh binds to this ClusterRole and does not create it, and
+  # Kubernetes accepts a binding to a ClusterRole that does not exist -- so the gateway starts and every
+  # request fails authorization, with nothing looking wrong until the first replay. The matrix refuses when
+  # it is absent; this is the line that proves the session satisfies that refusal.
+  kubectl get clusterrole gateway-role >/dev/null 2>&1 \
+    || fail "the ClusterRole gateway-role is absent, so hack/m5c-matrix.sh would refuse -- and if it did not, every request of every arm would fail authorization"
+
+  # Deliberately NOT asserted: Kueue, the operator, and the gpu/gpu-sharing node labels. The first two this
+  # run does not need and does not install; the label is applied by the matrix at run time, on the node it
+  # has just been given, rather than by the bring-up.
+  kubectl -n kueue-system get deploy kueue-controller-manager >/dev/null 2>&1 \
+    && fail "Kueue is installed. This session does not need it and does not install it, so its presence means the span is doing more than this file describes"
+  say "m5c shape verified: routing CRDs applied, gateway-role present, and deliberately no Kueue and no operator"
+  return 0
+}
+
 
 # The device mount is checkable without a device, and it is the half of the recipe that was missing.
 #
@@ -173,7 +221,24 @@ docker exec "$CLUSTER-worker" test -e /sbin/ldconfig.real \
 docker exec "$CLUSTER-worker" crictl info 2>/dev/null | grep -q '"defaultRuntimeName": "nvidia"' \
   || fail "the worker node's containerd is not running with nvidia as its default runtime, so Pods get no NVML"
 
-say "bring-up rehearsed in ${elapsed}s: cluster reachable, Kueue up, CRD applied, worker labelled, operator Available"
+# The summary names only what THIS run checked.
+#
+# It used to read "cluster reachable, Kueue up, CRD applied, worker labelled, operator Available" for every
+# runner, and against hack/m5c-gpu-session.sh -- which installs no Kueue, no operator and no label -- it
+# printed all five as though they had been verified. A line that claims a verification which did not happen
+# is worse than no line, because it is the one a reader trusts instead of scrolling. The per-runner block at
+# the bottom prints what it actually asserted.
+say "bring-up rehearsed in ${elapsed}s: cluster reachable through the explicit kubeconfig"
 say "in-node runtime configured: nvidia-ctk installed, ldconfig.real present, containerd knows nvidia"
 say "device mount present in the node container (whether it yields cards needs hardware)"
 say "NOT rehearsed, and only a real card can: the device plugin, DCGM, and preflight checks 3 and 4"
+
+# The per-runner half, after the checks both runners share.
+#
+# Placed last so that the shared assertions above -- the device mount and the node's own container runtime,
+# which both spans cover -- run for every runner regardless of which one this is.
+case "$(basename "$RUNNER" .sh)" in
+  queuelab-gpu-session) assertions_queuelab_gpu_session ;;
+  m5c-gpu-session)      assertions_m5c_gpu_session ;;
+  *) fail "no post-span assertions defined for $(basename "$RUNNER" .sh); a rehearsal that checks nothing after the span reports 'did not fail' as 'worked'" ;;
+esac
