@@ -165,14 +165,46 @@ done
 #
 # The three files must AGREE. Two topologies running different engine builds is not a comparison of
 # topologies, and nothing else in this script would notice: each arm applies its own manifest.
-ENGINE_IMAGE=$(grep -m1 -o 'vllm/vllm-openai@sha256:[0-9a-f]*' config/vllm/deployment.yaml || true)
+# WHATEVER the manifests pin, not a particular repository -- but it has to be a DIGEST.
+#
+# This matched `vllm/vllm-openai@sha256:` by name, which is the image the paid run uses and not the only
+# image this script ever runs: the kind rehearsal substitutes a stub engine in a throwaway copy, and a check
+# written around the production repository refused the rehearsal instead of the thing it was guarding
+# against. What matters is that the reference is immutable and that the three manifests agree, neither of
+# which is a statement about who publishes the image.
+engine_image_in() { grep -m1 -oE 'image: *[^ ]+' "$1" | sed 's/image: *//'; }
+# Unquoted where it is used, because empty must expand to NO argument rather than to an empty one.
+PROVENANCE_FLAG="--require-provenance"
+ENGINE_IMAGE=$(engine_image_in config/vllm/deployment.yaml)
 [ -n "$ENGINE_IMAGE" ] \
-  || fail "config/vllm/deployment.yaml does not pin the engine image by digest, so this run could not record which build produced its numbers"
-for m in config/vllm-shared/engine-a.yaml config/vllm-shared/engine-b.yaml; do
-  other=$(grep -m1 -o 'vllm/vllm-openai@sha256:[0-9a-f]*' "$m" || true)
-  [ "$other" = "$ENGINE_IMAGE" ] \
-    || fail "$m pins ${other:-no engine image} and config/vllm/deployment.yaml pins $ENGINE_IMAGE. Two topologies on two engine builds is not a comparison of topologies"
-done
+  || fail "config/vllm/deployment.yaml names no engine image, so this run could not record which build produced its numbers"
+# The waiver exists for ONE caller and cannot reach a paid run.
+#
+# hack/test/rehearse-m5c-matrix.sh substitutes a stub engine it builds locally, and a locally built image
+# has no registry digest a kubelet can resolve -- so the rehearsal's tree genuinely violates the invariant
+# this check enforces. The alternatives were to weaken the check for everyone or to let the rehearsal stop
+# covering the ladder. This is the third: an explicitly named waiver that says what it costs, and that
+# hack/m5c-gpu-session.sh -- the only thing in this repository that rents a card -- refuses to pass on.
+case "${ENGINE_PIN_WAIVED:-}${ENGINE_IMAGE}" in
+  1*) say "WARNING: the engine image pin is WAIVED. This run's evidence cannot name the engine build that produced it, and no paid run may carry this waiver"
+      PROVENANCE_FLAG="" ;;
+  *@sha256:????????????????????????????????????????????????????????????????) ;;
+  *) fail "config/vllm/deployment.yaml pins the engine to ${ENGINE_IMAGE@Q}, which is a tag rather than a digest. A tag names whatever was pushed under it most recently, so the record would identify nothing after the next build" ;;
+esac
+# The agreement check is waived with the pin, and for the same reason.
+#
+# hack/test/rehearse-m5c-failures.sh makes an engine unstartable by pointing ONE manifest at an image that
+# does not exist -- which is a deliberate disagreement, and refusing it here meant the scenario could never
+# reach the diagnosis it exists to pin. A waived tree is a tree whose engine references are not the
+# production ones, so this file does not judge them; the wrapper refuses to pass the waiver on to anything
+# that rents a card.
+if [ -z "${ENGINE_PIN_WAIVED:-}" ]; then
+  for m in config/vllm-shared/engine-a.yaml config/vllm-shared/engine-b.yaml; do
+    other=$(engine_image_in "$m")
+    [ "$other" = "$ENGINE_IMAGE" ] \
+      || fail "$m pins ${other:-no engine image} and config/vllm/deployment.yaml pins $ENGINE_IMAGE. Two topologies on two engine builds is not a comparison of topologies"
+  done
+fi
 # The gateway's identity is the COMMIT this tree is at. Its image is not digest-pinned -- the matrix builds
 # a binary and loads it into the node -- so --gateway-image is deliberately not passed rather than filled
 # with something that looks like a digest and is not one.
@@ -780,7 +812,23 @@ else
   go build -o "$WORK/benchharness" ./cmd/benchharness || fail "build benchharness"
 fi
 printf 'FROM gcr.io/distroless/static:nonroot\nCOPY gateway /gateway\nUSER 65532:65532\nENTRYPOINT ["/gateway"]\n' > "$WORK/Dockerfile"
-docker build -q -t "$GW_IMAGE" "$WORK" >/dev/null || fail "build gateway image"
+# The image ID is CAPTURED, because it is the only thing that can name the gateway build in the record.
+#
+# `docker build -q` prints sha256:<64 hex> -- the digest of the image's own config, which covers its layers
+# and therefore the base it was built on as well as the binary copied into it. It went to /dev/null, and the
+# paid manifests consequently named no gateway at all.
+#
+# What it is NOT is a registry digest. Nobody can pull this reference; it identifies the image that ran on
+# the machine that ran it. That is the strongest true statement available here, because this image is built
+# on the instance and pushed nowhere, and a reference that looked pullable would be worse than one that does
+# not pretend to be.
+GW_IMAGE_ID=$(docker build -q -t "$GW_IMAGE" "$WORK") || fail "build gateway image"
+case "$GW_IMAGE_ID" in
+  sha256:????????????????????????????????????????????????????????????????) ;;
+  *) fail "docker build returned ${GW_IMAGE_ID@Q} where an image ID was expected, so this run could not name the gateway build that produced its numbers" ;;
+esac
+GATEWAY_IMAGE_REF="$GW_IMAGE@$GW_IMAGE_ID"
+say "  gateway image $GW_IMAGE_ID"
 
 # How the node gets the image, which is the second thing the two platforms cannot share.
 #
@@ -1156,8 +1204,26 @@ fi
 # described it used to sit here, orphaned above these counters, describing a block that had moved.
 cell_secs=0; cells_done=0; cell_n=0
 cell_deadline_check() {
-  local remain per projected
-  [ "$cells_done" -eq 0 ] && return 0
+  local remain per projected floor
+  # BEFORE the first cell there is no measured rate to project from -- but there is still a deadline, and
+  # "no projection" is not "enough time".
+  #
+  # This returned 0 unconditionally, so a matrix handed an already-expired deadline started its first cell
+  # anyway: it rolled out the engines, replayed, and was cut mid-cell with nothing archived. A lower bound
+  # is available without any measurement at all, because no cell can finish faster than its own replay.
+  if [ "$cells_done" -eq 0 ]; then
+    remain=$(deadline_remaining_minutes 2>/dev/null) || return 0
+    [ -n "$remain" ] || return 0
+    floor=$(( (DURATION_MS + 59999) / 60000 + 1 ))
+    if [ "$remain" -lt "$floor" ]; then
+      echo >&2
+      echo "STOPPING before the first cell: the deadline fires in ${remain} min and one cell's replay alone" >&2
+      echo "  is ${floor} min. Nothing has been rolled out, so nothing is half-bought. Re-arm with a longer" >&2
+      echo "  TTL_MINUTES." >&2
+      return 1
+    fi
+    return 0
+  fi
   remain=$(deadline_remaining_minutes 2>/dev/null) || return 0
   [ -n "$remain" ] || return 0
   per=$(( (cell_secs + cells_done - 1) / cells_done ))
@@ -1286,10 +1352,21 @@ run_cell() {
   # request of every arm would have come back ErrNoRoute -- after both engines had loaded.
   "$WORK/benchharness" gen-trace --seed 11 --duration-ms "$DURATION_MS" --rate "$RATE_CELL" \
     --study "$STUDY" --arm "$label" --model "$MODEL" --gateway-url "http://127.0.0.1:18080" \
-    --engine-image "$ENGINE_IMAGE" --gateway-sha "$SOURCE_COMMIT" \
+    --engine-image "$ENGINE_IMAGE" --gateway-image "$GATEWAY_IMAGE_REF" --gateway-sha "$SOURCE_COMMIT" \
     --premium-weight "$PREMIUM_WEIGHT" --noisy-weight "$NOISY_CELL" --probe-weight "$PROBE_WEIGHT" \
     --trace-out "$OUT/trace-$label-$rep.jsonl" --manifest-out "$OUT/manifest-$label-$rep.yaml" || fail "gen-trace $label"
+  # --require-provenance, now that there is provenance to require.
+  #
+  # RunManifest has carried gatewaySHA and imageDigests since it was written and nothing ever filled them;
+  # the guard that demands them has existed just as long and nothing ever asked for it. A paid run's numbers
+  # belong to a build, and after the cluster is gone the manifest is the only place that association lives.
+  #
+  # A WAIVED run does not ask for it, because there is nothing to ask for: the waiver exists precisely for a
+  # tree whose engine cannot be digest-pinned, and demanding provenance from it would be demanding that the
+  # rehearsal fail. The waiver cannot reach a paid run -- hack/m5c-gpu-session.sh refuses to pass it -- so
+  # the demand is on wherever it matters.
   "$WORK/benchharness" replay --manifest "$OUT/manifest-$label-$rep.yaml" \
+    $PROVENANCE_FLAG \
     --target "http://127.0.0.1:18080" \
     --api-keys "premium-1=premium-key,standard-noisy=standard-key" \
     --raw-out "$OUT/raw-$label-$rep.jsonl" || fail "replay $label"
