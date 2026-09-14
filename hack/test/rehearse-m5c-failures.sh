@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Makes hack/m5c-matrix.sh FAIL, three ways, and reads what it says.
+# Makes hack/m5c-matrix.sh FAIL, five ways, and reads what it says.
 #
 # WHY THIS EXISTS
 #
@@ -195,6 +195,7 @@ run_matrix() {
   ( cd "$SRC" && PLATFORM=kind KCTX="$KCTX" GPU_NODE="$GPU_NODE" \
       DEADLINE_EPOCH=$(( $(date +%s) + deadline_s )) \
       GATEWAY_BIN="$WORK/gateway" BENCHHARNESS_BIN="$WORK/benchharness" \
+      ENGINE_PIN_WAIVED=1 \
       RATE=12 DURATION_MS=8000 PREMIUM_WEIGHT=1 NOISY_WEIGHT=0.5 PROBE_WEIGHT=0 \
       REPS=1 ARMS="$arms" OUT="$WORK/run" \
       bash hack/m5c-matrix.sh ) > "$log" 2>&1
@@ -258,10 +259,14 @@ set +e
 ( cd "$SRC" && PLATFORM=kind KCTX="$KCTX" GPU_NODE="$GPU_NODE" \
     DEADLINE_EPOCH=$(( $(date +%s) + 3600 )) \
     GATEWAY_BIN="$WORK/gateway" BENCHHARNESS_BIN="$WORK/benchharness" \
+    ENGINE_PIN_WAIVED=1 \
     RATE=12 DURATION_MS=8000 PREMIUM_WEIGHT=1 NOISY_WEIGHT=0.5 PROBE_WEIGHT=0 \
     REPS=1 ARMS="shared mps" OUT="$WORK/run" \
     bash hack/m5c-matrix.sh ) > "$WORK/fail-mps.log" 2>&1
 set -e
+# The failure diagnostic has to name THIS scenario's log. Without this line bad() kept printing the tail of
+# the previous scenario's file, so a reader chasing an mps failure was handed the engine scenario's output.
+CURRENT_LOG="$WORK/fail-mps.log"
 grep -q "REFUSED mps" "$WORK/fail-mps.log" \
   && ok "the arm was refused by name" || bad "no refusal was announced for the mps arm"
 grep -q "not an MPS client" "$WORK/fail-mps.log" \
@@ -321,6 +326,7 @@ set +e
 ( cd "$SRC" && PLATFORM=kind KCTX="$KCTX" GPU_NODE="$GPU_NODE" \
     DEADLINE_EPOCH=$(( $(date +%s) + 3600 )) \
     GATEWAY_BIN="$WORK/gateway" BENCHHARNESS_BIN="$WORK/benchharness" \
+    ENGINE_PIN_WAIVED=1 \
     RATE=12 DURATION_MS=8000 PREMIUM_WEIGHT=1 NOISY_WEIGHT=0.5 PROBE_WEIGHT=0 \
     REPS=1 ARMS="shared timeSlicing" OUT="$WORK/run" \
     bash hack/m5c-matrix.sh ) > "$WORK/fail-devcount.log" 2>&1
@@ -345,18 +351,43 @@ fi
 if want 3; then
 say "3. a deadline too short for the remaining cells -- does it stop on a boundary and say where?"
 prepare_copy
-# One cell's worth of deadline against three cells. The check is measured, so it only speaks after the first
-# cell has been timed -- which is why this scenario asks for three arms rather than one.
-run_matrix "shared timeSlicing mps" 120 "$WORK/fail-deadline.log" && bad "the matrix ran every cell against a deadline that could not hold them"
+# Enough deadline for the FIRST cell and not for the three, which is what this scenario is about: the
+# measured projection, which only exists once a cell has been timed.
+#
+# It used to be 120 seconds. The matrix now also refuses BEFORE the first cell when the remaining time is
+# below one replay -- a second, unmeasured guard -- and at DURATION_MS=8000 that floor is two minutes, so a
+# 120-second deadline started firing the new refusal instead of this one. The scenario is about the measured
+# stop, so it is given room to reach it. Scenario 5 covers the unmeasured one.
+run_matrix "R1 shared timeSlicing mps" 150 "$WORK/fail-deadline.log" && bad "the matrix ran every cell against a deadline that could not hold them"
 grep -q "STOPPING" "$WORK/fail-deadline.log" \
   && ok "it stopped rather than being cut mid-cell" || bad "no boundary stop; the run would have been cut mid-cell"
 grep -qE "of [0-9]+ cells are complete" "$WORK/fail-deadline.log" \
   && ok "it says how much was bought before stopping" || bad "the stop does not say how many cells are complete"
 fi
 
+# ---------------------------------------------------------------- 5. a deadline that cannot hold even one
+if want 5; then
+say "5. a deadline shorter than a single replay -- does it refuse BEFORE rolling anything out?"
+prepare_copy
+# The measured projection does not exist yet at cell one, and "no projection" was read as "enough time":
+# the matrix started its first cell against an already-expired deadline, rolled out the engines, replayed,
+# and was cut mid-cell with nothing archived. No measurement is needed to know that a cell cannot finish
+# faster than its own replay.
+run_matrix "shared" 20 "$WORK/fail-first-cell.log" && bad "the matrix started a cell against a deadline shorter than one replay"
+grep -q "STOPPING before the first cell" "$WORK/fail-first-cell.log" \
+  && ok "it refuses before the first cell rather than after it" || bad "no pre-first-cell stop: $(tail -2 "$WORK/fail-first-cell.log" | tr '\n' ' ')"
+grep -q "Nothing has been rolled out" "$WORK/fail-first-cell.log" \
+  && ok "and it says nothing is half-bought" || bad "the refusal does not say what state the run is in"
+if compgen -G "$WORK/run/raw-*.jsonl" >/dev/null; then
+  bad "the run wrote raw evidence despite refusing before its first cell"
+else
+  ok "and no cell evidence was written"
+fi
+fi
+
 echo
 if [ "$failures" = "0" ]; then
-  say "ALL FOUR FAILURE PATHS PINNED: each one ran, and each one said what a reader needs."
+  say "ALL FIVE FAILURE PATHS PINNED: each one ran, and each one said what a reader needs."
 else
   fail "$failures assertion(s) failed above. A refusal that does not say why is one that has to be bought twice."
 fi
