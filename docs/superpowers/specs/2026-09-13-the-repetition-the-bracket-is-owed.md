@@ -225,6 +225,102 @@ registered — stop at 4.61, never buy 6, and support a confident "below 4.61" t
 same trace tests reproducibility at a sampled point; it does not test that assumption. The control's tail is
 already non-monotone across the four rates measured, which is the warning shot.
 
+## The offline audit, and what the conclusion actually is
+
+Added 2026-09-14. A review was asked to attack the decision to stop rather than buy another rung. It agreed
+with stopping and **rejected both reasons given for it**, then named work that costs nothing and answers
+more than a rung would. Every number below was recomputed here from the raw rows.
+
+### The reasons for stopping were wrong, and the conclusion has to change with them
+
+**"The claim is already hedged" is a defence against one accusation, not a result.** The pages say in as
+many words that these are pass/fail results at four sampled loads. They also carry a headline calling it
+"the capacity answer". A caveat that says *four sampled points* under a headline that says *capacity* is an
+escape clause rather than a conclusion. **So the narrow statement is promoted to the conclusion:**
+
+> **`timeSlicing` met the 139.0 ms target at 1.16 and 2.31 offered premium requests per second and missed
+> it at 4.61 and 9.22. `shared` missed it at all four. Each result is reproduced in two independent
+> sessions on different cards. No maximum sustainable rate was located for either topology.**
+
+"Below 4.61" is what the sampled points show. "The highest sustainable rate is below 4.61" is an inference
+the evidence does not carry, and it is not made here.
+
+**"Nobody provisions at the boundary" was an unsupported dismissal.** Moving the demonstrated passing rate
+from 2.31 to 3.2 is about **39% more offered load per card**, or roughly **28% fewer cards** under a fixed
+reserve. That can change a deployment decision, and the review was right to say so. The reason to stop is
+narrower and it is the honest one: **no decision has been specified that another rung would change.** No
+required demand, no reserve policy, no acceptable contender degradation, and no customer requirement behind
+139 ms has been written down. Until one is, neither 2.31 nor 3.2 is a sizing decision.
+
+The $2.4 already spent is sunk and is not an argument for anything.
+
+### Four things the evidence already bought, and had not been asked
+
+**1. The failure is smooth, and it is a small number of requests.** The criterion is a p99, which hides how
+many requests are actually over the line:
+
+| offered premium | `timeSlicing` p99 | requests over 139 ms |
+| ---: | ---: | --- |
+| 1.16 req/s | 123.8 ms | **1** of 585 (0.17%) |
+| 2.31 req/s | 130.4 ms | **5** of 1,164 (0.43%) |
+| 4.61 req/s | 143.2 ms | **40** of 2,327 (1.72%) |
+| 9.22 req/s | 1,013.2 ms | **823** of 4,655 (17.68%) |
+
+The breach at 4.61 is forty requests. The p99 crosses 139 ms at the rate where the over-139 fraction crosses
+one percent, which is arithmetic rather than a discovery — but it says the boundary is a smooth crossing and
+not a cliff. **The cliff is between 4.61 and 9.22**, where the fraction goes from 1.7% to 17.7%.
+
+**2. That fraction is monotone across all four rates, and it is a count rather than an order statistic.**
+0.17 → 0.43 → 1.72 → 17.68. This is a better answer to the rebound question than another rung would be: a
+p99 is one observation and can move; a miss fraction over thousands of requests cannot move much without
+the distribution moving. It is not proof — the rates between 4.61 and 9.22 are unmeasured — but it is the
+strongest evidence available, and it was already paid for.
+
+**3. The p99's stability at 4.61 overstates how stable the service is.** Between the two sessions the p99
+moves **0.332 ms** (143.203 → 143.535) while the number of requests over the line moves **40 → 49**, from
+1.72% to 2.11%. Quoting the p99's reproducibility as the result's reproducibility flatters it.
+
+**4. The pass at 2.31 does not hold over a shorter window.** Over its final 101 seconds — a fifth of the
+trace — the split's premium p99 is **141.7 ms** in the first session and **139.4 ms** in the repetition,
+with three misses in 241 requests each time. Both sessions pass the registered 505-second criterion and
+neither would pass it over that last fifth. **A 505-second pass is not a claim about any shorter
+operational window**, and an operator reading "sustains 2.31 req/s" would reasonably assume otherwise.
+
+### And one mechanism result, which is the strongest thing here that is free
+
+At 4.61 req/s under `shared`, **649 of the 651 premium requests over 139 ms — 99.7% — were sent while at
+least one contender request was still waiting for its own first token.**
+
+That is the mechanism this study registered on its first page, seen directly rather than inferred from a
+tail: premium requests are late *when a contender prefill is in flight*, and essentially never otherwise.
+Client timestamps cannot say which engine stage the wait happened in, so this is evidence for the mechanism
+and not proof of it.
+
+### What the audit could not do
+
+- **The contender's COUNT is held fixed across rungs; its SCHEDULE is not.** In successive 101-second
+  blocks the contender arrives `[32,32,22,32,21]`, `[29,27,24,32,27]` and `[25,34,26,24,30]` at the three
+  rungs. Comparisons **between topologies within a rung** are controlled — same trace, same schedule. The
+  curve **across rungs** mixes a rate change with a different contention schedule, so any statement about
+  the shape of the response to premium rate alone, including the non-monotonicity noted earlier, is weaker
+  than it looks.
+- **The repetitions measure replay reproducibility, not workload variability.** Both sessions replay the
+  same seed. Different cards strengthen the hardware comparison; they supply no second arrival pattern.
+- **The lowest rung is thin.** 585 premium observations, a p99 that is the sixth-largest of them, never
+  repeated. It clears the registered floor; a floor is not a precision guarantee.
+- **The criterion prices none of the service costs.** At 2.31 the split raises premium median completion
+  from **1.089 s to 1.987 s**, contender median completion from **1.316 s to 4.654 s**, and contender
+  completion p99 from **4.050 s to 16.344 s**. Completing all 139 contender requests does not make that
+  free, and nothing here says whether it is acceptable.
+- **139.0 ms is twice an earlier baseline, not a customer requirement.** Legitimate as an experimental
+  threshold; not a reason to optimise infrastructure around it.
+
+**If a rate is ever bought again, the thing to vary is the arrival trace at one operating rate**, not
+another rung at the same seed — that addresses an uncertainty every same-seed rung leaves untouched. And
+the contender's schedule should be frozen independently of the premium rate, which this ladder could not do.
+
+## What this run will not be able to say
+
 ## What this run will not be able to say
 
 - **Anything about rung 1**, which it does not buy.
