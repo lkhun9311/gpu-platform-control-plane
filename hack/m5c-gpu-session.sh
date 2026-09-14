@@ -670,7 +670,9 @@ say "user-data: $UD_ENCODED of $UD_LIMIT encoded bytes"
 # difference in the world rather than in the code.
 if [ -n "$LADDER" ]; then
   say "checking the purchase plan locally, before anything is rented"
-  if ! PLAN_ONLY=1 PLATFORM="$PLATFORM" KCTX="${KCTX:-none}" BENCHHARNESS_BIN="$OUT/benchharness" \
+  # PLATFORM and KCTX are the MATRIXs variables and this wrapper has none; PLAN_ONLY exits before either
+  # is consulted, and they are passed only so the matrix does not refuse on an unset one.
+  if ! PLAN_ONLY=1 PLATFORM=kind KCTX=none BENCHHARNESS_BIN="$OUT/benchharness" \
        LADDER="$LADDER" LADDER_STUDY="${LADDER_STUDY:-}" \
        PREMIUM_WEIGHT="$PREMIUM_WEIGHT" PROBE_WEIGHT="$PROBE_WEIGHT" DURATION_MS="$DURATION_MS" \
        OUT="$OUT/plan-check" bash hack/m5c-matrix.sh; then
