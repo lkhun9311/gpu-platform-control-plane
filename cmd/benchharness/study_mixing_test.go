@@ -261,3 +261,85 @@ func TestRepetitionsUnderTheSameTreatmentStillPool(t *testing.T) {
 		t.Fatalf("two repetitions under one treatment must pool: %v", err)
 	}
 }
+
+// A raw file is ONE arm of ONE experiment, and every row has to say so.
+//
+// The loader read rows[0].Arm and pooled the rest under it. An adversarial review appended one cell's rows
+// to another's and watched the reported p99 move from 1,694.7 ms to 1,179.3 while the report exited 0 --
+// a number for a cell nobody ran, with nothing in the output to say so.
+func TestReportRefusesAFileThatMixesArms(t *testing.T) {
+	dir := t.TempDir()
+	mixed := append(rowsFor(bench.StudySharingMatrix, bench.ArmShared, "T"),
+		rowsFor(bench.StudySharingMatrix, bench.ArmTimeSlicing, "T")...)
+	path := writeRaw(t, dir, "raw-shared-1.jsonl", mixed)
+
+	_, err := loadArmEvidence([]string{path})
+	if err == nil {
+		t.Fatalf("a file carrying two arms was accepted and pooled under the first one")
+	}
+	if !strings.Contains(err.Error(), "mixes arms within one file") {
+		t.Fatalf("the refusal does not name the fault: %v", err)
+	}
+}
+
+// The trace travels with the arm: rows from another cell carry both a different arm and a different trace,
+// so a file doctored to fix one still fails the other.
+func TestReportRefusesAFileThatMixesTraces(t *testing.T) {
+	dir := t.TempDir()
+	mixed := append(rowsFor(bench.StudySharingMatrix, bench.ArmShared, "T"),
+		rowsFor(bench.StudySharingMatrix, bench.ArmShared, "DIFFERENT")...)
+	path := writeRaw(t, dir, "raw-shared-1.jsonl", mixed)
+
+	_, err := loadArmEvidence([]string{path})
+	if err == nil {
+		t.Fatalf("a file carrying two traces was accepted")
+	}
+	if !strings.Contains(err.Error(), "mixes traces within one file") {
+		t.Fatalf("the refusal does not name the fault: %v", err)
+	}
+}
+
+// An unregistered study is refused rather than warned about.
+//
+// A typo in the id used to fall through: the arm order fell back to M5-b's, every arm of the real study
+// dropped out of the table, and the report exited 0 saying only that it evaluated no criteria -- which is
+// what it says about a study whose readings are not written, a different thing entirely.
+func TestReportRefusesAnUnregisteredStudy(t *testing.T) {
+	dir := t.TempDir()
+	path := writeRaw(t, dir, "raw-shared-1.jsonl",
+		rowsFor("throughput-ladder-down-2026-09-13-typo", bench.ArmShared, "T"))
+
+	_, err := loadArmEvidence([]string{path})
+	if err == nil {
+		t.Fatalf("a mistyped study id was accepted")
+	}
+	if !strings.Contains(err.Error(), "is not registered") {
+		t.Fatalf("the refusal does not name the fault: %v", err)
+	}
+}
+
+// And an arm the study does not admit cannot be placed, so it is refused rather than dropped.
+func TestReportRefusesAnArmTheStudyDoesNotAdmit(t *testing.T) {
+	dir := t.TempDir()
+	path := writeRaw(t, dir, "raw-rung09-shared-1.jsonl",
+		rowsFor(bench.StudyThroughputLadderDown, "rung09-shared", "T"))
+
+	_, err := loadArmEvidence([]string{path})
+	if err == nil {
+		t.Fatalf("an arm outside the study's registry was accepted")
+	}
+	if !strings.Contains(err.Error(), "does not admit") {
+		t.Fatalf("the refusal does not name the fault: %v", err)
+	}
+}
+
+// Rows written before studies existed carry an empty id, which must still load: the refusals above are
+// about ids that are WRONG, not about evidence that predates the field.
+func TestReportStillLoadsEvidenceWrittenBeforeStudiesExisted(t *testing.T) {
+	dir := t.TempDir()
+	path := writeRaw(t, dir, "raw-off-1.jsonl", rowsFor("", "off", "T"))
+
+	if _, err := loadArmEvidence([]string{path}); err != nil {
+		t.Fatalf("legacy evidence with no study id was refused: %v", err)
+	}
+}
