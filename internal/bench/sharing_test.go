@@ -633,17 +633,36 @@ func TestTheMatrixPassesTheWholeLoadAndTheModelToGenTrace(t *testing.T) {
 	}
 	stripped := code.String()
 
-	gen := regexp.MustCompile(`(?s)benchharness" gen-trace.*?manifest-out[^\n]*\n`).FindString(stripped)
-	if gen == "" {
+	// Every gen-trace call rather than the first: the plan check and the paid cell each have their own.
+	gens := regexp.MustCompile(`(?s)benchharness" gen-trace.*?manifest-out[^\n]*\n`).FindAllString(stripped, -1)
+	if len(gens) == 0 {
 		t.Fatal("hack/m5c-matrix.sh has no gen-trace invocation to check")
 	}
-	for _, flag := range []string{
-		"--rate", "--duration-ms", "--model",
-		"--premium-weight", "--noisy-weight", "--probe-weight",
+	for _, gen := range gens {
+		for _, flag := range []string{"--duration-ms", "--model", `"${LOAD_FLAGS[@]}"`} {
+			if !strings.Contains(gen, flag) {
+				t.Errorf("a gen-trace call in the matrix does not pass %s, so it takes the harness's "+
+					"stub-calibrated default for it:\n%s", flag, gen)
+			}
+		}
+	}
+
+	// The load itself is built by set_load_flags under the arrival model the study registered, and each
+	// model's branch has to carry its whole load, or gen-trace fills the gap with a default.
+	loads := regexp.MustCompile(`(?s)set_load_flags\(\) \{.*?\n\}`).FindString(stripped)
+	for model, flags := range map[string][]string{
+		"weighted":    {"--rate", "--premium-weight", "--noisy-weight", "--probe-weight"},
+		"independent": {"--premium-rate", "--noisy-rate", "--probe-rate"},
 	} {
-		if !strings.Contains(gen, flag) {
-			t.Errorf("the matrix's gen-trace call does not pass %s, so it takes the harness's "+
-				"stub-calibrated default for it", flag)
+		branch := regexp.MustCompile(`(?m)^\s*` + model + `\).*$`).FindString(loads)
+		if branch == "" {
+			t.Errorf("set_load_flags has no %s branch", model)
+			continue
+		}
+		for _, flag := range flags {
+			if !strings.Contains(branch, flag+" ") {
+				t.Errorf("set_load_flags' %s branch does not pass %s, so gen-trace takes its default for it", model, flag)
+			}
 		}
 	}
 
@@ -665,6 +684,47 @@ func TestTheMatrixPassesTheWholeLoadAndTheModelToGenTrace(t *testing.T) {
 	if regexp.MustCompile(`DURATION_MS=\$\(python3`).MatchString(stripped) {
 		t.Error("the matrix still derives DURATION_MS from RATE, overwriting whatever the caller measured; " +
 			"the arithmetic assumes an even tenant split, which is the premise a calibrated mix abandons")
+	}
+}
+
+// The instance has the commit and has to hand it to the matrix, which cannot work it out for itself there.
+//
+// hack/m5c-matrix.sh falls back to `git rev-parse ... || echo unknown` when SOURCE_COMMIT is unset, and the
+// instance unpacks a source tarball with no .git. The 2026-09-16 paid ladder recorded "unknown" as the
+// gatewaySHA of all seven manifests because of it. The wrapper knew the commit the whole time: it substitutes
+// it into the payload and uploads it as commit.txt.
+func TestTheInstanceHandsTheCommitToTheMatrix(t *testing.T) {
+	src, err := os.ReadFile("../../hack/m5c-gpu-session.sh")
+	if err != nil {
+		t.Fatalf("read the session wrapper: %v", err)
+	}
+
+	// Comments stripped first, for the reason the gen-trace contract test above strips them: the rationale
+	// beside this export names the variable, so prose alone would satisfy the check.
+	var code strings.Builder
+	for line := range strings.SplitSeq(string(src), "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "#") {
+			continue
+		}
+		code.WriteString(line)
+		code.WriteString("\n")
+	}
+	stripped := code.String()
+
+	const (
+		export = `export SOURCE_COMMIT="$COMMIT"`
+		invoke = "bash hack/m5c-matrix.sh; matrix_rc=$?"
+	)
+	at := strings.Index(stripped, export)
+	run := strings.Index(stripped, invoke)
+	if at < 0 {
+		t.Fatalf("the instance script never exports SOURCE_COMMIT, so every paid manifest records the commit as %q", "unknown")
+	}
+	if run < 0 {
+		t.Fatal("the instance script no longer invokes the matrix the way this test expects; re-point it rather than deleting it")
+	}
+	if at > run {
+		t.Error("SOURCE_COMMIT is exported after the matrix runs, so the matrix still derives it from a tree with no .git")
 	}
 }
 
