@@ -518,25 +518,8 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 			rec.code = code
 		}
 	})
-	// Nothing ever reached the client, so no backend answered. rec.code is still its default 200 and would
-	// publish a failed request as a success; the last failure code is what actually happened.
-	//
-	// The rec.answered guard is load-bearing rather than defensive: a request whose FIRST attempt failed and
-	// whose retry SUCCEEDED also leaves lastFailure set, and without the guard that genuine 200 would be
-	// overwritten by the failure that was recovered from.
-	if !rec.answered && lastFailure != 0 {
-		rec.code = lastFailure
-	}
-	// advanced is tryBackends reporting that it REALLY tried another candidate, not the failure callback
-	// guessing. The callback fires before the retry guards run, so latching on it counted a fallback whenever
-	// a non-final attempt failed — including the cancelled requests where no retry ever happened, which the
-	// benchmark harness produces on every timeout.
-	//
-	// A successful status is still required on top: a fallback that also failed is not a rescue, and counting
-	// it as one inverts what the ratio means. The range is 2xx and 3xx rather than everything below 500,
-	// because a 4xx from the spare means the request reached it and was refused on its own merits — the
-	// fallback path carried the request but never served an answer, and the metric's name says "served".
-	if advanced && rec.code >= 200 && rec.code < 400 {
+	rec.code = publishedCode(rec.answered, rec.code, lastFailure)
+	if servedByFallback(advanced, rec.code) {
 		backendFallbacks.WithLabelValues(tenant, meta.Model).Inc()
 	}
 
@@ -545,6 +528,42 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 	// This therefore measures the whole request rather than time-to-first-byte.
 	requests.WithLabelValues(tenant, meta.Model, strconv.Itoa(rec.code)).Inc()
 	requestDuration.WithLabelValues(tenant, meta.Model).Observe(time.Since(start).Seconds())
+}
+
+// publishedCode is the status a finished proxy attempt should be counted under.
+//
+// answered is the recorder's latch: true once a backend wrote a status line or a byte of body. code is
+// whatever the recorder currently holds, seeded to 200 before anything ran. lastFailure is the last status
+// any attempt reported, or 0 if none did.
+//
+// Nothing reaching the client means no backend answered, and the seeded 200 would publish a failed request
+// as a success. That is not hypothetical: it happened to every cancelled request, because the failure
+// callback only wrote rec.code on a FINAL attempt and the guards inside tryBackends stopped the loop before
+// any final attempt ran.
+//
+// The answered guard is load-bearing rather than defensive. A request whose first attempt failed and whose
+// retry SUCCEEDED also leaves lastFailure set, and without the guard that genuine 200 would be overwritten
+// by the failure it recovered from.
+func publishedCode(answered bool, code, lastFailure int) int {
+	if !answered && lastFailure != 0 {
+		return lastFailure
+	}
+	return code
+}
+
+// servedByFallback reports whether this request is one the fallback path rescued.
+//
+// advanced is tryBackends reporting that it REALLY tried another candidate, rather than the failure callback
+// guessing. The callback fires before the retry guards run, so latching on it counted a fallback whenever a
+// non-final attempt failed — including the cancelled requests where no retry ever happened, which the
+// benchmark harness produces on every timeout.
+//
+// A successful status is required on top: a fallback that also failed is not a rescue, and counting it as
+// one inverts what the ratio means. The range is 2xx and 3xx rather than everything below 500, because a 4xx
+// from the spare means the request reached it and was refused on its own merits — the fallback path carried
+// the request but never served an answer, and the metric's name says "served".
+func servedByFallback(advanced bool, code int) bool {
+	return advanced && code >= 200 && code < 400
 }
 
 // Handler is the serving mux on :8080.
