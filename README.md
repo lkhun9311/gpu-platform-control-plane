@@ -183,13 +183,14 @@ kubectl patch node platform-worker --subresource=status --type=json \
 
 ```
 api/            CRD types
-internal/       the substance: four reconcilers, the serving gateway,
+internal/       the substance: five reconcilers, the serving gateway,
                 the admission guard and benchmark harness, the queuelab
                 measurement layer
 cmd/            controller manager, gateway, benchmark harness, queuelab runner
 config/         kustomize manifests (CRD, RBAC, manager, Kueue fixtures)
 hack/           local cluster config and the M6 end-to-end script + evidence
-infra/          Terraform for the AWS hosting path (bootstrap applied; cluster planned only)
+infra/          Terraform for the AWS hosting path (bootstrap applied; cluster applied
+                and destroyed in one cycle on 2026-09-18, not applied now)
 docs/           design documents and specs
 test/           e2e test scaffolding
 ```

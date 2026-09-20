@@ -90,8 +90,13 @@ design document, in the tests of the pure layer, and nowhere a run could reach i
 
 **What changed:** the dose is a stated constant the schedule builder validates, and the arm is a closed enum
 with a per-row termination contract. The dose is still not *delivered* correctly — it is measured from a
-two-second poll of a derived phase rather than authoritative Pod Ready, and the realized value is not
-recorded.
+two-second poll of a derived phase rather than authoritative Pod Ready.
+
+⚠️ That sentence used to end "and the realized value is not recorded". It is recorded now, and has been
+since `AchievedDoseNs` (`internal/queuelab/hold.go:67`) and the `achievedDoseSeconds` field
+(`cmd/queuelabrun/compare.go:1149`) landed. The poll-resolution limitation above still stands; what stopped
+being true is the claim that the delivered dose goes unrecorded. A confession left standing after its
+subject is fixed is its own kind of inaccuracy.
 
 ## 5. I wrote an evidence document containing a command I never ran
 
@@ -129,8 +134,14 @@ The worst of these — §1, §3 and §5 — are one failure: a field written to 
 a duration set without asking what it makes indistinguishable, a transcript written from memory instead of
 capture. In each case the thing that would have caught me was already available and nothing looked at it.
 The fix that generalizes is not "be more careful." It is: for every claim, name the observation that would
-refute it, and make something check for it. That is why `queuelabrun` currently exits non-zero and names
-four validity gates it does not have.
+refute it, and make something check for it.
+
+⚠️ That principle used to be illustrated with "`queuelabrun` currently exits non-zero and names four
+validity gates it does not have". It no longer does either. `cmd/queuelabrun/spine.go` records that
+`gateRefusal` and `unimplementedGates` are gone and that "all four now exist and run on every invocation,
+preview or not" — stream continuity, worker qualification, continuous hold audit, and a record carrying all
+three plus a derived verdict. The code gives the reason this page should have been updated with it: "a
+refusal whose stated reason has become false is worse than no refusal at all."
 
 I also hardened the wrong thing. The lab runner, which runs on my own single-user kind cluster, has a
 resource-version-preconditioned ownership transaction with crash recovery. The operator, which is the part

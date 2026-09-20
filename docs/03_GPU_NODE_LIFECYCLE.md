@@ -25,7 +25,7 @@ Register -> Intake -> Certify -> Serve -> Monitor -> Degrade -> Cordon -> Drain 
 
 - **Register / Intake / Certify** (target pipeline — not yet implemented; see "Implemented today" below): a new node is validated before it serves (driver, DCGM, storage, network, NCCL baseline) and signed off as `Ready`.
 - **Serve / Monitor**: healthy node carries traffic; the controller observes readiness.
-- **Degrade -> Cordon**: an unhealthy node is tainted/cordoned to stop new GPU scheduling (implemented in the NodeHealth reconciler — readiness-driven, taint `platform.lkhun9311.github.io/unhealthy=true:NoSchedule`).
+- **Degrade -> Cordon**: an unhealthy node is **tainted** to stop new GPU scheduling (implemented in the NodeHealth reconciler — readiness-driven, taint `platform.lkhun9311.github.io/unhealthy=true:NoSchedule`). It is **not cordoned**: nothing in the reconciler sets `Node.spec.unschedulable`, and this line said "tainted/cordoned" as though both happened. The taint stops GPU Pods that tolerate nothing; a cordon would stop every Pod, which is a different and larger act.
 - **Drain**: **not fully automated**. Draining running workloads is operator-approval / dry-run by design — the platform decides *what* to drain and surfaces it, but a human (or an explicit approval flag) triggers eviction. Maturity here is "knows the operational risk," not "auto-drains."
 - **Re-intake / Recover**: a recovered node re-runs intake before returning to `Serve`.
 
@@ -64,8 +64,8 @@ status:
 | 3     | NCCL              | all-reduce single-node 2-GPU      | training-infra signal |
 | 4     | sign-off          | NodeHealth update                 | Ready / Quarantine    |
 
-When DCGM is unavailable (local/simulated), the controller falls back to the Kubernetes node Ready condition and records that the GPU-level checks were not run — it does not fake DCGM data.
+⚠️ This paragraph used to describe a fallback: "when DCGM is unavailable the controller falls back to the Kubernetes node Ready condition and records that the GPU-level checks were not run". There is no fallback, because there is no DCGM path to fall back *from* — the string `DCGM` appears nowhere in `internal/controller/nodehealth_controller.go`. The controller always reads the Kubernetes node Ready condition, and it records nothing about skipped GPU checks. The DCGM code that does exist (`internal/queuelab/dcgm.go`) reads utilisation for the queuelab, not health for this controller. What the paragraph got right is the part that was never in doubt: no DCGM data is faked.
 
 ## Scope at this milestone
 
-Implemented: Ready/Degraded/Quarantine, taint apply/remove, finalizer cleanup, Node watch. Target: intake conditions + metrics, re-intake script, operator-approval drain. Stretch: an automated drain controller (deliberately deferred — operational risk).
+Implemented: Pending/Ready/Quarantine, taint apply/remove, finalizer cleanup, Node watch. (`Degraded` was listed here as implemented; `api/v1/nodehealth_types.go` says the opposite in a comment on the enum — `Intake` and `Degraded` "are not emitted yet" — and the reconciler emits neither.) Target: intake conditions + metrics, re-intake script, operator-approval drain. Stretch: an automated drain controller (deliberately deferred — operational risk).
