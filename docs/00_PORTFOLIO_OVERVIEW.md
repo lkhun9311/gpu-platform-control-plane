@@ -28,7 +28,7 @@
 > clusters is still simulated by a fake device plugin, and those runs are still reservation.
 >
 > **Built, and the reason the paid numbers are worth reading:** a characterization harness that pins what
-> each GPU-renting script does before it may be run against a card. Three runners, 25 scenarios, each
+> each GPU-renting script does before it may be run against a card. Four runners, 45 recorded cases, each
 > driving the real script with recording stubs and diffing the AWS calls, the exit status, what the operator
 > was told and what the run directory held. It fixes the host side only, which is stated where it is used
 > rather than left to be assumed.
@@ -45,7 +45,7 @@ This project is **not** a vLLM demo. It treats GPU inference workloads as declar
 | **What this is not** | An LLM demo, a data platform, a full MLOps stack, or a scene-retrieval/vector-index platform |
 | **Killer feature**   | Multi-tenant GPU performance isolation & contention-aware control                            |
 | **Core demo**        | tenant A/B → quota admission → vLLM serving → noisy-neighbor → metrics → recovery            |
-| **Evidence**         | CRDs, controllers, and the gateway (code and unit tests) exist today; benchmark reports, Grafana dashboards, failure reports, and an operations ledger are planned evidence types, not yet produced |
+| **Evidence**         | CRDs, controllers and the gateway (code and unit tests) exist. So do a benchmark write-up (`hack/m5d-writeup.md`), a Grafana dashboard (`config/prometheus/operator_dashboard.json`) and three failure reports (`hack/chaos-fr*.md`). Only the **operations ledger** is still unbuilt. ⚠️ This row called all four "planned evidence types, not yet produced" — true of the `evidence/` directory, which holds five `.gitkeep` files and nothing else, and false of the repository, which is where the evidence actually lives |
 
 ## The main contribution
 

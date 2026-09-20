@@ -20,8 +20,13 @@
 > **Built, and run on a paid GPU:** the M5-b admission-guard benchmark harness. Four repetitions on
 > 2026-09-03 and an engine-level scheduler microtest on 2026-09-04. The guard missed its pre-registered
 > 1.25x premium-tail target at 83.7x, and the harness declared the run invalid rather than reporting a
-> protection claim. The thresholds were not merely unvalidated — the run showed the gateway cannot observe
-> the pressure they gate on.
+> protection claim. ⚠️ This used to conclude "the run showed the gateway cannot observe the pressure they
+> gate on", and that is the wrong lesson. The gateway observed pressure and acted on it: all **274** refusals
+> came from the waiting-queue condition. What never fired was the KV-occupancy condition, and re-analysis
+> showed it was **unreachable by construction** — the engine reported a cache of 386,912 tokens against a
+> 7,695-token noisy prompt, so crossing 0.85 needed about 43 concurrent long requests and the trace never
+> held more than 13 (25.9%). The failure is a threshold nothing in this workload could reach, not a signal
+> the gateway cannot see (`docs/superpowers/specs/2026-09-04-the-layer-not-the-signal.md`).
 >
 > **Designed only — no code:** Xid and ECC (nothing in the Go tree). The DCGM exporter layer is NOT in this
 > category and the claim that it was is corrected here: `config/dcgm-exporter/` deploys it and
