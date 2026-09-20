@@ -26,9 +26,9 @@ Terraform (3 separate states; bootstrap starts on LOCAL state, then migrates int
   └── argo-bootstrap: initial Argo CD install only (run once, never on routine applies)
 
 VPC (one subnet pair per AZ the instance types share; 8 subnets on 2026-09-18. Nodes hold no public address)
-  ├── public subnet x3 (ELB-tagged, NO instances):
+  ├── public subnet, one per derived AZ (ELB-tagged, NO instances) -- four on 2026-09-18:
   │     NAT gateway (ONE, in AZ-a) + internet gateway route
-  └── private subnet x3 (no auto public IP, default route -> NAT):
+  └── private subnet, one per derived AZ (no auto public IP, default route -> NAT):
         EKS control-plane ENIs
         CPU node group (pinned to AZ-a, the NAT's zone)
         [session] GPU node groups: desired=0, subnets derived from instance-type offerings,
@@ -63,7 +63,7 @@ S3 state controls (v3): versioning, SSE-KMS with a scoped key policy, public-acc
 
 | Decision              | Value                                                                                                      | Why                                                                                                                                                                                                              |
 |-----------------------|------------------------------------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| Subnets               | **Three AZs, public + private in each**                                                                     | EKS `CreateCluster` rejects fewer than 2 AZs. The third exists because `g5` is offered in `2a/2c/2d` but **not** `2b`, so two zones can leave the A10G groups one home                                             |
+| Subnets               | **One public + one private per AZ, and the AZ list is derived, not fixed** — four pairs on 2026-09-18       | `vpc.tf` takes the **union** of the zones the three GPU instance types are offered in, padding from the general AZ list only if that union is smaller than the two `CreateCluster` demands. It is not hard-coded to three: this row said "Three AZs" while the diagram above it recorded 8 subnets from the same apply. `g5` is offered in `2a/2c/2d` and not `2b`, and queuelab's `g4dn.12xlarge` in `2a/2b/2c`, so the union is four zones and `placement.tf` hands each group its own subset |
 | Node reachability     | Private subnets, **no public IP**, default route to NAT; **private EKS endpoint**                            | A node with a routable address makes its security group the only thing between the internet and a kubelet. The private endpoint is what lets addressless workers reach the API without leaving the VPC             |
 | API endpoint exposure | `endpoint_private_access=true`; public half derived from `api_public_access_cidrs` (**default empty**)      | The module default is `0.0.0.0/0` and this repo never set the argument. Reaching the endpoint ≠ authenticating to it, but a world-reachable endpoint is one a leaked credential works from anywhere. `0.0.0.0/0` now fails validation |
 | Node placement        | CPU group pinned to AZ-a (the NAT's zone); GPU groups derived from instance-type offerings (`placement.tf`) | Keeps CPU egress in-zone; GPU placement must follow capacity, not subnet index                                                                                                                                     |
