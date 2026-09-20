@@ -174,7 +174,7 @@ that produced no records is refused" — is **half right, and the half that is w
   `MinTailSamples = 100` and is compared against arms with four times the samples. Unequal repetition counts
   print a warning to stderr and refuse nothing. Arms run in a fixed order, so interruption lands
   preferentially on later ones — informative censoring, not a smaller sample.
-- **M5-c has no analyzer at all**, so a matrix missing a cell has nothing to refuse it.
+- ⚠️ This said **"M5-c has no analyzer at all, so a matrix missing a cell has nothing to refuse it"**, and both halves are false. `internal/bench/sharing_matrix.go` is 45 KB of analyzer — `EvaluateSharingMatrix`, `scoreSharingArms`, `armNotScorable`, four named readings — and it refuses missing cells explicitly, keeping "this arm is absent" and "this arm refused for a stated reason" as separate facts rather than inferring one from the other.
 
 **Status of the gate.** Three of the four ways a degraded run could certify itself are now closed, each
 injection-tested:
@@ -186,9 +186,14 @@ injection-tested:
 | Absent confidence interval | Unequal repetitions skip the bootstrap; the zero `CI`'s `Hi = 0.0` satisfied `Hi < 1.0`, so the **absence** of an interval passed the strictest gate | `CI.Valid`, false by construction; a degenerate single-repetition interval is invalid too |
 | Truncated repetition inside a healthy arm | Pooled `TailSampleSize` hides a repetition of 30 among three of 500, and the bootstrap resamples its maximum-as-p99 with equal weight | Per-repetition floor at `MinTailSamples`, wired through `report` and covered by a command-level test as well as unit specs |
 
-**What remains before `gpu_shared` may use Spot: M5-c has no analyzer at all.** A matrix missing a cell has
-nothing to refuse it, so the sharing group stays On-Demand even after the Spot quota is granted. `gpu_single`
-(M5-b) is gated only on the quota now.
+**What remains before `gpu_shared` may use Spot.** ⚠️ This paragraph gave the reason as "M5-c has no analyzer
+at all", and that is not true: `internal/bench/sharing_matrix.go` exists and refuses a matrix with a missing
+cell. The condition this gate was built to demand — an evidence path that refuses an interrupted run rather
+than averaging over it — is therefore **met**, in the same way it is met for `gpu_single`. Whether to flip
+`gpu_shared` to Spot is now a decision rather than a blocked one, and `local.gpu_capacity` in
+`infra/aws/cluster/vpc.tf` is the single place that decides it. `gpu_single` (M5-b) is gated only on the
+quota. queuelab's `gpu` group stays On-Demand permanently, for a measurement reason rather than a readiness
+one.
 
 None of this was a Spot problem. An evicted engine Pod, an OOM kill or a network blip produce the same rows,
 so until these landed **any** degraded run — On-Demand included — could print `all checks passed`.
@@ -354,7 +359,7 @@ Deployment is **by digest**: CI pushes the image, then opens a PR bumping the di
 | `crds`          | `config/crd` (Kustomize)      | `ServerSideApply=true`; operator CRDs have exactly one owner                                                                                                                                |
 | `operator`      | `config/` (Kustomize)         | Manager + RBAC; image digest from Git                                                                                                                                                       |
 | `gateway`       | `config/gateway/` (Kustomize) | M4-b deliverable; same digest-bump flow                                                                                                                                                     |
-| `observability` | slim Prometheus/Grafana chart | **Disabled until operator custom metrics exist**; chart CRDs `Prune=false` + `Replace=false`, Helm `skipCrds` pinned; access = `kubectl port-forward` only (public LoadBalancer prohibited) |
+| `observability` | **the `config/prometheus` Git path**, not a Helm chart | **Disabled until operator custom metrics exist** (no automated sync policy, so it is one manual sync from active); `Prune=false` + `Replace=false` in `syncOptions`; access = `kubectl port-forward` only (public LoadBalancer prohibited). ⚠️ This row said "slim Prometheus/Grafana chart", "chart CRDs" and "Helm `skipCrds` pinned". `config/argocd/observability.yaml` has no `helm:` block and no `skipCrds`: it syncs a Git path holding a PodMonitor, a ServiceMonitor, alert rules and `operator_dashboard.json`. The file's own header comment repeats the same mistaken framing |
 | `device-plugin` | NVIDIA plugin or simulator    | Separate profile; simulator and real plugin are mutually exclusive (manual profile toggle). It was to be flipped in the same PR as a `gpu.yml` scale-up, but no `gpu.yml` was ever written — GPU node groups are scaled by `hack/m5b-gpu-session.sh` and torn down by `hack/lib/gpu-ttl.sh` |
 | `samples`       | `config/samples`              | Manual sync only, never auto — samples are demo actions, not desired state                                                                                                                  |
 

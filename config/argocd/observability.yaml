@@ -2,7 +2,12 @@
 #
 # It has no automated sync policy, so it is one manual sync from active.
 #
-# Chart CRDs are never pruned or replaced, so cluster-scoped CRDs are not silently upgraded.
+# Prune=false and Replace=false, so nothing here is deleted or force-applied by a sync.
+#
+# This comment said "chart CRDs", and docs/09 repeated it as a Helm chart with `skipCrds` pinned. There is
+# no chart: the source below is a Git path holding a PodMonitor, a ServiceMonitor, alert rules and a
+# dashboard JSON. No CRD ships from here at all, so the guarantee is about those objects, not about
+# cluster-scoped CRDs.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
