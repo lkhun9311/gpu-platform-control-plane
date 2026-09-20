@@ -28,7 +28,7 @@
 > clusters is still simulated by a fake device plugin, and those runs are still reservation.
 >
 > **Built, and the reason the paid numbers are worth reading:** a characterization harness that pins what
-> each GPU-renting script does before it may be run against a card. Three runners, 25 scenarios, each
+> each GPU-renting script does before it may be run against a card. Four runners, 45 recorded cases, each
 > driving the real script with recording stubs and diffing the AWS calls, the exit status, what the operator
 > was told and what the run directory held. It fixes the host side only, which is stated where it is used
 > rather than left to be assumed.
