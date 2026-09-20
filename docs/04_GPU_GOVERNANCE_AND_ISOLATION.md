@@ -4,8 +4,13 @@ This is the killer feature. Everything else (CRDs, gateway, node lifecycle) exis
 
 > **Status (2026-08-07).** Mixed, and the difference matters. **Built and unit-tested:** the KV-cache-aware
 > admission guard (`internal/gateway/kvguard.go`, wired into the gateway) and the open-loop benchmark
-> harness. Neither has ever run on a GPU, and the guard's vLLM metrics fixture is synthetic — it says so in
-> the fixture — so its engage/release thresholds are unvalidated guesses. **Designed only, no code:** the
+> harness. Neither had run on a GPU when this banner was written, and its engage/release thresholds were
+> unvalidated. ⚠️ The reason given was wrong: it said the vLLM metrics fixture "is synthetic — it says so in
+> the fixture". The fixture says the opposite. `internal/bench/testdata/PROVENANCE.txt` records that
+> `vllm_metrics_golden.txt` is "bytes a real vLLM server wrote… Neither was typed from the documentation",
+> captured 2026-08-23 from a pinned `vllm/vllm-openai-cpu` image running Qwen2.5-0.5B-Instruct. It is a real
+> capture from a CPU server, which is a real limitation — CPU KV behaviour is not A10G KV behaviour — but
+> that is a different objection from the one this line made, and it was contradicted by the file it cited. **Designed only, no code:** the
 > `GpuSharingBenchmark` CRD and the sharing-mode matrix. **Not measured in this document:** everything numeric below. Every
 > figure here is a target or an example and is labeled as such. Real-GPU numbers now exist elsewhere — the
 > M5-b guard measured over four paid repetitions, the M5-c sharing matrix over nine paid pilots, and the
@@ -135,7 +140,7 @@ The run protocol **pins the full runtime**: exact model ID, dtype/quantization, 
 
 ### Independent variable — the admission guard
 
-Designed in `docs/superpowers/specs/2026-07-04-m5-admission-guard-design.md` and implemented in the gateway (`internal/gateway/kvguard.go`) — **built and unit-tested, never exercised against a real GPU**, and its vLLM metrics fixture is synthetic, so the thresholds below are unvalidated: the gateway scrapes vLLM's `gpu_cache_usage_perc` / `num_requests_waiting`, and while pressure is engaged (hysteresis-guarded thresholds) it selectively rejects **standard-tier long-context** requests with 429 `kv_cache_pressure`. Premium requests always pass. Static token bucket (M4-b) stays on in all gateway runs.
+Designed in `docs/superpowers/specs/2026-07-04-m5-admission-guard-design.md` and implemented in the gateway (`internal/gateway/kvguard.go`). It has since been exercised against a real GPU and **failed**: 83.7x against a pre-registered 1.25x premium-tail target (`hack/m5d-writeup.md`), with every one of its 274 refusals coming from the waiting-queue condition rather than the KV-occupancy threshold the milestone was named for. The fixture behind the thresholds below is a **real capture** from a CPU vLLM server (`internal/bench/testdata/PROVENANCE.txt`), not the synthetic one this line claimed; what makes the thresholds unvalidated is that CPU KV behaviour is not A10G KV behaviour: the gateway scrapes vLLM's `gpu_cache_usage_perc` / `num_requests_waiting`, and while pressure is engaged (hysteresis-guarded thresholds) it selectively rejects **standard-tier long-context** requests with 429 `kv_cache_pressure`. Premium requests always pass. Static token bucket (M4-b) stays on in all gateway runs.
 
 ### Runs
 
