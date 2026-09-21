@@ -35,9 +35,20 @@ PROM=${PROM:-localhost:9090}
 KEY=${KEY:-premium-1}
 MODEL=${MODEL:-demo-llm}
 OUT=${OUT:-./ex/chaos-fr002b.json}
+# The cluster this runs against, named rather than inherited.
+#
+# Every kubectl below used to run against whatever context happened to be current. On 2026-09-21 that was a
+# destroyed EKS cluster, so every call failed at DNS and the first one reported "InferenceDeployment
+# stub-llm does not exist" -- about a CR that was sitting Ready in the kind cluster one context away. A
+# wrong-cluster run cannot be told from a missing object unless the script says which cluster it means.
+KCTX=${KCTX:-kind-platform}
 
 say () { echo "  $*"; }
 die () { echo "ABORT: $*" >&2; exit 1; }
+k () { kubectl --context "$KCTX" "$@"; }
+# reachable answers whether the API server responds at all, so "not found" is never reported for a cluster
+# this process cannot talk to.
+reachable () { k version --request-timeout=5s >/dev/null 2>&1; }
 now_ns () { date +%s%N; }
 ms () { echo "scale=1; $1 / 1000000" | bc; }
 
@@ -47,30 +58,64 @@ req () {
     -d "{\"model\":\"$MODEL\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}" 2>/dev/null
 }
 
+# An absent series returns the EMPTY STRING, not 0, and the difference is the whole point.
+#
+# This used to print '0' for a query that matched nothing, which made three different situations produce the
+# same number: the scrape is broken, the counter has never been incremented so Prometheus holds no series
+# for it, and the counter really is at zero. The run would then report delta 0 and conclude the gateway did
+# not fall back -- a verdict about the gateway drawn from a fact about the query.
+#
+# It is not hypothetical here. gpuaas_gateway_backend_fallbacks_total had no series at all on this cluster
+# until a request exercised it, because Prometheus does not materialise a counter nobody has touched.
+#
+# fr002 already used the empty string for this and guards on it; the two scripts disagreed, and only the
+# guarded one could tell the cases apart.
 promq () {
   curl -sG "http://$PROM/api/v1/query" --data-urlencode "query=$1" 2>/dev/null | python3 -c "
 import json,sys
 try: r=json.load(sys.stdin)['data']['result']
-except Exception: print('0'); raise SystemExit
-print(r[0]['value'][1] if r else '0')"
+except Exception: print(''); raise SystemExit
+print(r[0]['value'][1] if r else '')"
 }
 
-endpoints () { kubectl -n "$SERV" get endpoints "$1" -o jsonpath='{.subsets[*].addresses[*].ip}' 2>/dev/null; }
+# reads a counter that MUST already exist, and refuses the run when it does not.
+#
+# Called before the injection rather than after, because an absent series discovered afterwards cannot be
+# told from an injection that changed nothing.
+must_promq () {
+  local v
+  v=$(promq "$1")
+  [ -n "$v" ] || die "Prometheus has no series for $1; the counter is unreadable, and a run that treated that as zero would publish a verdict about the gateway drawn from a fact about the query. Send one request through the gateway first, then re-run."
+  echo "$v"
+}
+
+endpoints () { k -n "$SERV" get endpoints "$1" -o jsonpath='{.subsets[*].addresses[*].ip}' 2>/dev/null; }
 
 restore () {
   echo
   say "restoring $HEAD"
-  kubectl -n "$SERV" patch inferencedeployment "$HEAD" --type=merge -p '{"spec":{"replicas":1}}' >/dev/null 2>&1
+  k -n "$SERV" patch inferencedeployment "$HEAD" --type=merge -p '{"spec":{"replicas":1}}' >/dev/null 2>&1
   for _ in $(seq 60); do [ -n "$(endpoints "$HEAD")" ] && { say "$HEAD serving again"; return; }; sleep 2; done
   say "WARNING: $HEAD never came back; the next run's steady state will refuse to start"
 }
-trap restore EXIT
+# Armed only once the head has actually been scaled down.
+#
+# Armed at definition time it fired on every early abort, printing "restoring stub-llm" and then a warning
+# that it never came back -- for a run that had changed nothing. A recovery message for an injection that
+# did not happen is worse than silence: it describes the cluster wrongly in the one log a later reader has.
+INJECTED=false
+on_exit () { [ "$INJECTED" = true ] && restore; }
+trap on_exit EXIT
 
 # ---------------------------------------------------------------- steady state
 say "=== steady state ==="
 
+# Reachability first, because every check below reports absence when it cannot reach the API at all.
+reachable || die "context $KCTX does not answer; every check below would report a missing object for a cluster this process cannot talk to. Set KCTX to the cluster that holds $SERV/$HEAD."
+say "context $KCTX answers"
+
 for d in "$HEAD" "$SPARE"; do
-  kubectl -n "$SERV" get inferencedeployment "$d" >/dev/null 2>&1 || die "InferenceDeployment $d does not exist"
+  k -n "$SERV" get inferencedeployment "$d" >/dev/null 2>&1 || die "InferenceDeployment $d does not exist in $KCTX"
   [ -n "$(endpoints "$d")" ] || die "$d has no endpoints; there is no working pair to fall back between"
 done
 say "both backends have endpoints"
@@ -78,14 +123,14 @@ say "both backends have endpoints"
 # The two must serve the SAME model, or the gateway never considers them alternatives and this measures
 # nothing at all.
 for d in "$HEAD" "$SPARE"; do
-  m=$(kubectl -n "$SERV" get inferencedeployment "$d" -o jsonpath='{.spec.model.name}' 2>/dev/null)
+  m=$(k -n "$SERV" get inferencedeployment "$d" -o jsonpath='{.spec.model.name}' 2>/dev/null)
   [ "$m" = "$MODEL" ] || die "$d serves model '$m', not '$MODEL'; they are not alternatives"
 done
 say "both serve model $MODEL"
 
 # Oldest-first is the routing order, so the head must actually be the older of the two.
-H_TS=$(kubectl -n "$SERV" get inferencedeployment "$HEAD" -o jsonpath='{.metadata.creationTimestamp}')
-S_TS=$(kubectl -n "$SERV" get inferencedeployment "$SPARE" -o jsonpath='{.metadata.creationTimestamp}')
+H_TS=$(k -n "$SERV" get inferencedeployment "$HEAD" -o jsonpath='{.metadata.creationTimestamp}')
+S_TS=$(k -n "$SERV" get inferencedeployment "$SPARE" -o jsonpath='{.metadata.creationTimestamp}')
 [[ "$H_TS" < "$S_TS" ]] || die "$HEAD ($H_TS) is not older than $SPARE ($S_TS); the head is not the one being removed"
 say "$HEAD is the head (older): $H_TS < $S_TS"
 
@@ -94,15 +139,32 @@ for _ in $(seq 5); do [ "$(req)" = "200" ] && ok=$((ok+1)); done
 [ "$ok" -eq 5 ] || die "only $ok of 5 pre-fault requests succeeded"
 say "5/5 pre-fault requests returned 200"
 
-FALLBACKS_BEFORE=$(promq 'sum(gpuaas_gateway_backend_fallbacks_total)')
+# must_promq rather than promq: an absent series here is a setup failure, not a reading of zero.
+FALLBACKS_BEFORE=$(must_promq 'sum(gpuaas_gateway_backend_fallbacks_total)') || exit 1
 say "backend_fallbacks_total before: $FALLBACKS_BEFORE"
+
+# The three counters below are read for the same window but NOT gated on.
+#
+# They answer "what else did this injection do", which the fallback delta alone cannot: a gateway that
+# absorbed the traffic by rate-limiting it, or by refusing it at admission, would also leave requests
+# succeeding and the fallback counter moving. Recording them is what lets a later reader rule those out.
+#
+# They are allowed to be absent, and an absent one is recorded as such instead of as zero -- the whole
+# correction this script needed.
+LIMITED_BEFORE=$(promq 'sum(gpuaas_gateway_rate_limited_total)')
+UPSTREAM_BEFORE=$(promq 'sum(gpuaas_gateway_upstream_errors_total)')
+ADMIT_BEFORE=$(promq 'sum(gpuaas_gateway_admission_decisions_total)')
+say "context before: rate_limited=${LIMITED_BEFORE:-<no series>} upstream_errors=${UPSTREAM_BEFORE:-<no series>} admission_decisions=${ADMIT_BEFORE:-<no series>}"
 
 # ---------------------------------------------------------------- inject
 echo
 say "=== inject: scaling the head to zero ==="
 T0=$(now_ns)
-kubectl -n "$SERV" patch inferencedeployment "$HEAD" --type=merge -p '{"spec":{"replicas":0}}' >/dev/null 2>&1 \
+k -n "$SERV" patch inferencedeployment "$HEAD" --type=merge -p '{"spec":{"replicas":0}}' >/dev/null 2>&1 \
   || die "scale down failed"
+# Armed here and nowhere earlier: from this line on the cluster is altered and a run that ends for any
+# reason must put the head back.
+INJECTED=true
 
 GONE=""
 for _ in $(seq 120); do
@@ -125,9 +187,25 @@ say "$OK of 20 requests succeeded with the head gone"
 say "codes: $(echo "$CODES" | tr ' ' '\n' | sort | uniq -c | tr '\n' ' ')"
 
 sleep 20   # one scrape at least
-FALLBACKS_AFTER=$(promq 'sum(gpuaas_gateway_backend_fallbacks_total)')
+FALLBACKS_AFTER=$(must_promq 'sum(gpuaas_gateway_backend_fallbacks_total)') || exit 1
 DELTA=$(echo "$FALLBACKS_AFTER - $FALLBACKS_BEFORE" | bc 2>/dev/null || echo 0)
 say "backend_fallbacks_total after:  $FALLBACKS_AFTER  (delta $DELTA)"
+
+LIMITED_AFTER=$(promq 'sum(gpuaas_gateway_rate_limited_total)')
+UPSTREAM_AFTER=$(promq 'sum(gpuaas_gateway_upstream_errors_total)')
+ADMIT_AFTER=$(promq 'sum(gpuaas_gateway_admission_decisions_total)')
+delta_of () { [ -n "$1" ] && [ -n "$2" ] && echo "$2 - $1" | bc 2>/dev/null || echo null; }
+LIMITED_DELTA=$(delta_of "$LIMITED_BEFORE" "$LIMITED_AFTER")
+UPSTREAM_DELTA=$(delta_of "$UPSTREAM_BEFORE" "$UPSTREAM_AFTER")
+ADMIT_DELTA=$(delta_of "$ADMIT_BEFORE" "$ADMIT_AFTER")
+say "context after:  rate_limited delta=$LIMITED_DELTA  upstream_errors delta=$UPSTREAM_DELTA  admission_decisions delta=$ADMIT_DELTA"
+
+# A rate-limited request never reaches a backend, so it cannot be one the spare absorbed. If the limiter
+# moved during the window the twenty successes are not all attributable to fallback, and the run says so
+# rather than leaving the reader to assume otherwise.
+if [ "$LIMITED_DELTA" != "null" ] && [ "$LIMITED_DELTA" != "0" ]; then
+  say "WARNING: the rate limiter refused $LIMITED_DELTA request(s) during this window; the fallback delta is not the only thing that shaped the outcome"
+fi
 
 SERVED=false;  [ "$OK" -ge 18 ] && SERVED=true
 FELL_BACK=false; [ "$(echo "$DELTA > 0" | bc 2>/dev/null)" = "1" ] && FELL_BACK=true
@@ -154,6 +232,12 @@ cat > "$OUT" <<EOF
   "headEndpointsGoneMs": $(ms $(( GONE - T0 ))),
   "requests": { "sent": 20, "succeeded": $OK, "failed": $FAIL },
   "backendFallbacks": { "before": $FALLBACKS_BEFORE, "after": $FALLBACKS_AFTER, "delta": $DELTA },
+  "context": {
+    "note": "read for the same window and not gated on; an absent series is null rather than 0, so a counter Prometheus never materialised is never mistaken for one that stayed still",
+    "rateLimited": { "before": ${LIMITED_BEFORE:-null}, "after": ${LIMITED_AFTER:-null}, "delta": $LIMITED_DELTA },
+    "upstreamErrors": { "before": ${UPSTREAM_BEFORE:-null}, "after": ${UPSTREAM_AFTER:-null}, "delta": $UPSTREAM_DELTA },
+    "admissionDecisions": { "before": ${ADMIT_BEFORE:-null}, "after": ${ADMIT_AFTER:-null}, "delta": $ADMIT_DELTA }
+  },
   "verdict": {
     "stillServed": $SERVED,
     "counterMoved": $FELL_BACK,
