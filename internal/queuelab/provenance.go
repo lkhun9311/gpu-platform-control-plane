@@ -18,6 +18,7 @@ package queuelab
 
 import (
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 
@@ -361,7 +362,16 @@ func ReportFromMessage(msg string) (iters *int, kind, device string, duty float6
 		// accumulator that arrived rounded would fail an exact comparison for a reason that has nothing to
 		// do with the work the run did.
 		v, aerr := strconv.ParseFloat(strings.TrimPrefix(fields[4], "acc="), 64)
-		if aerr != nil {
+		// Non-finite values are refused alongside a parse error, and the reason is not tidiness.
+		//
+		// ParseFloat accepts "NaN", "Inf" and "-Inf", and until the message grew a fifth field the arity rule
+		// refused those by accident. They reach LifecycleEvent.Accumulator and then json.Marshal fails with
+		// `unsupported value: NaN` -- so a workload emitting one would not produce a suspicious record, it
+		// would produce NO record, losing the whole run's evidence at write time.
+		//
+		// NaN also cannot be compared: the oracle's `want == reported` is false for NaN against anything,
+		// including itself, so a run carrying one could never be verified and never be refused either.
+		if aerr != nil || math.IsNaN(v) || math.IsInf(v, 0) {
 			return nil, "", "", 0, nil
 		}
 		a = &v

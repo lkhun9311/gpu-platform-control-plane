@@ -388,6 +388,14 @@ func TestAnUnreadableAccumulatorRefusesTheWholeMessage(t *testing.T) {
 		"iters=900 kind=cuda-fma dev=ok duty=0.25 acc=abc",
 		"iters=900 kind=cuda-fma dev=ok duty=0.25 1.005",
 		"iters=900 kind=cuda-fma dev=ok duty=0.25 acc=1.0 sixth=2",
+		// ParseFloat accepts all three, and the arity rule used to refuse them by accident. A review found
+		// that they now reach LifecycleEvent.Accumulator and json.Marshal then fails with `unsupported
+		// value: NaN` -- so a workload emitting one would produce no record at all rather than a suspicious
+		// one, losing the whole run's evidence at write time. NaN is worse still: the oracle compares with
+		// ==, and NaN equals nothing including itself, so such a run could never be verified or refused.
+		"iters=900 kind=cuda-fma dev=ok duty=0.25 acc=NaN",
+		"iters=900 kind=cuda-fma dev=ok duty=0.25 acc=Inf",
+		"iters=900 kind=cuda-fma dev=ok duty=0.25 acc=-Inf",
 	} {
 		if iters, _, _, _, _ := ReportFromMessage(msg); iters != nil {
 			t.Errorf("%q was accepted; a fifth field this build cannot read must refuse the count beside it", msg)

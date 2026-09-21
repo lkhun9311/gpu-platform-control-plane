@@ -28,17 +28,23 @@ The convention for a bump is visible at `:1490`: the prior version is admitted o
 and a document that already carries the new field is **refused**, because re-running today's judgement over it
 would reach a verdict its run never took. Stage C's bump inherits that shape.
 
-**2. Every termination canary is re-taken.** `canaryKey.PodTemplateHash` is a SHA-256 over the whole
-`PodTemplateSpec`, marshalled to JSON (`cmd/queuelabrun/canary.go`). A single argv character changes it.
-`sleeperCommand`'s own comment says why that matters: "two spellings of the same experiment would need two
-canaries and would compare as different mechanisms. One spelling." So the resume arm cannot be a quiet
+**2. Every termination canary is re-taken.** The canary key carries the arms' rendered commands as
+`HonorCommand` and `IgnoreCommand` (`cmd/queuelabrun/canary.go:194`), and a single argv character changes
+them. **It is not `PodTemplateHash`**, which an earlier version of this page claimed: that hash is taken over
+the template rendered from `templateProbeJob`, a fixed synthetic input, so it moves when the OPERATOR's
+renderer changes and not when the workload's argv does. The two invalidate for different reasons and a page
+that conflates them sends its reader to the wrong file.
+`sleeperCommand`'s own comment says why the command matters: "two spellings of the same experiment would need
+two canaries and would compare as different mechanisms. One spelling." So the resume arm cannot be a quiet
 variant — it is a new template, and every node's qualification expires with it.
 
 **3. Runs taken before the change stop being comparable.** The design's Risks section already made this
 argument for Stage A: the record's schema version is what marks the boundary, and pre-change runs measured a
 different thing. The count of affected runs is **25 as of 2026-08-16**, quoted from that page rather than
-measured here — run records live outside this repository, so this page cannot count them and does not pretend
-to.
+measured here. Twelve ARE committed, under `ex/`, and `TestEveryRunRecordDecodesUnderThisBuild` reads them —
+an earlier version of this page said records live outside the repository, which is false and was the stated
+reason it could not count them. The true reason is narrower: what `ex/` holds is the set the committed pages
+quote, not the historical population, and nothing in the tree records how many runs were taken and discarded.
 
 **4. The canary's residual grows, and this is the one the design did not name.** `record.go:333` states the
 protection — the controller "cannot change it without invalidating every reading taken before the change" —
@@ -48,7 +54,12 @@ here submits an MLTrainingJob, so Kueue admits nothing and no Job creates" the P
 **volume**, and `BuildJob`
 (`internal/controller/mltrainingjob_controller.go:152`) renders none — `MLTrainingJobSpec` has no field for
 one. Attaching it is a change to the controller path, which is precisely the part the canary does not probe.
-**The gate that protects every other template change does not protect this one.**
+**The unprobed part is provisioning and reconciliation, not the template as such.** An earlier version of
+this page said the gate protects every other template change and not this one; that overstates it in both
+directions. A field that reaches the sentinel template does move `PodTemplateHash` and is caught. What no
+canary exercises is the path a volume actually travels — the reconciler rendering it, Kueue admitting the
+Job, the Job controller creating a Pod, and the storage class binding a volume to a node — because the probe
+creates its Pod directly.
 
 ## The oracle has a limit, and it must be written down now
 

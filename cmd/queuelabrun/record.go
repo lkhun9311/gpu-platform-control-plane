@@ -140,6 +140,11 @@ import (
 // carries the count alone, and a count with nothing to check it against is exactly the shape the device
 // boolean had before 18.
 //
+// The asking is the record's own job, not the reader's: measurement.workload gained `workCheck`, one of
+// work-verified, work-mismatched or work-unavailable, derived at write time and re-derived at decode from
+// the same ledger. Emitting the accumulator and leaving it unconsulted would have reproduced the very state
+// this bump exists to end -- a number published beside its own unread proof.
+//
 // The bump is also forced rather than chosen: decodeRunRecord runs with DisallowUnknownFields, so a record
 // carrying the new field is refused outright by a build that knows only 19. Leaving the version alone would
 // not have kept old builds reading new documents; it would only have cost them the diagnosis.
@@ -286,6 +291,26 @@ const (
 	// deviceNotObserved means the run establishes reservation and nothing about computation. It is the
 	// honest reading of every record this lab has produced.
 	deviceNotObserved = "device-not-observed"
+)
+
+// Whether the victim attempt's iteration count was CHECKED, and what the check said.
+//
+// Three values rather than a boolean, for the reason deviceEvidence is a string: "the pair disagreed" and
+// "there was no pair to compare" are different facts, and a boolean would make the second read as the first.
+// The count is what every waste figure is denominated in, so a reader has to be able to tell a verified count
+// from one nobody could verify.
+const (
+	// workVerified means the reported accumulator is the one the reported iteration count implies.
+	workVerified = "work-verified"
+	// workMismatched means both values were present and the oracle rejected the pair. It says the attempt did
+	// not do the work its count claims -- or that something between the container and this record altered one
+	// of the two.
+	workMismatched = "work-mismatched"
+	// workUnavailable means no check was possible, and it is the honest reading of most records here: those
+	// written before the workload reported an accumulator, those whose report this build could not parse, and
+	// every device-path run, where the loop calls the kernel and never advances the accumulator so a resumed
+	// and an uninterrupted attempt would agree for the wrong reason.
+	workUnavailable = "work-unavailable"
 )
 
 // The claims a record can fail to support, each named after the claim rather than after its cause.
@@ -599,6 +624,17 @@ type workloadProvenance struct {
 	// arms has to be able to see whether they idled the same amount, or the difference between them is not
 	// the difference they think it is.
 	DutyCycle *float64 `json:"dutyCycle,omitempty"`
+	// WorkCheck is whether the victim's iteration count was verified against the accumulator beside it.
+	//
+	// It is derived here rather than left to a reader because the whole point of emitting the accumulator was
+	// that something CHECK it. A record that carried the value and never consulted it would be the shape this
+	// axis exists to end: a number published beside its own unread proof.
+	WorkCheck string `json:"workCheck"`
+	// WorkCheckWhy carries the arithmetic when WorkCheck is not work-verified, and is empty when it is.
+	//
+	// For a mismatch it names both values, because "these disagree" sends nobody anywhere; for unavailable it
+	// names which of the three reasons applied.
+	WorkCheckWhy string `json:"workCheckWhy,omitempty"`
 }
 
 // cpuOnlyWorkload is the provenance every run on this cluster carries.
@@ -660,7 +696,44 @@ func workloadFrom(obs *queuelab.DeviceObservation, claim queuelab.DeviceClaim,
 	if !established {
 		w.WhyNot = why
 	}
+	w.WorkCheck, w.WorkCheckWhy = checkReportedWork(reported)
 	return w
+}
+
+// checkReportedWork runs the oracle over the victim's own count and accumulator.
+//
+// This is the consumption the accumulator was emitted for. Without it the value reaches the artifact and
+// nothing reads it, which is the state the device boolean was in before version 18: a claim with its evidence
+// sitting beside it, unconsulted.
+//
+// The device path is unavailable rather than verified, and that is not caution. Its loop calls the kernel and
+// never advances the accumulator, so every device run reports the seed -- a resumed attempt and an
+// uninterrupted one would produce the same value and the oracle would accept both for the wrong reason.
+// docs/superpowers/specs/2026-09-21-stage-c-resume-arm-pre-registration.md registers that limit.
+func checkReportedWork(reported reportedWorkload) (string, string) {
+	if reported.Token != queuelab.KindCPUFloat {
+		return workUnavailable, fmt.Sprintf("the workload ran %q, whose loop does not advance the accumulator",
+			reported.Kind)
+	}
+	if reported.Iterations == nil || reported.Accumulator == nil {
+		return workUnavailable, "the victim's report carried no count and accumulator this build could check"
+	}
+	p, err := queuelab.ScriptAccumulatorParams()
+	if err != nil {
+		// The oracle could not read the workload it predicts, so it must not answer. Reporting verified here
+		// would assert a check that never ran.
+		return workUnavailable, fmt.Sprintf("the oracle could not read the shipped workload: %v", err)
+	}
+	same, err := queuelab.ResumedTheSameWork(p, *reported.Iterations, *reported.Accumulator)
+	if err != nil {
+		return workUnavailable, fmt.Sprintf("the oracle refused the pair: %v", err)
+	}
+	if !same {
+		want, _ := queuelab.AccumulatorAfter(p, *reported.Iterations)
+		return workMismatched, fmt.Sprintf("%d iterations imply %.17g and the attempt reported %.17g",
+			*reported.Iterations, want, *reported.Accumulator)
+	}
+	return workVerified, ""
 }
 
 // reportedWorkload is the container's own account of itself, resolved from the ledger into record terms.
@@ -682,6 +755,13 @@ type reportedWorkload struct {
 	Unit string
 	// DeviceStatus is the device-path outcome the container reported, carried so a refusal can name it.
 	DeviceStatus string
+	// Iterations and Accumulator are the victim attempt's own count and the deterministic value beside it.
+	//
+	// They travel together because they are one reading: the oracle checks the pair, and either alone proves
+	// nothing. Both nil for a run whose report this build could not parse, and Accumulator alone is nil for
+	// every record written before the workload emitted one.
+	Iterations  *int
+	Accumulator *float64
 }
 
 // unreportedWorkload is what a run whose ledger carries no readable report gets.
@@ -733,6 +813,8 @@ func reportedWorkloadOf(events []queuelab.LifecycleEvent) reportedWorkload {
 		}
 		known.DeviceStatus = e.DeviceStatus
 		known.DutyCycle = e.DutyCycle
+		known.Iterations = e.Iterations
+		known.Accumulator = e.Accumulator
 		return known
 	}
 	return unreported
@@ -1380,10 +1462,11 @@ func replayAgreesWithRecord(r runRecord) error {
 			"carries one")
 	}
 	got := r.Measurement
-	for _, d := range []struct {
+	type reDerived struct {
 		field     string
 		got, want any
-	}{
+	}
+	compared := []reDerived{
 		{"wastedGPUSeconds", got.WastedGPUSeconds, want.WastedGPUSeconds},
 		{"wasteLowerBoundGPUSeconds", got.WasteLowerBoundGPUSeconds, want.WasteLowerBoundGPUSeconds},
 		{"censored", got.Censored, want.Censored},
@@ -1400,7 +1483,23 @@ func replayAgreesWithRecord(r runRecord) error {
 		// carried in the ledger so a reader holding nothing but the JSON can re-derive it -- and a field that
 		// is published but never replayed is a field the document can assert without support.
 		{"workload.dutyCycle", floatPtrValue(got.Workload.DutyCycle), floatPtrValue(want.Workload.DutyCycle)},
-	} {
+	}
+	// The work-check axis is re-derived only for documents that could carry it.
+	//
+	// The verdict is compared and the arithmetic behind it is not -- the same split workload.whyNot gets. A
+	// reader re-deriving the axis must reach the same verdict from the same ledger; the prose names values for
+	// a human and is not what a consumer classifies on.
+	//
+	// Scoped to schema 20 for the reason the decode demand above it is, and the scoping was learned the
+	// expensive way: comparing at every version refused all twelve committed ex/e17-*.json, because an 18
+	// document has no such field and replaying its ledger yields work-unavailable. Holding an older record to
+	// a value it cannot contain is not a check, it is this decoder asserting that the document said something
+	// it never said.
+	if r.SchemaVersion == recordSchemaVersion {
+		compared = append(compared, reDerived{
+			"workload.workCheck", got.Workload.WorkCheck, want.Workload.WorkCheck})
+	}
+	for _, d := range compared {
 		if d.got != d.want {
 			return fmt.Errorf("decode record: measurement.%s is %v and replaying this record's own ledger "+
 				"gives %v; the number in the document did not come from the evidence beside it", d.field,
@@ -1462,6 +1561,20 @@ func encodeRecord(v any) ([]byte, error) {
 // A non-empty RunID is required but does not mean a run id somebody chose: an invocation refused before it
 // read -runid is recorded under the unidentifiedRunID sentinel, which runIDPattern can never accept, so a
 // reader matching records to runs must expect ids that name no run.
+// anyEventCarriesAccumulator reports whether the ledger holds a reading only a schema-20 build could take.
+//
+// It is a function rather than a loop inside decodeRunRecord because that decoder is already at the
+// complexity limit this repository keeps on production code, and because the question is a plain predicate
+// about the document — the same shape as observationContinuous and exclusivityHeld above it.
+func anyEventCarriesAccumulator(events []queuelab.LifecycleEvent) bool {
+	for i := range events {
+		if events[i].Accumulator != nil {
+			return true
+		}
+	}
+	return false
+}
+
 func decodeRunRecord(b []byte) (runRecord, error) {
 	dec := json.NewDecoder(bytes.NewReader(b))
 	dec.DisallowUnknownFields()
@@ -1517,7 +1630,15 @@ func decodeRunRecord(b []byte) (runRecord, error) {
 		// The asymmetry runs the other way and nothing here softens it: a 19 build cannot read a 20 document
 		// at all, because DisallowUnknownFields refuses the new field. What these exceptions buy is that the
 		// runs already on disk stay readable by the build that can check them.
-		readableUnderTwenty := recordSchemaVersion == 20 &&
+		// Both exceptions carry a premise about what the older document CANNOT contain, and the premise has to
+		// be enforced rather than assumed.
+		//
+		// DisallowUnknownFields does not do it. Decoding uses today's struct, so `accumulator` on an event is
+		// a known field at every version — a schema-20 record relabelled 19 decodes clean and passes as
+		// historical evidence, which is precisely the comparison the version is meant to prevent. The
+		// asymmetry that makes 19 readable is "that build could not report an accumulator"; a 19 document
+		// carrying one is not a 19 document.
+		readableUnderTwenty := recordSchemaVersion == 20 && !anyEventCarriesAccumulator(r.Events) &&
 			((r.SchemaVersion == 18 && r.DeviceObservation == nil) || r.SchemaVersion == 19)
 		if !readableUnderTwenty {
 			return runRecord{}, fmt.Errorf("decode record: schema %d is not %d", r.SchemaVersion, recordSchemaVersion)
@@ -1649,6 +1770,34 @@ func checkValidity(r runRecord) error {
 	default:
 		return fmt.Errorf("decode record: the device-evidence axis is %q, which is neither %q nor %q",
 			r.Validity.DeviceEvidence, deviceWorkObserved, deviceNotObserved)
+	}
+	// The work-check axis, required at schema 20 and absent by construction below it.
+	//
+	// Required, for the reason the device axis is: it is a value a consumer classifies on, and a blank one
+	// hands that reader something that means nothing. A record whose count was never checked has to say
+	// work-unavailable rather than say nothing, or "nobody checked" and "this build forgot to write it" are
+	// the same document.
+	//
+	// Scoped to schema 20 because a 19 document cannot carry the field and the exception above deliberately
+	// keeps such documents readable. Demanding it at every version would orphan the twelve committed
+	// ex/e17-*.json a second time, which is the mistake this decoder has already made once.
+	//
+	// Guarded on Measurement being present, not merely on the version. A record can reach schema 20 carrying
+	// no measurement at all -- a run refused before it measured anything -- and there is no work to check in
+	// one. Reading the axis off a nil block would panic; demanding it would refuse a document for lacking a
+	// verdict about work that never happened.
+	if r.SchemaVersion == recordSchemaVersion && r.Measurement != nil {
+		switch r.Measurement.Workload.WorkCheck {
+		case workVerified, workMismatched, workUnavailable:
+		case "":
+			return fmt.Errorf("decode record: the record states no work-check axis; the iteration count is "+
+				"what every waste figure is denominated in, and a blank axis leaves a reader unable to tell a "+
+				"verified count from one nobody could verify (expected one of %q, %q or %q)",
+				workVerified, workMismatched, workUnavailable)
+		default:
+			return fmt.Errorf("decode record: the work-check axis is %q, which is none of %q, %q or %q",
+				r.Measurement.Workload.WorkCheck, workVerified, workMismatched, workUnavailable)
+		}
 	}
 	// The bool the axis is derived FROM must itself be consistent with the workload beside it.
 	//

@@ -30,12 +30,20 @@ import (
 // work of the same shape. The workload's CPU path already carries a quantity that answers that -- the
 // accumulator advanced once per inner step -- and this predicts it.
 //
-// NOTHING FEEDS THIS YET, and saying so is the point. The workload reports "iters=N kind=K dev=D duty=Q" and
-// no accumulator, so there is currently no value to compare a prediction against. Adding one changes the
-// rendered command, which changes canaryKey.PodTemplateHash, which expires every node's qualification -- the
-// cost the pre-registration exists to have declared in advance. This file is the half that costs nothing:
-// the prediction is written and pinned to the shipped script now, so that when the template does change, the
-// change is one small commit against a checked oracle rather than two unreviewed things at once.
+// The workload REPORTS an accumulator and the record CONSUMES it: cmd/queuelabrun's checkReportedWork runs
+// these functions over the victim attempt's count and value, and publishes the verdict as
+// measurement.workload.workCheck.
+//
+// This paragraph has been wrong twice, in opposite directions, and both were caught by a review rather than
+// by a test. It first said no value existed to compare against, which stopped being true the moment `acc=`
+// joined the termination message. It then said nothing consumed the value, which stopped being true when the
+// record started deriving the axis. A comment that describes the state of the rest of the tree goes stale
+// whenever that tree moves, and this one has no test holding it to the code.
+//
+// What that costs was also mis-stated here and in the pre-registration: a workload argv edit does NOT move
+// canaryKey.PodTemplateHash. That hash is taken over the template rendered from templateProbeJob, a fixed
+// synthetic input, so it moves only when the OPERATOR's renderer changes. The workload command is compared
+// separately, as canaryKey.HonorCommand and IgnoreCommand, and those are what a change here invalidates.
 //
 // It is here rather than in internal/exputil because that package "deliberately carries no
 // experiment-specific schema". Replicating one workload's arithmetic is exactly that.

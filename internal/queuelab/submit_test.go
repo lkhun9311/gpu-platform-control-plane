@@ -388,6 +388,73 @@ func TestTheShippedWorkloadReportsAnAccumulatorTheOraclePredicts(t *testing.T) {
 	}
 }
 
+// TestAPreemptedWorkloadReportsAPairTheOracleAccepts covers the path the natural-completion spec cannot.
+//
+// A review found this and it was the defect that mattered most: msg() read the LIVE accumulator, so a SIGTERM
+// arriving inside the 50,000-step inner loop published an x that had advanced past the n beside it. An
+// ordinary honoured preemption — the event this whole experiment exists to measure — then failed the oracle
+// while having executed perfectly. Measured before the fix at iters=1562 with acc=2475.3193917678645 against
+// a prediction of 2465.1294838925710.
+//
+// The fix is a snapshot taken at the iteration boundary, so n and acc are always the same instant. This test
+// is what keeps it: reverting `acc=x` in msg() to the live variable turns it red.
+func TestAPreemptedWorkloadReportsAPairTheOracleAccepts(t *testing.T) {
+	python, err := exec.LookPath("python3")
+	if err != nil {
+		t.Skipf("no python3 on this host, so the shipped workload cannot be executed here: %v", err)
+	}
+	job, err := RenderMLTrainingJobWithContract(TrainingTraceRow{
+		Index: 0, Name: "probe", Tenant: "lab", GPUCount: 1, DurationSec: 30,
+	}, "queuelab", HonorsSIGTERM)
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+
+	cmd := exec.Command(python, job.Spec.Command[1:]...)
+	var buf bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &buf, &buf
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	// Long enough that the loop is mid-iteration rather than at a boundary, which is the case that used to
+	// fail. A duration of 30 s means the run cannot finish on its own first.
+	time.Sleep(2 * time.Second)
+	if err := cmd.Process.Signal(syscall.SIGTERM); err != nil {
+		t.Fatalf("signal: %v", err)
+	}
+	_ = cmd.Wait()
+
+	final := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(
+		lastLine(buf.String())), "terminated "))
+	iters, kind, device, _, acc := ReportFromMessage(final)
+	if iters == nil {
+		t.Fatalf("the preempted workload left no readable report: %q\n%s", final, buf.String())
+	}
+	if acc == nil {
+		t.Fatalf("the preempted workload reported no accumulator: %q", final)
+	}
+	if *iters == 0 {
+		t.Fatalf("the workload was terminated before completing an iteration, so this proves nothing: %q", final)
+	}
+	if kind != KindCPUFloat {
+		t.Skipf("this host took the %s path (dev=%s), where the accumulator is not advanced", kind, device)
+	}
+
+	p, err := ScriptAccumulatorParams()
+	if err != nil {
+		t.Fatal(err)
+	}
+	same, err := ResumedTheSameWork(p, *iters, *acc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !same {
+		want, _ := AccumulatorAfter(p, *iters)
+		t.Errorf("a preempted run reported iters=%d acc=%016x and the oracle predicts %016x; the pair is not "+
+			"from one instant", *iters, math.Float64bits(*acc), math.Float64bits(want))
+	}
+}
+
 func lastLine(s string) string {
 	lines := strings.Split(strings.TrimSpace(s), "\n")
 	return lines[len(lines)-1]
