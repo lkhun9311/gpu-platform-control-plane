@@ -335,7 +335,7 @@ func TestTheDutyTheWorkloadReportsSurvivesIntoTheLedger(t *testing.T) {
 		{"a message from before the axis existed", "iters=4000 kind=cuda-fma dev=ok", 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			iters, kind, device, duty := ReportFromMessage(tc.msg)
+			iters, kind, device, duty, _ := ReportFromMessage(tc.msg)
 			if iters == nil {
 				t.Fatalf("the message was refused entirely: %q", tc.msg)
 			}
@@ -363,10 +363,62 @@ func TestADutyThisBuildCannotReadRefusesTheWholeMessage(t *testing.T) {
 		"iters=900 kind=cuda-fma dev=ok duty=-0.5",
 		"iters=900 kind=cuda-fma dev=ok duty=1.5",
 		"iters=900 kind=cuda-fma dev=ok 0.25",
-		"iters=900 kind=cuda-fma dev=ok duty=0.25 extra=1",
 	} {
-		if iters, _, _, _ := ReportFromMessage(msg); iters != nil {
+		if iters, _, _, _, _ := ReportFromMessage(msg); iters != nil {
 			t.Errorf("%q was accepted; an unreadable duty must refuse the count beside it", msg)
+		}
+	}
+}
+
+// TestAnUnreadableAccumulatorRefusesTheWholeMessage extends that rule to the fifth reading.
+//
+// It is stricter than the others in one way and the comment in ReportFromMessage says why: the accumulator is
+// the only value in the sentence that can be CHECKED, so a message whose fifth field cannot be read is worse
+// than one that has no fifth field at all. The second would be an attempt whose count is unverifiable; the
+// first would look like an attempt that carried its own proof.
+//
+// `extra=1` used to be refused by the arity rule alone, back when four fields was the maximum. It still is,
+// but now for a reason worth pinning rather than inherited: a fifth field this build does not recognise is
+// not an accumulator, and guessing that it might be is how a channel the workload controls turns into a
+// number the record asserts.
+func TestAnUnreadableAccumulatorRefusesTheWholeMessage(t *testing.T) {
+	for _, msg := range []string{
+		"iters=900 kind=cuda-fma dev=ok duty=0.25 extra=1",
+		"iters=900 kind=cuda-fma dev=ok duty=0.25 acc=",
+		"iters=900 kind=cuda-fma dev=ok duty=0.25 acc=abc",
+		"iters=900 kind=cuda-fma dev=ok duty=0.25 1.005",
+		"iters=900 kind=cuda-fma dev=ok duty=0.25 acc=1.0 sixth=2",
+		// ParseFloat accepts all three, and the arity rule used to refuse them by accident. A review found
+		// that they now reach LifecycleEvent.Accumulator and json.Marshal then fails with `unsupported
+		// value: NaN` -- so a workload emitting one would produce no record at all rather than a suspicious
+		// one, losing the whole run's evidence at write time. NaN is worse still: the oracle compares with
+		// ==, and NaN equals nothing including itself, so such a run could never be verified or refused.
+		"iters=900 kind=cuda-fma dev=ok duty=0.25 acc=NaN",
+		"iters=900 kind=cuda-fma dev=ok duty=0.25 acc=Inf",
+		"iters=900 kind=cuda-fma dev=ok duty=0.25 acc=-Inf",
+	} {
+		if iters, _, _, _, _ := ReportFromMessage(msg); iters != nil {
+			t.Errorf("%q was accepted; a fifth field this build cannot read must refuse the count beside it", msg)
+		}
+	}
+}
+
+// TestAMessageWithoutAnAccumulatorStillReads holds the other half of the same rule.
+//
+// Every record written before the workload reported one has four fields or three, and refusing them would
+// make this build unable to read its own history -- the failure the arity rule was widened to avoid, not to
+// create.
+func TestAMessageWithoutAnAccumulatorStillReads(t *testing.T) {
+	for _, msg := range []string{
+		"iters=900 kind=cuda-fma dev=ok",
+		"iters=900 kind=cuda-fma dev=ok duty=0.25",
+	} {
+		iters, _, _, _, acc := ReportFromMessage(msg)
+		if iters == nil {
+			t.Errorf("%q was refused, so this build cannot read the records it already wrote", msg)
+		}
+		if acc != nil {
+			t.Errorf("%q carried no accumulator but one was reported as %v", msg, *acc)
 		}
 	}
 }

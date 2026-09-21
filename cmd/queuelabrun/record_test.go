@@ -1603,6 +1603,77 @@ func TestMeasurementOfCarriesWhatTheRunActuallyMeasured(t *testing.T) {
 // counting exists to end and this field carries into the artifact.
 //
 // Mutation that turns this red: leave recordSchemaVersion at 8 — both halves.
+// TestTheWorkCheckAxisIsDerivedRatherThanAssumed pins the consumption the accumulator was emitted for.
+//
+// A review found the emitting half shipped without it: the value reached the artifact and nothing read it,
+// which is the state the device boolean was in before version 18 — a claim with its evidence sitting beside
+// it, unconsulted. These four rows are the whole input space of checkReportedWork.
+//
+// work-unavailable is asserted as carefully as the other two. "Nobody could check" and "the check failed" are
+// different facts, and a boolean would have made the first read as the second.
+func TestTheWorkCheckAxisIsDerivedRatherThanAssumed(t *testing.T) {
+	p, err := queuelab.ScriptAccumulatorParams()
+	if err != nil {
+		t.Fatalf("the oracle cannot read the workload it predicts: %v", err)
+	}
+	good, err := queuelab.AccumulatorAfter(p, 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	n := func(v int) *int { return &v }
+	f := func(v float64) *float64 { return &v }
+
+	for _, tc := range []struct {
+		name string
+		in   reportedWorkload
+		want string
+	}{
+		{
+			name: "a CPU attempt whose pair the oracle accepts",
+			in: reportedWorkload{Token: queuelab.KindCPUFloat, Kind: "cpu", Iterations: n(4),
+				Accumulator: f(good)},
+			want: workVerified,
+		},
+		{
+			// The case the axis exists for: the count says one thing and the arithmetic beside it says
+			// another, so the count cannot be spent as evidence.
+			name: "a CPU attempt whose accumulator does not match its count",
+			in: reportedWorkload{Token: queuelab.KindCPUFloat, Kind: "cpu", Iterations: n(4),
+				Accumulator: f(good + 1)},
+			want: workMismatched,
+		},
+		{
+			// Every record written before the workload emitted an accumulator, and every run whose report
+			// this build could not parse.
+			name: "a CPU attempt that reported no accumulator",
+			in:   reportedWorkload{Token: queuelab.KindCPUFloat, Kind: "cpu", Iterations: n(4)},
+			want: workUnavailable,
+		},
+		{
+			// The device loop calls the kernel and never advances the accumulator, so a resumed attempt and
+			// an uninterrupted one both report the seed. Calling that verified would agree for the wrong
+			// reason, which is the one outcome worse than not checking.
+			name: "a device attempt, where the accumulator is not advanced",
+			in: reportedWorkload{Token: queuelab.KindCUDAFMA, Kind: "cuda", Iterations: n(4),
+				Accumulator: f(1.0)},
+			want: workUnavailable,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, why := checkReportedWork(tc.in)
+			if got != tc.want {
+				t.Errorf("workCheck = %q, want %q (why: %s)", got, tc.want, why)
+			}
+			if got == workVerified && why != "" {
+				t.Errorf("a verified check carried prose %q; the reason field is for the other two", why)
+			}
+			if got != workVerified && why == "" {
+				t.Errorf("%q carried no reason, so a reader cannot tell which of the cases applied", got)
+			}
+		})
+	}
+}
+
 func TestARecordFromAnEarlierSchemaIsRefused(t *testing.T) {
 	// The version is pinned so a wire change cannot ship without someone deciding to bump it. Version 10
 	// removed LifecycleEvent.tenant and .gpuCount: nothing ever wrote them, so every event in every record
@@ -1635,7 +1706,22 @@ func TestARecordFromAnEarlierSchemaIsRefused(t *testing.T) {
 	// that carries none is byte-identical in meaning under both, and is accepted, because every run this lab
 	// has taken ran on a fake device plugin with no observer and refusing them would orphan the set the
 	// committed documents quote.
-	if recordSchemaVersion != 19 {
+	//
+	// Version 20 makes the WORK claim falsifiable, which is what 18 did for the device claim. Events carry
+	// `accumulator`, the deterministic value the CPU loop held when an attempt stopped, and
+	// internal/queuelab/oracle.go predicts that value from the iteration count beside it -- so a reader
+	// holding nothing but the document can ask whether an attempt did the work its count claims. A
+	// version-19 record carries the count alone, which is the shape the device boolean had before 18: an
+	// assertion with nothing to check it against. A 19 record is accepted, because absence of the field
+	// under 20 means what it meant under 19 -- that build's workload did not report one -- and the field is
+	// a pointer, so absence reads as absence rather than as zero.
+	//
+	// This assertion is the second tripwire the bump tripped, and both were doing their job. The first was
+	// the `recordSchemaVersion != 19` clause inside decodeRunRecord's 18 exception: changing the constant
+	// silently withdrew that exception and every committed ex/e17-*.json began failing with `schema 18 is
+	// not 20`, which TestEveryRunRecordDecodesUnderThisBuild caught. A bump that carried its exceptions
+	// along by accident is exactly what these clauses exist to prevent.
+	if recordSchemaVersion != 20 {
 		t.Fatalf("recordSchemaVersion is %d; if the wire format changed again, bump this and say what changed",
 			recordSchemaVersion)
 	}
@@ -1674,8 +1760,38 @@ func TestARecordFromAnEarlierSchemaIsRefused(t *testing.T) {
 	if _, err := decodeRunRecord(withObs); err == nil {
 		t.Fatal("a schema-18 record carrying a device observation decoded; its claim was judged by the " +
 			"collapsed question and this build asks a different one")
-	} else if !strings.Contains(err.Error(), "schema 18 is not 19") {
+	} else if !strings.Contains(err.Error(), "schema 18 is not 20") {
 		t.Fatalf("refused for an unexpected reason, so this is not testing the schema rule: %v", err)
+	}
+
+	// 19 is the second exception, and unlike 18's it is unconditional.
+	//
+	// 20 added `accumulator` to events. A version-19 document carries none, and under 20 that means what it
+	// meant under 19 -- the workload of that build did not report one -- so there is no claim for the change
+	// to have changed. Asserted here because an exception nothing exercises is an exception that stops being
+	// true the next time this block is edited.
+	nineteen := fmt.Appendf(nil, `{"schemaVersion":19,"dose":"self-completing","runID":"r8","arm":"A-honor",`+
+		`"disposition":"completed-implemented-checks-passed",%s}`, refusedValidity)
+	if _, err := decodeRunRecord(nineteen); err != nil {
+		t.Fatalf("a schema-19 record was refused (%v); it carries no accumulator, which is exactly what a "+
+			"19 record should carry, and this build reads the rest of it unchanged", err)
+	}
+
+	// Both exceptions rest on a premise about what the older document cannot contain, and a review found the
+	// premise was not enforced.
+	//
+	// DisallowUnknownFields does not enforce it: decoding uses today's struct, so `accumulator` is a known
+	// field at every version. A schema-20 record relabelled 19 decoded clean and passed as historical
+	// evidence -- the exact comparison the version exists to prevent.
+	for _, older := range []int{18, 19} {
+		withAcc := fmt.Appendf(nil, `{"schemaVersion":%d,"dose":"self-completing","runID":"r9","arm":"A-honor",`+
+			`"disposition":"completed-implemented-checks-passed",`+
+			`"events":[{"elapsedNs":1,"kind":"Pod","type":"AttemptStopped","job":"j","objectUID":"u",`+
+			`"iterations":5,"accumulator":1.5}],%s}`, older, refusedValidity)
+		if _, err := decodeRunRecord(withAcc); err == nil {
+			t.Errorf("a schema-%d record carrying an accumulator decoded; that build could not report one, "+
+				"so the document is a relabelled 20 rather than history", older)
+		}
 	}
 }
 
@@ -2376,8 +2492,13 @@ func TestTheDeviceEvidenceMustAnswerTheLedgersQuestion(t *testing.T) {
 			t.Fatalf("unmarshal: %v", err)
 		}
 		doc["runID"] = "forged"
-		// The forgery is a schema-19 document. Its predecessor asked the busyness question over the hold, and
-		// a record carrying an observation under that question is refused rather than reinterpreted.
+		// The forgery carries THIS build's schema, whatever it is, so the fixture keeps testing the gate
+		// rather than the version guard. It used to say "a schema-19 document" and the constant has since
+		// moved to 20; the sentence was describing a number the line below never spelled.
+		//
+		// The version still matters to what this proves: a record carrying an observation is judged by the
+		// question its own schema asked, and one from a predecessor that asked a different question is
+		// refused rather than reinterpreted.
 		doc["schemaVersion"] = recordSchemaVersion
 		for _, e := range doc["events"].([]any) {
 			ev := e.(map[string]any)
@@ -2391,6 +2512,16 @@ func TestTheDeviceEvidenceMustAnswerTheLedgersQuestion(t *testing.T) {
 		w["countedUnit"] = "1024x256 threads x 20000 fused multiply-adds per launch"
 		w["deviceUseEstablished"] = true
 		delete(w, "whyNot")
+		// The forgery is a schema-20 document, so it has to carry the axis one of those states, and
+		// work-unavailable is the only value this document can honestly hold: its victim ran the device loop,
+		// which never advances the accumulator, so there is no pair for the oracle to check. Replaying the
+		// ledger reaches the same verdict from the same events, which is what the re-derivation compares.
+		//
+		// Filling it in is not weakening the fixture. Without it the test refuses for a missing axis and
+		// never reaches the device gate it exists to exercise — the failure would be about this line rather
+		// than about the evidence.
+		w["workCheck"] = workUnavailable
+		w["workCheckWhy"] = "the workload ran \"cuda-driver-fma-kernel\", whose loop does not advance the accumulator"
 		doc["validity"].(map[string]any)["deviceEvidence"] = deviceWorkObserved
 		return doc
 	}

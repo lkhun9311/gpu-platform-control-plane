@@ -180,6 +180,18 @@ func TestCompareRefusesRatherThanSilentlyDropping(t *testing.T) {
 	if _, err := compareRecords([]runRecord{good, same}); err == nil {
 		t.Fatal("a single arm produced a comparison")
 	}
+
+	// Two schemas are two sets of rules, and decoding both is not the same as comparing them.
+	//
+	// A review found this open: decodeRunRecord accepts a narrow set of older schemas so the committed
+	// evidence stays readable, which is a decision about reading ONE document. Nothing asked the other
+	// question, so a schema-19 run and a schema-20 run could land in one comparison — and 20 is the version
+	// that added the work check, so one arm would carry a verdict the other cannot have.
+	older := cmpRec("o1", "A-ignore", "self-completing", "2026-08-19T05:05:00Z", 51.5, int64(time.Second))
+	older.SchemaVersion = recordSchemaVersion - 1
+	if _, err := compareRecords([]runRecord{good, older}); err == nil {
+		t.Fatal("records of two schemas were pooled; a version marks a change in what a record means")
+	}
 }
 
 // The render leads with the limits, because a reader who stops after one screen must not leave holding only
