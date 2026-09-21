@@ -244,6 +244,19 @@ func templateProbeJob() *platformv1.MLTrainingJob {
 			GPUCount:    7,
 			Parallelism: 3,
 			Completions: 5,
+			// The state volume is set for the reason every sentinel above it is: BuildJob renders a volume and
+			// a mount only when this field is present, so leaving it zero would put the whole mount outside
+			// the key while every run carried it.
+			//
+			// It is also the case the paragraph above anticipated -- a field whose sentinel would be carried
+			// into a real Pod -- and the answer it asked for is made here rather than deferred. A claim named
+			// `template-probe-state` exists nowhere, and a Pod referencing a missing claim stays Pending, so
+			// the sentinel cannot be allowed to reach the probe. Unlike gpuClass, it can be removed without
+			// changing what the probe measures: probePodFrom strips it exactly as it strips the device
+			// request, which is the same trade made for the same reason one size smaller.
+			StateVolume: &platformv1.StateVolume{
+				ClaimName: "template-probe-state", MountPath: "/template-probe-state",
+			},
 		},
 	}
 }

@@ -730,7 +730,13 @@ func TestTheProbeIsTheTemplateAndTheThreeDocumentedChanges(t *testing.T) {
 		if len(want.Containers[i].Resources.Limits) == 0 {
 			want.Containers[i].Resources.Limits = nil
 		}
+		// The state volume's mount, modelled by hand like the device strip above it. Today's template mounts
+		// it in the one container, so this is written as "drop them all" rather than as a name search; the
+		// per-container and per-name halves are covered by rows in
+		// TestTheProbeCarriesWhatTheOperatorAddsToTheTemplate, for the reason the list below this test gives.
+		want.Containers[i].VolumeMounts = nil
 	}
+	want.Volumes = nil
 	want.NodeName = "platform-worker"
 	want.Tolerations = append(want.Tolerations, corev1.Toleration{
 		Key: workerTaintKey, Operator: corev1.TolerationOpEqual, Value: "canary-abcd1234",
@@ -1292,5 +1298,53 @@ func TestTheReadingIsTheTrainersAndNotWhicheverContainerAnswersFirst(t *testing.
 	}}
 	if probeRunning(none) || terminatedState(none) != nil {
 		t.Fatal("a Pod publishing no status for the trainer was read as one that had started or stopped")
+	}
+}
+
+// The template asks for a state volume and the probe does not, asserted in both directions like the device
+// request, so neither half can rot.
+//
+// An earlier version of this test asserted the wrong object. It said the TEMPLATE carries no volume, which
+// would have kept the mount out of canaryKey.PodTemplateHash entirely -- every run's Pod would have carried
+// storage the key said nothing about. TestTheTemplateProbeLeavesNoFieldOfTheSpecUnexercised refused it, and
+// it was right to: the key is evaluated at one input, so a field left at its zero value there is a field the
+// operator can start rendering without the hash ever moving.
+//
+// The precondition matters as much as the conclusion, exactly as it does for the device. Without it, a day
+// when BuildJob stops rendering the volume at all leaves this passing for a reason unrelated to the strip.
+//
+// Why the volume goes: `template-probe-state` is a claim that exists nowhere, and a Pod referencing a missing
+// claim stays Pending until the start budget expires -- the canary would fail as a slow cluster rather than
+// as a probe that cannot run. What a run's Pod does with the volume is covered by the controller-path
+// envtest instead, which is why that test is a requirement of the volume work rather than an option.
+//
+// Mutations that turn this red: stop stripping the volume or the mount from the probe; or drop StateVolume
+// from templateProbeJob, which fails the precondition rather than the conclusion.
+func TestTheProbeCarriesNoStateVolumeThoughTheTemplateDoes(t *testing.T) {
+	tpl := renderedPodTemplate(templateProbeJob())
+	if len(tpl.Spec.Volumes) != 1 || tpl.Spec.Volumes[0].PersistentVolumeClaim == nil {
+		t.Fatalf("the operator's template renders %+v; this test's point is that the probe drops a volume the "+
+			"template declares, and it declares none", tpl.Spec.Volumes)
+	}
+	if len(tpl.Spec.Containers[0].VolumeMounts) != 1 {
+		t.Fatalf("the operator's template mounts %+v in the trainer, want exactly one",
+			tpl.Spec.Containers[0].VolumeMounts)
+	}
+
+	c := mustHarnessContract(t)
+	honor, _ := canaryProbeSpecs("abcd1234-5678", c)
+	p, err := canaryPod("abcd1234-5678", "platform-worker", "canary-abcd1234", c, honor)
+	if err != nil {
+		t.Fatalf("build the probe: %v", err)
+	}
+	if len(p.Spec.Volumes) != 0 {
+		t.Fatalf("the probe carries %+v; the claim it names exists nowhere, so the Pod would sit Pending "+
+			"until the start budget ran out", p.Spec.Volumes)
+	}
+	for _, ctr := range p.Spec.Containers {
+		if len(ctr.VolumeMounts) != 0 {
+			t.Fatalf("probe container %q mounts %+v with no volume declaring it, which the apiserver rejects "+
+				"outright", ctr.Name, ctr.VolumeMounts)
+		}
 	}
 }

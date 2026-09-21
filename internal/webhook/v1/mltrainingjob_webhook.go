@@ -192,7 +192,27 @@ func bakedFieldEdits(oldSpec, newSpec *platformv1.MLTrainingJobSpec) field.Error
 			"the owned Job is already admitted under queue "+oldSpec.Queue+
 				"; delete and recreate the MLTrainingJob to move it"))
 	}
+	// The state volume is built into the pod template, so an edit after the Job exists is stored and then
+	// has no effect on anything that runs -- the silent outcome every rule above replaces with a rejection.
+	//
+	// Compared by VALUE, not by pointer. Two specs naming the same claim at the same path describe the same
+	// Pod, and comparing addresses would refuse an update that changed nothing at all.
+	if describeStateVolume(oldSpec.StateVolume) != describeStateVolume(newSpec.StateVolume) {
+		errs = append(errs, field.Invalid(specPath.Child("stateVolume"),
+			describeStateVolume(newSpec.StateVolume), because))
+	}
 	return errs
+}
+
+// describeStateVolume renders a state volume for comparison and for the message a human reads.
+//
+// One function serving both so they cannot disagree: a comparison reporting a difference while the error
+// printed identical text either side would be an unanswerable rejection.
+func describeStateVolume(sv *platformv1.StateVolume) string {
+	if sv == nil {
+		return "none"
+	}
+	return fmt.Sprintf("claim %s at %s", sv.ClaimName, sv.MountPath)
 }
 
 // ownedJobExists reports whether the reconciler has already created this MLTrainingJob's Job.
