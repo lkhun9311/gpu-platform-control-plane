@@ -68,6 +68,55 @@ spec:
               the guard is watching no backends or its scrape loop is not running. Requests are being
               admitted and nothing else will say so.
 
+    # Recording rules, and the first in this file: everything above is an alert, because everything above had
+    # a condition that was unambiguously wrong. These have no condition, on purpose.
+    #
+    # docs/superpowers/specs/2026-09-21-what-a-violation-would-have-to-mean.md refuses to pick a latency bar,
+    # and nothing has declared one for end-to-end duration. So these publish the shape of the distribution and
+    # stop there. An alert here would have to invent the threshold that page exists to not invent.
+    #
+    # WHAT THESE DO NOT MEASURE. docs/02_CONTROL_PLANE_API.md:75 advertises ttftP95Ms and tpotP95Ms on
+    # InferenceDeployment. The gateway measures NEITHER. Its only latency series is whole-request duration --
+    # server.go:532 says so in as many words -- and the attemptWriter's first-byte latch (proxy.go:579, :590)
+    # records no timestamp and closes on the status line, which for a stream is the header rather than the
+    # first token. Writing an attainment rule against 1500 ms here would judge a time-to-first-token objective
+    # with an end-to-end number. That is the same error this file already records one aisle over, where
+    # GatewayUpstreamErrorsReachingClients notes that subtracting a request rate from an attempt rate "cannot
+    # be made meaningful by choosing a different number".
+    #
+    # The buckets are the reason attainment is published at edges rather than at a round figure: the histogram
+    # holds 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60 and 120 seconds (metrics.go:75), so a fraction read at
+    # an edge is counted, while any other point is interpolated. Reading an invented bar off this would dress
+    # interpolation as measurement.
+    - name: gateway.latency
+      rules:
+        # The population is every request the gateway actually handed to a backend, and the two series agree on
+        # it by construction: backend_attempts_total is incremented immediately before tryBackends
+        # (server.go:517) and the histogram is observed once at the end of that same path (server.go:534).
+        # Requests refused earlier -- 401, 403, the limiter's 429, the admission guard's 429 -- are in neither.
+        #
+        # That matters because 실행/W04-사전등록.md:18 already ruled a refusal to be a treatment rather than a
+        # lost observation. A denominator that swept them in would let the gateway improve this number by
+        # refusing more traffic.
+        - record: gateway:e2e_seconds_under_edge:ratio5m
+          expr: |
+            sum by (model, le) (rate(gpuaas_gateway_request_duration_seconds_bucket[5m]))
+              /
+            ignoring(le) group_left sum by (model) (rate(gpuaas_gateway_request_duration_seconds_count[5m]))
+
+        # Published alongside because a ratio over a vanishing denominator is noise, and the reader cannot see
+        # the denominator in the ratio itself. A model serving two requests in five minutes has an attainment
+        # of 0.5 or 1.0 and neither means anything.
+        - record: gateway:backend_attempts:rate5m
+          expr: sum by (model) (rate(gpuaas_gateway_backend_attempts_total[5m]))
+
+        # The tail, for orientation only. Quoted with the caveat above: it is whole-request duration, so for a
+        # streaming response it is dominated by how many tokens were asked for, not by how quickly serving
+        # began. Two models with identical first-token behaviour and different output lengths differ here.
+        - record: gateway:e2e_seconds:p99_5m
+          expr: |
+            histogram_quantile(0.99, sum by (model, le) (rate(gpuaas_gateway_request_duration_seconds_bucket[5m])))
+
     - name: gateway.routing
       rules:
         # Fallback working and fallback exhausted look identical in a request-rate graph, because both end in

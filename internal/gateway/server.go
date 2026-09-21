@@ -511,6 +511,10 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 	for _, t := range targets {
 		urls = append(urls, t.URL)
 	}
+	// Recorded here rather than after the call, because this is the last line at which the answer is still
+	// "yes, the serving stack was asked" regardless of how the attempt turns out. A counter incremented on the
+	// way out would miss a panic or a cancelled request and quietly shrink the denominator it exists to be.
+	backendAttempts.WithLabelValues(tenant, meta.Model).Inc()
 	advanced := tryBackends(rec, r, urls, s.sharedTransport(), func(code int, final bool) {
 		upstreamErrors.WithLabelValues(tenant, meta.Model).Inc()
 		lastFailure = code
@@ -528,6 +532,23 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 	// This therefore measures the whole request rather than time-to-first-byte.
 	requests.WithLabelValues(tenant, meta.Model, strconv.Itoa(rec.code)).Inc()
 	requestDuration.WithLabelValues(tenant, meta.Model).Observe(time.Since(start).Seconds())
+	// Observed only when a byte actually reached the client, because there is no such thing as the first-byte
+	// latency of a response that had none.
+	//
+	// MEASURED, not assumed: no request that gets this far currently fails this test. A refused dial, a
+	// header timeout and an already-cancelled context all end at proxy.go's ErrorHandler, which writes a 502
+	// or 504 envelope -- and that envelope is itself the first byte. Probes for all three were run and each
+	// incremented the histogram. An earlier version of this comment claimed the guard kept cancelled requests
+	// out of the quantile; that was a story about the code rather than a reading of it, and the probe that
+	// disproved it is the reason this paragraph exists.
+	//
+	// It stays because the zero value is reachable by construction even though no path reaches it today:
+	// statusRecorder.answered exists precisely because "nothing reached the client" is a distinct state
+	// (proxy.go:175), and a future ErrorHandler that declines to write a body would restore it. What it must
+	// not do is claim to be catching something it has never caught.
+	if !rec.firstByteAt.IsZero() {
+		timeToFirstByte.WithLabelValues(tenant, meta.Model).Observe(rec.firstByteAt.Sub(start).Seconds())
+	}
 }
 
 // publishedCode is the status a finished proxy attempt should be counted under.

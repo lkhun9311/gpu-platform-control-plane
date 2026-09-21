@@ -77,6 +77,38 @@ var (
 		[]string{"tenant", "model"},
 	)
 
+	// timeToFirstByte observes how long the client waited before ANY byte of the response arrived.
+	//
+	// requestDuration cannot stand in for it. That one is observed after ServeHTTP returns, so for a stream it
+	// measures until the stream closed and is dominated by how many tokens were asked for: two models whose
+	// serving begins equally fast differ there entirely because of output length.
+	//
+	// This is first BYTE, not first token, and the distinction is not pedantic -- the headers precede the first
+	// token on a streaming response, so this is a LOWER bound on time-to-first-token. That makes it usable for
+	// one honest statement and no more: a request over the bar here had certainly not produced a token by then.
+	// A request under it may still have been slow to its first token.
+	//
+	// A gateway-authored error counts too, and that is not a defect. A 502 or 504 envelope from proxy.go's
+	// ErrorHandler is a byte the client received, so it lands here with a genuine latency. Excluding it would
+	// mean the series silently described only successes, and a first-byte figure that improves when the
+	// backend starts failing is worse than none.
+	//
+	// The buckets are finer than requestDuration's and stop at 30s, because a first byte that has not arrived
+	// in half a minute is a failure rather than a slow success, and spending edges above that buys resolution
+	// where no decision lives. 1.5 is an edge on purpose: docs/02_CONTROL_PLANE_API.md:75 advertises
+	// ttftP95Ms: 1500, so the fraction at that value is COUNTED rather than interpolated between neighbours --
+	// which is the difference between reporting a measurement and reporting an estimate of one. Putting the
+	// edge there fixes no threshold; docs/superpowers/specs/2026-09-21-what-a-violation-would-have-to-mean.md
+	// still declines to set a bar, and no alert reads this series.
+	timeToFirstByte = promauto.With(metrics.Registry).NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    metricPrefix + "time_to_first_byte_seconds",
+			Help:    "Seconds until the first response byte reached the client, by tenant and model; a lower bound on time-to-first-token.",
+			Buckets: []float64{0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 1.5, 2.5, 5, 10, 30},
+		},
+		[]string{"tenant", "model"},
+	)
+
 	// rateLimited counts requests rejected by the limiter, by tenant.
 	//
 	// It overlaps requests{code="429"} by value but exists for a distinct question: which tenant is exceeding its share.
@@ -115,6 +147,30 @@ var (
 		prometheus.CounterOpts{
 			Name: metricPrefix + "upstream_errors_total",
 			Help: "Failed backend ATTEMPTS by tenant and model; a retried request contributes more than one.",
+		},
+		[]string{"tenant", "model"},
+	)
+
+	// backendAttempts counts requests the gateway actually handed to a backend, which is the population every
+	// other question about serving has to be asked over.
+	//
+	// requests_total cannot answer it. Its four record sites all feed the same series, and the label set does
+	// not separate them: a 413 or a 429 refused at step 7 carries the resolved model name (server.go:485, :488),
+	// exactly as a request that was tried and failed does. Deriving the split needs a reader who knows which
+	// (code, model-shape) pairs end before step 8 -- and a judgement that lives in the reader rather than in the
+	// series is the thing docs/superpowers/specs/2026-09-21-what-a-violation-would-have-to-mean.md exists to
+	// refuse.
+	//
+	// admission_decisions_total does not answer it either. It is recorded at step 7, so everything that ends
+	// earlier -- 401, 403, the RPM limiter's 429, a routing failure -- never reaches it, and passing step 7 is
+	// not the same as being attempted: the two refusals above sit between it and the first attempt.
+	//
+	// No threshold is implied by this counter. It says what was tried, not what should have succeeded, and
+	// choosing a bar is deliberately left to a stated service objective that does not read any run's results.
+	backendAttempts = promauto.With(metrics.Registry).NewCounterVec(
+		prometheus.CounterOpts{
+			Name: metricPrefix + "backend_attempts_total",
+			Help: "Requests handed to at least one backend, by tenant and model; the denominator for serving outcomes.",
 		},
 		[]string{"tenant", "model"},
 	)
