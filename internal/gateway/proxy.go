@@ -174,19 +174,43 @@ type statusRecorder struct {
 	// default". Without it those two are the same value, and a request no backend ever answered is published
 	// as a success — which is exactly what happened to every cancelled request.
 	answered bool
+	// firstByteAt is when the first byte reached the CLIENT, and the zero value means none ever did.
+	//
+	// It is recorded here rather than in attemptWriter because attemptWriter is per-attempt and suppresses a
+	// failed one entirely: WriteHeader and Write both return without forwarding while another candidate
+	// remains (proxy.go:575, :585). So a write that arrives at this wrapper is one the client actually got,
+	// which is the only reading of "first byte" a latency figure may be built on.
+	//
+	// It is NOT time to first TOKEN. For a streaming response the status line and headers go out first, so
+	// this closes on the header. docs/02_CONTROL_PLANE_API.md:75 advertises ttftP95Ms, and nothing here
+	// measures it; what this supports is the weaker, true statement that nothing had reached the client
+	// before this instant.
+	firstByteAt time.Time
 }
 
 // WriteHeader records the status code and forwards it to the wrapped writer.
 func (rec *statusRecorder) WriteHeader(c int) {
 	rec.code = c
 	rec.answered = true
+	rec.markFirstByte()
 	rec.ResponseWriter.WriteHeader(c)
+}
+
+// markFirstByte stamps the instant the client first heard anything, and only the first time.
+//
+// Guarded on the zero value rather than on answered, because answered is set by both paths below and a
+// later write must not move a timestamp that already means something.
+func (rec *statusRecorder) markFirstByte() {
+	if rec.firstByteAt.IsZero() {
+		rec.firstByteAt = time.Now()
+	}
 }
 
 // Write marks the response answered, because a handler may write a body without ever calling WriteHeader and
 // that still means 200 reached the client.
 func (rec *statusRecorder) Write(b []byte) (int, error) {
 	rec.answered = true
+	rec.markFirstByte()
 	return rec.ResponseWriter.Write(b)
 }
 
