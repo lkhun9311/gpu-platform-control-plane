@@ -237,7 +237,21 @@ def cuda():
         return rc if rc!=0 else lib.cuCtxSynchronize()
     if bad(launch(),"launch-failed"): return None
     dev="ok"; return launch
-launch=cuda()
+# A checkpointing workload never reaches for the driver, and that is the resume study's whole premise.
+#
+# On the device path the inner loop launches the kernel and never touches x, so the checkpoint holds the seed
+# and restoring it sets the iteration count to the restored value while restoring NO WORK. The accumulator
+# check cannot contradict that -- a resumed device attempt and a fresh one both report the seed -- so the
+# verdict the resume arms are measured by would be produced by a run that did not do what it claims.
+#
+# Gated on the state path rather than on the resume flag, so E-fresh is held to the CPU path too. Gating on
+# the flag would leave the control arm eligible for CUDA while the treatment arm was not, and the pair's
+# entire value is that the two differ in one thing.
+#
+# This is what closes the pre-registration's item 2. That page asked for a device-path run to be REFUSED at
+# submission; nothing at submission can know whether libcuda will load on the node it lands on, so the path
+# is made unreachable instead of predicted.
+launch=None if state else cuda()
 if launch is not None: kind="cuda-fma"
 end=time.monotonic()+seconds; last=time.monotonic()
 mark()
