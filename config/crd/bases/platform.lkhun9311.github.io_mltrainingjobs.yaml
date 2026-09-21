@@ -89,6 +89,27 @@ spec:
                 description: queue is the Kueue LocalQueue name (same namespace) this
                   job is admitted through.
                 type: string
+              stateVolume:
+                description: |-
+                  stateVolume mounts storage that outlives the Pod, so a replacement can read what its predecessor wrote.
+
+                  Absent means every Pod starts from nothing, which is what every job in this repository did before the
+                  field existed and what all of them still do unless they ask otherwise.
+                properties:
+                  claimName:
+                    description: claimName is a PersistentVolumeClaim that already
+                      exists in the job's own namespace.
+                    minLength: 1
+                    type: string
+                  mountPath:
+                    description: mountPath is where the claim appears inside the trainer
+                      container.
+                    pattern: ^/
+                    type: string
+                required:
+                - claimName
+                - mountPath
+                type: object
             required:
             - gpuCount
             - image
