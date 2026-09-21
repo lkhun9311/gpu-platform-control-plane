@@ -335,7 +335,7 @@ func TestTheDutyTheWorkloadReportsSurvivesIntoTheLedger(t *testing.T) {
 		{"a message from before the axis existed", "iters=4000 kind=cuda-fma dev=ok", 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			iters, kind, device, duty, _ := ReportFromMessage(tc.msg)
+			iters, kind, device, duty, _, _ := ReportFromMessage(tc.msg)
 			if iters == nil {
 				t.Fatalf("the message was refused entirely: %q", tc.msg)
 			}
@@ -364,7 +364,7 @@ func TestADutyThisBuildCannotReadRefusesTheWholeMessage(t *testing.T) {
 		"iters=900 kind=cuda-fma dev=ok duty=1.5",
 		"iters=900 kind=cuda-fma dev=ok 0.25",
 	} {
-		if iters, _, _, _, _ := ReportFromMessage(msg); iters != nil {
+		if iters, _, _, _, _, _ := ReportFromMessage(msg); iters != nil {
 			t.Errorf("%q was accepted; an unreadable duty must refuse the count beside it", msg)
 		}
 	}
@@ -387,7 +387,20 @@ func TestAnUnreadableAccumulatorRefusesTheWholeMessage(t *testing.T) {
 		"iters=900 kind=cuda-fma dev=ok duty=0.25 acc=",
 		"iters=900 kind=cuda-fma dev=ok duty=0.25 acc=abc",
 		"iters=900 kind=cuda-fma dev=ok duty=0.25 1.005",
+		// The sixth field is `resumed=` now, and this row asserts an UNRECOGNISED sixth is still refused.
+		//
+		// `2026-09-21-the-resume-arm-chain.md` registered this overturn in advance: an earlier version of this
+		// list refused every sixth field by arity, and the resume arm needs one. What survives is the rule the
+		// row was written for — a field this build cannot read must refuse the count beside it, because a
+		// channel the workload controls must not become a number the record asserts.
 		"iters=900 kind=cuda-fma dev=ok duty=0.25 acc=1.0 sixth=2",
+		"iters=900 kind=cuda-fma dev=ok duty=0.25 acc=1.0 resumed=",
+		"iters=900 kind=cuda-fma dev=ok duty=0.25 acc=1.0 resumed=abc",
+		"iters=900 kind=cuda-fma dev=ok duty=0.25 acc=1.0 resumed=-1",
+		// A resume point past the count it started from is not a smaller amount of work, it is an impossible
+		// reading: the attempt cannot have begun further along than it ended.
+		"iters=900 kind=cuda-fma dev=ok duty=0.25 acc=1.0 resumed=901",
+		"iters=900 kind=cuda-fma dev=ok duty=0.25 acc=1.0 1370",
 		// ParseFloat accepts all three, and the arity rule used to refuse them by accident. A review found
 		// that they now reach LifecycleEvent.Accumulator and json.Marshal then fails with `unsupported
 		// value: NaN` -- so a workload emitting one would produce no record at all rather than a suspicious
@@ -397,7 +410,7 @@ func TestAnUnreadableAccumulatorRefusesTheWholeMessage(t *testing.T) {
 		"iters=900 kind=cuda-fma dev=ok duty=0.25 acc=Inf",
 		"iters=900 kind=cuda-fma dev=ok duty=0.25 acc=-Inf",
 	} {
-		if iters, _, _, _, _ := ReportFromMessage(msg); iters != nil {
+		if iters, _, _, _, _, _ := ReportFromMessage(msg); iters != nil {
 			t.Errorf("%q was accepted; a fifth field this build cannot read must refuse the count beside it", msg)
 		}
 	}
@@ -408,12 +421,43 @@ func TestAnUnreadableAccumulatorRefusesTheWholeMessage(t *testing.T) {
 // Every record written before the workload reported one has four fields or three, and refusing them would
 // make this build unable to read its own history -- the failure the arity rule was widened to avoid, not to
 // create.
+// TestAResumePointIsReadWhenTheMessageCarriesOne is the success path for the sixth field.
+//
+// The refusal list beside it is longer than this, and that asymmetry is a trap: a parser that refused every
+// sixth field would satisfy every one of those rows and none of this one. `2026-09-21-the-resume-arm-chain.md`
+// registered the widening in advance precisely because the refusals were written first.
+func TestAResumePointIsReadWhenTheMessageCarriesOne(t *testing.T) {
+	for _, tc := range []struct {
+		msg  string
+		want int
+	}{
+		{"iters=2698 kind=cpu-float dev=no-libcuda duty=1 acc=1.5 resumed=1370", 1370},
+		// Zero is a claim, not an absence: this attempt began at zero and says so.
+		{"iters=900 kind=cpu-float dev=no-libcuda duty=1 acc=1.5 resumed=0", 0},
+		// The boundary the parser allows: an attempt that resumed and performed nothing before stopping.
+		{"iters=900 kind=cpu-float dev=no-libcuda duty=1 acc=1.5 resumed=900", 900},
+	} {
+		iters, _, _, _, _, res := ReportFromMessage(tc.msg)
+		if iters == nil {
+			t.Errorf("%q was refused entirely", tc.msg)
+			continue
+		}
+		if res == nil {
+			t.Errorf("%q carried a resume point and none was read", tc.msg)
+			continue
+		}
+		if *res != tc.want {
+			t.Errorf("%q read resumed=%d, want %d", tc.msg, *res, tc.want)
+		}
+	}
+}
+
 func TestAMessageWithoutAnAccumulatorStillReads(t *testing.T) {
 	for _, msg := range []string{
 		"iters=900 kind=cuda-fma dev=ok",
 		"iters=900 kind=cuda-fma dev=ok duty=0.25",
 	} {
-		iters, _, _, _, acc := ReportFromMessage(msg)
+		iters, _, _, _, acc, _ := ReportFromMessage(msg)
 		if iters == nil {
 			t.Errorf("%q was refused, so this build cannot read the records it already wrote", msg)
 		}

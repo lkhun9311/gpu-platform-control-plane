@@ -148,7 +148,17 @@ import (
 // The bump is also forced rather than chosen: decodeRunRecord runs with DisallowUnknownFields, so a record
 // carrying the new field is refused outright by a build that knows only 19. Leaving the version alone would
 // not have kept old builds reading new documents; it would only have cost them the diagnosis.
-const recordSchemaVersion = 20
+// Version 21 makes a resumed attempt SAYABLE. Events gained `resumed`, the iteration count an attempt began
+// from, and without it a resumed attempt is indistinguishable from one that ran from zero: the oracle accepts
+// both, because the pair is internally consistent either way. The field is also what stops discarded work
+// being counted twice -- an attempt that restored 1370 and stopped at 2698 performed 1328 iterations, and
+// charging it the full count would bill the first stretch to two attempts in the figure every waste claim
+// here is denominated in.
+//
+// A version-20 record carries no such field, which under 21 means what it meant under 20: that build's
+// workload always began at zero. So 20 is readable, on the same terms 19 and 18 are, and for the same reason
+// -- refusing them would orphan evidence this build reads correctly.
+const recordSchemaVersion = 21
 
 // runRecord is what a non-preview invocation leaves behind.
 //
@@ -718,6 +728,16 @@ func checkReportedWork(reported reportedWorkload) (string, string) {
 	if reported.Iterations == nil || reported.Accumulator == nil {
 		return workUnavailable, "the victim's report carried no count and accumulator this build could check"
 	}
+	// A resumed attempt is checked against its TOTAL count, not its own share, and that is not an oversight.
+	//
+	// The accumulator advances once per inner step from the seed, so after 2698 iterations it holds the value
+	// 2698 implies whether one process did them or two did 1370 and 1328. Predicting from the attempt's own
+	// share would compare the restored value against a prediction that starts over, and every resumed run
+	// would read as mismatched.
+	//
+	// This is stated because the arithmetic is right by construction rather than by choice, and an edit that
+	// "corrected" it to use the attempt's share would look like a fix. TestTheWorkCheckAxisIsDerivedRatherThanAssumed
+	// carries a resumed row so that edit fails.
 	p, err := queuelab.ScriptAccumulatorParams()
 	if err != nil {
 		// The oracle could not read the workload it predicts, so it must not answer. Reporting verified here
@@ -762,6 +782,12 @@ type reportedWorkload struct {
 	// every record written before the workload emitted one.
 	Iterations  *int
 	Accumulator *float64
+	// Resumed is the count the victim attempt started from, nil for a report that carried no sixth field.
+	//
+	// It travels with the pair above because the oracle's question changes with it: an attempt that resumed
+	// did not perform every iteration it reports, and the accumulator it holds is the one implied by the
+	// TOTAL rather than by its own share.
+	Resumed *int
 }
 
 // unreportedWorkload is what a run whose ledger carries no readable report gets.
@@ -815,6 +841,7 @@ func reportedWorkloadOf(events []queuelab.LifecycleEvent) reportedWorkload {
 		known.DutyCycle = e.DutyCycle
 		known.Iterations = e.Iterations
 		known.Accumulator = e.Accumulator
+		known.Resumed = e.Resumed
 		return known
 	}
 	return unreported
@@ -1336,7 +1363,31 @@ func discardedIterations(events []queuelab.LifecycleEvent) *int {
 		if kept, ok := lastStop[e.Job]; ok && kept == i {
 			continue
 		}
-		total += *e.Iterations
+		// What this attempt PERFORMED, not what it reported holding.
+		//
+		// A resumed attempt reports the running total: one that restored 1370 and stopped at 2698 did 1328
+		// iterations of its own. Adding its full count would charge the first 1370 twice -- once to the
+		// attempt that was preempted and lost them, and again here -- in the figure every waste claim in this
+		// lab is denominated in.
+		//
+		// That is the same class of error as the completion filter this function already carries, which on a
+		// live run turned 21540 genuinely discarded iterations into 47513 by counting work that was kept. The
+		// difference is when it fires: that one was visible the moment a row completed, this one stays at zero
+		// until an arm resumes, so it would first appear on the run the resume arm exists to produce.
+		//
+		// A nil Resumed is zero rather than unknown, and that is safe in the only direction it can be wrong:
+		// every record written before the resume arm came from a workload that always began at zero.
+		did := *e.Iterations
+		if e.Resumed != nil {
+			did -= *e.Resumed
+		}
+		if did < 0 {
+			// The parser refuses resumed > iters, so this is unreachable from a parsed message. It is here
+			// because a negative contribution would SUBTRACT from the waste figure, and a number that can be
+			// pulled down by a malformed event is worse than one that refuses to be computed.
+			return nil
+		}
+		total += did
 	}
 	if !seen {
 		return nil
@@ -1495,7 +1546,7 @@ func replayAgreesWithRecord(r runRecord) error {
 	// document has no such field and replaying its ledger yields work-unavailable. Holding an older record to
 	// a value it cannot contain is not a check, it is this decoder asserting that the document said something
 	// it never said.
-	if r.SchemaVersion == recordSchemaVersion {
+	if r.SchemaVersion >= 20 {
 		compared = append(compared, reDerived{
 			"workload.workCheck", got.Workload.WorkCheck, want.Workload.WorkCheck})
 	}
@@ -1566,6 +1617,63 @@ func encodeRecord(v any) ([]byte, error) {
 // It is a function rather than a loop inside decodeRunRecord because that decoder is already at the
 // complexity limit this repository keeps on production code, and because the question is a plain predicate
 // about the document — the same shape as observationContinuous and exclusivityHeld above it.
+// readableUnderCurrentSchema says whether an older document means today what it meant when it was written.
+//
+// A predicate rather than an expression inside decodeRunRecord, because that decoder sits at the complexity
+// limit this repository keeps on production code -- extracting it is how the same limit was met at 20.
+//
+// The `recordSchemaVersion == 21` clause is a TRIPWIRE and has fired twice now. Written as a comparison
+// against the constant, it withdraws every exception the moment the constant moves, which is what forces a
+// human to decide what an older document means under the new rules rather than letting the bump carry the
+// answer along by accident. Keep it on the next bump.
+func readableUnderCurrentSchema(r runRecord) bool {
+	if recordSchemaVersion != 21 {
+		return false
+	}
+	// A document carrying a field its own version could not produce is a relabelled newer record, not
+	// history. DisallowUnknownFields cannot catch it: decoding uses today's struct, where both fields are
+	// known at every version.
+	//
+	// WHICH field disqualifies depends on the version, and asking both questions of every version was a
+	// defect. `accumulator` ARRIVED in 20, so refusing every 20 that carries one refused the ordinary shape
+	// of a 20 record: it answered `schema 20 is not 21` about a perfectly good document. The blanket test
+	// read correctly while 20 was the current version and nothing carried the field as history; it became
+	// wrong the moment the constant moved and 20 turned into a readable predecessor.
+	//
+	// It went unnoticed because the fixture asserting 20 is readable carries no events at all, so it never
+	// reached this line -- the same shape of gap as a Vec with no labelled child, where the code exists and
+	// nothing ever exercises it.
+	switch r.SchemaVersion {
+	case 18:
+		// 18 without an observation is byte-identical in meaning under the split device question; with one it
+		// was judged by the collapsed question and is refused rather than reinterpreted.
+		return r.DeviceObservation == nil &&
+			!anyEventCarriesAccumulator(r.Events) && !anyEventCarriesResume(r.Events)
+	case 19:
+		return !anyEventCarriesAccumulator(r.Events) && !anyEventCarriesResume(r.Events)
+	case 20:
+		// The version that introduced the accumulator, so carrying one is what a 20 looks like. Only a resume
+		// point, which arrived in 21, marks it as relabelled.
+		return !anyEventCarriesResume(r.Events)
+	default:
+		return false
+	}
+}
+
+// anyEventCarriesResume reports whether the ledger holds a reading only a schema-21 build could take.
+//
+// Same argument as anyEventCarriesAccumulator: DisallowUnknownFields does not enforce the premise, because
+// decoding uses today's struct and `resumed` is a known field at every version. A 21 record relabelled 20
+// would otherwise pass as evidence taken under rules that had no resume arm.
+func anyEventCarriesResume(events []queuelab.LifecycleEvent) bool {
+	for i := range events {
+		if events[i].Resumed != nil {
+			return true
+		}
+	}
+	return false
+}
+
 func anyEventCarriesAccumulator(events []queuelab.LifecycleEvent) bool {
 	for i := range events {
 		if events[i].Accumulator != nil {
@@ -1638,9 +1746,7 @@ func decodeRunRecord(b []byte) (runRecord, error) {
 		// historical evidence, which is precisely the comparison the version is meant to prevent. The
 		// asymmetry that makes 19 readable is "that build could not report an accumulator"; a 19 document
 		// carrying one is not a 19 document.
-		readableUnderTwenty := recordSchemaVersion == 20 && !anyEventCarriesAccumulator(r.Events) &&
-			((r.SchemaVersion == 18 && r.DeviceObservation == nil) || r.SchemaVersion == 19)
-		if !readableUnderTwenty {
+		if !readableUnderCurrentSchema(r) {
 			return runRecord{}, fmt.Errorf("decode record: schema %d is not %d", r.SchemaVersion, recordSchemaVersion)
 		}
 	}
@@ -1786,7 +1892,14 @@ func checkValidity(r runRecord) error {
 	// no measurement at all -- a run refused before it measured anything -- and there is no work to check in
 	// one. Reading the axis off a nil block would panic; demanding it would refuse a document for lacking a
 	// verdict about work that never happened.
-	if r.SchemaVersion == recordSchemaVersion && r.Measurement != nil {
+	// Required from 20 onward, not only at the current version.
+	//
+	// The demand was written as `== recordSchemaVersion` when 20 was current, which read correctly then and
+	// silently narrowed the moment the constant moved: a schema-20 document CAN carry the axis, so exempting
+	// it drops the check on exactly the documents that have something to check. That is the mirror of the
+	// mistake this decoder made three times in the other direction -- demanding of older documents what they
+	// cannot contain -- and it fails more quietly, because nothing is refused and the verification just stops.
+	if r.SchemaVersion >= 20 && r.Measurement != nil {
 		switch r.Measurement.Workload.WorkCheck {
 		case workVerified, workMismatched, workUnavailable:
 		case "":

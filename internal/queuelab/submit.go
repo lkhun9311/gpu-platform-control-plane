@@ -128,11 +128,37 @@ const WorkloadImage = "python:3.12-slim@sha256:2c941e860699f878900b0edc2403613c2
 //
 // This is a fix and a test at once. If a quarter-duty run still reports zeros at this period, the phase
 // explanation was wrong and the blind spot is somewhere else.
-const workloadScript = `import ctypes,signal,sys,time
+const workloadScript = `import ctypes,os,signal,sys,time
 seconds=float(sys.argv[1]); honor=sys.argv[2]=="honor"
 duty=float(sys.argv[3]) if len(sys.argv)>3 else 1.0
+state=sys.argv[4] if len(sys.argv)>4 and sys.argv[4] else None
 PERIOD=2.6
-n=0; kind="cpu-float"; dev="not-attempted"; x=1.0; acc=1.0
+n=0; kind="cpu-float"; dev="not-attempted"; x=1.0; acc=1.0; resumed=0
+# Restore, and treat anything unreadable as a fresh start rather than as progress.
+#
+# A truncated or garbled file is not a smaller amount of work, it is an unknown amount, and resuming from a
+# number nobody wrote would credit iterations that were never performed. Starting over costs time; trusting
+# it would put a fabricated count into the ledger the whole study is denominated in.
+if state:
+    try:
+        f=open(state)
+        parts=dict(p.split("=",1) for p in f.read().split())
+        f.close()
+        rn=int(parts["iters"]); rx=float(parts["acc"])
+        if rn>0 and rx==rx and abs(rx)!=float("inf"):
+            n=rn; x=rx; acc=rx; resumed=rn
+    except Exception:
+        n=0; x=1.0; acc=1.0; resumed=0
+def save():
+    # tmp + os.replace, the same shape record_write.go uses, because this file is read by the NEXT process.
+    # The termination log can afford a torn write -- it loses one report -- but a torn state file is read as
+    # progress that did not happen.
+    if not state: return
+    try:
+        t=state+".tmp"
+        g=open(t,"w"); g.write("iters=%d acc=%.17g"%(n,acc)); g.flush(); os.fsync(g.fileno()); g.close()
+        os.replace(t,state)
+    except Exception: pass
 PTX=b""".version 6.3
 .target sm_75
 .address_size 64
@@ -165,7 +191,7 @@ ret;
 """
 try: tl=open("/dev/termination-log","w")
 except Exception: tl=None
-def msg(): return "iters=%d kind=%s dev=%s duty=%g acc=%.17g"%(n,kind,dev,duty,acc)
+def msg(): return "iters=%d kind=%s dev=%s duty=%g acc=%.17g resumed=%d"%(n,kind,dev,duty,acc,resumed)
 def mark():
     if tl is None: return
     tl.seek(0); tl.write(msg()); tl.truncate(); tl.flush()
@@ -219,7 +245,7 @@ while time.monotonic()<end:
             rc=launch()
             if rc!=0:
                 dev="launch-failed-midrun"; mark(); print("aborted "+msg(),flush=True); sys.exit(1)
-        n+=1; acc=x
+        n+=1; acc=x; save()
         t=time.monotonic()
         if t-last>0.5: last=t; mark(); print(msg(),flush=True)
     if duty<1.0:
@@ -321,7 +347,10 @@ func RenderForArm(arm Arm, row TrainingTraceRow, namespace string) (*platformv1.
 func RenderMLTrainingJobWithContract(
 	row TrainingTraceRow, namespace string, contract TerminationContract,
 ) (*platformv1.MLTrainingJob, error) {
-	command, err := sleeperCommand(row.DurationSec, contract, row.Duty.orFull())
+	// Empty until the resume arm has a volume to write to. Rendering a path the Pod cannot keep would produce
+	// a workload that saves progress into its own container filesystem and loses it at the same moment the
+	// preemption it is meant to survive destroys the Pod.
+	command, err := sleeperCommand(row.DurationSec, contract, row.Duty.orFull(), "")
 	if err != nil {
 		return nil, err
 	}
@@ -361,7 +390,14 @@ func RenderMLTrainingJobWithContract(
 // The contract is the experimental axis of this study, so an unrecognized value must not fall through to the
 // ignoring arm: that would run the contrast arm under the honoring arm's label and produce a plausible wrong
 // result, which is the exact failure class the measurement work exists to eliminate.
-func sleeperCommand(durationSec int, contract TerminationContract, duty DutyCycle) ([]string, error) {
+// statePath is the file the workload restores its progress from and saves it to, or empty for an arm that
+// starts from zero every time.
+//
+// It is a parameter rather than a constant because the resuming arm is the experimental axis Stage C adds,
+// and an arm's identity has to be chosen by the caller rather than inherited from where the renderer happens
+// to put a file. The path itself arrives with the volume that outlives the Pod; until that lands, every
+// caller passes "" and the workload behaves exactly as it did before.
+func sleeperCommand(durationSec int, contract TerminationContract, duty DutyCycle, statePath string) ([]string, error) {
 	// Substituted rather than formatted: the script is full of Python %d verbs and handing it to fmt.Sprintf
 	// makes Go try to interpret them, which go vet catches and a reader would not.
 	script := strings.Replace(workloadScript, "EXITCODE", strconv.Itoa(termExitCode), 1)
@@ -383,8 +419,14 @@ func sleeperCommand(durationSec int, contract TerminationContract, duty DutyCycl
 	// same behaviour -- and a DIFFERENT command string. The command is part of the Pod template the
 	// termination canary fingerprints, so two spellings of the same experiment would need two canaries and
 	// would compare as different mechanisms. One spelling.
+	// The state path is always passed, empty when the arm does not resume.
+	//
+	// Same reason the duty argument is always passed: the workload defaults when the argument is absent, so
+	// omitting it would render the SAME behaviour under a DIFFERENT command string -- and the command is what
+	// canaryKey.HonorCommand and IgnoreCommand fingerprint, so two spellings of one experiment would need two
+	// canaries and compare as different mechanisms. One spelling.
 	return []string{
 		"python3", "-c", script, strconv.Itoa(durationSec), arm,
-		strconv.FormatFloat(float64(duty), 'f', -1, 64),
+		strconv.FormatFloat(float64(duty), 'f', -1, 64), statePath,
 	}, nil
 }

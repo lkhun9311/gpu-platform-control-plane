@@ -58,8 +58,8 @@ func TestRenderMLTrainingJobMatchesTraceAndQueue(t *testing.T) {
 	// share one script: a workload spelled per-arm could drift between them without the compiler noticing.
 	// The duty cycle joins it for the same reason, and is present even at 1.0 so one experiment has one
 	// spelling -- the command is what the termination canary fingerprints.
-	if len(job.Spec.Command) != 6 || job.Spec.Command[0] != "python3" || job.Spec.Command[3] != "600" {
-		t.Fatalf("workload command = %v, want python3 -c <script> 600 <contract> <duty>", job.Spec.Command)
+	if len(job.Spec.Command) != 7 || job.Spec.Command[0] != "python3" || job.Spec.Command[3] != "600" {
+		t.Fatalf("workload command = %v, want python3 -c <script> 600 <contract> <duty> <state>", job.Spec.Command)
 	}
 	if job.Spec.Command[5] != "1" {
 		t.Fatalf("duty argument = %q, want \"1\" for a trace row that declares none", job.Spec.Command[5])
@@ -255,7 +255,7 @@ func TestTheShippedWorkloadActuallyRunsAndReportsWhatTheParserExpects(t *testing
 	}
 	final := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(
 		lastLine(string(out))), "finished "))
-	iters, kind, device, _, _ := ReportFromMessage(final)
+	iters, kind, device, _, _, _ := ReportFromMessage(final)
 	if iters == nil {
 		t.Fatalf("the parser could not read the report the shipped workload writes: %q\nfull output:\n%s",
 			final, out)
@@ -318,7 +318,7 @@ func TestTheHonoringArmActuallyExitsOnSIGTERM(t *testing.T) {
 			"natural completion\n%s", exit.ExitCode(), termExitCode, buf.String())
 	}
 	final := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(lastLine(buf.String())), "terminated "))
-	if iters, _, _, _, _ := ReportFromMessage(final); iters == nil {
+	if iters, _, _, _, _, _ := ReportFromMessage(final); iters == nil {
 		t.Fatalf("the preempted workload left no readable report, which is the evidence the arm exists to "+
 			"produce: %q\n%s", final, buf.String())
 	}
@@ -356,7 +356,7 @@ func TestTheShippedWorkloadReportsAnAccumulatorTheOraclePredicts(t *testing.T) {
 	final := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(
 		lastLine(string(out))), "finished "))
 
-	iters, kind, device, _, acc := ReportFromMessage(final)
+	iters, kind, device, _, acc, _ := ReportFromMessage(final)
 	if iters == nil {
 		t.Fatalf("the parser could not read the report the shipped workload writes: %q\n%s", final, out)
 	}
@@ -426,7 +426,7 @@ func TestAPreemptedWorkloadReportsAPairTheOracleAccepts(t *testing.T) {
 
 	final := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(
 		lastLine(buf.String())), "terminated "))
-	iters, kind, device, _, acc := ReportFromMessage(final)
+	iters, kind, device, _, acc, _ := ReportFromMessage(final)
 	if iters == nil {
 		t.Fatalf("the preempted workload left no readable report: %q\n%s", final, buf.String())
 	}
@@ -481,26 +481,31 @@ func TestTheWorkloadEmitsTheDeviceTokenThisPackageParses(t *testing.T) {
 // The command is part of the Pod template the termination canary fingerprints, so a row that says nothing
 // about duty must render one spelling, and it must be the spelling that means "compute throughout".
 func TestAnUnsetDutyRendersWhatThisTraceAlwaysRendered(t *testing.T) {
-	got, err := sleeperCommand(30, HonorsSIGTERM, DutyCycle(0).orFull())
+	got, err := sleeperCommand(30, HonorsSIGTERM, DutyCycle(0).orFull(), "")
 	if err != nil {
 		t.Fatalf("the historical row was refused: %v", err)
 	}
-	if n := len(got); n != 6 {
-		t.Fatalf("command has %d parts, want 6 (python3 -c script seconds honor duty): %q", n, got)
+	if n := len(got); n != 7 {
+		t.Fatalf("command has %d parts, want 7 (python3 -c script seconds honor duty state): %q", n, got)
 	}
-	if got[len(got)-2] != "honor" || got[len(got)-1] != "1" {
-		t.Errorf("an unset duty rendered %q, want the full-duty spelling \"1\"", got[len(got)-2:])
+	if got[len(got)-3] != "honor" || got[len(got)-2] != "1" {
+		t.Errorf("an unset duty rendered %q, want the full-duty spelling \"1\"", got[len(got)-3:len(got)-1])
+	}
+	// A row that declares no resume renders the empty spelling, not an absent argument: the same "one
+	// experiment, one spelling" rule the duty argument above is held to.
+	if got[len(got)-1] != "" {
+		t.Errorf("a non-resuming row rendered state path %q, want the empty spelling", got[len(got)-1])
 	}
 }
 
 // TestADeclaredDutyReachesTheWorkload is the axis itself.
 func TestADeclaredDutyReachesTheWorkload(t *testing.T) {
-	got, err := sleeperCommand(30, IgnoresSIGTERM, DutyCycle(0.25))
+	got, err := sleeperCommand(30, IgnoresSIGTERM, DutyCycle(0.25), "")
 	if err != nil {
 		t.Fatalf("a quarter-duty row was refused: %v", err)
 	}
-	if got[len(got)-1] != "0.25" {
-		t.Errorf("duty reached the workload as %q, want \"0.25\"", got[len(got)-1])
+	if got[len(got)-2] != "0.25" {
+		t.Errorf("duty reached the workload as %q, want \"0.25\"", got[len(got)-2])
 	}
 	if !strings.Contains(got[2], "duty=float(sys.argv[3])") {
 		t.Error("the rendered script does not read a duty argument at all")
@@ -516,13 +521,13 @@ func TestADeclaredDutyReachesTheWorkload(t *testing.T) {
 // it asked for. A refused trace is a trace nobody ran; a clamped one is a wrong number.
 func TestAnImpossibleDutyIsRefusedRatherThanClamped(t *testing.T) {
 	for _, d := range []DutyCycle{-1, 1.5, 2} {
-		if _, err := sleeperCommand(30, HonorsSIGTERM, d); err == nil {
+		if _, err := sleeperCommand(30, HonorsSIGTERM, d, ""); err == nil {
 			t.Errorf("duty %v was accepted", float64(d))
 		}
 	}
 	// Zero reaches sleeperCommand only if a caller skipped orFull, and it is refused there too: a row that
 	// never computes cannot be told from one whose card was never observed.
-	if _, err := sleeperCommand(30, HonorsSIGTERM, DutyCycle(0)); err == nil {
+	if _, err := sleeperCommand(30, HonorsSIGTERM, DutyCycle(0), ""); err == nil {
 		t.Error("a zero duty was accepted; a row that never computes is indistinguishable from an unobserved one")
 	}
 }
@@ -622,12 +627,13 @@ func TestAnArmsDutyReachesTheRenderedCommand(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s/%s render: %v", tc.arm, tc.row, err)
 		}
-		got := job.Spec.Command[len(job.Spec.Command)-1]
+		// The state path is last now, so duty and the arm sit one and two places further back.
+		got := job.Spec.Command[len(job.Spec.Command)-2]
 		if got != tc.want {
 			t.Errorf("%s/%s renders duty %q, want %q", tc.arm, tc.row, got, tc.want)
 		}
 		// The other half of what the arm decides, checked in the same render so the two cannot drift apart.
-		if arm := job.Spec.Command[len(job.Spec.Command)-2]; arm != contractArg(contract) {
+		if arm := job.Spec.Command[len(job.Spec.Command)-3]; arm != contractArg(contract) {
 			t.Errorf("%s/%s renders contract arm %q, want the spelling of %q", tc.arm, tc.row, arm, contract)
 		}
 		_ = duty

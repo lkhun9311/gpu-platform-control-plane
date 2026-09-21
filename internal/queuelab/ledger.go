@@ -73,6 +73,15 @@ type LifecycleEvent struct {
 	// value, so a resumed and an uninterrupted attempt would both report the seed and agree for the wrong
 	// reason.
 	Accumulator *float64 `json:"accumulator,omitempty"`
+	// Resumed is the iteration count this attempt started from, and zero is a claim rather than an absence.
+	//
+	// It is what lets discarded work be counted ONCE. An attempt that reports 2698 after resuming at 1370
+	// performed 1328 iterations; charging the full count to it would count the first stretch twice, in a
+	// figure the whole study is denominated in.
+	//
+	// Absent for every attempt written before the resume arm existed, and absent together with the fields
+	// beside it when the message could not be read -- they are readings of ONE message.
+	Resumed *int `json:"resumed,omitempty"`
 	// DutyCycle is the fraction of its service the workload reported computing for, absent when the message
 	// carried none -- which is every record written before the axis existed, and those ran at full duty
 	// because full duty was all the workload could do.

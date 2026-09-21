@@ -103,6 +103,15 @@ type ObservedState struct {
 	// It is also meaningless on the device path: that loop calls the kernel and never touches the value, so
 	// both a resumed and an uninterrupted attempt report the seed and would agree for the wrong reason.
 	Accumulator *float64
+	// Resumed is the iteration count this attempt STARTED from, and zero is a claim rather than an absence.
+	//
+	// Without it a resumed attempt is indistinguishable from one that ran from zero: the oracle accepts both,
+	// because the pair is internally consistent either way. It is what lets discarded work be counted once --
+	// an attempt reporting 2698 after resuming at 1370 performed 1328 iterations, and charging it 2698 would
+	// count the first stretch twice.
+	//
+	// nil when the message carried no sixth field, which is every message from a build before the resume arm.
+	Resumed *int
 	// DutyCycle is the fraction of its service the workload spent computing, as the workload itself reported
 	// it, and nil when the message did not carry one.
 	//
@@ -173,7 +182,7 @@ func ClassifyPod(pod *corev1.Pod) ObservedState {
 		r := soleTerminated(pod)
 		st := ObservedState{Event: EventAttemptStopped, Reason: string(pod.Status.Phase),
 			ExitCode: r.exitCode, Iterations: r.iterations, ComponentStampUnixNanos: r.finishedUnixNanos,
-			WorkloadKind: r.kind, DeviceStatus: r.device, Accumulator: r.accumulator}
+			WorkloadKind: r.kind, DeviceStatus: r.device, Accumulator: r.accumulator, Resumed: r.resumed}
 		if r.duty > 0 {
 			st.DutyCycle = &r.duty
 		}
@@ -226,6 +235,7 @@ type terminatedReading struct {
 	device            string
 	duty              float64
 	accumulator       *float64
+	resumed           *int
 }
 
 func soleTerminated(pod *corev1.Pod) terminatedReading {
@@ -240,7 +250,7 @@ func soleTerminated(pod *corev1.Pod) terminatedReading {
 		}
 		c := t.ExitCode
 		r.exitCode = &c
-		r.iterations, r.kind, r.device, r.duty, r.accumulator = ReportFromMessage(t.Message)
+		r.iterations, r.kind, r.device, r.duty, r.accumulator, r.resumed = ReportFromMessage(t.Message)
 		if !t.FinishedAt.IsZero() {
 			f := t.FinishedAt.UnixNano()
 			r.finishedUnixNanos = &f
@@ -305,53 +315,59 @@ var deviceStatuses = map[string]bool{
 // launched, so it cannot appear beside the CPU fallback; and the device kind can only carry ok or the
 // mid-run failure, because every earlier failure returns before the kind is set. A pair outside that
 // relation was not written by this workload.
-func ReportFromMessage(msg string) (iters *int, kind, device string, duty float64, acc *float64) {
+func ReportFromMessage(msg string) (iters *int, kind, device string, duty float64, acc *float64, resumed *int) {
 	fields := strings.Fields(strings.TrimSpace(msg))
-	// Three fields, four, or five. Each later shape came from a build the earlier ones could not have written:
-	// the fourth is the duty cycle, the fifth the accumulator. A message without one came from a build whose
-	// workload could not report it -- for duty, full duty is what it ran at rather than a value being guessed.
+	// Three fields, four, five, or six. Each later shape came from a build the earlier ones could not have
+	// written: the fourth is the duty cycle, the fifth the accumulator, the sixth the resume point. A message
+	// without one came from a build whose workload could not report it -- for duty, full duty is what it ran
+	// at rather than a value being guessed.
 	// Accepting every shape is what keeps every record written before an axis existed readable; refusing the
 	// old shape would make this build unable to read its own history, which is a worse failure than the one
 	// the strictness is for.
-	if len(fields) < 3 || len(fields) > 5 {
-		return nil, "", "", 0, nil
+	if len(fields) < 3 || len(fields) > 6 {
+		return nil, "", "", 0, nil, nil
 	}
 	n, err := strconv.Atoi(strings.TrimPrefix(fields[0], "iters="))
 	if !strings.HasPrefix(fields[0], "iters=") || err != nil || n < 0 {
-		return nil, "", "", 0, nil
+		return nil, "", "", 0, nil, nil
 	}
 	if !strings.HasPrefix(fields[1], "kind=") || !strings.HasPrefix(fields[2], "dev=") {
-		return nil, "", "", 0, nil
+		return nil, "", "", 0, nil, nil
 	}
 	k := strings.TrimPrefix(fields[1], "kind=")
 	d := strings.TrimPrefix(fields[2], "dev=")
 	if !deviceStatuses[d] {
-		return nil, "", "", 0, nil
+		return nil, "", "", 0, nil, nil
 	}
 	switch {
 	case k == KindCPUFloat && d != DeviceOK:
 	case k == KindCUDAFMA && (d == DeviceOK || d == DeviceLaunchFailedMidrun):
 	default:
-		return nil, "", "", 0, nil
+		return nil, "", "", 0, nil, nil
 	}
 	u := 1.0
 	if len(fields) >= 4 {
 		if !strings.HasPrefix(fields[3], "duty=") {
-			return nil, "", "", 0, nil
+			return nil, "", "", 0, nil, nil
 		}
 		// Refused alongside the rest, for the reason the count is: a duty this build cannot read makes the
 		// iteration count beside it uninterpretable, because how much work an iteration count represents is
 		// exactly what the duty says.
 		v, derr := strconv.ParseFloat(strings.TrimPrefix(fields[3], "duty="), 64)
 		if derr != nil || v <= 0 || v > 1 {
-			return nil, "", "", 0, nil
+			return nil, "", "", 0, nil, nil
 		}
 		u = v
 	}
 	var a *float64
-	if len(fields) == 5 {
+	// `>= 5`, not `== 5`, for the reason duty is `>= 4`.
+	//
+	// It was `== 5` until the sixth field existed, and widening the arity without widening this skipped the
+	// accumulator on every six-field message: the value was present, parsed nowhere, and returned nil. The
+	// preemption spec caught it -- a natural-completion message is five fields and would have stayed green.
+	if len(fields) >= 5 {
 		if !strings.HasPrefix(fields[4], "acc=") {
-			return nil, "", "", 0, nil
+			return nil, "", "", 0, nil, nil
 		}
 		// Refused alongside the rest, for the reason duty is. The accumulator is the only value in this
 		// message that can be CHECKED -- oracle.go predicts it from the iteration count -- so a value this
@@ -372,11 +388,30 @@ func ReportFromMessage(msg string) (iters *int, kind, device string, duty float6
 		// NaN also cannot be compared: the oracle's `want == reported` is false for NaN against anything,
 		// including itself, so a run carrying one could never be verified and never be refused either.
 		if aerr != nil || math.IsNaN(v) || math.IsInf(v, 0) {
-			return nil, "", "", 0, nil
+			return nil, "", "", 0, nil, nil
 		}
 		a = &v
 	}
-	return &n, k, d, u, a
+	var res *int
+	if len(fields) == 6 {
+		if !strings.HasPrefix(fields[5], "resumed=") {
+			return nil, "", "", 0, nil, nil
+		}
+		// The iteration count the attempt STARTED from, so zero means "began at zero" and absence means "this
+		// build could not say". A boolean would collapse those, and the difference is the whole question a
+		// resume arm exists to answer: an attempt that resumed from 1370 did not do 1370 of the iterations it
+		// reports, and a waste figure that counts them has counted the same work twice.
+		//
+		// Refused with the rest of the message for the reason the accumulator is: a resume point this build
+		// cannot read leaves the count beside it uninterpretable, because how much of that count is NEW work
+		// is exactly what this field says.
+		v, rerr := strconv.Atoi(strings.TrimPrefix(fields[5], "resumed="))
+		if rerr != nil || v < 0 || v > n {
+			return nil, "", "", 0, nil, nil
+		}
+		res = &v
+	}
+	return &n, k, d, u, a, res
 }
 
 // conditionStamp is the component's own transition time for a metav1 condition, or nil when it published none.
