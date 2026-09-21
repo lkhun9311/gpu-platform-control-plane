@@ -77,6 +77,20 @@ var (
 		[]string{"tenant", "model"},
 	)
 
+	// NOTHING IN THIS PROCESS CONSUMES AN ERROR BUDGET, and none of the latency series below is read by a
+	// gate, an autoscaler, or a page.
+	//
+	// Stated here rather than only in a design document because a reader arriving at a latency histogram
+	// reasonably assumes something acts on it, and here nothing does. 실행/W04-사전등록.md:18 says why: this
+	// project has no user and no product owner, so these are benchmark thresholds and not service objectives,
+	// and a budget with no consumer is decoration. Decoration in a metrics path is worse than an absence,
+	// because it reads as a control.
+	//
+	// What would change it is a consumer -- a release gate, an autoscaler input, an alert someone answers.
+	// Until one exists, docs/02_CONTROL_PLANE_API.md:75's advertised InferenceDeployment.spec.slo stays
+	// unbuilt on purpose: a field whose value nothing reads is a schema to honour forever in exchange for
+	// nothing. See docs/superpowers/specs/2026-09-21-the-five-decisions-settled.md.
+
 	// timeToFirstByte observes how long the client waited before ANY byte of the response arrived.
 	//
 	// requestDuration cannot stand in for it. That one is observed after ServeHTTP returns, so for a stream it
