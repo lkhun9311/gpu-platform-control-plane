@@ -150,6 +150,21 @@ func compareRecords(recs []runRecord) (comparison, error) {
 				"different quantities, so a difference between them answers no single question",
 				recs[0].RunID, dose, r.RunID, r.Dose)
 		}
+		// The record schema is part of what a run measured, and read compatibility is not the same as
+		// comparability.
+		//
+		// decodeRunRecord accepts a narrow set of older schemas so the committed evidence stays readable by
+		// the build that can check it. That is a decision about READING one document. Pooling two documents is
+		// a different question, and nothing here asked it: a schema-19 run and a schema-20 run could land in
+		// one comparison, and the bump exists precisely because the two were taken under rules that differ.
+		// 20 added the accumulator check, so a 19 run has no work verdict and a 20 run does; averaging them
+		// produces an arm whose figures come from two sets of rules with nothing in the document saying so.
+		if r.SchemaVersion != recs[0].SchemaVersion {
+			return comparison{}, fmt.Errorf("run %q is schema %d and run %q is schema %d: a version marks a "+
+				"change in what a record means, so records of different schemas are not two measurements of "+
+				"one thing however cleanly both decode",
+				recs[0].RunID, recs[0].SchemaVersion, r.RunID, r.SchemaVersion)
+		}
 	}
 
 	byArm := map[string][]runRecord{}

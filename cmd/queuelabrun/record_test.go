@@ -1603,6 +1603,77 @@ func TestMeasurementOfCarriesWhatTheRunActuallyMeasured(t *testing.T) {
 // counting exists to end and this field carries into the artifact.
 //
 // Mutation that turns this red: leave recordSchemaVersion at 8 — both halves.
+// TestTheWorkCheckAxisIsDerivedRatherThanAssumed pins the consumption the accumulator was emitted for.
+//
+// A review found the emitting half shipped without it: the value reached the artifact and nothing read it,
+// which is the state the device boolean was in before version 18 — a claim with its evidence sitting beside
+// it, unconsulted. These four rows are the whole input space of checkReportedWork.
+//
+// work-unavailable is asserted as carefully as the other two. "Nobody could check" and "the check failed" are
+// different facts, and a boolean would have made the first read as the second.
+func TestTheWorkCheckAxisIsDerivedRatherThanAssumed(t *testing.T) {
+	p, err := queuelab.ScriptAccumulatorParams()
+	if err != nil {
+		t.Fatalf("the oracle cannot read the workload it predicts: %v", err)
+	}
+	good, err := queuelab.AccumulatorAfter(p, 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	n := func(v int) *int { return &v }
+	f := func(v float64) *float64 { return &v }
+
+	for _, tc := range []struct {
+		name string
+		in   reportedWorkload
+		want string
+	}{
+		{
+			name: "a CPU attempt whose pair the oracle accepts",
+			in: reportedWorkload{Token: queuelab.KindCPUFloat, Kind: "cpu", Iterations: n(4),
+				Accumulator: f(good)},
+			want: workVerified,
+		},
+		{
+			// The case the axis exists for: the count says one thing and the arithmetic beside it says
+			// another, so the count cannot be spent as evidence.
+			name: "a CPU attempt whose accumulator does not match its count",
+			in: reportedWorkload{Token: queuelab.KindCPUFloat, Kind: "cpu", Iterations: n(4),
+				Accumulator: f(good + 1)},
+			want: workMismatched,
+		},
+		{
+			// Every record written before the workload emitted an accumulator, and every run whose report
+			// this build could not parse.
+			name: "a CPU attempt that reported no accumulator",
+			in:   reportedWorkload{Token: queuelab.KindCPUFloat, Kind: "cpu", Iterations: n(4)},
+			want: workUnavailable,
+		},
+		{
+			// The device loop calls the kernel and never advances the accumulator, so a resumed attempt and
+			// an uninterrupted one both report the seed. Calling that verified would agree for the wrong
+			// reason, which is the one outcome worse than not checking.
+			name: "a device attempt, where the accumulator is not advanced",
+			in: reportedWorkload{Token: queuelab.KindCUDAFMA, Kind: "cuda", Iterations: n(4),
+				Accumulator: f(1.0)},
+			want: workUnavailable,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, why := checkReportedWork(tc.in)
+			if got != tc.want {
+				t.Errorf("workCheck = %q, want %q (why: %s)", got, tc.want, why)
+			}
+			if got == workVerified && why != "" {
+				t.Errorf("a verified check carried prose %q; the reason field is for the other two", why)
+			}
+			if got != workVerified && why == "" {
+				t.Errorf("%q carried no reason, so a reader cannot tell which of the cases applied", got)
+			}
+		})
+	}
+}
+
 func TestARecordFromAnEarlierSchemaIsRefused(t *testing.T) {
 	// The version is pinned so a wire change cannot ship without someone deciding to bump it. Version 10
 	// removed LifecycleEvent.tenant and .gpuCount: nothing ever wrote them, so every event in every record
@@ -1704,6 +1775,23 @@ func TestARecordFromAnEarlierSchemaIsRefused(t *testing.T) {
 	if _, err := decodeRunRecord(nineteen); err != nil {
 		t.Fatalf("a schema-19 record was refused (%v); it carries no accumulator, which is exactly what a "+
 			"19 record should carry, and this build reads the rest of it unchanged", err)
+	}
+
+	// Both exceptions rest on a premise about what the older document cannot contain, and a review found the
+	// premise was not enforced.
+	//
+	// DisallowUnknownFields does not enforce it: decoding uses today's struct, so `accumulator` is a known
+	// field at every version. A schema-20 record relabelled 19 decoded clean and passed as historical
+	// evidence -- the exact comparison the version exists to prevent.
+	for _, older := range []int{18, 19} {
+		withAcc := fmt.Appendf(nil, `{"schemaVersion":%d,"dose":"self-completing","runID":"r9","arm":"A-honor",`+
+			`"disposition":"completed-implemented-checks-passed",`+
+			`"events":[{"elapsedNs":1,"kind":"Pod","type":"AttemptStopped","job":"j","objectUID":"u",`+
+			`"iterations":5,"accumulator":1.5}],%s}`, older, refusedValidity)
+		if _, err := decodeRunRecord(withAcc); err == nil {
+			t.Errorf("a schema-%d record carrying an accumulator decoded; that build could not report one, "+
+				"so the document is a relabelled 20 rather than history", older)
+		}
 	}
 }
 
@@ -2424,6 +2512,16 @@ func TestTheDeviceEvidenceMustAnswerTheLedgersQuestion(t *testing.T) {
 		w["countedUnit"] = "1024x256 threads x 20000 fused multiply-adds per launch"
 		w["deviceUseEstablished"] = true
 		delete(w, "whyNot")
+		// The forgery is a schema-20 document, so it has to carry the axis one of those states, and
+		// work-unavailable is the only value this document can honestly hold: its victim ran the device loop,
+		// which never advances the accumulator, so there is no pair for the oracle to check. Replaying the
+		// ledger reaches the same verdict from the same events, which is what the re-derivation compares.
+		//
+		// Filling it in is not weakening the fixture. Without it the test refuses for a missing axis and
+		// never reaches the device gate it exists to exercise — the failure would be about this line rather
+		// than about the evidence.
+		w["workCheck"] = workUnavailable
+		w["workCheckWhy"] = "the workload ran \"cuda-driver-fma-kernel\", whose loop does not advance the accumulator"
 		doc["validity"].(map[string]any)["deviceEvidence"] = deviceWorkObserved
 		return doc
 	}
