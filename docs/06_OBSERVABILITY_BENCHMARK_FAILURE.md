@@ -51,7 +51,7 @@ This is the evidence center of the project — the proof that the platform actua
 |----------------------|-----------------|---------------------------------------------------------------------------------------------------------------|
 | GPU                  | DCGM exporter   | util, memory, XID, ECC, temp — util is a periodic sample, see the blind spot below                            |
 | Serving              | vLLM metrics    | TTFT, TPOT, queue depth, KV cache                                                                             |
-| Gateway              | Prometheus      | latency, 429, request count                                                                                   |
+| Gateway              | Prometheus      | latency, status counts, admission decisions, fallbacks, upstream errors, backend KV telemetry — 13 series     |
 | Kubernetes           | events / logs   | pod kill, pending, OOM                                                                                        |
 | System (exploratory) | eBPF            | runqueue, syscall/ioctl, IO wait — secondary signal; GPU contention mostly does not surface here (doc 04, S6) |
 | Profiling            | Nsight Systems  | CUDA timeline (optional)                                                                                      |
