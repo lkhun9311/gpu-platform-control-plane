@@ -61,9 +61,6 @@ linters:
       #
       # Production code keeps both linters.
       - linters:
-          - unparam
-        path: internal/queuelab/submit\.go
-      - linters:
           - goconst
           - gocyclo
           - unparam
@@ -88,14 +85,12 @@ linters:
       # every caller is a pre-routing failure. Removing the parameter is right, but it is on the error path
       # every pipeline stage funnels through.
       #
-      # unparam on queuelab.sleeperCommand: statePath always receives "" because no arm asks to resume yet.
-      #
-      # The storage half of that chain has landed -- MLTrainingJobSpec.stateVolume, the mount in BuildJob, the
-      # webhook rule that refuses an edit the pod template can no longer take, and the envtest covering the
-      # controller path no canary probes. What remains is the experimental half: an Arm whose ResumeFor says
-      # which row resumes, which is a change to the protocol's arm enumeration rather than to this renderer.
-      # Until such an arm exists every caller passes "", and deleting the parameter would mean re-threading it
-      # through RenderForArm when one does, while the workload already reads argv[4].
+      # The unparam deferral on queuelab.sleeperCommand is GONE, and its removal is the point rather than
+      # tidying. It was held open while statePath could only ever receive "", naming the arm that would close
+      # it; E-fresh and E-resume now render a real path and both spellings of the resume argument, so the
+      # parameters take more than one value and the linter has nothing to report. A deferral whose stated
+      # reason has stopped being true is a linter switched off, which is the same defect as a comment naming
+      # a test that does not exist.
       - linters:
           - goconst
         path: cmd/queuelabrun/(record|ownership_apply)\.go

@@ -20,22 +20,22 @@ The proposal was to add one arm, `E-resume`, and contrast it against the existin
 was argued, except that the victim resumes.
 
 **They are not identical except for resuming.** The workload's checkpoint is gated on the state path being
-non-empty (`internal/queuelab/submit.go:142` restores, and the writer runs at
-`internal/queuelab/submit.go:248` as `n+=1; acc=x; save()` — **once per iteration**, each time an `open`, a
+non-empty (`internal/queuelab/submit.go:147` restores, and the writer runs at
+`internal/queuelab/submit.go:253` as `n+=1; acc=x; save()` — **once per iteration**, each time an `open`, a
 `write`, an `fsync` and an `os.replace`). An arm rendering an empty path performs none of that. So the
 contrast would carry two differences at once: whether progress is **restored**, and whether progress is
 **recorded** at all. A difference in discarded work between them could be either, and nothing in the record
 would separate them.
 
 That is the same defect the idling study was arranged to avoid. `D-full` and `D-quarter` hold the termination
-contract fixed precisely so that duty is the only thing that moves (`internal/queuelab/protocol.go:105`), and
+contract fixed precisely so that duty is the only thing that moves (`internal/queuelab/protocol.go:170`), and
 the comment above them says why: two axes at once give four cells and a difference that carries both.
 
 **The cheaper-looking option was not available either.** Reusing the twelve committed `ex/e17-*.json` as the
 contrast fails on the lab's own rules. Their canary key records the arm's rendered argv, and those records
 carry five elements — `["python3", "-c", <script>, "600", "ignore"]`, with no duty argument — taken at
 `qualifiedAt: 2026-08-22T07:40:27Z`. Duty has been added since, and the state path is being added now.
-`keyDifferences` (`cmd/queuelabrun/canary.go:677`) compares the honouring and ignoring commands as strings, so
+`keyDifferences` (`cmd/queuelabrun/canary.go:690`) compares the honouring and ignoring commands as strings, so
 a run standing on that qualification is refused before it starts. The reuse was never an option; it only
 looked like one.
 
@@ -43,19 +43,43 @@ looked like one.
 
 **`E-fresh` and `E-resume`, a matched pair, differing only in whether the state file is READ.**
 
-Both victims mount the volume. Both write the checkpoint every iteration. `E-fresh` is started with its state
-directory empty on every attempt; `E-resume` is started with the directory preserved across the attempts of
-one run. The rendered argv is identical between them — the difference is the state of the volume, not the
-command.
+Both victims mount the same claim at the same path. Both write the checkpoint every iteration. They differ in
+one argument: the victim's command ends `resume` under one arm and `fresh` under the other, and only the
+first reads the file it finds there.
+
+**This paragraph replaced the mechanism registered on the first writing, and the correction is recorded here
+rather than quietly applied.** It said the rendered argv was identical and the difference was the state of
+the volume — `E-fresh` starting each attempt with the directory empty. That is not implementable. The
+workload restores whenever the path it is given names a readable file (`internal/queuelab/submit.go:147`),
+its command is exec'd directly with no shell to expand anything per attempt, and nothing can empty the
+directory between a preemption and the replacement Pod: writing to a claim requires a Pod, and that Pod would
+race the attempt it is meant to precede. With one path and one claim, `E-fresh`'s second attempt would
+restore its predecessor's file and the arm would measure nothing.
+
+Two alternatives were weighed and refused. An `emptyDir` for `E-fresh` gives the right semantics — written
+every iteration, gone with the Pod — and changes the storage MEDIUM, which puts the checkpoint's cost back
+into the contrast on any cluster where the claim is not node-local; this page has already declined to settle
+what that cluster's storage is. A per-Pod path through `$(POD_NAME)` keeps the argument count identical and
+makes the reading depend on the API server expanding a variable, which nothing in this repository does today
+and no test here can check without a cluster.
+
+The argument is what remains, and it is the shape this lab already uses: the termination contract is one
+token, `honor` or `ignore`, for the same reason. It is verifiable with the local workload harness, it leaves
+the claim, the path, the medium and the write cost identical between the arms, and absence of the token
+means **no restore** — a build that cannot say whether it was asked to resume must not claim one.
+
+The cost is the same cost the state path itself carries: the rendered command grows, so
+`canaryKey.HonorCommand` and `IgnoreCommand` change and every qualification taken before this is re-taken
+once. That was already owed the moment any arm rendered a non-empty state path.
 
 This is what makes `E-fresh` more than `A-ignore` under a new name. An `E-fresh` victim pays the full
 checkpoint cost and recovers nothing; an `A-ignore` victim pays nothing and recovers nothing. Only the first
 is a control for the question being asked.
 
 **The termination contract is fixed at the ignoring arm's, and duty at full**, for the reason `D-full` and
-`D-quarter` fix theirs: a honouring victim stops in milliseconds and leaves the observer nothing inside the
-hold (`internal/queuelab/protocol.go:90-91`). Reclamation stays enabled, so `PolicyVariant` is `Any` and
-`AssertCardinality` expects the victim preempted exactly once (`internal/queuelab/protocol.go:130`) — the same
+`D-quarter` fix theirs (`internal/queuelab/protocol.go:170` holds the duty): a honouring victim stops in milliseconds and leaves the observer nothing inside the
+hold (`internal/queuelab/protocol.go:152`). Reclamation stays enabled, so `PolicyVariant` is `Any` and
+`AssertCardinality` expects the victim preempted exactly once (`internal/queuelab/protocol.go:195`) — the same
 expectation every arm but `N-ref` carries. No change is needed there.
 
 **Dose regime: `grace-bounded` only.** Under `self-completing` the victim has less service left than the grace
@@ -75,7 +99,7 @@ reported holding. Without it, a broken mount is indistinguishable from a success
 the direction that publishes a number.
 
 **2. The device path must be refused at submission, not reported as unavailable.** On the device path the
-loop calls the kernel and never advances `x` — the CPU branch at `internal/queuelab/submit.go:243` is the only
+loop calls the kernel and never advances `x` — the CPU branch at `internal/queuelab/submit.go:248` is the only
 writer — so the checkpoint holds the seed, and restoring it sets the iteration count `n` to the restored value
 while restoring **no work at all**. The result is an inflated count that the accumulator check cannot
 contradict. `checkReportedWork` answering `work-unavailable` after the fact is right for the arms that exist;
@@ -84,8 +108,7 @@ submitted.
 
 **3. Somebody must create the claim, and the storage class must be named.** Nothing in this repository creates
 a PersistentVolumeClaim. Once #227 lands, `BuildJob`
-(`internal/controller/mltrainingjob_controller.go:152` on this branch, which does not yet carry the volume)
-references one by name and the canary names a sentinel it then strips. The comment on `StateVolume` says
+(`internal/controller/mltrainingjob_controller.go:164`) references one by name and the canary names a sentinel it then strips. The comment on `StateVolume` says
 the storage class is deliberately not chosen — **that is only true of the API**. A run that creates a claim
 with no `storageClassName` has chosen the cluster default by omission, which on kind is local-path with
 `WaitForFirstConsumer` and on a GPU cluster is whatever CSI driver happens to be installed, or nothing. The

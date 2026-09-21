@@ -236,3 +236,103 @@ func TestTheReclaimArmsAreUnchanged(t *testing.T) {
 		}
 	}
 }
+
+// What each arm decides about the progress file, for each row.
+//
+// Two booleans and not one, because the pair exists to hold the checkpoint CONSTANT while the restore moves.
+// An E-fresh that stopped checkpointing would be A-ignore under a new name, and the contrast would carry the
+// per-iteration write cost as well as the restore -- the confound the arms were designed to remove.
+//
+// Mutations that turn this red: give E-fresh a restore; take the checkpoint from either E arm; hand a plan
+// to a row other than the victim; or answer an undefined arm with the zero plan instead of refusing.
+func TestWhatEachArmDecidesAboutTheProgressFile(t *testing.T) {
+	for _, tc := range []struct {
+		arm  Arm
+		row  string
+		want StatePlan
+	}{
+		{ArmEResume, VictimRow, StatePlan{Checkpoint: true, Restore: true}},
+		{ArmEFresh, VictimRow, StatePlan{Checkpoint: true}},
+		// The treatment is the VICTIM's behaviour, so the other two rows carry no progress file even under
+		// the arms that are about one. Checkpointing them would put the write cost into every manifest.
+		{ArmEResume, OwnRow, StatePlan{}},
+		{ArmEResume, OwnerRow, StatePlan{}},
+		{ArmEFresh, OwnRow, StatePlan{}},
+		{ArmEFresh, OwnerRow, StatePlan{}},
+		// Every arm that predates the pair checkpoints nothing, which is what every run this lab has taken
+		// did, and the zero value of StatePlan is how that is said.
+		{ArmAHonor, VictimRow, StatePlan{}},
+		{ArmAIgnore, VictimRow, StatePlan{}},
+		{ArmNRef, VictimRow, StatePlan{}},
+		{ArmDFull, VictimRow, StatePlan{}},
+		{ArmDQuarter, VictimRow, StatePlan{}},
+	} {
+		t.Run(string(tc.arm)+"/"+tc.row, func(t *testing.T) {
+			got, err := tc.arm.StateFor(tc.row)
+			if err != nil {
+				t.Fatalf("StateFor: %v", err)
+			}
+			if got != tc.want {
+				t.Errorf("StateFor(%s, %s) = %+v, want %+v", tc.arm, tc.row, got, tc.want)
+			}
+		})
+	}
+
+	// Restoring without checkpointing is a run reading a file it never wrote, which would be resuming
+	// somebody else's work. No arm may ask for it, and this sweeps every combination rather than trusting
+	// the table above to have listed the one that could.
+	for _, a := range []Arm{ArmAHonor, ArmAIgnore, ArmNRef, ArmDFull, ArmDQuarter, ArmEFresh, ArmEResume} {
+		for _, row := range []string{OwnRow, VictimRow, OwnerRow} {
+			p, err := a.StateFor(row)
+			if err != nil {
+				t.Fatalf("%s/%s: %v", a, row, err)
+			}
+			if p.Restore && !p.Checkpoint {
+				t.Errorf("%s/%s restores a file it never writes", a, row)
+			}
+		}
+	}
+
+	// An arm the experiment never defined must be REFUSED rather than answered with the zero plan, which
+	// would read as "this arm checkpoints nothing" and run.
+	if _, err := Arm("E-nonsense").StateFor(VictimRow); err == nil {
+		t.Error("an undefined arm was given a state plan instead of being refused")
+	}
+	if _, err := ArmEResume.StateFor("not-a-row"); err == nil {
+		t.Error("an unknown trace row was given a state plan instead of being refused")
+	}
+}
+
+// The resume pair holds the contract and the duty constant, which is what leaves the restore as the only
+// axis that moves.
+//
+// Mutations that turn this red: let either arm render a honouring victim, whose hold is milliseconds and
+// would have written almost no checkpoint to lose; idle either victim, which is the idling pair's axis; or
+// put either arm on the no-reclaim variant, where nothing is preempted and nothing is discarded.
+func TestTheResumePairMovesOnlyTheRestore(t *testing.T) {
+	for _, a := range []Arm{ArmEFresh, ArmEResume} {
+		variant, err := a.PolicyVariant()
+		if err != nil {
+			t.Fatalf("%s: %v", a, err)
+		}
+		if variant != "Any" {
+			t.Errorf("%s applies reclaim variant %q; a victim that cannot be preempted discards nothing",
+				a, variant)
+		}
+		contract, err := a.ContractFor(VictimRow)
+		if err != nil {
+			t.Fatalf("%s: %v", a, err)
+		}
+		if contract != IgnoresSIGTERM {
+			t.Errorf("%s renders the victim under %q; a honouring victim stops in milliseconds and would "+
+				"have written almost no progress to lose", a, contract)
+		}
+		duty, err := a.DutyFor(VictimRow)
+		if err != nil {
+			t.Fatalf("%s: %v", a, err)
+		}
+		if duty != FullDuty {
+			t.Errorf("%s idles the victim at duty %v; that axis belongs to the idling pair", a, float64(duty))
+		}
+	}
+}

@@ -57,17 +57,78 @@ const (
 	// is tens of seconds rather than milliseconds, so the observer has samples inside it.
 	ArmDFull    Arm = "D-full"
 	ArmDQuarter Arm = "D-quarter"
+	// ArmEFresh and ArmEResume are the resume study, whose only axis is whether the victim READS the progress
+	// it has been writing all along.
+	//
+	// Both checkpoint. That is what makes this a pair rather than a single arm measured against A-ignore:
+	// the checkpoint costs an open, a write, an fsync and a rename on every iteration, so an arm that writes
+	// nothing differs from a resuming one in two ways at once, and a difference in discarded work could be
+	// either. E-fresh pays the full cost and recovers nothing, which is the only control the question admits.
+	//
+	// The termination contract is FIXED across them at the ignoring arm's and the duty at full, for the
+	// reason the idling pair fixes its contract: one axis moves, or the difference carries both.
+	//
+	// docs/superpowers/specs/2026-09-21-the-resume-arms-and-what-they-contrast.md registers what they measure
+	// and what would make the measurement invalid, including the four things that had to exist before a card
+	// could be bought for them.
+	ArmEFresh  Arm = "E-fresh"
+	ArmEResume Arm = "E-resume"
 )
+
+// StatePlan is what an arm decides about one row's progress file.
+//
+// Two booleans rather than one, because "writes a checkpoint" and "reads the one it finds" are independent
+// and the pair exists precisely to hold the first constant while the second moves. A single flag could not
+// express E-fresh at all: it writes every iteration and restores nothing.
+//
+// Restore without Checkpoint is not a state any arm can ask for, and StateFor never returns it -- a run that
+// read a file it never wrote would be resuming somebody else's work.
+type StatePlan struct {
+	// Checkpoint is whether the row's workload is given a path to save its progress to.
+	Checkpoint bool
+	// Restore is whether it reads that path at startup rather than beginning at zero.
+	Restore bool
+}
 
 // PolicyVariant returns the ClusterQueue reclaimWithinCohort setting this arm applies.
 func (a Arm) PolicyVariant() (string, error) {
 	switch a {
-	case ArmAHonor, ArmAIgnore, ArmDFull, ArmDQuarter:
+	case ArmAHonor, ArmAIgnore, ArmDFull, ArmDQuarter, ArmEFresh, ArmEResume:
 		return "Any", nil
 	case ArmNRef:
 		return "Never", nil
 	default:
 		return "", fmt.Errorf("unknown arm %q", a)
+	}
+}
+
+// StateFor returns what this arm decides about one row's progress file.
+//
+// Per row for the reason ContractFor and DutyFor are: the treatment is the VICTIM's behaviour. Checkpointing
+// the owner and the co-tenant would put the write cost into every manifest and leave a difference between
+// arms attributable to three rows instead of one.
+//
+// Every arm but the resume pair checkpoints nothing, which is what every run this lab has taken did, and the
+// zero value of StatePlan says so.
+func (a Arm) StateFor(rowName string) (StatePlan, error) {
+	switch rowName {
+	case OwnRow, VictimRow, OwnerRow:
+	default:
+		return StatePlan{}, fmt.Errorf("unknown trace row %q", rowName)
+	}
+	if _, err := a.PolicyVariant(); err != nil {
+		return StatePlan{}, err
+	}
+	if rowName != VictimRow {
+		return StatePlan{}, nil
+	}
+	switch a {
+	case ArmEFresh:
+		return StatePlan{Checkpoint: true}, nil
+	case ArmEResume:
+		return StatePlan{Checkpoint: true, Restore: true}, nil
+	default:
+		return StatePlan{}, nil
 	}
 }
 
@@ -90,7 +151,11 @@ func (a Arm) ContractFor(rowName string) (TerminationContract, error) {
 		// The idling arms hold the contract constant at the ignoring one, so the only thing that differs
 		// between them is the duty. A honouring victim would stop in milliseconds and leave the observer
 		// nothing to see inside the hold, which is the defect that invalidated a measured run once already.
-		case ArmAIgnore, ArmDFull, ArmDQuarter:
+		//
+		// The resume pair holds it at the same value for the same reason, and for one more: a victim that
+		// stopped in milliseconds would have written almost no checkpoint and lost almost no work, so the
+		// quantity the pair exists to move would be too small to see whichever arm it ran under.
+		case ArmAIgnore, ArmDFull, ArmDQuarter, ArmEFresh, ArmEResume:
 			return IgnoresSIGTERM, nil
 		}
 	}
