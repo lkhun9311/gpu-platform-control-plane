@@ -765,6 +765,14 @@ func terminationCanary(ctx context.Context, c client.Client, nodeName string,
 			Image:         contract.Image,
 			HonorCommand:  contract.HonorCommand,
 			IgnoreCommand: contract.IgnoreCommand,
+			// The contract's, like the image and the two commands above it: this is what the build that took
+			// the reading renders for a checkpointing arm, not something observed on the cluster.
+			//
+			// Omitting it was not a missing field but a canary that refused its own reading. canaryKeyFor
+			// builds the expected side from the same contract, so the recorded key carried "" while the
+			// consult wanted the resuming command, and the gate reported "taken on a different combination
+			// than this run needs" about a document written seconds earlier.
+			ResumeCommand: contract.ResumeCommand,
 			// The OBSERVED default, not the contract's requirement: this document says what was measured, and
 			// canaryKeyFor is what turns the requirement into a comparison at consult time.
 			GraceSec:         probes[0].GraceSec,
