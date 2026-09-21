@@ -1950,6 +1950,136 @@ func TestDiscardedIterationsChargesAResumedAttemptOnlyItsOwnShare(t *testing.T) 
 	}
 }
 
+// A resume point has to be supported by an attempt that could have produced it.
+//
+// The parser bounds a resume point inside its own message and nothing compared it with the ledger, so a
+// document could claim an attempt continued work no attempt ever did. The accumulator cannot catch that: an
+// attempt that restored nothing reports a value consistent with its own count, which is exactly why a broken
+// mount and a successful resume are arithmetically identical and only the ledger separates them.
+//
+// Mutations that turn this red: drop the predecessor requirement; let an event stand as its own predecessor;
+// accept a predecessor that reached fewer iterations than the successor claims to have restored; or examine
+// only the stopped events.
+func TestAResumePointMustBeSupportedByAnEarlierAttempt(t *testing.T) {
+	n := func(v int) *int { return &v }
+	stop := func(job, uid string, at int64, iters int, resumed *int) queuelab.LifecycleEvent {
+		return queuelab.LifecycleEvent{
+			Type: queuelab.EventAttemptStopped, Job: job, ObjectUID: uid,
+			ElapsedNs: at, Iterations: n(iters), Resumed: resumed,
+		}
+	}
+
+	// The shape a real resume produces, measured live: an attempt stopped at 1370 and its successor came
+	// back reporting 2698, having restored 1370.
+	if err := resumeSupportedByLedger([]queuelab.LifecycleEvent{
+		stop("a1", "u1", 1_000, 1370, nil),
+		stop("a1", "u2", 2_000, 2698, n(1370)),
+	}); err != nil {
+		t.Fatalf("the ledger a successful resume actually produces was refused: %v", err)
+	}
+
+	// Restoring LESS than the predecessor reported is honest: save() swallows its own exceptions, so a torn
+	// write leaves the state file behind the message its writer went on to print.
+	if err := resumeSupportedByLedger([]queuelab.LifecycleEvent{
+		stop("a1", "u1", 1_000, 1370, nil),
+		stop("a1", "u2", 2_000, 2698, n(1369)),
+	}); err != nil {
+		t.Errorf("a resume point behind its predecessor was refused, and a torn save produces exactly "+
+			"that: %v", err)
+	}
+
+	// The broken mount dressed as a resume: nothing ran before it.
+	err := resumeSupportedByLedger([]queuelab.LifecycleEvent{stop("a1", "u1", 1_000, 2698, n(1370))})
+	if err == nil {
+		t.Fatal("an attempt claiming to continue work no attempt performed was accepted")
+	}
+	if !strings.Contains(err.Error(), "no earlier attempt") {
+		t.Errorf("the refusal does not name what is missing: %v", err)
+	}
+
+	// A predecessor that never got that far.
+	err = resumeSupportedByLedger([]queuelab.LifecycleEvent{
+		stop("a1", "u1", 1_000, 900, nil),
+		stop("a1", "u2", 2_000, 2698, n(1370)),
+	})
+	if err == nil {
+		t.Fatal("an attempt resumed from further than any predecessor reached was accepted")
+	}
+	if !strings.Contains(err.Error(), "furthest") {
+		t.Errorf("the refusal does not say how far the row actually got: %v", err)
+	}
+
+	// An attempt is not its own predecessor. A rule comparing counts alone would let one event supply its
+	// own evidence, which accepts every forgery this exists to refuse.
+	if err := resumeSupportedByLedger([]queuelab.LifecycleEvent{
+		stop("a1", "u1", 1_000, 1370, nil),
+		stop("a1", "u1", 2_000, 2698, n(1370)),
+	}); err == nil {
+		t.Error("an attempt was accepted as its own predecessor")
+	}
+
+	// Neither is another row's. Rows are preempted independently and their counts are not interchangeable.
+	if err := resumeSupportedByLedger([]queuelab.LifecycleEvent{
+		stop("b1", "u9", 1_000, 5000, nil),
+		stop("a1", "u2", 2_000, 2698, n(1370)),
+	}); err == nil {
+		t.Error("an attempt of a different row was accepted as the predecessor")
+	}
+
+	// Beginning at zero is what every record written before the arm carries, and it must stay readable --
+	// both spellings of it, the explicit zero and the absent field.
+	if err := resumeSupportedByLedger([]queuelab.LifecycleEvent{
+		stop("a1", "u1", 1_000, 1370, nil),
+		stop("a1", "u2", 2_000, 2698, n(0)),
+	}); err != nil {
+		t.Errorf("a ledger whose attempts began at zero was refused: %v", err)
+	}
+
+	// A forged resume point hung on a readiness event is still an unattributable count.
+	if err := resumeSupportedByLedger([]queuelab.LifecycleEvent{
+		{Type: queuelab.EventPodReady, Job: "a1", ObjectUID: "u1", ElapsedNs: 1_000, Resumed: n(1370)},
+	}); err == nil {
+		t.Error("a resume point on a non-terminal event escaped the check")
+	}
+}
+
+// The check above has to be WIRED, and a unit test on the helper cannot tell whether it is.
+//
+// Deleting the call from checkValidity leaves every assertion in
+// TestAResumePointMustBeSupportedByAnEarlierAttempt green, because they call the helper directly. That is
+// the shape of defect this session already found three times in this file -- a judgment that was fixed, and
+// then guarded by nothing -- so the wiring gets its own document.
+//
+// Mutations that turn this red: remove the resumeSupportedByLedger call from checkValidity, or move it
+// inside the verdict switch, where a refused document would stop reaching it.
+func TestADecodedRecordCannotCarryAnUnsupportedResume(t *testing.T) {
+	// The forgery: one attempt, claiming to have continued 1370 iterations nothing in this ledger performed.
+	unsupported := fmt.Appendf(nil, `{"schemaVersion":%d,"dose":"self-completing","runID":"r13",`+
+		`"arm":"A-honor","disposition":"completed-implemented-checks-passed",`+
+		`"events":[{"elapsedNs":2000,"kind":"Pod","type":"AttemptStopped","job":"a1","objectUID":"u2",`+
+		`"iterations":2698,"resumed":1370}],%s}`, recordSchemaVersion, refusedValidity)
+	_, err := decodeRunRecord(unsupported)
+	if err == nil {
+		t.Fatal("a record claiming a resume its own ledger cannot support decoded, so the count would reach " +
+			"a reader with nothing having checked it")
+	}
+	if !strings.Contains(err.Error(), "no earlier attempt") {
+		t.Fatalf("refused for some other reason, so this is not testing the wiring: %v", err)
+	}
+
+	// The same document with the predecessor its successor claims. This is the control: without it, a
+	// decoder that refused every ledger carrying a resume would pass the assertion above.
+	supported := fmt.Appendf(nil, `{"schemaVersion":%d,"dose":"self-completing","runID":"r14",`+
+		`"arm":"A-honor","disposition":"completed-implemented-checks-passed",`+
+		`"events":[{"elapsedNs":1000,"kind":"Pod","type":"AttemptStopped","job":"a1","objectUID":"u1",`+
+		`"iterations":1370},`+
+		`{"elapsedNs":2000,"kind":"Pod","type":"AttemptStopped","job":"a1","objectUID":"u2",`+
+		`"iterations":2698,"resumed":1370}],%s}`, recordSchemaVersion, refusedValidity)
+	if _, err := decodeRunRecord(supported); err != nil {
+		t.Fatalf("a record whose resume its own ledger supports was refused: %v", err)
+	}
+}
+
 func TestDiscardedIterationsSumsOnlyWhatTheLedgerCarried(t *testing.T) {
 	n := func(v int) *int { return &v }
 	if got := discardedIterations(nil); got != nil {
