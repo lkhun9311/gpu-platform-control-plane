@@ -30,7 +30,96 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 )
+
+// The registered requirement for the resume arms' claim is that the run STATES which storage class it asks
+// for. A renderer with a default would meet the letter of "the claim is created" and none of the point: a
+// claim with no storageClassName takes the cluster's by omission, and that class is what decides whether a
+// replacement Pod reads its predecessor's file or waits on a volume that never binds.
+//
+// Mutation that turns this red: give StateClaim any fallback for an empty class.
+func TestStateClaimRefusesToRenderWithoutAClass(t *testing.T) {
+	id := FixtureIdentity{TxID: "tx-1", RunID: "r7", Namespace: "queuelab-r7"}
+
+	_, err := StateClaim(id, "")
+	if err == nil {
+		t.Fatal("rendered a claim with no storage class, which silently chooses the cluster's default")
+	}
+	if !strings.Contains(err.Error(), StateClaimName) {
+		t.Fatalf("the refusal must name the claim it declined to render: %v", err)
+	}
+}
+
+// An identity that would render an unusable name or an unrecognisable stamp must be refused here rather
+// than at the apiserver, where it surfaces as a fixture failure far from the field that caused it — the
+// reason FixtureIdentity.validate exists at all.
+//
+// Mutation that turns this red: drop the id.validate call from StateClaim.
+func TestStateClaimRefusesAnIdentityItCannotStamp(t *testing.T) {
+	if _, err := StateClaim(FixtureIdentity{TxID: "", RunID: "r7", Namespace: "queuelab-r7"}, "fast"); err == nil {
+		t.Fatal("rendered a claim with no transaction stamp, which no teardown of this run could recognise")
+	}
+}
+
+// What the claim must actually be, checked together because these fields are read by three different
+// consumers: BuildJob mounts it by NAME in the job's own NAMESPACE, createOwned recognises it by its STAMP,
+// and sameStateClaim refuses adoption on its CLASS.
+//
+// Mutation that turns this red: change any one of the four.
+func TestStateClaimIsWhatTheJobMountsAndTheRunOwns(t *testing.T) {
+	id := FixtureIdentity{TxID: "tx-1", RunID: "r7", Namespace: "queuelab-r7"}
+	const class = "fast-ssd"
+
+	pvc, err := StateClaim(id, class)
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	if pvc.Name != StateClaimName {
+		t.Fatalf("claim name is %q, not the %q BuildJob mounts", pvc.Name, StateClaimName)
+	}
+	if pvc.Namespace != id.Namespace {
+		t.Fatalf("claim namespace is %q, not the run's %q; StateVolume names a claim in the job's own "+
+			"namespace, so one created elsewhere leaves the victim Pending", pvc.Namespace, id.Namespace)
+	}
+	if pvc.Labels[TxLabel] != id.TxID {
+		t.Fatalf("claim stamp is %q, not this run's %q", pvc.Labels[TxLabel], id.TxID)
+	}
+	if pvc.Spec.StorageClassName == nil || *pvc.Spec.StorageClassName != class {
+		t.Fatalf("claim does not ask for the class it was given: %v", pvc.Spec.StorageClassName)
+	}
+
+	// ReadWriteOnce is what every provisioner supports; asking for more would make the classes an operator
+	// may name depend on a concurrency this lab does not have, since parallelism is pinned to 1.
+	if len(pvc.Spec.AccessModes) != 1 || pvc.Spec.AccessModes[0] != corev1.ReadWriteOnce {
+		t.Fatalf("claim access modes are %v, not the single ReadWriteOnce the arms need", pvc.Spec.AccessModes)
+	}
+	want := resource.MustParse(StateClaimSize)
+	if got := pvc.Spec.Resources.Requests[corev1.ResourceStorage]; got.Cmp(want) != 0 {
+		t.Fatalf("claim requests %s, not StateClaimSize %s", got.String(), StateClaimSize)
+	}
+}
+
+// The study and variant labels say which QUOTA mechanism an object implements. The claim implements none of
+// it, so stamping it with a variant would put a claim about preemption policy on an object that has nothing
+// to do with preemption — and would make a variant precheck over labels answer for an object it cannot
+// describe.
+//
+// Mutation that turns this red: build the claim's labels with labLabels.
+func TestStateClaimDoesNotClaimAQuotaMechanism(t *testing.T) {
+	id := FixtureIdentity{TxID: "tx-1", RunID: "r7", Namespace: "queuelab-r7"}
+	pvc, err := StateClaim(id, "fast-ssd")
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	for _, l := range []string{studyLabel, variantLabel} {
+		if v, ok := pvc.Labels[l]; ok {
+			t.Fatalf("the claim carries %s=%q, which describes a mechanism it does not implement", l, v)
+		}
+	}
+}
 
 func TestRenderMLTrainingJobMatchesTraceAndQueue(t *testing.T) {
 	rows := ReclaimScenario(true, 600)

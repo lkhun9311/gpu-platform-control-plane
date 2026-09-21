@@ -259,7 +259,13 @@ type operatorModeArgs struct {
 //
 // -worker is not among them: every mode acts on it. -arm is not either, because it has its own refusal that
 // says the specific thing worth saying — a mode is not a run.
-var runOnlyFlagNames = map[string]bool{"runid": true, "out": true, "preview": true, "horizon": true}
+var runOnlyFlagNames = map[string]bool{
+	"runid": true, "out": true, "preview": true, "horizon": true,
+	// -state-class configures the claim a checkpointing arm's victim mounts, and no recovery mode creates
+	// one. Left out, an operator who typed it alongside -inspect-worker would be told nothing and would
+	// believe the storage had been named.
+	"state-class": true,
+}
 
 // suppliedRunOnlyFlags reports which run-only flags were present on the command line, in a stable order.
 //

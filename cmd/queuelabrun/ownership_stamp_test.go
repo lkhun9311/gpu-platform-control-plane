@@ -129,6 +129,57 @@ func TestCreateOwnedRefusesAdoptingADifferentMechanism(t *testing.T) {
 	}
 }
 
+// The claim is the resume arms' mechanism the way reclaimWithinCohort is the reclaim study's, and until the
+// PersistentVolumeClaim case existed sameMechanism fell through to nil for this kind — so a claim left by an
+// earlier attempt UNDER THE SAME TRANSACTION was adopted whatever class it had been made with. An operator
+// rerunning with a different -state-class would then measure the old class's binding behaviour and record it
+// under the new class's name.
+//
+// That gap was found by deleting the branch and watching the suite stay green, not by reading the code.
+//
+// Mutation that turns this red: remove the PersistentVolumeClaim case from sameMechanism.
+func TestCreateOwnedRefusesAdoptingAClaimOfAnotherClass(t *testing.T) {
+	id := queuelab.FixtureIdentity{TxID: "tx-1", RunID: "r7", Namespace: "queuelab-r7"}
+	existing, err := queuelab.StateClaim(id, "slow-hdd")
+	if err != nil {
+		t.Fatalf("rendering the leftover claim: %v", err)
+	}
+	c := fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(existing).Build()
+
+	want, err := queuelab.StateClaim(id, "fast-ssd")
+	if err != nil {
+		t.Fatalf("rendering this run's claim: %v", err)
+	}
+	err = createOwned(context.Background(), c, want, "tx-1")
+	if err == nil {
+		t.Fatal("adopted a claim provisioned by a class this run did not ask for")
+	}
+	if !strings.Contains(err.Error(), "slow-hdd") {
+		t.Fatalf("error does not name the class that was actually there: %v", err)
+	}
+}
+
+// The control. Retrying after a partial setup is why adoption exists, and a claim comparison that never
+// passed would make every rerun of a checkpointing arm fail on its own leftover.
+//
+// Mutation that turns this red: make sameStateClaim return an error unconditionally.
+func TestCreateOwnedAdoptsAClaimOfTheSameClass(t *testing.T) {
+	id := queuelab.FixtureIdentity{TxID: "tx-1", RunID: "r7", Namespace: "queuelab-r7"}
+	existing, err := queuelab.StateClaim(id, "fast-ssd")
+	if err != nil {
+		t.Fatalf("rendering the leftover claim: %v", err)
+	}
+	c := fake.NewClientBuilder().WithScheme(testScheme(t)).WithObjects(existing).Build()
+
+	want, err := queuelab.StateClaim(id, "fast-ssd")
+	if err != nil {
+		t.Fatalf("rendering this run's claim: %v", err)
+	}
+	if err := createOwned(context.Background(), c, want, "tx-1"); err != nil {
+		t.Fatalf("refused to adopt this transaction's own claim of the same class: %v", err)
+	}
+}
+
 func TestCreateOwnedAdoptsAMatchingMechanism(t *testing.T) {
 	// The control that keeps the check from being "refuse every adoption". Retrying after a partial setup is
 	// the reason adoption exists at all, and a spec comparison that never passes would remove it.

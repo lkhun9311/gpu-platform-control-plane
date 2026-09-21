@@ -326,6 +326,7 @@ func TestSuppliedRunOnlyFlagsReportsWhatWasTyped(t *testing.T) {
 		fs.Duration("horizon", time.Duration(horizonSec)*time.Second, "")
 		fs.String("worker", "platform-worker", "")
 		fs.Bool("inspect-worker", false, "")
+		fs.String("state-class", "", "")
 		return fs
 	}
 
@@ -346,6 +347,19 @@ func TestSuppliedRunOnlyFlagsReportsWhatWasTyped(t *testing.T) {
 	got := suppliedRunOnlyFlags(fs)
 	if len(got) != 2 || got[0] != "-horizon" || got[1] != "-runid" {
 		t.Fatalf("want [-horizon -runid] in a stable order, got %v", got)
+	}
+
+	// -state-class configures the claim a checkpointing arm's victim mounts, and no recovery mode creates
+	// one. Left out of runOnlyFlagNames it would be accepted in silence, and the operator would believe the
+	// storage had been named on an invocation that never reached the code which reads it.
+	//
+	// Mutation that turns this red: remove "state-class" from runOnlyFlagNames.
+	fs = newSet()
+	if err := fs.Parse([]string{"-inspect-worker", "-state-class", "fast-ssd"}); err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if got := suppliedRunOnlyFlags(fs); len(got) != 1 || got[0] != "-state-class" {
+		t.Fatalf("want [-state-class], got %v", got)
 	}
 }
 
