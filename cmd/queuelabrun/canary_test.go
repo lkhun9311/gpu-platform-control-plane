@@ -58,9 +58,15 @@ func passingCanary() canaryQualification {
 		QualifiedAt:     "2026-08-15T00:00:00Z",
 		HarnessRevision: "abc123",
 		Key: canaryKey{
-			Image:            c.Image,
-			HonorCommand:     c.HonorCommand,
-			IgnoreCommand:    c.IgnoreCommand,
+			Image:         c.Image,
+			HonorCommand:  c.HonorCommand,
+			IgnoreCommand: c.IgnoreCommand,
+			// Read from the contract like the two above it, and not omitted, because this fixture stands for
+			// "a qualification a healthy cluster recorded just now". Leaving it out made twenty tests fail
+			// with `taken on a different combination than this run needs` the moment keyDifferences learned
+			// to compare it -- which is the check working, not breaking: a qualification with no resuming
+			// command really does describe a workload no run submits any more.
+			ResumeCommand:    c.ResumeCommand,
 			GraceSec:         terminationGraceSec,
 			HonorExitCode:    honorExitCode,
 			NodeUID:          "uid-node",
@@ -1087,5 +1093,98 @@ func TestARecordFromBeforeTheTemplateKeyIsRefusedRatherThanReinterpreted(t *test
 	if _, err := decodeRunRecord(older); err == nil {
 		t.Fatal("a record written before the operator's template was keyed decoded under today's rules, so its " +
 			"silence about the template reads as a run that was gated on one")
+	}
+}
+
+// The key records the workload a CHECKPOINTING arm submits, which is neither of the two it probes.
+//
+// canaryContract's own comment claims every field is read from the measurement package's renderer so that
+// "the probe runs the bytes the arm runs by construction". That stopped being true when E-fresh and
+// E-resume arrived: they render a state path and a resume spelling, so their victim's argv matches neither
+// recorded command, and a key that cannot describe the workload a run submits cannot say the run was
+// qualified for it.
+//
+// Rendered through RenderForArm rather than assembled here, for the reason the other two are rendered
+// through the real renderer: a hand-written imitation would qualify a command nothing submits.
+//
+// Mutations that turn this red: drop ResumeCommand from the contract or the key; render it with
+// RenderMLTrainingJobWithContract, which produces the non-checkpointing spelling; or render it at the
+// probe's own row name, which Arm.StateFor refuses.
+func TestTheKeyRecordsTheResumingArmsCommand(t *testing.T) {
+	c := mustHarnessContract(t)
+
+	if len(c.ResumeCommand) == 0 {
+		t.Fatal("the contract records no resuming command, so a key taken from it cannot say which workload " +
+			"a checkpointing arm was qualified for")
+	}
+	// It must differ from BOTH probed commands, or it is describing the same workload under another name.
+	for _, other := range []struct {
+		label string
+		cmd   []string
+	}{{"honouring", c.HonorCommand}, {"ignoring", c.IgnoreCommand}} {
+		if strings.Join(c.ResumeCommand, " ") == strings.Join(other.cmd, " ") {
+			t.Errorf("the resuming command is identical to the %s one, so the key records no new workload",
+				other.label)
+		}
+	}
+	// And it must be the checkpointing spelling specifically: a progress file and the resume token.
+	last := len(c.ResumeCommand) - 1
+	if got := c.ResumeCommand[last]; got != "resume" {
+		t.Errorf("the resuming command ends %q; the workload compares argv[5] against \"resume\" and would "+
+			"start from zero on anything else", got)
+	}
+	if got := c.ResumeCommand[last-1]; got != queuelab.StateFilePath {
+		t.Errorf("the resuming command names state path %q, want %q", got, queuelab.StateFilePath)
+	}
+	// The probed commands stay as they were: every arm before the pair renders no progress file.
+	for _, other := range []struct {
+		label string
+		cmd   []string
+	}{{"honouring", c.HonorCommand}, {"ignoring", c.IgnoreCommand}} {
+		if got := other.cmd[len(other.cmd)-2]; got != "" {
+			t.Errorf("the %s probe renders state path %q; the two probes qualify the non-checkpointing "+
+				"workload and must keep the empty spelling", other.label, got)
+		}
+	}
+}
+
+// A recorded qualification that predates the checkpointing arms must be reported as different, not accepted.
+//
+// It is deliberately NOT part of decodeCanary's required-field sweep: every qualification already written to
+// a Node annotation carries no resuming command, and demanding one would refuse them all -- the mistake this
+// lineage has made three times in the other direction. The honest outcome is that the key compares unequal
+// and the operator re-takes the reading, because the arms' command really did change.
+//
+// Mutations that turn this red: drop the resuming-command comparison from keyDifferences; or add
+// ResumeCommand to decodeCanary's required fields, which turns this from a difference into a decode failure.
+func TestAQualificationTakenBeforeTheResumingArmsIsADifference(t *testing.T) {
+	c := mustHarnessContract(t)
+	node := &corev1.Node{}
+	node.UID = "uid-node"
+	node.Status.NodeInfo.KubeletVersion = testKubeletVersion
+	node.Status.NodeInfo.ContainerRuntimeVersion = testContainerRuntime
+
+	// The operator image is left empty and identical on both sides: keyDifferences only reports it when the
+	// two differ, so it cannot colour the one axis this test is about.
+	want := canaryKeyFor(node, c, "")
+	older := want
+	older.ResumeCommand = nil
+
+	diffs := keyDifferences(want, older)
+	found := false
+	for _, d := range diffs {
+		if strings.Contains(d, "resuming command") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("a key with no resuming command compared equal on that field, so a qualification taken "+
+			"before the checkpointing arms would keep matching: %v", diffs)
+	}
+
+	// The control: an identical key reports no difference at all, or the assertion above would pass on a
+	// comparison that flags everything.
+	if d := keyDifferences(want, want); len(d) != 0 {
+		t.Fatalf("a key compared against itself reported %v", d)
 	}
 }
