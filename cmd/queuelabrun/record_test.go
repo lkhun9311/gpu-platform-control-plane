@@ -1635,7 +1635,22 @@ func TestARecordFromAnEarlierSchemaIsRefused(t *testing.T) {
 	// that carries none is byte-identical in meaning under both, and is accepted, because every run this lab
 	// has taken ran on a fake device plugin with no observer and refusing them would orphan the set the
 	// committed documents quote.
-	if recordSchemaVersion != 19 {
+	//
+	// Version 20 makes the WORK claim falsifiable, which is what 18 did for the device claim. Events carry
+	// `accumulator`, the deterministic value the CPU loop held when an attempt stopped, and
+	// internal/queuelab/oracle.go predicts that value from the iteration count beside it -- so a reader
+	// holding nothing but the document can ask whether an attempt did the work its count claims. A
+	// version-19 record carries the count alone, which is the shape the device boolean had before 18: an
+	// assertion with nothing to check it against. A 19 record is accepted, because absence of the field
+	// under 20 means what it meant under 19 -- that build's workload did not report one -- and the field is
+	// a pointer, so absence reads as absence rather than as zero.
+	//
+	// This assertion is the second tripwire the bump tripped, and both were doing their job. The first was
+	// the `recordSchemaVersion != 19` clause inside decodeRunRecord's 18 exception: changing the constant
+	// silently withdrew that exception and every committed ex/e17-*.json began failing with `schema 18 is
+	// not 20`, which TestEveryRunRecordDecodesUnderThisBuild caught. A bump that carried its exceptions
+	// along by accident is exactly what these clauses exist to prevent.
+	if recordSchemaVersion != 20 {
 		t.Fatalf("recordSchemaVersion is %d; if the wire format changed again, bump this and say what changed",
 			recordSchemaVersion)
 	}
@@ -1674,8 +1689,21 @@ func TestARecordFromAnEarlierSchemaIsRefused(t *testing.T) {
 	if _, err := decodeRunRecord(withObs); err == nil {
 		t.Fatal("a schema-18 record carrying a device observation decoded; its claim was judged by the " +
 			"collapsed question and this build asks a different one")
-	} else if !strings.Contains(err.Error(), "schema 18 is not 19") {
+	} else if !strings.Contains(err.Error(), "schema 18 is not 20") {
 		t.Fatalf("refused for an unexpected reason, so this is not testing the schema rule: %v", err)
+	}
+
+	// 19 is the second exception, and unlike 18's it is unconditional.
+	//
+	// 20 added `accumulator` to events. A version-19 document carries none, and under 20 that means what it
+	// meant under 19 -- the workload of that build did not report one -- so there is no claim for the change
+	// to have changed. Asserted here because an exception nothing exercises is an exception that stops being
+	// true the next time this block is edited.
+	nineteen := fmt.Appendf(nil, `{"schemaVersion":19,"dose":"self-completing","runID":"r8","arm":"A-honor",`+
+		`"disposition":"completed-implemented-checks-passed",%s}`, refusedValidity)
+	if _, err := decodeRunRecord(nineteen); err != nil {
+		t.Fatalf("a schema-19 record was refused (%v); it carries no accumulator, which is exactly what a "+
+			"19 record should carry, and this build reads the rest of it unchanged", err)
 	}
 }
 
@@ -2376,8 +2404,13 @@ func TestTheDeviceEvidenceMustAnswerTheLedgersQuestion(t *testing.T) {
 			t.Fatalf("unmarshal: %v", err)
 		}
 		doc["runID"] = "forged"
-		// The forgery is a schema-19 document. Its predecessor asked the busyness question over the hold, and
-		// a record carrying an observation under that question is refused rather than reinterpreted.
+		// The forgery carries THIS build's schema, whatever it is, so the fixture keeps testing the gate
+		// rather than the version guard. It used to say "a schema-19 document" and the constant has since
+		// moved to 20; the sentence was describing a number the line below never spelled.
+		//
+		// The version still matters to what this proves: a record carrying an observation is judged by the
+		// question its own schema asked, and one from a predecessor that asked a different question is
+		// refused rather than reinterpreted.
 		doc["schemaVersion"] = recordSchemaVersion
 		for _, e := range doc["events"].([]any) {
 			ev := e.(map[string]any)

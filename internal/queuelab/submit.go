@@ -132,7 +132,7 @@ const workloadScript = `import ctypes,signal,sys,time
 seconds=float(sys.argv[1]); honor=sys.argv[2]=="honor"
 duty=float(sys.argv[3]) if len(sys.argv)>3 else 1.0
 PERIOD=2.6
-n=0; kind="cpu-float"; dev="not-attempted"
+n=0; kind="cpu-float"; dev="not-attempted"; x=1.0
 PTX=b""".version 6.3
 .target sm_75
 .address_size 64
@@ -165,7 +165,7 @@ ret;
 """
 try: tl=open("/dev/termination-log","w")
 except Exception: tl=None
-def msg(): return "iters=%d kind=%s dev=%s duty=%g"%(n,kind,dev,duty)
+def msg(): return "iters=%d kind=%s dev=%s duty=%g acc=%.17g"%(n,kind,dev,duty,x)
 def mark():
     if tl is None: return
     tl.seek(0); tl.write(msg()); tl.truncate(); tl.flush()
@@ -208,7 +208,7 @@ def cuda():
     dev="ok"; return launch
 launch=cuda()
 if launch is not None: kind="cuda-fma"
-end=time.monotonic()+seconds; last=time.monotonic(); x=1.0
+end=time.monotonic()+seconds; last=time.monotonic()
 mark()
 while time.monotonic()<end:
     seg=time.monotonic()+duty*PERIOD

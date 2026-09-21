@@ -62,6 +62,17 @@ type LifecycleEvent struct {
 	// Absent together with Iterations, for the same reason: they are readings of ONE message.
 	WorkloadKind string `json:"workloadKind,omitempty"`
 	DeviceStatus string `json:"deviceStatus,omitempty"`
+	// Accumulator is the deterministic value the CPU loop held when the attempt stopped, and it is what makes
+	// Iterations CHECKABLE rather than merely recorded.
+	//
+	// internal/queuelab/oracle.go predicts it from the count, so a reader holding nothing but this JSON can
+	// re-derive whether the attempt did the work its count claims. That is the same argument WorkloadKind
+	// carries: a claim whose support lives only in the writer is a claim the artifact cannot be audited for.
+	//
+	// Absent when the message carried none, and meaningless on the device path -- that loop never touches the
+	// value, so a resumed and an uninterrupted attempt would both report the seed and agree for the wrong
+	// reason.
+	Accumulator *float64 `json:"accumulator,omitempty"`
 	// DutyCycle is the fraction of its service the workload reported computing for, absent when the message
 	// carried none -- which is every record written before the axis existed, and those ran at full duty
 	// because full duty was all the workload could do.

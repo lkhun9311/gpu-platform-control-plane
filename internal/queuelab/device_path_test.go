@@ -110,7 +110,7 @@ func TestTheWorkloadsDevicePathRunsAgainstAFakeDriver(t *testing.T) {
 		t.Fatalf("the device path exited %d:\n%s", code, out)
 	}
 	final := lastLine(out)
-	iters, kind, device, _ := ReportFromMessage(strings.TrimSpace(strings.TrimPrefix(final, "finished ")))
+	iters, kind, device, _, _ := ReportFromMessage(strings.TrimSpace(strings.TrimPrefix(final, "finished ")))
 	if iters == nil {
 		t.Fatalf("the device path left no readable report: %q\n%s", final, out)
 	}
@@ -139,7 +139,7 @@ func TestEachDriverRefusalProducesItsOwnToken(t *testing.T) {
 		t.Run(tc.symbol, func(t *testing.T) {
 			out, _ := runWorkload(t, lib, []string{"SHIM_FAIL_AT=" + tc.symbol}, "1", "ignore")
 			final := strings.TrimSpace(strings.TrimPrefix(lastLine(out), "finished "))
-			_, kind, device, _ := ReportFromMessage(final)
+			_, kind, device, _, _ := ReportFromMessage(final)
 			if device != tc.token {
 				t.Fatalf("a driver refusing %s reported dev=%q, want %q\n%s", tc.symbol, device, tc.token, out)
 			}
@@ -156,7 +156,7 @@ func TestEachDriverRefusalProducesItsOwnToken(t *testing.T) {
 	// path to a non-zero exit from the loop rather than from the handler.
 	out, code := runWorkload(t, lib, []string{"SHIM_FAIL_LAUNCH_AFTER=3"}, "5", "ignore")
 	final := strings.TrimSpace(strings.TrimPrefix(lastLine(out), "aborted "))
-	_, kind, device, _ := ReportFromMessage(final)
+	_, kind, device, _, _ := ReportFromMessage(final)
 	if kind != KindCUDAFMA || device != "launch-failed-midrun" {
 		t.Fatalf("a mid-run launch failure reported kind=%q dev=%q\n%s", kind, device, out)
 	}
@@ -289,7 +289,7 @@ func TestDutyReachesTheDevicePathAndNotJustTheFallback(t *testing.T) {
 			t.Fatalf("duty %s: the device path exited %d:\n%s", duty, code, out)
 		}
 		final := lastLine(out)
-		iters, kind, device, _ := ReportFromMessage(strings.TrimSpace(strings.TrimPrefix(final, "finished ")))
+		iters, kind, device, _, _ := ReportFromMessage(strings.TrimSpace(strings.TrimPrefix(final, "finished ")))
 		if iters == nil {
 			t.Fatalf("duty %s: no readable report: %q", duty, final)
 		}
@@ -339,7 +339,7 @@ func TestTheWorkloadWritesTheDutyThisPackageParses(t *testing.T) {
 		t.Fatalf("the device path exited %d:\n%s", code, out)
 	}
 	final := strings.TrimSpace(strings.TrimPrefix(lastLine(out), "finished "))
-	iters, kind, device, duty := ReportFromMessage(final)
+	iters, kind, device, duty, _ := ReportFromMessage(final)
 	if iters == nil {
 		t.Fatalf("this package cannot parse the message its own workload wrote: %q", final)
 	}
