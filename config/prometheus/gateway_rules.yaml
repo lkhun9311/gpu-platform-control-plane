@@ -117,6 +117,41 @@ spec:
           expr: |
             histogram_quantile(0.99, sum by (model, le) (rate(gpuaas_gateway_request_duration_seconds_bucket[5m])))
 
+        # First byte, which is the nearer of the two to what docs/02_CONTROL_PLANE_API.md:75 declares.
+        #
+        # Still not time to first TOKEN: the status line and headers precede the first token on a streaming
+        # response, so this is a LOWER bound. One honest statement follows from it and no more -- a request
+        # above a given edge had certainly not produced a token by then, while one below it may still have
+        # been slow to its first. The gap between byte and token is unmeasured, so the bound cannot be
+        # tightened by reasoning about it here.
+        #
+        # The le="1.5" series is where the declared ttftP95Ms: 1500 falls, and it is an edge of the histogram
+        # (metrics.go) rather than an interpolated point, so the fraction there is counted. No rule singles it
+        # out and no alert reads it: a figure being readable is not the same as a bar being set, and
+        # docs/superpowers/specs/2026-09-21-what-a-violation-would-have-to-mean.md still declines to set one.
+        #
+        # Errors are in the population on purpose. A 502 or 504 envelope from proxy.go's ErrorHandler is a
+        # byte the client received, so it carries a genuine first-byte latency. Excluding it would leave a
+        # series that described successes only -- one that improves as the backend gets worse.
+        - record: gateway:ttfb_seconds_under_edge:ratio5m
+          expr: |
+            sum by (model, le) (rate(gpuaas_gateway_time_to_first_byte_seconds_bucket[5m]))
+              /
+            ignoring(le) group_left sum by (model) (rate(gpuaas_gateway_time_to_first_byte_seconds_count[5m]))
+
+        # The denominator of the ratio above, for the reason backend_attempts:rate5m is published next to the
+        # e2e one: a ratio over a handful of requests is noise, and the reader cannot see that from the ratio.
+        #
+        # It is NOT backend_attempts:rate5m. That counts requests handed to a backend; this counts the subset
+        # that produced a byte for the client, and the two differ exactly when a request ends with nothing
+        # written -- the state statusRecorder.answered exists to name.
+        - record: gateway:ttfb_observations:rate5m
+          expr: sum by (model) (rate(gpuaas_gateway_time_to_first_byte_seconds_count[5m]))
+
+        - record: gateway:ttfb_seconds:p99_5m
+          expr: |
+            histogram_quantile(0.99, sum by (model, le) (rate(gpuaas_gateway_time_to_first_byte_seconds_bucket[5m])))
+
     - name: gateway.routing
       rules:
         # Fallback working and fallback exhausted look identical in a request-rate graph, because both end in
