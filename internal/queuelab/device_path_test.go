@@ -44,10 +44,14 @@ func runWorkload(t *testing.T, libDir string, env []string, seconds, arm string)
 
 // runWorkloadAtDuty is the same, with the workload's third argument spelled out.
 //
-// The trailing arguments are replaced by POSITION FROM THE END, and there are three of them now. The
-// two-argument version of this helper overwrote the last two and, when duty was added, silently handed the
-// arm string to float() -- so every device-path test failed with a ValueError rather than with anything about
-// the device. Naming all three keeps the helper honest about what the command's shape is.
+// The arguments are replaced by POSITION FROM THE FRONT, which is what stops this helper from breaking every
+// time the workload gains an argument. It counted from the END twice: the two-argument version overwrote the
+// last two and, when duty was added, handed the arm string to float(); counting three from the end then did
+// the same thing again when the state path was added, and every device-path test failed with a ValueError
+// about 'ignore' rather than with anything about the device.
+//
+// Positional arguments are appended, never inserted, so an index from the front names the same argument
+// forever while an index from the end names a different one after every addition.
 func runWorkloadAtDuty(t *testing.T, libDir string, env []string, seconds, arm, duty string) (string, int) {
 	t.Helper()
 	python, err := exec.LookPath("python3")
@@ -62,9 +66,10 @@ func runWorkloadAtDuty(t *testing.T, libDir string, env []string, seconds, arm, 
 	}
 	args := append([]string{}, job.Spec.Command[1:]...)
 	if len(args) < 5 {
-		t.Fatalf("the rendered command has %d arguments after python3; this helper replaces three", len(args))
+		t.Fatalf("the rendered command has %d arguments after python3; this helper needs -c, the script, "+
+			"and the three positional arguments it replaces", len(args))
 	}
-	args[len(args)-3], args[len(args)-2], args[len(args)-1] = seconds, arm, duty
+	args[2], args[3], args[4] = seconds, arm, duty
 	cmd := exec.Command(python, args...)
 	cmd.Env = append(append(os.Environ(), "LD_LIBRARY_PATH="+libDir), env...)
 	out, err := cmd.CombinedOutput()
@@ -110,7 +115,7 @@ func TestTheWorkloadsDevicePathRunsAgainstAFakeDriver(t *testing.T) {
 		t.Fatalf("the device path exited %d:\n%s", code, out)
 	}
 	final := lastLine(out)
-	iters, kind, device, _, _ := ReportFromMessage(strings.TrimSpace(strings.TrimPrefix(final, "finished ")))
+	iters, kind, device, _, _, _ := ReportFromMessage(strings.TrimSpace(strings.TrimPrefix(final, "finished ")))
 	if iters == nil {
 		t.Fatalf("the device path left no readable report: %q\n%s", final, out)
 	}
@@ -139,7 +144,7 @@ func TestEachDriverRefusalProducesItsOwnToken(t *testing.T) {
 		t.Run(tc.symbol, func(t *testing.T) {
 			out, _ := runWorkload(t, lib, []string{"SHIM_FAIL_AT=" + tc.symbol}, "1", "ignore")
 			final := strings.TrimSpace(strings.TrimPrefix(lastLine(out), "finished "))
-			_, kind, device, _, _ := ReportFromMessage(final)
+			_, kind, device, _, _, _ := ReportFromMessage(final)
 			if device != tc.token {
 				t.Fatalf("a driver refusing %s reported dev=%q, want %q\n%s", tc.symbol, device, tc.token, out)
 			}
@@ -156,7 +161,7 @@ func TestEachDriverRefusalProducesItsOwnToken(t *testing.T) {
 	// path to a non-zero exit from the loop rather than from the handler.
 	out, code := runWorkload(t, lib, []string{"SHIM_FAIL_LAUNCH_AFTER=3"}, "5", "ignore")
 	final := strings.TrimSpace(strings.TrimPrefix(lastLine(out), "aborted "))
-	_, kind, device, _, _ := ReportFromMessage(final)
+	_, kind, device, _, _, _ := ReportFromMessage(final)
 	if kind != KindCUDAFMA || device != "launch-failed-midrun" {
 		t.Fatalf("a mid-run launch failure reported kind=%q dev=%q\n%s", kind, device, out)
 	}
@@ -289,7 +294,7 @@ func TestDutyReachesTheDevicePathAndNotJustTheFallback(t *testing.T) {
 			t.Fatalf("duty %s: the device path exited %d:\n%s", duty, code, out)
 		}
 		final := lastLine(out)
-		iters, kind, device, _, _ := ReportFromMessage(strings.TrimSpace(strings.TrimPrefix(final, "finished ")))
+		iters, kind, device, _, _, _ := ReportFromMessage(strings.TrimSpace(strings.TrimPrefix(final, "finished ")))
 		if iters == nil {
 			t.Fatalf("duty %s: no readable report: %q", duty, final)
 		}
@@ -339,7 +344,7 @@ func TestTheWorkloadWritesTheDutyThisPackageParses(t *testing.T) {
 		t.Fatalf("the device path exited %d:\n%s", code, out)
 	}
 	final := strings.TrimSpace(strings.TrimPrefix(lastLine(out), "finished "))
-	iters, kind, device, duty, _ := ReportFromMessage(final)
+	iters, kind, device, duty, _, _ := ReportFromMessage(final)
 	if iters == nil {
 		t.Fatalf("this package cannot parse the message its own workload wrote: %q", final)
 	}

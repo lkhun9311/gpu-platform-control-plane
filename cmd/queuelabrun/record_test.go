@@ -1658,6 +1658,16 @@ func TestTheWorkCheckAxisIsDerivedRatherThanAssumed(t *testing.T) {
 				Accumulator: f(1.0)},
 			want: workUnavailable,
 		},
+		{
+			// A resumed attempt is checked against its TOTAL count, because the accumulator advances once per
+			// inner step from the seed regardless of how many processes did the advancing. This row exists so
+			// that an edit "correcting" the oracle to use the attempt's own share -- iterations minus resumed
+			// -- fails here rather than making every resumed run read as mismatched.
+			name: "a resumed attempt, checked against the total it reports",
+			in: reportedWorkload{Token: queuelab.KindCPUFloat, Kind: "cpu", Iterations: n(4),
+				Accumulator: f(good), Resumed: n(3)},
+			want: workVerified,
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			got, why := checkReportedWork(tc.in)
@@ -1721,7 +1731,14 @@ func TestARecordFromAnEarlierSchemaIsRefused(t *testing.T) {
 	// silently withdrew that exception and every committed ex/e17-*.json began failing with `schema 18 is
 	// not 20`, which TestEveryRunRecordDecodesUnderThisBuild caught. A bump that carried its exceptions
 	// along by accident is exactly what these clauses exist to prevent.
-	if recordSchemaVersion != 20 {
+	//
+	// Version 21 makes a resumed attempt SAYABLE. Events gained `resumed`, the count an attempt began from,
+	// and without it a resumed attempt is indistinguishable from one that ran from zero -- the oracle accepts
+	// both, because the pair is internally consistent either way. It is also what stops discarded work being
+	// counted twice: an attempt that restored 1370 and stopped at 2698 performed 1328 iterations, and
+	// charging it the full count bills the first stretch to two attempts. A version-20 record carries no such
+	// field, which under 21 means what it meant under 20 -- that build's workload always began at zero.
+	if recordSchemaVersion != 21 {
 		t.Fatalf("recordSchemaVersion is %d; if the wire format changed again, bump this and say what changed",
 			recordSchemaVersion)
 	}
@@ -1760,7 +1777,7 @@ func TestARecordFromAnEarlierSchemaIsRefused(t *testing.T) {
 	if _, err := decodeRunRecord(withObs); err == nil {
 		t.Fatal("a schema-18 record carrying a device observation decoded; its claim was judged by the " +
 			"collapsed question and this build asks a different one")
-	} else if !strings.Contains(err.Error(), "schema 18 is not 20") {
+	} else if !strings.Contains(err.Error(), fmt.Sprintf("schema 18 is not %d", recordSchemaVersion)) {
 		t.Fatalf("refused for an unexpected reason, so this is not testing the schema rule: %v", err)
 	}
 
@@ -1775,6 +1792,15 @@ func TestARecordFromAnEarlierSchemaIsRefused(t *testing.T) {
 	if _, err := decodeRunRecord(nineteen); err != nil {
 		t.Fatalf("a schema-19 record was refused (%v); it carries no accumulator, which is exactly what a "+
 			"19 record should carry, and this build reads the rest of it unchanged", err)
+	}
+
+	// 20 is the third readable predecessor, on the same terms: it can carry an accumulator but not a resume
+	// point, and a document without the later field means what it meant when it was written.
+	twenty := fmt.Appendf(nil, `{"schemaVersion":20,"dose":"self-completing","runID":"r10","arm":"A-honor",`+
+		`"disposition":"completed-implemented-checks-passed",%s}`, refusedValidity)
+	if _, err := decodeRunRecord(twenty); err != nil {
+		t.Fatalf("a schema-20 record was refused (%v); it carries no resume point, which is exactly what a "+
+			"20 record should carry", err)
 	}
 
 	// Both exceptions rest on a premise about what the older document cannot contain, and a review found the
@@ -1793,12 +1819,137 @@ func TestARecordFromAnEarlierSchemaIsRefused(t *testing.T) {
 				"so the document is a relabelled 20 rather than history", older)
 		}
 	}
+
+	// The same premise for the field 21 added, and it covers one more version: no build at 18, 19 or 20
+	// could report a resume point, so a document at any of them carrying one is a relabelled 21.
+	for _, older := range []int{18, 19, 20} {
+		withResume := fmt.Appendf(nil, `{"schemaVersion":%d,"dose":"self-completing","runID":"r9",`+
+			`"arm":"A-honor","disposition":"completed-implemented-checks-passed",`+
+			`"events":[{"elapsedNs":1,"kind":"Pod","type":"AttemptStopped","job":"j","objectUID":"u",`+
+			`"iterations":5,"resumed":3}],%s}`, older, refusedValidity)
+		if _, err := decodeRunRecord(withResume); err == nil {
+			t.Errorf("a schema-%d record carrying a resume point decoded; that build could not report one, "+
+				"so the document is a relabelled 21 rather than history", older)
+		}
+	}
+
+	// And the other side of the premise, which the check got WRONG for as long as it asked one blanket
+	// question. 20 is the version that ADDED the accumulator, so a 20 carrying one is an ordinary 20 and not
+	// a forgery -- it was refused with `schema 20 is not 21` until the predicate was made version-aware.
+	//
+	// The sentence above promising that a 20 "can carry an accumulator" was false the whole time, and the
+	// `twenty` fixture could not catch it because it carries no events for the check to look at. An
+	// exception asserted with a document that never reaches the code path is not asserted.
+	twentyWithAcc := fmt.Appendf(nil, `{"schemaVersion":20,"dose":"self-completing","runID":"r11",`+
+		`"arm":"A-honor","disposition":"completed-implemented-checks-passed",`+
+		`"events":[{"elapsedNs":1,"kind":"Pod","type":"AttemptStopped","job":"j","objectUID":"u",`+
+		`"iterations":5,"accumulator":1.5}],%s}`, refusedValidity)
+	if _, err := decodeRunRecord(twentyWithAcc); err != nil {
+		t.Errorf("a schema-20 record carrying an accumulator was refused (%v); 20 is the version that added "+
+			"the field, so that is what a 20 record ordinarily looks like", err)
+	}
+}
+
+// TestTheWorkCheckAxisIsCheckedForEverySchemaThatCanCarryIt pins the SCOPE of both axis checks.
+//
+// The decoder asks two separate things about measurement.workload.workCheck: that a document which can carry
+// it states one at all, and that the value it states follows from replaying its own ledger. Both were
+// written as `== recordSchemaVersion` while 20 was current. That read correctly then and narrowed silently
+// when the constant moved to 21, because a schema-20 document CAN carry the axis -- so exempting it dropped
+// the check on exactly the documents that have something to check.
+//
+// Nothing caught the narrowing. Reverting either site to the current-version spelling left every test in
+// this package green, which is why these two cases exist: a check whose scope no test pins is a check that
+// quietly stops applying rather than one that fails.
+func TestTheWorkCheckAxisIsCheckedForEverySchemaThatCanCarryIt(t *testing.T) {
+	real, err := os.ReadFile(filepath.Join("..", "..", "ex", "e17-self-completing-A-honor-e17sh1.json"))
+	if err != nil {
+		t.Fatalf("no committed record to relabel, so this check verifies nothing: %v", err)
+	}
+	// Relabelled to 20 rather than written from scratch, so the rest of the document is a real record that
+	// this build accepts and the only thing under test is the axis.
+	as20 := func(edit func(workload map[string]any)) []byte {
+		var doc map[string]any
+		if err := json.Unmarshal(real, &doc); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		doc["runID"] = "forged"
+		doc["schemaVersion"] = 20
+		if edit != nil {
+			edit(doc["measurement"].(map[string]any)["workload"].(map[string]any))
+		}
+		b, err := json.Marshal(doc)
+		if err != nil {
+			t.Fatalf("marshal: %v", err)
+		}
+		return b
+	}
+
+	// The demand. A document that could state the axis and states nothing leaves a reader unable to tell a
+	// verified count from one nobody could verify, which is the whole reason the field exists.
+	if _, err := decodeRunRecord(as20(nil)); err == nil {
+		t.Fatal("a schema-20 record stating no work-check axis decoded, so the axis is optional for exactly " +
+			"the documents it was added for")
+	} else if !strings.Contains(err.Error(), "work-check axis") {
+		t.Fatalf("refused for some other reason, so this is not testing the demand: %v", err)
+	}
+
+	// The re-derivation, which is a different site. An axis that is present and well-spelled but does not
+	// follow from the ledger beside it is the forgery the comparison exists to catch.
+	forged := as20(func(workload map[string]any) { workload["workCheck"] = workVerified })
+	if _, err := decodeRunRecord(forged); err == nil {
+		t.Fatal("a schema-20 record whose work-check axis does not follow from its own ledger decoded")
+	} else if !strings.Contains(err.Error(), "workload.workCheck") {
+		t.Fatalf("the refusal does not name the axis that disagrees, so a reader is sent to the wrong "+
+			"field: %v", err)
+	}
 }
 
 // The sum is taken off the ledger, and only from attempts that actually carried a count.
 //
 // Mutations that turn this red: sum every event rather than the stopped ones; or return zero instead of nil
 // when nothing carried a count, which would report "nothing was discarded" for a run that could not tell.
+// TestDiscardedIterationsChargesAResumedAttemptOnlyItsOwnShare pins the arithmetic the resume arm needs.
+//
+// A resumed attempt reports the running total. Adding it whole bills the restored stretch to two attempts --
+// once to the one that lost it, once here -- in the figure every waste claim in this lab is denominated in.
+// It is the same class of error as the completion filter this function already carries, which on a live run
+// turned 21540 discarded iterations into 47513; the difference is that this one stays at zero until an arm
+// resumes, so it would first appear on the run the resume arm exists to produce.
+//
+// Mutations that turn this red: add *e.Iterations whole; or treat a nil Resumed as unknown rather than zero,
+// which would drop every pre-resume record out of the sum.
+func TestDiscardedIterationsChargesAResumedAttemptOnlyItsOwnShare(t *testing.T) {
+	n := func(v int) *int { return &v }
+	stop := func(job string, at int64, iters int, resumed *int) queuelab.LifecycleEvent {
+		return queuelab.LifecycleEvent{
+			Type: queuelab.EventAttemptStopped, Job: job, ObjectUID: job + "-uid",
+			ElapsedNs: at, Iterations: n(iters), Resumed: resumed,
+		}
+	}
+	// One row, preempted at 1370 and re-executed from there to 2698. Neither attempt was credited, so both
+	// are discarded work -- but the row performed 2698 iterations in total, not 4068.
+	events := []queuelab.LifecycleEvent{
+		stop("a1", 1_000, 1370, nil),
+		stop("a1", 2_000, 2698, n(1370)),
+	}
+	got := discardedIterations(events)
+	if got == nil {
+		t.Fatal("a ledger carrying two counted stops reported no discarded work")
+	}
+	if *got != 2698 {
+		t.Errorf("discarded = %d, want 2698: the resumed attempt performed 1328 of its own, and charging it "+
+			"the full 2698 would bill the first 1370 to two attempts", *got)
+	}
+
+	// A resume point beyond the count is impossible rather than small, and the sum refuses rather than
+	// subtracting: a waste figure that can be pulled DOWN by a malformed event is worse than one that says
+	// it cannot be computed.
+	if got := discardedIterations([]queuelab.LifecycleEvent{stop("b1", 1_000, 10, n(11))}); got != nil {
+		t.Errorf("an impossible resume point produced %d rather than a refusal", *got)
+	}
+}
+
 func TestDiscardedIterationsSumsOnlyWhatTheLedgerCarried(t *testing.T) {
 	n := func(v int) *int { return &v }
 	if got := discardedIterations(nil); got != nil {

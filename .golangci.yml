@@ -61,6 +61,9 @@ linters:
       #
       # Production code keeps both linters.
       - linters:
+          - unparam
+        path: internal/queuelab/submit\.go
+      - linters:
           - goconst
           - gocyclo
           - unparam
@@ -84,6 +87,12 @@ linters:
       # unparam on (*Server).fail: predates this repo's current shape; the model label is always empty because
       # every caller is a pre-routing failure. Removing the parameter is right, but it is on the error path
       # every pipeline stage funnels through.
+      #
+      # unparam on queuelab.sleeperCommand: statePath always receives "" because the resume arm has nowhere to
+      # write yet. Closing it needs the volume that outlives the Pod -- an MLTrainingJob field, a mount in
+      # BuildJob, and the envtest that covers the controller path no canary probes, all registered in
+      # docs/superpowers/specs/2026-09-21-the-resume-arm-chain.md. Deleting the parameter instead would mean
+      # re-threading it through the renderer when that lands, and the workload already reads argv[4].
       - linters:
           - goconst
         path: cmd/queuelabrun/(record|ownership_apply)\.go

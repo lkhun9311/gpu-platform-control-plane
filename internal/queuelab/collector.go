@@ -114,6 +114,7 @@ func (b *LedgerBuilder) Observe(delta DeltaType, kind, uid, job string, st Obser
 			DeviceStatus:  st.DeviceStatus,
 			DutyCycle:     st.DutyCycle,
 			Accumulator:   st.Accumulator,
+			Resumed:       st.Resumed,
 			// Both clocks for the same instant: the component's own stamp for the state, and when this
 			// collector heard about it. Their difference is what bounds how finely intervals ENDING AT THIS
 			// KIND OF EVENT can be read -- which is why the stamp is now taken at admissions and readiness
