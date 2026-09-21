@@ -23,9 +23,9 @@ func TestArmPolicyVariant(t *testing.T) {
 		arm  Arm
 		want string
 	}{
-		{ArmAHonor, "Any"},
-		{ArmAIgnore, "Any"},
-		{ArmNRef, "Never"},
+		{ArmAHonor, VariantAny},
+		{ArmAIgnore, VariantAny},
+		{ArmNRef, VariantNever},
 	} {
 		got, err := tc.arm.PolicyVariant()
 		if err != nil {
@@ -315,7 +315,7 @@ func TestTheResumePairMovesOnlyTheRestore(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s: %v", a, err)
 		}
-		if variant != "Any" {
+		if variant != VariantAny {
 			t.Errorf("%s applies reclaim variant %q; a victim that cannot be preempted discards nothing",
 				a, variant)
 		}
