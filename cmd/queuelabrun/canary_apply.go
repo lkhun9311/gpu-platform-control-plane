@@ -28,6 +28,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/uuid"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/lkhun9311/gpu-mlops-platform-control-plane/internal/controller"
 )
 
 // This file takes the reading canary.go judges. It creates two Pods on the worker that differ only in the one
@@ -237,6 +239,45 @@ func probePodFrom(tpl corev1.PodTemplateSpec, canaryID, node, runID string, cont
 		if len(spec.Containers[i].Resources.Requests) == 0 {
 			spec.Containers[i].Resources.Requests = nil
 		}
+	}
+	// The STATE VOLUME is dropped, and it is the second place where what is hashed and what is run differ.
+	//
+	// The argument is the device request's, one size larger. templateProbeJob names a PersistentVolumeClaim
+	// that exists nowhere, because a sentinel is what makes the hash see the field at all -- and a Pod
+	// referencing a claim that does not exist is never scheduled: it sits Pending until the start budget runs
+	// out, and the canary would refuse for a reason that has nothing to do with signal delivery. Creating the
+	// claim instead would make the canary provision storage in order to measure a grace period, and would
+	// need a storageClassName this repository has deliberately not chosen.
+	//
+	// Volumes AND mounts, because either alone is invalid: a container mounting a volume the Pod does not
+	// declare is rejected by the apiserver, and a Pod declaring a volume nothing mounts is a shape the
+	// template never had. Every container for the reason the device strip covers every container -- today
+	// only the trainer mounts it, and a template that grew a sidecar sharing the claim would otherwise keep a
+	// mount whose volume had gone.
+	//
+	// What a run's Pod does with the volume is therefore NOT probed. That is the same gap the device request
+	// leaves and it is covered the same way: by a controller-path envtest, not by a reading taken here.
+	for i := range spec.Containers {
+		for j := range spec.Containers[i].VolumeMounts {
+			if spec.Containers[i].VolumeMounts[j].Name == controller.StateVolumeName {
+				spec.Containers[i].VolumeMounts = append(
+					spec.Containers[i].VolumeMounts[:j], spec.Containers[i].VolumeMounts[j+1:]...)
+				break
+			}
+		}
+		// Emptied slices are dropped rather than sent as `[]`, for the reason the emptied maps above are.
+		if len(spec.Containers[i].VolumeMounts) == 0 {
+			spec.Containers[i].VolumeMounts = nil
+		}
+	}
+	for i := range spec.Volumes {
+		if spec.Volumes[i].Name == controller.StateVolumeName {
+			spec.Volumes = append(spec.Volumes[:i], spec.Volumes[i+1:]...)
+			break
+		}
+	}
+	if len(spec.Volumes) == 0 {
+		spec.Volumes = nil
 	}
 	spec.NodeName = node
 	spec.Tolerations = append(spec.Tolerations, corev1.Toleration{

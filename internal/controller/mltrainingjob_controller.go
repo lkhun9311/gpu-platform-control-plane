@@ -140,6 +140,18 @@ func (r *MLTrainingJobReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 	return ctrl.Result{}, nil
 }
 
+// StateVolumeName is the Pod-local name tying the volume to its mount.
+//
+// It is not the claim's name. A Pod may only ever hold one of these, so a fixed name keeps the rendered
+// template a function of the claim and path alone -- two jobs mounting different claims render the same
+// spelling, which is what lets the termination canary compare templates across runs.
+//
+// Exported because the canary has to REMOVE by this name what BuildJob attaches by it, and the two must not
+// be able to disagree. Spelling "state" again in cmd/queuelabrun would be the copy kept in step by hand that
+// canary.go's renderedPodTemplate argues against: two values that have to be updated together are the drift,
+// not a check on it. That package already links this one, so sharing the constant costs nothing new.
+const StateVolumeName = "state"
+
 // BuildJob renders the desired batch/v1 Job for a training job.
 //
 // Suspend is deliberately absent here: the caller decides whether to set it, since it only applies on the create path and must never be reconciled on update, as Kueue owns it after admission.
@@ -151,25 +163,46 @@ func (r *MLTrainingJobReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 // A later version that read anything off the client, the manager or the cluster would still render a Job for the reconciler and would panic or lie for a caller that has none of those.
 func BuildJob(mltj *platformv1.MLTrainingJob) *batchv1.Job {
 	labels := map[string]string{kueueQueueLabel: mltj.Spec.Queue}
+	pod := corev1.PodSpec{
+		RestartPolicy: corev1.RestartPolicyNever,
+		Containers: []corev1.Container{{
+			Name:    "trainer",
+			Image:   mltj.Spec.Image,
+			Command: mltj.Spec.Command,
+			Env:     driverCapabilities(mltj.Spec.GPUCount),
+			Resources: corev1.ResourceRequirements{
+				Limits: corev1.ResourceList{nvidiaGPUResource: *resource.NewQuantity(int64(mltj.Spec.GPUCount), resource.DecimalSI)},
+			},
+		}},
+	}
+	// Attached only when the spec asks for one, and that conditional is what keeps every termination canary
+	// taken before this change valid.
+	//
+	// The canary fingerprints the template this very function renders for templateProbeJob, a fixed synthetic
+	// job that sets no state volume -- so the branch is not taken for it and the rendered bytes, and therefore
+	// canaryKey.PodTemplateHash, are unchanged. That is a mechanical consequence rather than a preference:
+	// the canary SCHEDULES its probe Pod, so a probe naming a claim nobody created would sit Pending forever.
+	//
+	// The cost is that no canary reaches this path. It is the reason the pre-registration made a
+	// controller-path envtest a requirement of this work rather than an option: without one, the only thing
+	// between a mis-rendered mount and a paid session is a reading no instrument takes.
+	if sv := mltj.Spec.StateVolume; sv != nil {
+		pod.Volumes = []corev1.Volume{{
+			Name: StateVolumeName,
+			VolumeSource: corev1.VolumeSource{
+				PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: sv.ClaimName},
+			},
+		}}
+		pod.Containers[0].VolumeMounts = []corev1.VolumeMount{{
+			Name: StateVolumeName, MountPath: sv.MountPath,
+		}}
+	}
 	return &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{Name: mltj.Name, Namespace: mltj.Namespace, Labels: labels},
 		Spec: batchv1.JobSpec{
 			Parallelism: new(defaultOne(mltj.Spec.Parallelism)),
 			Completions: new(defaultOne(mltj.Spec.Completions)),
-			Template: corev1.PodTemplateSpec{
-				Spec: corev1.PodSpec{
-					RestartPolicy: corev1.RestartPolicyNever,
-					Containers: []corev1.Container{{
-						Name:    "trainer",
-						Image:   mltj.Spec.Image,
-						Command: mltj.Spec.Command,
-						Env:     driverCapabilities(mltj.Spec.GPUCount),
-						Resources: corev1.ResourceRequirements{
-							Limits: corev1.ResourceList{nvidiaGPUResource: *resource.NewQuantity(int64(mltj.Spec.GPUCount), resource.DecimalSI)},
-						},
-					}},
-				},
-			},
+			Template:    corev1.PodTemplateSpec{Spec: pod},
 		},
 	}
 }

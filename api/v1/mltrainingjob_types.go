@@ -66,6 +66,37 @@ type MLTrainingJobSpec struct {
 	// +kubebuilder:default=1
 	// +optional
 	Completions int32 `json:"completions,omitempty"`
+
+	// stateVolume mounts storage that outlives the Pod, so a replacement can read what its predecessor wrote.
+	//
+	// Absent means every Pod starts from nothing, which is what every job in this repository did before the
+	// field existed and what all of them still do unless they ask otherwise.
+	// +optional
+	StateVolume *StateVolume `json:"stateVolume,omitempty"`
+}
+
+// StateVolume attaches an EXISTING PersistentVolumeClaim to the trainer container.
+//
+// It references a claim rather than describing one to provision, and that is a deliberate refusal rather
+// than a smaller feature. Provisioning would put a storageClassName into this API, and the only binding
+// behaviour anything here has measured is the development cluster's local-path provisioner with
+// WaitForFirstConsumer -- which happens to solve node affinity by binding the volume wherever the first
+// consumer lands. That is a fact about kind, not about a GPU cluster, and no provisioner for one is recorded
+// anywhere in this tree. Naming a claim someone else created keeps the decision where the evidence is.
+//
+// Nothing here creates, resizes or deletes the claim. A missing one leaves the Pod Pending, which is the
+// loud failure; silently falling back to an emptyDir would give a resuming workload a volume that dies with
+// its Pod and report the resume as having worked.
+type StateVolume struct {
+	// claimName is a PersistentVolumeClaim that already exists in the job's own namespace.
+	// +kubebuilder:validation:MinLength=1
+	// +required
+	ClaimName string `json:"claimName"`
+
+	// mountPath is where the claim appears inside the trainer container.
+	// +kubebuilder:validation:Pattern=`^/`
+	// +required
+	MountPath string `json:"mountPath"`
 }
 
 // MLTrainingJobStatus defines the observed state of MLTrainingJob.
