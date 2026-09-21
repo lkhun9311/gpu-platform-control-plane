@@ -1683,6 +1683,66 @@ func anyEventCarriesAccumulator(events []queuelab.LifecycleEvent) bool {
 	return false
 }
 
+// resumeSupportedByLedger refuses a resume point no attempt in this record could have produced.
+//
+// The parser already bounds a resume point WITHIN its own message -- `0 <= resumed <= iters`, because an
+// attempt claiming to have restored more than it holds is unreadable. That is the whole of what one message
+// can say about itself, and it is not the question the resume arm asks. The question is whether the attempt
+// claiming to have continued somebody's work has somebody's work to continue.
+//
+// Nothing else asks it, and the accumulator cannot. An attempt that restored NOTHING and ran from zero
+// reports a value consistent with its own iteration count, because it genuinely performed every iteration it
+// reports -- so a broken mount and a successful resume are arithmetically identical, and the ledger is the
+// only place they differ. That is why this is a separate judgment rather than a stronger oracle:
+// docs/superpowers/specs/2026-09-21-the-resume-arms-and-what-they-contrast.md registers it as the first
+// thing that must exist before a card is bought for those arms.
+//
+// Matched on the ROW and against a DIFFERENT attempt identity, because a resume point is a claim about what
+// a predecessor left behind. A rule that compared counts alone would let an event stand as its own evidence.
+//
+// The bound is `>=` and not `==`, which is the one place this is deliberately loose. The workload's save()
+// swallows its own exceptions, so a state file can lag the message its writer went on to print: a torn write
+// leaves the successor restoring FEWER iterations than its predecessor reported, which is honest and smaller.
+// Restoring more is the direction nothing can produce.
+//
+// Every event is examined rather than only the stopped ones. A forged document that hung a resume point on a
+// readiness event would otherwise carry an unattributable count through a check written for its neighbours.
+func resumeSupportedByLedger(events []queuelab.LifecycleEvent) error {
+	for i := range events {
+		e := events[i]
+		if e.Resumed == nil || *e.Resumed == 0 {
+			continue
+		}
+		furthest, found := 0, false
+		for j := range events {
+			p := events[j]
+			if p.Type != queuelab.EventAttemptStopped || p.Job != e.Job || p.ObjectUID == e.ObjectUID {
+				continue
+			}
+			if p.ElapsedNs >= e.ElapsedNs || p.Iterations == nil {
+				continue
+			}
+			found = true
+			if *p.Iterations > furthest {
+				furthest = *p.Iterations
+			}
+		}
+		if !found {
+			return fmt.Errorf(
+				"decode record: an attempt of row %q reports resuming from %d iterations and this record's "+
+					"ledger holds no earlier attempt of that row to have produced them; a resume point with "+
+					"no predecessor is work the document cannot attribute to anything", e.Job, *e.Resumed)
+		}
+		if furthest < *e.Resumed {
+			return fmt.Errorf(
+				"decode record: an attempt of row %q reports resuming from %d iterations and the furthest "+
+					"any earlier attempt of that row reached was %d; the restored work was never performed",
+				e.Job, *e.Resumed, furthest)
+		}
+	}
+	return nil
+}
+
 func decodeRunRecord(b []byte) (runRecord, error) {
 	dec := json.NewDecoder(bytes.NewReader(b))
 	dec.DisallowUnknownFields()
@@ -1936,6 +1996,16 @@ func checkValidity(r runRecord) error {
 	// and measurement.horizonNs exists -- as its own comment says -- "so a reader holding the events can
 	// replay them to the same boundary". This is that reader.
 	if err := replayAgreesWithRecord(r); err != nil {
+		return err
+	}
+	// A resume point is the one count in the ledger that is ABOUT another attempt, so it is the one the
+	// replay above cannot check: discardedIterations subtracts it and the accumulator agrees with it either
+	// way, so a document could claim any resume and both would stay consistent.
+	//
+	// Placed outside the verdict switch with the two checks above it, so it applies to a refused record as
+	// well. A document that declares itself inadmissible and still carries a resume its ledger cannot support
+	// is describing a run that did not happen, and the verdict does not make that any less true.
+	if err := resumeSupportedByLedger(r.Events); err != nil {
 		return err
 	}
 	// The device claim is re-derived from the record's OWN evidence, which is the whole reason the samples
