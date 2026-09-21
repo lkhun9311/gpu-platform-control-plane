@@ -119,6 +119,30 @@ var (
 		[]string{"tenant", "model"},
 	)
 
+	// backendAttempts counts requests the gateway actually handed to a backend, which is the population every
+	// other question about serving has to be asked over.
+	//
+	// requests_total cannot answer it. Its four record sites all feed the same series, and the label set does
+	// not separate them: a 413 or a 429 refused at step 7 carries the resolved model name (server.go:485, :488),
+	// exactly as a request that was tried and failed does. Deriving the split needs a reader who knows which
+	// (code, model-shape) pairs end before step 8 -- and a judgement that lives in the reader rather than in the
+	// series is the thing docs/superpowers/specs/2026-09-21-what-a-violation-would-have-to-mean.md exists to
+	// refuse.
+	//
+	// admission_decisions_total does not answer it either. It is recorded at step 7, so everything that ends
+	// earlier -- 401, 403, the RPM limiter's 429, a routing failure -- never reaches it, and passing step 7 is
+	// not the same as being attempted: the two refusals above sit between it and the first attempt.
+	//
+	// No threshold is implied by this counter. It says what was tried, not what should have succeeded, and
+	// choosing a bar is deliberately left to a stated service objective that does not read any run's results.
+	backendAttempts = promauto.With(metrics.Registry).NewCounterVec(
+		prometheus.CounterOpts{
+			Name: metricPrefix + "backend_attempts_total",
+			Help: "Requests handed to at least one backend, by tenant and model; the denominator for serving outcomes.",
+		},
+		[]string{"tenant", "model"},
+	)
+
 	// admissionDecisions counts every admission-control decision by mode, tenant, model, decision, and reason.
 	//
 	// Design rationale (design spec Metrics section): decision is "admit" or "reject", and reason is empty on admit and the rejection's machine-readable code (e.g. "input_rate_limit") on reject.

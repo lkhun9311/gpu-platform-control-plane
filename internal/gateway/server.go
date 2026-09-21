@@ -511,6 +511,10 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 	for _, t := range targets {
 		urls = append(urls, t.URL)
 	}
+	// Recorded here rather than after the call, because this is the last line at which the answer is still
+	// "yes, the serving stack was asked" regardless of how the attempt turns out. A counter incremented on the
+	// way out would miss a panic or a cancelled request and quietly shrink the denominator it exists to be.
+	backendAttempts.WithLabelValues(tenant, meta.Model).Inc()
 	advanced := tryBackends(rec, r, urls, s.sharedTransport(), func(code int, final bool) {
 		upstreamErrors.WithLabelValues(tenant, meta.Model).Inc()
 		lastFailure = code
