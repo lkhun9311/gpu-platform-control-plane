@@ -76,7 +76,17 @@ vet: ## Run go vet against code.
 
 .PHONY: test
 test: manifests generate fmt vet setup-envtest ## Run tests.
-	KUBEBUILDER_ASSETS="$(shell "$(ENVTEST)" use $(ENVTEST_K8S_VERSION) --bin-dir "$(LOCALBIN)" -p path)" go test $$(go list ./... | grep -v /e2e) -coverprofile cover.out
+# The assets path is resolved at RECIPE time and refused when empty, which is a different failure from the
+# one setup-envtest above guards.
+#
+# This line used to expand `$(shell ...)` while the Makefile was being read -- a second, unretried call to
+# the same downloader. When it failed, KUBEBUILDER_ASSETS became the empty string and the suite did not stop:
+# internal/controller/suite_test.go falls back to getFirstFoundEnvTestBinaryDir, which returns the first
+# directory under bin/k8s. The tests would then run against whatever version happened to be lying there, or
+# report a confusing start failure, and neither reads as "the download did not happen".
+	@ASSETS="$$("$(ENVTEST)" use $(ENVTEST_K8S_VERSION) --bin-dir "$(LOCALBIN)" -p path)"; \
+	[ -n "$$ASSETS" ] || { echo "Error: envtest reported no assets path; refusing to run against whatever is in $(LOCALBIN)/k8s"; exit 1; }; \
+	KUBEBUILDER_ASSETS="$$ASSETS" go test $$(go list ./... | grep -v /e2e) -coverprofile cover.out
 
 # TODO(user): To use a different vendor for e2e tests, modify the setup under 'tests/e2e'.
 # The default setup assumes Kind is pre-installed and builds/loads the Manager Docker image locally.
@@ -286,11 +296,22 @@ $(CONTROLLER_GEN): $(LOCALBIN)
 
 .PHONY: setup-envtest
 setup-envtest: envtest ## Download the binaries required for ENVTEST in the local bin directory.
+# The binaries are fetched from a GitHub release, so this target fails whenever that download does --
+# observed as `504 Gateway Timeout` on a change that touched no Go code at all, in a run that died in 1m54s
+# having executed no test. The same commit's other run, started two seconds apart, downloaded fine.
+#
+# Retry absorbs that, and only that, which is the argument lint-config already makes for its own three
+# attempts: a version that genuinely does not exist fails all three just as fast, because the request
+# completes and the answer is what rejects it. Still fails closed when the network never comes back -- a
+# test suite whose binaries were never downloaded is not a passing test suite.
 	@echo "Setting up envtest binaries for Kubernetes version $(ENVTEST_K8S_VERSION)..."
-	@"$(ENVTEST)" use $(ENVTEST_K8S_VERSION) --bin-dir "$(LOCALBIN)" -p path || { \
-		echo "Error: Failed to set up envtest binaries for version $(ENVTEST_K8S_VERSION)."; \
-		exit 1; \
-	}
+	@for i in 1 2 3; do \
+		"$(ENVTEST)" use $(ENVTEST_K8S_VERSION) --bin-dir "$(LOCALBIN)" -p path && exit 0; \
+		echo "envtest download attempt $$i failed; retrying in 5s"; \
+		sleep 5; \
+	done; \
+	echo "Error: Failed to set up envtest binaries for version $(ENVTEST_K8S_VERSION) after three attempts."; \
+	exit 1
 
 .PHONY: envtest
 envtest: $(ENVTEST) ## Download setup-envtest locally if necessary.
