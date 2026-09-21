@@ -516,6 +516,20 @@ func TestTheWorkloadEmitsTheDeviceTokenThisPackageParses(t *testing.T) {
 		t.Fatalf("%q is not in deviceStatuses, so the workload's own report reads as an unknown status",
 			DeviceLaunchFailedMidrun)
 	}
+	// The same binding for the token that says the driver was never reached for.
+	//
+	// It is the conclusion the resume arms rest on: a checkpointing workload skips cuda() entirely, and
+	// "did not try" has to be distinguishable from "tried and was refused". A rename on the Python side
+	// would turn it into an unknown status with nothing failing to compile, which is the whole reason it is
+	// a constant rather than a literal in two places.
+	if !strings.Contains(workloadScript, `dev="`+DeviceNotAttempted+`"`) {
+		t.Fatalf("the workload script never sets dev=%q, so a workload that never reached the driver reports "+
+			"something this package does not classify", DeviceNotAttempted)
+	}
+	if !deviceStatuses[DeviceNotAttempted] {
+		t.Fatalf("%q is not in deviceStatuses, so the workload's own report reads as an unknown status",
+			DeviceNotAttempted)
+	}
 }
 
 // TestAnUnsetDutyRendersWhatThisTraceAlwaysRendered keeps the new axis from moving the old experiment.

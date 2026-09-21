@@ -274,6 +274,19 @@ const (
 // DeviceOK is the only device status that means a kernel actually ran.
 const DeviceOK = "ok"
 
+// DeviceNotAttempted is a workload that never reached for the driver at all, as opposed to one that reached
+// and was refused.
+//
+// The distinction is the whole reading of the resume arms. Their workload skips cuda() entirely when it is
+// given a progress file, because on the device path the loop never advances the accumulator and a resumed
+// attempt would be indistinguishable from one that restored nothing. "no-libcuda" would mean the driver was
+// missing; this means it was not asked for.
+//
+// A constant for the reason DeviceLaunchFailedMidrun is one: the token crosses a language boundary. The
+// embedded Python writes it and this package parses it back, so a rename on one side would silently turn
+// "we did not try" into an unknown status with nothing failing to compile.
+const DeviceNotAttempted = "not-attempted"
+
 // DeviceLaunchFailedMidrun is a card that ran a kernel and then stopped, which is the one failure that says
 // something about the HARDWARE rather than about the image or the passthrough.
 //
@@ -290,7 +303,7 @@ const DeviceLaunchFailedMidrun = "launch-failed-midrun"
 // ptx-load-failed is a kernel this driver would not JIT, and launch-failed-midrun is a card that worked and
 // then stopped. Collapsing them into a bool would turn every one of those into the same shrug.
 var deviceStatuses = map[string]bool{
-	DeviceOK: true, "not-attempted": true, "no-libcuda": true, "cuinit-failed": true, "no-device": true,
+	DeviceOK: true, DeviceNotAttempted: true, "no-libcuda": true, "cuinit-failed": true, "no-device": true,
 	"ctx-failed": true, "ptx-load-failed": true, "no-kernel": true, "alloc-failed": true,
 	"memset-failed": true, "launch-failed": true, DeviceLaunchFailedMidrun: true,
 }

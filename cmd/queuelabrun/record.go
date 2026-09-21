@@ -1743,6 +1743,55 @@ func resumeSupportedByLedger(events []queuelab.LifecycleEvent) error {
 	return nil
 }
 
+// checkpointingArmStayedOffTheDevice refuses a record whose arm checkpoints and whose ledger shows the
+// device path was taken anyway.
+//
+// The resume arms are measured by whether a restored attempt did the same work as an uninterrupted one, and
+// that verdict comes from the accumulator. On the device path the loop launches the kernel and never touches
+// the accumulator, so it holds the seed: a resumed device attempt and a fresh one report the same value, the
+// oracle accepts both, and the count beside it climbs with no work behind it. The verdict IS the measurement
+// for these arms, which is why this is a refusal rather than a work-unavailable note.
+//
+// Scoped by asking the PROTOCOL whether this arm checkpoints, rather than by naming the arms here. A third
+// checkpointing arm added later is covered on the day it is added, and an arm this build does not know is
+// left alone: an unknown arm is refused elsewhere, and guessing here would refuse records this build has no
+// business judging.
+func checkpointingArmStayedOffTheDevice(r runRecord) error {
+	arm := queuelab.Arm(r.Arm)
+	if _, err := arm.PolicyVariant(); err != nil {
+		// Not this function's refusal to make. A record naming an arm this build does not define is judged by
+		// whatever refuses unknown arms, and answering here would put a device verdict on a document whose
+		// experimental condition is already unreadable.
+		return nil
+	}
+	checkpoints := false
+	for _, row := range []string{queuelab.OwnRow, queuelab.VictimRow, queuelab.OwnerRow} {
+		plan, err := arm.StateFor(row)
+		if err != nil {
+			return nil
+		}
+		if plan.Checkpoint {
+			checkpoints = true
+			break
+		}
+	}
+	if !checkpoints {
+		return nil
+	}
+	for i := range r.Events {
+		e := r.Events[i]
+		if e.WorkloadKind != queuelab.KindCUDAFMA {
+			continue
+		}
+		return fmt.Errorf(
+			"decode record: arm %q writes a progress file and row %q reported running %q; on the device path "+
+				"the loop never advances the accumulator, so the checkpoint holds the seed and a resumed "+
+				"attempt is indistinguishable from one that restored nothing",
+			r.Arm, e.Job, e.WorkloadKind)
+	}
+	return nil
+}
+
 func decodeRunRecord(b []byte) (runRecord, error) {
 	dec := json.NewDecoder(bytes.NewReader(b))
 	dec.DisallowUnknownFields()
@@ -2006,6 +2055,21 @@ func checkValidity(r runRecord) error {
 	// well. A document that declares itself inadmissible and still carries a resume its ledger cannot support
 	// is describing a run that did not happen, and the verdict does not make that any less true.
 	if err := resumeSupportedByLedger(r.Events); err != nil {
+		return err
+	}
+	// A checkpointing arm's attempts must all have run on the CPU path, and this is the SAFETY NET rather
+	// than the mechanism.
+	//
+	// The mechanism is in the workload: it skips the driver entirely when it is given a progress file
+	// (internal/queuelab/submit.go), so the device path is unreachable rather than predicted. This exists
+	// because a record is read by builds other than the one that wrote it, and because the alternative check
+	// -- measurement.workload.kind -- cannot answer the question. That field is derived from ONE attempt,
+	// the one VictimAttemptUID picks as ending the hold, and a resumed row has several: a later attempt that
+	// reached the driver would not appear in it at all.
+	//
+	// So the ledger is swept. Every attempt of every row is examined, not only the victim's, because an arm
+	// that checkpointed the wrong row would be a different defect with the same consequence.
+	if err := checkpointingArmStayedOffTheDevice(r); err != nil {
 		return err
 	}
 	// The device claim is re-derived from the record's OWN evidence, which is the whole reason the samples

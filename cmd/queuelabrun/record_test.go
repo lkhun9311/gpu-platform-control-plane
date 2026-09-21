@@ -2962,3 +2962,124 @@ func TestAReExecutedRowStillDiscardsTheAttemptItLost(t *testing.T) {
 			"the defect this filter was added for", got)
 	}
 }
+
+// A checkpointing arm may not have reached the driver on any attempt.
+//
+// The mechanism is in the workload -- it skips cuda() when given a progress file -- and this is the record's
+// safety net, for documents read by builds other than the one that wrote them.
+//
+// It sweeps the LEDGER rather than reading measurement.workload.kind, and the difference is the whole reason
+// it exists: that field is derived from ONE attempt, the one VictimAttemptUID picks as ending the hold, and
+// a resumed row has several. A later attempt that reached the driver would not appear in it at all, which is
+// exactly the case these rows drive.
+//
+// Mutations that turn this red: read only the victim's chosen attempt; scope the check by naming the arms
+// instead of asking the protocol; or let an arm that checkpoints nothing be refused for a device report.
+func TestACheckpointingArmMayNotHaveTouchedTheDevice(t *testing.T) {
+	stop := func(job, uid, kind string) queuelab.LifecycleEvent {
+		return queuelab.LifecycleEvent{
+			Type: queuelab.EventAttemptStopped, Job: job, ObjectUID: uid, WorkloadKind: kind,
+		}
+	}
+	for _, tc := range []struct {
+		name    string
+		arm     string
+		events  []queuelab.LifecycleEvent
+		refused bool
+	}{
+		{
+			name: "a checkpointing arm whose attempts all ran on the CPU",
+			arm:  string(queuelab.ArmEResume),
+			events: []queuelab.LifecycleEvent{
+				stop(queuelab.VictimRow, "u1", queuelab.KindCPUFloat),
+				stop(queuelab.VictimRow, "u2", queuelab.KindCPUFloat),
+			},
+		},
+		{
+			// The case measurement.workload.kind cannot see: the FIRST attempt is the one that ends the hold,
+			// so a device report on a later one is invisible to every check that reads a single attempt.
+			name: "a later attempt of a checkpointing arm that reached the driver",
+			arm:  string(queuelab.ArmEResume),
+			events: []queuelab.LifecycleEvent{
+				stop(queuelab.VictimRow, "u1", queuelab.KindCPUFloat),
+				stop(queuelab.VictimRow, "u2", queuelab.KindCUDAFMA),
+			},
+			refused: true,
+		},
+		{
+			name:    "the control arm of the pair, which checkpoints just as much",
+			arm:     string(queuelab.ArmEFresh),
+			events:  []queuelab.LifecycleEvent{stop(queuelab.VictimRow, "u1", queuelab.KindCUDAFMA)},
+			refused: true,
+		},
+		{
+			// A row other than the victim, because an arm that checkpointed the wrong row is a different
+			// defect with the same consequence.
+			name:    "another row of a checkpointing arm on the device path",
+			arm:     string(queuelab.ArmEResume),
+			events:  []queuelab.LifecycleEvent{stop(queuelab.OwnerRow, "u9", queuelab.KindCUDAFMA)},
+			refused: true,
+		},
+		{
+			// Every arm that predates the pair writes no progress file, so the device path is the ordinary
+			// deliverable and refusing it would refuse every hardware run this lab exists to take.
+			name:   "a non-checkpointing arm on the device path",
+			arm:    string(queuelab.ArmAIgnore),
+			events: []queuelab.LifecycleEvent{stop(queuelab.VictimRow, "u1", queuelab.KindCUDAFMA)},
+		},
+		{
+			// An arm this build does not define is somebody else's refusal to make. Answering here would put
+			// a device verdict on a document whose experimental condition is already unreadable.
+			name:   "an arm this build does not define",
+			arm:    "E-nonsense",
+			events: []queuelab.LifecycleEvent{stop(queuelab.VictimRow, "u1", queuelab.KindCUDAFMA)},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := checkpointingArmStayedOffTheDevice(runRecord{Arm: tc.arm, Events: tc.events})
+			if tc.refused && err == nil {
+				t.Fatalf("arm %q reported the device path and was accepted; the checkpoint would hold the "+
+					"seed while the count climbed", tc.arm)
+			}
+			if !tc.refused && err != nil {
+				t.Fatalf("arm %q was refused: %v", tc.arm, err)
+			}
+			if tc.refused && !strings.Contains(err.Error(), tc.arm) {
+				t.Errorf("the refusal does not name the arm it is about: %v", err)
+			}
+		})
+	}
+}
+
+// The safety net has to be WIRED, and a unit test on the helper cannot tell whether it is.
+//
+// Deleting the call from checkValidity leaves every assertion above green, which is the defect this file has
+// met repeatedly: a judgment that was added and then guarded by nothing.
+//
+// Mutation that turns this red: remove the checkpointingArmStayedOffTheDevice call from checkValidity.
+func TestADecodedRecordCannotShowACheckpointingArmOnTheDevice(t *testing.T) {
+	doc := fmt.Appendf(nil, `{"schemaVersion":%d,"dose":"grace-bounded","runID":"r20","arm":"%s",`+
+		`"disposition":"completed-implemented-checks-passed",`+
+		`"events":[{"elapsedNs":1000,"kind":"Pod","type":"AttemptStopped","job":"%s","objectUID":"u1",`+
+		`"workloadKind":"%s"}],%s}`,
+		recordSchemaVersion, queuelab.ArmEResume, queuelab.VictimRow, queuelab.KindCUDAFMA, refusedValidity)
+	_, err := decodeRunRecord(doc)
+	if err == nil {
+		t.Fatal("a record showing a checkpointing arm on the device path decoded, so its resume verdict " +
+			"would reach a reader with nothing having checked it")
+	}
+	if !strings.Contains(err.Error(), "progress file") {
+		t.Fatalf("refused for some other reason, so this is not testing the wiring: %v", err)
+	}
+
+	// The control: the same document on the CPU path must decode, or a decoder that refused every
+	// checkpointing arm would pass the assertion above.
+	ok := fmt.Appendf(nil, `{"schemaVersion":%d,"dose":"grace-bounded","runID":"r21","arm":"%s",`+
+		`"disposition":"completed-implemented-checks-passed",`+
+		`"events":[{"elapsedNs":1000,"kind":"Pod","type":"AttemptStopped","job":"%s","objectUID":"u1",`+
+		`"workloadKind":"%s"}],%s}`,
+		recordSchemaVersion, queuelab.ArmEResume, queuelab.VictimRow, queuelab.KindCPUFloat, refusedValidity)
+	if _, err := decodeRunRecord(ok); err != nil {
+		t.Fatalf("a checkpointing arm that stayed on the CPU path was refused: %v", err)
+	}
+}
