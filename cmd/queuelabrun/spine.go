@@ -134,10 +134,14 @@ func parseArm(s string) (queuelab.Arm, error) {
 		return queuelab.ArmDFull, nil
 	case queuelab.ArmDQuarter:
 		return queuelab.ArmDQuarter, nil
+	case queuelab.ArmEFresh:
+		return queuelab.ArmEFresh, nil
+	case queuelab.ArmEResume:
+		return queuelab.ArmEResume, nil
 	default:
-		return "", fmt.Errorf("arm must be one of %s, %s, %s, %s, %s; got %q",
+		return "", fmt.Errorf("arm must be one of %s, %s, %s, %s, %s, %s, %s; got %q",
 			queuelab.ArmAHonor, queuelab.ArmAIgnore, queuelab.ArmNRef,
-			queuelab.ArmDFull, queuelab.ArmDQuarter, s)
+			queuelab.ArmDFull, queuelab.ArmDQuarter, queuelab.ArmEFresh, queuelab.ArmEResume, s)
 	}
 }
 

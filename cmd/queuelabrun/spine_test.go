@@ -25,8 +25,28 @@ import (
 	"github.com/lkhun9311/gpu-mlops-platform-control-plane/internal/queuelab"
 )
 
-func TestParseArmAcceptsOnlyTheThreeArms(t *testing.T) {
-	for _, want := range []queuelab.Arm{queuelab.ArmAHonor, queuelab.ArmAIgnore, queuelab.ArmNRef} {
+// The CLI's arm list is the SECOND closed set, and it has to hold every arm the protocol defines.
+//
+// This test listed three arms and was named for them, while the protocol had five: D-full and D-quarter were
+// parseable and unguarded for as long as they existed, and the resume pair joined them. A constant added to
+// the protocol and not to parseArm is an arm that exists and cannot be requested; one added to parseArm and
+// not to the protocol is an arm the CLI accepts and PolicyVariant refuses at a later, stranger point.
+//
+// So the list is derived from the protocol rather than retyped here, which is what stops the two drifting
+// again. Mutations that turn this red: add an arm to internal/queuelab and not to parseArm; or drop a case
+// from parseArm's switch.
+func TestParseArmAcceptsEveryArmTheProtocolDefines(t *testing.T) {
+	// Every arm the protocol defines. PolicyVariant is the protocol's own closed set -- it refuses anything
+	// it does not know -- so an arm missing from this slice fails the sweep below rather than being skipped.
+	arms := []queuelab.Arm{
+		queuelab.ArmAHonor, queuelab.ArmAIgnore, queuelab.ArmNRef,
+		queuelab.ArmDFull, queuelab.ArmDQuarter,
+		queuelab.ArmEFresh, queuelab.ArmEResume,
+	}
+	for _, want := range arms {
+		if _, err := want.PolicyVariant(); err != nil {
+			t.Fatalf("%s is listed here but the protocol does not define it: %v", want, err)
+		}
 		got, err := parseArm(string(want))
 		if err != nil {
 			t.Fatalf("%s: %v", want, err)
@@ -35,11 +55,17 @@ func TestParseArmAcceptsOnlyTheThreeArms(t *testing.T) {
 			t.Fatalf("parseArm(%q) = %q", want, got)
 		}
 	}
-	// The old CLI accepted any study/variant pair, which is how an arm the experiment never defined could
-	// still be run; anything outside the closed set must be refused rather than defaulted.
-	for _, bad := range []string{"", "Any", "reclaim", "fifo", "a-honor", "A-Honor"} {
-		if _, err := parseArm(bad); err == nil {
-			t.Fatalf("parseArm(%q) must be refused", bad)
+
+	// The other direction: parseArm must not accept something the protocol would then refuse. Checked by
+	// asking the protocol about whatever parseArm returns, for a spelling close enough to be a plausible
+	// typo of a real arm.
+	for _, bad := range []string{
+		"", "Any", "reclaim", "fifo", "a-honor", "A-Honor",
+		// Near-misses of arms that DO exist, which is the shape a typed flag actually takes.
+		"D-Full", "E-Resume", "e-resume", "E-resumes", "E",
+	} {
+		if got, err := parseArm(bad); err == nil {
+			t.Fatalf("parseArm(%q) must be refused, got %q", bad, got)
 		}
 	}
 }
