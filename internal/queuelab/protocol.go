@@ -90,13 +90,30 @@ type StatePlan struct {
 	Restore bool
 }
 
+// VariantAny and VariantNever are the two values of Kueue's reclaimWithinCohort that this lab sets.
+//
+// Constants because the string is a VOCABULARY crossing three places that must agree: PolicyVariant produces
+// it, reclaimFixtures switches on it to choose a kueuev1beta2.PreemptionPolicy, and it is stamped into
+// fixture names and labels. A literal repeated across those is the drift this repository keeps being caught
+// by -- one of them edited and the others not, with nothing failing to compile and a run rendering the wrong
+// preemption policy under the right label.
+//
+// They are also what goconst asked for. The linter counted the copies and was right to; the same finding on
+// internal/queuelab/provenance.go was closed the same way in 7c5063a, and the note in .custom-gcl.yml
+// records that this gate reports such findings in CI while a local run of the same tree does not. That makes
+// CI the only instrument here, so the fix is to remove the duplication rather than to argue with the count.
+const (
+	VariantAny   = "Any"
+	VariantNever = "Never"
+)
+
 // PolicyVariant returns the ClusterQueue reclaimWithinCohort setting this arm applies.
 func (a Arm) PolicyVariant() (string, error) {
 	switch a {
 	case ArmAHonor, ArmAIgnore, ArmDFull, ArmDQuarter, ArmEFresh, ArmEResume:
-		return "Any", nil
+		return VariantAny, nil
 	case ArmNRef:
-		return "Never", nil
+		return VariantNever, nil
 	default:
 		return "", fmt.Errorf("unknown arm %q", a)
 	}
