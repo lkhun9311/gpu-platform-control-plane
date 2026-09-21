@@ -13,7 +13,7 @@ resources:
 # ci.yml is written to update exactly this field in both kustomizations in one commit, so the operator and
 # the gateway can never be pinned from different builds.
 images:
-- digest: sha256:b1f471987824c73420c69d11e3ea86d57cef71b5cff0c6bc0d5bf7f39a04edb7
+- digest: sha256:977b7a0b4cecbd1807a414f6c1d4674b99f3c8af488f48e977665d58e69c9e8d
   name: controller
   newName: 007635145730.dkr.ecr.ap-northeast-2.amazonaws.com/gpu-platform-operator
 apiVersion: kustomize.config.k8s.io/v1beta1
