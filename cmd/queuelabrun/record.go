@@ -133,7 +133,17 @@ import (
 // declared identity and endpoint, the window the claim was judged over, and the samples the gate read --
 // and decodeRunRecord re-runs EstablishesDeviceWork against them. A version-17 record carries a boolean and
 // nothing to check it against, which is a different kind of document however the boolean reads.
-const recordSchemaVersion = 19
+// Version 20 makes the WORK CLAIM falsifiable, which is what 18 did for the device claim. Events gained
+// `accumulator`, the deterministic value the CPU loop held when an attempt stopped, and
+// internal/queuelab/oracle.go predicts that value from the iteration count beside it -- so a reader holding
+// nothing but the document can ask whether an attempt did the work its count claims. A version-19 record
+// carries the count alone, and a count with nothing to check it against is exactly the shape the device
+// boolean had before 18.
+//
+// The bump is also forced rather than chosen: decodeRunRecord runs with DisallowUnknownFields, so a record
+// carrying the new field is refused outright by a build that knows only 19. Leaving the version alone would
+// not have kept old builds reading new documents; it would only have cost them the diagnosis.
+const recordSchemaVersion = 20
 
 // runRecord is what a non-preview invocation leaves behind.
 //
@@ -1487,7 +1497,29 @@ func decodeRunRecord(b []byte) (runRecord, error) {
 		// A schema-18 document that DOES carry a device observation is still refused: that one was judged by
 		// the collapsed question, and re-running the split gate over it would reach a verdict its run never
 		// took.
-		if r.SchemaVersion != 18 || recordSchemaVersion != 19 || r.DeviceObservation != nil {
+		// The `recordSchemaVersion == 20` clause is a TRIPWIRE, not a tautology, and it has already fired once.
+		//
+		// The 18 exception was originally spelled with `recordSchemaVersion != 19`, so bumping the constant to
+		// 20 silently withdrew it and every committed `ex/e17-*.json` — the twelve runs this repository's pages
+		// quote — began failing with `schema 18 is not 20`. That is exactly the orphaning the paragraph below
+		// says must not happen, and the clause is what forced a human to decide rather than letting the bump
+		// carry the exception along by accident. Keep it on the next bump for the same reason.
+		//
+		// Two versions are readable under 20:
+		//
+		// 18 WITHOUT a device observation, on the grounds the paragraph below gives, unchanged.
+		//
+		// 19 unconditionally. 20 added `accumulator` to events; a 19 document carries none, which under 20
+		// means what it meant under 19 — the workload of that build did not report one. There is no claim for
+		// the change to have changed, and the field is a pointer, so absence reads as absence rather than as
+		// zero.
+		//
+		// The asymmetry runs the other way and nothing here softens it: a 19 build cannot read a 20 document
+		// at all, because DisallowUnknownFields refuses the new field. What these exceptions buy is that the
+		// runs already on disk stay readable by the build that can check them.
+		readableUnderTwenty := recordSchemaVersion == 20 &&
+			((r.SchemaVersion == 18 && r.DeviceObservation == nil) || r.SchemaVersion == 19)
+		if !readableUnderTwenty {
 			return runRecord{}, fmt.Errorf("decode record: schema %d is not %d", r.SchemaVersion, recordSchemaVersion)
 		}
 	}

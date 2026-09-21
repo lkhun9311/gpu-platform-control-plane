@@ -92,6 +92,16 @@ type ObservedState struct {
 	// three fields empty rather than a guess, because the message is a channel the workload controls.
 	WorkloadKind string
 	DeviceStatus string
+	// Accumulator is the deterministic value the CPU loop held when the container stopped, and it is the only
+	// reading here that can be CHECKED rather than merely recorded.
+	//
+	// oracle.go predicts it from the iteration count, so a pair that disagrees says the attempt did not do the
+	// work its count claims -- which is the question a resumed attempt has to answer and no other field can.
+	//
+	// nil when the message carried none, which is every message from a build whose workload did not report it.
+	// It is also meaningless on the device path: that loop calls the kernel and never touches the value, so
+	// both a resumed and an uninterrupted attempt report the seed and would agree for the wrong reason.
+	Accumulator *float64
 	// DutyCycle is the fraction of its service the workload spent computing, as the workload itself reported
 	// it, and nil when the message did not carry one.
 	//
@@ -159,12 +169,12 @@ func ClassifyJob(job *batchv1.Job) ObservedState {
 // measured to it would undercount exactly the grace window this event exists to capture.
 func ClassifyPod(pod *corev1.Pod) ObservedState {
 	if pod.Status.Phase == corev1.PodSucceeded || pod.Status.Phase == corev1.PodFailed {
-		code, iters, finished, kind, device, duty := soleTerminated(pod)
+		r := soleTerminated(pod)
 		st := ObservedState{Event: EventAttemptStopped, Reason: string(pod.Status.Phase),
-			ExitCode: code, Iterations: iters, ComponentStampUnixNanos: finished,
-			WorkloadKind: kind, DeviceStatus: device}
-		if duty > 0 {
-			st.DutyCycle = &duty
+			ExitCode: r.exitCode, Iterations: r.iterations, ComponentStampUnixNanos: r.finishedUnixNanos,
+			WorkloadKind: r.kind, DeviceStatus: r.device, Accumulator: r.accumulator}
+		if r.duty > 0 {
+			st.DutyCycle = &r.duty
 		}
 		return st
 	}
@@ -202,24 +212,40 @@ func podConditionTrue(pod *corev1.Pod, condType corev1.PodConditionType) bool {
 // grew a sidecar would make any choice here a guess presented as a measurement. nil then reports that the
 // stop was observed but its kind could not be established, which is a weaker claim than a number and the
 // only true one.
-func soleTerminated(pod *corev1.Pod) (code *int32, iters *int, finished *int64, kind, device string, duty float64) {
+// terminatedReading is everything one terminated container status yields.
+//
+// A struct rather than the seven return values this became: they are all readings of ONE status, several of
+// them are optional in the same way, and a positional list that long invites a caller to transpose two of
+// its three string-or-pointer slots without the compiler noticing.
+type terminatedReading struct {
+	exitCode          *int32
+	iterations        *int
+	finishedUnixNanos *int64
+	kind              string
+	device            string
+	duty              float64
+	accumulator       *float64
+}
+
+func soleTerminated(pod *corev1.Pod) terminatedReading {
+	var r terminatedReading
 	for i := range pod.Status.ContainerStatuses {
 		t := pod.Status.ContainerStatuses[i].State.Terminated
 		if t == nil {
 			continue
 		}
-		if code != nil {
-			return nil, nil, nil, "", "", 0
+		if r.exitCode != nil {
+			return terminatedReading{}
 		}
 		c := t.ExitCode
-		code = &c
-		iters, kind, device, duty = ReportFromMessage(t.Message)
+		r.exitCode = &c
+		r.iterations, r.kind, r.device, r.duty, r.accumulator = ReportFromMessage(t.Message)
 		if !t.FinishedAt.IsZero() {
 			f := t.FinishedAt.UnixNano()
-			finished = &f
+			r.finishedUnixNanos = &f
 		}
 	}
-	return code, iters, finished, kind, device, duty
+	return r
 }
 
 // Workload kind tokens, as the workload spells them in its own report.
@@ -278,49 +304,69 @@ var deviceStatuses = map[string]bool{
 // launched, so it cannot appear beside the CPU fallback; and the device kind can only carry ok or the
 // mid-run failure, because every earlier failure returns before the kind is set. A pair outside that
 // relation was not written by this workload.
-func ReportFromMessage(msg string) (iters *int, kind, device string, duty float64) {
+func ReportFromMessage(msg string) (iters *int, kind, device string, duty float64, acc *float64) {
 	fields := strings.Fields(strings.TrimSpace(msg))
-	// Three fields or four. The fourth is the duty cycle, and a message without it came from a build whose
-	// workload could only compute continuously -- so full duty is what it ran at, not a value being guessed.
-	// Accepting both shapes is what keeps every record written before the axis existed readable; refusing the
+	// Three fields, four, or five. Each later shape came from a build the earlier ones could not have written:
+	// the fourth is the duty cycle, the fifth the accumulator. A message without one came from a build whose
+	// workload could not report it -- for duty, full duty is what it ran at rather than a value being guessed.
+	// Accepting every shape is what keeps every record written before an axis existed readable; refusing the
 	// old shape would make this build unable to read its own history, which is a worse failure than the one
 	// the strictness is for.
-	if len(fields) != 3 && len(fields) != 4 {
-		return nil, "", "", 0
+	if len(fields) < 3 || len(fields) > 5 {
+		return nil, "", "", 0, nil
 	}
 	n, err := strconv.Atoi(strings.TrimPrefix(fields[0], "iters="))
 	if !strings.HasPrefix(fields[0], "iters=") || err != nil || n < 0 {
-		return nil, "", "", 0
+		return nil, "", "", 0, nil
 	}
 	if !strings.HasPrefix(fields[1], "kind=") || !strings.HasPrefix(fields[2], "dev=") {
-		return nil, "", "", 0
+		return nil, "", "", 0, nil
 	}
 	k := strings.TrimPrefix(fields[1], "kind=")
 	d := strings.TrimPrefix(fields[2], "dev=")
 	if !deviceStatuses[d] {
-		return nil, "", "", 0
+		return nil, "", "", 0, nil
 	}
 	switch {
 	case k == KindCPUFloat && d != DeviceOK:
 	case k == KindCUDAFMA && (d == DeviceOK || d == DeviceLaunchFailedMidrun):
 	default:
-		return nil, "", "", 0
+		return nil, "", "", 0, nil
 	}
 	u := 1.0
-	if len(fields) == 4 {
+	if len(fields) >= 4 {
 		if !strings.HasPrefix(fields[3], "duty=") {
-			return nil, "", "", 0
+			return nil, "", "", 0, nil
 		}
 		// Refused alongside the rest, for the reason the count is: a duty this build cannot read makes the
 		// iteration count beside it uninterpretable, because how much work an iteration count represents is
 		// exactly what the duty says.
 		v, derr := strconv.ParseFloat(strings.TrimPrefix(fields[3], "duty="), 64)
 		if derr != nil || v <= 0 || v > 1 {
-			return nil, "", "", 0
+			return nil, "", "", 0, nil
 		}
 		u = v
 	}
-	return &n, k, d, u
+	var a *float64
+	if len(fields) == 5 {
+		if !strings.HasPrefix(fields[4], "acc=") {
+			return nil, "", "", 0, nil
+		}
+		// Refused alongside the rest, for the reason duty is. The accumulator is the only value in this
+		// message that can be CHECKED -- oracle.go predicts it from the iteration count -- so a value this
+		// build cannot read is worse than one it does not have: it would leave the count unverifiable while
+		// looking like a message that carried its proof.
+		//
+		// The workload writes it with %.17g, which round-trips a float64 exactly; %g does not, and an
+		// accumulator that arrived rounded would fail an exact comparison for a reason that has nothing to
+		// do with the work the run did.
+		v, aerr := strconv.ParseFloat(strings.TrimPrefix(fields[4], "acc="), 64)
+		if aerr != nil {
+			return nil, "", "", 0, nil
+		}
+		a = &v
+	}
+	return &n, k, d, u, a
 }
 
 // conditionStamp is the component's own transition time for a metav1 condition, or nil when it published none.

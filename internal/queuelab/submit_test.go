@@ -255,7 +255,7 @@ func TestTheShippedWorkloadActuallyRunsAndReportsWhatTheParserExpects(t *testing
 	}
 	final := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(
 		lastLine(string(out))), "finished "))
-	iters, kind, device, _ := ReportFromMessage(final)
+	iters, kind, device, _, _ := ReportFromMessage(final)
 	if iters == nil {
 		t.Fatalf("the parser could not read the report the shipped workload writes: %q\nfull output:\n%s",
 			final, out)
@@ -318,13 +318,76 @@ func TestTheHonoringArmActuallyExitsOnSIGTERM(t *testing.T) {
 			"natural completion\n%s", exit.ExitCode(), termExitCode, buf.String())
 	}
 	final := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(lastLine(buf.String())), "terminated "))
-	if iters, _, _, _ := ReportFromMessage(final); iters == nil {
+	if iters, _, _, _, _ := ReportFromMessage(final); iters == nil {
 		t.Fatalf("the preempted workload left no readable report, which is the evidence the arm exists to "+
 			"produce: %q\n%s", final, buf.String())
 	}
 }
 
 // lastLine is the final non-empty line of the workload's output.
+// TestTheShippedWorkloadReportsAnAccumulatorTheOraclePredicts closes the loop oracle.go was written for.
+//
+// oracle.go predicts a value; this checks that the workload actually REPORTS that value, in a form the parser
+// reads back exactly. Three things have to line up for a resumed attempt to be checkable, and each of them
+// has failed in this repository's history in some form: the workload must emit the number, the parser must
+// accept the wider message, and the text must round-trip a float64 without rounding.
+//
+// The last one is not hypothetical. The workload spells duty with %g, and %g does not round-trip — an
+// accumulator written that way would arrive as 1.00501 and fail an exact comparison for a reason that has
+// nothing to do with the work the run did. That is why this asserts equality rather than closeness: the
+// comparison oracle.go performs is exact, so anything weaker here would pass while the real check could not.
+func TestTheShippedWorkloadReportsAnAccumulatorTheOraclePredicts(t *testing.T) {
+	python, err := exec.LookPath("python3")
+	if err != nil {
+		t.Skipf("no python3 on this host, so the shipped workload cannot be executed here: %v", err)
+	}
+	job, err := RenderMLTrainingJobWithContract(TrainingTraceRow{
+		Index: 0, Name: "probe", Tenant: "lab", GPUCount: 1, DurationSec: 2,
+	}, "queuelab", IgnoresSIGTERM)
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	// Run the rendered argv, for the reason the spec above it does: a test that rebuilt the arguments would
+	// keep passing after the renderer stopped producing them.
+	out, err := exec.Command(python, job.Spec.Command[1:]...).CombinedOutput()
+	if err != nil {
+		t.Fatalf("the workload this build ships did not run:\n%v\n%s", err, out)
+	}
+	final := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(
+		lastLine(string(out))), "finished "))
+
+	iters, kind, device, _, acc := ReportFromMessage(final)
+	if iters == nil {
+		t.Fatalf("the parser could not read the report the shipped workload writes: %q\n%s", final, out)
+	}
+	if acc == nil {
+		t.Fatalf("the shipped workload reported no accumulator, so nothing it does can be checked: %q", final)
+	}
+	// The device path never touches the accumulator, so on a host with a working driver the value is the seed
+	// and predicting it would prove nothing. Skipping is the honest outcome: the oracle is scoped to the CPU
+	// path by the pre-registration, and a developer machine with a GPU must not fail this for being right.
+	if kind != KindCPUFloat {
+		t.Skipf("this host took the %s path (dev=%s), where the accumulator is not advanced", kind, device)
+	}
+
+	p, err := ScriptAccumulatorParams()
+	if err != nil {
+		t.Fatalf("the oracle cannot read the workload it predicts: %v", err)
+	}
+	want, err := AccumulatorAfter(p, *iters)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if *acc != want {
+		t.Errorf("after %d iterations the workload reported %016x and the oracle predicts %016x",
+			*iters, math.Float64bits(*acc), math.Float64bits(want))
+	}
+	same, err := ResumedTheSameWork(p, *iters, *acc)
+	if err != nil || !same {
+		t.Errorf("ResumedTheSameWork rejected the workload's own uninterrupted run: same=%v err=%v", same, err)
+	}
+}
+
 func lastLine(s string) string {
 	lines := strings.Split(strings.TrimSpace(s), "\n")
 	return lines[len(lines)-1]
