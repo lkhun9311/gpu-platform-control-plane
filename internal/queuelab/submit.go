@@ -21,6 +21,8 @@ import (
 	"strconv"
 	"strings"
 
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	platformv1 "github.com/lkhun9311/gpu-mlops-platform-control-plane/api/v1"
@@ -372,11 +374,65 @@ func RenderMLTrainingJob(row TrainingTraceRow, namespace string) (*platformv1.ML
 // `queuelab-<run id>` and refuses a reused id elsewhere, so this name is unique to the run without carrying
 // the id a second time.
 //
-// Nothing in this package creates it. A claim that does not exist leaves the victim Pending, which is the
-// loud failure StateVolume's own documentation argues for -- and the run protocol has to state which storage
-// class it asks for before it creates one, which
-// docs/superpowers/specs/2026-09-21-the-resume-arms-and-what-they-contrast.md registers as still open.
+// StateClaim renders it, and the runner creates it; nothing else in this tree does. A claim that does not
+// exist leaves the victim Pending, which is the loud failure StateVolume's own documentation argues for.
 const StateClaimName = "queuelab-state"
+
+// StateClaimSize is what the claim asks for, and it is not a measurement of anything.
+//
+// The file the workload writes is one short line -- `iters=%d acc=%.17g`, tens of bytes -- so any figure
+// here is larger than the need by orders of magnitude. 1Gi is chosen because it is the smallest request no
+// provisioner in common use rounds up to something surprising, not because the workload approaches it. A
+// reader looking for how much state a resumed run carries must read the file's format, not this constant.
+const StateClaimSize = "1Gi"
+
+// StateClaim renders the PersistentVolumeClaim a checkpointing arm's victim mounts.
+//
+// class is REQUIRED and has no default, which is the whole point of this function existing rather than a
+// claim literal somewhere in the runner. A claim created with an empty storageClassName has chosen the
+// cluster's default class by omission, and that class is exactly what decides whether the arms' contrast is
+// real: on kind it is local-path with WaitForFirstConsumer, which binds the volume wherever the first
+// consumer lands and so happens to solve node affinity by accident, while on a cluster with no default
+// class the claim never binds and the victim waits forever. A lab whose treatment arm silently did not
+// resume would report the difference between the arms as a result. So the caller names the class or there
+// is no claim; api/v1's StateVolume declines to choose one for the API, and this declines to choose one for
+// the run.
+//
+// The labels are the transaction and run stamps only, deliberately not labLabels. The study and variant
+// labels say which QUOTA mechanism an object implements, and a claim implements none of it; stamping this
+// with a variant would put a claim about preemption policy on an object that has nothing to do with it.
+func StateClaim(id FixtureIdentity, class string) (*corev1.PersistentVolumeClaim, error) {
+	if err := id.validate(); err != nil {
+		return nil, err
+	}
+	if class == "" {
+		return nil, fmt.Errorf("no storage class named for %s; a claim created without one takes the "+
+			"cluster's default by omission, and the binding behaviour that follows is what decides whether "+
+			"a replacement Pod can read its predecessor's file at all", StateClaimName)
+	}
+	size, err := resource.ParseQuantity(StateClaimSize)
+	if err != nil {
+		return nil, fmt.Errorf("parsing StateClaimSize %q: %w", StateClaimSize, err)
+	}
+	return &corev1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      StateClaimName,
+			Namespace: id.Namespace,
+			Labels:    map[string]string{TxLabel: id.TxID, runLabel: id.RunID},
+		},
+		Spec: corev1.PersistentVolumeClaimSpec{
+			// ReadWriteOnce because the arms never run two writers: parallelism and completions are pinned to
+			// 1, and a preempted victim's replacement starts after the old Pod is gone. It is also the only
+			// mode every provisioner supports, so asking for ReadWriteMany would make the class the operator
+			// may name depend on a concurrency this lab does not have.
+			AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
+			Resources: corev1.VolumeResourceRequirements{
+				Requests: corev1.ResourceList{corev1.ResourceStorage: size},
+			},
+			StorageClassName: &class,
+		},
+	}, nil
+}
 
 // StateMountPath is where that claim appears inside the trainer container; StateFilePath is the file the
 // workload saves its progress to and, under E-resume, restores from.

@@ -33,8 +33,9 @@ const (
 	dispClientFailed         = disposition("client-failed")
 	dispProtocolBuildFailed  = disposition("protocol-build-failed")
 	dispAcquisitionRefused   = disposition("acquisition-refused")
-	// dispEnvironmentUnqualified is the worker being the wrong machine to measure on, which is a fact about
-	// the cluster rather than a failure of this program to do something.
+	// dispEnvironmentUnqualified is the cluster being unable to host this measurement — the worker being the
+	// wrong machine, or the storage class the arm asked for not existing — which is a fact about the cluster
+	// rather than a failure of this program to do something.
 	//
 	// It is not folded into setup-failed, and the distinction is the point of having a disposition at all: a
 	// setup failure is this run's own Create being refused and the operator's move is to look at this run,
