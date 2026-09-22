@@ -3239,7 +3239,9 @@ func TestARestoringArmMustHaveReadWhatItsPredecessorLeft(t *testing.T) {
 			},
 		},
 		{
-			// The mount the replacement Pod did not get. Both writes succeeded and nothing was read back.
+			// Every write succeeded and nothing was read back. A missing mount on the replacement Pod is the
+			// case this was written for, but it is not the only one that produces this ledger -- an
+			// unreadable or truncated file does too -- and the refusal deliberately does not name a cause.
 			name: "a successor that restored nothing from a predecessor that had something",
 			arm:  string(queuelab.ArmEResume),
 			events: []queuelab.LifecycleEvent{
@@ -3335,8 +3337,10 @@ func TestADecodedRecordCannotShowACheckpointThatNeverLanded(t *testing.T) {
 		t.Errorf("refused for some other reason, so this is not testing the write check: %v", err)
 	}
 
-	// The read side, with every write succeeding: this is the document a missing mount produces, and it is
-	// the one that would otherwise be published as "resuming bought nothing".
+	// The read side, with every write succeeding. This is the document a missing mount produces -- and also
+	// the one an unreadable or truncated checkpoint produces, which is why the refusal reports that the
+	// restore did not happen rather than naming which of those it was. Either way it is the document that
+	// would otherwise be published as "resuming bought nothing".
 	nothingRead := fmt.Appendf(nil, `{"schemaVersion":%d,"dose":"self-completing","runID":"r15",`+
 		`"arm":"E-resume","disposition":"completed-implemented-checks-passed",`+
 		`"events":[{"elapsedNs":1,"kind":"Pod","type":"AttemptStopped","job":"a2-borrow","objectUID":"u1",`+
@@ -3347,6 +3351,22 @@ func TestADecodedRecordCannotShowACheckpointThatNeverLanded(t *testing.T) {
 		t.Error("a record whose restoring victim read nothing back decoded")
 	} else if !strings.Contains(err.Error(), "resuming from none") {
 		t.Errorf("refused for some other reason, so this is not testing the read check: %v", err)
+	} else {
+		// The refusal must not name a CAUSE, and nothing guarded that until this assertion.
+		//
+		// The first version of the message said the missing restore "is a mount the replacement Pod did not
+		// get". The ledger does not establish that: the workload starts fresh from an absent file, a
+		// truncated one, a garbled one and a non-finite accumulator alike, so a missing mount is one of
+		// several causes and the document cannot say which. Removing the overclaim left no test behind, which
+		// a perturbation found by putting it back and watching the suite stay green.
+		if strings.Contains(err.Error(), "is a mount") {
+			t.Errorf("the refusal names one cause as established; the ledger supports only that the restore "+
+				"did not happen: %v", err)
+		}
+		if !strings.Contains(err.Error(), "not in this document") {
+			t.Errorf("the refusal must say that WHY the restore failed is not something this record can "+
+				"answer, or a reader takes the refusal for a diagnosis: %v", err)
+		}
 	}
 }
 

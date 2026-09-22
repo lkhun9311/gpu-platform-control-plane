@@ -125,6 +125,17 @@ func canaryProbeSpecs(canaryID string, c canaryContract) (honor, ignore probeSpe
 // the sidecar, and the reading would be of a workload nobody meant to probe.
 const probeTrainerContainer = "trainer"
 
+// canaryProbeLabel carries the full canary id on every probe Pod, whatever made it.
+//
+// A constant rather than the literal it used to be, because it is now SELECTED on: printRecoverable lists
+// the Pods a stranded holder left instead of rebuilding their names, and a selector spelled by hand in a
+// second place would silently match nothing rather than fail.
+//
+// Its value is the same string as canaryAnnotationKey, and the two are deliberately not shared. One is a
+// Node annotation holding a qualification document; this is a Pod label holding an id. They coincide today
+// and nothing should make a change to one move the other.
+const canaryProbeLabel = "queuelab.gpu-platform/termination-canary"
+
 // canaryPod builds one probe Pod out of the Pod template the operator would actually render.
 //
 // The template is fetched from the same place the key's hash is taken (renderedPodTemplate at
@@ -295,7 +306,7 @@ func probePodFrom(tpl corev1.PodTemplateSpec, canaryID, node, runID string, cont
 	}
 	// Merged into the template's own labels rather than replacing them, for the reason the toleration is
 	// appended: a label the operator puts on the template is part of what a run's Pod carries.
-	meta.Labels["queuelab.gpu-platform/termination-canary"] = canaryID
+	meta.Labels[canaryProbeLabel] = canaryID
 	meta.Labels["queuelab.gpu-platform/contract"] = p.contract
 	// The canary's finalizer REPLACES whatever the template carries, and this is the one overlay that does not
 	// merge. The reason is not symmetry with the others, it is what a finalizer does: it decides when the object

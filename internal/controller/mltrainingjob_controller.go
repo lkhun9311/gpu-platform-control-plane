@@ -178,14 +178,20 @@ func BuildJob(mltj *platformv1.MLTrainingJob) *batchv1.Job {
 	// Attached only when the spec asks for one, and that conditional is what keeps every termination canary
 	// taken before this change valid.
 	//
-	// The canary fingerprints the template this very function renders for templateProbeJob, a fixed synthetic
-	// job that sets no state volume -- so the branch is not taken for it and the rendered bytes, and therefore
-	// canaryKey.PodTemplateHash, are unchanged. That is a mechanical consequence rather than a preference:
-	// the canary SCHEDULES its probe Pod, so a probe naming a claim nobody created would sit Pending forever.
+	// The canary fingerprints the template this very function renders for templateProbeJob, and that synthetic
+	// job DOES set a state volume -- so this branch is taken for it and the hash covers the rendered mount.
+	// Measured rather than assumed: the rendering carries a volume named `state` with claim
+	// `template-probe-state` mounted at `/template-probe-state`.
 	//
-	// The cost is that no canary reaches this path. It is the reason the pre-registration made a
-	// controller-path envtest a requirement of this work rather than an option: without one, the only thing
-	// between a mis-rendered mount and a paid session is a reading no instrument takes.
+	// What the hash covers and what the probe EXECUTES are two different statements, and an earlier version
+	// of this comment collapsed them -- it claimed the branch was not taken at all. The Pod the canary runs
+	// has the volume stripped back off by probePodFrom, because a Pod naming a claim nobody created would sit
+	// Pending forever and the canary SCHEDULES its probe.
+	//
+	// So the cost is narrower than it used to be written, and still real: the hash notices a change to this
+	// mount, and no canary ever RUNS one. That is why the pre-registration made a controller-path envtest a
+	// requirement of this work rather than an option -- without one, the only thing between a mis-rendered
+	// mount and a paid session is a reading no instrument takes.
 	if sv := mltj.Spec.StateVolume; sv != nil {
 		pod.Volumes = []corev1.Volume{{
 			Name: StateVolumeName,
