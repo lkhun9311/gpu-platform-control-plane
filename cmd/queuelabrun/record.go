@@ -1852,11 +1852,12 @@ func checkpointingArmStayedOffTheDevice(r runRecord) error {
 // E-resume restores nothing and reports restoring nothing, which is exactly what a genuine null result
 // reports. A broken apparatus and a real absence of effect must not be the same document.
 //
-// Scoped PER ROW, which is the one way this differs from checkpointingArmStayedOffTheDevice above it. That
-// check sweeps every row because no row of a checkpointing arm may touch the device. Here only the row the
-// protocol says checkpoints is required to have written: the co-tenant and the quota owner are given no
-// state path and report not-attempted honestly, so sweeping every row would refuse every valid record these
-// arms can produce.
+// Scoped PER ROW. Only the row the protocol says checkpoints is required to have written: the co-tenant and
+// the quota owner are given no state path and report not-attempted honestly, so sweeping every row would
+// refuse every valid record these arms can produce.
+//
+// This comment used to say that checkpointingArmStayedOffTheDevice above it differs by sweeping every row.
+// It no longer does, and the sentence outlived the code it described by one commit.
 func checkpointingArmActuallyWrote(r runRecord) error {
 	arm := queuelab.Arm(r.Arm)
 	if _, err := arm.PolicyVariant(); err != nil {
@@ -2133,8 +2134,11 @@ func ledgerSupportsTheDocument(r runRecord) error {
 	// the one VictimAttemptUID picks as ending the hold, and a resumed row has several: a later attempt that
 	// reached the driver would not appear in it at all.
 	//
-	// So the ledger is swept. Every attempt of every row is examined, not only the victim's, because an arm
-	// that checkpointed the wrong row would be a different defect with the same consequence.
+	// So the ledger is swept rather than the summary read -- but the refusal lands only on the row the
+	// protocol says checkpoints. This comment used to finish "every attempt of every row is examined, not
+	// only the victim's, because an arm that checkpointed the wrong row would be a different defect with the
+	// same consequence". That argument was wrong: StateFor gives the state path to the victim alone, so the
+	// co-tenant and the quota owner use the device under these arms exactly as they do under every other one.
 	if err := checkpointingArmStayedOffTheDevice(r); err != nil {
 		return err
 	}

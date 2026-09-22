@@ -87,7 +87,7 @@ repeating.
 
 ### 3. Two refusals, not a weaker reading
 
-Both sit beside `checkpointingArmStayedOffTheDevice` (`cmd/queuelabrun/record.go:1787`) and are scoped the
+Both sit beside `checkpointingArmStayedOffTheDevice` (`cmd/queuelabrun/record.go:1793`) and are scoped the
 same way: by asking the **protocol** whether this arm checkpoints, never by naming arms.
 
 **`checkpointingArmActuallyWrote`** refuses a record whose arm checkpoints and whose ledger holds an attempt
