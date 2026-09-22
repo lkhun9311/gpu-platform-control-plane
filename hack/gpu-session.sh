@@ -389,6 +389,17 @@ prepare() {
   ./queuelabrun -device-preflight -worker "$worker" \
     -device-metrics "${URL_OF[$worker]}" -device-observer "${OBSERVER_OF[$worker]}" \
     | sed 's/^/    /'
+  # The storage probe, and only when a class was named. The checkpointing arms are the only ones that need
+  # it, so a session preparing a node for the other arms must not be made to choose a storage class it will
+  # never use -- but a session that WILL run them must not discover on the meter that the class does not
+  # bind. Nothing else in this harness exercises the state volume: the canary and the preflight both strip
+  # it from their probe Pods.
+  if [ -n "${STATE_CLASS:-}" ]; then
+    echo "  storage    :"
+    ./queuelabrun -state-probe -worker "$worker" -state-class "$STATE_CLASS" | sed 's/^/    /'
+  else
+    echo "  storage    : skipped (set STATE_CLASS to probe it; the checkpointing arms need it)"
+  fi
 }
 
 # The script's first act is to call ./queuelabrun, and a fresh checkout has no such file: the binary is

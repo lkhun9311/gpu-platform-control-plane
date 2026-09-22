@@ -127,6 +127,13 @@ func main() {
 			"derivation the run uses, instead of copying the constants into a shell script where nothing "+
 			"would fail when the two disagree")
 
+		stateProbeFlag = flag.Bool("state-probe", false, "prove on this worker that -state-class binds a "+
+			"claim and that two successive Pods see the same file. Nothing else in this harness asks that: "+
+			"the termination canary and the device preflight both strip the state volume from their probe "+
+			"Pods, so until this mode the first thing to exercise the storage path would have been a paid "+
+			"run of the checkpointing arms. It takes the worker through the ordinary transaction, creates "+
+			"its own claim in the shared probe namespace, and deletes what it made")
+
 		stateClassFlag = flag.String("state-class", "", "the StorageClass to create the resume arms' "+
 			"progress claim with. Required by the checkpointing arms, refused for every other arm, and "+
 			"with no default on purpose: a claim created without a class takes the cluster's by omission, "+
@@ -240,6 +247,9 @@ func main() {
 		DevicePreflight:   *devicePreflightFlag,
 		DeviceMetrics:     *deviceMetricsFlag,
 		DeviceObserver:    *deviceObserverFlag,
+
+		StateProbe: *stateProbeFlag,
+		StateClass: *stateClassFlag,
 
 		ReleaseStale: *releaseStaleFlag,
 		TxID:         *txidFlag,
@@ -596,6 +606,10 @@ func dispatchOperatorMode(connect clusterClientFunc, args operatorModeArgs) (fir
 		// which are things happening on a cluster rather than intervals a test needs to skip past.
 		return true, devicePreflight(ctx, c, args.Worker, args.DeviceMetrics, args.DeviceObserver,
 			time.Now, time.Sleep, os.Stdout)
+	case modeStateProbe:
+		// The real clock, for the same reason, with one addition: under WaitForFirstConsumer the volume is
+		// provisioned while the writer is scheduled, so part of this budget is a storage backend doing work.
+		return true, stateProbe(ctx, c, args.Worker, args.StateClass, time.Now, time.Sleep, os.Stdout)
 	case modeReleaseStale:
 		return true, releaseStale(ctx, c, args.Worker, args.TxID)
 	case modeForceRelease:

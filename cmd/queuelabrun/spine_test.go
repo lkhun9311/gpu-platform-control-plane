@@ -290,6 +290,50 @@ func TestDecideOperatorMode(t *testing.T) {
 			wantErr:    true,
 			wantErrHas: "-runid",
 		},
+		{
+			// The storage probe needs a class, and refusing here costs a flag rather than a node: without it
+			// the mode would take the worker, create a claim under the cluster's DEFAULT class, and report on
+			// storage nobody asked about — the very substitution a run refuses to make.
+			//
+			// Mutation that turns this row red: drop the StateClass check from the StateProbe case.
+			name:       "state-probe without a class refuses",
+			args:       operatorModeArgs{StateProbe: true},
+			wantErr:    true,
+			wantErrHas: "-state-class",
+		},
+		{
+			name:     "state-probe with a class dispatches",
+			args:     operatorModeArgs{StateProbe: true, StateClass: "fast-ssd"},
+			wantMode: modeStateProbe,
+		},
+		{
+			// Mutation that turns this row red: leave StateProbe out of the count above the switch. Two modes
+			// are then requested and only one is seen, so the probe silently runs the inspection.
+			name:       "state-probe alongside another mode refuses",
+			args:       operatorModeArgs{StateProbe: true, StateClass: "fast-ssd", Inspect: true},
+			wantErr:    true,
+			wantErrHas: "only one of",
+		},
+		{
+			// -state-class belongs to this mode and to a run, and to nothing else. A recovery mode that
+			// accepted it would look configured to its author while creating no claim at all.
+			//
+			// Mutation that turns this row red: delete the `!a.StateProbe && a.StateClass != ""` refusal.
+			name:       "a class named beside a mode that creates no claim refuses",
+			args:       operatorModeArgs{Inspect: true, StateClass: "fast-ssd"},
+			wantErr:    true,
+			wantErrHas: "-state-class",
+		},
+		{
+			// A probe is not a run, so an invocation that names a run id was written by somebody expecting
+			// something this mode does not do.
+			name: "state-probe combined with run-only flags refuses",
+			args: operatorModeArgs{
+				StateProbe: true, StateClass: "fast-ssd", RunOnlyFlags: []string{"-runid"},
+			},
+			wantErr:    true,
+			wantErrHas: "-runid",
+		},
 	}
 
 	for _, tc := range cases {
