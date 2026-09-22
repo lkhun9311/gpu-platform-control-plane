@@ -86,13 +86,21 @@ type journal struct {
 	NodeUID string `json:"nodeUID"`
 	// Kind says WHAT holds this worker, and it exists because the two holders recover differently.
 	//
-	// A run's objects regenerate from Study, Variant and Namespace through the fixture builder. The canary
-	// builds no fixtures at all: it creates two Pods whose names are derived from its own id, inside a SHARED
-	// namespace that must never be deleted. A first attempt gave the canary synthetic study and variant
-	// values purely to satisfy this document's non-empty checks — which made the journal look recoverable
-	// while enumerate failed on it every time, the precise defect this whole record exists to prevent.
+	// A run's objects regenerate from Study, Variant and Namespace through the fixture builder. A probe
+	// builds no fixtures at all: it creates Pods inside a SHARED namespace that must never be deleted. A
+	// first attempt gave the canary synthetic study and variant values purely to satisfy this document's
+	// non-empty checks — which made the journal look recoverable while enumerate failed on it every time,
+	// the precise defect this whole record exists to prevent.
+	//
+	// This kind covers BOTH probes: the termination canary, which makes two Pods, and the device preflight,
+	// which makes one. They are not distinguished here, and that is now harmless because recovery lists the
+	// Pods rather than rebuilding their names. It was not harmless before: printRecoverable reconstructed the
+	// canary's two names for every holder of this kind, so a stranded preflight named two Pods that had never
+	// existed and omitted the one that had.
 	Kind string `json:"kind"`
-	// CanaryID is set for ownerCanary only, and is enough to rebuild both probe names.
+	// CanaryID is set for ownerCanary only. It is the value every probe Pod carries in canaryProbeLabel, so
+	// it is what recovery SELECTS on — it is no longer used to rebuild a name, and must not be again: the two
+	// probe kinds name their Pods differently and only the cluster knows which ones exist.
 	CanaryID string `json:"canaryID,omitempty"`
 	// Study, Variant and Namespace are here so that teardown can be reconstructed from the NODE alone.
 	//

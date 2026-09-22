@@ -410,10 +410,15 @@ func TestAGPURequestingPodDeclaresTheDriverLibrariesItNeeds(t *testing.T) {
 
 // A job that asks for no state volume renders exactly what it rendered before the field existed.
 //
-// This is the assertion that keeps every termination canary taken before the field valid. The canary
-// fingerprints the template BuildJob renders for templateProbeJob, which sets no state volume, so the bytes
-// must be unchanged -- and "unchanged" here means nil rather than an empty slice, because an empty
-// []corev1.Volume marshals to `"volumes":[]` and would move the hash while looking like nothing.
+// This is the assertion that keeps every termination canary taken before the field valid -- for the jobs that
+// ask for nothing, which is what this test drives. "Unchanged" here means nil rather than an empty slice,
+// because an empty []corev1.Volume marshals to `"volumes":[]` and would move the hash while looking like
+// nothing.
+//
+// It used to say the canary's own template job "sets no state volume". That stopped being true when the
+// sentinel was added to templateProbeJob: the canary's fingerprint DOES cover a rendered mount now. The
+// property this test pins is the conditional itself -- a job whose spec asks for no volume gets none -- and
+// that is what keeps a hash taken before the field from moving.
 //
 // Mutations that turn this red: attach the volume unconditionally; or initialise Volumes to an empty slice.
 func TestAJobAsksForNoVolumeUnlessItsSpecAsksForOne(t *testing.T) {

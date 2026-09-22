@@ -1906,11 +1906,18 @@ func restoringArmActuallyRestored(r runRecord) error {
 			if p.ElapsedNs >= e.ElapsedNs || p.Iterations == nil || *p.Iterations == 0 {
 				continue
 			}
+			// The message says what the ledger ESTABLISHES and stops there. An earlier version named the
+			// cause -- "a mount the replacement Pod did not get" -- and that was more than the evidence
+			// carries: the workload treats an absent file, a truncated one, a garbled one and a non-finite
+			// accumulator all the same way, by starting fresh (internal/queuelab/submit.go). A missing mount
+			// is one of those causes and the document cannot tell which. What it does establish is that the
+			// restore this arm is defined by did not happen, and that is enough to refuse.
 			return fmt.Errorf(
 				"decode record: arm %q restores row %q, an earlier attempt of that row reached %d iterations, "+
-					"and the attempt after it reports resuming from none; a checkpoint that was written and "+
-					"never read back is a mount the replacement Pod did not get, not a run in which resuming "+
-					"bought nothing",
+					"and the attempt after it reports resuming from none; the restore this arm is defined by "+
+					"did not happen, so the run cannot be read as one in which resuming bought nothing. Why it "+
+					"did not happen is not in this document: a missing mount, an unreadable file and a "+
+					"truncated one all produce this",
 				r.Arm, e.Job, *p.Iterations)
 		}
 	}
