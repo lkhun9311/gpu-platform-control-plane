@@ -3070,12 +3070,26 @@ func TestACheckpointingArmMayNotHaveTouchedTheDevice(t *testing.T) {
 			refused: true,
 		},
 		{
-			// A row other than the victim, because an arm that checkpointed the wrong row is a different
-			// defect with the same consequence.
-			name:    "another row of a checkpointing arm on the device path",
-			arm:     string(queuelab.ArmEResume),
-			events:  []queuelab.LifecycleEvent{stop(queuelab.OwnerRow, "u9", queuelab.KindCUDAFMA)},
-			refused: true,
+			// THE row this check got wrong, and it would have cost a paid session.
+			//
+			// This case asserted a refusal, on the argument that "an arm that checkpointed the wrong row is a
+			// different defect with the same consequence". StateFor gives the state path to the VICTIM
+			// alone, so under E-fresh and E-resume the quota owner renders no progress file, never takes the
+			// workload's checkpoint gate, and uses the device exactly as it does under every other arm.
+			// Refusing it refuses every E record a real GPU node can produce — and on kind, where nothing
+			// reaches a driver, nothing would ever have shown it.
+			//
+			// Mutation that turns this red: sweep every row again instead of asking StateFor per event.
+			name:   "the quota owner of a checkpointing arm, which is not asked to checkpoint",
+			arm:    string(queuelab.ArmEResume),
+			events: []queuelab.LifecycleEvent{stop(queuelab.OwnerRow, "u9", queuelab.KindCUDAFMA)},
+		},
+		{
+			// And the co-tenant, for the same reason: a1 borrows quota and holds a device, and no arm gives
+			// it a progress file.
+			name:   "the co-tenant of a checkpointing arm, which is not asked to checkpoint either",
+			arm:    string(queuelab.ArmEFresh),
+			events: []queuelab.LifecycleEvent{stop(queuelab.OwnRow, "u8", queuelab.KindCUDAFMA)},
 		},
 		{
 			// Every arm that predates the pair writes no progress file, so the device path is the ordinary
@@ -3389,7 +3403,9 @@ func TestADecodedRecordCannotShowACheckpointingArmOnTheDevice(t *testing.T) {
 		t.Fatal("a record showing a checkpointing arm on the device path decoded, so its resume verdict " +
 			"would reach a reader with nothing having checked it")
 	}
-	if !strings.Contains(err.Error(), "progress file") {
+	// The refusal's own words, which changed when the check became per-row: it used to say the arm "writes a
+	// progress file" and now names the ROW that checkpoints, because the row is what the scoping turns on.
+	if !strings.Contains(err.Error(), "checkpoints row") {
 		t.Fatalf("refused for some other reason, so this is not testing the wiring: %v", err)
 	}
 

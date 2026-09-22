@@ -1780,10 +1780,16 @@ func resumeSupportedByLedger(events []queuelab.LifecycleEvent) error {
 // oracle accepts both, and the count beside it climbs with no work behind it. The verdict IS the measurement
 // for these arms, which is why this is a refusal rather than a work-unavailable note.
 //
-// Scoped by asking the PROTOCOL whether this arm checkpoints, rather than by naming the arms here. A third
-// checkpointing arm added later is covered on the day it is added, and an arm this build does not know is
-// left alone: an unknown arm is refused elsewhere, and guessing here would refuse records this build has no
-// business judging.
+// Scoped by asking the PROTOCOL twice: whether this arm checkpoints at all, and then, per event, whether the
+// row that event belongs to is the row that checkpoints. A third checkpointing arm added later is covered on
+// the day it is added, and an arm this build does not know is left alone — an unknown arm is refused
+// elsewhere, and guessing here would refuse records this build has no business judging.
+//
+// The per-row half was missing, and its absence would have cost a paid session. The first version swept
+// every row and argued that "an arm that checkpointed the wrong row is a different defect with the same
+// consequence". That argument is wrong: StateFor gives the state path to the victim alone, so the co-tenant
+// and the quota owner legitimately use the device under these arms, and refusing their CUDA reports refuses
+// every E record a GPU node can produce. On kind, where nothing reaches a driver, the defect is invisible.
 func checkpointingArmStayedOffTheDevice(r runRecord) error {
 	arm := queuelab.Arm(r.Arm)
 	if _, err := arm.PolicyVariant(); err != nil {
@@ -1811,8 +1817,22 @@ func checkpointingArmStayedOffTheDevice(r runRecord) error {
 		if e.WorkloadKind != queuelab.KindCUDAFMA {
 			continue
 		}
+		// PER ROW, and the first version of this loop was not — it refused any row's CUDA report and said so
+		// in its own comment. That was wrong, and wrong in the direction that would have shown up only on
+		// rented hardware: StateFor gives a state path to the VICTIM alone, so under E-fresh and E-resume the
+		// co-tenant and the quota owner render no progress file, never take the workload's checkpoint gate,
+		// and use the device exactly as they do under every other arm. A sweep over every row therefore
+		// refuses every E record a real GPU node can produce.
+		//
+		// What the refusal is actually about is the accumulator: on the device path the loop launches the
+		// kernel and never advances it, so a CHECKPOINTING row that reached the driver would report the seed
+		// whether it restored or not. That is true of the row that checkpoints and of no other.
+		plan, err := arm.StateFor(e.Job)
+		if err != nil || !plan.Checkpoint {
+			continue
+		}
 		return fmt.Errorf(
-			"decode record: arm %q writes a progress file and row %q reported running %q; on the device path "+
+			"decode record: arm %q checkpoints row %q and that row reported running %q; on the device path "+
 				"the loop never advances the accumulator, so the checkpoint holds the seed and a resumed "+
 				"attempt is indistinguishable from one that restored nothing",
 			r.Arm, e.Job, e.WorkloadKind)
