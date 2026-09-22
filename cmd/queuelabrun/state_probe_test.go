@@ -57,7 +57,18 @@ func TestTheStateProbePodMountsTheClaimARunWouldMount(t *testing.T) {
 
 	// And the command writes INSIDE that mount, or the probe would exercise the container filesystem and
 	// report success for a volume it never touched.
-	cmd := pod.Spec.Containers[0].Command
+	// The trainer BY NAME, as the builder finds it. Reading Containers[0] would check the wrong container's
+	// command the day the operator's template grows a sidecar in front of the trainer -- which is the same
+	// index-versus-name trap probeTrainerContainer's own comment describes.
+	var cmd []string
+	for i := range pod.Spec.Containers {
+		if pod.Spec.Containers[i].Name == probeTrainerContainer {
+			cmd = pod.Spec.Containers[i].Command
+		}
+	}
+	if cmd == nil {
+		t.Fatalf("the probe has no %q container, so nothing carries the workload's command", probeTrainerContainer)
+	}
 	if len(cmd) < 2 || !strings.HasPrefix(cmd[len(cmd)-2], queuelab.StateMountPath+"/") {
 		t.Fatalf("the probe's target path %v is not inside the mount, so it would write into the container "+
 			"filesystem and lose it with the Pod", cmd)
@@ -145,15 +156,20 @@ func TestTheStateProbePodIsFindableWhenItIsStranded(t *testing.T) {
 	if pod.Namespace != canaryNamespace {
 		t.Fatalf("the probe is in namespace %q, not the shared %q recovery searches", pod.Namespace, canaryNamespace)
 	}
-	var held bool
+	// And NO finalizer, which is the opposite of what the canary's probes carry.
+	//
+	// The canary needs one because it deletes its probe in order to measure the response, so the object has
+	// to outlive that delete. Nothing deletes this probe's Pods before their terminal status is read, so a
+	// finalizer here buys nothing and leaves an object that cannot go away until something releases it. A
+	// first version copied it across with the canary's reason written on it, which was a false invariant.
+	//
+	// Mutation that turns this red: put canaryFinalizer back on the probe's Pods.
 	for _, f := range pod.Finalizers {
 		if f == canaryFinalizer {
-			held = true
+			t.Fatalf("the probe carries the canary's %q finalizer; nothing deletes these Pods before they "+
+				"are read, so it only makes them un-removable until something remembers to strip it",
+				canaryFinalizer)
 		}
-	}
-	if !held {
-		t.Fatalf("the probe carries no %q finalizer, so its terminal status can be garbage-collected before "+
-			"the handoff reads it: %v", canaryFinalizer, pod.Finalizers)
 	}
 }
 
