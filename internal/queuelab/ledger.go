@@ -82,6 +82,16 @@ type LifecycleEvent struct {
 	// Absent for every attempt written before the resume arm existed, and absent together with the fields
 	// beside it when the message could not be read -- they are readings of ONE message.
 	Resumed *int `json:"resumed,omitempty"`
+	// SaveStatus is whether this attempt's own checkpoint writes succeeded, over the workload's closed set.
+	//
+	// In the LEDGER rather than derived at write time, for the reason WorkloadKind is: the record's claim
+	// about a resume arm is only as good as the evidence a reader holding nothing but this JSON can re-derive
+	// it from. A checkpointing arm whose file never landed did not run a weaker version of the experiment --
+	// it ran a different one, and cmd/queuelabrun/record.go refuses the document rather than noting it.
+	//
+	// Absent for every attempt written before the field existed, and absent together with the fields beside
+	// it when the message could not be read -- they are readings of ONE message.
+	SaveStatus string `json:"saveStatus,omitempty"`
 	// DutyCycle is the fraction of its service the workload reported computing for, absent when the message
 	// carried none -- which is every record written before the axis existed, and those ran at full duty
 	// because full duty was all the workload could do.

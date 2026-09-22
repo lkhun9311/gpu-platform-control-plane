@@ -136,7 +136,7 @@ duty=float(sys.argv[3]) if len(sys.argv)>3 else 1.0
 state=sys.argv[4] if len(sys.argv)>4 and sys.argv[4] else None
 restore=len(sys.argv)>5 and sys.argv[5]=="resume"
 PERIOD=2.6
-n=0; kind="cpu-float"; dev="not-attempted"; x=1.0; acc=1.0; resumed=0
+n=0; kind="cpu-float"; dev="not-attempted"; x=1.0; acc=1.0; resumed=0; saved="not-attempted"
 # Restore, and treat anything unreadable as a fresh start rather than as progress.
 #
 # A truncated or garbled file is not a smaller amount of work, it is an unknown amount, and resuming from a
@@ -160,12 +160,27 @@ def save():
     # tmp + os.replace, the same shape record_write.go uses, because this file is read by the NEXT process.
     # The termination log can afford a torn write -- it loses one report -- but a torn state file is read as
     # progress that did not happen.
+    #
+    # The exception is still SWALLOWED rather than fatal, and that is deliberate. A workload that died on a
+    # failed checkpoint would leave no final termination message, so the run would be unreadable instead of
+    # refused -- and an unreadable run is the outcome every refusal in this study is arranged to avoid.
+    #
+    # What changes is that the failure is now REPORTED. Without it a read-only mount, a full disk or a missing
+    # directory produced a run byte-identical to a successful one: E-resume restored nothing and said so, and
+    # "resuming bought nothing" is exactly what a broken mount also writes.
+    #
+    # Sticky: once a write has raised, the token stays "failed" however many later writes succeed. A volume
+    # that failed once and then worked is a volume at its limit, and a resume arm measured on it is not a
+    # clean reading. Over-strict in the direction this lab prefers -- a plausible wrong number is worse than
+    # a refusal.
+    global saved
     if not state: return
     try:
         t=state+".tmp"
         g=open(t,"w"); g.write("iters=%d acc=%.17g"%(n,acc)); g.flush(); os.fsync(g.fileno()); g.close()
         os.replace(t,state)
-    except Exception: pass
+        if saved!="failed": saved="ok"
+    except Exception: saved="failed"
 PTX=b""".version 6.3
 .target sm_75
 .address_size 64
@@ -198,7 +213,7 @@ ret;
 """
 try: tl=open("/dev/termination-log","w")
 except Exception: tl=None
-def msg(): return "iters=%d kind=%s dev=%s duty=%g acc=%.17g resumed=%d"%(n,kind,dev,duty,acc,resumed)
+def msg(): return "iters=%d kind=%s dev=%s duty=%g acc=%.17g resumed=%d saved=%s"%(n,kind,dev,duty,acc,resumed,saved)
 def mark():
     if tl is None: return
     tl.seek(0); tl.write(msg()); tl.truncate(); tl.flush()

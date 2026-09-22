@@ -158,7 +158,7 @@ import (
 // A version-20 record carries no such field, which under 21 means what it meant under 20: that build's
 // workload always began at zero. So 20 is readable, on the same terms 19 and 18 are, and for the same reason
 // -- refusing them would orphan evidence this build reads correctly.
-const recordSchemaVersion = 21
+const recordSchemaVersion = 22
 
 // runRecord is what a non-preview invocation leaves behind.
 //
@@ -1622,12 +1622,12 @@ func encodeRecord(v any) ([]byte, error) {
 // A predicate rather than an expression inside decodeRunRecord, because that decoder sits at the complexity
 // limit this repository keeps on production code -- extracting it is how the same limit was met at 20.
 //
-// The `recordSchemaVersion == 21` clause is a TRIPWIRE and has fired twice now. Written as a comparison
-// against the constant, it withdraws every exception the moment the constant moves, which is what forces a
-// human to decide what an older document means under the new rules rather than letting the bump carry the
-// answer along by accident. Keep it on the next bump.
+// The `recordSchemaVersion == 22` clause is a TRIPWIRE and has fired three times now. Written as a
+// comparison against the constant, it withdraws every exception the moment the constant moves, which is what
+// forces a human to decide what an older document means under the new rules rather than letting the bump
+// carry the answer along by accident. Keep it on the next bump.
 func readableUnderCurrentSchema(r runRecord) bool {
-	if recordSchemaVersion != 21 {
+	if recordSchemaVersion != 22 {
 		return false
 	}
 	// A document carrying a field its own version could not produce is a relabelled newer record, not
@@ -1647,17 +1647,40 @@ func readableUnderCurrentSchema(r runRecord) bool {
 	case 18:
 		// 18 without an observation is byte-identical in meaning under the split device question; with one it
 		// was judged by the collapsed question and is refused rather than reinterpreted.
-		return r.DeviceObservation == nil &&
-			!anyEventCarriesAccumulator(r.Events) && !anyEventCarriesResume(r.Events)
+		return r.DeviceObservation == nil && !anyEventCarriesAccumulator(r.Events) &&
+			!anyEventCarriesResume(r.Events) && !anyEventCarriesSaveStatus(r.Events)
 	case 19:
-		return !anyEventCarriesAccumulator(r.Events) && !anyEventCarriesResume(r.Events)
+		return !anyEventCarriesAccumulator(r.Events) && !anyEventCarriesResume(r.Events) &&
+			!anyEventCarriesSaveStatus(r.Events)
 	case 20:
-		// The version that introduced the accumulator, so carrying one is what a 20 looks like. Only a resume
-		// point, which arrived in 21, marks it as relabelled.
-		return !anyEventCarriesResume(r.Events)
+		// The version that introduced the accumulator, so carrying one is what a 20 looks like. A resume
+		// point (21) or a save status (22) marks it as relabelled.
+		return !anyEventCarriesResume(r.Events) && !anyEventCarriesSaveStatus(r.Events)
+	case 21:
+		// The version that introduced the resume point, so carrying one is what a 21 looks like. Only a save
+		// status, which arrived in 22, marks it as relabelled.
+		//
+		// Written as its own case rather than folded into 20, because collapsing them is the shape of the
+		// defect this switch already made once: asking every version the same question refused schema 20
+		// documents for carrying the very field 20 introduced.
+		return !anyEventCarriesSaveStatus(r.Events)
 	default:
 		return false
 	}
+}
+
+// anyEventCarriesSaveStatus reports whether the ledger holds a reading only a schema-22 build could take.
+//
+// Same argument as anyEventCarriesResume: DisallowUnknownFields does not enforce the premise, because
+// decoding uses today's struct and `saveStatus` is a known field at every version. A 22 record relabelled 21
+// would otherwise pass as evidence taken under rules where a failed checkpoint could not be seen at all.
+func anyEventCarriesSaveStatus(events []queuelab.LifecycleEvent) bool {
+	for i := range events {
+		if events[i].SaveStatus != "" {
+			return true
+		}
+	}
+	return false
 }
 
 // anyEventCarriesResume reports whether the ledger holds a reading only a schema-21 build could take.
@@ -1700,10 +1723,15 @@ func anyEventCarriesAccumulator(events []queuelab.LifecycleEvent) bool {
 // Matched on the ROW and against a DIFFERENT attempt identity, because a resume point is a claim about what
 // a predecessor left behind. A rule that compared counts alone would let an event stand as its own evidence.
 //
-// The bound is `>=` and not `==`, which is the one place this is deliberately loose. The workload's save()
-// swallows its own exceptions, so a state file can lag the message its writer went on to print: a torn write
-// leaves the successor restoring FEWER iterations than its predecessor reported, which is honest and smaller.
+// The bound is `>=` and not `==`, which is the one place this is deliberately loose. The loop keeps running
+// after its last successful write, so a state file legitimately lags the message its writer went on to
+// print: the successor restores FEWER iterations than its predecessor reported, which is honest and smaller.
 // Restoring more is the direction nothing can produce.
+//
+// That reason used to be stated as "save() swallows its own exceptions". It still does, but that is no
+// longer why the bound is loose: since schema 22 a swallowed failure is REPORTED, and
+// checkpointingArmActuallyWrote refuses the document rather than letting this bound absorb it. The lag above
+// is the real reason and holds whether or not anything is swallowed.
 //
 // Every event is examined rather than only the stopped ones. A forged document that hung a resume point on a
 // readiness event would otherwise carry an unattributable count through a check written for its neighbours.
@@ -1788,6 +1816,103 @@ func checkpointingArmStayedOffTheDevice(r runRecord) error {
 				"the loop never advances the accumulator, so the checkpoint holds the seed and a resumed "+
 				"attempt is indistinguishable from one that restored nothing",
 			r.Arm, e.Job, e.WorkloadKind)
+	}
+	return nil
+}
+
+// checkpointingArmActuallyWrote refuses a record whose arm checkpoints and whose ledger shows the progress
+// file was not written.
+//
+// Until schema 22 this could not be asked. save() swallows its own exceptions -- and must go on doing so,
+// because a workload that died on a failed write would leave no final message at all and an unreadable run
+// is worse than a refused one -- so a read-only mount, a full disk or a missing directory produced a run
+// byte-identical to a successful one.
+//
+// That is the failure that matters most for these arms, because it hides in the direction nobody questions:
+// E-resume restores nothing and reports restoring nothing, which is exactly what a genuine null result
+// reports. A broken apparatus and a real absence of effect must not be the same document.
+//
+// Scoped PER ROW, which is the one way this differs from checkpointingArmStayedOffTheDevice above it. That
+// check sweeps every row because no row of a checkpointing arm may touch the device. Here only the row the
+// protocol says checkpoints is required to have written: the co-tenant and the quota owner are given no
+// state path and report not-attempted honestly, so sweeping every row would refuse every valid record these
+// arms can produce.
+func checkpointingArmActuallyWrote(r runRecord) error {
+	arm := queuelab.Arm(r.Arm)
+	if _, err := arm.PolicyVariant(); err != nil {
+		// Not this function's refusal to make, for the reason the device check gives: a record naming an arm
+		// this build does not define is judged by whatever refuses unknown arms, and answering here would put
+		// a storage verdict on a document whose experimental condition is already unreadable.
+		return nil
+	}
+	for i := range r.Events {
+		e := r.Events[i]
+		// An empty status is one this build cannot ask about: an admission or readiness event, which carries
+		// no container message at all, or an attempt whose message could not be parsed. Refusing those here
+		// would refuse every document written before the field existed, and what an older document means is
+		// readableUnderCurrentSchema's judgment rather than this one's.
+		if e.SaveStatus == "" || e.SaveStatus == queuelab.SaveOK {
+			continue
+		}
+		plan, err := arm.StateFor(e.Job)
+		if err != nil || !plan.Checkpoint {
+			continue
+		}
+		return fmt.Errorf(
+			"decode record: arm %q checkpoints row %q and that row's attempt reports saved=%q; a victim whose "+
+				"progress file never landed did not run a weaker version of this experiment, it ran a "+
+				"different one, and its resume point cannot be told apart from a genuine null result",
+			r.Arm, e.Job, e.SaveStatus)
+	}
+	return nil
+}
+
+// restoringArmActuallyRestored refuses a record whose arm restores and whose ledger shows a later attempt
+// restoring nothing from a predecessor that had something to leave it.
+//
+// This is the half the write status cannot reach. If the replacement Pod's mount is missing, every write the
+// predecessor attempted succeeded -- saved=ok, truthfully -- and the successor still starts from zero. It
+// reports resumed=0, and resumeSupportedByLedger skips events whose resume point is zero, because its
+// question is whether a CLAIMED resume has support. The opposite question, whether a resume that should have
+// happened did, went unasked, and unasked it produces the same false null as a failed write.
+//
+// The two compose, which is why both exist: either the predecessor's write failed and
+// checkpointingArmActuallyWrote refuses, or it succeeded and this requires the successor to have read it.
+//
+// Matched on the ROW and against a DIFFERENT attempt identity, the same way resumeSupportedByLedger is. An
+// event must not stand as its own evidence, and a predecessor that reached no iterations left nothing to
+// restore -- which is why the bound is `> 0` rather than merely present.
+func restoringArmActuallyRestored(r runRecord) error {
+	arm := queuelab.Arm(r.Arm)
+	if _, err := arm.PolicyVariant(); err != nil {
+		return nil
+	}
+	for i := range r.Events {
+		e := r.Events[i]
+		// nil is a build that could not say. A non-zero point is a resume that happened, and whether it had
+		// support is resumeSupportedByLedger's question rather than this one's.
+		if e.Type != queuelab.EventAttemptStopped || e.Resumed == nil || *e.Resumed > 0 {
+			continue
+		}
+		plan, err := arm.StateFor(e.Job)
+		if err != nil || !plan.Restore {
+			continue
+		}
+		for j := range r.Events {
+			p := r.Events[j]
+			if p.Type != queuelab.EventAttemptStopped || p.Job != e.Job || p.ObjectUID == e.ObjectUID {
+				continue
+			}
+			if p.ElapsedNs >= e.ElapsedNs || p.Iterations == nil || *p.Iterations == 0 {
+				continue
+			}
+			return fmt.Errorf(
+				"decode record: arm %q restores row %q, an earlier attempt of that row reached %d iterations, "+
+					"and the attempt after it reports resuming from none; a checkpoint that was written and "+
+					"never read back is a mount the replacement Pod did not get, not a run in which resuming "+
+					"bought nothing",
+				r.Arm, e.Job, *p.Iterations)
+		}
 	}
 	return nil
 }
@@ -1945,6 +2070,63 @@ func decodeRunRecord(b []byte) (runRecord, error) {
 // verdictAdmissible is the strongest thing this file can say and the one somebody would forge, so it is the
 // one required to be re-derivable from the evidence printed beside it: a verdict that does not follow from
 // the fields is a verdict, not evidence.
+// ledgerSupportsTheDocument runs every check that asks whether this record's own events bear out what the
+// document claims, in the order they were added.
+//
+// One function rather than five calls in checkValidity, and the reason is not tidiness: the seventh message
+// field took checkValidity to a cyclomatic complexity of 32 against this repository's limit of 30, and the
+// alternative was a lint exception. A deferral is for a finding whose closing needs a decision somebody has
+// not made; this one needed no decision, because these five were always one question — does the ledger bear
+// out the claim — asked five ways.
+//
+// Called from checkValidity, which is where all five have always run, and from OUTSIDE its verdict switch so
+// they apply to a refused record too. A document that declares itself inadmissible and still carries a
+// resume its ledger cannot support is describing a run that did not happen, and the verdict does not make
+// that any less true.
+func ledgerSupportsTheDocument(r runRecord) error {
+	// Everything needed was already here and unwired. The record carries its arm, its dose and its ledger,
+	// and measurement.horizonNs exists -- as its own comment says -- "so a reader holding the events can
+	// replay them to the same boundary". This is that reader.
+	if err := replayAgreesWithRecord(r); err != nil {
+		return err
+	}
+	// A resume point is the one count in the ledger that is ABOUT another attempt, so it is the one the
+	// replay above cannot check: discardedIterations subtracts it and the accumulator agrees with it either
+	// way, so a document could claim any resume and both would stay consistent.
+	if err := resumeSupportedByLedger(r.Events); err != nil {
+		return err
+	}
+	// A checkpointing arm's attempts must all have run on the CPU path, and this is the SAFETY NET rather
+	// than the mechanism.
+	//
+	// The mechanism is in the workload: it skips the driver entirely when it is given a progress file
+	// (internal/queuelab/submit.go), so the device path is unreachable rather than predicted. This exists
+	// because a record is read by builds other than the one that wrote it, and because the alternative check
+	// -- measurement.workload.kind -- cannot answer the question. That field is derived from ONE attempt,
+	// the one VictimAttemptUID picks as ending the hold, and a resumed row has several: a later attempt that
+	// reached the driver would not appear in it at all.
+	//
+	// So the ledger is swept. Every attempt of every row is examined, not only the victim's, because an arm
+	// that checkpointed the wrong row would be a different defect with the same consequence.
+	if err := checkpointingArmStayedOffTheDevice(r); err != nil {
+		return err
+	}
+	// The two halves of "the checkpoint mechanism actually worked", which nothing asked before schema 22.
+	//
+	// They are separate because they fail in different places and neither can see the other's failure. A
+	// write that raised is visible only in the workload's own report; a mount missing on the REPLACEMENT Pod
+	// leaves every write succeeding and the successor restoring nothing, which is invisible in that report
+	// and visible only in the ledger.
+	//
+	// Together they close the case a broken apparatus and a genuine null result are otherwise identical in:
+	// either the predecessor's write failed, and the first refuses, or it succeeded and the second requires
+	// the successor to have read it.
+	if err := checkpointingArmActuallyWrote(r); err != nil {
+		return err
+	}
+	return restoringArmActuallyRestored(r)
+}
+
 func checkValidity(r runRecord) error {
 	switch r.Validity.Verdict {
 	case verdictRefused:
@@ -2044,32 +2226,7 @@ func checkValidity(r runRecord) error {
 	// Everything needed was already here and unwired. The record carries its arm, its dose and its ledger,
 	// and measurement.horizonNs exists -- as its own comment says -- "so a reader holding the events can
 	// replay them to the same boundary". This is that reader.
-	if err := replayAgreesWithRecord(r); err != nil {
-		return err
-	}
-	// A resume point is the one count in the ledger that is ABOUT another attempt, so it is the one the
-	// replay above cannot check: discardedIterations subtracts it and the accumulator agrees with it either
-	// way, so a document could claim any resume and both would stay consistent.
-	//
-	// Placed outside the verdict switch with the two checks above it, so it applies to a refused record as
-	// well. A document that declares itself inadmissible and still carries a resume its ledger cannot support
-	// is describing a run that did not happen, and the verdict does not make that any less true.
-	if err := resumeSupportedByLedger(r.Events); err != nil {
-		return err
-	}
-	// A checkpointing arm's attempts must all have run on the CPU path, and this is the SAFETY NET rather
-	// than the mechanism.
-	//
-	// The mechanism is in the workload: it skips the driver entirely when it is given a progress file
-	// (internal/queuelab/submit.go), so the device path is unreachable rather than predicted. This exists
-	// because a record is read by builds other than the one that wrote it, and because the alternative check
-	// -- measurement.workload.kind -- cannot answer the question. That field is derived from ONE attempt,
-	// the one VictimAttemptUID picks as ending the hold, and a resumed row has several: a later attempt that
-	// reached the driver would not appear in it at all.
-	//
-	// So the ledger is swept. Every attempt of every row is examined, not only the victim's, because an arm
-	// that checkpointed the wrong row would be a different defect with the same consequence.
-	if err := checkpointingArmStayedOffTheDevice(r); err != nil {
+	if err := ledgerSupportsTheDocument(r); err != nil {
 		return err
 	}
 	// The device claim is re-derived from the record's OWN evidence, which is the whole reason the samples
