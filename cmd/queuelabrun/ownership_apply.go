@@ -102,6 +102,11 @@ func operatorModeContext(mode operatorMode) (context.Context, context.CancelFunc
 	if mode == modeDevicePreflight {
 		return context.WithTimeout(context.Background(), preflightModeTimeout)
 	}
+	// The storage probe runs TWO Pods in sequence and waits for the first to be absent between them, so its
+	// bound is the largest of the three: a one-Pod budget would cut it off mid-handoff and strand a claim.
+	if mode == modeStateProbe {
+		return context.WithTimeout(context.Background(), stateProbeModeTimeout)
+	}
 	return context.WithTimeout(context.Background(), operatorModeTimeout)
 }
 
