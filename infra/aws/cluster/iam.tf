@@ -34,3 +34,49 @@ resource "aws_eks_access_policy_association" "ci_apply_admin" {
   # The two resources share no attribute, so this explicit dependency is what orders them.
   depends_on = [aws_eks_access_entry.ci_apply]
 }
+
+# The EBS CSI driver's role, assumed through IRSA rather than carried on the node role.
+#
+# `enable_irsa` is not set on the module and its default is true (v20.24.0 variables.tf:401), so the OIDC
+# provider exists and `module.eks.oidc_provider_arn` is the trust anchor. If that default ever changes, this
+# role's trust policy stops resolving and the addon fails to assume it -- a loud failure rather than a quiet
+# one, which is why it is referenced rather than duplicated.
+#
+# The registry submodule that normally builds this (iam-role-for-service-accounts-eks) is deliberately not
+# used: `make infra-validate` runs `terraform init -backend=false` in CI, and every module it has to fetch is
+# a network dependency in a check that is otherwise offline.
+data "aws_iam_policy_document" "ebs_csi_assume" {
+  statement {
+    effect  = "Allow"
+    actions = ["sts:AssumeRoleWithWebIdentity"]
+
+    principals {
+      type        = "Federated"
+      identifiers = [module.eks.oidc_provider_arn]
+    }
+
+    # Both conditions are required. Without the `sub` bound to this exact service account, any pod in the
+    # cluster with a projected token could assume this role and delete any volume in the account.
+    condition {
+      test     = "StringEquals"
+      variable = "${module.eks.oidc_provider}:sub"
+      values   = ["system:serviceaccount:kube-system:ebs-csi-controller-sa"]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "${module.eks.oidc_provider}:aud"
+      values   = ["sts.amazonaws.com"]
+    }
+  }
+}
+
+resource "aws_iam_role" "ebs_csi" {
+  name               = "${var.cluster_name}-ebs-csi"
+  assume_role_policy = data.aws_iam_policy_document.ebs_csi_assume.json
+}
+
+resource "aws_iam_role_policy_attachment" "ebs_csi" {
+  role       = aws_iam_role.ebs_csi.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy"
+}
