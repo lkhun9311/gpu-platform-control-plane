@@ -397,8 +397,13 @@ session-refusals: ## Check what gpu-session.sh refuses before it spends anything
 	@# bash -n cannot see a deleted guard, and deleting all three left every other check green.
 	./hack/gpu-session-refusals-test.sh
 
+.PHONY: session-manifest
+session-manifest: ## Check that a campaign leaves an attempt history.
+	@# Deleting the whole manifest block left every other check green, refusals test included.
+	./hack/gpu-session-manifest-test.sh
+
 .PHONY: infra-validate
-infra-validate: terraform kustomize actionlint shell-check session-refusals ## Validate Terraform (offline), Argo manifests, shell, workflow YAML, and the session refusals.
+infra-validate: terraform kustomize actionlint shell-check session-refusals session-manifest ## Validate Terraform (offline), Argo manifests, shell, workflow YAML, the session refusals, and the campaign manifest.
 	@for d in infra/aws/*/; do \
 		if [ -f "$$d/versions.tf" ]; then \
 			echo "validate $$d"; \
