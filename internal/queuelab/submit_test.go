@@ -345,7 +345,7 @@ func TestTheShippedWorkloadActuallyRunsAndReportsWhatTheParserExpects(t *testing
 	}
 	final := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(
 		lastLine(string(out))), "finished "))
-	iters, kind, device, _, _, _ := ReportFromMessage(final)
+	iters, kind, device, _, _, _, _ := ReportFromMessage(final)
 	if iters == nil {
 		t.Fatalf("the parser could not read the report the shipped workload writes: %q\nfull output:\n%s",
 			final, out)
@@ -408,7 +408,7 @@ func TestTheHonoringArmActuallyExitsOnSIGTERM(t *testing.T) {
 			"natural completion\n%s", exit.ExitCode(), termExitCode, buf.String())
 	}
 	final := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(lastLine(buf.String())), "terminated "))
-	if iters, _, _, _, _, _ := ReportFromMessage(final); iters == nil {
+	if iters, _, _, _, _, _, _ := ReportFromMessage(final); iters == nil {
 		t.Fatalf("the preempted workload left no readable report, which is the evidence the arm exists to "+
 			"produce: %q\n%s", final, buf.String())
 	}
@@ -446,7 +446,7 @@ func TestTheShippedWorkloadReportsAnAccumulatorTheOraclePredicts(t *testing.T) {
 	final := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(
 		lastLine(string(out))), "finished "))
 
-	iters, kind, device, _, acc, _ := ReportFromMessage(final)
+	iters, kind, device, _, acc, _, _ := ReportFromMessage(final)
 	if iters == nil {
 		t.Fatalf("the parser could not read the report the shipped workload writes: %q\n%s", final, out)
 	}
@@ -516,7 +516,7 @@ func TestAPreemptedWorkloadReportsAPairTheOracleAccepts(t *testing.T) {
 
 	final := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(
 		lastLine(buf.String())), "terminated "))
-	iters, kind, device, _, acc, _ := ReportFromMessage(final)
+	iters, kind, device, _, acc, _, _ := ReportFromMessage(final)
 	if iters == nil {
 		t.Fatalf("the preempted workload left no readable report: %q\n%s", final, buf.String())
 	}
@@ -618,6 +618,31 @@ func TestTheWorkloadEmitsTheDeviceTokenThisPackageParses(t *testing.T) {
 	if !deviceStatuses[DeviceNotAttempted] {
 		t.Fatalf("%q is not in deviceStatuses, so the workload's own report reads as an unknown status",
 			DeviceNotAttempted)
+	}
+}
+
+// The same binding for the checkpoint-write tokens, and the stakes are higher than for the device ones.
+//
+// An unknown save status does not degrade the reading, it destroys the message: ReportFromMessage refuses
+// the whole sentence, so the iteration count and the accumulator go with it. A rename on either side would
+// therefore turn every run of these arms into a record with no work in it at all.
+//
+// Mutation that turns this red: change any of the three spellings on either side of the boundary.
+func TestTheWorkloadEmitsTheSaveTokensThisPackageParses(t *testing.T) {
+	for _, tok := range []string{SaveNotAttempted, SaveOK, SaveFailed} {
+		if !strings.Contains(workloadScript, `saved="`+tok+`"`) {
+			t.Fatalf("the workload script never sets saved=%q, so an outcome this package classifies is one "+
+				"the workload cannot report", tok)
+		}
+		if !saveStatuses[tok] {
+			t.Fatalf("%q is not in saveStatuses, so the workload's own report reads as an unknown status", tok)
+		}
+	}
+	// The status must be the LAST field, because the parser reads by position: a seventh field that were not
+	// `saved=` makes every message this workload writes unparseable.
+	if !strings.Contains(workloadScript, `resumed=%d saved=%s"`) {
+		t.Fatal("the workload's message does not end with the save status, so its field positions no longer " +
+			"match the ones ReportFromMessage reads")
 	}
 }
 

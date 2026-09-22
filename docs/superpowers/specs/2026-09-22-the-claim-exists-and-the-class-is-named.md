@@ -78,7 +78,7 @@ this page is the only place it is written down.
 identical to a successful one. `E-resume` would then restore nothing and be reported as having resumed
 nothing — the null result, indistinguishable from the real one. Closing this needs a seventh message field
 and `recordSchemaVersion = 22`, because the parser's cross-token rule between `kind` and `dev`
-(the `switch` at `internal/queuelab/provenance.go:355`, whose `default` drops the whole message) refuses a
+(the `switch` at `internal/queuelab/provenance.go:409`, whose `default` drops the whole message) refuses a
 message that reports a write failure in either existing vocabulary. **That is the next branch, and the arms
 must not be bought before it lands.**
 

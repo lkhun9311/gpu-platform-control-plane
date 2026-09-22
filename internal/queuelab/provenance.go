@@ -112,6 +112,18 @@ type ObservedState struct {
 	//
 	// nil when the message carried no sixth field, which is every message from a build before the resume arm.
 	Resumed *int
+	// SaveStatus is whether the attempt's own checkpoint writes succeeded, over the closed saveStatuses set.
+	//
+	// It exists because save() swallows its own exceptions and must go on doing so: a workload that died on
+	// a failed write would leave no final message, and an unreadable run is worse than a refused one. Until
+	// this field, a read-only mount produced a run byte-identical to a successful one -- and for the resume
+	// arms that is the failure that matters, because an attempt that restored nothing reports exactly what a
+	// genuine null result reports.
+	//
+	// Empty when the message carried no seventh field, which is every message from a build before the field
+	// existed. Empty and SaveNotAttempted are different claims: the first is "nobody could say", the second
+	// is "the workload was given nowhere to write".
+	SaveStatus string
 	// DutyCycle is the fraction of its service the workload spent computing, as the workload itself reported
 	// it, and nil when the message did not carry one.
 	//
@@ -182,7 +194,8 @@ func ClassifyPod(pod *corev1.Pod) ObservedState {
 		r := soleTerminated(pod)
 		st := ObservedState{Event: EventAttemptStopped, Reason: string(pod.Status.Phase),
 			ExitCode: r.exitCode, Iterations: r.iterations, ComponentStampUnixNanos: r.finishedUnixNanos,
-			WorkloadKind: r.kind, DeviceStatus: r.device, Accumulator: r.accumulator, Resumed: r.resumed}
+			WorkloadKind: r.kind, DeviceStatus: r.device, Accumulator: r.accumulator, Resumed: r.resumed,
+			SaveStatus: r.saveStatus}
 		if r.duty > 0 {
 			st.DutyCycle = &r.duty
 		}
@@ -236,6 +249,7 @@ type terminatedReading struct {
 	duty              float64
 	accumulator       *float64
 	resumed           *int
+	saveStatus        string
 }
 
 func soleTerminated(pod *corev1.Pod) terminatedReading {
@@ -250,7 +264,8 @@ func soleTerminated(pod *corev1.Pod) terminatedReading {
 		}
 		c := t.ExitCode
 		r.exitCode = &c
-		r.iterations, r.kind, r.device, r.duty, r.accumulator, r.resumed = ReportFromMessage(t.Message)
+		r.iterations, r.kind, r.device, r.duty, r.accumulator, r.resumed, r.saveStatus =
+			ReportFromMessage(t.Message)
 		if !t.FinishedAt.IsZero() {
 			f := t.FinishedAt.UnixNano()
 			r.finishedUnixNanos = &f
@@ -308,6 +323,43 @@ var deviceStatuses = map[string]bool{
 	"memset-failed": true, "launch-failed": true, DeviceLaunchFailedMidrun: true,
 }
 
+// Checkpoint-write tokens, as the workload spells them in its own report.
+//
+// Constants for the reason the device tokens are: they cross a language boundary. The embedded Python writes
+// them into the termination message and this package parses them back, so a rename on one side would turn a
+// failed checkpoint into an unknown status with nothing failing to compile.
+//
+// The vocabulary exists because save() swallows its own exceptions and must go on doing so -- a workload
+// that died on a failed write would leave no final message, and an unreadable run is worse than a refused
+// one. Reporting is what separates "the volume worked" from "the volume was never asked", which
+// docs/superpowers/specs/2026-09-22-the-checkpoint-must-say-whether-it-was-written.md registers as the thing
+// that must exist before a card is bought for the resume arms.
+const (
+	// SaveNotAttempted is a workload given no state path, so it never tried to write. It is what every arm
+	// but the checkpointing pair reports, and what every message written before this field existed means by
+	// carrying no field at all.
+	SaveNotAttempted = "not-attempted"
+	// SaveOK is every write the workload attempted having returned without raising.
+	//
+	// It says nothing about whether the SUCCESSOR could read the file: that is a fact about the replacement
+	// Pod's mount, and cmd/queuelabrun/record.go answers it from the ledger instead.
+	SaveOK = "ok"
+	// SaveFailed is at least one write having raised, and it is STICKY -- a later success does not clear it.
+	//
+	// A volume that failed once and then worked is a volume at its limit, and an arm whose whole reading is
+	// whether a restored attempt did the same work is not cleanly measured on one.
+	SaveFailed = "failed"
+)
+
+// saveStatuses is every checkpoint-write outcome the workload can report.
+//
+// Closed, and checked before the token is believed, for the reason deviceStatuses is: the termination
+// message is a channel the workload controls, and a token this build does not know must read as an
+// unparseable message rather than as a status nobody classified.
+var saveStatuses = map[string]bool{
+	SaveNotAttempted: true, SaveOK: true, SaveFailed: true,
+}
+
 // ReportFromMessage reads the workload's own account out of the terminated status message.
 //
 // It is exported because the device preflight reads the same sentence from a Pod it applied directly, without
@@ -328,47 +380,43 @@ var deviceStatuses = map[string]bool{
 // launched, so it cannot appear beside the CPU fallback; and the device kind can only carry ok or the
 // mid-run failure, because every earlier failure returns before the kind is set. A pair outside that
 // relation was not written by this workload.
-func ReportFromMessage(msg string) (iters *int, kind, device string, duty float64, acc *float64, resumed *int) {
+func ReportFromMessage(msg string) (
+	iters *int, kind, device string, duty float64, acc *float64, resumed *int, saved string,
+) {
 	fields := strings.Fields(strings.TrimSpace(msg))
-	// Three fields, four, five, or six. Each later shape came from a build the earlier ones could not have
-	// written: the fourth is the duty cycle, the fifth the accumulator, the sixth the resume point. A message
-	// without one came from a build whose workload could not report it -- for duty, full duty is what it ran
-	// at rather than a value being guessed.
+	// Three fields through seven. Each later shape came from a build the earlier ones could not have
+	// written: the fourth is the duty cycle, the fifth the accumulator, the sixth the resume point, the
+	// seventh the checkpoint-write status. A message without one came from a build whose workload could not
+	// report it -- for duty, full duty is what it ran at rather than a value being guessed.
 	// Accepting every shape is what keeps every record written before an axis existed readable; refusing the
 	// old shape would make this build unable to read its own history, which is a worse failure than the one
 	// the strictness is for.
-	if len(fields) < 3 || len(fields) > 6 {
-		return nil, "", "", 0, nil, nil
+	if len(fields) < 3 || len(fields) > 7 {
+		return nil, "", "", 0, nil, nil, ""
 	}
 	n, err := strconv.Atoi(strings.TrimPrefix(fields[0], "iters="))
 	if !strings.HasPrefix(fields[0], "iters=") || err != nil || n < 0 {
-		return nil, "", "", 0, nil, nil
+		return nil, "", "", 0, nil, nil, ""
 	}
 	if !strings.HasPrefix(fields[1], "kind=") || !strings.HasPrefix(fields[2], "dev=") {
-		return nil, "", "", 0, nil, nil
+		return nil, "", "", 0, nil, nil, ""
 	}
 	k := strings.TrimPrefix(fields[1], "kind=")
 	d := strings.TrimPrefix(fields[2], "dev=")
 	if !deviceStatuses[d] {
-		return nil, "", "", 0, nil, nil
+		return nil, "", "", 0, nil, nil, ""
 	}
 	switch {
 	case k == KindCPUFloat && d != DeviceOK:
 	case k == KindCUDAFMA && (d == DeviceOK || d == DeviceLaunchFailedMidrun):
 	default:
-		return nil, "", "", 0, nil, nil
+		return nil, "", "", 0, nil, nil, ""
 	}
 	u := 1.0
 	if len(fields) >= 4 {
-		if !strings.HasPrefix(fields[3], "duty=") {
-			return nil, "", "", 0, nil, nil
-		}
-		// Refused alongside the rest, for the reason the count is: a duty this build cannot read makes the
-		// iteration count beside it uninterpretable, because how much work an iteration count represents is
-		// exactly what the duty says.
-		v, derr := strconv.ParseFloat(strings.TrimPrefix(fields[3], "duty="), 64)
-		if derr != nil || v <= 0 || v > 1 {
-			return nil, "", "", 0, nil, nil
+		v, ok := parseDutyField(fields[3])
+		if !ok {
+			return nil, "", "", 0, nil, nil, ""
 		}
 		u = v
 	}
@@ -379,52 +427,128 @@ func ReportFromMessage(msg string) (iters *int, kind, device string, duty float6
 	// accumulator on every six-field message: the value was present, parsed nowhere, and returned nil. The
 	// preemption spec caught it -- a natural-completion message is five fields and would have stayed green.
 	if len(fields) >= 5 {
-		if !strings.HasPrefix(fields[4], "acc=") {
-			return nil, "", "", 0, nil, nil
-		}
-		// Refused alongside the rest, for the reason duty is. The accumulator is the only value in this
-		// message that can be CHECKED -- oracle.go predicts it from the iteration count -- so a value this
-		// build cannot read is worse than one it does not have: it would leave the count unverifiable while
-		// looking like a message that carried its proof.
-		//
-		// The workload writes it with %.17g, which round-trips a float64 exactly; %g does not, and an
-		// accumulator that arrived rounded would fail an exact comparison for a reason that has nothing to
-		// do with the work the run did.
-		v, aerr := strconv.ParseFloat(strings.TrimPrefix(fields[4], "acc="), 64)
-		// Non-finite values are refused alongside a parse error, and the reason is not tidiness.
-		//
-		// ParseFloat accepts "NaN", "Inf" and "-Inf", and until the message grew a fifth field the arity rule
-		// refused those by accident. They reach LifecycleEvent.Accumulator and then json.Marshal fails with
-		// `unsupported value: NaN` -- so a workload emitting one would not produce a suspicious record, it
-		// would produce NO record, losing the whole run's evidence at write time.
-		//
-		// NaN also cannot be compared: the oracle's `want == reported` is false for NaN against anything,
-		// including itself, so a run carrying one could never be verified and never be refused either.
-		if aerr != nil || math.IsNaN(v) || math.IsInf(v, 0) {
-			return nil, "", "", 0, nil, nil
+		v, ok := parseAccumulatorField(fields[4])
+		if !ok {
+			return nil, "", "", 0, nil, nil, ""
 		}
 		a = &v
 	}
 	var res *int
-	if len(fields) == 6 {
-		if !strings.HasPrefix(fields[5], "resumed=") {
-			return nil, "", "", 0, nil, nil
-		}
-		// The iteration count the attempt STARTED from, so zero means "began at zero" and absence means "this
-		// build could not say". A boolean would collapse those, and the difference is the whole question a
-		// resume arm exists to answer: an attempt that resumed from 1370 did not do 1370 of the iterations it
-		// reports, and a waste figure that counts them has counted the same work twice.
-		//
-		// Refused with the rest of the message for the reason the accumulator is: a resume point this build
-		// cannot read leaves the count beside it uninterpretable, because how much of that count is NEW work
-		// is exactly what this field says.
-		v, rerr := strconv.Atoi(strings.TrimPrefix(fields[5], "resumed="))
-		if rerr != nil || v < 0 || v > n {
-			return nil, "", "", 0, nil, nil
+	// `>= 6`, not `== 6`, and the reason is the defect the accumulator had at `== 5`.
+	//
+	// Widening the arity for a seventh field without widening this would skip the resume point on every
+	// seven-field message: the value present, parsed nowhere, returned nil. That is not hypothetical -- it
+	// is exactly what happened when the sixth field landed, and the spec that caught it only did so because
+	// one shape of message happened to be shorter.
+	if len(fields) >= 6 {
+		v, ok := parseResumeField(fields[5], n)
+		if !ok {
+			return nil, "", "", 0, nil, nil, ""
 		}
 		res = &v
 	}
-	return &n, k, d, u, a, res
+	s := ""
+	if len(fields) == 7 {
+		v, ok := parseSavedField(fields[6])
+		if !ok {
+			return nil, "", "", 0, nil, nil, ""
+		}
+		s = v
+	}
+	return &n, k, d, u, a, res, s
+}
+
+// The four optional fields, one reader each, returning false for anything this build cannot read.
+//
+// They are separate functions rather than inline blocks because the seventh field took ReportFromMessage
+// past the complexity limit this repository keeps on production code. Extracting them is the honest fix: the
+// alternative was a lint exception, which would have deferred a real finding for the convenience of the
+// change that caused it. Each reader keeps the argument for its own refusal beside it.
+//
+// Every one of them refuses ALONGSIDE the rest of the message rather than yielding a zero value, and that is
+// the rule the whole parser is arranged around: a message this build cannot fully parse is one whose
+// iteration count it also has no reason to trust.
+
+// parseDutyField reads the fraction of its service the workload reported computing for.
+//
+// A duty this build cannot read makes the iteration count beside it uninterpretable, because how much work
+// an iteration count represents is exactly what the duty says.
+func parseDutyField(f string) (float64, bool) {
+	if !strings.HasPrefix(f, "duty=") {
+		return 0, false
+	}
+	v, err := strconv.ParseFloat(strings.TrimPrefix(f, "duty="), 64)
+	if err != nil || v <= 0 || v > 1 {
+		return 0, false
+	}
+	return v, true
+}
+
+// parseAccumulatorField reads the deterministic value the CPU loop held when the attempt stopped.
+//
+// The accumulator is the only value in this message that can be CHECKED -- oracle.go predicts it from the
+// iteration count -- so a value this build cannot read is worse than one it does not have: it would leave
+// the count unverifiable while looking like a message that carried its proof.
+//
+// The workload writes it with %.17g, which round-trips a float64 exactly; %g does not, and an accumulator
+// that arrived rounded would fail an exact comparison for a reason unrelated to the work the run did.
+//
+// Non-finite values are refused alongside a parse error, and the reason is not tidiness. ParseFloat accepts
+// "NaN", "Inf" and "-Inf", and until the message grew a fifth field the arity rule refused those by
+// accident. They reach LifecycleEvent.Accumulator and then json.Marshal fails with `unsupported value: NaN`
+// -- so a workload emitting one would not produce a suspicious record, it would produce NO record, losing
+// the whole run's evidence at write time. NaN also cannot be compared: the oracle's `want == reported` is
+// false for NaN against anything including itself, so such a run could never be verified nor refused.
+func parseAccumulatorField(f string) (float64, bool) {
+	if !strings.HasPrefix(f, "acc=") {
+		return 0, false
+	}
+	v, err := strconv.ParseFloat(strings.TrimPrefix(f, "acc="), 64)
+	if err != nil || math.IsNaN(v) || math.IsInf(v, 0) {
+		return 0, false
+	}
+	return v, true
+}
+
+// parseResumeField reads the iteration count the attempt STARTED from, bounded by the count it reports.
+//
+// Zero means "began at zero" and absence means "this build could not say". A boolean would collapse those,
+// and the difference is the whole question a resume arm exists to answer: an attempt that resumed from 1370
+// did not do 1370 of the iterations it reports, and a waste figure that counts them has counted the same
+// work twice.
+//
+// iters bounds it because an attempt claiming to have restored more than it holds is unreadable. What one
+// message can say about itself ends there; whether the restored work was ever PERFORMED is a question about
+// the ledger, and cmd/queuelabrun/record.go asks it.
+func parseResumeField(f string, iters int) (int, bool) {
+	if !strings.HasPrefix(f, "resumed=") {
+		return 0, false
+	}
+	v, err := strconv.Atoi(strings.TrimPrefix(f, "resumed="))
+	if err != nil || v < 0 || v > iters {
+		return 0, false
+	}
+	return v, true
+}
+
+// parseSavedField reads whether the attempt's own checkpoint writes succeeded, over the closed set.
+//
+// For a checkpointing arm this decides whether the count beside it describes the experiment at all: a victim
+// whose progress file never landed is not a smaller reading of the resume arms, it is a different run.
+//
+// An unknown token refuses the whole message rather than reading as an unclassified status, which is a
+// harsher consequence than the device tokens have. That is deliberate -- the message is a channel the
+// workload controls -- and it is why TestTheWorkloadEmitsTheSaveTokensThisPackageParses holds the two
+// spellings together.
+func parseSavedField(f string) (string, bool) {
+	if !strings.HasPrefix(f, "saved=") {
+		return "", false
+	}
+	t := strings.TrimPrefix(f, "saved=")
+	if !saveStatuses[t] {
+		return "", false
+	}
+	return t, true
 }
 
 // conditionStamp is the component's own transition time for a metav1 condition, or nil when it published none.
