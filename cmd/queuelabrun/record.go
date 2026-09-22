@@ -1780,10 +1780,16 @@ func resumeSupportedByLedger(events []queuelab.LifecycleEvent) error {
 // oracle accepts both, and the count beside it climbs with no work behind it. The verdict IS the measurement
 // for these arms, which is why this is a refusal rather than a work-unavailable note.
 //
-// Scoped by asking the PROTOCOL whether this arm checkpoints, rather than by naming the arms here. A third
-// checkpointing arm added later is covered on the day it is added, and an arm this build does not know is
-// left alone: an unknown arm is refused elsewhere, and guessing here would refuse records this build has no
-// business judging.
+// Scoped by asking the PROTOCOL twice: whether this arm checkpoints at all, and then, per event, whether the
+// row that event belongs to is the row that checkpoints. A third checkpointing arm added later is covered on
+// the day it is added, and an arm this build does not know is left alone — an unknown arm is refused
+// elsewhere, and guessing here would refuse records this build has no business judging.
+//
+// The per-row half was missing, and its absence would have cost a paid session. The first version swept
+// every row and argued that "an arm that checkpointed the wrong row is a different defect with the same
+// consequence". That argument is wrong: StateFor gives the state path to the victim alone, so the co-tenant
+// and the quota owner legitimately use the device under these arms, and refusing their CUDA reports refuses
+// every E record a GPU node can produce. On kind, where nothing reaches a driver, the defect is invisible.
 func checkpointingArmStayedOffTheDevice(r runRecord) error {
 	arm := queuelab.Arm(r.Arm)
 	if _, err := arm.PolicyVariant(); err != nil {
@@ -1811,8 +1817,22 @@ func checkpointingArmStayedOffTheDevice(r runRecord) error {
 		if e.WorkloadKind != queuelab.KindCUDAFMA {
 			continue
 		}
+		// PER ROW, and the first version of this loop was not — it refused any row's CUDA report and said so
+		// in its own comment. That was wrong, and wrong in the direction that would have shown up only on
+		// rented hardware: StateFor gives a state path to the VICTIM alone, so under E-fresh and E-resume the
+		// co-tenant and the quota owner render no progress file, never take the workload's checkpoint gate,
+		// and use the device exactly as they do under every other arm. A sweep over every row therefore
+		// refuses every E record a real GPU node can produce.
+		//
+		// What the refusal is actually about is the accumulator: on the device path the loop launches the
+		// kernel and never advances it, so a CHECKPOINTING row that reached the driver would report the seed
+		// whether it restored or not. That is true of the row that checkpoints and of no other.
+		plan, err := arm.StateFor(e.Job)
+		if err != nil || !plan.Checkpoint {
+			continue
+		}
 		return fmt.Errorf(
-			"decode record: arm %q writes a progress file and row %q reported running %q; on the device path "+
+			"decode record: arm %q checkpoints row %q and that row reported running %q; on the device path "+
 				"the loop never advances the accumulator, so the checkpoint holds the seed and a resumed "+
 				"attempt is indistinguishable from one that restored nothing",
 			r.Arm, e.Job, e.WorkloadKind)
@@ -1832,11 +1852,12 @@ func checkpointingArmStayedOffTheDevice(r runRecord) error {
 // E-resume restores nothing and reports restoring nothing, which is exactly what a genuine null result
 // reports. A broken apparatus and a real absence of effect must not be the same document.
 //
-// Scoped PER ROW, which is the one way this differs from checkpointingArmStayedOffTheDevice above it. That
-// check sweeps every row because no row of a checkpointing arm may touch the device. Here only the row the
-// protocol says checkpoints is required to have written: the co-tenant and the quota owner are given no
-// state path and report not-attempted honestly, so sweeping every row would refuse every valid record these
-// arms can produce.
+// Scoped PER ROW. Only the row the protocol says checkpoints is required to have written: the co-tenant and
+// the quota owner are given no state path and report not-attempted honestly, so sweeping every row would
+// refuse every valid record these arms can produce.
+//
+// This comment used to say that checkpointingArmStayedOffTheDevice above it differs by sweeping every row.
+// It no longer does, and the sentence outlived the code it described by one commit.
 func checkpointingArmActuallyWrote(r runRecord) error {
 	arm := queuelab.Arm(r.Arm)
 	if _, err := arm.PolicyVariant(); err != nil {
@@ -2113,8 +2134,11 @@ func ledgerSupportsTheDocument(r runRecord) error {
 	// the one VictimAttemptUID picks as ending the hold, and a resumed row has several: a later attempt that
 	// reached the driver would not appear in it at all.
 	//
-	// So the ledger is swept. Every attempt of every row is examined, not only the victim's, because an arm
-	// that checkpointed the wrong row would be a different defect with the same consequence.
+	// So the ledger is swept rather than the summary read -- but the refusal lands only on the row the
+	// protocol says checkpoints. This comment used to finish "every attempt of every row is examined, not
+	// only the victim's, because an arm that checkpointed the wrong row would be a different defect with the
+	// same consequence". That argument was wrong: StateFor gives the state path to the victim alone, so the
+	// co-tenant and the quota owner use the device under these arms exactly as they do under every other one.
 	if err := checkpointingArmStayedOffTheDevice(r); err != nil {
 		return err
 	}
