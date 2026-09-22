@@ -380,8 +380,25 @@ $(ACTIONLINT): $(LOCALBIN)
 infra-fmt: terraform ## Check Terraform formatting under infra/aws.
 	"$(TERRAFORM)" fmt -check -recursive infra/aws
 
+.PHONY: shell-check
+shell-check: ## Parse every shell script under hack/ and .githooks/.
+	@# Nothing checked these until 2026-09-22, and hack/gpu-session.sh is the one wrapper that spends money.
+	@# `bash -n` is a parse, not a lint -- it will not find an unquoted expansion -- but it does catch the
+	@# edit that leaves a block unterminated, which is the failure that would surface on a rented card.
+	@fail=0; for f in hack/*.sh hack/lib/*.sh .githooks/*.sh .githooks/commit-msg .githooks/pre-push; do \
+		[ -f "$$f" ] || continue; \
+		bash -n "$$f" || { echo "shell-check: $$f does not parse" >&2; fail=1; }; \
+	done; \
+	if [ "$$fail" != "0" ]; then exit 1; fi; \
+	echo "shell-check: every script parses"
+
+.PHONY: session-refusals
+session-refusals: ## Check what gpu-session.sh refuses before it spends anything.
+	@# bash -n cannot see a deleted guard, and deleting all three left every other check green.
+	./hack/gpu-session-refusals-test.sh
+
 .PHONY: infra-validate
-infra-validate: terraform kustomize actionlint ## Validate Terraform (offline), Argo manifests, and workflow YAML.
+infra-validate: terraform kustomize actionlint shell-check session-refusals ## Validate Terraform (offline), Argo manifests, shell, workflow YAML, and the session refusals.
 	@for d in infra/aws/*/; do \
 		if [ -f "$$d/versions.tf" ]; then \
 			echo "validate $$d"; \
