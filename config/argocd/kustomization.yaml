@@ -13,4 +13,5 @@ resources:
   - gateway.yaml
   - observability.yaml
   - device-plugin.yaml
+  - storage.yaml
   - samples.yaml

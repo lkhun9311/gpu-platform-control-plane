@@ -45,6 +45,21 @@ module "eks" {
     vpc-cni = {
       addon_version = "v1.22.4-eksbuild.3"
     }
+    # The resume arms need a volume that survives a Pod, and no addon here could provide one.
+    #
+    # It runs as a service account rather than on the node role, so the role is built in iam.tf and named
+    # here. Attaching the policy to the node role instead would give every workload on every node the right
+    # to create and delete volumes, which is the permission this cluster is least able to afford.
+    #
+    # This is the ONE addon here without a pinned version, and the asymmetry is deliberate rather than an
+    # oversight. The other three were pinned against `aws eks describe-addon-versions` on a live account;
+    # this one was added while the credentials were expired, so any version written here would be a guess.
+    # A wrong pin fails the apply at the addon, which is the expensive place to find it. Pin it from a real
+    # describe-addon-versions before the next apply, and the default until then is the version EKS selects
+    # for the cluster's Kubernetes minor.
+    aws-ebs-csi-driver = {
+      service_account_role_arn = aws_iam_role.ebs_csi.arn
+    }
   }
 
   vpc_id = module.vpc.vpc_id

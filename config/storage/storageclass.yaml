@@ -1,0 +1,19 @@
+# The class the resume arms name, and the only one this cluster declares.
+#
+# volumeBindingMode is WaitForFirstConsumer rather than Immediate because the lab schedules its rows onto a
+# labelled worker with a toleration. An Immediate class binds the volume to a zone before the scheduler has
+# picked a node, and the row then cannot be placed on the worker the protocol selected.
+#
+# reclaimPolicy is Delete because a run's progress file has no life after its run: keeping the volumes would
+# leave a bill behind every campaign, and a record that outlives its run is a record the next run might read.
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: queuelab-gp3
+provisioner: ebs.csi.aws.com
+volumeBindingMode: WaitForFirstConsumer
+reclaimPolicy: Delete
+allowVolumeExpansion: true
+parameters:
+  type: gp3
+  encrypted: "true"
