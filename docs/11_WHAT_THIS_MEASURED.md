@@ -76,11 +76,21 @@ Time-slicing one A10G between two engines, against an isolated single-tenant bas
 |---|---:|---:|---:|---:|---:|---:|
 | `R1` | 69.5 ms | 1.0x | 18.2 ms | 1.0x | — | 0 |
 | `shared` | 1,892.2 ms | 27.2x | 89.1 ms | 4.9x | 278/278 | 0 |
-| `timeSlicing` | **1,008.7 ms** | **14.5x** | 44.1 ms | 2.42x | 278/278 | 0 |
+| `timeSlicing` | **1,007.5 ms** | **14.5x** | 44.1 ms | 2.42x | 278/278 | 0 |
 
-The improvement is real and large: **884.6 ms against a between-repetition spread of 1.4 ms** — 632 times
-the noise. It still misses the pre-registered 2x bar by sevenfold, and a successor study that took the same
+The improvement is real: **884.6 ms**, against a control whose two repetitions differed by **1.375 ms**.
+That is a range check and nothing more. An earlier draft of the source spec expressed the same comparison as
+a multiple and **dropped the multiple rather than correcting it**, because the registered rule asks whether
+the improvement clears the range, not by how many times — and because the multiple invites a precision the
+two numbers do not carry. This page reintroduced it anyway, as "632 times the noise", until a review caught
+it.
+
+It misses the pre-registered 2x bar by sevenfold **at this load**, and a successor study that took the same
 question to the engine's own scheduler — eight configurations, three repetitions — reached **20.7x** at best.
+**Below that load the same arm passes.** On a ladder whose contender was held byte-identical across rungs,
+`timeSlicing` met the 139 ms premium target at 1.16 req/s (123.7 ms) and at 2.31 req/s (130.3 ms, repeated
+at 130.8 ms), and breached only at 4.61 req/s. What fails is the claim stated without a load, not the
+mechanism at every load.
 
 **The mechanism, which is the actual finding.** A contending prompt occupies the engine for about **1.03 s**.
 The premium tail budget is a tenth of that. When the latency target is shorter than one contending request's
@@ -93,7 +103,8 @@ MIG"* (`hack/queuelab-refusal-register.md:65`). MIG is not absent because it was
 absent because the instance-family policy permits no card that has it. Nothing here about larger cards, and
 nothing about different prompt-length distributions.
 
-*(`docs/superpowers/specs/2026-09-10-does-splitting-the-card-buy-protection.md:467`, `:521`;
+*(`docs/superpowers/specs/2026-09-10-does-splitting-the-card-buy-protection.md:529`, `:561`;
+`docs/superpowers/specs/2026-09-15-a-ladder-whose-contender-holds-still.md:82`, `:115`;
 `docs/superpowers/specs/2026-09-08-the-load-needs-an-upper-gate.md:114`)*
 
 ---
@@ -148,8 +159,8 @@ Stated first, because the findings above are only believable if the refusals are
 |---|---|
 | **"I operated a GPU platform"** | No. The gateway has never been deployed to EKS or through the GitOps path (`README.md:22`). The cluster was applied once on 2026-09-18 — 96 resources, no GPU instance — and destroyed in the same cycle. Argo CD has been run on kind, and **auto-sync was deliberately removed before applying** (`hack/argocd-kind.md:24`), so seven Applications resolving with no error is evidence that the manifests build and the destination resolves — **not** that drift is repaired. Self-heal has never been exercised. |
 | **"The admission guard protects the premium tier"** | Rejected. 83.7x against a 1.25x target across four paid repetitions; the run was declared invalid by its own checks and no protection claim was made. |
-| **"Sharing a card substitutes for isolation"** | Rejected. 14.5x with time-slicing, 20.7x with the engine's own scheduler, both against a 2x bar. The improvement is real; the target is not reached. |
-| **"I built a training platform"** | The `MLTrainingJob` CRD exists and admits through Kueue. The training job itself is `busybox`. No NCCL, no DDP, no distributed training has run. |
+| **"Sharing a card substitutes for isolation"** | Rejected as stated. 14.5x with time-slicing and 20.7x with the engine's own scheduler, both against a 2x bar — at the load those studies used. A later ladder found time-slicing **meeting** a 139 ms premium target at 1.16 and 2.31 req/s and breaching at 4.61. So the honest refusal is narrower than "sharing does not substitute": the claim fails because it was made without naming a load. |
+| **"I built a training platform"** | The `MLTrainingJob` CRD exists and admits through Kueue. Its sample workload is `busybox` (`config/samples/platform_v1_mltrainingjob_tenant_b.yaml:16`). The queuelab trace is not — it runs `python:3.12-slim` and launches a PTX kernel through the CUDA driver API (`internal/queuelab/submit.go:44`) — but that is a synthetic accumulator, not a model. No NCCL, no DDP, no distributed training has run. |
 
 Two of these are rejected hypotheses, which is a result. Two are gaps, which are not.
 
