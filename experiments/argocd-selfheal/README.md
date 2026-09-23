@@ -81,6 +81,19 @@ further out: 2s, then ~6s, then ~18s, then ~54s, capped at 300s. Measured here a
 51.806s for three consecutive `replicas` injections — the cluster did not get slower, the backoff got
 longer.
 
+**It does not reset when the Application goes back to `Synced`.** That was assumed here and is wrong. After
+a run ended and the app returned to `Synced/Healthy` for several minutes, the next injection was still met
+with `retrying in 1m44s` against the same commit — the counter had survived the healthy interval. Detection
+was immediate either way: the Application reported `OutOfSync` within a second while `spec.replicas` sat at
+3, waiting. So a run's repetitions are not independent samples, and the first figure in a run is the only
+one measured from a rested controller.
+
+**Why that matters beyond this experiment.** The Application's own status never says any of this. It reports
+`OutOfSync` and stays there; nothing in `status` carries the retry delay, so an operator watching the API —
+or a dashboard built on it — sees a platform that has noticed the drift and is not fixing it, with no
+indication that it is deliberately waiting or for how long. The number exists only in the controller's log,
+which is why this run captures that log beside every repetition.
+
 This is the substantive result of the timing work, and it contradicts the reading the documentation invites.
 "Argo repairs drift in about five seconds" is true only for the first drift after a settled period. A
 platform that drifts repeatedly against an unchanged desired state waits minutes, and nothing in the
