@@ -105,6 +105,41 @@ never as a comparison against a threshold this experiment did not pre-register.
 Times are recorded from a `kubectl --watch` client. That includes delivery delay and is not a server-side
 timestamp; sub-second digits in the log are not a precision claim.
 
+## The run
+
+`REPS=3`, single runner, Argo CD v2.13.2 at its default settings, Application pinned to commit `416c394`.
+**Six injections, six repairs, no manual sync.** Raw evidence in `ex/selfheal-final/` (gitignored; the
+curated figures are here).
+
+| injection | rep 1 | rep 2 | rep 3 |
+|---|---:|---:|---:|
+| `spec.replicas` 1 → 3 | 105.239 s | 159.834 s | 159.874 s |
+| Deployment deleted | 159.767 s | 156.828 s | 156.715 s |
+
+Every deletion came back under a **new UID** — `e467fdb1` → `a8d3d597` → `543fc0e1` → `fc2a3f35` — so what
+was observed is recreation of the object, not a ReplicaSet replacing pods beneath a surviving Deployment.
+
+**The recovery time is the backoff, and the controller says so to within a second.** Each repetition's
+captured log carries the interval the controller had chosen at that moment, and it matches the measurement:
+
+| repetition | controller's reported retry | observed repair |
+|---|---:|---:|
+| modify 1 | `1m44.8s` | 105.239 s |
+| modify 2–3, delete 1–3 | `2m39.5s` | 156.7 – 159.9 s |
+
+Nothing here measures detection latency, which was under a second throughout: the Application reported
+`OutOfSync` almost immediately and then waited. A reader who takes these figures as "Argo CD needs 160
+seconds to notice" has the mechanism backwards.
+
+**One rested measurement exists, from an earlier run**: the very first injection after the Application had
+been idle returned `spec.replicas` to 1 in **0.317 s**, and the second in 15.395 s. That run is not reported
+in full — a later repetition was corrupted when a second runner was started against the same evidence
+directory, which is the defect the lock in `hack/argocd-selfheal.sh` now prevents. The two figures above it
+were taken while only one runner existed.
+
+**The seven platform Applications were untouched**, checked rather than asserted: `platform-apps-before.txt`
+and `platform-apps-after.txt` are byte-identical, all seven still `automated=<none>`.
+
 ## What a successful run does and does not license
 
 **Does:** on this kind cluster with Argo CD v2.13.2 at its default settings, a change to a declared field
