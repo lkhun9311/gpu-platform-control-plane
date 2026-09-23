@@ -17,6 +17,11 @@
 
 set -euo pipefail
 
+# Job control, so each backgrounded pipeline becomes its own process group and can be killed as one.
+#
+# Without it `kill $!` reaches only the last stage of the watch pipeline; see stop_watch for what that cost.
+set -m
+
 CONTEXT="${CONTEXT:-kind-platform}"
 REPS="${REPS:-3}"
 NS=gitops-selfheal
@@ -147,7 +152,13 @@ start_watch() {
 
 stop_watch() {
   if [[ -n "${WATCH_PID:-}" ]]; then
-    kill "$WATCH_PID" 2>/dev/null || true
+    # Kill the process GROUP, not the single PID `$!` reports.
+    #
+    # `$!` names the last stage of the pipeline -- the `while read` loop -- while `kubectl --watch` is its
+    # sibling and outlives it. `wait` then blocks on a job that never ends. The first run of this script
+    # stalled exactly there, after two repetitions, with the workload already repaired and nothing left to
+    # do: a hang that looks identical to self-heal failing to fire.
+    kill -- -"$WATCH_PID" 2>/dev/null || true
     wait "$WATCH_PID" 2>/dev/null || true
     WATCH_PID=""
   fi
@@ -175,6 +186,19 @@ await_value() {
   done
 }
 
+# The controller's own account of why it waited, kept beside each repetition.
+#
+# Recovery latency here is dominated by Argo's self-heal backoff rather than by detection: with
+# --self-heal-timeout-seconds unset the controller refuses to retry the SAME revision until an exponential
+# delay expires, and says so -- "Skipping auto-sync: already attempted sync to <sha> ... retrying in ...".
+# Without this file the growing times read as a cluster getting slower, which is the wrong conclusion and
+# the one a reader reaches on their own.
+capture_controller_log() {
+  local tag="$1"
+  k -n argocd logs statefulset/argocd-application-controller --tail=300 2>/dev/null |
+    grep "$APP" >"$EXDIR/controller-$tag.log" 2>&1 || true
+}
+
 inject_modify() {
   local rep="$1"
   say "modify rep $rep: setting spec.replicas 1 -> 3"
@@ -191,6 +215,7 @@ inject_modify() {
     say "modify rep $rep: NOT repaired within 300s"
     echo -e "modify\t$rep\ttimeout" >>"$EXDIR/results.tsv"
   fi
+  capture_controller_log "modify-$rep"
   stop_watch
   settle
 }
@@ -224,6 +249,7 @@ inject_delete() {
     fi
     sleep 0.2
   done
+  capture_controller_log "delete-$rep"
   stop_watch
   settle
 }
@@ -286,6 +312,21 @@ teardown() {
   say "teardown complete"
 }
 
+# True when another instance of this script is already running.
+running_elsewhere() {
+  local pid argv0 argv1
+  for pid in /proc/[0-9]*; do
+    pid="${pid##*/}"
+    [[ "$pid" == "$$" || "$pid" == "$PPID" ]] && continue
+    [[ -r "/proc/$pid/cmdline" ]] || continue
+    mapfile -d '' -t argv <"/proc/$pid/cmdline" 2>/dev/null || continue
+    argv0="${argv[0]:-}"
+    argv1="${argv[1]:-}"
+    [[ "$argv0" == *bash && "$argv1" == *argocd-selfheal.sh ]] && return 0
+  done
+  return 1
+}
+
 main() {
   local cmd="${1:-}"
   case "$cmd" in
@@ -295,6 +336,19 @@ main() {
       exit 1
       ;;
   esac
+
+  # Refuse a second concurrent runner.
+  #
+  # Two instances writing one results.tsv produced a duplicated row that read as a measurement rather than as
+  # bookkeeping damage, and the instance that caused it was an earlier run left alive by the stop_watch hang.
+  # A corrupted evidence file is worse than a missing one: nothing downstream can tell the two apart.
+  #
+  # The test reads argv[1] out of /proc rather than using `pgrep -f`, whose pattern matches the command line
+  # of whatever shell is holding the pattern -- including this one.
+  if [[ "$cmd" == "measure" ]] && running_elsewhere; then
+    echo "another argocd-selfheal.sh is already running; refusing to share an evidence directory" >&2
+    exit 1
+  fi
 
   EXDIR="${EXDIR:-ex/selfheal-$(date -u +%Y%m%dT%H%M%SZ)}"
   mkdir -p "$EXDIR"

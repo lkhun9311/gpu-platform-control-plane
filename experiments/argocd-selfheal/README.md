@@ -67,11 +67,27 @@ disagree:
 
 Both `argocd-cm` and `argocd-cmd-params-cm` carry no data, so these defaults are what is in force.
 
-Recovery is therefore governed by an exponential backoff measured from the previous operation's
-`finishedAt`, not by a fixed five-second timer and not by the 180-second resync — a live change to a managed
-object triggers a refresh directly. Repeated injections in one session will be *slower*, by design, as the
-backoff grows. A run is reported as the raw observed durations across repetitions, never as a comparison
-against a threshold this experiment did not pre-register.
+Recovery is therefore governed by an exponential backoff, not by a fixed five-second timer and not by the
+180-second resync — a live change to a managed object triggers a refresh directly. The controller states
+this itself, and the run keeps its words beside each repetition:
+
+```
+Skipping auto-sync: already attempted sync to 416c394... with timeout 0s (retrying in 2m39.584944632s)
+```
+
+**The backoff is keyed to the revision, not to the drift.** Because every injection in a run targets the
+same pinned commit, the controller counts them as repeated attempts at one revision and pushes each retry
+further out: 2s, then ~6s, then ~18s, then ~54s, capped at 300s. Measured here as 0.317s, 15.395s and
+51.806s for three consecutive `replicas` injections — the cluster did not get slower, the backoff got
+longer.
+
+This is the substantive result of the timing work, and it contradicts the reading the documentation invites.
+"Argo repairs drift in about five seconds" is true only for the first drift after a settled period. A
+platform that drifts repeatedly against an unchanged desired state waits minutes, and nothing in the
+Application's own status says so — the reason appears only in the controller's log.
+
+A run is therefore reported as the raw observed durations across repetitions **with the backoff stated**,
+never as a comparison against a threshold this experiment did not pre-register.
 
 Times are recorded from a `kubectl --watch` client. That includes delivery delay and is not a server-side
 timestamp; sub-second digits in the log are not a precision claim.
