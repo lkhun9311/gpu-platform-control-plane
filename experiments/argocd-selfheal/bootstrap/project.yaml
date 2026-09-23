@@ -1,0 +1,27 @@
+# The blast radius of the experiment, declared as a refusal rather than as a convention.
+#
+# The seven live Applications on this cluster all sit in the `default` project, which permits every
+# destination and every resource kind. Putting the experiment there would mean the only thing separating it
+# from the platform's own namespaces is that its manifests happen not to name them.
+#
+# This project cannot reach anything but one namespace, and cannot create a cluster-scoped object at all.
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: selfheal-probe
+  namespace: argocd
+spec:
+  description: Isolated project for the GitOps self-heal demonstration; owns one namespace and nothing else.
+  sourceRepos:
+    - https://github.com/lkhun9311/gpu-platform-control-plane.git
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: gitops-selfheal
+  # Empty is a deny-list of everything: no ClusterRole, no Namespace, no CRD may be synced by this project.
+  #
+  # This is why the namespace is created by the bootstrap script instead of by CreateNamespace=true --
+  # a namespace is cluster-scoped, and permitting it here would defeat the restriction it is written for.
+  clusterResourceWhitelist: []
+  namespaceResourceWhitelist:
+    - group: apps
+      kind: Deployment
