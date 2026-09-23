@@ -403,7 +403,7 @@ session-manifest: ## Check that a campaign leaves an attempt history.
 	./hack/gpu-session-manifest-test.sh
 
 .PHONY: infra-validate
-infra-validate: terraform kustomize actionlint shell-check session-refusals session-manifest ## Validate Terraform (offline), Argo manifests, shell, workflow YAML, the session refusals, and the campaign manifest.
+infra-validate: terraform kustomize actionlint shell-check session-refusals session-manifest docs-check ## Validate Terraform (offline), Argo manifests, shell, workflow YAML, the session refusals, the campaign manifest, and the published docs' names.
 	@for d in infra/aws/*/; do \
 		if [ -f "$$d/versions.tf" ]; then \
 			echo "validate $$d"; \
