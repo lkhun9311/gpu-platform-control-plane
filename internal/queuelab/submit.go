@@ -21,6 +21,8 @@ import (
 	"strconv"
 	"strings"
 
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	platformv1 "github.com/lkhun9311/gpu-mlops-platform-control-plane/api/v1"
@@ -128,11 +130,57 @@ const WorkloadImage = "python:3.12-slim@sha256:2c941e860699f878900b0edc2403613c2
 //
 // This is a fix and a test at once. If a quarter-duty run still reports zeros at this period, the phase
 // explanation was wrong and the blind spot is somewhere else.
-const workloadScript = `import ctypes,signal,sys,time
+const workloadScript = `import ctypes,os,signal,sys,time
 seconds=float(sys.argv[1]); honor=sys.argv[2]=="honor"
 duty=float(sys.argv[3]) if len(sys.argv)>3 else 1.0
+state=sys.argv[4] if len(sys.argv)>4 and sys.argv[4] else None
+restore=len(sys.argv)>5 and sys.argv[5]=="resume"
 PERIOD=2.6
-n=0; kind="cpu-float"; dev="not-attempted"; x=1.0; acc=1.0
+n=0; kind="cpu-float"; dev="not-attempted"; x=1.0; acc=1.0; resumed=0; saved="not-attempted"
+# Restore, and treat anything unreadable as a fresh start rather than as progress.
+#
+# A truncated or garbled file is not a smaller amount of work, it is an unknown amount, and resuming from a
+# number nobody wrote would credit iterations that were never performed. Starting over costs time; trusting
+# it would put a fabricated count into the ledger the whole study is denominated in.
+#
+# Gated on being ASKED to restore, which is the axis the resume pair moves. Both arms write this file every
+# iteration; only one reads it. Absence of the argument means no restore, so a build that cannot say whether
+# it was asked cannot claim a resume -- the same direction every refusal in this study fails in.
+if state and restore:
+    try:
+        f=open(state)
+        parts=dict(p.split("=",1) for p in f.read().split())
+        f.close()
+        rn=int(parts["iters"]); rx=float(parts["acc"])
+        if rn>0 and rx==rx and abs(rx)!=float("inf"):
+            n=rn; x=rx; acc=rx; resumed=rn
+    except Exception:
+        n=0; x=1.0; acc=1.0; resumed=0
+def save():
+    # tmp + os.replace, the same shape record_write.go uses, because this file is read by the NEXT process.
+    # The termination log can afford a torn write -- it loses one report -- but a torn state file is read as
+    # progress that did not happen.
+    #
+    # The exception is still SWALLOWED rather than fatal, and that is deliberate. A workload that died on a
+    # failed checkpoint would leave no final termination message, so the run would be unreadable instead of
+    # refused -- and an unreadable run is the outcome every refusal in this study is arranged to avoid.
+    #
+    # What changes is that the failure is now REPORTED. Without it a read-only mount, a full disk or a missing
+    # directory produced a run byte-identical to a successful one: E-resume restored nothing and said so, and
+    # "resuming bought nothing" is exactly what a broken mount also writes.
+    #
+    # Sticky: once a write has raised, the token stays "failed" however many later writes succeed. A volume
+    # that failed once and then worked is a volume at its limit, and a resume arm measured on it is not a
+    # clean reading. Over-strict in the direction this lab prefers -- a plausible wrong number is worse than
+    # a refusal.
+    global saved
+    if not state: return
+    try:
+        t=state+".tmp"
+        g=open(t,"w"); g.write("iters=%d acc=%.17g"%(n,acc)); g.flush(); os.fsync(g.fileno()); g.close()
+        os.replace(t,state)
+        if saved!="failed": saved="ok"
+    except Exception: saved="failed"
 PTX=b""".version 6.3
 .target sm_75
 .address_size 64
@@ -165,7 +213,7 @@ ret;
 """
 try: tl=open("/dev/termination-log","w")
 except Exception: tl=None
-def msg(): return "iters=%d kind=%s dev=%s duty=%g acc=%.17g"%(n,kind,dev,duty,acc)
+def msg(): return "iters=%d kind=%s dev=%s duty=%g acc=%.17g resumed=%d saved=%s"%(n,kind,dev,duty,acc,resumed,saved)
 def mark():
     if tl is None: return
     tl.seek(0); tl.write(msg()); tl.truncate(); tl.flush()
@@ -206,7 +254,21 @@ def cuda():
         return rc if rc!=0 else lib.cuCtxSynchronize()
     if bad(launch(),"launch-failed"): return None
     dev="ok"; return launch
-launch=cuda()
+# A checkpointing workload never reaches for the driver, and that is the resume study's whole premise.
+#
+# On the device path the inner loop launches the kernel and never touches x, so the checkpoint holds the seed
+# and restoring it sets the iteration count to the restored value while restoring NO WORK. The accumulator
+# check cannot contradict that -- a resumed device attempt and a fresh one both report the seed -- so the
+# verdict the resume arms are measured by would be produced by a run that did not do what it claims.
+#
+# Gated on the state path rather than on the resume flag, so E-fresh is held to the CPU path too. Gating on
+# the flag would leave the control arm eligible for CUDA while the treatment arm was not, and the pair's
+# entire value is that the two differ in one thing.
+#
+# This is what closes the pre-registration's item 2. That page asked for a device-path run to be REFUSED at
+# submission; nothing at submission can know whether libcuda will load on the node it lands on, so the path
+# is made unreachable instead of predicted.
+launch=None if state else cuda()
 if launch is not None: kind="cuda-fma"
 end=time.monotonic()+seconds; last=time.monotonic()
 mark()
@@ -219,7 +281,7 @@ while time.monotonic()<end:
             rc=launch()
             if rc!=0:
                 dev="launch-failed-midrun"; mark(); print("aborted "+msg(),flush=True); sys.exit(1)
-        n+=1; acc=x
+        n+=1; acc=x; save()
         t=time.monotonic()
         if t-last>0.5: last=t; mark(); print(msg(),flush=True)
     if duty<1.0:
@@ -246,12 +308,34 @@ type TerminationContract string
 
 // argHonor and argIgnore are how the two contracts are spelled in the workload's own argv.
 //
-// They are constants for the reason the kind tokens are: the script compares argv[2] against one of them, and
-// a Go side that kept its own spelling could drift from the Python side without anything failing to compile.
-// TestTheContractTokensAreWhatTheScriptCompares holds the two together.
+// They are constants for the reason the kind tokens are: the script compares argv[2] against a LITERAL, and a
+// Go side that kept its own spelling could drift from the Python side without anything failing to compile.
+//
+// This comment named TestTheContractTokensAreWhatTheScriptCompares as what held the two together, and that
+// test did not exist -- not renamed, never written. The protection the paragraph promised was not there,
+// which is the one kind of comment this repository treats as worse than none: a reader who believes it stops
+// looking. TestTheArgvTokensAreWhatTheScriptCompares is the test, and it is now real.
 const (
 	argHonor  = "honor"
 	argIgnore = "ignore"
+)
+
+// argResume and argFresh are how the resume axis is spelled in that same argv, and they live beside the
+// contract tokens rather than next to their renderer because they have the identical failure mode: the
+// script compares argv[5] against a literal, so a Go constant that drifted from it would render a command
+// the workload silently reads as "do not restore".
+//
+// Only argResume appears in the script. argFresh is the complement -- anything that is not argResume means
+// no restore -- so the test binds the pair by asserting the script compares against one and that the two are
+// distinct, rather than pretending to find both.
+//
+// Both are rendered, never one-or-absent. The workload treats an absent argument as "do not restore", so
+// omitting it at argFresh would produce the same behaviour under a different command string -- and the
+// command is what canaryKey.HonorCommand and IgnoreCommand fingerprint, so one experiment would need two
+// qualifications for one mechanism.
+const (
+	argResume = "resume"
+	argFresh  = "fresh"
 )
 
 const (
@@ -299,12 +383,89 @@ func RenderMLTrainingJob(row TrainingTraceRow, namespace string) (*platformv1.ML
 //
 // Parallelism and completions are pinned to 1 so a row's gpuCount is exactly its demand (one Pod), which the
 // occupancy and demand-satisfaction accounting assumes.
+// StateClaimName is the PersistentVolumeClaim a checkpointing arm mounts, in the run's own namespace.
+//
+// A fixed name rather than one derived from the run, because the namespace already is: namespaceFor builds
+// `queuelab-<run id>` and refuses a reused id elsewhere, so this name is unique to the run without carrying
+// the id a second time.
+//
+// StateClaim renders it, and the runner creates it; nothing else in this tree does. A claim that does not
+// exist leaves the victim Pending, which is the loud failure StateVolume's own documentation argues for.
+const StateClaimName = "queuelab-state"
+
+// StateClaimSize is what the claim asks for, and it is not a measurement of anything.
+//
+// The file the workload writes is one short line -- `iters=%d acc=%.17g`, tens of bytes -- so any figure
+// here is larger than the need by orders of magnitude. 1Gi is chosen because it is the smallest request no
+// provisioner in common use rounds up to something surprising, not because the workload approaches it. A
+// reader looking for how much state a resumed run carries must read the file's format, not this constant.
+const StateClaimSize = "1Gi"
+
+// StateClaim renders the PersistentVolumeClaim a checkpointing arm's victim mounts.
+//
+// class is REQUIRED and has no default, which is the whole point of this function existing rather than a
+// claim literal somewhere in the runner. A claim created with an empty storageClassName has chosen the
+// cluster's default class by omission, and that class is exactly what decides whether the arms' contrast is
+// real: on kind it is local-path with WaitForFirstConsumer, which binds the volume wherever the first
+// consumer lands and so happens to solve node affinity by accident, while on a cluster with no default
+// class the claim never binds and the victim waits forever. A lab whose treatment arm silently did not
+// resume would report the difference between the arms as a result. So the caller names the class or there
+// is no claim; api/v1's StateVolume declines to choose one for the API, and this declines to choose one for
+// the run.
+//
+// The labels are the transaction and run stamps only, deliberately not labLabels. The study and variant
+// labels say which QUOTA mechanism an object implements, and a claim implements none of it; stamping this
+// with a variant would put a claim about preemption policy on an object that has nothing to do with it.
+func StateClaim(id FixtureIdentity, class string) (*corev1.PersistentVolumeClaim, error) {
+	if err := id.validate(); err != nil {
+		return nil, err
+	}
+	if class == "" {
+		return nil, fmt.Errorf("no storage class named for %s; a claim created without one takes the "+
+			"cluster's default by omission, and the binding behaviour that follows is what decides whether "+
+			"a replacement Pod can read its predecessor's file at all", StateClaimName)
+	}
+	size, err := resource.ParseQuantity(StateClaimSize)
+	if err != nil {
+		return nil, fmt.Errorf("parsing StateClaimSize %q: %w", StateClaimSize, err)
+	}
+	return &corev1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      StateClaimName,
+			Namespace: id.Namespace,
+			Labels:    map[string]string{TxLabel: id.TxID, runLabel: id.RunID},
+		},
+		Spec: corev1.PersistentVolumeClaimSpec{
+			// ReadWriteOnce because the arms never run two writers: parallelism and completions are pinned to
+			// 1, and a preempted victim's replacement starts after the old Pod is gone. It is also the only
+			// mode every provisioner supports, so asking for ReadWriteMany would make the class the operator
+			// may name depend on a concurrency this lab does not have.
+			AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
+			Resources: corev1.VolumeResourceRequirements{
+				Requests: corev1.ResourceList{corev1.ResourceStorage: size},
+			},
+			StorageClassName: &class,
+		},
+	}, nil
+}
+
+// StateMountPath is where that claim appears inside the trainer container; StateFilePath is the file the
+// workload saves its progress to and, under E-resume, restores from.
+//
+// One path under both arms of the pair. The axis is whether the file is READ, so a path that differed
+// between them would make the contrast two mechanisms instead of one.
+const (
+	StateMountPath = "/queuelab-state"
+	StateFilePath  = StateMountPath + "/progress"
+)
+
 // RenderForArm renders one trace row as the given arm defines it.
 //
-// It exists so the two things an arm decides about a row -- the termination contract and the duty cycle --
-// cannot be applied one at a time. The caller used to resolve both and then set one of them on the row by
-// hand; deleting that one line compiled, rendered the other arm's workload under this arm's label, and no
-// test noticed. An arm is a closed set of experimental conditions, so resolving it is one operation.
+// It exists so the things an arm decides about a row -- the termination contract, the duty cycle, and now
+// what it does with a progress file -- cannot be applied one at a time. The caller used to resolve two of
+// them and then set one on the row by hand; deleting that one line compiled, rendered the other arm's
+// workload under this arm's label, and no test noticed. An arm is a closed set of experimental conditions,
+// so resolving it is one operation.
 func RenderForArm(arm Arm, row TrainingTraceRow, namespace string) (*platformv1.MLTrainingJob, error) {
 	contract, err := arm.ContractFor(row.Name)
 	if err != nil {
@@ -314,14 +475,39 @@ func RenderForArm(arm Arm, row TrainingTraceRow, namespace string) (*platformv1.
 	if err != nil {
 		return nil, err
 	}
+	plan, err := arm.StateFor(row.Name)
+	if err != nil {
+		return nil, err
+	}
 	row.Duty = duty
-	return RenderMLTrainingJobWithContract(row, namespace, contract)
+	return renderWithState(row, namespace, contract, plan)
 }
 
 func RenderMLTrainingJobWithContract(
 	row TrainingTraceRow, namespace string, contract TerminationContract,
 ) (*platformv1.MLTrainingJob, error) {
-	command, err := sleeperCommand(row.DurationSec, contract, row.Duty.orFull())
+	// The historical spelling: no progress file, and so nothing to restore from one. Every caller that is not
+	// an arm renders this, including the termination canary's two probes.
+	return renderWithState(row, namespace, contract, StatePlan{})
+}
+
+// renderWithState is the one place a row becomes a manifest, and it is the one place the progress file's
+// PATH and its VOLUME are decided.
+//
+// They are decided together because either alone is a defect that looks like a result. A command naming a
+// file the Pod does not mount would save progress into the container filesystem and lose it at the moment
+// the preemption it is meant to survive destroys the Pod -- reporting a resume that recovered nothing, in a
+// study whose whole question is how much is recovered. A volume nothing writes to is merely wasted.
+func renderWithState(
+	row TrainingTraceRow, namespace string, contract TerminationContract, plan StatePlan,
+) (*platformv1.MLTrainingJob, error) {
+	statePath := ""
+	var volume *platformv1.StateVolume
+	if plan.Checkpoint {
+		statePath = StateFilePath
+		volume = &platformv1.StateVolume{ClaimName: StateClaimName, MountPath: StateMountPath}
+	}
+	command, err := sleeperCommand(row.DurationSec, contract, row.Duty.orFull(), statePath, plan.Restore)
 	if err != nil {
 		return nil, err
 	}
@@ -343,6 +529,7 @@ func RenderMLTrainingJobWithContract(
 			GPUCount:    int32(row.GPUCount),
 			Parallelism: 1,
 			Completions: 1,
+			StateVolume: volume,
 		},
 	}, nil
 }
@@ -361,7 +548,18 @@ func RenderMLTrainingJobWithContract(
 // The contract is the experimental axis of this study, so an unrecognized value must not fall through to the
 // ignoring arm: that would run the contrast arm under the honoring arm's label and produce a plausible wrong
 // result, which is the exact failure class the measurement work exists to eliminate.
-func sleeperCommand(durationSec int, contract TerminationContract, duty DutyCycle) ([]string, error) {
+// statePath is the file the workload restores its progress from and saves it to, or empty for an arm that
+// starts from zero every time.
+//
+// It is a parameter rather than a constant because the resuming arm is the experimental axis Stage C adds,
+// and an arm's identity has to be chosen by the caller rather than inherited from where the renderer happens
+// to put a file. The path itself arrives with the volume that outlives the Pod; until that lands, every
+// caller passes "" and the workload behaves exactly as it did before.
+// restore says whether this row's workload reads the progress file it is given, as opposed to writing one it
+// never looks at. It is the only thing E-resume and E-fresh differ by.
+func sleeperCommand(
+	durationSec int, contract TerminationContract, duty DutyCycle, statePath string, restore bool,
+) ([]string, error) {
 	// Substituted rather than formatted: the script is full of Python %d verbs and handing it to fmt.Sprintf
 	// makes Go try to interpret them, which go vet catches and a reader would not.
 	script := strings.Replace(workloadScript, "EXITCODE", strconv.Itoa(termExitCode), 1)
@@ -383,8 +581,22 @@ func sleeperCommand(durationSec int, contract TerminationContract, duty DutyCycl
 	// same behaviour -- and a DIFFERENT command string. The command is part of the Pod template the
 	// termination canary fingerprints, so two spellings of the same experiment would need two canaries and
 	// would compare as different mechanisms. One spelling.
+	// The state path is always passed, empty when the arm does not resume.
+	//
+	// Same reason the duty argument is always passed: the workload defaults when the argument is absent, so
+	// omitting it would render the SAME behaviour under a DIFFERENT command string -- and the command is what
+	// canaryKey.HonorCommand and IgnoreCommand fingerprint, so two spellings of one experiment would need two
+	// canaries and compare as different mechanisms. One spelling.
+	// The resume spelling is always passed, at both values, for the reason the duty and the state path are.
+	// The workload defaults to not restoring when the argument is absent, so omitting it at `fresh` would
+	// render the same behaviour under a different command string, and the command is what
+	// canaryKey.HonorCommand and IgnoreCommand fingerprint.
+	resumeArg := argFresh
+	if restore {
+		resumeArg = argResume
+	}
 	return []string{
 		"python3", "-c", script, strconv.Itoa(durationSec), arm,
-		strconv.FormatFloat(float64(duty), 'f', -1, 64),
+		strconv.FormatFloat(float64(duty), 'f', -1, 64), statePath, resumeArg,
 	}, nil
 }

@@ -407,3 +407,73 @@ func TestAGPURequestingPodDeclaresTheDriverLibrariesItNeeds(t *testing.T) {
 		}
 	}
 }
+
+// A job that asks for no state volume renders exactly what it rendered before the field existed.
+//
+// This is the assertion that keeps every termination canary taken before the field valid -- for the jobs that
+// ask for nothing, which is what this test drives. "Unchanged" here means nil rather than an empty slice,
+// because an empty []corev1.Volume marshals to `"volumes":[]` and would move the hash while looking like
+// nothing.
+//
+// It used to say the canary's own template job "sets no state volume". That stopped being true when the
+// sentinel was added to templateProbeJob: the canary's fingerprint DOES cover a rendered mount now. The
+// property this test pins is the conditional itself -- a job whose spec asks for no volume gets none -- and
+// that is what keeps a hash taken before the field from moving.
+//
+// Mutations that turn this red: attach the volume unconditionally; or initialise Volumes to an empty slice.
+func TestAJobAsksForNoVolumeUnlessItsSpecAsksForOne(t *testing.T) {
+	job := BuildJob(&platformv1.MLTrainingJob{
+		ObjectMeta: metav1.ObjectMeta{Name: "j", Namespace: "n"},
+		Spec:       platformv1.MLTrainingJobSpec{Image: "i", Queue: "q", GPUCount: 1},
+	})
+	if v := job.Spec.Template.Spec.Volumes; v != nil {
+		t.Fatalf("a job declaring no state volume rendered %+v; an empty or present volumes key moves the "+
+			"pod template hash and invalidates every canary taken before this field existed", v)
+	}
+	if m := job.Spec.Template.Spec.Containers[0].VolumeMounts; m != nil {
+		t.Fatalf("a job declaring no state volume rendered mounts %+v", m)
+	}
+}
+
+// The mount the resume arm depends on, asserted where no canary can reach.
+//
+// The claim is referenced and never created, so the only thing standing between a mis-rendered mount and a
+// paid run is this test and the envtest beside it. Both halves are checked: a volume naming the claim, and a
+// mount putting it at the requested path in the container the workload actually runs in.
+//
+// Mutations that turn this red: mount an emptyDir instead of the claim, which would give a resuming workload
+// a volume that dies with its Pod and report the resume as having worked; name the volume after the claim,
+// which would make two jobs mounting different claims render different spellings of the same mechanism; or
+// attach the volume without mounting it, which is a Pod that carries storage no process can see.
+func TestTheStateVolumeReachesTheTrainerContainer(t *testing.T) {
+	job := BuildJob(&platformv1.MLTrainingJob{
+		ObjectMeta: metav1.ObjectMeta{Name: "j", Namespace: "n"},
+		Spec: platformv1.MLTrainingJobSpec{
+			Image: "i", Queue: "q", GPUCount: 1,
+			StateVolume: &platformv1.StateVolume{ClaimName: "resume-state", MountPath: "/state"},
+		},
+	})
+	vols := job.Spec.Template.Spec.Volumes
+	if len(vols) != 1 {
+		t.Fatalf("a job declaring a state volume rendered %d volumes, want exactly 1: %+v", len(vols), vols)
+	}
+	pvc := vols[0].PersistentVolumeClaim
+	if pvc == nil {
+		t.Fatalf("the state volume is not a PersistentVolumeClaim source: %+v", vols[0].VolumeSource)
+	}
+	if pvc.ClaimName != "resume-state" {
+		t.Fatalf("the volume names claim %q, want %q", pvc.ClaimName, "resume-state")
+	}
+
+	trainer := job.Spec.Template.Spec.Containers[0]
+	if trainer.Name != "trainer" {
+		t.Fatalf("the first container is %q; this test asserts the mount lands in the one that runs the "+
+			"workload", trainer.Name)
+	}
+	if len(trainer.VolumeMounts) != 1 {
+		t.Fatalf("the trainer has %d mounts, want exactly 1: %+v", len(trainer.VolumeMounts), trainer.VolumeMounts)
+	}
+	if got := trainer.VolumeMounts[0]; got.Name != vols[0].Name || got.MountPath != "/state" {
+		t.Fatalf("the mount is %+v; it must name the volume beside it and sit at the requested path", got)
+	}
+}

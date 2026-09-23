@@ -134,10 +134,14 @@ func parseArm(s string) (queuelab.Arm, error) {
 		return queuelab.ArmDFull, nil
 	case queuelab.ArmDQuarter:
 		return queuelab.ArmDQuarter, nil
+	case queuelab.ArmEFresh:
+		return queuelab.ArmEFresh, nil
+	case queuelab.ArmEResume:
+		return queuelab.ArmEResume, nil
 	default:
-		return "", fmt.Errorf("arm must be one of %s, %s, %s, %s, %s; got %q",
+		return "", fmt.Errorf("arm must be one of %s, %s, %s, %s, %s, %s, %s; got %q",
 			queuelab.ArmAHonor, queuelab.ArmAIgnore, queuelab.ArmNRef,
-			queuelab.ArmDFull, queuelab.ArmDQuarter, s)
+			queuelab.ArmDFull, queuelab.ArmDQuarter, queuelab.ArmEFresh, queuelab.ArmEResume, s)
 	}
 }
 
@@ -229,6 +233,17 @@ type operatorModeArgs struct {
 	DeviceMetrics  string
 	DeviceObserver string
 
+	// StateProbe is the third non-recovery mode, and it exists because the two above it structurally cannot
+	// ask its question: both strip the state volume from their probe Pods, so neither has ever mounted a
+	// real claim, let alone twice.
+	StateProbe bool
+
+	// StateClass belongs to this mode AND to a run, which is why it is not simply a run-only flag. The
+	// invariant the refusals here protect is that every explicitly supplied flag is consumed or refused —
+	// not that this particular one belongs to runs — so giving it a second legitimate consumer keeps the
+	// invariant while removing it from the map would break it.
+	StateClass string
+
 	ReleaseStale bool
 	TxID         string
 
@@ -255,7 +270,13 @@ type operatorModeArgs struct {
 //
 // -worker is not among them: every mode acts on it. -arm is not either, because it has its own refusal that
 // says the specific thing worth saying — a mode is not a run.
-var runOnlyFlagNames = map[string]bool{"runid": true, "out": true, "preview": true, "horizon": true}
+var runOnlyFlagNames = map[string]bool{
+	"runid": true, "out": true, "preview": true, "horizon": true,
+	// -state-class configures the claim a checkpointing arm's victim mounts, and no recovery mode creates
+	// one. Left out, an operator who typed it alongside -inspect-worker would be told nothing and would
+	// believe the storage had been named.
+	"state-class": true,
+}
 
 // suppliedRunOnlyFlags reports which run-only flags were present on the command line, in a stable order.
 //
@@ -298,6 +319,7 @@ const (
 	modeClearQuarantine
 	modeTerminationCanary
 	modeDevicePreflight
+	modeStateProbe
 )
 
 // decideOperatorMode is the pure validation layer for the six non-run modes — the four recovery ones, the
@@ -314,7 +336,7 @@ const (
 func decideOperatorMode(a operatorModeArgs) (operatorMode, error) {
 	requested := 0
 	for _, on := range []bool{a.Inspect, a.ReleaseStale, a.ForceRelease, a.ClearQuarantine, a.TerminationCanary,
-		a.DevicePreflight} {
+		a.DevicePreflight, a.StateProbe} {
 		if on {
 			requested++
 		}
@@ -325,7 +347,7 @@ func decideOperatorMode(a operatorModeArgs) (operatorMode, error) {
 	if requested > 1 {
 		return modeNone, fmt.Errorf(
 			"only one of -inspect-worker, -release-stale, -force-release, -clear-quarantine, " +
-				"-termination-canary, -device-preflight may be given at a time")
+				"-termination-canary, -device-preflight, -state-probe may be given at a time")
 	}
 	// An operator mode is a recovery tool, not a run, so combining one with -arm would let "recover the
 	// node" and "run an arm" be read as a single invocation.
@@ -336,12 +358,20 @@ func decideOperatorMode(a operatorModeArgs) (operatorMode, error) {
 	// that names a run id, an output path, a preview or a horizon and then quietly does none of those things
 	// reads to its author as configured, which is the worst kind of no-op: they will believe the recovery
 	// they just ran was the one they described.
-	// The device flags are the preflight's own, and mean nothing to the five other modes.
+	// The device flags are the preflight's own, and mean nothing to the six other modes.
 	if !a.DevicePreflight && (a.DeviceMetrics != "" || a.DeviceObserver != "") {
 		return modeNone, fmt.Errorf(
 			"-device-metrics and -device-observer belong to -device-preflight and to a run; no other " +
 				"operator mode scrapes anything, so this invocation would have looked configured while " +
 				"doing nothing of the kind")
+	}
+	// -state-class is the storage probe's own, exactly as the device flags are the preflight's. It is also a
+	// run's, which is why it stays in runOnlyFlagNames: the invariant is that a supplied flag is consumed or
+	// refused, and this mode is its second legitimate consumer rather than an exemption from the rule.
+	if !a.StateProbe && a.StateClass != "" {
+		return modeNone, fmt.Errorf(
+			"-state-class belongs to -state-probe and to a run; no other operator mode creates a claim, so " +
+				"this invocation would have looked configured while doing nothing of the kind")
 	}
 	if len(a.RunOnlyFlags) > 0 {
 		return modeNone, fmt.Errorf(
@@ -371,6 +401,20 @@ func decideOperatorMode(a operatorModeArgs) (operatorMode, error) {
 		// No attestation, for the canary's reason: it takes the worker through the ordinary transaction, which
 		// refuses a node somebody else holds, and the one Pod it creates it names and deletes itself.
 		return modeDevicePreflight, nil
+	case a.StateProbe:
+		// Refused here rather than after the worker is acquired, for the reason the preflight's observer
+		// check is: the probe exists to test ONE class against this worker, and a probe with no class named
+		// would take the node, create a claim under the cluster's default, and report on storage nobody
+		// asked about. That costs an operator a node and several minutes to learn a flag was missing.
+		if a.StateClass == "" {
+			return modeNone, fmt.Errorf(
+				"-state-probe requires -state-class: the probe tests one storage class against this worker, " +
+					"and a claim created without a class takes the cluster's default by omission — which is " +
+					"the very substitution the run refuses to make")
+		}
+		// No attestation, for the canary's and the preflight's reason: the ordinary transaction refuses a
+		// node somebody else holds, and everything this mode creates it names and deletes itself.
+		return modeStateProbe, nil
 	case a.ReleaseStale:
 		if a.TxID == "" {
 			return modeNone, fmt.Errorf("-release-stale requires -txid")

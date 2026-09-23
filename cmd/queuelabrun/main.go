@@ -44,7 +44,7 @@ import (
 
 func main() {
 	var (
-		armFlag  = flag.String("arm", "", "arm: A-honor | A-ignore | N-ref | D-full | D-quarter")
+		armFlag  = flag.String("arm", "", "arm: A-honor | A-ignore | N-ref | D-full | D-quarter | E-fresh | E-resume")
 		runID    = flag.String("runid", "", "unique run id (required, no default: a reused id can confound a run)")
 		worker   = flag.String("worker", "platform-worker", "node to dedicate to this run")
 		doseFlag = flag.String("dose", string(queuelab.DoseSelfCompleting),
@@ -126,6 +126,20 @@ func main() {
 			"window in seconds and exit. It exists so a wrapper can budget a session against the same "+
 			"derivation the run uses, instead of copying the constants into a shell script where nothing "+
 			"would fail when the two disagree")
+
+		stateProbeFlag = flag.Bool("state-probe", false, "prove on this worker that -state-class binds a "+
+			"claim and that two successive Pods see the same file. Nothing else in this harness asks that: "+
+			"the termination canary and the device preflight both strip the state volume from their probe "+
+			"Pods, so until this mode the first thing to exercise the storage path would have been a paid "+
+			"run of the checkpointing arms. It takes the worker through the ordinary transaction, creates "+
+			"its own claim in the shared probe namespace, and deletes what it made")
+
+		stateClassFlag = flag.String("state-class", "", "the StorageClass to create the resume arms' "+
+			"progress claim with. Required by the checkpointing arms, refused for every other arm, and "+
+			"with no default on purpose: a claim created without a class takes the cluster's by omission, "+
+			"and that class is what decides whether a replacement Pod reads its predecessor's file or waits "+
+			"on a volume that never binds. The run refuses a cluster that does not have the named class "+
+			"rather than letting an unbound claim surface as a victim stuck Pending")
 	)
 	flag.Parse()
 
@@ -234,6 +248,9 @@ func main() {
 		DeviceMetrics:     *deviceMetricsFlag,
 		DeviceObserver:    *deviceObserverFlag,
 
+		StateProbe: *stateProbeFlag,
+		StateClass: *stateClassFlag,
+
 		ReleaseStale: *releaseStaleFlag,
 		TxID:         *txidFlag,
 
@@ -278,6 +295,15 @@ func main() {
 		fmt.Fprintln(os.Stderr, "ERROR:", err)
 		refuseInvocation(err)
 	}
+	// What this arm needs from storage is resolved here, beside the arm, because only the arm knows whether a
+	// claim is needed at all. It is refused now for the reason -require-device is refused above: an operator
+	// who asked for a checkpointing arm and named no class must be told that, not left to read a victim stuck
+	// Pending a horizon later, on a run that has already taken a worker.
+	state, err := stateRequestFor(arm, *stateClassFlag)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "ERROR:", err)
+		refuseInvocation(err)
+	}
 	namespace, err := namespaceFor(*runID)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "ERROR:", err)
@@ -305,7 +331,7 @@ func main() {
 	// outcome AFTER the return value has been chosen, so anything written from inside it could be
 	// contradicted a moment later. By the time these seven values exist here, every defer has finished
 	// amending them.
-	o, events, res, left, qual, win, obs, deviceObs := run(ctx, newClusterClient, arm, *runID, namespace,
+	o, events, res, left, qual, win, obs, deviceObs := run(ctx, newClusterClient, arm, state, *runID, namespace,
 		*worker, protocol, horizon, *deviceMetricsFlag, *deviceObserverFlag, recordPath, os.Stderr,
 		time.Now, time.Sleep)
 
@@ -580,6 +606,10 @@ func dispatchOperatorMode(connect clusterClientFunc, args operatorModeArgs) (fir
 		// which are things happening on a cluster rather than intervals a test needs to skip past.
 		return true, devicePreflight(ctx, c, args.Worker, args.DeviceMetrics, args.DeviceObserver,
 			time.Now, time.Sleep, os.Stdout)
+	case modeStateProbe:
+		// The real clock, for the same reason, with one addition: under WaitForFirstConsumer the volume is
+		// provisioned while the writer is scheduled, so part of this budget is a storage backend doing work.
+		return true, stateProbe(ctx, c, args.Worker, args.StateClass, time.Now, time.Sleep, os.Stdout)
 	case modeReleaseStale:
 		return true, releaseStale(ctx, c, args.Worker, args.TxID)
 	case modeForceRelease:
@@ -862,7 +892,12 @@ func phaseFailure(phase disposition, what string, err error) outcome {
 // this run may stamp on the worker would invite the next operator to open a file nobody wrote. It sits after
 // horizon rather than beside worker deliberately — runID, namespace and worker are already three adjacent
 // strings a caller can transpose in silence, and a fourth would make that worse.
-func run(ctx context.Context, connect clusterClientFunc, arm queuelab.Arm, runID, namespace, worker string,
+// state is a struct rather than the storage class as a bare string, for the same reason recordPath's
+// placement is argued above: the three adjacent strings that follow are already transposable in silence, and
+// a fourth would be worse. It also carries the invariant that a class is present exactly when a claim is
+// needed, which stateRequestFor establishes before the cluster is touched.
+func run(ctx context.Context, connect clusterClientFunc, arm queuelab.Arm, state stateRequest,
+	runID, namespace, worker string,
 	protocol doseProtocol, horizon time.Duration, deviceMetricsURL, deviceObserverIdentity string,
 	recordPath string, stderr io.Writer,
 	now func() time.Time, sleep func(time.Duration)) (o outcome, events []queuelab.LifecycleEvent,
@@ -918,9 +953,11 @@ func run(ctx context.Context, connect clusterClientFunc, arm queuelab.Arm, runID
 			left, qual, win, obs, device
 	}
 	txID := newTxID()
-	fs, err := queuelab.BuildFixtures(study, policyVariant, queuelab.FixtureIdentity{
-		TxID: txID, RunID: runID, Namespace: namespace,
-	})
+	// Hoisted into a variable because the progress claim is stamped with the same identity the fixtures are.
+	// Two literals of this triple would be two places a future field could be added to only one, which is the
+	// desync FixtureIdentity's own doc comment describes between the renderer and the teardown.
+	id := queuelab.FixtureIdentity{TxID: txID, RunID: runID, Namespace: namespace}
+	fs, err := queuelab.BuildFixtures(study, policyVariant, id)
 	if err != nil {
 		o = phaseFailure(dispSetupFailed, "building fixtures", err)
 		return o, events, res,
@@ -1138,6 +1175,25 @@ func run(ctx context.Context, connect clusterClientFunc, arm queuelab.Arm, runID
 		o = phaseFailure(dispSetupFailed, fmt.Sprintf("ensuring namespace %s", namespace), err)
 		return o, events, res,
 			left, qual, win, obs, device
+	}
+	// The claim comes after the namespace it lives in and before the fixtures, so a cluster that cannot
+	// provide the storage is refused while the only thing to tear down is the namespace.
+	//
+	// The two failures are reported apart deliberately. A class that does not exist is a fact about the
+	// cluster and the operator's move is to look at the cluster; a Create this run could not complete is this
+	// run's own, and the move is to look at this run. That is the distinction dispEnvironmentUnqualified's
+	// doc comment exists to preserve.
+	if state.Needed {
+		if err := checkStorageClass(ctx, c, state.Class); err != nil {
+			o = phaseFailure(dispEnvironmentUnqualified, "checking the arm's storage class", err)
+			return o, events, res,
+				left, qual, win, obs, device
+		}
+		if err := createStateClaim(ctx, c, id, state.Class); err != nil {
+			o = phaseFailure(dispSetupFailed, fmt.Sprintf("creating claim %s", queuelab.StateClaimName), err)
+			return o, events, res,
+				left, qual, win, obs, device
+		}
 	}
 	if err := applyFixtures(ctx, c, fs, policyVariant, txID); err != nil {
 		o = phaseFailure(dispSetupFailed, "applying fixtures", err)

@@ -189,14 +189,17 @@ func BuildFixtures(study Study, variant string, id FixtureIdentity) (*FixtureSet
 // reclaimFixtures builds two per-tenant ClusterQueues in one per-run cohort, identical except that the whole
 // set's reclaimWithinCohort is Never or Any (the one knob), with unlimited borrowing (no borrowingLimit).
 func reclaimFixtures(variant string, id FixtureIdentity) (*FixtureSet, error) {
+	// Switched on the same constants PolicyVariant returns, so the producer and this consumer cannot drift:
+	// an arm whose variant is edited in one place and not the other would render the wrong preemption policy
+	// under the right label, and nothing would fail to compile.
 	var policy kueuev1beta2.PreemptionPolicy
 	switch variant {
-	case "Never":
+	case VariantNever:
 		policy = kueuev1beta2.PreemptionPolicyNever
-	case "Any":
+	case VariantAny:
 		policy = kueuev1beta2.PreemptionPolicyAny
 	default:
-		return nil, fmt.Errorf("reclaim variant must be Never or Any, got %q", variant)
+		return nil, fmt.Errorf("reclaim variant must be %s or %s, got %q", VariantNever, VariantAny, variant)
 	}
 
 	fs := &FixtureSet{Flavor: labResourceFlavor(id, StudyReclaim, variant)}

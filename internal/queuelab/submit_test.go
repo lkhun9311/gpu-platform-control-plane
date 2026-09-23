@@ -30,7 +30,96 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 )
+
+// The registered requirement for the resume arms' claim is that the run STATES which storage class it asks
+// for. A renderer with a default would meet the letter of "the claim is created" and none of the point: a
+// claim with no storageClassName takes the cluster's by omission, and that class is what decides whether a
+// replacement Pod reads its predecessor's file or waits on a volume that never binds.
+//
+// Mutation that turns this red: give StateClaim any fallback for an empty class.
+func TestStateClaimRefusesToRenderWithoutAClass(t *testing.T) {
+	id := FixtureIdentity{TxID: "tx-1", RunID: "r7", Namespace: "queuelab-r7"}
+
+	_, err := StateClaim(id, "")
+	if err == nil {
+		t.Fatal("rendered a claim with no storage class, which silently chooses the cluster's default")
+	}
+	if !strings.Contains(err.Error(), StateClaimName) {
+		t.Fatalf("the refusal must name the claim it declined to render: %v", err)
+	}
+}
+
+// An identity that would render an unusable name or an unrecognisable stamp must be refused here rather
+// than at the apiserver, where it surfaces as a fixture failure far from the field that caused it — the
+// reason FixtureIdentity.validate exists at all.
+//
+// Mutation that turns this red: drop the id.validate call from StateClaim.
+func TestStateClaimRefusesAnIdentityItCannotStamp(t *testing.T) {
+	if _, err := StateClaim(FixtureIdentity{TxID: "", RunID: "r7", Namespace: "queuelab-r7"}, "fast"); err == nil {
+		t.Fatal("rendered a claim with no transaction stamp, which no teardown of this run could recognise")
+	}
+}
+
+// What the claim must actually be, checked together because these fields are read by three different
+// consumers: BuildJob mounts it by NAME in the job's own NAMESPACE, createOwned recognises it by its STAMP,
+// and sameStateClaim refuses adoption on its CLASS.
+//
+// Mutation that turns this red: change any one of the four.
+func TestStateClaimIsWhatTheJobMountsAndTheRunOwns(t *testing.T) {
+	id := FixtureIdentity{TxID: "tx-1", RunID: "r7", Namespace: "queuelab-r7"}
+	const class = "fast-ssd"
+
+	pvc, err := StateClaim(id, class)
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	if pvc.Name != StateClaimName {
+		t.Fatalf("claim name is %q, not the %q BuildJob mounts", pvc.Name, StateClaimName)
+	}
+	if pvc.Namespace != id.Namespace {
+		t.Fatalf("claim namespace is %q, not the run's %q; StateVolume names a claim in the job's own "+
+			"namespace, so one created elsewhere leaves the victim Pending", pvc.Namespace, id.Namespace)
+	}
+	if pvc.Labels[TxLabel] != id.TxID {
+		t.Fatalf("claim stamp is %q, not this run's %q", pvc.Labels[TxLabel], id.TxID)
+	}
+	if pvc.Spec.StorageClassName == nil || *pvc.Spec.StorageClassName != class {
+		t.Fatalf("claim does not ask for the class it was given: %v", pvc.Spec.StorageClassName)
+	}
+
+	// ReadWriteOnce is what every provisioner supports; asking for more would make the classes an operator
+	// may name depend on a concurrency this lab does not have, since parallelism is pinned to 1.
+	if len(pvc.Spec.AccessModes) != 1 || pvc.Spec.AccessModes[0] != corev1.ReadWriteOnce {
+		t.Fatalf("claim access modes are %v, not the single ReadWriteOnce the arms need", pvc.Spec.AccessModes)
+	}
+	want := resource.MustParse(StateClaimSize)
+	if got := pvc.Spec.Resources.Requests[corev1.ResourceStorage]; got.Cmp(want) != 0 {
+		t.Fatalf("claim requests %s, not StateClaimSize %s", got.String(), StateClaimSize)
+	}
+}
+
+// The study and variant labels say which QUOTA mechanism an object implements. The claim implements none of
+// it, so stamping it with a variant would put a claim about preemption policy on an object that has nothing
+// to do with preemption — and would make a variant precheck over labels answer for an object it cannot
+// describe.
+//
+// Mutation that turns this red: build the claim's labels with labLabels.
+func TestStateClaimDoesNotClaimAQuotaMechanism(t *testing.T) {
+	id := FixtureIdentity{TxID: "tx-1", RunID: "r7", Namespace: "queuelab-r7"}
+	pvc, err := StateClaim(id, "fast-ssd")
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	for _, l := range []string{studyLabel, variantLabel} {
+		if v, ok := pvc.Labels[l]; ok {
+			t.Fatalf("the claim carries %s=%q, which describes a mechanism it does not implement", l, v)
+		}
+	}
+}
 
 func TestRenderMLTrainingJobMatchesTraceAndQueue(t *testing.T) {
 	rows := ReclaimScenario(true, 600)
@@ -58,8 +147,9 @@ func TestRenderMLTrainingJobMatchesTraceAndQueue(t *testing.T) {
 	// share one script: a workload spelled per-arm could drift between them without the compiler noticing.
 	// The duty cycle joins it for the same reason, and is present even at 1.0 so one experiment has one
 	// spelling -- the command is what the termination canary fingerprints.
-	if len(job.Spec.Command) != 6 || job.Spec.Command[0] != "python3" || job.Spec.Command[3] != "600" {
-		t.Fatalf("workload command = %v, want python3 -c <script> 600 <contract> <duty>", job.Spec.Command)
+	if len(job.Spec.Command) != 8 || job.Spec.Command[0] != "python3" || job.Spec.Command[3] != "600" {
+		t.Fatalf("workload command = %v, want python3 -c <script> 600 <contract> <duty> <state> <resume>",
+			job.Spec.Command)
 	}
 	if job.Spec.Command[5] != "1" {
 		t.Fatalf("duty argument = %q, want \"1\" for a trace row that declares none", job.Spec.Command[5])
@@ -255,7 +345,7 @@ func TestTheShippedWorkloadActuallyRunsAndReportsWhatTheParserExpects(t *testing
 	}
 	final := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(
 		lastLine(string(out))), "finished "))
-	iters, kind, device, _, _ := ReportFromMessage(final)
+	iters, kind, device, _, _, _, _ := ReportFromMessage(final)
 	if iters == nil {
 		t.Fatalf("the parser could not read the report the shipped workload writes: %q\nfull output:\n%s",
 			final, out)
@@ -318,7 +408,7 @@ func TestTheHonoringArmActuallyExitsOnSIGTERM(t *testing.T) {
 			"natural completion\n%s", exit.ExitCode(), termExitCode, buf.String())
 	}
 	final := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(lastLine(buf.String())), "terminated "))
-	if iters, _, _, _, _ := ReportFromMessage(final); iters == nil {
+	if iters, _, _, _, _, _, _ := ReportFromMessage(final); iters == nil {
 		t.Fatalf("the preempted workload left no readable report, which is the evidence the arm exists to "+
 			"produce: %q\n%s", final, buf.String())
 	}
@@ -356,7 +446,7 @@ func TestTheShippedWorkloadReportsAnAccumulatorTheOraclePredicts(t *testing.T) {
 	final := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(
 		lastLine(string(out))), "finished "))
 
-	iters, kind, device, _, acc := ReportFromMessage(final)
+	iters, kind, device, _, acc, _, _ := ReportFromMessage(final)
 	if iters == nil {
 		t.Fatalf("the parser could not read the report the shipped workload writes: %q\n%s", final, out)
 	}
@@ -426,7 +516,7 @@ func TestAPreemptedWorkloadReportsAPairTheOracleAccepts(t *testing.T) {
 
 	final := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(
 		lastLine(buf.String())), "terminated "))
-	iters, kind, device, _, acc := ReportFromMessage(final)
+	iters, kind, device, _, acc, _, _ := ReportFromMessage(final)
 	if iters == nil {
 		t.Fatalf("the preempted workload left no readable report: %q\n%s", final, buf.String())
 	}
@@ -465,6 +555,47 @@ func lastLine(s string) string {
 //
 // goconst found the pair by counting the literal, which is the whole argument for the linter: three copies of
 // a string that must agree is the same defect whether or not anyone has noticed it drift yet.
+// The four argv spellings this package renders must be the ones the shipped script compares against.
+//
+// The script embeds them as LITERALS -- `sys.argv[2]=="honor"` and `sys.argv[5]=="resume"` -- so a Go
+// constant edited on its own drifts from the Python side with nothing failing to compile. The failure is
+// silent in the worst direction: a renamed argResume would render a token the workload does not recognise,
+// the victim would start from zero, and the run would report a resume arm that resumed nothing.
+//
+// This test exists because the comment above those constants claimed a test held them together and named one
+// that was never written. The claim is now true.
+//
+// argIgnore and argFresh are complements rather than literals in the script -- anything that is not the
+// positive token means the other arm -- so they are checked for being DISTINCT from their partner, which is
+// the whole of what the script's logic requires of them.
+//
+// Mutations that turn this red: change either constant without changing the script, or change either
+// comparison in the script without changing the constant.
+func TestTheArgvTokensAreWhatTheScriptCompares(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		comparison string
+		complement string
+	}{
+		{"the termination contract", `sys.argv[2]=="` + argHonor + `"`, argIgnore},
+		{"the resume axis", `sys.argv[5]=="` + argResume + `"`, argFresh},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if !strings.Contains(workloadScript, tc.comparison) {
+				t.Fatalf("the shipped workload does not compare against %q; the Go constant and the script "+
+					"have drifted, and nothing about that fails to compile", tc.comparison)
+			}
+			if tc.complement == "" {
+				t.Fatal("the complementary spelling is empty, so every value would read as the positive one")
+			}
+			if strings.Contains(tc.comparison, `"`+tc.complement+`"`) {
+				t.Fatalf("the two spellings collapsed onto %q, so the arms would render one command",
+					tc.complement)
+			}
+		})
+	}
+}
+
 func TestTheWorkloadEmitsTheDeviceTokenThisPackageParses(t *testing.T) {
 	if !strings.Contains(workloadScript, `dev="`+DeviceLaunchFailedMidrun+`"`) {
 		t.Fatalf("the workload script never sets dev=%q, so a card that stops mid-run reports something this "+
@@ -474,6 +605,45 @@ func TestTheWorkloadEmitsTheDeviceTokenThisPackageParses(t *testing.T) {
 		t.Fatalf("%q is not in deviceStatuses, so the workload's own report reads as an unknown status",
 			DeviceLaunchFailedMidrun)
 	}
+	// The same binding for the token that says the driver was never reached for.
+	//
+	// It is the conclusion the resume arms rest on: a checkpointing workload skips cuda() entirely, and
+	// "did not try" has to be distinguishable from "tried and was refused". A rename on the Python side
+	// would turn it into an unknown status with nothing failing to compile, which is the whole reason it is
+	// a constant rather than a literal in two places.
+	if !strings.Contains(workloadScript, `dev="`+DeviceNotAttempted+`"`) {
+		t.Fatalf("the workload script never sets dev=%q, so a workload that never reached the driver reports "+
+			"something this package does not classify", DeviceNotAttempted)
+	}
+	if !deviceStatuses[DeviceNotAttempted] {
+		t.Fatalf("%q is not in deviceStatuses, so the workload's own report reads as an unknown status",
+			DeviceNotAttempted)
+	}
+}
+
+// The same binding for the checkpoint-write tokens, and the stakes are higher than for the device ones.
+//
+// An unknown save status does not degrade the reading, it destroys the message: ReportFromMessage refuses
+// the whole sentence, so the iteration count and the accumulator go with it. A rename on either side would
+// therefore turn every run of these arms into a record with no work in it at all.
+//
+// Mutation that turns this red: change any of the three spellings on either side of the boundary.
+func TestTheWorkloadEmitsTheSaveTokensThisPackageParses(t *testing.T) {
+	for _, tok := range []string{SaveNotAttempted, SaveOK, SaveFailed} {
+		if !strings.Contains(workloadScript, `saved="`+tok+`"`) {
+			t.Fatalf("the workload script never sets saved=%q, so an outcome this package classifies is one "+
+				"the workload cannot report", tok)
+		}
+		if !saveStatuses[tok] {
+			t.Fatalf("%q is not in saveStatuses, so the workload's own report reads as an unknown status", tok)
+		}
+	}
+	// The status must be the LAST field, because the parser reads by position: a seventh field that were not
+	// `saved=` makes every message this workload writes unparseable.
+	if !strings.Contains(workloadScript, `resumed=%d saved=%s"`) {
+		t.Fatal("the workload's message does not end with the save status, so its field positions no longer " +
+			"match the ones ReportFromMessage reads")
+	}
 }
 
 // TestAnUnsetDutyRendersWhatThisTraceAlwaysRendered keeps the new axis from moving the old experiment.
@@ -481,26 +651,36 @@ func TestTheWorkloadEmitsTheDeviceTokenThisPackageParses(t *testing.T) {
 // The command is part of the Pod template the termination canary fingerprints, so a row that says nothing
 // about duty must render one spelling, and it must be the spelling that means "compute throughout".
 func TestAnUnsetDutyRendersWhatThisTraceAlwaysRendered(t *testing.T) {
-	got, err := sleeperCommand(30, HonorsSIGTERM, DutyCycle(0).orFull())
+	got, err := sleeperCommand(30, HonorsSIGTERM, DutyCycle(0).orFull(), "", false)
 	if err != nil {
 		t.Fatalf("the historical row was refused: %v", err)
 	}
-	if n := len(got); n != 6 {
-		t.Fatalf("command has %d parts, want 6 (python3 -c script seconds honor duty): %q", n, got)
+	if n := len(got); n != 8 {
+		t.Fatalf("command has %d parts, want 8 (python3 -c script seconds honor duty state resume): %q",
+			n, got)
 	}
-	if got[len(got)-2] != "honor" || got[len(got)-1] != "1" {
-		t.Errorf("an unset duty rendered %q, want the full-duty spelling \"1\"", got[len(got)-2:])
+	if got[len(got)-4] != "honor" || got[len(got)-3] != "1" {
+		t.Errorf("an unset duty rendered %q, want the full-duty spelling \"1\"", got[len(got)-4:len(got)-2])
+	}
+	// A row that declares no resume renders the empty spelling, not an absent argument: the same "one
+	// experiment, one spelling" rule the duty argument above is held to.
+	if got[len(got)-2] != "" {
+		t.Errorf("a non-resuming row rendered state path %q, want the empty spelling", got[len(got)-2])
+	}
+	// And the resume axis renders its own spelling rather than being left off, for the same reason.
+	if got[len(got)-1] != argFresh {
+		t.Errorf("a non-resuming row rendered %q as the resume argument, want %q", got[len(got)-1], argFresh)
 	}
 }
 
 // TestADeclaredDutyReachesTheWorkload is the axis itself.
 func TestADeclaredDutyReachesTheWorkload(t *testing.T) {
-	got, err := sleeperCommand(30, IgnoresSIGTERM, DutyCycle(0.25))
+	got, err := sleeperCommand(30, IgnoresSIGTERM, DutyCycle(0.25), "", false)
 	if err != nil {
 		t.Fatalf("a quarter-duty row was refused: %v", err)
 	}
-	if got[len(got)-1] != "0.25" {
-		t.Errorf("duty reached the workload as %q, want \"0.25\"", got[len(got)-1])
+	if got[len(got)-3] != "0.25" {
+		t.Errorf("duty reached the workload as %q, want \"0.25\"", got[len(got)-3])
 	}
 	if !strings.Contains(got[2], "duty=float(sys.argv[3])") {
 		t.Error("the rendered script does not read a duty argument at all")
@@ -516,13 +696,13 @@ func TestADeclaredDutyReachesTheWorkload(t *testing.T) {
 // it asked for. A refused trace is a trace nobody ran; a clamped one is a wrong number.
 func TestAnImpossibleDutyIsRefusedRatherThanClamped(t *testing.T) {
 	for _, d := range []DutyCycle{-1, 1.5, 2} {
-		if _, err := sleeperCommand(30, HonorsSIGTERM, d); err == nil {
+		if _, err := sleeperCommand(30, HonorsSIGTERM, d, "", false); err == nil {
 			t.Errorf("duty %v was accepted", float64(d))
 		}
 	}
 	// Zero reaches sleeperCommand only if a caller skipped orFull, and it is refused there too: a row that
 	// never computes cannot be told from one whose card was never observed.
-	if _, err := sleeperCommand(30, HonorsSIGTERM, DutyCycle(0)); err == nil {
+	if _, err := sleeperCommand(30, HonorsSIGTERM, DutyCycle(0), "", false); err == nil {
 		t.Error("a zero duty was accepted; a row that never computes is indistinguishable from an unobserved one")
 	}
 }
@@ -622,12 +802,13 @@ func TestAnArmsDutyReachesTheRenderedCommand(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s/%s render: %v", tc.arm, tc.row, err)
 		}
-		got := job.Spec.Command[len(job.Spec.Command)-1]
+		// The state path and the resume spelling are last now, so duty and the arm sit further back again.
+		got := job.Spec.Command[len(job.Spec.Command)-3]
 		if got != tc.want {
 			t.Errorf("%s/%s renders duty %q, want %q", tc.arm, tc.row, got, tc.want)
 		}
 		// The other half of what the arm decides, checked in the same render so the two cannot drift apart.
-		if arm := job.Spec.Command[len(job.Spec.Command)-2]; arm != contractArg(contract) {
+		if arm := job.Spec.Command[len(job.Spec.Command)-4]; arm != contractArg(contract) {
 			t.Errorf("%s/%s renders contract arm %q, want the spelling of %q", tc.arm, tc.row, arm, contract)
 		}
 		_ = duty
@@ -676,5 +857,99 @@ func TestTheWorkloadDoesNotShareItsPeriodWithTheSampler(t *testing.T) {
 		t.Errorf("the workload's period is %gs and the exporter collects every %gs, a ratio of %.3f; the "+
 			"burst does not walk through the sampler's phase and a duty cycle can hide behind it entirely, "+
 			"which is what session qlgpu-20260906-103327 measured", period, sampler, ratio)
+	}
+}
+
+// The resume pair renders one mechanism with one difference.
+//
+// Counted rather than described: the two commands are compared element by element and the number of
+// differences is the assertion. The page registering these arms says the restore is the only axis, so a
+// second difference -- a path, a claim, a duty, a contract -- would make any measured gap carry two changes
+// and belong to neither.
+//
+// Mutations that turn this red: give the arms different paths or claims; drop the volume from either arm;
+// or render the state path without the volume, which would save progress into the container filesystem and
+// lose it at the moment the preemption it is meant to survive destroys the Pod -- reporting a resume that
+// recovered nothing, in the study whose question is how much is recovered.
+func TestTheResumePairDiffersInExactlyOneArgument(t *testing.T) {
+	row := TrainingTraceRow{Index: 0, Name: VictimRow, Tenant: "tenant-a", GPUCount: 1, DurationSec: 60}
+	fresh, err := RenderForArm(ArmEFresh, row, "queuelab")
+	if err != nil {
+		t.Fatalf("render E-fresh: %v", err)
+	}
+	resume, err := RenderForArm(ArmEResume, row, "queuelab")
+	if err != nil {
+		t.Fatalf("render E-resume: %v", err)
+	}
+
+	if len(fresh.Spec.Command) != len(resume.Spec.Command) {
+		t.Fatalf("the arms have different command lengths: %d and %d",
+			len(fresh.Spec.Command), len(resume.Spec.Command))
+	}
+	diff := 0
+	for i := range fresh.Spec.Command {
+		if fresh.Spec.Command[i] != resume.Spec.Command[i] {
+			diff++
+		}
+	}
+	if diff != 1 {
+		t.Fatalf("the arms differ in %d command elements, want exactly 1:\n  fresh=%q\n resume=%q",
+			diff, fresh.Spec.Command, resume.Spec.Command)
+	}
+	last := len(fresh.Spec.Command) - 1
+	if fresh.Spec.Command[last] != argFresh || resume.Spec.Command[last] != argResume {
+		t.Fatalf("the differing element must be the resume spelling, got %q and %q",
+			fresh.Spec.Command[last], resume.Spec.Command[last])
+	}
+
+	// Both write to the same file, and both carry the volume that makes the file outlive the Pod.
+	if fresh.Spec.StateVolume == nil || resume.Spec.StateVolume == nil {
+		t.Fatalf("an arm that checkpoints rendered no volume (fresh=%v resume=%v); its progress would die "+
+			"with the Pod", fresh.Spec.StateVolume, resume.Spec.StateVolume)
+	}
+	for _, v := range []struct{ label, claim, mount string }{
+		{"E-fresh", fresh.Spec.StateVolume.ClaimName, fresh.Spec.StateVolume.MountPath},
+		{"E-resume", resume.Spec.StateVolume.ClaimName, resume.Spec.StateVolume.MountPath},
+	} {
+		if v.claim != StateClaimName || v.mount != StateMountPath {
+			t.Errorf("%s mounts claim %q at %q, want %q at %q",
+				v.label, v.claim, v.mount, StateClaimName, StateMountPath)
+		}
+	}
+	for _, c := range [][]string{fresh.Spec.Command, resume.Spec.Command} {
+		if got := c[len(c)-2]; got != StateFilePath {
+			t.Errorf("state path = %q, want %q", got, StateFilePath)
+		}
+	}
+	// The file has to be INSIDE the mount, or the workload writes somewhere the volume does not cover and
+	// the whole chain is a path that looks kept and is not.
+	if !strings.HasPrefix(StateFilePath, StateMountPath+"/") {
+		t.Fatalf("the state file %q is not inside the mount %q", StateFilePath, StateMountPath)
+	}
+}
+
+// Every arm that predates the pair renders exactly what it rendered before the pair existed.
+//
+// This is what keeps a reading taken under A-ignore comparable with one taken after: a state volume or a
+// non-empty path appearing on those arms would put the checkpoint's cost into runs that never asked for it.
+//
+// Mutations that turn this red: render the volume unconditionally, or give a non-checkpointing arm a path.
+func TestTheArmsThatDoNotCheckpointRenderNoVolume(t *testing.T) {
+	row := TrainingTraceRow{Index: 0, Name: VictimRow, Tenant: "tenant-a", GPUCount: 1, DurationSec: 60}
+	for _, a := range []Arm{ArmAHonor, ArmAIgnore, ArmNRef, ArmDFull, ArmDQuarter} {
+		job, err := RenderForArm(a, row, "queuelab")
+		if err != nil {
+			t.Fatalf("%s: %v", a, err)
+		}
+		if job.Spec.StateVolume != nil {
+			t.Errorf("%s rendered a state volume %+v; it asked for no progress file", a, *job.Spec.StateVolume)
+		}
+		c := job.Spec.Command
+		if got := c[len(c)-2]; got != "" {
+			t.Errorf("%s rendered state path %q, want the empty spelling", a, got)
+		}
+		if got := c[len(c)-1]; got != argFresh {
+			t.Errorf("%s rendered %q as the resume argument, want %q", a, got, argFresh)
+		}
 	}
 }

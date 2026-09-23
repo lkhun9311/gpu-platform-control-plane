@@ -25,8 +25,28 @@ import (
 	"github.com/lkhun9311/gpu-mlops-platform-control-plane/internal/queuelab"
 )
 
-func TestParseArmAcceptsOnlyTheThreeArms(t *testing.T) {
-	for _, want := range []queuelab.Arm{queuelab.ArmAHonor, queuelab.ArmAIgnore, queuelab.ArmNRef} {
+// The CLI's arm list is the SECOND closed set, and it has to hold every arm the protocol defines.
+//
+// This test listed three arms and was named for them, while the protocol had five: D-full and D-quarter were
+// parseable and unguarded for as long as they existed, and the resume pair joined them. A constant added to
+// the protocol and not to parseArm is an arm that exists and cannot be requested; one added to parseArm and
+// not to the protocol is an arm the CLI accepts and PolicyVariant refuses at a later, stranger point.
+//
+// So the list is derived from the protocol rather than retyped here, which is what stops the two drifting
+// again. Mutations that turn this red: add an arm to internal/queuelab and not to parseArm; or drop a case
+// from parseArm's switch.
+func TestParseArmAcceptsEveryArmTheProtocolDefines(t *testing.T) {
+	// Every arm the protocol defines. PolicyVariant is the protocol's own closed set -- it refuses anything
+	// it does not know -- so an arm missing from this slice fails the sweep below rather than being skipped.
+	arms := []queuelab.Arm{
+		queuelab.ArmAHonor, queuelab.ArmAIgnore, queuelab.ArmNRef,
+		queuelab.ArmDFull, queuelab.ArmDQuarter,
+		queuelab.ArmEFresh, queuelab.ArmEResume,
+	}
+	for _, want := range arms {
+		if _, err := want.PolicyVariant(); err != nil {
+			t.Fatalf("%s is listed here but the protocol does not define it: %v", want, err)
+		}
 		got, err := parseArm(string(want))
 		if err != nil {
 			t.Fatalf("%s: %v", want, err)
@@ -35,11 +55,17 @@ func TestParseArmAcceptsOnlyTheThreeArms(t *testing.T) {
 			t.Fatalf("parseArm(%q) = %q", want, got)
 		}
 	}
-	// The old CLI accepted any study/variant pair, which is how an arm the experiment never defined could
-	// still be run; anything outside the closed set must be refused rather than defaulted.
-	for _, bad := range []string{"", "Any", "reclaim", "fifo", "a-honor", "A-Honor"} {
-		if _, err := parseArm(bad); err == nil {
-			t.Fatalf("parseArm(%q) must be refused", bad)
+
+	// The other direction: parseArm must not accept something the protocol would then refuse. Checked by
+	// asking the protocol about whatever parseArm returns, for a spelling close enough to be a plausible
+	// typo of a real arm.
+	for _, bad := range []string{
+		"", "Any", "reclaim", "fifo", "a-honor", "A-Honor",
+		// Near-misses of arms that DO exist, which is the shape a typed flag actually takes.
+		"D-Full", "E-Resume", "e-resume", "E-resumes", "E",
+	} {
+		if got, err := parseArm(bad); err == nil {
+			t.Fatalf("parseArm(%q) must be refused, got %q", bad, got)
 		}
 	}
 }
@@ -264,6 +290,50 @@ func TestDecideOperatorMode(t *testing.T) {
 			wantErr:    true,
 			wantErrHas: "-runid",
 		},
+		{
+			// The storage probe needs a class, and refusing here costs a flag rather than a node: without it
+			// the mode would take the worker, create a claim under the cluster's DEFAULT class, and report on
+			// storage nobody asked about — the very substitution a run refuses to make.
+			//
+			// Mutation that turns this row red: drop the StateClass check from the StateProbe case.
+			name:       "state-probe without a class refuses",
+			args:       operatorModeArgs{StateProbe: true},
+			wantErr:    true,
+			wantErrHas: "-state-class",
+		},
+		{
+			name:     "state-probe with a class dispatches",
+			args:     operatorModeArgs{StateProbe: true, StateClass: "fast-ssd"},
+			wantMode: modeStateProbe,
+		},
+		{
+			// Mutation that turns this row red: leave StateProbe out of the count above the switch. Two modes
+			// are then requested and only one is seen, so the probe silently runs the inspection.
+			name:       "state-probe alongside another mode refuses",
+			args:       operatorModeArgs{StateProbe: true, StateClass: "fast-ssd", Inspect: true},
+			wantErr:    true,
+			wantErrHas: "only one of",
+		},
+		{
+			// -state-class belongs to this mode and to a run, and to nothing else. A recovery mode that
+			// accepted it would look configured to its author while creating no claim at all.
+			//
+			// Mutation that turns this row red: delete the `!a.StateProbe && a.StateClass != ""` refusal.
+			name:       "a class named beside a mode that creates no claim refuses",
+			args:       operatorModeArgs{Inspect: true, StateClass: "fast-ssd"},
+			wantErr:    true,
+			wantErrHas: "-state-class",
+		},
+		{
+			// A probe is not a run, so an invocation that names a run id was written by somebody expecting
+			// something this mode does not do.
+			name: "state-probe combined with run-only flags refuses",
+			args: operatorModeArgs{
+				StateProbe: true, StateClass: "fast-ssd", RunOnlyFlags: []string{"-runid"},
+			},
+			wantErr:    true,
+			wantErrHas: "-runid",
+		},
 	}
 
 	for _, tc := range cases {
@@ -300,6 +370,7 @@ func TestSuppliedRunOnlyFlagsReportsWhatWasTyped(t *testing.T) {
 		fs.Duration("horizon", time.Duration(horizonSec)*time.Second, "")
 		fs.String("worker", "platform-worker", "")
 		fs.Bool("inspect-worker", false, "")
+		fs.String("state-class", "", "")
 		return fs
 	}
 
@@ -320,6 +391,19 @@ func TestSuppliedRunOnlyFlagsReportsWhatWasTyped(t *testing.T) {
 	got := suppliedRunOnlyFlags(fs)
 	if len(got) != 2 || got[0] != "-horizon" || got[1] != "-runid" {
 		t.Fatalf("want [-horizon -runid] in a stable order, got %v", got)
+	}
+
+	// -state-class configures the claim a checkpointing arm's victim mounts, and no recovery mode creates
+	// one. Left out of runOnlyFlagNames it would be accepted in silence, and the operator would believe the
+	// storage had been named on an invocation that never reached the code which reads it.
+	//
+	// Mutation that turns this red: remove "state-class" from runOnlyFlagNames.
+	fs = newSet()
+	if err := fs.Parse([]string{"-inspect-worker", "-state-class", "fast-ssd"}); err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if got := suppliedRunOnlyFlags(fs); len(got) != 1 || got[0] != "-state-class" {
+		t.Fatalf("want [-state-class], got %v", got)
 	}
 }
 

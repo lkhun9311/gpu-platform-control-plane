@@ -44,7 +44,17 @@ REPS="${REPS:-4}"
 # unlikely; that needs a record schema bump and is not done.
 #
 # EXDIR can be set to re-enter an interrupted session deliberately, which is what START_AT is for.
-EXDIR="${EXDIR:-ex/session-$(date -u +%Y%m%dT%H%M%SZ)}"
+# ATTEMPT is in the path because START_AT re-entry used to overwrite the records it resumed over.
+#
+# docs/superpowers/specs/2026-09-22-the-retry-rule-had-nothing-counting-it.md registers that a campaign must
+# leave an attempt history, and nothing could produce one while every attempt wrote to the same file names.
+# Raise it by hand on a deliberate re-entry; the default keeps the single-attempt layout readable.
+ATTEMPT="${ATTEMPT:-1}"
+if ! [[ "$ATTEMPT" =~ ^[0-9]+$ ]] || (( ATTEMPT < 1 )); then
+  echo "ATTEMPT must be a positive integer; got ${ATTEMPT@Q}" >&2
+  exit 1
+fi
+EXDIR="${EXDIR:-ex/session-$(date -u +%Y%m%dT%H%M%SZ)/attempt-$ATTEMPT}"
 
 if [[ $# -lt 1 ]]; then
   cat >&2 <<USAGE
@@ -61,6 +71,38 @@ USAGE
   exit 2
 fi
 WORKERS=("$@")
+
+# The study and its prerequisites are settled HERE, before the TTL gate and before prepare().
+#
+# They used to sit beside the sequence a few hundred lines down, which is after prepare() has put a canary
+# and a device preflight on every worker. Those spend node time on a rented card, so a session refused for
+# naming a study that does not exist, or for forgetting the storage class, had already been billed for the
+# refusal. Nothing below this point depends on them, so there is no reason for them to wait.
+STUDY="${STUDY:-reclaim}"
+case "$STUDY" in
+  reclaim | idling | resume) ;;
+  *)
+    echo "STUDY must be reclaim, idling or resume; got '$STUDY'" >&2
+    exit 1
+    ;;
+esac
+
+if [[ "$STUDY" == "resume" ]]; then
+  # One worker, and refused rather than tolerated. The resume block names $W1 four times and never $W2, so a
+  # second worker would be prepared, routed and BILLED without appearing in the sequence at all -- the exact
+  # defect the argument-count check above exists to stop.
+  if [[ ${#WORKERS[@]} -ne 1 ]]; then
+    echo "STUDY=resume takes exactly one worker: its four runs all go to the same node, and a second would" >&2
+    echo "  be prepared and billed without appearing in the sequence." >&2
+    exit 1
+  fi
+  # queuelabrun refuses a checkpointing arm with no class, but that refusal arrives on the meter.
+  if [[ -z "${STATE_CLASS:-}" ]]; then
+    echo "STUDY=resume needs STATE_CLASS: the resume arms mount a claim, and a run that reaches the meter" >&2
+    echo "  without one is refused after the card is already rented." >&2
+    exit 1
+  fi
+fi
 # Two workers at most, and they must differ. The sequence chooses its twelve-run form from the ARGUMENT
 # COUNT, so `gpu-session.sh nodeA nodeA` used to prepare one machine twice, open two routes to the same
 # exporter, run all twelve there, and still print the node-comparison command -- twelve paid runs after an
@@ -331,12 +373,12 @@ openRoute() {
   # the "text server accepted as DCGM" failure this repository has already made twice inside the Go code,
   # reachable here one level above it.
   port="$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()')"
-  kubectl port-forward -n "$NS" "pod/$pod" "$port:9400" >"/tmp/queuelab-pf-$worker.log" 2>&1 &
+  kubectl port-forward -n "$NS" "pod/$pod" "$port:9400" >"$EXDIR/pf-$worker.log" 2>&1 &
   local pf=$!
   FORWARDS+=("$pf")
   sleep 1
   if ! kill -0 "$pf" 2>/dev/null; then
-    echo "the port-forward to $pod exited immediately; see /tmp/queuelab-pf-$worker.log" >&2
+    echo "the port-forward to $pod exited immediately; see $EXDIR/pf-$worker.log" >&2
     return 1
   fi
   url="http://127.0.0.1:${port}/metrics"
@@ -345,13 +387,13 @@ openRoute() {
     sleep 1
   done
   if ! curl -sf -m 2 "$url" >/dev/null 2>&1; then
-    echo "the port-forward to $pod did not come up; see /tmp/queuelab-pf-$worker.log" >&2
+    echo "the port-forward to $pod did not come up; see $EXDIR/pf-$worker.log" >&2
     return 1
   fi
   # Written to a file first: `curl | grep -q` lets grep close the pipe on its first match, and under
   # `set -o pipefail` a large metrics body makes curl fail with a write error, so a healthy exporter reads as
   # an empty one.
-  local body="/tmp/queuelab-metrics-$worker.txt"
+  local body="$EXDIR/metrics-$worker.txt"
   curl -sf -m 5 "$url" >"$body"
   if ! grep -q '^DCGM_FI_DEV_GPU_UTIL{' "$body"; then
     echo "the exporter at $url serves no DCGM_FI_DEV_GPU_UTIL samples." >&2
@@ -379,8 +421,8 @@ prepare() {
   # The canary is what every run's qualification requires, and only this mode writes it. The script did not
   # take it, so the study path could not complete its first run on a fresh node.
   echo "  canary     : taking it (the qualification refuses a worker without one)"
-  ./queuelabrun -termination-canary -worker "$worker" >"/tmp/queuelab-canary-$worker.log" 2>&1 \
-    || { echo "the termination canary failed on $worker; see /tmp/queuelab-canary-$worker.log" >&2; return 1; }
+  ./queuelabrun -termination-canary -worker "$worker" >"$EXDIR/canary-$worker.log" 2>&1 \
+    || { echo "the termination canary failed on $worker; see $EXDIR/canary-$worker.log" >&2; return 1; }
   openRoute "$worker"
   echo "  exporter   : ${POD_OF[$worker]}"
   echo "  observer   : ${OBSERVER_OF[$worker]}"
@@ -389,6 +431,17 @@ prepare() {
   ./queuelabrun -device-preflight -worker "$worker" \
     -device-metrics "${URL_OF[$worker]}" -device-observer "${OBSERVER_OF[$worker]}" \
     | sed 's/^/    /'
+  # The storage probe, and only when a class was named. The checkpointing arms are the only ones that need
+  # it, so a session preparing a node for the other arms must not be made to choose a storage class it will
+  # never use -- but a session that WILL run them must not discover on the meter that the class does not
+  # bind. Nothing else in this harness exercises the state volume: the canary and the preflight both strip
+  # it from their probe Pods.
+  if [ -n "${STATE_CLASS:-}" ]; then
+    echo "  storage    :"
+    ./queuelabrun -state-probe -worker "$worker" -state-class "$STATE_CLASS" | sed 's/^/    /'
+  else
+    echo "  storage    : skipped (set STATE_CLASS to probe it; the checkpointing arms need it)"
+  fi
 }
 
 # The script's first act is to call ./queuelabrun, and a fresh checkout has no such file: the binary is
@@ -404,6 +457,16 @@ else
   echo "building the runner"
   go build -o queuelabrun ./cmd/queuelabrun
 fi
+
+# The session directory is created HERE, before prepare(), because prepare() writes its diagnostics into it.
+#
+# It used to be created just before the run loop, which was late enough while /tmp held those diagnostics.
+# A prepare-only session (RUN_STUDY unset) now leaves a directory holding the port-forward, exporter and
+# canary logs for the workers it verified, which is the session that most needs them kept: it is the one a
+# person runs when something is already wrong.
+mkdir -p "$EXDIR" || { echo "cannot create $EXDIR" >&2; exit 1; }
+echo "this session's records and diagnostics go in $EXDIR"
+echo
 
 for W in "${WORKERS[@]}"; do
   prepare "$W"
@@ -451,6 +514,8 @@ if [[ "${RUN_STUDY:-}" != "1" ]]; then
   echo
   echo "run the protocol AFTER this, not before: the nodes are warm now, and a run taken cold pulls inside"
   echo "its own observation window and can censor its own waste figure."
+  echo
+  echo "what this session verified is recorded in $EXDIR (port-forward, exporter and canary logs per worker)."
   exit 0
 fi
 
@@ -480,14 +545,24 @@ SEQUENCE=()
 # the bill, and a difference that carries both. `-compare` refuses to fold records that disagree on duty into
 # one arm, so a session that ran both and globbed them together would be refused rather than misread -- but
 # the refusal is a backstop, not the design.
-STUDY="${STUDY:-reclaim}"
-case "$STUDY" in
-  reclaim | idling) ;;
-  *)
-    echo "STUDY must be reclaim or idling; got '$STUDY'" >&2
-    exit 1
-    ;;
-esac
+
+# The resume study is the one whose block is FIXED rather than repeated, and the one that refuses to start
+# without a storage class.
+#
+# docs/superpowers/specs/2026-09-22-the-retry-rule-had-nothing-counting-it.md registers at most four run
+# starts for the whole campaign and zero replacement runs. REPS defaults to 4, so putting this block through
+# the REPS loop below would buy sixteen runs and break that budget in the first thing the script does.
+#
+# STATE_CLASS is demanded here rather than at the first run because the first run is already on the meter.
+# queuelabrun refuses a checkpointing arm with no class, but by then a card has been rented.
+if [[ "$STUDY" == "resume" ]]; then
+  # ABBA, exactly as registered: E-fresh, E-resume, E-resume, E-fresh. Two runs of each arm back to back in
+  # one order are confounded with time, and -compare says so rather than hiding it.
+  SEQUENCE+=(
+    "grace-bounded   E-fresh  ef1 $W1" "grace-bounded   E-resume er1 $W1"
+    "grace-bounded   E-resume er2 $W1" "grace-bounded   E-fresh  ef2 $W1"
+  )
+fi
 
 if [[ "$STUDY" == "idling" ]]; then
   # One dose and one node. The idling study asks one question, and every axis it does not vary is a cell it
@@ -500,7 +575,8 @@ if [[ "$STUDY" == "idling" ]]; then
 fi
 
 for ((r = 1; r <= REPS; r++)); do
-  [[ "$STUDY" == "idling" ]] && break
+  # resume joins idling here: its block is registered as exactly four runs, so it must not be repeated.
+  [[ "$STUDY" == "idling" || "$STUDY" == "resume" ]] && break
   if [[ ${#WORKERS[@]} -ge 2 ]]; then
     W2="${WORKERS[1]}"
     SEQUENCE+=(
@@ -552,10 +628,51 @@ if ! [[ "$START_AT" =~ ^[0-9]+$ ]] || (( START_AT < 1 || START_AT > ${#SEQUENCE[
   exit 2
 fi
 
-mkdir -p "$EXDIR" || { echo "cannot create $EXDIR" >&2; exit 1; }
-echo "records for this session go in $EXDIR"
 echo "running ${#SEQUENCE[@]} runs, starting at $START_AT"
 echo
+
+# The campaign manifest, written BEFORE the first run start.
+#
+# docs/superpowers/specs/2026-09-22-the-retry-rule-had-nothing-counting-it.md registers that a campaign must
+# leave an attempt history: four run starts, what each produced, and -- for an invalidated one -- the
+# refusal the ledger gave. Without it the next session cannot tell "not attempted" from "attempted and
+# refused", a distinction this lab has already mistaken once.
+#
+# It is written first and appended to as runs finish, rather than summarised at the end, because the end is
+# exactly what a session that runs out of deadline never reaches. A manifest that only exists on the happy
+# path documents the campaigns that needed no documenting.
+#
+# Plain text, not JSON. The run records are the machine-readable half and already carry arm, dose, runID and
+# schema version; this file answers "what was bought, in what order, and what came back", which is read by a
+# person deciding whether a comparison may be published.
+MANIFEST="$EXDIR/campaign.txt"
+{
+  echo "study        $STUDY"
+  echo "attempt      $ATTEMPT"
+  echo "workers      ${WORKERS[*]}"
+  echo "started      $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  echo "state-class  ${STATE_CLASS:-(none)}"
+  echo "runs         ${#SEQUENCE[@]} planned, starting at $START_AT"
+  echo
+  echo "planned order:"
+  i=0
+  for SPEC in "${SEQUENCE[@]}"; do
+    i=$((i + 1))
+    # shellcheck disable=SC2086
+    set -- $SPEC
+    echo "  $i  $3  $2  $1  on $4"
+  done
+  echo
+  echo "outcomes:"
+} > "$MANIFEST" || { echo "cannot write $MANIFEST" >&2; exit 1; }
+echo "the campaign manifest is $MANIFEST"
+echo
+
+# Record one run's outcome in the manifest. Appended as it happens, so an interrupted session still says
+# what it had bought by the time it stopped.
+manifest_outcome() {
+  printf '  %-4s %-10s %s\n' "$1" "$2" "$3" >> "$MANIFEST" || true
+}
 # Stop before a run that cannot finish, rather than being cut in the middle of one.
 #
 # Nothing bounded this session's length. The per-run horizon is derived inside the runner and refuses to be
@@ -645,7 +762,8 @@ for SPEC in "${SEQUENCE[@]}"; do
   set -- $SPEC
   DOSE=$1 ARM=$2 ID=$3 ON=$4
   N=$((N + 1))
-  (( N < START_AT )) && { echo "[$N/${#SEQUENCE[@]}] $ID  skipped (START_AT=$START_AT)"; skipped=$((skipped + 1)); continue; }
+  (( N < START_AT )) && { echo "[$N/${#SEQUENCE[@]}] $ID  skipped (START_AT=$START_AT)"; skipped=$((skipped + 1)); \
+    manifest_outcome "$N" "skipped" "$ID  not started by this attempt (START_AT=$START_AT)"; continue; }
   deadline_check || exit 1
   echo "[$N/${#SEQUENCE[@]}] $ID  $DOSE  $ARM  on $ON"
   RUN_T0=$(date +%s)
@@ -674,12 +792,28 @@ for SPEC in "${SEQUENCE[@]}"; do
   # No `|| true`. A run that fails has lost the thing the session is buying, and the ones after it would
   # spend node time on a route or a node that has already stopped working. START_AT is how the rest is
   # recovered once the cause is fixed, without re-running what already succeeded.
-  ./queuelabrun -require-device -dose "$DOSE" -arm "$ARM" -runid "$ID" -worker "$ON" \
+  # -require-device is NOT passed for a checkpointing arm, and that is not a relaxation.
+  #
+  # requireDeviceEvidence ignores the arm, so it would demand a CUDA workload from a row the protocol keeps
+  # on the CPU path on purpose -- and the decoder refuses a checkpointing row that reached the driver. The
+  # two guards would contradict each other and every E record would be invalid. The device evidence these
+  # arms rest on is the preflight, which ran before the study and qualified the node.
+  DEVICE_FLAGS=(-require-device)
+  STATE_FLAGS=()
+  case "$ARM" in
+    E-fresh | E-resume)
+      DEVICE_FLAGS=()
+      STATE_FLAGS=(-state-class "$STATE_CLASS")
+      ;;
+  esac
+  ./queuelabrun "${DEVICE_FLAGS[@]}" "${STATE_FLAGS[@]}" -dose "$DOSE" -arm "$ARM" -runid "$ID" -worker "$ON" \
     -device-metrics "${URL_OF[$ON]}" -device-observer "${OBSERVER_OF[$ON]}" \
     -out "$EXDIR/gpu-$DOSE-$ARM-$ID.json" \
-    || { echo; echo "run $ID failed. Fix the cause, then resume: EXDIR=$EXDIR START_AT=$N RUN_STUDY=1 $0 ${WORKERS[*]}" >&2; exit 1; }
+    || { manifest_outcome "$N" "FAILED" "$ID  $ARM  on $ON  -- the runner refused or could not finish"; \
+         echo; echo "run $ID failed. Fix the cause, then resume: EXDIR=$EXDIR START_AT=$N RUN_STUDY=1 $0 ${WORKERS[*]}" >&2; exit 1; }
   run_secs=$(( run_secs + $(date +%s) - RUN_T0 ))
   runs_done=$((runs_done + 1))
+  manifest_outcome "$N" "ok" "$ID  $ARM  on $ON  -> $(basename "$EXDIR/gpu-$DOSE-$ARM-$ID.json")"
 done
 
 # The globs are the ones the kind study uses, and they are narrow for reasons the tool enforces: an arm
@@ -691,7 +825,19 @@ echo "all runs completed. Compare them:"
 # The hints are per study, because a glob for the other one returns nothing and reads as a session that
 # produced no records. This block printed the reclaim globs whatever ran, which is the shape of advice that
 # sends a reader looking for a fault in the run rather than in the command.
-if [[ "$STUDY" == "idling" ]]; then
+if [[ "$STUDY" == "resume" ]]; then
+  # One glob, because the campaign is one block. The comparison is refused unless all four records are
+  # valid, and a campaign that ends short publishes this directory as its attempt history instead.
+  echo "  ./queuelabrun -compare '$EXDIR/gpu-grace-bounded-E-*.json'"
+  echo
+  echo "the reading this study is for: whether a victim that RESTORED its progress recovers more of it than"
+  echo "one that checkpointed and started fresh. E-fresh pays the same write cost and reads nothing back, so"
+  echo "the difference between the two arms is the restore and nothing else."
+  echo
+  echo "four runs were registered and four is the budget: an invalidated run is NOT retaken. If this"
+  echo "directory holds fewer than four valid records, publish it as an attempt history rather than a"
+  echo "comparison -- see docs/superpowers/specs/2026-09-22-the-retry-rule-had-nothing-counting-it.md."
+elif [[ "$STUDY" == "idling" ]]; then
   echo "  ./queuelabrun -compare '$EXDIR/gpu-grace-bounded-D-*.json'"
   echo
   echo "the reading this study is for: reserved GPU-seconds against observed device-seconds, per arm."

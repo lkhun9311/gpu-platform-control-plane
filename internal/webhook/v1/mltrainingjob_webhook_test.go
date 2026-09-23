@@ -134,6 +134,12 @@ func TestValidateUpdateRefusesBakedEditsOnceTheJobExists(t *testing.T) {
 		// Completions is immutable on a batch/v1 Job; parallelism is not. Confirmed against a real apiserver
 		// in envtest, which accepts a parallelism change and answers "field is immutable" for completions.
 		{"completions", func(m *platformv1.MLTrainingJob) { m.Spec.Completions = 4 }, "spec.completions"},
+		// The state volume is built into the pod template like the first four, so attaching one to a job whose
+		// Job already exists is stored and then ignored. It is the field a resuming workload depends on, which
+		// makes the silent version of this failure a run that restores nothing and reports success.
+		{"stateVolume", func(m *platformv1.MLTrainingJob) {
+			m.Spec.StateVolume = &platformv1.StateVolume{ClaimName: "resume-state", MountPath: "/state"}
+		}, "spec.stateVolume"},
 	}
 	for _, row := range rows {
 		t.Run(row.name, func(t *testing.T) {
@@ -160,6 +166,25 @@ func TestValidateUpdateAllowsFieldsTheReconcilerStillSyncs(t *testing.T) {
 	updated := job(func(m *platformv1.MLTrainingJob) { m.Spec.Parallelism = 4 })
 	if _, err := v.ValidateUpdate(context.Background(), job(nil), updated); err != nil {
 		t.Fatalf("refused an edit the reconciler re-applies every pass: %v", err)
+	}
+}
+
+// Re-submitting the same state volume is not an edit, and must not be refused as one.
+//
+// The rule compares the volume by VALUE. Compared by pointer it would fire on every update that carried a
+// freshly decoded spec -- which is every update, since the apiserver hands the validator a new object each
+// time -- and the field would become unwritable rather than immutable-after-create. That failure is
+// invisible to the table above, because every row there changes something.
+//
+// Mutation that turns this red: compare oldSpec.StateVolume != newSpec.StateVolume as pointers.
+func TestValidateUpdateAllowsAStateVolumeResubmittedUnchanged(t *testing.T) {
+	v := validatorWith(t, ownedJob())
+	withVolume := func(m *platformv1.MLTrainingJob) {
+		m.Spec.StateVolume = &platformv1.StateVolume{ClaimName: "resume-state", MountPath: "/state"}
+	}
+	if _, err := v.ValidateUpdate(context.Background(), job(withVolume), job(withVolume)); err != nil {
+		t.Fatalf("refused an update that re-sent the same state volume, so the field cannot be written at "+
+			"all rather than only after the Job exists: %v", err)
 	}
 }
 

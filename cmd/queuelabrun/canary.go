@@ -144,6 +144,20 @@ type canaryContract struct {
 	Image         string
 	HonorCommand  []string
 	IgnoreCommand []string
+	// ResumeCommand is what a CHECKPOINTING arm's victim runs, and it is here because without it the sentence
+	// above stopped being true the moment such an arm existed.
+	//
+	// The two commands beside it are rendered with no progress file, because that is what every arm before
+	// E-fresh and E-resume submits. Those two render a state path and a resume spelling, so their victim's
+	// argv matches neither recorded command -- and a key that cannot describe the workload a run submits
+	// cannot say the run was qualified for it.
+	//
+	// It is a KEY field and not a third probe. The page registering these arms asked for "the resuming
+	// command as a third field"; canaryProbeSpecs, awaitProbesRunning, awaitProbesStopped, releaseProbes and
+	// reportCanary are all written around exactly two probes, and nothing about signal delivery differs
+	// between a workload that writes a progress file and one that does not. What was missing was the
+	// RECORD of which bytes the arms run, not a third measurement of the same mechanism.
+	ResumeCommand []string
 	// ProbeDurationSec is the row duration the two commands above were rendered at. It is not a property of any
 	// arm — it is how long the probe sleeper would run if nobody stopped it — and it is carried so the key can
 	// record the commands exactly as they were probed rather than as a template nobody executed.
@@ -189,10 +203,25 @@ func harnessTerminationContract() (canaryContract, error) {
 	if err != nil {
 		return canaryContract{}, fmt.Errorf("render the ignoring probe: %w", err)
 	}
+	// The resuming command comes through RenderForArm, because the state path and the resume spelling are
+	// decided by the ARM and not by the contract. Rendering it here by hand would be the hand-written
+	// imitation this type's own comment argues against.
+	//
+	// It is rendered at the VICTIM's row name rather than the probe's, and that is forced rather than
+	// chosen: Arm.StateFor refuses a row it does not know, and the checkpoint belongs to the victim in any
+	// case. The probe's own row keeps its name, which canaryArm, the probe Pod's purpose label and the
+	// teardown all depend on.
+	resumeRow := row
+	resumeRow.Name = queuelab.VictimRow
+	resume, err := queuelab.RenderForArm(queuelab.ArmEResume, resumeRow, canaryNamespace)
+	if err != nil {
+		return canaryContract{}, fmt.Errorf("render the resuming arm's workload: %w", err)
+	}
 	return canaryContract{
 		Image:            honor.Spec.Image,
 		HonorCommand:     honor.Spec.Command,
 		IgnoreCommand:    ignore.Spec.Command,
+		ResumeCommand:    resume.Spec.Command,
 		ProbeDurationSec: canaryProbeDurationSec,
 		GraceSec:         terminationGraceSec,
 		HonorExitCode:    honorExitCode,
@@ -244,6 +273,19 @@ func templateProbeJob() *platformv1.MLTrainingJob {
 			GPUCount:    7,
 			Parallelism: 3,
 			Completions: 5,
+			// The state volume is set for the reason every sentinel above it is: BuildJob renders a volume and
+			// a mount only when this field is present, so leaving it zero would put the whole mount outside
+			// the key while every run carried it.
+			//
+			// It is also the case the paragraph above anticipated -- a field whose sentinel would be carried
+			// into a real Pod -- and the answer it asked for is made here rather than deferred. A claim named
+			// `template-probe-state` exists nowhere, and a Pod referencing a missing claim stays Pending, so
+			// the sentinel cannot be allowed to reach the probe. Unlike gpuClass, it can be removed without
+			// changing what the probe measures: probePodFrom strips it exactly as it strips the device
+			// request, which is the same trade made for the same reason one size smaller.
+			StateVolume: &platformv1.StateVolume{
+				ClaimName: "template-probe-state", MountPath: "/template-probe-state",
+			},
 		},
 	}
 }
@@ -350,6 +392,16 @@ type canaryKey struct {
 	Image         string   `json:"image"`
 	HonorCommand  []string `json:"honorCommand"`
 	IgnoreCommand []string `json:"ignoreCommand"`
+	// ResumeCommand is the workload a checkpointing arm's victim runs, recorded so the key can say which
+	// bytes it qualified.
+	//
+	// `omitempty` and NOT part of decodeCanary's required-field sweep, deliberately. Every qualification
+	// already written to a Node annotation predates this field, and demanding it would refuse them all --
+	// the mistake this lineage has made three times, in the other direction, by requiring of older documents
+	// something they cannot contain. An older key simply carries no resuming command, keyDifferences reports
+	// that as a difference, and the operator re-takes the reading. Which is correct: the arms' command did
+	// change, so a qualification taken before it describes a workload no run submits now.
+	ResumeCommand []string `json:"resumeCommand,omitempty"`
 	// GraceSec is the grace period the apiserver DEFAULTED onto the probe Pods, not one the canary asked for.
 	//
 	// That is the fact worth keying on, because nothing in this harness sets a grace period at all: the
@@ -424,6 +476,7 @@ func canaryKeyFor(n *corev1.Node, c canaryContract, operatorImageID string) cana
 		Image:            c.Image,
 		HonorCommand:     c.HonorCommand,
 		IgnoreCommand:    c.IgnoreCommand,
+		ResumeCommand:    c.ResumeCommand,
 		GraceSec:         c.GraceSec,
 		HonorExitCode:    c.HonorExitCode,
 		NodeUID:          string(n.UID),
@@ -685,6 +738,11 @@ func keyDifferences(want, got canaryKey) []string {
 	str("image", want.Image, got.Image)
 	str("honoring command", strings.Join(want.HonorCommand, " "), strings.Join(got.HonorCommand, " "))
 	str("ignoring command", strings.Join(want.IgnoreCommand, " "), strings.Join(got.IgnoreCommand, " "))
+	// Compared like the two above it, so a qualification taken before the checkpointing arms existed reports
+	// its empty resuming command as a difference and sends the operator to re-take the reading. That is the
+	// right answer rather than a nuisance: those arms render a state path and a resume spelling, so a key
+	// without one describes a workload no run submits any more.
+	str("resuming command", strings.Join(want.ResumeCommand, " "), strings.Join(got.ResumeCommand, " "))
 	str("node UID", want.NodeUID, got.NodeUID)
 	str("kubelet version", want.KubeletVersion, got.KubeletVersion)
 	str("container runtime", want.ContainerRuntime, got.ContainerRuntime)

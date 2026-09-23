@@ -44,10 +44,14 @@ func runWorkload(t *testing.T, libDir string, env []string, seconds, arm string)
 
 // runWorkloadAtDuty is the same, with the workload's third argument spelled out.
 //
-// The trailing arguments are replaced by POSITION FROM THE END, and there are three of them now. The
-// two-argument version of this helper overwrote the last two and, when duty was added, silently handed the
-// arm string to float() -- so every device-path test failed with a ValueError rather than with anything about
-// the device. Naming all three keeps the helper honest about what the command's shape is.
+// The arguments are replaced by POSITION FROM THE FRONT, which is what stops this helper from breaking every
+// time the workload gains an argument. It counted from the END twice: the two-argument version overwrote the
+// last two and, when duty was added, handed the arm string to float(); counting three from the end then did
+// the same thing again when the state path was added, and every device-path test failed with a ValueError
+// about 'ignore' rather than with anything about the device.
+//
+// Positional arguments are appended, never inserted, so an index from the front names the same argument
+// forever while an index from the end names a different one after every addition.
 func runWorkloadAtDuty(t *testing.T, libDir string, env []string, seconds, arm, duty string) (string, int) {
 	t.Helper()
 	python, err := exec.LookPath("python3")
@@ -62,9 +66,10 @@ func runWorkloadAtDuty(t *testing.T, libDir string, env []string, seconds, arm, 
 	}
 	args := append([]string{}, job.Spec.Command[1:]...)
 	if len(args) < 5 {
-		t.Fatalf("the rendered command has %d arguments after python3; this helper replaces three", len(args))
+		t.Fatalf("the rendered command has %d arguments after python3; this helper needs -c, the script, "+
+			"and the three positional arguments it replaces", len(args))
 	}
-	args[len(args)-3], args[len(args)-2], args[len(args)-1] = seconds, arm, duty
+	args[2], args[3], args[4] = seconds, arm, duty
 	cmd := exec.Command(python, args...)
 	cmd.Env = append(append(os.Environ(), "LD_LIBRARY_PATH="+libDir), env...)
 	out, err := cmd.CombinedOutput()
@@ -110,7 +115,7 @@ func TestTheWorkloadsDevicePathRunsAgainstAFakeDriver(t *testing.T) {
 		t.Fatalf("the device path exited %d:\n%s", code, out)
 	}
 	final := lastLine(out)
-	iters, kind, device, _, _ := ReportFromMessage(strings.TrimSpace(strings.TrimPrefix(final, "finished ")))
+	iters, kind, device, _, _, _, _ := ReportFromMessage(strings.TrimSpace(strings.TrimPrefix(final, "finished ")))
 	if iters == nil {
 		t.Fatalf("the device path left no readable report: %q\n%s", final, out)
 	}
@@ -139,7 +144,7 @@ func TestEachDriverRefusalProducesItsOwnToken(t *testing.T) {
 		t.Run(tc.symbol, func(t *testing.T) {
 			out, _ := runWorkload(t, lib, []string{"SHIM_FAIL_AT=" + tc.symbol}, "1", "ignore")
 			final := strings.TrimSpace(strings.TrimPrefix(lastLine(out), "finished "))
-			_, kind, device, _, _ := ReportFromMessage(final)
+			_, kind, device, _, _, _, _ := ReportFromMessage(final)
 			if device != tc.token {
 				t.Fatalf("a driver refusing %s reported dev=%q, want %q\n%s", tc.symbol, device, tc.token, out)
 			}
@@ -156,7 +161,7 @@ func TestEachDriverRefusalProducesItsOwnToken(t *testing.T) {
 	// path to a non-zero exit from the loop rather than from the handler.
 	out, code := runWorkload(t, lib, []string{"SHIM_FAIL_LAUNCH_AFTER=3"}, "5", "ignore")
 	final := strings.TrimSpace(strings.TrimPrefix(lastLine(out), "aborted "))
-	_, kind, device, _, _ := ReportFromMessage(final)
+	_, kind, device, _, _, _, _ := ReportFromMessage(final)
 	if kind != KindCUDAFMA || device != "launch-failed-midrun" {
 		t.Fatalf("a mid-run launch failure reported kind=%q dev=%q\n%s", kind, device, out)
 	}
@@ -289,7 +294,7 @@ func TestDutyReachesTheDevicePathAndNotJustTheFallback(t *testing.T) {
 			t.Fatalf("duty %s: the device path exited %d:\n%s", duty, code, out)
 		}
 		final := lastLine(out)
-		iters, kind, device, _, _ := ReportFromMessage(strings.TrimSpace(strings.TrimPrefix(final, "finished ")))
+		iters, kind, device, _, _, _, _ := ReportFromMessage(strings.TrimSpace(strings.TrimPrefix(final, "finished ")))
 		if iters == nil {
 			t.Fatalf("duty %s: no readable report: %q", duty, final)
 		}
@@ -339,7 +344,7 @@ func TestTheWorkloadWritesTheDutyThisPackageParses(t *testing.T) {
 		t.Fatalf("the device path exited %d:\n%s", code, out)
 	}
 	final := strings.TrimSpace(strings.TrimPrefix(lastLine(out), "finished "))
-	iters, kind, device, duty, _ := ReportFromMessage(final)
+	iters, kind, device, duty, _, _, _ := ReportFromMessage(final)
 	if iters == nil {
 		t.Fatalf("this package cannot parse the message its own workload wrote: %q", final)
 	}
@@ -366,4 +371,76 @@ func workloadPeriod(t *testing.T) float64 {
 		t.Fatalf("PERIOD=%q is not a usable period", m[1])
 	}
 	return v
+}
+
+// A checkpointing workload never reaches for the driver, and this is measured rather than asserted.
+//
+// The pre-registration asked for a device-path run of the resume arms to be REFUSED at submission. Nothing
+// at submission can know whether libcuda will load on the node a Pod lands on -- that is a fact about the
+// node's driver and container toolkit -- so the path is made unreachable instead of predicted, and this is
+// the test that it actually is.
+//
+// Why it matters: on the device path the inner loop launches the kernel and never touches x, so the
+// checkpoint holds the seed. Restoring it sets the iteration count to the restored value while restoring NO
+// WORK, and the accumulator check cannot contradict that, because a resumed device attempt and a fresh one
+// both report the seed. The verdict the resume arms are measured by would come from a run that did not do
+// what it claims.
+//
+// Both halves are asserted against the SAME fake driver, which is the only way this says anything: without
+// the first, a day when the shim stops loading at all leaves the second passing for a reason unrelated to
+// the gate.
+//
+// Mutations that turn this red: call cuda() unconditionally; gate on the resume flag instead of the state
+// path, which would leave E-fresh on the device path and break the matched pair.
+func TestACheckpointingWorkloadNeverReachesForTheDriver(t *testing.T) {
+	lib := buildFakeCUDA(t)
+	python, err := exec.LookPath("python3")
+	if err != nil {
+		t.Skip("no python3 on this host")
+	}
+	job, err := RenderMLTrainingJobWithContract(TrainingTraceRow{
+		Index: 0, Name: "probe", Tenant: "lab", GPUCount: 1, DurationSec: 1,
+	}, "queuelab", IgnoresSIGTERM)
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+
+	report := func(statePath string) string {
+		t.Helper()
+		args := append([]string{}, job.Spec.Command[1:]...)
+		if len(args) < 6 {
+			t.Fatalf("the rendered command has %d arguments after python3; this test replaces four", len(args))
+		}
+		// Indexed from the FRONT for the reason runWorkloadAtDuty is: positional arguments are appended and
+		// never inserted, so counting from the end names a different argument after every addition.
+		args[2], args[3], args[4], args[5] = "1", "ignore", "1", statePath
+		cmd := exec.Command(python, args...)
+		cmd.Env = append(append(os.Environ(), "LD_LIBRARY_PATH="+lib), "PYTHONUNBUFFERED=1")
+		out, cerr := cmd.CombinedOutput()
+		if cerr != nil {
+			t.Fatalf("the workload exited badly with state %q: %v\n%s", statePath, cerr, out)
+		}
+		return strings.TrimSpace(strings.TrimPrefix(lastLine(strings.TrimSpace(string(out))), "finished "))
+	}
+
+	// The precondition: with no state path the shim IS reached, so the fake driver is working.
+	fresh := report("")
+	_, kind, device, _, _, _, _ := ReportFromMessage(fresh)
+	if kind != KindCUDAFMA || device != DeviceOK {
+		t.Fatalf("with no progress file the workload reported kind=%q dev=%q, want the device path; the "+
+			"fake driver is not being loaded at all, so the conclusion below would mean nothing: %q",
+			kind, device, fresh)
+	}
+
+	// The conclusion: the same command with a progress file does not attempt the driver.
+	checkpointing := report(filepath.Join(t.TempDir(), "progress"))
+	_, kind, device, _, _, _, _ = ReportFromMessage(checkpointing)
+	if kind != KindCPUFloat {
+		t.Errorf("a checkpointing workload ran %q, and its checkpoint would hold the seed while its count "+
+			"climbed: %q", kind, checkpointing)
+	}
+	if device != DeviceNotAttempted {
+		t.Errorf("a checkpointing workload reported dev=%q; the driver must not be reached at all, because "+
+			"a failed attempt and a skipped one are different facts: %q", device, checkpointing)
+	}
 }

@@ -28,6 +28,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/uuid"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/lkhun9311/gpu-mlops-platform-control-plane/internal/controller"
 )
 
 // This file takes the reading canary.go judges. It creates two Pods on the worker that differ only in the one
@@ -122,6 +124,17 @@ func canaryProbeSpecs(canaryID string, c canaryContract) (honor, ignore probeSpe
 // quietly: a template that grew a sidecar in front of the trainer would have the arm's command written into
 // the sidecar, and the reading would be of a workload nobody meant to probe.
 const probeTrainerContainer = "trainer"
+
+// canaryProbeLabel carries the full canary id on every probe Pod, whatever made it.
+//
+// A constant rather than the literal it used to be, because it is now SELECTED on: printRecoverable lists
+// the Pods a stranded holder left instead of rebuilding their names, and a selector spelled by hand in a
+// second place would silently match nothing rather than fail.
+//
+// Its value is the same string as canaryAnnotationKey, and the two are deliberately not shared. One is a
+// Node annotation holding a qualification document; this is a Pod label holding an id. They coincide today
+// and nothing should make a change to one move the other.
+const canaryProbeLabel = "queuelab.gpu-platform/termination-canary"
 
 // canaryPod builds one probe Pod out of the Pod template the operator would actually render.
 //
@@ -238,6 +251,45 @@ func probePodFrom(tpl corev1.PodTemplateSpec, canaryID, node, runID string, cont
 			spec.Containers[i].Resources.Requests = nil
 		}
 	}
+	// The STATE VOLUME is dropped, and it is the second place where what is hashed and what is run differ.
+	//
+	// The argument is the device request's, one size larger. templateProbeJob names a PersistentVolumeClaim
+	// that exists nowhere, because a sentinel is what makes the hash see the field at all -- and a Pod
+	// referencing a claim that does not exist is never scheduled: it sits Pending until the start budget runs
+	// out, and the canary would refuse for a reason that has nothing to do with signal delivery. Creating the
+	// claim instead would make the canary provision storage in order to measure a grace period, and would
+	// need a storageClassName this repository has deliberately not chosen.
+	//
+	// Volumes AND mounts, because either alone is invalid: a container mounting a volume the Pod does not
+	// declare is rejected by the apiserver, and a Pod declaring a volume nothing mounts is a shape the
+	// template never had. Every container for the reason the device strip covers every container -- today
+	// only the trainer mounts it, and a template that grew a sidecar sharing the claim would otherwise keep a
+	// mount whose volume had gone.
+	//
+	// What a run's Pod does with the volume is therefore NOT probed. That is the same gap the device request
+	// leaves and it is covered the same way: by a controller-path envtest, not by a reading taken here.
+	for i := range spec.Containers {
+		for j := range spec.Containers[i].VolumeMounts {
+			if spec.Containers[i].VolumeMounts[j].Name == controller.StateVolumeName {
+				spec.Containers[i].VolumeMounts = append(
+					spec.Containers[i].VolumeMounts[:j], spec.Containers[i].VolumeMounts[j+1:]...)
+				break
+			}
+		}
+		// Emptied slices are dropped rather than sent as `[]`, for the reason the emptied maps above are.
+		if len(spec.Containers[i].VolumeMounts) == 0 {
+			spec.Containers[i].VolumeMounts = nil
+		}
+	}
+	for i := range spec.Volumes {
+		if spec.Volumes[i].Name == controller.StateVolumeName {
+			spec.Volumes = append(spec.Volumes[:i], spec.Volumes[i+1:]...)
+			break
+		}
+	}
+	if len(spec.Volumes) == 0 {
+		spec.Volumes = nil
+	}
 	spec.NodeName = node
 	spec.Tolerations = append(spec.Tolerations, corev1.Toleration{
 		Key:      workerTaintKey,
@@ -254,7 +306,7 @@ func probePodFrom(tpl corev1.PodTemplateSpec, canaryID, node, runID string, cont
 	}
 	// Merged into the template's own labels rather than replacing them, for the reason the toleration is
 	// appended: a label the operator puts on the template is part of what a run's Pod carries.
-	meta.Labels["queuelab.gpu-platform/termination-canary"] = canaryID
+	meta.Labels[canaryProbeLabel] = canaryID
 	meta.Labels["queuelab.gpu-platform/contract"] = p.contract
 	// The canary's finalizer REPLACES whatever the template carries, and this is the one overlay that does not
 	// merge. The reason is not symmetry with the others, it is what a finalizer does: it decides when the object
@@ -724,6 +776,14 @@ func terminationCanary(ctx context.Context, c client.Client, nodeName string,
 			Image:         contract.Image,
 			HonorCommand:  contract.HonorCommand,
 			IgnoreCommand: contract.IgnoreCommand,
+			// The contract's, like the image and the two commands above it: this is what the build that took
+			// the reading renders for a checkpointing arm, not something observed on the cluster.
+			//
+			// Omitting it was not a missing field but a canary that refused its own reading. canaryKeyFor
+			// builds the expected side from the same contract, so the recorded key carried "" while the
+			// consult wanted the resuming command, and the gate reported "taken on a different combination
+			// than this run needs" about a document written seconds earlier.
+			ResumeCommand: contract.ResumeCommand,
 			// The OBSERVED default, not the contract's requirement: this document says what was measured, and
 			// canaryKeyFor is what turns the requirement into a comparison at consult time.
 			GraceSec:         probes[0].GraceSec,

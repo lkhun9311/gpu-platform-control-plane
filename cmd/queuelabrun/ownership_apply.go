@@ -102,6 +102,11 @@ func operatorModeContext(mode operatorMode) (context.Context, context.CancelFunc
 	if mode == modeDevicePreflight {
 		return context.WithTimeout(context.Background(), preflightModeTimeout)
 	}
+	// The storage probe runs TWO Pods in sequence and waits for the first to be absent between them, so its
+	// bound is the largest of the three: a one-Pod budget would cut it off mid-handoff and strand a claim.
+	if mode == modeStateProbe {
+		return context.WithTimeout(context.Background(), stateProbeModeTimeout)
+	}
 	return context.WithTimeout(context.Background(), operatorModeTimeout)
 }
 
@@ -474,7 +479,7 @@ func inspectWorker(ctx context.Context, c client.Client, nodeName string) error 
 		// Recovered from the journal's own fields, which exist so this question is answerable from the NODE.
 		// A crash after acquisition leaves objects behind, and an operator holding only a node name previously
 		// had nothing telling them where to look.
-		printRecoverable(obs.Journal)
+		printRecoverable(ctx, c, obs.Journal)
 		switch {
 		case obs.ResidueErr != nil:
 			// An unreadable record still changes the advice, because what it fails to say is not "there is
@@ -915,12 +920,21 @@ func releaseOwned(ctx context.Context, c client.Client, j journal) error {
 // printRecoverable names what the holder of this worker left on the cluster, by the route its kind recovers
 // through.
 //
-// The two are genuinely different and printing one list for both is what produced the defect this replaces.
-// A run's objects regenerate through the fixture builder from study, variant and namespace. The canary builds
-// no fixtures: it makes two Pods named from its id, inside a namespace it shares with every other canary — so
-// the namespace is listed as context and explicitly marked as not-to-delete, because an operator reading a
+// The two routes are genuinely different. A run's objects regenerate through the fixture builder from study,
+// variant and namespace, so that list is DERIVED and needs no cluster. A probe's Pods are not derivable, and
+// this function used to pretend otherwise: it rebuilt the two names `tc-<id>-honor` and `tc-<id>-ignore`
+// from the id and printed them for every holder of kind canary. The device preflight acquires the worker
+// under that same kind and creates exactly ONE Pod, named `dp-<id>` -- so a stranded preflight sent the
+// operator looking for two Pods that had never existed, and did not name the one that had.
+//
+// It now LISTS them, by the label every probe Pod carries whatever built it. That is why the label became a
+// constant. The listing also distinguishes three outcomes an operator must not have collapsed for them: a
+// list that failed, a list that succeeded and found nothing, and a list that found Pods. Only the first is
+// a reason to distrust what is printed, and only the third is a deletion list.
+//
+// The namespace is printed as context and explicitly marked as not-to-delete, because an operator reading a
 // deletion list top to bottom is exactly who would remove it.
-func printRecoverable(j journal) {
+func printRecoverable(ctx context.Context, c client.Client, j journal) {
 	switch j.Kind {
 	case ownerRun:
 		targets, err := enumerate(seedFromJournal(j))
@@ -936,10 +950,37 @@ func printRecoverable(j journal) {
 			fmt.Printf("    %s %s\n", t.Kind, t.Name)
 		}
 	case ownerCanary:
-		honor, ignore := canaryProbeSpecs(j.CanaryID, canaryContract{})
-		fmt.Printf("  That canary's Pods, in namespace %s:\n", j.Namespace)
-		fmt.Printf("    Pod %s\n", honor.name)
-		fmt.Printf("    Pod %s\n", ignore.name)
-		fmt.Printf("  The namespace is SHARED by every canary and must not be deleted.\n")
+		printProbePods(ctx, c, j)
 	}
+}
+
+// printProbePods lists the Pods a probe holder left, by label, in the namespace its journal names.
+//
+// Reading the cluster rather than reconstructing names is the whole repair, and it costs one List. The
+// alternative considered was a third holder kind written into the journal, which would have made the
+// printout derivable again -- but journalSchema is accepted at exactly one version by decodeJournal, so
+// bumping it makes every hold in flight unreadable by the very tool an operator reaches for when a node is
+// stuck. A List needs no migration and fixes the ambiguous journals already out there.
+func printProbePods(ctx context.Context, c client.Client, j journal) {
+	var pods corev1.PodList
+	err := c.List(ctx, &pods, client.InNamespace(j.Namespace), client.MatchingLabels{canaryProbeLabel: j.CanaryID})
+	if err != nil {
+		// Named, not swallowed, and NOT replaced by the old reconstruction as a fallback. A guess printed
+		// where a reading failed is the shape of the defect being repaired: it looks like an answer.
+		fmt.Printf("  Its probe Pods could not be listed in namespace %s: %v\n"+
+			"    Look for Pods labelled %s=%s there.\n", j.Namespace, err, canaryProbeLabel, j.CanaryID)
+		return
+	}
+	if len(pods.Items) == 0 {
+		// An empty result is a DIFFERENT fact from a failed list, and the difference decides what the
+		// operator does next: nothing to delete, so whatever is holding this worker is the journal alone.
+		fmt.Printf("  That probe's Pods are already gone from namespace %s; nothing of its own is left to "+
+			"delete.\n", j.Namespace)
+	} else {
+		fmt.Printf("  That probe's Pods, found in namespace %s:\n", j.Namespace)
+		for i := range pods.Items {
+			fmt.Printf("    Pod %s\n", pods.Items[i].Name)
+		}
+	}
+	fmt.Printf("  The namespace is SHARED by every probe and must not be deleted.\n")
 }

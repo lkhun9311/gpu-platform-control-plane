@@ -1000,8 +1000,46 @@ func sameMechanism(want, got client.Object) error {
 			return fmt.Errorf("is a %T where a ResourceFlavor was expected", got)
 		}
 		return sameFlavor(w, g)
+	case *corev1.PersistentVolumeClaim:
+		g, ok := got.(*corev1.PersistentVolumeClaim)
+		if !ok {
+			return fmt.Errorf("is a %T where a PersistentVolumeClaim was expected", got)
+		}
+		return sameStateClaim(w, g)
 	}
 	return nil
+}
+
+// sameStateClaim compares the one thing about an adopted progress claim that can change what the resume
+// arms measure: the storage class.
+//
+// Falling through to the default nil would have been the silent case this function's own doc comment warns
+// about. A claim left by an earlier attempt under the SAME transaction carries the class that attempt was
+// given, so an operator who reran with a different -state-class would adopt the old volume and record the
+// result as the new class's. The arms exist to contrast a restored file against a fresh one, and whether
+// the file survives at all is the class's behaviour.
+//
+// Size and access mode are deliberately not compared. The file is one short line, so no size this lab would
+// ever request can change the reading, and the access mode cannot either while parallelism is pinned to 1.
+// Comparing them would refuse adoptions for reasons the measurement does not depend on.
+func sameStateClaim(w, g *corev1.PersistentVolumeClaim) error {
+	// Compared through a helper rather than as pointers because nil and a pointer to "" are different values
+	// that mean the same thing to the apiserver, and because a claim created before -state-class existed has
+	// a nil here and must read as "no class", not as a class named "<nil>".
+	if className(w.Spec.StorageClassName) != className(g.Spec.StorageClassName) {
+		return fmt.Errorf("its storageClassName is %q, not the %q this run asked for",
+			className(g.Spec.StorageClassName), className(w.Spec.StorageClassName))
+	}
+	return nil
+}
+
+// className renders a claim's storage class for comparison and for an operator to read, turning both ways
+// of saying "none" into the same empty string.
+func className(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
 }
 
 // sameClusterQueue compares the fields that decide what a ClusterQueue admits and how it preempts.

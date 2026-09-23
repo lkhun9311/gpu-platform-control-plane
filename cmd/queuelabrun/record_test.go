@@ -1658,6 +1658,16 @@ func TestTheWorkCheckAxisIsDerivedRatherThanAssumed(t *testing.T) {
 				Accumulator: f(1.0)},
 			want: workUnavailable,
 		},
+		{
+			// A resumed attempt is checked against its TOTAL count, because the accumulator advances once per
+			// inner step from the seed regardless of how many processes did the advancing. This row exists so
+			// that an edit "correcting" the oracle to use the attempt's own share -- iterations minus resumed
+			// -- fails here rather than making every resumed run read as mismatched.
+			name: "a resumed attempt, checked against the total it reports",
+			in: reportedWorkload{Token: queuelab.KindCPUFloat, Kind: "cpu", Iterations: n(4),
+				Accumulator: f(good), Resumed: n(3)},
+			want: workVerified,
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			got, why := checkReportedWork(tc.in)
@@ -1721,7 +1731,23 @@ func TestARecordFromAnEarlierSchemaIsRefused(t *testing.T) {
 	// silently withdrew that exception and every committed ex/e17-*.json began failing with `schema 18 is
 	// not 20`, which TestEveryRunRecordDecodesUnderThisBuild caught. A bump that carried its exceptions
 	// along by accident is exactly what these clauses exist to prevent.
-	if recordSchemaVersion != 20 {
+	//
+	// Version 21 makes a resumed attempt SAYABLE. Events gained `resumed`, the count an attempt began from,
+	// and without it a resumed attempt is indistinguishable from one that ran from zero -- the oracle accepts
+	// both, because the pair is internally consistent either way. It is also what stops discarded work being
+	// counted twice: an attempt that restored 1370 and stopped at 2698 performed 1328 iterations, and
+	// charging it the full count bills the first stretch to two attempts. A version-20 record carries no such
+	// field, which under 21 means what it meant under 20 -- that build's workload always began at zero.
+	//
+	// Version 22 makes a FAILED CHECKPOINT sayable. save() swallows its own exceptions -- and must, because a
+	// workload that died on a failed write would leave no final message and an unreadable run is worse than a
+	// refused one -- so until this version a read-only mount, a full disk or a missing directory produced a
+	// run byte-identical to a successful one. For the resume arms that is the failure that matters most,
+	// because it hides in the direction nobody questions: E-resume restores nothing and reports restoring
+	// nothing, which is exactly what a genuine null result reports. Events gained `saveStatus`, and a
+	// version-21 record carries none -- which under 22 means what it meant under 21, that the build could not
+	// report one.
+	if recordSchemaVersion != 22 {
 		t.Fatalf("recordSchemaVersion is %d; if the wire format changed again, bump this and say what changed",
 			recordSchemaVersion)
 	}
@@ -1760,7 +1786,7 @@ func TestARecordFromAnEarlierSchemaIsRefused(t *testing.T) {
 	if _, err := decodeRunRecord(withObs); err == nil {
 		t.Fatal("a schema-18 record carrying a device observation decoded; its claim was judged by the " +
 			"collapsed question and this build asks a different one")
-	} else if !strings.Contains(err.Error(), "schema 18 is not 20") {
+	} else if !strings.Contains(err.Error(), fmt.Sprintf("schema 18 is not %d", recordSchemaVersion)) {
 		t.Fatalf("refused for an unexpected reason, so this is not testing the schema rule: %v", err)
 	}
 
@@ -1775,6 +1801,15 @@ func TestARecordFromAnEarlierSchemaIsRefused(t *testing.T) {
 	if _, err := decodeRunRecord(nineteen); err != nil {
 		t.Fatalf("a schema-19 record was refused (%v); it carries no accumulator, which is exactly what a "+
 			"19 record should carry, and this build reads the rest of it unchanged", err)
+	}
+
+	// 20 is the third readable predecessor, on the same terms: it can carry an accumulator but not a resume
+	// point, and a document without the later field means what it meant when it was written.
+	twenty := fmt.Appendf(nil, `{"schemaVersion":20,"dose":"self-completing","runID":"r10","arm":"A-honor",`+
+		`"disposition":"completed-implemented-checks-passed",%s}`, refusedValidity)
+	if _, err := decodeRunRecord(twenty); err != nil {
+		t.Fatalf("a schema-20 record was refused (%v); it carries no resume point, which is exactly what a "+
+			"20 record should carry", err)
 	}
 
 	// Both exceptions rest on a premise about what the older document cannot contain, and a review found the
@@ -1793,12 +1828,315 @@ func TestARecordFromAnEarlierSchemaIsRefused(t *testing.T) {
 				"so the document is a relabelled 20 rather than history", older)
 		}
 	}
+
+	// The same premise for the field 21 added, and it covers one more version: no build at 18, 19 or 20
+	// could report a resume point, so a document at any of them carrying one is a relabelled 21.
+	for _, older := range []int{18, 19, 20} {
+		withResume := fmt.Appendf(nil, `{"schemaVersion":%d,"dose":"self-completing","runID":"r9",`+
+			`"arm":"A-honor","disposition":"completed-implemented-checks-passed",`+
+			`"events":[{"elapsedNs":1,"kind":"Pod","type":"AttemptStopped","job":"j","objectUID":"u",`+
+			`"iterations":5,"resumed":3}],%s}`, older, refusedValidity)
+		if _, err := decodeRunRecord(withResume); err == nil {
+			t.Errorf("a schema-%d record carrying a resume point decoded; that build could not report one, "+
+				"so the document is a relabelled 21 rather than history", older)
+		}
+	}
+
+	// The same premise for the field 22 added, over one more version again. No build at 18 through 21 could
+	// report whether its checkpoint landed, so a document at any of them carrying a save status is a
+	// relabelled 22 being passed off as evidence taken under rules where a failed write was invisible.
+	for _, older := range []int{18, 19, 20, 21} {
+		withSave := fmt.Appendf(nil, `{"schemaVersion":%d,"dose":"self-completing","runID":"r9",`+
+			`"arm":"A-honor","disposition":"completed-implemented-checks-passed",`+
+			`"events":[{"elapsedNs":1,"kind":"Pod","type":"AttemptStopped","job":"j","objectUID":"u",`+
+			`"iterations":5,"saveStatus":"ok"}],%s}`, older, refusedValidity)
+		if _, err := decodeRunRecord(withSave); err == nil {
+			t.Errorf("a schema-%d record carrying a save status decoded; that build could not report one, "+
+				"so the document is a relabelled 22 rather than history", older)
+		}
+	}
+
+	// And the other side of the premise, which the check got WRONG for as long as it asked one blanket
+	// question. 20 is the version that ADDED the accumulator, so a 20 carrying one is an ordinary 20 and not
+	// a forgery -- it was refused with `schema 20 is not 21` until the predicate was made version-aware.
+	//
+	// The sentence above promising that a 20 "can carry an accumulator" was false the whole time, and the
+	// `twenty` fixture could not catch it because it carries no events for the check to look at. An
+	// exception asserted with a document that never reaches the code path is not asserted.
+	twentyWithAcc := fmt.Appendf(nil, `{"schemaVersion":20,"dose":"self-completing","runID":"r11",`+
+		`"arm":"A-honor","disposition":"completed-implemented-checks-passed",`+
+		`"events":[{"elapsedNs":1,"kind":"Pod","type":"AttemptStopped","job":"j","objectUID":"u",`+
+		`"iterations":5,"accumulator":1.5}],%s}`, refusedValidity)
+	if _, err := decodeRunRecord(twentyWithAcc); err != nil {
+		t.Errorf("a schema-20 record carrying an accumulator was refused (%v); 20 is the version that added "+
+			"the field, so that is what a 20 record ordinarily looks like", err)
+	}
+
+	// 21 is the fourth readable predecessor, on the terms every one before it had: it can carry a resume
+	// point but not a save status.
+	twentyOne := fmt.Appendf(nil, `{"schemaVersion":21,"dose":"self-completing","runID":"r12","arm":"A-honor",`+
+		`"disposition":"completed-implemented-checks-passed",%s}`, refusedValidity)
+	if _, err := decodeRunRecord(twentyOne); err != nil {
+		t.Fatalf("a schema-21 record was refused (%v); it carries no save status, which is exactly what a "+
+			"21 record should carry", err)
+	}
+
+	// And its positive side, asserted with a document that REACHES the predicate.
+	//
+	// This is the assertion the schema-20 case did not have, and the omission is why the blanket question
+	// went unnoticed for a version: the `twenty` fixture carries no events, so it never got as far as the
+	// field check, and the sentence promising a 20 could carry an accumulator was false the whole time. A 21
+	// carrying a resume point is an ordinary 21 -- 21 is the version that added the field -- and refusing it
+	// would be the same defect one version later.
+	//
+	// TWO attempts, and the first draft had one. A lone attempt claiming to have restored 3 iterations is
+	// refused by resumeSupportedByLedger -- no earlier attempt of its row could have produced them -- so the
+	// fixture failed for a reason that has nothing to do with the schema rule it is here to exercise. That is
+	// the same trap as the event-less `twenty` fixture above, one step along: a document refused by the wrong
+	// check says nothing about the right one.
+	twentyOneWithResume := fmt.Appendf(nil, `{"schemaVersion":21,"dose":"self-completing","runID":"r13",`+
+		`"arm":"A-honor","disposition":"completed-implemented-checks-passed",`+
+		`"events":[{"elapsedNs":1,"kind":"Pod","type":"AttemptStopped","job":"j","objectUID":"u1",`+
+		`"iterations":5,"accumulator":1.5},`+
+		`{"elapsedNs":2,"kind":"Pod","type":"AttemptStopped","job":"j","objectUID":"u2",`+
+		`"iterations":9,"accumulator":1.5,"resumed":3}],%s}`, refusedValidity)
+	if _, err := decodeRunRecord(twentyOneWithResume); err != nil {
+		t.Errorf("a schema-21 record carrying a resume point was refused (%v); 21 is the version that added "+
+			"the field, so that is what a 21 record ordinarily looks like", err)
+	}
+}
+
+// TestTheWorkCheckAxisIsCheckedForEverySchemaThatCanCarryIt pins the SCOPE of both axis checks.
+//
+// The decoder asks two separate things about measurement.workload.workCheck: that a document which can carry
+// it states one at all, and that the value it states follows from replaying its own ledger. Both were
+// written as `== recordSchemaVersion` while 20 was current. That read correctly then and narrowed silently
+// when the constant moved to 21, because a schema-20 document CAN carry the axis -- so exempting it dropped
+// the check on exactly the documents that have something to check.
+//
+// Nothing caught the narrowing. Reverting either site to the current-version spelling left every test in
+// this package green, which is why these two cases exist: a check whose scope no test pins is a check that
+// quietly stops applying rather than one that fails.
+func TestTheWorkCheckAxisIsCheckedForEverySchemaThatCanCarryIt(t *testing.T) {
+	real, err := os.ReadFile(filepath.Join("..", "..", "ex", "e17-self-completing-A-honor-e17sh1.json"))
+	if err != nil {
+		t.Fatalf("no committed record to relabel, so this check verifies nothing: %v", err)
+	}
+	// Relabelled to 20 rather than written from scratch, so the rest of the document is a real record that
+	// this build accepts and the only thing under test is the axis.
+	as20 := func(edit func(workload map[string]any)) []byte {
+		var doc map[string]any
+		if err := json.Unmarshal(real, &doc); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		doc["runID"] = "forged"
+		doc["schemaVersion"] = 20
+		if edit != nil {
+			edit(doc["measurement"].(map[string]any)["workload"].(map[string]any))
+		}
+		b, err := json.Marshal(doc)
+		if err != nil {
+			t.Fatalf("marshal: %v", err)
+		}
+		return b
+	}
+
+	// The demand. A document that could state the axis and states nothing leaves a reader unable to tell a
+	// verified count from one nobody could verify, which is the whole reason the field exists.
+	if _, err := decodeRunRecord(as20(nil)); err == nil {
+		t.Fatal("a schema-20 record stating no work-check axis decoded, so the axis is optional for exactly " +
+			"the documents it was added for")
+	} else if !strings.Contains(err.Error(), "work-check axis") {
+		t.Fatalf("refused for some other reason, so this is not testing the demand: %v", err)
+	}
+
+	// The re-derivation, which is a different site. An axis that is present and well-spelled but does not
+	// follow from the ledger beside it is the forgery the comparison exists to catch.
+	forged := as20(func(workload map[string]any) { workload["workCheck"] = workVerified })
+	if _, err := decodeRunRecord(forged); err == nil {
+		t.Fatal("a schema-20 record whose work-check axis does not follow from its own ledger decoded")
+	} else if !strings.Contains(err.Error(), "workload.workCheck") {
+		t.Fatalf("the refusal does not name the axis that disagrees, so a reader is sent to the wrong "+
+			"field: %v", err)
+	}
 }
 
 // The sum is taken off the ledger, and only from attempts that actually carried a count.
 //
 // Mutations that turn this red: sum every event rather than the stopped ones; or return zero instead of nil
 // when nothing carried a count, which would report "nothing was discarded" for a run that could not tell.
+// TestDiscardedIterationsChargesAResumedAttemptOnlyItsOwnShare pins the arithmetic the resume arm needs.
+//
+// A resumed attempt reports the running total. Adding it whole bills the restored stretch to two attempts --
+// once to the one that lost it, once here -- in the figure every waste claim in this lab is denominated in.
+// It is the same class of error as the completion filter this function already carries, which on a live run
+// turned 21540 discarded iterations into 47513; the difference is that this one stays at zero until an arm
+// resumes, so it would first appear on the run the resume arm exists to produce.
+//
+// Mutations that turn this red: add *e.Iterations whole; or treat a nil Resumed as unknown rather than zero,
+// which would drop every pre-resume record out of the sum.
+func TestDiscardedIterationsChargesAResumedAttemptOnlyItsOwnShare(t *testing.T) {
+	n := func(v int) *int { return &v }
+	stop := func(job string, at int64, iters int, resumed *int) queuelab.LifecycleEvent {
+		return queuelab.LifecycleEvent{
+			Type: queuelab.EventAttemptStopped, Job: job, ObjectUID: job + "-uid",
+			ElapsedNs: at, Iterations: n(iters), Resumed: resumed,
+		}
+	}
+	// One row, preempted at 1370 and re-executed from there to 2698. Neither attempt was credited, so both
+	// are discarded work -- but the row performed 2698 iterations in total, not 4068.
+	events := []queuelab.LifecycleEvent{
+		stop("a1", 1_000, 1370, nil),
+		stop("a1", 2_000, 2698, n(1370)),
+	}
+	got := discardedIterations(events)
+	if got == nil {
+		t.Fatal("a ledger carrying two counted stops reported no discarded work")
+	}
+	if *got != 2698 {
+		t.Errorf("discarded = %d, want 2698: the resumed attempt performed 1328 of its own, and charging it "+
+			"the full 2698 would bill the first 1370 to two attempts", *got)
+	}
+
+	// A resume point beyond the count is impossible rather than small, and the sum refuses rather than
+	// subtracting: a waste figure that can be pulled DOWN by a malformed event is worse than one that says
+	// it cannot be computed.
+	if got := discardedIterations([]queuelab.LifecycleEvent{stop("b1", 1_000, 10, n(11))}); got != nil {
+		t.Errorf("an impossible resume point produced %d rather than a refusal", *got)
+	}
+}
+
+// A resume point has to be supported by an attempt that could have produced it.
+//
+// The parser bounds a resume point inside its own message and nothing compared it with the ledger, so a
+// document could claim an attempt continued work no attempt ever did. The accumulator cannot catch that: an
+// attempt that restored nothing reports a value consistent with its own count, which is exactly why a broken
+// mount and a successful resume are arithmetically identical and only the ledger separates them.
+//
+// Mutations that turn this red: drop the predecessor requirement; let an event stand as its own predecessor;
+// accept a predecessor that reached fewer iterations than the successor claims to have restored; or examine
+// only the stopped events.
+func TestAResumePointMustBeSupportedByAnEarlierAttempt(t *testing.T) {
+	n := func(v int) *int { return &v }
+	stop := func(job, uid string, at int64, iters int, resumed *int) queuelab.LifecycleEvent {
+		return queuelab.LifecycleEvent{
+			Type: queuelab.EventAttemptStopped, Job: job, ObjectUID: uid,
+			ElapsedNs: at, Iterations: n(iters), Resumed: resumed,
+		}
+	}
+
+	// The shape a real resume produces, measured live: an attempt stopped at 1370 and its successor came
+	// back reporting 2698, having restored 1370.
+	if err := resumeSupportedByLedger([]queuelab.LifecycleEvent{
+		stop("a1", "u1", 1_000, 1370, nil),
+		stop("a1", "u2", 2_000, 2698, n(1370)),
+	}); err != nil {
+		t.Fatalf("the ledger a successful resume actually produces was refused: %v", err)
+	}
+
+	// Restoring LESS than the predecessor reported is honest: save() swallows its own exceptions, so a torn
+	// write leaves the state file behind the message its writer went on to print.
+	if err := resumeSupportedByLedger([]queuelab.LifecycleEvent{
+		stop("a1", "u1", 1_000, 1370, nil),
+		stop("a1", "u2", 2_000, 2698, n(1369)),
+	}); err != nil {
+		t.Errorf("a resume point behind its predecessor was refused, and a torn save produces exactly "+
+			"that: %v", err)
+	}
+
+	// The broken mount dressed as a resume: nothing ran before it.
+	err := resumeSupportedByLedger([]queuelab.LifecycleEvent{stop("a1", "u1", 1_000, 2698, n(1370))})
+	if err == nil {
+		t.Fatal("an attempt claiming to continue work no attempt performed was accepted")
+	}
+	if !strings.Contains(err.Error(), "no earlier attempt") {
+		t.Errorf("the refusal does not name what is missing: %v", err)
+	}
+
+	// A predecessor that never got that far.
+	err = resumeSupportedByLedger([]queuelab.LifecycleEvent{
+		stop("a1", "u1", 1_000, 900, nil),
+		stop("a1", "u2", 2_000, 2698, n(1370)),
+	})
+	if err == nil {
+		t.Fatal("an attempt resumed from further than any predecessor reached was accepted")
+	}
+	if !strings.Contains(err.Error(), "furthest") {
+		t.Errorf("the refusal does not say how far the row actually got: %v", err)
+	}
+
+	// An attempt is not its own predecessor. A rule comparing counts alone would let one event supply its
+	// own evidence, which accepts every forgery this exists to refuse.
+	if err := resumeSupportedByLedger([]queuelab.LifecycleEvent{
+		stop("a1", "u1", 1_000, 1370, nil),
+		stop("a1", "u1", 2_000, 2698, n(1370)),
+	}); err == nil {
+		t.Error("an attempt was accepted as its own predecessor")
+	}
+
+	// Neither is another row's. Rows are preempted independently and their counts are not interchangeable.
+	if err := resumeSupportedByLedger([]queuelab.LifecycleEvent{
+		stop("b1", "u9", 1_000, 5000, nil),
+		stop("a1", "u2", 2_000, 2698, n(1370)),
+	}); err == nil {
+		t.Error("an attempt of a different row was accepted as the predecessor")
+	}
+
+	// Beginning at zero is what every record written before the arm carries, and it must stay readable --
+	// both spellings of it, the explicit zero and the absent field.
+	if err := resumeSupportedByLedger([]queuelab.LifecycleEvent{
+		stop("a1", "u1", 1_000, 1370, nil),
+		stop("a1", "u2", 2_000, 2698, n(0)),
+	}); err != nil {
+		t.Errorf("a ledger whose attempts began at zero was refused: %v", err)
+	}
+
+	// A forged resume point hung on a readiness event is still an unattributable count.
+	if err := resumeSupportedByLedger([]queuelab.LifecycleEvent{
+		{Type: queuelab.EventPodReady, Job: "a1", ObjectUID: "u1", ElapsedNs: 1_000, Resumed: n(1370)},
+	}); err == nil {
+		t.Error("a resume point on a non-terminal event escaped the check")
+	}
+}
+
+// The check above has to be WIRED, and a unit test on the helper cannot tell whether it is.
+//
+// Deleting the call from ledgerSupportsTheDocument -- which checkValidity reaches for every verdict --
+// leaves every assertion in TestAResumePointMustBeSupportedByAnEarlierAttempt green, because they call the
+// helper directly. That is the shape of defect this session already found three times in this file -- a
+// judgment that was fixed, and then guarded by nothing -- so the wiring gets its own document.
+//
+// Mutations that turn this red: remove the resumeSupportedByLedger call from ledgerSupportsTheDocument, or
+// move that helper's own call inside checkValidity's verdict switch, where a refused document would stop
+// reaching it.
+func TestADecodedRecordCannotCarryAnUnsupportedResume(t *testing.T) {
+	// The forgery: one attempt, claiming to have continued 1370 iterations nothing in this ledger performed.
+	unsupported := fmt.Appendf(nil, `{"schemaVersion":%d,"dose":"self-completing","runID":"r13",`+
+		`"arm":"A-honor","disposition":"completed-implemented-checks-passed",`+
+		`"events":[{"elapsedNs":2000,"kind":"Pod","type":"AttemptStopped","job":"a1","objectUID":"u2",`+
+		`"iterations":2698,"resumed":1370}],%s}`, recordSchemaVersion, refusedValidity)
+	_, err := decodeRunRecord(unsupported)
+	if err == nil {
+		t.Fatal("a record claiming a resume its own ledger cannot support decoded, so the count would reach " +
+			"a reader with nothing having checked it")
+	}
+	if !strings.Contains(err.Error(), "no earlier attempt") {
+		t.Fatalf("refused for some other reason, so this is not testing the wiring: %v", err)
+	}
+
+	// The same document with the predecessor its successor claims. This is the control: without it, a
+	// decoder that refused every ledger carrying a resume would pass the assertion above.
+	supported := fmt.Appendf(nil, `{"schemaVersion":%d,"dose":"self-completing","runID":"r14",`+
+		`"arm":"A-honor","disposition":"completed-implemented-checks-passed",`+
+		`"events":[{"elapsedNs":1000,"kind":"Pod","type":"AttemptStopped","job":"a1","objectUID":"u1",`+
+		`"iterations":1370},`+
+		`{"elapsedNs":2000,"kind":"Pod","type":"AttemptStopped","job":"a1","objectUID":"u2",`+
+		`"iterations":2698,"resumed":1370}],%s}`, recordSchemaVersion, refusedValidity)
+	if _, err := decodeRunRecord(supported); err != nil {
+		t.Fatalf("a record whose resume its own ledger supports was refused: %v", err)
+	}
+}
+
 func TestDiscardedIterationsSumsOnlyWhatTheLedgerCarried(t *testing.T) {
 	n := func(v int) *int { return &v }
 	if got := discardedIterations(nil); got != nil {
@@ -2679,5 +3017,406 @@ func TestAReExecutedRowStillDiscardsTheAttemptItLost(t *testing.T) {
 	if got == nil || *got != 0 {
 		t.Fatalf("discarded = %v for a row that ran straight through; counting its work as thrown away is "+
 			"the defect this filter was added for", got)
+	}
+}
+
+// A checkpointing arm may not have reached the driver on any attempt.
+//
+// The mechanism is in the workload -- it skips cuda() when given a progress file -- and this is the record's
+// safety net, for documents read by builds other than the one that wrote them.
+//
+// It sweeps the LEDGER rather than reading measurement.workload.kind, and the difference is the whole reason
+// it exists: that field is derived from ONE attempt, the one VictimAttemptUID picks as ending the hold, and
+// a resumed row has several. A later attempt that reached the driver would not appear in it at all, which is
+// exactly the case these rows drive.
+//
+// Mutations that turn this red: read only the victim's chosen attempt; scope the check by naming the arms
+// instead of asking the protocol; or let an arm that checkpoints nothing be refused for a device report.
+func TestACheckpointingArmMayNotHaveTouchedTheDevice(t *testing.T) {
+	stop := func(job, uid, kind string) queuelab.LifecycleEvent {
+		return queuelab.LifecycleEvent{
+			Type: queuelab.EventAttemptStopped, Job: job, ObjectUID: uid, WorkloadKind: kind,
+		}
+	}
+	for _, tc := range []struct {
+		name    string
+		arm     string
+		events  []queuelab.LifecycleEvent
+		refused bool
+	}{
+		{
+			name: "a checkpointing arm whose attempts all ran on the CPU",
+			arm:  string(queuelab.ArmEResume),
+			events: []queuelab.LifecycleEvent{
+				stop(queuelab.VictimRow, "u1", queuelab.KindCPUFloat),
+				stop(queuelab.VictimRow, "u2", queuelab.KindCPUFloat),
+			},
+		},
+		{
+			// The case measurement.workload.kind cannot see: the FIRST attempt is the one that ends the hold,
+			// so a device report on a later one is invisible to every check that reads a single attempt.
+			name: "a later attempt of a checkpointing arm that reached the driver",
+			arm:  string(queuelab.ArmEResume),
+			events: []queuelab.LifecycleEvent{
+				stop(queuelab.VictimRow, "u1", queuelab.KindCPUFloat),
+				stop(queuelab.VictimRow, "u2", queuelab.KindCUDAFMA),
+			},
+			refused: true,
+		},
+		{
+			name:    "the control arm of the pair, which checkpoints just as much",
+			arm:     string(queuelab.ArmEFresh),
+			events:  []queuelab.LifecycleEvent{stop(queuelab.VictimRow, "u1", queuelab.KindCUDAFMA)},
+			refused: true,
+		},
+		{
+			// THE row this check got wrong, and it would have cost a paid session.
+			//
+			// This case asserted a refusal, on the argument that "an arm that checkpointed the wrong row is a
+			// different defect with the same consequence". StateFor gives the state path to the VICTIM
+			// alone, so under E-fresh and E-resume the quota owner renders no progress file, never takes the
+			// workload's checkpoint gate, and uses the device exactly as it does under every other arm.
+			// Refusing it refuses every E record a real GPU node can produce — and on kind, where nothing
+			// reaches a driver, nothing would ever have shown it.
+			//
+			// Mutation that turns this red: sweep every row again instead of asking StateFor per event.
+			name:   "the quota owner of a checkpointing arm, which is not asked to checkpoint",
+			arm:    string(queuelab.ArmEResume),
+			events: []queuelab.LifecycleEvent{stop(queuelab.OwnerRow, "u9", queuelab.KindCUDAFMA)},
+		},
+		{
+			// And the co-tenant, for the same reason: a1 borrows quota and holds a device, and no arm gives
+			// it a progress file.
+			name:   "the co-tenant of a checkpointing arm, which is not asked to checkpoint either",
+			arm:    string(queuelab.ArmEFresh),
+			events: []queuelab.LifecycleEvent{stop(queuelab.OwnRow, "u8", queuelab.KindCUDAFMA)},
+		},
+		{
+			// Every arm that predates the pair writes no progress file, so the device path is the ordinary
+			// deliverable and refusing it would refuse every hardware run this lab exists to take.
+			name:   "a non-checkpointing arm on the device path",
+			arm:    string(queuelab.ArmAIgnore),
+			events: []queuelab.LifecycleEvent{stop(queuelab.VictimRow, "u1", queuelab.KindCUDAFMA)},
+		},
+		{
+			// An arm this build does not define is somebody else's refusal to make. Answering here would put
+			// a device verdict on a document whose experimental condition is already unreadable.
+			name:   "an arm this build does not define",
+			arm:    "E-nonsense",
+			events: []queuelab.LifecycleEvent{stop(queuelab.VictimRow, "u1", queuelab.KindCUDAFMA)},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := checkpointingArmStayedOffTheDevice(runRecord{Arm: tc.arm, Events: tc.events})
+			if tc.refused && err == nil {
+				t.Fatalf("arm %q reported the device path and was accepted; the checkpoint would hold the "+
+					"seed while the count climbed", tc.arm)
+			}
+			if !tc.refused && err != nil {
+				t.Fatalf("arm %q was refused: %v", tc.arm, err)
+			}
+			if tc.refused && !strings.Contains(err.Error(), tc.arm) {
+				t.Errorf("the refusal does not name the arm it is about: %v", err)
+			}
+		})
+	}
+}
+
+// A checkpointing arm's victim must actually have written its progress file.
+//
+// Scoped PER ROW, which is the one way this differs from the device check above, and the difference is not
+// cosmetic: the co-tenant and the quota owner are given no state path and report not-attempted honestly, so
+// a sweep over every row the way that check sweeps would refuse every valid record these arms can produce.
+//
+// Mutations that turn this red: sweep every row instead of asking the protocol per row; accept
+// not-attempted; scope by naming the arms instead of asking the protocol.
+func TestACheckpointingArmMustHaveWrittenItsProgressFile(t *testing.T) {
+	stop := func(job, uid, saved string) queuelab.LifecycleEvent {
+		return queuelab.LifecycleEvent{
+			Type: queuelab.EventAttemptStopped, Job: job, ObjectUID: uid, SaveStatus: saved,
+		}
+	}
+	for _, tc := range []struct {
+		name    string
+		arm     string
+		events  []queuelab.LifecycleEvent
+		refused bool
+	}{
+		{
+			name: "both attempts of the victim wrote",
+			arm:  string(queuelab.ArmEResume),
+			events: []queuelab.LifecycleEvent{
+				stop(queuelab.VictimRow, "u1", queuelab.SaveOK),
+				stop(queuelab.VictimRow, "u2", queuelab.SaveOK),
+			},
+		},
+		{
+			name: "a later attempt whose write failed",
+			arm:  string(queuelab.ArmEResume),
+			events: []queuelab.LifecycleEvent{
+				stop(queuelab.VictimRow, "u1", queuelab.SaveOK),
+				stop(queuelab.VictimRow, "u2", queuelab.SaveFailed),
+			},
+			refused: true,
+		},
+		{
+			// The control arm checkpoints just as much, and that is exactly why it exists. A run where only
+			// E-fresh's write failed would put the write cost back on one side of the contrast, which is the
+			// second axis the frozen arms page rejected the original design for.
+			name:    "the control arm whose write failed",
+			arm:     string(queuelab.ArmEFresh),
+			events:  []queuelab.LifecycleEvent{stop(queuelab.VictimRow, "u1", queuelab.SaveFailed)},
+			refused: true,
+		},
+		{
+			// A checkpointing arm whose victim was given nowhere to write: the manifest was rendered without
+			// the volume, and the arm ran as its own control without saying so.
+			name:    "a victim that was never given anywhere to write",
+			arm:     string(queuelab.ArmEResume),
+			events:  []queuelab.LifecycleEvent{stop(queuelab.VictimRow, "u1", queuelab.SaveNotAttempted)},
+			refused: true,
+		},
+		{
+			// THE row that makes this per-row. A first version sweeping every row would refuse here, and it
+			// would refuse every real record of these arms.
+			name: "the rows that are not asked to checkpoint",
+			arm:  string(queuelab.ArmEResume),
+			events: []queuelab.LifecycleEvent{
+				stop(queuelab.VictimRow, "u1", queuelab.SaveOK),
+				stop(queuelab.OwnerRow, "u9", queuelab.SaveNotAttempted),
+				stop(queuelab.OwnRow, "u8", queuelab.SaveNotAttempted),
+			},
+		},
+		{
+			name:   "an arm that checkpoints nothing",
+			arm:    string(queuelab.ArmAIgnore),
+			events: []queuelab.LifecycleEvent{stop(queuelab.VictimRow, "u1", queuelab.SaveNotAttempted)},
+		},
+		{
+			// An empty status is a question this build cannot ask rather than an answer it can refuse. What
+			// an older document means is readableUnderCurrentSchema's judgment, not this one's.
+			name:   "an attempt from a build that could not report one",
+			arm:    string(queuelab.ArmEResume),
+			events: []queuelab.LifecycleEvent{stop(queuelab.VictimRow, "u1", "")},
+		},
+		{
+			name:   "an arm this build does not define",
+			arm:    "E-nonsense",
+			events: []queuelab.LifecycleEvent{stop(queuelab.VictimRow, "u1", queuelab.SaveFailed)},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := checkpointingArmActuallyWrote(runRecord{Arm: tc.arm, Events: tc.events})
+			if tc.refused && err == nil {
+				t.Fatalf("arm %q reported a checkpoint that never landed and was accepted; its resume point "+
+					"cannot be told apart from a genuine null result", tc.arm)
+			}
+			if !tc.refused && err != nil {
+				t.Fatalf("arm %q was refused: %v", tc.arm, err)
+			}
+			if tc.refused && !strings.Contains(err.Error(), tc.arm) {
+				t.Errorf("the refusal does not name the arm it is about: %v", err)
+			}
+		})
+	}
+}
+
+// A restoring arm's successor must actually have read what its predecessor left.
+//
+// This is the half the write status cannot reach. With the replacement Pod's mount missing, every write the
+// predecessor attempted succeeded -- saved=ok, truthfully -- and the successor still began at zero.
+// resumeSupportedByLedger skips a zero resume point, because its question is whether a CLAIMED resume has
+// support; nothing asked the opposite one, and unasked it produces the same false null as a failed write.
+//
+// Mutations that turn this red: skip events whose resume point is zero; drop the Restore scoping, which
+// would refuse E-fresh for beginning at zero -- which is what E-fresh IS.
+func TestARestoringArmMustHaveReadWhatItsPredecessorLeft(t *testing.T) {
+	n := func(v int) *int { return &v }
+	stop := func(job, uid string, at int64, iters int, resumed *int) queuelab.LifecycleEvent {
+		return queuelab.LifecycleEvent{
+			Type: queuelab.EventAttemptStopped, Job: job, ObjectUID: uid,
+			ElapsedNs: at, Iterations: n(iters), Resumed: resumed,
+		}
+	}
+	for _, tc := range []struct {
+		name    string
+		arm     string
+		events  []queuelab.LifecycleEvent
+		refused bool
+	}{
+		{
+			name: "a real resume",
+			arm:  string(queuelab.ArmEResume),
+			events: []queuelab.LifecycleEvent{
+				stop(queuelab.VictimRow, "u1", 1_000, 1370, nil),
+				stop(queuelab.VictimRow, "u2", 2_000, 2698, n(1370)),
+			},
+		},
+		{
+			// Every write succeeded and nothing was read back. A missing mount on the replacement Pod is the
+			// case this was written for, but it is not the only one that produces this ledger -- an
+			// unreadable or truncated file does too -- and the refusal deliberately does not name a cause.
+			name: "a successor that restored nothing from a predecessor that had something",
+			arm:  string(queuelab.ArmEResume),
+			events: []queuelab.LifecycleEvent{
+				stop(queuelab.VictimRow, "u1", 1_000, 1370, nil),
+				stop(queuelab.VictimRow, "u2", 2_000, 900, n(0)),
+			},
+			refused: true,
+		},
+		{
+			// The first attempt of the row has nothing to restore, and reporting zero is the truth.
+			name:   "a first attempt beginning at zero",
+			arm:    string(queuelab.ArmEResume),
+			events: []queuelab.LifecycleEvent{stop(queuelab.VictimRow, "u1", 1_000, 1370, n(0))},
+		},
+		{
+			// The control arm is DEFINED by not reading the file. Refusing it here would refuse the arm the
+			// contrast is measured against.
+			name: "the control arm, which is supposed to begin at zero every time",
+			arm:  string(queuelab.ArmEFresh),
+			events: []queuelab.LifecycleEvent{
+				stop(queuelab.VictimRow, "u1", 1_000, 1370, nil),
+				stop(queuelab.VictimRow, "u2", 2_000, 900, n(0)),
+			},
+		},
+		{
+			// A predecessor that reached no iterations left nothing to restore, so beginning at zero is what
+			// a successor should report.
+			name: "a predecessor that performed nothing",
+			arm:  string(queuelab.ArmEResume),
+			events: []queuelab.LifecycleEvent{
+				stop(queuelab.VictimRow, "u1", 1_000, 0, nil),
+				stop(queuelab.VictimRow, "u2", 2_000, 900, n(0)),
+			},
+		},
+		{
+			// A different row's attempt is not this row's predecessor.
+			name: "a predecessor of another row",
+			arm:  string(queuelab.ArmEResume),
+			events: []queuelab.LifecycleEvent{
+				stop(queuelab.OwnerRow, "u9", 1_000, 1370, nil),
+				stop(queuelab.VictimRow, "u2", 2_000, 900, n(0)),
+			},
+		},
+		{
+			// A build that could not report a resume point at all says nothing this check can act on.
+			name: "an attempt from a build that could not report one",
+			arm:  string(queuelab.ArmEResume),
+			events: []queuelab.LifecycleEvent{
+				stop(queuelab.VictimRow, "u1", 1_000, 1370, nil),
+				stop(queuelab.VictimRow, "u2", 2_000, 900, nil),
+			},
+		},
+		{
+			name: "an arm this build does not define",
+			arm:  "E-nonsense",
+			events: []queuelab.LifecycleEvent{
+				stop(queuelab.VictimRow, "u1", 1_000, 1370, nil),
+				stop(queuelab.VictimRow, "u2", 2_000, 900, n(0)),
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := restoringArmActuallyRestored(runRecord{Arm: tc.arm, Events: tc.events})
+			if tc.refused && err == nil {
+				t.Fatalf("arm %q restored nothing from a predecessor that had something and was accepted; "+
+					"that reads as resuming having bought nothing", tc.arm)
+			}
+			if !tc.refused && err != nil {
+				t.Fatalf("arm %q was refused: %v", tc.arm, err)
+			}
+			if tc.refused && !strings.Contains(err.Error(), tc.arm) {
+				t.Errorf("the refusal does not name the arm it is about: %v", err)
+			}
+		})
+	}
+}
+
+// Both refusals have to be WIRED, and a unit test on either helper cannot tell whether they are.
+//
+// Deleting a call from ledgerSupportsTheDocument -- which checkValidity reaches for every verdict -- leaves
+// every table above green, which is the defect this file has met repeatedly: a judgment that was added and
+// then guarded by nothing.
+//
+// Mutations that turn this red: remove either call from ledgerSupportsTheDocument.
+func TestADecodedRecordCannotShowACheckpointThatNeverLanded(t *testing.T) {
+	failedWrite := fmt.Appendf(nil, `{"schemaVersion":%d,"dose":"self-completing","runID":"r14",`+
+		`"arm":"E-resume","disposition":"completed-implemented-checks-passed",`+
+		`"events":[{"elapsedNs":1,"kind":"Pod","type":"AttemptStopped","job":"a2-borrow","objectUID":"u1",`+
+		`"iterations":5,"saveStatus":"failed"}],%s}`, recordSchemaVersion, refusedValidity)
+	if _, err := decodeRunRecord(failedWrite); err == nil {
+		t.Error("a record whose checkpointing victim reported a failed write decoded")
+	} else if !strings.Contains(err.Error(), "saved=") {
+		t.Errorf("refused for some other reason, so this is not testing the write check: %v", err)
+	}
+
+	// The read side, with every write succeeding. This is the document a missing mount produces -- and also
+	// the one an unreadable or truncated checkpoint produces, which is why the refusal reports that the
+	// restore did not happen rather than naming which of those it was. Either way it is the document that
+	// would otherwise be published as "resuming bought nothing".
+	nothingRead := fmt.Appendf(nil, `{"schemaVersion":%d,"dose":"self-completing","runID":"r15",`+
+		`"arm":"E-resume","disposition":"completed-implemented-checks-passed",`+
+		`"events":[{"elapsedNs":1,"kind":"Pod","type":"AttemptStopped","job":"a2-borrow","objectUID":"u1",`+
+		`"iterations":1370,"saveStatus":"ok"},`+
+		`{"elapsedNs":2,"kind":"Pod","type":"AttemptStopped","job":"a2-borrow","objectUID":"u2",`+
+		`"iterations":900,"resumed":0,"saveStatus":"ok"}],%s}`, recordSchemaVersion, refusedValidity)
+	if _, err := decodeRunRecord(nothingRead); err == nil {
+		t.Error("a record whose restoring victim read nothing back decoded")
+	} else if !strings.Contains(err.Error(), "resuming from none") {
+		t.Errorf("refused for some other reason, so this is not testing the read check: %v", err)
+	} else {
+		// The refusal must not name a CAUSE, and nothing guarded that until this assertion.
+		//
+		// The first version of the message said the missing restore "is a mount the replacement Pod did not
+		// get". The ledger does not establish that: the workload starts fresh from an absent file, a
+		// truncated one, a garbled one and a non-finite accumulator alike, so a missing mount is one of
+		// several causes and the document cannot say which. Removing the overclaim left no test behind, which
+		// a perturbation found by putting it back and watching the suite stay green.
+		if strings.Contains(err.Error(), "is a mount") {
+			t.Errorf("the refusal names one cause as established; the ledger supports only that the restore "+
+				"did not happen: %v", err)
+		}
+		if !strings.Contains(err.Error(), "not in this document") {
+			t.Errorf("the refusal must say that WHY the restore failed is not something this record can "+
+				"answer, or a reader takes the refusal for a diagnosis: %v", err)
+		}
+	}
+}
+
+// The safety net has to be WIRED, and a unit test on the helper cannot tell whether it is.
+//
+// Deleting the call from ledgerSupportsTheDocument -- which checkValidity reaches for every verdict --
+// leaves every assertion above green, which is the defect this file has met repeatedly: a judgment that was
+// added and then guarded by nothing.
+//
+// Mutation that turns this red: remove the checkpointingArmStayedOffTheDevice call from
+// ledgerSupportsTheDocument.
+func TestADecodedRecordCannotShowACheckpointingArmOnTheDevice(t *testing.T) {
+	doc := fmt.Appendf(nil, `{"schemaVersion":%d,"dose":"grace-bounded","runID":"r20","arm":"%s",`+
+		`"disposition":"completed-implemented-checks-passed",`+
+		`"events":[{"elapsedNs":1000,"kind":"Pod","type":"AttemptStopped","job":"%s","objectUID":"u1",`+
+		`"workloadKind":"%s"}],%s}`,
+		recordSchemaVersion, queuelab.ArmEResume, queuelab.VictimRow, queuelab.KindCUDAFMA, refusedValidity)
+	_, err := decodeRunRecord(doc)
+	if err == nil {
+		t.Fatal("a record showing a checkpointing arm on the device path decoded, so its resume verdict " +
+			"would reach a reader with nothing having checked it")
+	}
+	// The refusal's own words, which changed when the check became per-row: it used to say the arm "writes a
+	// progress file" and now names the ROW that checkpoints, because the row is what the scoping turns on.
+	if !strings.Contains(err.Error(), "checkpoints row") {
+		t.Fatalf("refused for some other reason, so this is not testing the wiring: %v", err)
+	}
+
+	// The control: the same document on the CPU path must decode, or a decoder that refused every
+	// checkpointing arm would pass the assertion above.
+	ok := fmt.Appendf(nil, `{"schemaVersion":%d,"dose":"grace-bounded","runID":"r21","arm":"%s",`+
+		`"disposition":"completed-implemented-checks-passed",`+
+		`"events":[{"elapsedNs":1000,"kind":"Pod","type":"AttemptStopped","job":"%s","objectUID":"u1",`+
+		`"workloadKind":"%s"}],%s}`,
+		recordSchemaVersion, queuelab.ArmEResume, queuelab.VictimRow, queuelab.KindCPUFloat, refusedValidity)
+	if _, err := decodeRunRecord(ok); err != nil {
+		t.Fatalf("a checkpointing arm that stayed on the CPU path was refused: %v", err)
 	}
 }

@@ -1,0 +1,3 @@
+# StorageClass is cluster-scoped, so no namespace transform applies here.
+resources:
+- storageclass.yaml
