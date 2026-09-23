@@ -86,8 +86,34 @@ else
   fail "manifest_outcome can fail the session under set -e; a bookkeeping error would discard a paid run"
 fi
 
+# No session artifact may live in /tmp, because /tmp distinguished them by WORKER NAME alone.
+#
+# A second attempt on the same worker overwrote the first attempt's port-forward, exporter and canary logs
+# -- and a retry happens precisely when the first attempt failed, so what was overwritten was the evidence
+# for that failure. The registered requirement is an attempt ordinal on every artifact path; $EXDIR carries
+# it and /tmp does not. (On this machine /tmp is also tmpfs, so those logs were RAM.)
+if grep -q '/tmp/queuelab' "$SCRIPT"; then
+  echo "FAIL a session artifact is still written under /tmp:" >&2
+  grep -n '/tmp/queuelab' "$SCRIPT" | sed 's/^/       /' >&2
+  failures=$((failures + 1))
+else
+  echo "ok   no session artifact is written under /tmp"
+fi
+
+# The directory has to exist before anything writes into it. prepare() writes the diagnostics, so the mkdir
+# must precede it -- moving the logs without moving the mkdir would fail on the first worker.
+mkdir_line="$(line_of 'mkdir -p "$EXDIR"')"
+prepare_line="$(line_of 'prepare "$W"')"
+if [[ -z "$mkdir_line" || -z "$prepare_line" ]]; then
+  fail "cannot locate the session directory's creation or its first writer"
+elif (( mkdir_line < prepare_line )); then
+  echo "ok   the session directory is created before prepare() writes into it"
+else
+  fail "prepare() writes into \$EXDIR before it is created (mkdir $mkdir_line, prepare $prepare_line)"
+fi
+
 if [[ $failures -ne 0 ]]; then
-  echo "$failures manifest property/properties did not hold" >&2
+  echo "$failures campaign-artifact property/properties did not hold" >&2
   exit 1
 fi
-echo "the campaign manifest is written before the runs, and every run exit records itself"
+echo "the manifest precedes the runs, every run exit records itself, and no artifact is left in /tmp"
