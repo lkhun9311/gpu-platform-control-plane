@@ -29,6 +29,7 @@ APP=gitops-selfheal-probe
 PROJECT=selfheal-probe
 DEPLOY=probe
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+LOCKDIR="${LOCKDIR:-/tmp/argocd-selfheal.lock}"
 
 k() { kubectl --context "$CONTEXT" "$@"; }
 
@@ -312,19 +313,38 @@ teardown() {
   say "teardown complete"
 }
 
-# True when another instance of this script is already running.
-running_elsewhere() {
-  local pid argv0 argv1
-  for pid in /proc/[0-9]*; do
-    pid="${pid##*/}"
-    [[ "$pid" == "$$" || "$pid" == "$PPID" ]] && continue
-    [[ -r "/proc/$pid/cmdline" ]] || continue
-    mapfile -d '' -t argv <"/proc/$pid/cmdline" 2>/dev/null || continue
-    argv0="${argv[0]:-}"
-    argv1="${argv[1]:-}"
-    [[ "$argv0" == *bash && "$argv1" == *argocd-selfheal.sh ]] && return 0
-  done
-  return 1
+# Take an exclusive lock, or refuse.
+#
+# The first version of this guard compared argv[1] against the string "argocd-selfheal.sh" -- and was
+# defeated the same hour by running a COPY of the script under a different name, which is exactly how the
+# run it was meant to protect got two concurrent writers. A lock does not care what the file is called.
+#
+# mkdir is the atomic primitive here; `[ -e ]` followed by a create is not, and the race it leaves open is
+# the one this guard exists to close.
+acquire_lock() {
+  if mkdir "$LOCKDIR" 2>/dev/null; then
+    echo $$ >"$LOCKDIR/pid"
+    LOCK_HELD=1
+    return 0
+  fi
+  local owner
+  owner="$(cat "$LOCKDIR/pid" 2>/dev/null || true)"
+  if [[ -n "$owner" ]] && kill -0 "$owner" 2>/dev/null; then
+    echo "another run (pid $owner) holds $LOCKDIR; refusing to share an evidence directory" >&2
+    exit 1
+  fi
+  # A lock whose owner is gone is debris from a killed run, not a live conflict.
+  echo "removing a stale lock left by pid ${owner:-unknown}" >&2
+  rm -rf "$LOCKDIR"
+  mkdir "$LOCKDIR" || { echo "could not take $LOCKDIR" >&2; exit 1; }
+  echo $$ >"$LOCKDIR/pid"
+  LOCK_HELD=1
+}
+
+release_lock() {
+  [[ "${LOCK_HELD:-0}" == "1" ]] || return 0
+  rm -rf "$LOCKDIR"
+  LOCK_HELD=0
 }
 
 main() {
@@ -345,15 +365,12 @@ main() {
   #
   # The test reads argv[1] out of /proc rather than using `pgrep -f`, whose pattern matches the command line
   # of whatever shell is holding the pattern -- including this one.
-  if [[ "$cmd" == "measure" ]] && running_elsewhere; then
-    echo "another argocd-selfheal.sh is already running; refusing to share an evidence directory" >&2
-    exit 1
-  fi
+  acquire_lock
 
   EXDIR="${EXDIR:-ex/selfheal-$(date -u +%Y%m%dT%H%M%SZ)}"
   mkdir -p "$EXDIR"
 
-  trap stop_watch EXIT
+  trap 'stop_watch; release_lock' EXIT
 
   "$cmd"
 }
