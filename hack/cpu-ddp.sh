@@ -6,6 +6,7 @@
 # Usage:
 #   hack/cpu-ddp.sh queue                 # create the namespace, ClusterQueue and LocalQueue
 #   hack/cpu-ddp.sh run <name>            # submit one run and collect its evidence
+#   hack/cpu-ddp.sh quota                 # two jobs against a one-GPU queue; the second must wait
 #   hack/cpu-ddp.sh teardown              # remove the queue objects and the namespace
 #
 # Environment:
@@ -14,6 +15,8 @@
 #   STEPS         training steps                       (default 3)
 #   NO_SYNC       1 to disable gradient sync (control) (default unset)
 #   DIE_AT_STEP   step at which rank 1 SIGKILLs itself (default 0, never)
+#   HOLD_SECONDS  seconds the holder keeps the GPU in `quota`  (default 60)
+#   WAIT_SECONDS  how long to wait for a terminal phase        (default 1500)
 
 set -euo pipefail
 
@@ -25,6 +28,15 @@ NS=cpu-ddp
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LOCKDIR="${LOCKDIR:-/tmp/cpu-ddp.lock}"
 STEPS="${STEPS:-3}"
+HOLD_SECONDS="${HOLD_SECONDS:-60}"
+# Long enough to outlast a Job's own retry budget.
+#
+# The first version waited 600s. A run whose rank is SIGKILLed exhausts backoffLimit=6 over about 10m46s,
+# so the runner gave up 42 seconds before Kubernetes attached the Failed condition -- and recorded the CR
+# as stuck in Admitted with the quota apparently still held. Both readings were artefacts of the deadline:
+# re-read afterwards, the CR was Failed and the ClusterQueue was back to zero. A timeout shorter than the
+# system's own retry budget does not measure a hang, it manufactures one.
+WAIT_SECONDS="${WAIT_SECONDS:-1500}"
 
 k() { kubectl --context "$CONTEXT" "$@"; }
 
@@ -87,6 +99,7 @@ render_job() {
   extra="export DDP_STEPS=$STEPS"
   [[ -n "${NO_SYNC:-}" ]] && extra="$extra; export DDP_NO_SYNC=$NO_SYNC"
   [[ -n "${DIE_AT_STEP:-}" ]] && extra="$extra; export DDP_DIE_AT_STEP=$DIE_AT_STEP"
+  [[ -n "${HOLD:-}" ]] && extra="$extra; export DDP_HOLD_SECONDS=$HOLD"
 
   sed -e "s|RUN_ID_PLACEHOLDER|$name|g" -e "s|EXTRA_EXPORTS_PLACEHOLDER|$extra|" \
     "$ROOT/experiments/cpu-ddp/job.yaml" >"$out"
@@ -131,7 +144,7 @@ run() {
 
   # Wait for a terminal phase. The CR's Running means a Pod is active, which is not the same as the ranks
   # having found each other -- that claim comes from the rendezvous records, not from here.
-  local deadline=$((SECONDS + 600)) phase=""
+  local deadline=$((SECONDS + WAIT_SECONDS)) phase=""
   while ((SECONDS < deadline)); do
     phase="$(k -n "$NS" get mltrainingjob "cpu-ddp-$name" -o jsonpath='{.status.phase}' 2>/dev/null || true)"
     case "$phase" in
@@ -142,7 +155,11 @@ run() {
     esac
     sleep 5
   done
-  [[ "$phase" == "Succeeded" || "$phase" == "Failed" ]] || say "WARNING: no terminal phase within 600s (last=$phase)"
+  if [[ "$phase" != "Succeeded" && "$phase" != "Failed" ]]; then
+    say "WARNING: no terminal phase within ${WAIT_SECONDS}s (last=$phase)"
+    # What Kubernetes thought at the moment of giving up, so the next reader can tell a hang from a deadline.
+    k -n "$NS" get job "cpu-ddp-$name" -o jsonpath='{.status.conditions}' >"$EXDIR/job-conditions-$name.json" 2>&1 || true
+  fi
 
   record_admission "$name"
 
@@ -199,6 +216,66 @@ PY
   fi
 }
 
+# Two jobs against a queue whose nominal quota is one GPU.
+#
+# The point is the second job's wait. Every run so far was admitted in the same second it was submitted,
+# because nothing else held the quota -- which demonstrates that Kueue is in the path, not that it ever
+# withheld anything. Here the holder keeps the single GPU for HOLD_SECONDS and the waiter must queue behind
+# it, so the transition from pending to admitted is observable rather than instantaneous.
+quota() {
+  local holder="hold" waiter="wait"
+
+  HOLD="$HOLD_SECONDS" STEPS=1 render_job "$holder" "$EXDIR/job-$holder.yaml"
+  say "submitting the holder, which keeps the only GPU for ${HOLD_SECONDS}s"
+  k apply -f "$EXDIR/job-$holder.yaml" >>"$EXDIR/run.log" 2>&1
+
+  # The waiter must not be submitted until the holder actually owns the quota, or the two race and the
+  # experiment proves nothing about ordering.
+  local deadline=$((SECONDS + 120))
+  while ((SECONDS < deadline)); do
+    [[ "$(k get clusterqueue cpu-ddp -o jsonpath='{.status.admittedWorkloads}' 2>/dev/null)" == "1" ]] && break
+    sleep 2
+  done
+  say "holder admitted; clusterqueue admitted=$(k get clusterqueue cpu-ddp -o jsonpath='{.status.admittedWorkloads}' 2>/dev/null)"
+
+  STEPS=1 render_job "$waiter" "$EXDIR/job-$waiter.yaml"
+  local t0
+  t0="$(date -u +%s.%N)"
+  say "submitting the waiter"
+  k apply -f "$EXDIR/job-$waiter.yaml" >>"$EXDIR/run.log" 2>&1
+
+  # Observed pending, not assumed pending.
+  local pending="" seen_pending=0
+  deadline=$((SECONDS + 60))
+  while ((SECONDS < deadline)); do
+    pending="$(k get clusterqueue cpu-ddp -o jsonpath='{.status.pendingWorkloads}' 2>/dev/null || true)"
+    if [[ -n "$pending" && "$pending" != "0" ]]; then
+      seen_pending=1
+      say "waiter is pending (clusterqueue pendingWorkloads=$pending)"
+      k -n "$NS" get workload -o jsonpath='{range .items[*]}{.metadata.name}{" "}{.status.conditions}{"\n"}{end}' >"$EXDIR/workloads-while-pending.txt" 2>&1 || true
+      break
+    fi
+    sleep 1
+  done
+  ((seen_pending == 1)) || say "WARNING: never observed a pending workload; the holder may have finished first"
+
+  # Admission of the waiter, timed from its submission.
+  deadline=$((SECONDS + WAIT_SECONDS))
+  local admitted=""
+  while ((SECONDS < deadline)); do
+    admitted="$(k -n "$NS" get workload -o jsonpath="{range .items[?(@.metadata.ownerReferences[0].name=='cpu-ddp-$waiter')]}{.status.conditions[?(@.type=='Admitted')].status}{end}" 2>/dev/null || true)"
+    if [[ "$admitted" == "True" ]]; then
+      say "waiter admitted after $(python3 -c "print(f'{$(date -u +%s.%N) - $t0:.1f}')")s"
+      break
+    fi
+    sleep 1
+  done
+  [[ "$admitted" == "True" ]] || say "WARNING: the waiter was never admitted"
+
+  record_admission "$waiter"
+  say "final clusterqueue: $(k get clusterqueue cpu-ddp -o jsonpath='pending={.status.pendingWorkloads} admitted={.status.admittedWorkloads}' 2>/dev/null)"
+}
+
 teardown() {
   say "deleting MLTrainingJobs in $NS"
   k -n "$NS" delete mltrainingjob --all --ignore-not-found >>"$EXDIR/run.log" 2>&1 || true
@@ -212,9 +289,9 @@ teardown() {
 main() {
   local cmd="${1:-}"
   case "$cmd" in
-    queue | run | teardown) ;;
+    queue | run | quota | teardown) ;;
     *)
-      echo "usage: $0 {queue|run <name>|teardown}" >&2
+      echo "usage: $0 {queue|run <name>|quota|teardown}" >&2
       exit 1
       ;;
   esac

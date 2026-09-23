@@ -27,6 +27,7 @@ import json
 import os
 import socket
 import sys
+import time
 
 import torch
 import torch.distributed as dist
@@ -50,6 +51,12 @@ STEPS = int(os.environ.get("DDP_STEPS", "3"))
 NO_SYNC = os.environ.get("DDP_NO_SYNC", "") == "1"
 # The step at which rank 1 kills itself, for the failure-contract run. 0 means never.
 DIE_AT_STEP = int(os.environ.get("DDP_DIE_AT_STEP", "0"))
+# Seconds to keep running after the last step, so this job holds its quota while another queues behind it.
+#
+# Three steps take about five seconds, which is why every run so far was admitted in the same second it was
+# submitted: nothing was ever holding the GPU. Demonstrating that Kueue WITHHOLDS capacity needs a job that
+# keeps it long enough for the wait to be observed.
+HOLD_SECONDS = int(os.environ.get("DDP_HOLD_SECONDS", "0"))
 
 
 def script_sha256() -> str:
@@ -248,6 +255,14 @@ def main() -> int:
     verdict["all_ranks_agree"] = len(set(gathered)) == 1
 
     emitter.emit("verdict", **verdict)
+
+    if HOLD_SECONDS > 0:
+        # Held before tearing down the process group, so the Pod -- and therefore the quota reservation --
+        # stays alive. Sleeping after destroy_process_group would keep the Pod too, but the run would no
+        # longer be a training job holding capacity; it would be a sleeper wearing its name.
+        emitter.emit("holding", seconds=HOLD_SECONDS)
+        time.sleep(HOLD_SECONDS)
+
     dist.destroy_process_group()
     return 0
 
