@@ -88,7 +88,9 @@ func kindSeed() seed {
 // gets the chance to blame a finalizer for what is really a missing kubeconfig.
 func kindClient(t *testing.T) client.WithWatch {
 	t.Helper()
-	c, err := newClusterClient()
+	// Empty path: these tests are driven by KUBECONFIG pointing at a kind cluster, not by -kubeconfig, and
+	// an empty path is what leaves the loading rules exactly as they were before the flag was honoured.
+	c, err := newClusterClient("")
 	if err != nil {
 		t.Fatalf("build cluster client (these tests need a kubeconfig pointing at a kind cluster with Kueue): %v", err)
 	}
