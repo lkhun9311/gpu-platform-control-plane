@@ -1,0 +1,61 @@
+# The static layer of the admission defence, and the only one that reads nothing but the object itself.
+#
+# The other three layers all need state this cannot see: ResourceQuota counts what is already allocated, the
+# controller's condition waits on dependent resources, and the gateway's 429 is a runtime pressure signal. A
+# ValidatingAdmissionPolicy runs CEL against the incoming object alone, so the rules here are exactly those
+# that can be decided without asking the cluster anything. That limit is the reason this layer exists rather
+# than an argument against it: a rule that needs global quota state belongs in a layer that can read it.
+#
+# Two rules, and both come from something this repository has already been bitten by rather than from a list
+# of good practices.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: gpu-workload-static
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["platform.lkhun9311.github.io"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["mltrainingjobs", "inferencedeployments"]
+  validations:
+    # A mutable tag sends the kubelet somewhere that is not pinned, and this repository has three records of
+    # it: hack/argocd-kind.md notes that a side-loaded `:latest` image is pulled from a registry that does not
+    # have it, and hack/m5b-gateway-path.md calls tagging the stub `benchharness:evidence` rather than
+    # `:latest` load-bearing, because a non-latest tag leaves the pull policy at IfNotPresent.
+    #
+    # The rule refuses the tag, not the absence of a digest. Requiring `@sha256:` would refuse every sample in
+    # config/samples, which pin ordinary versioned tags (busybox:1.36, pytorch/pytorch:2.3.0-...), and those
+    # are reproducible enough for what they do. What is refused is the one tag whose meaning changes under the
+    # cluster's feet.
+    - expression: "!object.spec.image.endsWith(':latest')"
+      message: "spec.image must not use the :latest tag; it resolves differently over time and forces an always-pull that a side-loaded image cannot satisfy"
+      reason: Invalid
+
+    # Asking for GPUs without naming a class takes the cluster default BY OMISSION.
+    #
+    # This is the same argument docs/superpowers/specs/2026-09-22-the-claim-exists-and-the-class-is-named.md
+    # makes about storageClassName, and it holds here for the same reason: the default is a property of the
+    # cluster the workload happens to land on, so two runs of the same manifest on two clusters are two
+    # different experiments with nothing in the object saying so.
+    #
+    # Guarded on gpuCount > 0 rather than applied always, because a CPU-only workload naming a GPU class would
+    # be the opposite mistake. The field stays optional in the CRD; what is refused is the combination.
+    - expression: "object.spec.gpuCount == 0 || (has(object.spec.gpuClass) && object.spec.gpuClass.trim() != '')"
+      message: "spec.gpuClass is required when spec.gpuCount is greater than zero; omitting it selects the cluster's default class by omission and the object records nothing about which class ran"
+      reason: Invalid
+---
+# Binding the policy to every namespace, with no parameter object.
+#
+# A ParamKind would let an operator relax these per namespace, and that is deliberately not offered: both
+# rules describe what makes an object's own text ambiguous, which does not become unambiguous because of
+# where it was created.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: gpu-workload-static
+spec:
+  policyName: gpu-workload-static
+  validationActions: ["Deny"]

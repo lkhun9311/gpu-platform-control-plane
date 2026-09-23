@@ -410,7 +410,7 @@ infra-validate: terraform kustomize actionlint shell-check session-refusals sess
 			( cd "$$d" && "$(abspath $(TERRAFORM))" init -backend=false -input=false >/dev/null && "$(abspath $(TERRAFORM))" validate ); \
 		fi; \
 	done
-	@for k in config/argocd config/operator config/gateway config/device-plugin config/crd config/prometheus config/kueue config/samples config/storage; do \
+	@for k in config/argocd config/operator config/gateway config/device-plugin config/crd config/prometheus config/kueue config/samples config/storage config/policy; do \
 		if [ -f "$$k/kustomization.yaml" ]; then \
 			echo "kustomize build $$k"; \
 			"$(KUSTOMIZE)" build "$$k" >/dev/null; \
