@@ -12,9 +12,14 @@
 # What this does NOT check is whether a name that exists is described correctly. That half stays human. The
 # point is to spend no more human attention on the half that does not need it.
 #
-# Why only docs/0*.md, docs/10*.md and README.md: the specs under docs/superpowers/specs/ are dated records
+# Why only docs/0*.md, docs/1*.md and README.md: the specs under docs/superpowers/specs/ are dated records
 # of what was believed on the day they were written. A spec diverging from today's code is the archive
 # working, not a defect, and counting it would drown the signal.
+#
+# The numbered glob is 1* rather than 10* so a second numbered document is covered when one is added. That
+# widening alone does not make a document visible: this scan reads `git ls-files`, and .gitignore publishes
+# docs/ by allow-list, so a file outside that list is untracked and silently exempt -- which reads exactly
+# like a file that passed. docs/08 and docs/11 were both invisible that way.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -47,7 +52,7 @@ def tracked(*patterns):
     out = subprocess.run(['git', 'ls-files', '--'] + list(patterns), capture_output=True, text=True).stdout
     return [p for p in out.split('\n') if p]
 
-docs = [d for d in tracked('docs/0*.md', 'docs/10*.md', 'README.md') if '/captures/' not in d]
+docs = [d for d in tracked('docs/0*.md', 'docs/1*.md', 'README.md') if '/captures/' not in d]
 if not docs:
     sys.exit("no documents matched; refusing to report success on an empty scan")
 

@@ -46,7 +46,9 @@ docs/superpowers/*
 !/hack/eks-cluster-cycle-20260918.md
 !/docs/0[0-7]*.md
 !/docs/09*.md
-!/docs/10_WHAT_I_GOT_WRONG.md
+# Numbered by pattern rather than by name, because naming each one is how docs/08 and docs/11 ended up
+# invisible: a document the repository cannot see is not a document a reader can check.
+!/docs/1[0-9]_*.md
 !/docs/superpowers/specs/*.md
 
 # Terraform local state, cache and secrets (state lives in the remote backend, not here)
