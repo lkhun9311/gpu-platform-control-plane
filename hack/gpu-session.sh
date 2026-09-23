@@ -620,6 +620,49 @@ mkdir -p "$EXDIR" || { echo "cannot create $EXDIR" >&2; exit 1; }
 echo "records for this session go in $EXDIR"
 echo "running ${#SEQUENCE[@]} runs, starting at $START_AT"
 echo
+
+# The campaign manifest, written BEFORE the first run start.
+#
+# docs/superpowers/specs/2026-09-22-the-retry-rule-had-nothing-counting-it.md registers that a campaign must
+# leave an attempt history: four run starts, what each produced, and -- for an invalidated one -- the
+# refusal the ledger gave. Without it the next session cannot tell "not attempted" from "attempted and
+# refused", a distinction this lab has already mistaken once.
+#
+# It is written first and appended to as runs finish, rather than summarised at the end, because the end is
+# exactly what a session that runs out of deadline never reaches. A manifest that only exists on the happy
+# path documents the campaigns that needed no documenting.
+#
+# Plain text, not JSON. The run records are the machine-readable half and already carry arm, dose, runID and
+# schema version; this file answers "what was bought, in what order, and what came back", which is read by a
+# person deciding whether a comparison may be published.
+MANIFEST="$EXDIR/campaign.txt"
+{
+  echo "study        $STUDY"
+  echo "attempt      $ATTEMPT"
+  echo "workers      ${WORKERS[*]}"
+  echo "started      $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  echo "state-class  ${STATE_CLASS:-(none)}"
+  echo "runs         ${#SEQUENCE[@]} planned, starting at $START_AT"
+  echo
+  echo "planned order:"
+  i=0
+  for SPEC in "${SEQUENCE[@]}"; do
+    i=$((i + 1))
+    # shellcheck disable=SC2086
+    set -- $SPEC
+    echo "  $i  $3  $2  $1  on $4"
+  done
+  echo
+  echo "outcomes:"
+} > "$MANIFEST" || { echo "cannot write $MANIFEST" >&2; exit 1; }
+echo "the campaign manifest is $MANIFEST"
+echo
+
+# Record one run's outcome in the manifest. Appended as it happens, so an interrupted session still says
+# what it had bought by the time it stopped.
+manifest_outcome() {
+  printf '  %-4s %-10s %s\n' "$1" "$2" "$3" >> "$MANIFEST" || true
+}
 # Stop before a run that cannot finish, rather than being cut in the middle of one.
 #
 # Nothing bounded this session's length. The per-run horizon is derived inside the runner and refuses to be
@@ -709,7 +752,8 @@ for SPEC in "${SEQUENCE[@]}"; do
   set -- $SPEC
   DOSE=$1 ARM=$2 ID=$3 ON=$4
   N=$((N + 1))
-  (( N < START_AT )) && { echo "[$N/${#SEQUENCE[@]}] $ID  skipped (START_AT=$START_AT)"; skipped=$((skipped + 1)); continue; }
+  (( N < START_AT )) && { echo "[$N/${#SEQUENCE[@]}] $ID  skipped (START_AT=$START_AT)"; skipped=$((skipped + 1)); \
+    manifest_outcome "$N" "skipped" "$ID  not started by this attempt (START_AT=$START_AT)"; continue; }
   deadline_check || exit 1
   echo "[$N/${#SEQUENCE[@]}] $ID  $DOSE  $ARM  on $ON"
   RUN_T0=$(date +%s)
@@ -755,9 +799,11 @@ for SPEC in "${SEQUENCE[@]}"; do
   ./queuelabrun "${DEVICE_FLAGS[@]}" "${STATE_FLAGS[@]}" -dose "$DOSE" -arm "$ARM" -runid "$ID" -worker "$ON" \
     -device-metrics "${URL_OF[$ON]}" -device-observer "${OBSERVER_OF[$ON]}" \
     -out "$EXDIR/gpu-$DOSE-$ARM-$ID.json" \
-    || { echo; echo "run $ID failed. Fix the cause, then resume: EXDIR=$EXDIR START_AT=$N RUN_STUDY=1 $0 ${WORKERS[*]}" >&2; exit 1; }
+    || { manifest_outcome "$N" "FAILED" "$ID  $ARM  on $ON  -- the runner refused or could not finish"; \
+         echo; echo "run $ID failed. Fix the cause, then resume: EXDIR=$EXDIR START_AT=$N RUN_STUDY=1 $0 ${WORKERS[*]}" >&2; exit 1; }
   run_secs=$(( run_secs + $(date +%s) - RUN_T0 ))
   runs_done=$((runs_done + 1))
+  manifest_outcome "$N" "ok" "$ID  $ARM  on $ON  -> $(basename "$EXDIR/gpu-$DOSE-$ARM-$ID.json")"
 done
 
 # The globs are the ones the kind study uses, and they are narrow for reasons the tool enforces: an arm
