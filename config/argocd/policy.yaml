@@ -1,0 +1,26 @@
+# The static admission layer.
+#
+# sync-wave -1: the policy must exist before any workload it judges, and it depends on nothing in this repo --
+# ValidatingAdmissionPolicy is built into the apiserver, unlike the webhook, which needs cert-manager first.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: gpu-platform-policy
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/lkhun9311/gpu-platform-control-plane.git
+    targetRevision: main
+    path: config/policy
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
