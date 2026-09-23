@@ -1,0 +1,41 @@
+# A queue of its own, sized so the experiment can starve itself on purpose.
+#
+# The cluster already has `gpu-premium` with `nvidia.com/gpu: 2`, and borrowing it would mean this
+# experiment's admission timings depend on whatever else is using it. It would also mean a mistake here
+# reaches the serving namespace's workloads. The self-heal experiment in the sibling directory was isolated
+# for the same reason and the reasoning has not changed.
+#
+# nominalQuota is 1, not 2: the second submission must WAIT. A queue that admits everything immediately
+# cannot demonstrate admission at all -- the Workload would go straight to Admitted and the interesting
+# transition would never be observed.
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cpu-ddp
+---
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: ClusterQueue
+metadata:
+  name: cpu-ddp
+spec:
+  namespaceSelector:
+    matchLabels:
+      kubernetes.io/metadata.name: cpu-ddp
+  # No cohort. Borrowing from another ClusterQueue would make the wait this experiment measures depend on
+  # capacity it does not own.
+  resourceGroups:
+    - coveredResources: ["nvidia.com/gpu"]
+      flavors:
+        - name: gpu
+          resources:
+            - name: "nvidia.com/gpu"
+              nominalQuota: 1
+---
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: LocalQueue
+metadata:
+  name: cpu-ddp
+  namespace: cpu-ddp
+spec:
+  clusterQueue: cpu-ddp
