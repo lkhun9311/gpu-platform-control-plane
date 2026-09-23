@@ -373,12 +373,12 @@ openRoute() {
   # the "text server accepted as DCGM" failure this repository has already made twice inside the Go code,
   # reachable here one level above it.
   port="$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()')"
-  kubectl port-forward -n "$NS" "pod/$pod" "$port:9400" >"/tmp/queuelab-pf-$worker.log" 2>&1 &
+  kubectl port-forward -n "$NS" "pod/$pod" "$port:9400" >"$EXDIR/pf-$worker.log" 2>&1 &
   local pf=$!
   FORWARDS+=("$pf")
   sleep 1
   if ! kill -0 "$pf" 2>/dev/null; then
-    echo "the port-forward to $pod exited immediately; see /tmp/queuelab-pf-$worker.log" >&2
+    echo "the port-forward to $pod exited immediately; see $EXDIR/pf-$worker.log" >&2
     return 1
   fi
   url="http://127.0.0.1:${port}/metrics"
@@ -387,13 +387,13 @@ openRoute() {
     sleep 1
   done
   if ! curl -sf -m 2 "$url" >/dev/null 2>&1; then
-    echo "the port-forward to $pod did not come up; see /tmp/queuelab-pf-$worker.log" >&2
+    echo "the port-forward to $pod did not come up; see $EXDIR/pf-$worker.log" >&2
     return 1
   fi
   # Written to a file first: `curl | grep -q` lets grep close the pipe on its first match, and under
   # `set -o pipefail` a large metrics body makes curl fail with a write error, so a healthy exporter reads as
   # an empty one.
-  local body="/tmp/queuelab-metrics-$worker.txt"
+  local body="$EXDIR/metrics-$worker.txt"
   curl -sf -m 5 "$url" >"$body"
   if ! grep -q '^DCGM_FI_DEV_GPU_UTIL{' "$body"; then
     echo "the exporter at $url serves no DCGM_FI_DEV_GPU_UTIL samples." >&2
@@ -421,8 +421,8 @@ prepare() {
   # The canary is what every run's qualification requires, and only this mode writes it. The script did not
   # take it, so the study path could not complete its first run on a fresh node.
   echo "  canary     : taking it (the qualification refuses a worker without one)"
-  ./queuelabrun -termination-canary -worker "$worker" >"/tmp/queuelab-canary-$worker.log" 2>&1 \
-    || { echo "the termination canary failed on $worker; see /tmp/queuelab-canary-$worker.log" >&2; return 1; }
+  ./queuelabrun -termination-canary -worker "$worker" >"$EXDIR/canary-$worker.log" 2>&1 \
+    || { echo "the termination canary failed on $worker; see $EXDIR/canary-$worker.log" >&2; return 1; }
   openRoute "$worker"
   echo "  exporter   : ${POD_OF[$worker]}"
   echo "  observer   : ${OBSERVER_OF[$worker]}"
@@ -457,6 +457,16 @@ else
   echo "building the runner"
   go build -o queuelabrun ./cmd/queuelabrun
 fi
+
+# The session directory is created HERE, before prepare(), because prepare() writes its diagnostics into it.
+#
+# It used to be created just before the run loop, which was late enough while /tmp held those diagnostics.
+# A prepare-only session (RUN_STUDY unset) now leaves a directory holding the port-forward, exporter and
+# canary logs for the workers it verified, which is the session that most needs them kept: it is the one a
+# person runs when something is already wrong.
+mkdir -p "$EXDIR" || { echo "cannot create $EXDIR" >&2; exit 1; }
+echo "this session's records and diagnostics go in $EXDIR"
+echo
 
 for W in "${WORKERS[@]}"; do
   prepare "$W"
@@ -504,6 +514,8 @@ if [[ "${RUN_STUDY:-}" != "1" ]]; then
   echo
   echo "run the protocol AFTER this, not before: the nodes are warm now, and a run taken cold pulls inside"
   echo "its own observation window and can censor its own waste figure."
+  echo
+  echo "what this session verified is recorded in $EXDIR (port-forward, exporter and canary logs per worker)."
   exit 0
 fi
 
@@ -616,8 +628,6 @@ if ! [[ "$START_AT" =~ ^[0-9]+$ ]] || (( START_AT < 1 || START_AT > ${#SEQUENCE[
   exit 2
 fi
 
-mkdir -p "$EXDIR" || { echo "cannot create $EXDIR" >&2; exit 1; }
-echo "records for this session go in $EXDIR"
 echo "running ${#SEQUENCE[@]} runs, starting at $START_AT"
 echo
 
