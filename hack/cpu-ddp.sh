@@ -164,8 +164,26 @@ run() {
 import json
 import sys
 
+# raw_decode in a loop, not json.loads per line.
+#
+# Two ranks share one stdout. The writer now emits each record in a single atomic write, but a record larger
+# than PIPE_BUF can still be split, and an evidence file that cannot be read at all is a worse outcome than
+# one read leniently -- the first cluster run died here on "Extra data" while the job itself had succeeded.
+decoder = json.JSONDecoder()
+records = []
 for line in open(sys.argv[1]):
-    record = json.loads(line)
+    position = 0
+    text = line.strip()
+    while position < len(text):
+        try:
+            value, position = decoder.raw_decode(text, position)
+        except ValueError:
+            break
+        records.append(value)
+        while position < len(text) and text[position] in " \t":
+            position += 1
+
+for record in records:
     if record.get("event") == "verdict":
         print(
             "  rank %s verdict: grad_matches=%s w_matches=%s all_ranks_agree=%s observed_w=%s"

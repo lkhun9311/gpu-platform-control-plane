@@ -86,7 +86,12 @@ class Emitter:
         # Also to stdout, because MLTrainingJob can attach a PersistentVolumeClaim and nothing else --
         # there is no field for a ConfigMap or an emptyDir. Sending the evidence to the log means the run
         # needs no volume at all and is collected with `kubectl logs`.
-        print(line, flush=True)
+        #
+        # ONE os.write, not print(). torchrun gives both ranks the same stdout, and print() can flush a line
+        # in more than one write: the first cluster run came back with two JSON objects concatenated on one
+        # line, which the collector could not parse. A single write of under PIPE_BUF (4096) bytes to a pipe
+        # is atomic on Linux, so the ranks interleave between records instead of inside one.
+        os.write(1, (line + "\n").encode())
 
 
 def param_digest(model: nn.Module) -> str:
