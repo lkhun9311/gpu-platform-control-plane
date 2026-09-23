@@ -232,7 +232,7 @@ func main() {
 	// its own status rather than falling through to run(). Dispatching first is what makes them usable on a
 	// worker no run can currently be allowed on — a node held by a dead process, or one with no canary yet.
 	// Fields are named, not positional, so the flag that fills each one is visible at the call site.
-	if fired, err := dispatchOperatorMode(newClusterClient, operatorModeArgs{
+	if fired, err := dispatchOperatorMode(newClusterClientFor(kubeconfigPath()), operatorModeArgs{
 		Arm:    *armFlag,
 		Worker: *worker,
 
@@ -331,7 +331,7 @@ func main() {
 	// outcome AFTER the return value has been chosen, so anything written from inside it could be
 	// contradicted a moment later. By the time these seven values exist here, every defer has finished
 	// amending them.
-	o, events, res, left, qual, win, obs, deviceObs := run(ctx, newClusterClient, arm, state, *runID, namespace,
+	o, events, res, left, qual, win, obs, deviceObs := run(ctx, newClusterClientFor(kubeconfigPath()), arm, state, *runID, namespace,
 		*worker, protocol, horizon, *deviceMetricsFlag, *deviceObserverFlag, recordPath, os.Stderr,
 		time.Now, time.Sleep)
 
@@ -623,9 +623,46 @@ func dispatchOperatorMode(connect clusterClientFunc, args operatorModeArgs) (fir
 	}
 }
 
+// kubeconfigPath reports the path -kubeconfig was given, or "" when it was not supplied.
+//
+// The flag is not declared in this file and never was: controller-runtime's client/config package registers
+// it on flag.CommandLine from an init(), which is why `-h` has always advertised it. Nothing read it back,
+// so the flag parsed cleanly and changed nothing -- an invocation naming one cluster while talking to
+// another, which cost a session twenty minutes of "nodes not found" against a cluster whose nodes were
+// right there.
+//
+// Read through flag.Lookup rather than by declaring our own: a second StringVar under the same name panics
+// at init, and the package's own variable is unexported. This must be called after flag.Parse, which every
+// caller below is.
+func kubeconfigPath() string {
+	f := flag.Lookup("kubeconfig")
+	if f == nil {
+		// Not registered at all, which means controller-runtime's config package is no longer linked in.
+		// Falling back to the loading rules is right: there is no flag to honour.
+		return ""
+	}
+	return f.Value.String()
+}
+
+// newClusterClientFor builds the cluster client, honouring an explicitly named kubeconfig.
+//
+// ExplicitPath is the field that makes the flag mean what its help text says. clientcmd treats it as a
+// demand rather than a preference: it takes precedence over KUBECONFIG and $HOME/.kube/config, and a path
+// that does not exist is an error instead of a silent fall-through to whatever cluster the environment
+// happens to point at. That is the whole defect this closes -- a mistyped path used to select the default
+// cluster and report its missing nodes.
+//
+// An empty path leaves the rules exactly as they were, so every invocation that does not pass the flag
+// keeps the KUBECONFIG-then-home-directory behaviour it has always had.
+func newClusterClientFor(kubeconfig string) clusterClientFunc {
+	return func() (client.WithWatch, error) {
+		return newClusterClient(kubeconfig)
+	}
+}
+
 // newClusterClient builds the same scheme and kubeconfig-derived client for run() and the operator modes,
 // so a recovery action and an ordinary run see the cluster identically.
-func newClusterClient() (client.WithWatch, error) {
+func newClusterClient(kubeconfig string) (client.WithWatch, error) {
 	scheme := runtime.NewScheme()
 	if err := clientgoscheme.AddToScheme(scheme); err != nil {
 		return nil, err
@@ -635,8 +672,10 @@ func newClusterClient() (client.WithWatch, error) {
 			return nil, err
 		}
 	}
+	rules := clientcmd.NewDefaultClientConfigLoadingRules()
+	rules.ExplicitPath = kubeconfig
 	cfg, err := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
-		clientcmd.NewDefaultClientConfigLoadingRules(), &clientcmd.ConfigOverrides{}).ClientConfig()
+		rules, &clientcmd.ConfigOverrides{}).ClientConfig()
 	if err != nil {
 		return nil, fmt.Errorf("kubeconfig: %w", err)
 	}
