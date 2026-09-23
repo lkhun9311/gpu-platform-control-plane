@@ -1,0 +1,38 @@
+# The Application under test. Applied with kubectl, not adopted by the app-of-apps root.
+#
+# The root Application declares `prune: true` and `selfHeal: true` in Git (config/argocd/root.yaml), while
+# the live root runs with automation removed by hand (hack/argocd-kind.md). Letting the root sync in order
+# to create this one would restore automation to all seven platform Applications as a side effect -- and
+# they are OutOfSync by 37 resources, one of them against an ECR digest this node cannot pull.
+#
+# So the Application is bootstrapped directly. That is a supported way to manage Applications, but it does
+# mean this experiment demonstrates GitOps reconciliation OF THE WORKLOAD, not of the Application object.
+# The write-up must not claim the latter.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: gitops-selfheal-probe
+  namespace: argocd
+  finalizers:
+    # Deleting the Application must take the Deployment with it, or teardown leaves an orphan that the next
+    # run adopts and reports as already healthy. The project above bounds what this can reach.
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: selfheal-probe
+  source:
+    repoURL: https://github.com/lkhun9311/gpu-platform-control-plane.git
+    # Pinned to a commit, not to a branch, so a push during a run cannot change the desired state underneath
+    # a measurement. The bootstrap script substitutes the SHA; PINNED_REVISION is not a valid revision and
+    # will fail loudly if the substitution is skipped.
+    targetRevision: PINNED_REVISION
+    path: experiments/argocd-selfheal/workload
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: gitops-selfheal
+  syncPolicy:
+    automated:
+      selfHeal: true
+      # Off on purpose. Pruning is a different mechanism from self-heal -- it deletes objects that left Git,
+      # not objects that drifted -- and it is scoped by Argo's own tracking labels, which an adopted or
+      # mislabelled object would put inside the blast radius.
+      prune: false

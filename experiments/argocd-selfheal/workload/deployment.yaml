@@ -1,0 +1,41 @@
+# The one resource this experiment asks Argo CD to keep.
+#
+# It is deliberately the smallest thing that can hold a declared field: the question is whether Argo
+# restores `spec.replicas` and recreates a deleted object, not whether any particular workload runs.
+# A larger image would add pull time to every measurement without adding evidence.
+#
+# registry.k8s.io/pause:3.10 is already on this kind node, confirmed by `crictl images` and by running it
+# as a Deployment before this file existed. With imagePullPolicy IfNotPresent nothing reaches a registry,
+# so a recreate measurement times the control plane rather than the network.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: probe
+  namespace: gitops-selfheal
+  labels:
+    app: probe
+spec:
+  # The field under test. Drift injection sets this to 3; self-heal must return it to 1.
+  #
+  # Stated explicitly rather than left to the default, because a field absent from Git is not drift Argo
+  # can detect -- it would have nothing to compare the live value against.
+  replicas: 1
+  selector:
+    matchLabels:
+      app: probe
+  template:
+    metadata:
+      labels:
+        app: probe
+    spec:
+      containers:
+        - name: pause
+          image: registry.k8s.io/pause:3.10
+          imagePullPolicy: IfNotPresent
+          resources:
+            requests:
+              cpu: 10m
+              memory: 8Mi
+            limits:
+              cpu: 50m
+              memory: 32Mi

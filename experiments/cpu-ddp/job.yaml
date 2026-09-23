@@ -1,0 +1,44 @@
+# The training job, submitted through the platform's own CRD rather than as a bare batch/v1 Job.
+#
+# Running this as a plain Job would prove that PyTorch works, which nobody doubts. Submitting it as an
+# MLTrainingJob is the part that says anything about this project: the operator builds the Job, Kueue holds
+# it suspended until the queue admits it, and the CR's phase follows the Pod.
+#
+# RUN_ID_PLACEHOLDER and EXTRA_EXPORTS_PLACEHOLDER are substituted by hack/cpu-ddp.sh. Neither is valid as
+# written, so a run that skipped the substitution fails visibly instead of silently sharing an earlier run's
+# id -- a `${DDP_STEPS:-3}` style default would have been evaluated inside the Pod, where the variable is
+# always unset, and would have pinned every variant to the same value while looking configurable.
+apiVersion: platform.lkhun9311.github.io/v1
+kind: MLTrainingJob
+metadata:
+  name: cpu-ddp-RUN_ID_PLACEHOLDER
+  namespace: cpu-ddp
+spec:
+  queue: cpu-ddp
+  image: cpu-ddp:torch251
+  # Settings travel as exported variables because the CRD has no `env` field -- it carries queue, image,
+  # command, gpuClass, gpuCount, parallelism, completions and stateVolume, and nothing else. `exec` keeps
+  # torchrun as PID 1 of the container, so the SIGKILL in the failure-contract run reaches the launcher
+  # rather than a shell that would outlive it.
+  command:
+    - sh
+    - -c
+    - |
+      export DDP_RUN_ID=RUN_ID_PLACEHOLDER
+      export DDP_OUT_DIR=/evidence
+      export OMP_NUM_THREADS=1
+      EXTRA_EXPORTS_PLACEHOLDER
+      exec torchrun --standalone --nnodes=1 --nproc-per-node=2 --max-restarts=0 /work/train.py
+  # One simulated GPU, against a ClusterQueue whose nominal quota is one.
+  #
+  # The computation is entirely on the CPU; the request exists so the run passes through the same admission
+  # path a real training job would, and so a second submission has to wait for this one to finish. Asking for
+  # zero would skip the only quota interaction this experiment can demonstrate.
+  gpuCount: 1
+  # Both 1: the two ranks are processes inside one Pod, launched by torchrun.
+  #
+  # `parallelism: 2` would NOT make this distributed -- it would start two identical single-rank Pods that
+  # never find each other, because the operator sets no completionMode, no subdomain and no headless Service.
+  # That limitation is the subject of the README, not something this manifest can paper over.
+  parallelism: 1
+  completions: 1
