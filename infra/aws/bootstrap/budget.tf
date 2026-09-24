@@ -5,9 +5,22 @@ variable "budget_limit_usd" {
 }
 
 variable "budget_notification_emails" {
-  description = "Email addresses notified when the budget threshold is crossed."
+  description = "Email addresses notified when the budget threshold is crossed. EMPTY MEANS NO ALERTS AT ALL."
   type        = list(string)
   default     = []
+}
+
+# An empty list silently removes every alert, so it is reported rather than left to be discovered.
+#
+# The notification block below is `for_each`-ed on this list being non-empty. With the default `[]` the
+# budget still exists and still tracks spend -- and tells nobody. A review looking for a cost backstop sees
+# a budget resource in the state and reasonably assumes someone would be told. This check makes the
+# difference visible at plan time instead.
+check "budget_alerts_are_actually_wired" {
+  assert {
+    condition     = length(var.budget_notification_emails) > 0
+    error_message = "budget_notification_emails is empty: the budget tracks spend but will notify no one. Set it, or accept that this is not a cost backstop."
+  }
 }
 
 # A monthly cost budget backs the destroy workflow's budget-alarm escalation.
