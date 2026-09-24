@@ -492,6 +492,21 @@ teardown() {
   k delete resourceflavor mig --ignore-not-found >>"$EXDIR/run.log" 2>&1 || true
   k delete namespace "$NS" --ignore-not-found >>"$EXDIR/run.log" 2>&1 || true
   k delete namespace "$PLUGIN_NS" --ignore-not-found >>"$EXDIR/run.log" 2>&1 || true
+
+  # The profile keys survive in capacity, and that is not a failed teardown.
+  #
+  # A kubelet drops an extended resource's ALLOCATABLE to zero as soon as its device plugin stops answering,
+  # but keeps the name in CAPACITY until the node restarts. Nothing can be scheduled against it -- allocatable
+  # is what the scheduler reads -- so the next experiment is unaffected. Reported rather than hidden, because
+  # a leftover name in `kubectl get node -o json` looks exactly like debris to whoever finds it next.
+  say "residual profile keys (allocatable must be 0):"
+  k get nodes -o json 2>/dev/null | python3 -c "
+import json, sys
+for node in json.load(sys.stdin)['items']:
+    keys = {k: v for k, v in node['status']['allocatable'].items() if 'mig' in k}
+    if keys:
+        print('   ', node['metadata']['name'], keys)
+" | tee -a "$EXDIR/run.log"
   say "teardown complete"
 }
 
