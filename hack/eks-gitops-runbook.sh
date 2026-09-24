@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
-# Apply the GitOps root on a live cluster, and prove the gateway it deploys actually serves.
+# Apply the GitOps root on a live cluster, and prove a real credential reaches the gateway it deploys.
+#
+# It does NOT prove serving. Serving needs a backend, and this runbook deploys none: a key from the Secret
+# that comes back 404 on model resolution has passed authentication and reached routing, which is where the
+# evidence stops. Saying more than that was this script's own first claim, and it was wrong.
 #
 # This exists because nothing did it. `infra/aws/argo-bootstrap` installs the Argo CD Helm chart and says so
 # in its first line -- "This root installs Argo CD once and owns nothing else" -- and no Terraform, workflow
@@ -15,7 +19,7 @@
 #
 # Usage:
 #   hack/eks-gitops-runbook.sh apply    # apply the root Application and wait for the children
-#   hack/eks-gitops-runbook.sh verify   # prove the deployed gateway serves, not merely that it is Ready
+#   hack/eks-gitops-runbook.sh verify   # prove a real credential reaches the key store, not merely Ready
 #   hack/eks-gitops-runbook.sh status   # print what is deployed, without changing anything
 #
 # Environment:
@@ -58,7 +62,11 @@ GW_NS="${GW_NS:-gpu-platform-control-plane-system}"
 WAIT_CHILDREN="${WAIT_CHILDREN:-300}"
 WAIT_SYNC="${WAIT_SYNC:-600}"
 
-k() { kubectl --context "$CONTEXT" "$@"; }
+# Every call carries a request timeout.
+#
+# The loops below are bounded by WAIT_CHILDREN and WAIT_SYNC, but a deadline in the loop does not bound a
+# single call that never returns: one hung kubectl and the run sits there while the cluster bills.
+k() { kubectl --context "$CONTEXT" --request-timeout=20s "$@"; }
 say() { printf '%s  %s\n' "$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)" "$*" | tee -a "$EXDIR/run.log"; }
 
 failures=0
@@ -94,6 +102,16 @@ for item in doc.get("items", []):
 '
 }
 
+# The Applications this repository declares, which is what the root is supposed to produce.
+#
+# "Some new Application appeared" is not the claim and never was: the root itself appears, and so would an
+# Application created by anything else at the same time. The claim is that the set this repository declares
+# exists on the cluster.
+expected_children() {
+  grep -h '^  name:' "$REPO"/config/argocd/*.yaml 2>/dev/null |
+    awk '{print $2}' | grep -v '^gpu-platform-root$' | sort -u
+}
+
 apply() {
   say "context: $CONTEXT"
 
@@ -109,31 +127,41 @@ apply() {
   fi
 
   say "applying config/argocd/root.yaml -- the step that was missing"
-  k apply -f "$REPO/config/argocd/root.yaml" >>"$EXDIR/run.log" 2>&1
+  if ! k apply -f "$REPO/config/argocd/root.yaml" >>"$EXDIR/run.log" 2>&1; then
+    bad "applying config/argocd/root.yaml failed; see run.log. Nothing below this line was measured"
+    return 0
+  fi
 
-  local deadline=$((SECONDS + WAIT_CHILDREN))
+  local deadline=$((SECONDS + WAIT_CHILDREN)) expected missing="unknown"
+  expected="$(expected_children)"
+  if [[ -z "$expected" ]]; then
+    bad "config/argocd declares no child Applications, so there is nothing to check for; REPO is probably wrong"
+    return 0
+  fi
   while ((SECONDS < deadline)); do
     if after="$(app_table | awk '{print $1}' | sort)"; then
       readable=1
-      new_apps="$(comm -13 <(printf '%s\n' "$before") <(printf '%s\n' "$after") | grep -v '^$' || true)"
+      missing="$(comm -23 <(printf '%s\n' "$expected") <(printf '%s\n' "$after") | grep -v '^$' || true)"
+      new_apps="$(comm -13 <(printf '%s\n' "$before") <(printf '%s\n' "$after") | grep -v '^$' | grep -v '^gpu-platform-root$' || true)"
     else
       # Unreadable is not "nothing was created". Reporting it as the latter sends the operator after Argo CD
       # while the cluster is billing and the real fault is that nothing here can see the cluster at all.
       readable=0
+      missing="unknown"
       new_apps=""
     fi
-    [[ -n "$new_apps" ]] && break
+    [[ -z "$missing" ]] && break
     sleep 5
   done
-  if [[ -n "$new_apps" ]]; then
-    ok "the root produced $(printf '%s\n' "$new_apps" | wc -l) new Application(s): $(printf '%s\n' "$new_apps" | tr '\n' ' ')"
-  elif ((readable == 0)); then
+  if ((readable == 0)); then
     bad "Applications could not be read at all after applying the root; this is an unmeasured run, not a verdict about Argo CD"
     return 0
-  else
-    bad "after ${WAIT_CHILDREN}s the root Application created nothing new; Argo CD is installed and deploying nothing"
+  fi
+  if [[ -n "$missing" ]]; then
+    bad "$(printf '%s\n' "$missing" | wc -l) Application(s) this repository declares are absent: $(printf '%s\n' "$missing" | tr '\n' ' ')-- Argo CD is deploying less than the repository says"
     return 0
   fi
+  ok "all $(printf '%s\n' "$expected" | wc -l) Applications this repository declares exist, $(printf '%s\n' "$new_apps" | grep -c . || true) of them created by this run"
 
   # `targetRevision: main` is a moving branch, so the evidence must say which commit was actually deployed.
   k -n argocd get application gpu-platform-root -o jsonpath='{.status.sync.revision}' \
@@ -144,11 +172,14 @@ apply() {
   deadline=$((SECONDS + WAIT_SYNC))
   local table="" pending=-1
   while ((SECONDS < deadline)); do
-    table="$(app_table || true)"
-    if [[ -z "$table" ]]; then
-      pending=-1
-    else
+    # Exit status and output are separate facts. The lister prints the rows it managed before failing, so a
+    # partial table is not an empty one, and reading it as complete is how a half-listed cluster reports
+    # nothing pending.
+    if table="$(app_table)"; then
       pending="$(printf '%s\n' "$table" | awk '$2 == "automated" && !($3 == "Synced" && $4 == "Healthy")' | wc -l)"
+    else
+      table=""
+      pending=-1
     fi
     ((pending == 0)) && break
     sleep 10
@@ -199,6 +230,9 @@ verify() {
   kubectl --context "$CONTEXT" -n "$GW_NS" port-forward "pod/$pod" :8080 :8081 >"$pf_log" 2>&1 &
   pf_pid=$!
   set +m
+  # An interrupt must not leave the forwarder behind: a leaked kubectl holds its local ports, and the next
+  # run's failure would be this run's litter rather than anything about the cluster.
+  trap 'kill -- -"$pf_pid" 2>/dev/null || kill "$pf_pid" 2>/dev/null || true' EXIT INT TERM
 
   # Wait for the ports it actually chose, not for a fixed time: sleeping is how a slow forward reads as dead.
   local waited=0
@@ -251,6 +285,7 @@ verify() {
     sleep 0.5
     kill -9 -- -"$pf_pid" 2>/dev/null || kill -9 "$pf_pid" 2>/dev/null || true
   fi
+  trap - EXIT INT TERM
 
   if [[ -z "$api_port" || -z "$ready_port" ]]; then
     bad "port-forward never reported both local ports; the probe is broken and proves nothing (see port-forward.log)"
@@ -288,8 +323,8 @@ verify() {
   fi
   case "$real_key_code" in
     200) ok "a key from the Secret is accepted and the request was served end to end" ;;
-    404) ok "a key from the Secret is accepted and the request fails on model resolution (404), which is past authentication and expected with no backend" ;;
-    403) ok "a key from the Secret is accepted and refused by tenant policy (403), which is past authentication" ;;
+    404) ok "a key from the Secret is accepted and the request fails on model resolution (404): authentication reached the key store. Not proof of serving -- no backend is deployed here" ;;
+    403) ok "a key from the Secret is accepted and refused by tenant policy (403): authentication reached the key store. Not proof of serving" ;;
     401) bad "a key taken from the Secret was refused with 401: the gateway cannot read its own key store, and the bad-key 401 above was the same answer for a different reason" ;;
     503) bad "503 for a key from the Secret: the key store is unreadable. Ready, Healthy and serving nothing" ;;
     000) bad "the valid-key request never arrived; the probe is broken and proves nothing" ;;
@@ -299,10 +334,15 @@ verify() {
 
 status() {
   say "context: $CONTEXT"
-  k -n argocd get applications.argoproj.io \
+  # A listing that failed is not a status report. Without these the command prints an error and exits 0.
+  if ! k -n argocd get applications.argoproj.io \
     -o custom-columns='NAME:.metadata.name,SYNC:.status.sync.status,HEALTH:.status.health.status,AUTOMATED:.spec.syncPolicy.automated' \
-    2>&1 | tee -a "$EXDIR/run.log"
-  k -n "$GW_NS" get deploy 2>&1 | tee -a "$EXDIR/run.log"
+    2>&1 | tee -a "$EXDIR/run.log"; then
+    bad "could not list Applications"
+  fi
+  if ! k -n "$GW_NS" get deploy 2>&1 | tee -a "$EXDIR/run.log"; then
+    bad "could not list Deployments in $GW_NS"
+  fi
 }
 
 main() {
