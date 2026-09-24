@@ -224,8 +224,16 @@ gate_ready_is_not_serving() {
     bad "/readyz answered $ready_code, so this cluster's gateway is not even ready -- fix that before reading anything into the request"
   else
     case "$authed_code" in
-      401 | 403 | 503)
+      401 | 403)
         ok "readiness passes (200) while the request is refused ($authed_code) -- the false-green a paid session must not accept" ;;
+      503)
+        # 503 demonstrates the phenomenon better than anything else and still must not pass.
+        #
+        # The gate's question is whether readiness can pass while a request fails, and an unreadable key
+        # store answers it perfectly. But this gate ends by printing that the GitOps path is worth paying
+        # for, and a cluster whose gateway cannot read its credentials has not shown that path working. The
+        # phenomenon is the finding; the cluster is still broken.
+        bad "503: the gateway cannot read its API-key Secret. That is the false green this gate looks for, demonstrated -- and it leaves this path unvalidated, so it must not authorise spending" ;;
       200)
         ok "readiness passes AND the request was served; this cluster has a hand-made Secret a fresh EKS will not inherit" ;;
       404)
