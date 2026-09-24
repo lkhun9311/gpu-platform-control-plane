@@ -1,6 +1,13 @@
 # Argo CD lives in its own state so routine cluster plan/apply never fights its in-cluster drift.
 #
-# terraform validate runs with -backend=false, so this is inert until a real init.
+# This block is NOT inert during `terraform validate`, which an earlier version of this comment claimed.
+#
+# `init -backend=false` skips backend initialisation only when there is nothing to reuse. A working
+# directory that was ever initialised for real keeps `backend.type = s3` in .terraform/terraform.tfstate,
+# and init configures the backend from those stored settings -- which authenticates to STS. That is why
+# `make infra-validate` refused this root on a machine with stale credentials while CI, whose checkout has
+# no .terraform, passed. The validation loop now runs each root under a throwaway TF_DATA_DIR so the
+# reuse cannot happen; this file is inert there, and only there.
 terraform {
   backend "s3" {
     key     = "argo-bootstrap/terraform.tfstate"
