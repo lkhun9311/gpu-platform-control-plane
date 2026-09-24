@@ -40,9 +40,23 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 # is deterministic for two values, so this is slack for accumulation order rather than a fitted threshold.
 TOLERANCE = 1e-6
 
-# What a synchronised step must produce, derived above rather than measured.
-EXPECTED_MEAN_GRAD = -4.0
-EXPECTED_W_AFTER_ONE_STEP = 0.4
+# What a synchronised step must produce, derived from the world size rather than pinned to two ranks.
+#
+# The constants used to be -4.0 and 0.4, which are correct for exactly two ranks and silently wrong for any
+# other number. A pre-spend review caught it before a paid four-GPU run: the arithmetic below gives -8.0 and
+# 0.8 at world_size=4, and a hard-coded -4.0 would have marked a correct run as broken -- or, with the
+# fail-open exit this file also had, a broken run as fine.
+#
+# Each rank gets y = 1 + 2*rank, so every rank's contribution is distinct. With y identical across ranks
+# 1..n-1, a fault that swapped two of them would be invisible; here it is not.
+def expected_mean_grad(world_size: int) -> float:
+    """Mean of dL/dw = 2*(w*x - y)*x over the ranks, at w=0 and x=1."""
+    return sum(-2.0 * (1 + 2 * rank) for rank in range(world_size)) / world_size
+
+
+def expected_w_after_one_step(world_size: int, lr: float = 0.1) -> float:
+    """One SGD step from w=0 against that averaged gradient."""
+    return -lr * expected_mean_grad(world_size)
 
 OUT_DIR = os.environ.get("DDP_OUT_DIR", "/evidence")
 RUN_ID = os.environ.get("DDP_RUN_ID", "unset")
@@ -183,7 +197,7 @@ def main() -> int:
     optimiser = torch.optim.SGD(ddp.parameters(), lr=0.1)
     x = torch.tensor([[1.0]])
     # The whole point: the two ranks see different data, so an unsynchronised run cannot coincidentally agree.
-    y = torch.tensor([[1.0]]) if rank == 0 else torch.tensor([[3.0]])
+    y = torch.tensor([[1.0 + 2.0 * rank]])
 
     for step in range(1, STEPS + 1):
         if DIE_AT_STEP and rank == 1 and step == DIE_AT_STEP:
@@ -227,9 +241,12 @@ def main() -> int:
                 first = record
                 break
 
+    want_grad = expected_mean_grad(world_size)
+    want_w = expected_w_after_one_step(world_size)
     verdict = {
-        "expected_mean_grad": EXPECTED_MEAN_GRAD,
-        "expected_w_after_one_step": EXPECTED_W_AFTER_ONE_STEP,
+        "world_size": world_size,
+        "expected_mean_grad": want_grad,
+        "expected_w_after_one_step": want_w,
         "tolerance": TOLERANCE,
     }
     if first is not None:
@@ -237,8 +254,8 @@ def main() -> int:
         got_w = first["w_after_step"]
         verdict["observed_mean_grad"] = got_grad
         verdict["observed_w_after_one_step"] = got_w
-        verdict["grad_matches"] = abs(got_grad - EXPECTED_MEAN_GRAD) < TOLERANCE
-        verdict["w_matches"] = abs(got_w - EXPECTED_W_AFTER_ONE_STEP) < TOLERANCE
+        verdict["grad_matches"] = abs(got_grad - want_grad) < TOLERANCE
+        verdict["w_matches"] = abs(got_w - want_w) < TOLERANCE
 
     # Cross-rank agreement, gathered rather than assumed. Counted apart from the gradient collectives above,
     # so the all-reduce tally in the write-up stays a statement about DDP's own traffic.
@@ -254,6 +271,17 @@ def main() -> int:
     verdict["param_digests"] = gathered
     verdict["all_ranks_agree"] = len(set(gathered)) == 1
 
+    # Fail closed. The checks above used to be computed, recorded, and then ignored.
+    #
+    # `return 0` regardless of the verdict is how a run that disproved its own hypothesis still reported
+    # success: Job Complete, CR Succeeded, and a correctness failure visible only to whoever read the JSONL.
+    # The control run (DDP_NO_SYNC=1) is expected to fail these checks, so it is exempted explicitly rather
+    # than by leaving the gate open for everyone.
+    checks = ("grad_matches", "w_matches", "all_ranks_agree")
+    failed = [name for name in checks if verdict.get(name) is False]
+    verdict["failed_checks"] = failed
+    verdict["exit_code"] = 0 if (not failed or NO_SYNC) else 1
+
     emitter.emit("verdict", **verdict)
 
     if HOLD_SECONDS > 0:
@@ -264,7 +292,7 @@ def main() -> int:
         time.sleep(HOLD_SECONDS)
 
     dist.destroy_process_group()
-    return 0
+    return int(verdict["exit_code"])
 
 
 if __name__ == "__main__":

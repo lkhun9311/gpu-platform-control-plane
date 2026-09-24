@@ -184,6 +184,16 @@ spot_terminate() {
         printf 'STILL %s AND BILLING. Terminate it by hand:\n  aws ec2 terminate-instances --region %s --instance-ids %s\n' \
           "$state" "$region" "$instance_id" >&2 ;;
     esac
+    # Shouting is not enough: the caller has to be able to act on it.
+    #
+    # This returned 0 whatever happened, so a session whose credentials expired mid-run printed
+    # "TERMINATE FAILED ... STILL running AND BILLING" and then exited successfully. A wrapper checking the
+    # exit status -- or a human reading only the last line -- learned nothing. An instance that is already
+    # terminated or shutting down is not a failure and keeps returning 0; anything else does not.
+    case "$state" in
+      terminated | shutting-down) return 0 ;;
+      *) return 1 ;;
+    esac
   fi
   return 0
 }

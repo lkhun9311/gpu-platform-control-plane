@@ -1301,7 +1301,13 @@ run_cell() {
     # declining, which is most of a cell.
     cell_secs=$(( cell_secs + $(date +%s) - CELL_T0 ))
     cells_done=$(( cells_done + 1 ))
-    continue
+    # `return`, not `continue`: this is a function body and the loop is at the call site.
+    #
+    # bash prints "continue: only meaningful in a for, while, or until loop" and then CARRIES ON with the
+    # next statement -- so a refused cell went on to the port-forward setup it was supposed to skip. The
+    # message goes to stderr in the middle of a paid session and the run looks like it obeyed. Reproduced
+    # minimally before changing this: the line after `continue` ran, and so did the rest of the function.
+    return 0
   fi
   # The tunnel every request of this cell goes through, replaced between cells and then PROVED.
   #
