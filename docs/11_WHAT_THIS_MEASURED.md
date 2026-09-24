@@ -6,7 +6,7 @@
 > cites the pre-registration or result page it came from, and every claim is bounded by what the measurement
 > could actually see.
 
-The control plane is not the result. It is the instrument. The results are five findings that could not be
+The control plane is not the result. It is the instrument. The results are six findings that could not be
 asked without it, and four claims this project is **not** entitled to make.
 
 ---
@@ -151,6 +151,38 @@ SIGTERM **did not exist**, because every workload in the study ignored it.
 
 ---
 
+## Finding 6 — the platform reports a job it never placed as running
+
+A 2-GPU job, 2 GPUs free, quota reserved, and no node able to take it. Across 25 pre-registered trials on
+two worker nodes:
+
+| arm | headroom | outcome | samples where the CR said `Running` while unscheduled |
+|---|---|---|---:|
+| packed `(2,0)` | `ΣF=2, maxF=2` | scheduled 5/5 | 0 |
+| **fragmented `(1,1)`** | `ΣF=2, maxF=1` | **unschedulable 5/5** | **145 of 145**, spanning 179.1 s |
+| quota-short | quota 3 | never admitted 5/5 | 0 |
+| aggregate-short `(1,0)` | `ΣF=1` | unschedulable 5/5 | **145 of 145**, spanning 179.1 s |
+
+The packed and fragmented arms differ by one character — the hostname in one holder's `nodeSelector` — with
+identical capacity, quota, holder count and identical total free GPUs.
+
+**Why it matters.** `computeMLTJPhase` reports `Running` when `job.Status.Active > 0`
+(`internal/controller/mltrainingjob_controller.go:288`), and Kubernetes counts *pending* Pods in `Active`. So
+the CR says running for a Pod no node accepted, and `admitToRunningSeconds` is measured from that
+transition — the platform's own latency metric taken from a moment that never happened. It is not specific
+to fragmentation: plain capacity shortage produces the same false `Running`.
+
+Repacking one holder — no added GPU, no added quota, demand 2 → 3 → 2 — returned the same Pod to scheduled
+in 5/5 trials, though every one of those five breaches the study's own 5 s collection-gap rule and is
+reported as evidence rather than as a pass (`experiments/fragmentation/README.md`).
+
+**What it does not say.** Nothing about real GPUs, utilisation, gang scheduling, or automatic repacking,
+which this platform does not do. The thing moved was a `pause` container, not live training.
+
+*(`experiments/fragmentation/`, `docs/superpowers/specs/2026-09-24-node-level-gpu-fragmentation.md`)*
+
+---
+
 ## What this project is not entitled to claim
 
 Stated first, because the findings above are only believable if the refusals are published with them.
@@ -160,7 +192,7 @@ Stated first, because the findings above are only believable if the refusals are
 | **"I operated a GPU platform"** | No. The gateway has never been deployed to EKS or through the GitOps path (`README.md:22`). The cluster was applied once on 2026-09-18 — 96 resources, no GPU instance — and destroyed in the same cycle. Argo CD has been run on kind, and **auto-sync was deliberately removed before applying** (`hack/argocd-kind.md:24`), so seven Applications resolving with no error is evidence that the manifests build and the destination resolves — **not** that drift is repaired. Self-heal has now been exercised, but narrowly: a separate Application in its own project and namespace, bootstrapped by `kubectl`, repaired six of six injected drifts (`experiments/argocd-selfheal/`). The seven platform Applications were left with automation off and are unchanged. So the GitOps *mechanism* is demonstrated on this cluster; the *platform* running under it is not. |
 | **"The admission guard protects the premium tier"** | Rejected. 83.7x against a 1.25x target across four paid repetitions; the run was declared invalid by its own checks and no protection claim was made. |
 | **"Sharing a card substitutes for isolation"** | Rejected as stated. 14.5x with time-slicing and 20.7x with the engine's own scheduler, both against a 2x bar — at the load those studies used. A later ladder found time-slicing **meeting** a 139 ms premium target at 1.16 and 2.31 req/s and breaching at 4.61. So the honest refusal is narrower than "sharing does not substitute": the claim fails because it was made without naming a load. |
-| **"I built a training platform"** | The `MLTrainingJob` CRD exists and admits through Kueue. Its samples are worse than that: the two tenant samples run `busybox` (`config/samples/platform_v1_mltrainingjob_tenant_b.yaml:16`), and the default one names `pytorch/pytorch:2.3.0-cuda12.1-cudnn8-runtime` with `command: [python, train.py]` (`config/samples/platform_v1_mltrainingjob.yaml:13`) — but **no `train.py` exists anywhere in this repository**, so the one sample that looks like training cannot run at all. The queuelab trace is not — it runs `python:3.12-slim` and launches a PTX kernel through the CUDA driver API (`internal/queuelab/submit.go:44`) — but that is a synthetic accumulator, not a model. No NCCL, no DDP, no distributed training has run. |
+| **"I built a training platform"** | The `MLTrainingJob` CRD exists and admits through Kueue. Its samples are worse than that: the two tenant samples run `busybox` (`config/samples/platform_v1_mltrainingjob_tenant_b.yaml:16`), and the default one names `pytorch/pytorch:2.3.0-cuda12.1-cudnn8-runtime` with `command: [python, train.py]` (`config/samples/platform_v1_mltrainingjob.yaml:13`) — but **no `train.py` exists anywhere in this repository**, so the one sample that looks like training cannot run at all. The queuelab trace is not — it runs `python:3.12-slim` and launches a PTX kernel through the CUDA driver API (`internal/queuelab/submit.go:44`) — but that is a synthetic accumulator, not a model. **Distributed training has since run, narrowly**: two gloo ranks inside one Pod, admitted through this CRD and Kueue, with gradient averaging verified by hand-checkable arithmetic and a control that fails (`experiments/cpu-ddp/`). Still no NCCL, no GPU, no multi-Pod rendezvous and no checkpoint resume — and `parallelism: 2` would not provide them, since the operator sets no `completionMode`, no `subdomain` and creates no headless Service. |
 
 Two of these are rejected hypotheses, which is a result. Two are gaps, which are not.
 

@@ -1,0 +1,40 @@
+# One GPU, held on a named node, through Kueue.
+#
+# The holders are what make the headroom vector what the arm says it is. They are submitted as suspended
+# Kueue-managed Jobs rather than bare Pods on purpose: a bare Pod would occupy a device without the quota
+# system ever seeing it, and the first objection to any fragmentation result would be that the blockage was
+# caused by work the platform never admitted.
+#
+# NAME_PLACEHOLDER and NODE_PLACEHOLDER are substituted by hack/fragmentation.sh. Neither is a valid value,
+# so a run that skipped substitution fails visibly instead of quietly landing on the scheduler's choice of
+# node -- which is exactly the variable this study controls.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: NAME_PLACEHOLDER
+  namespace: frag
+  labels:
+    kueue.x-k8s.io/queue-name: frag
+    frag.experiment/role: holder
+spec:
+  # Kueue unsuspends it once quota is reserved. Submitting it already running would bypass admission.
+  suspend: true
+  parallelism: 1
+  completions: 1
+  backoffLimit: 0
+  template:
+    metadata:
+      labels:
+        frag.experiment/role: holder
+    spec:
+      restartPolicy: Never
+      # The whole point of the fixture: this holder sits where the arm says, not where the scheduler prefers.
+      nodeSelector:
+        kubernetes.io/hostname: NODE_PLACEHOLDER
+      containers:
+        - name: holder
+          image: registry.k8s.io/pause:3.10
+          imagePullPolicy: IfNotPresent
+          resources:
+            limits:
+              nvidia.com/gpu: 1

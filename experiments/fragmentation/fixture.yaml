@@ -1,0 +1,52 @@
+# The queue objects and the holder template for the fragmentation study.
+#
+# Everything this experiment needs is created here. The live cluster has a `gpu-premium` ClusterQueue that
+# would have served, and it is not used: it is declared nowhere in this repository, so an experiment built on
+# it would not reproduce from a fresh checkout. See the pre-registration at
+# docs/superpowers/specs/2026-09-24-node-level-gpu-fragmentation.md.
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: frag
+---
+# A flavour of its own, empty like the shared one but not the shared one.
+#
+# An empty spec matches any node advertising nvidia.com/gpu. It deliberately does NOT inject a toleration:
+# the target Pod carries none either, so the control-plane node's NoSchedule taint keeps it out of the
+# eligible set, and the study runs on the two workers. Injecting a toleration here would add a third node and
+# a confound at the same time.
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: ResourceFlavor
+metadata:
+  name: frag
+spec: {}
+---
+# No cohort, so nothing borrows, reclaims or preempts.
+#
+# The operator's own queues join the `gpu-platform` cohort, which would make this study's admission depend on
+# capacity it does not own. nominalQuota is overwritten per arm by the runner -- 4 for P/F/R, 3 for Q, 5 for
+# S -- because the quota IS the independent variable in two of the arms.
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: ClusterQueue
+metadata:
+  name: frag
+spec:
+  namespaceSelector:
+    matchLabels:
+      kubernetes.io/metadata.name: frag
+  resourceGroups:
+    - coveredResources: ["nvidia.com/gpu"]
+      flavors:
+        - name: frag
+          resources:
+            - name: "nvidia.com/gpu"
+              nominalQuota: 4
+---
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: LocalQueue
+metadata:
+  name: frag
+  namespace: frag
+spec:
+  clusterQueue: frag

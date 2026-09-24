@@ -35,6 +35,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -46,19 +47,23 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 )
 
-// resourceName is the extended resource this plugin advertises.
+// defaultResourceName is the extended resource this plugin advertises unless told otherwise.
 //
 // It is the one node-capacity name the rest of the platform already schedules
 // against (GPUQuotaPolicy, InferenceDeployment), so nothing downstream needs
 // to change to consume it.
-const resourceName = "nvidia.com/gpu"
+//
+// FAKE_RESOURCE_NAME overrides it, which is what lets one node advertise several
+// profile-shaped keys from several instances of this binary. The default is the
+// old constant, so a DaemonSet that sets nothing behaves exactly as before.
+const defaultResourceName = "nvidia.com/gpu"
 
 // socketName is the file this plugin listens on inside the device-plugin directory.
 //
 // The kubelet learns this name from the RegisterRequest and dials back to
 // path.Join(DevicePluginPath, socketName), so the name only has to be stable,
 // not standardized.
-const socketName = "gpu-simulator.sock"
+const defaultSocketName = "gpu-simulator.sock"
 
 func main() {
 	ctrl.SetLogger(zap.New(zap.UseDevMode(true)))
@@ -74,7 +79,18 @@ func main() {
 	//
 	// Production always leaves it unset and gets the standard kubelet path.
 	pluginPath := envOr("DEVICE_PLUGIN_PATH", pluginapi.DevicePluginPath)
+
+	// Two instances on one node must not share a socket.
+	//
+	// The kubelet dials back to the endpoint given in RegisterRequest, and the plugin removes a stale socket
+	// at that path on startup -- so a second instance reusing the name would delete the first one's socket
+	// and silently take over its resource. The socket defaults to a name derived from the resource, which
+	// keeps the single-resource deployment on its historical path and makes collisions impossible to reach
+	// by accident.
+	resource := envOr("FAKE_RESOURCE_NAME", defaultResourceName)
+	socketName := envOr("FAKE_SOCKET_NAME", socketNameFor(resource))
 	socketPath := filepath.Join(pluginPath, socketName)
+	log = log.WithValues("resource", resource, "socket", socketName)
 
 	// A prior instance's socket can survive a crash or a plain container restart.
 	//
@@ -97,19 +113,20 @@ func main() {
 
 	serveErr := make(chan error, 1)
 	go func() {
-		log.Info("serving device plugin", "socket", socketPath)
+		// The logger already carries resource and socket name; this adds the full path, under its own key.
+		log.Info("serving device plugin", "path", socketPath)
 		serveErr <- grpcServer.Serve(lis)
 	}()
 
 	// The kubelet must be able to dial socketName before Register is called.
 	//
 	// That ordering is why registration happens after Serve starts, not before.
-	if err := registerWithKubeletRetry(log, pluginPath, socketName); err != nil {
+	if err := registerWithKubeletRetry(log, pluginPath, socketName, resource); err != nil {
 		log.Error(err, "register with kubelet")
 		grpcServer.Stop()
 		os.Exit(1)
 	}
-	log.Info("registered with kubelet", "resource", resourceName, "devices", count)
+	log.Info("registered with kubelet", "devices", count)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -178,13 +195,13 @@ const registerRetryBackoff = 1 * time.Second
 //
 // Retrying inside the same startup recovers from that race in seconds,
 // rather than leaving recovery to the pod's much slower restart backoff.
-func registerWithKubeletRetry(log logr.Logger, pluginPath, endpoint string) error {
+func registerWithKubeletRetry(log logr.Logger, pluginPath, endpoint, resource string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	var lastErr error
 	for {
-		err := registerWithKubelet(ctx, pluginPath, endpoint)
+		err := registerWithKubelet(ctx, pluginPath, endpoint, resource)
 		if err == nil {
 			return nil
 		}
@@ -201,12 +218,16 @@ func registerWithKubeletRetry(log logr.Logger, pluginPath, endpoint string) erro
 }
 
 // registerWithKubelet dials the kubelet's registration socket and
-// advertises resourceName at pluginPath/endpoint.
+// advertises resource at pluginPath/endpoint.
+//
+// The resource travels as an argument because it stopped being a constant: one binary now serves whichever
+// key FAKE_RESOURCE_NAME names, and a helper reading a package-level default would quietly advertise the
+// wrong one for every instance but the first.
 //
 // The kubelet socket is derived from pluginPath rather than
 // pluginapi.KubeletSocket, so that a DEVICE_PLUGIN_PATH override applies
 // consistently to both sides of the handshake.
-func registerWithKubelet(ctx context.Context, pluginPath, endpoint string) error {
+func registerWithKubelet(ctx context.Context, pluginPath, endpoint, resource string) error {
 	target := "unix://" + filepath.Join(pluginPath, "kubelet.sock")
 	conn, err := grpc.NewClient(target, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
@@ -217,7 +238,7 @@ func registerWithKubelet(ctx context.Context, pluginPath, endpoint string) error
 	req := &pluginapi.RegisterRequest{
 		Version:      pluginapi.Version,
 		Endpoint:     endpoint,
-		ResourceName: resourceName,
+		ResourceName: resource,
 		Options:      &pluginapi.DevicePluginOptions{},
 	}
 	if _, err := pluginapi.NewRegistrationClient(conn).Register(ctx, req); err != nil {
@@ -227,6 +248,18 @@ func registerWithKubelet(ctx context.Context, pluginPath, endpoint string) error
 }
 
 // envOr returns the environment value for key or def when unset.
+// socketNameFor derives a socket file name from a resource name.
+//
+// "nvidia.com/gpu" keeps the historical "gpu-simulator.sock" so an existing deployment is byte-identical;
+// anything else is slugified, because a socket path cannot contain the slashes and dots a resource name does.
+func socketNameFor(resource string) string {
+	if resource == defaultResourceName {
+		return defaultSocketName
+	}
+	slug := strings.NewReplacer("/", "-", ".", "-").Replace(resource)
+	return "gpu-simulator-" + slug + ".sock"
+}
+
 func envOr(key, def string) string {
 	if v := os.Getenv(key); v != "" {
 		return v
