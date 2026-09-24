@@ -402,12 +402,40 @@ session-manifest: ## Check that a campaign leaves an attempt history.
 	@# Deleting the whole manifest block left every other check green, refusals test included.
 	./hack/gpu-session-manifest-test.sh
 
+.PHONY: infra-offline
+infra-offline: terraform ## Check that the Terraform validation step needs no AWS access.
+	@# A prerequisite of infra-validate rather than a step inside it, because the thing it guards is the
+	@# recipe below: if that recipe starts authenticating again, this fails before the recipe can hide it
+	@# behind a green run on a machine that happens to have working credentials.
+	./hack/infra-validate-is-offline-test.sh
+
 .PHONY: infra-validate
-infra-validate: terraform kustomize actionlint shell-check session-refusals session-manifest docs-check ## Validate Terraform (offline), Argo manifests, shell, workflow YAML, the session refusals, the campaign manifest, and the published docs' names.
-	@for d in infra/aws/*/; do \
+infra-validate: terraform kustomize actionlint shell-check session-refusals session-manifest docs-check infra-offline ## Validate Terraform (offline), Argo manifests, shell, workflow YAML, the session refusals, the campaign manifest, and the published docs' names.
+	@# Each root is validated in a throwaway TF_DATA_DIR, and the loop stops at the first failure.
+	@#
+	@# Two defects lived in the previous three lines. The first: `-backend=false` does not mean "no backend".
+	@# A reused .terraform/terraform.tfstate still records `backend.type = s3`, and init configures that
+	@# backend from the stored settings -- which calls STS. With a dead static [default] in
+	@# ~/.aws/credentials that is a 403, so `init` failed and `validate` never ran at all. CI passed because a
+	@# fresh checkout has no .terraform to reuse, so the same commit was red locally and green in CI, decided
+	@# by a developer's home directory and their terraform history. Measured: moving that one cached file
+	@# aside took init from exit 1 to exit 0 with nothing else changed.
+	@#
+	@# The second: the loop had no fail-fast. A `for` body that fails does not stop the loop, and a recipe's
+	@# status is its LAST command -- so a broken root followed by a passing one reported success. The roots
+	@# sort argo-bootstrap, bootstrap, cluster, org, and only the first and third carry a cached backend.
+	@#
+	@# TF_DATA_DIR is absolute because init and validate run after `cd` into the root. -lockfile=readonly
+	@# keeps the isolated run from rewriting the committed provider lock.
+	@set -e; \
+	for d in infra/aws/*/; do \
 		if [ -f "$$d/versions.tf" ]; then \
 			echo "validate $$d"; \
-			( cd "$$d" && "$(abspath $(TERRAFORM))" init -backend=false -input=false >/dev/null && "$(abspath $(TERRAFORM))" validate ); \
+			tfdata="$$(mktemp -d)"; \
+			( cd "$$d" && TF_DATA_DIR="$$tfdata" "$(abspath $(TERRAFORM))" init -backend=false -input=false -lockfile=readonly >/dev/null \
+				&& TF_DATA_DIR="$$tfdata" "$(abspath $(TERRAFORM))" validate ) \
+				|| { rm -rf "$$tfdata"; echo "infra-validate: $$d failed" >&2; exit 1; }; \
+			rm -rf "$$tfdata"; \
 		fi; \
 	done
 	@for k in config/argocd config/operator config/gateway config/device-plugin config/crd config/prometheus config/kueue config/samples config/storage config/policy; do \
