@@ -21,6 +21,17 @@ set -m
 CONTEXT="${CONTEXT:-kind-platform}"
 NS=frag
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# Where the manifests live, which is not always where this script lives.
+#
+# Running an immutable copy out of a scratchpad -- so that editing the repository cannot disturb a run in
+# flight -- made ROOT point at the scratchpad, where experiments/ does not exist. `sed` on a missing file
+# writes an empty one, and an empty file has no placeholders left in it, so the substitution check passed and
+# all 25 trials died at `kubectl apply` with "no objects passed to apply". Set REPO when running a copy.
+REPO="${REPO:-$ROOT}"
+if [[ ! -d "$REPO/experiments/fragmentation" ]]; then
+  echo "REPO=$REPO does not contain experiments/fragmentation; set REPO to the repository root" >&2
+  exit 1
+fi
 LOCKDIR="${LOCKDIR:-/tmp/fragmentation.lock}"
 WINDOW="${WINDOW:-180}"
 
@@ -232,7 +243,14 @@ set_quota() {
 submit_holder() {
   local name="$1" node="$2"
   sed -e "s|NAME_PLACEHOLDER|$name|g" -e "s|NODE_PLACEHOLDER|$node|g" \
-    "$ROOT/experiments/fragmentation/holder.yaml" >"$EXDIR/$name.yaml"
+    "$REPO/experiments/fragmentation/holder.yaml" >"$EXDIR/$name.yaml"
+  # An empty render is the failure that hid behind the placeholder check: a file with no placeholders left
+  # in it is indistinguishable from a correct substitution, and zero bytes has none.
+  if [[ ! -s "$EXDIR/$name.yaml" ]]; then
+    say "INVALID: $name.yaml rendered empty; is REPO=$REPO the repository root?"
+    HOLDER_FAILURE=empty-render
+    return 1
+  fi
   if grep -q PLACEHOLDER "$EXDIR/$name.yaml"; then
     say "INVALID: a placeholder survived substitution in $name.yaml"
     HOLDER_FAILURE=substitution
@@ -322,7 +340,12 @@ trial() {
   say "headroom before target: $(cat "$EXDIR/headroom-before-$tag.json")"
   sleep 10
 
-  sed "s|NAME_PLACEHOLDER|$target|g" "$ROOT/experiments/fragmentation/target.yaml" >"$EXDIR/$target.yaml"
+  sed "s|NAME_PLACEHOLDER|$target|g" "$REPO/experiments/fragmentation/target.yaml" >"$EXDIR/$target.yaml"
+  if [[ ! -s "$EXDIR/$target.yaml" ]] || grep -q PLACEHOLDER "$EXDIR/$target.yaml"; then
+    say "INVALID: the target manifest rendered empty or unsubstituted"
+    echo -e "$arm\t$rep\tINVALID\ttarget-render" >>"$EXDIR/results.tsv"
+    return 0
+  fi
   local t0
   t0="$(now)"
   k apply -f "$EXDIR/$target.yaml" >>"$EXDIR/run.log" 2>&1
@@ -394,7 +417,7 @@ study() {
 
 fixture() {
   say "applying namespace, ResourceFlavor, ClusterQueue and LocalQueue"
-  k apply -f "$ROOT/experiments/fragmentation/fixture.yaml" >>"$EXDIR/run.log" 2>&1
+  k apply -f "$REPO/experiments/fragmentation/fixture.yaml" >>"$EXDIR/run.log" 2>&1
   local deadline=$((SECONDS + 120))
   while ((SECONDS < deadline)); do
     [[ "$(k get clusterqueue frag -o jsonpath='{.status.conditions[?(@.type=="Active")].status}' 2>/dev/null)" == "True" ]] &&
