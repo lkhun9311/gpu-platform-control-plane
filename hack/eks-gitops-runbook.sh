@@ -19,6 +19,7 @@
 #
 # Usage:
 #   hack/eks-gitops-runbook.sh apply    # apply the root Application and wait for the children
+#   hack/eks-gitops-runbook.sh seed-key # create the api-key Secret the GitOps bundle does not own
 #   hack/eks-gitops-runbook.sh verify   # prove a real credential reaches the key store, not merely Ready
 #   hack/eks-gitops-runbook.sh status   # print what is deployed, without changing anything
 #
@@ -205,6 +206,35 @@ apply() {
 # The gateway's readiness probe checks cache sync and nothing else, so a Deployment can be Available, Argo
 # can be Healthy, and every authenticated request can still fail. Only a real request through the real route
 # settles it: this gateway serves POST /v1/chat/completions, and a bad key returns 401 rather than 404.
+# Create the credential the GitOps path does not own.
+#
+# `config/gateway/deployment.yaml` names the Secret in GATEWAY_API_KEY_SECRET and nothing in the bundle
+# creates it: the five scripts that do are experiment harnesses no EKS run invokes. So a fresh cluster gets a
+# gateway that is Ready, Healthy, and refuses every request -- and a paid session would spend its money
+# discovering a fact this repository already knows.
+#
+# No restart follows. The gateway watches Secrets in its own namespace through a scoped cache
+# (internal/gateway/server.go:654), so a Secret created after the Deployment is picked up in place.
+#
+# An existing Secret is left alone. Overwriting one would destroy whatever credentials a cluster already
+# serves, and on this machine's long-lived kind cluster that Secret was made by hand.
+seed_key() {
+  say "context: $CONTEXT"
+  if k -n "$GW_NS" get secret gateway-api-keys >/dev/null 2>&1; then
+    ok "gateway-api-keys already exists in $GW_NS; leaving it untouched"
+    return 0
+  fi
+  local key
+  key="runbook-$(head -c 12 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+  if ! k -n "$GW_NS" create secret generic gateway-api-keys \
+    --from-literal="$key=tenant-a" >>"$EXDIR/run.log" 2>&1; then
+    bad "could not create gateway-api-keys in $GW_NS; verify cannot exercise the key store without it"
+    return 0
+  fi
+  printf '%s\n' "$key" >"$EXDIR/seeded-key.txt"
+  ok "created gateway-api-keys with one key for tenant-a (recorded in seeded-key.txt)"
+}
+
 verify() {
   say "context: $CONTEXT"
   local pod
@@ -348,9 +378,9 @@ status() {
 main() {
   local cmd="${1:-}"
   case "$cmd" in
-    apply | verify | status) ;;
+    apply | seed-key | verify | status) ;;
     *)
-      echo "usage: $0 {apply|verify|status}" >&2
+      echo "usage: $0 {apply|seed-key|verify|status}" >&2
       exit 1
       ;;
   esac
@@ -364,7 +394,9 @@ main() {
   # Every branch inside verify() ends in `return 0` -- deliberately, so one bad check does not skip the rest
   # -- which meant `main` returned whatever the last statement produced and the script exited 0 while
   # printing FAIL. That is the defect this whole session has been closing elsewhere, reintroduced here.
-  "$cmd" "$@" || true
+  # `seed-key` reads better as a command than `seed_key` does, and `seed_key` is the only legal function
+  # name of the two, so the command name is translated here rather than either one being bent to the other.
+  "${cmd//-/_}" "$@" || true
 
   if ((failures > 0)); then
     say "$failures check(s) failed"
