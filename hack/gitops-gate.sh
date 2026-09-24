@@ -253,7 +253,7 @@ gate_ready_is_not_serving() {
   # The cluster having a hand-made Secret says nothing about the repository being able to make one; gate 2
   # is the one that answers that, and this note exists so the two are never read as the same result.
   if k -n gpu-platform-control-plane-system get secret gateway-api-keys >/dev/null 2>&1; then
-    say "   note: gateway-api-keys exists on this cluster (created outside the repository); gate 2 asks whether the EKS path would make one"
+    say "   note: gateway-api-keys exists on this cluster, from the runbook's seed-key or from a hand-made one; gate 2 is what says whether the EKS path would produce it"
   fi
 }
 
