@@ -312,8 +312,13 @@ trial() {
   # Arms differ only in where the holders go and what the quota is.
   local quota=4
   case "$arm" in
-    P | R) holders=("h1:$NODE_B" "h2:$NODE_B") ;;
-    F) holders=("h1:$NODE_A" "h2:$NODE_B") ;;
+    P) holders=("h1:$NODE_B" "h2:$NODE_B") ;;
+    # R starts from F's placement, not P's.
+    #
+    # It was grouped with P in the first run -- `P | R)` -- which put both holders on one node, so the target
+    # scheduled at t=0.3s and the repack hypothesis was never tested. The summary still said "R: 5/5 reached
+    # scheduled", which is exactly the kind of green that means nothing.
+    F | R) holders=("h1:$NODE_A" "h2:$NODE_B") ;;
     Q)
       holders=("h1:$NODE_B" "h2:$NODE_B")
       quota=3
@@ -368,12 +373,23 @@ d=json.loads(sys.argv[1]); d['t']=round($(now)-$t0,2); print(json.dumps(d,sort_k
     # The repack arm intervenes once, 60 seconds in, and never by deleting first.
     if [[ "$arm" == "R" && "$rescued" == "0" ]] &&
       (($(python3 -c "print(1 if $(now)-$t0 > 60 else 0)"))); then
-      say "R: creating the replica holder on $NODE_A before deleting the original"
-      submit_holder "frag-h3-$slug" "$NODE_A" && wait_holder_running "frag-h3-$slug" "$NODE_A" || true
+      # The window is extended by however long the intervention takes, plus 60s to watch the result.
+      #
+      # Without this the intervention ate the observation: creating and waiting for the replica took about
+      # two minutes, so the loop's deadline had passed before it returned and not one sample after the
+      # repack was ever recorded. The run then reported the arm on evidence that stopped before the thing
+      # it was measuring.
+      local rescue_start rescue_end
+      rescue_start="$(now)"
+      say "R: creating the replica holder on $NODE_B before deleting the original"
+      submit_holder "frag-h3-$slug" "$NODE_B" && wait_holder_running "frag-h3-$slug" "$NODE_B" || true
       say "R: middle state $(headroom)"
       sleep 10
-      say "R: deleting the original holder on $NODE_B"
-      k -n "$NS" delete job "frag-h2-$slug" --ignore-not-found >>"$EXDIR/run.log" 2>&1
+      say "R: deleting the original holder on $NODE_A"
+      k -n "$NS" delete job "frag-h1-$slug" --ignore-not-found >>"$EXDIR/run.log" 2>&1
+      rescue_end="$(now)"
+      deadline=$(python3 -c "print($deadline + ($rescue_end - $rescue_start) + 60)")
+      say "R: window extended to observe the recovery"
       rescued=1
     fi
     sleep 1
