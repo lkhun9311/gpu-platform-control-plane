@@ -158,6 +158,25 @@ R's name for five trials, and the summary said it passed.
 
 Both were found by reading the timeline rather than the summary. The summary said `scheduled` all ten times.
 
+## Second amendment, 2026-09-24, after the results were written up
+
+Two errors in the reporting, both found by a review reading the raw timelines rather than the summary.
+
+**The published "145 seconds" was a sample count, not a duration.** The runner appended an `s` to
+`len(samples)`. The 145 samples span 0.28 s to 179.34 s, so the correct figure is **179.1 s**. The claim
+itself is unchanged and is in fact stronger stated properly: the CR said `Running` for *every sample taken*
+while the Pod was unschedulable. The runner now prints samples and seconds as separate quantities.
+
+**Every R trial breaches this document's own collection-gap rule.** The invalidation list says a gap over
+5 s invalidates a trial. The 1-second sampler is paused while the repack intervention runs, producing a
+**13.57–13.63 s gap in all five R trials**. Under the rule as written, R has no valid trials.
+
+R's result is therefore reported as evidence rather than as a pass, and the middle state is described as a
+point measurement taken by the runner rather than a continuously observed one. The rule is not relaxed to
+accommodate it.
+
+P, F, Q and S are unaffected: across all 25 timelines the largest gap is **1.30 s**.
+
 ## Trial procedure
 
 1. Delete every object from the previous trial; wait until the ClusterQueue reports zero reserved and no GPU

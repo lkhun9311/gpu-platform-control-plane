@@ -434,11 +434,20 @@ rows = [json.loads(line) for line in open(path)]
 states = collections.Counter(r["state"] for r in rows)
 final = rows[-1]["state"] if rows else "none"
 # H4: what did the CR say while no Pod was scheduled?
-lying = sum(1 for r in rows if r["state"] in ("fragmentation", "aggregate-shortage")
-            and r.get("cr_phase") == "Running")
+lying = [r for r in rows if r["state"] in ("fragmentation", "aggregate-shortage")
+         and r.get("cr_phase") == "Running"]
+# Samples and seconds are different quantities, and an earlier version printed the count with an "s" after
+# it. That produced "145s" for a window the timeline shows spanning 179.06s, and the figure went into a
+# write-up and a pull request before a review caught it.
+span = (lying[-1]["t"] - lying[0]["t"]) if len(lying) > 1 else 0.0
+# The largest hole between consecutive samples, because the pre-registration invalidates a trial on a
+# collection gap over 5s and nothing was checking.
+gaps = [rows[i + 1]["t"] - rows[i]["t"] for i in range(len(rows) - 1)]
+worst = max(gaps) if gaps else 0.0
 print("\t".join([arm, rep, final,
                  ",".join(f"{k}={v}" for k, v in states.most_common()),
-                 f"cr_said_running_while_unscheduled={lying}s"]))
+                 f"cr_running_while_unscheduled={len(lying)}samples/{span:.1f}s",
+                 f"max_gap={worst:.2f}s"]))
 PY
 }
 

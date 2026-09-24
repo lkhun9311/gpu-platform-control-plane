@@ -156,12 +156,12 @@ SIGTERM **did not exist**, because every workload in the study ignored it.
 A 2-GPU job, 2 GPUs free, quota reserved, and no node able to take it. Across 25 pre-registered trials on
 two worker nodes:
 
-| arm | headroom | outcome | seconds the CR said `Running` while unscheduled |
+| arm | headroom | outcome | samples where the CR said `Running` while unscheduled |
 |---|---|---|---:|
 | packed `(2,0)` | `ΣF=2, maxF=2` | scheduled 5/5 | 0 |
-| **fragmented `(1,1)`** | `ΣF=2, maxF=1` | **unschedulable 5/5** | **145** |
+| **fragmented `(1,1)`** | `ΣF=2, maxF=1` | **unschedulable 5/5** | **145 of 145**, spanning 179.1 s |
 | quota-short | quota 3 | never admitted 5/5 | 0 |
-| aggregate-short `(1,0)` | `ΣF=1` | unschedulable 5/5 | **145** |
+| aggregate-short `(1,0)` | `ΣF=1` | unschedulable 5/5 | **145 of 145**, spanning 179.1 s |
 
 The packed and fragmented arms differ by one character — the hostname in one holder's `nodeSelector` — with
 identical capacity, quota, holder count and identical total free GPUs.
@@ -173,7 +173,8 @@ transition — the platform's own latency metric taken from a moment that never 
 to fragmentation: plain capacity shortage produces the same false `Running`.
 
 Repacking one holder — no added GPU, no added quota, demand 2 → 3 → 2 — returned the same Pod to scheduled
-in 5/5 trials.
+in 5/5 trials, though every one of those five breaches the study's own 5 s collection-gap rule and is
+reported as evidence rather than as a pass (`experiments/fragmentation/README.md`).
 
 **What it does not say.** Nothing about real GPUs, utilisation, gang scheduling, or automatic repacking,
 which this platform does not do. The thing moved was a `pause` container, not live training.

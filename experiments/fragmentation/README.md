@@ -34,12 +34,17 @@ not a diagnosis.
 
 ## H4: the control plane reports a job it never placed as `Running`
 
-| arm | seconds the Pod was unschedulable | seconds the CR said `Running` |
-|---|---:|---:|
-| F | 145 | **145** |
-| S | 145 | **145** |
-| P | 0 | 0 |
-| Q | 0 (no Pod) | 0 |
+| arm | samples while unschedulable | samples where the CR said `Running` | span |
+|---|---:|---:|---:|
+| F | 145 | **145** | 179.1 s |
+| S | 145 | **145** | 179.1 s |
+| P | 0 | 0 | — |
+| Q | 0 (no Pod) | 0 | — |
+
+**The figure was first published as "145 seconds" and that was wrong.** The runner printed the sample count
+with an `s` appended; the timeline shows those 145 samples spanning 0.28 s to 179.34 s. The CR said `Running`
+for *every* sample taken while the Pod was unschedulable, which is the claim — but the duration is 179.1 s,
+not 145 s. The runner now prints samples and seconds separately.
 
 `computeMLTJPhase` returns `Running` when `job.Status.Active > 0`
 (`internal/controller/mltrainingjob_controller.go:288`), and Kubernetes' `JobStatus.Active` is documented as
@@ -67,10 +72,17 @@ This was predicted from the code before the run and then observed in 10 of 10 un
 So H5 holds **for a stateless fixture**: moving one holder, without adding a GPU or a unit of quota,
 converted an unschedulable job into a running one.
 
-**A limitation in how the middle state was captured.** The 1-second sampler is paused while the intervention
-runs, so `ΣF = 1` appears in the runner's own log — measured directly at that moment, 5/5 — and not in
-`timeline-R-*.jsonl`, which jumps from `fragmentation` at t≈60 s to `scheduled` at t≈74 s. The evidence is
-real but it is a point measurement, not a continuous one.
+**A limitation in how the middle state was captured, and it breaks a pre-registered rule.** The 1-second
+sampler is paused while the intervention runs, so `ΣF = 1` appears in the runner's own log — measured
+directly at that moment, 5/5 — and not in `timeline-R-*.jsonl`, which jumps from `fragmentation` at t≈60 s to
+`scheduled` at t≈74 s.
+
+That jump is a **13.57–13.63 s collection gap, in all five trials**, and the pre-registration invalidates a
+trial on any gap over 5 s. So R's five trials are **not** clean passes under the rules written before the
+run. They are reported here as what they are: the middle state was measured at a point rather than observed
+continuously, and by the letter of the invalidation rule every R trial is invalid.
+
+P, F, Q and S are unaffected — their largest gap across all 25 timelines is **1.30 s**.
 
 ## R took three attempts, and the first two reported success
 
@@ -91,9 +103,13 @@ middle state is asserted rather than assumed; and `pod_uid` is recorded so "the 
 
 **Does:** on a Kubernetes cluster with Kueue, a 2-GPU job was held unschedulable with 2 GPUs free in
 aggregate; quota shortage, node-level fragmentation and aggregate shortage were separated by pre-registered
-controls with no misclassification in 25 trials; demand-preserving repacking recovered the same Pod; and the
-platform reported the unplaced job as `Running` in every unschedulable trial, with its latency metric taken
-from that false transition.
+controls with no misclassification across 25 trials with no collection gap over 1.30 s; and the platform
+reported the unplaced job as `Running` in every sample taken while it was unschedulable, with its latency
+metric taken from that false transition.
+
+**Does, but with a caveat that has to travel with it:** demand-preserving repacking recovered the same Pod
+in 5/5 — and every one of those five trials breaches the pre-registered 5 s collection-gap rule, so they are
+reported as evidence rather than as passes.
 
 **Does not:** real NVIDIA hardware, CUDA, GPU memory, MIG, NVLink or PCIe topology; utilisation, throughput
 or cost; multi-Pod gang scheduling or multi-node DDP; Kueue topology-aware scheduling; automatic detection
