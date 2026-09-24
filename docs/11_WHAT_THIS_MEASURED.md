@@ -6,7 +6,7 @@
 > cites the pre-registration or result page it came from, and every claim is bounded by what the measurement
 > could actually see.
 
-The control plane is not the result. It is the instrument. The results are five findings that could not be
+The control plane is not the result. It is the instrument. The results are six findings that could not be
 asked without it, and four claims this project is **not** entitled to make.
 
 ---
@@ -148,6 +148,37 @@ SIGTERM **did not exist**, because every workload in the study ignored it.
 
 *(`docs/superpowers/specs/2026-08-02-queuelab-termination-contract-design.md:47`;
 `docs/10_WHAT_I_GOT_WRONG.md`)*
+
+---
+
+## Finding 6 — the platform reports a job it never placed as running
+
+A 2-GPU job, 2 GPUs free, quota reserved, and no node able to take it. Across 25 pre-registered trials on
+two worker nodes:
+
+| arm | headroom | outcome | seconds the CR said `Running` while unscheduled |
+|---|---|---|---:|
+| packed `(2,0)` | `ΣF=2, maxF=2` | scheduled 5/5 | 0 |
+| **fragmented `(1,1)`** | `ΣF=2, maxF=1` | **unschedulable 5/5** | **145** |
+| quota-short | quota 3 | never admitted 5/5 | 0 |
+| aggregate-short `(1,0)` | `ΣF=1` | unschedulable 5/5 | **145** |
+
+The packed and fragmented arms differ by one character — the hostname in one holder's `nodeSelector` — with
+identical capacity, quota, holder count and identical total free GPUs.
+
+**Why it matters.** `computeMLTJPhase` reports `Running` when `job.Status.Active > 0`
+(`internal/controller/mltrainingjob_controller.go:288`), and Kubernetes counts *pending* Pods in `Active`. So
+the CR says running for a Pod no node accepted, and `admitToRunningSeconds` is measured from that
+transition — the platform's own latency metric taken from a moment that never happened. It is not specific
+to fragmentation: plain capacity shortage produces the same false `Running`.
+
+Repacking one holder — no added GPU, no added quota, demand 2 → 3 → 2 — returned the same Pod to scheduled
+in 5/5 trials.
+
+**What it does not say.** Nothing about real GPUs, utilisation, gang scheduling, or automatic repacking,
+which this platform does not do. The thing moved was a `pause` container, not live training.
+
+*(`experiments/fragmentation/`, `docs/superpowers/specs/2026-09-24-node-level-gpu-fragmentation.md`)*
 
 ---
 
