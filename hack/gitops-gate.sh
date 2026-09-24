@@ -157,25 +157,54 @@ gate_ready_is_not_serving() {
   fi
 
   # Forwarded rather than exec'd: the image has no shell.
-  local pf_pid ready_code authed_code
-  k -n gpu-platform-control-plane-system port-forward "pod/$pod" 18080:8080 18081:8081 \
+  #
+  # The local ports are the kernel's choice, not 18080/18081, and the forwarder runs in its own process
+  # group. The fixed-port version of this block left a kubectl behind on every successful run -- `$!` of a
+  # redirected function call is the subshell, so a plain kill freed the subshell and not the listener -- and
+  # the next probe then failed to bind and reported the gateway as unprobeable. Measured here, twice.
+  local pf_pid ready_code=000 authed_code=000 api_port="" ready_port=""
+  set -m
+  k -n gpu-platform-control-plane-system port-forward "pod/$pod" :8080 :8081 \
     >"$EXDIR/port-forward.log" 2>&1 &
   pf_pid=$!
-  # The forward needs a moment, and a failure to establish must not read as a failing endpoint.
-  sleep 3
-  if ! kill -0 "$pf_pid" 2>/dev/null; then
-    bad "port-forward did not stay up; the probe is broken and proves nothing (see port-forward.log)"
-    return 0
-  fi
+  set +m
 
-  ready_code="$(curl -s -o "$EXDIR/readyz.out" -w '%{http_code}' --max-time 5 http://127.0.0.1:18081/readyz || echo 000)"
-  authed_code="$(curl -s -o "$EXDIR/authed.out" -w '%{http_code}' --max-time 5 \
-    -X POST -H 'Content-Type: application/json' -H 'X-API-Key: gate-probe-not-a-real-key' \
-    -d '{"model":"gate-probe","messages":[{"role":"user","content":"probe"}]}' \
-    http://127.0.0.1:18080/v1/chat/completions || echo 000)"
+  # Wait for the ports it chose. A fixed sleep is how a slow forward reads as a failing endpoint.
+  local waited=0
+  while ((waited < 100)); do
+    api_port="$(sed -n 's|^Forwarding from 127\.0\.0\.1:\([0-9]\{1,\}\) -> 8080$|\1|p' "$EXDIR/port-forward.log" | head -1)"
+    ready_port="$(sed -n 's|^Forwarding from 127\.0\.0\.1:\([0-9]\{1,\}\) -> 8081$|\1|p' "$EXDIR/port-forward.log" | head -1)"
+    [[ -n "$api_port" && -n "$ready_port" ]] && break
+    kill -0 "$pf_pid" 2>/dev/null || break
+    sleep 0.1
+    waited=$((waited + 1))
+  done
+
+  if [[ -n "$api_port" && -n "$ready_port" ]]; then
+    ready_code="$(curl -s -o "$EXDIR/readyz.out" -w '%{http_code}' --max-time 5 "http://127.0.0.1:$ready_port/readyz" || echo 000)"
+    # `Authorization: Bearer`, because that is the only header the gateway reads.
+    #
+    # This probe sent `X-API-Key` at first. `resolveTenant` gives up before reading the Secret unless the
+    # scheme is Bearer (internal/gateway/tenant.go:45), so that 401 meant "no credential was presented" and
+    # the gate's own 503 branch -- the one whose whole point is a gateway that cannot read its key store --
+    # could never be reached. The gate was reporting a verdict about a code path it never entered.
+    authed_code="$(curl -s -o "$EXDIR/authed.out" -w '%{http_code}' --max-time 5 \
+      -X POST -H 'Content-Type: application/json' -H 'Authorization: Bearer gate-probe-not-a-real-key' \
+      -d '{"model":"gate-probe","messages":[{"role":"user","content":"probe"}]}' \
+      "http://127.0.0.1:$api_port/v1/chat/completions" || echo 000)"
+  fi
 
   kill -- -"$pf_pid" 2>/dev/null || kill "$pf_pid" 2>/dev/null || true
   wait "$pf_pid" 2>/dev/null || true
+  if kill -0 "$pf_pid" 2>/dev/null; then
+    sleep 0.5
+    kill -9 -- -"$pf_pid" 2>/dev/null || kill -9 "$pf_pid" 2>/dev/null || true
+  fi
+
+  if [[ -z "$api_port" || -z "$ready_port" ]]; then
+    bad "port-forward never reported both local ports; the probe is broken and proves nothing (see port-forward.log)"
+    return 0
+  fi
 
   {
     echo "readyz  :8081 -> $ready_code"
