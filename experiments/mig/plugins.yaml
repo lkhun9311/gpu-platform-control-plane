@@ -1,0 +1,127 @@
+# One device-plugin DaemonSet per simulated profile, pinned to one node each.
+#
+# The platform's own `gpu-simulator` DaemonSet advertises `nvidia.com/gpu` on every node and is left running
+# and untouched: this experiment adds keys beside it rather than replacing it, so a failure here cannot take
+# the cluster's ordinary GPU capacity with it.
+#
+# Each instance gets its own socket. The plugin derives the socket name from the resource name, and removes a
+# stale socket at that path on startup -- so two instances sharing a name would mean the second silently
+# deleting the first's socket and inheriting its registration, with the node still advertising a plausible
+# number. `cmd/gpu-simulator/main_test.go` asserts the derivation keeps them apart.
+#
+# nodeSelector rather than a spread: the arms are defined by which profile exists on which node, so placement
+# of the plugins themselves is the independent variable and cannot be left to the scheduler.
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: mig-sim
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: mig-sim-p
+  namespace: mig-sim
+  labels:
+    mig.experiment/profile: p
+spec:
+  selector:
+    matchLabels:
+      mig.experiment/plugin: p
+  template:
+    metadata:
+      labels:
+        mig.experiment/plugin: p
+    spec:
+      # W1 only. The arms move this selector, and nothing else about the DaemonSets changes.
+      nodeSelector:
+        kubernetes.io/hostname: platform-worker
+      # Copied from the platform's own running gpu-simulator DaemonSet rather than guessed.
+      #
+      # Writing a socket into the kubelet's device-plugin directory needs root and privileged; without them
+      # the Pod starts, fails to listen, and the node simply never advertises the resource -- which reads as
+      # "the experiment's premise is wrong" rather than "the manifest was."
+      tolerations:
+        - operator: Exists
+      volumes:
+        - name: device-plugins
+          hostPath:
+            path: /var/lib/kubelet/device-plugins
+      containers:
+        - name: plugin
+          image: gpu-simulator:latest
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            privileged: true
+            runAsNonRoot: false
+            runAsUser: 0
+          env:
+            - name: FAKE_RESOURCE_NAME
+              value: nvidia.com/mig-1g.5gb
+            - name: FAKE_GPU_COUNT
+              value: "2"
+          volumeMounts:
+            - name: device-plugins
+              mountPath: /var/lib/kubelet/device-plugins
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: mig-sim-q
+  namespace: mig-sim
+  labels:
+    mig.experiment/profile: q
+spec:
+  selector:
+    matchLabels:
+      mig.experiment/plugin: q
+  template:
+    metadata:
+      labels:
+        mig.experiment/plugin: q
+    spec:
+      # W2 only in the baseline. Arm M moves this to advertise `p` here instead, which is the whole of that
+      # arm's manipulation: same device count, different key.
+      nodeSelector:
+        kubernetes.io/hostname: platform-worker2
+      # Copied from the platform's own running gpu-simulator DaemonSet rather than guessed.
+      #
+      # Writing a socket into the kubelet's device-plugin directory needs root and privileged; without them
+      # the Pod starts, fails to listen, and the node simply never advertises the resource -- which reads as
+      # "the experiment's premise is wrong" rather than "the manifest was."
+      tolerations:
+        - operator: Exists
+      volumes:
+        - name: device-plugins
+          hostPath:
+            path: /var/lib/kubelet/device-plugins
+      containers:
+        - name: plugin
+          image: gpu-simulator:latest
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            privileged: true
+            runAsNonRoot: false
+            runAsUser: 0
+          env:
+            - name: FAKE_RESOURCE_NAME
+              value: nvidia.com/mig-2g.10gb
+            - name: FAKE_GPU_COUNT
+              value: "2"
+          volumeMounts:
+            - name: device-plugins
+              mountPath: /var/lib/kubelet/device-plugins
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi

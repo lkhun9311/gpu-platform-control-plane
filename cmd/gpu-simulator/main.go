@@ -113,7 +113,8 @@ func main() {
 
 	serveErr := make(chan error, 1)
 	go func() {
-		log.Info("serving device plugin", "socket", socketPath)
+		// The logger already carries resource and socket name; this adds the full path, under its own key.
+		log.Info("serving device plugin", "path", socketPath)
 		serveErr <- grpcServer.Serve(lis)
 	}()
 

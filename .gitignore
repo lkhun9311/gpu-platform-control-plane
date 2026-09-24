@@ -97,6 +97,17 @@ evidence/
 
 # Generated binaries
 bin/
+# Binaries `go build ./cmd/<x>` drops in the repository root.
+#
+# `bin/` covers the tooling the Makefile installs and covered none of these: a 54 MB ELF sat untracked
+# in the root after one `go build ./cmd/gpu-simulator/`, and `git check-ignore` said it was fair game.
+# One `git add .` would have committed it.
+/benchharness
+/gateway
+/gpu-simulator
+/queuelabrun
+/queueload
+/workloadrunctl
 dist/
 build/
 

@@ -1,0 +1,57 @@
+# One queue, two profiles, two independent quotas.
+#
+# A single ClusterQueue covering both keys is a stronger test than one queue per profile: if the quotas were
+# in separate queues, independence would be structural and the experiment would prove nothing about Kueue's
+# accounting. Here `p` and `q` share a queue and must still not be spent on each other.
+#
+# No cohort, so nothing borrows, reclaims or preempts. The platform's own queues join the `gpu-platform`
+# cohort, which would make admission here depend on capacity this experiment does not own.
+#
+# The quotas are rewritten per arm by hack/mig.sh -- arm Q sets `q` to 0 -- because the quota is the
+# independent variable in one arm and must not be mistaken for a fixed property of the fixture.
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: mig
+---
+# Empty spec, matching any node that advertises the keys.
+#
+# It deliberately injects no toleration: the target Jobs carry none either, so the control-plane node's
+# NoSchedule taint keeps it out of the eligible set and the study runs on the two workers. That taint is
+# kind's default rather than anything this repository declares, so the runner verifies it every trial.
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: ResourceFlavor
+metadata:
+  name: mig
+spec: {}
+---
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: ClusterQueue
+metadata:
+  name: mig
+spec:
+  namespaceSelector:
+    matchLabels:
+      kubernetes.io/metadata.name: mig
+  resourceGroups:
+    # Both keys in one group and one flavor, so a request for either is measured against the same admission
+    # path and only the per-resource quota can separate them.
+    - coveredResources:
+        - "nvidia.com/mig-1g.5gb"
+        - "nvidia.com/mig-2g.10gb"
+      flavors:
+        - name: mig
+          resources:
+            - name: "nvidia.com/mig-1g.5gb"
+              nominalQuota: 1
+            - name: "nvidia.com/mig-2g.10gb"
+              nominalQuota: 1
+---
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: LocalQueue
+metadata:
+  name: mig
+  namespace: mig
+spec:
+  clusterQueue: mig
