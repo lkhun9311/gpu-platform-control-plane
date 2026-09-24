@@ -6,7 +6,7 @@
 > cites the pre-registration or result page it came from, and every claim is bounded by what the measurement
 > could actually see.
 
-The control plane is not the result. It is the instrument. The results are six findings that could not be
+The control plane is not the result. It is the instrument. The results are seven findings that could not be
 asked without it, and four claims this project is **not** entitled to make.
 
 ---
@@ -180,6 +180,35 @@ reported as evidence rather than as a pass (`experiments/fragmentation/README.md
 which this platform does not do. The thing moved was a `pause` container, not live training.
 
 *(`experiments/fragmentation/`, `docs/superpowers/specs/2026-09-24-node-level-gpu-fragmentation.md`)*
+
+---
+
+## Finding 7 — a scheduler will not swap one partition profile for another, and a quota system will not either
+
+MIG has never been judged here: the account's instance-family policy permits no card that supports it. What
+could be judged is whether the control plane can express, admit and place a partition-shaped resource at
+all. Two simulated profiles, advertised as distinct extended resources by independent device-plugin
+instances on one node, across 20 pre-registered trials:
+
+| arm | inventory | quota | verdict |
+|---|---|---|---|
+| positive control | `p=2` on W1, `q=2` on W2 | `p=1, q=1` | `scheduled` **5/5** |
+| quota-negative | as above | `p=1, q=0` | never admitted, no Pod **5/5** |
+| **placement-negative** | **`p=2` on both nodes** | `p=1, q=1` | admitted, then **unschedulable 5/5** |
+| independence | as positive | `p=1, q=1` | a second `p` waits **even after `q` is released** 5/5 |
+
+**Why it matters.** The positive and placement-negative arms advertise the *same four devices* and differ
+only in which key the second node publishes. Any check that counts devices in aggregate passes both. The job
+is admitted by the quota system and then refused by the scheduler, with capacity of the other profile free
+beside it — so "there are four GPUs and the job wants one" is not a statement that predicts placement.
+
+No reservation ever carried a key that was not requested, in any of the 20 trials.
+
+**What it does not say.** Nothing about real MIG, memory or fault isolation, or reconfiguration. And nothing
+about enforcement: the admission guards count only `nvidia.com/gpu`, so a Job requesting only a MIG-named
+resource reads as requesting no GPU and passes them untouched. This measured accounting, not policy.
+
+*(`experiments/mig/`, `docs/superpowers/specs/2026-09-24-simulated-mig-profiles.md`)*
 
 ---
 
