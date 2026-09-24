@@ -116,7 +116,7 @@ no one can object that the fragmentation was caused by Pods the quota system nev
 | **F** fragmented (treatment) | 1 on `worker`, 1 on `worker2` | `(1,1)` | 2 | 1 | 4 | admitted, **never scheduled** |
 | **Q** quota-short (control) | 2 on `worker2` | `(2,0)` | 2 | 2 | **3** | **not admitted**, no target Pod |
 | **S** aggregate-short (control) | 2 on `worker2`, 1 on `worker` | `(1,0)` | 1 | 1 | **5** | admitted, not scheduled, `ΣF < R` |
-| **R** repack (intervention) | starts as F | `(1,1)` → `(1,0)` → `(2,0)` | 2 → 1 → 2 | 1 → 1 → 2 | 4 | pending, **still pending**, then scheduled |
+| **R** repack (intervention) | starts as F | `(1,1)` → `(1,0)` → `(2,0)` | 2 → 1 → 2 | 1 → 1 → 2 | **5** (amended, see below) | pending, **still pending**, then scheduled |
 
 **P and F differ in exactly one character** — the hostname in one holder's nodeSelector. Same capacity, same
 quota, same holder count, same image, same lifetime, same `ΣF`. If the outcome differs, distribution is the
@@ -132,6 +132,31 @@ target schedule. Total headroom goes `2 → 1 → 2`: the intervention never add
 sleeper being replaced, not a training job being migrated, and the write-up must not blur the two.
 
 ---
+
+## Amendment, 2026-09-24, after the first two attempts at R
+
+Recorded here rather than quietly applied, because it changes a number this document fixed in advance.
+
+**R's quota is raised from 4 to 5.** At 4 the intervention is arithmetically impossible: the two holders
+reserve 2 and the target reserves 2, so there is no quota left for a replica. The run waited 120 s for a Job
+that could never be admitted, the failure was swallowed by a `|| true`, the original holder was deleted
+anyway, and the target scheduled — **because background demand had dropped from 2 to 1.** That is capacity
+reduction, the one thing this arm exists to rule out, and it was reported as `R: 5/5 scheduled`.
+
+The bar is unchanged and is now checkable rather than assumed:
+
+- the middle state must show `ΣF = 1`, and a trial whose middle state still reads 2 is **invalid**, not a pass;
+- a replica that never reaches Running **invalidates** the trial instead of being stepped over;
+- the timeline records `pod_uid`, so "the same Pod was scheduled" can be verified rather than asserted.
+
+With quota 5, background demand goes 2 → 3 → 2 while capacity stays at 4, so headroom still goes 2 → 1 → 2
+and the intervention adds nothing.
+
+**An earlier defect in the same arm**, fixed before this one: R was grouped with P in the runner's case
+statement, so both holders started on the same node and the target scheduled at t = 0.3 s. R was P wearing
+R's name for five trials, and the summary said it passed.
+
+Both were found by reading the timeline rather than the summary. The summary said `scheduled` all ten times.
 
 ## Trial procedure
 

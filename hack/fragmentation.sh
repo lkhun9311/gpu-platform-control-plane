@@ -206,6 +206,8 @@ print(json.dumps({
     "scheduler_message": scheduler_message[:200], "quota_message": quota_message[:200],
     "free": free, "sum_free": sum_free, "max_free": max_free,
     "node_name": (pod or {}).get("spec", {}).get("nodeName"),
+    # The repack bar is that the SAME Pod is scheduled, not that a new one replaced it.
+    "pod_uid": (pod or {}).get("metadata", {}).get("uid"),
     "cr_phase": kubectl(["-n", ns, "get", "mltrainingjob", target,
                          "-o", "jsonpath={.status.phase}"], raw=True),
 }))
@@ -318,7 +320,19 @@ trial() {
     # It was grouped with P in the first run -- `P | R)` -- which put both holders on one node, so the target
     # scheduled at t=0.3s and the repack hypothesis was never tested. The summary still said "R: 5/5 reached
     # scheduled", which is exactly the kind of green that means nothing.
-    F | R) holders=("h1:$NODE_A" "h2:$NODE_B") ;;
+    F) holders=("h1:$NODE_A" "h2:$NODE_B") ;;
+    # Same placement as F, one more unit of quota.
+    #
+    # The pre-registration gave R a quota of 4, and at 4 the repack is arithmetically impossible: the two
+    # holders reserve 2 and the target reserves 2, so the replica cannot be admitted and the second run
+    # waited 120s for a Job that would never start. The `|| true` swallowed that, the original was deleted
+    # anyway, and the target scheduled because background demand had DROPPED from 2 to 1 -- capacity
+    # reduction, which is the one thing this arm must not do. Five lets the replica exist beside the
+    # target's reservation, so demand goes 2 -> 3 -> 2 and capacity never changes.
+    R)
+      holders=("h1:$NODE_A" "h2:$NODE_B")
+      quota=5
+      ;;
     Q)
       holders=("h1:$NODE_B" "h2:$NODE_B")
       quota=3
@@ -382,8 +396,22 @@ d=json.loads(sys.argv[1]); d['t']=round($(now)-$t0,2); print(json.dumps(d,sort_k
       local rescue_start rescue_end
       rescue_start="$(now)"
       say "R: creating the replica holder on $NODE_B before deleting the original"
-      submit_holder "frag-h3-$slug" "$NODE_B" && wait_holder_running "frag-h3-$slug" "$NODE_B" || true
-      say "R: middle state $(headroom)"
+      # A replica that never runs is not a repack, so it ends the trial instead of being stepped over.
+      if ! submit_holder "frag-h3-$slug" "$NODE_B" || ! wait_holder_running "frag-h3-$slug" "$NODE_B"; then
+        say "INVALID: the replica holder never ran, so no repack took place"
+        echo -e "$arm\t$rep\tINVALID\treplica-never-ran" >>"$EXDIR/results.tsv"
+        return 0
+      fi
+      local middle
+      middle="$(headroom)"
+      say "R: middle state $middle"
+      # The middle state is the evidence that demand was preserved: headroom must fall to 1 here, not stay
+      # at 2. If it stayed at 2 the replica did not land and the recovery below would be a deletion.
+      if [[ "$(python3 -c "import json,sys; print(json.loads(sys.argv[1])['sum_free'])" "$middle")" != "1" ]]; then
+        say "INVALID: middle-state headroom is not 1; the replica did not take a device"
+        echo -e "$arm\t$rep\tINVALID\tmiddle-state-not-reached" >>"$EXDIR/results.tsv"
+        return 0
+      fi
       sleep 10
       say "R: deleting the original holder on $NODE_A"
       k -n "$NS" delete job "frag-h1-$slug" --ignore-not-found >>"$EXDIR/run.log" 2>&1
