@@ -101,28 +101,35 @@ gate_root_is_applied() {
 # Without it the Deployment is Available, /readyz passes, Argo is Healthy -- and every authenticated request
 # is 503. That combination is exactly what a session would record as success.
 gate_api_key_secret_has_a_source() {
-  say "gate 2: is gateway-api-keys created anywhere in the repository?"
-  # Count FILES, and count them correctly.
+  say "gate 2: does the EKS path itself create gateway-api-keys?"
+  # The question is about the paid path, not about the repository containing the string somewhere.
   #
-  # `grep -rln` prints one filename per line and `grep -vc` then counted lines of that list -- but the -c
-  # was applied to the wrong stream in the first version and returned 47 for a tree whose real answer is
-  # zero. The question is also narrower than "does the name appear": a Secret referenced by a Deployment is
-  # not a Secret anyone creates.
-  local files
-  files="$( { grep -rl -- "gateway-api-keys" "$REPO"/config "$REPO"/infra "$REPO"/hack 2>/dev/null |
-    grep -v "_test.go" | grep -v "gitops-gate.sh"; } || true)"
-  # A manifest that CREATES it says `kind: Secret`; one that merely consumes it names it under a volume or
-  # an env reference.
-  local creators=""
-  local f
-  for f in $files; do
-    grep -qE '^kind: Secret|create secret|kubernetes_secret|kubectl create secret' "$f" 2>/dev/null && creators="$creators $f"
-  done
-  if [[ -n "${creators// /}" ]]; then
-    ok "a creation path exists:$creators"
+  # The first version asked "is it created anywhere?" and answered yes, naming five scripts. All five are
+  # experiment harnesses (m5b/m5c and a rehearsal) that an EKS session never invokes, so the honest answer
+  # for a fresh cluster was no while the gate said yes. A gate that authorises spending has to ask whether
+  # the run being paid for creates it.
+  #
+  # `grep -rln` also has to be counted carefully here: the first version piped it into `grep -vc`, which
+  # counted lines of the wrong stream and returned 47 for a tree whose real answer was zero.
+  local runbook="$REPO/hack/eks-gitops-runbook.sh"
+  local in_gitops=""
+  in_gitops="$( { grep -rl -- "gateway-api-keys" "$REPO"/config/argocd "$REPO"/config/gateway 2>/dev/null |
+    xargs -r grep -l "^kind: Secret" 2>/dev/null; } || true)"
+
+  if [[ -n "$in_gitops" ]]; then
+    ok "the GitOps bundle itself creates the Secret: $in_gitops"
+  elif [[ -x "$runbook" ]] && grep -q "create secret generic gateway-api-keys" "$runbook"; then
+    ok "the EKS runbook creates it (hack/eks-gitops-runbook.sh seed-key); the GitOps bundle does not, which is why that step exists"
   else
-    bad "gateway-api-keys is referenced but never created in this repository (checked $(printf '%s' "$files" | wc -w) file(s)). On a fresh EKS the gateway would report ready while authenticated requests fail on the unreadable Secret."
+    bad "nothing on the EKS path creates gateway-api-keys. The bundle names the Secret and no step makes one, so a fresh cluster would report the gateway ready while every request fails on an unreadable key store."
   fi
+
+  # The experiment harnesses are reported, never counted: they are why this gate first said yes.
+  local harnesses
+  harnesses="$( { grep -rl "create secret generic gateway-api-keys" "$REPO"/hack 2>/dev/null |
+    grep -v "eks-gitops-runbook.sh" | tr '\n' ' '; } || true)"
+  [[ -n "${harnesses// /}" ]] && say "   (also created by experiment harnesses no EKS run invokes: $harnesses)"
+  return 0
 }
 
 # Gate 3: readiness is not service.
@@ -246,7 +253,7 @@ gate_ready_is_not_serving() {
   # The cluster having a hand-made Secret says nothing about the repository being able to make one; gate 2
   # is the one that answers that, and this note exists so the two are never read as the same result.
   if k -n gpu-platform-control-plane-system get secret gateway-api-keys >/dev/null 2>&1; then
-    say "   note: gateway-api-keys exists on this cluster (created outside the repository); gate 2 governs whether a fresh EKS would get one"
+    say "   note: gateway-api-keys exists on this cluster (created outside the repository); gate 2 asks whether the EKS path would make one"
   fi
 }
 
