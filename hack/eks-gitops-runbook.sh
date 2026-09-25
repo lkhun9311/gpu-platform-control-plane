@@ -335,7 +335,7 @@ verify() {
   fi
   case "$bad_key_code" in
     401) ok "a bad key is refused with 401" ;;
-    403) ok "a bad key reaches tenant policy and is refused with 403" ;;
+    403) bad "a key that is not in the Secret was answered 403, not 401. resolveTenant returns not-authenticated for an unknown key (internal/gateway/tenant.go:56), so a 403 here means the request got past authentication -- a misclassification, not a pass" ;;
     503) bad "503: the gateway cannot read its API-key Secret. Ready, Healthy, and serving nothing -- the exact false green this runbook exists to catch" ;;
     404) bad "404 on the real route means the model did not resolve; this is not an auth result and must not be read as one" ;;
     000) bad "the request never arrived; the probe is broken and proves nothing" ;;
