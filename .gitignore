@@ -108,6 +108,13 @@ bin/
 /queuelabrun
 /queueload
 /workloadrunctl
+
+# Python bytecode from `py_compile` checks on the experiment scripts.
+#
+# `git check-ignore` said an experiments/*/__pycache__ directory was fair game, and it appeared twice
+# in one session from syntax-checking train.py before running it.
+__pycache__/
+*.pyc
 dist/
 build/
 

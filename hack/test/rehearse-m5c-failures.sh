@@ -286,11 +286,22 @@ compgen -G "$WORK/run/raw-shared-"'*.jsonl' >/dev/null \
 # reach: that the file the runner wrote is the file the report reads, from a directory it discovered itself.
 if compgen -G "$WORK/run/raw-"'*.jsonl' >/dev/null; then
   args=(); for f in "$WORK/run"/raw-*.jsonl; do args+=(--raw "$f"); done
-  set +e; go run ./cmd/benchharness report "${args[@]}" > "$WORK/refused-report.txt" 2>&1; set -e
+  set +e; go run ./cmd/benchharness report "${args[@]}" > "$WORK/refused-report.txt" 2>&1; report_rc=$?; set -e
   CURRENT_LOG="$WORK/refused-report.txt"
-  grep -qE '^\s*\[( N/E |FIRED)\] 4c .*no recorded refusal' "$WORK/refused-report.txt" \
-    && bad "the report says there is no recorded refusal while refused-mps.txt sits beside the raw files it was given" \
-    || ok "the report did not claim the refusal was absent"
+  # A report that did not run cannot have failed to claim anything.
+  #
+  # The assertion below is `grep ... && bad || ok`, which prints "ok" when grep finds nothing -- including
+  # when the file is empty because the report crashed. The exit status was discarded by `set +e` and never
+  # examined, so a total failure of the thing under test read as a pass.
+  if [ "$report_rc" -ne 0 ] || [ ! -s "$WORK/refused-report.txt" ]; then
+    bad "the report exited $report_rc with $(wc -c <"$WORK/refused-report.txt" 2>/dev/null || echo 0) bytes; there is nothing to assert about"
+  elif grep -qE '^\s*\[( N/E |FIRED)\] 4c .*no recorded refusal' "$WORK/refused-report.txt"; then
+    bad "the report says there is no recorded refusal while refused-mps.txt sits beside the raw files it was given"
+  elif ! grep -qE '^\s*\[' "$WORK/refused-report.txt"; then
+    bad "the report produced no reading lines at all, so the absence of the 4c claim proves nothing"
+  else
+    ok "the report did not claim the refusal was absent"
+  fi
 fi
 rm -rf "$WORK/run"
 
@@ -340,9 +351,14 @@ compgen -G "$WORK/run/raw-shared-"'*.jsonl' >/dev/null \
   && ok "the control beside it still produced evidence" || bad "the refused arm took the measured arm down with it"
 grep -q "what the plugin and the node report" "$WORK/fail-devcount.log" \
   && ok "the diagnosis ran, so the refusal names evidence" || bad "the arm was refused with no diagnosis; the card is gone by the time anyone reads this"
-grep -q "ignoring CONFIG_FILE" "$WORK/fail-devcount.log" \
-  && bad "the refusal still asserts a cause a device count cannot establish" \
-  || ok "it reports the count without inventing the cause"
+# Same shape as above: an empty log makes the negative grep vacuously true.
+if [ ! -s "$WORK/fail-devcount.log" ]; then
+  bad "fail-devcount.log is empty, so 'it did not invent a cause' is a statement about nothing"
+elif grep -q "ignoring CONFIG_FILE" "$WORK/fail-devcount.log"; then
+  bad "the refusal still asserts a cause a device count cannot establish"
+else
+  ok "it reports the count without inventing the cause"
+fi
 rm -rf "$WORK/run"
 
 fi

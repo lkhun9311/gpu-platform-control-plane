@@ -111,6 +111,17 @@ spec:
       containers:
         - name: nvidia-device-plugin
           image: nvcr.io/nvidia/k8s-device-plugin:v0.16.2@sha256:ed39e22c8b71343fb996737741a99da88ce6c75dd83b5c520e0b3d8e8a884c47
+          # The plugin refuses to start under MPS without this, and that is how the 2026-09-12 session died.
+          #
+          #   E0912 ... error starting plugins: unable to validate flags: using MPS requires --mps-root to
+          #   be specified
+          #
+          # The value is the path INSIDE this container, not the host path: the header above records that
+          # the pinned image "roots its state under /mps", and the volume below mounts the host's
+          # /run/nvidia/mps there. The control daemon mounts the same host directory at the same container
+          # path, which is what lets the two halves meet.
+          args:
+            - --mps-root=/mps
           env:
             - name: FAIL_ON_INIT_ERROR
               value: "true"
