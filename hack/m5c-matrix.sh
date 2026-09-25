@@ -959,7 +959,7 @@ EOF
 # `benchharness report` looks: the readings run over raw files and would otherwise never learn that an arm
 # was declined, because the reason lived only in a log nothing reads back.
 mps_clients_connected() {
-  local ns_a="$1" dep_a="$2" ns_b="$3" dep_b="$4" ns dep out rc shared
+  local ns_a="$1" dep_a="$2" ns_b="$3" dep_b="$4" ns dep out rc shared pair pod pods pod_n
   for pair in "$ns_a:$dep_a" "$ns_b:$dep_b"; do
     ns="${pair%%:*}"; dep="${pair##*:}"
 
