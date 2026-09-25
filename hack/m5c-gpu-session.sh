@@ -768,7 +768,16 @@ TAGS="ResourceType=instance,Tags=[{Key=Name,Value=$STACK},{Key=purpose,Value=m5c
 # session could print "TERMINATE FAILED ... STILL running AND BILLING" and still exit 0, because a failing
 # EXIT trap does not change a script's exit status -- measured, not assumed. So the outcome goes to a file
 # the operator and the next run can both check.
+cleanup_ran=0
 cleanup() {
+  # Run once, whichever of EXIT, INT and TERM gets here first.
+  #
+  # The same function is trapped on all three, and the `exit 1` below re-enters it through EXIT --
+  # so an interrupted session called terminate-instances twice and polled for the state twice, up to
+  # a minute each. The guard is set before the work rather than after it, because the second entry
+  # arrives while the first is still inside that polling.
+  [ "$cleanup_ran" = "1" ] && return 0
+  cleanup_ran=1
   if spot_terminate "$REGION" "$IID"; then
     printf 'terminated %s\n' "${IID:-<none>}" >"${OUT:-.}/termination.txt" 2>/dev/null || true
   else
