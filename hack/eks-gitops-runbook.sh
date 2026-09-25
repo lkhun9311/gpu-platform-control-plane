@@ -191,21 +191,26 @@ apply() {
   #
   # Existence was checked in one loop and convergence in another, minutes apart, so an Application that
   # disappeared in between -- pruned, renamed, deleted by hand -- left a table whose remaining automated rows
-  # were all Synced/Healthy, and that read as success. An empty table reads that way too: `pending` counts
-  # failures among the rows present, and no rows means no failures.
-  local gone=""
-  if [[ -n "$table" ]]; then
-    gone="$(comm -23 <(printf '%s\n' "$expected") \
-      <(printf '%s\n' "$table" | awk '{print $1}' | sort) | grep -v '^$' || true)"
-  fi
-  if [[ -n "$gone" ]]; then
-    bad "$(printf '%s\n' "$gone" | wc -l) Application(s) were created and are gone again by the time convergence was judged: $(printf '%s\n' "$gone" | tr '\n' ' ')"
-  elif ((pending == 0)); then
-    ok "every automated Application is Synced/Healthy, and every declared Application is still present"
-  elif ((pending < 0)); then
+  # were all Synced/Healthy, and that read as success.
+  #
+  # An EMPTY table read that way too, and the guard that skipped the comparison whenever the table was empty
+  # is exactly what let it: `pending` counts failures among the rows present, no rows means no failures, and
+  # the comparison that would have named every declared Application as missing never ran. A successful read
+  # returning zero Applications is the strongest possible failure, not the absence of one. So the unreadable
+  # case is answered first, and every case after it compares against the table whatever the table holds.
+  if ((pending < 0)); then
     bad "could not read Application status at all; this is an unmeasured run, not a pass"
   else
-    bad "$pending automated Application(s) never reached Synced/Healthy; see applications.txt"
+    local gone
+    gone="$(comm -23 <(printf '%s\n' "$expected") \
+      <(printf '%s\n' "$table" | awk 'NF {print $1}' | sort) | grep -v '^$' || true)"
+    if [[ -n "$gone" ]]; then
+      bad "$(printf '%s\n' "$gone" | wc -l) of the $(printf '%s\n' "$expected" | wc -l) declared Application(s) are absent from the snapshot that judged convergence: $(printf '%s\n' "$gone" | tr '\n' ' ')"
+    elif ((pending == 0)); then
+      ok "every automated Application is Synced/Healthy, and every declared Application is still present"
+    else
+      bad "$pending automated Application(s) never reached Synced/Healthy; see applications.txt"
+    fi
   fi
 
   local manual
