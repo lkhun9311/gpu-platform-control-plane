@@ -79,8 +79,46 @@ func TestComputeMLTJPhase(t *testing.T) {
 			wantPhase: mltjPhaseAdmitted,
 		},
 		{
-			name:      "job with active pods is running even though the workload is admitted",
+			name:      "job with a ready pod is running even though the workload is admitted",
+			job:       &batchv1.Job{Status: batchv1.JobStatus{Active: 1, Ready: new(int32(1))}},
+			wl:        workloadAdmitted(true),
+			wantPhase: mltjPhaseRunning,
+		},
+		{
+			// The case this table used to assert the opposite of. A Pod that no node accepted is counted in
+			// Active and carries no Ready condition, and calling that Running is what made the platform's
+			// own admitToRunningSeconds start from a transition that never happened.
+			name:      "job whose only pod is pending is admitted, not running",
+			job:       &batchv1.Job{Status: batchv1.JobStatus{Active: 1, Ready: new(int32(0))}},
+			wl:        workloadAdmitted(true),
+			wantPhase: mltjPhaseAdmitted,
+		},
+		{
+			// An API server that does not report .status.ready has not said the Pod is running. Reading
+			// Active instead would restore the defect, so the unknown is carried as "not yet running".
+			name:      "job with active pods and no ready count is admitted, not running",
 			job:       &batchv1.Job{Status: batchv1.JobStatus{Active: 1}},
+			wl:        workloadAdmitted(true),
+			wantPhase: mltjPhaseAdmitted,
+		},
+		{
+			// Zero ready of zero active is not "all ready".
+			//
+			// Without this case `*job.Status.Ready == job.Status.Active` passes every other row, and it
+			// would report an admitted job with no Pods at all as Running. A table whose only positive
+			// case is 1-of-1 cannot tell a correct rule from one that happens to agree on 1-of-1.
+			name:      "job with no pods and a zero ready count is admitted, not running",
+			job:       &batchv1.Job{Status: batchv1.JobStatus{Active: 0, Ready: new(int32(0))}},
+			wl:        workloadAdmitted(true),
+			wantPhase: mltjPhaseAdmitted,
+		},
+		{
+			// One of two is enough: the phase says work started, not that the whole parallel job is ready.
+			//
+			// This is the case that rejects `*Ready > 0 && *Ready == Active`, which would hold a parallel
+			// job at Admitted for as long as any one of its Pods lagged.
+			name:      "parallel job with one of two pods ready is running",
+			job:       &batchv1.Job{Status: batchv1.JobStatus{Active: 2, Ready: new(int32(1))}},
 			wl:        workloadAdmitted(true),
 			wantPhase: mltjPhaseRunning,
 		},

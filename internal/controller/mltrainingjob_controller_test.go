@@ -255,8 +255,11 @@ var _ = Describe("MLTrainingJob Controller", func() {
 			Expect(admitted.Status.Phase).To(Equal("Admitted"))
 			Expect(admitted.Status.LastTransitionTime).NotTo(BeNil())
 
-			By("giving the Job an active pod, as Kueue's unsuspend would eventually lead to")
+			By("giving the Job a ready pod, as Kueue's unsuspend followed by a node accepting it would lead to")
+			// Active alone is not that state. It counts pending Pods too, so setting only Active here
+			// asserted Running for a Pod no node had taken -- the shape finding 6 measured in the wild.
 			job.Status.Active = 1
+			job.Status.Ready = new(int32(1))
 			Expect(k8sClient.Status().Update(ctx, job)).To(Succeed())
 
 			_, err = reconciler().Reconcile(ctx, reconcile.Request{NamespacedName: key})

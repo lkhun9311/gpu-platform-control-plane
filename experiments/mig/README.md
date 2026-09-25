@@ -41,6 +41,8 @@ three nodes — checked live, not inferred from the unit test that fixes the sam
 Targets are plain `batch/v1` Jobs, not `MLTrainingJob`s: Finding 6 showed the CR reports `Running` whenever
 `job.Status.Active > 0`, which counts pending Pods, so using it as the oracle would import a known defect
 into a study about something else. Verdicts come from the Workload, `spec.suspend`, and `PodScheduled`.
+(That defect was fixed on 2026-09-25 — the phase now reads `job.Status.Ready` — but this study's choice of
+oracle stands: it was made while the defect was live, and the verdicts here were never derived from the CR.)
 
 | arm | inventory | quota | verdict | bar |
 |---|---|---|---|---|

@@ -122,6 +122,8 @@ Confirmed defects in the live runner (each verified in code):
    and a non-zero exit.
 7. The Ready clock starts from a two-second poll of the derived MLTrainingJob `Running` phase, which only
    means `Job.Status.Active > 0`. Fix: event-driven Pod Ready.
+   (Since 2026-09-25 that phase means `Job.Status.Ready > 0`, so it no longer fires for a Pod no node took.
+   The two-second poll granularity this item is really about is unchanged, and so is the fix it asks for.)
 8. Ledger persistence is optional. Fix: a run without a persisted ledger does not count as a result.
 
 Added experimental controls (these are controls, not bug fixes, and are labelled as such): pre-pulled

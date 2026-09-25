@@ -93,7 +93,8 @@ image, webhook) is classified `unknown` and invalidated, not folded into a bucke
   exactly one state, with no cross-assignment.
 - **H4 — the control plane reports the wrong thing.** During fragmentation the `MLTrainingJob` reports
   **`Running`**, because `computeMLTJPhase` returns `Running` when `job.Status.Active > 0`
-  (`internal/controller/mltrainingjob_controller.go:288`) and Kubernetes' `JobStatus.Active` counts *pending*
+  (`internal/controller/mltrainingjob_controller.go:288` as it stood when this was registered; fixed
+  2026-09-25) and Kubernetes' `JobStatus.Active` counts *pending*
   Pods as well as running ones. If so, `admitToRunningSeconds` is recorded from a transition that never
   happened.
 - **H5 — repacking is sufficient.** Moving one holder, without adding capacity or quota, converts the
