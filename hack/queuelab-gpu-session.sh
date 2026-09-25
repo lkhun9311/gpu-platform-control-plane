@@ -722,7 +722,15 @@ cleanup() {
   fi
 }
 IID=""
-trap cleanup EXIT INT TERM
+# A signal ends the run; it does not just clean up and fall through.
+#
+# `trap cleanup EXIT INT TERM` ran cleanup on a signal and then RESUMED the script, because a trap handler
+# that returns hands control back to where the signal arrived -- so an interrupted session could go on to
+# launch an instance the guard had already marked as cleaned. Signals now exit with the conventional status,
+# which re-enters cleanup through EXIT exactly once thanks to the guard inside it.
+trap cleanup EXIT
+trap 'cleanup; exit 130' INT
+trap 'cleanup; exit 143' TERM
 for z in $ZONES; do
   SUBNET=$(spot_subnet_in_zone "$REGION" "$z") || continue
   say "trying $z ($SUBNET)"
