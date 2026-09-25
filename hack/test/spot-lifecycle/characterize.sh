@@ -160,8 +160,29 @@ run_scenario() {
   # recorded them, so a clean checkout failed all nine scenarios twice over -- a golden that fails for a
   # reason unrelated to what it pins is one that gets regenerated without being read.
   if [ -f "$out/user-data.sh" ]; then
+    # PREFIX carries a per-run nonce, which is not behaviour and cannot be goldened.
+    #
+    # hack/m5c-gpu-session.sh builds RUN_ID as `basename $OUT`-`openssl rand -hex 4`, so the payload reads
+    # PREFIX="run-ec9f4b39" with eight fresh hex digits every time. A golden recorded from one run disagreed
+    # with the very next execution of the same scenario, which is how that suite stayed red after being
+    # re-recorded. What the golden should pin is that a prefix IS rendered, not which nonce it drew.
+    #
+    # LADDER is deliberately NOT normalized. It is empty or a fixed list per scenario, so a change to it is a
+    # change to the payload and belongs in the diff.
+    # The completion marker carries the same per-run nonce, bare, and is elided ANCHORED TO ITS LINE.
+    #
+    # Not to the shape of eight hex digits: an earlier normalization here matched any 64 hex characters
+    # and erased the engine image digest out of a log, the one string identifying what was measured.
+    # `echo "$RUN_NONCE" > /tmp/DONE` is what the runner reads back to prove the evidence is this
+    # launch's (hack/m5c-gpu-session.sh:836), so the value is per-run and the line it sits on is unique.
+    #
+    # The comment that says this was briefly INSIDE the sed arguments, where `#` starts an argument
+    # rather than a comment. `bash -n` passed it, because it is syntactically fine and semantically wrong.
     sed -i -e 's/SOURCE_SHA="[0-9a-f]\{64\}"/SOURCE_SHA="<SHA256>"/' \
-           -e 's/COMMIT="[0-9a-f]\{40\}"/COMMIT="<COMMIT>"/' "$out/user-data.sh"
+           -e 's/COMMIT="[0-9a-f]\{40\}"/COMMIT="<COMMIT>"/' \
+           -e 's/PREFIX="\([A-Za-z0-9_-]*\)-[0-9a-f]\{8\}"/PREFIX="\1-<NONCE>"/' \
+           -e 's#echo "[0-9a-f]\{8\}" > /tmp/DONE#echo "<NONCE>" > /tmp/DONE#' \
+           "$out/user-data.sh"
   fi
 
   # What the script SAID is part of the golden, not only what it called and what it returned.
@@ -182,7 +203,9 @@ run_scenario() {
   # 64 hex characters and erased the engine image digest out of the microtest's messages, which is the one
   # string in that log identifying what was measured. The other suite failed immediately, which is the
   # harness catching an over-broad normalization in itself.
+  # The per-run nonce is not behaviour, and it reaches the messages as well as the payload.
   sed -e "s#$out#<OUT>#g" \
+      -e "s#run-[0-9a-f]\{8\}#run-<NONCE>#g" \
       -e "s#${TMPDIR:-/tmp}/tmp\.[A-Za-z0-9]*#<TMP>#g" \
       -e "s#/tmp/tmp\.[A-Za-z0-9]*#<TMP>#g" \
       -e "s#harness sha256 [0-9a-f]\{64\}#harness sha256 <SHA256>#g" \
@@ -196,7 +219,13 @@ run_scenario() {
   {
     # Repeating poll cycles are folded to one copy plus a count, so a 120-poll timeout is readable in
     # a diff without losing the count itself.
-    python3 "$ROOT/$HERE/collapse.py" < "$STUB_TRANSCRIPT"
+    # The nonce is elided from the CALLS too, which is where it actually sat.
+    #
+    # Normalizing user-data.sh alone left `s3://stub-bucket/run-ee4ef574/src/source.tgz` against
+    # `run-4b77cdbb` on the next run, so the suite failed twice with the same COUNT and I read that as
+    # determinism restored. Two runs failing identically for different nonces is not two runs agreeing.
+    sed -e "s#run-[0-9a-f]\{8\}#run-<NONCE>#g" "$STUB_TRANSCRIPT" \
+      | python3 "$ROOT/$HERE/collapse.py"
     printf -- '--- exit %s\n' "$rc"
     printf -- '--- messages\n'
     cat "$work/messages.txt"

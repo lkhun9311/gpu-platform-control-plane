@@ -19,7 +19,8 @@ Three suites were re-recorded and verified green:
 | `m5b-price-of-protection` | 8 passed, 0 failed |
 | `queuelab-gpu-session` | 15 passed, 0 failed |
 
-**`m5c-gpu-session` was left alone, and it is red: 2 passed, 15 failed.**
+**`m5c-gpu-session` was left alone, and at this point it was red: 2 passed, 15 failed.** (It is green now;
+the last section says what closed it. This page keeps the order the causes were found in.)
 
 ## Why it was left alone
 
@@ -64,14 +65,53 @@ range of commits. Neither is behaviour this suite is meant to pin, and both belo
 normalization beside the checksums and the commit hash it already elides — which is a change to the harness,
 not a re-recording.
 
-So the suite stays red on purpose, and the number to compare against is now **2 passed, 16 failed** (the
+So the suite stayed red on purpose at this point, and the number to compare against was **2 passed, 16 failed** (the
 sixteenth is the new `terminate-accepted-but-still-running`, which has no golden here yet). The three other
 suites were re-recorded and verified, because their only diff was the per-call timeouts added to
 `describe-instances` plus their own new scenario.
 
-## What closes it
+## Closed, same day: three places carried the same nonce
 
-Teach `hack/test/spot-lifecycle/bin/aws` to answer `configure export-credentials --format process` with an
-expiry, re-run `TARGET=hack/m5c-gpu-session.sh hack/test/spot-lifecycle/characterize.sh`, and check that the
-only remaining diff is the termination lines the other three suites also gained. Until then this suite is red
-on purpose, and `2 passed, 15 failed` is the number to compare against.
+The suite is **11 passed, 0 failed**, twice in a row on a fresh re-record. It took three normalizations,
+found one at a time, because the same value appeared in three different shapes:
+
+| where | how it read | what elides it |
+|---|---|---|
+| the payload | `PREFIX="run-ec9f4b39"` | anchored to the `PREFIX=` assignment |
+| every AWS call | `s3://stub-bucket/run-ec9f4b39/src/source.tgz` | `run-<8hex>` in the transcript and the messages |
+| the completion marker | `echo "e2ab277f" > /tmp/DONE` | anchored to that line, not to the digit shape |
+
+`RUN_NONCE` is `openssl rand -hex 4`, and `RUN_ID` is `basename $OUT`-nonce. The third one has no `run-`
+prefix, which is why it survived the first two passes.
+
+The marker's elision is anchored to its line rather than to eight hex digits **on purpose**: an earlier
+normalization in this harness matched any 64 hex characters and erased the engine image digest out of a
+log — the one string identifying what was measured. `LADDER` is deliberately not normalized either; it is
+fixed per scenario, so a change to it is a change to the payload and belongs in the diff.
+
+### Two things I read wrong on the way
+
+**A repeated count is not determinism.** After the first normalization the suite failed **4 passed, 14
+failed** twice, and I recorded that as "the non-determinism is gone, another cause remains". It was not: the
+two runs failed identically *for different nonces*. Two runs agreeing on how many scenarios failed is not
+two runs agreeing.
+
+**`bash -n` passing is not the check.** The comment explaining the marker elision was inserted between
+`sed`'s `-e` arguments, where `#` starts an argument rather than a comment. The syntax check passed it. It
+was caught by running the chain against a rendered payload and reading what came out.
+
+## What closed it
+
+Both causes, in the order they were found:
+
+1. `hack/test/spot-lifecycle/bin/aws` answers `configure export-credentials --format process` with an
+   expiry, which is the one field `hack/m5c-gpu-session.sh` reads. An empty
+   `STUB_CREDENTIALS_EXPIRE_IN_MIN` omits the field, so the cache-scanning fallback stays reachable.
+2. `run_scenario` elides the per-run nonce in all three shapes it takes — the `PREFIX=` assignment, the
+   `run-<8hex>` in every AWS call and message, and the bare value on the `/tmp/DONE` marker line.
+
+`TARGET=hack/m5c-gpu-session.sh hack/test/spot-lifecycle/characterize.sh` is **11 passed, 0 failed**, and
+stays there on a second run — which is the check that matters, because this page records a round where the
+same failing count twice was mistaken for a stable one.
+
+All four suites are green: microtest 12/0, price-of-protection 9/0, queuelab 16/0, m5c 11/0.

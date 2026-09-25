@@ -3,7 +3,7 @@ exec > >(tee /var/log/m5c.log) 2>&1
 set -x
 ( sleep 9000; shutdown -h now ) &
 BUCKET="stub-bucket"
-PREFIX="run"
+PREFIX="run-<NONCE>"
 SOURCE_SHA="<SHA256>"
 GATEWAY_SHA="<SHA>"
 HARNESS_SHA="<SHA>"
@@ -15,6 +15,8 @@ PREMIUM_WEIGHT="1"
 NOISY_WEIGHT="0.054"
 PROBE_WEIGHT="0"
 DURATION_MS="420000"
+LADDER=""
+LADDER_STUDY=""
 DEADLINE_EPOCH=$(( $(date +%s) + 8400 ))
 upload() { aws s3 cp "$1" "s3://$BUCKET/$PREFIX/$2" || true; }
 trap 'upload /var/log/m5c.log log.txt; shutdown -h now' EXIT
@@ -108,8 +110,23 @@ export GPU_NODE=m5cgpu-worker
 export DEADLINE_EPOCH
 export GATEWAY_BIN=/src/bin/gateway
 export BENCHHARNESS_BIN=/src/bin/benchharness
-export RATE PREMIUM_WEIGHT NOISY_WEIGHT PROBE_WEIGHT DURATION_MS REPS ARMS
+if [ -n "$LADDER" ]; then
+  unset RATE NOISY_WEIGHT ARMS REPS
+  export PREMIUM_WEIGHT PROBE_WEIGHT DURATION_MS LADDER LADDER_STUDY
+else
+  export RATE PREMIUM_WEIGHT NOISY_WEIGHT PROBE_WEIGHT DURATION_MS REPS ARMS
+fi
 export OUT=/src/m5c-run
+cat > /usr/local/bin/m5c-cell-done <<'CELLHOOK'
+set -u
+raw="$1"; arm="$2"; rep="$3"
+aws s3 cp "$raw" "s3://__BUCKET__/__PREFIX__/cells/$(basename "$raw")" >/dev/null 2>&1 || exit 1
+echo "  cell $arm rep $rep uploaded as it completed"
+CELLHOOK
+sed -i "s|__BUCKET__|$BUCKET|; s|__PREFIX__|$PREFIX|" /usr/local/bin/m5c-cell-done
+chmod +x /usr/local/bin/m5c-cell-done
+export CELL_DONE_HOOK=/usr/local/bin/m5c-cell-done
+export SOURCE_COMMIT="$COMMIT"
 bash hack/m5c-matrix.sh; matrix_rc=$?
 echo "matrix exited $matrix_rc"
 if [ -d /src/m5c-run ]; then
@@ -119,6 +136,6 @@ fi
 kubectl get nodes -o wide > /tmp/nodes.txt 2>&1 || true
 upload /tmp/nodes.txt nodes.txt
 if [ "$matrix_rc" = "0" ]; then
-  echo done > /tmp/DONE
+  echo "<NONCE>" > /tmp/DONE
   aws s3 cp /tmp/DONE "s3://$BUCKET/$PREFIX/DONE"
 fi
