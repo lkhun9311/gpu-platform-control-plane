@@ -402,6 +402,25 @@ session-manifest: ## Check that a campaign leaves an attempt history.
 	@# Deleting the whole manifest block left every other check green, refusals test included.
 	./hack/gpu-session-manifest-test.sh
 
+.PHONY: spot-lifecycle
+spot-lifecycle: ## Replay every paid runner against recording stubs and diff the call transcripts.
+	@# Four golden suites existed and nothing ran them, which is how the thing they guard came back.
+	@#
+	@# They pin the parts of a paid session that spend money when they break -- launch arguments, zone retry,
+	@# stale completion markers, teardown -- and two rounds of review found defects inside them that had been
+	@# green for days: a suite whose every m5c golden ended `exit 1`, a trap assertion that accepted the bug it
+	@# was rewritten for, a `shutting-down` branch no scenario executed. Every one of those was found by hand.
+	@#
+	@# Safe in CI and asserted to be: the runners are driven with hack/test/spot-lifecycle/bin/{aws,sleep}
+	@# first on PATH, so no API is reached and no instance can launch. Checked by hiding docker, kind, aws,
+	@# kubectl, helm and terraform behind exit-127 shims -- all four suites stay green -- and again on a PATH
+	@# of /usr/bin:/bin plus Go. About 90 seconds for the four.
+	@fail=0; for t in hack/m5b-scheduler-microtest.sh hack/m5b-price-of-protection.sh \
+		hack/m5c-gpu-session.sh hack/queuelab-gpu-session.sh; do \
+		TARGET="$$t" ./hack/test/spot-lifecycle/characterize.sh || fail=1; \
+	done; \
+	if [ "$$fail" != "0" ]; then echo "spot-lifecycle: a runner's recorded behaviour changed" >&2; exit 1; fi
+
 .PHONY: infra-offline
 infra-offline: terraform ## Check that the Terraform validation step needs no AWS access.
 	@# A prerequisite of infra-validate rather than a step inside it, because the thing it guards is the
@@ -410,7 +429,7 @@ infra-offline: terraform ## Check that the Terraform validation step needs no AW
 	./hack/infra-validate-is-offline-test.sh
 
 .PHONY: infra-validate
-infra-validate: terraform kustomize actionlint shell-check session-refusals session-manifest docs-check infra-offline ## Validate Terraform (offline), Argo manifests, shell, workflow YAML, the session refusals, the campaign manifest, and the published docs' names.
+infra-validate: terraform kustomize actionlint shell-check session-refusals session-manifest docs-check spot-lifecycle infra-offline ## Validate Terraform (offline), Argo manifests, shell, workflow YAML, the session refusals, the campaign manifest, the published docs' names, and every paid runner's recorded behaviour.
 	@# Each root is validated in a throwaway TF_DATA_DIR, and the loop stops at the first failure.
 	@#
 	@# Two defects lived in the previous three lines. The first: `-backend=false` does not mean "no backend".
