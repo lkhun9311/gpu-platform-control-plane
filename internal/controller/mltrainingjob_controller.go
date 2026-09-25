@@ -285,7 +285,19 @@ func computeMLTJPhase(job *batchv1.Job, wl *kueuev1beta1.Workload) (string, meta
 	if isJobConditionTrue(job, batchv1.JobComplete) {
 		return mltjPhaseSucceeded, admittedCondition(metav1.ConditionTrue, "JobComplete")
 	}
-	if job.Status.Active > 0 {
+	// Running means a node accepted a Pod, and Active does not say that.
+	//
+	// `.status.active` counts pending Pods as well as running ones, so a job whose Pod no node would take
+	// reported Running -- measured at 145 of 145 samples across 179.1 s in two arms of the fragmentation
+	// study (docs/11_WHAT_THIS_MEASURED.md, finding 6). The cost is not only a wrong phase: the running end
+	// of admitToRunningSeconds is recorded on entry into this phase, so the platform's own latency metric
+	// was taken from a moment that never happened.
+	//
+	// `.status.ready` counts active Pods carrying a Ready condition, which a Pod that was never scheduled
+	// cannot have. It is a pointer because very old API servers omit it, and a nil there is "this cluster
+	// did not say", not "no Pod is running" -- so it falls through to Admitted rather than reinstating the
+	// Active reading, which would restore exactly the defect this replaces.
+	if job.Status.Ready != nil && *job.Status.Ready > 0 {
 		return mltjPhaseRunning, admittedCondition(metav1.ConditionTrue, "PodsRunning")
 	}
 	if wl != nil && meta.IsStatusConditionTrue(wl.Status.Conditions, kueuev1beta1.WorkloadAdmitted) {

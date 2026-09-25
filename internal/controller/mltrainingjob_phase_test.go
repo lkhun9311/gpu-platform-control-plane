@@ -79,10 +79,34 @@ func TestComputeMLTJPhase(t *testing.T) {
 			wantPhase: mltjPhaseAdmitted,
 		},
 		{
-			name:      "job with active pods is running even though the workload is admitted",
-			job:       &batchv1.Job{Status: batchv1.JobStatus{Active: 1}},
+			name:      "job with a ready pod is running even though the workload is admitted",
+			job:       &batchv1.Job{Status: batchv1.JobStatus{Active: 1, Ready: new(int32(1))}},
 			wl:        workloadAdmitted(true),
 			wantPhase: mltjPhaseRunning,
+		},
+		{
+			// The case this table used to assert the opposite of. A Pod that no node accepted is counted in
+			// Active and carries no Ready condition, and calling that Running is what made the platform's
+			// own admitToRunningSeconds start from a transition that never happened.
+			name:      "job whose only pod is pending is admitted, not running",
+			job:       &batchv1.Job{Status: batchv1.JobStatus{Active: 1, Ready: new(int32(0))}},
+			wl:        workloadAdmitted(true),
+			wantPhase: mltjPhaseAdmitted,
+		},
+		{
+			// An API server that does not report .status.ready has not said the Pod is running. Reading
+			// Active instead would restore the defect, so the unknown is carried as "not yet running".
+			name:      "job with active pods and no ready count is admitted, not running",
+			job:       &batchv1.Job{Status: batchv1.JobStatus{Active: 1}},
+			wl:        workloadAdmitted(true),
+			wantPhase: mltjPhaseAdmitted,
+		},
+		{
+			// Completion outranks the ready count: a finished job has no ready Pods left.
+			name:      "job that completed with no ready pods is succeeded",
+			job:       jobWithCondition(batchv1.JobComplete, corev1.ConditionTrue),
+			wl:        workloadAdmitted(true),
+			wantPhase: mltjPhaseSucceeded,
 		},
 		{
 			name:      "job with the complete condition true is succeeded",
