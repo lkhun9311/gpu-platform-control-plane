@@ -179,10 +179,19 @@ for step in apply seed-key verify; do
   fi
 done
 
-aws resourcegroupstaggingapi get-resources --region "$REGION" \
+# stderr to its own file, and a baseline nobody could read is marked as such rather than left to pass as one.
+#
+# `>file 2>&1 || true` wrote the ERROR TEXT into the baseline when the query failed, so the comparison after
+# the destroy read that text as the set of resources that existed beforehand -- and reported every surviving
+# ARN as one that had newly appeared. The after-side already guards this with its UNKNOWN sentinel; the
+# before-side had no guard at all, which is the same unreadable-is-not-empty confusion in the other half.
+if ! aws resourcegroupstaggingapi get-resources --region "$REGION" \
   --tag-filters "Key=project,Values=gpu-platform-control-plane" \
   --query 'ResourceTagMappingList[].ResourceARN' --output text \
-  >"$EXDIR/tagged-before-destroy.txt" 2>&1 || true
+  >"$EXDIR/tagged-before-destroy.txt" 2>"$EXDIR/tagged-before-destroy.err"; then
+  printf 'UNKNOWN\n' >"$EXDIR/tagged-before-destroy.txt"
+  log "warning: could not read the pre-destroy tag baseline ($(tr '\n' ' ' <"$EXDIR/tagged-before-destroy.err" | cut -c1-110)); the appeared-since comparison will be skipped rather than computed against nothing"
+fi
 
 # --- Teardown ------------------------------------------------------------------------------------------
 
@@ -215,7 +224,7 @@ tag_now="$(aws resourcegroupstaggingapi get-resources --region "$REGION" \
   --tag-filters "Key=project,Values=gpu-platform-control-plane" \
   --query 'ResourceTagMappingList[].ResourceARN' --output text 2>/dev/null || echo UNKNOWN)"
 printf '%s\n' "$tag_now" | tr '\t' '\n' >"$EXDIR/tagged-after-destroy.txt"
-if [[ "$tag_now" != "UNKNOWN" ]]; then
+if [[ "$tag_now" != "UNKNOWN" ]] && ! grep -qx UNKNOWN "$EXDIR/tagged-before-destroy.txt"; then
   appeared="$(comm -13 \
     <(tr '\t' '\n' <"$EXDIR/tagged-before-destroy.txt" | sed '/^$/d' | sort -u) \
     <(printf '%s\n' "$tag_now" | tr '\t' '\n' | sed '/^$/d' | sort -u) | sed '/^$/d' || true)"
@@ -234,9 +243,13 @@ unasked=""
 still() {
   local label="$1"
   shift
-  local out rc
-  out="$("$@" 2>"$EXDIR/aws-$label.err")"
-  rc=$?
+  # The status has to be collected in the same list as the command that produced it.
+  #
+  # `rc=$?` on its own line never ran: under `set -e` a plain assignment whose command substitution fails
+  # takes that status and ends the shell right there. So the three answers below were unreachable for the one
+  # input they were written for -- an expired token -- and this function had never once classified a failure.
+  local out rc=0
+  out="$("$@" 2>"$EXDIR/aws-$label.err")" || rc=$?
   out="$(printf '%s' "$out" | tr '\t' ' ')"
   if ((rc != 0)); then
     unasked="$unasked$label(rc=$rc: $(tr '\n' ' ' <"$EXDIR/aws-$label.err" 2>/dev/null | cut -c1-110)); "
@@ -269,13 +282,20 @@ if [[ -z "${unasked// /}" && -z "${billing_left// /}" ]]; then
   ok "nothing that charges remains: no EKS cluster, instance, NAT gateway, EIP, volume, ASG or load balancer"
 fi
 
-# Disarmed only on a VERIFIED teardown, never on an attempted one.
+# Disarmed only on a VERIFIED teardown, never on an attempted one -- and "verified" is a fact about the
+# teardown, not about the session.
 #
 # Leaving the watchdog armed after an unverified teardown costs one more destroy attempt at TTL. Disarming it
-# after one costs an instance running until somebody notices.
-if ((failures == 0)); then
+# after one costs an instance running until somebody notices. Gating on the session-wide failure count
+# conflated the two: a runbook bar that went red while the destroy returned zero and every residue query came
+# back empty left a destroy timer armed over an account with nothing left to destroy, and whatever the next
+# session built into this same state before the TTL would have been torn down under it.
+#
+# The cluster destroy is already fatal above, so reaching this line means it returned zero. What is left to
+# decide is whether the residue check could ask, and what it found.
+if [[ -z "${unasked// /}" && -z "${billing_left// /}" ]]; then
   disarm
-  log "kill switch disarmed"
+  log "kill switch disarmed: destroy returned zero, every residue query was answered, and all were empty"
 else
   log "kill switch LEFT ARMED (pid $KILL_PID, fires at TTL): the teardown could not be verified"
 fi

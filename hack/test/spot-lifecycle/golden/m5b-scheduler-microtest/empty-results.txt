@@ -39,4 +39,5 @@ FAIL: no results were written; <OUT>/log.txt may say why
 ./microtest.py
 ./results.json
 ./stderr.txt
+./termination.txt
 ./user-data.sh

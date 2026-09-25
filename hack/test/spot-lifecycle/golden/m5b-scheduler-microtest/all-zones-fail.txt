@@ -25,4 +25,5 @@ FAIL: no zone would launch g5.xlarge; see <OUT>/launch-errors.txt
 --- files
 ./launch-errors.txt
 ./microtest.py
+./termination.txt
 ./user-data.sh

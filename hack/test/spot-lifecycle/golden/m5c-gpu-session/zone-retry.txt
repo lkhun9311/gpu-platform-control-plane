@@ -74,6 +74,8 @@ gateway checksum: user-data matches the uploaded binary
 ./m5c-run/raw-shared-1.jsonl
 ./m5c-run/raw-timeSlicing-1.jsonl
 ./nodes.txt
+./preflight-node-cards.txt
+./preflight-nvidia-smi.csv
 ./source.tgz
 ./termination.txt
 ./user-data.sh

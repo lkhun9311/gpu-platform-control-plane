@@ -37,6 +37,7 @@ sleep 5
 == terminating i-0stub
 TERMINATION UNCONFIRMED for i-0stub: still running after an accepted terminate call. Check it by hand:
   aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0stub
+TERMINATION UNCONFIRMED for i-0stub
 --- files
 ./instance-id
 ./launch-errors.txt
@@ -44,4 +45,5 @@ TERMINATION UNCONFIRMED for i-0stub: still running after an accepted terminate c
 ./microtest.py
 ./results.json
 ./stderr.txt
+./termination.txt
 ./user-data.sh

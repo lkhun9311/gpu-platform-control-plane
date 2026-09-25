@@ -36,4 +36,5 @@ FAIL: no completion marker after 120 polls; the run either is still going or hun
 ./launch-errors.txt
 ./log.txt
 ./microtest.py
+./termination.txt
 ./user-data.sh

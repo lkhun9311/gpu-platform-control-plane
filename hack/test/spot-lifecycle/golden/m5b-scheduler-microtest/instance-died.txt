@@ -38,4 +38,5 @@ FAIL: the instance was terminated before it wrote its completion marker; <OUT>/l
 ./launch-errors.txt
 ./log.txt
 ./microtest.py
+./termination.txt
 ./user-data.sh

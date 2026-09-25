@@ -23,7 +23,6 @@ aws s3 cp s3://stub-bucket/run-<NONCE>/commit.txt <OUT>/commit.txt
 aws s3 cp s3://stub-bucket/run-<NONCE>/nodes.txt <OUT>/nodes.txt
 aws s3 cp s3://stub-bucket/run-<NONCE>/preflight-nvidia-smi.csv <OUT>/preflight-nvidia-smi.csv
 aws s3 cp s3://stub-bucket/run-<NONCE>/preflight-node-cards.txt <OUT>/preflight-node-cards.txt
-aws s3api list-objects-v2 --bucket stub-bucket --prefix run-<NONCE>/cells/ --query Contents[].Key --output text
 aws ec2 terminate-instances --region ap-northeast-2 --instance-ids i-0stub
 aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0stub --cli-connect-timeout 5 --cli-read-timeout 10 --query Reservations[0].Instances[0].State.Name --output text
 harness checksum: user-data matches the uploaded binary
@@ -46,10 +45,9 @@ gateway checksum: user-data matches the uploaded binary
 == trying ap-northeast-2a (subnet-ap-northeast-2a)
 == instance i-0stub
 == waiting for results (driver, toolkit, cluster and preflight come first; about 25 minutes before the first cell)
-== raw files recovered before the end: 0
 == terminating i-0stub
 == i-0stub is terminated
-FAIL: no completion marker within the hard stop; 0 raw file(s) were recovered and i-0stub has been terminated
+FAIL: the instance finished and these preflight files never arrived: preflight-nvidia-smi.csv preflight-node-cards.txt. They identify the card and driver the numbers were taken on, and a measurement whose apparatus is unidentified is not one this study can report
 --- files
 ./benchharness
 ./gateway
