@@ -280,7 +280,29 @@ def main() -> int:
     checks = ("grad_matches", "w_matches", "all_ranks_agree")
     failed = [name for name in checks if verdict.get(name) is False]
     verdict["failed_checks"] = failed
-    verdict["exit_code"] = 0 if (not failed or NO_SYNC) else 1
+    
+    # The control run is exempted from the checks, not from having an expectation.
+    #
+    # `0 if (not failed or NO_SYNC)` passed the control run whatever it produced. Its whole purpose is to
+    # show that switching synchronisation off makes the ranks diverge, so a control run in which they
+    # AGREE has disproved the thing it exists to demonstrate -- and reported success. That is the same
+    # shape as the defect the comment above describes, one level up: a result that cannot fail.
+    #
+    # So the control run has its own bar. It must diverge; missing the digest comparison entirely is a
+    # run that measured nothing and fails too, rather than passing by absence.
+    if NO_SYNC:
+        agreed = verdict.get("all_ranks_agree")
+        if agreed is None:
+            verdict["control_verdict"] = "no rank comparison was recorded"
+            verdict["exit_code"] = 1
+        elif agreed:
+            verdict["control_verdict"] = "the ranks agreed with synchronisation off, so this control shows nothing"
+            verdict["exit_code"] = 1
+        else:
+            verdict["control_verdict"] = "the ranks diverged, as a run without synchronisation must"
+            verdict["exit_code"] = 0
+    else:
+        verdict["exit_code"] = 0 if not failed else 1
 
     emitter.emit("verdict", **verdict)
 
