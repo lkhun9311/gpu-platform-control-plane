@@ -145,6 +145,14 @@ spec:
     metadata:
       labels: {engine: $name, app.kubernetes.io/component: vllm-shared}
     spec:
+      # The shared IPC namespace, for the same reason the pipe directory below is here.
+      #
+      # The matrix now asks for hostIPC before it asks about the pipe: a pod in its own IPC namespace cannot
+      # reach the control daemon whatever its environment says, so the three facts the old check read could
+      # all be true of a pod that was not an MPS client. This stub models a correct cluster, so it declares
+      # what a correct cluster declares -- and config/vllm-shared/engine-*.yaml now does too, which is what
+      # made the contradiction visible.
+      hostIPC: true
       containers:
         - name: vllm
           image: $STUB_IMAGE
@@ -446,8 +454,22 @@ if [ -n "$LADDER_UNDER_TEST" ]; then
 else
   for arm in $ARMS_UNDER_TEST; do
     for rep in $(seq 1 "${REPS:-1}"); do
+      # An arm that was REFUSED and recorded is allowed to have no evidence. Only that arm.
+      #
+      # This rehearsal has no MPS control daemon, so the mps arm cannot become a real MPS client and the
+      # matrix refuses it as a registered outcome -- reading 4c. Demanding a raw file from it therefore
+      # failed a rehearsal that behaved correctly, which it had been doing since the CONTROL=no check
+      # arrived without a rehearsal of its own.
+      #
+      # The exemption is narrow on purpose: it requires the refusal FILE the report reads, so an arm that
+      # silently wrote nothing still fails. Waiving the check for a name would be the false green this
+      # suite exists to catch.
+      if [ -s "$OUT_DIR/refused-$arm.txt" ]; then
+        say "  $arm was refused and recorded, so no raw evidence is expected from it"
+        continue
+      fi
       [ -s "$OUT_DIR/raw-$arm-$rep.jsonl" ] \
-        || fail "no raw evidence for $arm repetition $rep. The matrix reported success, so this is a cell that ran and wrote nothing"
+        || fail "no raw evidence for $arm repetition $rep, and no refused-$arm.txt either. The matrix reported success, so this is a cell that ran and wrote nothing"
       want_cells="$want_cells$arm $rep raw-$arm-$rep.jsonl
 "
     done
