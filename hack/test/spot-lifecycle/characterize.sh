@@ -665,7 +665,7 @@ scenarios_queuelab_gpu_session() {
 # Ctrl-C in that window strands a GPU instance with nothing to terminate it. So the order is checked where
 # the order lives.
 trap_armed_before_launch() {
-  local f="$ROOT/$TARGET" t l
+  local f="$ROOT/$TARGET" t l n_traps resumes
   # EVERY trap that arms cleanup has to be in place before the launch, not just one line matching one shape.
   #
   # This looked for the literal `trap cleanup EXIT INT TERM`. When the wrappers split that into three traps --
