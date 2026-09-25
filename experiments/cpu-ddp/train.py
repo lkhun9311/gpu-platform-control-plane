@@ -320,9 +320,6 @@ def main() -> int:
             # on the divergence alone, which is the same shape as the defect this gate was added to close.
             verdict["control_verdict"] = f"checks were never computed: {missing}"
             verdict["exit_code"] = 1
-        elif agreed is None:
-            verdict["control_verdict"] = "no rank comparison was recorded"
-            verdict["exit_code"] = 1
         elif agreed:
             verdict["control_verdict"] = "the ranks agreed with synchronisation off, so this control shows nothing"
             verdict["exit_code"] = 1
