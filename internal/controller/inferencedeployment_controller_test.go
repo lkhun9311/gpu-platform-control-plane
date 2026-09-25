@@ -26,6 +26,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -36,6 +37,95 @@ import (
 
 	platformv1 "github.com/lkhun9311/gpu-mlops-platform-control-plane/api/v1"
 )
+
+var _ = Describe("which policy charges this namespace", func() {
+	ctx := context.Background()
+
+	// The queue label decides whose quota this deployment's serving Pods are charged against, so choosing it
+	// arbitrarily bills one tenant for another. Nothing forbids two policies naming the same targetNamespace
+	// -- the admission webhook's quota-mode check is written for exactly that case -- and `servingQueue` used
+	// to return the first match from a List, whose order the API server does not promise.
+	infdFor := func(name, ns string) *platformv1.InferenceDeployment {
+		return &platformv1.InferenceDeployment{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns},
+			Spec: platformv1.InferenceDeploymentSpec{
+				Model: platformv1.InferenceModel{Name: "m", StorageURI: "s3://m"},
+				Image: "vllm/vllm-openai:test", Replicas: 1, Port: 8080,
+			},
+		}
+	}
+	trainingPolicy := func(name, tenant, target string) *platformv1.GPUQuotaPolicy {
+		return &platformv1.GPUQuotaPolicy{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "policy-home"},
+			Spec: platformv1.GPUQuotaPolicySpec{
+				Tenant: tenant, TargetNamespace: target, TrainingQuota: true,
+				Limits: platformv1.GPUQuotaLimits{GPUCount: 4},
+			},
+		}
+	}
+	reconcilerWith := func(objs ...client.Object) (*InferenceDeploymentReconciler, client.Client) {
+		c := fake.NewClientBuilder().
+			WithScheme(k8sClient.Scheme()).
+			WithObjects(objs...).
+			WithStatusSubresource(&platformv1.InferenceDeployment{}).
+			Build()
+		return &InferenceDeploymentReconciler{Client: c, Scheme: c.Scheme()}, c
+	}
+	key := types.NamespacedName{Name: "served", Namespace: "team-a"}
+
+	It("charges the one policy that claims the namespace", func() {
+		r, c := reconcilerWith(infdFor("served", "team-a"), trainingPolicy("p1", "team-a", "team-a"))
+		for range 3 {
+			_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: key})
+			Expect(err).NotTo(HaveOccurred())
+		}
+		dep := &appsv1.Deployment{}
+		Expect(c.Get(ctx, key, dep)).To(Succeed())
+		Expect(dep.Labels).To(HaveKeyWithValue(kueueQueueLabel, "gpu-team-a"))
+	})
+
+	It("charges nothing when no policy claims the namespace", func() {
+		// A namespace with no GPUQuotaPolicy is one this platform makes no quota claim about, and serving
+		// there must still reconcile -- otherwise a policy becomes a prerequisite for running at all.
+		r, c := reconcilerWith(infdFor("served", "team-a"))
+		for range 3 {
+			_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: key})
+			Expect(err).NotTo(HaveOccurred())
+		}
+		dep := &appsv1.Deployment{}
+		Expect(c.Get(ctx, key, dep)).To(Succeed())
+		Expect(dep.Labels).NotTo(HaveKey(kueueQueueLabel))
+	})
+
+	// Mutation that turns this red: return the first match from the List instead of refusing on more than one.
+	It("refuses to choose when two policies claim the namespace", func() {
+		r, c := reconcilerWith(
+			infdFor("served", "team-a"),
+			trainingPolicy("p1", "team-a", "team-a"),
+			trainingPolicy("p2", "team-a-shadow", "team-a"),
+		)
+		for range 3 {
+			_, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: key})
+			Expect(err).NotTo(HaveOccurred())
+		}
+
+		got := &platformv1.InferenceDeployment{}
+		Expect(c.Get(ctx, key, got)).To(Succeed())
+		Expect(got.Status.Phase).To(Equal(infdPhaseDegraded),
+			"an ambiguous quota claim was resolved by List order instead of refused")
+
+		cond := meta.FindStatusCondition(got.Status.Conditions, infdCondAvailable)
+		Expect(cond).NotTo(BeNil())
+		Expect(cond.Reason).To(Equal(infdReasonQuotaPolicyAmbiguous))
+		// Both names, so an operator is told which objects to reconcile by hand, and in a stable order.
+		Expect(cond.Message).To(ContainSubstring("p1, p2"))
+
+		By("leaving no Deployment behind, since which queue it would carry is exactly what is undecided")
+		dep := &appsv1.Deployment{}
+		err := c.Get(ctx, key, dep)
+		Expect(err).To(HaveOccurred())
+	})
+})
 
 var _ = Describe("mapPolicyToInferenceDeployments", func() {
 	ctx := context.Background()
