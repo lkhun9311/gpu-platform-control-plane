@@ -46,6 +46,29 @@ intended. It may well be intended — the stub may simply need to answer the new
 different question from the one this change was answering, and a golden updated without reading it is a
 golden nobody reads.
 
+## Amendment, same day: the credential call was only the first cause
+
+The stub now answers `aws configure export-credentials --format process` with an expiry, and the credential
+divergence is gone — the transcripts line up on that call and on the message it produces. The suite is still
+red, for a **second** cause that re-recording cannot settle:
+
+```
+-PREFIX="run"
++PREFIX="run-ec9f4b39"
++LADDER=""
+```
+
+The prefix now carries an eight-character hash that differs on every run, so a re-recorded golden disagrees
+with the very next execution of the same scenario. `LADDER=""` arrived with the ladder work in the same
+range of commits. Neither is behaviour this suite is meant to pin, and both belong in `run_scenario`'s
+normalization beside the checksums and the commit hash it already elides — which is a change to the harness,
+not a re-recording.
+
+So the suite stays red on purpose, and the number to compare against is now **2 passed, 16 failed** (the
+sixteenth is the new `terminate-accepted-but-still-running`, which has no golden here yet). The three other
+suites were re-recorded and verified, because their only diff was the per-call timeouts added to
+`describe-instances` plus their own new scenario.
+
 ## What closes it
 
 Teach `hack/test/spot-lifecycle/bin/aws` to answer `configure export-credentials --format process` with an
