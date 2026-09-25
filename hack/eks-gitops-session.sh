@@ -97,8 +97,13 @@ setsid nohup bash -c "
   # needs a reachable API endpoint that, by the time this fires, may well be gone -- so attempting it first
   # would spend the watchdog's one chance on the cheap half.
   AWS_PROFILE='$AWS_PROFILE' AWS_REGION='$REGION' terraform -chdir='$CLUSTER_DIR' destroy -auto-approve \
-    -var='region=$REGION' >> '$PWD/$KILL_LOG' 2>&1
-  echo \"[ttl] \$(date -u +%H:%M:%SZ) force-destroy finished\" >> '$PWD/$KILL_LOG' 2>&1
+    -var='region=$REGION' -var='cluster_name=$CLUSTER' >> '$PWD/$KILL_LOG' 2>&1
+  ttl_rc=\$?
+  if [ \"\$ttl_rc\" = 0 ]; then
+    echo \"[ttl] \$(date -u +%H:%M:%SZ) force-destroy SUCCEEDED\" >> '$PWD/$KILL_LOG' 2>&1
+  else
+    echo \"[ttl] \$(date -u +%H:%M:%SZ) force-destroy FAILED rc=\$ttl_rc -- the cluster may still be billing\" >> '$PWD/$KILL_LOG' 2>&1
+  fi
 " >/dev/null 2>&1 &
 # The watchdog reports its own pid, because `$!` here is the setsid process and not the watchdog.
 #
@@ -134,8 +139,14 @@ terraform -chdir="$CLUSTER_DIR" init -input=false -reconfigure \
 
 started=$(date +%s)
 log "terraform apply (cluster) -- this is where the billing starts"
+# CLUSTER is passed to Terraform, not only to kubectl.
+#
+# The name reached `aws eks update-kubeconfig` and never reached the root that creates the cluster, so both
+# sides fell back to their own default and agreed by luck. Setting CLUSTER to anything else would have built
+# one cluster and pointed every later step at another -- and the destroy below would have torn down the
+# default rather than the one this session made.
 terraform -chdir="$CLUSTER_DIR" apply -auto-approve -input=false \
-  -var="region=$REGION" -var="api_public_access_cidrs=[\"$EGRESS_CIDR\"]" \
+  -var="region=$REGION" -var="cluster_name=$CLUSTER" -var="api_public_access_cidrs=[\"$EGRESS_CIDR\"]" \
   >>"$EXDIR/terraform.log" 2>&1 || die "cluster apply failed; the kill switch still holds at PID $KILL_PID"
 log "cluster up in $(( $(date +%s) - started ))s"
 
@@ -184,7 +195,8 @@ log "destroy: argo-bootstrap, then cluster"
 terraform -chdir="$ARGO_DIR" destroy -auto-approve -input=false \
   -var="cluster_endpoint=$endpoint" -var="cluster_ca=$ca" >>"$EXDIR/terraform.log" 2>&1 ||
   log "warning: argo destroy returned non-zero; the cluster destroy below removes it anyway"
-terraform -chdir="$CLUSTER_DIR" destroy -auto-approve -input=false -var="region=$REGION" \
+terraform -chdir="$CLUSTER_DIR" destroy -auto-approve -input=false \
+  -var="region=$REGION" -var="cluster_name=$CLUSTER" \
   >>"$EXDIR/terraform.log" 2>&1 || {
   bad "CLUSTER DESTROY FAILED -- the kill switch at PID $KILL_PID will retry at TTL. Do not walk away."
   exit 1
@@ -213,12 +225,24 @@ if [[ "$tag_now" != "UNKNOWN" ]]; then
 fi
 
 billing_left=""
+# Three answers, not two: none, some, and COULD NOT ASK.
+#
+# This discarded stderr and forced rc=0, so a query refused on expired credentials or a denied policy came
+# back empty and read as "nothing left" -- and the kill switch was disarmed on the strength of it. A teardown
+# nobody could verify is not a verified teardown, and it is the one mistake here that bills by the hour.
+unasked=""
 still() {
   local label="$1"
   shift
-  local out
-  out="$("$@" 2>/dev/null | tr '\t' ' ' || true)"
-  [[ -n "${out// /}" ]] && billing_left="$billing_left$label=$out; "
+  local out rc
+  out="$("$@" 2>"$EXDIR/aws-$label.err")"
+  rc=$?
+  out="$(printf '%s' "$out" | tr '\t' ' ')"
+  if ((rc != 0)); then
+    unasked="$unasked$label(rc=$rc: $(tr '\n' ' ' <"$EXDIR/aws-$label.err" 2>/dev/null | cut -c1-110)); "
+  elif [[ -n "${out// /}" ]]; then
+    billing_left="$billing_left$label=$out; "
+  fi
   return 0
 }
 still eks aws eks list-clusters --region "$REGION" --query 'clusters' --output text
@@ -234,14 +258,27 @@ still asg aws autoscaling describe-auto-scaling-groups --region "$REGION" \
 still elb aws elbv2 describe-load-balancers --region "$REGION" \
   --query 'LoadBalancers[].LoadBalancerName' --output text
 printf '%s\n' "${billing_left:-none}" >"$EXDIR/billing-after-destroy.txt"
+printf '%s\n' "${unasked:-none}" >"$EXDIR/billing-unasked.txt"
+if [[ -n "${unasked// /}" ]]; then
+  bad "could not ask whether these still charge: $unasked -- the teardown is unverified, not confirmed"
+fi
 if [[ -n "${billing_left// /}" ]]; then
   bad "something that charges is still alive: $billing_left"
-else
+fi
+if [[ -z "${unasked// /}" && -z "${billing_left// /}" ]]; then
   ok "nothing that charges remains: no EKS cluster, instance, NAT gateway, EIP, volume, ASG or load balancer"
 fi
 
-disarm
-log "kill switch disarmed"
+# Disarmed only on a VERIFIED teardown, never on an attempted one.
+#
+# Leaving the watchdog armed after an unverified teardown costs one more destroy attempt at TTL. Disarming it
+# after one costs an instance running until somebody notices.
+if ((failures == 0)); then
+  disarm
+  log "kill switch disarmed"
+else
+  log "kill switch LEFT ARMED (pid $KILL_PID, fires at TTL): the teardown could not be verified"
+fi
 log "evidence in $EXDIR"
 ((failures == 0)) || { log "$failures check(s) failed"; exit 1; }
 exit 0
