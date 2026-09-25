@@ -45,4 +45,5 @@ aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0stub --cli-
 ./microtest.py
 ./results.json
 ./stderr.txt
+./termination.txt
 ./user-data.sh

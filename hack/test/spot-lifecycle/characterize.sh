@@ -206,6 +206,7 @@ run_scenario() {
   # The per-run nonce is not behaviour, and it reaches the messages as well as the payload.
   sed -e "s#$out#<OUT>#g" \
       -e "s#run-[0-9a-f]\{8\}#run-<NONCE>#g" \
+      -e "s#this launch's nonce is '[0-9a-f]\{8\}'#this launch's nonce is '<NONCE>'#g" \
       -e "s#${TMPDIR:-/tmp}/tmp\.[A-Za-z0-9]*#<TMP>#g" \
       -e "s#/tmp/tmp\.[A-Za-z0-9]*#<TMP>#g" \
       -e "s#harness sha256 [0-9a-f]\{64\}#harness sha256 <SHA256>#g" \
@@ -339,8 +340,18 @@ STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 STUB_DONE_AFTER=2 \
 # reported as terminated. The polling that now follows an accepted call is only honest if this
 # path is executed.
 STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 STUB_DONE_AFTER=2 \
-  STUB_TERMINATE_LINGERS=1 STUB_PRESENT_KEYS="results.json log.txt stderr.txt" \
+  STUB_TERMINATE_LINGERS=1 SPOT_TERMINATE_TRIES=12 STUB_PRESENT_KEYS="results.json log.txt stderr.txt" \
   run_scenario terminate-accepted-but-still-running bash "$TARGET"
+
+# The instance is accepted, passes through `shutting-down`, and only then reaches `terminated`.
+#
+# This is the normal shape of a real terminate, and nothing executed it. `shutting-down` stopped counting
+# as done -- because an instance in that state is still on the bill -- and no scenario turned the stub's
+# STUB_SHUTTING_DOWN_FOR knob on, so reverting that change left all four suites green. A distinction the
+# tests cannot see is a distinction the next edit will quietly remove.
+STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 STUB_DONE_AFTER=2 \
+  STUB_SHUTTING_DOWN_FOR=3 SPOT_TERMINATE_TRIES=12 STUB_PRESENT_KEYS="results.json log.txt stderr.txt" \
+  run_scenario terminate-shuts-down-then-terminated bash "$TARGET"
 
 # No zone will take it. This must fail loudly and must not leave an instance behind.
 STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 \
@@ -425,9 +436,14 @@ scenarios_price_of_protection() {
   #
   # This wrapper gained the `exit 1` it performs when termination cannot be confirmed, and no
   # scenario here reached it. A gate whose failure path nothing executes is a gate on paper.
-  # REQUIRE_CLEAN_TREE is set so this scenario REACHES the terminate path rather than refusing first.
-  REQUIRE_CLEAN_TREE=0 STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 STUB_DONE_AFTER=2 STUB_TERMINATE_LINGERS=1 \
-    STUB_PRESENT_KEYS="log.txt" \
+  # The keys are the ones THIS runner downloads, so the scenario fails for the reason it is named for.
+  #
+  # With only log.txt it stopped at "no evidence archive was written" before it ever reached the terminate
+  # path, so deleting the wrapper's `exit 1` would not have changed this golden by a byte -- the gate the
+  # scenario exists to pin was pinned by nothing. REQUIRE_CLEAN_TREE is gone because this wrapper never
+  # read it; only m5c and queuelab have that variable.
+  STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 STUB_DONE_AFTER=2 STUB_TERMINATE_LINGERS=1 \
+    SPOT_TERMINATE_TRIES=12 STUB_PRESENT_KEYS="evidence.tgz run.json log.txt stderr.txt" \
     run_scenario terminate-accepted-but-still-running bash "$TARGET"
 }
 
@@ -456,26 +472,37 @@ scenarios_m5c_gpu_session() {
 
   # The pilot: one repetition of every arm, everything present, evidence comes back.
   REPS=1 REQUIRE_CLEAN_TREE=0 STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 STUB_DONE_AFTER=2 \
-    STUB_PRESENT_KEYS="evidence.tgz log.txt commit.txt nodes.txt" \
+    STUB_PRESENT_KEYS="evidence.tgz log.txt commit.txt nodes.txt preflight-nvidia-smi.csv preflight-node-cards.txt" \
     run_scenario pilot bash "$TARGET"
 
   # A fresh account: the bucket and the profile are created, and the profile must carry GetObject because
   # this instance downloads the source archive and both binaries it was sent.
   REPS=1 REQUIRE_CLEAN_TREE=0 STUB_BUCKET_EXISTS=0 STUB_PROFILE_EXISTS=0 STUB_DONE_AFTER=2 \
-    STUB_PRESENT_KEYS="evidence.tgz log.txt commit.txt nodes.txt" \
+    STUB_PRESENT_KEYS="evidence.tgz log.txt commit.txt nodes.txt preflight-nvidia-smi.csv preflight-node-cards.txt" \
     run_scenario fresh bash "$TARGET"
 
   # No capacity in the first zone, which is a normal answer and must not abort the run.
   REPS=1 REQUIRE_CLEAN_TREE=0 STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 STUB_DONE_AFTER=2 \
     STUB_LAUNCH_FAIL_ZONES="ap-northeast-2a" \
-    STUB_PRESENT_KEYS="evidence.tgz log.txt commit.txt nodes.txt" \
+    STUB_PRESENT_KEYS="evidence.tgz log.txt commit.txt nodes.txt preflight-nvidia-smi.csv preflight-node-cards.txt" \
     run_scenario zone-retry bash "$TARGET"
+
+  # The marker is there and carries SOMEBODY ELSE'S nonce.
+  #
+  # The marker's body is what distinguishes this launch's evidence from a previous run's under a reused
+  # prefix, and the stub grew STUB_DONE_NONCE to make the mismatch testable -- then no scenario set it, so
+  # only the matching path was ever executed. The refusal that protects a session from reporting another
+  # run's numbers as its own was pinned by nothing.
+  REPS=1 REQUIRE_CLEAN_TREE=0 STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 STUB_DONE_AFTER=2 \
+    STUB_DONE_NONCE=deadbeef \
+    STUB_PRESENT_KEYS="evidence.tgz log.txt commit.txt nodes.txt preflight-nvidia-smi.csv preflight-node-cards.txt" \
+    run_scenario done-marker-wrong-nonce bash "$TARGET"
 
   # The terminate call is refused, the way it is when credentials lapse mid-run. The transcript is what
   # makes the SHOUTING branch executed rather than asserted; on 2026-09-08 the silent version of this let a
   # real instance bill until somebody noticed.
   REPS=1 REQUIRE_CLEAN_TREE=0 STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 STUB_DONE_AFTER=2 \
-    STUB_TERMINATE_FAILS=1 STUB_PRESENT_KEYS="evidence.tgz log.txt commit.txt nodes.txt" \
+    STUB_TERMINATE_FAILS=1 STUB_PRESENT_KEYS="evidence.tgz log.txt commit.txt nodes.txt preflight-nvidia-smi.csv preflight-node-cards.txt" \
     run_scenario terminate-refused bash "$TARGET"
 
  # The terminate call is ACCEPTED and the instance keeps running.
@@ -491,7 +518,7 @@ scenarios_m5c_gpu_session() {
  # would not have changed a byte. A scenario that never reaches the branch it is named for is worse
  # than no scenario, because the suite counts it as covered.
  REPS=1 REQUIRE_CLEAN_TREE=0 STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 STUB_DONE_AFTER=2 \
-    STUB_TERMINATE_LINGERS=1 STUB_PRESENT_KEYS="evidence.tgz log.txt commit.txt nodes.txt" \
+    STUB_TERMINATE_LINGERS=1 SPOT_TERMINATE_TRIES=12 STUB_PRESENT_KEYS="evidence.tgz log.txt commit.txt nodes.txt preflight-nvidia-smi.csv preflight-node-cards.txt" \
     run_scenario terminate-accepted-but-still-running bash "$TARGET"
 
   # The instance is reclaimed before it writes its marker. Only the log made it up, so there is no archive
@@ -621,9 +648,11 @@ scenarios_queuelab_gpu_session() {
   #
   # This wrapper gained the `exit 1` it performs when termination cannot be confirmed, and no
   # scenario here reached it. A gate whose failure path nothing executes is a gate on paper.
-  # REQUIRE_CLEAN_TREE is set so this scenario REACHES the terminate path rather than refusing first.
+  # REQUIRE_CLEAN_TREE is set so this scenario REACHES the terminate path rather than refusing first,
+  # and the keys are the ones this runner downloads so it does not stop at a missing archive instead.
   REQUIRE_CLEAN_TREE=0 STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 STUB_DONE_AFTER=2 STUB_TERMINATE_LINGERS=1 \
-    STUB_PRESENT_KEYS="log.txt" \
+    SPOT_TERMINATE_TRIES=12 \
+    STUB_PRESENT_KEYS="session.tgz commit.txt log.txt preflight.txt preflight-nodes.txt preflight-nvidia-smi.csv preflight-why.txt" \
     run_scenario terminate-accepted-but-still-running bash "$TARGET"
 }
 
@@ -644,14 +673,28 @@ trap_armed_before_launch() {
   # anything and reported "no trap found" for scripts whose traps were all correctly placed. A check that
   # fails when the thing it guards is improved is a check that gets deleted; the property it defends is that
   # the LAST of them still precedes the launch.
-  t=$(grep -nE "^trap ('?cleanup;? ?e?x?i?t? ?[0-9]*'?|cleanup) (EXIT|INT|TERM)" "$f" | cut -d: -f1 | sort -n | tail -1)
-  n_traps=$(grep -cE "^trap ('?cleanup;? ?e?x?i?t? ?[0-9]*'?|cleanup) (EXIT|INT|TERM)" "$f")
+  # Placement was the only property asserted, and the pattern that asserted it also matched the shape the
+  # split replaced: `trap cleanup EXIT INT TERM` satisfied it, so reverting the fix -- or deleting INT and
+  # TERM outright -- still reported ok. A widened pattern accepts the bug it was widened around.
+  #
+  # Placement and shape are therefore separate assertions now. A handler trapped on a signal without an
+  # exit RESUMES the script where the signal arrived, which is the defect, so that shape is named rather
+  # than matched; and the two signal handlers must be present at all, not merely well placed.
+  resumes=$(grep -cE "^trap cleanup .*(INT|TERM)" "$f" || true)
+  t=$(grep -nE "^trap ('cleanup; exit (130|143)'|cleanup) (EXIT|INT|TERM)" "$f" | cut -d: -f1 | sort -n | tail -1)
+  n_traps=$(grep -cE "^trap ('cleanup; exit (130|143)'|cleanup) (EXIT|INT|TERM)" "$f" || true)
   l=$(grep -n 'spot_launch "$REGION"' "$f" | head -1 | cut -d: -f1)
   if [ -z "$t" ] || [ -z "$l" ]; then
     printf 'FAIL     trap-before-launch (no trap or no launch found in %s)\n' "$TARGET"
     fail=$((fail + 1))
+  elif [ "$resumes" != "0" ]; then
+    printf 'FAIL     %s traps cleanup on a signal with no exit, so the handler returns and the script carries on past it\n' "$TARGET"
+    fail=$((fail + 1))
+  elif ! grep -qE "^trap 'cleanup; exit 130' INT" "$f" || ! grep -qE "^trap 'cleanup; exit 143' TERM" "$f"; then
+    printf 'FAIL     %s has no INT/TERM handler that exits; a Ctrl-C would clean up and then keep going\n' "$TARGET"
+    fail=$((fail + 1))
   elif [ "$t" -lt "$l" ]; then
-    printf 'ok       all %s cleanup trap(s) are armed before the launch\n' "$n_traps"
+    printf 'ok       all %s cleanup trap(s) are armed before the launch, and INT/TERM exit rather than resume\n' "$n_traps"
     pass=$((pass + 1))
   else
     printf 'FAIL     the cleanup trap is armed at line %s, AFTER the launch at line %s; an exit in between strands the instance\n' "$t" "$l"

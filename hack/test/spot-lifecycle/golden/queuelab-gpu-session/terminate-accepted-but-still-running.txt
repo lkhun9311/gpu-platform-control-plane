@@ -46,16 +46,26 @@ queuelabrun checksum: user-data matches the uploaded binary
 == instance i-0stub
 == waiting for results (driver, cluster, operator and four preflight checks come first)
 == records are up
+== records unpacked to <OUT>/session
+== the comparison is NOT run here: it belongs to whoever reads the records
+== when they are complete:  queuelabrun -compare '<OUT>/session/gpu-grace-bounded-*.json'
+== reading 1 is whether that command prints its comparison WITHOUT the device: NOT OBSERVED line
 == terminating i-0stub
-FAIL: no session archive was written; <OUT>/log.txt may say why
 TERMINATION UNCONFIRMED for i-0stub: still running after an accepted terminate call. Check it by hand:
   aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0stub
 TERMINATION UNCONFIRMED for i-0stub
 --- files
+./commit.txt
 ./instance-id
 ./launch-errors.txt
 ./log.txt
+./preflight-nodes.txt
+./preflight-nvidia-smi.csv
+./preflight-why.txt
+./preflight.txt
 ./queuelabrun
+./session.tgz
+./session/gpu-grace-bounded-A-honor-gh1.json
 ./source.tgz
 ./termination.txt
 ./user-data.sh

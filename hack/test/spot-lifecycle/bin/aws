@@ -342,7 +342,9 @@ case "$svc $op" in
             # that cannot produce what the real thing produces tests the caller against a fiction.
             mkdir -p "$local_tmp/m5c-run"
             for stub_arm in $STUB_EVIDENCE_ARMS; do
-              printf '{"arm":"%s"}\n' "$stub_arm" > "$local_tmp/m5c-run/raw-$stub_arm-1.jsonl"
+              # A row the caller can judge, not just a filename it can glob. The session asks whether any
+              # row was answered, so the stub writes what the real replay writes: an httpStatus.
+              printf '{"arm":"%s","httpStatus":200}\n' "$stub_arm" > "$local_tmp/m5c-run/raw-$stub_arm-1.jsonl"
             done
             tar -czf "$dest" -C "$local_tmp" m5c-run
           else
