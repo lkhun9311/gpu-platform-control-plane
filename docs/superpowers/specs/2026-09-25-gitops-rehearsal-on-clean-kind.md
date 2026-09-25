@@ -120,6 +120,48 @@ role performs. No manifest was modified to arrange it.
 `PodMonitor`, `ServiceMonitor` and `PrometheusRule` have no CRDs to be created against. See Amendment 1 —
 this is a repository gap, not a kind limit, and it does not touch B1–B6 because the Application is manual.
 
+## Result on paid EKS, 2026-09-25
+
+The same six bars, run against real EKS by `hack/eks-gitops-session.sh` rather than kind. The cluster was
+built from an empty account, Argo CD installed from its own Terraform root, and the cluster destroyed
+afterwards. `terraform apply` began 00:47:26Z and the teardown finished 01:12:53Z — 25 minutes, about $0.26/h
+of hourly resources.
+
+| Bar | Outcome on EKS | Evidence |
+|---|---|---|
+| B1 | **met** | `all 10 Applications this repository declares exist, 10 of them created by this run` |
+| B2 | **met** | cert-manager, crds, gateway, kueue-crds, operator, policy, root, storage all `Synced/Healthy` |
+| B3 | **met** | `seed-key` created `gateway-api-keys` on a cluster that had none |
+| B4 | **met** | `/readyz` → 200 |
+| B5 | **met** | bad key → **401**, body `{"error":{"code":"unauthorized"}}` |
+| B6 | **met** | key from the Secret → **403**, body `{"error":{"code":"no_policy","message":"Forbidden"}}` |
+
+Deployed revision `486902cf797e4162e2bdf01025c2457e42698b8f`, which is `main` — not the local HEAD, because the
+root tracks `targetRevision: main`. The stale `helm_release.argocd` in the argo-bootstrap state resolved
+itself: the helm provider refreshed, found the release absent on the new cluster, dropped it from state and
+planned `1 to add`. The `terraform state rm` that could not be run was never needed.
+
+### What the run does not license
+
+`gpu-platform-device-plugin`, `gpu-platform-observability` and `gpu-platform-samples` are manual and stayed
+`OutOfSync`, so "the GitOps path deploys the platform" is true only of the **automated baseline**. Serving is
+not shown: 403 is authentication reaching the key store, and no backend was deployed.
+
+### Two defects the session itself exposed
+
+**The teardown verdict was wrong, in the safe direction.** The session reported `FAIL tagged resources still
+exist after destroy` and exited 1, while the teardown was in fact complete — asking EKS, EC2, Auto Scaling
+and ELB directly returned nothing at all. The tag query lists resources the session deliberately keeps (the
+state bucket, two ECR repositories, three KMS keys) and is eventually consistent, still naming a NAT gateway,
+an instance, a volume and an ENI that the EC2 API already reported gone. The check now compares against the
+pre-destroy set and takes its verdict from the services that charge.
+
+**The kill switch logged its own disarming and did not disarm.** `$!` after `setsid nohup bash -c ... &` is
+the setsid process, which forks the watchdog and exits, so the pid the script recorded was already dead and
+the disarm killed nothing. Two watchdog processes were still alive afterwards, due to fire two hours later
+against whatever cluster existed then; they were killed by hand. The watchdog now writes its own pid, the
+disarm reads it back, and a session refuses to create anything if that pid never appears.
+
 ## What this licenses
 
 A pass licenses spending on the EKS session. It does not license any claim about serving, GPU scheduling,

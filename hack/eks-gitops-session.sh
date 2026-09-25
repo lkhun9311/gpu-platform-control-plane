@@ -16,10 +16,11 @@
 #     earlier version of this comment claimed the groups were not deployed at all, which was wrong.
 #     `hack/eks-gitops-runbook.sh verify` expects 403/404 because no GPU is running, not because none exists.
 #
-# COST, from the plan rather than from memory: 99 resources, of which the hourly ones are one EKS control
-# plane ($0.10/h), one t3.large in the `cpu` group at desired_size 1 ($0.1043/h), TWO NAT gateways
-# ($0.059/h each) and one EIP. That is about $0.32/h before data processing, so two to three hours is
-# $0.8-1.2 plus traffic -- consistent with the $1.5-2 the pre-spend reviews estimated.
+# COST, measured on the 2026-09-25 run: 99 resources, of which the hourly ones are one EKS control plane
+# ($0.10/h), one t3.large in the `cpu` group at desired_size 1 ($0.1043/h), ONE NAT gateway ($0.059/h) and
+# one EIP -- about $0.26/h before data processing. `single_nat_gateway = true` (infra/aws/cluster/vpc.tf:106)
+# and the run created exactly one; an earlier version of this comment said two, having miscounted the plan.
+# The whole session, apply through destroy, took 25 minutes.
 #
 # The account's budget alarms have ALL already fired this month ($45.04 against a $30 ceiling), so AWS will
 # send no new warning -- the TTL kill switch below is the only thing standing between a hung step and an
@@ -86,7 +87,9 @@ log "API endpoint will admit $EGRESS_CIDR only"
 # been crossed already, so nothing will warn. A detached watchdog destroys the cluster after TTL_MINUTES
 # whether this script finishes, hangs, or the terminal dies.
 KILL_LOG="$EXDIR/ttl-kill-switch.log"
+KILL_PIDFILE="$EXDIR/ttl.pid"
 setsid nohup bash -c "
+  echo \$\$ > '$PWD/$KILL_PIDFILE'
   sleep $((TTL_MINUTES * 60))
   echo \"[ttl] \$(date -u +%H:%M:%SZ) TTL reached; force-destroying\" >> '$PWD/$KILL_LOG' 2>&1
   cd '$PWD'
@@ -97,9 +100,30 @@ setsid nohup bash -c "
     -var='region=$REGION' >> '$PWD/$KILL_LOG' 2>&1
   echo \"[ttl] \$(date -u +%H:%M:%SZ) force-destroy finished\" >> '$PWD/$KILL_LOG' 2>&1
 " >/dev/null 2>&1 &
-KILL_PID=$!
+# The watchdog reports its own pid, because `$!` here is the setsid process and not the watchdog.
+#
+# setsid forks the new session leader and exits, so `$!` names something that is already dead by the time the
+# run ends -- and the disarm at the end killed it and nothing else. The first run of this script logged "kill
+# switch disarmed" and left two watchdog processes alive, due to fire two hours later against whatever
+# cluster existed then. So the watchdog writes its pid and the disarm reads it back, and refusing to build
+# without one is deliberate: a session with no working kill switch is the thing this file exists to prevent.
+KILL_PID=""
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  KILL_PID="$(cat "$KILL_PIDFILE" 2>/dev/null || true)"
+  [[ -n "$KILL_PID" ]] && break
+  sleep 0.2
+done
+[[ -n "$KILL_PID" ]] || die "the TTL watchdog never reported its pid; refusing to create anything without a kill switch"
 log "TTL kill switch armed: PID $KILL_PID, fires in ${TTL_MINUTES}m, log $KILL_LOG"
-disarm() { kill -- -"$KILL_PID" 2>/dev/null || kill "$KILL_PID" 2>/dev/null || true; }
+disarm() {
+  kill -- -"$KILL_PID" 2>/dev/null || kill "$KILL_PID" 2>/dev/null || true
+  if kill -0 "$KILL_PID" 2>/dev/null; then
+    kill -9 -- -"$KILL_PID" 2>/dev/null || kill -9 "$KILL_PID" 2>/dev/null || true
+  fi
+  if kill -0 "$KILL_PID" 2>/dev/null; then
+    bad "the TTL watchdog survived disarming; kill $KILL_PID by hand before the next session"
+  fi
+}
 
 # --- Build ---------------------------------------------------------------------------------------------
 
@@ -166,17 +190,54 @@ terraform -chdir="$CLUSTER_DIR" destroy -auto-approve -input=false -var="region=
   exit 1
 }
 
-# Destroy reporting success is not the same fact as nothing being left.
-remaining="$(aws resourcegroupstaggingapi get-resources --region "$REGION" \
+# Destroy reporting success is not the same fact as nothing being left -- and the tag API answers a
+# different question from "what is still billing".
+#
+# Two corrections from this script's first run, where it failed a teardown that was in fact complete. The tag
+# query returns resources the session deliberately keeps (the state bucket, both ECR repositories, three KMS
+# keys), so comparing its output against "empty" can never pass. It is also eventually consistent: minutes
+# after a destroy that really had removed them, it still listed the NAT gateway, the instance, the volume and
+# an ENI that the EC2 API already reported gone. So the tag list is kept as context and compared against the
+# pre-destroy set, while the verdict comes from asking each service that charges.
+tag_now="$(aws resourcegroupstaggingapi get-resources --region "$REGION" \
   --tag-filters "Key=project,Values=gpu-platform-control-plane" \
   --query 'ResourceTagMappingList[].ResourceARN' --output text 2>/dev/null || echo UNKNOWN)"
-printf '%s\n' "$remaining" >"$EXDIR/tagged-after-destroy.txt"
-if [[ "$remaining" == "UNKNOWN" ]]; then
-  bad "could not list tagged resources after destroy; billing state is unverified"
-elif [[ -n "${remaining// /}" ]]; then
-  bad "tagged resources still exist after destroy: $remaining"
+printf '%s\n' "$tag_now" | tr '\t' '\n' >"$EXDIR/tagged-after-destroy.txt"
+if [[ "$tag_now" != "UNKNOWN" ]]; then
+  appeared="$(comm -13 \
+    <(tr '\t' '\n' <"$EXDIR/tagged-before-destroy.txt" | sed '/^$/d' | sort -u) \
+    <(printf '%s\n' "$tag_now" | tr '\t' '\n' | sed '/^$/d' | sort -u) | sed '/^$/d' || true)"
+  if [[ -n "$appeared" ]]; then
+    bad "resources tagged for this project exist that were not there before the run: $(printf '%s ' $appeared)"
+  fi
+fi
+
+billing_left=""
+still() {
+  local label="$1"
+  shift
+  local out
+  out="$("$@" 2>/dev/null | tr '\t' ' ' || true)"
+  [[ -n "${out// /}" ]] && billing_left="$billing_left$label=$out; "
+  return 0
+}
+still eks aws eks list-clusters --region "$REGION" --query 'clusters' --output text
+still ec2 aws ec2 describe-instances --region "$REGION" \
+  --filters "Name=instance-state-name,Values=running,pending,stopping,shutting-down" \
+  --query 'Reservations[].Instances[].InstanceId' --output text
+still nat aws ec2 describe-nat-gateways --region "$REGION" \
+  --filter "Name=state,Values=available,pending" --query 'NatGateways[].NatGatewayId' --output text
+still eip aws ec2 describe-addresses --region "$REGION" --query 'Addresses[].PublicIp' --output text
+still ebs aws ec2 describe-volumes --region "$REGION" --query 'Volumes[].VolumeId' --output text
+still asg aws autoscaling describe-auto-scaling-groups --region "$REGION" \
+  --query 'AutoScalingGroups[].AutoScalingGroupName' --output text
+still elb aws elbv2 describe-load-balancers --region "$REGION" \
+  --query 'LoadBalancers[].LoadBalancerName' --output text
+printf '%s\n' "${billing_left:-none}" >"$EXDIR/billing-after-destroy.txt"
+if [[ -n "${billing_left// /}" ]]; then
+  bad "something that charges is still alive: $billing_left"
 else
-  ok "no tagged resources remain"
+  ok "nothing that charges remains: no EKS cluster, instance, NAT gateway, EIP, volume, ASG or load balancer"
 fi
 
 disarm
