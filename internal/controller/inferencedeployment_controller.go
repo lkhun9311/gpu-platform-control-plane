@@ -19,6 +19,8 @@ package controller
 import (
 	"context"
 	"fmt"
+	"sort"
+	"strings"
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -82,9 +84,20 @@ func (r *InferenceDeploymentReconciler) Reconcile(ctx context.Context, req ctrl.
 
 	// Resolved before the mutation rather than inside it, because CreateOrUpdate's callback runs more than
 	// once on conflict and a List per attempt would multiply reads for an answer that cannot change mid-call.
-	queue, err := r.servingQueue(ctx, infd.Namespace)
+	queue, claimants, err := r.servingQueue(ctx, infd.Namespace)
 	if err != nil {
 		return ctrl.Result{}, err
+	}
+	// Two policies claiming one namespace is a configuration conflict, and it belongs beside the other two.
+	//
+	// Degraded rather than a returned error, for the same reason the Deployment and Service conflicts above
+	// are: an error requeues forever and says nothing an operator can read on the object, while this writes
+	// the reason and the offending names into status and retries in a minute.
+	if len(claimants) > 1 {
+		return r.markDegraded(ctx, &infd, infdReasonQuotaPolicyAmbiguous,
+			fmt.Sprintf("%d GPUQuotaPolicy objects claim namespace %s with trainingQuota: %s. "+
+				"Which LocalQueue this deployment's serving Pods are charged against would be decided by List order, so none is chosen",
+				len(claimants), infd.Namespace, strings.Join(claimants, ", ")))
 	}
 
 	dep := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: infd.Name, Namespace: infd.Namespace}}
@@ -138,22 +151,44 @@ func servingPort(infd *platformv1.InferenceDeployment) int32 {
 }
 
 // servingQueue is the LocalQueue this namespace's serving Pods are charged against, or "" when no policy
-// governs it.
+// governs it. The second return is the names of every training policy that claimed the namespace, so a
+// caller can tell "one answer" from "more than one answer" without re-listing.
 //
 // A miss is not an error: a namespace with no GPUQuotaPolicy is one this platform makes no quota claim about,
 // and refusing to reconcile serving there would make the policy a prerequisite for running at all.
-func (r *InferenceDeploymentReconciler) servingQueue(ctx context.Context, ns string) (string, error) {
+//
+// More than one IS an error, and it used to be silent. This returned the first match from a List, whose
+// order the API server does not promise, and nothing forbids two policies naming the same targetNamespace --
+// the admission webhook's own quota-mode check collects them as a list and is written for exactly that case
+// (internal/webhook/v1/quota_mode.go). The value chosen here becomes the queue label on the serving
+// Deployment, so picking arbitrarily charges one tenant's serving to whichever policy the API server happened
+// to return first, and the same cluster could answer differently on the next reconcile. A quantity this
+// repository cannot establish is not one it should publish: the caller refuses instead.
+//
+// The names are sorted so a refusal message names the same policies in the same order every time.
+func (r *InferenceDeploymentReconciler) servingQueue(ctx context.Context, ns string) (string, []string, error) {
 	var policies platformv1.GPUQuotaPolicyList
 	if err := r.List(ctx, &policies); err != nil {
-		return "", fmt.Errorf("list quota policies: %w", err)
+		return "", nil, fmt.Errorf("list quota policies: %w", err)
 	}
+	var claimants []string
+	queue := ""
 	for i := range policies.Items {
 		p := &policies.Items[i]
 		if p.Spec.TargetNamespace == ns && p.Spec.TrainingQuota {
-			return kueueQueueName(p.Spec.Tenant), nil
+			claimants = append(claimants, p.Name)
+			queue = kueueQueueName(p.Spec.Tenant)
 		}
 	}
-	return "", nil
+	sort.Strings(claimants)
+	// The refusal lives at the call site, and only there.
+	//
+	// This returned "" for an ambiguous namespace as well, which read as defence in depth and was not: the
+	// caller refuses between calling this and using the value, so the queue returned here is unreachable
+	// whenever there is more than one claimant. Mutating that early return changed no test, because there
+	// was nothing for a test to observe -- and a guard no test can reach is the kind this repository keeps
+	// finding after it has quietly stopped guarding anything. One refusal, in the place that can act on it.
+	return queue, claimants, nil
 }
 
 // infdLabels is the recommended label set applied to the owned Deployment and Service.
@@ -239,6 +274,11 @@ const (
 	infdReasonAvailable       = "MinimumReplicasAvailable"
 	infdReasonConflict        = "DeploymentConflict"
 	infdReasonServiceConflict = "ServiceConflict"
+	// infdReasonQuotaPolicyAmbiguous is more than one training GPUQuotaPolicy claiming this namespace.
+	//
+	// Named as a conflict rather than a quota problem because that is what it is: the policies may each be
+	// valid, and what is broken is that nothing decides between them.
+	infdReasonQuotaPolicyAmbiguous = "QuotaPolicyAmbiguous"
 )
 
 // computeInfDPhase derives the phase and the Available condition from the Deployment status.
