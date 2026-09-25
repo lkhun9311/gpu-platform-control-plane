@@ -27,6 +27,7 @@ aws s3 cp s3://stub-bucket/run/device-scrape-last.txt <OUT>/device-scrape-last.t
 aws s3 cp --recursive s3://stub-bucket/run/runs <OUT>/runs
 recursive: 0 object(s) from stub-bucket/run/runs
 aws ec2 terminate-instances --region ap-northeast-2 --instance-ids i-0stub
+aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0stub --query Reservations[0].Instances[0].State.Name --output text
 queuelabrun checksum: user-data matches the uploaded binary
 --- exit 1
 --- messages
@@ -44,6 +45,7 @@ queuelabrun checksum: user-data matches the uploaded binary
 == waiting for results (driver, cluster, operator and four preflight checks come first)
 == records recovered before the end: 0
 == terminating i-0stub
+== i-0stub is terminated
 FAIL: no completion marker within the hard stop; 0 record(s) were recovered and i-0stub has been terminated
 --- files
 ./instance-id
@@ -51,4 +53,5 @@ FAIL: no completion marker within the hard stop; 0 record(s) were recovered and 
 ./log.txt
 ./queuelabrun
 ./source.tgz
+./termination.txt
 ./user-data.sh
