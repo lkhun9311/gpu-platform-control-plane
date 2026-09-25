@@ -173,11 +173,14 @@ the CR says running for a Pod no node accepted, and `admitToRunningSeconds` is m
 transition — the platform's own latency metric taken from a moment that never happened. It is not specific
 to fragmentation: plain capacity shortage produces the same false `Running`.
 
-**Fixed 2026-09-25, after this measurement.** The phase now reads `job.Status.Ready`, which counts active
-Pods carrying a Ready condition — something a Pod no node accepted cannot have. `.status.ready` is a pointer,
-and a nil there is "this API server did not say", not "nothing is running", so it falls through to `Admitted`
-rather than reading `Active` again. The table above is left as it was measured: it is the record of what the
-platform did on 2026-09-24, not a description of the code today.
+**Fixed 2026-09-25, after this measurement.** The phase now reads `job.Status.Ready`, which counts active,
+non-terminating Pods whose Ready condition is true — something a Pod no node accepted cannot have. That is
+*stricter* than "scheduled", not equal to it: a Pod running behind a failing readiness probe is not counted,
+so the phase carries readiness delay too. Job status exposes no "scheduled" count, and of the two it does
+expose this is the one that cannot be true of an unplaceable Pod. `.status.ready` is a pointer written by the
+Job controller, which reports a non-nil zero; a nil means a cluster too old to report it, so it falls through
+to `Admitted` rather than reading `Active` again. The table above is left as it was measured: it is the record
+of what the platform did on 2026-09-24, not a description of the code today.
 
 Repacking one holder — no added GPU, no added quota, demand 2 → 3 → 2 — returned the same Pod to scheduled
 in 5/5 trials, though every one of those five breaches the study's own 5 s collection-gap rule and is
