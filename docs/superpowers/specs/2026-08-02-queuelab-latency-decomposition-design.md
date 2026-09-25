@@ -85,6 +85,8 @@ Required:
 8. **Event-driven Pod Ready timing.** The dose clock currently starts when a two-second poll observes the
    derived MLTrainingJob `Running` phase, which merely means `Job.Status.Active > 0` — not Pod Ready. The
    effective timing uncertainty is about two seconds.
+   (Since 2026-09-25 that phase reads `Job.Status.Ready`, which *is* Pod Ready, so the "not Pod Ready" half
+   of this item is closed. The two-second poll granularity is not, and remains the reason to go event-driven.)
 9. **Pre-pulled, digest-verified images** on the dedicated worker, so image pull never lands inside a
    measured interval.
 
