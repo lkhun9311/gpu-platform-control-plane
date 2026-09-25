@@ -204,6 +204,18 @@ run_scenario() {
   # string in that log identifying what was measured. The other suite failed immediately, which is the
   # harness catching an over-broad normalization in itself.
   # The per-run nonce is not behaviour, and it reaches the messages as well as the payload.
+  # Go's module-download progress is a fact about this machine's cache, not about the runner's behaviour.
+  #
+  # The runners build their binaries here, and `go build` writes `go: downloading <module> <version>` to
+  # stderr for every module it has to fetch. A warm cache prints none of them; a cold one -- a fresh CI
+  # runner, or GOMODCACHE pointed somewhere empty -- printed 54 lines into the transcript and failed three
+  # suites' `pilot` on additions alone, with nothing removed. That is the golden depending on the machine.
+  #
+  # Anchored to `^go: downloading `, not to `go:`, because the same chain once matched any 64 hex characters
+  # and erased the engine image digest. A real build failure says `go: cannot find module` or `go: <pkg>:
+  # ...`, and those must still reach the transcript -- a session whose build broke is behaviour.
+  grep -v '^go: downloading ' "$work/stdout.txt" > "$work/stdout.clean" || true
+  grep -v '^go: downloading ' "$work/stderr.txt" > "$work/stderr.clean" || true
   sed -e "s#$out#<OUT>#g" \
       -e "s#run-[0-9a-f]\{8\}#run-<NONCE>#g" \
       -e "s#this launch's nonce is '[0-9a-f]\{8\}'#this launch's nonce is '<NONCE>'#g" \
@@ -213,7 +225,7 @@ run_scenario() {
       -e "s#^== queuelabrun .*, sha256 [0-9a-f]\{12\}\$#== queuelabrun <SIZE>, sha256 <SHA12>#" \
       -e "s#^==   gateway [0-9a-f]\{12\}, benchharness [0-9a-f]\{12\}\$#==   gateway <SHA12>, benchharness <SHA12>#" \
       -e "s#^== source [0-9a-f]\{40\}.*#== source <COMMIT> <TREE STATE>#" \
-      "$work/stdout.txt" "$work/stderr.txt" > "$work/messages.txt"
+      "$work/stdout.clean" "$work/stderr.clean" > "$work/messages.txt"
 
   # The transcript alone would hide a script that recorded every AWS call correctly and then exited
   # non-zero, or one that stopped writing its run directory. Both are behaviour.
