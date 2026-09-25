@@ -391,6 +391,14 @@ scenarios_price_of_protection() {
   STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 STUB_DONE_PRESENT_AT_START=1 \
     STUB_PRESENT_KEYS="log.txt" \
     run_scenario stale-done bash "$TARGET"
+
+  # The terminate call is ACCEPTED and the instance keeps running.
+  #
+  # This wrapper gained the `exit 1` it performs when termination cannot be confirmed, and no
+  # scenario here reached it. A gate whose failure path nothing executes is a gate on paper.
+  STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 STUB_DONE_AFTER=2 STUB_TERMINATE_LINGERS=1 \
+    STUB_PRESENT_KEYS="log.txt" \
+    run_scenario terminate-accepted-but-still-running bash "$TARGET"
 }
 
 scenarios_m5c_gpu_session() {
@@ -572,6 +580,14 @@ scenarios_queuelab_gpu_session() {
   REQUIRE_CLEAN_TREE=0 STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 STUB_DONE_PRESENT_AT_START=1 \
     STUB_PRESENT_KEYS="log.txt" \
     run_scenario stale-done bash "$TARGET"
+
+  # The terminate call is ACCEPTED and the instance keeps running.
+  #
+  # This wrapper gained the `exit 1` it performs when termination cannot be confirmed, and no
+  # scenario here reached it. A gate whose failure path nothing executes is a gate on paper.
+  STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 STUB_DONE_AFTER=2 STUB_TERMINATE_LINGERS=1 \
+    STUB_PRESENT_KEYS="log.txt" \
+    run_scenario terminate-accepted-but-still-running bash "$TARGET"
 }
 
 # The cleanup trap must be armed BEFORE anything can launch an instance.
