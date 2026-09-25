@@ -195,7 +195,28 @@ spot_terminate() {
       *) return 1 ;;
     esac
   fi
-  return 0
+
+  # The call was accepted, which is a request being queued rather than an instance being gone.
+  #
+  # This returned 0 right here, so "terminate-instances came back fine" was reported as "nothing is billing".
+  # The two differ exactly where it matters: an instance still `running` after an accepted call is the case a
+  # paid session must not walk away from. So the state is polled, and an unconfirmed termination is a failure
+  # -- `unknown` included, because that means the question could not be asked rather than answered.
+  local waited=0
+  while [ "$waited" -lt 12 ]; do
+    state=$(spot_instance_state "$region" "$instance_id")
+    case "$state" in
+      terminated | shutting-down)
+        spot_say "$instance_id is $state"
+        return 0
+        ;;
+    esac
+    waited=$((waited + 1))
+    sleep 5
+  done
+  printf 'TERMINATION UNCONFIRMED for %s: still %s after an accepted terminate call. Check it by hand:\n  aws ec2 describe-instances --region %s --instance-ids %s\n' \
+    "$instance_id" "${state:-unknown}" "$region" "$instance_id" >&2
+  return 1
 }
 
 # spot_instance_state echoes an instance's state, or "unknown".

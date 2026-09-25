@@ -42,7 +42,30 @@ failures=0
 # ONLY lets one scenario be run, which is how a scenario that behaves differently in the suite than on its
 # own gets looked at without paying for the other two.
 ONLY="${ONLY:-}"
-want() { [ -z "$ONLY" ] || [ "$ONLY" = "$1" ]; }
+# The scenarios this suite knows, so a typo in ONLY cannot quietly run none of them.
+#
+# `want` alone compares ONLY against each name and answers no every time when the name is misspelled. The
+# suite then executes zero scenarios, reaches the end with failures=0, and prints that all five failure
+# paths are pinned. A selector that silently selects nothing is worse than no selector: it reports a pass
+# for work that did not happen.
+SCENARIOS="1 2 3 4 5"
+selected=0
+if [ -n "$ONLY" ]; then
+  case " $SCENARIOS " in
+    *" $ONLY "*) ;;
+    *)
+      printf 'ONLY=%s is not a scenario of this suite. Known: %s\n' "$ONLY" "$SCENARIOS" >&2
+      exit 2
+      ;;
+  esac
+fi
+want() {
+  if [ -z "$ONLY" ] || [ "$ONLY" = "$1" ]; then
+    selected=$((selected + 1))
+    return 0
+  fi
+  return 1
+}
 
 say()  { printf '== %s\n' "$*"; }
 # A failed assertion prints the log it was reading, because a check that says only "not pinned" is the
@@ -402,8 +425,12 @@ fi
 fi
 
 echo
-if [ "$failures" = "0" ]; then
-  say "ALL FIVE FAILURE PATHS PINNED: each one ran, and each one said what a reader needs."
+expected=5
+[ -n "$ONLY" ] && expected=1
+if [ "$selected" != "$expected" ]; then
+  fail "$selected scenario(s) ran, expected $expected. A suite that runs nothing and reports a pass is the defect this count exists to stop."
+elif [ "$failures" = "0" ]; then
+  say "ALL $selected FAILURE PATH(S) PINNED: each one ran, and each one said what a reader needs."
 else
   fail "$failures assertion(s) failed above. A refusal that does not say why is one that has to be bought twice."
 fi

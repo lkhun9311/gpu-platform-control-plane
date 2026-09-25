@@ -17,6 +17,7 @@ aws s3 cp s3://stub-bucket/run/run.json <OUT>/run.json
 aws s3 cp s3://stub-bucket/run/log.txt <OUT>/log.txt
 aws s3 cp s3://stub-bucket/run/stderr.txt <OUT>/stderr.txt
 aws ec2 terminate-instances --region ap-northeast-2 --instance-ids i-0stub
+aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0stub --query Reservations[0].Instances[0].State.Name --output text
 harness checksum: user-data matches the uploaded binary
 --- exit 1
 --- messages
@@ -36,6 +37,7 @@ harness checksum: user-data matches the uploaded binary
 == waiting for results (the engine has an image and weights to pull first)
 == watching for up to 125 min against a 120 min backstop
 == terminating i-0stub
+== i-0stub is terminated
 FAIL: no completion marker after 160 polls; the run either is still going or hung, and i-0stub has been terminated
 --- files
 ./benchharness
@@ -43,4 +45,5 @@ FAIL: no completion marker after 160 polls; the run either is still going or hun
 ./launch-errors.txt
 ./log.txt
 ./pop.py
+./termination.txt
 ./user-data.sh

@@ -160,13 +160,28 @@ case "$svc $op" in
       echo "An error occurred (ExpiredToken) when calling the TerminateInstances operation: token expired" >&2
       exit 254
     fi
+    # An accepted call has to change what describe-instances says, or the caller cannot tell the two apart.
+    #
+    # spot_terminate now polls for the state after a call the API accepted, because acceptance is a request
+    # being queued and not an instance being gone. Without this marker the stub would keep answering
+    # `running` for ever and every scenario would report a termination it could not confirm -- a stub that
+    # makes the honest version of the caller look broken.
+    #
+    # STUB_TERMINATE_LINGERS keeps it running anyway, which is the case the polling exists for: the call was
+    # accepted and the instance is still billing.
+    if [ "${STUB_TERMINATE_LINGERS:-0}" != "1" ]; then
+      printf 'yes\n' > "${STUB_STATE:-/tmp}/terminate-accepted"
+    fi
     printf '{}\n'
     ;;
 
   "ec2 describe-instances")
     n=$(bump describe-instances)
     dead="${STUB_TERMINATED_AFTER:--1}"
-    if [ "$dead" -ge 0 ] && [ "$n" -ge "$dead" ]; then printf 'terminated\n'; else printf 'running\n'; fi
+    # A terminate call that was accepted wins over the call counter: after it, the instance is gone.
+    if [ -f "${STUB_STATE:-/tmp}/terminate-accepted" ]; then printf 'terminated\n'
+    elif [ "$dead" -ge 0 ] && [ "$n" -ge "$dead" ]; then printf 'terminated\n'
+    else printf 'running\n'; fi
     ;;
 
   "s3 cp")

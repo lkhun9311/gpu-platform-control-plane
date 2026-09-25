@@ -15,6 +15,7 @@ aws s3 cp s3://stub-bucket/run/results.json <OUT>/results.json
 aws s3 cp s3://stub-bucket/run/log.txt <OUT>/log.txt
 aws s3 cp s3://stub-bucket/run/stderr.txt <OUT>/stderr.txt
 aws ec2 terminate-instances --region ap-northeast-2 --instance-ids i-0stub
+aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0stub --query Reservations[0].Instances[0].State.Name --output text
 --- exit 0
 --- messages
 == engine vllm/vllm-openai@sha256:0a51ea5b4ae2dc5d81890e5173f54203d2a3ae0cfffe51b8fd2afd4391bfd967
@@ -32,6 +33,7 @@ aws ec2 terminate-instances --region ap-northeast-2 --instance-ids i-0stub
   budget    policy   baseline  contended    ratio
      512      fcfs       80.0      126.0    1.57x
 == terminating i-0stub
+== i-0stub is terminated
 --- files
 ./instance-id
 ./launch-errors.txt

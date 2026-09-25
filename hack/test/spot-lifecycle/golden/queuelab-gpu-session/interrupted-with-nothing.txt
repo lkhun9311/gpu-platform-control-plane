@@ -28,6 +28,7 @@ aws s3 cp s3://stub-bucket/run/device-scrape-last.txt <OUT>/device-scrape-last.t
 aws s3 cp --recursive s3://stub-bucket/run/runs <OUT>/runs
 recursive: 0 object(s) from stub-bucket/run/runs
 aws ec2 terminate-instances --region ap-northeast-2 --instance-ids i-0stub
+aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0stub --query Reservations[0].Instances[0].State.Name --output text
 queuelabrun checksum: user-data matches the uploaded binary
 --- exit 1
 --- messages
@@ -46,6 +47,7 @@ queuelabrun checksum: user-data matches the uploaded binary
 == instance ended before writing DONE
 == records recovered before the end: 0
 == terminating i-0stub
+== i-0stub is terminated
 FAIL: the instance was terminated before it wrote its completion marker; 0 record(s) were recovered and <OUT>/log.txt is whatever it managed to upload
 --- files
 ./instance-id
@@ -53,4 +55,5 @@ FAIL: the instance was terminated before it wrote its completion marker; 0 recor
 ./log.txt
 ./queuelabrun
 ./source.tgz
+./termination.txt
 ./user-data.sh

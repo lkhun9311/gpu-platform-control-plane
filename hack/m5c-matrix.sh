@@ -959,9 +959,24 @@ EOF
 # `benchharness report` looks: the readings run over raw files and would otherwise never learn that an arm
 # was declined, because the reason lived only in a log nothing reads back.
 mps_clients_connected() {
-  local ns_a="$1" dep_a="$2" ns_b="$3" dep_b="$4" ns dep out rc
+  local ns_a="$1" dep_a="$2" ns_b="$3" dep_b="$4" ns dep out rc shared
   for pair in "$ns_a:$dep_a" "$ns_b:$dep_b"; do
     ns="${pair%%:*}"; dep="${pair##*:}"
+
+    # The IPC namespace comes first, because without it the three facts below can all be true and the client
+    # still not be one.
+    #
+    # config/nvidia-device-plugin-mps/daemonset.yaml states the requirement in the daemon's own spec: the
+    # control daemon and every client must share one IPC namespace, or the client cannot reach the daemon's
+    # pipe and falls back to running WITHOUT MPS. A pipe directory that exists and a control socket that is
+    # visible say nothing about whether this pod can reach the daemon through it. This check read those two
+    # and not `hostIPC`, so a pod in its own IPC namespace -- which is what both engine manifests declared
+    # until today -- would have been reported as an MPS client.
+    shared=$(k get deploy -n "$ns" "$dep" -o jsonpath='{.spec.template.spec.hostIPC}' 2>/dev/null || true)
+    if [ "$shared" != "true" ]; then
+      arm_refused mps "$ns/$dep does not share the host IPC namespace (hostIPC=${shared:-absent}), so it cannot reach the MPS control daemon's pipe and would run without MPS while looking like a working arm. config/nvidia-device-plugin-mps/daemonset.yaml states the requirement."
+      return 1
+    fi
     # One probe, three facts: the variable, the directory, and the control socket inside it.
     #
     # Printed as a single line so a partial answer cannot be mistaken for a whole one.

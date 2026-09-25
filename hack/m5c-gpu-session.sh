@@ -775,6 +775,14 @@ cleanup() {
     printf 'TERMINATION UNCONFIRMED for %s -- check the console before the next paid run\n' \
       "${IID:-<none>}" >"${OUT:-.}/termination.txt" 2>/dev/null || true
     printf 'TERMINATION UNCONFIRMED for %s\n' "${IID:-<none>}" >&2
+    # A record is not a gate, and until now this was only a record.
+    #
+    # The comment above established that a failing EXIT trap does not change a script's exit status -- and
+    # then settled for writing the outcome to a file. Nothing read the file, so a session that could not
+    # confirm its instance was gone still exited 0, and a wrapper, a log reader or a CI step saw success.
+    # `exit` inside the trap is the one thing that does set the status, so it is called here: a run whose
+    # instance may still be billing is a failed run, whatever the experiment produced.
+    exit 1
   fi
 }
 IID=""

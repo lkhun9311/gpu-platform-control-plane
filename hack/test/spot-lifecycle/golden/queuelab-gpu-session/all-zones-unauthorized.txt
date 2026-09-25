@@ -32,4 +32,5 @@ FAIL: every zone refused g5.12xlarge with UnauthorizedOperation, not for want of
 ./launch-errors.txt
 ./queuelabrun
 ./source.tgz
+./termination.txt
 ./user-data.sh
