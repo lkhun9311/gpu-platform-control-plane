@@ -303,6 +303,16 @@ STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 STUB_DONE_AFTER=2 \
   STUB_TERMINATE_FAILS=1 STUB_PRESENT_KEYS="results.json log.txt stderr.txt" \
   run_scenario terminate-refused bash "$TARGET"
 
+# The terminate call is ACCEPTED and the instance keeps running.
+#
+# This is the case the refusal above does not cover, and the expensive one: the API took the
+# request, the old code returned 0 on that alone, and an instance that never went away was
+# reported as terminated. The polling that now follows an accepted call is only honest if this
+# path is executed.
+STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 STUB_DONE_AFTER=2 \
+  STUB_TERMINATE_LINGERS=1 STUB_PRESENT_KEYS="results.json log.txt stderr.txt" \
+  run_scenario terminate-accepted-but-still-running bash "$TARGET"
+
 # No zone will take it. This must fail loudly and must not leave an instance behind.
 STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 \
   STUB_LAUNCH_FAIL_ZONES="ap-northeast-2a ap-northeast-2c" \
@@ -429,6 +439,16 @@ scenarios_m5c_gpu_session() {
   REPS=1 REQUIRE_CLEAN_TREE=0 STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 STUB_DONE_AFTER=2 \
     STUB_TERMINATE_FAILS=1 STUB_PRESENT_KEYS="evidence.tgz log.txt commit.txt nodes.txt" \
     run_scenario terminate-refused bash "$TARGET"
+
+ # The terminate call is ACCEPTED and the instance keeps running.
+ #
+ # This is the case the refusal above does not cover, and the expensive one: the API took the
+ # request, the old code returned 0 on that alone, and an instance that never went away was
+ # reported as terminated. The polling that now follows an accepted call is only honest if this
+ # path is executed.
+ STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 STUB_DONE_AFTER=2 \
+    STUB_TERMINATE_LINGERS=1 STUB_PRESENT_KEYS="evidence.tgz log.txt commit.txt nodes.txt" \
+    run_scenario terminate-accepted-but-still-running bash "$TARGET"
 
   # The instance is reclaimed before it writes its marker. Only the log made it up, so there is no archive
   # to unpack and the run must refuse rather than report on an empty directory.
