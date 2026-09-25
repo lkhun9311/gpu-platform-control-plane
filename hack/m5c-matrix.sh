@@ -986,7 +986,10 @@ mps_clients_connected() {
       if [ ! -d "$pipe" ]; then echo "PIPE=$pipe DIR=missing"; exit 0; fi
       sock=no
       for candidate in "$pipe"/control "$pipe"/nvidia-mps/control; do
-        [ -e "$candidate" ] && sock=yes && break
+        # A SOCKET, not a path that exists. `-e` accepted a regular file and the entry a dead server leaves
+        # behind, so an arm with no MPS daemon at the other end could be labelled an MPS client and its
+        # numbers published as MPS. That is the quiet misreading this whole check exists to prevent.
+        [ -S "$candidate" ] && sock=yes && break
       done
       echo "PIPE=$pipe DIR=present CONTROL=$sock"
     ' 2>&1); rc=$?
