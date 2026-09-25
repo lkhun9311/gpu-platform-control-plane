@@ -852,6 +852,18 @@ esac
 for k in evidence.tgz log.txt commit.txt nodes.txt preflight-nvidia-smi.csv preflight-node-cards.txt; do
   aws s3 cp "s3://$BUCKET/$RUN_ID/$k" "$OUT/$k" >/dev/null 2>&1 || true
 done
+# Whether the preflight files arrived is CHECKED, not merely attempted.
+#
+# `|| true` above is right -- a missing key is not an error worth aborting the download loop for -- but it
+# made the two preflight files optional in practice, and the normal path ended `exit 0` without them. They
+# name the card, the driver and the cards the node actually advertised; a session that reports numbers
+# without them is reporting on an apparatus nobody identified, which is the one thing this study cannot do.
+missing_preflight=""
+for k in preflight-nvidia-smi.csv preflight-node-cards.txt; do
+  [ -s "$OUT/$k" ] || missing_preflight="$missing_preflight $k"
+done
+[ -z "$missing_preflight" ] \
+  || fail "the instance finished and these preflight files never arrived:$missing_preflight. They identify the card and driver the numbers were taken on, and a measurement whose apparatus is unidentified is not one this study can report"
 # Unpacked, and the unpacking is CHECKED. An `&&` chain that quietly does nothing is how a session ends by
 # naming an evidence directory it never created.
 if [ -s "$OUT/evidence.tgz" ]; then
@@ -1005,11 +1017,34 @@ for arm in $expected_arms; do
     # to buy, which is the rule working.
     [ "$_r" -le "$ladder_reached" ] || continue
   fi
+  # An INVALID arm is not an outcome, so it ends the session rather than joining the refusals.
+  #
+  # The pre-registration separates them: a refusal is evidence about this AMI and driver, an invalid run is
+  # evidence about nothing. Recording the second as the first would put "the apparatus was broken" into the
+  # report's table as though the card had been asked and had answered no.
+  if [ -s "$OUT/m5c-run/invalid-$arm.txt" ]; then
+    fail "arm $arm is INVALID, not refused: $(tr '\n' ' ' <"$OUT/m5c-run/invalid-$arm.txt")"
+  fi
   if [ -s "$OUT/m5c-run/refused-$arm.txt" ]; then
     refused="$refused $arm"
     continue
   fi
-  compgen -G "$OUT/m5c-run/raw-$arm-"'*.jsonl' >/dev/null || missing="$missing $arm"
+  # The glob only ever asked whether a FILENAME exists, and an empty file has a filename.
+  #
+  # B5 asks that the arm's replay ran. A zero-row jsonl, and one whose every row is a 5xx, both satisfy a
+  # glob and neither is a measurement. Rows carry httpStatus (internal/bench/replay.go), so the rows are
+  # counted and the answered ones counted separately.
+  _rows=0 _answered=0
+  for _f in "$OUT/m5c-run/raw-$arm-"*.jsonl; do
+    [ -f "$_f" ] || continue
+    _rows=$(( _rows + $(grep -c . "$_f" 2>/dev/null || true) ))
+    _answered=$(( _answered + $(grep -c '"httpStatus":[[:space:]]*[23][0-9][0-9]' "$_f" 2>/dev/null || true) ))
+  done
+  if [ "$_rows" -eq 0 ]; then
+    missing="$missing $arm"
+  elif [ "$_answered" -eq 0 ]; then
+    fail "arm $arm came back with $_rows row(s) and not one carries a 2xx or 3xx httpStatus. The file exists, the replay never answered, and B5 asks for a replay that answered"
+  fi
 done
 # A ladder with no baseline cell at all is a fault whichever rung it ended on.
 if [ -n "$LADDER" ]; then

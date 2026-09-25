@@ -978,15 +978,32 @@ mps_clients_connected() {
     # mutates the spec, and they differ when a Pod from an earlier arm is still the one `k exec` lands on --
     # which is the confusion this arm exists to rule out. So the Pod is named once, its own spec is read,
     # and the same name is used for the probe below.
-    pod=$(k get pod -n "$ns" -l app.kubernetes.io/component=vllm-shared \
-      --field-selector=status.phase=Running -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+    # "could not ask" is a different fact from "there is no Pod", and `2>/dev/null || true` made them one.
+    #
+    # An API timeout, an RBAC denial and a genuinely absent Pod all produced the identical refusal. The exec
+    # probe below already keeps that distinction; the lookup above it did not. And `items[0]` picked whichever
+    # Pod the API happened to list first, so a terminating Pod from the previous arm -- still phase=Running,
+    # still carrying this label -- could be the one probed, which is the confusion this arm exists to rule out.
+    pods=$(k get pod -n "$ns" -l app.kubernetes.io/component=vllm-shared \
+      --field-selector=status.phase=Running \
+      -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>"$OUT/mps-pod-lookup.err") || {
+      arm_invalid mps "could not ask the API which Pod is running in $ns: $(tr '\n' ' ' <"$OUT/mps-pod-lookup.err" | cut -c1-160). An unanswered question is not an answer about MPS"
+      return 1
+    }
+    pods=$(printf '%s\n' "$pods" | awk 'NF')
+    pod_n=$(printf '%s\n' "$pods" | awk 'NF' | wc -l)
+    if [ "$pod_n" -gt 1 ]; then
+      arm_invalid mps "$pod_n Running Pods carry $ns/$dep's label, so which one this probe reads would be decided by list order: $(printf '%s' "$pods" | tr '\n' ' ')"
+      return 1
+    fi
+    pod=$pods
     if [ -z "$pod" ]; then
-      arm_refused mps "no Running Pod for $ns/$dep, so there is nothing to ask whether it is an MPS client"
+      arm_invalid mps "no Running Pod for $ns/$dep, so there is nothing to ask whether it is an MPS client. The pre-registration calls an engine that would not schedule or would not pull INVALID: that is a fact about this run, not about MPS on this card"
       return 1
     fi
     shared=$(k get pod -n "$ns" "$pod" -o jsonpath='{.spec.hostIPC}' 2>/dev/null || true)
     if [ "$shared" != "true" ]; then
-      arm_refused mps "$ns/$pod does not share the host IPC namespace (hostIPC=${shared:-absent}), so it cannot reach the MPS control daemon's pipe and would run without MPS while looking like a working arm. config/nvidia-device-plugin-mps/daemonset.yaml states the requirement."
+      arm_invalid mps "$ns/$pod does not share the host IPC namespace (hostIPC=${shared:-absent}), so it cannot reach the MPS control daemon's pipe and would run without MPS while looking like a working arm. config/nvidia-device-plugin-mps/daemonset.yaml states the requirement, and the pre-registration voids a run whose manifest lacks it rather than recording it as a refusal."
       return 1
     fi
     # One probe, three facts: the variable, the directory, and the control socket inside it.
@@ -1027,6 +1044,16 @@ mps_clients_connected() {
         return 1 ;;
     esac
     say "  $ns/$dep is an MPS client ($(printf '%s' "$out" | head -1))"
+    # B4's instrument, run where B4 can actually be answered: both engines are serving right now.
+    #
+    # The pre-registration names `nvidia-smi --query-compute-apps` as the only thing that can show the
+    # daemon holding both clients -- the pipe-and-socket probe above is the client's own account of itself
+    # -- and nothing in this repository ran it. Collected at preflight it would have returned an empty
+    # table before any engine existed and satisfied the bar with a file, which is worse than not asking.
+    # The bar stays UNMEASURED unless this file has a row per client, so it is written, not judged here.
+    nvidia-smi --query-compute-apps=pid,process_name,used_memory --format=csv \
+      > "$OUT/mps-compute-apps-$ns.csv" 2>"$OUT/mps-compute-apps-$ns.err" \
+      || say "  WARNING: nvidia-smi --query-compute-apps failed on $ns; B4 is UNMEASURED for this arm ($(tr '\n' ' ' <"$OUT/mps-compute-apps-$ns.err" | cut -c1-120))"
   done
 }
 
@@ -1036,6 +1063,19 @@ arm_refused() {
   printf '%s\n' "$why" > "$OUT/refused-$arm.txt"
   say "REFUSED $arm: $why"
   say "  recorded in $OUT/refused-$arm.txt, which benchharness report reads as reading 4c"
+}
+
+# arm_invalid records a precondition that was never met, which is NOT a registered outcome.
+#
+# A refusal says the card was asked and the answer was no; an invalid run says the question was never put.
+# The MPS pre-registration separates them because they license different things -- a refusal is evidence
+# about this AMI and this driver, an invalid run is evidence about nothing -- and recording the second as
+# the first is how "the apparatus was broken" gets reported as "the capability is absent".
+arm_invalid() {
+  local arm="$1" why="$2"
+  printf '%s\n' "$why" > "$OUT/invalid-$arm.txt"
+  say "INVALID $arm: $why"
+  say "  recorded in $OUT/invalid-$arm.txt; the session fails on it rather than reporting it as an outcome"
 }
 
 engine_kv_report() {
