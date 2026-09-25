@@ -425,7 +425,8 @@ scenarios_price_of_protection() {
   #
   # This wrapper gained the `exit 1` it performs when termination cannot be confirmed, and no
   # scenario here reached it. A gate whose failure path nothing executes is a gate on paper.
-  STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 STUB_DONE_AFTER=2 STUB_TERMINATE_LINGERS=1 \
+  # REQUIRE_CLEAN_TREE is set so this scenario REACHES the terminate path rather than refusing first.
+  REQUIRE_CLEAN_TREE=0 STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 STUB_DONE_AFTER=2 STUB_TERMINATE_LINGERS=1 \
     STUB_PRESENT_KEYS="log.txt" \
     run_scenario terminate-accepted-but-still-running bash "$TARGET"
 }
@@ -483,7 +484,13 @@ scenarios_m5c_gpu_session() {
  # request, the old code returned 0 on that alone, and an instance that never went away was
  # reported as terminated. The polling that now follows an accepted call is only honest if this
  # path is executed.
- STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 STUB_DONE_AFTER=2 \
+ # REPS and REQUIRE_CLEAN_TREE are set so this scenario REACHES the terminate path.
+ #
+ # Without them the run died on `REPS is unset` before it launched anything: the golden recorded a
+ # refusal with no run-instances and no terminate-instances in it, so removing the wrapper's `exit 1`
+ # would not have changed a byte. A scenario that never reaches the branch it is named for is worse
+ # than no scenario, because the suite counts it as covered.
+ REPS=1 REQUIRE_CLEAN_TREE=0 STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 STUB_DONE_AFTER=2 \
     STUB_TERMINATE_LINGERS=1 STUB_PRESENT_KEYS="evidence.tgz log.txt commit.txt nodes.txt" \
     run_scenario terminate-accepted-but-still-running bash "$TARGET"
 
@@ -614,7 +621,8 @@ scenarios_queuelab_gpu_session() {
   #
   # This wrapper gained the `exit 1` it performs when termination cannot be confirmed, and no
   # scenario here reached it. A gate whose failure path nothing executes is a gate on paper.
-  STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 STUB_DONE_AFTER=2 STUB_TERMINATE_LINGERS=1 \
+  # REQUIRE_CLEAN_TREE is set so this scenario REACHES the terminate path rather than refusing first.
+  REQUIRE_CLEAN_TREE=0 STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 STUB_DONE_AFTER=2 STUB_TERMINATE_LINGERS=1 \
     STUB_PRESENT_KEYS="log.txt" \
     run_scenario terminate-accepted-but-still-running bash "$TARGET"
 }
@@ -629,13 +637,21 @@ scenarios_queuelab_gpu_session() {
 # the order lives.
 trap_armed_before_launch() {
   local f="$ROOT/$TARGET" t l
-  t=$(grep -n '^trap cleanup EXIT INT TERM' "$f" | head -1 | cut -d: -f1)
+  # EVERY trap that arms cleanup has to be in place before the launch, not just one line matching one shape.
+  #
+  # This looked for the literal `trap cleanup EXIT INT TERM`. When the wrappers split that into three traps --
+  # so a signal exits 130/143 instead of running cleanup and resuming -- the assertion stopped finding
+  # anything and reported "no trap found" for scripts whose traps were all correctly placed. A check that
+  # fails when the thing it guards is improved is a check that gets deleted; the property it defends is that
+  # the LAST of them still precedes the launch.
+  t=$(grep -nE "^trap ('?cleanup;? ?e?x?i?t? ?[0-9]*'?|cleanup) (EXIT|INT|TERM)" "$f" | cut -d: -f1 | sort -n | tail -1)
+  n_traps=$(grep -cE "^trap ('?cleanup;? ?e?x?i?t? ?[0-9]*'?|cleanup) (EXIT|INT|TERM)" "$f")
   l=$(grep -n 'spot_launch "$REGION"' "$f" | head -1 | cut -d: -f1)
   if [ -z "$t" ] || [ -z "$l" ]; then
     printf 'FAIL     trap-before-launch (no trap or no launch found in %s)\n' "$TARGET"
     fail=$((fail + 1))
   elif [ "$t" -lt "$l" ]; then
-    printf 'ok       the cleanup trap is armed before the launch\n'
+    printf 'ok       all %s cleanup trap(s) are armed before the launch\n' "$n_traps"
     pass=$((pass + 1))
   else
     printf 'FAIL     the cleanup trap is armed at line %s, AFTER the launch at line %s; an exit in between strands the instance\n' "$t" "$l"

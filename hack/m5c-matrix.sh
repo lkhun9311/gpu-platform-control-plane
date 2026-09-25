@@ -972,15 +972,27 @@ mps_clients_connected() {
     # visible say nothing about whether this pod can reach the daemon through it. This check read those two
     # and not `hostIPC`, so a pod in its own IPC namespace -- which is what both engine manifests declared
     # until today -- would have been reported as an MPS client.
-    shared=$(k get deploy -n "$ns" "$dep" -o jsonpath='{.spec.template.spec.hostIPC}' 2>/dev/null || true)
+    # The POD that will be probed, not the Deployment's template.
+    #
+    # A template is what was asked for; a Pod is what is running. They differ when an admission webhook
+    # mutates the spec, and they differ when a Pod from an earlier arm is still the one `k exec` lands on --
+    # which is the confusion this arm exists to rule out. So the Pod is named once, its own spec is read,
+    # and the same name is used for the probe below.
+    pod=$(k get pod -n "$ns" -l app.kubernetes.io/component=vllm-shared \
+      --field-selector=status.phase=Running -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+    if [ -z "$pod" ]; then
+      arm_refused mps "no Running Pod for $ns/$dep, so there is nothing to ask whether it is an MPS client"
+      return 1
+    fi
+    shared=$(k get pod -n "$ns" "$pod" -o jsonpath='{.spec.hostIPC}' 2>/dev/null || true)
     if [ "$shared" != "true" ]; then
-      arm_refused mps "$ns/$dep does not share the host IPC namespace (hostIPC=${shared:-absent}), so it cannot reach the MPS control daemon's pipe and would run without MPS while looking like a working arm. config/nvidia-device-plugin-mps/daemonset.yaml states the requirement."
+      arm_refused mps "$ns/$pod does not share the host IPC namespace (hostIPC=${shared:-absent}), so it cannot reach the MPS control daemon's pipe and would run without MPS while looking like a working arm. config/nvidia-device-plugin-mps/daemonset.yaml states the requirement."
       return 1
     fi
     # One probe, three facts: the variable, the directory, and the control socket inside it.
     #
     # Printed as a single line so a partial answer cannot be mistaken for a whole one.
-    out=$(k exec -n "$ns" "deploy/$dep" -- sh -c '
+    out=$(k exec -n "$ns" "$pod" -- sh -c '
       pipe="${CUDA_MPS_PIPE_DIRECTORY:-unset}"
       if [ "$pipe" = "unset" ]; then echo "PIPE=unset"; exit 0; fi
       if [ ! -d "$pipe" ]; then echo "PIPE=$pipe DIR=missing"; exit 0; fi

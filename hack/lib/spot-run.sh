@@ -195,8 +195,16 @@ spot_terminate() {
     # "TERMINATE FAILED ... STILL running AND BILLING" and then exited successfully. A wrapper checking the
     # exit status -- or a human reading only the last line -- learned nothing. An instance that is already
     # terminated or shutting down is not a failure and keeps returning 0; anything else does not.
+    # `shutting-down` is on the way, not there.
+    #
+    # It was accepted as success, and the wrapper then wrote `terminated` into termination.txt for an
+    # instance that was still shutting down -- a record that says something the API had not said yet. The
+    # state is reported and the caller keeps polling; only `terminated` ends this.
     case "$state" in
-      terminated | shutting-down) return 0 ;;
+      terminated) return 0 ;;
+      shutting-down)
+        spot_say "$instance_id is shutting-down; waiting for terminated"
+        ;;
       *) return 1 ;;
     esac
   fi
@@ -226,9 +234,13 @@ spot_terminate() {
     attempts=$((attempts + 1))
     state=$(spot_instance_state "$region" "$instance_id")
     case "$state" in
-      terminated | shutting-down)
-        spot_say "$instance_id is $state"
+      terminated)
+        spot_say "$instance_id is terminated"
         return 0
+        ;;
+      shutting-down)
+        # Recorded as progress, not as the answer: an instance in this state is still on the bill.
+        spot_say "$instance_id is shutting-down"
         ;;
     esac
     [ "$SECONDS" -ge "$deadline" ] && break

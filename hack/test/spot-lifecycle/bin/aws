@@ -241,6 +241,28 @@ case "$svc $op" in
       exit 0
     fi
     src="${3:-}"; dest="${4:-}"
+    # A single object fetched to STDOUT, which is how the completion marker is read.
+    #
+    # hack/m5c-gpu-session.sh runs `aws s3 cp s3://<bucket>/<run-id>/DONE -` and compares the body against
+    # this launch's nonce, because a marker carrying another session's nonce means the evidence under that
+    # prefix is not this run's. The stub modelled --recursive downloads and uploads and had no branch for
+    # this, so the body came back empty, the comparison failed, and EVERY m5c scenario ended in the refusal
+    # that follows -- which is why that suite's goldens all recorded exit 1 and its "11 passed" meant
+    # "the failure reproduces", not "the session completes".
+    #
+    # The nonce is taken from the key the caller asked for, so the stub agrees with whatever RUN_ID the run
+    # generated. STUB_DONE_NONCE overrides it, which is what makes the mismatch path testable at all.
+    if [ "$dest" = "-" ]; then
+      case "$src" in
+        *"/DONE")
+          key="${src#s3://}"
+          prefix="${key%/DONE}"
+          prefix="${prefix##*/}"
+          printf '%s\n' "${STUB_DONE_NONCE:-${prefix##*-}}"
+          exit 0
+          ;;
+      esac
+    fi
     # An UPLOAD is the other direction and has to be modelled separately.
     #
     # A runner that ships a binary to the instance uploads before it launches, and the first version of this

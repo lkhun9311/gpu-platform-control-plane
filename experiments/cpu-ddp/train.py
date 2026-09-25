@@ -312,7 +312,15 @@ def main() -> int:
     # run that measured nothing and fails too, rather than passing by absence.
     if NO_SYNC:
         agreed = verdict.get("all_ranks_agree")
-        if agreed is None:
+        if missing:
+            # The control is exempt from the arithmetic checks FAILING, not from having computed them.
+            #
+            # `missing` means a check was never evaluated -- no step ran, or the record never reached the
+            # verdict. A control run that produced no arithmetic at all and then diverged would have passed
+            # on the divergence alone, which is the same shape as the defect this gate was added to close.
+            verdict["control_verdict"] = f"checks were never computed: {missing}"
+            verdict["exit_code"] = 1
+        elif agreed is None:
             verdict["control_verdict"] = "no rank comparison was recorded"
             verdict["exit_code"] = 1
         elif agreed:

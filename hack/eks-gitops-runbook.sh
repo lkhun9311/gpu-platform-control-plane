@@ -186,8 +186,22 @@ apply() {
     sleep 10
   done
   printf '%s\n' "$table" >"$EXDIR/applications.txt"
-  if ((pending == 0)); then
-    ok "every automated Application is Synced/Healthy"
+
+  # The declared set has to still be there in the SAME snapshot that says everything converged.
+  #
+  # Existence was checked in one loop and convergence in another, minutes apart, so an Application that
+  # disappeared in between -- pruned, renamed, deleted by hand -- left a table whose remaining automated rows
+  # were all Synced/Healthy, and that read as success. An empty table reads that way too: `pending` counts
+  # failures among the rows present, and no rows means no failures.
+  local gone=""
+  if [[ -n "$table" ]]; then
+    gone="$(comm -23 <(printf '%s\n' "$expected") \
+      <(printf '%s\n' "$table" | awk '{print $1}' | sort) | grep -v '^$' || true)"
+  fi
+  if [[ -n "$gone" ]]; then
+    bad "$(printf '%s\n' "$gone" | wc -l) Application(s) were created and are gone again by the time convergence was judged: $(printf '%s\n' "$gone" | tr '\n' ' ')"
+  elif ((pending == 0)); then
+    ok "every automated Application is Synced/Healthy, and every declared Application is still present"
   elif ((pending < 0)); then
     bad "could not read Application status at all; this is an unmeasured run, not a pass"
   else
