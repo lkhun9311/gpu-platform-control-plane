@@ -233,11 +233,23 @@ def main() -> int:
     #
     # Only the first step has a hand-checkable expectation, because after it the ranks' losses depend on the
     # shared weight; later steps are covered by the cross-rank agreement below.
+    # THIS run's first step, not the first step in the file.
+    #
+    # The record is appended, so a reused volume holds every earlier run's steps too -- and this loop
+    # stopped at the first `step == 1` it met, which on a second attempt is the PREVIOUS run's. The
+    # verdict would then be computed from numbers this process never produced, and it would usually
+    # agree, because the earlier run computed the same expectation. Every record already carries the
+    # run id and attempt; matching on them is what makes the read belong to this run.
     first = None
     with open(emitter.path) as handle:
         for line in handle:
             record = json.loads(line)
-            if record.get("event") == "step" and record.get("step") == 1:
+            if (
+                record.get("event") == "step"
+                and record.get("step") == 1
+                and record.get("run_id") == RUN_ID
+                and record.get("attempt") == ATTEMPT
+            ):
                 first = record
                 break
 
@@ -278,7 +290,15 @@ def main() -> int:
     # The control run (DDP_NO_SYNC=1) is expected to fail these checks, so it is exempted explicitly rather
     # than by leaving the gate open for everyone.
     checks = ("grad_matches", "w_matches", "all_ranks_agree")
-    failed = [name for name in checks if verdict.get(name) is False]
+    # A check that was never computed is not a check that passed.
+    #
+    # `is False` counted only recorded failures, so a run that produced no step at all -- DDP_STEPS=0,
+    # or a step whose record never reached the verdict -- had an empty failure list and exited 0 on the
+    # strength of initial parameters agreeing before any training happened. Missing is now a failure, and
+    # it is named separately so the two are told apart in the record.
+    missing = [name for name in checks if verdict.get(name) is None]
+    failed = [name for name in checks if verdict.get(name) is False] + missing
+    verdict["missing_checks"] = missing
     verdict["failed_checks"] = failed
     
     # The control run is exempted from the checks, not from having an expectation.

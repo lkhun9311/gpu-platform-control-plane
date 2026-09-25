@@ -167,6 +167,11 @@ spot_launch() {
 # It still returns 0. The caller arms this from an EXIT trap, and a trap that fails would overwrite the
 # run's own exit status with the cleanup's -- which is how a successful run would start reporting failure.
 # The report is the message, not the status.
+# How long to wait for an accepted terminate to show up as terminated, in seconds.
+SPOT_TERMINATE_WAIT="${SPOT_TERMINATE_WAIT:-60}"
+# And how many times to ask, so the transcript is the same on a fast machine as on a slow one.
+SPOT_TERMINATE_TRIES="${SPOT_TERMINATE_TRIES:-12}"
+
 spot_terminate() {
   local region="$1" instance_id="$2" err state
   [ -n "$instance_id" ] || return 0
@@ -202,8 +207,23 @@ spot_terminate() {
   # The two differ exactly where it matters: an instance still `running` after an accepted call is the case a
   # paid session must not walk away from. So the state is polled, and an unconfirmed termination is a failure
   # -- `unknown` included, because that means the question could not be asked rather than answered.
-  local waited=0
-  while [ "$waited" -lt 12 ]; do
+  # A deadline in seconds, not a count of iterations, and no sleep after the last look.
+  #
+  # `waited -lt 12` plus `sleep 5` reads as a minute and is not: the queries in between were unbounded,
+  # and the twelfth iteration slept five seconds it could not use. SECONDS is the shell's own clock, so
+  # a slow API makes this loop end sooner rather than later -- which is the safe direction, because the
+  # caller treats an unconfirmed termination as a failure.
+  # Bounded by seconds AND by attempts, because only one of the two is a bound everywhere.
+  #
+  # On a real API the deadline is what ends this loop. Under the characterization stubs `sleep` records
+  # its argument and returns at once -- deliberately, so an hour of polling rehearses in milliseconds --
+  # and the same sixty seconds then bought TEN THOUSAND queries, a count that moved with the machine's
+  # speed and made the transcript non-deterministic: 10,354 one run and 10,314 the next. A golden that
+  # cannot be recorded twice is not a golden. The attempt cap makes the transcript the same everywhere
+  # without weakening the wall-clock bound that matters when money is running.
+  local deadline=$((SECONDS + SPOT_TERMINATE_WAIT)) attempts=0
+  while [ "$attempts" -lt "$SPOT_TERMINATE_TRIES" ]; do
+    attempts=$((attempts + 1))
     state=$(spot_instance_state "$region" "$instance_id")
     case "$state" in
       terminated | shutting-down)
@@ -211,7 +231,7 @@ spot_terminate() {
         return 0
         ;;
     esac
-    waited=$((waited + 1))
+    [ "$SECONDS" -ge "$deadline" ] && break
     sleep 5
   done
   printf 'TERMINATION UNCONFIRMED for %s: still %s after an accepted terminate call. Check it by hand:\n  aws ec2 describe-instances --region %s --instance-ids %s\n' \
@@ -222,7 +242,12 @@ spot_terminate() {
 # spot_instance_state echoes an instance's state, or "unknown".
 spot_instance_state() {
   local region="$1" instance_id="$2"
+  # Per-call timeouts, because a loop deadline does not bound a call that never returns.
+  #
+  # The polling below was described as a 60-second bound and was not one: twelve iterations of an `aws` call
+  # with no timeout is twelve unbounded waits. These two flags are what make the deadline mean seconds.
   aws ec2 describe-instances --region "$region" --instance-ids "$instance_id" \
+    --cli-connect-timeout 5 --cli-read-timeout 10 \
     --query 'Reservations[0].Instances[0].State.Name' --output text 2>/dev/null || echo unknown
 }
 

@@ -152,6 +152,25 @@ case "$svc $op" in
     printf '%s\n' "${STUB_INSTANCE_ID:-i-0stub}"
     ;;
 
+  "configure export-credentials")
+    # The expiry of the credentials the CLI would ACTUALLY use, which is what the wrapper asks for.
+    #
+    # hack/m5c-gpu-session.sh reads one field out of this -- `Expiration` -- and falls back to scanning the
+    # credential cache when the subcommand is missing. The stub had no arm for it, so every m5c scenario that
+    # reached the credential check diverged from goldens recorded before the call existed: 2 passed, 15 failed,
+    # for a reason that had nothing to do with what those scenarios test.
+    #
+    # STUB_CREDENTIALS_EXPIRE_IN_MIN sets how much life to report, and an empty value omits the field so the
+    # cache-scanning fallback is still reachable.
+    mins="${STUB_CREDENTIALS_EXPIRE_IN_MIN-720}"
+    if [ -z "$mins" ]; then
+      printf '{"Version":1}\n'
+    else
+      printf '{"Version":1,"AccessKeyId":"STUB","SecretAccessKey":"STUB","SessionToken":"STUB","Expiration":"%s"}\n' \
+        "$(date -u -d "+${mins} minutes" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -v+"${mins}"M +%Y-%m-%dT%H:%M:%SZ)"
+    fi
+    ;;
+
   "ec2 terminate-instances")
     # STUB_TERMINATE_FAILS makes the call refuse, the way expired credentials do. spot_terminate used to
     # swallow that and report success, and this knob is what keeps the fixed version honest: without a way
@@ -171,6 +190,8 @@ case "$svc $op" in
     # accepted and the instance is still billing.
     if [ "${STUB_TERMINATE_LINGERS:-0}" != "1" ]; then
       printf 'yes\n' > "${STUB_STATE:-/tmp}/terminate-accepted"
+      # When the call was accepted is what makes `shutting-down` a phase rather than a constant.
+      cat "${STUB_STATE:-/tmp}/count-describe-instances" 2>/dev/null > "${STUB_STATE:-/tmp}/terminate-accepted-at" || printf '0\n' > "${STUB_STATE:-/tmp}/terminate-accepted-at"
     fi
     printf '{}\n'
     ;;
@@ -179,7 +200,26 @@ case "$svc $op" in
     n=$(bump describe-instances)
     dead="${STUB_TERMINATED_AFTER:--1}"
     # A terminate call that was accepted wins over the call counter: after it, the instance is gone.
-    if [ -f "${STUB_STATE:-/tmp}/terminate-accepted" ]; then printf 'terminated\n'
+    # Three shapes a real termination takes, not one.
+    #
+    # The stub answered either "terminated at once" or "running for ever", so the caller's polling was only
+    # ever exercised against its two extremes. A real instance passes through `shutting-down`, and a session
+    # whose credentials lapse mid-poll gets neither state but an error the helper reports as `unknown`.
+    # STUB_SHUTTING_DOWN_FOR makes the first N reads after an accepted call say `shutting-down`, and
+    # STUB_STATE_UNKNOWN_AFTER makes every read from the Nth onwards fail the way an expired token does.
+    unknown_after="${STUB_STATE_UNKNOWN_AFTER:--1}"
+    if [ "$unknown_after" -ge 0 ] && [ "$n" -ge "$unknown_after" ]; then
+      echo "An error occurred (ExpiredToken) when calling the DescribeInstances operation: token expired" >&2
+      exit 254
+    fi
+    if [ -f "${STUB_STATE:-/tmp}/terminate-accepted" ]; then
+      accepted_at=$(cat "${STUB_STATE:-/tmp}/terminate-accepted-at" 2>/dev/null || echo 0)
+      linger="${STUB_SHUTTING_DOWN_FOR:-0}"
+      if [ "$linger" -gt 0 ] && [ "$((n - accepted_at))" -lt "$linger" ]; then
+        printf 'shutting-down\n'
+      else
+        printf 'terminated\n'
+      fi
     elif [ "$dead" -ge 0 ] && [ "$n" -ge "$dead" ]; then printf 'terminated\n'
     else printf 'running\n'; fi
     ;;

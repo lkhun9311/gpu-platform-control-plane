@@ -14,7 +14,7 @@ aws ec2 describe-subnets --region ap-northeast-2 --filters Name=default-for-az,V
 aws ec2 run-instances --region ap-northeast-2 --image-id ami-0stubgpu --instance-type g5.12xlarge --subnet-id subnet-ap-northeast-2c --iam-instance-profile Name=queuelab-gpu --instance-initiated-shutdown-behavior terminate --block-device-mappings [{"DeviceName":"/dev/sda1","Ebs":{"VolumeSize":300,"VolumeType":"gp3","DeleteOnTermination":true}}] --instance-market-options {"MarketType":"spot","SpotOptions":{"MaxPrice":"3.90","SpotInstanceType":"one-time"}} --user-data file://<USERDATA> --tag-specifications ResourceType=instance,Tags=[{Key=Name,Value=queuelab-gpu},{Key=purpose,Value=queuelab-device-observation}] --query Instances[0].InstanceId --output text
 user-data: matches the copy saved in the run directory
 aws s3api head-object --bucket stub-bucket --key run/DONE
-aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0stub --query Reservations[0].Instances[0].State.Name --output text
+aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0stub --cli-connect-timeout 5 --cli-read-timeout 10 --query Reservations[0].Instances[0].State.Name --output text
 sleep 30
 aws s3api head-object --bucket stub-bucket --key run/DONE
 aws s3 cp s3://stub-bucket/run/session.tgz <OUT>/session.tgz
@@ -30,7 +30,7 @@ aws s3 cp s3://stub-bucket/run/device-scrape-last.txt <OUT>/device-scrape-last.t
 aws s3 cp --recursive s3://stub-bucket/run/runs <OUT>/runs
 recursive: 2 object(s) from stub-bucket/run/runs
 aws ec2 terminate-instances --region ap-northeast-2 --instance-ids i-0stub
-aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0stub --query Reservations[0].Instances[0].State.Name --output text
+aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0stub --cli-connect-timeout 5 --cli-read-timeout 10 --query Reservations[0].Instances[0].State.Name --output text
 queuelabrun checksum: user-data matches the uploaded binary
 --- exit 0
 --- messages
