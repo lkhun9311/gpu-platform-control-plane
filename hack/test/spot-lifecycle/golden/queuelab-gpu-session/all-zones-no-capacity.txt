@@ -32,4 +32,5 @@ FAIL: no zone had Spot capacity for g5.12xlarge. At a placement score of 3 that 
 ./launch-errors.txt
 ./queuelabrun
 ./source.tgz
+./termination.txt
 ./user-data.sh

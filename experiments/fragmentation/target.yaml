@@ -1,0 +1,29 @@
+# The 2-GPU job whose fate is the measurement.
+#
+# Submitted through MLTrainingJob rather than as a bare Job because the question is what THIS control plane
+# sees. A bare Job would answer a question about Kubernetes; this one answers a question about the operator,
+# its Kueue integration, and the phase it reports while the Pod is unschedulable.
+#
+# No nodeSelector, no affinity, no toleration -- the CRD has no field for any of them
+# (api/v1/mltrainingjob_types.go), which is why the eligible set is the two untainted workers and why the
+# experiment is designed around that rather than against it.
+#
+# NAME_PLACEHOLDER is substituted by hack/fragmentation.sh.
+apiVersion: platform.lkhun9311.github.io/v1
+kind: MLTrainingJob
+metadata:
+  name: NAME_PLACEHOLDER
+  namespace: frag
+  labels:
+    frag.experiment/role: target
+spec:
+  queue: frag
+  image: registry.k8s.io/pause:3.10
+  # pause blocks forever on its own, so the container outlives the observation window without a shell.
+  command:
+    - /pause
+  # Two, which is the whole experiment: one would fit in any of the arms' headroom vectors and measure
+  # nothing about distribution.
+  gpuCount: 2
+  parallelism: 1
+  completions: 1

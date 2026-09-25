@@ -42,7 +42,30 @@ failures=0
 # ONLY lets one scenario be run, which is how a scenario that behaves differently in the suite than on its
 # own gets looked at without paying for the other two.
 ONLY="${ONLY:-}"
-want() { [ -z "$ONLY" ] || [ "$ONLY" = "$1" ]; }
+# The scenarios this suite knows, so a typo in ONLY cannot quietly run none of them.
+#
+# `want` alone compares ONLY against each name and answers no every time when the name is misspelled. The
+# suite then executes zero scenarios, reaches the end with failures=0, and prints that all five failure
+# paths are pinned. A selector that silently selects nothing is worse than no selector: it reports a pass
+# for work that did not happen.
+SCENARIOS="1 2 3 4 5"
+selected=0
+if [ -n "$ONLY" ]; then
+  case " $SCENARIOS " in
+    *" $ONLY "*) ;;
+    *)
+      printf 'ONLY=%s is not a scenario of this suite. Known: %s\n' "$ONLY" "$SCENARIOS" >&2
+      exit 2
+      ;;
+  esac
+fi
+want() {
+  if [ -z "$ONLY" ] || [ "$ONLY" = "$1" ]; then
+    selected=$((selected + 1))
+    return 0
+  fi
+  return 1
+}
 
 say()  { printf '== %s\n' "$*"; }
 # A failed assertion prints the log it was reading, because a check that says only "not pinned" is the
@@ -286,11 +309,22 @@ compgen -G "$WORK/run/raw-shared-"'*.jsonl' >/dev/null \
 # reach: that the file the runner wrote is the file the report reads, from a directory it discovered itself.
 if compgen -G "$WORK/run/raw-"'*.jsonl' >/dev/null; then
   args=(); for f in "$WORK/run"/raw-*.jsonl; do args+=(--raw "$f"); done
-  set +e; go run ./cmd/benchharness report "${args[@]}" > "$WORK/refused-report.txt" 2>&1; set -e
+  set +e; go run ./cmd/benchharness report "${args[@]}" > "$WORK/refused-report.txt" 2>&1; report_rc=$?; set -e
   CURRENT_LOG="$WORK/refused-report.txt"
-  grep -qE '^\s*\[( N/E |FIRED)\] 4c .*no recorded refusal' "$WORK/refused-report.txt" \
-    && bad "the report says there is no recorded refusal while refused-mps.txt sits beside the raw files it was given" \
-    || ok "the report did not claim the refusal was absent"
+  # A report that did not run cannot have failed to claim anything.
+  #
+  # The assertion below is `grep ... && bad || ok`, which prints "ok" when grep finds nothing -- including
+  # when the file is empty because the report crashed. The exit status was discarded by `set +e` and never
+  # examined, so a total failure of the thing under test read as a pass.
+  if [ "$report_rc" -ne 0 ] || [ ! -s "$WORK/refused-report.txt" ]; then
+    bad "the report exited $report_rc with $(wc -c <"$WORK/refused-report.txt" 2>/dev/null || echo 0) bytes; there is nothing to assert about"
+  elif grep -qE '^\s*\[( N/E |FIRED)\] 4c .*no recorded refusal' "$WORK/refused-report.txt"; then
+    bad "the report says there is no recorded refusal while refused-mps.txt sits beside the raw files it was given"
+  elif ! grep -qE '^\s*\[' "$WORK/refused-report.txt"; then
+    bad "the report produced no reading lines at all, so the absence of the 4c claim proves nothing"
+  else
+    ok "the report did not claim the refusal was absent"
+  fi
 fi
 rm -rf "$WORK/run"
 
@@ -340,9 +374,14 @@ compgen -G "$WORK/run/raw-shared-"'*.jsonl' >/dev/null \
   && ok "the control beside it still produced evidence" || bad "the refused arm took the measured arm down with it"
 grep -q "what the plugin and the node report" "$WORK/fail-devcount.log" \
   && ok "the diagnosis ran, so the refusal names evidence" || bad "the arm was refused with no diagnosis; the card is gone by the time anyone reads this"
-grep -q "ignoring CONFIG_FILE" "$WORK/fail-devcount.log" \
-  && bad "the refusal still asserts a cause a device count cannot establish" \
-  || ok "it reports the count without inventing the cause"
+# Same shape as above: an empty log makes the negative grep vacuously true.
+if [ ! -s "$WORK/fail-devcount.log" ]; then
+  bad "fail-devcount.log is empty, so 'it did not invent a cause' is a statement about nothing"
+elif grep -q "ignoring CONFIG_FILE" "$WORK/fail-devcount.log"; then
+  bad "the refusal still asserts a cause a device count cannot establish"
+else
+  ok "it reports the count without inventing the cause"
+fi
 rm -rf "$WORK/run"
 
 fi
@@ -386,8 +425,12 @@ fi
 fi
 
 echo
-if [ "$failures" = "0" ]; then
-  say "ALL FIVE FAILURE PATHS PINNED: each one ran, and each one said what a reader needs."
+expected=5
+[ -n "$ONLY" ] && expected=1
+if [ "$selected" != "$expected" ]; then
+  fail "$selected scenario(s) ran, expected $expected. A suite that runs nothing and reports a pass is the defect this count exists to stop."
+elif [ "$failures" = "0" ]; then
+  say "ALL $selected FAILURE PATH(S) PINNED: each one ran, and each one said what a reader needs."
 else
   fail "$failures assertion(s) failed above. A refusal that does not say why is one that has to be bought twice."
 fi

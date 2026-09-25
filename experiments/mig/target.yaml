@@ -1,0 +1,48 @@
+# The Job whose fate is the measurement.
+#
+# A plain batch/v1 Job, not an MLTrainingJob, and that is deliberate. Finding 6 showed the CR reports
+# `Running` whenever `job.Status.Active > 0`, which counts pending Pods -- so using the CR as this study's
+# oracle would import a known defect into a study about something else. The verdicts here come from the
+# Workload, the Job's `spec.suspend`, and the Pod's `PodScheduled` condition.
+#
+# No selector, affinity or toleration: the eligible set must be decided by where the profile exists, not by
+# where the manifest points. The control-plane node stays out because it is tainted and this Pod tolerates
+# nothing, which the runner re-verifies every trial rather than assuming.
+#
+# The three upper-case placeholders below are substituted by hack/mig.sh. None is valid as written, so a run
+# that skipped substitution fails visibly instead of quietly requesting the wrong key -- and the runner
+# refuses a manifest that rendered empty, which is how a missing template once produced 25 silent invalid
+# trials in the fragmentation study.
+#
+# This sentence names none of them on purpose: an earlier version did, and `sed` rewrote the explanation
+# along with the fields, leaving every rendered manifest carrying a comment that described something else.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: NAME_PLACEHOLDER
+  namespace: mig
+  labels:
+    kueue.x-k8s.io/queue-name: mig
+    mig.experiment/role: ROLE_PLACEHOLDER
+spec:
+  # Kueue unsuspends it once quota is reserved. Submitting it already running would bypass admission, which
+  # is one of the three things this study measures.
+  suspend: true
+  parallelism: 1
+  completions: 1
+  backoffLimit: 0
+  template:
+    metadata:
+      labels:
+        mig.experiment/role: ROLE_PLACEHOLDER
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: target
+          image: registry.k8s.io/pause:3.10
+          imagePullPolicy: IfNotPresent
+          resources:
+            limits:
+              # Exactly one device of exactly one profile. Asking for two would confound this study with the
+              # fragmentation one, where the question was how a multi-device request meets a split headroom.
+              PROFILE_PLACEHOLDER: 1

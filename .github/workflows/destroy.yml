@@ -142,8 +142,14 @@ jobs:
           # Delete the root app first so it stops re-creating the children mid-teardown.
           #
           # The cascade finalizer on each Application then removes the underlying workloads, including any LoadBalancer that would otherwise block the VPC destroy.
-          kubectl delete application gpu-platform-root -n argocd --ignore-not-found=true --wait=true
-          kubectl delete applications --all -n argocd --ignore-not-found=true --wait=true
+          # Bounded, because an unbounded --wait can spend the whole job on one stuck finalizer.
+          #
+          # The job's own timeout is 45 minutes and `terraform destroy` below runs under `!cancelled()` --
+          # which a job timeout does NOT satisfy. So a delete that hangs does not merely delay teardown, it
+          # skips it, and the cluster keeps billing until someone notices. Failing here is fine: the step is
+          # already allowed to continue to the destroy that actually stops the charges.
+          kubectl delete application gpu-platform-root -n argocd --ignore-not-found=true --wait=true --timeout=240s || true
+          kubectl delete applications --all -n argocd --ignore-not-found=true --wait=true --timeout=240s || true
           kubectl wait --for=delete application --all -n argocd --timeout=300s
 
       # Destroy argo-bootstrap before cluster, or the Argo Helm release state is orphaned.

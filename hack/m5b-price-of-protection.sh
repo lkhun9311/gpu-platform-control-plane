@@ -481,7 +481,29 @@ TAGS="ResourceType=instance,Tags=[{Key=Name,Value=$STACK},{Key=purpose,Value=pri
 # SIGPIPE on stdout because this script was piped to something that had exited, or a Ctrl-C in that window
 # all exit with a GPU instance running and no terminator. spot_terminate returns 0 on an empty id, so
 # arming it early costs nothing and closes the window.
-cleanup() { spot_terminate "$REGION" "$IID"; }
+# Termination is recorded as its own result, separate from whether the experiment succeeded.
+#
+# spot_terminate now returns non-zero when the instance is still billing, and nothing was reading that. A
+# session could print "TERMINATE FAILED ... STILL running AND BILLING" and still exit 0, because a failing
+# EXIT trap does not change a script's exit status -- measured, not assumed. So the outcome goes to a file
+# the operator and the next run can both check.
+cleanup() {
+  if spot_terminate "$REGION" "$IID"; then
+    printf 'terminated %s\n' "${IID:-<none>}" >"${OUT:-.}/termination.txt" 2>/dev/null || true
+  else
+    printf 'TERMINATION UNCONFIRMED for %s -- check the console before the next paid run\n' \
+      "${IID:-<none>}" >"${OUT:-.}/termination.txt" 2>/dev/null || true
+    printf 'TERMINATION UNCONFIRMED for %s\n' "${IID:-<none>}" >&2
+    # A record is not a gate, and until now this was only a record.
+    #
+    # The comment above established that a failing EXIT trap does not change a script's exit status -- and
+    # then settled for writing the outcome to a file. Nothing read the file, so a session that could not
+    # confirm its instance was gone still exited 0, and a wrapper, a log reader or a CI step saw success.
+    # `exit` inside the trap is the one thing that does set the status, so it is called here: a run whose
+    # instance may still be billing is a failed run, whatever the experiment produced.
+    exit 1
+  fi
+}
 IID=""
 trap cleanup EXIT INT TERM
 for z in $ZONES; do

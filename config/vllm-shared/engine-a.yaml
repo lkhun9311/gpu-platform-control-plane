@@ -44,6 +44,14 @@ spec:
       # The sharing node group, which is the one the time-slicing plugin runs on. Its max_size is 1, and
       # that is what makes co-location certain: two engines on two nodes would not be sharing anything, and
       # nothing downstream could tell that apart from a sharing result.
+      # The MPS control daemon and every client have to share one IPC namespace.
+      #
+      # config/nvidia-device-plugin-mps/daemonset.yaml says it in the daemon's own spec: without the shared
+      # namespace a client cannot reach the daemon's pipe and falls back to running WITHOUT MPS -- which
+      # looks like a working arm. This file carried the pipe directory and the node selector and not this,
+      # so the repository contradicted itself, and the arm it would have produced was time-slicing under
+      # another name.
+      hostIPC: true
       nodeSelector:
         platform.lkhun9311.github.io/gpu-sharing: "true"
       tolerations:

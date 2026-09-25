@@ -17,6 +17,7 @@ aws s3 cp s3://stub-bucket/run/run.json <OUT>/run.json
 aws s3 cp s3://stub-bucket/run/log.txt <OUT>/log.txt
 aws s3 cp s3://stub-bucket/run/stderr.txt <OUT>/stderr.txt
 aws ec2 terminate-instances --region ap-northeast-2 --instance-ids i-0stub
+aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0stub --query Reservations[0].Instances[0].State.Name --output text
 harness checksum: user-data matches the uploaded binary
 --- exit 0
 --- messages
@@ -44,6 +45,7 @@ default-fcfs           engine default       2048     1
 == the report is NOT run here: it needs every arm of the study and this may be a pilot
 == when the arms are complete:  benchharness report --raw '<OUT>/evidence/raw-*.jsonl' -json-out ...
 == terminating i-0stub
+== i-0stub is terminated
 --- files
 ./benchharness
 ./evidence.tgz
@@ -54,4 +56,5 @@ default-fcfs           engine default       2048     1
 ./pop.py
 ./run.json
 ./stderr.txt
+./termination.txt
 ./user-data.sh

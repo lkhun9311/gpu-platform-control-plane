@@ -44,9 +44,17 @@ docs/superpowers/*
 !/hack/tenant-writable-fields.md
 !/hack/gpu-session-preregistration.md
 !/hack/eks-cluster-cycle-20260918.md
+# Experiment write-ups, which the allow-list above would otherwise swallow file by file.
+#
+# `*.md` hides every document by default and each one is re-included by name, so a new directory's README
+# is invisible to `git status` and a commit simply leaves it behind -- which is what happened to this one.
+# A pattern rather than a name, because an experiment is expected to arrive with its own directory.
+!/experiments/**/README.md
 !/docs/0[0-7]*.md
 !/docs/09*.md
-!/docs/10_WHAT_I_GOT_WRONG.md
+# Numbered by pattern rather than by name, because naming each one is how docs/08 and docs/11 ended up
+# invisible: a document the repository cannot see is not a document a reader can check.
+!/docs/1[0-9]_*.md
 !/docs/superpowers/specs/*.md
 
 # Terraform local state, cache and secrets (state lives in the remote backend, not here)
@@ -89,6 +97,24 @@ evidence/
 
 # Generated binaries
 bin/
+# Binaries `go build ./cmd/<x>` drops in the repository root.
+#
+# `bin/` covers the tooling the Makefile installs and covered none of these: a 54 MB ELF sat untracked
+# in the root after one `go build ./cmd/gpu-simulator/`, and `git check-ignore` said it was fair game.
+# One `git add .` would have committed it.
+/benchharness
+/gateway
+/gpu-simulator
+/queuelabrun
+/queueload
+/workloadrunctl
+
+# Python bytecode from `py_compile` checks on the experiment scripts.
+#
+# `git check-ignore` said an experiments/*/__pycache__ directory was fair game, and it appeared twice
+# in one session from syntax-checking train.py before running it.
+__pycache__/
+*.pyc
 dist/
 build/
 

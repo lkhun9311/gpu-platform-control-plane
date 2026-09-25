@@ -938,9 +938,15 @@ EOF
 # ordinary. Reading 4c exists for precisely this outcome and had no evidence it could act on.
 #
 # WHAT IS CHECKED, and what is not. CUDA_MPS_PIPE_DIRECTORY is what the plugin sets on a client container at
-# allocation, and its presence plus a reachable pipe directory is what distinguishes a client from a process
-# that merely has the card. It does NOT prove kernels are being routed through the MPS server; only nvidia-smi
-# on the host can show that, and this runner deliberately puts no observer on the sharing node.
+# allocation. This used to check the VARIABLE ALONE and claim, in this very comment, that it checked "a
+# reachable pipe directory" too -- it did not, so any non-empty string passed: a stale value, a typo, a path
+# that does not exist. A pre-spend review caught the gap before it was paid for a second time.
+#
+# It now requires the directory to exist, to be a directory, and to hold the control socket the daemon
+# creates. That still does NOT prove kernels are routed through the MPS server; only nvidia-smi on the host
+# can show that, and this runner deliberately puts no observer on the sharing node. What it does prove is
+# that the client was given a pipe directory that is really there -- which is the difference between "the
+# plugin set a variable" and "there is an MPS server at the other end of it".
 #
 # It REFUSES rather than warns. An arm mislabelled as a mechanism it did not use is the one result this study
 # must not produce, and hack/m5c-matrix.sh's own header says MPS and time-slicing differing "is the reason
@@ -953,10 +959,37 @@ EOF
 # `benchharness report` looks: the readings run over raw files and would otherwise never learn that an arm
 # was declined, because the reason lived only in a log nothing reads back.
 mps_clients_connected() {
-  local ns_a="$1" dep_a="$2" ns_b="$3" dep_b="$4" ns dep out rc
+  local ns_a="$1" dep_a="$2" ns_b="$3" dep_b="$4" ns dep out rc shared
   for pair in "$ns_a:$dep_a" "$ns_b:$dep_b"; do
     ns="${pair%%:*}"; dep="${pair##*:}"
-    out=$(k exec -n "$ns" "deploy/$dep" -- sh -c 'echo "PIPE=${CUDA_MPS_PIPE_DIRECTORY:-unset}"' 2>&1); rc=$?
+
+    # The IPC namespace comes first, because without it the three facts below can all be true and the client
+    # still not be one.
+    #
+    # config/nvidia-device-plugin-mps/daemonset.yaml states the requirement in the daemon's own spec: the
+    # control daemon and every client must share one IPC namespace, or the client cannot reach the daemon's
+    # pipe and falls back to running WITHOUT MPS. A pipe directory that exists and a control socket that is
+    # visible say nothing about whether this pod can reach the daemon through it. This check read those two
+    # and not `hostIPC`, so a pod in its own IPC namespace -- which is what both engine manifests declared
+    # until today -- would have been reported as an MPS client.
+    shared=$(k get deploy -n "$ns" "$dep" -o jsonpath='{.spec.template.spec.hostIPC}' 2>/dev/null || true)
+    if [ "$shared" != "true" ]; then
+      arm_refused mps "$ns/$dep does not share the host IPC namespace (hostIPC=${shared:-absent}), so it cannot reach the MPS control daemon's pipe and would run without MPS while looking like a working arm. config/nvidia-device-plugin-mps/daemonset.yaml states the requirement."
+      return 1
+    fi
+    # One probe, three facts: the variable, the directory, and the control socket inside it.
+    #
+    # Printed as a single line so a partial answer cannot be mistaken for a whole one.
+    out=$(k exec -n "$ns" "deploy/$dep" -- sh -c '
+      pipe="${CUDA_MPS_PIPE_DIRECTORY:-unset}"
+      if [ "$pipe" = "unset" ]; then echo "PIPE=unset"; exit 0; fi
+      if [ ! -d "$pipe" ]; then echo "PIPE=$pipe DIR=missing"; exit 0; fi
+      sock=no
+      for candidate in "$pipe"/control "$pipe"/nvidia-mps/control; do
+        [ -e "$candidate" ] && sock=yes && break
+      done
+      echo "PIPE=$pipe DIR=present CONTROL=$sock"
+    ' 2>&1); rc=$?
     if [ "$rc" != "0" ]; then
       # A container with no shell is a DIFFERENT FACT from a client that did not connect, and calling the
       # first the second would report a mechanism failure nothing established. vLLM's image has a shell.
@@ -966,6 +999,16 @@ mps_clients_connected() {
     case "$out" in
       *PIPE=unset*)
         arm_refused mps "$ns/$dep has no CUDA_MPS_PIPE_DIRECTORY, so it is not an MPS client and this arm would be the time-slicing arm under another name. The control daemon being ready is the server half only; config/nvidia-device-plugin-mps/daemonset.yaml says clients fall back silently."
+        return 1 ;;
+      *DIR=missing*)
+        arm_refused mps "$ns/$dep was given a CUDA_MPS_PIPE_DIRECTORY that does not exist on it, so the variable is decoration: $(printf '%s' "$out" | tr '\n' ' ' | cut -c1-160)"
+        return 1 ;;
+      *CONTROL=no*)
+        arm_refused mps "$ns/$dep has a pipe directory with no MPS control socket in it, so there is no server at the other end and this arm is time-slicing under another name: $(printf '%s' "$out" | tr '\n' ' ' | cut -c1-160)"
+        return 1 ;;
+      *CONTROL=yes*) ;;
+      *)
+        arm_refused mps "could not read the MPS client state of $ns/$dep; the probe answered '$(printf '%s' "$out" | tr '\n' ' ' | cut -c1-120)'"
         return 1 ;;
     esac
     say "  $ns/$dep is an MPS client ($(printf '%s' "$out" | head -1))"
@@ -1301,7 +1344,13 @@ run_cell() {
     # declining, which is most of a cell.
     cell_secs=$(( cell_secs + $(date +%s) - CELL_T0 ))
     cells_done=$(( cells_done + 1 ))
-    continue
+    # `return`, not `continue`: this is a function body and the loop is at the call site.
+    #
+    # bash prints "continue: only meaningful in a for, while, or until loop" and then CARRIES ON with the
+    # next statement -- so a refused cell went on to the port-forward setup it was supposed to skip. The
+    # message goes to stderr in the middle of a paid session and the run looks like it obeyed. Reproduced
+    # minimally before changing this: the line after `continue` ran, and so did the rest of the function.
+    return 0
   fi
   # The tunnel every request of this cell goes through, replaced between cells and then PROVED.
   #

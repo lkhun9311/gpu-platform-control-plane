@@ -18,6 +18,7 @@ aws s3 cp s3://stub-bucket/run/run.json <OUT>/run.json
 aws s3 cp s3://stub-bucket/run/log.txt <OUT>/log.txt
 aws s3 cp s3://stub-bucket/run/stderr.txt <OUT>/stderr.txt
 aws ec2 terminate-instances --region ap-northeast-2 --instance-ids i-0stub
+aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0stub --query Reservations[0].Instances[0].State.Name --output text
 harness checksum: user-data matches the uploaded binary
 --- exit 1
 --- messages
@@ -38,6 +39,7 @@ harness checksum: user-data matches the uploaded binary
 == watching for up to 125 min against a 120 min backstop
 == instance ended before writing DONE
 == terminating i-0stub
+== i-0stub is terminated
 FAIL: the instance was terminated before it wrote its completion marker; <OUT>/log.txt is whatever it managed to upload
 --- files
 ./benchharness
@@ -45,4 +47,5 @@ FAIL: the instance was terminated before it wrote its completion marker; <OUT>/l
 ./launch-errors.txt
 ./log.txt
 ./pop.py
+./termination.txt
 ./user-data.sh
