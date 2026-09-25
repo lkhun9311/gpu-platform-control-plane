@@ -69,12 +69,28 @@ all four load parameters are given (`hack/m5c-matrix.sh:160`). Asking for one re
 second path to the engines that no other arm uses. The bar is therefore the artifact the matrix already
 produces for every other arm.
 
-## What counts as a refusal rather than a failure
+## Three outcomes, because two cannot separate the causes
 
-A refusal is a registered outcome, written to `refused-mps.txt` and reported as reading 4c. B1 or B2 missing
-is a **refusal**: it says MPS does not engage on this AMI, which is an answer. B3, B4 or B5 missing after B1
-and B2 passed is a **failure** of this experiment's own apparatus and must be fixed before another card is
-rented.
+The first version of this page said B1 or B2 missing meant MPS does not engage, and anything later meant the
+apparatus was broken. That split is not decidable from the bars alone: a Pod that never reaches `Running`
+can be a kubelet refusing an unhealthy device **or** an image that would not pull, a node too small, a
+missing toleration. And B3 or B4 failing after B1 and B2 passed can be a real MPS limitation rather than a
+fault of this harness.
+
+So the outcome is one of three, and the run must name which:
+
+| outcome | when | what it licenses |
+|---|---|---|
+| **INVALID** | a precondition was not met — the overlay is not the pinned one, an engine manifest lacks `hostIPC`, the image did not pull, the node could not schedule the Pod | nothing; the run is not evidence about MPS |
+| **REFUSED** | the device plugin advertised and the kubelet declined, with the `no healthy devices` event captured, or the daemon rejected a client with its reason recorded | that **this AMI and driver** do not engage MPS — not "this card" in general |
+| **INCONCLUSIVE** | a bar was missed and the diagnostics do not establish why | that the question is still open, and what evidence the next attempt must capture |
+
+**The diagnostics are mandatory output, not a courtesy.** A run that cannot classify itself is INCONCLUSIVE
+by definition, so the session uploads, for both engine Pods: `kubectl describe pod`, the kubelet's events for
+that node, the device-plugin DaemonSet's logs, the MPS control daemon's logs, and `nvidia-smi` including the
+compute-process table. Without those the outcome cannot be REFUSED, whatever the bars say.
+
+A REFUSED outcome is written to `refused-mps.txt` and reported as reading 4c, as before.
 
 ## Invalidation rules
 
@@ -89,6 +105,18 @@ rented.
 One instance, one attempt at B1–B5, and a hard stop at **40 minutes** of instance time. If B1 or B2 fails
 the session ends there rather than retrying with different plugin settings: the settings are the
 pre-registered ones, and tuning until it passes is how a capability question becomes a search.
+
+**The stop is a contract the runner has to enforce, not a sentence on this page.** Forty minutes means:
+
+- an absolute deadline of **2,400 seconds from the instance's `LaunchTime`**, not from when a shell noticed
+  it — the existing wrapper's backstop timer starts after boot, which is a different clock;
+- per-step budgets inside it: 12 minutes to a Running pair (B1–B2), 8 to the client and daemon evidence
+  (B3–B4), 12 to the replay (B5), and **8 reserved** for evidence upload and teardown, which do not come out
+  of the measurement;
+- the AMI **ID** pinned in the run record rather than resolved from `latest`, together with the driver and
+  container-toolkit versions, the engine image digests and the manifest SHA — a capability answer about an
+  AMI is worth nothing without naming it;
+- B1–B5 written to a structured file as they are decided, so a session cut short still says how far it got.
 
 ## Cost
 
