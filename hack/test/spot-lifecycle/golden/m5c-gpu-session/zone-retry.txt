@@ -21,11 +21,18 @@ aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0stub --cli-
 sleep 30
 aws s3api head-object --bucket stub-bucket --key run-<NONCE>/DONE
 aws s3 cp s3://stub-bucket/run-<NONCE>/DONE -
+aws s3 cp s3://stub-bucket/run-<NONCE>/evidence.tgz <OUT>/evidence.tgz
+aws s3 cp s3://stub-bucket/run-<NONCE>/log.txt <OUT>/log.txt
+aws s3 cp s3://stub-bucket/run-<NONCE>/commit.txt <OUT>/commit.txt
+aws s3 cp s3://stub-bucket/run-<NONCE>/nodes.txt <OUT>/nodes.txt
+aws s3 cp s3://stub-bucket/run-<NONCE>/preflight-nvidia-smi.csv <OUT>/preflight-nvidia-smi.csv
+aws s3 cp s3://stub-bucket/run-<NONCE>/preflight-node-cards.txt <OUT>/preflight-node-cards.txt
+aws s3api list-objects-v2 --bucket stub-bucket --prefix run-<NONCE>/cells/ --query Contents[].Key --output text
 aws ec2 terminate-instances --region ap-northeast-2 --instance-ids i-0stub
 aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0stub --cli-connect-timeout 5 --cli-read-timeout 10 --query Reservations[0].Instances[0].State.Name --output text
 harness checksum: user-data matches the uploaded binary
 gateway checksum: user-data matches the uploaded binary
---- exit 1
+--- exit 0
 --- messages
 == study  M5-c sharing matrix -- does giving each tenant its own engine on a shared card protect the tail
 == arms   [R1 shared timeSlicing mps], 1 repetition(s) each
@@ -44,13 +51,29 @@ gateway checksum: user-data matches the uploaded binary
 == trying ap-northeast-2c (subnet-ap-northeast-2c)
 == instance i-0stub
 == waiting for results (driver, toolkit, cluster and preflight come first; about 25 minutes before the first cell)
+== records are up (marker carries this launch's nonce)
+== evidence unpacked to <OUT>/m5c-run
+== every arm in [R1 shared timeSlicing mps] returned raw evidence
+== SESSION DONE. Evidence in <OUT>/m5c-run
+== The readings are NOT evaluated here. Run them over the evidence:
+==   args=; for f in <OUT>/m5c-run/raw-*.jsonl; do args="$args --raw $f"; done
+==   go run ./cmd/benchharness report $args
+== That prints the pre-registered readings in their registered order and the first that fires.
 == terminating i-0stub
 == i-0stub is terminated
 --- files
 ./benchharness
+./commit.txt
+./evidence.tgz
 ./gateway
 ./instance-id
 ./launch-errors.txt
+./log.txt
+./m5c-run/raw-R1-1.jsonl
+./m5c-run/raw-mps-1.jsonl
+./m5c-run/raw-shared-1.jsonl
+./m5c-run/raw-timeSlicing-1.jsonl
+./nodes.txt
 ./source.tgz
 ./termination.txt
 ./user-data.sh
