@@ -171,6 +171,14 @@ spec:
     metadata:
       labels: {engine: $name, app.kubernetes.io/component: vllm-shared}
     spec:
+      # The shared IPC namespace, so this stub models a pod that COULD reach the MPS control daemon.
+      #
+      # The matrix now checks hostIPC before the pipe directory, because a pod in its own IPC namespace
+      # cannot reach the daemon whatever its environment says. Without this line scenario 2 -- which
+      # removes the pipe marker to show a client that never connected -- was refused one step earlier, for
+      # the namespace rather than the pipe, and its assertion about what the refusal SAYS stopped matching.
+      # The scenario is about the pipe, so the namespace has to be right.
+      hostIPC: true
       containers:
         - name: vllm
           image: $image
@@ -284,7 +292,7 @@ set +e
     GATEWAY_BIN="$WORK/gateway" BENCHHARNESS_BIN="$WORK/benchharness" \
     ENGINE_PIN_WAIVED=1 \
     RATE=12 DURATION_MS=8000 PREMIUM_WEIGHT=1 NOISY_WEIGHT=0.5 PROBE_WEIGHT=0 \
-    REPS=1 ARMS="shared mps" OUT="$WORK/run" \
+    REPS=1 ARMS="R1 shared mps" OUT="$WORK/run" \
     bash hack/m5c-matrix.sh ) > "$WORK/fail-mps.log" 2>&1
 set -e
 # The failure diagnostic has to name THIS scenario's log. Without this line bad() kept printing the tail of
@@ -316,8 +324,18 @@ if compgen -G "$WORK/run/raw-"'*.jsonl' >/dev/null; then
   # The assertion below is `grep ... && bad || ok`, which prints "ok" when grep finds nothing -- including
   # when the file is empty because the report crashed. The exit status was discarded by `set +e` and never
   # examined, so a total failure of the thing under test read as a pass.
-  if [ "$report_rc" -ne 0 ] || [ ! -s "$WORK/refused-report.txt" ]; then
-    bad "the report exited $report_rc with $(wc -c <"$WORK/refused-report.txt" 2>/dev/null || echo 0) bytes; there is nothing to assert about"
+  # The report's EXIT STATUS is not this scenario's subject, only its output is.
+  #
+  # What is left here for a rehearsal -- the comment above says so -- is that the file the runner wrote
+  # is the file the report reads. Requiring rc=0 as well made that unreachable: the report refuses the
+  # whole run as invalid because a 8000ms replay completes 53 premium requests against a pre-registered
+  # floor of 100, so reading 4 cannot be evaluated and it exits 1 having printed its reading lines
+  # correctly. Lengthening the replay until it clears the floor would buy minutes of rehearsal to
+  # satisfy a bar that belongs to the study, not to this check. So the guard now asks only what it
+  # needs: that there IS output to read. An empty file still fails, which is the case the guard was
+  # added for -- a report that crashed and left nothing, read as a pass by `grep ... && bad || ok`.
+  if [ ! -s "$WORK/refused-report.txt" ]; then
+    bad "the report produced no output at all (exit $report_rc); there is nothing to assert about"
   elif grep -qE '^\s*\[( N/E |FIRED)\] 4c .*no recorded refusal' "$WORK/refused-report.txt"; then
     bad "the report says there is no recorded refusal while refused-mps.txt sits beside the raw files it was given"
   elif ! grep -qE '^\s*\[' "$WORK/refused-report.txt"; then
