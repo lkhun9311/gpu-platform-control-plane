@@ -182,6 +182,43 @@ var _ = Describe("GPUQuotaPolicy Kueue sync", func() {
 			Expect(admitting.Message).To(ContainSubstring("FlavorNotFound"))
 		})
 
+		It("says Unknown, not False, while the ClusterQueue has published no Active condition", func() {
+			// The queue exists and has answered nothing yet. Kueue writes Active on its own schedule, and
+			// there is no Kueue controller in envtest, so this is the state right after the queue is created.
+			//
+			// It used to report Admitting=False/ClusterQueueInactive -- the same answer Kueue gives when a
+			// queue authoritatively admits nothing. An operator reading False could not tell "not yet" from
+			// "no", and the two call for opposite responses: wait, or go find the missing ResourceFlavor.
+			policy := &platformv1.GPUQuotaPolicy{
+				ObjectMeta: metav1.ObjectMeta{Name: resourceName},
+				Spec: platformv1.GPUQuotaPolicySpec{
+					Tenant:          tenant,
+					TargetNamespace: targetNS,
+					Limits:          platformv1.GPUQuotaLimits{GPUCount: 4},
+					TrainingQuota:   true,
+				},
+			}
+			Expect(k8sClient.Create(ctx, policy)).To(Succeed())
+			reconcileUntilSteady()
+
+			By("confirming the queue really was created, so this tests the unreported path and not an absent queue")
+			cq := &kueuev1beta1.ClusterQueue{}
+			Expect(k8sClient.Get(ctx, cqKey, cq)).To(Succeed())
+			Expect(meta.FindStatusCondition(cq.Status.Conditions, "Active")).To(BeNil(),
+				"the queue already reported Active, so this spec is exercising a different branch than it names")
+
+			got := &platformv1.GPUQuotaPolicy{}
+			Expect(k8sClient.Get(ctx, key, got)).To(Succeed())
+			admitting := meta.FindStatusCondition(got.Status.Conditions, conditionAdmitting)
+			Expect(admitting).NotTo(BeNil())
+			Expect(admitting.Status).To(Equal(metav1.ConditionUnknown),
+				"a queue that has not answered was reported as a queue that said no")
+			Expect(admitting.Reason).To(Equal(reasonQueueUnreported))
+
+			By("checking the phase is untouched, since not-yet-answered is not an enforcement failure")
+			Expect(got.Status.Phase).To(Equal(phaseSynced))
+		})
+
 		It("reports admitting once its ClusterQueue is active", func() {
 			policy := &platformv1.GPUQuotaPolicy{
 				ObjectMeta: metav1.ObjectMeta{Name: resourceName},
