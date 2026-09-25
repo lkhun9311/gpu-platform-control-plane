@@ -37,14 +37,37 @@ spend a card measuring a thing that never ran.
 | B1 | the node advertises the split | `nvidia.com/gpu` allocatable is exactly 2 under the MPS overlay |
 | B2 | the kubelet will allocate them | both engine Pods reach `Running`, with no `no healthy devices` event on either |
 | B3 | both Pods are real MPS clients | each has `CUDA_MPS_PIPE_DIRECTORY` set, that directory exists, and the control endpoint inside it is a **socket** (`-S`, not `-e`) |
-| B4 | the daemon has both | the control daemon's own log names two client connections, or `nvidia-smi` reports an MPS server with two clients |
-| B5 | the arrangement survives work | each engine answers one request through the gateway; a single 200 each is enough |
+| B4 | the daemon has both | `nvidia-smi` on the instance reports an `M+C` compute process for the MPS server and one client process per engine — the command is named below, because this bar had no instrument when it was first written |
+| B5 | the arrangement survives work | the matrix's own replay completes for both engines: `raw-mps-1.jsonl` exists with a non-zero row count and no row carries a 5xx |
 
 B3 is `-S` on purpose. `-e` accepted a regular file and the entry a dead server leaves behind, which is how
 an arm with no daemon at the other end could be labelled an MPS client.
 
 B4 is the bar the previous attempts did not have. The plugin rolling out is the server half of a two-sided
 arrangement, and three sessions took it for the whole.
+
+**B4's instrument, named here because writing a bar without one is how a bar goes unmeasured.** This page
+first said "the control daemon's own log names two client connections, or `nvidia-smi` reports an MPS server
+with two clients", and neither is something this repository collects: the session runs
+`nvidia-smi --query-gpu=index,name,memory.total` and never asks about compute processes, and nothing reads
+the daemon's log — `hack/m5c-matrix.sh:821` only waits for its rollout. The matrix's own comment
+(`hack/m5c-matrix.sh:946`) says the pipe-and-socket check "does NOT prove kernels are routed through the MPS
+server; only nvidia-smi on the host" can. So the session must run, on the instance and while both engines
+are serving:
+
+```
+nvidia-smi --query-compute-apps=pid,process_name,used_memory --format=csv
+nvidia-smi   # the process table's type column: M+C on the clients, C on the server
+```
+
+and upload the output beside the other preflight files. B4 passes when that table shows one MPS server
+process and two client processes, and it is **unmeasured** — not passed — if the command was not run.
+
+**B5 is the matrix's replay, not a hand-made request.** The earlier wording ("a single 200 each") does not
+match how anything here runs: `hack/m5c-matrix.sh` replays a `gen-trace` trace and refuses to start unless
+all four load parameters are given (`hack/m5c-matrix.sh:160`). Asking for one request would mean building a
+second path to the engines that no other arm uses. The bar is therefore the artifact the matrix already
+produces for every other arm.
 
 ## What counts as a refusal rather than a failure
 
