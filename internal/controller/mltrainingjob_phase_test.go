@@ -102,11 +102,25 @@ func TestComputeMLTJPhase(t *testing.T) {
 			wantPhase: mltjPhaseAdmitted,
 		},
 		{
-			// Completion outranks the ready count: a finished job has no ready Pods left.
-			name:      "job that completed with no ready pods is succeeded",
-			job:       jobWithCondition(batchv1.JobComplete, corev1.ConditionTrue),
+			// Zero ready of zero active is not "all ready".
+			//
+			// Without this case `*job.Status.Ready == job.Status.Active` passes every other row, and it
+			// would report an admitted job with no Pods at all as Running. A table whose only positive
+			// case is 1-of-1 cannot tell a correct rule from one that happens to agree on 1-of-1.
+			name:      "job with no pods and a zero ready count is admitted, not running",
+			job:       &batchv1.Job{Status: batchv1.JobStatus{Active: 0, Ready: new(int32(0))}},
 			wl:        workloadAdmitted(true),
-			wantPhase: mltjPhaseSucceeded,
+			wantPhase: mltjPhaseAdmitted,
+		},
+		{
+			// One of two is enough: the phase says work started, not that the whole parallel job is ready.
+			//
+			// This is the case that rejects `*Ready > 0 && *Ready == Active`, which would hold a parallel
+			// job at Admitted for as long as any one of its Pods lagged.
+			name:      "parallel job with one of two pods ready is running",
+			job:       &batchv1.Job{Status: batchv1.JobStatus{Active: 2, Ready: new(int32(1))}},
+			wl:        workloadAdmitted(true),
+			wantPhase: mltjPhaseRunning,
 		},
 		{
 			name:      "job with the complete condition true is succeeded",

@@ -285,7 +285,7 @@ func computeMLTJPhase(job *batchv1.Job, wl *kueuev1beta1.Workload) (string, meta
 	if isJobConditionTrue(job, batchv1.JobComplete) {
 		return mltjPhaseSucceeded, admittedCondition(metav1.ConditionTrue, "JobComplete")
 	}
-	// Running means a node accepted a Pod, and Active does not say that.
+	// Running means at least one Pod reported Ready. Active cannot say even that a node took it.
 	//
 	// `.status.active` counts pending Pods as well as running ones, so a job whose Pod no node would take
 	// reported Running -- measured at 145 of 145 samples across 179.1 s in two arms of the fragmentation
@@ -293,10 +293,16 @@ func computeMLTJPhase(job *batchv1.Job, wl *kueuev1beta1.Workload) (string, meta
 	// of admitToRunningSeconds is recorded on entry into this phase, so the platform's own latency metric
 	// was taken from a moment that never happened.
 	//
-	// `.status.ready` counts active Pods carrying a Ready condition, which a Pod that was never scheduled
-	// cannot have. It is a pointer because very old API servers omit it, and a nil there is "this cluster
-	// did not say", not "no Pod is running" -- so it falls through to Admitted rather than reinstating the
-	// Active reading, which would restore exactly the defect this replaces.
+	// `.status.ready` counts active, non-terminating Pods whose Ready condition is true. That is STRICTER
+	// than "a node accepted it": a scheduled Pod whose readiness probe has not passed is running and is not
+	// counted here, so this phase now carries readiness delay as well as watch lag. Job status offers no
+	// "scheduled" count, and of the two it does offer this is the one that cannot be true of a Pod nothing
+	// would place.
+	//
+	// The Job controller computes the field, not the API server, and it writes a non-nil pointer even for
+	// zero. A nil is therefore a cluster too old to report it, which is unknown rather than "nothing is
+	// running" -- so it falls through to Admitted rather than reinstating the Active reading, which would
+	// restore exactly the defect this replaces.
 	if job.Status.Ready != nil && *job.Status.Ready > 0 {
 		return mltjPhaseRunning, admittedCondition(metav1.ConditionTrue, "PodsRunning")
 	}

@@ -60,6 +60,14 @@ const (
 	// It happens when the two clocks disagree, and the interval is refused rather than clamped to zero: a
 	// zero here would enter the histogram as the fastest reclaim the platform ever achieved.
 	reasonNegativeInterval = "NegativeInterval"
+	// reasonRunningNotObserved is a job that reached a terminal phase without ever being seen running.
+	//
+	// The phase enters Running on `.status.ready`, which a Pod behind a failing readiness probe never
+	// satisfies and a very short Pod can pass through between two reconciles. Either way the running end
+	// is never recorded, and before this reason existed that silence was total: no histogram sample, no
+	// unobserved counter, no condition -- while the API promises an empty admitToRunningSeconds always
+	// comes with a condition saying why. An unmeasured window has to say it was unmeasured.
+	reasonRunningNotObserved = "RunningNotObserved"
 )
 
 // admitToRunningOutcome is what recordAdmitToRunning decided, so the caller can emit metrics without
@@ -140,6 +148,26 @@ func recordAdmitToRunning(
 		status.AdmitToRunningSeconds = fmt.Sprintf("%.3f", secs)
 		setObserved(status, secs, now)
 		return admitToRunningOutcome{Seconds: secs, Observed: true}
+
+	case (next == mltjPhaseSucceeded || next == mltjPhaseFailed) && prev != next:
+		// A job can finish without this controller ever seeing it run, and that has to be said out loud.
+		//
+		// The other three reasons all fire on a transition INTO Running. A job that never makes that
+		// transition -- a Pod whose readiness probe never passed, a Pod short enough to start and finish
+		// between two reconciles -- reached none of them, so it ended with an empty admitToRunningSeconds,
+		// no counter, and no condition. The field's own documentation says an empty value is always
+		// accompanied by a condition saying why, and this is the branch that keeps that true.
+		if status.RunningObservedAt != nil {
+			// The window was observed; a terminal phase afterwards is the normal end of a measured job.
+			return admitToRunningOutcome{}
+		}
+		if r := admitToRunningRefusal(status); r != "" {
+			// An earlier refusal is more specific than this one and stands, the same way the Running
+			// branch leaves KueueStampMissing alone rather than overwriting it.
+			return admitToRunningOutcome{}
+		}
+		setUnobserved(status, reasonRunningNotObserved, now)
+		return admitToRunningOutcome{UnobservedReason: reasonRunningNotObserved}
 	}
 
 	return admitToRunningOutcome{}
@@ -167,6 +195,11 @@ func setUnobserved(status *platformv1.MLTrainingJobStatus, reason string, now me
 		msg = "the running observation precedes the admission it would be measured from, which means the two" +
 			" clocks disagree; the interval is refused rather than clamped, because a clamped zero would" +
 			" enter the histogram as the fastest reclaim this platform ever achieved"
+	case reasonRunningNotObserved:
+		msg = "this job reached a terminal phase without this controller ever seeing a ready Pod, so the" +
+			" running end of the window was never observed; the phase reads .status.ready, which a Pod behind" +
+			" a failing readiness probe never satisfies and a short-lived Pod can pass through between two" +
+			" reconciles"
 	default:
 		msg = "the admission-to-running window was not observed"
 	}
