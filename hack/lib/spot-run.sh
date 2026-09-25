@@ -168,9 +168,15 @@ spot_launch() {
 # run's own exit status with the cleanup's -- which is how a successful run would start reporting failure.
 # The report is the message, not the status.
 # How long to wait for an accepted terminate to show up as terminated, in seconds.
-SPOT_TERMINATE_WAIT="${SPOT_TERMINATE_WAIT:-60}"
+#
+# 60 seconds and 12 tries were sized when `shutting-down` ended this wait immediately. It no longer does --
+# only `terminated` does -- and a real instance sits in shutting-down for minutes, so the old budget would
+# have made the NORMAL paid path print TERMINATION UNCONFIRMED and, through every wrapper's cleanup, exit 1.
+# Tightening the definition without moving the budget turns a success into a failure report, and a gate that
+# fires on success is the one people learn to ignore.
+SPOT_TERMINATE_WAIT="${SPOT_TERMINATE_WAIT:-300}"
 # And how many times to ask, so the transcript is the same on a fast machine as on a slow one.
-SPOT_TERMINATE_TRIES="${SPOT_TERMINATE_TRIES:-12}"
+SPOT_TERMINATE_TRIES="${SPOT_TERMINATE_TRIES:-60}"
 
 spot_terminate() {
   local region="$1" instance_id="$2" err state
@@ -183,8 +189,13 @@ spot_terminate() {
     # and both are worth saying out loud.
     state=$(spot_instance_state "$region" "$instance_id")
     case "$state" in
-      terminated|shutting-down)
+      terminated)
         printf 'it is %s anyway, so nothing is still billing\n' "$state" >&2 ;;
+      shutting-down)
+        # Not the same sentence as terminated, and it used to share one. An instance in shutting-down is
+        # still on the bill; this line told the reader they could walk away from it, while the code just
+        # below had already stopped accepting that state as done.
+        printf 'it is %s: still on the bill until it reaches terminated, so the wait below continues\n' "$state" >&2 ;;
       *)
         printf 'STILL %s AND BILLING. Terminate it by hand:\n  aws ec2 terminate-instances --region %s --instance-ids %s\n' \
           "$state" "$region" "$instance_id" >&2 ;;

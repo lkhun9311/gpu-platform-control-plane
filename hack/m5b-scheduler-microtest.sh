@@ -299,9 +299,36 @@ TAGS="ResourceType=instance,Tags=[{Key=Name,Value=$STACK},{Key=purpose,Value=m5b
 # SIGPIPE on stdout because this script was piped to something that had exited, or a Ctrl-C in that window
 # all exit with a GPU instance running and no terminator. spot_terminate returns 0 on an empty id, so
 # arming it early costs nothing and closes the window.
-cleanup() { spot_terminate "$REGION" "$IID"; }
+cleanup_ran=0
+cleanup() {
+  # Run once, whichever of EXIT, INT and TERM gets here first.
+  #
+  # The `exit 1` below re-enters this function through EXIT, so without the guard an interrupted session
+  # called terminate-instances twice and polled for the state twice. The guard is set before the work,
+  # because the second entry arrives while the first is still inside that polling.
+  [ "$cleanup_ran" = "1" ] && return 0
+  cleanup_ran=1
+  if spot_terminate "$REGION" "$IID"; then
+    printf 'terminated %s\n' "${IID:-<none>}" >"${OUT:-.}/termination.txt" 2>/dev/null || true
+  else
+    printf 'TERMINATION UNCONFIRMED for %s -- check the console before the next paid run\n' \
+      "${IID:-<none>}" >"${OUT:-.}/termination.txt" 2>/dev/null || true
+    printf 'TERMINATION UNCONFIRMED for %s\n' "${IID:-<none>}" >&2
+    # A record is not a gate. This runner launches a g5.xlarge like the other three and was the one left
+    # out when they gained this: it terminated, ignored the answer, wrote nothing, and exited 0 whether or
+    # not the instance was gone. A run whose instance may still be billing is a failed run.
+    exit 1
+  fi
+}
 IID=""
-trap cleanup EXIT INT TERM
+# A signal ends the run; it does not just clean up and fall through.
+#
+# `trap cleanup EXIT INT TERM` ran cleanup on a signal and then RESUMED the script, because a handler that
+# returns hands control back to where the signal arrived -- so an interrupted session could go on to launch
+# an instance the guard had already marked as cleaned.
+trap cleanup EXIT
+trap 'cleanup; exit 130' INT
+trap 'cleanup; exit 143' TERM
 for z in $ZONES; do
   SUBNET=$(spot_subnet_in_zone "$REGION" "$z") || continue
   say "trying $z ($SUBNET)"
