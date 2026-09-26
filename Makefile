@@ -509,4 +509,11 @@ infra-validate: terraform kustomize actionlint shell-check session-refusals sess
 
 .PHONY: docs-check
 docs-check: ## Check that every name the published docs put in backticks exists in this repository.
+	@# The self-test runs FIRST, and it runs here rather than being available to run.
+	@#
+	@# The checker carries a probe that proves an absent name would be reported. It had been failing for
+	@# months -- its probe was a literal in a file the checker's own source blob reads, so it found itself --
+	@# and nothing said so, because this target called the plain scan only. A green scan from a detector
+	@# nobody has shown can fail is the thing this whole check exists to stop other documents doing.
+	./hack/check-doc-symbols.sh --self-test
 	./hack/check-doc-symbols.sh

@@ -129,13 +129,53 @@ for tok, sites in sorted(where.items()):
         missing.append((kind, tok, sites))
 
 # --- deliberately break it, so a pass means the detector can still see a failure -------------------------
+#
+# The probe is ASSEMBLED rather than written, and that is the whole point of this block.
+#
+# It used to be a literal on the line below. The blob above reads every tracked *.sh, which includes this
+# file, so the probe found itself and the self-test exited 1 with "the probe string is somehow present in
+# the source" -- permanently, for months. Nothing noticed, because no gate ran it: `make docs-check` called
+# the plain scan only. A detector whose proof-of-liveness is itself broken and unrun is the exact shape this
+# repository keeps finding, and it was sitting inside the tool that polices the others.
+#
+# Assembling it from fragments means the full spelling exists nowhere on disk -- not here, not in a golden,
+# not in a doc quoting this file.
 if self_test == '--self-test':
-    probe = 'ThisSymbolIsNotInTheRepositoryOnPurpose'
+    probe = 'Absent' + 'Symbol' + 'ForSelfTest' + 'Only'
+
+    # 1. the full spelling really is nowhere, or everything below is vacuous
+    if probe in blob:
+        sys.exit("SELF-TEST FAILED: the assembled probe is present in the source; it is no longer absent")
+
+    # 2. it is the kind of token this check judges at all
     if classify(probe) != 'name':
         sys.exit("SELF-TEST FAILED: the probe is not even classified as a name")
-    if probe in blob:
-        sys.exit("SELF-TEST FAILED: the probe string is somehow present in the source")
-    print("self-test: an absent name is classified and would be reported -- the detector can fail")
+
+    # 3. THE PIPELINE, not just the classifier.
+    #
+    # Checking classify() alone proved nothing about whether an absent name reaches the report: the blob
+    # search, the allowlist and the construction of `missing` are all downstream of it, and any of them
+    # could swallow the finding. So the probe is pushed through the same loop the real tokens take.
+    probe_where = {probe: ['<self-test>:1']}
+    probe_missing = []
+    for tok, sites in sorted(probe_where.items()):
+        if tok in allow:
+            continue
+        kind = classify(tok)
+        if kind is None:
+            continue
+        ok = path_exists(tok) if kind == 'path' else name_present(tok)
+        if not ok:
+            probe_missing.append((kind, tok, sites))
+    if not probe_missing:
+        sys.exit("SELF-TEST FAILED: an absent name did not reach the missing list; the detector cannot fail")
+
+    # 4. and the allowlist cannot be what is hiding a real finding
+    if probe in allow:
+        sys.exit(f"SELF-TEST FAILED: the probe is allowlisted in {allow_path}, so this proves nothing")
+
+    print(f"self-test: an absent name is classified, searched, and reported as missing "
+          f"({len(probe_missing)} finding) -- the detector can fail")
     sys.exit(0)
 
 if missing:
