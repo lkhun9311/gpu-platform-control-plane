@@ -101,8 +101,19 @@ run_scenario() {
     # build Go binaries and the build cache lives under it.
     export AWS_CLI_CACHE_DIR="$work/awscache"
     mkdir -p "$AWS_CLI_CACHE_DIR"
-    printf '{"Credentials":{"Expiration":"%s"}}\n' \
-      "$(date -u -d '+12 hours' +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -v+12H +%Y-%m-%dT%H:%M:%SZ)" \
+    # The entry carries an AccountId, because an entry without one is deliberately not trusted.
+    #
+    # hack/m5c-gpu-session.sh skips cache entries that carry neither an assumed-role ARN nor an account id:
+    # this check exists for the moments when something about the account is wrong, and those are the moments
+    # an unidentified entry is most likely to be the wrong one. Planting an identity-less entry therefore
+    # made the fallback find nothing and RETURN SUCCESS -- the outcome that runner's own comment calls
+    # "worse than the hole it was closing: a guard that refuses to answer always passes". The id matches the
+    # stub's sts account so the fallback can actually evaluate what it found.
+    #
+    # STUB_CACHE_EXPIRES_IN sets that expiry, so a scenario can make the guard refuse rather than pass.
+    printf '{"Credentials":{"Expiration":"%s","AccountId":"%s"}}\n' \
+      "$(date -u -d "+${STUB_CACHE_EXPIRES_IN:-12 hours}" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -v+12H +%Y-%m-%dT%H:%M:%SZ)" \
+      "${STUB_ACCOUNT:-000000000000}" \
       > "$AWS_CLI_CACHE_DIR/stub.json"
     "$@" >"$work/stdout.txt" 2>"$work/stderr.txt"
   ) || rc=$?
@@ -521,15 +532,27 @@ scenarios_m5c_gpu_session() {
     STUB_PRESENT_KEYS="evidence.tgz log.txt commit.txt nodes.txt preflight-nvidia-smi.csv preflight-node-cards.txt" \
     run_scenario done-marker-wrong-nonce bash "$TARGET"
 
-  # The CLI reports no expiry at all, so the runner must fall back to scanning the credential cache.
+  # The CLI reports no expiry, the cache is scanned, and what it finds is TOO SHORT -- so nothing launches.
   #
   # An empty STUB_CREDENTIALS_EXPIRE_IN_MIN omits the Expiration field, which is the whole reason that knob
-  # takes an empty value -- and nothing set it, so the fallback the goldens-drift page cites as the reason
-  # for the knob's design was reachable in principle and reached by nothing.
+  # takes an empty value -- and nothing set it, so the fallback was reachable in principle and reached by
+  # nothing. The first version of this scenario stopped there and pinned the wrong half: with an identity-less
+  # cache entry the fallback found nothing, returned success, and the golden recorded "skipping the check"
+  # followed by run-instances and exit 0. That made fixing the fail-open a test failure. What is worth
+  # pinning is the fallback doing its job: it reads an expiry it can trust and refuses before a dollar moves.
+  REPS=1 REQUIRE_CLEAN_TREE=0 STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 STUB_DONE_AFTER=2 \
+    STUB_CREDENTIALS_EXPIRE_IN_MIN= STUB_CACHE_EXPIRES_IN="20 minutes" \
+    STUB_PRESENT_KEYS="evidence.tgz log.txt commit.txt nodes.txt preflight-nvidia-smi.csv preflight-node-cards.txt" \
+    run_scenario credentials-expiry-too-short bash "$TARGET"
+
+  # The same fallback, with enough life left: it evaluates the expiry and lets the run proceed.
+  #
+  # Without this one the suite would only ever show the fallback refusing, and a fallback that refuses
+  # everything passes that test too.
   REPS=1 REQUIRE_CLEAN_TREE=0 STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 STUB_DONE_AFTER=2 \
     STUB_CREDENTIALS_EXPIRE_IN_MIN= \
     STUB_PRESENT_KEYS="evidence.tgz log.txt commit.txt nodes.txt preflight-nvidia-smi.csv preflight-node-cards.txt" \
-    run_scenario credentials-expiry-unreported bash "$TARGET"
+    run_scenario credentials-expiry-from-cache bash "$TARGET"
 
   # The terminate call is refused, the way it is when credentials lapse mid-run. The transcript is what
   # makes the SHOUTING branch executed rather than asserted; on 2026-09-08 the silent version of this let a

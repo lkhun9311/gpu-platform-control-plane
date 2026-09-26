@@ -390,14 +390,27 @@ shell-check: ## Parse every shell script under hack/ and .githooks/.
 	@# characterize.sh is 43 KB and the recording stub is 20 KB, and neither was parse-checked -- so an edit
 	@# that left a block unterminated in the very thing `make spot-lifecycle` depends on would have been found
 	@# by running it, not by this. The stubs have no .sh suffix, so they are named rather than globbed.
+	@# The closing line says what it checked rather than "every script", which this cannot know: it is a
+	@# named list, and a script added outside it is still unchecked.
+	@#
+	@# The user-data goldens are in the list because they are the exact bytes sent to a rented instance.
+	@#
+	@# A golden that no longer parses means the next paid run boots a machine that dies in cloud-init, and
+	@# nothing here would have said so. collapse.py is checked too -- the harness shells out to it for every
+	@# transcript, so a syntax error there fails every suite for a reason that looks like a behaviour change.
 	@fail=0; for f in hack/*.sh hack/lib/*.sh hack/test/*.sh hack/test/spot-lifecycle/*.sh \
 		hack/test/spot-lifecycle/bin/aws hack/test/spot-lifecycle/bin/sleep \
+		hack/test/spot-lifecycle/golden/*/user-data*.sh \
 		.githooks/*.sh .githooks/commit-msg .githooks/pre-push; do \
 		[ -f "$$f" ] || continue; \
 		bash -n "$$f" || { echo "shell-check: $$f does not parse" >&2; fail=1; }; \
 	done; \
+	for f in hack/test/spot-lifecycle/*.py; do \
+		[ -f "$$f" ] || continue; \
+		python3 -m py_compile "$$f" || { echo "shell-check: $$f does not compile" >&2; fail=1; }; \
+	done; \
 	if [ "$$fail" != "0" ]; then exit 1; fi; \
-	echo "shell-check: every script parses"
+	echo "shell-check: every listed shell script parses and every harness python file compiles"
 
 .PHONY: session-refusals
 session-refusals: ## Check what gpu-session.sh refuses before it spends anything.
