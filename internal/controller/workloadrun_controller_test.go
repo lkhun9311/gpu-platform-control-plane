@@ -96,6 +96,42 @@ var _ = Describe("WorkloadRun", func() {
 		})).To(Succeed())
 	}
 
+	// The deadline must sit inside the window, and until 2026-09-26 nothing enforced it.
+	//
+	// recoversWithinSeconds' own comment has said so since the type was written. There is no WorkloadRun
+	// webhook, and the only CEL rules on the spec were the two immutability ones, so a run whose deadline
+	// ran past its window was accepted -- and then judged against a moment the controller had stopped
+	// watching before. A constraint a document states and no machine checks is worth exactly nothing.
+	//
+	// Mutation that turns this red: remove the XValidation rule from WorkloadRunSpec and regenerate.
+	It("refuses a deadline that outlives the observation window", func() {
+		err := k8sClient.Create(ctx, &platformv1.WorkloadRun{
+			ObjectMeta: metav1.ObjectMeta{Name: runName + "-past-window", Namespace: ns},
+			Spec: platformv1.WorkloadRunSpec{
+				Scenario:                 platformv1.ScenarioServingPodKilled,
+				Target:                   platformv1.WorkloadRunTarget{Kind: "InferenceDeployment", Name: tgtName, Namespace: ns},
+				ObservationWindowSeconds: 30,
+				RecoversWithinSeconds:    31,
+			},
+		})
+		Expect(err).To(HaveOccurred(), "a deadline past the window was accepted; the run would judge a moment it stopped watching")
+		Expect(err.Error()).To(ContainSubstring("recoversWithinSeconds must not exceed observationWindowSeconds"))
+	})
+
+	// The boundary is allowed on purpose: a deadline exactly at the edge is still inside the window, and a
+	// rule that excluded it would refuse the most natural way to say "by the end".
+	It("accepts a deadline exactly at the end of the window", func() {
+		Expect(k8sClient.Create(ctx, &platformv1.WorkloadRun{
+			ObjectMeta: metav1.ObjectMeta{Name: runName + "-at-edge", Namespace: ns},
+			Spec: platformv1.WorkloadRunSpec{
+				Scenario:                 platformv1.ScenarioServingPodKilled,
+				Target:                   platformv1.WorkloadRunTarget{Kind: "InferenceDeployment", Name: tgtName, Namespace: ns},
+				ObservationWindowSeconds: 30,
+				RecoversWithinSeconds:    30,
+			},
+		})).To(Succeed(), "a deadline at the window's edge is inside it and must be allowed")
+	})
+
 	It("records only what changed, and calls a recovery inside the deadline Recovered", func() {
 		createRun(30, 20, tgtName)
 		setTargetPhase("Degraded")

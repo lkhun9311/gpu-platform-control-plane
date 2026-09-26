@@ -86,6 +86,18 @@ type WorkloadRunTarget struct {
 //
 // The expectation is DECLARED BEFORE the run rather than read off the result, which is the same reason the
 // benchmark harness freezes its manifest: a threshold chosen after seeing the number is not a threshold.
+//
+// The deadline-inside-the-window rule is expressed here, at the type, because it relates two fields and a
+// per-field marker cannot see its sibling.
+//
+// recoversWithinSeconds' own comment has said "it must not exceed observationWindowSeconds" since this type
+// was written, and nothing enforced it: there is no WorkloadRun webhook, and the only CEL rules on this type
+// were the two immutability rules. A run created with a deadline past its window is accepted today and then
+// asks for a verdict about a moment it stopped watching before -- the reconciler compares
+// status.recoveredAtSeconds against the deadline and would report a fail for a recovery it was never
+// watching for. A constraint a document states and no machine checks is the shape this repository keeps
+// finding; this one it stated about itself.
+// +kubebuilder:validation:XValidation:rule="self.recoversWithinSeconds <= self.observationWindowSeconds",message="recoversWithinSeconds must not exceed observationWindowSeconds: the run would be asked to judge a deadline it stopped watching before"
 type WorkloadRunSpec struct {
 	// scenario is the failure to inject. Immutable: a run is evidence about one injection, and editing it
 	// would leave observations attributed to an event that did not happen.
