@@ -116,9 +116,18 @@ same failing count twice was mistaken for a stable one.
 
 All four suites are green: microtest 12/0, price-of-protection 9/0, queuelab 16/0, m5c 11/0.
 
-**Counts as of 2026-09-26: microtest 14/0, price-of-protection 9/0, m5c 13/0, queuelab 16/0 — 52 checks over
-48 scenarios.** The numbers above are what this page measured on 2026-09-25 and are left as measured; four
+**Counts as of 2026-09-26: microtest 14/0, price-of-protection 9/0, m5c 14/0, queuelab 16/0 — 53 checks over
+49 scenarios.** The numbers above are what this page measured on 2026-09-25 and are left as measured; five
 scenarios have been added since (`terminate-shuts-down-then-terminated`, `done-marker-wrong-nonce`,
-`terminate-then-state-unreadable`, `credentials-expiry-unreported`), each for a stub knob that existed and
-that no scenario set. This page exists so a reader can tell a suite left red deliberately from one nobody
-looked at, and a count that has silently moved defeats that — so it is restated here rather than edited above.
+`terminate-then-state-unreadable`, `credentials-expiry-too-short`, `credentials-expiry-from-cache`), each for
+a stub knob that existed and that no scenario set. This page exists so a reader can tell a suite left red
+deliberately from one nobody looked at, and a count that has silently moved defeats that — so it is restated
+here rather than edited above.
+
+The last two replaced a single scenario that was worse than none. It planted a credential-cache entry with no
+identity, which the runner deliberately refuses to trust, so the fallback found nothing, returned success, and
+the golden recorded `skipping the check` followed by `run-instances` and `exit 0`. That pinned open the very
+outcome `hack/m5c-gpu-session.sh` calls "worse than the hole it was closing: a guard that refuses to answer
+always passes" — fixing the fail-open would have been a test failure. The replacements plant an entry the
+runner can identify and pin both halves: too little life left refuses before `run-instances`, enough life
+proceeds.
