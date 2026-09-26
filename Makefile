@@ -441,6 +441,28 @@ spot-lifecycle: ## Replay every paid runner against recording stubs and diff the
 	done; \
 	if [ "$$fail" != "0" ]; then echo "spot-lifecycle: a runner's recorded behaviour changed" >&2; exit 1; fi
 
+.PHONY: harness-check
+harness-check: ## Run the self-contained test harnesses under hack/test/ that need no cluster.
+	@# Seven harnesses live under hack/test/ and, until now, nothing ran any of them but the spot-lifecycle
+	@# driver. README.md rests its claim of coverage on two of them, so the repository's own account of what
+	@# it checks depended on scripts no gate executed -- the same shape `make spot-lifecycle` was added to close.
+	@#
+	@# Only the two that are genuinely self-contained are here. Both lay out a repository shape in a mktemp
+	@# directory and clean it up, need no cluster, no card, no credentials and no third-party Python, and
+	@# finish in about two seconds together.
+	@#
+	@# check-ladder-refusals.sh is NOT here, and the reason is worth writing down rather than calling it slow:
+	@# it passes 28 checks and then stops at step 9, which runs `benchharness replay --target
+	@# http://127.0.0.1:1`. Nothing listens on port 1, so that call hangs on connection retries rather than
+	@# computing anything. Its header's "no cluster and no card" is true; its runtime is unbounded. Putting it
+	@# in a CI gate would hang the build, and a gate that hangs gets deleted rather than fixed.
+	@#
+	@# The three rehearse-* scripts build a real kind cluster and do not belong in a CI gate at all.
+	@fail=0; for t in hack/test/capture-evidence-test.sh hack/test/plot-device-observation-test.sh; do \
+		bash "$$t" || { echo "harness-check: $$t failed" >&2; fail=1; }; \
+	done; \
+	if [ "$$fail" != "0" ]; then exit 1; fi
+
 .PHONY: infra-offline
 infra-offline: terraform ## Check that the Terraform validation step needs no AWS access.
 	@# A prerequisite of infra-validate rather than a step inside it, because the thing it guards is the
@@ -449,7 +471,7 @@ infra-offline: terraform ## Check that the Terraform validation step needs no AW
 	./hack/infra-validate-is-offline-test.sh
 
 .PHONY: infra-validate
-infra-validate: terraform kustomize actionlint shell-check session-refusals session-manifest docs-check spot-lifecycle infra-offline ## Validate Terraform (offline), Argo manifests, shell, workflow YAML, the session refusals, the campaign manifest, the published docs' names, and every paid runner's recorded behaviour.
+infra-validate: terraform kustomize actionlint shell-check session-refusals session-manifest docs-check spot-lifecycle harness-check infra-offline ## Validate Terraform (offline), Argo manifests, shell, workflow YAML, the session refusals, the campaign manifest, the published docs' names, every paid runner's recorded behaviour, and the self-contained test harnesses.
 	@# Each root is validated in a throwaway TF_DATA_DIR, and the loop stops at the first failure.
 	@#
 	@# Two defects lived in the previous three lines. The first: `-backend=false` does not mean "no backend".
