@@ -365,6 +365,17 @@ STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 STUB_DONE_AFTER=2 \
   STUB_SHUTTING_DOWN_FOR=3 SPOT_TERMINATE_TRIES=12 STUB_PRESENT_KEYS="results.json log.txt stderr.txt" \
   run_scenario terminate-shuts-down-then-terminated bash "$TARGET"
 
+# The credentials lapse in the MIDDLE of the termination poll, so the state can no longer be asked for.
+#
+# The stub grew STUB_STATE_UNKNOWN_AFTER to make this reachable -- "makes every read from the Nth onwards
+# fail the way an expired token does" -- and then no scenario set it. That left the harness guarding the
+# money-spending scripts with a dead path exactly where the money is: an instance whose state nobody can
+# read is the one case where "not terminated" and "could not ask" must not be reported as the same thing.
+STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 STUB_DONE_AFTER=2 \
+  STUB_TERMINATE_LINGERS=1 STUB_STATE_UNKNOWN_AFTER=2 SPOT_TERMINATE_TRIES=12 \
+  STUB_PRESENT_KEYS="results.json log.txt stderr.txt" \
+  run_scenario terminate-then-state-unreadable bash "$TARGET"
+
 # No zone will take it. This must fail loudly and must not leave an instance behind.
 STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 \
   STUB_LAUNCH_FAIL_ZONES="ap-northeast-2a ap-northeast-2c" \
@@ -509,6 +520,16 @@ scenarios_m5c_gpu_session() {
     STUB_DONE_NONCE=deadbeef \
     STUB_PRESENT_KEYS="evidence.tgz log.txt commit.txt nodes.txt preflight-nvidia-smi.csv preflight-node-cards.txt" \
     run_scenario done-marker-wrong-nonce bash "$TARGET"
+
+  # The CLI reports no expiry at all, so the runner must fall back to scanning the credential cache.
+  #
+  # An empty STUB_CREDENTIALS_EXPIRE_IN_MIN omits the Expiration field, which is the whole reason that knob
+  # takes an empty value -- and nothing set it, so the fallback the goldens-drift page cites as the reason
+  # for the knob's design was reachable in principle and reached by nothing.
+  REPS=1 REQUIRE_CLEAN_TREE=0 STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 STUB_DONE_AFTER=2 \
+    STUB_CREDENTIALS_EXPIRE_IN_MIN= \
+    STUB_PRESENT_KEYS="evidence.tgz log.txt commit.txt nodes.txt preflight-nvidia-smi.csv preflight-node-cards.txt" \
+    run_scenario credentials-expiry-unreported bash "$TARGET"
 
   # The terminate call is refused, the way it is when credentials lapse mid-run. The transcript is what
   # makes the SHOUTING branch executed rather than asserted; on 2026-09-08 the silent version of this let a

@@ -385,7 +385,14 @@ shell-check: ## Parse every shell script under hack/ and .githooks/.
 	@# Nothing checked these until 2026-09-22, and hack/gpu-session.sh is the one wrapper that spends money.
 	@# `bash -n` is a parse, not a lint -- it will not find an unquoted expansion -- but it does catch the
 	@# edit that leaves a block unterminated, which is the failure that would surface on a rented card.
-	@fail=0; for f in hack/*.sh hack/lib/*.sh .githooks/*.sh .githooks/commit-msg .githooks/pre-push; do \
+	@# hack/test/ is in the glob because the harness that guards the paid runners was not guarded itself.
+	@#
+	@# characterize.sh is 43 KB and the recording stub is 20 KB, and neither was parse-checked -- so an edit
+	@# that left a block unterminated in the very thing `make spot-lifecycle` depends on would have been found
+	@# by running it, not by this. The stubs have no .sh suffix, so they are named rather than globbed.
+	@fail=0; for f in hack/*.sh hack/lib/*.sh hack/test/*.sh hack/test/spot-lifecycle/*.sh \
+		hack/test/spot-lifecycle/bin/aws hack/test/spot-lifecycle/bin/sleep \
+		.githooks/*.sh .githooks/commit-msg .githooks/pre-push; do \
 		[ -f "$$f" ] || continue; \
 		bash -n "$$f" || { echo "shell-check: $$f does not parse" >&2; fail=1; }; \
 	done; \
