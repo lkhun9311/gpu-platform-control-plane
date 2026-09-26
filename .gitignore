@@ -204,3 +204,7 @@ hack/m5b-gpu-session-evidence.log
 # hides the directory and `*.md` hides the index, and a negation above either of them does nothing.
 !docs/captures/
 !docs/captures/**
+
+# The custom golangci-lint binary make lint builds into bin/. A 51 MB ELF was committed at the
+# repository root by accident; it is identical in size to bin/golangci-lint and is rebuilt on demand.
+custom-gcl
