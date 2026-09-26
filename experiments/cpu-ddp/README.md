@@ -3,7 +3,10 @@
 `docs/11_WHAT_THIS_MEASURED.md` refuses the claim **"I built a training platform"**. The `MLTrainingJob` CRD
 exists and admits through Kueue, but nothing had ever trained: the tenant samples run `busybox`, and the one
 sample that looks like training names `pytorch/pytorch:2.3.0-cuda12.1-cudnn8-runtime` with
-`command: [python, train.py]` while **no `train.py` exists anywhere in the repository**.
+`command: [python, train.py]` while **no `train.py` exists in that image, and none was in the repository
+either** when this was written. One exists now — the file beside this README — but it is not the sample's:
+the sample runs `pytorch/pytorch:2.3.0-cuda12.1-cudnn8-runtime`, which contains no `train.py`, and nothing
+copies this one into it. The sample still cannot run.
 
 This directory runs a real one — two ranks, real gradients, real synchronisation — and says exactly how far
 that gets, which is not as far as the refused claim.
