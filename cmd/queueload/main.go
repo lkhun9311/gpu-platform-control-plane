@@ -151,6 +151,16 @@ func run(ns, queue, metricsURL, out string, count, concurrency int, sampleEvery 
 	if err != nil {
 		return fmt.Errorf("read %s: %w", metricsURL, err)
 	}
+	// Refused here, before anything is created, because every later number is derived from these series.
+	//
+	// The endpoint answering 200 says only that something is serving metrics. If the three families this
+	// tool reads are absent -- renamed, relabelled, or a different process's registry -- the run completes
+	// and reports that the operator was never the bottleneck, which is a claim about the operator made
+	// without reading it.
+	if missing := before.missingSeries(); len(missing) > 0 {
+		return fmt.Errorf("%s served no %s: this run would measure nothing and report that the queue stayed empty",
+			metricsURL, strings.Join(missing, ", "))
+	}
 	if before.Depth != 0 {
 		return fmt.Errorf("the workqueue already holds %d items; this run could not attribute a peak to itself",
 			before.Depth)
@@ -324,6 +334,13 @@ type metrics struct {
 	Depth int
 	Adds  int
 	Done  int
+	// Saw* records that the series was PRESENT, which is a different fact from its value being zero.
+	//
+	// A queue that is genuinely empty and an endpoint that never mentioned the queue both leave Depth at 0.
+	// Only the first is a measurement.
+	SawDepth bool
+	SawAdds  bool
+	SawDone  bool
 }
 
 // readMetrics parses controller-runtime's workqueue series for the mltrainingjob controller.
@@ -361,25 +378,68 @@ func readMetrics(url string) (metrics, error) {
 		// number obviously wrong, which is the only reason it was caught before being written down.
 		switch {
 		case strings.HasPrefix(line, "workqueue_depth") && strings.Contains(line, `name="mltrainingjob"`):
-			m.Depth += intValue(line)
+			v, ok := intValue(line)
+			if !ok {
+				return metrics{}, fmt.Errorf("workqueue_depth sample could not be parsed: %q", line)
+			}
+			m.Depth += v
+			m.SawDepth = true
 		case strings.HasPrefix(line, "workqueue_adds_total") && strings.Contains(line, `name="mltrainingjob"`):
-			m.Adds += intValue(line)
+			v, ok := intValue(line)
+			if !ok {
+				return metrics{}, fmt.Errorf("workqueue_adds_total sample could not be parsed: %q", line)
+			}
+			m.Adds += v
+			m.SawAdds = true
 		case strings.HasPrefix(line, "controller_runtime_reconcile_total") &&
 			strings.Contains(line, `controller="mltrainingjob"`):
-			m.Done += intValue(line)
+			v, ok := intValue(line)
+			if !ok {
+				return metrics{}, fmt.Errorf("controller_runtime_reconcile_total sample could not be parsed: %q", line)
+			}
+			m.Done += v
+			m.SawDone = true
 		}
 	}
 	return m, sc.Err()
 }
 
-func intValue(line string) int {
+// missingSeries names the series that never appeared, so "nothing happened" can be told from "nothing was read".
+//
+// Every number this tool prints is derived from these three families. When none of them appears -- a renamed
+// metric, a different controller name, an endpoint that serves someone else's registry -- every field stays
+// at its zero value and the run reports `the queue never held anything: this run measured the client, not the
+// operator`. That sentence is a finding. Produced by an unread endpoint it is a fabrication, and the only
+// reason the last instance of this was caught is that "reconciles 0 while draining six hundred items" was
+// obviously wrong (see the label note above). A plausible zero would not have been.
+func (m metrics) missingSeries() []string {
+	var missing []string
+	if !m.SawDepth {
+		missing = append(missing, `workqueue_depth{name="mltrainingjob"}`)
+	}
+	if !m.SawAdds {
+		missing = append(missing, `workqueue_adds_total{name="mltrainingjob"}`)
+	}
+	if !m.SawDone {
+		missing = append(missing, `controller_runtime_reconcile_total{controller="mltrainingjob"}`)
+	}
+	return missing
+}
+
+// intValue parses a Prometheus sample's value, and says when it could not.
+//
+// It used to return 0 on both failure paths. A malformed sample and a genuine zero then produced the same
+// number, and zero is the most believable reading this tool can print: the verdict for an empty queue is
+// "the operator was never the bottleneck". A parse that silently becomes a measurement is the shape this
+// repository keeps finding, so the failure is now returned rather than rounded off.
+func intValue(line string) (int, bool) {
 	i := strings.LastIndex(line, " ")
 	if i < 0 {
-		return 0
+		return 0, false
 	}
 	f, err := strconv.ParseFloat(strings.TrimSpace(line[i+1:]), 64)
 	if err != nil {
-		return 0
+		return 0, false
 	}
-	return int(f)
+	return int(f), true
 }
