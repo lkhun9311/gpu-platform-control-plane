@@ -115,3 +115,10 @@ stays there on a second run — which is the check that matters, because this pa
 same failing count twice was mistaken for a stable one.
 
 All four suites are green: microtest 12/0, price-of-protection 9/0, queuelab 16/0, m5c 11/0.
+
+**Counts as of 2026-09-26: microtest 14/0, price-of-protection 9/0, m5c 13/0, queuelab 16/0 — 52 checks over
+48 scenarios.** The numbers above are what this page measured on 2026-09-25 and are left as measured; four
+scenarios have been added since (`terminate-shuts-down-then-terminated`, `done-marker-wrong-nonce`,
+`terminate-then-state-unreadable`, `credentials-expiry-unreported`), each for a stub knob that existed and
+that no scenario set. This page exists so a reader can tell a suite left red deliberately from one nobody
+looked at, and a count that has silently moved defeats that — so it is restated here rather than edited above.
