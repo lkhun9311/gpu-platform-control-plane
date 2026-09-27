@@ -20,6 +20,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -92,27 +93,92 @@ func (s *Store) ListWorkloadRuns() ([]RunRecord, error) {
 	return out, nil
 }
 
+// ErrAmbiguousRun is returned when a namespace/name names more than one recorded run.
+//
+// Kubernetes reuses names: delete a WorkloadRun and recreate it and the ledger holds two rows, correctly
+// distinguished by UID. Returning either one would be a coin toss presented as a record.
+var ErrAmbiguousRun = errors.New("more than one recorded run has this name")
+
 // GetWorkloadRun returns one run by namespace and name, with its trail.
 //
-// Namespace and name rather than UID because that is what an operator has in their hand. A UID would be the
-// stabler key, and it is not what anybody types.
+// Namespace and name rather than UID because that is what an operator has in their hand. The cost of that
+// choice is that the pair is NOT unique -- names are reusable -- and the first version of this function had no
+// ordering and no ambiguity check, so a cold review reproduced it returning an older `Recovered` in preference
+// to the current `NotRecovered`. An evidence store that answers the wrong run is worse than one that refuses,
+// so a duplicate name is refused and the caller is told to pick a UID.
 func (s *Store) GetWorkloadRun(namespace, name string) (RunRecord, []Observation, error) {
-	row := s.db.QueryRow(`SELECT uid, namespace, name, scenario, target_kind, target_name, target_namespace,
+	rows, err := s.db.Query(`SELECT uid, namespace, name, scenario, target_kind, target_name, target_namespace,
 		phase, verdict, reason, started_at_unix_nanos, last_observed_at_unix_nanos,
 		observed_generation, projected_at_unix_nanos
-		FROM workload_runs WHERE namespace = ? AND name = ?`, namespace, name)
-	r, err := scanRun(row)
-	if errors.Is(err, sql.ErrNoRows) {
-		return RunRecord{}, nil, fmt.Errorf("%s/%s: %w", namespace, name, ErrNoSuchRun)
-	}
+		FROM workload_runs WHERE namespace = ? AND name = ? ORDER BY projected_at_unix_nanos DESC, uid`,
+		namespace, name)
 	if err != nil {
 		return RunRecord{}, nil, fmt.Errorf("read run %s/%s from ledger %s: %w", namespace, name, s.path, err)
 	}
+	var found []RunRecord
+	for rows.Next() {
+		rec, err := scanRun(rows)
+		if err != nil {
+			_ = rows.Close()
+			return RunRecord{}, nil, fmt.Errorf("read run %s/%s from ledger %s: %w", namespace, name, s.path, err)
+		}
+		found = append(found, rec)
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return RunRecord{}, nil, fmt.Errorf("read run %s/%s from ledger %s: %w", namespace, name, s.path, err)
+	}
+	_ = rows.Close()
 
+	if len(found) == 0 {
+		return RunRecord{}, nil, fmt.Errorf("%s/%s: %w", namespace, name, ErrNoSuchRun)
+	}
+	if len(found) > 1 {
+		uids := make([]string, 0, len(found))
+		for _, f := range found {
+			uids = append(uids, f.UID)
+		}
+		return RunRecord{}, nil, fmt.Errorf("%s/%s names %d recorded runs (%s): %w",
+			namespace, name, len(found), strings.Join(uids, ", "), ErrAmbiguousRun)
+	}
+	r := found[0]
+	trail, err := s.trailOf(r)
+	if err != nil {
+		return RunRecord{}, nil, err
+	}
+	return r, trail, nil
+}
+
+// GetWorkloadRunByUID returns one run by the Kubernetes object UID, with its trail.
+//
+// This is the unambiguous lookup, and it exists so that the refusal GetWorkloadRun returns for a reused name is
+// actionable: the error names the UIDs, and this is what the caller does with one. A UID is not what anybody
+// types from memory, which is why it is the second entry point rather than the only one.
+func (s *Store) GetWorkloadRunByUID(uid string) (RunRecord, []Observation, error) {
+	row := s.db.QueryRow(`SELECT uid, namespace, name, scenario, target_kind, target_name, target_namespace,
+		phase, verdict, reason, started_at_unix_nanos, last_observed_at_unix_nanos,
+		observed_generation, projected_at_unix_nanos
+		FROM workload_runs WHERE uid = ?`, uid)
+	r, err := scanRun(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return RunRecord{}, nil, fmt.Errorf("uid %s: %w", uid, ErrNoSuchRun)
+	}
+	if err != nil {
+		return RunRecord{}, nil, fmt.Errorf("read run %s from ledger %s: %w", uid, s.path, err)
+	}
+	trail, err := s.trailOf(r)
+	if err != nil {
+		return RunRecord{}, nil, err
+	}
+	return r, trail, nil
+}
+
+// trailOf reads one run's observations, deriving each wall clock from the run's own start.
+func (s *Store) trailOf(r RunRecord) ([]Observation, error) {
 	rows, err := s.db.Query(`SELECT ordinal, elapsed_seconds, state, healthy
 		FROM operation_events WHERE object_uid = ? ORDER BY ordinal`, r.UID)
 	if err != nil {
-		return RunRecord{}, nil, fmt.Errorf("read the trail of %s/%s: %w", namespace, name, err)
+		return nil, fmt.Errorf("read the trail of %s/%s: %w", r.Namespace, r.Name, err)
 	}
 	defer func() { _ = rows.Close() }()
 
@@ -123,7 +189,7 @@ func (s *Store) GetWorkloadRun(namespace, name string) (RunRecord, []Observation
 			healthy int
 		)
 		if err := rows.Scan(&o.Ordinal, &o.ElapsedSeconds, &o.State, &healthy); err != nil {
-			return RunRecord{}, nil, fmt.Errorf("read an observation of %s/%s: %w", namespace, name, err)
+			return nil, fmt.Errorf("read an observation of %s/%s: %w", r.Namespace, r.Name, err)
 		}
 		o.Healthy = healthy == 1
 		if r.StartedAt != nil {
@@ -133,9 +199,9 @@ func (s *Store) GetWorkloadRun(namespace, name string) (RunRecord, []Observation
 		trail = append(trail, o)
 	}
 	if err := rows.Err(); err != nil {
-		return RunRecord{}, nil, fmt.Errorf("read the trail of %s/%s: %w", namespace, name, err)
+		return nil, fmt.Errorf("read the trail of %s/%s: %w", r.Namespace, r.Name, err)
 	}
-	return r, trail, nil
+	return trail, nil
 }
 
 // scanner is what Query's rows and QueryRow's row have in common.

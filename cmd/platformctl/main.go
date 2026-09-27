@@ -86,6 +86,10 @@ func usage() {
   platformctl workload-runs get -ledger PATH -namespace NS -name NAME
         print one run and its observation trail
 
+  platformctl workload-runs get -ledger PATH -uid UID
+        the same, by object UID. Kubernetes reuses names, so a namespace/name can match more than one
+        recorded run; that is refused rather than guessed, and the refusal names the UIDs to pass here.
+
 -ledger has no default on purpose: a default would create or read a database nobody named.
 `)
 }
@@ -195,15 +199,16 @@ func get(args []string) error {
 	fs := flag.NewFlagSet("get", flag.ExitOnError)
 	path := fs.String("ledger", "", "path to an existing SQLite ledger (required)")
 	namespace := fs.String("namespace", "default", "the run's namespace")
-	name := fs.String("name", "", "the run's name (required)")
+	name := fs.String("name", "", "the run's name (required unless -uid is given)")
+	uid := fs.String("uid", "", "the run's Kubernetes object UID; use this when a name names more than one run")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if *path == "" {
 		return errors.New("-ledger is required")
 	}
-	if *name == "" {
-		return errors.New("-name is required")
+	if *name == "" && *uid == "" {
+		return errors.New("-name is required (or -uid)")
 	}
 	store, err := ledger.OpenForRead(*path)
 	if err != nil {
@@ -211,10 +216,21 @@ func get(args []string) error {
 	}
 	defer func() { _ = store.Close() }()
 
-	r, trail, err := store.GetWorkloadRun(*namespace, *name)
+	// -uid is the way out of an ambiguous name, so it wins when both are given rather than being cross-checked
+	// against -name: the operator reached for it precisely because the name is not the identity.
+	var (
+		r     ledger.RunRecord
+		trail []ledger.Observation
+	)
+	if *uid != "" {
+		r, trail, err = store.GetWorkloadRunByUID(*uid)
+	} else {
+		r, trail, err = store.GetWorkloadRun(*namespace, *name)
+	}
 	if err != nil {
-		// Including ledger.ErrNoSuchRun, which exits non-zero on purpose: a run nobody projected is not a run
-		// that happened and recorded nothing.
+		// Including ledger.ErrNoSuchRun (a run nobody projected is not a run that happened and recorded
+		// nothing) and ledger.ErrAmbiguousRun, whose message names the UIDs to pass back through -uid. Both
+		// exit non-zero on purpose.
 		return err
 	}
 

@@ -55,6 +55,48 @@ func TestListingAnEmptyLedgerIsAnEmptyAnswerNotAnError(t *testing.T) {
 	}
 }
 
+// Kubernetes reuses names. Delete a WorkloadRun and recreate it and the ledger holds two rows, correctly
+// distinguished by UID -- and a lookup by namespace/name then has two answers.
+//
+// A cold review reproduced the original behaviour: no ordering and no ambiguity check, so the query returned
+// whichever row came first, which was the older `Recovered` in preference to the current `NotRecovered`. An
+// evidence store that answers the wrong run is worse than one that refuses.
+func TestARepeatedNameIsRefusedRatherThanGuessed(t *testing.T) {
+	s := openTemp(t)
+	start := projectedAt.Add(-time.Minute)
+
+	old := runWith("uid-old", "fr002", platformv1.WorkloadRunComplete, &start, projectedAt,
+		obs(0, "Ready", true), obs(9, "Ready", true))
+	if _, err := s.ProjectWorkloadRuns([]platformv1.WorkloadRun{old}, projectedAt); err != nil {
+		t.Fatalf("project the first run: %v", err)
+	}
+
+	// Same namespace and name, new object, and this one did not recover.
+	recreated := runWith("uid-new", "fr002", platformv1.WorkloadRunComplete, &start,
+		projectedAt.Add(time.Hour), obs(0, "Ready", true), obs(5, "Degraded", false))
+	recreated.Status.Verdict = platformv1.VerdictNotRecovered
+	if _, err := s.ProjectWorkloadRuns([]platformv1.WorkloadRun{recreated}, projectedAt.Add(time.Hour)); err != nil {
+		t.Fatalf("project the recreated run: %v", err)
+	}
+	if runs, _ := counts(t, s); runs != 2 {
+		t.Fatalf("the ledger holds %d runs, want 2 distinguished by UID", runs)
+	}
+
+	_, _, err := s.GetWorkloadRun("default", "fr002")
+	if err == nil {
+		t.Fatal("GetWorkloadRun picked one of two runs with the same name; a coin toss was presented as a record")
+	}
+	if !errors.Is(err, ErrAmbiguousRun) {
+		t.Fatalf("the error does not identify itself as ambiguity, so a caller cannot tell it from a read failure: %v", err)
+	}
+	// Both UIDs, or the operator cannot act on the refusal.
+	for _, want := range []string{"uid-old", "uid-new"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("the refusal does not name %q, so there is no way to choose: %v", want, err)
+		}
+	}
+}
+
 func TestReadingBackWhatWasProjected(t *testing.T) {
 	s := openTemp(t)
 	start := projectedAt.Add(-time.Minute)
