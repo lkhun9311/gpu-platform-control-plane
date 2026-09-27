@@ -127,6 +127,73 @@ var _ = Describe("which policy charges this namespace", func() {
 	})
 })
 
+// The API server's own defaulting, asked of the API server.
+//
+// Two pieces of production code reason from these markers in comments: router.go:55 says "spec.port carries
+// +kubebuilder:default=8080, so anything that went through the API server already has it set and zero cannot
+// occur in production", and mltrainingjob_controller.go:236 says the CRD default of 1 applies only when the
+// field is omitted. Nothing checked either claim. Every existing spec passes 8080 and 1/1 explicitly, so all
+// of them would stay green if the markers were deleted.
+//
+// What is at stake is the stored record, not the running workload. Both call sites defend themselves anyway
+// -- servingPort falls back to 8080 at router.go:59, defaultOne turns any non-positive value into 1 at
+// mltrainingjob_controller.go:239 -- so losing a CRD default would break neither serving nor training. It
+// would make the object the API hands back disagree with what actually runs, silently.
+//
+// Only omission is pinned, and the two cases left out are left out for different reasons.
+//
+// An "explicit zero" case is not written here because the TYPED client cannot express it: all three fields
+// carry omitempty, so a Go zero is absent from the request body and is indistinguishable from not setting the
+// field. Raw JSON or an unstructured object can express it, and doing so would test a different contract
+// worth its own change -- port: 0 must be REJECTED (Minimum=1) while parallelism: 0 must be STORED
+// (Minimum=0). That second half exposes a disagreement this commit does not settle: the schema admits zero
+// and defaultOne silently runs 1.
+//
+// An "explicit non-zero survives" case is not written because a CRD default never overwrites a present
+// value, so nothing in this tree today can redden it. A mutating or conversion webhook would change that;
+// none exists here yet.
+//
+// Mutation that turns these red: delete the `default:` lines from
+// config/crd/bases/platform.lkhun9311.github.io_{inferencedeployments,mltrainingjobs}.yaml, which is what
+// envtest installs (suite_test.go:90). Verified 2026-09-27: both specs fail, reading back 0 instead of 8080
+// and 1. That mutation proves less than deleting the markers and regenerating would -- it cannot catch
+// controller-gen failing to scan the package, or a later generation step restoring the default.
+var _ = Describe("the defaults the CRDs promise", func() {
+	ctx := context.Background()
+
+	It("fills in the serving port when the spec omits it", func() {
+		name := types.NamespacedName{Name: "defaulted-port", Namespace: "default"}
+		Expect(k8sClient.Create(ctx, &platformv1.InferenceDeployment{
+			ObjectMeta: metav1.ObjectMeta{Name: name.Name, Namespace: name.Namespace},
+			Spec: platformv1.InferenceDeploymentSpec{
+				Model: platformv1.InferenceModel{Name: "m", StorageURI: "s3://m"},
+				Image: "vllm/vllm-openai:test", Replicas: 1, GPUCount: 1,
+			},
+		})).To(Succeed())
+
+		got := &platformv1.InferenceDeployment{}
+		Expect(k8sClient.Get(ctx, name, got)).To(Succeed())
+		Expect(got.Spec.Port).To(Equal(int32(8080)),
+			"the API server did not default spec.port; the gateway's fallback comment reasons from this")
+	})
+
+	It("fills in parallelism and completions when the spec omits them", func() {
+		name := types.NamespacedName{Name: "defaulted-job", Namespace: "default"}
+		Expect(k8sClient.Create(ctx, &platformv1.MLTrainingJob{
+			ObjectMeta: metav1.ObjectMeta{Name: name.Name, Namespace: name.Namespace},
+			Spec: platformv1.MLTrainingJobSpec{
+				Queue: "team-a", Image: "busybox", Command: []string{"true"}, GPUCount: 1,
+			},
+		})).To(Succeed())
+
+		got := &platformv1.MLTrainingJob{}
+		Expect(k8sClient.Get(ctx, name, got)).To(Succeed())
+		Expect(got.Spec.Parallelism).To(Equal(int32(1)),
+			"parallelism was not defaulted; the stored object would read 0 while defaultOne still runs the Job with 1")
+		Expect(got.Spec.Completions).To(Equal(int32(1)), "completions was not defaulted")
+	})
+})
+
 var _ = Describe("mapPolicyToInferenceDeployments", func() {
 	ctx := context.Background()
 
