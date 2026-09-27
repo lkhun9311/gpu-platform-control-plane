@@ -521,6 +521,25 @@ scenarios_m5c_gpu_session() {
     STUB_PRESENT_KEYS="evidence.tgz log.txt commit.txt nodes.txt preflight-nvidia-smi.csv preflight-node-cards.txt" \
     run_scenario zone-retry bash "$TARGET"
 
+  # AWS accepted the launch in the first zone and the caller never learned the instance id.
+  #
+  # This records the CURRENT behaviour, and the current behaviour is the defect: an ambiguous failure is
+  # indistinguishable from "no instance was created", so the runner clears IID, moves to the next zone, and
+  # launches a second instance. Cleanup terminates the id it retained, which is not the first one. The tags
+  # carry no run nonce, so nothing afterwards can tell that orphan from a previous session's.
+  #
+  # It is recorded before the fix rather than after, which is this suite's whole premise: "the only honest way
+  # to claim a refactor changed nothing is to have a recording of what it did before". When the runner learns
+  # to reconcile by nonce before moving zones, THIS golden is the thing that must change, and a diff that
+  # touches nothing else is the evidence that only the ambiguous path moved.
+  #
+  # Found by an adversarial security review, which put the bounded loss at roughly $2.50 per occurrence -- the
+  # in-instance backstop is 9000 s -- and refused to inflate it beyond that. The probability is unestablished.
+  REPS=1 REQUIRE_CLEAN_TREE=0 STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 STUB_DONE_AFTER=2 \
+    STUB_LAUNCH_ACCEPTED_BUT_SILENT_ZONES="ap-northeast-2a" \
+    STUB_PRESENT_KEYS="evidence.tgz log.txt commit.txt nodes.txt preflight-nvidia-smi.csv preflight-node-cards.txt" \
+    run_scenario launch-accepted-but-answer-lost bash "$TARGET"
+
   # The marker is there and carries SOMEBODY ELSE'S nonce.
   #
   # The marker's body is what distinguishes this launch's evidence from a previous run's under a reused

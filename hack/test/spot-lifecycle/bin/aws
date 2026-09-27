@@ -149,6 +149,24 @@ case "$svc $op" in
       esac
       exit 254
     fi
+    # The launch AWS ACCEPTED and the caller never learned about.
+    #
+    # This is the expensive shape, and no scenario could express it before: run-instances creates the
+    # instance and the response is lost -- a dropped connection, a killed CLI, a timeout after the API
+    # committed. The caller sees an empty stdout and a non-zero exit, which is indistinguishable from
+    # "no instance was created", so the runner clears IID and tries the next zone while the instance it
+    # already owns keeps billing. Cleanup then terminates the one ID it retained, which is not this one.
+    #
+    # The instance id is written to the state directory rather than stdout, because that is exactly the
+    # asymmetry being modelled: AWS knows about it, the caller does not. A tag-filtered describe-instances
+    # can find it, which is what makes the orphan discoverable at all.
+    if in_list "$az" "${STUB_LAUNCH_ACCEPTED_BUT_SILENT_ZONES:-}"; then
+      orphan="${STUB_ORPHAN_INSTANCE_ID:-i-0orphan}"
+      printf '%s\n' "$orphan" >> "$state/accepted-instances"
+      printf 'launch accepted in %s but the response was lost\n' "$az" >&2
+      exit 254
+    fi
+    printf '%s\n' "${STUB_INSTANCE_ID:-i-0stub}" >> "$state/accepted-instances"
     printf '%s\n' "${STUB_INSTANCE_ID:-i-0stub}"
     ;;
 
@@ -197,6 +215,27 @@ case "$svc $op" in
     ;;
 
   "ec2 describe-instances")
+    # A tag-filtered read, which is how an orphan is found at all.
+    #
+    # Split off before the state machine below because the two questions are different. The existing arm
+    # answers "what state is the instance I am holding in?" and is always called with --instance-ids
+    # (hack/lib/spot-run.sh:272). This one answers "which instances carry this run's nonce?", which is the
+    # only question that can find a launch whose id the caller never received.
+    #
+    # Kept separate rather than folded in so the goldens recorded against --instance-ids cannot move: no
+    # existing scenario passes --filters, so no existing transcript enters this branch.
+    if arg_after --filters "$@" >/dev/null 2>&1; then
+      bump describe-instances-filtered >/dev/null
+      if [ -f "$state/accepted-instances" ]; then
+        while read -r iid; do
+          [ -n "$iid" ] || continue
+          # An instance the runner already terminated is not an orphan.
+          grep -qx "$iid" "$state/terminated-instances" 2>/dev/null && continue
+          printf '%s\n' "$iid"
+        done < "$state/accepted-instances"
+      fi
+      exit 0
+    fi
     n=$(bump describe-instances)
     dead="${STUB_TERMINATED_AFTER:--1}"
     # A terminate call that was accepted wins over the call counter: after it, the instance is gone.
