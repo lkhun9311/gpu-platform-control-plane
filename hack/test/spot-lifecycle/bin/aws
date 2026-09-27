@@ -160,13 +160,42 @@ case "$svc $op" in
     # The instance id is written to the state directory rather than stdout, because that is exactly the
     # asymmetry being modelled: AWS knows about it, the caller does not. A tag-filtered describe-instances
     # can find it, which is what makes the orphan discoverable at all.
+    # --client-token is HONOURED, because without it this stub cannot tell the fix from the defect.
+    #
+    # EC2 applies idempotency per client token, and because --subnet-id pins a zone that idempotency is
+    # zonal (hack/lib/spot-run.sh:145). So an identical same-zone retry with the same token returns the
+    # instance that already exists rather than launching a second one. The first version of this stub
+    # appended a new id on every call, which made a correct idempotent retry indistinguishable from a
+    # runaway second launch -- the exact property the fix turns on, unobservable in the thing meant to
+    # observe it.
+    #
+    # Recorded as "token<TAB>instance" so a retry can be answered from the ledger rather than re-decided.
+    token=$(arg_after --client-token "$@" || true)
+    if [ -n "$token" ] && [ -f "$state/token-instances" ]; then
+      prior=$(awk -F'\t' -v t="$token" '$1==t {print $2; exit}' "$state/token-instances")
+      if [ -n "$prior" ]; then
+        # Whether the caller HEARS the answer is a separate question from whether AWS made an instance.
+        # A zone that keeps losing responses keeps losing them, and the instance stays the same one.
+        if in_list "$az" "${STUB_LAUNCH_ACCEPTED_BUT_SILENT_ZONES:-}" \
+           && [ "${STUB_SILENT_ZONE_RECOVERS_AFTER:--1}" -lt 0 ]; then
+          printf 'launch accepted in %s but the response was lost again (same token, same instance)\n' "$az" >&2
+          exit 254
+        fi
+        printf 'idempotent: token already launched %s\n' "$prior" >> "$STUB_TRANSCRIPT"
+        printf '%s\n' "$prior"
+        exit 0
+      fi
+    fi
+
     if in_list "$az" "${STUB_LAUNCH_ACCEPTED_BUT_SILENT_ZONES:-}"; then
       orphan="${STUB_ORPHAN_INSTANCE_ID:-i-0orphan}"
       printf '%s\n' "$orphan" >> "$state/accepted-instances"
+      [ -n "$token" ] && printf '%s\t%s\n' "$token" "$orphan" >> "$state/token-instances"
       printf 'launch accepted in %s but the response was lost\n' "$az" >&2
       exit 254
     fi
     printf '%s\n' "${STUB_INSTANCE_ID:-i-0stub}" >> "$state/accepted-instances"
+    [ -n "$token" ] && printf '%s\t%s\n' "$token" "${STUB_INSTANCE_ID:-i-0stub}" >> "$state/token-instances"
     printf '%s\n' "${STUB_INSTANCE_ID:-i-0stub}"
     ;;
 
@@ -206,6 +235,12 @@ case "$svc $op" in
     #
     # STUB_TERMINATE_LINGERS keeps it running anyway, which is the case the polling exists for: the call was
     # accepted and the instance is still billing.
+    # Every terminated id is recorded, which is what keeps the "already terminated is not an orphan" guard
+    # in the filtered describe above from being dead code. It read that file and nothing ever wrote it, so
+    # the guard could not have fired and a re-terminated instance would have been reported as still stray.
+    for tid in $(arg_after --instance-ids "$@" || true); do
+      [ -n "$tid" ] && printf '%s\n' "$tid" >> "$state/terminated-instances"
+    done
     if [ "${STUB_TERMINATE_LINGERS:-0}" != "1" ]; then
       printf 'yes\n' > "${STUB_STATE:-/tmp}/terminate-accepted"
       # When the call was accepted is what makes `shutting-down` a phase rather than a constant.
@@ -224,16 +259,30 @@ case "$svc $op" in
     #
     # Kept separate rather than folded in so the goldens recorded against --instance-ids cannot move: no
     # existing scenario passes --filters, so no existing transcript enters this branch.
-    if arg_after --filters "$@" >/dev/null 2>&1; then
+    filters=$(arg_after --filters "$@" || true)
+    if [ -n "$filters" ]; then
       bump describe-instances-filtered >/dev/null
-      if [ -f "$state/accepted-instances" ]; then
-        while read -r iid; do
-          [ -n "$iid" ] || continue
+      # The filter's CONTENTS decide the answer, not its presence.
+      #
+      # The first version returned every recorded instance as soon as any --filters argument appeared, so a
+      # patch that filtered on the wrong thing -- the Name tag, a stale nonce, nothing at all -- would have
+      # been handed the orphan anyway and gone green. A stub that answers the question you meant instead of
+      # the one you asked cannot show a lookup is correct.
+      #
+      # Only a token this stub actually launched under matches. Anything else answers empty, which is what
+      # a real DescribeInstances does for a filter that names nothing.
+      matched=0
+      if [ -f "$state/token-instances" ]; then
+        while IFS="$(printf '\t')" read -r tok iid; do
+          [ -n "$tok" ] && [ -n "$iid" ] || continue
+          case "$filters" in *"$tok"*) ;; *) continue ;; esac
           # An instance the runner already terminated is not an orphan.
           grep -qx "$iid" "$state/terminated-instances" 2>/dev/null && continue
           printf '%s\n' "$iid"
-        done < "$state/accepted-instances"
+          matched=$((matched + 1))
+        done < "$state/token-instances"
       fi
+      printf 'filtered describe: %d instance(s) matched the filter\n' "$matched" >> "$STUB_TRANSCRIPT"
       exit 0
     fi
     n=$(bump describe-instances)
