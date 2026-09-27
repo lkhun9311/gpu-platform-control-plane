@@ -121,10 +121,22 @@ def classify(tok):
     return None
 
 def path_exists(tok):
+    # Judged against what git TRACKS, not against what happens to be on this disk.
+    #
+    # This asked os.path.exists first, so any untracked leftover in a developer's working copy satisfied it.
+    # Widening the scan to the specs exposed six: five paid-run output directories (`hack/m5c-20260912-084918`
+    # and friends) that were never committed, and a plan under docs/superpowers/plans/ that .gitignore
+    # deliberately keeps local. All six are present here and absent on a fresh checkout, so the check passed
+    # for me and failed in CI -- a gate whose verdict depends on whose machine it runs on.
+    #
+    # Tracked files are the only thing a reader of this repository can also see, which is the whole question
+    # the check is asking.
     p = re.sub(r':\d+([-,]\d+)*$', '', tok).rstrip('/')
-    if os.path.exists(p):
+    if tracked(p):                                        # an exact tracked path
         return True
-    if glob.glob(p + '*'):                                # docs write `docs/05` for a numbered document
+    if tracked(p + '/*'):                                 # a tracked directory, cited without a file
+        return True
+    if tracked(p + '*'):                                  # docs write `docs/05` for a numbered document
         return True
     return bool(tracked('*' + os.path.basename(p)))
 

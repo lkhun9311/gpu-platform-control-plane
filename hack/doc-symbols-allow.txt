@@ -38,6 +38,23 @@ analysis.md	docs/04 lists the artifact set a noisy-neighbor run would commit und
 gateway-429.log	same list in docs/04 -- an intended artifact, and the document says so on the same line
 scripts/demo-06-failure-injection.sh	docs/06 lists it under "To fill" as work not yet done, not as a script a reader can run
 
+# --- paths the repository cannot contain, named by specs that record real runs ---------------------------
+#
+# The five hack/ entries are output directories of paid GPU sessions. Each spec cites one beside its date and
+# commit hash to say WHICH run produced the numbers on that page; the directories themselves were never
+# committed. The plans/ entry is working material .gitignore keeps local on purpose, quoted by the design
+# that closed one of its open items.
+#
+# They surfaced only after path_exists stopped consulting the local filesystem: all six are present in this
+# working copy and absent from a fresh checkout, so the check passed here and failed in CI.
+docs/superpowers/plans/2026-08-12-queuelab-teardown-executor.md	.gitignore keeps docs/superpowers/plans/ local -- working material, not published; the residue-consumer design quotes the open item it closed
+hack/m5c-20260912-084918	the output directory of the 2026-09-12 paid M5-c run, cited beside its commit ce0bb8e; run outputs are not committed
+hack/m5c-20260913-011031	the output directory of the 2026-09-13 paid M5-c run, cited beside its commit 85ae2fa; run outputs are not committed
+hack/pop-20260908-015929	the output directory of a 2026-09-08 price-of-protection run, cited as the evidence for reading 4b; run outputs are not committed
+hack/pop-20260908-030550	as hack/pop-20260908-015929 -- another repetition of the same dated run
+hack/pop-20260908-044443	as hack/pop-20260908-015929 -- another repetition of the same dated run
+bin/	.gitignore:99 excludes it under "Generated binaries"; the m5-a design cites it to say the terraform binary is INSTALLED there by a Makefile target, the way kustomize and controller-gen already are. The directory is built, never committed, so no checkout contains it
+
 # --- added when the scan was widened to the tracked specs, 2026-09-27 -------------------------------------
 TenantNotProvisioned	a condition of the GpuSharingBenchmark CRD. docs/00 line 14 says "Designed only -- no CRD, no code" of it, and grep finds it in no Go file, so the name is absent because the type is. Not the gateway's tenant_not_provisioned, which is a different name for a different thing and is listed above
 LaunchTime	an EC2 API field, not a name this repository defines; the MPS pre-registration measures its stopping rule from the instance's LaunchTime as AWS reports it
