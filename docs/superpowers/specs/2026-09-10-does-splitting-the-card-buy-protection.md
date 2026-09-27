@@ -211,7 +211,9 @@ green, which is the repository's rule applied to itself: a check that cannot tel
 sentence the code actually prints, it goes red on all three reproductions instead of two.
 
 **45 changed an expectation this repository had already written down, and that is worth stating plainly.**
-A test named `TestAContenderThatWasMerelyDelayedIsNotStarvation` held a contender that completed 120 of 300
+A test then named TestAContenderThatWasMerelyDelayedIsNotStarvation — no backticks, because that symbol no
+longer exists; it is `TestAContenderThatTimedOutRatherThanBeingRefusedIsNeitherStarvedNorProtected` now —
+held a contender that completed 120 of 300
 requests with none rejected, and required reading 1 to fire POSITIVE on it — on the argument that work
 which was not refused was merely late. Half of that argument was right and is kept: a smaller share
 without rejections is not starvation, because the pre-registration says starvation must be shown in the
