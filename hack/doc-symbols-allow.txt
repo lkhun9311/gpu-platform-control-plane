@@ -31,7 +31,7 @@ gpu.yml	docs/09 names it three times to record that the GPU node-group workflow 
 # --- designed, stated as designed -----------------------------------------------------------------------
 GpuSharingBenchmark	the CRD is designed in docs/superpowers/specs/2026-07-04-gpusharingbenchmark-crd-design.md and every mention says no code exists; the sharing harness that DOES exist is internal/bench/sharing_matrix.go
 cost_per_1k_tokens_estimated	a column of the operations-ledger schema in docs/04; the ledger is unimplemented and doc 07 says so
-node_health_history	a table of the operations-ledger schema in docs/07; the ledger is unimplemented and the same doc says so
+node_health_history	a table of the operations-ledger schema in docs/07. The reason changed on 2026-09-27: the ledger is no longer unimplemented -- internal/ledger holds migrations and a projector -- but slice 1 deliberately built only workload_runs and operation_events, and this table is one of the four the same doc now says do not exist "not as tables, not as stubs"
 
 # --- the intended artifact set of a run whose outputs were never committed ------------------------------
 analysis.md	docs/04 lists the artifact set a noisy-neighbor run would commit under evidence/benchmark-reports/; that directory holds only .gitkeep
