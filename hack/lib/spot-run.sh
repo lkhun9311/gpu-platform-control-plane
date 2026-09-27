@@ -139,9 +139,26 @@ spot_subnet_in_zone() {
 # Every parameter is explicit rather than read from the caller's environment, because the version of this
 # that lived inline captured a mutable SUBNET from its enclosing scope and could therefore launch into a
 # zone other than the one its log line named.
+# The tenth argument, a client token, is OPTIONAL and the only caller passing one today is
+# hack/m5c-gpu-session.sh.
+#
+# EC2 applies idempotency per client token, and because --subnet-id pins a zone that idempotency is zonal:
+# an identical retry in the SAME zone with the SAME token returns the instance that already exists instead
+# of launching a second one. That is the protection against the expensive failure -- AWS accepting a launch
+# whose response the caller never receives, which is indistinguishable from "nothing was created" and so
+# sends the zone loop on to buy a second instance.
+#
+# Omitted rather than defaulted when absent, because a token this function invented would be a different
+# token on every call and would therefore protect nothing, while looking like it did. The three runners that
+# do not pass one keep exactly their present behaviour, and their goldens say so.
 spot_launch() {
   local region="$1" ami="$2" instance_type="$3" subnet="$4" profile="$5" \
-        max_price="$6" volume_gb="$7" user_data_file="$8" tags="$9"
+        max_price="$6" volume_gb="$7" user_data_file="$8" tags="$9" client_token="${10:-}"
+  local token_arg=()
+  [ -n "$client_token" ] && token_arg=(--client-token "$client_token")
+  # ${arr[@]+"${arr[@]}"} rather than "${arr[@]}": callers run under `set -u`, where an empty array is an
+  # unbound variable on bash before 4.4. The command stays in one piece rather than being duplicated into a
+  # with-token and without-token copy, because a second copy is a second place to forget to fix.
   aws ec2 run-instances --region "$region" \
     --image-id "$ami" --instance-type "$instance_type" --subnet-id "$subnet" \
     --iam-instance-profile "Name=$profile" \
@@ -150,6 +167,7 @@ spot_launch() {
     --instance-market-options "{\"MarketType\":\"spot\",\"SpotOptions\":{\"MaxPrice\":\"$max_price\",\"SpotInstanceType\":\"one-time\"}}" \
     --user-data "file://$user_data_file" \
     --tag-specifications "$tags" \
+    ${token_arg[@]+"${token_arg[@]}"} \
     --query 'Instances[0].InstanceId' --output text
 }
 

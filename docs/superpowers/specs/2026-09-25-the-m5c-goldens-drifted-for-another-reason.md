@@ -124,6 +124,37 @@ a stub knob that existed and that no scenario set. This page exists so a reader 
 deliberately from one nobody looked at, and a count that has silently moved defeats that — so it is restated
 here rather than edited above.
 
+## Amendment, 2026-09-27: the nonce reached the goldens a fourth way, and three runners keep the defect
+
+An ambiguous EC2 launch — AWS accepts `run-instances` and the caller never receives the id — was found by an
+adversarial security review. The runner reads that as "no instance was created", clears `IID`, moves to the
+next zone and buys a second instance, while cleanup terminates only the id it retained.
+
+Closing it for `hack/m5c-gpu-session.sh` meant stamping identity on the launch: a `{Key=run,Value=$RUN_NONCE}`
+tag and a zone-scoped `--client-token`. **Both carry the nonce, and both landed in the transcripts**, so two
+recordings of one scenario disagreed (`{Key=run,Value=3a54050c}` against `77f6b27a`) and all fifteen m5c
+scenarios would have failed for ever. Re-recording would have hidden that behind a golden that could never
+pass twice. The stub's `normalize` now elides both, anchored to `{Key=run,Value=` and `--client-token ` rather
+than to the shape of the value — the same discipline this page already records, for the same reason: an
+`[0-9a-f]{8}` pattern is also an instance-id suffix, a commit prefix and a checksum fragment.
+
+What the goldens consequently do NOT prove is that the token derives from *this* run's nonce. That is checked
+by calling the stub directly instead, where a filter naming the wrong token returns empty.
+
+⚠️ **The same defect remains in three runners, deliberately and for now.** `hack/queuelab-gpu-session.sh:737`,
+`hack/m5b-price-of-protection.sh:529` and `hack/m5b-scheduler-microtest.sh:335` all make the identical
+nine-argument `spot_launch` call inside the identical `IID=""` zone-retry loop. Only m5c was fixed, because
+only m5c already has a `RUN_NONCE` to derive a token from — the other three would each need an identity
+invented first, and the fix is worth proving on one runner before it is spread across four that spend money.
+`spot_launch`'s tenth argument is optional precisely so those three keep their present behaviour, and their
+goldens are the evidence that they do: microtest, price-of-protection and queuelab are byte-identical across
+this change.
+
+**Counts as of 2026-09-27: microtest 14/0, price-of-protection 9/0, m5c 15/0, queuelab 16/0.** The m5c suite
+gained `launch-accepted-but-answer-lost`, which records the defect as it stands before the runner is taught to
+reconcile — so that golden is expected to change when the fix lands, and a diff touching any other is a sign
+the fix reached further than the ambiguous path.
+
 The last two replaced a single scenario that was worse than none. It planted a credential-cache entry with no
 identity, which the runner deliberately refuses to trust, so the fallback found nothing, returned success, and
 the golden recorded `skipping the check` followed by `run-instances` and `exit 0`. That pinned open the very

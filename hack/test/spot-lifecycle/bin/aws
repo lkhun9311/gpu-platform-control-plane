@@ -26,10 +26,27 @@ bump() {
 }
 
 # Normalization. mktemp paths and the run directory differ every invocation and mean nothing.
+# The run nonce is per-run and must not reach a golden, or every scenario diverges from its own recording.
+#
+# It arrives twice: in the instance tag the session stamps, and inside the client token derived from it.
+# Recording either verbatim made two runs of ONE scenario disagree -- `{Key=run,Value=3a54050c}` against
+# `77f6b27a` -- so all fifteen m5c scenarios would have failed for ever, and re-recording would have hidden
+# that behind a golden that could never pass twice.
+#
+# Anchored to the strings that CARRY the nonce, never to its shape. A previous normalization matched any
+# 64 hex characters and erased the engine image digest -- the one string identifying what was measured --
+# out of a different suite. `[0-9a-f]{8}` would make exactly that mistake again: it is also the shape of an
+# instance id suffix, a commit prefix and a checksum fragment.
+#
+# What survives is what is worth pinning: that a `run` tag and a zone-scoped `--client-token` are sent at
+# all, and that both derive from the same value. That the value is THIS run's nonce is proved by calling the
+# stub directly, not by a transcript that cannot hold a changing string.
 normalize() {
   sed -e "s#file://${TMPDIR:-/tmp}/[^ \"]*#file://<USERDATA>#g" \
       -e "s#file:///tmp/[^ \"]*#file://<USERDATA>#g" \
-      -e "s#${STUB_OUT:-__no_out__}#<OUT>#g"
+      -e "s#${STUB_OUT:-__no_out__}#<OUT>#g" \
+      -e "s#{Key=run,Value=[^}]*}#{Key=run,Value=<NONCE>}#g" \
+      -e "s#--client-token [A-Za-z0-9]*-[0-9a-f]*-#--client-token <RUN>-#g"
 }
 
 printf '%s\n' "aws $*" | normalize >> "$STUB_TRANSCRIPT"
