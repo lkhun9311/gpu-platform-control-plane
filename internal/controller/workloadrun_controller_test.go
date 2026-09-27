@@ -57,10 +57,32 @@ var _ = Describe("WorkloadRun", func() {
 		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: runName, Namespace: ns}, &run)).To(Succeed())
 		return run
 	}
+	// setTargetPhase reports a phase AND a replica count consistent with it.
+	//
+	// The count used to be left at zero, and that was the same hole a cold review found in the product: phase
+	// Ready with no ready replica is a scaled-to-zero InferenceDeployment, which serves nothing. Every recovery
+	// these specs asserted was therefore a recovery to a target that was not carrying work -- the fixture
+	// agreed with the defect instead of catching it. Ready now means one ready replica; anything else means
+	// none, which is what a degraded or pending deployment reports.
 	setTargetPhase := func(phase string) {
 		var infd platformv1.InferenceDeployment
 		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: tgtName, Namespace: ns}, &infd)).To(Succeed())
 		infd.Status.Phase = phase
+		if phase == "Ready" {
+			infd.Status.ReadyReplicas = 1
+		} else {
+			infd.Status.ReadyReplicas = 0
+		}
+		Expect(k8sClient.Status().Update(ctx, &infd)).To(Succeed())
+	}
+
+	// setTargetScaledToZero reports exactly what an InferenceDeployment says when someone edits spec.replicas
+	// to 0: phase Ready, and nothing serving.
+	setTargetScaledToZero := func() {
+		var infd platformv1.InferenceDeployment
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: tgtName, Namespace: ns}, &infd)).To(Succeed())
+		infd.Status.Phase = "Ready"
+		infd.Status.ReadyReplicas = 0
 		Expect(k8sClient.Status().Update(ctx, &infd)).To(Succeed())
 	}
 
@@ -130,6 +152,40 @@ var _ = Describe("WorkloadRun", func() {
 				RecoversWithinSeconds:    30,
 			},
 		})).To(Succeed(), "a deadline at the window's edge is inside it and must be allowed")
+	})
+
+	// The attack path a cold security review traced, pinned as a spec.
+	//
+	// Observe the target failing, then instead of letting it recover, remove the service: edit spec.replicas to
+	// 0. The InferenceDeployment controller correctly reports that as phase Ready -- nobody asked for replicas
+	// -- and until the watcher required a ready replica it read that as health, credited a recovery, and
+	// awarded Recovered. No status-write permission is needed for this, only the ability to edit the target CR,
+	// and the ledger then preserved the false recovery as evidence.
+	It("does not call a target scaled to zero a recovery", func() {
+		createRun(30, 25, tgtName)
+		setTargetPhase("Degraded")
+		tick(0) // opens the window on an observed failure
+		Expect(load().Status.ObservedUnhealthy).To(BeTrue())
+
+		setTargetScaledToZero()
+		tick(5 * time.Second)
+		tick(5 * time.Second)
+
+		run := load()
+		Expect(run.Status.RecoveredAtSeconds).To(BeNil(),
+			"scaling the target to zero was credited as a recovery; the run would report a recovery to nothing")
+
+		tick(10 * time.Second)
+		tick(10 * time.Second) // closes the window
+		run = load()
+		Expect(run.Status.Verdict).NotTo(Equal(platformv1.VerdictRecovered))
+		Expect(run.Status.Verdict).To(Equal(platformv1.VerdictNotRecovered))
+
+		// The trail holds the target's own word beside this controller's reading of it, which is what makes the
+		// record legible afterwards: the object said Ready and was serving nothing.
+		last := run.Status.Observations[len(run.Status.Observations)-1]
+		Expect(last.State).To(Equal("Ready"))
+		Expect(last.Healthy).To(BeFalse())
 	})
 
 	It("records only what changed, and calls a recovery inside the deadline Recovered", func() {
@@ -271,10 +327,20 @@ var _ = Describe("WorkloadRun recovery semantics", func() {
 		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: runName, Namespace: ns}, &run)).To(Succeed())
 		return run
 	}
+	// setPhase reports a phase AND a replica count consistent with it.
+	//
+	// The count used to be left at zero, which made every "Ready" here a scaled-to-zero backend -- serving
+	// nothing -- while the specs asserted recoveries against it. The fixture agreed with the defect a cold
+	// review later found in the product rather than catching it.
 	setPhase := func(phase string) {
 		var infd platformv1.InferenceDeployment
 		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: tgtName, Namespace: ns}, &infd)).To(Succeed())
 		infd.Status.Phase = phase
+		if phase == "Ready" {
+			infd.Status.ReadyReplicas = 1
+		} else {
+			infd.Status.ReadyReplicas = 0
+		}
 		Expect(k8sClient.Status().Update(ctx, &infd)).To(Succeed())
 	}
 
@@ -355,17 +421,24 @@ var _ = Describe("WorkloadRun recovery semantics", func() {
 	})
 })
 
-// Why BackendFallback is not a WorkloadRun scenario, pinned as a fact rather than left as a comment.
+// A backend scaled to zero is NOT healthy, and the run says so rather than passing or crediting a recovery.
 //
-// That scenario injects its fault by scaling the head backend to zero, and the InferenceDeployment
-// controller reports an intentional zero-replica state as READY -- correctly, since nobody asked for
-// replicas. A recovery watcher pointed at that target therefore sees it healthy for the entire window and
-// ends Refused, forever, by construction. The enum used to promise it.
+// This spec used to pin the opposite as an intended limit: the InferenceDeployment controller reports a
+// deliberate zero-replica state as READY -- correctly, since nobody asked for replicas -- so a recovery
+// watcher saw it healthy for the whole window and ended Refused by construction. Its comment named the
+// condition under which that would change: "if this test ever fails because a scaled-to-zero backend stops
+// reporting Ready, the scenario becomes recordable".
 //
-// If this test ever fails because a scaled-to-zero backend stops reporting Ready, the scenario becomes
-// recordable and the enum should get it back -- which is the opposite of deleting this test.
+// What changed is subtler than the comment predicted, and worse than a missing scenario. The backend still
+// reports Ready; the WATCHER stopped reading that as health, because it now requires a ready replica
+// (isServing). Until it did, editing a target's spec.replicas to 0 mid-run -- which needs no status-write
+// permission -- turned an observed failure into verdict Recovered, and the ledger preserved that as evidence.
+// A cold security review found it by tracing the code.
+//
+// Whether BackendFallback should now return to the scenario enum is a separate API decision and is NOT taken
+// here: a scenario needs something that injects it, not just a watcher that could see it.
 var _ = Describe("WorkloadRun scenario coverage", func() {
-	It("cannot see a backend scaled to zero, which is why fallback is not a scenario", func() {
+	It("does not read a backend scaled to zero as healthy", func() {
 		ctx := context.Background()
 		wrSeq++
 		name := fmt.Sprintf("wr-zero-%d", wrSeq)
@@ -405,9 +478,22 @@ var _ = Describe("WorkloadRun scenario coverage", func() {
 
 		var run platformv1.WorkloadRun
 		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: runName, Namespace: "default"}, &run)).To(Succeed())
-		Expect(run.Status.Phase).To(Equal(platformv1.WorkloadRunRefused),
-			"a backend with zero replicas reports Ready, so a recovery watcher has nothing to see")
-		Expect(run.Status.Reason).To(ContainSubstring("never observed unhealthy"))
+
+		// Not Refused any more: a target that serves nothing IS an observed failure, so there is something to
+		// judge and the answer is no. What must never happen is Recovered.
+		Expect(run.Status.Verdict).NotTo(Equal(platformv1.VerdictRecovered),
+			"a backend serving nothing was credited with a recovery")
+		Expect(run.Status.Phase).To(Equal(platformv1.WorkloadRunComplete))
+		Expect(run.Status.Verdict).To(Equal(platformv1.VerdictNotRecovered))
+		Expect(run.Status.ObservedUnhealthy).To(BeTrue(),
+			"zero ready replicas is the unhealthy observation; without it the window would close on nothing")
+
+		// The trail keeps the target's own word AND this controller's reading of it, side by side. That pair is
+		// the whole point: the object said Ready, and it was not serving.
+		Expect(run.Status.Observations).NotTo(BeEmpty())
+		Expect(run.Status.Observations[0].State).To(Equal("Ready"),
+			"the target's vocabulary is recorded verbatim, not normalised into the watcher's opinion")
+		Expect(run.Status.Observations[0].Healthy).To(BeFalse())
 	})
 })
 

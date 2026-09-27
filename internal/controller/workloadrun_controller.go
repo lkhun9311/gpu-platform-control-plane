@@ -130,7 +130,7 @@ func (r *WorkloadRunReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 			run.Status.ObservedGeneration, run.Generation))
 	}
 
-	state, found, err := r.observeTarget(ctx, &run)
+	state, found, serving, err := r.observeTarget(ctx, &run)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -146,7 +146,7 @@ func (r *WorkloadRunReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 		run.Status.Phase = platformv1.WorkloadRunObserving
 		run.Status.StartedAt = &metav1.Time{Time: now}
 		run.Status.ObservedGeneration = run.Generation
-		r.record(&run, now, state)
+		r.record(&run, now, state, serving)
 		run.Status.LastObservedAt = &metav1.Time{Time: now}
 		if err := r.Status().Update(ctx, &run); err != nil {
 			return ctrl.Result{}, err
@@ -172,7 +172,7 @@ func (r *WorkloadRunReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	}
 
 	elapsed := int32(now.Sub(run.Status.StartedAt.Time).Seconds())
-	r.record(&run, now, state)
+	r.record(&run, now, state, serving)
 	run.Status.LastObservedAt = &metav1.Time{Time: now}
 
 	if elapsed < run.Spec.ObservationWindowSeconds {
@@ -223,8 +223,20 @@ func (r *WorkloadRunReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 //
 // Only changes are appended: a trail carrying every poll would say how often the controller ran rather
 // than what the platform did.
-func (r *WorkloadRunReconciler) record(run *platformv1.WorkloadRun, now time.Time, state string) {
-	healthy := state == workloadRunHealthyPhase
+func (r *WorkloadRunReconciler) record(run *platformv1.WorkloadRun, now time.Time, state string, serving bool) {
+	// healthy is `serving`, not `state == "Ready"`, and the difference is a hole a cold review walked through.
+	//
+	// An InferenceDeployment scaled to zero reports phase Ready on purpose -- an intentional zero-replica state
+	// IS ready (inferencedeployment_controller.go:310, reason ScaledToZero). So editing the target's
+	// spec.replicas to 0 mid-run, which needs no status-write permission, made this recorder see health,
+	// credit a recovery, and award Recovered to a run whose target had stopped serving entirely. The ledger
+	// then preserved that false recovery faithfully.
+	//
+	// state stays verbatim because the API forbids normalising it: "a controller that rewrote the target's own
+	// vocabulary would be summarising". healthy sits beside it as this controller's reading, which is exactly
+	// what the field is for -- so `state: Ready` with `healthy: false` is not a contradiction in the trail, it
+	// is the record saying the target said Ready and was not serving.
+	healthy := serving
 	var elapsed int32
 	if run.Status.StartedAt != nil {
 		elapsed = int32(now.Sub(run.Status.StartedAt.Time).Seconds())
@@ -273,12 +285,45 @@ func (r *WorkloadRunReconciler) refuse(ctx context.Context, run *platformv1.Work
 	return ctrl.Result{}, nil
 }
 
-// observeTarget reads the target's phase verbatim.
+// isServing reports whether the target is actually carrying work, given the phase it reported.
+//
+// A phase of Ready is necessary and not sufficient. The kinds differ in what else has to hold:
+//
+//   - InferenceDeployment: Ready is also the phase of a deliberate scale-to-zero, so serving additionally
+//     requires a ready replica. status.readyReplicas is copied from the Deployment every reconcile
+//     (inferencedeployment_controller.go:131) and zeroed on conflict (:346), so it is a field something
+//     actually writes rather than one the type merely declares.
+//   - NodeHealth: there is no replica concept -- the status carries a phase, a fault signal and conditions --
+//     so Ready is the whole of it.
+//
+// An unrecognised kind is NOT serving. The enum admits only these two today, but a kind added later without a
+// rule here would otherwise be read as healthy by default, and a run would award Recovered for a target
+// nobody taught this function to judge.
+func isServing(kind, phase string, u *unstructured.Unstructured) (bool, error) {
+	if phase != workloadRunHealthyPhase {
+		return false, nil
+	}
+	switch kind {
+	case "InferenceDeployment":
+		ready, found, err := unstructured.NestedInt64(u.Object, "status", "readyReplicas")
+		if err != nil {
+			return false, fmt.Errorf("read %s status.readyReplicas: %w", kind, err)
+		}
+		// Absent reads as zero, which is what an InferenceDeployment that has not reported replicas yet means.
+		return found && ready > 0, nil
+	case "NodeHealth":
+		return true, nil
+	default:
+		return false, fmt.Errorf("no serving rule for target kind %q; refusing to read it as healthy", kind)
+	}
+}
+
+// observeTarget reads the target's phase verbatim, and separately judges whether it is serving.
 //
 // Unstructured on purpose: the two watchable kinds report a phase in the same place and this reads that
 // place, rather than importing both types and teaching this controller their internals. What it must NOT
 // do is normalise -- the target's own vocabulary is what goes in the trail.
-func (r *WorkloadRunReconciler) observeTarget(ctx context.Context, run *platformv1.WorkloadRun) (string, bool, error) {
+func (r *WorkloadRunReconciler) observeTarget(ctx context.Context, run *platformv1.WorkloadRun) (string, bool, bool, error) {
 	u := &unstructured.Unstructured{}
 	u.SetGroupVersionKind(schema.GroupVersionKind{
 		Group:   platformv1.GroupVersion.Group,
@@ -288,20 +333,24 @@ func (r *WorkloadRunReconciler) observeTarget(ctx context.Context, run *platform
 	key := types.NamespacedName{Name: run.Spec.Target.Name, Namespace: run.Spec.Target.Namespace}
 	if err := r.Get(ctx, key, u); err != nil {
 		if apierrors.IsNotFound(err) {
-			return "", false, nil
+			return "", false, false, nil
 		}
-		return "", false, err
+		return "", false, false, err
 	}
 	phase, ok, err := unstructured.NestedString(u.Object, "status", "phase")
 	if err != nil {
-		return "", true, fmt.Errorf("read %s %q status.phase: %w", run.Spec.Target.Kind, key, err)
+		return "", true, false, fmt.Errorf("read %s %q status.phase: %w", run.Spec.Target.Kind, key, err)
 	}
 	if !ok || phase == "" {
 		// A target that has not reported yet is a real state and is recorded as one. Treating it as absent
 		// would refuse every run that starts before its target's first reconcile.
-		return "NoPhase", true, nil
+		return "NoPhase", true, false, nil
 	}
-	return phase, true, nil
+	serving, err := isServing(run.Spec.Target.Kind, phase, u)
+	if err != nil {
+		return phase, true, false, fmt.Errorf("judge whether %s %q is serving: %w", run.Spec.Target.Kind, key, err)
+	}
+	return phase, true, serving, nil
 }
 
 func targetKey(t platformv1.WorkloadRunTarget) string {
