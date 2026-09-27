@@ -11,6 +11,9 @@
 # a LATER document could assert it as working and this check would stay silent. The check buys the half that
 # is mechanical -- a name nothing in the repository spells -- and buys nothing about whether a name that
 # exists is described correctly. Scoping entries per file would close the first gap and is not built.
+#
+# The scan covers the tracked specs under docs/superpowers/specs/ since 2026-09-27. The two entries that
+# widening added are at the end, under their own heading, so a reader can see what the wider scope cost.
 
 # --- named precisely because they do not exist ----------------------------------------------------------
 ValidatingAdmissionPolicy	docs/02 names it to record that no VAP is shipped; the admission layer is a ValidatingWebhookConfiguration
@@ -34,3 +37,7 @@ node_health_history	a table of the operations-ledger schema in docs/07; the ledg
 analysis.md	docs/04 lists the artifact set a noisy-neighbor run would commit under evidence/benchmark-reports/; that directory holds only .gitkeep
 gateway-429.log	same list in docs/04 -- an intended artifact, and the document says so on the same line
 scripts/demo-06-failure-injection.sh	docs/06 lists it under "To fill" as work not yet done, not as a script a reader can run
+
+# --- added when the scan was widened to the tracked specs, 2026-09-27 -------------------------------------
+TenantNotProvisioned	a condition of the GpuSharingBenchmark CRD. docs/00 line 14 says "Designed only -- no CRD, no code" of it, and grep finds it in no Go file, so the name is absent because the type is. Not the gateway's tenant_not_provisioned, which is a different name for a different thing and is listed above
+LaunchTime	an EC2 API field, not a name this repository defines; the MPS pre-registration measures its stopping rule from the instance's LaunchTime as AWS reports it

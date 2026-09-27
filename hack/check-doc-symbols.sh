@@ -18,9 +18,19 @@
 # gitignore, this one by the glob -- so the count is the tell: a new document that does not move it was
 # never read.
 #
-# Why only docs/0*.md, docs/1*.md and README.md: the specs under docs/superpowers/specs/ are dated records
-# of what was believed on the day they were written. A spec diverging from today's code is the archive
-# working, not a defect, and counting it would drown the signal.
+# The tracked specs under docs/superpowers/specs/ are in scope since 2026-09-27, and what that buys is
+# narrower than it sounds.
+#
+# They were excluded on the argument that a spec is a dated record, so divergence from today's code is the
+# archive working rather than a defect. That holds for PROSE and not for a name: a spec spelling a symbol
+# this repository never had is wrong on the day it was written, not merely aged. Widening found four such
+# tokens across 49 specs -- one a real absent name, one a citation to a test that had been renamed, one an
+# AWS API field, and one a bug in this very checker's line-citation regex.
+#
+# What it does NOT buy, and the distinction matters because two status headers were corrected by hand the
+# day before this was widened: this catches names that are ABSENT. It cannot catch a name that exists and is
+# described incorrectly -- "not yet implemented" printed beside code that exists resolves every token on the
+# line. Claiming the symbol checker closes that class would rebuild the false assurance it exists to remove.
 #
 # The numbered glob is 1* rather than 10* so a second numbered document is covered when one is added. That
 # widening alone does not make a document visible: this scan reads `git ls-files`, and .gitignore publishes
@@ -58,7 +68,8 @@ def tracked(*patterns):
     out = subprocess.run(['git', 'ls-files', '--'] + list(patterns), capture_output=True, text=True).stdout
     return [p for p in out.split('\n') if p]
 
-docs = [d for d in tracked('docs/0*.md', 'docs/1*.md', 'README.md', 'experiments/*/README.md')
+docs = [d for d in tracked('docs/0*.md', 'docs/1*.md', 'README.md', 'experiments/*/README.md',
+                           'docs/superpowers/specs/*.md')
         if '/captures/' not in d]
 if not docs:
     sys.exit("no documents matched; refusing to report success on an empty scan")
@@ -94,7 +105,13 @@ def classify(tok):
         return 'name'
     if re.fullmatch(r'[a-z][a-z0-9]*(_[a-z0-9]+){2,}', tok):
         return 'name'
-    stripped = re.sub(r':\d+(-\d+)?$', '', tok)          # docs cite `file.go:120-135`
+    # Docs cite `file.go:120`, `file.go:120-135` and `file.go:261,347`.
+    #
+    # The comma form was not stripped, so the whole string was judged as a path, no such file existed, and
+    # the checker reported a file that is present as missing -- inventing the kind of false claim it exists
+    # to catch. Found by widening the scan to the specs; it had been latent because no in-scope document
+    # happened to cite two lines that way.
+    stripped = re.sub(r':\d+([-,]\d+)*$', '', tok)
     if ' ' in stripped or stripped.startswith(('http', '$', '/')):
         return None
     if stripped.startswith(TOPLEVEL):
@@ -104,7 +121,7 @@ def classify(tok):
     return None
 
 def path_exists(tok):
-    p = re.sub(r':\d+(-\d+)?$', '', tok).rstrip('/')
+    p = re.sub(r':\d+([-,]\d+)*$', '', tok).rstrip('/')
     if os.path.exists(p):
         return True
     if glob.glob(p + '*'):                                # docs write `docs/05` for a numbered document
