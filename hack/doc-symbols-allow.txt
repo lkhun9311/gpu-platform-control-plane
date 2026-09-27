@@ -58,3 +58,6 @@ bin/	.gitignore:99 excludes it under "Generated binaries"; the m5-a design cites
 # --- added when the scan was widened to the tracked specs, 2026-09-27 -------------------------------------
 TenantNotProvisioned	a condition of the GpuSharingBenchmark CRD. docs/00 line 14 says "Designed only -- no CRD, no code" of it, and grep finds it in no Go file, so the name is absent because the type is. Not the gateway's tenant_not_provisioned, which is a different name for a different thing and is listed above
 LaunchTime	an EC2 API field, not a name this repository defines; the MPS pre-registration measures its stopping rule from the instance's LaunchTime as AWS reports it
+
+# --- named by the ledger design to record a decision NOT to build it, 2026-09-27 ------------------------
+QuotaExceeded	the operations-ledger design names it to record that it was considered and REFUSED as a WorkloadRun scenario: a quota refusal changes neither an InferenceDeployment nor a NodeHealth, so the enum value could never reach a verdict. FR-001's evidence lives in the gateway's rate_limited path instead, and docs/06 was corrected to say so

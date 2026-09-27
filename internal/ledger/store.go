@@ -115,6 +115,7 @@ var migrations = []migration{
 				verdict                 TEXT,
 				reason                  TEXT,
 				started_at_unix_nanos   INTEGER,
+				last_observed_at_unix_nanos INTEGER,
 				observed_generation     INTEGER NOT NULL,
 				projected_at_unix_nanos INTEGER NOT NULL,
 				CHECK (length(uid) > 0),
@@ -125,6 +126,10 @@ var migrations = []migration{
 				CHECK (length(target_name) > 0),
 				CHECK (phase IN ('Pending', 'Observing', 'Complete', 'Refused')),
 				CHECK (verdict IS NULL OR verdict IN ('Recovered', 'NotRecovered')),
+				-- A verdict is set ONLY in phase Complete (api/v1/workloadrun_types.go:196), and Complete is
+				-- the phase that has one. Constraining the two independently let the pair say what the API
+				-- cannot: Complete with no answer, or an answer beside a run that was refused.
+				CHECK ((phase = 'Complete') = (verdict IS NOT NULL)),
 				CHECK (observed_generation >= 0),
 				CHECK (projected_at_unix_nanos > 0)
 			) STRICT`,

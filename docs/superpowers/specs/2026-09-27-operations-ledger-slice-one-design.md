@@ -255,8 +255,63 @@ One earlier test in this package was also found to be passing on an accident —
 asserted on the string `"7"`, which the temporary pathname supplied — so expected strings are now built from
 the fixture's own values.
 
+## Two decisions taken after a second review
+
+**The reader is a new platformctl command under cmd/, with `workload-runs project|get|list`.** It does not
+exist yet, which is why this paragraph names it in prose rather than as a path. The seven binaries that
+already exist are all things you point AT a live cluster — the manager, the gateway service, the device-plugin
+simulator, two benchmark tools, a load generator, and a single-controller driver. Not one of them reads a
+durable record. `workloadrunctl` looks closest and is the clearest category error: it "runs the WorkloadRun
+reconciler and nothing else" (`cmd/workloadrunctl/main.go:17`), and offline SQLite inspection is not that. The
+alternative of shipping the library with no command was rejected because it leaves the slice's own claim
+unmet: a ledger that needs Go written against it to be read is not evidence anyone can check, which is the
+"unread ledger" this design refuses. An eighth entry point costs a name to learn; `README.md` already promises
+this one.
+
+**FR-001 is corrected in doc 06 rather than added to `WorkloadRun`.** Quota refusal is request-path evidence
+and lives in the gateway, which already refuses with a stable code and counts it per tenant. A `WorkloadRun`
+watches one target's phase and recovery, and a quota refusal changes neither an `InferenceDeployment` nor a
+`NodeHealth` — so a `QuotaExceeded` scenario would be an enum value that can never produce a verdict, exactly
+the failure the type's own comment warns about at `api/v1/workloadrun_types.go:41`. Doc 06 now promises what
+the code actually emits, and marks as unbuilt the two things it does not: a durable record of the refusal, and
+the "event" the old row named.
+
+## Three holes the second review found, and what closed them
+
+- **A stale projection could rewrite history backwards.** The UPSERT replaced phase and verdict
+  unconditionally, so an older `Observing` snapshot could overwrite `Complete` with every column still looking
+  like a legitimate reading. `status.lastObservedAt` exists to say when the controller last looked, and the
+  schema did not even store it. It does now, and the update only fires when the incoming snapshot is at least
+  as fresh.
+- **Two accounts could be merged under one UID.** On conflict the immutable columns — namespace, name,
+  scenario, target, `startedAt` — were neither compared nor updated, so a new status could be grafted onto an
+  old identity. They are compared now, and a mismatch is refused. Delete-and-recreate is unaffected:
+  Kubernetes issues a new UID, so it lands in its own row.
+- **The schema admitted lifecycle states the API cannot produce.** Phase and verdict were constrained
+  independently, which permitted `Complete` with no answer — and a test of mine asserted that combination was
+  *legitimate*, pinning the opposite of the API's contract that a verdict is set only in `Complete`
+  (`api/v1/workloadrun_types.go:196`). The pair is constrained together now.
+
+Observations with no `startedAt` are also refused rather than stored: every offset in the trail is measured
+from that origin, so a trail without one has no clock.
+
+### Freshness is decided before anything else the snapshot says
+
+Closing the first two holes put them in conflict, and a test found it rather than reasoning: a snapshot from a
+minute ago legitimately has a **shorter** trail, so the shrinking-trail check fired and refused a projection
+that should have been a quiet no-op. Two guards, each correct alone, disagreed about the same input.
+
+The resolution is an ordering rather than a compromise. A stale snapshot has no standing to say anything — not
+that the phase moved, and not that the trail shrank — so it is skipped whole and counted as skipped. The
+shrinking-trail check therefore only ever runs against a snapshot that is at least as fresh as the stored one,
+which is the only case where a shorter trail is genuinely a contradiction.
+
+`RunsStale` is reported rather than left silent, because "nothing changed, the ledger was already ahead" and
+"nothing changed, there was nothing to do" are different facts about the run.
+
 ## What this page deliberately does not decide
 
 The Postgres form `docs/07` mentions. Whether the projector eventually becomes a watch. Where the database
-file lives in a real deployment. Whether `platformctl` grows beyond reading `workload_runs`. Each is a real
-question, and answering them here would be writing a design for code nobody has yet needed.
+file lives in a real deployment. Whether `platformctl` grows beyond `workload-runs`. Whether the gateway
+should durably record its own refusals, which is what would actually close FR-001. Each is a real question,
+and answering them here would be writing a design for code nobody has yet needed.

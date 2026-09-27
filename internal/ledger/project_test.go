@@ -30,8 +30,9 @@ import (
 )
 
 // The projector's only interesting property is that running it again changes nothing. Everything here is a
-// way of asking that, plus the cases where silence would be a lie: a run that never started, a trail whose
-// position is reported twice with different contents, and a ledger holding more than the object claims.
+// way of asking that, plus the cases where silence would be a lie: a run that never started, a position
+// reported twice with different contents, a ledger holding more than the object claims, a snapshot older than
+// the one already stored, and a second run's status arriving under the first one's UID.
 
 var projectedAt = time.Unix(1_700_000_000, 0)
 
@@ -49,8 +50,15 @@ func obs(elapsed int32, state string, healthy bool) platformv1.WorkloadRunObserv
 	return platformv1.WorkloadRunObservation{ElapsedSeconds: elapsed, State: state, Healthy: healthy}
 }
 
+// runWith builds a run whose status is one the API could actually produce.
+//
+// The fixtures used to leave the verdict empty beside phase Complete, which the API forbids -- a verdict is
+// set only in Complete -- and every projector test in this file was quietly building that state until the
+// schema started constraining the pair. So the verdict is decided here from the phase rather than passed in
+// and forgotten, and lastObservedAt is always set because it is what decides whether a snapshot may advance
+// the stored row.
 func runWith(uid, name string, phase platformv1.WorkloadRunPhase, start *time.Time,
-	trail ...platformv1.WorkloadRunObservation) platformv1.WorkloadRun {
+	lastObserved time.Time, trail ...platformv1.WorkloadRunObservation) platformv1.WorkloadRun {
 	r := platformv1.WorkloadRun{
 		ObjectMeta: metav1.ObjectMeta{UID: types.UID(uid), Name: name, Namespace: "default"},
 		Spec: platformv1.WorkloadRunSpec{
@@ -60,8 +68,15 @@ func runWith(uid, name string, phase platformv1.WorkloadRunPhase, start *time.Ti
 			},
 		},
 		Status: platformv1.WorkloadRunStatus{
-			Phase: phase, Observations: trail, ObservedGeneration: 1,
+			Phase:          phase,
+			Observations:   trail,
+			LastObservedAt: &metav1.Time{Time: lastObserved},
+
+			ObservedGeneration: 1,
 		},
+	}
+	if phase == platformv1.WorkloadRunComplete {
+		r.Status.Verdict = platformv1.VerdictRecovered
 	}
 	if start != nil {
 		r.Status.StartedAt = &metav1.Time{Time: *start}
@@ -80,12 +95,21 @@ func counts(t *testing.T, s *Store) (runs, events int) {
 	return runs, events
 }
 
+func phaseOf(t *testing.T, s *Store, uid string) string {
+	t.Helper()
+	var phase string
+	if err := s.db.QueryRow(`SELECT phase FROM workload_runs WHERE uid = ?`, uid).Scan(&phase); err != nil {
+		t.Fatalf("read phase: %v", err)
+	}
+	return phase
+}
+
 // Three projections of the same objects must leave exactly what one left.
 func TestProjectingThriceChangesNothing(t *testing.T) {
 	s := openTemp(t)
 	start := projectedAt.Add(-time.Minute)
 	runs := []platformv1.WorkloadRun{
-		runWith("uid-1", "r1", platformv1.WorkloadRunComplete, &start,
+		runWith("uid-1", "r1", platformv1.WorkloadRunComplete, &start, projectedAt,
 			obs(0, "Ready", true), obs(4, "Degraded", false), obs(9, "Ready", true)),
 	}
 
@@ -124,7 +148,7 @@ func TestARoundTripInsideOneSecondKeepsEveryObservation(t *testing.T) {
 	s := openTemp(t)
 	start := projectedAt.Add(-time.Minute)
 	runs := []platformv1.WorkloadRun{
-		runWith("uid-1", "r1", platformv1.WorkloadRunComplete, &start,
+		runWith("uid-1", "r1", platformv1.WorkloadRunComplete, &start, projectedAt,
 			obs(0, "Ready", true), obs(0, "Degraded", false), obs(0, "Ready", true)),
 	}
 
@@ -154,8 +178,8 @@ func TestARoundTripInsideOneSecondKeepsEveryObservation(t *testing.T) {
 func TestAFailedProjectionWritesNothing(t *testing.T) {
 	s := openTemp(t)
 	start := projectedAt.Add(-time.Minute)
-	good := runWith("uid-1", "r1", platformv1.WorkloadRunComplete, &start, obs(1, "Ready", true))
-	bad := runWith("", "r2", platformv1.WorkloadRunComplete, &start)
+	good := runWith("uid-1", "r1", platformv1.WorkloadRunComplete, &start, projectedAt, obs(1, "Ready", true))
+	bad := runWith("", "r2", platformv1.WorkloadRunRefused, &start, projectedAt)
 
 	if _, err := s.ProjectWorkloadRuns([]platformv1.WorkloadRun{good, bad}, projectedAt); err == nil {
 		t.Fatal("a run with no UID was accepted")
@@ -173,9 +197,9 @@ func TestAFailedProjectionWritesNothing(t *testing.T) {
 func TestRestartThenFullReplayMatchesACleanRun(t *testing.T) {
 	start := projectedAt.Add(-time.Minute)
 	all := []platformv1.WorkloadRun{
-		runWith("uid-1", "r1", platformv1.WorkloadRunComplete, &start,
+		runWith("uid-1", "r1", platformv1.WorkloadRunComplete, &start, projectedAt,
 			obs(0, "Ready", true), obs(5, "Degraded", false)),
-		runWith("uid-2", "r2", platformv1.WorkloadRunRefused, nil),
+		runWith("uid-2", "r2", platformv1.WorkloadRunRefused, nil, projectedAt),
 	}
 
 	clean := openTemp(t)
@@ -198,12 +222,12 @@ func TestRestartThenFullReplayMatchesACleanRun(t *testing.T) {
 	}
 }
 
-// A run that never entered Observing is recorded as a run with no events and a NULL start, because "never
-// observed" and "observed and nothing happened" are different facts.
+// A run that never entered Observing is recorded as a run with no events, a NULL start and a NULL verdict,
+// because "never observed" and "observed and nothing happened" are different facts.
 func TestARunThatNeverStartedIsRecordedWithNoEvents(t *testing.T) {
 	s := openTemp(t)
 	p, err := s.ProjectWorkloadRuns([]platformv1.WorkloadRun{
-		runWith("uid-1", "r1", platformv1.WorkloadRunRefused, nil),
+		runWith("uid-1", "r1", platformv1.WorkloadRunRefused, nil, projectedAt),
 	}, projectedAt)
 	if err != nil {
 		t.Fatalf("projection: %v", err)
@@ -222,7 +246,6 @@ func TestARunThatNeverStartedIsRecordedWithNoEvents(t *testing.T) {
 	if start.Valid {
 		t.Fatalf("a run that never started has start %d; absence was stored as a time", start.Int64)
 	}
-	// An absent verdict is NULL rather than the empty string: "there is no answer, rather than an answer of no".
 	var verdict sql.NullString
 	if err := s.db.QueryRow(`SELECT verdict FROM workload_runs WHERE uid='uid-1'`).Scan(&verdict); err != nil {
 		t.Fatalf("read verdict: %v", err)
@@ -232,18 +255,58 @@ func TestARunThatNeverStartedIsRecordedWithNoEvents(t *testing.T) {
 	}
 }
 
+// Observations are offsets from startedAt, so a trail without one has no clock and must not be stored.
+func TestObservationsWithNoStartAreRefused(t *testing.T) {
+	s := openTemp(t)
+	orphan := runWith("uid-1", "r1", platformv1.WorkloadRunRefused, nil, projectedAt, obs(0, "Ready", true))
+	if _, err := s.ProjectWorkloadRuns([]platformv1.WorkloadRun{orphan}, projectedAt); err == nil {
+		t.Fatal("a trail with no startedAt was accepted; its offsets measure from nothing")
+	} else if !strings.Contains(err.Error(), "no startedAt") {
+		t.Fatalf("refusal does not name the cause: %v", err)
+	}
+	if runs, events := counts(t, s); runs != 0 || events != 0 {
+		t.Fatalf("a refused projection left %d runs and %d events", runs, events)
+	}
+}
+
+// An older snapshot must not overwrite a newer one. Without this the ledger rewrites its own history
+// backwards, and every column still looks like a legitimate reading.
+func TestAStaleSnapshotDoesNotRewriteHistoryBackwards(t *testing.T) {
+	s := openTemp(t)
+	start := projectedAt.Add(-time.Minute)
+	done := runWith("uid-1", "r1", platformv1.WorkloadRunComplete, &start, projectedAt,
+		obs(0, "Ready", true), obs(6, "Ready", true))
+	if _, err := s.ProjectWorkloadRuns([]platformv1.WorkloadRun{done}, projectedAt); err != nil {
+		t.Fatalf("projection of the completed run: %v", err)
+	}
+	if got := phaseOf(t, s, "uid-1"); got != string(platformv1.WorkloadRunComplete) {
+		t.Fatalf("stored phase is %q, want Complete", got)
+	}
+
+	// The same object as it looked a minute earlier: still Observing, and observed earlier.
+	stale := runWith("uid-1", "r1", platformv1.WorkloadRunObserving, &start, projectedAt.Add(-30*time.Second),
+		obs(0, "Ready", true))
+	if _, err := s.ProjectWorkloadRuns([]platformv1.WorkloadRun{stale}, projectedAt.Add(time.Hour)); err != nil {
+		t.Fatalf("projecting a stale snapshot should be a no-op, not an error: %v", err)
+	}
+	if got := phaseOf(t, s, "uid-1"); got != string(platformv1.WorkloadRunComplete) {
+		t.Fatalf("a stale snapshot moved the stored phase to %q; the ledger rewrote its history backwards", got)
+	}
+}
+
 // The same position reported twice with different contents is a contradiction about the cluster, not a
 // duplicate of a fact. Settling it silently would leave a row that reads as evidence.
 func TestAContradictedPositionIsRefusedRatherThanResolved(t *testing.T) {
 	s := openTemp(t)
 	start := projectedAt.Add(-time.Minute)
 	if _, err := s.ProjectWorkloadRuns([]platformv1.WorkloadRun{
-		runWith("uid-1", "r1", platformv1.WorkloadRunObserving, &start, obs(3, "Ready", true)),
+		runWith("uid-1", "r1", platformv1.WorkloadRunObserving, &start, projectedAt, obs(3, "Ready", true)),
 	}, projectedAt); err != nil {
 		t.Fatalf("first projection: %v", err)
 	}
 
-	flipped := runWith("uid-1", "r1", platformv1.WorkloadRunObserving, &start, obs(3, "Ready", false))
+	flipped := runWith("uid-1", "r1", platformv1.WorkloadRunObserving, &start,
+		projectedAt.Add(time.Second), obs(3, "Ready", false))
 	if _, err := s.ProjectWorkloadRuns([]platformv1.WorkloadRun{flipped}, projectedAt); err == nil {
 		t.Fatal("the same position was accepted with a different health reading")
 	} else if !strings.Contains(err.Error(), "refusing to overwrite") {
@@ -259,19 +322,57 @@ func TestAContradictedPositionIsRefusedRatherThanResolved(t *testing.T) {
 	}
 }
 
+// One UID is one object. A status arriving with a different identity must not be grafted onto the stored row.
+func TestAStatusUnderAnotherRunsIdentityIsRefused(t *testing.T) {
+	start := projectedAt.Add(-time.Minute)
+	original := runWith("uid-1", "r1", platformv1.WorkloadRunObserving, &start, projectedAt, obs(0, "Ready", true))
+
+	for _, c := range []struct {
+		what   string
+		mutate func(r *platformv1.WorkloadRun)
+		names  string
+	}{
+		{"a different name", func(r *platformv1.WorkloadRun) { r.Name = "r-other" }, "name"},
+		{"a different scenario", func(r *platformv1.WorkloadRun) { r.Spec.Scenario = platformv1.ScenarioDegradedNode }, "scenario"},
+		{"a different target", func(r *platformv1.WorkloadRun) { r.Spec.Target.Name = "elsewhere" }, "target name"},
+		{"a different start", func(r *platformv1.WorkloadRun) {
+			other := start.Add(-time.Hour)
+			r.Status.StartedAt = &metav1.Time{Time: other}
+		}, "started at"},
+	} {
+		s := openTemp(t)
+		if _, err := s.ProjectWorkloadRuns([]platformv1.WorkloadRun{original}, projectedAt); err != nil {
+			t.Fatalf("%s: first projection: %v", c.what, err)
+		}
+		impostor := runWith("uid-1", "r1", platformv1.WorkloadRunObserving, &start,
+			projectedAt.Add(time.Second), obs(0, "Ready", true))
+		c.mutate(&impostor)
+
+		_, err := s.ProjectWorkloadRuns([]platformv1.WorkloadRun{impostor}, projectedAt)
+		if err == nil {
+			t.Errorf("%s was accepted under the stored UID", c.what)
+			continue
+		}
+		if !strings.Contains(err.Error(), "uid-1") {
+			t.Errorf("%s: refusal does not name the uid: %v", c.what, err)
+		}
+	}
+}
+
 // The ledger must not keep observations the object no longer reports. The controller's trail is append-only,
 // so this should be impossible -- which is why it is checked rather than assumed.
 func TestALedgerHoldingMoreThanTheObjectClaimsIsRefused(t *testing.T) {
 	s := openTemp(t)
 	start := projectedAt.Add(-time.Minute)
 	if _, err := s.ProjectWorkloadRuns([]platformv1.WorkloadRun{
-		runWith("uid-1", "r1", platformv1.WorkloadRunComplete, &start,
+		runWith("uid-1", "r1", platformv1.WorkloadRunComplete, &start, projectedAt,
 			obs(0, "Ready", true), obs(5, "Degraded", false), obs(9, "Ready", true)),
 	}, projectedAt); err != nil {
 		t.Fatalf("first projection: %v", err)
 	}
 
-	shrunk := runWith("uid-1", "r1", platformv1.WorkloadRunComplete, &start, obs(0, "Ready", true))
+	shrunk := runWith("uid-1", "r1", platformv1.WorkloadRunComplete, &start,
+		projectedAt.Add(time.Second), obs(0, "Ready", true))
 	if _, err := s.ProjectWorkloadRuns([]platformv1.WorkloadRun{shrunk}, projectedAt); err == nil {
 		t.Fatal("a shrinking trail was accepted; the ledger would claim observations nothing reports")
 	} else if !strings.Contains(err.Error(), "does not claim") {
@@ -288,14 +389,13 @@ func TestAnAdvancedRunUpdatesItsRow(t *testing.T) {
 	s := openTemp(t)
 	start := projectedAt.Add(-time.Minute)
 	if _, err := s.ProjectWorkloadRuns([]platformv1.WorkloadRun{
-		runWith("uid-1", "r1", platformv1.WorkloadRunObserving, &start, obs(0, "Ready", true)),
+		runWith("uid-1", "r1", platformv1.WorkloadRunObserving, &start, projectedAt, obs(0, "Ready", true)),
 	}, projectedAt); err != nil {
 		t.Fatalf("first projection: %v", err)
 	}
 
-	done := runWith("uid-1", "r1", platformv1.WorkloadRunComplete, &start,
+	done := runWith("uid-1", "r1", platformv1.WorkloadRunComplete, &start, projectedAt.Add(10*time.Second),
 		obs(0, "Ready", true), obs(6, "Ready", true))
-	done.Status.Verdict = platformv1.VerdictRecovered
 	done.Status.Reason = "observed Ready at 6s, within the declared 30s"
 	if _, err := s.ProjectWorkloadRuns([]platformv1.WorkloadRun{done}, projectedAt); err != nil {
 		t.Fatalf("second projection: %v", err)
@@ -308,15 +408,19 @@ func TestAnAdvancedRunUpdatesItsRow(t *testing.T) {
 	if events != 2 {
 		t.Fatalf("ledger holds %d events, want 2", events)
 	}
-	var phase, verdict, reason string
+	var phase string
+	var verdict, reason sql.NullString
 	if err := s.db.QueryRow(`SELECT phase, verdict, reason FROM workload_runs WHERE uid='uid-1'`).
 		Scan(&phase, &verdict, &reason); err != nil {
 		t.Fatalf("read run: %v", err)
 	}
-	if phase != string(platformv1.WorkloadRunComplete) || verdict != string(platformv1.VerdictRecovered) {
-		t.Fatalf("row still reads phase=%q verdict=%q after the run completed", phase, verdict)
+	if phase != string(platformv1.WorkloadRunComplete) {
+		t.Fatalf("row still reads phase=%q after the run completed", phase)
 	}
-	if !strings.Contains(reason, "within the declared") {
-		t.Fatalf("reason was not carried across: %q", reason)
+	if verdict.String != string(platformv1.VerdictRecovered) {
+		t.Fatalf("row reads verdict=%q, want Recovered", verdict.String)
+	}
+	if !strings.Contains(reason.String, "within the declared") {
+		t.Fatalf("reason was not carried across: %q", reason.String)
 	}
 }

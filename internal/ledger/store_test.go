@@ -285,9 +285,27 @@ func TestTheSchemaRefusesValuesTheApiCannotProduce(t *testing.T) {
 		"InferenceDeployment", "served", "", "NotAPhase", 1, 99); err == nil {
 		t.Error("the schema accepted a phase the API cannot produce")
 	}
+	// A verdict is set ONLY in phase Complete, and Complete is the phase that has one. These two cases used to
+	// be one assertion claiming Complete-with-no-verdict was legitimate, which pinned the opposite of the
+	// API's contract at api/v1/workloadrun_types.go:196. Every projector fixture in this package was building
+	// that impossible state, and the constraint is what exposed it.
 	if _, err := s.db.Exec(insRun, "uid-2", "default", "r2", "ServingPodKilled",
-		"InferenceDeployment", "served", "", "Complete", 1, 99); err != nil {
-		t.Errorf("the schema rejected a legitimate run: %v", err)
+		"InferenceDeployment", "served", "", "Complete", 1, 99); err == nil {
+		t.Error("the schema accepted phase Complete with no verdict, which the API cannot produce")
+	}
+	if _, err := s.db.Exec(`INSERT INTO workload_runs
+		(uid, namespace, name, scenario, target_kind, target_name, target_namespace, phase, verdict,
+		 observed_generation, projected_at_unix_nanos)
+		VALUES ('uid-4', 'default', 'r4', 'ServingPodKilled', 'InferenceDeployment', 'served', '',
+		        'Observing', 'Recovered', 1, 99)`); err == nil {
+		t.Error("the schema accepted a verdict beside a run that is still observing")
+	}
+	if _, err := s.db.Exec(`INSERT INTO workload_runs
+		(uid, namespace, name, scenario, target_kind, target_name, target_namespace, phase, verdict,
+		 observed_generation, projected_at_unix_nanos)
+		VALUES ('uid-5', 'default', 'r5', 'ServingPodKilled', 'InferenceDeployment', 'served', '',
+		        'Complete', 'Recovered', 1, 99)`); err != nil {
+		t.Errorf("the schema rejected a legitimate completed run: %v", err)
 	}
 	// Cluster scope is the empty string in the API, not absence, so the column is NOT NULL.
 	if _, err := s.db.Exec(`INSERT INTO workload_runs
