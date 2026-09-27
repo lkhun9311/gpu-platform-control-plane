@@ -25,7 +25,7 @@ no code in this repository, and saying which is which is more useful to a reader
 | Paid-run harness       | Pin what a GPU-renting script does before it can be run against a card                            | Built, and enforced: `make spot-lifecycle` is a prerequisite of `make infra-validate`, which CI runs. Four runners, 49 recorded scenarios plus a source-order assertion each — 53 checks: every scenario runs the real script with `aws` and `sleep` replaced by recording stubs and diffs the AWS calls, exit status, messages and run-directory contents against a golden. It pins the **host** side. What it cannot tell — whether a cluster then comes up — is covered separately by two rehearsals that run for real on a local kind cluster: `hack/test/rehearse-bringup.sh` extracts the GPU-free span of a session's user-data, and `hack/test/rehearse-m5c-matrix.sh` runs the M5-c matrix itself with stub engines and simulated devices |
 | Failure & recovery     | Inject failure scenarios and record an operational evidence trail                                | Built — `WorkloadRun` CRD, controller and driver — and **run for real**: deleting a serving Pod produced a trail nobody wrote by hand, and the run exposed a defect envtest could not. Two of three scenarios are recordable ([evidence](hack/m6-kind-e2e.md)) |
 | Ledger                 | A SQLite ledger projecting CR/status/events                                                      | **Storage and projector only** — 2 of 6 tables, no command yet |
-| CLI                    | A `platformctl` CLI                                                                              | **Designed only** — no code |
+| CLI                    | A `platformctl` CLI                                                                              | **One command group only** — `workload-runs project\|get\|list` against the ledger; nothing else |
 
 Training admission (M6) uses [Kueue](https://kueue.sigs.k8s.io/) as the admission engine — this project does not reimplement a scheduler; it provides the `MLTrainingJob` abstraction and the status translation on top of Kueue. For training GPUs, Kueue owns the admission quota (`GPUQuotaPolicy` syncs to ClusterQueue/ResourceFlavor rather than double-counting the same GPUs in a namespace ResourceQuota).
 
@@ -73,8 +73,12 @@ to blur:
   rejection ([evidence](hack/m5b-chain-live-evidence.log)). That chain work was on a CPU build, where the
   engine queues before its cache fills, so it exercised the WAITING arm of the engage condition and not the
   KV-usage arm; the paid run is what exercised the second one.
-- The contention benchmark, the SQLite ledger and `platformctl` are **not coded at all**. They are design
-  documents. Earlier revisions of this README described them as if they existed; that was wrong.
+- The contention benchmark is **not coded at all**. It is a design document. Earlier revisions of this README
+  described it as if it existed; that was wrong.
+- The SQLite ledger and `platformctl` were in that sentence until 2026-09-27 and are no longer: `internal/ledger`
+  holds migrations, an idempotent projector and a reader for **2 of the 6 designed tables**, and
+  `cmd/platformctl` can project from a cluster and read back what it recorded. The other four tables do not
+  exist, and no run has been projected outside a test.
 
 **Flagship benchmark:** KV-cache-aware noisy-neighbor p99 protection — a real-GPU benchmark that compares premium tenant latency under baseline, colocated long-context noisy-neighbor, and Gateway admission-guard modes. It **has** been run on a GPU, and the numbers are a negative result the pre-registered checks refused to call a win: premium TTFT p99 of 82.2 ms isolated against **6,882.0 ms** under the guard, missing the 1.25x target at 83.7x, and the run declared invalid ([write-up](hack/m5d-writeup.md)). This line used to say there were no numbers; there are, and they say the guard did not work.
 

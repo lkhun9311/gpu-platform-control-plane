@@ -167,6 +167,10 @@ docker-build-gateway: ## Build docker image with the gateway.
 docker-push-gateway: ## Push docker image with the gateway.
 	$(CONTAINER_TOOL) push ${GATEWAY_IMG}
 
+.PHONY: build-platformctl
+build-platformctl: fmt vet ## Build platformctl, the operations-ledger CLI.
+	go build -o bin/platformctl ./cmd/platformctl
+
 .PHONY: build-gpu-simulator
 build-gpu-simulator: fmt vet ## Build gpu-simulator binary.
 	go build -o bin/gpu-simulator cmd/gpu-simulator/main.go

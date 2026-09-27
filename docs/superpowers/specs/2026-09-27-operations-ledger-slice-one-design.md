@@ -257,8 +257,7 @@ the fixture's own values.
 
 ## Two decisions taken after a second review
 
-**The reader is a new platformctl command under cmd/, with `workload-runs project|get|list`.** It does not
-exist yet, which is why this paragraph names it in prose rather than as a path. The seven binaries that
+**The reader is `cmd/platformctl`, with `workload-runs project|get|list`.** The seven binaries that
 already exist are all things you point AT a live cluster — the manager, the gateway service, the device-plugin
 simulator, two benchmark tools, a load generator, and a single-controller driver. Not one of them reads a
 durable record. `workloadrunctl` looks closest and is the clearest category error: it "runs the WorkloadRun
