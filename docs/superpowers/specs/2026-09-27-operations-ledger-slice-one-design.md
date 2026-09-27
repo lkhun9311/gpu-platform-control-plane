@@ -82,20 +82,43 @@ first gave. There is no `lastTransitionTime` to key on: the run's trail is `stat
 deliberately not a wall clock, "so a trail can be read without knowing when the run happened". The only wall
 clock in the whole status is `startedAt` itself.
 
-So the key is (object UID, `elapsedSeconds`, `state`), and a wall-clock time is *derived* as
-`startedAt + elapsedSeconds` rather than stored as the authority. That is not a compromise forced by a
-missing field; it is the same separation `internal/queuelab/ledger.go:37` already makes, keeping an elapsed
-offset as the timing authority and the wall clock for provenance only. Two ledgers in one repository must not
-disagree about which clock decides.
+The first answer this page gave was (object UID, `elapsedSeconds`, `state`), and a cold review killed it. The
+controller truncates elapsed time to whole seconds (`internal/controller/workloadrun_controller.go:230`) and
+appends on every state change (`:234`), so `Ready@0 → Degraded@0 → Ready@0` is a legal trail inside one
+second — and its first and third entries collide. The key would either abort the projection or silently drop
+the later transition, and a projector counting that drop as "already present" would report a loss as a
+successful replay.
 
-Keying on the projector's own clock was the alternative, and it fails loudly enough to name: every replay
-would write a new row with a new timestamp, the table would grow without bound, and every row in it would
-look legitimate.
+So the identity is (object UID, the observation's **ordinal in the trail**). The API defines
+`status.observations` as "the trail, in the order they were seen"
+(`api/v1/workloadrun_types.go:189`), which makes the position part of what the record means rather than an
+implementation detail. `elapsedSeconds` remains the timing authority for reading the trail; it is simply not
+unique enough to be the identity.
+
+A wall-clock time is *derived* as `startedAt + elapsedSeconds` rather than stored as the authority — the same
+separation `internal/queuelab/ledger.go:37` already makes, keeping an elapsed offset as the timing authority
+and the wall clock for provenance only. Two ledgers in one repository must not disagree about which clock
+decides.
+
+Keying on the projector's own clock was the other alternative, and it fails loudly enough to name: every
+replay would write a new row with a new timestamp, the table would grow without bound, and every row in it
+would look legitimate.
+
+One hole stays open and is recorded rather than closed: rewriting `startedAt` for the same UID would change
+the derived wall time of every stored event without changing any key. No code path does that today — it is
+set once on entry to `Observing` (`:147`) and nothing resets status — so this slice does not defend against
+it, and says so instead of implying it cannot happen.
 
 ### A run that never started is recorded as a run, with no events
 
 `status.startedAt` is set only on entry to `Observing` (`internal/controller/workloadrun_controller.go:147`),
-so a run that ended in `Pending` or `Refused` has none, and no wall clock can be derived for it at all.
+so a run that never got that far has none and no wall clock can be derived for it at all.
+
+Be precise about which runs those are, because the first version of this page was not. `Refused` is **not** one
+of them: the gap check at `:160` refuses a trail with a hole in it, which happens *after* a run has been
+observing and therefore after it has a start. A refused run usually has one. The runs without a start are the
+ones that never entered `Observing` at all — refused at the first look because the target does not exist, or
+still `Pending`.
 
 Such a run still gets its `workload_runs` row, with zero `operation_events`. That is the distinction the
 ledger exists to keep: "this run was never observed" is a different fact from "this run was observed and
@@ -112,9 +135,14 @@ controller writes prose into it — `"never observed %s during the %ds window"`
 
 Putting that prose in a column called `failure_reason` would make FR-001 look satisfied while storing
 something else entirely, which is worse than the empty column it replaced. So slice 1 stores `reason` and
-`verdict` under their own names and creates no `failure_reason`. Closing the gap needs either a coded
-refusal vocabulary on `WorkloadRun` or a correction to doc 06, and that is a decision about the API rather
-than about storage.
+`verdict` under their own names and creates no `failure_reason`.
+
+The gap is wider than a missing column, and saying so is the point. `WorkloadRun`'s scenario enum admits
+exactly `ServingPodKilled` and `DegradedNode` (`api/v1/workloadrun_types.go:52`); **quota exceeded is not a
+scenario this API can run at all.** So no storage decision could produce FR-001's evidence, and this slice
+must not be described as delivering it. Closing it needs either a producing API — a scenario plus a coded
+refusal vocabulary — or a correction to doc 06 that stops promising a row nothing can write. Both are API
+decisions, not storage ones, and neither is done here.
 
 ### An unreadable ledger refuses; it does not report an empty one
 
@@ -138,33 +166,48 @@ database already has version 3 would silently keep the old shape while the file 
 schema_migrations(version INTEGER PRIMARY KEY, applied_at_unix_nanos INTEGER NOT NULL)
 
 workload_runs(
-  uid              TEXT PRIMARY KEY,   -- the Kubernetes object UID
+  uid              TEXT NOT NULL PRIMARY KEY,   -- the Kubernetes object UID
   namespace        TEXT NOT NULL,
   name             TEXT NOT NULL,
   scenario         TEXT NOT NULL,
   target_kind      TEXT NOT NULL,
   target_name      TEXT NOT NULL,
-  target_namespace TEXT,               -- empty for cluster-scoped kinds
-  phase            TEXT NOT NULL,      -- Pending | Observing | Complete | Refused
-  verdict          TEXT,               -- Recovered | NotRecovered; empty beside Refused, deliberately
+  target_namespace TEXT NOT NULL,      -- the EMPTY STRING for cluster-scoped kinds, which is how the API says it
+  phase            TEXT NOT NULL,      -- CHECK IN (Pending, Observing, Complete, Refused)
+  verdict          TEXT,               -- CHECK NULL OR IN (Recovered, NotRecovered); NULL beside Refused
   reason           TEXT,               -- the controller's prose, stored as prose
-  started_at_unix_nanos  INTEGER,      -- NULL for a run that never reached Observing
+  started_at_unix_nanos  INTEGER,      -- NULL for a run that never entered Observing
   observed_generation    INTEGER NOT NULL,
-  projected_at_unix_nanos INTEGER NOT NULL   -- when the PROJECTION was taken, not when anything happened
+  projected_at_unix_nanos INTEGER NOT NULL,  -- when the PROJECTION was taken, not when anything happened
+  -- plus CHECKs: no empty uid/namespace/name/scenario/target, generation >= 0, projected_at > 0
 )
 
 operation_events(
   object_uid       TEXT NOT NULL,
-  elapsed_seconds  INTEGER NOT NULL,   -- from the observation itself; the timing authority
+  ordinal          INTEGER NOT NULL,   -- the observation's position in status.observations
+  elapsed_seconds  INTEGER NOT NULL,   -- the timing authority for READING the trail
   state            TEXT NOT NULL,      -- the target's own vocabulary, unnormalised
-  healthy          INTEGER NOT NULL,
-  PRIMARY KEY (object_uid, elapsed_seconds, state)
+  healthy          INTEGER NOT NULL,   -- CHECK IN (0, 1)
+  PRIMARY KEY (object_uid, ordinal)
+  -- plus CHECKs: no empty uid/state, ordinal >= 0, elapsed_seconds >= 0
 )
 ```
 
-The composite primary key is the idempotency mechanism itself rather than a uniqueness check bolted beside
-one, so a replay that would duplicate is refused by the storage engine and not by a code path that a test has
-to remember to exercise.
+The primary key is the replay mechanism rather than a uniqueness check bolted beside one, so a replay is
+absorbed by the storage engine instead of by a code path a test has to remember to exercise. But a conflict
+alone is not idempotency, and that distinction cost this page a revision: the projector treats a conflict as
+the normal outcome of a replay, and then **compares the stored row against what is being reported**, refusing
+when they disagree. A `DO NOTHING` with no comparison would silently keep whichever reading arrived first.
+
+The projector also refuses a ledger that holds MORE observations than the object now reports. The controller's
+trail is append-only, so that should be impossible — which is exactly why it is checked rather than assumed,
+because rows beyond the trail's end are a claim that something was observed, standing on nothing.
+
+Two things `STRICT` does not do, having been claimed here before they were measured: it constrains storage
+classes, not values, so `healthy = 17`, a negative offset and an empty required string all passed. Those are
+`CHECK` constraints now. The phase and verdict vocabularies are pinned the same way — a value the API cannot
+produce is not evidence, so it must stop a projection loudly rather than be stored and read back later as
+though something had reported it.
 
 `projected_at_unix_nanos` is named for what it is. Calling it `observed_at` would invite a reader to treat it
 as the time something happened, and the number would support that reading while being false.
@@ -173,19 +216,44 @@ as the time something happened, and the number would support that reading while 
 
 The tests that decide whether this slice is worth anything:
 
-- Projecting the same objects twice leaves the row counts unchanged. Run three times, assert equality with
-  the count after the first.
+- Projecting the same objects three times leaves the row counts unchanged, and the third projection reports
+  every observation as already present rather than as newly written.
+- `Ready@0 → Degraded@0 → Ready@0`, a legal trail inside one second, survives as **three** rows and replays
+  as three. This is the case that broke the first key.
 - A projector restart mid-way, then a full re-run, produces the same table as a single clean run.
-- A run that never reached `Observing` produces one `workload_runs` row and zero `operation_events`, with a
-  NULL `started_at_unix_nanos` rather than a zero that would read as the epoch.
-- Two observations at the same `elapsedSeconds` with different `state` are both kept; the same pair twice is
-  one row.
-- Opening a database whose schema version exceeds the binary's makes the reader exit non-zero, and the
-  message names both versions.
-- A missing database file makes the reader exit non-zero rather than print an empty list.
+- A projection that fails partway leaves nothing at all, including the runs it had already written.
+- A run that never entered `Observing` produces one `workload_runs` row and zero `operation_events`, with a
+  NULL `started_at_unix_nanos` rather than a zero that would read as the epoch, and a NULL verdict rather than
+  an empty string.
+- The same position reported twice with different contents is refused, and the refusal leaves the stored
+  reading untouched.
+- A ledger holding more observations than the object now reports is refused.
+- A version number that does not describe the database is refused: a missing table the version claims, a
+  history with a hole in it, tables with no migration record, a migration table with no rows.
+- Values the API cannot produce are refused by the schema: a non-numeric offset, `healthy = 17`, a negative
+  offset or ordinal, an empty required string, an unknown phase, a NULL target namespace.
+- A missing database file makes the reader refuse rather than report an empty ledger.
 
-Every one of these is a statement about absence, which is the class this repository has repeatedly found
-unguarded.
+Every one of these is a statement about absence or about a refusal, which is the class this repository has
+repeatedly found unguarded.
+
+Three were mutation-verified rather than trusted, and the verification itself needed two corrections worth
+recording:
+
+- Restoring the old `(uid, elapsed, state)` key made the round-trip test fail with `observation 2 ... neither
+  inserted nor found` — the transition is lost, exactly as the review said.
+- Removing the ghost-row check accepts a shrinking trail. The first attempt at this mutation deleted the
+  block's closing brace and the package stopped compiling; a red build is not a red assertion, so it was
+  redone by disabling the condition and leaving the syntax intact.
+- Dropping all seventeen `CHECK` constraints reddened four cases and left two quiet, which I first read as
+  "those two are unguarded". They were not: a diagnostic showed every value case is rejected by a named
+  `CHECK` and the type case by `STRICT`, and the two had simply been reported in a different order. Reading an
+  absence from a list as evidence is the same mistake this project keeps finding elsewhere. The test has since
+  been split so that one failure names one mechanism.
+
+One earlier test in this package was also found to be passing on an accident — it planted schema version 8 and
+asserted on the string `"7"`, which the temporary pathname supplied — so expected strings are now built from
+the fixture's own values.
 
 ## What this page deliberately does not decide
 
