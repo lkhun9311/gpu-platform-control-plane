@@ -230,6 +230,7 @@ run_scenario() {
   sed -e "s#$out#<OUT>#g" \
       -e "s#run-[0-9a-f]\{8\}#run-<NONCE>#g" \
       -e "s#this launch's nonce is '[0-9a-f]\{8\}'#this launch's nonce is '<NONCE>'#g" \
+      -e "s#reconciling the launch token [A-Za-z0-9]*-[0-9a-f]\{8\}-#reconciling the launch token <TOKEN>-#g" \
       -e "s#${TMPDIR:-/tmp}/tmp\.[A-Za-z0-9]*#<TMP>#g" \
       -e "s#/tmp/tmp\.[A-Za-z0-9]*#<TMP>#g" \
       -e "s#harness sha256 [0-9a-f]\{64\}#harness sha256 <SHA256>#g" \
@@ -539,6 +540,24 @@ scenarios_m5c_gpu_session() {
     STUB_LAUNCH_ACCEPTED_BUT_SILENT_ZONES="ap-northeast-2a" \
     STUB_PRESENT_KEYS="evidence.tgz log.txt commit.txt nodes.txt preflight-nvidia-smi.csv preflight-node-cards.txt" \
     run_scenario launch-accepted-but-answer-lost bash "$TARGET"
+
+  # Every attempt loses its answer, including the retries -- the zone never recovers.
+  #
+  # The scenario above lets the retry succeed, so it pins the happy half of the repair: the same token comes
+  # back and no second instance is bought. This one pins the half that costs money if it is wrong. The runner
+  # must retry the SAME zone to its limit, never launch in another, reconcile by client token, terminate what
+  # it finds, and exit non-zero. What must NOT appear is a second `run-instances`, an `i-0stub`, any result
+  # polling or any evidence download: all of those would mean the session carried on with an instance it had
+  # lost track of.
+  #
+  # Asked for by the review that found the defect, on the grounds that "accepted once and then recovered" and
+  # "accepted and never heard from again" are different failures and only the second one strands an instance
+  # the script never names.
+  REPS=1 REQUIRE_CLEAN_TREE=0 STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 STUB_DONE_AFTER=2 \
+    STUB_LAUNCH_ACCEPTED_BUT_SILENT_ZONES="ap-northeast-2a ap-northeast-2c" \
+    STUB_SILENT_ZONE_RECOVERS_AFTER=-1 \
+    STUB_PRESENT_KEYS="evidence.tgz log.txt commit.txt nodes.txt preflight-nvidia-smi.csv preflight-node-cards.txt" \
+    run_scenario launch-answer-lost-every-time bash "$TARGET"
 
   # The marker is there and carries SOMEBODY ELSE'S nonce.
   #
