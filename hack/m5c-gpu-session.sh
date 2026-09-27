@@ -778,6 +778,57 @@ TAGS="ResourceType=instance,Tags=[{Key=Name,Value=$STACK},{Key=purpose,Value=m5c
 # session could print "TERMINATE FAILED ... STILL running AND BILLING" and still exit 0, because a failing
 # EXIT trap does not change a script's exit status -- measured, not assumed. So the outcome goes to a file
 # the operator and the next run can both check.
+# LAUNCH_UNCERTAIN holds the client token of a launch whose outcome this script does not know.
+#
+# It is set BEFORE the AWS call and cleared only once the answer is in, because the window that matters is
+# the call itself: a signal arriving while run-instances is executing runs cleanup with IID still empty, and
+# no amount of classification AFTER the call can reach that path. This is the one piece of state that makes
+# an interrupted launch reconcilable, and it is not a journal -- it cannot hold an instance id the client
+# never received. AWS is the journal; this is the key to query it with.
+LAUNCH_UNCERTAIN=""
+
+# reconcile_launch_token terminates anything AWS launched under a token whose answer was lost.
+#
+# Deliberately local to this runner rather than added to hack/lib/spot-run.sh, and the duplication is the
+# point: spot_terminate is shared by four paid runners, and widening its contract would spread an unproven
+# recovery path across all of them at once. This is proven on one runner first. When it moves to the library
+# -- if it does -- this function is what gets deleted.
+#
+# The token, not the run tag, decides what may be terminated. A tag is a label: RUN_NONCE is 32 bits with a
+# seconds-based fallback, so two sessions started in the same second can share one, and a nonce-wide sweep
+# could terminate somebody else's instance. A client token names ONE launch attempt, and because the script
+# never advances past an unresolved one there is at most a single uncertain token at a time.
+#
+# EC2 reads are eventually consistent, so an empty answer is polled rather than believed at once.
+reconcile_launch_token() {
+  local token="$1" tries="${RECONCILE_TRIES:-6}" i found="" iid
+  [ -n "$token" ] || return 0
+  say "reconciling the launch token $token: asking AWS what it actually created"
+  for (( i = 1; i <= tries; i++ )); do
+    found=$(aws ec2 describe-instances --region "$REGION" \
+      --filters "Name=client-token,Values=$token" \
+                "Name=instance-state-name,Values=pending,running,stopping,stopped" \
+      --cli-connect-timeout 5 --cli-read-timeout 10 \
+      --query 'Reservations[].Instances[].InstanceId' --output text 2>/dev/null) || found=""
+    [ -n "$found" ] && [ "$found" != "None" ] && break
+    found=""
+    sleep $(( i < 4 ? i : 4 ))
+  done
+  if [ -z "$found" ]; then
+    # Not the same sentence as "nothing was created". The read may have failed, and saying otherwise would
+    # be the reassurance this whole path exists to refuse.
+    printf 'LAUNCH UNRESOLVED for token %s: %d reads found no instance, which is not proof that none exists. Check by hand:\n  aws ec2 describe-instances --region %s --filters "Name=client-token,Values=%s"\n' \
+      "$token" "$tries" "$REGION" "$token" >&2
+    return 1
+  fi
+  local rc=0
+  for iid in $found; do
+    say "the lost launch created $iid; terminating it"
+    spot_terminate "$REGION" "$iid" || rc=1
+  done
+  return "$rc"
+}
+
 cleanup_ran=0
 cleanup() {
   # Run once, whichever of EXIT, INT and TERM gets here first.
@@ -788,6 +839,19 @@ cleanup() {
   # arrives while the first is still inside that polling.
   [ "$cleanup_ran" = "1" ] && return 0
   cleanup_ran=1
+  # An unresolved launch is settled FIRST, because it is the instance nobody knows the id of.
+  #
+  # A signal during run-instances lands here with IID empty, and the terminate below would then report
+  # `<none>` and exit 0 while an instance AWS accepted goes on billing. Resolving the token first is what
+  # turns that into either a termination or a named, actionable refusal.
+  if [ -n "$LAUNCH_UNCERTAIN" ]; then
+    reconcile_launch_token "$LAUNCH_UNCERTAIN" || {
+      printf 'TERMINATION UNCONFIRMED for the launch under token %s -- check the console before the next paid run\n' \
+        "$LAUNCH_UNCERTAIN" >"${OUT:-.}/termination.txt" 2>/dev/null || true
+      exit 1
+    }
+    LAUNCH_UNCERTAIN=""
+  fi
   if spot_terminate "$REGION" "$IID"; then
     printf 'terminated %s\n' "${IID:-<none>}" >"${OUT:-.}/termination.txt" 2>/dev/null || true
   else
@@ -821,11 +885,72 @@ for z in $ZONES; do
   # zone is a genuinely new request. EC2's idempotency is zonal because the subnet pins the zone, so a single
   # token across zones would be neither one thing nor the other.
   LAUNCH_TOKEN="m5c-$RUN_NONCE-$z"
-  IID=$(spot_launch "$REGION" "$AMI" "$INSTANCE_TYPE" "$SUBNET" "$STACK" \
-        "$MAX_SPOT_PRICE" 200 "$UD" "$TAGS" "$LAUNCH_TOKEN" 2>>"$OUT/launch-errors.txt") \
-    && [ -n "$IID" ] && [ "$IID" != "None" ] && break
-  IID=""
+  # Only a refusal that names a ZONE's shortage may move to another zone.
+  #
+  # The classification is a whitelist, not a denylist, and the direction matters: an unrecognised error read
+  # as "definitive" would send the loop on to buy a second instance, which is the defect being closed. An
+  # unrecognised error read as "ambiguous" costs a retry and, at worst, a refused session. The expensive
+  # mistake is the one that is not made.
+  #
+  # Capacity is the only zonal answer. An authorization denial, a validation error or a quota refusal is
+  # definitive AND not helped by another zone, so it stops the loop rather than walking it -- the refusal
+  # block below already reads launch-errors.txt and says which of the two it was.
+  attempt=0
+  # The per-attempt buffer lives outside $OUT on purpose.
+  #
+  # Its whole job is to be classified and then appended to launch-errors.txt, which is the record an operator
+  # reads and the refusal block below greps. Leaving it in the run directory put a file there holding only the
+  # LAST attempt's stderr -- a second, thinner thing that looks like evidence beside the real log -- and it
+  # moved eleven goldens for no behavioural reason at all.
+  attempt_err=$(mktemp)
+  while :; do
+    attempt=$((attempt + 1))
+    : > "$attempt_err"
+    # Set BEFORE the call. Everything after this line, including a signal, can be reconciled.
+    LAUNCH_UNCERTAIN="$LAUNCH_TOKEN"
+    IID=$(spot_launch "$REGION" "$AMI" "$INSTANCE_TYPE" "$SUBNET" "$STACK" \
+          "$MAX_SPOT_PRICE" 200 "$UD" "$TAGS" "$LAUNCH_TOKEN" 2>"$attempt_err") || IID=""
+    # The shared error log keeps accumulating, because the refusal block after this loop reads it.
+    cat "$attempt_err" >> "$OUT/launch-errors.txt"
+
+    if [ -n "$IID" ] && [ "$IID" != "None" ]; then LAUNCH_UNCERTAIN=""; break; fi
+    IID=""
+
+    if grep -qiE 'InsufficientInstanceCapacity|capacity-not-available' "$attempt_err" 2>/dev/null; then
+      LAUNCH_UNCERTAIN=""            # AWS said it created nothing here; another zone is the right move
+      break
+    fi
+    if grep -qE 'UnauthorizedOperation|ValidationError|InvalidParameter|RequestLimitExceeded|InstanceLimitExceeded|IdempotentParameterMismatch' \
+         "$attempt_err" 2>/dev/null; then
+      LAUNCH_UNCERTAIN=""            # definitive, and another zone would answer the same way
+      break
+    fi
+
+    # Ambiguous: the answer was lost, not given. Retry the SAME zone with the SAME token, which EC2's zonal
+    # idempotency makes safe -- it returns the instance already created rather than making a second one.
+    if [ "$attempt" -lt "${LAUNCH_AMBIGUOUS_TRIES:-3}" ]; then
+      say "the launch in $z gave no answer this script can classify; retrying the same zone with the same token"
+      continue
+    fi
+    # Still unresolved after retrying. Do NOT move zones: an instance may exist under this token, and a
+    # second zone would make two. Resolve it and stop.
+    # The token is cleared BEFORE the outcome is judged, and that ordering is not cosmetic.
+    #
+    # `fail` exits, which re-enters cleanup through the EXIT trap, and cleanup reconciles LAUNCH_UNCERTAIN if
+    # it is still set. Clearing it after the branch meant the failing path reconciled twice -- a second round
+    # of DescribeInstances and terminate calls, and the same refusal printed twice -- because the first
+    # attempt had not yet recorded that it had happened.
+    LAUNCH_UNCERTAIN=""
+    reconcile_launch_token "$LAUNCH_TOKEN" \
+      || fail "a launch in $z was neither confirmed nor refused, and AWS could not be asked what it created. Nothing further is launched, because a second zone would risk a second instance. See $OUT/launch-errors.txt"
+    fail "a launch in $z gave no classifiable answer after $attempt attempts; anything it created has been terminated. Re-run when the API is answering. See $OUT/launch-errors.txt"
+  done
+  rm -f "$attempt_err"
+  [ -n "$IID" ] && break
 done
+# The buffer is also removed on the paths that leave this loop by exiting -- `fail` inside it, or a signal --
+# because /tmp here is tmpfs, so a leaked file is memory rather than disk. cleanup runs on all of them.
+rm -f "${attempt_err:-}" 2>/dev/null || true
 if [ -z "$IID" ]; then
   # The refusal names the cause the errors actually give. An earlier version attributed every empty result to
   # Spot capacity while all three zones had in fact returned UnauthorizedOperation from a service control

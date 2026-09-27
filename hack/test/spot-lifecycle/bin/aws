@@ -46,7 +46,8 @@ normalize() {
       -e "s#file:///tmp/[^ \"]*#file://<USERDATA>#g" \
       -e "s#${STUB_OUT:-__no_out__}#<OUT>#g" \
       -e "s#{Key=run,Value=[^}]*}#{Key=run,Value=<NONCE>}#g" \
-      -e "s#--client-token [A-Za-z0-9]*-[0-9a-f]*-#--client-token <RUN>-#g"
+      -e "s#--client-token [A-Za-z0-9]*-[0-9a-f]*-#--client-token <RUN>-#g" \
+      -e "s#Values=\([A-Za-z0-9]*\)-[0-9a-f]*-#Values=\1-<RUN>-#g"
 }
 
 printf '%s\n' "aws $*" | normalize >> "$STUB_TRANSCRIPT"
