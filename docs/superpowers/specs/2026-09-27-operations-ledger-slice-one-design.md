@@ -72,20 +72,49 @@ was replaced between two runs is invisible to it. Recording a row that implies c
 be the same error this repository keeps finding in its own checks, so a projected run carries the generation
 and the observation time it was taken from, and the reader prints them.
 
-### Idempotency comes from the object's own stamps, never from the projector's clock
+### Idempotency comes from the object's own offsets, never from the projector's clock
 
 `workload_runs` is keyed by the object UID, so re-projecting updates one row rather than appending another.
 
-`operation_events` is the harder half. Its natural key is (object UID, event type, the time the transition
-happened) — and "the time the transition happened" must be read from the object's own
-`lastTransitionTime`, not from `time.Now()` at projection. With the projector's clock, every replay writes a
-new row with a new timestamp and the table grows without bound while every row looks legitimate. This is the
-same distinction `internal/queuelab/ledger.go:37` already draws when it keeps an elapsed offset as the timing
-authority and the wall clock for provenance only; the operations ledger inherits it rather than inventing a
-second convention.
+`operation_events` is the harder half, and reading `api/v1/workloadrun_types.go` changed the answer this page
+first gave. There is no `lastTransitionTime` to key on: the run's trail is `status.observations`, and a
+`WorkloadRunObservation` carries `elapsedSeconds`, `state` and `healthy` — an offset from `status.startedAt`,
+deliberately not a wall clock, "so a trail can be read without knowing when the run happened". The only wall
+clock in the whole status is `startedAt` itself.
 
-A transition with no stamp is therefore not recordable, and is skipped with a counted, named refusal rather
-than given a substitute time.
+So the key is (object UID, `elapsedSeconds`, `state`), and a wall-clock time is *derived* as
+`startedAt + elapsedSeconds` rather than stored as the authority. That is not a compromise forced by a
+missing field; it is the same separation `internal/queuelab/ledger.go:37` already makes, keeping an elapsed
+offset as the timing authority and the wall clock for provenance only. Two ledgers in one repository must not
+disagree about which clock decides.
+
+Keying on the projector's own clock was the alternative, and it fails loudly enough to name: every replay
+would write a new row with a new timestamp, the table would grow without bound, and every row in it would
+look legitimate.
+
+### A run that never started is recorded as a run, with no events
+
+`status.startedAt` is set only on entry to `Observing` (`internal/controller/workloadrun_controller.go:147`),
+so a run that ended in `Pending` or `Refused` has none, and no wall clock can be derived for it at all.
+
+Such a run still gets its `workload_runs` row, with zero `operation_events`. That is the distinction the
+ledger exists to keep: "this run was never observed" is a different fact from "this run was observed and
+nothing happened", and a schema that could not tell them apart would be storing the very confusion
+`status.lastObservedAt` was added to the API to prevent.
+
+### The column FR-001 asks for cannot be filled yet, so it is not created
+
+`docs/06_OBSERVABILITY_BENCHMARK_FAILURE.md:70` names `workload_runs.failure_reason=quota_exceed` as FR-001's
+expected evidence. No field on `WorkloadRun` produces such a code. What exists is `status.reason`, and the
+controller writes prose into it — `"never observed %s during the %ds window"`
+(`internal/controller/workloadrun_controller.go:207`) — plus `status.verdict`, whose whole vocabulary is
+`Recovered` and `NotRecovered`.
+
+Putting that prose in a column called `failure_reason` would make FR-001 look satisfied while storing
+something else entirely, which is worse than the empty column it replaced. So slice 1 stores `reason` and
+`verdict` under their own names and creates no `failure_reason`. Closing the gap needs either a coded
+refusal vocabulary on `WorkloadRun` or a correction to doc 06, and that is a decision about the API rather
+than about storage.
 
 ### An unreadable ledger refuses; it does not report an empty one
 
@@ -115,26 +144,30 @@ workload_runs(
   scenario         TEXT NOT NULL,
   target_kind      TEXT NOT NULL,
   target_name      TEXT NOT NULL,
-  phase            TEXT NOT NULL,
-  failure_reason   TEXT,               -- FR-001 reads this
-  generation       INTEGER NOT NULL,   -- what the projection was taken from
-  observed_at_unix_nanos INTEGER NOT NULL
+  target_namespace TEXT,               -- empty for cluster-scoped kinds
+  phase            TEXT NOT NULL,      -- Pending | Observing | Complete | Refused
+  verdict          TEXT,               -- Recovered | NotRecovered; empty beside Refused, deliberately
+  reason           TEXT,               -- the controller's prose, stored as prose
+  started_at_unix_nanos  INTEGER,      -- NULL for a run that never reached Observing
+  observed_generation    INTEGER NOT NULL,
+  projected_at_unix_nanos INTEGER NOT NULL   -- when the PROJECTION was taken, not when anything happened
 )
 
 operation_events(
   object_uid       TEXT NOT NULL,
-  kind             TEXT NOT NULL,
-  type             TEXT NOT NULL,
-  occurred_at_unix_nanos INTEGER NOT NULL,   -- from the object's own stamp
-  reason           TEXT,
-  message          TEXT,
-  PRIMARY KEY (object_uid, kind, type, occurred_at_unix_nanos)
+  elapsed_seconds  INTEGER NOT NULL,   -- from the observation itself; the timing authority
+  state            TEXT NOT NULL,      -- the target's own vocabulary, unnormalised
+  healthy          INTEGER NOT NULL,
+  PRIMARY KEY (object_uid, elapsed_seconds, state)
 )
 ```
 
 The composite primary key is the idempotency mechanism itself rather than a uniqueness check bolted beside
 one, so a replay that would duplicate is refused by the storage engine and not by a code path that a test has
 to remember to exercise.
+
+`projected_at_unix_nanos` is named for what it is. Calling it `observed_at` would invite a reader to treat it
+as the time something happened, and the number would support that reading while being false.
 
 ## Testing
 
@@ -143,7 +176,10 @@ The tests that decide whether this slice is worth anything:
 - Projecting the same objects twice leaves the row counts unchanged. Run three times, assert equality with
   the count after the first.
 - A projector restart mid-way, then a full re-run, produces the same table as a single clean run.
-- An event whose `lastTransitionTime` is absent is skipped and counted, not written with a substitute time.
+- A run that never reached `Observing` produces one `workload_runs` row and zero `operation_events`, with a
+  NULL `started_at_unix_nanos` rather than a zero that would read as the epoch.
+- Two observations at the same `elapsedSeconds` with different `state` are both kept; the same pair twice is
+  one row.
 - Opening a database whose schema version exceeds the binary's makes the reader exit non-zero, and the
   message names both versions.
 - A missing database file makes the reader exit non-zero rather than print an empty list.
