@@ -44,11 +44,17 @@ import (
 //
 // BackendFallback (hack/chaos-fr002b-backend-fallback.sh) is the one that was removed, and it is worth
 // recording why rather than leaving a gap. Its observable is the gateway's backend_fallbacks_total moving,
-// not a target recovering; and its injection is scaling the head backend to zero, which the
-// InferenceDeployment controller reports as READY -- an intentional zero-replica state is Ready by design.
-// A run watching that target would therefore see it healthy for the whole window and end Refused, forever,
-// by construction. An enum value that can never produce a verdict is a promise this type does not keep.
-// TestScalingABackendToZeroIsInvisibleToARecoveryWatcher pins the reason.
+// not a target recovering: a backend there is a whole InferenceDeployment rather than a Pod, and the
+// scenario removes the head one so a second absorbs the traffic. Nothing about that shows up as one target
+// returning to health, which is the only thing this recorder judges.
+//
+// A second reason used to be given here and is no longer true, which is why it is corrected rather than
+// quietly dropped: it said a run watching a scaled-to-zero backend would see Ready for the whole window and
+// end Refused forever. The backend does still report Ready -- an intentional zero-replica state is Ready by
+// design -- but the WATCHER no longer reads that as health; isServing requires a ready replica. That change
+// came from a security review, because the old behaviour let anyone who could edit the target turn an
+// observed failure into verdict Recovered mid-run. So the blind spot is gone; the mismatch between what this
+// scenario injects and what a WorkloadRun observes is what keeps it out of the enum.
 // +kubebuilder:validation:Enum=ServingPodKilled;DegradedNode
 type WorkloadRunScenario string
 
