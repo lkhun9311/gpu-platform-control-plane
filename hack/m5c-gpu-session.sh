@@ -755,7 +755,17 @@ fi
 
 # ---------------------------------------------------------------- launch
 say "launching $INSTANCE_TYPE spot (max \$$MAX_SPOT_PRICE/h)"
-TAGS="ResourceType=instance,Tags=[{Key=Name,Value=$STACK},{Key=purpose,Value=m5c-sharing-matrix}]"
+# The run tag carries RUN_NONCE so an instance can be traced back to the session that launched it.
+#
+# Without it the only tags are a fixed name and a fixed purpose, which every session shares -- so an instance
+# left behind by an ambiguous launch is indistinguishable from one belonging to a session still running, and
+# nothing can safely act on either. The nonce already exists and already separates this run's S3 records from
+# another's; this puts the same identity on the instance.
+#
+# It is a LABEL, not an authorisation. Deciding what to terminate is done from the client token, which is
+# unique to one launch attempt; RUN_NONCE is 32 bits with a seconds-based fallback and must never be given
+# deletion authority on its own.
+TAGS="ResourceType=instance,Tags=[{Key=Name,Value=$STACK},{Key=purpose,Value=m5c-sharing-matrix},{Key=run,Value=$RUN_NONCE}]"
 # The trap is armed BEFORE the launch loop, not after it.
 #
 # It used to sit below the line that prints the instance id, which left a window in which run-instances had
@@ -807,8 +817,12 @@ trap 'cleanup; exit 143' TERM
 for z in $ZONES; do
   SUBNET=$(spot_subnet_in_zone "$REGION" "$z") || continue
   say "trying $z ($SUBNET)"
+  # One token per (run, zone), so a retry in the same zone is idempotent while a deliberate move to another
+  # zone is a genuinely new request. EC2's idempotency is zonal because the subnet pins the zone, so a single
+  # token across zones would be neither one thing nor the other.
+  LAUNCH_TOKEN="m5c-$RUN_NONCE-$z"
   IID=$(spot_launch "$REGION" "$AMI" "$INSTANCE_TYPE" "$SUBNET" "$STACK" \
-        "$MAX_SPOT_PRICE" 200 "$UD" "$TAGS" 2>>"$OUT/launch-errors.txt") \
+        "$MAX_SPOT_PRICE" 200 "$UD" "$TAGS" "$LAUNCH_TOKEN" 2>>"$OUT/launch-errors.txt") \
     && [ -n "$IID" ] && [ "$IID" != "None" ] && break
   IID=""
 done
