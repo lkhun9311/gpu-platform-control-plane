@@ -31,7 +31,7 @@ gpu.yml	docs/09 names it three times to record that the GPU node-group workflow 
 # --- designed, stated as designed -----------------------------------------------------------------------
 GpuSharingBenchmark	the CRD is designed in docs/superpowers/specs/2026-07-04-gpusharingbenchmark-crd-design.md and every mention says no code exists; the sharing harness that DOES exist is internal/bench/sharing_matrix.go
 cost_per_1k_tokens_estimated	a column of the operations-ledger schema in docs/04; the ledger is unimplemented and doc 07 says so
-node_health_history	a table of the operations-ledger schema in docs/07; the ledger is unimplemented and the same doc says so
+node_health_history	a table of the operations-ledger schema in docs/07. The reason changed on 2026-09-27: the ledger is no longer unimplemented -- internal/ledger holds migrations and a projector -- but slice 1 deliberately built only workload_runs and operation_events, and this table is one of the four the same doc now says do not exist "not as tables, not as stubs"
 
 # --- the intended artifact set of a run whose outputs were never committed ------------------------------
 analysis.md	docs/04 lists the artifact set a noisy-neighbor run would commit under evidence/benchmark-reports/; that directory holds only .gitkeep
@@ -58,3 +58,6 @@ bin/	.gitignore:99 excludes it under "Generated binaries"; the m5-a design cites
 # --- added when the scan was widened to the tracked specs, 2026-09-27 -------------------------------------
 TenantNotProvisioned	a condition of the GpuSharingBenchmark CRD. docs/00 line 14 says "Designed only -- no CRD, no code" of it, and grep finds it in no Go file, so the name is absent because the type is. Not the gateway's tenant_not_provisioned, which is a different name for a different thing and is listed above
 LaunchTime	an EC2 API field, not a name this repository defines; the MPS pre-registration measures its stopping rule from the instance's LaunchTime as AWS reports it
+
+# --- named by the ledger design to record a decision NOT to build it, 2026-09-27 ------------------------
+QuotaExceeded	the operations-ledger design names it to record that it was considered and REFUSED as a WorkloadRun scenario: a quota refusal changes neither an InferenceDeployment nor a NodeHealth, so the enum value could never reach a verdict. FR-001's evidence lives in the gateway's rate_limited path instead, and docs/06 was corrected to say so

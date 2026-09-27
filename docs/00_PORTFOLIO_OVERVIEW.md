@@ -12,7 +12,9 @@
 > **Built, and run for real on kind:** failure & recovery (M7) — a `WorkloadRun` CRD, a controller and a
 > driver, with a recorded run in which deleting a serving Pod produced a recovery trail nobody wrote by
 > hand. **Designed only — no CRD, no code:** `GpuSharingBenchmark` / performance isolation (though its
-> sizing arithmetic and run script exist), the SQLite ledger, the `platformctl` CLI. **Applied and destroyed in one cycle, not
+> sizing arithmetic and run script exist). **Partly built since 2026-09-27:** the SQLite ledger and the
+> `platformctl` CLI — storage, projector and reader for 2 of 6 tables, with no run yet projected outside a
+> test. **Applied and destroyed in one cycle, not
 > applied now:** the `cluster` half of the AWS hosting path — its first apply, on 2026-08-31, failed on all
 > four node groups against an SCP deny; on 2026-09-18 a full apply of 96 resources succeeded and a
 > hand-dispatched teardown removed all 96, verified by resource ID
