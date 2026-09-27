@@ -316,6 +316,33 @@ var _ = Describe("chat completions pipeline", func() {
 		Expect(rr.Header().Get("X-Request-Id")).NotTo(BeEmpty())
 	})
 
+	// The caller's API key must not travel to the backend.
+	//
+	// resolveTenant has already spent it by this point, and nothing upstream authenticates. Forwarding it gave
+	// any backend -- one that logs request headers, or one that is compromised -- a credential it could replay
+	// against this gateway as that tenant. A security review found it by reading newReverseProxy and noting
+	// that Go's ReverseProxy copies headers verbatim.
+	//
+	// Its own spec rather than an extra assertion on the happy path, so a failure names this mechanism.
+	It("does not forward the caller's Authorization header upstream", func() {
+		seen := make(chan string, 1)
+		up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			seen <- r.Header.Get("Authorization")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{}`))
+		}))
+		defer up.Close()
+		s := newProxyServer(up.URL, 600)
+
+		rr := httptest.NewRecorder()
+		// authedRequest sets a real Bearer key; the request must still be authenticated to get this far.
+		s.Handler().ServeHTTP(rr, authedRequest(`{"model":"llama-3"}`))
+		Expect(rr.Code).To(Equal(http.StatusOK))
+
+		Expect(<-seen).To(BeEmpty(),
+			"the backend received the caller's credential and could replay it against this gateway")
+	})
+
 	It("reuses an inbound X-Request-Id instead of generating a new one", func() {
 		up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			w.WriteHeader(http.StatusOK)

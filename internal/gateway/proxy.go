@@ -426,6 +426,38 @@ func newTransport(responseHeaderTimeout time.Duration) *http.Transport {
 func newReverseProxy(target *url.URL, transport http.RoundTripper, onErr func(code int, err error)) *httputil.ReverseProxy {
 	p := httputil.NewSingleHostReverseProxy(target)
 
+	// The caller's credential stops here.
+	//
+	// Authorization carries the tenant's API key, and resolveTenant has already spent it: by this point the
+	// tenant is known and the key has no further job. Go's ReverseProxy copies request headers verbatim, so
+	// without this the key travelled on to whichever backend the request was routed to -- a backend that
+	// logs its request headers, or one that is compromised, then holds a credential it can replay against
+	// this gateway as that tenant. Nothing upstream authenticates, so nothing upstream needs it.
+	//
+	// A security review named this "inexpensive fix, embarrassing boundary mistake", which is the right
+	// weight: it does not hand over another tenant's identity, it hands over the caller's own.
+	//
+	// Director, deliberately, even though Go 1.26 deprecates it in favour of Rewrite.
+	//
+	// The obvious move was Rewrite, and it was tried and reverted, and the reason is in ServeHTTP rather than
+	// in this function. At most one of Rewrite or Director may be set, and taking the Rewrite branch also
+	// makes ReverseProxy delete Forwarded and every X-Forwarded-* header and run the outbound query through
+	// cleanQueryParams. Three fallback specs failed immediately -- the backend was never reached on a
+	// retryable status, and a trailer "never left the attempt's scratch headers" -- and the suite went from
+	// 1.3 s to 225 s, so something in the retry path was waiting on a timeout rather than merely disagreeing.
+	//
+	// Which of those differences does it is NOT established here, and the comment says so rather than
+	// guessing: the migration needs that answer, and the two-line security fix does not.
+	//
+	// So the deprecation is suppressed narrowly, at the two lines that earn it, with this note. The repository
+	// already suppresses gosec and errcheck where the reason is written down; what it does not do is suppress
+	// a finding to make a check quiet.
+	director := p.Director               //nolint:staticcheck // Rewrite breaks the fallback path; see the note above
+	p.Director = func(r *http.Request) { //nolint:staticcheck // same
+		director(r)
+		r.Header.Del("Authorization")
+	}
+
 	// FlushInterval = -1 means "flush immediately, never buffer".
 	//
 	// Design rationale (design spec Request flow section): stream:true emits tokens one at a time, and a proxy that batches them hands the client everything only once generation finishes, which defeats streaming.
