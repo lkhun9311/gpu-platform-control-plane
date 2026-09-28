@@ -110,11 +110,97 @@ var _ = Describe("BootstrapCI", func() {
 })
 
 var _ = Describe("EvaluateChecks", func() {
+	// The criterion is registered in EXACT tokens, and the calculation read the estimates for as long as both
+	// were present. These five cases are what tell the two apart: a test that only checks "the run is invalid"
+	// passes as soon as a validity guard exists, whether or not the division changed.
+	It("fails the admission match when the exact fractions differ, even though the estimates agree", func() {
+		r1 := ArmSummary{Arm: "R1", TTFTMsP99: 100, TailSampleSize: 500}
+		// Estimates: both 0.50, a perfect match. Exact: 0.30 against 0.60, a 50 percent gap.
+		staticCap := ArmSummary{Arm: "static-cap", TTFTMsP99: 200, TailSampleSize: 500,
+			OfferedInputTokens: 1000, AdmittedInputTokens: 500, OfferedExactTokens: 1000, AdmittedExactTokens: 300}
+		kvAware := ArmSummary{Arm: "kv-aware", TTFTMsP99: 110, TailSampleSize: 500,
+			OfferedInputTokens: 1000, AdmittedInputTokens: 500, OfferedExactTokens: 1000, AdmittedExactTokens: 600}
+		c := EvaluateChecks(r1, staticCap, kvAware, CI{Lo: 0.45, Hi: 0.65, Valid: true}, 0.05)
+		Expect(c.AdmissionNotEvaluable).To(BeFalse())
+		Expect(c.AdmissionMatchPass).To(BeFalse())
+		Expect(c.AdmissionMatchDelta).To(BeNumerically("~", 0.5, 0.001))
+		// The diagnostic still reports what the old calculation would have said, which is how a reader of an
+		// artifact certified before this repair can see why it read as matched.
+		Expect(c.EstimateWeightedDelta).To(BeNumerically("~", 0, 0.001))
+	})
+
+	It("passes the admission match when the exact fractions agree, even though the estimates differ", func() {
+		r1 := ArmSummary{Arm: "R1", TTFTMsP99: 100, TailSampleSize: 500}
+		// The mirror image: estimates 0.30 against 0.60, exact 0.50 against 0.51.
+		staticCap := ArmSummary{Arm: "static-cap", TTFTMsP99: 200, TailSampleSize: 500,
+			OfferedInputTokens: 1000, AdmittedInputTokens: 300, OfferedExactTokens: 1000, AdmittedExactTokens: 500}
+		kvAware := ArmSummary{Arm: "kv-aware", TTFTMsP99: 110, TailSampleSize: 500,
+			OfferedInputTokens: 1000, AdmittedInputTokens: 600, OfferedExactTokens: 1000, AdmittedExactTokens: 510}
+		c := EvaluateChecks(r1, staticCap, kvAware, CI{Lo: 0.45, Hi: 0.65, Valid: true}, 0.05)
+		Expect(c.AdmissionMatchPass).To(BeTrue())
+		Expect(c.AdmissionMatchDelta).To(BeNumerically("~", 0.0196, 0.001))
+		Expect(c.EstimateWeightedDelta).To(BeNumerically("~", 0.5, 0.001))
+	})
+
+	It("reports the criterion as not evaluable when only the estimates are present", func() {
+		r1 := ArmSummary{Arm: "R1", TTFTMsP99: 100, TailSampleSize: 500}
+		staticCap := ArmSummary{Arm: "static-cap", TTFTMsP99: 200, TailSampleSize: 500,
+			OfferedInputTokens: 1000, AdmittedInputTokens: 500}
+		kvAware := ArmSummary{Arm: "kv-aware", TTFTMsP99: 110, TailSampleSize: 500,
+			OfferedInputTokens: 1000, AdmittedInputTokens: 510}
+		c := EvaluateChecks(r1, staticCap, kvAware, CI{Lo: 0.45, Hi: 0.65, Valid: true}, 0.05)
+		Expect(c.AdmissionNotEvaluable).To(BeTrue())
+		Expect(c.Invalid).To(BeTrue())
+		Expect(c.InvalidReason).To(ContainSubstring("no denominator in the unit the design defines it in"))
+		// Not merely failed: a delta of zero beside a FAIL is what this used to print, and zero is a
+		// measurement nobody made.
+		Expect(c.AdmissionMatchDelta).To(BeZero())
+		Expect(c.AdmissionMatchPass).To(BeFalse())
+		Expect(c.OverallPass).To(BeFalse())
+	})
+
+	It("reports not evaluable when C admitted no exact work, so the denominator of |B-C|/C is missing", func() {
+		r1 := ArmSummary{Arm: "R1", TTFTMsP99: 100, TailSampleSize: 500}
+		staticCap := ArmSummary{Arm: "static-cap", TTFTMsP99: 200, TailSampleSize: 500,
+			OfferedInputTokens: 1000, AdmittedInputTokens: 500, OfferedExactTokens: 1000, AdmittedExactTokens: 500}
+		kvAware := ArmSummary{Arm: "kv-aware", TTFTMsP99: 110, TailSampleSize: 500,
+			OfferedInputTokens: 1000, AdmittedInputTokens: 510, OfferedExactTokens: 1000, AdmittedExactTokens: 0}
+		c := EvaluateChecks(r1, staticCap, kvAware, CI{Lo: 0.45, Hi: 0.65, Valid: true}, 0.05)
+		Expect(c.AdmissionNotEvaluable).To(BeTrue())
+		Expect(c.InvalidReason).To(ContainSubstring("has no denominator"))
+		Expect(c.AdmissionMatchPass).To(BeFalse())
+	})
+
+	It("refuses tallies that admit more exact work than they offered", func() {
+		r1 := ArmSummary{Arm: "R1", TTFTMsP99: 100, TailSampleSize: 500}
+		staticCap := ArmSummary{Arm: "static-cap", TTFTMsP99: 200, TailSampleSize: 500,
+			OfferedInputTokens: 1000, AdmittedInputTokens: 500, OfferedExactTokens: 1000, AdmittedExactTokens: 1200}
+		kvAware := ArmSummary{Arm: "kv-aware", TTFTMsP99: 110, TailSampleSize: 500,
+			OfferedInputTokens: 1000, AdmittedInputTokens: 510, OfferedExactTokens: 1000, AdmittedExactTokens: 510}
+		c := EvaluateChecks(r1, staticCap, kvAware, CI{Lo: 0.45, Hi: 0.65, Valid: true}, 0.05)
+		Expect(c.AdmissionNotEvaluable).To(BeTrue())
+		Expect(c.InvalidReason).To(ContainSubstring("which cannot happen"))
+	})
+
+	It("does not require eligible exact work from R1, which is premium-only by design", func() {
+		// R1 carries no eligible standard-long population at all, and that is its normal state rather than a
+		// gap in its evidence. A guard that demanded a denominator from it would invalidate every run.
+		r1 := ArmSummary{Arm: "R1", TTFTMsP99: 100, TailSampleSize: 500}
+		staticCap := ArmSummary{Arm: "static-cap", TTFTMsP99: 200, TailSampleSize: 500,
+			OfferedInputTokens: 1000, AdmittedInputTokens: 500, OfferedExactTokens: 1000, AdmittedExactTokens: 500}
+		kvAware := ArmSummary{Arm: "kv-aware", TTFTMsP99: 110, TailSampleSize: 500,
+			OfferedInputTokens: 1000, AdmittedInputTokens: 510, OfferedExactTokens: 1000, AdmittedExactTokens: 510}
+		c := EvaluateChecks(r1, staticCap, kvAware, CI{Lo: 0.45, Hi: 0.65, Valid: true}, 0.05)
+		Expect(c.AdmissionNotEvaluable).To(BeFalse())
+		Expect(c.Invalid).To(BeFalse())
+		Expect(c.OverallPass).To(BeTrue())
+	})
+
 	It("passes when C beats R1 absolutely and B incrementally with a matched admission fraction", func() {
 		r1 := ArmSummary{Arm: "R1", TTFTMsP99: 100, TailSampleSize: 500}
 		// static-cap and kv-aware admit the same work (matched), but kv-aware protects the tail better.
-		staticCap := ArmSummary{Arm: "static-cap", TTFTMsP99: 200, OfferedInputTokens: 1000, AdmittedInputTokens: 500, TailSampleSize: 500}
-		kvAware := ArmSummary{Arm: "kv-aware", TTFTMsP99: 110, OfferedInputTokens: 1000, AdmittedInputTokens: 510, TailSampleSize: 500}
+		staticCap := ArmSummary{Arm: "static-cap", TTFTMsP99: 200, OfferedInputTokens: 1000, AdmittedInputTokens: 500, OfferedExactTokens: 1000, AdmittedExactTokens: 500, TailSampleSize: 500}
+		kvAware := ArmSummary{Arm: "kv-aware", TTFTMsP99: 110, OfferedInputTokens: 1000, AdmittedInputTokens: 510, OfferedExactTokens: 1000, AdmittedExactTokens: 510, TailSampleSize: 500}
 		ci := CI{Lo: 0.45, Hi: 0.65, Valid: true} // C/B ratio CI, upper bound < 1.0
 		c := EvaluateChecks(r1, staticCap, kvAware, ci, 0.05)
 		Expect(c.Invalid).To(BeFalse())
@@ -130,8 +216,8 @@ var _ = Describe("EvaluateChecks", func() {
 		// ones from the passing case above -- so the disqualification has to come from the sample size
 		// alone, which is the whole point.
 		r1 := ArmSummary{Arm: "R1", TTFTMsP99: 100, TailSampleSize: 500}
-		staticCap := ArmSummary{Arm: "static-cap", TTFTMsP99: 200, OfferedInputTokens: 1000, AdmittedInputTokens: 500, TailSampleSize: 500}
-		kvAware := ArmSummary{Arm: "kv-aware", TTFTMsP99: 110, OfferedInputTokens: 1000, AdmittedInputTokens: 510, TailSampleSize: 99}
+		staticCap := ArmSummary{Arm: "static-cap", TTFTMsP99: 200, OfferedInputTokens: 1000, AdmittedInputTokens: 500, OfferedExactTokens: 1000, AdmittedExactTokens: 500, TailSampleSize: 500}
+		kvAware := ArmSummary{Arm: "kv-aware", TTFTMsP99: 110, OfferedInputTokens: 1000, AdmittedInputTokens: 510, OfferedExactTokens: 1000, AdmittedExactTokens: 510, TailSampleSize: 99}
 		c := EvaluateChecks(r1, staticCap, kvAware, CI{Lo: 0.45, Hi: 0.65, Valid: true}, 0.05)
 		Expect(c.Invalid).To(BeTrue())
 		Expect(c.InvalidReason).To(ContainSubstring("99 premium completions"))
@@ -142,8 +228,8 @@ var _ = Describe("EvaluateChecks", func() {
 		// One more completion than the case above, and the same numbers, so this pins the boundary rather
 		// than merely re-testing the passing case: 100 is where ceil(0.99*n)-1 first falls below n-1.
 		r1 := ArmSummary{Arm: "R1", TTFTMsP99: 100, TailSampleSize: 100}
-		staticCap := ArmSummary{Arm: "static-cap", TTFTMsP99: 200, OfferedInputTokens: 1000, AdmittedInputTokens: 500, TailSampleSize: 100}
-		kvAware := ArmSummary{Arm: "kv-aware", TTFTMsP99: 110, OfferedInputTokens: 1000, AdmittedInputTokens: 510, TailSampleSize: 100}
+		staticCap := ArmSummary{Arm: "static-cap", TTFTMsP99: 200, OfferedInputTokens: 1000, AdmittedInputTokens: 500, OfferedExactTokens: 1000, AdmittedExactTokens: 500, TailSampleSize: 100}
+		kvAware := ArmSummary{Arm: "kv-aware", TTFTMsP99: 110, OfferedInputTokens: 1000, AdmittedInputTokens: 510, OfferedExactTokens: 1000, AdmittedExactTokens: 510, TailSampleSize: 100}
 		c := EvaluateChecks(r1, staticCap, kvAware, CI{Lo: 0.45, Hi: 0.65, Valid: true}, 0.05)
 		Expect(c.Invalid).To(BeFalse())
 		Expect(c.OverallPass).To(BeTrue())
@@ -151,8 +237,8 @@ var _ = Describe("EvaluateChecks", func() {
 
 	It("fails incremental value when C does not beat the admission-matched B (just load shedding)", func() {
 		r1 := ArmSummary{Arm: "R1", TTFTMsP99: 100, TailSampleSize: 500}
-		staticCap := ArmSummary{Arm: "static-cap", TTFTMsP99: 115, OfferedInputTokens: 1000, AdmittedInputTokens: 500, TailSampleSize: 500}
-		kvAware := ArmSummary{Arm: "kv-aware", TTFTMsP99: 112, OfferedInputTokens: 1000, AdmittedInputTokens: 505, TailSampleSize: 500}
+		staticCap := ArmSummary{Arm: "static-cap", TTFTMsP99: 115, OfferedInputTokens: 1000, AdmittedInputTokens: 500, OfferedExactTokens: 1000, AdmittedExactTokens: 500, TailSampleSize: 500}
+		kvAware := ArmSummary{Arm: "kv-aware", TTFTMsP99: 112, OfferedInputTokens: 1000, AdmittedInputTokens: 505, OfferedExactTokens: 1000, AdmittedExactTokens: 505, TailSampleSize: 500}
 		ci := CI{Lo: 0.90, Hi: 1.05, Valid: true} // ratio ~0.97, CI crosses 1.0
 		c := EvaluateChecks(r1, staticCap, kvAware, ci, 0.05)
 		Expect(c.AbsoluteProtectionPass).To(BeTrue()) // 112/100 = 1.12 <= 1.25
@@ -162,8 +248,8 @@ var _ = Describe("EvaluateChecks", func() {
 
 	It("fails admission match when B and C admit different work fractions", func() {
 		r1 := ArmSummary{Arm: "R1", TTFTMsP99: 100, TailSampleSize: 500}
-		staticCap := ArmSummary{Arm: "static-cap", TTFTMsP99: 200, OfferedInputTokens: 1000, AdmittedInputTokens: 300, TailSampleSize: 500}
-		kvAware := ArmSummary{Arm: "kv-aware", TTFTMsP99: 110, OfferedInputTokens: 1000, AdmittedInputTokens: 600, TailSampleSize: 500}
+		staticCap := ArmSummary{Arm: "static-cap", TTFTMsP99: 200, OfferedInputTokens: 1000, AdmittedInputTokens: 300, OfferedExactTokens: 1000, AdmittedExactTokens: 300, TailSampleSize: 500}
+		kvAware := ArmSummary{Arm: "kv-aware", TTFTMsP99: 110, OfferedInputTokens: 1000, AdmittedInputTokens: 600, OfferedExactTokens: 1000, AdmittedExactTokens: 600, TailSampleSize: 500}
 		ci := CI{Lo: 0.45, Hi: 0.65, Valid: true}
 		c := EvaluateChecks(r1, staticCap, kvAware, ci, 0.05)
 		Expect(c.AdmissionMatchPass).To(BeFalse()) // 0.3 vs 0.6 is a 50% gap
@@ -172,9 +258,9 @@ var _ = Describe("EvaluateChecks", func() {
 
 	It("invalidates the run when a compared arm completed no premium requests", func() {
 		r1 := ArmSummary{Arm: "R1", TTFTMsP99: 100, TailSampleSize: 500}
-		staticCap := ArmSummary{Arm: "static-cap", TTFTMsP99: 200, OfferedInputTokens: 1000, AdmittedInputTokens: 500, TailSampleSize: 500}
+		staticCap := ArmSummary{Arm: "static-cap", TTFTMsP99: 200, OfferedInputTokens: 1000, AdmittedInputTokens: 500, OfferedExactTokens: 1000, AdmittedExactTokens: 500, TailSampleSize: 500}
 		// kv-aware completed nothing (e.g. every admitted request timed out): its p99 is 0 and would otherwise pass every ratio check.
-		kvAware := ArmSummary{Arm: "kv-aware", TTFTMsP99: 0, OfferedInputTokens: 1000, AdmittedInputTokens: 500, TailSampleSize: 0}
+		kvAware := ArmSummary{Arm: "kv-aware", TTFTMsP99: 0, OfferedInputTokens: 1000, AdmittedInputTokens: 500, OfferedExactTokens: 1000, AdmittedExactTokens: 500, TailSampleSize: 0}
 		ci := CI{} // no interval: the bootstrap had nothing to resample
 		c := EvaluateChecks(r1, staticCap, kvAware, ci, 0.05)
 		Expect(c.Invalid).To(BeTrue())
@@ -183,8 +269,8 @@ var _ = Describe("EvaluateChecks", func() {
 
 	It("invalidates the run when a compared arm's tail is censored", func() {
 		r1 := ArmSummary{Arm: "R1", TTFTMsP99: 100, TailSampleSize: 500}
-		staticCap := ArmSummary{Arm: "static-cap", TTFTMsP99: 200, OfferedInputTokens: 1000, AdmittedInputTokens: 500, TailSampleSize: 500}
-		kvAware := ArmSummary{Arm: "kv-aware", TTFTMsP99: 110, OfferedInputTokens: 1000, AdmittedInputTokens: 510, TailSampleSize: 500, Censored: true}
+		staticCap := ArmSummary{Arm: "static-cap", TTFTMsP99: 200, OfferedInputTokens: 1000, AdmittedInputTokens: 500, OfferedExactTokens: 1000, AdmittedExactTokens: 500, TailSampleSize: 500}
+		kvAware := ArmSummary{Arm: "kv-aware", TTFTMsP99: 110, OfferedInputTokens: 1000, AdmittedInputTokens: 510, OfferedExactTokens: 1000, AdmittedExactTokens: 510, TailSampleSize: 500, Censored: true}
 		ci := CI{Lo: 0.45, Hi: 0.65, Valid: true}
 		c := EvaluateChecks(r1, staticCap, kvAware, ci, 0.05)
 		Expect(c.Invalid).To(BeTrue())
@@ -247,8 +333,8 @@ var _ = Describe("the two ways a truncated arm used to certify itself", func() {
 		// so the gate `Hi < 1.0` was satisfied by the ABSENCE of an interval -- truncation disarmed the
 		// strictest check in the design instead of tripping it.
 		r1 := ArmSummary{Arm: "R1", TTFTMsP99: 100, TailSampleSize: 500}
-		staticCap := ArmSummary{Arm: "static-cap", TTFTMsP99: 200, OfferedInputTokens: 1000, AdmittedInputTokens: 500, TailSampleSize: 500}
-		kvAware := ArmSummary{Arm: "kv-aware", TTFTMsP99: 110, OfferedInputTokens: 1000, AdmittedInputTokens: 510, TailSampleSize: 500}
+		staticCap := ArmSummary{Arm: "static-cap", TTFTMsP99: 200, OfferedInputTokens: 1000, AdmittedInputTokens: 500, OfferedExactTokens: 1000, AdmittedExactTokens: 500, TailSampleSize: 500}
+		kvAware := ArmSummary{Arm: "kv-aware", TTFTMsP99: 110, OfferedInputTokens: 1000, AdmittedInputTokens: 510, OfferedExactTokens: 1000, AdmittedExactTokens: 510, TailSampleSize: 500}
 		c := EvaluateChecks(r1, staticCap, kvAware, CI{}, 0.05)
 		Expect(c.IncrementalValuePass).To(BeFalse())
 		Expect(c.Invalid).To(BeTrue())
@@ -277,8 +363,16 @@ var _ = Describe("the truncated repetition that pooling hides", func() {
 	// one repetition whose p99 is a maximum over thirty requests -- which the incremental bootstrap then
 	// resamples with equal weight.
 
+	// Exact totals mirror the estimated ones so these cases keep failing for the reason they were written for.
+	//
+	// Without them the admission-match criterion has no denominator in its registered unit, every case here is
+	// invalidated for that instead, and two of them asserted the run was VALID -- a failure about plumbing
+	// standing in for the repetition-floor behaviour being pinned.
 	base := func(arm string, p99 float64, admitted int64) ArmSummary {
-		return ArmSummary{Arm: arm, TTFTMsP99: p99, OfferedInputTokens: 1000, AdmittedInputTokens: admitted, TailSampleSize: 1530}
+		return ArmSummary{Arm: arm, TTFTMsP99: p99,
+			OfferedInputTokens: 1000, AdmittedInputTokens: admitted,
+			OfferedExactTokens: 1000, AdmittedExactTokens: admitted,
+			TailSampleSize: 1530}
 	}
 
 	It("invalidates an arm whose weakest repetition is below the floor, however healthy the pool looks", func() {
@@ -426,6 +520,75 @@ var _ = Describe("a threshold probe the gateway never evaluated", func() {
 // and an empty Checks is indistinguishable from a run that failed everything. Hence the pointer.
 //
 // Mutation that turns this red: make FormatReport treat a nil checks as Checks{} and render it.
+// Summarize and EvaluateChecks are exercised together here, because separately neither can show this.
+//
+// Every EvaluateChecks spec in this file hands over a summary built by hand, and every Summarize spec stops at
+// the totals. So a row that is ELIGIBLE but carries no exact measurement -- which is what `completedRow`
+// produces, and what a replay against an engine that reports no prompt tokens produces -- travels the whole
+// path without any spec reading the verdict at the end of it. The gap is not hypothetical: the benchharness
+// controls failed on exactly this shape the moment the criterion started reading exact tokens.
+var _ = Describe("an eligible population with no exact measurement", func() {
+	eligible := func(arm string, status int) ArmSummary {
+		r := completedRow(1, 10, 8000)
+		r.Tenant = "standard-noisy"
+		r.IsNoisy = true
+		r.LongThreshold = 4096
+		r.HTTPStatus = status
+		if status != 200 {
+			r.ErrorKind = errKindRejected
+			r.FirstTokenUnixNanos, r.EndUnixNanos = 0, 0
+		}
+		s := Summarize(arm, []RawRow{r})
+		s.TTFTMsP99, s.TailSampleSize = 110, 500
+		return s
+	}
+
+	It("carries offered estimate tokens but no exact ones, so the criterion has no denominator", func() {
+		s := eligible("kv-aware", 200)
+		Expect(s.OfferedInputTokens).To(Equal(int64(8000)))
+		Expect(s.OfferedExactTokens).To(BeZero())
+		Expect(s.ExactTokensMissing).To(Equal(1))
+	})
+
+	It("reaches EvaluateChecks as not evaluable rather than as a matched pair", func() {
+		staticCap := eligible("static-cap", 429)
+		staticCap.TTFTMsP99 = 200
+		kvAware := eligible("kv-aware", 200)
+		r1 := ArmSummary{Arm: "R1", TTFTMsP99: 100, TailSampleSize: 500}
+		c := EvaluateChecks(r1, staticCap, kvAware, CI{Lo: 0.45, Hi: 0.65, Valid: true}, 0.05)
+		Expect(c.AdmissionNotEvaluable).To(BeTrue())
+		Expect(c.AdmissionMatchPass).To(BeFalse())
+		Expect(c.OverallPass).To(BeFalse())
+		// Two reasons are recorded, not one: the missing counts and the absent denominator are different facts
+		// and invalidate() keeps every reason rather than the last.
+		Expect(c.InvalidReason).To(ContainSubstring("no measured input-token count"))
+		Expect(c.InvalidReason).To(ContainSubstring("no denominator"))
+	})
+})
+
+var _ = Describe("a report whose admission criterion could not be evaluated", func() {
+	// The old line printed a number unconditionally, so an unevaluable criterion and a criterion that measured
+	// zero produced the same "0.000 FAIL". They are different findings and only one of them is a measurement.
+	It("says NOT EVALUABLE and attaches no pass or fail verdict to the number", func() {
+		out := FormatReport([]ArmSummary{{Arm: "kv-aware", TailSampleSize: 500}},
+			&Checks{AdmissionNotEvaluable: true, EstimateWeightedDelta: 1.0}, 0.05)
+		Expect(out).To(ContainSubstring("admission match      NOT EVALUABLE in exact tokens"))
+		// The estimate-weighted figure is still shown, because the artifacts already recorded were certified
+		// on it -- but it is labelled as not the criterion.
+		Expect(out).To(ContainSubstring("estimate-weighted |B-C|/C = 1.000, not the criterion"))
+		// And no tolerance comparison, because there is nothing to compare.
+		Expect(out).NotTo(ContainSubstring("admission match      |B-C|/C"))
+	})
+
+	It("prints the delta with its verdict when the exact accounting did support it", func() {
+		out := FormatReport([]ArmSummary{{Arm: "kv-aware", TailSampleSize: 500}},
+			&Checks{AdmissionMatchDelta: 0.02, AdmissionMatchPass: true, EstimateWeightedDelta: 0.5}, 0.05)
+		Expect(out).To(ContainSubstring("admission match      |B-C|/C = 0.020"))
+		Expect(out).To(ContainSubstring("estimate-weighted 0.500"))
+		Expect(out).NotTo(ContainSubstring("NOT EVALUABLE"))
+	})
+})
+
 var _ = Describe("a report with no criteria to evaluate", func() {
 	It("prints no verdict and no check table", func() {
 		out := FormatReport([]ArmSummary{{Arm: "default-fcfs", TailSampleSize: 500}}, nil, 0.05)
@@ -587,7 +750,7 @@ var _ = Describe("the admitted-work fraction over exact tokens", func() {
 		r.EngineInputTokens = engine
 		r.HTTPStatus = status
 		if status != 200 {
-			r.ErrorKind = "rejected"
+			r.ErrorKind = errKindRejected
 			r.FirstTokenUnixNanos, r.EndUnixNanos = 0, 0
 		}
 		return r

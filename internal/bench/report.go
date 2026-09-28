@@ -42,6 +42,12 @@ const (
 // errKindTimeout is the RawRow.ErrorKind the replay client records when a request exceeds its deadline.
 const errKindTimeout = "timeout"
 
+// errKindRejected is the RawRow.ErrorKind the replay client records when the gateway refused the request.
+//
+// Named rather than repeated because the linter counts three occurrences and, more usefully, because the
+// vocabulary is closed: replay.go documents it as one of "timeout", "transport", "rejected", "stream".
+const errKindRejected = "rejected"
+
 // ArmSummary is the analysis of one arm's raw evidence for one repetition.
 //
 // Latency percentiles are in milliseconds, computed from the client-side raw timestamps.
@@ -563,8 +569,31 @@ func BootstrapCI(values []float64, iterations int, seed int64, alpha float64) CI
 	}
 }
 
-// admittedWorkFraction is the eligible input tokens admitted over those offered, the design's admission-match quantity.
+// admittedWorkFraction is the eligible EXACT input tokens admitted over those offered, which is the unit the
+// design registers the admission-match criterion in.
+//
+// It used to divide the ESTIMATED totals while ArmSummary already carried the exact ones and the comment on
+// those fields already said they were "the admitted-work fraction in the units the design actually specifies".
+// The estimate is not a neutral stand-in -- this project's own calibration measures it 36 percent low on a
+// 200-character prompt and 23 percent high on a 40,000-character one -- so a fraction built from it weighs the
+// population differently than the criterion says to. The values were collected, validated, and then discarded
+// by the one function that decided the verdict.
+//
+// A zero denominator returns zero here and is turned into an explicit invalidation by the caller, because a
+// fraction of zero and a fraction that could not be computed are different facts and only one of them is a
+// measurement.
 func admittedWorkFraction(s ArmSummary) float64 {
+	if s.OfferedExactTokens == 0 {
+		return 0
+	}
+	return float64(s.AdmittedExactTokens) / float64(s.OfferedExactTokens)
+}
+
+// estimateWeightedFraction is the same ratio in the ESTIMATE's unit, kept as a labelled diagnostic.
+//
+// It is what the report used to certify with, so it stays readable for the artifacts already recorded against
+// it -- but it is never the criterion, and nothing reads it to decide a verdict.
+func estimateWeightedFraction(s ArmSummary) float64 {
 	if s.OfferedInputTokens == 0 {
 		return 0
 	}
@@ -580,9 +609,18 @@ type Checks struct {
 	IncrementalRatio     float64
 	IncrementalRatioCI   CI
 	IncrementalValuePass bool
-	// AdmissionMatch is |wB - wC| / wC over admitted-work fractions, which must be within MatchTolerance.
+	// AdmissionMatch is |wB - wC| / wC over admitted-work fractions in EXACT tokens, which must be within
+	// MatchTolerance.
 	AdmissionMatchDelta float64
 	AdmissionMatchPass  bool
+	// AdmissionNotEvaluable marks the criterion as unanswerable rather than failed.
+	//
+	// The two are different findings and the report used to print the same 0.000 for both. A run whose exact
+	// accounting is incomplete has not shown the arms to be mismatched; it has shown that nobody can say.
+	AdmissionNotEvaluable bool
+	// EstimateWeightedDelta is the same comparison in the ESTIMATE's unit, carried as a labelled diagnostic
+	// because every artifact recorded before this repair was certified on it.
+	EstimateWeightedDelta float64
 	// Invalid marks a run whose evidence disqualifies the comparison before any check is read, so a degenerate run can never be certified as protection.
 	//
 	// InvalidReason names why, for the report.
@@ -728,11 +766,37 @@ func EvaluateChecks(r1, staticCap, kvAware ArmSummary, incrementalCI CI, matchTo
 		c.invalidate("the incremental-value check has no usable confidence interval (" + why + "), so it cannot be evaluated")
 	}
 
+	// The criterion is evaluated only where the exact accounting can carry it, and R1 is deliberately exempt:
+	// it is the premium-only baseline, so having no eligible standard-long work is its normal state, not a gap.
+	for _, s := range []ArmSummary{staticCap, kvAware} {
+		switch {
+		case s.OfferedExactTokens <= 0:
+			c.AdmissionNotEvaluable = true
+			c.invalidate(fmt.Sprintf("arm %s offered no measured exact input tokens over its eligible population, so the admission-match criterion has no denominator in the unit the design defines it in", s.Arm))
+		case s.AdmittedExactTokens > s.OfferedExactTokens:
+			// Admitted work is a subset of offered work by construction, so this is an accounting fault
+			// rather than a result, and a ratio above one would be reported as a matched arm.
+			c.AdmissionNotEvaluable = true
+			c.invalidate(fmt.Sprintf("arm %s admitted %d exact input tokens over an offered total of %d, which cannot happen and means the tallies disagree", s.Arm, s.AdmittedExactTokens, s.OfferedExactTokens))
+		}
+	}
 	wB := admittedWorkFraction(staticCap)
 	wC := admittedWorkFraction(kvAware)
-	if wC > 0 {
+	// C's admitted work is the denominator of |wB-wC|/wC. Zero there is not a match of zero, it is a quantity
+	// the evidence cannot express, and leaving the delta at zero would have printed 0.000 beside a PASS.
+	if kvAware.AdmittedExactTokens <= 0 {
+		c.AdmissionNotEvaluable = true
+		c.invalidate("arm kv-aware admitted no measured exact input tokens, so |wB-wC|/wC has no denominator and the arms cannot be shown to be admission-matched")
+	}
+	if !c.AdmissionNotEvaluable && wC > 0 {
 		c.AdmissionMatchDelta = math.Abs(wB-wC) / wC
 		c.AdmissionMatchPass = c.AdmissionMatchDelta <= matchTolerance
+	}
+	// Recorded whatever the verdict, because the artifacts already written were certified on this number and a
+	// reader comparing them to a new report needs to see both in the same place.
+	c.EstimateWeightedDelta = 0
+	if ewC := estimateWeightedFraction(kvAware); ewC > 0 {
+		c.EstimateWeightedDelta = math.Abs(estimateWeightedFraction(staticCap)-ewC) / ewC
 	}
 
 	c.OverallPass = !c.Invalid && c.AbsoluteProtectionPass && c.IncrementalValuePass && c.AdmissionMatchPass
@@ -950,7 +1014,14 @@ func FormatReport(summaries []ArmSummary, checks *Checks, matchTolerance float64
 	fmt.Fprintf(&b, "  absolute protection  C/R1 = %.3f  (<= 1.25)  %s\n", checks.AbsoluteProtectionRatio, pass(checks.AbsoluteProtectionPass))
 	fmt.Fprintf(&b, "  incremental value    C/B  = %.3f  CI[%.3f, %.3f]  (<= 0.90, CI hi < 1.0)  %s\n",
 		checks.IncrementalRatio, checks.IncrementalRatioCI.Lo, checks.IncrementalRatioCI.Hi, pass(checks.IncrementalValuePass))
-	fmt.Fprintf(&b, "  admission match      |B-C|/C = %.3f  (<= %.3f)  %s\n", checks.AdmissionMatchDelta, matchTolerance, pass(checks.AdmissionMatchPass))
+	if checks.AdmissionNotEvaluable {
+		// A numeric delta here would be read as a measurement. There is none: the exact-token accounting the
+		// criterion is defined over could not supply one.
+		fmt.Fprintf(&b, "  admission match      NOT EVALUABLE in exact tokens  (estimate-weighted |B-C|/C = %.3f, not the criterion)\n", checks.EstimateWeightedDelta)
+	} else {
+		fmt.Fprintf(&b, "  admission match      |B-C|/C = %.3f  (<= %.3f)  %s  (estimate-weighted %.3f)\n",
+			checks.AdmissionMatchDelta, matchTolerance, pass(checks.AdmissionMatchPass), checks.EstimateWeightedDelta)
+	}
 	if checks.Invalid {
 		fmt.Fprintf(&b, "  RUN INVALID: %s\n", checks.InvalidReason)
 	}
