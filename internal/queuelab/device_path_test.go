@@ -115,7 +115,8 @@ func TestTheWorkloadsDevicePathRunsAgainstAFakeDriver(t *testing.T) {
 		t.Fatalf("the device path exited %d:\n%s", code, out)
 	}
 	final := lastLine(out)
-	iters, kind, device, _, _, _, _ := ReportFromMessage(strings.TrimSpace(strings.TrimPrefix(final, "finished ")))
+	rep := ReportFromMessage(strings.TrimSpace(strings.TrimPrefix(final, "finished ")))
+	iters, kind, device := rep.Iterations, rep.Kind, rep.Device
 	if iters == nil {
 		t.Fatalf("the device path left no readable report: %q\n%s", final, out)
 	}
@@ -144,7 +145,8 @@ func TestEachDriverRefusalProducesItsOwnToken(t *testing.T) {
 		t.Run(tc.symbol, func(t *testing.T) {
 			out, _ := runWorkload(t, lib, []string{"SHIM_FAIL_AT=" + tc.symbol}, "1", "ignore")
 			final := strings.TrimSpace(strings.TrimPrefix(lastLine(out), "finished "))
-			_, kind, device, _, _, _, _ := ReportFromMessage(final)
+			rep := ReportFromMessage(final)
+			kind, device := rep.Kind, rep.Device
 			if device != tc.token {
 				t.Fatalf("a driver refusing %s reported dev=%q, want %q\n%s", tc.symbol, device, tc.token, out)
 			}
@@ -161,7 +163,8 @@ func TestEachDriverRefusalProducesItsOwnToken(t *testing.T) {
 	// path to a non-zero exit from the loop rather than from the handler.
 	out, code := runWorkload(t, lib, []string{"SHIM_FAIL_LAUNCH_AFTER=3"}, "5", "ignore")
 	final := strings.TrimSpace(strings.TrimPrefix(lastLine(out), "aborted "))
-	_, kind, device, _, _, _, _ := ReportFromMessage(final)
+	rep := ReportFromMessage(final)
+	kind, device := rep.Kind, rep.Device
 	if kind != KindCUDAFMA || device != "launch-failed-midrun" {
 		t.Fatalf("a mid-run launch failure reported kind=%q dev=%q\n%s", kind, device, out)
 	}
@@ -306,7 +309,8 @@ func TestDutyReachesTheDevicePathAndNotJustTheFallback(t *testing.T) {
 			t.Fatalf("duty %s: the device path exited %d:\n%s", duty, code, out)
 		}
 		final := lastLine(out)
-		iters, kind, device, _, _, _, _ := ReportFromMessage(strings.TrimSpace(strings.TrimPrefix(final, "finished ")))
+		rep := ReportFromMessage(strings.TrimSpace(strings.TrimPrefix(final, "finished ")))
+		iters, kind, device := rep.Iterations, rep.Kind, rep.Device
 		if iters == nil {
 			t.Fatalf("duty %s: no readable report: %q", duty, final)
 		}
@@ -359,7 +363,8 @@ func TestTheWorkloadWritesTheDutyThisPackageParses(t *testing.T) {
 		t.Fatalf("the device path exited %d:\n%s", code, out)
 	}
 	final := strings.TrimSpace(strings.TrimPrefix(lastLine(out), "finished "))
-	iters, kind, device, duty, _, _, _ := ReportFromMessage(final)
+	rep := ReportFromMessage(final)
+	iters, kind, device, duty := rep.Iterations, rep.Kind, rep.Device, rep.Duty
 	if iters == nil {
 		t.Fatalf("this package cannot parse the message its own workload wrote: %q", final)
 	}
@@ -440,7 +445,8 @@ func TestACheckpointingWorkloadNeverReachesForTheDriver(t *testing.T) {
 
 	// The precondition: with no state path the shim IS reached, so the fake driver is working.
 	fresh := report("")
-	_, kind, device, _, _, _, _ := ReportFromMessage(fresh)
+	rep := ReportFromMessage(fresh)
+	kind, device := rep.Kind, rep.Device
 	if kind != KindCUDAFMA || device != DeviceOK {
 		t.Fatalf("with no progress file the workload reported kind=%q dev=%q, want the device path; the "+
 			"fake driver is not being loaded at all, so the conclusion below would mean nothing: %q",
@@ -449,7 +455,8 @@ func TestACheckpointingWorkloadNeverReachesForTheDriver(t *testing.T) {
 
 	// The conclusion: the same command with a progress file does not attempt the driver.
 	checkpointing := report(filepath.Join(t.TempDir(), "progress"))
-	_, kind, device, _, _, _, _ = ReportFromMessage(checkpointing)
+	rep = ReportFromMessage(checkpointing)
+	kind, device = rep.Kind, rep.Device
 	if kind != KindCPUFloat {
 		t.Errorf("a checkpointing workload ran %q, and its checkpoint would hold the seed while its count "+
 			"climbed: %q", kind, checkpointing)
