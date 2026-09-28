@@ -10,7 +10,8 @@ that makes the measurement real, and what must be true for it to count.
 
 ## What is missing today, stated precisely
 
-`submit.go:216` has the workload print its **configured** duty:
+`submit.go:216` — `:222` after this change's own edits shifted it — has the workload print its **configured**
+duty:
 
     def msg(): return "iters=%d kind=%s dev=%s duty=%g acc=%.17g resumed=%d saved=%s"%(...)
 
@@ -26,6 +27,13 @@ measurements.
 The figure registered here is **wall time spent inside the workload's own sleep calls**, over an elapsed window
 the workload also measures. It is named that and nothing shorter.
 
+The window is **`t0` through the snapshot that reports it**, not the process lifetime. The two differ: a
+`SIGKILL` leaves whatever the termination log last held, so the reported window is the one that ends at that
+snapshot, and a claim about the process's whole life is not one this instrument can make.
+
+And the measured sleep fraction is compared against **`1 − duty`**, never against `duty`. Half duty hides the
+difference — both are 0.5 — which is exactly why a half-duty row must not be the case a reader checks it on.
+
 It is **not** GPU utilisation. Its complement is **not** measured device compute time: the remainder of the
 window includes descheduling, sleep overrun, interpreter overhead and kernel-launch latency, none of which this
 instrument separates.
@@ -40,11 +48,21 @@ better name. The registered comparison is a tolerance band, and what the band is
 
     sleep_total += (1.0-duty)*PERIOD
 
-would reproduce today's defect under a convincing field name, and it is not a hypothetical: `submit.go:289`
-already computes that quantity as the argument to `time.sleep`, and it is **wrong even as an intention**,
-because the call is `time.sleep(min((1.0-duty)*PERIOD, rest))` — the final segment is clamped by the remaining
-window and sleeps *less* than the expression. Summing the intention would overcount exactly at the boundary the
-guards cannot see.
+would reproduce today's defect under a convincing field name, and it is not a hypothetical: `submit.go:289` —
+`:299` after this change's edits — already computes that quantity as the argument to `time.sleep`.
+
+**A correction to this page's own first draft, made 2026-09-28 before the measurement landed.** The draft said
+the intention is wrong because the call is `time.sleep(min((1.0-duty)*PERIOD, rest))` and the final segment is
+therefore clamped and sleeps less. Simulated against the shipped loop at 6 seconds and duty 0.5, the clamp does
+**not** fire: the schedule is compute 1.3, sleep 1.3, compute 1.3, sleep 1.3, compute 0.8, and the measured
+0.4333 is exactly `2.6/6` from two unclamped sleeps. The window simply ends inside a compute phase, because 6
+seconds is 2.31 periods. The clamp is real in the code and fires only for a duration that ends inside the sleep
+phase.
+
+So the reason to measure around the call is not the clamp alone. It is that the sum of intentions is a
+prediction, and the quantity wanted is an observation: it must also carry sleep **overruns**, which push the
+observed total *above* the intention, and it must not silently become correct again whenever the arithmetic
+happens to agree. Nothing derived from `duty` may appear in the accumulated total.
 
 The accumulation therefore reads the monotonic clock on **both sides of the actual call**, and the diff is what
 is added. Nothing derived from `duty` may appear in the accumulated total.
