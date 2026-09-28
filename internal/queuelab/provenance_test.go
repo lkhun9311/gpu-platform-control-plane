@@ -335,7 +335,8 @@ func TestTheDutyTheWorkloadReportsSurvivesIntoTheLedger(t *testing.T) {
 		{"a message from before the axis existed", "iters=4000 kind=cuda-fma dev=ok", 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			iters, kind, device, duty, _, _, _ := ReportFromMessage(tc.msg)
+			rep := ReportFromMessage(tc.msg)
+			iters, kind, device, duty := rep.Iterations, rep.Kind, rep.Device, rep.Duty
 			if iters == nil {
 				t.Fatalf("the message was refused entirely: %q", tc.msg)
 			}
@@ -364,7 +365,7 @@ func TestADutyThisBuildCannotReadRefusesTheWholeMessage(t *testing.T) {
 		"iters=900 kind=cuda-fma dev=ok duty=1.5",
 		"iters=900 kind=cuda-fma dev=ok 0.25",
 	} {
-		if iters, _, _, _, _, _, _ := ReportFromMessage(msg); iters != nil {
+		if rep := ReportFromMessage(msg); rep.Iterations != nil {
 			t.Errorf("%q was accepted; an unreadable duty must refuse the count beside it", msg)
 		}
 	}
@@ -410,7 +411,7 @@ func TestAnUnreadableAccumulatorRefusesTheWholeMessage(t *testing.T) {
 		"iters=900 kind=cuda-fma dev=ok duty=0.25 acc=Inf",
 		"iters=900 kind=cuda-fma dev=ok duty=0.25 acc=-Inf",
 	} {
-		if iters, _, _, _, _, _, _ := ReportFromMessage(msg); iters != nil {
+		if rep := ReportFromMessage(msg); rep.Iterations != nil {
 			t.Errorf("%q was accepted; a fifth field this build cannot read must refuse the count beside it", msg)
 		}
 	}
@@ -437,7 +438,8 @@ func TestAResumePointIsReadWhenTheMessageCarriesOne(t *testing.T) {
 		// The boundary the parser allows: an attempt that resumed and performed nothing before stopping.
 		{"iters=900 kind=cpu-float dev=no-libcuda duty=1 acc=1.5 resumed=900", 900},
 	} {
-		iters, _, _, _, _, res, _ := ReportFromMessage(tc.msg)
+		rep := ReportFromMessage(tc.msg)
+		iters, res := rep.Iterations, rep.Resumed
 		if iters == nil {
 			t.Errorf("%q was refused entirely", tc.msg)
 			continue
@@ -464,7 +466,8 @@ func TestACheckpointWriteStatusIsReadWhenTheMessageCarriesOne(t *testing.T) {
 	const base = "iters=900 kind=cpu-float dev=no-libcuda duty=0.5 acc=1.5 resumed=100"
 	for _, want := range []string{SaveNotAttempted, SaveOK, SaveFailed} {
 		msg := base + " saved=" + want
-		iters, _, _, duty, acc, res, saved := ReportFromMessage(msg)
+		rep := ReportFromMessage(msg)
+		iters, duty, acc, res, saved := rep.Iterations, rep.Duty, rep.Accumulator, rep.Resumed, rep.SaveStatus
 		if iters == nil {
 			t.Errorf("%q was refused entirely", msg)
 			continue
@@ -499,10 +502,10 @@ func TestAMessageWhoseSaveStatusThisBuildDoesNotKnowIsRefusedWhole(t *testing.T)
 		// be reading a sentence whose shape says it means something else.
 		"iters=900 kind=cpu-float dev=no-libcuda duty=1 acc=1.5 resumed=0 saved=ok extra=1",
 	} {
-		if iters, _, _, _, _, _, saved := ReportFromMessage(msg); iters != nil || saved != "" {
+		if rep := ReportFromMessage(msg); rep.Iterations != nil || rep.SaveStatus != "" {
 			t.Errorf("%q was read rather than refused (iters=%v saved=%q); the count is refused alongside the "+
 				"tokens, because a message this build cannot parse is one whose number it has no reason to "+
-				"trust", msg, iters, saved)
+				"trust", msg, rep.Iterations, rep.SaveStatus)
 		}
 	}
 }
@@ -515,7 +518,8 @@ func TestAMessageWithoutASaveStatusStillReads(t *testing.T) {
 		"iters=900 kind=cuda-fma dev=ok duty=0.25 acc=1.5",
 		"iters=900 kind=cuda-fma dev=ok duty=0.25 acc=1.5 resumed=0",
 	} {
-		iters, _, _, _, _, _, saved := ReportFromMessage(msg)
+		rep := ReportFromMessage(msg)
+		iters, saved := rep.Iterations, rep.SaveStatus
 		if iters == nil {
 			t.Errorf("%q was refused, so this build cannot read the records it already wrote", msg)
 		}
@@ -533,7 +537,8 @@ func TestAMessageWithoutAnAccumulatorStillReads(t *testing.T) {
 		"iters=900 kind=cuda-fma dev=ok",
 		"iters=900 kind=cuda-fma dev=ok duty=0.25",
 	} {
-		iters, _, _, _, acc, _, _ := ReportFromMessage(msg)
+		rep := ReportFromMessage(msg)
+		iters, acc := rep.Iterations, rep.Accumulator
 		if iters == nil {
 			t.Errorf("%q was refused, so this build cannot read the records it already wrote", msg)
 		}

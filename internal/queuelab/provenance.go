@@ -264,8 +264,9 @@ func soleTerminated(pod *corev1.Pod) terminatedReading {
 		}
 		c := t.ExitCode
 		r.exitCode = &c
-		r.iterations, r.kind, r.device, r.duty, r.accumulator, r.resumed, r.saveStatus =
-			ReportFromMessage(t.Message)
+		rep := ReportFromMessage(t.Message)
+		r.iterations, r.kind, r.device = rep.Iterations, rep.Kind, rep.Device
+		r.duty, r.accumulator, r.resumed, r.saveStatus = rep.Duty, rep.Accumulator, rep.Resumed, rep.SaveStatus
 		if !t.FinishedAt.IsZero() {
 			f := t.FinishedAt.UnixNano()
 			r.finishedUnixNanos = &f
@@ -380,9 +381,36 @@ var saveStatuses = map[string]bool{
 // launched, so it cannot appear beside the CPU fallback; and the device kind can only carry ok or the
 // mid-run failure, because every earlier failure returns before the kind is set. A pair outside that
 // relation was not written by this workload.
-func ReportFromMessage(msg string) (
-	iters *int, kind, device string, duty float64, acc *float64, resumed *int, saved string,
-) {
+// WorkloadReport is everything one termination message yields, as one value.
+//
+// A struct rather than the seven return values this became, for the argument terminatedReading already makes
+// twenty lines above: they are all readings of ONE sentence, four of them are optional in the same way, and a
+// positional list that long invites a caller to transpose two of its string-or-pointer slots without the
+// compiler noticing. Twenty-one call sites spelled `_` four to six times each to reach one field.
+//
+// Iterations == nil is the invalid-report signal, and it is the ONLY one. A refused message yields the zero
+// struct, so no partially parsed field can escape a refusal -- the rule the whole parser is arranged around is
+// that a message this build cannot fully read is one whose count it also has no reason to trust. Mutating the
+// arity refusal to return the count it had already parsed turns
+// TestAMessageWhoseSaveStatusThisBuildDoesNotKnowIsRefusedWhole red, which is the evidence that the rule is
+// pinned rather than merely intended.
+type WorkloadReport struct {
+	// Iterations is the work the attempt reported completing, and nil means the message was refused.
+	Iterations *int
+	// Kind and Device are the closed-set tokens naming WHICH loop produced Iterations.
+	Kind   string
+	Device string
+	// Duty is the fraction the workload was CONFIGURED to compute for, defaulting to 1.0 for a message from a
+	// build whose workload had no duty axis. It is the workload's own echo of its argument, not a measurement.
+	Duty float64
+	// Accumulator, Resumed and SaveStatus are absent for a message from a build that could not report them,
+	// and each absence is a different statement from its zero value.
+	Accumulator *float64
+	Resumed     *int
+	SaveStatus  string
+}
+
+func ReportFromMessage(msg string) WorkloadReport {
 	fields := strings.Fields(strings.TrimSpace(msg))
 	// Three fields through seven. Each later shape came from a build the earlier ones could not have
 	// written: the fourth is the duty cycle, the fifth the accumulator, the sixth the resume point, the
@@ -392,31 +420,31 @@ func ReportFromMessage(msg string) (
 	// old shape would make this build unable to read its own history, which is a worse failure than the one
 	// the strictness is for.
 	if len(fields) < 3 || len(fields) > 7 {
-		return nil, "", "", 0, nil, nil, ""
+		return WorkloadReport{}
 	}
 	n, err := strconv.Atoi(strings.TrimPrefix(fields[0], "iters="))
 	if !strings.HasPrefix(fields[0], "iters=") || err != nil || n < 0 {
-		return nil, "", "", 0, nil, nil, ""
+		return WorkloadReport{}
 	}
 	if !strings.HasPrefix(fields[1], "kind=") || !strings.HasPrefix(fields[2], "dev=") {
-		return nil, "", "", 0, nil, nil, ""
+		return WorkloadReport{}
 	}
 	k := strings.TrimPrefix(fields[1], "kind=")
 	d := strings.TrimPrefix(fields[2], "dev=")
 	if !deviceStatuses[d] {
-		return nil, "", "", 0, nil, nil, ""
+		return WorkloadReport{}
 	}
 	switch {
 	case k == KindCPUFloat && d != DeviceOK:
 	case k == KindCUDAFMA && (d == DeviceOK || d == DeviceLaunchFailedMidrun):
 	default:
-		return nil, "", "", 0, nil, nil, ""
+		return WorkloadReport{}
 	}
 	u := 1.0
 	if len(fields) >= 4 {
 		v, ok := parseDutyField(fields[3])
 		if !ok {
-			return nil, "", "", 0, nil, nil, ""
+			return WorkloadReport{}
 		}
 		u = v
 	}
@@ -429,7 +457,7 @@ func ReportFromMessage(msg string) (
 	if len(fields) >= 5 {
 		v, ok := parseAccumulatorField(fields[4])
 		if !ok {
-			return nil, "", "", 0, nil, nil, ""
+			return WorkloadReport{}
 		}
 		a = &v
 	}
@@ -443,7 +471,7 @@ func ReportFromMessage(msg string) (
 	if len(fields) >= 6 {
 		v, ok := parseResumeField(fields[5], n)
 		if !ok {
-			return nil, "", "", 0, nil, nil, ""
+			return WorkloadReport{}
 		}
 		res = &v
 	}
@@ -451,11 +479,11 @@ func ReportFromMessage(msg string) (
 	if len(fields) == 7 {
 		v, ok := parseSavedField(fields[6])
 		if !ok {
-			return nil, "", "", 0, nil, nil, ""
+			return WorkloadReport{}
 		}
 		s = v
 	}
-	return &n, k, d, u, a, res, s
+	return WorkloadReport{Iterations: &n, Kind: k, Device: d, Duty: u, Accumulator: a, Resumed: res, SaveStatus: s}
 }
 
 // The four optional fields, one reader each, returning false for anything this build cannot read.
