@@ -797,6 +797,32 @@ scenarios_queuelab_gpu_session() {
     SPOT_TERMINATE_TRIES=12 \
     STUB_PRESENT_KEYS="session.tgz commit.txt log.txt preflight.txt preflight-nodes.txt preflight-nvidia-smi.csv preflight-why.txt" \
     run_scenario terminate-accepted-but-still-running bash "$TARGET"
+
+  # AWS accepted the launch and the answer never came back.
+  #
+  # The expensive shape: the runner used to clear IID and try the next zone, so an instance it already owned
+  # kept billing while a second one was bought, and cleanup terminated the one id it had -- which was not the
+  # first. What the golden pins is that the same zone is retried under the same token, that no second zone is
+  # tried, and that anything the lost launch created is found by the token and terminated.
+  REQUIRE_CLEAN_TREE=0 STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 \
+    STUB_LAUNCH_ACCEPTED_BUT_SILENT_ZONES="ap-northeast-2a" STUB_SILENT_ZONE_RECOVERS_AFTER=2 \
+    run_scenario launch-accepted-but-answer-lost bash "$TARGET"
+
+  # The same, and the answer is lost every time.
+  #
+  # This is the half that costs money: the retries are exhausted, so the run must reconcile and stop rather
+  # than move on. Zero launches in the second zone is the assertion, and the run ends refused.
+  REQUIRE_CLEAN_TREE=0 STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 \
+    STUB_LAUNCH_ACCEPTED_BUT_SILENT_ZONES="ap-northeast-2a ap-northeast-2c" \
+    run_scenario launch-answer-lost-every-time bash "$TARGET"
+
+  # Refused as a duplicate of an earlier request under the same token, with that request's instance there to
+  # be found. AWS answers IdempotentParameterMismatch only after a request under this token SUCCEEDED, so it
+  # is evidence an instance exists: one token-scoped describe, one terminate, and no second zone.
+  REQUIRE_CLEAN_TREE=0 STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 \
+    STUB_LAUNCH_FAIL_ZONES="ap-northeast-2a" STUB_LAUNCH_FAILURE=idempotent-mismatch \
+    STUB_MISMATCH_LEAVES_INSTANCE=1 \
+    run_scenario launch-refused-as-a-duplicate-token bash "$TARGET"
 }
 
 # The cleanup trap must be armed BEFORE anything can launch an instance.

@@ -10,25 +10,11 @@ aws ec2 describe-instance-type-offerings --region ap-northeast-2 --location-type
 aws ec2 describe-subnets --region ap-northeast-2 --filters Name=default-for-az,Values=true Name=map-public-ip-on-launch,Values=true Name=availability-zone,Values=ap-northeast-2a --query Subnets[0].SubnetId --output text
 aws ec2 run-instances --region ap-northeast-2 --image-id ami-0stubgpu --instance-type g5.12xlarge --subnet-id subnet-ap-northeast-2a --iam-instance-profile Name=queuelab-gpu --instance-initiated-shutdown-behavior terminate --block-device-mappings [{"DeviceName":"/dev/sda1","Ebs":{"VolumeSize":300,"VolumeType":"gp3","DeleteOnTermination":true}}] --instance-market-options {"MarketType":"spot","SpotOptions":{"MaxPrice":"3.90","SpotInstanceType":"one-time"}} --user-data file://<USERDATA> --tag-specifications ResourceType=instance,Tags=[{Key=Name,Value=queuelab-gpu},{Key=purpose,Value=queuelab-device-observation}] --client-token <RUN>-ap-northeast-2a --query Instances[0].InstanceId --output text
 user-data: matches the copy saved in the run directory
-aws s3api head-object --bucket stub-bucket --key run/DONE
-aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0stub --cli-connect-timeout 5 --cli-read-timeout 10 --query Reservations[0].Instances[0].State.Name --output text
-sleep 30
-aws s3api head-object --bucket stub-bucket --key run/DONE
-aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0stub --cli-connect-timeout 5 --cli-read-timeout 10 --query Reservations[0].Instances[0].State.Name --output text
-aws s3 cp s3://stub-bucket/run/session.tgz <OUT>/session.tgz
-aws s3 cp s3://stub-bucket/run/commit.txt <OUT>/commit.txt
-aws s3 cp s3://stub-bucket/run/log.txt <OUT>/log.txt
-aws s3 cp s3://stub-bucket/run/preflight.txt <OUT>/preflight.txt
-aws s3 cp s3://stub-bucket/run/preflight-nodes.txt <OUT>/preflight-nodes.txt
-aws s3 cp s3://stub-bucket/run/preflight-nvidia-smi.csv <OUT>/preflight-nvidia-smi.csv
-aws s3 cp s3://stub-bucket/run/preflight-why.txt <OUT>/preflight-why.txt
-aws s3 cp s3://stub-bucket/run/device-util.tsv.gz <OUT>/device-util.tsv.gz
-aws s3 cp s3://stub-bucket/run/device-scrape-first.txt <OUT>/device-scrape-first.txt
-aws s3 cp s3://stub-bucket/run/device-scrape-last.txt <OUT>/device-scrape-last.txt
-aws s3 cp --recursive s3://stub-bucket/run/runs <OUT>/runs
-recursive: 2 object(s) from stub-bucket/run/runs
-aws ec2 terminate-instances --region ap-northeast-2 --instance-ids i-0stub
-aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0stub --cli-connect-timeout 5 --cli-read-timeout 10 --query Reservations[0].Instances[0].State.Name --output text
+--- the 2 line(s) above repeat 3 times ---
+aws ec2 describe-instances --region ap-northeast-2 --filters Name=client-token,Values=queuelab-<RUN>-ap-northeast-2a Name=subnet-id,Values=subnet-ap-northeast-2a Name=instance-state-name,Values=pending,running,stopping,stopped --cli-connect-timeout 5 --cli-read-timeout 10 --query Reservations[].Instances[].InstanceId --output text
+filtered describe: 1 instance(s) matched the filter
+aws ec2 terminate-instances --region ap-northeast-2 --instance-ids i-0orphan
+aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0orphan --cli-connect-timeout 5 --cli-read-timeout 10 --query Reservations[0].Instances[0].State.Name --output text
 queuelabrun checksum: user-data matches the uploaded binary
 --- exit 1
 --- messages
@@ -42,20 +28,16 @@ queuelabrun checksum: user-data matches the uploaded binary
 == user-data: 16560 of 25600 encoded bytes
 == launching g5.12xlarge spot (max $3.90/h)
 == trying ap-northeast-2a (subnet-ap-northeast-2a)
-== instance i-0stub
-== waiting for results (driver, cluster, operator and four preflight checks come first)
-== instance ended before writing DONE
-== records recovered before the end: 2
-== terminating i-0stub
-== i-0stub is terminated
-FAIL: the instance was terminated before it wrote its completion marker; 2 record(s) were recovered and <OUT>/log.txt is whatever it managed to upload
+== the launch in ap-northeast-2a gave no answer this script can classify; retrying the same zone with the same token
+== the launch in ap-northeast-2a gave no answer this script can classify; retrying the same zone with the same token
+== reconciling the launch token <TOKEN>-ap-northeast-2a: asking AWS what it actually created
+== the lost launch created i-0orphan; terminating it
+== terminating i-0orphan
+== i-0orphan is terminated
+FAIL: a launch in ap-northeast-2a gave no classifiable answer after 3 attempts; anything it created has been terminated. Re-run when the API is answering. See <OUT>/launch-errors.txt
 --- files
-./instance-id
 ./launch-errors.txt
-./log.txt
 ./queuelabrun
-./runs/gpu-grace-bounded-A-honor-gh1.json
-./runs/gpu-grace-bounded-A-ignore-gi1.json
 ./source.tgz
 ./termination.txt
 ./user-data.sh
