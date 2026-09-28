@@ -281,6 +281,61 @@ spot_terminate() {
 }
 
 # spot_instance_state echoes an instance's state, or "unknown".
+# spot_reconcile_token asks AWS what a launch whose answer was lost actually created, and terminates it.
+#
+# This is the one recovery path that can act on an instance the caller never received an id for. It moved here
+# from hack/m5c-gpu-session.sh, where it was deliberately kept local while it was unproven; four runners need
+# it now, and four copies of termination-sensitive filtering are more dangerous than one implementation. What
+# stays with each caller is every policy decision: generating the token, holding the uncertain-token state,
+# classifying an error, and arming the traps. This function decides nothing -- it answers one question about
+# one token.
+#
+# THE TOKEN IS THE AUTHORITY, AND NOTHING ELSE IS. A client token names one launch attempt. A tag does not:
+# a run nonce is short, is often overridable from the environment, and a nonce-wide sweep can terminate an
+# instance belonging to a session still running. So the query filters on the token alone and never falls back
+# to tags, to a name, or to an unfiltered describe. A caller that has no token has nothing this function can
+# safely act on.
+#
+# An empty token is therefore a REFUSAL, not a no-op. The version in m5c returned success on one, which is
+# the shape this repository has been bitten by most: a guard that cannot answer, passing. With four callers
+# the same silence would mean "reconciled" to whichever one forgot to pass the token.
+#
+# EC2 reads are eventually consistent, so an empty answer is polled rather than believed at once, and an
+# answer that is still empty at the end is reported as unresolved -- not as "nothing was created".
+#
+# Diagnostics go to stderr because stdout is reserved for return data everywhere in this file; this function
+# returns none, and a caller capturing it must still get nothing.
+spot_reconcile_token() {
+  local region="$1" token="$2" tries="$3" i found="" iid rc=0
+  [ -n "$token" ] || {
+    printf 'spot_reconcile_token was called with no token, so it cannot say what a lost launch created. Refusing rather than reporting success.\n' >&2
+    return 1
+  }
+  spot_say "reconciling the launch token $token: asking AWS what it actually created"
+  for (( i = 1; i <= tries; i++ )); do
+    found=$(aws ec2 describe-instances --region "$region" \
+      --filters "Name=client-token,Values=$token" \
+                "Name=instance-state-name,Values=pending,running,stopping,stopped" \
+      --cli-connect-timeout 5 --cli-read-timeout 10 \
+      --query 'Reservations[].Instances[].InstanceId' --output text 2>/dev/null) || found=""
+    [ -n "$found" ] && [ "$found" != "None" ] && break
+    found=""
+    sleep $(( i < 4 ? i : 4 ))
+  done
+  if [ -z "$found" ]; then
+    # Not the same sentence as "nothing was created". The read may have failed, and saying otherwise would
+    # be the reassurance this whole path exists to refuse.
+    printf 'LAUNCH UNRESOLVED for token %s: %d reads found no instance, which is not proof that none exists. Check by hand:\n  aws ec2 describe-instances --region %s --filters "Name=client-token,Values=%s"\n' \
+      "$token" "$tries" "$region" "$token" >&2
+    return 1
+  fi
+  for iid in $found; do
+    spot_say "the lost launch created $iid; terminating it"
+    spot_terminate "$region" "$iid" || rc=1
+  done
+  return "$rc"
+}
+
 spot_instance_state() {
   local region="$1" instance_id="$2"
   # Per-call timeouts, because a loop deadline does not bound a call that never returns.

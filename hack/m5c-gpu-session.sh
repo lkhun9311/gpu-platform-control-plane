@@ -137,7 +137,7 @@ RUN_ID="$(basename "$OUT")-$RUN_NONCE"
 # The comment above the run tag says RUN_NONCE must never be given deletion authority, because it is 32 bits
 # with a clock fallback and is overridable from the environment. The client token was then built as
 # "m5c-$RUN_NONCE-$z" -- a prefix and a zone add no entropy, so the forbidden value held that authority
-# anyway. Two sessions sharing a nonce and a zone shared the selector that reconcile_launch_token terminates
+# anyway. Two sessions sharing a nonce and a zone shared the selector that spot_reconcile_token terminates
 # by, and `RUN_NONCE=x` on the command line was enough to arrange it.
 #
 # So: 128 bits, no clock fallback, and no `${LAUNCH_IDENTITY:-}` -- an identity a caller can choose is not an
@@ -804,47 +804,13 @@ TAGS="ResourceType=instance,Tags=[{Key=Name,Value=$STACK},{Key=purpose,Value=m5c
 # never received. AWS is the journal; this is the key to query it with.
 LAUNCH_UNCERTAIN=""
 
-# reconcile_launch_token terminates anything AWS launched under a token whose answer was lost.
+# The reconciler this runner proved now lives in hack/lib/spot-run.sh as spot_reconcile_token, because
+# three more paid runners need it and a second copy of termination-sensitive filtering is the risk, not
+# the sharing. Every policy decision stays here: the token, the uncertain-token state, the classification
+# of an error, and the traps. The library answers one question about one token and decides nothing.
 #
-# Deliberately local to this runner rather than added to hack/lib/spot-run.sh, and the duplication is the
-# point: spot_terminate is shared by four paid runners, and widening its contract would spread an unproven
-# recovery path across all of them at once. This is proven on one runner first. When it moves to the library
-# -- if it does -- this function is what gets deleted.
-#
-# The token, not the run tag, decides what may be terminated. A tag is a label: RUN_NONCE is 32 bits with a
-# seconds-based fallback, so two sessions started in the same second can share one, and a nonce-wide sweep
-# could terminate somebody else's instance. A client token names ONE launch attempt, and because the script
-# never advances past an unresolved one there is at most a single uncertain token at a time.
-#
-# EC2 reads are eventually consistent, so an empty answer is polled rather than believed at once.
-reconcile_launch_token() {
-  local token="$1" tries="${RECONCILE_TRIES:-6}" i found="" iid
-  [ -n "$token" ] || return 0
-  say "reconciling the launch token $token: asking AWS what it actually created"
-  for (( i = 1; i <= tries; i++ )); do
-    found=$(aws ec2 describe-instances --region "$REGION" \
-      --filters "Name=client-token,Values=$token" \
-                "Name=instance-state-name,Values=pending,running,stopping,stopped" \
-      --cli-connect-timeout 5 --cli-read-timeout 10 \
-      --query 'Reservations[].Instances[].InstanceId' --output text 2>/dev/null) || found=""
-    [ -n "$found" ] && [ "$found" != "None" ] && break
-    found=""
-    sleep $(( i < 4 ? i : 4 ))
-  done
-  if [ -z "$found" ]; then
-    # Not the same sentence as "nothing was created". The read may have failed, and saying otherwise would
-    # be the reassurance this whole path exists to refuse.
-    printf 'LAUNCH UNRESOLVED for token %s: %d reads found no instance, which is not proof that none exists. Check by hand:\n  aws ec2 describe-instances --region %s --filters "Name=client-token,Values=%s"\n' \
-      "$token" "$tries" "$REGION" "$token" >&2
-    return 1
-  fi
-  local rc=0
-  for iid in $found; do
-    say "the lost launch created $iid; terminating it"
-    spot_terminate "$REGION" "$iid" || rc=1
-  done
-  return "$rc"
-}
+# The tries count is passed explicitly rather than read from an environment default, which is the rule the
+# library header states: a default every caller overrides is dead code that looks like a safety net.
 
 cleanup_ran=0
 cleanup() {
@@ -862,7 +828,7 @@ cleanup() {
   # `<none>` and exit 0 while an instance AWS accepted goes on billing. Resolving the token first is what
   # turns that into either a termination or a named, actionable refusal.
   if [ -n "$LAUNCH_UNCERTAIN" ]; then
-    reconcile_launch_token "$LAUNCH_UNCERTAIN" || {
+    spot_reconcile_token "$REGION" "$LAUNCH_UNCERTAIN" 6 || {
       printf 'TERMINATION UNCONFIRMED for the launch under token %s -- check the console before the next paid run\n' \
         "$LAUNCH_UNCERTAIN" >"${OUT:-.}/termination.txt" 2>/dev/null || true
       exit 1
@@ -957,7 +923,7 @@ for z in $ZONES; do
       # Cleared before the outcome is judged, for the reason spelled out at the end of this loop: `fail`
       # re-enters cleanup, which would otherwise reconcile the same token a second time.
       LAUNCH_UNCERTAIN=""
-      reconcile_launch_token "$LAUNCH_TOKEN" \
+      spot_reconcile_token "$REGION" "$LAUNCH_TOKEN" 6 \
         || fail "a launch in $z was refused as a duplicate of an earlier request under the same token, so an instance exists, and AWS could not be asked which one. Nothing further is launched. See $OUT/launch-errors.txt"
       fail "a launch in $z was refused as a duplicate of an earlier request under the same token; whatever that earlier request created has been terminated. See $OUT/launch-errors.txt"
     fi
@@ -983,7 +949,7 @@ for z in $ZONES; do
     # of DescribeInstances and terminate calls, and the same refusal printed twice -- because the first
     # attempt had not yet recorded that it had happened.
     LAUNCH_UNCERTAIN=""
-    reconcile_launch_token "$LAUNCH_TOKEN" \
+    spot_reconcile_token "$REGION" "$LAUNCH_TOKEN" 6 \
       || fail "a launch in $z was neither confirmed nor refused, and AWS could not be asked what it created. Nothing further is launched, because a second zone would risk a second instance. See $OUT/launch-errors.txt"
     fail "a launch in $z gave no classifiable answer after $attempt attempts; anything it created has been terminated. Re-run when the API is answering. See $OUT/launch-errors.txt"
   done
