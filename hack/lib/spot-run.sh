@@ -306,15 +306,25 @@ spot_terminate() {
 # Diagnostics go to stderr because stdout is reserved for return data everywhere in this file; this function
 # returns none, and a caller capturing it must still get nothing.
 spot_reconcile_token() {
-  local region="$1" token="$2" tries="$3" i found="" iid rc=0
+  local region="$1" token="$2" subnet="$3" tries="$4" i found="" iid rc=0
   [ -n "$token" ] || {
     printf 'spot_reconcile_token was called with no token, so it cannot say what a lost launch created. Refusing rather than reporting success.\n' >&2
+    return 1
+  }
+  # The subnet is required for the same reason the token is: it is what makes the query zonal.
+  #
+  # EC2 applies client-token idempotency within the zone the subnet pins, so a token query with no subnet asks
+  # a region-wide question and can match an instance in a zone this caller never launched into. An argument
+  # that is missing must not widen the search -- it must stop it.
+  [ -n "$subnet" ] || {
+    printf 'spot_reconcile_token was called with no subnet, so its token query would be region-wide. Refusing rather than searching wider than the launch.\n' >&2
     return 1
   }
   spot_say "reconciling the launch token $token: asking AWS what it actually created"
   for (( i = 1; i <= tries; i++ )); do
     found=$(aws ec2 describe-instances --region "$region" \
       --filters "Name=client-token,Values=$token" \
+                "Name=subnet-id,Values=$subnet" \
                 "Name=instance-state-name,Values=pending,running,stopping,stopped" \
       --cli-connect-timeout 5 --cli-read-timeout 10 \
       --query 'Reservations[].Instances[].InstanceId' --output text 2>/dev/null) || found=""
@@ -325,8 +335,8 @@ spot_reconcile_token() {
   if [ -z "$found" ]; then
     # Not the same sentence as "nothing was created". The read may have failed, and saying otherwise would
     # be the reassurance this whole path exists to refuse.
-    printf 'LAUNCH UNRESOLVED for token %s: %d reads found no instance, which is not proof that none exists. Check by hand:\n  aws ec2 describe-instances --region %s --filters "Name=client-token,Values=%s"\n' \
-      "$token" "$tries" "$region" "$token" >&2
+    printf 'LAUNCH UNRESOLVED for token %s: %d reads found no instance, which is not proof that none exists. Check by hand:\n  aws ec2 describe-instances --region %s --filters "Name=client-token,Values=%s" "Name=subnet-id,Values=%s"\n' \
+      "$token" "$tries" "$region" "$token" "$subnet" >&2
     return 1
   fi
   for iid in $found; do

@@ -228,6 +228,15 @@ case "$svc $op" in
       orphan="${STUB_ORPHAN_INSTANCE_ID:-i-0orphan}"
       printf '%s\n' "$orphan" >> "$state/accepted-instances"
       [ -n "$token" ] && printf '%s\t%s\n' "$token" "$orphan" >> "$state/token-instances"
+      # STUB_SECOND_ORPHAN_ID puts a SECOND instance under the same token.
+      #
+      # Not a shape AWS produces from one accepted request, and that is the point: the reconciler loops over
+      # every id the filter returns, and with one row that loop is indistinguishable from code that terminates
+      # only the first. An invariant nothing can violate is an invariant nothing tests.
+      if [ -n "${STUB_SECOND_ORPHAN_ID:-}" ] && [ -n "$token" ]; then
+        printf '%s\n' "$STUB_SECOND_ORPHAN_ID" >> "$state/accepted-instances"
+        printf '%s\t%s\n' "$token" "$STUB_SECOND_ORPHAN_ID" >> "$state/token-instances"
+      fi
       printf 'launch accepted in %s but the response was lost\n' "$az" >&2
       exit 254
     fi
@@ -296,7 +305,21 @@ case "$svc $op" in
     #
     # Kept separate rather than folded in so the goldens recorded against --instance-ids cannot move: no
     # existing scenario passes --filters, so no existing transcript enters this branch.
-    filters=$(arg_after --filters "$@" || true)
+    # EVERY value after --filters, not just the first.
+    #
+    # arg_after returns one argument, and the caller passes several: the token, the state list, and now the
+    # subnet. Checking only the first meant the stub could not see the narrowing filters at all, so a query
+    # that sent them and one that did not were indistinguishable -- a stub that cannot tell the fix from the
+    # defect, which is the reason this file exists.
+    filters=""
+    collecting=0
+    for a in "$@"; do
+      case "$a" in
+        --filters) collecting=1; continue ;;
+        --*) collecting=0 ;;
+      esac
+      [ "$collecting" = "1" ] && filters="$filters $a"
+    done
     if [ -n "$filters" ]; then
       bump describe-instances-filtered >/dev/null
       # The filter's CONTENTS decide the answer, not its presence.
@@ -312,7 +335,20 @@ case "$svc $op" in
       if [ -f "$state/token-instances" ]; then
         while IFS="$(printf '\t')" read -r tok iid; do
           [ -n "$tok" ] && [ -n "$iid" ] || continue
-          case "$filters" in *"$tok"*) ;; *) continue ;; esac
+          # The token AND the zonal boundary must both be named, and the state list must be there too.
+          #
+          # A substring match on the token alone accepted a query that asked about the whole region, which is
+          # the query this recovery path must never make: the token is the authority, and the subnet is what
+          # makes EC2's idempotency zonal, so a reconcile that omits it can match an instance in a zone the
+          # caller never launched into. Requiring it here is what makes the narrowed filter observable.
+          case "$filters" in *"Name=client-token,Values=$tok"*) ;; *) continue ;; esac
+          case "$filters" in *Name=instance-state-name,Values=*) ;; *) continue ;; esac
+          if [ "${STUB_REQUIRE_SUBNET_FILTER:-1}" = "1" ]; then
+            case "$filters" in
+              *Name=subnet-id,Values=*) ;;
+              *) printf 'filtered describe: REFUSED, no subnet filter -- a region-wide token query\n' >> "$STUB_TRANSCRIPT"; exit 0 ;;
+            esac
+          fi
           # An instance the runner already terminated is not an orphan.
           grep -qx "$iid" "$state/terminated-instances" 2>/dev/null && continue
           printf '%s\n' "$iid"
