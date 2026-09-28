@@ -8,16 +8,10 @@ aws ec2 describe-instance-type-offerings --region ap-northeast-2 --location-type
 aws ec2 describe-subnets --region ap-northeast-2 --filters Name=default-for-az,Values=true Name=map-public-ip-on-launch,Values=true Name=availability-zone,Values=ap-northeast-2a --query Subnets[0].SubnetId --output text
 aws ec2 run-instances --region ap-northeast-2 --image-id ami-0stubgpu --instance-type g5.xlarge --subnet-id subnet-ap-northeast-2a --iam-instance-profile Name=m5b-pop --instance-initiated-shutdown-behavior terminate --block-device-mappings [{"DeviceName":"/dev/sda1","Ebs":{"VolumeSize":200,"VolumeType":"gp3","DeleteOnTermination":true}}] --instance-market-options {"MarketType":"spot","SpotOptions":{"MaxPrice":"0.80","SpotInstanceType":"one-time"}} --user-data file://<USERDATA> --tag-specifications ResourceType=instance,Tags=[{Key=Name,Value=m5b-pop},{Key=purpose,Value=price-of-protection}] --client-token <RUN>-ap-northeast-2a --query Instances[0].InstanceId --output text
 user-data: matches the copy saved in the run directory
-aws s3api head-object --bucket stub-bucket --key run/DONE
-aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0stub --cli-connect-timeout 5 --cli-read-timeout 10 --query Reservations[0].Instances[0].State.Name --output text
-sleep 30
---- the 3 line(s) above repeat 250 times ---
-aws s3 cp s3://stub-bucket/run/evidence.tgz <OUT>/evidence.tgz
-aws s3 cp s3://stub-bucket/run/run.json <OUT>/run.json
-aws s3 cp s3://stub-bucket/run/log.txt <OUT>/log.txt
-aws s3 cp s3://stub-bucket/run/stderr.txt <OUT>/stderr.txt
-aws ec2 terminate-instances --region ap-northeast-2 --instance-ids i-0stub
-aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0stub --cli-connect-timeout 5 --cli-read-timeout 10 --query Reservations[0].Instances[0].State.Name --output text
+aws ec2 describe-instances --region ap-northeast-2 --filters Name=client-token,Values=pop-<RUN>-ap-northeast-2a Name=subnet-id,Values=subnet-ap-northeast-2a Name=instance-state-name,Values=pending,running,stopping,stopped --cli-connect-timeout 5 --cli-read-timeout 10 --query Reservations[].Instances[].InstanceId --output text
+filtered describe: 1 instance(s) matched the filter
+aws ec2 terminate-instances --region ap-northeast-2 --instance-ids i-0dup
+aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0dup --cli-connect-timeout 5 --cli-read-timeout 10 --query Reservations[0].Instances[0].State.Name --output text
 harness checksum: user-data matches the uploaded binary
 --- exit 1
 --- messages
@@ -33,17 +27,14 @@ harness checksum: user-data matches the uploaded binary
 == g5.xlarge is offered in: ap-northeast-2a ap-northeast-2c
 == launching g5.xlarge spot (max $0.80/h)
 == trying ap-northeast-2a (subnet-ap-northeast-2a)
-== instance i-0stub
-== waiting for results (the engine has an image and weights to pull first)
-== watching for up to 125 min against a 120 min backstop
-== terminating i-0stub
-== i-0stub is terminated
-FAIL: no completion marker after 160 polls; the run either is still going or hung, and i-0stub has been terminated
+== reconciling the launch token <TOKEN>-ap-northeast-2a: asking AWS what it actually created
+== the lost launch created i-0dup; terminating it
+== terminating i-0dup
+== i-0dup is terminated
+FAIL: a launch in ap-northeast-2a was refused as a duplicate of an earlier request under the same token; whatever that earlier request created has been terminated. See <OUT>/launch-errors.txt
 --- files
 ./benchharness
-./instance-id
 ./launch-errors.txt
-./log.txt
 ./pop.py
 ./termination.txt
 ./user-data.sh
