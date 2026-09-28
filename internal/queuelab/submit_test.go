@@ -707,16 +707,27 @@ func TestAnImpossibleDutyIsRefusedRatherThanClamped(t *testing.T) {
 	}
 }
 
-// TestTheDeclaredDutyIsRecoverableFromTheWorkloadItself runs the embedded script and measures it.
+// TestTheDeclaredDutyIsRecoverableFromTheWorkloadItself runs the embedded script and guards its counts.
 //
 // The knob is only worth having if it changes what the workload does, and the two tests above check the
-// spelling rather than the behaviour: a script that read the argument and ignored it would pass both. This
-// runs the real embedded source on the CPU fallback path -- no GPU, no container -- and checks that halving
-// the duty roughly halves the work done in the same wall time.
+// spelling rather than the behaviour: a script that read the argument and ignored it would pass both. This runs
+// the real embedded source and compares the iteration counts it reports at three duties.
 //
-// The tolerance is wide on purpose. A CPU iteration here is about a millisecond and the idle phase is a whole
-// second, so the boundary between them quantises; what is being checked is that the duty is the thing
-// deciding, not that it is exact.
+// WHAT IT IS NOT. It does not check that halving the duty halves the work, and it cannot: the three counts come
+// from three separate runs whose iterations per second differ, because the run that never rests is throttled
+// and descheduled more than the one that rests half the time. This is an operational regression guard on
+// reported counts, not a measurement of idle time. Its device-path counterpart carries the same caveat and the
+// same integer cutoff.
+//
+// NOR IS IT A CPU-PATH TEST, whatever the fallback in its name once suggested. It inherits the ambient
+// environment and reads only `iters=`, so on a host carrying libcuda.so.1 the workload takes the DEVICE path
+// and this measures that instead. Nothing here forces or verifies the fallback; the device path has its own
+// test, which does verify the path it names.
+//
+// Observed discrimination: with the workload's `time.sleep` replaced by `pass` -- a workload that reads the duty
+// and discards it -- the margin here failed in each of two runs on this host, the half/full ratio landing at
+// 0.85 and then 1.07. The spread between those two is the point: the counts are not a figure to compare
+// against, and the ordering check failed in one of the runs and passed in the other.
 func TestTheDeclaredDutyIsRecoverableFromTheWorkloadItself(t *testing.T) {
 	python, err := exec.LookPath("python3")
 	if err != nil {
@@ -743,23 +754,25 @@ func TestTheDeclaredDutyIsRecoverableFromTheWorkloadItself(t *testing.T) {
 		return n
 	}
 
-	// Ordered rather than measured against a target ratio, for the reason the device-path version of this
-	// records: iterations per second is not constant between a run that never rests and one that rests half
-	// the time, so a ratio drifts for reasons the knob has nothing to do with. An ignored argument produces
-	// three roughly equal counts, and that is what this has to exclude.
+	// Ordering plus a margin, for the reason the device-path version records: iterations per second is not
+	// constant between a run that never rests and one that rests half the time, so a ratio drifts for reasons
+	// the knob has nothing to do with. An ignored argument produces three counts close together, which this has
+	// been observed to reject rather than being guaranteed to.
 	full := iters("1")
 	half := iters("0.5")
 	quarter := iters("0.25")
 	if full == 0 {
 		t.Fatal("the workload did nothing at full duty, so nothing below means anything")
 	}
-	if half >= full*4/5 {
-		t.Errorf("half duty did %d iterations against %d at full duty; the declared duty is not what decides "+
-			"how much work happens", half, full)
+	// full*4/5 truncates, so the cutoff is an integer rather than exactly 0.8 of full, and the message reports
+	// the integer the code actually compares against.
+	if cutoff := full * 4 / 5; half >= cutoff {
+		t.Errorf("half/full reported-iteration ratio = %.4f (half=%d, full=%d); this guard requires half < %d",
+			float64(half)/float64(full), half, full, cutoff)
 	}
 	if quarter >= half {
-		t.Errorf("quarter duty did %d iterations and half duty %d; the declared duty does not order them",
-			quarter, half)
+		t.Errorf("reported iterations are not ordered by declared duty: quarter=%d, half=%d, full=%d",
+			quarter, half, full)
 	}
 }
 
