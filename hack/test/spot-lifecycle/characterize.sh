@@ -230,7 +230,9 @@ run_scenario() {
   sed -e "s#$out#<OUT>#g" \
       -e "s#run-[0-9a-f]\{8\}#run-<NONCE>#g" \
       -e "s#this launch's nonce is '[0-9a-f]\{8\}'#this launch's nonce is '<NONCE>'#g" \
-      -e "s#reconciling the launch token [A-Za-z0-9]*-[0-9a-f]\{8\}-#reconciling the launch token <TOKEN>-#g" \
+      -e "s#reconciling the launch token [A-Za-z0-9]*-[0-9a-f]\{8,\}-#reconciling the launch token <TOKEN>-#g" \
+      -e "s#UNRESOLVED for token [A-Za-z0-9]*-[0-9a-f]\{8,\}-#UNRESOLVED for token <TOKEN>-#g" \
+      -e "s#Values=\([A-Za-z0-9]*\)-[0-9a-f]\{8,\}-#Values=\1-<RUN>-#g" \
       -e "s#${TMPDIR:-/tmp}/tmp\.[A-Za-z0-9]*#<TMP>#g" \
       -e "s#/tmp/tmp\.[A-Za-z0-9]*#<TMP>#g" \
       -e "s#harness sha256 [0-9a-f]\{64\}#harness sha256 <SHA256>#g" \

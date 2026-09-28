@@ -130,6 +130,23 @@ RUN_NONCE="${RUN_NONCE:-$(openssl rand -hex 4 2>/dev/null \
   || date +%s | tail -c 9)}"
 [ -n "$RUN_NONCE" ] || RUN_NONCE=$(date +%s | tail -c 9)
 RUN_ID="$(basename "$OUT")-$RUN_NONCE"
+
+# LAUNCH_IDENTITY is a SECOND random value, and the split is the point: RUN_NONCE labels records, this one
+# decides what may be terminated.
+#
+# The comment above the run tag says RUN_NONCE must never be given deletion authority, because it is 32 bits
+# with a clock fallback and is overridable from the environment. The client token was then built as
+# "m5c-$RUN_NONCE-$z" -- a prefix and a zone add no entropy, so the forbidden value held that authority
+# anyway. Two sessions sharing a nonce and a zone shared the selector that reconcile_launch_token terminates
+# by, and `RUN_NONCE=x` on the command line was enough to arrange it.
+#
+# So: 128 bits, no clock fallback, and no `${LAUNCH_IDENTITY:-}` -- an identity a caller can choose is not an
+# identity. Unlike the nonce this one MAY stop a launch, which is the correct trade: a run that cannot name
+# what it created must not create anything. Nothing reads it but the token.
+LAUNCH_IDENTITY=$(openssl rand -hex 16 2>/dev/null \
+  || head -c16 /dev/urandom 2>/dev/null | od -An -tx1 | tr -d ' \n')
+[ "${#LAUNCH_IDENTITY}" -eq 32 ] \
+  || fail "no source of 128 random bits (openssl and /dev/urandom both refused), so a launch could not be named well enough to be recovered. Nothing was launched."
 mkdir -p "$OUT"
 
 say "study  M5-c sharing matrix -- does giving each tenant its own engine on a shared card protect the tail"
@@ -884,7 +901,11 @@ for z in $ZONES; do
   # One token per (run, zone), so a retry in the same zone is idempotent while a deliberate move to another
   # zone is a genuinely new request. EC2's idempotency is zonal because the subnet pins the zone, so a single
   # token across zones would be neither one thing nor the other.
-  LAUNCH_TOKEN="m5c-$RUN_NONCE-$z"
+  #
+  # Built from LAUNCH_IDENTITY, not RUN_NONCE: this string is what decides which instance gets terminated.
+  # EC2 caps a client token at 64 ASCII characters, and this is 52 -- "m5c-" plus 32 hex plus "-" plus a zone
+  # name of 15 -- so a longer region name still fits.
+  LAUNCH_TOKEN="m5c-$LAUNCH_IDENTITY-$z"
   # Only a refusal that names a ZONE's shortage may move to another zone.
   #
   # The classification is a whitelist, not a denylist, and the direction matters: an unrecognised error read
