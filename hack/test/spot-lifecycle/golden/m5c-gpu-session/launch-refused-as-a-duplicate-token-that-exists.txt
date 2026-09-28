@@ -1,0 +1,49 @@
+aws sts get-caller-identity --query Account --output text
+aws configure export-credentials --format process
+aws s3api head-bucket --bucket stub-bucket
+aws iam get-instance-profile --instance-profile-name m5c-gpu
+aws s3 cp <OUT>/source.tgz s3://stub-bucket/run-<NONCE>/src/source.tgz
+upload: <SIZE> bytes to stub-bucket/run-<NONCE>/src/source.tgz
+aws s3 cp <OUT>/gateway s3://stub-bucket/run-<NONCE>/bin/gateway
+upload: <SIZE> bytes to stub-bucket/run-<NONCE>/bin/gateway
+aws s3 cp <OUT>/benchharness s3://stub-bucket/run-<NONCE>/bin/benchharness
+upload: <SIZE> bytes to stub-bucket/run-<NONCE>/bin/benchharness
+aws ssm get-parameter --region ap-northeast-2 --name /aws/service/deeplearning/ami/x86_64/base-oss-nvidia-driver-gpu-ubuntu-22.04/latest/ami-id --query Parameter.Value --output text
+aws ec2 describe-instance-type-offerings --region ap-northeast-2 --location-type availability-zone --filters Name=instance-type,Values=g5.2xlarge --query InstanceTypeOfferings[].Location --output text
+aws ec2 describe-subnets --region ap-northeast-2 --filters Name=default-for-az,Values=true Name=map-public-ip-on-launch,Values=true Name=availability-zone,Values=ap-northeast-2a --query Subnets[0].SubnetId --output text
+aws ec2 run-instances --region ap-northeast-2 --image-id ami-0stubgpu --instance-type g5.2xlarge --subnet-id subnet-ap-northeast-2a --iam-instance-profile Name=m5c-gpu --instance-initiated-shutdown-behavior terminate --block-device-mappings [{"DeviceName":"/dev/sda1","Ebs":{"VolumeSize":200,"VolumeType":"gp3","DeleteOnTermination":true}}] --instance-market-options {"MarketType":"spot","SpotOptions":{"MaxPrice":"1.10","SpotInstanceType":"one-time"}} --user-data file://<USERDATA> --tag-specifications ResourceType=instance,Tags=[{Key=Name,Value=m5c-gpu},{Key=purpose,Value=m5c-sharing-matrix},{Key=run,Value=<NONCE>}] --client-token <RUN>-ap-northeast-2a --query Instances[0].InstanceId --output text
+user-data: matches the copy saved in the run directory
+aws ec2 describe-instances --region ap-northeast-2 --filters Name=client-token,Values=m5c-<RUN>-ap-northeast-2a Name=instance-state-name,Values=pending,running,stopping,stopped --cli-connect-timeout 5 --cli-read-timeout 10 --query Reservations[].Instances[].InstanceId --output text
+filtered describe: 1 instance(s) matched the filter
+aws ec2 terminate-instances --region ap-northeast-2 --instance-ids i-0dup
+aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0dup --cli-connect-timeout 5 --cli-read-timeout 10 --query Reservations[0].Instances[0].State.Name --output text
+harness checksum: user-data matches the uploaded binary
+gateway checksum: user-data matches the uploaded binary
+--- exit 1
+--- messages
+== study  M5-c sharing matrix -- does giving each tenant its own engine on a shared card protect the tail
+== arms   [R1 shared timeSlicing mps], 1 repetition(s) each
+== output <OUT>
+== load   rate 9.85/s, 420000ms, weights premium=1 noisy=0.054 probe=0
+==        (carried from the whole-card run; the pilot's job is to re-derive them for a half-card engine)
+== credentials expire in 719 min (asked of the active provider); this session needs about 78 plus 30 of headroom
+== source <COMMIT> <TREE STATE>
+== building the gateway and the harness for the instance, which has no Go
+==   gateway <SHA12>, benchharness <SHA12>
+== uploading the source and the binaries
+== g5.2xlarge is offered in: ap-northeast-2a ap-northeast-2c
+== user-data: 9180 of 25600 encoded bytes
+== launching g5.2xlarge spot (max $1.10/h)
+== trying ap-northeast-2a (subnet-ap-northeast-2a)
+== reconciling the launch token <TOKEN>-ap-northeast-2a: asking AWS what it actually created
+== the lost launch created i-0dup; terminating it
+== terminating i-0dup
+== i-0dup is terminated
+FAIL: a launch in ap-northeast-2a was refused as a duplicate of an earlier request under the same token; whatever that earlier request created has been terminated. See <OUT>/launch-errors.txt
+--- files
+./benchharness
+./gateway
+./launch-errors.txt
+./source.tgz
+./termination.txt
+./user-data.sh

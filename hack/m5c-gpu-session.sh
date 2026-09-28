@@ -130,6 +130,23 @@ RUN_NONCE="${RUN_NONCE:-$(openssl rand -hex 4 2>/dev/null \
   || date +%s | tail -c 9)}"
 [ -n "$RUN_NONCE" ] || RUN_NONCE=$(date +%s | tail -c 9)
 RUN_ID="$(basename "$OUT")-$RUN_NONCE"
+
+# LAUNCH_IDENTITY is a SECOND random value, and the split is the point: RUN_NONCE labels records, this one
+# decides what may be terminated.
+#
+# The comment above the run tag says RUN_NONCE must never be given deletion authority, because it is 32 bits
+# with a clock fallback and is overridable from the environment. The client token was then built as
+# "m5c-$RUN_NONCE-$z" -- a prefix and a zone add no entropy, so the forbidden value held that authority
+# anyway. Two sessions sharing a nonce and a zone shared the selector that reconcile_launch_token terminates
+# by, and `RUN_NONCE=x` on the command line was enough to arrange it.
+#
+# So: 128 bits, no clock fallback, and no `${LAUNCH_IDENTITY:-}` -- an identity a caller can choose is not an
+# identity. Unlike the nonce this one MAY stop a launch, which is the correct trade: a run that cannot name
+# what it created must not create anything. Nothing reads it but the token.
+LAUNCH_IDENTITY=$(openssl rand -hex 16 2>/dev/null \
+  || head -c16 /dev/urandom 2>/dev/null | od -An -tx1 | tr -d ' \n')
+[ "${#LAUNCH_IDENTITY}" -eq 32 ] \
+  || fail "no source of 128 random bits (openssl and /dev/urandom both refused), so a launch could not be named well enough to be recovered. Nothing was launched."
 mkdir -p "$OUT"
 
 say "study  M5-c sharing matrix -- does giving each tenant its own engine on a shared card protect the tail"
@@ -884,7 +901,11 @@ for z in $ZONES; do
   # One token per (run, zone), so a retry in the same zone is idempotent while a deliberate move to another
   # zone is a genuinely new request. EC2's idempotency is zonal because the subnet pins the zone, so a single
   # token across zones would be neither one thing nor the other.
-  LAUNCH_TOKEN="m5c-$RUN_NONCE-$z"
+  #
+  # Built from LAUNCH_IDENTITY, not RUN_NONCE: this string is what decides which instance gets terminated.
+  # EC2 caps a client token at 64 ASCII characters, and this is 52 -- "m5c-" plus 32 hex plus "-" plus a zone
+  # name of 15 -- so a longer region name still fits.
+  LAUNCH_TOKEN="m5c-$LAUNCH_IDENTITY-$z"
   # Only a refusal that names a ZONE's shortage may move to another zone.
   #
   # The classification is a whitelist, not a denylist, and the direction matters: an unrecognised error read
@@ -893,8 +914,13 @@ for z in $ZONES; do
   # mistake is the one that is not made.
   #
   # Capacity is the only zonal answer. An authorization denial, a validation error or a quota refusal is
-  # definitive AND not helped by another zone, so it stops the loop rather than walking it -- the refusal
-  # block below already reads launch-errors.txt and says which of the two it was.
+  # definitive AND not helped by another zone, so LAUNCH_DEFINITIVE stops the whole loop -- the refusal block
+  # below already reads launch-errors.txt and says which of the two it was.
+  #
+  # The flag exists because `break` leaves only the inner retry loop. Without it the outer `for z` ran on with
+  # IID empty and asked the next zone a question this one had already answered, while the comment here claimed
+  # it stopped: a policy denial was re-sent once per zone. Cheap in money, but it made the comment false.
+  LAUNCH_DEFINITIVE=""
   attempt=0
   # The per-attempt buffer lives outside $OUT on purpose.
   #
@@ -920,9 +946,25 @@ for z in $ZONES; do
       LAUNCH_UNCERTAIN=""            # AWS said it created nothing here; another zone is the right move
       break
     fi
-    if grep -qE 'UnauthorizedOperation|ValidationError|InvalidParameter|RequestLimitExceeded|InstanceLimitExceeded|IdempotentParameterMismatch' \
+    # IdempotentParameterMismatch is EVIDENCE AN INSTANCE EXISTS, and it used to sit in the definitive list
+    # below, where it cleared LAUNCH_UNCERTAIN and moved on.
+    #
+    # AWS returns it only when this token was already used by a request that SUCCEEDED, with parameters that
+    # differ from the ones just sent. So it is the opposite of "nothing was created": something was, under a
+    # token this run now knows. Reading it as a clean refusal walked away from a billing instance -- the same
+    # defect this loop was rewritten to close, through a door left open in the fix itself.
+    if grep -q 'IdempotentParameterMismatch' "$attempt_err" 2>/dev/null; then
+      # Cleared before the outcome is judged, for the reason spelled out at the end of this loop: `fail`
+      # re-enters cleanup, which would otherwise reconcile the same token a second time.
+      LAUNCH_UNCERTAIN=""
+      reconcile_launch_token "$LAUNCH_TOKEN" \
+        || fail "a launch in $z was refused as a duplicate of an earlier request under the same token, so an instance exists, and AWS could not be asked which one. Nothing further is launched. See $OUT/launch-errors.txt"
+      fail "a launch in $z was refused as a duplicate of an earlier request under the same token; whatever that earlier request created has been terminated. See $OUT/launch-errors.txt"
+    fi
+    if grep -qE 'UnauthorizedOperation|ValidationError|InvalidParameter|RequestLimitExceeded|InstanceLimitExceeded' \
          "$attempt_err" 2>/dev/null; then
-      LAUNCH_UNCERTAIN=""            # definitive, and another zone would answer the same way
+      LAUNCH_UNCERTAIN=""            # AWS refused before creating anything
+      LAUNCH_DEFINITIVE=1            # and no other zone would answer differently
       break
     fi
 
@@ -947,6 +989,7 @@ for z in $ZONES; do
   done
   rm -f "$attempt_err"
   [ -n "$IID" ] && break
+  [ -n "$LAUNCH_DEFINITIVE" ] && break
 done
 # The buffer is also removed on the paths that leave this loop by exiting -- `fail` inside it, or a signal --
 # because /tmp here is tmpfs, so a leaked file is memory rather than disk. cleanup runs on all of them.
