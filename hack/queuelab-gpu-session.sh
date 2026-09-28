@@ -85,6 +85,20 @@ ACCOUNT=$(spot_account) || fail "not authenticated"
 BUCKET="${BUCKET:-$STACK-$ACCOUNT}"
 RUN_ID="$(basename "$OUT")"
 
+# LAUNCH_IDENTITY names ONE launch attempt, and it is the only thing allowed to decide what gets terminated.
+#
+# This runner had no per-run random value at all: RUN_ID is the output directory's basename, a timestamp to
+# the second that OUT can override. A launch whose answer was lost has to be findable afterwards, and a
+# selector two concurrent runs can share is a selector that can terminate somebody else's instance. So the
+# token is built from 128 fresh bits rather than from anything a caller or a clock supplies.
+#
+# Unlike the run id this MAY stop the session: a run that cannot name what it created must not create
+# anything. No ${LAUNCH_IDENTITY:-} default, because an identity a caller can choose is not an identity.
+LAUNCH_IDENTITY=$(openssl rand -hex 16 2>/dev/null \
+  || head -c16 /dev/urandom 2>/dev/null | od -An -tx1 | tr -d ' \n')
+[ "${#LAUNCH_IDENTITY}" -eq 32 ] \
+  || fail "no source of 128 random bits (openssl and /dev/urandom both refused), so a launch could not be named well enough to be recovered. Nothing was launched."
+
 mkdir -p "$OUT"
 # The banner names the study, because a session that says "reclaim" while running the idling arms would put
 # the wrong sentence at the top of the only log a reader keeps.
