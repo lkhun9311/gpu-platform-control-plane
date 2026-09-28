@@ -36,6 +36,7 @@ policy.spec.rateLimit       --> token-bucket config (nil → unlimited, logged +
 | token bucket exhausted                          | 429         | `rate_limited`              |
 | guard engaged, standard-tier long-context (M5)  | 429         | `kv_cache_pressure`         |
 | malformed JSON / missing model                  | 400         | `bad_request`               |
+| body outside the M5-b request profile           | 422         | `profile_violation`         |
 | body too large                                  | 413         | `payload_too_large`         |
 | input larger than the bucket can ever hold      | 413         | `payload_too_large`         |
 | no InferenceDeployment for model                | 404         | `model_not_found`           |

@@ -51,6 +51,13 @@ type Server struct {
 	// The benchmark needs it: "not_engaged" at a cache usage of 0.10 and at 0.83 against a 0.85 threshold are
 	// the same string and opposite conclusions. Nobody else does, so it defaults off.
 	reportBackendState bool
+	// enforceBenchmarkProfile refuses a request body outside the M5-b experiment's registered text-only shape.
+	//
+	// Off by default, and that default is the point: this gateway is not only the experiment's. A caller sending
+	// tool definitions is making a legitimate request, and a profile that refused it everywhere would be the
+	// experiment imposing its scope on traffic it has no authority over. A benchmark run turns it on; nobody
+	// else does.
+	enforceBenchmarkProfile bool
 	// Namespace and APIKeySecret locate the api-keys Secret used to resolve tenants.
 	Namespace    string
 	APIKeySecret string
@@ -150,6 +157,13 @@ func (s *Server) InitRateLimiter() { s.buckets = newBucketRegistry() }
 // Off by default and turned on only by the benchmark: a deployment serving real tenants has no reason to
 // tell a caller how full its KV cache is.
 func (s *Server) ReportBackendState(on bool) { s.reportBackendState = on }
+
+// EnforceBenchmarkProfile turns the M5-b request-profile check on.
+//
+// Separate from the admission mode because it is not an admission decision: a body outside the profile is
+// refused before the guard is consulted, and internal/bench/report.go reads that refusal as pre-admission so it
+// never enters either term of the admitted-work fraction.
+func (s *Server) EnforceBenchmarkProfile(on bool) { s.enforceBenchmarkProfile = on }
 
 func (s *Server) SetAdmitter(mode AdmissionMode, a Admitter) {
 	s.mode = mode
@@ -364,8 +378,15 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 	// Malformed JSON, a missing model, and an oversized body all land here.
 	//
 	// All three are the client's to fix.
-	body, meta, err := readRequestMeta(r)
+	body, meta, err := readRequestMeta(r, s.enforceBenchmarkProfile)
 	if err != nil {
+		// A shape refusal is answered 422 rather than 400, because the body parsed: telling the caller their
+		// JSON is malformed sends them after a syntax bug that is not there. internal/bench/report.go reads
+		// this status as a pre-admission refusal, so a profile violation is never counted as work the guard shed.
+		if errors.Is(err, ErrProfileViolation) {
+			s.fail(w, tenant, "", http.StatusUnprocessableEntity)
+			return
+		}
 		// A body over the cap is not malformed, and 400 told the caller to fix their JSON when the JSON was
 		// fine. MaxBytesReader reports the case as a distinguishable type precisely so it can be separated.
 		var tooLarge *http.MaxBytesError

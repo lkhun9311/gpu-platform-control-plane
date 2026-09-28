@@ -86,6 +86,9 @@ func main() {
 		admissionLongThreshold int
 		// admissionReportBackendState is the benchmark-only switch; see the flag description.
 		admissionReportBackendState bool
+		// enforceBenchmarkProfile is the other benchmark-only switch, and it refuses traffic rather than
+		// annotating it, so it stays off unless a run asks for it.
+		enforceBenchmarkProfile bool
 
 		admissionKVEngageUsage    float64
 		admissionKVReleaseUsage   float64
@@ -102,6 +105,11 @@ func main() {
 		"static-cap mode: sustained per-backend input-token refill rate, in tokens/sec.")
 	flag.IntVar(&admissionStaticBurst, "admission-static-burst", defaultAdmissionStaticBurst,
 		"static-cap mode: per-backend input-token bucket burst capacity, in tokens.")
+	flag.BoolVar(&enforceBenchmarkProfile, "enforce-benchmark-profile", false,
+		"refuse a request body outside the M5-b experiment's registered text-only shape with 422 profile_violation. "+
+			"Benchmark runs only: it rejects tools, functions, a top-level system, priority, multimodal content and "+
+			"any unknown field, none of which the input estimate counts, so a run that accepted them would report an "+
+			"admitted-work fraction over a population it never measured.")
 	flag.BoolVar(&admissionReportBackendState, "admission-report-backend-state", false,
 		"report the pressure reading each admission decision was made from, on the response. "+
 			"For the benchmark only: a caller has no business knowing how full the engine's KV cache is.")
@@ -213,6 +221,7 @@ func main() {
 	// so the metrics label can never disagree with which Admitter is actually running.
 	s.SetAdmitter(admissionMode, admitter)
 	s.ReportBackendState(admissionReportBackendState)
+	s.EnforceBenchmarkProfile(enforceBenchmarkProfile)
 
 	// Start the cache and flip readiness once it has synced.
 	go func() {

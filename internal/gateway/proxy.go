@@ -22,6 +22,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"maps"
 	"net"
@@ -40,6 +41,24 @@ import (
 //
 // 1MB is far above a normal chat completions request (tens of KB) while keeping a single request unable to threaten the process.
 const maxBodyBytes = 1 << 20 // 1MB
+
+// ErrProfileViolation is the sentinel reported when a request carries something the benchmark profile forbids.
+//
+// It exists because the M5-b experiment is registered over a TEXT-ONLY request shape, and the gateway accepted
+// anything: `tools`, a top-level `system`, `functions`, unknown fields. None of it is counted by the input
+// estimate, so a caller could offer a megabyte of tool definitions and be admitted at near-zero cost -- and,
+// worse for a measurement artifact, the run would report an admitted-work fraction computed over a population
+// whose offered work it never saw.
+//
+// Refusing rather than counting is the choice the repository's own rule dictates for measurement code: an
+// error beats a figure the evidence does not support. Pricing the extra bytes was the other option and was
+// rejected on review -- it would change eligibility at the registered 4096 threshold, the bucket's
+// consumption and the reported weights at once, which is a different intervention rather than the same one
+// implemented correctly.
+//
+// It is OFF unless the profile is enabled, because this gateway is not only the experiment's: a general
+// caller sending tool definitions is making a legitimate request that this profile has no authority over.
+var ErrProfileViolation = errors.New("request does not match the benchmark request profile")
 
 // ErrNoModel is the sentinel reported when the body carries no model field.
 //
@@ -113,7 +132,7 @@ func newRequestID() string {
 // Only model and messages[].content are decoded.
 //
 // The gateway routes on model and estimates admission cost from content, and must forward everything else untouched; modelling the whole schema would mean editing the gateway whenever the OpenAI API grows a field, and would silently drop any field not yet declared.
-func readRequestMeta(r *http.Request) (func() (io.ReadCloser, error), RequestMeta, error) {
+func readRequestMeta(r *http.Request, profile bool) (func() (io.ReadCloser, error), RequestMeta, error) {
 	// The nil first argument means MaxBytesReader will not write a response itself; the caller owns the status code.
 	//
 	// Exceeding the cap surfaces as a read error, which the caller maps to 400.
@@ -132,6 +151,11 @@ func readRequestMeta(r *http.Request) (func() (io.ReadCloser, error), RequestMet
 	}
 	if probe.Model == "" {
 		return nil, RequestMeta{}, ErrNoModel
+	}
+	if profile {
+		if err := checkBenchmarkProfile(buf); err != nil {
+			return nil, RequestMeta{}, err
+		}
 	}
 
 	meta := RequestMeta{Model: probe.Model}
@@ -259,6 +283,12 @@ func errorCode(status int) string {
 		return "model_not_found"
 	case http.StatusTooManyRequests:
 		return "rate_limited"
+	case http.StatusUnprocessableEntity:
+		// A body that parses and is refused for its SHAPE, which is not the same as malformed JSON: the caller's
+		// fix is to stop sending a field, not to correct a syntax error. `invalid_request` is deliberately not
+		// reused here -- the design document promised that name for 400 and the code has always answered
+		// `bad_request`, so reviving it for a third meaning would make the record worse.
+		return "profile_violation"
 	case http.StatusRequestEntityTooLarge:
 		// Added with the two 413 paths and missed at the time, so both of them — an oversized body and an
 		// estimate larger than the bucket can ever hold — were answering internal_error. A client branching on
@@ -758,4 +788,62 @@ func tryBackends(w http.ResponseWriter, r *http.Request, targets []*url.URL,
 		advanced = true
 	}
 	return advanced
+}
+
+// benchmarkRequest is the exact shape an M5-b run sends, and nothing else.
+//
+// Decoded with DisallowUnknownFields, so a field this struct does not name is a refusal rather than something
+// silently forwarded and uncounted. The estimator's own probe above deliberately does NOT do this: the proxy
+// must pass an unmodelled field through untouched, and only the experiment's profile has an opinion about it.
+type benchmarkRequest struct {
+	Model    string `json:"model"`
+	Messages []struct {
+		Role    string `json:"role"`
+		Content string `json:"content"`
+	} `json:"messages"`
+	MaxTokens     int  `json:"max_tokens"`
+	Stream        bool `json:"stream"`
+	StreamOptions struct {
+		IncludeUsage bool `json:"include_usage"`
+	} `json:"stream_options"`
+}
+
+// checkBenchmarkProfile refuses a body outside the registered text-only request shape.
+//
+// The fields accepted here mirror internal/bench's sender exactly. `priority` is NOT among them: it belongs to
+// a separately specified experiment, and a run that carried it would be measuring a different treatment under
+// this one's name.
+//
+// A string `content` is required rather than the multimodal array the OpenAI schema also allows, because the
+// input estimate cannot read a token cost off a non-text part -- the shape that made NonTextContent necessary
+// is exactly the shape this profile excludes.
+func checkBenchmarkProfile(buf []byte) error {
+	dec := json.NewDecoder(bytes.NewReader(buf))
+	dec.DisallowUnknownFields()
+	var req benchmarkRequest
+	if err := dec.Decode(&req); err != nil {
+		return fmt.Errorf("%w: %v", ErrProfileViolation, err)
+	}
+	// Trailing content after the object is a second document, not a longer one.
+	if dec.More() {
+		return fmt.Errorf("%w: the body carries more than one JSON document", ErrProfileViolation)
+	}
+	if len(req.Messages) != 1 {
+		return fmt.Errorf("%w: the profile sends exactly one message, got %d", ErrProfileViolation, len(req.Messages))
+	}
+	m := req.Messages[0]
+	if m.Role != "user" {
+		return fmt.Errorf("%w: the profile's only message has role \"user\", got %q", ErrProfileViolation, m.Role)
+	}
+	if m.Content == "" {
+		return fmt.Errorf("%w: the message carries no string content", ErrProfileViolation)
+	}
+	if req.MaxTokens <= 0 {
+		return fmt.Errorf("%w: max_tokens must be positive, got %d", ErrProfileViolation, req.MaxTokens)
+	}
+	if !req.Stream || !req.StreamOptions.IncludeUsage {
+		return fmt.Errorf("%w: the profile streams with usage reporting, got stream=%v include_usage=%v",
+			ErrProfileViolation, req.Stream, req.StreamOptions.IncludeUsage)
+	}
+	return nil
 }
