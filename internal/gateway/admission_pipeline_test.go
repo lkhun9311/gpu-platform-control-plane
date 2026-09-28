@@ -116,6 +116,11 @@ var _ = Describe("admission pipeline placement", func() {
 		// The code travels in the body too, and it defaulted to internal_error: a client branching on it was
 		// told the gateway broke when it had refused something it can name.
 		Expect(rr.Body.String()).To(ContainSubstring("payload_too_large"))
+		// And this one carries NO admission reason, because admission never ran -- the reason variable does not
+		// exist on this path. That absence is the signal internal/bench now reads to keep a body-limit refusal
+		// out of the admitted-work fraction.
+		Expect(rr.Header().Get(HeaderAdmissionReason)).To(BeEmpty(),
+			"a body refused before admission claims an admission reason, which would credit the guard with a decision it never made")
 	})
 
 	// A request that can never be admitted must not carry the retry hint a 429 does. A client obeying
@@ -130,6 +135,12 @@ var _ = Describe("admission pipeline placement", func() {
 		Expect(rr.Body.String()).To(ContainSubstring("payload_too_large"))
 		Expect(rr.Header().Get("Retry-After")).To(BeEmpty(),
 			"a permanently impossible request was advertised as retryable")
+		// The header is what tells this 413 from the body-size 413, which carries the same status and the same
+		// error code. The gateway has always set it -- the assignment sits above the refusal branch, for any
+		// non-empty reason -- and until now nothing asserted it, so the one signal that separates the two
+		// refusals was unguarded. internal/bench read past it and counted both as work the bucket shed.
+		Expect(rr.Header().Get(HeaderAdmissionReason)).To(Equal(reasonInputExceedsBurst),
+			"the admission 413 does not name its reason, so nothing downstream can tell it from a body-limit refusal")
 	})
 
 	It("lets a premium request over the same budget reach the proxy", func() {

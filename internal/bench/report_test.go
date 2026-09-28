@@ -422,16 +422,22 @@ var _ = Describe("a request shed with 413", func() {
 	// nothing: a paid static-cap replay refused 447 noisy requests and printed rejected=0.
 	// These rows are that run's shape -- status 413, error kind "http", no first token -- so the fix is pinned
 	// to the evidence that exposed it rather than to an invented one.
+	// AdmissionReason is what makes this an ADMISSION 413 rather than a body-limit one.
+	//
+	// The two share a status and an error code, and the gateway tells them apart by naming the admission one in
+	// X-Admission-Reason. A fixture without it describes the other refusal -- the one decided before the guard
+	// ran -- so these specs would have been pinning the wrong outcome.
 	shed := func(index int, tenant string, noisy bool) RawRow {
 		return RawRow{
-			Index:          index,
-			SendUnixNanos:  1,
-			Tenant:         tenant,
-			IsNoisy:        noisy,
-			EstInputTokens: 8000,
-			HTTPStatus:     413,
-			ErrorKind:      "http",
-			LongThreshold:  4000,
+			Index:           index,
+			SendUnixNanos:   1,
+			Tenant:          tenant,
+			IsNoisy:         noisy,
+			EstInputTokens:  8000,
+			HTTPStatus:      413,
+			ErrorKind:       "http",
+			AdmissionReason: "input_exceeds_burst",
+			LongThreshold:   4000,
 		}
 	}
 
@@ -474,6 +480,45 @@ var _ = Describe("a request shed with 413", func() {
 		rows := []RawRow{shed(1, thresholdProbePrefix+"long", false)}
 		s := Summarize("static-cap", rows)
 		Expect(s.ThresholdProbe[thresholdProbePrefix+"long"].Rejected).To(Equal(1))
+	})
+
+	// The OTHER 413: a body over the gateway's size cap, refused before admission ran.
+	//
+	// It carries no admission reason, because the guard never saw it. Counting it as shedding credits the
+	// bucket with a decision it did not make, and the admitted-work fraction is the number that changes.
+	It("does not treat a body-limit 413 as work the guard shed", func() {
+		oversized := shed(2, "noisy", true)
+		oversized.AdmissionReason = ""
+		rows := []RawRow{completedRow(1, 10, 8000), oversized}
+		rows[0].Tenant, rows[0].IsNoisy, rows[0].LongThreshold = "noisy", true, 4000
+		rows[0].AdmissionReason = "within_budget"
+		s := Summarize("static-cap", rows)
+		// Rejected is the quantity that moves. Offered and Admitted do NOT: a pre-admission refusal leaves the
+		// eligible population altogether, so it is absent from both terms under either classification -- which
+		// is why asserting them proves nothing here, and why the first version of this spec survived a mutation
+		// that deleted the check it exists for.
+		Expect(s.Rejected).To(BeZero(),
+			"a body over the size cap was counted as a rejection by the guard, which never saw it")
+		// And it is in neither term of the fraction, which the completed row's presence makes readable.
+		Expect(s.OfferedInputTokens).To(Equal(int64(8000)))
+		Expect(s.AdmittedInputTokens).To(Equal(int64(8000)))
+	})
+
+	// The same distinction one level down, in the threshold-probe tally.
+	//
+	// That tally reads its own predicate, so it can disagree with the fraction above while both look right in
+	// isolation. A probe refused on body size did not test the threshold any more than a 403 did: it must land
+	// in Unevaluated, not in Rejected, or the section reports a boundary the guard was never asked about.
+	It("counts a body-limit 413 against a probe as unevaluated, not rejected", func() {
+		oversized := shed(1, ProbeOverTenant, false)
+		oversized.AdmissionReason = ""
+		s := Summarize("static-cap", []RawRow{oversized})
+		o := s.ThresholdProbe[ProbeOverTenant]
+		Expect(o.Total).To(Equal(1))
+		Expect(o.Unevaluated).To(Equal(1),
+			"a probe refused before admission was not recorded as unevaluated, so the section counts it as a threshold result")
+		Expect(o.Rejected).To(BeZero(),
+			"a body-limit refusal was credited to the threshold, which never judged this request")
 	})
 })
 

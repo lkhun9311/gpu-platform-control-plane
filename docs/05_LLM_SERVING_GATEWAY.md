@@ -37,9 +37,20 @@ policy.spec.rateLimit       --> token-bucket config (nil → unlimited, logged +
 | guard engaged, standard-tier long-context (M5)  | 429         | `kv_cache_pressure`         |
 | malformed JSON / missing model                  | 400         | `bad_request`               |
 | body too large                                  | 413         | `payload_too_large`         |
+| input larger than the bucket can ever hold      | 413         | `payload_too_large`         |
 | no InferenceDeployment for model                | 404         | `model_not_found`           |
 | upstream connect/refused/DNS                    | 502         | `bad_gateway`               |
 
+> ⚠️ **The two 413 rows share a status AND a code**, and they are different refusals: a body over the size cap
+> is turned away before admission runs, while an input larger than the bucket can ever hold IS an admission
+> decision. They are told apart by `X-Admission-Reason`, which the gateway sets to `input_exceeds_burst` on the
+> second and leaves absent on the first, since admission never ran for it.
+>
+> The gateway has always sent that header — it is set for any non-empty reason before the refusal branch is
+> reached. What was missing until 2026-09-28 was on the reading side: `internal/bench/report.go` classified
+> every 413 as work the bucket shed, so a body-limit refusal was attributed to the guard and entered both terms
+> of the admitted-work fraction. The signal was there and nothing consumed it.
+>
 > ⚠️ Four of these codes were wrong until 2026-09-19, and the oversized-body row named the wrong status as
 > well. The document said `unknown_api_key`, `tenant_not_provisioned`, `invalid_request` and
 > `upstream_unreachable`; `errorCode` in `internal/gateway/proxy.go` has always returned `unauthorized`,

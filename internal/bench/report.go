@@ -107,8 +107,32 @@ func neverEvaluated(r RawRow) bool {
 	return r.HTTPStatus == httpStatusUnauthorized || r.HTTPStatus == httpStatusForbidden
 }
 
+// shedByAdmission reports whether the guard refused this request.
+//
+// 413 is TWO different refusals sharing one status code: a prompt larger than the bucket can ever hold, which
+// is an admission decision, and a body over the gateway's size cap, which is refused before admission runs.
+// Counting both as shedding attributes a payload the caller sent wrong to the bucket, and the admitted-work
+// fraction is exactly the number that distinction changes.
+//
+// The gateway names the admission one in X-Admission-Reason, which the sender records on the row. A 413 with no
+// reason therefore did not reach admission: it is a malformed-request outcome, not work the guard declined.
+// Rows recorded before the gateway set that header carry no reason either, so this reads a 413 without one as
+// pre-admission -- which is the conservative direction for the fraction, since it removes the row from both
+// terms rather than crediting the guard with a refusal it may not have made.
 func shedByAdmission(r RawRow) bool {
-	return r.HTTPStatus == httpStatusTooManyRequests || r.HTTPStatus == httpStatusInputExceedsBurst
+	if r.HTTPStatus == httpStatusTooManyRequests {
+		return true
+	}
+	return r.HTTPStatus == httpStatusInputExceedsBurst && r.AdmissionReason != ""
+}
+
+// refusedBeforeAdmission reports whether the gateway turned the request away without the guard seeing it.
+//
+// 401 and 403 are decided on identity, and a 413 carrying no admission reason is decided on payload size. In
+// every case the guard never spoke, so the row belongs in neither term of the admitted-work fraction.
+func refusedBeforeAdmission(r RawRow) bool {
+	return neverEvaluated(r) ||
+		(r.HTTPStatus == httpStatusInputExceedsBurst && r.AdmissionReason == "")
 }
 
 // ProbeOutcome is one probe tenant's admission tally, and the real token cost the estimate stood in for.
@@ -348,7 +372,7 @@ func Summarize(arm string, rows []RawRow) ArmSummary {
 		// neither term of the fraction, because the guard never saw it. Counting it as offered-and-admitted
 		// scored 737,280 admitted tokens for an arm that admitted nothing: the paid run's probes estimate at
 		// exactly the 4,096 threshold, so all 180 of them per arm were eligible, and all 180 were 403.
-		if r.EstInputTokens >= threshold && eligibleTier(r) && !neverEvaluated(r) {
+		if r.EstInputTokens >= threshold && eligibleTier(r) && !refusedBeforeAdmission(r) {
 			s.tallyEligibleWork(r)
 		}
 
@@ -365,7 +389,11 @@ func Summarize(arm string, rows []RawRow) ArmSummary {
 			o.Total++
 			o.EstInputTokens = r.EstInputTokens
 			switch {
-			case neverEvaluated(r):
+			// A probe the guard never evaluated is not a probe that passed, and a 413 refused on body size is
+			// as unevaluated as a 403: both were decided before admission ran. Reading only 401/403 here left a
+			// body-limit refusal in neither bucket while still counting toward Total, so the section showed a
+			// probe population larger than the outcomes it could explain.
+			case refusedBeforeAdmission(r):
 				o.Unevaluated++
 			case shedByAdmission(r):
 				o.Rejected++
