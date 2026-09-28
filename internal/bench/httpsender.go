@@ -343,7 +343,7 @@ func (h *HTTPSender) Send(ctx context.Context, row TraceRow, sendUnixNanos int64
 		// report to infer a 413's meaning from a status code, and for one paid run it inferred wrong.
 		kind := "http"
 		if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode == http.StatusRequestEntityTooLarge {
-			kind = "rejected"
+			kind = errKindRejected
 		}
 		return h.withAdmissionDecision(resp, SendResult{HTTPStatus: resp.StatusCode, ErrorKind: kind})
 	}

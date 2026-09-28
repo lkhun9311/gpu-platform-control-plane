@@ -79,10 +79,21 @@ func writeRepetition(t *testing.T, dir, name, arm string, n int, ttftBaseMs int6
 	}
 	// One contender row carrying the offered/admitted work, so admittedWorkFraction is well defined and
 	// identical across arms — the admission-match check must not be what refuses these runs.
+	//
+	// It carries ExactInputTokens as well as the estimate, because the criterion is registered over the served
+	// tokenizer's own count and a row with only an estimate leaves it with no denominator. These fixtures are
+	// controls asserting that a HEALTHY run is not refused, so an accounting gap here would refuse every one of
+	// them for a reason that has nothing to do with the repetition floor they exist to pin.
+	//
+	// It has to clear the eligible-population threshold to be counted at all: Summarize scores admitted work
+	// over `EstInputTokens >= threshold`, which is 4096 unless the rows carry their own LongThreshold. With
+	// the old value of a few hundred the row was outside the population, the fraction had nothing in it, and
+	// these controls would fail on an empty denominator rather than on the rule they pin.
 	c := bench.RawRow{
 		Index: n + rejected, Arm: arm, Tenant: "contender", IsNoisy: true, HTTPStatus: 200,
 		SendUnixNanos: 1, FirstTokenUnixNanos: 2, EndUnixNanos: 3,
-		EstInputTokens: admitted, MatchTolerance: 0.05, TraceChecksum: "0000000000000000000000000000000000000000000000000000000000000000",
+		EstInputTokens: 4096 + admitted, ExactInputTokens: 4096 + admitted, LongThreshold: 4096,
+		MatchTolerance: 0.05, TraceChecksum: "0000000000000000000000000000000000000000000000000000000000000000",
 	}
 	if err := enc.Encode(c); err != nil {
 		t.Fatalf("encode contender: %v", err)
