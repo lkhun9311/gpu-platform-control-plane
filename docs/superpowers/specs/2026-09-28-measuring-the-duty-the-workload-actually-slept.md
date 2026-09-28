@@ -123,6 +123,13 @@ canary is rendered at run time from this same renderer), so the cost is a re-tak
 run, not a fixture to update. It is recorded here because a change that moves a qualification key silently is
 the shape of defect this page exists to prevent.
 
+**Where this change stops.** The observations reach the **ledger** — the parser, `ObservedState`, the collector
+and `LifecycleEvent` — and no further. `cmd/queuelabrun`'s `reportedWorkload`, `workloadProvenance` and the
+field list `runRecordsAgree` compares are deliberately untouched: publishing the measurement in the record's
+own surface changes what two runs must agree on to compare, and that is a change to the comparison contract
+rather than to the instrument. It gets its own page, after the tolerance is chosen. Until then the pair is
+evidence a reader can re-derive from the events, not a figure the record asserts.
+
 **3. The ledger carries the observations, and absence is not zero.** `LifecycleEvent` gains pointer fields
 beside `DutyCycle`, so a record from a build whose workload could not measure reads as **unmeasured** rather
 than as measured zero. A full-duty run that genuinely slept nothing must stay distinguishable from a run that
@@ -162,6 +169,50 @@ Three controls, each of which must be run and its result written into the change
 The oracle control is a fourth, and it is not optional: `ScriptAccumulatorParams` must still find the
 accumulator loop after the edit, asserted directly rather than inferred from a green suite, because its failure
 mode is a withdrawn verdict.
+
+### What the controls actually produced, 2026-09-28
+
+Recorded as observations, per the requirement above. All four ran on this host, against the rendered production
+script rather than a copy of it.
+
+**1. The sleep operation deleted, timing and reporting left intact.** The workload was run at 4 seconds and a
+declared duty of 0.25, once as shipped and once with `time.sleep(...)` replaced by `pass` inside the surrounding
+`time.monotonic()` readings.
+
+| | reported `duty=` | measured `sleptns` | `windowns` | fraction |
+|---|---|---|---|---|
+| as shipped | `0.25` | 2,698,457,655 | 4,000,173,320 | **0.6746** |
+| sleep deleted | `0.25` | 1,369 | 4,000,085,471 | **0.000000** |
+
+The configured value is identical in both rows and the measurement is three orders of magnitude apart. That gap
+is the whole point of the change: before it, these two workloads were indistinguishable in every field a record
+carried. The mutation was applied to the file in place, the edit was asserted to have landed (`sleep` calls
+remaining: 0), the mutant was confirmed to still run, and the file was restored **byte-identically** (sha256
+`8d824fddbde514c9`) before anything else was measured.
+
+**2. A window that ends inside a sleep.** The 4-second, quarter-duty run above is that case: `PERIOD` is 2.6, so
+the schedule is compute 0.65, sleep 1.95, compute 0.65, and then 0.75 seconds remain — a compute phase followed
+by a sleep the remaining window **clamps** to roughly 0.10. The clamped segment appears in both totals, which is
+why the fraction is 0.6746 rather than 0.75. Summing the intended `(1-duty)*PERIOD` would have reported 0.75.
+
+This is also the correction to this page's earlier draft in the concrete: at 6 seconds and duty 0.5 the clamp
+does *not* fire (measured 0.4333 = 2.6/6, from two full sleeps), and at 4 seconds and duty 0.25 it does. The
+path existing was never the evidence; running it is.
+
+**3. The timing fields removed.** Covered by `TestAMeasuredZeroIsNotTheSameAsNoMeasurement`: a full-duty message
+carrying `sleptns=0` reads as a measured zero, and the same message without the fields reads as nil. The
+eight-field half-reading and an impossible pair (`slept > window`, a negative total, a zero window, an
+unparseable value, a mis-keyed eighth or ninth field) are each refused whole, with the count beside them.
+
+**4. The oracle.** `TestTheOracleReadsItsParametersFromTheShippedScript` passes after the edit, and the
+protected statement's sha256 is unchanged at `4c6de7a48e98c985`.
+
+**One defect the controls found in this change itself.** `readableUnderCurrentSchema` gained a `case 22` arm and
+a sleep question on `case 21`, but arms 18, 19 and 20 were left asking their old questions — so a record
+labelled 18, 19 or 20 could carry a schema-23 observation and decode as history.
+`TestARecordFromAnEarlierSchemaIsRefused` caught all three. It is the mirror image of the defect this same
+switch made once before, when it asked *every* version the same question and refused schema-20 documents for
+carrying the field 20 introduced: too many questions then, too few now.
 
 ## What this page refuses
 

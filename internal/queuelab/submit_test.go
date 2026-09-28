@@ -641,11 +641,22 @@ func TestTheWorkloadEmitsTheSaveTokensThisPackageParses(t *testing.T) {
 			t.Fatalf("%q is not in saveStatuses, so the workload's own report reads as an unknown status", tok)
 		}
 	}
-	// The status must be the LAST field, because the parser reads by position: a seventh field that were not
-	// `saved=` makes every message this workload writes unparseable.
-	if !strings.Contains(workloadScript, `resumed=%d saved=%s"`) {
-		t.Fatal("the workload's message does not end with the save status, so its field positions no longer " +
-			"match the ones ReportFromMessage reads")
+	// The status must be at POSITION SEVEN, which is not the same claim as being last.
+	//
+	// This assertion used to require the message to END with `saved=%s`, and its comment said the status must be
+	// the last field. The reasoning was half right: the parser reads by position, so `saved=` must be the
+	// seventh token -- but "last" was never the property being protected, and treating it as one made the
+	// assertion false the moment the timing fields were appended after it. What breaks ReportFromMessage is a
+	// REORDER, not a longer message, so the order is what this pins.
+	//
+	// Mutation that turns this red: swap any two of the seven, or insert a field among them.
+	for i, want := range []string{"iters=%d", "kind=%s", "dev=%s", "duty=%g", "acc=%.17g", "resumed=%d", "saved=%s"} {
+		prefix := strings.Join([]string{"iters=%d", "kind=%s", "dev=%s", "duty=%g", "acc=%.17g", "resumed=%d",
+			"saved=%s"}[:i+1], " ")
+		if !strings.Contains(workloadScript, prefix) {
+			t.Fatalf("the workload's message does not carry %q at position %d; ReportFromMessage reads that "+
+				"slot by index, so a reorder makes every message this workload writes unparseable", want, i)
+		}
 	}
 }
 

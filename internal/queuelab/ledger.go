@@ -96,6 +96,20 @@ type LifecycleEvent struct {
 	// carried none -- which is every record written before the axis existed, and those ran at full duty
 	// because full duty was all the workload could do.
 	DutyCycle *float64 `json:"dutyCycle,omitempty"`
+	// SleptNs and WindowNs are the workload's own measurement of how it spent its service, against DutyCycle's
+	// report of what it was CONFIGURED to do. The pair is what makes the configured value checkable at all.
+	//
+	// Nanoseconds spent inside the workload's time.sleep calls, over the window from its start to the snapshot
+	// that reported them. Absent together for every event written before the workload could measure, and a
+	// measured zero is a different claim from that absence: a full-duty attempt slept none of its service and
+	// says so, while an older build could not say anything. Reading absence as zero would report every
+	// historical run as having computed throughout, which is exactly the false measurement this field replaces.
+	//
+	// Not GPU utilisation. The complement of SleptNs/WindowNs is not device compute time -- the rest of the
+	// window also holds descheduling, sleep overrun, interpreter overhead and kernel-launch latency. Compared
+	// against 1-DutyCycle rather than DutyCycle, and never required to equal it.
+	SleptNs  *int64 `json:"sleptNs,omitempty"`
+	WindowNs *int64 `json:"windowNs,omitempty"`
 	// Job is the trace job name this event belongs to, resolved by the collector through the UID chain.
 	Job string `json:"job"`
 	// ComponentStampUnixNanos is the cluster component's own wall clock for the state this event describes:

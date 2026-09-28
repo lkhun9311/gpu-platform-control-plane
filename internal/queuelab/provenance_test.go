@@ -547,3 +547,104 @@ func TestAMessageWithoutAnAccumulatorStillReads(t *testing.T) {
 		}
 	}
 }
+
+// TestAHalfReadingOfTheSleepObservationIsRefusedWhole covers the eight-field shape, the one the wire format can
+// produce by accident.
+//
+// A fraction needs both numbers. An eight-field message carries a slept total with no window to divide it by,
+// and every use of either number is the fraction -- so accepting it would put an unusable reading into the
+// ledger under a name that promises one. The whole message goes, on the rule every optional field here follows.
+//
+// Mutation that turns this red: accept eight fields and leave WindowNs nil.
+func TestAHalfReadingOfTheSleepObservationIsRefusedWhole(t *testing.T) {
+	base := "iters=900 kind=cpu-float dev=no-libcuda duty=0.5 acc=1.5 resumed=0 saved=ok"
+	if rep := ReportFromMessage(base + " sleptns=1300000000"); rep.Iterations != nil {
+		t.Error("a message carrying a slept total with no window was read; the fraction it promises cannot be " +
+			"formed, so the count beside it is not trustworthy either")
+	}
+	// The pair together IS read, so the refusal above is about the arity rather than about the fields.
+	rep := ReportFromMessage(base + " sleptns=1300000000 windowns=2600000000")
+	if rep.Iterations == nil {
+		t.Fatal("the nine-field form was refused; then the eight-field refusal above proves nothing")
+	}
+	if rep.SleptNs == nil || *rep.SleptNs != 1300000000 || rep.WindowNs == nil || *rep.WindowNs != 2600000000 {
+		t.Errorf("the pair did not survive: slept=%v window=%v", rep.SleptNs, rep.WindowNs)
+	}
+	// Every earlier field must survive the two new ones. This is the `==` versus `>=` regression, which this
+	// function has now had three times: the value present, parsed nowhere, returned as a zero value.
+	if rep.SaveStatus != SaveOK {
+		t.Errorf("saveStatus = %q, want %q; widening the arity without widening its guard skips index six",
+			rep.SaveStatus, SaveOK)
+	}
+	if rep.Resumed == nil || *rep.Resumed != 0 {
+		t.Errorf("resumed = %v, want 0; a resume point present and parsed nowhere reads as an older build",
+			rep.Resumed)
+	}
+	if rep.Accumulator == nil || *rep.Accumulator != 1.5 {
+		t.Errorf("accumulator = %v, want 1.5", rep.Accumulator)
+	}
+	if rep.Duty != 0.5 {
+		t.Errorf("duty = %v, want 0.5", rep.Duty)
+	}
+}
+
+// TestAnImpossibleSleepPairIsRefused holds the one internal consistency the pair can be checked for.
+//
+// Slept cannot exceed the window it is a fraction of: both come from one process reading one monotonic clock
+// between two points, so a pair saying otherwise was not produced by the workload this package ships. Reporting
+// it would publish a fraction above 1.0, and a plausible wrong number is worse here than a refusal.
+//
+// Mutation that turns this red: drop the sv > wv comparison, or either reader's own bound.
+func TestAnImpossibleSleepPairIsRefused(t *testing.T) {
+	base := "iters=900 kind=cpu-float dev=no-libcuda duty=0.5 acc=1.5 resumed=0 saved=ok"
+	for _, tc := range []struct{ name, tail string }{
+		{"slept beyond the window", " sleptns=2600000001 windowns=2600000000"},
+		{"a negative slept total", " sleptns=-1 windowns=2600000000"},
+		{"a window of zero, which makes the fraction undefined", " sleptns=0 windowns=0"},
+		{"a slept total that is not a number", " sleptns=abc windowns=2600000000"},
+		{"a ninth field that is not the window", " sleptns=0 ninth=2600000000"},
+		{"an eighth field that is not the slept total", " eighth=0 windowns=2600000000"},
+	} {
+		if rep := ReportFromMessage(base + tc.tail); rep.Iterations != nil {
+			t.Errorf("%s was accepted (%q); a reading this build cannot trust must refuse the count beside it",
+				tc.name, tc.tail)
+		}
+	}
+	// Equal is allowed, and it is not a curiosity: a workload at a duty approaching zero sleeps very nearly its
+	// whole window, and refusing the boundary would refuse a legitimate reading.
+	if rep := ReportFromMessage(base + " sleptns=2600000000 windowns=2600000000"); rep.Iterations == nil {
+		t.Error("a workload that slept its entire window was refused; that is what a near-zero duty produces")
+	}
+}
+
+// TestAMeasuredZeroIsNotTheSameAsNoMeasurement is the third control the registration named.
+//
+// A full-duty attempt sleeps none of its service and now says so with sleptns=0. A build whose workload could
+// not measure sends no such field. Collapsing those two would report every historical run as having computed
+// throughout -- which is the false measurement this pair was added to replace, reappearing as a default.
+//
+// Mutation that turns this red: make the timing fields non-pointers, or default a missing pair to zero.
+func TestAMeasuredZeroIsNotTheSameAsNoMeasurement(t *testing.T) {
+	base := "iters=900 kind=cpu-float dev=no-libcuda duty=1 acc=1.5 resumed=0 saved=ok"
+
+	measuredZero := ReportFromMessage(base + " sleptns=0 windowns=2600000000")
+	if measuredZero.Iterations == nil {
+		t.Fatal("a full-duty attempt reporting a measured zero was refused")
+	}
+	if measuredZero.SleptNs == nil {
+		t.Fatal("a measured zero came back as an absence; the two are different claims and only the pointer " +
+			"can tell them apart")
+	}
+	if *measuredZero.SleptNs != 0 {
+		t.Errorf("sleptNs = %d, want 0", *measuredZero.SleptNs)
+	}
+
+	unmeasured := ReportFromMessage(base)
+	if unmeasured.Iterations == nil {
+		t.Fatal("the seven-field form was refused; every record written before this axis is of that shape")
+	}
+	if unmeasured.SleptNs != nil || unmeasured.WindowNs != nil {
+		t.Errorf("a message from a build that could not measure came back carrying a measurement: slept=%v "+
+			"window=%v", unmeasured.SleptNs, unmeasured.WindowNs)
+	}
+}
