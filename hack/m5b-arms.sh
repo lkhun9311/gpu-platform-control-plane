@@ -114,7 +114,13 @@ STATIC_RATE=8000
 STATIC_BURST=30000
 # The C pilot's admitted fraction of eligible offered tokens, the target arm B is matched to.
 #
-# Provisional, and the tolerance says so. The pilot measured 0.8456 over standard-noisy alone, because its
+# Provisional, and the tolerance says so. It is ALSO not the registered unit: 0.8456 was computed over the
+# ceil(chars/4) estimate, while the design defines the admitted-work criterion over the served tokenizer's own
+# count. sim-cap now refuses a -target check on a trace with no measured counts rather than answering it on the
+# estimate, so this pre-flight only runs once the trace has been stamped -- and when it does, the number below
+# has to be re-derived in that unit rather than carried across.
+#
+# The pilot measured 0.8456 over standard-noisy alone, because its
 # two probe tenants were refused with 403 before admission and are excluded from the population entirely.
 # The simulation scores the population a CORRECTLY configured run will have, which includes the probes above
 # the threshold -- so the two fractions are over different populations and the agreement between them is an
@@ -548,7 +554,7 @@ say "arm B tuning: $STATIC_RATE tok/s, burst $STATIC_BURST, against a largest pr
   -rate "$STATIC_RATE" -burst "$STATIC_BURST" -long-threshold 4096 \
   -premium-tenants "$premium_tenants" \
   -target-admitted-fraction "$PILOT_ADMITTED_FRACTION" -tolerance "$PILOT_MATCH_TOLERANCE" \
-  || fail "arm B's frozen tuning does not match the C pilot on this trace. Re-solve it with: benchharness sim-cap -trace $OUT/trace.jsonl -rate <r> -burst <b> -premium-tenants $premium_tenants"
+  || fail "arm B's frozen tuning does not match the C pilot on this trace. Do NOT re-solve it against this trace: the tuning is frozen before the confirmatory run on PILOT evidence, and re-solving it here would tune the control to the traffic it is about to be compared on, which is the post-hoc fitting the control arm exists to rule out. Re-run the pilot, solve there, and register the new pair."
 
 # washout waits until the engine has actually drained, and refuses to continue if it never does.
 #
