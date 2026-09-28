@@ -62,10 +62,11 @@ LaunchTime	an EC2 API field, not a name this repository defines; the MPS pre-reg
 # --- named by the ledger design to record a decision NOT to build it, 2026-09-27 ------------------------
 QuotaExceeded	the operations-ledger design names it to record that it was considered and REFUSED as a WorkloadRun scenario: a quota refusal changes neither an InferenceDeployment nor a NodeHealth, so the enum value could never reach a verdict. FR-001's evidence lives in the gateway's rate_limited path instead, and docs/06 was corrected to say so
 
-# --- upstream Kubernetes and Kueue names, cited by the stranded-GPU registration, 2026-09-28 ---------
-NodeResourcesFit	the kube-scheduler score plugin, not a name this repository defines; the stranded-GPU amendment names it to record that its DEFAULT scoring reads cpu and memory, so a GPU study must name nvidia.com/gpu in its resource list or the treatment silently does nothing
-LeastAllocated	a NodeResourcesFit scoring strategy upstream; named as the spread reference, and the amendment records that a GPU-aware version of it is no longer the untouched default
-MostAllocated	the packing NodeResourcesFit strategy upstream; named as the treatment, with the amendment recording that selecting it is not sufficient for GPU packing
-KubeSchedulerConfiguration	an upstream kube-scheduler config kind; the registration names it to say it has NO precedent in this repository and that verifying it took effect is the first thing built
+# --- upstream names the stranded-GPU study cites and this repository still does not contain -------
+#
+# Four entries stood here until cmd/strandedrun landed: NodeResourcesFit, LeastAllocated,
+# MostAllocated and KubeSchedulerConfiguration. They were listed because nothing in the repository
+# spelled them; the instrument now does, so the reason each carried stopped being true and they were
+# removed rather than left to make this file describe a repository that no longer exists.
 PodSetTopologyRequest	a Kueue 0.18.3 API field; named to record that the TAS API existing does not show any workload used it, which is why the amendment separates TAS from the scoring comparison
 FailedScheduling	an upstream scheduler Event reason; the amendment DEMOTES it to diagnostic evidence because retries repeat it and ResourceQuota can reject a pod before one exists to fail scheduling
