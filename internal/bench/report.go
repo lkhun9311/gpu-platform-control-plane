@@ -33,6 +33,14 @@ const httpStatusTooManyRequests = 429
 // something smaller, because a request that cannot fit any bucket would otherwise be retried forever.
 const httpStatusInputExceedsBurst = 413
 
+// httpStatusProfileViolation is the status the gateway returns for a body that parses but sits outside the
+// registered benchmark request shape.
+//
+// 422 rather than 400, because the JSON is fine and only the shape is wrong. The refusal happens before the
+// guard is consulted, so it belongs with 401 and 403 rather than with the bucket's own refusals: counting it as
+// shedding would credit the guard with a decision it never made.
+const httpStatusProfileViolation = 422
+
 // httpStatusUnauthorized and httpStatusForbidden are the statuses the gateway returns before admission runs.
 const (
 	httpStatusUnauthorized = 401
@@ -132,6 +140,7 @@ func shedByAdmission(r RawRow) bool {
 // every case the guard never spoke, so the row belongs in neither term of the admitted-work fraction.
 func refusedBeforeAdmission(r RawRow) bool {
 	return neverEvaluated(r) ||
+		r.HTTPStatus == httpStatusProfileViolation ||
 		(r.HTTPStatus == httpStatusInputExceedsBurst && r.AdmissionReason == "")
 }
 

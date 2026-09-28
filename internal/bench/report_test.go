@@ -482,6 +482,44 @@ var _ = Describe("a request shed with 413", func() {
 		Expect(s.ThresholdProbe[thresholdProbePrefix+"long"].Rejected).To(Equal(1))
 	})
 
+	// A 422 is the gateway refusing the request's SHAPE, before the guard is consulted.
+	//
+	// Rejected is the quantity that moves: counting a profile violation as shedding credits the bucket with a
+	// decision it never made. Offered and Admitted do not move either way, because a pre-admission refusal is
+	// outside the eligible population entirely -- asserting them here would prove nothing, which is the mistake
+	// the body-limit spec below was written with the first two times.
+	It("does not treat a 422 profile refusal as work the guard shed", func() {
+		violation := shed(2, "noisy", true)
+		violation.HTTPStatus = 422
+		violation.AdmissionReason = ""
+		rows := []RawRow{completedRow(1, 10, 8000), violation}
+		rows[0].Tenant, rows[0].IsNoisy, rows[0].LongThreshold = "noisy", true, 4000
+		rows[0].AdmissionReason = "within_budget"
+		s := Summarize("static-cap", rows)
+		// Offered and Admitted are the quantities that move, and only observation settled which: with the 422
+		// classified as pre-admission the row is outside the eligible population, so both read 8000 (the
+		// completed row alone). Treat it as a guard decision instead and both become 16000 -- the refusal
+		// enters the denominator AND the numerator, because shedByAdmission does not recognise 422 either, so
+		// it would be scored as work the guard ADMITTED. Rejected stays 0 under both, which is why asserting it
+		// proved nothing here even though it was the discriminating field one spec below.
+		Expect(s.OfferedInputTokens).To(Equal(int64(8000)),
+			"a body refused for its shape entered the offered-work denominator, which the guard never saw")
+		Expect(s.AdmittedInputTokens).To(Equal(int64(8000)),
+			"a shape refusal was scored as work the guard admitted")
+	})
+
+	It("counts a 422 against a probe as unevaluated, not rejected", func() {
+		violation := shed(1, ProbeOverTenant, false)
+		violation.HTTPStatus = 422
+		violation.AdmissionReason = ""
+		s := Summarize("static-cap", []RawRow{violation})
+		o := s.ThresholdProbe[ProbeOverTenant]
+		Expect(o.Total).To(Equal(1))
+		Expect(o.Unevaluated).To(Equal(1),
+			"a probe refused for its shape was recorded as a threshold result, which it cannot be")
+		Expect(o.Rejected).To(BeZero())
+	})
+
 	// The OTHER 413: a body over the gateway's size cap, refused before admission ran.
 	//
 	// It carries no admission reason, because the guard never saw it. Counting it as shedding credits the
