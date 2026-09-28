@@ -171,6 +171,10 @@ docker-push-gateway: ## Push docker image with the gateway.
 build-platformctl: fmt vet ## Build platformctl, the operations-ledger CLI.
 	go build -o bin/platformctl ./cmd/platformctl
 
+.PHONY: build-strandedrun
+build-strandedrun: fmt vet ## Build strandedrun, the stranded-GPU placement study's instrument.
+	go build -o bin/strandedrun ./cmd/strandedrun
+
 .PHONY: build-gpu-simulator
 build-gpu-simulator: fmt vet ## Build gpu-simulator binary.
 	go build -o bin/gpu-simulator cmd/gpu-simulator/main.go
