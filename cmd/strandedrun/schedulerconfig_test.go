@@ -100,6 +100,12 @@ func TestTheRenderedConfigurationNamesTheResourceTheStudyVaries(t *testing.T) {
 			"type: " + string(s),
 			"name: " + GPUResourceName,
 			"schedulerName: default-scheduler",
+			// Without this the scheduler cannot reach the API server and crash-loops: kubeadm passes both
+			// --config and --kubeconfig, and the flag is ignored once the file is given. The first cluster
+			// this renderer built failed exactly that way, and everything downstream -- kindnet Pending,
+			// every node NotReady, the device plugins unschedulable -- looked like a different problem.
+			"clientConnection:",
+			"kubeconfig: " + SchedulerKubeconfigPath,
 		} {
 			if !strings.Contains(out, want) {
 				t.Errorf("%s: the rendered configuration does not contain %q:\n%s", s, want, out)

@@ -98,9 +98,10 @@ func usage() {
       Judge an observed probe placement against the strategy the run asked for. Refuses a
       fixture on which the two strategies agree, because such a placement qualifies nothing.
 
-  render-cluster -strategy=... -layout=2,1,1 -dir=DIR [-namespace=... -image=...]
+  render-cluster -strategy=... -layout=2,1,1 -dir=DIR -node-image=kindest/node:vX.Y.Z
       Write the study's kind configuration, the scheduler profile it mounts, and one device
-      plugin per distinct device count. Refuses a layout that cannot strand anything.
+      plugin per distinct device count. Refuses a layout that cannot strand anything, and
+      requires the node image so the scheduler version is registered rather than defaulted.
 
   verify-layout -layout=2,1,1 -observed=NAME:LABEL:ALLOCATABLE,...
       Compare what the cluster advertises against what the run asked for. A node's own
@@ -184,19 +185,23 @@ func renderCluster(args []string) error {
 	dir := fs.String("dir", "", "directory to write the cluster's artifacts into")
 	namespace := fs.String("namespace", "gpu-platform-control-plane-system", "namespace for the device plugins")
 	image := fs.String("image", "gpu-simulator:latest", "device plugin image")
+	// No default, unlike the two above. The scheduler version is part of what the run registers: left to kind,
+	// it is whatever that binary happens to default to, and two runs months apart would compare arms across two
+	// different schedulers without either recording which.
+	nodeImage := fs.String("node-image", "", "kind node image, e.g. kindest/node:v1.31.0 (required)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	if *strategy == "" || *layout == "" || *dir == "" {
-		return fmt.Errorf("-strategy, -layout and -dir are all required; this command renders one arm's " +
-			"cluster and none of the three has a meaningful default")
+	if *strategy == "" || *layout == "" || *dir == "" || *nodeImage == "" {
+		return fmt.Errorf("-strategy, -layout, -dir and -node-image are all required; this command renders " +
+			"one arm's cluster and none of the four has a meaningful default")
 	}
 	l, err := parseLayout(*layout)
 	if err != nil {
 		return err
 	}
 	profile := GPUAware(ScoringStrategy(*strategy))
-	kindYAML, err := KindConfigYAML(profile, l)
+	kindYAML, err := KindConfigYAML(profile, l, *nodeImage)
 	if err != nil {
 		return err
 	}
@@ -221,8 +226,8 @@ func renderCluster(args []string) error {
 		}
 	}
 	fmt.Printf("wrote kind-config.yaml, scheduler-config.yaml and device-plugins.yaml to %s\n", *dir)
-	fmt.Printf("  cluster %q, %d workers advertising %s, scheduler scoring %s over %s\n",
-		ClusterName, len(l), *layout, *strategy, GPUResourceName)
+	fmt.Printf("  cluster %q on %s, %d workers advertising %s, scheduler scoring %s over %s\n",
+		ClusterName, *nodeImage, len(l), *layout, *strategy, GPUResourceName)
 	return nil
 }
 
