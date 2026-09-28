@@ -825,13 +825,24 @@ cleanup() {
   # arrives while the first is still inside that polling.
   [ "$cleanup_ran" = "1" ] && return 0
   cleanup_ran=1
+  # The mktemp files this runner made are removed here, on every path that reaches cleanup.
+  #
+  # RUNSCRIPT, UD and MEASURE were never deleted by anything: one invocation left two or three files in
+  # /tmp, which is tmpfs here, so they are RAM rather than disk. Driving the four runners through the
+  # golden suite a few times put 6167 of them there. ${VAR:-} because cleanup can run before they are set.
+  #
+  # NOT every path: these files are created before `trap cleanup EXIT` is armed, so a run that refuses
+  # before the launch -- an unset REPS, a dirty tree, credentials too short -- still leaves them. Measured
+  # after this change: four full suites, 59 scenarios, leave 2. Moving the trap earlier would close that,
+  # and moving a trap changes what happens on a signal, which is not this commit's subject.
+  rm -f "${RUNSCRIPT:-}" "${UD:-}" "${attempt_err:-}"
   # An unresolved launch is settled FIRST, because it is the instance nobody knows the id of.
   #
   # A signal during run-instances lands here with IID empty, and the terminate below would then report
   # `<none>` and exit 0 while an instance AWS accepted goes on billing. Resolving the token first is what
   # turns that into either a termination or a named, actionable refusal.
   if [ -n "$LAUNCH_UNCERTAIN" ]; then
-    spot_reconcile_token "$REGION" "$LAUNCH_UNCERTAIN" 6 || {
+    spot_reconcile_token "$REGION" "$LAUNCH_UNCERTAIN" "$LAUNCH_UNCERTAIN_SUBNET" 6 || {
       printf 'TERMINATION UNCONFIRMED for the launch under token %s -- check the console before the next paid run\n' \
         "$LAUNCH_UNCERTAIN" >"${OUT:-.}/termination.txt" 2>/dev/null || true
       exit 1
