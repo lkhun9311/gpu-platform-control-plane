@@ -15,9 +15,11 @@ aws ec2 run-instances --region ap-northeast-2 --image-id ami-0stubgpu --instance
 user-data: matches the copy saved in the run directory
 --- the 2 line(s) above repeat 3 times ---
 aws ec2 describe-instances --region ap-northeast-2 --filters Name=client-token,Values=m5c-<RUN>-ap-northeast-2a Name=subnet-id,Values=subnet-ap-northeast-2a Name=instance-state-name,Values=pending,running,stopping,stopped --cli-connect-timeout 5 --cli-read-timeout 10 --query Reservations[].Instances[].InstanceId --output text
-filtered describe: 1 instance(s) matched the filter
+filtered describe: 2 instance(s) matched the filter
 aws ec2 terminate-instances --region ap-northeast-2 --instance-ids i-0orphan
 aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0orphan --cli-connect-timeout 5 --cli-read-timeout 10 --query Reservations[0].Instances[0].State.Name --output text
+aws ec2 terminate-instances --region ap-northeast-2 --instance-ids i-0twin
+aws ec2 describe-instances --region ap-northeast-2 --instance-ids i-0twin --cli-connect-timeout 5 --cli-read-timeout 10 --query Reservations[0].Instances[0].State.Name --output text
 harness checksum: user-data matches the uploaded binary
 gateway checksum: user-data matches the uploaded binary
 --- exit 1
@@ -42,6 +44,9 @@ gateway checksum: user-data matches the uploaded binary
 == the lost launch created i-0orphan; terminating it
 == terminating i-0orphan
 == i-0orphan is terminated
+== the lost launch created i-0twin; terminating it
+== terminating i-0twin
+== i-0twin is terminated
 FAIL: a launch in ap-northeast-2a gave no classifiable answer after 3 attempts; anything it created has been terminated. Re-run when the API is answering. See <OUT>/launch-errors.txt
 --- files
 ./benchharness

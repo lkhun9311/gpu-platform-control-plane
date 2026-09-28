@@ -673,6 +673,16 @@ scenarios_m5c_gpu_session() {
     STUB_LAUNCH_FAIL_ZONES="ap-northeast-2a" STUB_LAUNCH_FAILURE=idempotent-mismatch \
     STUB_MISMATCH_LEAVES_INSTANCE=1 \
     run_scenario launch-refused-as-a-duplicate-token-that-exists bash "$TARGET"
+
+  # Two instances answer the same token, and BOTH must be terminated.
+  #
+  # One row cannot tell a loop over every match from code that takes the first and stops, so the reconciler's
+  # "terminate every id the filter returned" was untested by construction. The scenario also pins that the run
+  # still refuses: finding two instances under one launch token is an invariant violation, not a recovery.
+  REPS=1 REQUIRE_CLEAN_TREE=0 STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 \
+    STUB_LAUNCH_ACCEPTED_BUT_SILENT_ZONES="ap-northeast-2a ap-northeast-2c" \
+    STUB_SECOND_ORPHAN_ID=i-0twin \
+    run_scenario launch-answer-lost-with-two-instances-under-one-token bash "$TARGET"
 }
 
 scenarios_queuelab_gpu_session() {

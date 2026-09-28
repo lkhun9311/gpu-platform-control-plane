@@ -13,16 +13,16 @@ aws ec2 describe-instance-type-offerings --region ap-northeast-2 --location-type
 aws ec2 describe-subnets --region ap-northeast-2 --filters Name=default-for-az,Values=true Name=map-public-ip-on-launch,Values=true Name=availability-zone,Values=ap-northeast-2a --query Subnets[0].SubnetId --output text
 aws ec2 run-instances --region ap-northeast-2 --image-id ami-0stubgpu --instance-type g5.2xlarge --subnet-id subnet-ap-northeast-2a --iam-instance-profile Name=m5c-gpu --instance-initiated-shutdown-behavior terminate --block-device-mappings [{"DeviceName":"/dev/sda1","Ebs":{"VolumeSize":200,"VolumeType":"gp3","DeleteOnTermination":true}}] --instance-market-options {"MarketType":"spot","SpotOptions":{"MaxPrice":"1.10","SpotInstanceType":"one-time"}} --user-data file://<USERDATA> --tag-specifications ResourceType=instance,Tags=[{Key=Name,Value=m5c-gpu},{Key=purpose,Value=m5c-sharing-matrix},{Key=run,Value=<NONCE>}] --client-token <RUN>-ap-northeast-2a --query Instances[0].InstanceId --output text
 user-data: matches the copy saved in the run directory
-aws ec2 describe-instances --region ap-northeast-2 --filters Name=client-token,Values=m5c-<RUN>-ap-northeast-2a Name=instance-state-name,Values=pending,running,stopping,stopped --cli-connect-timeout 5 --cli-read-timeout 10 --query Reservations[].Instances[].InstanceId --output text
+aws ec2 describe-instances --region ap-northeast-2 --filters Name=client-token,Values=m5c-<RUN>-ap-northeast-2a Name=subnet-id,Values=subnet-ap-northeast-2a Name=instance-state-name,Values=pending,running,stopping,stopped --cli-connect-timeout 5 --cli-read-timeout 10 --query Reservations[].Instances[].InstanceId --output text
 filtered describe: 0 instance(s) matched the filter
 sleep 1
-aws ec2 describe-instances --region ap-northeast-2 --filters Name=client-token,Values=m5c-<RUN>-ap-northeast-2a Name=instance-state-name,Values=pending,running,stopping,stopped --cli-connect-timeout 5 --cli-read-timeout 10 --query Reservations[].Instances[].InstanceId --output text
+aws ec2 describe-instances --region ap-northeast-2 --filters Name=client-token,Values=m5c-<RUN>-ap-northeast-2a Name=subnet-id,Values=subnet-ap-northeast-2a Name=instance-state-name,Values=pending,running,stopping,stopped --cli-connect-timeout 5 --cli-read-timeout 10 --query Reservations[].Instances[].InstanceId --output text
 filtered describe: 0 instance(s) matched the filter
 sleep 2
-aws ec2 describe-instances --region ap-northeast-2 --filters Name=client-token,Values=m5c-<RUN>-ap-northeast-2a Name=instance-state-name,Values=pending,running,stopping,stopped --cli-connect-timeout 5 --cli-read-timeout 10 --query Reservations[].Instances[].InstanceId --output text
+aws ec2 describe-instances --region ap-northeast-2 --filters Name=client-token,Values=m5c-<RUN>-ap-northeast-2a Name=subnet-id,Values=subnet-ap-northeast-2a Name=instance-state-name,Values=pending,running,stopping,stopped --cli-connect-timeout 5 --cli-read-timeout 10 --query Reservations[].Instances[].InstanceId --output text
 filtered describe: 0 instance(s) matched the filter
 sleep 3
-aws ec2 describe-instances --region ap-northeast-2 --filters Name=client-token,Values=m5c-<RUN>-ap-northeast-2a Name=instance-state-name,Values=pending,running,stopping,stopped --cli-connect-timeout 5 --cli-read-timeout 10 --query Reservations[].Instances[].InstanceId --output text
+aws ec2 describe-instances --region ap-northeast-2 --filters Name=client-token,Values=m5c-<RUN>-ap-northeast-2a Name=subnet-id,Values=subnet-ap-northeast-2a Name=instance-state-name,Values=pending,running,stopping,stopped --cli-connect-timeout 5 --cli-read-timeout 10 --query Reservations[].Instances[].InstanceId --output text
 filtered describe: 0 instance(s) matched the filter
 sleep 4
 --- the 3 line(s) above repeat 3 times ---
@@ -46,7 +46,7 @@ gateway checksum: user-data matches the uploaded binary
 == trying ap-northeast-2a (subnet-ap-northeast-2a)
 == reconciling the launch token <TOKEN>-ap-northeast-2a: asking AWS what it actually created
 LAUNCH UNRESOLVED for token <TOKEN>-ap-northeast-2a: 6 reads found no instance, which is not proof that none exists. Check by hand:
-  aws ec2 describe-instances --region ap-northeast-2 --filters "Name=client-token,Values=m5c-<RUN>-ap-northeast-2a"
+  aws ec2 describe-instances --region ap-northeast-2 --filters "Name=client-token,Values=m5c-<RUN>-ap-northeast-2a" "Name=subnet-id,Values=subnet-ap-northeast-2a"
 FAIL: a launch in ap-northeast-2a was refused as a duplicate of an earlier request under the same token, so an instance exists, and AWS could not be asked which one. Nothing further is launched. See <OUT>/launch-errors.txt
 --- files
 ./benchharness

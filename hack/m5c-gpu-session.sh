@@ -803,6 +803,9 @@ TAGS="ResourceType=instance,Tags=[{Key=Name,Value=$STACK},{Key=purpose,Value=m5c
 # an interrupted launch reconcilable, and it is not a journal -- it cannot hold an instance id the client
 # never received. AWS is the journal; this is the key to query it with.
 LAUNCH_UNCERTAIN=""
+# The subnet that token was sent to, remembered with it: cleanup cannot see the loop's $SUBNET, and a
+# reconcile without the subnet would ask a region-wide question the library now refuses.
+LAUNCH_UNCERTAIN_SUBNET=""
 
 # The reconciler this runner proved now lives in hack/lib/spot-run.sh as spot_reconcile_token, because
 # three more paid runners need it and a second copy of termination-sensitive filtering is the risk, not
@@ -822,13 +825,24 @@ cleanup() {
   # arrives while the first is still inside that polling.
   [ "$cleanup_ran" = "1" ] && return 0
   cleanup_ran=1
+  # The mktemp files this runner made are removed here, on every path that reaches cleanup.
+  #
+  # RUNSCRIPT, UD and MEASURE were never deleted by anything: one invocation left two or three files in
+  # /tmp, which is tmpfs here, so they are RAM rather than disk. Driving the four runners through the
+  # golden suite a few times put 6167 of them there. ${VAR:-} because cleanup can run before they are set.
+  #
+  # NOT every path: these files are created before `trap cleanup EXIT` is armed, so a run that refuses
+  # before the launch -- an unset REPS, a dirty tree, credentials too short -- still leaves them. Measured
+  # after this change: four full suites, 59 scenarios, leave 2. Moving the trap earlier would close that,
+  # and moving a trap changes what happens on a signal, which is not this commit's subject.
+  rm -f "${RUNSCRIPT:-}" "${UD:-}" "${attempt_err:-}"
   # An unresolved launch is settled FIRST, because it is the instance nobody knows the id of.
   #
   # A signal during run-instances lands here with IID empty, and the terminate below would then report
   # `<none>` and exit 0 while an instance AWS accepted goes on billing. Resolving the token first is what
   # turns that into either a termination or a named, actionable refusal.
   if [ -n "$LAUNCH_UNCERTAIN" ]; then
-    spot_reconcile_token "$REGION" "$LAUNCH_UNCERTAIN" 6 || {
+    spot_reconcile_token "$REGION" "$LAUNCH_UNCERTAIN" "$LAUNCH_UNCERTAIN_SUBNET" 6 || {
       printf 'TERMINATION UNCONFIRMED for the launch under token %s -- check the console before the next paid run\n' \
         "$LAUNCH_UNCERTAIN" >"${OUT:-.}/termination.txt" 2>/dev/null || true
       exit 1
@@ -899,7 +913,7 @@ for z in $ZONES; do
     attempt=$((attempt + 1))
     : > "$attempt_err"
     # Set BEFORE the call. Everything after this line, including a signal, can be reconciled.
-    LAUNCH_UNCERTAIN="$LAUNCH_TOKEN"
+    LAUNCH_UNCERTAIN="$LAUNCH_TOKEN"; LAUNCH_UNCERTAIN_SUBNET="$SUBNET"
     IID=$(spot_launch "$REGION" "$AMI" "$INSTANCE_TYPE" "$SUBNET" "$STACK" \
           "$MAX_SPOT_PRICE" 200 "$UD" "$TAGS" "$LAUNCH_TOKEN" 2>"$attempt_err") || IID=""
     # The shared error log keeps accumulating, because the refusal block after this loop reads it.
@@ -923,7 +937,7 @@ for z in $ZONES; do
       # Cleared before the outcome is judged, for the reason spelled out at the end of this loop: `fail`
       # re-enters cleanup, which would otherwise reconcile the same token a second time.
       LAUNCH_UNCERTAIN=""
-      spot_reconcile_token "$REGION" "$LAUNCH_TOKEN" 6 \
+      spot_reconcile_token "$REGION" "$LAUNCH_TOKEN" "$SUBNET" 6 \
         || fail "a launch in $z was refused as a duplicate of an earlier request under the same token, so an instance exists, and AWS could not be asked which one. Nothing further is launched. See $OUT/launch-errors.txt"
       fail "a launch in $z was refused as a duplicate of an earlier request under the same token; whatever that earlier request created has been terminated. See $OUT/launch-errors.txt"
     fi
@@ -949,7 +963,7 @@ for z in $ZONES; do
     # of DescribeInstances and terminate calls, and the same refusal printed twice -- because the first
     # attempt had not yet recorded that it had happened.
     LAUNCH_UNCERTAIN=""
-    spot_reconcile_token "$REGION" "$LAUNCH_TOKEN" 6 \
+    spot_reconcile_token "$REGION" "$LAUNCH_TOKEN" "$SUBNET" 6 \
       || fail "a launch in $z was neither confirmed nor refused, and AWS could not be asked what it created. Nothing further is launched, because a second zone would risk a second instance. See $OUT/launch-errors.txt"
     fail "a launch in $z gave no classifiable answer after $attempt attempts; anything it created has been terminated. Re-run when the API is answering. See $OUT/launch-errors.txt"
   done
