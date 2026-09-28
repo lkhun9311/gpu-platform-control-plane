@@ -428,6 +428,29 @@ STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 STUB_DONE_AFTER=-1 \
 # script does today; it is pinned here so that fixing it is a visible, deliberate diff.
 STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 STUB_DONE_PRESENT_AT_START=1 \
   run_scenario stale-done bash "$TARGET"
+
+  # AWS accepted the launch and the answer never came back.
+  #
+  # The runner used to clear IID and try the next zone, so an instance it already owned kept billing while a
+  # second one was bought, and cleanup terminated the one id it had -- which was not the first. The retry now
+  # reuses the token, and EC2's zonal idempotency hands back the same instance rather than making another.
+  STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 STUB_DONE_AFTER=2 \
+    STUB_LAUNCH_ACCEPTED_BUT_SILENT_ZONES="ap-northeast-2a" STUB_SILENT_ZONE_RECOVERS_AFTER=2 \
+    run_scenario launch-accepted-but-answer-lost bash "$TARGET"
+
+  # The same, and the answer is lost every time: retries are exhausted, so the run must reconcile the token
+  # and stop rather than move on. Zero launches in the second zone is the assertion.
+  STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 \
+    STUB_LAUNCH_ACCEPTED_BUT_SILENT_ZONES="ap-northeast-2a ap-northeast-2c" \
+    run_scenario launch-answer-lost-every-time bash "$TARGET"
+
+  # Refused as a duplicate of an earlier request under the same token, with that request's instance there to
+  # be found. AWS answers IdempotentParameterMismatch only after a request under this token SUCCEEDED, so it
+  # is evidence an instance exists: one token-scoped describe, one terminate, and no second zone.
+  STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 \
+    STUB_LAUNCH_FAIL_ZONES="ap-northeast-2a" STUB_LAUNCH_FAILURE=idempotent-mismatch \
+    STUB_MISMATCH_LEAVES_INSTANCE=1 \
+    run_scenario launch-refused-as-a-duplicate-token bash "$TARGET"
 }
 
 scenarios_price_of_protection() {
