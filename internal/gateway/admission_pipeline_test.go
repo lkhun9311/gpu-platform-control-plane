@@ -143,6 +143,35 @@ var _ = Describe("admission pipeline placement", func() {
 			"the admission 413 does not name its reason, so nothing downstream can tell it from a body-limit refusal")
 	})
 
+	// The profile refusal at the pipeline level, which the unit specs cannot show: they prove the error is
+	// distinguishable, not that the handler answers 422 with a code a client can branch on.
+	//
+	// Mutation that turns this red: answer ErrProfileViolation with 400 like every other readRequestMeta error.
+	It("answers 422 profile_violation for a body outside the benchmark profile", func() {
+		s := newAdmissionServer(up.URL, tierStandard, AdmissionOff, offAdmitter{})
+		s.EnforceBenchmarkProfile(true)
+		rr := httptest.NewRecorder()
+		body := `{"model":"` + testModel + `","messages":[{"role":"user","content":"hi"}],"max_tokens":4,` +
+			`"stream":true,"stream_options":{"include_usage":true},"tools":[{"type":"function"}]}`
+		s.Handler().ServeHTTP(rr, authedRequest(body))
+		Expect(rr.Code).To(Equal(http.StatusUnprocessableEntity),
+			"a body that parses but carries a forbidden field was reported as malformed JSON or accepted outright")
+		expectJSONError(rr, "profile_violation")
+	})
+
+	// And with the profile off -- the default -- the same body reaches the upstream.
+	//
+	// This is the pair that stops the profile becoming every caller's contract: the gateway is not only the
+	// experiment's, and a run that turned this on for everyone would refuse legitimate tool-calling traffic.
+	It("forwards the same body when the profile is off", func() {
+		s := newAdmissionServer(up.URL, tierStandard, AdmissionOff, offAdmitter{})
+		rr := httptest.NewRecorder()
+		body := `{"model":"` + testModel + `","messages":[{"role":"user","content":"hi"}],"max_tokens":4,` +
+			`"stream":true,"stream_options":{"include_usage":true},"tools":[{"type":"function"}]}`
+		s.Handler().ServeHTTP(rr, authedRequest(body))
+		Expect(rr.Code).To(Equal(http.StatusOK))
+	})
+
 	It("lets a premium request over the same budget reach the proxy", func() {
 		s := newAdmissionServer(up.URL, tierPremium, AdmissionStaticCap, newStaticCapAdmitter(0, 0, 4096))
 		rr := httptest.NewRecorder()

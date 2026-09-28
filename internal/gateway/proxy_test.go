@@ -837,11 +837,86 @@ var _ = Describe("metric label cardinality", func() {
 //
 // readRequestMeta consumes the body to peek at model and messages, and failing to restore it leaves the upstream with an empty one: a bug the proxy's 200 would hide from every spec above.
 var _ = Describe("readRequestMeta", func() {
+	// The benchmark request profile, which is OFF for every spec above and for every non-benchmark caller.
+	//
+	// The experiment is registered over a text-only request shape, and the gateway accepted anything: tools, a
+	// top-level system, unknown fields. None of it is counted by the input estimate, so a caller could offer a
+	// megabyte of tool definitions and be admitted at near-zero cost -- and the run would report an
+	// admitted-work fraction computed over a population it never saw. Refusing is what the repository's rule
+	// for measurement code asks for; pricing the extra bytes was rejected on review because it would move
+	// eligibility, the bucket and the reported weights at once.
+	DescribeTable("refuses a body outside the profile",
+		func(body string) {
+			r := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+			_, _, err := readRequestMeta(r, true)
+			Expect(err).To(MatchError(ErrProfileViolation))
+		},
+		Entry("an unknown top-level field",
+			`{"model":"llama-3","messages":[{"role":"user","content":"hi"}],"max_tokens":4,"stream":true,"stream_options":{"include_usage":true},"seed":7}`),
+		Entry("tool definitions, the field that started this",
+			`{"model":"llama-3","messages":[{"role":"user","content":"hi"}],"max_tokens":4,"stream":true,"stream_options":{"include_usage":true},"tools":[{"type":"function"}]}`),
+		Entry("priority, which belongs to a separately specified experiment",
+			`{"model":"llama-3","messages":[{"role":"user","content":"hi"}],"max_tokens":4,"stream":true,"stream_options":{"include_usage":true},"priority":1}`),
+		Entry("a second message",
+			`{"model":"llama-3","messages":[{"role":"user","content":"hi"},{"role":"user","content":"again"}],"max_tokens":4,"stream":true,"stream_options":{"include_usage":true}}`),
+		Entry("a role other than user",
+			`{"model":"llama-3","messages":[{"role":"system","content":"hi"}],"max_tokens":4,"stream":true,"stream_options":{"include_usage":true}}`),
+		Entry("multimodal content, whose token cost the estimate cannot read",
+			`{"model":"llama-3","messages":[{"role":"user","content":[{"type":"text","text":"hi"}]}],"max_tokens":4,"stream":true,"stream_options":{"include_usage":true}}`),
+		Entry("no max_tokens",
+			`{"model":"llama-3","messages":[{"role":"user","content":"hi"}],"stream":true,"stream_options":{"include_usage":true}}`),
+		Entry("a non-streaming request",
+			`{"model":"llama-3","messages":[{"role":"user","content":"hi"}],"max_tokens":4,"stream_options":{"include_usage":true}}`),
+		Entry("streaming without usage reporting",
+			`{"model":"llama-3","messages":[{"role":"user","content":"hi"}],"max_tokens":4,"stream":true,"stream_options":{"include_usage":false}}`),
+	)
+
+	// A trailing second document is NOT a profile violation, and finding that out is what this spec records.
+	//
+	// I expected the profile's strict decoder to catch it. It would -- json.Decoder.Decode returns nil for the
+	// first object and More() reports the second -- but the estimator's own json.Unmarshal runs first and
+	// refuses trailing content outright, so the request never reaches the profile check. That refusal is a 400
+	// bad_request, which is the right answer: the body is malformed, not merely out of shape.
+	It("refuses a trailing second JSON document before the profile is consulted", func() {
+		body := `{"model":"llama-3","messages":[{"role":"user","content":"hi"}],"max_tokens":4,"stream":true,"stream_options":{"include_usage":true}}{"model":"x"}`
+		r := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+		_, _, err := readRequestMeta(r, true)
+		Expect(err).To(HaveOccurred())
+		Expect(err).NotTo(MatchError(ErrProfileViolation),
+			"a malformed body was reported as a profile violation, which would tell the caller to remove a field when the JSON itself is broken")
+		// And with the profile off it is refused identically, which is what makes it the estimator's rule
+		// rather than the experiment's.
+		r2 := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+		_, _, err2 := readRequestMeta(r2, false)
+		Expect(err2).To(HaveOccurred())
+	})
+
+	It("accepts the exact shape the harness sends", func() {
+		body := `{"model":"llama-3","messages":[{"role":"user","content":"hi"}],"max_tokens":4,"stream":true,"stream_options":{"include_usage":true}}`
+		r := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+		_, meta, err := readRequestMeta(r, true)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(meta.Model).To(Equal("llama-3"))
+		Expect(meta.EstInputTokens).To(Equal(1)) // ceil(2/4)
+	})
+
+	// The pair that keeps the profile from becoming everyone's contract.
+	//
+	// Without this, turning the check on unconditionally would pass every spec above: the gateway would refuse
+	// tool definitions for all callers, and the only evidence would be a benchmark that never sends them.
+	It("leaves a non-profile body alone when the profile is off", func() {
+		body := `{"model":"llama-3","messages":[{"role":"user","content":"hi"}],"tools":[{"type":"function"}],"seed":7}`
+		r := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+		_, meta, err := readRequestMeta(r, false)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(meta.Model).To(Equal("llama-3"))
+	})
+
 	It("restores the body so the upstream still receives it intact", func() {
 		body := `{"model":"llama-3","messages":[{"role":"user","content":"hi"}]}`
 		r := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
 
-		restore, meta, err := readRequestMeta(r)
+		restore, meta, err := readRequestMeta(r, false)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(meta.Model).To(Equal("llama-3"))
 
@@ -870,7 +945,7 @@ var _ = Describe("readRequestMeta", func() {
 		big := `{"model":"llama-3","pad":"` + strings.Repeat("a", maxBodyBytes) + `"}`
 		r := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(big))
 
-		_, _, err := readRequestMeta(r)
+		_, _, err := readRequestMeta(r, false)
 		Expect(err).To(HaveOccurred())
 
 		// The type matters as much as the error. Every readRequestMeta failure used to reach the client as 400,
@@ -887,7 +962,7 @@ var _ = Describe("readRequestMeta", func() {
 	It("rejects a body with no model field", func() {
 		r := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"messages":[]}`))
 
-		_, _, err := readRequestMeta(r)
+		_, _, err := readRequestMeta(r, false)
 		Expect(err).To(MatchError(ErrNoModel))
 	})
 
@@ -896,7 +971,7 @@ var _ = Describe("readRequestMeta", func() {
 		body := `{"model":"llama-3","messages":[{"role":"user","content":"hi"},{"role":"assistant","content":"hello!"}]}`
 		r := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
 
-		_, meta, err := readRequestMeta(r)
+		_, meta, err := readRequestMeta(r, false)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(meta.EstInputTokens).To(Equal(2))
 		Expect(meta.NonTextContent).To(BeFalse())
@@ -907,7 +982,7 @@ var _ = Describe("readRequestMeta", func() {
 		body := `{"model":"llama-3","messages":[{"role":"user","content":"abcde"}]}`
 		r := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
 
-		_, meta, err := readRequestMeta(r)
+		_, meta, err := readRequestMeta(r, false)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(meta.EstInputTokens).To(Equal(2))
 	})
@@ -917,7 +992,7 @@ var _ = Describe("readRequestMeta", func() {
 		body := `{"model":"llama-3","messages":[{"role":"user","content":[{"type":"text","text":"hi"}]}]}`
 		r := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
 
-		_, meta, err := readRequestMeta(r)
+		_, meta, err := readRequestMeta(r, false)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(meta.NonTextContent).To(BeTrue())
 		// The part is never dropped from the estimate, only imprecisely counted, so it must contribute a positive amount.
@@ -928,7 +1003,7 @@ var _ = Describe("readRequestMeta", func() {
 		body := `{"model":"llama-3","messages":[{"role":"assistant","tool_calls":[]},{"role":"user","content":null}]}`
 		r := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
 
-		_, meta, err := readRequestMeta(r)
+		_, meta, err := readRequestMeta(r, false)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(meta.EstInputTokens).To(Equal(0))
 		Expect(meta.NonTextContent).To(BeFalse())
