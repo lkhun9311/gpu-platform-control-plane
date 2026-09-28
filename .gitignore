@@ -105,8 +105,10 @@ bin/
 /benchharness
 /gateway
 /gpu-simulator
+/platformctl
 /queuelabrun
 /queueload
+/strandedrun
 /workloadrunctl
 
 # Python bytecode from `py_compile` checks on the experiment scripts.
