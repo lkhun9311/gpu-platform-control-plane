@@ -162,6 +162,25 @@ case "$svc $op" in
       case "${STUB_LAUNCH_FAILURE:-capacity}" in
         unauthorized)
           printf 'An error occurred (UnauthorizedOperation) when calling the RunInstances operation: not authorized to perform: ec2:RunInstances with an explicit deny in a service control policy: arn:aws:organizations::000000000000:policy/o-stub/service_control_policy/p-stub01\n' >&2 ;;
+        idempotent-mismatch)
+          # The refusal that means an instance ALREADY EXISTS under this token.
+          #
+          # AWS gives it when a token is reused with different parameters, which can only happen after an
+          # earlier request under that token succeeded. It reads like every other launch failure -- empty
+          # stdout, exit 254 -- so a runner that classifies it as a clean refusal walks away from a running
+          # instance. Without this case no scenario could tell the two readings apart.
+          # STUB_MISMATCH_LEAVES_INSTANCE decides whether the instance that earlier request created is
+          # DISCOVERABLE, and both answers are real.
+          #
+          # Unset, the token-filtered describe finds nothing and the runner must refuse without claiming
+          # nothing exists -- an eventually-consistent read that has not caught up yet. Set, the instance is
+          # there to be found and terminated, which is the outcome the error's own meaning implies. Only the
+          # second proves the recovery path runs to a termination; only the first proves the refusal is
+          # honest when it cannot. Default off, so no existing golden moves.
+          if [ "${STUB_MISMATCH_LEAVES_INSTANCE:-0}" = "1" ] && [ -n "$(arg_after --client-token "$@" || true)" ]; then
+            printf '%s\t%s\n' "$(arg_after --client-token "$@")" "${STUB_DUPLICATE_INSTANCE_ID:-i-0dup}" >> "$state/token-instances"
+          fi
+          printf 'An error occurred (IdempotentParameterMismatch) when calling the RunInstances operation: the client token %s was used with different parameters by a request that succeeded\n' "$(arg_after --client-token "$@" || echo unknown)" >&2 ;;
         *)
           printf 'An error occurred (InsufficientInstanceCapacity) launching in %s\n' "$az" >&2 ;;
       esac

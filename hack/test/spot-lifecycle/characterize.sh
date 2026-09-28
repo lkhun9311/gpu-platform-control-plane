@@ -636,6 +636,43 @@ scenarios_m5c_gpu_session() {
   REPS=1 REQUIRE_CLEAN_TREE=0 STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 STUB_DONE_PRESENT_AT_START=1 \
     STUB_PRESENT_KEYS="log.txt" \
     run_scenario stale-done bash "$TARGET"
+
+  # A policy denial in the FIRST zone must stop the run, not walk to the second.
+  #
+  # Only 2a is made to fail, and it fails with UnauthorizedOperation. Read this against zone-retry above,
+  # which plants the same shape with a capacity refusal and expects the loop to move on and succeed in 2c:
+  # the pair is what makes "only a zone's shortage may move zones" an assertion rather than a sentence in a
+  # comment. Before LAUNCH_DEFINITIVE the two behaved identically -- `break` left the inner retry loop and
+  # the outer `for z` re-sent a request the account is not allowed to make.
+  #
+  # The run ends refused, and the refusal must be the one that names the service control policy, since the
+  # denial is the only error in launch-errors.txt.
+  REPS=1 REQUIRE_CLEAN_TREE=0 STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 \
+    STUB_LAUNCH_FAIL_ZONES="ap-northeast-2a" STUB_LAUNCH_FAILURE=unauthorized \
+    run_scenario launch-refused-by-policy-stops-at-the-first-zone bash "$TARGET"
+
+  # The launch is refused as a duplicate of an earlier request under the same token.
+  #
+  # AWS answers IdempotentParameterMismatch only when that token was already used by a request that
+  # SUCCEEDED, so it is evidence an instance exists. It used to sit in the definitive list beside the
+  # authorization errors, where it cleared the uncertain token and moved to the next zone -- reading
+  # "something was created" as "nothing was created", which is the defect the whole loop was rewritten to
+  # close. What the golden pins is that the token is reconciled and the run stops.
+  REPS=1 REQUIRE_CLEAN_TREE=0 STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 \
+    STUB_LAUNCH_FAIL_ZONES="ap-northeast-2a" STUB_LAUNCH_FAILURE=idempotent-mismatch \
+    run_scenario launch-refused-as-a-duplicate-token bash "$TARGET"
+
+  # The same refusal, with the instance that earlier request created actually there to be found.
+  #
+  # The scenario above pins the half where the token-filtered read comes back empty and the runner refuses
+  # without claiming nothing exists. That half cannot show a termination, so on its own it would let a
+  # reconcile that never terminates anything pass as covered. Here the instance is discoverable, and what the
+  # golden pins is the whole path: one launch, one token-filtered describe, one terminate of the instance the
+  # token names, and still no second zone.
+  REPS=1 REQUIRE_CLEAN_TREE=0 STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 \
+    STUB_LAUNCH_FAIL_ZONES="ap-northeast-2a" STUB_LAUNCH_FAILURE=idempotent-mismatch \
+    STUB_MISMATCH_LEAVES_INSTANCE=1 \
+    run_scenario launch-refused-as-a-duplicate-token-that-exists bash "$TARGET"
 }
 
 scenarios_queuelab_gpu_session() {

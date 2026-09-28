@@ -914,8 +914,13 @@ for z in $ZONES; do
   # mistake is the one that is not made.
   #
   # Capacity is the only zonal answer. An authorization denial, a validation error or a quota refusal is
-  # definitive AND not helped by another zone, so it stops the loop rather than walking it -- the refusal
-  # block below already reads launch-errors.txt and says which of the two it was.
+  # definitive AND not helped by another zone, so LAUNCH_DEFINITIVE stops the whole loop -- the refusal block
+  # below already reads launch-errors.txt and says which of the two it was.
+  #
+  # The flag exists because `break` leaves only the inner retry loop. Without it the outer `for z` ran on with
+  # IID empty and asked the next zone a question this one had already answered, while the comment here claimed
+  # it stopped: a policy denial was re-sent once per zone. Cheap in money, but it made the comment false.
+  LAUNCH_DEFINITIVE=""
   attempt=0
   # The per-attempt buffer lives outside $OUT on purpose.
   #
@@ -941,9 +946,25 @@ for z in $ZONES; do
       LAUNCH_UNCERTAIN=""            # AWS said it created nothing here; another zone is the right move
       break
     fi
-    if grep -qE 'UnauthorizedOperation|ValidationError|InvalidParameter|RequestLimitExceeded|InstanceLimitExceeded|IdempotentParameterMismatch' \
+    # IdempotentParameterMismatch is EVIDENCE AN INSTANCE EXISTS, and it used to sit in the definitive list
+    # below, where it cleared LAUNCH_UNCERTAIN and moved on.
+    #
+    # AWS returns it only when this token was already used by a request that SUCCEEDED, with parameters that
+    # differ from the ones just sent. So it is the opposite of "nothing was created": something was, under a
+    # token this run now knows. Reading it as a clean refusal walked away from a billing instance -- the same
+    # defect this loop was rewritten to close, through a door left open in the fix itself.
+    if grep -q 'IdempotentParameterMismatch' "$attempt_err" 2>/dev/null; then
+      # Cleared before the outcome is judged, for the reason spelled out at the end of this loop: `fail`
+      # re-enters cleanup, which would otherwise reconcile the same token a second time.
+      LAUNCH_UNCERTAIN=""
+      reconcile_launch_token "$LAUNCH_TOKEN" \
+        || fail "a launch in $z was refused as a duplicate of an earlier request under the same token, so an instance exists, and AWS could not be asked which one. Nothing further is launched. See $OUT/launch-errors.txt"
+      fail "a launch in $z was refused as a duplicate of an earlier request under the same token; whatever that earlier request created has been terminated. See $OUT/launch-errors.txt"
+    fi
+    if grep -qE 'UnauthorizedOperation|ValidationError|InvalidParameter|RequestLimitExceeded|InstanceLimitExceeded' \
          "$attempt_err" 2>/dev/null; then
-      LAUNCH_UNCERTAIN=""            # definitive, and another zone would answer the same way
+      LAUNCH_UNCERTAIN=""            # AWS refused before creating anything
+      LAUNCH_DEFINITIVE=1            # and no other zone would answer differently
       break
     fi
 
@@ -968,6 +989,7 @@ for z in $ZONES; do
   done
   rm -f "$attempt_err"
   [ -n "$IID" ] && break
+  [ -n "$LAUNCH_DEFINITIVE" ] && break
 done
 # The buffer is also removed on the paths that leave this loop by exiting -- `fail` inside it, or a signal --
 # because /tmp here is tmpfs, so a leaked file is memory rather than disk. cleanup runs on all of them.
