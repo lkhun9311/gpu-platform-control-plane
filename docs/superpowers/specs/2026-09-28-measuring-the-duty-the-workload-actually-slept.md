@@ -87,6 +87,24 @@ Every older arity keeps reading. The 47 literal messages in `provenance_test.go`
 messages in `cmd/queuelabrun/device_preflight_test.go` are the evidence for that, and `"iters=9"` must still be
 refused as an unreadable wire format.
 
+**A second assertion is overturned, and it was not in this page's first draft.**
+`submit_test.go:643` requires the script to contain `resumed=%d saved=%s"` — the message's literal tail — and
+its comment states that the save status **must be the last field**, because the parser reads by position and a
+seventh field that were not `saved=` would make every message unparseable. That reasoning stays correct about
+positions one through seven; what it gets wrong is treating "last" as the property being protected. The new
+fields go **after** `saved=`, so every existing position is untouched and `parseSavedField` keeps reading index
+six. The assertion and its comment are rewritten to pin the positions they actually depend on, and the rewrite
+is the overturn.
+
+**And the script's own bytes are part of the canary key, which this page's first draft also missed.**
+`sleeperCommand` renders the workload into the container's argv as `python3 -c <script>`, and
+`cmd/queuelabrun/canary.go:222` fills `canaryKey.HonorCommand` and `IgnoreCommand` from `Spec.Command`. So a
+single character changed in the script moves both — the mechanism `submit.go:116` describes when it says
+changing the workload forces a re-take. Nothing in the tree carries a committed canary value to edit (the
+canary is rendered at run time from this same renderer), so the cost is a re-take before the next qualified
+run, not a fixture to update. It is recorded here because a change that moves a qualification key silently is
+the shape of defect this page exists to prevent.
+
 **3. The ledger carries the observations, and absence is not zero.** `LifecycleEvent` gains pointer fields
 beside `DutyCycle`, so a record from a build whose workload could not measure reads as **unmeasured** rather
 than as measured zero. A full-duty run that genuinely slept nothing must stay distinguishable from a run that
