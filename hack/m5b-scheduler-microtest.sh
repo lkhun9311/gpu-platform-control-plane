@@ -40,6 +40,19 @@ STACK="m5b-microtest"
 # the same name and either can be found from the other.
 RUN_ID="$(basename "$OUT")"
 
+# LAUNCH_IDENTITY names ONE launch attempt, and it is the only thing allowed to decide what gets terminated.
+#
+# This runner had no per-run random value: RUN_ID is the output directory's basename, a timestamp to the second
+# that OUT can override. A launch whose answer was lost has to be findable afterwards, and a selector two
+# concurrent runs can share is one that can terminate somebody else's instance.
+#
+# Unlike the run id this MAY stop the session: a run that cannot name what it created must not create
+# anything. No ${LAUNCH_IDENTITY:-} default, because an identity a caller can choose is not an identity.
+LAUNCH_IDENTITY=$(openssl rand -hex 16 2>/dev/null \
+  || head -c16 /dev/urandom 2>/dev/null | od -An -tx1 | tr -d ' \n')
+[ "${#LAUNCH_IDENTITY}" -eq 32 ] \
+  || fail "no source of 128 random bits (openssl and /dev/urandom both refused), so a launch could not be named well enough to be recovered. Nothing was launched."
+
 say()  { printf '== %s\n' "$*"; }
 fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
 
