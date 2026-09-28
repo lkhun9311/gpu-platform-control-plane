@@ -80,6 +80,8 @@ func main() {
 		err = power(os.Args[2:])
 	case "stamp-exact-tokens":
 		err = stampExactTokens(os.Args[2:])
+	case "prepare-traces":
+		err = prepareTraces(os.Args[2:])
 	case "check-replay":
 		err = checkReplay(os.Args[2:])
 	case "ladder-verdict":
@@ -103,7 +105,7 @@ func main() {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: benchharness <gen-trace|replay|report|ladder-verdict|ladder-plan-check|study-arrivals|print-prompt|check-replay|stamp-exact-tokens|sim-cap|power|stub-serve> [flags]")
+	fmt.Fprintln(os.Stderr, "usage: benchharness <gen-trace|prepare-traces|replay|report|ladder-verdict|ladder-plan-check|study-arrivals|print-prompt|check-replay|stamp-exact-tokens|sim-cap|power|stub-serve> [flags]")
 }
 
 // arrivalFlags are gen-trace's load flags, gathered so the choice between the two arrival models lives in one place.
@@ -398,6 +400,8 @@ func replay(args []string) error {
 	// Opt-in rather than always-on: a kind run against a stub has no build worth pinning, and demanding one
 	// from every free run would push an operator toward inventing a value. Where the record has to outlive
 	// the cluster, it is required.
+	requireExactTokens := fs.Bool("require-exact-tokens", false,
+		"refuse a trace whose rows carry no measured input-token count, before sending any request")
 	requireProvenance := fs.Bool("require-provenance", false,
 		"refuse a manifest that does not name the gateway build and digest-pin every image the number depends on")
 	// The axis the paid evidence showed actually works, exposed so an arm can carry it.
@@ -430,6 +434,25 @@ func replay(args []string) error {
 		}
 	}
 	rows, err := readTraceFile(m.TracePath)
+	if err == nil && *requireExactTokens {
+		// Refused BEFORE the first request, not after the run.
+		//
+		// A trace can be freshly checksummed and still carry no measured input-token counts -- that is exactly
+		// what the old workflow produced, because the replay loop regenerated the trace after the stamping
+		// step. The manifest is then internally consistent and the evidence it yields cannot be scored against
+		// the admission-match criterion, which is defined over the served tokenizer's own count. Discovering
+		// that in the report costs a paid run; discovering it here costs nothing.
+		unstamped := 0
+		for _, r := range rows {
+			if r.ExactInputTokens <= 0 {
+				unstamped++
+			}
+		}
+		if unstamped > 0 {
+			return fmt.Errorf("%d of %d rows in %s carry no measured input-token count and -require-exact-tokens was set, so nothing was sent: prepare the traces with prepare-traces (which stamps before it checksums) rather than replaying a trace whose evidence cannot be scored against the admission-match criterion",
+				unstamped, len(rows), m.TracePath)
+		}
+	}
 	if err != nil {
 		return err
 	}

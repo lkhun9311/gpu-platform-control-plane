@@ -532,6 +532,24 @@ say "every tenant in the trace has a key and a policy"
   -gateway-url "http://127.0.0.1:18080" -model "$MODEL" -api-keys "$api_keys" -tenant "${premium_tenants%%,*}" \
   || fail "the engine would not report its own input-token counts, so the admission-match criterion cannot be evaluated in the units the design defines it in"
 
+# Every trace and manifest the run will replay is finalised HERE, after stamping and before any arm runs.
+#
+# The loop below used to call gen-trace itself, per arm and repetition, and replay THAT file. So the trace
+# stamped above was never replayed: every row reaching the report carried ExactInputTokens: 0 and the
+# admission-match criterion could not be evaluated for any paid run. Worse, stamping rewrites the trace in
+# place, which invalidated the manifest gen-trace had just written beside it -- LoadManifest verifies the
+# checksum unconditionally -- and nothing noticed because the loop overwrote that manifest anyway.
+#
+# prepare-traces refuses to publish a manifest for a trace whose rows carry no measured count, derives R1 by
+# FILTERING the contender rows out (which preserves the schedule and the counts, where regenerating discarded
+# them), and computes every checksum from the finished bytes.
+"$WORK/benchharness" prepare-traces -trace "$OUT/trace.jsonl" -out-dir "$OUT" \
+  -arms "$(printf '%s' "$ARMS_ORDER" | tr ' ' ',')" -reps "$REPS" \
+  -gateway-url "http://127.0.0.1:18080" -model "$MODEL" -timeout-ms 30000 -seed 7 \
+  -match-tolerance 0.05 -long-threshold 4096 \
+  -gateway-sha "$GW_SHA" -gateway-image "$GW_IMAGE" -engine-image "$ENGINE_IMAGE" \
+  || fail "the traces could not be prepared, so nothing was replayed"
+
 # A burst below the largest prompt makes arm B refuse every eligible request, which is not a tuning error
 # that shows up as a weak result -- it is a degenerate arm that reports cleanly and answers a question nobody
 # asked. The last run spent three hours and a card on it. The trace knows the number, so it is asked.
@@ -625,17 +643,17 @@ for rep in $(seq 1 "$REPS"); do
     curl -s -o /dev/null -m 3 "http://127.0.0.1:18080/" 2>/dev/null \
       || fail "the port-forward to the gateway is not answering for arm $arm; a replay against it would record transport errors for every row and look like a result"
 
-    "$WORK/benchharness" gen-trace --seed 7 --duration-ms "$DURATION_MS" --rate "$RATE" --model "$MODEL" \
-      --arm "$arm" --gateway-url "http://127.0.0.1:18080" \
-      --gateway-sha "$GW_SHA" --gateway-image "$GW_IMAGE" --engine-image "$ENGINE_IMAGE" \
-      --trace-out "$OUT/trace-$arm-$rep.jsonl" --manifest-out "$OUT/manifest-$arm-$rep.yaml" \
-      || fail "gen-trace $arm"
+    # No gen-trace here. The manifest and its trace were finalised before the first arm ran, and regenerating
+    # either would discard the measured input-token counts the criterion is defined over.
+    [ -s "$OUT/manifest-$arm-$rep.yaml" ] \
+      || fail "no prepared manifest for arm $arm repetition $rep; prepare-traces did not publish one and a replay here would invent its own trace"
     prio_args=()
     if [ "${PRIORITIES:-0}" = "1" ]; then
       prio_args=(--priorities "$priorities")
     fi
     "$WORK/benchharness" replay --manifest "$OUT/manifest-$arm-$rep.yaml" \
       --require-provenance \
+      --require-exact-tokens \
       --target "http://127.0.0.1:18080" \
       --api-keys "$api_keys" \
       "${prio_args[@]}" \
