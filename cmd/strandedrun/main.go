@@ -26,12 +26,20 @@ limitations under the License.
 // study's worst outcome -- a treatment that silently did not apply produces three arms reporting the same
 // number, which reads as a null result rather than as a broken instrument.
 //
-// Two subcommands, and neither needs a cluster:
+// Four subcommands. None of them talks to a cluster: two render what a cluster is made of, and two judge
+// readings taken from one, so every refusal here is reachable without renting or creating anything.
 //
 //	render-scheduler-config  emits the KubeSchedulerConfiguration an arm asks for, refusing a profile that the
 //	                         scheduler would accept and this study must not -- above all one that selects a
 //	                         packing strategy without naming nvidia.com/gpu, which scores cpu and memory and
 //	                         leaves the treatment inert.
+//	render-cluster           writes that profile, the kind configuration that mounts it, and one device plugin
+//	                         per distinct device count, into one directory. Together, because the kind
+//	                         configuration names the profile by relative path: rendered separately, a cluster
+//	                         could mount one arm's profile under another arm's configuration.
+//	verify-layout            compares what the cluster advertises against what the run asked for. The
+//	                         registration requires reading allocatable BACK from each node rather than trusting
+//	                         the manifest, because only the node's word decides where the scheduler can place.
 //	check-treatment          judges an observed probe placement against the profile the run asked for, over a
 //	                         fixture whose two strategies demonstrably disagree. Reading the scheduler's
 //	                         configuration back says what it loaded; only a moved placement says it acted.
@@ -47,6 +55,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -61,6 +70,10 @@ func main() {
 		err = renderSchedulerConfig(os.Args[2:])
 	case "check-treatment":
 		err = checkTreatment(os.Args[2:])
+	case "render-cluster":
+		err = renderCluster(os.Args[2:])
+	case "verify-layout":
+		err = verifyLayout(os.Args[2:])
 	case "-h", "--help", "help":
 		usage()
 		return
@@ -84,6 +97,14 @@ func usage() {
   check-treatment -strategy=... -nodes=NAME:ALLOCATABLE:RESERVED,... -request=N -observed=NODE
       Judge an observed probe placement against the strategy the run asked for. Refuses a
       fixture on which the two strategies agree, because such a placement qualifies nothing.
+
+  render-cluster -strategy=... -layout=2,1,1 -dir=DIR [-namespace=... -image=...]
+      Write the study's kind configuration, the scheduler profile it mounts, and one device
+      plugin per distinct device count. Refuses a layout that cannot strand anything.
+
+  verify-layout -layout=2,1,1 -observed=NAME:LABEL:ALLOCATABLE,...
+      Compare what the cluster advertises against what the run asked for. A node's own
+      allocatable decides where the scheduler can place; the manifest is not evidence.
 `)
 }
 
@@ -148,6 +169,155 @@ func checkTreatment(args []string) error {
 	fmt.Printf("the treatment applied: %s placed the probe on %s, and the other strategy would not have\n",
 		*strategy, *observed)
 	return nil
+}
+
+// renderCluster writes every artifact the study's cluster is made of, into one directory.
+//
+// Into a directory rather than to stdout, because there are three files and the kind configuration REFERENCES
+// one of the others by relative path (./scheduler-config.yaml). Emitting them separately would let a caller
+// create a cluster whose mounted profile came from a different arm than the configuration it rendered -- which
+// is the silent-treatment failure this command exists to make impossible, arriving by another door.
+func renderCluster(args []string) error {
+	fs := flag.NewFlagSet("render-cluster", flag.ContinueOnError)
+	strategy := fs.String("strategy", "", "LeastAllocated or MostAllocated")
+	layout := fs.String("layout", "", "devices per worker, comma separated, e.g. 2,1,1")
+	dir := fs.String("dir", "", "directory to write the cluster's artifacts into")
+	namespace := fs.String("namespace", "gpu-platform-control-plane-system", "namespace for the device plugins")
+	image := fs.String("image", "gpu-simulator:latest", "device plugin image")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *strategy == "" || *layout == "" || *dir == "" {
+		return fmt.Errorf("-strategy, -layout and -dir are all required; this command renders one arm's " +
+			"cluster and none of the three has a meaningful default")
+	}
+	l, err := parseLayout(*layout)
+	if err != nil {
+		return err
+	}
+	profile := GPUAware(ScoringStrategy(*strategy))
+	kindYAML, err := KindConfigYAML(profile, l)
+	if err != nil {
+		return err
+	}
+	schedYAML, err := profile.KubeSchedulerConfigurationYAML()
+	if err != nil {
+		return err
+	}
+	pluginYAML, err := DevicePluginYAML(l, *namespace, *image)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(*dir, 0o755); err != nil {
+		return err
+	}
+	for name, content := range map[string]string{
+		"kind-config.yaml":      kindYAML,
+		"scheduler-config.yaml": schedYAML,
+		"device-plugins.yaml":   pluginYAML,
+	} {
+		if err := os.WriteFile(filepath.Join(*dir, name), []byte(content), 0o644); err != nil {
+			return err
+		}
+	}
+	fmt.Printf("wrote kind-config.yaml, scheduler-config.yaml and device-plugins.yaml to %s\n", *dir)
+	fmt.Printf("  cluster %q, %d workers advertising %s, scheduler scoring %s over %s\n",
+		ClusterName, len(l), *layout, *strategy, GPUResourceName)
+	return nil
+}
+
+// verifyLayout compares the cluster's advertised capacity against the layout the run registered.
+func verifyLayout(args []string) error {
+	fs := flag.NewFlagSet("verify-layout", flag.ContinueOnError)
+	layout := fs.String("layout", "", "devices per worker the run asked for, e.g. 2,1,1")
+	observed := fs.String("observed", "", "NAME:LABEL:ALLOCATABLE, comma separated; LABEL empty when absent")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *layout == "" {
+		return fmt.Errorf("-layout is required; without it there is nothing to compare the cluster against")
+	}
+	l, err := parseLayout(*layout)
+	if err != nil {
+		return err
+	}
+	nodes, err := parseObserved(*observed)
+	if err != nil {
+		return err
+	}
+	if err := VerifyLayout(l, nodes); err != nil {
+		return err
+	}
+	free := make([]int, 0, len(nodes))
+	for _, n := range nodes {
+		free = append(free, n.Allocatable)
+	}
+	q, ok := WitnessRequest(free)
+	if !ok {
+		return fmt.Errorf("the cluster advertises the registered layout, but no witness request exists for an "+
+			"empty cluster (free: %v); nothing placed on it could ever strand", free)
+	}
+	fmt.Printf("the cluster advertises the registered layout; on an empty cluster the smallest witness "+
+		"request is %d devices\n", q)
+	return nil
+}
+
+// parseLayout reads the per-worker device counts.
+func parseLayout(s string) (NodeLayout, error) {
+	var out NodeLayout
+	for part := range strings.SplitSeq(s, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		var n int
+		if _, err := fmt.Sscanf(part, "%d", &n); err != nil {
+			return nil, fmt.Errorf("layout entry %q is not a number", part)
+		}
+		out = append(out, n)
+	}
+	if len(out) == 0 {
+		return nil, fmt.Errorf("the layout %q names no workers", s)
+	}
+	return out, nil
+}
+
+// parseObserved reads the node census taken from the cluster.
+//
+// An empty LABEL field means the label is ABSENT, which is a different fact from a label of zero: the device
+// plugin selects on it, so an unlabelled worker advertises nothing, and reading that as a node of size zero
+// would let a broken render pass as a cluster with less capacity.
+func parseObserved(s string) ([]ObservedNode, error) {
+	if strings.TrimSpace(s) == "" {
+		return nil, fmt.Errorf("-observed is empty; an empty reading is not a cluster with no capacity, it is " +
+			"a census that did not happen")
+	}
+	var out []ObservedNode
+	for part := range strings.SplitSeq(s, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		fields := strings.Split(part, ":")
+		if len(fields) != 3 {
+			return nil, fmt.Errorf("node %q is not NAME:LABEL:ALLOCATABLE", part)
+		}
+		n := ObservedNode{Name: fields[0]}
+		if fields[1] != "" {
+			var v int
+			if _, err := fmt.Sscanf(fields[1], "%d", &v); err != nil {
+				return nil, fmt.Errorf("node %q: label %q is not a number", fields[0], fields[1])
+			}
+			n.Labelled, n.Present = v, true
+		}
+		var a int
+		if _, err := fmt.Sscanf(fields[2], "%d", &a); err != nil {
+			return nil, fmt.Errorf("node %q: allocatable %q is not a number", fields[0], fields[2])
+		}
+		n.Allocatable = a
+		out = append(out, n)
+	}
+	return out, nil
 }
 
 // parseNodes reads the census that the fixture is built from.
