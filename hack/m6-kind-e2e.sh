@@ -14,10 +14,13 @@ cd "$(dirname "$0")/.."
 export PATH="$PWD/bin:$PATH"
 export GOTOOLCHAIN=go1.26.0
 
-CLUSTER=platform
+# Overridable, because they were not and an attempt to run this against a throwaway cluster silently went to
+# `platform` anyway and overwrote the committed evidence log. A plain assignment ignores the environment
+# without saying so, which is the same class of quiet failure this script's own waits used to have.
+CLUSTER=${CLUSTER:-platform}
 KCTX=kind-$CLUSTER
 NS=gpu-platform-control-plane-system
-LOG=hack/m6-e2e-evidence.log
+LOG=${LOG:-hack/m6-e2e-evidence.log}
 : > "$LOG"
 
 log()  { echo -e "$*" | tee -a "$LOG"; }
@@ -68,6 +71,10 @@ spec:
   parallelism: 1
   completions: 1
 EOF
+  # The apply's status decides what this line may say. It used to be printed unconditionally with the output
+  # redirected into the log, so "+ submitted" appeared whether or not anything had been created.
+  local rc=$?
+  [ "$rc" -eq 0 ] || die "could not submit MLTrainingJob $ns/$name (kubectl apply exited $rc; see $LOG)"
   log "+ submitted MLTrainingJob $ns/$name (queue $queue)"
 }
 
@@ -96,7 +103,14 @@ run kind load docker-image controller:latest --name "$CLUSTER" || die "kind load
 run kind load docker-image gpu-simulator:latest --name "$CLUSTER" || die "kind load simulator"
 
 step "4. install CRDs, deploy operator and fake GPU device plugin"
-run make install || die "install CRDs"
+# The committed CRDs, applied to THIS cluster.
+#
+# `make install` was here and sent them somewhere else: its kubectl carries no --context, so it installs into
+# whatever the current context happens to be -- which in this repository is a torn-down EKS. The platform
+# cluster was left without the WorkloadRun CRD, the operator died with "failed to wait for workloadrun caches
+# to sync", and nothing in M6 could be reconciled. It also depends on `manifests`, which regenerates the files
+# a run like this is supposed to be evidence about.
+kustomize build config/crd | k apply --server-side -f - >>"$LOG" 2>&1 || die "install CRDs"
 # --force-conflicts because the image override below owns .spec.template.spec.containers[name="manager"].image as the field manager "kubectl-set", and re-applying this manifest is then refused with a conflict on the second and every later run.
 kustomize build config/operator | k apply --server-side --force-conflicts -f - >>"$LOG" 2>&1 || die "deploy operator"
 DEP=$(k -n "$NS" get deploy -o name | grep controller-manager | head -1)
@@ -131,6 +145,25 @@ for i in $(seq 1 40); do
   sleep 3
 done
 cap k get nodes -o custom-columns=NODE:.metadata.name,GPU:.status.allocatable.nvidia\\.com/gpu
+
+# Whether admission validation is in front of the submissions, recorded rather than required.
+#
+# config/operator deploys no webhook, and cmd/main.go serves one only when a certificate is supplied, so on a
+# cluster built by this script there is no ValidatingWebhookConfiguration and MLTrainingJob is admitted
+# unvalidated. That is the operator's documented fallback, not a fault -- and it means this run does NOT
+# exercise the quota guard, which is worth a line in the evidence rather than a silent absence.
+#
+# An earlier version of this block waited for a webhook endpoint and killed the run when none appeared. It was
+# generalised from the long-lived `platform` cluster, which carries a webhook installed by some other overlay
+# 43 days ago; a submission there was once refused with "connection refused" because that stale configuration
+# pointed at an operator that was crash-looping for want of the WorkloadRun CRD. Fixing the CRD fixed it.
+if k get validatingwebhookconfiguration 2>/dev/null | grep -q mltrainingjob; then
+  log "admission: a MLTrainingJob validating webhook is installed on this cluster"
+  cap k -n "$NS" get endpoints gpu-platform-control-plane-webhook-service
+else
+  log "admission: no MLTrainingJob validating webhook on this cluster -- submissions are not validated,"
+  log "           so the GPU quota guard is not part of what this run demonstrates"
+fi
 
 step "5. apply gpu ResourceFlavor, tenant namespaces, and two GPUQuotaPolicy"
 run k apply -f config/kueue/namespaces.yaml || die "namespaces"
@@ -184,15 +217,18 @@ done
 log "a1 uses tenant-a's own nominal unit; a2 borrows tenant-b's idle unit from the cohort."
 submit_job a1 tenant-a gpu-tenant-a
 submit_job a2 tenant-a gpu-tenant-a
-wait_phase tenant-a a1 Running 120 || true
-wait_phase tenant-a a2 Running 120 || true
+# The waits decide the heading. They used to be discarded with `|| true` while the line below asserted "a1 +
+# a2 both Running" unconditionally, so a run in which no MLTrainingJob existed at all printed that claim over
+# an empty table and exited 0.
+wait_phase tenant-a a1 Running 120 || die "a1 never reached Running; fair sharing cannot be demonstrated"
+wait_phase tenant-a a2 Running 120 || die "a2 never reached Running; the borrow did not happen"
 log "\n[EVIDENCE] fair sharing: tenant-a borrows past its nominal (a1 + a2 both Running)"
 phases
 
 step "7. PREEMPTION: tenant-b reclaims its nominal unit"
 log "b1 makes tenant-b claim its own unit; reclaimWithinCohort=Any preempts the borrowed tenant-a job."
 submit_job b1 tenant-b gpu-tenant-b
-wait_phase tenant-b b1 Running 120 || true
+wait_phase tenant-b b1 Running 120 || die "b1 never reached Running; there is no reclaim to observe"
 # one of the tenant-a jobs must be pushed back out of Running by the reclaim
 log "waiting for a borrowed tenant-a job to be preempted back to Pending..."
 preempted=""
