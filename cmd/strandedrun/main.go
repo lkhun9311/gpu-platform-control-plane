@@ -79,6 +79,10 @@ func main() {
 		err = takeCensus(os.Args[2:])
 	case "qualify-arm":
 		err = qualifyArm(os.Args[2:])
+	case "check-cell":
+		err = checkCell(os.Args[2:])
+	case "check-campaign":
+		err = checkCampaign(os.Args[2:])
 	case "-h", "--help", "help":
 		usage()
 		return
@@ -132,6 +136,19 @@ func usage() {
       requires must be supplied as yes or no: an omitted reading is refused rather than taken
       for "no", because the reference arm PASSES on absence and a default would satisfy the
       check it was meant to make.
+
+  check-cell -record=FILE.json -protocol=hack/stranded-protocol.yaml [-json]
+      Judge one attempt at one cell: its arm qualification, its treatment verdict, its census
+      series, and -- when it was discarded -- whether the protocol registers that reason. A
+      cell discarded for an unregistered reason is a figure taken out of the comparison on
+      grounds chosen after seeing it, which is the half a campaign fails quietly.
+
+  check-campaign -records=DIR -protocol=hack/stranded-protocol.yaml [-json]
+      Judge every attempt together. The stopping rule is a property of the set, not of any
+      cell: a cell rerun after it produced a figure, a cell retaken twice, a missing cell and
+      an over-cap attempt count are all invisible to per-cell checks. DIR holds one .json per
+      attempt, and every attempt is read -- the protocol publishes them all, including the
+      invalid ones.
 `)
 }
 
@@ -409,6 +426,132 @@ func qualifyArm(args []string) error {
 	} else {
 		fmt.Printf("  no configuration was supplied, and submitted demand scheduled\n")
 	}
+	return nil
+}
+
+// checkCell judges one recorded attempt against the frozen protocol.
+//
+// The record arrives as a file rather than as flags. Six census readings plus two verdicts do not fit a command
+// line, and more importantly the record is the thing the campaign publishes: it should exist as a file before
+// anything judges it, so the judgement can be re-reached from the same bytes later.
+func checkCell(args []string) error {
+	fs := flag.NewFlagSet("check-cell", flag.ContinueOnError)
+	record := fs.String("record", "", "the cell record to judge, as JSON")
+	protocolFile := fs.String("protocol", "", "the frozen protocol to judge it against")
+	asJSON := fs.Bool("json", false, "emit the verdict as JSON")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *record == "" || *protocolFile == "" {
+		return fmt.Errorf("-record and -protocol are both required; a record with no protocol has nothing to " +
+			"be judged against, and a protocol with no record has nothing to judge")
+	}
+	p, err := LoadProtocol(*protocolFile)
+	if err != nil {
+		return err
+	}
+	r, err := LoadCellRecord(*record)
+	if err != nil {
+		return err
+	}
+	verdictErr := p.CheckCell(r)
+
+	if *asJSON {
+		v := struct {
+			Arm        Arm    `json:"arm"`
+			Repetition int    `json:"repetition"`
+			Attempt    int    `json:"attempt"`
+			Stands     bool   `json:"stands"`
+			Countable  bool   `json:"countable"`
+			Reason     string `json:"reason,omitempty"`
+		}{
+			Arm: r.Arm, Repetition: r.Repetition, Attempt: r.Attempt,
+			Stands: r.Valid(), Countable: verdictErr == nil && r.Valid(),
+		}
+		if verdictErr != nil {
+			v.Reason = verdictErr.Error()
+		}
+		b, mErr := json.Marshal(v)
+		if mErr != nil {
+			return mErr
+		}
+		fmt.Println(string(b))
+		return verdictErr
+	}
+	if verdictErr != nil {
+		return verdictErr
+	}
+	if r.Valid() {
+		fmt.Printf("cell %s repetition %d attempt %d stands, with %d census(es)\n",
+			r.Arm, r.Repetition, r.Attempt, len(r.Censuses))
+		return nil
+	}
+	// An invalid attempt that the protocol licenses is a correct record, not an error. Saying so plainly
+	// matters: the campaign publishes every attempt, and an operator who reads this as a failure will be
+	// tempted to make the attempt look valid instead.
+	fmt.Printf("cell %s repetition %d attempt %d is a correctly recorded INVALID attempt: %s\n",
+		r.Arm, r.Repetition, r.Attempt, r.InvalidatedBecause)
+	fmt.Printf("  it is retained and published; the cell may be replaced %d more time(s)\n",
+		p.Matrix.ReplacementsPerInvalidCell-(r.Attempt-1))
+	return nil
+}
+
+// checkCampaign judges every recorded attempt together, which is where the stopping rule lives.
+func checkCampaign(args []string) error {
+	fs := flag.NewFlagSet("check-campaign", flag.ContinueOnError)
+	dir := fs.String("records", "", "directory holding one JSON cell record per attempt")
+	protocolFile := fs.String("protocol", "", "the frozen protocol to judge them against")
+	asJSON := fs.Bool("json", false, "emit the verdict as JSON")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *dir == "" || *protocolFile == "" {
+		return fmt.Errorf("-records and -protocol are both required")
+	}
+	p, err := LoadProtocol(*protocolFile)
+	if err != nil {
+		return err
+	}
+	records, paths, err := LoadCellRecords(*dir)
+	if err != nil {
+		return err
+	}
+	verdictErr := p.CheckCampaign(records)
+
+	valid := 0
+	for _, r := range records {
+		if r.Valid() {
+			valid++
+		}
+	}
+	if *asJSON {
+		v := struct {
+			Attempts    int      `json:"attempts"`
+			Standing    int      `json:"standing"`
+			Invalid     int      `json:"invalid"`
+			Publishable bool     `json:"publishable"`
+			Files       []string `json:"files"`
+			Reason      string   `json:"reason,omitempty"`
+		}{
+			Attempts: len(records), Standing: valid, Invalid: len(records) - valid,
+			Publishable: verdictErr == nil, Files: paths,
+		}
+		if verdictErr != nil {
+			v.Reason = verdictErr.Error()
+		}
+		b, mErr := json.Marshal(v)
+		if mErr != nil {
+			return mErr
+		}
+		fmt.Println(string(b))
+		return verdictErr
+	}
+	fmt.Printf("%d attempt(s) read from %s: %d standing, %d invalid and retained\n",
+		len(records), *dir, valid, len(records)-valid)
+	if verdictErr != nil {
+		return verdictErr
+	}
+	fmt.Printf("the campaign is publishable: %d cells, every one with an attempt that stands\n", p.Matrix.Cells)
 	return nil
 }
 
