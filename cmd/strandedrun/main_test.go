@@ -84,8 +84,8 @@ func TestTheFlagParsersRefuseWhatTheyCannotRead(t *testing.T) {
 // the file name.
 func TestRenderClusterWritesAnArmThatCanBeCreatedFromOneDirectory(t *testing.T) {
 	dir := t.TempDir()
-	if err := renderCluster([]string{"-strategy=MostAllocated", "-layout=2,1,1", "-dir=" + dir,
-		"-node-image=kindest/node:v1.31.0"}); err != nil {
+	if err := renderCluster([]string{"-arm=" + string(ArmConfigured), "-strategy=MostAllocated", "-layout=2,1,1",
+		"-dir=" + dir, "-node-image=kindest/node:v1.31.0"}); err != nil {
 		t.Fatalf("render-cluster: %v", err)
 	}
 	for _, name := range []string{"kind-config.yaml", "scheduler-config.yaml", "device-plugins.yaml"} {
@@ -126,8 +126,8 @@ func TestRenderClusterWritesAnArmThatCanBeCreatedFromOneDirectory(t *testing.T) 
 // Mutation that turns this red: write the files before validating.
 func TestRenderClusterRefusesALayoutThatCannotStrandBeforeWritingAnything(t *testing.T) {
 	dir := t.TempDir()
-	err := renderCluster([]string{"-strategy=MostAllocated", "-layout=4", "-dir=" + dir,
-		"-node-image=kindest/node:v1.31.0"})
+	err := renderCluster([]string{"-arm=" + string(ArmConfigured), "-strategy=MostAllocated", "-layout=4",
+		"-dir=" + dir, "-node-image=kindest/node:v1.31.0"})
 	if err == nil {
 		t.Fatal("a single-worker layout rendered a cluster")
 	}
@@ -150,10 +150,17 @@ func TestRenderClusterRefusesALayoutThatCannotStrandBeforeWritingAnything(t *tes
 func TestRenderClusterRequiresTheArmToBeStatedInFull(t *testing.T) {
 	dir := t.TempDir()
 	const img = "-node-image=kindest/node:v1.31.0"
+	const cfg = "-arm=S-gpu-most"
 	for _, args := range [][]string{
-		{"-layout=2,1", "-dir=" + dir, img},
-		{"-strategy=MostAllocated", "-dir=" + dir, img},
-		{"-strategy=MostAllocated", "-layout=2,1", img},
+		{cfg, "-layout=2,1", "-dir=" + dir, img},
+		{cfg, "-strategy=MostAllocated", "-dir=" + dir, img},
+		{cfg, "-strategy=MostAllocated", "-layout=2,1", img},
+		// No arm at all: neither may be reached by defaulting.
+		{"-strategy=MostAllocated", "-layout=2,1", "-dir=" + dir, img},
+		// The treatment without a strategy, which is the flag that only it may carry.
+		{cfg, "-layout=2,1", "-dir=" + dir, img},
+		// And the reference WITH one, which would name something nothing installs.
+		{"-arm=S-default", "-strategy=MostAllocated", "-layout=2,1", "-dir=" + dir, img},
 		// The fourth, and the one most easily left to a default: without it the scheduler version is whatever
 		// the kind binary happens to be, and no artifact records which.
 		{"-strategy=MostAllocated", "-layout=2,1", "-dir=" + dir},
@@ -161,5 +168,47 @@ func TestRenderClusterRequiresTheArmToBeStatedInFull(t *testing.T) {
 		if err := renderCluster(args); err == nil {
 			t.Errorf("render-cluster ran with %v, leaving part of the arm unstated", args)
 		}
+	}
+}
+
+// Rendering the reference into a directory that held the treatment must remove the stale profile.
+//
+// kind mounts scheduler-config.yaml by RELATIVE path, so a leftover file plus a kind-config that no longer
+// references it is not inert: a later `kind create` from that directory would find the previous arm's profile
+// sitting there. Worse, nothing in the artifacts would say so -- every file would read S-default.
+//
+// Mutation that turns this red: write only the files the arm produces without removing the others.
+func TestRenderingTheReferenceRemovesTheTreatmentsStaleProfile(t *testing.T) {
+	dir := t.TempDir()
+	if err := renderCluster([]string{"-arm=" + string(ArmConfigured), "-strategy=MostAllocated",
+		"-layout=2,1,1", "-dir=" + dir, "-node-image=kindest/node:v1.31.0"}); err != nil {
+		t.Fatalf("treatment render: %v", err)
+	}
+	sched := filepath.Join(dir, "scheduler-config.yaml")
+	if _, err := os.Stat(sched); err != nil {
+		t.Fatalf("the treatment did not write scheduler-config.yaml: %v", err)
+	}
+
+	if err := renderCluster([]string{"-arm=" + string(ArmUntouched), "-layout=2,1,1",
+		"-dir=" + dir, "-node-image=kindest/node:v1.31.0"}); err != nil {
+		t.Fatalf("reference render: %v", err)
+	}
+	if _, err := os.Stat(sched); !os.IsNotExist(err) {
+		t.Errorf("scheduler-config.yaml survived the reference render (stat err %v); a stale profile in a "+
+			"reused directory is the quietest way for one arm to become the other", err)
+	}
+	// The two files the reference does write must be there and must describe the reference.
+	kindCfg, err := os.ReadFile(filepath.Join(dir, "kind-config.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(kindCfg), "# Arm: "+string(ArmUntouched)) {
+		t.Errorf("the kind configuration does not record the reference arm:\n%s", kindCfg)
+	}
+	if strings.Contains(string(kindCfg), "extraMounts") {
+		t.Errorf("the reference kind configuration still mounts something:\n%s", kindCfg)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "device-plugins.yaml")); err != nil {
+		t.Errorf("the reference did not write device-plugins.yaml: %v", err)
 	}
 }

@@ -78,7 +78,7 @@ func TestALayoutThatCannotStrandIsRefused(t *testing.T) {
 // Mutation that turns this red: stop emitting node-labels.
 func TestTheRenderedClusterLabelsEachWorkerWithItsDeviceCount(t *testing.T) {
 	const nodeImage = "kindest/node:v1.31.0"
-	out, err := KindConfigYAML(GPUAware(MostAllocated), NodeLayout{2, 1, 1}, nodeImage)
+	out, err := KindConfigYAML(ConfiguredArm(MostAllocated), NodeLayout{2, 1, 1}, nodeImage)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -127,10 +127,10 @@ func TestTheClusterRendererRefusesWhatTheValidatorsRefuse(t *testing.T) {
 	const nodeImage = "kindest/node:v1.31.0"
 	bad := SchedulerProfile{Strategy: MostAllocated, SchedulerName: "default-scheduler",
 		Resources: []ResourceWeight{{Name: "cpu", Weight: 1}}}
-	if _, err := KindConfigYAML(bad, NodeLayout{2, 1}, nodeImage); err == nil {
+	if _, err := KindConfigYAML(ArmProfile{Arm: ArmConfigured, Profile: bad}, NodeLayout{2, 1}, nodeImage); err == nil {
 		t.Error("a profile that never scores the GPU rendered a cluster configuration")
 	}
-	if _, err := KindConfigYAML(GPUAware(MostAllocated), NodeLayout{4}, nodeImage); err == nil {
+	if _, err := KindConfigYAML(ConfiguredArm(MostAllocated), NodeLayout{4}, nodeImage); err == nil {
 		t.Error("a single-worker layout rendered a cluster configuration")
 	}
 	if _, err := DevicePluginYAML(NodeLayout{4}, "ns", "img"); err == nil {
@@ -153,7 +153,7 @@ func TestANodeImageThatLeavesTheVersionUnrecordedIsRefused(t *testing.T) {
 		{"no repository", ":v1.31.0", "names no repository"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := KindConfigYAML(GPUAware(MostAllocated), NodeLayout{2, 1}, tc.image)
+			_, err := KindConfigYAML(ConfiguredArm(MostAllocated), NodeLayout{2, 1}, tc.image)
 			if err == nil {
 				t.Fatalf("%s was accepted", tc.name)
 			}
@@ -162,7 +162,7 @@ func TestANodeImageThatLeavesTheVersionUnrecordedIsRefused(t *testing.T) {
 			}
 		})
 	}
-	if _, err := KindConfigYAML(GPUAware(MostAllocated), NodeLayout{2, 1}, "kindest/node:v1.31.0"); err != nil {
+	if _, err := KindConfigYAML(ConfiguredArm(MostAllocated), NodeLayout{2, 1}, "kindest/node:v1.31.0"); err != nil {
 		t.Errorf("a tagged node image was refused: %v", err)
 	}
 }
@@ -231,5 +231,59 @@ func TestEachDevicePluginAdvertisesWhatItsSelectorAsksFor(t *testing.T) {
 	}
 	if _, err := DevicePluginYAML(NodeLayout{2, 1}, "ns", ""); err == nil {
 		t.Error("a DaemonSet rendered with no image")
+	}
+}
+
+// The reference arm renders a cluster with NO scheduler configuration, and keeps the worker capacity labels.
+//
+// "Untouched" is scoped to the scheduler configuration: the deliberate per-worker capacities and the fake
+// device plugins are the environment both arms share. Dropping the worker patches too would make the reference
+// a different cluster rather than the same cluster with an unconfigured scheduler.
+//
+// Mutation that turns this red: emit the extraMounts or the ClusterConfiguration patch for ArmUntouched, or
+// drop the JoinConfiguration patches along with them.
+func TestTheReferenceArmInstallsNoSchedulerConfigurationAndKeepsTheLabels(t *testing.T) {
+	const nodeImage = "kindest/node:v1.31.0"
+	out, err := KindConfigYAML(UntouchedArm(), NodeLayout{2, 1, 1}, nodeImage)
+	if err != nil {
+		t.Fatalf("the reference arm was refused: %v", err)
+	}
+	for _, absent := range []string{
+		"extraMounts",
+		"scheduler-config.yaml",
+		"ClusterConfiguration",
+		"/etc/kubernetes/stranded-scheduler.yaml",
+		"extraVolumes",
+		"config:",
+	} {
+		if strings.Contains(out, absent) {
+			t.Errorf("the reference arm emitted %q; it installs no scheduler configuration at all:\n%s",
+				absent, out)
+		}
+	}
+	// The shared environment must survive.
+	if strings.Count(out, "- role: worker") != 3 {
+		t.Errorf("the reference arm renders %d workers, want 3:\n%s", strings.Count(out, "- role: worker"), out)
+	}
+	if !strings.Contains(out, NodeLabelKey+"=2") || strings.Count(out, NodeLabelKey+"=1") != 2 {
+		t.Errorf("the worker capacity labels did not survive:\n%s", out)
+	}
+	if strings.Count(out, "image: "+nodeImage) != 4 {
+		t.Errorf("the node image is not pinned on all four nodes:\n%s", out)
+	}
+	// And the file says which arm it is, for a reader who never runs it.
+	if !strings.Contains(out, "# Arm: "+string(ArmUntouched)) {
+		t.Errorf("the rendered file does not record its arm:\n%s", out)
+	}
+	// The treatment, by contrast, emits all of it.
+	treat, err := KindConfigYAML(ConfiguredArm(MostAllocated), NodeLayout{2, 1, 1}, nodeImage)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, present := range []string{"extraMounts", "ClusterConfiguration", "extraVolumes",
+		"# Arm: " + string(ArmConfigured)} {
+		if !strings.Contains(treat, present) {
+			t.Errorf("the treatment arm does not emit %q:\n%s", present, treat)
+		}
 	}
 }

@@ -56,6 +56,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -100,10 +101,12 @@ func usage() {
       Judge an observed probe placement against the strategy the run asked for. Refuses a
       fixture on which the two strategies agree, because such a placement qualifies nothing.
 
-  render-cluster -strategy=... -layout=2,1,1 -dir=DIR -node-image=kindest/node:vX.Y.Z
-      Write the study's kind configuration, the scheduler profile it mounts, and one device
-      plugin per distinct device count. Refuses a layout that cannot strand anything, and
-      requires the node image so the scheduler version is registered rather than defaulted.
+  render-cluster -arm=S-default|S-gpu-most [-strategy=...] -layout=2,1,1 -dir=DIR
+                 -node-image=kindest/node:vX.Y.Z
+      Write one arm's kind configuration and device plugins, plus the scheduler profile when
+      the arm installs one. S-default installs none: no profile file, no mount, no --config.
+      Removes the artifacts the arm does not write, because a stale scheduler-config.yaml in a
+      reused directory would install the previous arm while every file said S-default.
 
   verify-layout -layout=2,1,1 -observed=NAME:LABEL:ALLOCATABLE,...
       Compare what the cluster advertises against what the run asked for. A node's own
@@ -188,7 +191,8 @@ func checkTreatment(args []string) error {
 // is the silent-treatment failure this command exists to make impossible, arriving by another door.
 func renderCluster(args []string) error {
 	fs := flag.NewFlagSet("render-cluster", flag.ContinueOnError)
-	strategy := fs.String("strategy", "", "LeastAllocated or MostAllocated")
+	arm := fs.String("arm", "", "S-default (the reference: no scheduler configuration) or S-gpu-most (the treatment)")
+	strategy := fs.String("strategy", "", "LeastAllocated or MostAllocated; only for S-gpu-most")
 	layout := fs.String("layout", "", "devices per worker, comma separated, e.g. 2,1,1")
 	dir := fs.String("dir", "", "directory to write the cluster's artifacts into")
 	namespace := fs.String("namespace", "gpu-platform-control-plane-system", "namespace for the device plugins")
@@ -200,42 +204,84 @@ func renderCluster(args []string) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	if *strategy == "" || *layout == "" || *dir == "" || *nodeImage == "" {
-		return fmt.Errorf("-strategy, -layout, -dir and -node-image are all required; this command renders " +
-			"one arm's cluster and none of the four has a meaningful default")
+	if *arm == "" || *layout == "" || *dir == "" || *nodeImage == "" {
+		return fmt.Errorf("-arm, -layout, -dir and -node-image are all required; this command renders one "+
+			"arm's cluster and none of the four has a meaningful default (arms: %s, %s)",
+			ArmUntouched, ArmConfigured)
+	}
+	// The strategy belongs to the treatment and to nothing else. Accepting one for the reference would let a
+	// run record itself as the reference while naming a strategy nothing installs.
+	ap := ArmProfile{Arm: Arm(*arm)}
+	switch {
+	case ap.Arm == ArmConfigured:
+		if *strategy == "" {
+			return fmt.Errorf("-strategy is required for %s; it is the scoring type the treatment installs",
+				ArmConfigured)
+		}
+		ap.Profile = GPUAware(ScoringStrategy(*strategy))
+	case ap.Arm == ArmUntouched && *strategy != "":
+		return fmt.Errorf("-strategy=%s was given for %s, which installs no scheduler configuration at all; "+
+			"a strategy there would name something nothing applies", *strategy, ArmUntouched)
+	}
+	if err := ap.Validate(); err != nil {
+		return err
 	}
 	l, err := parseLayout(*layout)
 	if err != nil {
 		return err
 	}
-	profile := GPUAware(ScoringStrategy(*strategy))
-	kindYAML, err := KindConfigYAML(profile, l, *nodeImage)
+	kindYAML, err := KindConfigYAML(ap, l, *nodeImage)
 	if err != nil {
 		return err
 	}
-	schedYAML, err := profile.KubeSchedulerConfigurationYAML()
-	if err != nil {
-		return err
-	}
+	files := map[string]string{"kind-config.yaml": kindYAML}
 	pluginYAML, err := DevicePluginYAML(l, *namespace, *image)
 	if err != nil {
 		return err
 	}
+	files["device-plugins.yaml"] = pluginYAML
+	if ap.Arm.InstallsSchedulerConfig() {
+		schedYAML, sErr := ap.Profile.KubeSchedulerConfigurationYAML()
+		if sErr != nil {
+			return sErr
+		}
+		files["scheduler-config.yaml"] = schedYAML
+	}
 	if err := os.MkdirAll(*dir, 0o755); err != nil {
 		return err
 	}
-	for name, content := range map[string]string{
-		"kind-config.yaml":      kindYAML,
-		"scheduler-config.yaml": schedYAML,
-		"device-plugins.yaml":   pluginYAML,
-	} {
+	// Remove the artifacts this arm does not write, because the directory is reused between arms.
+	//
+	// Without this, rendering the reference into a directory that previously held the treatment would leave
+	// scheduler-config.yaml behind -- and kind mounts by relative path, so a later `kind create` from that
+	// directory would install the PREVIOUS arm's profile while every artifact said S-default. A stale file is
+	// the quietest way for an arm to become the other one.
+	for _, name := range []string{"kind-config.yaml", "scheduler-config.yaml", "device-plugins.yaml"} {
+		if _, want := files[name]; want {
+			continue
+		}
+		if err := os.Remove(filepath.Join(*dir, name)); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("could not remove the stale %s that arm %s does not write: %w", name, ap.Arm, err)
+		}
+	}
+	for name, content := range files {
 		if err := os.WriteFile(filepath.Join(*dir, name), []byte(content), 0o644); err != nil {
 			return err
 		}
 	}
-	fmt.Printf("wrote kind-config.yaml, scheduler-config.yaml and device-plugins.yaml to %s\n", *dir)
-	fmt.Printf("  cluster %q on %s, %d workers advertising %s, scheduler scoring %s over %s\n",
-		ClusterName, *nodeImage, len(l), *layout, *strategy, GPUResourceName)
+	written := make([]string, 0, len(files))
+	for name := range files {
+		written = append(written, name)
+	}
+	sort.Strings(written)
+	fmt.Printf("wrote %s to %s\n", strings.Join(written, ", "), *dir)
+	if ap.Arm.InstallsSchedulerConfig() {
+		fmt.Printf("  cluster %q on %s, arm %s, %d workers advertising %s, scheduler scoring %s over %s\n",
+			ClusterName, *nodeImage, ap.Arm, len(l), *layout, *strategy, GPUResourceName)
+	} else {
+		fmt.Printf("  cluster %q on %s, arm %s, %d workers advertising %s, and NO scheduler configuration "+
+			"installed\n", ClusterName, *nodeImage, ap.Arm, len(l), *layout)
+	}
 	return nil
 }
 

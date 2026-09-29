@@ -98,8 +98,8 @@ func (l NodeLayout) Validate() error {
 // a throwaway one-node cluster with `hostPath: ./probe.txt` was created on kind v0.33.0 and the file arrived
 // inside the node with its content intact. Every extraMounts precedent in this repository uses an absolute
 // path, so there was nothing here to read the answer off.
-func KindConfigYAML(p SchedulerProfile, l NodeLayout, nodeImage string) (string, error) {
-	if err := p.Validate(); err != nil {
+func KindConfigYAML(ap ArmProfile, l NodeLayout, nodeImage string) (string, error) {
+	if err := ap.Validate(); err != nil {
 		return "", err
 	}
 	if err := l.Validate(); err != nil {
@@ -108,9 +108,15 @@ func KindConfigYAML(p SchedulerProfile, l NodeLayout, nodeImage string) (string,
 	if err := validateNodeImage(nodeImage); err != nil {
 		return "", err
 	}
-	sched, err := p.KubeSchedulerConfigurationYAML()
-	if err != nil {
-		return "", err
+	// The reference arm renders no scheduler profile at all, so nothing calls the renderer that would refuse an
+	// empty one. That is the point of the explicit mode: absence is stated, not inferred from a zero value.
+	sched := ""
+	if ap.Arm.InstallsSchedulerConfig() {
+		var err error
+		sched, err = ap.Profile.KubeSchedulerConfigurationYAML()
+		if err != nil {
+			return "", err
+		}
 	}
 
 	var b strings.Builder
@@ -123,24 +129,31 @@ func KindConfigYAML(p SchedulerProfile, l NodeLayout, nodeImage string) (string,
 	b.WriteString("nodes:\n")
 	b.WriteString("  - role: control-plane\n")
 	fmt.Fprintf(&b, "    image: %s\n", nodeImage)
-	// The scheduler reads its profile from a file, so the file has to exist on the control-plane node before
-	// the static pod starts. extraMounts puts it there; the kubeadm patch points the scheduler at it.
-	b.WriteString("    extraMounts:\n")
-	b.WriteString("      - hostPath: ./scheduler-config.yaml\n")
-	b.WriteString("        containerPath: /etc/kubernetes/stranded-scheduler.yaml\n")
-	b.WriteString("        readOnly: true\n")
-	b.WriteString("    kubeadmConfigPatches:\n")
-	b.WriteString("      - |\n")
-	b.WriteString("        kind: ClusterConfiguration\n")
-	b.WriteString("        scheduler:\n")
-	b.WriteString("          extraArgs:\n")
-	b.WriteString("            config: /etc/kubernetes/stranded-scheduler.yaml\n")
-	b.WriteString("          extraVolumes:\n")
-	b.WriteString("            - name: stranded-scheduler\n")
-	b.WriteString("              hostPath: /etc/kubernetes/stranded-scheduler.yaml\n")
-	b.WriteString("              mountPath: /etc/kubernetes/stranded-scheduler.yaml\n")
-	b.WriteString("              readOnly: true\n")
-	b.WriteString("              pathType: File\n")
+	if ap.Arm.InstallsSchedulerConfig() {
+		// The scheduler reads its profile from a file, so the file has to exist on the control-plane node
+		// before the static pod starts. extraMounts puts it there; the kubeadm patch points the scheduler at
+		// it.
+		//
+		// All three of these -- the mount, the --config argument and the extraVolumes entry -- belong to the
+		// TREATMENT. The reference arm emits none of them, which is what makes it the scheduler the pinned
+		// node image ships rather than a differently-configured one.
+		b.WriteString("    extraMounts:\n")
+		b.WriteString("      - hostPath: ./scheduler-config.yaml\n")
+		b.WriteString("        containerPath: /etc/kubernetes/stranded-scheduler.yaml\n")
+		b.WriteString("        readOnly: true\n")
+		b.WriteString("    kubeadmConfigPatches:\n")
+		b.WriteString("      - |\n")
+		b.WriteString("        kind: ClusterConfiguration\n")
+		b.WriteString("        scheduler:\n")
+		b.WriteString("          extraArgs:\n")
+		b.WriteString("            config: /etc/kubernetes/stranded-scheduler.yaml\n")
+		b.WriteString("          extraVolumes:\n")
+		b.WriteString("            - name: stranded-scheduler\n")
+		b.WriteString("              hostPath: /etc/kubernetes/stranded-scheduler.yaml\n")
+		b.WriteString("              mountPath: /etc/kubernetes/stranded-scheduler.yaml\n")
+		b.WriteString("              readOnly: true\n")
+		b.WriteString("              pathType: File\n")
+	}
 	for i, n := range l {
 		b.WriteString("  - role: worker\n")
 		fmt.Fprintf(&b, "    image: %s\n", nodeImage)
@@ -152,7 +165,14 @@ func KindConfigYAML(p SchedulerProfile, l NodeLayout, nodeImage string) (string,
 		fmt.Fprintf(&b, "            node-labels: \"%s=%d\"\n", NodeLabelKey, n)
 		_ = i
 	}
-	b.WriteString("\n# The scheduler profile this cluster runs, for the reader. The same bytes are written to\n")
+	fmt.Fprintf(&b, "\n# Arm: %s\n", ap.Arm)
+	if !ap.Arm.InstallsSchedulerConfig() {
+		b.WriteString("# This arm installs NO scheduler configuration: no profile file, no mount, no --config\n")
+		b.WriteString("# argument. The worker capacity labels above are the environment both arms share, not\n")
+		b.WriteString("# part of the treatment.\n")
+		return b.String(), nil
+	}
+	b.WriteString("# The scheduler profile this cluster runs, for the reader. The same bytes are written to\n")
 	b.WriteString("# scheduler-config.yaml beside this file, which is what the control plane actually mounts.\n")
 	for line := range strings.SplitSeq(strings.TrimRight(sched, "\n"), "\n") {
 		fmt.Fprintf(&b, "# %s\n", line)

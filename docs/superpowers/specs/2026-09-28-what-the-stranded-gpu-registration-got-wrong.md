@@ -158,3 +158,48 @@ The study is implemented in its own tool rather than inside `internal/queuelab`,
 gives: an `Arm` there must answer `PolicyVariant`, `StateFor`, `ContractFor`, `DutyFor` and `AssertCardinality`,
 and a placement study has no victim, no termination contract and no duty, so four of those five would carry
 values that mean nothing and would then flow into the record schema and its refusals.
+
+## Three corrections made while building the instrument, 2026-09-29
+
+These are recorded here rather than edited into the text above, because the text above is published as written.
+
+**The arms have names now, and neither is a name this page or the original used.** The choice made three
+sections up — the reference is the untouched default, the treatment is the whole configuration change — has no
+spelling in either page, while the instrument had to have one. The campaign's two arms are `S-default`, which
+installs no scheduler configuration at all, and `S-gpu-most`, which installs the mount, the resource list and
+`MostAllocated` together. The original's `S-least` is **neither**: as the original defines it, it is
+`NodeResourcesFit` with `LeastAllocated` scoring, which is already a supplied configuration and therefore not
+the untouched default it was offered as. It survives only as an instrument control — a second deliberate
+configuration useful for showing that the scoring type moves placement at all — and it is not a campaign arm.
+`S-tas` stays deferred to its own page, as amended above.
+
+Naming the arms was not cosmetic. For four changes the instrument had only one profile constructor, and that
+constructor refuses a scoring list that omits `nvidia.com/gpu` — correctly, because that is the inert-treatment
+failure this page is built around. The consequence went unnoticed: the reference this page *chose* was
+inexpressible, so the code was quietly running the branch the page had rejected. An arm is now a named mode that
+must be supplied, `ArmUnset` is refused, and the reference is refused if it carries any profile content at all.
+
+**The reference arm cannot be qualified by predicting where a pod lands.** The qualification fixture registered
+above assumes the treatment's preference can be computed and checked. That holds for `S-gpu-most`, whose profile
+this study wrote. It does not hold for `S-default`, and three separate measurements say so:
+
+| what was measured | on the live cluster | why it blocks a predicted placement |
+|---|---|---|
+| the mounted profile's scope | it names `NodeResourcesFit` and nothing else | every other default scoring plugin stays enabled in **both** arms, so neither arm's winner is decided by GPU scores alone |
+| whether the default plugin set can be read from source here | `k8s.io/kubernetes` is in neither `go.mod` nor `go.sum` nor the module cache | the v1.31 defaults and their weights cannot be enumerated in this repository, so a prediction would be from memory |
+| whether the scheduler will state its own effective configuration | `--bind-address=127.0.0.1`, and `/configz` answers `system:anonymous` with 403 from inside the node | the effective configuration is not readable without a credential this study has not registered |
+
+So `S-default` is qualified by what is observable without a credential and without a prediction: the scheduler
+image pinned identically on both arms, the scheduler's process arguments carrying **no** `--config`, the absence
+of the profile file and of any mount that would place one, and demand that schedules successfully. That is
+weaker than the treatment's qualification, and it is weaker on purpose — a check that claimed to predict the
+default scheduler's choice would be asserting something this repository cannot establish.
+
+**A stale file in a reused directory is a third way for an arm to become the other one.** kind resolves
+`extraMounts` host paths relative to the working directory, so rendering `S-default` into a directory that
+previously held `S-gpu-most` leaves that profile sitting next to a configuration that no longer mentions it —
+and a later cluster creation from that directory would mount the previous arm while every rendered artifact read
+`S-default`. The renderer therefore **removes** the artifacts the arm does not write, and that removal is pinned
+by a test that renders the treatment and then the reference into one directory. Registered here because it is a
+protocol requirement, not an implementation detail: no cell of the campaign may be rendered into a directory
+whose previous contents were not removed by the renderer itself.
