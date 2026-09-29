@@ -45,6 +45,91 @@ const GPUResourceName = "nvidia.com/gpu"
 // KubeSchedulerConfiguration that omits it leaves the scheduler unable to reach the API server at all.
 const SchedulerKubeconfigPath = "/etc/kubernetes/scheduler.conf"
 
+// Arm is which of the study's two configurations a run installs, stated explicitly.
+//
+// The registration's amendment offered two ways to define the reference and chose one: "the reference is the
+// untouched default and the treatment is *the whole configuration change* including the resource list". The
+// instrument implemented the other branch for four PRs -- GPUAware was the only constructor, so both arms were
+// GPU-aware and an unconfigured scheduler could not be expressed at all. This type is the choice made sayable.
+//
+// A mode rather than a nil profile or an empty resource list. An absent value has to mean "nobody said", never
+// "untouched": Validate() refuses a profile whose scoring list omits nvidia.com/gpu precisely because that is
+// the treatment-is-inert failure, and letting emptiness mean the reference would turn that guard into a
+// constructor for it.
+type Arm string
+
+const (
+	// ArmUnset is the zero value and is refused. Neither arm may be reached by defaulting.
+	ArmUnset Arm = ""
+	// ArmUntouched installs no scheduler configuration at all: the scheduler the pinned node image ships,
+	// governed by its own defaults. It is the reference the amendment chose.
+	//
+	// "Untouched" is scoped to the SCHEDULER CONFIGURATION. The cluster still has this study's deliberate
+	// worker capacities and its fake device plugins -- those are the environment both arms share, not part of
+	// the treatment.
+	ArmUntouched Arm = "S-default"
+	// ArmConfigured installs the registered GPU-aware profile. The contrast against ArmUntouched measures the
+	// whole configuration change -- the mount, the resource list and the strategy together -- and therefore
+	// cannot attribute a difference to MostAllocated alone. That narrower attribution needs its own comparison.
+	ArmConfigured Arm = "S-gpu-most"
+)
+
+// Validate refuses an arm that was defaulted into rather than chosen.
+func (a Arm) Validate() error {
+	switch a {
+	case ArmUntouched, ArmConfigured:
+		return nil
+	case ArmUnset:
+		return fmt.Errorf("no arm was named; %s and %s differ in what the run installs and there is no "+
+			"default arm to fall back to", ArmUntouched, ArmConfigured)
+	default:
+		return fmt.Errorf("arm %q is neither %s nor %s; the first campaign registers exactly those two",
+			a, ArmUntouched, ArmConfigured)
+	}
+}
+
+// InstallsSchedulerConfig says whether this arm supplies a KubeSchedulerConfiguration.
+func (a Arm) InstallsSchedulerConfig() bool { return a == ArmConfigured }
+
+// ArmProfile pairs an arm with the profile it installs, and refuses the combinations that would misdescribe it.
+//
+// The untouched arm must carry NO profile content. Accepting a strategy or a resource list there would let a
+// run record itself as the reference while installing something, which is the same class of defect as a
+// treatment that silently does not apply -- read from the other end.
+type ArmProfile struct {
+	Arm Arm
+	// Profile is meaningful only for ArmConfigured and must be the zero value for ArmUntouched.
+	Profile SchedulerProfile
+}
+
+// ConfiguredArm is the treatment: the registered GPU-aware profile at the given strategy.
+func ConfiguredArm(s ScoringStrategy) ArmProfile {
+	return ArmProfile{Arm: ArmConfigured, Profile: GPUAware(s)}
+}
+
+// UntouchedArm is the reference: no scheduler configuration of this study's.
+func UntouchedArm() ArmProfile { return ArmProfile{Arm: ArmUntouched} }
+
+// Validate refuses a pairing that would render a cluster the run could not honestly describe.
+func (ap ArmProfile) Validate() error {
+	if err := ap.Arm.Validate(); err != nil {
+		return err
+	}
+	if ap.Arm == ArmUntouched {
+		// Field by field, because SchedulerProfile holds a slice and Go will not compare it. Naming the three
+		// fields also means a field added later is a compile-time reminder to decide whether the reference may
+		// carry it -- a `!= empty` comparison would have silently accepted the new one.
+		if ap.Profile.Strategy != "" || len(ap.Profile.Resources) > 0 || ap.Profile.SchedulerName != "" {
+			return fmt.Errorf("arm %s carries scheduler profile content (strategy %q, %d resource(s), "+
+				"schedulerName %q); the reference installs no configuration, and a run that recorded itself as "+
+				"the reference while installing one would misdescribe its own treatment", ArmUntouched,
+				ap.Profile.Strategy, len(ap.Profile.Resources), ap.Profile.SchedulerName)
+		}
+		return nil
+	}
+	return ap.Profile.Validate()
+}
+
 // SchedulerProfile is everything about the scheduler that an arm freezes before it runs.
 //
 // The amendment to the registration requires the complete resource list, the weights, the scheduler version and
