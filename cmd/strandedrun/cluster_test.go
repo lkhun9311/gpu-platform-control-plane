@@ -77,9 +77,21 @@ func TestALayoutThatCannotStrandIsRefused(t *testing.T) {
 //
 // Mutation that turns this red: stop emitting node-labels.
 func TestTheRenderedClusterLabelsEachWorkerWithItsDeviceCount(t *testing.T) {
-	out, err := KindConfigYAML(GPUAware(MostAllocated), NodeLayout{2, 1, 1})
+	const nodeImage = "kindest/node:v1.31.0"
+	out, err := KindConfigYAML(GPUAware(MostAllocated), NodeLayout{2, 1, 1}, nodeImage)
 	if err != nil {
 		t.Fatal(err)
+	}
+	// Every node pins the image, and the file says which Kubernetes it is for a reader who never runs it.
+	//
+	// Left to kind, the version is whatever that binary defaults to. This host carries clusters running 1.31.0
+	// and 1.35.8, so the same rendered file months apart would run different schedulers with different plugin
+	// defaults -- and a difference between RUNS would be indistinguishable from a difference between ARMS.
+	if got := strings.Count(out, "image: "+nodeImage); got != 4 {
+		t.Errorf("expected all four nodes to pin %s, found %d:\n%s", nodeImage, got, out)
+	}
+	if !strings.Contains(out, "# Kubernetes: "+nodeImage) {
+		t.Errorf("the rendered file does not record which Kubernetes it is for:\n%s", out)
 	}
 	if strings.Count(out, "- role: worker") != 3 {
 		t.Errorf("the layout has three workers and the configuration renders %d:\n%s",
@@ -112,16 +124,46 @@ func TestTheRenderedClusterLabelsEachWorkerWithItsDeviceCount(t *testing.T) {
 //
 // Mutation that turns this red: drop either Validate call from KindConfigYAML.
 func TestTheClusterRendererRefusesWhatTheValidatorsRefuse(t *testing.T) {
+	const nodeImage = "kindest/node:v1.31.0"
 	bad := SchedulerProfile{Strategy: MostAllocated, SchedulerName: "default-scheduler",
 		Resources: []ResourceWeight{{Name: "cpu", Weight: 1}}}
-	if _, err := KindConfigYAML(bad, NodeLayout{2, 1}); err == nil {
+	if _, err := KindConfigYAML(bad, NodeLayout{2, 1}, nodeImage); err == nil {
 		t.Error("a profile that never scores the GPU rendered a cluster configuration")
 	}
-	if _, err := KindConfigYAML(GPUAware(MostAllocated), NodeLayout{4}); err == nil {
+	if _, err := KindConfigYAML(GPUAware(MostAllocated), NodeLayout{4}, nodeImage); err == nil {
 		t.Error("a single-worker layout rendered a cluster configuration")
 	}
 	if _, err := DevicePluginYAML(NodeLayout{4}, "ns", "img"); err == nil {
 		t.Error("a single-worker layout rendered device plugins")
+	}
+}
+
+// A node image that leaves the Kubernetes version unrecorded is refused.
+//
+// The amendment requires the scheduler version to be registered. An untagged image is the case that looks fine
+// and is not: `kindest/node` resolves to whatever `latest` is on the host, and this host already carries three
+// untagged node images pulled in different months.
+//
+// Mutation that turns this red: accept an empty tag, or drop the validateNodeImage call from KindConfigYAML.
+func TestANodeImageThatLeavesTheVersionUnrecordedIsRefused(t *testing.T) {
+	for _, tc := range []struct{ name, image, wants string }{
+		{"no image at all", "", "registered rather than left"},
+		{"no tag", "kindest/node", "resolves to whatever latest"},
+		{"an empty tag", "kindest/node:", "resolves to whatever latest"},
+		{"no repository", ":v1.31.0", "names no repository"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := KindConfigYAML(GPUAware(MostAllocated), NodeLayout{2, 1}, tc.image)
+			if err == nil {
+				t.Fatalf("%s was accepted", tc.name)
+			}
+			if !strings.Contains(err.Error(), tc.wants) {
+				t.Errorf("the refusal does not say why: got %q, want it to mention %q", err, tc.wants)
+			}
+		})
+	}
+	if _, err := KindConfigYAML(GPUAware(MostAllocated), NodeLayout{2, 1}, "kindest/node:v1.31.0"); err != nil {
+		t.Errorf("a tagged node image was refused: %v", err)
 	}
 }
 
@@ -169,6 +211,19 @@ func TestEachDevicePluginAdvertisesWhatItsSelectorAsksFor(t *testing.T) {
 				n, out)
 		}
 	}
+	// Every DaemonSet must carry imagePullPolicy, and its absence is the failure that looks like a missing
+	// image.
+	//
+	// A :latest tag defaults to Always, so the kubelet re-pulls even after `kind load docker-image` has placed
+	// the layers on the node, and a locally built tag exists in no registry. The first live cluster showed
+	// exactly that: three pods scheduled onto the right workers, every label correct, `crictl images` listing
+	// the image on all three, and every node advertising zero devices.
+	//
+	// Mutation that turns this red: drop the imagePullPolicy line from the template.
+	if got := strings.Count(out, "imagePullPolicy: IfNotPresent"); got != 2 {
+		t.Errorf("expected both DaemonSets to set imagePullPolicy, found %d:\n%s", got, out)
+	}
+
 	// A namespace and an image are not defaulted, because a plugin in the wrong namespace advertises from
 	// wherever it landed.
 	if _, err := DevicePluginYAML(NodeLayout{2, 1}, "", "img"); err == nil {

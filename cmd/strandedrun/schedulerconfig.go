@@ -39,6 +39,12 @@ const (
 // GPUResourceName is the extended resource the fake device plugin advertises.
 const GPUResourceName = "nvidia.com/gpu"
 
+// SchedulerKubeconfigPath is where kubeadm puts the scheduler's credentials on a control-plane node.
+//
+// It is a constant of the kubeadm layout rather than a choice of this study's, and it is named here because a
+// KubeSchedulerConfiguration that omits it leaves the scheduler unable to reach the API server at all.
+const SchedulerKubeconfigPath = "/etc/kubernetes/scheduler.conf"
+
 // SchedulerProfile is everything about the scheduler that an arm freezes before it runs.
 //
 // The amendment to the registration requires the complete resource list, the weights, the scheduler version and
@@ -136,6 +142,18 @@ func (p SchedulerProfile) KubeSchedulerConfigurationYAML() (string, error) {
 	var b strings.Builder
 	b.WriteString("apiVersion: kubescheduler.config.k8s.io/v1\n")
 	b.WriteString("kind: KubeSchedulerConfiguration\n")
+	// clientConnection is not optional, and leaving it out does not degrade the scheduler -- it stops it.
+	//
+	// Measured, not read: the first cluster this renderer built came up with the profile mounted correctly and
+	// the scheduler crash-looping eight times with `Neither --kubeconfig nor --master was specified`. kubeadm
+	// passes BOTH --config and --kubeconfig, and kube-scheduler ignores the flag once --config is given: the
+	// kubeconfig has to come from inside the file. Nothing scheduled after that, so kindnet stayed Pending,
+	// every node stayed NotReady, and the device plugins that depend on them looked like the failure.
+	//
+	// That is worse than the silent-treatment failure this study is arranged around. A treatment that does not
+	// apply produces arms that agree; a treatment that removes the scheduler produces a cluster where nothing
+	// runs and the first thing a reader blames is whatever they were installing at the time.
+	fmt.Fprintf(&b, "clientConnection:\n  kubeconfig: %s\n", SchedulerKubeconfigPath)
 	b.WriteString("profiles:\n")
 	fmt.Fprintf(&b, "  - schedulerName: %s\n", p.SchedulerName)
 	b.WriteString("    pluginConfig:\n")

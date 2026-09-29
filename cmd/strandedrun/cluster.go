@@ -87,11 +87,25 @@ func (l NodeLayout) Validate() error {
 // higher-level way to say "run the scheduler with this profile", and this repository has no precedent for
 // either mechanism -- which is why the FIRST thing built was the check that the requested strategy actually
 // governs a placement, rather than this renderer.
-func KindConfigYAML(p SchedulerProfile, l NodeLayout) (string, error) {
+//
+// nodeImage is REQUIRED and there is no default, which is the amendment's demand that the scheduler version be
+// registered rather than assumed. Left to kind, the version is whatever that kind binary defaults to: this host
+// carries two clusters running 1.31.0 and 1.35.8, so the same rendered file months apart would run different
+// schedulers with different plugin defaults. A difference between runs would then be indistinguishable from a
+// difference between arms, which is the one comparison this study exists to make.
+//
+// The mount is a RELATIVE path, resolved by kind against the working directory. Measured rather than assumed:
+// a throwaway one-node cluster with `hostPath: ./probe.txt` was created on kind v0.33.0 and the file arrived
+// inside the node with its content intact. Every extraMounts precedent in this repository uses an absolute
+// path, so there was nothing here to read the answer off.
+func KindConfigYAML(p SchedulerProfile, l NodeLayout, nodeImage string) (string, error) {
 	if err := p.Validate(); err != nil {
 		return "", err
 	}
 	if err := l.Validate(); err != nil {
+		return "", err
+	}
+	if err := validateNodeImage(nodeImage); err != nil {
 		return "", err
 	}
 	sched, err := p.KubeSchedulerConfigurationYAML()
@@ -105,8 +119,10 @@ func KindConfigYAML(p SchedulerProfile, l NodeLayout) (string, error) {
 	b.WriteString("kind: Cluster\n")
 	b.WriteString("apiVersion: kind.x-k8s.io/v1alpha4\n")
 	fmt.Fprintf(&b, "name: %s\n", ClusterName)
+	fmt.Fprintf(&b, "# Kubernetes: %s\n", nodeImage)
 	b.WriteString("nodes:\n")
 	b.WriteString("  - role: control-plane\n")
+	fmt.Fprintf(&b, "    image: %s\n", nodeImage)
 	// The scheduler reads its profile from a file, so the file has to exist on the control-plane node before
 	// the static pod starts. extraMounts puts it there; the kubeadm patch points the scheduler at it.
 	b.WriteString("    extraMounts:\n")
@@ -127,6 +143,7 @@ func KindConfigYAML(p SchedulerProfile, l NodeLayout) (string, error) {
 	b.WriteString("              pathType: File\n")
 	for i, n := range l {
 		b.WriteString("  - role: worker\n")
+		fmt.Fprintf(&b, "    image: %s\n", nodeImage)
 		b.WriteString("    kubeadmConfigPatches:\n")
 		b.WriteString("      - |\n")
 		b.WriteString("        kind: JoinConfiguration\n")
@@ -170,6 +187,17 @@ func DevicePluginYAML(l NodeLayout, namespace, image string) (string, error) {
 		if i > 0 {
 			b.WriteString("---\n")
 		}
+		// imagePullPolicy below is the one field whose absence looks like a missing image.
+		//
+		// A :latest tag defaults to Always, so the kubelet re-pulls even after `kind load docker-image`
+		// has put the layers on the node -- and a locally built tag exists in no registry, so the pull
+		// fails with ImagePullBackOff. The first live cluster showed exactly that: three pods scheduled
+		// onto the right workers, every label correct, `crictl images` listing the image on all three,
+		// and nothing advertising a device.
+		//
+		// hack/m6-kind-e2e.sh:108 corrects it with a kubectl patch after applying the shared manifest,
+		// and config/gateway-kind does the same through a kustomize overlay. This renderer produces the
+		// manifest, so it belongs in the manifest rather than in a correction applied afterwards.
 		fmt.Fprintf(&b, `# Advertises %d fake device(s) on every worker labelled %s=%d.
 apiVersion: apps/v1
 kind: DaemonSet
@@ -202,6 +230,7 @@ spec:
       containers:
         - name: gpu-simulator
           image: %s
+          imagePullPolicy: IfNotPresent
           command:
             - /gpu-simulator
           env:
@@ -231,6 +260,28 @@ spec:
 			NodeLabelKey, n, image, n)
 	}
 	return b.String(), nil
+}
+
+// validateNodeImage refuses an image that would leave the scheduler version unrecorded or ambiguous.
+//
+// A digest is not required -- kindest/node tags are published per Kubernetes version and this study runs
+// locally -- but a tag IS, because `kindest/node` with no tag resolves to whatever `latest` happens to be on
+// the host, and this host already carries three untagged node images from different months.
+func validateNodeImage(image string) error {
+	if image == "" {
+		return fmt.Errorf("no node image given; the scheduler version has to be registered rather than left " +
+			"to whatever this kind binary defaults to, because a run months later would then compare arms " +
+			"across two different schedulers")
+	}
+	name, tag, found := strings.Cut(image, ":")
+	if !found || tag == "" {
+		return fmt.Errorf("node image %q carries no tag; an untagged image resolves to whatever latest is on "+
+			"the host, which is not a version anything can record", image)
+	}
+	if name == "" {
+		return fmt.Errorf("node image %q names no repository", image)
+	}
+	return nil
 }
 
 func (l NodeLayout) distinctCounts() []int {

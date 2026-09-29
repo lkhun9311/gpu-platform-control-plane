@@ -84,7 +84,8 @@ func TestTheFlagParsersRefuseWhatTheyCannotRead(t *testing.T) {
 // the file name.
 func TestRenderClusterWritesAnArmThatCanBeCreatedFromOneDirectory(t *testing.T) {
 	dir := t.TempDir()
-	if err := renderCluster([]string{"-strategy=MostAllocated", "-layout=2,1,1", "-dir=" + dir}); err != nil {
+	if err := renderCluster([]string{"-strategy=MostAllocated", "-layout=2,1,1", "-dir=" + dir,
+		"-node-image=kindest/node:v1.31.0"}); err != nil {
 		t.Fatalf("render-cluster: %v", err)
 	}
 	for _, name := range []string{"kind-config.yaml", "scheduler-config.yaml", "device-plugins.yaml"} {
@@ -125,7 +126,8 @@ func TestRenderClusterWritesAnArmThatCanBeCreatedFromOneDirectory(t *testing.T) 
 // Mutation that turns this red: write the files before validating.
 func TestRenderClusterRefusesALayoutThatCannotStrandBeforeWritingAnything(t *testing.T) {
 	dir := t.TempDir()
-	err := renderCluster([]string{"-strategy=MostAllocated", "-layout=4", "-dir=" + dir})
+	err := renderCluster([]string{"-strategy=MostAllocated", "-layout=4", "-dir=" + dir,
+		"-node-image=kindest/node:v1.31.0"})
 	if err == nil {
 		t.Fatal("a single-worker layout rendered a cluster")
 	}
@@ -147,10 +149,14 @@ func TestRenderClusterRefusesALayoutThatCannotStrandBeforeWritingAnything(t *tes
 // Mutation that turns this red: give any of them a default.
 func TestRenderClusterRequiresTheArmToBeStatedInFull(t *testing.T) {
 	dir := t.TempDir()
+	const img = "-node-image=kindest/node:v1.31.0"
 	for _, args := range [][]string{
-		{"-layout=2,1", "-dir=" + dir},
-		{"-strategy=MostAllocated", "-dir=" + dir},
-		{"-strategy=MostAllocated", "-layout=2,1"},
+		{"-layout=2,1", "-dir=" + dir, img},
+		{"-strategy=MostAllocated", "-dir=" + dir, img},
+		{"-strategy=MostAllocated", "-layout=2,1", img},
+		// The fourth, and the one most easily left to a default: without it the scheduler version is whatever
+		// the kind binary happens to be, and no artifact records which.
+		{"-strategy=MostAllocated", "-layout=2,1", "-dir=" + dir},
 	} {
 		if err := renderCluster(args); err == nil {
 			t.Errorf("render-cluster ran with %v, leaving part of the arm unstated", args)
