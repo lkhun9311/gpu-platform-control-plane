@@ -93,36 +93,46 @@ type Census struct {
 }
 
 // StrandingReport is what one census yields, with the headline separated from the diagnostics.
+// The field tags are the report's published key names, and they are named rather than defaulted.
+//
+// Without them `-json` emits Go identifiers -- `StrandedDevices`, `NoDemand` -- which would become the record
+// format a cell's evidence is read back from, set by whatever the struct happened to be called. The two
+// anonymous verdict structs in main.go already carry lowercase tags, so the untagged state here was the
+// exception. Nothing consumes this output yet and no test pins a key, which is what makes now the last moment
+// the names can be chosen deliberately.
 type StrandingReport struct {
 	// Step carries the census point's name, so a report cannot be quoted without saying which reading it came
 	// from. The amendment requires a series rather than a peak, and a figure with no step is not in a series.
-	Step string
+	Step string `json:"step"`
 	// StrandedDevices is the REGISTERED figure: free devices on a cluster where no pending workload fits
 	// anywhere, which is max(f_i) < q_min.
-	StrandedDevices int
+	StrandedDevices int `json:"stranded_devices"`
 	// Blocked names the pending submissions that cannot be placed, for the reader who asks which.
-	Blocked []string
+	Blocked []string `json:"blocked,omitempty"`
 	// UnusableGapSum is the per-node gap sum the original registration measured by mistake. It is kept as a
 	// DIAGNOSTIC under its own name and is never the headline: with free counts [1,4] and a request of 2 it
 	// reports one stranded device while the workload can in fact be placed on the second node.
-	UnusableGapSum int
+	//
+	// The key says so too. A reader pulling `unusable_gap_sum_diagnostic_only` out of a record cannot mistake
+	// it for the figure, which is the mistake the original registration made in prose.
+	UnusableGapSum int `json:"unusable_gap_sum_diagnostic_only"`
 	// Unsatisfiable names pending submissions that would not fit on an empty node of the largest size. They are
 	// counted separately: a cluster that never had room for a request is short of capacity, not fragmented.
-	Unsatisfiable []string
+	Unsatisfiable []string `json:"unsatisfiable,omitempty"`
 	// WitnessRequest is the smallest q with max(f_i) < q <= sum(f_i), and WitnessExists says whether any does.
 	// Without one the cluster cannot strand, however much is free.
-	WitnessRequest int
-	WitnessExists  bool
+	WitnessRequest int  `json:"witness_request"`
+	WitnessExists  bool `json:"witness_exists"`
 	// NoDemand distinguishes an idle cluster from a stranded one. "Below every pending request" is vacuously
 	// true of an empty pending set, so an idle cluster would otherwise report stranding.
-	NoDemand bool
+	NoDemand bool `json:"no_demand"`
 	// ReservedTotal and PlacedWorkloads are the control the amendment requires at every census step, because a
 	// peak conceals which workloads were admitted and whether the large requests starved.
-	ReservedTotal   int
-	PlacedWorkloads []string
+	ReservedTotal   int      `json:"reserved_total"`
+	PlacedWorkloads []string `json:"placed_workloads,omitempty"`
 	// OutstandingDemand is the devices pending submissions still want. Refusing admission does not make
 	// stranding zero -- the refused requests are still demand -- and this is where that shows.
-	OutstandingDemand int
+	OutstandingDemand int `json:"outstanding_demand"`
 }
 
 // Validate refuses a census that cannot support a reading.

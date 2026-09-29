@@ -17,6 +17,8 @@ limitations under the License.
 package main
 
 import (
+	"encoding/json"
+	"sort"
 	"strings"
 	"testing"
 )
@@ -39,6 +41,72 @@ func nodes(spec ...[3]int) []NodeCapacity {
 // not tell from the fourth.
 //
 // Mutation that turns this red: any single one of the five judgements.
+// The report's published JSON keys are the record format a cell's evidence is read back from.
+//
+// They were Go identifiers until the tags were added, which meant the record format was whatever the struct
+// happened to be called. One of them carries meaning a shorter name would lose: the diagnostic key says
+// `diagnostic_only` in its own name, because the original registration's mistake was to quote the per-node gap
+// sum AS the figure, and a reader pulling it out of a record has only the key to warn them.
+//
+// Mutation that turns this red: rename any key, or drop the tags so the identifiers come back.
+func TestTheReportsPublishedKeysAreNamedRatherThanDefaulted(t *testing.T) {
+	c := Census{
+		Step: "c3",
+		Nodes: []NodeCapacity{
+			{Name: "w1", Allocatable: 2, Reserved: 1},
+			{Name: "w2", Allocatable: 1, Reserved: 1},
+		},
+		Submissions: []Submission{
+			{Name: "s1", Request: 1, Disposition: DispositionBound, Node: "w1"},
+			{Name: "s2", Request: 1, Disposition: DispositionBound, Node: "w2"},
+			{Name: "s3", Request: 2, Disposition: DispositionQueuedUnadmitted},
+		},
+		Settled: true,
+	}
+	r, err := c.Report()
+	if err != nil {
+		t.Fatalf("the fixture does not report: %v", err)
+	}
+	b, err := json.Marshal(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(b, &got); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{
+		"step", "stranded_devices", "blocked", "unusable_gap_sum_diagnostic_only",
+		"witness_request", "witness_exists", "no_demand", "reserved_total",
+		"placed_workloads", "outstanding_demand",
+	} {
+		if _, ok := got[key]; !ok {
+			t.Errorf("the report publishes no %q; present keys are %v", key, sortedReportKeys(got))
+		}
+	}
+	// A key that is not lowercase is a Go identifier, which means a tag was dropped and the record format
+	// moved with the struct rather than being chosen.
+	for key := range got {
+		if key != strings.ToLower(key) {
+			t.Errorf("key %q is not lowercase, so it is a Go identifier rather than a chosen name", key)
+		}
+	}
+	// And the diagnostic must not be reachable under a name that hides what it is.
+	if _, ok := got["unusable_gap_sum"]; ok {
+		t.Error("the per-node gap sum is published as `unusable_gap_sum`; the name has to carry " +
+			"`diagnostic_only`, because quoting it as the figure is the mistake the original registration made")
+	}
+}
+
+func sortedReportKeys(m map[string]any) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
+}
+
 func TestTheFiveRegisteredQualificationFixtures(t *testing.T) {
 	// The amendment's own example, and the node SIZE is what makes it stranding rather than shortage: "two
 	// identical two-GPU nodes each holding one device already block a two-device request with two devices free".

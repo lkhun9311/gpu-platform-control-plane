@@ -90,6 +90,11 @@ invalidates_a_cell:
   - advertised_capacity_not_2_1_1_at_start
   - render_directory_not_cleaned_by_the_renderer
   - step_neither_bound_nor_refused_within_timeout
+  # The sibling study (docs/superpowers/specs/2026-09-24-node-level-gpu-fragmentation.md, implemented by
+  # hack/fragmentation.sh) computes headroom across EVERY namespace and takes its context from an environment
+  # variable, so pointing it at this campaign's cluster is one word. These two keep the studies apart.
+  - a_submission_of_this_campaign_outside_its_own_cluster
+  - the_sibling_studys_fixture_installed_on_the_cells_cluster
 
 # Listed explicitly, because each of these is a result rather than a fault and a protocol that invalidated them
 # would be selecting on the outcome.

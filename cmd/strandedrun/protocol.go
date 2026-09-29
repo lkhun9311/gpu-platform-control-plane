@@ -326,7 +326,12 @@ func (p Protocol) validateBarriersAndRules() error {
 	// The invalidation rules, both lists. The second list is the load-bearing one: a protocol that invalidated a
 	// tie or an identical outcome would discard exactly the cells that report a null result.
 	for _, want := range []string{"unobserved_disposition", "ledger_membership_mismatch",
-		"scheduler_restart_during_the_cell"} {
+		"scheduler_restart_during_the_cell",
+		// The two isolation rules. The sibling fragmentation study counts headroom across every namespace and
+		// reads its context from an environment variable, so a cell sharing a cluster with it would have its
+		// demand counted into that study's vector and vice versa -- and neither run would say so.
+		"a_submission_of_this_campaign_outside_its_own_cluster",
+		"the_sibling_studys_fixture_installed_on_the_cells_cluster"} {
 		if !slices.Contains(p.InvalidatesACell, want) {
 			return fmt.Errorf("the protocol does not invalidate a cell for %s; that is one of the three failures "+
 				"the page's validity argument rests on", want)
