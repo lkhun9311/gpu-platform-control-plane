@@ -189,6 +189,50 @@ func TestTheFiveRegisteredQualificationFixtures(t *testing.T) {
 	})
 }
 
+// Aggregate shortage reaching the headline a second time, by a route the first fix did not close.
+//
+// Found by adversarial review with this counterexample: capacities [4,2], reservations [3,1], pending request 3.
+// Free is [1,1] -- two devices in the whole cluster -- and the request survives the "unsatisfiable" exclusion
+// because it WOULD fit an empty four-device node. maxFree(1) < qMin(3) is then true and the headline claims two
+// stranded devices for a request the cluster cannot satisfy at all.
+//
+// The hole is that WitnessRequest(free) constructs a HYPOTHETICAL q with max(f_i) < q <= sum(f_i). That a
+// hypothetical one exists is not evidence the demand ledger contains one. The registered figure needs a witness
+// drawn from actual pending demand: a request that fits an empty node of the largest size AND is no larger than
+// the free capacity the cluster currently has.
+//
+// Mutation that turns this red: score the headline without requiring a pending witness within aggregate free.
+func TestAggregateShortageMustNotReachTheHeadlineThroughAnEmptyNodeThatCouldHaveHeldIt(t *testing.T) {
+	c := Census{
+		Step: "shortage-via-empty-node", Settled: true,
+		Nodes: nodes([3]int{4, 3, 0}, [3]int{2, 1, 0}),
+		Submissions: []Submission{
+			{Name: "h1", Request: 3, Disposition: DispositionBound, Node: "w1"},
+			{Name: "h2", Request: 1, Disposition: DispositionBound, Node: "w2"},
+			{Name: "wants-three", Request: 3, Disposition: DispositionQueuedUnadmitted},
+		},
+	}
+	r, err := c.Report()
+	if err != nil {
+		t.Fatalf("refused: %v", err)
+	}
+	if r.StrandedDevices != 0 {
+		t.Errorf("StrandedDevices = %d, want 0: only %d devices are free in the whole cluster and the pending "+
+			"request wants 3, so this is a capacity shortage rather than capacity that placement cannot reach",
+			r.StrandedDevices, 2)
+	}
+	// It is still demand, and it is still not placeable -- both of those remain true and reportable.
+	if r.OutstandingDemand != 3 {
+		t.Errorf("OutstandingDemand = %d, want 3", r.OutstandingDemand)
+	}
+	// And the honest classification: no pending request can witness fragmentation here.
+	if r.WitnessExists {
+		t.Errorf("WitnessExists is true with witness %d; a witness has to come from the pending ledger and no "+
+			"pending request both fits an empty largest node and is within the %d devices actually free",
+			r.WitnessRequest, 2)
+	}
+}
+
 // A census the ledger cannot account for is refused, node by node.
 //
 // The premise of every free count is that the study knows who holds the reservations. An unaccounted holder
@@ -335,11 +379,18 @@ func TestRefusedAdmissionRemainsOutstandingDemand(t *testing.T) {
 //
 // Mutation that turns this red: stop collecting PlacedWorkloads, or sum reservations only at the peak.
 func TestEveryStepRecordsWhoIsPlacedAndHowMuchIsHeld(t *testing.T) {
+	// Free is 1,1,1 -- three devices spread one per node -- and the pending request wants two. That is
+	// fragmentation: the cluster holds enough free capacity to satisfy it, and no single node does.
+	//
+	// The first version of this fixture left only one device free in total while asking for two, which is a
+	// capacity shortage at that instant; the witness condition added after adversarial review correctly
+	// reported zero stranded there, and this test failed. Fourth fixture in this file to have picked capacities
+	// that made it test something other than its name.
 	c := Census{
 		Step: "step-3", Settled: true,
-		Nodes: nodes([3]int{2, 2, 0}, [3]int{1, 1, 0}, [3]int{1, 0, 0}),
+		Nodes: nodes([3]int{2, 1, 0}, [3]int{2, 1, 0}, [3]int{1, 0, 0}),
 		Submissions: []Submission{
-			{Name: "big", Request: 2, Disposition: DispositionBound, Node: "w1"},
+			{Name: "big", Request: 1, Disposition: DispositionBound, Node: "w1"},
 			{Name: "small", Request: 1, Disposition: DispositionBound, Node: "w2"},
 			{Name: "waiting", Request: 2, Disposition: DispositionQueuedUnadmitted},
 		},
@@ -351,15 +402,22 @@ func TestEveryStepRecordsWhoIsPlacedAndHowMuchIsHeld(t *testing.T) {
 	if r.Step != "step-3" {
 		t.Errorf("Step = %q; a figure with no step is not in a series", r.Step)
 	}
-	if r.ReservedTotal != 3 {
-		t.Errorf("ReservedTotal = %d, want 3", r.ReservedTotal)
+	// Recomputed from the corrected capacities rather than carried over: one device reserved on each of w1 and
+	// w2, three free across the three nodes. Changing a fixture's inputs and leaving its expected values behind
+	// is the mistake this file has now made four times.
+	if r.ReservedTotal != 2 {
+		t.Errorf("ReservedTotal = %d, want 2: big holds one on w1 and small one on w2", r.ReservedTotal)
 	}
 	if len(r.PlacedWorkloads) != 2 || r.PlacedWorkloads[0] != "big" || r.PlacedWorkloads[1] != "small" {
 		t.Errorf("PlacedWorkloads = %v, want [big small]: a count would not say whether the large requests "+
 			"starved", r.PlacedWorkloads)
 	}
-	// One device free on w3, and the pending request wants two: stranded.
-	if r.StrandedDevices != 1 {
-		t.Errorf("StrandedDevices = %d, want 1", r.StrandedDevices)
+	// Free is 1,1,1 and the pending request wants two: no node can host it, the cluster holds three free
+	// devices in total, so all three are stranded.
+	if r.StrandedDevices != 3 {
+		t.Errorf("StrandedDevices = %d, want 3", r.StrandedDevices)
+	}
+	if !r.WitnessExists || r.WitnessRequest != 2 {
+		t.Errorf("witness = %d (exists=%v), want 2 from the pending ledger", r.WitnessRequest, r.WitnessExists)
 	}
 }
