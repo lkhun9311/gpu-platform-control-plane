@@ -77,27 +77,44 @@ func (f QualificationFixture) PreferredNode(s ScoringStrategy) (string, error) {
 		return "", fmt.Errorf("no node has %d free devices, so the probe would not be placed at all and the "+
 			"fixture measures filtering rather than scoring", f.Request)
 	}
-	// LeastAllocated prefers the most free; MostAllocated prefers the least free among those that still fit.
+	if s != LeastAllocated && s != MostAllocated {
+		return "", fmt.Errorf("unknown scoring strategy %q", s)
+	}
+
+	// Scored over the POST-PLACEMENT ALLOCATION FRACTION, not over raw free counts.
+	//
+	// Kubernetes v1.31's NodeResourcesFit computes (reserved + request) / allocatable for each candidate and
+	// MostAllocated prefers the highest, LeastAllocated the lowest. Ranking free counts agrees with that only
+	// when the nodes are the same size, and adversarial review produced the counterexample: capacities [4,2],
+	// reservations [1,0], request 1 gives free [3,2] -- which looks discriminating -- while the real fractions
+	// are (1+1)/4 and (0+1)/2, both 0.5, a tie. The live fixture that qualified this cluster used equal-sized
+	// nodes, so the two models agreed there and the defect stayed invisible.
+	//
+	// Compared by cross-multiplication rather than as float64: the values are small integers, the comparison is
+	// exact, and a float64 ratio would make two genuinely equal fractions differ in the last place.
+	better := func(a, b NodeCapacity) bool {
+		an, ad := a.Reserved+f.Request, a.Allocatable
+		bn, bd := b.Reserved+f.Request, b.Allocatable
+		if s == MostAllocated {
+			return an*bd > bn*ad
+		}
+		return an*bd < bn*ad
+	}
+	tied := func(a, b NodeCapacity) bool {
+		return (a.Reserved+f.Request)*b.Allocatable == (b.Reserved+f.Request)*a.Allocatable
+	}
+
 	best := fits[0]
 	for _, n := range fits[1:] {
-		switch s {
-		case LeastAllocated:
-			if n.Free() > best.Free() {
-				best = n
-			}
-		case MostAllocated:
-			if n.Free() < best.Free() {
-				best = n
-			}
-		default:
-			return "", fmt.Errorf("unknown scoring strategy %q", s)
+		if better(n, best) {
+			best = n
 		}
 	}
 	for _, n := range fits {
-		if n.Name != best.Name && n.Free() == best.Free() {
-			return "", fmt.Errorf("nodes %q and %q both have %d free devices, so %s scores them equally and "+
-				"the winner would come from a tiebreak this fixture does not model", best.Name, n.Name,
-				best.Free(), s)
+		if n.Name != best.Name && tied(n, best) {
+			return "", fmt.Errorf("nodes %q and %q both reach allocation fraction (%d+%d)/%d after placement, "+
+				"so %s scores them equally and the winner would come from a tiebreak this fixture does not "+
+				"model", best.Name, n.Name, best.Reserved, f.Request, best.Allocatable, s)
 		}
 	}
 	return best.Name, nil

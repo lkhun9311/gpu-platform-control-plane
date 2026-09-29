@@ -47,6 +47,82 @@ func TestAFixtureBothStrategiesAgreeOnQualifiesNothing(t *testing.T) {
 	}
 }
 
+// The scheduler scores allocation FRACTIONS, not raw free counts, and on heterogeneous nodes the two disagree.
+//
+// Found by adversarial review against the pinned upstream: Kubernetes v1.31's NodeResourcesFit computes each
+// node's post-placement allocated fraction -- (reserved + request) / allocatable -- and MostAllocated prefers
+// the highest, LeastAllocated the lowest.
+//
+// Counterexample: capacities [4,2], reservations [1,0], request 1. Raw free is [3,2], so ranking free counts
+// makes the two strategies disagree and this fixture look discriminating. The real post-placement fractions are
+// (1+1)/4 = 0.5 and (0+1)/2 = 0.5 -- a TIE, which means an observed placement here proves nothing about which
+// strategy ran.
+//
+// The live fixture used on the cluster, free [2,1,0] over equal-sized nodes, happens to agree under both
+// models, which is why this defect never surfaced there.
+//
+// Mutation that turns this red: rank Free() instead of the post-placement fraction.
+func TestScoringIsOverAllocationFractionsNotRawFreeCounts(t *testing.T) {
+	f := QualificationFixture{
+		Nodes:   []NodeCapacity{{Name: "big", Allocatable: 4, Reserved: 1}, {Name: "small", Allocatable: 2, Reserved: 0}},
+		Request: 1,
+	}
+	err := f.Discriminates()
+	if err == nil {
+		t.Fatal("a fixture whose post-placement allocation fractions tie was accepted as discriminating; " +
+			"ranking raw free counts (3 against 2) invents a preference the scheduler does not have")
+	}
+	if !strings.Contains(err.Error(), "equally") && !strings.Contains(err.Error(), "tie") {
+		t.Errorf("the refusal does not name the tie: %v", err)
+	}
+	// And a fixture that genuinely discriminates under the fraction model must still be accepted, so the fix
+	// is not simply refusing heterogeneous clusters.
+	//
+	// capacities [4,2], reservations [0,1], request 1: fractions are (0+1)/4 = 0.25 and (1+1)/2 = 1.0.
+	// MostAllocated prefers small, LeastAllocated prefers big.
+	ok := QualificationFixture{
+		Nodes:   []NodeCapacity{{Name: "big", Allocatable: 4, Reserved: 0}, {Name: "small", Allocatable: 2, Reserved: 1}},
+		Request: 1,
+	}
+	if err := ok.Discriminates(); err != nil {
+		t.Errorf("a fixture that discriminates under the fraction model was refused: %v", err)
+	}
+	if got, err := ok.PreferredNode(MostAllocated); err != nil || got != "small" {
+		t.Errorf("MostAllocated preferred %q (err %v); the highest post-placement fraction is small at 1.0",
+			got, err)
+	}
+	if got, err := ok.PreferredNode(LeastAllocated); err != nil || got != "big" {
+		t.Errorf("LeastAllocated preferred %q (err %v); the lowest post-placement fraction is big at 0.25",
+			got, err)
+	}
+
+	// The fixture the two models DISAGREE on, which is what actually pins the ordering.
+	//
+	// The first version of this test pinned nothing: its tie case was caught by the tie detector (also
+	// fraction-based, and not mutated), and its ordering case happened to give the same answer under both
+	// models. Reverting the comparison to raw free counts left the suite green. Found by running the control.
+	//
+	// capacities [2,5], reservations [0,2], request 1:
+	//   free counts        = [2, 3]      -> MostAllocated (least free) would pick big
+	//   post-placement frac = [1/2, 3/5] -> MostAllocated (highest fraction) picks small
+	// The two models name different winners, so a revert cannot stay green.
+	disagree := QualificationFixture{
+		Nodes:   []NodeCapacity{{Name: "big", Allocatable: 2, Reserved: 0}, {Name: "small", Allocatable: 5, Reserved: 2}},
+		Request: 1,
+	}
+	if err := disagree.Discriminates(); err != nil {
+		t.Fatalf("the disagreement fixture does not discriminate: %v", err)
+	}
+	if got, err := disagree.PreferredNode(MostAllocated); err != nil || got != "small" {
+		t.Errorf("MostAllocated preferred %q (err %v), want small: fractions are 1/2 and 3/5, and ranking raw "+
+			"free counts (2 against 3) would pick big instead", got, err)
+	}
+	if got, err := disagree.PreferredNode(LeastAllocated); err != nil || got != "big" {
+		t.Errorf("LeastAllocated preferred %q (err %v), want big: 1/2 is the lower fraction, while ranking raw "+
+			"free counts would pick small", got, err)
+	}
+}
+
 // A tie is refused rather than broken, because the scheduler breaks ties by rules this does not model.
 //
 // Mutation that turns this red: return the first best node instead of detecting the tie.

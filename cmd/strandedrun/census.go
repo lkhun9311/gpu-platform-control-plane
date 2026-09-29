@@ -302,6 +302,15 @@ func (c Census) Report() (StrandingReport, error) {
 	}
 
 	qMin := satisfiable[0].Request
+	// witnessed is the narrower question the headline actually needs: does the PENDING ledger contain a request
+	// that the cluster could satisfy if its free devices were on one node, and cannot satisfy as they lie?
+	//
+	// WitnessRequest(free) answers whether such a q EXISTS hypothetically, and adversarial review showed that
+	// is not the same claim. Counterexample: capacities [4,2], reservations [3,1], pending request 3. Free is
+	// [1,1] -- two devices in the whole cluster -- and the request survives the unsatisfiable exclusion because
+	// it would fit an empty four-device node, so max(f_i)=1 < q_min=3 reported two stranded devices for demand
+	// the cluster cannot meet at all. Aggregate shortage back in the headline, through a second door.
+	witnessed := false
 	for _, s := range satisfiable {
 		if s.Request < qMin {
 			qMin = s.Request
@@ -315,14 +324,24 @@ func (c Census) Report() (StrandingReport, error) {
 		}
 		if !fits {
 			r.Blocked = append(r.Blocked, s.Name)
+			// A blocked request witnesses fragmentation only if the cluster currently holds enough free
+			// devices to satisfy it somewhere -- max(f_i) < request <= sum(f_i). Below that sum it is short of
+			// capacity now, whatever an empty node could once have held.
+			if s.Request <= totalFree {
+				witnessed = true
+			}
 		}
 	}
 	sort.Strings(r.Blocked)
 
-	// The headline: the cluster-wide blockage, max(f_i) < q_min. Free capacity only counts as stranded when
-	// nothing pending AND placeable fits anywhere.
-	if maxFree < qMin {
+	// The headline: the cluster-wide blockage, max(f_i) < q_min, and only when a pending request witnesses it.
+	if maxFree < qMin && witnessed {
 		r.StrandedDevices = totalFree
+	}
+	// WitnessExists now reports the pending-demand witness rather than a hypothetical one, so a reader cannot
+	// take it as a claim about demand the ledger does not contain.
+	if !witnessed {
+		r.WitnessRequest, r.WitnessExists = 0, false
 	}
 	// The diagnostic the original registration measured by mistake, kept under its own name.
 	for _, f := range free {
