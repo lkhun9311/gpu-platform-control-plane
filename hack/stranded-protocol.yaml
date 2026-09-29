@@ -159,7 +159,9 @@ qualification_evidence_excluded_from_comparison:
   - S-default was run three times on one cluster and the repetitions did not agree -- stranded_devices at c3
     was 2, 0, 2, turning on whether s2 landed on the two-device node. All three stood; check-campaign counted
     3 standing 0 invalid and then refused the set because no S-gpu-most cell exists. This measures the
-    amendment's correction that a scheduler is not deterministic, rather than the original's claim that it is
+    amendment's correction that a scheduler is not deterministic, rather than the original's claim that it is.
+    Those three cells were later replaced by a re-run on a cluster built by the registered order in one pass,
+    which gave 2, 2, 0 -- the same two-of-three, in a different position. The campaign's figures are the re-run's
   - S-default rep 1 attempt 1 stood too and the arms diverged -- the reference put s2 on the two-device node,
     so s3's two-device request was refused and census c3 reported stranded_devices=2 with free counts
     1,0,1 -- max(f_i)=1 < q=2 <= sum(f_i)=2, the registered stranding shape observed for the first time
