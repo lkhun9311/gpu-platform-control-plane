@@ -339,7 +339,7 @@ permitted attempts were used.
 
 | | repetition 1 | repetition 2 | repetition 3 |
 |---|---|---|---|
-| `S-default` (reference) | **2** | 0 | **2** |
+| `S-default` (reference) | **2** | **2** | 0 |
 | `S-gpu-most` (treatment) | 0 | 0 | 0 |
 
 The reference stranded in two of three repetitions; the treatment in none. In every treatment cell the
@@ -351,7 +351,26 @@ took the two-device node in repetitions 1 and 3 and a one-device node in repetit
 campaign publishes is the series above. The treatment arm was also *identical* across its three repetitions
 while the reference was not, which is a description of these six runs and not a claim about determinism.
 
-### The asymmetry a reader should weigh
+### The asymmetry was removed, and the result reproduced
+
+The reference arm was re-run: its cluster was torn down and rebuilt **by the registered build order in one
+pass**, exactly as the treatment's had been, and its three cells were run again. Both arms' clusters now come
+from the same procedure, so the paragraph below records a weakness that no longer applies to the figures in the
+table above — which are the re-run's.
+
+The re-run also reproduced the finding without reproducing the sequence:
+
+| | repetition 1 | repetition 2 | repetition 3 |
+|---|---|---|---|
+| reference, first build (hand-repaired) | 2 | 0 | 2 |
+| reference, re-run (registered order) | 2 | 2 | 0 |
+
+Two of three repetitions strand, both times; *which* repetition does not carry over. That is what the
+amendment's correction predicts — the scheduler is not deterministic, so the position of the zero is not a
+property of the arm — and it is a stronger result than a repeated sequence would have been, because an
+identical ordering across two independent clusters would have suggested something was pinning it.
+
+### The asymmetry that made the re-run worth doing
 
 The two arms' clusters were built by different paths, and this is disclosed rather than smoothed over.
 
@@ -365,8 +384,8 @@ holds that an arm is established by reading rather than by trusting whoever crea
 are valid under it. But the *path* differed, and whether that is acceptable is a judgement a reader is entitled
 to make with the fact in front of them rather than after finding it in a log.
 
-Re-running the reference arm under the build order as it now stands would remove the asymmetry at the cost of
-one cluster rebuild. That decision is recorded here as open.
+That re-run has since been done — the section above records it — so this paragraph describes why it was worth
+one cluster rebuild rather than a decision still open.
 
 ## Qualification evidence is excluded from the comparison
 

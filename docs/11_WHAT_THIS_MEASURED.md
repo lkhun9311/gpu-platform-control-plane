@@ -20,6 +20,10 @@ see the work that was refused (4). A quota system cannot see whether the workloa
 Finding 3 is the exception, and it is the mechanism for why one of those blind spots cannot be closed by
 sharing the card.
 
+Finding 8 is the other exception, and it points the other way: the blind spot in 6 has a cause that can be
+moved. Where the scheduler puts the *first* small pod decides whether a later large one has anywhere to go,
+and that is a configuration an operator supplies or does not.
+
 ---
 
 ## Finding 1 — reservation does not track use, and the gap reached 4x
@@ -222,6 +226,52 @@ resource reads as requesting no GPU and passes them untouched. This measured acc
 
 ---
 
+## Finding 8 — the state behind Finding 6 is one an operator configures, in two of three runs
+
+Finding 6 measured a platform mis-reporting a job it could not place. This asks the prior question: **does the
+state that traps the job arise because nobody told the scheduler how to pack?** A registered campaign — 2 arms
+× 3 repetitions = 6 cells, one fixed submission sequence, workers advertising 2, 1 and 1 devices — answers it
+on the sequence's discriminating step, a 2-device request submitted after two 1-device ones.
+
+| arm | rep 1 | rep 2 | rep 3 | what happened to the 2-device request |
+|---|---:|---:|---:|---|
+| **no configuration supplied** (`S-default`) | **2** | **2** | 0 | refused in 2 of 3 — a 1-device pod had split the two-device node |
+| GPU-aware packing supplied (`S-gpu-most`) | 0 | 0 | 0 | bound in 3 of 3 — the one-device nodes filled first |
+
+`stranded_devices` is the registered figure: free devices on a cluster where no pending workload fits anywhere,
+`max(f_i) < q ≤ Σf_i`, with the witness drawn from pending demand rather than assumed. At the stranded steps the
+free counts were `1, 0, 1` against a request of 2 — two devices free, unusable, and a workload waiting for them.
+
+**Why it matters.** `MostAllocated` scoring over `nvidia.com/gpu` prefers the node it can fill completely,
+because `1/1` is a higher post-placement fraction than `1/2`. That leaves the large node intact for the large
+request. The default scheduler has no reason to protect it, and in two of three runs it did not. The remedy
+costs a `KubeSchedulerConfiguration`, not hardware — but it is a remedy for *this shape of demand*, and a
+different mix could reverse the sign.
+
+**No statistic is computed from six cells**, as the protocol registered in advance, and none is reported. What
+is published is the series.
+
+**What it does not say.** Not that `MostAllocated` is responsible — the treatment is the mount, the resource
+list and the strategy *together*, so the comparison attributes to supplying that configuration and nothing
+narrower. Not that the reference scheduler is deterministic: the same three repetitions run earlier on a
+differently-built cluster gave `2, 0, 2` — the same two-of-three, in a different position. And not that six
+cells settle it; a single cell of either arm would have been swallowed by that variation, which is why the
+campaign refused to publish until every registered cell stood.
+
+**The instrument is the finding as much as the numbers are.** The protocol is a file the tool reads, not a
+discipline the author keeps: `cmd/strandedrun` recomputes the page's arithmetic from
+`hack/stranded-protocol.yaml` and refuses a protocol that contradicts itself; the performer and the judge are
+separate programs and the protocol refuses to name the performer as its own judge; a cell may be discarded only
+for a registered reason, and ties, identical outcomes and a stranding figure of zero are registered as **not**
+invalidating, so the runs that come out level cannot be quietly dropped. Twice the apparatus overruled its
+author — an early pair that matched the hypothesis was disclosed as a rehearsal and then disarmed by the
+variation above, and a qualification fixture was refused by a guard written four changes earlier because on a
+symmetric layout the two candidate nodes tie.
+
+*(`docs/superpowers/specs/2026-09-29-stranded-gpu-frozen-protocol.md`, `cmd/strandedrun`, `hack/stranded-cell.sh`)*
+
+---
+
 ## What this project is not entitled to claim
 
 Stated first, because the findings above are only believable if the refusals are published with them.
@@ -246,3 +296,4 @@ Two of these are rejected hypotheses, which is a result. Two are gaps, which are
 | 3 — sharing vs isolation | MIG on a card that supports it, which the account's instance-family policy does not permit. The MPS arm is **unjudged rather than failed** — it did not run correctly in the matrix, which is a different statement from missing the bar |
 | 4 — tail-only readings | nothing; the mechanism is established and the fix is a reading, not a run |
 | 5 — preemption that did not | already closed: the termination contract is now an arm of the protocol |
+| 8 — configuration removes stranding | a second layout, and a demand mix where packing should *lose*. Both arms ran on one shape; the campaign cannot cancel a drift over time, because both arms render the same cluster name and must run in sequence |

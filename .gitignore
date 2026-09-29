@@ -93,7 +93,10 @@ tmp/
 *.sqlite
 *.sqlite3
 deployments/
-evidence/
+# evidence/* rather than evidence/ : git does not descend into an excluded DIRECTORY, so a `!` exception
+# for a file inside one never fires. Excluding the contents instead lets the one tracked note through.
+evidence/*
+!/evidence/README.md
 
 # Generated binaries
 bin/
