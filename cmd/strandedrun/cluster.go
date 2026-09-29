@@ -203,6 +203,16 @@ func DevicePluginYAML(l NodeLayout, namespace, image string) (string, error) {
 	}
 	counts := l.distinctCounts()
 	var b strings.Builder
+	// The namespace is part of the manifest, not a precondition the operator is expected to have met.
+	//
+	// Measured on the first reference-arm cluster: every DaemonSet and its RBAC failed with
+	// `namespaces "gpu-platform-control-plane-system" not found`, the nodes advertised nothing, and the live
+	// capacity loop honestly reported <none> six times. The treatment cluster had hidden this for a day --
+	// something else had created that namespace there, so a manifest that assumed it worked by accident.
+	//
+	// A rendered artifact that cannot be applied to an empty cluster is not a rendered artifact; putting the
+	// creation in the shell instead would mean the run applies something the renderer never emitted.
+	fmt.Fprintf(&b, "apiVersion: v1\nkind: Namespace\nmetadata:\n  name: %s\n---\n", namespace)
 	for i, n := range counts {
 		if i > 0 {
 			b.WriteString("---\n")

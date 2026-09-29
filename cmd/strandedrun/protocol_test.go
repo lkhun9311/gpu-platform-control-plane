@@ -176,6 +176,31 @@ func TestTheProtocolRefusesWhatItsOwnArithmeticContradicts(t *testing.T) {
 			wantIn: "not pinned to a tag",
 		},
 		{
+			// The step that was missing. Without the image on the nodes every plugin pod sits in
+			// ImagePullBackOff, the nodes advertise nothing, and the cell is invalidated for a capacity that
+			// was never going to appear -- an attempt wasted rather than a figure reported.
+			name:   "no step puts the plugin image on the nodes",
+			old:    "    - kind load docker-image gpu-simulator:latest --name stranded\n",
+			new:    "",
+			wantIn: "no build step mentions \"kind load docker-image\"",
+		},
+		{
+			// An EMPTY list rather than a removed key. Removing it makes UnmarshalStrict refuse the unknown
+			// key first, so the case would pass on a parse error and never reach the check it was written
+			// for -- a case that breaks two rules is a verdict about whichever runs first.
+			name: "build steps registered as an empty list",
+			old: `  build_steps:
+    - render-cluster writes kind-config.yaml and device-plugins.yaml
+    - kind create cluster --config kind-config.yaml
+    - kind load docker-image gpu-simulator:latest --name stranded
+    - kubectl apply -f device-plugins.yaml, which creates its own namespace
+    - wait for capacity by reading allocatable back, never by rollout status
+    - stranded-cell.sh cell ARM REP ATTEMPT
+`,
+			new:    "  build_steps: []\n",
+			wantIn: "registers no build steps",
+		},
+		{
 			// Both arms render the same cluster name, so allowing them to stand together means the second
 			// overwrites the first and a cell can measure the other arm without anything looking wrong.
 			name:   "both arms allowed to stand at once",

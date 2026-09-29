@@ -268,6 +268,28 @@ Registered consequences:
   a design that alternated arms and could have cancelled a drift over time. **This campaign cannot cancel such a
   drift**, and that is a limit of it rather than a property.
 
+## Building a cell's cluster, in the order the steps must happen
+
+Registered because the first reference-arm cluster failed twice on steps nobody had written down, and both were
+invisible on the treatment cluster — something had already done them there, so a procedure that omitted them
+appeared to work for a day. Only a genuinely empty cluster could show the difference.
+
+1. `render-cluster -arm=… -layout=2,1,1 -dir=DIR -node-image=…`
+2. `kind create cluster --config DIR/kind-config.yaml`
+3. **`kind load docker-image gpu-simulator:latest --name stranded`** — the device plugin image is a local build
+   that exists in no registry, and its `:latest` tag makes the kubelet pull rather than use what is on the node.
+   Without this every plugin pod sits in `ImagePullBackOff`, every node advertises nothing, and the cell is
+   invalidated for a capacity that was never going to appear.
+4. `kubectl apply -f DIR/device-plugins.yaml` — which creates its own namespace; a rendered artifact that cannot
+   be applied to an empty cluster is not a rendered artifact.
+5. Wait for capacity by **reading `allocatable` back**, not by `rollout status`: plugin registration completes
+   after the pod is Ready, so a rollout that returned is not capacity advertised.
+6. Only then `stranded-cell.sh cell <arm> <rep> <attempt>`.
+
+If step 3 or 4 is skipped the cell does not silently produce a wrong figure — it is invalidated for
+`advertised_capacity_not_2_1_1_at_start`, which is the correct outcome and the reason that check reads the
+cluster rather than the manifest.
+
 ## Performing and judging are separate programs, on purpose
 
 `hack/stranded-cell.sh` performs a cell: it submits the registered sequence, waits for each step to bind or be
@@ -342,6 +364,26 @@ from a fresh `render-cluster`, and the reference arm's cluster does not exist ye
 reader who finds `record.json` in this session's history cannot mistake a rehearsal for a result — which is
 exactly the mistake this section exists to prevent, and it is the first piece of evidence in the list that would
 have been tempting to keep.
+
+Added 2026-09-29, and the one a reader will most want to treat as the result: the reference arm was built from
+an empty cluster and run through the same six submissions, and **the two arms diverged**.
+
+| step | `S-gpu-most` | `S-default` |
+|---|---|---|
+| `s1` (1 device) | `stranded-worker2` | `stranded-worker2` |
+| `s2` (1 device) | `stranded-worker3` | **`stranded-worker`** — the two-device node, split |
+| `s3` (2 devices) | bound to `stranded-worker` | **refused; `stranded_devices` = 2** |
+
+At `c3` the reference's free counts were `worker=1, worker2=0, worker3=1`: `max(f_i) = 1 < q = 2 ≤ Σf_i = 2`,
+with a witness drawn from pending demand. That is the registered stranding shape, observed for the first time.
+Both cells stood — `check-cell` accepted each — and the reference qualified with `profile-file=no` and no
+`--config`.
+
+**It is still a rehearsal and not cell 1.** One repetition of each arm is not the registered matrix, the arms
+ran on clusters built minutes apart rather than under the frozen build procedure as it now stands, and the
+procedure itself changed twice during these runs. A single pair that came out the way the study's hypothesis
+expects is exactly the pair most likely to be mistaken for a result, which is why it is written here rather than
+anywhere else.
 
 None of them is a cell. None contributes a figure to the comparison. They are cited as evidence that the
 instrument discriminates, which is the thing the amendment required to be established independently of the

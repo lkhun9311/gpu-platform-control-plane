@@ -70,6 +70,12 @@ kjson() {
 invalid() {
   local reason="$1"
   say "INVALID: $reason"
+  # The evidence fields may not have been read yet -- verify_layout and verify_isolation run before any
+  # qualification reading exists -- and `set -u` makes an unset one fatal. Measured: a layout refusal killed
+  # the script with `ARM_IMAGE: unbound variable` and NO record was written at all, which breaks the protocol's
+  # promise that every attempt is retained and published. An attempt that failed early is exactly the one whose
+  # record matters, so the defaults are empty strings and the record says what was and was not observed.
+  : "${ARM_IMAGE:=}" "${ARM_RESTARTS:=0}" "${ARM_QUALIFIED:=false}" "${TREATMENT_APPLIED:=}"
   write_record "$reason"
   say "the attempt is recorded and retained at $EXDIR/record.json"
   exit 0
