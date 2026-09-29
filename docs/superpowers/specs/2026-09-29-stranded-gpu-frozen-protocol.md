@@ -213,6 +213,62 @@ submission of this campaign exists outside its own cluster, and no cell may be r
 sibling's fixture is installed. Neither is a hypothetical — the sibling's own `CONTEXT` is an environment
 variable, so pointing it at this campaign's cluster is one word.
 
+## The qualification probe needs a holder, because this layout ties
+
+Measured 2026-09-29, and recorded here because it constrains the procedure rather than any value the tool
+reads. On the registered layout, an empty cluster **cannot** qualify the treatment:
+
+```
+$ check-treatment -strategy=MostAllocated -nodes=worker:2:0,worker2:1:0,worker3:1:0 -request=1
+the fixture cannot qualify anything: MostAllocated: nodes "worker2" and "worker3" both reach
+allocation fraction (0+1)/1 after placement, so MostAllocated scores them equally and the
+winner would come from a tiebreak this fixture does not model
+```
+
+Both one-device nodes reach `1/1`. A fixture on which the strategies agree — or on which one of them cannot
+name a single winner — qualifies nothing, whatever the probe then does.
+
+So the qualification probe is preceded by a **holder** pinned to one one-device node. The candidates become
+`worker` with 2 free and `worker2` with 1 free, and the two strategies disagree: `MostAllocated` prefers
+`worker2` at `1/1`, `LeastAllocated` prefers `worker` at `1/2`. Measured in all four directions — the
+treatment's own strategy accepts the placement it prefers and refuses the other one's, and the same holds with
+the strategies swapped.
+
+The holder and the probe are **deleted before the registered sequence begins**. They are qualification
+evidence, which this page excludes from the comparison, and leaving them in place would change the cluster the
+sequence starts from — the layout `verify-layout` just checked would no longer be the layout `s1` meets.
+
+This was found by getting it wrong: the first cell run reused registered submission `s1` as the probe and fed
+the empty layout, and `check-treatment` refused the fixture. The cell was recorded as invalid for
+`missing_arm_qualification_evidence` — a registered reason — and retained. That is the apparatus working: a
+performer that had judged its own attempt would have counted it.
+
+## Performing and judging are separate programs, on purpose
+
+`hack/stranded-cell.sh` performs a cell: it submits the registered sequence, waits for each step to bind or be
+refused, reads the cluster live at each census point, and writes `record.json`. It **judges nothing**.
+`cmd/strandedrun`'s `check-cell` and `check-campaign` judge, and they are the only thing that decides whether an
+attempt may be counted.
+
+The separation is not tidiness. A performer that could also decide its own attempt was valid would be judging
+its own work, and the judgement would stop being re-reachable: as it stands, the verdict follows from
+`record.json` alone, so it can be re-reached months later from the same bytes with no cluster. The script prints
+`check-cell`'s verdict as a convenience and does not act on it.
+
+Everything the script needs is **read from** `hack/stranded-protocol.yaml` — the submission sequence and its
+requests, the layout, the scheduler image, the per-step timeout, the expected census count. A value changed in
+the protocol changes the run; a value changed in the script changes nothing, because there is none to change.
+
+**The waits carry no `|| true`, and that is a registered requirement rather than a style.** The sibling
+fragmentation study's own notes record a 120-second wait for a Job that could never start, swallowed by exactly
+that idiom, whose summary still read *"R: 5/5 reached scheduled"*. A step that neither binds nor produces a
+scheduling refusal within the registered timeout invalidates the cell, by that registered name, and the script
+has no way to spell a reason the protocol does not list.
+
+Submissions run `registry.k8s.io/pause:3.10`. A container whose entrypoint exits holds no devices, so a census
+would read zero while the record said a pod had been submitted — measured the hard way earlier in this study,
+when a distroless image died with `StartError` and the census was correctly reporting nothing.
+
 ## Limits of generalization, stated before the numbers
 
 - **Fake devices.** The plugin advertises a count; nothing computes. Nothing here measures GPU performance,
@@ -248,6 +304,19 @@ It also corrects this page's own qualification table above, which said the effec
 unreadable without a credential. That is true and beside the point: what the check needs is what was
 **supplied**, and the API states that in plain text — no credential beyond read access, and no entering the
 node. `/configz` would say what the scheduler *loaded*, which is a different and unnecessary question.
+
+Added 2026-09-29, and the most important one to disclose because it *looks* like a cell: `stranded-cell.sh` was
+run end to end as `S-gpu-most` repetition 1 attempt 1, and `check-cell` reported **stands, with 6 censuses**.
+The qualification probe held `stranded-worker3`, landed on `stranded-worker2`, and `check-treatment` reported
+applied; the sequence then bound `s1` and `s2` to the one-device nodes and `s3` — the two-device request — to
+the intact `stranded-worker`, with `s4`, `s5` and `s6` refused for want of capacity.
+
+**It is not cell 1 of the campaign and no figure of it enters the comparison.** It was a rehearsal of the
+instrument on a cluster that has been created and reconfigured repeatedly today, its arm was never re-verified
+from a fresh `render-cluster`, and the reference arm's cluster does not exist yet. Recorded here so that a
+reader who finds `record.json` in this session's history cannot mistake a rehearsal for a result — which is
+exactly the mistake this section exists to prevent, and it is the first piece of evidence in the list that would
+have been tempting to keep.
 
 None of them is a cell. None contributes a figure to the comparison. They are cited as evidence that the
 instrument discriminates, which is the thing the amendment required to be established independently of the

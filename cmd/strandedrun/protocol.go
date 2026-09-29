@@ -71,6 +71,11 @@ type Protocol struct {
 		PerStepTimeoutSeconds     int      `json:"per_step_timeout_seconds"`
 		RetainPerStep             []string `json:"retain_per_step"`
 	} `json:"barriers"`
+	// PerformedBy and JudgedBy record the separation of performing from judging, and are checked rather than
+	// decorative: a protocol that named no judge, or that named the performer as its own judge, would describe
+	// a campaign whose attempts rule on themselves.
+	PerformedBy            string   `json:"performed_by"`
+	JudgedBy               []string `json:"judged_by"`
 	InvalidatesACell       []string `json:"invalidates_a_cell"`
 	DoesNotInvalidateACell []string `json:"does_not_invalidate_a_cell"`
 	// QualificationEvidenceExcluded are the hand-run checks disclosed as evidence that the instrument
@@ -344,6 +349,18 @@ func (p Protocol) validateBarriersAndRules() error {
 				"outcome", want)
 		}
 	}
+	if p.PerformedBy == "" {
+		return fmt.Errorf("the protocol names no performer; a campaign whose runs came from nowhere in " +
+			"particular cannot be reproduced from it")
+	}
+	if len(p.JudgedBy) == 0 {
+		return fmt.Errorf("the protocol names no judge, so nothing decides whether an attempt may be counted")
+	}
+	if slices.Contains(p.JudgedBy, p.PerformedBy) {
+		return fmt.Errorf("%s is named as both the performer and a judge; an attempt that rules on itself is "+
+			"not judged, and the verdict would stop following from the recorded evidence alone", p.PerformedBy)
+	}
+
 	for _, r := range p.InvalidatesACell {
 		if slices.Contains(p.DoesNotInvalidateACell, r) {
 			return fmt.Errorf("%q appears in both invalidation lists; a cell's validity would then depend on "+

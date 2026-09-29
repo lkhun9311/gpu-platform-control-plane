@@ -72,6 +72,18 @@ matrix:
   publish_every_attempt: true
   reporting_threshold: none
 
+# Performing and judging are separate programs. hack/stranded-cell.sh submits the sequence, waits, reads the
+# cluster and writes record.json; it judges nothing. cmd/strandedrun's check-cell and check-campaign decide
+# whether an attempt may be counted, so the verdict follows from the recorded bytes alone and can be re-reached
+# with no cluster. A performer that could rule its own attempt valid would be judging its own work.
+#
+# The script reads every value it needs from THIS file -- the sequence, the layout, the images, the timeout,
+# the expected census count -- so a change here changes the run and there is nothing in the script to change.
+performed_by: hack/stranded-cell.sh
+judged_by:
+  - check-cell
+  - check-campaign
+
 barriers:
   settledness_must_be_observed: true
   per_step_timeout_seconds: 120
@@ -113,3 +125,9 @@ qualification_evidence_excluded_from_comparison:
   - qualify-arm accepted the standing cluster's own readings as S-gpu-most and refused the same evidence as
     S-default, naming the --config it carries; with check-treatment's verdict omitted it refused the treatment
     too, because an absent reading means nobody looked rather than no
+  # This one looks like a cell, which is why it is listed. A rehearsal of the whole instrument on a cluster
+  # reconfigured repeatedly the same day is not cell 1 of the campaign, and none of its figures enters the
+  # comparison. The first cell of the campaign begins from a fresh render-cluster for its arm.
+  - stranded-cell.sh ran S-gpu-most rep 1 attempt 1 end to end and check-cell reported it stands with 6
+    censuses; the probe held stranded-worker3 and landed on stranded-worker2, s3's two-device request bound to
+    the intact stranded-worker, and s4 s5 s6 were refused for want of capacity. A rehearsal, not a result
