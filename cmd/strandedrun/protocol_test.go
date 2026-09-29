@@ -176,6 +176,26 @@ func TestTheProtocolRefusesWhatItsOwnArithmeticContradicts(t *testing.T) {
 			wantIn: "not pinned to a tag",
 		},
 		{
+			// Both arms render the same cluster name, so allowing them to stand together means the second
+			// overwrites the first and a cell can measure the other arm without anything looking wrong.
+			name:   "both arms allowed to stand at once",
+			old:    "  one_arm_at_a_time: true",
+			new:    "  one_arm_at_a_time: false",
+			wantIn: "could read the other arm's cluster with nothing wrong on its face",
+		},
+		{
+			name:   "a cluster name the renderer does not write",
+			old:    "  name: stranded\n  one_arm_at_a_time",
+			new:    "  name: stranded-reference\n  one_arm_at_a_time",
+			wantIn: "a cell would be judged against a cluster the tool never builds",
+		},
+		{
+			name:   "nothing named as establishing which arm is standing",
+			old:    "  arm_established_by: qualify-arm reading the scheduler's arguments at the start of every cell\n",
+			new:    "",
+			wantIn: "trusting whoever created it is not a reading",
+		},
+		{
 			name:   "no performer named, so the campaign came from nowhere in particular",
 			old:    "performed_by: hack/stranded-cell.sh\n",
 			new:    "",

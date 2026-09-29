@@ -84,6 +84,14 @@ judged_by:
   - check-cell
   - check-campaign
 
+# Both arms render a kind cluster under the same constant name, so only one arm can stand at a time. The arms
+# therefore run in sequence -- every repetition of one, then the cluster is replaced, then the other -- and the
+# campaign cannot cancel a drift over time. That is a limit of it, registered rather than discovered later.
+cluster:
+  name: stranded
+  one_arm_at_a_time: true
+  arm_established_by: qualify-arm reading the scheduler's arguments at the start of every cell
+
 barriers:
   settledness_must_be_observed: true
   per_step_timeout_seconds: 120

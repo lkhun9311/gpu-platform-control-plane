@@ -243,6 +243,31 @@ the empty layout, and `check-treatment` refused the fixture. The cell was record
 `missing_arm_qualification_evidence` — a registered reason — and retained. That is the apparatus working: a
 performer that had judged its own attempt would have counted it.
 
+## One arm at a time, because both arms claim the same cluster name
+
+`render-cluster` writes a kind configuration whose cluster name is the constant `ClusterName` — `stranded` —
+for **both** arms, and there is no flag to change it. That is a deliberate consequence rather than an oversight,
+and it is registered here because nothing else records it: a campaign cannot hold the reference and the
+treatment cluster at the same time, so the arms are run in sequence and the standing cluster is torn down
+between them.
+
+The alternative would be a per-arm cluster name, and it is rejected for a reason this study has already paid
+for. Two clusters alive at once double the ways a cell can read the wrong one: `kind get kubeconfig` would need
+the right name at every step, `verify-layout` would pass against either, and the isolation rule that keeps this
+campaign away from the sibling fragmentation study would have to reason about two contexts instead of one. A
+cell that measured the other arm's cluster would produce a figure with nothing wrong on its face.
+
+Registered consequences:
+
+- A cell may not begin while a cluster of the other arm is standing. Tearing down is part of switching arms, not
+  cleanup afterwards.
+- `qualify-arm`'s reading of the scheduler's arguments is what establishes which arm the standing cluster is,
+  and it is taken **at the start of every cell** rather than trusted from whoever created the cluster.
+- The attempt order across the campaign is therefore not free: all repetitions of one arm run, then the cluster
+  is replaced, then all repetitions of the other. That is recorded so a reader does not mistake the grouping for
+  a design that alternated arms and could have cancelled a drift over time. **This campaign cannot cancel such a
+  drift**, and that is a limit of it rather than a property.
+
 ## Performing and judging are separate programs, on purpose
 
 `hack/stranded-cell.sh` performs a cell: it submits the registered sequence, waits for each step to bind or be
