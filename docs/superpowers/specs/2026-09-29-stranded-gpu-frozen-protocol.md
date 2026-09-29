@@ -147,8 +147,15 @@ the outcome selecting the method.
 
 Every value above is also written, once, in a machine-readable file — `hack/stranded-protocol.yaml` — and the
 tool refuses to run a cell whose arm, layout, node image, submission sequence or expected counts disagree with
-it. A protocol enforcement file is added to the tool for that, reading the YAML rather than restating it, so the
-page and the code cannot drift into two statements of one fact.
+it. `cmd/strandedrun/protocol.go` reads the YAML rather than restating it, so the page and the code cannot drift
+into two statements of one fact: every derived quantity this page states in prose — six cells, twelve attempts,
+six submissions and six censuses — is **recomputed** from the file rather than typed into Go, and a protocol
+whose arithmetic contradicts itself does not load.
+
+`take-census` takes `-protocol` and `-step-number` together, and refuses a census whose ledger is not exactly
+the protocol's first `k` submissions by identity, order and request. That is the check `-settled` cannot make:
+`-settled` is the run operator's assertion that bindings had resolved, and a ledger missing a row balances the
+reservation check perfectly well.
 
 That refusal must itself be shown to discriminate: the protocol file is mutated — a request changed, a step
 removed, the layout altered — and the tool must refuse each time, with the refusal naming the disagreement. A
