@@ -385,6 +385,31 @@ procedure itself changed twice during these runs. A single pair that came out th
 expects is exactly the pair most likely to be mistaken for a result, which is why it is written here rather than
 anywhere else.
 
+Added 2026-09-29, and it is the entry that most changes how the earlier ones should be read: the reference arm
+was run **three times on one cluster**, and the three repetitions did not agree.
+
+| repetition | `s2` landed on | `s3` (2 devices) | `stranded_devices` at `c3` |
+|---|---|---|---|
+| 1 | `stranded-worker` | refused | **2** |
+| 2 | `stranded-worker2` | bound to `stranded-worker` | **0** |
+| 3 | `stranded-worker` | refused | **2** |
+
+Same cluster, same sequence, same scheduler, no restarts — and the outcome turns on where a single one-device
+pod lands. All three cells stood; `check-campaign` counted them as *3 standing, 0 invalid*.
+
+**This measures the amendment's correction rather than the original's claim.** The original registration gave
+"a deterministic scheduler" as the reason three repetitions suffice; the amendment rejected that by argument —
+ties and asynchronous processing vary placement — and this is the observation. Three is a bounded campaign, not
+a number that buys determinism.
+
+**It also disarms the earlier pair.** One treatment cell reported 0 stranded and one reference cell reported 2,
+which looked like the difference this study asks about. With the reference alone varying `2, 0, 2`, a single
+cell of either arm says nothing: the treatment's 0 is inside the reference's own spread. Nothing here compares
+the arms, and the first honest comparison needs all six registered cells.
+
+`check-campaign` refused the set, correctly and by name: *cell S-gpu-most/1 has no attempt; the comparison is
+published only when every registered cell has one that stands.*
+
 None of them is a cell. None contributes a figure to the comparison. They are cited as evidence that the
 instrument discriminates, which is the thing the amendment required to be established independently of the
 result, and they are disclosed here so that no reader later finds a number in the repository's history and
