@@ -113,6 +113,11 @@ func usage() {
       allocatable decides where the scheduler can place; the manifest is not evidence.
 
   take-census -step=NAME -nodes=NAME:ALLOCATABLE:RESERVED,... -submissions=NAME:REQ:DISPOSITION[:NODE],...
+              [-protocol=hack/stranded-protocol.yaml -step-number=K]
+
+      Read a stranding figure off a demand ledger. With -protocol, the ledger must be exactly the
+      protocol's first K submissions, by identity, order and request -- which is the check -settled
+      cannot make, since a ledger missing a row balances the reservation check perfectly well.
               [-foreign=NODE:N,...] [-settled] [-json]
       Read one census step: the registered stranding figure, its diagnostics, and the ledger
       that has to account for every submission. Refuses a reading whose demand is not fully
@@ -333,6 +338,8 @@ func takeCensus(args []string) error {
 	subsFlag := fs.String("submissions", "", "NAME:REQUEST:DISPOSITION[:NODE], comma separated; may be empty")
 	foreignFlag := fs.String("foreign", "", "NODE:N, comma separated: GPU reservations held by consumers this study did not submit")
 	settled := fs.Bool("settled", false, "assert that terminating pods and in-flight bindings were resolved before this reading")
+	protocolFile := fs.String("protocol", "", "the frozen protocol to check this census's ledger membership against")
+	stepNumber := fs.Int("step-number", 0, "which registered submission this census follows, 1-based; required with -protocol")
 	asJSON := fs.Bool("json", false, "emit the report as JSON")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -340,6 +347,14 @@ func takeCensus(args []string) error {
 	if *step == "" {
 		return fmt.Errorf("-step is required; a census point with no name cannot be placed in the series the " +
 			"amendment requires in place of a peak")
+	}
+	// The step NUMBER is supplied rather than parsed out of the step's name.
+	//
+	// Deriving it from "c2" would make the protocol depend on a naming convention nothing enforces, and a
+	// census misnamed by one would then be checked against the wrong step's membership and pass.
+	if (*protocolFile == "") != (*stepNumber == 0) {
+		return fmt.Errorf("-protocol and -step-number go together: a protocol with no step cannot say which " +
+			"submissions should be in the ledger, and a step number with no protocol has nothing to check against")
 	}
 	nodes, err := parseNodes(*nodesFlag)
 	if err != nil {
@@ -354,6 +369,22 @@ func takeCensus(args []string) error {
 		return err
 	}
 	c := Census{Step: *step, Nodes: nodes, Submissions: subs, ForeignReserved: foreign, Settled: *settled}
+	// Checked BEFORE Report(), because a report computed from a ledger that is missing a row is a figure, and a
+	// figure is the thing this study must not produce when the evidence does not support it.
+	//
+	// This is what -settled cannot do. Settled is the run operator's assertion that bindings had resolved; it
+	// says nothing about whether every registered submission reached the ledger, and the reservation balance
+	// cannot tell either, because a ledger missing a row balances perfectly well. Membership is judged against
+	// the protocol, which was frozen before the run.
+	if *protocolFile != "" {
+		p, pErr := LoadProtocol(*protocolFile)
+		if pErr != nil {
+			return pErr
+		}
+		if mErr := p.CheckMembership(*stepNumber, c); mErr != nil {
+			return fmt.Errorf("census %s does not match the frozen protocol: %w", *step, mErr)
+		}
+	}
 	r, err := c.Report()
 	if err != nil {
 		return err
