@@ -329,6 +329,45 @@ when a distroless image died with `StartError` and the census was correctly repo
 - **No topology-aware scheduling**, no Kueue admission, no quotas. The comparison is placement only.
 - **Six cells is not a sample.** No inferential statistic is computed from six cells, and none will be reported.
 
+## The first complete matrix, 2026-09-29
+
+Six cells were produced and `check-campaign` accepted them: *6 standing, 0 invalid and retained… the campaign is
+publishable: 6 cells, every one with an attempt that stands.* No cell needed a replacement, so 6 of the 12
+permitted attempts were used.
+
+`stranded_devices` at the discriminating step `c3`:
+
+| | repetition 1 | repetition 2 | repetition 3 |
+|---|---|---|---|
+| `S-default` (reference) | **2** | 0 | **2** |
+| `S-gpu-most` (treatment) | 0 | 0 | 0 |
+
+The reference stranded in two of three repetitions; the treatment in none. In every treatment cell the
+qualification probe landed on a one-device node, `check-treatment` reported applied, and `s1` and `s2` took the
+two one-device nodes — leaving `stranded-worker` intact for the two-device request. The reference varied: `s2`
+took the two-device node in repetitions 1 and 3 and a one-device node in repetition 2.
+
+**No inferential statistic is computed from six cells, as registered, and none is reported here.** What the
+campaign publishes is the series above. The treatment arm was also *identical* across its three repetitions
+while the reference was not, which is a description of these six runs and not a claim about determinism.
+
+### The asymmetry a reader should weigh
+
+The two arms' clusters were built by different paths, and this is disclosed rather than smoothed over.
+
+The treatment's cluster followed the registered build order in one pass. The reference's was created **before
+two of those steps were registered**: its plugin manifest failed for want of a namespace, the renderer was
+fixed, and `kind load` was discovered and run by hand — all before its cells ran.
+
+The end states were verified identically in both: `verify-layout` read `allocatable` back per node and
+`qualify-arm` read the scheduler's arguments, image and restart count at the start of every cell. The protocol
+holds that an arm is established by reading rather than by trusting whoever created the cluster, so these cells
+are valid under it. But the *path* differed, and whether that is acceptable is a judgement a reader is entitled
+to make with the fact in front of them rather than after finding it in a log.
+
+Re-running the reference arm under the build order as it now stands would remove the asymmetry at the cost of
+one cluster rebuild. That decision is recorded here as open.
+
 ## Qualification evidence is excluded from the comparison
 
 The checks run on the standing cluster on 2026-09-28 and 2026-09-29 — `verify-layout` refusing `0,0,0` by node

@@ -135,6 +135,10 @@ does_not_invalidate_a_cell:
 
 # Taken by hand before this protocol existed. Evidence that the instrument discriminates; not cells, and no
 # figure of theirs enters the comparison.
+#
+# The six cells of the first complete matrix (2026-09-29) are NOT in this list -- they are the campaign, and
+# their figures are reported on the registration page. Results live on a page; this file registers the protocol,
+# and adding a results key here would make an outcome look like something the tool must validate.
 qualification_evidence_excluded_from_comparison:
   - verify-layout refused 0,0,0 by node name and accepted 2,1,1
   - check-treatment reported applied for MostAllocated and refused the same observation as LeastAllocated
