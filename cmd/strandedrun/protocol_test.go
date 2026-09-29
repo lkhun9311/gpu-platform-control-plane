@@ -176,6 +176,26 @@ func TestTheProtocolRefusesWhatItsOwnArithmeticContradicts(t *testing.T) {
 			wantIn: "not pinned to a tag",
 		},
 		{
+			name:   "no performer named, so the campaign came from nowhere in particular",
+			old:    "performed_by: hack/stranded-cell.sh\n",
+			new:    "",
+			wantIn: "names no performer",
+		},
+		{
+			name:   "no judge named, so nothing decides whether an attempt counts",
+			old:    "judged_by:\n  - check-cell\n  - check-campaign\n",
+			new:    "",
+			wantIn: "names no judge",
+		},
+		{
+			// The load-bearing one. A performer listed among its own judges is an attempt ruling on itself,
+			// and the verdict would stop following from the recorded evidence alone.
+			name:   "the performer listed as its own judge",
+			old:    "judged_by:\n  - check-cell",
+			new:    "judged_by:\n  - hack/stranded-cell.sh\n  - check-cell",
+			wantIn: "an attempt that rules on itself is not judged",
+		},
+		{
 			name:   "settledness allowed to be asserted",
 			old:    "  settledness_must_be_observed: true",
 			new:    "  settledness_must_be_observed: false",

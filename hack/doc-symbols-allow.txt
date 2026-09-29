@@ -70,3 +70,7 @@ QuotaExceeded	the operations-ledger design names it to record that it was consid
 # removed rather than left to make this file describe a repository that no longer exists.
 PodSetTopologyRequest	a Kueue 0.18.3 API field; named to record that the TAS API existing does not show any workload used it, which is why the amendment separates TAS from the scoring comparison
 FailedScheduling	an upstream scheduler Event reason; the amendment DEMOTES it to diagnostic evidence because retries repeat it and ResourceQuota can reject a pod before one exists to fail scheduling
+
+# --- a run output the judge reads and no checkout contains, 2026-09-29 -----------------------------------
+record.json	the cell record hack/stranded-cell.sh WRITES for each attempt, under its evidence directory; check-cell reads it back. The frozen-protocol page names it because it is a real contract between the performer and the judge, and no checkout contains one -- run outputs are not committed, the same reason the five hack/ paid-run directories above are listed
+StartError	an upstream container state reason, not a name this repository defines. The frozen-protocol page cites it to record WHY submissions run registry.k8s.io/pause:3.10: a distroless image whose entrypoint exited died with StartError earlier in this study, held no devices, and the census was correctly reporting nothing. Listed for the same reason as FailedScheduling above
