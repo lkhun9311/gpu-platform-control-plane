@@ -77,6 +77,8 @@ func main() {
 		err = verifyLayout(os.Args[2:])
 	case "take-census":
 		err = takeCensus(os.Args[2:])
+	case "qualify-arm":
+		err = qualifyArm(os.Args[2:])
 	case "-h", "--help", "help":
 		usage()
 		return
@@ -113,15 +115,23 @@ func usage() {
       allocatable decides where the scheduler can place; the manifest is not evidence.
 
   take-census -step=NAME -nodes=NAME:ALLOCATABLE:RESERVED,... -submissions=NAME:REQ:DISPOSITION[:NODE],...
-              [-protocol=hack/stranded-protocol.yaml -step-number=K]
-
-      Read a stranding figure off a demand ledger. With -protocol, the ledger must be exactly the
-      protocol's first K submissions, by identity, order and request -- which is the check -settled
-      cannot make, since a ledger missing a row balances the reservation check perfectly well.
               [-foreign=NODE:N,...] [-settled] [-json]
+              [-protocol=hack/stranded-protocol.yaml -step-number=K]
       Read one census step: the registered stranding figure, its diagnostics, and the ledger
       that has to account for every submission. Refuses a reading whose demand is not fully
       observed, whose reservations no submission claims, or that was taken mid-binding.
+      With -protocol, the ledger must be exactly the protocol's first K submissions, by
+      identity, order and request -- which is the check -settled cannot make, since a ledger
+      missing a row balances the reservation check perfectly well.
+
+  qualify-arm -arm=S-default|S-gpu-most -protocol=hack/stranded-protocol.yaml
+              -scheduler-args=ARG,ARG,... -scheduler-image=IMAGE -restarts=N
+              [-profile-file=yes|no] [-demand-scheduled=yes|no] [-treatment-applied=yes|no] [-json]
+      Judge whether a cluster is running the arm a cell claims. The readings come from the
+      scheduler pod -- command, volumes, image and restart count -- and each one the protocol
+      requires must be supplied as yes or no: an omitted reading is refused rather than taken
+      for "no", because the reference arm PASSES on absence and a default would satisfy the
+      check it was meant to make.
 `)
 }
 
@@ -331,6 +341,84 @@ func verifyLayout(args []string) error {
 // Every refusal it can produce is an absent observation that the original registration's validity rule would
 // have accepted: a submission nobody looked at, a reservation no submission claims, a reading taken while
 // bindings were still in flight. The amendment requires each to invalidate rather than to pass.
+// qualifyArm judges observed evidence against the arm a cell claims to be running.
+//
+// The readings are supplied rather than collected here, the way check-treatment already works: the tool that
+// decides whether an arm is what it claims does not hold cluster credentials, so its verdict is reproducible
+// from a recorded reading rather than from a cluster that has since changed.
+//
+// The three evidence flags are strings, not booleans. `flag.Bool` defaults to false, and the reference arm
+// PASSES when the profile file is absent -- so an omitted flag would read as evidence of absence and satisfy
+// the check it was meant to make.
+func qualifyArm(args []string) error {
+	fs := flag.NewFlagSet("qualify-arm", flag.ContinueOnError)
+	arm := fs.String("arm", "", "S-default or S-gpu-most; the arm this cell claims to be running")
+	protocolFile := fs.String("protocol", "", "the frozen protocol registering what evidence each arm needs")
+	schedArgs := fs.String("scheduler-args", "", "the scheduler's arguments, comma separated, from the pod spec")
+	schedImage := fs.String("scheduler-image", "", "the image the scheduler container is running, from its status")
+	restarts := fs.Int("restarts", 0, "the scheduler container's restart count")
+	profileFile := fs.String("profile-file", "", "yes|no: is a supplied profile mounted into the node")
+	demandSched := fs.String("demand-scheduled", "", "yes|no: did submitted demand actually schedule")
+	treatApplied := fs.String("treatment-applied", "", "yes|no: check-treatment's verdict")
+	asJSON := fs.Bool("json", false, "emit the verdict as JSON")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *arm == "" || *protocolFile == "" {
+		return fmt.Errorf("-arm and -protocol are both required; an arm with no protocol has no registered " +
+			"evidence to be judged against, and a protocol with no arm has nothing to judge")
+	}
+	p, err := LoadProtocol(*protocolFile)
+	if err != nil {
+		return err
+	}
+	var parsedArgs []string
+	for part := range strings.SplitSeq(*schedArgs, ",") {
+		if part = strings.TrimSpace(part); part != "" {
+			parsedArgs = append(parsedArgs, part)
+		}
+	}
+	e := ArmEvidence{
+		SchedulerArgs:      parsedArgs,
+		SchedulerImage:     strings.TrimSpace(*schedImage),
+		Restarts:           *restarts,
+		ProfileFilePresent: Observation(*profileFile),
+		DemandScheduled:    Observation(*demandSched),
+		TreatmentApplied:   Observation(*treatApplied),
+	}
+	verdictErr := p.QualifyArm(Arm(*arm), e)
+
+	if *asJSON {
+		v := struct {
+			Arm       string `json:"arm"`
+			Qualified bool   `json:"qualified"`
+			Image     string `json:"scheduler_image"`
+			Restarts  int    `json:"restarts"`
+			Reason    string `json:"reason,omitempty"`
+		}{Arm: *arm, Qualified: verdictErr == nil, Image: e.SchedulerImage, Restarts: e.Restarts}
+		if verdictErr != nil {
+			v.Reason = verdictErr.Error()
+		}
+		b, mErr := json.Marshal(v)
+		if mErr != nil {
+			return mErr
+		}
+		fmt.Println(string(b))
+		return verdictErr
+	}
+	if verdictErr != nil {
+		return verdictErr
+	}
+	fmt.Printf("arm %s qualified\n", *arm)
+	fmt.Printf("  scheduler %s, %d restarts\n", e.SchedulerImage, e.Restarts)
+	if Arm(*arm).InstallsSchedulerConfig() {
+		fmt.Printf("  a profile was supplied and check-treatment reports it applied\n")
+	} else {
+		fmt.Printf("  no configuration was supplied, and submitted demand scheduled\n")
+	}
+	return nil
+}
+
 func takeCensus(args []string) error {
 	fs := flag.NewFlagSet("take-census", flag.ContinueOnError)
 	step := fs.String("step", "", "the census point's name (required: a figure with no step is not in a series)")

@@ -105,3 +105,6 @@ qualification_evidence_excluded_from_comparison:
   - verify-layout refused 0,0,0 by node name and accepted 2,1,1
   - check-treatment reported applied for MostAllocated and refused the same observation as LeastAllocated
   - take-census reported 0 stranded on a free cluster and 3 after the two-device node was occupied
+  - qualify-arm accepted the standing cluster's own readings as S-gpu-most and refused the same evidence as
+    S-default, naming the --config it carries; with check-treatment's verdict omitted it refused the treatment
+    too, because an absent reading means nobody looked rather than no
