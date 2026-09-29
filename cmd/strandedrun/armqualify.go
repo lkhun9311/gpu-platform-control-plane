@@ -80,6 +80,19 @@ type ArmEvidence struct {
 	TreatmentApplied Observation
 }
 
+// ArmVerdict is qualify-arm's published answer, and the form a cell record carries it in.
+//
+// A named type rather than the anonymous struct the subcommand used to marshal inline: a cell record has to
+// embed this verdict, and re-declaring its shape there would make the record format and the subcommand's output
+// two statements of one fact with nothing comparing them.
+type ArmVerdict struct {
+	Arm       Arm    `json:"arm"`
+	Qualified bool   `json:"qualified"`
+	Image     string `json:"scheduler_image"`
+	Restarts  int    `json:"restarts"`
+	Reason    string `json:"reason,omitempty"`
+}
+
 // ArmByName returns the protocol's registration of one arm.
 func (p Protocol) ArmByName(name Arm) (ProtocolArm, error) {
 	if err := name.Validate(); err != nil {

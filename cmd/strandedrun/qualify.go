@@ -27,6 +27,17 @@ import (
 // Free is derived rather than read: the amendment requires it, because AllocatableGPU is what a node ADVERTISES
 // and the scheduler places against allocatable minus the requests of pods already bound there. A field called
 // "free" read straight off the API would be the total.
+// TreatmentVerdict is check-treatment's published answer, and the form a cell record carries it in.
+//
+// Named for the same reason as ArmVerdict: the record embeds it, and a second declaration of its shape would
+// drift from this one silently.
+type TreatmentVerdict struct {
+	Strategy ScoringStrategy `json:"strategy"`
+	Observed string          `json:"observed"`
+	Applied  bool            `json:"applied"`
+	Reason   string          `json:"reason,omitempty"`
+}
+
 type NodeCapacity struct {
 	Name        string
 	Allocatable int

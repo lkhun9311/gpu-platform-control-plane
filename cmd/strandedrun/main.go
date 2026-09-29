@@ -174,12 +174,9 @@ func checkTreatment(args []string) error {
 	verdictErr := fixture.TreatmentApplied(profile, *observed)
 
 	if *asJSON {
-		v := struct {
-			Strategy string `json:"strategy"`
-			Observed string `json:"observed"`
-			Applied  bool   `json:"applied"`
-			Reason   string `json:"reason,omitempty"`
-		}{Strategy: *strategy, Observed: *observed, Applied: verdictErr == nil}
+		v := TreatmentVerdict{
+			Strategy: ScoringStrategy(*strategy), Observed: *observed, Applied: verdictErr == nil,
+		}
 		if verdictErr != nil {
 			v.Reason = verdictErr.Error()
 		}
@@ -389,13 +386,9 @@ func qualifyArm(args []string) error {
 	verdictErr := p.QualifyArm(Arm(*arm), e)
 
 	if *asJSON {
-		v := struct {
-			Arm       string `json:"arm"`
-			Qualified bool   `json:"qualified"`
-			Image     string `json:"scheduler_image"`
-			Restarts  int    `json:"restarts"`
-			Reason    string `json:"reason,omitempty"`
-		}{Arm: *arm, Qualified: verdictErr == nil, Image: e.SchedulerImage, Restarts: e.Restarts}
+		v := ArmVerdict{
+			Arm: Arm(*arm), Qualified: verdictErr == nil, Image: e.SchedulerImage, Restarts: e.Restarts,
+		}
 		if verdictErr != nil {
 			v.Reason = verdictErr.Error()
 		}

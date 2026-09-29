@@ -135,6 +135,27 @@ the outcome selecting the method.
 6. A render directory whose previous contents were not removed by the renderer itself.
 7. A step that neither bound nor refused within 120 seconds.
 
+A cell may be discarded **only** for a reason on the list above, by its registered name. A reason worded after
+the attempt was seen is a reason chosen from the outcome, however diligent the wording sounds, so the
+invalidation reason is a registered enumeration rather than free text and the tool refuses any other value.
+
+An invalid attempt is retained with its reason and is **not** required to carry the full census series.
+Demanding a complete series from a failed attempt would push a run operator towards supplying the readings that
+are missing rather than recording that the attempt failed — and every attempt is published precisely so a
+failed one can be seen to have failed.
+
+Two structural rules follow, and they are checked across the campaign rather than per cell: an attempt that
+stands may not be followed by another attempt at the same cell (running a cell again after it produced a figure
+is choosing between figures), and a cell whose last attempt is invalid has no replacement left, which ends the
+campaign with the attempt history published in place of a comparison.
+
+**The census series accounts for the submissions by identity.** At step `k` the reading must account for exactly
+`s1..sk`, across its placed, blocked and unsatisfiable names together. A reading that simply leaves a submission
+out is internally consistent and balances, which is why it is compared against the frozen sequence rather than
+checked for self-consistency. This campaign registers **no releases**; a released submission would legitimately
+appear in none of the three, so if a release is ever registered this check must be **amended on a dated page**
+rather than loosened to accommodate it.
+
 ### What does not invalidate a cell
 
 - **A tie.** Two nodes scoring equally and the choice falling either way is the scheduler this study measures.
