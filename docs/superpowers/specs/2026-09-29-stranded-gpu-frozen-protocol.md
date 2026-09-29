@@ -183,6 +183,21 @@ observation as `LeastAllocated`, and `take-census` reporting 0 stranded on a fre
 two-device node was occupied — are **qualification evidence**. They were taken by hand, before this protocol
 existed, on a cluster that has been created and reconfigured repeatedly.
 
+Added 2026-09-29, after the qualifier was built: `qualify-arm` was run against the standing cluster's own
+readings — the scheduler's arguments, its image and restart count from the pod's status, and whether a profile
+volume is mounted. The same evidence **qualified** the cluster as `S-gpu-most` and was **refused** when claimed
+as `S-default`, naming the `--config` it carries; and with `check-treatment`'s verdict omitted the treatment was
+refused too, on the ground that an absent reading means nobody looked rather than no.
+
+That last refusal is why the readings are three-valued rather than booleans. The reference arm *passes* on the
+absence of a profile file, so a `flag.Bool` an operator never set would have read as evidence of absence and
+satisfied the check it exists to make.
+
+It also corrects this page's own qualification table above, which said the effective configuration is
+unreadable without a credential. That is true and beside the point: what the check needs is what was
+**supplied**, and the API states that in plain text — no credential beyond read access, and no entering the
+node. `/configz` would say what the scheduler *loaded*, which is a different and unnecessary question.
+
 None of them is a cell. None contributes a figure to the comparison. They are cited as evidence that the
 instrument discriminates, which is the thing the amendment required to be established independently of the
 result, and they are disclosed here so that no reader later finds a number in the repository's history and
