@@ -74,8 +74,16 @@ type Protocol struct {
 	// PerformedBy and JudgedBy record the separation of performing from judging, and are checked rather than
 	// decorative: a protocol that named no judge, or that named the performer as its own judge, would describe
 	// a campaign whose attempts rule on themselves.
-	PerformedBy            string   `json:"performed_by"`
-	JudgedBy               []string `json:"judged_by"`
+	PerformedBy string   `json:"performed_by"`
+	JudgedBy    []string `json:"judged_by"`
+	// Cluster records that both arms render the same cluster name, so only one can stand at a time. Checked
+	// rather than declared: a protocol that allowed both at once would describe a campaign whose cells can read
+	// the other arm's cluster and produce a figure with nothing wrong on its face.
+	Cluster struct {
+		Name             string `json:"name"`
+		OneArmAtATime    bool   `json:"one_arm_at_a_time"`
+		ArmEstablishedBy string `json:"arm_established_by"`
+	} `json:"cluster"`
 	InvalidatesACell       []string `json:"invalidates_a_cell"`
 	DoesNotInvalidateACell []string `json:"does_not_invalidate_a_cell"`
 	// QualificationEvidenceExcluded are the hand-run checks disclosed as evidence that the instrument
@@ -348,6 +356,19 @@ func (p Protocol) validateBarriersAndRules() error {
 				"invalidated it would discard the cells that report a null result, which is selecting on the "+
 				"outcome", want)
 		}
+	}
+	if p.Cluster.Name != ClusterName {
+		return fmt.Errorf("the protocol names cluster %q and the renderer writes %q; a cell would be judged "+
+			"against a cluster the tool never builds", p.Cluster.Name, ClusterName)
+	}
+	if !p.Cluster.OneArmAtATime {
+		return fmt.Errorf("the protocol allows both arms to stand at once, and both render the same cluster "+
+			"name %q; the second would overwrite the first and a cell could read the other arm's cluster with "+
+			"nothing wrong on its face", ClusterName)
+	}
+	if p.Cluster.ArmEstablishedBy == "" {
+		return fmt.Errorf("the protocol does not say what establishes which arm the standing cluster is; " +
+			"trusting whoever created it is not a reading taken at the start of a cell")
 	}
 	if p.PerformedBy == "" {
 		return fmt.Errorf("the protocol names no performer; a campaign whose runs came from nowhere in " +
