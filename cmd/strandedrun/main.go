@@ -74,6 +74,8 @@ func main() {
 		err = renderCluster(os.Args[2:])
 	case "verify-layout":
 		err = verifyLayout(os.Args[2:])
+	case "take-census":
+		err = takeCensus(os.Args[2:])
 	case "-h", "--help", "help":
 		usage()
 		return
@@ -106,6 +108,12 @@ func usage() {
   verify-layout -layout=2,1,1 -observed=NAME:LABEL:ALLOCATABLE,...
       Compare what the cluster advertises against what the run asked for. A node's own
       allocatable decides where the scheduler can place; the manifest is not evidence.
+
+  take-census -step=NAME -nodes=NAME:ALLOCATABLE:RESERVED,... -submissions=NAME:REQ:DISPOSITION[:NODE],...
+              [-foreign=NODE:N,...] [-settled] [-json]
+      Read one census step: the registered stranding figure, its diagnostics, and the ledger
+      that has to account for every submission. Refuses a reading whose demand is not fully
+      observed, whose reservations no submission claims, or that was taken mid-binding.
 `)
 }
 
@@ -265,6 +273,140 @@ func verifyLayout(args []string) error {
 	fmt.Printf("the cluster advertises the registered layout; on an empty cluster the smallest witness "+
 		"request is %d devices\n", q)
 	return nil
+}
+
+// takeCensus reads one census step and reports the registered figure with its diagnostics.
+//
+// Every refusal it can produce is an absent observation that the original registration's validity rule would
+// have accepted: a submission nobody looked at, a reservation no submission claims, a reading taken while
+// bindings were still in flight. The amendment requires each to invalidate rather than to pass.
+func takeCensus(args []string) error {
+	fs := flag.NewFlagSet("take-census", flag.ContinueOnError)
+	step := fs.String("step", "", "the census point's name (required: a figure with no step is not in a series)")
+	nodesFlag := fs.String("nodes", "", "NAME:ALLOCATABLE:RESERVED, comma separated")
+	subsFlag := fs.String("submissions", "", "NAME:REQUEST:DISPOSITION[:NODE], comma separated; may be empty")
+	foreignFlag := fs.String("foreign", "", "NODE:N, comma separated: GPU reservations held by consumers this study did not submit")
+	settled := fs.Bool("settled", false, "assert that terminating pods and in-flight bindings were resolved before this reading")
+	asJSON := fs.Bool("json", false, "emit the report as JSON")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *step == "" {
+		return fmt.Errorf("-step is required; a census point with no name cannot be placed in the series the " +
+			"amendment requires in place of a peak")
+	}
+	nodes, err := parseNodes(*nodesFlag)
+	if err != nil {
+		return err
+	}
+	subs, err := parseSubmissions(*subsFlag)
+	if err != nil {
+		return err
+	}
+	foreign, err := parseForeign(*foreignFlag)
+	if err != nil {
+		return err
+	}
+	c := Census{Step: *step, Nodes: nodes, Submissions: subs, ForeignReserved: foreign, Settled: *settled}
+	r, err := c.Report()
+	if err != nil {
+		return err
+	}
+	if *asJSON {
+		b, mErr := json.Marshal(r)
+		if mErr != nil {
+			return mErr
+		}
+		fmt.Println(string(b))
+		return nil
+	}
+	fmt.Printf("census %s\n", r.Step)
+	if r.NoDemand {
+		fmt.Printf("  no demand-relative stranding: the ledger accounts for every submission and none is pending\n")
+	} else {
+		fmt.Printf("  stranded devices (max(f_i) < q_min): %d\n", r.StrandedDevices)
+		fmt.Printf("  blocked: %s\n", joinOrNone(r.Blocked))
+		fmt.Printf("  unsatisfiable (short of capacity, not fragmented): %s\n", joinOrNone(r.Unsatisfiable))
+		fmt.Printf("  outstanding demand: %d devices\n", r.OutstandingDemand)
+	}
+	fmt.Printf("  reserved: %d   placed: %s\n", r.ReservedTotal, joinOrNone(r.PlacedWorkloads))
+	if r.WitnessExists {
+		fmt.Printf("  witness request: %d\n", r.WitnessRequest)
+	} else {
+		fmt.Printf("  witness request: none exists, so this cluster cannot strand however much is free\n")
+	}
+	fmt.Printf("  diagnostic only -- per-node gap sum: %d (NOT the registered figure)\n", r.UnusableGapSum)
+	return nil
+}
+
+func joinOrNone(v []string) string {
+	if len(v) == 0 {
+		return "none"
+	}
+	return strings.Join(v, " ")
+}
+
+// parseSubmissions reads the demand ledger.
+//
+// A missing disposition field is left as DispositionUnobserved rather than defaulted, because that is the whole
+// distinction the ledger exists to carry: "nobody looked" must not arrive as any outcome.
+func parseSubmissions(s string) ([]Submission, error) {
+	if strings.TrimSpace(s) == "" {
+		// An empty ledger is legitimate -- an idle cluster with nothing submitted -- and Report distinguishes
+		// it from a ledger with unobserved entries.
+		return nil, nil
+	}
+	var out []Submission
+	seen := map[string]bool{}
+	for part := range strings.SplitSeq(s, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		fields := strings.Split(part, ":")
+		if len(fields) < 3 || len(fields) > 4 {
+			return nil, fmt.Errorf("submission %q is not NAME:REQUEST:DISPOSITION[:NODE]", part)
+		}
+		var req int
+		if _, err := fmt.Sscanf(fields[1], "%d", &req); err != nil {
+			return nil, fmt.Errorf("submission %q: request %q is not a number", fields[0], fields[1])
+		}
+		if seen[fields[0]] {
+			return nil, fmt.Errorf("submission %q appears twice; a ledger naming one workload twice cannot "+
+				"account for either", fields[0])
+		}
+		seen[fields[0]] = true
+		sub := Submission{Name: fields[0], Request: req, Disposition: Disposition(fields[2])}
+		if len(fields) == 4 {
+			sub.Node = fields[3]
+		}
+		out = append(out, sub)
+	}
+	return out, nil
+}
+
+// parseForeign reads the GPU reservations held by consumers this study did not submit.
+func parseForeign(s string) (map[string]int, error) {
+	if strings.TrimSpace(s) == "" {
+		return nil, nil
+	}
+	out := map[string]int{}
+	for part := range strings.SplitSeq(s, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		fields := strings.Split(part, ":")
+		if len(fields) != 2 {
+			return nil, fmt.Errorf("foreign entry %q is not NODE:N", part)
+		}
+		var n int
+		if _, err := fmt.Sscanf(fields[1], "%d", &n); err != nil {
+			return nil, fmt.Errorf("foreign entry %q: %q is not a number", fields[0], fields[1])
+		}
+		out[fields[0]] = n
+	}
+	return out, nil
 }
 
 // parseLayout reads the per-worker device counts.
