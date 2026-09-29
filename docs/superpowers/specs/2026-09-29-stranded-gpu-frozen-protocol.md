@@ -162,6 +162,36 @@ removed, the layout altered — and the tool must refuse each time, with the ref
 gate whose failure has never been observed is not a gate, and this repository has produced three false greens
 from exactly that.
 
+## The sibling study, which this page should have cited from the start
+
+`2026-09-24-node-level-gpu-fragmentation.md` is a separate registration in this repository, implemented by
+`hack/fragmentation.sh`, and **neither page mentioned the other** until this section was added. That is a gap in
+this page, not in that one: it was registered first.
+
+The two ask different questions at different layers, and the distinction is worth stating precisely because the
+shapes look identical.
+
+| | the sibling study | this campaign |
+|---|---|---|
+| the headroom distribution | **placed by hand** — holders pinned by `kubernetes.io/hostname` to build `(2,0)` versus `(1,1)` | **left to the scheduler**, which is the thing under test |
+| the scheduler configuration | held fixed | it *is* the treatment |
+| the question | can the control plane tell quota shortage, aggregate shortage and distribution apart? | does supplying a GPU-aware configuration reduce stranding? |
+
+The sibling's arm `F` — free counts `(1,1)`, `maxF = 1`, a request of 2 — is the same shape as this campaign's
+discriminating step `s3`. The difference is the direction of the arrow: that study **constructs** the shape to
+see what the control plane says about it, and this one asks **whether the shape arises** under one scheduler
+configuration and not the other. Its "what is deliberately not being measured" list does not exclude a scoring
+comparison; it simply does not reach one. So this campaign occupies a gap rather than re-treading ground, and a
+reader who wants the classification vocabulary — quota-short, aggregate-short, distribution — should read that
+page first.
+
+**They must not share a cluster.** The sibling runs against `kind-platform` in namespace `frag` and computes
+headroom **across every namespace**, deliberately, so that a pod outside `frag` cannot distort its vector
+unseen. This campaign runs against a cluster of its own. Registered consequence: a cell is invalid if any
+submission of this campaign exists outside its own cluster, and no cell may be run on a cluster where the
+sibling's fixture is installed. Neither is a hypothetical — the sibling's own `CONTEXT` is an environment
+variable, so pointing it at this campaign's cluster is one word.
+
 ## Limits of generalization, stated before the numbers
 
 - **Fake devices.** The plugin advertises a count; nothing computes. Nothing here measures GPU performance,

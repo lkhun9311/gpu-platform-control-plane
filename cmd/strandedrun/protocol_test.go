@@ -224,6 +224,21 @@ func TestTheProtocolRefusesWhatItsOwnArithmeticContradicts(t *testing.T) {
 			wantIn: "one of the three failures",
 		},
 		{
+			// The two isolation rules. The sibling fragmentation study counts headroom across every namespace
+			// and takes its context from an environment variable, so a cell sharing its cluster would have its
+			// demand counted into that study's vector -- and neither run would say so.
+			name:   "a cell no longer invalidated by demand outside its own cluster",
+			old:    "  - a_submission_of_this_campaign_outside_its_own_cluster\n",
+			new:    "",
+			wantIn: "a_submission_of_this_campaign_outside_its_own_cluster",
+		},
+		{
+			name:   "a cell no longer invalidated by the sibling study's fixture being installed",
+			old:    "  - the_sibling_studys_fixture_installed_on_the_cells_cluster\n",
+			new:    "",
+			wantIn: "the_sibling_studys_fixture_installed_on_the_cells_cluster",
+		},
+		{
 			name:   "a tie promoted to an invalidation, which would discard null results",
 			old:    "  - a_tie_between_nodes\n",
 			new:    "",
