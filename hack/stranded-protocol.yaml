@@ -1,0 +1,107 @@
+# The stranded-GPU campaign's frozen protocol, in the form the tool reads.
+#
+# Registered by docs/superpowers/specs/2026-09-29-stranded-gpu-frozen-protocol.md on 2026-09-29, before any
+# comparative run exists. This file is the CANONICAL copy: the tool reads these values rather than restating
+# them, so that the page and the code cannot become two statements of one fact that nothing compares.
+#
+# Changing any value here changes the registered protocol. That is a dated amendment on a spec page, not an
+# edit made because a run would otherwise be refused.
+
+version: 1
+
+# The two arms of the first campaign. S-tas is deferred to its own page; a GPU-aware LeastAllocated profile
+# remains available in the instrument as a control and is deliberately NOT an arm here.
+arms:
+  - name: S-default
+    installs_scheduler_config: false
+    # Qualified behaviourally, because the default plugin set cannot be read here and /configz needs a
+    # credential this study has not registered.
+    qualification:
+      scheduler_args_must_not_contain: ["--config"]
+      profile_file_must_be_absent: true
+      demand_must_schedule: true
+  - name: S-gpu-most
+    installs_scheduler_config: true
+    qualification:
+      check_treatment_must_report_applied: true
+      scoring_strategy: MostAllocated
+      scoring_resources:
+        - name: nvidia.com/gpu
+          weight: 1
+
+# Read back from each node's allocatable by name, never trusted from the manifest.
+node_layout:
+  workers: [2, 1, 1]
+  control_plane_devices: 0
+
+# Pinned because this host has more than one Kubernetes version installed, and a version that moved between
+# cells would masquerade as the treatment.
+images:
+  node: kindest/node:v1.31.0
+  scheduler: registry.k8s.io/kube-scheduler-amd64:v1.31.0
+
+# Identical in every cell, never reordered per arm. A census is taken after each submission settles.
+submissions:
+  - id: s1
+    request: 1
+  - id: s2
+    request: 1
+  # The discriminating request: it fits only if a two-device node survived the first two submissions.
+  - id: s3
+    request: 2
+    discriminating: true
+  - id: s4
+    request: 1
+  - id: s5
+    request: 1
+  # Deliberately past saturation, so every cell exercises the shortage-versus-stranding classification.
+  - id: s6
+    request: 2
+
+# Expected as ledger MEMBERSHIP per step, not as totals at the end: a ledger missing a row balances perfectly.
+expected_counts:
+  submission_attempts: 6
+  accepted_censuses: 6
+  membership_at_step_k_must_be: s1..sk
+
+matrix:
+  repetitions_per_arm: 3
+  cells: 6
+  replacements_per_invalid_cell: 1
+  max_attempts_total: 12
+  publish_every_attempt: true
+  reporting_threshold: none
+
+barriers:
+  settledness_must_be_observed: true
+  per_step_timeout_seconds: 120
+  retain_per_step:
+    - api_response
+    - bound_node_name
+    - failed_scheduling_events
+
+invalidates_a_cell:
+  - unobserved_disposition
+  - ledger_membership_mismatch
+  - pending_for_a_non_gpu_reason
+  - scheduler_restart_during_the_cell
+  - scheduler_image_differs_between_cells
+  - missing_arm_qualification_evidence
+  - advertised_capacity_not_2_1_1_at_start
+  - render_directory_not_cleaned_by_the_renderer
+  - step_neither_bound_nor_refused_within_timeout
+
+# Listed explicitly, because each of these is a result rather than a fault and a protocol that invalidated them
+# would be selecting on the outcome.
+does_not_invalidate_a_cell:
+  - a_tie_between_nodes
+  - an_identical_outcome_across_arms_or_repetitions
+  - a_stranding_figure_of_zero
+  - a_shortage_classification
+
+# Taken by hand before this protocol existed. Evidence that the instrument discriminates; not cells, and no
+# figure of theirs enters the comparison.
+qualification_evidence_excluded_from_comparison:
+  - verify-layout refused 0,0,0 by node name and accepted 2,1,1
+  - check-treatment reported applied for MostAllocated and refused the same observation as LeastAllocated
+  - take-census reported 0 stranded on a free cluster and 3 after the two-device node was occupied
