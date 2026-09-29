@@ -174,6 +174,54 @@ func TestANodeImageThatLeavesTheVersionUnrecordedIsRefused(t *testing.T) {
 // allocatable readback would be the only thing that noticed.
 //
 // Mutation that turns this red: emit a fixed FAKE_GPU_COUNT, or select on a different value than the one set.
+// The rendered manifest creates the namespace it puts everything into.
+//
+// A rendered artifact that cannot be applied to an empty cluster is not a rendered artifact. Measured on the
+// first reference-arm cluster: every object failed with `namespaces "..." not found`, the nodes advertised
+// nothing, and the live capacity loop honestly reported none six times over. The treatment cluster had hidden
+// this for a day, because something else had created that namespace there — so a manifest that assumed it
+// worked by accident, and only a genuinely empty cluster could show the difference.
+//
+// Putting the creation in the shell instead would mean the run applies something the renderer never emitted.
+//
+// Mutation that turns this red: drop the Namespace document, or render it after the DaemonSets.
+func TestTheRenderedPluginsCreateTheirOwnNamespace(t *testing.T) {
+	const ns = "gpu-platform-control-plane-system"
+	out, err := DevicePluginYAML(NodeLayout{2, 1, 1}, ns, "gpu-simulator:latest")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Count(out, "kind: Namespace"); got != 1 {
+		t.Fatalf("the manifest renders %d Namespace document(s), want exactly 1:\n%s", got, out)
+	}
+	// First, not merely present: kubectl applies in order, and a namespace created after the objects that
+	// live in it is a namespace created too late.
+	nsAt := strings.Index(out, "kind: Namespace")
+	dsAt := strings.Index(out, "kind: DaemonSet")
+	if nsAt < 0 || dsAt < 0 || nsAt > dsAt {
+		t.Errorf("the Namespace is rendered at %d and the first DaemonSet at %d; it has to come first, "+
+			"because kubectl applies in document order:\n%s", nsAt, dsAt, out)
+	}
+	// It must be the namespace the objects actually name, not just any namespace.
+	if !strings.Contains(out, "kind: Namespace\nmetadata:\n  name: "+ns+"\n") {
+		t.Errorf("the Namespace document does not name %q:\n%s", ns, out)
+	}
+	if got := strings.Count(out, "  namespace: "+ns+"\n"); got != 2 {
+		t.Errorf("%d object(s) name namespace %q; both DaemonSets must:\n%s", got, ns, out)
+	}
+	// And the name follows the argument, so a caller cannot get a namespace it did not ask for.
+	other, err := DevicePluginYAML(NodeLayout{2, 1}, "some-other-ns", "gpu-simulator:latest")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(other, "kind: Namespace\nmetadata:\n  name: some-other-ns\n") {
+		t.Errorf("the Namespace document ignores the namespace argument:\n%s", other)
+	}
+	if strings.Contains(other, ns) {
+		t.Errorf("a namespace nobody asked for leaked into the manifest:\n%s", other)
+	}
+}
+
 func TestEachDevicePluginAdvertisesWhatItsSelectorAsksFor(t *testing.T) {
 	out, err := DevicePluginYAML(NodeLayout{2, 1, 1}, "gpu-platform-control-plane-system", "gpu-simulator:latest")
 	if err != nil {
@@ -183,8 +231,12 @@ func TestEachDevicePluginAdvertisesWhatItsSelectorAsksFor(t *testing.T) {
 	if got := strings.Count(out, "kind: DaemonSet"); got != 2 {
 		t.Errorf("the layout has two distinct counts and %d DaemonSet(s) were rendered:\n%s", got, out)
 	}
-	if got := strings.Count(out, "\n---\n"); got != 1 {
-		t.Errorf("two documents need exactly one separator, got %d", got)
+	// Separators are counted against the document count rather than against a literal, so adding a document
+	// cannot be absorbed by editing the number here. Adding the Namespace made this assertion fail with a
+	// hardcoded 1, which is the reminder it exists to give.
+	docs := strings.Count(out, "kind: DaemonSet") + strings.Count(out, "kind: Namespace")
+	if got := strings.Count(out, "\n---\n"); got != docs-1 {
+		t.Errorf("%d documents need exactly %d separator(s), got %d:\n%s", docs, docs-1, got, out)
 	}
 	for _, n := range []string{"1", "2"} {
 		selector := NodeLabelKey + `: "` + n + `"`

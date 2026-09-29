@@ -90,6 +90,15 @@ judged_by:
 cluster:
   name: stranded
   one_arm_at_a_time: true
+  # In this order. Steps 3 and 4 were both absent from the procedure and both invisible on the treatment
+  # cluster, where something had already done them; only an empty cluster showed the difference.
+  build_steps:
+    - render-cluster writes kind-config.yaml and device-plugins.yaml
+    - kind create cluster --config kind-config.yaml
+    - kind load docker-image gpu-simulator:latest --name stranded
+    - kubectl apply -f device-plugins.yaml, which creates its own namespace
+    - wait for capacity by reading allocatable back, never by rollout status
+    - stranded-cell.sh cell ARM REP ATTEMPT
   arm_established_by: qualify-arm reading the scheduler's arguments at the start of every cell
 
 barriers:
@@ -139,3 +148,8 @@ qualification_evidence_excluded_from_comparison:
   - stranded-cell.sh ran S-gpu-most rep 1 attempt 1 end to end and check-cell reported it stands with 6
     censuses; the probe held stranded-worker3 and landed on stranded-worker2, s3's two-device request bound to
     the intact stranded-worker, and s4 s5 s6 were refused for want of capacity. A rehearsal, not a result
+  # The pair a reader will most want to treat as the result, which is why it is disclosed here. One repetition
+  # of each arm is not the registered matrix, and the build procedure changed twice during these runs.
+  - S-default rep 1 attempt 1 stood too and the arms diverged -- the reference put s2 on the two-device node,
+    so s3's two-device request was refused and census c3 reported stranded_devices=2 with free counts
+    1,0,1 -- max(f_i)=1 < q=2 <= sum(f_i)=2, the registered stranding shape observed for the first time

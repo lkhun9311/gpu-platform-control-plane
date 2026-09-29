@@ -83,6 +83,10 @@ type Protocol struct {
 		Name             string `json:"name"`
 		OneArmAtATime    bool   `json:"one_arm_at_a_time"`
 		ArmEstablishedBy string `json:"arm_established_by"`
+		// BuildSteps is the order a cell's cluster is built in. Two of these steps were absent from the
+		// procedure and invisible on the first cluster, where something had already done them -- so they are
+		// registered rather than remembered, and their presence is checked.
+		BuildSteps []string `json:"build_steps"`
 	} `json:"cluster"`
 	InvalidatesACell       []string `json:"invalidates_a_cell"`
 	DoesNotInvalidateACell []string `json:"does_not_invalidate_a_cell"`
@@ -365,6 +369,27 @@ func (p Protocol) validateBarriersAndRules() error {
 		return fmt.Errorf("the protocol allows both arms to stand at once, and both render the same cluster "+
 			"name %q; the second would overwrite the first and a cell could read the other arm's cluster with "+
 			"nothing wrong on its face", ClusterName)
+	}
+	if len(p.Cluster.BuildSteps) == 0 {
+		return fmt.Errorf("the protocol registers no build steps; the two that were missing from this " +
+			"procedure were both invisible on a cluster where something had already done them, so the order " +
+			"is registered rather than remembered")
+	}
+	// Named substrings rather than an exact list, because the wording is prose and the steps are the point.
+	// These two are checked by name because they are the two that were absent: without the image on the nodes
+	// every plugin pod sits in ImagePullBackOff, and without the namespace every object fails to apply.
+	for _, want := range []string{"kind load docker-image", "device-plugins.yaml"} {
+		found := false
+		for _, s := range p.Cluster.BuildSteps {
+			if strings.Contains(s, want) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return fmt.Errorf("no build step mentions %q; a cell built without it is invalidated for a capacity "+
+				"that was never going to appear, which wastes an attempt rather than reporting a figure", want)
+		}
 	}
 	if p.Cluster.ArmEstablishedBy == "" {
 		return fmt.Errorf("the protocol does not say what establishes which arm the standing cluster is; " +
