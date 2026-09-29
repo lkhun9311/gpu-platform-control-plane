@@ -171,6 +171,76 @@ func TestRenderClusterRequiresTheArmToBeStatedInFull(t *testing.T) {
 	}
 }
 
+// A census checked against the protocol refuses a ledger missing a row; -settled alone accepts the same one.
+//
+// The pair is the point. -settled is the run operator's assertion that terminating pods and in-flight bindings
+// had resolved, and it is not an observation of anything about the ledger: the reservation balance cannot see a
+// submission omitted entirely, because a ledger missing a row balances perfectly well. Only the frozen protocol
+// knows that a third submission should have been there.
+//
+// Mutation that turns this red: skip the membership check when -protocol is supplied, or accept -protocol
+// without -step-number so the check has no step to judge.
+func TestTheProtocolCatchesALedgerRowThatSettledCannotSee(t *testing.T) {
+	// The honest ledger at step 3 is s1, s2, s3. This one drops s3 -- the discriminating request, which is
+	// exactly the row an arm would benefit from losing.
+	const nodes = "stranded-worker:2:1,stranded-worker2:1:1,stranded-worker3:1:0"
+	const shortLedger = "s1:1:bound:stranded-worker,s2:1:bound:stranded-worker2"
+
+	// Without the protocol, the short ledger is a perfectly valid census: it balances, and every submission in
+	// it was observed. Nothing in the reading says a row is missing.
+	if err := takeCensus([]string{"-step=c3", "-nodes=" + nodes, "-submissions=" + shortLedger,
+		"-settled"}); err != nil {
+		t.Fatalf("the short ledger was refused without a protocol, so this test no longer demonstrates the "+
+			"gap it was written for: %v", err)
+	}
+
+	// With the protocol, the same census is refused, and the refusal names the count.
+	err := takeCensus([]string{"-step=c3", "-nodes=" + nodes, "-submissions=" + shortLedger, "-settled",
+		"-protocol=" + protocolPath, "-step-number=3"})
+	if err == nil {
+		t.Fatal("a census whose ledger is missing a registered submission was accepted against the protocol")
+	}
+	for _, want := range []string{"does not match the frozen protocol", "balances the reservation check"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the refusal does not say %q: %v", want, err)
+		}
+	}
+
+	// And the full ledger at step 3 is accepted, so the refusal above is about the missing row.
+	full := shortLedger + ",s3:2:queued-unadmitted"
+	if err := takeCensus([]string{"-step=c3", "-nodes=" + nodes, "-submissions=" + full, "-settled",
+		"-protocol=" + protocolPath, "-step-number=3"}); err != nil {
+		t.Errorf("the complete ledger at step 3 was refused: %v", err)
+	}
+}
+
+// Neither of the protocol flags may be supplied alone.
+//
+// A protocol with no step number cannot say which submissions belong in the ledger, and a step number with no
+// protocol has nothing to check against -- so either one alone would read as a checked census while checking
+// nothing, which is the failure class this repository keeps producing.
+//
+// Mutation that turns this red: drop the paired-flag guard.
+func TestTheProtocolFlagsMustBeSuppliedTogether(t *testing.T) {
+	const nodes = "stranded-worker:2:0"
+	const ledger = "s1:1:queued-unadmitted"
+	for _, extra := range [][]string{
+		{"-protocol=" + protocolPath},
+		{"-step-number=1"},
+	} {
+		args := append([]string{"-step=c1", "-nodes=" + nodes, "-submissions=" + ledger, "-settled"}, extra...)
+		err := takeCensus(args)
+		if err == nil {
+			t.Errorf("take-census accepted %v alone; a census that reports having been checked while checking "+
+				"nothing is worse than one that was never checked", extra)
+			continue
+		}
+		if !strings.Contains(err.Error(), "go together") {
+			t.Errorf("the refusal for %v does not explain the pairing: %v", extra, err)
+		}
+	}
+}
+
 // Rendering the reference into a directory that held the treatment must remove the stale profile.
 //
 // kind mounts scheduler-config.yaml by RELATIVE path, so a leftover file plus a kind-config that no longer
