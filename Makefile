@@ -413,7 +413,7 @@ shell-check: ## Parse every shell script under hack/ and .githooks/.
 		[ -f "$$f" ] || continue; \
 		bash -n "$$f" || { echo "shell-check: $$f does not parse" >&2; fail=1; }; \
 	done; \
-	for f in hack/test/spot-lifecycle/*.py; do \
+	for f in hack/test/spot-lifecycle/*.py hack/serving-stub/*.py; do \
 		[ -f "$$f" ] || continue; \
 		python3 -m py_compile "$$f" || { echo "shell-check: $$f does not compile" >&2; fail=1; }; \
 	done; \

@@ -97,9 +97,15 @@ run kind load docker-image gpu-simulator:latest --name "$CLUSTER" || die "kind l
 
 step "4. install CRDs, deploy operator and fake GPU device plugin"
 run make install || die "install CRDs"
-kustomize build config/operator | k apply --server-side -f - >>"$LOG" 2>&1 || die "deploy operator"
+# --force-conflicts because the image override below owns .spec.template.spec.containers[name="manager"].image as the field manager "kubectl-set", and re-applying this manifest is then refused with a conflict on the second and every later run.
+kustomize build config/operator | k apply --server-side --force-conflicts -f - >>"$LOG" 2>&1 || die "deploy operator"
 DEP=$(k -n "$NS" get deploy -o name | grep controller-manager | head -1)
 log "operator deployment: $DEP"
+
+# config/manager pins the operator image to an ECR digest this cluster has no credentials for, so the side-loaded controller:latest is overridden onto the live Deployment here.
+#
+# This script did not need the line when its evidence log was captured on 2026-08-07: ci.yml began rewriting that pin on every publish in September, and re-running this script today fails in ImagePullBackOff.
+k -n "$NS" set image "$DEP" manager=controller:latest >>"$LOG" 2>&1 || die "override operator image"
 k -n "$NS" patch "$DEP" --type=json \
   -p '[{"op":"add","path":"/spec/template/spec/containers/0/imagePullPolicy","value":"IfNotPresent"}]' >>"$LOG" 2>&1 || true
 

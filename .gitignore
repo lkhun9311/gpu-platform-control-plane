@@ -22,6 +22,7 @@ docs/superpowers/*
 !/README.md
 !/infra/**/README.md
 !/hack/m6-kind-e2e.md
+!/hack/m1-m4-kind-e2e.md
 !/hack/m5b-gateway-path.md
 !/hack/chaos-fr004-degraded-node.md
 !/hack/observability-kind.md
