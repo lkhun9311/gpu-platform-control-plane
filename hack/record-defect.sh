@@ -18,7 +18,12 @@
 # says `rc=unknown` rather than claiming success.
 set -uo pipefail
 
-LOG_DIR="/home/lkhun9311/workspace/storage/issues/hook-log"
+# storage/defects, not storage/issues.
+#
+# The two were split on 2026-09-30: a defect is something that is wrong, an issue is something that is
+# blocked. What this hook records is a command that failed, which belongs with defects. Pointing it at the
+# old path would silently recreate `issues/hook-log` and split the record across two trees.
+LOG_DIR="/home/lkhun9311/workspace/storage/defects/hook-log"
 LOG="$LOG_DIR/$(date -u +%Y-%m).jsonl"
 SELF_LOG="/home/lkhun9311/workspace/gpu-platform-control-plane/.claude/hooks/record-defect.log"
 
