@@ -157,7 +157,16 @@ cap k get nodes -o custom-columns=NODE:.metadata.name,GPU:.status.allocatable.nv
 # generalised from the long-lived `platform` cluster, which carries a webhook installed by some other overlay
 # 43 days ago; a submission there was once refused with "connection refused" because that stale configuration
 # pointed at an operator that was crash-looping for want of the WorkloadRun CRD. Fixing the CRD fixed it.
-if k get validatingwebhookconfiguration 2>/dev/null | grep -q mltrainingjob; then
+# Asked of the rules, not of the object's name.
+#
+# `get validatingwebhookconfiguration` prints NAME and WEBHOOKS and nothing else, and the configuration this
+# operator installs is called gpu-platform-control-plane-validating-webhook-configuration -- the word
+# mltrainingjob appears only inside it, in .webhooks[].name and .rules[].resources. So the previous grep
+# reported "no webhook" on the one cluster that has one, which is a false negative about the guard that
+# decides whether this run demonstrates the quota boundary at all.
+if k get validatingwebhookconfiguration \
+     -o jsonpath='{range .items[*]}{range .webhooks[*]}{.rules[*].resources}{"\n"}{end}{end}' 2>/dev/null \
+     | grep -qw mltrainingjobs; then
   log "admission: a MLTrainingJob validating webhook is installed on this cluster"
   cap k -n "$NS" get endpoints gpu-platform-control-plane-webhook-service
 else

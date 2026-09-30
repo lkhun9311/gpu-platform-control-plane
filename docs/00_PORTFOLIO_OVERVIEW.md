@@ -5,7 +5,7 @@
 > **Built:** `NodeHealth` (node readiness — but the CR is hand-created and no GPU fault signal reaches it:
 > nothing Xid or ECC exists at all, and the DCGM code that does exist is a utilisation reader the queuelab
 > uses, not a health input), `GPUQuotaPolicy` (quota), `InferenceDeployment` (serving), `MLTrainingJob` +
-> Kueue (training admission). **Built, unit-tested and deployed on kind, never on EKS:** the gateway. **Built and MEASURED
+> Kueue (training admission). **Built, unit-tested, deployed on kind, and on EKS only as far as authentication:** the gateway — the 2026-09-25 GitOps cycle reached it on a real cluster and the request ended at `403 no_policy`, so routing and serving through it on EKS remain unproven. **Built and MEASURED
 > on a paid GPU:** the M5-b admission guard and benchmark harness — four repetitions on 2026-09-03 and an
 > engine-level scheduler microtest on 2026-09-04. The guard failed: 83.7x against a pre-registered 1.25x
 > premium-tail target, and the harness declared the run invalid rather than reporting a protection claim.
@@ -50,16 +50,16 @@ This project is **not** a vLLM demo. It treats GPU inference workloads as declar
 |----------------------|----------------------------------------------------------------------------------------------|
 | **What this is**     | A Kubernetes-native GPUaaS control plane                                                     |
 | **What this is not** | An LLM demo, a data platform, a full MLOps stack, or a scene-retrieval/vector-index platform |
-| **Killer feature**   | Multi-tenant GPU performance isolation & contention-aware control                            |
-| **Core demo**        | tenant A/B → quota admission → vLLM serving → noisy-neighbor → metrics → recovery            |
-| **Evidence**         | CRDs, controllers and the gateway (code and unit tests) exist. So do a benchmark write-up (`hack/m5d-writeup.md`), a Grafana dashboard (`config/prometheus/operator_dashboard.json`) and three failure reports (`hack/chaos-fr*.md`). Only the **operations ledger** is still unbuilt. ⚠️ This row called all four "planned evidence types, not yet produced" — true of the `evidence/` directory, which holds five `.gitkeep` files and nothing else, and false of the repository, which is where the evidence actually lives |
+| **Killer feature**   | A GPU control-plane prototype and a contention **measurement** lab. Performance isolation is what the lab measures, not what this platform delivers — and the one protection claim it tested failed, at 83.7x against a pre-registered 1.25x bar |
+| **Core demo**        | Separately tested components, not one chain. `InferenceDeploymentSpec` carries no args and no volumes, so it cannot describe the vLLM engine the benchmark measures — `hack/m5b-chain-live.sh` registers a zero-replica no-op image purely so the gateway can resolve a route, and vLLM is deployed beside it. The honest sequence is: quota admission (tested), gateway identity and limits (tested), contention measured by a separate harness, recovery recorded by `WorkloadRun` |
+| **Evidence**         | CRDs, controllers and the gateway (code and unit tests) exist. So do a benchmark write-up (`hack/m5d-writeup.md`), a Grafana dashboard (`config/prometheus/operator_dashboard.json`) and three failure reports (`hack/chaos-fr*.md`). The **operations ledger** is partly built — storage, projector, reader and `cmd/platformctl` for 2 of its 6 tables, with nothing yet projected outside a test. ⚠️ Two earlier versions of this row were wrong in opposite directions. It once called all four "planned evidence types, not yet produced", which was false of the repository. It then said `evidence/` "holds five `.gitkeep` files and nothing else", which stopped being true when `evidence/README.md` was committed — that file is now the only tracked thing under `evidence/`, and it exists to say the tree is empty on purpose and to point at `docs/captures/`, `experiments/*/README.md` and `hack/*.log`, which is where the evidence actually lives |
 
 ## The main contribution
 
 A multi-tenant GPUaaS control plane that:
 
 1. admits GPU workloads through layered quota control,
-2. validates GPU nodes before they serve traffic,
+2. mirrors node readiness and taints an unhealthy node — it does **not** validate a GPU or gate serving on GPU qualification, which needs a fault signal this project has no hardware for,
 3. routes LLM traffic through a tenant-aware gateway,
 4. measures noisy-neighbor effects under GPU sharing,
 5. records failures, benchmarks, and lifecycle events as evidence.
@@ -69,7 +69,7 @@ A multi-tenant GPUaaS control plane that:
 | CRD                   | Role                                         | Status (2026-07)                                                                                                     |
 |-----------------------|----------------------------------------------|----------------------------------------------------------------------------------------------------------------------|
 | `InferenceDeployment` | declare a model-serving intent               | type + serving reconciler (Deployment/Service, phase ladder) — M4-a merged                                           |
-| `GPUQuotaPolicy`      | per-tenant GPU quota / rate limit            | type + reconciler (ResourceQuota sync, drift recovery) — M3 merged; `rateLimit` feeds the M4-b gateway — **M4-b merged, gateway built, unit-tested and deployed on kind, never on EKS** |
+| `GPUQuotaPolicy`      | per-tenant GPU quota / rate limit            | type + reconciler (ResourceQuota sync, drift recovery) — M3 merged; `rateLimit` feeds the M4-b gateway — **M4-b merged, gateway built, unit-tested, deployed on kind, and reached on EKS only to the point of authentication** (2026-09-25, `403 no_policy`) |
 | `NodeHealth`          | GPU node intake and operational state        | type + reconciler (observe + taint, finalizer, drift recovery) — M2/M3 merged; **no GPU fault signal reaches it** — nothing Xid or ECC exists, and the DCGM code that does exist reads utilisation for the queuelab rather than health for this controller |
 | `GpuSharingBenchmark` | declare a noisy-neighbor / sharing benchmark | type + CRD + 33 envtest specs, per spec `2026-07-04-gpusharingbenchmark-crd-design.md` and its 2026-09-30 amendment; the spec is immutable once created; no status writer, no measured result (M5) |
 | `WorkloadRun`         | record a workload execution                  | type + reconciler + driver — `internal/controller/workloadrun_controller.go` (320 lines). A Pod kill was recorded automatically as `Ready → Pending → Ready` with recovery at 20 s on kind (`hack/m7-evidence-trail.log`). It is not a general-purpose ledger |

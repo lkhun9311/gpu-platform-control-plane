@@ -82,9 +82,20 @@ want_field() {
   return 1
 }
 
-# taint_present NODE -- does the node carry the platform unhealthy taint right now?
+# taint_present NODE -- 0 the taint is on the node, 1 it is not, 2 the node could not be read.
+#
+# The third answer is the point. The first version piped a failed `kubectl` into grep, so an unreadable node
+# produced empty output, grep failed, and "absent" came back -- which the want-no branch then accepted as a
+# taint successfully removed. A read that did not happen is not an observation of absence.
 taint_present() {
-  k get node "$1" -o jsonpath="{.spec.taints[?(@.key=='$TAINT')].effect}" 2>/dev/null | grep -q NoSchedule
+  local out rc
+  out=$(k get node "$1" -o jsonpath="{.spec.taints[?(@.key=='$TAINT')].effect}" 2>/dev/null)
+  rc=$?
+  [ "$rc" -eq 0 ] || return 2
+  case "$out" in
+    *NoSchedule*) return 0 ;;
+    *) return 1 ;;
+  esac
 }
 
 # want_taint NODE yes|no TIMEOUT -- wait for the taint to be present or absent.
@@ -94,12 +105,16 @@ taint_present() {
 want_taint() {
   local node="$1" want="$2" timeout="${3:-120}" start=$SECONDS
   local deadline=$((SECONDS + timeout))
+  local rc
   while ((SECONDS < deadline)); do
-    if taint_present "$node"; then
-      [ "$want" = yes ] && { log "  taint present on $node (after $((SECONDS - start))s)"; return 0; }
-    else
-      [ "$want" = no ] && { log "  taint absent from $node (after $((SECONDS - start))s)"; return 0; }
-    fi
+    taint_present "$node"; rc=$?
+    case "$rc" in
+      0) [ "$want" = yes ] && { log "  taint present on $node (after $((SECONDS - start))s)"; return 0; } ;;
+      1) [ "$want" = no ] && { log "  taint absent from $node (after $((SECONDS - start))s)"; return 0; } ;;
+      # Neither answer. A node this script cannot read says nothing about its taints, and the want-no branch
+      # must not collect that silence as a removal -- it keeps polling until the node answers or time runs out.
+      2) log "  could not read node $node; still waiting for an answer rather than counting it as absent" ;;
+    esac
     sleep 3
   done
   log "  TIMEOUT: wanted taint $want on $node after ${timeout}s; taints are:"
@@ -219,7 +234,11 @@ spec:
   gpuClass: l40s
 YAML
 want_field "nodehealth/nh-$WORKER" '{.status.phase}' Ready 120 || die "NodeHealth never reached Ready"
-taint_present "$WORKER" && die "the unhealthy taint is on a healthy node"
+taint_present "$WORKER"; rc=$?
+case "$rc" in
+  0) die "the unhealthy taint is on a healthy node" ;;
+  2) die "could not read node $WORKER, so an absent taint is not something this run observed" ;;
+esac
 log "  no unhealthy taint while the node is Ready, as required"
 
 log "  -- stopping the kubelet so the Node goes NotReady --"
