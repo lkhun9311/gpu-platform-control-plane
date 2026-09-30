@@ -342,3 +342,49 @@ of this amendment.
 Nothing in this amendment establishes that a number came from hardware. The three bindings from the second
 amendment — evidence to run, evidence to CR, and now a frozen analysis contract — are what a writer needs, and
 only the third is settled by this page.
+
+## Amendment, 2026-09-30 (fourth): the schema now enforces the ratio interval, and one of these specs proved nothing at first
+
+`interferenceRatioCI95` shipped as a field, and the completion invariant was widened to demand it. The third
+amendment made the ratio interval the primary reported object; leaving it optional would have let a benchmark
+reach `Completed` carrying a point ratio with no spread — which is the shape the completion rule was written
+to refuse in the first place, one field over. The rule now reads:
+
+```
+!has(self.phase) || self.phase != 'Completed' ||
+  (has(self.result) && has(self.result.reportUri) && size(self.result.reportUri) > 0
+   && has(self.result.interferenceRatioCI95) && size(self.result.interferenceRatioCI95) > 0)
+```
+
+`p99CI95` kept its milliseconds and its meaning: the interval on the colocated median p99. Two intervals,
+two units, two names.
+
+### The specs, and what the mutation showed
+
+Three specs were added and one existing spec was widened. The clause was then deleted from the **generated
+CRD** — parsed and removed as a YAML value, never by cutting lines, because a broken YAML installs nothing
+and `Ran 0 of N` is a harness failure rather than a discriminating test. The prediction was written down
+first: exactly two specs should redden.
+
+| | Prediction | Result |
+|---|---|---|
+| Unmutated baseline | 38 passed, 0 failed | 38 passed, 0 failed |
+| Clause deleted | 36 passed, 2 failed — `with a report but no ratio interval`, `with an empty ratio interval` | exactly that |
+
+The third new spec, `refuses Completed with a ratio interval but no report`, stayed green under the mutation,
+which is the point of writing it: each clause has one spec where the **other** field is supplied, so neither
+clause can hide behind the other. Without that pairing, deleting the `reportUri` clause would still leave
+every object refused — by the ratio clause, with a message the tests never read.
+
+### One spec proved nothing on its first run, and it looked like a refusal
+
+`refuses Completed with a ratio interval but no report` failed its first run, and the failure was mine:
+the object name was `gsb-done-ciNoUri`, which is not an RFC 1123 subdomain, so `Create` was rejected before
+any status update happened and the CEL rule was never evaluated. A red spec whose refusal comes from a
+different rule than the one under test is the same false reading as a green one that never ran. Read the
+refusal text, not the colour.
+
+The envtest run before it reported `Ran 0 of 117` with every spec skipped, because `--bin-dir bin` is a
+relative path and `-p path` then answers with one, so `fork/exec bin/k8s/.../etcd` found nothing. `Makefile`
+passes `$(LOCALBIN)` absolutely for exactly this reason. Neither failure was a defect in the schema, and both
+would have read as one.
