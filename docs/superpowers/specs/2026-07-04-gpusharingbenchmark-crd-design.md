@@ -461,6 +461,49 @@ run that supplied the value stopped on the same line, which is what showed the g
 It moved to the pre-spend block beside `RATE` and now fires in both directions. A refusal placed after the
 spending it was meant to prevent is not a guard, and the only way that surfaced was trying to break it.
 
+### Unblocked, 2026-09-30: the input length is resolved by measurement
+
+The tenth refusal is closed. `CompilePlan` no longer refuses every positive `inputTokens`; it looks the count
+up in a table measured against the served tokenizer, and refuses only a count nobody has swept.
+
+`hack/resolve-input-lengths.sh` does the sweeping. It fetches the tokenizer files at the pinned revision
+(no weights — 3.7 GB of safetensors would add nothing to a token count), generates candidate prompts through
+`benchharness print-prompt` so the corpus and its tiling stay in Go and are not reimplemented, tokenizes the
+complete templated request **inside the serving image itself**, and accepts only a candidate whose count
+equals the declaration.
+
+| Declared | Resolved | Matches in the window |
+|---|---|---|
+| 256 tokens | **1174 characters** | 8 |
+| 8192 tokens | **42579 characters** | 3 |
+
+**The objection against importing a tokenizer does not apply here, and that was measured rather than
+assumed.** `cmd/benchharness/exacttokens.go` refuses to vendor one because it would be "a second copy of a
+decision that lives in the served model". This tokenizes inside the digest-pinned serving image, and that
+image carries `transformers 5.15.0` and `tokenizers 0.22.2` — the same versions as the CPU image the
+calibration was taken with. It is the same implementation, not a copy of it.
+
+**The search is linear, and it has to be.** The token count is not monotone in the character count: over
+100..400 characters it decreases 29 times, because byte-pair merges differ at the boundary. A binary search
+would step over answers that exist — the external review warned against assuming monotonicity, and the
+measurement agreed with the warning. An affine fit to the calibration points places the window and the
+window is swept exhaustively.
+
+**Several lengths give the same count, so the rule is the smallest.** Eight character lengths produce 256
+tokens in a 301-wide window and three produce 8192. The smallest is the fewest bytes on the wire for the
+declared count, and the table keeps the full list so the choice is visible rather than implied. Mutating the
+recorded value to 1175 — a member of that list, but not the smallest — reddens both the table comparison and
+the plan test, so the rule is enforced and not merely stated.
+
+**The resolved length lives in the plan, not in the CR.** `Plan.BaselinePromptChars` and
+`Plan.ContenderPromptChars` carry it, with `Plan.TokenizerRevision` beside them. That is the boundary this
+page settled in its sixth amendment: the spec says what the experiment is, and how many characters produce a
+token count under one particular tokenizer is an implementation of that declaration.
+
+What this does not establish: that the engine will agree. The engine is the authority on its own count and
+`stamp-exact-tokens` asks it at run time. If the two disagree the engine is right and the table is stale,
+which is what the recorded revision exists to make noticeable.
+
 ### Two corrections this amendment carries
 
 **`outputTokens` is a ceiling, not a length.** The field comment said "the generation length per request"
