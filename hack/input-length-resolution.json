@@ -1,0 +1,48 @@
+{
+  "_comment": "Declared inputTokens resolved to the character length that produces EXACTLY that many tokens, measured inside the serving image. Regenerate with hack/resolve-input-lengths.sh whenever the tokenizer revision, the chat template or the prompt corpus changes -- each is recorded below and each changes every number here.",
+  "_rule": "Several character lengths give the same token count, so the recorded one is the SMALLEST: the fewest bytes on the wire for the declared count. allMatches keeps the rest so the choice is visible rather than implied.",
+  "_searchNote": "The token count is not monotone in the character count -- decreasesInWindow records how often it fell inside each sweep. A binary search would step over answers that exist, so the window is swept exhaustively. The window comes from an affine fit to the three calibration points and is only a search initializer; acceptance is the exact measured count.",
+  "tokenizer": "Qwen/Qwen2.5-3B-Instruct",
+  "tokenizerRevision": "aa8e72537993ba99e69dfaafa59ed015b17504d1",
+  "tokenizerCoreFilesCombinedSHA256": "81feaac8d04514a200e05e9a15d594181fff403abc1202b11a5f3883198155e1",
+  "chatTemplateSHA256": "cd8e9439f0570856fd70470bf8889ebd8b5d1107207f67a5efb46e342330527f",
+  "servingImage": "vllm/vllm-openai@sha256:0a51ea5b4ae2dc5d81890e5173f54203d2a3ae0cfffe51b8fd2afd4391bfd967",
+  "resolved": {
+    "256": {
+      "chars": 1174,
+      "matches": 8,
+      "allMatches": [
+        1174,
+        1175,
+        1178,
+        1179,
+        1180,
+        1181,
+        1182,
+        1185
+      ],
+      "window": [
+        1027,
+        1327
+      ],
+      "decreasesInWindow": 30,
+      "repeatsInWindow": 181
+    },
+    "8192": {
+      "chars": 42579,
+      "matches": 3,
+      "allMatches": [
+        42579,
+        42580,
+        42581
+      ],
+      "window": [
+        42441,
+        42741
+      ],
+      "decreasesInWindow": 30,
+      "repeatsInWindow": 181
+    }
+  },
+  "unreachableAtThisWindow": []
+}
