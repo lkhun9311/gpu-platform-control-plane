@@ -149,6 +149,46 @@ if [ -n "$LADDER" ]; then
   [ -z "$REPS_FROM_CALLER" ] || fail "REPS and LADDER are both set. Ladder rungs are different loads rather than repetitions of one, and pooling two of them would report a p99 for a load that was never offered."
 fi
 
+# A compiled CR owns the load, and the environment may not quietly disagree with it.
+#
+# `benchharness compile-plan` turns a GpuSharingBenchmark into exactly the exports below and sets
+# BENCHMARK_CR_SHA256 beside them. Everything this script reads is an environment variable, so an operator
+# who sourced that block and then also exported RATE by hand would run one load while the evidence named
+# another -- and the CR's digest in the manifest would point at a file that does not describe the run.
+#
+# So the digest's presence is the switch: with it, these variables must come from the compiled block and a
+# second source is a refusal; without it, nothing changes and every existing caller keeps working. The
+# refusal cannot tell WHICH assignment came from the block, so it asks the operator to drop the extra one
+# rather than guessing -- a guard that picks a winner silently is the thing being prevented.
+if [ -n "${BENCHMARK_CR_SHA256:-}" ]; then
+  case "$BENCHMARK_CR_SHA256" in
+    *[!0-9a-f]* | "") fail "BENCHMARK_CR_SHA256 is ${BENCHMARK_CR_SHA256@Q}, which is not a sha256; it is written by benchharness compile-plan and should be sourced, not typed" ;;
+  esac
+  [ ${#BENCHMARK_CR_SHA256} -eq 64 ] || fail "BENCHMARK_CR_SHA256 is ${#BENCHMARK_CR_SHA256} characters; a sha256 is 64"
+  [ -n "$LADDER" ] && fail "LADDER and BENCHMARK_CR_SHA256 are both set. A CR declares one load and the ladder is a sequence of different ones, so the compiled plan would be ignored for every rung."
+  # STUDY is not on this list: compile-plan is told which study the evidence is filed under, because the CR
+  # has no field for it, and it prints that value into the same block. It is passed, not compiled.
+  for v in RATE PREMIUM_WEIGHT NOISY_WEIGHT PROBE_WEIGHT PREMIUM_PROMPT_CHARS NOISY_PROMPT_CHARS REQUEST_TIMEOUT_MS MODEL_REVISION; do
+    [ -n "${!v:-}" ] || fail "$v is unset although BENCHMARK_CR_SHA256 is set. Source the whole block benchharness compile-plan prints; a partial one leaves this script defaulting a value the CR declared."
+  done
+  # ARMS and REPS are checked through the FROM_CALLER flags and not for emptiness, because by this line they
+  # are never empty: both were defaulted above, ARMS to all four topologies. A run that sourced a compiled
+  # block without them would therefore have passed this guard and then bought FOUR arms for a CR that
+  # compiled to two -- which is exactly the disagreement this block exists to refuse. Measured: dropping
+  # ARMS from the block left the run reporting "load compiled from a GpuSharingBenchmark" and nothing else.
+  [ -n "$ARMS_FROM_CALLER" ] || fail "ARMS is unset although BENCHMARK_CR_SHA256 is set, so this run would take the default of all four topologies while the CR compiled to a different set. Source the whole block benchharness compile-plan prints."
+  [ -n "$REPS_FROM_CALLER" ] || fail "REPS is unset although BENCHMARK_CR_SHA256 is set, so this run would take the default repetition count rather than the one the CR declares. Source the whole block benchharness compile-plan prints."
+  # MODEL_REVISION is the third defaulted one, and absence is the wrong test for it for the same reason:
+  # line 65 fills it before this block runs, so a block missing that line produces a run at the default and
+  # nothing looks wrong. It is compared instead, against the revision the plan resolved the prompt lengths
+  # against -- which also refuses a revision overridden by hand, a case absence could never have caught.
+  [ -n "${BENCHMARK_CR_TOKENIZER_REV:-}" ] \
+    || fail "BENCHMARK_CR_TOKENIZER_REV is unset although BENCHMARK_CR_SHA256 is set. Source the whole block benchharness compile-plan prints; without it MODEL_REVISION cannot be checked against the plan and would silently take this script's default."
+  [ "$MODEL_REVISION" = "$BENCHMARK_CR_TOKENIZER_REV" ] \
+    || fail "MODEL_REVISION is $MODEL_REVISION but the compiled plan resolved its prompt lengths against $BENCHMARK_CR_TOKENIZER_REV. The character counts in this run were measured under one tokenizer and the manifest would name another."
+  say "load compiled from a GpuSharingBenchmark, sha256 $BENCHMARK_CR_SHA256"
+fi
+
 [ -n "${RATE:-}" ] || [ -n "$LADDER" ] || fail "RATE is unset. Measure it from a single contender prefill on THIS card, the way hack/m5b-gpu-session.sh does; the harness default of 20/s demands 3.8x an A10G's theoretical peak and would censor every arm."
 
 # The whole load, passed rather than defaulted -- and RATE alone was never enough.
