@@ -1,0 +1,45 @@
+apiVersion: platform.lkhun9311.github.io/v1
+kind: GpuSharingBenchmark
+metadata:
+  labels:
+    app.kubernetes.io/name: gpu-platform-control-plane
+    app.kubernetes.io/managed-by: kustomize
+  name: premium-vs-longcontext-shared
+spec:
+  gpuClass: a10g
+  # sharedInstance: both tenants reach ONE vLLM instance through the gateway, so the contention is a shared
+  # KV-cache pool and the vLLM waiting queue. timeSlicing and mps put separate pods on one GPU and measure
+  # something else; their numbers are not comparable with these.
+  sharingMode: sharedInstance
+  # The latency-sensitive victim whose p99 the experiment reports.
+  baseline:
+    tenant: tenant-premium
+    model: llama3-8b
+    qps: "2.0"
+    inputTokens: 256
+    outputTokens: 128
+  # The long-context noisy neighbour. Its qps is not chosen by feel: run points sit at roughly 30/60/90% of a
+  # measured single-tenant saturation sweep, which is committed alongside the run.
+  contender:
+    tenant: tenant-standard
+    model: llama3-8b
+    qps: "6.0"
+    inputTokens: 8192
+    outputTokens: 256
+  # At least five: a p99 from three repetitions is noise.
+  repetitions: 5
+  warmupRequests: 50
+  # A p99 needs the tail populated.
+  minRequestsPerRun: 1000
+  load:
+    # openLoop only. A closed-loop client waits for each response before sending the next, so its own
+    # queueing delay suppresses the arrivals that would reveal it, and the tail it reports is not the tail.
+    mode: openLoop
+    generator: "genai-perf"
+    streaming: true
+    timeoutMs: 60000
+    # Zero, and the CRD refuses anything else: a retry replaces a slow response with a fast one and repairs
+    # the very tail this benchmark exists to measure.
+    retries: 0
+# status.result is written only by a real-GPU run. There is no placeholder result here on purpose -- a reader
+# who finds an interference ratio in this repository must be able to trust that hardware produced it.
