@@ -37,5 +37,19 @@
     "thresholdEstimatedAtChars": 16384,
     "thresholdActualTokensAtThatLength": 3171,
     "_falsePositiveBand": "A request the guard scores at exactly 4096 was measured at 3171 real tokens, so requests whose true input is between 3171 and 4096 tokens are rejected as though they had crossed. The band is 925 tokens, 22.6 percent of the threshold, and it costs a tenant service rather than costing the cache. Reported rather than corrected: the threshold was pre-registered, and moving it after measuring is exactly the post-hoc tuning the control arm exists to rule out."
-  }
+  },
+  "tokenizerRevision": "aa8e72537993ba99e69dfaafa59ed015b17504d1",
+  "tokenizerFilesSHA256": {
+    "config.json": "eed00b17e22553979d090fa492e587e92885e328914c8e0b0b78f0a0d3576b3b",
+    "generation_config.json": "ea35dfb6fc5051b01114f9b995820d55dab01ed33ee490f6378b442af82c09f9",
+    "merges.txt": "599bab54075088774b1733fde865d5bd747cbcc7a547c5bc12610e874e26f5e3",
+    "tokenizer.json": "c0382117ea329cdf097041132f6d735924b697924d6f6fc3945713e96ce87539",
+    "tokenizer_config.json": "5b5d4f65d0acd3b2d56a35b56d374a36cbc1c8fa5cf3b3febbbfabf22f359583",
+    "vocab.json": "ca10d7e9fb3ed18575dd1e277a2579c16d108e32f27439684afa0e10b1440910"
+  },
+  "tokenizerCoreFilesCombinedSHA256": "81feaac8d04514a200e05e9a15d594181fff403abc1202b11a5f3883198155e1",
+  "chatTemplateSHA256": "cd8e9439f0570856fd70470bf8889ebd8b5d1107207f67a5efb46e342330527f",
+  "tokenizerSharedWithVerified": "Qwen/Qwen2.5-7B-Instruct at revision a09a35458c702b33eeacc393d103063234e8bc28 carries BYTE-IDENTICAL merges.txt, tokenizer.json, tokenizer_config.json and vocab.json: all four per-file sha256 values match the ones above exactly. That is the claim, and it does not depend on how the four are combined -- both combining conventions tried gave one value for both models, because the inputs were equal. The two REPOSITORY revisions differ (aa8e7253... against a09a3545...), so the repo sha alone would have said nothing here. Measured 2026-09-30, tokenizer files only, no weights.",
+  "_identityNote": "Two identities, and they fix different things. tokenizerRevision is the upstream repository revision: it changes when the weights change even if the tokenizer does not, and it changes if the tokenizer moves. tokenizerCoreFilesCombinedSHA256 fixes the tokenizer bytes themselves and is the stronger claim. RunManifest.TokenizerRev carries the revision, because a manifest names where something came from and a reader can fetch that revision and recompute these hashes. Measured 2026-09-30, over the files at that revision, weights not downloaded.",
+  "tokenizerCoreFilesCombinedSHA256Definition": "sha256 over the concatenation, for merges.txt, tokenizer.json, tokenizer_config.json and vocab.json in that byte order of their names, of the string \"<lowercase hex sha256 of the file>  <file name>\\n\" -- two spaces, as sha256sum prints. WRITTEN DOWN BECAUSE IT WAS NOT. A shell pipeline computing the same idea with a different sort key produced 109e0f26695b0b14... for these exact files, and this field held that value briefly while the recorded one was 81feaac8d04514a2... Two values for one name is how a number stops being checkable, and the fix is the definition, not the digest."
 }
