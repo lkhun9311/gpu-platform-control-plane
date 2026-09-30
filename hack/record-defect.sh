@@ -18,17 +18,21 @@
 # says `rc=unknown` rather than claiming success.
 set -uo pipefail
 
-# storage/gpuaas/defects, and every part of that path was chosen rather than defaulted to.
+# storage/gpu-platform-control-plane/defects, beside the project's own copy in storage.
 #
 # `defects` not `issues`: the two were split on 2026-09-30, where a defect is something that is wrong and an
 # issue is something that is blocked. A command that failed belongs with defects.
 #
-# Under `gpuaas/` because storage holds several projects and records at its top level would mix them. The path
-# moved twice in one day -- storage/issues, then storage/defects, then here -- and each move needed this line
-# changed with it. A recorder pointed at a stale path silently recreates the old directory and splits the
-# record across two trees, which is why the move is verified by writing one line and reading it back rather
-# than by editing this string and trusting it.
-LOG_DIR="/home/lkhun9311/workspace/storage/gpuaas/defects/hook-log"
+# This path moved four times on 2026-09-30 -- storage/issues, storage/defects, storage/gpuaas/defects, and
+# finally here, into the project folder storage already had. Every move needed this line changed with it, and
+# a recorder left pointing at a stale path silently recreates the old directory and splits the record across
+# two trees. So each move is verified by writing one line and reading it back, not by editing this string and
+# trusting it.
+#
+# One thing to know about this destination: it is also where hack/../.claude/hooks/mirror-to-storage.sh
+# copies edited project files. That hook only writes paths that exist in the project, and the project has no
+# `defects/`, so nothing collides today. If one is ever added there, these records are in its way.
+LOG_DIR="/home/lkhun9311/workspace/storage/gpu-platform-control-plane/defects/hook-log"
 LOG="$LOG_DIR/$(date -u +%Y-%m).jsonl"
 SELF_LOG="/home/lkhun9311/workspace/gpu-platform-control-plane/.claude/hooks/record-defect.log"
 
