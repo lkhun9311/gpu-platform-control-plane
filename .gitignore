@@ -134,6 +134,20 @@ build/
 !/hack/test/spot-lifecycle/bin/
 !/hack/test/spot-lifecycle/bin/*
 
+# The teardown replay's stub, exempted here and not beside itself.
+#
+# `bin/` above excludes the DIRECTORY, so git never descends into it and a .gitignore placed inside is not
+# read -- it is ignored by the same rule. Two lines are needed: one to re-admit the directory, one for its
+# contents. That is why the block above has two, and this one does too.
+#
+# hack/test/teardown-replay/bin/aws was never tracked. A fresh clone had no stub, so the replay that drives
+# it could not run anywhere but the machine that wrote it, while reporting 12 scenarios green there. The
+# exemption above was written after the same accident and this directory, created later, was never added to
+# it -- so remembering a central list failed twice. The fixtures next to it use nested files instead; only a
+# directory exclusion forces the exemption to live up here.
+!/hack/test/teardown-replay/bin/
+!/hack/test/teardown-replay/bin/*
+
 # OS files
 .DS_Store
 Thumbs.db

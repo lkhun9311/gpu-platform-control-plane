@@ -1,0 +1,8 @@
+# The scenario responses are FIXTURES, not output. See tag-scenarios/.gitignore for the same note.
+#
+# The root `*.out` rule (line 142) was already swallowing these: a fresh clone received only the four
+# scenarios that happen to contain a .err or .rc file, and 02 through 08 -- every scenario whose whole content
+# is a single .out -- did not exist as directories at all. The replay reported 12 green locally and could not
+# have run anywhere else.
+!*.out
+!**/*.out
