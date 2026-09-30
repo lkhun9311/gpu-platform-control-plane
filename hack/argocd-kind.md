@@ -86,6 +86,28 @@ kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/v2
 kubectl -n argocd rollout status deploy/argocd-server --timeout=300s
 
 # Applied WITHOUT the automated block while a hand-deployed cluster is running.
-kubectl apply -f config/argocd/
-kubectl -n argocd get applications
+#
+# The comment above described the recorded experiment and the command below did not carry it out. Every
+# Application in config/argocd now ships `automated: {prune: true, selfHeal: true}`, so `apply -f` on the
+# directory installs exactly what this run removed -- and self-heal would then reconcile over the gateway
+# that is running by hand, which is the failure the next section is about. The directory also holds a
+# kustomization.yaml, which `apply -f` does not read.
+#
+# So strip the automated block on the way in, and check that nothing arrived with it:
+for f in config/argocd/*.yaml; do
+  [ "$(basename "$f")" = kustomization.yaml ] && continue
+  python3 - "$f" <<'PY' | kubectl apply -f -
+import sys, yaml
+d = yaml.safe_load(open(sys.argv[1]))
+d.get("spec", {}).get("syncPolicy", {}).pop("automated", None)
+print(yaml.safe_dump(d, sort_keys=False))
+PY
+done
+kubectl -n argocd get applications \
+  -o jsonpath='{range .items[*]}{.metadata.name}{" automated="}{.spec.syncPolicy.automated}{"\n"}{end}'
+# Every line must end in `automated=` with nothing after it. A name showing a value means this cluster is
+# now self-healing and the run is no longer the one recorded here.
 ```
+
+⚠️ This block applied the directory unchanged until 2026-09-30, so anyone following it got automated sync
+and a different experiment from the one written up below. The record was right and the reproduction was not.
