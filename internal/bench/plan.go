@@ -1,0 +1,249 @@
+/*
+Copyright 2026.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package bench
+
+import (
+	"fmt"
+	"sort"
+	"strconv"
+	"strings"
+
+	platformv1 "github.com/lkhun9311/gpu-mlops-platform-control-plane/api/v1"
+)
+
+// CompilePlan turns a GpuSharingBenchmark spec into the harness invocation that would measure it, or refuses.
+//
+// WHY THIS EXISTS, and why it runs before a card is rented. `spec` is immutable once created, so registering a
+// CR whose protocol this harness cannot execute freezes an unexecutable registration forever. And a paid run
+// that discovers a mismatch does so after both engines have loaded -- the most expensive place to learn it.
+// An external review of the intended design put it plainly: a receipt cannot repair running the wrong
+// experiment, so unsupported values must fail before registration or rental.
+//
+// WHAT IT IS NOT. This does not check that the numbers are right, that a GPU was present, or that the run
+// happened. It answers one question: can this harness, as it stands, execute this declared protocol. A clean
+// compile is a necessary condition for the evidence to mean what the CR says, never a sufficient one.
+//
+// The refusals below are measured against the tree, not assumed. Each carries the reason in its text, because
+// an operator reading "unsupported" without the reason has to go and find what this function already knew.
+func CompilePlan(spec platformv1.GpuSharingBenchmarkSpec) (Plan, error) {
+	var p Plan
+	var refusals []string
+	refuse := func(format string, args ...any) { refusals = append(refusals, fmt.Sprintf(format, args...)) }
+
+	// Tenants. The generator writes two fixed identities into every trace row.
+	//
+	// The gateway resolves a tenant to a tier through its own policy chain, so a CR naming other identities is
+	// not merely cosmetic: the rows would carry identities the run never sent, and the premium-only tail would
+	// be computed over the wrong side.
+	if spec.Baseline.Tenant != PremiumTenant {
+		refuse("baseline.tenant is %q; the trace generator writes the fixed identity %q and nothing passes another",
+			spec.Baseline.Tenant, PremiumTenant)
+	}
+	if spec.Contender.Tenant != NoisyTenant {
+		refuse("contender.tenant is %q; the trace generator writes the fixed identity %q and nothing passes another",
+			spec.Contender.Tenant, NoisyTenant)
+	}
+
+	// Model. The gateway resolves the requested name against the InferenceDeployment index and answers
+	// ErrNoRoute when nothing serves it -- after both engines have loaded, which is why this is checked here.
+	for _, w := range []struct {
+		side  string
+		model string
+	}{{"baseline", spec.Baseline.Model}, {"contender", spec.Contender.Model}} {
+		if w.model != ServedModel {
+			refuse("%s.model is %q; the sharing topologies serve %q, and the gateway answers ErrNoRoute for any other name once the engines are up",
+				w.side, w.model, ServedModel)
+		}
+	}
+
+	// Output length. The generator hard-codes a MAXIMUM per tenant and sends it as max_tokens, which is a cap
+	// rather than a generation length: a CR asking for 128 output tokens would receive at most 64, and a
+	// response that stops early is shorter still.
+	if int(spec.Baseline.OutputTokens) != FixedPremiumMaxOutputTokens {
+		refuse("baseline.outputTokens is %d; the generator fixes the premium cap at %d and sends it as an upper bound, not a generation length",
+			spec.Baseline.OutputTokens, FixedPremiumMaxOutputTokens)
+	}
+	if int(spec.Contender.OutputTokens) != FixedNoisyMaxOutputTokens {
+		refuse("contender.outputTokens is %d; the generator fixes the contender cap at %d and sends it as an upper bound, not a generation length",
+			spec.Contender.OutputTokens, FixedNoisyMaxOutputTokens)
+	}
+
+	// Warmup. There is no warmup phase and no exclusion boundary anywhere in the harness.
+	//
+	// Dropping the first N rows afterwards is not equivalent: the protocol says warmup precedes measurement,
+	// and with open-loop arrivals the requests that overlap the boundary are still in flight when measurement
+	// begins. Zero is representable; any positive value is not.
+	if spec.WarmupRequests != 0 {
+		refuse("warmupRequests is %d; the harness has no warmup phase and no exclusion boundary, so a positive value cannot be honoured (dropping rows afterwards is not the same protocol)",
+			spec.WarmupRequests)
+	}
+
+	// Sample floor. The harness has its own floor, derived rather than chosen, and it is ten times smaller.
+	if int(spec.MinRequestsPerRun) < MinTailSamples {
+		refuse("minRequestsPerRun is %d, below the harness floor of %d", spec.MinRequestsPerRun, MinTailSamples)
+	}
+
+	// Load protocol.
+	if spec.Load.Mode != "openLoop" {
+		refuse("load.mode is %q; Replay dispatches each request at its scheduled offset without waiting for earlier responses, which is openLoop and nothing else",
+			spec.Load.Mode)
+	}
+	if spec.Load.Retries != 0 {
+		refuse("load.retries is %d; the sender makes one call per logical request and never resubmits, so a positive value cannot be honoured",
+			spec.Load.Retries)
+	}
+	if !spec.Load.Streaming {
+		refuse("load.streaming is false; the sender reads server-sent events to time the first token, and a non-streaming response has no first-token time to measure")
+	}
+	if spec.Load.Generator != HarnessGenerator {
+		refuse("load.generator is %q; the run would be driven by %q, and a manifest naming a generator that did not produce the traffic is provenance for the wrong tool",
+			spec.Load.Generator, HarnessGenerator)
+	}
+
+	// Input length. The CR declares tokens; the generator takes characters, and the conversion is not a
+	// constant. This repository's own calibration measures ceil(chars/4) as 36 percent LOW on a
+	// 200-character prompt and 30 percent HIGH on a 40,000-character one, because the chat template costs a
+	// fixed overhead that dominates a short prompt while the corpus itself runs about 5.2 characters per
+	// token. So no single factor converts a token count into a character count, and inventing one would put a
+	// number in the manifest that the served tokenizer disagrees with.
+	// Zero is the one value that asserts nothing, so it is the one value that can be honoured: it means the
+	// plan carries no token length, not a prompt of no tokens. Any positive count would have to be converted,
+	// and the conversion does not exist.
+	for _, w := range []struct {
+		side   string
+		tokens int32
+	}{{"baseline", spec.Baseline.InputTokens}, {"contender", spec.Contender.InputTokens}} {
+		if w.tokens == 0 {
+			continue
+		}
+		refuse("%s.inputTokens is %d tokens; the generator is configured in CHARACTERS and the ceil(chars/4) estimate is not invertible -- calibration measures it 36 percent low at 200 chars and 30 percent high at 40,000 chars, so a character length matching this token count cannot be derived",
+			w.side, w.tokens)
+	}
+
+	// Repetitions. Expressible, and the two runners disagree with the CRD about what a confirmatory run is, so
+	// the resolved value is carried in the plan rather than left to a default.
+	if spec.Repetitions < 5 {
+		refuse("repetitions is %d; the CRD floor is 5", spec.Repetitions)
+	}
+
+	// Sharing mode to arms. The topologies are deployed by the shell, and two of them change the victim's own
+	// allocation, so the mode decides which contrast the ratio is of.
+	arms, ok := ArmsForSharingMode(spec.SharingMode)
+	if !ok {
+		refuse("sharingMode is %q; the matrix deploys %s and nothing else", spec.SharingMode, strings.Join(KnownSharingModes(), ", "))
+	}
+
+	if len(refusals) > 0 {
+		sort.Strings(refusals)
+		return Plan{}, fmt.Errorf("this GpuSharingBenchmark cannot be executed by this harness:\n  - %s",
+			strings.Join(refusals, "\n  - "))
+	}
+
+	p = Plan{
+		Arms:          arms,
+		Repetitions:   int(spec.Repetitions),
+		SharingMode:   spec.SharingMode,
+		Model:         ServedModel,
+		PremiumRate:   spec.Baseline.QPS,
+		ContenderRate: spec.Contender.QPS,
+		TimeoutMs:     int(spec.Load.TimeoutMs),
+	}
+	return p, nil
+}
+
+// Plan is the resolved harness invocation a compiled spec describes.
+//
+// It deliberately holds the rates as the decimal STRINGS the CR carries. The CRD stores them as strings so
+// that "2.0" round-trips exactly, and parsing them here only to print them again would introduce a float
+// whose rendering could differ from the registered value.
+type Plan struct {
+	Arms        []string
+	Repetitions int
+	// SharingMode is the declared mode, and Model is the name the run will actually request.
+	//
+	// They are separate fields because they were briefly one: the first version of this struct had a single
+	// Model and CompilePlan assigned the sharing mode to it. Nothing would have caught that -- both are
+	// strings, and the plan is printed rather than compared -- so a plan would have named "sharedInstance" as
+	// the model it asked the gateway for.
+	SharingMode   string
+	Model         string
+	PremiumRate   string
+	ContenderRate string
+	TimeoutMs     int
+}
+
+// ServedModel is the model the sharing topologies actually serve.
+//
+// config/vllm-shared/engine-a.yaml passes Qwen/Qwen2.5-3B-Instruct and hack/m5c-matrix.sh passes the same
+// name to gen-trace. The generator's own default is llama-3-8b, which matches neither, and a mismatch is not
+// discovered until the gateway answers ErrNoRoute for every request of every arm with both engines loaded.
+const ServedModel = "Qwen/Qwen2.5-3B-Instruct"
+
+// FixedPremiumMaxOutputTokens and FixedNoisyMaxOutputTokens are the caps the generator hard-codes per tenant.
+const (
+	FixedPremiumMaxOutputTokens = 64
+	FixedNoisyMaxOutputTokens   = 16
+)
+
+// HarnessGenerator names the load generator that actually sends the traffic.
+//
+// The CR's samples say genai-perf, which is not installed here and is not what any run has used. A manifest
+// recording a generator that did not produce the traffic identifies the wrong tool, which is worse than
+// recording none.
+const HarnessGenerator = "benchharness-replay"
+
+// ArmsForSharingMode maps a declared sharing mode to the arms a run must buy for it, isolated baseline first.
+//
+// sharedInstance is the only mode whose ratio is contender-presence with everything else held: R1 and shared
+// are the same single whole-card engine and differ only in the trace, which gen-trace builds by filtering the
+// contender out of the SAME trace so the victim arrives on an identical schedule. timeSlicing and mps put two
+// engines on half a card each, so their ratio against R1 also carries the topology and allocation change.
+// That is a different registered question, not the same one on different hardware.
+func ArmsForSharingMode(mode string) ([]string, bool) {
+	switch mode {
+	case "sharedInstance":
+		return []string{"R1", "shared"}, true
+	case "timeSlicing":
+		return []string{"R1", "timeSlicing"}, true
+	case "mps":
+		return []string{"R1", "mps"}, true
+	default:
+		return nil, false
+	}
+}
+
+// KnownSharingModes lists the modes ArmsForSharingMode accepts, for a refusal that names the alternatives.
+func KnownSharingModes() []string {
+	return []string{"sharedInstance", "timeSlicing", "mps"}
+}
+
+// FormatPlan renders a compiled plan as the environment a paid run would be launched with.
+//
+// The defaults are deliberately absent. hack/m5c-gpu-session.sh supplies RATE=9.85, NOISY_WEIGHT=0.054 and
+// DURATION_MS=420000 when they are omitted, and the sharing study's own pre-registration records that tuple
+// as the seventh pilot's load, the one its reading rejected -- "about as wrong as a run can be while still
+// completing". So a plan that leaves them out is a plan that buys the wrong load, and this prints them as
+// values the caller must supply rather than pretending to know them.
+func FormatPlan(p Plan) string {
+	var b strings.Builder
+	b.WriteString("ARMS=" + strconv.Quote(strings.Join(p.Arms, " ")) + " \\\n")
+	b.WriteString("REPS=" + strconv.Itoa(p.Repetitions) + " \\\n")
+	b.WriteString("  # RATE, PREMIUM_WEIGHT, NOISY_WEIGHT, PROBE_WEIGHT and DURATION_MS are NOT defaulted here:\n")
+	b.WriteString("  # the wrapper's own defaults are the load its pre-registration rejected. Derive them on the card.\n")
+	b.WriteString("  # declared victim qps " + p.PremiumRate + ", contender qps " + p.ContenderRate + "\n")
+	return b.String()
+}
