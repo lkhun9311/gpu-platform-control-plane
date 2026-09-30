@@ -5,7 +5,7 @@
 > a utilisation reader for the queuelab rather than a health input). `MLTrainingJob`
 > is **built** (M6, run end-to-end on kind — never on real hardware). M6 is not the only milestone with live
 > end-to-end evidence: M7, the gateway chain and the chaos scenarios all have run records under `hack/`.
-> `GpuSharingBenchmark` has a **type and a generated CRD** (2026-09-30) that treats the spec as an immutable registration and enforces the load protocol at admission, with 33 envtest specs; the **thin status writer is the outstanding piece**, so nothing has ever written `status.result` and no result has been recorded through it. Its sizing arithmetic and run script exist and the sharing matrix has run on rented cards. This line said "designed only — no CRD" until 2026-09-30, and the table below was dated 2026-07 and never re-read when the prose around it was corrected — so this document contradicted itself about two CRDs at once, and `make docs-check` cannot see that because it resolves names, not claims.
+> `GpuSharingBenchmark` has a **type and a generated CRD** (2026-09-30) that treats the spec as an immutable registration and enforces the load protocol at admission, with 33 envtest specs; `CompilePlan` (`internal/bench/plan.go`, 2026-09-30) decides whether a declared protocol is one this harness can execute and names each reason it cannot, and it is **called only from tests** — so the compiler is built and tested, the published measurements came from the shell harness, and the execution integration is unfinished. With the **thin status writer** also outstanding, nothing has ever written `status.result` and no result has been recorded through it. Its sizing arithmetic and run script exist and the sharing matrix has run on rented cards. This line said "designed only — no CRD" until 2026-09-30, and the table below was dated 2026-07 and never re-read when the prose around it was corrected — so this document contradicted itself about two CRDs at once, and `make docs-check` cannot see that because it resolves names, not claims.
 > `WorkloadRun` is **built and has been run for real on kind** (M7): a CRD, a controller, a driver, and a
 > recorded run in which deleting a serving Pod produced a recovery trail nobody wrote by hand. The gateway
 > (Layer 4, M4-b) is **built, unit-tested and deployed on kind but never on EKS**. The M5 KV-cache-aware admission guard is
@@ -136,7 +136,19 @@ spec:
 # only by a real-GPU run — never placeholder numbers.
 ```
 
-Starts as CRD + sample + benchmark harness + a thin status writer; a deeper controller is optional. Status numbers come from a real-GPU run (doc 04); they are not invented locally.
+⚠️ **The YAML above is the registered schema, not a runnable request.** The committed sample carries these
+exact values (`config/samples/platform_v1_gpusharingbenchmark.yaml`), and `CompilePlan`
+(`internal/bench/plan.go`) refuses it: `TestTheCommittedSampleCannotBeExecuted` exists to keep that true
+rather than to hide it. The refusals are specific — this harness sends two fixed tenant identities, serves `Qwen/Qwen2.5-3B-Instruct`
+rather than `llama3-8b`, caps generation, has no warmup phase, sends open-loop only, never retries, and
+carries measured character lengths for two input-token counts and no others. Eleven unsupported values are
+refused, each covered by its own case in `TestEachUnsupportedValueIsRefusedOnItsOwn`.
+
+What exists today: the CRD, the sample, the harness, and the compiler that decides whether a spec is
+executable. What does not: anything that calls the compiler outside tests, and the status writer. So the
+measured numbers in `README.md` came from the shell harness on a rented card, and no `status.result` has
+ever been written. Status numbers, when they come, come from a real-GPU run (doc 04); they are not
+invented locally.
 
 ## WorkloadRun (new, Evidence CRD-lite)
 
