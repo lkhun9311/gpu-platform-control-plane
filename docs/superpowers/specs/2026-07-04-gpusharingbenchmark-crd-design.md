@@ -425,6 +425,42 @@ blamed the estimator for not being invertible, which is not the obstacle: the ob
 nothing to resolve *against*. Measuring the revision and filling `TokenizerRev` is the unblocking step, and
 it needs an engine started once — not a rented GPU, since the calibration itself was captured on a CPU image.
 
+### Unblocking step taken, 2026-09-30: the tokenizer identity is measured and demanded
+
+The revision is measured. `Qwen/Qwen2.5-3B-Instruct` is at
+`aa8e72537993ba99e69dfaafa59ed015b17504d1`, and the calibration file now records that revision, the sha256
+of each tokenizer file at it, a combined hash of the four core files with the combining rule written out, and
+the sha256 of the chat template itself. Only the tokenizer files were fetched; the weights were not.
+
+The file's `tokenizerSharedWith` claim is now established rather than asserted: `Qwen/Qwen2.5-7B-Instruct`
+carries byte-identical copies of all four core tokenizer files: the merges list, the tokenizer definition,
+the tokenizer config and the vocabulary. The two repository revisions differ, so the repo hash alone would
+have said nothing — the per-file hashes said it. Those four are named in prose rather than in backticks
+because they live in an upstream model repository and not in this one, and the docs gate resolves a
+backticked name as a path here. It caught three of them on the first run of this amendment, correctly.
+
+`RequireProvenance` now demands `tokenizerRev`, and `commitShaped` is deliberately **not** reused for it.
+That function accepts 7 to 40 hex characters and a `-dirty` suffix, both meaningful for a build of this
+repository and meaningless for an upstream model revision: a prefix would let two different tokenizers share
+one recorded identity, and nothing upstream is dirty. A separate check demands exactly 40 lowercase hex.
+
+**Two paths write a manifest, not one.** `gen-trace` and `prepare-traces` both construct a `RunManifest`,
+and the flag had to go into both — adding it to one would have left the M5-b path refused at its first
+replay, with both engines already up. That is the most expensive place in this project to learn anything,
+and it is where the model-name mismatch was learned once already.
+
+### What this did not fix, and one mistake worth recording
+
+The resolver still does not exist. An identity makes it possible; it does not make it written. `CompilePlan`
+keeps refusing the input length until something can tokenize a candidate and compare the count.
+
+And the guard that demands the revision in `hack/m5b-arms.sh` was first placed beside `GW_SHA`, which sits
+after `go build`, `docker build`, the ECR login and the image push. Three attempts to trip it deliberately
+all stopped on an earlier refusal instead — `RATE`, then the TTL deadline, then `REGISTRY` — and a control
+run that supplied the value stopped on the same line, which is what showed the guard had never executed.
+It moved to the pre-spend block beside `RATE` and now fires in both directions. A refusal placed after the
+spending it was meant to prevent is not a guard, and the only way that surfaced was trying to break it.
+
 ### Two corrections this amendment carries
 
 **`outputTokens` is a ceiling, not a length.** The field comment said "the generation length per request"
