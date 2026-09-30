@@ -259,3 +259,86 @@ promise in the type's own comment**. A status condition cannot quietly weaken a 
 Recorded outside this repository as
 `storage/gpu-platform-control-plane/issues/open/2026-09-30-the-status-writer-is-blocked-on-three-bindings`
 and `.../defects/open/2026-09-30-the-registration-names-three-competing-estimands`.
+
+## Amendment, 2026-09-30 (third): the estimand is decided, and the repetition count is contradicted too
+
+The amendment above left the estimand to "a further dated amendment, written before a writer computes
+anything". This is it. Nothing has been computed and no `GpuSharingBenchmark` exists in any cluster, so this
+choice is being made **before** any result can influence it — which is the only time it can honestly be made.
+
+### The decision
+
+The primary reported object is the **ratio of median per-repetition victim TTFT p99s**, with a paired
+repetition bootstrap interval on the ratio.
+
+For each complete repetition `i`, compute the victim's TTFT p99 separately within that repetition:
+
+```
+b_i = p99(victim TTFT, baseline repetition i)
+c_i = p99(victim TTFT, colocated repetition i)
+
+B = median(b_i)      -> status.result.baselineP99Ms
+C = median(c_i)      -> status.result.colocatedP99Ms
+R = C / B            -> status.result.interferenceRatio
+```
+
+This estimates **the ratio of typical repetition-level tails under this protocol**. It is deliberately
+neither a pooled-request p99 nor the median of the individual per-repetition ratios, and the distinction
+matters: pooling re-weights repetitions by how many requests each happened to complete, which answers a
+different question from one this page already committed to by giving repetitions equal standing.
+
+The interval is a **paired** percentile bootstrap: resample complete `(b_i, c_i)` blocks with replacement,
+recompute both medians and their ratio, and take the 2.5th and 97.5th percentiles. Pairing is by the
+repetition identity the schedule already carries — `hack/m5c-matrix.sh` builds cells as
+`arm|arm|rep|rate|weight|0`, so the block identity is recorded rather than inferred from two arrays having
+equal length. The bootstrap count, the seed, the median convention for an even number of repetitions, and the
+percentile convention are frozen here, before collection.
+
+**It is a nominal 95% interval.** Five repetitions are enough to compute this statistic and to bootstrap it.
+They are not enough to establish 95% coverage, and more bootstrap draws do not create more repetitions. Every
+`b_i` and `c_i` must be published alongside the summary so a reader can see the sample the interval came
+from. Calling it "the 95% interval" without that qualification would be the same overclaim this project has
+had to withdraw four times elsewhere.
+
+### Why the ratio interval is primary, not the colocated one
+
+The experiment asks about *relative* interference and its baseline is **measured, not known**. An interval on
+the colocated p99 alone carries no uncertainty for the denominator, so it cannot bound the quantity the
+experiment reports. A colocated-only interval plus a point ratio is defensible as explicitly limited
+descriptive reporting, and it does not satisfy what `docs/04` asks for.
+
+So `p99CI95` **keeps its current meaning** — the interval on the colocated median p99, in milliseconds — and
+a separately named field carries the ratio interval. Redefining `p99CI95` from milliseconds to a dimensionless
+ratio would silently change the units of a field whose comment ships to operators in the CRD description.
+
+### What this forces
+
+| In the registration / API | In the code |
+|---|---|
+| Name the latency endpoint explicitly as victim TTFT p99, and define `B`, `C`, `R`, the pairing, the exclusions and the bootstrap method here and in `docs/04`. | A dedicated median-and-ratio analysis function. `BootstrapCI` must **not** be reused: it bootstraps the mean of its inputs, and changing it in place would silently alter the M5-b and price-of-protection studies that already depend on it. |
+| Restate `baselineP99Ms` and `colocatedP99Ms` as medians of repetition-level p99s, not pooled p99s. Keep `repetitions >= 5`. | Derive `b_i` and `c_i` from validated raw records and the explicit block identity, not from a pooled pass. |
+| Add `interferenceRatioCI95` beside `p99CI95`. Adding a status field regenerates the CRD, which is a deliberate step, not a side effect. | Compute both intervals from the same bootstrap draws, and freeze the rounding so the published integer millisecond fields and the published ratio agree to a documented precision. `interferenceRatio` is defined as `colocatedP99Ms / baselineP99Ms`, so computing it from unrounded values while publishing rounded integers would contradict its own definition. |
+
+### The repetition count is contradicted in three places
+
+While settling this, a second disagreement of the same shape turned up. Three parts of this repository name a
+different number of repetitions:
+
+| Where | Number |
+|---|---|
+| This CRD — `repetitions` has `+kubebuilder:validation:Minimum=5` | **5 or more** |
+| `hack/m5c-gpu-session.sh` — its own comment: "a pilot is one repetition and a confirmatory run is three" | **3** |
+| `hack/m5c-matrix.sh` — `REPS="${REPS:-4}"`, justified as a bootstrap-block argument | **4** |
+
+A run bought at three or four repetitions **cannot be published into this CRD at all**: the API refuses the
+spec. That is the schema working, but it means the paid runner as it stands would buy evidence this type
+cannot accept, and nothing in either script knows that. The session script deliberately has no `REPS` default
+precisely so the number is a decision — which is right, and is why this is a mismatch to resolve rather than a
+default to fix. Resolving it is part of the execution plan that must exist before the GPU is rented, not part
+of this amendment.
+
+### What is still not decided here
+
+Nothing in this amendment establishes that a number came from hardware. The three bindings from the second
+amendment — evidence to run, evidence to CR, and now a frozen analysis contract — are what a writer needs, and
+only the third is settled by this page.
