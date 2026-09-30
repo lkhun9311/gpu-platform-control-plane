@@ -155,7 +155,8 @@ func TestEachUnsupportedValueIsRefusedOnItsOwn(t *testing.T) {
 	}
 }
 
-// executableSpec is the sample's protocol with every unsupported value replaced by one the harness can run.
+// executableSpec is the sample's protocol with every unsupported value replaced by one the harness can run,
+// and it is DELIBERATELY NOT A VALID API OBJECT.
 //
 // inputTokens is ZERO here, and that is not a placeholder: CompilePlan refuses ANY token-denominated input
 // length, because the character-to-token conversion is not invertible. Zero is the only value that does not
@@ -182,4 +183,52 @@ func executableSpec() platformv1.GpuSharingBenchmarkSpec {
 			Streaming: true, TimeoutMs: 60000, Retries: 0,
 		},
 	}
+}
+
+// TestTheOnlyRemainingGapIsTheInputLength compiles an API-VALID spec and asserts what is left.
+//
+// The success test above proves CompilePlan can return a plan, but it does so from a spec the API would
+// reject: `inputTokens` is `+required` with `Minimum=1`, and that fixture passes zero. So it establishes
+// "the compiler can say yes" and not "the compiler can say yes to something registrable" -- a distinction an
+// external review drew and this file had blurred.
+//
+// This test closes that gap from the other side. It feeds a spec that IS API-valid, expects a refusal, and
+// then asserts the refusal is about NOTHING BUT the input length. That turns the remaining work into a
+// measured claim: nine of the ten sample refusals have an adapter, and the tenth is the token-to-character
+// resolution, which needs a tokenizer identity this repository does not record.
+func TestTheOnlyRemainingGapIsTheInputLength(t *testing.T) {
+	spec := apiValidSpec()
+	_, err := CompilePlan(spec)
+	if err == nil {
+		t.Fatal("an API-valid spec compiled; if the input-length resolution landed, this test should be rewritten to assert the plan instead")
+	}
+	msg := err.Error()
+
+	for _, want := range []string{"baseline.inputTokens is", "contender.inputTokens is"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("the refusal does not mention %q; got:\n%s", want, msg)
+		}
+	}
+	// Everything else must be absent. A refusal list that still named another cause would mean the adapter
+	// gap is wider than this test claims, and claiming it is narrower than it is would be the overclaim.
+	for _, unwanted := range []string{
+		"tenant is", "model is", "outputTokens is", "warmupRequests is",
+		"load.mode is", "load.retries is", "load.streaming is", "load.generator is",
+		"minRequestsPerRun is", "sharingMode is", "repetitions is",
+	} {
+		if strings.Contains(msg, unwanted) {
+			t.Errorf("the refusal also mentions %q, so the input length is NOT the only remaining gap; got:\n%s", unwanted, msg)
+		}
+	}
+}
+
+// apiValidSpec is executableSpec with input lengths the API accepts.
+//
+// 256 and 8192 are the sample's own declared lengths, kept so the refusal is about the registered protocol
+// rather than about numbers invented for a test.
+func apiValidSpec() platformv1.GpuSharingBenchmarkSpec {
+	s := executableSpec()
+	s.Baseline.InputTokens = 256
+	s.Contender.InputTokens = 8192
+	return s
 }

@@ -126,7 +126,17 @@ type BenchmarkWorkload struct {
 	// +required
 	InputTokens int32 `json:"inputTokens"`
 
-	// outputTokens is the generation length per request.
+	// outputTokens is the requested generation CEILING per request, not a guaranteed length.
+	//
+	// The load generator sends it as the engine's max_tokens, which is an upper bound: a response that hits a
+	// stop condition earlier is shorter, and nothing makes the engine emit this many. So a run whose
+	// responses average well under this value has not violated the protocol, and a reading that assumed this
+	// many tokens per response would be wrong about the work the card did.
+	//
+	// This comment said "the generation length per request" until 2026-09-30, which is a promise the sender
+	// does not keep -- and field comments are copied into the generated CRD description, so it was a promise
+	// shipped to operators. Recorded here rather than silently corrected because the wording is what a reader
+	// would have relied on.
 	// +kubebuilder:validation:Minimum=1
 	// +required
 	OutputTokens int32 `json:"outputTokens"`

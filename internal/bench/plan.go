@@ -114,12 +114,20 @@ func CompilePlan(spec platformv1.GpuSharingBenchmarkSpec) (Plan, error) {
 			spec.Load.Generator, HarnessGenerator)
 	}
 
-	// Input length. The CR declares tokens; the generator takes characters, and the conversion is not a
-	// constant. This repository's own calibration measures ceil(chars/4) as 36 percent LOW on a
-	// 200-character prompt and 30 percent HIGH on a 40,000-character one, because the chat template costs a
-	// fixed overhead that dominates a short prompt while the corpus itself runs about 5.2 characters per
-	// token. So no single factor converts a token count into a character count, and inventing one would put a
-	// number in the manifest that the served tokenizer disagrees with.
+	// Input length. The CR declares tokens; the generator takes characters.
+	//
+	// The refusal is NOT that the conversion is hard. An external review showed an affine fit to the three
+	// committed calibration points with residuals under 1.1 tokens, which is a perfectly good search
+	// initializer -- so "no measured basis" was too strong, and an earlier version of this comment said it.
+	//
+	// The refusal is that there is nothing to resolve AGAINST. Resolving a token count exactly means
+	// tokenizing the templated request with the served tokenizer and accepting only a candidate whose count
+	// equals the declaration. That needs the tokenizer and chat-template identity, and this repository does
+	// not record it: the calibration names a model and a corpus hash, engine-a.yaml passes the model name
+	// with no revision, and RunManifest.TokenizerRev is declared and never written. An offline resolver built
+	// on top of that could not claim to reproduce what serves the traffic.
+	//
+	// Recorded as storage/.../defects/open/2026-09-30-no-tokenizer-identity-is-recorded-anywhere.
 	// Zero is the one value that asserts nothing, so it is the one value that can be honoured: it means the
 	// plan carries no token length, not a prompt of no tokens. Any positive count would have to be converted,
 	// and the conversion does not exist.
@@ -130,7 +138,7 @@ func CompilePlan(spec platformv1.GpuSharingBenchmarkSpec) (Plan, error) {
 		if w.tokens == 0 {
 			continue
 		}
-		refuse("%s.inputTokens is %d tokens; the generator is configured in CHARACTERS and the ceil(chars/4) estimate is not invertible -- calibration measures it 36 percent low at 200 chars and 30 percent high at 40,000 chars, so a character length matching this token count cannot be derived",
+		refuse("%s.inputTokens is %d tokens and cannot be resolved to a character length: exact resolution needs the served tokenizer and chat-template identity, and none is recorded (the calibration names a model and a corpus hash, the engine manifest passes no revision, and RunManifest.TokenizerRev is never written). The estimate ceil(chars/4) is not an authority here -- it reads 50 against a measured 68 at 200 characters and 10,000 against 7,695 at 40,000",
 			w.side, w.tokens)
 	}
 
