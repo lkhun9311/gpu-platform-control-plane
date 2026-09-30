@@ -18,12 +18,17 @@
 # says `rc=unknown` rather than claiming success.
 set -uo pipefail
 
-# storage/defects, not storage/issues.
+# storage/gpuaas/defects, and every part of that path was chosen rather than defaulted to.
 #
-# The two were split on 2026-09-30: a defect is something that is wrong, an issue is something that is
-# blocked. What this hook records is a command that failed, which belongs with defects. Pointing it at the
-# old path would silently recreate `issues/hook-log` and split the record across two trees.
-LOG_DIR="/home/lkhun9311/workspace/storage/defects/hook-log"
+# `defects` not `issues`: the two were split on 2026-09-30, where a defect is something that is wrong and an
+# issue is something that is blocked. A command that failed belongs with defects.
+#
+# Under `gpuaas/` because storage holds several projects and records at its top level would mix them. The path
+# moved twice in one day -- storage/issues, then storage/defects, then here -- and each move needed this line
+# changed with it. A recorder pointed at a stale path silently recreates the old directory and splits the
+# record across two trees, which is why the move is verified by writing one line and reading it back rather
+# than by editing this string and trusting it.
+LOG_DIR="/home/lkhun9311/workspace/storage/gpuaas/defects/hook-log"
 LOG="$LOG_DIR/$(date -u +%Y-%m).jsonl"
 SELF_LOG="/home/lkhun9311/workspace/gpu-platform-control-plane/.claude/hooks/record-defect.log"
 
