@@ -386,6 +386,62 @@ replaced by another.
 Recorded outside this repository as
 `storage/gpu-platform-control-plane/defects/open/2026-09-30-the-committed-sample-cr-cannot-be-executed`.
 
+## Amendment, 2026-09-30 (sixth): the input length is resolved into the plan, not redefined in the spec — and that is blocked on an identity nothing records
+
+Nine of the ten refusals above have an obvious adapter: lift two tenant constants, read the two output caps
+from the spec, implement a warmup phase, name the real generator, use the served model name. The tenth is
+the input length, and three ways of closing it were considered: redefine the CR field in characters, convert
+tokens to characters, or carry both.
+
+**None of those is the choice.** The resolved character length belongs in the execution plan, not in the
+registration. A spec says what the experiment is; how many characters produce a given token count under a
+particular tokenizer is an implementation of that declaration, and putting it in the API would move a
+computation into the protocol. An `inputChars` field would only be right if an operator needed to constrain
+character length *independently* of token length, and nothing here does.
+
+So `inputTokens` stays as declared, and the plan carries a character length that has been **verified** rather
+than estimated: generate a candidate with the prompt corpus, tokenize the complete templated request, accept
+only a candidate whose count equals the declaration, and refuse if none is found in the supported range. An
+affine fit to the calibration points is a fine way to seed that search — the fit
+`30.30 + 0.19163 * chars` has residuals under 1.1 tokens at all three — but acceptance depends on the exact
+count, never on the fit.
+
+### Why that is not implemented yet
+
+The first step of that procedure cannot be taken. It needs the served tokenizer and chat-template identity,
+and this repository does not record one:
+
+| Where an identity would live | What is actually there |
+|---|---|
+| `internal/bench/testdata/tokenizer_calibration.json` | A model name and a corpus hash. Its own comment claimed the tokenizer was "at the recorded revision"; no revision is recorded. |
+| `config/vllm-shared/engine-a.yaml` | The vLLM image is digest-pinned. The model is passed by name with no revision argument. |
+| `RunManifest.TokenizerRev` | Declared, documented as recording exactly this, and **written by nothing**. |
+
+That last row is the same shape as `GatewaySHA` and `ImageDigests`, which were declared and unwritten until
+a guard was built for them. `TokenizerRev` was not in that repair.
+
+So `CompilePlan` still refuses the input length, and its refusal now says why correctly. The earlier wording
+blamed the estimator for not being invertible, which is not the obstacle: the obstacle is that there is
+nothing to resolve *against*. Measuring the revision and filling `TokenizerRev` is the unblocking step, and
+it needs an engine started once — not a rented GPU, since the calibration itself was captured on a CPU image.
+
+### Two corrections this amendment carries
+
+**`outputTokens` is a ceiling, not a length.** The field comment said "the generation length per request"
+while the sender passes it as the engine's `max_tokens`, an upper bound. A response that stops earlier is
+shorter and nothing makes the engine emit that many. Field comments ship to operators as the CRD
+description, so that was a promise the code does not keep. The comment now says ceiling and records what it
+used to say.
+
+**Seven comments carried a wrong calibration figure**, because the two estimator errors are conventionally
+normalised against different denominators. At 200 characters the estimate is 50 against a measured 68 — 36
+percent of the estimate, 26.5 percent of the measurement. At 40,000 the estimate is 10,000 against 7,695 —
+30 percent of the measurement, 23 percent of the estimate. The calibration file mixed 36 with 30; seven
+comments mixed 36 with 23. All seven now say 30 and quote the raw pairs, and the calibration file now says
+to quote the pairs rather than a percentage. Its claim that the ratio "is not monotone" was also wrong on
+its own three samples, which decrease monotonically at 1.36, 0.774 and 0.770; what they establish is that no
+single multiplicative factor fits all three.
+
 **It is a nominal 95% interval.** Five repetitions are enough to compute this statistic and to bootstrap it.
 They are not enough to establish 95% coverage, and more bootstrap draws do not create more repetitions. Every
 `b_i` and `c_i` must be published alongside the summary so a reader can see the sample the interval came
