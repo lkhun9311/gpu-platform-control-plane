@@ -291,8 +291,52 @@ The interval is a **paired** percentile bootstrap: resample complete `(b_i, c_i)
 recompute both medians and their ratio, and take the 2.5th and 97.5th percentiles. Pairing is by the
 repetition identity the schedule already carries — `hack/m5c-matrix.sh` builds cells as
 `arm|arm|rep|rate|weight|0`, so the block identity is recorded rather than inferred from two arrays having
-equal length. The bootstrap count, the seed, the median convention for an even number of repetitions, and the
-percentile convention are frozen here, before collection.
+equal length.
+
+The bootstrap count, the seed, the median convention for an even number of repetitions, the percentile
+convention and the rounding are frozen **by the table below**, before collection. An earlier version of this
+paragraph said they were "frozen here" and then named none of them — a sentence claiming a freeze is not a
+freeze, and that is the same shape as a document asserting an invariant the schema does not make. The values
+are therefore written out rather than promised.
+
+| Choice | Value | Why this one |
+|---|---|---|
+| Bootstrap resamples | **10000** | `cmd/benchharness/power.go` already drives `BootstrapCI` at this count, so the ratio interval is resampled as deeply as the existing power analysis rather than at a second, unexplained depth. |
+| Seed | **11** | The seed `hack/m5c-matrix.sh` passes to `gen-trace` for every cell. One seed for the traffic and a different one for the analysis would make the pair harder to re-derive than it needs to be, and the bootstrap is over repetition blocks, not over the trace. |
+| Median of an even count | **mean of the two central order statistics** | The ordinary convention, and the one that makes `B` and `C` continuous in the observations; taking the lower of the two would bias both arms downward by an amount that depends on the spread. |
+| Percentile of the bootstrap distribution | **nearest-rank, index `ceil(q*n)-1` clamped to `n-1`** | The convention the unexported percentile helper in `internal/bench` already uses, so the interval and the per-repetition p99s inside it are computed by one rule. Interpolating here and not there would be two conventions in one number. |
+| Per-repetition p99 | **nearest-rank over that repetition's completed victim requests** | Same function, same reason. |
+| Rounding | **`baselineP99Ms` and `colocatedP99Ms` are the medians rounded half-up to integer milliseconds; `interferenceRatio` is computed from those ROUNDED integers and printed to 3 decimal places; `interferenceRatioCI95` and `p99CI95` are printed as `lo-hi` with the same precision as the quantity they bound** | `interferenceRatio` is defined by its own field comment as `colocatedP99Ms / baselineP99Ms`. Computing it from unrounded medians while publishing rounded fields would make the published ratio unreproducible from the published numbers — a reader dividing the two integers would get a different answer. The definition wins over the extra significant figures. |
+
+None of these is a free choice made for convenience: each either reuses a convention already in the code or
+follows from a definition already published. Where a value is borrowed, the borrowing is named so a later
+change to the source is visible as a change here too.
+
+### Which contrast `R` is the ratio of, and what the existing matrix can and cannot supply
+
+`R = C / B` reads as "the effect of turning the contender on". The sharing matrix does not supply that
+contrast, and the difference is not small.
+
+`hack/m5c-matrix.sh` deploys `R1` and `shared` as **one engine holding the whole card**, and `timeSlicing`
+and `mps` as **two engines with half the card each, one tenant routed to each**. So `timeSlicing / R1`
+changes the contender AND the topology AND the victim's own memory allocation in one step. A reader taking
+that ratio for contender-presence alone is reading a combined effect.
+
+Two of the arms do give the registered contrast, and this page names them as the ones `R` may be computed
+from:
+
+- **`shared` over `R1`** is contender-presence with everything else held: the same single whole-card engine,
+  and `gen-trace --arm R1` filters the contending tenant out of the *same* trace so the victim arrives on an
+  identical schedule. That is the pairing `sharingMode: sharedInstance` describes, and it is the only one
+  in this matrix where the victim's allocation does not move.
+- **`timeSlicing` over `R1`** and **`mps` over `R1`** are topology comparisons. They are legitimate and they
+  are what `sharingMode: timeSlicing` and `sharingMode: mps` should be understood to declare — a different
+  registered question, not the same question on different hardware. A CR registering one of those modes is
+  registering the topology contrast, and its `interferenceRatio` must be read that way.
+
+This is a statement about what the numbers mean, not a change to the schema: the CRD cannot tell which
+topology a report came from. The execution plan is what has to refuse a mismatch between the declared
+`sharingMode` and the arms actually bought, before the card is rented.
 
 **It is a nominal 95% interval.** Five repetitions are enough to compute this statistic and to bootstrap it.
 They are not enough to establish 95% coverage, and more bootstrap draws do not create more repetitions. Every
