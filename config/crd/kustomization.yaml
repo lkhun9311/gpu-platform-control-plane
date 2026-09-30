@@ -7,6 +7,7 @@ resources:
 - bases/platform.lkhun9311.github.io_gpuquotapolicies.yaml
 - bases/platform.lkhun9311.github.io_inferencedeployments.yaml
 - bases/platform.lkhun9311.github.io_mltrainingjobs.yaml
+- bases/platform.lkhun9311.github.io_gpusharingbenchmarks.yaml
 # +kubebuilder:scaffold:crdkustomizeresource
 
 patches:

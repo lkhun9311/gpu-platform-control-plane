@@ -42,7 +42,7 @@ Controllers
   - InferenceDeployment controller   (built, M4-a)
   - GPUQuotaPolicy controller        (built, M3)
   - NodeHealth controller            (built, M2/M3)
-  - GpuSharingBenchmark thin status writer (designed only — no code yet, M5; deliberately not a heavy controller)
+  - GpuSharingBenchmark thin status writer (designed only — no code yet, M5; deliberately not a heavy controller. The type and CRD landed 2026-09-30; only the writer is outstanding)
         |
         v
 Data plane
@@ -76,9 +76,9 @@ Each CRD encodes an operator intent. A controller reconciles it toward the desir
 | Gateway admission guard (M5)                | **built and measured on a paid GPU.** Four repetitions 2026-09-03. The guard missed its 1.25x target at 83.7x and the run was declared invalid rather than reported. Its engage/release thresholds were the failure — but not because the gateway cannot observe pressure. It did: all 274 refusals came from the waiting-queue condition. The KV-occupancy condition was **unreachable by construction** (0.85 of a 386,912-token cache needs ~43 concurrent long requests; the trace peaked at 13) | yes (real latency effect) |
 | vLLM serving                                | smoke only (no real inference throughput)                        | yes (real serving)        |
 | DCGM / GPU metrics                          | **partly implemented, and run on rented cards by the queuelab.** A `DCGM_FI_DEV_GPU_UTIL` reader, a Pod-attribution resolver, an exporter deployment and a pre-spend gate exist (14 Go files, `config/dcgm-exporter/`). No Xid or ECC. No GPU fault detection feeds NodeHealth | yes (real metrics)        |
-| Noisy-neighbor p99, MPS, time-slicing, eBPF | no `GpuSharingBenchmark` CRD, though its sizing arithmetic and run script exist and the matrix has since run on rented cards nine times. The separate M5-b harness is **built and has produced paid-GPU evidence** | yes (measured evidence)   |
+| Noisy-neighbor p99, MPS, time-slicing, eBPF | `GpuSharingBenchmark` has a type and a CRD that enforces the load protocol at admission and treats the spec as an immutable registration, with 33 envtest specs and no status writer; its sizing arithmetic and run script exist and the matrix has run on rented cards nine times. The separate M5-b harness is **built and has produced paid-GPU evidence** | yes (measured evidence)   |
 
-The killer-feature benchmark (doc 04) produces **measured** evidence only when run on a real GPU node. Locally it produces the M5-b benchmark harness and the report skeleton; the `GpuSharingBenchmark` CRD itself is **designed only and not yet implemented**. Numbers are filled from a real-GPU run, and any unmeasured claim is labeled as such.
+The killer-feature benchmark (doc 04) produces **measured** evidence only when run on a real GPU node. Locally it produces the M5-b benchmark harness and the report skeleton; the `GpuSharingBenchmark` CRD exists and refuses a run declared outside the registered protocol, but **nothing writes its status and it has never produced a number**. Numbers are filled from a real-GPU run, and any unmeasured claim is labeled as such.
 
 ## Non-goals
 

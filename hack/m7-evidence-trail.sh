@@ -21,11 +21,19 @@ export GOTOOLCHAIN=go1.26.0
 # Two ways to run, and the difference is which cluster owns the risk.
 #
 # With KCTX set, this ADOPTS an existing cluster: it installs the WorkloadRun CRD, runs in its own
-# namespace, and removes both afterwards. That is safe for a specific reason -- workloadrunctl reconciles
-# WorkloadRun and nothing else, and no other controller in a cluster reconciles WorkloadRun -- so unlike
-# running the manager there is nothing to contend with. It is also BETTER evidence: a cluster with the
-# operator deployed publishes the target's phase itself, so the trail records transitions this script did
-# not author.
+# namespace, and removes both afterwards. It is BETTER evidence: a cluster with the operator deployed
+# publishes the target's phase itself, so the trail records transitions this script did not author.
+#
+# ⚠️ It is NOT contention-free, and this comment said it was until 2026-09-30. The claim was that
+# "no other controller in a cluster reconciles WorkloadRun" -- but cmd/main.go registers
+# WorkloadRunReconciler alongside the other five, so any cluster running the operator already has a second
+# writer for this type. The two poll at different cadences (this driver at 1s, the manager at its shipped
+# five), so their gap tolerances differ and whichever writes last decides the trail.
+#
+# So: adopt a cluster whose operator is NOT running, or accept that the trail has two authors and say so in
+# the record. The throwaway path below deploys the operator itself and therefore has the same problem; it is
+# left as it is because its evidence value depends on the operator publishing phases, and the honest fix is
+# to name the second writer rather than to pretend to a single one.
 #
 # Without KCTX it builds a throwaway cluster, which is what a machine with no cluster needs and what a
 # machine at the default inotify limit cannot do.
@@ -199,8 +207,18 @@ if [ -z "$ADOPTED" ]; then
   kind load docker-image controller:m7 --name "$CLUSTER" >/dev/null 2>&1 || fail "load the operator image"
   # The manifests pin an ECR digest, and this cluster has no credentials for it. Repointing at the
   # side-loaded tag is the same fix hack/queuelab-gpu-session.sh makes, for the same reason.
-  sed -i -e 's|^    newName: .*|    newName: controller|' \
-         -e 's|^    digest: .*|    newTag: m7|' config/manager/kustomization.yaml
+  # Two spaces, and a digest that lives on the list-item line.
+  #
+  # These patterns wanted four leading spaces and a bare `digest:`. The file writes `- digest:` and indents
+  # `name:`/`newName:` by two, so all three sed expressions matched ZERO lines and this repointing had never
+  # once applied -- the apply below used the ECR digest, from a cluster with no credentials for it. The
+  # assertion after it is the point: a substitution that silently matches nothing is how this went unnoticed.
+  sed -i -e 's|^  newName: .*|  newName: controller|' \
+         -e 's|^- digest: .*|- newTag: m7|' config/manager/kustomization.yaml
+  grep -q '^  newName: controller$' config/manager/kustomization.yaml \
+    || fail "the image repointing did not apply; config/operator would deploy the ECR digest this cluster cannot pull"
+  grep -q '^- newTag: m7$' config/manager/kustomization.yaml \
+    || fail "the digest was not replaced by the side-loaded tag; see above"
   say "deploy the operator"
   k apply --server-side -k config/operator >/dev/null || fail "deploy the operator"
   git checkout -- config/manager/kustomization.yaml

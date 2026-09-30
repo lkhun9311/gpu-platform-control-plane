@@ -1,0 +1,413 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.20.1
+  name: gpusharingbenchmarks.platform.lkhun9311.github.io
+spec:
+  group: platform.lkhun9311.github.io
+  names:
+    kind: GpuSharingBenchmark
+    listKind: GpuSharingBenchmarkList
+    plural: gpusharingbenchmarks
+    singular: gpusharingbenchmark
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.sharingMode
+      name: Mode
+      type: string
+    - jsonPath: .spec.gpuClass
+      name: Class
+      type: string
+    - jsonPath: .status.phase
+      name: Phase
+      type: string
+    - jsonPath: .status.result.interferenceRatio
+      name: Ratio
+      type: string
+    name: v1
+    schema:
+      openAPIV3Schema:
+        description: GpuSharingBenchmark declares one A/B contention experiment and
+          records its result.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: spec defines the desired state of GpuSharingBenchmark
+            properties:
+              baseline:
+                description: baseline is the latency-sensitive victim whose p99 the
+                  experiment reports.
+                properties:
+                  inputTokens:
+                    description: inputTokens is the prompt length per request.
+                    format: int32
+                    minimum: 1
+                    type: integer
+                  model:
+                    description: model is the served model name.
+                    type: string
+                  outputTokens:
+                    description: outputTokens is the generation length per request.
+                    format: int32
+                    minimum: 1
+                    type: integer
+                  qps:
+                    description: |-
+                      qps is the arrival rate as a positive plain decimal string (e.g. "2.0", "0.01").
+
+                      A string rather than a float: the value appears verbatim in the report, and a float would print back
+                      differently than it was written. The cost of that choice is that the spelling is part of the
+                      experiment's identity -- "2" and "2.00" name the same rate and are different values to the
+                      immutability rule -- which is accepted deliberately and is why the grammar is narrow.
+
+                      The pattern admits only digits with at most one decimal point, and the second rule refuses every
+                      spelling of zero. Without them the field was an unrestricted string: "", " 2.0", "NaN", "-1", "2e0",
+                      "0" and "abc" were all accepted, measured against a real apiserver.
+
+                      Zero is refused rather than read as "this side is off". The control condition is the harness running
+                      the baseline with the contender disabled; the registered rate describes the active condition, and a
+                      zero that meant absence would make one field carry two meanings.
+                    maxLength: 16
+                    pattern: ^[0-9]+(\.[0-9]+)?$
+                    type: string
+                    x-kubernetes-validations:
+                    - message: qps must be greater than zero; a control condition
+                        is the harness disabling the contender, not a rate of zero
+                      rule: self.matches('[1-9]')
+                  tenant:
+                    description: |-
+                      tenant must resolve through the identity chain: a GPUQuotaPolicy with this spec.tenant, and an entry in
+                      the gateway-api-keys Secret.
+
+                      The harness resolves both tenants before starting load and fails the benchmark with
+                      TenantNotProvisioned rather than proceeding, because a run that quietly bypasses the gateway identity
+                      model is not measuring this platform.
+                    type: string
+                required:
+                - inputTokens
+                - model
+                - outputTokens
+                - qps
+                - tenant
+                type: object
+              contender:
+                description: contender is the noisy neighbour placed alongside the
+                  baseline.
+                properties:
+                  inputTokens:
+                    description: inputTokens is the prompt length per request.
+                    format: int32
+                    minimum: 1
+                    type: integer
+                  model:
+                    description: model is the served model name.
+                    type: string
+                  outputTokens:
+                    description: outputTokens is the generation length per request.
+                    format: int32
+                    minimum: 1
+                    type: integer
+                  qps:
+                    description: |-
+                      qps is the arrival rate as a positive plain decimal string (e.g. "2.0", "0.01").
+
+                      A string rather than a float: the value appears verbatim in the report, and a float would print back
+                      differently than it was written. The cost of that choice is that the spelling is part of the
+                      experiment's identity -- "2" and "2.00" name the same rate and are different values to the
+                      immutability rule -- which is accepted deliberately and is why the grammar is narrow.
+
+                      The pattern admits only digits with at most one decimal point, and the second rule refuses every
+                      spelling of zero. Without them the field was an unrestricted string: "", " 2.0", "NaN", "-1", "2e0",
+                      "0" and "abc" were all accepted, measured against a real apiserver.
+
+                      Zero is refused rather than read as "this side is off". The control condition is the harness running
+                      the baseline with the contender disabled; the registered rate describes the active condition, and a
+                      zero that meant absence would make one field carry two meanings.
+                    maxLength: 16
+                    pattern: ^[0-9]+(\.[0-9]+)?$
+                    type: string
+                    x-kubernetes-validations:
+                    - message: qps must be greater than zero; a control condition
+                        is the harness disabling the contender, not a rate of zero
+                      rule: self.matches('[1-9]')
+                  tenant:
+                    description: |-
+                      tenant must resolve through the identity chain: a GPUQuotaPolicy with this spec.tenant, and an entry in
+                      the gateway-api-keys Secret.
+
+                      The harness resolves both tenants before starting load and fails the benchmark with
+                      TenantNotProvisioned rather than proceeding, because a run that quietly bypasses the gateway identity
+                      model is not measuring this platform.
+                    type: string
+                required:
+                - inputTokens
+                - model
+                - outputTokens
+                - qps
+                - tenant
+                type: object
+              gpuClass:
+                description: |-
+                  gpuClass is the GPU class the experiment runs on (e.g. "a10g").
+
+                  Spelled as in the rest of api/v1, so one vocabulary covers quota, serving and this.
+                type: string
+              load:
+                description: load is the arrival protocol every run obeys.
+                properties:
+                  generator:
+                    description: generator is the pinned load tool and version (e.g.
+                      "genai-perf vX.Y").
+                    type: string
+                  mode:
+                    description: |-
+                      mode is openLoop and nothing else.
+
+                      A closed-loop client waits for each response before sending the next request, so its own queueing delay
+                      suppresses the arrivals that would have revealed it -- coordinated omission. Tail-latency claims from
+                      closed-loop load are invalid, so the enum admits one value instead of leaving the choice open.
+                    enum:
+                    - openLoop
+                    type: string
+                  retries:
+                    description: |-
+                      retries must be zero.
+
+                      A retry replaces a slow response with a fast one and repairs the tail the experiment exists to measure.
+                      The CEL rule on the spec refuses any other value.
+                    format: int32
+                    minimum: 0
+                    type: integer
+                  streaming:
+                    description: |-
+                      streaming says whether the generator streams responses.
+
+                      Required, and serialized even when false, for the reason given on warmupRequests: an omitempty zero
+                      vanishes on a Go round-trip and the whole-spec immutability comparison then sees a field that has
+                      disappeared. An object created with an explicit streaming: false was frozen against every later
+                      update, including to fields documented as mutable -- confirmed against a real apiserver before this
+                      change.
+                    type: boolean
+                  timeoutMs:
+                    description: timeoutMs is the per-request timeout; a timeout is
+                      recorded as an error and never dropped.
+                    format: int32
+                    minimum: 1
+                    type: integer
+                required:
+                - generator
+                - mode
+                - retries
+                - streaming
+                - timeoutMs
+                type: object
+              minRequestsPerRun:
+                description: |-
+                  minRequestsPerRun is the sample-size floor for the victim tenant in one run.
+
+                  A p99 needs the tail populated; below a thousand requests the figure is decided by a handful of
+                  samples.
+                format: int32
+                minimum: 1000
+                type: integer
+              repetitions:
+                description: |-
+                  repetitions is how many times each condition is run.
+
+                  At least five: a p99 from three repetitions is noise, and the report is a median-of-runs with a
+                  bootstrap interval rather than a best run.
+                format: int32
+                minimum: 5
+                type: integer
+              sharingMode:
+                description: |-
+                  sharingMode is the topology under test.
+
+                  sharedInstance means both tenants reach ONE vLLM instance through the gateway, so the contention is in
+                  a shared KV-cache pool and the vLLM waiting queue. timeSlicing and mps put separate pods on one GPU,
+                  where the contention is GPU time and the KV caches are separate. They answer different questions and
+                  their numbers are not comparable, which is why the mode is part of the experiment's identity below.
+                enum:
+                - exclusive
+                - timeSlicing
+                - mps
+                - sharedInstance
+                type: string
+              warmupRequests:
+                description: |-
+                  warmupRequests are sent before measurement starts and are not counted.
+
+                  Required, and serialized even at zero. As an optional field with omitempty it was the second half of a
+                  trap: the whole spec is compared against oldSelf on update, that comparison is over API values and
+                  counts field presence, and a Go round-trip drops an omitempty zero -- so an object created with an
+                  explicit zero could never be updated again, for any field. Making it required removes the only
+                  remaining optional field in the spec alongside streaming.
+                format: int32
+                minimum: 0
+                type: integer
+            required:
+            - baseline
+            - contender
+            - gpuClass
+            - load
+            - minRequestsPerRun
+            - repetitions
+            - sharingMode
+            - warmupRequests
+            type: object
+          status:
+            description: status defines the observed state of GpuSharingBenchmark
+            properties:
+              conditions:
+                description: |-
+                  conditions represent the current state of the GpuSharingBenchmark resource.
+
+                  The status of each condition is one of True, False, or Unknown.
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+              observedGeneration:
+                description: observedGeneration is the most recent generation observed.
+                format: int64
+                type: integer
+              phase:
+                description: |-
+                  phase is the high-level state of the experiment.
+
+                  Completed requires result.reportUri -- a benchmark that finished without saying where its report is has
+                  not completed, it has stopped.
+                enum:
+                - Pending
+                - Running
+                - Completed
+                - Failed
+                type: string
+              result:
+                description: result is written only by a real-GPU run.
+                properties:
+                  baselineP99Ms:
+                    description: baselineP99Ms is the victim's p99 with the contender
+                      absent.
+                    format: int64
+                    type: integer
+                  colocatedP99Ms:
+                    description: colocatedP99Ms is the victim's p99 with the contender
+                      present.
+                    format: int64
+                    type: integer
+                  interferenceRatio:
+                    description: interferenceRatio is colocatedP99Ms / baselineP99Ms
+                      as a decimal string.
+                    type: string
+                  p99CI95:
+                    description: |-
+                      p99CI95 is the bootstrap 95% interval for the colocated p99, e.g. "2210-2440".
+
+                      Recorded beside the ratio because a ratio without a spread invites a reader to treat run-to-run
+                      variation as an effect.
+                    type: string
+                  reportUri:
+                    description: reportUri points at the committed report and its
+                      raw data.
+                    type: string
+                type: object
+            type: object
+            x-kubernetes-validations:
+            - message: phase Completed requires a non-empty status.result.reportUri
+              rule: '!has(self.phase) || self.phase != ''Completed'' || (has(self.result)
+                && has(self.result.reportUri) && size(self.result.reportUri) > 0)'
+        required:
+        - spec
+        type: object
+        x-kubernetes-validations:
+        - message: spec.load.retries must be 0; a retry repairs the tail latency this
+            benchmark measures
+          rule: self.spec.load.retries == 0
+        - message: sharedInstance means one vLLM instance, so baseline.model and contender.model
+            must be equal
+          rule: self.spec.sharingMode != 'sharedInstance' || self.spec.baseline.model
+            == self.spec.contender.model
+        - message: baseline.tenant and contender.tenant must differ; one tenant on
+            both sides measures intra-tenant contention, not isolation between tenants
+          rule: self.spec.baseline.tenant != self.spec.contender.tenant
+        - message: the spec is a registration and is immutable once created; register
+            a new GpuSharingBenchmark rather than editing this one
+          rule: self.spec == oldSelf.spec
+    served: true
+    storage: true
+    subresources:
+      status: {}

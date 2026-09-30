@@ -134,16 +134,16 @@ units is **borrowed** from `tenant-b`'s idle nominal through the cohort
 answers, and the preemption section below is where that matters.
 
 ```
-tenant-a/a1 reached phase Running after 3s
+tenant-a/a1 reached phase Running after 9s
 tenant-a/a2 reached phase Running after 0s
 
 NS         NAME   PHASE
 tenant-a   a1     Running
 tenant-a   a2     Running        <- running past tenant-a's own nominal of 1
 
-NAME           NOMINAL   ADMITTED
-gpu-tenant-a   1         2        <- 2 admitted against a nominal of 1 (1 borrowed)
-gpu-tenant-b   1         0
+NAME           COHORT         PENDING   ADMITTED
+gpu-tenant-a   gpu-platform   0         2        <- 2 admitted against a nominal of 1 (1 borrowed)
+gpu-tenant-b   gpu-platform   0         0
 ```
 
 ### Preemption (reclaim)
@@ -154,7 +154,7 @@ nominal unit via `reclaimWithinCohort: Any`, so Kueue preempted one of the two
 `Pending`.
 
 ```
-tenant-b/b1 reached phase Running after 3s
+tenant-b/b1 reached phase Running after 6s
 [EVIDENCE] preemption: tenant-a/a2 was reclaimed back to Pending after b1 admitted
 
 NS         NAME   PHASE
@@ -180,7 +180,7 @@ tenant-b   b1     Running        <- reclaimed its own nominal unit
 Kueue's own event names the reclaim explicitly:
 
 ```
-Normal  Preempted  workload/job-a2-de0c0
+Normal  Preempted  workload/job-a2-872e8
   Preempted to accommodate a workload ... due to reclamation within the cohort;
   preemptor path: /gpu-platform/gpu-tenant-b; preemptee path: /gpu-platform/gpu-tenant-a
 ```

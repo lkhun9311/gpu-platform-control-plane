@@ -413,7 +413,7 @@ shell-check: ## Parse every shell script under hack/ and .githooks/.
 		[ -f "$$f" ] || continue; \
 		bash -n "$$f" || { echo "shell-check: $$f does not parse" >&2; fail=1; }; \
 	done; \
-	for f in hack/test/spot-lifecycle/*.py; do \
+	for f in hack/test/spot-lifecycle/*.py hack/serving-stub/*.py; do \
 		[ -f "$$f" ] || continue; \
 		python3 -m py_compile "$$f" || { echo "shell-check: $$f does not compile" >&2; fail=1; }; \
 	done; \
@@ -507,12 +507,32 @@ infra-validate: terraform kustomize actionlint shell-check session-refusals sess
 			rm -rf "$$tfdata"; \
 		fi; \
 	done
-	@for k in config/argocd config/operator config/gateway config/device-plugin config/crd config/prometheus config/kueue config/samples config/storage config/policy; do \
-		if [ -f "$$k/kustomization.yaml" ]; then \
-			echo "kustomize build $$k"; \
-			"$(KUSTOMIZE)" build "$$k" >/dev/null; \
+	@# Every kustomization in the tree, and a failure in any of them stops this target.
+	@#
+	@# Two defects were fixed here on 2026-09-30, both found by an external audit of the repository's own
+	@# claims. The build's exit status was discarded: `for ... done` is one shell command whose status is the
+	@# last iteration's, so a render that failed early was overwritten by a later success and `make
+	@# infra-validate` -- which CI runs -- went green. And the list was hand-written with ten entries while
+	@# the tree holds twenty-seven kustomizations, so the overlays this repository actually deploys from
+	@# (config/operator-webhook, config/nvidia-device-plugin-mps, config/nvidia-device-plugin-timeslicing,
+	@# config/vllm-shared, config/gateway-kind, config/webhook-enabled and eleven more) were never rendered
+	@# by the gate that exists to render them. `find` cannot fall behind the tree the way a list can.
+	@# Components are excluded, and that is not a loophole -- a kustomize Component is a fragment whose
+	@# patches target resources it does not contain, so `kustomize build` on one fails by design.
+	@# config/webhook-component is the case: it patches Deployment/controller-manager, which arrives from
+	@# whichever overlay includes it, and the widened loop asked it to render alone on its first run. Its two
+	@# consumers, config/operator-webhook and config/webhook-enabled, are in the list and do build, so the
+	@# component is covered through them rather than skipped.
+	@fail=0; for f in $$(find config -name kustomization.yaml | sort); do \
+		k=$$(dirname "$$f"); \
+		if grep -qE '^kind:[[:space:]]*Component[[:space:]]*$$' "$$f"; then \
+			echo "kustomize build $$k -- component, built through its consumers"; \
+			continue; \
 		fi; \
-	done
+		echo "kustomize build $$k"; \
+		"$(KUSTOMIZE)" build "$$k" >/dev/null || { echo "infra-validate: kustomize build $$k failed" >&2; fail=1; }; \
+	done; \
+	if [ "$$fail" != "0" ]; then exit 1; fi
 	"$(ACTIONLINT)" -color
 
 .PHONY: docs-check

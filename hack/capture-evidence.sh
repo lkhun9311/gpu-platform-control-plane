@@ -3,8 +3,14 @@
 # Turns the measurements a session left behind into saved captures, and says what it could not capture.
 #
 # Run directories are gitignored and get deleted; the numbers in them are the expensive part of this
-# repository. This copies the ones worth keeping into docs/evidence/, which is tracked, and draws the device
+# repository. This writes a tracked summary of what a run measured into docs/captures/ and draws the device
 # series while it is still there to draw.
+#
+# What it does NOT do, stated here because the header claimed otherwise until 2026-09-30: it does not copy
+# measurement rows. A device series and a card listing are inlined into numbers.md, so those survive. The
+# .jsonl records are inventoried -- name, digest, row count -- and their bytes stay in the run directory and
+# die with it. So a capture is a record of what existed, not a thing a fresh clone can recompute a p99 from.
+# The distinction matters because it was the sharpest finding of an external audit of this repository.
 #
 # The logic lives here rather than in .claude/hooks/ because .claude/ is gitignored: a capture step that
 # nobody can review or test is exactly the kind of automation this repository does not trust. The hook is a
@@ -118,9 +124,28 @@ for run in "${RUNS[@]}"; do
       echo "## cards"; echo; cat "$run/preflight-nvidia-smi.csv"; echo
     fi
     if [ "${#records[@]}" -gt 0 ]; then
-      echo "## records"; echo
-      echo "${#records[@]} record(s):"
-      for r in "${records[@]}"; do echo "  $(basename "$r")"; done
+      # An inventory, not a copy, and now labelled as one.
+      #
+      # This block used to print bare basenames under the heading "records", and a test called that "rows
+      # are captured". No row is captured here: the .jsonl files stay in the gitignored run directory and
+      # are deleted with it, so a fresh clone cannot recompute any figure from what this writes. An audit
+      # led with that, and it was right to.
+      #
+      # The sha256 and line count are what an inventory can honestly carry: they identify the exact bytes a
+      # later replay must be given, and they make it checkable whether a file someone still has is the one
+      # this run measured. They do not make the capture self-contained.
+      echo "## record inventory"; echo
+      echo "${#records[@]} record(s). Filenames, digests and row counts only -- **the rows themselves are"
+      echo "not copied here**, and the run directory that holds them is gitignored. To recompute a figure,"
+      echo "the file matching the digest below has to be supplied."; echo
+      echo '| record | sha256 | rows |'
+      echo '|---|---|---:|'
+      for r in "${records[@]}"; do
+        printf '| `%s` | `%s` | %s |\n' \
+          "$(basename "$r")" \
+          "$(sha256sum "$r" 2>/dev/null | cut -c1-16 || echo unreadable)" \
+          "$(wc -l <"$r" 2>/dev/null || echo '?')"
+      done
       echo
     fi
     if [ -s "$run/preflight-why.txt" ]; then

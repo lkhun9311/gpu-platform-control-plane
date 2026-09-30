@@ -10,8 +10,9 @@ This is the killer feature. Everything else (CRDs, gateway, node lifecycle) exis
 > `vllm_metrics_golden.txt` is "bytes a real vLLM server wrote… Neither was typed from the documentation",
 > captured 2026-08-23 from a pinned `vllm/vllm-openai-cpu` image running Qwen2.5-0.5B-Instruct. It is a real
 > capture from a CPU server, which is a real limitation — CPU KV behaviour is not A10G KV behaviour — but
-> that is a different objection from the one this line made, and it was contradicted by the file it cited. **Designed only, no code:** the
-> `GpuSharingBenchmark` CRD and the sharing-mode matrix. **Not measured in this document:** everything numeric below. Every
+> that is a different objection from the one this line made, and it was contradicted by the file it cited. **Type and CRD built, never run:** the
+> `GpuSharingBenchmark` CRD enforces the protocol below at admission — the sharing-mode matrix itself is still
+> designed only, and no `status.result` has ever been written. **Not measured in this document:** everything numeric below. Every
 > figure here is a target or an example and is labeled as such. Real-GPU numbers now exist elsewhere — the
 > M5-b guard measured over four paid repetitions, the M5-c sharing matrix over nine paid pilots, and the
 > capacity ladders over six more sessions — and they live in `hack/m5d-writeup.md` and the pre-registrations
@@ -130,7 +131,7 @@ The real-GPU run is **planned and required for M5's definition of done** — not
 
 Design-of-Record. The flagship benchmark **tests whether** a long-context noisy neighbor degrades a premium tenant's p99 latency on a **single shared vLLM instance**, and whether the gateway's KV-cache-aware admission guard protects the premium tenant — at what cost to the standard tenant. It does not claim perfect GPU isolation.
 
-This is an **M5 target**. Order: NodeHealth → GPUQuotaPolicy → InferenceDeployment → Gateway (M4-b) → admission guard + GpuSharingBenchmark → real-GPU run. As of 2026-09-05 everything through the admission guard is built and the real-GPU run has happened: four paid repetitions on 2026-09-03 and an engine-level scheduler microtest on 2026-09-04. The gateway is deployed on kind and has never been deployed on EKS. `GpuSharingBenchmark` has no CRD, though its sizing arithmetic and run script exist and the matrix has since run on rented cards nine times. The guard's own result is a negative one — it missed a pre-registered 1.25x premium-tail target at 83.7x, and the run was declared invalid rather than reported.
+This is an **M5 target**. Order: NodeHealth → GPUQuotaPolicy → InferenceDeployment → Gateway (M4-b) → admission guard + GpuSharingBenchmark → real-GPU run. As of 2026-09-05 everything through the admission guard is built and the real-GPU run has happened: four paid repetitions on 2026-09-03 and an engine-level scheduler microtest on 2026-09-04. The gateway is deployed on kind and has never been deployed on EKS. `GpuSharingBenchmark` now has a type and a generated CRD that treats the spec as a registration — immutable once created, so a protocol change is a new CR — and refuses a retry, a two-model shared instance, one tenant on both sides, a closed-loop arrival mode, a qps that is not a positive plain decimal, sample sizes below the registered floors, and a status claiming `Completed` with no report. Each rule was deleted on its own and the specs it holds named from the run's JSON report: the immutability rule reddens the nine per-field edit cases, the completion rule the three `Completed` refusals, the tenant rule one, and the positive-qps rule the three spellings of zero. The 2026-09-30 amendment on the design page records what changed and why, including two questions it leaves open. It has no status writer and no recorded result; its sizing arithmetic and run script already existed, and the matrix has run on rented cards nine times. The guard's own result is a negative one — it missed a pre-registered 1.25x premium-tail target at 83.7x, and the run was declared invalid rather than reported.
 
 ### Topology
 
