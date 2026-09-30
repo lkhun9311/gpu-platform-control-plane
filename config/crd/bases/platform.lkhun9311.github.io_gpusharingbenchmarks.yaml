@@ -72,11 +72,27 @@ spec:
                     type: integer
                   qps:
                     description: |-
-                      qps is the arrival rate as a decimal string (e.g. "2.0").
+                      qps is the arrival rate as a positive plain decimal string (e.g. "2.0", "0.01").
 
                       A string rather than a float: the value appears verbatim in the report, and a float would print back
-                      differently than it was written.
+                      differently than it was written. The cost of that choice is that the spelling is part of the
+                      experiment's identity -- "2" and "2.00" name the same rate and are different values to the
+                      immutability rule -- which is accepted deliberately and is why the grammar is narrow.
+
+                      The pattern admits only digits with at most one decimal point, and the second rule refuses every
+                      spelling of zero. Without them the field was an unrestricted string: "", " 2.0", "NaN", "-1", "2e0",
+                      "0" and "abc" were all accepted, measured against a real apiserver.
+
+                      Zero is refused rather than read as "this side is off". The control condition is the harness running
+                      the baseline with the contender disabled; the registered rate describes the active condition, and a
+                      zero that meant absence would make one field carry two meanings.
+                    maxLength: 16
+                    pattern: ^[0-9]+(\.[0-9]+)?$
                     type: string
+                    x-kubernetes-validations:
+                    - message: qps must be greater than zero; a control condition
+                        is the harness disabling the contender, not a rate of zero
+                      rule: self.matches('[1-9]')
                   tenant:
                     description: |-
                       tenant must resolve through the identity chain: a GPUQuotaPolicy with this spec.tenant, and an entry in
@@ -112,11 +128,27 @@ spec:
                     type: integer
                   qps:
                     description: |-
-                      qps is the arrival rate as a decimal string (e.g. "2.0").
+                      qps is the arrival rate as a positive plain decimal string (e.g. "2.0", "0.01").
 
                       A string rather than a float: the value appears verbatim in the report, and a float would print back
-                      differently than it was written.
+                      differently than it was written. The cost of that choice is that the spelling is part of the
+                      experiment's identity -- "2" and "2.00" name the same rate and are different values to the
+                      immutability rule -- which is accepted deliberately and is why the grammar is narrow.
+
+                      The pattern admits only digits with at most one decimal point, and the second rule refuses every
+                      spelling of zero. Without them the field was an unrestricted string: "", " 2.0", "NaN", "-1", "2e0",
+                      "0" and "abc" were all accepted, measured against a real apiserver.
+
+                      Zero is refused rather than read as "this side is off". The control condition is the harness running
+                      the baseline with the contender disabled; the registered rate describes the active condition, and a
+                      zero that meant absence would make one field carry two meanings.
+                    maxLength: 16
+                    pattern: ^[0-9]+(\.[0-9]+)?$
                     type: string
+                    x-kubernetes-validations:
+                    - message: qps must be greater than zero; a control condition
+                        is the harness disabling the contender, not a rate of zero
+                      rule: self.matches('[1-9]')
                   tenant:
                     description: |-
                       tenant must resolve through the identity chain: a GPUQuotaPolicy with this spec.tenant, and an entry in
@@ -166,7 +198,14 @@ spec:
                     minimum: 0
                     type: integer
                   streaming:
-                    description: streaming says whether the generator streams responses.
+                    description: |-
+                      streaming says whether the generator streams responses.
+
+                      Required, and serialized even when false, for the reason given on warmupRequests: an omitempty zero
+                      vanishes on a Go round-trip and the whole-spec immutability comparison then sees a field that has
+                      disappeared. An object created with an explicit streaming: false was frozen against every later
+                      update, including to fields documented as mutable -- confirmed against a real apiserver before this
+                      change.
                     type: boolean
                   timeoutMs:
                     description: timeoutMs is the per-request timeout; a timeout is
@@ -178,6 +217,7 @@ spec:
                 - generator
                 - mode
                 - retries
+                - streaming
                 - timeoutMs
                 type: object
               minRequestsPerRun:
@@ -213,8 +253,14 @@ spec:
                 - sharedInstance
                 type: string
               warmupRequests:
-                description: warmupRequests are sent before measurement starts and
-                  are not counted.
+                description: |-
+                  warmupRequests are sent before measurement starts and are not counted.
+
+                  Required, and serialized even at zero. As an optional field with omitempty it was the second half of a
+                  trap: the whole spec is compared against oldSelf on update, that comparison is over API values and
+                  counts field presence, and a Go round-trip drops an omitempty zero -- so an object created with an
+                  explicit zero could never be updated again, for any field. Making it required removes the only
+                  remaining optional field in the spec alongside streaming.
                 format: int32
                 minimum: 0
                 type: integer
@@ -226,6 +272,7 @@ spec:
             - minRequestsPerRun
             - repetitions
             - sharingMode
+            - warmupRequests
             type: object
           status:
             description: status defines the observed state of GpuSharingBenchmark
@@ -339,6 +386,10 @@ spec:
                     type: string
                 type: object
             type: object
+            x-kubernetes-validations:
+            - message: phase Completed requires a non-empty status.result.reportUri
+              rule: '!has(self.phase) || self.phase != ''Completed'' || (has(self.result)
+                && has(self.result.reportUri) && size(self.result.reportUri) > 0)'
         required:
         - spec
         type: object
@@ -350,11 +401,12 @@ spec:
             must be equal
           rule: self.spec.sharingMode != 'sharedInstance' || self.spec.baseline.model
             == self.spec.contender.model
-        - message: sharingMode, baseline, contender and load define the experiment
-            and are immutable; create a new GpuSharingBenchmark instead
-          rule: self.spec.sharingMode == oldSelf.spec.sharingMode && self.spec.baseline
-            == oldSelf.spec.baseline && self.spec.contender == oldSelf.spec.contender
-            && self.spec.load == oldSelf.spec.load
+        - message: baseline.tenant and contender.tenant must differ; one tenant on
+            both sides measures intra-tenant contention, not isolation between tenants
+          rule: self.spec.baseline.tenant != self.spec.contender.tenant
+        - message: the spec is a registration and is immutable once created; register
+            a new GpuSharingBenchmark rather than editing this one
+          rule: self.spec == oldSelf.spec
     served: true
     storage: true
     subresources:

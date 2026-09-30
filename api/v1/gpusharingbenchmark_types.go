@@ -63,9 +63,15 @@ type GpuSharingBenchmarkSpec struct {
 	Repetitions int32 `json:"repetitions"`
 
 	// warmupRequests are sent before measurement starts and are not counted.
+	//
+	// Required, and serialized even at zero. As an optional field with omitempty it was the second half of a
+	// trap: the whole spec is compared against oldSelf on update, that comparison is over API values and
+	// counts field presence, and a Go round-trip drops an omitempty zero -- so an object created with an
+	// explicit zero could never be updated again, for any field. Making it required removes the only
+	// remaining optional field in the spec alongside streaming.
 	// +kubebuilder:validation:Minimum=0
-	// +optional
-	WarmupRequests int32 `json:"warmupRequests,omitempty"`
+	// +required
+	WarmupRequests int32 `json:"warmupRequests"`
 
 	// minRequestsPerRun is the sample-size floor for the victim tenant in one run.
 	//
@@ -95,10 +101,23 @@ type BenchmarkWorkload struct {
 	// +required
 	Model string `json:"model"`
 
-	// qps is the arrival rate as a decimal string (e.g. "2.0").
+	// qps is the arrival rate as a positive plain decimal string (e.g. "2.0", "0.01").
 	//
 	// A string rather than a float: the value appears verbatim in the report, and a float would print back
-	// differently than it was written.
+	// differently than it was written. The cost of that choice is that the spelling is part of the
+	// experiment's identity -- "2" and "2.00" name the same rate and are different values to the
+	// immutability rule -- which is accepted deliberately and is why the grammar is narrow.
+	//
+	// The pattern admits only digits with at most one decimal point, and the second rule refuses every
+	// spelling of zero. Without them the field was an unrestricted string: "", " 2.0", "NaN", "-1", "2e0",
+	// "0" and "abc" were all accepted, measured against a real apiserver.
+	//
+	// Zero is refused rather than read as "this side is off". The control condition is the harness running
+	// the baseline with the contender disabled; the registered rate describes the active condition, and a
+	// zero that meant absence would make one field carry two meanings.
+	// +kubebuilder:validation:MaxLength=16
+	// +kubebuilder:validation:Pattern=`^[0-9]+(\.[0-9]+)?$`
+	// +kubebuilder:validation:XValidation:rule="self.matches('[1-9]')",message="qps must be greater than zero; a control condition is the harness disabling the contender, not a rate of zero"
 	// +required
 	QPS string `json:"qps"`
 
@@ -129,8 +148,14 @@ type LoadSpec struct {
 	Generator string `json:"generator"`
 
 	// streaming says whether the generator streams responses.
-	// +optional
-	Streaming bool `json:"streaming,omitempty"`
+	//
+	// Required, and serialized even when false, for the reason given on warmupRequests: an omitempty zero
+	// vanishes on a Go round-trip and the whole-spec immutability comparison then sees a field that has
+	// disappeared. An object created with an explicit streaming: false was frozen against every later
+	// update, including to fields documented as mutable -- confirmed against a real apiserver before this
+	// change.
+	// +required
+	Streaming bool `json:"streaming"`
 
 	// timeoutMs is the per-request timeout; a timeout is recorded as an error and never dropped.
 	// +kubebuilder:validation:Minimum=1
@@ -150,6 +175,18 @@ type LoadSpec struct {
 //
 // result is absent until a real-GPU run writes it. There are deliberately no placeholder numbers: a reader who
 // finds a ratio here must be able to trust that hardware produced it.
+//
+// The completion invariant is enforced here rather than left to prose. Before this rule, a status update
+// carrying nothing but phase: Completed was accepted, so the type's own documentation ("Completed requires
+// result.reportUri") was a claim the schema did not make. It refuses a completion with no result, no URI or
+// an empty URI. It does not and cannot say the report exists or that its number is right.
+// Emptiness is tested with size(...) > 0 rather than by comparing against an empty string literal.
+//
+// Go's doc-comment reformatting turns a pair of ASCII apostrophes in a comment into a single closing curly
+// quote (U+201D), and a curly quote inside a CEL expression is a broken expression. gofmt offered that edit,
+// I applied it without reading the bytes, and the generated CRD only stayed correct because it had been
+// written before. Avoiding the literal avoids the rewrite; no apostrophe pair belongs in these comments.
+// +kubebuilder:validation:XValidation:rule="!has(self.phase) || self.phase != 'Completed' || (has(self.result) && has(self.result.reportUri) && size(self.result.reportUri) > 0)",message="phase Completed requires a non-empty status.result.reportUri"
 type GpuSharingBenchmarkStatus struct {
 	// phase is the high-level state of the experiment.
 	//
@@ -210,7 +247,8 @@ type BenchmarkResult struct {
 // +kubebuilder:printcolumn:name="Ratio",type=string,JSONPath=`.status.result.interferenceRatio`
 // +kubebuilder:validation:XValidation:rule="self.spec.load.retries == 0",message="spec.load.retries must be 0; a retry repairs the tail latency this benchmark measures"
 // +kubebuilder:validation:XValidation:rule="self.spec.sharingMode != 'sharedInstance' || self.spec.baseline.model == self.spec.contender.model",message="sharedInstance means one vLLM instance, so baseline.model and contender.model must be equal"
-// +kubebuilder:validation:XValidation:rule="self.spec.sharingMode == oldSelf.spec.sharingMode && self.spec.baseline == oldSelf.spec.baseline && self.spec.contender == oldSelf.spec.contender && self.spec.load == oldSelf.spec.load",message="sharingMode, baseline, contender and load define the experiment and are immutable; create a new GpuSharingBenchmark instead"
+// +kubebuilder:validation:XValidation:rule="self.spec.baseline.tenant != self.spec.contender.tenant",message="baseline.tenant and contender.tenant must differ; one tenant on both sides measures intra-tenant contention, not isolation between tenants"
+// +kubebuilder:validation:XValidation:rule="self.spec == oldSelf.spec",message="the spec is a registration and is immutable once created; register a new GpuSharingBenchmark rather than editing this one"
 
 // GpuSharingBenchmark declares one A/B contention experiment and records its result.
 type GpuSharingBenchmark struct {
