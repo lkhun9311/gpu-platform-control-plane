@@ -56,6 +56,13 @@ MODEL_REVISION="${MODEL_REVISION:-aa8e72537993ba99e69dfaafa59ed015b17504d1}"
 # unreachable AT THIS WINDOW rather than as unreachable, because those are different claims.
 WINDOW="${WINDOW:-150}"
 OUT="${OUT:-hack/input-length-resolution.json}"
+# Optional: write every measured (characters, tokens) pair, not only the matches.
+#
+# The resolution table answers "which length gives this count". The series answers "what does the curve look
+# like", which is what shows the non-monotonicity -- and a figure drawn from a one-off command is a figure
+# nobody can redraw. Off by default because the table is the product and the series is evidence for a claim
+# about it.
+SERIES_OUT="${SERIES_OUT:-}"
 
 # The affine fit to the three committed calibration points, used ONLY to place the window.
 #
@@ -168,6 +175,7 @@ for line in open("/windows.txt"):
         if c == target:
             hits.append(n)
     results[target] = {
+        "series": [[n, counts[n]] for n in sorted(counts)],
         "chars": min(hits) if hits else None,
         "matches": len(hits),
         "allMatches": hits,
@@ -191,7 +199,7 @@ python3 -c "import json,sys; json.load(open(sys.argv[1]))" "$WORK/results.json" 
   || fail "the results block is not valid JSON; the container's output is above"
 
 say "write $OUT"
-python3 - "$WORK/results.json" "$OUT" "$MODEL" "$MODEL_REVISION" "$COMBINED" "$SERVING_IMAGE" "$WORK/tok" "$CORPUS_SHA" <<'PY'
+python3 - "$WORK/results.json" "$OUT" "$MODEL" "$MODEL_REVISION" "$COMBINED" "$SERVING_IMAGE" "$WORK/tok" "$CORPUS_SHA" "$SERIES_OUT" <<'PY'
 import json, sys, hashlib
 res_path, out_path, model, rev, combined, image, tok_dir, corpus_sha = sys.argv[1:9]
 res = json.load(open(res_path))
@@ -233,6 +241,28 @@ table = {
     "resolved": {t: r for t, r in sorted(res.items(), key=lambda kv: int(kv[0])) if r["chars"] is not None},
     "unreachableAtThisWindow": unreachable,
 }
+series_path = sys.argv[9] if len(sys.argv) > 9 and sys.argv[9] else ""
+if series_path:
+    series = {
+        "_comment": (
+            "Every measured (characters, tokens) pair from the sweeps that produced "
+            "hack/input-length-resolution.json. This is the evidence for the non-monotonicity claim: the "
+            "token count falls as the character count rises, repeatedly, because byte-pair merges differ at "
+            "the boundary. Regenerate with SERIES_OUT set on hack/resolve-input-lengths.sh."),
+        "tokenizer": model,
+        "tokenizerRevision": rev,
+        "promptCorpusSHA256": corpus_sha,
+        "servingImage": image,
+        "series": {t: r["series"] for t, r in sorted(res.items(), key=lambda kv: int(kv[0]))},
+    }
+    json.dump(series, open(series_path, "w"), indent=2)
+    open(series_path, "a").write("\n")
+    total = sum(len(v) for v in series["series"].values())
+    print(f"  wrote {total} measured pairs to {series_path}")
+
+# The series is evidence and the table is the product, so the table does not carry it.
+for r in res.values():
+    r.pop("series", None)
 json.dump(table, open(out_path, "w"), indent=2)
 open(out_path, "a").write("\n")
 print(f"  wrote {len(table['resolved'])} resolved value(s)"
