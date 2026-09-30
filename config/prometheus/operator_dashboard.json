@@ -69,7 +69,7 @@
    },
    "targets": [
     {
-     "expr": "(sum(controller_runtime_reconcile_errors_total{job=~\".*controller-manager.*\"})) or (0 * sum(up{job=~\".*controller-manager.*\"}))",
+     "expr": "(sum(controller_runtime_reconcile_errors_total{job=~\".*controller-manager.*\"})) or (0 * sum(up{job=~\".*controller-manager.*\"} == 1))",
      "legendFormat": "errors",
      "refId": "A"
     }
@@ -140,7 +140,7 @@
    },
    "targets": [
     {
-     "expr": "(sum by (controller) (rate(controller_runtime_reconcile_errors_total{job=~\".*controller-manager.*\"}[5m]))) or (0 * sum(up{job=~\".*controller-manager.*\"}))",
+     "expr": "(sum by (controller) (rate(controller_runtime_reconcile_errors_total{job=~\".*controller-manager.*\"}[5m]))) or (0 * sum(up{job=~\".*controller-manager.*\"} == 1))",
      "legendFormat": "{{controller}}",
      "refId": "A"
     }
@@ -194,7 +194,7 @@
    },
    "targets": [
     {
-     "expr": "(sum by (action) (gpuplatform_nodehealth_taint_total)) or (0 * sum(up{job=~\".*controller-manager.*\"}))",
+     "expr": "(sum by (action) (gpuplatform_nodehealth_taint_total)) or (0 * sum(up{job=~\".*controller-manager.*\"} == 1))",
      "legendFormat": "{{action}}",
      "refId": "A"
     }
@@ -221,7 +221,7 @@
    },
    "targets": [
     {
-     "expr": "(sum(gpuplatform_gpuquotapolicy_drift_corrected_total)) or (0 * sum(up{job=~\".*controller-manager.*\"}))",
+     "expr": "(sum(gpuplatform_gpuquotapolicy_drift_corrected_total)) or (0 * sum(up{job=~\".*controller-manager.*\"} == 1))",
      "legendFormat": "corrected",
      "refId": "A"
     }
@@ -279,7 +279,7 @@
    },
    "targets": [
     {
-     "expr": "(sum by (phase) (gpuplatform_mltrainingjob_phase_total)) or (0 * sum(up{job=~\".*controller-manager.*\"}))",
+     "expr": "(sum by (phase) (gpuplatform_mltrainingjob_phase_total)) or (0 * sum(up{job=~\".*controller-manager.*\"} == 1))",
      "legendFormat": "{{phase}}",
      "refId": "A"
     }
@@ -324,7 +324,7 @@
    },
    "targets": [
     {
-     "expr": "(sum by (reason) (gpuplatform_mltrainingjob_failed_total)) or (0 * sum(up{job=~\".*controller-manager.*\"}))",
+     "expr": "(sum by (reason) (gpuplatform_mltrainingjob_failed_total)) or (0 * sum(up{job=~\".*controller-manager.*\"} == 1))",
      "legendFormat": "{{reason}}",
      "refId": "A"
     }
@@ -384,7 +384,7 @@
    },
    "targets": [
     {
-     "expr": "(sum by (reason) (increase(gpuplatform_mltrainingjob_admit_to_running_unobserved_total[10m]))) or (0 * sum(up{job=~\".*controller-manager.*\"}))",
+     "expr": "(sum by (reason) (increase(gpuplatform_mltrainingjob_admit_to_running_unobserved_total[10m]))) or (0 * sum(up{job=~\".*controller-manager.*\"} == 1))",
      "legendFormat": "{{reason}}",
      "refId": "A"
     }

@@ -252,13 +252,22 @@ done
 if [ -n "$preempted" ]; then
   log "  [EVIDENCE] preemption: tenant-a/$preempted was reclaimed back to Pending after b1 admitted"
 else
-  log "  NOTE: no tenant-a job observed in Pending within the window; see phases below"
+  log "  no tenant-a job returned to Pending within the window -- the evidence below is dumped anyway,"
+  log "  and this run does NOT demonstrate reclaim"
 fi
 log "\n[EVIDENCE] preemption result"
 phases
 log "\n--- recent Kueue / preemption events ---"
 cap k get events -A --field-selector reason=Preempted
 cap k -n tenant-a get events --sort-by=.lastTimestamp
+
+# The verdict, after the evidence rather than before it.
+#
+# This used to print a NOTE and walk on to DONE with exit 0, so a run in which nothing was ever preempted
+# reported success for the one thing the second half of this script exists to show. b1 being admitted while
+# tenant-a keeps both units is not reclaim: it is a cohort with room in it, which is the opposite reading.
+# The dump above stays unconditional because a failure is exactly when its contents are wanted.
+[ -n "$preempted" ] || die "no tenant-a job was reclaimed to Pending after b1 was admitted; reclaim is not demonstrated by this run"
 
 step "DONE"
 log "Cluster '$CLUSTER' left running for inspection. Tear down with: kind delete cluster --name $CLUSTER"

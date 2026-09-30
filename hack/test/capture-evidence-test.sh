@@ -83,10 +83,26 @@ run > "$WORK/out.txt"; rc=$?
 # because it found run.json and none of the four raw files underneath evidence/.
 if grep -q 'raw-default-fcfs-1.jsonl' "$WORK/captures/pop-nested/numbers.md" 2>/dev/null \
    && grep -q 'raw-mbt-0512-priority-1.jsonl' "$WORK/captures/pop-nested/numbers.md" 2>/dev/null; then
-  ok "rows under evidence/ are captured, not just the run.json beside them"
+  ok "records under evidence/ are inventoried, not just the run.json beside them"
 else
-  bad "a run whose rows live in evidence/ was captured without them -- this is the 2026-09-07 pilot's capture"
+  bad "a run whose records live in evidence/ was inventoried without them -- this is the 2026-09-07 pilot's capture"
 fi
+
+# What this file can and cannot assert, said plainly because the message above used to overstate it.
+#
+# It checks that a record's NAME reaches numbers.md. It does not check that the record's contents were
+# preserved, because they are not: the capture inventories .jsonl files and leaves their bytes in a
+# gitignored run directory. A test asserting "rows are captured" on the strength of a filename is the shape
+# this repository keeps finding -- a check that cannot tell the thing it names from its label.
+#
+# The assertion below at "a capture outlives the run directory" is adjacent but narrower than it sounds: it
+# checks that numbers.md is still there after the run directory goes, not that a figure can be recomputed
+# from it. For a device series or a card listing the two coincide, because those are inlined. For a .jsonl
+# record they do not.
+#
+# What would close the gap is a replay -- delete the run directory, rebuild the reported figure from the
+# capture alone, compare. That is not written as a skipped placeholder, because a skip reads as coverage. It
+# is named here as a known gap instead.
 
 # 3. The drawing happens, and carries the attribution.
 if [ -s "$WORK/captures/qlgpu-withseries/device.svg" ] \
