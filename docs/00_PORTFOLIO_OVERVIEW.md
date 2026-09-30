@@ -17,7 +17,7 @@
 > the comparison, a closed-loop arrival mode, a qps that is not a positive plain decimal, sample sizes below
 > the registered floors, and a status that claims `Completed` without naming a report. Each of those rules was
 > deleted in turn to check which specs it holds. There is no status writer and no measured result; its sizing
-> arithmetic and run script already existed. **Partly built since 2026-09-27:** the SQLite ledger and the
+> arithmetic and run script already existed. **Partly built, and projected for the first time on 2026-09-30:** the SQLite ledger and the
 > `platformctl` CLI — storage, projector and reader for 2 of 6 tables, with no run yet projected outside a
 > test. **Applied and destroyed in one cycle, not
 > applied now:** the `cluster` half of the AWS hosting path — its first apply, on 2026-08-31, failed on all

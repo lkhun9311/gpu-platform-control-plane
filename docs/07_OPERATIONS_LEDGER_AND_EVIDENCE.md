@@ -1,14 +1,22 @@
 # Operations Ledger and Evidence
 
-> **Status (2026-09-27): storage and projector exist for 2 of the 6 tables; nothing can be run yet.**
+> **Status (2026-09-30): storage, projector, reader and a CLI for 2 of the 6 tables, and the projector has
+> now run against a cluster.** `cmd/platformctl workload-runs project` read a kind cluster carrying one
+> `WorkloadRun` and wrote it: `seen=1 written=1 stale=0 without-start=0 events-new=3`. Running it again
+> reported `events-new=0 events-already=3`, so the idempotence the design claims is measured rather than
+> asserted. The record is [`hack/ledger-first-projection.md`](../hack/ledger-first-projection.md).
 > `internal/ledger` holds versioned migrations and an idempotent projector for `workload_runs` and
 > `operation_events` only, with the design of record at
 > `docs/superpowers/specs/2026-09-27-operations-ledger-slice-one-design.md`. `model_versions`,
 > `deployment_runs`, `benchmark_runs` and `node_health_history` do not exist — not as tables, not as stubs.
 >
-> **What is missing matters as much as what is there.** `ProjectWorkloadRuns` is called by tests and by nothing
-> else: there is no command that reads an apiserver or a database, so no ledger has ever been written outside a
-> test. Until that lands, this page describes storage that works and a workflow that does not run. (A separate,
+> **What is missing matters as much as what is there.** Four of the six tables below do not exist, as tables
+> or as stubs, so this page still describes more schema than the code carries. And nothing runs the projector
+> on a schedule — it is a command someone types, against whatever cluster their kubeconfig points at.
+>
+> ⚠️ This paragraph said until 2026-09-30 that `ProjectWorkloadRuns` "is called by tests and by nothing else"
+> and that "no ledger has ever been written outside a test". Both were true when written and are not now;
+> `cmd/platformctl` was already dispatching three subcommands when the sentence was last edited. (A separate,
 > unrelated event ledger lives inside the queuelab measurement lab — `internal/queuelab/ledger.go` — but it is
 > not this ledger and implements none of the tables below.)
 >
