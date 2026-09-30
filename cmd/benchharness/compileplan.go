@@ -125,6 +125,13 @@ func compilePlan(args []string) error {
 	fmt.Printf("# NOT CR-DERIVED: passed to this command, because the spec has no field for either\n")
 	fmt.Printf("export DURATION_MS=%d\n", *durationMs)
 	fmt.Printf("export STUDY=%s\n", *study)
+	// The same value under a second name, because the two consumers reach it differently.
+	//
+	// The paid session reads $STUDY from this block and bakes it into the instance as STUDY_FROM_CR. The
+	// matrix, running locally under a rehearsal, sets STUDY itself for the frozen matrix -- so a block that
+	// exported only STUDY would leave STUDY_FROM_CR unset there, and the runner's check that the compiled
+	// study matches the one the evidence is filed under would never execute on the path that can test it.
+	fmt.Printf("export STUDY_FROM_CR=%s\n", *study)
 	fmt.Printf("# The runner refuses to take these from the environment once BENCHMARK_CR_SHA256 is set.\n")
 	fmt.Printf("export BENCHMARK_CR_SHA256=%s\n", sum)
 	// The tokenizer revision, a second time and under its own name.

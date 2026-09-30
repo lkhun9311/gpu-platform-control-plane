@@ -442,6 +442,22 @@ PROBE_WEIGHT="PROBE_WEIGHT_PLACEHOLDER"
 DURATION_MS="DURATION_MS_PLACEHOLDER"
 LADDER="LADDER_PLACEHOLDER"
 LADDER_STUDY="LADDER_STUDY_PLACEHOLDER"
+# The rest of the load, which used to stay on the laptop.
+#
+# The ninth pilot's user-data carries no PREMIUM_PROMPT_CHARS, no MODEL_REVISION and no REQUEST_TIMEOUT_MS
+# -- checked, zero occurrences -- so every paid run so far used the matrix's own defaults for them: 200 and
+# 40,000 characters, and a revision this wrapper never chose. The resolved lengths measured against the
+# served tokenizer (1,174 and 42,579) had therefore never reached a rented card.
+#
+# They are empty when no compiled CR supplied them, and the matrix defaults exactly as before. A compiled
+# run fills them, and the matrix's compiled-CR block then refuses any disagreement.
+PREMIUM_PROMPT_CHARS="PREMIUM_PROMPT_CHARS_PLACEHOLDER"
+NOISY_PROMPT_CHARS="NOISY_PROMPT_CHARS_PLACEHOLDER"
+REQUEST_TIMEOUT_MS="REQUEST_TIMEOUT_MS_PLACEHOLDER"
+MODEL_REVISION="MODEL_REVISION_PLACEHOLDER"
+STUDY_FROM_CR="STUDY_PLACEHOLDER"
+BENCHMARK_CR_SHA256="BENCHMARK_CR_SHA256_PLACEHOLDER"
+BENCHMARK_CR_TOKENIZER_REV="BENCHMARK_CR_TOKENIZER_REV_PLACEHOLDER"
 # The deadline the matrix budgets its cells against is the EARLIER of the two, not the instance's.
 #
 # The instance's own backstop is BACKSTOP_SECONDS and this shell gives up at HARD_STOP_SECONDS, which is
@@ -622,6 +638,18 @@ if [ -n "$LADDER" ]; then
 else
   export RATE PREMIUM_WEIGHT NOISY_WEIGHT PROBE_WEIGHT DURATION_MS REPS ARMS
 fi
+# Exported only when they carry something, because the matrix treats an EMPTY value differently from an
+# unset one: PREMIUM_PROMPT_CHARS="" would reach gen-trace as an empty flag argument rather than falling
+# back to the default, and BENCHMARK_CR_SHA256="" would switch on a compiled-CR guard for a run that has no
+# compiled CR. So an uncompiled run exports none of them and behaves exactly as it did before.
+#
+# `if` rather than `[ ... ] && export`, because the last iteration of that form leaves status 1 behind and
+# this script runs under `set -e`. Measured: the loop with every value empty exits 1, and what happens next
+# then depends on whichever line follows -- a run that dies here would die after the card is up.
+for v in PREMIUM_PROMPT_CHARS NOISY_PROMPT_CHARS REQUEST_TIMEOUT_MS MODEL_REVISION \
+         BENCHMARK_CR_SHA256 BENCHMARK_CR_TOKENIZER_REV STUDY_FROM_CR; do
+  if [ -n "${!v}" ]; then export "${v?}"; fi
+done
 export OUT=/src/m5c-run
 
 # Each cell goes up the moment it is bought, so an instance that STOPS does not take the cells before it.
@@ -701,6 +729,13 @@ UD="$(mktemp)"
       -e "s|DURATION_MS_PLACEHOLDER|$DURATION_MS|" \
       -e "s|LADDER_PLACEHOLDER|$LADDER|" \
       -e "s|LADDER_STUDY_PLACEHOLDER|${LADDER_STUDY:-}|" \
+      -e "s|PREMIUM_PROMPT_CHARS_PLACEHOLDER|${PREMIUM_PROMPT_CHARS:-}|" \
+      -e "s|NOISY_PROMPT_CHARS_PLACEHOLDER|${NOISY_PROMPT_CHARS:-}|" \
+      -e "s|REQUEST_TIMEOUT_MS_PLACEHOLDER|${REQUEST_TIMEOUT_MS:-}|" \
+      -e "s|MODEL_REVISION_PLACEHOLDER|${MODEL_REVISION:-}|" \
+      -e "s|STUDY_PLACEHOLDER|${STUDY:-}|" \
+      -e "s|BENCHMARK_CR_SHA256_PLACEHOLDER|${BENCHMARK_CR_SHA256:-}|" \
+      -e "s|BENCHMARK_CR_TOKENIZER_REV_PLACEHOLDER|${BENCHMARK_CR_TOKENIZER_REV:-}|" \
       -e "s|RUN_NONCE_PLACEHOLDER|$RUN_NONCE|" "$RUNSCRIPT" | tail -n +2 \
     | sed -e '/^#/d' -e '/^[[:space:]]*$/d'
 } > "$UD"

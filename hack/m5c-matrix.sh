@@ -186,6 +186,18 @@ if [ -n "${BENCHMARK_CR_SHA256:-}" ]; then
     || fail "BENCHMARK_CR_TOKENIZER_REV is unset although BENCHMARK_CR_SHA256 is set. Source the whole block benchharness compile-plan prints; without it MODEL_REVISION cannot be checked against the plan and would silently take this script's default."
   [ "$MODEL_REVISION" = "$BENCHMARK_CR_TOKENIZER_REV" ] \
     || fail "MODEL_REVISION is $MODEL_REVISION but the compiled plan resolved its prompt lengths against $BENCHMARK_CR_TOKENIZER_REV. The character counts in this run were measured under one tokenizer and the manifest would name another."
+  # The study the CR was compiled FOR, against the study this run files its evidence under.
+  #
+  # The frozen matrix sets STUDY itself a few hundred lines below, and compile-plan was told a study when it
+  # translated the CR's two per-tenant rates into a total rate and a weight -- a translation that is only
+  # this load under a weighted arrival model. If the two disagree, the trace was built for one experiment
+  # and the evidence would be filed under another.
+  #
+  # Carried under its own name because this script owns STUDY: overwriting it from the environment would let
+  # a compiled block re-file the frozen matrix as something else, which is the opposite of the check.
+  if [ -n "${STUDY_FROM_CR:-}" ] && [ -z "$LADDER" ] && [ "$STUDY_FROM_CR" != "sharing-matrix-2026-09-10" ]; then
+    fail "the plan was compiled for study $STUDY_FROM_CR but this run files its evidence under sharing-matrix-2026-09-10. The arrival model the rates were translated under belongs to the compiled study, so the trace would not be the load this study registered."
+  fi
   say "load compiled from a GpuSharingBenchmark, sha256 $BENCHMARK_CR_SHA256"
 fi
 
