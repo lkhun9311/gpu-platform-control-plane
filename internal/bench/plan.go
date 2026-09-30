@@ -181,6 +181,8 @@ func CompilePlan(spec platformv1.GpuSharingBenchmarkSpec) (Plan, error) {
 		BaselinePromptChars:  baseChars,
 		ContenderPromptChars: contChars,
 		TokenizerRevision:    InputLengthTokenizerRevision,
+		GPUClass:             spec.GPUClass,
+		MinRequestsPerRun:    int(spec.MinRequestsPerRun),
 	}
 	return p, nil
 }
@@ -220,6 +222,15 @@ type Plan struct {
 	// Carried so a run can be compared with it. A plan resolved against one tokenizer describes nothing
 	// about an engine serving another, and the comparison is the only thing that can notice.
 	TokenizerRevision string
+	// GPUClass and MinRequestsPerRun are carried because the spec declares them and a plan that drops a
+	// declared requirement has not compiled the registration, it has compiled part of it.
+	//
+	// Both were checked-or-ignored and then discarded in the first version: GPUClass was never examined at
+	// all, and MinRequestsPerRun was compared against the harness floor of 100 and then left out, so the
+	// registered floor of 1,000 reached nothing downstream. An external review found both. A compiler that
+	// silently narrows what it was asked to execute makes "zero refusals" mean less than it says.
+	GPUClass          string
+	MinRequestsPerRun int
 }
 
 // ServedModel is the model the sharing topologies actually serve.

@@ -63,6 +63,19 @@ MODEL="Qwen/Qwen2.5-3B-Instruct"
 # Overridable, because a run that serves a different revision must be able to say so -- and NOT defaulted to
 # anything derived, because a wrong revision recorded confidently is worse than none.
 MODEL_REVISION="${MODEL_REVISION:-aa8e72537993ba99e69dfaafa59ed015b17504d1}"
+# The RESOLVED prompt lengths, in characters, and the per-request timeout.
+#
+# These were defaulted by gen-trace and never passed, so every paid run used 200 and 40,000 characters and a
+# 30-second timeout -- whatever the registration said. An external review found it after the resolution
+# table was measured: the table says 256 tokens is 1,174 characters and 8,192 is 42,579, and none of that
+# reached the runner. A compiler that resolves a length and a runner that ignores it is the wrong-experiment
+# failure the compiler exists to prevent, one layer down.
+#
+# Overridable, because a study that registers other lengths must be able to pass them, and NOT derived from
+# anything here: the only source is hack/input-length-resolution.json, measured against the served tokenizer.
+PREMIUM_PROMPT_CHARS="${PREMIUM_PROMPT_CHARS:-1174}"
+NOISY_PROMPT_CHARS="${NOISY_PROMPT_CHARS:-42579}"
+REQUEST_TIMEOUT_MS="${REQUEST_TIMEOUT_MS:-60000}"
 OUT="${OUT:-hack/m5c-run-$(date +%Y%m%d-%H%M%S)}"
 LOG="$OUT/evidence.log"
 GW_IMAGE="${GW_IMAGE:-gateway:m5c}"
@@ -369,6 +382,8 @@ if [ -n "${PLAN_ONLY:-}" ]; then
     set_load_flags "$cell_rate" "$cell_weight"
     "$WORK/benchharness" gen-trace --seed 11 --duration-ms "$DURATION_MS" "${LOAD_FLAGS[@]}" \
       --study "$STUDY" --arm "$cell_label" --model "$MODEL" --gateway-url "http://127.0.0.1:18080" \
+      --premium-prompt-chars "$PREMIUM_PROMPT_CHARS" --noisy-prompt-chars "$NOISY_PROMPT_CHARS" \
+      --timeout-ms "$REQUEST_TIMEOUT_MS" \
       --trace-out "$WORK/plan-$cell_label.jsonl" --manifest-out "$WORK/plan-$cell_label.yaml" >/dev/null \
       || { echo "PLAN REFUSED: gen-trace could not build $cell_label's trace" >&2; plan_failures=$(( plan_failures + 1 )); continue; }
     if ! out=$("$WORK/benchharness" ladder-plan-check --trace "$WORK/plan-$cell_label.jsonl" --study "$STUDY" --arm "$cell_label" 2>&1); then
@@ -1506,6 +1521,8 @@ run_cell() {
     --study "$STUDY" --arm "$label" --model "$MODEL" --gateway-url "http://127.0.0.1:18080" \
     --engine-image "$ENGINE_IMAGE" --gateway-image "$GATEWAY_IMAGE_REF" --gateway-sha "$SOURCE_COMMIT" \
     --tokenizer-rev "$MODEL_REVISION" \
+    --premium-prompt-chars "$PREMIUM_PROMPT_CHARS" --noisy-prompt-chars "$NOISY_PROMPT_CHARS" \
+    --timeout-ms "$REQUEST_TIMEOUT_MS" \
     --trace-out "$OUT/trace-$label-$rep.jsonl" --manifest-out "$OUT/manifest-$label-$rep.yaml" || fail "gen-trace $label"
   # --require-provenance, now that there is provenance to require.
   #
