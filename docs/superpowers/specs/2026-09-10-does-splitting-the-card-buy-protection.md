@@ -524,6 +524,13 @@ absent rather than refused — it was not in `ARMS`, and absence is not a refusa
 > both bars: tail **14.5x** R1 against 2.0x, stream **2.42x** against 1.25x — a real improvement that does
 > not reach the bar, **with all 278 of the contender's requests served**.
 
+**This is the table to quote.** Two tables on this page carry the same three arms with values that differ in
+their last digit — the eighth pilot's, further up, reads 69.6 / 1,891.1 / 1,008.7 ms, and this one is the
+ninth pilot's. They are different runs, not two renderings of one: the eighth had `mps` refuse and no
+contender column, and the ninth is the run that produced a verdict. `README.md` and
+`docs/11_WHAT_THIS_MEASURED.md` quote these numbers. Anyone copying from this page should take them from
+here and say which pilot they came from.
+
 | arm | premium TTFT p99 | /R1 | premium TPOT p99 | /R1 | contender | timeouts |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | `R1` | 69.5 ms | 1.0x | 18.2 ms | 1.0x | — | 0 |
