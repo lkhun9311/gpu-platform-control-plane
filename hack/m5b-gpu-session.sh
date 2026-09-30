@@ -634,7 +634,7 @@ The engine is up, its capacity is recorded, and the arrival rate is derived from
 from a table. What remains is the four-arm replay, which is hack/m5b-arms.sh's job and needs the gateway
 deployed once per arm. Run it now, from another shell, while this one holds the port-forward:
 
-    NS=$NS RATE=$RATE bash hack/m5b-arms.sh
+    NS=$NS RATE=$RATE BENCHHARNESS_BIN=$WORK/benchharness bash hack/m5b-arms.sh
 
 When it finishes, scale the node group to 0. This script prints the command again on exit.
 EOF
