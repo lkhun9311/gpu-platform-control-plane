@@ -53,7 +53,7 @@ type TraceRow struct {
 	//
 	// The design defines the admission-match criterion over EXACT target-tokenizer input tokens, and every
 	// run so far has computed it over ceil(chars/4) instead -- a quantity the project's own calibration
-	// records as 36 percent low on a short prompt and 23 percent high on a long one. So the pre-registered
+	// records as 36 percent low on a short prompt and 30 percent high on a long one (10,000 estimated against 7,695 measured). So the pre-registered
 	// criterion has never actually been evaluated.
 	//
 	// It lives on the trace rather than only on the response because a REFUSED request never reaches the

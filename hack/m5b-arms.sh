@@ -522,8 +522,8 @@ say "every tenant in the trace has a key and a policy"
 # The trace is stamped with the engine's own count for each distinct prompt length, before any arm runs.
 #
 # The design defines the admission-match criterion over the served tokenizer's input-token count, and three
-# paid runs scored it on ceil(chars/4) -- 36 percent low on a 200-character prompt, 23 percent high on a
-# 40,000-character one, per this repository's own calibration. The criterion has never been evaluated.
+# paid runs scored it on ceil(chars/4) -- 36 percent low on a 200-character prompt, 30 percent high on a
+# 40,000-character one (10,000 estimated against 7,695 measured), per this repository's own calibration. The criterion has never been evaluated.
 #
 # It has to be on the TRACE rather than only on responses, because a refused request never reaches the engine
 # and refused requests are the denominator of the fraction. The measurement uses the premium tenant, whose

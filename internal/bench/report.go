@@ -171,7 +171,7 @@ type ArmSummary struct {
 	// actually specifies: the served tokenizer's own count, not ceil(chars/4).
 	//
 	// The estimate is not a neutral stand-in. This project's calibration measures it 36 percent low on a
-	// 200-character prompt and 23 percent high on a 40,000-character one, so a fraction built from it weighs
+	// 200-character prompt and 30 percent high on a 40,000-character one (10,000 estimated against 7,695 measured), so a fraction built from it weighs
 	// the population differently than the criterion says to.
 	OfferedExactTokens  int64
 	AdmittedExactTokens int64
@@ -612,7 +612,7 @@ func BootstrapCI(values []float64, iterations int, seed int64, alpha float64) CI
 // It used to divide the ESTIMATED totals while ArmSummary already carried the exact ones and the comment on
 // those fields already said they were "the admitted-work fraction in the units the design actually specifies".
 // The estimate is not a neutral stand-in -- this project's own calibration measures it 36 percent low on a
-// 200-character prompt and 23 percent high on a 40,000-character one -- so a fraction built from it weighs the
+// 200-character prompt and 30 percent high on a 40,000-character one (10,000 estimated against 7,695 measured) -- so a fraction built from it weighs the
 // population differently than the criterion says to. The values were collected, validated, and then discarded
 // by the one function that decided the verdict.
 //

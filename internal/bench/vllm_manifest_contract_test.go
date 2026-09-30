@@ -1355,7 +1355,7 @@ func TestTheEngineAndModelAreReadFromTheCluster(t *testing.T) {
 //
 // The design defines the admission-match criterion over the served tokenizer's input-token count. Three paid
 // runs scored it over ceil(chars/4) instead, which this repository's calibration measures at 36 percent low
-// on a 200-character prompt and 23 percent high on a 40,000-character one -- so what was reported was a proxy
+// on a 200-character prompt and 30 percent high on a 40,000-character one (10,000 estimated against 7,695 measured) -- so what was reported was a proxy
 // nobody had pre-registered, and nothing said so.
 func TestTheTraceIsStampedWithExactTokens(t *testing.T) {
 	runner, err := os.ReadFile(filepath.Join("..", "..", "hack", "m5b-arms.sh"))

@@ -1,5 +1,5 @@
 {
-  "_comment": "Measured, not estimated. Produced by tokenizing the exact bytes internal/bench.PromptText emits, wrapped in the served model's chat template, with the tokenizer at the recorded revision. Recapture whenever promptCorpusSHA or the served model changes; both are inputs to every number here.",
+  "_comment": "Measured, not estimated. Produced by tokenizing the exact bytes internal/bench.PromptText emits, wrapped in the served model's chat template. Recapture whenever promptCorpusSHA or the served model changes; both are inputs to every number here. WHAT IS NOT RECORDED: the tokenizer revision. An earlier version of this line said the tokenizer was 'at the recorded revision' and no revision is recorded anywhere -- not here, not in config/vllm-shared/engine-a.yaml, which names the model without a revision argument, and not in RunManifest.TokenizerRev, which is declared and never written. So these numbers identify a model name and a corpus hash, and cannot be tied to the exact tokenizer artifacts that produced them.",
   "promptCorpusSHA256": "dec1020701584417449f9c7efa5354073682cce69348af3b9fb5244705200a86",
   "tokenizer": "Qwen/Qwen2.5-3B-Instruct",
   "tokenizerSharedWith": "Qwen/Qwen2.5-7B-Instruct",
@@ -32,7 +32,7 @@
   "estimatorVerdict": {
     "formula": "ceil(len(content)/4)",
     "conservative": false,
-    "_why": "The ratio is not monotone, so no single fudge factor fixes it. The chat template costs a fixed ~25 tokens, which dominates a 200-character prompt and makes the estimator UNDER-count by 36 percent there; the corpus itself runs about 5.2 characters per token, so on a 40,000-character prompt the same formula OVER-counts by 30 percent. The design spec's claim that len/4 is conservative holds only in the long regime.",
+    "_why": "The three measured ratios are 1.36, 0.774 and 0.770 -- monotone DECREASING, not non-monotone; an earlier version of this line said otherwise and its own samples do not support that. What they do establish is that no single multiplicative factor fits all three, because the ratios differ. The chat template costs a fixed overhead of roughly 25 tokens, which dominates a 200-character prompt: 50 estimated against 68 measured. The corpus itself runs about 5.2 characters per token, so at 40,000 characters the same formula gives 10,000 estimated against 7,695 measured. QUOTE THE PAIRS, NOT A PERCENTAGE: the two errors are conventionally normalised against different denominators (36 percent of the estimate at 200 characters, 30 percent of the measurement at 40,000), and that mismatch put a wrong figure into seven comments in this repository. The design spec's claim that len/4 is conservative holds only in the long regime.",
     "thresholdTokens": 4096,
     "thresholdEstimatedAtChars": 16384,
     "thresholdActualTokensAtThatLength": 3171,

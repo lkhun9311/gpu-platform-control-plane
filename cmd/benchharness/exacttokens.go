@@ -35,7 +35,7 @@ import (
 //
 // The design defines the admission-match criterion over the served tokenizer's own input-token count. Three
 // paid runs scored it on ceil(chars/4) instead -- a quantity this project's calibration records as 36 percent
-// low on a 200-character prompt and 23 percent high on a 40,000-character one -- so the pre-registered
+// low on a 200-character prompt and 30 percent high on a 40,000-character one (10,000 estimated against 7,695 measured) -- so the pre-registered
 // criterion has never been evaluated, only a proxy for it.
 //
 // The engine is asked rather than a tokenizer imported, for two reasons. It is the authority: whatever its

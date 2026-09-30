@@ -819,7 +819,7 @@ var _ = Describe("the incremental check when the repetition ratios scatter", fun
 var _ = Describe("the admitted-work fraction over exact tokens", func() {
 	// The design defines the admission-match criterion over EXACT target-tokenizer input tokens. Every run so
 	// far computed it over ceil(chars/4), which this project's own calibration records as 36% low on a
-	// 200-character prompt and 23% high on a 40,000-character one. The pre-registered criterion has therefore
+	// 200-character prompt and 30% high on a 40,000-character one (10,000 estimated against 7,695 measured). The pre-registered criterion has therefore
 	// never been evaluated -- a proxy for it has.
 	//
 	// Falling back to the estimate is exactly how that happened, so a report with no exact counts refuses the
