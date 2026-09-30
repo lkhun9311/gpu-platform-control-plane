@@ -350,14 +350,15 @@ traces without consulting it, so the protection this page advertised does not ex
 found that, and it is recorded rather than quietly corrected because the sentence is what a reader would have
 relied on.
 
-What is still missing, measured rather than suspected:
+Four of the five gaps that review named are now closed. What closed them, and what did not:
 
-- The paid `gen-trace` call passes neither prompt-length flag nor `--timeout-ms`, so it uses the defaults of
-  200 and 40,000 characters and 30,000 ms — not the resolved 1,174 and 42,579 characters, and not the CR's
-  60,000 ms. That is precisely the wrong-experiment failure the compiler claims to prevent.
-- `spec.GPUClass` is never examined, and `MinRequestsPerRun` is checked against the harness floor of 100 and
-  then dropped rather than carried into the plan, so the registered floor of 1,000 reaches nothing.
-- Zero refusals therefore proves less than "can execute this declared protocol" claims.
+| Gap | State |
+|---|---|
+| The paid `gen-trace` call passed neither prompt-length flag nor `--timeout-ms`, so it used the defaults of 200 and 40,000 characters and 30,000 ms rather than the resolved 1,174 and 42,579 and the CR's 60,000 | **closed.** `hack/m5c-matrix.sh` now carries `PREMIUM_PROMPT_CHARS`, `NOISY_PROMPT_CHARS` and `REQUEST_TIMEOUT_MS` beside `MODEL_REVISION` and passes all three on both generation calls — the paid one and the plan-only one, because a plan checked against different traffic than the run sends is not a plan |
+| `spec.GPUClass` was never examined and `MinRequestsPerRun` was checked against the harness floor of 100 and then dropped, so the registered floor of 1,000 reached nothing | **closed.** Both are carried on `Plan` now. A compiler that silently narrows what it was asked to execute makes "zero refusals" mean less than it says |
+| The resolution table's first comment claimed the prompt corpus was recorded and it was not, so changing `promptCorpus` would leave both copies of the table agreeing with each other and with nothing the sender emits | **closed.** `print-prompt --corpus-sha` prints it from the binary that owns it, the resolver records it, and the comparison test checks it against `PromptCorpusSHA256`. Mutating one character of it reddens that assertion and nothing else |
+| `CompilePlan` is called by nothing but tests | **open.** The compiler still is not wired into the paid path. Passing the resolved lengths removed the specific damage this caused; it did not make the compiler a gate |
+| The completion invariant certifies string presence, not a result: `Completed` can carry a report URI and a ratio interval with no p99 and no point ratio, because both are `+optional` | **open, and it is a design decision rather than an oversight.** Making them required would refuse a status update that records a partial outcome, and this page has not settled what a partial outcome should look like. The mutation test establishes that one presence constraint is enforced and nothing broader |
 
 Run against `config/samples/platform_v1_gpusharingbenchmark.yaml` — the protocol this page registered — it
 refuses, in ten places:
