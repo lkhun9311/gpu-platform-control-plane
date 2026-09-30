@@ -6,8 +6,11 @@
 > cites the pre-registration or result page it came from, and every claim is bounded by what the measurement
 > could actually see.
 
-The control plane is not the result. It is the instrument. The results are seven findings that could not be
+The control plane is not the result. It is the instrument. The results are eight findings that could not be
 asked without it, and four claims this project is **not** entitled to make.
+
+(Eight, counted from the headings below. This line said seven while the page carried eight, which is the
+kind of drift that makes a reader stop trusting the arithmetic in the findings themselves.)
 
 ---
 
@@ -17,8 +20,9 @@ asked without it, and four claims this project is **not** entitled to make.
 
 Reservation cannot see use (1). The scheduler cannot see whether a device is real (2). A tail metric cannot
 see the work that was refused (4). A quota system cannot see whether the workload honours a signal (5).
-Finding 3 is the exception, and it is the mechanism for why one of those blind spots cannot be closed by
-sharing the card.
+Finding 3 is the exception, and it is the mechanism for why sharing the card did not close one of those blind
+spots **at the loads measured** — the same arm closes it at lower ones, which is the whole point of stating a
+load with a claim.
 
 Finding 8 is the other exception, and it points the other way: the blind spot in 6 has a cause that can be
 moved. Where the scheduler puts the *first* small pod decides whether a later large one has anywhere to go,
@@ -98,8 +102,14 @@ mechanism at every load.
 
 **The mechanism, which is the actual finding.** A contending prompt occupies the engine for about **1.03 s**.
 The premium tail budget is a tenth of that. When the latency target is shorter than one contending request's
-service time, no sharing mode reaches it, because the unit that must be divided is not the card — it is a
-request already in flight.
+service time, **neither of the two sharing modes measured here reaches it at the loads measured here**,
+because the unit that must be divided is not the card — it is a request already in flight.
+
+The bound matters and this sentence did not carry it. It read "no sharing mode reaches it", which is a
+statement about every sharing mode at every load, and the paragraphs above it say the opposite: the same
+`timeSlicing` arm passes at 1.16 and 2.31 requests a second. What was measured is `shared` and `timeSlicing`
+on one card at the loads listed, and the service-time argument explains those observations rather than
+proving a universal. An external review caught the mismatch between this sentence and its own page.
 
 **What it does not say.** Nothing about MIG. Neither card this account may launch supports it — the
 register that reads DCGM labels records exactly that: *"correct for T4 and A10G, neither of which supports
