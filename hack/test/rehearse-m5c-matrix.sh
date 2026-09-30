@@ -70,6 +70,32 @@ for b in kind kubectl docker go; do
 done
 docker info >/dev/null 2>&1 || fail "the docker daemon is not reachable"
 
+# BENCHMARK_CR rehearses the path where a GpuSharingBenchmark supplies the load instead of the environment.
+#
+# WHY IT HAS TO BE REHEARSED HERE. The runner's compiled-CR block reads environment variables and refuses
+# when they disagree with the CR, and this script passed RATE, the weights, REPS and ARMS by hand -- so the
+# block was skipped on every rehearsal and would first execute on a rented card. Three guards in this
+# repository have already been written in a place nothing could reach; a fourth bought with a GPU is not a
+# discovery anyone needs to make twice.
+#
+# The compiled block is SOURCED rather than parsed, because that is exactly what an operator does with it.
+BENCHMARK_CR="${BENCHMARK_CR:-}"
+if [ -n "$BENCHMARK_CR" ]; then
+  [ -f "$BENCHMARK_CR" ] || fail "BENCHMARK_CR=$BENCHMARK_CR does not exist"
+  [ -z "${ARMS:-}" ] || fail "ARMS and BENCHMARK_CR are both set. The CR compiles to its own arm list, and passing one here would rehearse the disagreement the runner refuses instead of the path it allows."
+  [ -z "${REPS:-}" ] || fail "REPS and BENCHMARK_CR are both set. The CR declares its repetition count."
+  CGO_ENABLED=0 go build -o "$WORK/bh-compile" ./cmd/benchharness || fail "build benchharness to compile the CR"
+  "$WORK/bh-compile" compile-plan --cr "$BENCHMARK_CR" --duration-ms "$DURATION_MS" --study sharing-matrix-2026-09-10 > "$WORK/plan.env" \
+    || fail "the CR did not compile; the refusal above names every unsupported value"
+  # Sourced into THIS shell so the checks below see the same arms the runner will.
+  set -a
+  # shellcheck disable=SC1090
+  . "$WORK/plan.env" || fail "could not source the compiled plan"
+  set +a
+  [ -n "${BENCHMARK_CR_SHA256:-}" ] || fail "the compiled block carries no BENCHMARK_CR_SHA256, so the runner's compiled-CR guard would not engage and this rehearsal would prove nothing"
+  say "load compiled from $BENCHMARK_CR: arms [$ARMS], ${REPS} repetition(s), rate $RATE, noisy weight $NOISY_WEIGHT"
+fi
+
 cleanup() {
   if [ "$KEEP" = "1" ]; then
     say "KEEP=1: cluster $CLUSTER and $WORK left in place"
@@ -325,6 +351,18 @@ if [ -n "$LADDER_UNDER_TEST" ]; then
       ENGINE_PIN_WAIVED=1 \
       DURATION_MS="$DURATION_MS" PREMIUM_WEIGHT=1 PROBE_WEIGHT=0 \
       LADDER="$LADDER_UNDER_TEST" LADDER_STUDY="${LADDER_STUDY:-}" OUT="$OUT_DIR" \
+      CELL_DONE_HOOK="$WORK/cell-hook" CELL_HOOK_LOG="$CELL_HOOK_LOG" \
+      bash hack/m5c-matrix.sh ) 2>&1 | tee "$WORK/matrix.log"
+elif [ -n "$BENCHMARK_CR" ]; then
+  # The load is NOT passed here. Every one of RATE, the weights, REPS, ARMS, the prompt lengths and the
+  # tokenizer revision is already exported from the compiled block, and passing any of them again would be
+  # the second source the runner exists to refuse -- so a rehearsal that passed them would be rehearsing the
+  # refusal rather than the path. DURATION_MS and STUDY come from the block too, having been given to
+  # compile-plan as the two values the CR cannot carry.
+  ( cd "$SRC" && PLATFORM=kind KCTX="$KCTX" GPU_NODE="$GPU_NODE" \
+      DEADLINE_EPOCH=$(( $(date +%s) + 3600 )) \
+      GATEWAY_BIN="$WORK/gateway" BENCHHARNESS_BIN="$WORK/benchharness" \
+      ENGINE_PIN_WAIVED=1 OUT="$OUT_DIR" \
       CELL_DONE_HOOK="$WORK/cell-hook" CELL_HOOK_LOG="$CELL_HOOK_LOG" \
       bash hack/m5c-matrix.sh ) 2>&1 | tee "$WORK/matrix.log"
 else
