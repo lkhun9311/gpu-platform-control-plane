@@ -360,12 +360,16 @@ spec:
                 description: result is written only by a real-GPU run.
                 properties:
                   baselineP99Ms:
-                    description: baselineP99Ms is the victim's p99 with the contender
-                      absent.
+                    description: |-
+                      baselineP99Ms is the MEDIAN of the per-repetition victim TTFT p99s with the contender absent.
+
+                      A median of repetition-level tails, not a p99 pooled over every request of every repetition. Pooling
+                      re-weights repetitions by how many requests each happened to complete, which answers a different
+                      question from the one this type registered by giving repetitions equal standing.
                     format: int64
                     type: integer
                   colocatedP99Ms:
-                    description: colocatedP99Ms is the victim's p99 with the contender
+                    description: colocatedP99Ms is the same median with the contender
                       present.
                     format: int64
                     type: integer
@@ -373,12 +377,34 @@ spec:
                     description: interferenceRatio is colocatedP99Ms / baselineP99Ms
                       as a decimal string.
                     type: string
+                  interferenceRatioCI95:
+                    description: |-
+                      interferenceRatioCI95 is the nominal bootstrap 95% interval for interferenceRatio, e.g. "1.82-2.31".
+
+                      This is the primary reported object of the experiment, fixed by the design spec third amendment of
+                      2026-09-30 before any result existed that could influence the choice. The baseline is measured rather
+                      than known, so an interval on the colocated tail alone cannot bound the relative interference the
+                      benchmark exists to report.
+
+                      It comes from a PAIRED repetition bootstrap: complete (baseline, colocated) repetition blocks are
+                      resampled with replacement, both medians and their ratio recomputed, and the 2.5th and 97.5th
+                      percentiles taken. Pairing is by the repetition identity the run schedule records, never inferred from
+                      two arrays having equal length.
+
+                      NOMINAL, and the word is load-bearing. Five repetitions are enough to compute this interval and not
+                      enough to establish 95% coverage, and more bootstrap draws do not create more repetitions. The report
+                      this points at must publish every per-repetition p99 so a reader can see the sample it came from.
+                    type: string
                   p99CI95:
                     description: |-
-                      p99CI95 is the bootstrap 95% interval for the colocated p99, e.g. "2210-2440".
+                      p99CI95 is the nominal bootstrap 95% interval for the colocated median p99, in milliseconds,
+                      e.g. "2210-2440".
 
                       Recorded beside the ratio because a ratio without a spread invites a reader to treat run-to-run
-                      variation as an effect.
+                      variation as an effect. It is NOT the interval for the ratio: this one carries no uncertainty from the
+                      denominator, so it cannot bound the quantity the experiment reports. That is interferenceRatioCI95.
+                      The units stay milliseconds for exactly this reason -- redefining this field as a dimensionless ratio
+                      would silently change the meaning of a field whose description ships to operators in the CRD.
                     type: string
                   reportUri:
                     description: reportUri points at the committed report and its
@@ -388,8 +414,11 @@ spec:
             type: object
             x-kubernetes-validations:
             - message: phase Completed requires a non-empty status.result.reportUri
+                and a non-empty status.result.interferenceRatioCI95
               rule: '!has(self.phase) || self.phase != ''Completed'' || (has(self.result)
-                && has(self.result.reportUri) && size(self.result.reportUri) > 0)'
+                && has(self.result.reportUri) && size(self.result.reportUri) > 0 &&
+                has(self.result.interferenceRatioCI95) && size(self.result.interferenceRatioCI95)
+                > 0)'
         required:
         - spec
         type: object
