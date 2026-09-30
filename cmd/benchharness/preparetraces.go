@@ -63,6 +63,13 @@ func prepareTraces(args []string) error {
 	gatewaySHA := fs.String("gateway-sha", "", "gateway build the manifests record")
 	gatewayImage := fs.String("gateway-image", "", "gateway image reference, digest-pinned")
 	engineImage := fs.String("engine-image", "", "engine image reference, digest-pinned")
+	// The tokenizer revision, needed here for the same reason as in gen-trace.
+	//
+	// There are TWO paths that write a manifest -- gen-trace and this one -- and RequireProvenance now demands
+	// the revision from both. Adding the flag to only one would leave m5b refused at its first replay, with
+	// both engines already up, which is the most expensive place in this project to learn anything.
+	tokenizerRev := fs.String("tokenizer-rev", "",
+		"revision of the served model whose tokenizer the estimate was calibrated against (40 lowercase hex)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -166,6 +173,7 @@ func prepareTraces(args []string) error {
 				MatchTolerance:  *matchTol,
 				LongThreshold:   *longThreshold,
 				GatewaySHA:      *gatewaySHA,
+				TokenizerRev:    *tokenizerRev,
 			}
 			for role, ref := range map[string]string{"gateway": *gatewayImage, "engine": *engineImage} {
 				if ref == "" {

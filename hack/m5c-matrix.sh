@@ -53,6 +53,16 @@ KCTX="${KCTX:-$(kubectl config current-context 2>/dev/null)}"
 NS_A="${NS_A:-m5c-a}"
 NS_B="${NS_B:-m5c-b}"
 MODEL="Qwen/Qwen2.5-3B-Instruct"
+# The revision of that model, beside the name, because the two are one fact.
+#
+# RunManifest.TokenizerRev was declared for this and filled by nothing, and replay --require-provenance now
+# refuses a manifest without it. The value is the upstream repository revision, measured 2026-09-30 and
+# recorded with the tokenizer file hashes in internal/bench/testdata/tokenizer_calibration.json: a reader can
+# fetch this revision and recompute those hashes.
+#
+# Overridable, because a run that serves a different revision must be able to say so -- and NOT defaulted to
+# anything derived, because a wrong revision recorded confidently is worse than none.
+MODEL_REVISION="${MODEL_REVISION:-aa8e72537993ba99e69dfaafa59ed015b17504d1}"
 OUT="${OUT:-hack/m5c-run-$(date +%Y%m%d-%H%M%S)}"
 LOG="$OUT/evidence.log"
 GW_IMAGE="${GW_IMAGE:-gateway:m5c}"
@@ -1495,6 +1505,7 @@ run_cell() {
   "$WORK/benchharness" gen-trace --seed 11 --duration-ms "$DURATION_MS" "${LOAD_FLAGS[@]}" \
     --study "$STUDY" --arm "$label" --model "$MODEL" --gateway-url "http://127.0.0.1:18080" \
     --engine-image "$ENGINE_IMAGE" --gateway-image "$GATEWAY_IMAGE_REF" --gateway-sha "$SOURCE_COMMIT" \
+    --tokenizer-rev "$MODEL_REVISION" \
     --trace-out "$OUT/trace-$label-$rep.jsonl" --manifest-out "$OUT/manifest-$label-$rep.yaml" || fail "gen-trace $label"
   # --require-provenance, now that there is provenance to require.
   #

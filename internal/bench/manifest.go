@@ -301,5 +301,40 @@ func (m RunManifest) RequireProvenance() error {
 				" a tag names whatever was pushed under it most recently, so it identifies nothing after the next build", role, ref)
 		}
 	}
+	// The tokenizer revision, demanded for the same reason as the build and the images.
+	//
+	// The design scores admitted work over the SERVED tokenizer count, and the character-to-token
+	// calibration this repository commits was measured against one specific tokenizer. A number that cannot
+	// name that tokenizer cannot be compared with the calibration, and the calibration file itself claimed to
+	// have been measured at a revision nobody recorded.
+	//
+	// commitShaped is NOT reused here. It accepts 7 to 40 hex characters and a -dirty suffix, both of which
+	// are meaningful for a build from a working tree and meaningless for a model revision: there is no such
+	// thing as a partially modified upstream tokenizer, and a truncated revision does not identify one.
+	rev := strings.TrimSpace(m.TokenizerRev)
+	if rev == "" {
+		return fmt.Errorf("manifest carries no tokenizerRev; a paid run's evidence must name the tokenizer its input-token counts were scored against")
+	}
+	if !revisionShaped(rev) {
+		return fmt.Errorf("manifest records tokenizerRev %q, which is not a full 40-character lowercase hex revision; a truncated or invented revision identifies no tokenizer", rev)
+	}
 	return nil
+}
+
+// revisionShaped reports whether s is exactly 40 lowercase hex characters.
+//
+// Deliberately stricter than commitShaped. That function exists for a build of THIS repository, where a
+// short SHA and a -dirty suffix both still name something a reader can find. A model revision comes from an
+// upstream registry: it is always the full hash, it is never dirty, and accepting a prefix would let two
+// different tokenizers share a recorded identity.
+func revisionShaped(s string) bool {
+	if len(s) != 40 {
+		return false
+	}
+	for _, c := range s {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			return false
+		}
+	}
+	return true
 }

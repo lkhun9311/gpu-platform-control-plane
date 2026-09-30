@@ -254,6 +254,18 @@ func genTrace(args []string) error {
 	// The image flags take `name@sha256:...` references. replay -require-provenance refuses a tag, because a
 	// tag names whatever was pushed under it most recently.
 	gatewaySHA := fs.String("gateway-sha", "", "commit SHA of the gateway build under test")
+	// The tokenizer revision, which was the third field declared for provenance and never filled.
+	//
+	// RunManifest.TokenizerRev has said it records the tokenizer and chat-template revision since it was
+	// written, and nothing set it: no flag, no script, no manifest. The repair that added --gateway-sha and
+	// the image flags did not include it, so it stayed the one provenance field with no way in.
+	//
+	// It matters more than it looks. The design scores admitted work over the SERVED tokenizer count, and the
+	// calibration that relates characters to tokens was measured against one specific tokenizer. Without the
+	// revision, a number cannot be tied to the tokenizer that produced it -- and the calibration file claimed
+	// to have been measured "at the recorded revision" while no revision was recorded anywhere.
+	tokenizerRev := fs.String("tokenizer-rev", "",
+		"revision of the served model whose tokenizer the estimate was calibrated against (40 lowercase hex)")
 	gatewayImage := fs.String("gateway-image", "", "digest-pinned gateway image reference (name@sha256:...)")
 	engineImage := fs.String("engine-image", "", "digest-pinned inference engine image reference (name@sha256:...)")
 	traceOut := fs.String("trace-out", "trace.jsonl", "trace file to write")
@@ -363,6 +375,7 @@ func genTrace(args []string) error {
 		MatchTolerance:  *matchTol,
 		LongThreshold:   *longThreshold,
 		GatewaySHA:      *gatewaySHA,
+		TokenizerRev:    *tokenizerRev,
 	}
 	// Only set the map when something was supplied, so a free run's manifest carries no empty scaffolding
 	// that could later be mistaken for a recorded value.

@@ -159,6 +159,24 @@ case "${RATE:-}" in
 esac
 [ -n "${RATE:-}" ] || fail "RATE is unset. It must come from hack/m5b-gpu-session.sh's prefill measurement on THIS card, not from a default: the harness default of 20/s demands 3.8x an A10G's theoretical peak, and 7.3x a T4's, and a run at it censors every arm's tail and is disqualified by EvaluateChecks after the card has been paid for."
 
+# MODEL_REVISION is REQUIRED, has no fallback, and is checked HERE rather than beside GW_SHA.
+#
+# Beside GW_SHA is line 450-odd, which is after go build, docker build, the ECR login and the image push.
+# A refusal there has already spent build time and a registry round trip. This is the pre-spend block -- the
+# same place RATE is refused, and for the same reason -- so the refusal costs nothing.
+#
+# It was written in the wrong place first, and three attempts to trip it all stopped on an earlier guard
+# instead: RATE, then the TTL deadline, then REGISTRY. A control run that supplied the value stopped on the
+# same line, which is what showed the guard had never executed at all.
+#
+# This script reads the served model from the cluster rather than holding it as a constant, and nothing in a
+# Kubernetes object carries the revision -- the engine Deployment passes the model by name. So there is
+# nothing to derive it from, and deriving it would mean guessing.
+#
+# The `|| echo unknown` shape GW_SHA uses is deliberately NOT copied. That fallback already cost this project
+# seven paid manifests recording the literal string "unknown", past a guard that refused only an empty value.
+[ -n "${MODEL_REVISION:-}" ] || fail "MODEL_REVISION is unset. The manifests must name the revision of the model whose tokenizer scored their input counts, and this script reads the model from the cluster, which does not carry one. Pass the upstream repository revision (40 lowercase hex); internal/bench/testdata/tokenizer_calibration.json records the one this repository calibrated against"
+
 mkdir -p "$OUT" || fail "cannot create $OUT"
 : > "$LOG"
 say "rate ${RATE}/s, ${REPS} repetitions, output $OUT"
@@ -504,6 +522,7 @@ say "generate the shared trace once"
 "$WORK/benchharness" gen-trace --seed 7 --duration-ms "$DURATION_MS" --rate "$RATE" \
   --model "$MODEL" --arm off --gateway-url "http://127.0.0.1:18080" \
   --gateway-sha "$GW_SHA" --gateway-image "$GW_IMAGE" --engine-image "$ENGINE_IMAGE" \
+  --tokenizer-rev "$MODEL_REVISION" \
   --trace-out "$OUT/trace.jsonl" --manifest-out "$OUT/manifest-off.yaml" || fail "gen-trace"
 
 # The trace is what actually names the tenants, so it is the authority the list above is checked against.
@@ -548,6 +567,7 @@ say "every tenant in the trace has a key and a policy"
   -gateway-url "http://127.0.0.1:18080" -model "$MODEL" -timeout-ms 30000 -seed 7 \
   -match-tolerance 0.05 -long-threshold 4096 \
   -gateway-sha "$GW_SHA" -gateway-image "$GW_IMAGE" -engine-image "$ENGINE_IMAGE" \
+  -tokenizer-rev "$MODEL_REVISION" \
   || fail "the traces could not be prepared, so nothing was replayed"
 
 # A burst below the largest prompt makes arm B refuse every eligible request, which is not a tuning error
