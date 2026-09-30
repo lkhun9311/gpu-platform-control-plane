@@ -11,8 +11,11 @@
 > premium-tail target, and the harness declared the run invalid rather than reporting a protection claim.
 > **Built, and run for real on kind:** failure & recovery (M7) — a `WorkloadRun` CRD, a controller and a
 > driver, with a recorded run in which deleting a serving Pod produced a recovery trail nobody wrote by
-> hand. **Designed only — no CRD, no code:** `GpuSharingBenchmark` / performance isolation (though its
-> sizing arithmetic and run script exist). **Partly built since 2026-09-27:** the SQLite ledger and the
+> hand. **Type and CRD built, never run:** `GpuSharingBenchmark` / performance isolation — the API type, the
+> generated CRD and nine envtest specs exist, and the CRD refuses a retry, a two-model shared instance, an
+> edit to the fields that define an experiment, a closed-loop arrival mode and sample sizes below the
+> registered floors. There is no status writer and no measured result; its sizing arithmetic and run script
+> already existed. **Partly built since 2026-09-27:** the SQLite ledger and the
 > `platformctl` CLI — storage, projector and reader for 2 of 6 tables, with no run yet projected outside a
 > test. **Applied and destroyed in one cycle, not
 > applied now:** the `cluster` half of the AWS hosting path — its first apply, on 2026-08-31, failed on all
@@ -66,7 +69,7 @@ A multi-tenant GPUaaS control plane that:
 | `InferenceDeployment` | declare a model-serving intent               | type + serving reconciler (Deployment/Service, phase ladder) — M4-a merged                                           |
 | `GPUQuotaPolicy`      | per-tenant GPU quota / rate limit            | type + reconciler (ResourceQuota sync, drift recovery) — M3 merged; `rateLimit` feeds the M4-b gateway — **M4-b merged, gateway built, unit-tested and deployed on kind, never on EKS** |
 | `NodeHealth`          | GPU node intake and operational state        | type + reconciler (observe + taint, finalizer, drift recovery) — M2/M3 merged; **no GPU fault signal reaches it** — nothing Xid or ECC exists, and the DCGM code that does exist reads utilisation for the queuelab rather than health for this controller |
-| `GpuSharingBenchmark` | declare a noisy-neighbor / sharing benchmark | designed — spec `2026-07-04-gpusharingbenchmark-crd-design.md`; no code yet (M5)                                     |
+| `GpuSharingBenchmark` | declare a noisy-neighbor / sharing benchmark | type + CRD + 9 envtest specs, per spec `2026-07-04-gpusharingbenchmark-crd-design.md`; no status writer, no measured result (M5) |
 | `WorkloadRun`         | record a workload execution                  | type + reconciler + driver — `internal/controller/workloadrun_controller.go` (320 lines). A Pod kill was recorded automatically as `Ready → Pending → Ready` with recovery at 20 s on kind (`hack/m7-evidence-trail.log`). It is not a general-purpose ledger |
 | `MLTrainingJob`       | Kueue-admitted training job                  | type + full reconciler — translates to a `batch/v1` Job admitted through Kueue, two-tenant cohort borrowing/reclaim preemption, run end-to-end on kind (`hack/m6-kind-e2e.md`) — **M6 merged and built**. It is not the only milestone with a live run record: M7 (`hack/m7-evidence-trail.log`), the gateway chain and the three chaos scenarios have theirs |
 
