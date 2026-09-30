@@ -183,3 +183,79 @@ with a perfectly valid `reportUri`. Every rule above would pass. Censoring is a 
 that belongs to the harness and to report validation — retain attempted arrivals and failures, define the
 treatment of timeouts, and check the published statistic against the raw observations. A report URI is a
 completion requirement, not evidence that the number in it is right.
+
+## Amendment, 2026-09-30 (second): the status writer was designed, reviewed and not built, and the estimand is contradicted rather than unspecified
+
+The thin status writer this page puts in scope was designed. An external engine was asked to attack the
+design before any of it was written, and it rejected it. Each of its cited reasons was checked against the
+code in this repository and each held. The writer is therefore **not built**, and `status.result` stays
+absent. This section records why, so the next attempt starts from here rather than from the same design.
+
+### The estimand is not an open question, it is a contradiction
+
+The amendment above listed `p99CI95` under "two things this amendment does not settle". That was too kind to
+it. The registration and the code that would feed it name the reported statistic **five** different ways:
+
+| Where | What it names |
+|---|---|
+| This page | unspecified |
+| `api/v1` — `p99CI95` comment | the bootstrap 95% interval for the **colocated p99** |
+| `docs/04` | an interval on the **interference ratio** |
+| `api/v1` — `repetitions` comment | the report is a **median-of-runs** with a bootstrap interval |
+| `internal/bench` | the point estimate `TTFTMsP99` is a **pooled** p99, while `BootstrapCI` bootstraps the **mean** of the values it is given |
+
+"Unspecified" means nobody has chosen. "Contradicted" means several choices are already written down and
+shipped — the field comments reach operators as the CRD's own description. A point estimate and an interval
+that target different quantities must not be published side by side: a reader takes the pair to mean "the
+ratio lies in this range", and that sentence is not true of them.
+
+Choosing is a measurement-design decision and it is deliberately **not** made here. What can be said about
+the cost of each choice: preserving the documented median needs a median bootstrap, which
+`BootstrapCI` does not do; preserving the pooled p99 needs repetition blocks carrying raw observations so
+each bootstrap sample can recompute it, which a vector of per-repetition p99s cannot reconstruct; adopting
+the mean of per-repetition p99s is the smallest code change and the largest registration change, because it
+edits the promise to fit the implementation — the direction this project treats as the one to avoid. The
+decision belongs in a further dated amendment, written **before** a writer computes anything.
+
+### Why the writer was refused
+
+Three bindings are missing, and none of them is a detail.
+
+- **Evidence to run.** Nothing establishes that a set of summaries, manifests, an apparatus record and a
+  report came from **one** execution. Supplying yesterday's hardware preflight, today's stub summaries and
+  the intended experiment's manifests passes every check the design proposed. No malice is required.
+- **Evidence to the CR.** Nothing establishes that the measurement is **this CR's registered experiment** —
+  not the tenants, models, rates, token lengths, sharing mode, gpuClass, warmup exclusion, timeout,
+  generator version, streaming or retry behaviour. Absent evidence must not read as compliance.
+- **The estimand**, above.
+
+Two specific things the design got wrong about this repository's own harness, both found by reading the code
+rather than by reasoning about it:
+
+- **`report` writes `--json-out` before it returns its invalid-run error.** The presence of a summaries file
+  therefore does not mean report validation succeeded, and an importer that trusts the file can resurrect
+  evidence the reporting command explicitly refused.
+- **The isolated baseline's trace checksum legitimately differs from the co-located arm's.** `gen-trace`
+  filters the contender out of the same two-tenant trace, precisely so premium arrives on an identical
+  schedule. A check requiring equal checksums across arms would have rejected the intended baseline. The
+  comparison that is actually wanted is the baseline trace against the victim projection of the co-located
+  trace — same request identities, arrivals and contents.
+
+### What a writer may and may not claim
+
+With the rejected design, the most that could be claimed is that *an authorized caller supplied files that
+passed selected consistency checks*. It could **not** claim that GPU execution of this CR's registered
+experiment produced the numbers. That gap is the whole distance between this page's promise — "a reader who
+finds a ratio here must be able to trust that hardware produced it" — and what the evidence format can
+support today.
+
+Closing it needs a trusted runner that emits one bound bundle plus a receipt tying its hashes to one run,
+the CR's UID and spec, the runner's identity and the validation outcome, with the runner responsible for
+observing the actual gateway-to-engine route and GPU allocation. That requires **no change to the frozen
+`RunManifest` schema**. If that collection path is out of scope, the honest alternative is an explicitly
+operator-attested import — a narrower contract, which would mean **changing the unconditional hardware
+promise in the type's own comment**. A status condition cannot quietly weaken a guarantee the CRD advertises.
+
+Recorded outside this repository as
+`storage/gpu-platform-control-plane/issues/open/2026-09-30-the-status-writer-is-blocked-on-three-bindings`
+and `.../defects/open/2026-09-30-the-registration-names-three-competing-estimands`.
