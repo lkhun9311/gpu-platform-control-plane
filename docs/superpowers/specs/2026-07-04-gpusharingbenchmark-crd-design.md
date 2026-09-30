@@ -338,6 +338,54 @@ This is a statement about what the numbers mean, not a change to the schema: the
 topology a report came from. The execution plan is what has to refuse a mismatch between the declared
 `sharingMode` and the arms actually bought, before the card is rented.
 
+## Amendment, 2026-09-30 (fifth): the sample this page registered cannot be executed, and a compiler now says so before the card is rented
+
+`CompilePlan`, in `internal/bench`, takes a `GpuSharingBenchmarkSpec` and either resolves it into the harness
+invocation that would measure it, or refuses and names each reason. It runs before the CR is created and
+before an instance is launched, because `spec` is immutable once created and a paid run that discovers a
+mismatch does so with both engines already loaded.
+
+Run against `config/samples/platform_v1_gpusharingbenchmark.yaml` — the protocol this page registered — it
+refuses, in ten places:
+
+| Field | Registered | What the harness does |
+|---|---|---|
+| `baseline.tenant`, `contender.tenant` | `tenant-premium`, `tenant-standard` | The generator writes the fixed identities `premium-1` and `standard-noisy` into every trace row. |
+| `baseline.model`, `contender.model` | `llama3-8b` | The topologies serve `Qwen/Qwen2.5-3B-Instruct`; the gateway answers `ErrNoRoute` for any other name, once the engines are up. |
+| `baseline.outputTokens`, `contender.outputTokens` | 128, 256 | Hard-coded at 64 and 16, and sent as `max_tokens` — a cap, not a generation length. |
+| `warmupRequests` | 50 | No warmup phase and no exclusion boundary exist. Dropping leading rows afterwards is not the same protocol: with open-loop arrivals the requests straddling the boundary are still in flight when measurement begins. |
+| `baseline.inputTokens`, `contender.inputTokens` | 256, 8192 tokens | The generator is configured in CHARACTERS, and `ceil(chars/4)` is not invertible — the committed calibration measures it 36 percent low at 200 characters and 30 percent high at 40,000. |
+| `load.generator` | `genai-perf` | Not installed here and used by no run. A manifest naming a generator that did not produce the traffic identifies the wrong tool. |
+
+What it accepts matters as much, because a checker that refuses everything cannot be told from one that does
+not work: `load.mode: openLoop` is what `Replay` already does, `load.retries: 0` is honoured because the
+sender never resubmits a logical request, `streaming: true` is required by the SSE reader, `repetitions: 5`
+meets this CRD's own floor, and `minRequestsPerRun: 1000` clears the harness floor of 100.
+
+### Two of my own earlier findings were wrong, and the correction matters
+
+I first reported `openLoop` as absent because the camel-case token appears in no non-test file. It is
+**implemented** — `Replay` dispatches each request at its scheduled offset without waiting for earlier
+responses, and says so in its own comment. Absence of a name is not absence of a behaviour. `retries` was
+the same mistake in the other direction: the sender makes one call per logical request, so `retries: 0` is
+not unsupported, it is already the behaviour.
+
+### Three sample floors
+
+`MinTailSamples` is 100, the throughput ladder uses 500 privately, and this CRD requires 1000. The 100 is
+derived rather than chosen: below it the nearest-rank p99 index lands on the maximum observation, so a run
+with fewer than 100 victim completions reports its slowest request and calls it a tail.
+
+### The mutation
+
+Deleting the `warmupRequests` refusal was predicted to redden exactly two things — the per-field case and the
+sample test's assertion — and it did, with the other twelve cases green. Each refusal is asserted by the
+substring naming its own cause, never by counting refusals, because a count passes when two merge or one is
+replaced by another.
+
+Recorded outside this repository as
+`storage/gpu-platform-control-plane/defects/open/2026-09-30-the-committed-sample-cr-cannot-be-executed`.
+
 **It is a nominal 95% interval.** Five repetitions are enough to compute this statistic and to bootstrap it.
 They are not enough to establish 95% coverage, and more bootstrap draws do not create more repetitions. Every
 `b_i` and `c_i` must be published alongside the summary so a reader can see the sample the interval came
