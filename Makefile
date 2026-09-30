@@ -406,9 +406,15 @@ shell-check: ## Parse every shell script under hack/ and .githooks/.
 	@# A golden that no longer parses means the next paid run boots a machine that dies in cloud-init, and
 	@# nothing here would have said so. collapse.py is checked too -- the harness shells out to it for every
 	@# transcript, so a syntax error there fails every suite for a reason that looks like a behaviour change.
+	@# hack/test/teardown-replay/ is named because the glob stops at hack/test/*.sh and that directory is one
+	@# level deeper. Proved by breaking replay.sh deliberately on 2026-09-30: the gate stayed green, so the
+	@# tool written to verify the teardown classifier was itself unverified. Its aws stub is named for the same
+	@# reason hack/test/spot-lifecycle/bin/aws is -- a stub with a syntax error answers nothing and every
+	@# scenario then reads as "no residue", which is a false pass on the one question the replay asks.
 	@fail=0; for f in hack/*.sh hack/lib/*.sh hack/test/*.sh hack/test/spot-lifecycle/*.sh \
 		hack/test/spot-lifecycle/bin/aws hack/test/spot-lifecycle/bin/sleep \
 		hack/test/spot-lifecycle/golden/*/user-data*.sh \
+		hack/test/teardown-replay/*.sh hack/test/teardown-replay/bin/aws \
 		.githooks/*.sh .githooks/commit-msg .githooks/pre-push; do \
 		[ -f "$$f" ] || continue; \
 		bash -n "$$f" || { echo "shell-check: $$f does not parse" >&2; fail=1; }; \
