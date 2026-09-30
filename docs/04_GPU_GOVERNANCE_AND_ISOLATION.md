@@ -78,6 +78,9 @@ spec:
     timeoutMs: 60000
     retries: 0                      # retries silently repair tail latency
 # status.result (baselineP99Ms, colocatedP99Ms, interferenceRatio, p99CI95, reportUri) is
+# -- and `interferenceRatioCI95` is the ratio interval the third amendment adds; the field is
+# not in the generated CRD yet, because adding it regenerates the CRD and that is a
+# deliberate step. `p99CI95` keeps its milliseconds: the colocated median p99's interval.
 # written ONLY by a real-GPU run — no placeholder example here, by policy (see below).
 ```
 
@@ -98,7 +101,7 @@ S6 is explicitly an **exploratory layer**, not primary evidence: GPU contention 
 
 ## Metrics
 
-Serving (vLLM): TTFT p95, TPOT p95, latency p99, tokens/sec, waiting-queue depth, KV-cache usage — the primary contention signals. (These are conceptual signals; the literal Prometheus series names are version-dependent and pinned per image in the guard spec.) GPU (DCGM): utilization, memory used, temperature. System (exploratory): runqueue latency, syscall/ioctl, IO wait — time-aligned to the spike window; `/proc`/cgroup/node-exporter as fallback where eBPF is unavailable. Derived: interference ratio (`colocatedP99 / baselineP99`) with a bootstrap 95% CI, and an **estimated** cost per 1k tokens (`cost_per_1k_tokens_estimated`) — labeled estimate because the cost model's assumptions are explicit and approximate.
+Serving (vLLM): TTFT p95, TPOT p95, latency p99, tokens/sec, waiting-queue depth, KV-cache usage — the primary contention signals. (These are conceptual signals; the literal Prometheus series names are version-dependent and pinned per image in the guard spec.) GPU (DCGM): utilization, memory used, temperature. System (exploratory): runqueue latency, syscall/ioctl, IO wait — time-aligned to the spike window; `/proc`/cgroup/node-exporter as fallback where eBPF is unavailable. Derived: the interference ratio `R = C / B`, where `B` and `C` are the **medians of the per-repetition victim TTFT p99s** for the baseline and colocated arms — not pooled-request p99s, which would re-weight repetitions by how many requests each completed. Its interval is a **paired** percentile bootstrap: complete `(b_i, c_i)` repetition blocks are resampled with replacement, both medians and their ratio recomputed, and the 2.5th/97.5th percentiles taken. It is a **nominal** 95% interval — five repetitions are enough to compute and bootstrap it and not enough to establish coverage, so every `b_i` and `c_i` is published beside it. The estimand was settled in the design spec's third 2026-09-30 amendment, before any result existed to influence the choice; this line previously said only "a bootstrap 95% CI", which named neither the statistic nor the resampling unit. Also derived: an **estimated** cost per 1k tokens (`cost_per_1k_tokens_estimated`) — labeled estimate because the cost model's assumptions are explicit and approximate.
 
 ## Load protocol (applies to every run)
 
