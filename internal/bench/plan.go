@@ -114,32 +114,41 @@ func CompilePlan(spec platformv1.GpuSharingBenchmarkSpec) (Plan, error) {
 			spec.Load.Generator, HarnessGenerator)
 	}
 
-	// Input length. The CR declares tokens; the generator takes characters.
+	// Input length. The CR declares tokens; the generator takes characters; the table says which is which.
 	//
-	// The refusal is NOT that the conversion is hard. An external review showed an affine fit to the three
-	// committed calibration points with residuals under 1.1 tokens, which is a perfectly good search
-	// initializer -- so "no measured basis" was too strong, and an earlier version of this comment said it.
+	// This refused every positive count until 2026-09-30, on the grounds that there was nothing to resolve
+	// against -- no tokenizer identity was recorded anywhere. There is now: the revision is measured, the
+	// tokenizer files and chat template are hashed, and hack/resolve-input-lengths.sh sweeps candidate
+	// lengths against the served tokenizer inside the serving image itself. So the refusal narrowed from
+	// "any positive count" to "a count nobody has swept".
 	//
-	// The refusal is that there is nothing to resolve AGAINST. Resolving a token count exactly means
-	// tokenizing the templated request with the served tokenizer and accepting only a candidate whose count
-	// equals the declaration. That needs the tokenizer and chat-template identity, and this repository does
-	// not record it: the calibration names a model and a corpus hash, engine-a.yaml passes the model name
-	// with no revision, and RunManifest.TokenizerRev is declared and never written. An offline resolver built
-	// on top of that could not claim to reproduce what serves the traffic.
+	// Zero is the one value that asserts nothing, so it is the one value that needs no resolution: it means
+	// the plan carries no token length, not a prompt of no tokens.
 	//
-	// Recorded as storage/.../defects/open/2026-09-30-no-tokenizer-identity-is-recorded-anywhere.
-	// Zero is the one value that asserts nothing, so it is the one value that can be honoured: it means the
-	// plan carries no token length, not a prompt of no tokens. Any positive count would have to be converted,
-	// and the conversion does not exist.
+	// Any positive count is looked up in the measured table. It is a LOOKUP and never a computation, because
+	// the relationship is not a function of anything this code knows: it depends on the served tokenizer and
+	// its chat template, the token count is not monotone in the character count, and several character
+	// lengths give the same count. A value the table does not carry is refused, and the refusal says which
+	// values it does carry so the answer is "run the resolver for 4096" rather than "something is wrong".
+	var baseChars, contChars int
 	for _, w := range []struct {
 		side   string
 		tokens int32
-	}{{"baseline", spec.Baseline.InputTokens}, {"contender", spec.Contender.InputTokens}} {
+		out    *int
+	}{
+		{"baseline", spec.Baseline.InputTokens, &baseChars},
+		{"contender", spec.Contender.InputTokens, &contChars},
+	} {
 		if w.tokens == 0 {
 			continue
 		}
-		refuse("%s.inputTokens is %d tokens and cannot be resolved to a character length: exact resolution needs the served tokenizer and chat-template identity, and none is recorded (the calibration names a model and a corpus hash, the engine manifest passes no revision, and RunManifest.TokenizerRev is never written). The estimate ceil(chars/4) is not an authority here -- it reads 50 against a measured 68 at 200 characters and 10,000 against 7,695 at 40,000",
-			w.side, w.tokens)
+		r, ok := ResolveInputTokens(int(w.tokens))
+		if !ok {
+			refuse("%s.inputTokens is %d, which the measured resolution table does not carry; it holds %v. The generator is configured in CHARACTERS and no formula inverts the token count -- run hack/resolve-input-lengths.sh %d to sweep it against the served tokenizer and add the entry",
+				w.side, w.tokens, ResolvedInputTokenCounts(), w.tokens)
+			continue
+		}
+		*w.out = r.Chars
 	}
 
 	// Repetitions. Expressible, and the two runners disagree with the CRD about what a confirmatory run is, so
@@ -162,13 +171,16 @@ func CompilePlan(spec platformv1.GpuSharingBenchmarkSpec) (Plan, error) {
 	}
 
 	p = Plan{
-		Arms:          arms,
-		Repetitions:   int(spec.Repetitions),
-		SharingMode:   spec.SharingMode,
-		Model:         ServedModel,
-		PremiumRate:   spec.Baseline.QPS,
-		ContenderRate: spec.Contender.QPS,
-		TimeoutMs:     int(spec.Load.TimeoutMs),
+		Arms:                 arms,
+		Repetitions:          int(spec.Repetitions),
+		SharingMode:          spec.SharingMode,
+		Model:                ServedModel,
+		PremiumRate:          spec.Baseline.QPS,
+		ContenderRate:        spec.Contender.QPS,
+		TimeoutMs:            int(spec.Load.TimeoutMs),
+		BaselinePromptChars:  baseChars,
+		ContenderPromptChars: contChars,
+		TokenizerRevision:    InputLengthTokenizerRevision,
 	}
 	return p, nil
 }
@@ -192,6 +204,22 @@ type Plan struct {
 	PremiumRate   string
 	ContenderRate string
 	TimeoutMs     int
+	// BaselinePromptChars and ContenderPromptChars are the RESOLVED prompt lengths, in characters.
+	//
+	// This is the whole point of the plan carrying more than the spec does. The CR declares tokens; the
+	// generator takes characters; the plan holds the character length that was MEASURED to produce the
+	// declared token count against the served tokenizer. Zero means the side declared no token length.
+	//
+	// An external review put the boundary well: a character length belongs in the plan, not in the CR --
+	// the spec says what the experiment is, and how many characters produce a token count under one
+	// particular tokenizer is an implementation of that declaration.
+	BaselinePromptChars  int
+	ContenderPromptChars int
+	// TokenizerRevision is the revision the resolution was measured against.
+	//
+	// Carried so a run can be compared with it. A plan resolved against one tokenizer describes nothing
+	// about an engine serving another, and the comparison is the only thing that can notice.
+	TokenizerRevision string
 }
 
 // ServedModel is the model the sharing topologies actually serve.

@@ -46,8 +46,6 @@ func TestTheCommittedSampleCannotBeExecuted(t *testing.T) {
 		"baseline.outputTokens is",
 		"contender.outputTokens is",
 		"warmupRequests is",
-		"baseline.inputTokens is",
-		"contender.inputTokens is",
 		"load.generator is",
 	}
 	msg := err.Error()
@@ -60,6 +58,11 @@ func TestTheCommittedSampleCannotBeExecuted(t *testing.T) {
 	// And the things the sample DOES satisfy must not be refused, or the compiler is simply refusing
 	// everything and the test above would pass for the wrong reason.
 	for _, unwanted := range []string{
+		// The sample's 256 and 8192 token prompts are RESOLVED, measured against the served tokenizer at
+		// 1174 and 42579 characters, so they are no longer among its refusals. They were until 2026-09-30,
+		// and this pair of lines is where that change is visible.
+		"baseline.inputTokens is",
+		"contender.inputTokens is",
 		"load.mode is",      // openLoop, which Replay implements
 		"load.retries is",   // 0, which the sender honours by never resubmitting
 		"load.streaming is", // true, which the SSE reader requires
@@ -136,8 +139,10 @@ func TestEachUnsupportedValueIsRefusedOnItsOwn(t *testing.T) {
 		{"a sharing mode the matrix does not deploy", func(s *platformv1.GpuSharingBenchmarkSpec) {
 			s.SharingMode = "mig"
 		}, "sharingMode is"},
-		{"a token-denominated input length", func(s *platformv1.GpuSharingBenchmarkSpec) {
-			s.Baseline.InputTokens = 256
+		// 4096 rather than 256: 256 is in the measured table and compiles, so using it here would assert a
+		// refusal that no longer exists. What is still refused is a count nobody has swept.
+		{"an input length nobody has swept", func(s *platformv1.GpuSharingBenchmarkSpec) {
+			s.Baseline.InputTokens = 4096
 		}, "baseline.inputTokens is"},
 	}
 	for _, tc := range cases {
@@ -185,40 +190,43 @@ func executableSpec() platformv1.GpuSharingBenchmarkSpec {
 	}
 }
 
-// TestTheOnlyRemainingGapIsTheInputLength compiles an API-VALID spec and asserts what is left.
+// TestAnAPIValidSpecCompilesAndCarriesTheResolvedLengths replaces a test that asserted a gap now closed.
 //
-// The success test above proves CompilePlan can return a plan, but it does so from a spec the API would
-// reject: `inputTokens` is `+required` with `Minimum=1`, and that fixture passes zero. So it establishes
-// "the compiler can say yes" and not "the compiler can say yes to something registrable" -- a distinction an
-// external review drew and this file had blurred.
+// It used to say "the input length is the only remaining gap" and assert that an API-valid spec was refused
+// for nothing else. That was true until the resolution table landed; asserting it now would pin the absence
+// of a capability that exists. What is worth pinning instead is the other half of the same claim: the plan
+// carries the MEASURED character lengths, so a caller has the value the generator needs and never a
+// computed one.
 //
-// This test closes that gap from the other side. It feeds a spec that IS API-valid, expects a refusal, and
-// then asserts the refusal is about NOTHING BUT the input length. That turns the remaining work into a
-// measured claim: nine of the ten sample refusals have an adapter, and the tenth is the token-to-character
-// resolution, which needs a tokenizer identity this repository does not record.
-func TestTheOnlyRemainingGapIsTheInputLength(t *testing.T) {
+// The numbers are the measurement, not a convention. 256 tokens resolved to 1174 characters and 8192 to
+// 42579, each the smallest of several lengths that give the declared count, swept inside the serving image.
+// If the tokenizer moves they change, and the constants below will disagree with the table -- which is what
+// TestInputLengthTableMatchesTheMeasurement is for.
+func TestAnAPIValidSpecCompilesAndCarriesTheResolvedLengths(t *testing.T) {
 	spec := apiValidSpec()
-	_, err := CompilePlan(spec)
-	if err == nil {
-		t.Fatal("an API-valid spec compiled; if the input-length resolution landed, this test should be rewritten to assert the plan instead")
+	p, err := CompilePlan(spec)
+	if err != nil {
+		t.Fatalf("an API-valid spec was refused: %v", err)
 	}
-	msg := err.Error()
-
-	for _, want := range []string{"baseline.inputTokens is", "contender.inputTokens is"} {
-		if !strings.Contains(msg, want) {
-			t.Errorf("the refusal does not mention %q; got:\n%s", want, msg)
-		}
+	if p.BaselinePromptChars != 1174 {
+		t.Errorf("baseline prompt chars = %d, want the measured 1174", p.BaselinePromptChars)
 	}
-	// Everything else must be absent. A refusal list that still named another cause would mean the adapter
-	// gap is wider than this test claims, and claiming it is narrower than it is would be the overclaim.
-	for _, unwanted := range []string{
-		"tenant is", "model is", "outputTokens is", "warmupRequests is",
-		"load.mode is", "load.retries is", "load.streaming is", "load.generator is",
-		"minRequestsPerRun is", "sharingMode is", "repetitions is",
-	} {
-		if strings.Contains(msg, unwanted) {
-			t.Errorf("the refusal also mentions %q, so the input length is NOT the only remaining gap; got:\n%s", unwanted, msg)
-		}
+	if p.ContenderPromptChars != 42579 {
+		t.Errorf("contender prompt chars = %d, want the measured 42579", p.ContenderPromptChars)
+	}
+	if p.TokenizerRevision != InputLengthTokenizerRevision {
+		t.Errorf("tokenizer revision = %q, want %q", p.TokenizerRevision, InputLengthTokenizerRevision)
+	}
+	// And the plan must not quietly carry a length for a side that declared no token count: zero means the
+	// side asserted nothing, and turning that into a character length would invent traffic.
+	zero := apiValidSpec()
+	zero.Contender.InputTokens = 0
+	pz, err := CompilePlan(zero)
+	if err != nil {
+		t.Fatalf("a spec with no contender token count was refused: %v", err)
+	}
+	if pz.ContenderPromptChars != 0 {
+		t.Errorf("contender prompt chars = %d for a side that declared no tokens, want 0", pz.ContenderPromptChars)
 	}
 }
 
