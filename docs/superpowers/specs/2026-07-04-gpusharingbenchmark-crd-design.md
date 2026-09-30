@@ -341,9 +341,23 @@ topology a report came from. The execution plan is what has to refuse a mismatch
 ## Amendment, 2026-09-30 (fifth): the sample this page registered cannot be executed, and a compiler now says so before the card is rented
 
 `CompilePlan`, in `internal/bench`, takes a `GpuSharingBenchmarkSpec` and either resolves it into the harness
-invocation that would measure it, or refuses and names each reason. It runs before the CR is created and
-before an instance is launched, because `spec` is immutable once created and a paid run that discovers a
-mismatch does so with both engines already loaded.
+invocation that would measure it, or refuses and names each reason.
+
+⚠️ **It is a library function, and nothing but tests calls it.** This paragraph said it "runs before the CR
+is created and before an instance is launched" — that is what it is FOR and not what it does. A
+repository-wide search finds callers only in `internal/bench/plan_test.go`. The paid path still generates its
+traces without consulting it, so the protection this page advertised does not exist yet. An external review
+found that, and it is recorded rather than quietly corrected because the sentence is what a reader would have
+relied on.
+
+What is still missing, measured rather than suspected:
+
+- The paid `gen-trace` call passes neither prompt-length flag nor `--timeout-ms`, so it uses the defaults of
+  200 and 40,000 characters and 30,000 ms — not the resolved 1,174 and 42,579 characters, and not the CR's
+  60,000 ms. That is precisely the wrong-experiment failure the compiler claims to prevent.
+- `spec.GPUClass` is never examined, and `MinRequestsPerRun` is checked against the harness floor of 100 and
+  then dropped rather than carried into the plan, so the registered floor of 1,000 reaches nothing.
+- Zero refusals therefore proves less than "can execute this declared protocol" claims.
 
 Run against `config/samples/platform_v1_gpusharingbenchmark.yaml` — the protocol this page registered — it
 refuses, in ten places:
