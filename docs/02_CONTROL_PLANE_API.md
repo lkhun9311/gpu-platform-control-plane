@@ -1,11 +1,11 @@
 # Control Plane API
 
-> **Status (2026-08-07).** Per CRD: `InferenceDeployment`, `GPUQuotaPolicy`, and `NodeHealth` are **built**
+> **Status (2026-09-30).** Per CRD: `InferenceDeployment`, `GPUQuotaPolicy`, and `NodeHealth` are **built**
 > (`NodeHealth` gets no GPU fault signal — nothing Xid or ECC exists, and the DCGM code that does exist is
 > a utilisation reader for the queuelab rather than a health input). `MLTrainingJob`
 > is **built** (M6, run end-to-end on kind — never on real hardware). M6 is not the only milestone with live
 > end-to-end evidence: M7, the gateway chain and the chaos scenarios all have run records under `hack/`.
-> `GpuSharingBenchmark` is **designed only — no CRD**, though its sizing arithmetic and run script exist.
+> `GpuSharingBenchmark` has a **type and a generated CRD** (2026-09-30) that treats the spec as an immutable registration and enforces the load protocol at admission, with 33 envtest specs; the **thin status writer is the outstanding piece**, so nothing has ever written `status.result` and no result has been recorded through it. Its sizing arithmetic and run script exist and the sharing matrix has run on rented cards. This line said "designed only — no CRD" until 2026-09-30, and the table below was dated 2026-07 and never re-read when the prose around it was corrected — so this document contradicted itself about two CRDs at once, and `make docs-check` cannot see that because it resolves names, not claims.
 > `WorkloadRun` is **built and has been run for real on kind** (M7): a CRD, a controller, a driver, and a
 > recorded run in which deleting a serving Pod produced a recovery trail nobody wrote by hand. The gateway
 > (Layer 4, M4-b) is **built, unit-tested and deployed on kind but never on EKS**. The M5 KV-cache-aware admission guard is
@@ -16,13 +16,13 @@ The control plane is a set of CRDs in API group `platform.lkhun9311.github.io/v1
 
 ## CRD family
 
-| CRD                   | Role                                                               | Tier                                       | Implemented today (2026-07)                                                                                                      |
+| CRD                   | Role                                                               | Tier                                       | Implemented today (2026-09-30)                                                                                                   |
 |-----------------------|--------------------------------------------------------------------|--------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------|
 | `InferenceDeployment` | model-serving intent → Deployment/Service/KEDA                     | Core                                       | type + serving reconciler (Deployment/Service, phase ladder) — M4-a merged                                                       |
 | `GPUQuotaPolicy`      | per-tenant GPU quota / rate limit → ResourceQuota + gateway config | Core                                       | type + reconciler (ResourceQuota sync, drift recovery) — M3 merged; `rateLimit` field consumed by the M4-b gateway — **M4-b merged, gateway built, unit-tested and deployed on kind, never on EKS** |
 | `NodeHealth`          | GPU node intake & operational state                                | Core                                       | type + reconciler (observe + taint, finalizer, drift recovery) — M2/M3 merged                                                    |
-| `GpuSharingBenchmark` | declarative noisy-neighbor / sharing benchmark                     | Core (killer feature)                      | designed — spec `2026-07-04-gpusharingbenchmark-crd-design.md`; no code yet (M5)                                                 |
-| `WorkloadRun`         | record a workload execution as evidence                            | Evidence / CRD-lite                        | sketched below only — no spec or code yet (M7)                                                                                   |
+| `GpuSharingBenchmark` | declarative noisy-neighbor / sharing benchmark                     | Core (killer feature)                      | type + generated CRD + 33 envtest specs, per spec `2026-07-04-gpusharingbenchmark-crd-design.md` and its 2026-09-30 amendment; the spec is immutable once created, so a protocol change is a new CR. **No status writer and no recorded result** (M5) — deliberately not a heavy reconciler, which is the spec's own scope decision, so the absent controller is registered design and not a gap |
+| `WorkloadRun`         | record a workload execution as evidence                            | Evidence / CRD-lite                        | type + reconciler, registered in `cmd/main.go`, and driven end to end on kind (M7): deleting a serving Pod produced a recovery trail nobody wrote by hand. This cell read "sketched below only — no spec or code yet" while the status block at the top of this same document said it was built and had been run for real |
 | `MLTrainingJob`       | Kueue-admitted training job                                        | **M6 (promoted from stretch, 2026-07-04)** | type + full reconciler — Job+Kueue Workload translation, two-tenant cohort borrowing/reclaim preemption, run end-to-end on kind — **M6 merged** (`hack/m6-kind-e2e.md`). Not the only milestone with a live run record; see `hack/m7-evidence-trail.log` and the chaos write-ups |
 
 `MLTrainingJob` was promoted from stretch to **M6** (2026-07-04): it shows the same `GPUQuotaPolicy` can extend from inference to training. The main narrative stays inference-first GPUaaS + performance isolation; M6 is the training-admission bridge, not a second flagship.
