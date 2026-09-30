@@ -28,6 +28,7 @@ func TestInputLengthTableMatchesTheMeasurement(t *testing.T) {
 		TokenizerRevision                string `json:"tokenizerRevision"`
 		TokenizerCoreFilesCombinedSHA256 string `json:"tokenizerCoreFilesCombinedSHA256"`
 		ChatTemplateSHA256               string `json:"chatTemplateSHA256"`
+		PromptCorpusSHA256               string `json:"promptCorpusSHA256"`
 		ServingImage                     string `json:"servingImage"`
 		Resolved                         map[string]struct {
 			Chars      int   `json:"chars"`
@@ -53,6 +54,16 @@ func TestInputLengthTableMatchesTheMeasurement(t *testing.T) {
 	}
 	if file.Tokenizer != ServedModel {
 		t.Errorf("the table was measured against %q and the plan compiler serves %q", file.Tokenizer, ServedModel)
+	}
+	// The corpus is an input to every count in the table, and the one that this binary can check directly.
+	//
+	// The tokenizer identity says what did the counting; the corpus says what was counted. Changing
+	// promptCorpus shifts every token count, and without this comparison both copies of the table would
+	// still agree with each other while agreeing with nothing the sender emits. The table omitted the corpus
+	// entirely until an external review noticed that its own first comment claimed to record it.
+	if file.PromptCorpusSHA256 != PromptCorpusSHA256 {
+		t.Errorf("the table was measured against corpus %q and this binary emits %q; every count in it is stale",
+			file.PromptCorpusSHA256, PromptCorpusSHA256)
 	}
 
 	// Then the entries, in both directions. One direction alone would let an entry be added to the Go table

@@ -1348,8 +1348,19 @@ func (e *armEvidence) incrementalCI() bench.CI {
 func printPrompt(args []string) {
 	fs := flag.NewFlagSet("print-prompt", flag.ExitOnError)
 	chars := fs.Int("chars", 0, "prompt length in characters")
+	// The corpus hash, printed so a caller can record WHICH corpus its measurements were taken against.
+	//
+	// hack/resolve-input-lengths.sh needs it: every token count it measures depends on the corpus bytes, and
+	// its table said the corpus was recorded while recording only the tokenizer. Changing promptCorpus would
+	// then leave both copies of that table agreeing with each other and disagreeing with reality. Go owns the
+	// corpus and its hash, so Go prints it rather than a shell recomputing it from a copy.
+	corpusSHA := fs.Bool("corpus-sha", false, "print the prompt corpus sha256 and exit, ignoring --chars")
 	if err := fs.Parse(args); err != nil {
 		os.Exit(2)
+	}
+	if *corpusSHA {
+		fmt.Println(bench.PromptCorpusSHA256)
+		return
 	}
 	if *chars <= 0 {
 		fmt.Fprintln(os.Stderr, "print-prompt: --chars must be positive")

@@ -105,6 +105,18 @@ COMBINED="$(cd "$WORK/tok" && for f in merges.txt tokenizer.json tokenizer_confi
 done | sha256sum | cut -d' ' -f1)"
 say "  tokenizer core files combined sha256 ${COMBINED:0:16}"
 
+# The corpus hash, from the binary that owns the corpus.
+#
+# Every token count below depends on the corpus bytes. The table's own first comment said the corpus was
+# recorded and it was not, so changing promptCorpus would have left both copies of the table agreeing with
+# each other and disagreeing with what the sender emits. An external review found that.
+CORPUS_SHA="$("$WORK/bh" print-prompt --corpus-sha)" || fail "read the prompt corpus sha from benchharness"
+case "$CORPUS_SHA" in
+  [0-9a-f]*) ;;
+  *) fail "benchharness printed ${CORPUS_SHA@Q} for the corpus sha, which is not a hex digest" ;;
+esac
+say "  prompt corpus sha256 ${CORPUS_SHA:0:16}"
+
 say "generate the candidate prompts with the real corpus"
 mkdir -p "$WORK/p"
 windows=""
@@ -179,9 +191,9 @@ python3 -c "import json,sys; json.load(open(sys.argv[1]))" "$WORK/results.json" 
   || fail "the results block is not valid JSON; the container's output is above"
 
 say "write $OUT"
-python3 - "$WORK/results.json" "$OUT" "$MODEL" "$MODEL_REVISION" "$COMBINED" "$SERVING_IMAGE" "$WORK/tok" <<'PY'
+python3 - "$WORK/results.json" "$OUT" "$MODEL" "$MODEL_REVISION" "$COMBINED" "$SERVING_IMAGE" "$WORK/tok" "$CORPUS_SHA" <<'PY'
 import json, sys, hashlib
-res_path, out_path, model, rev, combined, image, tok_dir = sys.argv[1:8]
+res_path, out_path, model, rev, combined, image, tok_dir, corpus_sha = sys.argv[1:9]
 res = json.load(open(res_path))
 
 unreachable = [t for t, r in res.items() if r["chars"] is None]
@@ -216,6 +228,7 @@ table = {
     "tokenizerRevision": rev,
     "tokenizerCoreFilesCombinedSHA256": combined,
     "chatTemplateSHA256": tmpl_sha,
+    "promptCorpusSHA256": corpus_sha,
     "servingImage": image,
     "resolved": {t: r for t, r in sorted(res.items(), key=lambda kv: int(kv[0])) if r["chars"] is not None},
     "unreachableAtThisWindow": unreachable,
