@@ -960,6 +960,23 @@ func (s *ArmSummary) SetActiveSeconds(seconds float64) {
 // "VERDICT: not all checks passed". Nothing had been evaluated. The caller was careful and said so on
 // stderr, and the page still printed a verdict a skimming reader would take for the study's result.
 // A nil pointer cannot be mistaken for a run that failed everything.
+// medianOf is the registered median convention: the mean of the two central order statistics for an even
+// count, which the design spec's third 2026-09-30 amendment froze "because it makes B and C continuous in
+// the observations; taking the lower of the two would bias both arms downward by an amount that depends on
+// the spread".
+func medianOf(v []float64) float64 {
+	if len(v) == 0 {
+		return 0
+	}
+	s := append([]float64(nil), v...)
+	sort.Float64s(s)
+	n := len(s)
+	if n%2 == 1 {
+		return s[n/2]
+	}
+	return (s[n/2-1] + s[n/2]) / 2
+}
+
 // formatOfferedLoad renders the per-tenant offered prompt length, as a mean of the estimator's own unit.
 //
 // Over the UNION of tenants across arms, not the first arm that has any.
@@ -1052,6 +1069,41 @@ func FormatReport(summaries []ArmSummary, checks *Checks, matchTolerance float64
 	// Every check below is a TTFT ratio, and the paid run showed that is half an answer: the arm that held
 	// the tail best also served the fewest tokens, because it was discarding one tenant's work rather than
 	// making the engine efficient. An arm's throughput and its tenants' shares belong next to its tail.
+	// EVERY per-repetition p99, because the registration demands it and a pooled tail hides its sample.
+	//
+	// The design spec's third 2026-09-30 amendment fixes the reported object as the ratio of MEDIAN
+	// per-repetition victim TTFT p99s, and says of the interval: "The report this points at must publish
+	// every per-repetition p99 so a reader can see the sample it came from." Nothing printed them. The
+	// values existed -- RepetitionTTFTMsP99 is filled by the caller and read by repetitionSpread for a
+	// range check -- and went no further than that check.
+	//
+	// Without this block a reader sees one number per arm and cannot tell five tight repetitions from five
+	// scattered ones, which is the whole difference between a measurement and an anecdote. It also makes
+	// the registered estimand computable from the page: the median of this row IS baselineP99Ms.
+	if any := func() bool {
+		for _, s := range summaries {
+			if len(s.RepetitionTTFTMsP99) > 0 {
+				return true
+			}
+		}
+		return false
+	}(); any {
+		b.WriteString("\nPer-repetition premium TTFT p99 (ms) -- the sample behind each tail above\n")
+		for _, s := range summaries {
+			if len(s.RepetitionTTFTMsP99) == 0 {
+				continue
+			}
+			parts := make([]string, 0, len(s.RepetitionTTFTMsP99))
+			for _, v := range s.RepetitionTTFTMsP99 {
+				parts = append(parts, fmt.Sprintf("%.3f", v))
+			}
+			med := medianOf(s.RepetitionTTFTMsP99)
+			fmt.Fprintf(&b, "%-*s %s   median %.3f\n", ArmColumnWidth, s.Arm, strings.Join(parts, "  "), med)
+		}
+		b.WriteString("  The median of each row is this arm's registered point estimate. A ratio of two medians\n")
+		b.WriteString("  is the registered object; the spread of a row is an OBSERVED RANGE and not an interval.\n")
+	}
+
 	b.WriteString("\nWhat it cost\n")
 	// premTPOT99 is printed beside the arm-wide figure because the pre-registered criterion is about the
 	// PROTECTED tenant's stream, and the arm-wide number pools every tenant. On the paid evidence they

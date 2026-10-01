@@ -66,13 +66,36 @@ Both tables were recomputed from their runs' raw rows with the command the harne
 go run ./cmd/benchharness report $(for f in raw-*.jsonl; do echo --raw $f; done)
 ```
 
-⚠️ **The rows are not in this repository, and that is this project's largest open gap.** One line in
-`.gitignore` excludes the directory a paid run writes; the ten-cell run is about 29 MB and the ninth pilot
-about 114 MB. They are carried in the sibling `storage` repository under
-`gpu-platform-control-plane/engineering/paid-runs/`, so the figures reproduce for anyone holding both —
-which is **not** the same as this repository standing on its own. A number whose evidence a reader cannot
-fetch is a number they have to take on trust, and no amount of extra repetitions fixes that. Publishing a
-checksummed archive is ahead of buying more cells on this project's own list.
+**The sample behind each tail is published, not just the tail.** The registration requires it — a pooled
+p99 hides how many repetitions it came from, and five tight ones mean something five scattered ones do not:
+
+| arm | per-repetition premium TTFT p99 (ms) | median |
+|---|---|---:|
+| `R1` | 174.078 · 173.832 · 174.297 · 174.387 · 174.034 | **174.078** |
+| `shared` | 3996.117 · 4000.349 · 4000.510 · 3998.338 · 3997.887 | **3998.338** |
+
+The median of each row is that arm's registered point estimate, and their ratio is the registered object.
+The spread of a row is an **observed range, not a confidence interval**. Under the registered rounding the
+ratio is 3998/174 = 22.977; at raw precision the same medians give 22.969.
+
+⚠️ **The rows themselves are not in this repository and are not public.** One line in `.gitignore` excludes
+the directory a paid run writes, and the evidence is carried in a sibling **private** repository that also
+holds the engineering journal, the defect records and the cost ledger — working notes rather than
+portfolio material. The rows are 15 MB and 29 MB; 900 KB and 1.8 MB compressed, so size was never the
+reason.
+
+What is public instead is the **commitment**: every evidence file's sha256 is in
+[docs/12_EVIDENCE_CHECKSUMS.md](docs/12_EVIDENCE_CHECKSUMS.md), published before anyone asks for a copy. A
+hash reveals nothing about its input and cannot be reversed, so this discloses no data — but an archive
+handed over later can be checked against a digest that predates the request. That turns "trust the number"
+into "check the hash of what I send you". The evidence also carries its own inner chain: every raw row
+names the trace checksum it was replayed from, and every manifest names the prompt corpus that trace was
+cut from, so a *sample* of rows is enough to establish provenance.
+
+A reader who never asks still takes the figures on trust, and that is narrowed rather than removed. The
+stronger guarantee is the pre-registration: the load, the rounding, the percentile convention and the
+readings were frozen in dated amendments before the run, and `hack/m5c-gpu-session.sh` buys the whole thing
+again from a commit.
 
 The findings, their bounds, and the claims this project is **not** entitled to make are in
 [docs/11_WHAT_THIS_MEASURED.md](docs/11_WHAT_THIS_MEASURED.md); the mistakes are in

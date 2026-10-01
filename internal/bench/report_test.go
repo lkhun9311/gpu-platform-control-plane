@@ -987,3 +987,48 @@ func TestArmsThatDisagreeOnPromptLengthAreShownDisagreeing(t *testing.T) {
 		t.Errorf("the report does not show the range the arms spanned:\n%s", out)
 	}
 }
+
+// The report publishes EVERY per-repetition p99, because the registration requires it by name.
+//
+// The design spec's third 2026-09-30 amendment fixes the reported object as a ratio of median
+// per-repetition p99s and says the report "must publish every per-repetition p99 so a reader can see the
+// sample it came from". The values were filled and read only by a range check, so nothing printed them:
+// a reader saw one tail per arm and could not tell five tight repetitions from five scattered ones.
+//
+// Mutation that turns this red: delete the per-repetition block from FormatReport.
+func TestTheReportPublishesEveryPerRepetitionP99(t *testing.T) {
+	s := ArmSummary{
+		Arm: ArmShared, TailSampleSize: 500, RepetitionCount: 5,
+		RepetitionTTFTMsP99: []float64{3996.117, 4000.349, 4000.510, 3998.338, 3997.887},
+	}
+	out := FormatReport([]ArmSummary{s}, &Checks{}, 0.05)
+	for _, want := range []string{"3996.117", "4000.349", "4000.510", "3998.338", "3997.887"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the report hides repetition %s, so a reader cannot see the sample:\n%s", want, out)
+		}
+	}
+	if !strings.Contains(out, "median 3998.338") {
+		t.Errorf("the report does not name the median this arm's point estimate comes from:\n%s", out)
+	}
+	if !strings.Contains(out, "OBSERVED RANGE") {
+		t.Errorf("the report prints a spread without saying it is not an interval:\n%s", out)
+	}
+}
+
+// The median convention is the registered one: the mean of the two central order statistics.
+//
+// Frozen by the third amendment "because it makes B and C continuous in the observations; taking the lower
+// of the two would bias both arms downward by an amount that depends on the spread".
+//
+// Mutation that turns this red: return s[n/2-1] for an even count.
+func TestTheMedianConventionIsTheRegisteredOne(t *testing.T) {
+	if got := medianOf([]float64{10, 20, 30, 40}); got != 25 {
+		t.Errorf("median of 10,20,30,40 = %v, want the registered 25 (mean of the two central values)", got)
+	}
+	if got := medianOf([]float64{174.034, 173.832, 174.297, 174.387, 174.078}); got != 174.078 {
+		t.Errorf("median of the five measured R1 repetitions = %v, want 174.078", got)
+	}
+	if got := medianOf(nil); got != 0 {
+		t.Errorf("median of no repetitions = %v, want 0", got)
+	}
+}

@@ -237,3 +237,15 @@ hack/m5b-gpu-session-evidence.log
 # The custom golangci-lint binary make lint builds into bin/. A 51 MB ELF was committed at the
 # repository root by accident; it is identical in size to bin/golangci-lint and is rebuilt on demand.
 custom-gcl
+
+# docs/evidence: per-file sha256 of each paid run's evidence, published as a COMMITMENT rather than as data.
+#
+# The rows themselves stay out of this repository and out of public view; what goes in is the digest of
+# every file, so an archive handed over later can be checked against a claim that predates the request.
+# A hash discloses nothing about its input, so this is not a partial publication of the evidence.
+#
+# Two lines for the same reason docs/captures needs two: git does not descend into an excluded DIRECTORY,
+# so an exception on the files alone never matches. Placed last because the final matching rule wins and
+# `docs/*` above would otherwise swallow it.
+!docs/evidence/
+!docs/evidence/**
