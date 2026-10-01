@@ -83,17 +83,19 @@ The spread of a row is an **observed range, not a confidence interval**. Under t
 ratio is 3998/174 = 22.977; at raw precision the same medians give 22.969, and the pooled-request ratio
 is 22.972. The three are named where the table is introduced, because reading 4 computes the pooled one.
 
-⚠️ **The rows themselves are not in this repository and are not public.** One line in `.gitignore` excludes
+⚠️ **The rows are not in this repository; they are attached to a release.** One line in `.gitignore` excludes
 the directory a paid run writes, and the evidence is carried in a sibling **private** repository that also
 holds the engineering journal, the defect records and the cost ledger — working notes rather than
 portfolio material. The rows are 15 MB and 29 MB; 900 KB and 1.8 MB compressed, so size was never the
 reason.
 
-What is public instead is the **commitment**: every evidence file's sha256 is in
-[docs/12_EVIDENCE_CHECKSUMS.md](docs/12_EVIDENCE_CHECKSUMS.md), published before anyone asks for a copy. A
-hash reveals nothing about its input and cannot be reversed, so this discloses no data — but an archive
-handed over later can be checked against a digest that predates the request. That turns "trust the number"
-into "check the hash of what I send you". The evidence also carries its own inner chain: every raw row
+Two things are public, and they do different work. The **commitment** is every evidence file's sha256 in
+[docs/12_EVIDENCE_CHECKSUMS.md](docs/12_EVIDENCE_CHECKSUMS.md), published before anyone asked for a copy: a
+hash cannot be reversed, so it reveals nothing, but it fixes *when* the claim was made. The **download** is
+two archives attached to a release, which a hash cannot substitute for — `hack/verify-published-evidence.sh`
+recomputes every published figure from them without a GPU and exits 0 only if all of them match. The ten-cell
+download is a derivative: two files have an account identifier and a GPU UUID masked, two are withheld, and
+`docs/12` lists which, so its digest is a new one rather than the committed `92d54eb3…`. The evidence also carries its own inner chain: every raw row
 names the trace checksum it was replayed from, and every manifest names the prompt corpus that trace was
 cut from, so a *sample* of rows is enough to establish provenance.
 
