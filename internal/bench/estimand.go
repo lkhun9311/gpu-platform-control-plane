@@ -259,3 +259,76 @@ func FormatRegisteredEstimand(summaries []ArmSummary) string {
 			"  reader dividing them reproduces it. No interval is published; see the seventh amendment.\n",
 		e.BaselineP99Ms, e.ColocatedP99Ms, e.Ratio)
 }
+
+// M5BIncrementalResamples and M5BIncrementalSeed are the M5-b analysis settings the 2026-10-01 amendment
+// adopted explicitly rather than inherited.
+//
+// They are the values the existing implementation already used (cmd/benchharness/main.go passed 2000 and 1
+// to BootstrapCI), written down here so that changing them is a visible edit to a named constant. M5-c's
+// 10000 resamples and seed 11 belong to a different study and are deliberately NOT shared: the two
+// registrations fix their own settings, and one inheriting the other's would make a study's numbers depend
+// on an amendment it never cited.
+const (
+	M5BIncrementalResamples = 2000
+	M5BIncrementalSeed      = 1
+)
+
+// PairedBlockRatioCI is the M5-b C/B interval the 2026-10-01 amendment specifies: resample whole
+// repetition BLOCKS, pool each replicate's rows, and recompute the ratio of pooled nearest-rank p99s.
+//
+// The quantity is the one the gate's point estimate already used -- the ratio of each arm's pooled premium
+// TTFT p99 -- so the point and the interval finally describe the same thing. Before this, the point was the
+// ratio of pooled p99s (report.go) while the interval bootstrapped the MEAN of per-repetition ratios
+// (BootstrapCI), and the gate read both as though they were one estimand.
+//
+// baseline[i] and colocated[i] must be the SAME repetition. The caller owns that, and in this repository it
+// is established by joining on the repetition identity the runner recorded rather than by argument order.
+//
+// Each replicate draws one block index and takes BOTH arms at it, which is what keeps a repetition's two
+// tails together. Requests are never drawn individually: the registration's `:99` forbids a naive bootstrap
+// over pooled requests, and a block draw that carries whole repetitions does not do that.
+//
+// A drawn block contributes its rows as many times as it was drawn. That is the definition of resampling
+// with replacement at the block level, and it is why the replicate's p99 can differ from the original.
+func PairedBlockRatioCI(arm string, baseline, colocated [][]RawRow, iterations int, seed int64, alpha float64) CI {
+	n := len(baseline)
+	if n == 0 || n != len(colocated) {
+		return CI{InvalidReason: fmt.Sprintf(
+			"a paired block bootstrap needs equally many repetitions in both arms and has %d and %d",
+			len(baseline), len(colocated))}
+	}
+	if n == 1 {
+		// One block cannot bound its own variance: every resample is that block, so the interval would be
+		// a point wearing an interval's name. BootstrapCI and PairedRatioCI refuse the same way.
+		return CI{InvalidReason: "one repetition per arm cannot bound its own variance, so there is no interval"}
+	}
+
+	src := rand.NewPCG(uint64(seed), uint64(seed)^0x9e3779b97f4a7c15)
+	rng := rand.New(src)
+
+	ratios := make([]float64, 0, iterations)
+	for range iterations {
+		var rb, rc []RawRow
+		for range n {
+			k := rng.IntN(n)
+			rb = append(rb, baseline[k]...)
+			rc = append(rc, colocated[k]...)
+		}
+		// Summarize is re-run on the pooled replicate rather than a p99 being averaged, because the
+		// amendment's quantity is the pooled p99 and that is not a function of the blocks' own p99s.
+		b := Summarize(arm, rb).TTFTMsP99
+		c := Summarize(arm, rc).TTFTMsP99
+		if b <= 0 {
+			// A replicate with no premium completions in the baseline has no ratio. It is NOT skipped:
+			// dropping it and reporting the rest as a valid interval is what the amendment forbids.
+			return CI{InvalidReason: "a resampled baseline block carries no premium completion, so its p99 is zero and the ratio is undefined; the interval is refused rather than computed over the replicates that happened to work"}
+		}
+		ratios = append(ratios, c/b)
+	}
+	sort.Float64s(ratios)
+	return CI{
+		Lo:    percentile(ratios, alpha/2),
+		Hi:    percentile(ratios, 1-alpha/2),
+		Valid: true,
+	}
+}

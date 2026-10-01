@@ -820,10 +820,18 @@ func report(args []string) error {
 // arm half comes from the ROWS -- singleArm has already proven every row agrees on it -- so an arm name
 // containing hyphens (kv-aware, mbt-1024-priority, rung03-timeSlicing) cannot be mis-split.
 type repSummary struct {
-	repID    int
-	ttftP99  float64
-	tail     int
-	rows     int
+	repID   int
+	ttftP99 float64
+	tail    int
+	// rowCount is the number of rows, and rows is the rows themselves.
+	//
+	// They are separate fields with distinct names because the amendment of 2026-10-01 needs both and
+	// confusing them is the shape of the defect it fixes: the first draft of this struct carried only a
+	// count called `rows`, and a block bootstrap written against it would have had to recover the rows by
+	// slicing the pooled arm by those counts -- which is positional reconstruction, the inference the
+	// pairing work exists to remove.
+	rowCount int
+	rows     []bench.RawRow
 	seconds  float64
 	done     map[string]int
 	served   map[string]float64
@@ -835,6 +843,11 @@ type repSummary struct {
 // It exists because report's refusals ask questions of the SPLIT -- did each repetition record the same
 // number of rows, is any repetition's tail thin -- and pooling answers none of them.
 type armEvidence struct {
+	// byArm is every arm's rows pooled, DERIVED from reps in repetition-identity order after loading.
+	//
+	// It used to be accumulated in --raw argument order beside reps. Deriving it means the pooled rows and
+	// the per-repetition blocks cannot disagree about which rows belong to the arm, and it costs nothing:
+	// the rows are stored once, in reps, and this map holds slices into that same order.
 	byArm map[string][]bench.RawRow
 	// reps is each arm's repetitions under their recorded identities, sorted by repID once loading ends.
 	//
@@ -1090,7 +1103,6 @@ func loadArmEvidence(rawFiles []string) (*armEvidence, error) {
 				path, arm, st.ID, strings.Join(st.Arms, ", "))
 		}
 
-		e.byArm[arm] = append(e.byArm[arm], rows...)
 		// Keep the whole per-repetition summary, not just its p99.
 		//
 		// This line used to discard everything except TTFTMsP99, which is how a truncated repetition became
@@ -1148,7 +1160,8 @@ func loadArmEvidence(rawFiles []string) (*armEvidence, error) {
 			repID:    repID,
 			ttftP99:  rs.TTFTMsP99,
 			tail:     rs.TailSampleSize,
-			rows:     len(rows),
+			rowCount: len(rows),
+			rows:     rows,
 			seconds:  rs.ActiveSeconds,
 			done:     done,
 			served:   served,
@@ -1194,9 +1207,10 @@ func loadArmEvidence(rawFiles []string) (*armEvidence, error) {
 	for arm := range e.reps {
 		sort.Slice(e.reps[arm], func(i, j int) bool { return e.reps[arm][i].repID < e.reps[arm][j].repID })
 		for _, r := range e.reps[arm] {
+			e.byArm[arm] = append(e.byArm[arm], r.rows...)
 			e.repP99[arm] = append(e.repP99[arm], r.ttftP99)
 			e.repTail[arm] = append(e.repTail[arm], r.tail)
-			e.repRows[arm] = append(e.repRows[arm], r.rows)
+			e.repRows[arm] = append(e.repRows[arm], r.rowCount)
 			e.repSeconds[arm] = append(e.repSeconds[arm], r.seconds)
 			e.repDone[arm] = append(e.repDone[arm], r.done)
 			e.repServed[arm] = append(e.repServed[arm], r.served)
@@ -1282,14 +1296,14 @@ func (e *armEvidence) refuseIfTracesDisagree() error {
 		g := comparisonGroup(arm)
 		for _, r := range e.reps[arm] {
 			if wantRows[g] == 0 {
-				wantRows[g], wantFrom[g] = r.rows, fmt.Sprintf("%s repetition %d", arm, r.repID)
+				wantRows[g], wantFrom[g] = r.rowCount, fmt.Sprintf("%s repetition %d", arm, r.repID)
 				continue
 			}
-			if r.rows != wantRows[g] {
+			if r.rowCount != wantRows[g] {
 				return fmt.Errorf("arm %s repetition %d recorded %d rows but %s recorded %d;"+
 					" these arms share one immutable trace, so a shorter recording means a run that did not finish,"+
 					" and the requests it is missing are the late ones contention makes slow",
-					arm, r.repID, r.rows, wantFrom[g], wantRows[g])
+					arm, r.repID, r.rowCount, wantFrom[g], wantRows[g])
 			}
 		}
 	}
@@ -1304,14 +1318,65 @@ func (e *armEvidence) refuseIfTracesDisagree() error {
 			continue
 		}
 		for _, r := range reps {
-			if r.rows != reps[0].rows {
+			if r.rowCount != reps[0].rowCount {
 				return fmt.Errorf("arm %s repetition %d recorded %d rows but repetition %d recorded %d;"+
 					" its repetitions replay one trace and must record the same number of rows",
-					arm, r.repID, r.rows, reps[0].repID, reps[0].rows)
+					arm, r.repID, r.rowCount, reps[0].repID, reps[0].rowCount)
 			}
 		}
 	}
 	return nil
+}
+
+// pairedBlocks returns the two arms' repetition BLOCKS under the identities they share, for the M5-b
+// interval the 2026-10-01 amendment specifies.
+//
+// It is pairedRepetitions' twin and shares its identity check: equal lengths are not a licence to zip, so
+// the ID sets themselves are compared. The difference is what it hands back -- whole blocks of rows rather
+// than each block's p99 -- because the amendment's replicate pools a drawn block's REQUESTS and recomputes
+// the pooled p99, which is not a function of the blocks' own p99s.
+//
+// Censoring is refused here rather than in the estimator. A censored repetition makes that block's p99 a
+// lower bound, and a replicate that draws it reports a bound as a measurement. The old gate checked only
+// POOLED censoring (internal/bench/report.go reads ArmSummary.Censored), so a run at 0.49% pooled with one
+// repetition at 1.96% passed; under the amendment it does not, and that is a narrowing of accepted input
+// rather than a neutral change of estimator.
+func (e *armEvidence) pairedBlocks(baseArm, contArm string) (base, cont [][]bench.RawRow, why string) {
+	b, c := e.reps[baseArm], e.reps[contArm]
+	if len(b) == 0 || len(c) == 0 {
+		return nil, nil, fmt.Sprintf("arm %s carries %d repetitions and %s carries %d", baseArm, len(b), contArm, len(c))
+	}
+	ids := func(rs []repSummary) []string {
+		out := make([]string, 0, len(rs))
+		for _, r := range rs {
+			out = append(out, strconv.Itoa(r.repID))
+		}
+		return out
+	}
+	bi, ci := ids(b), ids(c)
+	if !slices.Equal(bi, ci) {
+		return nil, nil, fmt.Sprintf("arm %s recorded repetitions %s and %s recorded %s;"+
+			" the pairing is by that identity, so two arms that do not carry the same ones have no paired"+
+			" blocks to compare even when they carry equally many",
+			baseArm, strings.Join(bi, ","), contArm, strings.Join(ci, ","))
+	}
+	for _, pair := range [2]struct {
+		arm  string
+		reps []repSummary
+	}{{baseArm, b}, {contArm, c}} {
+		for _, r := range pair.reps {
+			if r.censored {
+				return nil, nil, fmt.Sprintf("arm %s repetition %d is censored (more than 1%% of its premium"+
+					" requests did not complete), so its p99 is a lower bound and any resample drawing it"+
+					" reports a bound as a measurement", pair.arm, r.repID)
+			}
+		}
+	}
+	for i := range b {
+		base = append(base, b[i].rows)
+		cont = append(cont, c[i].rows)
+	}
+	return base, cont, ""
 }
 
 // pairedRepetitions returns the two arms' per-repetition victim tails under the identities they share, or
@@ -1485,18 +1550,35 @@ func (e *armEvidence) incrementalCI() bench.CI {
 	// which repetitions were compared with no sign that anything had moved. Equal lengths were the only
 	// precondition, which is exactly the inference the third 2026-09-30 amendment forbids: {1,2} and {1,3}
 	// are both two repetitions.
-	b, c, why := e.pairedRepetitions("static-cap", "kv-aware")
+	bb, cb, why := e.pairedBlocks("static-cap", "kv-aware")
+	b, c, _ := e.pairedRepetitions("static-cap", "kv-aware")
 	if why != "" {
-		b, c = nil, nil
+		// The REASON travels with the refusal, not just the absence of an interval.
+		//
+		// Leaving the zero CI here made the report print "unequal or insufficient repetitions" for every
+		// invalid interval -- the fallback in internal/bench/report.go when InvalidReason is empty -- so a
+		// run refused for a censored repetition sent its operator to count repetitions that were fine.
+		// CI.InvalidReason exists for exactly this, and its own doc comment says so.
+		b, c, bb, cb = nil, nil, nil, nil
+		incCI.InvalidReason = why
 	}
-	if len(b) == len(c) && len(b) > 0 {
+	if len(bb) == len(cb) && len(bb) > 0 {
+		// The amendment's interval: resample whole blocks and recompute the POOLED p99 ratio, which is the
+		// quantity the gate's point estimate already used. This was BootstrapCI over per-repetition ratios,
+		// whose statistic is their MEAN -- so one gate decided on two different estimands.
+		incCI = bench.PairedBlockRatioCI("static-cap", bb, cb,
+			bench.M5BIncrementalResamples, bench.M5BIncrementalSeed, 0.05)
 		ratios := make([]float64, len(b))
 		for i := range b {
 			if b[i] > 0 {
 				ratios[i] = c[i] / b[i]
 			}
 		}
-		incCI = bench.BootstrapCI(ratios, 2000, 1, 0.05)
+		// The scatter refusal is RETAINED across the 2026-10-01 amendment, and its justification did not
+		// move with the estimator: cmd/benchharness/power.go models the MEAN of per-repetition ratios, so
+		// MaxRatioScatter = 0.15 is evidence about that statistic and not about the block bootstrap above.
+		// Keeping it is the conservative choice; calling it validation of the new interval would not be.
+		//
 		// A bootstrap interval over four values only bounds what it claims to while those values are tight.
 		// Marking it invalid rather than reporting it keeps a scattered run from clearing the gate on an
 		// interval that is narrower than the evidence supports; see bench.MaxRatioScatter.
