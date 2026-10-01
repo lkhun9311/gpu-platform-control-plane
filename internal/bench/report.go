@@ -262,6 +262,22 @@ type ArmSummary struct {
 	// cannot separate them per tenant, so a reading built on those would be attributing a quantity to a cause
 	// its ledger does not establish -- which is the one thing this package's rules forbid outright.
 	DispositionByTenant map[string]Disposition
+	// EstInputTokensByTenant is the estimated input tokens each tenant was OFFERED, summed over its rows.
+	//
+	// It exists because two runs of the same study, at the same rate and the same seed, can send prompts of
+	// different length and nothing on the page says so. Measured 2026-10-01: the ninth pilot offered premium
+	// prompts of 50 estimated tokens and the CR-driven run offered 294, a 5.9x difference in prefill, and the
+	// two produced headline ratios of 27.2x and 23.0x. The registration freezes the rate, the weights, the
+	// duration and the seed -- not the prompt length.
+	//
+	// traceChecksum already made the difference DETECTABLE; it is the sha256 of the trace and the trace
+	// records lengths. What it cannot do is make it LEGIBLE: two opaque hashes disagreeing does not tell a
+	// reader the prompts grew. promptCorpusSHA cannot either, and is not meant to -- the corpus pins the
+	// TEXT, which was identical in both runs.
+	//
+	// Per tenant rather than per arm, because the premium and contender lengths move independently and the
+	// premium one is the study's primary endpoint. The divisor for a mean is DispositionByTenant[t].Offered.
+	EstInputTokensByTenant map[string]int64
 	// TTFTMsP50/P95/P99 are the time-to-first-token percentiles over COMPLETED requests, in ms.
 	TTFTMsP50 float64
 	TTFTMsP95 float64
@@ -416,6 +432,12 @@ func Summarize(arm string, rows []RawRow) ArmSummary {
 		if s.DispositionByTenant == nil {
 			s.DispositionByTenant = map[string]Disposition{}
 		}
+		if s.EstInputTokensByTenant == nil {
+			s.EstInputTokensByTenant = map[string]int64{}
+		}
+		// Summed over OFFERED rows, not completed ones: the load is what the trace asked for, and a run that
+		// lost requests still offered the prompts it was configured with.
+		s.EstInputTokensByTenant[r.Tenant] += int64(r.EstInputTokens)
 		d := s.DispositionByTenant[r.Tenant]
 		d.Offered++
 		switch {
@@ -935,6 +957,56 @@ func (s *ArmSummary) SetActiveSeconds(seconds float64) {
 // "VERDICT: not all checks passed". Nothing had been evaluated. The caller was careful and said so on
 // stderr, and the page still printed a verdict a skimming reader would take for the study's result.
 // A nil pointer cannot be mistaken for a run that failed everything.
+// formatOfferedLoad renders the per-tenant offered prompt length, as a mean of the estimator's own unit.
+//
+// Over the UNION of tenants across arms, not the first arm that has any.
+//
+// The first version took the first arm carrying the map, on the argument that every arm of a frozen matrix
+// replays the same premium trace so one arm's figure is the run's. That argument is true for premium and
+// silently wrong for the contender: the ISOLATED arm has no contender at all, R1 sorts first, and the line
+// printed "premium-1 294 tok" while the contender's 10,645 -- half the prefill work on the card -- was
+// missing from a line whose whole job is to say what load was offered.
+//
+// A tenant whose arms disagree is shown as a RANGE rather than averaged away. Two arms of a frozen matrix
+// are supposed to offer the same prompts; if they did not, that is the thing this line exists to surface.
+func formatOfferedLoad(summaries []ArmSummary) string {
+	means := map[string][]int64{}
+	for _, s := range summaries {
+		for t, sum := range s.EstInputTokensByTenant {
+			if offered := s.DispositionByTenant[t].Offered; offered > 0 {
+				means[t] = append(means[t], sum/int64(offered))
+			}
+		}
+	}
+	if len(means) == 0 {
+		return ""
+	}
+	tenants := make([]string, 0, len(means))
+	for t := range means {
+		tenants = append(tenants, t)
+	}
+	sort.Strings(tenants)
+	parts := make([]string, 0, len(tenants))
+	for _, t := range tenants {
+		v := means[t]
+		lo, hi := v[0], v[0]
+		for _, x := range v {
+			if x < lo {
+				lo = x
+			}
+			if x > hi {
+				hi = x
+			}
+		}
+		if lo == hi {
+			parts = append(parts, fmt.Sprintf("%s %d tok", t, lo))
+			continue
+		}
+		parts = append(parts, fmt.Sprintf("%s %d-%d tok (ARMS DISAGREE)", t, lo, hi))
+	}
+	return "offered prompt length (estimated): " + strings.Join(parts, " / ") + "\n\n"
+}
+
 func FormatReport(summaries []ArmSummary, checks *Checks, matchTolerance float64) string {
 	var b strings.Builder
 	b.WriteString("M5-b benchmark report\n\n")
@@ -947,6 +1019,16 @@ func FormatReport(summaries []ArmSummary, checks *Checks, matchTolerance float64
 	//
 	// A reader who cannot see the block count has no way to tell those apart, which is the same defect the
 	// tailN column exists to prevent one level down.
+	// The LOAD, printed before the numbers it produced.
+	//
+	// Without this line two runs of this study are typographically identical on the page while having sent
+	// prompts 5.9x apart -- which is how a 27.2x and a 23.0x came to sit in two documents as though they
+	// were the same measurement. Estimated tokens rather than characters because the estimator
+	// (ceil(chars/4)) has no inverse: 294 tokens is what the arm actually offered, and it is what
+	// distinguishes the two runs.
+	if load := formatOfferedLoad(summaries); load != "" {
+		b.WriteString(load)
+	}
 	fmt.Fprintf(&b, "%-*s %8s %8s %8s %8s %8s %8s %8s %8s %8s\n", ArmColumnWidth, "arm", "total", "done", "shed", "timeout", "ttftP50", "ttftP95", "ttftP99", "tailN", "reps")
 	for _, s := range summaries {
 		censored := ""

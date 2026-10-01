@@ -18,6 +18,7 @@ package bench
 
 import (
 	"strings"
+	"testing"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -932,3 +933,57 @@ var _ = Describe("what protection costs", func() {
 		Expect(s.OutputTokensByTenant["premium-1"]).To(Equal(int64(10)))
 	})
 })
+
+// The offered-load line must name EVERY tenant, including one the isolated arm does not have.
+//
+// Mutation that turns this red: make formatOfferedLoad stop at the first arm carrying the map. R1 sorts
+// first and has no contender, so the line printed the premium length alone while the contender's 10,645
+// estimated tokens -- half the prefill work on the card -- were missing from a line whose whole job is to
+// say what load was offered. Measured against two real paid runs before this test existed.
+func TestTheOfferedLoadLineNamesEveryTenant(t *testing.T) {
+	r1 := ArmSummary{
+		Arm: ArmR1, TailSampleSize: 500,
+		EstInputTokensByTenant: map[string]int64{PremiumTenant: 1368570},
+		DispositionByTenant:    map[string]Disposition{PremiumTenant: {Offered: 4655}},
+	}
+	shared := ArmSummary{
+		Arm: ArmShared, TailSampleSize: 500,
+		EstInputTokensByTenant: map[string]int64{PremiumTenant: 1368570, NoisyTenant: 1479655},
+		DispositionByTenant: map[string]Disposition{
+			PremiumTenant: {Offered: 4655},
+			NoisyTenant:   {Offered: 139},
+		},
+	}
+	out := FormatReport([]ArmSummary{r1, shared}, &Checks{}, 0.05)
+	for _, want := range []string{"offered prompt length", PremiumTenant + " 294 tok", NoisyTenant + " 10645 tok"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the report does not say %q, so a reader cannot tell this load from another:\n%s", want, out)
+		}
+	}
+}
+
+// Arms that disagree on a tenant's prompt length are SHOWN disagreeing, not averaged into one number.
+//
+// Every arm of a frozen matrix replays the same trace, so a disagreement means the freeze did not hold --
+// which is the thing this line exists to surface rather than smooth over.
+//
+// Mutation that turns this red: average the per-arm means instead of printing their range.
+func TestArmsThatDisagreeOnPromptLengthAreShownDisagreeing(t *testing.T) {
+	a := ArmSummary{
+		Arm: ArmR1, TailSampleSize: 500,
+		EstInputTokensByTenant: map[string]int64{PremiumTenant: 232750}, // 50 tok
+		DispositionByTenant:    map[string]Disposition{PremiumTenant: {Offered: 4655}},
+	}
+	b := ArmSummary{
+		Arm: ArmShared, TailSampleSize: 500,
+		EstInputTokensByTenant: map[string]int64{PremiumTenant: 1368570}, // 294 tok
+		DispositionByTenant:    map[string]Disposition{PremiumTenant: {Offered: 4655}},
+	}
+	out := FormatReport([]ArmSummary{a, b}, &Checks{}, 0.05)
+	if !strings.Contains(out, "ARMS DISAGREE") {
+		t.Errorf("two arms offered 50 and 294 estimated tokens and the report did not say so:\n%s", out)
+	}
+	if !strings.Contains(out, "50-294 tok") {
+		t.Errorf("the report does not show the range the arms spanned:\n%s", out)
+	}
+}
