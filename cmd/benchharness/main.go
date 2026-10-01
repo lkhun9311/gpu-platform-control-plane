@@ -378,6 +378,7 @@ func genTrace(args []string) error {
 		LongThreshold:   *longThreshold,
 		GatewaySHA:      *gatewaySHA,
 		TokenizerRev:    *tokenizerRev,
+		PromptLenChars:  bench.PromptLenCharsByTenant(rows),
 	}
 	// Only set the map when something was supplied, so a free run's manifest carries no empty scaffolding
 	// that could later be mistaken for a recorded value.

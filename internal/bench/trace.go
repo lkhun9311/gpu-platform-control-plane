@@ -67,6 +67,35 @@ type TraceRow struct {
 }
 
 // TenantSpec describes one tenant's share of a trace and the shape of its requests.
+// PromptLenCharsByTenant reports the prompt length each tenant's rows carry, in characters.
+//
+// It exists so a manifest can say what load it replayed. Two runs of one study, at the same rate and the
+// same seed, sent premium prompts of 200 and 1,174 characters -- 50 against 294 estimated tokens, a 5.9x
+// difference in prefill -- and produced headline ratios of 27.2x and 23.0x. Nothing on either manifest
+// said so: traceChecksum made the difference detectable (it is the sha256 of the trace, and the trace
+// records lengths) but not legible, and promptCorpusSHA pins the TEXT, which was identical.
+//
+// Characters rather than estimated tokens, because this is the quantity the generator was CONFIGURED with
+// and ceil(chars/4) has no inverse.
+//
+// A tenant whose rows disagree returns -1 for that tenant rather than a mean. Every row of one tenant in a
+// frozen trace is drawn at one fixed length (TenantSpec.PromptLenChars), so a disagreement means the trace
+// is not the one the study froze -- and averaging it away is how that would go unnoticed.
+func PromptLenCharsByTenant(rows []TraceRow) map[string]int {
+	out := map[string]int{}
+	for _, r := range rows {
+		seen, ok := out[r.Tenant]
+		switch {
+		case !ok:
+			out[r.Tenant] = r.PromptLenChars
+		case seen == -1:
+		case seen != r.PromptLenChars:
+			out[r.Tenant] = -1
+		}
+	}
+	return out
+}
+
 type TenantSpec struct {
 	// Tenant is the identity the gateway resolves; it must map to a premium or standard tier through the gateway's policy chain.
 	Tenant string

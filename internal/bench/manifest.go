@@ -118,6 +118,26 @@ type RunManifest struct {
 	//
 	// It is frozen here so the report scores admitted-work over the same population the guard used, even if the paid pilot tuned the gateway's --admission-long-threshold.
 	LongThreshold int `json:"longThreshold,omitempty"`
+	// PromptLenChars records the prompt length each tenant was sent, in characters.
+	//
+	// The registration freezes the rate, the three weights, the duration and the seed. It does NOT freeze
+	// the prompt length, and the length moves the headline number: the ninth pilot sent premium prompts of
+	// 200 characters and the first CR-driven run sent 1,174, and the two reported 27.2x and 23.0x for the
+	// same study. Neither manifest said which load it was.
+	//
+	// Not covered by the two fields that come closest. traceChecksum changes with the length -- it is the
+	// sha256 of the trace -- so the difference was DETECTABLE, but two disagreeing hashes do not tell a
+	// reader the prompts grew 5.9x. promptCorpusSHA pins the prompt TEXT and was identical in both runs,
+	// which is correct: the corpus is the source the text is cut from, and the length is cut at send time.
+	//
+	// Written by PromptLenCharsByTenant from the trace itself, so the two places that build a manifest
+	// cannot disagree about it. -1 for a tenant whose rows carry more than one length, which means the
+	// trace is not the one the study froze.
+	//
+	// omitempty, and not in validateFields' required list: the ninth pilot's six manifests predate the
+	// field and must keep loading. Making it required needs a schemaVersion branch, and there is no such
+	// branch anywhere yet -- both writers stamp the literal "v2" and nothing reads it.
+	PromptLenChars map[string]int `json:"promptLenChars,omitempty"`
 }
 
 // LoadManifest reads, validates, and returns the manifest at path.

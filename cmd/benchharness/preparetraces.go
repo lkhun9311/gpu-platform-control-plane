@@ -127,6 +127,11 @@ func prepareTraces(args []string) error {
 	// comparison -- so they share one file and one checksum. R1 gets its own because its population is a
 	// subset, and `report` refuses repetitions whose checksums differ, which is what would catch a slip here.
 	tracePathFor := map[string]string{}
+	// Kept per arm, because the manifest loop below needs the ROWS and not only the path.
+	//
+	// The isolated baseline's rows are a subset -- premium only -- so a manifest built from the canonical
+	// trace would claim a contender prompt length for an arm that was never sent one.
+	rowsFor := map[string][]bench.TraceRow{}
 	for _, arm := range armList {
 		out := filepath.Join(*outDir, "trace-"+arm+".jsonl")
 		armRows := rows
@@ -147,6 +152,7 @@ func prepareTraces(args []string) error {
 			return err
 		}
 		tracePathFor[arm] = out
+		rowsFor[arm] = armRows
 		fmt.Printf("%-12s %6d rows -> %s\n", arm, len(armRows), out)
 	}
 
@@ -174,6 +180,7 @@ func prepareTraces(args []string) error {
 				LongThreshold:   *longThreshold,
 				GatewaySHA:      *gatewaySHA,
 				TokenizerRev:    *tokenizerRev,
+				PromptLenChars:  bench.PromptLenCharsByTenant(rowsFor[arm]),
 			}
 			for role, ref := range map[string]string{"gateway": *gatewayImage, "engine": *engineImage} {
 				if ref == "" {
