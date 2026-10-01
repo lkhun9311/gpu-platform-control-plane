@@ -1222,3 +1222,59 @@ aggregations would agree on a run with uneven repetition completions -- on this 
 reason is that the five repetitions completed 4,655 premium requests each within one request. On evidence
 where a repetition is thin, pooling re-weights by completion count and the two answers separate; that is the
 condition `MinRepetitionTail` exists to refuse, and the estimand refuses it as of 2026-10-01.
+
+## Amendment, 2026-10-02: reading 4 now divides the registered estimand, and here is what that changed
+
+The section above says **"The code is not being changed to match this paragraph today."** That sentence was
+true on 2026-10-01 and is no longer. It stays as written, because what it recorded — the reason for waiting
+— is part of why this change is safe to make now rather than evidence that it was never meant to happen.
+
+**What changed.** `sharingReadingFour` divided the arms' pooled premium TTFT p99s. It now divides
+`RegisteredEstimandFor`'s rounded medians, and the Detail line prints the same two integers it compared, so
+a reader dividing the printed numbers reproduces the number that decided the gate. Changing only the
+comparison would have re-created the original defect one line lower.
+
+**Why before the next paid run rather than after.** An external review put it this way: "오늘 변경하지
+않는다"는 문장은 과거 증거의 의미를 보존하려는 유보였지, 다음 실행도 pooled 규칙으로 채점하라는
+등록은 아닙니다. Scoring a run that buys cells under a rule this page already calls not-the-rule-going-
+forward is the shape this project treats as the one to avoid.
+
+**What it did to the published evidence.** Both archives were replayed through the old and the new scorer.
+One line changed in each, and nothing else:
+
+```
+ninth pilot, line 35
+- the control's premium TTFT p99 is 27.2x R1's (1892.2 ms against 69.5 ms), against an INVALID threshold of 5.0x
++ the control's premium TTFT p99 is 27.043x R1's (1893 ms against 70 ms, each the median of its arm's per-repetition p99s), …
+
+ten-cell run, line 32
+- the control's premium TTFT p99 is 23.0x R1's (3997.9 ms against 174.0 ms), against an INVALID threshold of 5.0x
++ the control's premium TTFT p99 is 22.977x R1's (3998 ms against 174 ms, each the median of its arm's per-repetition p99s), …
+```
+
+Reading 4 did not fire either way. `ANSWER: 5 (timeSlicing)` and exit 0 for the ninth pilot; `ANSWER: none of
+the readings COULD fire` and exit 1 for the ten-cell run. The `Registered estimand` block was already
+printing the median values, so it is byte-identical. The two ratios differ only because 27.2 and 23.0 were
+the pooled quotients and 27.043 and 22.977 are the registered ones — which is the whole point of the change,
+and the reason it is recorded here rather than left as a silent improvement.
+
+**The conditions this change had to meet, and how each was checked:**
+
+- *The comparison and the explanation use the same values.* Both come from `RegisteredEstimandFor`. A test
+  fails if the Detail prints the pooled operands while comparing the median ratio.
+- *Not computable is not low contention.* `Valid=false` sets `NotEvaluable` with the estimand's own reason.
+  The ladder runs reading 4b past an uncomputable gate and stops only at a fired one, so an overload still
+  gets diagnosed.
+- *Old evidence replayed under both versions.* Above.
+- *The analysis version is pinned before the next purchase.* `docs/12_EVIDENCE_CHECKSUMS.md` names
+  `cc920d34a574576eae320043dae90bdfcfff1fdd` as the version the published figures reproduce under. This
+  commit is a later analysis version, and a run scored by it is labelled as such rather than as a
+  reproduction of the release.
+
+**What is pinned by a test rather than by this page.** `TestReadingFourSeparatesPooledFromPerRepetitionMedian`
+carries a fixture where the two aggregations straddle the 5x bar — pooled 10.000, median 4.000 — and asserts
+the median behaviour. It was written before the change asserting the opposite, and inverting it was the
+deliberate act this paragraph records. The overlapping refusals left in `sharingReadingFour` are also
+deliberate: `RegisteredEstimandFor` would catch the same four conditions one call later, but its messages
+are about the median not being the registered B or C, while this reading's question is whether the load was
+too low.

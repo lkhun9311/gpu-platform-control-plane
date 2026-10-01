@@ -797,14 +797,18 @@ var _ = Describe("an eligible request that never got an admission verdict", func
 })
 
 var _ = Describe("the incremental check when the repetition ratios scatter", func() {
-	// The percentile bootstrap over four values is anti-conservative once the per-repetition ratios spread
-	// out: simulated against this package's own BootstrapCI, a true ratio of 1.00 -- no effect whatsoever --
-	// clears the gate 10.2% of the time at a coefficient of variation of 0.20, against a nominal 5%.
+	// ⚠️ The 10.2%-at-CV-0.20 figure was measured against BootstrapCI, which bootstraps the MEAN of the
+	// per-repetition ratios. The 2026-10-01 amendment to the M5-b registration replaced the incremental
+	// interval with a paired BLOCK bootstrap of the pooled p99 ratio, and no coverage has been measured for
+	// that estimator at any scatter. So this bound is retained as a provisional refusal and NOT as a
+	// validity boundary for the interval the gate now reads -- an earlier version of this comment presented
+	// the old measurement as the reason for the current refusal, which is the claim the amendment withdrew.
 	//
-	// So the interval is only worth reading while the ratios are tight. The 2026-09-03 pilot measured 0.001
-	// for the contended arms and 0.056 for the isolation-like ones, well inside that, but a run is not
-	// entitled to assume it stayed there. This refuses rather than reports, because the direction matters:
-	// the failure mode is a gate that passes when it should not.
+	// What survives is narrow and still worth having: with everything else fixed, the runs that pass with
+	// this rule are a subset of those that pass without it, so it cannot raise the rate of a false PASS on
+	// one fixed experiment. The 2026-09-03 pilot measured 0.001 for the contended arms and 0.056 for the
+	// isolation-like ones, so it is not expected to bind; it exists because the failure mode is a gate that
+	// passes when it should not.
 	It("is refused when the ratios are too scattered for the interval to mean anything", func() {
 		Expect(RatioScatterTooHigh([]float64{0.9, 0.9, 0.9, 0.9})).To(BeFalse())
 		Expect(RatioScatterTooHigh([]float64{0.6, 0.9, 1.2, 1.5})).To(BeTrue())

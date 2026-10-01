@@ -383,7 +383,10 @@ func TestTheReportFileNamesTheCensoredRepetition(t *testing.T) {
 	// "more than 1%". And the numerator excludes requests shed by admission, which "did not complete" does
 	// not say. A test checking only the arm, the repetition and the word "censored" passes either way --
 	// this one failed to catch the wording for exactly that reason.
-	for _, want := range []string{"kv-aware", "repetition 1", "censored", "at least 1%", "shed by"} {
+	// "are not counted", not just "shed by": the first draft asked for the phrase and not its sense, so
+	// flipping the message to say shed requests ARE counted would have satisfied it. The numerator excludes
+	// them (internal/bench/report.go), and that exclusion is what the sentence has to convey.
+	for _, want := range []string{"kv-aware", "repetition 1", "censored", "at least 1%", "shed by", "are not counted"} {
 		if !strings.Contains(invalid, want) {
 			t.Errorf("the report file's RUN INVALID line does not carry %q, so a reader of the report alone"+
 				" cannot find the file or learn the rule: %s", want, invalid)
@@ -478,4 +481,69 @@ func TestTheM5BPathRefusesMismatchedIdentitySets(t *testing.T) {
 			t.Errorf("no interval was computed for a valid non-contiguous pair:\n%s", body)
 		}
 	})
+}
+
+// TestTheReportFileCarriesTheProvisionalScatterWording pins the withdrawal at the level a reader sees.
+//
+// The scatter refusal's own comment says 0.15 may not be called a validity boundary for the paired-block
+// interval, because the false-PASS rates behind that number were measured against the mean of
+// per-repetition ratios -- the statistic the 2026-10-01 amendment replaced. The withdrawal was written in a
+// comment first and the InvalidReason string kept the old claim, which made the withdrawal incomplete: the
+// string is what internal/bench/report.go puts in the report's RUN INVALID line, and the comment is what
+// nobody downstream reads.
+//
+// The existing scatter tests assert RatioScatterTooHigh's boolean. This one asserts the sentence.
+func TestTheReportFileCarriesTheProvisionalScatterWording(t *testing.T) {
+	dir := t.TempDir()
+	// Four repetitions whose C/B ratios scatter past MaxRatioScatter: static-cap flat, kv-aware spread
+	// wide, so the coefficient of variation clears 0.15 and the refusal fires.
+	var paths []string
+	for _, arm := range []string{"R1", "off", "static-cap", "kv-aware"} {
+		for rep := 1; rep <= 4; rep++ {
+			tail := map[string]float64{"R1": 100, "off": 400, "static-cap": 200}[arm]
+			if arm == "kv-aware" {
+				tail = []float64{60, 110, 170, 240}[rep-1]
+			}
+			paths = append(paths, writeM5BRepetition(t, dir, arm, rep, 102, tail, 0))
+		}
+	}
+	args := []string{"-out", filepath.Join(dir, "report.txt")}
+	for _, p := range paths {
+		args = append(args, "-raw", p)
+	}
+
+	out, _ := captureBoth(t, func() error { return report(args) })
+	body, err := os.ReadFile(filepath.Join(dir, "report.txt"))
+	if err != nil {
+		t.Fatalf("read report: %v", err)
+	}
+	text := string(body)
+	if !strings.Contains(text, "scatter beyond a coefficient of variation") {
+		t.Skipf("this fixture did not trip the scatter refusal, so the wording cannot be checked here:\n%s%s", text, out)
+	}
+
+	var invalid string
+	for line := range strings.SplitSeq(text, "\n") {
+		if strings.Contains(line, "RUN INVALID:") {
+			invalid = line
+			break
+		}
+	}
+	if invalid == "" {
+		t.Fatalf("the scatter refusal did not reach the report's RUN INVALID line:\n%s", text)
+	}
+	// It must say what the rule DOES and that the evidence behind the bound is about another statistic.
+	for _, want := range []string{"refuses provisionally", "different statistic", "no coverage has been measured"} {
+		if !strings.Contains(invalid, want) {
+			t.Errorf("the report's scatter refusal does not carry %q, so the withdrawal stopped at the"+
+				" comment again: %s", want, invalid)
+		}
+	}
+	// And it must not carry the claim the amendment withdrew.
+	for _, forbidden := range []string{"nominal 5", "fires on no effect"} {
+		if strings.Contains(invalid, forbidden) {
+			t.Errorf("the report's scatter refusal still asserts %q, which was measured for the replaced"+
+				" statistic: %s", forbidden, invalid)
+		}
+	}
 }

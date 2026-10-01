@@ -1330,11 +1330,115 @@ func TestReadingFourSeparatesPooledFromPerRepetitionMedian(t *testing.T) {
 	if four.NotEvaluable {
 		t.Fatalf("reading 4 refused this fixture rather than scoring it: %s", four.Detail)
 	}
-	// TODAY: pooled, so it does NOT fire. The spec's next-run rule would make it fire.
+	// INVERTED on 2026-10-02, deliberately, when reading 4 moved to the registered estimand.
+	//
+	// Until then this asserted the opposite: the scorer divided pooled p99s, 10.000 is not under the 5x bar,
+	// and the reading did not fire. The test said in its failure message that inverting it was the correct
+	// response to a deliberate change and that the design spec's amendment had to say so -- both were done
+	// in the same commit, so the direction of this assertion is the record of which quantity the gate uses.
+	if !four.Fired {
+		t.Errorf("reading 4 did not fire at a per-repetition median ratio of %.3f against the %.2fx bar."+
+			" If it has gone back to dividing pooled p99s (%.3f, which is NOT under the bar), the gate and"+
+			" the published interferenceRatio disagree about one run again: %s",
+			e.Ratio, m5cContentionBar, pooled, four.Detail)
+	}
+	// And the explanation has to print the operands the comparison used, or a reader checking the arithmetic
+	// divides pooled milliseconds and gets a different number from the one that decided the gate.
+	if !strings.Contains(four.Detail, "median of its arm's per-repetition p99s") {
+		t.Errorf("reading 4's detail does not say which quantity it divided: %s", four.Detail)
+	}
+	if strings.Contains(four.Detail, "1000.0 ms") || strings.Contains(four.Detail, "10.000x") {
+		t.Errorf("reading 4's detail prints the pooled operands while comparing the median ratio: %s", four.Detail)
+	}
+}
+
+// TestReadingFourUsesTheRoundedMediansAcrossTheBar is the case integer fixtures cannot show.
+//
+// The registered ratio is the quotient of two medians ROUNDED to integer milliseconds -- the convention the
+// third 2026-09-30 amendment froze so that a reader dividing the two published integers reproduces the
+// published ratio. Every other fixture in this file uses whole milliseconds, where rounding is a no-op, so
+// none of them can tell the registered ratio from the unrounded one.
+//
+// Here the two disagree across the 5x bar: medians of 100.49 and 501.0 give 4.986 unrounded, which is under
+// the bar and would fire, and 501/100 = 5.010 rounded, which is not and does not. Reading 4 must use the
+// rounded pair.
+func TestReadingFourUsesTheRoundedMediansAcrossTheBar(t *testing.T) {
+	arm := func(name string, reps []float64) ArmSummary {
+		s := healthyArm(name, reps[len(reps)-1], 20, 40_000)
+		s.RepetitionCount = len(reps)
+		s.RepetitionTTFTMsP99 = reps
+		return s
+	}
+	// Five repetitions whose median is the middle value, so the median is exactly the number named above.
+	r1 := arm(ArmR1, []float64{100.0, 100.2, 100.49, 100.8, 101.0})
+	r1.DispositionByTenant = map[string]Disposition{}
+	shared := arm(ArmShared, []float64{499.0, 500.0, 501.0, 502.0, 503.0})
+
+	e := RegisteredEstimandFor(r1, shared)
+	if !e.Valid {
+		t.Fatalf("the registered estimand was refused on this fixture: %s", e.InvalidReason)
+	}
+	if e.BaselineP99Ms != 100 || e.ColocatedP99Ms != 501 {
+		t.Fatalf("the rounded medians are %d and %d, want 100 and 501; the fixture no longer straddles the"+
+			" rounding boundary", e.BaselineP99Ms, e.ColocatedP99Ms)
+	}
+	unrounded := 501.0 / 100.49
+	if unrounded >= m5cContentionBar {
+		t.Fatalf("the unrounded ratio is %.6f, already at or over the %.2fx bar, so this fixture cannot"+
+			" distinguish the two conventions", unrounded, m5cContentionBar)
+	}
+	if e.Ratio < m5cContentionBar {
+		t.Fatalf("the ROUNDED ratio is %.6f, under the bar too; the fixture no longer straddles it", e.Ratio)
+	}
+
+	four := sharingReadingFour(r1, shared)
+	if four.NotEvaluable {
+		t.Fatalf("reading 4 refused this fixture rather than scoring it: %s", four.Detail)
+	}
+	// The rounded ratio is 5.010, NOT under the bar, so reading 4 must not fire. If it does, the scorer is
+	// dividing unrounded medians and the gate disagrees with the published interferenceRatio by a hair --
+	// exactly the kind of disagreement the amendment's rounding convention exists to remove.
 	if four.Fired {
-		t.Errorf("reading 4 fired, so it is no longer dividing pooled p99s (%.3f) but something closer to"+
-			" the per-repetition median (%.3f). If that change was deliberate, invert this test and say so"+
-			" in the design spec's amendment; if it was not, the gate and the published interferenceRatio"+
-			" now disagree about one run: %s", pooled, e.Ratio, four.Detail)
+		t.Errorf("reading 4 fired: the rounded ratio is %.3f (%d/%d) which is NOT under the %.2fx bar, so"+
+			" the scorer is using the unrounded %.6f instead: %s",
+			e.Ratio, e.ColocatedP99Ms, e.BaselineP99Ms, m5cContentionBar, unrounded, four.Detail)
+	}
+}
+
+// TestReadingFourRefusesWithAReasonRatherThanReadingLowContention pins the NotEvaluable path.
+//
+// A reading that cannot be computed must not report "the load made no contention" -- that sentence sends the
+// next paid run to RAISE a load that may already be drowning the control. The ladder runs reading 4b past an
+// uncomputable gate precisely so the opposite diagnosis stays available, and this asserts both halves: the
+// reason travels, and 4b still gets to speak.
+func TestReadingFourRefusesWithAReasonRatherThanReadingLowContention(t *testing.T) {
+	m := healthyMatrix()
+	// A thin repetition: RegisteredEstimandFor refuses on MinRepetitionTail below MinTailSamples.
+	m.Shared.MinRepetitionTail = 10
+
+	four := sharingReadingFour(m.R1, m.Shared)
+	if four.Fired {
+		t.Fatalf("reading 4 fired on evidence it cannot compute, which reads as 'the load made no"+
+			" contention': %s", four.Detail)
+	}
+	if !four.NotEvaluable {
+		t.Errorf("reading 4 returned a plain negative for evidence it could not compute; absent and"+
+			" negative are different answers: %s", four.Detail)
+	}
+	if four.Detail == "" {
+		t.Error("reading 4 refused without a reason, so an operator cannot tell which arm to look at")
+	}
+
+	// And 4b must still be reached, or an overload goes undiagnosed.
+	res := EvaluateSharingMatrix(m, PremiumTenant, NoisyTenant)
+	var sawFourB bool
+	for _, r := range res.Readings {
+		if r.ID == "4b" {
+			sawFourB = true
+		}
+	}
+	if !sawFourB {
+		t.Errorf("reading 4b was never evaluated after reading 4 came back uncomputable, so the reading that"+
+			" would say the load was too HIGH never ran: %v", idsOf(res))
 	}
 }

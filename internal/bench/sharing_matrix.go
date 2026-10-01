@@ -428,6 +428,14 @@ func sharingReadingFour(r1, shared ArmSummary) PoPReading {
 		return r
 	}
 
+	// These refusals overlap RegisteredEstimandFor's own, and they are kept rather than deduplicated.
+	//
+	// That function refuses a censored arm, a tail under MinTailSamples and a thin repetition too, so the
+	// four cases below would be caught one call later. What it cannot do is say what they mean HERE: its
+	// messages are about the median not being the registered B or C, while reading 4's question is whether
+	// the load was too LOW, and the dangerous confusion is with an overload whose survivors were fast.
+	// Deleting these would replace a diagnosis with a statistics complaint, so the overlap is deliberate.
+	//
 	// The operands have to be trustworthy before this reading is allowed to diagnose, and a positive number
 	// is not the same as a trustworthy one.
 	//
@@ -460,10 +468,30 @@ func sharingReadingFour(r1, shared ArmSummary) PoPReading {
 		return r
 	}
 
-	ratio := shared.TTFTMsP99 / r1.TTFTMsP99
-	r.Fired = ratio < m5cContentionBar
-	r.Detail = fmt.Sprintf("the control's premium TTFT p99 is %.1fx R1's (%.1f ms against %.1f ms), against an INVALID threshold of %.1fx",
-		ratio, shared.TTFTMsP99, r1.TTFTMsP99, m5cContentionBar)
+	// The ratio is the REGISTERED estimand, and the explanation prints the same operands the comparison used.
+	//
+	// This divided the arms' pooled p99s while the design spec's third amendment had already chosen the ratio
+	// of per-repetition p99 medians for interferenceRatio, and the 2026-09-10 spec's "Going forward" section
+	// said the next run of this study reads reading 4 that way. Two readings of the same tails under two
+	// aggregation rules make the gate and the published field disagree about one run.
+	//
+	// Changing only the comparison and leaving pooled milliseconds in the Detail would re-create the same
+	// defect one line lower: a reader checking the arithmetic would divide the printed numbers and get a
+	// different ratio from the one that decided the gate. So B, C and R all come from RegisteredEstimandFor,
+	// which rounds each median to an integer millisecond before dividing -- the convention the amendment
+	// froze so that a reader dividing the two published integers reproduces the published ratio.
+	e := RegisteredEstimandFor(r1, shared)
+	if !e.Valid {
+		// Not computable is NOT "the load made no contention". It is NotEvaluable with a reason, which lets
+		// reading 4b still diagnose an overload: the ladder stops at a FIRED gate but runs 4b past an
+		// uncomputable one.
+		r.NotEvaluable = true
+		r.Detail = e.InvalidReason
+		return r
+	}
+	r.Fired = e.Ratio < m5cContentionBar
+	r.Detail = fmt.Sprintf("the control's premium TTFT p99 is %.3fx R1's (%d ms against %d ms, each the median of its arm's per-repetition p99s), against an INVALID threshold of %.1fx",
+		e.Ratio, e.ColocatedP99Ms, e.BaselineP99Ms, m5cContentionBar)
 	return r
 }
 
