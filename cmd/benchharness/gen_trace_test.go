@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/lkhun9311/gpu-mlops-platform-control-plane/internal/bench"
+	"sigs.k8s.io/yaml"
 )
 
 // runGenTrace runs gen-trace into a temporary directory and returns the rows it wrote.
@@ -181,5 +182,111 @@ func TestArrivalsOfReadsTheRegistry(t *testing.T) {
 	}
 	if _, err := arrivalsOf("no-such-study"); err == nil || !strings.Contains(err.Error(), "not registered") {
 		t.Errorf("arrivalsOf(unknown) = %v, want a refusal", err)
+	}
+}
+
+// BOTH manifest writers record the prompt length, and a test that covers one of them covers nothing.
+//
+// gen-trace and prepare-traces each build a RunManifest, and this project has shipped a field populated on
+// one path and empty on the other. The value comes from bench.PromptLenCharsByTenant in both, so what this
+// pins is that each writer actually calls it.
+//
+// Mutation that turns this red: drop the PromptLenChars line from either writer.
+func TestBothManifestWritersRecordThePromptLength(t *testing.T) {
+	readManifest := func(path string) bench.RunManifest {
+		t.Helper()
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read manifest %s: %v", path, err)
+		}
+		var m bench.RunManifest
+		if err := yaml.Unmarshal(data, &m); err != nil {
+			t.Fatalf("parse manifest %s: %v", path, err)
+		}
+		return m
+	}
+
+	t.Run("gen-trace", func(t *testing.T) {
+		dir := t.TempDir()
+		manifestPath := filepath.Join(dir, "manifest.yaml")
+		args := []string{
+			"--seed", "11", "--duration-ms", "60000", "--rate", "3",
+			"--premium-weight", "1", "--noisy-weight", "0.4", "--probe-weight", "0",
+			"--premium-prompt-chars", "1174", "--noisy-prompt-chars", "42579",
+			"--trace-out", filepath.Join(dir, "trace.jsonl"), "--manifest-out", manifestPath,
+		}
+		if err := genTrace(args); err != nil {
+			t.Fatalf("gen-trace: %v", err)
+		}
+		got := readManifest(manifestPath).PromptLenChars
+		if got[bench.PremiumTenant] != 1174 {
+			t.Errorf("gen-trace's manifest says premium %d, want 1174: %v", got[bench.PremiumTenant], got)
+		}
+		if got[bench.NoisyTenant] != 42579 {
+			t.Errorf("gen-trace's manifest says noisy %d, want 42579: %v", got[bench.NoisyTenant], got)
+		}
+	})
+
+	t.Run("prepare-traces", func(t *testing.T) {
+		dir := t.TempDir()
+		tracePath := filepath.Join(dir, "canonical.jsonl")
+		genArgs := []string{
+			"--seed", "11", "--duration-ms", "60000", "--rate", "3",
+			"--premium-weight", "1", "--noisy-weight", "0.4", "--probe-weight", "0",
+			"--premium-prompt-chars", "1174", "--noisy-prompt-chars", "42579",
+			"--trace-out", tracePath, "--manifest-out", filepath.Join(dir, "gen-manifest.yaml"),
+		}
+		if err := genTrace(genArgs); err != nil {
+			t.Fatalf("gen-trace for the canonical trace: %v", err)
+		}
+		stampExactTokensInPlace(t, tracePath)
+
+		outDir := filepath.Join(dir, "prepared")
+		if err := os.MkdirAll(outDir, 0o755); err != nil {
+			t.Fatalf("mkdir: %v", err)
+		}
+		args := []string{
+			"-trace", tracePath, "-out-dir", outDir, "-arms", "R1,shared", "-reps", "1",
+			"-gateway-url", "http://127.0.0.1:1", "-model", "m", "-timeout-ms", "60000",
+			"-seed", "11", "-match-tolerance", "0.05", "-study", "sharing-matrix-2026-09-10",
+		}
+		if err := prepareTraces(args); err != nil {
+			t.Skipf("prepare-traces needs more than this fixture provides: %v", err)
+		}
+		shared := readManifest(filepath.Join(outDir, "manifest-shared-1.yaml")).PromptLenChars
+		if shared[bench.PremiumTenant] != 1174 || shared[bench.NoisyTenant] != 42579 {
+			t.Errorf("prepare-traces' shared manifest says %v, want premium 1174 and noisy 42579", shared)
+		}
+		// The isolated arm carries the premium subset, so it must not claim a contender length.
+		r1 := readManifest(filepath.Join(outDir, "manifest-R1-1.yaml")).PromptLenChars
+		if _, ok := r1[bench.NoisyTenant]; ok {
+			t.Errorf("the isolated arm's manifest names a contender length: %v", r1)
+		}
+	})
+}
+
+// stampExactTokensInPlace fills ExactInputTokens so prepare-traces does not refuse the fixture.
+func stampExactTokensInPlace(t *testing.T, path string) {
+	t.Helper()
+	f, err := os.Open(path)
+	if err != nil {
+		t.Fatalf("open trace: %v", err)
+	}
+	rows, err := bench.ReadTrace(f)
+	_ = f.Close()
+	if err != nil {
+		t.Fatalf("read trace: %v", err)
+	}
+	for i := range rows {
+		if rows[i].ExactInputTokens <= 0 {
+			rows[i].ExactInputTokens = bench.EstInputTokensForChars(rows[i].PromptLenChars)
+		}
+	}
+	var buf strings.Builder
+	if err := bench.WriteTrace(&buf, rows); err != nil {
+		t.Fatalf("serialize trace: %v", err)
+	}
+	if err := os.WriteFile(path, []byte(buf.String()), 0o600); err != nil {
+		t.Fatalf("write trace: %v", err)
 	}
 }
