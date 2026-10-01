@@ -363,6 +363,12 @@ const eligibleLongThreshold = 4096
 // The admitted-work fractions are measured over the eligible (standard-long) population, which is the contender the controls actually gate.
 func Summarize(arm string, rows []RawRow) ArmSummary {
 	s := ArmSummary{Arm: arm, Total: len(rows)}
+	// Made here rather than lazily inside the row loop, where the other per-tenant maps are made.
+	//
+	// That loop sits at the gocyclo ceiling: one more `if m == nil` in it took Summarize from 30 to 31 and
+	// turned `make lint` red. An empty map for an arm with no rows is harmless -- formatOfferedLoad tests
+	// len() -- and a nil map would panic on the first write, so the initialisation cannot simply be dropped.
+	s.EstInputTokensByTenant = map[string]int64{}
 
 	// The eligible-population threshold comes from the manifest provenance stamped into the rows, so admitted-work is scored over the same population the guard gated even if the paid run tuned it.
 	threshold := eligibleLongThreshold
@@ -431,9 +437,6 @@ func Summarize(arm string, rows []RawRow) ArmSummary {
 		// different question from "how much did this arm shed", and only the second one is answerable here.
 		if s.DispositionByTenant == nil {
 			s.DispositionByTenant = map[string]Disposition{}
-		}
-		if s.EstInputTokensByTenant == nil {
-			s.EstInputTokensByTenant = map[string]int64{}
 		}
 		// Summed over OFFERED rows, not completed ones: the load is what the trace asked for, and a run that
 		// lost requests still offered the prompts it was configured with.
