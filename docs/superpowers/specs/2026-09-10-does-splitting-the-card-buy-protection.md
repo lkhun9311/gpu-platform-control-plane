@@ -257,7 +257,16 @@ search:
 
   **Per-repetition CENSORING was not fixed, and this line said it was.** A review checked and found the
   claim false: each repetition's `Censored` flag is still discarded when the summaries are built, and the
-  readings check the pooled one. Marking the second control repetition's 70 slowest premium responses as
+  readings check the pooled one.
+
+  ⚠️ **Corrected 2026-10-01: the sentence above is no longer true, and it was left standing after the code
+  changed.** `armEvidence.repCensored` records whether ANY repetition was censored, the summary carries it as
+  `ArmSummary.AnyRepetitionCensored`, and `censored()` in `internal/bench/sharing_matrix.go` is
+  `s.Censored || s.AnyRepetitionCensored` -- so readings 4, 4b and the scoring precondition all see a
+  repetition the pool hides. The reproduction in the next sentence (70 slowest responses in the second
+  control repetition) now refuses rather than firing. What the stale line cost was not a wrong number: it was
+  a registration asserting a gap the code had closed, which is the same defect in the other direction as a
+  document asserting an invariant the code does not hold. Marking the second control repetition's 70 slowest premium responses as
   timed out loses 1.50% of that repetition and 0.75% of the pool — the pool passes, both completion floors
   pass, and reading 5 fires on a censored control. Contender loss fractions have the same shape: 100/139
   and 139/139 clear both floors while the first repetition lost more than a quarter of its load.
