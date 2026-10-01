@@ -10,9 +10,12 @@ import (
 // to fire says so in its own body rather than relying on a zero value.
 func estimandArm(name string, reps []float64) ArmSummary {
 	return ArmSummary{
-		Arm:                 name,
-		TailSampleSize:      MinTailSamples,
-		RepetitionCount:     len(reps),
+		Arm:             name,
+		TailSampleSize:  MinTailSamples,
+		RepetitionCount: len(reps),
+		// MinRepetitionTail is set deliberately. Left at zero it trips the per-repetition floor, and every
+		// test in this file would then fail on a fixture defect while reporting the refusal it was not about.
+		MinRepetitionTail:   MinTailSamples,
 		RepetitionTTFTMsP99: reps,
 	}
 }
@@ -116,5 +119,54 @@ func TestEvidenceWithoutTheTwoArmsPrintsNoEstimandBlock(t *testing.T) {
 		if strings.Contains(out, unwanted) {
 			t.Errorf("the report mentions %q for evidence that has no R1/shared pair:\n%s", unwanted, out)
 		}
+	}
+}
+
+// A thin REPETITION is refused even when the pool clears the floor.
+//
+// B and C are medians over the per-repetition p99s, so one block whose p99 is its own maximum does not just
+// widen the sample -- with five repetitions it can BE the median. EvaluateChecks already refuses this exact
+// condition (report.go, `RepetitionCount > 0 && MinRepetitionTail < MinTailSamples`), and the estimand was
+// accepting evidence that sibling path rejects.
+//
+// The pool is left comfortably above the floor on purpose: if the pooled branch were the one firing, this
+// test would pass for the wrong reason.
+//
+// Mutation that turns this red: drop the MinRepetitionTail branch from RegisteredEstimandFor.
+func TestAThinRepetitionIsRefusedThoughThePoolClearsTheFloor(t *testing.T) {
+	shared := estimandArm(ArmShared, measuredShared)
+	shared.TailSampleSize = MinTailSamples * 100
+	shared.MinRepetitionTail = MinTailSamples - 1
+
+	e := RegisteredEstimandFor(estimandArm(ArmR1, measuredR1), shared)
+	if e.Valid {
+		t.Fatalf("a repetition with %d completions produced a ratio of %.3f", shared.MinRepetitionTail, e.Ratio)
+	}
+	for _, want := range []string{"a repetition with", "99", "median of the repetitions"} {
+		if !strings.Contains(e.InvalidReason, want) {
+			t.Errorf("the refusal does not mention %q, so a reader cannot tell it from the pooled floor: %s",
+				want, e.InvalidReason)
+		}
+	}
+}
+
+// Censoring is reported before a thin repetition, because it is the stronger fact about the same arm.
+//
+// A censored tail makes every statistic of that arm a lower bound, including the per-repetition counts the
+// floors read. Reporting "a repetition is thin" for a censored arm sends a reader to check block sizes that
+// are not the problem.
+//
+// Mutation that turns this red: run the floor loop before the censoring loop.
+func TestCensoringIsReportedBeforeAThinRepetition(t *testing.T) {
+	shared := estimandArm(ArmShared, measuredShared)
+	shared.Censored = true
+	shared.MinRepetitionTail = 0 // both conditions true at once
+
+	e := RegisteredEstimandFor(estimandArm(ArmR1, measuredR1), shared)
+	if e.Valid {
+		t.Fatal("an arm that is both censored and thin produced a ratio")
+	}
+	if !strings.Contains(e.InvalidReason, "censored") {
+		t.Errorf("the thin-repetition message won over the censoring one: %s", e.InvalidReason)
 	}
 }

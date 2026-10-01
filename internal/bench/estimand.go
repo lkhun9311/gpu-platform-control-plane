@@ -194,16 +194,34 @@ func roundToMs(ms float64) int64 {
 // repetition was censored -- and the per-repetition medians are exactly where that repetition's lower bound
 // would land.
 func RegisteredEstimandFor(baseline, colocated ArmSummary) RegisteredEstimand {
+	// Censoring is checked for BOTH arms before either arm's sample floors, because a censored tail makes
+	// every statistic of that arm a lower bound -- including the per-repetition counts the floors read. A
+	// thin-repetition message for an arm whose tail is censored would send a reader to check block sizes that
+	// are not the problem, which is the same mistake CI.InvalidReason was given its own field to stop.
 	for _, a := range [2]ArmSummary{baseline, colocated} {
 		if censored(a) {
 			return RegisteredEstimand{InvalidReason: fmt.Sprintf(
 				"%s has a censored tail, so its per-repetition p99s are lower bounds and their median is not the registered B or C",
 				a.Arm)}
 		}
+	}
+	for _, a := range [2]ArmSummary{baseline, colocated} {
 		if a.TailSampleSize < MinTailSamples {
 			return RegisteredEstimand{InvalidReason: fmt.Sprintf(
 				"%s completed %d premium requests, below the %d a nearest-rank p99 needs, so its tail is the slowest survivor rather than a percentile",
 				a.Arm, a.TailSampleSize, MinTailSamples)}
+		}
+		// The POOLED floor above is not enough, and this estimand is the one place where that matters most.
+		//
+		// B and C are medians over the per-repetition p99s, so a single thin repetition contributes an order
+		// statistic that is its own maximum rather than a percentile -- and with five repetitions it can be the
+		// median itself. EvaluateChecks already refuses on this exact condition at report.go, reading
+		// `RepetitionCount > 0 && MinRepetitionTail < MinTailSamples`, and leaving it out here let the estimand
+		// accept evidence the sibling path rejects.
+		if a.RepetitionCount > 0 && a.MinRepetitionTail < MinTailSamples {
+			return RegisteredEstimand{InvalidReason: fmt.Sprintf(
+				"%s has a repetition with %d premium completions, below the %d a nearest-rank p99 needs; pooling its %d rows hides that one repetition's p99 is a maximum, and the median of the repetitions is built from it",
+				a.Arm, a.MinRepetitionTail, MinTailSamples, a.TailSampleSize)}
 		}
 	}
 	return ComputeRegisteredEstimand(baseline.RepetitionTTFTMsP99, colocated.RepetitionTTFTMsP99)
