@@ -82,11 +82,50 @@ Time-slicing one A10G between two engines, against an isolated single-tenant bas
 **ninth paid pilot's** numbers (2026-09-13, `hack/m5c-20260913-011031`, commit `85ae2fa`): three arms, two
 repetitions each, six cells, 75 minutes, $0.85.
 
+**The load this pilot ran, stated because a later run changed it.** Premium prompts of **200 characters** —
+the trace generator's flag default, which the served tokenizer counts as **68 tokens** and which
+corresponds to no `inputTokens` declaration at all — contender prompts of 40,000 characters, `timeoutMs`
+**30,000**, two repetitions. The input-length resolution table that makes `baseline.inputTokens: 256`
+executable did not exist yet. The design spec's seventh 2026-10-01 amendment froze the contract afterwards,
+so this table and the ten-cell table below are **different loads and cannot be combined**.
+
 | arm | premium TTFT p99 | /R1 | premium TPOT p99 | /R1 | contender served | timeouts |
 |---|---:|---:|---:|---:|---:|---:|
 | `R1` | 69.5 ms | 1.0x | 18.2 ms | 1.0x | — | 0 |
 | `shared` | 1,892.2 ms | 27.2x | 89.1 ms | 4.9x | 278/278 | 0 |
 | `timeSlicing` | **1,007.5 ms** | **14.5x** | 44.1 ms | 2.42x | 278/278 | 0 |
+
+### Finding 3b: under the frozen contract, one competing tenant costs 23.0x — and the split card is unmeasured there
+
+Ten cells, five repetitions of `R1` and `shared`, 2026-10-01, $1.44. Premium prompts of **1,174
+characters**, which the engine's own tokenizer counted as **256 tokens** on all 46,549 premium rows —
+exactly what `baseline.inputTokens` declares — contender 42,579 characters at **8,192 tokens**,
+`timeoutMs` 60,000.
+
+| arm | premium TTFT p99 (median of 5) | /R1 | p50 | p95 | premium completed | timeouts |
+|---|---:|---:|---:|---:|---:|---:|
+| `R1` | 174 ms | 1.0x | 87.8 ms | 143.4 ms | 23,275 / 23,275 | 0 |
+| `shared` | 3,998 ms | **23.0x** | 161.3 ms | 2,349.1 ms | 23,274 / 23,275 | 0 |
+
+**The isolated baseline is not the same number as the pilot's, and that is the first thing to say.** `R1` is
+69.5 ms in the table above and 174 ms here, on the same card and the same engine. The runs differ in how much
+prefill each victim request carries — the pilot's premium prompts were 200 characters and this run's are
+1,174 — so the baseline moves with the load, which is why a ratio against one run's baseline cannot be read
+against the other's. This page does not claim the length is the *whole* reason: the timeout and the
+repetition count differ too, and nothing isolated the three.
+
+Total output throughput was level — 589.2 against 589.3 tok/s — and the latency cost was **not confined to
+the tail**: p50 rose 1.84x, p95 16.4x, p99 23.0x. The five per-repetition ratios were
+22.96 · 23.01 · 22.95 · 22.93 · 22.97, an **observed range and not a confidence interval**: this run
+replayed one trace five times, so its narrowness shows repetition stability under one fixed load rather
+than variation over loads, seeds or machines. Under the registered rounding rule the medians give
+3998/174 = **22.977**; at raw precision the same medians give 22.969, and the pooled-request ratio 22.972.
+
+**What this run cannot say.** It bought no `timeSlicing` arm, so it makes no claim about splitting the card
+under this contract. The one premium request that did not complete was an **HTTP 502** in `shared`
+repetition 3, with no trace in the instance log — "no timeouts" is not a success rate. And the gap between
+27.2x and 23.0x is not evidence about the calibration: the prompt length, the timeout and the repetition
+count all differ.
 
 The improvement is real: **884.6 ms**, against a control whose two repetitions differed by **1.375 ms**.
 That is a range check and nothing more. An earlier draft of the source spec expressed the same comparison as
@@ -300,7 +339,7 @@ Stated first, because the findings above are only believable if the refusals are
 |---|---|
 | **"I operated a GPU platform"** | No. The gateway has never been deployed to EKS or through the GitOps path (`README.md:22`). The cluster was applied once on 2026-09-18 — 96 resources, no GPU instance — and destroyed in the same cycle. Argo CD has been run on kind, and **auto-sync was deliberately removed before applying** (`hack/argocd-kind.md:24`), so seven Applications resolving with no error is evidence that the manifests build and the destination resolves — **not** that drift is repaired. Self-heal has now been exercised, but narrowly: a separate Application in its own project and namespace, bootstrapped by `kubectl`, repaired six of six injected drifts (`experiments/argocd-selfheal/`). The seven platform Applications were left with automation off and are unchanged. So the GitOps *mechanism* is demonstrated on this cluster; the *platform* running under it is not. |
 | **"The admission guard protects the premium tier"** | Rejected. 83.7x against a 1.25x target across four paid repetitions; the run was declared invalid by its own checks and no protection claim was made. |
-| **"Sharing a card substitutes for isolation"** | Rejected as stated. 14.5x with time-slicing and 20.7x with the engine's own scheduler, both against a 2x bar — at the load those studies used. A later ladder found time-slicing **meeting** a 139 ms premium target at 1.16 and 2.31 req/s and breaching at 4.61. So the honest refusal is narrower than "sharing does not substitute": the claim fails because it was made without naming a load. |
+| **"Sharing a card substitutes for isolation"** | Rejected as stated. 14.5x with time-slicing and 20.7x with the engine's own scheduler, both against a 2x bar — at the load those studies used. ⚠️ **Splitting the card has been measured only at the pre-freeze load.** The ten-cell run under the frozen contract bought no `timeSlicing` arm, so it adds nothing to this refusal: its 23.0x is one shared engine against isolation, and reading it as a statement about splitting would be the comparison reading `4d` exists to block. A later ladder found time-slicing **meeting** a 139 ms premium target at 1.16 and 2.31 req/s and breaching at 4.61. So the honest refusal is narrower than "sharing does not substitute": the claim fails because it was made without naming a load. |
 | **"I built a training platform"** | The `MLTrainingJob` CRD exists and admits through Kueue. Its samples are worse than that: the two tenant samples run `busybox` (`config/samples/platform_v1_mltrainingjob_tenant_b.yaml:16`), and the default one names `pytorch/pytorch:2.3.0-cuda12.1-cudnn8-runtime` with `command: [python, train.py]` (`config/samples/platform_v1_mltrainingjob.yaml:13`) — but **that image contains no `train.py` and nothing puts one there**, so the one sample that looks like training cannot run at all. (A `train.py` does exist in this repository now — `experiments/cpu-ddp/train.py`, added after this row was written — but it is built into its own image by `experiments/cpu-ddp/Dockerfile` and is not the file the sample names. The sample is still broken; only the sentence's "anywhere in this repository" was.) The queuelab trace is not — it runs `python:3.12-slim` and launches a PTX kernel through the CUDA driver API (`internal/queuelab/submit.go:44`) — but that is a synthetic accumulator, not a model. **Distributed training has since run, narrowly**: two gloo ranks inside one Pod, admitted through this CRD and Kueue, with gradient averaging verified by hand-checkable arithmetic and a control that fails (`experiments/cpu-ddp/`). Still no NCCL, no GPU, no multi-Pod rendezvous and no checkpoint resume — and `parallelism: 2` would not provide them, since the operator sets no `completionMode`, no `subdomain` and creates no headless Service. |
 
 Two of these are rejected hypotheses, which is a result. Two are gaps, which are not.

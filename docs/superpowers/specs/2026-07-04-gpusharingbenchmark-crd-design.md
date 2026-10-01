@@ -630,3 +630,86 @@ The envtest run before it reported `Ran 0 of 117` with every spec skipped, becau
 relative path and `-p path` then answers with one, so `fork/exec bin/k8s/.../etcd` found nothing. `Makefile`
 passes `$(LOCALBIN)` absolutely for exactly this reason. Neither failure was a defect in the schema, and both
 would have read as one.
+
+## Amendment, 2026-10-01 (seventh): the execution contract is frozen, and this run's interval is not published
+
+Two paid runs of one study reported 27.2x and 23.0x. Neither broke a rule. The frozen tuple is
+`RATE`, the three weights, `DURATION_MS` and `seed` — and the prompt length is not in it, so two runs can
+satisfy the registration and send prefills 5.9x apart.
+
+### What the two runs actually sent
+
+The three units are different quantities and only the third is the declaration.
+
+| | ninth pilot, 2026-09-13 | ten-cell run, 2026-10-01 |
+| --- | --- | --- |
+| generator input | 200 / 40,000 **characters** | **1,174 / 42,579 characters** |
+| harness estimate, `ceil(chars/4)` | 50 / 10,000 tokens | 294 / 10,645 tokens |
+| **engine's own count** | 68 / 7,695 (from the calibration) | **256 / 8,192** |
+| `timeoutMs` | 30,000 | 60,000 |
+| repetitions | 2 | 5 |
+
+The last row of the second column is the point: `engineInputTokens` is **256 on all 46,549 premium rows and
+8,192 on all 695 contender rows**, which is exactly `baseline.inputTokens: 256` and
+`contender.inputTokens: 8192`. The resolution table works as the sixth amendment specified — 1,174
+characters is the smallest of eight lengths the served tokenizer counts as 256 tokens, swept inside the
+serving image. The ninth pilot predates that table and used the generator's flag defaults, so its load
+corresponds to no declaration at all.
+
+### What is frozen, from here
+
+Added to the frozen tuple:
+
+| Quantity | Value | Why it has to be here |
+| --- | --- | --- |
+| premium prompt | **1,174 characters** (engine-confirmed 256 tokens) | It moves the headline number by 5.9x of prefill and was the one load parameter nothing pinned |
+| contender prompt | **42,579 characters** (engine-confirmed 8,192 tokens) | Same |
+| `timeoutMs` | **60,000** | It decides which requests are censored, and the two runs disagreed on it. Leaving it out repeats this amendment for a different field |
+| output caps | premium **64**, contender **16** | The harness fixes them and the CR declares them; recording the pair makes a mismatch visible |
+| corpus / tokenizer / chat template / image digests | the identities already recorded in `RunManifest` | They were declared and written before this; naming them here puts them in the contract rather than in provenance alone |
+
+`inputTokens` stays the declaration and characters stay in the execution plan — the sixth amendment settled
+that and this does not reopen it. What changes is that the resolved characters are now **frozen** rather
+than whatever the resolver last returned.
+
+### The interval is not published for the ten-cell run
+
+The third amendment fixed the estimand: `R` is the ratio of median per-repetition victim TTFT p99s, with a
+paired repetition bootstrap interval. The estimand is unchanged. What this amendment records is that the
+2026-10-01 run **publishes no interval**, and why.
+
+Five repetitions are enough to compute a percentile bootstrap and not enough to establish its coverage —
+the third amendment already called the interval NOMINAL for this reason. On top of that, this run replayed
+**one trace five times**: the spread it shows is repetition stability under one fixed load, not
+run-to-run variation over loads, seeds or machines. An interval computed from it would be read as the
+second.
+
+So this run reports, as descriptive statistics:
+
+```
+R (registered rule, integer-millisecond medians)      3998 / 174 = 22.977
+R (raw-precision medians)                3998.338376 / 174.078174 = 22.968637
+pooled-request p99 ratio, for comparison 3997.886644 / 174.034371 = 22.971822
+per-repetition ratios   22.96  23.01  22.95  22.93  22.97     (observed range, NOT an interval)
+```
+
+All three are named because they differ in the third significant figure and a reader dividing two published
+integers must land on the number beside them. The summary figure is **about 23.0x**.
+
+⚠️ **This collides with the schema.** The CEL rule on `status` requires a non-empty
+`interferenceRatioCI95` for phase `Completed`. A run that honestly computes no interval therefore cannot be
+written as `Completed` through that contract, and the fix is NOT to put `"N/A"` or a degenerate `[point,
+point]` in the field — `BootstrapCI` returning `Valid: false` at `n == 1` is the same defence and it is
+correct. The contract needs a way to say "not computed, and here is why" before a status writer exists.
+`status.result` stays absent, so nothing is blocked today; this records the collision so the writer does not
+discover it by filling the field with something false.
+
+### What this run cannot claim
+
+- **No split-card effect.** `timeSlicing` was not bought. 23.0x and the ninth pilot's 14.5x are different
+  loads, and putting them in one table or dividing them would be an unregistered comparison.
+- **No statement about the calibration's effect.** 27.2x against 23.0x differs in prompt length, timeout and
+  repetition count at once. The difference is not evidence that correcting the input length moved the tail.
+- **p99 is over COMPLETED premium requests**, and one is missing: `shared` completed 23,274 of 23,275
+  premium requests, R1 23,275 of 23,275. The one failure is an HTTP 502 in `shared` repetition 3 with no
+  trace in the instance log. "No timeouts" is not a success rate.

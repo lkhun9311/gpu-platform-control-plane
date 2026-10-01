@@ -8,9 +8,37 @@ Most GPU setups stop at running a single workload. This project treats the GPU a
 
 ## The measurement, first
 
-The control plane is the instrument. This is what it measured on a rented A10G — the ninth paid pilot
-(2026-09-13, `hack/m5c-20260913-011031`, commit `85ae2fa`), three arms, two repetitions each, with all
-4,655 victim requests completing in every arm and no timeouts:
+The control plane is the instrument. This is what it measured on a rented A10G under the **frozen execution
+contract** — ten cells, five repetitions per arm, 2026-10-01:
+
+| Arm | Victim TTFT p99 (median of 5) | vs isolated | Premium completed | Timeouts |
+|---|---:|---:|---:|---:|
+| Isolated (`R1`) | 174 ms | 1.0x | 23,275 / 23,275 | 0 |
+| One engine, both tenants (`shared`) | 3,998 ms | **23.0x** | 23,274 / 23,275 | 0 |
+
+**One competing tenant on the same card takes the victim's tail from 174 ms to four seconds, while total
+output throughput stays level — 589.2 against 589.3 tok/s.** The latency cost is not confined to the tail:
+the median also rose, 87.8 ms to 161.3 ms (1.84x), and the damage grows with the percentile (p95 16.4x,
+p99 23.0x). The mechanism is that one contending prompt occupies the engine far longer than the victim's
+tail budget, so what has to be divided is not the card — it is a request already in flight.
+
+**The load, stated because it moves the number.** Premium prompts of 1,174 characters, which the served
+tokenizer counts as **256 tokens** — the value `baseline.inputTokens` declares — and contender prompts of
+42,579 characters at **8,192 tokens**. Rate 9.4045/s, 505 s per cell, seed 11, `timeoutMs` 60,000.
+
+**What this run does not say.** It bought no split-card arm, so it makes no claim about `timeSlicing`.
+It publishes **no confidence interval**: five repetitions of one trace show repetition stability under one
+fixed load, not variation over loads, seeds or machines. The five per-repetition ratios are
+22.96 · 23.01 · 22.95 · 22.93 · 22.97 — an **observed range, not an interval**. The p99 is over *completed*
+premium requests, and one of `shared`'s 23,275 did not complete: an HTTP 502 in repetition 3.
+The registered rule rounds the medians to integer milliseconds before dividing, giving 3998/174 = 22.977;
+at raw precision the same medians give 22.969. Both are published in the report because they differ in the
+third figure.
+
+### The earlier three-arm pilot, and why it is not the headline
+
+A ninth paid pilot (2026-09-13, `hack/m5c-20260913-011031`, commit `85ae2fa`) bought three arms at two
+repetitions each and is **the only run here that measured a split card**:
 
 | Arm | Victim TTFT p99 | vs isolated | Contender served | Timeouts |
 |---|---:|---:|---:|---:|
@@ -18,18 +46,35 @@ The control plane is the instrument. This is what it measured on a rented A10G �
 | One engine, both tenants (`shared`) | 1,892.2 ms | **27.2x** | 278/278 | 0 |
 | Two engines, half a card each (`timeSlicing`) | 1,007.5 ms | **14.5x** | 278/278 | 0 |
 
-**Splitting the card halves the victim's tail, and the contender still finishes all of its work — it pays in
-latency instead.** Both sharing modes miss a pre-registered 2x bar at this load, and on a ladder that held the
-contender byte-identical the same `timeSlicing` arm *passes* at 1.16 and 2.31 requests a second and breaches
-at 4.61. The mechanism is that one contending prompt occupies the engine for about 1.03 s while the victim's
-tail budget is a tenth of that: what has to be divided is not the card, it is a request already in flight.
+**Splitting the card halved the victim's tail and the contender still finished all of its work — it paid in
+latency instead.** Both sharing modes missed a pre-registered 2x bar at that load, and on a ladder holding
+the contender byte-identical the same `timeSlicing` arm *passes* at 1.16 and 2.31 requests a second and
+breaches at 4.61.
 
-Every figure above was independently recomputed from that run's raw rows — but those rows are **not in
-this repository**. one line in `.gitignore` excludes the directory a paid run writes, and that run is about 114 MB, so a clone
-gets the numbers and not the evidence behind them. They are carried in the sibling `storage` repository
-instead, under `gpu-platform-control-plane/engineering/paid-runs/`, so the figures can be recomputed by
-anyone who has both — which is not the same as this repository standing on its own. The
-findings, their bounds, and the four claims this project is **not** entitled to make are in
+⚠️ **That pilot ran a different load, and the two tables must not be combined.** It predates the input-length
+resolution: its premium prompts were 200 characters — the generator's flag default, which the tokenizer
+counts as 68 tokens and which corresponds to no `inputTokens` declaration at all — with `timeoutMs` 30,000
+and two repetitions. Dividing 23.0x by 14.5x, or reading 27.2x against 23.0x as an effect of the
+calibration, would be an unregistered comparison. The seventh amendment to the design spec records what is
+frozen now and why.
+
+### Can a reader check this?
+
+Both tables were recomputed from their runs' raw rows with the command the harness ships:
+
+```
+go run ./cmd/benchharness report $(for f in raw-*.jsonl; do echo --raw $f; done)
+```
+
+⚠️ **The rows are not in this repository, and that is this project's largest open gap.** One line in
+`.gitignore` excludes the directory a paid run writes; the ten-cell run is about 29 MB and the ninth pilot
+about 114 MB. They are carried in the sibling `storage` repository under
+`gpu-platform-control-plane/engineering/paid-runs/`, so the figures reproduce for anyone holding both —
+which is **not** the same as this repository standing on its own. A number whose evidence a reader cannot
+fetch is a number they have to take on trust, and no amount of extra repetitions fixes that. Publishing a
+checksummed archive is ahead of buying more cells on this project's own list.
+
+The findings, their bounds, and the claims this project is **not** entitled to make are in
 [docs/11_WHAT_THIS_MEASURED.md](docs/11_WHAT_THIS_MEASURED.md); the mistakes are in
 [docs/10_WHAT_I_GOT_WRONG.md](docs/10_WHAT_I_GOT_WRONG.md).
 
@@ -61,7 +106,7 @@ no code in this repository, and saying which is which is more useful to a reader
 | Training admission     | Translate `MLTrainingJob` into queued `batch/v1` Jobs admitted through Kueue (M6)                | Built. It also reports what the tenant waited: `admitToRunningSeconds` on the CR and a histogram beside it, and it refuses the window when Kueue carried no usable stamp, when it never saw the admission, or when the interval comes out negative. **It does not establish continuous observation**: if the admission stamp was persisted and this controller was then down while the Pod became ready, the next transition it sees subtracts the stamp from `now` and publishes a figure that includes the downtime, with `Observed=True`. What the field means is admission to *first observed* readiness |
 | Gateway                | Tenant-aware serving gateway: API key → tenant, token bucket, model routing, proxy, metrics      | Built, unit-tested and **deployed on kind** — in front of a stub backend ([observability](hack/observability-kind.md), [chaos](hack/chaos-fr002-serving-pod-killed.md)), driven by the benchmark harness through its real pipeline with no GPU ([path](hack/m5b-gateway-path.md)), chained to a real vLLM running on CPU ([chain](hack/m5b-chain-live-evidence.log), where the `InferenceDeployment` is a routing record and not a vLLM deployment), and deployed into the kind cluster of the paid A10G sessions. **Deployed to EKS through the GitOps path on 2026-09-25** — Argo CD installed by its own Terraform root, `config/argocd/root.yaml` applied, and the gateway it deployed answered `/readyz` 200, refused an unregistered key with 401 `unauthorized`, and accepted a key from the Secret with 403 `no_policy`. That is authentication reaching the key store, **not** proof of serving: no backend was deployed, and `device-plugin`, `observability` and `samples` are manual and stayed `OutOfSync`, so the claim is about the automated baseline ([pre-registration and result](docs/superpowers/specs/2026-09-25-gitops-rehearsal-on-clean-kind.md)) |
 | Admission guard        | KV-cache-aware three-arm admission guard and open-loop benchmark harness (M5-b)                  | **Built and measured on a paid GPU.** The guard missed its pre-registered 1.25x premium-tail target at 83.7x over four repetitions, and the harness declared the run invalid rather than reporting a protection claim. Re-analysing the same rows at no further spend then found the occupancy signal the milestone was named for had been unreachable by construction and never fired at all ([write-up](hack/m5d-writeup.md), [analysis](docs/superpowers/specs/2026-09-04-the-layer-not-the-signal.md)) |
-| Performance isolation  | Measure multi-tenant noisy-neighbor p99 contention under GPU sharing                             | **Measured on a rented A10G — the table at the top of this file.** Victim TTFT p99 is 27.2x its isolated value with one shared engine and 14.5x with the card split, two repetitions per arm, 4,655 completed victim requests each, contender served in full both times ([pre-registration and result](docs/superpowers/specs/2026-09-10-does-splitting-the-card-buy-protection.md)). Nine paid pilots and six capacity-ladder sessions produced it. What is **not** built: the `GpuSharingBenchmark` CRD registers the protocol and refuses a badly declared one, and nothing writes its `status.result` — so the numbers are a harness result rather than a control-plane one. The defects the instrument had before it could be trusted are counted in [docs/10](docs/10_WHAT_I_GOT_WRONG.md) rather than here |
+| Performance isolation  | Measure multi-tenant noisy-neighbor p99 contention under GPU sharing                             | **Measured on a rented A10G — the table at the top of this file.** Under the frozen contract the victim's TTFT p99 is **23.0x** its isolated value with one shared engine, five repetitions, 23,274 of 23,275 premium requests completed, no interval published. The **split card** was measured only by the earlier three-arm pilot, at a different prompt length and timeout: 27.2x shared and 14.5x split, two repetitions ([pre-registration and result](docs/superpowers/specs/2026-09-10-does-splitting-the-card-buy-protection.md)). Nine paid pilots and six capacity-ladder sessions produced it. What is **not** built: the `GpuSharingBenchmark` CRD registers the protocol and refuses a badly declared one, and nothing writes its `status.result` — so the numbers are a harness result rather than a control-plane one. The defects the instrument had before it could be trusted are counted in [docs/10](docs/10_WHAT_I_GOT_WRONG.md) rather than here |
 | Paid-run harness       | Pin what a GPU-renting script does before it can be run against a card                            | Built, and enforced: `make spot-lifecycle` is a prerequisite of `make infra-validate`, which CI runs. Four runners, 64 recorded scenarios plus one source-order assertion — 65 checks (counted from the `run_scenario` calls per `scenarios_*` function: 16 microtest, 11 price-of-protection, 19 m5c, 18 queuelab, and the single assertion at `characterize.sh:881`; two earlier figures in this row, 53 and 72, were both wrong): every scenario runs the real script with `aws` and `sleep` replaced by recording stubs and diffs the AWS calls, exit status, messages and run-directory contents against a golden. It pins the **host** side. What it cannot tell — whether a cluster then comes up — is covered separately by two rehearsals that run for real on a local kind cluster: `hack/test/rehearse-bringup.sh` extracts the GPU-free span of a session's user-data, and `hack/test/rehearse-m5c-matrix.sh` runs the M5-c matrix itself with stub engines and simulated devices |
 | Failure & recovery     | Inject failure scenarios and record an operational evidence trail                                | Built — `WorkloadRun` CRD, controller and driver — and **run for real**: deleting a serving Pod produced a trail nobody wrote by hand, and the run exposed a defect envtest could not. Two of three scenarios are recordable ([evidence](hack/m6-kind-e2e.md)) |
 | Ledger                 | A SQLite ledger projecting CR/status/events                                                      | **Storage, projector, reader and a CLI** — 2 of 6 tables. `cmd/platformctl` dispatches `workload-runs project`, `list` and `get`; the earlier "no command yet" was stale. **It has now projected a cluster**: one `WorkloadRun` from an M7 run, `seen=1 written=1 events-new=3`, and a second pass reported `events-already=3` so the idempotence is measured ([record](hack/ledger-first-projection.md)). Four of the six tables still do not exist, and nothing runs the projector on a schedule |
