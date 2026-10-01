@@ -73,7 +73,10 @@ MAX_SPOT_PRICE="${MAX_SPOT_PRICE:-1.10}"
 #   28.00         STOPS AT CELL 2             260 min
 #   31.30         STOPS AT CELL 2             280 min
 #
-# The sharing arms roll out TWO engines, and the non-replay part of an R1 cell is 7.22 of its 15.65 minutes
+# WRONG MECHANISM, kept here with its correction: `shared` is ONE engine serving both tenants, and the
+# two-engine arms are `timeSlicing` and `mps`. What this paragraph argued from was the engine count, and
+# the measured difference is 7.2 SECONDS whose cause was never measured.
+# The non-replay part of an R1 cell is 7.22 of its 15.65 minutes
 # -- 46%, derived from the committed raw rows, whose 4655 requests span 505.6 s against a registered 505 s
 # trace, so the rest of the cell is not replay. Doubling only that part puts a shared cell at 22.9 and past
 # the break-even, and 220 would then have bought TWO cells rather than nine: the arms alternate
@@ -99,7 +102,7 @@ MAX_SPOT_PRICE="${MAX_SPOT_PRICE:-1.10}"
 # every later cell finds them cached. Warm cells spend 2.87 minutes outside replay, 25%, and the figure is
 # steady to the second. Generalising one cold cell to ten is what produced 22.9.
 #
-# The sharing arm IS slower and more variable, which is the direction two engines predicts, but by 7.2
+# The sharing arm IS slower and more variable, but by 7.2
 # seconds rather than seven minutes: at the plateau R1 is 11.189 (n=3, spread 1.0 s) and shared is 11.308
 # (n=4, spread 10.0 s), and the two do not overlap -- every shared cell exceeds every R1 cell. A real
 # effect, 0.7% of a cell, and the thing that actually costs four minutes is the cold start.

@@ -1440,8 +1440,16 @@ cell_deadline_check() {
   remain=$(deadline_remaining_minutes 2>/dev/null) || return 0
   [ -n "$remain" ] || return 0
   per=$(( (cell_secs + cells_done - 1) / cells_done ))
-  # A fifth of headroom, because cells differ by arm -- the sharing arms roll out two engines and the
-  # exclusive arm rolls out one -- and a projection that only just fits is one slow cell from being cut.
+  # A fifth of headroom, because cells differ by arm, and a projection that only just fits is one slow
+  # cell from being cut.
+  #
+  # This comment used to say "the sharing arms roll out two engines and the exclusive arm rolls out one",
+  # which puts `shared` on the wrong side: deploy_arm groups R1|shared together and the device plugin asks
+  # want=1 for both of them (see the arm cases above), while timeSlicing and mps are the want=2 arms. The
+  # wrong half of that sentence was then quoted into a deadline argument and used to predict a 22.9-minute
+  # shared cell; ten measured cells put it at 11.31, against R1's 11.19. The arms DO differ -- the plateau
+  # intervals do not overlap -- by 7.2 seconds, and what causes those seconds was never measured. The real
+  # spread is the FIRST cell of a run, which downloads the model weights: 15.58 minutes against 11.34.
   projected=$(( ((cells_total - cells_done) * per * 12 / 10 + 59) / 60 ))
   if [ "$projected" -ge "$remain" ]; then
     echo >&2
