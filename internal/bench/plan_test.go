@@ -43,8 +43,6 @@ func TestTheCommittedSampleCannotBeExecuted(t *testing.T) {
 		"contender.tenant is",
 		"baseline.model is",
 		"contender.model is",
-		"baseline.outputTokens is",
-		"contender.outputTokens is",
 		"warmupRequests is",
 		"load.generator is",
 	}
@@ -52,6 +50,16 @@ func TestTheCommittedSampleCannotBeExecuted(t *testing.T) {
 	for _, want := range wantEach {
 		if !strings.Contains(msg, want) {
 			t.Errorf("the refusal does not mention %q; got:\n%s", want, msg)
+		}
+	}
+	// The output caps left this list on 2026-10-01, and their absence is asserted rather than simply
+	// removed. A shorter list and a switched-off compiler read the same way otherwise: the sample declares
+	// 128 and 256, the generator now takes both as flags, so a refusal naming them would mean the plan had
+	// stopped carrying what it can carry.
+	for _, gone := range []string{"baseline.outputTokens is", "contender.outputTokens is"} {
+		if strings.Contains(msg, gone) {
+			t.Errorf("the refusal still mentions %q; the generator takes the cap as a flag now, so a declared "+
+				"value is carried into the plan rather than refused:\n%s", gone, msg)
 		}
 	}
 
@@ -115,8 +123,8 @@ func TestEachUnsupportedValueIsRefusedOnItsOwn(t *testing.T) {
 		{"a model nothing serves", func(s *platformv1.GpuSharingBenchmarkSpec) {
 			s.Contender.Model = "llama3-8b"
 		}, "contender.model is"},
-		{"an output length the generator caps", func(s *platformv1.GpuSharingBenchmarkSpec) {
-			s.Baseline.OutputTokens = 128
+		{"an output cap asking the engine for nothing", func(s *platformv1.GpuSharingBenchmarkSpec) {
+			s.Baseline.OutputTokens = 0
 		}, "baseline.outputTokens is"},
 		{"a warmup the harness has no phase for", func(s *platformv1.GpuSharingBenchmarkSpec) {
 			s.WarmupRequests = 50
@@ -216,6 +224,24 @@ func TestAnAPIValidSpecCompilesAndCarriesTheResolvedLengths(t *testing.T) {
 	}
 	if p.TokenizerRevision != InputLengthTokenizerRevision {
 		t.Errorf("tokenizer revision = %q, want %q", p.TokenizerRevision, InputLengthTokenizerRevision)
+	}
+	// The output caps are CARRIED from 2026-10-01, and the values here are deliberately NOT 64 and 16.
+	//
+	// The executable sample declares exactly the generator's old literals, so compiling it proves nothing
+	// about whether the plan carries the CR's value or re-states a constant. Asserting against 64/16 would
+	// pass just as well with the field deleted -- which a mutation showed: removing both assignments from
+	// CompilePlan left every test in this package green, because nothing read them.
+	caps := apiValidSpec()
+	caps.Baseline.OutputTokens = 96
+	caps.Contender.OutputTokens = 24
+	pc, err := CompilePlan(caps)
+	if err != nil {
+		t.Fatalf("a spec declaring caps the generator can now take was refused: %v", err)
+	}
+	if pc.BaselineOutputTokens != 96 || pc.ContenderOutputTokens != 24 {
+		t.Errorf("the plan carries caps %d and %d, want the declared 96 and 24; the generator takes them as "+
+			"flags now, so a plan that drops them sends the old literals to the card",
+			pc.BaselineOutputTokens, pc.ContenderOutputTokens)
 	}
 	// And the plan must not quietly carry a length for a side that declared no token count: zero means the
 	// side asserted nothing, and turning that into a character length would invent traffic.

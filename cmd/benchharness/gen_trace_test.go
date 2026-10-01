@@ -290,3 +290,64 @@ func stampExactTokensInPlace(t *testing.T, path string) {
 		t.Fatalf("write trace: %v", err)
 	}
 }
+
+// The output caps reach the ROWS, which is the half of "the CR declares it" that nothing checked.
+//
+// CompilePlan carries the declared caps and compile-plan exports them, and both of those are pinned
+// elsewhere. What was missing is the last hop: gen-trace has to put the value on every row, because the
+// generator held 64 and 16 as literals in traceTenants until 2026-10-01 and a plan that resolves a value
+// the runner then drops is the failure the compiler exists to prevent, one layer down. Measured by hand,
+// reverting that one assignment made a `--premium-output-tokens 128` run emit rows of 64 again and every
+// test in this package stayed green.
+//
+// The defaults are asserted too. They are what every pre-CR trace in the committed evidence was generated
+// with, so an un-flagged regeneration has to keep producing them.
+//
+// Mutation that turns this red: restore the literal in either TenantSpec in traceTenants.
+func TestTheOutputCapFlagsReachTheRows(t *testing.T) {
+	capsOf := func(rows []bench.TraceRow, tenant string) []int {
+		seen := map[int]bool{}
+		var out []int
+		for _, r := range rows {
+			if r.Tenant != tenant || seen[r.MaxOutputTokens] {
+				continue
+			}
+			seen[r.MaxOutputTokens] = true
+			out = append(out, r.MaxOutputTokens)
+		}
+		return out
+	}
+	load := []string{"--seed", "11", "--duration-ms", "60000", "--rate", "4",
+		"--premium-weight", "1", "--noisy-weight", "1", "--probe-weight", "0"}
+
+	base, err := runGenTrace(t, load...)
+	if err != nil {
+		t.Fatalf("gen-trace with no cap flags: %v", err)
+	}
+	for _, w := range []struct {
+		tenant string
+		want   int
+	}{{bench.PremiumTenant, bench.FixedPremiumMaxOutputTokens}, {bench.NoisyTenant, bench.FixedNoisyMaxOutputTokens}} {
+		got := capsOf(base, w.tenant)
+		if len(got) != 1 || got[0] != w.want {
+			t.Errorf("unflagged %s caps = %v, want every row at the default %d; a changed default silently "+
+				"regenerates the committed evidence as a different load", w.tenant, got, w.want)
+		}
+	}
+
+	flagged, err := runGenTrace(t, append(append([]string{}, load...),
+		"--premium-output-tokens", "96", "--noisy-output-tokens", "24")...)
+	if err != nil {
+		t.Fatalf("gen-trace with cap flags: %v", err)
+	}
+	for _, w := range []struct {
+		tenant string
+		want   int
+	}{{bench.PremiumTenant, 96}, {bench.NoisyTenant, 24}} {
+		got := capsOf(flagged, w.tenant)
+		if len(got) != 1 || got[0] != w.want {
+			t.Errorf("flagged %s caps = %v, want every row at %d; the flag is parsed but not written to the "+
+				"rows, so a compiled plan would reach the card and be dropped", w.tenant, got, w.want)
+		}
+	}
+}

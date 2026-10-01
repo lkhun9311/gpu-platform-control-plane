@@ -121,6 +121,8 @@ func compilePlan(args []string) error {
 	fmt.Printf("export PREMIUM_PROMPT_CHARS=%d\n", plan.BaselinePromptChars)
 	fmt.Printf("export NOISY_PROMPT_CHARS=%d\n", plan.ContenderPromptChars)
 	fmt.Printf("export REQUEST_TIMEOUT_MS=%d\n", plan.TimeoutMs)
+	fmt.Printf("export PREMIUM_OUTPUT_TOKENS=%d\n", plan.BaselineOutputTokens)
+	fmt.Printf("export NOISY_OUTPUT_TOKENS=%d\n", plan.ContenderOutputTokens)
 	fmt.Printf("export MODEL_REVISION=%s\n", plan.TokenizerRevision)
 	fmt.Printf("# NOT CR-DERIVED: passed to this command, because the spec has no field for either\n")
 	fmt.Printf("export DURATION_MS=%d\n", *durationMs)

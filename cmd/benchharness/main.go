@@ -115,6 +115,7 @@ type arrivalFlags struct {
 	rate, premiumWeight, noisyWeight, probeWeight             float64
 	premiumRate, noisyRate, probeRate                         float64
 	premiumChars, noisyChars, probeUnderChars, probeOverChars int
+	premiumOutputTokens, noisyOutputTokens                    int
 	// passed names the flags the caller set, since an explicit value can equal its default.
 	passed map[string]bool
 }
@@ -146,8 +147,8 @@ func traceTenants(f arrivalFlags) ([]bench.TenantSpec, float64, error) {
 		}
 	}
 
-	premium := bench.TenantSpec{Tenant: bench.PremiumTenant, PromptLenChars: f.premiumChars, MaxOutputTokens: 64, IsNoisy: false}
-	noisy := bench.TenantSpec{Tenant: bench.NoisyTenant, PromptLenChars: f.noisyChars, MaxOutputTokens: 16, IsNoisy: true}
+	premium := bench.TenantSpec{Tenant: bench.PremiumTenant, PromptLenChars: f.premiumChars, MaxOutputTokens: f.premiumOutputTokens, IsNoisy: false}
+	noisy := bench.TenantSpec{Tenant: bench.NoisyTenant, PromptLenChars: f.noisyChars, MaxOutputTokens: f.noisyOutputTokens, IsNoisy: true}
 	under := bench.TenantSpec{Tenant: bench.ProbeUnderTenant, PromptLenChars: f.probeUnderChars, MaxOutputTokens: 8, IsNoisy: true}
 	over := bench.TenantSpec{Tenant: bench.ProbeOverTenant, PromptLenChars: f.probeOverChars, MaxOutputTokens: 8, IsNoisy: true}
 
@@ -211,6 +212,12 @@ func genTrace(args []string) error {
 	// a 4,096 threshold, which is 2.44x. Corrected rather than restated, since the margin is the reason the
 	// contender population is unambiguously eligible and a wrong multiple invites someone to shrink it.
 	noisyChars := fs.Int("noisy-prompt-chars", 40_000, "noisy tenant prompt length in chars (estimates at 10,000 tokens, 2.44x the 4,096 guard threshold)")
+	// The output caps, which were literals in traceTenants until 2026-10-01.
+	//
+	// They default to what every pre-CR trace in the evidence was generated with, so an un-flagged call
+	// produces the same trace it always did. A compiled plan passes the CR's values instead.
+	premiumOut := fs.Int("premium-output-tokens", bench.FixedPremiumMaxOutputTokens, "premium tenant max_tokens cap")
+	noisyOut := fs.Int("noisy-output-tokens", bench.FixedNoisyMaxOutputTokens, "noisy tenant max_tokens cap")
 	premiumWeight := fs.Float64("premium-weight", 1, "premium tenant arrival share")
 	noisyWeight := fs.Float64("noisy-weight", 1, "noisy tenant arrival share")
 	// Meant to be small, and 0.1 is NOT small the way this comment used to claim.
@@ -298,6 +305,7 @@ func genTrace(args []string) error {
 		rate: *rate, premiumWeight: *premiumWeight, noisyWeight: *noisyWeight, probeWeight: *probeWeight,
 		premiumRate: *premiumRate, noisyRate: *noisyRate, probeRate: *probeRate,
 		premiumChars: *premiumChars, noisyChars: *noisyChars, probeUnderChars: *probeUnderChars, probeOverChars: *probeOverChars,
+		premiumOutputTokens: *premiumOut, noisyOutputTokens: *noisyOut,
 		passed: passed,
 	})
 	if err != nil {

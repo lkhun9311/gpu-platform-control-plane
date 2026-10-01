@@ -70,16 +70,21 @@ func CompilePlan(spec platformv1.GpuSharingBenchmarkSpec) (Plan, error) {
 		}
 	}
 
-	// Output length. The generator hard-codes a MAXIMUM per tenant and sends it as max_tokens, which is a cap
-	// rather than a generation length: a CR asking for 128 output tokens would receive at most 64, and a
-	// response that stops early is shorter still.
-	if int(spec.Baseline.OutputTokens) != FixedPremiumMaxOutputTokens {
-		refuse("baseline.outputTokens is %d; the generator fixes the premium cap at %d and sends it as an upper bound, not a generation length",
-			spec.Baseline.OutputTokens, FixedPremiumMaxOutputTokens)
-	}
-	if int(spec.Contender.OutputTokens) != FixedNoisyMaxOutputTokens {
-		refuse("contender.outputTokens is %d; the generator fixes the contender cap at %d and sends it as an upper bound, not a generation length",
-			spec.Contender.OutputTokens, FixedNoisyMaxOutputTokens)
+	// Output length. The generator takes the cap per tenant now, so a declared value is carried rather than
+	// refused -- but it is still a CAP, and a zero would mean "no output", which no study registers.
+	//
+	// This refused anything other than 64 and 16 until 2026-10-01, because those were literals in
+	// traceTenants. The refusal was true about the harness and wrong about the CRD: TenantSpec already had the
+	// field, so what was missing was a flag and not a capability. What stays refused is a value the engine
+	// cannot be asked for.
+	for _, w := range []struct {
+		side   string
+		tokens int32
+	}{{"baseline", spec.Baseline.OutputTokens}, {"contender", spec.Contender.OutputTokens}} {
+		if w.tokens <= 0 {
+			refuse("%s.outputTokens is %d; the generator sends it as max_tokens and a non-positive cap asks the engine for no output",
+				w.side, w.tokens)
+		}
 	}
 
 	// Warmup. There is no warmup phase and no exclusion boundary anywhere in the harness.
@@ -171,18 +176,20 @@ func CompilePlan(spec platformv1.GpuSharingBenchmarkSpec) (Plan, error) {
 	}
 
 	p = Plan{
-		Arms:                 arms,
-		Repetitions:          int(spec.Repetitions),
-		SharingMode:          spec.SharingMode,
-		Model:                ServedModel,
-		PremiumRate:          spec.Baseline.QPS,
-		ContenderRate:        spec.Contender.QPS,
-		TimeoutMs:            int(spec.Load.TimeoutMs),
-		BaselinePromptChars:  baseChars,
-		ContenderPromptChars: contChars,
-		TokenizerRevision:    InputLengthTokenizerRevision,
-		GPUClass:             spec.GPUClass,
-		MinRequestsPerRun:    int(spec.MinRequestsPerRun),
+		Arms:                  arms,
+		Repetitions:           int(spec.Repetitions),
+		SharingMode:           spec.SharingMode,
+		Model:                 ServedModel,
+		PremiumRate:           spec.Baseline.QPS,
+		ContenderRate:         spec.Contender.QPS,
+		TimeoutMs:             int(spec.Load.TimeoutMs),
+		BaselinePromptChars:   baseChars,
+		ContenderPromptChars:  contChars,
+		BaselineOutputTokens:  int(spec.Baseline.OutputTokens),
+		ContenderOutputTokens: int(spec.Contender.OutputTokens),
+		TokenizerRevision:     InputLengthTokenizerRevision,
+		GPUClass:              spec.GPUClass,
+		MinRequestsPerRun:     int(spec.MinRequestsPerRun),
 	}
 	return p, nil
 }
@@ -222,6 +229,15 @@ type Plan struct {
 	// Carried so a run can be compared with it. A plan resolved against one tokenizer describes nothing
 	// about an engine serving another, and the comparison is the only thing that can notice.
 	TokenizerRevision string
+	// BaselineOutputTokens and ContenderOutputTokens are the caps the run will send as max_tokens.
+	//
+	// They are a cap and not a generation length: a response that stops earlier is shorter, and nothing makes
+	// the engine emit the full count. The CR's field comment says so, and this carries the CR's value rather
+	// than a constant because the generator can now be told -- which is the whole change. Before 2026-10-01
+	// the generator hard-coded 64 and 16, so CompilePlan refused any other value; the refusal was correct
+	// about the harness and wrong about the CRD, which had declared a perfectly expressible thing.
+	BaselineOutputTokens  int
+	ContenderOutputTokens int
 	// GPUClass and MinRequestsPerRun are carried because the spec declares them and a plan that drops a
 	// declared requirement has not compiled the registration, it has compiled part of it.
 	//
@@ -240,7 +256,12 @@ type Plan struct {
 // discovered until the gateway answers ErrNoRoute for every request of every arm with both engines loaded.
 const ServedModel = "Qwen/Qwen2.5-3B-Instruct"
 
-// FixedPremiumMaxOutputTokens and FixedNoisyMaxOutputTokens are the caps the generator hard-codes per tenant.
+// FixedPremiumMaxOutputTokens and FixedNoisyMaxOutputTokens are the generator's DEFAULT caps per tenant.
+//
+// They stopped being a contract on 2026-10-01: a compiled plan now carries the CR's values and gen-trace
+// takes them as flags. They remain as the defaults a caller who passes neither flag gets, which is what
+// every pre-CR trace in the evidence was generated with -- so deleting them would silently change what an
+// un-flagged regeneration produces.
 const (
 	FixedPremiumMaxOutputTokens = 64
 	FixedNoisyMaxOutputTokens   = 16
@@ -291,6 +312,8 @@ func FormatPlan(p Plan) string {
 	b.WriteString("REPS=" + strconv.Itoa(p.Repetitions) + " \\\n")
 	b.WriteString("  # RATE, PREMIUM_WEIGHT, NOISY_WEIGHT, PROBE_WEIGHT and DURATION_MS are NOT defaulted here:\n")
 	b.WriteString("  # the wrapper's own defaults are the load its pre-registration rejected. Derive them on the card.\n")
+	b.WriteString("PREMIUM_OUTPUT_TOKENS=" + strconv.Itoa(p.BaselineOutputTokens) + " \\\n")
+	b.WriteString("NOISY_OUTPUT_TOKENS=" + strconv.Itoa(p.ContenderOutputTokens) + " \\\n")
 	b.WriteString("  # declared victim qps " + p.PremiumRate + ", contender qps " + p.ContenderRate + "\n")
 	return b.String()
 }

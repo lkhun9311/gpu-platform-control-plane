@@ -76,6 +76,15 @@ MODEL_REVISION="${MODEL_REVISION:-aa8e72537993ba99e69dfaafa59ed015b17504d1}"
 PREMIUM_PROMPT_CHARS="${PREMIUM_PROMPT_CHARS:-1174}"
 NOISY_PROMPT_CHARS="${NOISY_PROMPT_CHARS:-42579}"
 REQUEST_TIMEOUT_MS="${REQUEST_TIMEOUT_MS:-60000}"
+# The output caps, for the same reason and with the same hazard as the lengths above.
+#
+# gen-trace held these as the literals 64 and 16 until 2026-10-01, so CompilePlan refused any other
+# declared value instead of carrying it. It carries them now, which means the value has to REACH the
+# generator -- and the paragraph above is about exactly the failure of resolving a value and then not
+# passing it. BOTH gen-trace call sites take them: the offline plan-check and the real run. Passing only
+# one would make the check a check of a different load than the card buys.
+PREMIUM_OUTPUT_TOKENS="${PREMIUM_OUTPUT_TOKENS:-64}"
+NOISY_OUTPUT_TOKENS="${NOISY_OUTPUT_TOKENS:-16}"
 OUT="${OUT:-hack/m5c-run-$(date +%Y%m%d-%H%M%S)}"
 LOG="$OUT/evidence.log"
 GW_IMAGE="${GW_IMAGE:-gateway:m5c}"
@@ -168,7 +177,7 @@ if [ -n "${BENCHMARK_CR_SHA256:-}" ]; then
   [ -n "$LADDER" ] && fail "LADDER and BENCHMARK_CR_SHA256 are both set. A CR declares one load and the ladder is a sequence of different ones, so the compiled plan would be ignored for every rung."
   # STUDY is not on this list: compile-plan is told which study the evidence is filed under, because the CR
   # has no field for it, and it prints that value into the same block. It is passed, not compiled.
-  for v in RATE PREMIUM_WEIGHT NOISY_WEIGHT PROBE_WEIGHT PREMIUM_PROMPT_CHARS NOISY_PROMPT_CHARS REQUEST_TIMEOUT_MS MODEL_REVISION; do
+  for v in RATE PREMIUM_WEIGHT NOISY_WEIGHT PROBE_WEIGHT PREMIUM_PROMPT_CHARS NOISY_PROMPT_CHARS REQUEST_TIMEOUT_MS MODEL_REVISION PREMIUM_OUTPUT_TOKENS NOISY_OUTPUT_TOKENS; do
     [ -n "${!v:-}" ] || fail "$v is unset although BENCHMARK_CR_SHA256 is set. Source the whole block benchharness compile-plan prints; a partial one leaves this script defaulting a value the CR declared."
   done
   # ARMS and REPS are checked through the FROM_CALLER flags and not for emptiness, because by this line they
@@ -435,6 +444,7 @@ if [ -n "${PLAN_ONLY:-}" ]; then
     "$WORK/benchharness" gen-trace --seed 11 --duration-ms "$DURATION_MS" "${LOAD_FLAGS[@]}" \
       --study "$STUDY" --arm "$cell_label" --model "$MODEL" --gateway-url "http://127.0.0.1:18080" \
       --premium-prompt-chars "$PREMIUM_PROMPT_CHARS" --noisy-prompt-chars "$NOISY_PROMPT_CHARS" \
+      --premium-output-tokens "$PREMIUM_OUTPUT_TOKENS" --noisy-output-tokens "$NOISY_OUTPUT_TOKENS" \
       --timeout-ms "$REQUEST_TIMEOUT_MS" \
       --trace-out "$WORK/plan-$cell_label.jsonl" --manifest-out "$WORK/plan-$cell_label.yaml" >/dev/null \
       || { echo "PLAN REFUSED: gen-trace could not build $cell_label's trace" >&2; plan_failures=$(( plan_failures + 1 )); continue; }
@@ -1591,6 +1601,7 @@ run_cell() {
     --engine-image "$ENGINE_IMAGE" --gateway-image "$GATEWAY_IMAGE_REF" --gateway-sha "$SOURCE_COMMIT" \
     --tokenizer-rev "$MODEL_REVISION" \
     --premium-prompt-chars "$PREMIUM_PROMPT_CHARS" --noisy-prompt-chars "$NOISY_PROMPT_CHARS" \
+    --premium-output-tokens "$PREMIUM_OUTPUT_TOKENS" --noisy-output-tokens "$NOISY_OUTPUT_TOKENS" \
     --timeout-ms "$REQUEST_TIMEOUT_MS" \
     --trace-out "$OUT/trace-$label-$rep.jsonl" --manifest-out "$OUT/manifest-$label-$rep.yaml" || fail "gen-trace $label"
   # --require-provenance, now that there is provenance to require.
