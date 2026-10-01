@@ -211,6 +211,34 @@ func EvaluateSharingMatrix(a SharingArms, premiumTenant, contenderTenant string)
 	}
 	res.Readings = append(res.Readings, scored...)
 
+	// NO CANDIDATE AT ALL is a plan that cannot produce a verdict, not a verdict of "no finding".
+	//
+	// Readings 1, 2, 3 and 5 score a candidate against R1 with `shared` as the control. With the candidate
+	// slice empty each one comes back NotEvaluable, none of them is a gate, and sharingRunInvalid returned
+	// nil -- so a run exited zero having evaluated nothing. Measured 2026-10-01: ten cells and $1.44 bought
+	// a report whose ANSWER read "none of the readings fired -- a gap in the outcome space". It is not a
+	// gap. A matrix of R1 and `shared` alone has no candidate by construction, and neither the load, the
+	// repetitions nor the card changes that.
+	//
+	// A NEW id rather than reusing 4, and added AFTER the scored readings rather than before them. Both
+	// choices are forced:
+	//   - sharingRunInvalid returns on its FIRST matching reading, so a second ID "4" sitting behind the
+	//     one sharingReadingFour already appended would never be reached.
+	//   - returning early (as the missing-arm case above does) removes 1, 2, 3 and 5 from the list, and
+	//     TestNoSharingArmsMeansNoConclusionAboutThem pins that they are still REPORTED -- a reader has to
+	//     see which readings were not evaluated, not just that something was wrong.
+	// So the four stay, and this is appended beside them as a gate of its own.
+	if len(a.Sharing) == 0 {
+		res.Readings = append(res.Readings, PoPReading{
+			ID: "4d", Name: "the plan has no sharing candidate -- INVALID", NotEvaluable: true,
+			Detail: "readings 1, 2, 3 and 5 score a candidate against R1 with `shared` as the control, and " +
+				"this evidence has no candidate at all, so none of them could be evaluated. Changing the " +
+				"load, the repetitions or the card does not make them evaluable. Register a three-arm " +
+				"protocol, or report this evidence as the A/B measurement it is rather than asking for a " +
+				"matrix verdict.",
+		})
+	}
+
 	// The ANSWER is chosen from the scored readings FIRST, and 4c is the fallback rather than the winner.
 	//
 	// 4c is appended above them because that is the order a reader should meet the readings in, and the
@@ -894,8 +922,24 @@ func FormatSharingMatrix(res SharingResult) string {
 		}
 	}
 	if res.Answer == "" {
-		b.WriteString("\nANSWER: none of the readings fired. That is not a result; it is a gap in the outcome space,\n")
-		b.WriteString("and the pre-registration says what to do about one rather than leaving it to a reader.\n")
+		// "A gap in the outcome space" says the run met a case the readings have no name for, which is an
+		// invitation to buy another one. When reading 4d is present the truth is the opposite: this plan
+		// cannot fire a reading however many times it runs. Printing the same sentence for both is how
+		// 2026-10-01 read as "nothing fired" rather than "nothing could fire".
+		unplanned := false
+		for _, r := range res.Readings {
+			if r.ID == "4d" {
+				unplanned = true
+			}
+		}
+		if unplanned {
+			b.WriteString("\nANSWER: none of the readings COULD fire. This is not a gap in the outcome space --\n")
+			b.WriteString("the plan has no sharing candidate, so readings 1, 2, 3 and 5 have nothing to score.\n")
+			b.WriteString("Running it again, longer or on a bigger card, produces this same page.\n")
+		} else {
+			b.WriteString("\nANSWER: none of the readings fired. That is not a result; it is a gap in the outcome space,\n")
+			b.WriteString("and the pre-registration says what to do about one rather than leaving it to a reader.\n")
+		}
 	} else {
 		b.WriteString("\nANSWER: " + res.Answer + "\n")
 	}

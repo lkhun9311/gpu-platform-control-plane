@@ -1554,7 +1554,7 @@ func armNames(summaries []bench.ArmSummary) []string {
 // reachable from a test, and inline in a command that wants files on disk it is not.
 func sharingRunInvalid(res bench.SharingResult) error {
 	for _, r := range res.Readings {
-		if r.Fired && (r.ID == "4" || r.ID == "4b") {
+		if r.Fired && (r.ID == "4" || r.ID == "4b" || r.ID == "4d") {
 			return fmt.Errorf("run invalid: reading %s fired -- %s", r.ID, r.Detail)
 		}
 		// A GATE that could not be computed is also not a run that stands.
@@ -1566,7 +1566,12 @@ func sharingRunInvalid(res bench.SharingResult) error {
 		// independent review with 2% premium timeouts in the control.
 		//
 		// Only the GATES. A reading below them coming back NotEvaluable is an ordinary "no finding here".
-		if r.NotEvaluable && (r.ID == "4" || r.ID == "4b") {
+		//
+		// 4d is a gate too, and the newest one. It says the PLAN could not produce a verdict rather than
+		// that this evidence failed to: readings 1, 2, 3 and 5 stay in the list as ordinary non-findings,
+		// and 4d is what turns the exit status. Without it a run that evaluated nothing exited zero --
+		// 2026-10-01, ten cells and $1.44.
+		if r.NotEvaluable && (r.ID == "4" || r.ID == "4b" || r.ID == "4d") {
 			return fmt.Errorf("run invalid: reading %s could not be evaluated -- %s", r.ID, r.Detail)
 		}
 	}

@@ -1110,3 +1110,58 @@ distinction is the whole value of a page like this, so it is worth being explici
 what a pre-registration is *supposed* to absorb — they were bought by reading and rehearsing rather than by
 a card, and they arrived while editing was still allowed. What may not happen after the pilot is bought is
 a change to the bars, the readings, or the order they are evaluated in.
+
+## Amendment, 2026-10-01: reading 4d, for a plan that cannot produce a verdict
+
+A run on 2026-10-01 completed ten cells on a rented A10G for $1.44, printed four readings as
+`N/E`, and **exited zero**. Its last line was "none of the readings fired. That is not a result; it is
+a gap in the outcome space" — which reads as an invitation to buy another run. It was not a gap.
+
+**What the evidence was.** A `GpuSharingBenchmark` declares one `sharingMode`, and `sharedInstance`
+compiles to the arm pair `{R1, shared}`. Both are ROLES in this study: R1 is the baseline both bars
+divide by, `shared` is the control every improvement is measured from. `scoreSharingArms` iterates the
+CANDIDATE slice, and that slice was empty. Readings 1, 2, 3 and 5 each came back `NotEvaluable` with
+"no sharing arm could be scored against the bars", and none of them is a gate, so the exit verdict —
+which only looked at 4 and 4b — returned nil.
+
+### 4d. The plan has no sharing candidate — INVALID
+
+Fires `NotEvaluable` when the candidate set is empty, from either route: a plan that never declared a
+candidate, or a plan whose only candidates were refused and filtered out upstream. It is a **gate**: it
+ends the process the way 4 and 4b do.
+
+It says something none of the existing readings can. 4 and 4b say the TRACE has to change. 4c says one
+ARM did not engage. 4d says **the PLAN cannot produce a verdict** — running it again, longer, or on a
+bigger card produces the same page.
+
+**A new id rather than reusing 4.** The exit verdict returns on its first matching reading, so a second
+reading with id "4" placed behind the one reading 4 already appends would never be reached. And 4d is
+appended AFTER readings 1, 2, 3 and 5 rather than short-circuiting before them, because a reader has to
+see WHICH readings were not evaluated; `TestNoSharingArmsMeansNoConclusionAboutThem` pins that they stay
+reported.
+
+**What it does not change.** No bar moved. 4c still invalidates one arm rather than the run — MPS has
+already been measured failing to engage on this AMI, and that is still the expected case rather than a
+corner. Readings 1, 2, 3 and 5 still report as ordinary non-findings when a candidate exists and misses
+the bars.
+
+**The ANSWER line changes with it.** When 4d is present the page says "none of the readings COULD fire"
+and names the reason, instead of the outcome-space sentence that sent this run's operator looking for a
+load to change.
+
+### Verified in three directions
+
+| direction | input | expected | measured |
+| --- | --- | --- | --- |
+| control | `internal/bench` and `cmd/benchharness` suites | green | green; the two tests this change could have broken pass (7/7 exit-status cases, and the no-candidate reporting test) |
+| mutation | the 2026-10-01 two-arm evidence, ten cells | exit ≠ 0, 4d present | **exit 1**, `[ N/E ] 4d`, ANSWER replaced |
+| reverse | the ninth pilot's three-arm evidence, six cells | exit 0, no 4d, reading 5 | **exit 0**, 4d absent, `ANSWER: 5 (timeSlicing)` |
+
+The reverse direction matters as much as the mutation: a gate that refuses a run this study is designed
+to buy would be worse than the hole it closes. It also recomputed the published table from the committed
+raw rows — R1 69.5 ms, `shared` 1,892.2 ms (27.2x), `timeSlicing` 1,007.5 ms (14.5x), 9,588 of 9,588
+completed in every arm.
+
+**What this amendment cannot do.** It does not make a one-mode CR produce a scorable comparison. The
+readings need three arms, and a CR declares one `sharingMode`; `timeSlicing` alone yields a candidate
+with no control. That is an open question about the CRD's shape, not something a reading can fix.
