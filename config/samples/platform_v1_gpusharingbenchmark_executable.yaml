@@ -65,7 +65,10 @@ spec:
     # 256 tokens. The resolution table carries 256 and 8192 and nothing else, because those are the two
     # lengths whose character counts were measured against the served tokenizer rather than estimated.
     inputTokens: 256
-    # An upper bound on generation, not a length. The generator fixes the premium cap at 64.
+    # An upper bound on generation, not a length: the sender puts this value in the request's max_tokens
+    # (internal/bench/httpsender.go). 64 is what every committed run was generated with and what the
+    # generator defaults to, but since 2026-10-01 the value travels from here rather than being fixed --
+    # this comment used to claim the old restriction after the restriction was gone.
     outputTokens: 64
   # The long-context noisy neighbour.
   contender:

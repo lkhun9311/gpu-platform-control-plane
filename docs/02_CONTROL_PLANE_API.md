@@ -152,27 +152,46 @@ three. `CompilePlan` has **thirteen** refusal sites, three of which fire once pe
 unsupported values each have their own case in `TestEachUnsupportedValueIsRefusedOnItsOwn`; and the committed
 sample itself receives **six** — `baseline.tenant`, `contender.tenant`, `baseline.model`, `contender.model`,
 `load.generator` and `warmupRequests`. It received eight until 2026-10-01, when `outputTokens` became a value
-the plan carries rather than one it refuses; the sentence here went on saying this harness "caps generation"
-after that had stopped being true.
+the plan carries rather than one it refuses.
+
+The sentence here used to list "caps generation" among the reasons, and the first correction of it was wrong
+too: generation **is** still capped — `internal/bench/httpsender.go:295` puts the value in the request's
+`max_tokens`, as it always did. What disappeared is the *restriction to one fixed cap*. A limit the CR now
+chooses and a limit the generator hard-coded are both caps, and calling the second one's removal "no longer
+caps" describes neither.
 
 ### Known limits of `GpuSharingBenchmark`, and the refusal that states each one
 
 These are the values the harness does not support. They are listed here so a reviewer reads them rather than
-discovering them at run time, and each is pre-refused at compile time instead of being honoured partially.
+discovering them at run time, and each one below is pre-refused at compile time instead of being honoured
+partially.
+
+⚠️ **Two fields are neither refused nor enforced, which is a third state this section used to hide.**
+`CompilePlan` stores `gpuClass` and `minRequestsPerRun` on the `Plan` (`internal/bench/plan.go:191-192`), and
+the `compile-plan` export block never prints them (`cmd/benchharness/compileplan.go:115-150`). So raising the
+executable sample's `minRequestsPerRun` from 1,000 to 1,000,000 changes the CR's sha256 and changes nothing
+else: the compiler checks only the floor, the runner is never told the number, and the analysis path reads the
+harness constant `MinTailSamples = 100` (`internal/bench/report.go:769`) rather than the CR's value. Keeping a
+declared value in a struct is not the same as carrying it to the run — that distinction is what the
+`outputTokens` work above was about, and these two fields are still on the wrong side of it. Verified by
+reading the code path, not by executing a changed CR.
 
 | Field | What is supported | Refused by, and why that is not a missing afternoon of work |
 |---|---|---|
 | `baseline.tenant`, `contender.tenant` | `premium-1`, `standard-noisy` | `plan.go:53,57`. The trace generator writes these two identities into every row. The names are not a string: one `TENANTS` list derives the API-key secret, the `api_keys` map, the premium tier list, the `GPUQuotaPolicy` and the vLLM priority map, across 12 files. A hand-kept copy is what cost the first paid run a quarter of every replay to 401s (two of four tenants missing from the key secret) and the second its two probe tenants to 403s (keyed but given no policy); a tenant missing from the priority map would fail more quietly still, replaying the control *without an error*. |
 | `baseline.model`, `contender.model` | `Qwen/Qwen2.5-3B-Instruct` | `plan.go:68`. The gateway answers `ErrNoRoute` for any other name once the engines are up. Parameterising it is possible, but the model binds the tokenizer, and the token-to-character resolution table below was measured against this one. |
 | `warmupRequests` | `0` | `plan.go:96`. There is no warmup phase and no exclusion boundary. Dropping rows after the fact is a different protocol from not sending them, so a positive value could not be honoured, only approximated. |
-| `load.generator` | `benchharness replay` | `plan.go:118`. The registered sample names `genai-perf`, which never produced traffic here. The sample is deliberately **not** edited to match: a manifest naming a generator that did not send the requests is provenance for the wrong tool. |
+| `load.generator` | `benchharness-replay` (the exact literal, `plan.go:275`) | `plan.go:118`. The registered sample names `genai-perf`, which never produced traffic here. The sample is deliberately **not** edited to match: a manifest naming a generator that did not send the requests is provenance for the wrong tool. |
 | `baseline/contender.inputTokens` | `256`, `8192` | `plan.go:152`. The generator is configured in characters; these are the two token counts whose character lengths were measured against the served tokenizer rather than estimated, and no formula inverts the count. |
-| `load.mode`, `load.retries`, `load.streaming`, `minRequestsPerRun`, `repetitions`, `sharingMode`, `outputTokens` | `openLoop`, `0`, `true`, ≥ 100, ≥ 5, the modes the matrix deploys, any positive cap | The remaining sites in the same file. These constrain the measurement rather than the platform: a retry repairs the tail this benchmark exists to measure, and a non-streaming response has no first-token time. |
+| `load.mode`, `load.retries`, `load.streaming`, `minRequestsPerRun`, `repetitions`, `sharingMode`, `outputTokens` | `openLoop`, `0`, `true`, **≥ 1000** (the CRD's own `Minimum`, `api/v1/gpusharingbenchmark_types.go:80` — the harness floor of 100 in `plan.go:102` is a different, lower bound and this row used to print it as the API's), ≥ 5, the modes the matrix deploys, any positive cap | The remaining sites in the same file. These constrain the measurement rather than the platform: a retry repairs the tail this benchmark exists to measure, and a non-streaming response has no first-token time. |
 
-What exists today: the CRD, the sample, the harness, and the compiler that decides whether a spec is
-executable. What does not: anything that calls the compiler outside tests, and the status writer. So the
-measured numbers in `README.md` came from the shell harness on a rented card, and no `status.result` has
-ever been written. Status numbers, when they come, come from a real-GPU run (doc 04); they are not
+What exists today: the CRD, the samples, the harness, the compiler that decides whether a spec is executable,
+and a command that calls it — `benchharness compile-plan` (`cmd/benchharness/compileplan.go:78`), which is how
+both paid runs of 2026-10-01 got their load. This paragraph used to say "anything that calls the compiler
+outside tests" does not exist, which contradicted the instruction six paragraphs above to run that very
+command. What does not exist is narrower and worth stating exactly: **no controller calls the compiler, and
+nothing writes `status.result`.** So the measured numbers in `README.md` came from the shell harness on a
+rented card, and no `status.result` has ever been written. Status numbers, when they come, come from a real-GPU run (doc 04); they are not
 invented locally.
 
 ## WorkloadRun (new, Evidence CRD-lite)
