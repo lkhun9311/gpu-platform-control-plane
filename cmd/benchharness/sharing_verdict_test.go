@@ -101,11 +101,17 @@ func TestOnlyTheWholeRunGatesTheExitStatus(t *testing.T) {
 // that contained one repetition.
 func TestTheSameReplayCannotBeCountedTwice(t *testing.T) {
 	dir := t.TempDir()
-	a := writeRepetition(t, dir, "a.jsonl", "R1", 200, 100, 150, 0)
+	a := writeRepetition(t, dir, "raw-R1-1.jsonl", "R1", 200, 100, 150, 0)
 
 	// A byte-for-byte copy under a different name is the case that matters: a second -raw of the SAME path
 	// could be caught by comparing paths, and that is not the defect.
-	b := filepath.Join(dir, "a-copy.jsonl")
+	//
+	// The copy carries a DIFFERENT repetition identity on purpose. Naming it raw-R1-1 as well would trip the
+	// duplicate-identity refusal in loadArmEvidence first, and this test would then pass while proving
+	// something else: that two files cannot claim one repetition number. The defect here is the opposite
+	// shape -- two legitimately numbered repetitions whose CONTENTS are one replay -- and only the send-time
+	// hash can see it. Keeping the identities distinct is what makes the two refusals testable apart.
+	b := filepath.Join(dir, "raw-R1-2.jsonl")
 	blob, err := os.ReadFile(a)
 	if err != nil {
 		t.Fatalf("read %s: %v", a, err)

@@ -117,13 +117,13 @@ func TestReportRefusesATruncatedRepetitionThroughTheRealCommand(t *testing.T) {
 	// Every arm gets TWO repetitions so the counts match and the incremental CI is computed. Otherwise the
 	// unequal-repetition refusal fires first and this test would pass without the floor existing at all.
 	raw := []string{
-		writeRepetition(t, dir, "r1a.jsonl", "R1", 500, 100, 250, 0),
-		writeRepetition(t, dir, "r1b.jsonl", "R1", 500, 100, 250, 0),
-		writeRepetition(t, dir, "ba.jsonl", "static-cap", 500, 200, 250, 0),
-		writeRepetition(t, dir, "bb.jsonl", "static-cap", 500, 200, 250, 0),
-		writeRepetition(t, dir, "c1.jsonl", "kv-aware", 500, 110, 255, 0),
+		writeRepetition(t, dir, "raw-R1-1.jsonl", "R1", 500, 100, 250, 0),
+		writeRepetition(t, dir, "raw-R1-2.jsonl", "R1", 500, 100, 250, 0),
+		writeRepetition(t, dir, "raw-static-cap-1.jsonl", "static-cap", 500, 200, 250, 0),
+		writeRepetition(t, dir, "raw-static-cap-2.jsonl", "static-cap", 500, 200, 250, 0),
+		writeRepetition(t, dir, "raw-kv-aware-1.jsonl", "kv-aware", 500, 110, 255, 0),
 		// Same row total, but this repetition completed 30 premium requests and rejected 470.
-		writeRepetition(t, dir, "c2.jsonl", "kv-aware", 30, 110, 255, 470),
+		writeRepetition(t, dir, "raw-kv-aware-2.jsonl", "kv-aware", 30, 110, 255, 470),
 	}
 
 	outPath := filepath.Join(dir, "report.txt")
@@ -165,12 +165,12 @@ func TestReportRefusesATruncatedRepetitionThroughTheRealCommand(t *testing.T) {
 func TestReportAcceptsEqualHealthyRepetitions(t *testing.T) {
 	dir := t.TempDir()
 	raw := []string{
-		writeRepetition(t, dir, "r1a.jsonl", "R1", 500, 100, 250, 0),
-		writeRepetition(t, dir, "r1b.jsonl", "R1", 500, 100, 250, 0),
-		writeRepetition(t, dir, "ba.jsonl", "static-cap", 500, 200, 250, 0),
-		writeRepetition(t, dir, "bb.jsonl", "static-cap", 500, 200, 250, 0),
-		writeRepetition(t, dir, "c1.jsonl", "kv-aware", 500, 110, 255, 0),
-		writeRepetition(t, dir, "c2.jsonl", "kv-aware", 500, 110, 255, 0),
+		writeRepetition(t, dir, "raw-R1-1.jsonl", "R1", 500, 100, 250, 0),
+		writeRepetition(t, dir, "raw-R1-2.jsonl", "R1", 500, 100, 250, 0),
+		writeRepetition(t, dir, "raw-static-cap-1.jsonl", "static-cap", 500, 200, 250, 0),
+		writeRepetition(t, dir, "raw-static-cap-2.jsonl", "static-cap", 500, 200, 250, 0),
+		writeRepetition(t, dir, "raw-kv-aware-1.jsonl", "kv-aware", 500, 110, 255, 0),
+		writeRepetition(t, dir, "raw-kv-aware-2.jsonl", "kv-aware", 500, 110, 255, 0),
 	}
 	outPath := filepath.Join(dir, "report.txt")
 	args := []string{"-out", outPath}
@@ -206,10 +206,10 @@ func TestReportRefusesAnArmRecordedShorterThanTheTraceItShares(t *testing.T) {
 	// off, static-cap and kv-aware share one immutable trace, verified by checksum. kv-aware here recorded
 	// 300 rows against their 500 — a run that stopped early, with every recorded row complete.
 	raw := []string{
-		writeRepetition(t, dir, "r1.jsonl", "R1", 500, 100, 500, 0),
-		writeRepetition(t, dir, "off.jsonl", "off", 500, 300, 500, 0),
-		writeRepetition(t, dir, "b.jsonl", "static-cap", 500, 200, 500, 0),
-		writeRepetition(t, dir, "c.jsonl", "kv-aware", 300, 110, 500, 0),
+		writeRepetition(t, dir, "raw-R1-1.jsonl", "R1", 500, 100, 500, 0),
+		writeRepetition(t, dir, "raw-off-1.jsonl", "off", 500, 300, 500, 0),
+		writeRepetition(t, dir, "raw-static-cap-1.jsonl", "static-cap", 500, 200, 500, 0),
+		writeRepetition(t, dir, "raw-kv-aware-1.jsonl", "kv-aware", 300, 110, 500, 0),
 	}
 	outPath := filepath.Join(dir, "report.txt")
 	args := []string{"-out", outPath}
@@ -240,14 +240,14 @@ func TestReportAcceptsR1BeingShorterThanTheContendedArms(t *testing.T) {
 	// Two repetitions per arm so the incremental interval is real: with one each, the run is refused for a
 	// reason about the CI and this control would pass without the row rule being exercised at all.
 	raw := []string{
-		writeRepetition(t, dir, "r1a.jsonl", "R1", 250, 100, 250, 0),
-		writeRepetition(t, dir, "r1b.jsonl", "R1", 250, 100, 250, 0),
-		writeRepetition(t, dir, "offa.jsonl", "off", 500, 300, 250, 0),
-		writeRepetition(t, dir, "offb.jsonl", "off", 500, 300, 250, 0),
-		writeRepetition(t, dir, "ba.jsonl", "static-cap", 500, 200, 250, 0),
-		writeRepetition(t, dir, "bb.jsonl", "static-cap", 500, 200, 250, 0),
-		writeRepetition(t, dir, "ca.jsonl", "kv-aware", 500, 110, 255, 0),
-		writeRepetition(t, dir, "cb.jsonl", "kv-aware", 500, 110, 255, 0),
+		writeRepetition(t, dir, "raw-R1-1.jsonl", "R1", 250, 100, 250, 0),
+		writeRepetition(t, dir, "raw-R1-2.jsonl", "R1", 250, 100, 250, 0),
+		writeRepetition(t, dir, "raw-off-1.jsonl", "off", 500, 300, 250, 0),
+		writeRepetition(t, dir, "raw-off-2.jsonl", "off", 500, 300, 250, 0),
+		writeRepetition(t, dir, "raw-static-cap-1.jsonl", "static-cap", 500, 200, 250, 0),
+		writeRepetition(t, dir, "raw-static-cap-2.jsonl", "static-cap", 500, 200, 250, 0),
+		writeRepetition(t, dir, "raw-kv-aware-1.jsonl", "kv-aware", 500, 110, 255, 0),
+		writeRepetition(t, dir, "raw-kv-aware-2.jsonl", "kv-aware", 500, 110, 255, 0),
 	}
 	outPath := filepath.Join(dir, "report.txt")
 	args := []string{"-out", outPath}

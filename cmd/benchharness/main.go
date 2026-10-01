@@ -697,6 +697,21 @@ func report(args []string) error {
 	// the run disqualified -- a verdict about arms the experiment never had. Another study's readings are
 	// its own, so until they are implemented the report prints that study's tables and says plainly that
 	// it evaluated no criteria, rather than failing it against somebody else's.
+	// The registered estimand's two arms must carry the SAME repetition identities, not merely as many.
+	//
+	// FormatReport prints B, C and R from summaries alone (internal/bench/report.go), and the slices it
+	// divides are per-arm: equal lengths are all ComputeRegisteredEstimand can check, because a []float64
+	// cannot say which repetition each value came from. So {1,2} against {1,3} would be published as a
+	// paired ratio of two repetitions that were never the same block. The identities live here, in the
+	// evidence, which is why the check is here and not in the formatter.
+	if len(e.reps[bench.ArmR1]) > 0 && len(e.reps[bench.ArmShared]) > 0 {
+		if _, _, why := e.pairedRepetitions(bench.ArmR1, bench.ArmShared); why != "" {
+			return fmt.Errorf("the registered estimand pairs %s with %s by repetition identity, and %s;"+
+				" reporting a ratio of their medians would present two unpaired arms as paired blocks",
+				bench.ArmR1, bench.ArmShared, why)
+		}
+	}
+
 	checks, pop, sharing, ladder := evaluateRegisteredReadings(e, summ, summaries, rawFiles, incCI, matchTolerance)
 	text := bench.FormatReport(summaries, checks, matchTolerance)
 	if pop != nil {
@@ -791,12 +806,41 @@ func report(args []string) error {
 	return nil
 }
 
+// repSummary is one repetition's whole shape, carried under the identity the runner recorded for it.
+//
+// It exists because the six per-repetition structures below used to be six independent slices appended in
+// --raw ARGUMENT ORDER, and the third 2026-09-30 amendment pairs arms by the repetition identity the
+// schedule records rather than by position. Keeping them as separate slices made two failures possible:
+// pairing arm A's repetition 3 with arm B's repetition 1 because that is the order the shell happened to
+// glob, and -- if only one slice were converted to a map -- silently desynchronising the rest. One struct
+// per repetition makes "sort one and forget the others" impossible to express.
+//
+// repID is the number the runner wrote into the filename (hack/m5c-matrix.sh builds cells as
+// arm|arm|rep|... and names each raw file raw-<arm>-<rep>.jsonl). It is NOT derived from position, and the
+// arm half comes from the ROWS -- singleArm has already proven every row agrees on it -- so an arm name
+// containing hyphens (kv-aware, mbt-1024-priority, rung03-timeSlicing) cannot be mis-split.
+type repSummary struct {
+	repID    int
+	ttftP99  float64
+	tail     int
+	rows     int
+	seconds  float64
+	done     map[string]int
+	served   map[string]float64
+	censored bool
+}
+
 // armEvidence is every arm's rows plus the per-repetition shape the pooled rows cannot carry.
 //
 // It exists because report's refusals ask questions of the SPLIT -- did each repetition record the same
 // number of rows, is any repetition's tail thin -- and pooling answers none of them.
 type armEvidence struct {
-	byArm   map[string][]bench.RawRow
+	byArm map[string][]bench.RawRow
+	// reps is each arm's repetitions under their recorded identities, sorted by repID once loading ends.
+	//
+	// The six derived maps below are rebuilt from it rather than appended to directly, so they cannot fall
+	// out of step with each other or with the identity.
+	reps    map[string][]repSummary
 	repP99  map[string][]float64
 	repTail map[string][]int
 	// repDone is each repetition's completed count per tenant: arm -> one map per repetition.
@@ -846,6 +890,38 @@ type armEvidence struct {
 	studyRecorded string
 	studySeen     bool
 	studyFrom     string
+	// repFrom maps an (arm, repID) to the file that carried it, so a duplicate identity can name both
+	// files -- and it spans the WHOLE input set rather than one directory, because a glob over two run
+	// directories is exactly how the same repetition number arrives twice.
+	repFrom map[string]string
+}
+
+// repIDFromPath reads the repetition identity the runner recorded in a raw file's name.
+//
+// The arm comes from the rows (already validated by singleArm) and is used as an exact prefix, so the
+// number is whatever follows it. That is what makes this unambiguous: 22 arm names in this repository
+// contain hyphens, and raw-mbt-1024-priority-1.jsonl cannot be split without knowing the arm.
+//
+// A name that does not match is REFUSED rather than falling back to position. A positional fallback for
+// unmarked files would leave the inference the amendment forbids -- pairing two arrays because they are the
+// same length -- alive for exactly the inputs whose identity is unknown.
+func repIDFromPath(path, arm string) (int, error) {
+	base := filepath.Base(path)
+	want := "raw-" + arm + "-"
+	if !strings.HasPrefix(base, want) || !strings.HasSuffix(base, ".jsonl") {
+		return 0, fmt.Errorf("%s carries arm %q in every row, so its name must be raw-%s-<repetition>.jsonl;"+
+			" the pairing of two arms is by the repetition identity the runner recorded in the filename, and a"+
+			" name it cannot read would be paired by --raw argument order instead",
+			path, arm, arm)
+	}
+	digits := strings.TrimSuffix(strings.TrimPrefix(base, want), ".jsonl")
+	id, err := strconv.Atoi(digits)
+	if err != nil || id < 1 {
+		return 0, fmt.Errorf("%s names repetition %q after arm %q, which is not a positive number;"+
+			" the identity has to be comparable between arms, and %q cannot be",
+			path, digits, arm, digits)
+	}
+	return id, nil
 }
 
 // singleStudy returns the one study every row in a file belongs to, or refuses.
@@ -930,9 +1006,11 @@ func loadArmEvidence(rawFiles []string) (*armEvidence, error) {
 	// Group rows and per-file p99 repetitions by arm, and capture each arm's frozen provenance.
 	e := &armEvidence{
 		byArm: map[string][]bench.RawRow{}, repP99: map[string][]float64{},
+		reps:    map[string][]repSummary{},
 		repTail: map[string][]int{}, repRows: map[string][]int{}, repSeconds: map[string][]float64{},
 		repDone:     map[string][]map[string]int{},
 		replayFrom:  map[string]string{},
+		repFrom:     map[string]string{},
 		repCensored: map[string]bool{},
 		repServed:   map[string][]map[string]float64{},
 		checksum:    map[string]string{}, tolerance: map[string]float64{},
@@ -1035,11 +1113,29 @@ func loadArmEvidence(rawFiles []string) (*armEvidence, error) {
 		}
 		e.replayFrom[id] = path
 
+		// The repetition's IDENTITY, read from the name the runner wrote, and refused if it is not there.
+		//
+		// This runs after the arm has been validated against every row, because the arm is the prefix this
+		// strips. Doing it earlier would mean splitting a hyphenated arm name by guesswork.
+		repID, err := repIDFromPath(path, arm)
+		if err != nil {
+			return nil, err
+		}
+		// The same (arm, repetition) twice is refused across the WHOLE input set, not per directory.
+		//
+		// replayFrom above catches a byte-identical copy by hashing send timestamps. It cannot catch two
+		// DIFFERENT replays both calling themselves repetition 3 -- two run directories globbed together --
+		// and that pair would pair one of them against the other arm's repetition 3 while discarding which.
+		repKey := arm + "/" + strconv.Itoa(repID)
+		if prev, dup := e.repFrom[repKey]; dup {
+			return nil, fmt.Errorf("%s and %s both record arm %s repetition %d;"+
+				" the pairing is by that identity, so two files claiming it leave no way to say which"+
+				" repetition the other arm's repetition %d is being compared with",
+				path, prev, arm, repID, repID)
+		}
+		e.repFrom[repKey] = path
+
 		rs := bench.Summarize(arm, rows)
-		e.repP99[arm] = append(e.repP99[arm], rs.TTFTMsP99)
-		e.repTail[arm] = append(e.repTail[arm], rs.TailSampleSize)
-		e.repRows[arm] = append(e.repRows[arm], len(rows))
-		e.repSeconds[arm] = append(e.repSeconds[arm], rs.ActiveSeconds)
 		done := map[string]int{}
 		served := map[string]float64{}
 		for tenant, d := range rs.DispositionByTenant {
@@ -1048,11 +1144,16 @@ func loadArmEvidence(rawFiles []string) (*armEvidence, error) {
 				served[tenant] = float64(d.Completed) / float64(d.Offered)
 			}
 		}
-		e.repDone[arm] = append(e.repDone[arm], done)
-		e.repServed[arm] = append(e.repServed[arm], served)
-		if rs.Censored {
-			e.repCensored[arm] = true
-		}
+		e.reps[arm] = append(e.reps[arm], repSummary{
+			repID:    repID,
+			ttftP99:  rs.TTFTMsP99,
+			tail:     rs.TailSampleSize,
+			rows:     len(rows),
+			seconds:  rs.ActiveSeconds,
+			done:     done,
+			served:   served,
+			censored: rs.Censored,
+		})
 		// Every repetition's checksum, not the last one's.
 		//
 		// This assigned, so loadArmEvidence kept only whichever file it read last and a repetition replayed
@@ -1080,6 +1181,29 @@ func loadArmEvidence(rawFiles []string) (*armEvidence, error) {
 				arm, prev, treat)
 		}
 		e.treatment[arm] = treat
+	}
+
+	// The per-repetition structures are DERIVED from the identities, in identity order, once.
+	//
+	// They used to be appended in --raw argument order inside the loop above. Deriving them here instead is
+	// what makes the pairing the recorded one: position i in every one of these slices is repetition
+	// e.reps[arm][i].repID, for every arm, whatever order the caller listed the files in.
+	//
+	// All seven are rebuilt in the same pass deliberately. Converting one of them to a map and leaving the
+	// rest positional would pair correctly and then report the wrong repetition's row count beside it.
+	for arm := range e.reps {
+		sort.Slice(e.reps[arm], func(i, j int) bool { return e.reps[arm][i].repID < e.reps[arm][j].repID })
+		for _, r := range e.reps[arm] {
+			e.repP99[arm] = append(e.repP99[arm], r.ttftP99)
+			e.repTail[arm] = append(e.repTail[arm], r.tail)
+			e.repRows[arm] = append(e.repRows[arm], r.rows)
+			e.repSeconds[arm] = append(e.repSeconds[arm], r.seconds)
+			e.repDone[arm] = append(e.repDone[arm], r.done)
+			e.repServed[arm] = append(e.repServed[arm], r.served)
+			if r.censored {
+				e.repCensored[arm] = true
+			}
+		}
 	}
 	return e, nil
 }
@@ -1148,18 +1272,24 @@ func (e *armEvidence) refuseIfTracesDisagree() error {
 	contended := e.contendedArms()
 	wantRows := map[string]int{}
 	wantFrom := map[string]string{}
+	// The repetition this names is the RECORDED one, not the position in the argument list.
+	//
+	// An operator reads this refusal at the end of a paid session and goes looking for the file. While the
+	// number was the slice index, `repetition 1` meant "the second file --raw happened to list for this
+	// arm", which is raw-R1-3.jsonl whenever the glob was not in order -- a message that sends them to the
+	// wrong file is worse than one that gives no number.
 	for _, arm := range contended {
 		g := comparisonGroup(arm)
-		for i, n := range e.repRows[arm] {
+		for _, r := range e.reps[arm] {
 			if wantRows[g] == 0 {
-				wantRows[g], wantFrom[g] = n, fmt.Sprintf("%s[%d]", arm, i)
+				wantRows[g], wantFrom[g] = r.rows, fmt.Sprintf("%s repetition %d", arm, r.repID)
 				continue
 			}
-			if n != wantRows[g] {
+			if r.rows != wantRows[g] {
 				return fmt.Errorf("arm %s repetition %d recorded %d rows but %s recorded %d;"+
 					" these arms share one immutable trace, so a shorter recording means a run that did not finish,"+
 					" and the requests it is missing are the late ones contention makes slow",
-					arm, i, n, wantFrom[g], wantRows[g])
+					arm, r.repID, r.rows, wantFrom[g], wantRows[g])
 			}
 		}
 	}
@@ -1169,19 +1299,52 @@ func (e *armEvidence) refuseIfTracesDisagree() error {
 	//
 	// Every baseline, not the literal "R1": the ladder's is called rung02-R1, and a loop over one hardcoded
 	// name would have checked nothing at all for it while looking exactly as though it had.
-	for arm, rows := range e.repRows {
-		if !bench.IsIsolatedBaseline(arm) {
+	for arm, reps := range e.reps {
+		if !bench.IsIsolatedBaseline(arm) || len(reps) == 0 {
 			continue
 		}
-		for i, n := range rows {
-			if n != rows[0] {
-				return fmt.Errorf("arm %s repetition %d recorded %d rows but repetition 0 recorded %d;"+
+		for _, r := range reps {
+			if r.rows != reps[0].rows {
+				return fmt.Errorf("arm %s repetition %d recorded %d rows but repetition %d recorded %d;"+
 					" its repetitions replay one trace and must record the same number of rows",
-					arm, i, n, rows[0])
+					arm, r.repID, r.rows, reps[0].repID, reps[0].rows)
 			}
 		}
 	}
 	return nil
+}
+
+// pairedRepetitions returns the two arms' per-repetition victim tails under the identities they share, or
+// says why they cannot be paired.
+//
+// Equal lengths are NOT a licence to zip. {1,2} and {1,3} are both two repetitions and pairing them by
+// position compares repetition 2 of one arm with repetition 3 of the other -- the inference the third
+// 2026-09-30 amendment exists to forbid, which is why the sets themselves are compared rather than their
+// sizes.
+func (e *armEvidence) pairedRepetitions(baseArm, contArm string) (base, cont []float64, why string) {
+	b, c := e.reps[baseArm], e.reps[contArm]
+	if len(b) == 0 || len(c) == 0 {
+		return nil, nil, fmt.Sprintf("arm %s carries %d repetitions and %s carries %d", baseArm, len(b), contArm, len(c))
+	}
+	ids := func(rs []repSummary) []string {
+		out := make([]string, 0, len(rs))
+		for _, r := range rs {
+			out = append(out, strconv.Itoa(r.repID))
+		}
+		return out
+	}
+	bi, ci := ids(b), ids(c)
+	if !slices.Equal(bi, ci) {
+		return nil, nil, fmt.Sprintf("arm %s recorded repetitions %s and %s recorded %s;"+
+			" the pairing is by that identity, so two arms that do not carry the same ones have no paired"+
+			" blocks to compare even when they carry equally many",
+			baseArm, strings.Join(bi, ","), contArm, strings.Join(ci, ","))
+	}
+	for i := range b {
+		base = append(base, b[i].ttftP99)
+		cont = append(cont, c[i].ttftP99)
+	}
+	return base, cont, ""
 }
 
 // comparisonGroup names the set of arms an arm is compared against, which is what "one immutable trace"
@@ -1316,7 +1479,16 @@ func (e *armEvidence) incrementalCI() bench.CI {
 	//
 	// With a single repetition per arm it degenerates to the point estimate.
 	incCI := bench.CI{}
-	b, c := e.repP99["static-cap"], e.repP99["kv-aware"]
+	// The two arms are paired by the repetition identity the runner recorded, not by argument position.
+	//
+	// This read two slices appended in --raw order and zipped them, so shuffling one arm's files changed
+	// which repetitions were compared with no sign that anything had moved. Equal lengths were the only
+	// precondition, which is exactly the inference the third 2026-09-30 amendment forbids: {1,2} and {1,3}
+	// are both two repetitions.
+	b, c, why := e.pairedRepetitions("static-cap", "kv-aware")
+	if why != "" {
+		b, c = nil, nil
+	}
 	if len(b) == len(c) && len(b) > 0 {
 		ratios := make([]float64, len(b))
 		for i := range b {
@@ -1332,7 +1504,7 @@ func (e *armEvidence) incrementalCI() bench.CI {
 			incCI.Valid = false
 			incCI.InvalidReason = fmt.Sprintf("the per-repetition C/B ratios scatter beyond a coefficient of variation of %.2f, past which a percentile bootstrap over %d values fires on no effect at all more often than its nominal 5 percent", bench.MaxRatioScatter, len(ratios))
 		}
-	} else if len(b) > 0 && len(c) > 0 {
+	} else if why != "" && len(e.reps["static-cap"]) > 0 && len(e.reps["kv-aware"]) > 0 {
 		// Unequal repetition counts leave the incremental CI at the degenerate point estimate.
 		//
 		// That would make the CI-upper-bound gate trivially true.
@@ -1342,8 +1514,8 @@ func (e *armEvidence) incrementalCI() bench.CI {
 		// passed the zero CI into EvaluateChecks, whose incremental gate reads `Hi < 1.0`, and 0.0 satisfies
 		// it. Truncation disarmed the strictest check in the design instead of tripping it. CI.Valid closes
 		// that; this line stays so the operator learns WHY the run was refused without reading the code.
-		fmt.Fprintf(os.Stderr, "warning: static-cap has %d repetitions but kv-aware has %d;"+
-			" no incremental CI will be computed and the comparison will be refused\n", len(b), len(c))
+		fmt.Fprintf(os.Stderr, "warning: %s;"+
+			" no incremental CI will be computed and the comparison will be refused\n", why)
 	}
 	return incCI
 }
