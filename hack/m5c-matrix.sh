@@ -1430,8 +1430,9 @@ cell_deadline_check() {
     if [ "$remain" -lt "$floor" ]; then
       echo >&2
       echo "STOPPING before the first cell: the deadline fires in ${remain} min and one cell's replay alone" >&2
-      echo "  is ${floor} min. Nothing has been rolled out, so nothing is half-bought. Re-arm with a longer" >&2
-      echo "  TTL_MINUTES." >&2
+      echo "  is ${floor} min. Nothing has been rolled out, so nothing is half-bought. Give the run a longer" >&2
+      echo "  deadline: TTL_MINUTES on EKS, or HARD_STOP_SECONDS (and BACKSTOP_SECONDS above it) on a rented" >&2
+      echo "  instance -- hack/m5c-gpu-session.sh has no TTL_MINUTES at all." >&2
       return 1
     fi
     return 0
@@ -1447,7 +1448,15 @@ cell_deadline_check() {
     echo "STOPPING: $(( cells_total - cells_done )) cells left at ~$(( per / 60 )) min each needs about ${projected} min," >&2
     echo "  and the deadline fires in ${remain} min. Being cut mid-cell would waste that cell's rollouts and" >&2
     echo "  leave a matrix missing one of the topologies it exists to compare, so it stops on a boundary." >&2
-    echo "  ${cells_done} of ${cells_total} cells are complete. Re-arm with a longer TTL_MINUTES to continue." >&2
+    # The knob depends on who armed the deadline, and naming only one of them sent an operator to a
+    # variable their path does not read.
+    #
+    # Measured 2026-10-01: a spot-instance run stopped here after cell 1 of 10 and said "Re-arm with a
+    # longer TTL_MINUTES". hack/m5c-gpu-session.sh contains that name ZERO times -- it derives
+    # DEADLINE_EPOCH from HARD_STOP_SECONDS -- so following the advice would have changed nothing and
+    # bought the same first cell again.
+    echo "  ${cells_done} of ${cells_total} cells are complete. To continue, give the run a longer deadline:" >&2
+    echo "  TTL_MINUTES on EKS, or HARD_STOP_SECONDS (with BACKSTOP_SECONDS above it) on a rented instance." >&2
     return 1
   fi
   return 0
