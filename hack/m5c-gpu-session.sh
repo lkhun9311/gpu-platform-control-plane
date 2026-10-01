@@ -81,9 +81,31 @@ MAX_SPOT_PRICE="${MAX_SPOT_PRICE:-1.10}"
 # sharing cell and the projection jumps with it. 280 covers that part TRIPLING.
 #
 # A deadline costs nothing it does not use -- the bill is the run's actual length, and the instance is
-# terminated when the matrix finishes. Expected at 280: about 201 minutes, $2.30. Ceiling at the backstop:
-# 294 minutes, $3.36. Setting this to the expected case rather than the worst case is what bought one cell
-# for $0.25.
+# terminated when the matrix finishes. Setting this to the expected case rather than the worst case is what
+# bought one cell for $0.25.
+#
+# MEASURED, 2026-10-01, ten cells at this deadline (the run completed with 2h38m of it unused):
+#
+#   cell        time    replay   outside     cell        time    replay   outside
+#   R1-1       15.58      8.43      7.16     shared-1   11.85      8.49      3.36
+#   R1-2       11.37      8.43      2.94     shared-2   11.27      8.49      2.78
+#   R1-3       11.18      8.43      2.76     shared-3   11.43      8.49      2.94
+#   R1-4       11.20      8.43      2.77     shared-4   11.27      8.49      2.78
+#   R1-5       11.18      8.43      2.76     shared-5   11.27      8.49      2.78
+#
+# Two of the premises above are now wrong, and the deadline they justified is right anyway.
+#
+# The 46% outside replay is a property of the FIRST cell, not of a cell: it downloads the model weights and
+# every later cell finds them cached. Warm cells spend 2.87 minutes outside replay, 25%, and the figure is
+# steady to the second. Generalising one cold cell to ten is what produced 22.9.
+#
+# The sharing arm IS slower and more variable, which is the direction two engines predicts, but by 7.2
+# seconds rather than seven minutes: at the plateau R1 is 11.189 (n=3, spread 1.0 s) and shared is 11.308
+# (n=4, spread 10.0 s), and the two do not overlap -- every shared cell exceeds every R1 cell. A real
+# effect, 0.7% of a cell, and the thing that actually costs four minutes is the cold start.
+#
+# The matrix took 117.6 minutes of the 280. The deadline is now generous rather than fitted, and that is
+# the state to leave it in: what it costs when unused is nothing, and what it cost when tight was a cell.
 #
 # An earlier version of this comment also charged 20 minutes of bootstrap, which nothing measured. The
 # run's own figures put the bring-up INSIDE the deadline at 2.35 minutes: the matrix had 142 of 160 left
