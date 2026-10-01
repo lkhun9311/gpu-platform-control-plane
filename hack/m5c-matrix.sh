@@ -1464,6 +1464,36 @@ cell_deadline_check() {
     remain=$(deadline_remaining_minutes 2>/dev/null) || return 0
     [ -n "$remain" ] || return 0
     floor=$(( (DURATION_MS + 59999) / 60000 + 1 ))
+    # And the WHOLE matrix, projected by the same conservative rule the mid-run check uses.
+    #
+    # The floor above refuses a deadline that cannot fit one cell's replay. It says nothing about the other
+    # nine, so a run with time for exactly one cell started, bought it, and stopped on the boundary -- which
+    # is what happened on 2026-10-01 morning for $0.25. The stop was correct and the SURPRISE was the
+    # defect: the same arithmetic was available before anything was rolled out.
+    #
+    # The per-cell figure is the measured cold first cell, not the steady one, and that is deliberate. Cell
+    # 1 downloads the model weights: 15.58 min against the steady 11.34 over nine cells on 2026-10-01. An
+    # external review put the choice plainly -- the projection should err toward OVER-estimating, because
+    # this is the judgement that stops spending, and a replay lower bound is "it cannot finish sooner"
+    # rather than "it will finish by then". So one cold cell is charged for every cell. On a ten-cell run
+    # that asks for about 65% more than the steady rate would, and the alternative is discovering the
+    # shortfall after the card is rented.
+    #
+    # It WARNS and does not refuse. The deadline is a cap on spending rather than a promise of completion,
+    # and a matrix that completes six of ten cells has bought six comparable cells. Refusing here would
+    # turn a conservative estimate into a veto over runs that would have finished.
+    cold_cell_min=16
+    whole=$(( cells_total * cold_cell_min * 12 / 10 ))
+    if [ "$remain" -lt "$whole" ]; then
+      echo >&2
+      echo "NOTE before the first cell: ${cells_total} cells at a cold-start ${cold_cell_min} min each plus a fifth" >&2
+      echo "  of headroom is about ${whole} min, and the deadline fires in ${remain} min. This run is likely to stop" >&2
+      echo "  on a boundary before finishing the matrix. That is not a failure -- completed cells are kept and" >&2
+      echo "  uploaded -- but if a COMPLETE matrix is what this run is for, raise the deadline now rather than" >&2
+      echo "  after the card is paid for. The 16 min is the measured FIRST cell (weights download); steady" >&2
+      echo "  cells measured 11.34, so this is deliberately pessimistic." >&2
+      echo >&2
+    fi
     if [ "$remain" -lt "$floor" ]; then
       echo >&2
       echo "STOPPING before the first cell: the deadline fires in ${remain} min and one cell's replay alone" >&2
@@ -1487,6 +1517,12 @@ cell_deadline_check() {
   # shared cell; ten measured cells put it at 11.31, against R1's 11.19. The arms DO differ -- the plateau
   # intervals do not overlap -- by 7.2 seconds, and what causes those seconds was never measured. The real
   # spread is the FIRST cell of a run, which downloads the model weights: 15.58 minutes against 11.34.
+  #
+  # `per` is the average over completed cells, so after cell 1 it IS the cold cell and the projection runs
+  # about 37% high. That is left as it is, on purpose, and an external review confirmed the direction:
+  # removing the over-estimate trades it for an UNDER-estimate, and this judgement stops spending. Excluding
+  # cell 1 would also need evidence that the cold start is always cell 1 -- two runs is not that evidence --
+  # and would have to separate download and setup time from replay time, which nothing measures yet.
   projected=$(( ((cells_total - cells_done) * per * 12 / 10 + 59) / 60 ))
   if [ "$projected" -ge "$remain" ]; then
     echo >&2
