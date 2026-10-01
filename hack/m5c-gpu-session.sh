@@ -52,10 +52,47 @@ MAX_SPOT_PRICE="${MAX_SPOT_PRICE:-1.10}"
 #
 # The run at 9600 stopped itself after cell 1 of 10. The cell had taken 15.7 minutes against the model's
 # 10 (S3 object timestamps: preflight 09:31:51, cell-1 evidence 09:47:30), because every cell rolls its
-# engines out again and the model never charged for that. Ten cells therefore need 177 minutes, and the
-# matrix multiplies its own projection by 12/10, so the deadline has to clear 212.
+# engines out again, re-checks readiness, re-establishes the port-forward and uploads its own evidence, and
+# the model charges for none of it.
 #
-# Second 9600 -> 13200 (220 min), which is 104% of that. The backstop keeps its ten-minute lead at 13800.
+# What the matrix requires is its own projection, hack/m5c-matrix.sh:1445:
+#
+#   projected = (cells_total - cells_done) * per * 12/10
+#
+# The 12/10 is applied to the REMAINING cells, never to all ten.
+#
+# Second 9600 -> 13200 (220 min). Third 13200 -> 16800 (280 min), and the third time against that stopping
+# rule rather than against a sum of parts. Simulating it reproduces the real run: 160 minutes with
+# 15.65-minute cells stops at cell 1 projecting 170 against 142 left, and the run projected 167 against 142.
+# With the control reproduced, the model says:
+#
+#   shared cell   at a 220 min deadline       completes at
+#   15.65 (= R1)  completes, 61 min spare     190 min
+#   21.00         completes, 34 min spare     220 min   <- break-even
+#   22.90         STOPS AT CELL 2             230 min
+#   28.00         STOPS AT CELL 2             260 min
+#   31.30         STOPS AT CELL 2             280 min
+#
+# The sharing arms roll out TWO engines, and the non-replay part of an R1 cell is 7.22 of its 15.65 minutes
+# -- 46%, derived from the committed raw rows, whose 4655 requests span 505.6 s against a registered 505 s
+# trace, so the rest of the cell is not replay. Doubling only that part puts a shared cell at 22.9 and past
+# the break-even, and 220 would then have bought TWO cells rather than nine: the arms alternate
+# (hack/m5c-matrix.sh:360-361 iterates repetition-major), so the average jumps right after the first
+# sharing cell and the projection jumps with it. 280 covers that part TRIPLING.
+#
+# A deadline costs nothing it does not use -- the bill is the run's actual length, and the instance is
+# terminated when the matrix finishes. Expected at 280: about 201 minutes, $2.30. Ceiling at the backstop:
+# 294 minutes, $3.36. Setting this to the expected case rather than the worst case is what bought one cell
+# for $0.25.
+#
+# An earlier version of this comment also charged 20 minutes of bootstrap, which nothing measured. The
+# run's own figures put the bring-up INSIDE the deadline at 2.35 minutes: the matrix had 142 of 160 left
+# when its first cell ended, and that cell was 15.65.
+#
+# An earlier version of this comment said ten cells need 177 minutes and that the matrix lifts that to 212
+# with its 12/10. Neither step is what the code does: 177 is the replay sum with no safety factor at all,
+# and 212 applied the factor to all ten cells. The value it was used to justify is large enough anyway,
+# which is why it survived -- a wrong derivation that lands near the right answer is the kind that does.
 #
 # What the first raise cost: $0.25 and one cell. It did not warn, because a deadline that is too short is
 # not an error until the matrix reaches the boundary where it would be cut -- and then it stops cleanly,
@@ -63,8 +100,12 @@ MAX_SPOT_PRICE="${MAX_SPOT_PRICE:-1.10}"
 #
 # The gap between the two is unchanged at ten minutes, and the ordering it exists for is unchanged: this
 # shell gives up first so a dead laptop still leaves the instance's own timer to stop the billing.
-BACKSTOP_SECONDS="${BACKSTOP_SECONDS:-13800}"
-HARD_STOP_SECONDS="${HARD_STOP_SECONDS:-13200}"
+#
+# The ordering was VERIFIED rather than assumed on 2026-10-01: both timers start inside the instance's own
+# user-data, the backstop where it is armed and DEADLINE_EPOCH some forty lines below it, and between the
+# two there is nothing but variable assignment. So the ten-minute lead survives intact.
+BACKSTOP_SECONDS="${BACKSTOP_SECONDS:-17400}"
+HARD_STOP_SECONDS="${HARD_STOP_SECONDS:-16800}"
 # The same arms, in the same order, as hack/m5c-matrix.sh's own default.
 #
 # This value is EXPORTED into the matrix, so when the two disagree this one wins and the matrix's default is
@@ -394,8 +435,26 @@ fi
 # download -- after the card had been paid for. A ceiling division, plus one minute per cell for the replay
 # client's own drain, and never less than the old 7 so a short trace cannot make this optimistic.
 replay_min=$(( (DURATION_MS + 59999) / 60000 + 1 ))
-[ "$replay_min" -lt 7 ] && replay_min=7
-require_credential_margin $(( 25 + arm_count * 3 / 2 + arm_count * REPS * replay_min + 15 ))
+if [ "$replay_min" -lt 7 ]; then replay_min=7; fi
+# THE DEADLINE IS THE FLOOR HERE, NOT THE MODEL.
+#
+# The model above counts the trace and the bring-up and nothing else. It does not charge for the per-cell
+# engine rollout, so it UNDERSTATES the session -- and the deadline this script arms is deliberately set
+# above it. Deriving the credential requirement from the model therefore demanded less time than the run is
+# permitted to bill for, and on 2026-10-01 the two drifted 57 minutes apart: HARD_STOP_SECONDS was raised to
+# 13200 and BACKSTOP_SECONDS to 13800 while this line still asked for 143 + 30 = 173 minutes. A credential
+# with 173 minutes left would have been approved for a run whose own timer lets it bill for 230, and the two
+# things that need credentials AFTER the last cell -- the evidence download and the terminate call -- are
+# exactly the two that cost money when they fail. That is the 2026-09-08 failure this guard exists to stop,
+# arriving by a different route: raising one number and leaving the other alone.
+#
+# No run can bill past the instance's own backstop, because that timer is what shuts the machine down. So
+# the backstop is the honest floor, and taking the larger of the two means raising EITHER number raises the
+# requirement. They cannot drift apart again.
+need_min=$(( 25 + arm_count * 3 / 2 + arm_count * REPS * replay_min + 15 ))
+backstop_min=$(( BACKSTOP_SECONDS / 60 ))
+if [ "$backstop_min" -gt "$need_min" ]; then need_min="$backstop_min"; fi
+require_credential_margin "$need_min"
 
 # ---------------------------------------------------------------- what the instance builds from
 #
