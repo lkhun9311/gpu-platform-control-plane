@@ -119,12 +119,19 @@ status. That gap is the honest state of the flagship, and
 [the record of what blocks it](docs/superpowers/specs/2026-07-04-gpusharingbenchmark-crd-design.md) names three
 bindings rather than a missing afternoon of work.
 
-**Two paid runs on 2026-10-01, and the first one failed.** The morning run compiled the same CR, completed
-**cell 1 of 10**, and then **stopped itself on a cell boundary**: measured cell time was 15.7 min against the
-runner's assumed 10, so ten cells need about 212 min and the deadline was 160. It cost **$0.25** and bought
-one cell, not a comparison. The afternoon run, after the deadline and the credential guard were both derived
-from the matrix's own stopping rule, completed **10 of 10 cells** in about 126 minutes for **$1.44** — commit
-`7b69214`, and the table at the top of this file is that run. Total spend for the pair: **$1.69**.
+**Two paid runs on 2026-10-01, and the first one failed.** The morning run compiled the same CR at commit
+`471b86b`, completed **cell 1 of 10**, and then **stopped itself on a cell boundary**: measured cell time was
+15.7 min against the runner's assumed 10, so ten cells need about 212 min and the deadline was 160. It cost
+**$0.25** and bought one cell, not a comparison. The afternoon run, after the deadline and the credential
+guard were both derived from the matrix's own stopping rule, completed **10 of 10 cells** in about 126
+minutes for **$1.44** — commit `7b69214`, and the table at the top of this file is that run. Total spend for
+the pair: **$1.69**.
+
+Both commits are the tree the evidence was **collected** from, which each run's archive records in its own
+`commit.txt`. Neither is the version that **analysed** it: the figures quoted here were recomputed later,
+and the analysis version is not pinned anywhere yet. `hack/verify-published-evidence.sh` already
+distinguishes the two — it reads the archive's `commit.txt` and accepts an `ANALYSIS_COMMIT` to require a
+specific scorer — so what is missing is the decision about which value to pin, not the machinery.
 
 ⚠️ An earlier version of this section ended **"the table above is still the ninth pilot's"**, which stayed
 true for exactly as long as the morning failure was the only CR-driven run. It was left standing after the
