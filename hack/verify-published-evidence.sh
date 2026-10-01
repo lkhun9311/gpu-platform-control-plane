@@ -117,7 +117,18 @@ fi
 # edits, got a VERIFIED that described their tree rather than the published figures. The expected commit is
 # now compared, and a dirty tree is named, because "I built something" and "I built the analysis these
 # numbers came from" are different claims.
-ANALYSIS_COMMIT="${ANALYSIS_COMMIT:-e203db7}"
+# The COLLECTION commit comes from the archive, not from a literal in this file.
+#
+# ⚠️ The first version of this check hard-coded the then-current HEAD as "the published analysis". That is
+# wrong twice over: the next commit to this repository made the check fail on evidence nothing had touched,
+# and a constant in the checker cannot be evidence about the archive. The archive's own `commit.txt` is the
+# fact -- it records the tree the RUN was bought from. A reader who wants to re-score with a different
+# analysis passes ANALYSIS_COMMIT and the output says so.
+#
+# Distinguish three states rather than two: pinned and matching, pinned and differing, and not pinnable
+# because the archive carries no commit.txt (the ninth pilot does not). The third is a scope statement, not
+# a failure -- a checker that fails an older archive for being older is asserting a contract that did not
+# exist, which this script already got wrong once with tokenizerRev.
 step "analysis code"
 if [ -d "$ROOT/cmd/benchharness" ]; then
 	BIN=$(mktemp -d)/benchharness
@@ -129,15 +140,31 @@ if [ -d "$ROOT/cmd/benchharness" ]; then
 		bad "could not build ./cmd/benchharness from $ROOT"
 		BIN=""
 	fi
+	collected=""
+	[ -f "$DIR/commit.txt" ] && collected=$(cut -c1-7 "$DIR/commit.txt" 2>/dev/null)
+	want="${ANALYSIS_COMMIT:-}"
 	if [ -z "$head" ]; then
 		bad "this tree has no git HEAD, so the analysis version cannot be established"
-	elif [ "$head" != "$ANALYSIS_COMMIT" ]; then
-		bad "the analysis is $head and the published figures were produced by $ANALYSIS_COMMIT; check out that commit, or pass ANALYSIS_COMMIT=$head to say you intend a different scorer"
+	elif [ -n "$want" ]; then
+		if [ "$head" = "${want:0:7}" ]; then
+			good "the analysis is $head, the version you asked for"
+		else
+			bad "the analysis is $head and you asked for $want"
+		fi
+	elif [ -n "$collected" ]; then
+		if [ "$head" = "$collected" ]; then
+			good "the analysis is $head, the same tree this evidence was collected from"
+		else
+			echo "ok   the analysis is $head; the evidence was COLLECTED at $collected"
+			echo "     (re-scoring collected evidence with a later analysis is the normal case -- reading 4d,"
+			echo "      for one, postdates both runs. Pass ANALYSIS_COMMIT to require a specific scorer.)"
+		fi
 	else
-		good "the analysis commit is the published $ANALYSIS_COMMIT"
+		echo "ok   the analysis is $head"
+		echo "     (this archive carries no commit.txt, so the collection tree cannot be named from it)"
 	fi
 	if [ "$dirty" -ne 0 ]; then
-		bad "$dirty uncommitted change(s) under cmd/ or internal/; the scorer being run is not $ANALYSIS_COMMIT"
+		bad "$dirty uncommitted change(s) under cmd/ or internal/, so the scorer being run is not any committed version"
 	fi
 else
 	bad "run this from a clone of the repository; $ROOT has no cmd/benchharness"
@@ -246,26 +273,109 @@ keys=(promptCorpusSHA traceChecksum study)
 # different sentences. The first version counted after it and used `continue 2`, which skipped the increment
 # on any manifest that failed a field -- so six failures printed, and then the script said there were no
 # manifests at all.
+# ⚠️ This section checked that a field NAME was present and that a checksum appeared in SOME raw file.
+# Both were weaker than the sentence this script prints. A field with an empty value passed, and
+# manifest-shared-3's checksum satisfied the check by appearing in raw-R1-1. An external review named the
+# overclaim: a VERIFIED read as "provenance is bound" was not earned.
+#
+# What is bound now, and why each is checkable from the archive alone:
+#   1. the manifest's traceChecksum IS the sha256 of the trace file of the SAME label -- measured: the
+#      value is the file digest with no normalisation (stripping newlines gives a different hash), so this
+#      is a direct comparison rather than a convention being trusted;
+#   2. every raw row of a label carries its own manifest's checksum, not merely one that exists somewhere;
+#   3. an arm's repetitions all name ONE trace, because `shared` replays one trace five times -- two
+#      checksums under one arm means a repetition came from somewhere else;
+#   4. promptCorpusSHA, tokenizerRev and study agree across the whole archive by VALUE.
+#
+# What is still not bound, stated here so the output cannot be read as more: the corpus itself is not in
+# the archive, so (4) establishes internal consistency and not that the corpus is the one the registration
+# names. That is what docs/12's committed digests are for.
 chain=0
-missing_field=0
+problems=0
+traced=0
+untraced=0
+declare -A arm_trace=()
+declare -A field_value=()
 for m in "$DIR"/manifest-*.yaml; do
 	[ -f "$m" ] || continue
 	chain=$((chain + 1))
+	label=$(basename "$m" .yaml); label=${label#manifest-}
+	arm=${label%-*}
+
 	for k in "${keys[@]}"; do
-		grep -q "$k" "$m" || {
-			bad "$(basename "$m") carries no $k"
-			missing_field=$((missing_field + 1))
-		}
+		v=$(grep -m1 "^${k}:" "$m" | tr -d ' "' | cut -d: -f2-)
+		if [ -z "$v" ]; then
+			bad "$(basename "$m") has no value for $k (the field name alone is not provenance)"
+			problems=$((problems + 1))
+			continue
+		fi
+		# promptCorpusSHA, tokenizerRev and study must agree across the archive.
+		if [ "$k" != "traceChecksum" ]; then
+			prev=${field_value[$k]:-}
+			if [ -z "$prev" ]; then
+				field_value[$k]=$v
+			elif [ "$prev" != "$v" ]; then
+				bad "$k disagrees across the archive: $prev and $v. One run cannot have two corpora or two tokenizers"
+				problems=$((problems + 1))
+			fi
+		fi
 	done
-	tc=$(grep -m1 'traceChecksum' "$m" | tr -d ' "' | cut -d: -f2)
-	if [ -n "$tc" ] && ! grep -q "$tc" "$DIR"/raw-*.jsonl 2>/dev/null; then
-		bad "$(basename "$m")'s traceChecksum $tc appears in no raw row"
+
+	tc=${field_value[skip]:-}
+	tc=$(grep -m1 '^traceChecksum:' "$m" | tr -d ' "' | cut -d: -f2-)
+	[ -n "$tc" ] || continue
+
+	# 1. the checksum is this label's trace file.
+	t="$DIR/trace-$label.jsonl"
+	if [ -f "$t" ]; then
+		got=$(sha256sum "$t" | cut -d' ' -f1)
+		if [ "$got" != "$tc" ]; then
+			bad "trace-$label.jsonl hashes to $got and its manifest names $tc; the rows were replayed from a different trace than the manifest records"
+			problems=$((problems + 1))
+		else
+			traced=$((traced + 1))
+		fi
+	else
+		# Not a failure. The ninth pilot archived evidence.log, manifests and raw rows and no traces, so
+		# demanding one would report that run as defective for predating the practice -- the mistake this
+		# script already made once by requiring tokenizerRev of it. The count is reported instead, so a
+		# reader can see how much of the chain was actually closed.
+		untraced=$((untraced + 1))
+	fi
+
+	# 2. this label's OWN raw rows carry it.
+	r="$DIR/raw-$label.jsonl"
+	if [ -f "$r" ]; then
+		if ! grep -q "$tc" "$r"; then
+			bad "raw-$label.jsonl carries no row naming $tc, so these rows are not the ones that manifest describes"
+			problems=$((problems + 1))
+		fi
+	else
+		bad "$(basename "$m") has no raw-$label.jsonl beside it"
+		problems=$((problems + 1))
+	fi
+
+	# 3. one trace per arm.
+	prev=${arm_trace[$arm]:-}
+	if [ -z "$prev" ]; then
+		arm_trace[$arm]=$tc
+	elif [ "$prev" != "$tc" ]; then
+		bad "arm $arm names two traces ($prev and $tc); its repetitions did not replay identical traffic"
+		problems=$((problems + 1))
 	fi
 done
 if [ "$chain" -eq 0 ]; then
 	bad "$DIR has no manifest-*.yaml, so provenance cannot be checked"
-elif [ "$missing_field" -eq 0 ]; then
-	good "$chain manifests name ${keys[*]}, and each traceChecksum appears in the rows"
+elif [ "$problems" -eq 0 ]; then
+	good "$chain manifests: each label's rows carry its checksum, one trace per arm, ${#field_value[@]} identifier(s) agree archive-wide"
+	if [ "$traced" -gt 0 ]; then
+		good "$traced of $chain traceChecksums ARE the digest of their own trace file"
+	fi
+	if [ "$untraced" -gt 0 ]; then
+		echo "ok   $untraced manifest(s) name a trace this archive does not carry"
+		echo "     (their checksum is bound to the rows but not to a trace file, because this run archived none)"
+	fi
+	echo "     (the corpus itself is not in the archive, so the identifier agreement is internal consistency)"
 fi
 
 printf '\n'
