@@ -1104,6 +1104,11 @@ func FormatReport(summaries []ArmSummary, checks *Checks, matchTolerance float64
 		b.WriteString("  is the registered object; the spread of a row is an OBSERVED RANGE and not an interval.\n")
 	}
 
+	// B, C and R themselves, because the block above made them derivable and left the arithmetic to the
+	// reader. The amendment names the three fields it freezes, and a page that prints the sample but not the
+	// estimand still has nobody computing what the registration decided.
+	b.WriteString(FormatRegisteredEstimand(summaries))
+
 	b.WriteString("\nWhat it cost\n")
 	// premTPOT99 is printed beside the arm-wide figure because the pre-registered criterion is about the
 	// PROTECTED tenant's stream, and the arm-wide number pools every tenant. On the paid evidence they
