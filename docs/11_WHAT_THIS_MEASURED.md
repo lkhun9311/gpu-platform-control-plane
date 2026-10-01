@@ -78,7 +78,9 @@ interconnect. For those the fake device is not merely weaker evidence; it is no 
 
 ## Finding 3 — splitting a card does not divide the machine
 
-Time-slicing one A10G between two engines, against an isolated single-tenant baseline (`R1`):
+Time-slicing one A10G between two engines, against an isolated single-tenant baseline (`R1`). These are the
+**ninth paid pilot's** numbers (2026-09-13, `hack/m5c-20260913-011031`, commit `85ae2fa`): three arms, two
+repetitions each, six cells, 75 minutes, $0.85.
 
 | arm | premium TTFT p99 | /R1 | premium TPOT p99 | /R1 | contender served | timeouts |
 |---|---:|---:|---:|---:|---:|---:|
@@ -116,6 +118,14 @@ register that reads DCGM labels records exactly that: *"correct for T4 and A10G,
 MIG"* (`hack/queuelab-refusal-register.md:65`). MIG is not absent because it was judged and rejected; it is
 absent because the instance-family policy permits no card that has it. Nothing here about larger cards, and
 nothing about different prompt-length distributions.
+
+**A later run under the CRD contract did not replace these numbers.** On 2026-10-01 a
+`GpuSharingBenchmark` compiled into the paid runner's whole configuration for the first time — the instance
+logged the CR's digest, and cell 1 of 10 produced 4,655 rows whose manifest names the study, the tokenizer
+revision and the engine digest. It then stopped itself on a cell boundary: a cell took 15.7 minutes against
+the runner's assumed 10, so ten cells need about 212 and the deadline was 160. One cell is not a comparison,
+and that run bought the provenance chain rather than a result. **The table above remains the ninth pilot's**,
+and nothing in the 2026-10-01 run retroactively confirms it.
 
 *(`docs/superpowers/specs/2026-09-10-does-splitting-the-card-buy-protection.md:529`, `:561`;
 `docs/superpowers/specs/2026-09-15-a-ladder-whose-contender-holds-still.md:82`, `:115`;

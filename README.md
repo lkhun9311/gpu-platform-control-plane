@@ -8,8 +8,9 @@ Most GPU setups stop at running a single workload. This project treats the GPU a
 
 ## The measurement, first
 
-The control plane is the instrument. This is what it measured, on a rented A10G, two repetitions per arm and
-4,655 completed victim requests each:
+The control plane is the instrument. This is what it measured on a rented A10G — the ninth paid pilot
+(2026-09-13, `hack/m5c-20260913-011031`, commit `85ae2fa`), three arms, two repetitions each, with all
+4,655 victim requests completing in every arm and no timeouts:
 
 | Arm | Victim TTFT p99 | vs isolated | Contender served | Timeouts |
 |---|---:|---:|---:|---:|
@@ -23,7 +24,10 @@ contender byte-identical the same `timeSlicing` arm *passes* at 1.16 and 2.31 re
 at 4.61. The mechanism is that one contending prompt occupies the engine for about 1.03 s while the victim's
 tail budget is a tenth of that: what has to be divided is not the card, it is a request already in flight.
 
-Every figure above is derived from committed raw rows and was independently recomputed from them. The
+Every figure above was independently recomputed from that run's raw rows — but those rows are **not in
+this repository**. one line in `.gitignore` excludes the directory a paid run writes, and that run is about 114 MB, so a clone
+gets the numbers and not the evidence behind them. The six raw files are 15 MB (0.9 MB gzipped) and could
+be carried; that they are not is a gap, not a decision this page is defending. The
 findings, their bounds, and the four claims this project is **not** entitled to make are in
 [docs/11_WHAT_THIS_MEASURED.md](docs/11_WHAT_THIS_MEASURED.md); the mistakes are in
 [docs/10_WHAT_I_GOT_WRONG.md](docs/10_WHAT_I_GOT_WRONG.md).
@@ -32,6 +36,14 @@ findings, their bounds, and the four claims this project is **not** entitled to 
 `hack/m5c-matrix.sh` before that type existed. The CRD registers the protocol and refuses a badly declared
 one; nothing writes its `status.result` yet, and the table above is therefore a harness result and not a
 control-plane one. That gap is the honest state of the flagship.
+
+On 2026-10-01 a CR did drive a paid run for the first time: `benchharness compile-plan` turned
+`config/samples/platform_v1_gpusharingbenchmark_executable.yaml` into the runner's whole configuration, the
+instance logged `load compiled from a GpuSharingBenchmark, sha256 304fe77c…`, and cell 1 of 10 completed —
+4,655 rows whose manifest carries the study, the tokenizer revision and the engine digest, the first paid
+manifest ever to name a tokenizer. The run then **stopped itself on a cell boundary**: measured cell time
+was 15.7 min against the runner's assumed 10, so ten cells need about 212 min and the deadline was 160.
+It cost $0.25 and bought one cell, not a comparison. **The table above is still the ninth pilot's.**
 
 ## Scope
 
