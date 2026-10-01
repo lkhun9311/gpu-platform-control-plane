@@ -39,10 +39,19 @@ func healthyArm(name string, ttftP99, tpotP99 float64, contenderTokens int64) Ar
 		// ActiveSeconds is set because reading 1's price is the PREMIUM tenant's tokens per second, which is
 		// derived from per-tenant tokens and the arm's own sending time rather than read off the arm's
 		// aggregate rate. An arm without it has no premium throughput to report.
-		ActiveSeconds:         1000,
-		TTFTMsP99:             ttftP99,
-		TailSampleSize:        3000,
-		RepetitionCount:       3,
+		ActiveSeconds:   1000,
+		TTFTMsP99:       ttftP99,
+		TailSampleSize:  3000,
+		RepetitionCount: 3,
+		// MinRepetitionTail is set, and leaving it at zero was a latent trap rather than a harmless gap.
+		//
+		// EvaluateChecks and RegisteredEstimandFor both refuse on `RepetitionCount > 0 &&
+		// MinRepetitionTail < MinTailSamples`, so a fixture that declares three repetitions and a thinnest
+		// repetition of zero describes a run those paths reject. The readings these tests exercise today do
+		// not consult it, which is why 48 uses passed with it unset -- and why moving reading 4 to the
+		// registered estimand would have turned "fires" into "not evaluable" across the file for a reason
+		// that has nothing to do with contention.
+		MinRepetitionTail:     1000,
 		RepetitionTTFTMsP99:   []float64{ttftP99 - 1, ttftP99, ttftP99 + 1},
 		OutputTokensPerSecond: 40,
 		TPOTMsP99ByTenant:     map[string]float64{PremiumTenant: tpotP99},

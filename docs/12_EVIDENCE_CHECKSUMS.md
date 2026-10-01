@@ -116,6 +116,53 @@ file) before being written down here.
 includes the shipped `gateway` and `benchharness` binaries and the source archive. The *evidence* carried
 into `storage` is the 15 MB above.
 
+## The analysis version these figures reproduce under
+
+The reference analysis version for reproducing the published figures and readings of the
+`evidence-m5c-2026-10-01` release is:
+
+```
+cc920d34a574576eae320043dae90bdfcfff1fdd
+```
+
+That is **the source version the release points at** — the tag and the GitHub release both resolve to it.
+It is **not** a claim that every figure was first computed by that commit, and it does not retroactively
+certify the process that produced any individual number. Three versions are different things and this page
+keeps them apart:
+
+| | Value | What it is |
+|---|---|---|
+| Collection | `85ae2fa` (ninth pilot), `471b86b` (the morning run that stopped at cell 1), `7b69214` (the ten-cell run) | The tree each run's evidence was gathered from, recorded in that archive's own `commit.txt` |
+| Published analysis | `cc920d34a574576eae320043dae90bdfcfff1fdd` | The source version the release points at, and the one these figures reproduce under |
+| Later re-analysis | any later commit | Legitimate and expected — reading `4d` postdates both paid runs — but it is a re-analysis and is labelled as one |
+
+A collection commit cannot stand in for the analysis version. The ten-cell run's own `readings.txt`, written
+at `7b69214`, still says `none of the readings fired` — a sentence this project has since withdrawn, because
+reading `4d` now distinguishes "could not fire" from "fired negative". Naming `7b69214` as the published
+analysis would adopt that withdrawn reading as part of the published claim. (Both files are in the digest
+list above: `readings.txt` at `5d65bec0ec7f1076…` and `commit.txt` at `f8a8c70b12419c81…`, so this is a
+statement about the published bytes rather than about a working copy.)
+
+⚠️ **"The archive" means the published set, which is larger than the run's own `evidence.tgz`.** The digest
+list names **49** files; the `evidence.tgz` inside a paid run's output directory holds **42** and carries an
+`m5c-run/` prefix. Eight of the published files — `commit.txt`, `readings.txt`, `instance-id`,
+`instance-log.txt`, `nodes.txt`, `preflight-node-cards.txt`, `preflight-nvidia-smi.csv`, `termination.txt` —
+sit beside that tarball rather than inside it, and one file (`README.txt`) is inside it and not published.
+A reader looking for `commit.txt` inside the tarball will not find it; it is in the published set.
+
+⚠️ **What `hack/verify-published-evidence.sh` does and does not pin.** `ANALYSIS_COMMIT` makes the script
+*check* that the current `HEAD` is the version you named; it does not fetch or build that commit. Omitted,
+the script accepts whatever `HEAD` you run it from and says so. So reproducing the published figures means
+checking out the version above in a clean tree and passing it explicitly:
+
+```bash
+git -C <clone> checkout cc920d34a574576eae320043dae90bdfcfff1fdd
+ANALYSIS_COMMIT=cc920d3 ./hack/verify-published-evidence.sh <archive-dir>
+```
+
+Running it from a later tree is a re-analysis. That is normal and the script says which case it is in, but
+the two must not be reported as the same thing.
+
 ## Per-file digests
 
 Each run's full digest list is committed beside this page, one line per file:
