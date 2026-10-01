@@ -146,7 +146,7 @@ func traceTenants(f arrivalFlags) ([]bench.TenantSpec, float64, error) {
 		}
 	}
 
-	premium := bench.TenantSpec{Tenant: "premium-1", PromptLenChars: f.premiumChars, MaxOutputTokens: 64, IsNoisy: false}
+	premium := bench.TenantSpec{Tenant: bench.PremiumTenant, PromptLenChars: f.premiumChars, MaxOutputTokens: 64, IsNoisy: false}
 	noisy := bench.TenantSpec{Tenant: bench.NoisyTenant, PromptLenChars: f.noisyChars, MaxOutputTokens: 16, IsNoisy: true}
 	under := bench.TenantSpec{Tenant: bench.ProbeUnderTenant, PromptLenChars: f.probeUnderChars, MaxOutputTokens: 8, IsNoisy: true}
 	over := bench.TenantSpec{Tenant: bench.ProbeOverTenant, PromptLenChars: f.probeOverChars, MaxOutputTokens: 8, IsNoisy: true}
