@@ -44,7 +44,7 @@ gateway checksum: user-data matches the uploaded binary
 == output <OUT>
 == load   rate 9.85/s, 420000ms, weights premium=1 noisy=0.054 probe=0
 ==        (carried from the whole-card run; the pilot's job is to re-derive them for a half-card engine)
-== credentials expire in 719 min (asked of the active provider); this session needs about 78 plus 30 of headroom
+== credentials expire in 719 min (asked of the active provider); this session needs about 290 plus 30 of headroom
 == source <COMMIT> <TREE STATE>
 == building the gateway and the harness for the instance, which has no Go
 ==   gateway <SHA12>, benchharness <SHA12>
@@ -57,7 +57,7 @@ gateway checksum: user-data matches the uploaded binary
 == waiting for the instance profile to propagate
 == uploading the source and the binaries
 == g5.2xlarge is offered in: ap-northeast-2a ap-northeast-2c
-== user-data: 9180 of 25600 encoded bytes
+== user-data: 9672 of 25600 encoded bytes
 == launching g5.2xlarge spot (max $1.10/h)
 == trying ap-northeast-2a (subnet-ap-northeast-2a)
 == instance i-0stub

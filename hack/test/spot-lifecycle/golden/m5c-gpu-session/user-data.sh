@@ -1,7 +1,7 @@
 #!/bin/bash
 exec > >(tee /var/log/m5c.log) 2>&1
 set -x
-( sleep 9000; shutdown -h now ) &
+( sleep 17400; shutdown -h now ) &
 BUCKET="stub-bucket"
 PREFIX="run-<NONCE>"
 SOURCE_SHA="<SHA256>"
@@ -17,7 +17,14 @@ PROBE_WEIGHT="0"
 DURATION_MS="420000"
 LADDER=""
 LADDER_STUDY=""
-DEADLINE_EPOCH=$(( $(date +%s) + 8400 ))
+PREMIUM_PROMPT_CHARS=""
+NOISY_PROMPT_CHARS=""
+REQUEST_TIMEOUT_MS=""
+MODEL_REVISION=""
+STUDY_FROM_CR=""
+BENCHMARK_CR_SHA256=""
+BENCHMARK_CR_TOKENIZER_REV=""
+DEADLINE_EPOCH=$(( $(date +%s) + 16800 ))
 upload() { aws s3 cp "$1" "s3://$BUCKET/$PREFIX/$2" || true; }
 trap 'upload /var/log/m5c.log log.txt; shutdown -h now' EXIT
 aws s3 cp "s3://$BUCKET/$PREFIX/src/source.tgz" /tmp/source.tgz
@@ -116,6 +123,10 @@ if [ -n "$LADDER" ]; then
 else
   export RATE PREMIUM_WEIGHT NOISY_WEIGHT PROBE_WEIGHT DURATION_MS REPS ARMS
 fi
+for v in PREMIUM_PROMPT_CHARS NOISY_PROMPT_CHARS REQUEST_TIMEOUT_MS MODEL_REVISION \
+         BENCHMARK_CR_SHA256 BENCHMARK_CR_TOKENIZER_REV STUDY_FROM_CR; do
+  if [ -n "${!v}" ]; then export "${v?}"; fi
+done
 export OUT=/src/m5c-run
 cat > /usr/local/bin/m5c-cell-done <<'CELLHOOK'
 set -u
