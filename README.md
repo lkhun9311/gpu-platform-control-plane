@@ -101,18 +101,29 @@ The findings, their bounds, and the claims this project is **not** entitled to m
 [docs/11_WHAT_THIS_MEASURED.md](docs/11_WHAT_THIS_MEASURED.md); the mistakes are in
 [docs/10_WHAT_I_GOT_WRONG.md](docs/10_WHAT_I_GOT_WRONG.md).
 
-⚠️ **The `GpuSharingBenchmark` CRD did not produce these numbers.** They came from
-`hack/m5c-matrix.sh` before that type existed. The CRD registers the protocol and refuses a badly declared
-one; nothing writes its `status.result` yet, and the table above is therefore a harness result and not a
-control-plane one. That gap is the honest state of the flagship.
+⚠️ **A CR declared the load above; nothing has written its `status.result`.** The distinction matters
+and this paragraph used to collapse it. `benchharness compile-plan` turned
+`config/samples/platform_v1_gpusharingbenchmark_executable.yaml` into the environment the runner reads, the
+instance logged `load compiled from a GpuSharingBenchmark, sha256 304fe77c…`, and
+`hack/m5c-matrix.sh:163-186` refuses to start if any value the CR declared is missing from that block. So the
+CRD is the *declaration* the table above was measured under. What it is not is the *recorder*: no controller
+writes `status.result`, so the numbers reach a reader through a report rather than through the type's own
+status. That gap is the honest state of the flagship, and
+[the record of what blocks it](docs/superpowers/specs/2026-07-04-gpusharingbenchmark-crd-design.md) names three
+bindings rather than a missing afternoon of work.
 
-On 2026-10-01 a CR did drive a paid run for the first time: `benchharness compile-plan` turned
-`config/samples/platform_v1_gpusharingbenchmark_executable.yaml` into the runner's whole configuration, the
-instance logged `load compiled from a GpuSharingBenchmark, sha256 304fe77c…`, and cell 1 of 10 completed —
-4,655 rows whose manifest carries the study, the tokenizer revision and the engine digest, the first paid
-manifest ever to name a tokenizer. The run then **stopped itself on a cell boundary**: measured cell time
-was 15.7 min against the runner's assumed 10, so ten cells need about 212 min and the deadline was 160.
-It cost $0.25 and bought one cell, not a comparison. **The table above is still the ninth pilot's.**
+**Two paid runs on 2026-10-01, and the first one failed.** The morning run compiled the same CR, completed
+**cell 1 of 10**, and then **stopped itself on a cell boundary**: measured cell time was 15.7 min against the
+runner's assumed 10, so ten cells need about 212 min and the deadline was 160. It cost **$0.25** and bought
+one cell, not a comparison. The afternoon run, after the deadline and the credential guard were both derived
+from the matrix's own stopping rule, completed **10 of 10 cells** in about 126 minutes for **$1.44** — commit
+`7b69214`, and the table at the top of this file is that run. Total spend for the pair: **$1.69**.
+
+⚠️ An earlier version of this section ended **"the table above is still the ninth pilot's"**, which stayed
+true for exactly as long as the morning failure was the only CR-driven run. It was left standing after the
+afternoon run replaced the headline, so the file said the measurement was from 2026-10-01 at the top and from
+2026-09-13 here. The correction is recorded rather than quietly applied, because a reader who saw the old
+text should be able to tell which sentence moved.
 
 ## Scope
 
