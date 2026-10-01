@@ -62,6 +62,22 @@ MODEL="Qwen/Qwen2.5-3B-Instruct"
 #
 # Overridable, because a run that serves a different revision must be able to say so -- and NOT defaulted to
 # anything derived, because a wrong revision recorded confidently is worse than none.
+# Whether the CALLER set each compiled value, snapshotted BEFORE the defaults below answer for them.
+#
+# The compiled-CR block further down asks "is this variable unset?" -- and by the time it asks, every
+# one of them has been defaulted, so a block that omitted PREMIUM_OUTPUT_TOKENS passed the check with
+# the generator's old literal 64 silently in its place. An external review built that case from the two
+# statements alone. The emptiness test could never have caught it: the question is not whether the
+# variable has a value, it is whether the COMPILED BLOCK supplied it.
+#
+# ARMS_FROM_CALLER below is the same device for the same reason, and its comment says so. This is that
+# device applied to the six values the plan compiles, and it has to stay above the defaults.
+PREMIUM_PROMPT_CHARS_FROM_CALLER="${PREMIUM_PROMPT_CHARS+set}"
+NOISY_PROMPT_CHARS_FROM_CALLER="${NOISY_PROMPT_CHARS+set}"
+REQUEST_TIMEOUT_MS_FROM_CALLER="${REQUEST_TIMEOUT_MS+set}"
+MODEL_REVISION_FROM_CALLER="${MODEL_REVISION+set}"
+PREMIUM_OUTPUT_TOKENS_FROM_CALLER="${PREMIUM_OUTPUT_TOKENS+set}"
+NOISY_OUTPUT_TOKENS_FROM_CALLER="${NOISY_OUTPUT_TOKENS+set}"
 MODEL_REVISION="${MODEL_REVISION:-aa8e72537993ba99e69dfaafa59ed015b17504d1}"
 # The RESOLVED prompt lengths, in characters, and the per-request timeout.
 #
@@ -177,8 +193,19 @@ if [ -n "${BENCHMARK_CR_SHA256:-}" ]; then
   [ -n "$LADDER" ] && fail "LADDER and BENCHMARK_CR_SHA256 are both set. A CR declares one load and the ladder is a sequence of different ones, so the compiled plan would be ignored for every rung."
   # STUDY is not on this list: compile-plan is told which study the evidence is filed under, because the CR
   # has no field for it, and it prints that value into the same block. It is passed, not compiled.
-  for v in RATE PREMIUM_WEIGHT NOISY_WEIGHT PROBE_WEIGHT PREMIUM_PROMPT_CHARS NOISY_PROMPT_CHARS REQUEST_TIMEOUT_MS MODEL_REVISION PREMIUM_OUTPUT_TOKENS NOISY_OUTPUT_TOKENS; do
+  # RATE and the three weights have NO default in this script, so emptiness is the right test for them.
+  for v in RATE PREMIUM_WEIGHT NOISY_WEIGHT PROBE_WEIGHT; do
     [ -n "${!v:-}" ] || fail "$v is unset although BENCHMARK_CR_SHA256 is set. Source the whole block benchharness compile-plan prints; a partial one leaves this script defaulting a value the CR declared."
+  done
+  # The six that DO have defaults are checked by their snapshots instead.
+  #
+  # Emptiness cannot see them: they were defaulted a hundred lines above this block, so a compiled block
+  # missing PREMIUM_OUTPUT_TOKENS reached here holding 64 and passed. The snapshot records whether the
+  # caller supplied the value, which is the question this check is actually asking.
+  for v in PREMIUM_PROMPT_CHARS NOISY_PROMPT_CHARS REQUEST_TIMEOUT_MS MODEL_REVISION \
+           PREMIUM_OUTPUT_TOKENS NOISY_OUTPUT_TOKENS; do
+    snap="${v}_FROM_CALLER"
+    [ -n "${!snap}" ] || fail "$v was not supplied although BENCHMARK_CR_SHA256 is set, so this run would use this script's own default while the CR declared a value. Source the whole block benchharness compile-plan prints."
   done
   # ARMS and REPS are checked through the FROM_CALLER flags and not for emptiness, because by this line they
   # are never empty: both were defaulted above, ARMS to all four topologies. A run that sourced a compiled

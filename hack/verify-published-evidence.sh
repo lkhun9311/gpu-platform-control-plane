@@ -112,14 +112,32 @@ fi
 #
 # The figures are a property of the rows AND of the scorer. A reader holding an older build gets a different
 # verdict from the same rows, so the version is part of the claim rather than a detail of the environment.
+# ⚠️ This section said "the analysis code is the pinned one" and pinned nothing: it built whatever the
+# working tree held and PRINTED the HEAD it found. A reader on a different commit, or with uncommitted
+# edits, got a VERIFIED that described their tree rather than the published figures. The expected commit is
+# now compared, and a dirty tree is named, because "I built something" and "I built the analysis these
+# numbers came from" are different claims.
+ANALYSIS_COMMIT="${ANALYSIS_COMMIT:-e203db7}"
 step "analysis code"
 if [ -d "$ROOT/cmd/benchharness" ]; then
 	BIN=$(mktemp -d)/benchharness
+	head=$(cd "$ROOT" && git rev-parse --short HEAD 2>/dev/null || echo "")
+	dirty=$(cd "$ROOT" && git status --porcelain -- cmd internal 2>/dev/null | wc -l)
 	if (cd "$ROOT" && go build -o "$BIN" ./cmd/benchharness) 2>/dev/null; then
-		good "built from $(cd "$ROOT" && git rev-parse --short HEAD 2>/dev/null || echo 'this tree')"
+		good "built from ${head:-an unversioned tree}"
 	else
 		bad "could not build ./cmd/benchharness from $ROOT"
 		BIN=""
+	fi
+	if [ -z "$head" ]; then
+		bad "this tree has no git HEAD, so the analysis version cannot be established"
+	elif [ "$head" != "$ANALYSIS_COMMIT" ]; then
+		bad "the analysis is $head and the published figures were produced by $ANALYSIS_COMMIT; check out that commit, or pass ANALYSIS_COMMIT=$head to say you intend a different scorer"
+	else
+		good "the analysis commit is the published $ANALYSIS_COMMIT"
+	fi
+	if [ "$dirty" -ne 0 ]; then
+		bad "$dirty uncommitted change(s) under cmd/ or internal/; the scorer being run is not $ANALYSIS_COMMIT"
 	fi
 else
 	bad "run this from a clone of the repository; $ROOT has no cmd/benchharness"
@@ -151,10 +169,22 @@ if [ -n "${BIN:-}" ] && [ -x "$BIN" ]; then
 			)
 			expect_rc=1
 			expect_refusal='4d'
+			expect_answer='none of the readings COULD fire'
 		else
-			want=("69.5" "1892" "1007")
+			# The ninth pilot's figures are bound to their ARMS, and the ANSWER is asserted.
+			#
+			# This asked for "69.5", "1892" and "1007" anywhere in the output and exit 0. An external review
+			# built a counter-example from the real judgment block: an output whose answer was reading 1
+			# instead of 5 passed. Three numbers appearing somewhere is not the published table -- the table
+			# says WHICH arm each belongs to and which reading fired.
+			want=(
+				"R1 " "shared " "timeSlicing "
+				"69.5" "1892" "1007"
+				"ANSWER: 5"
+			)
 			expect_rc=0
 			expect_refusal=''
+			expect_answer='ANSWER: 5'
 		fi
 
 		missing=0
@@ -178,13 +208,26 @@ if [ -n "${BIN:-}" ] && [ -x "$BIN" ]; then
 		fi
 
 		# And the refusal has to be the registered one, named by id.
+		# BOTH the reading id and the sentence, not either.
+		#
+		# This was `||`, while the comment above it said the refusal is "named by its reading id". An output
+		# carrying the sentence and no 4d line passed -- which is exactly the evidence shape a scorer built
+		# before the gate existed produces.
 		if [ -n "$expect_refusal" ]; then
-			if printf '%s\n' "$out" | grep -qE "^\s*\[[^]]*\]\s+${expect_refusal}\b" ||
-				printf '%s\n' "$out" | grep -q "none of the readings COULD fire"; then
-				good "the refusal is reading $expect_refusal, as registered"
+			if printf '%s\n' "$out" | grep -qE "^[[:space:]]*\[[^]]*\][[:space:]]+${expect_refusal}\b"; then
+				good "reading $expect_refusal is present by id"
 			else
-				bad "reading $expect_refusal did not fire; the refusal is not the registered one"
-				printf '%s\n' "$out" | grep -E 'ANSWER|^\s*\[' | head -8 >&2
+				bad "no reading line names $expect_refusal; the refusal is not the registered one"
+				printf '%s\n' "$out" | grep -E 'ANSWER|^[[:space:]]*\[' | head -8 >&2
+			fi
+		fi
+		# The ANSWER line is asserted for every run shape, because it is the one line a reader quotes.
+		if [ -n "${expect_answer:-}" ]; then
+			if printf '%s\n' "$out" | grep -qF "$expect_answer"; then
+				good "the answer is \"$expect_answer\", as published"
+			else
+				bad "the answer is not \"$expect_answer\"; a different reading fired or none did"
+				printf '%s\n' "$out" | grep -E 'ANSWER' | head -4 >&2
 			fi
 		fi
 	fi
