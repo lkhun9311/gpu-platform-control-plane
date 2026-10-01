@@ -1371,8 +1371,13 @@ func (e *armEvidence) pairedBlocks(baseArm, contArm string) (base, cont [][]benc
 	}{{baseArm, b}, {contArm, c}} {
 		for _, r := range pair.reps {
 			if r.censored {
-				return nil, nil, fmt.Sprintf("arm %s repetition %d is censored (more than 1%% of its premium"+
-					" requests did not complete), so its p99 is a lower bound and any resample drawing it"+
+				// "at least 1%", not "more than 1%": internal/bench/report.go sets Censored at `>= 0.01`,
+				// so exactly 1% is censored too. And the numerator is not every request that failed to
+				// complete -- requests shed by admission are excluded there, because a shed request is a
+				// decision the guard made rather than a tail this benchmark failed to measure.
+				return nil, nil, fmt.Sprintf("arm %s repetition %d is censored (at least 1%% of its premium"+
+					" requests ended in a timeout or another transport or stream error; requests shed by"+
+					" admission are not counted), so its p99 is a lower bound and any resample drawing it"+
 					" reports a bound as a measurement", pair.arm, r.repID)
 			}
 		}
@@ -1596,7 +1601,14 @@ func (e *armEvidence) incrementalCI() bench.CI {
 		// until a separate dated decision retires or replaces it.
 		if bench.RatioScatterTooHigh(ratios) {
 			incCI.Valid = false
-			incCI.InvalidReason = fmt.Sprintf("the per-repetition C/B ratios scatter beyond a coefficient of variation of %.2f, past which a percentile bootstrap over %d values fires on no effect at all more often than its nominal 5 percent", bench.MaxRatioScatter, len(ratios))
+			// The message says what the rule DOES, not what it establishes about this interval.
+			//
+			// It used to assert that past this bound a percentile bootstrap "fires on no effect at all more
+			// often than its nominal 5 percent". That number was measured against the mean of
+			// per-repetition ratios -- the statistic the 2026-10-01 amendment replaced -- so presenting it
+			// as the reason this interval is refused carries the old evidence into a new claim. The comment
+			// above withdrew that wording and this string kept it, which left the withdrawal unfinished.
+			incCI.InvalidReason = fmt.Sprintf("the per-repetition C/B ratios scatter beyond a coefficient of variation of %.2f over %d values, which this study refuses provisionally rather than because the paired-block interval has been shown to misbehave there; the %.2f was placed between false-PASS rates measured for a different statistic (the mean of per-repetition ratios, cmd/benchharness/power.go) and no coverage has been measured for this one", bench.MaxRatioScatter, len(ratios), bench.MaxRatioScatter)
 		}
 	} else if why != "" && len(e.reps["static-cap"]) > 0 && len(e.reps["kv-aware"]) > 0 {
 		// Unequal repetition counts leave the incremental CI at the degenerate point estimate.

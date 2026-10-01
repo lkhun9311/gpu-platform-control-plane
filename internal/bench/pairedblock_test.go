@@ -383,13 +383,22 @@ func TestTheSettingsReachTheEstimatorRatherThanOnlyBeingNamed(t *testing.T) {
 	if !a.Valid {
 		t.Fatalf("the registered settings produced no interval: %s", a.InvalidReason)
 	}
-	// And alpha has to reach the quantiles: a wider alpha cannot give a wider interval.
+	// And alpha has to reach the quantiles. The VALUES are asserted, from the same enumeration of all 256
+	// draws that the test above uses: alpha 0.05 gives [0.742857, 0.800000] and alpha 0.5 gives
+	// [0.760000, 0.800000].
+	//
+	// The first draft asserted only that the 0.50 interval is not WIDER than the 0.05 one. A mutation
+	// ignoring the argument and using 0.05 for both returns two identical intervals, which satisfies "not
+	// wider" -- so the test passed on exactly the defect it was written for.
+	if math.Abs(a.Lo-0.742857142857) > 1e-9 || math.Abs(a.Hi-0.8) > 1e-9 {
+		t.Errorf("alpha=0.05 gives [%.6f, %.6f], want [0.742857, 0.800000] from the enumeration", a.Lo, a.Hi)
+	}
 	wide := PairedBlockRatioCI("static-cap", base, cont, M5BIncrementalResamples, M5BIncrementalSeed, 0.5)
 	if !wide.Valid {
 		t.Fatalf("the alpha=0.5 interval was refused: %s", wide.InvalidReason)
 	}
-	if wide.Hi-wide.Lo > a.Hi-a.Lo+1e-12 {
-		t.Errorf("the alpha=0.50 interval [%.6f, %.6f] is wider than the alpha=0.05 one [%.6f, %.6f];"+
-			" alpha is not reaching the percentiles", wide.Lo, wide.Hi, a.Lo, a.Hi)
+	if math.Abs(wide.Lo-0.76) > 1e-9 || math.Abs(wide.Hi-0.8) > 1e-9 {
+		t.Errorf("alpha=0.50 gives [%.6f, %.6f], want [0.760000, 0.800000]; alpha is not reaching the"+
+			" percentiles", wide.Lo, wide.Hi)
 	}
 }

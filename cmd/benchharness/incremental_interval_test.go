@@ -377,11 +377,21 @@ func TestTheReportFileNamesTheCensoredRepetition(t *testing.T) {
 	if invalid == "" {
 		t.Fatalf("the report file carries no RUN INVALID line:\n%s", body)
 	}
-	for _, want := range []string{"kv-aware", "repetition 1", "censored"} {
+	// The boundary wording is asserted too, because the message stated it wrongly.
+	//
+	// internal/bench/report.go sets Censored at `>= 0.01`, so exactly 1% is censored; the refusal said
+	// "more than 1%". And the numerator excludes requests shed by admission, which "did not complete" does
+	// not say. A test checking only the arm, the repetition and the word "censored" passes either way --
+	// this one failed to catch the wording for exactly that reason.
+	for _, want := range []string{"kv-aware", "repetition 1", "censored", "at least 1%", "shed by"} {
 		if !strings.Contains(invalid, want) {
 			t.Errorf("the report file's RUN INVALID line does not carry %q, so a reader of the report alone"+
-				" cannot find the file to look at: %s", want, invalid)
+				" cannot find the file or learn the rule: %s", want, invalid)
 		}
+	}
+	if strings.Contains(invalid, "more than 1%") {
+		t.Errorf("the refusal says \"more than 1%%\" while the boundary is >= 0.01, so exactly 1%% reads as"+
+			" uncensored: %s", invalid)
 	}
 	if strings.Contains(invalid, "unequal or insufficient repetitions") {
 		t.Errorf("the report file blames repetition counts for a censoring refusal: %s", invalid)
@@ -418,12 +428,30 @@ func TestTheM5BPathRefusesMismatchedIdentitySets(t *testing.T) {
 		for _, p := range paths {
 			args = append(args, "-raw", p)
 		}
-		out, _ := captureBoth(t, func() error { return report(args) })
+		// The RETURN VALUE is asserted, not only the text.
+		//
+		// The first draft discarded the error and searched the combined output for the two sets. A mutation
+		// that warns and then carries on computing would print the same strings and pass -- which is a
+		// different and worse failure than deleting the check, because the run would publish an interval
+		// over unpaired blocks while announcing that they are unpaired.
+		out, err := captureBoth(t, func() error { return report(args) })
 		body, _ := os.ReadFile(filepath.Join(dir, "report.txt"))
 		text := string(body) + out
 		if !strings.Contains(text, "recorded repetitions 1,2") || !strings.Contains(text, "recorded 1,3") {
 			t.Errorf("the M5-b path did not refuse static-cap {1,2} against kv-aware {1,3} by naming both"+
 				" sets:\n%s", text)
+		}
+		if err == nil {
+			t.Error("report returned no error for arms with different identity sets, so the run was not" +
+				" refused -- only warned about")
+		}
+		if !strings.Contains(string(body), "RUN INVALID") {
+			t.Errorf("the report file carries no RUN INVALID for a run whose arms cannot be paired:\n%s", body)
+		}
+		for line := range strings.SplitSeq(string(body), "\n") {
+			if strings.Contains(line, "incremental value") && strings.Contains(line, "PASS") {
+				t.Errorf("the incremental check passed on unpaired arms: %s", line)
+			}
 		}
 	})
 
