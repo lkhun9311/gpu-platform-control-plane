@@ -26,8 +26,9 @@ tail budget is a tenth of that: what has to be divided is not the card, it is a 
 
 Every figure above was independently recomputed from that run's raw rows — but those rows are **not in
 this repository**. one line in `.gitignore` excludes the directory a paid run writes, and that run is about 114 MB, so a clone
-gets the numbers and not the evidence behind them. The six raw files are 15 MB (0.9 MB gzipped) and could
-be carried; that they are not is a gap, not a decision this page is defending. The
+gets the numbers and not the evidence behind them. They are carried in the sibling `storage` repository
+instead, under `gpu-platform-control-plane/engineering/paid-runs/`, so the figures can be recomputed by
+anyone who has both — which is not the same as this repository standing on its own. The
 findings, their bounds, and the four claims this project is **not** entitled to make are in
 [docs/11_WHAT_THIS_MEASURED.md](docs/11_WHAT_THIS_MEASURED.md); the mistakes are in
 [docs/10_WHAT_I_GOT_WRONG.md](docs/10_WHAT_I_GOT_WRONG.md).
