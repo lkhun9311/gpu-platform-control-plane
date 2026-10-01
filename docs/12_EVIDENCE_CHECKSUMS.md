@@ -4,7 +4,7 @@ The raw rows behind every published figure are **not in this repository**, and t
 of every evidence file so that a copy handed over later can be checked against a commitment that predates
 the conversation.
 
-**Since 2026-10-01 the rows are also downloadable.** Two archives are attached to a GitHub release, and
+**Since 2026-10-01 the rows are also downloadable.** Two archives are attached to [the evidence release](https://github.com/lkhun9311/gpu-platform-control-plane/releases/tag/evidence-m5c-2026-10-01), and
 `hack/verify-published-evidence.sh` recomputes every published figure from them without a GPU. The ninth
 pilot is published complete and byte-identical to its commitment; the ten-cell run is published as a
 **derivative** with two files masked and two withheld, and the section below says exactly which, because the
