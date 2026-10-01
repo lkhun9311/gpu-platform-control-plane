@@ -548,6 +548,12 @@ LADDER_STUDY="LADDER_STUDY_PLACEHOLDER"
 # The rest of the load, which used to stay on the laptop.
 #
 # The ninth pilot's user-data carries no PREMIUM_PROMPT_CHARS, no MODEL_REVISION and no REQUEST_TIMEOUT_MS
+# -- and the OUTPUT CAPS were added to this block on 2026-10-01 for exactly the same reason, one layer
+# further out. The caps became CR-declared that day, hack/m5c-matrix.sh learned to pass them to
+# gen-trace, and this wrapper did not send them: the matrix would have defaulted them and the compiled
+# value would have died on the laptop. The spot-lifecycle goldens did not notice, because what they
+# transcribe is THIS script's user-data -- so their silence was evidence of the gap rather than of
+# safety.
 # -- checked, zero occurrences -- so every paid run so far used the matrix's own defaults for them: 200 and
 # 40,000 characters, and a revision this wrapper never chose. The resolved lengths measured against the
 # served tokenizer (1,174 and 42,579) had therefore never reached a rented card.
@@ -557,6 +563,8 @@ LADDER_STUDY="LADDER_STUDY_PLACEHOLDER"
 PREMIUM_PROMPT_CHARS="PREMIUM_PROMPT_CHARS_PLACEHOLDER"
 NOISY_PROMPT_CHARS="NOISY_PROMPT_CHARS_PLACEHOLDER"
 REQUEST_TIMEOUT_MS="REQUEST_TIMEOUT_MS_PLACEHOLDER"
+PREMIUM_OUTPUT_TOKENS="PREMIUM_OUTPUT_TOKENS_PLACEHOLDER"
+NOISY_OUTPUT_TOKENS="NOISY_OUTPUT_TOKENS_PLACEHOLDER"
 MODEL_REVISION="MODEL_REVISION_PLACEHOLDER"
 STUDY_FROM_CR="STUDY_PLACEHOLDER"
 BENCHMARK_CR_SHA256="BENCHMARK_CR_SHA256_PLACEHOLDER"
@@ -750,6 +758,7 @@ fi
 # this script runs under `set -e`. Measured: the loop with every value empty exits 1, and what happens next
 # then depends on whichever line follows -- a run that dies here would die after the card is up.
 for v in PREMIUM_PROMPT_CHARS NOISY_PROMPT_CHARS REQUEST_TIMEOUT_MS MODEL_REVISION \
+         PREMIUM_OUTPUT_TOKENS NOISY_OUTPUT_TOKENS \
          BENCHMARK_CR_SHA256 BENCHMARK_CR_TOKENIZER_REV STUDY_FROM_CR; do
   if [ -n "${!v}" ]; then export "${v?}"; fi
 done
@@ -835,6 +844,8 @@ UD="$(mktemp)"
       -e "s|PREMIUM_PROMPT_CHARS_PLACEHOLDER|${PREMIUM_PROMPT_CHARS:-}|" \
       -e "s|NOISY_PROMPT_CHARS_PLACEHOLDER|${NOISY_PROMPT_CHARS:-}|" \
       -e "s|REQUEST_TIMEOUT_MS_PLACEHOLDER|${REQUEST_TIMEOUT_MS:-}|" \
+      -e "s|PREMIUM_OUTPUT_TOKENS_PLACEHOLDER|${PREMIUM_OUTPUT_TOKENS:-}|" \
+      -e "s|NOISY_OUTPUT_TOKENS_PLACEHOLDER|${NOISY_OUTPUT_TOKENS:-}|" \
       -e "s|MODEL_REVISION_PLACEHOLDER|${MODEL_REVISION:-}|" \
       -e "s|STUDY_PLACEHOLDER|${STUDY:-}|" \
       -e "s|BENCHMARK_CR_SHA256_PLACEHOLDER|${BENCHMARK_CR_SHA256:-}|" \

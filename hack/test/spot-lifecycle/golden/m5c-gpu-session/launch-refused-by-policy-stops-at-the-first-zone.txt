@@ -28,7 +28,7 @@ gateway checksum: user-data matches the uploaded binary
 ==   gateway <SHA12>, benchharness <SHA12>
 == uploading the source and the binaries
 == g5.2xlarge is offered in: ap-northeast-2a ap-northeast-2c
-== user-data: 9672 of 25600 encoded bytes
+== user-data: 9804 of 25600 encoded bytes
 == launching g5.2xlarge spot (max $1.10/h)
 == trying ap-northeast-2a (subnet-ap-northeast-2a)
 FAIL: every zone refused g5.2xlarge with UnauthorizedOperation, not for want of capacity. An explicit deny in service_control_policy/p-stub01 blocks ec2:RunInstances for this type, and an SCP is not something an account administrator can override. This account's policy allows t3.*, g4dn.* and g5.* only. See <OUT>/launch-errors.txt
