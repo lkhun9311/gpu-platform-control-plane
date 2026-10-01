@@ -199,6 +199,14 @@ hack/m5c-run-*/
 # harness binaries it ships to the instance. The pattern above does not match it, so the first failed run
 # left all of that untracked in the tree -- one `git add -A` from the mistake this block was written about.
 hack/m5c-2*/
+# A paid session's own log must not be able to dirty the tree it is about to archive.
+#
+# 2026-10-01: the launcher wrote hack/m5c-paid-<stamp>.log inside the repository, and the session refused
+# with "the working tree is dirty" -- correctly, because it records a commit as the provenance of its
+# numbers. Nothing was spent, and the fix at the time was to move the log out by hand. By hand is not a
+# fix: the rule above covers the output DIRECTORY and never covered a log file beside it.
+hack/m5c-paid-*.log
+hack/*-paid-*.log
 # The capacity ladder's session directory, which is the same script under a different OUT.
 #
 # hack/m5c-gpu-session.sh writes wherever OUT points, and the ladder runs use hack/ladder-<stamp> so that a

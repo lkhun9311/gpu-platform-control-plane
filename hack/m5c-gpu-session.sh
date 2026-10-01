@@ -44,18 +44,27 @@ MAX_SPOT_PRICE="${MAX_SPOT_PRICE:-1.10}"
 # The backstop inside the instance, and the one this script waits for. The instance's fires first on purpose:
 # a shell that dies here must not leave a card running, and the only timer that survives a dead shell is the
 # one on the machine that is billing.
-# Raised from 9000/8400 on 2026-10-01, because a compiled CR buys more cells than the pilots did.
+# Raised twice on 2026-10-01, and the second time from a MEASUREMENT rather than from this script's model.
 #
-# The arithmetic is this script's own: a GpuSharingBenchmark compiles to two arms and the CRD floors
+# First 8400 -> 9600, on the arithmetic below: a GpuSharingBenchmark compiles to two arms, the CRD floors
 # repetitions at five, so ten cells at the registered 505-second trace, and `require_credential_margin`
-# estimates 143 minutes for that. The old hard stop was 140. It would not have warned: the instance's
-# deadline would simply have fired inside the last cell, and the archive -- which runs only after the
-# matrix RETURNS -- would have taken nothing with it.
+# estimated 143 minutes. That estimate came from `replay_min`, which counts the trace and nothing else.
+#
+# The run at 9600 stopped itself after cell 1 of 10. The cell had taken 15.7 minutes against the model's
+# 10 (S3 object timestamps: preflight 09:31:51, cell-1 evidence 09:47:30), because every cell rolls its
+# engines out again and the model never charged for that. Ten cells therefore need 177 minutes, and the
+# matrix multiplies its own projection by 12/10, so the deadline has to clear 212.
+#
+# Second 9600 -> 13200 (220 min), which is 104% of that. The backstop keeps its ten-minute lead at 13800.
+#
+# What the first raise cost: $0.25 and one cell. It did not warn, because a deadline that is too short is
+# not an error until the matrix reaches the boundary where it would be cut -- and then it stops cleanly,
+# which looks like success until you count the cells.
 #
 # The gap between the two is unchanged at ten minutes, and the ordering it exists for is unchanged: this
 # shell gives up first so a dead laptop still leaves the instance's own timer to stop the billing.
-BACKSTOP_SECONDS="${BACKSTOP_SECONDS:-10200}"
-HARD_STOP_SECONDS="${HARD_STOP_SECONDS:-9600}"
+BACKSTOP_SECONDS="${BACKSTOP_SECONDS:-13800}"
+HARD_STOP_SECONDS="${HARD_STOP_SECONDS:-13200}"
 # The same arms, in the same order, as hack/m5c-matrix.sh's own default.
 #
 # This value is EXPORTED into the matrix, so when the two disagree this one wins and the matrix's default is
