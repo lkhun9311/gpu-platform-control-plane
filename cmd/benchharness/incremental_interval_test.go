@@ -346,3 +346,108 @@ func TestAMissingIntervalFailsTheGateRatherThanSatisfyingIt(t *testing.T) {
 		t.Errorf("the censored static-cap repetition is not mentioned anywhere in the output:\n%s", text)
 	}
 }
+
+// TestTheReportFileNamesTheCensoredRepetition closes a gap the censoring tests above left open.
+//
+// Those tests concatenate the report file with stdout and stderr and search the whole thing. The refusal
+// also travels as a stderr warning from incrementalCI, so removing `incCI.InvalidReason = why` -- the fix
+// that made the report name the real cause -- leaves the warning in place and those tests still pass. The
+// operator who reads only the report file would be back to "unequal or insufficient repetitions".
+//
+// internal/bench/report.go writes `RUN INVALID: <checks.InvalidReason>` into the report, so that line is
+// what this asserts, from the FILE alone.
+func TestTheReportFileNamesTheCensoredRepetition(t *testing.T) {
+	dir := t.TempDir()
+	args := m5bArgs(t, dir, 4, map[string]float64{
+		"R1": 100, "off": 400, "static-cap": 200, "kv-aware": 110,
+	}, map[string]int{"kv-aware": 2})
+
+	_, _ = captureBoth(t, func() error { return report(args) })
+	body, err := os.ReadFile(filepath.Join(dir, "report.txt"))
+	if err != nil {
+		t.Fatalf("read report: %v", err)
+	}
+	var invalid string
+	for line := range strings.SplitSeq(string(body), "\n") {
+		if strings.Contains(line, "RUN INVALID:") {
+			invalid = line
+			break
+		}
+	}
+	if invalid == "" {
+		t.Fatalf("the report file carries no RUN INVALID line:\n%s", body)
+	}
+	for _, want := range []string{"kv-aware", "repetition 1", "censored"} {
+		if !strings.Contains(invalid, want) {
+			t.Errorf("the report file's RUN INVALID line does not carry %q, so a reader of the report alone"+
+				" cannot find the file to look at: %s", want, invalid)
+		}
+	}
+	if strings.Contains(invalid, "unequal or insufficient repetitions") {
+		t.Errorf("the report file blames repetition counts for a censoring refusal: %s", invalid)
+	}
+}
+
+// TestTheM5BPathRefusesMismatchedIdentitySets covers pairedBlocks, not pairedRepetitions.
+//
+// The existing identity-set test drives the M5-c arms (R1 against shared) and therefore exercises
+// pairedRepetitions. The M5-b gate reads its blocks from pairedBlocks, which carries its own copy of the
+// same check -- and a copy is exactly the shape that lets one side be broken while the other compensates.
+//
+// Three shapes, all with equal counts so no length check can catch them: a different set, a non-contiguous
+// set, and the same set listed in a different --raw order (which must be ACCEPTED, because identity pairing
+// is what makes order irrelevant).
+func TestTheM5BPathRefusesMismatchedIdentitySets(t *testing.T) {
+	write := func(dir, arm string, rep int, tail float64) string {
+		return writeM5BRepetition(t, dir, arm, rep, 102, tail, 0)
+	}
+	tails := map[string]float64{"R1": 100, "off": 400, "static-cap": 200, "kv-aware": 110}
+
+	// A different set with equal counts: static-cap {1,2} against kv-aware {1,3}.
+	t.Run("different sets", func(t *testing.T) {
+		dir := t.TempDir()
+		var paths []string
+		for _, arm := range []string{"R1", "off"} {
+			for rep := 1; rep <= 2; rep++ {
+				paths = append(paths, write(dir, arm, rep, tails[arm]))
+			}
+		}
+		paths = append(paths, write(dir, "static-cap", 1, 200), write(dir, "static-cap", 2, 210))
+		paths = append(paths, write(dir, "kv-aware", 1, 110), write(dir, "kv-aware", 3, 115))
+		args := []string{"-out", filepath.Join(dir, "report.txt")}
+		for _, p := range paths {
+			args = append(args, "-raw", p)
+		}
+		out, _ := captureBoth(t, func() error { return report(args) })
+		body, _ := os.ReadFile(filepath.Join(dir, "report.txt"))
+		text := string(body) + out
+		if !strings.Contains(text, "recorded repetitions 1,2") || !strings.Contains(text, "recorded 1,3") {
+			t.Errorf("the M5-b path did not refuse static-cap {1,2} against kv-aware {1,3} by naming both"+
+				" sets:\n%s", text)
+		}
+	})
+
+	// Non-contiguous but IDENTICAL sets must be accepted: {2,7} on both arms is a legitimate pair.
+	t.Run("non-contiguous but identical", func(t *testing.T) {
+		dir := t.TempDir()
+		var paths []string
+		for _, arm := range []string{"R1", "off", "static-cap", "kv-aware"} {
+			for _, rep := range []int{2, 7} {
+				paths = append(paths, write(dir, arm, rep, tails[arm]))
+			}
+		}
+		args := []string{"-out", filepath.Join(dir, "report.txt")}
+		for _, p := range paths {
+			args = append(args, "-raw", p)
+		}
+		out, err := captureBoth(t, func() error { return report(args) })
+		if err != nil {
+			t.Fatalf("repetitions {2,7} on both arms were refused, so the check is reading numbering rather"+
+				" than identity: %v\n%s", err, out)
+		}
+		body, _ := os.ReadFile(filepath.Join(dir, "report.txt"))
+		if !strings.Contains(string(body), "CI[") {
+			t.Errorf("no interval was computed for a valid non-contiguous pair:\n%s", body)
+		}
+	})
+}
