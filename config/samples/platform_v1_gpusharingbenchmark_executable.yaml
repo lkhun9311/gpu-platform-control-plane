@@ -2,9 +2,12 @@
 #
 # WHY A SECOND SAMPLE, beside platform_v1_gpusharingbenchmark.yaml.
 #
-# The first sample is the schema as it was designed, and `CompilePlan` refuses it -- eleven values in it name
-# things this harness does not do (a model nothing serves, a warmup phase that does not exist, a generator
-# that is not installed). `TestTheCommittedSampleCannotBeExecuted` keeps that refusal true rather than
+# The first sample is the schema as it was designed, and `CompilePlan` refuses it -- six values in it name
+# things this harness does not do: two tenant identities the generator never writes, a model nothing serves
+# (twice), a warmup phase that does not exist, and a generator that is not installed. It was eight until
+# outputTokens became a value the plan carries; eleven is a different number, the count of unsupported values
+# that have a case of their own in a test, and this comment used to print that one instead.
+# `TestTheCommittedSampleCannotBeExecuted` keeps that refusal true rather than
 # quietly fixing the sample, because the gap between the declared protocol and the built one is a fact about
 # this project and not a typo.
 #

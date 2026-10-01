@@ -139,10 +139,35 @@ spec:
 ⚠️ **The YAML above is the registered schema, not a runnable request.** The committed sample carries these
 exact values (`config/samples/platform_v1_gpusharingbenchmark.yaml`), and `CompilePlan`
 (`internal/bench/plan.go`) refuses it: `TestTheCommittedSampleCannotBeExecuted` exists to keep that true
-rather than to hide it. The refusals are specific — this harness sends two fixed tenant identities, serves `Qwen/Qwen2.5-3B-Instruct`
-rather than `llama3-8b`, caps generation, has no warmup phase, sends open-loop only, never retries, and
-carries measured character lengths for two input-token counts and no others. Eleven unsupported values are
-refused, each covered by its own case in `TestEachUnsupportedValueIsRefusedOnItsOwn`.
+rather than to hide it.
+
+**The runnable one is the second sample,** `config/samples/platform_v1_gpusharingbenchmark_executable.yaml`.
+That is the file to feed `benchharness compile-plan -cr`, and it is the file both paid runs of 2026-10-01 were
+compiled from. Its own header comment states what a CR still cannot declare — the trace duration, the study
+identifier, and the prompt lengths in characters — so a run driven by it is one whose load and protocol came
+from the CR, not one a controller reconciled.
+
+Three different counts describe the refusals, and this paragraph used to print one of them as if it were all
+three. `CompilePlan` has **thirteen** refusal sites, three of which fire once per arm; **eleven** distinct
+unsupported values each have their own case in `TestEachUnsupportedValueIsRefusedOnItsOwn`; and the committed
+sample itself receives **six** — `baseline.tenant`, `contender.tenant`, `baseline.model`, `contender.model`,
+`load.generator` and `warmupRequests`. It received eight until 2026-10-01, when `outputTokens` became a value
+the plan carries rather than one it refuses; the sentence here went on saying this harness "caps generation"
+after that had stopped being true.
+
+### Known limits of `GpuSharingBenchmark`, and the refusal that states each one
+
+These are the values the harness does not support. They are listed here so a reviewer reads them rather than
+discovering them at run time, and each is pre-refused at compile time instead of being honoured partially.
+
+| Field | What is supported | Refused by, and why that is not a missing afternoon of work |
+|---|---|---|
+| `baseline.tenant`, `contender.tenant` | `premium-1`, `standard-noisy` | `plan.go:53,57`. The trace generator writes these two identities into every row. The names are not a string: one `TENANTS` list derives the API-key secret, the `api_keys` map, the premium tier list, the `GPUQuotaPolicy` and the vLLM priority map, across 12 files. A hand-kept copy is what cost the first paid run a quarter of every replay to 401s (two of four tenants missing from the key secret) and the second its two probe tenants to 403s (keyed but given no policy); a tenant missing from the priority map would fail more quietly still, replaying the control *without an error*. |
+| `baseline.model`, `contender.model` | `Qwen/Qwen2.5-3B-Instruct` | `plan.go:68`. The gateway answers `ErrNoRoute` for any other name once the engines are up. Parameterising it is possible, but the model binds the tokenizer, and the token-to-character resolution table below was measured against this one. |
+| `warmupRequests` | `0` | `plan.go:96`. There is no warmup phase and no exclusion boundary. Dropping rows after the fact is a different protocol from not sending them, so a positive value could not be honoured, only approximated. |
+| `load.generator` | `benchharness replay` | `plan.go:118`. The registered sample names `genai-perf`, which never produced traffic here. The sample is deliberately **not** edited to match: a manifest naming a generator that did not send the requests is provenance for the wrong tool. |
+| `baseline/contender.inputTokens` | `256`, `8192` | `plan.go:152`. The generator is configured in characters; these are the two token counts whose character lengths were measured against the served tokenizer rather than estimated, and no formula inverts the count. |
+| `load.mode`, `load.retries`, `load.streaming`, `minRequestsPerRun`, `repetitions`, `sharingMode`, `outputTokens` | `openLoop`, `0`, `true`, ≥ 100, ≥ 5, the modes the matrix deploys, any positive cap | The remaining sites in the same file. These constrain the measurement rather than the platform: a retry repairs the tail this benchmark exists to measure, and a non-streaming response has no first-token time. |
 
 What exists today: the CRD, the sample, the harness, and the compiler that decides whether a spec is
 executable. What does not: anything that calls the compiler outside tests, and the status writer. So the
