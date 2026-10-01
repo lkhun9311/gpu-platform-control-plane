@@ -174,17 +174,33 @@ rule.
 
 **Refusals, which this amendment decides rather than inherits:**
 
-- If **any** original B or C repetition is censored (>1% of premium requests did not complete, the existing
-  `internal/bench/report.go:546` boundary of `>= 0.01`), the interval is refused and the reason is named. The existing
+- If **any** original B or C repetition is censored, the interval is refused and the reason is named.
+  Censored means **at least 1%** of that repetition's premium requests ended in a timeout or another
+  transport/stream error — the existing `internal/bench/report.go:546` boundary, which is `>= 0.01` and so
+  refuses exactly 1% as well. The numerator is **not** "every request that did not complete": requests shed
+  by admission are excluded (`internal/bench/report.go:476`), because a shed request is a decision the guard
+  made rather than a tail this benchmark failed to measure. The first draft of this clause wrote ">1%" and
+  `>= 0.01` in one sentence, which cannot both be true. The existing
   gate checked only pooled censoring (`internal/bench/report.go:790` reads `s.Censored`), so a run whose pooled rate is
   0.49% while one repetition is at 1.96% passed. It would not pass under this amendment, and that is a
   narrowing of what is accepted, not a neutral change of estimator.
 - Mismatched identity sets, too few repetitions, and an undefined denominator refuse the interval rather
   than degenerating to a point. A replicate that cannot be computed is never silently dropped and the
   remainder reported as a valid interval.
-- The existing per-repetition ratio scatter refusal (`MaxRatioScatter = 0.15`) is retained for now, but its
-  justification lives in a model of the **mean of ratios** (`cmd/benchharness/power.go:63`) and is therefore
-  **not** evidence that the estimator above has been validated.
+- The existing per-repetition ratio scatter refusal (`MaxRatioScatter = 0.15`) is **retained as a
+  provisional refusal**, and what it may be claimed to do is narrower than it reads. With the data, the
+  estimator and the remaining rules fixed, the runs that pass with this rule are a subset of those that pass
+  without it, so it cannot raise the rate of a false PASS on one fixed experiment. That subset argument is
+  the whole claim.
+  It is **not** a validity boundary for the interval above: a coefficient of variation over 0.15 does not
+  make the paired-block interval invalid, and one under it does not establish 95% coverage. The 0.15 was
+  placed between measured false-PASS rates of 1.8% at CV 0.10 and 10.2% at CV 0.20 — both measured against
+  the **mean of per-repetition ratios** (`cmd/benchharness/power.go:63`), which is the statistic this
+  amendment replaces. Any wording presenting that as a justification of the new interval is withdrawn here.
+  Retiring the rule would change the acceptance conditions for evidence already collected, so it stays until
+  a separate dated decision. Whether to keep, change or demote it to a diagnostic is to be decided from a
+  model that generates raw blocks and evaluates coverage, false PASS, power and refusal rate for the new
+  estimator and the whole verdict procedure together — not from the existing `power` output.
 
 **Existing evidence** is re-scored under this method and labelled as a re-analysis; the original reports are
 preserved as written. For any later run, this amendment and the analysis version are pinned before evidence

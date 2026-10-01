@@ -202,7 +202,7 @@ func TestTheIncrementalIntervalReachesTheGateThroughTheRealCommand(t *testing.T)
 	if !strings.Contains(text, "CI[") {
 		t.Errorf("the incremental line carries no interval, so the gate read an absent one:\n%s", text)
 	}
-	for _, line := range strings.Split(text, "\n") {
+	for line := range strings.SplitSeq(text, "\n") {
 		if strings.Contains(line, "incremental value") {
 			if !strings.Contains(line, "PASS") {
 				t.Errorf("kv-aware at 110 ms against static-cap at 200 ms did not pass the incremental"+
@@ -228,20 +228,19 @@ func TestTheIncrementalIntervalReachesTheGateThroughTheRealCommand(t *testing.T)
 // parseIntervalFromReport pulls the two bounds out of the `CI[lo, hi]` the report prints.
 func parseIntervalFromReport(t *testing.T, text string) (lo, hi float64) {
 	t.Helper()
-	for _, line := range strings.Split(text, "\n") {
+	for line := range strings.SplitSeq(text, "\n") {
 		if !strings.Contains(line, "incremental value") {
 			continue
 		}
-		i := strings.Index(line, "CI[")
-		if i < 0 {
+		_, rest, found := strings.Cut(line, "CI[")
+		if !found {
 			t.Fatalf("the incremental line carries no interval: %s", line)
 		}
-		rest := line[i+3:]
-		j := strings.Index(rest, "]")
-		if j < 0 {
+		inner, _, closed := strings.Cut(rest, "]")
+		if !closed {
 			t.Fatalf("the interval is unterminated: %s", line)
 		}
-		parts := strings.Split(rest[:j], ",")
+		parts := strings.Split(inner, ",")
 		if len(parts) != 2 {
 			t.Fatalf("the interval does not carry two bounds: %s", line)
 		}
@@ -337,7 +336,7 @@ func TestAMissingIntervalFailsTheGateRatherThanSatisfyingIt(t *testing.T) {
 	body, _ := os.ReadFile(filepath.Join(dir, "report.txt"))
 	text := string(body) + out
 	if err == nil && strings.Contains(text, "incremental value") && strings.Contains(text, "PASS") {
-		for _, line := range strings.Split(text, "\n") {
+		for line := range strings.SplitSeq(text, "\n") {
 			if strings.Contains(line, "incremental value") && strings.Contains(line, "PASS") {
 				t.Errorf("a run whose interval was refused still passed the incremental check: %s", line)
 			}

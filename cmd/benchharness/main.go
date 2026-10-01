@@ -846,8 +846,13 @@ type armEvidence struct {
 	// byArm is every arm's rows pooled, DERIVED from reps in repetition-identity order after loading.
 	//
 	// It used to be accumulated in --raw argument order beside reps. Deriving it means the pooled rows and
-	// the per-repetition blocks cannot disagree about which rows belong to the arm, and it costs nothing:
-	// the rows are stored once, in reps, and this map holds slices into that same order.
+	// the per-repetition blocks cannot disagree about which rows belong to the arm.
+	//
+	// It is a derived COPY, not a no-copy view: the loop below appends `r.rows...` into a separate backing
+	// array, so each RawRow struct is stored twice -- once in its block and once here. The comment here
+	// claimed the rows were "stored once" and that this map held slices into reps' own array, and that was
+	// wrong. Strings and other references are shared, so the duplication is the struct storage rather than
+	// the payload, but it is duplication.
 	byArm map[string][]bench.RawRow
 	// reps is each arm's repetitions under their recorded identities, sorted by repID once loading ends.
 	//
@@ -1575,13 +1580,20 @@ func (e *armEvidence) incrementalCI() bench.CI {
 			}
 		}
 		// The scatter refusal is RETAINED across the 2026-10-01 amendment, and its justification did not
-		// move with the estimator: cmd/benchharness/power.go models the MEAN of per-repetition ratios, so
-		// MaxRatioScatter = 0.15 is evidence about that statistic and not about the block bootstrap above.
-		// Keeping it is the conservative choice; calling it validation of the new interval would not be.
+		// move with the estimator: cmd/benchharness/power.go models the MEAN of per-repetition ratios, and
+		// MaxRatioScatter's own justification is stated against "this package's own BootstrapCI at four
+		// repetitions" (internal/bench/report.go). Neither describes the block bootstrap above.
 		//
-		// A bootstrap interval over four values only bounds what it claims to while those values are tight.
-		// Marking it invalid rather than reporting it keeps a scattered run from clearing the gate on an
-		// interval that is narrower than the evidence supports; see bench.MaxRatioScatter.
+		// So the claim this refusal can carry is narrow: with everything else fixed, the set of runs that
+		// PASS with this rule is a subset of those that pass without it, which cannot raise the rate of a
+		// false PASS on one fixed experiment. That is the whole of it.
+		//
+		// What it may NOT be called, and an earlier version of this comment did: a validity boundary for
+		// the new interval. A coefficient of variation above 0.15 does not make the paired-block interval
+		// invalid, and below it does not make its coverage 95%. Nothing has measured either.
+		//
+		// Removing it would change the acceptance conditions for evidence already collected, so it stays
+		// until a separate dated decision retires or replaces it.
 		if bench.RatioScatterTooHigh(ratios) {
 			incCI.Valid = false
 			incCI.InvalidReason = fmt.Sprintf("the per-repetition C/B ratios scatter beyond a coefficient of variation of %.2f, past which a percentile bootstrap over %d values fires on no effect at all more often than its nominal 5 percent", bench.MaxRatioScatter, len(ratios))
