@@ -1174,3 +1174,51 @@ completed in every arm.
 **What this amendment cannot do.** It does not make a one-mode CR produce a scorable comparison. The
 readings need three arms, and a CR declares one `sharingMode`; `timeSlicing` alone yields a candidate
 with no control. That is an open question about the CRD's shape, not something a reading can fix.
+## Amendment, 2026-10-01: reading 4's aggregation was never specified, and this says so after the fact
+
+Reading 4 above says "if `shared`'s premium TTFT p99 is under 5x R1's". **It does not say whether that p99 is
+pooled over the arm's completed requests or the median of the per-repetition p99s.** The implementation uses
+the pooled one (`internal/bench/sharing_matrix.go`, `shared.TTFTMsP99 / r1.TTFTMsP99`), and the 23.0x this
+study published comes from that sentence's diagnostic text.
+
+**This amendment does not make that a pre-registered choice, and it is not written as one.** A number derived
+from the ambiguity has already been published, so choosing now is a POST-HOC analysis decision. What a dated
+amendment can honestly do is three things, and no more:
+
+1. **Record that the registration was silent**, rather than letting a later reader infer that pooled was
+   specified. It was not.
+2. **Record what the code did at the time** — pooled — so the published figure is attributable.
+3. **Fix the rule going forward**, which binds the next run and not this one.
+
+### The three values this evidence gives
+
+| quantity | value | what it is |
+| --- | ---: | --- |
+| pooled-request ratio | **22.972** | the quantity reading 4 actually computed |
+| ratio of raw per-repetition medians | **22.968637** | the third amendment's estimand at full precision |
+| ratio of rounded medians | **22.977** | that estimand under the registered rounding, `3998/174` |
+
+They agree to three significant figures and differ in the fourth, which is why "about 23.0x" is the only
+summary that does not depend on the choice. Publishing one of them without naming which it is would be the
+defect; publishing all three with their definitions is what this study can support.
+
+### Going forward
+
+The next run of this study reads reading 4 as the **median of the per-repetition p99s**, computed by
+`RegisteredEstimandFor` in `internal/bench/estimand.go`, for one reason: the third amendment to the
+`GpuSharingBenchmark` design already chose that estimand for `interferenceRatio`, and two readings of the same
+tails under two aggregation rules would make the gate and the published field disagree about one run.
+
+**The code is not being changed to match this paragraph today.** Changing the scorer would alter what reading
+4 reports about evidence already collected, which is the one thing a post-hoc note must not do. The change
+belongs with the next run that buys cells, and the open issue tracking it is
+`issues/open/2026-10-01-a-gate-pairs-a-pooled-point-estimate-with-a-per-repetition-interval/` in the sibling
+`storage` repository.
+
+### What this amendment cannot do
+
+It cannot make the published 23.0x a pre-registered median-of-medians. It cannot establish that the two
+aggregations would agree on a run with uneven repetition completions -- on this run they nearly do, and the
+reason is that the five repetitions completed 4,655 premium requests each within one request. On evidence
+where a repetition is thin, pooling re-weights by completion count and the two answers separate; that is the
+condition `MinRepetitionTail` exists to refuse, and the estimand refuses it as of 2026-10-01.

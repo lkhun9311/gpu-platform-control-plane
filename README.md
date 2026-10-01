@@ -31,9 +31,13 @@ It publishes **no confidence interval**: five repetitions of one trace show repe
 fixed load, not variation over loads, seeds or machines. The five per-repetition ratios are
 22.96 · 23.01 · 22.95 · 22.93 · 22.97 — an **observed range, not an interval**. The p99 is over *completed*
 premium requests, and one of `shared`'s 23,275 did not complete: an HTTP 502 in repetition 3.
-The registered rule rounds the medians to integer milliseconds before dividing, giving 3998/174 = 22.977;
-at raw precision the same medians give 22.969. Both are published in the report because they differ in the
-third figure.
+Three ratios can be formed from this evidence and they differ in the fourth significant figure, so the one
+being quoted has to be named. The registered estimand is the ratio of per-repetition medians: under the
+registered rounding that is `3998/174` = **22.977**, and at raw precision the same medians give **22.969**.
+The **pooled-request** ratio is **22.972**, and it is the one the pre-registered reading 4 computes -- its
+aggregation was never specified, which [a dated post-hoc
+amendment](docs/superpowers/specs/2026-09-10-does-splitting-the-card-buy-protection.md) records rather than
+settles retroactively. "About 23.0x" is the only summary that does not depend on the choice.
 
 ### The earlier three-arm pilot, and why it is not the headline
 
@@ -76,7 +80,8 @@ p99 hides how many repetitions it came from, and five tight ones mean something 
 
 The median of each row is that arm's registered point estimate, and their ratio is the registered object.
 The spread of a row is an **observed range, not a confidence interval**. Under the registered rounding the
-ratio is 3998/174 = 22.977; at raw precision the same medians give 22.969.
+ratio is 3998/174 = 22.977; at raw precision the same medians give 22.969, and the pooled-request ratio
+is 22.972. The three are named where the table is introduced, because reading 4 computes the pooled one.
 
 ⚠️ **The rows themselves are not in this repository and are not public.** One line in `.gitignore` excludes
 the directory a paid run writes, and the evidence is carried in a sibling **private** repository that also
