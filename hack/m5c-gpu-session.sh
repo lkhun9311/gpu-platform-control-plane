@@ -40,6 +40,22 @@ REGION="${AWS_REGION:-ap-northeast-2}"
 INSTANCE_TYPE="${INSTANCE_TYPE:-g5.2xlarge}"
 # Above the $0.68-0.69 measured across all three zones with room for a rise, and below the on-demand price
 # the pre-registration does not authorise.
+#
+# THE SPENDING BOUND IS THIS PRICE TIMES THE PAID LIFETIME, and it is not a completion estimate.
+#
+#   HARD_STOP_SECONDS / 3600 * MAX_SPOT_PRICE  =  16800 / 3600 * 1.10  =  $5.13
+#   at the measured rate instead:              =  4.67 h   * 0.685     =  $3.20
+#
+# Those two are what a run can cost. Neither says it will finish: cell time for `timeSlicing` has never been
+# measured on this card, so a 15-cell projection built from the other arms' time would be the generalisation
+# this session has made and retracted repeatedly. The bound caps SPENDING; whether the matrix completes
+# inside it is a separate question, and a matrix that completes six of fifteen cells has bought six
+# comparable cells rather than failed.
+#
+# Add to it anything that bills outside the instance: the standing cluster (~$0.27/h while it exists), and
+# the first pull of the vLLM image and the model weights through the NAT (~$0.7-0.9 per fresh node). Both of
+# those figures were measured for M5-b on g5.xlarge (docs/M5B_PAID_SESSION_RUNBOOK.md) and are carried over
+# here unverified; the same cluster and the same NAT make them plausible, not measured, for this run.
 MAX_SPOT_PRICE="${MAX_SPOT_PRICE:-1.10}"
 # The backstop inside the instance, and the one this script waits for. The instance's fires first on purpose:
 # a shell that dies here must not leave a card running, and the only timer that survives a dead shell is the

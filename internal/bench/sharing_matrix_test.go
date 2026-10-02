@@ -1442,3 +1442,82 @@ func TestReadingFourRefusesWithAReasonRatherThanReadingLowContention(t *testing.
 			" would say the load was too HIGH never ran: %v", idsOf(res))
 	}
 }
+
+// TestReadingFourDividesTheAggregationSummarizeProduces closes the last gap an external review named.
+//
+// The control test above hands reading 4 an ArmSummary whose TTFTMsP99 field was SET by the fixture, so it
+// pins which field the scorer divides and not which aggregation produced it. Here the summaries come from
+// Summarize over real request rows, one call per repetition block plus one over the pooled rows, so the two
+// numbers are computed the way a paid run computes them.
+//
+// R1 is five blocks at 100 ms. `shared` is four blocks at 400 ms and one at 1000 ms, and the asymmetry is
+// what separates the aggregations: the pooled nearest-rank p99 over all five blocks is 1000 (the slow block
+// occupies a fifth of the sample, far above the top 1%), while the median of the five per-repetition p99s
+// is 400. So pooled gives 10.000 and the registered estimand gives 4.000, one on each side of the 5x bar.
+//
+// Verified by enumeration before this test was written, at 120, 200 and 400 rows per block: every size gives
+// the same pair.
+func TestReadingFourDividesTheAggregationSummarizeProduces(t *testing.T) {
+	const rowsPerBlock = 200
+
+	// summarise builds one arm the way the report does: Summarize per block for the repetition shape, and
+	// Summarize over the concatenation for the pooled tail.
+	summarise := func(arm string, tails []float64) ArmSummary {
+		var pooled []RawRow
+		reps := make([]float64, 0, len(tails))
+		minTail := 0
+		for _, tail := range tails {
+			rows := block(rowsPerBlock, tail, 0)
+			pooled = append(pooled, rows...)
+			s := Summarize(arm, rows)
+			reps = append(reps, s.TTFTMsP99)
+			if minTail == 0 || s.TailSampleSize < minTail {
+				minTail = s.TailSampleSize
+			}
+		}
+		s := Summarize(arm, pooled)
+		s.RepetitionCount = len(tails)
+		s.RepetitionTTFTMsP99 = reps
+		s.MinRepetitionTail = minTail
+		// The fields reading 4's siblings read, set so this test fails on reading 4 and not on a floor.
+		s.ActiveSeconds = 1000
+		s.OutputTokens = 50_000
+		s.OutputTokensByTenant = map[string]int64{PremiumTenant: 50_000}
+		s.TPOTMsP99ByTenant = map[string]float64{PremiumTenant: 20}
+		return s
+	}
+
+	r1 := summarise(ArmR1, []float64{100, 100, 100, 100, 100})
+	shared := summarise(ArmShared, []float64{400, 400, 400, 400, 1000})
+
+	// The two aggregations have to disagree across the bar, or this test proves nothing.
+	pooled := shared.TTFTMsP99 / r1.TTFTMsP99
+	if pooled != 10 {
+		t.Fatalf("Summarize gave a pooled ratio of %.3f, want 10.000; the fixture no longer produces the"+
+			" asymmetry (shared pooled p99 %.1f, R1 %.1f)", pooled, shared.TTFTMsP99, r1.TTFTMsP99)
+	}
+	e := RegisteredEstimandFor(r1, shared)
+	if !e.Valid {
+		t.Fatalf("the registered estimand was refused on summaries Summarize produced: %s", e.InvalidReason)
+	}
+	if e.Ratio != 4 {
+		t.Fatalf("the per-repetition median ratio is %.3f, want 4.000 (B=%d C=%d)", e.Ratio,
+			e.BaselineP99Ms, e.ColocatedP99Ms)
+	}
+
+	four := sharingReadingFour(r1, shared)
+	if four.NotEvaluable {
+		t.Fatalf("reading 4 refused summaries built from real rows: %s", four.Detail)
+	}
+	// 4.000 is under the 5x bar, so it fires. Dividing the pooled 10.000 would not.
+	if !four.Fired {
+		t.Errorf("reading 4 did not fire at a median ratio of 4.000; if it divided the pooled 10.000 the"+
+			" gate is reading the aggregation Summarize pools rather than the registered one: %s", four.Detail)
+	}
+	if !strings.Contains(four.Detail, "400 ms") || !strings.Contains(four.Detail, "100 ms") {
+		t.Errorf("reading 4's detail does not print the rounded medians (400 and 100): %s", four.Detail)
+	}
+	if strings.Contains(four.Detail, "1000") {
+		t.Errorf("reading 4's detail prints the pooled tail (1000 ms) it did not divide: %s", four.Detail)
+	}
+}
