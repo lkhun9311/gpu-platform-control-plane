@@ -59,9 +59,9 @@ breaches at 4.61.
 2026-10-02 the same three arms were bought again — fifteen cells, `hack/m5c-20261002-014903`, commit
 `b97d88e` — and `timeSlicing` came back at **14,868 ms against `shared`'s 4,001**, which is 3.7x *worse* than
 the control it beats in the table above. The answer changed from `5 (timeSlicing)` to `3`
-(**INCONCLUSIVE**). The arrival schedule was identical; the premium prompt was **294 tokens instead of 50**
-and the timeout 60s instead of 30s, which is the leading explanation and is not separated from the timeout
-change. So the row above is **one load's result**, and what the later run adds is that a different load gave a
+(**INCONCLUSIVE**). The arrival schedule was identical; the premium prompt was **256 tokens instead of 68** —
+the count the engine itself reported on every premium row of both archives — and the timeout 60s instead of
+30s, which is the leading explanation and is not separated from the timeout change. So the row above is **one load's result**, and what the later run adds is that a different load gave a
 different answer — not a measurement of how the answer varies with load, and not a demonstration that this row
 is unstable. See `docs/superpowers/specs/2026-09-10-does-splitting-the-card-buy-protection.md`, "The result,
 2026-10-02".

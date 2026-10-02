@@ -197,8 +197,9 @@ believable because the protocol is specified well enough to redo, not because it
 
 ## The 2026-10-02 run, and why its answer differs
 
-It was registered as a "reproduction run" of the ninth pilot and **was not one**: it offered a 294-token
-premium prompt against the pilot's 50 and a 60-second timeout against its 30. The pre-registration carries a
+It was registered as a "reproduction run" of the ninth pilot and **was not one**: it offered a 256-token
+premium prompt against the pilot's 68 — the engine's own count in both archives — and a 60-second timeout
+against its 30. The pre-registration carries a
 dated correction saying so. The paragraph below describes it as what it is — a measurement at this load.
 
 A five-repetition run of the frozen matrix — `R1`, `shared`, `timeSlicing`, fifteen cells,
@@ -240,13 +241,24 @@ offer 4,655 premium and 139 contender requests per cell. What each request *carr
 
 | | ninth pilot | this run |
 |---|---|---|
-| premium prompt | **50 tok** (200 chars) | **294 tok** (1,174 chars) |
-| contender prompt | 10,000 tok | 10,645 tok |
+| premium prompt | 200 chars, engine-reported **68 tok** | 1,174 chars, engine-reported **256 tok** |
+| contender prompt | 40,000 chars, engine-reported 7,695 tok | 42,579 chars, engine-reported 8,192 tok |
+| the gateway's `estInputTokens` score, `ceil(chars/4)` | 50 / 10,000 | 294 / 10,645 |
 | `timeoutMs` | 30,000 | 60,000 |
 | `traceChecksum` (R1 rep 1) | `98efa634…` | `499a5e4d…` |
 
+**The token counts above are the engine's own, and an earlier draft of this table quoted the gateway's
+estimate instead.** Every row of both archives carries both numbers: `engineInputTokens`, which
+`internal/bench/replay.go:100` defines as what the engine itself reported, and `estInputTokens`, the
+`ceil(chars/4)` score the admission decision is made on, which `internal/gateway/proxy.go:76` calls "never an
+exact count". They disagree about how much the load moved: by the gateway's score the premium prefill grew
+5.9x (estimate 294 against estimate 50), and by the engine's own count **3.8x** (256 against 68). The
+engine's number is the one that describes prefill work, so it is the one the prose uses. The estimate stays in the table because it is what
+the gateway actually gated on. Uniform across every row: 256 on all **69,825** premium rows of this run and
+68 on all 27,930 of the pilot's, with 0 exceptions in either.
+
 That is the same difference `docs/11_WHAT_THIS_MEASURED.md` already names for the isolated baseline: `R1` is
-69.5 ms at 50 tokens and 174 ms at 294. It is the leading candidate for the `timeSlicing` change too — a 6x
+69.5 ms at 68 tokens and 174 ms at 256. It is the leading candidate for the `timeSlicing` change too — a 3.8x
 heavier prefill against a split engine whose KV cache is 4x smaller (93,200 against 369,680 tokens) — but the
 prompt length and the timeout moved together, so this run does not separate them. The first draft of this
 section called the load identical after checking only the rate, the weights and the duration.

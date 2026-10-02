@@ -1508,3 +1508,51 @@ narrower interval. **Renaming such a purchase as "a new measurement" is a way ar
 exception to it.** The test is whether the declared question has an answer the project would act on either
 way; if the only outcome that changes anything is the one already hoped for, the purchase is the forbidden
 one wearing a new label.
+
+## Amendment, 2026-10-02: the unit a prompt size is published in
+
+**Written because every statement above comparing the two loads is in the wrong unit, and the right one was
+in the archives the whole time.** This fixes the unit and does not restate any result.
+
+### Two numbers, both recorded on every row
+
+| field | what it is | where it comes from |
+| --- | --- | --- |
+| `engineInputTokens` | what the engine itself reported for that request | `internal/bench/replay.go:100`, filled from the response's `PromptTokens` at `:255` |
+| `estInputTokens` | `ceil(chars/4)`, the score the gateway admits on | `internal/gateway/proxy.go:182`, whose own comment at `:76` calls it "never an exact count" |
+
+Measured across the raw rows of both archives, with no exceptions in either:
+
+| | ninth pilot, 2026-09-13 | fifteen-cell run, 2026-10-02 |
+| --- | --- | --- |
+| premium, engine-reported | **68** on 27,930 rows | **256** on 69,825 rows |
+| premium, gateway estimate | 50 | 294 |
+| contender, engine-reported | 7,695 on 556 rows | 8,192 on 1,390 rows |
+| contender, gateway estimate | 10,000 | 10,645 |
+
+### What this changes
+
+The sections above state the premium prompt as **294 tokens against the pilot's 50**, which makes the
+prefill increase 5.9x. The engine prefilled **256 against 68**, which is **3.8x**. The estimate exists to be
+compared against an admission threshold — it is the number the gateway gated on, and it is kept for that —
+but a claim about how much prefill work a request carries is a claim about what the engine received. So:
+
+- **Prompt sizes are published in the engine's own count.** Where the gateway's estimate appears it is named
+  as the estimate on the same line.
+- The seventh amendment's `5.9x` (there, and in its frozen-tuple table's justification column) is **superseded
+  by 3.8x**. The frozen quantity itself does not move: the premium prompt is 1,174 characters either way.
+- The seventh amendment attributes the pilot's `68 / 7,695` to "the calibration". That is **weaker than the
+  evidence**: the pilot's own raw rows record both, by the same field as this run's.
+- `ANSWER: 3` was measured at a **256-token** premium prompt and `ANSWER: 5` at a **68-token** one. The
+  adjudication prohibition is unchanged; only the numbers naming the two loads are.
+
+### What is not repaired
+
+The paragraphs above keep their original wording, including the correction sections written on 2026-10-02
+that use 294 and 50. A registration rewritten after the fact is worse than one that is wrong in public, and
+this amendment is dated for the same reason. `hack/test/check-token-unit-labels.sh` enforces the rule on the
+published documents, excludes this file by name, and asserts that these preserved lines are still here.
+
+It also does not claim the unit was the cause of anything. The timeout moved from 30s to 60s in the same
+step, and nothing here separates the two — restating the prefill change as 3.8x makes the leading explanation
+smaller than it was written, not better established.

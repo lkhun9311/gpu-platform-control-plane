@@ -101,8 +101,9 @@ so this table and the ten-cell table below are **different loads and cannot be c
 the single shared engine, where here it is 1.9x better. The registered answer went from `5 (timeSlicing)` to
 **`3`, INCONCLUSIVE**: the best sharing arm improved the control by 0.0 ms against a 3.9 ms spread.
 
-The same explanation this page gives below for the baseline applies to it — the premium prompt is 50 tokens
-here and 294 there — and it is not established, because the timeout moved from 30s to 60s in the same step.
+The same explanation this page gives below for the baseline applies to it — the premium prompt is 68 tokens
+here and 256 there, by the engine's own report on every premium row of both archives — and it is not
+established, because the timeout moved from 30s to 60s in the same step.
 Each run is tight against itself (`R1` spans 0.8 ms across five repetitions there), so the two runs disagree
 rather than either being noisy. **The row above is this load's result.** Published in full, including the
 disagreement, under the pre-registration's 2026-10-02 amendment.

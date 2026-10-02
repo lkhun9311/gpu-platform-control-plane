@@ -633,6 +633,15 @@ would have read as one.
 
 ## Amendment, 2026-10-01 (seventh): the execution contract is frozen, and this run's interval is not published
 
+⚠️ **Superseded in one respect on 2026-10-02: the prefill multiplier below is in the wrong unit.** The
+`5.9x` here and in the frozen-tuple table's justification column is the gateway's `ceil(chars/4)` estimate
+(50 against 294). The engine reported **68 against 256**, so the prefill increase is **3.8x**; and the
+"(from the calibration)" attribution for the pilot's `68 / 7,695` is weaker than its own raw rows, which
+record both. The frozen quantity is unaffected — the premium prompt is 1,174 characters either way. See
+"Amendment, 2026-10-02: the unit a prompt size is published in" in
+`docs/superpowers/specs/2026-09-10-does-splitting-the-card-buy-protection.md`. The text below is left as
+written.
+
 Two paid runs of one study reported 27.2x and 23.0x. Neither broke a rule. The frozen tuple is
 `RATE`, the three weights, `DURATION_MS` and `seed` — and the prompt length is not in it, so two runs can
 satisfy the registration and send prefills 5.9x apart.
