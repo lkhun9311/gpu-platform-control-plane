@@ -1,0 +1,5 @@
+
+--- exit 1
+--- messages
+FAIL: PURPOSE is unset. The registration authorises exactly two purchases -- PURPOSE=reproduction with REPRODUCES, or PURPOSE=new-measurement with HYPOTHESIS and STOPPING_RULE -- and says a purchase that names neither is not authorised by it.
+--- files

@@ -29,6 +29,7 @@ harness checksum: user-data matches the uploaded binary
 gateway checksum: user-data matches the uploaded binary
 --- exit 1
 --- messages
+== purpose: new measurement -- hypothesis 'characterization run: no question is asked of a card', stopping rule 'the stubs answer immediately and nothing is rented'
 == study  M5-c sharing matrix -- does giving each tenant its own engine on a shared card protect the tail
 == arms   [R1 shared timeSlicing mps], 1 repetition(s) each
 == output <OUT>

@@ -542,6 +542,16 @@ scenarios_m5c_gpu_session() {
   # The commit the session will ship, so its evidence-identity check has something that matches.
   STUB_COMMIT=$(git -C "$ROOT" rev-parse HEAD); export STUB_COMMIT
 
+  # The purchase purpose, exported ONCE rather than repeated on every scenario.
+  #
+  # REPS is per-scenario because `no-reps` captures its refusal and every other scenario has to carry it.
+  # PURPOSE is the same kind of mandatory variable, but there are nineteen scenarios here and exactly one is
+  # about the refusal -- so it is exported and that one CLEARS it. Same coverage, eighteen fewer places to
+  # forget it, and the refusal is still exercised rather than assumed.
+  export PURPOSE=new-measurement
+  export HYPOTHESIS="characterization run: no question is asked of a card"
+  export STOPPING_RULE="the stubs answer immediately and nothing is rented"
+
   # This runner rents ONE card and builds a kind cluster on it, so its scenarios are about the lifecycle
   # around that: what it refuses before spending, and what it does when the instance does not come back.
   #
@@ -549,6 +559,13 @@ scenarios_m5c_gpu_session() {
   # confirmatory run is three, and neither is a thing to arrive at by forgetting a variable. The refusal
   # itself is the first scenario, because it is the only guard that runs before AWS is touched at all.
   run_scenario no-reps bash "$TARGET"
+
+  # The purchase-purpose refusal, which runs after REPS and before AWS is touched.
+  #
+  # It is the guard the 2026-10-02 registration asked for and nothing implemented: a purchase has to declare
+  # a reproduction attempt or a new measurement, and the run that spent $2.16 under a name it did not match
+  # would have been stopped here.
+  REPS=1 PURPOSE= run_scenario no-purpose bash "$TARGET"
 
   # The provenance guard, made to fire rather than assumed to. A probe file makes the tree dirty and is
   # removed whatever happens; without it this scenario means nothing on a clean checkout.

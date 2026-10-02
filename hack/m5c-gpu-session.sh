@@ -209,6 +209,61 @@ else
   case "$REPS" in ''|*[!0-9]*) fail "REPS is ${REPS@Q}, which is not a number" ;; esac
 fi
 
+# PURPOSE has no default either, and the registration is the reason.
+#
+# The 2026-10-02 amendment to docs/superpowers/specs/2026-09-10-does-splitting-the-card-buy-protection.md
+# says a purchase declares exactly one of two questions -- a reproduction attempt naming a target archive, or
+# a new measurement naming its load, hypothesis and stopping rule -- and that "a purchase that names neither
+# is not authorised by this registration".
+#
+# NOTHING ENFORCED IT. REPRODUCES was forwarded to the plan check when set and simply absent otherwise, and
+# no hypothesis or stopping rule was ever asked for anywhere. So the registration promised a mechanical check
+# this script did not make, which is the shape this repository keeps recording: a guard that exists in prose.
+# An external review found it on 2026-10-02, after the reproduction comparison itself had been reviewed twice.
+#
+# It is not hypothetical. On 2026-10-02 $2.16 bought a run registered as a "five-repetition reproduction" of
+# the 2026-09-13 pilot which reproduced nothing -- different prompt length, different timeout -- and the
+# mismatch was found while drafting the publication rather than before the card was rented.
+#
+# The ladder cannot carry a reproduction claim, and that is refused rather than ignored: hack/m5c-matrix.sh
+# forwards REPRODUCES only on the matrix path, so a ladder declaring one would be a declaration nothing
+# checks.
+if [ -n "$LADDER" ] && [ "${PURPOSE:-}" = "reproduction" ]; then
+  fail "LADDER and PURPOSE=reproduction are both set. The plan check forwards a reproduction claim only on the matrix path, so a ladder's claim would be enforced by nothing -- buy it as a new measurement, or buy the matrix."
+fi
+case "${PURPOSE:-}" in
+  reproduction)
+    [ -n "${REPRODUCES:-}" ] \
+      || fail "PURPOSE=reproduction and REPRODUCES is unset. A reproduction attempt names the archive it repeats, and the plan check compares this run's offered load against that archive before anything is rented."
+    { [ -z "${HYPOTHESIS:-}" ] && [ -z "${STOPPING_RULE:-}" ]; } \
+      || fail "PURPOSE=reproduction carries HYPOTHESIS or STOPPING_RULE. Those belong to a new measurement; a reproduction's question is fixed -- whether a named run's result holds when its conditions are restored."
+    ;;
+  new-measurement)
+    [ -z "${REPRODUCES:-}" ] \
+      || fail "PURPOSE=new-measurement and REPRODUCES is set. A new measurement does not name a prior run as its target; putting a new label on a repeat purchase is the circumvention the registration's last section forbids."
+    [ -n "${HYPOTHESIS:-}" ] \
+      || fail "PURPOSE=new-measurement and HYPOTHESIS is unset. The registration requires the hypothesis before the card, because a question written after the answer is not a question."
+    [ -n "${STOPPING_RULE:-}" ] \
+      || fail "PURPOSE=new-measurement and STOPPING_RULE is unset. The rule that ends the spending has to exist before the spending starts."
+    ;;
+  "")
+    fail "PURPOSE is unset. The registration authorises exactly two purchases -- PURPOSE=reproduction with REPRODUCES, or PURPOSE=new-measurement with HYPOTHESIS and STOPPING_RULE -- and says a purchase that names neither is not authorised by it."
+    ;;
+  *)
+    fail "PURPOSE is ${PURPOSE@Q}, which is neither reproduction nor new-measurement."
+    ;;
+esac
+# Said out loud, because a declaration nobody can read afterwards is not a declaration.
+#
+# This lands in the wrapper's transcript and in the golden, so the purpose of every characterized run is
+# visible beside what it did. Writing it into the archive itself is the other half and is tracked separately:
+# $OUT does not exist yet at this point, and creating it here would move a directory check that runs later.
+if [ "$PURPOSE" = "reproduction" ]; then
+  say "purpose: reproduction of ${REPRODUCES}"
+else
+  say "purpose: new measurement -- hypothesis ${HYPOTHESIS@Q}, stopping rule ${STOPPING_RULE@Q}"
+fi
+
 spot_say()  { say "$@"; }
 spot_fail() { fail "$@"; }
 # shellcheck source=hack/lib/spot-run.sh
