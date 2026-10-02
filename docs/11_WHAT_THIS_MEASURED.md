@@ -107,6 +107,35 @@ Each run is tight against itself (`R1` spans 0.8 ms across five repetitions ther
 rather than either being noisy. **The row above is this load's result.** Published in full, including the
 disagreement, under the pre-registration's 2026-10-02 amendment.
 
+### Why these ratios are a paired comparison, and what their narrowness does not say
+
+**Every arm is offered the same premium requests, and that is now measured rather than assumed.** `gen-trace`
+builds the isolated baseline by filtering the contending tenant out of the SAME trace, so `R1`, `shared` and
+`timeSlicing` receive identical premium arrivals — same offsets, same prompt lengths, same output caps, in the
+same order. Fingerprinting every offered premium row of the 2026-10-02 archive gives **one digest across all
+three arms and all five repetitions**, `443db0939d9846de`, at 4,655 requests per cell. The 2026-09-13 pilot
+likewise gives one digest across its three arms and two repetitions.
+
+That is what makes a per-repetition ratio a *paired* quantity: the two arms differ in the contending tenant's
+139 requests and in nothing else. And the pairing survives into the completed rows — across the fifteen cells,
+**69,825 premium requests were offered and 69,825 completed, with zero timeouts**, so no arm is being compared
+on a different subset of the traffic it was given.
+
+`internal/bench/paired_premise_test.go` pins the premise. It was written because "true by construction" is the
+kind of claim this repository has been wrong about: the construction can change, and arms offered different
+premium traffic would still produce a ratio that looks fine. Four mutations of the check go red — dropping the
+arrival offset or the request index from the fingerprint, narrowing the comparison to within one arm, and
+disabling the repetition comparison — each caught by a synthetic violation, because the real archives satisfy
+the premise and therefore prove nothing about the check.
+
+**Three things the paired ratios do not establish.**
+
+| | |
+|---|---|
+| The two runs cannot be combined | The 2026-10-02 archive's offered-traffic digest is `443db0939d9846de` and the ninth pilot's is `52df4f52668151e2`. Different offered traffic, so their ratios are not repetitions of one experiment |
+| The narrow spread is the machine's, not the GPU's | On 2026-10-02 the five `shared`/`R1` ratios span **0.458** (23.041 to 23.284) and the five `timeSlicing`/`shared` ratios span **0.181**. Identical offered traffic means that spread is one card, one instance, one session replaying one trace — it is not variation over loads, seeds, cards or sessions |
+| It is a range, not an interval | Five values of a statistic are an observed range. No confidence interval is published for this study; `RegisteredEstimand.RatioCI` is computed and withheld until a dated amendment settles the replicate-rounding convention |
+
 ### Finding 3b: under the frozen contract, one competing tenant costs 23.0x — and the split card is unmeasured there
 
 Ten cells, five repetitions of `R1` and `shared`, 2026-10-01, $1.44. Premium prompts of **1,174

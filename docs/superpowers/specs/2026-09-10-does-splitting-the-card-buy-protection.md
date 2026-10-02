@@ -1466,3 +1466,45 @@ What it does establish is narrower than that: at this load, with the registered 
 Any claim resting on `ANSWER: 5` has to say which pilot it came from and at what prompt length. The amendment
 required publication within 48 hours of the session ending (04:54Z 2026-10-02) whatever the outcome, and this
 section is that publication.
+
+## Amendment, 2026-10-02: what the NEXT purchase has to declare before it is made
+
+**Written because a purchase was made under a name that did not match it.** The 2026-10-02 run was registered
+as a five-repetition reproduction of the 2026-09-13 pilot and offered a 294-token premium prompt against that
+pilot's 50. The correction above records that; this amendment is the part that stops it recurring, and it is
+registered BEFORE the next card rather than after.
+
+### A purchase declares exactly one of two questions
+
+| | What it buys | What it must name |
+|---|---|---|
+| **A reproduction attempt** | Whether a NAMED prior run's result holds when its conditions are restored | The target archive, the arms that correspond, and every condition that must match. The run must pass `--reproduces <that archive>` to the pre-purchase plan check, which refuses before launch when the offered load differs -- and refuses as UNCERTIFIABLE when the target never recorded a field, which is the case for the 2026-09-13 pilot |
+| **A new measurement** | What happens at a load this study has not measured | The load tuple in full, the hypothesis it tests, and the stopping rule. It does NOT name a prior run as its target, and it does not claim any prior answer is confirmed or refuted |
+
+**A purchase that names neither is not authorised by this registration.** "Buy the matrix again" is not a
+question; it is a budget line.
+
+### The reproduction variant cannot currently be satisfied against the 2026-09-13 pilot
+
+Stated so nobody plans around it. That archive records no `promptLenChars`, no `tokenizerRev`, no
+`gatewaySHA` and no `imageDigests` -- the code that fills them landed on 2026-09-16 and the pilot ran on
+2026-09-13 -- and neither it nor any later run recorded a driver version. `bench.ReproductionRefusal` reports
+those as UNKNOWN and refuses, because treating "not recorded" as "the same" is the defect it exists to stop.
+
+So a reproduction attempt against that pilot can restore the offered traffic and **cannot** certify the
+environment. If that is bought, it is bought as "the same offered load on an environment whose differences
+from the pilot's are unknown", and the write-up says exactly that.
+
+### What a new measurement may not say
+
+It may not report that it confirms or fails to reproduce a prior answer. The 2026-10-02 run is the worked
+example: `ANSWER: 3` at 294-token prompts does not adjudicate `ANSWER: 5` at 50-token prompts, and the
+difference between them is not an effect size anything here measured.
+
+### The prohibition this amendment does not relax
+
+The 2026-10-02 stopping-and-publication amendment forbids buying again to obtain a different answer or a
+narrower interval. **Renaming such a purchase as "a new measurement" is a way around that prohibition, not an
+exception to it.** The test is whether the declared question has an answer the project would act on either
+way; if the only outcome that changes anything is the one already hoped for, the purchase is the forbidden
+one wearing a new label.
