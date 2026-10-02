@@ -28,15 +28,23 @@ func TestMatrixPlanRefusalAppliesTheReadingsOwnFloor(t *testing.T) {
 
 // The measured case, so the numbers in the refusal are not only arithmetic.
 //
-// At the load the frozen matrix was registered with -- RATE=9.85, premium weight 1, contender weight 0.054 --
-// gen-trace offers 3882 premium requests over 420000 ms and 94 over 10000 ms. The second is the deliberate
-// failure the open defect asked for: a DURATION_MS below the floor must be refused BEFORE the card is rented.
+// The load is the one the PRE-REGISTRATION names for the next run -- RATE=9.4045, premium weight 1,
+// contender weight 0.0260, DURATION_MS=505000 -- and not the wrapper's defaults, which that page calls "the
+// seventh pilot's load, the one reading 4b rejected". Pinning the rejected load's counts here would have
+// described the wrong run in a comment a later reader trusts.
+//
+// Measured with gen-trace at that load: 4655 premium offers over 505000 ms, 109 over 12000 ms, 99 over
+// 11000 ms. The last pair sits one on each side of MinTailSamples, which is what shows the floor being
+// applied is that one.
 func TestMatrixPlanRefusalSeparatesTheMeasuredDurations(t *testing.T) {
-	if err := MatrixPlanRefusal(StudySharingMatrix, ArmR1, 3882); err != nil {
-		t.Errorf("the registered 420000 ms cell (3882 premium offers) was refused: %v", err)
+	if err := MatrixPlanRefusal(StudySharingMatrix, ArmR1, 4655); err != nil {
+		t.Errorf("the registered 505000 ms cell (4655 premium offers) was refused: %v", err)
 	}
-	if err := MatrixPlanRefusal(StudySharingMatrix, ArmR1, 94); err == nil {
-		t.Error("a 10000 ms cell (94 premium offers) was accepted; that is the run the readings refuse after it has been bought")
+	if err := MatrixPlanRefusal(StudySharingMatrix, ArmR1, 109); err != nil {
+		t.Errorf("a 12000 ms cell (109 premium offers) was refused above the floor of %d: %v", MinTailSamples, err)
+	}
+	if err := MatrixPlanRefusal(StudySharingMatrix, ArmR1, 99); err == nil {
+		t.Error("an 11000 ms cell (99 premium offers) was accepted; that is the run the readings refuse after it has been bought")
 	}
 }
 

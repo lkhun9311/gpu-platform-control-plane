@@ -49,14 +49,20 @@ else
   go build -o "$WORK/benchharness" ./cmd/benchharness || { echo "could not build benchharness" >&2; exit 1; }
 fi
 
-# The load the frozen matrix was registered with, measured by hack/m5b-price-of-protection.sh.
+# The load the REGISTRATION names for the next run, not the wrapper's defaults.
 #
-# They are here rather than defaulted by the matrix because the matrix refuses to default them: RATE alone
-# does not describe this load, and a mix picked by the harness puts the 40,000-character contender at 45% of
-# arrivals. Changing them here changes what this file checks, so they are written out.
-RATE=9.85
-NOISY_WEIGHT=0.054
-FULL_DURATION=420000
+# This matters and the first version of this file got it wrong. `hack/m5c-gpu-session.sh` still defaults to
+# RATE=9.85, NOISY_WEIGHT=0.054, DURATION_MS=420000, and the pre-registration calls that "the seventh
+# pilot's load, the one reading 4b rejected" (docs/superpowers/specs/2026-09-10-does-splitting-the-card-buy-
+# protection.md). A plan check that pins the rejected load as its passing case teaches the gate the wrong
+# plan: it would go green on precisely the run the registration refuses, and red if someone passed the
+# registered one.
+#
+# They are written out rather than defaulted because the matrix refuses to default them: RATE alone does not
+# describe this load, and a mix picked by the harness puts the 40,000-character contender at 45% of arrivals.
+RATE=9.4045
+NOISY_WEIGHT=0.0260
+FULL_DURATION=505000
 
 # plan_case <what> <want> [VAR=value ...]. `want` is `ok`, or a string the refusal must contain.
 #
@@ -112,22 +118,31 @@ scorable=$(printf '%s' "$LAST_PLAN_OUT" | grep -c 'scorable' || true)
 say "2. is the isolated baseline's trace free of the contender, as the readings require?"
 # R1 is the SAME two-tenant trace with the contender filtered out, not a premium-only trace at the full
 # rate. gen-trace does that filtering itself, so this asserts the artefact rather than the intention.
-printf '%s' "$LAST_PLAN_OUT" | grep -q 'R1: 3882 premium, 0 contender' \
-  && ok "R1 offers 3882 premium and no contender" \
-  || bad "R1's planned trace is not premium-only: $(printf '%s' "$LAST_PLAN_OUT" | grep -o 'R1: [0-9]* premium, [0-9]* contender' | head -1)"
-printf '%s' "$LAST_PLAN_OUT" | grep -q 'shared: 3882 premium, 238 contender' \
+printf '%s' "$LAST_PLAN_OUT" | grep -q 'R1: 4655 premium, 0 contender' \
+  && ok "R1 offers 4655 premium and no contender" \
+  || bad "R1's planned trace is not premium-only: $(printf '%s' "$LAST_PLAN_OUT" | grep -o 'R1: [0-9]* premium, [0-9]* contender' | head -1 || true)"
+printf '%s' "$LAST_PLAN_OUT" | grep -q 'shared: 4655 premium, 139 contender' \
   && ok "and the control carries the contender at the same premium schedule" \
-  || bad "the control's planned trace is not the two-tenant one: $(printf '%s' "$LAST_PLAN_OUT" | grep -o 'shared: [0-9]* premium, [0-9]* contender' | head -1)"
+  || bad "the control's planned trace is not the two-tenant one: $(printf '%s' "$LAST_PLAN_OUT" | grep -o 'shared: [0-9]* premium, [0-9]* contender' | head -1 || true)"
 
 say "3. is a cell too short for the readings' floor refused BEFORE anything is rented?"
-# This is the deliberate failure the open defect asked for. At this load 10000 ms offers 94 premium
-# requests; MinTailSamples is 100 and RegisteredEstimandFor applies it to the SMALLEST repetition tail, so
-# fifteen such cells pooling 1410 would still be refused.
+# This is the deliberate failure the open defect asked for, and the floor is bracketed rather than cleared
+# by a wide margin. At the registered load gen-trace offers 109 premium requests over 12000 ms and 99 over
+# 11000 ms; MinTailSamples is 100. A pair one on each side of it is what shows the check reads THAT floor and
+# not a rounder number nearby.
+#
+# RegisteredEstimandFor applies the floor to the SMALLEST repetition tail, not the pool, so fifteen cells of
+# 99 would pool 1485 and still be refused. That is why the check is per cell.
+plan_case "a cell just above the per-repetition tail floor" ok \
+  ARMS="R1 shared timeSlicing" REPS=1 RATE="$RATE" NOISY_WEIGHT="$NOISY_WEIGHT" DURATION_MS=12000
+printf '%s' "$LAST_PLAN_OUT" | grep -q '109 premium' \
+  && ok "and 12000 ms is accepted at 109 premium offers" \
+  || bad "12000 ms did not report 109 premium offers: $(printf '%s' "$LAST_PLAN_OUT" | grep -o '[0-9]* premium' | head -1 || true)"
 plan_case "a cell below the per-repetition tail floor" "could not be scored even if every request succeeded" \
-  ARMS="R1 shared timeSlicing" REPS=5 RATE="$RATE" NOISY_WEIGHT="$NOISY_WEIGHT" DURATION_MS=10000
-printf '%s' "$LAST_PLAN_OUT" | grep -q 'offers 94 premium requests' \
-  && ok "and the refusal names the count it measured" \
-  || bad "the refusal does not name 94 premium offers, so it may not have generated the trace it judged"
+  ARMS="R1 shared timeSlicing" REPS=5 RATE="$RATE" NOISY_WEIGHT="$NOISY_WEIGHT" DURATION_MS=11000
+printf '%s' "$LAST_PLAN_OUT" | grep -q 'offers 99 premium requests' \
+  && ok "and the refusal names the count it measured, one below the floor" \
+  || bad "the refusal does not name 99 premium offers, so it may not have generated the trace it judged"
 printf '%s' "$LAST_PLAN_OUT" | grep -q 'run-instances' \
   && bad "the output mentions run-instances; this path must not reach a launch" \
   || ok "nothing in that path reaches run-instances"
