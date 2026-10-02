@@ -195,9 +195,13 @@ the load, the rounding, the percentile convention and the readings were all froz
 dated amendments, and `hack/m5c-gpu-session.sh` buys the whole thing again from a commit. A measurement is
 believable because the protocol is specified well enough to redo, not because its logs are auditable.
 
-## The 2026-10-02 reproduction run, and why its answer differs
+## The 2026-10-02 run, and why its answer differs
 
-A five-repetition reproduction run of the frozen matrix — `R1`, `shared`, `timeSlicing`, fifteen cells,
+It was registered as a "reproduction run" of the ninth pilot and **was not one**: it offered a 294-token
+premium prompt against the pilot's 50 and a 60-second timeout against its 30. The pre-registration carries a
+dated correction saying so. The paragraph below describes it as what it is — a measurement at this load.
+
+A five-repetition run of the frozen matrix — `R1`, `shared`, `timeSlicing`, fifteen cells,
 collected at `b97d88ebfb97bf1b8cced34ceae5c4b5c4388270` on an A10G in ap-northeast-2d for about $2.16.
 It is published here because the 2026-10-02 amendment to the pre-registration requires every outcome to
 be published, and this one **disagrees with the release**.

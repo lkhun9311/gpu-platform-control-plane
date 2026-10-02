@@ -1307,6 +1307,12 @@ The 48 hours is an operational standard proposed here, not a methodological one.
 
 ### What this purchase may and may not be called
 
+⚠️ **Added 2026-10-02, after the run: the name below is wrong, and the correction is in its own section.**
+This subsection calls the purchase a "five-repetition reproduction run". It was not a reproduction — the run
+offered a 294-token premium prompt against the ninth pilot's 50 — and the paragraphs here are left unedited on
+purpose, because a registration repaired after the fact is worse than one that is wrong in public. Read
+"Correction, 2026-10-02 (after the result)" below before relying on anything in this subsection.
+
 It is a **five-repetition reproduction run**. It is not a statistical confirmation, and three facts make that
 the honest name:
 
@@ -1330,7 +1336,40 @@ reproduction run rather than a gate on it. The plan check that makes fifteen cel
 building — it refuses a below-floor plan before anything is rented, which is the failure it was asked to move
 off the card — but it is not evidence that five is the right number.
 
-## The result, 2026-10-02: the reproduction run did not reproduce
+## Correction, 2026-10-02 (after the result): this run was not a reproduction
+
+**Written after seeing the outcome, and marked as such.** The amendment above registered a "five-repetition
+reproduction run" of the ninth pilot. The run that followed did not reproduce the ninth pilot's conditions: it
+offered a premium prompt of 294 tokens against the pilot's 50, and a 60-second timeout against the pilot's
+30. The amendment fixed the arms, the repetitions, the arrival schedule, the stopping rule and the publication
+rule — and **did not fix the offered traffic against the run it named**. Nothing checked the reproduction
+premise, so nothing refused.
+
+This correction does not complete the pre-registration retroactively. The original paragraph stands above,
+unedited, because a registration that is quietly repaired after the fact is worse than one that is wrong in
+public.
+
+**Two defects, and they are different.**
+
+| | |
+|---|---|
+| Registration | The word "reproduction" named a comparison the amendment never specified. A registration that claims to repeat a prior run has to name the archive, the arms that correspond, the conditions that must match, and the differences it will tolerate. This one named none of those |
+| Check | `bench.MatrixPlanRefusal` asks whether a planned cell is scorable — study registered, arm admitted, per-repetition tail floor — and `MatrixPlanArmSetRefusal` asks whether the arm set can be scored at all. **Neither has any notion of "the same load as a named prior run."** The pre-purchase check that was built to stop a wasted run passed this one in full |
+
+**The accurate name for the 2026-10-02 run** is therefore: *a three-arm, five-repetition measurement under
+load conditions that differ from the ninth pilot's, INCONCLUSIVE under the registered readings.* The
+measurement stands and `ANSWER: 3` stands. It does not adjudicate the ninth pilot's result either way.
+
+**What the fix has to be, and what it cannot be.** The contract belongs in the registration and the
+enforcement belongs before the card is rented — both, not either. And it cannot be a single hash: the trace
+checksum would have refused this particular run, but a matching trace does not establish a matching run. The
+prompt bodies are synthesised at replay time, and the timeout, the model, the tokenizer revision and the
+per-arm engine settings are separate facts. Where a prior archive never recorded a field — the ninth pilot has
+no `promptLenChars`, no `imageDigests`, and neither run has a driver version — the comparison must report
+**UNKNOWN** rather than silently counting it as a match. Treating UNKNOWN as agreement is how this defect
+would recur, and a run whose environment cannot be compared cannot be certified as reproducing anything.
+
+## The result, 2026-10-02: a different load, and an INCONCLUSIVE answer
 
 Three arms, **five repetitions**, fifteen cells, collected at `b97d88e` on an A10G in ap-northeast-2d.
 3.09 hours, about **$2.16**, inside a spending ceiling of $5.13. Fifteen of fifteen cells completed with no
@@ -1341,8 +1380,9 @@ ANSWER: 3        splitting the card changes nothing that matters -- INCONCLUSIVE
 ```
 
 The ninth pilot's answer, which this page quotes above and which `README.md` and `docs/11` cite, is
-`ANSWER: 5 (timeSlicing)`. **This run does not reproduce it.** Both archives were re-scored with the same
-binary, so this is not an analysis-version artefact.
+`ANSWER: 5 (timeSlicing)`. **This run did not repeat it** — and, as the correction above records, it did not
+offer the pilot's conditions either, so it cannot be read as a failed reproduction of it. Both archives were
+re-scored with the same binary, so the difference is not an analysis-version artefact.
 
 | | ninth pilot (2 reps, 6 cells) | this run (5 reps, 15 cells) |
 | --- | ---: | ---: |
@@ -1415,7 +1455,14 @@ It does not retract the ninth pilot. Two runs disagree; one of them is not there
 not pick the one it prefers. It also does not license buying a third run to break the tie: the 2026-10-02
 amendment forbids exactly that — "원하는 답이나 CI를 얻기 위한 추가 구매는 하지 않는다".
 
-What it does establish is narrower and worth stating plainly: **`ANSWER: 5 (timeSlicing)` is not stable across
-runs on this card**, and any claim resting on it has to say which pilot it came from. The amendment required
-publication within 48 hours of the session ending (04:54Z 2026-10-02) whatever the outcome, and this section
-is that publication.
+**And it does not establish that `ANSWER: 5` is unstable.** An earlier version of this paragraph said exactly
+that — "`ANSWER: 5 (timeSlicing)` is not stable across runs on this card" — and it does not follow from two
+runs that offered different traffic. Instability is a claim about repeated measurement under the same
+conditions, and these conditions differ in at least two registered inputs. The review that caught it put it
+plainly: what is confirmed is a difference in outcome between two runs with different conditions, and the
+prefill explanation is a **hypothesis whose effect size is unmeasured**.
+
+What it does establish is narrower than that: at this load, with the registered readings, the answer is `3`.
+Any claim resting on `ANSWER: 5` has to say which pilot it came from and at what prompt length. The amendment
+required publication within 48 hours of the session ending (04:54Z 2026-10-02) whatever the outcome, and this
+section is that publication.

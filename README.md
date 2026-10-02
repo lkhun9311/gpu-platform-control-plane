@@ -61,8 +61,10 @@ breaches at 4.61.
 the control it beats in the table above. The answer changed from `5 (timeSlicing)` to `3`
 (**INCONCLUSIVE**). The arrival schedule was identical; the premium prompt was **294 tokens instead of 50**
 and the timeout 60s instead of 30s, which is the leading explanation and is not separated from the timeout
-change. So the row above is **one load's result and is not stable across loads** — see
-`docs/superpowers/specs/2026-09-10-does-splitting-the-card-buy-protection.md`, "The result, 2026-10-02".
+change. So the row above is **one load's result**, and what the later run adds is that a different load gave a
+different answer — not a measurement of how the answer varies with load, and not a demonstration that this row
+is unstable. See `docs/superpowers/specs/2026-09-10-does-splitting-the-card-buy-protection.md`, "The result,
+2026-10-02".
 
 ⚠️ **That pilot ran a different load, and the two tables must not be combined.** It predates the input-length
 resolution: its premium prompts were 200 characters — the generator's flag default, which the tokenizer
