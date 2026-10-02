@@ -253,8 +253,13 @@ say "9. does a run that CLAIMS to reproduce a prior run get refused when its loa
 # refuses for the UNKNOWN reason before the load is ever compared -- which is correct, and is case 9e below.
 TGT="$WORK/target"
 mkdir -p "$TGT"
-gen_target() { # gen_target <dir> <timeout-ms> <premium-chars> [--no-provenance]
-  local dir="$1" timeout="$2" chars="$3" prov=1
+gen_target() { # gen_target <dir> <timeout-ms> <premium-chars> [--no-provenance]   (ARM=R1 varies the arm)
+  # ARM exists for the study-binding case below, which needs a cell whose manifest arm MATCHES --arm.
+  #
+  # The arm check runs before the study check, so a study fixture built on the shared manifest while passing
+  # --arm R1 is refused for the arm and never reaches the study comparison. That is what the first version of
+  # this fixture did, and the assertion went red naming the wrong refusal.
+  local dir="$1" timeout="$2" chars="$3" prov=1 arm="${ARM:-shared}"
   [ "${4:-}" = "--no-provenance" ] && prov=0
   local extra=()
   [ "$prov" = 1 ] && extra=(--tokenizer-rev aa8e72537993ba99e69dfaafa59ed015b17504d1
@@ -264,11 +269,11 @@ gen_target() { # gen_target <dir> <timeout-ms> <premium-chars> [--no-provenance]
   mkdir -p "$dir"
   "$WORK/benchharness" gen-trace --seed 11 --duration-ms "$FULL_DURATION" --rate "$RATE" \
     --premium-weight 1 --noisy-weight "$NOISY_WEIGHT" --probe-weight 0 \
-    --study sharing-matrix-2026-09-10 --arm shared --model Qwen/Qwen2.5-3B-Instruct \
+    --study sharing-matrix-2026-09-10 --arm "$arm" --model Qwen/Qwen2.5-3B-Instruct \
     --gateway-url http://127.0.0.1:18080 \
     --premium-prompt-chars "$chars" --noisy-prompt-chars 42579 \
     --premium-output-tokens 64 --noisy-output-tokens 16 --timeout-ms "$timeout" "${extra[@]}" \
-    --trace-out "$dir/trace-shared-1.jsonl" --manifest-out "$dir/manifest-shared-1.yaml" >/dev/null
+    --trace-out "$dir/trace-$arm-1.jsonl" --manifest-out "$dir/manifest-$arm-1.yaml" >/dev/null
 }
 # The plan side, which every case below compares against one of the targets.
 PLAN="$WORK/plan-rp"
@@ -322,6 +327,58 @@ printf '%s' "$($WORK/benchharness matrix-plan-check --trace "$PLAN/trace-shared-
   | grep -q 'UNKNOWN' \
   && ok "and it says UNKNOWN rather than reporting no difference" \
   || bad "the refusal for an unrecorded field does not say UNKNOWN, so it reads as 'nothing differs'"
+
+# The manifest has to describe the trace these counts came from, and nothing tied the two.
+#
+# --trace was read for the sample floors and --manifest was loaded separately for the reproduction
+# comparison, so one cell's trace beside another cell's manifest passed while the two described different
+# things -- including a hand-written manifest naming a load nobody generated. An external review found it on
+# 2026-10-02, after the reproduction comparison itself had been reviewed twice.
+set +e
+out=$("$WORK/benchharness" matrix-plan-check --trace "$PLAN/trace-shared-1.jsonl" \
+      --study sharing-matrix-2026-09-10 --arm shared --arms "R1 shared timeSlicing" \
+      --manifest "$TGT/prompt/manifest-shared-1.yaml" --reproduces "$TGT/same" 2>&1)
+code=$?
+set -e
+[ "$code" != 0 ] && printf '%s' "$out" | grep -q 'does not describe the trace this check counted' \
+  && ok "a manifest describing a different trace than --trace is refused" \
+  || bad "another cell's manifest was accepted beside this --trace (exit $code): $(printf '%s' "$out" | head -1)"
+
+# And the manifest's arm has to be the cell being checked.
+#
+# The refusal names both, because "they disagree" leaves an operator to work out which of the two they
+# mistyped at the end of a plan check that is otherwise green.
+set +e
+out=$("$WORK/benchharness" matrix-plan-check --trace "$PLAN/trace-shared-1.jsonl" \
+      --study sharing-matrix-2026-09-10 --arm R1 --arms "R1 shared timeSlicing" \
+      --manifest "$PLAN/manifest-shared-1.yaml" --reproduces "$TGT/same" 2>&1)
+code=$?
+set -e
+[ "$code" != 0 ] && printf '%s' "$out" | grep -q 'records arm shared' \
+  && ok "a manifest recording another arm is refused, naming both" \
+  || bad "--arm R1 beside a shared manifest was accepted (exit $code): $(printf '%s' "$out" | head -1)"
+
+# And the manifest's study has to be the registration scoring this cell.
+#
+# Three things had to line up for this fixture to reach the refusal it is about, and two of them cost a red
+# run to find.
+#
+#   1. The study passed must be REGISTERED. The first probe used throughput-ladder-2026-09-15, which does not
+#      exist, and was refused by "study is not registered" -- which looks like this check failing to fire.
+#   2. The study must admit the arm. throughput-ladder-2026-09-13's arms are rung-prefixed, so --arm R1 is
+#      refused before reaching here. price-of-protection-2026-09-05 and m5b-gateway-v1 both admit R1.
+#   3. The manifest's arm must MATCH --arm, because the arm check runs first. The shared manifest with
+#      --arm R1 is refused for the arm, so this case needs its own R1 cell.
+ARM=R1 gen_target "$TGT/r1arm" 60000 1174
+set +e
+out=$("$WORK/benchharness" matrix-plan-check --trace "$TGT/r1arm/trace-R1-1.jsonl" \
+      --study price-of-protection-2026-09-05 --arm R1 --arms "R1 shared timeSlicing" \
+      --manifest "$TGT/r1arm/manifest-R1-1.yaml" --reproduces "$TGT/same" 2>&1)
+code=$?
+set -e
+[ "$code" != 0 ] && printf '%s' "$out" | grep -q 'records study sharing-matrix-2026-09-10' \
+  && ok "a manifest recording another study is refused, naming both" \
+  || bad "--study beside a sharing-matrix manifest was accepted (exit $code): $(printf '%s' "$out" | head -1)"
 
 # --manifest is required WITH --reproduces, because the claim is about the load this plan would offer.
 set +e

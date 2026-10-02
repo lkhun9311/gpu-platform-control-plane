@@ -1505,8 +1505,15 @@ question; it is a budget line.
 
 Stated so nobody plans around it. That archive records no `promptLenChars`, no `tokenizerRev`, no
 `gatewaySHA` and no `imageDigests` -- the code that fills them landed on 2026-09-16 and the pilot ran on
-2026-09-13 -- and neither it nor any later run recorded a driver version. `bench.ReproductionRefusal` reports
-those as UNKNOWN and refuses, because treating "not recorded" as "the same" is the defect it exists to stop.
+2026-09-13. `bench.ReproductionRefusal` reports those four as UNKNOWN and refuses, because treating "not
+recorded" as "the same" is the defect it exists to stop.
+
+⚠️ **Corrected 2026-10-02: this paragraph credited the function with more than it does.** It said the driver
+version was among the fields reported as UNKNOWN. It is not: `ReproductionFacts` has no driver field, and no
+`matchTolerance` or `primaryEndpoint` field either, so those three are outside the comparison entirely and a
+plan that differs in them is not refused. The driver gap is real and is tracked as a recording gap, but
+nothing in this code path asks about it. Naming a check that does not exist is the failure mode this
+registration is supposed to prevent, so the sentence is corrected rather than left standing.
 
 So a reproduction attempt against that pilot can restore the offered traffic and **cannot** certify the
 environment. If that is bought, it is bought as "the same offered load on an environment whose differences

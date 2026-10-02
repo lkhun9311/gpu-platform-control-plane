@@ -164,6 +164,47 @@ func factsDiffer(a, b ReproductionFacts) string {
 		return "seed"
 	case a.LongThreshold != b.LongThreshold:
 		return "longThreshold"
+	// The provenance fields are compared here too, and leaving them out was a defect.
+	//
+	// This function decides whether an archive's repetitions describe ONE run. It omitted tokenizerRev,
+	// gatewaySHA, imageDigests and promptLenChars, so an archive assembled from two different builds -- or
+	// two different prompt lengths -- read as a single coherent target, and every refusal downstream then
+	// compared against a mixture. A review found it on 2026-10-02.
+	case a.TokenizerRev != b.TokenizerRev:
+		return "tokenizerRev"
+	case a.GatewaySHA != b.GatewaySHA:
+		return "gatewaySHA"
+	case digestsDiffer(a.ImageDigests, b.ImageDigests) != "":
+		return "imageDigests"
+	case promptLenDiffer(a.PromptLenChars, b.PromptLenChars) != "":
+		return "promptLenChars"
+	}
+	return ""
+}
+
+// digestsDiffer names the first image whose digest differs, or "" when both maps agree.
+//
+// Absence on one side counts as a difference: an archive that records an engine digest and a plan that does
+// not are not describing the same environment, and saying nothing differs would be the lie ReproductionRefusal
+// exists to stop.
+func digestsDiffer(target, planned map[string]string) string {
+	names := make([]string, 0, len(target)+len(planned))
+	seen := map[string]bool{}
+	for n := range target {
+		names = append(names, n)
+		seen[n] = true
+	}
+	for n := range planned {
+		if !seen[n] {
+			names = append(names, n)
+		}
+	}
+	sort.Strings(names)
+	for _, n := range names {
+		t, p := target[n], planned[n]
+		if t != p {
+			return fmt.Sprintf("%s is %q in the target run and %q in this plan", n, t, p)
+		}
 	}
 	return ""
 }
@@ -242,6 +283,60 @@ func ReproductionRefusal(target, planned map[string]ReproductionFacts) error {
 				return fmt.Errorf("arm %s: promptLenChars differ -- %s. The prompt length moves the headline number and the registration does not freeze it",
 					arm, d)
 			}
+		}
+
+		// The provenance fields are COMPARED when the target recorded them, and that was missing.
+		//
+		// A review found it on 2026-10-02: tokenizerRev, gatewaySHA and imageDigests were only ever read by
+		// unrecordedFields, which asks whether the TARGET recorded them. A plan running a different gateway
+		// build, a different engine image or a different tokenizer revision therefore passed, while the
+		// struct's own comment claimed these fields "say which build produced the numbers".
+		//
+		// Each field splits into the three classes this function keeps apart, and collapsing them is a defect
+		// of its own -- the first version of this block did, and three tests went red for exactly that:
+		//
+		//   target empty            -> UNKNOWN, left to unrecordedFields below. Not a difference: nothing can
+		//                              establish sameness, and "differs" would tell an operator to fix a load
+		//                              when the real answer is that the claim cannot be certified at all.
+		//   target set, plan empty  -> this RUN is failing to record what the comparison needs. Not a
+		//                              historical gap and not uncertifiable -- fixable here, before launch.
+		//   both set and unequal    -> a difference, named with both values.
+		for _, c := range []struct {
+			field, tv, pv, consequence string
+		}{
+			{"tokenizerRev", t.TokenizerRev, p.TokenizerRev, "a different tokenizer revision counts the same characters as a different number of tokens"},
+			{"gatewaySHA", t.GatewaySHA, p.GatewaySHA, "a different gateway build admits and routes differently"},
+		} {
+			switch {
+			case c.tv == "":
+				// UNKNOWN; reported below with every other unrecorded field.
+			case c.pv == "":
+				return fmt.Errorf("arm %s: the target run records %s and this plan records none, so sameness there cannot be checked. Record the field in this run's manifest, or stop calling this a reproduction",
+					arm, c.field)
+			case c.tv != c.pv:
+				return fmt.Errorf("arm %s: %s is %q in the target run and %q in this plan -- %s. Fix the plan, or stop calling this a reproduction",
+					arm, c.field, c.tv, c.pv, c.consequence)
+			}
+		}
+		if len(t.ImageDigests) > 0 {
+			if len(p.ImageDigests) == 0 {
+				return fmt.Errorf("arm %s: the target run records imageDigests and this plan records none, so sameness there cannot be checked. Record them in this run's manifest, or stop calling this a reproduction",
+					arm)
+			}
+			if d := digestsDiffer(t.ImageDigests, p.ImageDigests); d != "" {
+				return fmt.Errorf("arm %s: imageDigests differ -- %s. A different image is a different instrument, and this plan does not repeat that run",
+					arm, d)
+			}
+		}
+
+		// The same three classes for the prompt length.
+		//
+		// promptLenDiffer above is guarded on both sides being present, because the target may predate the
+		// field. The reverse -- the target HAS it and the plan does not -- is this run failing to record
+		// something the comparison needs, and it must refuse rather than skip.
+		if len(t.PromptLenChars) > 0 && len(p.PromptLenChars) == 0 {
+			return fmt.Errorf("arm %s: the target run records promptLenChars and this plan records none, so the prompt length cannot be compared. Write the field, or stop calling this a reproduction",
+				arm)
 		}
 
 		// The checksum is the LAST net, because it cannot say what differs.

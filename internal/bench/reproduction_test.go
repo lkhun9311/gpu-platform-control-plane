@@ -127,6 +127,110 @@ func TestReproductionRefusalTreatsAnUnrecordedFieldAsUnknown(t *testing.T) {
 	}
 }
 
+// The provenance fields are compared, not merely required to exist on the target.
+//
+// They were read only by unrecordedFields, so a plan on a different gateway build, engine image or tokenizer
+// revision was accepted as a reproduction while the struct's comment said these fields say "which build
+// produced the numbers". An external review found it on 2026-10-02; nothing here had asserted it.
+//
+// Mutation that turns this red: drop any arm of the provenance switch in ReproductionRefusal, or revert
+// factsDiffer to its seven-field form.
+func TestReproductionRefusalComparesTheProvenanceFields(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		mutate func(*ReproductionFacts)
+		want   []string
+	}{
+		{"tokenizer", func(f *ReproductionFacts) { f.TokenizerRev = "0000000000000000000000000000000000000000" }, []string{"tokenizerRev", "aa8e7253", "0000", "counts the same characters"}},
+		{"gateway", func(f *ReproductionFacts) { f.GatewaySHA = "1111111111111111111111111111111111111111" }, []string{"gatewaySHA", "b97d88eb", "1111", "admits and routes"}},
+		{"image", func(f *ReproductionFacts) {
+			f.ImageDigests = map[string]string{"engine": "vllm/vllm-openai@sha256:deadbeef"}
+		}, []string{"imageDigests", "engine", "0a51ea5b", "deadbeef", "different instrument"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tgt := set(facts(ArmShared))
+			p := facts(ArmShared)
+			tc.mutate(&p)
+			err := ReproductionRefusal(tgt, set(p))
+			if err == nil {
+				t.Fatalf("a plan differing in %s was accepted as a reproduction", tc.name)
+			}
+			for _, w := range tc.want {
+				if !strings.Contains(err.Error(), w) {
+					t.Errorf("the refusal does not say %q: %v", w, err)
+				}
+			}
+			// A difference is not an UNKNOWN. The two call for different actions -- fix the plan versus
+			// abandon the claim -- and the first version of this comparison collapsed them.
+			if strings.Contains(err.Error(), "UNKNOWN") {
+				t.Errorf("a field that DIFFERS was reported as UNKNOWN, which tells the operator to abandon a claim they could fix: %v", err)
+			}
+		})
+	}
+}
+
+// A plan that records less than its target is refused, and refused as its own class.
+//
+// The target predating a field is UNKNOWN. This run omitting a field the target HAS is neither UNKNOWN nor a
+// value difference: it is fixable before launch by writing the manifest, and the message says so.
+func TestReproductionRefusalRefusesAPlanThatRecordsLessThanItsTarget(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		strip func(*ReproductionFacts)
+		want  string
+	}{
+		{"tokenizer", func(f *ReproductionFacts) { f.TokenizerRev = "" }, "tokenizerRev"},
+		{"gateway build", func(f *ReproductionFacts) { f.GatewaySHA = "" }, "gatewaySHA"},
+		{"images", func(f *ReproductionFacts) { f.ImageDigests = nil }, "imageDigests"},
+		{"prompt lengths", func(f *ReproductionFacts) { f.PromptLenChars = nil }, "promptLenChars"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := facts(ArmShared)
+			tc.strip(&p)
+			err := ReproductionRefusal(set(facts(ArmShared)), set(p))
+			if err == nil {
+				t.Fatalf("a plan recording no %s against a target that records it was accepted", tc.want)
+			}
+			for _, w := range []string{tc.want, "this plan records none"} {
+				if !strings.Contains(err.Error(), w) {
+					t.Errorf("the refusal does not say %q: %v", w, err)
+				}
+			}
+		})
+	}
+}
+
+// factsDiffer decides whether an archive's repetitions describe ONE run, and it ignored provenance.
+//
+// With the seven-field version, an archive whose repetitions were collected under two gateway builds, two
+// engine images, two tokenizer revisions or two prompt lengths read as a single coherent target -- and every
+// refusal downstream then compared a plan against a mixture.
+func TestFactsDifferSeesTheProvenanceFields(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		mutate func(*ReproductionFacts)
+		want   string
+	}{
+		{"tokenizer", func(f *ReproductionFacts) { f.TokenizerRev = "0000" }, "tokenizerRev"},
+		{"gateway", func(f *ReproductionFacts) { f.GatewaySHA = "1111" }, "gatewaySHA"},
+		{"image", func(f *ReproductionFacts) { f.ImageDigests = map[string]string{"engine": "other"} }, "imageDigests"},
+		{"prompt length", func(f *ReproductionFacts) { f.PromptLenChars = map[string]int{PremiumTenant: 200} }, "promptLenChars"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			a := facts(ArmShared)
+			b := facts(ArmShared)
+			tc.mutate(&b)
+			if got := factsDiffer(a, b); got != tc.want {
+				t.Errorf("two repetitions differing in %s reported %q, want %q", tc.name, got, tc.want)
+			}
+		})
+	}
+	// And two identical repetitions still agree, or every case above is vacuous.
+	if got := factsDiffer(facts(ArmShared), facts(ArmShared)); got != "" {
+		t.Errorf("two identical repetitions reported a difference in %q", got)
+	}
+}
+
 func TestReproductionRefusalRefusesAnArmTheTargetNeverMeasured(t *testing.T) {
 	err := ReproductionRefusal(set(facts(ArmR1), facts(ArmShared)), set(facts(ArmTimeSlicing)))
 	if err == nil {

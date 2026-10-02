@@ -98,6 +98,32 @@ func matrixPlanCheck(args []string) error {
 		if err != nil {
 			return fmt.Errorf("read the planned manifest %s: %w", *manifest, err)
 		}
+		// The manifest has to describe the trace this check just counted.
+		//
+		// Nothing tied them before, and a review found it on 2026-10-02: --trace was read for the sample
+		// floors and --manifest was loaded separately for the reproduction comparison, so a caller could
+		// pass one cell's trace and another cell's manifest -- or a hand-written manifest naming a load
+		// nobody generated -- and both halves would pass while describing different things.
+		//
+		// The manifest's own checksum is the binding, because LoadManifest has already verified it against
+		// the file the manifest names. Comparing it to this trace's bytes asks the one question that
+		// matters: is the artefact I counted the artefact this claim is about?
+		traceSum, err := bench.ChecksumFile(*trace)
+		if err != nil {
+			return fmt.Errorf("checksum the trace %s: %w", *trace, err)
+		}
+		if traceSum != pm.TraceChecksum {
+			return fmt.Errorf("--trace %s hashes to %s and --manifest %s records traceChecksum %s, so the manifest does not describe the trace this check counted; pass the manifest gen-trace wrote beside this trace",
+				*trace, traceSum, *manifest, pm.TraceChecksum)
+		}
+		if pm.Arm != *arm {
+			return fmt.Errorf("--arm is %s and --manifest %s records arm %s, so the reproduction claim is about a different cell than the one being checked",
+				*arm, *manifest, pm.Arm)
+		}
+		if pm.Study != *study {
+			return fmt.Errorf("--study is %s and --manifest %s records study %s, so the plan and the manifest disagree about which registration scores this cell",
+				*study, *manifest, pm.Study)
+		}
 		target, err := bench.ReproductionFactsFromArchive(*reproduces)
 		if err != nil {
 			return fmt.Errorf("read the target run at %s: %w", *reproduces, err)
