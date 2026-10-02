@@ -44,7 +44,7 @@ got=$(sha256sum /src/bin/gateway | cut -d' ' -f1)
 if [ "$got" != "$GATEWAY_SHA" ]; then echo "gateway checksum mismatch"; exit 1; fi
 got=$(sha256sum /src/bin/benchharness | cut -d' ' -f1)
 if [ "$got" != "$HARNESS_SHA" ]; then echo "benchharness checksum mismatch"; exit 1; fi
-nvidia-smi --query-gpu=index,name,memory.total --format=csv > /tmp/nvidia-smi.csv || exit 1
+nvidia-smi --query-gpu=index,name,memory.total,driver_version --format=csv > /tmp/nvidia-smi.csv || exit 1
 upload /tmp/nvidia-smi.csv preflight-nvidia-smi.csv
 cards=$(tail -n +2 /tmp/nvidia-smi.csv | wc -l)
 if [ "$cards" -ne 1 ]; then

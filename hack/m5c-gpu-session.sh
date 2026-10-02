@@ -617,7 +617,16 @@ if [ "$got" != "$HARNESS_SHA" ]; then echo "benchharness checksum mismatch"; exi
 
 # Preflight 1: the card. A machine that does not report one A10G is not what this session was costed for,
 # and finding that out after twenty minutes of cluster bring-up is finding it out too late.
-nvidia-smi --query-gpu=index,name,memory.total --format=csv > /tmp/nvidia-smi.csv || exit 1
+#
+# driver_version is asked for because two runs on the same card model disagreed and nothing could compare it.
+#
+# On 2026-10-02 a five-repetition run put `timeSlicing` at 14,868 ms where the 2026-09-13 pilot had 1,008.
+# The leading explanation is the prompt length, which IS recorded, but the two candidates behind it are the
+# engine build and the driver -- and neither archive carried a driver version, because this query asked for
+# index, name and memory and nothing else. So the question "how much of a 14.75x change was the driver"
+# cannot be asked of any archive this project has. One field closes that for every run after this one; it
+# cannot be closed backwards. The row count is what the card check below reads, so an extra column is free.
+nvidia-smi --query-gpu=index,name,memory.total,driver_version --format=csv > /tmp/nvidia-smi.csv || exit 1
 upload /tmp/nvidia-smi.csv preflight-nvidia-smi.csv
 cards=$(tail -n +2 /tmp/nvidia-smi.csv | wc -l)
 if [ "$cards" -ne 1 ]; then
