@@ -912,16 +912,31 @@ say "user-data: $UD_ENCODED of $UD_LIMIT encoded bytes"
 #
 # It uses the SAME binary the instance will run, so a check that passes here and fails there is a
 # difference in the world rather than in the code.
+#
+# IT RUNS ON EVERY RUN, and it used to run only for a ladder.
+#
+# A frozen matrix therefore reached run-instances with nothing having asked whether its cells could be
+# scored. DRY_RUN looked like that check and is not: it validates the user-data -- shebang, parse, surviving
+# placeholder, device mount, encoded size -- and never generates a trace. The frozen matrix's floors are the
+# same shape as the ladder's and arrive the same way, after the bring-up.
+say "checking the purchase plan locally, before anything is rented"
+# PLATFORM and KCTX are the MATRIXs variables and this wrapper has none; PLAN_ONLY exits before either
+# is consulted, and they are passed only so the matrix does not refuse on an unset one.
+plan_env=(PLAN_ONLY=1 PLATFORM=kind KCTX=none BENCHHARNESS_BIN="$OUT/benchharness"
+          PREMIUM_WEIGHT="$PREMIUM_WEIGHT" PROBE_WEIGHT="$PROBE_WEIGHT" DURATION_MS="$DURATION_MS"
+          OUT="$OUT/plan-check")
+# The two loads are passed SEPARATELY because the matrix refuses them together.
+#
+# A ladder carries a rate and a contender weight per rung, so a single RATE or NOISY_WEIGHT beside it would
+# be either ignored or an override -- and the matrix refuses rather than picking. Passing both sets here
+# would make the plan check fail on that refusal for every ladder run.
 if [ -n "$LADDER" ]; then
-  say "checking the purchase plan locally, before anything is rented"
-  # PLATFORM and KCTX are the MATRIXs variables and this wrapper has none; PLAN_ONLY exits before either
-  # is consulted, and they are passed only so the matrix does not refuse on an unset one.
-  if ! PLAN_ONLY=1 PLATFORM=kind KCTX=none BENCHHARNESS_BIN="$OUT/benchharness" \
-       LADDER="$LADDER" LADDER_STUDY="${LADDER_STUDY:-}" \
-       PREMIUM_WEIGHT="$PREMIUM_WEIGHT" PROBE_WEIGHT="$PROBE_WEIGHT" DURATION_MS="$DURATION_MS" \
-       OUT="$OUT/plan-check" bash hack/m5c-matrix.sh; then
-    fail "the purchase plan was refused before launch, and nothing was rented. The refusals above name the cell and the reason"
-  fi
+  plan_env+=(LADDER="$LADDER" LADDER_STUDY="${LADDER_STUDY:-}")
+else
+  plan_env+=(ARMS="$ARMS" REPS="$REPS" RATE="$RATE" NOISY_WEIGHT="$NOISY_WEIGHT")
+fi
+if ! env "${plan_env[@]}" bash hack/m5c-matrix.sh; then
+  fail "the purchase plan was refused before launch, and nothing was rented. The refusals above name the cell and the reason"
 fi
 
 # DRY_RUN stops here, with everything a launch depends on already built and checked.

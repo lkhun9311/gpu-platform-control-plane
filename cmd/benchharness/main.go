@@ -88,6 +88,8 @@ func main() {
 		err = ladderVerdict(os.Args[2:])
 	case "ladder-plan-check":
 		err = ladderPlanCheck(os.Args[2:])
+	case "matrix-plan-check":
+		err = matrixPlanCheck(os.Args[2:])
 	case "study-arrivals":
 		err = studyArrivals(os.Args[2:])
 	case "compile-plan":
@@ -107,7 +109,7 @@ func main() {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: benchharness <gen-trace|prepare-traces|replay|report|ladder-verdict|ladder-plan-check|study-arrivals|print-prompt|check-replay|stamp-exact-tokens|compile-plan|sim-cap|power|stub-serve> [flags]")
+	fmt.Fprintln(os.Stderr, "usage: benchharness <gen-trace|prepare-traces|replay|report|ladder-verdict|ladder-plan-check|matrix-plan-check|study-arrivals|print-prompt|check-replay|stamp-exact-tokens|compile-plan|sim-cap|power|stub-serve> [flags]")
 }
 
 // arrivalFlags are gen-trace's load flags, gathered so the choice between the two arrival models lives in one place.

@@ -439,7 +439,12 @@ NODEGROUP=""
 # floors is restated in this file. What it cannot check is anything that depends on results: whether an
 # engine starts, whether the card fits two of them, or what any latency will be.
 if [ -n "${PLAN_ONLY:-}" ]; then
-  [ -n "$LADDER" ] || fail "PLAN_ONLY is only implemented for a ladder; the frozen matrix's plan is its arm list"
+  # It used to refuse everything but a ladder, and that refusal was the gap.
+  #
+  # The frozen matrix's CELLS are built from ARMS x REPS and carry the same six fields a rung's do, so the
+  # loop below already worked for them; only this line stopped it. Meanwhile the wrapper ran the check only
+  # when LADDER was set, so a frozen run had no pre-purchase plan check at all and DRY_RUN's success -- which
+  # checks the user-data and not the plan -- was the only thing that looked like one.
   if [ -n "${BENCHHARNESS_BIN:-}" ]; then
     [ -x "$BENCHHARNESS_BIN" ] || fail "BENCHHARNESS_BIN=$BENCHHARNESS_BIN is not an executable file"
     cp "$BENCHHARNESS_BIN" "$WORK/benchharness" || fail "could not take the shipped benchharness binary"
@@ -456,7 +461,13 @@ if [ -n "${PLAN_ONLY:-}" ]; then
   plan_failures=0
   # The baseline is checked too, at the rung the ladder would end on if it ran every rung. That is the
   # latest it can be bought, and the earliest this file can name it.
-  for spec in "${CELLS[@]}" "BASELINE"; do
+  #
+  # ONLY the ladder has a cell its rung list does not describe. The frozen matrix buys R1 as an arm like any
+  # other, so synthesising one here would check a cell called rung00-R1 -- a name the sharing study does not
+  # admit -- and the whole frozen plan would be refused for a cell the run never intended to buy.
+  plan_specs=("${CELLS[@]}")
+  [ -z "$LADDER" ] || plan_specs+=("BASELINE")
+  for spec in "${plan_specs[@]}"; do
     if [ "$spec" = BASELINE ]; then
       for s2 in "${CELLS[@]}"; do
         IFS='|' read -r _ _ _ cell_rate cell_weight cell_rung <<<"$s2"
@@ -475,7 +486,21 @@ if [ -n "${PLAN_ONLY:-}" ]; then
       --timeout-ms "$REQUEST_TIMEOUT_MS" \
       --trace-out "$WORK/plan-$cell_label.jsonl" --manifest-out "$WORK/plan-$cell_label.yaml" >/dev/null \
       || { echo "PLAN REFUSED: gen-trace could not build $cell_label's trace" >&2; plan_failures=$(( plan_failures + 1 )); continue; }
-    if ! out=$("$WORK/benchharness" ladder-plan-check --trace "$WORK/plan-$cell_label.jsonl" --study "$STUDY" --arm "$cell_label" 2>&1); then
+    # The two experiments ask DIFFERENT questions of the same artefact, and their floors differ.
+    #
+    # The ladder holds the contender at a fixed count across rungs and needs 500 premium offers; asking that
+    # of a frozen cell refuses it for "varying two things at once", which it is not doing. The frozen matrix
+    # varies the topology at one load and needs MinTailSamples per REPETITION, because a cell is a repetition
+    # and RegisteredEstimandFor refuses an arm whose smallest repetition tail falls below that floor.
+    #
+    # --arms carries the whole plan on every cell, because "is the isolated baseline in this run at all" is a
+    # question about the SET and no single cell's trace can answer it.
+    if [ -n "$LADDER" ]; then
+      plan_cmd=(ladder-plan-check --trace "$WORK/plan-$cell_label.jsonl" --study "$STUDY" --arm "$cell_label")
+    else
+      plan_cmd=(matrix-plan-check --trace "$WORK/plan-$cell_label.jsonl" --study "$STUDY" --arm "$cell_label" --arms "$ARMS")
+    fi
+    if ! out=$("$WORK/benchharness" "${plan_cmd[@]}" 2>&1); then
       echo "PLAN REFUSED: $out" >&2
       plan_failures=$(( plan_failures + 1 ))
       continue

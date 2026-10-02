@@ -461,9 +461,13 @@ harness-check: ## Run the self-contained test harnesses under hack/test/ that ne
 	@# driver. README.md rests its claim of coverage on two of them, so the repository's own account of what
 	@# it checks depended on scripts no gate executed -- the same shape `make spot-lifecycle` was added to close.
 	@#
-	@# Only the two that are genuinely self-contained are here. Both lay out a repository shape in a mktemp
-	@# directory and clean it up, need no cluster, no card, no credentials and no third-party Python, and
-	@# finish in about two seconds together.
+	@# Only the ones that are genuinely self-contained are here. Each lays out its own state in a mktemp
+	@# directory and cleans it up, and needs no cluster, no card, no credentials and no third-party Python.
+	@#
+	@# The first two finish in about two seconds together. check-matrix-plan-refusals.sh is slower -- it
+	@# builds cmd/benchharness and then generates every planned cell's trace for five plans -- and that is
+	@# stated rather than hidden, because the thing it pins is a refusal that must arrive before a paid run
+	@# and the alternative was no gate at all. It is bounded: no network, no retries, no waiting on a port.
 	@#
 	@# check-ladder-refusals.sh is NOT here, and the reason is worth writing down rather than calling it slow:
 	@# it passes 28 checks and then stops at step 9, which runs `benchharness replay --target
@@ -472,7 +476,7 @@ harness-check: ## Run the self-contained test harnesses under hack/test/ that ne
 	@# in a CI gate would hang the build, and a gate that hangs gets deleted rather than fixed.
 	@#
 	@# The three rehearse-* scripts build a real kind cluster and do not belong in a CI gate at all.
-	@fail=0; for t in hack/test/capture-evidence-test.sh hack/test/plot-device-observation-test.sh; do \
+	@fail=0; for t in hack/test/capture-evidence-test.sh hack/test/plot-device-observation-test.sh hack/test/check-matrix-plan-refusals.sh; do \
 		bash "$$t" || { echo "harness-check: $$t failed" >&2; fail=1; }; \
 	done; \
 	if [ "$$fail" != "0" ]; then exit 1; fi
