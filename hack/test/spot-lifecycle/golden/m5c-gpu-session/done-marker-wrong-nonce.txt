@@ -57,6 +57,7 @@ FAIL: the completion marker at s3://stub-bucket/run-<NONCE>/DONE says 'deadbeef'
 ./instance-id
 ./launch-errors.txt
 ./plan-check/evidence.log
+./purpose.txt
 ./source.tgz
 ./termination.txt
 ./user-data.sh

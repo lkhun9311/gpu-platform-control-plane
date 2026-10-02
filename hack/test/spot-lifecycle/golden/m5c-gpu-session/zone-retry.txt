@@ -85,6 +85,7 @@ gateway checksum: user-data matches the uploaded binary
 ./plan-check/evidence.log
 ./preflight-node-cards.txt
 ./preflight-nvidia-smi.csv
+./purpose.txt
 ./source.tgz
 ./termination.txt
 ./user-data.sh

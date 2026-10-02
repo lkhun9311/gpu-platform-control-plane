@@ -11,3 +11,4 @@ aws configure export-credentials --format process
 == credentials expire in 719 min (asked of the active provider); this session needs about 290 plus 30 of headroom
 FAIL: the working tree is dirty. This session records a commit as the provenance of its numbers. Commit, or set REQUIRE_CLEAN_TREE=0 and accept that the archive will not match the tree you are looking at
 --- files
+./purpose.txt

@@ -63,6 +63,7 @@ FAIL: the instance finished and these preflight files never arrived: preflight-n
 ./launch-errors.txt
 ./log.txt
 ./plan-check/evidence.log
+./purpose.txt
 ./source.tgz
 ./termination.txt
 ./user-data.sh

@@ -61,6 +61,7 @@ FAIL: a launch in ap-northeast-2a gave no classifiable answer after 3 attempts; 
 ./gateway
 ./launch-errors.txt
 ./plan-check/evidence.log
+./purpose.txt
 ./source.tgz
 ./termination.txt
 ./user-data.sh

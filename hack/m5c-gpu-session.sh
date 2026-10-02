@@ -255,9 +255,9 @@ case "${PURPOSE:-}" in
 esac
 # Said out loud, because a declaration nobody can read afterwards is not a declaration.
 #
-# This lands in the wrapper's transcript and in the golden, so the purpose of every characterized run is
-# visible beside what it did. Writing it into the archive itself is the other half and is tracked separately:
-# $OUT does not exist yet at this point, and creating it here would move a directory check that runs later.
+# This lands in the wrapper's transcript. The archive copy is written where $OUT is created, a few hundred
+# lines below -- not here, because this guard runs before anything is created and that ordering is the point
+# of it. A run refused here leaves no directory, which is correct: nothing was bought.
 if [ "$PURPOSE" = "reproduction" ]; then
   say "purpose: reproduction of ${REPRODUCES}"
 else
@@ -304,6 +304,24 @@ LAUNCH_IDENTITY=$(openssl rand -hex 16 2>/dev/null \
 [ "${#LAUNCH_IDENTITY}" -eq 32 ] \
   || fail "no source of 128 random bits (openssl and /dev/urandom both refused), so a launch could not be named well enough to be recovered. Nothing was launched."
 mkdir -p "$OUT"
+
+# The declared purpose, written into the run's OWN directory.
+#
+# The guard near the top refuses a purchase that declares neither question, and announces the declaration
+# with `say`. That announcement lives in this shell's transcript and nowhere else -- and a declaration that
+# exists only in a terminal is not evidence. The archive is what a later reader has, and "it was announced at
+# the time" has exactly the standing of the registration that said "reproduction" while nothing checked it.
+#
+# No timestamp. This file is transcribed into the characterization goldens, so a clock in it would make every
+# golden differ on every run, and a golden that differs for no behavioural reason is one that gets
+# regenerated without being read.
+{
+  printf 'purpose: %s\n' "$PURPOSE"
+  case "$PURPOSE" in
+    reproduction)    printf 'reproduces: %s\n' "${REPRODUCES:-}" ;;
+    new-measurement) printf 'hypothesis: %s\nstoppingRule: %s\n' "${HYPOTHESIS:-}" "${STOPPING_RULE:-}" ;;
+  esac
+} > "$OUT/purpose.txt"
 
 say "study  M5-c sharing matrix -- does giving each tenant its own engine on a shared card protect the tail"
 # The arm list as it is, not "R1 plus" it. R1 is now IN the list, and the old wording printed it twice.

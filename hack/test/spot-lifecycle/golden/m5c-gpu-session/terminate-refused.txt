@@ -84,6 +84,7 @@ TERMINATION UNCONFIRMED for i-0stub
 ./plan-check/evidence.log
 ./preflight-node-cards.txt
 ./preflight-nvidia-smi.csv
+./purpose.txt
 ./source.tgz
 ./termination.txt
 ./user-data.sh

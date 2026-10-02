@@ -45,6 +45,7 @@ FAIL: every zone refused g5.2xlarge with UnauthorizedOperation, not for want of 
 ./gateway
 ./launch-errors.txt
 ./plan-check/evidence.log
+./purpose.txt
 ./source.tgz
 ./termination.txt
 ./user-data.sh
