@@ -55,6 +55,15 @@ latency instead.** Both sharing modes missed a pre-registered 2x bar at that loa
 the contender byte-identical the same `timeSlicing` arm *passes* at 1.16 and 2.31 requests a second and
 breaches at 4.61.
 
+⚠️ **A five-repetition run at the longer prompt reversed that arm, and the reversal is published.** On
+2026-10-02 the same three arms were bought again — fifteen cells, `hack/m5c-20261002-014903`, commit
+`b97d88e` — and `timeSlicing` came back at **14,868 ms against `shared`'s 4,001**, which is 3.7x *worse* than
+the control it beats in the table above. The answer changed from `5 (timeSlicing)` to `3`
+(**INCONCLUSIVE**). The arrival schedule was identical; the premium prompt was **294 tokens instead of 50**
+and the timeout 60s instead of 30s, which is the leading explanation and is not separated from the timeout
+change. So the row above is **one load's result and is not stable across loads** — see
+`docs/superpowers/specs/2026-09-10-does-splitting-the-card-buy-protection.md`, "The result, 2026-10-02".
+
 ⚠️ **That pilot ran a different load, and the two tables must not be combined.** It predates the input-length
 resolution: its premium prompts were 200 characters — the generator's flag default, which the tokenizer
 counts as 68 tokens and which corresponds to no `inputTokens` declaration at all — with `timeoutMs` 30,000

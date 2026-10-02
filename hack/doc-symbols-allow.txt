@@ -50,6 +50,7 @@ scripts/demo-06-failure-injection.sh	docs/06 lists it under "To fill" as work no
 docs/superpowers/plans/2026-08-12-queuelab-teardown-executor.md	.gitignore keeps docs/superpowers/plans/ local -- working material, not published; the residue-consumer design quotes the open item it closed
 hack/m5c-20260912-084918	the output directory of the 2026-09-12 paid M5-c run, cited beside its commit ce0bb8e; run outputs are not committed
 hack/m5c-20260913-011031	the output directory of the 2026-09-13 paid M5-c run, cited beside its commit 85ae2fa; run outputs are not committed
+hack/m5c-20261002-014903	the output directory of the 2026-10-02 paid M5-c run, cited beside its commit b97d88e; run outputs are not committed
 hack/pop-20260908-015929	the output directory of a 2026-09-08 price-of-protection run, cited as the evidence for reading 4b; run outputs are not committed
 hack/pop-20260908-030550	as hack/pop-20260908-015929 -- another repetition of the same dated run
 hack/pop-20260908-044443	as hack/pop-20260908-015929 -- another repetition of the same dated run

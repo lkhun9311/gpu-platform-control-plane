@@ -1329,3 +1329,93 @@ be visible in the plan" was a precondition for starting, and it is now a consequ
 reproduction run rather than a gate on it. The plan check that makes fifteen cells visible was still worth
 building — it refuses a below-floor plan before anything is rented, which is the failure it was asked to move
 off the card — but it is not evidence that five is the right number.
+
+## The result, 2026-10-02: the reproduction run did not reproduce
+
+Three arms, **five repetitions**, fifteen cells, collected at `b97d88e` on an A10G in ap-northeast-2d.
+3.09 hours, about **$2.16**, inside a spending ceiling of $5.13. Fifteen of fifteen cells completed with no
+shed requests and no timeouts.
+
+```
+ANSWER: 3        splitting the card changes nothing that matters -- INCONCLUSIVE
+```
+
+The ninth pilot's answer, which this page quotes above and which `README.md` and `docs/11` cite, is
+`ANSWER: 5 (timeSlicing)`. **This run does not reproduce it.** Both archives were re-scored with the same
+binary, so this is not an analysis-version artefact.
+
+| | ninth pilot (2 reps, 6 cells) | this run (5 reps, 15 cells) |
+| --- | ---: | ---: |
+| `R1` median of per-repetition p99 | 69.540 ms | **174.268 ms** |
+| `shared` | 1892.852 ms | **4000.579 ms** |
+| `timeSlicing` | 1008.079 ms | **14868.019 ms** |
+| registered B / C | 70 / 1893 | 174 / 4001 |
+| registered ratio | 27.043 | 22.994 |
+| reading that fired | 5 | **3** |
+
+**The baseline itself moved.** All three arms are slower — `R1` by 2.5x, `shared` by 2.1x — so "time-slicing
+regressed" is the wrong sentence on its own. What is specific to `timeSlicing` is that it moved by **14.7x**,
+far beyond the common factor, and stopped improving on the control at all. Reading 3's detail says exactly
+that:
+
+> the best sharing arm improves the control's premium TTFT p99 by **0.0 ms** against a
+> repetition-to-repetition spread of 3.9 ms
+
+In the ninth pilot `timeSlicing` beat `shared` 1,008 against 1,893 ms, which is why reading 5 fired. Here it
+is 14,868 against 4,001 — **3.7x worse than the control it was supposed to improve on.**
+
+### Each run is internally consistent, so this is a between-run difference
+
+`R1`'s five repetitions span 173.579–174.393 ms, a width of 0.8 ms. `timeSlicing`'s span 14,351–15,078 ms.
+The ninth pilot's two repetitions were likewise tight. Neither run is noisy against itself; they disagree
+with each other. **Five repetitions is what makes that statement available** — two could not have supported
+it, which is the one thing the extra repetitions bought.
+
+### What is ruled out, and what cannot be compared
+
+**The loads are not the same, and the first draft of this section said they were.** The arrival schedule is
+identical — `RATE=9.4045`, weights `1 / 0.0260 / 0`, `DURATION_MS=505000`, seed 11 — which is why the plan
+check's predicted offer counts, 4,655 premium and 139 contender per cell, match both archives exactly. What
+each request carries does not:
+
+| | ninth pilot | this run |
+| --- | ---: | ---: |
+| premium prompt | **50 tok** (200 chars) | **294 tok** (1,174 chars) |
+| contender prompt | 10,000 tok | 10,645 tok |
+| `timeoutMs` | 30,000 | 60,000 |
+| `traceChecksum`, `R1` rep 1 | `98efa634…` | `499a5e4d…` |
+
+**That is the leading explanation and this page should say so rather than calling the difference
+unexplained.** `docs/11_WHAT_THIS_MEASURED.md` already attributes the baseline's move — 69.5 ms at 50 tokens,
+174 ms at 294 — to exactly this, and the same mechanism bears on `timeSlicing`: a 6x heavier prefill meets a
+split engine whose KV cache is a quarter the size (93,200 against 369,680 tokens). It is not established,
+because the prompt length and the timeout moved together and nothing here separates them. Writing "the load
+tuple is identical" after checking only the rate, the weights and the duration was the error this paragraph
+replaces.
+
+Ruled out by measurement: the engine configuration is byte-identical in both runs (split engines at
+`gpu_memory_utilization 0.475`, `max_num_seqs 32`, KV 93,200 tokens; whole-card engines at `0.9`, `64`, KV
+369,680 tokens), the card model is identical (A10G, 23,028 MiB), and the prompt corpus is the same
+(`promptCorpusSHA dec102070158…`). The instance type is g5.2xlarge here, and was the default at the ninth
+pilot's collection commit with no override recorded, which is a weak exclusion rather than a measurement.
+
+Also different: the kernel, `6.8.0-1063-aws` against `6.8.0-1064-aws`. Its effect is not measured.
+
+**Two things cannot be compared at all, and both are recording gaps this page should own.** The ninth pilot's
+manifests carry no engine image digest, because the code that fills `imageDigests` landed on 2026-09-16 and
+that run was 2026-09-13. And neither run records a driver version, because the preflight asks
+`nvidia-smi --query-gpu=index,name,memory.total` and never requests `driver_version`. Those are the two
+candidates **behind** the prompt length, and they are the ones this project cannot rule in or out from its own
+archives at all — so even if the prefill explanation is right, nothing here measures how much of the 14.7x it
+accounts for.
+
+### What this run does NOT license
+
+It does not retract the ninth pilot. Two runs disagree; one of them is not thereby wrong, and this page will
+not pick the one it prefers. It also does not license buying a third run to break the tie: the 2026-10-02
+amendment forbids exactly that — "원하는 답이나 CI를 얻기 위한 추가 구매는 하지 않는다".
+
+What it does establish is narrower and worth stating plainly: **`ANSWER: 5 (timeSlicing)` is not stable across
+runs on this card**, and any claim resting on it has to say which pilot it came from. The amendment required
+publication within 48 hours of the session ending (04:54Z 2026-10-02) whatever the outcome, and this section
+is that publication.

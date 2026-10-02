@@ -194,3 +194,102 @@ one request, and it does not remove it. The stronger guarantee is the one the pr
 the load, the rounding, the percentile convention and the readings were all frozen before the run, in
 dated amendments, and `hack/m5c-gpu-session.sh` buys the whole thing again from a commit. A measurement is
 believable because the protocol is specified well enough to redo, not because its logs are auditable.
+
+## The 2026-10-02 reproduction run, and why its answer differs
+
+A five-repetition reproduction run of the frozen matrix — `R1`, `shared`, `timeSlicing`, fifteen cells,
+collected at `b97d88ebfb97bf1b8cced34ceae5c4b5c4388270` on an A10G in ap-northeast-2d for about $2.16.
+It is published here because the 2026-10-02 amendment to the pre-registration requires every outcome to
+be published, and this one **disagrees with the release**.
+
+**Fifteen of fifteen cells completed**, with **0 shed requests and 0 timeouts** in every arm and 23,275
+premium completions per arm, so there is no missing cell and no interruption to account for. The session ended
+at 04:54:42Z on 2026-10-02 and the amendment's deadline for publishing the outcome, whatever it was, is 48
+hours after that. Nothing was bought a second time to obtain a different answer.
+
+```
+ANSWER: 3        splitting the card changes nothing that matters -- INCONCLUSIVE
+```
+
+The `evidence-m5c-2026-10-01` release's answer, from the ninth pilot, is `ANSWER: 5 (timeSlicing)`.
+Both archives were re-scored with the SAME binary for this comparison, so the difference is not an
+analysis-version difference:
+
+| | ninth pilot (2 reps) | this run (5 reps) |
+|---|---|---|
+| `R1` median of per-repetition p99 | 69.540 ms | 174.268 ms |
+| `shared` | 1892.852 ms | 4000.579 ms |
+| `timeSlicing` | 1008.079 ms | 14868.019 ms |
+| registered B / C / ratio | 70 / 1893 / 22.994 → see note | 174 / 4001 / 22.994 |
+| shed, timeouts | 0, 0 | 0, 0 |
+| premium completions per arm | 9,310 | 23,275 |
+
+⚠️ The ninth pilot's registered ratio is **27.043**; the 22.994 in the right-hand column is this run's.
+They are different runs and the two must not be quoted as one.
+
+**This run is a later analysis version**, not a reproduction of the release. Per the table above in
+"The analysis version these figures reproduce under", a run scored by a later tree is labelled as such.
+
+**The loads are NOT the same, and an earlier draft of this section said they were.** The arrival schedule is
+identical — `RATE=9.4045`, weights `1 / 0.0260 / 0`, `DURATION_MS=505000`, seed 11 — which is why both runs
+offer 4,655 premium and 139 contender requests per cell. What each request *carries* differs:
+
+| | ninth pilot | this run |
+|---|---|---|
+| premium prompt | **50 tok** (200 chars) | **294 tok** (1,174 chars) |
+| contender prompt | 10,000 tok | 10,645 tok |
+| `timeoutMs` | 30,000 | 60,000 |
+| `traceChecksum` (R1 rep 1) | `98efa634…` | `499a5e4d…` |
+
+That is the same difference `docs/11_WHAT_THIS_MEASURED.md` already names for the isolated baseline: `R1` is
+69.5 ms at 50 tokens and 174 ms at 294. It is the leading candidate for the `timeSlicing` change too — a 6x
+heavier prefill against a split engine whose KV cache is 4x smaller (93,200 against 369,680 tokens) — but the
+prompt length and the timeout moved together, so this run does not separate them. The first draft of this
+section called the load identical after checking only the rate, the weights and the duration.
+
+Ruled out by measurement: the engine configuration is identical in both runs (split engines at
+`gpu_memory_utilization 0.475`, `max_num_seqs 32`, KV 93,200 tokens; whole-card engines at `0.9`, `64`,
+KV 369,680 tokens), the card model is identical (A10G, 23,028 MiB), and the prompt corpus is the same
+(`promptCorpusSHA dec102070158…` in both). What else differs: the kernel (`6.8.0-1063-aws` against
+`6.8.0-1064-aws`).
+
+What **cannot** be compared, and why — both are recording gaps rather than losses:
+
+- **The engine image.** This run records `vllm/vllm-openai@sha256:0a51ea5b4ae2dc5d81890e5173f54203d2a3ae0cfffe51b8fd2afd4391bfd967`.
+  The ninth pilot's manifests carry no `imageDigests` at all: the code that fills them landed on
+  2026-09-16 and the ninth pilot ran on 2026-09-13.
+- **The driver version.** Neither run has one, because the preflight asks
+  `nvidia-smi --query-gpu=index,name,memory.total` and never requests `driver_version`.
+
+### Per-file digests, 2026-10-02 run
+
+```
+0ce34e0d7c4546d4f09ce10fc60c6cc0196970c39f14c61801054a424cb488b9  readings.txt
+f1bbf2f98726910d022df4e6e154291712156f0380a071b12b6fdedc2aba0942  commit.txt
+d3252e764072afa0080f82f94b23fc1d85799ea579422faef5d32a655a06f6b3  termination.txt
+86d1147a7cd26362797cac5a3b531e242ac3f10685927ce1301c329ae61d109c  instance-id
+efe782528ad5881a020ada587e07146f9e05aea9543146618c8dc25112df5675  log.txt
+f323d5723db925f938a90bc21a26dbef67a72a83847c64d1a1959e1f588bccae  evidence.tgz
+89029053bdd20658b1732492d663294960ca8dc3372f78cab7cf468ac1a62cbf  nodes.txt
+c14f2a0e73a445e046c99d0197feba2d02af81e008d77feb1b4a57265c1f5e6d  preflight-nvidia-smi.csv
+0d1f875deec9a84a1d1e91a608343d3b1c63db90effdc0a7962dcda2fd511d39  preflight-node-cards.txt
+6ea37a340b7e184c2ace1ec0e647f3eabcfcdc12a95acf4ae4eaa661607bdf60  m5c-run/raw-R1-1.jsonl
+395c7c49d216f5dfdd9aa00637d23621d0e79fb28e0aed7eb93dc940adcfe124  m5c-run/raw-R1-2.jsonl
+4c2bc215d8f98be0d4a28283607899e61c377907d7f45f780f27d9adcb58817d  m5c-run/raw-R1-3.jsonl
+478a688347dc89ef19cca2c8a00779941400493bb2aff319b488de5a0142b7c4  m5c-run/raw-R1-4.jsonl
+07be2f357647144ac708788240cfc90c17b7f5d5baa5c1706f3cd63c0719f21b  m5c-run/raw-R1-5.jsonl
+f60bf375493ade53d360e50df714820b1f9b6fdf17883df3053f5598a49d7a16  m5c-run/raw-shared-1.jsonl
+a5b8ca34a5f7009a2100dfa9f209cff6b49cdbb2b8d77bbf44d7ccc97d2d58de  m5c-run/raw-shared-2.jsonl
+d5102a8fd1eebd8fcd62e2d39a616be8bb2b2b9c59303fab004986cd57c18acf  m5c-run/raw-shared-3.jsonl
+815550d6d4561029053f92d0e7e03b7091cb1620e419e76de41e5f80a5ec0fa6  m5c-run/raw-shared-4.jsonl
+597252f4cc1bdcd6eb2624b9bbe218f35bcbca805ec99395346435f36df48098  m5c-run/raw-shared-5.jsonl
+2c6fd762bc32d977f159aa7233c2c7822b78f2db187de850308bee512d81150c  m5c-run/raw-timeSlicing-1.jsonl
+25755dcc413c4e654a6fd0f913793958acd9267586830ca32d535f0fb5cb541e  m5c-run/raw-timeSlicing-2.jsonl
+2ad23c0d02a646c45eb42fb143f4816aa43a9a76c2070c6da43dd5ac3371ecd8  m5c-run/raw-timeSlicing-3.jsonl
+f74b8b6cde71c519475cc6875a37bdfb060a57b8db9cfedbd52be6e50c7bf830  m5c-run/raw-timeSlicing-4.jsonl
+16ba209a4feadfa181121fa8a42c7802817ab7b19c1000eaa427834f6e73933f  m5c-run/raw-timeSlicing-5.jsonl
+```
+
+`readings.txt` is not written by the run. The session wrapper deliberately does not evaluate the
+readings on the instance — it prints the command instead — so that file is the output of
+`benchharness report --raw …` over the fifteen raw files, pinned into the archive after the run.

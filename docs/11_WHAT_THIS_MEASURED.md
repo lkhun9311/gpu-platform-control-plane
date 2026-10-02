@@ -95,6 +95,18 @@ so this table and the ten-cell table below are **different loads and cannot be c
 | `shared` | 1,892.2 ms | 27.2x | 89.1 ms | 4.9x | 278/278 | 0 |
 | `timeSlicing` | **1,007.5 ms** | **14.5x** | 44.1 ms | 2.42x | 278/278 | 0 |
 
+⚠️ **The `timeSlicing` row reversed when the same three arms were bought at the longer prompt.** On
+2026-10-02, fifteen cells (`hack/m5c-20261002-014903`, commit `b97d88e`, five repetitions) measured
+`R1` 174.268 ms, `shared` 4,000.579 ms and `timeSlicing` **14,868.019 ms** — the split card 3.7x *worse* than
+the single shared engine, where here it is 1.9x better. The registered answer went from `5 (timeSlicing)` to
+**`3`, INCONCLUSIVE**: the best sharing arm improved the control by 0.0 ms against a 3.9 ms spread.
+
+The same explanation this page gives below for the baseline applies to it — the premium prompt is 50 tokens
+here and 294 there — and it is not established, because the timeout moved from 30s to 60s in the same step.
+Each run is tight against itself (`R1` spans 0.8 ms across five repetitions there), so the two runs disagree
+rather than either being noisy. **The row above is this load's result.** Published in full, including the
+disagreement, under the pre-registration's 2026-10-02 amendment.
+
 ### Finding 3b: under the frozen contract, one competing tenant costs 23.0x — and the split card is unmeasured there
 
 Ten cells, five repetitions of `R1` and `shared`, 2026-10-01, $1.44. Premium prompts of **1,174
