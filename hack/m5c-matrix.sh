@@ -498,7 +498,15 @@ if [ -n "${PLAN_ONLY:-}" ]; then
     if [ -n "$LADDER" ]; then
       plan_cmd=(ladder-plan-check --trace "$WORK/plan-$cell_label.jsonl" --study "$STUDY" --arm "$cell_label")
     else
-      plan_cmd=(matrix-plan-check --trace "$WORK/plan-$cell_label.jsonl" --study "$STUDY" --arm "$cell_label" --arms "$ARMS")
+      plan_cmd=(matrix-plan-check --trace "$WORK/plan-$cell_label.jsonl" --study "$STUDY" --arm "$cell_label" --arms "$ARMS"
+                --manifest "$WORK/plan-$cell_label.yaml")
+      # REPRODUCES names the archive this run claims to repeat, and is absent for a run that claims nothing.
+      #
+      # Appended rather than always passed, so a run making no claim invokes exactly the command it did
+      # before this existed. The 2026-10-02 run was registered as a reproduction of the 2026-09-13 pilot and
+      # offered a 294-token premium prompt against that pilot's 50; every check here passed it, because they
+      # ask whether a cell is scorable and not whether it is the same load as a named prior run.
+      [ -z "${REPRODUCES:-}" ] || plan_cmd+=(--reproduces "$REPRODUCES")
     fi
     if ! out=$("$WORK/benchharness" "${plan_cmd[@]}" 2>&1); then
       echo "PLAN REFUSED: $out" >&2

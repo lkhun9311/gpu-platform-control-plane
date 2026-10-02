@@ -943,6 +943,11 @@ if [ -n "$LADDER" ]; then
   plan_env+=(LADDER="$LADDER" LADDER_STUDY="${LADDER_STUDY:-}")
 else
   plan_env+=(ARMS="$ARMS" REPS="$REPS" RATE="$RATE" NOISY_WEIGHT="$NOISY_WEIGHT")
+  # And the reproduction claim, when the caller makes one.
+  #
+  # Unset means "this run claims to repeat nothing", which is the only honest default: the claim belongs in
+  # the registration and the enforcement belongs here, before the card is rented.
+  [ -z "${REPRODUCES:-}" ] || plan_env+=(REPRODUCES="$REPRODUCES")
 fi
 if ! env "${plan_env[@]}" bash hack/m5c-matrix.sh; then
   fail "the purchase plan was refused before launch, and nothing was rented. The refusals above name the cell and the reason"

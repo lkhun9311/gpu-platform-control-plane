@@ -238,9 +238,129 @@ else
   fi
 fi
 
+say "9. does a run that CLAIMS to reproduce a prior run get refused when its load differs?"
+# THE CHECK THAT WOULD HAVE STOPPED A PAID RUN.
+#
+# On 2026-10-02 a five-repetition matrix was registered as a reproduction of the 2026-09-13 pilot and offered a
+# 294-token premium prompt against that pilot's 50, with a 60-second timeout against its 30. Every refusal
+# above passed it, because they ask whether a cell is SCORABLE and not whether it is the same load as the run
+# it names. $2.16 bought a measurement whose headline purpose was unmeasurable, and the mismatch was found
+# while drafting the publication.
+#
+# The target here is SYNTHESISED rather than read from an archive. The two real archives are gitignored run
+# outputs, so a CI checkout has neither, and a section that skipped there would be a section that never runs
+# where it matters. gen-trace builds a target with the provenance fields filled, because a target missing them
+# refuses for the UNKNOWN reason before the load is ever compared -- which is correct, and is case 9e below.
+TGT="$WORK/target"
+mkdir -p "$TGT"
+gen_target() { # gen_target <dir> <timeout-ms> <premium-chars> [--no-provenance]
+  local dir="$1" timeout="$2" chars="$3" prov=1
+  [ "${4:-}" = "--no-provenance" ] && prov=0
+  local extra=()
+  [ "$prov" = 1 ] && extra=(--tokenizer-rev aa8e72537993ba99e69dfaafa59ed015b17504d1
+                            --engine-image "vllm/vllm-openai@sha256:$(printf '0%.0s' $(seq 64))"
+                            --gateway-image "gateway:t@sha256:$(printf 'a%.0s' $(seq 64))"
+                            --gateway-sha 0123456789abcdef0123456789abcdef01234567)
+  mkdir -p "$dir"
+  "$WORK/benchharness" gen-trace --seed 11 --duration-ms "$FULL_DURATION" --rate "$RATE" \
+    --premium-weight 1 --noisy-weight "$NOISY_WEIGHT" --probe-weight 0 \
+    --study sharing-matrix-2026-09-10 --arm shared --model Qwen/Qwen2.5-3B-Instruct \
+    --gateway-url http://127.0.0.1:18080 \
+    --premium-prompt-chars "$chars" --noisy-prompt-chars 42579 \
+    --premium-output-tokens 64 --noisy-output-tokens 16 --timeout-ms "$timeout" "${extra[@]}" \
+    --trace-out "$dir/trace-shared-1.jsonl" --manifest-out "$dir/manifest-shared-1.yaml" >/dev/null
+}
+# The plan side, which every case below compares against one of the targets.
+PLAN="$WORK/plan-rp"
+gen_target "$PLAN" 60000 1174
+# rp_case <what> <want|ok> <target dir> [extra args...]
+rp_case() {
+  local what="$1" want="$2" dir="$3"; shift 3
+  local out code
+  set +e
+  out=$("$WORK/benchharness" matrix-plan-check --trace "$PLAN/trace-shared-1.jsonl" \
+        --study sharing-matrix-2026-09-10 --arm shared --arms "R1 shared timeSlicing" \
+        --manifest "$PLAN/manifest-shared-1.yaml" --reproduces "$dir" "$@" 2>&1)
+  code=$?
+  set -e
+  if [ "$want" = ok ]; then
+    [ "$code" = 0 ] && ok "$what is accepted" || bad "$what was refused: $(printf '%s' "$out" | head -1)"
+    return
+  fi
+  if [ "$code" = 0 ]; then bad "$what was ACCEPTED as a reproduction"; return; fi
+  printf '%s' "$out" | grep -q "$want" \
+    && ok "$what is refused, naming it" \
+    || bad "$what exited $code without saying ${want@Q}: $(printf '%s' "$out" | head -1)"
+}
+
+gen_target "$TGT/same" 60000 1174
+rp_case "a plan matching its target" ok "$TGT/same"
+
+gen_target "$TGT/timeout" 30000 1174
+rp_case "a plan whose timeout differs" "timeoutMs is 30000 in the target run and 60000 in this plan" "$TGT/timeout"
+
+# The 2026-10-02 defect itself: 50 tokens against 294, which is 200 characters against 1,174.
+#
+# It must be refused by NAME, not by the checksum. A different prompt length always changes the trace bytes,
+# so a checksum comparison placed first would refuse this with "not byte-identical" -- true, and useless to
+# an operator who has to decide what to change. The first version of this file asserted the wrong one and
+# caught it: the refusal said traceChecksum and the assertion wanted promptLenChars.
+gen_target "$TGT/prompt" 60000 200
+rp_case "the prompt length that was missed for real money" "promptLenChars" "$TGT/prompt"
+printf '%s' "$($WORK/benchharness matrix-plan-check --trace "$PLAN/trace-shared-1.jsonl" \
+  --study sharing-matrix-2026-09-10 --arm shared --arms "R1 shared timeSlicing" \
+  --manifest "$PLAN/manifest-shared-1.yaml" --reproduces "$TGT/prompt" 2>&1 || true)" \
+  | grep -q 'premium-1 was 200 characters and is now 1174' \
+  && ok "and it names the tenant and both lengths" \
+  || bad "the prompt-length refusal does not name premium-1 with 200 and 1174, so it does not say what to change"
+
+gen_target "$TGT/bare" 60000 1174 --no-provenance
+rp_case "a target that recorded no provenance" "cannot be certified" "$TGT/bare"
+printf '%s' "$($WORK/benchharness matrix-plan-check --trace "$PLAN/trace-shared-1.jsonl" \
+  --study sharing-matrix-2026-09-10 --arm shared --arms "R1 shared timeSlicing" \
+  --manifest "$PLAN/manifest-shared-1.yaml" --reproduces "$TGT/bare" 2>&1 || true)" \
+  | grep -q 'UNKNOWN' \
+  && ok "and it says UNKNOWN rather than reporting no difference" \
+  || bad "the refusal for an unrecorded field does not say UNKNOWN, so it reads as 'nothing differs'"
+
+# --manifest is required WITH --reproduces, because the claim is about the load this plan would offer.
+set +e
+out=$("$WORK/benchharness" matrix-plan-check --trace "$PLAN/trace-shared-1.jsonl" \
+      --study sharing-matrix-2026-09-10 --arm shared --arms "R1 shared timeSlicing" \
+      --reproduces "$TGT/same" 2>&1)
+code=$?
+set -e
+[ "$code" != 0 ] && printf '%s' "$out" | grep -q 'needs --manifest' \
+  && ok "--reproduces without --manifest is refused rather than skipped" \
+  || bad "--reproduces without --manifest did not refuse (exit $code): $(printf '%s' "$out" | head -1)"
+
+# An explicitly empty --reproduces is a caller's mistake and must not read as "claims nothing".
+#
+# A mutation made the matrix pass `--reproduces "${REPRODUCES:-}"` unconditionally and no test noticed, which
+# means a shell that interpolated an unset variable would have claimed nothing and passed.
+set +e
+out=$("$WORK/benchharness" matrix-plan-check --trace "$PLAN/trace-shared-1.jsonl" \
+      --study sharing-matrix-2026-09-10 --arm shared --arms "R1 shared timeSlicing" \
+      --manifest "$PLAN/manifest-shared-1.yaml" --reproduces "" 2>&1)
+code=$?
+set -e
+[ "$code" != 0 ] && printf '%s' "$out" | grep -q 'empty value' \
+  && ok "an explicitly empty --reproduces is refused, not read as claiming nothing" \
+  || bad "--reproduces \"\" behaved like omitting the flag (exit $code): $(printf '%s' "$out" | head -1)"
+
+# And a plan that claims NOTHING must behave exactly as it did before this existed.
+set +e
+out=$("$WORK/benchharness" matrix-plan-check --trace "$PLAN/trace-shared-1.jsonl" \
+      --study sharing-matrix-2026-09-10 --arm shared --arms "R1 shared timeSlicing" 2>&1)
+code=$?
+set -e
+[ "$code" = 0 ] && printf '%s' "$out" | grep -q 'scorable' && ! printf '%s' "$out" | grep -q 'matches' \
+  && ok "a plan claiming no reproduction is unaffected" \
+  || bad "a plan with no --reproduces changed behaviour (exit $code): $(printf '%s' "$out" | head -1)"
+
 echo
 if [ "$failures" = "0" ]; then
-  say "MATRIX PLAN REFUSALS PINNED: fifteen cells, the per-repetition tail floor, the missing denominator, the ladder unchanged, and the backstop still ahead of the deadline."
+  say "MATRIX PLAN REFUSALS PINNED: fifteen cells, the per-repetition tail floor, the missing denominator, the ladder unchanged, the backstop still ahead of the deadline, and a reproduction claim checked against the load it names."
 else
   echo "FAILED: $failures assertion(s) above." >&2
   exit 1
