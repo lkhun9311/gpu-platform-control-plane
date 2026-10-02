@@ -101,7 +101,10 @@ plan_case "the three-arm five-repetition matrix" ok \
 printf '%s' "$LAST_PLAN_OUT" | grep -q 'plan: 15 cell(s)' \
   && ok "the plan says fifteen cells" \
   || bad "the plan does not say fifteen cells: $(printf '%s' "$LAST_PLAN_OUT" | grep -o 'plan: [0-9]* cell(s)' | head -1)"
-scorable=$(printf '%s' "$LAST_PLAN_OUT" | grep -c 'scorable')
+# `|| true` for the same reason as section 8's: a plan that reported NO scorable cell would make grep -c
+# print 0 and exit 1, pipefail would end the script here, and the assertion written for that case would not
+# run. The worst outcome must be the one it reports, not the one it cannot reach.
+scorable=$(printf '%s' "$LAST_PLAN_OUT" | grep -c 'scorable' || true)
 [ "$scorable" = 15 ] \
   && ok "all fifteen cells were individually checked" \
   || bad "$scorable cells reported scorable, not 15; a plan check that silently skips cells is worse than none"
@@ -156,7 +159,7 @@ say "6. does the SESSION WRAPPER run the check on every run, not only for a ladd
 # The behavioural cover for this is hack/test/spot-lifecycle: its twenty recorded m5c-gpu-session
 # transcripts are frozen-matrix runs, and they show the plan check running. What is asserted here is the one
 # thing a transcript cannot show -- that no `if` stands between the wrapper and the check.
-plan_line=$(grep -n 'env "${plan_env\[@\]}" bash hack/m5c-matrix.sh' hack/m5c-gpu-session.sh | head -1)
+plan_line=$(grep -n 'env "${plan_env\[@\]}" bash hack/m5c-matrix.sh' hack/m5c-gpu-session.sh | head -1 || true)
 [ -n "$plan_line" ] || bad "the wrapper no longer invokes the matrix in PLAN_ONLY mode by that name; this check cannot see it"
 if [ -n "$plan_line" ]; then
   # Column 0 means top level. A line indented by anything is inside a block, and the block this used to sit
@@ -177,9 +180,52 @@ leftover=$(find "$WORK/tmp" -mindepth 1 -maxdepth 1 | wc -l)
   && ok "the plan checks left no work directory behind" \
   || bad "the plan checks left $leftover work director(ies) behind; each holds a benchharness copy, and /tmp is tmpfs"
 
+say "8. does the instance's own backstop still fire BEFORE the deadline this shell waits for?"
+# THE ORDERING IS THE WHOLE POINT, and nothing asserted it.
+#
+# BACKSTOP_SECONDS is 17400 and HARD_STOP_SECONDS is 16800, and the ten-minute lead exists so that a shell
+# which dies -- a closed laptop, a killed terminal -- still leaves a timer inside the instance to stop the
+# billing. The wrapper's comment says the ordering "was VERIFIED rather than assumed on 2026-10-01", and
+# that verification was a person reading two line numbers. Nothing re-ran it, and in the meantime a comment
+# added to that file moved every line below it by sixteen.
+#
+# So it is measured here, on the user-data golden, which is the artefact an instance actually receives.
+UD=hack/test/spot-lifecycle/golden/m5c-gpu-session/user-data.sh
+if [ ! -f "$UD" ]; then
+  bad "the user-data golden is missing, so the backstop ordering cannot be measured"
+else
+  # `|| true` is not decoration: this script runs under `set -o pipefail`.
+  #
+  # grep exits 1 when it matches nothing, pipefail raises that to the pipeline, and the assignment then
+  # aborts the script at this line. The checks below -- including the one written for exactly the case where
+  # the number is gone -- never run, and a harness reading only "did section 8 print a FAIL" calls that a
+  # pass. Changing 17400 to 9000 was silently accepted the first time for this reason.
+  b_line=$(grep -n 'sleep 17400' "$UD" | head -1 | cut -d: -f1 || true)
+  d_line=$(grep -n 'DEADLINE_EPOCH=\$((' "$UD" | head -1 | cut -d: -f1 || true)
+  if [ -z "$b_line" ] || [ -z "$d_line" ]; then
+    bad "the user-data no longer arms a 17400s backstop and a 16800s deadline by those numbers; found backstop=${b_line:-none} deadline=${d_line:-none}"
+  elif [ "$b_line" -ge "$d_line" ]; then
+    bad "the backstop is armed at line $b_line and the deadline at $d_line: the shell's timer is no longer the one that fires first, so a dead shell would leave the card billing until the backstop"
+  else
+    ok "the backstop is armed at line $b_line, ahead of the deadline at $d_line"
+    # Between the two there must be nothing that can fail, return or exit.
+    #
+    # A ten-minute lead measured in seconds is only a lead if both timers START. Anything between them that
+    # can abort leaves the instance with the backstop armed and no deadline, or -- if the order ever flips --
+    # a deadline and no backstop.
+    # Zero is the PASSING value here, and `grep -c` prints it and then exits 1 -- which under pipefail ends
+    # the script before the comparison. The healthy case was the one that aborted.
+    between=$(sed -n "$((b_line+1)),$((d_line-1))p" "$UD" \
+              | grep -vE '^\s*$|^\s*#' | grep -cvE '^[A-Za-z_][A-Za-z0-9_]*=' || true)
+    [ "$between" = 0 ] \
+      && ok "and nothing but variable assignment stands between them, so the lead survives intact" \
+      || bad "$between line(s) between the backstop and the deadline are not plain assignments; one of them failing would arm only one timer"
+  fi
+fi
+
 echo
 if [ "$failures" = "0" ]; then
-  say "MATRIX PLAN REFUSALS PINNED: fifteen cells, the per-repetition tail floor, the missing denominator, and the ladder unchanged."
+  say "MATRIX PLAN REFUSALS PINNED: fifteen cells, the per-repetition tail floor, the missing denominator, the ladder unchanged, and the backstop still ahead of the deadline."
 else
   echo "FAILED: $failures assertion(s) above." >&2
   exit 1
