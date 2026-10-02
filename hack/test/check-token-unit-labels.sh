@@ -1,6 +1,25 @@
 #!/usr/bin/env bash
-# Pins the UNIT a published prompt size is stated in: the engine's own count, with the gateway's estimate
-# labelled wherever it appears.
+# A WORDING REGRESSION CHECK for the two input-token units, plus two definitions the prose depends on.
+#
+# The name matters and the first version of this file overstated it. It said it "pins the unit a published
+# prompt size is stated in", and a review on 2026-10-02 broke it with five sentences in under a minute:
+#
+#   The prefill grew 5.9x.
+#   The premium prompt was **294 tokens**; the gateway build changed.
+#   The contender prompt was 10645 tokens.
+#   The premium prompt was 295 tokens.
+#   The premium prompt was 294 input tokens.
+#
+# All five passed. The first carries the estimate's MULTIPLIER rather than its value; the second was exempted
+# because the word "gateway" appeared anywhere on the line; the third uses the contender's estimate, which was
+# never in the pattern; the fourth is off by one; the fifth puts a word between the number and "tokens".
+# Three of those five are fixed below. "5.9x" and "295" are not, and cannot be by this method -- a grep over
+# prose cannot know which numbers are estimates.
+#
+# So this check does ONE thing honestly: it stops the exact wordings that were already published and
+# corrected from coming back. It is not a guard against the defect class, and the closing line says so.
+# The structural fix -- generating published figures from a table tied to archive, tenant, field and
+# aggregation -- is registered as an open issue rather than pretended here.
 #
 # WHY THIS EXISTS
 #
@@ -39,16 +58,26 @@ say() { echo "== $*"; }
 ok()  { echo "   ok: $*"; }
 bad() { echo "   FAIL: $*" >&2; failures=$(( failures + 1 )); }
 
-# The three shapes the defect actually took, rather than every shape it could take.
+# The shapes the defect actually took, plus the three the review's bypasses showed were missing.
 #
 # "294 tokens" / "294-token" was the common one; "at 294" appeared with a latency attached ("69.5 ms at 50
 # tokens and 174 ms at 294"), which carries no "tok" at all; and "294 against 50" appeared in a table
-# caption. 68 and 256 are the engine's numbers and must NOT match -- they are what the fix uses.
-ESTIMATE_CITED='(\b(50|294)[ -]?(tok|tokens)\b|\bat (50|294)\b|\b(50|294) (against|instead of)\b)'
+# caption. Added after the review: the contender's estimates (10,000 and 10,645), and an interposed word
+# ("294 input tokens"), which the adjacency requirement missed.
+#
+# 68, 256, 7,695 and 8,192 are the engine's numbers and must NOT match -- they are what the fix uses.
+#
+# What is deliberately NOT here: "5.9x" and near-misses like "295". A multiplier derived from the estimate is
+# not distinguishable from any other multiplier by pattern, and widening to bare numbers would flag every
+# figure in the documents. That gap is the reason this file is named a regression check.
+ESTIMATE_CITED='(\b(50|294|10,?000|10,?645)([ -]?[a-z]+)?[ -]?(tok|tokens)\b|\bat (50|294)\b|\b(50|294) (against|instead of)\b)'
 
-# An estimator label anywhere on the same line exempts it. `estInputTokens` and `ceil(` are the precise
-# forms; "estimate" and "gateway" catch the prose ones.
-ESTIMATE_LABEL='estInputTokens|ceil\(|estimate|gateway'
+# An estimator label anywhere on the same line exempts it.
+#
+# "gateway" was in this list and had to come out: "The premium prompt was **294 tokens**; the gateway build
+# changed" was exempted by a word that says nothing about which estimator produced 294. What remains names
+# the estimator itself -- the field, the formula, or the word "estimate".
+ESTIMATE_LABEL='estInputTokens|ceil\(|estimate'
 
 # offenders ROOT -- prints "path:lineno:text" for each publication line citing an estimate without a label.
 #
@@ -122,6 +151,16 @@ if grep -qE 'meta\.EstInputTokens = \(totalChars \+ 3\) / 4' internal/gateway/pr
 else
   bad "proxy.go no longer computes (totalChars + 3) / 4; docs/12's explanation of estInputTokens is stale"
 fi
+# The HARNESS computes the number that lands in the evidence, and checking only the gateway missed that.
+#
+# raw rows do not copy the gateway's score: internal/bench/replay.go:253 calls its own estimator, which is
+# bench.EstInputTokensForChars. So the gateway formula could stay and the recorded estInputTokens still
+# change, with this section green -- a review found it on 2026-10-02. Both are pinned now.
+if grep -qE 'return \(promptLenChars \+ 3\) / 4' internal/bench/replay.go; then
+  ok "internal/bench/replay.go still computes the same ceil(chars/4) for the recorded rows"
+else
+  bad "EstInputTokensForChars no longer computes (promptLenChars + 3) / 4, so the estimate in the evidence is not the one docs/12 describes"
+fi
 if grep -qE 'EngineInputTokens:[[:space:]]*res\.PromptTokens' internal/bench/replay.go; then
   ok "internal/bench/replay.go still records what the engine reported"
 else
@@ -137,21 +176,43 @@ fi
 # reason, rather than living in a glob nobody reads.
 say "3. the pre-registrations keep their original wording"
 spec=docs/superpowers/specs/2026-09-10-does-splitting-the-card-buy-protection.md
+# A COUNT, not a presence test, and the floor is the number that was there when this was written.
+#
+# "at least one matching line plus the amendment title" was the first version, and a review pointed out that
+# it would pass with the original paragraphs almost entirely deleted. A drop below the floor is either a
+# silent rewrite of a registration or a deliberate edit that has to come with a dated correction and a new
+# floor here.
+#
+# The floor is MEASURED, not guessed: it was written as 6 from memory and the widened pattern actually
+# matches 7 -- the contender's "10,000 tok" line. A floor one below the truth lets exactly one registration
+# line disappear in silence, which is the hole this floor exists to close.
+PRESERVED_FLOOR=7
 preserved=$(grep -cE "$ESTIMATE_CITED" "$spec" || true)
-if [ "$preserved" -ge 1 ]; then
-  ok "$preserved preserved line(s) in the sharing pre-registration are untouched by this check"
+if [ "$preserved" -ge "$PRESERVED_FLOOR" ]; then
+  ok "$preserved preserved line(s) in the sharing pre-registration, at or above the floor of $PRESERVED_FLOOR"
 else
-  bad "no preserved estimate citation found in $spec -- it may have been silently rewritten"
+  bad "the sharing pre-registration carries $preserved preserved estimate citation(s) against a floor of $PRESERVED_FLOOR -- registration text was removed without raising the floor"
 fi
-if grep -q 'the unit a prompt size is published in' "$spec"; then
-  ok "the sharing pre-registration carries the dated amendment that fixes the unit"
-else
-  bad "$spec has no amendment fixing the unit; the preserved lines then have nothing correcting them"
-fi
+# The corrections have to still be there, not just their headings.
+#
+# Checking for the amendment title alone passed while its body could be gone. These three phrases are the
+# load-bearing sentences of the two dated corrections: the unit rule, the withdrawal of the timeout as a
+# rival explanation, and the arithmetic correction to the repetition spread.
+for phrase in \
+  'the unit a prompt size is published in' \
+  'The timeout, which earlier' \
+  'Corrected 2026-10-02'; do
+  if grep -qF "$phrase" "$spec"; then
+    ok "the dated correction still says ${phrase@Q}"
+  else
+    bad "$spec no longer contains ${phrase@Q}, so a correction's heading may be standing without its body"
+  fi
+done
 
 echo
 if [ "$failures" = "0" ]; then
-  say "TOKEN UNIT LABELS PINNED: publications state the engine's count, the estimate is labelled where it appears, both definitions still hold, and the pre-registrations keep their wording."
+  say "TOKEN UNIT WORDINGS PINNED: the corrected phrasings have not come back, both estimator definitions still compute ceil(chars/4), and the pre-registrations keep their preserved lines and their dated corrections."
+  say "NOT established by this check: that every published prompt size is in the engine's unit. A multiplier such as \"5.9x\", or a near-miss such as \"295 tokens\", passes -- see the header. The structural fix is an open issue."
 else
   echo "FAILED: $failures assertion(s) above." >&2
   exit 1
