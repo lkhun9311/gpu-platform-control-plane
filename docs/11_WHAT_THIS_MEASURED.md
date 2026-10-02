@@ -104,8 +104,10 @@ the single shared engine, where here it is 1.9x better. The registered answer we
 The same explanation this page gives below for the baseline applies to it — the premium prompt is 68 tokens
 here and 256 there, by the engine's own report on every premium row of both archives — and it is not
 established, because the timeout moved from 30s to 60s in the same step.
-Each run is tight against itself (`R1` spans 0.8 ms across five repetitions there), so the two runs disagree
-rather than either being noisy. **The row above is this load's result.** Published in full, including the
+Each run is tight against itself — on 2026-10-02 `R1`'s five repetitions span 171.882 to 175.269 ms, a width
+of **3.4 ms**, and the control `shared` spans 3.9 ms — so the two runs disagree rather than either being
+noisy. An earlier version of this sentence said 0.8 ms, which was the row's first and last value rather than
+its extremes. **The row above is this load's result.** Published in full, including the
 disagreement, under the pre-registration's 2026-10-02 amendment.
 
 ### Why these ratios are a paired comparison, and what their narrowness does not say
@@ -134,7 +136,7 @@ the premise and therefore prove nothing about the check.
 | | |
 |---|---|
 | The two runs cannot be combined | The 2026-10-02 archive's offered-traffic digest is `443db0939d9846de` and the ninth pilot's is `52df4f52668151e2`. Different offered traffic, so their ratios are not repetitions of one experiment |
-| The narrow spread is the machine's, not the GPU's | On 2026-10-02 the five `shared`/`R1` ratios span **0.458** (23.041 to 23.284) and the five `timeSlicing`/`shared` ratios span **0.181**. Identical offered traffic means that spread is one card, one instance, one session replaying one trace — it is not variation over loads, seeds, cards or sessions |
+| The narrow spread is the machine's, not the GPU's | On 2026-10-02 the five `shared`/`R1` ratios span **0.458** (22.827 to 23.284) and the five `timeSlicing`/`shared` ratios span **0.181**. Identical offered traffic means that spread is one card, one instance, one session replaying one trace — it is not variation over loads, seeds, cards or sessions |
 | It is a range, not an interval | Five values of a statistic are an observed range. No confidence interval is published for this study; `RegisteredEstimand.RatioCI` is computed and withheld until a dated amendment settles the replicate-rounding convention |
 
 ### Finding 3b: under the frozen contract, one competing tenant costs 23.0x — and the split card is unmeasured there

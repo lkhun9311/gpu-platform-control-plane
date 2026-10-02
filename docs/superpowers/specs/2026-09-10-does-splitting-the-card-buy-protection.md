@@ -1406,10 +1406,17 @@ is 14,868 against 4,001 — **3.7x worse than the control it was supposed to imp
 
 ### Each run is internally consistent, so this is a between-run difference
 
-`R1`'s five repetitions span 173.579–174.393 ms, a width of 0.8 ms. `timeSlicing`'s span 14,351–15,078 ms.
-The ninth pilot's two repetitions were likewise tight. Neither run is noisy against itself; they disagree
-with each other. **Five repetitions is what makes that statement available** — two could not have supported
-it, which is the one thing the extra repetitions bought.
+`R1`'s five repetitions span 171.882–175.269 ms, a width of 3.4 ms, and the control `shared`'s span 3.9 ms.
+`timeSlicing`'s span 14,351–15,078 ms. The ninth pilot's two repetitions were likewise tight. Neither run is
+noisy against itself; they disagree with each other. **Five repetitions is what makes that statement
+available** — two could not have supported it, which is the one thing the extra repetitions bought.
+
+⚠️ **Corrected 2026-10-02 — arithmetic, not judgement.** This paragraph first read "span 173.579–174.393 ms,
+a width of 0.8 ms". Those are the row's FIRST and LAST values, not its extremes: repetition 2 is 175.269 ms
+and repetition 3 is 171.882 ms, so the width is 3.387 ms. The reading engine's own "spread of 3.9 ms" quoted
+just above is the control's, computed correctly from the same archive — so the prose contradicted the tool
+inside one run. The conclusion stands and is weaker than it read: about 3.4 ms of repetition width against a
+between-run disagreement of 14,868 ms against 1,008 ms.
 
 ### What is ruled out, and what cannot be compared
 
