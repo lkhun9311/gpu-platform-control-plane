@@ -707,15 +707,24 @@ func (c *Checks) invalidate(reason string) {
 // MaxRatioScatter is the per-repetition coefficient of variation past which the incremental interval stops
 // meaning what it says.
 //
-// A percentile bootstrap over a handful of values is anti-conservative once those values spread out. Against
-// this package's own BootstrapCI at four repetitions, a true ratio of 1.00 -- no effect at all -- clears the
-// pre-registered gate 10.2 percent of the time at a coefficient of variation of 0.20, and 1.8 percent at
-// 0.10, against a nominal 5. The bound sits between them.
+// ⚠️ It is RETAINED PROVISIONALLY and is not a validity boundary for the interval this gate now reads.
+//
+// The 0.15 was placed between false-PASS rates measured against this package's own BootstrapCI, which
+// bootstraps the MEAN of per-repetition ratios (cmd/benchharness/power.go:63). The 2026-10-01 amendment
+// replaced that with a paired BLOCK bootstrap of the pooled p99 ratio, and no coverage has been measured for
+// the new estimator at any scatter. So "benchharness power" output reproduces the REPLACED statistic and must
+// not be cited as validation of the current one.
+//
+// What still holds is narrow: with everything else fixed, the runs that pass with this rule are a subset of
+// those that pass without it, so it cannot raise the rate of a false PASS on one fixed experiment.
 //
 // The 2026-09-03 pilot measured 0.001 for the contended arms and 0.056 for the isolation-like ones, so this
 // is not expected to bind. It exists because the failure mode is a gate that PASSES when it should not, and
-// a run is not entitled to assume its variability stayed where the pilot's was. Reproduce the numbers with
-// "benchharness power".
+// a run is not entitled to assume its variability stayed where the pilot's was.
+//
+// The full argument, including which earlier claim the amendment withdrew, is beside the test that exercises
+// this function in report_test.go -- kept in one place on purpose, because the same correction was already
+// written there while this comment still asserted the old justification.
 const MaxRatioScatter = 0.15
 
 // RatioScatterTooHigh reports whether per-repetition ratios are too scattered for their bootstrap interval
