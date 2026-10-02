@@ -342,6 +342,70 @@ resolve_arrivals() {
     fail "study $STUDY registered independent arrivals, where each rung carries the premium and contender RATES and the probes are off; PREMIUM_WEIGHT=$PREMIUM_WEIGHT PROBE_WEIGHT=$PROBE_WEIGHT describe a weighted mix that would be ignored, so pass 1 and 0"
   fi
 }
+# refuse_unfrozen_load compares the load this run will OFFER against the tuple its study froze.
+#
+# The registration froze five quantities on 2026-10-01 -- premium and contender prompt characters, the
+# timeout, and both output caps -- and nothing compared them. Measured on 2026-10-02: every one of them
+# could be overridden on the command line and the pre-purchase plan check passed unchanged, and the CR path
+# enforced only the two lengths because compile-plan resolves those from the measured table while the
+# timeout and the caps come straight from the CR with no comparison at all.
+#
+# FIVE, not four. The output caps are two fields; counting them as one is how a check gets written for four
+# of them.
+#
+# The five variables compared here are the SAME variables both gen-trace calls read ($PREMIUM_PROMPT_CHARS
+# and friends, at the two call sites), and they are assigned once each where their defaults are declared.
+# So "the value checked" and "the value consumed" are the same shell variable rather than two copies that
+# could drift -- which is the thing a check like this most easily gets wrong.
+#
+# Studies that froze nothing are not exempted by silence: `study-frozen-tuple` REFUSES for them, and this
+# function treats that refusal as "no frozen tuple to enforce" only for a study that is registered. The
+# ladder reaches here with its own study id and its own lengths -- the down ladder registers a 40,000-char
+# contender against the matrix's 42,579 -- so enforcing the matrix tuple on the common path would wrongly
+# block a ladder that has never been bought.
+refuse_unfrozen_load() {
+  local out rc
+  set +e
+  out=$("$WORK/benchharness" study-frozen-tuple --study "$STUDY" 2>&1)
+  rc=$?
+  set -e
+  if [ "$rc" != 0 ]; then
+    # "froze no load tuple" is the only non-zero this may continue past, and only for a study the registry
+    # knows. Any other failure -- an unregistered study, a drift between the frozen characters and the
+    # resolution table, a binary that could not run -- is a refusal, because recovering to the defaults is
+    # exactly how an unchecked load reached a rented card.
+    case "$out" in
+      *"froze no load tuple"*)
+        say "study $STUDY froze no load tuple; the five load quantities are not compared for it"
+        return 0 ;;
+      *) fail "could not read study $STUDY's frozen load tuple: $out" ;;
+    esac
+  fi
+  # Sourced into locals rather than the global namespace, so a FROZEN_* name cannot be mistaken later for
+  # the value the run is actually offering.
+  local FROZEN_PREMIUM_PROMPT_CHARS="" FROZEN_NOISY_PROMPT_CHARS="" FROZEN_REQUEST_TIMEOUT_MS=""
+  local FROZEN_PREMIUM_OUTPUT_TOKENS="" FROZEN_NOISY_OUTPUT_TOKENS=""
+  eval "$(printf '%s\n' "$out" | grep -E '^FROZEN_[A-Z_]+=[0-9]+$' || true)"
+  local mismatch=0
+  for pair in \
+    "premium prompt characters|PREMIUM_PROMPT_CHARS|$PREMIUM_PROMPT_CHARS|$FROZEN_PREMIUM_PROMPT_CHARS" \
+    "contender prompt characters|NOISY_PROMPT_CHARS|$NOISY_PROMPT_CHARS|$FROZEN_NOISY_PROMPT_CHARS" \
+    "request timeout in ms|REQUEST_TIMEOUT_MS|$REQUEST_TIMEOUT_MS|$FROZEN_REQUEST_TIMEOUT_MS" \
+    "premium output cap|PREMIUM_OUTPUT_TOKENS|$PREMIUM_OUTPUT_TOKENS|$FROZEN_PREMIUM_OUTPUT_TOKENS" \
+    "contender output cap|NOISY_OUTPUT_TOKENS|$NOISY_OUTPUT_TOKENS|$FROZEN_NOISY_OUTPUT_TOKENS"; do
+    IFS='|' read -r label var have want <<<"$pair"
+    # An empty expectation means the lookup printed fewer than five assignments. That is a MISSING FIELD and
+    # not a pass: a comparison against "" would succeed for any value and report the load as frozen.
+    [ -n "$want" ] || fail "study $STUDY's frozen tuple did not carry the $label, so this run's $var could not be compared against it. The lookup printed: $out"
+    if [ "$have" != "$want" ]; then
+      echo "FROZEN LOAD MISMATCH: $label ($var) is $have and study $STUDY froze $want" >&2
+      mismatch=$(( mismatch + 1 ))
+    fi
+  done
+  [ "$mismatch" = 0 ] \
+    || fail "$mismatch of the five frozen load quantities differ from what study $STUDY registered, so this run would offer a load that study did not freeze and file the evidence under it anyway. Change the load back, or register a different study with a dated amendment."
+  say "load matches study $STUDY's frozen tuple (five quantities)"
+}
 set_load_flags() {
   case "$ARRIVALS" in
     weighted)    LOAD_FLAGS=(--rate "$1" --premium-weight "$PREMIUM_WEIGHT" --noisy-weight "$2" --probe-weight "$PROBE_WEIGHT") ;;
@@ -453,6 +517,12 @@ if [ -n "${PLAN_ONLY:-}" ]; then
     go build -o "$WORK/benchharness" ./cmd/benchharness || fail "build benchharness"
   fi
   resolve_arrivals
+  # The same check both paths run, before either generates a trace.
+  #
+  # PLAN_ONLY exists so a purchase can be refused before anything is rented, and a load that does not match
+  # the registration is exactly such a refusal. Running it only on the real path would mean the dry run
+  # approved a plan the real run then rejected -- or worse, approved one the real run also accepted.
+  refuse_unfrozen_load
   plan_top=0
   for spec in "${CELLS[@]}"; do
     IFS='|' read -r _ _ _ _ _ cell_rung <<<"$spec"
@@ -995,6 +1065,11 @@ else
   go build -o "$WORK/benchharness" ./cmd/benchharness || fail "build benchharness"
 fi
 resolve_arrivals
+# Before the first billable action, which is the docker build below.
+#
+# The binaries are ready on the line above and nothing has been created yet, so a mismatched load costs
+# nothing to refuse here. Placing it after the image build would make the refusal true and late.
+refuse_unfrozen_load
 printf 'FROM gcr.io/distroless/static:nonroot\nCOPY gateway /gateway\nUSER 65532:65532\nENTRYPOINT ["/gateway"]\n' > "$WORK/Dockerfile"
 # The image ID is CAPTURED, because it is the only thing that can name the gateway build in the record.
 #

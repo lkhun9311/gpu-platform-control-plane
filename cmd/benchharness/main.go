@@ -92,6 +92,8 @@ func main() {
 		err = matrixPlanCheck(os.Args[2:])
 	case "study-arrivals":
 		err = studyArrivals(os.Args[2:])
+	case "study-frozen-tuple":
+		err = studyFrozenTuple(os.Args[2:])
 	case "compile-plan":
 		err = compilePlan(os.Args[2:])
 	case "sim-cap":
@@ -109,7 +111,7 @@ func main() {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: benchharness <gen-trace|prepare-traces|replay|report|ladder-verdict|ladder-plan-check|matrix-plan-check|study-arrivals|print-prompt|check-replay|stamp-exact-tokens|compile-plan|sim-cap|power|stub-serve> [flags]")
+	fmt.Fprintln(os.Stderr, "usage: benchharness <gen-trace|prepare-traces|replay|report|ladder-verdict|ladder-plan-check|matrix-plan-check|study-arrivals|study-frozen-tuple|print-prompt|check-replay|stamp-exact-tokens|compile-plan|sim-cap|power|stub-serve> [flags]")
 }
 
 // arrivalFlags are gen-trace's load flags, gathered so the choice between the two arrival models lives in one place.
@@ -197,6 +199,44 @@ func studyArrivals(args []string) error {
 		return err
 	}
 	fmt.Println(model)
+	return nil
+}
+
+// studyFrozenTuple prints the five load quantities a study's pre-registration froze, as shell assignments.
+//
+// It exists so hack/m5c-matrix.sh compares the load it is about to offer against the registration instead of
+// holding a second copy of those numbers. Measured on 2026-10-02: every one of the four frozen quantities
+// could be overridden on the command line and the pre-purchase plan check passed unchanged, and the 15-cell
+// run of 2026-10-02 met the frozen premium length only because it inherited the script's default.
+//
+// A study that froze nothing is a REFUSAL rather than empty output. Printing nothing would let a caller that
+// forgot to check the exit status read "no constraints" out of silence, which is the failure this whole
+// command exists to stop one layer up.
+//
+// Drift is reported and not repaired: if the resolution table no longer resolves the frozen token counts to
+// the frozen characters, the registration and the table disagree and a human has to date an amendment.
+func studyFrozenTuple(args []string) error {
+	fs := flag.NewFlagSet("study-frozen-tuple", flag.ExitOnError)
+	study := fs.String("study", "", "registered study id")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	st, ok := bench.LookupStudy(*study)
+	if !ok {
+		return fmt.Errorf("study %q is not registered; known: %s", *study, strings.Join(bench.KnownStudyIDs(), ", "))
+	}
+	if st.Frozen == nil {
+		return fmt.Errorf("study %s froze no load tuple, so there is nothing to compare a run's load against", st.ID)
+	}
+	if d := st.Frozen.Drift(); d != "" {
+		return fmt.Errorf("study %s's frozen tuple no longer agrees with the measured resolution table -- %s. The registration froze characters; the table has moved. Date an amendment rather than letting the frozen value follow the table", st.ID, d)
+	}
+	f := *st.Frozen
+	fmt.Printf("FROZEN_PREMIUM_PROMPT_CHARS=%d\n", f.PremiumPromptChars)
+	fmt.Printf("FROZEN_NOISY_PROMPT_CHARS=%d\n", f.ContenderPromptChars)
+	fmt.Printf("FROZEN_REQUEST_TIMEOUT_MS=%d\n", f.TimeoutMs)
+	fmt.Printf("FROZEN_PREMIUM_OUTPUT_TOKENS=%d\n", f.PremiumOutputTokens)
+	fmt.Printf("FROZEN_NOISY_OUTPUT_TOKENS=%d\n", f.ContenderOutputTokens)
 	return nil
 }
 
@@ -389,6 +429,7 @@ func genTrace(args []string) error {
 		GatewaySHA:      *gatewaySHA,
 		TokenizerRev:    *tokenizerRev,
 		PromptLenChars:  bench.PromptLenCharsByTenant(rows),
+		MaxOutputTokens: map[string]int{bench.PremiumTenant: *premiumOut, bench.NoisyTenant: *noisyOut},
 	}
 	// Only set the map when something was supplied, so a free run's manifest carries no empty scaffolding
 	// that could later be mistaken for a recorded value.

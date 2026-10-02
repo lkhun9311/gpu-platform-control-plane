@@ -35,6 +35,64 @@ type Study struct {
 	// flags of the other model for a study that declares one, and hack/m5c-matrix.sh asks this registry
 	// rather than keeping a second copy of the answer in a shell variable.
 	Arrivals ArrivalModel
+
+	// Frozen is the load tuple the study's pre-registration fixed, or nil where none was frozen.
+	//
+	// Recorded here for the reason Arrivals is: the registration says these five values are frozen and
+	// nothing in the runner compared them, so a paid run could offer any load and file it under this study.
+	// Measured on 2026-10-02: four frozen quantities passed the pre-purchase plan check unchanged
+	// (premium 200, contender 40000, timeout 30000, caps 8/4), and the CR path enforced only the two
+	// lengths -- timeoutMs and both caps came straight from the CR with no comparison at all.
+	//
+	// The CHARACTERS are stored, not the token counts they were resolved from. Resolving at run time would
+	// mean the frozen value follows whatever the resolution table last returned, which is the opposite of
+	// freezing: the registration's promise is "the resolved characters are now frozen rather than whatever
+	// the resolver last returned". FrozenTuple.Drift compares the two and reports the difference instead.
+	Frozen *FrozenTuple
+}
+
+// FrozenTuple is the five load quantities a pre-registration can freeze.
+//
+// Five, not four. The output caps are two fields and counting them as one is how a check gets written for
+// four of them -- named here so the count is in the type rather than in prose.
+type FrozenTuple struct {
+	// PremiumPromptChars and ContenderPromptChars are CHARACTERS, as the generator is configured.
+	PremiumPromptChars   int
+	ContenderPromptChars int
+	// PremiumInputTokens and ContenderInputTokens are the declared counts those characters were resolved
+	// FROM, kept so a drift between the frozen characters and the current resolution table is reportable.
+	PremiumInputTokens    int
+	ContenderInputTokens  int
+	TimeoutMs             int
+	PremiumOutputTokens   int
+	ContenderOutputTokens int
+}
+
+// Drift names a frozen length whose declared token count no longer resolves to it, or "".
+//
+// This does NOT update anything. A table that has moved under a frozen registration is a fact a reader has
+// to be told, and silently adopting the new number would retire the registration without saying so.
+func (f FrozenTuple) Drift() string {
+	for _, c := range []struct {
+		side   string
+		tokens int
+		chars  int
+	}{
+		{"premium", f.PremiumInputTokens, f.PremiumPromptChars},
+		{"contender", f.ContenderInputTokens, f.ContenderPromptChars},
+	} {
+		if c.tokens == 0 {
+			continue
+		}
+		r, ok := ResolveInputTokens(c.tokens)
+		if !ok {
+			return fmt.Sprintf("%s: the frozen tuple declares %d input tokens and the resolution table no longer carries that count", c.side, c.tokens)
+		}
+		if r.Chars != c.chars {
+			return fmt.Sprintf("%s: the registration froze %d characters for %d tokens and the table now resolves that count to %d", c.side, c.chars, c.tokens, r.Chars)
+		}
+	}
+	return ""
 }
 
 // ArrivalModel names how a study's traces assign arrival times, which decides the gen-trace flags that may build them.
@@ -259,6 +317,20 @@ var studies = map[string]Study{
 	StudySharingMatrix: {
 		ID:   StudySharingMatrix,
 		Arms: []string{ArmR1, ArmShared, ArmTimeSlicing, ArmMPS},
+		// The seventh amendment's "What is frozen, from here", as data.
+		//
+		// docs/superpowers/specs/2026-07-04-gpusharingbenchmark-crd-design.md froze these five on
+		// 2026-10-01. The characters are the values that amendment recorded, not a fresh lookup: see
+		// Study.Frozen on why resolving them here would unfreeze them.
+		Frozen: &FrozenTuple{
+			PremiumPromptChars:    1174,
+			ContenderPromptChars:  42579,
+			PremiumInputTokens:    256,
+			ContenderInputTokens:  8192,
+			TimeoutMs:             60000,
+			PremiumOutputTokens:   64,
+			ContenderOutputTokens: 16,
+		},
 	},
 	StudyThroughputLadder: {
 		ID:       StudyThroughputLadder,

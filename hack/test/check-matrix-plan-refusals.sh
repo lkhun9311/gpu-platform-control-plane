@@ -415,9 +415,135 @@ set -e
   && ok "a plan claiming no reproduction is unaffected" \
   || bad "a plan with no --reproduces changed behaviour (exit $code): $(printf '%s' "$out" | head -1)"
 
+say "10. is a load that differs from the study's FROZEN TUPLE refused before anything is rented?"
+# THE FIVE QUANTITIES THE REGISTRATION FROZE AND NOTHING COMPARED.
+#
+# The seventh amendment froze premium and contender prompt characters, the request timeout, and both output
+# caps on 2026-10-01. Measured on 2026-10-02: every one of them could be overridden on the command line and
+# this very plan check passed unchanged. The CR path enforced only the two lengths -- compile-plan resolves
+# those from the measured table -- while the timeout and both caps came straight from the CR with no
+# comparison at all. So four of the five had no enforcement on any path, and the fifth only on one.
+#
+# FIVE, not four: the output caps are two fields. Counting them as one is how a check gets written for four.
+#
+# These cases run the matrix script itself rather than benchharness, because the thing under test is the
+# shell's comparison. They are cheap: a refused run exits before generating any trace, so only the control
+# below pays for trace generation, and it buys two cells rather than fifteen.
+fz_env=(PLAN_ONLY=1 BENCHHARNESS_BIN="$WORK/benchharness" ARMS="R1 shared" REPS=1
+        RATE="$RATE" PREMIUM_WEIGHT=1 NOISY_WEIGHT="$NOISY_WEIGHT" PROBE_WEIGHT=0
+        DURATION_MS="$FULL_DURATION" REGISTRY=stub.local/x)
+# fz_case <what> <want-in-output|ok> [extra env...]
+fz_case() {
+  local what="$1" want="$2"; shift 2
+  local out code
+  set +e
+  out=$(env "${fz_env[@]}" "$@" bash hack/m5c-matrix.sh 2>&1)
+  code=$?
+  set -e
+  if [ "$want" = ok ]; then
+    printf '%s' "$out" | grep -q "load matches study" \
+      && ok "$what reaches the plan with its load accepted" \
+      || bad "$what did not report a matching load (exit $code): $(printf '%s' "$out" | grep -iE 'mismatch|FAILED' | head -1)"
+    return
+  fi
+  if [ "$code" = 0 ]; then bad "$what was ACCEPTED"; return; fi
+  printf '%s' "$out" | grep -q "$want" \
+    && ok "$what is refused, naming it" \
+    || bad "$what exited $code without saying ${want@Q}: $(printf '%s' "$out" | grep -iE 'mismatch|FAILED' | head -1)"
+}
+
+fz_case "the frozen load" ok
+fz_case "a premium prompt length that is not frozen"   "premium prompt characters"  PREMIUM_PROMPT_CHARS=200
+fz_case "a contender prompt length that is not frozen" "contender prompt characters" NOISY_PROMPT_CHARS=40000
+fz_case "a timeout that is not frozen"                 "request timeout in ms"      REQUEST_TIMEOUT_MS=30000
+fz_case "a premium output cap that is not frozen"      "premium output cap"         PREMIUM_OUTPUT_TOKENS=8
+fz_case "a contender output cap that is not frozen"    "contender output cap"       NOISY_OUTPUT_TOKENS=4
+# The caps SWAPPED, which is the case a single combined check would pass: both values are still frozen
+# values, just assigned to the wrong tenants.
+fz_case "the two output caps swapped" "output cap" PREMIUM_OUTPUT_TOKENS=16 NOISY_OUTPUT_TOKENS=64
+
+# A failing, silent or short lookup must refuse rather than fall back to the script's defaults.
+#
+# Falling back is precisely how an unchecked load reached a rented card: hack/m5c-matrix.sh declares all five
+# as `${VAR:-default}`, so a comparison that gave up would leave the defaults in place and call them frozen.
+printf '#!/bin/sh\nexit 3\n' > "$WORK/fz-fail"; chmod +x "$WORK/fz-fail"
+fz_case "a frozen-tuple lookup that fails" "could not read study" BENCHHARNESS_BIN="$WORK/fz-fail"
+printf '#!/bin/sh\nexit 0\n' > "$WORK/fz-empty"; chmod +x "$WORK/fz-empty"
+fz_case "a frozen-tuple lookup that prints nothing" "did not carry the" BENCHHARNESS_BIN="$WORK/fz-empty"
+cat > "$WORK/fz-short" <<'SHORT'
+#!/bin/sh
+case "$1" in
+  study-frozen-tuple)
+    echo FROZEN_PREMIUM_PROMPT_CHARS=1174
+    echo FROZEN_NOISY_PROMPT_CHARS=42579
+    echo FROZEN_REQUEST_TIMEOUT_MS=60000
+    echo FROZEN_PREMIUM_OUTPUT_TOKENS=64
+    exit 0 ;;
+  study-arrivals) echo weighted; exit 0 ;;
+  *) exit 0 ;;
+esac
+SHORT
+chmod +x "$WORK/fz-short"
+fz_case "a frozen-tuple lookup missing one field" "contender output cap" BENCHHARNESS_BIN="$WORK/fz-short"
+
+# The CR path is not exempt. A compiled plan carries the five values as exports like any other caller, so
+# the same mismatch has to be refused there -- otherwise "it came from a CR" becomes a way around the tuple.
+fz_cr=(BENCHMARK_CR_SHA256=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+       BENCHMARK_CR_TOKENIZER_REV=aa8e72537993ba99e69dfaafa59ed015b17504d1
+       MODEL_REVISION=aa8e72537993ba99e69dfaafa59ed015b17504d1
+       PREMIUM_PROMPT_CHARS=1174 NOISY_PROMPT_CHARS=42579 REQUEST_TIMEOUT_MS=60000
+       PREMIUM_OUTPUT_TOKENS=64 NOISY_OUTPUT_TOKENS=16)
+fz_case "a compiled CR plan at the frozen load" ok "${fz_cr[@]}"
+fz_case "a compiled CR plan at an unfrozen premium length" "premium prompt characters" \
+  "${fz_cr[@]}" PREMIUM_PROMPT_CHARS=200
+
+# The LADDER registers its own lengths and must not be judged by the matrix's tuple.
+#
+# The down ladder's contender is 40,000 characters against the matrix's 42,579, and the ladder studies freeze
+# no tuple at all. A refusal keyed on the common gen-trace path would block a run that has never been bought.
+set +e
+out=$(env PLAN_ONLY=1 BENCHHARNESS_BIN="$WORK/benchharness" LADDER="1.16:0.3" \
+      PREMIUM_WEIGHT=1 PROBE_WEIGHT=0 DURATION_MS="$FULL_DURATION" REGISTRY=stub.local/x \
+      PREMIUM_PROMPT_CHARS=200 NOISY_PROMPT_CHARS=40000 bash hack/m5c-matrix.sh 2>&1)
+set -e
+printf '%s' "$out" | grep -q 'froze no load tuple' && ! printf '%s' "$out" | grep -q 'FROZEN LOAD MISMATCH' \
+  && ok "a ladder at its own lengths is not judged by the matrix's frozen tuple" \
+  || bad "the ladder was judged by the matrix tuple: $(printf '%s' "$out" | grep -iE 'mismatch|froze no' | head -1)"
+
+# AND THE REFUSAL IS AHEAD OF THE FIRST BILLABLE ACTION, asserted by ORDER rather than by running it.
+#
+# Reaching that line for real needs a cluster: between it and the matrix's own entry sit the node-join,
+# node-group, sharing-node, label, DEADLINE_EPOCH and ClusterRole guards. So the property is checked the way
+# section 8 checks the backstop's lead -- as a fact about the file -- and the thing it must exclude is a
+# future edit that moves the refusal after the build.
+fz_call=$(grep -n '^refuse_unfrozen_load$' hack/m5c-matrix.sh | tail -1 | cut -d: -f1 || true)
+# The EXECUTABLE line, not the comment that describes it.
+#
+# `grep -n 'docker build -q'` matched the explanatory comment twelve lines above the call and the
+# assertion then reported a build at 1076 that is a comment. The ordering conclusion survived -- the
+# refusal is ahead of both -- but the line it named was not the spend, and the gap it measured stopped
+# short of it.
+fz_build=$(grep -nE '^[^#]*docker build -q' hack/m5c-matrix.sh | head -1 | cut -d: -f1 || true)
+if [ -n "$fz_call" ] && [ -n "$fz_build" ] && [ "$fz_call" -lt "$fz_build" ]; then
+  ok "the real path's frozen-load refusal is at line $fz_call, ahead of the first docker build at $fz_build"
+else
+  bad "could not establish that the frozen-load refusal precedes the first billable action (refusal ${fz_call:-none}, build ${fz_build:-none})"
+fi
+# Nothing but a file write between them, so the refusal is not merely earlier -- it is immediately earlier.
+fz_between=$(awk -v a="${fz_call:-0}" -v b="${fz_build:-0}" \
+  'NR>a && NR<b && !/^[[:space:]]*#/ && NF && !/Dockerfile/' hack/m5c-matrix.sh | wc -l)
+[ "$fz_between" = 0 ] \
+  && ok "and nothing but the Dockerfile write stands between them" \
+  || bad "$fz_between executable line(s) appeared between the refusal and the image build; the refusal is no longer immediately ahead of the spend"
+# Both entry points call it, because a check on one path approves a plan the other would reject.
+fz_calls=$(grep -c 'refuse_unfrozen_load' hack/m5c-matrix.sh || true)
+[ "$fz_calls" -ge 3 ] \
+  && ok "both the plan-only and the real path call the refusal (${fz_calls} references including the definition)" \
+  || bad "refuse_unfrozen_load is referenced ${fz_calls} time(s); it must be defined and called on both paths"
+
 echo
 if [ "$failures" = "0" ]; then
-  say "MATRIX PLAN REFUSALS PINNED: fifteen cells, the per-repetition tail floor, the missing denominator, the ladder unchanged, the backstop still ahead of the deadline, and a reproduction claim checked against the load it names."
+  say "MATRIX PLAN REFUSALS PINNED: fifteen cells, the per-repetition tail floor, the missing denominator, the ladder unchanged, the backstop still ahead of the deadline, and a reproduction claim checked against the load it names, and a load that differs from the study's frozen tuple refused on both paths ahead of the first spend."
 else
   echo "FAILED: $failures assertion(s) above." >&2
   exit 1

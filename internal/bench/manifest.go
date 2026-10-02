@@ -138,6 +138,17 @@ type RunManifest struct {
 	// field and must keep loading. Making it required needs a schemaVersion branch, and there is no such
 	// branch anywhere yet -- both writers stamp the literal "v2" and nothing reads it.
 	PromptLenChars map[string]int `json:"promptLenChars,omitempty"`
+
+	// MaxOutputTokens is the per-tenant max_tokens cap this cell sent, keyed by tenant.
+	//
+	// Two of the five frozen quantities are the output caps, and until 2026-10-02 the manifest recorded
+	// neither: the caps reached the engine and then existed only as a per-row field in the trace, so the
+	// declared tuple a run was bought under could not be read back from its manifest. The lengths and the
+	// timeout were already here; these complete the five.
+	//
+	// omitempty and not required, for the reason PromptLenChars gives: six manifests from the ninth pilot
+	// predate the field and must keep loading.
+	MaxOutputTokens map[string]int `json:"maxOutputTokens,omitempty"`
 }
 
 // LoadManifest reads, validates, and returns the manifest at path.
