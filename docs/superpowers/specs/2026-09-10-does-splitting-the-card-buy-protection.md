@@ -1278,3 +1278,54 @@ deliberate act this paragraph records. The overlapping refusals left in `sharing
 deliberate: `RegisteredEstimandFor` would catch the same four conditions one call later, but its messages
 are about the median not being the registered B or C, while this reading's question is whether the load was
 too low.
+
+## Amendment, 2026-10-02: the stopping rule and the publication rule, fixed before the purchase
+
+The success criteria this page and the 3-arm design registered are **thresholds**. A threshold says what
+counts as a positive result; it does not say when collection stops, what happens to an incomplete cell, or
+whether an unwelcome outcome gets published. Those were unwritten, and an unwritten stopping rule is the one
+a result can change after the fact. This amendment fixes them before any card is rented.
+
+**This experiment was designed knowing the answer.** The ninth pilot published `ANSWER: 5 (timeSlicing)` on
+2026-09-13 and this plan was made afterwards. No sentence here turns that into a prior registration, and
+pretending otherwise would be the defect this page exists to avoid. What a registration can still do is close
+off the choices about data **not yet collected**, and state plainly that the design is prospective only with
+respect to those.
+
+### What is fixed
+
+| | |
+|---|---|
+| Arms and repetitions | `R1`, `shared`, `timeSlicing`, **5 repetitions each, 15 cells**, in one session. `mps` is excluded: it has failed to engage on this AMI three times and a fourth refusal costs a cell without adding one |
+| Load | `RATE=9.4045 PREMIUM_WEIGHT=1 NOISY_WEIGHT=0.0260 PROBE_WEIGHT=0 DURATION_MS=505000` — the tuple the 2026-10-01 ten-cell run used, read back from that archive's own `user-data.sh` |
+| Stopping | The plan completing, a **pre-named** operational failure, or `HARD_STOP_SECONDS=16800`. Nothing else. **No early stop because of what the numbers are doing, no added repetitions, no selective re-run of a failed cell** |
+| Incomplete data | The registered refusals apply as written. A cell below the per-repetition tail floor, a censored tail, or a missing arm makes the run `INVALID` or `NotEvaluable`; it is not dropped and the remainder is not re-scored as if it were complete |
+| Analysis version | This run is scored by the tree it is collected from, which is **a later analysis version than `cc920d34a574576eae320043dae90bdfcfff1fdd`**. Per `docs/12_EVIDENCE_CHECKSUMS.md` it is therefore labelled a later analysis and **not** a reproduction of the `evidence-m5c-2026-10-01` release |
+| Publication | **Every outcome** — agreement, disagreement, `INVALID`, `NotEvaluable`, and a matrix that did not finish — is published within **48 hours** of the session ending, with the raw rows and the reason any cell is missing. No further card is bought to obtain a different answer or a narrower interval |
+
+The 48 hours is an operational standard proposed here, not a methodological one.
+
+### What this purchase may and may not be called
+
+It is a **five-repetition reproduction run**. It is not a statistical confirmation, and three facts make that
+the honest name:
+
+- **Reading 5 is not an interval test.** It compares the best improvement over the control against the
+  control's own between-repetition spread (`bestImprovementOverShared`). The 3-arm design's "CI upper bound
+  below 1.0" belongs to M5-b's C/B estimand and must not be carried over to it.
+- **No interval is published.** `RegisteredEstimand.RatioCI` is computed and withheld: the seventh amendment
+  fixed the resample count, the seed and both conventions but not whether each replicate is rounded to
+  integer milliseconds, and at 174 ms a 1 ms quantisation is 0.6 percent — enough to move the bounds and to
+  place the point outside them. Until a dated amendment settles that, nothing publishes it.
+- **Five is a robustness judgement, not a power calculation.** The per-repetition median tolerates one extreme
+  value at three repetitions and two at five, and the paired-block bootstrap has 3, 10 and 126 unordered
+  resample compositions at 2, 3 and 5 blocks. None of that establishes that five reaches nominal coverage, and
+  five repetitions on one card in one session say nothing about reproducibility **across** cards.
+
+### The precondition that was withdrawn rather than met
+
+The consultation that produced these conditions also **withdrew one of its own**: "exactly fifteen cells must
+be visible in the plan" was a precondition for starting, and it is now a consequence of registering a
+reproduction run rather than a gate on it. The plan check that makes fifteen cells visible was still worth
+building — it refuses a below-floor plan before anything is rented, which is the failure it was asked to move
+off the card — but it is not evidence that five is the right number.
