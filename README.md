@@ -42,7 +42,8 @@ settles retroactively. "About 23.0x" is the only summary that does not depend on
 ### The earlier three-arm pilot, and why it is not the headline
 
 A ninth paid pilot (2026-09-13, `hack/m5c-20260913-011031`, commit `85ae2fa`) bought three arms at two
-repetitions each and is **the only run here that measured a split card**:
+repetitions each. It was the only run here that measured a split card **until 2026-10-02**, when the same
+three arms were bought at the longer prompt and that arm reversed — the ⚠️ below carries the result:
 
 | Arm | Victim TTFT p99 | vs isolated | Contender served | Timeouts |
 |---|---:|---:|---:|---:|
@@ -61,7 +62,9 @@ breaches at 4.61.
 the control it beats in the table above. The answer changed from `5 (timeSlicing)` to `3`
 (**INCONCLUSIVE**). The arrival schedule was identical; the premium prompt was **256 tokens instead of 68** —
 the count the engine itself reported on every premium row of both archives — and the timeout 60s instead of
-30s, which is the leading explanation and is not separated from the timeout change. So the row above is **one load's result**, and what the later run adds is that a different load gave a
+30s. The prompt length is the leading explanation; the timeout is not a rival for it, because the longest
+request either run completed is 19.752 s against the pilot's own 30 s ceiling, so raising it to 60 s censored
+nothing. So the row above is **one load's result**, and what the later run adds is that a different load gave a
 different answer — not a measurement of how the answer varies with load, and not a demonstration that this row
 is unstable. See `docs/superpowers/specs/2026-09-10-does-splitting-the-card-buy-protection.md`, "The result,
 2026-10-02".

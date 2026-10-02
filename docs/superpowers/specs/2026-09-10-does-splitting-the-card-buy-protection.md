@@ -1430,15 +1430,25 @@ each request carries does not:
 | premium prompt | **50 tok** (200 chars) | **294 tok** (1,174 chars) |
 | contender prompt | 10,000 tok | 10,645 tok |
 | `timeoutMs` | 30,000 | 60,000 |
-| `traceChecksum`, `R1` rep 1 | `98efa634…` | `499a5e4d…` |
+| `traceChecksum`, `R1` rep 1 | `98efa634…` | `1e91e051…` |
+| `traceChecksum`, `shared` rep 1 | `2e505da1…` | `499a5e4d…` |
 
 **That is the leading explanation and this page should say so rather than calling the difference
-unexplained.** `docs/11_WHAT_THIS_MEASURED.md` already attributes the baseline's move — 69.5 ms at 50 tokens,
-174 ms at 294 — to exactly this, and the same mechanism bears on `timeSlicing`: a 6x heavier prefill meets a
-split engine whose KV cache is a quarter the size (93,200 against 369,680 tokens). It is not established,
-because the prompt length and the timeout moved together and nothing here separates them. Writing "the load
-tuple is identical" after checking only the rate, the weights and the duration was the error this paragraph
-replaces.
+unexplained.** `docs/11_WHAT_THIS_MEASURED.md` already attributes the baseline's move — 69.5 ms at 68 tokens,
+174 ms at 256 — to exactly this, and the same mechanism bears on `timeSlicing`: 3.8x the premium input tokens
+per request meeting a split engine whose KV cache is a quarter the size (93,200 against 369,680 tokens). It
+is not established. Writing "the load tuple is identical" after checking only the rate, the weights and the
+duration was the error this paragraph replaces.
+
+⚠️ **Corrected 2026-10-02, after a second review.** This paragraph first said "69.5 ms at 50 tokens, 174 ms
+at 294" and "a 6x heavier prefill", both in the gateway's `ceil(chars/4)` unit rather than the engine's; and
+it said the prompt length and the timeout "moved together and nothing here separates them". **The timeout
+cannot be a rival explanation**: the longest request any run completed is 17.932 s (pilot), 10.498 s
+(2026-10-01) and 19.752 s (this run), all under the pilot's own 30,000 ms, and the timeout is a client-side
+context deadline (`internal/bench/httpsender.go:289`) that never reaches the engine. The KV difference is
+also not a between-run change — it is 93,200 tokens in both runs that bought the split arm. What stays
+unseparated is the contender's own length (1.065x per request, 1.681x of a cell's total input) and the
+environment the pilot did not record.
 
 Ruled out by measurement: the engine configuration is byte-identical in both runs (split engines at
 `gpu_memory_utilization 0.475`, `max_num_seqs 32`, KV 93,200 tokens; whole-card engines at `0.9`, `64`, KV
@@ -1540,14 +1550,18 @@ Measured across the raw rows of both archives, with no exceptions in either:
 ### What this changes
 
 The sections above state the premium prompt as **294 tokens against the pilot's 50**, which makes the
-prefill increase 5.9x. The engine prefilled **256 against 68**, which is **3.8x**. The estimate exists to be
-compared against an admission threshold — it is the number the gateway gated on, and it is kept for that —
-but a claim about how much prefill work a request carries is a claim about what the engine received. So:
+prefill increase 5.9x. The engine was given **256 against 68**, which is **3.8x** — a count of input tokens
+per premium request, not a measure of prefill time or GPU work. The estimate exists to be compared against an
+admission threshold — it is the number the gateway gated on, and it is kept for that — but a claim about what
+a request carried is a claim about what the engine received. So:
 
 - **Prompt sizes are published in the engine's own count.** Where the gateway's estimate appears it is named
   as the estimate on the same line.
 - The seventh amendment's `5.9x` (there, and in its frozen-tuple table's justification column) is **superseded
-  by 3.8x**. The frozen quantity itself does not move: the premium prompt is 1,174 characters either way.
+  by 3.8x**, and that figure is **premium input tokens per request**. The other two multipliers this evidence
+  supports are different numbers and must be named when used: contender input per request **1.065x**, and a
+  contended cell's total offered input **1.681x**. The frozen quantity itself does not move: the premium
+  prompt is 1,174 characters either way.
 - The seventh amendment attributes the pilot's `68 / 7,695` to "the calibration". That is **weaker than the
   evidence**: the pilot's own raw rows record both, by the same field as this run's.
 - `ANSWER: 3` was measured at a **256-token** premium prompt and `ANSWER: 5` at a **68-token** one. The
@@ -1560,6 +1574,9 @@ that use 294 and 50. A registration rewritten after the fact is worse than one t
 this amendment is dated for the same reason. `hack/test/check-token-unit-labels.sh` enforces the rule on the
 published documents, excludes this file by name, and asserts that these preserved lines are still here.
 
-It also does not claim the unit was the cause of anything. The timeout moved from 30s to 60s in the same
-step, and nothing here separates the two — restating the prefill change as 3.8x makes the leading explanation
-smaller than it was written, not better established.
+It also does not claim the unit was the cause of anything. Restating the premium input increase as 3.8x makes
+the leading explanation smaller than it was written, not better established. The timeout, which earlier
+paragraphs offered as the reason nothing could be separated, is **not** a candidate: no run came within
+10 seconds of the pilot's own 30,000 ms ceiling, and the timeout never reaches the engine. Removing a false
+rival does not promote the surviving one — the contender's length and the pilot's unrecorded environment are
+still uncontrolled.

@@ -225,12 +225,17 @@ analysis-version difference:
 | `R1` median of per-repetition p99 | 69.540 ms | 174.268 ms |
 | `shared` | 1892.852 ms | 4000.579 ms |
 | `timeSlicing` | 1008.079 ms | 14868.019 ms |
-| registered B / C / ratio | 70 / 1893 / 22.994 → see note | 174 / 4001 / 22.994 |
+| registered B / C / ratio | 70 / 1893 / **27.043** | 174 / 4001 / **22.994** |
 | shed, timeouts | 0, 0 | 0, 0 |
 | premium completions per arm | 9,310 | 23,275 |
 
-⚠️ The ninth pilot's registered ratio is **27.043**; the 22.994 in the right-hand column is this run's.
-They are different runs and the two must not be quoted as one.
+⚠️ The two ratios belong to different runs and must not be quoted as one. **An earlier version of this
+table printed 22.994 in the pilot column**, which is this run's value: the pilot's own registered ratio is
+1893/70 = **27.043**. A warning under a wrong cell does not correct it, so the cell is corrected.
+
+Both are the registered statistic, which rounds each arm's median to whole milliseconds before dividing
+(`internal/bench/estimand.go:90`). At raw precision this run's medians give **22.956**; that number is
+reported here beside the registered one and does not replace it.
 
 **This run is a later analysis version**, not a reproduction of the release. Per the table above in
 "The analysis version these figures reproduce under", a run scored by a later tree is labelled as such.
@@ -245,7 +250,8 @@ offer 4,655 premium and 139 contender requests per cell. What each request *carr
 | contender prompt | 40,000 chars, engine-reported 7,695 tok | 42,579 chars, engine-reported 8,192 tok |
 | the gateway's `estInputTokens` score, `ceil(chars/4)` | 50 / 10,000 | 294 / 10,645 |
 | `timeoutMs` | 30,000 | 60,000 |
-| `traceChecksum` (R1 rep 1) | `98efa634…` | `499a5e4d…` |
+| `traceChecksum`, `R1` rep 1 | `98efa634…` | `1e91e051…` |
+| `traceChecksum`, `shared` rep 1 | `2e505da1…` | `499a5e4d…` |
 
 **The token counts above are the engine's own, and an earlier draft of this table quoted the gateway's
 estimate instead.** Every row of both archives carries both numbers: `engineInputTokens`, which
@@ -253,14 +259,29 @@ estimate instead.** Every row of both archives carries both numbers: `engineInpu
 `ceil(chars/4)` score the admission decision is made on, which `internal/gateway/proxy.go:76` calls "never an
 exact count". They disagree about how much the load moved: by the gateway's score the premium prefill grew
 5.9x (estimate 294 against estimate 50), and by the engine's own count **3.8x** (256 against 68). The
-engine's number is the one that describes prefill work, so it is the one the prose uses. The estimate stays in the table because it is what
+engine's number is the one the engine was actually given, so it is the one the prose uses — and it is a
+**token count, not a measure of prefill time or GPU work**. Three multipliers follow from it and they are
+different quantities: premium input tokens per request **3.765x**, contender per request **1.065x**, and the
+total input offered in a contended cell **1.681x** — `(4655x256 + 139x8192) / (4655x68 + 139x7695)`. The estimate stays in the table because it is what
 the gateway actually gated on. Uniform across every row: 256 on all **69,825** premium rows of this run and
 68 on all 27,930 of the pilot's, with 0 exceptions in either.
 
 That is the same difference `docs/11_WHAT_THIS_MEASURED.md` already names for the isolated baseline: `R1` is
-69.5 ms at 68 tokens and 174 ms at 256. It is the leading candidate for the `timeSlicing` change too — a 3.8x
-heavier prefill against a split engine whose KV cache is 4x smaller (93,200 against 369,680 tokens) — but the
-prompt length and the timeout moved together, so this run does not separate them. The first draft of this
+69.5 ms at 68 tokens and 174 ms at 256. It is the leading candidate for the `timeSlicing` change too — 3.8x
+the premium input tokens per request, meeting a split engine whose KV cache is a quarter the whole card's
+(93,200 against 369,680 tokens).
+
+**Two things that reading leans on and this evidence does not carry.** The KV difference is an arm-to-arm
+property present in *both* runs that measured the split arm — 93,200 tokens in the ninth pilot and 93,200
+here — so it is not what changed between them, and on its own it cannot explain the move. Premium alone at
+the split engine's concurrency cap is `32 x (256 + 64)` = **10,240 tokens**, a ninth of that KV, so
+occupancy is not established as the mechanism either; that would need queue, preemption or occupancy
+evidence this run did not collect. **The timeout is not a rival explanation at all**: the longest request
+any of the three runs completed is 17.932 s (pilot), 10.498 s (2026-10-01) and 19.752 s (this run), every
+one of them under the pilot's own 30,000 ms, and the timeout is a client-side context deadline
+(`internal/bench/httpsender.go:289`) that never enters the request body. Raising it to 60,000 ms censored
+nothing. What remains unseparated is the contender's own length and the environment the pilot did not
+record. The first draft of this
 section called the load identical after checking only the rate, the weights and the duration.
 
 Ruled out by measurement: the engine configuration is identical in both runs (split engines at

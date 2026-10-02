@@ -635,7 +635,8 @@ would have read as one.
 
 ⚠️ **Superseded in one respect on 2026-10-02: the prefill multiplier below is in the wrong unit.** The
 `5.9x` here and in the frozen-tuple table's justification column is the gateway's `ceil(chars/4)` estimate
-(50 against 294). The engine reported **68 against 256**, so the prefill increase is **3.8x**; and the
+(50 against 294). The engine reported **68 against 256**, so the increase in premium input tokens per
+request is **3.8x** — a token count, not prefill time; a contended cell's total offered input rises 1.681x; and the
 "(from the calibration)" attribution for the pilot's `68 / 7,695` is weaker than its own raw rows, which
 record both. The frozen quantity is unaffected — the premium prompt is 1,174 characters either way. See
 "Amendment, 2026-10-02: the unit a prompt size is published in" in

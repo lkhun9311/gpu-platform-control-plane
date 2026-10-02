@@ -139,7 +139,7 @@ the premise and therefore prove nothing about the check.
 | The narrow spread is the machine's, not the GPU's | On 2026-10-02 the five `shared`/`R1` ratios span **0.458** (22.827 to 23.284) and the five `timeSlicing`/`shared` ratios span **0.181**. Identical offered traffic means that spread is one card, one instance, one session replaying one trace — it is not variation over loads, seeds, cards or sessions |
 | It is a range, not an interval | Five values of a statistic are an observed range. No confidence interval is published for this study; `RegisteredEstimand.RatioCI` is computed and withheld until a dated amendment settles the replicate-rounding convention |
 
-### Finding 3b: under the frozen contract, one competing tenant costs 23.0x — and the split card is unmeasured there
+### Finding 3b: under the frozen contract, one competing tenant costs 23.0x — and this run bought no split-card arm
 
 Ten cells, five repetitions of `R1` and `shared`, 2026-10-01, $1.44. Premium prompts of **1,174
 characters**, which the engine's own tokenizer counted as **256 tokens** on all 46,549 premium rows —
@@ -155,8 +155,9 @@ exactly what `baseline.inputTokens` declares — contender 42,579 characters at 
 69.5 ms in the table above and 174 ms here, on the same card and the same engine. The runs differ in how much
 prefill each victim request carries — the pilot's premium prompts were 200 characters and this run's are
 1,174 — so the baseline moves with the load, which is why a ratio against one run's baseline cannot be read
-against the other's. This page does not claim the length is the *whole* reason: the timeout and the
-repetition count differ too, and nothing isolated the three.
+against the other's. This page does not claim the length is the *whole* reason: the repetition count differs
+too, and nothing isolated them. The timeout is not one of the candidates — the longest request either run
+completed is under the pilot's own 30 s ceiling, so raising it to 60 s censored nothing.
 
 Total output throughput was level — 589.2 against 589.3 tok/s — and the latency cost was **not confined to
 the tail**: p50 rose 1.84x, p95 16.4x, p99 23.0x. The five per-repetition ratios were
@@ -168,8 +169,8 @@ than variation over loads, seeds or machines. Under the registered rounding rule
 **What this run cannot say.** It bought no `timeSlicing` arm, so it makes no claim about splitting the card
 under this contract. The one premium request that did not complete was an **HTTP 502** in `shared`
 repetition 3, with no trace in the instance log — "no timeouts" is not a success rate. And the gap between
-27.2x and 23.0x is not evidence about the calibration: the prompt length, the timeout and the repetition
-count all differ.
+27.2x and 23.0x is not evidence about the calibration: the prompt length and the repetition count both
+differ. The timeout differs too and is not a candidate, for the reason given above.
 
 The improvement is real: **884.6 ms**, against a control whose two repetitions differed by **1.375 ms**.
 That is a range check and nothing more. An earlier draft of the source spec expressed the same comparison as
