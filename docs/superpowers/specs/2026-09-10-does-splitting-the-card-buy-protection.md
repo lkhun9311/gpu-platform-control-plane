@@ -1,7 +1,13 @@
 # Does splitting the card buy protection — pre-registration
 
-Date: 2026-09-10 · Pre-registered **before** any card time is bought for it. Nothing here may be edited from
-the moment its pilot is bought.
+Date: 2026-09-10 · Pre-registered **before** any card time is bought for it. The registered body is frozen
+from the moment its pilot is bought: later changes are **appended as dated amendments** and are never edited
+into it.
+
+⚠️ This header used to read "Nothing here may be edited from the moment its pilot is bought", and **that
+sentence became false** — seven dated amendments were written after paid runs. It is corrected rather than
+deleted, because a reader who finds seven amendments under a claim of immutability cannot tell which of them
+was registered. The eighth amendment at the end of this page is the account.
 
 ## Why this exists
 
@@ -1713,3 +1719,52 @@ reader to distrust the archive, and the archive was not the problem.
 
 The mutation row is the useful one. The three that passed were the three that changed which rows the gate
 counts, which is the defect this reading was written to fix in the first place.
+
+## Amendment, 2026-10-03 (eighth): the header claimed a freeze this page stopped honouring
+
+The header said **"Nothing here may be edited from the moment its pilot is bought."** Seven dated amendments
+were written after paid runs, so that sentence was false for two days before anyone read it as one. It is
+corrected in the header rather than deleted: a reader who finds seven amendments under a claim of
+immutability cannot tell which of them was registered, and deleting the claim would hide that it was made.
+
+**What the practice actually is, and why it survives the correction.** Every amendment carries its own date,
+names what it replaces, and none has moved a threshold. The first 2026-10-01 amendment states in its own
+text that "this amendment does not make that a pre-registered choice, and it is not written as one", and
+reading 4e prints *"this is a post-hoc comparison against a pre-registered value, not a pre-registered
+check"* beside every verdict it reaches. The practice is dated revision; only the header was a false claim
+of immutability.
+
+**Two amendments are gates that judge evidence already collected.** Both intervals are measured here rather
+than asserted, because an earlier reading of this same comparison got one of them wrong.
+
+| gate | committed | the run it judges | interval | which way it cuts |
+| --- | --- | --- | ---: | --- |
+| 4d | 2026-10-01 14:40:50 +0900 (`0c01380`) | ten-cell, `20261001-023515` = 11:35:15 +0900 | **~3h 5m later** | makes that run *NotEvaluable* |
+| 4e | 2026-10-03 11:13:33 +0900 (`a23a21d`) | ninth pilot, `20260913-011031` = 10:10:31 +0900 | **20 days later** | **withdraws** its `ANSWER: 5` |
+
+Both cut against this page's own published conclusions, which is the direction that distinguishes a gate
+from a rationalisation. And 4e was applied to **both** archives rather than the one it convicts: it fires on
+the ninth pilot (exit 1, answer withheld) and passes on the fifteen-cell evidence (exit 0, 71,215 rows, 0
+disagreeing, `ANSWER: 3` unchanged). A retroactive criterion run only against the unfavourable archive would
+be selection; run against both, with one passing, it is a gate.
+
+**The interval arithmetic has a trap in it.** Archive directory names are **UTC** — `hack/m5c-gpu-session.sh`
+builds the default `OUT` with `date -u` — while git commit times in this repository are `+0900`. Comparing
+the two without converting reported 4d's interval as twelve hours instead of three, in the same session that
+wrote this amendment. The empty archive's own mtime is the control: `20260930-153404` was last touched at
+00:34 +0900, which *is* 15:34 UTC, so the name and the mtime are one moment.
+
+**Two of the fourteen `hack/m5c-2026*` directories did not buy a run**, and both were being counted as paid
+runs — by me and, independently, by an external sweep. `m5c-20260930-153404` holds **no files at all**: the
+session script creates `$OUT` 728 lines before `run-instances` and writes the declared purpose into it
+immediately afterwards, and not even that file exists, so the name was created and never used.
+`m5c-20261002-014656` holds only `plan-check/`, whose log ends **"Nothing was rented"**. Recorded outside
+this repository as `issues/open/2026-10-03-the-empty-archive-that-rented-nothing.md`.
+
+**What this amendment does not license.** The registered body still binds: the 2x TTFT and 1.25x TPOT bars
+are unchanged, they are carried forward rather than chosen, and `2026-09-09-what-would-have-to-change.md:53`
+still holds — a successor may set a different bar only from a stated service objective that does not read
+this run's results. **No such objective exists in this repository.** `2026-09-21-what-a-violation-would-have-to-mean.md`
+records that `docs/02_CONTROL_PLANE_API.md:75` advertises an `slo` surface that is empty, and that this
+project has no real users. A bar with no objective behind it is the reason the next purchase is registered as
+**exploratory** and publishes magnitudes and ordering rather than a pass or a failure.
