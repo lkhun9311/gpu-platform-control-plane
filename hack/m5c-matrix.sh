@@ -1655,6 +1655,65 @@ cell_judgement_record() {
     >> "$OUT/cell-judgements.tsv"
 }
 
+# How many files this run OWED its archive, counted from what the cells actually did.
+#
+# WHY A COUNT AT ALL
+#
+# The published digest lists are verified against their own line count: `verify-published-evidence.sh` reads
+# `n_want` out of the SHA256SUMS it was handed. That catches a file that changed or went missing AFTER the
+# list was made, and it cannot catch a file that was never written -- the list was made from the directory,
+# so a run that wrote fourteen files when it owed fifteen produces a fifteen-line... no, a fourteen-line list
+# that verifies perfectly. The expected number has to come from the PLAN and the OUTCOMES, not from the
+# directory being checked.
+#
+# THE ARITHMETIC, and it is checked against four real archives rather than reasoned about
+#
+#   completed cells x 4   trace-, raw-, manifest-, port-forward- per cell
+#   + refused arms        refused-<arm>.txt, ONE per arm and not per repetition: arm_refused takes $arm
+#                         alone, so five refused repetitions of one arm overwrite one file
+#   + invalid arms        invalid-<arm>.txt, same shape. An invalid arm still ships its archive: arm_invalid
+#                         writes the file and returns 1, and what fails the session is the LAUNCHER reading
+#                         that file after the evidence is home (hack/m5c-gpu-session.sh:1454)
+#   + 2                   evidence.log and README.txt
+#
+#   m5c-20260912-084918   3x4 + 1 + 0 + 2 = 15   archive holds 15
+#   m5c-20260913-011031   6x4 + 0 + 0 + 2 = 26   archive holds 26
+#   m5c-20261001-023515  10x4 + 0 + 0 + 2 = 42   archive holds 42
+#   m5c-20261002-014903  15x4 + 0 + 0 + 2 = 62   archive holds 62
+#
+# (The tarballs list one more entry each: the `m5c-run/` directory itself.)
+#
+# WHAT IT REFUSES TO COUNT
+#
+# The ladder. Its cell structure is different -- `cells_total` is the rungs plus one isolated baseline, and
+# it writes ladder-verdict-rung<N>.txt per rung besides -- so the matrix arithmetic above is not its
+# arithmetic. A number produced by the wrong formula is worse here than no number, so the ladder gets
+# `ladder-not-expressed` and whoever buys a ladder run reads that instead of a figure that looks checked.
+#
+# Prints "<expected> <basis>". The basis words are deliberately not numbers, for the same reason the warm
+# estimate's are: an aggregation that could not run must not be readable as a count.
+expected_outputs() {
+  local completed refused invalid
+  if [ -n "${LADDER:-}" ]; then
+    printf 'ladder-not-expressed ladder-cells-are-not-matrix-cells'
+    return 0
+  fi
+  if [ ! -s "$OUT/cell-timings.tsv" ]; then
+    printf 'no-file no-timings-file'
+    return 0
+  fi
+  completed=$(awk -F'\t' '$4 == "completed" {c++} END {print c+0}' "$OUT/cell-timings.tsv") || {
+    printf 'unreadable aggregation-failed'
+    return 0
+  }
+  # Counted from the directory because the file is per ARM and the timings file is per CELL: five refused
+  # repetitions of one arm are five timing rows and one file, so counting rows here would over-expect.
+  refused=$(find "$OUT" -maxdepth 1 -name 'refused-*.txt' 2>/dev/null | wc -l)
+  invalid=$(find "$OUT" -maxdepth 1 -name 'invalid-*.txt' 2>/dev/null | wc -l)
+  printf '%s completed-%sx4+refused-%s+invalid-%s+2' \
+    $(( completed * 4 + refused + invalid + 2 )) "$completed" "$refused" "$invalid"
+}
+
 # The parallel warm-cell estimate, in a function of its own so a test can run THIS code.
 #
 # It was eleven lines inside cell_deadline_check_inner, and the gate that claimed to cover it had copied the
@@ -2110,6 +2169,26 @@ that omitted refusals would disagree with the arithmetic that drove the next dec
 
 Neither file says the judgement was CORRECT. It says the judgement can now be re-examined.
 EOF
+
+# Written AFTER README.txt, because README.txt is one of the files it counts.
+#
+# The comparison is recorded rather than enforced. A run that ends holding fewer files than it owed has
+# already spent the money, and failing here would delete the only record of what it did spend it on; the
+# archive must come home either way. What must not happen is the shortfall going unremarked, so the line
+# says both numbers and whether they agree.
+EXPECTED_PAIR=$(expected_outputs)
+ACTUAL_FILES=$(find "$OUT" -maxdepth 1 -type f 2>/dev/null | wc -l)
+{
+  printf 'expected\t%s\n' "${EXPECTED_PAIR%% *}"
+  printf 'basis\t%s\n' "${EXPECTED_PAIR#* }"
+  printf 'actual\t%s\n' "$ACTUAL_FILES"
+  case "${EXPECTED_PAIR%% *}" in
+    "$ACTUAL_FILES") printf 'agree\tyes\n' ;;
+    [0-9]*) printf 'agree\tno -- the archive holds %s of the %s files this run owed it\n' "$ACTUAL_FILES" "${EXPECTED_PAIR%% *}" ;;
+    *) printf 'agree\tnot-evaluable -- no expected count was produced, so this is not a comparison\n' ;;
+  esac
+} > "$OUT/expected-files.txt"
+say "expected-files.txt: expected=${EXPECTED_PAIR%% *} actual=$ACTUAL_FILES basis=${EXPECTED_PAIR#* }"
 
 say "MATRIX DONE. Raw evidence in $OUT (see its README.txt before analysing)."
 say "The comparison is premium TTFT p99 across the sharing modes at equal offered load."

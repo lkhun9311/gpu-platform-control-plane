@@ -62,9 +62,10 @@ extract() {
 	extract cell_timing_record
 	extract cell_judgement_record
 	extract warm_cell_estimate
+	extract expected_outputs
 } > "$WORK/recorders.sh"
 
-for fn in cell_timing_record cell_judgement_record warm_cell_estimate; do
+for fn in cell_timing_record cell_judgement_record warm_cell_estimate expected_outputs; do
 	grep -q "^$fn() {" "$WORK/recorders.sh" ||
 		bad "$fn was not extracted from $SRC; the harness is testing nothing"
 done
@@ -311,6 +312,121 @@ grep -q 'cell_timing_record "\$label" "\$rep" completed' "$SRC" \
 grep -q 'cell_deadline_check_inner || rc=\$?' "$SRC" \
 	&& ok "the judgement is recorded by a wrapper, so a future eighth branch cannot skip it" \
 	|| bad "cell_deadline_check no longer wraps its inner check; a record placed per-branch will miss the next branch added"
+
+# --- 6. the expected file count comes from the outcomes, and four real archives pin the arithmetic --------
+#
+# The eighth of the nine log questions asks whether the files came from one run and are complete. The
+# published digest lists verify a count they took FROM the directory, which cannot see a file that was never
+# written. This count comes from the cells instead.
+#
+# The four cases below are the real archives' numbers. They are reproduced from synthetic timing rows, so a
+# change to the arithmetic reddens here rather than being discovered on a rented card.
+say "6. the expected file count is computed from completed cells, refused arms and invalid arms"
+expect_count() {
+	# $1 completed cells, $2 refused arms, $3 invalid arms, $4 wanted total, $5 the archive it came from
+	OUT6="$WORK/exp-$1-$2-$3"
+	mkdir -p "$OUT6"
+	printf 'cell\tarm\trep\toutcome\tstart_utc\tend_utc\telapsed_s\tcum_s\tcells_done\n' > "$OUT6/cell-timings.tsv"
+	i=0
+	while [ "$i" -lt "$1" ]; do
+		i=$((i + 1))
+		printf '%s\tR1\t1\tcompleted\tx\ty\t700\t700\t%s\n' "$i" "$i" >> "$OUT6/cell-timings.tsv"
+	done
+	i=0
+	while [ "$i" -lt "$2" ]; do
+		i=$((i + 1))
+		printf 'refused because\n' > "$OUT6/refused-arm$i.txt"
+		# A refused arm also leaves a timing row, and counting ROWS instead of files would over-expect it.
+		printf '9%s\tarm%s\t1\trefused\tx\ty\t600\t600\t9\n' "$i" "$i" >> "$OUT6/cell-timings.tsv"
+	done
+	i=0
+	while [ "$i" -lt "$3" ]; do
+		i=$((i + 1))
+		printf 'invalid because\n' > "$OUT6/invalid-arm$i.txt"
+	done
+	got=$(
+		# shellcheck disable=SC1091
+		. "$WORK/recorders.sh"
+		OUT="$OUT6"
+		LADDER=""
+		expected_outputs
+	)
+	if [ "${got%% *}" = "$4" ]; then
+		ok "$1 completed + $2 refused arm(s) + $3 invalid arm(s) owes $4 files, as $5 holds"
+	else
+		bad "$1 completed + $2 refused + $3 invalid gives ${got%% *}, but $5 holds $4; the formula and the archives disagree"
+	fi
+}
+expect_count 3 1 0 15 m5c-20260912-084918
+expect_count 6 0 0 26 m5c-20260913-011031
+expect_count 10 0 0 42 m5c-20261001-023515
+expect_count 15 0 0 62 m5c-20261002-014903
+# Five refused repetitions of ONE arm are five timing rows and one file.
+OUT6R="$WORK/exp-rep-overwrite"
+mkdir -p "$OUT6R"
+printf 'cell\tarm\trep\toutcome\tstart_utc\tend_utc\telapsed_s\tcum_s\tcells_done\n' > "$OUT6R/cell-timings.tsv"
+for r in 1 2 3 4 5; do
+	printf '%s\tmps\t%s\trefused\tx\ty\t600\t600\t%s\n' "$r" "$r" "$r" >> "$OUT6R/cell-timings.tsv"
+done
+printf 'refused because\n' > "$OUT6R/refused-mps.txt"
+rep_got=$(
+	# shellcheck disable=SC1091
+	. "$WORK/recorders.sh"
+	OUT="$OUT6R"
+	LADDER=""
+	expected_outputs
+)
+if [ "${rep_got%% *}" = 3 ]; then
+	ok "five refused repetitions of one arm owe one file, not five"
+else
+	bad "five refused repetitions of one arm give ${rep_got%% *} rather than 3 (0x4 + 1 + 0 + 2); the count is reading timing rows where the file is per arm"
+fi
+# The ladder is refused rather than counted with the matrix's formula.
+ladder_got=$(
+	# shellcheck disable=SC1091
+	. "$WORK/recorders.sh"
+	OUT="$WORK/exp-6-0-0"
+	LADDER="1:shared,timeSlicing"
+	expected_outputs
+)
+case "$ladder_got" in
+*ladder-not-expressed*) ok "a ladder run reports ${ladder_got@Q} rather than a matrix count" ;;
+*) bad "a ladder run reports ${ladder_got@Q}; its cells are not matrix cells and the matrix formula does not describe them, so a number here would look checked and not be" ;;
+esac
+# And the two silences, as in section 4b: no file, and a file that cannot be aggregated.
+nofile_got=$(
+	# shellcheck disable=SC1091
+	. "$WORK/recorders.sh"
+	OUT="$WORK/nofile"
+	LADDER=""
+	expected_outputs
+)
+case "$nofile_got" in
+*no-timings-file*) ok "with no timings file the expected count reports ${nofile_got@Q} rather than 2" ;;
+*) bad "with no timings file the expected count reports ${nofile_got@Q}; '0 cells completed' and 'no recorder ran' are different facts" ;;
+esac
+# The third silence. Without this case the `unreadable` branch of expected_outputs pins nothing, which is
+# how a branch comes to exist and be dead -- the shape section 4b was written for, one function along.
+UNREAD6="$WORK/exp-unreadable"
+mkdir -p "$UNREAD6"
+cp "$WORK/exp-6-0-0/cell-timings.tsv" "$UNREAD6/cell-timings.tsv"
+chmod 000 "$UNREAD6/cell-timings.tsv"
+if head -c 1 "$UNREAD6/cell-timings.tsv" >/dev/null 2>&1; then
+	bad "the unreadable-file case of the expected count did not run -- the file is still readable (running as $(id -un)?), so the branch that distinguishes a failed aggregation from an empty one is unpinned here"
+else
+	unread6_got=$(
+		# shellcheck disable=SC1091
+		. "$WORK/recorders.sh"
+		OUT="$UNREAD6"
+		LADDER=""
+		expected_outputs
+	)
+	case "$unread6_got" in
+	*aggregation-failed*) ok "an unreadable timings file makes the expected count report ${unread6_got@Q}" ;;
+	*) bad "an unreadable timings file makes the expected count report ${unread6_got@Q}; a figure produced without reading the outcomes is not an expected count" ;;
+	esac
+fi
+chmod 644 "$UNREAD6/cell-timings.tsv"
 
 echo
 if [ "$failures" = "0" ]; then
