@@ -507,7 +507,44 @@ cat > "$SELF/docs/silent.md" <<'EOF'
 This document publishes no spread at all.
 EOF
 
+# A SECOND data file with an EVEN repetition count, because the registered median convention only shows
+# itself there.
+#
+# All five real blocks carry five repetitions, so `median` lands on the middle value and the convention for
+# an even count -- the mean of the two central order statistics, frozen by the design spec's third
+# 2026-09-30 amendment -- is never exercised. Replacing it with `sorted()[n//2]` left the whole gate green.
+# The ninth pilot has two repetitions, so this is the shape a block over that archive would have.
+#
+# 10.000 and 13.387 average to 11.6935. Taking the upper of the two would publish 13.387, which is why the
+# two readings differ here and nowhere in the real document.
+cat > "$SELF/data2.md" <<'EOF'
+<!-- spread-block
+id: t-even
+archive: x
+source: y
+arm: R1
+tenant: premium-1
+population: completed
+statistic: TTFT p99
+unit: ms
+input_level: per-repetition-statistic
+reps: 1,2
+count: 100,100
+aggregation: min, max, max-minus-min
+rounding: half-up at the displayed decimal place
+-->
+
+| rep | v |
+| --- | ---: |
+| 1 | 10.000 |
+| 2 | 13.387 |
+EOF
+cat > "$SELF/docs/median2.md" <<'EOF'
+Its median is <!-- claim: t-even median dp=4 -->11.6935<!-- /claim --> ms.
+EOF
+
 self_run() { ( DATA="$SELF/data.md"; recompute "$@" ); }
+even_run() { ( DATA="$SELF/data2.md"; recompute "$SELF/docs/median2.md" ); }
 
 got=$(self_run "$SELF/docs/right.md")
 if printf '%s\n' "$got" | grep -q '^PROBLEM'; then
@@ -548,6 +585,19 @@ if printf '%s\n' "$got" | grep -q 'nothing is held to'; then
 	ok "a block no claim cites is reported"
 else
 	bad "an uncited block passed: $(printf '%s' "$got" | tr '\n' ' ')"
+fi
+
+# The registered median convention, on the only sample shape that can show it.
+#
+# Every real block has five repetitions, so `median` is the middle value and the even-count rule is never
+# reached: replacing it with `sorted()[n//2]` left this gate green. The ninth pilot has two repetitions, so
+# two is the shape a block over that archive would take, and 10.000 with 13.387 average to 11.6935 while
+# the upper of the pair is 13.387. The two readings differ only here.
+got=$(even_run)
+if printf '%s\n' "$got" | grep -q '^PROBLEM'; then
+	bad "the even-count median was reported as disagreeing: $(printf '%s' "$got" | tr '\n' ' ')"
+else
+	ok "a two-repetition median is the mean of the pair (11.6935), not the upper of the two"
 fi
 
 # --- 0b. the five refusals the token blocks brought with them ---------------------------------------------
