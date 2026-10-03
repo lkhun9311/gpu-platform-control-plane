@@ -156,6 +156,26 @@ const (
 	// the contender's rows are byte-identical at every rung. It is a separate study because its rung01 trace is
 	// not the down ladder's rung01 trace, and pooling the two would report a p99 over two contender schedules.
 	StudyThroughputLadderIndependent = "throughput-ladder-independent-2026-09-15"
+	// StudyTailCrossingShortLC and StudyTailCrossingLongLC are the two input levels pre-registered in
+	// docs/superpowers/specs/2026-10-03-where-the-latency-sensitive-tail-crosses-each-multiple-exploratory.md.
+	//
+	// TWO STUDIES AND NOT TWO ARMS, for the reason the three ladders give: Study.Frozen is one tuple per
+	// study, so a single study cannot declare two latency-critical prompt lengths, and reading 4e holds the
+	// engine's reported input-token count against exactly one declared value. Pooling the two levels into
+	// one study would also produce a p99 over two prompt lengths -- a statistic for a condition that was
+	// never offered, which is the defect the down ladder was split off to avoid.
+	//
+	// The short level repeats StudySharingMatrix's frozen latency-critical length rather than inventing one,
+	// so the two levels differ in that length and in nothing else. Both inherit TimeoutMs 60000: the
+	// registration's item 8 records why, and that the inheritance may censor the long level's tail and make
+	// the estimand refuse -- a registered outcome of that page, not a defect to work around here.
+	//
+	// Arrivals is deliberately left unset, exactly as StudySharingMatrix leaves it. hack/m5c-matrix.sh
+	// hard-codes `ARRIVALS=weighted` on the non-ladder path because the registry has no answer for it, and
+	// the registration's precondition 3 records that deciding whether the arrival model is a registered part
+	// of the protocol comes before writing one here.
+	StudyTailCrossingShortLC = "tail-crossing-lc256-2026-10-04"
+	StudyTailCrossingLongLC  = "tail-crossing-lc8192-2026-10-04"
 )
 
 // The factors the price-of-protection sweep crosses.
@@ -326,6 +346,40 @@ var studies = map[string]Study{
 			PremiumPromptChars:    1174,
 			ContenderPromptChars:  42579,
 			PremiumInputTokens:    256,
+			ContenderInputTokens:  8192,
+			TimeoutMs:             60000,
+			PremiumOutputTokens:   64,
+			ContenderOutputTokens: 16,
+		},
+	},
+	// The two input levels. ArmR1 and ArmShared only, because the registration's D3 sizes this question for
+	// the shared engine against the isolated baseline and drops the split topologies: a study that admitted
+	// arms it does not buy would let a run file evidence under a condition nobody registered.
+	//
+	// Both tuples are resolved pairs the table already carries -- 256 -> 1,174 and 8,192 -> 42,579 -- so
+	// FrozenTuple.Drift has something to compare and neither level drifts the moment it is entered.
+	StudyTailCrossingShortLC: {
+		ID:   StudyTailCrossingShortLC,
+		Arms: []string{ArmR1, ArmShared},
+		Frozen: &FrozenTuple{
+			PremiumPromptChars:    1174,
+			ContenderPromptChars:  42579,
+			PremiumInputTokens:    256,
+			ContenderInputTokens:  8192,
+			TimeoutMs:             60000,
+			PremiumOutputTokens:   64,
+			ContenderOutputTokens: 16,
+		},
+	},
+	// The long level: the latency-critical tenant carries the SAME per-request length as the contender, which
+	// is the contrast this page registers. It is not a claim that a scheduling mechanism changes there.
+	StudyTailCrossingLongLC: {
+		ID:   StudyTailCrossingLongLC,
+		Arms: []string{ArmR1, ArmShared},
+		Frozen: &FrozenTuple{
+			PremiumPromptChars:    42579,
+			ContenderPromptChars:  42579,
+			PremiumInputTokens:    8192,
 			ContenderInputTokens:  8192,
 			TimeoutMs:             60000,
 			PremiumOutputTokens:   64,
