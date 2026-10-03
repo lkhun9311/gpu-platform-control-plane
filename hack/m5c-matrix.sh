@@ -2422,6 +2422,19 @@ person is not the instrument the pre-registration describes.
 This file used to say the opposite -- that these files must never be passed to \`benchharness report\` --
 because every arm was replayed as "off" and pooling would have collapsed three topologies into one row.
 
+EACH ROW NOW CARRIES WHY THE ENGINE STOPPED, and the silences are not pooled.
+
+  finishReason   the engine's own word: "length" when the output cap cut the response, "stop" when the
+                 model ended on its own. Added 2026-10-03, and added because it was being DISCARDED: the
+                 engine had been sending it on the final SSE frame all along and the parser declared only
+                 the content delta, so a run whose cap truncated every answer and one whose model finished
+                 early left identical rows. The output cap is one of the five load quantities this study
+                 freezes, which made "the cap was not reached" unsupportable in either direction.
+
+Read the absence of the field as its own fact. The report counts three things separately and they license
+different sentences: rows that named a reason, rows that answered 200 and named none (a gap in the
+instrument), and rows with no successful response at all (unobservable). An empty reason is NOT a stop.
+
 TWO FILES BESIDE THE ROWS ANSWER "was the budget judgement made on a sane number".
 
   cell-timings.tsv     one row per cell, completed AND refused, with its own elapsed seconds
