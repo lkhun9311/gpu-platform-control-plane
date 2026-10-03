@@ -202,6 +202,41 @@ var _ = Describe("HTTPSender", func() {
 		res := sender.Send(context.Background(), TraceRow{Tenant: "premium-1", PromptLenChars: 100, MaxOutputTokens: 8}, time.Now().UnixNano())
 
 		Expect(res.ErrorKind).To(Equal("timeout"))
+		// No first token, because this server stalls BEFORE the headers. That zero is half of how a reader
+		// tells the two timeout expiries apart afterwards, and the spec below is the other half.
+		Expect(res.FirstTokenUnixNanos).To(BeZero())
+		Expect(res.HTTPStatus).To(BeZero())
+	})
+
+	It("records a stream that stalls after its first token as a timeout that kept the token", func() {
+		// The second of the two expiries TimeoutMs can produce, and the one no archive on disk contains.
+		//
+		// The deadline covers the whole request, so a response that starts in time and then stops also
+		// expires -- with a first token already stamped. The fifteen-cell archive has 71,215 rows and ZERO
+		// with errorKind at all, so nothing there distinguishes this from the stall-before-headers case
+		// above; a rule read off the code and not falsifiable by the data is a rule this file has to pin.
+		//
+		// What the pair establishes: for a timeout row, firstTokenUnixNanos > 0 means the stream stalled
+		// mid-response and 0 means nothing arrived. That is the derivation the archive README now states.
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "text/event-stream")
+			f := w.(http.Flusher)
+			_, _ = fmt.Fprint(w, "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"a\"}}]}\n\n")
+			f.Flush()
+			// Then nothing, past the deadline. The request is cut while the body is still open.
+			time.Sleep(300 * time.Millisecond)
+		}))
+		defer srv.Close()
+
+		sender := NewHTTPSender(srv.URL, "m", nil, 40*time.Millisecond, SenderConn{MaxIdleConnsPerHost: 8, DrainForReuse: true})
+		res := sender.Send(context.Background(), TraceRow{Tenant: "premium-1", PromptLenChars: 100, MaxOutputTokens: 8}, time.Now().UnixNano())
+
+		Expect(res.ErrorKind).To(Equal("timeout"))
+		// The token that did arrive is KEPT. Discarding it would turn a measured prefill into a silence and
+		// make this row indistinguishable from a request that never got a response.
+		Expect(res.FirstTokenUnixNanos).NotTo(BeZero())
+		Expect(res.HTTPStatus).To(Equal(200))
+		Expect(res.OutputTokens).To(Equal(1))
 	})
 
 	// The pool is what keeps the instrument's own TCP handshakes out of the latency it reports, so the

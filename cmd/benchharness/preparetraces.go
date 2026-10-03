@@ -174,6 +174,7 @@ func prepareTraces(args []string) error {
 				TraceChecksum:   sum,
 				Model:           *model,
 				TimeoutMs:       *timeoutMs,
+				TimeoutScope:    bench.TimeoutScopeWholeRequest,
 				Seed:            *seed,
 				PrimaryEndpoint: "ttft_p99",
 				MatchTolerance:  *matchTol,

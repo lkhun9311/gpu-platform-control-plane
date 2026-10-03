@@ -418,10 +418,13 @@ func genTrace(args []string) error {
 		//
 		// The paid run failed on its first replay because of it. Storing the path the loader expects keeps
 		// the manifest movable, which is the point of recording a checksum beside it.
-		TracePath:       traceRefFor(*manifestOut, *traceOut),
-		TraceChecksum:   bench.Checksum(traceBytes),
-		Model:           *model,
-		TimeoutMs:       *timeoutMs,
+		TracePath:     traceRefFor(*manifestOut, *traceOut),
+		TraceChecksum: bench.Checksum(traceBytes),
+		Model:         *model,
+		TimeoutMs:     *timeoutMs,
+		// What that number bounds, from the constant rather than a literal: the sender's deadline covers
+		// the whole request including the stream, so a reader cannot take timeoutMs for a first-token budget.
+		TimeoutScope:    bench.TimeoutScopeWholeRequest,
 		Seed:            *seed,
 		PrimaryEndpoint: "ttft_p99",
 		MatchTolerance:  *matchTol,

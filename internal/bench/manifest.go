@@ -34,6 +34,17 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
+// TimeoutScopeWholeRequest is what TimeoutMs actually bounds, written once so two writers cannot drift.
+//
+// HTTPSender.Send wraps the request in a single context deadline before dialling and keeps it through the
+// SSE scan, so the budget covers connection, TLS, headers and the whole stream. It is NOT a first-token
+// budget: a response that starts in time and then stalls expires too, and that expiry is recorded with the
+// first token it had already stamped.
+//
+// A constant rather than a literal at each manifest writer, because gen-trace and prepare-traces both
+// write the field and a string typed twice is a string that drifts once.
+const TimeoutScopeWholeRequest = "whole-request-including-stream"
+
 // RunManifest freezes everything that must stay fixed for a benchmark comparison across arms to
 // be valid.
 //
@@ -97,6 +108,20 @@ type RunManifest struct {
 	// TimeoutMs bounds how long the replay client waits for a single request before recording it
 	// as a timeout row.
 	TimeoutMs int `json:"timeoutMs"`
+	// TimeoutScope names WHICH INTERVAL TimeoutMs covers, because the number alone does not say.
+	//
+	// The sender wraps the whole request in one context deadline -- connection, TLS, headers and the entire
+	// SSE stream -- so "60000" is not a first-token budget and not a connect budget. Two different
+	// expiries both record errorKind "timeout": one before any response (httpStatus 0, no first token) and
+	// one mid-stream (the first token already stamped and kept). A reader asking "were any requests
+	// censored by the timeout" needs the interval named, and the fifth of the nine log questions asks for
+	// exactly that.
+	//
+	// EMPTY MEANS THE RUN PREDATES THIS FIELD, and Validate deliberately does not require it: the three
+	// archives on disk carry no scope, and refusing them would make every past manifest unloadable to
+	// prove a point about future ones. "Not recorded" and "no scope" must not read the same, which is why
+	// the absence is documented here rather than defaulted to the current value.
+	TimeoutScope string `json:"timeoutScope,omitempty"`
 	// Seed is the trace generator's seed, recorded here so a manifest alone documents which seed
 	// produced its trace even though gen-trace, not LoadManifest, is what actually consumes it.
 	Seed int64 `json:"seed"`

@@ -2435,6 +2435,19 @@ Read the absence of the field as its own fact. The report counts three things se
 different sentences: rows that named a reason, rows that answered 200 and named none (a gap in the
 instrument), and rows with no successful response at all (unobservable). An empty reason is NOT a stop.
 
+WHAT THE TIMEOUT BOUNDS, and how to tell its two expiries apart in these rows.
+
+The manifest now carries timeoutScope beside timeoutMs. The budget covers the WHOLE request -- connection,
+TLS, headers and the entire stream -- so timeoutMs is not a first-token budget, and a response that starts
+in time and then stalls expires as well. Both expiries write errorKind "timeout", and one field separates
+them:
+
+  firstTokenUnixNanos = 0   nothing arrived before the deadline; httpStatus is 0 too
+  firstTokenUnixNanos > 0   the stream stalled mid-response, and the token that did arrive is kept
+
+So "no request was censored by the timeout" needs both the count of timeout rows AND the scope named. An
+empty timeoutScope means the manifest predates the field, which is not the same as having no scope.
+
 TWO FILES BESIDE THE ROWS ANSWER "was the budget judgement made on a sane number".
 
   cell-timings.tsv     one row per cell, completed AND refused, with its own elapsed seconds
