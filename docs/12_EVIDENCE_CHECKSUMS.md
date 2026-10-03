@@ -278,7 +278,10 @@ the split engine's concurrency cap is `32 x (256 + 64)` = **10,240 tokens**, a n
 occupancy is not established as the mechanism either; that would need queue, preemption or occupancy
 evidence this run did not collect. **The timeout is not a rival explanation at all**: the longest request
 any of the three runs completed is 17.932 s (pilot), 10.498 s (2026-10-01) and 19.752 s (this run), every
-one of them under the pilot's own 30,000 ms, and the timeout is a client-side context deadline
+one of them under the pilot's own 30,000 ms. That is the longest of EVERY scheduled request and not only of
+the ones that came back: each archive's raw rows number exactly as many as its trace rows (28,486 / 47,245 /
+71,215, difference zero in all three) and every row carries a terminal state, so no request is missing for a
+maximum to hide in. The one non-200 is an HTTP 502 in the ten-cell run, and the timeout is a client-side context deadline
 (`internal/bench/httpsender.go:289`) that never enters the request body. Raising it to 60,000 ms censored
 nothing. What remains unseparated is the contender's own length and the environment the pilot did not
 record. The first draft of this
