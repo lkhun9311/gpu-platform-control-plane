@@ -582,6 +582,31 @@ case "$ladder_got" in
 *ladder-not-expressed*) ok "a ladder run reports ${ladder_got@Q} rather than a matrix count" ;;
 *) bad "a ladder run reports ${ladder_got@Q}; its cells are not matrix cells and the matrix formula does not describe them, so a number here would look checked and not be" ;;
 esac
+# And the ladder's VERDICT, run rather than read off the count.
+#
+# The assertion above only inspects expected_outputs' string. Switching the non-numeric branch of
+# record_expected_files to `agree yes` left the whole gate green, so a ladder run could record agreement
+# having compared nothing at all.
+OUT6L="$WORK/ladder-verdict"
+mkdir -p "$OUT6L"
+cp "$WORK/exp-6-0-0/cell-timings.tsv" "$OUT6L/cell-timings.tsv"
+printf 'at_utc\tcell\n' > "$OUT6L/cell-judgements.tsv"
+: > "$OUT6L/evidence.log"
+: > "$OUT6L/load-source.txt"
+(
+	# shellcheck disable=SC1091
+	. "$WORK/recorders.sh"
+	OUT="$OUT6L"
+	LADDER="1:shared,timeSlicing"
+	record_expected_files
+) 2>/dev/null
+l_agree=$(awk -F'\t' '$1 == "agree" {print $2}' "$OUT6L/expected-files.txt" 2>/dev/null)
+case "$l_agree" in
+not-evaluable*) ok "a ladder run records ${l_agree@Q}, so an unverified ladder cannot read as verified" ;;
+yes*) bad "a ladder run records agree=${l_agree@Q} while its own count refused to be expressed; a verdict of yes on a comparison that never happened is the worst line this file can write" ;;
+'') bad "a ladder run left no agree line at all; absent is not a refusal" ;;
+*) bad "a ladder run records ${l_agree@Q}; wanted not-evaluable" ;;
+esac
 # And the two silences, as in section 4b: no file, and a file that cannot be aggregated.
 nofile_got=$(
 	# shellcheck disable=SC1091
@@ -650,11 +675,17 @@ printf 'at_utc\tcell\n' > "$OUT6X/cell-judgements.tsv"
 # is the arm that was REFUSED and whose refusal was never written down, so the invalid file is gone.
 : > "$OUT6X/evidence.log"
 : > "$OUT6X/load-source.txt"
+# It lands in `unwritten-refusals`, not in `refusal-files`, and that split is deliberate.
+#
+# refusal-files counts the files that exist, because expecting one per refused row reports a complete
+# INVALID run as short. What the files cannot show is a refused row with NEITHER file, so that is its own
+# row with an expectation of zero.
 a_pair=$(class_of "$OUT6X" refusal-files)
-if [ "$a_pair" = "1 0" ]; then
-	ok "a refusal that was never written down shows as refusal-files ${a_pair@Q}, whatever the total does"
+a_unw=$(class_of "$OUT6X" unwritten-refusals)
+if [ "$a_pair" = "0 0" ] && [ "$a_unw" = "0 1" ]; then
+	ok "a refusal that was never written down shows as unwritten-refusals ${a_unw@Q}, whatever the total does"
 else
-	bad "refusal-files reads ${a_pair@Q} rather than '1 0'; the arm has refused rows and no refused-<arm>.txt, and counting the files here is what let that agree with itself"
+	bad "refusal-files ${a_pair@Q} and unwritten-refusals ${a_unw@Q}; wanted '0 0' and '0 1'. An arm with refused rows and no refused-<arm>.txt must appear in a row whose expectation is zero, or the count of files agrees with itself"
 fi
 # Case B (fourth round, second): an unwritten refusal beside the port-forward log of a cell that died
 # before replay. Total: 6 owed, 6 held. Per class, cell-outputs is 0 owed and 1 held AND refusal-files 1/0.
@@ -682,10 +713,55 @@ printf 'invalid because\n' > "$OUT6IV/invalid-mps.txt"
 : > "$OUT6IV/load-source.txt"
 iv_ref=$(class_of "$OUT6IV" refusal-files)
 iv_inv=$(class_of "$OUT6IV" invalid-files)
-if [ "$iv_ref" = "0 0" ] && [ "$iv_inv" = "1 1" ]; then
+iv_unw=$(class_of "$OUT6IV" unwritten-refusals)
+if [ "$iv_ref" = "0 0" ] && [ "$iv_inv" = "1 1" ] && [ "$iv_unw" = "0 0" ]; then
 	ok "an INVALID arm's refused row is not expected to leave a refusal file (${iv_ref@Q}, ${iv_inv@Q})"
 else
-	bad "refusal-files ${iv_ref@Q} and invalid-files ${iv_inv@Q}; wanted '0 0' and '1 1'. Expecting a refused-<arm>.txt for an arm that was ruled INVALID reports a complete invalid run as one whose refusal evidence is missing"
+	bad "refusal-files ${iv_ref@Q}, invalid-files ${iv_inv@Q}, unwritten-refusals ${iv_unw@Q}; wanted '0 0', '1 1', '0 0'. Expecting a refused-<arm>.txt for an arm that was ruled INVALID reports a complete invalid run as one whose refusal evidence is missing"
+fi
+# BOTH files, both rightly present: the arm was refused on one repetition and invalid on another.
+#
+# Excluding the arm whenever invalid-<arm>.txt exists called this a surplus -- `refusal-files 0 1` on a
+# complete archive. Expecting a refusal for every refused row called the INVALID case above a shortfall.
+# The arm is not the unit; the file is. Both halves are asserted so neither correction can return.
+OUT6BF="$WORK/class-both-files"
+mkdir -p "$OUT6BF"
+printf 'cell\tarm\trep\toutcome\tstart_utc\tend_utc\telapsed_s\tcum_s\tcells_done\n' > "$OUT6BF/cell-timings.tsv"
+printf '1\tmps\t1\trefused\tx\ty\t600\t600\t1\n' >> "$OUT6BF/cell-timings.tsv"
+printf '2\tmps\t2\trefused\tx\ty\t600\t1200\t2\n' >> "$OUT6BF/cell-timings.tsv"
+printf 'at_utc\tcell\n' > "$OUT6BF/cell-judgements.tsv"
+printf 'r\n' > "$OUT6BF/refused-mps.txt"
+printf 'i\n' > "$OUT6BF/invalid-mps.txt"
+: > "$OUT6BF/evidence.log"
+: > "$OUT6BF/load-source.txt"
+bf_ref=$(class_of "$OUT6BF" refusal-files)
+bf_inv=$(class_of "$OUT6BF" invalid-files)
+if [ "$bf_ref" = "1 1" ] && [ "$bf_inv" = "1 1" ]; then
+	ok "an arm refused once and invalid once owes both files and neither is a surplus (${bf_ref@Q}, ${bf_inv@Q})"
+else
+	bad "refusal-files ${bf_ref@Q} and invalid-files ${bf_inv@Q}; wanted '1 1' and '1 1'. Excluding the arm because it is invalid somewhere makes its real refusal look like a file nobody asked for"
+fi
+# A duplicate completed row must not buy a set of outputs belonging to no completed cell.
+OUT6DUP="$WORK/class-duplicate-row"
+mkdir -p "$OUT6DUP"
+printf 'cell\tarm\trep\toutcome\tstart_utc\tend_utc\telapsed_s\tcum_s\tcells_done\n' > "$OUT6DUP/cell-timings.tsv"
+printf '1\tR1\t1\tcompleted\tx\ty\t700\t700\t1\n' >> "$OUT6DUP/cell-timings.tsv"
+printf '1\tR1\t1\tcompleted\tx\ty\t700\t700\t1\n' >> "$OUT6DUP/cell-timings.tsv"
+printf 'at_utc\tcell\n' > "$OUT6DUP/cell-judgements.tsv"
+: > "$OUT6DUP/evidence.log"
+: > "$OUT6DUP/load-source.txt"
+for c in R1-1 shared-9; do
+	: > "$OUT6DUP/trace-$c.jsonl"
+	: > "$OUT6DUP/raw-$c.jsonl"
+	: > "$OUT6DUP/manifest-$c.yaml"
+	: > "$OUT6DUP/port-forward-$c.log"
+done
+dup_cells=$(class_of "$OUT6DUP" cell-outputs)
+dup_stray=$(class_of "$OUT6DUP" stray-cell-outputs)
+if [ "$dup_cells" = "4 4" ] && [ "$dup_stray" = "0 4" ]; then
+	ok "a repeated completed row counts its cell once, so another cell's outputs stay stray (${dup_cells@Q}, ${dup_stray@Q})"
+else
+	bad "cell-outputs ${dup_cells@Q} and stray-cell-outputs ${dup_stray@Q}; wanted '4 4' and '0 4'. Counting the duplicate row owes eight and holds the same four twice, which cancels a whole cell's worth of unattributed outputs into agreement"
 fi
 # The leftover log belongs to no completed cell, so it is `stray-cell-outputs`, not credit against
 # cell-outputs. That split is the fix for a cancellation INSIDE one class: a completed cell missing its
@@ -693,11 +769,11 @@ fi
 # two defects. cell-outputs now counts each completed cell's four files BY NAME.
 b_cells=$(class_of "$OUT6Y" cell-outputs)
 b_stray=$(class_of "$OUT6Y" stray-cell-outputs)
-b_ref=$(class_of "$OUT6Y" refusal-files)
-if [ "$b_cells" = "0 0" ] && [ "$b_stray" = "0 1" ] && [ "$b_ref" = "1 0" ]; then
-	ok "a dead cell's leftover log and an unwritten refusal land in two classes (${b_stray@Q} and ${b_ref@Q})"
+b_unw=$(class_of "$OUT6Y" unwritten-refusals)
+if [ "$b_cells" = "0 0" ] && [ "$b_stray" = "0 1" ] && [ "$b_unw" = "0 1" ]; then
+	ok "a dead cell's leftover log and an unwritten refusal land in two classes (${b_stray@Q} and ${b_unw@Q})"
 else
-	bad "cell-outputs ${b_cells@Q}, stray-cell-outputs ${b_stray@Q}, refusal-files ${b_ref@Q}; wanted '0 0', '0 1' and '1 0'. Summed into one class these cancel, which is how an archive with two defects reported agreement"
+	bad "cell-outputs ${b_cells@Q}, stray-cell-outputs ${b_stray@Q}, unwritten-refusals ${b_unw@Q}; wanted '0 0', '0 1' and '0 1'. Summed into one class these cancel, which is how an archive with two defects reported agreement"
 fi
 # A completed cell missing one of its four files, beside another cell's leftover: the within-class
 # cancellation the fifth round reproduced as `cell-outputs 4 4`.
@@ -842,8 +918,10 @@ for b in trace-R1-1.jsonl raw-R1-1.jsonl; do : > "$OUT6W/$b"; done
 ) 2>/dev/null
 w_agree=$(awk -F'\t' '$1 == "agree" {print $2}' "$OUT6W/expected-files.txt" 2>/dev/null)
 case "$w_agree" in
+no*class-comparison-did-not-run*) ok "a run whose per-class comparison could not run reports ${w_agree@Q}" ;;
 yes*) bad "with the per-class function undefined the verdict is agree=${w_agree@Q}; the totals matching is not a per-class comparison, and cleanup is trapped before that function exists" ;;
-*) ok "a run whose per-class comparison could not run reports ${w_agree@Q} rather than yes" ;;
+'') bad "with the per-class function undefined no agree line was written at all; an absent record is not a refusal, and `*)` accepting the empty string is how this case passed while the branch under test did nothing" ;;
+*) bad "the verdict reads ${w_agree@Q}; wanted a refusal naming that the class comparison did not run" ;;
 esac
 
 # --- 7. a run that died still records the comparison ------------------------------------------------------

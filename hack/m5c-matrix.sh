@@ -1913,9 +1913,14 @@ expected_outputs_by_class() {
   # `refused` timing row. Such an arm owes invalid-<arm>.txt and NOT refused-<arm>.txt. The total already
   # subtracted them; this function did not, so a complete INVALID run was reported as one whose refusal
   # evidence was missing -- the exclusion existed in one of the two places that needed it.
-  refused=$(awk -F'\t' 'NR > 1 && $4 == "refused" {print $2}' "$OUT/cell-timings.tsv" | sort -u | while read -r a; do
-    [ -f "$OUT/invalid-$a.txt" ] || echo "$a"
-  done | wc -l)
+  # EXCLUDING BY ARM IS WRONG IN BOTH DIRECTIONS, and I got it wrong once each way.
+  #
+  # Expecting a refusal file for every arm with a refused row reports a complete INVALID run as missing
+  # evidence. Excluding the arm whenever invalid-<arm>.txt exists reports an arm that was refused on one
+  # repetition and invalid on another -- both files rightly present -- as carrying a surplus. The arm is not
+  # the unit; the FILE is. So a file that exists is expected, and a refused row with neither file is the
+  # only thing the files cannot show.
+  refused=$(find "$OUT" -maxdepth 1 -name 'refused-*.txt' 2>/dev/null | wc -l)
   # Per CELL, not one sum over the directory, because a sum cancels inside its own class.
   #
   # `cell-outputs 4 4` was reached by a completed cell missing its raw-*.jsonl beside the port-forward log
@@ -1926,12 +1931,14 @@ expected_outputs_by_class() {
   cell_actual=0
   while read -r cellname; do
     [ -n "$cellname" ] || continue
+    # `sort -u` above: one cell counted twice owes eight files and holds its four twice over, so a
+    # duplicate row cancelled a set of outputs belonging to no completed cell. A cell is a cell once.
     cell_expected=$(( cell_expected + 4 ))
     for base in "trace-$cellname.jsonl" "raw-$cellname.jsonl" "manifest-$cellname.yaml" "port-forward-$cellname.log"; do
       [ -f "$OUT/$base" ] && cell_actual=$(( cell_actual + 1 ))
     done
   done <<EOF
-$(awk -F'\t' 'NR > 1 && $4 == "completed" {print $2 "-" $3}' "$OUT/cell-timings.tsv")
+$(awk -F'\t' 'NR > 1 && $4 == "completed" {print $2 "-" $3}' "$OUT/cell-timings.tsv" | sort -u)
 EOF
   stray=$(( $(find "$OUT" -maxdepth 1 \( -name 'trace-*.jsonl' -o -name 'raw-*.jsonl' \
     -o -name 'manifest-*.yaml' -o -name 'port-forward-*.log' \) 2>/dev/null | wc -l) - cell_actual ))
@@ -1963,8 +1970,14 @@ EOF
   # A cell output belonging to no completed cell: the leftovers of a cell that died mid-way. Expected zero,
   # like unattributed, so it is reported rather than spent on another class's shortfall.
   printf 'stray-cell-outputs 0 %s\n' "$stray"
-  printf 'refusal-files %s %s\n' "$refused" "$(find "$OUT" -maxdepth 1 -name 'refused-*.txt' 2>/dev/null | wc -l)"
+  printf 'refusal-files %s %s\n' "$refused" "$refused"
   printf 'invalid-files %s %s\n' "$invalid" "$invalid"
+  # The one thing the two rows above cannot show, because what is missing is the file itself: an arm whose
+  # refused row has neither a refusal nor an invalid file. Expected zero; anything here is a refusal nobody
+  # wrote down.
+  printf 'unwritten-refusals 0 %s\n' "$(awk -F'\t' 'NR > 1 && $4 == "refused" {print $2}' "$OUT/cell-timings.tsv" | sort -u | while read -r a; do
+    [ -f "$OUT/refused-$a.txt" ] || [ -f "$OUT/invalid-$a.txt" ] || echo "$a"
+  done | wc -l)"
   printf 'fixed-files %s %s\n' "$fixed_expected" "$fixed_actual"
   printf 'conditional %s %s\n' "$cond" "$cond"
   printf 'unattributed 0 %s\n' "$unattr"
