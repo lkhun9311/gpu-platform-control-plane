@@ -229,9 +229,9 @@ analysis-version difference:
 
 | | ninth pilot (2 reps) | this run (5 reps) |
 |---|---|---|
-| `R1` median of per-repetition p99 | 69.540 ms | 174.268 ms |
-| `shared` | 1892.852 ms | 4000.579 ms |
-| `timeSlicing` | 1008.079 ms | 14868.019 ms |
+| `R1` median of per-repetition p99 | 69.540 ms | <!-- claim: m5c-15cell-r1-premium-ttft-p99 median -->174.268<!-- /claim --> ms |
+| `shared` | 1892.852 ms | <!-- claim: m5c-15cell-shared-premium-ttft-p99 median -->4000.579<!-- /claim --> ms |
+| `timeSlicing` | 1008.079 ms | <!-- claim: m5c-15cell-timeslicing-premium-ttft-p99 median -->14868.019<!-- /claim --> ms |
 | registered B / C / ratio | 70 / 1893 / **27.043** | 174 / 4001 / **22.994** |
 | shed, timeouts | 0, 0 | 0, 0 |
 | premium completions per arm | 9,310 | 23,275 |

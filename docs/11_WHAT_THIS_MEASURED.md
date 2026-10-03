@@ -97,7 +97,7 @@ so this table and the ten-cell table below are **different loads and cannot be c
 
 ⚠️ **The `timeSlicing` row reversed when the same three arms were bought at the longer prompt.** On
 2026-10-02, fifteen cells (`hack/m5c-20261002-014903`, commit `b97d88e`, five repetitions) measured
-`R1` 174.268 ms, `shared` 4,000.579 ms and `timeSlicing` **14,868.019 ms** — the split card 3.7x *worse* than
+`R1` <!-- claim: m5c-15cell-r1-premium-ttft-p99 median -->174.268<!-- /claim --> ms, `shared` <!-- claim: m5c-15cell-shared-premium-ttft-p99 median -->4,000.579<!-- /claim --> ms and `timeSlicing` **<!-- claim: m5c-15cell-timeslicing-premium-ttft-p99 median -->14,868.019<!-- /claim --> ms** — the split card 3.7x *worse* than
 the single shared engine, where here it is 1.9x better. The registered answer went from `5 (timeSlicing)` to
 **`3`, INCONCLUSIVE**: the best sharing arm improved the control by 0.0 ms against a 3.9 ms spread.
 

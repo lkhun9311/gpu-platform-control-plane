@@ -381,7 +381,25 @@ recompute() {
 		            problems.append(f"{path}: claim cites {name}, which is not a declared block")
 		            continue
 		        v = list(vals.values())
+		        # `median` is the REGISTERED point estimate, and it was published with no block behind it.
+		        #
+		        # 174.268 ms, 4000.579 ms and 14868.019 ms appear in docs/11, docs/12 and the design spec as
+		        # "median of per-repetition p99" -- the figure the registered estimand divides -- and carried
+		        # no claim marker, so this gate's population never contained them. The uncited-BLOCK check
+		        # is the mirror image of that and could not see it: a block with no citation is refused, a
+		        # citation with no block is refused, and a FIGURE WITH NEITHER was invisible.
+		        #
+		        # The convention is internal/bench/report.go's medianOf, frozen by the design spec's third
+		        # 2026-09-30 amendment: the mean of the two central order statistics on an even count,
+		        # "because it makes B and C continuous in the observations". Five repetitions take the middle
+		        # one; the ninth pilot's two would take their mean, which is why this is not `sorted()[n//2]`.
+		        def _median(xs):
+		            s = sorted(xs)
+		            n = len(s)
+		            return s[n // 2] if n % 2 else (s[n // 2 - 1] + s[n // 2]) / 2
+
 		        got = {"min": min(v), "max": max(v), "width": max(v) - min(v),
+		               "median": _median(v),
 		               "value": v[0] if len(v) == 1 else None}.get(which)
 		        if got is None:
 		            problems.append(
