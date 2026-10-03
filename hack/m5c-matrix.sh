@@ -1580,7 +1580,89 @@ fi
 # The plan the projection divides by is built much further up, before the card is touched; the comment that
 # described it used to sit here, orphaned above these counters, describing a block that had moved.
 cell_secs=0; cells_done=0; cell_n=0
+
+# Every cell's own elapsed time, and every boundary judgement, written where a reader can find them.
+#
+# WHY: the fifteen-cell run's per-cell duration is NOWHERE in its archive. The 11.61 min/cell figure this
+# repository published was BACK-COMPUTED from raw request timestamps, because `cell_secs` is a running total
+# used for the projection and nothing wrote the parts. So "did the stop/continue judgement use a sane
+# number" could not be answered after the fact at all -- which is the ninth of the nine questions the next
+# run has to answer about itself.
+#
+# TWO call sites, and both are required. A refused cell consumes card time and increments both counters
+# (`:1691` records what went wrong when it did not), so a timing file written only on the completed path
+# would disagree with the projection that drove the stop decision -- and the disagreement would look like a
+# measurement error rather than a missing row.
+#
+# Append, with a header written once. The file has to survive the run being cut mid-cell, so it is flushed
+# per cell rather than assembled at the end: a matrix that stops on a boundary is the case this record is
+# most needed for.
+# FAIL-SAFE, deliberately. A recorder that can damage a paid cell is worse than no recorder.
+#
+# `date -u -d "@$t0"` is loud rather than silent on bad input: it prints `date: invalid date '@'` and exits
+# 1. This script runs under `set -uo pipefail` and NOT `set -e` -- measured, line 33 -- so that failure
+# would not abort the run today. What it WOULD do is put an empty string in the middle of a tab-separated
+# row, shifting every column after it, and a timing file whose columns move is worse than one that is
+# missing: the first is read, the second is noticed.
+#
+# So each conversion falls back to the raw epoch. The `|| true` at the call sites is for the same reason one
+# step out, and it costs nothing if `set -e` is ever added above.
+cell_timing_record() {
+  local label="$1" rep="$2" outcome="$3" t0="$4" t1="$5" s0 s1 el
+  s0=$(date -u -d "@${t0:-0}" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || printf 'epoch:%s' "${t0:-?}")
+  s1=$(date -u -d "@${t1:-0}" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || printf 'epoch:%s' "${t1:-?}")
+  # The SUBTRACTION needs the same guard the dates got, and the first version did not have it.
+  #
+  # `$(( t1 - t0 ))` on a non-numeric t0 is an arithmetic error, and bash returns non-zero from the whole
+  # function at that point -- so the row was never printed at all. The synthetic harness found it: the
+  # column count came back EMPTY rather than wrong, because there was no second line to count. A recorder
+  # whose failure mode is "no row" is the one shape this file was written to stop, and I had guarded the
+  # dates and left the arithmetic open.
+  if [ -n "${t0//[0-9]/}" ] || [ -n "${t1//[0-9]/}" ] || [ -z "$t0" ] || [ -z "$t1" ]; then
+    el='?'
+  else
+    el=$(( t1 - t0 ))
+  fi
+  [ -s "$OUT/cell-timings.tsv" ] || printf 'cell\tarm\trep\toutcome\tstart_utc\tend_utc\telapsed_s\tcum_s\tcells_done\n' > "$OUT/cell-timings.tsv"
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+    "$cell_n" "$label" "$rep" "$outcome" "$s0" "$s1" "$el" "$cell_secs" "$cells_done" \
+    >> "$OUT/cell-timings.tsv"
+}
+
+# The judgement itself, not just its inputs, and on EVERY boundary including the ones that continued.
+#
+# An external review of the projection asked for exactly this: record the judgement at the boundaries that
+# continued too. Recording only the stops makes the continues invisible, and afterwards "the projection was
+# wrong" and "the projection was never consulted" read identically.
+#
+# WRITTEN BY A WRAPPER, not by each branch. cell_deadline_check has SEVEN exits -- two refusals and five
+# returns, several of them early bail-outs when the deadline cannot be read -- and a record placed in each
+# is a record that the eighth branch will silently not have. The wrapper runs the real check, keeps its
+# status, and writes one row whatever path it took. Same shape as the declared-load gate attached on both of
+# its caller's exits, and for the same reason.
+#
+# JUDGE_* are set by the inner function where the values are computed. They are globals rather than returns
+# because the shell has one return value and it is already carrying the decision.
+JUDGE_REMAIN=""; JUDGE_BASIS=""; JUDGE_PROJECTED=""
+cell_judgement_record() {
+  local decision="$1"
+  [ -s "$OUT/cell-judgements.tsv" ] || printf 'at_utc\tcell\tcells_done\tcells_total\tremain_min\tbasis\tprojected_min\tdecision\n' > "$OUT/cell-judgements.tsv"
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+    "$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || printf 'unknown')" \
+    "$cell_n" "$cells_done" "${cells_total:-?}" \
+    "${JUDGE_REMAIN:-unreadable}" "${JUDGE_BASIS:-none}" "${JUDGE_PROJECTED:-none}" "$decision" \
+    >> "$OUT/cell-judgements.tsv"
+}
+
 cell_deadline_check() {
+  JUDGE_REMAIN=""; JUDGE_BASIS=""; JUDGE_PROJECTED=""
+  local rc=0
+  cell_deadline_check_inner || rc=$?
+  cell_judgement_record "$([ "$rc" = 0 ] && echo continue || echo stop)" || true
+  return "$rc"
+}
+
+cell_deadline_check_inner() {
   local remain per projected floor
   # BEFORE the first cell there is no measured rate to project from -- but there is still a deadline, and
   # "no projection" is not "enough time".
@@ -1612,6 +1694,7 @@ cell_deadline_check() {
     # turn a conservative estimate into a veto over runs that would have finished.
     cold_cell_min=16
     whole=$(( cells_total * cold_cell_min * 12 / 10 ))
+    JUDGE_REMAIN="$remain"; JUDGE_BASIS="cold-${cold_cell_min}min-per-cell"; JUDGE_PROJECTED="$whole"
     if [ "$remain" -lt "$whole" ]; then
       echo >&2
       echo "NOTE before the first cell: ${cells_total} cells at a cold-start ${cold_cell_min} min each plus a fifth" >&2
@@ -1652,6 +1735,7 @@ cell_deadline_check() {
   # cell 1 would also need evidence that the cold start is always cell 1 -- two runs is not that evidence --
   # and would have to separate download and setup time from replay time, which nothing measures yet.
   projected=$(( ((cells_total - cells_done) * per * 12 / 10 + 59) / 60 ))
+  JUDGE_REMAIN="$remain"; JUDGE_BASIS="mean-of-${cells_done}-completed-cells-${per}s"; JUDGE_PROJECTED="$projected"
   if [ "$projected" -ge "$remain" ]; then
     echo >&2
     echo "STOPPING: $(( cells_total - cells_done )) cells left at ~$(( per / 60 )) min each needs about ${projected} min," >&2
@@ -1692,8 +1776,15 @@ run_cell() {
     # that included cells which contributed none of it -- and the projection for the cells still to come
     # came out low. A refusal is not free: the mps arm spent ten minutes waiting for a device count before
     # declining, which is most of a cell.
-    cell_secs=$(( cell_secs + $(date +%s) - CELL_T0 ))
+    CELL_T1=$(date +%s)
+    cell_secs=$(( cell_secs + CELL_T1 - CELL_T0 ))
     cells_done=$(( cells_done + 1 ))
+    # The refused cell goes in the timing record TOO, and that is the half a one-sided recorder would miss.
+    #
+    # It consumed card time and it incremented both counters, so a file written only on the completed path
+    # would disagree with the projection that drove the next stop decision -- and the disagreement would
+    # read as a measurement error rather than a missing row.
+    cell_timing_record "$label" "$rep" refused "$CELL_T0" "$CELL_T1" || true
     # `return`, not `continue`: this is a function body and the loop is at the call site.
     #
     # bash prints "continue: only meaningful in a for, while, or until loop" and then CARRIES ON with the
@@ -1832,8 +1923,12 @@ run_cell() {
     timeout "${CELL_DONE_HOOK_TIMEOUT:-120}" "$CELL_DONE_HOOK" "$OUT/raw-$label-$rep.jsonl" "$label" "$rep" \
       || say "  WARNING: CELL_DONE_HOOK failed or timed out for $label rep $rep; the cell is still on local disk and will go up with the rest"
   fi
-  cell_secs=$(( cell_secs + $(date +%s) - CELL_T0 ))
+  CELL_T1=$(date +%s)
+  cell_secs=$(( cell_secs + CELL_T1 - CELL_T0 ))
   cells_done=$(( cells_done + 1 ))
+  # Flushed per cell rather than assembled at the end: a matrix that stops on a boundary, or is cut
+  # mid-cell, is exactly the run whose per-cell times someone will want afterwards.
+  cell_timing_record "$label" "$rep" completed "$CELL_T0" "$CELL_T1" || true
 }
 
 for spec in "${CELLS[@]}"; do
