@@ -185,7 +185,7 @@ open is the alternative to filling them in and calling the fill a registration.
 |---|---|---|
 | **D1** | **The second prompt length**, beside the registered 1,174 characters | The whole second factor. "Why that length" comes from the intended use, not from arithmetic symmetry — and a length chosen because it is convenient is the defect this page exists to avoid |
 | **D2** | **The contending-load points to sweep** | The curve's resolution. `RATE` has no default: `m5c-matrix.sh` refuses an unset one and tells the operator to measure it from a single contender prefill **on this card**, and no archive records the value previous runs used |
-| **D3** | **Which configurations to include, and the budget** | Cell count, and therefore time. At the observed 11.61 min/cell mean: 2 configurations × 2 lengths × 3 loads × 3 repetitions = **36 cells ≈ 418 min**, which exceeds the 280-minute window every prior run was planned against. Either the budget grows, or the sweep is coarser, or a configuration is dropped |
+| **D3** | **Which configurations to include, and the budget** | Cell count, and therefore time. At the observed 11.61 min/cell mean: 2 configurations × 2 lengths × 3 loads × 3 repetitions = **36 cells, recomputed as 417.96 min**, which exceeds the 280-minute window every prior run was planned against. **24 cells (278.64 min) is the most that fits in 280 minutes at that mean**, and the mean is not a bound — preparation, arm transitions, failure handling and teardown come out of the same budget, so a plan sized at 24 is already sized at the edge. Either the budget grows, or the sweep is coarser, or a configuration is dropped |
 
 Until D1-D3 are decided and preconditions 1-5 are green, this page is a registered question and not a
 purchase.
