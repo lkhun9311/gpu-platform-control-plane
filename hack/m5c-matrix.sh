@@ -1436,6 +1436,59 @@ arm_invalid() {
 #
 # EMPTY IS NEVER A VALUE. A pod that is not there, a query that failed and a log with no matching line are
 # three different facts and each gets its own word.
+# cell_environment_record writes the environment facts no later reader can recover, once per cell boundary.
+#
+# WHY PER CELL AND NOT ONCE BEFORE THE FIRST ONE
+#
+# hack/m5c-gpu-session.sh already runs `nvidia-smi --query-gpu=index,name,memory.total,driver_version` before
+# any cell and uploads it as preflight-nvidia-smi.csv. That answers "what card did this instance have"; it
+# cannot answer "what was resident on the card while THIS cell ran", which is the question a reader asks when
+# one cell's tail differs from its neighbour's. The MPS block below already makes the same argument for
+# --query-compute-apps: collected at preflight it "would have returned an empty table before any engine
+# existed and satisfied the bar with a file, which is worse than not asking".
+#
+# THREE OUTCOMES, THREE WORDS. nvidia-smi missing, nvidia-smi failing, and nvidia-smi returning an empty
+# table are different facts, and one empty field for all three would make a card whose driver could not be
+# read indistinguishable from one nobody asked about. An empty PROCESS table in particular is a measurement
+# rather than a failure -- at a cell boundary nothing should hold the card yet -- so it gets its own word.
+#
+# Every value is flattened to one line before it is written. A multi-GPU host returns one row per card, and a
+# newline inside a field would move the columns of a TSV whose column count is asserted by
+# hack/test/check-cell-timing-record.sh.
+cell_environment_record() {
+  local label="$1" stage="$2" out
+  [ -s "$OUT/cell-environment.tsv" ] \
+    || printf 'cell\tarm\tstage\tfact\tvalue\n' > "$OUT/cell-environment.tsv"
+
+  if ! command -v nvidia-smi >/dev/null 2>&1; then
+    printf '%s\t%s\t%s\tgpu\tno-nvidia-smi-on-this-host\n' "$cell_n" "$label" "$stage" \
+      >> "$OUT/cell-environment.tsv"
+    printf '%s\t%s\t%s\tprocesses\tno-nvidia-smi-on-this-host\n' "$cell_n" "$label" "$stage" \
+      >> "$OUT/cell-environment.tsv"
+    return 0
+  fi
+
+  # Driver and UUID come from ONE query. Two calls could straddle a driver reload and record a pair that
+  # never co-existed, which is the same class of defect as reading a figure from two runs.
+  if out=$(nvidia-smi --query-gpu=index,uuid,driver_version --format=csv,noheader 2>&1); then
+    out=$(printf '%s' "$out" | tr '\n\t' '; ')
+    printf '%s\t%s\t%s\tgpu\t%s\n' "$cell_n" "$label" "$stage" \
+      "${out:-query-gpu-returned-no-rows}" >> "$OUT/cell-environment.tsv"
+  else
+    printf '%s\t%s\t%s\tgpu\tquery-gpu-failed: %s\n' "$cell_n" "$label" "$stage" \
+      "$(printf '%s' "$out" | tr '\n\t' '; ' | cut -c1-120)" >> "$OUT/cell-environment.tsv"
+  fi
+
+  if out=$(nvidia-smi --query-compute-apps=pid,process_name,used_memory --format=csv,noheader 2>&1); then
+    out=$(printf '%s' "$out" | tr '\n\t' '; ')
+    printf '%s\t%s\t%s\tprocesses\t%s\n' "$cell_n" "$label" "$stage" \
+      "${out:-no-resident-compute-process}" >> "$OUT/cell-environment.tsv"
+  else
+    printf '%s\t%s\t%s\tprocesses\tquery-compute-apps-failed: %s\n' "$cell_n" "$label" "$stage" \
+      "$(printf '%s' "$out" | tr '\n\t' '; ' | cut -c1-120)" >> "$OUT/cell-environment.tsv"
+  fi
+}
+
 engine_applied_record() {
   local ns="$1" deploy="$2" manifest="$3" label="$4" args declared process
   [ -s "$OUT/applied-values.tsv" ] \
@@ -1936,7 +1989,7 @@ expected_outputs() {
   # `expected=9 actual=10` with every class matching -- a disagreement no class could explain.
   cond=$(find "$OUT" -maxdepth 1 \( -name 'mps-compute-apps-*.csv' -o -name 'mps-compute-apps-*.err' \
     -o -name 'mps-pod-lookup.err' -o -name 'ladder-verdict-rung*.txt' \
-    -o -name 'applied-values.tsv' \) 2>/dev/null | wc -l)
+    -o -name 'applied-values.tsv' -o -name 'cell-environment.tsv' \) 2>/dev/null | wc -l)
   printf '%s completed-%sx4+refused-%s+invalid-%s+unwritten-%s+conditional-%s+fixed-%s' \
     $(( completed * 4 + refused + invalid + orphan + cond + fixed )) \
     "$completed" "$refused" "$invalid" "$orphan" "$cond" "$fixed"
@@ -2029,7 +2082,7 @@ EOF
   fixed_actual=$(( fixed_actual + 1 ))
   cond=$(find "$OUT" -maxdepth 1 \( -name 'mps-compute-apps-*.csv' -o -name 'mps-compute-apps-*.err' \
     -o -name 'mps-pod-lookup.err' -o -name 'ladder-verdict-rung*.txt' \
-    -o -name 'applied-values.tsv' \) 2>/dev/null | wc -l)
+    -o -name 'applied-values.tsv' -o -name 'cell-environment.tsv' \) 2>/dev/null | wc -l)
   unattr=0
   for f in "$OUT"/*; do
     [ -f "$f" ] || continue
@@ -2039,7 +2092,7 @@ EOF
       refused-*.txt | invalid-*.txt) ;;
       evidence.log | load-source.txt | cell-timings.tsv | cell-judgements.tsv | expected-files.txt | README.txt) ;;
       mps-compute-apps-*.csv | mps-compute-apps-*.err | mps-pod-lookup.err | ladder-verdict-rung*.txt) ;;
-      applied-values.tsv) ;;
+      applied-values.tsv | cell-environment.tsv) ;;
       *) unattr=$(( unattr + 1 )) ;;
     esac
   done
@@ -2248,6 +2301,14 @@ run_cell() {
     # would disagree with the projection that drove the next stop decision -- and the disagreement would
     # read as a measurement error rather than a missing row.
     cell_timing_record "$label" "$rep" refused "$CELL_T0" "$CELL_T1" || true
+    # A REFUSED cell gets its environment recorded too, under its own stage word.
+    #
+    # The first version of this skipped it, on the reasoning that a refused arm never had engines so its
+    # environment says nothing. That reasoning is wrong in the direction that matters: what was resident on
+    # the card when the arm was refused is a candidate EXPLANATION for the refusal -- a previous cell's
+    # process still holding memory is exactly the shape of "the plugin advertised and the kubelet would not
+    # allocate". The stage word differs from the completed path's so the two cannot be read as one.
+    cell_environment_record "$label" refused
     # `return`, not `continue`: this is a function body and the loop is at the call site.
     #
     # bash prints "continue: only meaningful in a for, while, or until loop" and then CARRIES ON with the
@@ -2256,6 +2317,12 @@ run_cell() {
     # minimally before changing this: the line after `continue` ran, and so did the rest of the function.
     return 0
   fi
+  # The card's state for THIS cell, recorded once the engines are up and before any request goes through.
+  #
+  # Here and not inside deploy_arm, because deploy_arm places one engine on the exclusive branch and two on
+  # the split branch: a call in there would leave one row per ENGINE and the per-cell row count would differ
+  # by arm. run_cell calls deploy_arm exactly once per cell, so this is the only place that is per cell.
+  cell_environment_record "$label" engines-ready
   # The tunnel every request of this cell goes through, replaced between cells and then PROVED.
   #
   # This was `kill $PF_PID` followed immediately by a new port-forward and `sleep 3`. kill does not wait,

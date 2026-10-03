@@ -66,12 +66,13 @@ extract() {
 	extract expected_outputs_by_class
 	extract record_expected_files
 	extract engine_applied_record
+	extract cell_environment_record
 	# `k` is defined at the top of the matrix as a kubectl wrapper and is NOT extracted, so a test driving
 	# engine_applied_record would otherwise call the real cluster. Each case below redefines it.
 	echo 'k() { echo "k() was not stubbed by the case under test" >&2; return 1; }'
 } > "$WORK/recorders.sh"
 
-for fn in cell_timing_record cell_judgement_record warm_cell_estimate expected_outputs expected_outputs_by_class record_expected_files engine_applied_record; do
+for fn in cell_timing_record cell_judgement_record warm_cell_estimate expected_outputs expected_outputs_by_class record_expected_files engine_applied_record cell_environment_record; do
 	grep -q "^$fn() {" "$WORK/recorders.sh" ||
 		bad "$fn was not extracted from $SRC; the harness is testing nothing"
 done
@@ -1204,6 +1205,150 @@ if [ "$calls" = 3 ]; then
 else
 	bad "found $calls engine_applied_record call sites, want 3 (vllm-qwen25-3b, vllm-shared-a, vllm-shared-b); an engine nobody records is an engine whose applied values are missing from the archive"
 fi
+
+# --- 9. the card's state per cell, with a missing tool, a failing tool and an empty table kept apart --------
+#
+# The three outcomes are the point. A driver that could not be read, a query that failed, and a card with
+# nothing resident on it are different facts, and an empty field for all three would make the archive say
+# "nobody asked" and "nothing was there" with the same characters. The same distinction the finish-reason and
+# engine-token tallies already draw, applied to the one evidence class that cannot be recovered afterwards:
+# once the instance is gone, no later analysis recomputes which driver served a cell.
+say "9. the per-cell environment records a missing tool, a failing query and an empty table as three facts"
+OUT9="$WORK/env"
+mkdir -p "$OUT9"
+
+# nvidia-smi ABSENT. command -v must be what decides, so the stub is removed from PATH rather than made to
+# fail: a function that returns non-zero would exercise the FAILURE branch and leave this one unmeasured.
+(
+	# shellcheck disable=SC1091
+	. "$WORK/recorders.sh"
+	OUT="$OUT9/absent"
+	mkdir -p "$OUT"
+	cell_n=1
+	PATH=/nonexistent
+	cell_environment_record R1 engines-ready
+)
+absent_rows=$(awk -F'\t' 'NR > 1 && $5 == "no-nvidia-smi-on-this-host"' "$OUT9/absent/cell-environment.tsv" 2>/dev/null | grep -c . || true)
+if [ "$absent_rows" = 2 ]; then
+	ok "with no nvidia-smi on PATH both facts say so by name, in 2 rows"
+else
+	bad "a host without nvidia-smi left $absent_rows rows naming that, want 2 (gpu and processes); a blank field here reads as 'the card had no driver': $(tr '\n' '|' < "$OUT9/absent/cell-environment.tsv" 2>/dev/null)"
+fi
+
+# nvidia-smi FAILING. The reason has to survive into the row: "it failed" without the text sends a reader
+# back to a card that no longer exists.
+(
+	# shellcheck disable=SC1091
+	. "$WORK/recorders.sh"
+	OUT="$OUT9/failing"
+	mkdir -p "$OUT"
+	cell_n=2
+	nvidia-smi() { echo "Failed to initialize NVML: Driver/library version mismatch" >&2; return 9; }
+	cell_environment_record shared engines-ready
+)
+# EACH ROW separately, and this is the second version of this assertion.
+#
+# The first tested `"$fail_gpu:$fail_proc"` against one pattern that only looked for NVML on the SECOND half,
+# so a mutation discarding the gpu row's reason left it green: the processes row still carried the text and
+# the pattern was satisfied by it. Two facts checked by one pattern is one fact checked twice.
+for pair in "gpu:query-gpu-failed" "processes:query-compute-apps-failed"; do
+	fact=${pair%%:*}
+	word=${pair#*:}
+	val=$(awk -F'\t' -v f="$fact" '$4 == f {print $5}' "$OUT9/failing/cell-environment.tsv" 2>/dev/null)
+	case "$val" in
+	"$word: "*NVML*)
+		ok "the $fact row names $word and carries the tool's own words" ;;
+	"$word: "*)
+		bad "the $fact row says ${val@Q}: it names the failure and DISCARDS the reason, which sends a reader back to a card that no longer exists" ;;
+	*)
+		bad "the $fact row says ${val@Q}, which does not name $word; two different failures under one word are one fact" ;;
+	esac
+done
+
+# nvidia-smi SUCCEEDING with an EMPTY process table. This is a measurement -- at a cell boundary nothing
+# should hold the card -- and it must not read as the failure above.
+(
+	# shellcheck disable=SC1091
+	. "$WORK/recorders.sh"
+	OUT="$OUT9/empty"
+	mkdir -p "$OUT"
+	cell_n=3
+	nvidia-smi() {
+		case "$*" in
+		*query-gpu*) printf '0, GPU-1111, 550.90\n1, GPU-2222, 550.90\n' ;;
+		*query-compute-apps*) : ;;
+		esac
+	}
+	cell_environment_record timeSlicing engines-ready
+)
+empty_proc=$(awk -F'\t' '$4 == "processes" {print $5}' "$OUT9/empty/cell-environment.tsv" 2>/dev/null)
+if [ "$empty_proc" = "no-resident-compute-process" ]; then
+	ok "an empty process table is recorded as a measurement, under its own word"
+else
+	bad "an empty process table recorded ${empty_proc@Q}; 'nothing was resident' and 'the query failed' are different facts and this conflates them"
+fi
+
+# Two GPU rows and the tabs inside them must not move the columns. The file is read by field number.
+cols=$(awk -F'\t' 'NR > 1 {print NF}' "$OUT9/empty/cell-environment.tsv" 2>/dev/null | sort -u | tr '\n' ' ')
+if [ "$cols" = "5 " ]; then
+	ok "every row has exactly 5 fields, so a multi-GPU host does not move the columns"
+else
+	bad "rows carry field counts ${cols@Q}, want only 5; a newline or tab inside a value shifts every field after it"
+fi
+gpu_val=$(awk -F'\t' '$4 == "gpu" {print $5}' "$OUT9/empty/cell-environment.tsv" 2>/dev/null)
+case "$gpu_val" in
+*GPU-1111*GPU-2222*) ok "both cards are in one flattened field rather than one of them being dropped" ;;
+*) bad "two GPU rows flattened to ${gpu_val@Q}; a host with two cards must not be recorded as having one" ;;
+esac
+# TWO CALLS INTO ONE FILE, because a duplicated header cannot show on the first one.
+#
+# The first version of this checked the header count on the empty-table fixture above, which calls the
+# recorder once -- so removing the `[ -s ... ]` guard that writes the header only when the file is empty left
+# it green. A guard against repetition has to be driven by a repetition.
+(
+	# shellcheck disable=SC1091
+	. "$WORK/recorders.sh"
+	OUT="$OUT9/twice"
+	mkdir -p "$OUT"
+	nvidia-smi() {
+		case "$*" in
+		*query-gpu*) printf '0, GPU-1111, 550.90\n' ;;
+		*query-compute-apps*) : ;;
+		esac
+	}
+	cell_n=4
+	cell_environment_record R1 engines-ready
+	cell_n=5
+	cell_environment_record shared engines-ready
+)
+heads9=$(grep -c '^cell	arm	stage	fact	value$' "$OUT9/twice/cell-environment.tsv" 2>/dev/null || echo 0)
+rows9=$(grep -cv '^cell	arm	stage	fact	value$' "$OUT9/twice/cell-environment.tsv" 2>/dev/null || echo 0)
+if [ "$heads9" = 1 ] && [ "$rows9" = 4 ]; then
+	ok "two calls leave four rows under one header"
+else
+	bad "two calls left headers=$heads9 rows=$rows9, want 1 and 4; a header per call makes the file unparseable by field number, and a call that leaves no row is a cell boundary nobody can look at"
+fi
+
+# The matrix must CALL it, and exactly twice: once where the engines came up and once where the arm was
+# refused. Read as text, as sections 5 and 8 do.
+#
+# TWO and not three: deploy_arm places one engine on the exclusive branch and two on the split branch, so a
+# call in there would leave one row per ENGINE and the per-cell count would differ by arm. run_cell calls
+# deploy_arm once per cell, which is why both call sites are in run_cell.
+env_calls=$(grep -c '^ *cell_environment_record ' "$SRC" || true)
+if [ "$env_calls" = 2 ]; then
+	ok "two call sites: the completed path and the refused path"
+else
+	bad "found $env_calls cell_environment_record call sites, want 2 (engines-ready and refused); a refused cell's environment is a candidate explanation for the refusal, and a cell recorded per engine would count differently by arm"
+fi
+for stage in engines-ready refused; do
+	n=$(grep -c "cell_environment_record \"\$label\" $stage" "$SRC" || true)
+	if [ "$n" = 1 ]; then
+		ok "the $stage stage is recorded from exactly one place"
+	else
+		bad "the $stage stage is called from $n places; the two stages exist so a refused cell and a completed one cannot be read as the same environment"
+	fi
+done
 
 echo
 if [ "$failures" = "0" ]; then
