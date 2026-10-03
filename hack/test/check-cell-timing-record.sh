@@ -495,6 +495,56 @@ if [ "${inv_got%% *}" = 10 ]; then
 else
 	bad "an invalid arm with a refused row gives ${inv_got%% *} rather than 10; 11 is what expecting a refused-<arm>.txt beside its invalid-<arm>.txt gives, and that reports a complete invalid run as one file short"
 fi
+# One arm can be refused on one repetition and INVALID on another, leaving both files.
+#
+# CELLS is repetition-major, so each arm is deployed again every repetition. Excluding an arm from the
+# refusal expectation whenever invalid-<arm>.txt exists therefore under-expected by one on a complete
+# archive -- and with cell-judgements.tsv also missing, the under-expectation cancelled the shortfall into
+# `agree=yes`. The next two cases hold both halves of that.
+OUT6B="$WORK/exp-both-files"
+mkdir -p "$OUT6B"
+printf 'cell\tarm\trep\toutcome\tstart_utc\tend_utc\telapsed_s\tcum_s\tcells_done\n' > "$OUT6B/cell-timings.tsv"
+printf '1\tmps\t1\trefused\tx\ty\t600\t600\t1\n' >> "$OUT6B/cell-timings.tsv"
+printf '2\tmps\t2\trefused\tx\ty\t600\t1200\t2\n' >> "$OUT6B/cell-timings.tsv"
+printf 'at_utc\tcell\tcells_done\tcells_total\tremain_min\tbasis\tprojected_min\tdecision\twarm_n\twarm_per\n' > "$OUT6B/cell-judgements.tsv"
+printf 'refused because\n' > "$OUT6B/refused-mps.txt"
+printf 'invalid because\n' > "$OUT6B/invalid-mps.txt"
+: > "$OUT6B/evidence.log"
+: > "$OUT6B/load-source.txt"
+both_got=$(
+	# shellcheck disable=SC1091
+	. "$WORK/recorders.sh"
+	OUT="$OUT6B"
+	LADDER=""
+	expected_outputs
+)
+# 0x4 + refused file 1 + invalid file 1 + unwritten 0 + fixed 5 = 7, and the directory holds 6 plus its own.
+if [ "${both_got%% *}" = 7 ]; then
+	ok "an arm that was refused once and invalid once owes both files (${both_got#* })"
+else
+	bad "an arm with both files gives ${both_got%% *} rather than 7; excluding the arm because invalid-<arm>.txt exists drops the refusal it really did write, and a complete archive then reports a shortfall"
+fi
+# The cancellation itself: the under-expectation above, beside a genuinely missing judgements file.
+OUT6C="$WORK/exp-cancellation"
+mkdir -p "$OUT6C"
+cp "$OUT6B/cell-timings.tsv" "$OUT6C/cell-timings.tsv"
+printf 'refused because\n' > "$OUT6C/refused-mps.txt"
+printf 'invalid because\n' > "$OUT6C/invalid-mps.txt"
+: > "$OUT6C/evidence.log"
+: > "$OUT6C/load-source.txt"
+canc_got=$(
+	# shellcheck disable=SC1091
+	. "$WORK/recorders.sh"
+	OUT="$OUT6C"
+	LADDER=""
+	expected_outputs
+)
+canc_act=$(( $(find "$OUT6C" -maxdepth 1 -type f | wc -l) + 1 ))
+if [ "${canc_got%% *}" = 7 ] && [ "$canc_act" = 6 ]; then
+	ok "a missing judgements file beside an arm carrying both files still reads as a shortfall (${canc_got%% *} owed, $canc_act held)"
+else
+	bad "that archive owes ${canc_got%% *} and holds $canc_act; when those are equal a missing judgements file and an under-expected refusal have cancelled, and the comparison reports agree on an archive with two gaps"
+fi
 # A missing cell-judgements.tsv must show as a shortfall, not lower the expectation with it.
 #
 # cell_deadline_check is run_cell's first line and its wrapper records on all seven exits, so any timing row

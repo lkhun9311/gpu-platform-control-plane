@@ -1764,7 +1764,7 @@ cell_judgement_record() {
 # Prints "<expected> <basis>". The basis words are deliberately not numbers, for the same reason the warm
 # estimate's are: an aggregation that could not run must not be readable as a count.
 expected_outputs() {
-  local completed refused invalid fixed
+  local completed refused invalid orphan fixed
   if [ -n "${LADDER:-}" ]; then
     printf 'ladder-not-expressed ladder-cells-are-not-matrix-cells'
     return 0
@@ -1786,20 +1786,25 @@ expected_outputs() {
   # The label column IS the arm here because the matrix builds every cell as `arm|arm|rep|...`. Under the
   # ladder the label is `rung03-shared` and this equality breaks, which is one more reason the ladder is
   # refused above rather than approximated.
-  # An INVALID arm leaves a refused row too, and must not be expected to leave a refusal file.
+  # Refusal and invalidity are NOT exclusive, and the arm is the wrong unit to exclude by.
   #
-  # mps_clients_connected (line 1235) calls arm_invalid and returns 1 from inside deploy_arm (1492); its
-  # caller's `if ! deploy_arm` then writes a `refused` timing row (1975). So the row says refused and the
-  # directory holds invalid-mps.txt and no refused-mps.txt. Expecting one would report a one-file shortfall
-  # on an invalid run that is in fact complete. A comment here previously claimed invalid arms leave no
-  # timing row at all; that was wrong, and an external review named it.
-  refused=$(awk -F'\t' 'NR > 1 && $4 == "refused" {print $2}' "$OUT/cell-timings.tsv" | sort -u | while read -r a; do
-    [ -f "$OUT/invalid-$a.txt" ] || echo "$a"
-  done | wc -l)
-  # Counted from the files, because an invalid arm's row is indistinguishable from a refused one. So an
-  # invalid arm whose file was never written is NOT detectable here. Said plainly rather than left looking
-  # symmetric with the refusals above.
+  # mps_clients_connected calls arm_invalid and returns 1 from inside deploy_arm; the caller's
+  # `if ! deploy_arm` then writes a `refused` timing row. So a refused row can belong to an invalid arm, and
+  # the first attempt at this excluded the whole arm whenever invalid-<arm>.txt existed. CELLS is built
+  # repetition-major (`for rep; for arm`), so one arm is deployed again on every repetition and can be
+  # refused on one and invalid on another -- leaving BOTH files. Excluding the arm then under-expected by
+  # one, and an external review showed the worse half: with cell-judgements.tsv also missing, the
+  # under-expectation and the shortfall cancelled into `agree=yes`. Two gaps hid each other.
+  #
+  # So each file is counted as itself, and the timing rows add only what no file accounts for.
+  refused=$(find "$OUT" -maxdepth 1 -name 'refused-*.txt' 2>/dev/null | wc -l)
   invalid=$(find "$OUT" -maxdepth 1 -name 'invalid-*.txt' 2>/dev/null | wc -l)
+  # An arm with a refused row and NEITHER file: the one case the files cannot show, because what is missing
+  # is the file itself. Expecting it is what makes "the refusal was never written down" a shortfall rather
+  # than a quiet agreement between two counts that moved together.
+  orphan=$(awk -F'\t' 'NR > 1 && $4 == "refused" {print $2}' "$OUT/cell-timings.tsv" | sort -u | while read -r a; do
+    [ -f "$OUT/refused-$a.txt" ] || [ -f "$OUT/invalid-$a.txt" ] || echo "$a"
+  done | wc -l)
   # The fixed files, each counted only under the condition it appears under.
   # `-f`, not `-s`: an empty file is in the archive and `find -type f` counts it.
   #
@@ -1817,8 +1822,9 @@ expected_outputs() {
   # README.txt only on a run that reached the end, and `-f` is right for it: its absence is a FACT about the
   # run, not a missing file. A stopped run owes no README.txt and must still be able to agree.
   [ -f "$OUT/README.txt" ] && fixed=$(( fixed + 1 ))
-  printf '%s completed-%sx4+refused-%s+invalid-%s+fixed-%s' \
-    $(( completed * 4 + refused + invalid + fixed )) "$completed" "$refused" "$invalid" "$fixed"
+  printf '%s completed-%sx4+refused-%s+invalid-%s+unwritten-%s+fixed-%s' \
+    $(( completed * 4 + refused + invalid + orphan + fixed )) \
+    "$completed" "$refused" "$invalid" "$orphan" "$fixed"
 }
 
 # The parallel warm-cell estimate, in a function of its own so a test can run THIS code.
