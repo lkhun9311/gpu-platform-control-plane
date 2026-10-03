@@ -47,6 +47,7 @@ statistic: TTFT p99
 unit: ms
 input_level: per-repetition-statistic
 reps: 1,2,3,4,5
+count: 4655,4655,4655,4655,4655
 aggregation: min, max, max-minus-min
 rounding: half-up at the displayed decimal place
 -->
@@ -70,6 +71,7 @@ statistic: TTFT p99
 unit: ms
 input_level: per-repetition-statistic
 reps: 1,2,3,4,5
+count: 4655,4655,4655,4655,4655
 aggregation: min, max, max-minus-min
 rounding: half-up at the displayed decimal place
 -->
@@ -93,6 +95,7 @@ statistic: TTFT p99
 unit: ms
 input_level: per-repetition-statistic
 reps: 1,2,3,4,5
+count: 4655,4655,4655,4655,4655
 aggregation: min, max, max-minus-min
 rounding: half-up at the displayed decimal place
 -->
@@ -116,6 +119,7 @@ statistic: TTFT p99
 unit: ms
 input_level: per-repetition-statistic
 reps: 1,2,3,4,5
+count: 4655,4655,4655,4655,4655
 aggregation: min, max, max-minus-min
 rounding: half-up at the displayed decimal place
 -->
@@ -139,6 +143,7 @@ statistic: TTFT p99
 unit: ms
 input_level: per-repetition-statistic
 reps: 1,2,3,4,5
+count: 4655,4655,4654,4655,4655
 aggregation: min, max, max-minus-min
 rounding: half-up at the displayed decimal place
 -->

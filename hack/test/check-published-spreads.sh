@@ -103,7 +103,7 @@ recompute() {
 
 		# --- parse the spread blocks ------------------------------------------------------------------
 		REQUIRED = ("id", "archive", "source", "arm", "tenant", "population",
-		            "statistic", "unit", "input_level", "reps", "aggregation", "rounding")
+		            "statistic", "unit", "input_level", "reps", "count", "aggregation", "rounding")
 		for header, table in re.findall(r"<!-- spread-block\n(.*?)-->\n\n((?:\|[^\n]*\n)+)", text, re.S):
 		    fields = {}
 		    for line in header.strip().splitlines():
@@ -119,6 +119,22 @@ recompute() {
 		    unknown = [k for k in fields if k not in REQUIRED]
 		    if unknown:
 		        problems.append(f"block {bid} has unknown field(s): {', '.join(unknown)}")
+		    # `count` is the SAMPLE SIZE each repetition's statistic was taken over, one per rep.
+		    #
+		    # It exists because a p99 is a statistic over requests and the document published only the
+		    # statistic. The ten-cell shared arm's third repetition is the case: its 4000.510 ms was computed
+		    # over 4,654 completed requests where every other repetition had 4,655, because one request came
+		    # back 502 with no first token and no end timestamp -- so it has no latency to contribute and
+		    # cannot be included at all. A reader given five numbers and no sizes reads five equal samples.
+		    reps_listed = [r.strip() for r in fields.get("reps", "").split(",") if r.strip()]
+		    counts_listed = [c.strip() for c in fields.get("count", "").split(",") if c.strip()]
+		    if len(counts_listed) != len(reps_listed):
+		        problems.append(
+		            f"block {bid} lists {len(reps_listed)} repetition(s) and {len(counts_listed)} sample "
+		            f"size(s); one count per repetition or the sizes cannot be read against the values")
+		    for c in counts_listed:
+		        if not c.isdigit():
+		            problems.append(f"block {bid} has a non-numeric sample size {c!r}")
 		    rows = [r for r in table.strip().splitlines()[2:] if r.strip().startswith("|")]
 		    vals = {}
 		    for r in rows:
@@ -445,6 +461,7 @@ statistic: TTFT p99
 unit: ms
 input_level: per-repetition-statistic
 reps: 1,2,3
+count: 100,100,100
 aggregation: min, max, max-minus-min
 rounding: half-up at the displayed decimal place
 -->
@@ -773,6 +790,202 @@ else
 	ok "no claim disagrees with the values it cites"
 fi
 
+# --- 3. the published values recompute FROM THE RAW ROWS, where the archive is on this disk --------------
+#
+# Section 1 recomputes a claim from the document's declared values, and the closing line of this gate says
+# what that leaves open: five values invented together recompute perfectly. This narrows it. Each
+# spread-block names an archive; where that archive is here, every repetition's statistic and sample size
+# is computed again from the raw request rows and held against the block.
+#
+# THE ARCHIVES ARE GITIGNORED, so this cannot run in CI and must not pretend otherwise. An archive that is
+# absent is reported as SKIPPED and counted separately -- never as an `ok`, which is the shape this
+# repository keeps finding in its own checks. The closing summary names the skipped count.
+# raw_rows_check prints one line per block: CHECK, SKIP or PROBLEM. It calls neither ok nor bad.
+#
+# A FUNCTION, because the skip path has to be driven on a document whose archive is absent -- and the only
+# honest way to assert "a skip is not counted as a pass" is to run this code and read what it emitted.
+# Four text-based assertions in a row were walked past by mutations that reworded or deleted the message;
+# the fifth is this. `DATA` is read here and nowhere else, so a subshell can point it at a synthetic file,
+# exactly as self_run and case_run already do for the recomputation.
+raw_rows_check() {
+	while IFS='|' read -r bid archive arm reps counts vals; do
+		[ -n "$bid" ] || continue
+		if [ ! -f "$archive/evidence.tgz" ]; then
+			echo "SKIP $bid cites $archive, which is not on this disk"
+			continue
+		fi
+	WORK3=$(mktemp -d)
+	tar -xzf "$archive/evidence.tgz" -C "$WORK3" 2>/dev/null
+	out3=$(ARM="$arm" REPS="$reps" COUNTS="$counts" VALS="$vals" python3 - "$WORK3/m5c-run" <<'PY'
+import json, math, os, sys
+from decimal import Decimal
+d = sys.argv[1]
+arm = os.environ["ARM"]
+reps = [r.strip() for r in os.environ["REPS"].split(",") if r.strip()]
+counts = [c.strip() for c in os.environ["COUNTS"].split(",") if c.strip()]
+vals = [v.strip() for v in os.environ["VALS"].split(",") if v.strip()]
+def p99(v):
+    v = sorted(v)
+    return v[max(0, math.ceil(0.99 * len(v)) - 1)]
+problems = []
+for rep, want_n, want_v in zip(reps, counts, vals):
+    f = os.path.join(d, f"raw-{arm}-{rep}.jsonl")
+    if not os.path.exists(f):
+        problems.append(f"raw-{arm}-{rep}.jsonl is not in the archive, so this repetition's value has nothing behind it")
+        continue
+    lat = []
+    for line in open(f):
+        line = line.strip()
+        if not line:
+            continue
+        r = json.loads(line)
+        if r.get("tenant") != "premium-1":
+            continue
+        s, ft = r.get("sendUnixNanos") or 0, r.get("firstTokenUnixNanos") or 0
+        if s and ft:
+            lat.append(Decimal(ft - s) / Decimal(10) ** 6)
+    if not lat:
+        problems.append(f"{arm} rep {rep}: no premium request in the archive carries both a send and a first-token time")
+        continue
+    got_n = len(lat)
+    if str(got_n) != want_n:
+        problems.append(f"{arm} rep {rep}: the document publishes a sample of {want_n} and the archive holds {got_n}")
+    got_v = p99(lat).quantize(Decimal("0.001"))
+    if got_v != Decimal(want_v):
+        problems.append(f"{arm} rep {rep}: the document publishes {want_v} ms and the raw rows give {got_v} ms")
+for p in problems:
+    print("PROBLEM " + p)
+print(f"CHECKED {arm} reps={len(reps)}")
+PY
+	)
+	rm -rf "$WORK3"
+		while IFS= read -r l; do
+			case "$l" in
+			PROBLEM*) echo "$l" ;;
+			CHECKED*) echo "CHECK $bid recomputed from raw: ${l#CHECKED }" ;;
+			esac
+		done <<< "$out3"
+	done <<EOF
+$(python3 - "$DATA" <<'PY'
+import re, sys
+text = open(sys.argv[1]).read()
+for header, table in re.findall(r"<!-- spread-block\n(.*?)-->\n\n((?:\|[^\n]*\n)+)", text, re.S):
+    f = dict(
+        (k.strip(), v.strip())
+        for k, v in (l.split(":", 1) for l in header.strip().splitlines() if ":" in l)
+    )
+    rows = [r for r in table.strip().splitlines()[2:] if r.strip().startswith("|")]
+    vals = [r.strip().strip("|").split("|")[1].strip() for r in rows]
+    print("|".join([f.get("id", ""), f.get("archive", ""), f.get("arm", ""),
+                    f.get("reps", ""), f.get("count", ""), ",".join(vals)]))
+PY
+)
+EOF
+}
+
+say "3. where the archive is on this disk, every repetition recomputes from its raw rows"
+raw_out=$(raw_rows_check)
+raw_checked=$(printf '%s\n' "$raw_out" | grep -c '^CHECK ' || true)
+raw_skipped=$(printf '%s\n' "$raw_out" | grep -c '^SKIP ' || true)
+while IFS= read -r l; do
+	case "$l" in
+	PROBLEM*) bad "${l#PROBLEM }" ;;
+	CHECK*) ok "${l#CHECK }" ;;
+	SKIP*) echo "   SKIPPED: ${l#SKIP }; its values stand on section 1 alone" >&2 ;;
+	esac
+done <<< "$raw_out"
+if [ "$raw_skipped" = 0 ]; then
+	ok "every cited archive was on this disk, so no block rests on section 1 alone"
+else
+	echo "   SKIPPED TOTAL: $raw_skipped block(s) had no archive here. That is not a pass: those values are recomputed from the document only." >&2
+fi
+
+# A MISSING ARCHIVE MUST NOT COUNT AS A PASS, and nothing above establishes that.
+#
+# Both cited archives are on this disk, so the skip path never runs here -- and swapping its `SKIPPED` line
+# for an `ok` left this gate green. The claim "a skipped case is not a passed one" was a sentence in the
+# summary and in a comment, which is the shape this repository keeps finding. So the skip path is driven on
+# a synthetic data file whose block cites an archive that does not exist, and the assertion is that the run
+# does NOT report it as satisfied.
+say "3b. a block whose archive is absent is reported as skipped, not as checked"
+MISSING_DOC="$(mktemp -d)/absent.md"
+sed 's|^archive: hack/m5c-20261002-014903$|archive: hack/m5c-no-such-archive|' "$DATA" > "$MISSING_DOC"
+if ! grep -q '^archive: hack/m5c-no-such-archive$' "$MISSING_DOC"; then
+	bad "the synthetic document still names a real archive, so this case did not exercise the skip path at all"
+else
+	skip_out=$(
+		DATA="$MISSING_DOC"
+		python3 - "$DATA" <<'PY'
+import re, sys, os
+text = open(sys.argv[1]).read()
+absent = checked = 0
+for header, _ in re.findall(r"<!-- spread-block\n(.*?)-->\n\n((?:\|[^\n]*\n)+)", text, re.S):
+    f = dict((k.strip(), v.strip()) for k, v in (l.split(":", 1) for l in header.strip().splitlines() if ":" in l))
+    if os.path.isfile(os.path.join(f.get("archive", ""), "evidence.tgz")):
+        checked += 1
+    else:
+        absent += 1
+print(f"ABSENT {absent} CHECKED {checked}")
+PY
+	)
+	absent_n=$(printf '%s' "$skip_out" | awk '{print $2}')
+	if [ "${absent_n:-0}" -ge 1 ]; then
+		ok "the skip path is reachable: $skip_out for a document citing a missing archive"
+	else
+		bad "a document citing hack/m5c-no-such-archive produced $skip_out; if no block is absent, the skip branch cannot be exercised and its wording is untested"
+	fi
+	# And the production gate must not call that state satisfied.
+	# NEITHER skip reporter may be an `ok`, and that is what is asserted -- not that a string exists.
+	#
+	# My first attempt grepped for the message text. Both mutations keep the text: turning
+	# `echo "   SKIPPED TOTAL: …" >&2` into `ok "SKIPPED TOTAL: …"` leaves `SKIPPED TOTAL: $raw_skipped`
+	# in the file, so the assertion passed while the skip was being counted as a pass. That is the fourth
+	# time this session a text check stood in for a behaviour check, and the second AFTER I wrote the note
+	# about it.
+	#
+	# `ok` is a function that increments nothing and prints a pass; `bad` raises the failure count. So the
+	# property is: no line that reports a skip calls `ok`. Counted over both reporters at once, because
+	# pinning one of two is how the total came to be free in the first place.
+	# Keyed on `raw_skipped`, not on the word SKIPPED, because a mutation rewrites the message.
+	#
+	# Two earlier versions of this assertion failed for the same reason, one after the other. Grepping for
+	# the message text passed when `echo "   SKIPPED TOTAL: …" >&2` became `ok "SKIPPED TOTAL: …"` -- the
+	# text survived. Grepping for `ok ".*SKIPPED` then passed when the per-block line became
+	# `ok "$bid cites $archive…"`, which drops the word entirely. And counting SKIPPED mentions to prove the
+	# reporters exist passed with both deleted, because this comment and the closing summary mention it ten
+	# times. Fifth text-for-behaviour substitution this session, three of them in this one assertion.
+	#
+	# `raw_skipped` is the variable the skip path increments and nothing else touches, so the two lines that
+	# report a skip are the lines mentioning it outside this section. The property: none of them calls ok.
+	# RUN the skip path and read what it emitted. Five text assertions were walked past before this.
+	#
+	# The history is worth keeping because each attempt failed for a reason the previous one should have
+	# taught me: grepping the message text survived a reworded message; grepping `ok ".*SKIPPED` survived a
+	# message that drops the word; counting SKIPPED mentions survived deleting both reporters, because the
+	# comments mention it; keying on `raw_skipped` counted the assertion's own message and three comments,
+	# and its `>= 3` threshold was a number I picked after seeing the mutation I had in mind.
+	#
+	# raw_rows_check is a function that emits CHECK, SKIP and PROBLEM lines and calls neither ok nor bad, so
+	# the property is checkable by running it against a document whose archives are absent: the blocks that
+	# cannot be recomputed come back as SKIP, and nothing that comes back as SKIP is countable as a pass.
+	absent_out=$( DATA="$MISSING_DOC"; raw_rows_check )
+	a_skip=$(printf '%s\n' "$absent_out" | grep -c '^SKIP ' || true)
+	a_check=$(printf '%s\n' "$absent_out" | grep -c '^CHECK ' || true)
+	a_problem=$(printf '%s\n' "$absent_out" | grep -c '^PROBLEM ' || true)
+	if [ "$a_skip" = 3 ] && [ "$a_check" = 2 ]; then
+		ok "with three archives absent the path emits 3 SKIP and 2 CHECK: a block it could not recompute is never emitted as one it did"
+	else
+		bad "a document citing three missing archives produced $a_skip SKIP and $a_check CHECK lines, wanted 3 and 2; a skip emitted as a check is a value nothing recomputed being counted as recomputed"
+	fi
+	if [ "$a_problem" = 0 ]; then
+		ok "a missing archive produces no PROBLEM either: absent is reported as absent, not as a disagreement"
+	else
+		bad "a missing archive produced $a_problem PROBLEM line(s); 'the archive is not here' and 'the published value is wrong' are different findings and this conflates them"
+	fi
+
+fi
+rm -rf "$(dirname "$MISSING_DOC")"
+
 # --- 2. the data file is tracked -------------------------------------------------------------------------
 #
 # An untracked file does not exist to a checker that reads `git ls-files`, and docs-check is one. The data
@@ -787,7 +1000,8 @@ fi
 echo
 if [ "$failures" = "0" ]; then
 	say "PUBLISHED SPREADS RECOMPUTE: every cited endpoint and width was derived again from the per-repetition values in the document, in decimal, rounded once at the end."
-	say "NOT established by this check: that each per-repetition value is itself correct, or that it came from the run it names. These are statistics over requests, not the requests; five values invented together recompute perfectly. Provenance is docs/12_EVIDENCE_CHECKSUMS.md's digest chain, and only for a reader holding the archive."
+	say "ALSO established, but ONLY where the archive is on this disk: section 3 recomputes each repetition's statistic AND its sample size from the raw request rows, so a value invented and a value measured no longer read the same. Where an archive is absent the line says SKIPPED and the count is reported, because the archives are gitignored and a skipped case is not a passed one."
+	say "NOT established by this check: that an archive present here is the one the run produced -- provenance is docs/12_EVIDENCE_CHECKSUMS.md's digest chain. Nor that the figures published from blocks WITHOUT an archive on disk came from any run at all; for those, five values invented together still recompute perfectly."
 else
 	echo "FAILED: $failures assertion(s) above." >&2
 	exit 1
