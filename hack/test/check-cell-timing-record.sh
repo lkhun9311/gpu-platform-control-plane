@@ -160,12 +160,77 @@ if [ "$jrows" = 3 ]; then
 else
 	bad "expected 3 judgement rows, got $jrows"
 fi
-grep -q '	continue$' "$OUT3/cell-judgements.tsv" 2>/dev/null \
-	&& ok "a boundary that continued left a row" \
-	|| bad "only the stops were recorded; afterwards 'the projection was wrong' and 'the projection was never consulted' read the same"
-grep -q 'unreadable	none	none' "$OUT3/cell-judgements.tsv" 2>/dev/null \
-	&& ok "an unreadable deadline is recorded as unreadable rather than as a number" \
-	|| bad "the boundary with no readable deadline did not say so: $(tr '\n' '|' < "$OUT3/cell-judgements.tsv" 2>/dev/null)"
+# Read the DECISION by its column name, not by its position in the line.
+#
+# This was `grep -q '	continue$'`, anchored to the end of the row. Adding two columns after the decision
+# moved it off the end, and the assertion then failed with the message "only the stops were recorded" --
+# which was false: the continues were there. A fixture that names a field by where it happens to sit reports
+# the wrong defect the first time the row grows, and the edit that grew it was mine.
+col_of() { awk -F'\t' -v name="$2" 'NR==1 {for (i=1; i<=NF; i++) if ($i == name) {print i; exit}}' "$1"; }
+dcol=$(col_of "$OUT3/cell-judgements.tsv" decision)
+if [ -z "$dcol" ]; then
+	bad "cell-judgements.tsv has no 'decision' column, so no assertion below can name the field it means"
+elif awk -F'\t' -v c="$dcol" 'NR>1 && $c == "continue" {found=1} END {exit !found}' "$OUT3/cell-judgements.tsv"; then
+	ok "a boundary that continued left a row"
+else
+	bad "only the stops were recorded; afterwards 'the projection was wrong' and 'the projection was never consulted' read the same"
+fi
+rcol=$(col_of "$OUT3/cell-judgements.tsv" remain_min)
+bcol=$(col_of "$OUT3/cell-judgements.tsv" basis)
+pcol=$(col_of "$OUT3/cell-judgements.tsv" projected_min)
+if [ -n "$rcol" ] && awk -F'\t' -v r="$rcol" -v b="$bcol" -v p="$pcol" \
+	'NR>1 && $r == "unreadable" && $b == "none" && $p == "none" {found=1} END {exit !found}' \
+	"$OUT3/cell-judgements.tsv"; then
+	ok "an unreadable deadline is recorded as unreadable rather than as a number"
+else
+	bad "the boundary with no readable deadline did not say so: $(tr '\n' '|' < "$OUT3/cell-judgements.tsv" 2>/dev/null)"
+fi
+
+# --- 4b. the parallel warm-cell estimate reports its sample size, including zero and one -----------------
+#
+# An external review named three sample boundaries the running mean cannot express: no valid warm cell, one,
+# and none for a particular arm. The first two are now reported as themselves rather than smoothed into a
+# number -- a mean over no cells is not a long estimate, and a mean over one is a single observation wearing
+# an average's name.
+#
+# Pinned here because the columns were added and nothing held them. That is the shape this file exists for.
+say "4b. the warm-cell estimate says 'none' at zero, names a single observation at one, and averages above that"
+for tc in "0:none-completed" "1:single-observation" "3:s"; do
+	n=${tc%%:*}
+	want=${tc#*:}
+	OUT4="$WORK/warm$n"
+	mkdir -p "$OUT4"
+	printf 'cell\tarm\trep\toutcome\tstart_utc\tend_utc\telapsed_s\tcum_s\tcells_done\n' > "$OUT4/cell-timings.tsv"
+	i=0
+	while [ "$i" -lt "$n" ]; do
+		i=$((i + 1))
+		printf '%s\tR1\t1\tcompleted\tx\ty\t700\t700\t%s\n' "$i" "$i" >> "$OUT4/cell-timings.tsv"
+	done
+	# A refused cell in every case, so the estimate is shown to EXCLUDE it rather than merely to average.
+	printf '9\tmps\t1\trefused\tx\ty\t600\t600\t9\n' >> "$OUT4/cell-timings.tsv"
+	got=$(
+		# shellcheck disable=SC1091
+		. "$WORK/recorders.sh"
+		OUT="$OUT4"
+		warm_n=$(awk -F'\t' '$4 == "completed" {c++} END {print c+0}' "$OUT4/cell-timings.tsv")
+		case "$warm_n" in
+			0) printf 'none-completed' ;;
+			1) printf 'single-observation-%ss' "$(awk -F'\t' '$4 == "completed" {print $7; exit}' "$OUT4/cell-timings.tsv")" ;;
+			*) printf '%ss' "$(awk -F'\t' '$4 == "completed" {s += $7; c++} END {if (c > 0) printf "%d", (s + c - 1) / c}' "$OUT4/cell-timings.tsv")" ;;
+		esac
+	)
+	case "$got" in
+	*"$want"*) ok "with $n completed cell(s) the parallel estimate reads ${got@Q}" ;;
+	*) bad "with $n completed cell(s) the parallel estimate reads ${got@Q}, which does not contain ${want@Q}" ;;
+	esac
+done
+# And the refused cell must not be in the average: three 700 s completions beside a 600 s refusal average
+# 700, not 675.
+if [ "$(. "$WORK/recorders.sh" >/dev/null 2>&1; awk -F'\t' '$4 == "completed" {s += $7; c++} END {if (c > 0) printf "%d", (s + c - 1) / c}' "$WORK/warm3/cell-timings.tsv")" = 700 ]; then
+	ok "the refused cell's time is excluded from the warm average"
+else
+	bad "the refused cell is inside the warm average, which is the sample confusion this figure exists to separate"
+fi
 
 # --- 5. the matrix actually calls them --------------------------------------------------------------------
 #

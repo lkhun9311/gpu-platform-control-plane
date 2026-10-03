@@ -1643,19 +1643,20 @@ cell_timing_record() {
 #
 # JUDGE_* are set by the inner function where the values are computed. They are globals rather than returns
 # because the shell has one return value and it is already carrying the decision.
-JUDGE_REMAIN=""; JUDGE_BASIS=""; JUDGE_PROJECTED=""
+JUDGE_REMAIN=""; JUDGE_BASIS=""; JUDGE_PROJECTED=""; JUDGE_WARM_N=""; JUDGE_WARM_PER=""
 cell_judgement_record() {
   local decision="$1"
-  [ -s "$OUT/cell-judgements.tsv" ] || printf 'at_utc\tcell\tcells_done\tcells_total\tremain_min\tbasis\tprojected_min\tdecision\n' > "$OUT/cell-judgements.tsv"
-  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+  [ -s "$OUT/cell-judgements.tsv" ] || printf 'at_utc\tcell\tcells_done\tcells_total\tremain_min\tbasis\tprojected_min\tdecision\twarm_n\twarm_per\n' > "$OUT/cell-judgements.tsv"
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
     "$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || printf 'unknown')" \
     "$cell_n" "$cells_done" "${cells_total:-?}" \
     "${JUDGE_REMAIN:-unreadable}" "${JUDGE_BASIS:-none}" "${JUDGE_PROJECTED:-none}" "$decision" \
+    "${JUDGE_WARM_N:-unmeasured}" "${JUDGE_WARM_PER:-unmeasured}" \
     >> "$OUT/cell-judgements.tsv"
 }
 
 cell_deadline_check() {
-  JUDGE_REMAIN=""; JUDGE_BASIS=""; JUDGE_PROJECTED=""
+  JUDGE_REMAIN=""; JUDGE_BASIS=""; JUDGE_PROJECTED=""; JUDGE_WARM_N=""; JUDGE_WARM_PER=""
   local rc=0
   cell_deadline_check_inner || rc=$?
   cell_judgement_record "$([ "$rc" = 0 ] && echo continue || echo stop)" || true
@@ -1718,6 +1719,37 @@ cell_deadline_check_inner() {
   remain=$(deadline_remaining_minutes 2>/dev/null) || return 0
   [ -n "$remain" ] || return 0
   per=$(( (cell_secs + cells_done - 1) / cells_done ))
+  # A SECOND estimate, recorded beside the judgement and never used to make it.
+  #
+  # `per` above is the mean over every cell that consumed time, refusals included. That is correct for
+  # "how much card time has this bought", and it is the wrong sample for "how long does a cell take": a
+  # refused mps arm spent ten minutes waiting for a device count before declining, which is most of a cell
+  # and none of a measurement.
+  #
+  # An external review named three sample boundaries `cells_done` cannot express -- zero valid warm cells,
+  # exactly one, and zero cells for a particular arm -- and the same review was explicit that changing the
+  # STOPPING rule is a policy choice about acceptable loss that today's data does not get to make. The
+  # 2026-10-02 decision was to leave the rule alone and record a parallel figure instead, so that is what
+  # this is: written to cell-judgements.tsv, read by nobody at run time, and comparable afterwards against
+  # what actually happened.
+  #
+  # It is computed from cell-timings.tsv rather than a new counter, because that file already separates
+  # `completed` from `refused` -- the recorder added earlier today is what makes this possible at all.
+  JUDGE_WARM_PER=""
+  JUDGE_WARM_N=""
+  if [ -s "$OUT/cell-timings.tsv" ]; then
+    JUDGE_WARM_N=$(awk -F'\t' '$4 == "completed" {n++} END {print n+0}' "$OUT/cell-timings.tsv" 2>/dev/null || echo 0)
+    # Zero and one are reported as themselves rather than smoothed into a number.
+    #
+    # A mean over no cells is not a long estimate, it is no estimate, and a mean over one is a single
+    # observation wearing an average's name. Printing "none" and "n=1" keeps a reader from reading either
+    # as a rate.
+    case "${JUDGE_WARM_N:-0}" in
+      0) JUDGE_WARM_PER="none-completed" ;;
+      1) JUDGE_WARM_PER="single-observation-$(awk -F'\t' '$4 == "completed" {print $7; exit}' "$OUT/cell-timings.tsv" 2>/dev/null)s" ;;
+      *) JUDGE_WARM_PER="$(awk -F'\t' '$4 == "completed" {s += $7; n++} END {if (n > 0) printf "%d", (s + n - 1) / n}' "$OUT/cell-timings.tsv" 2>/dev/null)s" ;;
+    esac
+  fi
   # A fifth of headroom, because cells differ by arm, and a projection that only just fits is one slow
   # cell from being cut.
   #
