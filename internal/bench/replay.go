@@ -103,6 +103,17 @@ type RawRow struct {
 	// prompt length, and this is measured on every admitted request, so a disagreement means the trace was
 	// stamped against a different tokenizer or a different prompt than the one that ran.
 	EngineInputTokens int `json:"engineInputTokens,omitempty"`
+	// FinishReason is why the ENGINE stopped generating this response, verbatim as it reported it.
+	//
+	// vLLM sends "length" when the output cap cut the response and "stop" when the model ended on its own,
+	// on the final SSE chunk. It was arriving and being discarded: the chunk struct declared only the
+	// content delta, so every row recorded the same silence whether the cap truncated the answer or the
+	// model finished. The output cap is one of the five load quantities this study freezes, which makes
+	// "the cap was not reached" a claim the evidence could not support in either direction.
+	//
+	// Empty is its own fact and NOT "stop": it means the engine reported no reason, or no response arrived
+	// at all. A report that reads empty as a normal stop would turn an instrument gap into a measurement.
+	FinishReason string `json:"finishReason,omitempty"`
 	// BackendState is the pressure reading the guard's decision was made from, verbatim as the gateway
 	// reported it: "kv=0.834,waiting=7,engaged=0,fresh=1".
 	//
@@ -160,6 +171,11 @@ type SendResult struct {
 	PromptTokens int
 	// EngineOutputTokens is the engine's own count of what it generated, zero when it reported none.
 	EngineOutputTokens int
+	// FinishReason is why the engine stopped, empty when it reported none.
+	//
+	// Empty and "stop" are different facts: the first means nothing said, the second means the model
+	// ended on its own. A report must not read the first as the second.
+	FinishReason string
 	// BackendState is the gateway's report of the pressure its decision used, empty when it reported none.
 	BackendState string
 	// HTTPStatus is the response status; 0 for a transport error or timeout.
@@ -254,6 +270,7 @@ func Replay(ctx context.Context, sender Sender, trace []TraceRow, opts ReplayOpt
 				ExactInputTokens:    tr.ExactInputTokens,
 				EngineInputTokens:   res.PromptTokens,
 				EngineOutputTokens:  res.EngineOutputTokens,
+				FinishReason:        res.FinishReason,
 				BackendState:        res.BackendState,
 				OutputTokens:        res.OutputTokens,
 				HTTPStatus:          res.HTTPStatus,

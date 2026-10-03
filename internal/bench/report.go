@@ -312,6 +312,29 @@ type ArmSummary struct {
 	// Classified BEFORE the response status is consulted. A negative on a failed row is still a broken
 	// value, and routing by status first would file it under the one bucket that does not block.
 	EngineInputTokensInvalidByTenant map[string]int
+	// FinishReasonByTenant is, per tenant, how many rows carried each DISTINCT engine finish reason.
+	//
+	// vLLM reports "length" when the output cap cut the response and "stop" when the model ended on its
+	// own. The two are different experiments: a run where the cap truncated every answer measured the cap,
+	// not the model, and the output cap is one of the five load quantities this study freezes. Kept as a
+	// distribution rather than a flag because "every row hit the cap" and "most did" license different
+	// sentences, and a boolean cannot tell them apart.
+	//
+	// Counted over EVERY offered row, for the same reason the engine input tokens are: the eligible
+	// population excludes the premium tier by construction, and premium is the study's primary endpoint.
+	FinishReasonByTenant map[string]map[string]int
+	// FinishReasonUnreportedByTenant counts, per tenant, rows the engine ANSWERED that named no reason.
+	//
+	// A gap in the instrument, not a normal stop. An engine that returned 200 and said nothing about why it
+	// stopped leaves "the cap was not reached" unsupported in either direction, and reading the silence as
+	// "stop" would turn a missing field into a measurement.
+	FinishReasonUnreportedByTenant map[string]int
+	// FinishReasonUnansweredByTenant counts, per tenant, rows with no successful response at all.
+	//
+	// Separate from Unreported because the two license different conclusions: a request that never got a
+	// response is unobservable here and says nothing about the engine's stopping behaviour, while a 200
+	// that carried no reason is an instrument gap in a request that did complete.
+	FinishReasonUnansweredByTenant map[string]int
 	// EngineInputTokensUnansweredByTenant counts, per tenant, rows where no successful response arrived at
 	// all, so the engine had no opportunity to report a count.
 	//
@@ -420,6 +443,9 @@ func Summarize(arm string, rows []RawRow) ArmSummary {
 	s.EngineInputTokensUnreportedByTenant = map[string]int{}
 	s.EngineInputTokensUnansweredByTenant = map[string]int{}
 	s.EngineInputTokensInvalidByTenant = map[string]int{}
+	s.FinishReasonByTenant = map[string]map[string]int{}
+	s.FinishReasonUnreportedByTenant = map[string]int{}
+	s.FinishReasonUnansweredByTenant = map[string]int{}
 
 	// The eligible-population threshold comes from the manifest provenance stamped into the rows, so admitted-work is scored over the same population the guard gated even if the paid run tuned it.
 	threshold := eligibleLongThreshold
@@ -443,6 +469,9 @@ func Summarize(arm string, rows []RawRow) ArmSummary {
 		tpot = s.tallyDelivered(r, tpot, tpotByTenant)
 		// The declared-load gate's population is every offered request, so this call carries no condition.
 		s.tallyEngineInputTokens(r)
+		// Same population and the same reason it carries no condition: the loop is at the gocyclo ceiling,
+		// so the three-way split lives inside the method rather than as an `if` here.
+		s.tallyFinishReasons(r)
 		// Admitted-work accounting covers the eligible population, for the admission-match check.
 		//
 		// The gateway gates on tier == standard AND EstInputTokens >= threshold, and this applies the same
@@ -966,6 +995,30 @@ func (s *ArmSummary) tallyEligibleWork(r RawRow) {
 //
 // The nil-map checks live here rather than at the call site because Summarize's row loop sits at the
 // complexity ceiling -- one more `if` in it has already turned `make lint` red once.
+// tallyFinishReasons records why the engine stopped, keeping the three silences apart.
+//
+// The order matters and mirrors tallyEngineInputTokens: a reported reason is a reading, no reason on a
+// successful response is an instrument gap, and no successful response at all is unobservable. Collapsing
+// the last two would let a run whose requests never completed report the same thing as one whose engine
+// answered without saying why -- and reading either as "stop" would make a missing field into evidence that
+// the output cap was never reached.
+func (s *ArmSummary) tallyFinishReasons(r RawRow) {
+	if r.FinishReason != "" {
+		seen := s.FinishReasonByTenant[r.Tenant]
+		if seen == nil {
+			seen = map[string]int{}
+			s.FinishReasonByTenant[r.Tenant] = seen
+		}
+		seen[r.FinishReason]++
+		return
+	}
+	if r.HTTPStatus != httpStatusOK {
+		s.FinishReasonUnansweredByTenant[r.Tenant]++
+		return
+	}
+	s.FinishReasonUnreportedByTenant[r.Tenant]++
+}
+
 func (s *ArmSummary) tallyEngineInputTokens(r RawRow) {
 	if r.EngineInputTokens > 0 {
 		seen := s.EngineInputTokensByTenant[r.Tenant]

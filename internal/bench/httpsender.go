@@ -398,6 +398,15 @@ func (h *HTTPSender) readStream(ctx context.Context, resp *http.Response) SendRe
 				Delta struct {
 					Content string `json:"content"`
 				} `json:"delta"`
+				// Why the engine stopped generating, which it sends and this struct used to discard.
+				//
+				// vLLM puts null on every content chunk and the reason on the last one: "length" when the
+				// output cap cut it, "stop" when the model ended on its own. Without it, a cap that
+				// truncated every response and a model that finished early are the same row -- and the
+				// output cap is a load variable this study freezes, so "the cap was not reached" is a
+				// claim the evidence could not support either way. The value is in
+				// internal/bench/testdata/vllm_sse_stream.txt, so it was arriving all along.
+				FinishReason string `json:"finish_reason"`
 			} `json:"choices"`
 			// The usage chunk arrives last, with an empty choices list, so it contributes no output token.
 			Usage *struct {
@@ -426,6 +435,11 @@ func (h *HTTPSender) readStream(ctx context.Context, resp *http.Response) SendRe
 			if chunk.Usage.CompletionTokens > 0 {
 				res.EngineOutputTokens = chunk.Usage.CompletionTokens
 			}
+		}
+		// The LAST non-empty reason wins, because every content chunk carries null and only the final one
+		// carries the reason. Taking the first would record "" for every request that produced any output.
+		if len(chunk.Choices) > 0 && chunk.Choices[0].FinishReason != "" {
+			res.FinishReason = chunk.Choices[0].FinishReason
 		}
 		if len(chunk.Choices) > 0 && chunk.Choices[0].Delta.Content != "" {
 			if res.FirstTokenUnixNanos == 0 {

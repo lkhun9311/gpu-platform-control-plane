@@ -94,6 +94,57 @@ var _ = Describe("HTTPSender", func() {
 		// Six token frames for max_tokens: 6. The role frame is not one of them, and neither is [DONE].
 		Expect(res.OutputTokens).To(Equal(6))
 		Expect(time.Unix(0, res.FirstTokenUnixNanos)).To(BeTemporally(">=", start.Add(prefillPause)))
+		// Why the engine stopped, which this file has carried all along and the parser used to discard.
+		//
+		// The capture's final content frame says "finish_reason":"length" -- the output cap cut it at six
+		// tokens. Without the field, a run whose cap truncated every answer and one whose model finished on
+		// its own recorded the same silence, while the cap is one of the five load quantities the study
+		// freezes.
+		//
+		// This asserts ONLY that the reason is read. It does not establish that a later null cannot
+		// overwrite it: the capture has no frame carrying `choices` after the one with the reason, so there
+		// is nothing here to overwrite with. I wrote that it tested both and it does not. The spec below
+		// constructs the stream that can tell them apart.
+		Expect(res.FinishReason).To(Equal("length"))
+	})
+
+	It("keeps the finish reason when a later frame carries a null one", func() {
+		// A CONSTRUCTED stream, not a capture, and it says so because that is the honest label.
+		//
+		// The captured vLLM stream ends on the frame that names the reason, so it cannot distinguish "the
+		// last non-empty value wins" from "whatever the last frame said". The parser takes the former, and
+		// removing that condition left every test green -- a rule nothing could falsify. This stream puts a
+		// content frame with "finish_reason":null AFTER the one that says "length", which is the only shape
+		// in which the two readings differ.
+		//
+		// No claim is made that a real engine emits this order. The claim is that if one did, a run whose
+		// output cap truncated every answer would still be recorded as truncated rather than as silent.
+		frames := []string{
+			`data: {"choices":[{"index":0,"delta":{"role":"assistant","content":""},"finish_reason":null}]}`,
+			`data: {"choices":[{"index":0,"delta":{"content":"a"},"finish_reason":null}]}`,
+			`data: {"choices":[{"index":0,"delta":{"content":"b"},"finish_reason":"length"}]}`,
+			`data: {"choices":[{"index":0,"delta":{"content":"c"},"finish_reason":null}]}`,
+			`data: {"choices":[],"usage":{"prompt_tokens":5,"completion_tokens":3}}`,
+			`data: [DONE]`,
+		}
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "text/event-stream")
+			f := w.(http.Flusher)
+			for _, frame := range frames {
+				_, _ = fmt.Fprint(w, frame+"\n\n")
+				f.Flush()
+			}
+		}))
+		defer srv.Close()
+
+		sender := NewHTTPSender(srv.URL, "m", nil, 5*time.Second, SenderConn{MaxIdleConnsPerHost: 8, DrainForReuse: true})
+		res := sender.Send(context.Background(), TraceRow{Tenant: "premium-1", PromptLenChars: 20, MaxOutputTokens: 3}, time.Now().UnixNano())
+
+		Expect(res.HTTPStatus).To(Equal(200))
+		Expect(res.FinishReason).To(Equal("length"))
+		// The engine's own counts still arrive from the usage frame, so the reason is not read at their cost.
+		Expect(res.PromptTokens).To(Equal(5))
+		Expect(res.EngineOutputTokens).To(Equal(3))
 	})
 
 	It("puts the corpus text on the wire, which is the only place the payload can be checked", func() {
