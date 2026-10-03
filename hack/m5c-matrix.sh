@@ -713,6 +713,37 @@ gpu_scale_down() {
   fi
 }
 
+# The expected-versus-actual comparison, written from cleanup so that a run which DIED still carries it.
+#
+# It lived at the end of the script, after README.txt. That is the one path where the comparison is least
+# interesting: a run that reaches the end has the files it owed. The runs worth comparing are the ones that
+# stopped at a deadline boundary or hit `fail` -- money already spent, archive short -- and those exit
+# through cleanup and never reached the old location. An external review named it, and the comment above the
+# old block had already claimed the opposite ("a run that ends holding fewer files than it owed ... must not
+# go unremarked"), so the code contradicted its own stated reason for existing.
+#
+# Recorded, never enforced. Failing here would stop the archive coming home, and the archive is the only
+# record of what the money bought.
+record_expected_files() {
+  local pair actual
+  [ -d "$OUT" ] || return 0
+  pair=$(expected_outputs)
+  # Counted BEFORE this file is written, and expected_outputs counts it as present, because by the time
+  # anyone reads the archive it is there. Off-by-one in the other direction otherwise.
+  actual=$(( $(find "$OUT" -maxdepth 1 -type f 2>/dev/null | wc -l) + 1 ))
+  {
+    printf 'expected\t%s\n' "${pair%% *}"
+    printf 'basis\t%s\n' "${pair#* }"
+    printf 'actual\t%s\n' "$actual"
+    case "${pair%% *}" in
+      "$actual") printf 'agree\tyes\n' ;;
+      [0-9]*) printf 'agree\tno -- the archive holds %s of the %s files this run owed it\n' "$actual" "${pair%% *}" ;;
+      *) printf 'agree\tnot-evaluable -- no expected count was produced, so this is not a comparison\n' ;;
+    esac
+  } > "$OUT/expected-files.txt"
+  echo "expected-files.txt: expected=${pair%% *} actual=$actual basis=${pair#* }" >&2
+}
+
 # A signal must also END the script, and these traps did not.
 #
 # `trap cleanup INT` runs cleanup and then RESUMES where the signal arrived. During the ten-minute wait for
@@ -727,6 +758,7 @@ CLEANED=0
 cleanup() {
   [ "$CLEANED" = "1" ] && return 0
   CLEANED=1
+  record_expected_files
   [ -n "$PF_PID" ] && kill "$PF_PID" 2>/dev/null
   k delete namespace "$NS_A" "$NS_B" --wait=false >/dev/null 2>&1
   k delete gpuquotapolicy m5c-premium m5c-standard >/dev/null 2>&1
@@ -1666,7 +1698,7 @@ cell_judgement_record() {
 # that verifies perfectly. The expected number has to come from the PLAN and the OUTCOMES, not from the
 # directory being checked.
 #
-# THE ARITHMETIC, and it is checked against four real archives rather than reasoned about
+# THE ARITHMETIC
 #
 #   completed cells x 4   trace-, raw-, manifest-, port-forward- per cell
 #   + refused arms        refused-<arm>.txt, ONE per arm and not per repetition: arm_refused takes $arm
@@ -1674,12 +1706,31 @@ cell_judgement_record() {
 #   + invalid arms        invalid-<arm>.txt, same shape. An invalid arm still ships its archive: arm_invalid
 #                         writes the file and returns 1, and what fails the session is the LAUNCHER reading
 #                         that file after the evidence is home (hack/m5c-gpu-session.sh:1454)
-#   + 2                   evidence.log and README.txt
+#   + the fixed files     ENUMERATED below with their conditions, not added as a constant
+#
+# ⚠️ THE CONSTANT WAS WRONG, AND THE FOUR ARCHIVES DID NOT CATCH IT
+#
+# This started as `+ 2` for evidence.log and README.txt, "checked against four real archives":
 #
 #   m5c-20260912-084918   3x4 + 1 + 0 + 2 = 15   archive holds 15
 #   m5c-20260913-011031   6x4 + 0 + 0 + 2 = 26   archive holds 26
 #   m5c-20261001-023515  10x4 + 0 + 0 + 2 = 42   archive holds 42
 #   m5c-20261002-014903  15x4 + 0 + 0 + 2 = 62   archive holds 62
+#
+# Four for four, and it was not evidence that the formula was right. Those archives predate three files
+# this script now always writes -- load-source.txt (line 501, unconditional) and the two cell-*.tsv
+# recorders added 2026-10-03 -- and all three are absent from every one of them. So the agreement measured
+# what those runs happened to contain, and the NEXT run would have reported `agree=no` on a complete
+# archive. An external review found it; the synthetic gate, which pinned the same four numbers, could not.
+#
+# The fixed files are therefore enumerated with the condition each one appears under:
+#
+#   evidence.log         always: LOG is $OUT/evidence.log and it is truncated right after mkdir
+#   load-source.txt      always: written at line 501, before any cell
+#   expected-files.txt   always: this comparison's own output, which is in the archive it counts
+#   cell-timings.tsv     once any cell has reported an outcome
+#   cell-judgements.tsv  once any deadline boundary has been judged
+#   README.txt           only on a run that reached the end
 #
 # (The tarballs list one more entry each: the `m5c-run/` directory itself.)
 #
@@ -1693,7 +1744,7 @@ cell_judgement_record() {
 # Prints "<expected> <basis>". The basis words are deliberately not numbers, for the same reason the warm
 # estimate's are: an aggregation that could not run must not be readable as a count.
 expected_outputs() {
-  local completed refused invalid
+  local completed refused invalid fixed
   if [ -n "${LADDER:-}" ]; then
     printf 'ladder-not-expressed ladder-cells-are-not-matrix-cells'
     return 0
@@ -1706,12 +1757,32 @@ expected_outputs() {
     printf 'unreadable aggregation-failed'
     return 0
   }
-  # Counted from the directory because the file is per ARM and the timings file is per CELL: five refused
-  # repetitions of one arm are five timing rows and one file, so counting rows here would over-expect.
-  refused=$(find "$OUT" -maxdepth 1 -name 'refused-*.txt' 2>/dev/null | wc -l)
+  # Refused arms come from the TIMING ROWS, not from the files, so a row with no file is a disagreement.
+  #
+  # Counting `refused-*.txt` made the expectation and the actual count move together: an arm that was
+  # refused and whose file was never written lowered both sides by one and agreed. The rows are per cell and
+  # the file is per arm, so the unique arm is what matches the file -- `sort -u` on the label column.
+  #
+  # The label column IS the arm here because the matrix builds every cell as `arm|arm|rep|...`. Under the
+  # ladder the label is `rung03-shared` and this equality breaks, which is one more reason the ladder is
+  # refused above rather than approximated.
+  refused=$(awk -F'\t' 'NR > 1 && $4 == "refused" {print $2}' "$OUT/cell-timings.tsv" | sort -u | wc -l)
+  # Invalid arms have no equivalent: arm_invalid fires inside deploy_arm and the MPS probe, which can return
+  # before run_cell records a timing row at all. Counted from the files, and so an invalid arm whose file is
+  # missing is NOT detectable here. Said plainly rather than left looking symmetric.
   invalid=$(find "$OUT" -maxdepth 1 -name 'invalid-*.txt' 2>/dev/null | wc -l)
-  printf '%s completed-%sx4+refused-%s+invalid-%s+2' \
-    $(( completed * 4 + refused + invalid + 2 )) "$completed" "$refused" "$invalid"
+  # The fixed files, each counted only under the condition it appears under.
+  # `-f`, not `-s`: an empty file is in the archive and `find -type f` counts it.
+  #
+  # This was `-s` and the gate caught it. A README.txt or cell-judgements.tsv that exists and is empty was
+  # then missing from the expectation and present in the actual count, so a complete archive reported a
+  # permanent one-file shortfall -- the two sides were asking different questions about the same file.
+  fixed=3 # evidence.log, load-source.txt, expected-files.txt -- the last being this comparison's own output
+  [ -f "$OUT/cell-judgements.tsv" ] && fixed=$(( fixed + 1 ))
+  fixed=$(( fixed + 1 )) # cell-timings.tsv, which the -s test above already proved is there
+  [ -f "$OUT/README.txt" ] && fixed=$(( fixed + 1 ))
+  printf '%s completed-%sx4+refused-%s+invalid-%s+fixed-%s' \
+    $(( completed * 4 + refused + invalid + fixed )) "$completed" "$refused" "$invalid" "$fixed"
 }
 
 # The parallel warm-cell estimate, in a function of its own so a test can run THIS code.
@@ -2170,26 +2241,11 @@ that omitted refusals would disagree with the arithmetic that drove the next dec
 Neither file says the judgement was CORRECT. It says the judgement can now be re-examined.
 EOF
 
-# Written AFTER README.txt, because README.txt is one of the files it counts.
+# The expected-versus-actual comparison is NOT written here any more.
 #
-# The comparison is recorded rather than enforced. A run that ends holding fewer files than it owed has
-# already spent the money, and failing here would delete the only record of what it did spend it on; the
-# archive must come home either way. What must not happen is the shortfall going unremarked, so the line
-# says both numbers and whether they agree.
-EXPECTED_PAIR=$(expected_outputs)
-ACTUAL_FILES=$(find "$OUT" -maxdepth 1 -type f 2>/dev/null | wc -l)
-{
-  printf 'expected\t%s\n' "${EXPECTED_PAIR%% *}"
-  printf 'basis\t%s\n' "${EXPECTED_PAIR#* }"
-  printf 'actual\t%s\n' "$ACTUAL_FILES"
-  case "${EXPECTED_PAIR%% *}" in
-    "$ACTUAL_FILES") printf 'agree\tyes\n' ;;
-    [0-9]*) printf 'agree\tno -- the archive holds %s of the %s files this run owed it\n' "$ACTUAL_FILES" "${EXPECTED_PAIR%% *}" ;;
-    *) printf 'agree\tnot-evaluable -- no expected count was produced, so this is not a comparison\n' ;;
-  esac
-} > "$OUT/expected-files.txt"
-say "expected-files.txt: expected=${EXPECTED_PAIR%% *} actual=$ACTUAL_FILES basis=${EXPECTED_PAIR#* }"
-
+# record_expected_files runs from cleanup, which every exit passes through -- the deadline stop, `fail`, and
+# the signals. Writing it here as well would count a file that the cleanup pass then rewrites, and would
+# leave the short runs, the only ones where the comparison means anything, without one.
 say "MATRIX DONE. Raw evidence in $OUT (see its README.txt before analysing)."
 say "The comparison is premium TTFT p99 across the sharing modes at equal offered load."
 say "Per-engine GPU utilisation is deliberately absent: under time-slicing nothing can attribute it."

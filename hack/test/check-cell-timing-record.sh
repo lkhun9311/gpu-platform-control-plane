@@ -63,9 +63,10 @@ extract() {
 	extract cell_judgement_record
 	extract warm_cell_estimate
 	extract expected_outputs
+	extract record_expected_files
 } > "$WORK/recorders.sh"
 
-for fn in cell_timing_record cell_judgement_record warm_cell_estimate expected_outputs; do
+for fn in cell_timing_record cell_judgement_record warm_cell_estimate expected_outputs record_expected_files; do
 	grep -q "^$fn() {" "$WORK/recorders.sh" ||
 		bad "$fn was not extracted from $SRC; the harness is testing nothing"
 done
@@ -351,16 +352,90 @@ expect_count() {
 		LADDER=""
 		expected_outputs
 	)
-	if [ "${got%% *}" = "$4" ]; then
-		ok "$1 completed + $2 refused arm(s) + $3 invalid arm(s) owes $4 files, as $5 holds"
+	# The CELL-DERIVED part is what these archives can pin, and only that.
+	#
+	# Their total cannot be reproduced by today's formula and should not be: they hold two fixed files
+	# (evidence.log, README.txt) where a run of this script now leaves five or six. Asserting the total
+	# would force the fixed-file set back to the stale constant an external review had just rejected. So the
+	# fixed count is taken from the function's own basis string and subtracted from both sides.
+	exp=${got%% *}
+	basis=${got#* }
+	fx=${basis##*fixed-}
+	# `$(( ))` treats a non-numeric name as zero WITHOUT an error, so a basis the parse could not read
+	# would subtract nothing and the comparison would look like it had accounted for the fixed files.
+	# "Could not read the fixed count" must not arrive here as "there were no fixed files".
+	case "$fx" in
+	'' | *[!0-9]*)
+		bad "the basis ${basis@Q} carries no readable fixed-file count, so this case cannot subtract one; an unparsed count would silently behave as zero"
+		return
+		;;
+	esac
+	if [ "$(( exp - fx ))" = "$(( $4 - 2 ))" ]; then
+		ok "$1 completed + $2 refused arm(s) + $3 invalid arm(s) owes $(( exp - fx )) cell files, as $5's $4 minus its two fixed files"
 	else
-		bad "$1 completed + $2 refused + $3 invalid gives ${got%% *}, but $5 holds $4; the formula and the archives disagree"
+		bad "$1 completed + $2 refused + $3 invalid gives $(( exp - fx )) cell files (expected $exp, fixed $fx), but $5 holds $(( $4 - 2 )) beside its two fixed files; the per-cell arithmetic and the archives disagree"
 	fi
 }
+#
+# ⚠️ These four numbers are the archives AS THEY WERE, and they are no longer the formula's whole test.
+#
+# The four agreed with a `+2` constant for evidence.log and README.txt, and that agreement was not evidence:
+# those runs predate load-source.txt and the two cell-*.tsv recorders, so the constant matched what they
+# happened to hold and would have under-counted the very next run. The fixture below therefore builds only
+# the files each archive actually had, and the FUTURE shape is a separate case under it.
 expect_count 3 1 0 15 m5c-20260912-084918
 expect_count 6 0 0 26 m5c-20260913-011031
 expect_count 10 0 0 42 m5c-20261001-023515
 expect_count 15 0 0 62 m5c-20261002-014903
+# The shape this script writes NOW: the same ten completed cells, plus the three files those archives
+# predate. 10x4 + 0 + 0 + fixed(evidence.log, load-source.txt, expected-files.txt, cell-timings.tsv,
+# cell-judgements.tsv, README.txt) = 46.
+OUT6N="$WORK/exp-now"
+mkdir -p "$OUT6N"
+printf 'cell\tarm\trep\toutcome\tstart_utc\tend_utc\telapsed_s\tcum_s\tcells_done\n' > "$OUT6N/cell-timings.tsv"
+i=0
+while [ "$i" -lt 10 ]; do
+	i=$((i + 1))
+	printf '%s\tR1\t1\tcompleted\tx\ty\t700\t700\t%s\n' "$i" "$i" >> "$OUT6N/cell-timings.tsv"
+done
+printf 'at_utc\tcell\tcells_done\tcells_total\tremain_min\tbasis\tprojected_min\tdecision\twarm_n\twarm_per\n' > "$OUT6N/cell-judgements.tsv"
+printf 'x\t1\t1\t10\t60\tnone\tnone\tcontinue\t1\t700s\n' >> "$OUT6N/cell-judgements.tsv"
+: > "$OUT6N/evidence.log"
+: > "$OUT6N/load-source.txt"
+: > "$OUT6N/README.txt"
+now_got=$(
+	# shellcheck disable=SC1091
+	. "$WORK/recorders.sh"
+	OUT="$OUT6N"
+	LADDER=""
+	expected_outputs
+)
+if [ "${now_got%% *}" = 46 ]; then
+	ok "a run of this script's current shape owes 46 files, counting the three its older archives predate and its own expected-files.txt"
+else
+	bad "a complete ten-cell run of the CURRENT script gives ${now_got%% *} rather than 46; the fixed files are being added as a constant from an older archive's shape, so a complete archive would report a shortfall"
+fi
+# A refused arm whose file was never written must DISAGREE, not lower both sides by one.
+OUT6M="$WORK/exp-row-no-file"
+mkdir -p "$OUT6M"
+printf 'cell\tarm\trep\toutcome\tstart_utc\tend_utc\telapsed_s\tcum_s\tcells_done\n' > "$OUT6M/cell-timings.tsv"
+printf '1\tR1\t1\tcompleted\tx\ty\t700\t700\t1\n' >> "$OUT6M/cell-timings.tsv"
+printf '2\tmps\t1\trefused\tx\ty\t600\t600\t2\n' >> "$OUT6M/cell-timings.tsv"
+: > "$OUT6M/evidence.log"
+: > "$OUT6M/load-source.txt"
+rowonly_got=$(
+	# shellcheck disable=SC1091
+	. "$WORK/recorders.sh"
+	OUT="$OUT6M"
+	LADDER=""
+	expected_outputs
+)
+# 1x4 + refused 1 + invalid 0 + fixed(evidence.log, load-source.txt, expected-files.txt, cell-timings.tsv) = 9
+if [ "${rowonly_got%% *}" = 9 ]; then
+	ok "a refused arm with a timing row and no refused-<arm>.txt is still expected, so its absence shows as a shortfall"
+else
+	bad "a refused arm with a row and no file gives ${rowonly_got%% *} rather than 9; counting the files instead of the rows lowers both sides together and a file that was never written agrees"
+fi
 # Five refused repetitions of ONE arm are five timing rows and one file.
 OUT6R="$WORK/exp-rep-overwrite"
 mkdir -p "$OUT6R"
@@ -376,10 +451,12 @@ rep_got=$(
 	LADDER=""
 	expected_outputs
 )
-if [ "${rep_got%% *}" = 3 ]; then
+# 0x4 + refused 1 + invalid 0 + fixed(evidence.log, load-source.txt, expected-files.txt, cell-timings.tsv) = 5.
+# Counting the five ROWS instead of the one arm would give 9.
+if [ "${rep_got%% *}" = 5 ]; then
 	ok "five refused repetitions of one arm owe one file, not five"
 else
-	bad "five refused repetitions of one arm give ${rep_got%% *} rather than 3 (0x4 + 1 + 0 + 2); the count is reading timing rows where the file is per arm"
+	bad "five refused repetitions of one arm give ${rep_got%% *} rather than 5; 9 is what counting the timing rows gives, and the refusal file is written per arm"
 fi
 # The ladder is refused rather than counted with the matrix's formula.
 ladder_got=$(
@@ -402,7 +479,7 @@ nofile_got=$(
 	expected_outputs
 )
 case "$nofile_got" in
-*no-timings-file*) ok "with no timings file the expected count reports ${nofile_got@Q} rather than 2" ;;
+*no-timings-file*) ok "with no timings file the expected count reports ${nofile_got@Q} rather than a count of the fixed files" ;;
 *) bad "with no timings file the expected count reports ${nofile_got@Q}; '0 cells completed' and 'no recorder ran' are different facts" ;;
 esac
 # The third silence. Without this case the `unreadable` branch of expected_outputs pins nothing, which is
@@ -427,6 +504,81 @@ else
 	esac
 fi
 chmod 644 "$UNREAD6/cell-timings.tsv"
+
+# --- 7. a run that died still records the comparison ------------------------------------------------------
+#
+# The comparison used to be written after README.txt, which is the one path where it is least interesting: a
+# run that reached the end has what it owed. The runs worth comparing are the ones that stopped at a
+# deadline or hit `fail`, and those leave through cleanup. So the recorder is driven here WITHOUT a
+# README.txt -- the shape of a run that stopped after two cells of ten.
+say "7. a run that stopped early still leaves expected-files.txt, and its own file is inside the count"
+OUT7="$WORK/died"
+mkdir -p "$OUT7"
+printf 'cell\tarm\trep\toutcome\tstart_utc\tend_utc\telapsed_s\tcum_s\tcells_done\n' > "$OUT7/cell-timings.tsv"
+printf '1\tR1\t1\tcompleted\tx\ty\t700\t700\t1\n' >> "$OUT7/cell-timings.tsv"
+printf '2\tshared\t1\tcompleted\tx\ty\t700\t1400\t2\n' >> "$OUT7/cell-timings.tsv"
+printf 'at_utc\tcell\tcells_done\tcells_total\tremain_min\tbasis\tprojected_min\tdecision\twarm_n\twarm_per\n' > "$OUT7/cell-judgements.tsv"
+printf 'x\t2\t2\t10\t5\twarm\t95\tstop\t2\t700s\n' >> "$OUT7/cell-judgements.tsv"
+: > "$OUT7/evidence.log"
+: > "$OUT7/load-source.txt"
+# Four per cell for the two that finished, so the directory holds what a two-cell run leaves.
+for c in R1-1 shared-1; do
+	for p in trace raw; do : > "$OUT7/$p-$c.jsonl"; done
+	: > "$OUT7/manifest-$c.yaml"
+	: > "$OUT7/port-forward-$c.log"
+done
+(
+	# shellcheck disable=SC1091
+	. "$WORK/recorders.sh"
+	OUT="$OUT7"
+	LADDER=""
+	record_expected_files
+) 2>/dev/null
+if [ -s "$OUT7/expected-files.txt" ]; then
+	ok "a run that stopped at a boundary left expected-files.txt"
+else
+	bad "a run that stopped early left no expected-files.txt, so the only runs that record the comparison are the ones that did not need it"
+fi
+# 2x4 + 0 + 0 + fixed(evidence.log, load-source.txt, expected-files.txt, cell-timings.tsv,
+# cell-judgements.tsv; no README.txt) = 13, and the directory holds 12 plus the file being written.
+died_exp=$(awk -F'\t' '$1 == "expected" {print $2}' "$OUT7/expected-files.txt" 2>/dev/null)
+died_act=$(awk -F'\t' '$1 == "actual" {print $2}' "$OUT7/expected-files.txt" 2>/dev/null)
+died_agree=$(awk -F'\t' '$1 == "agree" {print $2}' "$OUT7/expected-files.txt" 2>/dev/null)
+if [ "$died_exp" = 13 ] && [ "$died_act" = 13 ] && [ "$died_agree" = yes ]; then
+	ok "the stopped run owes 13 and holds 13, counting expected-files.txt itself"
+else
+	bad "the stopped run records expected=${died_exp@Q} actual=${died_act@Q} agree=${died_agree@Q}; a complete-for-its-length archive must agree, and the file being written is one of the files it counts"
+fi
+# A short archive must say so rather than agreeing.
+rm -f "$OUT7/raw-shared-1.jsonl" "$OUT7/expected-files.txt"
+(
+	# shellcheck disable=SC1091
+	. "$WORK/recorders.sh"
+	OUT="$OUT7"
+	LADDER=""
+	record_expected_files
+) 2>/dev/null
+short_agree=$(awk -F'\t' '$1 == "agree" {print $2}' "$OUT7/expected-files.txt" 2>/dev/null)
+case "$short_agree" in
+no*) ok "an archive missing one raw file reports ${short_agree@Q}" ;;
+*) bad "an archive missing one raw file reports agree=${short_agree@Q}; the comparison exists to notice exactly this" ;;
+esac
+# And the recorder must be REACHED on the paths that matter, which this file cannot execute.
+#
+# Everything above calls record_expected_files directly, so deleting its call site in cleanup left all of it
+# green -- the test drove the function and never asked whether anything drives it. Read as text, the way
+# section 5 reads the timing recorder's call sites, and for the same reason: exercising a trap needs a run,
+# and a run needs a card.
+grep -q 'CLEANED=1' "$SRC" && grep -A 2 'CLEANED=1' "$SRC" | grep -q 'record_expected_files' \
+	&& ok "cleanup calls record_expected_files, so a run that stopped at a deadline or hit fail still writes the comparison" \
+	|| bad "cleanup does not call record_expected_files; only runs that reach the end would record the comparison, and those are the runs whose archives are complete"
+# One call site, not one per exit path: cleanup has four traps behind it and `fail` exits through them.
+sites=$(grep -c '^\s*record_expected_files$' "$SRC" || true)
+if [ "$sites" = 1 ]; then
+	ok "one call site, inside the handler every exit passes through"
+else
+	bad "found $sites bare record_expected_files call sites, want 1; a comparison written from several exit paths is a comparison the next exit path will not have"
+fi
 
 echo
 if [ "$failures" = "0" ]; then
