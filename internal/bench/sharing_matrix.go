@@ -962,22 +962,25 @@ func EvaluateDeclaredLoad(summaries []ArmSummary, frozen *FrozenTuple, premiumTe
 	}
 	want := map[string]int{premiumTenant: frozen.PremiumInputTokens, contenderTenant: frozen.ContenderInputTokens}
 
-	var agreed, unreported int
+	var agreed, unreported, unanswered, invalid int
 	var disagreed, missing []string
 	for _, s := range summaries {
 		for tenant, declared := range want {
-			// A tenant with neither reported nor unreported rows was not offered to this arm at all. R1
-			// carries no contender BY DESIGN, so counting that as a missing population would fire this gate
-			// on every correct matrix. An arm that should have had the tenant and did not is reading 4b's
-			// thin-sample refusal, which is a different sentence about different evidence.
+			invalid += s.EngineInputTokensInvalidByTenant[tenant]
+			// A tenant with no rows of any kind was not offered to this arm at all. R1 carries no contender
+			// BY DESIGN, so counting that as a missing population would fire this gate on every correct
+			// matrix. An arm that should have had the tenant and did not is reading 4b's thin-sample
+			// refusal, which is a different sentence about different evidence.
 			rows, had := s.EngineInputTokensByTenant[tenant]
-			absent := s.EngineInputTokensUnreportedByTenant[tenant]
-			if !had && absent == 0 {
+			silent := s.EngineInputTokensUnreportedByTenant[tenant]
+			absent := s.EngineInputTokensUnansweredByTenant[tenant]
+			if !had && silent == 0 && absent == 0 && s.EngineInputTokensInvalidByTenant[tenant] == 0 {
 				continue
 			}
-			unreported += absent
-			if absent > 0 {
-				missing = append(missing, fmt.Sprintf("%s/%s %d rows", s.Arm, tenant, absent))
+			unreported += silent
+			unanswered += absent
+			if silent > 0 {
+				missing = append(missing, fmt.Sprintf("%s/%s %d rows", s.Arm, tenant, silent))
 			}
 			for got, n := range rows {
 				if got == declared {
@@ -991,6 +994,52 @@ func EvaluateDeclaredLoad(summaries []ArmSummary, frozen *FrozenTuple, premiumTe
 	}
 	sort.Strings(disagreed)
 	sort.Strings(missing)
+	// A request with no successful response is REPORTED in every outcome below and GATES none of them.
+	//
+	// The first version of this reading folded it in with the instrument gaps, and the ten-cell archive's
+	// single HTTP 502 of 47,245 rows then made the whole run's load unverifiable. What it does change is the
+	// SCOPE of a pass, so the wording says "every request the engine answered" rather than "every request".
+	//
+	// The wording is deliberately about what the CLIENT obtained, not about what the engine did. An earlier
+	// draft said the engine "had no opportunity to report a length", and that claims more than a 502 shows:
+	// the request may have reached the engine, been prefilled and measured, and lost its response on the way
+	// back. All the evidence establishes is that no count was obtained for those requests.
+	//
+	// And it is not a small residual. If the failures are not independent of the prompt -- a change that
+	// fails exactly the requests carrying the wrong length would remove them from this population -- then
+	// the unverified rows are where a violation would hide. So the note states the bound the evidence
+	// actually permits: every unverified row could be a mismatch, which caps the claim at agreed/(agreed+U).
+	// The COUNT is safe in every outcome. The BOUND is not, and they are separate strings for that reason.
+	//
+	// An independent review caught the first version appending both to every branch. With 100 agreeing rows,
+	// 10 reported mismatches and 1 unanswered request it printed "At most 1 of 101 scored requests could
+	// therefore disagree" beside a FIRED verdict that had already found 10 -- an understated bound sitting
+	// next to the refusal it contradicted, which is the defect this whole reading exists to avoid.
+	//
+	// U/(agreed+U) is the evidence's maximum only when U is the ONLY unverified category. In the passing
+	// branch below that holds by construction: a disagreement, an answered-but-uncounted row and a negative
+	// count each take their own branch, so reaching the default means all three are zero.
+	unansweredCount := ""
+	unansweredBound := ""
+	if unanswered > 0 {
+		unansweredCount = fmt.Sprintf(" No count was obtained for %d request(s), which got no successful "+
+			"response; their input length is not verified by this evidence, and because a failure can "+
+			"correlate with the prompt they are also where a mismatch would be invisible.", unanswered)
+		unansweredBound = fmt.Sprintf(" At most %d of %d scored requests could therefore disagree, which is "+
+			"what this evidence cannot rule out rather than a tolerance it was held to.",
+			unanswered, agreed+unanswered)
+	}
+	// A broken value is reported in EVERY outcome, including a disagreement that outranks it.
+	//
+	// It appears beside the verdict rather than replacing it: a run can both carry a reported length that
+	// contradicts the declaration AND have rows whose recorder returned nonsense, and a reader who is told
+	// only the first would go looking for a load problem in a trace whose accounting is also broken.
+	invalidNote := ""
+	if invalid > 0 {
+		invalidNote = fmt.Sprintf(" %d row(s) reported a NEGATIVE input-token count, which cannot be a "+
+			"prompt length; those are a defect in the recorder rather than evidence about the load, and "+
+			"they are excluded from every count above.", invalid)
+	}
 
 	switch {
 	// A DISAGREEMENT is the finding this gate exists for, and it fires whatever else is true: one row that
@@ -999,32 +1048,43 @@ func EvaluateDeclaredLoad(summaries []ArmSummary, frozen *FrozenTuple, premiumTe
 		r.Fired = true
 		r.Detail = fmt.Sprintf("declared premium %d and contender %d input tokens; the engine reported "+
 			"otherwise on %d population(s) -- %s. %d rows did agree. This is a post-hoc comparison against a "+
-			"pre-registered value, not a pre-registered check.",
+			"pre-registered value, not a pre-registered check.%s%s",
 			frozen.PremiumInputTokens, frozen.ContenderInputTokens, len(disagreed),
-			strings.Join(disagreed, "; "), agreed)
+			strings.Join(disagreed, "; "), agreed, unansweredCount, invalidNote)
 	// An UNREPORTED row is not a disagreement and it is not a pass either. Nothing says the load was wrong;
 	// nothing says it was right. Reporting that as a pass is the defect class this whole file is built
 	// against, so it comes back uncomputable and the caller's gate list makes that end the run.
+	// A BROKEN VALUE blocks, and it is checked before the silences because it is a different kind of fact:
+	// the recorder returned something impossible, and no count of agreeing rows makes that readable.
+	case invalid > 0:
+		r.NotEvaluable = true
+		r.Detail = fmt.Sprintf("declared premium %d and contender %d input tokens; %d rows agreed, but the "+
+			"recorder returned a negative count on %d row(s). A negative is not a length, so this evidence "+
+			"cannot be scored against the declaration until the accounting is explained.%s",
+			frozen.PremiumInputTokens, frozen.ContenderInputTokens, agreed, invalid, unansweredCount)
 	case unreported > 0:
 		r.NotEvaluable = true
 		r.Detail = fmt.Sprintf("declared premium %d and contender %d input tokens; %d rows agreed and %d "+
-			"reported no count at all (%s), so this population cannot be called verified either way",
+			"rows the engine ANSWERED carried no count at all (%s), so this population cannot be called "+
+			"verified either way -- that is a hole in the usage accounting, not a failed request.%s%s",
 			frozen.PremiumInputTokens, frozen.ContenderInputTokens, agreed, unreported,
-			strings.Join(missing, "; "))
+			strings.Join(missing, "; "), unansweredCount, invalidNote)
 	// NO ROWS is not agreement with anything. An empty population passing would let a run that offered
 	// nothing certify the load it never sent.
 	case agreed == 0:
 		r.NotEvaluable = true
 		r.Detail = fmt.Sprintf("no row in this evidence reported an input-token count for either the %s or "+
-			"the %s tenant, so there is nothing to compare against the declared %d and %d",
-			premiumTenant, contenderTenant, frozen.PremiumInputTokens, frozen.ContenderInputTokens)
+			"the %s tenant, so there is nothing to compare against the declared %d and %d.%s%s",
+			premiumTenant, contenderTenant, frozen.PremiumInputTokens, frozen.ContenderInputTokens,
+			unansweredCount, invalidNote)
 	default:
-		r.Detail = fmt.Sprintf("the engine reported %d input tokens on every premium row and %d on every "+
-			"contender row, matching the declared tuple, across %d rows with 0 disagreeing and 0 unreported. "+
-			"This is a post-hoc comparison against a pre-registered value, not a pre-registered check, and it "+
-			"establishes only that the engine's own count equals the declared one -- not that the prompt text, "+
-			"the tokenizer revision, the prefill work or the remaining frozen values matched.",
-			frozen.PremiumInputTokens, frozen.ContenderInputTokens, agreed)
+		r.Detail = fmt.Sprintf("every request the engine ANSWERED carried the declared length -- %d input "+
+			"tokens on every premium row and %d on every contender row, across %d rows with 0 disagreeing "+
+			"and 0 answered-but-uncounted.%s%s This is a post-hoc comparison against a pre-registered value, "+
+			"not a pre-registered check, and it establishes only that the engine's own count equals the "+
+			"declared one -- not that the prompt text, the tokenizer revision, the prefill work or the "+
+			"remaining frozen values matched.",
+			frozen.PremiumInputTokens, frozen.ContenderInputTokens, agreed, unansweredCount, unansweredBound)
 	}
 	return r
 }

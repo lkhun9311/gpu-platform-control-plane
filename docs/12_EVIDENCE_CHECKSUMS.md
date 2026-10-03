@@ -5,7 +5,10 @@ of every evidence file so that a copy handed over later can be checked against a
 the conversation.
 
 **Since 2026-10-01 the rows are also downloadable.** Two archives are attached to [the evidence release](https://github.com/lkhun9311/gpu-platform-control-plane/releases/tag/evidence-m5c-2026-10-01), and
-`hack/verify-published-evidence.sh` recomputes every published figure from them without a GPU. The ninth
+`hack/verify-published-evidence.sh` recomputes every published figure from them without a GPU — and for the
+ninth pilot it now also asserts that the report **withholds** its answer, because reading 4e (2026-10-03)
+refuses a pre-freeze load as the frozen protocol's evidence. Its figures still reproduce exactly; its
+verdict is a refusal. The ninth
 pilot is published complete and byte-identical to its commitment; the ten-cell run is published as a
 **derivative** with two files masked and two withheld, and the section below says exactly which, because the
 derivative's digest is not the committed one and must not be read as if it were.
@@ -216,7 +219,11 @@ hours after that. Nothing was bought a second time to obtain a different answer.
 ANSWER: 3        splitting the card changes nothing that matters -- INCONCLUSIVE
 ```
 
-The `evidence-m5c-2026-10-01` release's answer, from the ninth pilot, is `ANSWER: 5 (timeSlicing)`.
+The `evidence-m5c-2026-10-01` release's answer, from the ninth pilot, was `ANSWER: 5 (timeSlicing)` when it
+was published. ⚠️ **Re-scoring it today gives `ANSWER: withheld` and exit 1**, because reading 4e — added
+2026-10-03 — finds that archive's engine-reported input tokens (68 premium, 7,695 contender) differ from the
+load the registration later froze (256 and 8,192). The pilot's figures below are unaffected; what the current
+evaluator refuses is treating a pre-freeze pilot as the frozen protocol's evidence.
 Both archives were re-scored with the SAME binary for this comparison, so the difference is not an
 analysis-version difference:
 

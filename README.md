@@ -107,7 +107,9 @@ Two things are public, and they do different work. The **commitment** is every e
 [docs/12_EVIDENCE_CHECKSUMS.md](docs/12_EVIDENCE_CHECKSUMS.md), published before anyone asked for a copy: a
 hash cannot be reversed, so it reveals nothing, but it fixes *when* the claim was made. The **download** is
 two archives attached to [the evidence release](https://github.com/lkhun9311/gpu-platform-control-plane/releases/tag/evidence-m5c-2026-10-01), which a hash cannot substitute for — `hack/verify-published-evidence.sh`
-recomputes every published figure from them without a GPU and exits 0 only if all of them match. The ten-cell
+recomputes every published figure from them without a GPU and exits 0 only if all of them match — for the
+ninth pilot that now includes asserting that the report withholds its answer, which reading 4e (2026-10-03)
+makes it do for a load measured before the registration froze one. The ten-cell
 download is a derivative: two files have an account identifier and a GPU UUID masked, two are withheld, and
 `docs/12` lists which, so its digest is a new one rather than the committed `92d54eb3…`. The evidence also carries its own inner chain: every raw row
 names the trace checksum it was replayed from, and every manifest names the prompt corpus that trace was

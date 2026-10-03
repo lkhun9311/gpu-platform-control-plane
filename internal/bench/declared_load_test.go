@@ -81,8 +81,10 @@ func TestTheDeclaredLoadGateSeparatesAgreementFromSilence(t *testing.T) {
 					PremiumTenant: {256: 23275}, NoisyTenant: {8192: 695},
 				}, nil),
 			},
-			frozen:     declaredLoadFrozen(),
-			wantDetail: "0 unreported",
+			frozen: declaredLoadFrozen(),
+			// "answered-but-uncounted" rather than "unreported": a request the engine never answered is a
+			// third bucket now, and a pass has to name which silence it saw none of.
+			wantDetail: "0 answered-but-uncounted",
 		},
 		{
 			name: "one arm sent a different premium length",

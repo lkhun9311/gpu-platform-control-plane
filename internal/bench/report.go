@@ -45,6 +45,13 @@ const httpStatusProfileViolation = 422
 const (
 	httpStatusUnauthorized = 401
 	httpStatusForbidden    = 403
+	// httpStatusOK is "the engine answered this request", which is a different fact from "the guard allowed
+	// it" and is the one the token tallies need.
+	//
+	// Named rather than written as 200 in each place that asks. It was a literal in tallyDelivered and the
+	// declared-load tally needed the same test; two copies of one predicate is how a pair of checks drift
+	// into disagreeing about which rows they cover.
+	httpStatusOK = 200
 )
 
 // errKindTimeout is the RawRow.ErrorKind the replay client records when a request exceeds its deadline.
@@ -289,9 +296,35 @@ type ArmSummary struct {
 	// built on the eligible rows could not see 69,825 of the ninth pilot's 71,215 requests, and premium is
 	// the study's primary endpoint.
 	EngineInputTokensByTenant map[string]map[int]int
-	// EngineInputTokensUnreportedByTenant counts, per tenant, offered rows where the engine reported no input
-	// token count at all, so "every row agreed" and "no row said anything" cannot read the same.
+	// EngineInputTokensUnreportedByTenant counts, per tenant, rows the engine ANSWERED that carried no input
+	// token count, so "every row agreed" and "no row said anything" cannot read the same.
+	//
+	// This is a gap in the instrument: a 200 response went through usage accounting and came back without a
+	// prompt-token count, which is the case a declared-load check cannot see past.
 	EngineInputTokensUnreportedByTenant map[string]int
+	// EngineInputTokensInvalidByTenant counts, per tenant, rows carrying a NEGATIVE reported count.
+	//
+	// A negative is not a silence and not a disagreement: it is a measurement that cannot be a length. It
+	// blocks, because the instrument said something impossible and a reading that scored the rest would be
+	// certifying a trace whose accounting is broken. It is NOT treated as a disagreement, because "the load
+	// was not the declared one" is a claim about the load, and a negative is evidence about the recorder.
+	//
+	// Classified BEFORE the response status is consulted. A negative on a failed row is still a broken
+	// value, and routing by status first would file it under the one bucket that does not block.
+	EngineInputTokensInvalidByTenant map[string]int
+	// EngineInputTokensUnansweredByTenant counts, per tenant, rows where no successful response arrived at
+	// all, so the engine had no opportunity to report a count.
+	//
+	// Separate from Unreported because the two silences are not the same fact and must not carry the same
+	// verdict. Measured 2026-10-03: the ten-cell archive has ONE row of 47,245 with HTTP 502, errorKind
+	// "http" and no response body. Such a row cannot carry prompt_tokens -- nothing went wrong with the
+	// accounting, the request simply failed -- and folding it in with the instrument gaps let a single
+	// transport failure disqualify a run's whole load-fidelity claim.
+	//
+	// It is still COUNTED and still reported, because "the engine never answered 1 request" is a fact a
+	// reader of a load claim is entitled to, and because a check that drops rows it cannot score silently
+	// narrows its own population.
+	EngineInputTokensUnansweredByTenant map[string]int
 	// TTFTMsP50/P95/P99 are the time-to-first-token percentiles over COMPLETED requests, in ms.
 	TTFTMsP50 float64
 	TTFTMsP95 float64
@@ -385,6 +418,8 @@ func Summarize(arm string, rows []RawRow) ArmSummary {
 	s.EstInputTokensByTenant = map[string]int64{}
 	s.EngineInputTokensByTenant = map[string]map[int]int{}
 	s.EngineInputTokensUnreportedByTenant = map[string]int{}
+	s.EngineInputTokensUnansweredByTenant = map[string]int{}
+	s.EngineInputTokensInvalidByTenant = map[string]int{}
 
 	// The eligible-population threshold comes from the manifest provenance stamped into the rows, so admitted-work is scored over the same population the guard gated even if the paid run tuned it.
 	threshold := eligibleLongThreshold
@@ -932,18 +967,45 @@ func (s *ArmSummary) tallyEligibleWork(r RawRow) {
 // The nil-map checks live here rather than at the call site because Summarize's row loop sits at the
 // complexity ceiling -- one more `if` in it has already turned `make lint` red once.
 func (s *ArmSummary) tallyEngineInputTokens(r RawRow) {
-	if r.EngineInputTokens <= 0 {
-		// Not a zero-token prompt: a row the engine never answered, or answered without usage accounting.
-		// Counted apart from the agreeing rows, because a gate must not call such a population verified.
-		s.EngineInputTokensUnreportedByTenant[r.Tenant]++
+	if r.EngineInputTokens > 0 {
+		seen := s.EngineInputTokensByTenant[r.Tenant]
+		if seen == nil {
+			seen = map[int]int{}
+			s.EngineInputTokensByTenant[r.Tenant] = seen
+		}
+		seen[r.EngineInputTokens]++
 		return
 	}
-	seen := s.EngineInputTokensByTenant[r.Tenant]
-	if seen == nil {
-		seen = map[int]int{}
-		s.EngineInputTokensByTenant[r.Tenant] = seen
+	// A NEGATIVE count is neither silence nor disagreement, and it is classified before the status is read.
+	//
+	// It cannot be a prompt length, so scoring it against the declared value would be comparing the
+	// declaration to a defect in the recorder. Checked here rather than after the status, because a negative
+	// on a failed row is still a broken value and the failed-row bucket is the one that does not block.
+	//
+	// This branch exists because the predicate used to be `EngineInputTokens <= 0`, which swept negatives in
+	// with the silences. Narrowing it to `> 0` for the three-bucket split would have let a negative on a
+	// non-200 row pass without a word.
+	if r.EngineInputTokens < 0 {
+		s.EngineInputTokensInvalidByTenant[r.Tenant]++
+		return
 	}
-	seen[r.EngineInputTokens]++
+
+	// TWO silences, and only one of them is the instrument's fault.
+	//
+	// A row with no successful response obtained no count -- the ten-cell archive's one HTTP 502 of 47,245
+	// rows is exactly that, and the first version of this function made it disqualify the whole run. A row
+	// the engine ANSWERED and still did not count is a hole in the accounting, and that one a declared-load
+	// check genuinely cannot see past.
+	//
+	// Keyed on the response rather than on the error kind, because the kinds are open-ended: errKindTimeout
+	// and errKindRejected are named, "http" is not, and a predicate listing kinds would silently reclassify
+	// the first kind nobody thought of. admissionUnknown does not serve here -- it is HTTPStatus == 0 or a
+	// timeout, and a 502 is neither.
+	if r.HTTPStatus != httpStatusOK {
+		s.EngineInputTokensUnansweredByTenant[r.Tenant]++
+		return
+	}
+	s.EngineInputTokensUnreportedByTenant[r.Tenant]++
 }
 
 // tallyDelivered adds one row's delivered output to the arm's totals, appending its inter-token time.
@@ -953,7 +1015,7 @@ func (s *ArmSummary) tallyEngineInputTokens(r RawRow) {
 func (s *ArmSummary) tallyDelivered(r RawRow, tpot []float64, byTenant map[string][]float64) []float64 {
 	// Tokens count only where a response actually produced them; a refusal carries none, and a stream that
 	// died partway delivered nothing the client could use.
-	if r.OutputTokens <= 0 || r.HTTPStatus != 200 {
+	if r.OutputTokens <= 0 || r.HTTPStatus != httpStatusOK {
 		return tpot
 	}
 	s.OutputTokens += int64(r.OutputTokens)

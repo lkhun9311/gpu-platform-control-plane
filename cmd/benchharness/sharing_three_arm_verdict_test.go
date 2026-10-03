@@ -29,10 +29,15 @@ import (
 // from, and it is the one the ninth pilot's real evidence goes through.
 //
 // So this drives the REAL report entry point over rows shaped like the ninth pilot's -- three arms, two
-// repetitions, two tenants -- and requires an answer. Run by hand against the ninth pilot's committed rows
-// the same path prints `ANSWER: 5 (timeSlicing)` and exits 0; those rows are evidence in a private sibling
+// repetitions, two tenants -- and requires an answer. Those rows are evidence in a private sibling
 // repository and a release asset, so they cannot be a test input here. The rows are therefore synthesized,
 // and what is asserted is the SHAPE of the conclusion rather than the ninth pilot's figures.
+//
+// AMENDED 2026-10-03. This comment said the same path "prints `ANSWER: 5 (timeSlicing)` and exits 0" against
+// the pilot's committed rows. That was measured and is no longer true: reading 4e holds the engine's reported
+// input tokens against the frozen tuple, the pilot predates the freeze at 68 against 256, so it now exits 1
+// with the answer withheld. A stale claim in a comment is the copy no grep for published figures finds --
+// this one was caught by an audit that read the file rather than searching it.
 //
 // Mutation that turns this red: restrict scoreSharingArms to an empty candidate set, or drop timeSlicing
 // from the arms the report assembles.

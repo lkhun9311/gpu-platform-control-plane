@@ -204,14 +204,27 @@ if [ -n "${BIN:-}" ] && [ -x "$BIN" ]; then
 			# built a counter-example from the real judgment block: an output whose answer was reading 1
 			# instead of 5 passed. Three numbers appearing somewhere is not the published table -- the table
 			# says WHICH arm each belongs to and which reading fired.
+			# AMENDED 2026-10-03. This block asserted exit 0 and `ANSWER: 5`, and both are now wrong.
+			#
+			# Reading 4e holds the engine's own reported input-token count against the load the registration
+			# froze. The ninth pilot was measured BEFORE that freeze and carried a different load -- the
+			# engine reported 68 premium and 7,695 contender tokens against the declared 256 and 8,192, on
+			# every one of its 28,486 rows -- so 4e fires and the ANSWER is withheld.
+			#
+			# The pilot's measurement is not retracted and its figures are still asserted below. What changed
+			# is that this evidence no longer qualifies as the frozen protocol's, and a verifier that kept
+			# demanding `ANSWER: 5` reported NOT VERIFIED on a correct archive: measured on 2026-10-03, this
+			# script failed three checks against the published ninth-pilot download. A reproduction tool that
+			# fails on the evidence it was written for teaches the reader to distrust the tool or the archive,
+			# and the answer was neither.
 			want=(
 				"R1 " "shared " "timeSlicing "
 				"69.5" "1892" "1007"
-				"ANSWER: 5"
+				"4e" "ANSWER: withheld"
 			)
-			expect_rc=0
-			expect_refusal=''
-			expect_answer='ANSWER: 5'
+			expect_rc=1
+			expect_refusal='4e'
+			expect_answer='ANSWER: withheld'
 		fi
 
 		missing=0

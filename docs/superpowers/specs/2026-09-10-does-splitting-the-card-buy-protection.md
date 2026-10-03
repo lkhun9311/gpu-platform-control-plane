@@ -529,6 +529,12 @@ ANSWER: 5 (timeSlicing)
 The ninth paid run is the first to produce one. Readings 4 and 4b stayed silent, 4c reported that `mps` was
 absent rather than refused — it was not in `ARMS`, and absence is not a refusal — and **reading 5 fired**:
 
+⚠️ **This block is the record of what was published on 2026-09-13, and it is left as written.** Re-scoring
+the same rows today withholds the answer: reading 4e, registered in the 2026-10-03 amendment, refuses a load
+measured before the tuple was frozen. The figures in this section still reproduce exactly; the verdict line
+does not. See "What it does to the ninth pilot" in that amendment for the measured basis. Rewriting this
+block instead of dating it would be the sin the unit amendment's "What is not repaired" section names.
+
 > `timeSlicing` improves the control's premium tail by **884.6 ms** against a **1.4 ms** spread, and misses
 > both bars: tail **14.5x** R1 against 2.0x, stream **2.42x** against 1.25x — a real improvement that does
 > not reach the bar, **with all 278 of the contender's requests served**.
@@ -1164,7 +1170,7 @@ load to change.
 | --- | --- | --- | --- |
 | control | `internal/bench` and `cmd/benchharness` suites | green | green; the two tests this change could have broken pass (7/7 exit-status cases, and the no-candidate reporting test) |
 | mutation | the 2026-10-01 two-arm evidence, ten cells | exit ≠ 0, 4d present | **exit 1**, `[ N/E ] 4d`, ANSWER replaced |
-| reverse | the ninth pilot's three-arm evidence, six cells | exit 0, no 4d, reading 5 | **exit 0**, 4d absent, `ANSWER: 5 (timeSlicing)` |
+| reverse | the ninth pilot's three-arm evidence, six cells | exit 0, no 4d, reading 5 | **exit 0**, 4d absent, `ANSWER: 5 (timeSlicing)` — measured 2026-10-01 against the evaluator of that date. ⚠️ **No longer reproducible, and corrected rather than deleted.** Re-scoring the same archive on 2026-10-03 gives **exit 1** with `[FIRED] 4e` and `ANSWER: withheld`: reading 4e, registered in the 2026-10-03 amendment below, holds the engine's reported input-token count against the frozen tuple, and this pilot predates the freeze. The 4d finding this row was written to verify still stands — 4d is still absent from this evidence — but the row cannot be read as a current reproduction |
 
 The reverse direction matters as much as the mutation: a gate that refuses a run this study is designed
 to buy would be worse than the hole it closes. It also recomputed the published table from the committed
@@ -1253,7 +1259,17 @@ ten-cell run, line 32
 ```
 
 Reading 4 did not fire either way. `ANSWER: 5 (timeSlicing)` and exit 0 for the ninth pilot; `ANSWER: none of
-the readings COULD fire` and exit 1 for the ten-cell run. The `Registered estimand` block was already
+the readings COULD fire` and exit 1 for the ten-cell run.
+
+⚠️ **Corrected 2026-10-03 — the ninth pilot half no longer reproduces.** Both sentences were measured
+against the evaluator of 2026-10-02. The ten-cell half still holds exactly. The ninth pilot now gives
+**exit 1** and `ANSWER: withheld`, because reading 4e (registered in the 2026-10-03 amendment below) finds
+the engine reporting 68 premium and 7,695 contender input tokens where the frozen tuple declares 256 and
+8,192 — on every one of that archive's 28,486 rows. The pilot was measured before the freeze and published
+that difference itself; what has changed is that the evaluator now says so in the verdict rather than
+leaving it to the prose. The figures either side of this paragraph are unaffected.
+
+The `Registered estimand` block was already
 printing the median values, so it is byte-identical. The two ratios differ only because 27.2 and 23.0 were
 the pooled quotients and 27.043 and 22.977 are the registered ones — which is the whole point of the change,
 and the reason it is recorded here rather than left as a silent improvement.
@@ -1587,3 +1603,104 @@ paragraphs offered as the reason nothing could be separated, is **not** a candid
 10 seconds of the pilot's own 30,000 ms ceiling, and the timeout never reaches the engine. Removing a false
 rival does not promote the surviving one — the contender's length and the pilot's unrecorded environment are
 still uncontrolled.
+
+## Amendment, 2026-10-03: reading 4e, for evidence whose load is not the declared one
+
+The registration froze five load values on 2026-10-02 and nothing compared them against the rows. A run
+could carry any prompt length and every reading below would score it, because the readings ask what the load
+DID and none of them asked whether it was the load this page declared. The frozen tuple was enforced only
+before a card was rented, as a refusal in the runner; after the measurement it was never consulted again.
+
+**What the evidence already carried.** Every raw row records `engineInputTokens`, the engine's own
+`prompt_tokens` for that request. Across the fifteen-cell archive that is 256 on all 69,825 premium rows and
+8,192 on all 1,390 contender rows, with no exceptions. So the comparison this amendment registers needed no
+new measurement and no new purchase: the declared values were in `internal/bench/study.go` and the measured
+ones were on disk.
+
+### 4e. The measured load is not the declared load — INVALID
+
+Holds each row's engine-reported input-token count against the frozen tuple's `PremiumInputTokens` and
+`ContenderInputTokens`, keyed on the tenant the row names. Fires when any row reports a count that differs.
+It is a **gate**: it ends the process the way 4, 4b and 4d do.
+
+Its population is **every request the trace offered**, not the eligible population the admitted-work
+fractions use. That distinction is the reason this reading exists as its own code path rather than as a use
+of the existing exact-token counters: the gateway's eligibility rule is `tier == standard AND estimate >=
+threshold`, the premium tier's estimate is 294 against a 4,096 threshold, and so a check built on the
+eligible rows cannot see 69,825 of this archive's 71,215 requests — including every row of the tier that is
+the study's primary endpoint.
+
+It is placed **before** readings 4 and 4b, and attached on both of the dispatcher's exits. It is a premise,
+not a finding: 4 and 4b ask whether the load created contention, and neither means anything if the load was
+not the one declared. A gate that disappeared on the missing-baseline path would be absent exactly where the
+evidence is already in doubt.
+
+**Four outcomes, because three of them are silences and they are not the same fact.**
+
+| row | outcome | why |
+| --- | --- | --- |
+| reported a count that differs | **FIRED** | the frozen tuple is a claim this evidence contradicts |
+| answered (HTTP 200) and carried no count | **N/E** | a hole in the usage accounting, which no count of agreeing rows reads past |
+| reported a NEGATIVE count | **N/E** | not a length; evidence about the recorder, not about the load |
+| got no successful response | reported, **gates nothing** | it obtained no count, so its silence says nothing about what was sent |
+
+The last row is the one this amendment argues for hardest, and the first implementation got it wrong. The
+ten-cell archive has **one** row of 47,245 with HTTP 502 and no response body, and folding it in with the
+accounting holes made a single transport failure disqualify that run's whole load-fidelity claim. A failed
+request cannot carry `prompt_tokens`; nothing is wrong with the accounting.
+
+**What a pass is scoped to, and the bound it carries.** A pass says every request the engine ANSWERED
+carried the declared length — not every request. Where requests went unanswered the page also prints the
+maximum mismatch rate the evidence cannot rule out, `U/(agreed+U)`, and says in the same sentence that it is
+not a tolerance anything was held to. That bound is printed **only** in the passing outcome: an earlier
+version appended it everywhere, and an independent review built the counter-example — 100 agreeing rows, 10
+reported mismatches and one unanswered request printed "At most 1 of 101 scored requests could therefore
+disagree" beside a FIRED verdict that had already found ten.
+
+**This is a post-hoc check, and the output says so.** It was written after the evidence it first ran on, so
+it is a comparison against a pre-registered VALUE and not a pre-registered CHECK. A bar chosen after seeing
+the data is a bar that could have been chosen to pass; the declared values were fixed on 2026-10-02 and are
+read from the registry rather than recomputed from the rows, which is what keeps that from being true here.
+
+### What it does not establish
+
+Named in the output as well as here, because a reader who takes this gate for "the load was the declared
+load" has been misled by its name.
+
+| | |
+| --- | --- |
+| the engine's self-report is correct | a parser that substituted the declared value, or mismatched a response to a request, produces a false agreement |
+| the prompt TEXT was the frozen one | the same token count can come from different strings, token ids, meanings or order |
+| the tokenizer agreed with the declaration | revision, chat template, BOS/EOS and truncation all change what a count means |
+| the tokens were prefilled | a cache hit reports the same count for less work; this says nothing about GPU time |
+| the other three frozen values applied | prompt characters, the 60,000 ms timeout and the 64/16 output caps are not checked here |
+| the rows on disk are every request sent | a row that vanished is counted in no bucket at all |
+| the unanswered requests carried the declared length | they are where a prompt-correlated failure would hide, which is why the bound is printed |
+
+### What it does to the ninth pilot
+
+The pilot's rows report **68** premium and **7,695** contender input tokens against the declared 256 and
+8,192, on all 28,486 of them. So 4e fires, the run exits 1, and the ANSWER is withheld.
+
+That is not a retraction. The pilot was measured on 2026-09-13, before the freeze, and this page published
+the difference itself in the 2026-10-02 unit amendment. What has changed is that the evaluator now says it in
+the verdict instead of leaving it to the prose — and that two earlier "measured" rows on this page, in the 4d
+amendment's verification table and in the 2026-10-02 result section, no longer reproduce. Both are corrected
+in place rather than deleted, naming what they said and when they were true.
+
+`hack/verify-published-evidence.sh` asserted `exit 0` and `ANSWER: 5` for three-arm evidence and therefore
+reported **NOT VERIFIED** on a correct archive. Measured 2026-10-03 against the published ninth-pilot rows:
+three checks failed. It now expects `exit 1`, reading `4e` by id, and `ANSWER: withheld`, while still
+asserting the pilot's figures. A reproduction tool that fails on the evidence it was written for teaches a
+reader to distrust the archive, and the archive was not the problem.
+
+### Verified in three directions
+
+| direction | input | expected | measured |
+| --- | --- | --- | --- |
+| control | `internal/bench` and `cmd/benchharness` suites, `make lint` | green | green, 0 issues; two existing tests went red first and were fixed in the fixture rather than the gate — their rows carried no `engineInputTokens`, so they described a run with no usage accounting |
+| reverse | the fifteen-cell evidence, the run the frozen tuple describes | exit 0, 4e passes, `ANSWER: 3` unchanged | **exit 0**, 4e passes on 71,215 rows with 0 disagreeing and 0 answered-but-uncounted, `ANSWER: 3` |
+| mutation | eight mutations of the gate and its tally | each red | 6 of 8 red on the first attempt. **Narrowing the tally to the eligible population was GREEN**, as was deleting the negative-value branch and reordering it behind the status check — every test built its `ArmSummary` by hand and so never ran the aggregation. Three tests over `RawRow → Summarize` closed all three, and the mutations then produced 5, 4 and 4 failures |
+
+The mutation row is the useful one. The three that passed were the three that changed which rows the gate
+counts, which is the defect this reading was written to fix in the first place.
