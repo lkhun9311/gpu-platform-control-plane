@@ -76,6 +76,25 @@ func TestOnlyTheWholeRunGatesTheExitStatus(t *testing.T) {
 			reading: bench.PoPReading{ID: "1", Name: "separation protects -- POSITIVE", NotEvaluable: true},
 			invalid: false,
 		},
+		{
+			// 4e fired: the engine reported a length the registration did not declare. Every reading under it
+			// is a statement about a load nobody can name, so the run does not stand.
+			name:    "4e fired: the measured load is not the declared load",
+			reading: bench.PoPReading{ID: "4e", Name: "the measured load is not the declared load -- INVALID", Fired: true},
+			invalid: true,
+		},
+		{
+			// 4e could not be computed: rows the engine never accounted for. "We did not check" and "we
+			// checked and it agreed" must not share an exit status -- that is the defect this gate is for.
+			name:    "4e could not be evaluated: rows carried no reported count",
+			reading: bench.PoPReading{ID: "4e", Name: "the measured load is not the declared load -- INVALID", NotEvaluable: true},
+			invalid: true,
+		},
+		{
+			name:    "4e did not fire: every row carried the declared length",
+			reading: bench.PoPReading{ID: "4e", Name: "the measured load is not the declared load -- INVALID"},
+			invalid: false,
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			err := sharingRunInvalid(bench.SharingResult{Readings: []bench.PoPReading{tc.reading}})

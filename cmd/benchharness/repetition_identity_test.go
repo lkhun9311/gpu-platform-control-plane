@@ -145,7 +145,10 @@ func writeMatrixRepetition(t *testing.T, dir, arm string, rep int, ttftMs float6
 		write(bench.RawRow{
 			Index: i, Arm: arm, Tenant: bench.PremiumTenant, HTTPStatus: 200,
 			SendUnixNanos: send, FirstTokenUnixNanos: first, EndUnixNanos: first + 20_000_000,
-			EstInputTokens: 294, ExactInputTokens: 256, OutputTokens: 16,
+			// EngineInputTokens is what reading 4e holds against the frozen premium count of 256. These rows
+			// mean to be a run that carried the declared load, so they say what the engine reported; a zero
+			// here describes a run with no usage accounting, which the gate refuses to call verified.
+			EstInputTokens: 294, ExactInputTokens: 256, EngineInputTokens: 256, OutputTokens: 16,
 			Study: bench.StudySharingMatrix, TraceChecksum: "t", LongThreshold: 4096, MatchTolerance: 0.05,
 		})
 	}
@@ -157,7 +160,8 @@ func writeMatrixRepetition(t *testing.T, dir, arm string, rep int, ttftMs float6
 			write(bench.RawRow{
 				Index: 10_000 + i, Arm: arm, Tenant: bench.NoisyTenant, IsNoisy: true, HTTPStatus: 200,
 				SendUnixNanos: send, FirstTokenUnixNanos: first, EndUnixNanos: first + 60_000_000*39,
-				EstInputTokens: 8500, ExactInputTokens: 8192, OutputTokens: 40,
+				// The frozen contender count, for the same reason as the premium rows above.
+				EstInputTokens: 8500, ExactInputTokens: 8192, EngineInputTokens: 8192, OutputTokens: 40,
 				Study: bench.StudySharingMatrix, TraceChecksum: "t", LongThreshold: 4096, MatchTolerance: 0.05,
 			})
 		}

@@ -49,14 +49,28 @@ func TestAThreeArmMatrixProducesAVerdict(t *testing.T) {
 	//   Study = StudySharingMatrix -- an empty study reads as the M5-b gateway experiment, whose checks are
 	//                                a different set entirely.
 	//   TraceChecksum identical   -- the report refuses contended arms that replayed different traffic.
+	//   EngineInputTokens per tenant -- reading 4e holds the engine's own count against the tuple the
+	//                                registration froze, over EVERY row rather than the eligible population.
+	//                                This fixture means to represent a run that carried the declared load, so
+	//                                its rows have to say so: premium 256 and contender 8192. Left at zero
+	//                                they describe a run whose engine reported nothing, and the gate rightly
+	//                                refuses to call that verified -- which is how this test first went red.
 	row := func(arm, tenant string, noisy bool, i, rep int, ttftMs, tpotMs float64, outTokens int) bench.RawRow {
 		base := int64(1_000_000_000+i*2_000_000) + int64(rep)*1_000_000_000_000
 		first := base + int64(ttftMs*1e6)
 		end := first + int64(tpotMs*1e6)*int64(outTokens-1)
+		// Keyed on the tenant the row is for, not on the noisy flag, because the gate's expectation is keyed
+		// on the tenant name and a fixture that agreed with the gate for a different reason would pass while
+		// pinning nothing.
+		engineIn, exactIn, estIn := 256, 256, 294
+		if tenant == bench.NoisyTenant {
+			engineIn, exactIn, estIn = 8192, 8192, 8500
+		}
 		return bench.RawRow{
 			Index: i, Arm: arm, Tenant: tenant, IsNoisy: noisy,
 			SendUnixNanos: base, FirstTokenUnixNanos: first, EndUnixNanos: end,
-			EstInputTokens: 294, ExactInputTokens: 256, OutputTokens: outTokens, HTTPStatus: 200,
+			EstInputTokens: estIn, ExactInputTokens: exactIn, EngineInputTokens: engineIn,
+			OutputTokens: outTokens, HTTPStatus: 200,
 			Study: bench.StudySharingMatrix, TraceChecksum: "t", LongThreshold: 4096, MatchTolerance: 0.05,
 		}
 	}

@@ -1803,7 +1803,7 @@ func evaluateRegisteredReadings(e *armEvidence, summ map[string]bench.ArmSummary
 	case bench.StudyPriceOfProtection:
 		return nil, evaluatePoP(summ, summaries), nil, nil
 	case bench.StudySharingMatrix:
-		return nil, nil, evaluateSharingMatrix(summ, summaries, refusalsBeside(rawFiles)), nil
+		return nil, nil, evaluateSharingMatrix(summ, summaries, refusalsBeside(rawFiles), frozenOf(e.study)), nil
 	case bench.StudyThroughputLadder, bench.StudyThroughputLadderDown, bench.StudyThroughputLadderIndependent:
 		// The ladder takes the summaries rather than the arm map, because its cells are identified by rung
 		// and topology parsed out of the arm name and it has to see every one of them -- including arms this
@@ -1829,7 +1829,44 @@ func evaluateRegisteredReadings(e *armEvidence, summ map[string]bench.ArmSummary
 // The sharing arms are taken as whatever else is present, rather than looked up by name. An operator running
 // ARMS="shared timeSlicing" gets a matrix with one sharing arm and readings that say so, instead of a
 // lookup miss reported as a mode that did not engage.
-func evaluateSharingMatrix(summ map[string]bench.ArmSummary, summaries []bench.ArmSummary, refused map[string]string) *bench.SharingResult {
+// frozenOf returns the load tuple the named study's registration froze, or nil when it froze none.
+//
+// nil rather than an error: a study with no frozen tuple is an ordinary case, and reading 4e reports it as
+// an uncomputable gate. Swallowing it here would be the silence this whole change is about.
+func frozenOf(study string) *bench.FrozenTuple {
+	s, ok := bench.LookupStudy(study)
+	if !ok {
+		return nil
+	}
+	return s.Frozen
+}
+
+// evaluateSharingMatrix scores the matrix and puts the declared-load gate in FRONT of every reading.
+//
+// The gate goes first because it is a premise, not a finding. Readings 4 and 4b ask whether the load created
+// contention; neither means anything if the load was not the one declared, and a reader meeting them first
+// would be reading answers about an unknown trace.
+//
+// It is attached here rather than inside bench.EvaluateSharingMatrix for two reasons. The frozen tuple
+// belongs to the study and that evaluator takes no study. And this wrapper has both of its exits -- the
+// missing-baseline refusal and the scored result -- so prepending in one place makes the gate present on
+// BOTH, which is what stops it being a check that quietly disappears on the path where the evidence is
+// already in doubt.
+//
+// The ANSWER is cleared when the gate speaks. A verdict printed beside a refusal is read as a verdict.
+func evaluateSharingMatrix(summ map[string]bench.ArmSummary, summaries []bench.ArmSummary,
+	refused map[string]string, frozen *bench.FrozenTuple,
+) *bench.SharingResult {
+	res := sharingMatrixReadings(summ, summaries, refused)
+	declared := bench.EvaluateDeclaredLoad(summaries, frozen, bench.PremiumTenant, bench.NoisyTenant)
+	res.Readings = append([]bench.PoPReading{declared}, res.Readings...)
+	if declared.Fired || declared.NotEvaluable {
+		res.Answer = ""
+	}
+	return res
+}
+
+func sharingMatrixReadings(summ map[string]bench.ArmSummary, summaries []bench.ArmSummary, refused map[string]string) *bench.SharingResult {
 	// A missing baseline or control is REPORTED as an uncomputable gate, not returned as nil.
 	//
 	// Returning nil printed a warning to stderr and left `sharing` unset, so the verdict block never ran and
@@ -1884,7 +1921,7 @@ func armNames(summaries []bench.ArmSummary) []string {
 // reachable from a test, and inline in a command that wants files on disk it is not.
 func sharingRunInvalid(res bench.SharingResult) error {
 	for _, r := range res.Readings {
-		if r.Fired && (r.ID == "4" || r.ID == "4b" || r.ID == "4d") {
+		if r.Fired && (r.ID == "4" || r.ID == "4b" || r.ID == "4d" || r.ID == "4e") {
 			return fmt.Errorf("run invalid: reading %s fired -- %s", r.ID, r.Detail)
 		}
 		// A GATE that could not be computed is also not a run that stands.
@@ -1901,7 +1938,7 @@ func sharingRunInvalid(res bench.SharingResult) error {
 		// that this evidence failed to: readings 1, 2, 3 and 5 stay in the list as ordinary non-findings,
 		// and 4d is what turns the exit status. Without it a run that evaluated nothing exited zero --
 		// 2026-10-01, ten cells and $1.44.
-		if r.NotEvaluable && (r.ID == "4" || r.ID == "4b" || r.ID == "4d") {
+		if r.NotEvaluable && (r.ID == "4" || r.ID == "4b" || r.ID == "4d" || r.ID == "4e") {
 			return fmt.Errorf("run invalid: reading %s could not be evaluated -- %s", r.ID, r.Detail)
 		}
 	}

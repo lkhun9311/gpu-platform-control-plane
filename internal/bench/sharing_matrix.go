@@ -932,6 +932,103 @@ func sharingUnscorableSuffix(all []sharingScored) string {
 	return " (" + strings.Join(why, "; ") + ")"
 }
 
+// EvaluateDeclaredLoad scores reading 4e: the input-token counts the engine reported, against the ones the
+// pre-registration froze.
+//
+// A separate exported function rather than a parameter on EvaluateSharingMatrix, because the frozen tuple
+// belongs to the STUDY and that evaluator does not know which study it is scoring. The caller that does --
+// the one dispatching on the study id -- attaches this reading.
+//
+// It takes the summaries rather than SharingArms so that it does not depend on any arm's ROLE. The caller's
+// missing-baseline branch has no arms assembled yet, and a gate that disappears on the path where the
+// evidence is already suspect is the defect this repository keeps finding in its own checks.
+//
+// NOT a pre-registered check. The registration froze five load values; this compares two of them against the
+// evidence after the fact, having already seen it. The detail says so, because a reader must not come away
+// thinking the protocol demanded this gate -- and because a check chosen after looking at the data is a
+// check whose bar could have been chosen to pass.
+//
+// What a PASS here does NOT establish, and the detail says this too: that the prompt STRINGS were the frozen
+// ones, that the tokenizer revision and chat template matched the declaration, that the reported tokens were
+// prefilled rather than served from cache, that the other three frozen values applied, or that the rows on
+// disk are every request the trace sent. It establishes one thing -- the engine's own count of what it
+// received equals the declared count -- and the name says only that.
+func EvaluateDeclaredLoad(summaries []ArmSummary, frozen *FrozenTuple, premiumTenant, contenderTenant string) PoPReading {
+	r := PoPReading{ID: "4e", Name: "the measured load is not the declared load -- INVALID"}
+	if frozen == nil {
+		r.NotEvaluable = true
+		r.Detail = "this study froze no load tuple, so there is no declared count to hold this evidence against"
+		return r
+	}
+	want := map[string]int{premiumTenant: frozen.PremiumInputTokens, contenderTenant: frozen.ContenderInputTokens}
+
+	var agreed, unreported int
+	var disagreed, missing []string
+	for _, s := range summaries {
+		for tenant, declared := range want {
+			// A tenant with neither reported nor unreported rows was not offered to this arm at all. R1
+			// carries no contender BY DESIGN, so counting that as a missing population would fire this gate
+			// on every correct matrix. An arm that should have had the tenant and did not is reading 4b's
+			// thin-sample refusal, which is a different sentence about different evidence.
+			rows, had := s.EngineInputTokensByTenant[tenant]
+			absent := s.EngineInputTokensUnreportedByTenant[tenant]
+			if !had && absent == 0 {
+				continue
+			}
+			unreported += absent
+			if absent > 0 {
+				missing = append(missing, fmt.Sprintf("%s/%s %d rows", s.Arm, tenant, absent))
+			}
+			for got, n := range rows {
+				if got == declared {
+					agreed += n
+					continue
+				}
+				disagreed = append(disagreed,
+					fmt.Sprintf("%s/%s reported %d on %d rows, declared %d", s.Arm, tenant, got, n, declared))
+			}
+		}
+	}
+	sort.Strings(disagreed)
+	sort.Strings(missing)
+
+	switch {
+	// A DISAGREEMENT is the finding this gate exists for, and it fires whatever else is true: one row that
+	// carried a different length makes the frozen tuple a claim the evidence contradicts.
+	case len(disagreed) > 0:
+		r.Fired = true
+		r.Detail = fmt.Sprintf("declared premium %d and contender %d input tokens; the engine reported "+
+			"otherwise on %d population(s) -- %s. %d rows did agree. This is a post-hoc comparison against a "+
+			"pre-registered value, not a pre-registered check.",
+			frozen.PremiumInputTokens, frozen.ContenderInputTokens, len(disagreed),
+			strings.Join(disagreed, "; "), agreed)
+	// An UNREPORTED row is not a disagreement and it is not a pass either. Nothing says the load was wrong;
+	// nothing says it was right. Reporting that as a pass is the defect class this whole file is built
+	// against, so it comes back uncomputable and the caller's gate list makes that end the run.
+	case unreported > 0:
+		r.NotEvaluable = true
+		r.Detail = fmt.Sprintf("declared premium %d and contender %d input tokens; %d rows agreed and %d "+
+			"reported no count at all (%s), so this population cannot be called verified either way",
+			frozen.PremiumInputTokens, frozen.ContenderInputTokens, agreed, unreported,
+			strings.Join(missing, "; "))
+	// NO ROWS is not agreement with anything. An empty population passing would let a run that offered
+	// nothing certify the load it never sent.
+	case agreed == 0:
+		r.NotEvaluable = true
+		r.Detail = fmt.Sprintf("no row in this evidence reported an input-token count for either the %s or "+
+			"the %s tenant, so there is nothing to compare against the declared %d and %d",
+			premiumTenant, contenderTenant, frozen.PremiumInputTokens, frozen.ContenderInputTokens)
+	default:
+		r.Detail = fmt.Sprintf("the engine reported %d input tokens on every premium row and %d on every "+
+			"contender row, matching the declared tuple, across %d rows with 0 disagreeing and 0 unreported. "+
+			"This is a post-hoc comparison against a pre-registered value, not a pre-registered check, and it "+
+			"establishes only that the engine's own count equals the declared one -- not that the prompt text, "+
+			"the tokenizer revision, the prefill work or the remaining frozen values matched.",
+			frozen.PremiumInputTokens, frozen.ContenderInputTokens, agreed)
+	}
+	return r
+}
+
 // FormatSharingMatrix renders the readings in the order they were evaluated.
 func FormatSharingMatrix(res SharingResult) string {
 	var b strings.Builder
@@ -954,17 +1051,28 @@ func FormatSharingMatrix(res SharingResult) string {
 		// invitation to buy another one. When reading 4d is present the truth is the opposite: this plan
 		// cannot fire a reading however many times it runs. Printing the same sentence for both is how
 		// 2026-10-01 read as "nothing fired" rather than "nothing could fire".
-		unplanned := false
+		unplanned, undeclared := false, false
 		for _, r := range res.Readings {
 			if r.ID == "4d" {
 				unplanned = true
 			}
+			// Reading 4e gating is a third sentence again: the readings could have fired, and what cannot be
+			// trusted is the LOAD they would have fired on. Printing "a gap in the outcome space" over that
+			// invites another paid run to fill a gap that is not there.
+			if r.ID == "4e" && (r.Fired || r.NotEvaluable) {
+				undeclared = true
+			}
 		}
-		if unplanned {
+		switch {
+		case undeclared:
+			b.WriteString("\nANSWER: withheld. Reading 4e says the load this evidence carries is not the load the\n")
+			b.WriteString("registration declared, or cannot be shown to be. Any reading scored on it would be a\n")
+			b.WriteString("statement about an unknown load, so none is reported as the answer.\n")
+		case unplanned:
 			b.WriteString("\nANSWER: none of the readings COULD fire. This is not a gap in the outcome space --\n")
 			b.WriteString("the plan has no sharing candidate, so readings 1, 2, 3 and 5 have nothing to score.\n")
 			b.WriteString("Running it again, longer or on a bigger card, produces this same page.\n")
-		} else {
+		default:
 			b.WriteString("\nANSWER: none of the readings fired. That is not a result; it is a gap in the outcome space,\n")
 			b.WriteString("and the pre-registration says what to do about one rather than leaving it to a reader.\n")
 		}

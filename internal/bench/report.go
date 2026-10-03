@@ -278,6 +278,20 @@ type ArmSummary struct {
 	// Per tenant rather than per arm, because the premium and contender lengths move independently and the
 	// premium one is the study's primary endpoint. The divisor for a mean is DispositionByTenant[t].Offered.
 	EstInputTokensByTenant map[string]int64
+	// EngineInputTokensByTenant is, per tenant, how many rows reported each DISTINCT engine-reported input
+	// token count -- the engine's own prompt_tokens, not the gateway's ceil(chars/4) admission estimate.
+	//
+	// Kept as a distribution rather than a sum because the question it answers is "did every request carry
+	// the declared length", and a sum cannot tell 23,275 rows of 256 from 23,274 of 255 plus one of 23,531.
+	//
+	// Counted over EVERY offered row rather than the eligible population. The gateway's eligibility rule is
+	// tier == standard AND estimate >= threshold, which excludes the premium tier by construction: a check
+	// built on the eligible rows could not see 69,825 of the ninth pilot's 71,215 requests, and premium is
+	// the study's primary endpoint.
+	EngineInputTokensByTenant map[string]map[int]int
+	// EngineInputTokensUnreportedByTenant counts, per tenant, offered rows where the engine reported no input
+	// token count at all, so "every row agreed" and "no row said anything" cannot read the same.
+	EngineInputTokensUnreportedByTenant map[string]int
 	// TTFTMsP50/P95/P99 are the time-to-first-token percentiles over COMPLETED requests, in ms.
 	TTFTMsP50 float64
 	TTFTMsP95 float64
@@ -369,6 +383,8 @@ func Summarize(arm string, rows []RawRow) ArmSummary {
 	// turned `make lint` red. An empty map for an arm with no rows is harmless -- formatOfferedLoad tests
 	// len() -- and a nil map would panic on the first write, so the initialisation cannot simply be dropped.
 	s.EstInputTokensByTenant = map[string]int64{}
+	s.EngineInputTokensByTenant = map[string]map[int]int{}
+	s.EngineInputTokensUnreportedByTenant = map[string]int{}
 
 	// The eligible-population threshold comes from the manifest provenance stamped into the rows, so admitted-work is scored over the same population the guard gated even if the paid run tuned it.
 	threshold := eligibleLongThreshold
@@ -390,6 +406,8 @@ func Summarize(arm string, rows []RawRow) ArmSummary {
 			lastEnd = r.EndUnixNanos
 		}
 		tpot = s.tallyDelivered(r, tpot, tpotByTenant)
+		// The declared-load gate's population is every offered request, so this call carries no condition.
+		s.tallyEngineInputTokens(r)
 		// Admitted-work accounting covers the eligible population, for the admission-match check.
 		//
 		// The gateway gates on tier == standard AND EstInputTokens >= threshold, and this applies the same
@@ -902,6 +920,30 @@ func (s *ArmSummary) tallyEligibleWork(r RawRow) {
 			s.AdmittedExactTokens += int64(r.ExactInputTokens)
 		}
 	}
+}
+
+// tallyEngineInputTokens records one row's engine-reported input-token count against its tenant.
+//
+// Unconditional, and deliberately OUTSIDE the eligible-population guard its caller applies to the
+// admitted-work tallies. This is the only tally whose population is every request the trace offered, and
+// that is the whole point: the eligible population is what the admission guard gated, and the declared load
+// is what the registration froze. Scoring the second over the first silently drops the premium tier.
+//
+// The nil-map checks live here rather than at the call site because Summarize's row loop sits at the
+// complexity ceiling -- one more `if` in it has already turned `make lint` red once.
+func (s *ArmSummary) tallyEngineInputTokens(r RawRow) {
+	if r.EngineInputTokens <= 0 {
+		// Not a zero-token prompt: a row the engine never answered, or answered without usage accounting.
+		// Counted apart from the agreeing rows, because a gate must not call such a population verified.
+		s.EngineInputTokensUnreportedByTenant[r.Tenant]++
+		return
+	}
+	seen := s.EngineInputTokensByTenant[r.Tenant]
+	if seen == nil {
+		seen = map[int]int{}
+		s.EngineInputTokensByTenant[r.Tenant] = seen
+	}
+	seen[r.EngineInputTokens]++
 }
 
 // tallyDelivered adds one row's delivered output to the arm's totals, appending its inter-token time.
