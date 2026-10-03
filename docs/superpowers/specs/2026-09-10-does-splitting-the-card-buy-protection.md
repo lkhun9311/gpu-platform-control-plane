@@ -1422,7 +1422,10 @@ is 14,868 against 4,001 — **3.7x worse than the control it was supposed to imp
 
 ### Each run is internally consistent, so this is a between-run difference
 
-`R1`'s five repetitions span 171.882–175.269 ms, a width of 3.4 ms, and the control `shared`'s span 3.9 ms.
+`R1`'s five repetitions span
+<!-- claim: m5c-15cell-r1-premium-ttft-p99 min -->171.882<!-- /claim -->–<!-- claim: m5c-15cell-r1-premium-ttft-p99 max -->175.269<!-- /claim --> ms,
+a width of <!-- claim: m5c-15cell-r1-premium-ttft-p99 width dp=1 -->3.4<!-- /claim --> ms, and the control
+`shared`'s span <!-- claim: m5c-15cell-shared-premium-ttft-p99 width dp=1 -->3.9<!-- /claim --> ms.
 `timeSlicing`'s span 14,351–15,078 ms. The ninth pilot's two repetitions were likewise tight. Neither run is
 noisy against itself; they disagree with each other. **Five repetitions is what makes that statement
 available** — two could not have supported it, which is the one thing the extra repetitions bought.
