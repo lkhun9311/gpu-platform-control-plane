@@ -202,6 +202,17 @@ func EvaluateSharingMatrix(a SharingArms, premiumTenant, contenderTenant string)
 	fourC := sharingReadingFourC(a)
 	res.Readings = append(res.Readings, fourC)
 
+	// 4f sits beside 4c for the same reason 4c sits here: it reports on the evidence without deciding the
+	// run. The summaries are assembled here rather than taken as a parameter because this evaluator's whole
+	// signature is SharingArms -- the roles the readings speak about -- and widening it would move every
+	// caller and every test to carry a slice this function can already build.
+	//
+	// R1 is included. It replays the same premium trace with the contender filtered out, so a premium length
+	// that differs between R1 and the sharing arms is exactly the kind of mixture worth seeing, and leaving
+	// the baseline out would hide it in the one arm both bars divide by.
+	fourFArms := append([]ArmSummary{a.R1, a.Shared}, a.Sharing...)
+	res.Readings = append(res.Readings, sharingReadingFourF(fourFArms, premiumTenant, contenderTenant))
+
 	all := scoreSharingArms(a, premiumTenant, contenderTenant)
 	scored := []PoPReading{
 		sharingReadingOne(a.R1, premiumTenant, contenderTenant, all),
@@ -658,6 +669,107 @@ func sharingReadingFourC(a SharingArms) PoPReading {
 		return r
 	}
 	r.Detail = "both sharing arms produced evidence and neither was refused"
+	return r
+}
+
+// sharingReadingFourF: the rows do not agree on the prompt length they were generated at.
+//
+// AN OBSERVATION, NOT A GATE, and that is a decision with a reason rather than an omission.
+//
+// Two policies are separable here and an earlier draft of this reading joined them: refusing a run whose
+// rows are a MIXTURE, and refusing a run whose rows do not SAY. The first is a defect wherever it appears --
+// two input levels pooled into one condition is the confound a length-varying study exists to avoid. The
+// second depends on the evidence contract: the three committed archives predate RawRow.PromptLenChars, so
+// every one of their rows reports nothing, and making absence block would withhold the verdict on all three
+// the way reading 4e already withheld the ninth pilot's. An external review put it exactly right -- field
+// absence is not evidence of mixing, but it is not evidence of uniformity either -- so this reading REPORTS
+// all three states and the blocking policy is registered per study, where the contract lives.
+//
+// It is appended beside 4c rather than among the gates, and the answer cannot be taken from it: the ANSWER
+// is chosen from the four scored readings first and falls back only to 4c. So a mixture is printed in the
+// reading list, is visible to a reader, and does not silently become the run's verdict.
+//
+// THE UNIT IS CHARACTERS, said in the Detail and nowhere else. formatOfferedLoad already prints a per-tenant
+// offered length as a mean of ESTIMATED TOKENS, and this repository has published a prefill multiple from
+// that estimator that overstated the measured one (5.9x against 3.8x). Putting characters into that line
+// would make one sentence carry two units; keeping them here keeps each figure labelled with the unit it
+// was measured in.
+//
+// WHAT A PASS DOES NOT ESTABLISH, and this is the larger half: uniformity WITHIN an arm is not agreement
+// BETWEEN arms. Two arms each holding a single but different length both pass here, and so does a matrix
+// where every arm agrees on the WRONG length. Holding the observed length against the registered one, and
+// against the other arms at the same level, is reading 4e's territory and the study registration's -- not
+// this reading's.
+func sharingReadingFourF(summaries []ArmSummary, premiumTenant, contenderTenant string) PoPReading {
+	r := PoPReading{ID: "4f", Name: "the rows disagree about the prompt length they were generated at"}
+	var mixed, broken, silent, agreed []string
+	for _, s := range summaries {
+		for _, tenant := range []string{premiumTenant, contenderTenant} {
+			lengths := s.PromptLenCharsByTenant[tenant]
+			absent := s.PromptLenUnreportedByTenant[tenant]
+			invalid := s.PromptLenInvalidByTenant[tenant]
+			// A tenant with no rows of any kind was not offered to this arm. R1 carries no contender BY
+			// DESIGN, and counting that as an absence would make every correct matrix report a silence.
+			if len(lengths) == 0 && absent == 0 && invalid == 0 {
+				continue
+			}
+			switch {
+			case len(lengths) > 1:
+				var at []string
+				for n, c := range lengths {
+					at = append(at, fmt.Sprintf("%d chars on %d rows", n, c))
+				}
+				sort.Strings(at)
+				mixed = append(mixed, fmt.Sprintf("%s/%s carried %s", s.Arm, tenant, strings.Join(at, " and ")))
+			case invalid > 0:
+				broken = append(broken, fmt.Sprintf("%s/%s has %d row(s) whose length is negative", s.Arm, tenant, invalid))
+			case len(lengths) == 0:
+				silent = append(silent, fmt.Sprintf("%s/%s reports no length on any of its %d row(s)", s.Arm, tenant, absent))
+			case absent > 0:
+				silent = append(silent, fmt.Sprintf("%s/%s has %d row(s) that report no length beside rows that do", s.Arm, tenant, absent))
+			default:
+				for n := range lengths {
+					agreed = append(agreed, fmt.Sprintf("%s/%s at %d chars", s.Arm, tenant, n))
+				}
+			}
+		}
+	}
+	sort.Strings(mixed)
+	sort.Strings(broken)
+	sort.Strings(silent)
+	sort.Strings(agreed)
+	switch {
+	// A MIXTURE fires whatever else is true: one population carrying two lengths is two conditions reported
+	// as one, and no count of agreeing populations makes that readable.
+	case len(mixed) > 0:
+		r.Fired = true
+		r.Detail = fmt.Sprintf("%s. Rows in one arm and tenant were generated at more than one prompt "+
+			"length, so that population is two conditions and any statistic over it is a statistic over "+
+			"both.", strings.Join(mixed, "; "))
+	case len(broken) > 0:
+		r.NotEvaluable = true
+		r.Detail = fmt.Sprintf("%s. A negative character count cannot be a prompt length, so this evidence "+
+			"cannot be scored for uniformity until the recorder is explained.", strings.Join(broken, "; "))
+	case len(silent) > 0:
+		r.NotEvaluable = true
+		r.Detail = fmt.Sprintf("%s. Absence is not a mixture and it is not uniformity either: nothing here "+
+			"says two levels were pooled and nothing says they were not.", strings.Join(silent, "; "))
+	// NOTHING OBSERVED AT ALL is not agreement, and the first version of this switch said it was.
+	//
+	// The guard above skips a tenant with no lengths, no absences and no broken values, because R1 carries no
+	// contender by design and counting that as a silence would fire on every correct matrix. But when EVERY
+	// population is skipped the four slices are empty, and the default branch then printed "every population
+	// reports one prompt length --" with nothing after the dash: a pass over no evidence. Found by reading
+	// this function against the test helper that builds its arms by hand, before any test existed.
+	case len(agreed) == 0:
+		r.NotEvaluable = true
+		r.Detail = "no arm in this evidence carries a prompt length for either tenant, so there is nothing " +
+			"to check for uniformity. Rows written before RawRow.PromptLenChars existed are this case."
+	default:
+		r.Detail = fmt.Sprintf("every population reports one prompt length -- %s. This says the rows within "+
+			"each arm and tenant agree; it does NOT say the arms agree with each other, nor that any of "+
+			"them matches the registered length.", strings.Join(agreed, ", "))
+	}
 	return r
 }
 
