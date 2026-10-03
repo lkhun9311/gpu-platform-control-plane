@@ -725,7 +725,7 @@ gpu_scale_down() {
 # Recorded, never enforced. Failing here would stop the archive coming home, and the archive is the only
 # record of what the money bought.
 record_expected_files() {
-  local pair actual self
+  local pair actual self classes mismatched
   [ -d "$OUT" ] || return 0
   # cleanup is trapped at line 787 and expected_outputs is defined around 1746, with forty `fail` calls in
   # between. A run that dies acquiring the card or building an image therefore reaches this function before
@@ -751,17 +751,42 @@ record_expected_files() {
   self=1
   [ -f "$OUT/expected-files.txt" ] && self=0
   actual=$(( $(find "$OUT" -maxdepth 1 -type f 2>/dev/null | wc -l) + self ))
+  # Per-class rows beside the total, and the verdict is theirs rather than the total's.
+  #
+  # The total agreeing means only that the errors summed to zero. Three rounds of review found three
+  # different pairs that did exactly that, so `agree` is now yes only when EVERY class matches, and the
+  # classes that did not are named in the line.
+  classes=""
+  mismatched=""
+  if declare -F expected_outputs_by_class >/dev/null 2>&1; then
+    classes=$(expected_outputs_by_class)
+    mismatched=$(printf '%s\n' "$classes" | awk 'NF == 3 && $2 != $3 {printf "%s(%s!=%s) ", $1, $2, $3}')
+  fi
   {
     printf 'expected\t%s\n' "${pair%% *}"
     printf 'basis\t%s\n' "${pair#* }"
     printf 'actual\t%s\n' "$actual"
+    if [ -n "$classes" ]; then
+      printf '%s\n' "$classes" | while read -r cname cexp cact; do
+        printf 'class\t%s\texpected %s\tactual %s\n' "$cname" "$cexp" "$cact"
+      done
+    else
+      printf 'class\tnone\texpected -\tactual -\n'
+    fi
     case "${pair%% *}" in
-      "$actual") printf 'agree\tyes\n' ;;
-      [0-9]*) printf 'agree\tno -- the archive holds %s of the %s files this run owed it\n' "$actual" "${pair%% *}" ;;
+      [0-9]*)
+        if [ -n "$mismatched" ]; then
+          printf 'agree\tno -- these classes disagree: %s\n' "$mismatched"
+        elif [ "${pair%% *}" = "$actual" ]; then
+          printf 'agree\tyes\n'
+        else
+          printf 'agree\tno -- the archive holds %s of the %s files this run owed it, with every class matching, so the totals disagree for a reason no class names\n' "$actual" "${pair%% *}"
+        fi
+        ;;
       *) printf 'agree\tnot-evaluable -- no expected count was produced, so this is not a comparison\n' ;;
     esac
   } > "$OUT/expected-files.txt"
-  echo "expected-files.txt: expected=${pair%% *} actual=$actual basis=${pair#* }" >&2
+  echo "expected-files.txt: expected=${pair%% *} actual=$actual basis=${pair#* } mismatched=${mismatched:-none}" >&2
 }
 
 # A signal must also END the script, and these traps did not.
@@ -1825,6 +1850,81 @@ expected_outputs() {
   printf '%s completed-%sx4+refused-%s+invalid-%s+unwritten-%s+fixed-%s' \
     $(( completed * 4 + refused + invalid + orphan + fixed )) \
     "$completed" "$refused" "$invalid" "$orphan" "$fixed"
+}
+
+# The same accounting, PER CLASS, because one total has one degree of freedom.
+#
+# WHY THIS EXISTS BESIDE THE TOTAL
+#
+# The total was corrected three times and an external review found a different cancelling pair each time:
+# an arm excluded from the refusal expectation beside a missing judgements file; a refusal file never
+# written beside an invalid file that silenced the expectation; an unwritten refusal beside the
+# port-forward log of a cell that died before replay. None of those are arithmetic slips. Comparing two
+# scalars cannot distinguish "no errors" from "two errors of opposite sign", so any fix to one combination
+# leaves the structure that produced it.
+#
+# Per class, the same two gaps land in two different rows and neither can pay for the other. The total
+# stays, because the file's existing readers parse it and because a reader wants one line first.
+#
+# Prints one "<class> <expected> <actual>" per line. Classes:
+#
+#   cell-outputs    four per completed cell: trace-, raw-, manifest-, port-forward-
+#   refusal-files   one per arm with a refused ROW -- the row is the claim, the file is the evidence, and
+#                   counting files here is what let a never-written refusal agree with itself
+#   invalid-files   counted from the files: an invalid arm's row is indistinguishable from a refused one,
+#                   so a missing invalid-<arm>.txt is NOT detectable. Stated, not hidden.
+#   fixed-files     the unconditional ones, plus README.txt only on a run that reached the end
+#   conditional     mps-compute-apps-<ns>.{csv,err}, mps-pod-lookup.err, ladder-verdict-rung<N>.txt --
+#                   written only on paths this run may not have taken, so whatever is there is expected
+#   unattributed    anything matching no known name. Expected ZERO always: a file nobody can account for is
+#                   its own finding, never change for another class's shortfall.
+expected_outputs_by_class() {
+  local completed refused invalid cell_actual fixed_expected fixed_actual cond unattr f base
+  if [ -n "${LADDER:-}" ]; then
+    printf 'all-classes not-expressed ladder-cells-are-not-matrix-cells\n'
+    return 0
+  fi
+  if [ ! -s "$OUT/cell-timings.tsv" ]; then
+    printf 'all-classes no-file no-timings-file\n'
+    return 0
+  fi
+  completed=$(awk -F'\t' '$4 == "completed" {c++} END {print c+0}' "$OUT/cell-timings.tsv") || {
+    printf 'all-classes unreadable aggregation-failed\n'
+    return 0
+  }
+  refused=$(awk -F'\t' 'NR > 1 && $4 == "refused" {print $2}' "$OUT/cell-timings.tsv" | sort -u | wc -l)
+  cell_actual=$(find "$OUT" -maxdepth 1 \( -name 'trace-*.jsonl' -o -name 'raw-*.jsonl' \
+    -o -name 'manifest-*.yaml' -o -name 'port-forward-*.log' \) 2>/dev/null | wc -l)
+  invalid=$(find "$OUT" -maxdepth 1 -name 'invalid-*.txt' 2>/dev/null | wc -l)
+  fixed_expected=5 # evidence.log, load-source.txt, expected-files.txt, cell-timings.tsv, cell-judgements.tsv
+  [ -f "$OUT/README.txt" ] && fixed_expected=$(( fixed_expected + 1 ))
+  fixed_actual=0
+  for base in evidence.log load-source.txt cell-timings.tsv cell-judgements.tsv README.txt; do
+    [ -f "$OUT/$base" ] && fixed_actual=$(( fixed_actual + 1 ))
+  done
+  # expected-files.txt counts as present whether or not it is on disk yet: this runs before it is written,
+  # and by the time anyone reads the archive it is there.
+  fixed_actual=$(( fixed_actual + 1 ))
+  cond=$(find "$OUT" -maxdepth 1 \( -name 'mps-compute-apps-*.csv' -o -name 'mps-compute-apps-*.err' \
+    -o -name 'mps-pod-lookup.err' -o -name 'ladder-verdict-rung*.txt' \) 2>/dev/null | wc -l)
+  unattr=0
+  for f in "$OUT"/*; do
+    [ -f "$f" ] || continue
+    base=${f##*/}
+    case "$base" in
+      trace-*.jsonl | raw-*.jsonl | manifest-*.yaml | port-forward-*.log) ;;
+      refused-*.txt | invalid-*.txt) ;;
+      evidence.log | load-source.txt | cell-timings.tsv | cell-judgements.tsv | expected-files.txt | README.txt) ;;
+      mps-compute-apps-*.csv | mps-compute-apps-*.err | mps-pod-lookup.err | ladder-verdict-rung*.txt) ;;
+      *) unattr=$(( unattr + 1 )) ;;
+    esac
+  done
+  printf 'cell-outputs %s %s\n' "$(( completed * 4 ))" "$cell_actual"
+  printf 'refusal-files %s %s\n' "$refused" "$(find "$OUT" -maxdepth 1 -name 'refused-*.txt' 2>/dev/null | wc -l)"
+  printf 'invalid-files %s %s\n' "$invalid" "$invalid"
+  printf 'fixed-files %s %s\n' "$fixed_expected" "$fixed_actual"
+  printf 'conditional %s %s\n' "$cond" "$cond"
+  printf 'unattributed 0 %s\n' "$unattr"
 }
 
 # The parallel warm-cell estimate, in a function of its own so a test can run THIS code.

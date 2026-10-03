@@ -63,10 +63,11 @@ extract() {
 	extract cell_judgement_record
 	extract warm_cell_estimate
 	extract expected_outputs
+	extract expected_outputs_by_class
 	extract record_expected_files
 } > "$WORK/recorders.sh"
 
-for fn in cell_timing_record cell_judgement_record warm_cell_estimate expected_outputs record_expected_files; do
+for fn in cell_timing_record cell_judgement_record warm_cell_estimate expected_outputs expected_outputs_by_class record_expected_files; do
 	grep -q "^$fn() {" "$WORK/recorders.sh" ||
 		bad "$fn was not extracted from $SRC; the harness is testing nothing"
 done
@@ -615,6 +616,94 @@ else
 	esac
 fi
 chmod 644 "$UNREAD6/cell-timings.tsv"
+
+# --- 6b. the per-class accounting, where two gaps cannot pay for each other -------------------------------
+#
+# Three rounds of external review found three different CANCELLING pairs in the single total, and none was
+# an arithmetic slip: two scalars have one degree of freedom, so two errors of opposite sign are
+# indistinguishable from none. These cases are the two the fourth round reproduced, plus the one the third
+# did, and each asserts the CLASS that must disagree -- not the total.
+say "6b. two gaps land in two classes, and neither can pay for the other"
+class_of() {
+	# $1 directory, $2 class name -> "expected actual"
+	(
+		# shellcheck disable=SC1091
+		. "$WORK/recorders.sh"
+		OUT="$1"
+		LADDER=""
+		expected_outputs_by_class
+	) | awk -v c="$2" '$1 == c {print $2, $3}'
+}
+# Case A (fourth round, first): the refusal file was never written and an invalid file silenced the
+# expectation. Total: 6 owed, 6 held, agree=yes. Per class, refusal-files is 1 owed and 0 held.
+OUT6X="$WORK/class-refusal-unwritten"
+mkdir -p "$OUT6X"
+printf 'cell\tarm\trep\toutcome\tstart_utc\tend_utc\telapsed_s\tcum_s\tcells_done\n' > "$OUT6X/cell-timings.tsv"
+printf '1\tmps\t1\trefused\tx\ty\t600\t600\t1\n' >> "$OUT6X/cell-timings.tsv"
+printf '2\tmps\t2\trefused\tx\ty\t600\t1200\t2\n' >> "$OUT6X/cell-timings.tsv"
+printf 'at_utc\tcell\n' > "$OUT6X/cell-judgements.tsv"
+printf 'invalid because\n' > "$OUT6X/invalid-mps.txt"
+: > "$OUT6X/evidence.log"
+: > "$OUT6X/load-source.txt"
+a_pair=$(class_of "$OUT6X" refusal-files)
+if [ "$a_pair" = "1 0" ]; then
+	ok "a refusal that was never written down shows as refusal-files ${a_pair@Q}, whatever the total does"
+else
+	bad "refusal-files reads ${a_pair@Q} rather than '1 0'; the arm has refused rows and no refused-<arm>.txt, and counting the files here is what let that agree with itself"
+fi
+# Case B (fourth round, second): an unwritten refusal beside the port-forward log of a cell that died
+# before replay. Total: 6 owed, 6 held. Per class, cell-outputs is 0 owed and 1 held AND refusal-files 1/0.
+OUT6Y="$WORK/class-orphan-byproduct"
+mkdir -p "$OUT6Y"
+printf 'cell\tarm\trep\toutcome\tstart_utc\tend_utc\telapsed_s\tcum_s\tcells_done\n' > "$OUT6Y/cell-timings.tsv"
+printf '1\tmps\t1\trefused\tx\ty\t600\t600\t1\n' >> "$OUT6Y/cell-timings.tsv"
+printf 'at_utc\tcell\n' > "$OUT6Y/cell-judgements.tsv"
+: > "$OUT6Y/evidence.log"
+: > "$OUT6Y/load-source.txt"
+: > "$OUT6Y/port-forward-R1-3.log"
+b_cells=$(class_of "$OUT6Y" cell-outputs)
+b_ref=$(class_of "$OUT6Y" refusal-files)
+if [ "$b_cells" = "0 1" ] && [ "$b_ref" = "1 0" ]; then
+	ok "a dead cell's leftover log and an unwritten refusal land in two classes (${b_cells@Q} and ${b_ref@Q})"
+else
+	bad "cell-outputs reads ${b_cells@Q} and refusal-files ${b_ref@Q}; wanted '0 1' and '1 0'. In one total these two cancel, which is how an archive with two defects reported agreement"
+fi
+# Case C (third round): both files present and the judgements file missing.
+OUT6Z="$WORK/class-cancellation"
+mkdir -p "$OUT6Z"
+printf 'cell\tarm\trep\toutcome\tstart_utc\tend_utc\telapsed_s\tcum_s\tcells_done\n' > "$OUT6Z/cell-timings.tsv"
+printf '1\tmps\t1\trefused\tx\ty\t600\t600\t1\n' >> "$OUT6Z/cell-timings.tsv"
+printf 'refused because\n' > "$OUT6Z/refused-mps.txt"
+printf 'invalid because\n' > "$OUT6Z/invalid-mps.txt"
+: > "$OUT6Z/evidence.log"
+: > "$OUT6Z/load-source.txt"
+c_fixed=$(class_of "$OUT6Z" fixed-files)
+if [ "$c_fixed" = "5 4" ]; then
+	ok "a missing judgements file shows as fixed-files ${c_fixed@Q} in its own class"
+else
+	bad "fixed-files reads ${c_fixed@Q} rather than '5 4'; the judgements file is absent and that must be its own row, not a quantity another class can offset"
+fi
+# A file nobody can account for is its own finding, and its expectation is zero forever.
+: > "$OUT6Z/something-nobody-writes.txt"
+z_unattr=$(class_of "$OUT6Z" unattributed)
+if [ "$z_unattr" = "0 1" ]; then
+	ok "an unrecognised filename shows as unattributed ${z_unattr@Q}"
+else
+	bad "unattributed reads ${z_unattr@Q} rather than '0 1'; a file matching no known name must be reported as itself, never counted into a class that could absorb it"
+fi
+rm -f "$OUT6Z/something-nobody-writes.txt"
+# The conditional outputs are expected because they exist, so a run that took the MPS path agrees.
+: > "$OUT6Z/mps-pod-lookup.err"
+z_cond=$(class_of "$OUT6Z" conditional)
+if [ "$z_cond" = "1 1" ]; then
+	ok "a conditional output the run did write is expected, not a surplus (${z_cond@Q})"
+else
+	bad "conditional reads ${z_cond@Q} rather than '1 1'; files written only on paths this run may not have taken cannot be expected by count, and treating them as surplus would make every MPS run disagree"
+fi
+# And the verdict must come from the classes, not the total.
+grep -q 'these classes disagree' "$SRC" \
+	&& ok "the agree line names the classes that disagree" \
+	|| bad "the agree line is decided by the total alone; two errors of opposite sign sum to zero, which is the structure three rounds of review kept finding"
 
 # --- 7. a run that died still records the comparison ------------------------------------------------------
 #
