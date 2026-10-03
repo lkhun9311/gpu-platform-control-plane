@@ -725,12 +725,32 @@ gpu_scale_down() {
 # Recorded, never enforced. Failing here would stop the archive coming home, and the archive is the only
 # record of what the money bought.
 record_expected_files() {
-  local pair actual
+  local pair actual self
   [ -d "$OUT" ] || return 0
+  # cleanup is trapped at line 787 and expected_outputs is defined around 1746, with forty `fail` calls in
+  # between. A run that dies acquiring the card or building an image therefore reaches this function before
+  # the one it calls exists, and `command not found` would leave a file whose basis field was simply empty.
+  # Said as a word instead, because "the count could not be computed" and "the count is zero" are the
+  # distinction this whole file is about.
+  if ! declare -F expected_outputs >/dev/null 2>&1; then
+    {
+      printf 'expected\tnot-computed\n'
+      printf 'basis\tdied-before-expected_outputs-was-defined\n'
+      printf 'actual\t%s\n' "$(find "$OUT" -maxdepth 1 -type f 2>/dev/null | wc -l)"
+      printf 'agree\tnot-evaluable -- this run ended before the counting function existed, so there is no expectation to compare against\n'
+    } > "$OUT/expected-files.txt"
+    return 0
+  fi
   pair=$(expected_outputs)
   # Counted BEFORE this file is written, and expected_outputs counts it as present, because by the time
   # anyone reads the archive it is there. Off-by-one in the other direction otherwise.
-  actual=$(( $(find "$OUT" -maxdepth 1 -type f 2>/dev/null | wc -l) + 1 ))
+  #
+  # `self` is 0 when a previous run already left the file in this directory -- hack/test/rehearse-m5c-matrix.sh
+  # passes one OUT_DIR to three invocations and never empties it, so the unconditional +1 counted the file
+  # twice from the second run on and could cancel out a genuinely missing file into `agree=yes`.
+  self=1
+  [ -f "$OUT/expected-files.txt" ] && self=0
+  actual=$(( $(find "$OUT" -maxdepth 1 -type f 2>/dev/null | wc -l) + self ))
   {
     printf 'expected\t%s\n' "${pair%% *}"
     printf 'basis\t%s\n' "${pair#* }"
@@ -1766,10 +1786,19 @@ expected_outputs() {
   # The label column IS the arm here because the matrix builds every cell as `arm|arm|rep|...`. Under the
   # ladder the label is `rung03-shared` and this equality breaks, which is one more reason the ladder is
   # refused above rather than approximated.
-  refused=$(awk -F'\t' 'NR > 1 && $4 == "refused" {print $2}' "$OUT/cell-timings.tsv" | sort -u | wc -l)
-  # Invalid arms have no equivalent: arm_invalid fires inside deploy_arm and the MPS probe, which can return
-  # before run_cell records a timing row at all. Counted from the files, and so an invalid arm whose file is
-  # missing is NOT detectable here. Said plainly rather than left looking symmetric.
+  # An INVALID arm leaves a refused row too, and must not be expected to leave a refusal file.
+  #
+  # mps_clients_connected (line 1235) calls arm_invalid and returns 1 from inside deploy_arm (1492); its
+  # caller's `if ! deploy_arm` then writes a `refused` timing row (1975). So the row says refused and the
+  # directory holds invalid-mps.txt and no refused-mps.txt. Expecting one would report a one-file shortfall
+  # on an invalid run that is in fact complete. A comment here previously claimed invalid arms leave no
+  # timing row at all; that was wrong, and an external review named it.
+  refused=$(awk -F'\t' 'NR > 1 && $4 == "refused" {print $2}' "$OUT/cell-timings.tsv" | sort -u | while read -r a; do
+    [ -f "$OUT/invalid-$a.txt" ] || echo "$a"
+  done | wc -l)
+  # Counted from the files, because an invalid arm's row is indistinguishable from a refused one. So an
+  # invalid arm whose file was never written is NOT detectable here. Said plainly rather than left looking
+  # symmetric with the refusals above.
   invalid=$(find "$OUT" -maxdepth 1 -name 'invalid-*.txt' 2>/dev/null | wc -l)
   # The fixed files, each counted only under the condition it appears under.
   # `-f`, not `-s`: an empty file is in the archive and `find -type f` counts it.
@@ -1777,9 +1806,16 @@ expected_outputs() {
   # This was `-s` and the gate caught it. A README.txt or cell-judgements.tsv that exists and is empty was
   # then missing from the expectation and present in the actual count, so a complete archive reported a
   # permanent one-file shortfall -- the two sides were asking different questions about the same file.
-  fixed=3 # evidence.log, load-source.txt, expected-files.txt -- the last being this comparison's own output
-  [ -f "$OUT/cell-judgements.tsv" ] && fixed=$(( fixed + 1 ))
+  # cell-judgements.tsv is expected UNCONDITIONALLY once any cell exists, and that matters.
+  #
+  # cell_deadline_check is the first line of run_cell (1956) and its wrapper writes a row on every one of
+  # the inner check's seven exits (1828). So a timings file with any row means a judgements file too, and
+  # testing for the file would make the expectation fall with the actual count -- the same defect as
+  # counting the refusal files, which is what an external review found here.
+  fixed=4 # evidence.log, load-source.txt, expected-files.txt, cell-judgements.tsv
   fixed=$(( fixed + 1 )) # cell-timings.tsv, which the -s test above already proved is there
+  # README.txt only on a run that reached the end, and `-f` is right for it: its absence is a FACT about the
+  # run, not a missing file. A stopped run owes no README.txt and must still be able to agree.
   [ -f "$OUT/README.txt" ] && fixed=$(( fixed + 1 ))
   printf '%s completed-%sx4+refused-%s+invalid-%s+fixed-%s' \
     $(( completed * 4 + refused + invalid + fixed )) "$completed" "$refused" "$invalid" "$fixed"

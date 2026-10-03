@@ -421,6 +421,7 @@ mkdir -p "$OUT6M"
 printf 'cell\tarm\trep\toutcome\tstart_utc\tend_utc\telapsed_s\tcum_s\tcells_done\n' > "$OUT6M/cell-timings.tsv"
 printf '1\tR1\t1\tcompleted\tx\ty\t700\t700\t1\n' >> "$OUT6M/cell-timings.tsv"
 printf '2\tmps\t1\trefused\tx\ty\t600\t600\t2\n' >> "$OUT6M/cell-timings.tsv"
+printf 'at_utc\tcell\tcells_done\tcells_total\tremain_min\tbasis\tprojected_min\tdecision\twarm_n\twarm_per\n' > "$OUT6M/cell-judgements.tsv"
 : > "$OUT6M/evidence.log"
 : > "$OUT6M/load-source.txt"
 rowonly_got=$(
@@ -430,11 +431,12 @@ rowonly_got=$(
 	LADDER=""
 	expected_outputs
 )
-# 1x4 + refused 1 + invalid 0 + fixed(evidence.log, load-source.txt, expected-files.txt, cell-timings.tsv) = 9
-if [ "${rowonly_got%% *}" = 9 ]; then
+# 1x4 + refused 1 + invalid 0 + fixed(evidence.log, load-source.txt, expected-files.txt, cell-timings.tsv,
+# cell-judgements.tsv) = 10
+if [ "${rowonly_got%% *}" = 10 ]; then
 	ok "a refused arm with a timing row and no refused-<arm>.txt is still expected, so its absence shows as a shortfall"
 else
-	bad "a refused arm with a row and no file gives ${rowonly_got%% *} rather than 9; counting the files instead of the rows lowers both sides together and a file that was never written agrees"
+	bad "a refused arm with a row and no file gives ${rowonly_got%% *} rather than 10; counting the files instead of the rows lowers both sides together and a file that was never written agrees"
 fi
 # Five refused repetitions of ONE arm are five timing rows and one file.
 OUT6R="$WORK/exp-rep-overwrite"
@@ -444,6 +446,10 @@ for r in 1 2 3 4 5; do
 	printf '%s\tmps\t%s\trefused\tx\ty\t600\t600\t%s\n' "$r" "$r" "$r" >> "$OUT6R/cell-timings.tsv"
 done
 printf 'refused because\n' > "$OUT6R/refused-mps.txt"
+# A judgements file, because any cell at all means one: cell_deadline_check is run_cell's first line and its
+# wrapper records on every exit. A fixture without it would be pinning "a missing judgements file still
+# agrees", which is the opposite of what the unconditional expectation is for.
+printf 'at_utc\tcell\tcells_done\tcells_total\tremain_min\tbasis\tprojected_min\tdecision\twarm_n\twarm_per\n' > "$OUT6R/cell-judgements.tsv"
 rep_got=$(
 	# shellcheck disable=SC1091
 	. "$WORK/recorders.sh"
@@ -451,12 +457,67 @@ rep_got=$(
 	LADDER=""
 	expected_outputs
 )
-# 0x4 + refused 1 + invalid 0 + fixed(evidence.log, load-source.txt, expected-files.txt, cell-timings.tsv) = 5.
-# Counting the five ROWS instead of the one arm would give 9.
-if [ "${rep_got%% *}" = 5 ]; then
+# 0x4 + refused 1 + invalid 0 + fixed(evidence.log, load-source.txt, expected-files.txt, cell-timings.tsv,
+# cell-judgements.tsv) = 6. Counting the five ROWS instead of the one arm would give 10.
+if [ "${rep_got%% *}" = 6 ]; then
 	ok "five refused repetitions of one arm owe one file, not five"
 else
-	bad "five refused repetitions of one arm give ${rep_got%% *} rather than 5; 9 is what counting the timing rows gives, and the refusal file is written per arm"
+	bad "five refused repetitions of one arm give ${rep_got%% *} rather than 6; 10 is what counting the timing rows gives, and the refusal file is written per arm"
+fi
+# An INVALID arm leaves a `refused` timing row, and must not be expected to leave a refusal file.
+#
+# mps_clients_connected calls arm_invalid and returns 1 from inside deploy_arm; the caller's
+# `if ! deploy_arm` then writes a refused row. So the row says refused while the directory holds
+# invalid-mps.txt and no refused-mps.txt, and expecting both would report a complete invalid run as short.
+#
+# This case exists because the fix for it was green under every other fixture: none of them held an invalid
+# file and a refused row together, so deleting the exclusion changed nothing. Checking it by hand in a
+# scratch directory is not the same as a gate holding it.
+OUT6I="$WORK/exp-invalid-and-refused"
+mkdir -p "$OUT6I"
+printf 'cell\tarm\trep\toutcome\tstart_utc\tend_utc\telapsed_s\tcum_s\tcells_done\n' > "$OUT6I/cell-timings.tsv"
+printf '1\tR1\t1\tcompleted\tx\ty\t700\t700\t1\n' >> "$OUT6I/cell-timings.tsv"
+printf '2\tmps\t1\trefused\tx\ty\t600\t600\t2\n' >> "$OUT6I/cell-timings.tsv"
+printf 'at_utc\tcell\tcells_done\tcells_total\tremain_min\tbasis\tprojected_min\tdecision\twarm_n\twarm_per\n' > "$OUT6I/cell-judgements.tsv"
+printf 'invalid because\n' > "$OUT6I/invalid-mps.txt"
+: > "$OUT6I/evidence.log"
+: > "$OUT6I/load-source.txt"
+inv_got=$(
+	# shellcheck disable=SC1091
+	. "$WORK/recorders.sh"
+	OUT="$OUT6I"
+	LADDER=""
+	expected_outputs
+)
+# 1x4 + refused 0 + invalid 1 + fixed 5 = 10. Counting the invalid arm as a refusal too gives 11.
+if [ "${inv_got%% *}" = 10 ]; then
+	ok "an invalid arm's refused row is not also expected to leave a refusal file (${inv_got#* })"
+else
+	bad "an invalid arm with a refused row gives ${inv_got%% *} rather than 10; 11 is what expecting a refused-<arm>.txt beside its invalid-<arm>.txt gives, and that reports a complete invalid run as one file short"
+fi
+# A missing cell-judgements.tsv must show as a shortfall, not lower the expectation with it.
+#
+# cell_deadline_check is run_cell's first line and its wrapper records on all seven exits, so any timing row
+# at all means a judgements file. Testing for the file instead of assuming it is the defect that made the
+# refusal count agree with itself, one file along.
+OUT6J="$WORK/exp-no-judgements"
+mkdir -p "$OUT6J"
+printf 'cell\tarm\trep\toutcome\tstart_utc\tend_utc\telapsed_s\tcum_s\tcells_done\n' > "$OUT6J/cell-timings.tsv"
+printf '1\tR1\t1\tcompleted\tx\ty\t700\t700\t1\n' >> "$OUT6J/cell-timings.tsv"
+: > "$OUT6J/evidence.log"
+: > "$OUT6J/load-source.txt"
+noj_got=$(
+	# shellcheck disable=SC1091
+	. "$WORK/recorders.sh"
+	OUT="$OUT6J"
+	LADDER=""
+	expected_outputs
+)
+# 1x4 + 0 + 0 + fixed 5 = 9, the judgements file included although it is absent, so its absence shows.
+if [ "${noj_got%% *}" = 9 ]; then
+	ok "a run with cells but no cell-judgements.tsv still owes one (${noj_got#* }), so the gap is visible"
+else
+	bad "a run with cells and no cell-judgements.tsv gives ${noj_got%% *} rather than 9; making that file conditional lets a run that never judged a boundary agree with itself"
 fi
 # The ladder is refused rather than counted with the matrix's formula.
 ladder_got=$(
@@ -563,6 +624,28 @@ case "$short_agree" in
 no*) ok "an archive missing one raw file reports ${short_agree@Q}" ;;
 *) bad "an archive missing one raw file reports agree=${short_agree@Q}; the comparison exists to notice exactly this" ;;
 esac
+# Called a SECOND time into the same directory, with the first call's file still there.
+#
+# hack/test/rehearse-m5c-matrix.sh passes one OUT_DIR to three invocations and never empties it, so from the
+# second run on `find` already counts expected-files.txt and an unconditional +1 counted it twice -- which
+# could cancel out a genuinely missing file into agree=yes. Every fixture above started from a directory
+# without the file, so removing that correction changed nothing anywhere.
+: > "$OUT7/raw-shared-1.jsonl" # restore the file the shortfall case removed, so this run is complete again
+(
+	# shellcheck disable=SC1091
+	. "$WORK/recorders.sh"
+	OUT="$OUT7"
+	LADDER=""
+	record_expected_files
+) 2>/dev/null
+reuse_exp=$(awk -F'\t' '$1 == "expected" {print $2}' "$OUT7/expected-files.txt" 2>/dev/null)
+reuse_act=$(awk -F'\t' '$1 == "actual" {print $2}' "$OUT7/expected-files.txt" 2>/dev/null)
+reuse_agree=$(awk -F'\t' '$1 == "agree" {print $2}' "$OUT7/expected-files.txt" 2>/dev/null)
+if [ "$reuse_exp" = 13 ] && [ "$reuse_act" = 13 ] && [ "$reuse_agree" = yes ]; then
+	ok "a second run into the same directory counts its own file once, not twice"
+else
+	bad "a second run into a directory that already held expected-files.txt records expected=${reuse_exp@Q} actual=${reuse_act@Q} agree=${reuse_agree@Q}; adding 1 unconditionally counts the file twice and can hide a missing one"
+fi
 # And the recorder must be REACHED on the paths that matter, which this file cannot execute.
 #
 # Everything above calls record_expected_files directly, so deleting its call site in cleanup left all of it
@@ -579,6 +662,35 @@ if [ "$sites" = 1 ]; then
 else
 	bad "found $sites bare record_expected_files call sites, want 1; a comparison written from several exit paths is a comparison the next exit path will not have"
 fi
+# The trap is armed long before the function it ends up calling is defined.
+#
+# `trap cleanup EXIT` sits at the top of the script and expected_outputs is defined near the cell code, with
+# dozens of `fail` calls in between. A run that dies acquiring the card reaches cleanup first, so the
+# recorder must survive its own callee not existing yet.
+say "7b. a run that died before expected_outputs was defined still leaves a readable, non-numeric record"
+OUT7B="$WORK/died-early"
+mkdir -p "$OUT7B"
+: > "$OUT7B/evidence.log"
+: > "$OUT7B/load-source.txt"
+(
+	# shellcheck disable=SC1091
+	. "$WORK/recorders.sh"
+	unset -f expected_outputs
+	OUT="$OUT7B"
+	record_expected_files
+) 2>/dev/null
+early_exp=$(awk -F'\t' '$1 == "expected" {print $2}' "$OUT7B/expected-files.txt" 2>/dev/null)
+early_agree=$(awk -F'\t' '$1 == "agree" {print $2}' "$OUT7B/expected-files.txt" 2>/dev/null)
+case "$early_exp:$early_agree" in
+*[0-9]:*) bad "a run that died before the counting function existed recorded expected=${early_exp@Q}; a number here is an expectation nothing computed" ;;
+:*) bad "a run that died early left no expected field at all (agree=${early_agree@Q}); the file would be read as a comparison with a blank side" ;;
+*:not-evaluable*) ok "a run that died before expected_outputs existed records expected=${early_exp@Q} and agree=not-evaluable" ;;
+*) bad "a run that died early recorded expected=${early_exp@Q} agree=${early_agree@Q}, which is neither a refusal nor a comparison" ;;
+esac
+# The guard must be in the production function, not only in this test's arrangement.
+grep -q 'declare -F expected_outputs' "$SRC" \
+	&& ok "record_expected_files checks that its callee is defined before calling it" \
+	|| bad "record_expected_files calls expected_outputs unguarded; cleanup is trapped before that function exists, so an early death would write a file whose basis field is empty"
 
 echo
 if [ "$failures" = "0" ]; then
