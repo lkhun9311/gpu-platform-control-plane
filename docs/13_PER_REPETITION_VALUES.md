@@ -48,6 +48,8 @@ unit: ms
 input_level: per-repetition-statistic
 reps: 1,2,3,4,5
 count: 4655,4655,4655,4655,4655
+offered: 4655,4655,4655,4655,4655
+excluded: none,none,none,none,none
 aggregation: min, max, max-minus-min
 rounding: half-up at the displayed decimal place
 -->
@@ -72,6 +74,8 @@ unit: ms
 input_level: per-repetition-statistic
 reps: 1,2,3,4,5
 count: 4655,4655,4655,4655,4655
+offered: 4655,4655,4655,4655,4655
+excluded: none,none,none,none,none
 aggregation: min, max, max-minus-min
 rounding: half-up at the displayed decimal place
 -->
@@ -96,6 +100,8 @@ unit: ms
 input_level: per-repetition-statistic
 reps: 1,2,3,4,5
 count: 4655,4655,4655,4655,4655
+offered: 4655,4655,4655,4655,4655
+excluded: none,none,none,none,none
 aggregation: min, max, max-minus-min
 rounding: half-up at the displayed decimal place
 -->
@@ -120,6 +126,8 @@ unit: ms
 input_level: per-repetition-statistic
 reps: 1,2,3,4,5
 count: 4655,4655,4655,4655,4655
+offered: 4655,4655,4655,4655,4655
+excluded: none,none,none,none,none
 aggregation: min, max, max-minus-min
 rounding: half-up at the displayed decimal place
 -->
@@ -144,6 +152,8 @@ unit: ms
 input_level: per-repetition-statistic
 reps: 1,2,3,4,5
 count: 4655,4655,4654,4655,4655
+offered: 4655,4655,4655,4655,4655
+excluded: none,none,failed=1,none,none
 aggregation: min, max, max-minus-min
 rounding: half-up at the displayed decimal place
 -->

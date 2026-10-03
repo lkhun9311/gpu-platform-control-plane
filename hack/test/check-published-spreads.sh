@@ -103,7 +103,8 @@ recompute() {
 
 		# --- parse the spread blocks ------------------------------------------------------------------
 		REQUIRED = ("id", "archive", "source", "arm", "tenant", "population",
-		            "statistic", "unit", "input_level", "reps", "count", "aggregation", "rounding")
+		            "statistic", "unit", "input_level", "reps", "count", "offered", "excluded",
+		            "aggregation", "rounding")
 		for header, table in re.findall(r"<!-- spread-block\n(.*?)-->\n\n((?:\|[^\n]*\n)+)", text, re.S):
 		    fields = {}
 		    for line in header.strip().splitlines():
@@ -135,6 +136,59 @@ recompute() {
 		    for c in counts_listed:
 		        if not c.isdigit():
 		            problems.append(f"block {bid} has a non-numeric sample size {c!r}")
+		    # `offered` and `excluded` say what the sample size is a size OF, which `count` alone cannot.
+		    #
+		    # A p99 over 4,654 requests is a different claim depending on whether 4,654 were sent or 4,655
+		    # were sent and one was dropped. The second is the ten-cell shared arm, and until these fields
+		    # existed the document published the 4,654 and said nothing about the request that is missing
+		    # from it -- so a reader could not tell a small sample from a censored one. Recomputed: had that
+		    # one request been the slowest premium request of its repetition, the p99 would have been
+		    # 4011.620 ms rather than 4000.510, a bound of 11.110 ms against an arm difference of 23x.
+		    #
+		    # `excluded` names the DISPOSITION CLASSES of internal/bench/report.go's Summarize switch, in its
+		    # precedence: timed_out, rejected, failed. Classes are joined with `+` inside a repetition and
+		    # the repetitions with `,`; a repetition that excluded nothing is the word `none`, because an
+		    # empty field would make "nothing was dropped" and "nobody looked" the same string.
+		    offered_listed = [o.strip() for o in fields.get("offered", "").split(",") if o.strip()]
+		    excluded_listed = [e.strip() for e in fields.get("excluded", "").split(",") if e.strip()]
+		    if len(offered_listed) != len(reps_listed):
+		        problems.append(
+		            f"block {bid} lists {len(reps_listed)} repetition(s) and {len(offered_listed)} offered "
+		            f"count(s); one per repetition or the exclusions cannot be read against the sizes")
+		    if len(excluded_listed) != len(reps_listed):
+		        problems.append(
+		            f"block {bid} lists {len(reps_listed)} repetition(s) and {len(excluded_listed)} "
+		            f"exclusion field(s); one per repetition, with `none` where nothing was excluded")
+		    for o in offered_listed:
+		        if not o.isdigit():
+		            problems.append(f"block {bid} has a non-numeric offered count {o!r}")
+		    # The arithmetic, checked WITHOUT the archive so it also runs where the archives are absent:
+		    # offered = count + everything excluded. The classes are disjoint by construction in Summarize,
+		    # so their sum is the whole exclusion and this identity has to hold in the published numbers.
+		    for i, rep in enumerate(reps_listed):
+		        if i >= len(counts_listed) or i >= len(offered_listed) or i >= len(excluded_listed):
+		            break
+		        if not counts_listed[i].isdigit() or not offered_listed[i].isdigit():
+		            continue
+		        exc_total, exc_bad = 0, False
+		        if excluded_listed[i] != "none":
+		            for part in excluded_listed[i].split("+"):
+		                cls, _, num = part.partition("=")
+		                if cls not in ("timed_out", "rejected", "failed") or not num.isdigit():
+		                    problems.append(
+		                        f"block {bid} repetition {rep} excludes {part!r}, which is not "
+		                        f"timed_out=, rejected= or failed= with a count; those are the classes "
+		                        f"internal/bench/report.go assigns and the document may not invent others")
+		                    exc_bad = True
+		                    continue
+		                exc_total += int(num)
+		        if exc_bad:
+		            continue
+		        if int(offered_listed[i]) != int(counts_listed[i]) + exc_total:
+		            problems.append(
+		                f"block {bid} repetition {rep} offers {offered_listed[i]} and accounts for "
+		                f"{counts_listed[i]} + {exc_total}; a request that is neither in the sample nor in "
+		                f"an exclusion class is one the document has lost")
 		    rows = [r for r in table.strip().splitlines()[2:] if r.strip().startswith("|")]
 		    vals = {}
 		    for r in rows:
@@ -480,6 +534,8 @@ unit: ms
 input_level: per-repetition-statistic
 reps: 1,2,3
 count: 100,100,100
+offered: 100,100,100
+excluded: none,none,none
 aggregation: min, max, max-minus-min
 rounding: half-up at the displayed decimal place
 -->
@@ -530,6 +586,8 @@ unit: ms
 input_level: per-repetition-statistic
 reps: 1,2
 count: 100,100
+offered: 100,100
+excluded: none,none
 aggregation: min, max, max-minus-min
 rounding: half-up at the displayed decimal place
 -->
@@ -876,7 +934,7 @@ fi
 # the fifth is this. `DATA` is read here and nowhere else, so a subshell can point it at a synthetic file,
 # exactly as self_run and case_run already do for the recomputation.
 raw_rows_check() {
-	while IFS='|' read -r bid archive arm reps counts vals; do
+	while IFS='|' read -r bid archive arm reps counts offered excluded vals; do
 		[ -n "$bid" ] || continue
 		if [ ! -f "$archive/evidence.tgz" ]; then
 			echo "SKIP $bid cites $archive, which is not on this disk"
@@ -884,24 +942,47 @@ raw_rows_check() {
 		fi
 	WORK3=$(mktemp -d)
 	tar -xzf "$archive/evidence.tgz" -C "$WORK3" 2>/dev/null
-	out3=$(ARM="$arm" REPS="$reps" COUNTS="$counts" VALS="$vals" python3 - "$WORK3/m5c-run" <<'PY'
+	out3=$(ARM="$arm" REPS="$reps" COUNTS="$counts" OFFERED="$offered" EXCLUDED="$excluded" VALS="$vals" python3 - "$WORK3/m5c-run" <<'PY'
 import json, math, os, sys
 from decimal import Decimal
 d = sys.argv[1]
 arm = os.environ["ARM"]
 reps = [r.strip() for r in os.environ["REPS"].split(",") if r.strip()]
 counts = [c.strip() for c in os.environ["COUNTS"].split(",") if c.strip()]
+offered = [o.strip() for o in os.environ["OFFERED"].split(",") if o.strip()]
+excluded = [e.strip() for e in os.environ["EXCLUDED"].split(",") if e.strip()]
 vals = [v.strip() for v in os.environ["VALS"].split(",") if v.strip()]
 def p99(v):
     v = sorted(v)
     return v[max(0, math.ceil(0.99 * len(v)) - 1)]
+# The disposition classes are the ones internal/bench/report.go's Summarize switch assigns, IN ITS ORDER:
+# timeout first, then an admission shed (429, or 413 carrying a reason), then any other errorKind, and only
+# then is a row with a first token completed and one without it failed. Classifying by a different
+# precedence here would make the document and the scorer disagree about one archive -- the same shape as the
+# pooled point estimate that was published beside a per-repetition interval.
+def classify(r):
+    if (r.get("errorKind") or "") == "timeout":
+        return "timed_out"
+    st, ar = r.get("httpStatus") or 0, r.get("admissionReason") or ""
+    if st == 429 or (st == 413 and ar):
+        return "rejected"
+    if r.get("errorKind"):
+        return "failed"
+    s, ft = r.get("sendUnixNanos") or 0, r.get("firstTokenUnixNanos") or 0
+    return "completed" if (s and ft) else "failed"
 problems = []
-for rep, want_n, want_v in zip(reps, counts, vals):
+# zip() truncates to the shortest list, so unequal lengths would silently drop the tail of a block and
+# report CHECKED over fewer repetitions than the document publishes.
+if not (len(reps) == len(counts) == len(offered) == len(excluded) == len(vals)):
+    problems.append(
+        f"{arm}: the block carries {len(reps)} reps, {len(counts)} counts, {len(offered)} offered, "
+        f"{len(excluded)} excluded and {len(vals)} values; the recomputation would drop the tail")
+for rep, want_n, want_off, want_exc, want_v in zip(reps, counts, offered, excluded, vals):
     f = os.path.join(d, f"raw-{arm}-{rep}.jsonl")
     if not os.path.exists(f):
         problems.append(f"raw-{arm}-{rep}.jsonl is not in the archive, so this repetition's value has nothing behind it")
         continue
-    lat = []
+    lat, tally, off_n = [], {}, 0
     for line in open(f):
         line = line.strip()
         if not line:
@@ -909,6 +990,9 @@ for rep, want_n, want_v in zip(reps, counts, vals):
         r = json.loads(line)
         if r.get("tenant") != "premium-1":
             continue
+        off_n += 1
+        k = classify(r)
+        tally[k] = tally.get(k, 0) + 1
         s, ft = r.get("sendUnixNanos") or 0, r.get("firstTokenUnixNanos") or 0
         if s and ft:
             lat.append(Decimal(ft - s) / Decimal(10) ** 6)
@@ -918,6 +1002,18 @@ for rep, want_n, want_v in zip(reps, counts, vals):
     got_n = len(lat)
     if str(got_n) != want_n:
         problems.append(f"{arm} rep {rep}: the document publishes a sample of {want_n} and the archive holds {got_n}")
+    # Held against the COMPLETED disposition as well, not only against the rows carrying a latency: a
+    # timed-out request that recorded a first token sits in one population and not the other, and the
+    # published sample would then not be the completed population the block says it is.
+    if str(tally.get("completed", 0)) != want_n:
+        problems.append(
+            f"{arm} rep {rep}: the document publishes a sample of {want_n} and the completed disposition "
+            f"holds {tally.get('completed', 0)}")
+    if str(off_n) != want_off:
+        problems.append(f"{arm} rep {rep}: the document publishes {want_off} offered and the archive holds {off_n}")
+    got_exc = "+".join(f"{k}={tally[k]}" for k in sorted(tally) if k != "completed") or "none"
+    if got_exc != want_exc:
+        problems.append(f"{arm} rep {rep}: the document publishes excluded {want_exc!r} and the archive gives {got_exc!r}")
     got_v = p99(lat).quantize(Decimal("0.001"))
     if got_v != Decimal(want_v):
         problems.append(f"{arm} rep {rep}: the document publishes {want_v} ms and the raw rows give {got_v} ms")
@@ -945,7 +1041,8 @@ for header, table in re.findall(r"<!-- spread-block\n(.*?)-->\n\n((?:\|[^\n]*\n)
     rows = [r for r in table.strip().splitlines()[2:] if r.strip().startswith("|")]
     vals = [r.strip().strip("|").split("|")[1].strip() for r in rows]
     print("|".join([f.get("id", ""), f.get("archive", ""), f.get("arm", ""),
-                    f.get("reps", ""), f.get("count", ""), ",".join(vals)]))
+                    f.get("reps", ""), f.get("count", ""), f.get("offered", ""),
+                    f.get("excluded", ""), ",".join(vals)]))
 PY
 )
 EOF
