@@ -265,11 +265,17 @@ estimate instead.** Every row of both archives carries both numbers: `engineInpu
 `internal/bench/replay.go:100` defines as what the engine itself reported, and `estInputTokens`, the
 `ceil(chars/4)` score the admission decision is made on, which `internal/gateway/proxy.go:76` calls "never an
 exact count". They disagree about how much the load moved: by the gateway's score the premium prefill grew
-5.9x (estimate 294 against estimate 50), and by the engine's own count **3.8x** (256 against 68). The
+<!-- claim: premium-prefill-multiplier-withdrawn value dp=1 -->5.9<!-- /claim -->x (estimate 294 against
+estimate 50), and by the engine's own count
+**<!-- claim: premium-input-per-request-15cell-over-9th value dp=1 -->3.8<!-- /claim -->x** (256 against 68). The
 engine's number is the one the engine was actually given, so it is the one the prose uses — and it is a
 **token count, not a measure of prefill time or GPU work**. Three multipliers follow from it and they are
-different quantities: premium input tokens per request **3.765x**, contender per request **1.065x**, and the
-total input offered in a contended cell **1.681x** — `(4655x256 + 139x8192) / (4655x68 + 139x7695)`. The estimate stays in the table because it is what
+different quantities: premium input tokens per request
+**<!-- claim: premium-input-per-request-15cell-over-9th value dp=3 -->3.765<!-- /claim -->x**, contender per
+request **<!-- claim: contender-input-per-request-15cell-over-9th value dp=3 -->1.065<!-- /claim -->x**, and the
+total input offered in a contended cell
+**<!-- claim: cell-total-input-15cell-over-9th value dp=3 -->1.681<!-- /claim -->x** —
+`(4655x256 + 139x8192) / (4655x68 + 139x7695)`. The estimate stays in the table because it is what
 the gateway actually gated on. Uniform across every row: 256 on all **69,825** premium rows of this run and
 68 on all 27,930 of the pilot's, with 0 exceptions in either.
 

@@ -1426,7 +1426,9 @@ is 14,868 against 4,001 — **3.7x worse than the control it was supposed to imp
 <!-- claim: m5c-15cell-r1-premium-ttft-p99 min -->171.882<!-- /claim -->–<!-- claim: m5c-15cell-r1-premium-ttft-p99 max -->175.269<!-- /claim --> ms,
 a width of <!-- claim: m5c-15cell-r1-premium-ttft-p99 width dp=1 -->3.4<!-- /claim --> ms, and the control
 `shared`'s span <!-- claim: m5c-15cell-shared-premium-ttft-p99 width dp=1 -->3.9<!-- /claim --> ms.
-`timeSlicing`'s span 14,351–15,078 ms. The ninth pilot's two repetitions were likewise tight. Neither run is
+`timeSlicing`'s span
+<!-- claim: m5c-15cell-timeslicing-premium-ttft-p99 min dp=0 -->14,351<!-- /claim -->–<!-- claim: m5c-15cell-timeslicing-premium-ttft-p99 max dp=0 -->15,078<!-- /claim --> ms.
+The ninth pilot's two repetitions were likewise tight. Neither run is
 noisy against itself; they disagree with each other. **Five repetitions is what makes that statement
 available** — two could not have supported it, which is the one thing the extra repetitions bought.
 
@@ -1466,7 +1468,9 @@ cannot be a rival explanation**: the longest request any run completed is 17.932
 (2026-10-01) and 19.752 s (this run), all under the pilot's own 30,000 ms, and the timeout is a client-side
 context deadline (`internal/bench/httpsender.go:289`) that never reaches the engine. The KV difference is
 also not a between-run change — it is 93,200 tokens in both runs that bought the split arm. What stays
-unseparated is the contender's own length (1.065x per request, 1.681x of a cell's total input) and the
+unseparated is the contender's own length
+(<!-- claim: contender-input-per-request-15cell-over-9th value dp=3 -->1.065<!-- /claim -->x per request,
+<!-- claim: cell-total-input-15cell-over-9th value dp=3 -->1.681<!-- /claim -->x of a cell's total input) and the
 environment the pilot did not record.
 
 Ruled out by measurement: the engine configuration is byte-identical in both runs (split engines at
@@ -1576,7 +1580,9 @@ Measured across the raw rows of both archives, with no exceptions in either:
 ### What this changes
 
 The sections above state the premium prompt as **294 tokens against the pilot's 50**, which makes the
-prefill increase 5.9x. The engine was given **256 against 68**, which is **3.8x** — a count of input tokens
+prefill increase <!-- claim: premium-prefill-multiplier-withdrawn value dp=1 -->5.9<!-- /claim -->x. The
+engine was given **256 against 68**, which is
+**<!-- claim: premium-input-per-request-15cell-over-9th value dp=1 -->3.8<!-- /claim -->x** — a count of input tokens
 per premium request, not a measure of prefill time or GPU work. The estimate exists to be compared against an
 admission threshold — it is the number the gateway gated on, and it is kept for that — but a claim about what
 a request carried is a claim about what the engine received. So:

@@ -151,6 +151,151 @@ rounding: half-up at the displayed decimal place
 | 4 | 3998.338 |
 | 5 | 3997.887 |
 
+## Single-valued inputs, for the figures that are not spreads
+
+A spread needs a row of repetitions. A **token count** does not: it is one number that held on every row,
+and the published multipliers divide those numbers rather than ranging over them. So they are declared as
+inputs with a `unit`, and the multipliers that use them are declared separately below.
+
+`unit` is a **semantic type**, not a label. `engine-token` is what the engine reported as its own
+`prompt_tokens`; `gateway-estimate-token` is `ceil(chars/4)`, the score the admission guard runs on, which
+its own source calls "never an exact count". The two are not interchangeable and the checker refuses a
+multiplier that mixes them — a published `5.9x` came from dividing two estimates and was withdrawn in favour
+of `3.8x` from the engine's own counts.
+
+<!-- input-block
+id: m5c-15cell-premium-engine-input
+archive: hack/m5c-20261002-014903
+source: raw-*.jsonl, field engineInputTokens, rows whose tenant is premium-1
+population: every offered premium request
+unit: engine-token
+value: 256
+basis: identical on all 69,825 premium rows of the fifteen cells, no exceptions
+-->
+
+<!-- input-block
+id: m5c-15cell-contender-engine-input
+archive: hack/m5c-20261002-014903
+source: raw-*.jsonl, field engineInputTokens, rows whose tenant is standard-noisy
+population: every offered contender request
+unit: engine-token
+value: 8192
+basis: identical on all 1,390 contender rows of the fifteen cells, no exceptions
+-->
+
+<!-- input-block
+id: m5c-9th-premium-engine-input
+archive: hack/m5c-20260913-011031
+source: raw-*.jsonl, field engineInputTokens, rows whose tenant is premium-1
+population: every offered premium request
+unit: engine-token
+value: 68
+basis: identical on all 27,930 premium rows of the ninth pilot, no exceptions
+-->
+
+<!-- input-block
+id: m5c-9th-contender-engine-input
+archive: hack/m5c-20260913-011031
+source: raw-*.jsonl, field engineInputTokens, rows whose tenant is standard-noisy
+population: every offered contender request
+unit: engine-token
+value: 7695
+basis: identical on all 556 contender rows of the ninth pilot, no exceptions
+-->
+
+<!-- input-block
+id: m5c-premium-requests-per-cell
+archive: hack/m5c-20261002-014903
+source: raw-*.jsonl, premium-1 rows divided by the repetition count
+population: one cell's offered premium requests
+unit: requests
+value: 4655
+basis: 4,655 per cell in BOTH archives -- 23,275 over five repetitions and 9,310 over two
+-->
+
+<!-- input-block
+id: m5c-contender-requests-per-cell
+archive: hack/m5c-20261002-014903
+source: raw-*.jsonl, standard-noisy rows divided by the repetition count
+population: one contended cell's offered contender requests
+unit: requests
+value: 139
+basis: 139 per cell in BOTH archives -- 695 over five repetitions and 278 over two
+-->
+
+## Multipliers are declared, not written out
+
+Each multiplier names its inputs and **one of two permitted shapes**. An arbitrary formula would make this
+file a small programming language and the checker its interpreter; two shapes cover every multiplier this
+repository publishes, and a third claim would have to be registered here before it could be published.
+
+| shape | fields | what it computes |
+| --- | --- | --- |
+| `per-request-ratio` | `numerator`, `denominator` — one input each | one request's value against another's |
+| `weighted-total-ratio` | `numerator`, `denominator` — `count*value + count*value` | a whole cell's total against another's |
+
+The unit rules are checked, not assumed: both sides of a ratio must carry the **same** unit, every count
+must be `requests`, and a multiplier whose inputs are `gateway-estimate-token` is refused unless it declares
+`provenance: withdrawn-historical` — which is how a withdrawn figure can still be quoted as the record of
+what was once published.
+
+<!-- input-block
+id: m5c-15cell-premium-gateway-estimate
+archive: hack/m5c-20261002-014903
+source: raw-*.jsonl, field estInputTokens, rows whose tenant is premium-1
+population: every offered premium request
+unit: gateway-estimate-token
+value: 294
+basis: ceil(1174/4); the admission score, not a count of tokens
+-->
+
+<!-- input-block
+id: m5c-9th-premium-gateway-estimate
+archive: hack/m5c-20260913-011031
+source: raw-*.jsonl, field estInputTokens, rows whose tenant is premium-1
+population: every offered premium request
+unit: gateway-estimate-token
+value: 50
+basis: the ninth pilot's admission score for the same tenant
+-->
+
+<!-- derived-block
+id: premium-prefill-multiplier-withdrawn
+kind: per-request-ratio
+numerator: m5c-15cell-premium-gateway-estimate
+denominator: m5c-9th-premium-gateway-estimate
+unit: ratio-of-gateway-estimate-token
+rounding: half-up at the displayed decimal place
+provenance: withdrawn-historical
+-->
+
+<!-- derived-block
+id: premium-input-per-request-15cell-over-9th
+kind: per-request-ratio
+numerator: m5c-15cell-premium-engine-input
+denominator: m5c-9th-premium-engine-input
+unit: ratio-of-engine-token
+rounding: half-up at the displayed decimal place
+-->
+
+<!-- derived-block
+id: contender-input-per-request-15cell-over-9th
+kind: per-request-ratio
+numerator: m5c-15cell-contender-engine-input
+denominator: m5c-9th-contender-engine-input
+unit: ratio-of-engine-token
+rounding: half-up at the displayed decimal place
+-->
+
+<!-- derived-block
+id: cell-total-input-15cell-over-9th
+kind: weighted-total-ratio
+numerator: m5c-premium-requests-per-cell*m5c-15cell-premium-engine-input + m5c-contender-requests-per-cell*m5c-15cell-contender-engine-input
+denominator: m5c-premium-requests-per-cell*m5c-9th-premium-engine-input + m5c-contender-requests-per-cell*m5c-9th-contender-engine-input
+unit: ratio-of-engine-token
+rounding: half-up at the displayed decimal place
+-->
+
 ## Ratios are joined by repetition, not divided as ranges
 
 A published ratio spread is the range of the per-repetition ratios, `range(Aᵢ/Bᵢ)`. It is **not**

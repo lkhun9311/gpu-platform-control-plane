@@ -22,6 +22,9 @@
 #
 # WHAT IT REFUSES, AND WHY EACH ONE IS SEPARATE
 #
+#   - a published figure that does not recompute       -- compared NUMERICALLY, so "14,351" and "14351"
+#                                                         are the same endpoint and only the value is at
+#                                                         issue, never the grouping
 #   - a claim whose block id does not exist            -- the citation is dangling
 #   - a block no claim cites and whose values appear
 #     in no publication verbatim                       -- a declaration nothing is held to
@@ -80,8 +83,25 @@ recompute() {
 		data_path, *publications = sys.argv[1:]
 		text = open(data_path, encoding="utf-8").read()
 
-		# --- parse the blocks -------------------------------------------------------------------------
+		# --- refuse a block KIND nobody checks ---------------------------------------------------------
+		#
+		# This is first because it is the failure that has already happened. Nine input- and derived-blocks
+		# were added to the data file and the gate stayed GREEN with BLOCKS=5: the parser matched only
+		# "spread-block", so the new declarations were invisible -- not wrong, not reported, just unread.
+		# A checker that silently ignores a new declaration is worse than one that breaks on it, because
+		# breaking is how you find out.
+		#
+		# So every `<!-- …-block` comment in the file must be a kind this script knows, and adding a tenth
+		# kind without teaching the parser fails here rather than passing quietly.
+		KNOWN_KINDS = ("spread-block", "input-block", "derived-block")
 		blocks, problems = {}, []
+		for kind in re.findall(r"<!--\s*([a-z-]+-block)\b", text):
+		    if kind not in KNOWN_KINDS:
+		        problems.append(
+		            f"the data file declares a {kind} and this checker does not read that kind; a declaration "
+		            f"no check covers is the defect this gate exists for")
+
+		# --- parse the spread blocks ------------------------------------------------------------------
 		REQUIRED = ("id", "archive", "source", "arm", "tenant", "population",
 		            "statistic", "unit", "input_level", "reps", "aggregation", "rounding")
 		for header, table in re.findall(r"<!-- spread-block\n(.*?)-->\n\n((?:\|[^\n]*\n)+)", text, re.S):
@@ -122,6 +142,147 @@ recompute() {
 		        problems.append(f"block id {bid} is declared twice, so one figure has two sources of truth")
 		    blocks[bid] = vals
 
+		# --- parse the single-valued inputs and the multipliers ---------------------------------------
+		#
+		# A token count is one number that held on every row, so it has no repetitions to range over. The
+		# published multipliers divide those numbers, and `unit` is a SEMANTIC TYPE rather than a label:
+		# engine-token is the engine's own prompt_tokens, gateway-estimate-token is ceil(chars/4), and a
+		# multiplier that mixes them is the defect that put a withdrawn 5.9x into the documents.
+		INPUT_REQUIRED = ("id", "archive", "source", "population", "unit", "value", "basis")
+		UNITS = ("engine-token", "gateway-estimate-token", "requests")
+		inputs = {}
+		for header in re.findall(r"<!-- input-block\n(.*?)-->", text, re.S):
+		    f = {}
+		    for line in header.strip().splitlines():
+		        if ":" not in line:
+		            problems.append(f"input-block header line is not 'key: value': {line!r}")
+		            continue
+		        k, v = line.split(":", 1)
+		        f[k.strip()] = v.strip()
+		    iid = f.get("id", "<no id>")
+		    for k in INPUT_REQUIRED:
+		        if k not in f:
+		            problems.append(f"input-block {iid} is missing field {k!r}")
+		    for k in f:
+		        if k not in INPUT_REQUIRED:
+		            problems.append(f"input-block {iid} has unknown field {k!r}")
+		    if f.get("unit") not in UNITS:
+		        problems.append(
+		            f"input-block {iid} declares unit {f.get('unit')!r}, which is not one of {UNITS}; a unit "
+		            f"this checker does not know cannot be type-checked against the others")
+		    if iid in inputs or iid in blocks:
+		        problems.append(f"id {iid} is declared twice")
+		    try:
+		        inputs[iid] = (Decimal(f.get("value", "")), f.get("unit"))
+		    except Exception:
+		        problems.append(f"input-block {iid} value {f.get('value')!r} does not parse as a number")
+
+		DERIVED_REQUIRED = ("id", "kind", "numerator", "denominator", "unit", "rounding")
+		DERIVED_OPTIONAL = ("provenance",)
+		derived = {}
+		for header in re.findall(r"<!-- derived-block\n(.*?)-->", text, re.S):
+		    f = {}
+		    for line in header.strip().splitlines():
+		        if ":" in line:
+		            k, v = line.split(":", 1)
+		            f[k.strip()] = v.strip()
+		    did = f.get("id", "<no id>")
+		    for k in DERIVED_REQUIRED:
+		        if k not in f:
+		            problems.append(f"derived-block {did} is missing field {k!r}")
+		    for k in f:
+		        if k not in DERIVED_REQUIRED + DERIVED_OPTIONAL:
+		            problems.append(f"derived-block {did} has unknown field {k!r}")
+		    if did in derived or did in blocks or did in inputs:
+		        problems.append(f"id {did} is declared twice")
+
+		    def side(expr, which):
+		        """One side of a ratio: a single input id, or 'count*value + count*value'."""
+		        terms = [t.strip() for t in expr.split("+")]
+		        total, units, counts = Decimal(0), set(), []
+		        for t in terms:
+		            parts = [p.strip() for p in t.split("*")]
+		            if len(parts) == 1:
+		                if parts[0] not in inputs:
+		                    problems.append(f"derived-block {did}: {which} names {parts[0]!r}, not a declared input")
+		                    return None, None
+		                v, u = inputs[parts[0]]
+		                total += v
+		                units.add(u)
+		            elif len(parts) == 2:
+		                for p in parts:
+		                    if p not in inputs:
+		                        problems.append(f"derived-block {did}: {which} names {p!r}, not a declared input")
+		                        return None, None
+		                (cv, cu), (vv, vu) = inputs[parts[0]], inputs[parts[1]]
+		                if cu != "requests":
+		                    problems.append(
+		                        f"derived-block {did}: {which} weights by {parts[0]!r}, whose unit is {cu!r} "
+		                        f"rather than 'requests'")
+		                    return None, None
+		                total += cv * vv
+		                units.add(vu)
+		                counts.append(parts[0])
+		            else:
+		                problems.append(f"derived-block {did}: {which} term {t!r} is not 'value' or 'count*value'")
+		                return None, None
+		        if len(units) != 1:
+		            problems.append(
+		                f"derived-block {did}: {which} mixes units {sorted(units)}; a ratio over two different "
+		                f"semantic types is not a multiplier of either")
+		            return None, None
+		        return total, units.pop()
+
+		    kind = f.get("kind")
+		    if kind not in ("per-request-ratio", "weighted-total-ratio"):
+		        problems.append(
+		            f"derived-block {did} declares kind {kind!r}; only 'per-request-ratio' and "
+		            f"'weighted-total-ratio' are permitted, and a third shape has to be registered here first")
+		        continue
+		    n, nu = side(f.get("numerator", ""), "numerator")
+		    d, du = side(f.get("denominator", ""), "denominator")
+		    if n is None or d is None:
+		        continue
+		    if nu != du:
+		        problems.append(
+		            f"derived-block {did} divides {nu} by {du}; both sides must carry the same semantic type")
+		        continue
+		    if kind == "per-request-ratio" and ("*" in f.get("numerator", "") or "+" in f.get("numerator", "")):
+		        problems.append(f"derived-block {did} is a per-request-ratio but its numerator is weighted")
+		        continue
+		    if kind == "weighted-total-ratio" and "*" not in f.get("numerator", ""):
+		        problems.append(f"derived-block {did} is a weighted-total-ratio but its numerator has no count")
+		        continue
+		    # An ESTIMATE-derived multiplier is refused unless it says it is the withdrawn record.
+		    #
+		    # 5.9x came from dividing two gateway estimates and was withdrawn in favour of 3.8x from the
+		    # engine's own counts. Quoting the withdrawn figure AS a historical record has to stay possible,
+		    # or the documents cannot say what they corrected.
+		    if nu == "gateway-estimate-token" and f.get("provenance") != "withdrawn-historical":
+		        problems.append(
+		            f"derived-block {did} is computed from gateway estimates and does not declare "
+		            f"'provenance: withdrawn-historical'; an estimate-derived multiplier must not stand as a "
+		            f"current measurement")
+		        continue
+		    if d == 0:
+		        problems.append(f"derived-block {did} divides by zero")
+		        continue
+		    derived[did] = n / d
+
+		def as_number(shown):
+		    """The published text as a number, with thousands separators removed.
+
+		    A span is published as "14,351-15,078 ms" and the recomputed value is 14351. Comparing the two
+		    as STRINGS fails on the comma, and parsing "14,351" with Decimal raises -- so both of this
+		    checker's paths got it wrong, in opposite directions, and a correct sentence would have been
+		    reported.
+
+		    The comma is stripped rather than generated. If the checker produced the grouping it would be
+		    checking formatting, and what it is for is the VALUE: "14,351", "14351" and "14351.0" are the
+		    same endpoint and a reader is free to write any of them.
+		    """
+		    return Decimal(shown.replace(",", "").strip())
+
 		def q(value, dp, shown=None):
 		    """Render a recomputed value the way the document would.
 
@@ -133,16 +294,30 @@ recompute() {
 		    "10", "10.0" and "10.000" are all the same endpoint. A dp means the document displays a rounded
 		    figure, and then the rounding is done once, here, on the full-precision value.
 		    """
-		    if dp is not None:
-		        return str(value.quantize(Decimal(1).scaleb(-dp), rounding=ROUND_HALF_UP))
 		    try:
-		        return str(Decimal(shown)) if Decimal(shown) == value else str(value)
+		        parsed = as_number(shown) if shown is not None else None
 		    except Exception:
-		        return str(value)
+		        parsed = None
+		    if dp is not None:
+		        rounded = value.quantize(Decimal(1).scaleb(-dp), rounding=ROUND_HALF_UP)
+		        # Numeric comparison, so the document may group thousands however it likes.
+		        if parsed is not None and parsed == rounded:
+		            return shown.strip()
+		        return str(rounded)
+		    if parsed is not None and parsed == value:
+		        return shown.strip()
+		    return str(value)
 
 		def series(spec):
-		    """spec is either a block id, or 'ratio A / B' joined by repetition."""
+		    """spec is a block id, a derived-block id, or 'ratio A / B' joined by repetition.
+
+		    A derived block is a SINGLE value, so it comes back as a one-entry mapping. Returning it in the
+		    same shape as a spread keeps one comparison path: the alternative was a second branch in the
+		    claim loop, and two paths that format and round separately are two paths that drift.
+		    """
 		    parts = spec.split()
+		    if parts[0] in derived:
+		        return {"value": derived[parts[0]]}, parts[0]
 		    if parts[0] != "ratio":
 		        return blocks.get(parts[0]), parts[0]
 		    a, b = parts[1], parts[3]
@@ -184,15 +359,18 @@ recompute() {
 		        # Narrowing a population by a naming rule is the same defect this whole gate was written
 		        # after -- a check that cannot see the rows it was supposed to cover.
 		        for t in toks:
-		            if t in blocks:
+		            if t in blocks or t in derived or t in inputs:
 		                cited.add(t)
 		        if vals is None:
 		            problems.append(f"{path}: claim cites {name}, which is not a declared block")
 		            continue
 		        v = list(vals.values())
-		        got = {"min": min(v), "max": max(v), "width": max(v) - min(v)}.get(which)
+		        got = {"min": min(v), "max": max(v), "width": max(v) - min(v),
+		               "value": v[0] if len(v) == 1 else None}.get(which)
 		        if got is None:
-		            problems.append(f"{path}: claim asks for {which!r}, which is not min, max or width")
+		            problems.append(
+		                f"{path}: claim asks for {which!r} from {name}; a spread takes min, max or width and "
+		                f"a derived multiplier takes value")
 		            continue
 		        want = q(got, dp, shown.strip())
 		        if shown.strip() != want:
@@ -216,7 +394,31 @@ recompute() {
 		        f"block {bid} is cited by no claim and its values appear in no publication, so it is a "
 		        f"declaration nothing is held to")
 
-		print(f"BLOCKS={len(blocks)} CLAIMS={claims} CITED={len(cited)}")
+		# The same rule for the other two kinds, and it has to be the same rule.
+		#
+		# The first version of this loop covered `blocks` only. When input- and derived-blocks were added the
+		# gate stayed green over nine unchecked declarations -- so an uncited-declaration check that knows
+		# one kind out of three is the same silence in a smaller place. A derived block earns its keep only
+		# by being quoted; an input block earns its keep by feeding one that is.
+		for did in derived:
+		    if did not in cited:
+		        problems.append(
+		            f"derived-block {did} is cited by no claim, so a multiplier is declared that no published "
+		            f"sentence is held to")
+		feeding = set()
+		for header in re.findall(r"<!-- derived-block\n(.*?)-->", text, re.S):
+		    for line in header.strip().splitlines():
+		        if line.split(":", 1)[0].strip() in ("numerator", "denominator"):
+		            for tok in re.split(r"[+*]", line.split(":", 1)[1]):
+		                feeding.add(tok.strip())
+		for iid in inputs:
+		    if iid not in cited and iid not in feeding:
+		        problems.append(
+		            f"input-block {iid} is cited by no claim and feeds no multiplier, so it is a value nothing "
+		            f"is computed from")
+
+		print(f"BLOCKS={len(blocks)} INPUTS={len(inputs)} DERIVED={len(derived)} "
+		      f"CLAIMS={claims} CITED={len(cited)}")
 		for p in problems:
 		    print(f"PROBLEM {p}")
 	PY
@@ -312,6 +514,248 @@ if printf '%s\n' "$got" | grep -q 'nothing is held to'; then
 else
 	bad "an uncited block passed: $(printf '%s' "$got" | tr '\n' ' ')"
 fi
+
+# --- 0b. the five refusals the token blocks brought with them ---------------------------------------------
+#
+# Each of these was written and none of them had refused anything. That is the state the whole gate exists to
+# stop: nine input- and derived-blocks were added earlier the same day and the checker stayed GREEN over
+# them, because its regex matched one block kind out of three. A refusal nobody has watched fire is a
+# refusal in name.
+#
+# Built as one synthetic data file per case, because a single file with five faults would stop at the first
+# and leave four unexercised.
+say "0b. a block kind nobody reads, an undeclared input, a mixed unit, an estimate multiplier and an unpermitted shape"
+
+mk() { # mk <name> <data-file-body>
+	mkdir -p "$SELF/$1/docs"
+	cat > "$SELF/$1/data.md"
+	cat > "$SELF/$1/docs/doc.md" <<'EOD'
+The multiplier is <!-- claim: t-ratio value dp=3 -->2.000<!-- /claim -->x.
+EOD
+}
+case_run() { ( DATA="$SELF/$1/data.md"; recompute "$SELF/$1/docs/doc.md" ); }
+
+GOOD_INPUTS='<!-- input-block
+id: t-a
+archive: x
+source: y
+population: p
+unit: engine-token
+value: 512
+basis: b
+-->
+
+<!-- input-block
+id: t-b
+archive: x
+source: y
+population: p
+unit: engine-token
+value: 256
+basis: b
+-->
+'
+GOOD_DERIVED='<!-- derived-block
+id: t-ratio
+kind: per-request-ratio
+numerator: t-a
+denominator: t-b
+unit: ratio-of-engine-token
+rounding: half-up at the displayed decimal place
+-->
+'
+# The control: the shape all five faults are introduced into. If this is not clean the five below prove
+# nothing about the faults.
+mk control <<EOF
+$GOOD_INPUTS
+$GOOD_DERIVED
+EOF
+got=$(case_run control)
+if printf '%s\n' "$got" | grep -q '^PROBLEM'; then
+	bad "the control data file was reported, so the five cases below cannot isolate their faults: $(printf '%s' "$got" | tr '\n' ' ')"
+else
+	ok "a correct input/derived pair is not reported"
+fi
+
+# 1. a block kind the parser does not read -- the silence that actually happened.
+mk unknownkind <<EOF
+$GOOD_INPUTS
+$GOOD_DERIVED
+<!-- summary-block
+id: t-other
+-->
+EOF
+printf '%s\n' "$(case_run unknownkind)" | grep -q 'does not read that kind' \
+	&& ok "a block kind this checker does not read is refused" \
+	|| bad "an unknown block kind passed silently, which is the defect this gate was extended for"
+
+# 2. a multiplier naming an input that was never declared.
+mk undeclared <<EOF
+$GOOD_INPUTS
+<!-- derived-block
+id: t-ratio
+kind: per-request-ratio
+numerator: t-absent
+denominator: t-b
+unit: ratio-of-engine-token
+rounding: half-up at the displayed decimal place
+-->
+EOF
+printf '%s\n' "$(case_run undeclared)" | grep -q "not a declared input" \
+	&& ok "a multiplier citing an undeclared input is refused" \
+	|| bad "an undeclared input reference passed"
+
+# 3. engine tokens divided by a gateway estimate. Dimensionless does not mean comparable.
+mk mixedunit <<EOF
+$GOOD_INPUTS
+<!-- input-block
+id: t-est
+archive: x
+source: y
+population: p
+unit: gateway-estimate-token
+value: 294
+basis: b
+-->
+
+<!-- derived-block
+id: t-ratio
+kind: per-request-ratio
+numerator: t-a
+denominator: t-est
+unit: ratio-of-engine-token
+rounding: half-up at the displayed decimal place
+-->
+EOF
+printf '%s\n' "$(case_run mixedunit)" | grep -q 'same semantic type' \
+	&& ok "dividing an engine count by a gateway estimate is refused" \
+	|| bad "a mixed-unit ratio passed; this is the shape that published a withdrawn 5.9x"
+
+# 4. an estimate-derived multiplier standing as a current measurement.
+mk estimate <<EOF
+<!-- input-block
+id: t-e1
+archive: x
+source: y
+population: p
+unit: gateway-estimate-token
+value: 294
+basis: b
+-->
+
+<!-- input-block
+id: t-e2
+archive: x
+source: y
+population: p
+unit: gateway-estimate-token
+value: 50
+basis: b
+-->
+
+<!-- derived-block
+id: t-ratio
+kind: per-request-ratio
+numerator: t-e1
+denominator: t-e2
+unit: ratio-of-gateway-estimate-token
+rounding: half-up at the displayed decimal place
+-->
+EOF
+got=$(case_run estimate)
+printf '%s\n' "$got" | grep -q 'withdrawn-historical' \
+	&& ok "an estimate-derived multiplier without a withdrawn-historical provenance is refused" \
+	|| bad "an estimate-derived multiplier stood as a current measurement: $(printf '%s' "$got" | tr '\n' ' ')"
+# And the same file WITH the declaration must pass, or the refusal has swallowed the historical record.
+mk estimateok <<EOF
+<!-- input-block
+id: t-e1
+archive: x
+source: y
+population: p
+unit: gateway-estimate-token
+value: 294
+basis: b
+-->
+
+<!-- input-block
+id: t-e2
+archive: x
+source: y
+population: p
+unit: gateway-estimate-token
+value: 50
+basis: b
+-->
+
+<!-- derived-block
+id: t-ratio
+kind: per-request-ratio
+numerator: t-e1
+denominator: t-e2
+unit: ratio-of-gateway-estimate-token
+rounding: half-up at the displayed decimal place
+provenance: withdrawn-historical
+-->
+EOF
+printf '%s\n' "$(case_run estimateok)" | grep -q 'withdrawn-historical' \
+	&& bad "the withdrawn-historical declaration did not exempt the quotation, so a corrected figure cannot be quoted as the record" \
+	|| ok "with provenance declared, the withdrawn figure can still be quoted"
+
+# 4b. a declaration nothing is held to, for the two kinds the real data no longer exercises.
+#
+# ADDED after a mutation run. Deleting the uncited-derived check and the uncited-input check both left the
+# whole suite GREEN: those two had fired exactly once, on real data, back when the three multipliers were
+# declared and not yet quoted. Once the markers went in, the real file stopped exercising them and the
+# self-test never had. "I watched it fire once" is not "the check is pinned".
+mk uncitedderived <<EOF
+$GOOD_INPUTS
+$GOOD_DERIVED
+<!-- derived-block
+id: t-orphan
+kind: per-request-ratio
+numerator: t-a
+denominator: t-b
+unit: ratio-of-engine-token
+rounding: half-up at the displayed decimal place
+-->
+EOF
+printf '%s\n' "$(case_run uncitedderived)" | grep -q 'no published sentence is held to' \
+	&& ok "a multiplier no sentence quotes is refused" \
+	|| bad "an uncited multiplier passed; a declared figure nothing is held to is the silence this gate is for"
+
+mk uncitedinput <<EOF
+$GOOD_INPUTS
+$GOOD_DERIVED
+<!-- input-block
+id: t-spare
+archive: x
+source: y
+population: p
+unit: engine-token
+value: 999
+basis: b
+-->
+EOF
+printf '%s\n' "$(case_run uncitedinput)" | grep -q 'nothing is computed from' \
+	&& ok "an input that feeds no multiplier and no claim is refused" \
+	|| bad "an orphan input passed, so a value can sit in the file with nothing depending on it"
+
+# 5. a shape outside the two permitted ones.
+mk badshape <<EOF
+$GOOD_INPUTS
+<!-- derived-block
+id: t-ratio
+kind: difference
+numerator: t-a
+denominator: t-b
+unit: ratio-of-engine-token
+rounding: half-up at the displayed decimal place
+-->
+EOF
+printf '%s\n' "$(case_run badshape)" | grep -q 'only .per-request-ratio. and' \
+	&& ok "a formula shape that was never registered is refused" \
+	|| bad "an unregistered formula shape passed, and the data file becomes a language"
 
 # --- 1. every published spread recomputes -----------------------------------------------------------------
 say "1. every published spread, range and width recomputes from its declared values"
