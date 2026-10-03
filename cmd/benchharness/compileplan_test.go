@@ -22,6 +22,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/lkhun9311/gpu-mlops-platform-control-plane/internal/bench"
 )
 
 // The command's whole job is to turn one file into a block a shell sources, so what is pinned here is the
@@ -124,6 +126,31 @@ func TestAStudyWithADifferentArrivalModelIsRefused(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "weighted") {
 		t.Errorf("the refusal does not say why: %v", err)
+	}
+}
+
+// Every study this command exists to compile is ACCEPTED, which the refusal test above cannot establish.
+//
+// # WHY A POSITIVE CASE WAS NEEDED
+//
+// TestAStudyWithADifferentArrivalModelIsRefused asserts a non-nil error whose message contains "weighted".
+// Both the id comparison the guard actually makes and an arrival-model comparison produce that message, so
+// the test passes either way -- and it would still pass if the guard refused the only studies the command is
+// for. Measured on 2026-10-04 while registering two new studies: the guard compares against
+// StudySharingMatrix alone, so compiling a plan for either new study is refused, and nothing in this file
+// went red. A guard is covered when its YES and its NO are both pinned.
+func TestEveryStudyThisCommandCompilesIsAccepted(t *testing.T) {
+	for _, study := range []string{
+		bench.StudySharingMatrix,
+		bench.StudyTailCrossingShortLC,
+		bench.StudyTailCrossingLongLC,
+	} {
+		t.Run(study, func(t *testing.T) {
+			err := compilePlan([]string{"--cr", executableCR, "--duration-ms", "505000", "--study", study})
+			if err != nil {
+				t.Errorf("study %s was refused: %v. These three share the weighted arrival model this command translates rates for; refusing one of them makes the command unusable for the run it was written for", study, err)
+			}
+		})
 	}
 }
 

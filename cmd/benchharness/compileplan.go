@@ -104,8 +104,26 @@ func compilePlan(args []string) error {
 	total := base + cont
 	noisyWeight := cont / base
 
-	if bench.CanonicalStudyID(*study) != bench.StudySharingMatrix {
-		return fmt.Errorf("study %q: this command compiles the sharing matrix, whose arrival model is weighted; another study may draw its trace differently", *study)
+	// The studies whose traces this translation is correct for, ENUMERATED rather than derived.
+	//
+	// What the guard is really about is the arrival model: base and contender rates become one total rate and
+	// a weight, and that is the same load only under the weighted model. The registry carries an Arrivals
+	// field, so reading it instead of this list looks like the obvious generalisation -- and it is wrong
+	// today. `StudySharingMatrix` and both tail-crossing studies register NO arrival model: hack/m5c-matrix.sh
+	// hard-codes `ARRIVALS=weighted` on the non-ladder path because, as its own comment says, it keeps it so
+	// "rather than asking a registry that has no answer for it". `arrivalsOf` refuses an empty one, so a
+	// registry-driven guard would refuse every study this command exists for.
+	//
+	// Writing `Arrivals: ArrivalsWeighted` into those entries would make the registry assert something the
+	// pre-registrations do not: the 2026-09-10 page never registers an arrival model, and its own defect #6
+	// is that no weights were passed. The registration's precondition 3 records the order -- decide whether
+	// the arrival model is part of the protocol, record it, drop the shell's copy, and only then read it here.
+	// Until that happens this list is the honest form, and a new study joins it deliberately.
+	switch bench.CanonicalStudyID(*study) {
+	case bench.StudySharingMatrix, bench.StudyTailCrossingShortLC, bench.StudyTailCrossingLongLC:
+	default:
+		return fmt.Errorf("study %q: this command compiles the weighted-arrival studies (%s, %s, %s), turning a baseline and contender rate into one total rate and a weight; another study may draw its trace differently",
+			*study, bench.StudySharingMatrix, bench.StudyTailCrossingShortLC, bench.StudyTailCrossingLongLC)
 	}
 
 	sum := sha256Hex(raw)
