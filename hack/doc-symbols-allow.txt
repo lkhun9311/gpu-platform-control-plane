@@ -40,9 +40,16 @@ scripts/demo-06-failure-injection.sh	docs/06 lists it under "To fill" as work no
 
 # --- paths the repository cannot contain, named by specs that record real runs ---------------------------
 #
-# The five hack/ entries are output directories of paid GPU sessions. Each spec cites one beside its date and
-# commit hash to say WHICH run produced the numbers on that page; the directories themselves were never
-# committed. The plans/ entry is working material .gitignore keeps local on purpose, quoted by the design
+# The hack/ entries are output directories of paid GPU sessions, and the directories themselves were never
+# committed. Most are cited beside a date and commit hash to say WHICH run produced the numbers on a page.
+#
+# That was the whole category until 2026-10-03, and saying so was too narrow: an archive is also cited as the
+# EVIDENCE FOR A CORRECTION, where the point is which archive does and does not contain a string. The fourth
+# pilot's entry below is that -- the MPS study had attributed a `no healthy devices` event to the eighth
+# pilot's MPS arm, and the event is in the fourth pilot's log, about the shared arm. A citation a reader
+# cannot locate is a correction they have to take on trust, so the path is published and listed here.
+#
+# The plans/ entry is working material .gitignore keeps local on purpose, quoted by the design
 # that closed one of its open items.
 #
 # They surfaced only after path_exists stopped consulting the local filesystem: all six are present in this
@@ -51,6 +58,7 @@ docs/superpowers/plans/2026-08-12-queuelab-teardown-executor.md	.gitignore keeps
 hack/m5c-20260912-084918	the output directory of the 2026-09-12 paid M5-c run, cited beside its commit ce0bb8e; run outputs are not committed
 hack/m5c-20260913-011031	the output directory of the 2026-09-13 paid M5-c run, cited beside its commit 85ae2fa; run outputs are not committed
 hack/m5c-20261002-014903	the output directory of the 2026-10-02 paid M5-c run, cited beside its commit b97d88e; run outputs are not committed
+hack/m5c-20260911-235956	the output directory of the fourth paid M5-c pilot, 2026-09-11; the MPS page's 2026-10-03 amendment cites it as the one archive holding the `no healthy devices` event it had attributed to the eighth pilot. Run outputs are not committed
 hack/pop-20260908-015929	the output directory of a 2026-09-08 price-of-protection run, cited as the evidence for reading 4b; run outputs are not committed
 hack/pop-20260908-030550	as hack/pop-20260908-015929 -- another repetition of the same dated run
 hack/pop-20260908-044443	as hack/pop-20260908-015929 -- another repetition of the same dated run

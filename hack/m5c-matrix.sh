@@ -1066,6 +1066,14 @@ plugin_diagnosis() {
   k get ds "$ds" -n "$PLUGIN_NS" -o wide 2>&1 | sed 's/^/  /' | tee -a "$LOG" >&2
   k get pods -n "$PLUGIN_NS" -o wide 2>&1 | sed 's/^/  /' | tee -a "$LOG" >&2
   k logs -n "$PLUGIN_NS" "ds/$ds" --tail=40 2>&1 | sed 's/^/  /' | tee -a "$LOG" >&2
+  # The PREVIOUS container's log, because the pod this diagnosis runs against is usually in CrashLoopBackOff.
+  #
+  # Measured on the eighth pilot's archive: the plugin was 0/1 with 6 restarts, and the log captured here was
+  # the CURRENT attempt -- which had not yet reached the failure. The line that actually named the cause
+  # ("using MPS requires --mps-root to be specified") lived in a terminated container nothing read. The engine
+  # diagnosis below already does this; the plugin diagnosis did not, and the plugin is the one that crashes.
+  k logs -n "$PLUGIN_NS" "ds/$ds" --tail=40 --previous 2>/dev/null \
+    | sed 's/^/  [previous] /' | tee -a "$LOG" >&2
   k get events -n "$PLUGIN_NS" --sort-by=.lastTimestamp 2>&1 | tail -20 | sed 's/^/  /' | tee -a "$LOG" >&2
   k get nodes -l 'platform.lkhun9311.github.io/gpu-sharing=true' \
     -o jsonpath='{range .items[*]}  node {.metadata.name} allocatable nvidia.com/gpu={.status.allocatable.nvidia\.com/gpu} capacity={.status.capacity.nvidia\.com/gpu}{"\n"}{end}' 2>&1 \
