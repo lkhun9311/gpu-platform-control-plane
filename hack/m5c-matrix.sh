@@ -1404,6 +1404,69 @@ arm_invalid() {
   say "  recorded in $OUT/invalid-$arm.txt; the session fails on it rather than reporting it as an outcome"
 }
 
+# The same quantity at three stages, in one file, so "declared = applied = in effect" is machine-readable.
+#
+# WHY THIS EXISTS
+#
+# Two of the three stages were already recoverable and that was easy to miss. The DECLARED values are in
+# config/vllm/deployment.yaml (0.90, 64) and config/vllm-shared/engine-{a,b}.yaml (0.475, 32). The values
+# the engine ACTUALLY RAN WITH are in log.txt, because the launcher ships the whole instance log: vLLM
+# prints `non-default args: {... 'gpu_memory_utilization': 0.9, 'max_num_seqs': 64}` at startup. I was about
+# to record that the process stage was missing, on the strength of this function using `echo` rather than
+# `say` -- wrong, and the archive says so.
+#
+# What was genuinely absent is the middle stage and the comparison. Nothing read the POD's own args: the
+# jsonpath queries in this file ask for hostIPC and nodeName and nothing else. So a Deployment whose args
+# were mutated by an admission webhook, or a Pod left from an earlier arm, matched the YAML on paper and
+# ran something else. And with the three values in a YAML, a Pod and a log, checking them against each
+# other was a human reading three places.
+#
+# ONE FILE PER RUN, not per cell, and that is deliberate: the output accounting expects exactly four files
+# per completed cell, pinned in two places in this script and ten assertions in its gate. A fifth per-cell
+# file would move all of them. This appends rows instead, and is counted as a conditional output -- present
+# on runs that deploy an engine, absent under PLAN_ONLY and on an arm refused before rollout.
+#
+# EMPTY IS NEVER A VALUE. A pod that is not there, a query that failed and a log with no matching line are
+# three different facts and each gets its own word.
+engine_applied_record() {
+  local ns="$1" deploy="$2" manifest="$3" label="$4" args declared process
+  [ -s "$OUT/applied-values.tsv" ] \
+    || printf 'cell\tarm\tdeploy\tstage\tsource\tvalue\n' > "$OUT/applied-values.tsv"
+
+  # Stage 1: what the manifest asks for. Only `- --flag=value` lines, because the same numbers appear in
+  # this repository's comments explaining them -- engine-a.yaml mentions 0.475 four times and declares it
+  # once, and grepping the file would have recorded the explanation as a second declaration.
+  declared=$(grep -E '^[[:space:]]*- --' "$manifest" 2>/dev/null \
+    | grep -o -- '--[a-z-]*=[0-9A-Za-z./-]*' | tr '\n' ' ')
+  printf '%s\t%s\t%s\tdeclared\t%s\t%s\n' \
+    "$cell_n" "$label" "$deploy" "$manifest" "${declared:-no-flag-lines-in-manifest}" \
+    >> "$OUT/applied-values.tsv"
+
+  # Stage 2: what the cluster actually holds, read off the DEPLOYMENT and not off a Pod.
+  #
+  # The first version of this selected a Pod by `app.kubernetes.io/name=$deploy`, which is wrong twice over,
+  # and the live cluster said so: that label is `gpu-platform-control-plane` on every object here, and
+  # `component` is `vllm-shared` for engine-a AND engine-b, so no label distinguishes the two engines whose
+  # args this is meant to compare. The only thing that does is the Deployment name.
+  #
+  # So the applied template is the middle stage. It is the object the API server stored after any admission
+  # webhook had its turn, which is exactly the difference from stage 1, and it needs no guess about which
+  # Pod belongs to which Deployment. engine_diagnosis above already reads deployments and `deploy/<name>`
+  # logs the same way.
+  args=$(k get deploy -n "$ns" "$deploy" \
+    -o jsonpath='{.spec.template.spec.containers[0].args}' 2>/dev/null) || args=""
+  printf '%s\t%s\t%s\tapplied\tdeploy/%s\t%s\n' \
+    "$cell_n" "$label" "$deploy" "$deploy" "${args:-no-deployment-or-query-failed}" \
+    >> "$OUT/applied-values.tsv"
+
+  # Stage 3: what the engine says it is running with, from its own startup line.
+  process=$(k logs -n "$ns" "deploy/$deploy" --tail=400 2>/dev/null \
+    | grep -o "non-default args: {.*}" | tail -1)
+  printf '%s\t%s\t%s\tprocess\t%s\t%s\n' \
+    "$cell_n" "$label" "$deploy" "deploy/$deploy" "${process:-no-non-default-args-line}" \
+    >> "$OUT/applied-values.tsv"
+}
+
 engine_kv_report() {
   local ns="$1" deploy="$2"
   echo "--- $ns/$deploy: what the engine says it allocated ---"
@@ -1491,6 +1554,7 @@ deploy_arm() {
       k rollout status deploy/vllm-qwen25-3b -n "$NS_A" --timeout=900s >/dev/null \
         || { engine_diagnosis "$NS_A" vllm-qwen25-3b; fail "the exclusive engine never became ready -- the diagnosis above says what it was doing"; }
       engine_kv_report "$NS_A" vllm-qwen25-3b
+      engine_applied_record "$NS_A" vllm-qwen25-3b config/vllm/deployment.yaml "$label"
       routing_record "$NS_A" vllm-qwen25-3b
       PREMIUM_NS="$NS_A"; STANDARD_NS="$NS_A"
       ;;
@@ -1546,6 +1610,8 @@ deploy_arm() {
       fi
       engine_kv_report "$NS_A" vllm-shared-a
       engine_kv_report "$NS_B" vllm-shared-b
+      engine_applied_record "$NS_A" vllm-shared-a config/vllm-shared/engine-a.yaml "$label"
+      engine_applied_record "$NS_B" vllm-shared-b config/vllm-shared/engine-b.yaml "$label"
       routing_record "$NS_A" vllm-shared-a
       routing_record "$NS_B" vllm-shared-b
       PREMIUM_NS="$NS_A"; STANDARD_NS="$NS_B"
@@ -1861,7 +1927,8 @@ expected_outputs() {
   # rows and NOT here, which meant one mps-pod-lookup.err on an otherwise complete archive produced
   # `expected=9 actual=10` with every class matching -- a disagreement no class could explain.
   cond=$(find "$OUT" -maxdepth 1 \( -name 'mps-compute-apps-*.csv' -o -name 'mps-compute-apps-*.err' \
-    -o -name 'mps-pod-lookup.err' -o -name 'ladder-verdict-rung*.txt' \) 2>/dev/null | wc -l)
+    -o -name 'mps-pod-lookup.err' -o -name 'ladder-verdict-rung*.txt' \
+    -o -name 'applied-values.tsv' \) 2>/dev/null | wc -l)
   printf '%s completed-%sx4+refused-%s+invalid-%s+unwritten-%s+conditional-%s+fixed-%s' \
     $(( completed * 4 + refused + invalid + orphan + cond + fixed )) \
     "$completed" "$refused" "$invalid" "$orphan" "$cond" "$fixed"
@@ -1953,7 +2020,8 @@ EOF
   # and by the time anyone reads the archive it is there.
   fixed_actual=$(( fixed_actual + 1 ))
   cond=$(find "$OUT" -maxdepth 1 \( -name 'mps-compute-apps-*.csv' -o -name 'mps-compute-apps-*.err' \
-    -o -name 'mps-pod-lookup.err' -o -name 'ladder-verdict-rung*.txt' \) 2>/dev/null | wc -l)
+    -o -name 'mps-pod-lookup.err' -o -name 'ladder-verdict-rung*.txt' \
+    -o -name 'applied-values.tsv' \) 2>/dev/null | wc -l)
   unattr=0
   for f in "$OUT"/*; do
     [ -f "$f" ] || continue
@@ -1963,6 +2031,7 @@ EOF
       refused-*.txt | invalid-*.txt) ;;
       evidence.log | load-source.txt | cell-timings.tsv | cell-judgements.tsv | expected-files.txt | README.txt) ;;
       mps-compute-apps-*.csv | mps-compute-apps-*.err | mps-pod-lookup.err | ladder-verdict-rung*.txt) ;;
+      applied-values.tsv) ;;
       *) unattr=$(( unattr + 1 )) ;;
     esac
   done

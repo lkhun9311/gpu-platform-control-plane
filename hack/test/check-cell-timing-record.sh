@@ -65,9 +65,13 @@ extract() {
 	extract expected_outputs
 	extract expected_outputs_by_class
 	extract record_expected_files
+	extract engine_applied_record
+	# `k` is defined at the top of the matrix as a kubectl wrapper and is NOT extracted, so a test driving
+	# engine_applied_record would otherwise call the real cluster. Each case below redefines it.
+	echo 'k() { echo "k() was not stubbed by the case under test" >&2; return 1; }'
 } > "$WORK/recorders.sh"
 
-for fn in cell_timing_record cell_judgement_record warm_cell_estimate expected_outputs expected_outputs_by_class record_expected_files; do
+for fn in cell_timing_record cell_judgement_record warm_cell_estimate expected_outputs expected_outputs_by_class record_expected_files engine_applied_record; do
 	grep -q "^$fn() {" "$WORK/recorders.sh" ||
 		bad "$fn was not extracted from $SRC; the harness is testing nothing"
 done
@@ -1049,6 +1053,157 @@ esac
 grep -q 'declare -F expected_outputs' "$SRC" \
 	&& ok "record_expected_files checks that its callee is defined before calling it" \
 	|| bad "record_expected_files calls expected_outputs unguarded; cleanup is trapped before that function exists, so an early death would write a file whose basis field is empty"
+
+# --- 8. the same quantity at three stages, and three silences that are not values -------------------------
+#
+# The eighth of the nine log questions asks whether the frozen values were applied INSIDE the GPU. Two of
+# the three stages turned out to be recoverable already -- the manifests declare the flags, and vLLM prints
+# `non-default args:` into the log the launcher ships -- so what this records is the middle stage nothing
+# read, plus the one place they can be compared.
+#
+# `k` is stubbed per case, because the real one talks to a cluster. The first version of the recorder
+# selected a Pod by `app.kubernetes.io/name=<deploy>`; the live cluster says that label is
+# `gpu-platform-control-plane` on every object here and `component` is `vllm-shared` for BOTH engines, so
+# no label distinguishes the two whose args are being compared. It reads the Deployment instead.
+say "8. declared, applied and in-effect values land in one file, and each silence has its own word"
+OUT8="$WORK/applied"
+mkdir -p "$OUT8"
+APPLIED_MANIFEST="$WORK/engine.yaml"
+cat > "$APPLIED_MANIFEST" <<'YAML'
+            # --gpu-memory-utilization=0.475 is explained here, four times over, and declared once below.
+            # A grep over the file would read this sentence as a second declaration: 0.475 again.
+            args:
+              - Qwen/Qwen2.5-3B-Instruct
+              - --max-model-len=16384
+              - --max-num-seqs=32
+              - --gpu-memory-utilization=0.475
+YAML
+(
+	# shellcheck disable=SC1091
+	. "$WORK/recorders.sh"
+	OUT="$OUT8"
+	cell_n=3
+	k() {
+		case "$*" in
+		*"get deploy"*) echo '["Qwen/Qwen2.5-3B-Instruct","--max-model-len=16384","--max-num-seqs=32","--gpu-memory-utilization=0.475"]' ;;
+		*logs*) echo "INFO non-default args: {'max_model_len': 16384, 'gpu_memory_utilization': 0.475, 'max_num_seqs': 32}" ;;
+		*) return 1 ;;
+		esac
+	}
+	engine_applied_record ns-a vllm-shared-a "$APPLIED_MANIFEST" shared
+)
+rows=$(grep -cv '^cell	' "$OUT8/applied-values.tsv" 2>/dev/null || echo 0)
+heads=$(grep -c '^cell	arm	deploy	stage' "$OUT8/applied-values.tsv" 2>/dev/null || echo 0)
+if [ "$rows" = 3 ] && [ "$heads" = 1 ]; then
+	ok "one call records three stages under one header"
+else
+	bad "expected 3 rows and 1 header, got rows=$rows headers=$heads; a stage that leaves no row is a stage a reader cannot compare: $(tr '\n' '|' < "$OUT8/applied-values.tsv" 2>/dev/null)"
+fi
+# The comment mentioning 0.475 four times must not become four declarations.
+decl=$(awk -F'\t' '$4 == "declared" {print $6}' "$OUT8/applied-values.tsv" 2>/dev/null)
+occurrences=$(printf '%s' "$decl" | grep -o -- '--gpu-memory-utilization=0.475' | grep -c . || true)
+if [ "$occurrences" = 1 ]; then
+	ok "the declared row carries the flag once, not once per sentence that explains it"
+else
+	bad "the declared row names --gpu-memory-utilization=0.475 $occurrences time(s): ${decl@Q}. This repository explains its own numbers in comments beside them, so a grep over the file records the explanation as a declaration"
+fi
+# All three stages must be present and distinguishable, so the comparison has something to compare.
+for stage in declared applied process; do
+	n=$(awk -F'\t' -v s="$stage" '$4 == s' "$OUT8/applied-values.tsv" 2>/dev/null | grep -c . || true)
+	if [ "$n" = 1 ]; then
+		ok "the $stage stage left exactly one row"
+	else
+		bad "the $stage stage left $n rows; declared, applied and in-effect are three different facts and each needs its own"
+	fi
+done
+# The applied row must come from the CLUSTER, not from the manifest it is being compared against.
+#
+# Copying the declared value into the applied row left every assertion above green: three rows existed, one
+# per stage, and all three agreed because two of them had the same source. That is the one failure this
+# recorder exists to catch -- an admission webhook rewriting the args, or a Deployment left from an earlier
+# arm -- so the stub answers 0.9 where the manifest declares 0.475 and the rows must disagree.
+OUT8C="$WORK/applied-webhook"
+mkdir -p "$OUT8C"
+(
+	# shellcheck disable=SC1091
+	. "$WORK/recorders.sh"
+	OUT="$OUT8C"
+	cell_n=5
+	k() {
+		case "$*" in
+		*"get deploy"*) echo '["--max-model-len=16384","--max-num-seqs=32","--gpu-memory-utilization=0.9"]' ;;
+		*logs*) echo "INFO non-default args: {'gpu_memory_utilization': 0.9}" ;;
+		*) return 1 ;;
+		esac
+	}
+	engine_applied_record ns-a vllm-shared-a "$APPLIED_MANIFEST" shared
+)
+w_decl=$(awk -F'\t' '$4 == "declared" {print $6}' "$OUT8C/applied-values.tsv" 2>/dev/null)
+w_appl=$(awk -F'\t' '$4 == "applied" {print $6}' "$OUT8C/applied-values.tsv" 2>/dev/null)
+case "$w_decl:$w_appl" in
+*0.475*:*0.9*) ok "the applied row carries what the cluster holds (0.9) beside what the manifest asks for (0.475)" ;;
+*) bad "declared=${w_decl@Q} applied=${w_appl@Q}; the manifest declares 0.475 and the cluster was made to answer 0.9, so these two must differ. Reading the applied value out of the manifest makes the comparison agree with itself and a webhook rewrite invisible" ;;
+esac
+# Two calls into one file append, and do not start the file over.
+#
+# A shared cell calls this twice -- engine-a and engine-b -- and with the header guard removed the second
+# call truncated the first engine's three rows. One call could not see that.
+OUT8D="$WORK/applied-twice"
+mkdir -p "$OUT8D"
+(
+	# shellcheck disable=SC1091
+	. "$WORK/recorders.sh"
+	OUT="$OUT8D"
+	cell_n=6
+	k() {
+		case "$*" in
+		*"get deploy"*) echo '["--max-num-seqs=32"]' ;;
+		*logs*) echo "INFO non-default args: {'max_num_seqs': 32}" ;;
+		*) return 1 ;;
+		esac
+	}
+	engine_applied_record ns-a vllm-shared-a "$APPLIED_MANIFEST" shared
+	engine_applied_record ns-b vllm-shared-b "$APPLIED_MANIFEST" shared
+)
+two_rows=$(grep -cv '^cell	' "$OUT8D/applied-values.tsv" 2>/dev/null || echo 0)
+two_heads=$(grep -c '^cell	arm	deploy	stage' "$OUT8D/applied-values.tsv" 2>/dev/null || echo 0)
+two_deploys=$(awk -F'\t' 'NR > 1 {print $3}' "$OUT8D/applied-values.tsv" 2>/dev/null | sort -u | grep -c . || true)
+if [ "$two_rows" = 6 ] && [ "$two_heads" = 1 ] && [ "$two_deploys" = 2 ]; then
+	ok "both engines of a shared cell leave three rows each under one header"
+else
+	bad "two calls left rows=$two_rows headers=$two_heads deployments=$two_deploys, wanted 6, 1 and 2; a header written per call truncates the engine recorded first, and a shared cell records two"
+fi
+
+# And the silences. A missing Deployment, a log without the line, and a manifest with no flags are three
+# different failures, and none of them is an empty cell that a reader would take for a value.
+OUT8B="$WORK/applied-silent"
+mkdir -p "$OUT8B"
+: > "$WORK/empty.yaml"
+(
+	# shellcheck disable=SC1091
+	. "$WORK/recorders.sh"
+	OUT="$OUT8B"
+	cell_n=4
+	k() { return 1; } # every query fails: no deployment, no logs
+	engine_applied_record ns-a vllm-shared-a "$WORK/empty.yaml" shared
+) 2>/dev/null
+for pair in "declared:no-flag-lines-in-manifest" "applied:no-deployment-or-query-failed" "process:no-non-default-args-line"; do
+	stage=${pair%%:*}
+	want=${pair#*:}
+	got=$(awk -F'\t' -v s="$stage" '$4 == s {print $6}' "$OUT8B/applied-values.tsv" 2>/dev/null)
+	case "$got" in
+	"$want") ok "the $stage stage records ${got@Q} rather than an empty field" ;;
+	'') bad "the $stage stage recorded an empty value; a blank cell in a values file is read as 'the value was blank', and what happened is that nothing answered" ;;
+	*) bad "the $stage stage records ${got@Q}, wanted ${want@Q}" ;;
+	esac
+done
+# The matrix must CALL it, on both the exclusive and the shared branch. Read as text, as section 5 does.
+calls=$(grep -c '^ *engine_applied_record ' "$SRC" || true)
+if [ "$calls" = 3 ]; then
+	ok "three call sites: the exclusive engine and both shared engines"
+else
+	bad "found $calls engine_applied_record call sites, want 3 (vllm-qwen25-3b, vllm-shared-a, vllm-shared-b); an engine nobody records is an engine whose applied values are missing from the archive"
+fi
 
 echo
 if [ "$failures" = "0" ]; then
