@@ -61,9 +61,10 @@ extract() {
 	echo 'JUDGE_REMAIN=""; JUDGE_BASIS=""; JUDGE_PROJECTED=""'
 	extract cell_timing_record
 	extract cell_judgement_record
+	extract warm_cell_estimate
 } > "$WORK/recorders.sh"
 
-for fn in cell_timing_record cell_judgement_record; do
+for fn in cell_timing_record cell_judgement_record warm_cell_estimate; do
 	grep -q "^$fn() {" "$WORK/recorders.sh" ||
 		bad "$fn was not extracted from $SRC; the harness is testing nothing"
 done
@@ -212,25 +213,83 @@ for tc in "0:none-completed" "1:single-observation" "3:s"; do
 		# shellcheck disable=SC1091
 		. "$WORK/recorders.sh"
 		OUT="$OUT4"
-		warm_n=$(awk -F'\t' '$4 == "completed" {c++} END {print c+0}' "$OUT4/cell-timings.tsv")
-		case "$warm_n" in
-			0) printf 'none-completed' ;;
-			1) printf 'single-observation-%ss' "$(awk -F'\t' '$4 == "completed" {print $7; exit}' "$OUT4/cell-timings.tsv")" ;;
-			*) printf '%ss' "$(awk -F'\t' '$4 == "completed" {s += $7; c++} END {if (c > 0) printf "%d", (s + c - 1) / c}' "$OUT4/cell-timings.tsv")" ;;
-		esac
+		warm_cell_estimate
 	)
-	case "$got" in
-	*"$want"*) ok "with $n completed cell(s) the parallel estimate reads ${got@Q}" ;;
-	*) bad "with $n completed cell(s) the parallel estimate reads ${got@Q}, which does not contain ${want@Q}" ;;
-	esac
+	got_n=${got%% *}
+	got_per=${got#* }
+	if [ "$got_n" != "$n" ]; then
+		bad "with $n completed cell(s) the estimator reports n=${got_n@Q}; the sample size it prints is not the one it averaged"
+	else
+		case "$got_per" in
+		*"$want"*) ok "with $n completed cell(s) the parallel estimate reads ${got_per@Q}" ;;
+		*) bad "with $n completed cell(s) the parallel estimate reads ${got_per@Q}, which does not contain ${want@Q}" ;;
+		esac
+	fi
 done
 # And the refused cell must not be in the average: three 700 s completions beside a 600 s refusal average
 # 700, not 675.
-if [ "$(. "$WORK/recorders.sh" >/dev/null 2>&1; awk -F'\t' '$4 == "completed" {s += $7; c++} END {if (c > 0) printf "%d", (s + c - 1) / c}' "$WORK/warm3/cell-timings.tsv")" = 700 ]; then
+refper=$(
+	# shellcheck disable=SC1091
+	. "$WORK/recorders.sh"
+	OUT="$WORK/warm3"
+	warm_cell_estimate
+)
+if [ "${refper#* }" = 700s ]; then
 	ok "the refused cell's time is excluded from the warm average"
 else
-	bad "the refused cell is inside the warm average, which is the sample confusion this figure exists to separate"
+	bad "the warm average reads ${refper@Q} rather than 700s, so the refused cell is inside the sample this figure exists to separate"
 fi
+
+# An aggregation that could not run must not print itself as a measurement of zero.
+#
+# This is the defect class this repository keeps finding, and it was inside the very field added to stop
+# it: a file with size and no read permission passes `[ -s ]`, fails awk, and the old code's
+# `|| echo 0` turned that into `none-completed` for a file holding two completed cells.
+UNREAD="$WORK/unreadable"
+mkdir -p "$UNREAD"
+cp "$WORK/warm3/cell-timings.tsv" "$UNREAD/cell-timings.tsv"
+chmod 000 "$UNREAD/cell-timings.tsv"
+if head -c 1 "$UNREAD/cell-timings.tsv" >/dev/null 2>&1; then
+	# Root reads anything, so the case did not run. That is reported as a failure rather than passed over:
+	# a check that cannot tell "did not run" from "passed" is the thing this file exists to refuse.
+	bad "the unreadable-file case did not run -- the file is still readable (running as $(id -un)?), so nothing here establishes that a failed aggregation is distinguishable from an empty sample"
+else
+	unread_got=$(
+		# shellcheck disable=SC1091
+		. "$WORK/recorders.sh"
+		OUT="$UNREAD"
+		warm_cell_estimate
+	)
+	case "$unread_got" in
+	*aggregation-failed*) ok "an unreadable timings file reports ${unread_got@Q} -- the aggregation's own failure, named" ;;
+	*none-completed* | 0\ *)
+		bad "an unreadable timings file reports ${unread_got@Q}, which a reader takes as 'no cell completed' when the aggregation simply did not run"
+		;;
+	*)
+		bad "an unreadable timings file reports ${unread_got@Q}, which names neither the failure nor a count; 'no file', 'cannot read it' and 'nothing completed' are three different facts and this collapses two of them"
+		;;
+	esac
+fi
+chmod 644 "$UNREAD/cell-timings.tsv"
+
+# A missing file is a third fact, and it is not the second one either.
+MISSING="$WORK/nofile"
+mkdir -p "$MISSING"
+missing_got=$(
+	# shellcheck disable=SC1091
+	. "$WORK/recorders.sh"
+	OUT="$MISSING"
+	warm_cell_estimate
+)
+case "$missing_got" in
+*no-timings-file*) ok "a missing timings file reports ${missing_got@Q} -- no recorder ever ran, said as itself" ;;
+*none-completed* | 0\ *)
+	bad "a missing timings file reports ${missing_got@Q}, conflating 'no recorder ever ran' with 'no cell completed'"
+	;;
+*)
+	bad "a missing timings file reports ${missing_got@Q} instead of naming the absent file; a run that never recorded anything is not a run whose file could not be read"
+	;;
+esac
 
 # --- 5. the matrix actually calls them --------------------------------------------------------------------
 #

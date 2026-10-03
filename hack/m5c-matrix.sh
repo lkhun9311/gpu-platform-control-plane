@@ -1655,6 +1655,42 @@ cell_judgement_record() {
     >> "$OUT/cell-judgements.tsv"
 }
 
+# The parallel warm-cell estimate, in a function of its own so a test can run THIS code.
+#
+# It was eleven lines inside cell_deadline_check_inner, and the gate that claimed to cover it had copied the
+# case statement into itself: changing `none-completed` to anything at all, or putting the refused cell back
+# into the average, left that gate green on the real script. An instruction-free external review found it.
+# The repair is the move this file already made for the two recorders -- one function at column zero, which
+# the gate extracts and drives for real.
+#
+# Prints "<n> <per>", space-separated because neither field ever contains a space.
+#
+# The failure words are deliberately not numbers. An aggregation that could not run is a different fact from
+# a run that found no completed cell, and `[ -s ]` cannot tell them apart: a file with size and no read
+# permission passes `-s`, fails awk, and the previous `|| echo 0` printed `none-completed` for a file
+# holding two completed cells. "Did not run" must not be readable as a measurement of zero.
+warm_cell_estimate() {
+  local warm_n
+  if [ ! -s "$OUT/cell-timings.tsv" ]; then
+    printf 'no-file no-timings-file'
+    return 0
+  fi
+  warm_n=$(awk -F'\t' '$4 == "completed" {c++} END {print c+0}' "$OUT/cell-timings.tsv") || {
+    printf 'unreadable aggregation-failed'
+    return 0
+  }
+  # Zero and one are reported as themselves rather than smoothed into a number.
+  #
+  # A mean over no cells is not a long estimate, it is no estimate, and a mean over one is a single
+  # observation wearing an average's name. Printing "none" and naming the single value keeps a reader from
+  # reading either as a rate.
+  case "$warm_n" in
+    0) printf '0 none-completed' ;;
+    1) printf '1 single-observation-%ss' "$(awk -F'\t' '$4 == "completed" {print $7; exit}' "$OUT/cell-timings.tsv")" ;;
+    *) printf '%s %ss' "$warm_n" "$(awk -F'\t' '$4 == "completed" {s += $7; c++} END {if (c > 0) printf "%d", (s + c - 1) / c}' "$OUT/cell-timings.tsv")" ;;
+  esac
+}
+
 cell_deadline_check() {
   JUDGE_REMAIN=""; JUDGE_BASIS=""; JUDGE_PROJECTED=""; JUDGE_WARM_N=""; JUDGE_WARM_PER=""
   local rc=0
@@ -1664,7 +1700,7 @@ cell_deadline_check() {
 }
 
 cell_deadline_check_inner() {
-  local remain per projected floor
+  local remain per projected floor warm_pair
   # BEFORE the first cell there is no measured rate to project from -- but there is still a deadline, and
   # "no projection" is not "enough time".
   #
@@ -1735,21 +1771,11 @@ cell_deadline_check_inner() {
   #
   # It is computed from cell-timings.tsv rather than a new counter, because that file already separates
   # `completed` from `refused` -- the recorder added earlier today is what makes this possible at all.
-  JUDGE_WARM_PER=""
-  JUDGE_WARM_N=""
-  if [ -s "$OUT/cell-timings.tsv" ]; then
-    JUDGE_WARM_N=$(awk -F'\t' '$4 == "completed" {n++} END {print n+0}' "$OUT/cell-timings.tsv" 2>/dev/null || echo 0)
-    # Zero and one are reported as themselves rather than smoothed into a number.
-    #
-    # A mean over no cells is not a long estimate, it is no estimate, and a mean over one is a single
-    # observation wearing an average's name. Printing "none" and "n=1" keeps a reader from reading either
-    # as a rate.
-    case "${JUDGE_WARM_N:-0}" in
-      0) JUDGE_WARM_PER="none-completed" ;;
-      1) JUDGE_WARM_PER="single-observation-$(awk -F'\t' '$4 == "completed" {print $7; exit}' "$OUT/cell-timings.tsv" 2>/dev/null)s" ;;
-      *) JUDGE_WARM_PER="$(awk -F'\t' '$4 == "completed" {s += $7; n++} END {if (n > 0) printf "%d", (s + n - 1) / n}' "$OUT/cell-timings.tsv" 2>/dev/null)s" ;;
-    esac
-  fi
+  # Both fields come from one call, so the printed sample size is the one the average was taken over.
+  # Splitting them across two aggregations is how a count and a mean drift apart.
+  warm_pair=$(warm_cell_estimate)
+  JUDGE_WARM_N=${warm_pair%% *}
+  JUDGE_WARM_PER=${warm_pair#* }
   # A fifth of headroom, because cells differ by arm, and a projection that only just fits is one slow
   # cell from being cut.
   #
