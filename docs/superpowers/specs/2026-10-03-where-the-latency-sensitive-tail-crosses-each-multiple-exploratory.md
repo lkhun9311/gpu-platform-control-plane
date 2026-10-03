@@ -177,6 +177,17 @@ amendment may not retroactively widen the budget or the population of a run whos
   order the configurations the same way.
 - Anything **not collected** while the card existed is a limit on interpretation, not a gap to be filled
   afterwards. A cell-boundary process list does not recover a process that lived briefly inside a cell.
+- **The admitted-work figures are scored over a population the long level can enter, and only through a
+  silence.** `Summarize` gates that population on `eligibleTier` first — `r.Tier == "" || r.Tier ==
+  "standard"` — and only then on the token threshold, which is `eligibleLongThreshold = 4096` unless a
+  manifest overrides it. At the long level the latency-critical prompt is 8,192 tokens, over that threshold,
+  but it is premium-tier and the tier test excludes it. **The exception is a row whose tier the gateway did
+  not record**: an empty tier is treated as eligible, so at the long level such a row would join the gated
+  population while at the short level its 256 tokens would keep it out. So the admitted-work fraction is
+  comparable between the levels only while the tier field is populated, and the per-level counts of
+  empty-tier rows are published beside it rather than assumed to be zero. Nothing in the runner passes
+  `--long-threshold`, so 4,096 is what will be in effect unless that changes — and changing it would alter
+  the gated population rather than fix this.
 
 ---
 
