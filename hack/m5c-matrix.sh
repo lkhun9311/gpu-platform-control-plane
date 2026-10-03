@@ -756,11 +756,18 @@ record_expected_files() {
   # The total agreeing means only that the errors summed to zero. Three rounds of review found three
   # different pairs that did exactly that, so `agree` is now yes only when EVERY class matches, and the
   # classes that did not are named in the line.
+  # Its absence makes the verdict NOT-EVALUABLE, never yes.
+  #
+  # cleanup is trapped before either counting function is defined, so a signal arriving between the two
+  # definitions leaves only the total. Writing `class none` beside `agree yes` then claimed a per-class
+  # comparison that never ran -- the guard protected the total and left the verdict unguarded.
   classes=""
   mismatched=""
   if declare -F expected_outputs_by_class >/dev/null 2>&1; then
     classes=$(expected_outputs_by_class)
     mismatched=$(printf '%s\n' "$classes" | awk 'NF == 3 && $2 != $3 {printf "%s(%s!=%s) ", $1, $2, $3}')
+  else
+    mismatched="class-comparison-did-not-run"
   fi
   {
     printf 'expected\t%s\n' "${pair%% *}"
@@ -1789,7 +1796,7 @@ cell_judgement_record() {
 # Prints "<expected> <basis>". The basis words are deliberately not numbers, for the same reason the warm
 # estimate's are: an aggregation that could not run must not be readable as a count.
 expected_outputs() {
-  local completed refused invalid orphan fixed
+  local completed refused invalid orphan fixed cond
   if [ -n "${LADDER:-}" ]; then
     printf 'ladder-not-expressed ladder-cells-are-not-matrix-cells'
     return 0
@@ -1847,9 +1854,17 @@ expected_outputs() {
   # README.txt only on a run that reached the end, and `-f` is right for it: its absence is a FACT about the
   # run, not a missing file. A stopped run owes no README.txt and must still be able to agree.
   [ -f "$OUT/README.txt" ] && fixed=$(( fixed + 1 ))
-  printf '%s completed-%sx4+refused-%s+invalid-%s+unwritten-%s+fixed-%s' \
-    $(( completed * 4 + refused + invalid + orphan + fixed )) \
-    "$completed" "$refused" "$invalid" "$orphan" "$fixed"
+  # The conditional outputs belong in the total too, and leaving them out made a normal MPS run disagree.
+  #
+  # mps-compute-apps-<ns>.{csv,err}, mps-pod-lookup.err and ladder-verdict-rung<N>.txt are written only on
+  # paths a given run may not take, so whatever is there is expected. They were counted in the per-class
+  # rows and NOT here, which meant one mps-pod-lookup.err on an otherwise complete archive produced
+  # `expected=9 actual=10` with every class matching -- a disagreement no class could explain.
+  cond=$(find "$OUT" -maxdepth 1 \( -name 'mps-compute-apps-*.csv' -o -name 'mps-compute-apps-*.err' \
+    -o -name 'mps-pod-lookup.err' -o -name 'ladder-verdict-rung*.txt' \) 2>/dev/null | wc -l)
+  printf '%s completed-%sx4+refused-%s+invalid-%s+unwritten-%s+conditional-%s+fixed-%s' \
+    $(( completed * 4 + refused + invalid + orphan + cond + fixed )) \
+    "$completed" "$refused" "$invalid" "$orphan" "$cond" "$fixed"
 }
 
 # The same accounting, PER CLASS, because one total has one degree of freedom.
@@ -1879,7 +1894,7 @@ expected_outputs() {
 #   unattributed    anything matching no known name. Expected ZERO always: a file nobody can account for is
 #                   its own finding, never change for another class's shortfall.
 expected_outputs_by_class() {
-  local completed refused invalid cell_actual fixed_expected fixed_actual cond unattr f base
+  local completed refused invalid cell_expected cell_actual stray fixed_expected fixed_actual cond unattr f base cellname
   if [ -n "${LADDER:-}" ]; then
     printf 'all-classes not-expressed ladder-cells-are-not-matrix-cells\n'
     return 0
@@ -1892,9 +1907,34 @@ expected_outputs_by_class() {
     printf 'all-classes unreadable aggregation-failed\n'
     return 0
   }
-  refused=$(awk -F'\t' 'NR > 1 && $4 == "refused" {print $2}' "$OUT/cell-timings.tsv" | sort -u | wc -l)
-  cell_actual=$(find "$OUT" -maxdepth 1 \( -name 'trace-*.jsonl' -o -name 'raw-*.jsonl' \
-    -o -name 'manifest-*.yaml' -o -name 'port-forward-*.log' \) 2>/dev/null | wc -l)
+  # The refusal expectation skips arms that are INVALID, exactly as the total does.
+  #
+  # mps_clients_connected calls arm_invalid from inside deploy_arm and returns 1, and the caller writes a
+  # `refused` timing row. Such an arm owes invalid-<arm>.txt and NOT refused-<arm>.txt. The total already
+  # subtracted them; this function did not, so a complete INVALID run was reported as one whose refusal
+  # evidence was missing -- the exclusion existed in one of the two places that needed it.
+  refused=$(awk -F'\t' 'NR > 1 && $4 == "refused" {print $2}' "$OUT/cell-timings.tsv" | sort -u | while read -r a; do
+    [ -f "$OUT/invalid-$a.txt" ] || echo "$a"
+  done | wc -l)
+  # Per CELL, not one sum over the directory, because a sum cancels inside its own class.
+  #
+  # `cell-outputs 4 4` was reached by a completed cell missing its raw-*.jsonl beside the port-forward log
+  # of a different cell that died before replay: four owed, four present, two defects. So each completed
+  # cell's four files are counted by NAME, and any cell output that belongs to no completed cell is its own
+  # row (`stray-cell-outputs`) rather than credit against the expectation.
+  cell_expected=0
+  cell_actual=0
+  while read -r cellname; do
+    [ -n "$cellname" ] || continue
+    cell_expected=$(( cell_expected + 4 ))
+    for base in "trace-$cellname.jsonl" "raw-$cellname.jsonl" "manifest-$cellname.yaml" "port-forward-$cellname.log"; do
+      [ -f "$OUT/$base" ] && cell_actual=$(( cell_actual + 1 ))
+    done
+  done <<EOF
+$(awk -F'\t' 'NR > 1 && $4 == "completed" {print $2 "-" $3}' "$OUT/cell-timings.tsv")
+EOF
+  stray=$(( $(find "$OUT" -maxdepth 1 \( -name 'trace-*.jsonl' -o -name 'raw-*.jsonl' \
+    -o -name 'manifest-*.yaml' -o -name 'port-forward-*.log' \) 2>/dev/null | wc -l) - cell_actual ))
   invalid=$(find "$OUT" -maxdepth 1 -name 'invalid-*.txt' 2>/dev/null | wc -l)
   fixed_expected=5 # evidence.log, load-source.txt, expected-files.txt, cell-timings.tsv, cell-judgements.tsv
   [ -f "$OUT/README.txt" ] && fixed_expected=$(( fixed_expected + 1 ))
@@ -1919,7 +1959,10 @@ expected_outputs_by_class() {
       *) unattr=$(( unattr + 1 )) ;;
     esac
   done
-  printf 'cell-outputs %s %s\n' "$(( completed * 4 ))" "$cell_actual"
+  printf 'cell-outputs %s %s\n' "$cell_expected" "$cell_actual"
+  # A cell output belonging to no completed cell: the leftovers of a cell that died mid-way. Expected zero,
+  # like unattributed, so it is reported rather than spent on another class's shortfall.
+  printf 'stray-cell-outputs 0 %s\n' "$stray"
   printf 'refusal-files %s %s\n' "$refused" "$(find "$OUT" -maxdepth 1 -name 'refused-*.txt' 2>/dev/null | wc -l)"
   printf 'invalid-files %s %s\n' "$invalid" "$invalid"
   printf 'fixed-files %s %s\n' "$fixed_expected" "$fixed_actual"

@@ -642,7 +642,12 @@ printf 'cell\tarm\trep\toutcome\tstart_utc\tend_utc\telapsed_s\tcum_s\tcells_don
 printf '1\tmps\t1\trefused\tx\ty\t600\t600\t1\n' >> "$OUT6X/cell-timings.tsv"
 printf '2\tmps\t2\trefused\tx\ty\t600\t1200\t2\n' >> "$OUT6X/cell-timings.tsv"
 printf 'at_utc\tcell\n' > "$OUT6X/cell-judgements.tsv"
-printf 'invalid because\n' > "$OUT6X/invalid-mps.txt"
+# NO invalid-mps.txt here, and that is the point of the case.
+#
+# It had one, and after the invalid-arm exclusion was carried into the per-class function this fixture
+# became a correct INVALID run -- an arm that owes invalid-<arm>.txt and not refused-<arm>.txt, so
+# `refusal-files 0 0` was the right answer and the assertion was asking for a defect. What this case is for
+# is the arm that was REFUSED and whose refusal was never written down, so the invalid file is gone.
 : > "$OUT6X/evidence.log"
 : > "$OUT6X/load-source.txt"
 a_pair=$(class_of "$OUT6X" refusal-files)
@@ -661,12 +666,58 @@ printf 'at_utc\tcell\n' > "$OUT6Y/cell-judgements.tsv"
 : > "$OUT6Y/evidence.log"
 : > "$OUT6Y/load-source.txt"
 : > "$OUT6Y/port-forward-R1-3.log"
-b_cells=$(class_of "$OUT6Y" cell-outputs)
-b_ref=$(class_of "$OUT6Y" refusal-files)
-if [ "$b_cells" = "0 1" ] && [ "$b_ref" = "1 0" ]; then
-	ok "a dead cell's leftover log and an unwritten refusal land in two classes (${b_cells@Q} and ${b_ref@Q})"
+# An INVALID arm's refused row owes invalid-<arm>.txt and NOT refused-<arm>.txt, in the per-class rows too.
+#
+# The exclusion was carried into the class function in this round, and nothing held it: the case that had
+# an invalid file was edited to remove it (correctly -- it was testing an unwritten refusal), and removing
+# the exclusion again left every assertion green. So this case exists only to hold the exclusion, with the
+# invalid file present and the refusal file rightly absent.
+OUT6IV="$WORK/class-invalid-excluded"
+mkdir -p "$OUT6IV"
+printf 'cell\tarm\trep\toutcome\tstart_utc\tend_utc\telapsed_s\tcum_s\tcells_done\n' > "$OUT6IV/cell-timings.tsv"
+printf '1\tmps\t1\trefused\tx\ty\t600\t600\t1\n' >> "$OUT6IV/cell-timings.tsv"
+printf 'at_utc\tcell\n' > "$OUT6IV/cell-judgements.tsv"
+printf 'invalid because\n' > "$OUT6IV/invalid-mps.txt"
+: > "$OUT6IV/evidence.log"
+: > "$OUT6IV/load-source.txt"
+iv_ref=$(class_of "$OUT6IV" refusal-files)
+iv_inv=$(class_of "$OUT6IV" invalid-files)
+if [ "$iv_ref" = "0 0" ] && [ "$iv_inv" = "1 1" ]; then
+	ok "an INVALID arm's refused row is not expected to leave a refusal file (${iv_ref@Q}, ${iv_inv@Q})"
 else
-	bad "cell-outputs reads ${b_cells@Q} and refusal-files ${b_ref@Q}; wanted '0 1' and '1 0'. In one total these two cancel, which is how an archive with two defects reported agreement"
+	bad "refusal-files ${iv_ref@Q} and invalid-files ${iv_inv@Q}; wanted '0 0' and '1 1'. Expecting a refused-<arm>.txt for an arm that was ruled INVALID reports a complete invalid run as one whose refusal evidence is missing"
+fi
+# The leftover log belongs to no completed cell, so it is `stray-cell-outputs`, not credit against
+# cell-outputs. That split is the fix for a cancellation INSIDE one class: a completed cell missing its
+# raw-*.jsonl beside another cell's leftover log read as `cell-outputs 4 4`, four owed and four held with
+# two defects. cell-outputs now counts each completed cell's four files BY NAME.
+b_cells=$(class_of "$OUT6Y" cell-outputs)
+b_stray=$(class_of "$OUT6Y" stray-cell-outputs)
+b_ref=$(class_of "$OUT6Y" refusal-files)
+if [ "$b_cells" = "0 0" ] && [ "$b_stray" = "0 1" ] && [ "$b_ref" = "1 0" ]; then
+	ok "a dead cell's leftover log and an unwritten refusal land in two classes (${b_stray@Q} and ${b_ref@Q})"
+else
+	bad "cell-outputs ${b_cells@Q}, stray-cell-outputs ${b_stray@Q}, refusal-files ${b_ref@Q}; wanted '0 0', '0 1' and '1 0'. Summed into one class these cancel, which is how an archive with two defects reported agreement"
+fi
+# A completed cell missing one of its four files, beside another cell's leftover: the within-class
+# cancellation the fifth round reproduced as `cell-outputs 4 4`.
+OUT6W2="$WORK/class-within"
+mkdir -p "$OUT6W2"
+printf 'cell\tarm\trep\toutcome\tstart_utc\tend_utc\telapsed_s\tcum_s\tcells_done\n' > "$OUT6W2/cell-timings.tsv"
+printf '1\tR1\t1\tcompleted\tx\ty\t700\t700\t1\n' >> "$OUT6W2/cell-timings.tsv"
+printf 'at_utc\tcell\n' > "$OUT6W2/cell-judgements.tsv"
+: > "$OUT6W2/evidence.log"
+: > "$OUT6W2/load-source.txt"
+: > "$OUT6W2/trace-R1-1.jsonl"
+: > "$OUT6W2/manifest-R1-1.yaml"
+: > "$OUT6W2/port-forward-R1-1.log"
+: > "$OUT6W2/port-forward-shared-1.log"
+w2_cells=$(class_of "$OUT6W2" cell-outputs)
+w2_stray=$(class_of "$OUT6W2" stray-cell-outputs)
+if [ "$w2_cells" = "4 3" ] && [ "$w2_stray" = "0 1" ]; then
+	ok "a completed cell's missing raw file and another cell's leftover are two rows (${w2_cells@Q} and ${w2_stray@Q})"
+else
+	bad "cell-outputs ${w2_cells@Q} and stray-cell-outputs ${w2_stray@Q}; wanted '4 3' and '0 1'. Counting one sum over the directory gives 4 owed and 4 held, so a cell missing a file and a cell that should have none cancel inside a single class"
 fi
 # Case C (third round): both files present and the judgements file missing.
 OUT6Z="$WORK/class-cancellation"
@@ -700,10 +751,100 @@ if [ "$z_cond" = "1 1" ]; then
 else
 	bad "conditional reads ${z_cond@Q} rather than '1 1'; files written only on paths this run may not have taken cannot be expected by count, and treating them as surplus would make every MPS run disagree"
 fi
-# And the verdict must come from the classes, not the total.
-grep -q 'these classes disagree' "$SRC" \
-	&& ok "the agree line names the classes that disagree" \
-	|| bad "the agree line is decided by the total alone; two errors of opposite sign sum to zero, which is the structure three rounds of review kept finding"
+# And the TOTAL must include them, which the class row alone cannot establish.
+#
+# They were in the per-class rows and not in the total, so one mps-pod-lookup.err on an otherwise complete
+# archive produced `expected=9 actual=10` with every class matching -- a disagreement no class could name.
+# The class assertion above passed throughout. So the recorder is run on a complete archive that took the
+# MPS path, and the verdict is read.
+OUT6CT="$WORK/conditional-in-total"
+mkdir -p "$OUT6CT"
+printf 'cell\tarm\trep\toutcome\tstart_utc\tend_utc\telapsed_s\tcum_s\tcells_done\n' > "$OUT6CT/cell-timings.tsv"
+printf '1\tR1\t1\tcompleted\tx\ty\t700\t700\t1\n' >> "$OUT6CT/cell-timings.tsv"
+printf 'at_utc\tcell\n' > "$OUT6CT/cell-judgements.tsv"
+: > "$OUT6CT/evidence.log"
+: > "$OUT6CT/load-source.txt"
+for b in trace-R1-1.jsonl raw-R1-1.jsonl; do : > "$OUT6CT/$b"; done
+: > "$OUT6CT/manifest-R1-1.yaml"
+: > "$OUT6CT/port-forward-R1-1.log"
+: > "$OUT6CT/mps-pod-lookup.err"
+(
+	# shellcheck disable=SC1091
+	. "$WORK/recorders.sh"
+	OUT="$OUT6CT"
+	LADDER=""
+	record_expected_files
+) 2>/dev/null
+ct_exp=$(awk -F'\t' '$1 == "expected" {print $2}' "$OUT6CT/expected-files.txt" 2>/dev/null)
+ct_act=$(awk -F'\t' '$1 == "actual" {print $2}' "$OUT6CT/expected-files.txt" 2>/dev/null)
+ct_agree=$(awk -F'\t' '$1 == "agree" {print $2}' "$OUT6CT/expected-files.txt" 2>/dev/null)
+if [ "$ct_exp" = 10 ] && [ "$ct_act" = 10 ] && [ "$ct_agree" = yes ]; then
+	ok "a complete archive that took the MPS path agrees, its conditional output counted in the total too"
+else
+	bad "a complete archive with one mps-pod-lookup.err records expected=${ct_exp@Q} actual=${ct_act@Q} agree=${ct_agree@Q}; wanted 10, 10 and yes. Leaving the conditional outputs out of the total makes every run that took that path report a surplus no class can explain"
+fi
+# And the verdict must come from the classes -- RUN, not grepped.
+#
+# This was `grep -q 'these classes disagree' "$SRC"`, and an external review showed what that establishes:
+# nothing. Replacing `if [ -n "$mismatched" ]` with `if false` leaves the string in the file, so the grep
+# passed and the whole gate stayed green with the per-class verdict switched off. A mutation that DELETED
+# the block reddened it, and I had read that red as evidence the branch was pinned. So the recorder is
+# driven here and the `agree` line is read.
+OUT6V="$WORK/class-verdict"
+mkdir -p "$OUT6V"
+printf 'cell\tarm\trep\toutcome\tstart_utc\tend_utc\telapsed_s\tcum_s\tcells_done\n' > "$OUT6V/cell-timings.tsv"
+printf '1\tR1\t1\tcompleted\tx\ty\t700\t700\t1\n' >> "$OUT6V/cell-timings.tsv"
+printf 'at_utc\tcell\n' > "$OUT6V/cell-judgements.tsv"
+: > "$OUT6V/evidence.log"
+: > "$OUT6V/load-source.txt"
+# Three of the completed cell's four files, plus one belonging to a cell that never completed. The totals
+# match; cell-outputs is 4 owed and 3 held, and stray-cell-outputs is 0 owed and 1 held.
+: > "$OUT6V/trace-R1-1.jsonl"
+: > "$OUT6V/manifest-R1-1.yaml"
+: > "$OUT6V/port-forward-R1-1.log"
+: > "$OUT6V/port-forward-shared-9.log"
+(
+	# shellcheck disable=SC1091
+	. "$WORK/recorders.sh"
+	OUT="$OUT6V"
+	LADDER=""
+	record_expected_files
+) 2>/dev/null
+v_exp=$(awk -F'\t' '$1 == "expected" {print $2}' "$OUT6V/expected-files.txt" 2>/dev/null)
+v_act=$(awk -F'\t' '$1 == "actual" {print $2}' "$OUT6V/expected-files.txt" 2>/dev/null)
+v_agree=$(awk -F'\t' '$1 == "agree" {print $2}' "$OUT6V/expected-files.txt" 2>/dev/null)
+if [ "$v_exp" != "$v_act" ]; then
+	bad "this case is meant to have equal totals so that only the classes can refuse it, and it reports expected=${v_exp@Q} actual=${v_act@Q}; the fixture no longer tests what it was built for"
+else
+	case "$v_agree" in
+	no*these\ classes\ disagree*) ok "equal totals with two mismatched classes still reads ${v_agree@Q}" ;;
+	yes*) bad "equal totals with cell-outputs 4/3 and stray-cell-outputs 0/1 recorded agree=yes; the verdict is being taken from the total, so two gaps that sum to zero pass" ;;
+	*) bad "the verdict reads ${v_agree@Q}; wanted a refusal naming the classes" ;;
+	esac
+fi
+# And the per-class comparison not running is not a pass either.
+OUT6W="$WORK/class-skipped"
+mkdir -p "$OUT6W"
+cp "$OUT6V/cell-timings.tsv" "$OUT6W/cell-timings.tsv"
+cp "$OUT6V/cell-judgements.tsv" "$OUT6W/cell-judgements.tsv"
+: > "$OUT6W/evidence.log"
+: > "$OUT6W/load-source.txt"
+for b in trace-R1-1.jsonl raw-R1-1.jsonl; do : > "$OUT6W/$b"; done
+: > "$OUT6W/manifest-R1-1.yaml"
+: > "$OUT6W/port-forward-R1-1.log"
+(
+	# shellcheck disable=SC1091
+	. "$WORK/recorders.sh"
+	unset -f expected_outputs_by_class
+	OUT="$OUT6W"
+	LADDER=""
+	record_expected_files
+) 2>/dev/null
+w_agree=$(awk -F'\t' '$1 == "agree" {print $2}' "$OUT6W/expected-files.txt" 2>/dev/null)
+case "$w_agree" in
+yes*) bad "with the per-class function undefined the verdict is agree=${w_agree@Q}; the totals matching is not a per-class comparison, and cleanup is trapped before that function exists" ;;
+*) ok "a run whose per-class comparison could not run reports ${w_agree@Q} rather than yes" ;;
+esac
 
 # --- 7. a run that died still records the comparison ------------------------------------------------------
 #
