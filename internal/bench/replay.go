@@ -51,6 +51,22 @@ type RawRow struct {
 	FirstTokenUnixNanos int64 `json:"firstTokenUnixNanos,omitempty"`
 	// EndUnixNanos is when the response finished; zero if the request never completed.
 	EndUnixNanos int64 `json:"endUnixNanos,omitempty"`
+	// PromptLenChars is the prompt size in characters this request was generated at.
+	//
+	// It is on the ROW for the reason Study gives below: the report, the gates and the published documents
+	// all read rows, and a trace's prompt length was recorded only on the manifest. So a row on its own
+	// could not say which input level produced it, and EstInputTokens -- the only trace of the length that
+	// reached the row -- is (chars+3)/4, which throws the length away and is measured 36 percent low on a
+	// 200-character prompt and 30 percent high on a 40,000-character one.
+	//
+	// A study that varies the prompt length needs the level to survive into the evidence, because the
+	// comparison it registers is BETWEEN levels: rows pooled by arm alone would merge two conditions that
+	// differ in the only variable the study is about. The manifest knows, and the manifests are gone by the
+	// time anything scores the rows.
+	//
+	// 0 means the row predates this field. It is never a measured length: the generator refuses a trace
+	// whose tenant rows disagree about their length, so a real row always carries a positive one.
+	PromptLenChars int `json:"promptLenChars,omitempty"`
 	// EstInputTokens is the gateway-style conservative estimate for this prompt, recorded so the report can measure admitted vs offered work for admission matching.
 	EstInputTokens int `json:"estInputTokens"`
 	// OutputTokens is the number of tokens the response produced.
@@ -266,6 +282,7 @@ func Replay(ctx context.Context, sender Sender, trace []TraceRow, opts ReplayOpt
 				SendUnixNanos:       sendNanos,
 				FirstTokenUnixNanos: res.FirstTokenUnixNanos,
 				EndUnixNanos:        res.EndUnixNanos,
+				PromptLenChars:      tr.PromptLenChars,
 				EstInputTokens:      estInput(tr.PromptLenChars),
 				ExactInputTokens:    tr.ExactInputTokens,
 				EngineInputTokens:   res.PromptTokens,

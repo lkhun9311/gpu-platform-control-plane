@@ -296,6 +296,39 @@ type ArmSummary struct {
 	// built on the eligible rows could not see 69,825 of the ninth pilot's 71,215 requests, and premium is
 	// the study's primary endpoint.
 	EngineInputTokensByTenant map[string]map[int]int
+	// PromptLenCharsByTenant is, per tenant, how many rows carried each DISTINCT prompt length in characters.
+	//
+	// A DISTRIBUTION and not one length per tenant, for the reason EngineInputTokensByTenant beside it is
+	// one: a study that varies the prompt length needs to know whether two conditions were pooled, and more
+	// than one key IS that fact. Storing a single length plus a -1 sentinel would put the same claim in two
+	// representations -- the length and the "they disagree" marker -- and this repository has been bitten by
+	// a claim carried in two places where only one of them was guarded.
+	//
+	// The trace-side PromptLenCharsByTenant keeps its -1 convention, and that is not a second vocabulary for
+	// the same thing: it reads what was GENERATED, this reads what was REPLAYED, and a study whose levels
+	// differ needs the second because the manifests are gone by the time anything scores the rows.
+	//
+	// Counted over EVERY offered row -- the tally runs before the loop's first `continue` -- because a
+	// request that failed still carries the length it was generated at. Reading only successful rows would
+	// miss a mixture whose second level is exactly the one that timed out.
+	PromptLenCharsByTenant map[string]map[int]int
+	// PromptLenUnreportedByTenant counts, per tenant, rows carrying NO prompt length at all.
+	//
+	// Those are rows written before RawRow.PromptLenChars existed, which the three committed archives are.
+	// Kept apart from the distribution because absence is not a length: folding it in would make
+	// "every row carried 1,174" and "the rows that carried anything carried 1,174" the same reading, and the
+	// second licenses nothing about the rows that said nothing.
+	//
+	// It is also not evidence of uniformity. A tenant whose distribution holds one key and whose unreported
+	// count is positive has rows that could have carried either level, and reading 4f says so rather than
+	// certifying the part it can see.
+	PromptLenUnreportedByTenant map[string]int
+	// PromptLenInvalidByTenant counts, per tenant, rows carrying a NEGATIVE prompt length.
+	//
+	// A negative cannot be a character count, so it is a defect in the recorder rather than evidence about
+	// the load -- the same distinction EngineInputTokensInvalidByTenant draws, and classified the same way:
+	// before anything else, so a negative on a failed row is not filed under the bucket that does not block.
+	PromptLenInvalidByTenant map[string]int
 	// EngineInputTokensUnreportedByTenant counts, per tenant, rows the engine ANSWERED that carried no input
 	// token count, so "every row agreed" and "no row said anything" cannot read the same.
 	//
@@ -446,6 +479,9 @@ func Summarize(arm string, rows []RawRow) ArmSummary {
 	s.FinishReasonByTenant = map[string]map[string]int{}
 	s.FinishReasonUnreportedByTenant = map[string]int{}
 	s.FinishReasonUnansweredByTenant = map[string]int{}
+	s.PromptLenCharsByTenant = map[string]map[int]int{}
+	s.PromptLenUnreportedByTenant = map[string]int{}
+	s.PromptLenInvalidByTenant = map[string]int{}
 
 	// The eligible-population threshold comes from the manifest provenance stamped into the rows, so admitted-work is scored over the same population the guard gated even if the paid run tuned it.
 	threshold := eligibleLongThreshold
@@ -467,6 +503,7 @@ func Summarize(arm string, rows []RawRow) ArmSummary {
 			lastEnd = r.EndUnixNanos
 		}
 		tpot = s.tallyDelivered(r, tpot, tpotByTenant)
+		s.tallyPromptLen(r)
 		// The declared-load gate's population is every offered request, so this call carries no condition.
 		s.tallyEngineInputTokens(r)
 		// Same population and the same reason it carries no condition: the loop is at the gocyclo ceiling,
@@ -1017,6 +1054,35 @@ func (s *ArmSummary) tallyFinishReasons(r RawRow) {
 		return
 	}
 	s.FinishReasonUnreportedByTenant[r.Tenant]++
+}
+
+// tallyPromptLen files this row's generated prompt length as a length, an absence, or a broken value.
+//
+// The branching lives here and not in Summarize's row loop on purpose: that loop sits at the gocyclo
+// ceiling, and the comment on the initialisation block above records that one more `if` in it took
+// Summarize from 30 to 31 and turned `make lint` red. A method costs the loop one call.
+//
+// THREE DESTINATIONS, because an earlier version of this had one. It returned early on
+// `PromptLenChars <= 0`, which threw absences and negatives away together and left the distribution unable
+// to tell `[200, 200]` from `[200, absent]` -- so a reading built on it would have certified "one length"
+// over rows half of which said nothing. An external review derived that counter-example from the branch
+// itself, before any run. The negative is checked first for the reason the engine-token tally checks it
+// first: it is a defect in the recorder, and routing by anything else files it where it does not block.
+func (s *ArmSummary) tallyPromptLen(r RawRow) {
+	if r.PromptLenChars < 0 {
+		s.PromptLenInvalidByTenant[r.Tenant]++
+		return
+	}
+	if r.PromptLenChars == 0 {
+		s.PromptLenUnreportedByTenant[r.Tenant]++
+		return
+	}
+	seen := s.PromptLenCharsByTenant[r.Tenant]
+	if seen == nil {
+		seen = map[int]int{}
+		s.PromptLenCharsByTenant[r.Tenant] = seen
+	}
+	seen[r.PromptLenChars]++
 }
 
 func (s *ArmSummary) tallyEngineInputTokens(r RawRow) {
