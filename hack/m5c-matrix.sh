@@ -2035,6 +2035,22 @@ person is not the instrument the pre-registration describes.
 
 This file used to say the opposite -- that these files must never be passed to \`benchharness report\` --
 because every arm was replayed as "off" and pooling would have collapsed three topologies into one row.
+
+TWO FILES BESIDE THE ROWS ANSWER "was the budget judgement made on a sane number".
+
+  cell-timings.tsv     one row per cell, completed AND refused, with its own elapsed seconds
+  cell-judgements.tsv  one row per deadline boundary, including the ones that CONTINUED
+
+Added 2026-10-03, and added because they were missing: the fifteen-cell run's per-cell duration is nowhere
+in its archive, so the 11.61 min/cell figure this project published had to be back-computed from raw request
+timestamps. cell_secs is a running total for the projection and nothing wrote the parts.
+
+Read them together. A judgement row carries the remaining minutes, the basis it projected from, the
+projected figure and the decision, so a stop can be re-examined against the cell times that produced it.
+A refused cell is in the timing file too: it consumed card time and the projection counted it, so a file
+that omitted refusals would disagree with the arithmetic that drove the next decision.
+
+Neither file says the judgement was CORRECT. It says the judgement can now be re-examined.
 EOF
 
 say "MATRIX DONE. Raw evidence in $OUT (see its README.txt before analysing)."
