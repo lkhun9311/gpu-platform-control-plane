@@ -479,6 +479,26 @@ say "plan: $cells_total cell(s): $(for c in "${CELLS[@]}"; do printf '%s ' "${c#
   || fail "REGISTRY is unset. EKS nodes cannot side-load an image, so the gateway must be pushed where they can pull it."
 
 mkdir -p "$OUT" || fail "cannot create $OUT"
+# WHERE EACH LOAD VALUE CAME FROM, beside the values themselves.
+#
+# refuse_unfrozen_load compares the EFFECTIVE value against the study's frozen tuple, so a wrong default is
+# caught as surely as a wrong override. What the comparison cannot tell a later reader is whether the value
+# was DECLARED or inherited from this script's default -- and that distinction is what made the 2026-10-02
+# run hard to audit: its user-data set all five to empty, the wrapper exports only non-empty ones, so the
+# matrix received none of them and used its own defaults. The manifest recorded 1174 and nothing recorded
+# that 1174 was a default rather than a declaration.
+#
+# The *_FROM_CALLER snapshots already answer it; they were taken before the defaults were applied and were
+# only ever read by the compiled-CR guard. Written here, next to $OUT's creation, because this is the first
+# line at which both the effective values and the output directory exist.
+{
+  printf 'study: %s\n' "${STUDY:-<unset at this point>}"
+  for v in PREMIUM_PROMPT_CHARS NOISY_PROMPT_CHARS REQUEST_TIMEOUT_MS \
+           PREMIUM_OUTPUT_TOKENS NOISY_OUTPUT_TOKENS MODEL_REVISION; do
+    snap="${v}_FROM_CALLER"
+    printf '%s: %s (%s)\n' "$v" "${!v}" "$([ -n "${!snap:-}" ] && echo declared || echo "default of hack/m5c-matrix.sh")"
+  done
+} > "$OUT/load-source.txt"
 : > "$LOG"
 
 WORK="$(mktemp -d)"

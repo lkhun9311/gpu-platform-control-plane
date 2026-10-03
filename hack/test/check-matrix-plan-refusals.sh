@@ -415,6 +415,37 @@ set -e
   && ok "a plan claiming no reproduction is unaffected" \
   || bad "a plan with no --reproduces changed behaviour (exit $code): $(printf '%s' "$out" | head -1)"
 
+say "10b. does the run record WHERE each load value came from?"
+# The refusal compares the EFFECTIVE value, so a wrong default is caught. What it cannot tell a later reader
+# is whether the value was declared or inherited -- and that is the question the 2026-10-02 archive could not
+# answer: its user-data set all five to empty, the wrapper exports only non-empty values, so the matrix used
+# its own defaults and the manifest recorded 1174 with nothing saying 1174 was a default.
+#
+# Asserted on the artefact rather than on the intention, the way section 7 checks what was left behind.
+ls_out="$WORK/ls-$RANDOM"
+set +e
+env TMPDIR="$WORK/tmp" PLAN_ONLY=1 PLATFORM=kind KCTX=none BENCHHARNESS_BIN="$WORK/benchharness" \
+    OUT="$ls_out" ARMS="R1 shared" REPS=1 RATE="$RATE" PREMIUM_WEIGHT=1 \
+    NOISY_WEIGHT="$NOISY_WEIGHT" PROBE_WEIGHT=0 DURATION_MS="$FULL_DURATION" \
+    PREMIUM_PROMPT_CHARS=1174 bash hack/m5c-matrix.sh >/dev/null 2>&1
+set -e
+if [ -f "$ls_out/load-source.txt" ]; then
+  ok "the run writes load-source.txt beside its evidence"
+  grep -q 'PREMIUM_PROMPT_CHARS: 1174 (declared)' "$ls_out/load-source.txt" \
+    && ok "and it marks a value the caller passed as declared" \
+    || bad "a declared premium length was not recorded as declared: $(grep PREMIUM_PROMPT_CHARS "$ls_out/load-source.txt" | head -1)"
+  grep -q 'NOISY_OUTPUT_TOKENS: 16 (default of' "$ls_out/load-source.txt" \
+    && ok "and it marks an inherited value as this script's default" \
+    || bad "an inherited output cap was not recorded as a default: $(grep NOISY_OUTPUT_TOKENS "$ls_out/load-source.txt" | head -1)"
+  # Five load fields plus the tokenizer revision, because a count is what catches a field quietly dropped.
+  ls_lines=$(grep -cE '^(PREMIUM_PROMPT_CHARS|NOISY_PROMPT_CHARS|REQUEST_TIMEOUT_MS|PREMIUM_OUTPUT_TOKENS|NOISY_OUTPUT_TOKENS|MODEL_REVISION): ' "$ls_out/load-source.txt" || true)
+  [ "$ls_lines" = 6 ] \
+    && ok "all five frozen fields and the tokenizer revision carry a source" \
+    || bad "load-source.txt names $ls_lines of the 6 expected fields"
+else
+  bad "the run left no load-source.txt, so the archive cannot say whether a load value was declared or defaulted"
+fi
+
 say "10. is a load that differs from the study's FROZEN TUPLE refused before anything is rented?"
 # THE FIVE QUANTITIES THE REGISTRATION FROZE AND NOTHING COMPARED.
 #
