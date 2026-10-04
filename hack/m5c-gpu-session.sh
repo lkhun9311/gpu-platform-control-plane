@@ -655,6 +655,20 @@ REQUEST_TIMEOUT_MS="REQUEST_TIMEOUT_MS_PLACEHOLDER"
 PREMIUM_OUTPUT_TOKENS="PREMIUM_OUTPUT_TOKENS_PLACEHOLDER"
 NOISY_OUTPUT_TOKENS="NOISY_OUTPUT_TOKENS_PLACEHOLDER"
 MODEL_REVISION="MODEL_REVISION_PLACEHOLDER"
+# The study travels under BOTH names, from one placeholder, and the reason is that they are read by
+# different checks.
+#
+# STUDY is what the matrix files its evidence under. STUDY_FROM_CR is what a compiled plan was compiled FOR,
+# and the matrix compares the two. Until today only the second reached the instance, so a run asked for
+# tail-crossing-lc8192-2026-10-04 arrived with STUDY unset, the matrix defaulted it to the sharing matrix,
+# and the long level's 42,579-character load then collided with that study's frozen 1,174 -- a refusal that
+# arrives AFTER the card is rented. The runner's own allow-list is what defends the identity now; this line
+# is what gives it something to defend.
+#
+# Sharing one placeholder is deliberate: both come from the caller's STUDY, so they cannot disagree here.
+# The comparison in the matrix is still worth keeping, because the compiled-CR path can set STUDY_FROM_CR
+# from a block whose study differs from the one this session was told.
+STUDY="STUDY_PLACEHOLDER"
 STUDY_FROM_CR="STUDY_PLACEHOLDER"
 BENCHMARK_CR_SHA256="BENCHMARK_CR_SHA256_PLACEHOLDER"
 BENCHMARK_CR_TOKENIZER_REV="BENCHMARK_CR_TOKENIZER_REV_PLACEHOLDER"
@@ -855,9 +869,15 @@ fi
 # `if` rather than `[ ... ] && export`, because the last iteration of that form leaves status 1 behind and
 # this script runs under `set -e`. Measured: the loop with every value empty exits 1, and what happens next
 # then depends on whichever line follows -- a run that dies here would die after the card is up.
+# STUDY is on this list rather than the unconditional one above, and the distinction matters.
+#
+# The matrix defaults an unset STUDY to the sharing matrix, which is what every existing caller relies on.
+# Exporting STUDY="" would hand it an EMPTY value instead of an absent one, and its allow-list would then
+# judge the empty string rather than falling back -- so a run that names no study must export none. This is
+# the same rule the five load values follow for the same reason.
 for v in PREMIUM_PROMPT_CHARS NOISY_PROMPT_CHARS REQUEST_TIMEOUT_MS MODEL_REVISION \
          PREMIUM_OUTPUT_TOKENS NOISY_OUTPUT_TOKENS \
-         BENCHMARK_CR_SHA256 BENCHMARK_CR_TOKENIZER_REV STUDY_FROM_CR; do
+         BENCHMARK_CR_SHA256 BENCHMARK_CR_TOKENIZER_REV STUDY STUDY_FROM_CR; do
   if [ -n "${!v}" ]; then export "${v?}"; fi
 done
 export OUT=/src/m5c-run
