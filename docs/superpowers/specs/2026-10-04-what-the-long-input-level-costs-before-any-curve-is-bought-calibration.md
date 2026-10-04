@@ -158,3 +158,20 @@ time it is started, and nothing in this page, and no engine's recommendation, su
 **What is NOT established.** The paid run was not repeated, so that its exit came from this line is an inference from where its log stops and from the rehearsal, not a reproduction on the card. It exited 1 where the rehearsal exited 143; `wait` returns whatever status the killed forward reported, and which one a real `kubectl port-forward` reports on SIGTERM on that instance was not checked.
 
 **What changed so it cannot recur silently.** `refuse_unfrozen_load` no longer touches the shell's options; both `kill; wait` sites tolerate a non-zero status; `hack/test/check-matrix-plan-refusals.sh` holds that the function returns with the caller's options unchanged and that no line of the matrix runs `set -e`; and the engine-metrics harness runs its function under errexit. Precondition 5 is **MET** as of `2916f56` for the default matrix. A repeat of this calibration needs its own approval, and nothing on this page authorises one.
+
+## Amendment, 2026-10-05 — the re-run is bought in the sweep form, and it also measures `S_B`
+
+**Approved.** The user approved the paid runs on 2026-10-05 ("유료 실행하면서 보완해서 완성해"). This amendment is written before the first billable second of the re-run.
+
+**Why the form changes and the load does not.** Since `f4850f5` the study `tail-crossing-lc8192-2026-10-04` registers independent arrivals, the arms `R1` and `be01-shared` … `be06-shared`, and a trace per repetition, and the runner refuses the weighted `RATE`/`NOISY_WEIGHT`/`ARMS` form for it. The same offered load in the sweep form is:
+
+| Registered on 2026-10-04 (weighted) | The re-run (sweep) |
+|---|---|
+| `RATE=0.2939`, weights 1 / 0.026 / 0 | `PREMIUM_RATE=0.2864`, `SWEEP=0.00745` — the BE rate is 0.2864 × 0.026 |
+| `ARMS="R1 shared"` | `R1` and `be01-shared`, built from `SWEEP` |
+| seed 11 in both repetitions | `SEEDS="1 2"`, one trace per repetition |
+| fixed order, R1 first | randomised within each repetition, recorded in `load-source.txt` |
+
+Everything else is unchanged: `REPS=2`, `DURATION_MS=600000`, 42,579 characters for both tenants, `TimeoutMs` 60,000, caps 64 and 16, four cells, and section 5's three-way outcome. At 0.00745 req/s the BE tenant offers about four requests per 600 s cell, so `be01-shared` is the lightest-contended point of the long level, not a load the curve would choose.
+
+**What this run adds, because the instrument now records it.** Every cell writes the engine's `/metrics` before and after its replay. In the `R1` cells every request the engine serves is an 8,192-token latency-critical request, so the engine's own `vllm:request_prefill_time_seconds` over those cells **is a measurement of `S_B`** — the prefill time of one 8,192-token request — which the 2026-10-04 model-first registration needs before its P2 band can be placed. The engine-side TTFT histogram beside the client-side TTFT is the first reading of the gateway's and the network's share. Neither is a published number until it has been read out of the archive and re-derived.
