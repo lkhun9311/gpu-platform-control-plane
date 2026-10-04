@@ -628,14 +628,30 @@ else
     # weight field the level's absolute BE rate, which set_load_flags passes as --premium-rate and
     # --noisy-rate under independent arrivals. The baseline is generated at the first level's rate and has
     # its contender filtered out; independent arrivals make its LC rows the same at any level.
+    #
+    # The order WITHIN each repetition is randomised, and the order of the repetitions is not. A fixed order
+    # puts the same level in the same slot of every block, so a drift in the card or the engine over a
+    # session would be read as an effect of the level; the 2026-10-04 registration cites setup randomisation
+    # (Mytkowicz et al., ASPLOS'09) for exactly this. The permutation is the sort of sha256("<the block's
+    # trace seed>/<label>"), so it is reproducible from the seeds the archive already records, differs from
+    # block to block, and needs no random-number generator whose output depends on which awk is installed.
+    # What it costs: the baseline is no longer bought first, so a run cut short may hold a level with no
+    # denominator -- the registration chose randomisation over that.
     sweep_first=$(printf '%s\n' $SWEEP | awk 'NF {print; exit}')
     for rep in $(seq 1 "$REPS"); do
-      CELLS+=("R1|R1|$rep|$PREMIUM_RATE|$sweep_first|0")
+      block_seed=$(printf '%s\n' $SEEDS | sed -n "${rep}p")
+      block=("R1|R1|$rep|$PREMIUM_RATE|$sweep_first|0")
       sweep_level=0
       for be in $SWEEP; do
         sweep_level=$(( sweep_level + 1 ))
-        CELLS+=("shared|$(printf 'be%02d-shared' "$sweep_level")|$rep|$PREMIUM_RATE|$be|0")
+        block+=("shared|$(printf 'be%02d-shared' "$sweep_level")|$rep|$PREMIUM_RATE|$be|0")
       done
+      while IFS= read -r spec; do
+        CELLS+=("$spec")
+      done < <(for spec in "${block[@]}"; do
+        label=$(printf '%s' "$spec" | cut -d'|' -f2)
+        printf '%s %s\n' "$(printf '%s/%s' "${block_seed:-11}" "$label" | sha256sum | cut -c1-16)" "$spec"
+      done | LC_ALL=C sort | cut -d' ' -f2-)
     done
   else
     for rep in $(seq 1 "$REPS"); do
@@ -677,6 +693,8 @@ mkdir -p "$OUT" || fail "cannot create $OUT"
   printf 'study: %s\n' "${STUDY:-<unset at this point>}"
   # The sweep's whole load, because a cell's manifest carries only its own level and seed.
   [ -z "$SWEEP" ] || printf 'sweep: best-effort %s /s with latency-critical held at %s /s\n' "$SWEEP" "$PREMIUM_RATE"
+  # The order the cells will be bought in, which a randomised sweep makes a fact worth recording.
+  printf 'order:'; for c in "${CELLS[@]}"; do printf ' %s/%s' "$(printf '%s' "$c" | cut -d'|' -f2)" "$(printf '%s' "$c" | cut -d'|' -f3)"; done; printf '\n'
   printf 'seeds: %s\n' "${SEEDS:-11 in every repetition}"
   for v in PREMIUM_PROMPT_CHARS NOISY_PROMPT_CHARS REQUEST_TIMEOUT_MS \
            PREMIUM_OUTPUT_TOKENS NOISY_OUTPUT_TOKENS MODEL_REVISION; do

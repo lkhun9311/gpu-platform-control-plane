@@ -601,12 +601,36 @@ done
 # Each level's contender count rises with its rate while the latency-critical count stays where it is: the
 # property the report's pairing rests on, read from the plan's own lines.
 sweep_lc=$(printf '%s\n' "$LAST_SWEEP_OUT" | awk '/^==   (R1|be0[1-3]-shared): / {print $3}' | sort -u | awk 'END {print NR}')
-sweep_be=$(printf '%s\n' "$LAST_SWEEP_OUT" | awk '/^==   be0[1-3]-shared: / {print $5}' | tr '\n' ' ')
+# Sorted by level, because the plan lists a repetition's cells in its randomised order.
+sweep_be=$(printf '%s\n' "$LAST_SWEEP_OUT" | awk '/^==   be0[1-3]-shared: / {print $2, $5}' | LC_ALL=C sort | awk '{print $2}' | tr '\n' ' ')
 if [ "$sweep_lc" = 1 ] && printf '%s' "$sweep_be" | awk '{exit !(NF == 3 && $1 < $2 && $2 < $3)}'; then
   ok "one latency-critical count across the baseline and all three levels, and contender counts rising ($sweep_be)"
 else
   bad "the sweep planned $sweep_lc distinct premium count(s) and contender counts ${sweep_be@Q}; want 1 and three rising"
 fi
+# The order within each repetition is randomised, reproducibly from the block's seed, and the blocks still
+# each hold the baseline and every level once. A fixed order would put one level in one slot every block.
+sweep_case "a three-repetition sweep" ok REPS=3 SEEDS="7 8 9" SWEEP="0.0286 0.0716 0.1432"
+order1=$(printf '%s' "$LAST_SWEEP_OUT" | sed -n 's/^== plan: [0-9]* cell(s): //p')
+sweep_case "the same sweep again" ok REPS=3 SEEDS="7 8 9" SWEEP="0.0286 0.0716 0.1432"
+order2=$(printf '%s' "$LAST_SWEEP_OUT" | sed -n 's/^== plan: [0-9]* cell(s): //p')
+blocks_ok=$(printf '%s\n' $order1 | awk '{b[int((NR-1)/4)] = b[int((NR-1)/4)] " " $1} END {
+  ok = (NR == 12); for (i = 0; i < 3; i++) { n = split(b[i], a, " "); delete seen
+    for (j = 1; j <= n; j++) seen[a[j]]++
+    if (n != 4 || !seen["R1"] || !seen["be01-shared"] || !seen["be02-shared"] || !seen["be03-shared"]) ok = 0 }
+  print ok }')
+distinct_blocks=$(printf '%s\n' $order1 | awk '{b[int((NR-1)/4)] = b[int((NR-1)/4)] " " $1} END {for (i in b) print b[i]}' | sort -u | awk 'END {print NR}')
+if [ -n "$order1" ] && [ "$order1" = "$order2" ] && [ "$blocks_ok" = 1 ] && [ "$distinct_blocks" -ge 2 ]; then
+  ok "each repetition holds the baseline and all three levels once, in an order that differs between blocks ($distinct_blocks distinct) and repeats exactly from the same seeds: $order1"
+else
+  bad "sweep order ${order1@Q} then ${order2@Q}: blocks complete=$blocks_ok, distinct block orders=$distinct_blocks; want complete blocks, at least two orders, and the same plan twice"
+fi
+# And the frozen sharing matrix keeps the order it registered: repetition-major, arms as listed.
+sweep_case "the sharing matrix's order" ok STUDY=sharing-matrix-2026-09-10 SWEEP= PREMIUM_RATE= SEEDS= RATE="$RATE" NOISY_WEIGHT="$NOISY_WEIGHT" ARMS="R1 shared" REPS=2
+matrix_order=$(printf '%s' "$LAST_SWEEP_OUT" | sed -n 's/^== plan: [0-9]* cell(s): //p' | tr -s ' ' | sed 's/ $//')
+[ "$matrix_order" = "R1 shared R1 shared" ] \
+  && ok "the sharing matrix still runs R1 then shared in every repetition" \
+  || bad "the sharing matrix's order became ${matrix_order@Q}; its registration fixed R1 then shared"
 sweep_case "an independent-arrival study planned without a sweep" "run as a SWEEP" SWEEP= PREMIUM_RATE= RATE="$RATE" NOISY_WEIGHT="$NOISY_WEIGHT"
 sweep_case "a sweep of the weighted sharing matrix" "a sweep needs a study registered with independent arrivals" STUDY=sharing-matrix-2026-09-10 SEEDS=
 sweep_case "a sweep beside a total RATE" "RATE and SWEEP are both set" RATE=0.3
