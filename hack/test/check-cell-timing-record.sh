@@ -848,6 +848,9 @@ printf 'at_utc\tcell\n' > "$OUT6CT/cell-judgements.tsv"
 for b in trace-R1-1.jsonl raw-R1-1.jsonl; do : > "$OUT6CT/$b"; done
 : > "$OUT6CT/manifest-R1-1.yaml"
 : > "$OUT6CT/port-forward-R1-1.log"
+# The engine's counters on both sides of the replay, which every completed cell now owes.
+: > "$OUT6CT/engine-metrics-R1-1-before.prom"
+: > "$OUT6CT/engine-metrics-R1-1-after.prom"
 : > "$OUT6CT/mps-pod-lookup.err"
 (
 	# shellcheck disable=SC1091
@@ -859,11 +862,39 @@ for b in trace-R1-1.jsonl raw-R1-1.jsonl; do : > "$OUT6CT/$b"; done
 ct_exp=$(awk -F'\t' '$1 == "expected" {print $2}' "$OUT6CT/expected-files.txt" 2>/dev/null)
 ct_act=$(awk -F'\t' '$1 == "actual" {print $2}' "$OUT6CT/expected-files.txt" 2>/dev/null)
 ct_agree=$(awk -F'\t' '$1 == "agree" {print $2}' "$OUT6CT/expected-files.txt" 2>/dev/null)
-if [ "$ct_exp" = 10 ] && [ "$ct_act" = 10 ] && [ "$ct_agree" = yes ]; then
+if [ "$ct_exp" = 12 ] && [ "$ct_act" = 12 ] && [ "$ct_agree" = yes ]; then
 	ok "a complete archive that took the MPS path agrees, its conditional output counted in the total too"
 else
-	bad "a complete archive with one mps-pod-lookup.err records expected=${ct_exp@Q} actual=${ct_act@Q} agree=${ct_agree@Q}; wanted 10, 10 and yes. Leaving the conditional outputs out of the total makes every run that took that path report a surplus no class can explain"
+	bad "a complete archive with one mps-pod-lookup.err records expected=${ct_exp@Q} actual=${ct_act@Q} agree=${ct_agree@Q}; wanted 12, 12 and yes. Leaving the conditional outputs out of the total makes every run that took that path report a surplus no class can explain"
 fi
+# The engine-metrics class: counted per PHASE, so one phase's surplus cannot pay for another's absence.
+#
+# A split topology writes two files per phase. Counting files would let the second engine's `before` cover a
+# missing `after`, and a cell that died after its `before` scrape would otherwise hand that file to a
+# completed cell's shortfall.
+OUT6M="$WORK/engine-metrics-class"
+mkdir -p "$OUT6M"
+printf 'cell\tarm\trep\toutcome\tstart_utc\tend_utc\telapsed_s\tcum_s\tcells_done\n' > "$OUT6M/cell-timings.tsv"
+printf '1\ttimeSlicing\t1\tcompleted\tx\ty\t700\t700\t1\n' >> "$OUT6M/cell-timings.tsv"
+printf '2\tshared\t1\trefused\tx\ty\t10\t710\t1\n' >> "$OUT6M/cell-timings.tsv"
+: > "$OUT6M/engine-metrics-timeSlicing-1-before-a.prom"
+: > "$OUT6M/engine-metrics-timeSlicing-1-before-b.prom"
+: > "$OUT6M/engine-metrics-shared-1-before.prom"
+m_pair=$(class_of "$OUT6M" engine-metrics)
+m_stray=$(class_of "$OUT6M" stray-cell-outputs)
+if [ "$m_pair" = "2 1" ]; then
+	ok "a completed split cell with both engines' before and no after is 2 owed, 1 held"
+else
+	bad "engine-metrics reads ${m_pair@Q}; wanted '2 1'. Two files in one phase must not count as two phases"
+fi
+case "$m_stray" in
+"0 1") ok "the refused cell's before scrape is a stray, not credit for the completed cell" ;;
+*) bad "stray-cell-outputs reads ${m_stray@Q}; wanted '0 1', so a dead cell's metrics file is being spent on another cell" ;;
+esac
+# And the .err is a file the class counts: a scrape that failed is evidence, not an absence.
+: > "$OUT6M/engine-metrics-timeSlicing-1-after.err"
+m_pair2=$(class_of "$OUT6M" engine-metrics)
+[ "$m_pair2" = "2 2" ] && ok "an .err completes the phase" || bad "with an after .err the class reads ${m_pair2@Q}; wanted '2 2'"
 # And the verdict must come from the classes -- RUN, not grepped.
 #
 # This was `grep -q 'these classes disagree' "$SRC"`, and an external review showed what that establishes:
@@ -884,6 +915,9 @@ printf 'at_utc\tcell\n' > "$OUT6V/cell-judgements.tsv"
 : > "$OUT6V/manifest-R1-1.yaml"
 : > "$OUT6V/port-forward-R1-1.log"
 : > "$OUT6V/port-forward-shared-9.log"
+# The completed cell's metrics are present, so the only disagreeing classes are the two this case is about.
+: > "$OUT6V/engine-metrics-R1-1-before.prom"
+: > "$OUT6V/engine-metrics-R1-1-after.prom"
 (
 	# shellcheck disable=SC1091
 	. "$WORK/recorders.sh"
@@ -950,6 +984,9 @@ for c in R1-1 shared-1; do
 	for p in trace raw; do : > "$OUT7/$p-$c.jsonl"; done
 	: > "$OUT7/manifest-$c.yaml"
 	: > "$OUT7/port-forward-$c.log"
+	# One phase as a .prom and one as an .err: a scrape that could not complete still leaves a file.
+	: > "$OUT7/engine-metrics-$c-before.prom"
+	: > "$OUT7/engine-metrics-$c-after.err"
 done
 (
 	# shellcheck disable=SC1091
@@ -963,13 +1000,14 @@ if [ -s "$OUT7/expected-files.txt" ]; then
 else
 	bad "a run that stopped early left no expected-files.txt, so the only runs that record the comparison are the ones that did not need it"
 fi
-# 2x4 + 0 + 0 + fixed(evidence.log, load-source.txt, expected-files.txt, cell-timings.tsv,
-# cell-judgements.tsv; no README.txt) = 13, and the directory holds 12 plus the file being written.
+# 2x4 + 0 + 0 + metrics(2 cells x 2 phases) + fixed(evidence.log, load-source.txt, expected-files.txt,
+# cell-timings.tsv, cell-judgements.tsv; no README.txt) = 17, and the directory holds 16 plus the file being
+# written.
 died_exp=$(awk -F'\t' '$1 == "expected" {print $2}' "$OUT7/expected-files.txt" 2>/dev/null)
 died_act=$(awk -F'\t' '$1 == "actual" {print $2}' "$OUT7/expected-files.txt" 2>/dev/null)
 died_agree=$(awk -F'\t' '$1 == "agree" {print $2}' "$OUT7/expected-files.txt" 2>/dev/null)
-if [ "$died_exp" = 13 ] && [ "$died_act" = 13 ] && [ "$died_agree" = yes ]; then
-	ok "the stopped run owes 13 and holds 13, counting expected-files.txt itself"
+if [ "$died_exp" = 17 ] && [ "$died_act" = 17 ] && [ "$died_agree" = yes ]; then
+	ok "the stopped run owes 17 and holds 17, counting expected-files.txt itself"
 else
 	bad "the stopped run records expected=${died_exp@Q} actual=${died_act@Q} agree=${died_agree@Q}; a complete-for-its-length archive must agree, and the file being written is one of the files it counts"
 fi
@@ -1004,7 +1042,7 @@ esac
 reuse_exp=$(awk -F'\t' '$1 == "expected" {print $2}' "$OUT7/expected-files.txt" 2>/dev/null)
 reuse_act=$(awk -F'\t' '$1 == "actual" {print $2}' "$OUT7/expected-files.txt" 2>/dev/null)
 reuse_agree=$(awk -F'\t' '$1 == "agree" {print $2}' "$OUT7/expected-files.txt" 2>/dev/null)
-if [ "$reuse_exp" = 13 ] && [ "$reuse_act" = 13 ] && [ "$reuse_agree" = yes ]; then
+if [ "$reuse_exp" = 17 ] && [ "$reuse_act" = 17 ] && [ "$reuse_agree" = yes ]; then
 	ok "a second run into the same directory counts its own file once, not twice"
 else
 	bad "a second run into a directory that already held expected-files.txt records expected=${reuse_exp@Q} actual=${reuse_act@Q} agree=${reuse_agree@Q}; adding 1 unconditionally counts the file twice and can hide a missing one"

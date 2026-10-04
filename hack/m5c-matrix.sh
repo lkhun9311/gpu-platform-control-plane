@@ -1959,7 +1959,7 @@ cell_judgement_record() {
 # Prints "<expected> <basis>". The basis words are deliberately not numbers, for the same reason the warm
 # estimate's are: an aggregation that could not run must not be readable as a count.
 expected_outputs() {
-  local completed refused invalid orphan fixed cond
+  local completed refused invalid orphan fixed cond metrics
   if [ -n "${LADDER:-}" ]; then
     printf 'ladder-not-expressed ladder-cells-are-not-matrix-cells'
     return 0
@@ -2026,9 +2026,14 @@ expected_outputs() {
   cond=$(find "$OUT" -maxdepth 1 \( -name 'mps-compute-apps-*.csv' -o -name 'mps-compute-apps-*.err' \
     -o -name 'mps-pod-lookup.err' -o -name 'ladder-verdict-rung*.txt' \
     -o -name 'applied-values.tsv' -o -name 'cell-environment.tsv' \) 2>/dev/null | wc -l)
-  printf '%s completed-%sx4+refused-%s+invalid-%s+unwritten-%s+conditional-%s+fixed-%s' \
-    $(( completed * 4 + refused + invalid + orphan + cond + fixed )) \
-    "$completed" "$refused" "$invalid" "$orphan" "$cond" "$fixed"
+  # The engine-metrics files are in the total as whatever is there, like the conditional outputs above.
+  #
+  # How many a cell owes depends on its topology -- one engine or two -- which this count cannot see, so
+  # whether every completed cell has them is the per-class row's job, not this sum's.
+  metrics=$(find "$OUT" -maxdepth 1 \( -name 'engine-metrics-*.prom' -o -name 'engine-metrics-*.err' \) 2>/dev/null | wc -l)
+  printf '%s completed-%sx4+refused-%s+invalid-%s+unwritten-%s+conditional-%s+metrics-%s+fixed-%s' \
+    $(( completed * 4 + refused + invalid + orphan + cond + metrics + fixed )) \
+    "$completed" "$refused" "$invalid" "$orphan" "$cond" "$metrics" "$fixed"
 }
 
 # The same accounting, PER CLASS, because one total has one degree of freedom.
@@ -2048,6 +2053,8 @@ expected_outputs() {
 # Prints one "<class> <expected> <actual>" per line. Classes:
 #
 #   cell-outputs    four per completed cell: trace-, raw-, manifest-, port-forward-
+#   engine-metrics  two phases per completed cell, before and after the replay, each holding at least one
+#                   engine-metrics-<cell>-<phase>[-a|-b].{prom,err}; strays go to stray-cell-outputs
 #   refusal-files   one per arm with a refused ROW -- the row is the claim, the file is the evidence, and
 #                   counting files here is what let a never-written refusal agree with itself
 #   invalid-files   counted from the files: an invalid arm's row is indistinguishable from a refused one,
@@ -2059,6 +2066,7 @@ expected_outputs() {
 #                   its own finding, never change for another class's shortfall.
 expected_outputs_by_class() {
   local completed refused invalid cell_expected cell_actual stray fixed_expected fixed_actual cond unattr f base cellname
+  local metrics_expected metrics_actual metrics_owned metrics_all phase
   if [ -n "${LADDER:-}" ]; then
     printf 'all-classes not-expressed ladder-cells-are-not-matrix-cells\n'
     return 0
@@ -2093,6 +2101,9 @@ expected_outputs_by_class() {
   # row (`stray-cell-outputs`) rather than credit against the expectation.
   cell_expected=0
   cell_actual=0
+  metrics_expected=0
+  metrics_actual=0
+  metrics_owned=0
   while read -r cellname; do
     [ -n "$cellname" ] || continue
     # `sort -u` above: one cell counted twice owes eight files and holds its four twice over, so a
@@ -2101,11 +2112,25 @@ expected_outputs_by_class() {
     for base in "trace-$cellname.jsonl" "raw-$cellname.jsonl" "manifest-$cellname.yaml" "port-forward-$cellname.log"; do
       [ -f "$OUT/$base" ] && cell_actual=$(( cell_actual + 1 ))
     done
+    # Two phases per completed cell, each owing at least one file: a .prom per engine, or an .err saying
+    # why not. Counted per PHASE, because a split topology writes two files per phase and a count of files
+    # would let one engine's surplus pay for another phase's absence.
+    for phase in before after; do
+      metrics_expected=$(( metrics_expected + 1 ))
+      if compgen -G "$OUT/engine-metrics-$cellname-$phase*.prom" >/dev/null || compgen -G "$OUT/engine-metrics-$cellname-$phase*.err" >/dev/null; then
+        metrics_actual=$(( metrics_actual + 1 ))
+      fi
+      metrics_owned=$(( metrics_owned + $(find "$OUT" -maxdepth 1 \( -name "engine-metrics-$cellname-$phase*.prom" -o -name "engine-metrics-$cellname-$phase*.err" \) 2>/dev/null | wc -l) ))
+    done
   done <<EOF
 $(awk -F'\t' 'NR > 1 && $4 == "completed" {print $2 "-" $3}' "$OUT/cell-timings.tsv" | sort -u)
 EOF
   stray=$(( $(find "$OUT" -maxdepth 1 \( -name 'trace-*.jsonl' -o -name 'raw-*.jsonl' \
     -o -name 'manifest-*.yaml' -o -name 'port-forward-*.log' \) 2>/dev/null | wc -l) - cell_actual ))
+  # A metrics file whose cell did not complete -- a cell that died after its `before` scrape -- is a stray
+  # like that cell's port-forward log, not credit for a completed cell's missing phase.
+  metrics_all=$(find "$OUT" -maxdepth 1 \( -name 'engine-metrics-*.prom' -o -name 'engine-metrics-*.err' \) 2>/dev/null | wc -l)
+  stray=$(( stray + metrics_all - metrics_owned ))
   invalid=$(find "$OUT" -maxdepth 1 -name 'invalid-*.txt' 2>/dev/null | wc -l)
   fixed_expected=5 # evidence.log, load-source.txt, expected-files.txt, cell-timings.tsv, cell-judgements.tsv
   [ -f "$OUT/README.txt" ] && fixed_expected=$(( fixed_expected + 1 ))
@@ -2125,6 +2150,7 @@ EOF
     base=${f##*/}
     case "$base" in
       trace-*.jsonl | raw-*.jsonl | manifest-*.yaml | port-forward-*.log) ;;
+      engine-metrics-*.prom | engine-metrics-*.err) ;;
       refused-*.txt | invalid-*.txt) ;;
       evidence.log | load-source.txt | cell-timings.tsv | cell-judgements.tsv | expected-files.txt | README.txt) ;;
       mps-compute-apps-*.csv | mps-compute-apps-*.err | mps-pod-lookup.err | ladder-verdict-rung*.txt) ;;
@@ -2136,6 +2162,7 @@ EOF
   # A cell output belonging to no completed cell: the leftovers of a cell that died mid-way. Expected zero,
   # like unattributed, so it is reported rather than spent on another class's shortfall.
   printf 'stray-cell-outputs 0 %s\n' "$stray"
+  printf 'engine-metrics %s %s\n' "$metrics_expected" "$metrics_actual"
   printf 'refusal-files %s %s\n' "$refused" "$refused"
   printf 'invalid-files %s %s\n' "$invalid" "$invalid"
   # The one thing the two rows above cannot show, because what is missing is the file itself: an arm whose
@@ -2314,6 +2341,75 @@ cell_deadline_check_inner() {
 # It is a function rather than the inside of a loop because the ladder calls it from two places -- the rungs
 # it climbs, and the single isolated-baseline cell it buys at whichever rung it stopped on. A second copy of
 # this body for the second caller is the failure this repository has paid for more than once.
+# Reads each engine's /metrics for one cell phase, so the cell's TTFT can be split into waiting and prefill.
+#
+# The 2026-10-04 model-first registration found that a mechanism model explains between a fifth and two
+# thirds of the shared tail the fifteen-cell run measured, and the archive cannot say where the rest went:
+# every timestamp in it is the client's. The engine's own counters, read before and after the replay, are
+# the one level deeper that run never recorded.
+#
+# It never fails the cell. A paid cell lost to secondary evidence is the worse outcome, so a scrape that
+# cannot complete writes an .err naming why instead -- never nothing, because a phase with no file would
+# read later as "this run did not measure it" rather than "it tried and the engine did not answer".
+#
+# The forward is started on kubectl itself, not on `k`, for the reason the gateway's forward in run_cell
+# gives: `&` on a function backgrounds a subshell, and killing that pid leaves kubectl holding the port.
+#
+# Usage: scrape_engine_metrics <topology> <label> <rep> <before|after>
+scrape_engine_metrics() {
+  local topology="$1" label="$2" rep="$3" phase="$4" targets t ns deploy suffix base pf tries i reason
+  tries="${METRICS_SCRAPE_TRIES:-15}"
+  case "$topology" in
+    R1 | shared) targets="$NS_A|vllm-qwen25-3b|" ;;
+    timeSlicing | mps) targets="$NS_A|vllm-shared-a|-a $NS_B|vllm-shared-b|-b" ;;
+    *)
+      printf 'no engine is known for topology %s, so nothing was scraped\n' "$topology" \
+        > "$OUT/engine-metrics-$label-$rep-$phase.err"
+      return 0 ;;
+  esac
+  for t in $targets; do
+    IFS='|' read -r ns deploy suffix <<<"$t"
+    base="$OUT/engine-metrics-$label-$rep-$phase$suffix"
+    # The forward's log goes to $WORK and not into $OUT: its content belongs in the .err when the scrape
+    # fails, and a third file per phase would be one more output for the accounting to explain.
+    pf="$WORK/engine-metrics-pf.log"
+    kubectl --context "$KCTX" port-forward -n "$ns" "deploy/$deploy" 18081:8000 >"$pf" 2>&1 &
+    local pf_pid=$!
+    reason="the engine did not answer /metrics within $tries attempts"
+    for i in $(seq 1 "$tries"); do
+      if curl -fsS --max-time 5 -o "$base.prom.part" "http://127.0.0.1:18081/metrics" 2>/dev/null; then
+        # Something answered on the port; whether it was THIS forward is a separate question. If this
+        # forward has already exited, the answer came from whatever else holds 18081 -- a forward an
+        # earlier cell left behind would serve a different engine's counters under this cell's name.
+        if ! kill -0 "$pf_pid" 2>/dev/null; then
+          reason="the port-forward to deploy/$deploy in $ns had exited, so the page on 18081 was not this engine's"
+        # And whether it was the engine at all, because a forward that landed on the wrong pod still serves
+        # a /metrics page.
+        elif grep -q '^vllm:' "$base.prom.part"; then
+          mv "$base.prom.part" "$base.prom"
+          reason=""
+        else
+          reason="18081 answered /metrics with no vllm: series, so it was not the engine"
+        fi
+        break
+      fi
+      if ! kill -0 "$pf_pid" 2>/dev/null; then
+        reason="the port-forward to deploy/$deploy in $ns exited before /metrics answered"
+        break
+      fi
+      sleep 1
+    done
+    kill "$pf_pid" 2>/dev/null
+    wait "$pf_pid" 2>/dev/null
+    rm -f "$base.prom.part"
+    if [ -n "$reason" ]; then
+      { echo "$reason"; echo "-- port-forward log:"; tail -n 5 "$pf" 2>/dev/null; } > "$base.err"
+    fi
+    rm -f "$pf"
+  done
+  return 0
+}
+
 run_cell() {
   local arm="$1" label="$2" rep="$3" RATE_CELL="$4" NOISY_CELL="$5"
   cell_n=$(( cell_n + 1 ))
@@ -2462,12 +2558,14 @@ run_cell() {
   # tree whose engine cannot be digest-pinned, and demanding provenance from it would be demanding that the
   # rehearsal fail. The waiver cannot reach a paid run -- hack/m5c-gpu-session.sh refuses to pass it -- so
   # the demand is on wherever it matters.
+  scrape_engine_metrics "$arm" "$label" "$rep" before
   "$WORK/benchharness" replay --manifest "$OUT/manifest-$label-$rep.yaml" \
     $PROVENANCE_FLAG \
     --target "http://127.0.0.1:18080" \
     --api-keys "premium-1=premium-key,standard-noisy=standard-key" \
     --raw-out "$OUT/raw-$label-$rep.jsonl" || fail "replay $label"
   [ -s "$OUT/raw-$label-$rep.jsonl" ] || fail "no raw evidence for $label rep $rep"
+  scrape_engine_metrics "$arm" "$label" "$rep" after
   say "  $(wc -l < "$OUT/raw-$label-$rep.jsonl") rows"
   # This cell is BOUGHT. Hand it to the caller now rather than at the end of the matrix.
   #
