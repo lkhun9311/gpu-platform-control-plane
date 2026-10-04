@@ -131,7 +131,11 @@ fi
 # exist, which this script already got wrong once with tokenizerRev.
 step "analysis code"
 if [ -d "$ROOT/cmd/benchharness" ]; then
-	BIN=$(mktemp -d)/benchharness
+	# The directory holds a freshly built benchharness of about 34 MB, and /tmp is tmpfs, so every call that
+	# left it behind held that much RAM until reboot. Nothing else in this script sets a trap.
+	BINDIR=$(mktemp -d)
+	trap 'rm -rf "$BINDIR"' EXIT
+	BIN=$BINDIR/benchharness
 	head=$(cd "$ROOT" && git rev-parse --short HEAD 2>/dev/null || echo "")
 	dirty=$(cd "$ROOT" && git status --porcelain -- cmd internal 2>/dev/null | wc -l)
 	if (cd "$ROOT" && go build -o "$BIN" ./cmd/benchharness) 2>/dev/null; then

@@ -124,7 +124,10 @@ want_taint() {
 
 step "0. cluster"
 # Its own config, written here rather than reusing hack/kind-config.yaml, which hardcodes `name: platform`.
-CFG="$(mktemp -d)/kind-m1m4.yaml"
+CFG_DIR=$(mktemp -d)
+# Nothing removed this directory, so every run left one in tmpfs; this script sets no other trap.
+trap 'rm -rf "$CFG_DIR"' EXIT
+CFG="$CFG_DIR/kind-m1m4.yaml"
 cat >"$CFG" <<'YAML'
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
