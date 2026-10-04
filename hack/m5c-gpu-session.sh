@@ -869,12 +869,52 @@ export OUT=/src/m5c-run
 # paths all reach the archive, and an interruption reaches nothing.
 cat > /usr/local/bin/m5c-cell-done <<'CELLHOOK'
 #!/bin/bash
-# $1 raw file, $2 arm, $3 repetition. Failure here must not fail the cell: the evidence is on local disk
-# either way, and a transient S3 error is not a reason to discard a measurement that was paid for.
+# $1 raw file, $2 arm, $3 repetition; $OUT is read from the environment. Failure here must not fail the
+# cell: the evidence is on local disk either way, and a transient S3 error is not a reason to discard a
+# measurement that was paid for.
+#
+# WHAT THIS USED TO SEND, AND WHY THAT WAS NOT A CELL. It copied the raw file alone. Measured against the
+# 2026-10-02 run's own bucket: `cells/` holds 15 objects, all `raw-*.jsonl`, while the manifest, the trace,
+# the port-forward log and every accumulating TSV existed only inside the end-of-run `evidence.tgz`. So an
+# instance that went away mid-run left rows nobody could place -- no manifest to say what load produced
+# them, no trace to check them against, no cell-environment.tsv to name the card they ran on. The whole
+# point of a per-cell upload is that the cell survives the instance, and a row without its manifest does not.
+#
+# The accumulating files are re-sent on EVERY cell rather than once at the end. They are small, they are
+# rewritten as the run proceeds, and the copy that matters is the last one that made it off the machine.
 set -u
 raw="$1"; arm="$2"; rep="$3"
-aws s3 cp "$raw" "s3://__BUCKET__/__PREFIX__/cells/$(basename "$raw")" >/dev/null 2>&1 || exit 1
-echo "  cell $arm rep $rep uploaded as it completed"
+out="${OUT:-$(dirname "$raw")}"
+base="s3://__BUCKET__/__PREFIX__/cells"
+missing=""
+send() { # <path> <s3 name>; records the name when it does not go up
+  [ -f "$1" ] || return 0
+  aws s3 cp "$1" "$base/$2" >/dev/null 2>&1 || missing="$missing $2"
+}
+# This cell's four files, named so one cell's set cannot be confused with another's.
+for kind in raw trace manifest; do
+  case "$kind" in
+    raw|trace) ext=jsonl ;;
+    manifest)  ext=yaml ;;
+  esac
+  send "$out/$kind-$arm-$rep.$ext" "$kind-$arm-$rep.$ext"
+done
+send "$out/port-forward-$arm-$rep.log" "port-forward-$arm-$rep.log"
+# The run-wide records, refreshed so the newest surviving copy is the newest one written.
+for f in cell-environment.tsv cell-timings.tsv cell-judgements.tsv applied-values.tsv load-source.txt; do
+  send "$out/$f" "$f"
+done
+# A refusal or an invalidation is per ARM, so it appears partway through a run and must travel too.
+for f in "$out"/refused-*.txt "$out"/invalid-*.txt; do
+  [ -f "$f" ] || continue
+  send "$f" "$(basename "$f")"
+done
+if [ -n "$missing" ]; then
+  # Named, not counted. "3 files failed" sends an operator to look at all of them.
+  echo "  cell $arm rep $rep: these did NOT reach the bucket:$missing"
+  exit 1
+fi
+echo "  cell $arm rep $rep uploaded as it completed, with its manifest, trace, port-forward log and the run records"
 CELLHOOK
 sed -i "s|__BUCKET__|$BUCKET|; s|__PREFIX__|$PREFIX|" /usr/local/bin/m5c-cell-done
 chmod +x /usr/local/bin/m5c-cell-done

@@ -318,13 +318,34 @@ fi
 # On the instance this hook copies each cell's raw file to the bucket the moment the cell completes, which
 # is what stops a Spot interruption taking every cell before it. Unset it and the matrix behaves exactly as
 # it did; that is deliberate and it is also how a hook quietly stops being called. This proves it is.
+# It records WHICH FILES the hook could send, not only that it was called.
+#
+# The first version wrote one line per call naming the raw file, and that is the whole cell check: a hook
+# that uploaded the raw file and nothing else passed it. Measured on the 2026-10-02 run's own bucket --
+# `cells/` held 15 objects, every one a `raw-*.jsonl`, while the manifest, the trace, the port-forward log
+# and every accumulating TSV existed only inside the end-of-run archive. An instance that went away mid-run
+# left rows with nothing to place them against. So the recorder now lists what the real hook would copy,
+# and the assertion below holds the per-cell set.
+#
+# $OUT is read from the environment because that is how the matrix passes it, and reading it here is what
+# makes this stub exercise the same contract the instance's hook does.
 cat > "$WORK/cell-hook" <<'HOOK'
 #!/bin/bash
 printf '%s %s %s\n' "$2" "$3" "$(basename "$1")" >> "$CELL_HOOK_LOG"
+out="${OUT:-$(dirname "$1")}"
+for f in "$out/raw-$2-$3.jsonl" "$out/trace-$2-$3.jsonl" "$out/manifest-$2-$3.yaml" \
+         "$out/port-forward-$2-$3.log"; do
+  [ -f "$f" ] && printf '%s %s %s\n' "$2" "$3" "$(basename "$f")" >> "$CELL_FILES_LOG"
+done
+for f in cell-environment.tsv cell-timings.tsv cell-judgements.tsv applied-values.tsv load-source.txt; do
+  [ -f "$out/$f" ] && printf 'run - %s\n' "$f" >> "$CELL_FILES_LOG"
+done
 HOOK
 chmod +x "$WORK/cell-hook"
 export CELL_HOOK_LOG="$WORK/cells-seen.txt"
 : > "$CELL_HOOK_LOG"
+export CELL_FILES_LOG="$WORK/cell-files-seen.txt"
+: > "$CELL_FILES_LOG"
 
 set +e
 BH_FOR_MATRIX="$WORK/benchharness"
@@ -558,6 +579,38 @@ if [ "$want_cells" != "$seen_cells" ]; then
   seen:     $(printf '%s' "$seen_cells" | tr '\n' ';')"
 fi
 say "  every cell was handed over as it completed, by (arm, repetition): $(printf '%s' "$seen_cells" | tr '\n' ';')"
+
+# AND EACH HANDOVER CARRIED THE CELL, not just its rows.
+#
+# A raw file alone cannot be placed after the instance is gone: nothing says what load produced it, nothing
+# records the card it ran on, and nothing can check it against the trace it replayed. This asserts the four
+# per-cell artefacts were all present and visible to the hook at the moment it fired, which is the property
+# the instance's uploader depends on -- it copies what exists when it is called.
+#
+# Derived from the cells the hook actually saw rather than from a list, for the reason want_cells is: a
+# hard-coded set cannot rehearse a run with different arms, and a set derived from the files being checked
+# cannot fail.
+missing_artefacts=""
+while read -r f_arm f_rep _; do
+  [ -n "$f_arm" ] || continue
+  for want in "raw-$f_arm-$f_rep.jsonl" "trace-$f_arm-$f_rep.jsonl" \
+              "manifest-$f_arm-$f_rep.yaml" "port-forward-$f_arm-$f_rep.log"; do
+    grep -qx "$f_arm $f_rep $want" "$CELL_FILES_LOG" \
+      || missing_artefacts="$missing_artefacts $want"
+  done
+done <<EOF
+$seen_cells
+EOF
+[ -z "$missing_artefacts" ] || fail "the per-cell handover did not carry everything the cell is made of:$missing_artefacts.
+  On the instance the hook copies what exists when it fires, so a file absent here is a file a Spot
+  interruption takes with the card -- and rows whose manifest and trace are gone cannot be placed."
+# The run-wide records travel too: they are rewritten as the run proceeds and the copy that matters is the
+# last one that got off the machine.
+for want in cell-timings.tsv cell-judgements.tsv load-source.txt; do
+  grep -qx "run - $want" "$CELL_FILES_LOG" \
+    || fail "$want was never present when a cell completed, so no interrupted run would carry it. It is written per cell precisely so an interruption cannot take it."
+done
+say "  and each handover carried its manifest, trace and port-forward log, with the run records beside them"
 
 # The contended cell these two checks read: the matrix's `shared` arm, or the ladder's first rung.
 if [ -n "$LADDER_UNDER_TEST" ]; then

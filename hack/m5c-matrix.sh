@@ -2486,7 +2486,14 @@ run_cell() {
     # It cannot fail the cell -- the evidence is on local disk either way -- but without a limit a stalled
     # upload blocks every cell behind it until the hard stop, and a merely slow one inflates the next
     # cell's projection and can stop the matrix on a boundary it would otherwise have cleared.
-    timeout "${CELL_DONE_HOOK_TIMEOUT:-120}" "$CELL_DONE_HOOK" "$OUT/raw-$label-$rep.jsonl" "$label" "$rep" \
+    # OUT travels in the ENVIRONMENT rather than as a fourth argument.
+    #
+    # The hook needs the output directory to find the cell's manifest and trace and the run's accumulating
+    # TSVs, and it could derive it from the raw file's dirname -- but a hook that is handed the directory
+    # cannot disagree with the one the matrix is writing to. A fourth positional argument would have been
+    # the obvious way and it breaks the recorder in hack/test/rehearse-m5c-matrix.sh, which reads exactly
+    # $1 $2 $3; an environment variable leaves every existing hook working unchanged.
+    OUT="$OUT" timeout "${CELL_DONE_HOOK_TIMEOUT:-120}" "$CELL_DONE_HOOK" "$OUT/raw-$label-$rep.jsonl" "$label" "$rep" \
       || say "  WARNING: CELL_DONE_HOOK failed or timed out for $label rep $rep; the cell is still on local disk and will go up with the rest"
   fi
   CELL_T1=$(date +%s)

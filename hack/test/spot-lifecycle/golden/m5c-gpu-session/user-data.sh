@@ -134,8 +134,34 @@ export OUT=/src/m5c-run
 cat > /usr/local/bin/m5c-cell-done <<'CELLHOOK'
 set -u
 raw="$1"; arm="$2"; rep="$3"
-aws s3 cp "$raw" "s3://__BUCKET__/__PREFIX__/cells/$(basename "$raw")" >/dev/null 2>&1 || exit 1
-echo "  cell $arm rep $rep uploaded as it completed"
+out="${OUT:-$(dirname "$raw")}"
+base="s3://__BUCKET__/__PREFIX__/cells"
+missing=""
+send() { # <path> <s3 name>; records the name when it does not go up
+  [ -f "$1" ] || return 0
+  aws s3 cp "$1" "$base/$2" >/dev/null 2>&1 || missing="$missing $2"
+}
+for kind in raw trace manifest; do
+  case "$kind" in
+    raw|trace) ext=jsonl ;;
+    manifest)  ext=yaml ;;
+  esac
+  send "$out/$kind-$arm-$rep.$ext" "$kind-$arm-$rep.$ext"
+done
+send "$out/port-forward-$arm-$rep.log" "port-forward-$arm-$rep.log"
+for f in cell-environment.tsv cell-timings.tsv cell-judgements.tsv applied-values.tsv load-source.txt; do
+  send "$out/$f" "$f"
+done
+for f in "$out"/refused-*.txt "$out"/invalid-*.txt; do
+  [ -f "$f" ] || continue
+  send "$f" "$(basename "$f")"
+done
+if [ -n "$missing" ]; then
+  # Named, not counted. "3 files failed" sends an operator to look at all of them.
+  echo "  cell $arm rep $rep: these did NOT reach the bucket:$missing"
+  exit 1
+fi
+echo "  cell $arm rep $rep uploaded as it completed, with its manifest, trace, port-forward log and the run records"
 CELLHOOK
 sed -i "s|__BUCKET__|$BUCKET|; s|__PREFIX__|$PREFIX|" /usr/local/bin/m5c-cell-done
 chmod +x /usr/local/bin/m5c-cell-done
