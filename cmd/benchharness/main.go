@@ -759,7 +759,18 @@ func report(args []string) error {
 	}
 
 	checks, pop, sharing, ladder := evaluateRegisteredReadings(e, summ, summaries, rawFiles, incCI, matchTolerance)
-	text := bench.FormatReport(summaries, checks, matchTolerance)
+	// The repetition floor goes AHEAD of the tables, because it is a premise about the sample rather than a
+	// finding in it.
+	//
+	// Concatenated rather than branched on, and that is not a style choice: adding `if why != ""` here took
+	// `report` from cyclomatic complexity 30 to 31 against a limit of 30 and `make lint` went red, measured.
+	// So the function returns the whole prefix including its label, or the empty string, and an empty string
+	// prepends nothing. The alternative was widening the gocyclo exemption this file already carries for
+	// run(), which buys the same line by raising the ceiling instead of spending less of it.
+	//
+	// It is prepended to `text` rather than written to stderr so the warning lands in the file too -- a
+	// report read out of the archive months later carries its own premise.
+	text := e.repetitionFloorPrefix(summaries) + bench.FormatReport(summaries, checks, matchTolerance)
 	if pop != nil {
 		text += bench.FormatPriceOfProtection(*pop)
 	}
@@ -1489,6 +1500,80 @@ func (e *armEvidence) frozenMatchTolerance(fallback float64) float64 {
 		matchTolerance = tol
 	}
 	return matchTolerance
+}
+
+// repetitionFloorPrefix is the labelled block repetitionFloorShortfall's sentence is printed in, or "".
+//
+// The label travels with the sentence so the caller needs no branch: an empty shortfall yields an empty
+// prefix, and prepending that to the report changes nothing. `report` sits at the cyclomatic limit, so one
+// `if` at the call site is the difference between a green lint and a red one -- measured at 31 against 30.
+func (e *armEvidence) repetitionFloorPrefix(summaries []bench.ArmSummary) string {
+	why := e.repetitionFloorShortfall(summaries)
+	if why == "" {
+		return ""
+	}
+	return "\nREPETITION FLOOR NOT MET: " + why + "\n"
+}
+
+// repetitionFloorShortfall names every arm that carries fewer repetitions than its study registered, or "".
+//
+// WHY THIS IS NOT A REFUSAL. By the time a report runs, the cells are bought. Declining to print the tables
+// would leave the operator with paid evidence and no way to read it, which is worse than reading it with the
+// shortfall named -- so this returns a sentence the caller prints beside the tables, in the shape
+// RegisteredEstimandFor already uses: say why the registered object is not computable and let the
+// measurements stand. The estimand's own refusals still apply independently and are not duplicated here.
+//
+// WHY A SEPARATE FUNCTION. summarize() has the study and the repetition counts in hand, and putting the
+// comparison there was the obvious place. It is also where `report` sits at cyclomatic complexity 30 against
+// a limit of 30 -- measured, with FormatReport, Summarize and EvaluateChecks at 30, 30 and 28 beside it --
+// so one more branch in any of them turns `make lint` red. That constraint is why this is its own function
+// rather than three lines inside the loop.
+//
+// A study that registered no floor reports nothing, and the comparison itself is what says so: zero means
+// the registration did not say, so `RepetitionCount < 0` is false for every arm and no sentence is produced.
+//
+// TWO GUARDS WERE REMOVED FROM HERE, and saying why is the point. The first version opened with
+// `if !ok || study.MinRepetitions == 0 { return "" }` and skipped arms whose `RepetitionCount == 0`, with
+// comments calling both of them important. Neither could ever act:
+//
+//   - A zero floor already produces no sentence, because nothing is less than zero. The explicit return was
+//     a second spelling of the same answer.
+//   - An arm cannot reach this function with zero repetitions. loadArmEvidence fills repTail and byArm in one
+//     loop over the same `e.reps[arm]`, and summarize only builds a summary when byArm has the arm -- so a
+//     summary existing means repTail was appended to.
+//
+// Measured 2026-10-04: deleting both left the five floor tests and the whole package green, which is what
+// "unreachable" means operationally. A guard no input can reach is a guard no mutation can test, and this
+// repository has already shipped one of those; a comment asserting it matters is worse than its absence,
+// because the next reader preserves it.
+//
+// THE UNREGISTERED-STUDY BRANCH IS UNREACHABLE TOO, and it is kept rather than removed because its two
+// siblings keep it. loadArmEvidence refuses an unregistered id outright, and LookupStudy maps the empty id
+// to the gateway study, so nothing arrives here with ok false -- measured: replacing this branch with
+// `study, _ :=` left the whole package green. What decides its fate is consistency: contendedArms and
+// summarize both fall back to StudyM5BGateway at exactly this point, because every raw file written before
+// studies existed is M5-b's and a report has to keep reading them. Returning "" here instead would make
+// this the one function of the three that answers a different question about the same input.
+//
+// So it falls back the same way, which also gives the branch an observable effect: the gateway study
+// registers a floor of five, so evidence that somehow reached here unregistered is measured against that
+// rather than silently waived. That is what makes the branch testable at all.
+func (e *armEvidence) repetitionFloorShortfall(summaries []bench.ArmSummary) string {
+	study, ok := bench.LookupStudy(e.study)
+	if !ok {
+		study, _ = bench.LookupStudy(bench.StudyM5BGateway)
+	}
+	var short []string
+	for _, s := range summaries {
+		if s.RepetitionCount < study.MinRepetitions {
+			short = append(short, fmt.Sprintf("%s has %d", s.Arm, s.RepetitionCount))
+		}
+	}
+	if len(short) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("study %s registered a floor of %d repetitions per arm and %s; its registered point estimate is a median over fewer blocks than the registration fixed",
+		study.ID, study.MinRepetitions, strings.Join(short, ", "))
 }
 
 // contendedArms are the study's arms that replay the full trace, so their traffic must be identical.

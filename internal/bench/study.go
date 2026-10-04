@@ -49,6 +49,44 @@ type Study struct {
 	// freezing: the registration's promise is "the resolved characters are now frozen rather than whatever
 	// the resolver last returned". FrozenTuple.Drift compares the two and reports the difference instead.
 	Frozen *FrozenTuple
+
+	// MinRepetitions is the fewest repetitions per arm this study's registration permits, or 0 where it
+	// registered none.
+	//
+	// WHY A STUDY AND NOT A CONSTANT. The CRD's own floor is five and api/v1 states its reason in the field
+	// comment: "At least five: a p99 from three repetitions is noise, and the report is a median-of-runs
+	// WITH A BOOTSTRAP INTERVAL rather than a best run." That reason is about the report's shape. A study
+	// that publishes no interval does not inherit it, and forcing five on an exploratory question buys cells
+	// to support a statistic the registration refuses to present. Measured 2026-10-04: at the 11.61 min/cell
+	// mean, the 2026-10-03 registration's design needs 16 cells at two repetitions and 40 at five, and 40
+	// cells is 464.4 minutes against a 280-minute window -- so the floor decides whether the question can be
+	// asked at all, which is exactly the kind of decision that belongs in a registration rather than in a
+	// shared constant.
+	//
+	// The shell has NO floor of its own (`REPS="${REPS:-4}"`), and hack/m5c-gpu-session.sh's own comment says
+	// "a pilot is REPS=1 and a confirmatory run is REPS=3" while the CRD demands five. internal/bench/plan.go
+	// already records that disagreement in a comment. This field is where it stops being a disagreement: the
+	// number comes from the study the evidence is filed under, one place, named.
+	MinRepetitions int
+
+	// PublishesInterval says whether this study's registration presents an interval on its estimand.
+	//
+	// It is the companion of MinRepetitions rather than a duplicate of it, because the two can disagree and
+	// the disagreement is the bug worth refusing: a study that publishes an interval while permitting two
+	// repetitions would print bounds that are just its two observations. Measured 2026-10-04, calling the
+	// three interval functions with two values: BootstrapCI returned Lo=3998.000 Hi=4001.000 and
+	// PairedRatioCI returned Lo=22.8629 Hi=22.9770, both with an EMPTY InvalidReason -- each refuses only at
+	// n==1. A two-point bootstrap has four distinct resamples, so those bounds are the observations
+	// themselves, which the 2026-10-03 registration distinguishes in its own words: "the spread of a row is
+	// an OBSERVED RANGE and not an interval".
+	//
+	// ⚠️ It does NOT today gate a publication path, and saying so is the point. FormatRegisteredEstimand
+	// prints "No interval is published; see the seventh amendment" and RegisteredEstimand.RatioCI is computed
+	// and never rendered; the one interval that does reach a report, Checks.IncrementalRatioCI, belongs to the
+	// M5-b gateway study and its arms rather than to repetitions. So this field records what each
+	// registration promises and lets a refusal compare the two numbers. A future path that renders an
+	// interval has to read it; a path that renders none cannot be made correct by it.
+	PublishesInterval bool
 }
 
 // FrozenTuple is the five load quantities a pre-registration can freeze.
@@ -325,14 +363,29 @@ func throughputLadderArms() []string {
 }
 
 // studies is the registry every arm name is validated against.
+//
+// MinRepetitions and PublishesInterval are left UNSET where a registration fixed no repetition floor, and
+// that is a value rather than an omission: zero means "this registration does not say", the way a nil
+// Frozen means "this registration froze no load". A refusal reading zero must decline to judge rather than
+// treat it as a floor of none -- the same distinction FrozenTuple draws, and the reason an empty expectation
+// is never a pass anywhere else in this package.
 var studies = map[string]Study{
 	StudyM5BGateway: {
 		ID:   StudyM5BGateway,
 		Arms: []string{ArmR1, "off", "static-cap", "kv-aware"},
+		// Five, and it is the one study here whose interval actually reaches a printed report:
+		// Checks.IncrementalRatioCI is rendered by FormatReport with the gate reading `Hi < 1.0`. Its own
+		// amendment fixes the resample count and seed as M5BIncrementalResamples and M5BIncrementalSeed.
+		MinRepetitions:    5,
+		PublishesInterval: true,
 	},
 	StudyPriceOfProtection: {
 		ID:   StudyPriceOfProtection,
 		Arms: priceOfProtectionArms(),
+		// Deliberately unset. Its reading 3 compares an improvement against the CONTROL'S observed spread
+		// rather than against an interval, and price_of_protection.go says so in its own words -- "by a
+		// bootstrap over four blocks being read as a 95% interval. The range is what it claims to be." A
+		// floor invented here would be this file asserting something that sweep's registration does not.
 	},
 	StudySharingMatrix: {
 		ID:   StudySharingMatrix,
@@ -351,6 +404,16 @@ var studies = map[string]Study{
 			PremiumOutputTokens:   64,
 			ContenderOutputTokens: 16,
 		},
+		// Five, from the CRD floor its CR path enforces (internal/bench/plan.go refuses `repetitions < 5`
+		// with "the CRD floor is 5"), and an interval because its third 2026-09-30 amendment fixes the
+		// resample count, the seed and the percentile convention for one.
+		//
+		// ⚠️ That interval is COMPUTED AND NOT PRINTED: FormatRegisteredEstimand renders B, C and R and then
+		// says "No interval is published; see the seventh amendment", leaving RegisteredEstimand.RatioCI
+		// unrendered. So this records the registration's promise, not today's output. Writing false here
+		// would make the two fields agree by denying what the amendment fixed.
+		MinRepetitions:    5,
+		PublishesInterval: true,
 	},
 	// The two input levels. ArmR1 and ArmShared only, because the registration's D3 sizes this question for
 	// the shared engine against the isolated baseline and drops the split topologies: a study that admitted
@@ -370,6 +433,22 @@ var studies = map[string]Study{
 			PremiumOutputTokens:   64,
 			ContenderOutputTokens: 16,
 		},
+		// TWO, and no interval. Decided 2026-10-04 and dated here because the choice is part of the
+		// registration rather than a tuning knob: the 2026-10-03 page's D3 says "2 repetitions is an
+		// exploratory compromise, not a precision claim -- this page registers no interval and may not
+		// present one", and its section 4 says "Repetition-to-repetition variation and estimator uncertainty
+		// remain, and this page registers no interval."
+		//
+		// The pair must be read together. Two repetitions is permitted BECAUSE no interval is presented; a
+		// later edit raising PublishesInterval to true without raising this number would publish bounds that
+		// are the two observations, which is what the refusal comparing these fields exists to stop.
+		//
+		// What two repetitions does NOT weaken is the per-cell sample: MinTailSamples is a floor on COMPLETED
+		// REQUESTS and is unchanged here, and RegisteredEstimandFor applies it per repetition as well. The
+		// even-count median convention is already pinned -- hack/test/check-published-spreads.sh carries a
+		// two-repetition fixture whose 10.000 and 13.387 must average to 11.6935.
+		MinRepetitions:    2,
+		PublishesInterval: false,
 	},
 	// The long level: the latency-critical tenant carries the SAME per-request length as the contender, which
 	// is the contrast this page registers. It is not a claim that a scheduling mechanism changes there.
@@ -385,6 +464,11 @@ var studies = map[string]Study{
 			PremiumOutputTokens:   64,
 			ContenderOutputTokens: 16,
 		},
+		// The same pair as the short level, and for the same registration: the two levels differ in the
+		// latency-critical tenant's prompt length and in nothing else, so a different repetition floor would
+		// make the contrast between them a contrast between two report shapes as well.
+		MinRepetitions:    2,
+		PublishesInterval: false,
 	},
 	StudyThroughputLadder: {
 		ID:       StudyThroughputLadder,
