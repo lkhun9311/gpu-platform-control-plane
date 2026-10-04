@@ -87,6 +87,16 @@ type Study struct {
 	// registration promises and lets a refusal compare the two numbers. A future path that renders an
 	// interval has to read it; a path that renders none cannot be made correct by it.
 	PublishesInterval bool
+
+	// TracesVaryByRepetition says each repetition replays its own trace, generated from its own seed.
+	//
+	// Every archive before 2026-10-04 replayed one trace, seed 11, in every repetition, so the spread across
+	// repetitions measured the engine on one draw of the arrival process and said nothing about the draw.
+	// The model-first registration of that date showed why that matters at low contending load: whether a
+	// trace's p99 is 70 ms or 600 ms depends on whether two latency-critical arrivals landed inside one
+	// best-effort prefill. A study with this set is refused if two repetitions of an arm share a trace, and
+	// its baseline and contended arm are paired by repetition on the latency-critical schedule instead.
+	TracesVaryByRepetition bool
 }
 
 // FrozenTuple is the five load quantities a pre-registration can freeze.
@@ -449,6 +459,9 @@ var studies = map[string]Study{
 		// two-repetition fixture whose 10.000 and 13.387 must average to 11.6935.
 		MinRepetitions:    2,
 		PublishesInterval: false,
+		// Superseded on 2026-10-04 by the model-first registration, whose replication is independent
+		// traces: two repetitions of one trace would be one draw of the arrival process measured twice.
+		TracesVaryByRepetition: true,
 	},
 	// The long level: the latency-critical tenant carries the SAME per-request length as the contender, which
 	// is the contrast this page registers. It is not a claim that a scheduling mechanism changes there.
@@ -467,8 +480,9 @@ var studies = map[string]Study{
 		// The same pair as the short level, and for the same registration: the two levels differ in the
 		// latency-critical tenant's prompt length and in nothing else, so a different repetition floor would
 		// make the contrast between them a contrast between two report shapes as well.
-		MinRepetitions:    2,
-		PublishesInterval: false,
+		MinRepetitions:         2,
+		PublishesInterval:      false,
+		TracesVaryByRepetition: true,
 	},
 	StudyThroughputLadder: {
 		ID:       StudyThroughputLadder,

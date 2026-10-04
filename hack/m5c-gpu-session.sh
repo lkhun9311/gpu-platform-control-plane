@@ -208,6 +208,11 @@ else
   [ -n "${REPS:-}" ] || fail "REPS is unset. A pilot is REPS=1 and a confirmatory run is REPS=3. Which this is decides both the cost and what may be concluded, so it is not a default."
   case "$REPS" in ''|*[!0-9]*) fail "REPS is ${REPS@Q}, which is not a number" ;; esac
 fi
+# SEEDS reaches the instance through a sed substitution, so anything but digits and spaces is refused here:
+# a `|` would end the expression and the user-data would carry whatever followed it. Whether the list suits
+# the study is the matrix's judgement, and the local plan check below runs it before the card is rented.
+SEEDS="${SEEDS:-}"
+case "$SEEDS" in *[!0-9\ ]*) fail "SEEDS is ${SEEDS@Q}; it is a space-separated list of non-negative integers" ;; esac
 
 # PURPOSE has no default either, and the registration is the reason.
 #
@@ -674,6 +679,8 @@ MODEL_REVISION="MODEL_REVISION_PLACEHOLDER"
 # from a block whose study differs from the one this session was told.
 STUDY="STUDY_PLACEHOLDER"
 STUDY_FROM_CR="STUDY_PLACEHOLDER"
+# One seed per repetition for a study registering a trace per repetition; empty keeps the matrix's seed 11.
+SEEDS="SEEDS_PLACEHOLDER"
 BENCHMARK_CR_SHA256="BENCHMARK_CR_SHA256_PLACEHOLDER"
 BENCHMARK_CR_TOKENIZER_REV="BENCHMARK_CR_TOKENIZER_REV_PLACEHOLDER"
 # The deadline the matrix budgets its cells against is the EARLIER of the two, not the instance's.
@@ -881,7 +888,7 @@ fi
 # the same rule the five load values follow for the same reason.
 for v in PREMIUM_PROMPT_CHARS NOISY_PROMPT_CHARS REQUEST_TIMEOUT_MS MODEL_REVISION \
          PREMIUM_OUTPUT_TOKENS NOISY_OUTPUT_TOKENS \
-         BENCHMARK_CR_SHA256 BENCHMARK_CR_TOKENIZER_REV STUDY STUDY_FROM_CR; do
+         BENCHMARK_CR_SHA256 BENCHMARK_CR_TOKENIZER_REV STUDY STUDY_FROM_CR SEEDS; do
   if [ -n "${!v}" ]; then export "${v?}"; fi
 done
 export OUT=/src/m5c-run
@@ -1017,6 +1024,7 @@ UD="$(mktemp)"
       -e "s|NOISY_OUTPUT_TOKENS_PLACEHOLDER|${NOISY_OUTPUT_TOKENS:-}|" \
       -e "s|MODEL_REVISION_PLACEHOLDER|${MODEL_REVISION:-}|" \
       -e "s|STUDY_PLACEHOLDER|${STUDY:-}|" \
+      -e "s|SEEDS_PLACEHOLDER|${SEEDS:-}|" \
       -e "s|BENCHMARK_CR_SHA256_PLACEHOLDER|${BENCHMARK_CR_SHA256:-}|" \
       -e "s|BENCHMARK_CR_TOKENIZER_REV_PLACEHOLDER|${BENCHMARK_CR_TOKENIZER_REV:-}|" \
       -e "s|RUN_NONCE_PLACEHOLDER|$RUN_NONCE|" "$RUNSCRIPT" | tail -n +2 \
@@ -1092,6 +1100,9 @@ else
   # Unset means "this run claims to repeat nothing", which is the only honest default: the claim belongs in
   # the registration and the enforcement belongs here, before the card is rented.
   [ -z "${REPRODUCES:-}" ] || plan_env+=(REPRODUCES="$REPRODUCES")
+  # The seeds the instance will use, so the plan check refuses a list the study cannot take while the
+  # refusal is still free.
+  [ -z "${SEEDS:-}" ] || plan_env+=(SEEDS="$SEEDS")
 fi
 if ! env "${plan_env[@]}" bash hack/m5c-matrix.sh; then
   fail "the purchase plan was refused before launch, and nothing was rented. The refusals above name the cell and the reason"

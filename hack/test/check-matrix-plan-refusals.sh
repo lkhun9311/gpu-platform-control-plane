@@ -509,7 +509,9 @@ fz_case "the two output caps swapped" "output cap" PREMIUM_OUTPUT_TOKENS=16 NOIS
 study_case() { # <what> <study> <premium-chars> <noisy-chars>
   local what="$1" study="$2" pchars="$3" nchars="$4" out code
   set +e
-  out=$(env "${fz_env[@]}" STUDY="$study" PREMIUM_PROMPT_CHARS="$pchars" NOISY_PROMPT_CHARS="$nchars" \
+  # One seed: a per-repetition study needs one per repetition and this plan has one repetition, and a study
+  # replaying one trace accepts a single seed. The seed rules themselves are the cases below.
+  out=$(env "${fz_env[@]}" STUDY="$study" PREMIUM_PROMPT_CHARS="$pchars" NOISY_PROMPT_CHARS="$nchars" SEEDS=7 \
         bash hack/m5c-matrix.sh 2>&1)
   code=$?
   set -e
@@ -531,6 +533,59 @@ study_case() { # <what> <study> <premium-chars> <noisy-chars>
 study_case "the sharing matrix"          sharing-matrix-2026-09-10      1174  42579
 study_case "the short latency-sensitive level" tail-crossing-lc256-2026-10-04 1174  42579
 study_case "the long latency-sensitive level"  tail-crossing-lc8192-2026-10-04 42579 42579
+
+# The seed list against the study's trace policy, refused before anything is rented.
+#
+# Every archive before 2026-10-04 replayed seed 11 in every repetition. The tail-crossing studies now
+# register a trace per repetition and the report refuses an arm whose repetitions share one -- after the
+# cells are bought. These are the refusals that move that judgement ahead of the purchase.
+seed_case() { # <what> <want: ok or a phrase> <VAR=value ...>
+  local what="$1" want="$2" out code; shift 2
+  set +e
+  out=$(env "${fz_env[@]}" PREMIUM_PROMPT_CHARS=1174 NOISY_PROMPT_CHARS=42579 "$@" bash hack/m5c-matrix.sh 2>&1)
+  code=$?
+  set -e
+  if [ "$want" = ok ]; then
+    [ "$code" = 0 ] && ok "$what is planned" || bad "$what was refused: $(printf '%s' "$out" | grep -E 'FAILED|REFUSED' | head -1)"
+  elif [ "$code" != 0 ] && printf '%s' "$out" | grep -q "$want"; then
+    ok "$what is refused, naming it"
+  else
+    bad "$what exited $code without saying ${want@Q}: $(printf '%s' "$out" | tail -2 | tr '\n' ' ')"
+  fi
+}
+seed_case "a per-repetition study with no seeds" "registers a trace per repetition" STUDY=tail-crossing-lc256-2026-10-04 REPS=2
+seed_case "a per-repetition study with one seed twice" "repeats a seed" STUDY=tail-crossing-lc256-2026-10-04 REPS=2 SEEDS="7 7"
+seed_case "a per-repetition study with fewer seeds than repetitions" "names 1 seed(s) and REPS is 2" STUDY=tail-crossing-lc256-2026-10-04 REPS=2 SEEDS=7
+seed_case "a seed that is not a number" "not a non-negative integer" STUDY=tail-crossing-lc256-2026-10-04 REPS=1 SEEDS=x
+seed_case "a one-trace study given two seeds" "names 2 different seeds" STUDY=sharing-matrix-2026-09-10 REPS=2 SEEDS="7 8"
+seed_case "a per-repetition study with a distinct seed per repetition" ok STUDY=tail-crossing-lc256-2026-10-04 REPS=2 SEEDS="7 8"
+seed_case "the sharing matrix with no seeds, as every archive ran" ok STUDY=sharing-matrix-2026-09-10 REPS=2
+# And the seed each repetition is generated from, driven directly: a plan that passes says nothing about
+# WHICH seed went into each trace, and a seed_for_rep returning 11 for every repetition would plan cleanly.
+sfr=$(awk '/^seed_for_rep\(\) \{/ {i=1} i {print} i && /^\}/ {exit}' hack/m5c-matrix.sh)
+sfr_got=$(bash -c "$sfr"'
+  SEEDS="7 8 9"; TRACE_POLICY=per-repetition; printf "%s," "$(seed_for_rep 1)" "$(seed_for_rep 2)" "$(seed_for_rep 3)"
+  SEEDS=""; TRACE_POLICY=one; printf "%s," "$(seed_for_rep 2)"
+  SEEDS="5"; TRACE_POLICY=one; printf "%s" "$(seed_for_rep 3)"')
+[ "$sfr_got" = "7,8,9,11,5" ] \
+  && ok "repetitions 1-3 draw seeds 7, 8, 9; an empty list keeps 11; a one-trace study uses its single seed for every repetition" \
+  || bad "seed_for_rep gave ${sfr_got@Q}; want '7,8,9,11,5'"
+# The run path resolves the seeds too, and ahead of the frozen-load refusal that must stay next to the spend.
+sd_call=$(grep -n '^resolve_seeds$' hack/m5c-matrix.sh | tail -1 | cut -d: -f1 || true)
+fz_call2=$(grep -n '^refuse_unfrozen_load$' hack/m5c-matrix.sh | tail -1 | cut -d: -f1 || true)
+if [ -n "$sd_call" ] && [ -n "$fz_call2" ] && [ "$sd_call" -lt "$fz_call2" ]; then
+  ok "the real path resolves the seeds at line $sd_call, before the frozen-load refusal at $fz_call2"
+else
+  bad "the real path does not resolve the seeds before its last pre-spend refusal (seeds ${sd_call:-none}, refusal ${fz_call2:-none})"
+fi
+# And the generated traces use them: both gen-trace call sites read the per-repetition seed, none the literal.
+# awk, because zero matches is the PASSING answer here and `grep | wc -l` under pipefail and `set -e` ends
+# the harness on it -- which is what the first version of this check did, silently.
+gt_literal=$(awk '/^[^#]*gen-trace --seed 11/ {c++} END {print c+0}' hack/m5c-matrix.sh)
+gt_seeded=$(awk '/^[^#]*gen-trace --seed "\$/ {c++} END {print c+0}' hack/m5c-matrix.sh)
+[ "$gt_literal" = 0 ] && [ "$gt_seeded" = 2 ] \
+  && ok "both gen-trace call sites take the repetition's seed" \
+  || bad "gen-trace call sites: $gt_literal with the literal seed 11 and $gt_seeded reading a seed; want 0 and 2"
 
 # A study this path does not file evidence under is refused BEFORE a trace is generated.
 #

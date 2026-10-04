@@ -122,6 +122,13 @@ REPS_FROM_CALLER="${REPS+set}"
 # Below four the incremental interval is a bootstrap over very few blocks. Two is a floor the report will
 # tolerate, not a target anything argued for.
 REPS="${REPS:-4}"
+# One trace seed per repetition, space-separated, or empty for the one seed every archive before 2026-10-04
+# replayed in every repetition (11).
+#
+# Which of the two a run may use is the STUDY's to say, read through `benchharness study-traces` by
+# resolve_seeds: a study registering a trace per repetition is refused without REPS distinct seeds here,
+# before anything is rented, rather than by the report after every cell is paid for.
+SEEDS="${SEEDS:-}"
 # The arms, in the order they are run.
 #
 # R1 FIRST, and it is not a formality: it is the isolated baseline both bars are ratios against, so a run
@@ -374,6 +381,49 @@ resolve_arrivals() {
     fail "study $STUDY registered independent arrivals, where each rung carries the premium and contender RATES and the probes are off; PREMIUM_WEIGHT=$PREMIUM_WEIGHT PROBE_WEIGHT=$PROBE_WEIGHT describe a weighted mix that would be ignored, so pass 1 and 0"
   fi
 }
+# The trace policy this run's study registered, and the seed list checked against it.
+#
+# A per-repetition study replaying one seed is the defect the 2026-10-04 registration found in every
+# archive: five repetitions of one draw of the arrival process. The report refuses that evidence, and this
+# refuses the run that would produce it while refusing is still free.
+TRACE_POLICY=""
+resolve_seeds() {
+  local n distinct w
+  TRACE_POLICY=$("$WORK/benchharness" study-traces --study "$STUDY") \
+    || fail "could not read study $STUDY's trace policy from the registry"
+  for w in $SEEDS; do
+    case "$w" in
+      '' | *[!0-9]*) fail "SEEDS entry ${w@Q} is not a non-negative integer" ;;
+    esac
+  done
+  # awk, not grep: with SEEDS empty `grep .` exits 1, and under pipefail and `set -e` that assignment ended
+  # the whole script with no message -- measured, on the first run of this function.
+  n=$(printf '%s\n' $SEEDS | awk 'NF {c++} END {print c+0}')
+  distinct=$(printf '%s\n' $SEEDS | awk 'NF && !seen[$1]++ {c++} END {print c+0}')
+  case "$TRACE_POLICY" in
+    one)
+      [ "$distinct" -le 1 ] \
+        || fail "study $STUDY replays one trace in every repetition, and SEEDS names $distinct different seeds; its report refuses an arm whose repetitions came from different traces"
+      ;;
+    per-repetition)
+      [ "$n" -gt 0 ] \
+        || fail "study $STUDY registers a trace per repetition, so SEEDS must name one seed for each of the $REPS repetitions; the default would replay seed 11 $REPS times, one draw of the arrival process measured again"
+      [ "$n" = "$REPS" ] || fail "SEEDS names $n seed(s) and REPS is $REPS; study $STUDY needs exactly one per repetition"
+      [ "$distinct" = "$n" ] || fail "SEEDS repeats a seed ($SEEDS); two repetitions of study $STUDY would replay one trace"
+      ;;
+    *) fail "study $STUDY's trace policy is ${TRACE_POLICY@Q}, which this script does not know" ;;
+  esac
+}
+# seed_for_rep prints the seed repetition $1 is generated from.
+seed_for_rep() {
+  if [ -z "$SEEDS" ]; then
+    echo 11
+  elif [ "$TRACE_POLICY" = per-repetition ]; then
+    printf '%s\n' $SEEDS | sed -n "${1}p"
+  else
+    printf '%s\n' $SEEDS | sed -n 1p
+  fi
+}
 # refuse_unfrozen_load compares the load this run will OFFER against the tuple its study froze.
 #
 # The registration froze five quantities on 2026-10-01 -- premium and contender prompt characters, the
@@ -576,6 +626,7 @@ if [ -n "${PLAN_ONLY:-}" ]; then
   # the registration is exactly such a refusal. Running it only on the real path would mean the dry run
   # approved a plan the real run then rejected -- or worse, approved one the real run also accepted.
   refuse_unfrozen_load
+  resolve_seeds
   plan_top=0
   for spec in "${CELLS[@]}"; do
     IFS='|' read -r _ _ _ _ _ cell_rung <<<"$spec"
@@ -595,19 +646,23 @@ if [ -n "${PLAN_ONLY:-}" ]; then
       for s2 in "${CELLS[@]}"; do
         IFS='|' read -r _ _ _ cell_rate cell_weight cell_rung <<<"$s2"
         [ "$cell_rung" = "$plan_top" ] || continue
-        cell_topology=R1; cell_label="$(printf 'rung%02d' "$plan_top")-R1"
+        cell_topology=R1; cell_label="$(printf 'rung%02d' "$plan_top")-R1"; cell_rep=1
         break
       done
     else
-      IFS='|' read -r cell_topology cell_label _ cell_rate cell_weight cell_rung <<<"$spec"
+      IFS='|' read -r cell_topology cell_label cell_rep cell_rate cell_weight cell_rung <<<"$spec"
     fi
+    # Each repetition's own seed, so a per-repetition study has every trace it will buy checked here -- the
+    # floors below are per trace, and one seed passing them says nothing about another.
+    plan_seed=$(seed_for_rep "${cell_rep:-1}")
+    plan_name="$cell_label-${cell_rep:-1}"
     set_load_flags "$cell_rate" "$cell_weight"
-    "$WORK/benchharness" gen-trace --seed 11 --duration-ms "$DURATION_MS" "${LOAD_FLAGS[@]}" \
+    "$WORK/benchharness" gen-trace --seed "$plan_seed" --duration-ms "$DURATION_MS" "${LOAD_FLAGS[@]}" \
       --study "$STUDY" --arm "$cell_label" --model "$MODEL" --gateway-url "http://127.0.0.1:18080" \
       --premium-prompt-chars "$PREMIUM_PROMPT_CHARS" --noisy-prompt-chars "$NOISY_PROMPT_CHARS" \
       --premium-output-tokens "$PREMIUM_OUTPUT_TOKENS" --noisy-output-tokens "$NOISY_OUTPUT_TOKENS" \
       --timeout-ms "$REQUEST_TIMEOUT_MS" \
-      --trace-out "$WORK/plan-$cell_label.jsonl" --manifest-out "$WORK/plan-$cell_label.yaml" >/dev/null \
+      --trace-out "$WORK/plan-$plan_name.jsonl" --manifest-out "$WORK/plan-$plan_name.yaml" >/dev/null \
       || { echo "PLAN REFUSED: gen-trace could not build $cell_label's trace" >&2; plan_failures=$(( plan_failures + 1 )); continue; }
     # The two experiments ask DIFFERENT questions of the same artefact, and their floors differ.
     #
@@ -619,10 +674,10 @@ if [ -n "${PLAN_ONLY:-}" ]; then
     # --arms carries the whole plan on every cell, because "is the isolated baseline in this run at all" is a
     # question about the SET and no single cell's trace can answer it.
     if [ -n "$LADDER" ]; then
-      plan_cmd=(ladder-plan-check --trace "$WORK/plan-$cell_label.jsonl" --study "$STUDY" --arm "$cell_label")
+      plan_cmd=(ladder-plan-check --trace "$WORK/plan-$plan_name.jsonl" --study "$STUDY" --arm "$cell_label")
     else
-      plan_cmd=(matrix-plan-check --trace "$WORK/plan-$cell_label.jsonl" --study "$STUDY" --arm "$cell_label" --arms "$ARMS"
-                --manifest "$WORK/plan-$cell_label.yaml")
+      plan_cmd=(matrix-plan-check --trace "$WORK/plan-$plan_name.jsonl" --study "$STUDY" --arm "$cell_label" --arms "$ARMS"
+                --manifest "$WORK/plan-$plan_name.yaml")
       # REPRODUCES names the archive this run claims to repeat, and is absent for a run that claims nothing.
       #
       # Appended rather than always passed, so a run making no claim invokes exactly the command it did
@@ -1217,6 +1272,8 @@ resolve_arrivals
 #
 # The binaries are ready on the line above and nothing has been created yet, so a mismatched load costs
 # nothing to refuse here. Placing it after the image build would make the refusal true and late.
+# The seeds are resolved first so the frozen-load refusal stays the line immediately ahead of the build.
+resolve_seeds
 refuse_unfrozen_load
 printf 'FROM gcr.io/distroless/static:nonroot\nCOPY gateway /gateway\nUSER 65532:65532\nENTRYPOINT ["/gateway"]\n' > "$WORK/Dockerfile"
 # The image ID is CAPTURED, because it is the only thing that can name the gateway build in the record.
@@ -2564,7 +2621,7 @@ run_cell() {
   # in the tenant's target namespace. The routing records this script writes serve Qwen2.5-3B, so every
   # request of every arm would have come back ErrNoRoute -- after both engines had loaded.
   set_load_flags "$RATE_CELL" "$NOISY_CELL"
-  "$WORK/benchharness" gen-trace --seed 11 --duration-ms "$DURATION_MS" "${LOAD_FLAGS[@]}" \
+  "$WORK/benchharness" gen-trace --seed "$(seed_for_rep "$rep")" --duration-ms "$DURATION_MS" "${LOAD_FLAGS[@]}" \
     --study "$STUDY" --arm "$label" --model "$MODEL" --gateway-url "http://127.0.0.1:18080" \
     --engine-image "$ENGINE_IMAGE" --gateway-image "$GATEWAY_IMAGE_REF" --gateway-sha "$SOURCE_COMMIT" \
     --tokenizer-rev "$MODEL_REVISION" \

@@ -94,6 +94,8 @@ func main() {
 		err = studyArrivals(os.Args[2:])
 	case "study-frozen-tuple":
 		err = studyFrozenTuple(os.Args[2:])
+	case "study-traces":
+		err = studyTraces(os.Args[2:])
 	case "compile-plan":
 		err = compilePlan(os.Args[2:])
 	case "sim-cap":
@@ -199,6 +201,29 @@ func studyArrivals(args []string) error {
 		return err
 	}
 	fmt.Println(model)
+	return nil
+}
+
+// studyTraces prints whether a study replays one trace in every repetition or one per repetition.
+//
+// The runner chooses each repetition's seed from it, so a run of a per-repetition study cannot reach a card
+// with the one seed every archive before 2026-10-04 used -- the report would refuse that run's evidence, but
+// only after the cells were paid for.
+func studyTraces(args []string) error {
+	fs := flag.NewFlagSet("study-traces", flag.ExitOnError)
+	study := fs.String("study", "", "registered study id")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	st, ok := bench.LookupStudy(*study)
+	if !ok {
+		return fmt.Errorf("study %q is not registered; known: %s", *study, strings.Join(bench.KnownStudyIDs(), ", "))
+	}
+	if st.TracesVaryByRepetition {
+		fmt.Println("per-repetition")
+	} else {
+		fmt.Println("one")
+	}
 	return nil
 }
 
@@ -893,6 +918,8 @@ type repSummary struct {
 	done     map[string]int
 	served   map[string]float64
 	censored bool
+	// checksum is this repetition's trace, kept per repetition because a study can give each its own.
+	checksum string
 }
 
 // armEvidence is every arm's rows plus the per-repetition shape the pooled rows cannot carry.
@@ -965,6 +992,8 @@ type armEvidence struct {
 	studyRecorded string
 	studySeen     bool
 	studyFrom     string
+	// tracesVary is the study's TracesVaryByRepetition, read once with the study.
+	tracesVary bool
 	// repFrom maps an (arm, repID) to the file that carried it, so a duplicate identity can name both
 	// files -- and it spans the WHOLE input set rather than one directory, because a glob over two run
 	// directories is exactly how the same repetition number arrives twice.
@@ -1228,6 +1257,7 @@ func loadArmEvidence(rawFiles []string) (*armEvidence, error) {
 			done:     done,
 			served:   served,
 			censored: rs.Censored,
+			checksum: rows[0].TraceChecksum,
 		})
 		// Every repetition's checksum, not the last one's.
 		//
@@ -1235,7 +1265,20 @@ func loadArmEvidence(rawFiles []string) (*armEvidence, error) {
 		// from a different trace was invisible to refuseIfTracesDisagree -- the one check whose entire job is
 		// to prove the arms saw identical traffic. The trigger is a workflow this runner endorses: re-running
 		// one botched arm into the same output directory.
-		if prev, ok := e.checksum[arm]; ok && prev != rows[0].TraceChecksum {
+		//
+		// A study that registered a trace per repetition inverts the rule: two repetitions of one arm sharing
+		// a trace are the defect, because they are one draw of the arrival process counted twice. Every
+		// earlier repetition is compared, not the previous one, so a third repeating the first is caught.
+		e.tracesVary = st.TracesVaryByRepetition
+		if st.TracesVaryByRepetition {
+			for _, earlier := range e.reps[arm][:len(e.reps[arm])-1] {
+				if earlier.checksum == rows[0].TraceChecksum {
+					return nil, fmt.Errorf("arm %s repetitions %d and %d replayed the same trace (%s), and study %s registers a trace per repetition;"+
+						" the second is the first draw of the arrival process measured again, so the seed was not varied",
+						arm, earlier.repID, repID, rows[0].TraceChecksum, study)
+				}
+			}
+		} else if prev, ok := e.checksum[arm]; ok && prev != rows[0].TraceChecksum {
 			return nil, fmt.Errorf("arm %s has repetitions replayed from different traces (%s and %s); its rows are pooled into one summary, so mixing them compares an arm against itself across two workloads", arm, prev, rows[0].TraceChecksum)
 		}
 		e.checksum[arm] = rows[0].TraceChecksum
@@ -1287,6 +1330,11 @@ func loadArmEvidence(rawFiles []string) (*armEvidence, error) {
 // refuseIfTracesDisagree stops a comparison whose arms did not replay the same trace, or did not finish
 // replaying it.
 func (e *armEvidence) refuseIfTracesDisagree() error {
+	// A study with a trace per repetition holds the same two properties per REPETITION instead of per arm,
+	// and adds the pairing a shared trace used to guarantee by construction.
+	if e.tracesVary {
+		return e.refuseIfRepetitionsDisagree()
+	}
 	// The contended arms must have replayed identical traffic, so their trace checksums must match.
 	//
 	// R1 legitimately differs (it is the same trace with the contender filtered out).
@@ -1388,6 +1436,70 @@ func (e *armEvidence) refuseIfTracesDisagree() error {
 		}
 	}
 	return nil
+}
+
+// refuseIfRepetitionsDisagree is refuseIfTracesDisagree for a study whose repetitions replay their own traces.
+//
+// What one shared trace guaranteed without a check now needs one: that the isolated baseline of repetition
+// r is the partner of the contended arm's repetition r. The baseline's trace is the contended trace with
+// the contender filtered out, so its checksum cannot be compared; its latency-critical SCHEDULE can, and is
+// the thing the pairing is for -- a baseline drawn from another seed would compare two different arrival
+// sequences and report their difference as interference.
+//
+// The same comparison is what catches a recording cut short. The per-arm path compares row counts between
+// contended arms that share a trace; in these studies each comparison group holds one contended arm, so
+// there is no sibling to compare against, and a check written for one would never run. A cut recording
+// drops latency-critical rows, so its schedule no longer matches its baseline's and it is refused here.
+func (e *armEvidence) refuseIfRepetitionsDisagree() error {
+	for _, arm := range e.contendedArms() {
+		for _, r := range e.reps[arm] {
+			if r.checksum == "" {
+				return fmt.Errorf("arm %s repetition %d carries no trace checksum; regenerate its manifest with a current gen-trace", arm, r.repID)
+			}
+		}
+	}
+	baselines := make([]string, 0, len(e.reps))
+	for arm := range e.reps {
+		if bench.IsIsolatedBaseline(arm) {
+			baselines = append(baselines, arm)
+		}
+	}
+	sort.Strings(baselines)
+	for _, base := range baselines {
+		g := comparisonGroup(base)
+		for _, br := range e.reps[base] {
+			want := premiumSchedule(br.rows)
+			for _, arm := range e.contendedArms() {
+				if comparisonGroup(arm) != g {
+					continue
+				}
+				for _, cr := range e.reps[arm] {
+					if cr.repID != br.repID {
+						continue
+					}
+					if got := premiumSchedule(cr.rows); !slices.Equal(want, got) {
+						return fmt.Errorf("repetition %d of %s and of %s offer %s different schedules (%d and %d requests);"+
+							" a baseline is the same draw of the arrival process with the contender removed, so either the two"+
+							" were generated from different seeds or one recording stopped early, and their difference is not interference",
+							br.repID, base, arm, bench.PremiumTenant, len(want), len(got))
+					}
+				}
+			}
+		}
+	}
+	return nil
+}
+
+// premiumSchedule is the latency-critical tenant's scheduled offsets, sorted.
+func premiumSchedule(rows []bench.RawRow) []int64 {
+	var out []int64
+	for _, r := range rows {
+		if r.Tenant == bench.PremiumTenant {
+			out = append(out, r.ScheduledOffsetMs)
+		}
+	}
+	slices.Sort(out)
+	return out
 }
 
 // pairedBlocks returns the two arms' repetition BLOCKS under the identities they share, for the M5-b

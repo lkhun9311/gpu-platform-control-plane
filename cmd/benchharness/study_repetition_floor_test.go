@@ -64,9 +64,15 @@ func floorFixture(t *testing.T, study string, reps int) *armEvidence {
 	dir := t.TempDir()
 	var paths []string
 	for _, arm := range s.Arms[:2] {
-		base := rowsFor(study, arm, "T")
 		for i := 1; i <= reps; i++ {
-			rows := base
+			// A study registering a trace per repetition refuses two repetitions of one trace, so its fixture
+			// draws one per repetition; the latency-critical schedule rowsFor writes is the same in every
+			// repetition and in both arms, which keeps the baseline paired with its contended repetition.
+			sum := "T"
+			if s.TracesVaryByRepetition {
+				sum = "T" + strconv.Itoa(i)
+			}
+			rows := rowsFor(study, arm, sum)
 			for j := 1; j < i; j++ {
 				rows = replayedAgain(rows)
 			}
