@@ -174,6 +174,33 @@ if [ -n "$LADDER" ]; then
   [ -z "$REPS_FROM_CALLER" ] || fail "REPS and LADDER are both set. Ladder rungs are different loads rather than repetitions of one, and pooling two of them would report a p99 for a load that was never offered."
 fi
 
+# WHICH STUDY THE NON-LADDER PATH FILES ITS EVIDENCE UNDER, decided here rather than three hundred lines down.
+#
+# This used to be `STUDY=sharing-matrix-2026-09-10`, an unconditional assignment in the matrix branch that
+# read nothing from the environment. Measured on 2026-10-04: passing STUDY=tail-crossing-lc256-2026-10-04
+# with the frozen five produced "PLAN OK: every planned cell generates a trace the readings can score" and
+# the requested study appeared NOWHERE in the output -- the plan stood under sharing-matrix-2026-09-10. The
+# two tail-crossing studies freeze the same five load quantities as the sharing matrix at the short level,
+# so `refuse_unfrozen_load` compared against the overwritten study and passed as well. A check that cannot
+# tell "ran under the study I asked for" from "ran under a different one" is this repository's commonest
+# defect, and it was sitting on the last gate before a purchase.
+#
+# Decided BEFORE the compiled-CR block, which is what makes the STUDY_FROM_CR comparison below possible at
+# all: that guard had to compare against a literal because $STUDY did not exist yet when it ran. Placing it
+# here costs nothing -- `[ -n "$LADDER" ] && fail` inside that block already refuses a ladder beside a CR, so
+# the ladder's own study assignment cannot collide with this one.
+#
+# The allow-list follows the ladder's precedent at LADDER_STUDY rather than inventing a second shape, and for
+# the reason that refusal gives: gen-trace does NOT check the arm against the study, so an unregistered id
+# travels as far as replay's manifest validation -- which fires on the rented card after the engines are up.
+if [ -z "$LADDER" ]; then
+  STUDY="${STUDY:-sharing-matrix-2026-09-10}"
+  case "$STUDY" in
+    sharing-matrix-2026-09-10|tail-crossing-lc256-2026-10-04|tail-crossing-lc8192-2026-10-04) ;;
+    *) fail "STUDY is ${STUDY@Q}; the non-ladder matrix files evidence under sharing-matrix-2026-09-10, tail-crossing-lc256-2026-10-04 or tail-crossing-lc8192-2026-10-04. An unregistered id is not refused by gen-trace -- it writes a manifest for any string -- so this refusal is the one that stops it before anything is rented" ;;
+  esac
+fi
+
 # A compiled CR owns the load, and the environment may not quietly disagree with it.
 #
 # `benchharness compile-plan` turns a GpuSharingBenchmark into exactly the exports below and sets
@@ -229,10 +256,15 @@ if [ -n "${BENCHMARK_CR_SHA256:-}" ]; then
   # this load under a weighted arrival model. If the two disagree, the trace was built for one experiment
   # and the evidence would be filed under another.
   #
-  # Carried under its own name because this script owns STUDY: overwriting it from the environment would let
-  # a compiled block re-file the frozen matrix as something else, which is the opposite of the check.
-  if [ -n "${STUDY_FROM_CR:-}" ] && [ -z "$LADDER" ] && [ "$STUDY_FROM_CR" != "sharing-matrix-2026-09-10" ]; then
-    fail "the plan was compiled for study $STUDY_FROM_CR but this run files its evidence under sharing-matrix-2026-09-10. The arrival model the rates were translated under belongs to the compiled study, so the trace would not be the load this study registered."
+  # Carried under its own name because the two arrive by different routes: compile-plan prints both STUDY and
+  # STUDY_FROM_CR, and hack/m5c-gpu-session.sh bakes only the latter into the instance. Comparing them is what
+  # catches a block compiled for one experiment sourced into a run filing evidence under another.
+  #
+  # Compared against $STUDY rather than against a literal, now that the block above has decided $STUDY before
+  # this line runs. The literal was not a style choice -- $STUDY genuinely did not exist here -- and it meant
+  # this guard could only ever defend one study. It now defends whichever the run declared.
+  if [ -n "${STUDY_FROM_CR:-}" ] && [ -z "$LADDER" ] && [ "$STUDY_FROM_CR" != "$STUDY" ]; then
+    fail "the plan was compiled for study $STUDY_FROM_CR but this run files its evidence under $STUDY. The arrival model the rates were translated under belongs to the compiled study, so the trace would not be the load this study registered."
   fi
   say "load compiled from a GpuSharingBenchmark, sha256 $BENCHMARK_CR_SHA256"
 fi
@@ -456,7 +488,8 @@ if [ -n "$LADDER" ]; then
   # stops on. It is counted here so the deadline projection does not discover it at the end.
   cells_total=$(( ${#CELLS[@]} + 1 ))
 else
-  STUDY=sharing-matrix-2026-09-10
+  # STUDY was decided above, before the compiled-CR block, so that the STUDY_FROM_CR comparison could use it.
+  # The unconditional assignment that used to sit on this line discarded whatever the caller asked for.
   for rep in $(seq 1 "$REPS"); do
     for arm in $ARMS; do
       CELLS+=("$arm|$arm|$rep|$RATE|$NOISY_WEIGHT|0")
@@ -607,7 +640,10 @@ if [ -n "${PLAN_ONLY:-}" ]; then
   done
   [ "$plan_failures" = 0 ] \
     || fail "$plan_failures planned cell(s) could not be scored as specified. Nothing was rented. Fix the load or the study and re-check -- this is the refusal that used to arrive after a bring-up"
-  say "PLAN OK: every planned cell generates a trace the readings can score. Nothing was rented."
+  # The study is named in the verdict, because a reader of "PLAN OK" cannot otherwise tell which experiment
+  # was planned. On 2026-10-04 this line printed a pass for a plan standing under a study the caller had not
+  # asked for, and nothing in the output contradicted them.
+  say "PLAN OK under study $STUDY: every planned cell generates a trace the readings can score. Nothing was rented."
   exit 0
 fi
 

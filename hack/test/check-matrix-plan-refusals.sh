@@ -493,6 +493,69 @@ fz_case "a contender output cap that is not frozen"    "contender output cap"   
 # values, just assigned to the wrong tenants.
 fz_case "the two output caps swapped" "output cap" PREMIUM_OUTPUT_TOKENS=16 NOISY_OUTPUT_TOKENS=64
 
+# THE PLAN RAN UNDER THE STUDY THAT WAS ASKED FOR, which every check above is blind to.
+#
+# `fz_case ... ok` greps for "load matches study" and does not read WHICH study followed those words. That is
+# exactly the shape of the defect this section exists for. Measured on 2026-10-04 against the previous
+# revision: `STUDY=tail-crossing-lc256-2026-10-04` with the frozen five printed
+# "PLAN OK: every planned cell generates a trace the readings can score", the requested id appeared NOWHERE
+# in the output, and the plan stood under sharing-matrix-2026-09-10 -- because the matrix branch assigned
+# that id unconditionally. The two tail-crossing studies freeze the same five quantities as the sharing
+# matrix at the short level, so the frozen-tuple comparison above passed as well: two checks green, and the
+# experiment the operator asked for was never planned.
+#
+# So the assertion is on the IDENTITY in the output, not on the exit code. A run that cannot name the study
+# it planned cannot be audited afterwards either -- the archive's load-source.txt carries the same value.
+study_case() { # <what> <study> <premium-chars> <noisy-chars>
+  local what="$1" study="$2" pchars="$3" nchars="$4" out code
+  set +e
+  out=$(env "${fz_env[@]}" STUDY="$study" PREMIUM_PROMPT_CHARS="$pchars" NOISY_PROMPT_CHARS="$nchars" \
+        bash hack/m5c-matrix.sh 2>&1)
+  code=$?
+  set -e
+  if [ "$code" != 0 ]; then
+    bad "$what exited $code instead of planning: $(printf '%s' "$out" | grep -iE 'mismatch|FAILED' | head -1)"
+    return
+  fi
+  # Both places the id has to appear: the frozen-load line proves the comparison used it, and the verdict
+  # proves a reader of the last line can tell which experiment passed.
+  printf '%s' "$out" | grep -q "load matches study $study" \
+    || { bad "$what planned, but the frozen-load line does not name $study: $(printf '%s' "$out" | grep -i 'load matches' | head -1)"; return; }
+  printf '%s' "$out" | grep -q "PLAN OK under study $study" \
+    || { bad "$what planned, but the verdict does not name $study: $(printf '%s' "$out" | grep -i 'PLAN OK' | head -1)"; return; }
+  ok "$what plans under $study and both the comparison and the verdict say so"
+}
+
+# Each registered level, at ITS OWN frozen load. The short level shares the sharing matrix's five values,
+# which is why naming it is the only way to tell the two apart.
+study_case "the sharing matrix"          sharing-matrix-2026-09-10      1174  42579
+study_case "the short latency-sensitive level" tail-crossing-lc256-2026-10-04 1174  42579
+study_case "the long latency-sensitive level"  tail-crossing-lc8192-2026-10-04 42579 42579
+
+# A study this path does not file evidence under is refused BEFORE a trace is generated.
+#
+# Each of these is registered -- they are not typos -- and each would be caught eventually by a later guard
+# for a different reason: the ladder studies reach the per-cell scoring floor, and price-of-protection has no
+# frozen tuple. Measured: removing the allow-list leaves both red, with messages about cells that cannot be
+# scored and a tuple that cannot be read. So this is pinned as a question about WHEN and WITH WHAT WORDS the
+# refusal arrives, which is what an operator reads, and not as the only thing standing between them and a
+# mis-filed run.
+study_refused() { # <what> <study>
+  local what="$1" study="$2" out code
+  set +e
+  out=$(env "${fz_env[@]}" STUDY="$study" PREMIUM_PROMPT_CHARS=1174 NOISY_PROMPT_CHARS=42579 \
+        bash hack/m5c-matrix.sh 2>&1)
+  code=$?
+  set -e
+  [ "$code" != 0 ] || { bad "$what was ACCEPTED by the non-ladder matrix"; return; }
+  printf '%s' "$out" | grep -q "STUDY is .$study." \
+    && ok "$what is refused by name, ahead of trace generation" \
+    || bad "$what exited $code without the allow-list naming it: $(printf '%s' "$out" | grep -iE 'FAILED' | head -1)"
+}
+study_refused "a ladder study on the matrix path" throughput-ladder-2026-09-13
+study_refused "the price-of-protection study"     price-of-protection-2026-08-07
+study_refused "an unregistered id"                not-a-study-2026
+
 # A failing, silent or short lookup must refuse rather than fall back to the script's defaults.
 #
 # Falling back is precisely how an unchecked load reached a rented card: hack/m5c-matrix.sh declares all five
@@ -574,7 +637,7 @@ fz_calls=$(grep -c 'refuse_unfrozen_load' hack/m5c-matrix.sh || true)
 
 echo
 if [ "$failures" = "0" ]; then
-  say "MATRIX PLAN REFUSALS PINNED: fifteen cells, the per-repetition tail floor, the missing denominator, the ladder unchanged, the backstop still ahead of the deadline, and a reproduction claim checked against the load it names, and a load that differs from the study's frozen tuple refused on both paths ahead of the first spend."
+  say "MATRIX PLAN REFUSALS PINNED: fifteen cells, the per-repetition tail floor, the missing denominator, the ladder unchanged, the backstop still ahead of the deadline, and a reproduction claim checked against the load it names, and a load that differs from the study's frozen tuple refused on both paths ahead of the first spend, and the plan standing under the study that was asked for -- named in the comparison and in the verdict, because the three registered levels share enough of their frozen tuples that an exit code cannot tell them apart."
 else
   echo "FAILED: $failures assertion(s) above." >&2
   exit 1
