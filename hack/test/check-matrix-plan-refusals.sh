@@ -615,6 +615,30 @@ sweep_case "a held rate with no sweep" "PREMIUM_RATE is set without SWEEP" SWEEP
 sweep_case "a sweep with no held rate" "PREMIUM_RATE is not" PREMIUM_RATE=
 sweep_case "seven levels" "admit six levels" SWEEP="0.01 0.02 0.03 0.04 0.05 0.06 0.07"
 sweep_case "one rate twice" "repeats a rate" SWEEP="0.0286 0.0286"
+sweep_case "one rate spelled two ways" "repeats a rate" SWEEP="0.0286 0.02860"
+# The banner the REAL path prints, run under `set -u` with each mode's variables and nothing else.
+#
+# PLAN_ONLY exits before it, so every plan case above passes whether or not it works, and the sweep's first
+# version died on it with "RATE: unbound variable" -- after the cluster and the images were built, on the
+# path a paid run takes. The ladder had already died there once for the same reason.
+lb=$(awk '/^load_banner\(\) \{/ {i=1} i {print} i && /^\}/ {exit}' hack/m5c-matrix.sh)
+lb_run() { # <mode> -> exit status of the banner under set -u with only that mode's variables
+  env -i PATH="$PATH" bash -c 'set -u; say() { echo "$*"; }; '"$lb"'
+    DURATION_MS=600000 PREMIUM_WEIGHT=1 PROBE_WEIGHT=0 REPS=2 PLATFORM=eks OUT=/x STUDY=s
+    case "$1" in
+      sweep)  LADDER=""; SWEEP="0.0286 0.0716"; PREMIUM_RATE=0.2864; SEEDS="7 8"; ARMS="R1 be01-shared be02-shared" ;;
+      ladder) LADDER="1:0.5 2:0.5"; SWEEP="" ;;
+      matrix) LADDER=""; SWEEP=""; RATE=9.4; NOISY_WEIGHT=0.026; ARMS="R1 shared" ;;
+    esac
+    load_banner' _ "$1" 2>&1
+}
+for mode in sweep ladder matrix; do
+  if out=$(lb_run "$mode"); then
+    ok "the real path's load banner runs under set -u for a $mode: $(printf '%s' "$out" | head -1 | cut -c1-90)"
+  else
+    bad "the real path's load banner dies for a $mode: $out"
+  fi
+done
 sweep_case "a rate that is not a number" "not a plain positive decimal" SWEEP="0.02x"
 sweep_case "a rate of zero" "is not positive" SWEEP="0"
 

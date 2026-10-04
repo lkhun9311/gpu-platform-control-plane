@@ -234,7 +234,9 @@ if [ -n "$SWEEP" ]; then
   # internal/bench admits be01-shared .. be06-shared; a seventh level would be named and then refused by the
   # report as an arm the study does not have.
   [ "$sweep_n" -le 6 ] || fail "SWEEP names $sweep_n BE rates and the tail-crossing studies admit six levels"
-  [ "$(printf '%s\n' $SWEEP | awk 'NF && !seen[$1]++ {c++} END {print c+0}')" = "$sweep_n" ] \
+  # Compared as NUMBERS: 0.0286 and 0.02860 are one rate, and as strings they passed as two levels -- found
+  # by an independent review, which bought the same condition twice under two names in a plan check.
+  [ "$(printf '%s\n' $SWEEP | awk 'NF { k = sprintf("%.12g", $1 + 0); if (!seen[k]++) c++ } END {print c+0}')" = "$sweep_n" ] \
     || fail "SWEEP repeats a rate ($SWEEP); two levels at one rate are one condition under two names"
   ARMS="R1"
   for i in $(seq 1 "$sweep_n"); do ARMS="$ARMS $(printf 'be%02d-shared' "$i")"; done
@@ -482,6 +484,25 @@ seed_for_rep() {
     printf '%s\n' $SEEDS | sed -n 1p
   fi
 }
+# load_banner says what this run offers, in the terms of its mode.
+#
+# A function at column zero so a harness can run THIS code under `set -u`. RATE and NOISY_WEIGHT do not
+# exist in ladder or sweep mode, and naming them here is not cosmetic: the first ladder rehearsal died on
+# this line with "RATE: unbound variable" after building the cluster and both images, and the sweep's first
+# version reached it the same way -- PLAN_ONLY never runs it, so an independent review found it, not a test.
+load_banner() {
+  if [ -n "$LADDER" ]; then
+    say "load: a ladder of $(printf '%s\n' $LADDER | wc -l | tr -d ' ') rungs, ${DURATION_MS}ms per cell, weights premium=$PREMIUM_WEIGHT probe=$PROBE_WEIGHT"
+    say "      rungs: $LADDER (read under study $STUDY's registered arrival model)"
+    say "run:  the two contended topologies at every rung, counterbalanced, plus one isolated baseline cell, on $PLATFORM, output $OUT"
+  elif [ -n "$SWEEP" ]; then
+    say "load: a sweep, ${DURATION_MS}ms per cell, latency-critical held at ${PREMIUM_RATE}/s, best-effort at $SWEEP /s, seeds ${SEEDS:-11 in every repetition}"
+    say "run:  ${REPS} repetitions of [$ARMS] on $PLATFORM, output $OUT"
+  else
+    say "load: rate ${RATE}/s, ${DURATION_MS}ms per arm, weights premium=$PREMIUM_WEIGHT noisy=$NOISY_WEIGHT probe=$PROBE_WEIGHT"
+    say "run:  ${REPS} repetitions of [$ARMS] on $PLATFORM, output $OUT"
+  fi
+}
 # refuse_unfrozen_load compares the load this run will OFFER against the tuple its study froze.
 #
 # The registration froze five quantities on 2026-10-01 -- premium and contender prompt characters, the
@@ -650,6 +671,9 @@ mkdir -p "$OUT" || fail "cannot create $OUT"
 # line at which both the effective values and the output directory exist.
 {
   printf 'study: %s\n' "${STUDY:-<unset at this point>}"
+  # The sweep's whole load, because a cell's manifest carries only its own level and seed.
+  [ -z "$SWEEP" ] || printf 'sweep: best-effort %s /s with latency-critical held at %s /s\n' "$SWEEP" "$PREMIUM_RATE"
+  printf 'seeds: %s\n' "${SEEDS:-11 in every repetition}"
   for v in PREMIUM_PROMPT_CHARS NOISY_PROMPT_CHARS REQUEST_TIMEOUT_MS \
            PREMIUM_OUTPUT_TOKENS NOISY_OUTPUT_TOKENS MODEL_REVISION; do
     snap="${v}_FROM_CALLER"
@@ -1936,17 +1960,7 @@ EOF
 # This line used to recompute DURATION_MS as 500/(RATE/2), which silently overwrote whatever was passed --
 # so a caller that had derived a trace length on the card would have had it replaced by an arithmetic that
 # assumes an even tenant split.
-if [ -n "$LADDER" ]; then
-  # RATE and NOISY_WEIGHT do not exist in ladder mode -- they are per rung, and the refusals above make sure
-  # nobody passed one. Under `set -u` naming them here is not a cosmetic difference: the first ladder
-  # rehearsal died on this line with "RATE: unbound variable", after building the cluster and both images.
-  say "load: a ladder of $(printf '%s\n' $LADDER | wc -l | tr -d ' ') rungs, ${DURATION_MS}ms per cell, weights premium=$PREMIUM_WEIGHT probe=$PROBE_WEIGHT"
-  say "      rungs: $LADDER (read under study $STUDY's registered arrival model)"
-  say "run:  the two contended topologies at every rung, counterbalanced, plus one isolated baseline cell, on $PLATFORM, output $OUT"
-else
-  say "load: rate ${RATE}/s, ${DURATION_MS}ms per arm, weights premium=$PREMIUM_WEIGHT noisy=$NOISY_WEIGHT probe=$PROBE_WEIGHT"
-  say "run:  ${REPS} repetitions of [$ARMS] on $PLATFORM, output $OUT"
-fi
+load_banner
 
 # Measured, like the M6 wrapper's: after the first cell, the elapsed time IS the budget, and it knows the
 # node's real speed and how long the rollouts actually took rather than how long they were allowed to take.
