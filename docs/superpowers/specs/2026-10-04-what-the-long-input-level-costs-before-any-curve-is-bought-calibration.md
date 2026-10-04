@@ -141,3 +141,20 @@ measurement of the curve.
 The design in this page was approved on 2026-10-04 — one level, two arms, two repetitions, four cells, at
 the load in section 3. **That approval is of the design.** The purchase itself needs its own approval at the
 time it is started, and nothing in this page, and no engine's recommendation, substitutes for it.
+
+## Amendment, 2026-10-04 — the cell-2 failure is identified, and it is what ended this calibration
+
+**What happened to the purchase.** The run `m5c-20261004-061935`, at commit `6f2bb11`, completed cell 1 (`R1` repetition 1, 178 rows, 1,049 s) and ended in cell 2 with `matrix exited 1`. Its log stops after the engine's allocation lines for `shared` and prints no refusal. Three of the four cells were not bought, so section 5's outcome is **judgment insufficient**: one repetition of one arm.
+
+**The cause, and how it was established.** `refuse_unfrozen_load` in `hack/m5c-matrix.sh`, added by `e4de8ac` on 2026-10-03 08:36 +0900, read `set +e; out=$(...); rc=$?; set -e`. The script runs under `set -uo pipefail` and never had errexit, so that `set -e` switched errexit on for every line after the first call. The first command to fail after it was the gateway forward's `kill "$PF_PID"; wait "$PF_PID"` at the start of the second cell — `wait` returns the killed forward's status — and errexit ended the matrix there with no message. Cell 1 has no previous forward, which is why every failure was at cell 2.
+
+| Evidence | What it shows | By |
+|---|---|---|
+| The kind rehearsal of the default matrix, rerun after the fix (`2916f56`) | **All four cells completed and the readings were evaluated** — the rehearsal this page's precondition 5 records as failing at cell 2 since 2026-10-03 | Me, on a local kind cluster with stub engines |
+| `e4de8ac`'s date against that precondition's "since 2026-10-03" | The failure began when the toggle arrived | Me, `git log` |
+| The paid run's log | It stops at the same point the mechanism predicts and prints nothing | Me, reading `log.txt` |
+| A sweep rehearsal that died with status 143 on the same `kill; wait` pattern in the new engine-metrics scrape | The mechanism, observed directly | Me, which is how the cause was found |
+
+**What is NOT established.** The paid run was not repeated, so that its exit came from this line is an inference from where its log stops and from the rehearsal, not a reproduction on the card. It exited 1 where the rehearsal exited 143; `wait` returns whatever status the killed forward reported, and which one a real `kubectl port-forward` reports on SIGTERM on that instance was not checked.
+
+**What changed so it cannot recur silently.** `refuse_unfrozen_load` no longer touches the shell's options; both `kill; wait` sites tolerate a non-zero status; `hack/test/check-matrix-plan-refusals.sh` holds that the function returns with the caller's options unchanged and that no line of the matrix runs `set -e`; and the engine-metrics harness runs its function under errexit. Precondition 5 is **MET** as of `2916f56` for the default matrix. A repeat of this calibration needs its own approval, and nothing on this page authorises one.
