@@ -287,3 +287,36 @@ func TestTheReportPrintsTheTailCrossingReadingsForASweep(t *testing.T) {
 		}
 	}
 }
+
+// The same through the real command: the identities are only known to the loader, so this is what proves
+// they reach the reading.
+func TestTheReportRefusesALevelWhoseRepetitionsAreNotTheBaselines(t *testing.T) {
+	study := bench.StudyTailCrossingShortLC
+	dir := t.TempDir()
+	sched := func(seed int64) []int64 {
+		out := make([]int64, 120)
+		for i := range out {
+			out[i] = int64(i)*500 + seed
+		}
+		return out
+	}
+	paths := []string{
+		writeRaw(t, dir, "raw-R1-1.jsonl", scheduledRows(study, bench.ArmR1, "r1a", sched(1))),
+		writeRaw(t, dir, "raw-R1-2.jsonl", scheduledRows(study, bench.ArmR1, "r1b", sched(2))),
+		writeRaw(t, dir, "raw-be01-shared-1.jsonl", scheduledRows(study, level1, "l1a", sched(1))),
+		writeRaw(t, dir, "raw-be01-shared-3.jsonl", scheduledRows(study, level1, "l1c", sched(3))),
+	}
+	outPath := filepath.Join(dir, "report.txt")
+	args := []string{"-out", outPath}
+	for _, p := range paths {
+		args = append(args, "-raw", p)
+	}
+	_ = report(args)
+	body, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatalf("the report wrote nothing: %v", err)
+	}
+	if !strings.Contains(string(body), "NOT READ: "+level1+" pooled repetitions [1 3]") {
+		t.Errorf("a level holding repetitions 1 and 3 was read against a baseline holding 1 and 2:\n%s", body)
+	}
+}

@@ -1775,6 +1775,9 @@ func (e *armEvidence) summarize() ([]bench.ArmSummary, map[string]bench.ArmSumma
 			// The per-repetition tails travel with the summary too, because the price-of-protection run's
 			// reading 3 needs the CONTROL'S spread as its threshold and a pooled p99 cannot supply it.
 			s.RepetitionTTFTMsP99 = append([]float64(nil), e.repP99[arm]...)
+			for _, r := range e.reps[arm] {
+				s.RepetitionIDs = append(s.RepetitionIDs, r.repID)
+			}
 			// The pooled span Summarize just computed spans the washouts between repetitions, so replace it
 			// with the sum of the repetitions' own spans, which is the time the arm was actually sending.
 			if spans := e.repSeconds[arm]; len(spans) > 0 {

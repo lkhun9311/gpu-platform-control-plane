@@ -129,3 +129,25 @@ func TestTheReadingsPrintNoVerdictAndNameTheEstimand(t *testing.T) {
 		t.Error("an empty result printed a block")
 	}
 }
+
+// Equal counts are not the same draws: R1 holding repetitions {1,2} and a level holding {1,3} pool two
+// different sets of arrival processes, and the count alone called them paired -- found by an independent
+// review, which printed normal multiples for exactly that evidence.
+func TestALevelPooledOverOtherRepetitionsThanTheBaselineIsRefused(t *testing.T) {
+	base := levelSummary(ArmR1, 62, 65, []float64{64, 66}, 170)
+	base.RepetitionIDs = []int{1, 2}
+	other := levelSummary(TailCrossingArm(1), 70, 80, []float64{70, 90}, 170)
+	other.RepetitionIDs = []int{1, 3}
+	same := levelSummary(TailCrossingArm(2), 70, 80, []float64{70, 90}, 170)
+	same.RepetitionIDs = []int{1, 2}
+	r := EvaluateTailCrossing(StudyTailCrossingShortLC, []ArmSummary{base, other, same})
+	if len(r.Levels) != 2 {
+		t.Fatalf("got %d levels", len(r.Levels))
+	}
+	if !strings.Contains(r.Levels[0].InvalidReason, "[1 3]") || !strings.Contains(r.Levels[0].InvalidReason, "[1 2]") {
+		t.Errorf("a level pooled over repetitions {1,3} against a baseline over {1,2} was not refused naming both: %q", r.Levels[0].InvalidReason)
+	}
+	if r.Levels[1].InvalidReason != "" {
+		t.Errorf("a level over the baseline's own repetitions was refused: %s", r.Levels[1].InvalidReason)
+	}
+}

@@ -259,6 +259,10 @@ type ArmSummary struct {
 	// repetition-to-repetition spread, so without these the reading has no threshold and must decline to
 	// decide rather than report a cell as failing to beat noise nobody measured.
 	RepetitionTTFTMsP99 []float64
+	// RepetitionIDs are the repetitions this arm pooled, in the order RepetitionTTFTMsP99 lists them, attached
+	// by the caller that read them from the raw file names. A count cannot stand in for them: an independent
+	// review showed R1 holding repetitions 1 and 2 beside a level holding 1 and 3 read as a paired comparison.
+	RepetitionIDs []int
 	// DispositionByTenant is what happened to each tenant's offered requests, and it exists because a share
 	// alone cannot say why a share is small.
 	//

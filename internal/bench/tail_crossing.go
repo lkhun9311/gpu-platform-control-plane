@@ -18,6 +18,7 @@ package bench
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 )
 
@@ -117,6 +118,11 @@ func tailCrossingRefusal(s ArmSummary, base *ArmSummary) string {
 	case base != nil && s.RepetitionCount != base.RepetitionCount:
 		return fmt.Sprintf("%s pooled %d trace(s) against the baseline's %d, so the two are not the same draws of the arrival process",
 			s.Arm, s.RepetitionCount, base.RepetitionCount)
+	// Equal counts over different repetitions are different draws too: repetition r is seed r's trace, and
+	// a level holding {1,3} beside a baseline holding {1,2} compares two arrival processes for one of its two.
+	case base != nil && !slices.Equal(s.RepetitionIDs, base.RepetitionIDs):
+		return fmt.Sprintf("%s pooled repetitions %v against the baseline's %v, so the two are not the same draws of the arrival process",
+			s.Arm, s.RepetitionIDs, base.RepetitionIDs)
 	}
 	return ""
 }
