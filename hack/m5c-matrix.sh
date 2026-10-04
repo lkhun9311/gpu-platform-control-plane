@@ -2357,8 +2357,9 @@ cell_deadline_check_inner() {
 #
 # Usage: scrape_engine_metrics <topology> <label> <rep> <before|after>
 scrape_engine_metrics() {
-  local topology="$1" label="$2" rep="$3" phase="$4" targets t ns deploy suffix base pf tries i reason
+  local topology="$1" label="$2" rep="$3" phase="$4" targets t ns deploy suffix base pf tries port i reason bound
   tries="${METRICS_SCRAPE_TRIES:-15}"
+  port="${METRICS_PORT:-18081}"
   case "$topology" in
     R1 | shared) targets="$NS_A|vllm-qwen25-3b|" ;;
     timeSlicing | mps) targets="$NS_A|vllm-shared-a|-a $NS_B|vllm-shared-b|-b" ;;
@@ -2373,23 +2374,44 @@ scrape_engine_metrics() {
     # The forward's log goes to $WORK and not into $OUT: its content belongs in the .err when the scrape
     # fails, and a third file per phase would be one more output for the accounting to explain.
     pf="$WORK/engine-metrics-pf.log"
-    kubectl --context "$KCTX" port-forward -n "$ns" "deploy/$deploy" 18081:8000 >"$pf" 2>&1 &
+    # A page read from a port this forward does not own would be another engine's counters filed under this
+    # cell's name, so ownership is proved twice: the port is free before the forward starts, and kubectl has
+    # said it bound the port before anything is read. A live kubectl pid alone proves neither -- an external
+    # review showed the first curl can succeed against a leftover forward while the new kubectl is still
+    # resolving its target and has not tried to bind yet.
+    if (exec 3<>"/dev/tcp/127.0.0.1/$port") 2>/dev/null; then
+      printf '%s was already held before this forward started, so a page read from it would belong to whatever held it\n' "$port" > "$base.err"
+      continue
+    fi
+    kubectl --context "$KCTX" port-forward -n "$ns" "deploy/$deploy" "$port:8000" >"$pf" 2>&1 &
     local pf_pid=$!
     reason="the engine did not answer /metrics within $tries attempts"
+    bound=0
     for i in $(seq 1 "$tries"); do
-      if curl -fsS --max-time 5 -o "$base.prom.part" "http://127.0.0.1:18081/metrics" 2>/dev/null; then
-        # Something answered on the port; whether it was THIS forward is a separate question. If this
-        # forward has already exited, the answer came from whatever else holds 18081 -- a forward an
-        # earlier cell left behind would serve a different engine's counters under this cell's name.
+      if [ "$bound" = 0 ]; then
+        # kubectl prints this line only after its listener is up, so it is the forward's own claim of the port.
+        if grep -q "Forwarding from 127.0.0.1:$port" "$pf" 2>/dev/null; then
+          bound=1
+        elif ! kill -0 "$pf_pid" 2>/dev/null; then
+          reason="the port-forward to deploy/$deploy in $ns exited before it bound $port"
+          break
+        else
+          sleep 1
+          continue
+        fi
+      fi
+      if curl -fsS --max-time 5 -o "$base.prom.part" "http://127.0.0.1:$port/metrics" 2>/dev/null; then
+        # The forward bound the port, but it can still have died since; then the page came from whatever
+        # took the port after it.
         if ! kill -0 "$pf_pid" 2>/dev/null; then
-          reason="the port-forward to deploy/$deploy in $ns had exited, so the page on 18081 was not this engine's"
+          reason="the port-forward to deploy/$deploy in $ns had exited, so the page on $port was not this engine's"
         # And whether it was the engine at all, because a forward that landed on the wrong pod still serves
         # a /metrics page.
         elif grep -q '^vllm:' "$base.prom.part"; then
           mv "$base.prom.part" "$base.prom"
           reason=""
         else
-          reason="18081 answered /metrics with no vllm: series, so it was not the engine"
+          reason="$port answered /metrics with no vllm: series, so it was not the engine"
         fi
         break
       fi
@@ -2399,6 +2421,8 @@ scrape_engine_metrics() {
       fi
       sleep 1
     done
+    [ "$bound" = 1 ] || [ "$reason" != "the engine did not answer /metrics within $tries attempts" ] \
+      || reason="the port-forward to deploy/$deploy in $ns never reported binding $port within $tries attempts"
     kill "$pf_pid" 2>/dev/null
     wait "$pf_pid" 2>/dev/null
     rm -f "$base.prom.part"

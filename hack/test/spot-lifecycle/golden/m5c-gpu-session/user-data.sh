@@ -150,6 +150,10 @@ for kind in raw trace manifest; do
   send "$out/$kind-$arm-$rep.$ext" "$kind-$arm-$rep.$ext"
 done
 send "$out/port-forward-$arm-$rep.log" "port-forward-$arm-$rep.log"
+for f in "$out"/engine-metrics-"$arm"-"$rep"-*.prom "$out"/engine-metrics-"$arm"-"$rep"-*.err; do
+  [ -f "$f" ] || continue
+  send "$f" "$(basename "$f")"
+done
 for f in cell-environment.tsv cell-timings.tsv cell-judgements.tsv applied-values.tsv load-source.txt; do
   send "$out/$f" "$f"
 done

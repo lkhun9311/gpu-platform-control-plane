@@ -924,6 +924,13 @@ for kind in raw trace manifest; do
   send "$out/$kind-$arm-$rep.$ext" "$kind-$arm-$rep.$ext"
 done
 send "$out/port-forward-$arm-$rep.log" "port-forward-$arm-$rep.log"
+# The engine's counters from both sides of the replay, one file per engine per phase, .prom or .err.
+# They are the only server-side evidence a cell has, so a cell that survives the instance without them is
+# the cell the 2026-10-04 registration could not decompose.
+for f in "$out"/engine-metrics-"$arm"-"$rep"-*.prom "$out"/engine-metrics-"$arm"-"$rep"-*.err; do
+  [ -f "$f" ] || continue
+  send "$f" "$(basename "$f")"
+done
 # The run-wide records, refreshed so the newest surviving copy is the newest one written.
 for f in cell-environment.tsv cell-timings.tsv cell-judgements.tsv applied-values.tsv load-source.txt; do
   send "$out/$f" "$f"
