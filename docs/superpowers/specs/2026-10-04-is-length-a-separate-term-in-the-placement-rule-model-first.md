@@ -193,3 +193,24 @@ Each stage needs its own explicit approval at the time it is started.
 **Why it is a new measurement and not a reproduction.** The runner's reproduction check requires the target's `gatewaySHA` and image digests, and the gateway has been rebuilt since that run, so the honest label is a new measurement at the same load. Recorded separately because it was found on the way: the plan path's `gen-trace` call passes neither `--tokenizer-rev` nor `--gateway-sha`, while the real path passes both, so **no `PURPOSE=reproduction` plan can pass today** — every one is refused with "the target run records tokenizerRev and this plan records none". That is a defect in the plan check, not in this purchase, and it is left for its own change.
 
 **What `S_B` now comes from.** The calibration's `R1` cells serve only 8,192-token latency-critical requests, so their engine prefill histogram measures `S_B` directly and stage 1 does not need a BE-only cell. Its first cell gave a client-side minimum TTFT of 1,037.7 ms and an engine mean prefill of 1,147.1 ms over 178 requests — against the model's `nominal` 646 ms and `slow-prefill` 961 ms. Those are one cell's numbers, recorded here as the reason the model's parameters will be revisited, not yet as a published figure.
+
+## Amendment, 2026-10-05 — `S_B` measured; P2's high side corrected on the model; the grid and the size of stages 2 and 3
+
+Written after the calibration and before stage 2's first billable second. No stage-2 or stage-3 cell exists yet.
+
+**`S_B`, and what it did to the model.** The calibration re-run `m5c-20261004-150205` completed its four cells (`matrix exited 0`, archive accounting 32 of 32). Its isolated 8,192-token cells' fastest client-side TTFT was **1,037.7 ms**; the engine's own mean prefill over the `R1` cells was 1,138.5–1,147.1 ms. Solving the model's per-token cost from that ONE minimum — the `measured` parameter set in `predict.py`, every other parameter left at the microtest's values — gives 119.3 µs per token against the registered `nominal` 71.5. With nothing else changed, the model then predicts quantities that were not used to choose it:
+
+| Checked quantity | Measured | `nominal` | `measured` |
+|---|---|---|---|
+| Isolated 8,192 tokens at 0.2864 req/s, pooled p99 | 2,912.7 ms (322 requests, two traces) | 1,470 ms | 3,146 ms on the same two seeds |
+| Same, p50 | 1,040.7 ms | — | 1,038 ms |
+| Section 3c's isolated tail, 256 tokens at 9.166 req/s | 174.3 ms | 103–109 ms | 167–179 ms |
+| Section 3c's shared tail | 4,000.6 ms (one trace) | 813–1,087 ms | 1,876–3,170 ms |
+
+So the largest part of section 3c's gap was the per-token cost carried from the microtest, and a factor of 1.3–2 on the shared tail is still unexplained. Stage 1 is buying the decomposition of exactly that point. The calibration also measured the gateway's and the network's share directly: client-side mean TTFT 1,342.0 ms against the engine's 1,332.8 ms in the first `R1` cell, about 9 ms.
+
+**The grid.** With `S_B` = 1.0377 s, P2's `λ*₉₅` = 0.0482 req/s, and the BE levels of both stages are `λ*/2, λ*, 2λ*, 4λ*` = **0.0241, 0.0482, 0.0964, 0.1927 req/s**. P3's window, `2λ*₉₉ … 10λ*₉₉`, is 0.0193–0.0964 req/s and holds the first three.
+
+**P2's high side is corrected, and why.** Run on the `measured` model with this grid, the high side as registered — at or above `2λ*` the pooled p95 rises by at least `S_B/2` — held in **11 of 20** sets of three traces: at `2λ*` the rise was 421–628 ms with a median of 537, and `S_B/2` is 519, the middle of that distribution. A test a correct model fails half the time decides nothing. The high side now reads **at or above `2λ*`, a rise of at least `S_B/4`** (259 ms), which held in 20 of 20 with the smallest rise 1.6 times the threshold; the low side, a rise within 10% at or below `λ*/2`, held in 20 of 20; P3's window mean held in 20 of 20. `predict.py`'s `stage2()` prints all of it. This is the second time a criterion here was corrected by running it on the model before buying, and the reason is the same as the first.
+
+**The size.** Three traces per cell, not five: `SEEDS="1 2 3"`, the same seed set in every cell of both stages. Five traces would be 25 cells per stage, about 5.4 hours, which exceeds the session's hard stop and the remaining credential window; three is 15 cells per stage. Section 5's pooled estimand is unchanged; at about 172 completions per trace, three traces pool about 516.
