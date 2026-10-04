@@ -183,3 +183,13 @@ Each stage needs its own explicit approval at the time it is started.
 | The literature                                                                                            | Web reading on 2026-10-04; not re-measured                                                                                                                                       |
 
 **A correction this page carries.** In the conversation that led to it, an isolated TTFT of "3,558 ms" at 8,192 tokens was quoted as if it were measured. A search of every tracked document and archive found no such figure. It was not a measurement, and nothing here uses it.
+
+## Amendment, 2026-10-05 — stage 1 is bought, as a new measurement at the measured operating point
+
+**Approved.** The user approved the paid runs on 2026-10-05. This is written before stage 1's first billable second, while the calibration re-run (`m5c-20261004-150205`) is still on its card.
+
+**What is bought.** `sharing-matrix-2026-09-10` at the load of `m5c-20261002-014903` — `RATE=9.4045`, weights 1 / 0.026 / 0, `DURATION_MS=505000`, seed 11 — with `ARMS="R1 shared"` and `REPS=2`: four cells. The question is section 3c's: where the shared tail the model cannot reproduce comes from, read from the engine-metrics the cells now record.
+
+**Why it is a new measurement and not a reproduction.** The runner's reproduction check requires the target's `gatewaySHA` and image digests, and the gateway has been rebuilt since that run, so the honest label is a new measurement at the same load. Recorded separately because it was found on the way: the plan path's `gen-trace` call passes neither `--tokenizer-rev` nor `--gateway-sha`, while the real path passes both, so **no `PURPOSE=reproduction` plan can pass today** — every one is refused with "the target run records tokenizerRev and this plan records none". That is a defect in the plan check, not in this purchase, and it is left for its own change.
+
+**What `S_B` now comes from.** The calibration's `R1` cells serve only 8,192-token latency-critical requests, so their engine prefill histogram measures `S_B` directly and stage 1 does not need a BE-only cell. Its first cell gave a client-side minimum TTFT of 1,037.7 ms and an engine mean prefill of 1,147.1 ms over 178 requests — against the model's `nominal` 646 ms and `slow-prefill` 961 ms. Those are one cell's numbers, recorded here as the reason the model's parameters will be revisited, not yet as a published figure.
