@@ -390,6 +390,15 @@ func (h *HTTPSender) readStream(ctx context.Context, resp *http.Response) SendRe
 		}
 		data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
 		if data == "[DONE]" {
+			// RECORDED, not merely used to leave the loop.
+			//
+			// Measured 2026-10-04 by calling this function with three bodies: a clean stream, one cut off
+			// before [DONE], and one carrying an SSE error object. All three returned ErrorKind "", one
+			// output token and a stamped first-token time -- indistinguishable, and all three therefore
+			// counted as completed requests whose TTFT entered the tail. A truncated response is not a
+			// completed one, and a report that cannot tell them apart reports a completion rate that is
+			// partly invention.
+			res.StreamTerminated = true
 			break
 		}
 
@@ -421,10 +430,33 @@ func (h *HTTPSender) readStream(ctx context.Context, resp *http.Response) SendRe
 				// count was arriving and being discarded.
 				CompletionTokens int `json:"completion_tokens"`
 			} `json:"usage"`
+			// The engine's own in-band failure, which this struct used to have no field for.
+			//
+			// An SSE frame carrying {"error": {...}} is valid JSON, so Unmarshal succeeded, no declared
+			// field matched, and the frame was dropped silently -- the request then finished as an ordinary
+			// success. Reproduced: a stream of one content chunk, an error object and [DONE] came back with
+			// ErrorKind "" and a first token stamped. The HTTP status is 200 in this case because the
+			// headers were already sent when the engine failed, so status cannot carry it either.
+			Error *struct {
+				Message string `json:"message"`
+				Type    string `json:"type"`
+			} `json:"error"`
 		}
 		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
 			// A malformed chunk mid-stream is a stream error, but any first token already observed still stands.
 			res.ErrorKind = "stream"
+			res.EndUnixNanos = h.now().UnixNano()
+			return res
+		}
+		// An in-band error ends the stream and is kept verbatim, because the vocabulary is the engine's.
+		//
+		// ErrorKind stays a small closed set the report buckets by, so the engine's own words go in their
+		// own field rather than widening that set. The first token, if one arrived, still stands: it was
+		// observed, and a response that produced tokens and then failed is a different fact from one that
+		// never started.
+		if chunk.Error != nil {
+			res.ErrorKind = "stream"
+			res.StreamError = strings.TrimSpace(chunk.Error.Type + ": " + chunk.Error.Message)
 			res.EndUnixNanos = h.now().UnixNano()
 			return res
 		}

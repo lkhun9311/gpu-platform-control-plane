@@ -1503,16 +1503,40 @@ for arm in $expected_arms; do
   # B5 asks that the arm's replay ran. A zero-row jsonl, and one whose every row is a 5xx, both satisfy a
   # glob and neither is a measurement. Rows carry httpStatus (internal/bench/replay.go), so the rows are
   # counted and the answered ones counted separately.
-  _rows=0 _answered=0
+  _rows=0 _answered=0 _completed=0
   for _f in "$OUT/m5c-run/raw-$arm-"*.jsonl; do
     [ -f "$_f" ] || continue
     _rows=$(( _rows + $(grep -c . "$_f" 2>/dev/null || true) ))
     _answered=$(( _answered + $(grep -c '"httpStatus":[[:space:]]*[23][0-9][0-9]' "$_f" 2>/dev/null || true) ))
+    # A 2xx is not a completion, and counting it as one is how a timed-out arm passed this check.
+    #
+    # TimeoutMs bounds the WHOLE request, so a response that began in time and then expired carries
+    # httpStatus 200, a stamped first token and errorKind "timeout". Every row of an arm could look like
+    # that and the old test -- "at least one 2xx" -- would have called the arm answered. A completed row is
+    # one with no errorKind at all.
+    _completed=$(( _completed + $(grep -cv '"errorKind"' "$_f" 2>/dev/null || true) ))
   done
+  # EVERY repetition must have left a file, which counting rows across the glob cannot see.
+  #
+  # The glob sums whatever is there, so an arm that wrote repetition 1 and died before repetition 2 reports
+  # a healthy row count. REPS is baked into this instance, so the expectation comes from the plan rather
+  # than from the evidence being checked -- a check whose expectation is derived from its subject cannot
+  # fail. The ladder is exempt: its cells are rungs, not repetitions, and it has its own completeness check
+  # above.
+  if [ -z "$LADDER" ]; then
+    _rep=1
+    while [ "$_rep" -le "${REPS:-1}" ]; do
+      [ -s "$OUT/m5c-run/raw-$arm-$_rep.jsonl" ] \
+        || fail "arm $arm is missing repetition $_rep of ${REPS:-1}. The run reported no refusal for it, so this is a repetition that was planned, was not recorded, and would have been pooled over as though it had been."
+      _rep=$(( _rep + 1 ))
+    done
+  fi
   if [ "$_rows" -eq 0 ]; then
     missing="$missing $arm"
   elif [ "$_answered" -eq 0 ]; then
     fail "arm $arm came back with $_rows row(s) and not one carries a 2xx or 3xx httpStatus. The file exists, the replay never answered, and B5 asks for a replay that answered"
+  elif [ "$_completed" -eq 0 ]; then
+    fail "arm $arm came back with $_rows row(s), of which $_answered carry a 2xx or 3xx httpStatus and NONE completed -- every one records an errorKind. A request that was answered and then expired is not a measurement of this arm's tail."
   fi
 done
 # A ladder with no baseline cell at all is a fault whichever rung it ended on.

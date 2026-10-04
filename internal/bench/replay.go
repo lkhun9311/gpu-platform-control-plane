@@ -77,6 +77,19 @@ type RawRow struct {
 	//
 	// It is a small closed vocabulary ("timeout", "transport", "rejected", "stream") so a report can bucket failures without parsing free text.
 	ErrorKind string `json:"errorKind,omitempty"`
+	// StreamTerminated says this response's stream sent its own end marker.
+	//
+	// On the ROW because the distinction cannot be recovered afterwards: a truncated stream and a complete
+	// one produce the same errorKind (none), the same httpStatus (200) and the same stamped times, so a
+	// row without this field cannot say whether the response it records actually finished.
+	//
+	// `omitempty` means false is indistinguishable from absent in the JSON, and that is deliberate for the
+	// same reason PromptLenChars treats 0 as "predates this field": every row written before today lacks
+	// it, and a reader must not take their silence for "truncated". The report counts what it can see and
+	// names the rows it cannot classify, rather than assuming either way.
+	StreamTerminated bool `json:"streamTerminated,omitempty"`
+	// StreamError is the engine's in-band failure text, verbatim, empty when it sent none.
+	StreamError string `json:"streamError,omitempty"`
 	// Study is the pre-registered experiment this row belongs to, copied from the manifest.
 	//
 	// It is on the ROW and not only on the manifest because the report reads rows, not manifests. A
@@ -198,6 +211,22 @@ type SendResult struct {
 	HTTPStatus int
 	// ErrorKind names the failure, empty on success.
 	ErrorKind string
+	// StreamTerminated says the stream sent its own end marker, "data: [DONE]".
+	//
+	// A stream that stops arriving looks exactly like one that finished: the scanner returns no error at
+	// EOF, so ErrorKind stays empty and the row reads as a completion. Measured 2026-10-04 -- a clean
+	// stream, one cut off before [DONE], and one carrying an error object all returned ErrorKind "", one
+	// output token and a stamped first-token time. This is the field that tells them apart, and it is
+	// false rather than an error because a truncated response is a FACT about the response, not a verdict
+	// on it: the report decides what to do with it.
+	StreamTerminated bool
+	// StreamError is the engine's own in-band failure text, verbatim, empty when it sent none.
+	//
+	// Kept beside ErrorKind rather than inside it because ErrorKind is a closed vocabulary the report
+	// buckets by, and the engine's words are not. An SSE frame carrying {"error": {...}} is valid JSON, so
+	// it unmarshalled into a struct with no matching field and was dropped -- the request then finished as
+	// an ordinary success, with HTTP 200, because the headers had already been sent when the engine failed.
+	StreamError string
 	// Tier and AdmissionReason are what the gateway reported about its own admission decision.
 	//
 	// Empty against a gateway that does not report them, which is how evidence written before it did is
@@ -292,6 +321,8 @@ func Replay(ctx context.Context, sender Sender, trace []TraceRow, opts ReplayOpt
 				OutputTokens:        res.OutputTokens,
 				HTTPStatus:          res.HTTPStatus,
 				ErrorKind:           res.ErrorKind,
+				StreamTerminated:    res.StreamTerminated,
+				StreamError:         res.StreamError,
 				Tier:                res.Tier,
 				AdmissionReason:     res.AdmissionReason,
 				TraceChecksum:       opts.TraceChecksum,
