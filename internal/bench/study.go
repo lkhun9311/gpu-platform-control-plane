@@ -218,10 +218,12 @@ const (
 	// registration's item 8 records why, and that the inheritance may censor the long level's tail and make
 	// the estimand refuse -- a registered outcome of that page, not a defect to work around here.
 	//
-	// Arrivals is deliberately left unset, exactly as StudySharingMatrix leaves it. hack/m5c-matrix.sh
-	// hard-codes `ARRIVALS=weighted` on the non-ladder path because the registry has no answer for it, and
-	// the registration's precondition 3 records that deciding whether the arrival model is a registered part
-	// of the protocol comes before writing one here.
+	// The arrival model IS registered, as independent, and the reason is the design rather than the code.
+	// docs/superpowers/specs/2026-10-04-is-length-a-separate-term-in-the-placement-rule-model-first.md
+	// replaced the 2026-10-03 design: the latency-critical rate is held and the best-effort rate swept, and a
+	// weighted mix draws both tenants from one stream, so every BE level would also have moved the LC
+	// arrival times. Independent arrivals keep a repetition's LC schedule identical at every BE level and in
+	// the baseline. Until that page, this comment recorded the field as deliberately unset.
 	StudyTailCrossingShortLC = "tail-crossing-lc256-2026-10-04"
 	StudyTailCrossingLongLC  = "tail-crossing-lc8192-2026-10-04"
 )
@@ -312,6 +314,40 @@ func PriceOfProtectionArm(budget int, policy string) string {
 // Zero-padded so that lexical order is numeric order, which is what the report's arm column is sorted by.
 func ThroughputLadderArm(rung int, topology string) string {
 	return fmt.Sprintf("rung%02d-%s", rung, topology)
+}
+
+// TailCrossingArm is the canonical name of the tail-crossing studies' contended arm at one best-effort level.
+//
+// The level is in the name for the reason the ladder's rung is: an arm summary pools every row carrying its
+// name, and two BE rates under one name would be a p99 for a load nobody offered. The RATE a level stands
+// for lives in the runner and the registration, not here, exactly as the ladder's rung parameters do.
+func TailCrossingArm(level int) string {
+	return fmt.Sprintf("be%02d-%s", level, ArmShared)
+}
+
+// parseTailCrossingArm reads the BE level out of a TailCrossingArm name.
+func parseTailCrossingArm(arm string) (int, bool) {
+	for level := 1; level <= tailCrossingLevels; level++ {
+		if arm == TailCrossingArm(level) {
+			return level, true
+		}
+	}
+	return 0, false
+}
+
+// tailCrossingLevels is how many BE levels the tail-crossing studies admit.
+//
+// The 2026-10-04 registration places three or four levels after the contender's prefill time is measured,
+// and its P3 window needs two inside it; six leaves room for that placement without inventing a grid here.
+const tailCrossingLevels = 6
+
+// tailCrossingArms is the isolated baseline and one contended arm per BE level.
+func tailCrossingArms() []string {
+	arms := []string{ArmR1}
+	for level := 1; level <= tailCrossingLevels; level++ {
+		arms = append(arms, TailCrossingArm(level))
+	}
+	return arms
 }
 
 // IsIsolatedBaseline says whether an arm name is a study's uncontended premium baseline.
@@ -425,15 +461,18 @@ var studies = map[string]Study{
 		MinRepetitions:    5,
 		PublishesInterval: true,
 	},
-	// The two input levels. ArmR1 and ArmShared only, because the registration's D3 sizes this question for
-	// the shared engine against the isolated baseline and drops the split topologies: a study that admitted
-	// arms it does not buy would let a run file evidence under a condition nobody registered.
+	// The two input levels. The isolated baseline and the shared engine at each BE level, and nothing else,
+	// because the registration's D3 sizes this question for the shared engine against the isolated baseline
+	// and drops the split topologies: a study that admitted arms it does not buy would let a run file
+	// evidence under a condition nobody registered. The shared engine is one arm per BE level since the
+	// 2026-10-04 model-first page made the BE rate a factor; see TailCrossingArm.
 	//
 	// Both tuples are resolved pairs the table already carries -- 256 -> 1,174 and 8,192 -> 42,579 -- so
 	// FrozenTuple.Drift has something to compare and neither level drifts the moment it is entered.
 	StudyTailCrossingShortLC: {
-		ID:   StudyTailCrossingShortLC,
-		Arms: []string{ArmR1, ArmShared},
+		ID:       StudyTailCrossingShortLC,
+		Arms:     tailCrossingArms(),
+		Arrivals: ArrivalsIndependent,
 		Frozen: &FrozenTuple{
 			PremiumPromptChars:    1174,
 			ContenderPromptChars:  42579,
@@ -466,8 +505,9 @@ var studies = map[string]Study{
 	// The long level: the latency-critical tenant carries the SAME per-request length as the contender, which
 	// is the contrast this page registers. It is not a claim that a scheduling mechanism changes there.
 	StudyTailCrossingLongLC: {
-		ID:   StudyTailCrossingLongLC,
-		Arms: []string{ArmR1, ArmShared},
+		ID:       StudyTailCrossingLongLC,
+		Arms:     tailCrossingArms(),
+		Arrivals: ArrivalsIndependent,
 		Frozen: &FrozenTuple{
 			PremiumPromptChars:    42579,
 			ContenderPromptChars:  42579,

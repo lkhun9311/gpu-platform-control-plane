@@ -192,6 +192,28 @@ if [ -n "$LADDER" ]; then
   [ -z "$REPS_FROM_CALLER" ] || fail "REPS and LADDER are both set. Ladder rungs are different loads rather than repetitions of one, and pooling two of them would report a p99 for a load that was never offered."
 fi
 
+# A best-effort SWEEP, for the studies registered with independent arrivals: PREMIUM_RATE held, one arm per
+# BE rate. Like the ladder it carries its own load, so the weighted RATE, NOISY_WEIGHT and ARMS are refused
+# beside it here, before the matrix would refuse them on the rented card; the matrix repeats every one of
+# these checks, and this copy exists only so the refusal arrives before the spend.
+SWEEP="${SWEEP:-}"
+PREMIUM_RATE="${PREMIUM_RATE:-}"
+if [ -n "$SWEEP" ]; then
+  [ -z "$LADDER" ]           || fail "SWEEP and LADDER are both set. The ladder climbs the premium rate and the sweep holds it."
+  [ -z "${RATE:-}" ]         || fail "RATE and SWEEP are both set. A sweep holds PREMIUM_RATE and steps the BE rate; a total RATE describes a weighted mix this sweep does not draw."
+  [ -z "${NOISY_WEIGHT:-}" ] || fail "NOISY_WEIGHT and SWEEP are both set. The sweep's BE rates are absolute, one per level."
+  [ -z "$ARMS_FROM_CALLER" ] || fail "ARMS and SWEEP are both set. A sweep's arms are R1 and one be<NN>-shared per SWEEP entry."
+  [ -n "$PREMIUM_RATE" ]     || fail "SWEEP is set and PREMIUM_RATE is not. The sweep holds the latency-critical rate fixed, so it has to be named."
+  # Both reach the instance through a sed substitution, so nothing but decimals and spaces gets that far.
+  case "$SWEEP $PREMIUM_RATE" in *[!0-9.\ ]*) fail "SWEEP and PREMIUM_RATE carry only decimals and spaces; got ${SWEEP@Q} and ${PREMIUM_RATE@Q}" ;; esac
+  # The labels the matrix will build, so the cost estimate and the archive check below count the cells it
+  # will actually buy rather than the four default topologies.
+  ARMS="R1"; _l=0
+  for _ in $SWEEP; do _l=$(( _l + 1 )); ARMS="$ARMS $(printf 'be%02d-shared' "$_l")"; done
+elif [ -n "$PREMIUM_RATE" ]; then
+  fail "PREMIUM_RATE is set without SWEEP. It is the held latency-critical rate of a sweep, and on its own it would be ignored."
+fi
+
 # REPS has no default here, and that is deliberate.
 #
 # A pilot is one repetition and a confirmatory run is three; which one this is decides what it costs and what
@@ -350,7 +372,7 @@ say "output $OUT"
 # In ladder mode RATE and NOISY_WEIGHT are per rung and must stay EMPTY here, so that what reaches the
 # instance is a ladder and not a ladder with a single load beside it. The refusals above make sure nobody
 # passed one; these lines make sure this script does not invent one.
-if [ -n "$LADDER" ]; then RATE=""; NOISY_WEIGHT=""; else
+if [ -n "$LADDER" ] || [ -n "$SWEEP" ]; then RATE=""; NOISY_WEIGHT=""; else
 RATE="${RATE:-9.85}"
 PREMIUM_WEIGHT="${PREMIUM_WEIGHT:-1}"
 NOISY_WEIGHT="${NOISY_WEIGHT:-0.054}"
@@ -377,6 +399,9 @@ if [ -n "$LADDER" ]; then
   say "load   a ladder, ${DURATION_MS}ms per cell, weights premium=$PREMIUM_WEIGHT probe=$PROBE_WEIGHT"
   say "       rungs: $LADDER (RATE:NOISY_WEIGHT, or PREMIUM_RATE:NOISY_RATE for a study registered with independent arrivals)"
   say "       solved offline against the real gen-trace; every rung holds the contender at 139 offers +/- 2"
+elif [ -n "$SWEEP" ]; then
+  say "load   a sweep, ${DURATION_MS}ms per cell: latency-critical held at ${PREMIUM_RATE}/s, best-effort at $SWEEP /s"
+  say "       independent arrivals, so each repetition offers the latency-critical tenant one schedule at every level"
 else
   say "load   rate ${RATE}/s, ${DURATION_MS}ms, weights premium=$PREMIUM_WEIGHT noisy=$NOISY_WEIGHT probe=$PROBE_WEIGHT"
   say "       (carried from the whole-card run; the pilot's job is to re-derive them for a half-card engine)"
@@ -643,6 +668,9 @@ PROBE_WEIGHT="PROBE_WEIGHT_PLACEHOLDER"
 DURATION_MS="DURATION_MS_PLACEHOLDER"
 LADDER="LADDER_PLACEHOLDER"
 LADDER_STUDY="LADDER_STUDY_PLACEHOLDER"
+SWEEP="SWEEP_PLACEHOLDER"
+# Not PREMIUM_RATE_PLACEHOLDER: the RATE substitution runs first and matches inside that name.
+PREMIUM_RATE="HELD_LC_PER_SEC_PLACEHOLDER"
 # The rest of the load, which used to stay on the laptop.
 #
 # The ninth pilot's user-data carries no PREMIUM_PROMPT_CHARS, no MODEL_REVISION and no REQUEST_TIMEOUT_MS
@@ -869,6 +897,10 @@ export BENCHHARNESS_BIN=/src/bin/benchharness
 if [ -n "$LADDER" ]; then
   unset RATE NOISY_WEIGHT ARMS REPS
   export PREMIUM_WEIGHT PROBE_WEIGHT DURATION_MS LADDER LADDER_STUDY
+elif [ -n "$SWEEP" ]; then
+  # The matrix builds a sweep's arms from SWEEP and refuses an ARMS beside it, for the reason given above.
+  unset RATE NOISY_WEIGHT ARMS
+  export PREMIUM_WEIGHT PROBE_WEIGHT DURATION_MS REPS SWEEP PREMIUM_RATE
 else
   export RATE PREMIUM_WEIGHT NOISY_WEIGHT PROBE_WEIGHT DURATION_MS REPS ARMS
 fi
@@ -1017,6 +1049,8 @@ UD="$(mktemp)"
       -e "s|DURATION_MS_PLACEHOLDER|$DURATION_MS|" \
       -e "s|LADDER_PLACEHOLDER|$LADDER|" \
       -e "s|LADDER_STUDY_PLACEHOLDER|${LADDER_STUDY:-}|" \
+      -e "s|SWEEP_PLACEHOLDER|${SWEEP:-}|" \
+      -e "s|HELD_LC_PER_SEC_PLACEHOLDER|${PREMIUM_RATE:-}|" \
       -e "s|PREMIUM_PROMPT_CHARS_PLACEHOLDER|${PREMIUM_PROMPT_CHARS:-}|" \
       -e "s|NOISY_PROMPT_CHARS_PLACEHOLDER|${NOISY_PROMPT_CHARS:-}|" \
       -e "s|REQUEST_TIMEOUT_MS_PLACEHOLDER|${REQUEST_TIMEOUT_MS:-}|" \
@@ -1093,6 +1127,9 @@ plan_env=(PLAN_ONLY=1 PLATFORM=kind KCTX=none BENCHHARNESS_BIN="$OUT/benchharnes
 # would make the plan check fail on that refusal for every ladder run.
 if [ -n "$LADDER" ]; then
   plan_env+=(LADDER="$LADDER" LADDER_STUDY="${LADDER_STUDY:-}")
+elif [ -n "$SWEEP" ]; then
+  plan_env+=(REPS="$REPS" SWEEP="$SWEEP" PREMIUM_RATE="$PREMIUM_RATE")
+  [ -z "${SEEDS:-}" ] || plan_env+=(SEEDS="$SEEDS")
 else
   plan_env+=(ARMS="$ARMS" REPS="$REPS" RATE="$RATE" NOISY_WEIGHT="$NOISY_WEIGHT")
   # And the reproduction claim, when the caller makes one.

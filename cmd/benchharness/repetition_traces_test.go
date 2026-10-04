@@ -50,6 +50,9 @@ func scheduledRows(study, arm, checksum string, offsetsMs []int64) []bench.RawRo
 	return rows
 }
 
+// The tail-crossing studies' first BE level, the contended arm these fixtures use.
+var level1 = bench.TailCrossingArm(1)
+
 // Two repetitions drawn from two seeds: different premium schedules, and so different checksums.
 var (
 	scheduleSeedA = []int64{0, 700, 1900, 2600}
@@ -78,8 +81,8 @@ func TestAPerRepetitionStudyAcceptsADifferentTraceInEachRepetition(t *testing.T)
 	paths := []string{
 		writeRaw(t, dir, "raw-R1-1.jsonl", scheduledRows(study, bench.ArmR1, "r1-seedA", scheduleSeedA)),
 		writeRaw(t, dir, "raw-R1-2.jsonl", scheduledRows(study, bench.ArmR1, "r1-seedB", scheduleSeedB)),
-		writeRaw(t, dir, "raw-shared-1.jsonl", scheduledRows(study, bench.ArmShared, "sh-seedA", scheduleSeedA)),
-		writeRaw(t, dir, "raw-shared-2.jsonl", scheduledRows(study, bench.ArmShared, "sh-seedB", scheduleSeedB)),
+		writeRaw(t, dir, "raw-be01-shared-1.jsonl", scheduledRows(study, level1, "sh-seedA", scheduleSeedA)),
+		writeRaw(t, dir, "raw-be01-shared-2.jsonl", scheduledRows(study, level1, "sh-seedB", scheduleSeedB)),
 	}
 	e, err := loadArmEvidence(paths)
 	if err != nil {
@@ -94,10 +97,10 @@ func TestAPerRepetitionStudyAcceptsADifferentTraceInEachRepetition(t *testing.T)
 func TestAPerRepetitionStudyRefusesOneTraceReplayedAsTwoRepetitions(t *testing.T) {
 	study := bench.StudyTailCrossingShortLC
 	dir := t.TempDir()
-	rows := scheduledRows(study, bench.ArmShared, "same", scheduleSeedA)
+	rows := scheduledRows(study, level1, "same", scheduleSeedA)
 	paths := []string{
-		writeRaw(t, dir, "raw-shared-1.jsonl", rows),
-		writeRaw(t, dir, "raw-shared-2.jsonl", replayedAgain(rows)),
+		writeRaw(t, dir, "raw-be01-shared-1.jsonl", rows),
+		writeRaw(t, dir, "raw-be01-shared-2.jsonl", replayedAgain(rows)),
 	}
 	_, err := loadArmEvidence(paths)
 	if err == nil {
@@ -117,8 +120,8 @@ func TestAPerRepetitionStudyRefusesABaselinePairedWithAnotherSeed(t *testing.T) 
 	paths := []string{
 		writeRaw(t, dir, "raw-R1-1.jsonl", scheduledRows(study, bench.ArmR1, "r1-seedA", scheduleSeedA)),
 		writeRaw(t, dir, "raw-R1-2.jsonl", replayedAgain(scheduledRows(study, bench.ArmR1, "r1-seedA2", scheduleSeedA))),
-		writeRaw(t, dir, "raw-shared-1.jsonl", scheduledRows(study, bench.ArmShared, "sh-seedA", scheduleSeedA)),
-		writeRaw(t, dir, "raw-shared-2.jsonl", scheduledRows(study, bench.ArmShared, "sh-seedB", scheduleSeedB)),
+		writeRaw(t, dir, "raw-be01-shared-1.jsonl", scheduledRows(study, level1, "sh-seedA", scheduleSeedA)),
+		writeRaw(t, dir, "raw-be01-shared-2.jsonl", scheduledRows(study, level1, "sh-seedB", scheduleSeedB)),
 	}
 	e, err := loadArmEvidence(paths)
 	if err != nil {
@@ -128,7 +131,7 @@ func TestAPerRepetitionStudyRefusesABaselinePairedWithAnotherSeed(t *testing.T) 
 	if err == nil {
 		t.Fatal("a baseline and a contended arm with different latency-critical schedules were paired as one repetition")
 	}
-	for _, want := range []string{"repetition 2", "schedule", bench.ArmR1, bench.ArmShared} {
+	for _, want := range []string{"repetition 2", "schedule", bench.ArmR1, level1} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("the refusal does not name %q: %v", want, err)
 		}
@@ -160,11 +163,11 @@ func TestEveryRepetitionOfAPerRepetitionArmIsChecked(t *testing.T) {
 	sums := []string{"a", "b", "a"}
 	scheds := [][]int64{scheduleSeedA, scheduleSeedB, scheduleSeedA}
 	for i := range sums {
-		rows := scheduledRows(study, bench.ArmShared, sums[i], scheds[i])
+		rows := scheduledRows(study, level1, sums[i], scheds[i])
 		for j := 0; j < i; j++ {
 			rows = replayedAgain(rows)
 		}
-		paths = append(paths, writeRaw(t, dir, "raw-shared-"+strconv.Itoa(i+1)+".jsonl", rows))
+		paths = append(paths, writeRaw(t, dir, "raw-be01-shared-"+strconv.Itoa(i+1)+".jsonl", rows))
 	}
 	if _, err := loadArmEvidence(paths); err == nil {
 		t.Fatal("repetition 3 replayed repetition 1's trace and was accepted")
@@ -179,10 +182,10 @@ func TestEveryRepetitionOfAPerRepetitionArmIsChecked(t *testing.T) {
 func TestAPerRepetitionStudyRefusesARecordingCutShort(t *testing.T) {
 	study := bench.StudyTailCrossingShortLC
 	dir := t.TempDir()
-	full := scheduledRows(study, bench.ArmShared, "sh-seedB", scheduleSeedB)
+	full := scheduledRows(study, level1, "sh-seedB", scheduleSeedB)
 	paths := []string{
 		writeRaw(t, dir, "raw-R1-1.jsonl", scheduledRows(study, bench.ArmR1, "r1-seedB", scheduleSeedB)),
-		writeRaw(t, dir, "raw-shared-1.jsonl", full[:len(full)-2]),
+		writeRaw(t, dir, "raw-be01-shared-1.jsonl", full[:len(full)-2]),
 	}
 	e, err := loadArmEvidence(paths)
 	if err != nil {
@@ -210,5 +213,38 @@ func TestStudyTracesPrintsTheRegisteredPolicy(t *testing.T) {
 	}
 	if err := studyTraces([]string{"--study", "no-such-study"}); err == nil {
 		t.Error("an unregistered study was given a trace policy")
+	}
+}
+
+// Every BE level of a repetition is paired with that repetition's baseline, not only the first.
+//
+// Independent arrivals give one repetition the same latency-critical schedule at every BE level, so the
+// baseline is every level's partner; a check that compared it with one level would let another level's
+// recording, cut short or drawn from another seed, through.
+func TestEveryBELevelIsPairedWithTheRepetitionsBaseline(t *testing.T) {
+	study := bench.StudyTailCrossingShortLC
+	dir := t.TempDir()
+	level3 := bench.TailCrossingArm(3)
+	paths := []string{
+		writeRaw(t, dir, "raw-R1-1.jsonl", scheduledRows(study, bench.ArmR1, "r1", scheduleSeedA)),
+		writeRaw(t, dir, "raw-be01-shared-1.jsonl", scheduledRows(study, level1, "l1", scheduleSeedA)),
+		writeRaw(t, dir, "raw-be03-shared-1.jsonl", scheduledRows(study, level3, "l3", scheduleSeedA)),
+	}
+	e, err := loadArmEvidence(paths)
+	if err != nil {
+		t.Fatalf("a baseline and two levels of one repetition were refused: %v", err)
+	}
+	if err := e.refuseIfTracesDisagree(); err != nil {
+		t.Fatalf("two levels sharing the baseline's schedule were refused: %v", err)
+	}
+	// The third level's recording stopped two requests early.
+	cut := scheduledRows(study, level3, "l3", scheduleSeedA)
+	paths[2] = writeRaw(t, dir, "raw-be03-shared-1.jsonl", cut[:len(cut)-2])
+	e, err = loadArmEvidence(paths)
+	if err != nil {
+		t.Fatalf("the cut fixture was refused before the pairing check: %v", err)
+	}
+	if err := e.refuseIfTracesDisagree(); err == nil || !strings.Contains(err.Error(), level3) {
+		t.Errorf("a cut recording at the third level passed because only the first level was compared: %v", err)
 	}
 }

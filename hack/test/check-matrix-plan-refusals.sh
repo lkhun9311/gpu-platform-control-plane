@@ -506,12 +506,25 @@ fz_case "the two output caps swapped" "output cap" PREMIUM_OUTPUT_TOKENS=16 NOIS
 #
 # So the assertion is on the IDENTITY in the output, not on the exit code. A run that cannot name the study
 # it planned cannot be audited afterwards either -- the archive's load-source.txt carries the same value.
+# The tail-crossing studies register independent arrivals and one arm per BE level since 2026-10-04, so they
+# are planned as a SWEEP -- PREMIUM_RATE held, the BE rate stepped -- and never with the matrix's weighted
+# RATE, NOISY_WEIGHT and ARMS, which the runner refuses beside a sweep.
+sweep_env=(PLAN_ONLY=1 BENCHHARNESS_BIN="$WORK/benchharness" REPS=1
+           PREMIUM_WEIGHT=1 PROBE_WEIGHT=0 PREMIUM_RATE=0.2864 SWEEP=0.0286
+           DURATION_MS="$FULL_DURATION" REGISTRY=stub.local/x)
+env_for() { # <study> -> the base environment that study is planned with, in BASE_ENV
+  case "$1" in
+    tail-crossing-*) BASE_ENV=("${sweep_env[@]}") ;;
+    *) BASE_ENV=("${fz_env[@]}") ;;
+  esac
+}
 study_case() { # <what> <study> <premium-chars> <noisy-chars>
   local what="$1" study="$2" pchars="$3" nchars="$4" out code
+  env_for "$study"
   set +e
   # One seed: a per-repetition study needs one per repetition and this plan has one repetition, and a study
   # replaying one trace accepts a single seed. The seed rules themselves are the cases below.
-  out=$(env "${fz_env[@]}" STUDY="$study" PREMIUM_PROMPT_CHARS="$pchars" NOISY_PROMPT_CHARS="$nchars" SEEDS=7 \
+  out=$(env "${BASE_ENV[@]}" STUDY="$study" PREMIUM_PROMPT_CHARS="$pchars" NOISY_PROMPT_CHARS="$nchars" SEEDS=7 \
         bash hack/m5c-matrix.sh 2>&1)
   code=$?
   set -e
@@ -540,9 +553,11 @@ study_case "the long latency-sensitive level"  tail-crossing-lc8192-2026-10-04 4
 # register a trace per repetition and the report refuses an arm whose repetitions share one -- after the
 # cells are bought. These are the refusals that move that judgement ahead of the purchase.
 seed_case() { # <what> <want: ok or a phrase> <VAR=value ...>
-  local what="$1" want="$2" out code; shift 2
+  local what="$1" want="$2" out code a; shift 2
+  BASE_ENV=("${fz_env[@]}")
+  for a in "$@"; do case "$a" in STUDY=*) env_for "${a#STUDY=}" ;; esac; done
   set +e
-  out=$(env "${fz_env[@]}" PREMIUM_PROMPT_CHARS=1174 NOISY_PROMPT_CHARS=42579 "$@" bash hack/m5c-matrix.sh 2>&1)
+  out=$(env "${BASE_ENV[@]}" PREMIUM_PROMPT_CHARS=1174 NOISY_PROMPT_CHARS=42579 "$@" bash hack/m5c-matrix.sh 2>&1)
   code=$?
   set -e
   if [ "$want" = ok ]; then
@@ -562,6 +577,47 @@ seed_case "a seed of zero" ok STUDY=tail-crossing-lc256-2026-10-04 REPS=2 SEEDS=
 seed_case "a one-trace study given two seeds" "names 2 different seeds" STUDY=sharing-matrix-2026-09-10 REPS=2 SEEDS="7 8"
 seed_case "a per-repetition study with a distinct seed per repetition" ok STUDY=tail-crossing-lc256-2026-10-04 REPS=2 SEEDS="7 8"
 seed_case "the sharing matrix with no seeds, as every archive ran" ok STUDY=sharing-matrix-2026-09-10 REPS=2
+# The sweep itself: what it is refused beside, and what it builds.
+sweep_case() { # <what> <want: ok or a phrase> <VAR=value ...>; starts from the sweep environment
+  local what="$1" want="$2" out code; shift 2
+  set +e
+  out=$(env "${sweep_env[@]}" STUDY=tail-crossing-lc256-2026-10-04 SEEDS=7 PREMIUM_PROMPT_CHARS=1174 NOISY_PROMPT_CHARS=42579 "$@" bash hack/m5c-matrix.sh 2>&1)
+  code=$?
+  set -e
+  LAST_SWEEP_OUT="$out"
+  if [ "$want" = ok ]; then
+    [ "$code" = 0 ] && ok "$what is planned" || bad "$what was refused: $(printf '%s' "$out" | grep -E 'FAILED|REFUSED' | head -1)"
+  elif [ "$code" != 0 ] && printf '%s' "$out" | grep -q "$want"; then
+    ok "$what is refused, naming it"
+  else
+    bad "$what exited $code without saying ${want@Q}: $(printf '%s' "$out" | tail -2 | tr '\n' ' ')"
+  fi
+}
+sweep_case "a three-level sweep" ok SWEEP="0.0286 0.0716 0.1432"
+for want_arm in R1 be01-shared be02-shared be03-shared; do
+  printf '%s' "$LAST_SWEEP_OUT" | grep -q "  $want_arm:" \
+    || bad "the three-level sweep did not plan $want_arm"
+done
+# Each level's contender count rises with its rate while the latency-critical count stays where it is: the
+# property the report's pairing rests on, read from the plan's own lines.
+sweep_lc=$(printf '%s\n' "$LAST_SWEEP_OUT" | awk '/^==   (R1|be0[1-3]-shared): / {print $3}' | sort -u | awk 'END {print NR}')
+sweep_be=$(printf '%s\n' "$LAST_SWEEP_OUT" | awk '/^==   be0[1-3]-shared: / {print $5}' | tr '\n' ' ')
+if [ "$sweep_lc" = 1 ] && printf '%s' "$sweep_be" | awk '{exit !(NF == 3 && $1 < $2 && $2 < $3)}'; then
+  ok "one latency-critical count across the baseline and all three levels, and contender counts rising ($sweep_be)"
+else
+  bad "the sweep planned $sweep_lc distinct premium count(s) and contender counts ${sweep_be@Q}; want 1 and three rising"
+fi
+sweep_case "an independent-arrival study planned without a sweep" "run as a SWEEP" SWEEP= PREMIUM_RATE= RATE="$RATE" NOISY_WEIGHT="$NOISY_WEIGHT"
+sweep_case "a sweep of the weighted sharing matrix" "a sweep needs a study registered with independent arrivals" STUDY=sharing-matrix-2026-09-10 SEEDS=
+sweep_case "a sweep beside a total RATE" "RATE and SWEEP are both set" RATE=0.3
+sweep_case "a sweep beside an arm list" "ARMS and SWEEP are both set" ARMS="R1 shared"
+sweep_case "a held rate with no sweep" "PREMIUM_RATE is set without SWEEP" SWEEP= RATE="$RATE" NOISY_WEIGHT="$NOISY_WEIGHT"
+sweep_case "a sweep with no held rate" "PREMIUM_RATE is not" PREMIUM_RATE=
+sweep_case "seven levels" "admit six levels" SWEEP="0.01 0.02 0.03 0.04 0.05 0.06 0.07"
+sweep_case "one rate twice" "repeats a rate" SWEEP="0.0286 0.0286"
+sweep_case "a rate that is not a number" "not a plain positive decimal" SWEEP="0.02x"
+sweep_case "a rate of zero" "is not positive" SWEEP="0"
+
 # And the seed each repetition is generated from, driven directly: a plan that passes says nothing about
 # WHICH seed went into each trace, and a seed_for_rep returning 11 for every repetition would plan cleanly.
 sfr=$(awk '/^seed_for_rep\(\) \{/ {i=1} i {print} i && /^\}/ {exit}' hack/m5c-matrix.sh)

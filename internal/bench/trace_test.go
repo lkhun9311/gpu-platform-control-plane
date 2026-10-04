@@ -189,6 +189,20 @@ var _ = Describe("GenerateTrace under the independent-arrivals model", func() {
 		Expect(len(rowsOf(fast, "premium-1"))).To(BeNumerically(">", 2*len(rowsOf(slow, "premium-1"))))
 	})
 
+	// The tail-crossing sweep is the same property read the other way: the BE rate moves and the latency-
+	// critical schedule must not. The report pairs the baseline with every BE level of a repetition on that
+	// schedule, so a generator that moved it would make every level's pairing refuse -- or, worse, a weaker
+	// pairing check accept two different arrival sequences as one.
+	It("holds the latency-critical schedule byte-identical while the best-effort rate quintuples", func() {
+		low, err := GenerateTrace(ladderRungParams(7, 0.2864, 0.0286))
+		Expect(err).NotTo(HaveOccurred())
+		high, err := GenerateTrace(ladderRungParams(7, 0.2864, 0.1432))
+		Expect(err).NotTo(HaveOccurred())
+
+		Expect(rowsOf(high, "premium-1")).To(Equal(rowsOf(low, "premium-1")))
+		Expect(len(rowsOf(high, "standard-noisy"))).To(BeNumerically(">", 2*len(rowsOf(low, "standard-noisy"))))
+	})
+
 	It("holds a tenant's schedule byte-identical when another tenant is added or removed", func() {
 		two, err := GenerateTrace(ladderRungParams(9, 1.16, 0.5))
 		Expect(err).NotTo(HaveOccurred())

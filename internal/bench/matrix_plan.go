@@ -55,13 +55,27 @@ func MatrixPlanArmSetRefusal(study string, arms []string) error {
 	if len(arms) == 0 {
 		return fmt.Errorf("no arms were planned for study %s, so there is nothing to buy and nothing to score", s.ID)
 	}
-	for _, required := range []struct{ arm, why string }{
+	required := []struct{ arm, why string }{
 		{ArmR1, "the isolated baseline both bars divide by"},
-		{ArmShared, "the control every improvement is measured from"},
-	} {
-		if !slices.Contains(arms, required.arm) {
+	}
+	// The sharing matrix's control is the bare `shared`. A study that names its contended arms by BE level
+	// admits no bare `shared` at all, so requiring it would refuse every plan that study can make; what that
+	// study needs instead is at least one contended arm to divide by the baseline.
+	//
+	// Only for a study whose contended arms ARE per-level names. Every other study keeps the old pair: the
+	// price-of-protection sweep admits no bare `shared` either, and a plan check run against it with the
+	// matrix's arms must reach the refusal that names the mismatched study rather than this one.
+	perLevel := slices.ContainsFunc(s.Arms, func(a string) bool { _, ok := parseTailCrossingArm(a); return ok })
+	if !perLevel {
+		required = append(required, struct{ arm, why string }{ArmShared, "the control every improvement is measured from"})
+	} else if !slices.ContainsFunc(arms, func(a string) bool { _, ok := parseTailCrossingArm(a); return ok && s.Admits(a) }) {
+		return fmt.Errorf("the planned arms (%s) include no contended arm of study %s, so the baseline would be bought with nothing to compare it to",
+			strings.Join(arms, " "), s.ID)
+	}
+	for _, r := range required {
+		if !slices.Contains(arms, r.arm) {
 			return fmt.Errorf("the planned arms (%s) do not include %s, and it is %s; the readings call a run without it INVALID, so this matrix would be bought and then refused",
-				strings.Join(arms, " "), required.arm, required.why)
+				strings.Join(arms, " "), r.arm, r.why)
 		}
 	}
 	return nil

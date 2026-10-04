@@ -142,15 +142,24 @@ func TestAStudyWithADifferentArrivalModelIsRefused(t *testing.T) {
 func TestEveryStudyThisCommandCompilesIsAccepted(t *testing.T) {
 	for _, study := range []string{
 		bench.StudySharingMatrix,
-		bench.StudyTailCrossingShortLC,
-		bench.StudyTailCrossingLongLC,
 	} {
 		t.Run(study, func(t *testing.T) {
 			err := compilePlan([]string{"--cr", executableCR, "--duration-ms", "505000", "--study", study})
 			if err != nil {
-				t.Errorf("study %s was refused: %v. These three share the weighted arrival model this command translates rates for; refusing one of them makes the command unusable for the run it was written for", study, err)
+				t.Errorf("study %s was refused: %v. It is the weighted-arrival study this command translates rates for; refusing it makes the command unusable for the run it was written for", study, err)
 			}
 		})
+	}
+}
+
+// And the tail-crossing studies are refused since 2026-10-04, when they registered independent arrivals and
+// one arm per BE level: a CR's single contender rate, turned into a weight, is neither.
+func TestTheTailCrossingStudiesAreNoLongerCompiledFromACR(t *testing.T) {
+	for _, study := range []string{bench.StudyTailCrossingShortLC, bench.StudyTailCrossingLongLC} {
+		err := compilePlan([]string{"--cr", executableCR, "--duration-ms", "505000", "--study", study})
+		if err == nil || !strings.Contains(err.Error(), "weighted") {
+			t.Errorf("study %s compiled from a CR, or was refused for another reason: %v", study, err)
+		}
 	}
 }
 

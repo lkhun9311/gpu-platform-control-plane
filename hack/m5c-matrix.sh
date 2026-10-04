@@ -208,6 +208,40 @@ if [ -z "$LADDER" ]; then
   esac
 fi
 
+# A best-effort SWEEP: the latency-critical rate held at PREMIUM_RATE, the BE rate stepped through SWEEP.
+#
+# The 2026-10-04 model-first registration crosses LC length with BE load, holding the LC request rate, and
+# each BE rate is its own arm (be01-shared, be02-shared, ...) so two loads cannot pool into one p99. A
+# weighted RATE and NOISY_WEIGHT describe one mix of both tenants and cannot hold one tenant still, so they
+# are refused beside a sweep rather than reconciled with it. Whether the study wants a sweep is checked
+# against its registered arrival model once the binary exists (resolve_arrivals).
+SWEEP="${SWEEP:-}"
+PREMIUM_RATE="${PREMIUM_RATE:-}"
+if [ -n "$SWEEP" ]; then
+  [ -z "$LADDER" ] || fail "SWEEP and LADDER are both set. The ladder climbs the premium rate and the sweep holds it; one run is one of the two."
+  [ -z "${RATE:-}" ] || fail "RATE and SWEEP are both set. A sweep holds PREMIUM_RATE and steps the BE rate; a total RATE describes a weighted mix this sweep does not draw."
+  [ -z "${NOISY_WEIGHT:-}" ] || fail "NOISY_WEIGHT and SWEEP are both set. The sweep's BE rates are absolute, one per level, so a weight would be ignored."
+  [ -z "$ARMS_FROM_CALLER" ] || fail "ARMS and SWEEP are both set. A sweep's arms are R1 and one be<NN>-shared per SWEEP entry, built from SWEEP so the name and the rate cannot disagree."
+  [ -z "${BENCHMARK_CR_SHA256:-}" ] || fail "SWEEP and BENCHMARK_CR_SHA256 are both set. A CR compiles one weighted load, and the swept studies are not compiled from one."
+  [ -n "$PREMIUM_RATE" ] || fail "SWEEP is set and PREMIUM_RATE is not. The sweep holds the latency-critical rate fixed, so it has to be named."
+  for w in $PREMIUM_RATE $SWEEP; do
+    case "$w" in
+      *[!0-9.]* | *.*.* | . | '') fail "SWEEP/PREMIUM_RATE entry ${w@Q} is not a plain positive decimal" ;;
+    esac
+    awk -v x="$w" 'BEGIN {exit !(x > 0)}' || fail "SWEEP/PREMIUM_RATE entry ${w@Q} is not positive"
+  done
+  sweep_n=$(printf '%s\n' $SWEEP | awk 'NF {c++} END {print c+0}')
+  # internal/bench admits be01-shared .. be06-shared; a seventh level would be named and then refused by the
+  # report as an arm the study does not have.
+  [ "$sweep_n" -le 6 ] || fail "SWEEP names $sweep_n BE rates and the tail-crossing studies admit six levels"
+  [ "$(printf '%s\n' $SWEEP | awk 'NF && !seen[$1]++ {c++} END {print c+0}')" = "$sweep_n" ] \
+    || fail "SWEEP repeats a rate ($SWEEP); two levels at one rate are one condition under two names"
+  ARMS="R1"
+  for i in $(seq 1 "$sweep_n"); do ARMS="$ARMS $(printf 'be%02d-shared' "$i")"; done
+elif [ -n "$PREMIUM_RATE" ]; then
+  fail "PREMIUM_RATE is set without SWEEP. It is the held latency-critical rate of a sweep, and on its own it would be ignored."
+fi
+
 # A compiled CR owns the load, and the environment may not quietly disagree with it.
 #
 # `benchharness compile-plan` turns a GpuSharingBenchmark into exactly the exports below and sets
@@ -276,7 +310,7 @@ if [ -n "${BENCHMARK_CR_SHA256:-}" ]; then
   say "load compiled from a GpuSharingBenchmark, sha256 $BENCHMARK_CR_SHA256"
 fi
 
-[ -n "${RATE:-}" ] || [ -n "$LADDER" ] || fail "RATE is unset. Measure it from a single contender prefill on THIS card, the way hack/m5b-gpu-session.sh does; the harness default of 20/s demands 3.8x an A10G's theoretical peak and would censor every arm."
+[ -n "${RATE:-}" ] || [ -n "$LADDER" ] || [ -n "$SWEEP" ] || fail "RATE is unset. Measure it from a single contender prefill on THIS card, the way hack/m5b-gpu-session.sh does; the harness default of 20/s demands 3.8x an A10G's theoretical peak and would censor every arm."
 
 # The whole load, passed rather than defaulted -- and RATE alone was never enough.
 #
@@ -306,6 +340,10 @@ if [ -n "$LADDER" ]; then
   [ -z "${NOISY_WEIGHT:-}" ] || fail "NOISY_WEIGHT and LADDER are both set. The ladder carries the contender's load per rung -- a weight, or a rate under a study registered with independent arrivals -- and that is how it holds the contender fixed in absolute terms while the premium rate climbs, so a single weight here would be ignored."
   REQUIRED_LOAD_VARS="PREMIUM_WEIGHT PROBE_WEIGHT DURATION_MS"
 fi
+# A sweep carries the BE rate per level, as the ladder carries it per rung, and NOISY_WEIGHT was refused
+# beside it above. PREMIUM_WEIGHT and PROBE_WEIGHT stay required: resolve_arrivals insists on 1 and 0 under
+# independent arrivals, so a run says it has no probes rather than inheriting a weight that would be ignored.
+[ -z "$SWEEP" ] || REQUIRED_LOAD_VARS="PREMIUM_WEIGHT PROBE_WEIGHT DURATION_MS"
 for v in $REQUIRED_LOAD_VARS; do
   [ -n "${!v:-}" ] || fail "$v is unset. RATE alone does not describe this load: gen-trace's default mix puts the 40,000-character contender at 45% of arrivals, which is four to five times an A10G's prefill capacity at any rate this study could use, and lowering RATE to compensate starves the premium tail below the MinTailSamples floor. Derive the mix on the card and pass all four. hack/m5b-price-of-protection.sh measured RATE=9.85 PREMIUM_WEIGHT=1 NOISY_WEIGHT=0.054 PROBE_WEIGHT=0.0054 DURATION_MS=420000 for ONE engine with the whole card; this run gives each engine half of one, so it is a starting point and not an answer."
 done
@@ -370,11 +408,28 @@ SOURCE_COMMIT="${SOURCE_COMMIT:-$(git rev-parse HEAD 2>/dev/null || echo unknown
 # generation instead of reaching a replay. Resolved once the binary exists, which is later on each path.
 ARRIVALS=""
 resolve_arrivals() {
-  # The frozen sharing matrix registered no arrival model. It has only ever been generated weighted, and this
-  # keeps it so rather than asking a registry that has no answer for it.
-  if [ -z "$LADDER" ]; then ARRIVALS=weighted; return; fi
-  ARRIVALS=$("$WORK/benchharness" study-arrivals --study "$STUDY") \
-    || fail "could not read study $STUDY's arrival model from the registry"
+  local out
+  # Every study is asked now. The frozen sharing matrix registers no arrival model and has only ever been
+  # generated weighted, so "registered no arrival model" -- and nothing else -- falls back to weighted; the
+  # tail-crossing studies register independent arrivals since 2026-10-04, which the shell used to override
+  # by hard-coding weighted on this path without asking.
+  if out=$("$WORK/benchharness" study-arrivals --study "$STUDY" 2>&1); then
+    ARRIVALS="$out"
+  else
+    case "$out" in
+      *"registered no arrival model"*) ARRIVALS=weighted ;;
+      *) fail "could not read study $STUDY's arrival model from the registry: $out" ;;
+    esac
+  fi
+  if [ -z "$LADDER" ]; then
+    # A study whose arrivals are independent is run as a sweep and only as a sweep, and the reverse.
+    if [ "$ARRIVALS" = independent ] && [ -z "$SWEEP" ]; then
+      fail "study $STUDY registers independent arrivals, so it is run as a SWEEP of BE rates with PREMIUM_RATE held; RATE and NOISY_WEIGHT describe a weighted mix it does not draw"
+    fi
+    if [ "$ARRIVALS" != independent ] && [ -n "$SWEEP" ]; then
+      fail "study $STUDY registers $ARRIVALS arrivals, so a SWEEP of absolute BE rates is not its load; a sweep needs a study registered with independent arrivals"
+    fi
+  fi
   # Independent arrivals have no mix to weight and this ladder has no probes, so the two weights the load
   # still requires must say exactly that rather than describe a mix that would be ignored.
   if [ "$ARRIVALS" = independent ] && { [ "$PREMIUM_WEIGHT" != 1 ] || [ "$PROBE_WEIGHT" != 0 ]; }; then
@@ -543,11 +598,27 @@ if [ -n "$LADDER" ]; then
 else
   # STUDY was decided above, before the compiled-CR block, so that the STUDY_FROM_CR comparison could use it.
   # The unconditional assignment that used to sit on this line discarded whatever the caller asked for.
-  for rep in $(seq 1 "$REPS"); do
-    for arm in $ARMS; do
-      CELLS+=("$arm|$arm|$rep|$RATE|$NOISY_WEIGHT|0")
+  if [ -n "$SWEEP" ]; then
+    # One baseline and one cell per BE level, per repetition. The rate field carries PREMIUM_RATE and the
+    # weight field the level's absolute BE rate, which set_load_flags passes as --premium-rate and
+    # --noisy-rate under independent arrivals. The baseline is generated at the first level's rate and has
+    # its contender filtered out; independent arrivals make its LC rows the same at any level.
+    sweep_first=$(printf '%s\n' $SWEEP | awk 'NF {print; exit}')
+    for rep in $(seq 1 "$REPS"); do
+      CELLS+=("R1|R1|$rep|$PREMIUM_RATE|$sweep_first|0")
+      sweep_level=0
+      for be in $SWEEP; do
+        sweep_level=$(( sweep_level + 1 ))
+        CELLS+=("shared|$(printf 'be%02d-shared' "$sweep_level")|$rep|$PREMIUM_RATE|$be|0")
+      done
     done
-  done
+  else
+    for rep in $(seq 1 "$REPS"); do
+      for arm in $ARMS; do
+        CELLS+=("$arm|$arm|$rep|$RATE|$NOISY_WEIGHT|0")
+      done
+    done
+  fi
   cells_total=${#CELLS[@]}
 fi
 
