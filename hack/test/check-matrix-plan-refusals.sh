@@ -556,6 +556,46 @@ study_refused "a ladder study on the matrix path" throughput-ladder-2026-09-13
 study_refused "the price-of-protection study"     price-of-protection-2026-08-07
 study_refused "an unregistered id"                not-a-study-2026
 
+# AND THE ALLOW-LIST STANDS AHEAD OF THE FROZEN COMPARISON, asserted by ORDER rather than by running it.
+#
+# This is the half of the defect the identity checks above cannot reach. The short level freezes the same
+# five quantities as the sharing matrix, so when the study was overwritten the frozen comparison passed --
+# it was comparing the right load against the wrong study's tuple and could not tell. Ordering is what makes
+# that unreachable: by the time `refuse_unfrozen_load` runs, $STUDY is already either one of the three this
+# path admits or the run is over.
+#
+# Checked as a fact about the FILE, the way section 8 checks the backstop's lead, because no run can observe
+# it: a run that reaches the comparison has already passed the allow-list, so the two can never both be seen
+# failing. What this must exclude is a future edit that moves the allow-list after either point.
+# The CR block's own line is the reference point, not the two consumers.
+#
+# A first version compared the allow-list only against `gen-trace` and `refuse_unfrozen_load`, and a
+# mutation that moved the assignment to line 605 PASSED it: the trace generation it was supposed to precede
+# had been pushed to 606 by the move itself, so "605 < 606" was true and the assertion reported the
+# allow-list as ahead of a line it was now adjacent to. A relative comparison against a line the edit can
+# displace is not an ordering claim. Pinning it against the compiled-CR block instead gives a fixed
+# reference: that block is where the run's load guards begin, it cannot move without the assertion below
+# noticing, and anything ahead of it is ahead of every spend.
+al_line=$(grep -n 'STUDY="\${STUDY:-sharing-matrix-2026-09-10}"' hack/m5c-matrix.sh | head -1 | cut -d: -f1 || true)
+fz_line=$(grep -n '^refuse_unfrozen_load$' hack/m5c-matrix.sh | head -1 | cut -d: -f1 || true)
+gt_line=$(grep -n 'gen-trace --seed' hack/m5c-matrix.sh | head -1 | cut -d: -f1 || true)
+cr_line=$(grep -n '^if \[ -n "\${BENCHMARK_CR_SHA256:-}" \]; then$' hack/m5c-matrix.sh | head -1 | cut -d: -f1 || true)
+if [ -n "$al_line" ] && [ -n "$fz_line" ] && [ -n "$gt_line" ] && [ -n "$cr_line" ] \
+   && [ "$al_line" -lt "$cr_line" ] && [ "$cr_line" -lt "$gt_line" ] && [ "$cr_line" -lt "$fz_line" ]; then
+  ok "the study allow-list is at line $al_line, ahead of the compiled-CR block at $cr_line, which is itself ahead of the first trace generation at $gt_line and the frozen comparison at $fz_line"
+else
+  bad "could not establish that the study allow-list precedes the CR block and that the CR block precedes trace generation and the frozen-load comparison (allow-list ${al_line:-none}, CR block ${cr_line:-none}, trace ${gt_line:-none}, frozen ${fz_line:-none})"
+fi
+# The allow-list is also OUTSIDE the compiled-CR block, which is what the original defect depended on: the
+# STUDY_FROM_CR guard sat inside `if [ -n "${BENCHMARK_CR_SHA256:-}" ]`, so a run without a compiled CR
+# reached the unconditional assignment with nothing having looked at $STUDY at all.
+cr_line=$(grep -n '^if \[ -n "\${BENCHMARK_CR_SHA256:-}" \]; then$' hack/m5c-matrix.sh | head -1 | cut -d: -f1 || true)
+if [ -n "$al_line" ] && [ -n "$cr_line" ] && [ "$al_line" -lt "$cr_line" ]; then
+  ok "and it is outside the compiled-CR block, which begins at line $cr_line, so a run with no CR is judged too"
+else
+  bad "the study allow-list is not ahead of the compiled-CR block (allow-list ${al_line:-none}, block ${cr_line:-none}); a run without BENCHMARK_CR_SHA256 would reach the cell builder unjudged"
+fi
+
 # A failing, silent or short lookup must refuse rather than fall back to the script's defaults.
 #
 # Falling back is precisely how an unchecked load reached a rented card: hack/m5c-matrix.sh declares all five
