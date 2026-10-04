@@ -325,14 +325,14 @@ func TailCrossingArm(level int) string {
 	return fmt.Sprintf("be%02d-%s", level, ArmShared)
 }
 
-// parseTailCrossingArm reads the BE level out of a TailCrossingArm name.
-func parseTailCrossingArm(arm string) (int, bool) {
+// isTailCrossingArm says whether an arm name is one of the tail-crossing studies' BE levels.
+func isTailCrossingArm(arm string) bool {
 	for level := 1; level <= tailCrossingLevels; level++ {
 		if arm == TailCrossingArm(level) {
-			return level, true
+			return true
 		}
 	}
-	return 0, false
+	return false
 }
 
 // tailCrossingLevels is how many BE levels the tail-crossing studies admit.

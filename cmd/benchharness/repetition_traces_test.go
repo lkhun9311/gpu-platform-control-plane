@@ -17,6 +17,8 @@ limitations under the License.
 package main
 
 import (
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -164,7 +166,7 @@ func TestEveryRepetitionOfAPerRepetitionArmIsChecked(t *testing.T) {
 	scheds := [][]int64{scheduleSeedA, scheduleSeedB, scheduleSeedA}
 	for i := range sums {
 		rows := scheduledRows(study, level1, sums[i], scheds[i])
-		for j := 0; j < i; j++ {
+		for range i {
 			rows = replayedAgain(rows)
 		}
 		paths = append(paths, writeRaw(t, dir, "raw-be01-shared-"+strconv.Itoa(i+1)+".jsonl", rows))
@@ -246,5 +248,42 @@ func TestEveryBELevelIsPairedWithTheRepetitionsBaseline(t *testing.T) {
 	}
 	if err := e.refuseIfTracesDisagree(); err == nil || !strings.Contains(err.Error(), level3) {
 		t.Errorf("a cut recording at the third level passed because only the first level was compared: %v", err)
+	}
+}
+
+// The report reads a sweep's evidence through to the readings block, end to end through the real command.
+func TestTheReportPrintsTheTailCrossingReadingsForASweep(t *testing.T) {
+	study := bench.StudyTailCrossingShortLC
+	dir := t.TempDir()
+	// 120 latency-critical requests per trace, so every trace clears the per-trace tail floor.
+	sched := func(seed int64) []int64 {
+		out := make([]int64, 120)
+		for i := range out {
+			out[i] = int64(i)*500 + seed
+		}
+		return out
+	}
+	paths := []string{
+		writeRaw(t, dir, "raw-R1-1.jsonl", scheduledRows(study, bench.ArmR1, "r1a", sched(1))),
+		writeRaw(t, dir, "raw-R1-2.jsonl", scheduledRows(study, bench.ArmR1, "r1b", sched(2))),
+		writeRaw(t, dir, "raw-be01-shared-1.jsonl", scheduledRows(study, level1, "l1a", sched(1))),
+		writeRaw(t, dir, "raw-be01-shared-2.jsonl", scheduledRows(study, level1, "l1b", sched(2))),
+	}
+	outPath := filepath.Join(dir, "report.txt")
+	args := []string{"-out", outPath}
+	for _, p := range paths {
+		args = append(args, "-raw", p)
+	}
+	if err := report(args); err != nil {
+		t.Fatalf("the report refused a paired two-trace sweep: %v", err)
+	}
+	body, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"TAIL-CROSSING READINGS (" + study + ")", level1, "pooled"} {
+		if !strings.Contains(string(body), want) {
+			t.Errorf("the report does not contain %q:\n%s", want, body)
+		}
 	}
 }

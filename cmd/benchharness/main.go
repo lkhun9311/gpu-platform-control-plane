@@ -795,7 +795,7 @@ func report(args []string) error {
 	//
 	// It is prepended to `text` rather than written to stderr so the warning lands in the file too -- a
 	// report read out of the archive months later carries its own premise.
-	text := e.repetitionFloorPrefix(summaries) + bench.FormatReport(summaries, checks, matchTolerance)
+	text := e.repetitionFloorPrefix(summaries) + bench.FormatReport(summaries, checks, matchTolerance) + e.tailCrossingReadings(summaries)
 	if pop != nil {
 		text += bench.FormatPriceOfProtection(*pop)
 	}
@@ -2004,6 +2004,10 @@ func evaluateRegisteredReadings(e *armEvidence, summ map[string]bench.ArmSummary
 		return nil, evaluatePoP(summ, summaries), nil, nil
 	case bench.StudySharingMatrix:
 		return nil, nil, evaluateSharingMatrix(summ, summaries, refusalsBeside(rawFiles), frozenOf(e.study)), nil
+	case bench.StudyTailCrossingShortLC, bench.StudyTailCrossingLongLC:
+		// Their readings are text with no verdict and no exit status, appended by tailCrossingReadings, so
+		// there is nothing to return here -- and nothing to warn about either, since they do have readings.
+		return nil, nil, nil, nil
 	case bench.StudyThroughputLadder, bench.StudyThroughputLadderDown, bench.StudyThroughputLadderIndependent:
 		// The ladder takes the summaries rather than the arm map, because its cells are identified by rung
 		// and topology parsed out of the arm name and it has to see every one of them -- including arms this
@@ -2017,6 +2021,19 @@ func evaluateRegisteredReadings(e *armEvidence, summ map[string]bench.ArmSummary
 			e.study)
 		return nil, nil, nil, nil
 	}
+}
+
+// tailCrossingReadings is the tail-crossing sweep's readings block, or "" for any other study.
+//
+// A method returning a string rather than another result type in evaluateRegisteredReadings, so that report
+// concatenates it instead of branching on it: report sits at the cyclomatic limit `make lint` enforces, and
+// a reading with no verdict has no exit status for report to decide on.
+func (e *armEvidence) tailCrossingReadings(summaries []bench.ArmSummary) string {
+	switch id := bench.CanonicalStudyID(e.study); id {
+	case bench.StudyTailCrossingShortLC, bench.StudyTailCrossingLongLC:
+		return bench.FormatTailCrossing(bench.EvaluateTailCrossing(id, summaries))
+	}
+	return ""
 }
 
 // evaluateSharingMatrix sorts the M5-c evidence into the roles its readings speak about.

@@ -694,8 +694,15 @@ if [ -n "$SWEEP_UNDER_TEST" ]; then
   for arm in $ARMS_UNDER_TEST; do
     grep -qE "^ *$arm " "$WORK/report.txt" || { cat "$WORK/report.txt"; fail "the report has no row for $arm"; }
   done
-  grep -q "no implemented readings" "$WORK/report.err" \
-    || { cat "$WORK/report.err"; fail "the report evaluated readings for a study that has none implemented; precondition 5 has landed and this rehearsal should assert them"; }
+  # The readings block, with every level read rather than refused: a stub's tail is short and uncensored,
+  # so a refusal here means the instrument, not the evidence.
+  grep -q "TAIL-CROSSING READINGS (tail-crossing-lc256-2026-10-04)" "$WORK/report.txt" \
+    || { tail -20 "$WORK/report.txt"; fail "the report printed no tail-crossing readings over the sweep's own evidence"; }
+  if sed -n '/TAIL-CROSSING READINGS/,$p' "$WORK/report.txt" | grep -q 'NOT READ'; then
+    sed -n '/TAIL-CROSSING READINGS/,$p' "$WORK/report.txt"
+    fail "a level of the rehearsal's own sweep was not read"
+  fi
+  sed -n '/TAIL-CROSSING READINGS/,$p' "$WORK/report.txt" | sed 's/^/  /'
   # Every phase a .prom, and the stub's completed-request counter higher after the replay than before it:
   # the pair a real cell's decomposition is computed from, read the way the analysis will read it.
   for arm in $ARMS_UNDER_TEST; do

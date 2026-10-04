@@ -65,10 +65,10 @@ func MatrixPlanArmSetRefusal(study string, arms []string) error {
 	// Only for a study whose contended arms ARE per-level names. Every other study keeps the old pair: the
 	// price-of-protection sweep admits no bare `shared` either, and a plan check run against it with the
 	// matrix's arms must reach the refusal that names the mismatched study rather than this one.
-	perLevel := slices.ContainsFunc(s.Arms, func(a string) bool { _, ok := parseTailCrossingArm(a); return ok })
+	perLevel := slices.ContainsFunc(s.Arms, isTailCrossingArm)
 	if !perLevel {
 		required = append(required, struct{ arm, why string }{ArmShared, "the control every improvement is measured from"})
-	} else if !slices.ContainsFunc(arms, func(a string) bool { _, ok := parseTailCrossingArm(a); return ok && s.Admits(a) }) {
+	} else if !slices.ContainsFunc(arms, func(a string) bool { return isTailCrossingArm(a) && s.Admits(a) }) {
 		return fmt.Errorf("the planned arms (%s) include no contended arm of study %s, so the baseline would be bought with nothing to compare it to",
 			strings.Join(arms, " "), s.ID)
 	}
