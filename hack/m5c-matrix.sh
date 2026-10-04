@@ -394,6 +394,9 @@ resolve_seeds() {
   for w in $SEEDS; do
     case "$w" in
       '' | *[!0-9]*) fail "SEEDS entry ${w@Q} is not a non-negative integer" ;;
+      # Canonical spelling only. gen-trace reads 07 as 7, so "7 07" passed the distinctness test below as
+      # two strings and generated one trace twice -- found by an independent review.
+      0?*) fail "SEEDS entry ${w@Q} has a leading zero; write it as $((10#$w)) so two spellings of one seed cannot pass as two seeds" ;;
     esac
   done
   # awk, not grep: with SEEDS empty `grep .` exits 1, and under pipefail and `set -e` that assignment ended

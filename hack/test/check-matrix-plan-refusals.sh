@@ -557,6 +557,8 @@ seed_case "a per-repetition study with no seeds" "registers a trace per repetiti
 seed_case "a per-repetition study with one seed twice" "repeats a seed" STUDY=tail-crossing-lc256-2026-10-04 REPS=2 SEEDS="7 7"
 seed_case "a per-repetition study with fewer seeds than repetitions" "names 1 seed(s) and REPS is 2" STUDY=tail-crossing-lc256-2026-10-04 REPS=2 SEEDS=7
 seed_case "a seed that is not a number" "not a non-negative integer" STUDY=tail-crossing-lc256-2026-10-04 REPS=1 SEEDS=x
+seed_case "one seed spelled two ways" "leading zero" STUDY=tail-crossing-lc256-2026-10-04 REPS=2 SEEDS="7 07"
+seed_case "a seed of zero" ok STUDY=tail-crossing-lc256-2026-10-04 REPS=2 SEEDS="0 7"
 seed_case "a one-trace study given two seeds" "names 2 different seeds" STUDY=sharing-matrix-2026-09-10 REPS=2 SEEDS="7 8"
 seed_case "a per-repetition study with a distinct seed per repetition" ok STUDY=tail-crossing-lc256-2026-10-04 REPS=2 SEEDS="7 8"
 seed_case "the sharing matrix with no seeds, as every archive ran" ok STUDY=sharing-matrix-2026-09-10 REPS=2
