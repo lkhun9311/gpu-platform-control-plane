@@ -76,7 +76,33 @@ def sweep():
             print(f"  BE {lam_be:.4f}/s  short +{short:.0f}  long +{long_:.0f}  {'short > long' if short > long_ else 'REVERSED'}")
 
 
+def power():
+    """How often P3's registered test holds on the model itself, across disjoint sets of five traces.
+
+    A pointwise sign test was registered first and the model broke it at an untested rate inside the window
+    (slow-prefill, 0.086 req/s), so the test is chosen by its behaviour here rather than by how it reads.
+    """
+    sets = [range(100 + 5 * j, 105 + 5 * j) for j in range(20)]
+    for name, p in PARAMS.items():
+        s_b = 4 * p["C0"] + p["B"] * 8192 + p["OC"]
+        lam99 = 0.01 / s_b
+        grid = [lam99 * k for k in (2, 3, 4, 5, 6, 7, 8, 10)]
+        points, means = [], 0
+        for seeds in sets:
+            def pooled(length, lam_be):
+                return nearest_rank([x for s in seeds for x in simulate(LAM_LC, length, lam_be, seed=s, **p)["lc"]], .99)
+
+            base = {length: pooled(length, 0) for length in (256, 8192)}
+            diff = [(pooled(256, g) - base[256]) - (pooled(8192, g) - base[8192]) for g in grid]
+            points.append(sum(d > 0 for d in diff))
+            means += statistics.mean(diff) > 0
+        print(f"## P3 power, {name}: S_B {s_b:.3f} s, window {grid[0]:.4f}-{grid[-1]:.4f} req/s, 8 points, 20 sets of 5 traces")
+        print(f"  points in the predicted direction per set: {points}")
+        print(f"  sets whose mean difference over the window is positive: {means}/20")
+
+
 if __name__ == "__main__":
     check()
     predict()
     sweep()
+    power()
