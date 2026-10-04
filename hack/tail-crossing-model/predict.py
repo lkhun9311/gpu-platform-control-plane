@@ -58,6 +58,25 @@ def predict():
                       f"  pooled p95 {s95:.0f} = {s95 / b95:.2f}x, +{s95 - b95:.0f} ms")
 
 
+def sweep():
+    """P3's window: where the short level's added p99 exceeds the long level's, on a finer BE grid.
+
+    P3 originally tested "the lowest BE load" without saying which, and the model reverses its direction
+    below the short level's coincidence threshold, so the window has to be read off the model, not assumed.
+    """
+    for name, p in PARAMS.items():
+        print(f"## P3 sweep, {name}: added pooled p99 (ms), LC 256 against LC 8192")
+
+        def pooled(length, lam_be):
+            return nearest_rank([x for s in SEEDS for x in simulate(LAM_LC, length, lam_be, seed=s, **p)["lc"]], .99)
+
+        base = {length: pooled(length, 0) for length in (256, 8192)}
+        for lam_be in (0.005, 0.01, 0.015, 0.02, 0.0286, 0.04, 0.0716, 0.1, 0.1432, 0.2, 0.2864, 0.4):
+            short, long_ = pooled(256, lam_be) - base[256], pooled(8192, lam_be) - base[8192]
+            print(f"  BE {lam_be:.4f}/s  short +{short:.0f}  long +{long_:.0f}  {'short > long' if short > long_ else 'REVERSED'}")
+
+
 if __name__ == "__main__":
     check()
     predict()
+    sweep()
