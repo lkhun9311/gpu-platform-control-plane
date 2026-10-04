@@ -159,8 +159,13 @@ exactly what `baseline.inputTokens` declares — contender 42,579 characters at 
 prefill each victim request carries — the pilot's premium prompts were 200 characters and this run's are
 1,174 — so the baseline moves with the load, which is why a ratio against one run's baseline cannot be read
 against the other's. This page does not claim the length is the *whole* reason: the repetition count differs
-too, and nothing isolated them. The timeout is not one of the candidates — the longest request either run
-completed is under the pilot's own 30 s ceiling, so raising it to 60 s censored nothing.
+too, and nothing isolated them. The timeout is a **weaker** candidate rather than an eliminated one, and an
+earlier version of this sentence eliminated it: the longest request either run completed is under the pilot's
+own 30 s ceiling, so raising it to 60 s **censored nothing**, which is measured. What that does not cover is
+the timeout's other effect — `PoolSizeForTrace` sizes the idle connection pool as
+`ceil(rate × timeout_seconds)` (`internal/bench/httpsender.go`), so the two runs replayed through clients of
+different sizes. Ruling the timeout out entirely needs a comparison that holds the client fixed, and no run
+has done that.
 
 Total output throughput was level — 589.2 against 589.3 tok/s — and the latency cost was **not confined to
 the tail**: p50 rose 1.84x, p95 16.4x, p99 23.0x. The five per-repetition ratios were

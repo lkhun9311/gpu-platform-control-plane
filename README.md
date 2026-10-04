@@ -62,9 +62,12 @@ breaches at 4.61.
 the control it beats in the table above. The answer changed from `5 (timeSlicing)` to `3`
 (**INCONCLUSIVE**). The arrival schedule was identical; the premium prompt was **256 tokens instead of 68** —
 the count the engine itself reported on every premium row of both archives — and the timeout 60s instead of
-30s. The prompt length is the leading explanation; the timeout is not a rival for it, because the longest
-request either run completed is 19.752 s against the pilot's own 30 s ceiling, so raising it to 60 s censored
-nothing. So the row above is **one load's result**, and what the later run adds is that a different load gave a
+30s. The prompt length is the leading explanation. The timeout is a **weaker** rival and not an excluded one,
+and the earlier wording here overstated that: the longest request either run completed is 19.752 s against
+the pilot's own 30 s ceiling, so raising it to 60 s **censored nothing** — that part is measured. What it does
+not establish is that the timeout had no effect at all, because the harness sizes its idle connection pool as
+`ceil(rate × timeout_seconds)` (`internal/bench/httpsender.go`), so the two runs did not only differ in when
+a request would be abandoned; they used differently sized clients. So the row above is **one load's result**, and what the later run adds is that a different load gave a
 different answer — not a measurement of how the answer varies with load, and not a demonstration that this row
 is unstable. See `docs/superpowers/specs/2026-09-10-does-splitting-the-card-buy-protection.md`, "The result,
 2026-10-02".
