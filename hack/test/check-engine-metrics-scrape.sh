@@ -73,7 +73,7 @@ while [ $# -gt 0 ]; do case "$1" in -o) out="$2"; shift 2 ;; *) shift ;; esac; d
 case "${STUB_CURL:-ok}" in
 ok) printf '# HELP vllm:request_queue_time_seconds x\nvllm:request_queue_time_seconds_count 3\n' > "$out" ;;
 notengine) printf 'go_gc_duration_seconds 0\n' > "$out" ;;
-fail) exit 7 ;;
+fail) echo "curl: (22) The requested URL returned error: 404" >&2; exit 22 ;;
 esac
 EOF
 chmod +x "$WORK/bin/kubectl" "$WORK/bin/curl"
@@ -154,6 +154,9 @@ else
 	bad "an unanswered scrape left $(ls "$CASE/out" | tr '\n' ' ')rather than one .err and no .prom"
 fi
 grep -q 'rc=0' "$CASE/rc" && ok "the cell goes on" || bad "a failed scrape returned $(cat "$CASE/rc"); the cell's own evidence would be lost to secondary evidence"
+grep -q 'returned error: 404' "$CASE/out/engine-metrics-shared-2-before.err" 2>/dev/null \
+	&& ok "the .err carries curl's own reason, so an engine answering 404 is not recorded as one that did not answer" \
+	|| bad "the .err does not carry curl's reason: $(cat "$CASE/out/engine-metrics-shared-2-before.err" 2>/dev/null | head -2 | tr '\n' ' ')"
 no_forward_left || bad "a port-forward outlived the failed scrape"
 
 say "4. an answer that is not the engine's"

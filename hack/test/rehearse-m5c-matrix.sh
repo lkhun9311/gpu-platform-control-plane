@@ -183,7 +183,10 @@ spec:
         - name: vllm
           image: $STUB_IMAGE
           imagePullPolicy: IfNotPresent
-          args: ["--addr=:8000"]
+          # --metrics, so the matrix's engine-metrics scrape meets a page in vLLM's names and its .prom path
+          # runs here; without it every phase was an .err and only the failure path had ever executed. The
+          # matrix runs its gateway with admission off, so no guard reads this page during a cell.
+          args: ["--addr=:8000", "--metrics"]
           # The marker the matrix's MPS client check looks for, on a directory that exists.
           #
           # The real plugin sets this on a client container at allocation. The simulator does not, so without
@@ -277,6 +280,23 @@ OUT_DIR="$WORK/run"
 
 # One variable decides what the matrix runs AND what this script expects, so the two cannot disagree.
 ARMS_UNDER_TEST="${ARMS:-R1 shared timeSlicing mps}"
+
+# SWEEP rehearses the tail-crossing BE sweep: the latency-critical rate held, one be<NN>-shared arm per BE
+# rate, independent arrivals and a seed per repetition.
+#
+# It exists because the sweep's first version passed every plan check and then died on the real path's load
+# banner with "RATE: unbound variable" -- after the cluster and the images were built. PLAN_ONLY exits
+# before that line, so only a run of the real path could find it, and an independent review found it instead.
+# The rates are this rehearsal's, not the registration's: a stub cell must reach the 100-completion tail floor
+# in DURATION_MS, which the registered 0.2864 req/s does not in forty seconds.
+SWEEP_UNDER_TEST="${SWEEP:-}"
+if [ -n "$SWEEP_UNDER_TEST" ]; then
+  [ -z "${ARMS:-}" ] || fail "ARMS and SWEEP are both set. A sweep's arms are built from SWEEP, and passing an arm list would rehearse the refusal instead of the path."
+  ARMS_UNDER_TEST="R1"; _l=0
+  for _ in $SWEEP_UNDER_TEST; do _l=$(( _l + 1 )); ARMS_UNDER_TEST="$ARMS_UNDER_TEST $(printf 'be%02d-shared' "$_l")"; done
+  SWEEP_PREMIUM_RATE="${PREMIUM_RATE:-4}"
+  SWEEP_SEEDS=$(seq 11 $(( 10 + ${REPS:-1} )) | tr '\n' ' ')
+fi
 
 # LADDER rehearses the capacity ladder instead of the frozen matrix, on the same cluster.
 #
@@ -372,6 +392,17 @@ if [ -n "$LADDER_UNDER_TEST" ]; then
       ENGINE_PIN_WAIVED=1 \
       DURATION_MS="$DURATION_MS" PREMIUM_WEIGHT=1 PROBE_WEIGHT=0 \
       LADDER="$LADDER_UNDER_TEST" LADDER_STUDY="${LADDER_STUDY:-}" OUT="$OUT_DIR" \
+      CELL_DONE_HOOK="$WORK/cell-hook" CELL_HOOK_LOG="$CELL_HOOK_LOG" \
+      bash hack/m5c-matrix.sh ) 2>&1 | tee "$WORK/matrix.log"
+elif [ -n "$SWEEP_UNDER_TEST" ]; then
+  # RATE, NOISY_WEIGHT and ARMS are deliberately NOT passed: the runner refuses each of them beside a sweep.
+  ( cd "$SRC" && PLATFORM=kind KCTX="$KCTX" GPU_NODE="$GPU_NODE" \
+      DEADLINE_EPOCH=$(( $(date +%s) + 3600 )) \
+      GATEWAY_BIN="$WORK/gateway" BENCHHARNESS_BIN="$WORK/benchharness" \
+      ENGINE_PIN_WAIVED=1 STUDY=tail-crossing-lc256-2026-10-04 \
+      DURATION_MS="$DURATION_MS" PREMIUM_WEIGHT=1 PROBE_WEIGHT=0 \
+      PREMIUM_RATE="$SWEEP_PREMIUM_RATE" SWEEP="$SWEEP_UNDER_TEST" SEEDS="$SWEEP_SEEDS" \
+      REPS="${REPS:-1}" OUT="$OUT_DIR" \
       CELL_DONE_HOOK="$WORK/cell-hook" CELL_HOOK_LOG="$CELL_HOOK_LOG" \
       bash hack/m5c-matrix.sh ) 2>&1 | tee "$WORK/matrix.log"
 elif [ -n "$BENCHMARK_CR" ]; then
@@ -616,6 +647,8 @@ say "  and each handover carried its manifest, trace and port-forward log, with 
 if [ -n "$LADDER_UNDER_TEST" ]; then
   # The FIRST rung this ladder bought, which is not rung 1 when the ladder is skip-led.
   CONTENDED_CELL="raw-$(printf 'rung%02d' "$reh_first")-shared-1.jsonl"
+elif [ -n "$SWEEP_UNDER_TEST" ]; then
+  CONTENDED_CELL="raw-be01-shared-1.jsonl"
 else
   CONTENDED_CELL="raw-shared-1.jsonl"
 fi
@@ -648,6 +681,42 @@ say "evaluate the pre-registered readings over the evidence the matrix wrote"
 args=()
 for f in "$OUT_DIR"/raw-*.jsonl; do args+=(--raw "$f"); done
 
+if [ -n "$SWEEP_UNDER_TEST" ]; then
+  # The tail-crossing studies have no implemented readings yet -- the pooled estimand is the registration's
+  # precondition 5 -- so what is asserted is that the report READS the sweep's evidence: every level is a
+  # row, the per-repetition pairing holds, and nothing is refused. Then the engine-metrics files, which only
+  # a real cell writes.
+  set +e
+  go run ./cmd/benchharness report "${args[@]}" > "$WORK/report.txt" 2>"$WORK/report.err"
+  report_rc=$?
+  set -e
+  [ "$report_rc" = "0" ] || { tail -20 "$WORK/report.txt"; cat "$WORK/report.err"; fail "the report exited $report_rc over the sweep's own evidence"; }
+  for arm in $ARMS_UNDER_TEST; do
+    grep -qE "^ *$arm " "$WORK/report.txt" || { cat "$WORK/report.txt"; fail "the report has no row for $arm"; }
+  done
+  grep -q "no implemented readings" "$WORK/report.err" \
+    || { cat "$WORK/report.err"; fail "the report evaluated readings for a study that has none implemented; precondition 5 has landed and this rehearsal should assert them"; }
+  # Every phase a .prom, and the stub's completed-request counter higher after the replay than before it:
+  # the pair a real cell's decomposition is computed from, read the way the analysis will read it.
+  for arm in $ARMS_UNDER_TEST; do
+    for rep in $(seq 1 "${REPS:-1}"); do
+      for phase in before after; do
+        f="$OUT_DIR/engine-metrics-$arm-$rep-$phase.prom"
+        [ -f "$f" ] || fail "cell $arm rep $rep has no $phase .prom: $(cat "$OUT_DIR/engine-metrics-$arm-$rep-$phase.err" 2>/dev/null | head -3 | tr '\n' ' ')"
+      done
+      b=$(awk '$1 == "vllm:request_success_total" {print $2}' "$OUT_DIR/engine-metrics-$arm-$rep-before.prom")
+      a=$(awk '$1 == "vllm:request_success_total" {print $2}' "$OUT_DIR/engine-metrics-$arm-$rep-after.prom")
+      raw=$(wc -l < "$OUT_DIR/raw-$arm-$rep.jsonl")
+      { [ -n "$b" ] && [ -n "$a" ] && [ "$a" -gt "$b" ]; } \
+        || fail "cell $arm rep $rep: the engine's counter read ${b:-absent} before and ${a:-absent} after a replay of $raw rows"
+      say "  $arm rep $rep: engine counter $b -> $a across a replay of $raw rows"
+    done
+  done
+  grep -q '^sweep: ' "$OUT_DIR/load-source.txt" || fail "load-source.txt does not record the sweep"
+  say "REHEARSAL PASSED: the real script ran a sweep of [$ARMS_UNDER_TEST] end to end, the report read it, and every cell phase left an engine-metrics file."
+  say "What this did NOT cover: every number, and whether the stub's /metrics resembles vLLM's -- the files above say what it answered."
+  exit 0
+fi
 if [ -n "$LADDER_UNDER_TEST" ]; then
   # The ladder's readings are its own, and what a stub produces is knowable in advance: it answers in
   # milliseconds, so every rung meets the target, no bracket is closed, and the registered outcome is L6 --

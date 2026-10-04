@@ -263,6 +263,12 @@ type stubProfile struct {
 	//
 	// Zero keeps the old behaviour, which is what every other caller wants.
 	readyAfter time.Duration
+	// metrics serves /metrics with a completed-request counter in vLLM's name.
+	//
+	// It exists so the m5c rehearsal can drive the matrix's engine-metrics scrape down the path a real engine
+	// takes. It is off by default because the gateway's admission guard reads an engine's /metrics too, and
+	// every other rehearsal has always met a stub that answered 404 there.
+	metrics bool
 }
 
 // validate refuses a profile that would serve a backend other than the one declared.
@@ -402,14 +408,16 @@ func stubServe(args []string) error {
 	// has already decided the routing by the time a request arrives here.
 	_ = fs.String("model", "", "model name; accepted for InferenceDeployment compatibility and ignored")
 	modelPath := fs.String("model-path", "", "storage URI; a \"stub://...\" URI overrides the response profile")
+	metrics := fs.Bool("metrics", false, "serve /metrics with a completed-request counter in vLLM's name")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 
 	profile := stubProfile{
-		tokens: *tokens,
-		ttft:   time.Duration(*ttftMs) * time.Millisecond,
-		itl:    time.Duration(*itlMs) * time.Millisecond,
+		tokens:  *tokens,
+		ttft:    time.Duration(*ttftMs) * time.Millisecond,
+		itl:     time.Duration(*itlMs) * time.Millisecond,
+		metrics: *metrics,
 	}
 	if err := profile.applyModelPath(*modelPath); err != nil {
 		return err
@@ -506,6 +514,15 @@ func stubMux(profile stubProfile, stats *stubStats) *http.ServeMux {
 		}
 		w.WriteHeader(http.StatusOK)
 	})
+	if profile.metrics {
+		// One counter, in the name vLLM gives it, and nothing that would pass for a latency: a stub's timings
+		// are its configuration, and a histogram of them would look like a measurement in an archive.
+		mux.HandleFunc("/metrics", func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "text/plain; version=0.0.4")
+			_, _ = fmt.Fprintf(w, "# HELP vllm:request_success_total Requests this stub began serving.\n"+
+				"# TYPE vllm:request_success_total counter\nvllm:request_success_total %d\n", stats.snapshot().RequestsServed)
+		})
+	}
 	writeStats := func(w http.ResponseWriter, snap stubStatsSnapshot) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(snap)

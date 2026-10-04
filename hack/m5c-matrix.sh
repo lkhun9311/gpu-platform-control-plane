@@ -2567,7 +2567,7 @@ scrape_engine_metrics() {
           continue
         fi
       fi
-      if curl -fsS --max-time 5 -o "$base.prom.part" "http://127.0.0.1:$port/metrics" 2>/dev/null; then
+      if curl -fsS --max-time 5 -o "$base.prom.part" "http://127.0.0.1:$port/metrics" 2>"$WORK/engine-metrics-curl.err"; then
         # The forward bound the port, but it can still have died since; then the page came from whatever
         # took the port after it.
         if ! kill -0 "$pf_pid" 2>/dev/null; then
@@ -2590,6 +2590,13 @@ scrape_engine_metrics() {
     done
     [ "$bound" = 1 ] || [ "$reason" != "the engine did not answer /metrics within $tries attempts" ] \
       || reason="the port-forward to deploy/$deploy in $ns never reported binding $port within $tries attempts"
+    # curl's own last word, because "did not answer" and "answered 404" are different findings: the first
+    # is a network or a process, the second an engine that has no /metrics. The first rehearsal of this
+    # scrape recorded every phase as not answering while the stub was answering 404 each time.
+    if [ "$bound" = 1 ] && [ "$reason" = "the engine did not answer /metrics within $tries attempts" ]; then
+      reason="$reason; curl's last error: $(tail -n 1 "$WORK/engine-metrics-curl.err" 2>/dev/null)"
+    fi
+    rm -f "$WORK/engine-metrics-curl.err"
     # A forward that already exited makes `kill` fail and the killed one makes `wait` fail; neither may end
     # the run. See the gateway forward's kill in run_cell.
     kill "$pf_pid" 2>/dev/null || true
