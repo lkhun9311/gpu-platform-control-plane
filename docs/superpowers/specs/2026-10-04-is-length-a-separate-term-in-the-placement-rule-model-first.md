@@ -60,10 +60,10 @@ The 1.18 s figure was computed by a subagent from that archive's raw rows and is
 
 `python3 hack/tail-crossing-model/predict.py` replays the measured operating point (LC 9.166 req/s at 256 tokens, BE 0.238 req/s at 8,192, five model traces):
 
-| Quantity     | Measured (`m5c-20261002-014903`, `readings.txt:11-13`) | `nominal` per trace | `slow-prefill` per trace |
-|--------------|--------------------------------------------------------|---------------------|--------------------------|
-| Isolated p99 | 174.268 ms                                             | 103–109 ms          | 153–164 ms               |
-| Shared p99   | 4000.579 ms                                            | 813–1,087 ms        | 1,672–2,696 ms           |
+| Quantity     | Measured (`m5c-20261002-014903`; `docs/13_PER_REPETITION_VALUES.md:39`, `:65`) | `nominal` per trace | `slow-prefill` per trace |
+|--------------|--------------------------------------------------------------------------------|---------------------|--------------------------|
+| Isolated p99 | 174.268 ms                                                                     | 103–109 ms          | 153–164 ms               |
+| Shared p99   | 4000.579 ms                                                                    | 813–1,087 ms        | 1,672–2,696 ms           |
 
 **The model explains between a fifth and two thirds of the measured shared tail, and it is not yet known which mechanism holds the rest.** Candidates the model leaves out include the gateway on the request path, KV-cache pressure and preemption, and step-time terms that grow with the number of running sequences. It also shows the measured point is in a steep region: raising `D` alone from 0.3 to 1.0 ms per sequence moves the model's shared p99 on the same five traces from 813–1,087 ms to 2,378–5,813 ms — a one-parameter change spanning the measured value.
 
@@ -166,12 +166,12 @@ Each stage needs its own explicit approval at the time it is started.
 
 ## 9. Who established what
 
-| Claim                                                                                                     | Established by                                                                                     |
-|-----------------------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------|
-| Engine flags, the absence of a metrics scrape, the fixed seed, the fixed cell order, the weighted default | A subagent's read of the scripts; the seed and the cell order re-read by me at the cited lines     |
-| The measured tails and the microtest figures                                                              | Tracked files: `hack/m5c-20261002-014903/readings.txt`, `2026-09-04-scheduler-microtest-result.md` |
-| The model, its fit, its failure at the measured point, and every prediction                               | Me, `hack/tail-crossing-model/`, reproducible by running `predict.py`                              |
-| The contender's 1.18 s fastest first token                                                                | A subagent's computation from raw rows, **not yet re-derived by me**                               |
-| The literature                                                                                            | Web reading on 2026-10-04; not re-measured                                                         |
+| Claim                                                                                                     | Established by                                                                                                                                                                   |
+|-----------------------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Engine flags, the absence of a metrics scrape, the fixed seed, the fixed cell order, the weighted default | A subagent's read of the scripts; the seed and the cell order re-read by me at the cited lines                                                                                   |
+| The measured tails and the microtest figures                                                              | Tracked files: `docs/13_PER_REPETITION_VALUES.md` (blocks `m5c-15cell-r1-premium-ttft-p99` and `m5c-15cell-shared-premium-ttft-p99`), `2026-09-04-scheduler-microtest-result.md` |
+| The model, its fit, its failure at the measured point, and every prediction                               | Me, `hack/tail-crossing-model/`, reproducible by running `predict.py`                                                                                                            |
+| The contender's 1.18 s fastest first token                                                                | A subagent's computation from raw rows, **not yet re-derived by me**                                                                                                             |
+| The literature                                                                                            | Web reading on 2026-10-04; not re-measured                                                                                                                                       |
 
 **A correction this page carries.** In the conversation that led to it, an isolated TTFT of "3,558 ms" at 8,192 tokens was quoted as if it were measured. A search of every tracked document and archive found no such figure. It was not a measurement, and nothing here uses it.
