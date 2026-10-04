@@ -39,10 +39,18 @@ def arrivals(lam, length, out, kind, dur, seed):
 
 
 def simulate(lam_lc, len_lc, lam_be, len_be=8192, out_lc=64, out_be=16, dur=600.0, seed=11,
-             budget=2048, max_seqs=64, C0=0.007, B=0.0000715, D=0.0003, OC=0.032):
-    """Return the TTFTs in milliseconds, per tenant kind, for one trace."""
-    arr = sorted(arrivals(lam_lc, len_lc, out_lc, "lc", dur, seed) +
-                 arrivals(lam_be, len_be, out_be, "be", dur, seed))
+             budget=2048, max_seqs=64, C0=0.007, B=0.0000715, D=0.0003, OC=0.032, trace=None):
+    """Return the TTFTs in milliseconds, per tenant kind, for one trace.
+
+    trace, when given, is a list of (arrival seconds, "lc" or "be", prompt tokens, output tokens) that
+    replaces the generated arrivals -- so a cell's own replayed schedule can be put through the model and
+    the model's error separated from the difference between one draw of the arrival process and another.
+    """
+    if trace is not None:
+        arr = sorted(trace)
+    else:
+        arr = sorted(arrivals(lam_lc, len_lc, out_lc, "lc", dur, seed) +
+                     arrivals(lam_be, len_be, out_be, "be", dur, seed))
     waiting, running, done = [], [], []
     t, i = 0.0, 0
     while i < len(arr) or waiting or running:

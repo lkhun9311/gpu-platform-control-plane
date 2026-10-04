@@ -218,3 +218,30 @@ So the largest part of section 3c's gap was the per-token cost carried from the 
 **Precondition 6 is met by the calibration, not by stage 1, and the order is stated rather than hidden.** It asked for the model check to be re-run against stage 1's evidence before stage 2 was approved, so that P2's band would not be placed by a model already known to be wrong. Stages 2 and 3 are bought **while stage 1 is still running**, and concurrently with each other: run one after another, stage 3 would start with about 250 minutes of credentials against the 320 its session requires, and be refused. What the precondition protected is covered by a different check: the band is now placed by `λ* = (1 − q) / S_B` with `S_B` **measured**, not by the model, and the model refitted from that one measurement predicts the calibration's isolated tail within 8% and section 3c's isolated tail within its spread. What stage 1 can still change is the explanation of the shared tail at the 256-token operating point, which none of P1–P3 is placed by. If stage 1 contradicts the `measured` parameters, that is reported beside stages 2 and 3, not used to re-place their grid after the fact.
 
 **Stages 2 and 3, first attempts: stopped by the deadline rule after one cell each, and bought again with a longer deadline.** `m5c-20261004-161509` (stage 2) and `m5c-20261004-161629` (stage 3) each completed cell 1 and then stopped on a boundary, as the runner is written to: the cold first cell took about 17 minutes, the projection of fourteen more at the observed mean × 1.2 came to about 289 minutes, and the default `HARD_STOP_SECONDS` of 16,800 left 261. This is the risk the calibration page named — the first cell's cold cost — arriving at fifteen cells. Each archive holds one `R1` cell and is **not pooled** into the re-runs, whose repetitions restart at 1. The re-runs are the same design with `HARD_STOP_SECONDS=21600` and `BACKSTOP_SECONDS=22200`: about 318 minutes remain when cell 1 ends, the credential check then requires 400 minutes against about 600 available, and the spending ceiling per session is 6.2 h × $1.10 = $6.8.
+
+## Result, 2026-10-05 — stage 1: section 3c's gap is explained, and where the shared tail is made
+
+`m5c-20261004-160843`, four cells, `sharing-matrix-2026-09-10` at the load and seed of `m5c-20261002-014903`. Every figure below was computed from the cells' raw rows and engine-metrics files with `hack/tail-crossing-model/decompose.py` and the commands named beside it.
+
+**It reproduced.** Latency-critical TTFT p99: `R1` 173.5 and 174.0 ms, `shared` 3,995.4 and 4,007.6 ms, against 174.268 and 4,000.579 in the archive it repeats — on a rebuilt gateway, a different instance and two days later.
+
+**Where the shared tail is made.** Engine-side, over all 4,794 requests of each shared cell (the histograms carry no tenant label):
+
+| | `R1` cells | `shared` cells |
+|---|---|---|
+| Client mean TTFT − engine mean TTFT, same requests | 4.5 ms | 7.3 ms |
+| Engine queue time, mean | 0.0 ms | 342.1 / 341.1 ms |
+| Engine prefill time, mean | 73.3 ms | 258.1 ms |
+| Requests that waited more than 1 s in the engine's queue | 0 | 597 in the first cell |
+| Preemptions | 0 | 0 |
+
+So: the gateway and the network are not where the tail is made (a few milliseconds of the mean); KV-cache pressure is not either (no preemption in any cell); the tail is the engine's waiting queue, plus short prefills stretched across steps whose token budget an in-progress 8,192-token prefill takes first.
+
+**The model, on the cells' own traces.** `itersim.simulate(trace=...)` replays a cell's replayed schedule through the model, so the model's error is separated from the difference between one draw of the arrival process and another:
+
+| On its own trace | Measured p99 | `nominal` | `measured` |
+|---|---|---|---|
+| `R1` | 173.5 ms | 111 ms | 178 ms |
+| `shared` | 3,995.4 ms | 1,087 ms | 3,595 ms |
+
+Section 3c recorded that the model explained "between a fifth and two thirds" of the shared tail. With the per-token cost solved from one isolated measurement and nothing else changed, it predicts 90% of it on the same trace. The rest of section 3c's gap was the difference between the model's traces and the one replayed. **What this does not establish:** that the model is right at loads it has not been checked at, which is what stages 2 and 3 test; and the remaining 10% is not attributed to anything.
