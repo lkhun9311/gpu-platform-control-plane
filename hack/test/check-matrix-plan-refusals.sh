@@ -642,6 +642,33 @@ done
 sweep_case "a rate that is not a number" "not a plain positive decimal" SWEEP="0.02x"
 sweep_case "a rate of zero" "is not positive" SWEEP="0"
 
+# The shell's options are the script's, not any one function's.
+#
+# refuse_unfrozen_load once read `set +e; ...; set -e` and so switched ON an errexit the matrix never had
+# (line 33 is `set -uo pipefail`). Nothing PLAN_ONLY runs afterwards fails a command it tolerates, so every
+# case above stayed green; on the real path the second cell's `kill; wait` of the previous gateway forward
+# returned non-zero and the matrix ended with no message -- on the kind rehearsal since 2026-10-03, and on
+# the 2026-10-04 calibration bought on a rented card, which stopped after one cell of four.
+ruf=$(awk '/^refuse_unfrozen_load\(\) \{/ {i=1} i {print} i && /^\}/ {exit}' hack/m5c-matrix.sh)
+printf '#!/bin/sh\ncase "$1" in study-frozen-tuple) echo FROZEN_PREMIUM_PROMPT_CHARS=1; echo FROZEN_NOISY_PROMPT_CHARS=2; echo FROZEN_REQUEST_TIMEOUT_MS=3; echo FROZEN_PREMIUM_OUTPUT_TOKENS=4; echo FROZEN_NOISY_OUTPUT_TOKENS=5 ;; esac\n' > "$WORK/ruf-bh"
+chmod +x "$WORK/ruf-bh"
+mkdir -p "$WORK/ruf"; cp "$WORK/ruf-bh" "$WORK/ruf/benchharness"
+ruf_opts=$(env -i PATH="$PATH" WORK="$WORK/ruf" bash -c 'set -uo pipefail; say() { :; }; fail() { echo "FAILED: $*"; exit 1; }; '"$ruf"'
+  STUDY=s PREMIUM_PROMPT_CHARS=1 NOISY_PROMPT_CHARS=2 REQUEST_TIMEOUT_MS=3 PREMIUM_OUTPUT_TOKENS=4 NOISY_OUTPUT_TOKENS=5
+  before=$-; refuse_unfrozen_load; echo "$before $-"' 2>&1)
+case "$ruf_opts" in
+  *e*" "* | *" "*e*) bad "refuse_unfrozen_load changed the caller's options (before, after): ${ruf_opts@Q}; an errexit switched on here ends the second cell of every real run" ;;
+  *" "*) [ "${ruf_opts% *}" = "${ruf_opts#* }" ] \
+           && ok "refuse_unfrozen_load returns with the caller's shell options unchanged (${ruf_opts% *})" \
+           || bad "refuse_unfrozen_load changed the caller's options (before, after): ${ruf_opts@Q}" ;;
+  *) bad "refuse_unfrozen_load did not return normally: ${ruf_opts@Q}" ;;
+esac
+# And no line of the matrix switches errexit on, which is the invariant its own comments state.
+errexit_lines=$(awk '/^[^#]*(^|[;&| ])set -e([ ;]|$)/ {print NR}' hack/m5c-matrix.sh | tr '\n' ' ')
+[ -z "$errexit_lines" ] \
+  && ok "no line of the matrix runs set -e" \
+  || bad "the matrix runs set -e at line(s) $errexit_lines; it is written for set -uo pipefail and a kill; wait is fatal under errexit"
+
 # And the seed each repetition is generated from, driven directly: a plan that passes says nothing about
 # WHICH seed went into each trace, and a seed_for_rep returning 11 for every repetition would plan cleanly.
 sfr=$(awk '/^seed_for_rep\(\) \{/ {i=1} i {print} i && /^\}/ {exit}' hack/m5c-matrix.sh)

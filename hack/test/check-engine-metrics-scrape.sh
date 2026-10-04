@@ -92,6 +92,10 @@ run() {
 	shift
 	mkdir -p "$case_dir/out" "$case_dir/log"
 	(
+		# Under errexit too: the matrix ran with it switched on, by accident, from 2026-10-02 to 2026-10-04,
+		# and a `kill; wait` whose status was not tolerated ended a real run there. The function must not
+		# depend on which options its caller has.
+		set -e
 		export PATH="$WORK/bin:$PATH" STUB_LOG="$case_dir/log"
 		OUT="$case_dir/out" KCTX=stub NS_A=ns-a NS_B=ns-b METRICS_SCRAPE_TRIES=3 METRICS_PORT="$PORT"
 		# shellcheck disable=SC1091

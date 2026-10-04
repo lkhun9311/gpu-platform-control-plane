@@ -456,8 +456,9 @@ resolve_seeds() {
       0?*) fail "SEEDS entry ${w@Q} has a leading zero; write it as $((10#$w)) so two spellings of one seed cannot pass as two seeds" ;;
     esac
   done
-  # awk, not grep: with SEEDS empty `grep .` exits 1, and under pipefail and `set -e` that assignment ended
-  # the whole script with no message -- measured, on the first run of this function.
+  # awk, not grep: with SEEDS empty `grep .` exits 1, and under pipefail that assignment ended the whole script
+  # with no message -- measured, on the first run of this function, while refuse_unfrozen_load was still
+  # switching errexit on for everything after it.
   n=$(printf '%s\n' $SEEDS | awk 'NF {c++} END {print c+0}')
   distinct=$(printf '%s\n' $SEEDS | awk 'NF && !seen[$1]++ {c++} END {print c+0}')
   case "$TRACE_POLICY" in
@@ -526,10 +527,13 @@ load_banner() {
 # block a ladder that has never been bought.
 refuse_unfrozen_load() {
   local out rc
-  set +e
-  out=$("$WORK/benchharness" study-frozen-tuple --study "$STUDY" 2>&1)
-  rc=$?
-  set -e
+  # The status is taken WITHOUT touching the shell's options. This read `set +e; out=$(...); rc=$?; set -e`,
+  # and the `set -e` turned ON an errexit this script never had (line 33 is `set -uo pipefail`), for every
+  # line after the first call. Its first casualty was the gateway forward's `kill; wait` at the start of the
+  # second cell: `wait` returns the killed forward's status, errexit ended the matrix with no message, and
+  # both the kind rehearsal and the 2026-10-04 calibration on a rented card stopped there -- the "cell 2,
+  # cause unidentified" failure recorded since 2026-10-03.
+  if out=$("$WORK/benchharness" study-frozen-tuple --study "$STUDY" 2>&1); then rc=0; else rc=$?; fi
   if [ "$rc" != 0 ]; then
     # "froze no load tuple" is the only non-zero this may continue past, and only for a study the registry
     # knows. Any other failure -- an unregistered study, a drift between the frozen characters and the
@@ -2568,8 +2572,10 @@ scrape_engine_metrics() {
     done
     [ "$bound" = 1 ] || [ "$reason" != "the engine did not answer /metrics within $tries attempts" ] \
       || reason="the port-forward to deploy/$deploy in $ns never reported binding $port within $tries attempts"
-    kill "$pf_pid" 2>/dev/null
-    wait "$pf_pid" 2>/dev/null
+    # A forward that already exited makes `kill` fail and the killed one makes `wait` fail; neither may end
+    # the run. See the gateway forward's kill in run_cell.
+    kill "$pf_pid" 2>/dev/null || true
+    wait "$pf_pid" 2>/dev/null || true
     rm -f "$base.prom.part"
     if [ -n "$reason" ]; then
       { echo "$reason"; echo "-- port-forward log:"; tail -n 5 "$pf" 2>/dev/null; } > "$base.err"
@@ -2649,8 +2655,11 @@ run_cell() {
   # had passed on earlier runs because the old forward usually dies on its own when its target pod is
   # replaced -- usually, which is the word that makes it a race rather than a bug that shows up.
   if [ -n "$PF_PID" ]; then
-    kill "$PF_PID" 2>/dev/null
-    wait "$PF_PID" 2>/dev/null
+    # `wait` returns the killed forward's own status, which is never 0 here, and `kill` fails on a forward
+    # that already exited. `|| true` on both so that an errexit switched on anywhere above -- as
+    # refuse_unfrozen_load once did -- cannot end the run on these lines.
+    kill "$PF_PID" 2>/dev/null || true
+    wait "$PF_PID" 2>/dev/null || true
   fi
   # Then PROVE the port is free, rather than assuming the kill above was enough.
   #
