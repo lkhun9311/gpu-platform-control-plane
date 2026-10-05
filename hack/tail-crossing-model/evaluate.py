@@ -92,14 +92,22 @@ def main(short_dir, long_dir, s_b):
         print(f"{rate:<9} | {s95:8.1f} {a95:+7.1f} {s95 / b['short', .95][0]:5.2f} | {s99:8.1f} {a99s:+7.1f} {s99 / b['short', .99][0]:5.2f}"
               f" | {l99:8.1f} {a99l:+7.1f} {l99 / b['long', .99][0]:5.2f} | {a99s - a99l:+8.1f}")
     p1 = all(r[4] > r[5] for r in rows)
-    low = [r for r in rows if r[0] <= lam95 / 2]
-    high = [r for r in rows if r[0] >= 2 * lam95]
+    # The grid was registered as lambda*/2, lambda*, 2 lambda*, 4 lambda* ROUNDED TO FOUR DECIMALS, before
+    # any cell existed, and the registration named which point fills which role. Comparing the rounded rates
+    # against the unrounded boundaries put 0.0241 just above lambda*/2 = 0.024092 and 0.0964 just above
+    # 10 lambda*99 = 0.09637, so the first run of this script reported "no level" for P2's low side and a
+    # two-point P3 window. The tolerance is the rounding's own half-unit, and no wider.
+    tol = 0.5e-4
+    low = [r for r in rows if r[0] <= lam95 / 2 + tol]
+    high = [r for r in rows if r[0] >= 2 * lam95 - tol]
     p2_low = all(r[1] <= 0.10 * b["short", .95][0] for r in low) if low else None
     p2_high = all(r[1] >= s_b * 1000 / 4 for r in high) if high else None
-    window = [r for r in rows if 2 * lam99 <= r[0] <= 10 * lam99]
+    window = [r for r in rows if 2 * lam99 - tol <= r[0] <= 10 * lam99 + tol]
     p3_mean = sum(r[2] - r[3] for r in window) / len(window) if window else None
     print(f"P1 short multiple > long multiple at every level: {'holds' if p1 else 'FALSIFIED'}")
-    print(f"P2 low side at {[r[0] for r in low]}: {'holds' if p2_low else 'FALSIFIED' if p2_low is False else 'no level'}")
+    base95 = b["short", .95][0]
+    print(f"P2 low side at {[r[0] for r in low]}: rise {[f'{100 * r[1] / base95:.1f}%' for r in low]} against 10%:"
+          f" {'holds' if p2_low else 'FALSIFIED' if p2_low is False else 'no level'}")
     print(f"P2 high side at {[r[0] for r in high]}: {'holds' if p2_high else 'FALSIFIED' if p2_high is False else 'no level'}")
     print(f"P3 window {[r[0] for r in window]}: mean(short added - long added) = "
           f"{'n/a' if p3_mean is None else f'{p3_mean:+.1f} ms'} -> "
