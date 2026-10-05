@@ -810,9 +810,10 @@ type benchmarkRequest struct {
 
 // checkBenchmarkProfile refuses a body outside the registered text-only request shape.
 //
-// The fields accepted here mirror internal/bench's sender exactly. `priority` is NOT among them: it belongs to
+// The fields accepted here mirror internal/bench's sender, except the two it omits unless a study asks for them. `priority` is NOT among them: it belongs to
 // a separately specified experiment, and a run that carried it would be measuring a different treatment under
-// this one's name.
+// this one's name. `min_tokens` is not among them for the same reason: only the instrument-validation session 3
+// sends it, and a profile-enforcing gateway is meant to refuse that traffic rather than score it as M5-b.
 //
 // A string `content` is required rather than the multimodal array the OpenAI schema also allows, because the
 // input estimate cannot read a token cost off a non-text part -- the shape that made NonTextContent necessary

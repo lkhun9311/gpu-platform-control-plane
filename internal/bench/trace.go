@@ -64,6 +64,11 @@ type TraceRow struct {
 	// Zero means not measured, and a report refuses the admission-match check rather than falling back to
 	// the estimate, since falling back is how the criterion came to be unevaluated in the first place.
 	ExactInputTokens int `json:"exactInputTokens,omitempty"`
+	// MinOutputTokens is the output the engine must produce before it may stop at end-of-sequence.
+	//
+	// Only session 3's stagger decoders carry it, set equal to their cap so that every decoder decodes for its full window.
+	// Omitted when zero, so every trace written before it existed keeps its bytes and its pinned checksum.
+	MinOutputTokens int `json:"minOutputTokens,omitempty"`
 }
 
 // TenantSpec describes one tenant's share of a trace and the shape of its requests.

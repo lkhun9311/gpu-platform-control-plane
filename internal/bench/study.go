@@ -247,6 +247,11 @@ const (
 	// A study of its own rather than more blocks of the first, because its episodes differ: held-out serial lengths, a later and jittered stagger trigger, longer decoders and other replicate counts.
 	// Pooling the two would score one trace's settings against the other's, and session 1's verdict has to stand on its own evidence.
 	StudyInstrumentValidationS2 = "instrument-validation-s2-2026-10-05"
+	// StudyInstrumentValidationS3 is the third instrument check, registered in
+	// docs/superpowers/specs/2026-10-06-instrument-validation-session-3.md after gate S stopped session 2.
+	//
+	// A study of its own because its staggered decoders run under different termination semantics, so session 2's three cells are not pooled with it.
+	StudyInstrumentValidationS3 = "instrument-validation-s3-2026-10-06"
 )
 
 // The engine modes the instrument-validation study crosses with its episode types.
@@ -622,6 +627,13 @@ var studies = map[string]Study{
 	// The same nine arms and the same trace policy as session 1, which section 1 of its registration keeps; only the episodes differ, and they live in designS2.
 	StudyInstrumentValidationS2: {
 		ID:                     StudyInstrumentValidationS2,
+		Arms:                   instrumentValidationArms(),
+		Arrivals:               ArrivalsEpisodes,
+		TracesVaryByRepetition: false,
+	},
+	// Session 2's arms and trace policy, which section 1 of its registration keeps; only the stagger decoders' minimum output differs, in designS3.
+	StudyInstrumentValidationS3: {
+		ID:                     StudyInstrumentValidationS3,
 		Arms:                   instrumentValidationArms(),
 		Arrivals:               ArrivalsEpisodes,
 		TracesVaryByRepetition: false,

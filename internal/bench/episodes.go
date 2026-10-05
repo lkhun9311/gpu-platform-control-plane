@@ -115,6 +115,8 @@ func EpisodeSpacingMs(totalPrefillTokens, maxOutputCap int) int64 {
 type episodeRequest struct {
 	tokens int
 	cap    int
+	// minOut is the output the engine must produce before it may stop at end-of-sequence, and zero for every request before session 3.
+	minOut int
 	atMs   int64
 }
 
@@ -176,6 +178,9 @@ type episodeDesign struct {
 	staggerShortCycles int
 	// warmup says whether the registration defines a warm-up trace, which session 1's does not.
 	warmup bool
+	// staggerDecodeMin is the minimum output every stagger decoder asks for, in the measured trace and the warm-up alike.
+	// Zero leaves the field off the rows, which is what keeps sessions 1 and 2 byte-identical.
+	staggerDecodeMin int
 }
 
 var designS1 = episodeDesign{
@@ -203,6 +208,17 @@ var designS2 = episodeDesign{
 	warmup:             true,
 }
 
+// designS3 is session 2's design with one change, from section 1 of docs/superpowers/specs/2026-10-06-instrument-validation-session-3.md.
+// It is derived from designS2 rather than written out, so a reader sees the one difference and a later edit to session 2 cannot leave session 3 behind unnoticed.
+var designS3 = func() episodeDesign {
+	d := designS2
+	d.study = StudyInstrumentValidationS3
+	// In session 2, 188 of 420 staggered decoders capped at 512 stopped at end-of-sequence, some before the prefill's first token, and gate S refused the cell.
+	// A minimum equal to the cap makes every decoder run to exactly 512 tokens, because vLLM does not stop at end-of-sequence before min_tokens.
+	d.staggerDecodeMin = d.staggerDecodeCap
+	return d
+}()
+
 // designFor returns the episode design a study registers, and false for a study that replays no episodes.
 func designFor(study string) (episodeDesign, bool) {
 	switch study {
@@ -210,6 +226,8 @@ func designFor(study string) (episodeDesign, bool) {
 		return designS1, true
 	case StudyInstrumentValidationS2:
 		return designS2, true
+	case StudyInstrumentValidationS3:
+		return designS3, true
 	}
 	return episodeDesign{}, false
 }
@@ -243,6 +261,9 @@ func (d episodeDesign) fullCycle(t EpisodeType) ([]episodeSpec, error) {
 			for _, c := range staggerContexts {
 				for _, p := range staggerPrefills {
 					e := homogeneous(n, c, d.staggerDecodeCap)
+					for i := range e {
+						e[i].minOut = d.staggerDecodeMin
+					}
 					// The prefill waits for the decoders' own prefill to finish, by the same pessimistic chunk estimate, so it meets them decoding rather than queued.
 					out = append(out, append(e, episodeRequest{tokens: p, cap: staggerPrefillCap, atMs: d.staggerBaseLagMs(n, c)}))
 				}
@@ -302,6 +323,7 @@ type plannedRequest struct {
 	offsetMs int64
 	tokens   int
 	cap      int
+	minOut   int
 }
 
 // jittered returns a stagger setting with its prefill moved later by a seeded draw, and every other setting unchanged.
@@ -326,7 +348,7 @@ func (d episodeDesign) layOut(order, jitter *rand.Rand, cycles [][]episodeSpec) 
 		for _, i := range order.Perm(len(cycle)) {
 			e := d.jittered(cycle[i], jitter)
 			for _, r := range e {
-				out = append(out, plannedRequest{offsetMs: start + r.atMs, tokens: r.tokens, cap: r.cap})
+				out = append(out, plannedRequest{offsetMs: start + r.atMs, tokens: r.tokens, cap: r.cap, minOut: r.minOut})
 			}
 			span = start + e.lastAtMs() + e.gapMs()
 			start += e.gapMs()
@@ -454,6 +476,7 @@ func episodeRows(p EpisodeTraceParams, plan []plannedRequest, span int64, what s
 			Tenant:          PremiumTenant,
 			PromptLenChars:  chars[r.tokens],
 			MaxOutputTokens: r.cap,
+			MinOutputTokens: r.minOut,
 		}
 	}
 	return rows, nil
@@ -495,6 +518,31 @@ func (d episodeDesign) checkEpisodeRows(rows []TraceRow) (map[int]int, error) {
 		}
 	}
 	return tokensOf, nil
+}
+
+// checkMinOutput refuses a row whose minimum output is not the one its role registers.
+//
+// It is checked row by row rather than through the episode signatures, because a decoder that lost its minimum still forms a registered setting and would be counted as one.
+// That is session 2's composition under session 3's name, which is exactly what session 3 exists to exclude.
+// A stagger decoder is recognised by its cap, which no prefill and no other episode type shares.
+func (d episodeDesign) checkMinOutput(t EpisodeType, rows []TraceRow) error {
+	for _, r := range rows {
+		decoder := t == EpisodeStagger && r.MaxOutputTokens == d.staggerDecodeCap
+		want := 0
+		if decoder {
+			want = d.staggerDecodeMin
+		}
+		if r.MinOutputTokens == want {
+			continue
+		}
+		if decoder {
+			return fmt.Errorf("row %d is a stagger decoder with minOutputTokens %d and study %s registers %d for every stagger decoder",
+				r.Index, r.MinOutputTokens, d.study, want)
+		}
+		return fmt.Errorf("row %d is not a stagger decoder and carries minOutputTokens %d; study %s registers a minimum output only for stagger decoders, if at all",
+			r.Index, r.MinOutputTokens, d.study)
+	}
+	return nil
 }
 
 // EpisodeTraceRefusal says whether a measured trace is one this study's episode type registration can score.
@@ -577,5 +625,6 @@ func EpisodeTraceRefusal(study string, t EpisodeType, rows []TraceRow) error {
 			return fmt.Errorf("the %s setting [%s] appears %d times and study %s places it exactly %d times", t, e.signature(), n, d.study, w)
 		}
 	}
-	return nil
+	// Last, because only once the rows are known to be this type's settings is a cap of the decoders' value a decoder.
+	return d.checkMinOutput(t, rows)
 }

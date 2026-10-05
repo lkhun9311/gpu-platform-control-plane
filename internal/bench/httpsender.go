@@ -256,7 +256,12 @@ type chatRequest struct {
 	Model     string       `json:"model"`
 	Messages  []chatReqMsg `json:"messages"`
 	MaxTokens int          `json:"max_tokens"`
-	Stream    bool         `json:"stream"`
+	// MinTokens is vLLM's minimum output before end-of-sequence may stop the request.
+	//
+	// Omitted when zero, so that every request of every earlier study is the body it always was.
+	// An explicit 0 would ask the engine for its default anyway, but a changed body is a changed treatment until shown otherwise.
+	MinTokens int  `json:"min_tokens,omitempty"`
+	Stream    bool `json:"stream"`
 	// StreamOptions asks the engine to append a usage chunk carrying its own count of the prompt.
 	//
 	// That count is the served tokenizer's, which is the unit the design's admission-match criterion is
@@ -297,6 +302,7 @@ func (h *HTTPSender) Send(ctx context.Context, row TraceRow, sendUnixNanos int64
 		Model:         h.model,
 		Messages:      []chatReqMsg{{Role: "user", Content: PromptText(row.PromptLenChars)}},
 		MaxTokens:     row.MaxOutputTokens,
+		MinTokens:     row.MinOutputTokens,
 		Stream:        true,
 		StreamOptions: streamOptions{IncludeUsage: true},
 	}
