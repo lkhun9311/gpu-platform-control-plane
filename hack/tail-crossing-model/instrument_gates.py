@@ -111,12 +111,32 @@ def gate_i1(cells, kind, quantity, rng):
         raise Refusal(f"I1 {kind} {quantity}: settings missing from some cell: {missing[:3]}")
     keys = sorted(union, key=str)
 
-    def pooled(pick):
-        return statistics.fmean(math.log(statistics.median(pick(on[b][s])) / statistics.median(pick(off[b][s])))
-                                for s in keys for b in BLOCKS)
+    # The bootstrap resamples whole episodes, keeping every rank of one episode together.
+    #
+    # A setting's values are listed in episode order, so index i of every rank of one episode type in one cell is the
+    # same episode. Resampling each rank on its own treated ranks that move together -- a whole burst slower -- as
+    # independent, and a review showed it passing at +/-1% where episode resampling gives +/-6%. The group is the
+    # setting without its role and rank, so a staggered episode's decoders and its prefill are drawn together too.
+    def group(s):
+        return s[:3]
 
-    point = pooled(lambda v: v)
-    boot = sorted(pooled(lambda v: rng.choices(v, k=len(v))) for _ in range(BOOT))
+    sizes = {}
+    for side, data in (("on", on), ("off", off)):
+        for b in BLOCKS:
+            for s in keys:
+                n = sizes.setdefault((side, b, group(s)), len(data[b][s]))
+                if n != len(data[b][s]):
+                    raise Refusal(f"I1 {kind} {quantity}: in {side}-{b}, setting {s} has {len(data[b][s])} values and "
+                                  f"its episode type has {n}, so its ranks cannot be resampled as whole episodes")
+
+    def pooled(draw):
+        def med(side, data, b, s):
+            v = data[b][s]
+            return statistics.median(v[i] for i in draw[(side, b, group(s))])
+        return statistics.fmean(math.log(med("on", on, b, s) / med("off", off, b, s)) for s in keys for b in BLOCKS)
+
+    point = pooled({k: range(n) for k, n in sizes.items()})
+    boot = sorted(pooled({k: rng.choices(range(n), k=n) for k, n in sizes.items()}) for _ in range(BOOT))
     lo, hi = boot[int(0.025 * BOOT)], boot[int(0.975 * BOOT) - 1]
     worst = max(keys, key=lambda s: abs(statistics.fmean(
         math.log(statistics.median(on[b][s]) / statistics.median(off[b][s])) for b in BLOCKS)))
@@ -367,6 +387,29 @@ def self_test():
         ok, line = gate_i1(cells, "burst", "ttft", random.Random(1))
         assert ok, line
         print(f"ok: bursts whose TTFT grows with admission position, no overhead -> PASS: {line}")
+    with tempfile.TemporaryDirectory() as run:
+        # The review's case: whole cycles scaled alike in both arms, here by exp(-0.04), 1 and exp(0.04).
+        # Resampled by episode the interval is about +/-2.7% and fails; resampled rank by rank it narrows to about
+        # +/-1.4% and passes, because ten ranks that move together are counted as ten independent draws.
+        # The size is chosen so the two methods land on opposite sides of the 2% bound in this ten-setting archive.
+        _synthetic_run(run)
+        _positional_bursts(run)
+        for suffix in ("log", "nolog"):
+            for b in BLOCKS:
+                path = os.path.join(run, f"raw-burst-{suffix}-{b}.jsonl")
+                trace = {r["index"]: r["offsetMs"] for r in map(json.loads, open(os.path.join(run, f"trace-burst-{suffix}-{b}.jsonl")))}
+                cycle_of = {o: i * 3 // len(set(trace.values())) for i, o in enumerate(sorted(set(trace.values())))}
+                rows = [json.loads(l) for l in open(path)]
+                for r in rows:
+                    scale = math.exp(0.04 * (cycle_of[trace[r["index"]]] - 1))
+                    base = r["firstTokenUnixNanos"] - r["sendUnixNanos"]
+                    r["firstTokenUnixNanos"] += int(base * scale) - base
+                with open(path, "w") as f:
+                    f.writelines(json.dumps(r) + "\n" for r in rows)
+        cells = {(f"burst-{x}", b): load_cell(run, f"burst-{x}", b) for x in ("log", "nolog") for b in BLOCKS}
+        ok, line = gate_i1(cells, "burst", "ttft", random.Random(1))
+        assert not ok, line
+        print(f"ok: whole cycles scaled by exp(+/-0.04) -> FAIL, the interval kept wide: {line}")
     with tempfile.TemporaryDirectory() as run:
         _synthetic_run(run)
         passed, lines = evaluate(run)
