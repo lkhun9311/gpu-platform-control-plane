@@ -684,7 +684,10 @@ proj1=$(
 # --- 13. the real matrix's plan, session 2 filled in, and session 1 against its own history -------------
 # The commit session 2's harness was built on; session 1's plan must read as it did there.
 # A later change that moves session 1 on purpose updates this SHA in the same change, and says why.
-S1_BASE=d0e04c2
+S1_BASE=d0e04c292fcb489a2b1a77f7a7028540101c90e3
+# CI checks out one commit deep, so the base is fetched by its full SHA when it is not already here.
+# A fetch that fails still fails the comparison below, loudly: an absent base is not a passed comparison.
+git cat-file -e "$S1_BASE^{commit}" || git fetch --quiet --depth=1 origin "$S1_BASE" || true
 say "13. PLAN_ONLY generates every session-2 warm-up, and session 1's plan output is byte-identical to $S1_BASE"
 # tree <dir> [ref]: the files PLAN_ONLY reads, from the working tree or, for the matrix and its lib, from ref.
 tree() {
