@@ -1059,7 +1059,9 @@ for f in cell-environment.tsv cell-timings.tsv cell-judgements.tsv applied-value
   send "$out/$f" "$f"
 done
 # A refusal or an invalidation is per ARM, so it appears partway through a run and must travel too.
-for f in "$out"/refused-*.txt "$out"/invalid-*.txt; do
+# cell-refused-* is a cell the matrix stopped on, with its reason; without it a session that dies before the final
+# archive leaves the stop unexplained in the bucket (found by review).
+for f in "$out"/refused-*.txt "$out"/invalid-*.txt "$out"/cell-refused-*.txt; do
   [ -f "$f" ] || continue
   send "$f" "$(basename "$f")"
 done

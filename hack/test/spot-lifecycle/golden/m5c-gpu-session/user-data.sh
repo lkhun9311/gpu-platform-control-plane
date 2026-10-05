@@ -169,7 +169,7 @@ send "$out/warmup-manifest-$arm-$rep.yaml" "warmup-manifest-$arm-$rep.yaml"
 for f in cell-environment.tsv cell-timings.tsv cell-judgements.tsv applied-values.tsv load-source.txt; do
   send "$out/$f" "$f"
 done
-for f in "$out"/refused-*.txt "$out"/invalid-*.txt; do
+for f in "$out"/refused-*.txt "$out"/invalid-*.txt "$out"/cell-refused-*.txt; do
   [ -f "$f" ] || continue
   send "$f" "$(basename "$f")"
 done

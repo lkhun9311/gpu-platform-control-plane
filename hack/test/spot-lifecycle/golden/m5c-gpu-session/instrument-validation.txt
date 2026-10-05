@@ -42,7 +42,7 @@ gateway checksum: user-data matches the uploaded binary
 ==   gateway <SHA12>, benchharness <SHA12>
 == uploading the source and the binaries
 == g5.2xlarge is offered in: ap-northeast-2a ap-northeast-2c
-== user-data: 12284 of 25600 encoded bytes
+== user-data: 12320 of 25600 encoded bytes
 == checking the purchase plan locally, before anything is rented
 == plan: 9 cell(s): serial-nolog burst-nolog stagger-nolog serial-log burst-log stagger-log serial-async stagger-async burst-async 
 == study instrument-validation-2026-10-05 froze no load tuple; the five load quantities are not compared for it
