@@ -309,6 +309,7 @@ mx() {
 	local arms=(ARMS="$SYNC $ASYNC") unset_arms=()
 	if [ "${2:-}" = NOARMS ]; then arms=(); unset_arms=(-u ARMS); set -- "$1" "${@:3}"; fi
 	env -u DURATION_MS -u SWEEP -u LADDER -u RATE -u PREMIUM_WEIGHT -u NOISY_WEIGHT -u PROBE_WEIGHT -u PREMIUM_RATE \
+		-u PREMIUM_PROMPT_CHARS -u NOISY_PROMPT_CHARS -u PREMIUM_OUTPUT_TOKENS -u NOISY_OUTPUT_TOKENS \
 		"${unset_arms[@]}" TMPDIR="$WORK/tmp" PLAN_ONLY=1 PLATFORM=kind KCTX=none \
 		BENCHHARNESS_BIN="$WORK/bh" STUDY="$IV" REPS=3 \
 		"${arms[@]}" OUT="$WORK/m-$1" "${@:2}" bash "$SRC" 2>&1
@@ -328,6 +329,8 @@ expect_mx sweep "SWEEP is set and study $IV registers no best-effort sweep" SWEE
 # The study takes no load, and a load variable is refused rather than silently unused.
 expect_mx rate "RATE is '1' and study $IV takes no load" RATE=1
 expect_mx weight "NOISY_WEIGHT is '0.05' and study $IV takes no load" NOISY_WEIGHT=0.05
+# And the prompt shape, which used to be dropped before gen-trace and still recorded as declared.
+expect_mx shape "PREMIUM_PROMPT_CHARS=999 PREMIUM_OUTPUT_TOKENS=3 set, and study $IV's lengths" PREMIUM_PROMPT_CHARS=999 PREMIUM_OUTPUT_TOKENS=3
 expect_mx arms-unset "ARMS is unset and study $IV has none of the default topologies" NOARMS
 expect_mx foreign-arm "arm 'R1' is not one of study $IV's nine arms" ARMS="serial-log R1"
 expect_mx unregistered "STUDY is 'instrument-validation-2026-10-06'" STUDY=instrument-validation-2026-10-06

@@ -331,6 +331,12 @@ func EpisodeTraceRefusal(t EpisodeType, rows []TraceRow) error {
 		byOffset[r.OffsetMs] = append(byOffset[r.OffsetMs], r)
 	}
 	sort.Slice(offsets, func(i, j int) bool { return offsets[i] < offsets[j] })
+	// The spacing is checked here, not only in the generator, because this is what a trace is bought against.
+	// A review found a serial trace with its offsets rewritten to 0-53 ms reported as three complete cycles: the
+	// contents were all there, and the episodes would have overlapped on the card and failed the evaluator's
+	// drained check after the money was spent.
+	var prevStart, prevGap int64
+	havePrev := false
 	for i := 0; i < len(offsets); i++ {
 		start := offsets[i]
 		var e episodeSpec
@@ -349,6 +355,11 @@ func EpisodeTraceRefusal(t EpisodeType, rows []TraceRow) error {
 			return fmt.Errorf("the rows at offset %d ms form the episode [%s], which is not a %s setting; the trace was not built for this arm's episode type",
 				start, sig, t)
 		}
+		if havePrev && start < prevStart+prevGap {
+			return fmt.Errorf("the episode at offset %d ms starts %d ms after the one before it, inside that episode's spacing bound of %d ms, so the engine would not be drained between them",
+				start, start-prevStart, prevGap)
+		}
+		prevStart, prevGap, havePrev = start, e.gapMs(), true
 		counts[sig]++
 	}
 	for _, e := range cycle {

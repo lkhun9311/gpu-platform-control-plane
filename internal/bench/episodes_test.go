@@ -315,6 +315,20 @@ func TestEpisodeTraceRefusals(t *testing.T) {
 			}
 			return r
 		}), "not a stagger setting"},
+		// Every setting present the right number of times, and the episodes one millisecond apart: the trace a
+		// review produced by rewriting offsets, which the contents-only check reported as three complete cycles.
+		{"episodes packed inside their spacing", EpisodeBurst, edit(burst, func(r []TraceRow) []TraceRow {
+			rank := map[int64]int64{}
+			for _, x := range r {
+				if _, ok := rank[x.OffsetMs]; !ok {
+					rank[x.OffsetMs] = int64(len(rank))
+				}
+			}
+			for i := range r {
+				r[i].OffsetMs = rank[r[i].OffsetMs]
+			}
+			return r
+		}), "inside that episode's spacing bound"},
 		// The whole first episode is removed or repeated, so the case cannot turn into a split burst.
 		{"a missing episode", EpisodeBurst, edit(burst, func(r []TraceRow) []TraceRow {
 			return slices.DeleteFunc(r, func(x TraceRow) bool { return x.OffsetMs == burst[0].OffsetMs })

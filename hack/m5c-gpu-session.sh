@@ -380,7 +380,8 @@ say "output $OUT"
 # they would hand the matrix a RATE of 9.85 that it then refuses on the instance, after the card is paid for.
 IV_NO_LOAD=""
 if [ -z "$LADDER" ] && iv_is_study "${STUDY:-}"; then
-  for _v in RATE PREMIUM_WEIGHT NOISY_WEIGHT PROBE_WEIGHT PREMIUM_RATE; do
+  for _v in RATE PREMIUM_WEIGHT NOISY_WEIGHT PROBE_WEIGHT PREMIUM_RATE \
+    PREMIUM_PROMPT_CHARS NOISY_PROMPT_CHARS PREMIUM_OUTPUT_TOKENS NOISY_OUTPUT_TOKENS; do
     [ -z "${!_v:-}" ] || fail "$_v is ${!_v@Q} and study ${STUDY} takes no load; its episodes are the registration's. Unset it"
   done
   IV_NO_LOAD=1

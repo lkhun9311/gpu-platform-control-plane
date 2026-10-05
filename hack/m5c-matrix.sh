@@ -94,6 +94,13 @@ MODEL_REVISION="${MODEL_REVISION:-aa8e72537993ba99e69dfaafa59ed015b17504d1}"
 #
 # Overridable, because a study that registers other lengths must be able to pass them, and NOT derived from
 # anything here: the only source is hack/input-length-resolution.json, measured against the served tokenizer.
+#
+# Which of the four the CALLER set is captured before the defaults fill them, because the instrument-validation
+# study refuses a caller's value and a defaulted one is indistinguishable from it afterwards.
+SHAPE_FROM_CALLER=""
+for _v in PREMIUM_PROMPT_CHARS NOISY_PROMPT_CHARS PREMIUM_OUTPUT_TOKENS NOISY_OUTPUT_TOKENS; do
+  [ -z "${!_v:-}" ] || SHAPE_FROM_CALLER="$SHAPE_FROM_CALLER $_v=${!_v}"
+done
 PREMIUM_PROMPT_CHARS="${PREMIUM_PROMPT_CHARS:-1174}"
 NOISY_PROMPT_CHARS="${NOISY_PROMPT_CHARS:-42579}"
 REQUEST_TIMEOUT_MS="${REQUEST_TIMEOUT_MS:-60000}"
@@ -343,6 +350,10 @@ if [ -z "$LADDER" ] && iv_is_study "$STUDY"; then
   for v in RATE PREMIUM_WEIGHT NOISY_WEIGHT PROBE_WEIGHT PREMIUM_RATE; do
     [ -z "${!v:-}" ] || fail "$v is ${!v@Q} and study $STUDY takes no load; its episodes are the registration's. Unset it"
   done
+  # The prompt shape as well: its lengths and caps vary by row, and a caller's value would be dropped before
+  # gen-trace while load-source.txt recorded it as declared (found by review, reproduced with PLAN_ONLY).
+  [ -z "$SHAPE_FROM_CALLER" ] \
+    || fail "${SHAPE_FROM_CALLER# } set, and study $STUDY's lengths and output caps are the registration's, varying by row. Unset them"
   RATE=0 PREMIUM_WEIGHT=0 NOISY_WEIGHT=0 PROBE_WEIGHT=0
 fi
 [ -n "${RATE:-}" ] || [ -n "$LADDER" ] || [ -n "$SWEEP" ] || fail "RATE is unset. Measure it from a single contender prefill on THIS card, the way hack/m5b-gpu-session.sh does; the harness default of 20/s demands 3.8x an A10G's theoretical peak and would censor every arm."
