@@ -97,3 +97,26 @@ func TestStubReportsPromptTokensForMeasuredLengths(t *testing.T) {
 		}
 	}
 }
+
+// Session 3's revision pins, held to the harness's own refusal: the stub's line with both revisions passes for a
+// logged arm, and the same line without them is refused.
+func TestStubRevisionsSatisfyTheSessionThreeHarness(t *testing.T) {
+	const rev = "aa8e72537993ba99e69dfaafa59ed015b17504d1"
+	script := `. hack/lib/instrument-validation.sh && iv_process_args_refusal "$IV_S3_STUDY" "$1" "$2" "$3"`
+	run := func(line string) error {
+		cmd := exec.Command("bash", "-c", script, "_", "serial-log", line, rev)
+		cmd.Dir = "../.."
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("%v: %s", err, out)
+		}
+		return nil
+	}
+	pinned := stubWithRevisions(stubNonDefaultArgs(8000, true, true), rev, rev)
+	if err := run(pinned); err != nil {
+		t.Errorf("the harness refused the stub's pinned line %q: %v", pinned, err)
+	}
+	if err := run(stubNonDefaultArgs(8000, true, true)); err == nil {
+		t.Error("the harness accepted a session-3 engine that reported no revision")
+	}
+}

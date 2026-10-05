@@ -296,6 +296,19 @@ func stubPromptTokens(n int) int {
 //
 // The keys and the Python repr are vLLM's own: the paid runs recorded `'enable_prefix_caching': False` in this
 // form, and --no-async-scheduling and --enable-logging-iteration-details are the same kind of flag.
+// stubWithRevisions adds the revision keys vLLM prints for --revision and --tokenizer-revision, single-quoted as it
+// prints every string, to a non-default args line; an empty value adds nothing, as vLLM prints only what was set.
+func stubWithRevisions(line, revision, tokenizerRevision string) string {
+	body := strings.TrimSuffix(line, "}")
+	if revision != "" {
+		body += fmt.Sprintf(", 'revision': '%s'", revision)
+	}
+	if tokenizerRevision != "" {
+		body += fmt.Sprintf(", 'tokenizer_revision': '%s'", tokenizerRevision)
+	}
+	return body + "}"
+}
+
 func stubNonDefaultArgs(port int, noAsync, iterDetails bool) string {
 	s := fmt.Sprintf("non-default args: {'model_tag': 'stub', 'port': %d", port)
 	if noAsync {
@@ -481,12 +494,16 @@ func stubServe(args []string) error {
 	port := fs.Int("port", 0, "vLLM's port flag; when set it overrides --addr and the vLLM-style non-default args line is printed")
 	noAsync := fs.Bool("no-async-scheduling", false, "vLLM's flag; reported as async_scheduling False")
 	iterDetails := fs.Bool("enable-logging-iteration-details", false, "vLLM's flag; one Iteration( line per stub step")
+	// Session 3 pins the model and tokenizer revision on the engine's command line and refuses a cell whose engine does
+	// not report them, so the stub accepts both and reports them in vLLM's form.
+	revision := fs.String("revision", "", "vLLM's model revision flag; reported in the non-default args line")
+	tokenizerRevision := fs.String("tokenizer-revision", "", "vLLM's tokenizer revision flag; reported likewise")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if *port > 0 {
 		*addr = fmt.Sprintf(":%d", *port)
-		fmt.Println(stubNonDefaultArgs(*port, *noAsync, *iterDetails))
+		fmt.Println(stubWithRevisions(stubNonDefaultArgs(*port, *noAsync, *iterDetails), *revision, *tokenizerRevision))
 	}
 
 	profile := stubProfile{
