@@ -93,10 +93,16 @@ def gate_i1(cells, kind, quantity, rng):
     """d(s, b) = log(median on / median off) per setting and block; pooled 95% interval within 2%, each setting within 5%."""
     on = {b: by_setting(kind, cells[(f"{kind}-log", b)], quantity) for b in BLOCKS}
     off = {b: by_setting(kind, cells[(f"{kind}-nolog", b)], quantity) for b in BLOCKS}
-    keys = sorted(set.intersection(*(set(on[b]) & set(off[b]) for b in BLOCKS)), key=str)
-    missing = set().union(*(set(on[b]) ^ set(off[b]) for b in BLOCKS))
-    if missing or not keys:
-        raise Refusal(f"I1 {kind} {quantity}: settings missing from a paired cell: {sorted(missing, key=str)[:3]}")
+    # Every one of the six cells must hold the same settings.
+    #
+    # Comparing only within a block let a setting absent from both cells of one block drop out of every block,
+    # and a ten-fold overhead on that setting in the other two blocks then passed (found by review, reproduced).
+    sets = [set(on[b]) for b in BLOCKS] + [set(off[b]) for b in BLOCKS]
+    union = set().union(*sets)
+    missing = sorted(union - set.intersection(*sets), key=str)
+    if missing or not union:
+        raise Refusal(f"I1 {kind} {quantity}: settings missing from some cell: {missing[:3]}")
+    keys = sorted(union, key=str)
 
     def pooled(pick):
         return statistics.fmean(math.log(statistics.median(pick(on[b][s])) / statistics.median(pick(off[b][s])))
@@ -118,22 +124,26 @@ def preemptions(run, arm, rep):
         path = os.path.join(run, f"engine-metrics-{arm}-{rep}-{which}.prom")
         if not os.path.exists(path):
             raise Refusal(f"{arm}-{rep}: {path} is missing, so preemptions cannot be counted (gate I2)")
-        return sum(float(l.rsplit(" ", 1)[1]) for l in open(path)
-                   if l.startswith("vllm:num_preemptions_total"))
+        samples = [float(l.rsplit(" ", 1)[1]) for l in open(path) if l.startswith("vllm:num_preemptions_total")]
+        # A scrape without the counter is unread, and unread is not zero.
+        if not samples:
+            raise Refusal(f"{arm}-{rep}: {path} has no vllm:num_preemptions_total sample (gate I2)")
+        return sum(samples)
     return total("after") - total("before")
 
 
 def gate_i2_i3(run, cells):
-    """Accounting on every logged cell, and the serial clock fit on the serial ones."""
+    """Preemptions on every paired cell, accounting on the logged ones, and the clock fit on the serial ones."""
     lines, fits = [], []
     for (arm, b), reqs in sorted(cells.items()):
+        # The logging-off cells are the comparison I1 rests on, so a preemption there refuses as well.
+        p = preemptions(run, arm, b)
+        if p:
+            raise Refusal(f"{arm}-{b}: {p:g} preemption(s) (gate I2)")
         if not arm.endswith("-log"):
             continue
         iters = iterlog.parse(open(os.path.join(run, f"engine-log-{arm}-{b}.txt")))
         iterlog.check_indices(iters)
-        p = preemptions(run, arm, b)
-        if p:
-            raise Refusal(f"{arm}-{b}: {p:g} preemption(s) (gate I2)")
         if arm == "serial-log":
             # The same drained check iterlog.load_requests makes, because this loader does not go through it.
             by_send = sorted(reqs, key=lambda q: q["send_ms"])
@@ -142,7 +152,7 @@ def gate_i2_i3(run, cells):
                     raise Refusal(f"{arm}-{b}: request {q['index']} was sent before request {p['index']} ended, so "
                                   f"the serial episode was not drained")
             fits.append(iterlog.fit_clock(iterlog.attribute_serial(iters, reqs)))
-    lines.append(f"I2 accounting: every logged cell has contiguous iterations, no failed request, no preemption")
+    lines.append(f"I2 accounting: no failed request or preemption in any paired cell; contiguous iterations in every logged one")
     worst_res = max(f["worst_residual"] for f in fits)
     lines.append(f"I3 clock: a {[round(f['a'], 3) for f in fits]} ms, b {[round(f['b'], 3) for f in fits]} ms per step, "
                  f"worst residual {worst_res:.4f} of TTFT")
@@ -369,6 +379,37 @@ def self_test():
             raise AssertionError("a preemption was accepted")
         except Refusal as e:
             print(f"ok: refuses a preemption -- {e}")
+    def refused(what, prepare, words):
+        with tempfile.TemporaryDirectory() as run:
+            _synthetic_run(run)
+            prepare(run)
+            try:
+                evaluate(run)
+            except Refusal as e:
+                assert words in str(e), e
+                print(f"ok: refuses {what} -- {e}")
+                return
+            raise AssertionError(f"{what} was accepted")
+
+    def write(run, name, text):
+        with open(os.path.join(run, name), "w") as f:
+            f.write(text)
+
+    def drop_setting(run):
+        for arm in ("burst-log", "burst-nolog"):
+            trace = [json.loads(l) for l in open(os.path.join(run, f"trace-{arm}-2.jsonl"))]
+            raw = [json.loads(l) for l in open(os.path.join(run, f"raw-{arm}-2.jsonl"))]
+            gone = {r["index"] for r in raw if r["engineInputTokens"] == 8192}
+            write(run, f"trace-{arm}-2.jsonl", "".join(json.dumps(r) + "\n" for r in trace if r["index"] not in gone))
+            write(run, f"raw-{arm}-2.jsonl", "".join(json.dumps(r) + "\n" for r in raw if r["index"] not in gone))
+
+    refused("a setting missing from both cells of one block", drop_setting, "settings missing from some cell")
+    refused("a scrape without the preemption counter",
+            lambda run: write(run, "engine-metrics-serial-log-1-after.prom", "vllm:other_total 1\n"),
+            "no vllm:num_preemptions_total sample")
+    refused("a preemption in a logging-off cell",
+            lambda run: write(run, "engine-metrics-serial-nolog-2-after.prom",
+                              'vllm:num_preemptions_total{engine="0"} 5\n'), "serial-nolog-2: 2 preemption(s)")
     with tempfile.TemporaryDirectory() as run:
         _synthetic_run(run)
         path = os.path.join(run, "raw-serial-log-1.jsonl")
