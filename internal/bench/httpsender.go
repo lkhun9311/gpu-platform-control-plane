@@ -184,6 +184,10 @@ func NewHTTPSender(gatewayURL, model string, apiKeys map[string]string, timeout 
 //
 // After "data: [DONE]" only the stream terminator remains, so the normal case is a handful of bytes; the
 // bound is what stops a server that keeps writing from holding the sender open on a body nobody wants.
+// errorKindStream is the ErrorKind of a response whose stream broke after it started, one word of the closed
+// vocabulary replay.go documents; named once because three call sites spell it.
+const errorKindStream = "stream"
+
 const maxDrainBytes = 8 << 10 // 8KB
 
 // drainForReuse reads whatever is left of a response body so its connection can return to the idle pool.
@@ -444,7 +448,7 @@ func (h *HTTPSender) readStream(ctx context.Context, resp *http.Response) SendRe
 		}
 		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
 			// A malformed chunk mid-stream is a stream error, but any first token already observed still stands.
-			res.ErrorKind = "stream"
+			res.ErrorKind = errorKindStream
 			res.EndUnixNanos = h.now().UnixNano()
 			return res
 		}
@@ -455,7 +459,7 @@ func (h *HTTPSender) readStream(ctx context.Context, resp *http.Response) SendRe
 		// observed, and a response that produced tokens and then failed is a different fact from one that
 		// never started.
 		if chunk.Error != nil {
-			res.ErrorKind = "stream"
+			res.ErrorKind = errorKindStream
 			res.StreamError = strings.TrimSpace(chunk.Error.Type + ": " + chunk.Error.Message)
 			res.EndUnixNanos = h.now().UnixNano()
 			return res
@@ -484,7 +488,7 @@ func (h *HTTPSender) readStream(ctx context.Context, resp *http.Response) SendRe
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 			res.ErrorKind = "timeout"
 		} else {
-			res.ErrorKind = "stream"
+			res.ErrorKind = errorKindStream
 		}
 	}
 	res.EndUnixNanos = h.now().UnixNano()
