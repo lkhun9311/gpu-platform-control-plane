@@ -166,6 +166,8 @@ def reconstruct(reqs, steps):
     that does not reproduce the log refuses rather than returning a context the episode did not have.
     """
     order = sorted(reqs, key=lambda q: (q["send_ms"], q["index"]))
+    # The episode's last request, which in a staggered episode is the prefill sent while the decoders run.
+    last = order.index(reqs[-1])
     left = [q["input_tokens"] for q in order]
     made = [0] * len(order)
     out = []
@@ -178,12 +180,13 @@ def reconstruct(reqs, steps):
             raise Refusal(f"iteration {s['index']}: the log has {s['gen_reqs']} generation requests and the episode, "
                           f"replayed in order, has {len(decoding)} decoders running")
         K = sum(order[i]["input_tokens"] + made[i] for i in decoding)
-        P, dealt, finished, H = s["ctx_tokens"], 0, [], 0
+        P, dealt, finished, H, late = s["ctx_tokens"], 0, [], 0, False
         for i in range(len(order)):
             if P == 0:
                 break
             if left[i] > 0:
                 take = min(left[i], P)
+                late = late or i == last
                 H += take * (order[i]["input_tokens"] - left[i])
                 left[i] -= take
                 P -= take
@@ -199,7 +202,8 @@ def reconstruct(reqs, steps):
             made[i] += 1
         for i in finished:
             made[i] = 1
-        out.append(dict(P=s["ctx_tokens"], n=s["gen_reqs"], K=K, H=H, elapsed=s["elapsed_ms"]))
+        # late marks a step in which the last request's prompt is scheduled; only session 2's staggered gate reads it.
+        out.append(dict(P=s["ctx_tokens"], n=s["gen_reqs"], K=K, H=H, elapsed=s["elapsed_ms"], late=late))
     unfinished = [order[i]["index"] for i in range(len(order)) if left[i] or made[i] != order[i]["output_tokens"]]
     if unfinished:
         raise Refusal(f"the episode's steps end with request(s) {unfinished[:3]} not finished as the client saw them")
@@ -373,7 +377,8 @@ def clock(run, keep=None, s2=False):
     b_prime = sum(fit["b_decode"].values()) / len(fit["b_decode"])
     # An omitted time below zero would make a step shorter than the part of it the timer saw, which no engine does;
     # it means the clock fit is wrong, and adding it back would publish a duration built on that.
-    if fit["b"] < 0 or b_prime < 0:
+    # In session 2 the fitted b is replaced by the frozen clock (session_clock) and added to nothing, so only b' is judged.
+    if (fit["b"] < 0 and not s2) or b_prime < 0:
         raise Refusal(f"the clock gives a negative omitted time (b {fit['b']:.3f} ms, b' {b_prime:.3f} ms)")
     return dict(a=fit["a"], b=fit["b"], b_prime=b_prime, b_decode={str(k): v for k, v in fit["b_decode"].items()},
                 requests=len(attributed))
@@ -549,7 +554,7 @@ def _err(steps, beta, b, b_prime, mixed, context, per_token=None):
     return dict(observed_ms=obs, predicted_ms=pred, error=pred / obs - 1, steps=len(steps))
 
 
-def fit(train, held, b, b_prime, context, mixed, bound=MAX_HELDOUT_ERROR, boot=BOOT, per_token=None):
+def fit(train, held, b, b_prime, context, mixed, bound=MAX_HELDOUT_ERROR, boot=BOOT, per_token=None, late_gate=False):
     """One fit and its verdict on the predicted episodes.
 
     A structural failure -- an unidentified design -- refuses; a prediction outside the bound is a "fail" verdict, so
@@ -558,6 +563,10 @@ def fit(train, held, b, b_prime, context, mixed, bound=MAX_HELDOUT_ERROR, boot=B
     bound separately, because a pooled mean lets opposite errors cancel and lets hundreds of decode steps dilute a
     few prefill steps.
     per_token is session_clock's c, None in session 1.
+    late_gate (session 2) gates a third subset of every staggered setting: the steps that schedule the late prefill's
+    prompt. Among the 66 context steps of a (16, 8,192, 256) episode one serves it, so the context phase barely moves
+    when that step doubles (-0.35%, found by review), and the late prefill is the thing the staggered test exists for.
+    Session 1 is scored without it, so its published output stays what it was.
     """
     names = columns(context)
     p = len(names)
@@ -568,7 +577,14 @@ def fit(train, held, b, b_prime, context, mixed, bound=MAX_HELDOUT_ERROR, boot=B
     for s, eps in sorted(held.items(), key=lambda kv: str(kv[0])):
         steps = [st for e in eps for st in e["steps"]]
         phases = {}
-        for phase, keep in (("context", lambda st: st["P"] > 0), ("decode", lambda st: st["P"] == 0)):
+        subsets = [("context", lambda st: st["P"] > 0), ("decode", lambda st: st["P"] == 0)]
+        if late_gate and s[0] == "stagger":
+            bare = [(e["block"], e["cycle"]) for e in eps if not any(st["late"] for st in e["steps"])]
+            if bare:
+                raise Refusal(f"{s}: episode(s) (block, cycle) {bare[:3]} have no step scheduling the late prefill, so "
+                              f"the staggered test of mixing has nothing to judge")
+            subsets.append(("late-prefill", lambda st: st["late"]))
+        for phase, keep in subsets:
             mine = [st for st in steps if keep(st)]
             if mine:
                 phases[phase] = _err(mine, beta, b, b_prime, mixed, context, per_token)
@@ -635,8 +651,9 @@ def run_fit(run, flip_context=False, boot=BOOT, gates=None):
     clk = session_clock(s2, clock(run, keep, s2))
     needs, i4 = context_decision(run)
     context = needs != flip_context
-    nominal = fit(train, held, clk["b"], clk["b_prime"], context, "b", boot=boot, per_token=clk.get("c"))
-    sensitivity = fit(train, held, clk["b"], clk["b_prime"], context, "b-prime", boot=boot, per_token=clk.get("c"))
+    nominal = fit(train, held, clk["b"], clk["b_prime"], context, "b", boot=boot, per_token=clk.get("c"), late_gate=s2)
+    sensitivity = fit(train, held, clk["b"], clk["b_prime"], context, "b-prime", boot=boot, per_token=clk.get("c"),
+                      late_gate=s2)
     extra = dict(study=instrument_gates.STUDY_S2, unregistered=list(UNREGISTERED_S2)) if s2 else {}
     return dict(
         **extra,
@@ -815,7 +832,7 @@ def _plan_s2(kind, decode_cap):
 
 
 def _synthetic_run_s2(run, truth=None, noise=0.0, slow=None, seed=3, clk=CLOCK_S2, mixed_truth="b", nolog_ttft=1.0,
-                      drop=None, decode_cap=STAGGER_DECODE_CAP_S2, cycles=None):
+                      drop=None, decode_cap=STAGGER_DECODE_CAP_S2, cycles=None, late_factor=None):
     """A session-2 archive from known coefficients: registered_design(True)'s matrix, warm-ups, boundaries and study.
 
     Kept apart from _synthetic_run so that session 1's synthetic archives, which the self-test pins, cannot move.
@@ -825,6 +842,7 @@ def _synthetic_run_s2(run, truth=None, noise=0.0, slow=None, seed=3, clk=CLOCK_S
     A staggered prefill is sent at the step it arrives before, after its decoders' first tokens, so gate S holds.
     slow maps a training setting to (factor, phase), applied to the episodes heldout_cycles holds out of it.
     drop is a (setting, block) one of whose episodes is left out; cycles overrides _plan_s2's for one type.
+    late_factor maps a staggered setting to a factor on the steps that schedule its late prefill's prompt.
     """
     rng, slow, design, truth = random.Random(seed), slow or {}, registered_design(True), truth or TRUTH_S2
     study = instrument_gates.STUDY_S2
@@ -832,7 +850,9 @@ def _synthetic_run_s2(run, truth=None, noise=0.0, slow=None, seed=3, clk=CLOCK_S
         for b in BLOCKS:
             plan = (cycles or {}).get(kind) or _plan_s2(kind, decode_cap)
             trace, raw, idx, ep_no, seen = [], [], 0, 0, {}
-            lines = [_line(i, 1, 2048, 0, 200.0) if i % 2 == 0 else _line(i, 0, 0, 1, 14.0) for i in range(WARMUP_STEPS)]
+            # The warm-up's three 2,048-token requests are its only context steps, so the prompt tokens before the
+            # boundary reconcile with raw-warmup's, as instrument_gates.measured_iters requires.
+            lines = [_line(i, 1, 2048, 0, 200.0) if i < 3 else _line(i, 0, 0, 1, 14.0) for i in range(WARMUP_STEPS)]
             it = WARMUP_STEPS
             for cyc in plan:
                 for spec in rng.sample(cyc, len(cyc)):
@@ -850,6 +870,9 @@ def _synthetic_run_s2(run, truth=None, noise=0.0, slow=None, seed=3, clk=CLOCK_S
                     for j, st in enumerate(steps):
                         if any(late for _, _, late in spec) and j == max(arrived_at):
                             late_send = t0 - clk["a"]
+                        # The late request's prompt is scheduled from its arrival to its first token, in every such step.
+                        if (late_factor or {}).get(s) and max(arrived_at) <= j <= first_at[-1] and st["P"]:
+                            st = dict(st, T=st["T"] * late_factor[s])
                         ctx = clk["b"] + clk["c"] * st["P"]
                         mixed = st["P"] and st["n"]
                         omitted = ((ctx if mixed_truth == "b" else clk["b_prime"]) if mixed else ctx) if st["P"] \
@@ -1199,6 +1222,34 @@ def self_test_s2():
         r = run_fit(run, boot=0, gates=_PASSED)
         assert r["nominal"]["verdict"] == "pass", r["nominal"]["failures"]
         print(f"ok: session 2 at 1% step noise -> nominal pass, worst held-out phase error {_worst(r['nominal']):.2%}")
+
+    late = ("stagger", 16, 8192, 256)
+    with tempfile.TemporaryDirectory() as run:
+        _synthetic_run_s2(run, late_factor={late: 2.0})
+        r = run_fit(run, boot=0, gates=_PASSED)
+        for conv in ("nominal", "sensitivity"):
+            it = next(i for i in r[conv]["heldout"] if tuple(i["setting"]) == late)
+            assert any(f.startswith(f"{late} late-prefill") for f in r[conv]["failures"]), (conv, r[conv]["failures"])
+            assert abs(it["phases"]["context"]["error"]) <= MAX_HELDOUT_ERROR, it["phases"]["context"]
+        it = next(i for i in r["nominal"]["heldout"] if tuple(i["setting"]) == late)
+        print(f"ok: the late prefill's step doubled in {late} -> late-prefill subset "
+              f"{it['phases']['late-prefill']['error']:+.1%} over {it['phases']['late-prefill']['steps']} step(s) fails "
+              f"in both conventions, while its context phase reads {it['phases']['context']['error']:+.2%}")
+        eps = load_episodes(run, True)
+        train, held = split(eps, design)
+        held[late][0] = dict(held[late][0], steps=[dict(st, late=False) for st in held[late][0]["steps"]])
+        refuses("a staggered episode with no step scheduling its late prefill",
+                lambda: fit(train, held, CLOCK_S2["b"], CLOCK_S2["b_prime"], False, "b", boot=0,
+                            per_token=CLOCK_S2["c"], late_gate=True), "no step scheduling the late prefill")
+
+    with tempfile.TemporaryDirectory() as run:
+        # An engine whose omitted time falls with the prompt's length: fit_clock's b comes out negative.
+        # Session 2 adds the frozen clock, not that b, so the fit runs; the gates (stubbed here) would judge the engine.
+        _synthetic_run_s2(run, clk=dict(CLOCK_S2, b=0.0, c=-0.002))
+        r = run_fit(run, boot=0, gates=_PASSED)
+        assert r["clock"]["fitted_b"] < 0 and r["clock"]["b"] == instrument_gates.CLOCK_B, r["clock"]
+        print(f"ok: a session-2 archive whose fitted b is {r['clock']['fitted_b']:.2f} ms is not refused for it "
+              f"-> {r['verdict']}, scored with the frozen b {r['clock']['b']}")
 
 
 def main(argv):
