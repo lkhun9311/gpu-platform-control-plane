@@ -89,3 +89,9 @@ An independent review by codex `gpt-6-astra` of the fit code found two weaknesse
 - **The warm-up was bounded but not accounted for.** The prompt tokens scheduled before the boundary must now equal the prompt tokens of the warm-up's requests, so a boundary that cuts the warm-up short or reaches into the measured trace refuses.
 
 As in session 1, the evaluator at the launch commit (`0560304`) will also be run and its verdict published beside the amended one.
+
+## Result, 2026-10-06 — incomplete: gate S stopped acquisition after three cells
+
+The session launched at `0560304` on one g5.2xlarge (ap-northeast-2c) at about 22:56 KST and ended at about 00:23 KST after three cells: `serial-nolog`, `burst-nolog` and `stagger-nolog` of block 1. The matrix refused the third after its replay — "gate S: stagger-nolog-1: a decoder of the episode at offset 679920 ms finished before the prefill's first token" — uploaded it, and shut the instance down; the session script recovered the three cells and terminated it. As registered, **the session is incomplete, the three cells are not a verdict, and nothing is re-bought without the amendment below.**
+
+**Why, read from the refused cell after the session ended.** A decoder's 512-token cap is a maximum, not a length. In that episode — sixteen 8,192-token decoders, prefill 256, sent 22,675 ms after them — six decoders reached 512 tokens and ten stopped at end-of-sequence, the shortest after 142, which ended before the prefill's first token at 22,777 ms. Across the cell 188 of 420 decoders stopped early, the shortest after 101 tokens. Session 1's decoders were capped at 128 and almost all reached it, which is why its timings did not show this, and the design's decode window of "about 8 to 13 seconds" assumed every decoder ran to its cap. The stopping rule did its job: a composition the registration does not describe was caught on the cell that produced it, before any further cell was bought.
