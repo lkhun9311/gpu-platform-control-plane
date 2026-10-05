@@ -120,7 +120,7 @@ def stage2():
     sets = [range(500 + 3 * j, 503 + 3 * j) for j in range(20)]
     print(f"## stage 2/3 grid from the measured S_B {s_b:.4f} s: lambda*95 {lam95:.4f}, BE {grid} req/s, 3 traces per cell")
     rises = {g: [] for g in grid}
-    p3 = 0
+    p3 = low_ok = 0
     for seeds in sets:
         def pooled(length, lam_be, q):
             return nearest_rank([x for s in seeds for x in simulate(LAM_LC, length, lam_be, seed=s, **p)["lc"]], q)
@@ -128,12 +128,14 @@ def stage2():
         b95, b99s, b99l = pooled(256, 0, .95), pooled(256, 0, .99), pooled(8192, 0, .99)
         for g in grid:
             rises[g].append(pooled(256, g, .95) - b95)
+        # The low side as registered: within 10% of THIS set's isolated p95, not an absolute number of ms.
+        low_ok += rises[grid[0]][-1] <= 0.10 * b95
         diff = [(pooled(256, g, .99) - b99s) - (pooled(8192, g, .99) - b99l) for g in grid[:3]]
         p3 += statistics.mean(diff) > 0
     for g in grid:
         r = sorted(rises[g])
         print(f"  BE {g}: short-level p95 rise min {r[0]:.0f} median {r[10]:.0f} max {r[-1]:.0f} ms")
-    print(f"  P2 low side (rise within 10% at {grid[0]}): checked against the isolated p95 per set above")
+    print(f"  P2 low side at {grid[0]}: rise within 10% of the isolated p95 in {low_ok}/20 sets")
     print(f"  P2 high side at {grid[2]}: rise >= S_B/4 ({s_b * 250:.0f} ms) in {sum(x >= s_b * 250 for x in rises[grid[2]])}/20 sets,"
           f" >= S_B/2 ({s_b * 500:.0f} ms) in {sum(x >= s_b * 500 for x in rises[grid[2]])}/20")
     print(f"  P3 mean over {grid[:3]} positive in {p3}/20 sets")

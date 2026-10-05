@@ -29,23 +29,57 @@ def nearest_rank(xs, q):
 
 
 def load(run_dir):
-    """arm -> {rep: [LC TTFT ms]}, plus per-arm counts of rows the population leaves out."""
-    arms, excluded = {}, {}
+    """arm -> {rep: [LC TTFT ms]}, per-arm excluded counts, and per-(arm, rep) offered and completed counts."""
+    arms, excluded, per_trace = {}, {}, {}
     for path in glob.glob(os.path.join(run_dir, "raw-*.jsonl")):
         m = RAW.search(os.path.basename(path))
         arm, rep = m.group(1), int(m.group(2))
-        ttft = []
+        ttft, offered = [], 0
         with open(path) as f:
             for line in f:
                 r = json.loads(line)
                 if r.get("tenant") != "premium-1":
                     continue
+                offered += 1
                 if r.get("errorKind") or not r.get("firstTokenUnixNanos") or r.get("httpStatus") != 200:
                     excluded[arm] = excluded.get(arm, 0) + 1
                     continue
                 ttft.append((r["firstTokenUnixNanos"] - r["sendUnixNanos"]) / 1e6)
         arms.setdefault(arm, {})[rep] = ttft
-    return arms, excluded
+        per_trace[arm, rep] = (offered, len(ttft))
+    return arms, excluded, per_trace
+
+
+def refusal(name, per_trace):
+    """Why this stage's tails may not be tested, or "" -- the conditions the report's readings apply.
+
+    A test applied to the survivors of a censored tail is a test of a selected population, so the same two
+    refusals the report holds (`tailCrossingRefusal`) are held here, per trace: any excluded latency-critical
+    request at or above 1% of a trace, and fewer than 100 completions in a trace. An independent review
+    found this script issuing verdicts without either.
+    """
+    for (arm, rep), (offered, done) in sorted(per_trace.items()):
+        if offered and (offered - done) / offered >= 0.01:
+            return f"{name}: {arm} repetition {rep} lost {offered - done} of {offered} latency-critical requests, so its tail is censored"
+        if done < 100:
+            return f"{name}: {arm} repetition {rep} completed {done} latency-critical requests, below the 100 a nearest-rank p99 needs"
+    return ""
+
+
+def schedules(run_dir):
+    """rep -> the latency-critical scheduled offsets of that repetition's baseline trace."""
+    out = {}
+    for path in glob.glob(os.path.join(run_dir, "trace-R1-*.jsonl")):
+        rep = int(re.search(r"-(\d+)\.jsonl$", path).group(1))
+        with open(path) as f:
+            out[rep] = sorted(json.loads(l)["offsetMs"] for l in f if json.loads(l)["tenant"] == "premium-1")
+    return out
+
+
+def seeds(run_dir):
+    with open(os.path.join(run_dir, "load-source.txt")) as f:
+        m = re.search(r"^seeds: (.+)$", f.read(), re.M)
+    return m.group(1).split() if m else None
 
 
 def rate_of(run_dir):
@@ -64,8 +98,19 @@ def pooled(arms, arm, q):
 
 def main(short_dir, long_dir, s_b):
     lam95, lam99 = 0.05 / s_b, 0.01 / s_b
-    short, ex_s = load(short_dir)
-    long_, ex_l = load(long_dir)
+    short, ex_s, pt_s = load(short_dir)
+    long_, ex_l, pt_l = load(long_dir)
+    for why in (refusal("short", pt_s), refusal("long", pt_l)):
+        if why:
+            sys.exit(f"NOT TESTED: {why}")
+    # The interaction is a comparison ACROSS the two stages, so the stages must be the same draws: the same
+    # seeds recorded, the same repetitions, and -- what the seeds are for -- the same latency-critical
+    # schedule in each repetition's baseline. Matching repetition numbers alone can be different seeds.
+    if seeds(short_dir) != seeds(long_dir):
+        sys.exit(f"NOT TESTED: the stages recorded seeds {seeds(short_dir)} and {seeds(long_dir)}")
+    sch_s, sch_l = schedules(short_dir), schedules(long_dir)
+    if sorted(sch_s) != sorted(sch_l) or any(sch_s[r] != sch_l[r] for r in sch_s):
+        sys.exit("NOT TESTED: the two stages' baselines offered different latency-critical schedules, so they are not paired draws")
     rates = rate_of(short_dir)
     if rates != rate_of(long_dir):
         sys.exit("the two stages swept different BE rates; the interaction is not defined")
@@ -75,6 +120,8 @@ def main(short_dir, long_dir, s_b):
             sys.exit(f"{name}: arms hold different repetitions {reps}; the pooled comparison is not paired")
     print(f"S_B {s_b:.4f} s  lambda*95 {lam95:.4f}  lambda*99 {lam99:.4f}  P3 window {2 * lam99:.4f}..{10 * lam99:.4f} req/s")
     print(f"excluded LC rows (error, no first token, or non-200): short {ex_s or 'none'}, long {ex_l or 'none'}")
+    print(f"paired across stages: seeds {seeds(short_dir)}, repetitions {sorted(sch_s)}, identical baseline schedules;"
+          f" smallest trace completed {min(d for _, d in list(pt_s.values()) + list(pt_l.values()))} requests")
     b = {}
     for name, arms in (("short", short), ("long", long_)):
         for q in (.95, .99):
