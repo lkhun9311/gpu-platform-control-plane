@@ -30,6 +30,9 @@ STUDY_S2 = "instrument-validation-s2-2026-10-05"
 # session-2 path applies to it, and it adds the decoder-length check and S on the warm-up's staggered episodes.
 STUDY_S3 = "instrument-validation-s3-2026-10-06"
 WARM_STUDIES = (STUDY_S2, STUDY_S3)
+# Session 3 registers every staggered decoder at exactly 512 output tokens, not merely "at its cap": a decoder capped
+# lower would satisfy cap-equality and still not be the registered decode window (found by review).
+S3_DECODER_TOKENS = 512
 # The prefill clock frozen from session 1's 159 warm serial-log requests; session 2 predicts with it and never refits.
 CLOCK_A, CLOCK_B, CLOCK_C = 6.446325, 17.776531, 0.002620206
 WARM_TTFT_MS, WARM_TOL, WARM_PAIR_TOL = 231.0, 0.05, 0.02
@@ -408,7 +411,8 @@ def check_stagger(reqs, arm, b, fixed_length=False):
     for i in range(0, len(groups), 2):
         dec, pre = groups[i], groups[i + 1][0]
         if fixed_length:
-            short = [d for d in dec if d["output_tokens"] != d["cap"] or d["finish"] != "length"]
+            short = [d for d in dec if d["cap"] != S3_DECODER_TOKENS or d["output_tokens"] != S3_DECODER_TOKENS
+                     or d["finish"] != "length"]
             if short:
                 raise Refusal(f"{arm}-{b}: a decoder of the episode at offset {dec[0]['offset']} ms produced "
                               f"{short[0]['output_tokens']} of {short[0]['cap']} tokens and finished "
@@ -494,7 +498,7 @@ def _write_cell(run, arm, rep, reqs, log_lines, preempt=0, study=""):
             f.write(f'vllm:num_preemptions_total{{engine="0"}} {v}\n')
 
 
-def _synthetic_run(run, overhead=0.0, seed=7, context=0.0, s2=False, clock_c=CLOCK_C):
+def _synthetic_run(run, overhead=0.0, seed=7, context=0.0, s2=False, clock_c=CLOCK_C, dec_cap=128):
     """Nine paired cells whose truth is known: the logging-on cells are slower by the factor (1 + overhead).
 
     A burst's decode steps are slower by the factor (1 + context * L / 8192), so I4 has a known effect to find.
@@ -511,7 +515,7 @@ def _synthetic_run(run, overhead=0.0, seed=7, context=0.0, s2=False, clock_c=CLO
                     elif kind == "burst":
                         eps = [[(L, 16)] * n for n in (1, 4) for L in (256, 8192)]
                     else:
-                        eps = [[(c, 128)] * n + [(p, 16)] for n in (1, 4) for c in (256, 8192) for p in (256, 8192)]
+                        eps = [[(c, dec_cap)] * n + [(p, 16)] for n in (1, 4) for c in (256, 8192) for p in (256, 8192)]
                     for ep in eps:
                         decs, rest = (ep[:-1], ep[-1:]) if kind == "stagger" else (ep, [])
                         for j, group in enumerate((decs, rest)):
@@ -599,13 +603,13 @@ def _s2_run(run, asyncs=True, **kw):
                 shutil.copy(os.path.join(run, name), os.path.join(run, name.replace(f"{kind}-nolog-1", f"{kind}-async-1")))
 
 
-def _s3_run(run, short_decoder=False, short_warmup=False):
+def _s3_run(run, short_decoder=False, short_warmup=False, dec_cap=S3_DECODER_TOKENS):
     """A session-3 archive: session 2's, recorded under session 3, every decoder stopping on its cap.
 
     Each staggered cell gets a warm-up of the registered shape -- one 2,048-token request, one staggered episode, two
     verification requests -- and its logged cell a warm-up head whose context steps reconcile with those requests.
     """
-    _s2_run(run, asyncs=False)
+    _s2_run(run, asyncs=False, dec_cap=dec_cap)
     for name in os.listdir(run):
         if name.startswith("raw-") and not name.startswith("raw-warmup-"):
             path = os.path.join(run, name)
@@ -618,11 +622,11 @@ def _s3_run(run, short_decoder=False, short_warmup=False):
     for suffix in ("log", "nolog"):
         for b in BLOCKS:
             arm = f"stagger-{suffix}"
-            plan = [(0, 2048, 16, 0, 231.0, 300.0, "length"), (10_000, 256, 128, 0, 50.0, 3_000.0, "length"),
+            plan = [(0, 2048, 16, 0, 231.0, 300.0, "length"), (10_000, 256, 512, 0, 50.0, 9_000.0, "length"),
                     (10_200, 256, 16, 0, 60.0, 400.0, "length"), (20_000, 2048, 16, 0, 231.0, 300.0, "length"),
                     (30_000, 2048, 16, 0, 231.5, 300.0, "length")]
             if short_warmup and (suffix, b) == ("nolog", 2):
-                plan[1] = (10_000, 256, 128, 0, 50.0, 100.0, "stop")
+                plan[1] = (10_000, 256, 512, 0, 50.0, 100.0, "stop")
             with open(os.path.join(run, f"warmup-trace-{arm}-{b}.jsonl"), "w") as f:
                 f.writelines(json.dumps(dict(index=i, offsetMs=o, tenant="premium-1", maxOutputTokens=cap)) + "\n"
                              for i, (o, _, cap, *_) in enumerate(plan))
@@ -644,7 +648,7 @@ def _s3_run(run, short_decoder=False, short_warmup=False):
         path = os.path.join(run, "raw-stagger-log-3.jsonl")
         trace = {r["index"]: r for r in map(json.loads, open(os.path.join(run, "trace-stagger-log-3.jsonl")))}
         rows = [json.loads(l) for l in open(path)]
-        r = next(r for r in rows if trace[r["index"]]["maxOutputTokens"] == 128)
+        r = next(r for r in rows if trace[r["index"]]["maxOutputTokens"] == S3_DECODER_TOKENS)
         r["finishReason"] = "stop"
         with open(path, "w") as f:
             f.writelines(json.dumps(x) + "\n" for x in rows)
@@ -659,6 +663,7 @@ def self_test_s3():
         assert passed, "\n".join(lines)
         print("ok: session 3, decoders at their caps and a warm-up of the registered shape -> PASS")
     for what, kw, words in [("a measured decoder that stopped on end-of-sequence", dict(short_decoder=True), "finished stop"),
+                            ("decoders capped at 128 that reached their cap", dict(dec_cap=128), "128 of 128"),
                             ("a warm-up decoder that stopped early", dict(short_warmup=True), "warm-up-2")]:
         with tempfile.TemporaryDirectory() as run:
             _s3_run(run, **kw)
