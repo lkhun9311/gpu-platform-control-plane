@@ -55,3 +55,12 @@ astra also found three defects in the fit code as written, each adopted: the clo
 ## Amendment, 2026-10-05, before the fit is run — the intervals understate uncertainty
 
 The fit code's self-test at 1% step noise produced a `d1` interval of 0.141 to 0.148 around a true 0.15: six near-identical training episodes per setting make whole-episode resampling too narrow. The intervals are published as episode-resampling intervals, not as calibrated confidence intervals, and nothing in section 4's verdict rests on them. The self-test's real-gate case, which had pinned I1 failing on bursts, now runs the whole path through the real gates to a passing fit.
+
+## Amendment, 2026-10-05 — the fit on session 2, fixed before its data is read
+
+Session 2 (`2026-10-05-instrument-validation-session-2.md`) changes what the fit reads. Decided by me and, independently, by codex `gpt-6-astra`, before any session-2 cell is opened:
+
+- **Hold-out.** A serial setting has six episodes per block in session 2. In block `b` the `b`-th third of a seeded per-setting order is held out — two per block, six of eighteen in all — which is section 3's rule exactly when there are three per block. Every cycle position trains twice and is held out once. Seed, setting representation and permutation are those of `heldout_cycles` in `timing_fit.py` at this amendment.
+- **Clock.** A context-bearing step's omitted time is session 2's frozen `b + c·P` (`instrument_gates.CLOCK_B`, `CLOCK_C`); `a` is per request and added to no step; a decode-only step keeps `b'` from the serial training episodes. A refusal for a negative fitted value depends only on the clock actually used.
+- **Mixed steps.** The rule stands: the fit runs with the frozen context clock and with `b'` on mixed steps, and a disagreement is UNRESOLVED. The gap between the two conventions is `17.776531 + 0.002620206·P − b'` ms per mixed step — about 17.1 ms at `P` = 256 and 21.8 ms at 2,048 with `b'` near 1.3 — so a disagreement is likely wherever mixed steps carry weight, and that is the honest answer while no clock measures a mixed step. Replacing the rule needs a mixed-step clock established on data the fit is not validated on, registered first.
+- **The late prefill is judged on its own.** In a staggered setting the steps that schedule the staggered prefill's own context tokens are gated separately, within 10% under both conventions, besides the per-phase gates; pooled with the decoders' start-up a doubled late-prefill step moved the error by only 0.35%.

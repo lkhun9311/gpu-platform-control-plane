@@ -80,3 +80,12 @@ Every session-1 number above was recomputed by me from the archive before it was
 - The choice of mean over median for staggered TTFT is not pinned by a test: no synthetic case was found in which the two disagree about the verdict.
 - `python3` on the instance is inferred, not observed: the matrix had not run it there before; cloud-init, which executes the instance's user-data, is itself a Python 3 program on the Ubuntu 22.04 Deep Learning AMI.
 - Rehearsed on kind (`IV=2`): serial-log, serial-nolog and serial-async passed end to end with warm-ups and boundaries, the stub answering 231 ms and reporting its prompt tokens; 1,536 iteration lines, of which 1,296 after the boundary, exactly the warm-up's 30 and the measured 162 requests at eight steps each. Burst and staggered cells were not rehearsed for length; gate S's matrix block was executed in `check-instrument-validation-harness.sh` against good and violating staggered cells.
+
+## Amendment, 2026-10-05, during the session and before any of its cells is read — two checks made exact
+
+An independent review by codex `gpt-6-astra` of the fit code found two weaknesses in this page's evaluator, and both are fixed in `instrument_gates.py` before any session-2 cell has been opened (only file names have been listed):
+
+- **S used a decoder's stream end as its last token.** The end is stamped after the stream's termination. Session 1's decode regressions put that delay at no more than 0.43 ms at any length, so S now requires the prefill's first token at least 1 ms before every decoder's stream end. The matrix applies S per cell with the launch commit's rule (no margin); the verdict applies the margin, and if the two disagree on any cell the verdict says so.
+- **The warm-up was bounded but not accounted for.** The prompt tokens scheduled before the boundary must now equal the prompt tokens of the warm-up's requests, so a boundary that cuts the warm-up short or reaches into the measured trace refuses.
+
+As in session 1, the evaluator at the launch commit (`0560304`) will also be run and its verdict published beside the amended one.
