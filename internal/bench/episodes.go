@@ -44,8 +44,9 @@ const (
 // EpisodeTypes lists the shapes in the order the study's arms are named.
 var EpisodeTypes = []EpisodeType{EpisodeSerial, EpisodeBurst, EpisodeStagger}
 
-// EpisodeCycles is how many complete cycles one trace holds.
+// EpisodeCycles is how many complete cycles one session-1 trace holds.
 // Fixed rather than filled to a duration, so every trace contains every registered setting the same number of times and a short cell cannot silently omit one.
+// Session 2 fixes its own counts per type in designS2, for the same reason.
 const EpisodeCycles = 3
 
 // The registered factor levels, in input tokens.
@@ -67,6 +68,22 @@ var (
 	burstWideLength = 256
 )
 
+// Session 2's changed levels, from sections 3 to 5 of docs/superpowers/specs/2026-10-05-instrument-validation-session-2.md.
+var (
+	// The held-out lengths 768, 3,072 and 6,144 sit between the calibration lengths so the frozen clock is tested where it was never fitted.
+	serialLengthsS2 = []int{256, 512, 768, 1024, 2048, 3072, 4096, 6144, 8192}
+	// 512 output tokens keep the decoders decoding for seconds after their first token, so the later trigger still meets them decoding.
+	staggerDecodeCapS2 = 512
+)
+
+const (
+	// staggerShortPrefillTokens marks the short-prefill stagger settings, whose TTFT spread in session 1 is why session 2 buys them more often.
+	staggerShortPrefillTokens = 256
+	// The warm-up's first and verification requests: W in section 2 compares their TTFT with session 1's warm median for exactly this request.
+	warmupTokens = 2048
+	warmupCap    = 16
+)
+
 // The spacing bound's constants, taken from the archives on the A10G.
 // About 260 ms per 2,048-token prefill chunk and 15 to 25 ms per decode step were measured; both are rounded up so the bound errs towards a longer gap.
 const (
@@ -74,6 +91,13 @@ const (
 	spacingMsPerChunk      = 270
 	spacingMsPerDecodeStep = 30
 	spacingMinGapMs        = 2000
+)
+
+// The RNG streams beside the cycle order, each its own so that adding one cannot move the draws of another.
+// Session 1's traces are pinned byte for byte, and they draw only the order stream.
+const (
+	jitterStream = 0x6a09e667f3bcc908
+	warmupStream = 0xbb67ae8584caa73b
 )
 
 // EpisodeSpacingMs is the gap from an episode's first send to the next episode's first send.
@@ -135,12 +159,75 @@ func homogeneous(n, tokens, outCap int) episodeSpec {
 	return e
 }
 
-// cycleOf lists one cycle's settings in a fixed enumeration order, before the seeded permutation.
-func cycleOf(t EpisodeType) ([]episodeSpec, error) {
+// episodeDesign is one registration's episode parameters.
+//
+// Both sessions are values of one type so that the generator, the warm-up and the plan check cannot drift apart between them.
+// A session-2 change that reached session 1 would change traces a finished archive was scored against, which TestSessionOneTracesAreByteIdentical pins.
+type episodeDesign struct {
+	study            string
+	serialLengths    []int
+	staggerDecodeCap int
+	// The stagger lag is round(tenths/10 x estimated decoder prefill) + staggerLagMs + U(0..staggerJitterMs).
+	staggerLagTenths int64
+	staggerJitterMs  int64
+	serialCycles     int
+	burstCycles      int
+	staggerCycles    int
+	// staggerShortCycles are further cycles of the short-prefill settings only, placed after the full cycles.
+	staggerShortCycles int
+	// warmup says whether the registration defines a warm-up trace, which session 1's does not.
+	warmup bool
+}
+
+var designS1 = episodeDesign{
+	study:            StudyInstrumentValidation,
+	serialLengths:    serialLengths,
+	staggerDecodeCap: staggerDecodeCap,
+	staggerLagTenths: 10,
+	serialCycles:     EpisodeCycles,
+	burstCycles:      EpisodeCycles,
+	staggerCycles:    EpisodeCycles,
+}
+
+var designS2 = episodeDesign{
+	study:            StudyInstrumentValidationS2,
+	serialLengths:    serialLengthsS2,
+	staggerDecodeCap: staggerDecodeCapS2,
+	// 1.3 x the estimate puts the trigger after the (16, 8,192) decoders' last first token, which session 1's 1.0 x did not.
+	staggerLagTenths: 13,
+	// The jitter keeps the trigger from landing on one fixed phase of the decoders' steps in every replicate.
+	staggerJitterMs:    100,
+	serialCycles:       6,
+	burstCycles:        3,
+	staggerCycles:      3,
+	staggerShortCycles: 4,
+	warmup:             true,
+}
+
+// designFor returns the episode design a study registers, and false for a study that replays no episodes.
+func designFor(study string) (episodeDesign, bool) {
+	switch study {
+	case StudyInstrumentValidation:
+		return designS1, true
+	case StudyInstrumentValidationS2:
+		return designS2, true
+	}
+	return episodeDesign{}, false
+}
+
+// staggerBaseLagMs is the prefill's lag before jitter.
+// The +5 rounds half up, and the estimate is a whole number of 270 ms chunks, so at 1.3 x it is exact and at 1.0 x it is the estimate itself.
+func (d episodeDesign) staggerBaseLagMs(n, c int) int64 {
+	est := int64((n*c + spacingChunkTokens - 1) / spacingChunkTokens * spacingMsPerChunk)
+	return (d.staggerLagTenths*est+5)/10 + staggerLagMs
+}
+
+// fullCycle lists one cycle's settings in a fixed enumeration order, before the seeded permutation.
+func (d episodeDesign) fullCycle(t EpisodeType) ([]episodeSpec, error) {
 	var out []episodeSpec
 	switch t {
 	case EpisodeSerial:
-		for _, l := range serialLengths {
+		for _, l := range d.serialLengths {
 			for _, c := range serialCaps {
 				out = append(out, homogeneous(1, l, c))
 			}
@@ -156,10 +243,9 @@ func cycleOf(t EpisodeType) ([]episodeSpec, error) {
 		for _, n := range staggerDecoders {
 			for _, c := range staggerContexts {
 				for _, p := range staggerPrefills {
-					e := homogeneous(n, c, staggerDecodeCap)
+					e := homogeneous(n, c, d.staggerDecodeCap)
 					// The prefill waits for the decoders' own prefill to finish, by the same pessimistic chunk estimate, so it meets them decoding rather than queued.
-					lag := int64((n*c+spacingChunkTokens-1)/spacingChunkTokens*spacingMsPerChunk) + staggerLagMs
-					out = append(out, append(e, episodeRequest{tokens: p, cap: staggerPrefillCap, atMs: lag}))
+					out = append(out, append(e, episodeRequest{tokens: p, cap: staggerPrefillCap, atMs: d.staggerBaseLagMs(n, c)}))
 				}
 			}
 		}
@@ -169,6 +255,49 @@ func cycleOf(t EpisodeType) ([]episodeSpec, error) {
 	return out, nil
 }
 
+// cycles lists every cycle a measured trace holds, in the order they are laid out.
+func (d episodeDesign) cycles(t EpisodeType) ([][]episodeSpec, error) {
+	full, err := d.fullCycle(t)
+	if err != nil {
+		return nil, err
+	}
+	n := map[EpisodeType]int{EpisodeSerial: d.serialCycles, EpisodeBurst: d.burstCycles, EpisodeStagger: d.staggerCycles}[t]
+	var out [][]episodeSpec
+	for range n {
+		out = append(out, full)
+	}
+	if t == EpisodeStagger && d.staggerShortCycles > 0 {
+		short := slices.DeleteFunc(slices.Clone(full), func(e episodeSpec) bool {
+			return e[len(e)-1].tokens != staggerShortPrefillTokens
+		})
+		for range d.staggerShortCycles {
+			out = append(out, short)
+		}
+	}
+	return out, nil
+}
+
+// expectedCounts says how many times each setting appears across a measured trace, keyed by signature.
+func (d episodeDesign) expectedCounts(t EpisodeType) (map[string]int, []episodeSpec, error) {
+	cs, err := d.cycles(t)
+	if err != nil {
+		return nil, nil, err
+	}
+	counts := map[string]int{}
+	full, _ := d.fullCycle(t)
+	for _, c := range cs {
+		for _, e := range c {
+			counts[e.signature()]++
+		}
+	}
+	return counts, full, nil
+}
+
+// cycleOf is session 1's cycle, kept under its old name because the session-1 tests pin it.
+func cycleOf(t EpisodeType) ([]episodeSpec, error) {
+	return designS1.fullCycle(t)
+}
+
 // plannedRequest is one request of a planned trace, in tokens, at its absolute offset.
 type plannedRequest struct {
 	offsetMs int64
@@ -176,24 +305,27 @@ type plannedRequest struct {
 	cap      int
 }
 
-// planEpisodes lays out EpisodeCycles cycles, each in its own seeded order, and returns the span a replay needs.
+// jittered returns a stagger setting with its prefill moved later by a seeded draw, and every other setting unchanged.
+// Only a design with jitter draws at all, which is what keeps session 1's draws, and so its bytes, where they were.
+func (d episodeDesign) jittered(e episodeSpec, jitter *rand.Rand) episodeSpec {
+	if d.staggerJitterMs == 0 || e.lastAtMs() == 0 {
+		return e
+	}
+	out := slices.Clone(e)
+	out[len(out)-1].atMs += jitter.Int64N(d.staggerJitterMs + 1)
+	return out
+}
+
+// layOut places each cycle in its own seeded order, back to back from offset zero, and returns the span a replay needs.
 //
 // The span is the last row's offset plus its episode's gap, which for a stagger is longer than the episode-start sum by the prefill's lag.
 // It is the longer of the two on purpose, because a duration that only covers the shorter one would end the cell while the last prefill is still running.
-//
-// The seed is the only input besides the type.
-// The arm's logging or async suffix never reaches this function, which is what makes the on, off and async arms of one repetition replay byte-identical traces.
-func planEpisodes(seed int64, t EpisodeType) ([]plannedRequest, int64, error) {
-	cycle, err := cycleOf(t)
-	if err != nil {
-		return nil, 0, err
-	}
-	rng := rand.New(rand.NewPCG(uint64(seed), uint64(seed)^0x9e3779b97f4a7c15))
+func (d episodeDesign) layOut(order, jitter *rand.Rand, cycles [][]episodeSpec) ([]plannedRequest, int64) {
 	var out []plannedRequest
 	var start, span int64
-	for range EpisodeCycles {
-		for _, i := range rng.Perm(len(cycle)) {
-			e := cycle[i]
+	for _, cycle := range cycles {
+		for _, i := range order.Perm(len(cycle)) {
+			e := d.jittered(cycle[i], jitter)
 			for _, r := range e {
 				out = append(out, plannedRequest{offsetMs: start + r.atMs, tokens: r.tokens, cap: r.cap})
 			}
@@ -201,26 +333,50 @@ func planEpisodes(seed int64, t EpisodeType) ([]plannedRequest, int64, error) {
 			start += e.gapMs()
 		}
 	}
+	return out, span
+}
+
+// plan lays out a measured trace.
+//
+// The seed is the only input besides the type.
+// The arm's logging or async suffix never reaches this function, which is what makes the on, off and async arms of one repetition replay byte-identical traces.
+func (d episodeDesign) plan(seed int64, t EpisodeType) ([]plannedRequest, int64, error) {
+	cycles, err := d.cycles(t)
+	if err != nil {
+		return nil, 0, err
+	}
+	order := rand.New(rand.NewPCG(uint64(seed), uint64(seed)^0x9e3779b97f4a7c15))
+	jitter := rand.New(rand.NewPCG(uint64(seed)^jitterStream, uint64(seed)))
+	out, span := d.layOut(order, jitter, cycles)
 	return out, span, nil
 }
 
-// registeredLengths lists every input length a type's cycle uses, ascending.
-func registeredLengths(t EpisodeType) []int {
-	cycle, _ := cycleOf(t)
-	var out []int
-	for _, e := range cycle {
-		for _, r := range e {
-			if !slices.Contains(out, r.tokens) {
-				out = append(out, r.tokens)
-			}
-		}
+// warmupPlan lays out section 2's warm-up: one drained warm request, one regular cycle of the type, then two drained verification requests.
+// Its order and jitter come from their own streams, so the unscored cycle is not a rehearsal of the measured trace's first cycle in the same order.
+func (d episodeDesign) warmupPlan(seed int64, t EpisodeType) ([]plannedRequest, int64, error) {
+	if !d.warmup {
+		return nil, 0, fmt.Errorf("study %s registers no warm-up trace; its cells replay the measured trace alone", d.study)
 	}
-	slices.Sort(out)
-	return out
+	full, err := d.fullCycle(t)
+	if err != nil {
+		return nil, 0, err
+	}
+	warm := []episodeSpec{homogeneous(1, warmupTokens, warmupCap)}
+	order := rand.New(rand.NewPCG(uint64(seed)^warmupStream, uint64(seed)))
+	jitter := rand.New(rand.NewPCG(uint64(seed)^warmupStream^jitterStream, uint64(seed)))
+	out, span := d.layOut(order, jitter, [][]episodeSpec{warm, full, warm, warm})
+	return out, span, nil
+}
+
+// planEpisodes is session 1's measured plan, kept under its old name because the session-1 tests pin it.
+func planEpisodes(seed int64, t EpisodeType) ([]plannedRequest, int64, error) {
+	return designS1.plan(seed, t)
 }
 
 // EpisodeTraceParams are the inputs GenerateEpisodeTrace turns into a trace.
 type EpisodeTraceParams struct {
+	// Study selects the registration's episode parameters, and has no default because the two sessions' traces differ.
+	Study string
 	// Seed orders each cycle; one repetition's arms share it.
 	Seed int64
 	// DurationMs is the cell's replay budget, which must hold the whole trace.
@@ -229,17 +385,53 @@ type EpisodeTraceParams struct {
 	Type EpisodeType
 }
 
-// GenerateEpisodeTrace builds EpisodeCycles complete cycles of one episode type for the premium tenant alone.
+// GenerateEpisodeTrace builds the registered cycles of one episode type for the premium tenant alone.
 //
 // It refuses rather than truncates when DurationMs cannot hold the trace, because a trace missing its last settings would be a cell that silently did not measure them.
 // It refuses when any registered length has no measured character count, before laying anything out, so a short trace cannot pass by happening not to draw the missing one.
 func GenerateEpisodeTrace(p EpisodeTraceParams) ([]TraceRow, error) {
-	if _, err := cycleOf(p.Type); err != nil {
+	d, ok := designFor(p.Study)
+	if !ok {
+		return nil, fmt.Errorf("study %q registers no episodes", p.Study)
+	}
+	if _, err := d.fullCycle(p.Type); err != nil {
 		return nil, err
 	}
-	var missing []int
+	plan, span, err := d.plan(p.Seed, p.Type)
+	if err != nil {
+		return nil, err
+	}
+	return episodeRows(p, plan, span, "complete cycles")
+}
+
+// GenerateEpisodeWarmupTrace builds the warm-up trace a session-2 cell replays before its measured trace.
+//
+// Its rows are premium-tenant rows like the measured ones, because the warm-up has to warm the path the measured requests take.
+// It is refused for a study that registers no warm-up, rather than generated, because a session-1 cell given one would no longer be the cell that was scored.
+func GenerateEpisodeWarmupTrace(p EpisodeTraceParams) ([]TraceRow, error) {
+	d, ok := designFor(p.Study)
+	if !ok {
+		return nil, fmt.Errorf("study %q registers no episodes", p.Study)
+	}
+	plan, span, err := d.warmupPlan(p.Seed, p.Type)
+	if err != nil {
+		return nil, err
+	}
+	return episodeRows(p, plan, span, "warm-up requests and complete cycle")
+}
+
+// episodeRows resolves a plan's token counts to measured characters and checks that the duration holds it.
+// The missing lengths are collected from the whole plan before anything is refused, so the message names every one to measure rather than the first.
+func episodeRows(p EpisodeTraceParams, plan []plannedRequest, span int64, what string) ([]TraceRow, error) {
+	var lengths, missing []int
 	chars := map[int]int{}
-	for _, l := range registeredLengths(p.Type) {
+	for _, r := range plan {
+		if !slices.Contains(lengths, r.tokens) {
+			lengths = append(lengths, r.tokens)
+		}
+	}
+	slices.Sort(lengths)
+	for _, l := range lengths {
 		r, ok := ResolveInputTokens(l)
 		if !ok {
 			missing = append(missing, l)
@@ -249,15 +441,11 @@ func GenerateEpisodeTrace(p EpisodeTraceParams) ([]TraceRow, error) {
 	}
 	if len(missing) > 0 {
 		return nil, fmt.Errorf("the %s episodes register input lengths %v and the measured resolution table carries no character count for %v (it carries %v); run hack/resolve-input-lengths.sh for them rather than estimating one",
-			p.Type, registeredLengths(p.Type), missing, ResolvedInputTokenCounts())
-	}
-	plan, span, err := planEpisodes(p.Seed, p.Type)
-	if err != nil {
-		return nil, err
+			p.Type, lengths, missing, ResolvedInputTokenCounts())
 	}
 	if p.DurationMs < span {
-		return nil, fmt.Errorf("the %s trace is %d complete cycles spanning %d ms and the duration is %d ms; the cell has to hold every cycle, so pass at least %d",
-			p.Type, EpisodeCycles, span, p.DurationMs, span)
+		return nil, fmt.Errorf("the %s trace is its registered %s spanning %d ms and the duration is %d ms; the cell has to hold all of it, so pass at least %d",
+			p.Type, what, span, p.DurationMs, span)
 	}
 	rows := make([]TraceRow, len(plan))
 	for i, r := range plan {
@@ -272,12 +460,16 @@ func GenerateEpisodeTrace(p EpisodeTraceParams) ([]TraceRow, error) {
 	return rows, nil
 }
 
-// EpisodeTraceRefusal says whether a trace is one this episode type's registration can score.
+// EpisodeTraceRefusal says whether a measured trace is one this study's episode type registration can score.
 //
 // The tail studies' sample floors do not apply: the estimands here are per-episode timings, not a p99, and a trace is complete when it holds its cycles.
 // The checks are ordered from the most basic to the most specific, so a refusal names the first thing wrong rather than a consequence of it.
-func EpisodeTraceRefusal(t EpisodeType, rows []TraceRow) error {
-	cycle, err := cycleOf(t)
+func EpisodeTraceRefusal(study string, t EpisodeType, rows []TraceRow) error {
+	d, ok := designFor(study)
+	if !ok {
+		return fmt.Errorf("study %q registers no episodes", study)
+	}
+	want, cycle, err := d.expectedCounts(t)
 	if err != nil {
 		return err
 	}
@@ -296,7 +488,7 @@ func EpisodeTraceRefusal(t EpisodeType, rows []TraceRow) error {
 	tokensOf := map[int]int{}
 	anyCap := map[int]bool{}
 	for _, et := range EpisodeTypes {
-		c, _ := cycleOf(et)
+		c, _ := d.fullCycle(et)
 		for _, e := range c {
 			for _, r := range e {
 				anyCap[r.cap] = true
@@ -317,10 +509,6 @@ func EpisodeTraceRefusal(t EpisodeType, rows []TraceRow) error {
 
 	// Reassemble episodes from the rows and count each registered setting.
 	// A stagger's prefill is a later single row with the prefill cap, so it is joined to the group before it.
-	known := map[string]bool{}
-	for _, e := range cycle {
-		known[e.signature()] = true
-	}
 	counts := map[string]int{}
 	byOffset := map[int64][]TraceRow{}
 	var offsets []int64
@@ -343,17 +531,31 @@ func EpisodeTraceRefusal(t EpisodeType, rows []TraceRow) error {
 		for _, r := range byOffset[start] {
 			e = append(e, episodeRequest{tokens: tokensOf[r.PromptLenChars], cap: r.MaxOutputTokens})
 		}
+		var lag int64
 		if t == EpisodeStagger && i+1 < len(offsets) {
 			next := byOffset[offsets[i+1]]
 			if len(next) == 1 && next[0].MaxOutputTokens == staggerPrefillCap {
-				e = append(e, episodeRequest{tokens: tokensOf[next[0].PromptLenChars], cap: staggerPrefillCap, atMs: offsets[i+1] - start})
+				lag = offsets[i+1] - start
+				e = append(e, episodeRequest{tokens: tokensOf[next[0].PromptLenChars], cap: staggerPrefillCap, atMs: lag})
 				i++
 			}
 		}
+		// A jittered lag is compared with the formula's range rather than one value, so the setting is named by its base lag.
+		// The setting is identified first and the lag judged second, so a malformed group is not reported as a mistimed one.
+		var base int64
+		jitteredStagger := d.staggerJitterMs > 0 && lag > 0
+		if jitteredStagger {
+			base = d.staggerBaseLagMs(len(e)-1, e[0].tokens)
+			e[len(e)-1].atMs = base
+		}
 		sig := e.signature()
-		if !known[sig] {
+		if want[sig] == 0 {
 			return fmt.Errorf("the rows at offset %d ms form the episode [%s], which is not a %s setting; the trace was not built for this arm's episode type",
 				start, sig, t)
+		}
+		if jitteredStagger && (lag < base || lag > base+d.staggerJitterMs) {
+			return fmt.Errorf("the prefill of the stagger episode at offset %d ms is sent %d ms after its decoders, and the registered lag for %d decoders at %d tokens is %d to %d ms (round(%d/10 x the estimated decoder prefill) + %d + 0..%d)",
+				start, lag, len(e)-1, e[0].tokens, base, base+d.staggerJitterMs, d.staggerLagTenths, staggerLagMs, d.staggerJitterMs)
 		}
 		if havePrev && start < prevStart+prevGap {
 			return fmt.Errorf("the episode at offset %d ms starts %d ms after the one before it, inside that episode's spacing bound of %d ms, so the engine would not be drained between them",
@@ -363,8 +565,8 @@ func EpisodeTraceRefusal(t EpisodeType, rows []TraceRow) error {
 		counts[sig]++
 	}
 	for _, e := range cycle {
-		if n := counts[e.signature()]; n != EpisodeCycles {
-			return fmt.Errorf("the %s setting [%s] appears %d times and a trace holds exactly %d complete cycles", t, e.signature(), n, EpisodeCycles)
+		if n, w := counts[e.signature()], want[e.signature()]; n != w {
+			return fmt.Errorf("the %s setting [%s] appears %d times and study %s places it exactly %d times", t, e.signature(), n, d.study, w)
 		}
 	}
 	return nil

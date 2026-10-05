@@ -346,6 +346,8 @@ func genTrace(args []string) error {
 	engineImage := fs.String("engine-image", "", "digest-pinned inference engine image reference (name@sha256:...)")
 	traceOut := fs.String("trace-out", "trace.jsonl", "trace file to write")
 	manifestOut := fs.String("manifest-out", "manifest.yaml", "manifest file to write")
+	// The warm-up is a separate trace rather than rows prepended to the measured one, so the measured trace's bytes and its plan check are the same with or without it.
+	warmup := fs.Bool("warmup", false, "write the registered warm-up trace for the arm's episode type instead of the measured trace (episode studies that register a warm-up only)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -359,12 +361,16 @@ func genTrace(args []string) error {
 	if st, ok := bench.LookupStudy(*study); ok && st.Arrivals == bench.ArrivalsEpisodes {
 		explicit := map[string]bool{}
 		fs.Visit(func(f *flag.Flag) { explicit[f.Name] = true })
-		rows, err := episodeRows(st, *arm, *seed, *durationMs, explicit)
+		rows, err := episodeRows(st, *arm, *seed, *durationMs, *warmup, explicit)
 		if err != nil {
 			return err
 		}
 		// The caps and lengths vary by episode, so the manifest leaves both per-tenant maps out rather than recording one value of several.
 		return writeTraceAndManifest(rows, out, nil)
+	}
+	// A Poisson study has no warm-up registered, and ignoring the flag would hand back a measured trace to a caller who asked for something else.
+	if *warmup {
+		return fmt.Errorf("--warmup is defined only for an episode study that registers a warm-up, and study %s does not", *study)
 	}
 
 	// Two probe tenants that straddle the guard's eligibility threshold, four characters apart.
@@ -447,20 +453,28 @@ var poissonOnlyFlags = []string{
 //
 // The Poisson flags are refused rather than ignored, because a caller who passed a rate believes it shaped the trace.
 // --duration-ms must be passed, because its default is a Poisson window that no three-cycle trace fits and a refusal naming that default would send the reader looking for the wrong mistake.
-func episodeRows(st bench.Study, arm string, seed, durationMs int64, passed map[string]bool) ([]bench.TraceRow, error) {
+func episodeRows(st bench.Study, arm string, seed, durationMs int64, warmup bool, passed map[string]bool) ([]bench.TraceRow, error) {
 	for _, name := range poissonOnlyFlags {
 		if passed[name] {
 			return nil, fmt.Errorf("study %s registered %s arrivals and --%s configures a Poisson trace; its lengths, caps and spacing are the registration's", st.ID, st.Arrivals, name)
 		}
 	}
 	if !passed["duration-ms"] {
-		return nil, fmt.Errorf("study %s needs --duration-ms: the trace is %d complete cycles, and the default is a Poisson window", st.ID, bench.EpisodeCycles)
+		return nil, fmt.Errorf("study %s needs --duration-ms: the trace is a fixed number of complete cycles, and the default is a Poisson window", st.ID)
 	}
 	episode, ok := bench.InstrumentValidationEpisode(arm)
 	if !ok || !st.Admits(arm) {
 		return nil, fmt.Errorf("arm %q is not one of study %s's arms (%s)", arm, st.ID, strings.Join(st.Arms, ", "))
 	}
-	rows, err := bench.GenerateEpisodeTrace(bench.EpisodeTraceParams{Seed: seed, DurationMs: durationMs, Type: episode})
+	params := bench.EpisodeTraceParams{Study: st.ID, Seed: seed, DurationMs: durationMs, Type: episode}
+	if warmup {
+		rows, err := bench.GenerateEpisodeWarmupTrace(params)
+		if err != nil {
+			return nil, fmt.Errorf("generate the %s warm-up: %w", episode, err)
+		}
+		return rows, nil
+	}
+	rows, err := bench.GenerateEpisodeTrace(params)
 	if err != nil {
 		return nil, fmt.Errorf("generate %s episodes: %w", episode, err)
 	}

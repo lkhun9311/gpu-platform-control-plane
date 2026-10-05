@@ -232,10 +232,10 @@ func TestBurstRowsShareAnOffsetAndStaggerPrefillsLag(t *testing.T) {
 func TestEpisodeTraceMustFitTheDuration(t *testing.T) {
 	for _, et := range []EpisodeType{EpisodeBurst, EpisodeStagger} {
 		_, span, _ := planEpisodes(2, et)
-		if _, err := GenerateEpisodeTrace(EpisodeTraceParams{Seed: 2, DurationMs: span - 1, Type: et}); err == nil || !strings.Contains(err.Error(), "complete cycles") {
+		if _, err := GenerateEpisodeTrace(EpisodeTraceParams{Study: StudyInstrumentValidation, Seed: 2, DurationMs: span - 1, Type: et}); err == nil || !strings.Contains(err.Error(), "complete cycles") {
 			t.Errorf("%s: a duration one ms short of the span was not refused: %v", et, err)
 		}
-		rows, err := GenerateEpisodeTrace(EpisodeTraceParams{Seed: 2, DurationMs: span, Type: et})
+		rows, err := GenerateEpisodeTrace(EpisodeTraceParams{Study: StudyInstrumentValidation, Seed: 2, DurationMs: span, Type: et})
 		if err != nil {
 			t.Fatalf("%s at exactly the span: %v", et, err)
 		}
@@ -244,7 +244,7 @@ func TestEpisodeTraceMustFitTheDuration(t *testing.T) {
 				t.Errorf("%s row %+v is outside the duration or not the single tenant", et, r)
 			}
 		}
-		if err := EpisodeTraceRefusal(et, rows); err != nil {
+		if err := EpisodeTraceRefusal(StudyInstrumentValidation, et, rows); err != nil {
 			t.Errorf("%s: the generator's own trace is refused: %v", et, err)
 		}
 	}
@@ -258,7 +258,7 @@ func TestSerialTraceRefusesUnresolvedLengths(t *testing.T) {
 			missing = append(missing, l)
 		}
 	}
-	_, err := GenerateEpisodeTrace(EpisodeTraceParams{Seed: 1, DurationMs: 1 << 30, Type: EpisodeSerial})
+	_, err := GenerateEpisodeTrace(EpisodeTraceParams{Study: StudyInstrumentValidation, Seed: 1, DurationMs: 1 << 30, Type: EpisodeSerial})
 	if len(missing) == 0 {
 		if err != nil {
 			t.Fatalf("every serial length resolves and the trace was still refused: %v", err)
@@ -272,11 +272,11 @@ func TestSerialTraceRefusesUnresolvedLengths(t *testing.T) {
 
 // Each refusal is shown to fire on a trace that differs from an accepted one in exactly the refused respect.
 func TestEpisodeTraceRefusals(t *testing.T) {
-	burst, err := GenerateEpisodeTrace(EpisodeTraceParams{Seed: 6, DurationMs: 1 << 30, Type: EpisodeBurst})
+	burst, err := GenerateEpisodeTrace(EpisodeTraceParams{Study: StudyInstrumentValidation, Seed: 6, DurationMs: 1 << 30, Type: EpisodeBurst})
 	if err != nil {
 		t.Fatal(err)
 	}
-	stagger, err := GenerateEpisodeTrace(EpisodeTraceParams{Seed: 6, DurationMs: 1 << 30, Type: EpisodeStagger})
+	stagger, err := GenerateEpisodeTrace(EpisodeTraceParams{Study: StudyInstrumentValidation, Seed: 6, DurationMs: 1 << 30, Type: EpisodeStagger})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -343,7 +343,7 @@ func TestEpisodeTraceRefusals(t *testing.T) {
 			return r
 		}), "appears 4 times"},
 	} {
-		err := EpisodeTraceRefusal(c.t, c.rows)
+		err := EpisodeTraceRefusal(StudyInstrumentValidation, c.t, c.rows)
 		if err == nil || !strings.Contains(err.Error(), c.want) {
 			t.Errorf("%s: want a refusal containing %q, got %v", c.name, c.want, err)
 		}
@@ -396,7 +396,7 @@ func TestInstrumentValidationArmSetRefusal(t *testing.T) {
 			t.Errorf("%v: want a refusal containing %q, got %v", c.arms, c.want, err)
 		}
 	}
-	if err := InstrumentValidationPlanRefusal("serial-on", []TraceRow{{Tenant: PremiumTenant}}); err == nil || !strings.Contains(err.Error(), "not one of") {
+	if err := InstrumentValidationPlanRefusal(StudyInstrumentValidation, "serial-on", []TraceRow{{Tenant: PremiumTenant}}); err == nil || !strings.Contains(err.Error(), "not one of") {
 		t.Errorf("an unregistered arm passed the cell check: %v", err)
 	}
 }

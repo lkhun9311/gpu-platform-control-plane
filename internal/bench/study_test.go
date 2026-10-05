@@ -107,6 +107,7 @@ var _ = Describe("the study registry", func() {
 				{StudyThroughputLadderDown, 0, false},
 				{StudyThroughputLadderIndependent, 0, false},
 				{StudyInstrumentValidation, 0, false},
+				{StudyInstrumentValidationS2, 0, false},
 			} {
 				s, ok := LookupStudy(c.id)
 				Expect(ok).To(BeTrue(), c.id)

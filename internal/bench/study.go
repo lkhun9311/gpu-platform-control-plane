@@ -241,6 +241,12 @@ const (
 	// It asks whether the stock engine's iteration log can time a step, so its arms are an episode type crossed with the engine's logging and scheduling mode rather than a load.
 	// One tenant, no contender: attribution by order needs every step's composition known by construction.
 	StudyInstrumentValidation = "instrument-validation-2026-10-05"
+	// StudyInstrumentValidationS2 is the second instrument check, registered in
+	// docs/superpowers/specs/2026-10-05-instrument-validation-session-2.md after session 1 failed I1 and I3.
+	//
+	// A study of its own rather than more blocks of the first, because its episodes differ: held-out serial lengths, a later and jittered stagger trigger, longer decoders and other replicate counts.
+	// Pooling the two would score one trace's settings against the other's, and session 1's verdict has to stand on its own evidence.
+	StudyInstrumentValidationS2 = "instrument-validation-s2-2026-10-05"
 )
 
 // The engine modes the instrument-validation study crosses with its episode types.
@@ -611,6 +617,13 @@ var studies = map[string]Study{
 		// Every block replays the same bytes, as section 4 of the registration says.
 		// I1 pairs cells within a block and I5 compares the first block with the last, so a trace that changed between blocks would put a difference of traces into a check for drift of the engine.
 		// The modes of one episode type share the trace as well, which ArmComparisonGroup states.
+		TracesVaryByRepetition: false,
+	},
+	// The same nine arms and the same trace policy as session 1, which section 1 of its registration keeps; only the episodes differ, and they live in designS2.
+	StudyInstrumentValidationS2: {
+		ID:                     StudyInstrumentValidationS2,
+		Arms:                   instrumentValidationArms(),
+		Arrivals:               ArrivalsEpisodes,
 		TracesVaryByRepetition: false,
 	},
 	StudyThroughputLadder: {

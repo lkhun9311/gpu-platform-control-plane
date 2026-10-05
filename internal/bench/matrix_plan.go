@@ -45,13 +45,23 @@ func MatrixPlanRefusal(study, arm string, premiumOffers int) error {
 //
 // The tail studies' premium-sample floor does not apply: nothing here is a p99, and a trace is complete when it holds its registered cycles.
 // What does apply is that the trace is the one this arm's episode type registers, because a burst trace replayed in a serial cell attributes nothing.
-func InstrumentValidationPlanRefusal(arm string, rows []TraceRow) error {
-	s, _ := LookupStudy(StudyInstrumentValidation)
+// The study is a parameter because the two sessions share arm names and differ in their episodes, so the arm alone cannot say which trace is right.
+func InstrumentValidationPlanRefusal(study, arm string, rows []TraceRow) error {
+	if !IsInstrumentValidationStudy(study) {
+		return fmt.Errorf("study %q is not an instrument-validation study", study)
+	}
+	s, _ := LookupStudy(study)
 	if !s.Admits(arm) {
 		return fmt.Errorf("arm %q is not one of study %s's arms (%s)", arm, s.ID, strings.Join(s.Arms, ", "))
 	}
 	t, _ := InstrumentValidationEpisode(arm)
-	return EpisodeTraceRefusal(t, rows)
+	return EpisodeTraceRefusal(study, t, rows)
+}
+
+// IsInstrumentValidationStudy says whether a study is scored on episodes by the instrument check rather than on a tail.
+func IsInstrumentValidationStudy(study string) bool {
+	_, ok := designFor(study)
+	return ok
 }
 
 // instrumentValidationArmSetRefusal refuses a plan whose arms are not all admitted or whose logging arms lack their pair.
@@ -90,7 +100,7 @@ func MatrixPlanArmSetRefusal(study string, arms []string) error {
 		return fmt.Errorf("no arms were planned for study %s, so there is nothing to buy and nothing to score", s.ID)
 	}
 	// The instrument check has no isolated baseline and no shared control; what it divides is a logging-on cell by its logging-off pair.
-	if s.ID == StudyInstrumentValidation {
+	if IsInstrumentValidationStudy(s.ID) {
 		return instrumentValidationArmSetRefusal(s, arms)
 	}
 	required := []struct{ arm, why string }{
