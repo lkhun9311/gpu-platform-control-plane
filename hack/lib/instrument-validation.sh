@@ -11,7 +11,11 @@
 # docs/superpowers/specs/2026-10-06-instrument-validation-session-3.md keeps session 2's lengths and warm-up, pins
 # the model and tokenizer revision on the engine's command line, and judges gate S on the warm-up as well.
 #
-# Every function here answers only for these three studies, and takes the study as its first argument.
+# docs/superpowers/specs/2026-10-06-instrument-validation-session-4.md is session 3 with one unscored 2,048/16
+# conditioning request between the warm-up's cycle and its two verification requests, and it keeps the engine log
+# of a cell refused at its warm-up.
+#
+# Every function here answers only for these four studies, and takes the study as its first argument.
 # The study is passed rather than read from $STUDY so a caller cannot get session 1's lengths for a session-2
 # cell by forgetting to set a global, and so a test can drive either study without exporting anything.
 # A caller asks iv_is_study first, so every other study's cells never reach this file and deploy exactly
@@ -23,6 +27,7 @@
 IV_STUDY=instrument-validation-2026-10-05
 IV_S2_STUDY=instrument-validation-s2-2026-10-05
 IV_S3_STUDY=instrument-validation-s3-2026-10-06
+IV_S4_STUDY=instrument-validation-s4-2026-10-06
 
 # Session 2's trace lengths in ms, one per episode type, as the main session measured them from the generator.
 #
@@ -37,6 +42,12 @@ IV_S2_DURATION_MS_STAGGER=2410000
 #
 # The warm-up is one cycle, not the measured trace's many, so it gets its own bound: the main session measured
 # its spans at seed 11 as 87,200, 107,580 and 484,800 ms and set these above them.
+# Session 3's warm-up is session 2's, and session 4's adds its conditioning request's one drained 2,000 ms gap.
+# Session 4's spans are therefore taken as 89,200, 109,580 and 486,800 ms, still under every bound here.
+# They are session 3's spans plus 2,000 ms, not read off a session-4 generator, which did not exist when they were written.
+IV_S4_WARMUP_SPAN_MS_SERIAL=89200
+IV_S4_WARMUP_SPAN_MS_BURST=109580
+IV_S4_WARMUP_SPAN_MS_STAGGER=486800
 IV_S2_WARMUP_DURATION_MS_SERIAL=100000
 IV_S2_WARMUP_DURATION_MS_BURST=120000
 IV_S2_WARMUP_DURATION_MS_STAGGER=500000
@@ -50,20 +61,31 @@ IV_S2_WARM_TTFT_TOL_PERMILLE=50
 IV_S2_WARM_PAIR_TOL_PERMILLE=20
 IV_S2_WARM_TOKENS=2048
 
-iv_is_study() { [ "${1:-}" = "$IV_STUDY" ] || [ "${1:-}" = "$IV_S2_STUDY" ] || [ "${1:-}" = "$IV_S3_STUDY" ]; }
+iv_is_study() { [ "${1:-}" = "$IV_STUDY" ] || [ "${1:-}" = "$IV_S2_STUDY" ] || [ "${1:-}" = "$IV_S3_STUDY" ] || [ "${1:-}" = "$IV_S4_STUDY" ]; }
 
-# Sessions 2 and 3 warm the engine before their measured replay; session 1 measured request 0 cold.
-iv_has_warmup() { [ "${1:-}" = "$IV_S2_STUDY" ] || [ "${1:-}" = "$IV_S3_STUDY" ]; }
+# Sessions 2 to 4 warm the engine before their measured replay; session 1 measured request 0 cold.
+iv_has_warmup() { [ "${1:-}" = "$IV_S2_STUDY" ] || [ "${1:-}" = "$IV_S3_STUDY" ] || [ "${1:-}" = "$IV_S4_STUDY" ]; }
 
-# Only session 3 pins the model revision on the engine's command line and demands the engine report it back.
+# Only sessions 3 and 4 pin the model revision on the engine's command line and demand the engine report it back.
 #
 # Adding the flags to sessions 1 or 2 would change the engine their archives measured.
-iv_pins_revision() { [ "${1:-}" = "$IV_S3_STUDY" ]; }
+iv_pins_revision() { [ "${1:-}" = "$IV_S3_STUDY" ] || [ "${1:-}" = "$IV_S4_STUDY" ]; }
 
-# Only session 3's staggered decoders carry min_tokens = max_tokens = 512, so only there must each produce 512.
+# Only sessions 3 and 4's staggered decoders carry min_tokens = max_tokens = 512, so only there must each produce 512.
 #
 # Session 2's decoders could stop at end-of-sequence, and demanding 512 of them would refuse what it registered.
-iv_fixes_decoder_length() { [ "${1:-}" = "$IV_S3_STUDY" ]; }
+iv_fixes_decoder_length() { [ "${1:-}" = "$IV_S3_STUDY" ] || [ "${1:-}" = "$IV_S4_STUDY" ]; }
+
+# Only session 4's warm-up ends with a conditioning request before its two verification requests.
+#
+# Gate S on the warm-up drops one more tail request for it, and an earlier session's cycle would lose its last prefill.
+iv_conditions_warmup() { [ "${1:-}" = "$IV_S4_STUDY" ]; }
+
+# Only session 4 keeps the engine log of a cell refused at its warm-up.
+#
+# Session 3's refused cell had none, so the transient W caught could not be read from the engine's side.
+# Sessions 2 and 3 stop exactly as their archives show.
+iv_keeps_warmup_refusal_log() { [ "${1:-}" = "$IV_S4_STUDY" ]; }
 
 # The directory of instrument_gates.py, resolved once when sourced so a caller that changes directory still finds it.
 #
@@ -82,7 +104,7 @@ fi
 iv_arm_refusal() {
   local study="${1:-}" arm="${2:-}"
   iv_is_study "$study" || {
-    echo "study ${study@Q} is none of $IV_STUDY, $IV_S2_STUDY and $IV_S3_STUDY, so this file has nothing registered for it"
+    echo "study ${study@Q} is none of $IV_STUDY, $IV_S2_STUDY, $IV_S3_STUDY and $IV_S4_STUDY, so this file has nothing registered for it"
     return 1; }
   case "$arm" in
     serial-log | serial-nolog | serial-async | burst-log | burst-nolog | burst-async | stagger-log | stagger-nolog | stagger-async) return 0 ;;
@@ -122,7 +144,7 @@ iv_duration_ms() {
 
 # The --duration-ms an arm's warm-up trace is generated with; only session 2 has a warm-up.
 iv_warmup_duration_ms() {
-  local study="${1:-}" arm="${2:-}" v
+  local study="${1:-}" arm="${2:-}" v s
   iv_arm_refusal "$study" "$arm" || return 1
   iv_has_warmup "$study" || { echo "study $study registers no warm-up, so it has no warm-up length"; return 1; }
   case "$arm" in
@@ -135,6 +157,17 @@ iv_warmup_duration_ms() {
       echo "study $study's warm-up length for $arm is still ${v@Q} in hack/lib/instrument-validation.sh; fill IV_S2_WARMUP_DURATION_MS_SERIAL, _BURST and _STAGGER from the generator's warm-up spans before any plan can pass"
       return 1 ;;
   esac
+  # Session 4 shares session 2's bounds, so a bound its longer warm-up outgrew refuses here rather than on the card.
+  if [ "$study" = "$IV_S4_STUDY" ]; then
+    case "$arm" in
+      serial-*) s="$IV_S4_WARMUP_SPAN_MS_SERIAL" ;;
+      burst-*) s="$IV_S4_WARMUP_SPAN_MS_BURST" ;;
+      stagger-*) s="$IV_S4_WARMUP_SPAN_MS_STAGGER" ;;
+    esac
+    [ "$v" -gt "$s" ] || {
+      echo "study $study's warm-up length for $arm is $v ms and its warm-up spans $s ms, so the bound does not hold the conditioning request"
+      return 1; }
+  fi
   echo "$v"
 }
 
@@ -396,6 +429,7 @@ if why:
 # is refused by exactly the rule the verdict will apply; for session 2 that is all it does, as before session 3.
 # warmup judges warmup-trace-/raw-warmup-<arm>-<rep>.jsonl, joined with load_cell's refusals, and only the staggered
 # cycle between the lone warm request at its head and the two lone verification requests at its tail.
+# Session 4's tail is three lone 2,048/16 requests, its conditioning request and the two verification requests.
 # The warm-up is judged too because session 2's warm-up violated S as well, and the registration stops on it before
 # the measured replay is bought.
 # Session 3 also refuses any staggered decoder that did not produce exactly 512 tokens and stop on its length,
@@ -404,7 +438,7 @@ if why:
 # having no decoders to check.
 # A refusal prints its one-line reason; anything else (a missing file, a crash) keeps its traceback.
 iv_stagger_refusal() {
-  local study="$1" arm="$2" run="$3" rep="$4" phase="$5" out rc=0 fixed=0
+  local study="$1" arm="$2" run="$3" rep="$4" phase="$5" out rc=0 fixed=0 tail=2
   iv_arm_refusal "$study" "$arm" || return 1
   iv_has_warmup "$study" || { echo "study $study registers no gate S in the harness, so it judges none"; return 1; }
   case "$arm" in
@@ -418,9 +452,12 @@ iv_stagger_refusal() {
   [ -n "$IV_GATES_DIR" ] \
     || { echo "hack/tail-crossing-model was not found when hack/lib/instrument-validation.sh was sourced, so gate S cannot be judged"; return 1; }
   if iv_fixes_decoder_length "$study"; then fixed=1; fi
+  if iv_conditions_warmup "$study"; then tail=3; fi
   out=$(python3 -c '
 import json, os, sys
-gates, run, arm, rep, phase, fixed = sys.argv[1:7]
+gates, run, arm, rep, phase, fixed, tail = sys.argv[1:8]
+tail = int(tail)
+WARM_TOKENS, WARM_CAP = 2048, 16
 sys.path.insert(0, gates)
 import instrument_gates as g
 rep = int(rep)
@@ -458,10 +495,22 @@ try:
         reqs.sort(key=lambda q: (q["offset"], q["index"]))
         offsets = [q["offset"] for q in reqs]
         lone = [offsets.count(o) == 1 for o in offsets]
-        if len(reqs) < 5 or not (lone[0] and lone[-1] and lone[-2]):
-            raise g.Refusal(f"{name}-{rep}: the warm-up is not a lone warm request, a staggered cycle and two lone "
-                            f"verification requests, so its staggered episodes cannot be told apart (gate S)")
-        reqs = reqs[1:-2]
+        if len(reqs) < 3 + tail or not (lone[0] and all(lone[-tail:])):
+            if tail == 2:
+                raise g.Refusal(f"{name}-{rep}: the warm-up is not a lone warm request, a staggered cycle and two lone "
+                                f"verification requests, so its staggered episodes cannot be told apart (gate S)")
+            raise g.Refusal(f"{name}-{rep}: the warm-up is not a lone warm request, a staggered cycle, a lone conditioning "
+                            f"request and two lone verification requests, so its staggered episodes cannot be told apart (gate S)")
+        # A lone tail request is not enough for session 4: the warm-up of an earlier session ends on a lone prefill too.
+        # Each dropped tail request must be the drained 2,048/16 request the registration places there, or S loses an episode.
+        if tail == 3:
+            for q in reqs[-3:]:
+                idx, ntok, cap = q["index"], q["input_tokens"], q["cap"]
+                if ntok != WARM_TOKENS or cap != WARM_CAP:
+                    raise g.Refusal(f"{name}-{rep}: the last three requests of the warm-up must each be a lone {WARM_TOKENS}-token "
+                                    f"request capped at {WARM_CAP}, and index {idx} is a {ntok}-token "
+                                    f"request capped at {cap}, so the warm-up has no conditioning request (gate S)")
+        reqs = reqs[1:-tail]
     if phase != "measured" or fixed == "1":
         # The episode structure, refused by name rather than by an IndexError inside check_stagger.
         keyed = g.settings("stagger", reqs)
@@ -486,7 +535,7 @@ try:
 except g.Refusal as e:
     print(e)
     sys.exit(1)
-' "$IV_GATES_DIR" "$run" "$arm" "$rep" "$phase" "$fixed" 2>&1) || rc=$?
+' "$IV_GATES_DIR" "$run" "$arm" "$rep" "$phase" "$fixed" "$tail" 2>&1) || rc=$?
   [ "$rc" = 0 ] && return 0
   echo "${out:-python3 exited $rc and said nothing, so gate S was not judged}"
   return 1

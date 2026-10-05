@@ -215,8 +215,8 @@ fi
 if [ -z "$LADDER" ]; then
   STUDY="${STUDY:-sharing-matrix-2026-09-10}"
   case "$STUDY" in
-    sharing-matrix-2026-09-10|tail-crossing-lc256-2026-10-04|tail-crossing-lc2048-2026-10-05|tail-crossing-lc8192-2026-10-04|instrument-validation-2026-10-05|instrument-validation-s2-2026-10-05|instrument-validation-s3-2026-10-06) ;;
-    *) fail "STUDY is ${STUDY@Q}; the non-ladder matrix files evidence under sharing-matrix-2026-09-10, tail-crossing-lc256-2026-10-04, tail-crossing-lc2048-2026-10-05, tail-crossing-lc8192-2026-10-04, instrument-validation-2026-10-05, instrument-validation-s2-2026-10-05 or instrument-validation-s3-2026-10-06. An unregistered id is not refused by gen-trace -- it writes a manifest for any string -- so this refusal is the one that stops it before anything is rented" ;;
+    sharing-matrix-2026-09-10|tail-crossing-lc256-2026-10-04|tail-crossing-lc2048-2026-10-05|tail-crossing-lc8192-2026-10-04|instrument-validation-2026-10-05|instrument-validation-s2-2026-10-05|instrument-validation-s3-2026-10-06|instrument-validation-s4-2026-10-06) ;;
+    *) fail "STUDY is ${STUDY@Q}; the non-ladder matrix files evidence under sharing-matrix-2026-09-10, tail-crossing-lc256-2026-10-04, tail-crossing-lc2048-2026-10-05, tail-crossing-lc8192-2026-10-04, instrument-validation-2026-10-05, instrument-validation-s2-2026-10-05, instrument-validation-s3-2026-10-06 or instrument-validation-s4-2026-10-06. An unregistered id is not refused by gen-trace -- it writes a manifest for any string -- so this refusal is the one that stops it before anything is rented" ;;
   esac
 fi
 
@@ -3029,15 +3029,54 @@ run_warmup() {
 # at-warmup leaves its port-forward log, and after-replay leaves all four and both metrics phases.
 # cell-refused-<label>-<rep>.txt is per cell and not refused-<arm>.txt, because benchharness report reads the
 # latter as a sharing arm's registered refusal, and these end the session rather than stand beside other arms.
+#
+# Session 4 also keeps the engine log of a cell refused at its warm-up and hands the cell to the per-cell upload.
+# Session 3's refused cell had no engine log, and fail reaches only the end-of-run archive, which a stopped instance never writes.
+# A log that could not be kept is named in the message rather than ending the stop early, because the refusal is the finding.
 cell_refused_stop() {
-  local label="$1" rep="$2" stage="$3" msg="$4" t1
+  local label="$1" rep="$2" stage="$3" msg="$4" t1 kept=0 why
+  if [ "$stage" = at-warmup ] && iv_keeps_warmup_refusal_log "${STUDY:-}"; then
+    kept=1
+    why=$(warmup_refusal_log "$label" "$rep") || msg="$msg [engine log: ${why:-warmup_refusal_log failed without saying why}]"
+  fi
   printf '%s\n' "$msg" > "$OUT/cell-refused-$label-$rep.txt" \
     || say "  WARNING: could not write $OUT/cell-refused-$label-$rep.txt"
   t1=$(date +%s)
   cell_secs=$(( cell_secs + t1 - ${CELL_T0:-$t1} ))
   cells_done=$(( cells_done + 1 ))
   cell_timing_record "$label" "$rep" "refused-$stage" "${CELL_T0:-}" "$t1" || true
+  # After the timing row, so the upload carries the row that names this cell's outcome.
+  # The raw path is the measured one the hook expects; it does not exist yet, and the hook sends only what does.
+  if [ "$kept" = 1 ] && [ -n "${CELL_DONE_HOOK:-}" ]; then
+    OUT="$OUT" timeout "${CELL_DONE_HOOK_TIMEOUT:-120}" "$CELL_DONE_HOOK" "$OUT/raw-$label-$rep.jsonl" "$label" "$rep" \
+      || say "  WARNING: CELL_DONE_HOOK failed or timed out for $label rep $rep's refused warm-up; its files are still on local disk"
+  fi
   fail "$msg"
+}
+
+# Saves the engine log of a cell refused at its warm-up to $OUT/engine-log-<label>-<rep>.txt, unjudged.
+#
+# The cell is already refused, so the log is evidence for the refusal rather than a measurement to accept or refuse.
+# A restarted container is named but its log is still kept: `kubectl logs` then returns the newest instance only.
+# Prints why and returns 1 when the log is missing or partial; prints nothing and returns 0 when it was kept whole.
+warmup_refusal_log() {
+  local label="$1" rep="$2" dest err restarts
+  dest="$OUT/engine-log-$label-$rep.txt"
+  err="$WORK/engine-log-$label-$rep.err"
+  if ! k logs -n "$NS_A" deploy/vllm-qwen25-3b >"$dest" 2>"$err"; then
+    rm -f "$dest"
+    echo "could not read the engine log for $label rep $rep: $(tr '\n' ' ' <"$err" | cut -c1-200)"
+    return 1
+  fi
+  if ! restarts=$(k get pods -n "$NS_A" -l app.kubernetes.io/component=vllm \
+    -o jsonpath='{range .items[*]}{.status.containerStatuses[0].restartCount}{" "}{end}' 2>"$err"); then
+    echo "kept $dest, but the engine pod's restart count could not be read, so whether it covers the whole cell is unknown: $(tr '\n' ' ' <"$err" | cut -c1-200)"
+    return 1
+  fi
+  [ "$restarts" = "0 " ] || {
+    echo "kept $dest, but the engine pod's restart counts read ${restarts:-nothing}, not one pod at 0, so it covers the newest container only"
+    return 1; }
+  rm -f "$err"
 }
 
 run_cell() {

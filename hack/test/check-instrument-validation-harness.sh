@@ -62,7 +62,7 @@ extract() {
 
 FNS="deploy_arm engine_applied_record capture_engine_log cell_duration_ms cell_charge_ms warmup_gen_trace warmup_span_ms
 	warmup_boundary_record run_warmup seed_for_rep iv_cold_projection_min iv_remaining_projection
-	expected_outputs expected_outputs_by_class cell_refusal_rows cell_refused_stop cell_timing_record"
+	expected_outputs expected_outputs_by_class cell_refusal_rows cell_refused_stop cell_timing_record warmup_refusal_log"
 {
 	echo 'set -uo pipefail'
 	echo ". $LIB"
@@ -414,7 +414,7 @@ out=$(iv_duration_ms "$IV2" R1) && bad "R1 had a session-2 length" \
 	|| { [ "$out" = "arm 'R1' is not one of study $IV2's nine arms ({serial,burst,stagger}-{log,nolog,async}), so it has no registered trace length" ] \
 		&& ok "an arm outside session 2 refuses by name" || bad "wrong refusal: $out"; }
 out=$(iv_duration_ms instrument-validation-2026-10-06 serial-log) && bad "an unknown study had a length" \
-	|| { printf '%s' "$out" | grep -qF "is none of $IV, $IV2 and instrument-validation-s3-2026-10-06" && ok "an unknown study refuses: $out" || bad "wrong refusal: $out"; }
+	|| { printf '%s' "$out" | grep -qF "is none of $IV, $IV2, instrument-validation-s3-2026-10-06 and instrument-validation-s4-2026-10-06" && ok "an unknown study refuses: $out" || bad "wrong refusal: $out"; }
 s1=$(for a in serial-log burst-nolog stagger-async; do iv_duration_ms "$IV" "$a"; done | tr '\n' ' ')
 [ "$s1" = "180000 330000 630000 " ] && ok "session 1's lengths are unchanged" || bad "session 1's lengths moved: $s1"
 # The engine arguments do not wait for the lengths: they are a property of the suffix.
@@ -954,6 +954,10 @@ say "16. gate S judges the warm-up's staggered cycle before the measured replay,
 cat > "$WORK/stagger_fixture.py" <<'PY'
 import json, os, sys
 d, arm, kind, variant = sys.argv[1:5]
+# Session 4's fixtures: `cond` inserts the conditioning request, and the prefill length can be the generator's 8,192.
+# Without them the fixture is byte-for-byte what sessions 2 and 3 were tested on.
+cond = sys.argv[5] if len(sys.argv) > 5 else "none"
+pre_tokens = int(sys.argv[6]) if len(sys.argv) > 6 else 2048
 T0 = 1759650000000  # ms
 trace, raw = [], []
 def add(offset, cap, tokens, ttft, out, end_after_first, finish="length"):
@@ -977,10 +981,15 @@ for e, n in enumerate((16, 4)):
         if e == 1 and j == 2 and variant == "stop512":
             finish = "stop"
         add(t, 512, 8192, 300.0, out, end, finish)
-    add(t + 2000, 16, 2048, 231.0, 16, 160.0)
+    add(t + 2000, 16, pre_tokens, 231.0, 16, 160.0)
+v0 = 300000
+if kind == "warmup" and cond != "none":
+    # cond: the registered 2,048/16 request; cond1024 and cond32 change its length or its cap.
+    add(300000, 32 if cond == "cond32" else 16, 1024 if cond == "cond1024" else 2048, 240.0, 16, 100.0)
+    v0 = 302000
 if kind == "warmup":
-    add(300000, 16, 2048, 230.0, 16, 100.0)
-    add(302000, 16, 2048, 233.0, 16, 100.0)
+    add(v0, 16, 2048, 230.0, 16, 100.0)
+    add(v0 + 2000, 16, 2048, 233.0, 16, 100.0)
 pre = "warmup-trace" if kind == "warmup" else "trace"
 rpre = "raw-warmup" if kind == "warmup" else "raw"
 with open(os.path.join(d, f"{pre}-{arm}-1.jsonl"), "w") as f:
@@ -1142,6 +1151,189 @@ elif tree "$WORK/t-base2" "$S2_BASE" && tree "$WORK/t-cur2"; then
 	fi
 else
 	bad "could not build the session-2 plan trees"
+fi
+
+# ======================================= session 4 =======================================================
+IV4=instrument-validation-s4-2026-10-06
+
+# --- 19. accepted with everything of session 3's -----------------------------------------------------------
+say "19. session 4 is accepted wherever session 3 is, with session 3's lengths, pins and decoder rule"
+iv_is_study "$IV4" && iv_has_warmup "$IV4" && iv_pins_revision "$IV4" && iv_fixes_decoder_length "$IV4" \
+	&& ok "session 4 is a warmed, revision-pinned, fixed-decoder study" || bad "session 4 lacks one of session 3's rules"
+iv_conditions_warmup "$IV4" && iv_keeps_warmup_refusal_log "$IV4" \
+	&& ! iv_conditions_warmup "$IV3" && ! iv_conditions_warmup "$IV2" && ! iv_conditions_warmup "$IV" \
+	&& ! iv_keeps_warmup_refusal_log "$IV3" && ! iv_keeps_warmup_refusal_log "$IV2" && ! iv_keeps_warmup_refusal_log "$IV" \
+	&& ok "only session 4 conditions its warm-up and keeps a refused warm-up's engine log" || bad "a session-4 rule reaches sessions 1 to 3"
+l4=""
+for a in serial-log serial-nolog serial-async burst-log burst-nolog burst-async stagger-log stagger-nolog stagger-async; do
+	l4="$l4 $a=$(iv_duration_ms "$IV4" "$a")/$(iv_warmup_duration_ms "$IV4" "$a")"
+done
+[ "$l4" = "$l3" ] && ok "every arm's measured and warm-up length is session 3's:$l4" || bad "session 4's lengths differ: ${l4@Q} against ${l3@Q}"
+# The spans are session 3's plus the conditioning request's 2,000 ms gap, until the Go generator reports its own.
+[ "$IV_S4_WARMUP_SPAN_MS_SERIAL $IV_S4_WARMUP_SPAN_MS_BURST $IV_S4_WARMUP_SPAN_MS_STAGGER" = "$((87200 + 2000)) $((107580 + 2000)) $((484800 + 2000))" ] \
+	&& ok "session 4's warm-up spans are session 3's plus 2,000 ms" || bad "session 4's spans read $IV_S4_WARMUP_SPAN_MS_SERIAL $IV_S4_WARMUP_SPAN_MS_BURST $IV_S4_WARMUP_SPAN_MS_STAGGER"
+out=$(IV_S2_WARMUP_DURATION_MS_BURST=109580; iv_warmup_duration_ms "$IV4" burst-log) && bad "a bound equal to session 4's span passed as ${out@Q}" \
+	|| { [ "$out" = "study $IV4's warm-up length for burst-log is 109580 ms and its warm-up spans 109580 ms, so the bound does not hold the conditioning request" ] \
+		&& ok "a bound that does not exceed session 4's span refuses: $out" || bad "wrong refusal: $out"; }
+out=$(IV_S2_WARMUP_DURATION_MS_BURST=109580; iv_warmup_duration_ms "$IV3" burst-log) \
+	&& [ "$out" = 109580 ] && ok "the same bound still serves session 3, whose warm-up is shorter" || bad "session 3 read the session-4 span guard: $out"
+for arm in serial-log burst-nolog stagger-async; do
+	iv_render_manifest "$IV4" "$arm" "$BASE" "$WORK/r4-$arm.yaml" "$REV" >/dev/null && cmp -s "$WORK/r4-$arm.yaml" "$WORK/r3-$arm.yaml" \
+		|| bad "session 4's $arm does not render session 3's manifest"
+done && ok "session 4 renders session 3's manifests, revision pins included"
+out=$(iv_process_args_refusal "$IV4" serial-log "$LOG_LINE" "$REV") && bad "session 4 accepted an unpinned engine" \
+	|| { printf '%s' "$out" | grep -qF "does not report 'revision': '$REV'" && ok "session 4 refuses an engine that does not report the pin" || bad "wrong refusal: $out"; }
+
+# --- 20. gate S's warm-up slice: the first request and the last three ----------------------------------------
+say "20. session 4's warm-up drops its first and last three requests from S, each of the three a lone 2,048/16 request"
+# expect_s4 <name> <study> <variant> <cond> <prefill tokens> <ok|exact message>
+expect_s4() {
+	local d="$WORK/s4-$1"
+	rm -rf "$d"; mkdir -p "$d"
+	python3 "$WORK/stagger_fixture.py" "$d" stagger-log warmup "$3" "$4" "$5" || { bad "$1: the fixture was not written"; return; }
+	out=$(iv_stagger_refusal "$2" stagger-log "$d" 1 warmup) && rc=0 || rc=$?
+	if [ "$6" = ok ]; then
+		[ "$rc" = 0 ] && [ -z "$out" ] && ok "$1 passes" || bad "$1 should pass; rc=$rc out=${out@Q}"
+	elif [ "$rc" != 0 ] && [ "$out" = "$6" ]; then
+		ok "$1 refused: $out"
+	else
+		bad "$1 was not refused as wanted; rc=$rc out=${out@Q}"
+	fi
+}
+NOCOND="the warm-up of stagger-log-1: the last three requests of the warm-up must each be a lone 2048-token request capped at 16"
+expect_s4 "session 4, a warm-up with its conditioning request" "$IV4" good cond 8192 ok
+expect_s4 "session 4, the same with 2,048-token prefills" "$IV4" good cond 2048 ok
+# Without the conditioner, the third request from the end is the cycle's last prefill, which the generator draws at 256 or 8,192 tokens.
+expect_s4 "session 4, a session-3 warm-up with no conditioning request" "$IV4" good none 8192 \
+	"$NOCOND, and index 22 is a 8192-token request capped at 16, so the warm-up has no conditioning request (gate S)"
+expect_s4 "session 4, a 256-token last prefill and no conditioning request" "$IV4" good none 256 \
+	"$NOCOND, and index 22 is a 256-token request capped at 16, so the warm-up has no conditioning request (gate S)"
+# A 2,048-token prefill would pass the tail check, and S still refuses the episode left without its prefill.
+expect_s4 "session 4, no conditioning request and a 2,048-token last prefill" "$IV4" good none 2048 \
+	"staggered trace: the decoders at offset 200000 ms have no prefill after them"
+expect_s4 "session 4, a 1,024-token conditioning request" "$IV4" good cond1024 8192 \
+	"$NOCOND, and index 23 is a 1024-token request capped at 16, so the warm-up has no conditioning request (gate S)"
+expect_s4 "session 4, a conditioning request capped at 32" "$IV4" good cond32 8192 \
+	"$NOCOND, and index 23 is a 2048-token request capped at 32, so the warm-up has no conditioning request (gate S)"
+expect_s4 "session 4, a warm-up without its warm request" "$IV4" nohead cond 8192 \
+	"the warm-up of stagger-log-1: the warm-up is not a lone warm request, a staggered cycle, a lone conditioning request and two lone verification requests, so its staggered episodes cannot be told apart (gate S)"
+expect_s4 "session 4, a decoder ending before the prefill" "$IV4" late cond 8192 "$LATE_W"
+expect_s4 "session 4, a decoder stopping at 480 tokens" "$IV4" short cond 8192 "$SHORT_W"
+# Sessions 2 and 3 keep first and last two, so a conditioned warm-up leaves its conditioner inside their slice.
+expect_s4 "session 3, a warm-up with a conditioning request" "$IV3" good cond 8192 \
+	"staggered trace: the decoders at offset 300000 ms have no prefill after them"
+expect_s4 "session 2, a warm-up with a conditioning request" "$IV2" good cond 8192 \
+	"staggered trace: the decoders at offset 300000 ms have no prefill after them"
+expect_s4 "session 3, its own warm-up with 8,192-token prefills" "$IV3" good none 8192 ok
+# The measured phase is not sliced, so session 4 judges a measured cell as session 3 does.
+d="$WORK/s4-measured"; rm -rf "$d"; mkdir -p "$d"
+python3 "$WORK/stagger_fixture.py" "$d" stagger-log measured short
+a3=$(iv_stagger_refusal "$IV3" stagger-log "$d" 1 measured); a4=$(iv_stagger_refusal "$IV4" stagger-log "$d" 1 measured)
+[ -n "$a4" ] && [ "$a4" = "$a3" ] && ok "a measured cell is judged identically under sessions 3 and 4" || bad "measured: s3 ${a3@Q} s4 ${a4@Q}"
+r=$(run_s_in "$d" "$IV4")
+[ "$r" = "gate S: $a4" ] && ok "the matrix's measured block refuses session 4's short decoder" || bad "the measured block read ${r@Q}"
+
+# --- 21. a warm-up refusal keeps the engine log, and the per-cell upload sends it -----------------------
+say "21. session 4 keeps a refused warm-up's engine log and runs the real per-cell upload over it; sessions 2 and 3 do neither"
+# The real hook, cut out of hack/m5c-gpu-session.sh and run against a recording aws.
+awk '/^cat > \/usr\/local\/bin\/m5c-cell-done <<.CELLHOOK.$/ {on = 1; next} on && /^CELLHOOK$/ {exit} on {print}' hack/m5c-gpu-session.sh \
+	| sed 's|__BUCKET__|bkt|; s|__PREFIX__|pfx|' > "$WORK/cell-done"
+chmod +x "$WORK/cell-done"
+grep -q 'engine-log-\$arm-\$rep.txt' "$WORK/cell-done" && bash -n "$WORK/cell-done" || bad "the per-cell hook was not cut out of hack/m5c-gpu-session.sh whole"
+mkdir -p "$WORK/awsbin"
+printf '#!/bin/bash\necho "$*" >> "$AWS_LOG"\n' > "$WORK/awsbin/aws"
+chmod +x "$WORK/awsbin/aws"
+# drive_refusal <study> <label> <raw> <log text> <restarts> [logs-fail]: run_warmup with the hook armed.
+drive_refusal() {
+	# applied-values.tsv is section 1's deploy record in the shared OUT, and the hook would send it as a run record.
+	rm -f "$WORK/out/"engine-log-* "$WORK/aws.log" "$WORK/out/applied-values.tsv"
+	PATH="$WORK/awsbin:$PATH" AWS_LOG="$WORK/aws.log" CELL_DONE_HOOK="$WORK/cell-done" DW_STUDY="$1" \
+		STUB_RESTARTS="$5" STUB_LOGS_FAIL="${6:-}" drive_warmup "$2" "$3" "$4"
+}
+sent() { awk '{print $3}' "$WORK/aws.log" | sed 's|.*/||' | sort | tr '\n' ' '; }
+ELOG="engine startup
+$(iter_line 7)
+a warm-up's own line"
+if drive_refusal "$IV4" serial-nolog "$WORK/w-slow.jsonl" "$ELOG" "0 "; then
+	bad "a slow session-4 warm-up went on to the measured replay"
+else
+	[ "$(cat "$WORK/out/engine-log-serial-nolog-1.txt")" = "$ELOG" ] && ok "a W refusal keeps the engine log, as the cluster returned it" \
+		|| bad "the engine log after a W refusal: $(cat "$WORK/out/engine-log-serial-nolog-1.txt" 2>&1)"
+	s=$(sent)
+	[ "$s" = "cell-timings.tsv engine-log-serial-nolog-1.txt raw-warmup-serial-nolog-1.jsonl warmup-boundary-serial-nolog-1.txt warmup-manifest-serial-nolog-1.yaml warmup-trace-serial-nolog-1.jsonl " ] \
+		&& ok "the per-cell upload sent the engine log with the warm-up's files and the timing row: $s" || bad "the upload sent: ${s:-nothing}"
+	grep -qxF "MATRIX FAILED: $(cat "$WORK/out/cell-refused-serial-nolog-1.txt")" "$WORK/warm.out" \
+		&& grep -q '^W REFUSED serial-nolog rep 1: the warm-up verification requests are .*(.*/raw-warmup-serial-nolog-1.jsonl)$' "$WORK/out/cell-refused-serial-nolog-1.txt" \
+		&& [ "$(awk -F'\t' 'NR > 1 {print $2 "/" $3 "/" $4}' "$WORK/out/cell-timings.tsv")" = "serial-nolog/1/refused-at-warmup" ] \
+		&& ok "the refusal reads as before, with nothing appended, and is recorded refused-at-warmup" || bad "the refusal record: $(tail -2 "$WORK/warm.out")"
+fi
+drive_refusal "$IV4" serial-log "$WORK/w-good.jsonl" "startup only" "0 " && bad "a session-4 -log warm-up with no iterations went on" \
+	|| { [ "$(cat "$WORK/out/engine-log-serial-log-1.txt")" = "startup only" ] && sent | grep -q 'engine-log-serial-log-1.txt' \
+		&& grep -qF "MATRIX FAILED: REFUSED serial-log rep 1 at its warm-up boundary:" "$WORK/warm.out" \
+		&& ok "a boundary refusal keeps and uploads the engine log" || bad "boundary: $(tail -2 "$WORK/warm.out")"; }
+d4="$WORK/s4-drive"; rm -rf "$d4"; mkdir -p "$d4"
+python3 "$WORK/stagger_fixture.py" "$d4" stagger-log warmup late cond 8192
+BH_WARM_TRACE="$d4/warmup-trace-stagger-log-1.jsonl" drive_refusal "$IV4" stagger-log "$d4/raw-warmup-stagger-log-1.jsonl" "$ITER2" "0 " \
+	&& bad "a session-4 warm-up violating S went on" \
+	|| { [ "$(cat "$WORK/out/engine-log-stagger-log-1.txt")" = "$ITER2" ] && sent | grep -q 'engine-log-stagger-log-1.txt' \
+		&& grep -qxF "MATRIX FAILED: REFUSED stagger-log rep 1 at its warm-up: gate S: $LATE_W" "$WORK/warm.out" \
+		&& ok "a warm-up S refusal keeps and uploads the engine log" || bad "warm-up S: $(tail -2 "$WORK/warm.out")"; }
+python3 "$WORK/stagger_fixture.py" "$d4" stagger-log warmup good cond 8192
+BH_WARM_TRACE="$d4/warmup-trace-stagger-log-1.jsonl" drive_refusal "$IV4" stagger-log "$d4/raw-warmup-stagger-log-1.jsonl" "$ITER2" "0 " \
+	&& ! [ -e "$WORK/out/engine-log-stagger-log-1.txt" ] && ! [ -e "$WORK/aws.log" ] \
+	&& ok "a passing conditioned warm-up keeps no log early and uploads nothing" || bad "a good session-4 warm-up: $(tail -2 "$WORK/warm.out")"
+# A log that could not be read, or covers a restarted container, is named in the refusal; the refusal still stands.
+drive_refusal "$IV4" serial-nolog "$WORK/w-slow.jsonl" "$ELOG" "0 " 1
+! [ -e "$WORK/out/engine-log-serial-nolog-1.txt" ] \
+	&& grep -q "^MATRIX FAILED: W REFUSED serial-nolog rep 1: .* \[engine log: could not read the engine log for serial-nolog rep 1: error: stub logs refused \]$" "$WORK/warm.out" \
+	&& ok "an unreadable engine log leaves no file and is named in the refusal" || bad "unreadable log: $(tail -1 "$WORK/warm.out")"
+drive_refusal "$IV4" serial-nolog "$WORK/w-slow.jsonl" "$ELOG" "2 "
+[ -s "$WORK/out/engine-log-serial-nolog-1.txt" ] && grep -qF "[engine log: kept $WORK/out/engine-log-serial-nolog-1.txt, but the engine pod's restart counts read 2 , not one pod at 0, so it covers the newest container only]" "$WORK/warm.out" \
+	&& ok "a restarted engine's log is kept and the refusal says it is partial" || bad "restarted: $(tail -1 "$WORK/warm.out")"
+# Sessions 2 and 3: the same refusals, no log, no upload, the same message.
+for st in "$IV2" "$IV3"; do
+	drive_refusal "$st" serial-nolog "$WORK/w-slow.jsonl" "$ELOG" "0 " && bad "$st: a slow warm-up went on"
+	! [ -e "$WORK/out/engine-log-serial-nolog-1.txt" ] && ! [ -e "$WORK/aws.log" ] \
+		&& [ "$(tail -1 "$WORK/warm.out")" = "MATRIX FAILED: $(cat "$WORK/out/cell-refused-serial-nolog-1.txt")" ] \
+		&& ok "$st's W refusal keeps no log and uploads nothing, as its archive shows" || bad "$st moved: $(ls "$WORK/out" | grep engine-log) $(cat "$WORK/aws.log" 2>&1)"
+done
+# The engine log is in the accounting's conditional class, so a session-4 refused cell still agrees.
+# shellcheck disable=SC2086
+a=$(acct_case warm4 refused-at-warmup $C port-forward-$C.log $WARM cell-refused-$C.txt engine-log-$C.txt)
+m=$(printf '%s\n' "$a" | awk '$2 != $3')
+[ -z "$m" ] && ok "a cell refused at its warm-up with its engine log agrees in every class" || bad "at-warmup with log disagrees: $m"
+
+# --- 22. sessions 1 to 3's plans are byte-identical to the commit before session 4 ----------------------
+S4_BASE=a480b8bb75c86fc4f836d6dd0a5f5f636eddf250
+git cat-file -e "$S4_BASE^{commit}" || git fetch --quiet --depth=1 origin "$S4_BASE" || true
+say "22. sessions 1 to 3's plans are byte-identical to $S4_BASE, and session 4's is session 3's under its own id"
+if ! git cat-file -e "$S4_BASE^{commit}"; then
+	bad "$S4_BASE is not a commit here, so sessions 1 to 3 cannot be compared against it"
+elif tree "$WORK/t-base4" "$S4_BASE" && tree "$WORK/t-cur4"; then
+	for st in "$IV" "$IV2" "$IV3"; do
+		plan_run "$WORK/t-base4" "$WORK/p4b-$st" STUDY="$st"; rb=$?
+		plan_run "$WORK/t-cur4" "$WORK/p4c-$st" STUDY="$st"; rc_=$?
+		if [ "$rb" = 0 ] && [ "$rc_" = 0 ] && cmp -s "$WORK/p4b-$st.out" "$WORK/p4c-$st.out" && cmp -s "$WORK/p4b-$st.bh" "$WORK/p4c-$st.bh" \
+			&& cmp -s "$WORK/p4b-$st/load-source.txt" "$WORK/p4c-$st/load-source.txt"; then
+			ok "$st's plan output, harness calls and load-source.txt are byte-identical ($(wc -l < "$WORK/p4c-$st.out") lines, $(wc -l < "$WORK/p4c-$st.bh") calls)"
+		else
+			bad "$st's plan moved (base rc=$rb, current rc=$rc_): $(diff "$WORK/p4b-$st.out" "$WORK/p4c-$st.out" | head -4)"
+		fi
+	done
+	plan_run "$WORK/t-cur4" "$WORK/p4c-$IV4" STUDY="$IV4"; rc4=$?
+	if [ "$rc4" = 0 ] && grep -q "^== PLAN OK under study $IV4" "$WORK/p4c-$IV4.out"; then
+		for x in out bh; do
+			cmp -s "$WORK/p4c-$IV3.$x" <(sed "s/$IV4/$IV3/g" "$WORK/p4c-$IV4.$x") && ok "session 4's plan $x is session 3's with the study id replaced" \
+				|| bad "session 4's plan $x differs from session 3's: $(diff "$WORK/p4c-$IV3.$x" <(sed "s/$IV4/$IV3/g" "$WORK/p4c-$IV4.$x") | head -4)"
+		done
+	else
+		bad "session 4's plan did not pass (rc=$rc4): $(tail -2 "$WORK/p4c-$IV4.out")"
+	fi
+	plan_run "$WORK/t-base4" "$WORK/p4b-$IV4" STUDY="$IV4" && bad "the matrix before session 4 accepted it" \
+		|| { grep -qF "MATRIX FAILED: STUDY is '$IV4'" "$WORK/p4b-$IV4.out" && ok "the matrix before this change refused session 4, so the acceptance above is this change's" \
+			|| bad "the base refused session 4 differently: $(tail -1 "$WORK/p4b-$IV4.out")"; }
+else
+	bad "could not build the session-4 plan trees"
 fi
 
 echo
