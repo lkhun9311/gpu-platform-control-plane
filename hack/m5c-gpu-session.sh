@@ -1719,6 +1719,7 @@ fi
 
 say "SESSION DONE. Evidence in $OUT/m5c-run"
 say "The readings are NOT evaluated here. Run them over the evidence:"
-say "  args=; for f in $OUT/m5c-run/raw-*.jsonl; do args=\"\$args --raw \$f\"; done"
+# raw-warmup-* are the instrument-validation warm-ups, which no arm's statistic may include.
+say "  args=; for f in $OUT/m5c-run/raw-*.jsonl; do case \$f in */raw-warmup-*) continue ;; esac; args=\"\$args --raw \$f\"; done"
 say "  go run ./cmd/benchharness report \$args"
 say "That prints the pre-registered readings in their registered order and the first that fires."

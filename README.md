@@ -84,7 +84,7 @@ frozen now and why.
 Both tables were recomputed from their runs' raw rows with the command the harness ships:
 
 ```
-go run ./cmd/benchharness report $(for f in raw-*.jsonl; do echo --raw $f; done)
+go run ./cmd/benchharness report $(for f in raw-*.jsonl; do case $f in raw-warmup-*) ;; *) echo --raw $f ;; esac; done)
 ```
 
 **The sample behind each tail is published, not just the tail.** The registration requires it — a pooled
