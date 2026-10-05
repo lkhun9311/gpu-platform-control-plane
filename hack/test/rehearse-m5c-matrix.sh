@@ -171,13 +171,12 @@ stub_engine_args() {
 }
 # The component label each stub engine carries.
 #
-# config/vllm/deployment.yaml labels the exclusive engine `vllm`, and the instrument-validation path finds its
-# pod by that label to read restart counts before trusting the engine log. The stub labelled every engine
-# `vllm-shared`, so that path found no pod and refused the first IV rehearsal cell -- a stub that differed from
-# the real manifest, not a harness defect. IV mode gives the exclusive stub the real label. The other modes keep
-# the old one, because changing it under them is a separate change with its own rehearsal to run.
+# Each stub carries the label its real manifest carries, so a selector that would miss on a GPU misses here too.
+# config/vllm/deployment.yaml labels the exclusive engine `vllm` and config/vllm-shared/engine-{a,b}.yaml label theirs `vllm-shared`.
+# The stub once labelled every engine `vllm-shared`, which hid that the instrument-validation path finds the exclusive pod by `vllm` until its first rehearsal cell refused.
+# A stub that matched selectors the real engine would not would rehearse a harness that cannot run.
 stub_engine_component() {
-  if [ -n "${IV_UNDER_TEST:-}" ] && [ "$1" = vllm-qwen25-3b ]; then
+  if [ "$1" = vllm-qwen25-3b ]; then
     printf vllm
   else
     printf vllm-shared
