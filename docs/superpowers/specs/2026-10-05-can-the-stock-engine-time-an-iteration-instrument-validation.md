@@ -71,3 +71,22 @@ The source facts in section 1 were read by both engines independently. The decod
 - Anything about the async engine, or about any other model, card, batch budget or vLLM version.
 - That the timing family fitted afterwards is correct; this page only establishes that its inputs are measured.
 - Per-request context lengths in mixed traffic. The records do not carry them; only episodes whose contexts are known by construction can supply them.
+
+## Amendment, 2026-10-05, before any cell is bought — the cells are sized by cycles, and I1 is defined per setting
+
+**The staggered design as registered does not fit in a cell.** Under the spacing rule the episode generator uses — the gap after an episode is the larger of 2 s and twice a conservative bound of its duration, 270 ms per 2,048-token chunk plus 30 ms per output token — one cycle of the 27 staggered episodes takes 619 s, so a cell of about 180 s would contain under a third of the settings. The bursts take 102 s a cycle. Two changes, both made before anything was bought:
+
+| | Registered | Now |
+|---|---|---|
+| Staggered episodes | 1, 4, 16 decoders × context 256, 2,048, 8,192 × prefill 256, 2,048, 8,192; decoder cap not fixed | 1, 4, 16 decoders × context 256, 8,192 × prefill 256, 8,192 = **12 episodes**; decoders capped at 128 output tokens, the prefill at 16 |
+| Cell length | about 180 s | **exactly three complete cycles**, each its own seeded permutation: serial 18 episodes, 54 s a cycle; bursts 10, 102 s; staggered 12, 202 s; replay durations 180, 330 and 630 s |
+
+A decoder capped at 128 tokens outlives the longest prefill it is staggered against: an 8,192-token prefill beside 16 decoders takes five mixed steps. Every setting now appears three times in every cell, so every block measures the same settings the same number of times. The 21 cells replay for about 2.2 hours in total.
+
+**I1 as registered is not well defined.** "Median and p99 client TTFT for each episode type" pools settings that differ by a factor of 25 in TTFT: a pooled p99 of the serial cell is an 8,192-token request's, and a pooled median can fall in the gap between two lengths. I1 is therefore taken **per setting** — a setting is an episode's parameters and the request's role in it (a decoder or the staggered prefill):
+
+- `d(s, b)` = log of the ratio of the logging-on cell's median to the logging-off cell's median over setting `s`'s three requests in block `b`, separately for client TTFT and for inter-token time (requests with at least two output tokens).
+- **I1 passes** when, for each episode type and each of the two quantities, the 95% interval of the mean of `d` over settings and blocks — 2,000 bootstrap resamples of requests within each setting and cell — lies within ±2%, **and** every setting's mean of `d` over the three blocks lies within ±5%. An interval wider than the bound refuses, as registered.
+- The p99 bound is replaced by the per-setting bound: three requests per cell cannot estimate a p99, and the per-setting bound is what catches an overhead that falls on one kind of step.
+
+**Is that decidable, before buying.** From the requests in the R1 cells of the three async archives whose lifetimes overlapped no other — 269, 236 and 153 of them at 256, 2,048 and 8,192 tokens — drawing three per cell for three blocks, with no true difference, the 95% range of one setting's mean `d` for TTFT is ±2.1%, ±0.4% and ±0.1%, and of the mean over six settings ±0.9%, ±0.2% and ±0.04%; for inter-token time one setting's range is ±0.03%, ±0.03% and ±0.04%. So a null logging overhead passes the ±2% pooled bound and the ±5% per-setting bound with room. This uses the async engine's dispersion as a stand-in for the synchronous engine's, which is an assumption, and the gate refuses rather than passes if the synchronous engine turns out noisier.
