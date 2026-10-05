@@ -62,7 +62,7 @@ var (
 )
 
 func TestTheTailCrossingStudiesRegisterAPerRepetitionTrace(t *testing.T) {
-	for _, id := range []string{bench.StudyTailCrossingShortLC, bench.StudyTailCrossingLongLC} {
+	for _, id := range []string{bench.StudyTailCrossingShortLC, bench.StudyTailCrossingMidLC, bench.StudyTailCrossingLongLC} {
 		s, ok := bench.LookupStudy(id)
 		if !ok {
 			t.Fatalf("%s is not registered", id)
@@ -202,6 +202,7 @@ func TestAPerRepetitionStudyRefusesARecordingCutShort(t *testing.T) {
 func TestStudyTracesPrintsTheRegisteredPolicy(t *testing.T) {
 	for study, want := range map[string]string{
 		bench.StudyTailCrossingShortLC: "per-repetition",
+		bench.StudyTailCrossingMidLC:   "per-repetition",
 		bench.StudyTailCrossingLongLC:  "per-repetition",
 		bench.StudySharingMatrix:       "one",
 	} {

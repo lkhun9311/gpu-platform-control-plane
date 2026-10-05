@@ -100,6 +100,7 @@ var _ = Describe("the study registry", func() {
 				{StudyM5BGateway, 5, true},
 				{StudySharingMatrix, 5, true},
 				{StudyTailCrossingShortLC, 2, false},
+				{StudyTailCrossingMidLC, 2, false},
 				{StudyTailCrossingLongLC, 2, false},
 				{StudyPriceOfProtection, 0, false},
 				{StudyThroughputLadder, 0, false},

@@ -155,7 +155,7 @@ func TestEveryStudyThisCommandCompilesIsAccepted(t *testing.T) {
 // And the tail-crossing studies are refused since 2026-10-04, when they registered independent arrivals and
 // one arm per BE level: a CR's single contender rate, turned into a weight, is neither.
 func TestTheTailCrossingStudiesAreNoLongerCompiledFromACR(t *testing.T) {
-	for _, study := range []string{bench.StudyTailCrossingShortLC, bench.StudyTailCrossingLongLC} {
+	for _, study := range []string{bench.StudyTailCrossingShortLC, bench.StudyTailCrossingMidLC, bench.StudyTailCrossingLongLC} {
 		err := compilePlan([]string{"--cr", executableCR, "--duration-ms", "505000", "--study", study})
 		if err == nil || !strings.Contains(err.Error(), "weighted") {
 			t.Errorf("study %s compiled from a CR, or was refused for another reason: %v", study, err)

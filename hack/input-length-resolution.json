@@ -29,6 +29,23 @@
       "decreasesInWindow": 30,
       "repeatsInWindow": 181
     },
+    "2048": {
+      "chars": 10532,
+      "matches": 5,
+      "allMatches": [
+        10532,
+        10535,
+        10536,
+        10537,
+        10538
+      ],
+      "window": [
+        10379,
+        10679
+      ],
+      "decreasesInWindow": 26,
+      "repeatsInWindow": 192
+    },
     "8192": {
       "chars": 42579,
       "matches": 3,

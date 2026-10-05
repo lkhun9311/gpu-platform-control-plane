@@ -2007,7 +2007,7 @@ func evaluateRegisteredReadings(e *armEvidence, summ map[string]bench.ArmSummary
 		return nil, evaluatePoP(summ, summaries), nil, nil
 	case bench.StudySharingMatrix:
 		return nil, nil, evaluateSharingMatrix(summ, summaries, refusalsBeside(rawFiles), frozenOf(e.study)), nil
-	case bench.StudyTailCrossingShortLC, bench.StudyTailCrossingLongLC:
+	case bench.StudyTailCrossingShortLC, bench.StudyTailCrossingMidLC, bench.StudyTailCrossingLongLC:
 		// Their readings are text with no verdict and no exit status, appended by tailCrossingReadings, so
 		// there is nothing to return here -- and nothing to warn about either, since they do have readings.
 		return nil, nil, nil, nil
@@ -2033,7 +2033,7 @@ func evaluateRegisteredReadings(e *armEvidence, summ map[string]bench.ArmSummary
 // a reading with no verdict has no exit status for report to decide on.
 func (e *armEvidence) tailCrossingReadings(summaries []bench.ArmSummary) string {
 	switch id := bench.CanonicalStudyID(e.study); id {
-	case bench.StudyTailCrossingShortLC, bench.StudyTailCrossingLongLC:
+	case bench.StudyTailCrossingShortLC, bench.StudyTailCrossingMidLC, bench.StudyTailCrossingLongLC:
 		return bench.FormatTailCrossing(bench.EvaluateTailCrossing(id, summaries))
 	}
 	return ""

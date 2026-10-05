@@ -274,3 +274,25 @@ The first run of `evaluate.py` reported "no level" for P2's low side and a two-p
 **What the decision in section 1 gets.** Length is **not** a separate term in the sense that matters for the rule: what moved each level's tail is predicted, to within a few percent, by one quantity of the contender (`S_B`) and the victim's own isolated tail. A latency-critical tenant whose isolated tail is short compared with `S_B` crosses at very low contending load — one 8,192-token request every 41 seconds took the 256-token tenant's p99 from 80 to 926 ms — and one whose isolated tail is already comparable to `S_B` is hardly moved in multiples at the same load. A placement rule therefore needs the contender's prefill time and the victim's isolated tail, both of which the platform can observe, and not a prompt-length rule of its own. **What it does not establish:** one card, one engine build, one 3B model, two lengths, three traces per cell, and no interval — `Study.PublishesInterval` is false for these studies and none is presented.
 
 **After an independent review of the result, the evaluator was strengthened and the verdicts above did not change.** It found that `evaluate.py` issued verdicts without the readings' refusals (a censored trace, or fewer than 100 completions in one) and without checking that the two stages are the same draws, and that `predict.py`'s `stage2()` printed P2's low side as checked without checking it. Now: a trace losing 1% or more of its latency-critical requests, or completing fewer than 100, refuses the tests; the two stages must record the same seeds and their baselines must offer the same latency-critical schedule in every repetition; and `stage2()` counts the low side per set, reproducing the amendment's 20 of 20. On these archives no request was excluded, the smallest trace completed 144, and the schedules are identical. Each new refusal was made to fire on a deliberately broken copy: two timeouts in one trace, another seed list, and one baseline arrival moved by a millisecond. A second review then found the schedules checked were not tied to the repetitions pooled — with one stage's third raw files removed, the traces still said 1, 2 and 3 and the two stages were certified paired while pooling 469 requests against 322 — so every arm of both stages must now hold exactly the validated repetitions, and that copy is refused too.
+
+## Amendment, 2026-10-05 — a third length, predicted before it is measured
+
+**Why.** The result above rests on two lengths. "Length is not a separate term" is a claim about every length, and the strongest test of it available on this card is to predict, before any cell is bought, the curve at a length the model has never been checked at, and then measure it. The user approved the run on 2026-10-05.
+
+**What is bought.** `tail-crossing-lc2048-2026-10-05`: the latency-critical tenant at **2,048 tokens = 10,532 characters**. The serving image's tokenizer resolved it in the same sweep that reproduced the other two levels' resolutions byte for byte (256 → 1,174 and 8,192 → 42,579 unchanged, every provenance hash unchanged); 10,532 is the smallest of five matching lengths. Everything else is stages 2 and 3: BE at 0.0241, 0.0482, 0.0964 and 0.1927 req/s, LC held at 0.2864 req/s, seeds 1 2 3, 600 s cells, fifteen cells, `HARD_STOP_SECONDS=21600`.
+
+**The predictions, committed here before the first billable second.** `hack/tail-crossing-model/predict_mid.py` generates, with the real `gen-trace`, the exact traces the stage will replay and puts each through the model with the `measured` parameters, unchanged since they were fixed from one isolated measurement:
+
+| Arm | BE req/s | Predicted pooled p95 | Predicted pooled p99 | p99 multiple |
+|---|---|---|---|---|
+| `R1` | 0 | 364.5 ms | 548.5 ms | — |
+| `be01-shared` | 0.0241 | 537.4 ms | 1,135.7 ms | 2.07x |
+| `be02-shared` | 0.0482 | 743.6 ms | 1,211.8 ms | 2.21x |
+| `be03-shared` | 0.0964 | 1,100.7 ms | 1,431.7 ms | 2.61x |
+| `be04-shared` | 0.1927 | 1,296.7 ms | 1,915.5 ms | 3.49x |
+
+**P4 — the curve, quantitatively.** The measured pooled p99 at `R1` and at each of the four levels lies within **±10%** of the prediction above. Falsified if any of the five lies outside. The threshold is set from the model's out-of-sample record so far — at most 5.6% at p99 across the ten arms of stages 2 and 3 — and is not tuned to this level. P95 is published beside it and is not tested.
+
+**P5 — the ordering.** At every BE level, the 2,048-token level's measured p99 multiple lies strictly between the 256-token and 8,192-token levels' measured multiples (11.56 / 10.59 / 13.30 / 17.55 and 1.06 / 1.09 / 1.25 / 1.46). Falsified at any level where it does not.
+
+**What a pass would mean, and what it would not.** That the model with one measured parameter predicted the curve at an unseen length — the out-of-sample form of "the rule needs the contender's prefill time and the victim's isolated tail, not a length term". It would not extend the claim to another card, engine build, model or best-effort length, and P2's low side stays falsified whatever this run shows.

@@ -546,6 +546,7 @@ study_case() { # <what> <study> <premium-chars> <noisy-chars>
 study_case "the sharing matrix"          sharing-matrix-2026-09-10      1174  42579
 study_case "the short latency-sensitive level" tail-crossing-lc256-2026-10-04 1174  42579
 study_case "the long latency-sensitive level"  tail-crossing-lc8192-2026-10-04 42579 42579
+study_case "the 2,048-token level"             tail-crossing-lc2048-2026-10-05 10532 42579
 
 # The seed list against the study's trace policy, refused before anything is rented.
 #

@@ -226,6 +226,12 @@ const (
 	// the baseline. Until that page, this comment recorded the field as deliberately unset.
 	StudyTailCrossingShortLC = "tail-crossing-lc256-2026-10-04"
 	StudyTailCrossingLongLC  = "tail-crossing-lc8192-2026-10-04"
+	// StudyTailCrossingMidLC is a third input level, 2,048 tokens, registered on 2026-10-05 after the first
+	// two were measured, as the out-of-sample test of their result: that the best-effort load a latency-
+	// critical tenant tolerates is set by the contender's prefill time and the tenant's own isolated tail,
+	// with no separate term for its length. Its curve is predicted by the model and committed before any
+	// cell is bought; see the 2026-10-04 model-first registration's amendment of that date.
+	StudyTailCrossingMidLC = "tail-crossing-lc2048-2026-10-05"
 )
 
 // The factors the price-of-protection sweep crosses.
@@ -520,6 +526,26 @@ var studies = map[string]Study{
 		// The same pair as the short level, and for the same registration: the two levels differ in the
 		// latency-critical tenant's prompt length and in nothing else, so a different repetition floor would
 		// make the contrast between them a contrast between two report shapes as well.
+		MinRepetitions:         2,
+		PublishesInterval:      false,
+		TracesVaryByRepetition: true,
+	},
+	// The third level: the same design as the other two, at 2,048 latency-critical tokens -- 10,532
+	// characters, the smallest length the serving image's tokenizer resolves to exactly that count, in the
+	// same sweep that reproduced the other two levels' resolutions unchanged.
+	StudyTailCrossingMidLC: {
+		ID:       StudyTailCrossingMidLC,
+		Arms:     tailCrossingArms(),
+		Arrivals: ArrivalsIndependent,
+		Frozen: &FrozenTuple{
+			PremiumPromptChars:    10532,
+			ContenderPromptChars:  42579,
+			PremiumInputTokens:    2048,
+			ContenderInputTokens:  8192,
+			TimeoutMs:             60000,
+			PremiumOutputTokens:   64,
+			ContenderOutputTokens: 16,
+		},
 		MinRepetitions:         2,
 		PublishesInterval:      false,
 		TracesVaryByRepetition: true,

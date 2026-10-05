@@ -116,7 +116,7 @@ func TestAStudysRepetitionFloorIsReportedWhenUnmet(t *testing.T) {
 // This is the control that makes the whole change worth having: a floor shared by every study would either
 // warn on every cell of this experiment or warn on none of the confirmatory one.
 func TestTheExploratoryLevelsAreNotWarnedAtTwoRepetitions(t *testing.T) {
-	for _, study := range []string{bench.StudyTailCrossingShortLC, bench.StudyTailCrossingLongLC} {
+	for _, study := range []string{bench.StudyTailCrossingShortLC, bench.StudyTailCrossingMidLC, bench.StudyTailCrossingLongLC} {
 		t.Run(study, func(t *testing.T) {
 			e := floorFixture(t, study, 2)
 			summaries, _ := e.summarize()

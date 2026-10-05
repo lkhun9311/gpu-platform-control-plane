@@ -26,7 +26,7 @@ import (
 // name, so two BE rates under one name would be a p99 for a load nobody offered.
 
 func TestTheTailCrossingStudiesHaveOneArmPerBELevelAndNoBareShared(t *testing.T) {
-	for _, id := range []string{StudyTailCrossingShortLC, StudyTailCrossingLongLC} {
+	for _, id := range []string{StudyTailCrossingShortLC, StudyTailCrossingMidLC, StudyTailCrossingLongLC} {
 		s, _ := LookupStudy(id)
 		if !s.Admits(ArmR1) {
 			t.Errorf("%s does not admit the isolated baseline", id)
@@ -46,7 +46,7 @@ func TestTheTailCrossingStudiesHaveOneArmPerBELevelAndNoBareShared(t *testing.T)
 }
 
 func TestTheTailCrossingStudiesRegisterIndependentArrivals(t *testing.T) {
-	for _, id := range []string{StudyTailCrossingShortLC, StudyTailCrossingLongLC} {
+	for _, id := range []string{StudyTailCrossingShortLC, StudyTailCrossingMidLC, StudyTailCrossingLongLC} {
 		if s, _ := LookupStudy(id); s.Arrivals != ArrivalsIndependent {
 			t.Errorf("%s registers %q arrivals; a weighted mix would move the latency-critical arrivals whenever the BE rate moved", id, s.Arrivals)
 		}
@@ -85,5 +85,26 @@ func TestATailCrossingPlanNeedsTheBaselineAndAtLeastOneLevel(t *testing.T) {
 	err = MatrixPlanArmSetRefusal(StudySharingMatrix, []string{ArmR1, "timeSlicing"})
 	if err == nil || !strings.Contains(err.Error(), ArmShared) {
 		t.Errorf("the sharing matrix lost its control requirement: %v", err)
+	}
+}
+
+// The third level, registered 2026-10-05 to test out of sample whether length is a separate term: it
+// differs from the other two levels in the latency-critical length alone, at the length the serving image's
+// tokenizer resolved, and inherits everything else.
+func TestTheMidLevelFreezesTheResolved2048TokenLength(t *testing.T) {
+	s, ok := LookupStudy(StudyTailCrossingMidLC)
+	if !ok {
+		t.Fatal("the 2,048-token level is not registered")
+	}
+	want := FrozenTuple{
+		PremiumPromptChars: 10532, ContenderPromptChars: 42579,
+		PremiumInputTokens: 2048, ContenderInputTokens: 8192,
+		TimeoutMs: 60000, PremiumOutputTokens: 64, ContenderOutputTokens: 16,
+	}
+	if s.Frozen == nil || *s.Frozen != want {
+		t.Errorf("frozen tuple %+v, want %+v", s.Frozen, want)
+	}
+	if d := s.Frozen.Drift(); d != "" {
+		t.Errorf("the frozen length no longer resolves: %s", d)
 	}
 }

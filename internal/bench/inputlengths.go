@@ -75,6 +75,7 @@ const InputLengthServingImage = "vllm/vllm-openai@sha256:0a51ea5b4ae2dc5d81890e5
 // resolvedInputLengths is the measured table. Every entry came from a sweep; none was computed.
 var resolvedInputLengths = map[int]ResolvedInputLength{
 	256:  {Chars: 1174, Matches: 8},
+	2048: {Chars: 10532, Matches: 5},
 	8192: {Chars: 42579, Matches: 3},
 }
 
