@@ -29,6 +29,45 @@
       "decreasesInWindow": 30,
       "repeatsInWindow": 181
     },
+    "512": {
+      "chars": 2506,
+      "matches": 7,
+      "allMatches": [
+        2506,
+        2508,
+        2509,
+        2510,
+        2511,
+        2512,
+        2514
+      ],
+      "window": [
+        2363,
+        2663
+      ],
+      "decreasesInWindow": 23,
+      "repeatsInWindow": 194
+    },
+    "1024": {
+      "chars": 5183,
+      "matches": 8,
+      "allMatches": [
+        5183,
+        5184,
+        5185,
+        5186,
+        5187,
+        5188,
+        5191,
+        5192
+      ],
+      "window": [
+        5035,
+        5335
+      ],
+      "decreasesInWindow": 20,
+      "repeatsInWindow": 199
+    },
     "2048": {
       "chars": 10532,
       "matches": 5,
@@ -45,6 +84,24 @@
       ],
       "decreasesInWindow": 26,
       "repeatsInWindow": 192
+    },
+    "4096": {
+      "chars": 21201,
+      "matches": 6,
+      "allMatches": [
+        21201,
+        21203,
+        21204,
+        21205,
+        21206,
+        21207
+      ],
+      "window": [
+        21066,
+        21366
+      ],
+      "decreasesInWindow": 25,
+      "repeatsInWindow": 188
     },
     "8192": {
       "chars": 42579,

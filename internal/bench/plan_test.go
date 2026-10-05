@@ -147,10 +147,11 @@ func TestEachUnsupportedValueIsRefusedOnItsOwn(t *testing.T) {
 		{"a sharing mode the matrix does not deploy", func(s *platformv1.GpuSharingBenchmarkSpec) {
 			s.SharingMode = "mig"
 		}, "sharingMode is"},
-		// 4096 rather than 256: 256 is in the measured table and compiles, so using it here would assert a
-		// refusal that no longer exists. What is still refused is a count nobody has swept.
+		// 3000 rather than a power of two: 256 through 8192 are all in the measured table now and compile, so
+		// using one here would assert a refusal that no longer exists. What is still refused is a count nobody
+		// has swept.
 		{"an input length nobody has swept", func(s *platformv1.GpuSharingBenchmarkSpec) {
-			s.Baseline.InputTokens = 4096
+			s.Baseline.InputTokens = 3000
 		}, "baseline.inputTokens is"},
 	}
 	for _, tc := range cases {
