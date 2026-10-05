@@ -29,6 +29,9 @@ STUDY_S2 = "instrument-validation-s2-2026-10-05"
 # The prefill clock frozen from session 1's 159 warm serial-log requests; session 2 predicts with it and never refits.
 CLOCK_A, CLOCK_B, CLOCK_C = 6.446325, 17.776531, 0.002620206
 WARM_TTFT_MS, WARM_TOL, WARM_PAIR_TOL = 231.0, 0.05, 0.02
+# A stream's end is stamped after its last token by the stream's termination; session 1's decode regressions put that
+# delay at no more than 0.43 ms at any length, so S demands the prefill's first token a full millisecond earlier.
+S_END_MARGIN_MS = 1.0
 
 
 def study_of(run):
@@ -203,6 +206,14 @@ def measured_iters(run, arm, b, s2):
     boundary = int(text)
     if not any(s["index"] == boundary for s in iters):
         raise Refusal(f"{arm}-{b}: the warm-up boundary {boundary} is not an iteration in the captured log")
+    # The warm-up's steps are reconciled with the warm-up's requests, as the measured steps are with the measured ones:
+    # every prompt token the warm-up sent is scheduled before the boundary and none after it (found by review).
+    warm = os.path.join(run, f"raw-warmup-{arm}-{b}.jsonl")
+    sent = sum(json.loads(l).get("engineInputTokens", 0) for l in open(warm))
+    scheduled = sum(s["ctx_tokens"] for s in iters if s["index"] <= boundary)
+    if sent != scheduled:
+        raise Refusal(f"{arm}-{b}: the warm-up sent {sent} prompt tokens and the log schedules {scheduled} before the "
+                      f"boundary, so the boundary does not separate the warm-up from the measured trace")
     return [s for s in iters if s["index"] > boundary]
 
 
@@ -369,7 +380,7 @@ def check_stagger(reqs, arm, b):
         if pre["send_ms"] <= max(d["first_ms"] for d in dec):
             raise Refusal(f"{arm}-{b}: the prefill at offset {pre['offset']} ms was sent before every decoder's first "
                           f"token, so the episode is not the registered composition (gate S)")
-        if pre["first_ms"] >= min(d["end_ms"] for d in dec):
+        if pre["first_ms"] >= min(d["end_ms"] for d in dec) - S_END_MARGIN_MS:
             raise Refusal(f"{arm}-{b}: a decoder of the episode at offset {dec[0]['offset']} ms finished before the "
                           f"prefill's first token (gate S)")
 
@@ -497,7 +508,10 @@ def _synthetic_run(run, overhead=0.0, seed=7, context=0.0, s2=False, clock_c=CLO
                 if s2:
                     # Three warm-up iterations ahead of the measured ones, whose indices start at 100.
                     if suffix == "log":
-                        lines = [iterlog._line(i, 1, 2048, 0, 0, 200.0) for i in range(100)] + lines
+                        # The warm-up's three 2,048-token requests are its only context steps, so the tokens before
+                        # the boundary reconcile with raw-warmup's; the rest are its decode steps.
+                        lines = ([iterlog._line(i, 1, 2048, 0, 0, 200.0) for i in range(3)]
+                                 + [iterlog._line(i, 0, 0, 1, 1, 13.3) for i in range(3, 100)] + lines)
                     with open(os.path.join(run, f"warmup-boundary-{kind}-{suffix}-{b}.txt"), "w") as f:
                         f.write("99\n" if suffix == "log" else "none\n")
                     with open(os.path.join(run, f"raw-warmup-{kind}-{suffix}-{b}.jsonl"), "w") as f:
@@ -614,6 +628,21 @@ def self_test_s2():
     _, lines = frozen_clock({b: [req(16, 16), req(16, 16), req(16, 15)] for b in BLOCKS})
     assert any("(256, 16)" in l for l in lines) and not any("(256, 15)" in l for l in lines), lines
     print("ok: a request that stopped early at EOS stays in its registered (length, cap) setting")
+    refused("a warm-up whose tokens the log does not schedule before the boundary",
+            lambda run: rewrite(run, "raw-warmup-serial-log-3.jsonl", lambda rows: rows[0].update(engineInputTokens=4096)),
+            "does not separate the warm-up")
+
+    def prefill_at_decoder_end(run):
+        # The prefill's first token half a millisecond before a decoder's stream end: inside the termination delay.
+        trace = {r["index"]: r for r in map(json.loads, open(os.path.join(run, "trace-stagger-log-2.jsonl")))}
+        rows = [json.loads(l) for l in open(os.path.join(run, "raw-stagger-log-2.jsonl"))]
+        pre = next(r for r in rows if trace[r["index"]]["maxOutputTokens"] == 16)
+        off = trace[pre["index"]]["offsetMs"]
+        dec = [r for r in rows if trace[r["index"]]["maxOutputTokens"] == 128 and off - 1000 < trace[r["index"]]["offsetMs"] < off]
+        dec[0]["endUnixNanos"] = pre["firstTokenUnixNanos"] + int(0.5e6)
+        with open(os.path.join(run, "raw-stagger-log-2.jsonl"), "w") as f:
+            f.writelines(json.dumps(r) + "\n" for r in rows)
+    refused("a prefill whose first token falls inside a decoder's termination delay", prefill_at_decoder_end, "(gate S)")
     refused("a boundary that is not in the log",
             lambda run: open(os.path.join(run, "warmup-boundary-burst-log-3.txt"), "w").write("4242\n"),
             "is not an iteration in the captured log")
