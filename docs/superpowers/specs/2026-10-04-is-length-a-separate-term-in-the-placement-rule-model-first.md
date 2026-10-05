@@ -296,3 +296,21 @@ The first run of `evaluate.py` reported "no level" for P2's low side and a two-p
 **P5 — the ordering.** At every BE level, the 2,048-token level's measured p99 multiple lies strictly between the 256-token and 8,192-token levels' measured multiples (11.56 / 10.59 / 13.30 / 17.55 and 1.06 / 1.09 / 1.25 / 1.46). Falsified at any level where it does not.
 
 **What a pass would mean, and what it would not.** That the model with one measured parameter predicted the curve at an unseen length — the out-of-sample form of "the rule needs the contender's prefill time and the victim's isolated tail, not a length term". It would not extend the claim to another card, engine build, model or best-effort length, and P2's low side stays falsified whatever this run shows.
+
+## Result, 2026-10-05 — the third length: P5 holds, P4 is falsified at the isolated baseline alone
+
+`m5c-20261005-015855`, fifteen cells, `matrix exited 0`, archive accounting 98 of 98, instance confirmed terminated. No latency-critical request was excluded in any cell; every arm pooled the same 469. `benchharness report` and the registered comparison agree to the decimal.
+
+| Arm | Measured pooled p99 | Predicted (`7f5449b`) | Error | Within 10% | p99 multiple | Between 256 and 8,192 |
+|---|---|---|---|---|---|---|
+| `R1` | 461.1 ms | 548.5 ms | −15.9% | **no** | — | — |
+| `be01-shared` | 1,115.4 ms | 1,135.7 ms | −1.8% | yes | 2.42x | yes (1.06 < 2.42 < 11.56) |
+| `be02-shared` | 1,198.8 ms | 1,211.8 ms | −1.1% | yes | 2.60x | yes |
+| `be03-shared` | 1,359.5 ms | 1,431.7 ms | −5.0% | yes | 2.95x | yes |
+| `be04-shared` | 1,901.0 ms | 1,915.5 ms | −0.8% | yes | 4.12x | yes |
+
+**P4 is falsified**, as registered: one of five outside ±10% falsifies it, and the isolated baseline is 15.9% below the prediction. **P5 holds** at every level.
+
+**What this says about the claim.** The four contended curves of a length the model had never seen were predicted within 0.8–5.0% — the part of the claim about how contention moves the tail held out of sample. The model's own isolated tail at 2,048 tokens did not: it overstates the uncontended latency there. Measured from the cells, the fastest isolated TTFT is 230.7 ms at 2,048 tokens against the model's 283 ms, and 40.9 ms at 256 tokens against its 70 ms; it matches at 8,192 only because that is the point its per-token cost was solved from. A fixed overhead and a per-token cost linear in length do not describe the engine across lengths, and that error lands wherever the victim's own prefill dominates its tail — the isolated baseline — while the contended tails, dominated by the contender's 8,192-token prefill and the queue behind it, are unaffected. **This explanation was formed after seeing the result**; it is consistent with the three minima above and is not tested here. A model whose uncontended latency is measured at each length, instead of extrapolated from one, is the next registration's question, not a re-fit of this one.
+
+**For the decision in section 1**, the earlier conclusion stands with a sharper statement of what it needs: the rule needs the contender's prefill time and the victim's **measured** isolated tail. The second must be measured per tenant profile; it cannot be computed from the prompt length with this model.
