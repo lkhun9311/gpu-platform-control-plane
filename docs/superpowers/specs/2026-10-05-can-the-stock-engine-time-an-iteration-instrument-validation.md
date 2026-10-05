@@ -129,3 +129,32 @@ The user approved the purchase on 2026-10-05. Written before the session is laun
 **What had been read when this was decided.** Only serial cells of block 1: the client TTFTs of `serial-nolog` (to confirm the engine reported `'async_scheduling': False` and every request succeeded) and the iteration log of `serial-log` (format and accounting only — `iterlog.py` parsed its 1,494 lines, found the indices contiguous and attributed all 54 requests; no clock fit was computed). No burst or staggered cell had been opened, and the change touches only how those cells are grouped.
 
 **And the ranks of one episode are resampled together.** An independent review by codex `gpt-6-astra`, run without instructions on the change above, found that ranks resampled one by one are treated as independent although they move together when a whole burst is slower: with every cycle scaled alike in both arms, the ranked gate passed at about ±1% where resampling whole episodes gives about ±6%. I1's bootstrap now draws whole episodes — one index per episode type per cell, applied to every rank and, in a staggered episode, to its decoders and its prefill together. The self-test pins the case at a size where the two methods fall on opposite sides of the 2% bound (±2.7% against ±1.4% in its ten-setting archive), and resampling rank by rank turns it red. Still no burst or staggered cell had been read.
+
+## Result, 2026-10-05 — the instrument fails I1 and I3; no simulator study is bought on these records
+
+The session ran on one g5.2xlarge in ap-northeast-2d from about 17:54 to 21:16 KST and completed all 21 cells: every arm returned evidence, no request failed, no cell was refused. The archive is hack/m5c-20261005-085339. `instrument_gates.py` at `3b00eb1` — the evaluator as amended above — was run once on it:
+
+| Gate | Result | Reading |
+|---|---|---|
+| I1 serial TTFT | **fail** | mean `d` +0.14%, 95% interval −2.45% to +2.68%: too wide to decide at ±2% |
+| I1 serial inter-token | pass | +0.35%, interval +0.26% to +0.46% |
+| I1 burst TTFT | pass | +0.53%, interval −1.19% to +1.51%; worst setting +4.2% |
+| I1 burst inter-token | pass | +0.12%, interval +0.02% to +0.28% |
+| I1 staggered TTFT | **fail** | +0.10%, interval −5.45% to +3.71%; worst setting (4 decoders at 8,192, prefill 256) −12.0% |
+| I1 staggered inter-token | pass | +0.09%, interval +0.03% to +0.20% |
+| I2 | pass | no failed request or preemption in any paired cell; every logged cell's iterations contiguous |
+| I3 prefill clock | **fail** | `a` 10.4–10.8 ms, `b` 21.8–22.2 ms per context step; worst single-request residual 48.6% of TTFT |
+| I3 decode clock | pass | `b'` 1.32–1.38 ms at every length; widest spread 0.057 ms against a 16.1 ms median inter-token time |
+| I5 | pass | worst first-to-last drift 1.05% |
+| I4 (published) | — | decode step at 8,192 against 256 tokens: +4.95% with 1 decoder, +15.6% with 4, +55.4% with 16 |
+
+**The registered verdict is FAIL: I1, I3.** The evaluator as committed at launch (`b348f37`), run in a separate worktree for comparison, gives the same verdict; it differs only in the burst rows, where its pooled grouping gave ±14% intervals. As registered, the timing fit refuses on this archive (`timing_fit.py`: "the instrument gates do not pass on this archive (FAIL: I1, I3)"), no simulator study is bought on these records, and the failure is not re-bought.
+
+**Diagnostics, after the verdict and not part of it.**
+
+- **The first request of every cell is a cold engine's.** In all seven serial cells the request at position 0 — the same 2,048-token request, because every block replays the same bytes — has a TTFT of 453–456 ms against a median of 231 ms for its length, in the logged, unlogged and async engines alike. Its context step logged 201 ms, so the extra time is outside the timer. The harness deploys a fresh engine per cell and sends no warm-up request, and the registration did not exclude one. This single request is the 48.6% I3 residual, and it widens the serial I1 interval.
+- **The omitted time is per prefill step, not a fixed delay plus a constant step.** Excluding that request, `TTFT − Σ context elapsed` is 24.9, 25.3, 27.0 and 29.2 ms for one-step prompts of 256 to 2,048 tokens, 52.6 ms for two steps and 98.4 ms for four (block 1 medians). The intercept is near zero and each prefill step leaves about 25 ms outside the timer, rising with chunk size, so the registered line `a + b·k` misfits the one-step lengths by up to 21% even without the cold request. A decode step leaves only about 1.35 ms outside it.
+- **A staggered prefill's TTFT is bimodal.** In the worst setting the values fall near 69 ms or near 85 ms in both arms, apparently by where the prefill lands in the decoders' step cycle; three per cell cannot resolve 5% between two modes 23% apart. That, not the logging, is the −12%.
+- **The logging overhead itself is small.** Wherever an interval was decidable it was within 0.5% of zero; the serial inter-token time is 0.35% slower with logging, a real but small cost.
+
+**What this leaves.** The records are internally sound — every iteration accounted for, the decode clock stable, no drift — but this registration could not certify them, for three reasons found only on the card: a cold first request, a clock whose form was wrong, and bimodal staggered settings measured three times. A second session would need a warm-up request excluded from analysis, a per-step prefill clock registered before the data, and more repetitions of the staggered settings. That is a new registration and a new purchase decision, not a re-run of this one.
