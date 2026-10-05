@@ -189,6 +189,11 @@ def measured_iters(run, arm, b, s2):
     iterlog.check_indices(iters)
     if not s2:
         return iters
+    # Each cell starts a fresh engine, whose iteration index starts at 0 (session 1's real logs did), so a capture
+    # that begins later has lost the head of the warm-up, which contiguity alone would not notice (found by review).
+    if iters and iters[0]["index"] != 0:
+        raise Refusal(f"{arm}-{b}: the captured log starts at iteration {iters[0]['index']}, not 0, so part of the "
+                      f"warm-up is missing from it")
     path = os.path.join(run, f"warmup-boundary-{arm}-{b}.txt")
     if not os.path.exists(path):
         raise Refusal(f"{arm}-{b}: {path} is missing, so the warm-up's iterations cannot be told from the measured ones")
@@ -211,7 +216,8 @@ def frozen_clock(cells_by_block):
         for r in att:
             steps = [min(2048, r["input_tokens"] - 2048 * j) for j in range(r["k"])]
             pred = sum(r["ctx_ms"]) + CLOCK_A + sum(CLOCK_B + CLOCK_C * p for p in steps)
-            errs.setdefault((r["input_tokens"], r["output_tokens"]), {}).setdefault(b, []).append(
+            # Grouped by the trace's cap, the registered setting: a request that stopped early at EOS still belongs to it.
+            errs.setdefault((r["input_tokens"], r["cap"]), {}).setdefault(b, []).append(
                 (pred - r["ttft_ms"]) / r["ttft_ms"])
     rng = random.Random(20261005)
     lines, ok = [], True
@@ -491,7 +497,7 @@ def _synthetic_run(run, overhead=0.0, seed=7, context=0.0, s2=False, clock_c=CLO
                 if s2:
                     # Three warm-up iterations ahead of the measured ones, whose indices start at 100.
                     if suffix == "log":
-                        lines = [iterlog._line(i, 1, 2048, 0, 0, 200.0) for i in (97, 98, 99)] + lines
+                        lines = [iterlog._line(i, 1, 2048, 0, 0, 200.0) for i in range(100)] + lines
                     with open(os.path.join(run, f"warmup-boundary-{kind}-{suffix}-{b}.txt"), "w") as f:
                         f.write("99\n" if suffix == "log" else "none\n")
                     with open(os.path.join(run, f"raw-warmup-{kind}-{suffix}-{b}.jsonl"), "w") as f:
@@ -593,8 +599,23 @@ def self_test_s2():
     refused("a prefill sent before its decoders' first tokens", early_prefill, "(gate S)")
     refused("a missing warm-up boundary",
             lambda run: os.remove(os.path.join(run, "warmup-boundary-serial-log-1.txt")), "is missing")
+    def drop_head(run):
+        path = os.path.join(run, "engine-log-serial-log-2.txt")
+        lines = open(path).read().splitlines()
+        with open(path, "w") as f:
+            f.write("\n".join(lines[2:]) + "\n")
+    refused("a log missing the head of its warm-up", drop_head, "part of the warm-up is missing")
+
+    # A request that stopped early at EOS keeps its registered setting: frozen_clock groups by the trace's cap.
+    def req(cap, out):
+        steps = [256]
+        ttft = 10.0 + CLOCK_A + CLOCK_B + CLOCK_C * 256
+        return dict(input_tokens=256, k=1, ctx_ms=[10.0], ttft_ms=ttft, cap=cap, output_tokens=out)
+    _, lines = frozen_clock({b: [req(16, 16), req(16, 16), req(16, 15)] for b in BLOCKS})
+    assert any("(256, 16)" in l for l in lines) and not any("(256, 15)" in l for l in lines), lines
+    print("ok: a request that stopped early at EOS stays in its registered (length, cap) setting")
     refused("a boundary that is not in the log",
-            lambda run: open(os.path.join(run, "warmup-boundary-burst-log-3.txt"), "w").write("42\n"),
+            lambda run: open(os.path.join(run, "warmup-boundary-burst-log-3.txt"), "w").write("4242\n"),
             "is not an iteration in the captured log")
 
 

@@ -783,6 +783,46 @@ else
 	bad "could not build the plan trees"
 fi
 
+# --- gate S, run per cell by the matrix itself --------------------------------------------------------------
+#
+# The block is cut out of the matrix and executed, not grepped for, because its condition is what decides whether
+# a violating staggered cell stops the session; a stagger rehearsal on kind would take most of an hour per cell.
+# Its data are the evaluator's own synthetic session-2 archive, whose staggered episodes satisfy S, and the same
+# archive with one prefill moved before its decoders' first tokens.
+say "gate S runs per staggered cell of session 2, and nowhere else"
+s_block=$(awk '/# Session 2.s gate S, on this cell/ {on=1} on {print} on && /^  fi$/ {exit}' "$SRC")
+if [ -z "$s_block" ]; then
+	bad "the matrix has no gate-S block to execute"
+else
+	s_run="$WORK/s-archive"
+	mkdir -p "$s_run"
+	python3 -c 'import sys; sys.path.insert(0, "hack/tail-crossing-model"); import instrument_gates as g; g._s2_run(sys.argv[1])' "$s_run" \
+		|| bad "could not build the synthetic session-2 archive"
+	run_s() { ( STUDY="$1"; label="$2"; rep=1; OUT="$s_run"; LADDER=""; engine_log_refusal=""
+		. hack/lib/instrument-validation.sh; eval "$s_block"; printf '%s' "$engine_log_refusal" ) }
+	r=$(run_s instrument-validation-s2-2026-10-05 stagger-log)
+	[ -z "$r" ] && ok "a staggered cell that satisfies S passes" || bad "a good staggered cell was refused: $r"
+	python3 - "$s_run" <<'PY'
+import json, os, sys
+run = sys.argv[1]
+trace = {r["index"]: r for r in map(json.loads, open(os.path.join(run, "trace-stagger-log-1.jsonl")))}
+prefill = next(i for i, r in trace.items() if r["maxOutputTokens"] == 16)
+path = os.path.join(run, "raw-stagger-log-1.jsonl")
+rows = [json.loads(l) for l in open(path)]
+next(r for r in rows if r["index"] == prefill)["sendUnixNanos"] = 0
+open(path, "w").writelines(json.dumps(r) + "\n" for r in rows)
+PY
+	r=$(run_s instrument-validation-s2-2026-10-05 stagger-log)
+	case "$r" in
+		"gate S: "*"(gate S)"*) ok "a staggered cell that violates S is refused: ${r:0:120}" ;;
+		*) bad "a violating staggered cell was not refused by gate S: ${r:-nothing}" ;;
+	esac
+	r=$(run_s instrument-validation-s2-2026-10-05 serial-log)
+	[ -z "$r" ] && ok "a serial cell is not judged by S" || bad "a serial cell was judged by S: $r"
+	r=$(run_s instrument-validation-2026-10-05 stagger-log)
+	[ -z "$r" ] && ok "session 1 is not judged by S" || bad "session 1 was judged by S: $r"
+fi
+
 echo
 if [ "$failures" = 0 ]; then
 	echo "check-instrument-validation-harness: every check passed"

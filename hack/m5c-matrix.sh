@@ -3142,6 +3142,23 @@ run_cell() {
       [ -n "$engine_log_refusal" ] || engine_log_refusal="capture_engine_log refused without saying why"
     }
   fi
+  # Session 2's gate S, on this cell, before the next one is bought.
+  #
+  # A staggered episode whose prefill arrived before every decoder's first token, or after one had finished, is
+  # not the registered composition, and the registration stops acquisition on it. The evaluator's own function
+  # judges it, so the cell is refused by exactly the rule the verdict will apply; it ran only after the session
+  # until a review found that a violation would otherwise have bought every remaining cell.
+  if [ -z "$engine_log_refusal" ] && [ -z "${LADDER:-}" ] && iv_has_warmup "${STUDY:-}" && [[ "$label" == stagger-* ]]; then
+    # A refusal prints its one-line reason; anything else (a missing file, a crash) keeps its traceback.
+    if ! s_out=$(python3 -c 'import sys; sys.path.insert(0, "hack/tail-crossing-model"); import instrument_gates as g
+try:
+    g.check_stagger(g.load_cell(sys.argv[1], sys.argv[2], int(sys.argv[3])), sys.argv[2], int(sys.argv[3]))
+except g.Refusal as e:
+    sys.exit(str(e))' \
+      "$OUT" "$label" "$rep" 2>&1); then
+      engine_log_refusal="gate S: ${s_out:-the staggered composition check failed without saying why}"
+    fi
+  fi
   # This cell is BOUGHT. Hand it to the caller now rather than at the end of the matrix.
   #
   # Everything this script writes goes up as one archive after the whole matrix returns, which is fine for
