@@ -23,6 +23,19 @@ TYPES = ("serial", "burst", "stagger")
 BOOT = 2000
 POOLED, PER_SETTING, COMPLETENESS, STABILITY = 0.02, 0.05, 0.05, 0.05
 
+# Session 2 (docs/superpowers/specs/2026-10-05-instrument-validation-session-2.md) is told apart by the study its rows
+# carry, and only that study takes the paths below; session 1's verdict must come out of this file unchanged.
+STUDY_S2 = "instrument-validation-s2-2026-10-05"
+# The prefill clock frozen from session 1's 159 warm serial-log requests; session 2 predicts with it and never refits.
+CLOCK_A, CLOCK_B, CLOCK_C = 6.446325, 17.776531, 0.002620206
+WARM_TTFT_MS, WARM_TOL, WARM_PAIR_TOL = 231.0, 0.05, 0.02
+
+
+def study_of(run):
+    """The study the serial-log rows of block 1 were recorded under; every row of a cell carries it."""
+    with open(os.path.join(run, "raw-serial-log-1.jsonl")) as f:
+        return json.loads(f.readline()).get("study", "")
+
 
 def load_cell(run, arm, rep):
     """A cell's requests joined to their trace rows, one dict per request, refusing anything that does not join."""
@@ -96,10 +109,17 @@ def by_setting(kind, reqs, quantity):
     return out
 
 
-def gate_i1(cells, kind, quantity, rng):
-    """d(s, b) = log(median on / median off) per setting and block; pooled 95% interval within 2%, each setting within 5%."""
-    on = {b: by_setting(kind, cells[(f"{kind}-log", b)], quantity) for b in BLOCKS}
-    off = {b: by_setting(kind, cells[(f"{kind}-nolog", b)], quantity) for b in BLOCKS}
+def gate_i1(cells, kind, quantity, rng, stat=statistics.median, role=None, label=""):
+    """d(s, b) = log(stat on / stat off) per setting and block; pooled 95% interval within 2%, each setting within 5%.
+
+    Session 1 compares medians. Session 2 compares staggered TTFT by mean, because a median jumps between the two modes
+    session 1 showed, and judges the prefill role on its own as well (role="prefill") so decoder ranks cannot dilute it.
+    """
+    def pick(data):
+        return {s: v for s, v in data.items() if role is None or (len(s) > 3 and s[3] == role)}
+
+    on = {b: pick(by_setting(kind, cells[(f"{kind}-log", b)], quantity)) for b in BLOCKS}
+    off = {b: pick(by_setting(kind, cells[(f"{kind}-nolog", b)], quantity)) for b in BLOCKS}
     # Every one of the six cells must hold the same settings.
     #
     # Comparing only within a block let a setting absent from both cells of one block drop out of every block,
@@ -132,17 +152,17 @@ def gate_i1(cells, kind, quantity, rng):
     def pooled(draw):
         def med(side, data, b, s):
             v = data[b][s]
-            return statistics.median(v[i] for i in draw[(side, b, group(s))])
+            return stat([v[i] for i in draw[(side, b, group(s))]])
         return statistics.fmean(math.log(med("on", on, b, s) / med("off", off, b, s)) for s in keys for b in BLOCKS)
 
     point = pooled({k: range(n) for k, n in sizes.items()})
     boot = sorted(pooled({k: rng.choices(range(n), k=n) for k, n in sizes.items()}) for _ in range(BOOT))
     lo, hi = boot[int(0.025 * BOOT)], boot[int(0.975 * BOOT) - 1]
     worst = max(keys, key=lambda s: abs(statistics.fmean(
-        math.log(statistics.median(on[b][s]) / statistics.median(off[b][s])) for b in BLOCKS)))
-    worst_d = statistics.fmean(math.log(statistics.median(on[b][worst]) / statistics.median(off[b][worst])) for b in BLOCKS)
+        math.log(stat(on[b][s]) / stat(off[b][s])) for b in BLOCKS)))
+    worst_d = statistics.fmean(math.log(stat(on[b][worst]) / stat(off[b][worst])) for b in BLOCKS)
     ok = -POOLED <= lo and hi <= POOLED and abs(worst_d) <= PER_SETTING
-    return ok, f"I1 {kind:7s} {quantity:4s}: mean d {point:+.4f}, 95% [{lo:+.4f}, {hi:+.4f}]; worst setting {worst} {worst_d:+.4f}"
+    return ok, f"I1 {kind:7s} {quantity:4s}{label}: mean d {point:+.4f}, 95% [{lo:+.4f}, {hi:+.4f}]; worst setting {worst} {worst_d:+.4f}"
 
 
 def preemptions(run, arm, rep):
@@ -159,9 +179,59 @@ def preemptions(run, arm, rep):
     return total("after") - total("before")
 
 
-def gate_i2_i3(run, cells):
+def measured_iters(run, arm, b, s2):
+    """The cell's iterations, every one accounted for; in session 2, only those after the warm-up boundary are returned.
+
+    The whole log is checked for contiguity first, so the warm-up and the measured replay are one unbroken sequence and
+    the boundary cannot hide a lost step on either side of it.
+    """
+    iters = iterlog.parse(open(os.path.join(run, f"engine-log-{arm}-{b}.txt")))
+    iterlog.check_indices(iters)
+    if not s2:
+        return iters
+    path = os.path.join(run, f"warmup-boundary-{arm}-{b}.txt")
+    if not os.path.exists(path):
+        raise Refusal(f"{arm}-{b}: {path} is missing, so the warm-up's iterations cannot be told from the measured ones")
+    text = open(path).read().strip()
+    if not text.isdigit():
+        raise Refusal(f"{arm}-{b}: the warm-up boundary reads {text!r}, not an iteration index")
+    boundary = int(text)
+    if not any(s["index"] == boundary for s in iters):
+        raise Refusal(f"{arm}-{b}: the warm-up boundary {boundary} is not an iteration in the captured log")
+    return [s for s in iters if s["index"] > boundary]
+
+
+def frozen_clock(cells_by_block):
+    """Session 2's I3 for prefill: the frozen clock's signed error per serial setting, judged by its median.
+
+    Each serial request is its own episode, so the bootstrap resamples requests within each setting and block.
+    """
+    errs = {}
+    for b, att in cells_by_block.items():
+        for r in att:
+            steps = [min(2048, r["input_tokens"] - 2048 * j) for j in range(r["k"])]
+            pred = sum(r["ctx_ms"]) + CLOCK_A + sum(CLOCK_B + CLOCK_C * p for p in steps)
+            errs.setdefault((r["input_tokens"], r["output_tokens"]), {}).setdefault(b, []).append(
+                (pred - r["ttft_ms"]) / r["ttft_ms"])
+    rng = random.Random(20261005)
+    lines, ok = [], True
+    every = [e for by in errs.values() for v in by.values() for e in v]
+    for s in sorted(errs):
+        by = errs[s]
+        point = statistics.median([e for v in by.values() for e in v])
+        boot = sorted(statistics.median([e for v in by.values() for e in rng.choices(v, k=len(v))]) for _ in range(BOOT))
+        lo, hi = boot[int(0.025 * BOOT)], boot[int(0.975 * BOOT) - 1]
+        good = -PER_SETTING <= lo and hi <= PER_SETTING
+        ok = ok and good
+        lines.append(f"I3 frozen clock {s}: median error {point:+.4f}, 95% [{lo:+.4f}, {hi:+.4f}]" + ("" if good else "  <- outside 5%"))
+    lines.append(f"I3 frozen clock: {len(every)} requests, largest |error| {max(map(abs, every)):.4f}, "
+                 f"{sum(abs(e) > 0.05 for e in every)} beyond 5% (published, not gated)")
+    return ok, lines
+
+
+def gate_i2_i3(run, cells, s2=False):
     """Preemptions on every paired cell, accounting on the logged ones, and the clock fit on the serial ones."""
-    lines, fits = [], []
+    lines, fits, attributed = [], [], {}
     for (arm, b), reqs in sorted(cells.items()):
         # The logging-off cells are the comparison I1 rests on, so a preemption there refuses as well.
         p = preemptions(run, arm, b)
@@ -169,8 +239,7 @@ def gate_i2_i3(run, cells):
             raise Refusal(f"{arm}-{b}: {p:g} preemption(s) (gate I2)")
         if not arm.endswith("-log"):
             continue
-        iters = iterlog.parse(open(os.path.join(run, f"engine-log-{arm}-{b}.txt")))
-        iterlog.check_indices(iters)
+        iters = measured_iters(run, arm, b, s2)
         if arm == "serial-log":
             # The same drained check iterlog.load_requests makes, because this loader does not go through it.
             by_send = sorted(reqs, key=lambda q: q["send_ms"])
@@ -178,11 +247,18 @@ def gate_i2_i3(run, cells):
                 if q["send_ms"] < p["end_ms"]:
                     raise Refusal(f"{arm}-{b}: request {q['index']} was sent before request {p['index']} ended, so "
                                   f"the serial episode was not drained")
-            fits.append(iterlog.fit_clock(iterlog.attribute_serial(iters, reqs)))
+            att = iterlog.attribute_serial(iters, reqs)
+            fits.append(iterlog.fit_clock(att))
+            attributed[b] = att
     lines.append(f"I2 accounting: no failed request or preemption in any paired cell; contiguous iterations in every logged one")
     worst_res = max(f["worst_residual"] for f in fits)
-    lines.append(f"I3 clock: a {[round(f['a'], 3) for f in fits]} ms, b {[round(f['b'], 3) for f in fits]} ms per step, "
-                 f"worst residual {worst_res:.4f} of TTFT")
+    if s2:
+        prefill_ok, more = frozen_clock(attributed)
+        lines += more
+    else:
+        prefill_ok = worst_res <= COMPLETENESS
+        lines.append(f"I3 clock: a {[round(f['a'], 3) for f in fits]} ms, b {[round(f['b'], 3) for f in fits]} ms per step, "
+                     f"worst residual {worst_res:.4f} of TTFT")
     spread = []
     for f in fits:
         v = list(f["b_decode"].values())
@@ -191,7 +267,7 @@ def gate_i2_i3(run, cells):
                                 if (x := itl(q)) is not None)
     lines.append(f"I3 decode: b' by length {[{k: round(v, 3) for k, v in f['b_decode'].items()} for f in fits]}, "
                  f"widest spread {max(spread):.3f} ms against a median inter-token time of {itl_med:.3f} ms")
-    ok = worst_res <= COMPLETENESS and max(spread) <= COMPLETENESS * itl_med
+    ok = prefill_ok and max(spread) <= COMPLETENESS * itl_med
     return ok, lines
 
 
@@ -231,7 +307,7 @@ def segment(iters, episodes):
     return out
 
 
-def context_effect(run):
+def context_effect(run, s2=None):
     """I4, published: mean elapsed of pure decode steps at the same decoder count, short context against long."""
     by = {}
     for b in BLOCKS:
@@ -242,7 +318,7 @@ def context_effect(run):
                 groups[-1].append(q)
             else:
                 groups.append([q])
-        iters = iterlog.parse(open(os.path.join(run, f"engine-log-burst-log-{b}.txt")))
+        iters = measured_iters(run, "burst-log", b, study_of(run) == STUDY_S2 if s2 is None else s2)
         for ep, steps in zip(groups, segment(iters, groups)):
             n, L = len(ep), ep[0]["input_tokens"]
             by.setdefault((n, L), []).extend(s["elapsed_ms"] for s in steps
@@ -259,20 +335,69 @@ def context_effect(run):
     return lines
 
 
+def check_warmup(run, arm, b):
+    """W: the warm-up's last two requests, both drained 2,048-token requests, within 5% of 231 ms and 2% of each other."""
+    path = os.path.join(run, f"raw-warmup-{arm}-{b}.jsonl")
+    if not os.path.exists(path):
+        raise Refusal(f"{arm}-{b}: no warm-up rows at {path} (gate W)")
+    rows = sorted((json.loads(l) for l in open(path)), key=lambda r: r["sendUnixNanos"])[-2:]
+    if len(rows) != 2 or any(r.get("errorKind") or r.get("engineInputTokens") != 2048 for r in rows):
+        raise Refusal(f"{arm}-{b}: the warm-up's last two rows are not two successful 2,048-token requests (gate W)")
+    t = [(r["firstTokenUnixNanos"] - r["sendUnixNanos"]) / 1e6 for r in rows]
+    if any(abs(x / WARM_TTFT_MS - 1) > WARM_TOL for x in t) or abs(t[0] / t[1] - 1) > WARM_PAIR_TOL:
+        raise Refusal(f"{arm}-{b}: verification TTFTs {t[0]:.1f} and {t[1]:.1f} ms are not both within 5% of "
+                      f"{WARM_TTFT_MS:.0f} ms and 2% of each other (gate W)")
+
+
+def check_stagger(reqs, arm, b):
+    """S: each prefill is sent after every decoder's first token and starts before any decoder has finished."""
+    groups = []
+    for q in reqs:
+        if groups and groups[-1][0]["offset"] == q["offset"]:
+            groups[-1].append(q)
+        else:
+            groups.append([q])
+    for i in range(0, len(groups), 2):
+        dec, pre = groups[i], groups[i + 1][0]
+        if pre["send_ms"] <= max(d["first_ms"] for d in dec):
+            raise Refusal(f"{arm}-{b}: the prefill at offset {pre['offset']} ms was sent before every decoder's first "
+                          f"token, so the episode is not the registered composition (gate S)")
+        if pre["first_ms"] >= min(d["end_ms"] for d in dec):
+            raise Refusal(f"{arm}-{b}: a decoder of the episode at offset {dec[0]['offset']} ms finished before the "
+                          f"prefill's first token (gate S)")
+
+
 def evaluate(run, rng=None):
     rng = rng or random.Random(20261005)
+    s2 = study_of(run) == STUDY_S2
     cells = {}
     for kind in TYPES:
         for suffix in ("log", "nolog"):
             for b in BLOCKS:
                 cells[(f"{kind}-{suffix}", b)] = load_cell(run, f"{kind}-{suffix}", b)
     verdicts, lines = {}, []
+    if s2:
+        # W and S are refusals: a cell that was not warmed, or a staggered episode that was not the registered
+        # composition, is not measured, and the async controls are held to them as well.
+        for kind in TYPES:
+            for suffix in ("log", "nolog", "async"):
+                for b in (BLOCKS if suffix != "async" else (1,)):
+                    check_warmup(run, f"{kind}-{suffix}", b)
+        for suffix in ("log", "nolog", "async"):
+            for b in (BLOCKS if suffix != "async" else (1,)):
+                check_stagger(load_cell(run, f"stagger-{suffix}", b), f"stagger-{suffix}", b)
+        lines.append("W warm-up and S staggered composition: every cell passes")
     for kind in TYPES:
         for quantity in ("ttft", "itl"):
-            ok, line = gate_i1(cells, kind, quantity, rng)
+            mean = s2 and kind == "stagger" and quantity == "ttft"
+            ok, line = gate_i1(cells, kind, quantity, rng, stat=statistics.fmean if mean else statistics.median)
             verdicts.setdefault("I1", []).append(ok)
             lines.append(line)
-    ok, more = gate_i2_i3(run, cells)
+            if mean:
+                ok, line = gate_i1(cells, kind, quantity, rng, stat=statistics.fmean, role="prefill", label=" prefill")
+                verdicts["I1"].append(ok)
+                lines.append(line)
+    ok, more = gate_i2_i3(run, cells, s2)
     verdicts["I3"] = [ok]
     lines += more
     ok, line = gate_i5(cells)
@@ -285,14 +410,14 @@ def evaluate(run, rng=None):
     return passed, lines
 
 
-def _write_cell(run, arm, rep, reqs, log_lines, preempt=0):
+def _write_cell(run, arm, rep, reqs, log_lines, preempt=0, study=""):
     with open(os.path.join(run, f"trace-{arm}-{rep}.jsonl"), "w") as f:
         for q in reqs:
             f.write(json.dumps(dict(index=q["index"], offsetMs=q["offset"], tenant="premium-1",
                                     maxOutputTokens=q["cap"])) + "\n")
     with open(os.path.join(run, f"raw-{arm}-{rep}.jsonl"), "w") as f:
         for q in reqs:
-            f.write(json.dumps(dict(index=q["index"], engineInputTokens=q["input_tokens"],
+            f.write(json.dumps(dict(index=q["index"], study=study, engineInputTokens=q["input_tokens"],
                                     engineOutputTokens=q["output_tokens"], sendUnixNanos=int(q["send"] * 1e6),
                                     firstTokenUnixNanos=int(q["first"] * 1e6), endUnixNanos=int(q["end"] * 1e6))) + "\n")
     with open(os.path.join(run, f"engine-log-{arm}-{rep}.txt"), "w") as f:
@@ -302,7 +427,7 @@ def _write_cell(run, arm, rep, reqs, log_lines, preempt=0):
             f.write(f'vllm:num_preemptions_total{{engine="0"}} {v}\n')
 
 
-def _synthetic_run(run, overhead=0.0, seed=7, context=0.0):
+def _synthetic_run(run, overhead=0.0, seed=7, context=0.0, s2=False, clock_c=CLOCK_C):
     """Nine paired cells whose truth is known: the logging-on cells are slower by the factor (1 + overhead).
 
     A burst's decode steps are slower by the factor (1 + context * L / 8192), so I4 has a known effect to find.
@@ -332,7 +457,13 @@ def _synthetic_run(run, overhead=0.0, seed=7, context=0.0):
                                         lines.append(iterlog._line(it, 1, min(2048, L - j2 * 2048), 0, 0, ms)); it += 1
                                     for _ in range(c - 1):
                                         lines.append(iterlog._line(it, 0, 0, 1, 1, 13.3 * scale * noise)); it += 1
-                                ttft = 6.0 + sum(ctx) + 1.5 * k
+                                if s2:
+                                    # Session 2's serial requests are generated by the frozen clock (with clock_c in
+                                    # place of c, so a test can make the engine disagree with it).
+                                    steps = [min(2048, L - j2 * 2048) for j2 in range(k)]
+                                    ttft = sum(ctx) + CLOCK_A + sum(CLOCK_B + clock_c * p for p in steps)
+                                else:
+                                    ttft = 6.0 + sum(ctx) + 1.5 * k
                                 send = t + (200 if j else 0)
                                 reqs.append(dict(index=idx, offset=round(send), cap=c, input_tokens=L, output_tokens=c,
                                                  send=send, first=send + ttft,
@@ -349,7 +480,17 @@ def _synthetic_run(run, overhead=0.0, seed=7, context=0.0):
                                 ms = 13.3 * scale * (1 + context * L / 8192) * (1 + rng.gauss(0, 0.002))
                                 lines.append(iterlog._line(it, 0, 0, n, n, ms)); it += 1
                         t += 10_000
-                _write_cell(run, f"{kind}-{suffix}", b, reqs, lines)
+                if s2:
+                    # Three warm-up iterations ahead of the measured ones, whose indices start at 100.
+                    if suffix == "log":
+                        lines = [iterlog._line(i, 1, 2048, 0, 0, 200.0) for i in (97, 98, 99)] + lines
+                    with open(os.path.join(run, f"warmup-boundary-{kind}-{suffix}-{b}.txt"), "w") as f:
+                        f.write("99\n" if suffix == "log" else "none\n")
+                    with open(os.path.join(run, f"raw-warmup-{kind}-{suffix}-{b}.jsonl"), "w") as f:
+                        for i, ttft in enumerate((231.0, 230.0, 232.0)):
+                            f.write(json.dumps(dict(index=i, engineInputTokens=2048, sendUnixNanos=int(i * 1e10),
+                                                    firstTokenUnixNanos=int(i * 1e10 + ttft * 1e6))) + "\n")
+                _write_cell(run, f"{kind}-{suffix}", b, reqs, lines, study=STUDY_S2 if s2 else "")
 
 
 def _positional_bursts(run, seed=3):
@@ -378,8 +519,75 @@ def _positional_bursts(run, seed=3):
                 f.writelines(json.dumps(r) + "\n" for r in raw)
 
 
+def _s2_run(run, **kw):
+    """A session-2 archive: the synthetic cells, with the async controls copied from each type's first unlogged cell."""
+    import shutil
+    _synthetic_run(run, s2=True, **kw)
+    for kind in TYPES:
+        for name in os.listdir(run):
+            if f"{kind}-nolog-1" in name:
+                shutil.copy(os.path.join(run, name), os.path.join(run, name.replace(f"{kind}-nolog-1", f"{kind}-async-1")))
+
+
+def self_test_s2():
+    """Session 2's paths: the frozen clock, W, S and the warm-up boundary, each shown to fire."""
+    import tempfile
+    with tempfile.TemporaryDirectory() as run:
+        _s2_run(run)
+        passed, lines = evaluate(run)
+        assert passed, "\n".join(lines)
+        assert any("I3 frozen clock" in l for l in lines) and any(" prefill:" in l for l in lines), lines
+        print("ok: session 2, an engine the frozen clock describes -> PASS, with the prefill role judged on its own")
+    with tempfile.TemporaryDirectory() as run:
+        _s2_run(run, clock_c=3 * CLOCK_C)
+        passed, lines = evaluate(run)
+        assert not passed and "I3" in lines[-1], lines[-1]
+        print(f"ok: an engine whose per-token cost is three times the frozen c -> {lines[-1]}")
+
+    def refused(what, prepare, words):
+        with tempfile.TemporaryDirectory() as run:
+            _s2_run(run)
+            prepare(run)
+            try:
+                evaluate(run)
+            except Refusal as e:
+                assert words in str(e), e
+                print(f"ok: refuses {what} -- {e}")
+                return
+            raise AssertionError(f"{what} was accepted")
+
+    def rewrite(run, name, f):
+        path = os.path.join(run, name)
+        rows = [json.loads(l) for l in open(path)]
+        f(rows)
+        with open(path, "w") as out:
+            out.writelines(json.dumps(r) + "\n" for r in rows)
+
+    refused("a slow verification request",
+            lambda run: rewrite(run, "raw-warmup-burst-log-2.jsonl",
+                                lambda rows: rows[-1].update(firstTokenUnixNanos=rows[-1]["sendUnixNanos"] + int(260e6))),
+            "(gate W)")
+    refused("a cold async control",
+            lambda run: rewrite(run, "raw-warmup-serial-async-1.jsonl",
+                                lambda rows: rows[-2].update(firstTokenUnixNanos=rows[-2]["sendUnixNanos"] + int(455e6))),
+            "(gate W)")
+
+    def early_prefill(run):
+        trace = {r["index"]: r for r in map(json.loads, open(os.path.join(run, "trace-stagger-nolog-3.jsonl")))}
+        prefill = next(i for i, r in trace.items() if r["maxOutputTokens"] == 16)
+        rewrite(run, "raw-stagger-nolog-3.jsonl",
+                lambda rows: next(r for r in rows if r["index"] == prefill).update(sendUnixNanos=0))
+    refused("a prefill sent before its decoders' first tokens", early_prefill, "(gate S)")
+    refused("a missing warm-up boundary",
+            lambda run: os.remove(os.path.join(run, "warmup-boundary-serial-log-1.txt")), "is missing")
+    refused("a boundary that is not in the log",
+            lambda run: open(os.path.join(run, "warmup-boundary-burst-log-3.txt"), "w").write("42\n"),
+            "is not an iteration in the captured log")
+
+
 def self_test():
     import tempfile
+    self_test_s2()
     with tempfile.TemporaryDirectory() as run:
         _synthetic_run(run)
         _positional_bursts(run)
