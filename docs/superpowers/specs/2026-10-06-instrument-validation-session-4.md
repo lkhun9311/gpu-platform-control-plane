@@ -23,3 +23,16 @@ Ten bought cells across the two sessions are not pooled with session 4, replace 
 ## 3. Who decided what
 
 The conditioning request was proposed by me and, independently, by astra, with W unchanged in both. Updating both warm-up extractors, keeping each earlier study's behaviour by its id, and archiving the engine log on a warm-up refusal are astra's additions, adopted. The verification latencies, the 22.4 s idle and the 128 serial requests were recomputed by me from the archives and agree with astra's; section 2's counts of requests, preemptions and transitions are astra's reading, not recomputed by me.
+
+## Amendment, 2026-10-06 — what is bought, before it is bought
+
+| | |
+|---|---|
+| Session | one g5.2xlarge spot instance in `gpu-lab`, `hack/m5c-gpu-session.sh`, `PURPOSE=new-measurement`, study `instrument-validation-s4-2026-10-06` |
+| Cells | `REPS=3`, `ARMS="serial-log serial-nolog burst-log burst-nolog stagger-log stagger-nolog"`, seed 11 for every block: 18 cells |
+| Warm-up spans | serial 89.2 s, burst 109.6 s, staggered 486.8 s at seed 11 — session 3's plus one 2 s gap, read from the generator; measured traces are session 3's row for row |
+| Deadline | `HARD_STOP_SECONDS=39600`, `BACKSTOP_SECONDS=40200`; 700 minutes of credentials, renewed immediately before launch |
+| Expected | about 8–9 hours, about $6; bounded at about $12.30 |
+
+**Checked before launch.** Session 3's six traces at seed 11 hash as in its archive's manifests; session 4's warm-up is session 3's with one drained 2,048/16 request inserted before the verification requests; the matrix and the evaluator drop the warm-up's first and last three requests for gate S and refuse a warm-up of any other shape; the engine log is kept and uploaded on a warm-up refusal; the kind rehearsal (`IV=4`) passed.
+A refusal record (`cell-refused-*`) is uploaded per cell as well, a gap an independent review by codex `gpt-6-astra` found in the session-4 changes.
