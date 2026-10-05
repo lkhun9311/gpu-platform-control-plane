@@ -295,6 +295,9 @@ spot_say()  { say "$@"; }
 spot_fail() { fail "$@"; }
 # shellcheck source=hack/lib/spot-run.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib/spot-run.sh"
+# The instrument-validation study's per-arm trace lengths, the same table the matrix reads.
+# shellcheck source=hack/lib/instrument-validation.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib/instrument-validation.sh" || fail "could not source hack/lib/instrument-validation.sh"
 
 ACCOUNT=$(spot_account) || fail "not authenticated. aws sso login --profile <yours>, and export AWS_PROFILE"
 BUCKET="${BUCKET:-$STACK-$ACCOUNT}"
@@ -394,7 +397,20 @@ PREMIUM_WEIGHT="${PREMIUM_WEIGHT:-1}"
 # Zero removes the tenants rather than giving them keys, because a tenant that measures nothing this study
 # varies is load wearing a measurement's name. gen-trace omits them entirely at 0.
 PROBE_WEIGHT="${PROBE_WEIGHT:-0}"
-DURATION_MS="${DURATION_MS:-420000}"
+# The instrument-validation study's trace length is its arm's, so it gets no run-wide default.
+#
+# The matrix refuses a non-empty DURATION_MS beside that study, and this default would hand it one.
+# Refused here too, so the caller hears it before anything is built rather than from the plan check.
+if [ -z "$LADDER" ] && iv_is_study "${STUDY:-}"; then
+  [ -z "${DURATION_MS:-}" ] \
+    || fail "DURATION_MS is ${DURATION_MS@Q} and study ${STUDY} sets the trace length per arm (serial 180000, burst 330000, stagger 630000 ms); unset it"
+  [ -n "$ARMS_FROM_CALLER" ] \
+    || fail "ARMS is unset and study ${STUDY} has none of the default topologies; name its arms"
+  for _a in $ARMS; do _why=$(iv_duration_ms "$_a") || fail "$_why"; done
+  DURATION_MS=""
+else
+  DURATION_MS="${DURATION_MS:-420000}"
+fi
 if [ -n "$LADDER" ]; then
   say "load   a ladder, ${DURATION_MS}ms per cell, weights premium=$PREMIUM_WEIGHT probe=$PROBE_WEIGHT"
   say "       rungs: $LADDER (RATE:NOISY_WEIGHT, or PREMIUM_RATE:NOISY_RATE for a study registered with independent arrivals)"
@@ -402,6 +418,8 @@ if [ -n "$LADDER" ]; then
 elif [ -n "$SWEEP" ]; then
   say "load   a sweep, ${DURATION_MS}ms per cell: latency-critical held at ${PREMIUM_RATE}/s, best-effort at $SWEEP /s"
   say "       independent arrivals, so each repetition offers the latency-critical tenant one schedule at every level"
+elif iv_is_study "${STUDY:-}"; then
+  say "load   rate ${RATE}/s, the trace length per arm ($(for _a in $ARMS; do printf '%s=%sms ' "$_a" "$(iv_duration_ms "$_a")"; done)), weights premium=$PREMIUM_WEIGHT noisy=$NOISY_WEIGHT probe=$PROBE_WEIGHT"
 else
   say "load   rate ${RATE}/s, ${DURATION_MS}ms, weights premium=$PREMIUM_WEIGHT noisy=$NOISY_WEIGHT probe=$PROBE_WEIGHT"
   say "       (carried from the whole-card run; the pilot's job is to re-derive them for a half-card engine)"
@@ -596,6 +614,20 @@ if [ "$replay_min" -lt 7 ]; then replay_min=7; fi
 # the backstop is the honest floor, and taking the larger of the two means raising EITHER number raises the
 # requirement. They cannot drift apart again.
 need_min=$(( 25 + arm_count * 3 / 2 + arm_count * REPS * replay_min + 15 ))
+# The instrument-validation study's cells differ in length, so each is charged its own replay.
+#
+# Its synchronous arms run once per block and its async arms once in all, as hack/m5c-matrix.sh builds them,
+# and each cell's replay floor follows the rule above, including the 7-minute minimum.
+if [ -z "$LADDER" ] && iv_is_study "${STUDY:-}"; then
+  iv_replay_min=0
+  for _a in $ARMS; do
+    _ms=$(iv_duration_ms "$_a") || fail "$_ms"
+    _m=$(( (_ms + 59999) / 60000 + 1 )); [ "$_m" -ge 7 ] || _m=7
+    case "$_a" in *-async) _n=1 ;; *) _n=$REPS ;; esac
+    iv_replay_min=$(( iv_replay_min + _n * _m ))
+  done
+  need_min=$(( 25 + arm_count * 3 / 2 + iv_replay_min + 15 ))
+fi
 backstop_min=$(( BACKSTOP_SECONDS / 60 ))
 if [ "$backstop_min" -gt "$need_min" ]; then need_min="$backstop_min"; fi
 require_credential_margin "$need_min"
@@ -970,6 +1002,9 @@ for f in "$out"/engine-metrics-"$arm"-"$rep"-*.prom "$out"/engine-metrics-"$arm"
   [ -f "$f" ] || continue
   send "$f" "$(basename "$f")"
 done
+# The engine's own log for this cell, written only under the instrument-validation study.
+# Its iteration lines are that study's measurement, so a cell that survives without them is not a cell.
+send "$out/engine-log-$arm-$rep.txt" "engine-log-$arm-$rep.txt"
 # The run-wide records, refreshed so the newest surviving copy is the newest one written.
 for f in cell-environment.tsv cell-timings.tsv cell-judgements.tsv applied-values.tsv load-source.txt; do
   send "$out/$f" "$f"
@@ -1602,10 +1637,13 @@ for arm in $expected_arms; do
   # fail. The ladder is exempt: its cells are rungs, not repetitions, and it has its own completeness check
   # above.
   if [ -z "$LADDER" ]; then
+    # The instrument-validation study buys each async arm once, as hack/m5c-matrix.sh plans it.
+    _arm_reps="${REPS:-1}"
+    if iv_is_study "${STUDY:-}"; then case "$arm" in *-async) _arm_reps=1 ;; esac; fi
     _rep=1
-    while [ "$_rep" -le "${REPS:-1}" ]; do
+    while [ "$_rep" -le "$_arm_reps" ]; do
       [ -s "$OUT/m5c-run/raw-$arm-$_rep.jsonl" ] \
-        || fail "arm $arm is missing repetition $_rep of ${REPS:-1}. The run reported no refusal for it, so this is a repetition that was planned, was not recorded, and would have been pooled over as though it had been."
+        || fail "arm $arm is missing repetition $_rep of $_arm_reps. The run reported no refusal for it, so this is a repetition that was planned, was not recorded, and would have been pooled over as though it had been."
       _rep=$(( _rep + 1 ))
     done
   fi

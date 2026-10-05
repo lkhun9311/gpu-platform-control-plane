@@ -161,6 +161,7 @@ for f in "$out"/engine-metrics-"$arm"-"$rep"-*.prom "$out"/engine-metrics-"$arm"
   [ -f "$f" ] || continue
   send "$f" "$(basename "$f")"
 done
+send "$out/engine-log-$arm-$rep.txt" "engine-log-$arm-$rep.txt"
 for f in cell-environment.tsv cell-timings.tsv cell-judgements.tsv applied-values.tsv load-source.txt; do
   send "$out/$f" "$f"
 done
