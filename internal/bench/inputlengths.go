@@ -76,9 +76,12 @@ const InputLengthServingImage = "vllm/vllm-openai@sha256:0a51ea5b4ae2dc5d81890e5
 var resolvedInputLengths = map[int]ResolvedInputLength{
 	256:  {Chars: 1174, Matches: 8},
 	512:  {Chars: 2506, Matches: 7},
+	768:  {Chars: 3845, Matches: 3},
 	1024: {Chars: 5183, Matches: 8},
 	2048: {Chars: 10532, Matches: 5},
+	3072: {Chars: 15876, Matches: 7},
 	4096: {Chars: 21201, Matches: 6},
+	6144: {Chars: 31894, Matches: 5},
 	8192: {Chars: 42579, Matches: 3},
 }
 

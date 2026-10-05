@@ -408,7 +408,10 @@ fi
 #
 # Zero removes the tenants rather than giving them keys, because a tenant that measures nothing this study
 # varies is load wearing a measurement's name. gen-trace omits them entirely at 0.
-[ -n "$IV_NO_LOAD" ] || PROBE_WEIGHT="${PROBE_WEIGHT:-0}"
+PROBE_WEIGHT="${PROBE_WEIGHT:-0}"
+# Emptied again for the instrument-validation study, on its own line because sharing_test.go reads the default above
+# in exactly that form to check that probe tenants are never generated without keys.
+[ -z "$IV_NO_LOAD" ] || PROBE_WEIGHT=""
 # The instrument-validation study's trace length is its arm's, so it gets no run-wide default.
 #
 # The matrix refuses a non-empty DURATION_MS beside that study, and this default would hand it one.
