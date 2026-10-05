@@ -2,6 +2,8 @@
 
 Date: 2026-10-04 · Registered **before** any card time is bought for it, and frozen from the moment the first cell is bought; later changes are appended as dated amendments.
 
+> **Reader's note, 2026-10-05.** The admission-rule conclusion in the result sections below — that the rule needs only the contender's prefill time and the victim's isolated tail, and that the 2,048-token result held out of sample — is **withdrawn** by the section "Correction, 2026-10-05" at the end of this page. The frozen text is left as it was written; read it with the correction.
+
 **What this page replaces.** It replaces the *question* and the *design* of `2026-10-03-where-the-latency-sensitive-tail-crosses-each-multiple-exploratory.md` — that page's section 1 and its decisions D1–D3. It keeps that page's measurement machinery unless a row below amends it by name: the endpoint convention, the refusals in its section 3a, the stopping rule in 3b, and the limits in section 4. **It does not authorise a purchase.**
 
 **Why it exists.** The 2026-10-03 page registered "no prediction", and its own literature section said that whether length affects shared-engine interference is already settled. A study that predicts nothing about a settled question can only produce a number, and a number is not a finding. This page fixes both: it states the decision the result changes, and it writes down, before any measurement, what a stated model predicts — so that the measurement is a test of that model and the deviations are the result.

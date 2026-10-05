@@ -3,6 +3,8 @@
 **Registered 2026-10-04.** This page is frozen from the moment the first cell of this calibration is
 purchased. Changes after that are appended as dated amendments and never edited in place.
 
+> **Reader's note, 2026-10-05.** Sections 3 and 7 are the registration as written, before the amendments. The cell-2 failure that section 7 calls unidentified was identified in the amendment of 2026-10-04: `refuse_unfrozen_load` enabled errexit. The weighted-arrival design of section 3 was replaced by the sweep form in the amendment of 2026-10-05.
+
 **This page does not authorise a purchase.** It describes one, in enough detail that buying it is a decision
 someone can refuse. The run starts only on an explicit approval given at the time it is started.
 
