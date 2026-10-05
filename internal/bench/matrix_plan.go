@@ -41,6 +41,40 @@ func MatrixPlanRefusal(study, arm string, premiumOffers int) error {
 	return nil
 }
 
+// InstrumentValidationPlanRefusal is MatrixPlanRefusal for the instrument-validation study, which is judged on its own terms.
+//
+// The tail studies' premium-sample floor does not apply: nothing here is a p99, and a trace is complete when it holds its registered cycles.
+// What does apply is that the trace is the one this arm's episode type registers, because a burst trace replayed in a serial cell attributes nothing.
+func InstrumentValidationPlanRefusal(arm string, rows []TraceRow) error {
+	s, _ := LookupStudy(StudyInstrumentValidation)
+	if !s.Admits(arm) {
+		return fmt.Errorf("arm %q is not one of study %s's arms (%s)", arm, s.ID, strings.Join(s.Arms, ", "))
+	}
+	t, _ := InstrumentValidationEpisode(arm)
+	return EpisodeTraceRefusal(t, rows)
+}
+
+// instrumentValidationArmSetRefusal refuses a plan whose arms are not all admitted or whose logging arms lack their pair.
+//
+// I1 is a paired on/off change per episode type, so an on cell bought without its off cell, or the reverse, is a cell no gate can read.
+// The async arms stand alone, since the registration publishes them and compares them with nothing.
+func instrumentValidationArmSetRefusal(s Study, arms []string) error {
+	for _, a := range arms {
+		if !s.Admits(a) {
+			return fmt.Errorf("arm %q is not one of study %s's arms (%s)", a, s.ID, strings.Join(s.Arms, ", "))
+		}
+	}
+	for _, t := range EpisodeTypes {
+		on := slices.Contains(arms, InstrumentValidationArm(t, instrumentModeLog))
+		off := slices.Contains(arms, InstrumentValidationArm(t, instrumentModeNoLog))
+		if on != off {
+			return fmt.Errorf("the planned arms (%s) include only one of %s and %s, and the logging-overhead gate compares the two as a pair, so the one bought would be unreadable",
+				strings.Join(arms, " "), InstrumentValidationArm(t, instrumentModeLog), InstrumentValidationArm(t, instrumentModeNoLog))
+		}
+	}
+	return nil
+}
+
 // MatrixPlanArmSetRefusal says whether the arm LIST a frozen run was given can be scored at all.
 //
 // EvaluateSharingMatrix already refuses a run with no R1 or no `shared` and names which is missing, because
@@ -54,6 +88,10 @@ func MatrixPlanArmSetRefusal(study string, arms []string) error {
 	}
 	if len(arms) == 0 {
 		return fmt.Errorf("no arms were planned for study %s, so there is nothing to buy and nothing to score", s.ID)
+	}
+	// The instrument check has no isolated baseline and no shared control; what it divides is a logging-on cell by its logging-off pair.
+	if s.ID == StudyInstrumentValidation {
+		return instrumentValidationArmSetRefusal(s, arms)
 	}
 	required := []struct{ arm, why string }{
 		{ArmR1, "the isolated baseline both bars divide by"},

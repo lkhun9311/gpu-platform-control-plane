@@ -151,6 +151,9 @@ const (
 	ArrivalsWeighted ArrivalModel = "weighted"
 	// ArrivalsIndependent gives each tenant its own Poisson process keyed by its name; see TenantSpec.RatePerSec.
 	ArrivalsIndependent ArrivalModel = "independent"
+	// ArrivalsEpisodes sends registered episodes into a drained engine; see GenerateEpisodeTrace.
+	// It has no rate at all, so gen-trace refuses every rate, weight and per-tenant shape flag for a study that declares it.
+	ArrivalsEpisodes ArrivalModel = "episodes"
 )
 
 const (
@@ -232,7 +235,52 @@ const (
 	// with no separate term for its length. Its curve is predicted by the model and committed before any
 	// cell is bought; see the 2026-10-04 model-first registration's amendment of that date.
 	StudyTailCrossingMidLC = "tail-crossing-lc2048-2026-10-05"
+	// StudyInstrumentValidation is the instrument check registered in
+	// docs/superpowers/specs/2026-10-05-can-the-stock-engine-time-an-iteration-instrument-validation.md.
+	//
+	// It asks whether the stock engine's iteration log can time a step, so its arms are an episode type crossed with the engine's logging and scheduling mode rather than a load.
+	// One tenant, no contender: attribution by order needs every step's composition known by construction.
+	StudyInstrumentValidation = "instrument-validation-2026-10-05"
 )
+
+// The engine modes the instrument-validation study crosses with its episode types.
+// The on and off arms are I1's paired controls, and the async arm is the published-only control the registration says is never used to fit anything.
+const (
+	instrumentModeLog   = "log"
+	instrumentModeNoLog = "nolog"
+	instrumentModeAsync = "async"
+)
+
+// InstrumentValidationArm is the canonical name of one cell: an episode type under one engine mode.
+func InstrumentValidationArm(t EpisodeType, mode string) string {
+	return string(t) + "-" + mode
+}
+
+// instrumentValidationArms lists the six sync cells by episode type and then the three async cells, the order the registration buys them.
+func instrumentValidationArms() []string {
+	var arms []string
+	for _, t := range EpisodeTypes {
+		arms = append(arms, InstrumentValidationArm(t, instrumentModeLog), InstrumentValidationArm(t, instrumentModeNoLog))
+	}
+	for _, t := range EpisodeTypes {
+		arms = append(arms, InstrumentValidationArm(t, instrumentModeAsync))
+	}
+	return arms
+}
+
+// InstrumentValidationEpisode returns the episode type an instrument-validation arm replays.
+//
+// Only the type is returned, never the mode, because the generator must not see the mode: the three arms of one type are paired on byte-identical traces.
+func InstrumentValidationEpisode(arm string) (EpisodeType, bool) {
+	for _, t := range EpisodeTypes {
+		for _, m := range []string{instrumentModeLog, instrumentModeNoLog, instrumentModeAsync} {
+			if arm == InstrumentValidationArm(t, m) {
+				return t, true
+			}
+		}
+	}
+	return "", false
+}
 
 // The factors the price-of-protection sweep crosses.
 //
@@ -386,6 +434,10 @@ func IsIsolatedBaseline(arm string) bool {
 func ArmComparisonGroup(arm string) string {
 	if rung, _, ok := parseLadderArmName(arm); ok {
 		return fmt.Sprintf("rung%02d", rung)
+	}
+	// The instrument check replays a different trace per episode type by design, and the same trace across the modes of one type.
+	if t, ok := InstrumentValidationEpisode(arm); ok {
+		return string(t)
 	}
 	return ""
 }
@@ -549,6 +601,17 @@ var studies = map[string]Study{
 		MinRepetitions:         2,
 		PublishesInterval:      false,
 		TracesVaryByRepetition: true,
+	},
+	// No frozen tuple, because the lengths and caps are factors here rather than a load held fixed.
+	// No repetition floor and no interval promise on repetitions: the registration's intervals are episode bootstraps within cells, and it fixes three blocks as a session design rather than as a floor this registry could enforce.
+	StudyInstrumentValidation: {
+		ID:       StudyInstrumentValidation,
+		Arms:     instrumentValidationArms(),
+		Arrivals: ArrivalsEpisodes,
+		// Every block replays the same bytes, as section 4 of the registration says.
+		// I1 pairs cells within a block and I5 compares the first block with the last, so a trace that changed between blocks would put a difference of traces into a check for drift of the engine.
+		// The modes of one episode type share the trace as well, which ArmComparisonGroup states.
+		TracesVaryByRepetition: false,
 	},
 	StudyThroughputLadder: {
 		ID:       StudyThroughputLadder,

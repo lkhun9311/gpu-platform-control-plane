@@ -66,6 +66,18 @@ func matrixPlanCheck(args []string) error {
 	if perr := bench.MatrixPlanArmSetRefusal(*study, strings.Fields(*arms)); perr != nil {
 		return perr
 	}
+	// The instrument check is scored on episodes, so the premium floor below would refuse a valid serial trace for being short.
+	// It returns here rather than falling through, which also keeps --reproduces off a study that has no prior run to repeat.
+	if *study == bench.StudyInstrumentValidation {
+		if *reproduces != "" {
+			return fmt.Errorf("--reproduces is not defined for study %s, which has no prior run whose load it could repeat", *study)
+		}
+		if perr := bench.InstrumentValidationPlanRefusal(*arm, rows); perr != nil {
+			return fmt.Errorf("%s: %w", *arm, perr)
+		}
+		fmt.Printf("%s: %d premium, %d contender -- %d complete cycles, scorable\n", *arm, premium, contender, bench.EpisodeCycles)
+		return nil
+	}
 	if perr := bench.MatrixPlanRefusal(*study, *arm, premium); perr != nil {
 		return fmt.Errorf("%s: %w", *arm, perr)
 	}

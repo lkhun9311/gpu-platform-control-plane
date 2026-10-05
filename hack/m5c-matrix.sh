@@ -336,6 +336,15 @@ if [ -n "${BENCHMARK_CR_SHA256:-}" ]; then
   say "load compiled from a GpuSharingBenchmark, sha256 $BENCHMARK_CR_SHA256"
 fi
 
+# The instrument-validation study has no load to set: its episodes are laid out by the generator.
+# A caller's load variable is refused rather than ignored, because a value that was set and silently unused
+# reads, in load-source.txt, like the load the cells ran at; the cell specs then carry zeros, which nothing reads.
+if [ -z "$LADDER" ] && iv_is_study "$STUDY"; then
+  for v in RATE PREMIUM_WEIGHT NOISY_WEIGHT PROBE_WEIGHT PREMIUM_RATE; do
+    [ -z "${!v:-}" ] || fail "$v is ${!v@Q} and study $STUDY takes no load; its episodes are the registration's. Unset it"
+  done
+  RATE=0 PREMIUM_WEIGHT=0 NOISY_WEIGHT=0 PROBE_WEIGHT=0
+fi
 [ -n "${RATE:-}" ] || [ -n "$LADDER" ] || [ -n "$SWEEP" ] || fail "RATE is unset. Measure it from a single contender prefill on THIS card, the way hack/m5b-gpu-session.sh does; the harness default of 20/s demands 3.8x an A10G's theoretical peak and would censor every arm."
 
 # The whole load, passed rather than defaulted -- and RATE alone was never enough.
@@ -371,7 +380,9 @@ fi
 # independent arrivals, so a run says it has no probes rather than inheriting a weight that would be ignored.
 [ -z "$SWEEP" ] || REQUIRED_LOAD_VARS="PREMIUM_WEIGHT PROBE_WEIGHT DURATION_MS"
 # The instrument-validation study's duration comes from each arm, and a run-wide one was refused above.
-if [ -z "$LADDER" ] && iv_is_study "$STUDY"; then REQUIRED_LOAD_VARS="${REQUIRED_LOAD_VARS% DURATION_MS}"; fi
+# Nor does it have a load to require: its traces are episodes the generator lays out, and gen-trace refuses every
+# rate, weight and prompt flag for it, so demanding them here would demand values that are then thrown away.
+if [ -z "$LADDER" ] && iv_is_study "$STUDY"; then REQUIRED_LOAD_VARS=""; fi
 for v in $REQUIRED_LOAD_VARS; do
   [ -n "${!v:-}" ] || fail "$v is unset. RATE alone does not describe this load: gen-trace's default mix puts the 40,000-character contender at 45% of arrivals, which is four to five times an A10G's prefill capacity at any rate this study could use, and lowering RATE to compensate starves the premium tail below the MinTailSamples floor. Derive the mix on the card and pass all four. hack/m5b-price-of-protection.sh measured RATE=9.85 PREMIUM_WEIGHT=1 NOISY_WEIGHT=0.054 PROBE_WEIGHT=0.0054 DURATION_MS=420000 for ONE engine with the whole card; this run gives each engine half of one, so it is a starting point and not an answer."
 done
@@ -527,7 +538,7 @@ load_banner() {
     say "run:  ${REPS} repetitions of [$ARMS] on $PLATFORM, output $OUT"
   elif iv_is_study "$STUDY"; then
     # DURATION_MS is refused for this study, so naming it here would die on `set -u`.
-    say "load: rate ${RATE}/s, the trace length per arm ($(for a in $ARMS; do printf '%s=%sms ' "$a" "$(iv_duration_ms "$a")"; done)), weights premium=$PREMIUM_WEIGHT noisy=$NOISY_WEIGHT probe=$PROBE_WEIGHT"
+    say "load: none -- registered episodes, one tenant; the trace length per arm ($(for a in $ARMS; do printf '%s=%sms ' "$a" "$(iv_duration_ms "$a")"; done))"
     say "run:  ${REPS} block(s) of the synchronous arms in [$ARMS], each block in its own order, then the async arms once, on $PLATFORM, output $OUT"
   else
     say "load: rate ${RATE}/s, ${DURATION_MS}ms per arm, weights premium=$PREMIUM_WEIGHT noisy=$NOISY_WEIGHT probe=$PROBE_WEIGHT"
@@ -618,9 +629,22 @@ set_load_flags() {
   case "$ARRIVALS" in
     weighted)    LOAD_FLAGS=(--rate "$1" --premium-weight "$PREMIUM_WEIGHT" --noisy-weight "$2" --probe-weight "$PROBE_WEIGHT") ;;
     independent) LOAD_FLAGS=(--premium-rate "$1" --noisy-rate "$2" --probe-rate 0) ;;
+    # The episode generator takes no load: lengths, caps and spacing are the registration's, not the caller's.
+    episodes)    LOAD_FLAGS=() ;;
     *) fail "no arrival model was resolved for study $STUDY before generating a trace" ;;
   esac
 }
+
+# The prompt and output flags both gen-trace calls pass, held once so the plan and the run cannot differ.
+#
+# The instrument-validation study passes none: its lengths and caps vary by row and are the registration's, and
+# gen-trace refuses these flags for it rather than let one value pretend to describe every row.
+if [ -z "$LADDER" ] && iv_is_study "$STUDY"; then
+  PROMPT_FLAGS=()
+else
+  PROMPT_FLAGS=(--premium-prompt-chars "$PREMIUM_PROMPT_CHARS" --noisy-prompt-chars "$NOISY_PROMPT_CHARS"
+    --premium-output-tokens "$PREMIUM_OUTPUT_TOKENS" --noisy-output-tokens "$NOISY_OUTPUT_TOKENS")
+fi
 
 CELLS=()
 if [ -n "$LADDER" ]; then
@@ -856,8 +880,7 @@ if [ -n "${PLAN_ONLY:-}" ]; then
     plan_duration=$(cell_duration_ms "$cell_label") || fail "$plan_duration"
     "$WORK/benchharness" gen-trace --seed "$plan_seed" --duration-ms "$plan_duration" "${LOAD_FLAGS[@]}" \
       --study "$STUDY" --arm "$cell_label" --model "$MODEL" --gateway-url "http://127.0.0.1:18080" \
-      --premium-prompt-chars "$PREMIUM_PROMPT_CHARS" --noisy-prompt-chars "$NOISY_PROMPT_CHARS" \
-      --premium-output-tokens "$PREMIUM_OUTPUT_TOKENS" --noisy-output-tokens "$NOISY_OUTPUT_TOKENS" \
+      "${PROMPT_FLAGS[@]}" \
       --timeout-ms "$REQUEST_TIMEOUT_MS" \
       --trace-out "$WORK/plan-$plan_name.jsonl" --manifest-out "$WORK/plan-$plan_name.yaml" >/dev/null \
       || { echo "PLAN REFUSED: gen-trace could not build $cell_label's trace" >&2; plan_failures=$(( plan_failures + 1 )); continue; }
@@ -2958,8 +2981,7 @@ run_cell() {
     --study "$STUDY" --arm "$label" --model "$MODEL" --gateway-url "http://127.0.0.1:18080" \
     --engine-image "$ENGINE_IMAGE" --gateway-image "$GATEWAY_IMAGE_REF" --gateway-sha "$SOURCE_COMMIT" \
     --tokenizer-rev "$MODEL_REVISION" \
-    --premium-prompt-chars "$PREMIUM_PROMPT_CHARS" --noisy-prompt-chars "$NOISY_PROMPT_CHARS" \
-    --premium-output-tokens "$PREMIUM_OUTPUT_TOKENS" --noisy-output-tokens "$NOISY_OUTPUT_TOKENS" \
+    "${PROMPT_FLAGS[@]}" \
     --timeout-ms "$REQUEST_TIMEOUT_MS" \
     --trace-out "$OUT/trace-$label-$rep.jsonl" --manifest-out "$OUT/manifest-$label-$rep.yaml" || fail "gen-trace $label"
   # --require-provenance, now that there is provenance to require.

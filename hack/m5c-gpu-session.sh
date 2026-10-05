@@ -375,12 +375,23 @@ say "output $OUT"
 # In ladder mode RATE and NOISY_WEIGHT are per rung and must stay EMPTY here, so that what reaches the
 # instance is a ladder and not a ladder with a single load beside it. The refusals above make sure nobody
 # passed one; these lines make sure this script does not invent one.
-if [ -n "$LADDER" ] || [ -n "$SWEEP" ]; then RATE=""; NOISY_WEIGHT=""; else
+# The instrument-validation study takes no load, and the matrix refuses any load variable beside it.
+# So a caller's value is refused here, before anything is built, and the defaults below are not applied:
+# they would hand the matrix a RATE of 9.85 that it then refuses on the instance, after the card is paid for.
+IV_NO_LOAD=""
+if [ -z "$LADDER" ] && iv_is_study "${STUDY:-}"; then
+  for _v in RATE PREMIUM_WEIGHT NOISY_WEIGHT PROBE_WEIGHT PREMIUM_RATE; do
+    [ -z "${!_v:-}" ] || fail "$_v is ${!_v@Q} and study ${STUDY} takes no load; its episodes are the registration's. Unset it"
+  done
+  IV_NO_LOAD=1
+fi
+if [ -n "$IV_NO_LOAD" ]; then RATE=""; PREMIUM_WEIGHT=""; NOISY_WEIGHT=""; PROBE_WEIGHT=""
+elif [ -n "$LADDER" ] || [ -n "$SWEEP" ]; then RATE=""; NOISY_WEIGHT=""; else
 RATE="${RATE:-9.85}"
 PREMIUM_WEIGHT="${PREMIUM_WEIGHT:-1}"
 NOISY_WEIGHT="${NOISY_WEIGHT:-0.054}"
 fi
-PREMIUM_WEIGHT="${PREMIUM_WEIGHT:-1}"
+[ -n "$IV_NO_LOAD" ] || PREMIUM_WEIGHT="${PREMIUM_WEIGHT:-1}"
 # ZERO, and this is a correction rather than a carried value.
 #
 # The probe tenants straddle the ADMISSION guard's eligibility threshold. This study runs the gateway with
@@ -396,7 +407,7 @@ PREMIUM_WEIGHT="${PREMIUM_WEIGHT:-1}"
 #
 # Zero removes the tenants rather than giving them keys, because a tenant that measures nothing this study
 # varies is load wearing a measurement's name. gen-trace omits them entirely at 0.
-PROBE_WEIGHT="${PROBE_WEIGHT:-0}"
+[ -n "$IV_NO_LOAD" ] || PROBE_WEIGHT="${PROBE_WEIGHT:-0}"
 # The instrument-validation study's trace length is its arm's, so it gets no run-wide default.
 #
 # The matrix refuses a non-empty DURATION_MS beside that study, and this default would hand it one.
@@ -419,7 +430,7 @@ elif [ -n "$SWEEP" ]; then
   say "load   a sweep, ${DURATION_MS}ms per cell: latency-critical held at ${PREMIUM_RATE}/s, best-effort at $SWEEP /s"
   say "       independent arrivals, so each repetition offers the latency-critical tenant one schedule at every level"
 elif iv_is_study "${STUDY:-}"; then
-  say "load   rate ${RATE}/s, the trace length per arm ($(for _a in $ARMS; do printf '%s=%sms ' "$_a" "$(iv_duration_ms "$_a")"; done)), weights premium=$PREMIUM_WEIGHT noisy=$NOISY_WEIGHT probe=$PROBE_WEIGHT"
+  say "load   none -- registered episodes, one tenant; the trace length per arm ($(for _a in $ARMS; do printf '%s=%sms ' "$_a" "$(iv_duration_ms "$_a")"; done))"
 else
   say "load   rate ${RATE}/s, ${DURATION_MS}ms, weights premium=$PREMIUM_WEIGHT noisy=$NOISY_WEIGHT probe=$PROBE_WEIGHT"
   say "       (carried from the whole-card run; the pilot's job is to re-derive them for a half-card engine)"

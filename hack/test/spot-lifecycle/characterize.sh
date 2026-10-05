@@ -580,6 +580,18 @@ scenarios_m5c_gpu_session() {
     STUB_PRESENT_KEYS="evidence.tgz log.txt commit.txt nodes.txt preflight-nvidia-smi.csv preflight-node-cards.txt" \
     run_scenario pilot bash "$TARGET"
 
+  # The instrument-validation study end to end: no load variable reaches the instance, and every arm comes back.
+  #
+  # The plan check calls the matrix directly, so it never saw this script's load defaults; a RATE of 9.85
+  # written into user-data would have been refused by the matrix on the paid instance. Pinned here, where the
+  # user-data the instance would receive is recorded.
+  REPS=1 REQUIRE_CLEAN_TREE=0 STUB_BUCKET_EXISTS=1 STUB_PROFILE_EXISTS=1 STUB_DONE_AFTER=2 \
+    STUDY=instrument-validation-2026-10-05 \
+    ARMS="serial-log serial-nolog burst-log burst-nolog stagger-log stagger-nolog serial-async burst-async stagger-async" \
+    STUB_EVIDENCE_ARMS="serial-log serial-nolog burst-log burst-nolog stagger-log stagger-nolog serial-async burst-async stagger-async" \
+    STUB_PRESENT_KEYS="evidence.tgz log.txt commit.txt nodes.txt preflight-nvidia-smi.csv preflight-node-cards.txt" \
+    run_scenario instrument-validation bash "$TARGET"
+
   # A fresh account: the bucket and the profile are created, and the profile must carry GetObject because
   # this instance downloads the source archive and both binaries it was sent.
   REPS=1 REQUIRE_CLEAN_TREE=0 STUB_BUCKET_EXISTS=0 STUB_PROFILE_EXISTS=0 STUB_DONE_AFTER=2 \

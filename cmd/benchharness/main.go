@@ -349,6 +349,23 @@ func genTrace(args []string) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
+	out := traceOutputs{
+		seed: *seed, study: *study, arm: *arm, gatewayURL: *gatewayURL, model: *model, timeoutMs: *timeoutMs,
+		matchTol: *matchTol, longThreshold: *longThreshold, gatewaySHA: *gatewaySHA, tokenizerRev: *tokenizerRev,
+		gatewayImage: *gatewayImage, engineImage: *engineImage, traceOut: *traceOut, manifestOut: *manifestOut,
+	}
+
+	// An episode study's rows come from its registered settings, so none of the Poisson flags below has anything to configure.
+	if st, ok := bench.LookupStudy(*study); ok && st.Arrivals == bench.ArrivalsEpisodes {
+		explicit := map[string]bool{}
+		fs.Visit(func(f *flag.Flag) { explicit[f.Name] = true })
+		rows, err := episodeRows(st, *arm, *seed, *durationMs, explicit)
+		if err != nil {
+			return err
+		}
+		// The caps and lengths vary by episode, so the manifest leaves both per-tenant maps out rather than recording one value of several.
+		return writeTraceAndManifest(rows, out, nil)
+	}
 
 	// Two probe tenants that straddle the guard's eligibility threshold, four characters apart.
 	//
@@ -416,22 +433,72 @@ func genTrace(args []string) error {
 		}
 		rows = premiumOnly
 	}
+	return writeTraceAndManifest(rows, out, map[string]int{bench.PremiumTenant: *premiumOut, bench.NoisyTenant: *noisyOut})
+}
 
+// poissonOnlyFlags are the gen-trace flags that shape a Poisson trace and mean nothing to an episode trace.
+var poissonOnlyFlags = []string{
+	"rate", "premium-prompt-chars", "noisy-prompt-chars", "premium-output-tokens", "noisy-output-tokens",
+	"premium-weight", "noisy-weight", "probe-weight", "probe-under-chars", "probe-over-chars",
+	"premium-rate", "noisy-rate", "probe-rate",
+}
+
+// episodeRows builds an episode study's trace from the arm's episode type and the seed alone.
+//
+// The Poisson flags are refused rather than ignored, because a caller who passed a rate believes it shaped the trace.
+// --duration-ms must be passed, because its default is a Poisson window that no three-cycle trace fits and a refusal naming that default would send the reader looking for the wrong mistake.
+func episodeRows(st bench.Study, arm string, seed, durationMs int64, passed map[string]bool) ([]bench.TraceRow, error) {
+	for _, name := range poissonOnlyFlags {
+		if passed[name] {
+			return nil, fmt.Errorf("study %s registered %s arrivals and --%s configures a Poisson trace; its lengths, caps and spacing are the registration's", st.ID, st.Arrivals, name)
+		}
+	}
+	if !passed["duration-ms"] {
+		return nil, fmt.Errorf("study %s needs --duration-ms: the trace is %d complete cycles, and the default is a Poisson window", st.ID, bench.EpisodeCycles)
+	}
+	episode, ok := bench.InstrumentValidationEpisode(arm)
+	if !ok || !st.Admits(arm) {
+		return nil, fmt.Errorf("arm %q is not one of study %s's arms (%s)", arm, st.ID, strings.Join(st.Arms, ", "))
+	}
+	rows, err := bench.GenerateEpisodeTrace(bench.EpisodeTraceParams{Seed: seed, DurationMs: durationMs, Type: episode})
+	if err != nil {
+		return nil, fmt.Errorf("generate %s episodes: %w", episode, err)
+	}
+	return rows, nil
+}
+
+// traceOutputs are the gen-trace flags that only reach the written files, shared by both arrival paths.
+type traceOutputs struct {
+	seed                                             int64
+	study, arm, gatewayURL, model                    string
+	timeoutMs, longThreshold                         int
+	matchTol, gatewaySHA, tokenizerRev               string
+	gatewayImage, engineImage, traceOut, manifestOut string
+}
+
+// writeTraceAndManifest writes the trace and a manifest pinning its checksum.
+//
+// maxOutputTokens is nil for a trace whose caps vary by row, and so is the per-tenant prompt length, since either map would record one of several values as if it were the only one.
+func writeTraceAndManifest(rows []bench.TraceRow, o traceOutputs, maxOutputTokens map[string]int) error {
 	var traceBuf strings.Builder
 	if err := bench.WriteTrace(&traceBuf, rows); err != nil {
 		return fmt.Errorf("serialize trace: %w", err)
 	}
 	traceBytes := []byte(traceBuf.String())
-	if err := os.WriteFile(*traceOut, traceBytes, 0o600); err != nil {
-		return fmt.Errorf("write trace %s: %w", *traceOut, err)
+	if err := os.WriteFile(o.traceOut, traceBytes, 0o600); err != nil {
+		return fmt.Errorf("write trace %s: %w", o.traceOut, err)
+	}
+	var promptLenChars map[string]int
+	if maxOutputTokens != nil {
+		promptLenChars = bench.PromptLenCharsByTenant(rows)
 	}
 
 	m := bench.RunManifest{
 		SchemaVersion:   "v2",
 		PromptCorpusSHA: bench.PromptCorpusSHA256,
-		Study:           *study,
-		Arm:             *arm,
-		GatewayURL:      *gatewayURL,
+		Study:           o.study,
+		Arm:             o.arm,
+		GatewayURL:      o.gatewayURL,
 		// Relative to the MANIFEST, not to the working directory.
 		//
 		// LoadManifest resolves a relative TracePath against the manifest's own directory, which is what
@@ -443,25 +510,25 @@ func genTrace(args []string) error {
 		//
 		// The paid run failed on its first replay because of it. Storing the path the loader expects keeps
 		// the manifest movable, which is the point of recording a checksum beside it.
-		TracePath:     traceRefFor(*manifestOut, *traceOut),
+		TracePath:     traceRefFor(o.manifestOut, o.traceOut),
 		TraceChecksum: bench.Checksum(traceBytes),
-		Model:         *model,
-		TimeoutMs:     *timeoutMs,
+		Model:         o.model,
+		TimeoutMs:     o.timeoutMs,
 		// What that number bounds, from the constant rather than a literal: the sender's deadline covers
 		// the whole request including the stream, so a reader cannot take timeoutMs for a first-token budget.
 		TimeoutScope:    bench.TimeoutScopeWholeRequest,
-		Seed:            *seed,
+		Seed:            o.seed,
 		PrimaryEndpoint: "ttft_p99",
-		MatchTolerance:  *matchTol,
-		LongThreshold:   *longThreshold,
-		GatewaySHA:      *gatewaySHA,
-		TokenizerRev:    *tokenizerRev,
-		PromptLenChars:  bench.PromptLenCharsByTenant(rows),
-		MaxOutputTokens: map[string]int{bench.PremiumTenant: *premiumOut, bench.NoisyTenant: *noisyOut},
+		MatchTolerance:  o.matchTol,
+		LongThreshold:   o.longThreshold,
+		GatewaySHA:      o.gatewaySHA,
+		TokenizerRev:    o.tokenizerRev,
+		PromptLenChars:  promptLenChars,
+		MaxOutputTokens: maxOutputTokens,
 	}
 	// Only set the map when something was supplied, so a free run's manifest carries no empty scaffolding
 	// that could later be mistaken for a recorded value.
-	for role, ref := range map[string]string{"gateway": *gatewayImage, "engine": *engineImage} {
+	for role, ref := range map[string]string{"gateway": o.gatewayImage, "engine": o.engineImage} {
 		if ref == "" {
 			continue
 		}
@@ -470,10 +537,10 @@ func genTrace(args []string) error {
 		}
 		m.ImageDigests[role] = ref
 	}
-	if err := writeManifest(*manifestOut, m); err != nil {
+	if err := writeManifest(o.manifestOut, m); err != nil {
 		return err
 	}
-	fmt.Printf("wrote %d trace rows to %s and manifest %s (arm=%s)\n", len(rows), *traceOut, *manifestOut, *arm)
+	fmt.Printf("wrote %d trace rows to %s and manifest %s (arm=%s)\n", len(rows), o.traceOut, o.manifestOut, o.arm)
 	return nil
 }
 
