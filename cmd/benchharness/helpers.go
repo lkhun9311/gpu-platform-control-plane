@@ -322,12 +322,12 @@ func (l *stubIterLog) request(bodyBytes int64, tokens int) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	ctx := max(bodyBytes/4, 1)
-	fmt.Fprintf(l.out, "INFO stub [loggers.py:182] Iteration(%d): 1 context requests, %d context tokens, "+
+	_, _ = fmt.Fprintf(l.out, "INFO stub [loggers.py:182] Iteration(%d): 1 context requests, %d context tokens, "+
 		"0 generation requests, 0 generation tokens, iteration elapsed time: 1.00 ms, GPU KV cache usage: 0.1%%\n",
 		l.index, ctx)
 	l.index++
 	for range max(tokens-1, 0) {
-		fmt.Fprintf(l.out, "INFO stub [loggers.py:182] Iteration(%d): 0 context requests, 0 context tokens, "+
+		_, _ = fmt.Fprintf(l.out, "INFO stub [loggers.py:182] Iteration(%d): 0 context requests, 0 context tokens, "+
 			"1 generation requests, 1 generation tokens, iteration elapsed time: 1.00 ms, GPU KV cache usage: 0.1%%\n",
 			l.index)
 		l.index++

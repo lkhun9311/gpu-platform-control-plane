@@ -264,7 +264,7 @@ func InstrumentValidationArm(t EpisodeType, mode string) string {
 
 // instrumentValidationArms lists the six sync cells by episode type and then the three async cells, the order the registration buys them.
 func instrumentValidationArms() []string {
-	var arms []string
+	arms := make([]string, 0, 3*len(EpisodeTypes))
 	for _, t := range EpisodeTypes {
 		arms = append(arms, InstrumentValidationArm(t, instrumentModeLog), InstrumentValidationArm(t, instrumentModeNoLog))
 	}

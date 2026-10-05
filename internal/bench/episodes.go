@@ -20,7 +20,6 @@ import (
 	"fmt"
 	"math/rand/v2"
 	"slices"
-	"sort"
 	"strings"
 )
 
@@ -460,31 +459,20 @@ func episodeRows(p EpisodeTraceParams, plan []plannedRequest, span int64, what s
 	return rows, nil
 }
 
-// EpisodeTraceRefusal says whether a measured trace is one this study's episode type registration can score.
+// checkEpisodeRows refuses a row no episode type of the design could have produced, and maps prompt characters to tokens.
 //
-// The tail studies' sample floors do not apply: the estimands here are per-episode timings, not a p99, and a trace is complete when it holds its cycles.
-// The checks are ordered from the most basic to the most specific, so a refusal names the first thing wrong rather than a consequence of it.
-func EpisodeTraceRefusal(study string, t EpisodeType, rows []TraceRow) error {
-	d, ok := designFor(study)
-	if !ok {
-		return fmt.Errorf("study %q registers no episodes", study)
-	}
-	want, cycle, err := d.expectedCounts(t)
-	if err != nil {
-		return err
-	}
+// Lengths and caps are checked against the UNION of the three types first.
+// A value no type registers is a malformed trace, and a value another type registers is a trace built for a different arm; the two are named differently because they are fixed differently.
+func (d episodeDesign) checkEpisodeRows(rows []TraceRow) (map[int]int, error) {
 	if len(rows) == 0 {
-		return fmt.Errorf("the trace has no rows, so there is nothing to replay and nothing to attribute")
+		return nil, fmt.Errorf("the trace has no rows, so there is nothing to replay and nothing to attribute")
 	}
 	for _, r := range rows {
 		if r.Tenant != PremiumTenant || r.IsNoisy {
-			return fmt.Errorf("row %d is tenant %q (isNoisy=%v) and the study is single-tenant %s with no contender; any other request would share the engine's steps and break attribution by order",
+			return nil, fmt.Errorf("row %d is tenant %q (isNoisy=%v) and the study is single-tenant %s with no contender; any other request would share the engine's steps and break attribution by order",
 				r.Index, r.Tenant, r.IsNoisy, PremiumTenant)
 		}
 	}
-
-	// Lengths and caps are checked against the UNION of the three types first.
-	// A value no type registers is a malformed trace, and a value another type registers is a trace built for a different arm; the two are named differently because they are fixed differently.
 	tokensOf := map[int]int{}
 	anyCap := map[int]bool{}
 	for _, et := range EpisodeTypes {
@@ -500,11 +488,31 @@ func EpisodeTraceRefusal(study string, t EpisodeType, rows []TraceRow) error {
 	}
 	for _, r := range rows {
 		if _, ok := tokensOf[r.PromptLenChars]; !ok {
-			return fmt.Errorf("row %d carries %d prompt characters, which is no registered input length's measured resolution", r.Index, r.PromptLenChars)
+			return nil, fmt.Errorf("row %d carries %d prompt characters, which is no registered input length's measured resolution", r.Index, r.PromptLenChars)
 		}
 		if !anyCap[r.MaxOutputTokens] {
-			return fmt.Errorf("row %d carries output cap %d, which no episode type registers", r.Index, r.MaxOutputTokens)
+			return nil, fmt.Errorf("row %d carries output cap %d, which no episode type registers", r.Index, r.MaxOutputTokens)
 		}
+	}
+	return tokensOf, nil
+}
+
+// EpisodeTraceRefusal says whether a measured trace is one this study's episode type registration can score.
+//
+// The tail studies' sample floors do not apply: the estimands here are per-episode timings, not a p99, and a trace is complete when it holds its cycles.
+// The checks are ordered from the most basic to the most specific, so a refusal names the first thing wrong rather than a consequence of it.
+func EpisodeTraceRefusal(study string, t EpisodeType, rows []TraceRow) error {
+	d, ok := designFor(study)
+	if !ok {
+		return fmt.Errorf("study %q registers no episodes", study)
+	}
+	want, cycle, err := d.expectedCounts(t)
+	if err != nil {
+		return err
+	}
+	tokensOf, err := d.checkEpisodeRows(rows)
+	if err != nil {
+		return err
 	}
 
 	// Reassemble episodes from the rows and count each registered setting.
@@ -518,7 +526,7 @@ func EpisodeTraceRefusal(study string, t EpisodeType, rows []TraceRow) error {
 		}
 		byOffset[r.OffsetMs] = append(byOffset[r.OffsetMs], r)
 	}
-	sort.Slice(offsets, func(i, j int) bool { return offsets[i] < offsets[j] })
+	slices.Sort(offsets)
 	// The spacing is checked here, not only in the generator, because this is what a trace is bought against.
 	// A review found a serial trace with its offsets rewritten to 0-53 ms reported as three complete cycles: the
 	// contents were all there, and the episodes would have overlapped on the card and failed the evaluator's

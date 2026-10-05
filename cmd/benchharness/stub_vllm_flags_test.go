@@ -91,7 +91,7 @@ func TestStubReportsPromptTokensForMeasuredLengths(t *testing.T) {
 			t.Fatal(err)
 		}
 		out, _ := io.ReadAll(resp.Body)
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		if !strings.Contains(string(out), c.want) || !strings.HasSuffix(string(out), "data: [DONE]\n\n") {
 			t.Errorf("%d characters: the stream does not end with a usage chunk carrying %s: %q", c.chars, c.want, out)
 		}
