@@ -169,6 +169,59 @@ def gate_i5(cells):
     return worst[0] <= STABILITY, f"I5 stability: worst first-to-last drift {worst[0]:.4f} at {worst[1]}"
 
 
+def segment(iters, episodes):
+    """Assign a drained cell's steps to its episodes, in order, by the context tokens each episode must schedule.
+
+    The log has no request ids, so the only join is arithmetic: episode e schedules exactly sum(input tokens)
+    context tokens, and because the engine is drained between episodes no step can carry two episodes' work.
+    """
+    out, i = [], 0
+    for ep in episodes:
+        need, mine = sum(q["input_tokens"] for q in ep), []
+        while i < len(iters) and (need > 0 or iters[i]["ctx_tokens"] == 0):
+            s = iters[i]
+            if s["ctx_tokens"] > need:
+                raise Refusal(f"iteration {s['index']} schedules {s['ctx_tokens']} context tokens and the episode "
+                              f"has {need} left: two episodes overlap, so the cell was not drained")
+            need -= s["ctx_tokens"]
+            mine.append(s)
+            i += 1
+        if need:
+            raise Refusal(f"the log ends with {need} context tokens of an episode unscheduled")
+        out.append(mine)
+    if i != len(iters):
+        raise Refusal(f"{len(iters) - i} iteration(s) after the last episode belong to nothing in the trace")
+    return out
+
+
+def context_effect(run):
+    """I4, published: mean elapsed of pure decode steps at the same decoder count, short context against long."""
+    by = {}
+    for b in BLOCKS:
+        reqs = load_cell(run, "burst-log", b)
+        groups = []
+        for q in reqs:
+            if groups and groups[-1][0]["offset"] == q["offset"]:
+                groups[-1].append(q)
+            else:
+                groups.append([q])
+        iters = iterlog.parse(open(os.path.join(run, f"engine-log-burst-log-{b}.txt")))
+        for ep, steps in zip(groups, segment(iters, groups)):
+            n, L = len(ep), ep[0]["input_tokens"]
+            by.setdefault((n, L), []).extend(s["elapsed_ms"] for s in steps
+                                             if s["ctx_tokens"] == 0 and s["gen_reqs"] == n)
+    lines = []
+    for n in sorted({n for n, _ in by}):
+        lens = sorted(L for m, L in by if m == n and by[(m, L)])
+        if len(lens) < 2:
+            continue
+        lo, hi = statistics.fmean(by[(n, lens[0])]), statistics.fmean(by[(n, lens[-1])])
+        lines.append(f"I4 context (published): {n} decoders, mean decode step {lo:.3f} ms at {lens[0]} tokens and "
+                     f"{hi:.3f} ms at {lens[-1]}, {hi / lo - 1:+.2%}"
+                     + ("; beyond 5%, the timing family needs a context term" if abs(hi / lo - 1) > 0.05 else ""))
+    return lines
+
+
 def evaluate(run, rng=None):
     rng = rng or random.Random(20261005)
     cells = {}
@@ -188,7 +241,7 @@ def evaluate(run, rng=None):
     ok, line = gate_i5(cells)
     verdicts["I5"] = [ok]
     lines.append(line)
-    lines.append("I4 context: not computed by this script; it is published from the burst logs, not gated")
+    lines += context_effect(run)
     passed = all(all(v) for v in verdicts.values())
     lines.append("PASS: I1, I2, I3 and I5 hold" if passed else
                  "FAIL: " + ", ".join(k for k, v in verdicts.items() if not all(v)))
@@ -212,8 +265,11 @@ def _write_cell(run, arm, rep, reqs, log_lines, preempt=0):
             f.write(f'vllm:num_preemptions_total{{engine="0"}} {v}\n')
 
 
-def _synthetic_run(run, overhead=0.0, seed=7):
-    """Nine paired cells whose truth is known: the logging-on cells are slower by the factor (1 + overhead)."""
+def _synthetic_run(run, overhead=0.0, seed=7, context=0.0):
+    """Nine paired cells whose truth is known: the logging-on cells are slower by the factor (1 + overhead).
+
+    A burst's decode steps are slower by the factor (1 + context * L / 8192), so I4 has a known effect to find.
+    """
     rng = random.Random(seed)
     for kind in TYPES:
         for suffix in ("log", "nolog"):
@@ -224,7 +280,7 @@ def _synthetic_run(run, overhead=0.0, seed=7):
                     if kind == "serial":
                         eps = [[(L, c)] for L in (256, 2048, 8192) for c in (1, 16)]
                     elif kind == "burst":
-                        eps = [[(L, 16)] * n for n in (1, 4) for L in (256, 2048)]
+                        eps = [[(L, 16)] * n for n in (1, 4) for L in (256, 8192)]
                     else:
                         eps = [[(c, 128)] * n + [(p, 16)] for n in (1, 4) for c in (256, 8192) for p in (256, 8192)]
                     for ep in eps:
@@ -234,16 +290,27 @@ def _synthetic_run(run, overhead=0.0, seed=7):
                                 k = math.ceil(L / 2048)
                                 noise = 1 + rng.gauss(0, 0.002)
                                 ctx = [10.0 * scale * noise * min(2048, L - j2 * 2048) / 2048 for j2 in range(k)]
-                                for j2, ms in enumerate(ctx):
-                                    lines.append(iterlog._line(it, 1, min(2048, L - j2 * 2048), 0, 0, ms)); it += 1
-                                for _ in range(c - 1):
-                                    lines.append(iterlog._line(it, 0, 0, 1, 1, 13.3 * scale * noise)); it += 1
+                                if kind != "burst":
+                                    for j2, ms in enumerate(ctx):
+                                        lines.append(iterlog._line(it, 1, min(2048, L - j2 * 2048), 0, 0, ms)); it += 1
+                                    for _ in range(c - 1):
+                                        lines.append(iterlog._line(it, 0, 0, 1, 1, 13.3 * scale * noise)); it += 1
                                 ttft = 6.0 + sum(ctx) + 1.5 * k
                                 send = t + (200 if j else 0)
                                 reqs.append(dict(index=idx, offset=round(send), cap=c, input_tokens=L, output_tokens=c,
                                                  send=send, first=send + ttft,
                                                  end=send + ttft + (c - 1) * (13.3 * scale * noise + 1.5)))
                                 idx += 1
+                        if kind == "burst":
+                            n, (L, c) = len(ep), ep[0]
+                            left = n * L
+                            while left:
+                                chunk = min(2048, left)
+                                lines.append(iterlog._line(it, 1, chunk, 0, 0, 10.0 * scale * chunk / 2048)); it += 1
+                                left -= chunk
+                            for _ in range(c - 1):
+                                ms = 13.3 * scale * (1 + context * L / 8192) * (1 + rng.gauss(0, 0.002))
+                                lines.append(iterlog._line(it, 0, 0, n, n, ms)); it += 1
                         t += 10_000
                 _write_cell(run, f"{kind}-{suffix}", b, reqs, lines)
 
@@ -256,6 +323,30 @@ def self_test():
         print("\n".join(lines))
         assert passed, "a null overhead failed"
         print("ok: no overhead -> PASS")
+        assert not any("context term" in l for l in lines), lines
+    with tempfile.TemporaryDirectory() as run:
+        _synthetic_run(run, context=0.10)
+        passed, lines = evaluate(run)
+        i4 = [l for l in lines if l.startswith("I4")]
+        # The truth is 1.10 / (1 + 0.10 * 256 / 8192) - 1 = +9.66%, not +10%: the short context carries a little too.
+        assert i4 and all(("+9.6" in l or "+9.7" in l) and "context term" in l for l in i4), i4
+        print(f"ok: a 10% context effect is published: {i4[-1]}")
+    with tempfile.TemporaryDirectory() as run:
+        _synthetic_run(run)
+        path = os.path.join(run, "engine-log-burst-log-2.txt")
+        ls = open(path).read().splitlines()
+        ls = [l.replace("1 context requests, 2048 context tokens", "1 context requests, 2304 context tokens", 1)
+              if "2048 context tokens" in l else l for l in ls]
+        with open(path, "w") as f:
+            f.write("\n".join(ls) + "\n")
+        try:
+            evaluate(run)
+            raise AssertionError("a step spanning two episodes was accepted")
+        except Refusal as e:
+            # The overlap refusal itself, by its words: without the check the walk overruns and a later refusal
+            # ("the log ends with -1024 context tokens") fires instead, which kept this test green with no check.
+            assert "two episodes overlap" in str(e), e
+            print(f"ok: refuses a step spanning two burst episodes -- {e}")
     with tempfile.TemporaryDirectory() as run:
         _synthetic_run(run, overhead=0.04)
         passed, lines = evaluate(run)
