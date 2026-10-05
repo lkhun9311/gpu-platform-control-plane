@@ -1,11 +1,17 @@
 package main
 
 import (
+	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/lkhun9311/gpu-mlops-platform-control-plane/internal/bench"
 )
 
 // The stub's vLLM-style output is held to the real readers, not to a copy of their patterns.
@@ -63,5 +69,31 @@ func TestStubNonDefaultArgsSatisfyTheHarness(t *testing.T) {
 	cmd.Dir = "../.."
 	if out, err := cmd.CombinedOutput(); err == nil {
 		t.Errorf("the harness accepted a -log arm whose engine reported no iteration logging: %s", out)
+	}
+}
+
+// In vLLM mode the stub ends each stream with a usage chunk, and a prompt of a measured length reports that
+// length's token count, so session 2's warm-up check can pass on a stub the way it passes on the engine.
+func TestStubReportsPromptTokensForMeasuredLengths(t *testing.T) {
+	res, ok := bench.ResolveInputTokens(2048)
+	if !ok {
+		t.Fatal("2,048 tokens is not in the measured table")
+	}
+	srv := httptest.NewServer(stubMux(stubProfile{tokens: 2, usage: true}, newStubStats()))
+	defer srv.Close()
+	for _, c := range []struct {
+		chars int
+		want  string
+	}{{res.Chars, `"prompt_tokens":2048`}, {400, `"prompt_tokens":100`}} {
+		body := fmt.Sprintf(`{"messages":[{"role":"user","content":%q}],"stream":true}`, strings.Repeat("a", c.chars))
+		resp, err := http.Post(srv.URL+"/v1/chat/completions", "application/json", strings.NewReader(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		out, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if !strings.Contains(string(out), c.want) || !strings.HasSuffix(string(out), "data: [DONE]\n\n") {
+			t.Errorf("%d characters: the stream does not end with a usage chunk carrying %s: %q", c.chars, c.want, out)
+		}
 	}
 }

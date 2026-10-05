@@ -271,6 +271,25 @@ type stubProfile struct {
 	metrics bool
 	// iterLog, when set, prints vLLM v0.27.1's per-iteration log lines for every request the stub serves.
 	iterLog *stubIterLog
+	// usage, when set, ends each stream with the usage chunk vLLM sends for stream_options.include_usage.
+	//
+	// The replay records its prompt_tokens as engineInputTokens, and session 2's warm-up check refuses a cell whose
+	// verification requests are not 2,048-token requests; a stub that sent no usage chunk made every rehearsal
+	// cell read 0 tokens and refused it, so the check's passing path could not be rehearsed.
+	usage bool
+}
+
+// stubPromptTokens is the token count a stub reports for a prompt of n characters.
+//
+// The stub has no tokenizer, so it inverts the measured table in internal/bench: a prompt whose length is one the
+// table resolved reports that count exactly, as the served engine would, and any other length a rough n/4.
+func stubPromptTokens(n int) int {
+	for _, t := range bench.ResolvedInputTokenCounts() {
+		if r, ok := bench.ResolveInputTokens(t); ok && r.Chars == n {
+			return t
+		}
+	}
+	return max(n/4, 1)
 }
 
 // stubNonDefaultArgs is the startup line vLLM prints, carrying the keys the instrument-validation harness reads.
@@ -489,6 +508,7 @@ func stubServe(args []string) error {
 	if *iterDetails {
 		profile.iterLog = &stubIterLog{out: os.Stdout}
 	}
+	profile.usage = *port > 0
 	mux := stubMux(profile, stats)
 	fmt.Printf("stub backend listening on %s (tokens=%d ttft=%s itl=%s readyAfter=%s)\n", *addr, profile.tokens, profile.ttft, profile.itl, profile.readyAfter)
 	srv := &http.Server{
@@ -545,6 +565,21 @@ func stubMux(profile stubProfile, stats *stubStats) *http.ServeMux {
 			f.Flush()
 			return true
 		}
+		promptTokens := 0
+		if profile.usage {
+			var body struct {
+				Messages []struct {
+					Content string `json:"content"`
+				} `json:"messages"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				http.Error(w, "unreadable request body: "+err.Error(), http.StatusBadRequest)
+				return
+			}
+			for _, m := range body.Messages {
+				promptTokens += stubPromptTokens(len([]rune(m.Content)))
+			}
+		}
 		if !wait(profile.ttft) {
 			return
 		}
@@ -558,6 +593,10 @@ func stubMux(profile stubProfile, stats *stubStats) *http.ServeMux {
 			if !emit("data: {\"choices\":[{\"delta\":{\"content\":\"x\"}}]}\n\n") {
 				return
 			}
+		}
+		if profile.usage && !emit(fmt.Sprintf("data: {\"choices\":[],\"usage\":{\"prompt_tokens\":%d,\"completion_tokens\":%d}}\n\n",
+			promptTokens, profile.tokens)) {
+			return
 		}
 		_ = emit("data: [DONE]\n\n")
 	})
