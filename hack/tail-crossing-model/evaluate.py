@@ -111,6 +111,13 @@ def main(short_dir, long_dir, s_b):
     sch_s, sch_l = schedules(short_dir), schedules(long_dir)
     if sorted(sch_s) != sorted(sch_l) or any(sch_s[r] != sch_l[r] for r in sch_s):
         sys.exit("NOT TESTED: the two stages' baselines offered different latency-critical schedules, so they are not paired draws")
+    # And the schedules checked must be the repetitions POOLED. Trace files alone said 1, 2 and 3 while one
+    # stage's third raw files were gone -- an independent review pooled 469 requests against 322 and this
+    # script certified them paired. Every arm of both stages must hold exactly the validated repetitions.
+    for name, arms in (("short", short), ("long", long_)):
+        for arm, reps in sorted(arms.items()):
+            if sorted(reps) != sorted(sch_s):
+                sys.exit(f"NOT TESTED: {name} {arm} pooled repetitions {sorted(reps)}, not the paired {sorted(sch_s)}")
     rates = rate_of(short_dir)
     if rates != rate_of(long_dir):
         sys.exit("the two stages swept different BE rates; the interaction is not defined")
