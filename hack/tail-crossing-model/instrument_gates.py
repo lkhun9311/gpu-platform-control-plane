@@ -50,6 +50,13 @@ def settings(kind, reqs):
     Episodes are recovered from the trace's offsets, because that is what the generator controls: a serial episode
     is one row, a burst is the rows sharing an offset, and a staggered episode is a set of decoders sharing an offset
     followed by one prefill row with a smaller output cap.
+
+    A request's role inside a burst, or among a stagger's decoders, is its rank by TTFT within its episode.
+    The requests of one burst are not alike: the sixteenth of a 16 x 8,192 burst waits for fifteen prompts, and the
+    engine, not the trace, decides which request that is. Pooled as one setting, a bootstrap that resamples them
+    moves the median between positions, and with no overhead at all I1's burst interval was +/-14% (reproduced
+    2026-10-05 after the fit code's author reported it, before any burst cell of the paid run was read). Ranked, a
+    setting holds one value per cycle, as a serial setting does.
     """
     groups = []
     for q in reqs:
@@ -60,8 +67,8 @@ def settings(kind, reqs):
     keyed = []
     if kind in ("serial", "burst"):
         for g in groups:
-            for q in g:
-                keyed.append(((len(g), q["input_tokens"], q["cap"]), q))
+            for rank, q in enumerate(sorted(g, key=lambda q: q["ttft_ms"])):
+                keyed.append(((len(g), q["input_tokens"], q["cap"], rank), q))
         return keyed
     i = 0
     while i < len(groups):
@@ -70,7 +77,7 @@ def settings(kind, reqs):
             raise Refusal(f"staggered trace: the decoders at offset {dec[0]['offset']} ms have no prefill after them")
         pre = groups[i + 1][0]
         ep = (len(dec), dec[0]["input_tokens"], pre["input_tokens"])
-        keyed.extend(((ep + ("decoder",), q) for q in dec))
+        keyed.extend(((ep + ("decoder", rank), q) for rank, q in enumerate(sorted(dec, key=lambda q: q["ttft_ms"]))))
         keyed.append((ep + ("prefill",), pre))
         i += 2
     return keyed
@@ -325,8 +332,41 @@ def _synthetic_run(run, overhead=0.0, seed=7, context=0.0):
                 _write_cell(run, f"{kind}-{suffix}", b, reqs, lines)
 
 
+def _positional_bursts(run, seed=3):
+    """Make each burst's TTFT grow with the request's admission position, in an order the engine picks at random.
+
+    That is what a real burst does, and it is what the first I1 could not handle: with no overhead its burst interval
+    was +/-14%.
+    """
+    rng = random.Random(seed)
+    for suffix in ("log", "nolog"):
+        for b in BLOCKS:
+            offsets = {r["index"]: r["offsetMs"] for r in map(json.loads, open(os.path.join(run, f"trace-burst-{suffix}-{b}.jsonl")))}
+            path = os.path.join(run, f"raw-burst-{suffix}-{b}.jsonl")
+            raw = [json.loads(l) for l in open(path)]
+            groups = {}
+            for r in raw:
+                groups.setdefault(offsets[r["index"]], []).append(r)
+            for rs in groups.values():
+                rng.shuffle(rs)
+                for j, r in enumerate(rs):
+                    base = r["firstTokenUnixNanos"] - r["sendUnixNanos"]
+                    shift = int(base * (j + 1) * (1 + rng.gauss(0, 0.002))) - base
+                    r["firstTokenUnixNanos"] += shift
+                    r["endUnixNanos"] += shift
+            with open(path, "w") as f:
+                f.writelines(json.dumps(r) + "\n" for r in raw)
+
+
 def self_test():
     import tempfile
+    with tempfile.TemporaryDirectory() as run:
+        _synthetic_run(run)
+        _positional_bursts(run)
+        cells = {(f"burst-{x}", b): load_cell(run, f"burst-{x}", b) for x in ("log", "nolog") for b in BLOCKS}
+        ok, line = gate_i1(cells, "burst", "ttft", random.Random(1))
+        assert ok, line
+        print(f"ok: bursts whose TTFT grows with admission position, no overhead -> PASS: {line}")
     with tempfile.TemporaryDirectory() as run:
         _synthetic_run(run)
         passed, lines = evaluate(run)

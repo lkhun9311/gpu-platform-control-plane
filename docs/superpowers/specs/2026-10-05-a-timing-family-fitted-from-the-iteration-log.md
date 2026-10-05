@@ -51,3 +51,7 @@ step_ms = c + f(P) + d1·n + d2·n² + m·P·n + h·Σ pᵢ·Cᵢ  [+ k·K_d]
 | Coefficients | report zeros; bootstrap intervals | the same, and require the full nine-episode matrix | astra's |
 
 astra also found three defects in the fit code as written, each adopted: the clock used held-out serial episodes; the check compared pooled means only; and the fit did not require the instrument's verdict. The first two open questions were raised by the fit code's author, a Claude subagent, including the measured case in which the held-out bound misses a context term.
+
+## Amendment, 2026-10-05, before the fit is run — the intervals understate uncertainty
+
+The fit code's self-test at 1% step noise produced a `d1` interval of 0.141 to 0.148 around a true 0.15: six near-identical training episodes per setting make whole-episode resampling too narrow. The intervals are published as episode-resampling intervals, not as calibrated confidence intervals, and nothing in section 4's verdict rests on them. The self-test's real-gate case, which had pinned I1 failing on bursts, now runs the whole path through the real gates to a passing fit.
