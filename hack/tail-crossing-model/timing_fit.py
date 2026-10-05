@@ -211,11 +211,12 @@ def reconstruct(reqs, steps):
 
 
 def check_study(run, arm, b):
-    """Session 2 only: every row of the cell carries session 2's study, since study_of reads one cell's first row."""
+    """Sessions 2 and 3: every row of the cell carries the archive's study, since study_of reads one cell's first row."""
+    study = instrument_gates.study_of(run)
     with open(os.path.join(run, f"raw-{arm}-{b}.jsonl")) as f:
-        other = {json.loads(l).get("study", "") for l in f} - {instrument_gates.STUDY_S2}
+        other = {json.loads(l).get("study", "") for l in f} - {study}
     if other:
-        raise Refusal(f"{arm}-{b}: rows of study {sorted(other)} in a session-2 archive; one archive is one session")
+        raise Refusal(f"{arm}-{b}: rows of study {sorted(other)} in a {study} archive; one archive is one session")
 
 
 def load_episodes(run, s2=False):
@@ -641,7 +642,9 @@ def run_fit(run, flip_context=False, boot=BOOT, gates=None):
     if not passed:
         raise Refusal(f"the instrument gates do not pass on this archive ({gate_lines[-1]}), so there is no "
                       f"established quantity to fit")
-    s2 = instrument_gates.study_of(run) == instrument_gates.STUDY_S2
+    # Session 3 is session 2's design with fixed-length staggered decoders, so it takes every session-2 path.
+    study = instrument_gates.study_of(run)
+    s2 = study in instrument_gates.WARM_STUDIES
     # Session 1 keeps its own code path, argument for argument, so its output cannot move.
     design = registered_design(True) if s2 else None
     eps = load_episodes(run, s2)
@@ -654,7 +657,7 @@ def run_fit(run, flip_context=False, boot=BOOT, gates=None):
     nominal = fit(train, held, clk["b"], clk["b_prime"], context, "b", boot=boot, per_token=clk.get("c"), late_gate=s2)
     sensitivity = fit(train, held, clk["b"], clk["b_prime"], context, "b-prime", boot=boot, per_token=clk.get("c"),
                       late_gate=s2)
-    extra = dict(study=instrument_gates.STUDY_S2, unregistered=list(UNREGISTERED_S2)) if s2 else {}
+    extra = dict(study=study, unregistered=list(UNREGISTERED_S2)) if s2 else {}
     return dict(
         **extra,
         verdict=combine(nominal["verdict"], sensitivity["verdict"]),
@@ -1110,6 +1113,33 @@ def self_test_s2():
     """Session 2's paths: warm-up cut, per-study matrix, generalised hold-out and the frozen clock, each made to fire."""
     import hashlib
     import tempfile
+
+    # Session 3 takes session 2's paths: the same archive recorded under session 3's study fits to the same verdict,
+    # and a cell mixing the two studies is refused.
+    with tempfile.TemporaryDirectory() as run:
+        _synthetic_run_s2(run)
+        for name in os.listdir(run):
+            if name.startswith("raw-") and not name.startswith("raw-warmup-"):
+                path = os.path.join(run, name)
+                rows = [json.loads(l) for l in open(path)]
+                for r in rows:
+                    r["study"] = instrument_gates.STUDY_S3
+                with open(path, "w") as f:
+                    f.writelines(json.dumps(r) + "\n" for r in rows)
+        got = run_fit(run, boot=0, gates=_PASSED)
+        assert got["study"] == instrument_gates.STUDY_S3 and got["verdict"] in ("PASS", "UNRESOLVED"), got["verdict"]
+        print(f"ok: a session-3 archive takes session 2's paths -> {got['verdict']} under {got['study']}")
+        path = os.path.join(run, "raw-burst-log-2.jsonl")
+        rows = [json.loads(l) for l in open(path)]
+        rows[0]["study"] = instrument_gates.STUDY_S2
+        with open(path, "w") as f:
+            f.writelines(json.dumps(r) + "\n" for r in rows)
+        try:
+            run_fit(run, boot=0, gates=_PASSED)
+            raise AssertionError("a cell mixing two studies was accepted")
+        except Refusal as e:
+            assert "one archive is one session" in str(e), e
+            print(f"ok: refuses a session-3 archive with a session-2 row -- {e}")
 
     def refuses(what, fn, words):
         try:
