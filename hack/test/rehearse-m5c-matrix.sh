@@ -167,7 +167,7 @@ stub_engine_args() {
     printf '\n            - --addr=:8000\n            - --metrics'
     # IV=2 rehearses session 2, whose warm-up refuses a cell unless its verification requests take 231 ms +/- 5%.
     # The stub answers every request in that time, so the rehearsal drives W's passing path rather than its refusal.
-    case "${IV_UNDER_TEST:-}" in 2 | 3) printf '\n            - --ttft-ms=231' ;; esac
+    case "${IV_UNDER_TEST:-}" in 2 | 3 | 4) printf '\n            - --ttft-ms=231' ;; esac
     printf '\n            - --port=8000'
   else
     printf '["--addr=:8000", "--metrics"]'
@@ -246,6 +246,8 @@ case "$IV_UNDER_TEST" in
   2) IV_STUDY=instrument-validation-s2-2026-10-05 ;;
   # Session 3: session 2's path with the revision pins, which the stub reports back as vLLM does.
   3) IV_STUDY=instrument-validation-s3-2026-10-06 ;;
+  # Session 4: session 3's path with a conditioning request closing every warm-up.
+  4) IV_STUDY=instrument-validation-s4-2026-10-06 ;;
   *) IV_STUDY=instrument-validation-2026-10-05 ;;
 esac
 stub_engine_manifest vllm-qwen25-3b "$SRC/config/vllm/deployment.yaml"
@@ -508,13 +510,13 @@ if [ -n "$IV_UNDER_TEST" ]; then
       *) fail "$arm: the recorded process line does not show the arm's engine: ${proc:-nothing}" ;;
     esac
     [ -s "$OUT_DIR/raw-$arm-1.jsonl" ] || fail "$arm: no raw rows"
-    if [ "$IV_UNDER_TEST" = 3 ]; then
+    if [ "$IV_UNDER_TEST" = 3 ] || [ "$IV_UNDER_TEST" = 4 ]; then
       case "$proc" in
         *"'revision': '"*"'tokenizer_revision': '"*) ;;
         *) fail "$arm: session 3 pins the revision and the recorded process line does not report it: ${proc:-nothing}" ;;
       esac
     fi
-    if [ "$IV_UNDER_TEST" = 2 ] || [ "$IV_UNDER_TEST" = 3 ]; then
+    if [ "$IV_UNDER_TEST" = 2 ] || [ "$IV_UNDER_TEST" = 3 ] || [ "$IV_UNDER_TEST" = 4 ]; then
       # Session 2's warm-up, read by the evaluator's own functions: W on the verification requests, and the boundary
       # that separates warm-up iterations from measured ones in a logged cell.
       [ -s "$OUT_DIR/raw-warmup-$arm-1.jsonl" ] || fail "$arm: no warm-up rows"
