@@ -80,3 +80,28 @@ Mine: `z = x + w`, where `x` is drawn from the profiling isolated sample and `w 
 ## 8. What this cannot establish
 
 Anything about the card. The simulator's own uncontended latency is wrong between measured lengths, and the alternatives section 6 names are exactly the mechanisms it may be missing; this page can only say whether the card would be worth asking.
+
+## Result, 2026-10-05 — F fails G1 and G3; no card is bought
+
+`python3 hack/tail-crossing-model/queue_predictor.py`, run once at `e31d022` with the registered seeds and counts. F's predictions for all 288 profiles were written to disk before the first reference trace. **Disclosed:** before that run, a smoke test of the pipeline at toy scale (3 profiling, 20 forecast and 10 reference traces, 20 resamples — the reference seeds a subset of the registered ones) printed gate lines; nothing in F, the gates or the seeds was changed after it.
+
+Fitted effective work per arrival, seconds: `a_L` 0.0430 / 0.0775 / 0.1571 / 0.3090 / 0.5631 / 1.0716 for 256 … 8,192 tokens; `a_B` 0.2936 / 0.5397 / 0.9501 for 2,048 / 4,096 / 8,192.
+
+| Gate | Verdict | p95 error, unfavourable / favourable end |
+|---|---|---|
+| G1 overall | **FAIL** | 15.1% / 13.3% |
+| G2, 256 tokens | FAIL | 23.6% / 18.6% |
+| G2, 512 | FAIL | 15.2% / 14.5% |
+| G2, 1,024 | FAIL | 12.7% / 10.6% |
+| G2, 2,048 | FAIL | 13.7% / 12.4% |
+| G2, 4,096 | inconclusive | 10.5% / 8.1% |
+| G2, 8,192 | PASS | 8.1% / 5.1% |
+| G3 increment | **FAIL** | 72.3% / 57.7% |
+
+The secondary predictor F' (not gated) reached a 95th-percentile error of 27.4% with a median of 3.4%.
+
+**The registered consequence: no paid run.** F is far better than the nearest-neighbour predictor (15.1% against 33.7% at the 95th percentile) and is centred — its median signed error is between +0.6% and +3.0% under every factor level — but it is not sufficient at 10%, and it gets the contention increment badly wrong.
+
+**Diagnostic, after the verdict and not part of it.** The large errors are on the short latency-critical lengths and go both ways: F overstates the tail when the contender is short and rare (+24.2% at 256 tokens, `ρ_LC` 0.05, BE 2,048 at `ρ_B` 0.02), and understates it when the contender is long and frequent (−17.9% at 256 tokens, `ρ_LC` 0.45, BE 8,192 at `ρ_B` 0.10). The second is the mechanism stage 1 pointed at on the card: an in-progress long prefill takes the step's token budget first, so short prefills stretch across steps, which an additive amount of work per arrival cannot express. The registration named iteration-level state as the thing a failure would point to, and it does.
+
+**What this leaves.** No reduction tried so far — three summary sets, a structured queue — predicts the shared tail within 10% across the domain; the simulator itself does, on the card's own traces, within a few percent at the latency-critical rate this study held. Whether an admission controller should run that iteration-level simulator against its measured parameters, rather than apply a rule, is the question these results raise; it is not answered here.
