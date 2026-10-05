@@ -245,3 +245,30 @@ So: the gateway and the network are not where the tail is made (a few millisecon
 | `shared` | 3,995.4 ms | 1,087 ms | 3,595 ms |
 
 Section 3c recorded that the model explained "between a fifth and two thirds" of the shared tail. With the per-token cost solved from one isolated measurement and nothing else changed, it predicts 90% of it on the same trace. The rest of section 3c's gap was the difference between the model's traces and the one replayed. **What this does not establish:** that the model is right at loads it has not been checked at, which is what stages 2 and 3 test; and the remaining 10% is not attributed to anything.
+
+## Result, 2026-10-05 — stages 2 and 3: P1, P2's high side and P3 hold; P2's low side is falsified
+
+`m5c-20261004-164307` (stage 2, 256 tokens) and `m5c-20261004-164415` (stage 3, 8,192 tokens): fifteen cells each, `matrix exited 0`, archive accounting 98 of 98 with no class disagreeing, both instances confirmed terminated. Seeds 1, 2 and 3 in every cell of both stages, so every arm of both stages pooled the same 469 latency-critical requests. `benchharness report` and `hack/tail-crossing-model/evaluate.py` computed every percentile below independently from the raw rows and agree to the decimal.
+
+| BE req/s | 256: p95 | 256: p99 | 256: added p99 | 8,192: p99 | 8,192: added p99 | added p99, short − long |
+|---|---|---|---|---|---|---|
+| 0 (isolated) | 76.8 ms | 80.1 ms | — | 2,745.1 ms | — | — |
+| 0.0241 | 90.0 (1.17x) | 925.5 (11.56x) | +845.4 | 2,914.3 (1.06x) | +169.3 | +676.1 |
+| 0.0482 | 375.1 (4.88x) | 848.4 (10.59x) | +768.3 | 2,998.5 (1.09x) | +253.4 | +514.9 |
+| 0.0964 | 775.2 (10.09x) | 1,065.5 (13.30x) | +985.4 | 3,423.0 (1.25x) | +677.9 | +307.5 |
+| 0.1927 | 989.4 (12.88x) | 1,405.3 (17.55x) | +1,325.2 | 4,014.0 (1.46x) | +1,269.0 | +56.3 |
+
+**The registered tests, applied exactly as amended before either stage was bought:**
+
+| Test | Outcome |
+|---|---|
+| P1 — the short level's p99 multiple exceeds the long level's at every BE level | **Holds**, at all four levels |
+| P2, low side — at `λ*/2` = 0.0241 req/s the short level's pooled p95 within 10% of isolated | **Falsified**: +13.2 ms, 17.2% |
+| P2, high side — at `2λ*` and above, a rise of at least `S_B/4` (259 ms) | **Holds**: +698.4 ms at 0.0964 and +912.6 ms at 0.1927 |
+| P3 — the mean over the window (0.0241, 0.0482, 0.0964) of short added p99 − long added p99 is positive | **Holds**: +499.5 ms, positive at every point of the window |
+
+The first run of `evaluate.py` reported "no level" for P2's low side and a two-point P3 window: the grid was registered rounded to four decimals, which put 0.0241 just above `λ*/2` = 0.024092 and 0.0964 just above `10λ*₉₉` = 0.09637. The fix compares within the rounding's half-unit, which is what lets the registered roles of those two points apply; it is recorded here because a change to the evaluator after the data is exactly what a reader should be able to inspect, and it changed which points were tested, not any threshold.
+
+**The model, on every cell's own trace** (`measured` parameters, chosen from one isolated minimum before stage 2 was bought): the short level's pooled p99 is predicted within 2.0% at every BE level (914.6, 831.6, 1,070.1 and 1,398.7 ms against 925.5, 848.4, 1,065.5 and 1,405.3), and the long level's p99 within 3.6–5.6% at the baseline and every level, the model always low; the worst agreement anywhere is the long level's p95 at 0.1927 req/s, 7.7% low. The point where it is wrong is the point where P2 failed: at 0.0241 req/s the model puts the short level's p95 at 77.1 ms and the card at 90.0. Requests that arrive just after a best-effort prefill, delayed by the backlog it leaves rather than by the prefill itself, are a plausible reason the closed form's "only coinciding requests move" is too strict at the 95th percentile; it is not established here.
+
+**What the decision in section 1 gets.** Length is **not** a separate term in the sense that matters for the rule: what moved each level's tail is predicted, to within a few percent, by one quantity of the contender (`S_B`) and the victim's own isolated tail. A latency-critical tenant whose isolated tail is short compared with `S_B` crosses at very low contending load — one 8,192-token request every 41 seconds took the 256-token tenant's p99 from 80 to 926 ms — and one whose isolated tail is already comparable to `S_B` is hardly moved in multiples at the same load. A placement rule therefore needs the contender's prefill time and the victim's isolated tail, both of which the platform can observe, and not a prompt-length rule of its own. **What it does not establish:** one card, one engine build, one 3B model, two lengths, three traces per cell, and no interval — `Study.PublishesInterval` is false for these studies and none is presented.
