@@ -164,7 +164,11 @@ cp -r hack config "$SRC/" || fail "copy the tree"
 # does, by printing its non-default args. Every other mode keeps the flow-style list it always had.
 stub_engine_args() {
   if [ -n "${IV_UNDER_TEST:-}" ]; then
-    printf '\n            - --addr=:8000\n            - --metrics\n            - --port=8000'
+    printf '\n            - --addr=:8000\n            - --metrics'
+    # IV=2 rehearses session 2, whose warm-up refuses a cell unless its verification requests take 231 ms +/- 5%.
+    # The stub answers every request in that time, so the rehearsal drives W's passing path rather than its refusal.
+    [ "${IV_UNDER_TEST:-}" != 2 ] || printf '\n            - --ttft-ms=231'
+    printf '\n            - --port=8000'
   else
     printf '["--addr=:8000", "--metrics"]'
   fi
@@ -237,6 +241,11 @@ EOF
 }
 # Set before the manifests are written, because stub_engine_args reads it; empty in every other mode.
 IV_UNDER_TEST="${IV:-}"
+case "$IV_UNDER_TEST" in
+  '') ;;
+  2) IV_STUDY=instrument-validation-s2-2026-10-05 ;;
+  *) IV_STUDY=instrument-validation-2026-10-05 ;;
+esac
 stub_engine_manifest vllm-qwen25-3b "$SRC/config/vllm/deployment.yaml"
 : > "$SRC/config/vllm/service.yaml"   # the Service is in the file above; this one must stay applyable
 printf 'apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: m5c-rehearse-noop\ndata: {}\n' > "$SRC/config/vllm/service.yaml"
@@ -418,7 +427,7 @@ if [ -n "$IV_UNDER_TEST" ]; then
   ( cd "$SRC" && PLATFORM=kind KCTX="$KCTX" GPU_NODE="$GPU_NODE" \
       DEADLINE_EPOCH=$(( $(date +%s) + 3600 )) \
       GATEWAY_BIN="$WORK/gateway" BENCHHARNESS_BIN="$WORK/benchharness" \
-      ENGINE_PIN_WAIVED=1 STUDY=instrument-validation-2026-10-05 \
+      ENGINE_PIN_WAIVED=1 STUDY="$IV_STUDY" \
       REPS=1 ARMS="serial-log serial-nolog serial-async" OUT="$OUT_DIR" \
       CELL_DONE_HOOK="$WORK/cell-hook" CELL_HOOK_LOG="$CELL_HOOK_LOG" \
       bash hack/m5c-matrix.sh ) 2>&1 | tee "$WORK/matrix.log"
@@ -497,6 +506,18 @@ if [ -n "$IV_UNDER_TEST" ]; then
       *) fail "$arm: the recorded process line does not show the arm's engine: ${proc:-nothing}" ;;
     esac
     [ -s "$OUT_DIR/raw-$arm-1.jsonl" ] || fail "$arm: no raw rows"
+    if [ "$IV_UNDER_TEST" = 2 ]; then
+      # Session 2's warm-up, read by the evaluator's own functions: W on the verification requests, and the boundary
+      # that separates warm-up iterations from measured ones in a logged cell.
+      [ -s "$OUT_DIR/raw-warmup-$arm-1.jsonl" ] || fail "$arm: no warm-up rows"
+      [ -s "$OUT_DIR/warmup-boundary-$arm-1.txt" ] || fail "$arm: no warm-up boundary"
+      python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); import instrument_gates as g
+g.check_warmup(sys.argv[2], sys.argv[3], 1)
+if sys.argv[3].endswith("-log"):
+    m = g.measured_iters(sys.argv[2], sys.argv[3], 1, True)
+    print("measured iterations after the boundary:", len(m))' "$ROOT/hack/tail-crossing-model" "$OUT_DIR" "$arm" \
+        || fail "$arm: the evaluator refused its warm-up or boundary"
+    fi
     say "  $arm: engine log with $n iteration line(s); process line ${proc:0:120}"
   done
   say "REHEARSAL PASSED: the instrument-validation study ran serial-log, serial-nolog and serial-async end to end, each on its own engine."

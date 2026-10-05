@@ -379,15 +379,22 @@ def evaluate(run, rng=None):
     verdicts, lines = {}, []
     if s2:
         # W and S are refusals: a cell that was not warmed, or a staggered episode that was not the registered
-        # composition, is not measured, and the async controls are held to them as well.
+        # composition, is not measured.
+        # The async controls are held to them when present; the pre-purchase amendment dropped them from the
+        # session, and that every planned arm came back is the session script's check, not this one's.
+        asyncs = [f"{k}-async" for k in TYPES if os.path.exists(os.path.join(run, f"raw-{k}-async-1.jsonl"))]
         for kind in TYPES:
-            for suffix in ("log", "nolog", "async"):
-                for b in (BLOCKS if suffix != "async" else (1,)):
+            for suffix in ("log", "nolog"):
+                for b in BLOCKS:
                     check_warmup(run, f"{kind}-{suffix}", b)
-        for suffix in ("log", "nolog", "async"):
-            for b in (BLOCKS if suffix != "async" else (1,)):
+        for arm in asyncs:
+            check_warmup(run, arm, 1)
+        for suffix in ("log", "nolog"):
+            for b in BLOCKS:
                 check_stagger(load_cell(run, f"stagger-{suffix}", b), f"stagger-{suffix}", b)
-        lines.append("W warm-up and S staggered composition: every cell passes")
+        if "stagger-async" in asyncs:
+            check_stagger(load_cell(run, "stagger-async", 1), "stagger-async", 1)
+        lines.append(f"W warm-up and S staggered composition: every cell passes; async controls present: {asyncs or 'none'}")
     for kind in TYPES:
         for quantity in ("ttft", "itl"):
             mean = s2 and kind == "stagger" and quantity == "ttft"
@@ -520,11 +527,11 @@ def _positional_bursts(run, seed=3):
                 f.writelines(json.dumps(r) + "\n" for r in raw)
 
 
-def _s2_run(run, **kw):
+def _s2_run(run, asyncs=True, **kw):
     """A session-2 archive: the synthetic cells, with the async controls copied from each type's first unlogged cell."""
     import shutil
     _synthetic_run(run, s2=True, **kw)
-    for kind in TYPES:
+    for kind in (TYPES if asyncs else ()):
         for name in os.listdir(run):
             if f"{kind}-nolog-1" in name:
                 shutil.copy(os.path.join(run, name), os.path.join(run, name.replace(f"{kind}-nolog-1", f"{kind}-async-1")))
@@ -539,6 +546,11 @@ def self_test_s2():
         assert passed, "\n".join(lines)
         assert any("I3 frozen clock" in l for l in lines) and any(" prefill:" in l for l in lines), lines
         print("ok: session 2, an engine the frozen clock describes -> PASS, with the prefill role judged on its own")
+    with tempfile.TemporaryDirectory() as run:
+        _s2_run(run, asyncs=False)
+        passed, lines = evaluate(run)
+        assert passed and any("async controls present: none" in l for l in lines), lines
+        print("ok: session 2 without the async controls -> PASS, and the output says they are absent")
     with tempfile.TemporaryDirectory() as run:
         _s2_run(run, clock_c=3 * CLOCK_C)
         passed, lines = evaluate(run)
