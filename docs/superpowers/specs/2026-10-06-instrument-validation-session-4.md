@@ -36,3 +36,9 @@ The conditioning request was proposed by me and, independently, by astra, with W
 
 **Checked before launch.** Session 3's six traces at seed 11 hash as in its archive's manifests; session 4's warm-up is session 3's with one drained 2,048/16 request inserted before the verification requests; the matrix and the evaluator drop the warm-up's first and last three requests for gate S and refuse a warm-up of any other shape; the engine log is kept and uploaded on a warm-up refusal; the kind rehearsal (`IV=4`) passed.
 A refusal record (`cell-refused-*`) is uploaded per cell as well, a gap an independent review by codex `gpt-6-astra` found in the session-4 changes.
+
+## Result, 2026-10-06 — incomplete: the deadline projection stopped acquisition after one cell
+
+The session launched at `bb182ec` at about 06:50 KST and stopped at about 07:12 KST after its first cell. The cell passed W and its other checks; the matrix then projected the remaining seventeen cells at about 640 minutes against 639 left and stopped on the boundary, as it is built to: "STOPPING: 17 cells left at ~31 min each needs about 640 min, and the deadline fires in 639 min." The instance shut itself down and was confirmed terminated.
+
+**Why.** The first cell took 1,124 s: 487 s of replay, 89 s of warm-up and 548 s of cold start. The projection charges every remaining cell its replay, its warm-up and the observed overhead per cell so far — after one cell, the cold one — times 1.2. The pre-purchase amendment recorded that the margin after a serial first cell was about nine minutes; this cold start was slower than session 3's and used it up. A longer deadline cannot fix it: the backstop plus thirty minutes must fit in the 719 minutes SSO role credentials last, and the projection after this first cell needs more. **As registered, the session is incomplete and nothing is re-bought without a further registration.**
