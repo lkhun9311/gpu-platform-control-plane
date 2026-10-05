@@ -232,10 +232,12 @@ func TestARowWithoutAMinimumSendsTheOldBody(t *testing.T) {
 	}
 }
 
-// Replaying each session's traces, min_tokens reaches the engine on session 3's stagger decoders and on no other request.
+// Replaying each session's traces, min_tokens reaches the engine on the stagger decoders of sessions 3 and 4 and on no other request.
+// Session 4's conditioning request is a 2,048/16 row and so must not carry it either.
 func TestReplaySendsMinTokensOnlyForSessionThreeDecoders(t *testing.T) {
 	noSleep := func(context.Context, time.Time) {}
-	for _, study := range []string{StudyInstrumentValidationS2, StudyInstrumentValidationS3} {
+	for _, study := range []string{StudyInstrumentValidationS2, StudyInstrumentValidationS3, StudyInstrumentValidationS4} {
+		withDecoderMin := study != StudyInstrumentValidationS2
 		for _, et := range EpisodeTypes {
 			for _, warmup := range []bool{false, true} {
 				rows, _ := ivTraceBytes(t, study, et, 11, warmup)
@@ -257,7 +259,7 @@ func TestReplaySendsMinTokensOnlyForSessionThreeDecoders(t *testing.T) {
 					if err := json.Unmarshal(b, &body); err != nil {
 						t.Fatal(err)
 					}
-					decoder := study == StudyInstrumentValidationS3 && et == EpisodeStagger && string(body["max_tokens"]) == "512"
+					decoder := withDecoderMin && et == EpisodeStagger && string(body["max_tokens"]) == "512"
 					m, present := body["min_tokens"]
 					switch {
 					case decoder && (!present || string(m) != "512"):
@@ -269,7 +271,7 @@ func TestReplaySendsMinTokensOnlyForSessionThreeDecoders(t *testing.T) {
 						withMin++
 					}
 				}
-				if study == StudyInstrumentValidationS3 && et == EpisodeStagger && withMin == 0 {
+				if withDecoderMin && et == EpisodeStagger && withMin == 0 {
 					t.Errorf("%s %s warmup=%v: no request carried min_tokens", study, et, warmup)
 				}
 			}

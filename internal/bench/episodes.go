@@ -181,6 +181,9 @@ type episodeDesign struct {
 	// staggerDecodeMin is the minimum output every stagger decoder asks for, in the measured trace and the warm-up alike.
 	// Zero leaves the field off the rows, which is what keeps sessions 1 and 2 byte-identical.
 	staggerDecodeMin int
+	// warmupConditioning is how many unscored drained 2,048/16 requests the warm-up places between its cycle and its two verification requests.
+	// Zero adds no episode and so no draw, which is what keeps the warm-ups of sessions 2 and 3 byte-identical.
+	warmupConditioning int
 }
 
 var designS1 = episodeDesign{
@@ -219,6 +222,17 @@ var designS3 = func() episodeDesign {
 	return d
 }()
 
+// designS4 is session 3's design with one change, from section 1 of docs/superpowers/specs/2026-10-06-instrument-validation-session-4.md.
+// It is derived from designS3 for the same reason designS3 is derived from designS2: the one difference stays visible and an earlier edit cannot leave it behind.
+var designS4 = func() episodeDesign {
+	d := designS3
+	d.study = StudyInstrumentValidationS4
+	// Every staggered warm-up's first verification request was slow, and in session 3 gate W refused one at 267.2 ms after 22.4 s idle.
+	// One conditioning request absorbs that transient before the two requests W reads, so W itself stays unloosened.
+	d.warmupConditioning = 1
+	return d
+}()
+
 // designFor returns the episode design a study registers, and false for a study that replays no episodes.
 func designFor(study string) (episodeDesign, bool) {
 	switch study {
@@ -228,6 +242,8 @@ func designFor(study string) (episodeDesign, bool) {
 		return designS2, true
 	case StudyInstrumentValidationS3:
 		return designS3, true
+	case StudyInstrumentValidationS4:
+		return designS4, true
 	}
 	return episodeDesign{}, false
 }
@@ -372,8 +388,9 @@ func (d episodeDesign) plan(seed int64, t EpisodeType) ([]plannedRequest, int64,
 	return out, span, nil
 }
 
-// warmupPlan lays out section 2's warm-up: one drained warm request, one regular cycle of the type, then two drained verification requests.
+// warmupPlan lays out section 2's warm-up: one drained warm request, one regular cycle of the type, the design's conditioning requests, then two drained verification requests.
 // Its order and jitter come from their own streams, so the unscored cycle is not a rehearsal of the measured trace's first cycle in the same order.
+// A single-request episode draws from neither stream, so the conditioning requests leave the cycle's order and jitter where session 3 had them.
 func (d episodeDesign) warmupPlan(seed int64, t EpisodeType) ([]plannedRequest, int64, error) {
 	if !d.warmup {
 		return nil, 0, fmt.Errorf("study %s registers no warm-up trace; its cells replay the measured trace alone", d.study)
@@ -385,7 +402,11 @@ func (d episodeDesign) warmupPlan(seed int64, t EpisodeType) ([]plannedRequest, 
 	warm := []episodeSpec{homogeneous(1, warmupTokens, warmupCap)}
 	order := rand.New(rand.NewPCG(uint64(seed)^warmupStream, uint64(seed)))
 	jitter := rand.New(rand.NewPCG(uint64(seed)^warmupStream^jitterStream, uint64(seed)))
-	out, span := d.layOut(order, jitter, [][]episodeSpec{warm, full, warm, warm})
+	cycles := [][]episodeSpec{warm, full}
+	for range d.warmupConditioning {
+		cycles = append(cycles, warm)
+	}
+	out, span := d.layOut(order, jitter, append(cycles, warm, warm))
 	return out, span, nil
 }
 

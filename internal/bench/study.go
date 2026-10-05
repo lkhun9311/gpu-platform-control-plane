@@ -252,6 +252,11 @@ const (
 	//
 	// A study of its own because its staggered decoders run under different termination semantics, so session 2's three cells are not pooled with it.
 	StudyInstrumentValidationS3 = "instrument-validation-s3-2026-10-06"
+	// StudyInstrumentValidationS4 is the fourth instrument check, registered in
+	// docs/superpowers/specs/2026-10-06-instrument-validation-session-4.md after gate W stopped session 3.
+	//
+	// A study of its own because its warm-up holds one more request, so its cells were conditioned differently from session 3's seven and are not pooled with them.
+	StudyInstrumentValidationS4 = "instrument-validation-s4-2026-10-06"
 )
 
 // The engine modes the instrument-validation study crosses with its episode types.
@@ -634,6 +639,13 @@ var studies = map[string]Study{
 	// Session 2's arms and trace policy, which section 1 of its registration keeps; only the stagger decoders' minimum output differs, in designS3.
 	StudyInstrumentValidationS3: {
 		ID:                     StudyInstrumentValidationS3,
+		Arms:                   instrumentValidationArms(),
+		Arrivals:               ArrivalsEpisodes,
+		TracesVaryByRepetition: false,
+	},
+	// Session 3's arms and trace policy, which section 1 of its registration keeps; only the warm-up's conditioning request differs, in designS4.
+	StudyInstrumentValidationS4: {
+		ID:                     StudyInstrumentValidationS4,
 		Arms:                   instrumentValidationArms(),
 		Arrivals:               ArrivalsEpisodes,
 		TracesVaryByRepetition: false,
