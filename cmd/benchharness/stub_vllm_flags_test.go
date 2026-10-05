@@ -28,8 +28,8 @@ func TestStubIterationLinesParseInTheEvaluator(t *testing.T) {
 		t.Fatal(err)
 	}
 	l := &stubIterLog{out: f}
-	l.request(4096, 3)
-	l.request(400, 1)
+	l.request(1024, 3)
+	l.request(100, 1)
 	if err := f.Close(); err != nil {
 		t.Fatal(err)
 	}

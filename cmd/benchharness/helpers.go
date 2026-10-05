@@ -331,10 +331,10 @@ type stubIterLog struct {
 	index int
 }
 
-func (l *stubIterLog) request(bodyBytes int64, tokens int) {
+func (l *stubIterLog) request(promptTokens int64, tokens int) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	ctx := max(bodyBytes/4, 1)
+	ctx := max(promptTokens, 1)
 	_, _ = fmt.Fprintf(l.out, "INFO stub [loggers.py:182] Iteration(%d): 1 context requests, %d context tokens, "+
 		"0 generation requests, 0 generation tokens, iteration elapsed time: 1.00 ms, GPU KV cache usage: 0.1%%\n",
 		l.index, ctx)
@@ -601,7 +601,14 @@ func stubMux(profile stubProfile, stats *stubStats) *http.ServeMux {
 			return
 		}
 		if profile.iterLog != nil {
-			profile.iterLog.request(r.ContentLength, profile.tokens)
+			// The prompt tokens the usage chunk reports, when there is one, so the log's context steps and the replay's
+			// engineInputTokens agree as they do on the engine; a session-2 warm-up reconciles the two and refused a
+			// rehearsal whose stub logged the body length over four instead.
+			prompt := r.ContentLength / 4
+			if profile.usage {
+				prompt = int64(promptTokens)
+			}
+			profile.iterLog.request(prompt, profile.tokens)
 		}
 		for i := range profile.tokens {
 			if i > 0 && !wait(profile.itl) {
