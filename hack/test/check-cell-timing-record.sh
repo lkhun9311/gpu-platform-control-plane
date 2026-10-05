@@ -64,6 +64,7 @@ extract() {
 	extract warm_cell_estimate
 	extract expected_outputs
 	extract expected_outputs_by_class
+	extract cell_refusal_rows
 	extract record_expected_files
 	extract engine_applied_record
 	extract cell_environment_record
@@ -72,7 +73,7 @@ extract() {
 	echo 'k() { echo "k() was not stubbed by the case under test" >&2; return 1; }'
 } > "$WORK/recorders.sh"
 
-for fn in cell_timing_record cell_judgement_record warm_cell_estimate expected_outputs expected_outputs_by_class record_expected_files engine_applied_record cell_environment_record; do
+for fn in cell_timing_record cell_judgement_record warm_cell_estimate expected_outputs expected_outputs_by_class cell_refusal_rows record_expected_files engine_applied_record cell_environment_record; do
 	grep -q "^$fn() {" "$WORK/recorders.sh" ||
 		bad "$fn was not extracted from $SRC; the harness is testing nothing"
 done
@@ -302,13 +303,16 @@ esac
 # --- 5. the matrix actually calls them --------------------------------------------------------------------
 #
 # Read as text. Executing the call sites needs a cell, and a cell needs a card.
-say "5. both call sites exist in the matrix, on the completed path AND the refused path"
+say "5. the call sites exist in the matrix, on the completed path, the refused path and cell_refused_stop"
+# The third is cell_refused_stop, through which every instrument-validation cell refusal records its outcome.
 calls=$(grep -c 'cell_timing_record "\$label" "\$rep"' "$SRC" || true)
-if [ "$calls" = 2 ]; then
-	ok "two cell_timing_record call sites"
+if [ "$calls" = 3 ]; then
+	ok "three cell_timing_record call sites"
 else
-	bad "found $calls cell_timing_record call sites, want 2 (completed and refused)"
+	bad "found $calls cell_timing_record call sites, want 3 (completed, refused and cell_refused_stop)"
 fi
+grep -q 'cell_timing_record "\$label" "\$rep" "refused-\$stage"' "$SRC" \
+	&& ok "cell_refused_stop records its stage as the outcome" || bad "cell_refused_stop does not record the cell's outcome"
 grep -q 'cell_timing_record "\$label" "\$rep" refused' "$SRC" \
 	&& ok "the refused path records" \
 	|| bad "the refused path does not record, so its card time would be missing from the file while counted in the projection"

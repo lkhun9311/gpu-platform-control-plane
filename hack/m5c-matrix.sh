@@ -215,8 +215,8 @@ fi
 if [ -z "$LADDER" ]; then
   STUDY="${STUDY:-sharing-matrix-2026-09-10}"
   case "$STUDY" in
-    sharing-matrix-2026-09-10|tail-crossing-lc256-2026-10-04|tail-crossing-lc2048-2026-10-05|tail-crossing-lc8192-2026-10-04|instrument-validation-2026-10-05|instrument-validation-s2-2026-10-05) ;;
-    *) fail "STUDY is ${STUDY@Q}; the non-ladder matrix files evidence under sharing-matrix-2026-09-10, tail-crossing-lc256-2026-10-04, tail-crossing-lc2048-2026-10-05, tail-crossing-lc8192-2026-10-04, instrument-validation-2026-10-05 or instrument-validation-s2-2026-10-05. An unregistered id is not refused by gen-trace -- it writes a manifest for any string -- so this refusal is the one that stops it before anything is rented" ;;
+    sharing-matrix-2026-09-10|tail-crossing-lc256-2026-10-04|tail-crossing-lc2048-2026-10-05|tail-crossing-lc8192-2026-10-04|instrument-validation-2026-10-05|instrument-validation-s2-2026-10-05|instrument-validation-s3-2026-10-06) ;;
+    *) fail "STUDY is ${STUDY@Q}; the non-ladder matrix files evidence under sharing-matrix-2026-09-10, tail-crossing-lc256-2026-10-04, tail-crossing-lc2048-2026-10-05, tail-crossing-lc8192-2026-10-04, instrument-validation-2026-10-05, instrument-validation-s2-2026-10-05 or instrument-validation-s3-2026-10-06. An unregistered id is not refused by gen-trace -- it writes a manifest for any string -- so this refusal is the one that stops it before anything is rented" ;;
   esac
 fi
 
@@ -2019,7 +2019,7 @@ deploy_arm() {
       local engine_manifest=config/vllm/deployment.yaml engine_source=config/vllm/deployment.yaml why
       if iv_is_study "${STUDY:-}" && [ -z "${LADDER:-}" ]; then
         engine_manifest="$WORK/engine-$label.yaml"
-        why=$(iv_render_manifest "$STUDY" "$label" config/vllm/deployment.yaml "$engine_manifest") \
+        why=$(iv_render_manifest "$STUDY" "$label" config/vllm/deployment.yaml "$engine_manifest" "$MODEL_REVISION") \
           || fail "could not render the engine manifest for $label: $why"
         engine_source="config/vllm/deployment.yaml+$label"
       fi
@@ -2031,8 +2031,9 @@ deploy_arm() {
       engine_applied_record "$NS_A" vllm-qwen25-3b "$engine_manifest" "$label" "$engine_source"
       # Before any request: an engine that is not the arm's configuration would measure another arm.
       if iv_is_study "${STUDY:-}" && [ -z "${LADDER:-}" ]; then
-        why=$(iv_process_args_refusal "$STUDY" "$label" "$ENGINE_PROCESS_ARGS") \
-          || fail "REFUSED $label before replay: $why"
+        # $rep is run_cell's local, which bash's dynamic scope makes visible here.
+        why=$(iv_process_args_refusal "$STUDY" "$label" "$ENGINE_PROCESS_ARGS" "$MODEL_REVISION") \
+          || cell_refused_stop "$label" "${rep:-unknown}" before-replay "REFUSED $label before replay: $why"
       fi
       routing_record "$NS_A" vllm-qwen25-3b
       PREMIUM_NS="$NS_A"; STANDARD_NS="$NS_A"
@@ -2397,7 +2398,7 @@ expected_outputs() {
   # `expected=9 actual=10` with every class matching -- a disagreement no class could explain.
   # engine-log-<cell>.txt is written only under the instrument-validation study, and a completed cell of that
   # study without one cannot exist: capture_engine_log refuses the run when the log cannot be saved.
-  # The warm-up's four files are written only under session 2 and the same holds: run_warmup ends the run
+  # The warm-up's four files are written only under sessions 2 and 3 and the same holds: run_warmup ends the run
   # rather than let a cell go on without them.
   cond=$(find "$OUT" -maxdepth 1 \( -name 'mps-compute-apps-*.csv' -o -name 'mps-compute-apps-*.err' \
     -o -name 'mps-pod-lookup.err' -o -name 'ladder-verdict-rung*.txt' \
@@ -2409,9 +2410,24 @@ expected_outputs() {
   # How many a cell owes depends on its topology -- one engine or two -- which this count cannot see, so
   # whether every completed cell has them is the per-class row's job, not this sum's.
   metrics=$(find "$OUT" -maxdepth 1 \( -name 'engine-metrics-*.prom' -o -name 'engine-metrics-*.err' \) 2>/dev/null | wc -l)
-  printf '%s completed-%sx4+refused-%s+invalid-%s+unwritten-%s+conditional-%s+metrics-%s+fixed-%s' \
-    $(( completed * 4 + refused + invalid + orphan + cond + metrics + fixed )) \
-    "$completed" "$refused" "$invalid" "$orphan" "$cond" "$metrics" "$fixed"
+  # A cell cell_refused_stop ended the run on owes, from its row, its cell-refused file and what it left on disk.
+  #
+  # Expected from the rows rather than the files, so a refusal whose file was never written is a shortfall.
+  # Its metrics files are in the count above with every other cell's.
+  # Named in the basis only when there is one, so a run without such a refusal reads exactly as it did.
+  local cellref cellref_basis=""
+  cellref=$(cell_refusal_rows | awk -F'\t' '
+    { n++ } $1 == "refused-at-warmup" { n += 1 } $1 == "refused-after-replay" { n += 4 } END { print n + 0 }')
+  [ "$cellref" = 0 ] || cellref_basis="+cell-refusals-$cellref"
+  printf '%s completed-%sx4+refused-%s+invalid-%s+unwritten-%s+conditional-%s+metrics-%s%s+fixed-%s' \
+    $(( completed * 4 + refused + invalid + orphan + cond + metrics + cellref + fixed )) \
+    "$completed" "$refused" "$invalid" "$orphan" "$cond" "$metrics" "$cellref_basis" "$fixed"
+}
+
+# One "<outcome>\t<label>-<rep>" line per cell that cell_refused_stop recorded, each cell once.
+cell_refusal_rows() {
+  awk -F'\t' 'NR > 1 && $4 ~ /^refused-(before-replay|at-warmup|after-replay)$/ && !seen[$2 "-" $3]++ {
+    print $4 "\t" $2 "-" $3 }' "$OUT/cell-timings.tsv"
 }
 
 # The same accounting, PER CLASS, because one total has one degree of freedom.
@@ -2445,6 +2461,7 @@ expected_outputs() {
 expected_outputs_by_class() {
   local completed refused invalid cell_expected cell_actual stray fixed_expected fixed_actual cond unattr f base cellname
   local metrics_expected metrics_actual metrics_owned metrics_all phase
+  local outcome owed phases cref_expected cref_actual cref_all
   if [ -n "${LADDER:-}" ]; then
     printf 'all-classes not-expressed ladder-cells-are-not-matrix-cells\n'
     return 0
@@ -2482,18 +2499,38 @@ expected_outputs_by_class() {
   metrics_expected=0
   metrics_actual=0
   metrics_owned=0
-  while read -r cellname; do
+  cref_expected=0
+  cref_actual=0
+  # A cell cell_refused_stop ended the run on owes what its stage left on disk, so its outputs are not strays.
+  #
+  # Session 2's refused staggered cell had no row at all, and its six files read as stray-cell-outputs 0 != 6.
+  # after-replay ran everything a completed cell runs; at-warmup had opened only its port-forward log;
+  # before-replay had written no cell output.
+  while read -r outcome cellname; do
     [ -n "$cellname" ] || continue
+    owed=()
+    phases=""
+    case "$outcome" in
+      completed | refused-after-replay)
+        owed=("trace-$cellname.jsonl" "raw-$cellname.jsonl" "manifest-$cellname.yaml" "port-forward-$cellname.log")
+        phases="before after" ;;
+      refused-at-warmup) owed=("port-forward-$cellname.log") ;;
+    esac
+    case "$outcome" in
+      refused-*)
+        cref_expected=$(( cref_expected + 1 ))
+        [ -f "$OUT/cell-refused-$cellname.txt" ] && cref_actual=$(( cref_actual + 1 )) ;;
+    esac
     # `sort -u` above: one cell counted twice owes eight files and holds its four twice over, so a
     # duplicate row cancelled a set of outputs belonging to no completed cell. A cell is a cell once.
-    cell_expected=$(( cell_expected + 4 ))
-    for base in "trace-$cellname.jsonl" "raw-$cellname.jsonl" "manifest-$cellname.yaml" "port-forward-$cellname.log"; do
+    cell_expected=$(( cell_expected + ${#owed[@]} ))
+    for base in "${owed[@]}"; do
       [ -f "$OUT/$base" ] && cell_actual=$(( cell_actual + 1 ))
     done
     # Two phases per completed cell, each owing at least one file: a .prom per engine, or an .err saying
     # why not. Counted per PHASE, because a split topology writes two files per phase and a count of files
     # would let one engine's surplus pay for another phase's absence.
-    for phase in before after; do
+    for phase in $phases; do
       metrics_expected=$(( metrics_expected + 1 ))
       if compgen -G "$OUT/engine-metrics-$cellname-$phase*.prom" >/dev/null || compgen -G "$OUT/engine-metrics-$cellname-$phase*.err" >/dev/null; then
         metrics_actual=$(( metrics_actual + 1 ))
@@ -2501,7 +2538,8 @@ expected_outputs_by_class() {
       metrics_owned=$(( metrics_owned + $(find "$OUT" -maxdepth 1 \( -name "engine-metrics-$cellname-$phase*.prom" -o -name "engine-metrics-$cellname-$phase*.err" \) 2>/dev/null | wc -l) ))
     done
   done <<EOF
-$(awk -F'\t' 'NR > 1 && $4 == "completed" {print $2 "-" $3}' "$OUT/cell-timings.tsv" | sort -u)
+$(awk -F'\t' 'NR > 1 && $4 == "completed" {print "completed " $2 "-" $3}' "$OUT/cell-timings.tsv" | sort -u)
+$(cell_refusal_rows | tr '\t' ' ')
 EOF
   # raw-warmup-* matches raw-*, and is a warm-up's rows rather than a cell's, so it is the conditional row's.
   stray=$(( $(find "$OUT" -maxdepth 1 \( -name 'trace-*.jsonl' -o \( -name 'raw-*.jsonl' ! -name 'raw-warmup-*' \) \
@@ -2510,6 +2548,9 @@ EOF
   # like that cell's port-forward log, not credit for a completed cell's missing phase.
   metrics_all=$(find "$OUT" -maxdepth 1 \( -name 'engine-metrics-*.prom' -o -name 'engine-metrics-*.err' \) 2>/dev/null | wc -l)
   stray=$(( stray + metrics_all - metrics_owned ))
+  # A cell-refused file with no refusal row is a stray too, rather than credit for a row whose file is missing.
+  cref_all=$(find "$OUT" -maxdepth 1 -name 'cell-refused-*.txt' 2>/dev/null | wc -l)
+  stray=$(( stray + cref_all - cref_actual ))
   invalid=$(find "$OUT" -maxdepth 1 -name 'invalid-*.txt' 2>/dev/null | wc -l)
   fixed_expected=5 # evidence.log, load-source.txt, expected-files.txt, cell-timings.tsv, cell-judgements.tsv
   [ -f "$OUT/README.txt" ] && fixed_expected=$(( fixed_expected + 1 ))
@@ -2533,7 +2574,7 @@ EOF
       raw-warmup-*.jsonl | warmup-boundary-*.txt | warmup-trace-*.jsonl | warmup-manifest-*.yaml) ;;
       trace-*.jsonl | raw-*.jsonl | manifest-*.yaml | port-forward-*.log) ;;
       engine-metrics-*.prom | engine-metrics-*.err) ;;
-      refused-*.txt | invalid-*.txt) ;;
+      refused-*.txt | invalid-*.txt | cell-refused-*.txt) ;;
       evidence.log | load-source.txt | cell-timings.tsv | cell-judgements.tsv | expected-files.txt | README.txt) ;;
       mps-compute-apps-*.csv | mps-compute-apps-*.err | mps-pod-lookup.err | ladder-verdict-rung*.txt) ;;
       applied-values.tsv | cell-environment.tsv | engine-log-*.txt) ;;
@@ -2553,6 +2594,10 @@ EOF
   printf 'unwritten-refusals 0 %s\n' "$(awk -F'\t' 'NR > 1 && $4 == "refused" {print $2}' "$OUT/cell-timings.tsv" | sort -u | while read -r a; do
     [ -f "$OUT/refused-$a.txt" ] || [ -f "$OUT/invalid-$a.txt" ] || echo "$a"
   done | wc -l)"
+  # One per cell cell_refused_stop recorded, printed only when there is one so other runs read as before.
+  if [ "$cref_expected" != 0 ] || [ "$cref_all" != 0 ]; then
+    printf 'cell-refusal-files %s %s\n' "$cref_expected" "$cref_actual"
+  fi
   printf 'fixed-files %s %s\n' "$fixed_expected" "$fixed_actual"
   printf 'conditional %s %s\n' "$cond" "$cond"
   printf 'unattributed 0 %s\n' "$unattr"
@@ -2962,9 +3007,37 @@ run_warmup() {
     --target "http://127.0.0.1:18080" \
     --api-keys "premium-1=premium-key,standard-noisy=standard-key" \
     --raw-out "$OUT/raw-warmup-$label-$rep.jsonl" || fail "warm-up replay $label"
-  why=$(warmup_boundary_record "$label" "$rep") || fail "REFUSED $label rep $rep at its warm-up boundary: $why"
-  why=$(iv_warmup_refusal "$OUT/raw-warmup-$label-$rep.jsonl") || fail "W REFUSED $label rep $rep: $why"
+  why=$(warmup_boundary_record "$label" "$rep") \
+    || cell_refused_stop "$label" "$rep" at-warmup "REFUSED $label rep $rep at its warm-up boundary: $why"
+  why=$(iv_warmup_refusal "$OUT/raw-warmup-$label-$rep.jsonl") \
+    || cell_refused_stop "$label" "$rep" at-warmup "W REFUSED $label rep $rep: $why"
+  # Gate S on the warm-up's own staggered cycle, before the measured replay is bought.
+  #
+  # Session 2's warm-up violated S too, so a measured replay after it would buy a cell that S then refuses.
+  if [[ "$label" == stagger-* ]]; then
+    why=$(iv_stagger_refusal "$STUDY" "$label" "$OUT" "$rep" warmup) \
+      || cell_refused_stop "$label" "$rep" at-warmup "REFUSED $label rep $rep at its warm-up: gate S: $why"
+  fi
   say "  warm-up passed W; last warm-up iteration $(cat "$OUT/warmup-boundary-$label-$rep.txt")"
+}
+
+# Records a refused instrument-validation cell as an outcome, then ends the run with $4 as its message.
+#
+# The run stops on every one of these refusals, and session 2's stopped before its refused cell had a timing row,
+# so the accounting read that cell's outputs as strays (stray-cell-outputs 0 != 6) instead of as a refused cell.
+# $3 is where the cell was refused, because what it leaves on disk differs: before-replay leaves no cell output,
+# at-warmup leaves its port-forward log, and after-replay leaves all four and both metrics phases.
+# cell-refused-<label>-<rep>.txt is per cell and not refused-<arm>.txt, because benchharness report reads the
+# latter as a sharing arm's registered refusal, and these end the session rather than stand beside other arms.
+cell_refused_stop() {
+  local label="$1" rep="$2" stage="$3" msg="$4" t1
+  printf '%s\n' "$msg" > "$OUT/cell-refused-$label-$rep.txt" \
+    || say "  WARNING: could not write $OUT/cell-refused-$label-$rep.txt"
+  t1=$(date +%s)
+  cell_secs=$(( cell_secs + t1 - ${CELL_T0:-$t1} ))
+  cells_done=$(( cells_done + 1 ))
+  cell_timing_record "$label" "$rep" "refused-$stage" "${CELL_T0:-}" "$t1" || true
+  fail "$msg"
 }
 
 run_cell() {
@@ -3148,14 +3221,9 @@ run_cell() {
   # not the registered composition, and the registration stops acquisition on it. The evaluator's own function
   # judges it, so the cell is refused by exactly the rule the verdict will apply; it ran only after the session
   # until a review found that a violation would otherwise have bought every remaining cell.
+  # Session 3 also refuses a decoder that did not produce its 512 tokens; iv_stagger_refusal says which.
   if [ -z "$engine_log_refusal" ] && [ -z "${LADDER:-}" ] && iv_has_warmup "${STUDY:-}" && [[ "$label" == stagger-* ]]; then
-    # A refusal prints its one-line reason; anything else (a missing file, a crash) keeps its traceback.
-    if ! s_out=$(python3 -c 'import sys; sys.path.insert(0, "hack/tail-crossing-model"); import instrument_gates as g
-try:
-    g.check_stagger(g.load_cell(sys.argv[1], sys.argv[2], int(sys.argv[3])), sys.argv[2], int(sys.argv[3]))
-except g.Refusal as e:
-    sys.exit(str(e))' \
-      "$OUT" "$label" "$rep" 2>&1); then
+    if ! s_out=$(iv_stagger_refusal "$STUDY" "$label" "$OUT" "$rep" measured); then
       engine_log_refusal="gate S: ${s_out:-the staggered composition check failed without saying why}"
     fi
   fi
@@ -3186,7 +3254,8 @@ except g.Refusal as e:
     OUT="$OUT" timeout "${CELL_DONE_HOOK_TIMEOUT:-120}" "$CELL_DONE_HOOK" "$OUT/raw-$label-$rep.jsonl" "$label" "$rep" \
       || say "  WARNING: CELL_DONE_HOOK failed or timed out for $label rep $rep; the cell is still on local disk and will go up with the rest"
   fi
-  [ -z "$engine_log_refusal" ] || fail "REFUSED $label rep $rep after replay: $engine_log_refusal"
+  [ -z "$engine_log_refusal" ] \
+    || cell_refused_stop "$label" "$rep" after-replay "REFUSED $label rep $rep after replay: $engine_log_refusal"
   CELL_T1=$(date +%s)
   cell_secs=$(( cell_secs + CELL_T1 - CELL_T0 ))
   cells_done=$(( cells_done + 1 ))

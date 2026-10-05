@@ -8,7 +8,10 @@
 # hack/m5c-gpu-session.sh needs the durations to size its credential margin and hack/m5c-matrix.sh needs all
 # of it to run the cells, so a second copy in either file would be the copy that drifts.
 #
-# Every function here answers only for these two studies, and takes the study as its first argument.
+# docs/superpowers/specs/2026-10-06-instrument-validation-session-3.md keeps session 2's lengths and warm-up, pins
+# the model and tokenizer revision on the engine's command line, and judges gate S on the warm-up as well.
+#
+# Every function here answers only for these three studies, and takes the study as its first argument.
 # The study is passed rather than read from $STUDY so a caller cannot get session 1's lengths for a session-2
 # cell by forgetting to set a global, and so a test can drive either study without exporting anything.
 # A caller asks iv_is_study first, so every other study's cells never reach this file and deploy exactly
@@ -19,6 +22,7 @@
 
 IV_STUDY=instrument-validation-2026-10-05
 IV_S2_STUDY=instrument-validation-s2-2026-10-05
+IV_S3_STUDY=instrument-validation-s3-2026-10-06
 
 # Session 2's trace lengths in ms, one per episode type, as the main session measured them from the generator.
 #
@@ -46,12 +50,31 @@ IV_S2_WARM_TTFT_TOL_PERMILLE=50
 IV_S2_WARM_PAIR_TOL_PERMILLE=20
 IV_S2_WARM_TOKENS=2048
 
-iv_is_study() { [ "${1:-}" = "$IV_STUDY" ] || [ "${1:-}" = "$IV_S2_STUDY" ]; }
+iv_is_study() { [ "${1:-}" = "$IV_STUDY" ] || [ "${1:-}" = "$IV_S2_STUDY" ] || [ "${1:-}" = "$IV_S3_STUDY" ]; }
 
-# Only session 2 warms the engine before its measured replay; session 1 measured request 0 cold.
-iv_has_warmup() { [ "${1:-}" = "$IV_S2_STUDY" ]; }
+# Sessions 2 and 3 warm the engine before their measured replay; session 1 measured request 0 cold.
+iv_has_warmup() { [ "${1:-}" = "$IV_S2_STUDY" ] || [ "${1:-}" = "$IV_S3_STUDY" ]; }
 
-# Refuses an arm that is not one of the study's nine, or a study that is not one of the two.
+# Only session 3 pins the model revision on the engine's command line and demands the engine report it back.
+#
+# Adding the flags to sessions 1 or 2 would change the engine their archives measured.
+iv_pins_revision() { [ "${1:-}" = "$IV_S3_STUDY" ]; }
+
+# Only session 3's staggered decoders carry min_tokens = max_tokens = 512, so only there must each produce 512.
+#
+# Session 2's decoders could stop at end-of-sequence, and demanding 512 of them would refuse what it registered.
+iv_fixes_decoder_length() { [ "${1:-}" = "$IV_S3_STUDY" ]; }
+
+# The directory of instrument_gates.py, resolved once when sourced so a caller that changes directory still finds it.
+#
+# Empty when it is absent, and iv_stagger_refusal then refuses rather than judge nothing.
+# Tested before the cd so that sourcing from a partial tree prints nothing: session 1's plan output is pinned byte for byte.
+IV_GATES_DIR=""
+if [ -d "$(dirname "${BASH_SOURCE[0]}")/../tail-crossing-model" ]; then
+  IV_GATES_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/../tail-crossing-model" && pwd) || IV_GATES_DIR=""
+fi
+
+# Refuses an arm that is not one of the study's nine, or a study that is not one of the three.
 #
 # Separate from the durations so the engine-argument functions do not depend on session 2's length table:
 # the arguments are a property of the arm's suffix, and a length refusal should not read as an engine one.
@@ -59,7 +82,7 @@ iv_has_warmup() { [ "${1:-}" = "$IV_S2_STUDY" ]; }
 iv_arm_refusal() {
   local study="${1:-}" arm="${2:-}"
   iv_is_study "$study" || {
-    echo "study ${study@Q} is neither $IV_STUDY nor $IV_S2_STUDY, so this file has nothing registered for it"
+    echo "study ${study@Q} is none of $IV_STUDY, $IV_S2_STUDY and $IV_S3_STUDY, so this file has nothing registered for it"
     return 1; }
   case "$arm" in
     serial-log | serial-nolog | serial-async | burst-log | burst-nolog | burst-async | stagger-log | stagger-nolog | stagger-async) return 0 ;;
@@ -144,23 +167,32 @@ iv_duration_summary() {
 #
 # -async appends nothing: the async engine is the stock default, and the registration buys it only as the
 # control the earlier archives measured.
+# Session 3 appends the revision pins to every arm, from $3, which the matrix passes as its MODEL_REVISION.
+# A full commit SHA is demanded because a branch or tag name would pin nothing: it moves under the same words.
 iv_engine_args() {
+  local rev="${3:-}"
   iv_arm_refusal "${1:-}" "${2:-}" || return 1
+  if iv_pins_revision "$1"; then
+    [[ "$rev" =~ ^[0-9a-f]{40}$ ]] || {
+      echo "study $1 pins the engine's model and tokenizer revision and was given ${rev@Q}, which is not a 40-character commit SHA, so the pin would not name one snapshot"
+      return 1; }
+  fi
   case "$2" in
     *-log) printf '%s\n' --no-async-scheduling --enable-logging-iteration-details ;;
     *-nolog) printf '%s\n' --no-async-scheduling ;;
     *-async) ;;
   esac
+  if iv_pins_revision "$1"; then printf '%s\n' "--revision=$rev" "--tokenizer-revision=$rev"; fi
 }
 
-# Writes the manifest this arm deploys to $4, from the base manifest $3.
+# Writes the manifest this arm deploys to $4, from the base manifest $3; $5 is the revision session 3 pins.
 #
 # The extra arguments go directly after the `- --port=8000` line, at that line's indentation.
 # Proved rather than assumed: the result minus exactly the inserted lines must be byte-identical to the base,
 # so an insertion that landed twice, nowhere, or inside a comment refuses instead of deploying.
 iv_render_manifest() {
-  local study="$1" arm="$2" base="$3" dest="$4" extra anchor_n
-  extra=$(iv_engine_args "$study" "$arm") || { echo "$extra"; return 1; }
+  local study="$1" arm="$2" base="$3" dest="$4" rev="${5:-}" extra anchor_n
+  extra=$(iv_engine_args "$study" "$arm" "$rev") || { echo "$extra"; return 1; }
   anchor_n=$(awk '/^[[:space:]]*- --port=8000[[:space:]]*$/ {c++} END {print c+0}' "$base") \
     || { echo "could not read $base"; return 1; }
   [ "$anchor_n" = 1 ] \
@@ -192,8 +224,9 @@ iv_render_manifest() {
 # the only one that survives an admission webhook or a flag the engine silently ignored.
 # Python prints the dict with single quotes; double quotes are accepted too so a change of repr cannot turn
 # a present key into a false refusal that reads like a missing one.
+# $4 is the revision session 3 pinned; sessions 1 and 2 ignore it, so their cells are judged exactly as before.
 iv_process_args_refusal() {
-  local study="$1" arm="$2" line="${3:-}" async_false=0 logging_true=0
+  local study="$1" arm="$2" line="${3:-}" rev="${4:-}" async_false=0 logging_true=0 key pat
   iv_arm_refusal "$study" "$arm" || return 1
   case "$line" in
     "non-default args: {"*) ;;
@@ -201,6 +234,20 @@ iv_process_args_refusal() {
       echo "the engine for $arm printed no non-default args line (recorded ${line:-nothing}), so which engine this cell measured cannot be read from the engine itself"
       return 1 ;;
   esac
+  # Session 2's engine reported no revision at all, so the snapshot it loaded was the manifest's word alone.
+  # The quote before each key keeps `revision` from matching inside `tokenizer_revision`.
+  # Matched in bash rather than through a pipe, so a pipefail caller cannot read a SIGPIPE as an absent key.
+  if iv_pins_revision "$study"; then
+    [[ "$rev" =~ ^[0-9a-f]{40}$ ]] || {
+      echo "study $study pins the engine's revision and was given ${rev@Q}, which is not a 40-character commit SHA, so the engine's report cannot be checked against it"
+      return 1; }
+    for key in revision tokenizer_revision; do
+      pat="['\"]${key}['\"]: ['\"]${rev}['\"]"
+      [[ "$line" =~ $pat ]] || {
+        echo "the engine for $arm does not report '$key': '$rev' in its non-default args, so the snapshot it loaded is not the one the study pins: $line"
+        return 1; }
+    done
+  fi
   printf '%s' "$line" | grep -qE "['\"]async_scheduling['\"]: False" && async_false=1
   printf '%s' "$line" | grep -qE "['\"]enable_logging_iteration_details['\"]: True" && logging_true=1
   case "$arm" in
@@ -340,5 +387,107 @@ if why:
 ') || rc=$?
   [ "$rc" = 0 ] && return 0
   echo "${out:-python3 exited $rc and said nothing, so the verification requests were not read}"
+  return 1
+}
+
+# Refuses a staggered cell whose episodes are not the registered composition (gate S); $5 is warmup or measured.
+#
+# measured judges trace-/raw-<arm>-<rep>.jsonl through the evaluator's own load_cell and check_stagger, so the cell
+# is refused by exactly the rule the verdict will apply; for session 2 that is all it does, as before session 3.
+# warmup judges warmup-trace-/raw-warmup-<arm>-<rep>.jsonl, joined with load_cell's refusals, and only the staggered
+# cycle between the lone warm request at its head and the two lone verification requests at its tail.
+# The warm-up is judged too because session 2's warm-up violated S as well, and the registration stops on it before
+# the measured replay is bought.
+# Session 3 also refuses any staggered decoder that did not produce exactly 512 tokens and stop on its length,
+# because decoders stopping early at end-of-sequence is what ended session 2.
+# Decoders are found by the episode structure rather than by their cap, so a trace with no 512 cap cannot pass by
+# having no decoders to check.
+# A refusal prints its one-line reason; anything else (a missing file, a crash) keeps its traceback.
+iv_stagger_refusal() {
+  local study="$1" arm="$2" run="$3" rep="$4" phase="$5" out rc=0 fixed=0
+  iv_arm_refusal "$study" "$arm" || return 1
+  iv_has_warmup "$study" || { echo "study $study registers no gate S in the harness, so it judges none"; return 1; }
+  case "$arm" in
+    stagger-*) ;;
+    *) echo "$arm is not a staggered arm, so gate S has no episodes to judge in it"; return 1 ;;
+  esac
+  case "$phase" in
+    warmup | measured) ;;
+    *) echo "gate S was asked about phase ${phase@Q}, which is neither warmup nor measured"; return 1 ;;
+  esac
+  [ -n "$IV_GATES_DIR" ] \
+    || { echo "hack/tail-crossing-model was not found when hack/lib/instrument-validation.sh was sourced, so gate S cannot be judged"; return 1; }
+  if iv_fixes_decoder_length "$study"; then fixed=1; fi
+  out=$(python3 -c '
+import json, os, sys
+gates, run, arm, rep, phase, fixed = sys.argv[1:7]
+sys.path.insert(0, gates)
+import instrument_gates as g
+rep = int(rep)
+DECODER_TOKENS = 512
+
+def rows(path):
+    with open(path) as f:
+        return [json.loads(l) for l in f if l.strip()]
+
+try:
+    if phase == "measured":
+        tpath = os.path.join(run, f"trace-{arm}-{rep}.jsonl")
+        rpath = os.path.join(run, f"raw-{arm}-{rep}.jsonl")
+        name = arm
+        reqs = g.load_cell(run, arm, rep)
+    else:
+        tpath = os.path.join(run, f"warmup-trace-{arm}-{rep}.jsonl")
+        rpath = os.path.join(run, f"raw-warmup-{arm}-{rep}.jsonl")
+        name = f"the warm-up of {arm}"
+        trace = {r["index"]: r for r in rows(tpath)}
+        raw = rows(rpath)
+        # The same two refusals load_cell makes of a measured cell, so a warm-up is joined no more loosely.
+        if len(raw) != len(trace) or {r["index"] for r in raw} != set(trace):
+            raise g.Refusal(f"{name}-{rep}: {len(raw)} raw rows against {len(trace)} trace rows -- a request was lost or added")
+        failed = [r["index"] for r in raw if r.get("errorKind")]
+        if failed:
+            raise g.Refusal(f"{name}-{rep}: {len(failed)} failed request(s), first index {failed[0]}")
+        reqs = []
+        for r in raw:
+            t = trace[r["index"]]
+            reqs.append(dict(index=r["index"], offset=t["offsetMs"], cap=t["maxOutputTokens"],
+                             input_tokens=r["engineInputTokens"], output_tokens=r["engineOutputTokens"],
+                             ttft_ms=(r["firstTokenUnixNanos"] - r["sendUnixNanos"]) / 1e6, send_ms=r["sendUnixNanos"] / 1e6,
+                             first_ms=r["firstTokenUnixNanos"] / 1e6, end_ms=r["endUnixNanos"] / 1e6))
+        reqs.sort(key=lambda q: (q["offset"], q["index"]))
+        offsets = [q["offset"] for q in reqs]
+        lone = [offsets.count(o) == 1 for o in offsets]
+        if len(reqs) < 5 or not (lone[0] and lone[-1] and lone[-2]):
+            raise g.Refusal(f"{name}-{rep}: the warm-up is not a lone warm request, a staggered cycle and two lone "
+                            f"verification requests, so its staggered episodes cannot be told apart (gate S)")
+        reqs = reqs[1:-2]
+    if phase != "measured" or fixed == "1":
+        # The episode structure, refused by name rather than by an IndexError inside check_stagger.
+        keyed = g.settings("stagger", reqs)
+    if fixed == "1":
+        trace_by = {r["index"]: r for r in rows(tpath)}
+        raw_by = {r["index"]: r for r in rows(rpath)}
+        decs = [q for s, q in keyed if s[3] == "decoder"]
+        if not decs:
+            raise g.Refusal(f"{name}-{rep}: no staggered decoder was found, so their lengths cannot be judged (gate S)")
+        bad = [q["index"] for q in decs
+               if trace_by[q["index"]].get("maxOutputTokens") != DECODER_TOKENS
+               or raw_by[q["index"]].get("engineOutputTokens") != DECODER_TOKENS
+               or raw_by[q["index"]].get("finishReason") != "length"]
+        if bad:
+            cap = trace_by[bad[0]].get("maxOutputTokens")
+            got = raw_by[bad[0]].get("engineOutputTokens")
+            why = raw_by[bad[0]].get("finishReason")
+            raise g.Refusal(f"{name}-{rep}: {len(bad)} of {len(decs)} staggered decoders did not produce {DECODER_TOKENS} "
+                            f"output tokens with finish reason length; the first, index {bad[0]}, has cap {cap} and "
+                            f"reported {got} tokens and finish reason {why!r} (gate S)")
+    g.check_stagger(reqs, name, rep)
+except g.Refusal as e:
+    print(e)
+    sys.exit(1)
+' "$IV_GATES_DIR" "$run" "$arm" "$rep" "$phase" "$fixed" 2>&1) || rc=$?
+  [ "$rc" = 0 ] && return 0
+  echo "${out:-python3 exited $rc and said nothing, so gate S was not judged}"
   return 1
 }

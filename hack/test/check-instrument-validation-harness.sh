@@ -46,6 +46,8 @@ SRC=hack/m5c-matrix.sh
 LIB=hack/lib/instrument-validation.sh
 BASE=config/vllm/deployment.yaml
 IV=instrument-validation-2026-10-05
+# The matrix's default MODEL_REVISION, which session 3 pins on the engine's command line.
+REV=aa8e72537993ba99e69dfaafa59ed015b17504d1
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 mkdir -p "$WORK/tmp"
@@ -60,7 +62,7 @@ extract() {
 
 FNS="deploy_arm engine_applied_record capture_engine_log cell_duration_ms cell_charge_ms warmup_gen_trace warmup_span_ms
 	warmup_boundary_record run_warmup seed_for_rep iv_cold_projection_min iv_remaining_projection
-	expected_outputs expected_outputs_by_class"
+	expected_outputs expected_outputs_by_class cell_refusal_rows cell_refused_stop cell_timing_record"
 {
 	echo 'set -uo pipefail'
 	echo ". $LIB"
@@ -110,7 +112,7 @@ STUBS
 run_deploy() {
 	local study="$1" topo="$2" label="$3"
 	: > "$WORK/applied.log"
-	rm -f "$WORK/out/applied-values.tsv"
+	rm -f "$WORK/out/applied-values.tsv" "$WORK/out/cell-timings.tsv" "$WORK/out/"cell-refused-*.txt
 	mkdir -p "$WORK/out"
 	(
 		# shellcheck disable=SC1090,SC1091
@@ -118,6 +120,8 @@ run_deploy() {
 		# shellcheck disable=SC1091
 		. "$WORK/stubs.sh"
 		STUDY="$study" LADDER="" OUT="$WORK/out" NS_A=a NS_B=b GW_IMAGE=g cell_n=1
+		# What run_cell holds when it calls deploy_arm, which a refusal records through cell_refused_stop.
+		rep=1 cell_secs=0 cells_done=0 CELL_T0=$(date +%s) MODEL_REVISION="$REV"
 		export WORK
 		deploy_arm "$topo" "$label"
 	) > "$WORK/deploy.out" 2>&1
@@ -215,6 +219,10 @@ expect_process_refusal() {
 		bad "$1 deployed against ${2@Q}; the engine contradicts the arm and the cell went on to replay"
 	elif grep -q "MATRIX FAILED: REFUSED $1 before replay: .*$3" "$WORK/deploy.out"; then
 		ok "$1 refused: $(grep -o "REFUSED $1 before replay: [^:]*" "$WORK/deploy.out")"
+		# The refusal is recorded as the cell's outcome before the run stops.
+		[ "$(awk -F'\t' 'NR > 1 {print $2 "/" $3 "/" $4}' "$WORK/out/cell-timings.tsv")" = "$1/1/refused-before-replay" ] \
+			&& grep -q "^REFUSED $1 before replay: .*$3" "$WORK/out/cell-refused-$1-1.txt" \
+			|| bad "$1's refusal was not recorded: row $(tail -1 "$WORK/out/cell-timings.tsv") file $(cat "$WORK/out/cell-refused-$1-1.txt")"
 	else
 		bad "$1 failed, but not with the refusal wanted ($3): $(tail -2 "$WORK/deploy.out")"
 	fi
@@ -388,8 +396,8 @@ IV2=instrument-validation-s2-2026-10-05
 # --- 7. the study is accepted, its lengths are the generator's, and a placeholder refuses ------------------
 say "7. session 2 is accepted wherever session 1 is, with the generator's lengths, and a placeholder length refuses"
 iv_is_study "$IV2" && iv_is_study "$IV" && ! iv_is_study sharing-matrix-2026-09-10 \
-	&& ok "iv_is_study accepts both sessions and nothing else" || bad "iv_is_study does not cover exactly the two sessions"
-iv_has_warmup "$IV2" && ! iv_has_warmup "$IV" && ok "only session 2 warms up" || bad "iv_has_warmup is not session 2 alone"
+	&& ok "iv_is_study accepts sessions 1 and 2 and not another study" || bad "iv_is_study does not cover the two sessions"
+iv_has_warmup "$IV2" && ! iv_has_warmup "$IV" && ok "session 2 warms up and session 1 does not" || bad "iv_has_warmup is wrong for sessions 1 and 2"
 s2=$(for a in serial-log burst-nolog stagger-async; do iv_duration_ms "$IV2" "$a"; iv_warmup_duration_ms "$IV2" "$a"; done | tr '\n' ' ')
 [ "$s2" = "500000 100000 320000 120000 2410000 500000 " ] && ok "session 2's measured and warm-up lengths are the main session's: $s2" \
 	|| bad "session 2's lengths read $s2"
@@ -406,7 +414,7 @@ out=$(iv_duration_ms "$IV2" R1) && bad "R1 had a session-2 length" \
 	|| { [ "$out" = "arm 'R1' is not one of study $IV2's nine arms ({serial,burst,stagger}-{log,nolog,async}), so it has no registered trace length" ] \
 		&& ok "an arm outside session 2 refuses by name" || bad "wrong refusal: $out"; }
 out=$(iv_duration_ms instrument-validation-2026-10-06 serial-log) && bad "an unknown study had a length" \
-	|| { printf '%s' "$out" | grep -qF "is neither $IV nor $IV2" && ok "an unknown study refuses: $out" || bad "wrong refusal: $out"; }
+	|| { printf '%s' "$out" | grep -qF "is none of $IV, $IV2 and instrument-validation-s3-2026-10-06" && ok "an unknown study refuses: $out" || bad "wrong refusal: $out"; }
 s1=$(for a in serial-log burst-nolog stagger-async; do iv_duration_ms "$IV" "$a"; done | tr '\n' ' ')
 [ "$s1" = "180000 330000 630000 " ] && ok "session 1's lengths are unchanged" || bad "session 1's lengths moved: $s1"
 # The engine arguments do not wait for the lengths: they are a property of the suffix.
@@ -531,7 +539,9 @@ case "$1" in
 			case "$1" in --warmup) warm=1 ;; --trace-out) t="$2"; shift ;; --manifest-out) m="$2"; shift ;; esac
 			shift
 		done
-		if [ "$warm" = 1 ]; then
+		if [ "$warm" = 1 ] && [ -n "${BH_WARM_TRACE:-}" ]; then
+			cp "$BH_WARM_TRACE" "$t"
+		elif [ "$warm" = 1 ]; then
 			[ -z "${BH_NO_WARMUP:-}" ] || { echo "flag provided but not defined: -warmup" >&2; exit 2; }
 			printf '{"index":0,"offsetMs":0}\n{"index":1,"offsetMs":1000}\n{"index":2,"offsetMs":%s}\n{"index":3,"offsetMs":%s}\n' \
 				"${BH_LAST_OFFSET:-61000}" "${BH_LAST_OFFSET:-61000}" > "$t"
@@ -556,13 +566,14 @@ chmod +x "$WORK/benchharness"
 say "10. run_warmup generates, replays, records the boundary and judges W, ending the run on a refusal"
 # drive_warmup <label> <raw fixture> <log text>: runs run_warmup in a subshell; output to $WORK/warm.out
 drive_warmup() {
-	rm -f "$WORK/out/"*warmup* "$WORK/bh.log"
+	rm -f "$WORK/out/"*warmup* "$WORK/bh.log" "$WORK/out/cell-timings.tsv" "$WORK/out/"cell-refused-*.txt
 	(
 		# shellcheck disable=SC1090,SC1091
 		. "$WORK/fns.sh"
 		# shellcheck disable=SC1091
 		. "$WORK/stubs.sh"
-		STUDY="$IV2" LADDER="" OUT="$WORK/out" NS_A=a STUB_LOG="$3" SEEDS="" TRACE_POLICY=one
+		cell_n=1 cell_secs=0 cells_done=0 CELL_T0=$(date +%s)
+		STUDY="${DW_STUDY:-$IV2}" LADDER="" OUT="$WORK/out" NS_A=a STUB_LOG="$3" SEEDS="" TRACE_POLICY=one
 		MODEL=Qwen/Qwen2.5-3B-Instruct REQUEST_TIMEOUT_MS=120000 ENGINE_IMAGE=e@sha256:1 GATEWAY_IMAGE_REF=g@sha256:2
 		SOURCE_COMMIT=abc MODEL_REVISION=rev PROVENANCE_FLAG=--require-provenance LOAD_FLAGS=() PROMPT_FLAGS=()
 		export BH_LOG="$WORK/bh.log" BH_WARM_RAW="$2"
@@ -587,6 +598,10 @@ fi
 drive_warmup serial-log "$WORK/w-slow.jsonl" "$ITER2" && bad "a slow warm-up went on to the measured replay" \
 	|| { grep -qF "MATRIX FAILED: W REFUSED serial-log rep 1: the warm-up verification requests are" "$WORK/warm.out" \
 		&& ok "a slow warm-up ends the run: $(grep -o 'W REFUSED.*' "$WORK/warm.out" | cut -c1-200)" || bad "wrong failure: $(tail -2 "$WORK/warm.out")"; }
+[ "$(awk -F'\t' 'NR > 1 {print $2 "/" $3 "/" $4}' "$WORK/out/cell-timings.tsv")" = "serial-log/1/refused-at-warmup" ] \
+	&& grep -q '^W REFUSED serial-log rep 1: ' "$WORK/out/cell-refused-serial-log-1.txt" \
+	&& ok "the W refusal is recorded as the cell's outcome, refused-at-warmup, with its message in cell-refused-serial-log-1.txt" \
+	|| bad "the W refusal was not recorded: $(cat "$WORK/out/cell-timings.tsv" "$WORK/out/cell-refused-serial-log-1.txt")"
 [ -f "$WORK/out/raw-warmup-serial-log-1.jsonl" ] && [ -f "$WORK/out/warmup-boundary-serial-log-1.txt" ] \
 	&& ok "a refused warm-up's rows and boundary stay in OUT for the archive" || bad "a refused warm-up left no evidence"
 drive_warmup serial-log "$WORK/w-good.jsonl" "startup only" && bad "a -log warm-up with no iterations went on" \
@@ -824,6 +839,309 @@ PY
 	[ -z "$r" ] && ok "a serial cell is not judged by S" || bad "a serial cell was judged by S: $r"
 	r=$(run_s instrument-validation-2026-10-05 stagger-log)
 	[ -z "$r" ] && ok "session 1 is not judged by S" || bad "session 1 was judged by S: $r"
+fi
+
+# ======================================= session 3 =======================================================
+IV3=instrument-validation-s3-2026-10-06
+
+# --- 14. accepted with session 2's lengths, and nothing else of sessions 1 and 2 moves ----------------------
+say "14. session 3 is accepted wherever session 2 is, with session 2's lengths, and sessions 1 and 2 do not move"
+iv_is_study "$IV3" && iv_has_warmup "$IV3" && ok "session 3 is an instrument-validation study with a warm-up" \
+	|| bad "session 3 is not accepted, or has no warm-up"
+iv_pins_revision "$IV3" && ! iv_pins_revision "$IV2" && ! iv_pins_revision "$IV" \
+	&& iv_fixes_decoder_length "$IV3" && ! iv_fixes_decoder_length "$IV2" && ! iv_fixes_decoder_length "$IV" \
+	&& ok "only session 3 pins the revision and fixes the decoders' length" || bad "a session-3 rule reaches session 1 or 2"
+l2=""; l3=""
+for a in serial-log serial-nolog serial-async burst-log burst-nolog burst-async stagger-log stagger-nolog stagger-async; do
+	l2="$l2 $a=$(iv_duration_ms "$IV2" "$a")/$(iv_warmup_duration_ms "$IV2" "$a")"
+	l3="$l3 $a=$(iv_duration_ms "$IV3" "$a")/$(iv_warmup_duration_ms "$IV3" "$a")"
+done
+[ "$l3" = "$l2" ] && ok "every arm's measured and warm-up length is session 2's:$l3" || bad "session 3's lengths differ: ${l3@Q} against ${l2@Q}"
+# Sessions 1 and 2 render byte-identical manifests whether or not a revision is passed, so the pin cannot reach them.
+for st in "$IV" "$IV2"; do
+	for arm in serial-log burst-nolog stagger-async; do
+		iv_render_manifest "$st" "$arm" "$BASE" "$WORK/r12-$arm.yaml" "$REV" >/dev/null && cmp -s "$WORK/r12-$arm.yaml" "$WORK/r-$arm.yaml" \
+			|| bad "$st's $arm renders differently when given a revision"
+	done
+done && ok "sessions 1 and 2 render the same manifests with a revision passed as without"
+for arm in serial-log burst-nolog stagger-async; do
+	if ! why=$(iv_render_manifest "$IV3" "$arm" "$BASE" "$WORK/r3-$arm.yaml" "$REV"); then
+		bad "session 3's $arm did not render: $why"
+		continue
+	fi
+	added=$(diff "$WORK/r-$arm.yaml" "$WORK/r3-$arm.yaml" | grep '^>' | sed 's/^> *//' | tr '\n' ' ')
+	removed=$(diff "$WORK/r-$arm.yaml" "$WORK/r3-$arm.yaml" | awk '/^</ {c++} END {print c+0}')
+	[ "$added" = "- --revision=$REV - --tokenizer-revision=$REV " ] && [ "$removed" = 0 ] \
+		&& ok "session 3's $arm is session 2's manifest plus exactly the two revision pins" \
+		|| bad "session 3's $arm added ${added@Q} and removed $removed line(s) against session 2's"
+done
+out=$(iv_render_manifest "$IV3" serial-log "$BASE" "$WORK/x.yaml" main) && bad "session 3 rendered a branch name as its revision" \
+	|| { [ "$out" = "study $IV3 pins the engine's model and tokenizer revision and was given 'main', which is not a 40-character commit SHA, so the pin would not name one snapshot" ] \
+		&& ok "a revision that is not a commit SHA refuses: $out" || bad "wrong refusal: $out"; }
+out=$(iv_render_manifest "$IV3" serial-log "$BASE" "$WORK/x.yaml") && bad "session 3 rendered with no revision" \
+	|| { printf '%s' "$out" | grep -qF "was given '', which is not a 40-character commit SHA" && ok "no revision refuses" || bad "wrong refusal: $out"; }
+
+# --- 15. the engine must report the pinned revision -------------------------------------------------------
+say "15. a session-3 cell refuses an engine that does not report the pinned revision and tokenizer revision"
+# vLLM prints its non-default args as a Python dict, strings single-quoted, as applied-values.tsv of
+# hack/m5c-20261005-135632 shows for 'model': 'Qwen/Qwen2.5-3B-Instruct'.
+PIN=", 'revision': '$REV', 'tokenizer_revision': '$REV'"
+LOG3="non-default args: {'model': 'Qwen/Qwen2.5-3B-Instruct', 'async_scheduling': False, 'enable_logging_iteration_details': True$PIN}"
+NOLOG3="non-default args: {'model': 'Qwen/Qwen2.5-3B-Instruct', 'async_scheduling': False$PIN}"
+ASYNC3="non-default args: {'model': 'Qwen/Qwen2.5-3B-Instruct'$PIN}"
+OTHER=0123456789abcdef0123456789abcdef01234567
+# expect_rev <name> <arm> <line> <ok|exact message>
+expect_rev() {
+	out=$(iv_process_args_refusal "$IV3" "$2" "$3" "$REV") && rc=0 || rc=$?
+	if [ "$4" = ok ]; then
+		[ "$rc" = 0 ] && ok "$1 passes" || bad "$1 should pass: $out"
+	elif [ "$rc" != 0 ] && [ "$out" = "$4" ]; then
+		ok "$1 refused: ${out:0:150}"
+	else
+		bad "$1 was not refused as wanted; rc=$rc out=${out@Q}"
+	fi
+}
+expect_rev "a -log engine reporting both pins" serial-log "$LOG3" ok
+expect_rev "a -nolog engine reporting both pins" burst-nolog "$NOLOG3" ok
+expect_rev "an -async engine reporting both pins" stagger-async "$ASYNC3" ok
+expect_rev "session 2's engine line, with no revision" serial-log "$LOG_LINE" \
+	"the engine for serial-log does not report 'revision': '$REV' in its non-default args, so the snapshot it loaded is not the one the study pins: $LOG_LINE"
+L="non-default args: {'model': 'Qwen/Qwen2.5-3B-Instruct', 'async_scheduling': False, 'enable_logging_iteration_details': True, 'revision': None, 'tokenizer_revision': '$REV'}"
+expect_rev "an engine reporting revision None" serial-log "$L" \
+	"the engine for serial-log does not report 'revision': '$REV' in its non-default args, so the snapshot it loaded is not the one the study pins: $L"
+# tokenizer_revision alone must not satisfy revision, which a pattern without the leading quote would let it.
+L="non-default args: {'model': 'Qwen/Qwen2.5-3B-Instruct', 'async_scheduling': False, 'tokenizer_revision': '$REV'}"
+expect_rev "an engine reporting only the tokenizer revision" burst-nolog "$L" \
+	"the engine for burst-nolog does not report 'revision': '$REV' in its non-default args, so the snapshot it loaded is not the one the study pins: $L"
+L="non-default args: {'model': 'Qwen/Qwen2.5-3B-Instruct', 'revision': '$REV'}"
+expect_rev "an engine missing the tokenizer revision" stagger-async "$L" \
+	"the engine for stagger-async does not report 'tokenizer_revision': '$REV' in its non-default args, so the snapshot it loaded is not the one the study pins: $L"
+L="non-default args: {'model': 'Qwen/Qwen2.5-3B-Instruct', 'revision': '$OTHER', 'tokenizer_revision': '$OTHER'}"
+expect_rev "an engine on another revision" stagger-async "$L" \
+	"the engine for stagger-async does not report 'revision': '$REV' in its non-default args, so the snapshot it loaded is not the one the study pins: $L"
+expect_rev "a pinned engine on the wrong scheduler" serial-log "$ASYNC3" \
+	"the engine for serial-log does not report async_scheduling False in its non-default args, so it is not the synchronous engine the arm registers: $ASYNC3"
+# Session 2 is judged as before: its old line passes with the revision passed, and the pins change nothing.
+iv_process_args_refusal "$IV2" serial-log "$LOG_LINE" "$REV" >/dev/null && iv_process_args_refusal "$IV" serial-log "$LOG_LINE" "$REV" >/dev/null \
+	&& ok "sessions 1 and 2 accept their unpinned engine line with a revision passed" || bad "sessions 1 or 2 now demand a revision"
+# Through deploy_arm, which is what a paid cell runs.
+if STUB_LOG="$LOG3" run_deploy "$IV3" R1 serial-log; then
+	grep -qx -- "[[:space:]]*- --revision=$REV" "$WORK/last-applied.yaml" && grep -qx -- "[[:space:]]*- --tokenizer-revision=$REV" "$WORK/last-applied.yaml" \
+		&& ok "a session-3 cell applies a manifest carrying both pins and passes its engine's report" \
+		|| bad "the applied session-3 manifest lacks a pin: $(grep -- '--' "$WORK/last-applied.yaml" | tr '\n' ' ')"
+	awk -F'\t' '$4 == "declared" {print $6}' "$WORK/out/applied-values.tsv" | grep -qF -- "--revision=$REV --tokenizer-revision=$REV" \
+		&& ok "the declared row shows both pins" || bad "the declared row lacks the pins: $(awk -F'\t' '$4 == "declared"' "$WORK/out/applied-values.tsv")"
+else
+	bad "a session-3 cell with a pinned engine was refused: $(tail -2 "$WORK/deploy.out")"
+fi
+if STUB_LOG="$LOG_LINE" run_deploy "$IV3" R1 serial-log; then
+	bad "a session-3 cell deployed on an engine that reports no revision"
+elif grep -qF "MATRIX FAILED: REFUSED serial-log before replay: the engine for serial-log does not report 'revision': '$REV'" "$WORK/deploy.out" \
+	&& [ "$(awk -F'\t' 'NR > 1 {print $2 "/" $3 "/" $4}' "$WORK/out/cell-timings.tsv")" = "serial-log/1/refused-before-replay" ] \
+	&& [ -s "$WORK/out/cell-refused-serial-log-1.txt" ]; then
+	ok "an unpinned engine refuses the cell before replay and records it: $(grep -o 'REFUSED serial-log before replay: [^,]*' "$WORK/deploy.out")"
+else
+	bad "wrong refusal or no record: $(tail -2 "$WORK/deploy.out")"
+fi
+
+# --- 16. gate S on the warm-up, and session 3's decoders --------------------------------------------------
+say "16. gate S judges the warm-up's staggered cycle before the measured replay, and session 3 its decoders' length"
+# stagger_fixture <dir> <arm> <warmup|measured> <good|late|short|stop512|nohead>
+# Two staggered episodes (16 and 4 decoders capped at 512, each followed by a 2,048-token prefill capped at 16);
+# a warm-up adds the lone warm request at its head and two lone verification requests at its tail.
+# late: one decoder ends before its prefill's first token. short: one decoder stops at 480 tokens on `stop`,
+# still outlasting the prefill, so only session 3's length rule can see it. stop512: 512 tokens but `stop`.
+cat > "$WORK/stagger_fixture.py" <<'PY'
+import json, os, sys
+d, arm, kind, variant = sys.argv[1:5]
+T0 = 1759650000000  # ms
+trace, raw = [], []
+def add(offset, cap, tokens, ttft, out, end_after_first, finish="length"):
+    i = len(trace)
+    trace.append(dict(index=i, offsetMs=offset, tenant="premium-1", maxOutputTokens=cap,
+                      **({"minOutputTokens": cap} if cap == 512 else {})))
+    send = T0 + offset
+    raw.append(dict(index=i, sendUnixNanos=send * 10**6, firstTokenUnixNanos=int((send + ttft) * 10**6),
+                    endUnixNanos=int((send + ttft + end_after_first) * 10**6), engineInputTokens=tokens,
+                    engineOutputTokens=out, finishReason=finish))
+if kind == "warmup" and variant != "nohead":
+    add(0, 16, 2048, 412.0, 16, 100.0)
+for e, n in enumerate((16, 4)):
+    t = 100000 * (e + 1)
+    for j in range(n):
+        out, finish, end = 512, "length", 7665.0
+        if e == 0 and j == 3 and variant == "late":
+            end = 1500.0
+        if e == 1 and j == 2 and variant == "short":
+            out, finish = 480, "stop"
+        if e == 1 and j == 2 and variant == "stop512":
+            finish = "stop"
+        add(t, 512, 8192, 300.0, out, end, finish)
+    add(t + 2000, 16, 2048, 231.0, 16, 160.0)
+if kind == "warmup":
+    add(300000, 16, 2048, 230.0, 16, 100.0)
+    add(302000, 16, 2048, 233.0, 16, 100.0)
+pre = "warmup-trace" if kind == "warmup" else "trace"
+rpre = "raw-warmup" if kind == "warmup" else "raw"
+with open(os.path.join(d, f"{pre}-{arm}-1.jsonl"), "w") as f:
+    f.writelines(json.dumps(r) + "\n" for r in trace)
+with open(os.path.join(d, f"{rpre}-{arm}-1.jsonl"), "w") as f:
+    f.writelines(json.dumps(r) + "\n" for r in raw)
+PY
+# expect_s <name> <study> <phase> <variant> <ok|exact message>: iv_stagger_refusal on a fresh fixture.
+expect_s() {
+	local d="$WORK/s3-$1"
+	rm -rf "$d"; mkdir -p "$d"
+	python3 "$WORK/stagger_fixture.py" "$d" stagger-log "$3" "$4" || { bad "$1: the fixture was not written"; return; }
+	out=$(iv_stagger_refusal "$2" stagger-log "$d" 1 "$3") && rc=0 || rc=$?
+	if [ "$5" = ok ]; then
+		[ "$rc" = 0 ] && [ -z "$out" ] && ok "$1 passes" || bad "$1 should pass; rc=$rc out=${out@Q}"
+	elif [ "$rc" != 0 ] && [ "$out" = "$5" ]; then
+		ok "$1 refused: $out"
+	else
+		bad "$1 was not refused as wanted; rc=$rc out=${out@Q}"
+	fi
+}
+LATE_W="the warm-up of stagger-log-1: a decoder of the episode at offset 100000 ms finished before the prefill's first token (gate S)"
+# Index 20 is the third decoder of the second episode: the warm request is 0, the first episode 1 to 17.
+SHORT_W="the warm-up of stagger-log-1: 1 of 20 staggered decoders did not produce 512 output tokens with finish reason length; the first, index 20, has cap 512 and reported 480 tokens and finish reason 'stop' (gate S)"
+expect_s "session 2, a good warm-up" "$IV2" warmup good ok
+expect_s "session 3, a good warm-up" "$IV3" warmup good ok
+expect_s "session 2, a warm-up whose decoder ends before the prefill" "$IV2" warmup late "$LATE_W"
+expect_s "session 3, a warm-up whose decoder ends before the prefill" "$IV3" warmup late "$LATE_W"
+expect_s "session 2, a warm-up decoder stopping at 480 tokens" "$IV2" warmup short ok
+expect_s "session 3, a warm-up decoder stopping at 480 tokens" "$IV3" warmup short "$SHORT_W"
+expect_s "session 3, a warm-up decoder at 512 tokens but finish reason stop" "$IV3" warmup stop512 \
+	"the warm-up of stagger-log-1: 1 of 20 staggered decoders did not produce 512 output tokens with finish reason length; the first, index 20, has cap 512 and reported 512 tokens and finish reason 'stop' (gate S)"
+expect_s "a warm-up without its warm request" "$IV2" warmup nohead \
+	"the warm-up of stagger-log-1: the warm-up is not a lone warm request, a staggered cycle and two lone verification requests, so its staggered episodes cannot be told apart (gate S)"
+expect_s "session 2, a measured cell decoder stopping at 480 tokens" "$IV2" measured short ok
+expect_s "session 3, a measured cell decoder stopping at 480 tokens" "$IV3" measured short \
+	"stagger-log-1: 1 of 20 staggered decoders did not produce 512 output tokens with finish reason length; the first, index 19, has cap 512 and reported 480 tokens and finish reason 'stop' (gate S)"
+expect_s "session 3, a good measured cell" "$IV3" measured good ok
+out=$(iv_stagger_refusal "$IV" stagger-log "$WORK" 1 warmup) && bad "session 1 was judged by the warm-up gate" \
+	|| { [ "$out" = "study $IV registers no gate S in the harness, so it judges none" ] && ok "session 1 has no gate S here: $out" || bad "wrong refusal: $out"; }
+# The measured block the matrix executes, cut out and run as section "gate S" above runs it, now for session 3.
+run_s_in() { ( STUDY="$2"; label=stagger-log; rep=1; OUT="$1"; LADDER=""; engine_log_refusal=""
+	. hack/lib/instrument-validation.sh; eval "$s_block"; printf '%s' "$engine_log_refusal" ) }
+d="$WORK/s3-block"; rm -rf "$d"; mkdir -p "$d"
+python3 "$WORK/stagger_fixture.py" "$d" stagger-log measured short
+r=$(run_s_in "$d" "$IV3")
+[ "$r" = "gate S: stagger-log-1: 1 of 20 staggered decoders did not produce 512 output tokens with finish reason length; the first, index 19, has cap 512 and reported 480 tokens and finish reason 'stop' (gate S)" ] \
+	&& ok "the matrix's measured block refuses session 3's short decoder: ${r:0:110}" || bad "the measured block read ${r@Q}"
+r=$(run_s_in "$d" "$IV2")
+[ -z "$r" ] && ok "the same cell passes the block under session 2" || bad "session 2's block refused: $r"
+# run_warmup end to end: generated, replayed, W passed, then S on the warm-up decides.
+# drive_s3 <study> <variant>: the stub replays the fixture's warm-up trace and rows.
+drive_s3() {
+	local d="$WORK/s3-drive"
+	rm -rf "$d"; mkdir -p "$d"
+	python3 "$WORK/stagger_fixture.py" "$d" stagger-log warmup "$2" || { echo "the fixture was not written" > "$WORK/warm.out"; return 1; }
+	DW_STUDY="$1" BH_WARM_TRACE="$d/warmup-trace-stagger-log-1.jsonl" drive_warmup stagger-log "$d/raw-warmup-stagger-log-1.jsonl" "$ITER2"
+}
+drive_s3 "$IV3" good && ok "a session-3 staggered warm-up that satisfies S and W goes on to the measured replay" \
+	|| bad "a good session-3 staggered warm-up was refused: $(tail -2 "$WORK/warm.out")"
+if drive_s3 "$IV3" short; then
+	bad "a session-3 warm-up with a short decoder went on to the measured replay"
+elif grep -qxF "MATRIX FAILED: REFUSED stagger-log rep 1 at its warm-up: gate S: $SHORT_W" "$WORK/warm.out" \
+	&& [ "$(awk -F'\t' 'NR > 1 {print $2 "/" $3 "/" $4}' "$WORK/out/cell-timings.tsv")" = "stagger-log/1/refused-at-warmup" ] \
+	&& [ "$(cat "$WORK/out/cell-refused-stagger-log-1.txt")" = "REFUSED stagger-log rep 1 at its warm-up: gate S: $SHORT_W" ]; then
+	ok "a short warm-up decoder ends the run before the measured replay and is recorded refused-at-warmup"
+else
+	bad "wrong failure or no record: $(tail -2 "$WORK/warm.out")"
+fi
+if drive_s3 "$IV2" late; then
+	bad "a session-2 warm-up violating S went on to the measured replay"
+elif grep -qxF "MATRIX FAILED: REFUSED stagger-log rep 1 at its warm-up: gate S: $LATE_W" "$WORK/warm.out"; then
+	ok "session 2's warm-up is judged by S as well"
+else
+	bad "wrong failure: $(tail -2 "$WORK/warm.out")"
+fi
+drive_s3 "$IV2" short && ok "session 2's warm-up does not judge decoder length" || bad "session 2's warm-up was refused: $(tail -2 "$WORK/warm.out")"
+body=$(extract run_warmup)
+wn=$(printf '%s\n' "$body" | grep -n 'iv_warmup_refusal' | cut -d: -f1)
+sn=$(printf '%s\n' "$body" | grep -n 'iv_stagger_refusal' | cut -d: -f1)
+[ -n "$wn" ] && [ -n "$sn" ] && [ "$wn" -lt "$sn" ] && ok "run_warmup judges W ($wn) before S ($sn)" || bad "run_warmup's order is W=$wn S=$sn"
+
+# --- 17. a refused cell's outcome, and the accounting that reads it ---------------------------------------
+say "17. a refused cell is recorded before the run stops, and its files are not strays"
+body=$(extract run_cell)
+printf '%s\n' "$body" | grep -A1 '\[ -z "\$engine_log_refusal" \] \\' | grep -qF 'cell_refused_stop "$label" "$rep" after-replay' \
+	&& ok "run_cell refuses after replay through cell_refused_stop" || bad "run_cell's after-replay refusal does not record the cell"
+if ! unrecorded=$(awk '/fail "(W )?REFUSED/ {print NR ": " $0}' "$SRC"); then
+	bad "could not read $SRC for unrecorded refusals"
+elif [ -n "$unrecorded" ]; then
+	bad "a cell refusal still fails without recording: $unrecorded"
+else
+	ok "no cell refusal in the matrix calls fail without cell_refused_stop"
+fi
+# acct_case <name> <outcome> <label-rep> <files...>: a crafted OUT with one completed cell and one refused one.
+acct_case() {
+	local name="$1" outcome="$2" cell="$3" D="$WORK/acct-$1" f
+	shift 3
+	rm -rf "$D"; mkdir -p "$D"
+	printf 'cell\tarm\trep\toutcome\tstart_utc\tend_utc\telapsed_s\tcum_s\tcells_done\n1\tserial-log\t1\tcompleted\ta\tb\t60\t60\t1\n' > "$D/cell-timings.tsv"
+	[ "$outcome" = none ] || printf '2\t%s\t%s\t%s\ta\tb\t60\t120\t2\n' "${cell%-*}" "${cell##*-}" "$outcome" >> "$D/cell-timings.tsv"
+	for f in evidence.log load-source.txt cell-judgements.tsv applied-values.tsv cell-environment.tsv engine-log-serial-log-1.txt \
+		trace-serial-log-1.jsonl raw-serial-log-1.jsonl manifest-serial-log-1.yaml port-forward-serial-log-1.log \
+		engine-metrics-serial-log-1-before.prom engine-metrics-serial-log-1-after.prom "$@"; do : > "$D/$f"; done
+	account "$D"
+}
+C=stagger-log-1
+AFTER="trace-$C.jsonl raw-$C.jsonl manifest-$C.yaml port-forward-$C.log engine-metrics-$C-before.prom engine-metrics-$C-after.prom engine-log-$C.txt"
+WARM="raw-warmup-$C.jsonl warmup-boundary-$C.txt warmup-trace-$C.jsonl warmup-manifest-$C.yaml"
+# shellcheck disable=SC2086
+a=$(acct_case unrecorded none $C $AFTER $WARM)
+printf '%s\n' "$a" | grep -qx 'stray-cell-outputs 0 6' && ok "session 2's shape, a refused cell with no row, reads as six strays: the defect" \
+	|| bad "the unrecorded case read: $(printf '%s\n' "$a" | awk '$2 != $3')"
+# shellcheck disable=SC2086
+a=$(acct_case after refused-after-replay $C $AFTER $WARM cell-refused-$C.txt)
+m=$(printf '%s\n' "$a" | awk '$2 != $3')
+[ -z "$m" ] && printf '%s\n' "$a" | grep -qx 'cell-refusal-files 1 1' && printf '%s\n' "$a" | grep -qx 'cell-outputs 8 8' \
+	&& ok "a cell refused after replay agrees in every class and in total: $(printf '%s\n' "$a" | grep -E '^(cell-|total)' | tr '\n' ' ')" \
+	|| bad "after-replay disagrees: $m"
+# shellcheck disable=SC2086
+a=$(acct_case warm refused-at-warmup $C port-forward-$C.log $WARM cell-refused-$C.txt)
+m=$(printf '%s\n' "$a" | awk '$2 != $3')
+[ -z "$m" ] && printf '%s\n' "$a" | grep -qx 'cell-outputs 5 5' && ok "a cell refused at its warm-up owes its port-forward log and agrees" || bad "at-warmup disagrees: $m"
+a=$(acct_case before refused-before-replay $C cell-refused-$C.txt)
+m=$(printf '%s\n' "$a" | awk '$2 != $3')
+[ -z "$m" ] && ok "a cell refused before replay owes only its refusal file and agrees" || bad "before-replay disagrees: $m"
+# shellcheck disable=SC2086
+a=$(acct_case nofile refused-after-replay $C $AFTER $WARM)
+printf '%s\n' "$a" | grep -qx 'cell-refusal-files 1 0' && ok "a recorded refusal whose file is missing is a shortfall in its own class" \
+	|| bad "a missing cell-refused file was not seen: $(printf '%s\n' "$a" | awk '$2 != $3')"
+a=$(acct_case norow none $C cell-refused-$C.txt)
+printf '%s\n' "$a" | grep -qx 'stray-cell-outputs 0 1' && printf '%s\n' "$a" | grep -qx 'cell-refusal-files 0 0' \
+	&& ok "a cell-refused file with no row is a stray, not credit" || bad "an unowed cell-refused file read: $(printf '%s\n' "$a" | awk '$2 != $3')"
+a=$(acct_case plain none $C)
+printf '%s\n' "$a" | grep -q '^cell-refusal-files' && bad "a run with no cell refusal prints a cell-refusal-files row" \
+	|| ok "a run with no cell refusal prints the classes it printed before"
+
+# --- 18. the plans: session 2 byte-identical to before session 3, and session 3 is session 2 by another name ---
+S2_BASE=b7b319e6e27c5240178c1edaf49c05b8376f424d
+git cat-file -e "$S2_BASE^{commit}" || git fetch --quiet --depth=1 origin "$S2_BASE" || true
+say "18. session 2's plan is byte-identical to $S2_BASE, and session 3's plan is session 2's under its own id"
+if ! git cat-file -e "$S2_BASE^{commit}"; then
+	bad "$S2_BASE is not a commit here, so session 2 cannot be compared against it"
+elif tree "$WORK/t-base2" "$S2_BASE" && tree "$WORK/t-cur2"; then
+	plan_run "$WORK/t-base2" "$WORK/p-base2" STUDY="$IV2"; rb=$?
+	plan_run "$WORK/t-cur2" "$WORK/p-cur2" STUDY="$IV2"; rc2=$?
+	plan_run "$WORK/t-cur2" "$WORK/p-cur3" STUDY="$IV3"; rc3=$?
+	if [ "$rb" = 0 ] && [ "$rc2" = 0 ] && [ "$rc3" = 0 ] && grep -q "^== PLAN OK under study $IV3" "$WORK/p-cur3.out"; then
+		for x in out bh; do
+			cmp -s "$WORK/p-base2.$x" "$WORK/p-cur2.$x" && ok "session 2's plan $x is byte-identical to $S2_BASE's ($(wc -l < "$WORK/p-cur2.$x") lines)" \
+				|| bad "session 2's plan $x moved: $(diff "$WORK/p-base2.$x" "$WORK/p-cur2.$x" | head -6)"
+			cmp -s "$WORK/p-cur2.$x" <(sed "s/$IV3/$IV2/g" "$WORK/p-cur3.$x") && ok "session 3's plan $x is session 2's with the study id replaced" \
+				|| bad "session 3's plan $x differs from session 2's: $(diff "$WORK/p-cur2.$x" <(sed "s/$IV3/$IV2/g" "$WORK/p-cur3.$x") | head -6)"
+		done
+		cmp -s "$WORK/p-base2/load-source.txt" "$WORK/p-cur2/load-source.txt" && ok "session 2's load-source.txt is byte-identical" \
+			|| bad "session 2's load-source.txt moved: $(diff "$WORK/p-base2/load-source.txt" "$WORK/p-cur2/load-source.txt" | head -4)"
+	else
+		bad "a plan did not pass (base rc=$rb, session 2 rc=$rc2, session 3 rc=$rc3): $(tail -2 "$WORK/p-cur3.out")"
+	fi
+else
+	bad "could not build the session-2 plan trees"
 fi
 
 echo
