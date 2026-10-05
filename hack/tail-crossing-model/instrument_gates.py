@@ -29,7 +29,11 @@ STUDY_S2 = "instrument-validation-s2-2026-10-05"
 # Session 3 (2026-10-06-instrument-validation-session-3.md) is session 2 with fixed-length staggered decoders: every
 # session-2 path applies to it, and it adds the decoder-length check and S on the warm-up's staggered episodes.
 STUDY_S3 = "instrument-validation-s3-2026-10-06"
-WARM_STUDIES = (STUDY_S2, STUDY_S3)
+# Session 4 (2026-10-06-instrument-validation-session-4.md) is session 3 with a conditioning request between the
+# warm-up's cycle and its verification requests.
+STUDY_S4 = "instrument-validation-s4-2026-10-06"
+WARM_STUDIES = (STUDY_S2, STUDY_S3, STUDY_S4)
+FIXED_LENGTH_STUDIES = (STUDY_S3, STUDY_S4)
 # Session 3 registers every staggered decoder at exactly 512 output tokens, not merely "at its cap": a decoder capped
 # lower would satisfy cap-equality and still not be the registered decode window (found by review).
 S3_DECODER_TOKENS = 512
@@ -380,20 +384,22 @@ def check_warmup(run, arm, b):
                       f"{WARM_TTFT_MS:.0f} ms and 2% of each other (gate W)")
 
 
-def warmup_stagger_episodes(run, arm, b):
+def warmup_stagger_episodes(run, arm, b, trailing=2):
     """The staggered cycle inside a staggered cell's warm-up, without the warm-up's single requests around it.
 
     The warm-up is one drained 2,048-token request, one cycle of the cell's episode type, then two drained 2,048-token
     verification requests (session 2's registration, section 2); the three are checked to be exactly that, so a
     warm-up of another shape refuses instead of being paired up as decoders and prefills.
     """
+    # trailing is how many single requests close the warm-up: two verification requests, and from session 4 a
+    # conditioning request before them.
     reqs = load_cell(run, arm, b, warmup=True)
-    ends = reqs[:1] + reqs[-2:]
-    if len(reqs) < 5 or any(q["input_tokens"] != 2048 or q["cap"] != 16 for q in ends) \
-            or len({q["offset"] for q in ends}) != 3 or reqs[1]["offset"] == reqs[0]["offset"]:
-        raise Refusal(f"{arm}-{b}: the warm-up is not one 2,048-token request, a staggered cycle and two verification "
-                      f"requests, so its staggered episodes cannot be located (gate S)")
-    return reqs[1:-2]
+    ends = reqs[:1] + reqs[-trailing:]
+    if len(reqs) < 3 + trailing or any(q["input_tokens"] != 2048 or q["cap"] != 16 for q in ends) \
+            or len({q["offset"] for q in ends}) != 1 + trailing or reqs[1]["offset"] == reqs[0]["offset"]:
+        raise Refusal(f"{arm}-{b}: the warm-up is not one 2,048-token request, a staggered cycle and {trailing} closing "
+                      f"2,048-token requests, so its staggered episodes cannot be located (gate S)")
+    return reqs[1:-trailing]
 
 
 def check_stagger(reqs, arm, b, fixed_length=False):
@@ -429,7 +435,8 @@ def evaluate(run, rng=None):
     rng = rng or random.Random(20261005)
     study = study_of(run)
     s2 = study in WARM_STUDIES
-    s3 = study == STUDY_S3
+    s3 = study in FIXED_LENGTH_STUDIES
+    trailing = 3 if study == STUDY_S4 else 2
     cells = {}
     for kind in TYPES:
         for suffix in ("log", "nolog"):
@@ -453,7 +460,7 @@ def evaluate(run, rng=None):
                 check_stagger(load_cell(run, f"stagger-{suffix}", b), f"stagger-{suffix}", b, fixed_length=s3)
                 if s3:
                     # The warm-up's staggered episodes are held to S too: session 2's warm-up broke it as well.
-                    check_stagger(warmup_stagger_episodes(run, f"stagger-{suffix}", b), f"stagger-{suffix} warm-up", b,
+                    check_stagger(warmup_stagger_episodes(run, f"stagger-{suffix}", b, trailing), f"stagger-{suffix} warm-up", b,
                                   fixed_length=True)
         if "stagger-async" in asyncs:
             check_stagger(load_cell(run, "stagger-async", 1), "stagger-async", 1, fixed_length=s3)
@@ -603,7 +610,7 @@ def _s2_run(run, asyncs=True, **kw):
                 shutil.copy(os.path.join(run, name), os.path.join(run, name.replace(f"{kind}-nolog-1", f"{kind}-async-1")))
 
 
-def _s3_run(run, short_decoder=False, short_warmup=False, dec_cap=S3_DECODER_TOKENS):
+def _s3_run(run, short_decoder=False, short_warmup=False, dec_cap=S3_DECODER_TOKENS, study=STUDY_S3, conditioner=None):
     """A session-3 archive: session 2's, recorded under session 3, every decoder stopping on its cap.
 
     Each staggered cell gets a warm-up of the registered shape -- one 2,048-token request, one staggered episode, two
@@ -615,7 +622,7 @@ def _s3_run(run, short_decoder=False, short_warmup=False, dec_cap=S3_DECODER_TOK
             path = os.path.join(run, name)
             rows = [json.loads(l) for l in open(path)]
             for r in rows:
-                r["study"] = STUDY_S3
+                r["study"] = study
                 r["finishReason"] = "length"
             with open(path, "w") as f:
                 f.writelines(json.dumps(r) + "\n" for r in rows)
@@ -627,13 +634,16 @@ def _s3_run(run, short_decoder=False, short_warmup=False, dec_cap=S3_DECODER_TOK
                     (30_000, 2048, 16, 0, 231.5, 300.0, "length")]
             if short_warmup and (suffix, b) == ("nolog", 2):
                 plan[1] = (10_000, 256, 512, 0, 50.0, 100.0, "stop")
+            # Session 4 puts a conditioning request between the cycle and the verification requests.
+            if conditioner if conditioner is not None else study == STUDY_S4:
+                plan.insert(3, (15_000, 2048, 16, 0, 233.0, 300.0, "length"))
             with open(os.path.join(run, f"warmup-trace-{arm}-{b}.jsonl"), "w") as f:
                 f.writelines(json.dumps(dict(index=i, offsetMs=o, tenant="premium-1", maxOutputTokens=cap)) + "\n"
                              for i, (o, _, cap, *_) in enumerate(plan))
             with open(os.path.join(run, f"raw-warmup-{arm}-{b}.jsonl"), "w") as f:
                 for i, (o, tok, cap, _, ttft, dur, fin) in enumerate(plan):
                     send = int(o * 1e6)
-                    f.write(json.dumps(dict(index=i, study=STUDY_S3, engineInputTokens=tok,
+                    f.write(json.dumps(dict(index=i, study=study, engineInputTokens=tok,
                                             engineOutputTokens=cap if fin == "length" else cap // 3, finishReason=fin,
                                             sendUnixNanos=send, firstTokenUnixNanos=send + int(ttft * 1e6),
                                             endUnixNanos=send + int(dur * 1e6))) + "\n")
@@ -652,6 +662,24 @@ def _s3_run(run, short_decoder=False, short_warmup=False, dec_cap=S3_DECODER_TOK
         r["finishReason"] = "stop"
         with open(path, "w") as f:
             f.writelines(json.dumps(x) + "\n" for x in rows)
+
+
+def self_test_s4():
+    """Session 4: session 3's paths with a conditioning request closing the warm-up's staggered cycle."""
+    import tempfile
+    with tempfile.TemporaryDirectory() as run:
+        _s3_run(run, study=STUDY_S4)
+        passed, lines = evaluate(run)
+        assert passed, "\n".join(lines)
+        print("ok: session 4, a warm-up with its conditioning request -> PASS")
+    with tempfile.TemporaryDirectory() as run:
+        _s3_run(run, study=STUDY_S4, conditioner=False)
+        try:
+            evaluate(run)
+            raise AssertionError("a session-4 warm-up without its conditioning request was accepted")
+        except Refusal as e:
+            assert "cannot be located" in str(e), e
+            print(f"ok: refuses a session-4 warm-up without its conditioning request -- {e}")
 
 
 def self_test_s3():
@@ -769,6 +797,7 @@ def self_test_s2():
 
 def self_test():
     import tempfile
+    self_test_s4()
     self_test_s3()
     self_test_s2()
     with tempfile.TemporaryDirectory() as run:
