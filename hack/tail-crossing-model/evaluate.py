@@ -29,25 +29,42 @@ def nearest_rank(xs, q):
 
 
 def load(run_dir):
-    """arm -> {rep: [LC TTFT ms]}, per-arm excluded counts, and per-(arm, rep) offered and completed counts."""
-    arms, excluded, per_trace = {}, {}, {}
+    """arm -> {rep: [LC TTFT ms]}, per-arm excluded counts, per-(arm, rep) offered/completed, and LC schedules.
+
+    OFFERED comes from the TRACE, not from the raw rows. Counting raw rows let a recording that lost rows
+    shrink its own denominator, so two deleted latency-critical rows passed as a complete cell -- found by an
+    independent review. Each raw row is joined to its trace row by index, and a raw row whose scheduled offset
+    disagrees with the trace means the file is not that trace's replay.
+    """
+    arms, excluded, per_trace, sched = {}, {}, {}, {}
     for path in glob.glob(os.path.join(run_dir, "raw-*.jsonl")):
         m = RAW.search(os.path.basename(path))
         arm, rep = m.group(1), int(m.group(2))
-        ttft, offered = [], 0
+        trace_path = os.path.join(run_dir, f"trace-{arm}-{rep}.jsonl")
+        if not os.path.exists(trace_path):
+            sys.exit(f"NOT TESTED: {os.path.basename(path)} has no trace-{arm}-{rep}.jsonl to be checked against")
+        with open(trace_path) as f:
+            lc = {r["index"]: r["offsetMs"] for r in map(json.loads, f) if r["tenant"] == "premium-1"}
+        got = {}
         with open(path) as f:
             for line in f:
                 r = json.loads(line)
                 if r.get("tenant") != "premium-1":
                     continue
-                offered += 1
-                if r.get("errorKind") or not r.get("firstTokenUnixNanos") or r.get("httpStatus") != 200:
-                    excluded[arm] = excluded.get(arm, 0) + 1
-                    continue
-                ttft.append((r["firstTokenUnixNanos"] - r["sendUnixNanos"]) / 1e6)
+                if r["index"] not in lc or r.get("scheduledOffsetMs") != lc[r["index"]]:
+                    sys.exit(f"NOT TESTED: {os.path.basename(path)} row {r['index']} is not its trace's latency-critical request at that offset")
+                got[r["index"]] = r
+        ttft = []
+        for idx in lc:
+            r = got.get(idx)
+            if r is None or r.get("errorKind") or not r.get("firstTokenUnixNanos") or r.get("httpStatus") != 200:
+                excluded[arm] = excluded.get(arm, 0) + 1
+                continue
+            ttft.append((r["firstTokenUnixNanos"] - r["sendUnixNanos"]) / 1e6)
         arms.setdefault(arm, {})[rep] = ttft
-        per_trace[arm, rep] = (offered, len(ttft))
-    return arms, excluded, per_trace
+        per_trace[arm, rep] = (len(lc), len(ttft))
+        sched[arm, rep] = sorted(lc.values())
+    return arms, excluded, per_trace, sched
 
 
 def refusal(name, per_trace):
@@ -98,8 +115,14 @@ def pooled(arms, arm, q):
 
 def main(short_dir, long_dir, s_b):
     lam95, lam99 = 0.05 / s_b, 0.01 / s_b
-    short, ex_s, pt_s = load(short_dir)
-    long_, ex_l, pt_l = load(long_dir)
+    short, ex_s, pt_s, sc_s = load(short_dir)
+    long_, ex_l, pt_l, sc_l = load(long_dir)
+    # Every arm of a repetition must offer that repetition's baseline schedule, in both stages: the pairing
+    # was checked on the baselines only, so a contended cell replayed from another schedule passed.
+    for name, sc in (("short", sc_s), ("long", sc_l)):
+        for (arm, rep), offsets in sorted(sc.items()):
+            if offsets != sc.get(("R1", rep)):
+                sys.exit(f"NOT TESTED: {name} {arm} repetition {rep} offered a different latency-critical schedule from its baseline")
     for why in (refusal("short", pt_s), refusal("long", pt_l)):
         if why:
             sys.exit(f"NOT TESTED: {why}")
