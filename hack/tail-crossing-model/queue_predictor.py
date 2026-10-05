@@ -218,7 +218,41 @@ def main(out):
     print(f"secondary F' (not gated): p95 error {100 * sec[max(0, math.ceil(.95 * len(sec)) - 1)]:.1f}% median {100 * sec[len(sec) // 2]:.1f}%")
 
 
+def g4(out):
+    """The registered G4, published and not gated, from the files main() wrote.
+
+    Two comparisons that let a reader separate baseline and fitting error from contention error: the
+    profiling q0 against the reference isolated p99 of the same profile, and the fitted queue's isolated
+    p95/p99 against each LC-alone profiling curve point it was fitted to. Both are recomputed from the saved
+    curves and fits, which is exact because every quantity in them is seeded.
+    """
+    with open(os.path.join(out, "predictions.json")) as f:
+        pr = json.load(f)
+    with open(os.path.join(out, "references.json")) as f:
+        refs = json.load(f)
+    print("G4 (published, not gated)")
+    q0_err = {}
+    for r in refs:
+        L, rho = r["profile"][0], r["profile"][1]
+        curve = pr["curves"][f"LC-{L}"]
+        rate = rho / pr["u_l"][str(L)]
+        q0 = min(curve, key=lambda c: abs(c[0] - rate))[2]
+        q0_err[L, rho] = (q0 - r["Q_iso"]) / r["Q_iso"]
+    for (L, rho), e in sorted(q0_err.items()):
+        print(f"  q0 vs reference isolated p99, LC {L:5d} rho_LC {rho:.2f}: {100 * e:+.1f}%")
+    for L in LC_LENGTHS:
+        a, u = pr["a_l"][str(L)], pr["u_l"][str(L)]
+        for rate, m95, m99 in pr["curves"][f"LC-{L}"]:
+            xs = virtual(rate, 0, a, a, u, FORECAST)
+            print(f"  fitted queue vs LC-alone curve, LC {L:5d} at {rate:.3f}/s: p95 {100 * (nr(xs, .95) - m95) / m95:+.1f}%"
+                  f"  p99 {100 * (nr(xs, .99) - m99) / m99:+.1f}%")
+
+
 if __name__ == "__main__":
-    if len(sys.argv) != 2:
+    if len(sys.argv) == 3 and sys.argv[1] == "--g4":
+        g4(sys.argv[2])
+    elif len(sys.argv) == 2:
+        main(sys.argv[1])
+        g4(sys.argv[1])
+    else:
         sys.exit(__doc__)
-    main(sys.argv[1])
