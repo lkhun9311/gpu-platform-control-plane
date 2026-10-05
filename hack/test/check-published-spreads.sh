@@ -1137,10 +1137,15 @@ PY
 	a_skip=$(printf '%s\n' "$absent_out" | grep -c '^SKIP ' || true)
 	a_check=$(printf '%s\n' "$absent_out" | grep -c '^CHECK ' || true)
 	a_problem=$(printf '%s\n' "$absent_out" | grep -c '^PROBLEM ' || true)
-	if [ "$a_skip" = 3 ] && [ "$a_check" = 2 ]; then
-		ok "with three archives absent the path emits 3 SKIP and 2 CHECK: a block it could not recompute is never emitted as one it did"
+	# The expected counts are the disk's, counted independently just above, not literals.
+	# They were 3 and 2 -- the blocks absent and present on the machine that wrote this -- and on CI, where no
+	# archive is checked out, all five are absent and the literal failed a correct run.
+	want_skip=$(printf '%s' "$skip_out" | awk '{print $2}')
+	want_check=$(printf '%s' "$skip_out" | awk '{print $4}')
+	if [ -n "$want_skip" ] && [ "$a_skip" = "$want_skip" ] && [ "$a_check" = "$want_check" ]; then
+		ok "with $want_skip archive(s) absent the path emits $a_skip SKIP and $a_check CHECK: a block it could not recompute is never emitted as one it did"
 	else
-		bad "a document citing three missing archives produced $a_skip SKIP and $a_check CHECK lines, wanted 3 and 2; a skip emitted as a check is a value nothing recomputed being counted as recomputed"
+		bad "a document whose archives are absent for ${want_skip:-?} block(s) and present for ${want_check:-?} produced $a_skip SKIP and $a_check CHECK lines; a skip emitted as a check is a value nothing recomputed being counted as recomputed"
 	fi
 	if [ "$a_problem" = 0 ]; then
 		ok "a missing archive produces no PROBLEM either: absent is reported as absent, not as a disagreement"
