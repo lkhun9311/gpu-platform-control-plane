@@ -794,8 +794,17 @@ else
         CELLS+=("$spec")
       done < <(for arm in $ARMS; do
         case "$arm" in *-async) continue ;; esac
+        # Study s4's block 1 starts with a staggered cell, which of the two still chosen by the hash.
+        # The matrix stops when the remaining cells, each charged the observed overhead so far, outrun the deadline,
+        # and after a cold serial first cell that projection exceeded what the credentials allow (session 4, by one
+        # minute); finishing the longest cell first leaves less work to carry the 20% headroom. The other cells and
+        # blocks keep their hash order, and session 5's registration records the rule before purchase.
         printf '%s R1|%s|%s|%s|%s|0\n' "$(printf '%s/%s' "$rep" "$arm" | sha256sum | cut -c1-16)" "$arm" "$rep" "$RATE" "$NOISY_WEIGHT"
-      done | LC_ALL=C sort | cut -d' ' -f2-)
+      done | LC_ALL=C sort | if [ "$rep" = 1 ] && [ "$STUDY" = "$IV_S4_STUDY" ]; then
+        # Only the first staggered cell in hash order is moved to the front; the other five keep their order.
+        awk '!moved && $2 ~ /^R1\|stagger-/ {first = $0; moved = 1; next} {rest[++n] = $0}
+             END {if (first != "") print first; for (i = 1; i <= n; i++) print rest[i]}'
+      else cat; fi | cut -d' ' -f2-)
     done
     while IFS= read -r spec; do
       CELLS+=("$spec")

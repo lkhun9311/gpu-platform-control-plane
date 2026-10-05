@@ -1260,7 +1260,7 @@ else
 	[ "$(cat "$WORK/out/engine-log-serial-nolog-1.txt")" = "$ELOG" ] && ok "a W refusal keeps the engine log, as the cluster returned it" \
 		|| bad "the engine log after a W refusal: $(cat "$WORK/out/engine-log-serial-nolog-1.txt" 2>&1)"
 	s=$(sent)
-	[ "$s" = "cell-timings.tsv engine-log-serial-nolog-1.txt raw-warmup-serial-nolog-1.jsonl warmup-boundary-serial-nolog-1.txt warmup-manifest-serial-nolog-1.yaml warmup-trace-serial-nolog-1.jsonl " ] \
+	[ "$s" = "cell-refused-serial-nolog-1.txt cell-timings.tsv engine-log-serial-nolog-1.txt raw-warmup-serial-nolog-1.jsonl warmup-boundary-serial-nolog-1.txt warmup-manifest-serial-nolog-1.yaml warmup-trace-serial-nolog-1.jsonl " ] \
 		&& ok "the per-cell upload sent the engine log with the warm-up's files and the timing row: $s" || bad "the upload sent: ${s:-nothing}"
 	grep -qxF "MATRIX FAILED: $(cat "$WORK/out/cell-refused-serial-nolog-1.txt")" "$WORK/warm.out" \
 		&& grep -q '^W REFUSED serial-nolog rep 1: the warm-up verification requests are .*(.*/raw-warmup-serial-nolog-1.jsonl)$' "$WORK/out/cell-refused-serial-nolog-1.txt" \
@@ -1322,10 +1322,19 @@ elif tree "$WORK/t-base4" "$S4_BASE" && tree "$WORK/t-cur4"; then
 	done
 	plan_run "$WORK/t-cur4" "$WORK/p4c-$IV4" STUDY="$IV4"; rc4=$?
 	if [ "$rc4" = 0 ] && grep -q "^== PLAN OK under study $IV4" "$WORK/p4c-$IV4.out"; then
+		# Session 4 orders block 1 with a staggered cell first, so its plan is session 3's as a set, not line for line.
 		for x in out bh; do
-			cmp -s "$WORK/p4c-$IV3.$x" <(sed "s/$IV4/$IV3/g" "$WORK/p4c-$IV4.$x") && ok "session 4's plan $x is session 3's with the study id replaced" \
-				|| bad "session 4's plan $x differs from session 3's: $(diff "$WORK/p4c-$IV3.$x" <(sed "s/$IV4/$IV3/g" "$WORK/p4c-$IV4.$x") | head -4)"
+			cmp -s <(sort "$WORK/p4c-$IV3.$x" | grep -v '^== plan:') <(sed "s/$IV4/$IV3/g" "$WORK/p4c-$IV4.$x" | sort | grep -v '^== plan:') \
+				&& ok "session 4's plan $x is session 3's with the study id replaced, up to order" \
+				|| bad "session 4's plan $x differs from session 3's: $(diff <(sort "$WORK/p4c-$IV3.$x") <(sed "s/$IV4/$IV3/g" "$WORK/p4c-$IV4.$x" | sort) | head -4)"
 		done
+		first4=$(grep -m1 '^== plan:' "$WORK/p4c-$IV4.out" | awk '{print $5}')
+		second4=$(grep -m1 '^== plan:' "$WORK/p4c-$IV4.out" | awk '{print $6}')
+		case "$first4:$second4" in
+			stagger-*:stagger-*) bad "session 4 moved both staggered cells to the front of block 1: $first4 $second4" ;;
+			stagger-*:*) ok "session 4's block 1 starts with one staggered cell ($first4), the rest in hash order" ;;
+			*) bad "session 4's first cell is ${first4:-nothing}, not a staggered one" ;;
+		esac
 	else
 		bad "session 4's plan did not pass (rc=$rc4): $(tail -2 "$WORK/p4c-$IV4.out")"
 	fi
