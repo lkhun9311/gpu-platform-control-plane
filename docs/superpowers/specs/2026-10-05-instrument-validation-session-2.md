@@ -61,3 +61,22 @@ One session. The evaluator as committed at launch runs once; its verdict is the 
 | Staggered trigger | — (not seen) | trigger after the decoders' first tokens; found the `(16, 8,192)` defect | astra's finding; **my mechanism** — the replay is open-loop, so a longer decode window and a later fixed trigger, verified by S |
 
 Every session-1 number above was recomputed by me from the archive before it was written here; astra's figures and mine agree to the digits shown.
+
+## Amendment, 2026-10-05 — what is bought, before it is bought
+
+**The async controls are dropped.** With all 21 cells the session does not fit the credentials it can run under. The matrix stops on a cell boundary when the remaining cells, each charged its replay, its warm-up and the observed overhead per cell times 1.2, exceed the time left; after session 1's cold first cell (436 s beyond its replay) that projects about 11.9 hours, and SSO role credentials last 12 hours from issue. The three async cells are publication-only and gate nothing, so they go: **18 cells**, three randomised blocks of the six synchronous arms. `instrument_gates.py` checks W and S on any async cell present and says in its output that none is. Shortening the staggered warm-up was considered and rejected: in session 1 the first burst and staggered episode of every cell was 1.5 to 6 times its setting's median, so a serial warm-up cycle need not warm them.
+
+| | |
+|---|---|
+| Session | one g5.2xlarge spot instance in `gpu-lab`, `hack/m5c-gpu-session.sh`, `PURPOSE=new-measurement`, study `instrument-validation-s2-2026-10-05` |
+| Cells | `REPS=3`, `ARMS="serial-log serial-nolog burst-log burst-nolog stagger-log stagger-nolog"`; seed 11 for every block |
+| Trace spans | serial 487.2 s, burst 304.7 s, staggered 2,378.3 s at seed 11 (staggered at most 2,395.2 s at any seed); warm-ups 115.2, 135.6 and 512.8 s |
+| Deadline | `HARD_STOP_SECONDS=39600`, `BACKSTOP_SECONDS=40200`. After the first cell the projection leaves about 9 minutes if that cell is serial and more otherwise; the session needs 700 minutes of credentials, renewed immediately before launch |
+| Expected | about 8–9 hours; about $6 at session 1's spot price, bounded at about $12.30 by the $1.10/hour cap and the backstop |
+
+**Disclosed before launch.**
+- W's "within 2% of each other" is measured against the smaller TTFT, in the matrix and in the evaluator alike.
+- Gate S runs per staggered cell in the matrix, by the evaluator's own function, so a violation stops acquisition; an independent review by codex `gpt-6-astra` found it had run only after the session. The same review found that a log missing the head of its warm-up passed and that I3 grouped by the observed output count; the evaluator now refuses a log that does not start at iteration 0 — every cell starts a fresh engine — and groups I3 by the trace's cap. Each has a test that fails when it is reverted.
+- The choice of mean over median for staggered TTFT is not pinned by a test: no synthetic case was found in which the two disagree about the verdict.
+- `python3` on the instance is inferred, not observed: the matrix had not run it there before; cloud-init, which executes the instance's user-data, is itself a Python 3 program on the Ubuntu 22.04 Deep Learning AMI.
+- Rehearsed on kind (`IV=2`): serial-log, serial-nolog and serial-async passed end to end with warm-ups and boundaries, the stub answering 231 ms and reporting its prompt tokens; 1,536 iteration lines, of which 1,296 after the boundary, exactly the warm-up's 30 and the measured 162 requests at eight steps each. Burst and staggered cells were not rehearsed for length; gate S's matrix block was executed in `check-instrument-validation-harness.sh` against good and violating staggered cells.
