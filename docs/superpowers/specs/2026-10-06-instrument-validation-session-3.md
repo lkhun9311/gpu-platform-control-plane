@@ -32,3 +32,16 @@ They ran under different termination semantics and are not pooled with session 3
 | Further defects | — | the refused cell's outcome unrecorded; the engine reported `revision=None` | astra's findings |
 
 Every session-2 number above was recomputed by me from the archive; astra's and mine agree.
+
+## Amendment, 2026-10-06 — what is bought, before it is bought
+
+| | |
+|---|---|
+| Session | one g5.2xlarge spot instance in `gpu-lab`, `hack/m5c-gpu-session.sh`, `PURPOSE=new-measurement`, study `instrument-validation-s3-2026-10-06` |
+| Cells | `REPS=3`, `ARMS="serial-log serial-nolog burst-log burst-nolog stagger-log stagger-nolog"`, seed 11 for every block: 18 cells |
+| Deadline | `HARD_STOP_SECONDS=39600`, `BACKSTOP_SECONDS=40200`, as session 2's; the session needs 700 minutes of credentials, renewed immediately before launch |
+| Expected | about 8–9 hours, about $6; bounded at about $12.30 |
+
+**What changed in the code since session 2, and how each was checked before launch.** `min_tokens` reaches the HTTP body only on staggered decoders, and every other request's body is byte-identical to session 2's (a body-capturing test); session 1's and session 2's traces hash as before; the matrix accepts session 3, pins `--revision` and `--tokenizer-revision` and refuses an engine that does not report them; gate S runs on the warm-up's staggered episodes before the measured replay and, for session 3, requires every decoder to report 512 tokens and finish reason `length`; a refused cell's outcome is recorded before the matrix stops. Run on session 2's archive, the matrix's warm-up check refuses its `stagger-nolog-1` warm-up for exactly the composition this session repairs. The kind rehearsal (`IV=3`) drives serial-log, serial-nolog and serial-async end to end with the stub reporting both revisions.
+
+**Not exercised before launch.** No staggered cell has been rehearsed with `min_tokens` against a real engine: the stub ignores it, so the first staggered cell on the card is the first test that vLLM v0.27.1 honours it as its source says. If it does not, gate S refuses that cell and the session stops, as registered. The gateway's `--enforce-benchmark-profile` mode would refuse a body carrying `min_tokens`; no script enables it, and this session does not.
