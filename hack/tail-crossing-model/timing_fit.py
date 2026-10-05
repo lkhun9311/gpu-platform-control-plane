@@ -11,6 +11,13 @@ before it, and K_d the summed context of the step's decoders.
 The left side is not the logged elapsed_ms but elapsed_ms plus the per-step time the timer omits, from the clock fit
 in iterlog.fit_clock on the serial training episodes.
 
+A session-2 archive (study instrument-validation-s2-2026-10-05, docs/superpowers/specs/2026-10-05-instrument-validation-
+session-2.md) is told apart by instrument_gates.study_of and differs in four places, each one function below:
+its warm-up iterations are cut off by instrument_gates.measured_iters, its matrix is registered_design(True), its
+hold-out is heldout_cycles generalised to six episodes a block, and its context steps' omitted time is the frozen
+clock (session_clock).
+The last two are not in the fit's registration, which was written for session 1, and the output says so.
+
     python3 timing_fit.py ARCHIVE/m5c-run                    # the registered verdict
     python3 timing_fit.py ARCHIVE/m5c-run --flip-context     # a labelled sensitivity run, never the verdict
     python3 timing_fit.py --self-test
@@ -47,6 +54,15 @@ CONTEXT_MARK = "the timing family needs a context term"
 NOT_INTERPRETED = ("coefficients are not individually interpreted: a pass establishes a predictor of step time for "
                    "this engine and these settings, not measured physical costs")
 STAGGER_LABEL = "conditional on the send-order reconstruction of decoder and prompt contexts"
+# Session 2's staggered decoders are capped at 512 output tokens (section 4); the setting's name does not carry the cap,
+# so it is checked on its own, or a session-1-shaped staggered cell would pass for a session-2 one.
+STAGGER_DECODE_CAP_S2 = 512
+# The two choices session 2 needs that the fit's registration (written for session 1) does not make.
+# They are printed with every session-2 result until a dated amendment registers them.
+UNREGISTERED_S2 = (
+    "hold-out generalised from one of three episodes per block to a third of them (heldout_cycles); not registered",
+    "context steps' omitted time is the frozen session-2 clock b + c*P, not fit_clock's b (session_clock); not registered",
+)
 
 
 def registered_settings():
@@ -55,6 +71,22 @@ def registered_settings():
     s |= {("burst", n, L, 64) for n in (1, 4, 16) for L in (256, 2048, 8192)} | {("burst", 64, 256, 64)}
     s |= {("stagger", n, c, p) for n in (1, 4, 16) for c in (256, 8192) for p in (256, 8192)}
     return s
+
+
+def registered_design(s2):
+    """Each registered setting and the number of its episodes every cell must hold, mirrored from episodes.go.
+
+    Session 1 (designS1) holds every setting three times a cell.
+    Session 2 (designS2; sections 4 and 5 of its registration) adds serial lengths 768, 3,072 and 6,144 and runs six
+    serial cycles, keeps three burst cycles, and runs three full staggered cycles followed by four more of the
+    short-prefill (256-token) settings only, so those are seven a cell and the long-prefill ones three.
+    """
+    if not s2:
+        return {s: len(CYCLES) for s in registered_settings()}
+    d = {("serial", L, c): 6 for L in (256, 512, 768, 1024, 2048, 3072, 4096, 6144, 8192) for c in (1, 16, 64)}
+    d.update({s: 3 for s in registered_settings() if s[0] == "burst"})
+    d.update({s: (7 if s[3] == 256 else 3) for s in registered_settings() if s[0] == "stagger"})
+    return d
 
 
 def columns(context):
@@ -174,26 +206,42 @@ def reconstruct(reqs, steps):
     return out
 
 
-def load_episodes(run):
+def check_study(run, arm, b):
+    """Session 2 only: every row of the cell carries session 2's study, since study_of reads one cell's first row."""
+    with open(os.path.join(run, f"raw-{arm}-{b}.jsonl")) as f:
+        other = {json.loads(l).get("study", "") for l in f} - {instrument_gates.STUDY_S2}
+    if other:
+        raise Refusal(f"{arm}-{b}: rows of study {sorted(other)} in a session-2 archive; one archive is one session")
+
+
+def load_episodes(run, s2=False):
     """Every logged synchronous episode, with its setting, block, cycle and steps.
 
     The cycle of an episode is its occurrence of that setting within its cell, counted in send order: the generator
     places each setting exactly once per cycle, and check_matrix refuses any cell where that does not hold.
     A failed request, a preemption, a missing or repeated iteration and an episode whose steps overlap another's
     refuse here as well as in the gates, because this loader does not go through them.
+    In session 2 the iterations are instrument_gates.measured_iters', which drops the warm-up up to the cell's recorded
+    boundary and refuses a log that lacks one; the warm-up's steps belong to no trace episode.
     """
     out = []
     for arm in ARMS:
         kind = arm.split("-")[0]
         for b in BLOCKS:
+            if s2:
+                check_study(run, arm, b)
             reqs = instrument_gates.load_cell(run, arm, b)
             p = instrument_gates.preemptions(run, arm, b)
             if p:
                 raise Refusal(f"{arm}-{b}: {p:g} preemption(s); a preempted request recomputes its prompt, which the "
                               f"rebuild of step contexts does not model")
-            iters = iterlog.parse(open(os.path.join(run, f"engine-log-{arm}-{b}.txt")))
-            iterlog.check_indices(iters)
+            iters = instrument_gates.measured_iters(run, arm, b, s2)
             eps, seen = episodes_of(kind, reqs), {}
+            if s2 and kind == "stagger":
+                caps = sorted({q["cap"] for _, e in eps for q in e[:-1]})
+                if caps != [STAGGER_DECODE_CAP_S2]:
+                    raise Refusal(f"{arm}-{b}: staggered decoders capped at {caps} output tokens; session 2 registers "
+                                  f"{STAGGER_DECODE_CAP_S2}")
             for pos, ((setting, ep), steps) in enumerate(zip(eps, instrument_gates.segment(iters, [e for _, e in eps]))):
                 seen[setting] = seen.get(setting, 0) + 1
                 out.append(dict(setting=setting, block=b, cycle=seen[setting], pos=pos,
@@ -201,9 +249,13 @@ def load_episodes(run):
     return out
 
 
-def check_matrix(episodes):
-    """Exactly the registered settings, each nine times, three in every block; anything else is not the design."""
-    want = registered_settings()
+def check_matrix(episodes, design=None):
+    """Exactly the registered settings, each its registered number of times in every block; anything else is not the design.
+
+    design is registered_design's table; None is session 1's, three episodes of every setting in every block.
+    """
+    design = design or registered_design(False)
+    want = set(design)
     have = {e["setting"] for e in episodes}
     if have != want:
         raise Refusal(f"incomplete matrix: settings missing {sorted(want - have, key=str)[:3]}, unregistered "
@@ -211,10 +263,21 @@ def check_matrix(episodes):
     count = {}
     for e in episodes:
         count[(e["setting"], e["block"])] = count.get((e["setting"], e["block"]), 0) + 1
-    bad = [(s, b, count.get((s, b), 0)) for s in sorted(want, key=str) for b in BLOCKS if count.get((s, b), 0) != 3]
+    bad = [(s, b, count.get((s, b), 0)) for s in sorted(want, key=str) for b in BLOCKS
+           if count.get((s, b), 0) != design[s]]
     if bad:
-        raise Refusal(f"incomplete matrix: every setting needs exactly 3 episodes in each of blocks {BLOCKS}, and "
+        need = (f"exactly {design[next(iter(want))]} episodes" if len(set(design.values())) == 1 else
+                f"exactly its registered episodes ({', '.join(f'{k} {v}' for k, v in sorted(_counts(design).items()))})")
+        raise Refusal(f"incomplete matrix: every setting needs {need} in each of blocks {BLOCKS}, and "
                       f"{len(bad)} (setting, block) pair(s) do not have them, e.g. {bad[:2]}")
+
+
+def _counts(design):
+    """The distinct per-block counts of each episode type, for a refusal's wording."""
+    out = {}
+    for s, n in design.items():
+        out.setdefault(s[0], set()).add(n)
+    return {k: "/".join(map(str, sorted(v))) for k, v in out.items()}
 
 
 def heldout_cycle(setting, block):
@@ -227,22 +290,70 @@ def heldout_cycle(setting, block):
     return random.Random(f"{SEED}/{setting!r}").sample(CYCLES, 3)[block - 1]
 
 
-def split(episodes):
+def heldout_cycles(setting, block, per_block):
+    """The cycles held out of this setting in this block, when every block holds per_block episodes of it.
+
+    NOT REGISTERED -- a generalisation for session 2, whose serial settings have six episodes a block.
+    The registration holds out one of three episodes per block, the held-out cycle rotating across the blocks by a
+    permutation drawn per setting from seed 20261005.
+    Generalised: the cycles 1..per_block are permuted by the same seeded draw, and block b holds out the b-th third of
+    that permutation, so a third of each block is held out, each cycle position is held out in exactly one block and
+    trained on in the other two, and every position sits on both sides of the split.
+    At per_block = 3 it is the registered rule draw for draw: random.sample picks positions by the population's length
+    alone, so sampling range(1, 4) and the tuple (1, 2, 3) return the same order (the self-test checks every setting).
+    A count that is not a multiple of the number of blocks has no equal thirds and is refused rather than rounded.
+    """
+    if per_block % len(BLOCKS):
+        raise Refusal(f"{setting}: {per_block} episodes per block cannot be split into {len(BLOCKS)} equal held-out "
+                      f"thirds, so the hold-out rule does not apply to it")
+    k = per_block // len(BLOCKS)
+    order = random.Random(f"{SEED}/{setting!r}").sample(range(1, per_block + 1), per_block)
+    return set(order[(block - 1) * k:block * k])
+
+
+def split(episodes, design=None):
     """Training and predicted episodes, by whole episode, never by step.
 
-    Serial episodes, as homogeneous bursts of one, and burst episodes train, less the rotating held-out cycle.
+    Serial episodes, as homogeneous bursts of one, and burst episodes train, less the rotating held-out cycles.
     Staggered episodes are never trained on: they are the out-of-sample test of two kinds of work in one step, and
-    all nine are predicted.
+    all of them are predicted.
+    design is registered_design's table; None is session 1's, where each setting's held-out cycle is heldout_cycle's.
     """
     train, held = {}, {}
     for e in sorted(episodes, key=lambda e: (e["block"], e["pos"])):
         s = e["setting"]
-        out = s[0] == "stagger" or e["cycle"] == heldout_cycle(s, e["block"])
+        if design is None:
+            out = s[0] == "stagger" or e["cycle"] == heldout_cycle(s, e["block"])
+        else:
+            out = s[0] == "stagger" or e["cycle"] in heldout_cycles(s, e["block"], design[s])
         (held if out else train).setdefault(s, []).append(e)
     return train, held
 
 
-def clock(run, keep=None):
+def session_clock(s2, fitted):
+    """The omitted time added back to each step: b per context step, b' per decode-only step.
+
+    Session 1, as registered: b and b' both from fitted, iterlog.fit_clock on the serial training episodes.
+    Session 2, NOT REGISTERED: the fit's registration says b comes from fit_clock, but session 1 showed that a constant
+    per context step is the wrong form, and session 2 froze a + sum(b + c*P_j) from session 1's data and tests it in I3.
+    Fitting a constant b on session 2 would add back an omitted time of the form the instrument rejected, so a context
+    step (and a mixed step under the nominal convention) gets the frozen CLOCK_B + CLOCK_C * P, and a decode-only step
+    gets fit_clock's b', which session 2 left as session 1 defined it.
+    The frozen a is per request, not per step, and is not added to any step, as fit_clock's a is not in session 1.
+    """
+    if not s2:
+        return fitted
+    return dict(fitted, b=instrument_gates.CLOCK_B, c=instrument_gates.CLOCK_C, fitted_a=fitted["a"],
+                fitted_b=fitted["b"], a=instrument_gates.CLOCK_A,
+                prefill="frozen session-2 clock: context step omits CLOCK_B + CLOCK_C * P ms; fitted a and b unused")
+
+
+def context_omitted_ms(P, b, per_token):
+    """A context step's omitted time: b, or b + per_token * P where session_clock gives a per-token cost."""
+    return b if per_token is None else b + per_token * P
+
+
+def clock(run, keep=None, s2=False):
     """b and b' by iterlog's section-3 clock, from the serial requests in keep, a set of (block, request index).
 
     Attribution walks a whole cell's log, so every serial request is attributed; only the kept ones are fitted.
@@ -256,8 +367,7 @@ def clock(run, keep=None):
         for p, q in zip(by_send, by_send[1:]):
             if q["send_ms"] < p["end_ms"]:
                 raise Refusal(f"serial-log-{b}: request {q['index']} was sent before request {p['index']} ended")
-        iters = iterlog.parse(open(os.path.join(run, f"engine-log-serial-log-{b}.txt")))
-        iterlog.check_indices(iters)
+        iters = instrument_gates.measured_iters(run, "serial-log", b, s2)
         attributed += [r for r in iterlog.attribute_serial(iters, reqs) if keep is None or (b, r["index"]) in keep]
     fit = iterlog.fit_clock(attributed)
     b_prime = sum(fit["b_decode"].values()) / len(fit["b_decode"])
@@ -365,27 +475,28 @@ def nnls(G, h, tol=1e-10):
 # The fit
 
 
-def true_ms(step, b, b_prime, mixed):
+def true_ms(step, b, b_prime, mixed, per_token=None):
     """elapsed_ms plus the time the timer omits for a step of that kind.
 
     A context step gets b and a decode-only step b', as iterlog.fit_clock measured them on lone requests.
     A mixed step -- context tokens and decoders together -- was never measured by either clock.
     The nominal convention gives it b, because b is defined per context step of a request whatever shares the step;
     the registration runs b' on mixed steps as well, every time, and a disagreement makes the verdict unresolved.
+    per_token is None in session 1; in session 2 "b" means the frozen b + c * P (session_clock).
     """
     if step["P"] == 0:
         return step["elapsed"] + b_prime
     if step["n"] == 0:
-        return step["elapsed"] + b
-    return step["elapsed"] + (b if mixed == "b" else b_prime)
+        return step["elapsed"] + context_omitted_ms(step["P"], b, per_token)
+    return step["elapsed"] + (context_omitted_ms(step["P"], b, per_token) if mixed == "b" else b_prime)
 
 
-def episode_sums(e, b, b_prime, mixed, context):
+def episode_sums(e, b, b_prime, mixed, context, per_token=None):
     """An episode's contribution to the normal equations, unweighted: sum x x', sum x y and its step count."""
     p = len(columns(context))
     G, h = [[0.0] * p for _ in range(p)], [0.0] * p
     for st in e["steps"]:
-        x, y = features(st, context), true_ms(st, b, b_prime, mixed)
+        x, y = features(st, context), true_ms(st, b, b_prime, mixed, per_token)
         for i in range(p):
             h[i] += x[i] * y
             for j in range(p):
@@ -432,13 +543,13 @@ def solve_normalised(G, h, names, check):
     return [g / n for g, n in zip(gamma, norms)], cond
 
 
-def _err(steps, beta, b, b_prime, mixed, context):
-    obs = sum(true_ms(st, b, b_prime, mixed) for st in steps) / len(steps)
+def _err(steps, beta, b, b_prime, mixed, context, per_token=None):
+    obs = sum(true_ms(st, b, b_prime, mixed, per_token) for st in steps) / len(steps)
     pred = sum(sum(c * x for c, x in zip(beta, features(st, context))) for st in steps) / len(steps)
     return dict(observed_ms=obs, predicted_ms=pred, error=pred / obs - 1, steps=len(steps))
 
 
-def fit(train, held, b, b_prime, context, mixed, bound=MAX_HELDOUT_ERROR, boot=BOOT):
+def fit(train, held, b, b_prime, context, mixed, bound=MAX_HELDOUT_ERROR, boot=BOOT, per_token=None):
     """One fit and its verdict on the predicted episodes.
 
     A structural failure -- an unidentified design -- refuses; a prediction outside the bound is a "fail" verdict, so
@@ -446,10 +557,11 @@ def fit(train, held, b, b_prime, context, mixed, bound=MAX_HELDOUT_ERROR, boot=B
     The check is per setting and per phase: steps carrying context tokens and pure-decode steps are held to the
     bound separately, because a pooled mean lets opposite errors cancel and lets hundreds of decode steps dilute a
     few prefill steps.
+    per_token is session_clock's c, None in session 1.
     """
     names = columns(context)
     p = len(names)
-    sums = {id(e): episode_sums(e, b, b_prime, mixed, context) for eps in train.values() for e in eps}
+    sums = {id(e): episode_sums(e, b, b_prime, mixed, context, per_token) for eps in train.values() for e in eps}
     G, h = normal_equations(train, sums, p)
     beta, cond = solve_normalised(G, h, names, check=True)
     report, failures = [], []
@@ -459,15 +571,18 @@ def fit(train, held, b, b_prime, context, mixed, bound=MAX_HELDOUT_ERROR, boot=B
         for phase, keep in (("context", lambda st: st["P"] > 0), ("decode", lambda st: st["P"] == 0)):
             mine = [st for st in steps if keep(st)]
             if mine:
-                phases[phase] = _err(mine, beta, b, b_prime, mixed, context)
+                phases[phase] = _err(mine, beta, b, b_prime, mixed, context, per_token)
                 if abs(phases[phase]["error"]) > bound:
                     failures.append(f"{s} {phase} steps: predicted {phases[phase]['predicted_ms']:.3f} ms against "
                                     f"{phases[phase]['observed_ms']:.3f} ms, {phases[phase]['error']:+.1%}")
-        item = dict(setting=list(s), phases=phases, pooled_published_not_gated=_err(steps, beta, b, b_prime, mixed, context),
+        item = dict(setting=list(s), phases=phases,
+                    pooled_published_not_gated=_err(steps, beta, b, b_prime, mixed, context, per_token),
                     blocks={str(bl): _err([st for e in eps if e["block"] == bl for st in e["steps"]], beta, b, b_prime,
-                                          mixed, context)["error"] for bl in BLOCKS if any(e["block"] == bl for e in eps)},
+                                          mixed, context, per_token)["error"]
+                            for bl in BLOCKS if any(e["block"] == bl for e in eps)},
                     episodes=[dict(block=e["block"], cycle=e["cycle"],
-                                   error=_err(e["steps"], beta, b, b_prime, mixed, context)["error"]) for e in eps])
+                                   error=_err(e["steps"], beta, b, b_prime, mixed, context, per_token)["error"])
+                              for e in eps])
         if s[0] == "stagger":
             item["label"] = STAGGER_LABEL
         report.append(item)
@@ -510,16 +625,21 @@ def run_fit(run, flip_context=False, boot=BOOT, gates=None):
     if not passed:
         raise Refusal(f"the instrument gates do not pass on this archive ({gate_lines[-1]}), so there is no "
                       f"established quantity to fit")
-    eps = load_episodes(run)
-    check_matrix(eps)
-    train, held = split(eps)
+    s2 = instrument_gates.study_of(run) == instrument_gates.STUDY_S2
+    # Session 1 keeps its own code path, argument for argument, so its output cannot move.
+    design = registered_design(True) if s2 else None
+    eps = load_episodes(run, s2)
+    check_matrix(eps, design)
+    train, held = split(eps, design)
     keep = {(e["block"], i) for s, v in train.items() if s[0] == "serial" for e in v for i in e["reqs"]}
-    clk = clock(run, keep)
+    clk = session_clock(s2, clock(run, keep, s2))
     needs, i4 = context_decision(run)
     context = needs != flip_context
-    nominal = fit(train, held, clk["b"], clk["b_prime"], context, "b", boot=boot)
-    sensitivity = fit(train, held, clk["b"], clk["b_prime"], context, "b-prime", boot=boot)
+    nominal = fit(train, held, clk["b"], clk["b_prime"], context, "b", boot=boot, per_token=clk.get("c"))
+    sensitivity = fit(train, held, clk["b"], clk["b_prime"], context, "b-prime", boot=boot, per_token=clk.get("c"))
+    extra = dict(study=instrument_gates.STUDY_S2, unregistered=list(UNREGISTERED_S2)) if s2 else {}
     return dict(
+        **extra,
         verdict=combine(nominal["verdict"], sensitivity["verdict"]),
         run=("SENSITIVITY: the context term is forced opposite to I4's decision; this is not the registered verdict"
              if flip_context else "registered"),
@@ -552,11 +672,14 @@ def _simulate(spec, t, rng, noise, slow):
     rem = [L for L, _, _ in spec]
     prod = [0] * len(spec)
     arrived = [not late for _, _, late in spec]
+    # The step a late request arrives before, which session 2's synthetic archive sends it at.
+    arrived_at = [0] * len(spec)
     steps, done_at, first_at = [], [None] * len(spec), [None] * len(spec)
     while any(prod[i] < spec[i][1] for i in range(len(spec))):
         for i, (_, _, late) in enumerate(spec):
             if late and not arrived[i] and all(prod[j] >= 4 for j in range(len(spec)) if not spec[j][2]):
                 arrived[i] = True
+                arrived_at[i] = len(steps)
         dec = [i for i in range(len(spec)) if rem[i] == 0 and 0 < prod[i] < spec[i][1]]
         budget, P, cr, completed, H = BUDGET - len(dec), 0, 0, [], 0
         for i in range(len(spec)):
@@ -583,7 +706,7 @@ def _simulate(spec, t, rng, noise, slow):
             first_at[i] = len(steps) - 1
             if spec[i][1] == 1:
                 done_at[i] = len(steps) - 1
-    return steps, first_at, done_at
+    return steps, first_at, done_at, arrived_at
 
 
 def _cycle(kind):
@@ -635,7 +758,7 @@ def _synthetic_run(run, truth=TRUTH, noise=0.0, slow=None, seed=3, clk=CLOCK, mi
                     if s == omit and b == 2 and cycle == 1:
                         continue
                     sl = slow.get(s, (1.0, "all")) if cycle == heldout_cycle(s, b) else (1.0, "all")
-                    steps, first_at, done_at = _simulate(spec, truth, rng, noise, sl)
+                    steps, first_at, done_at, _ = _simulate(spec, truth, rng, noise, sl)
                     t0 = start + clk["a"]
                     ends, late_send = [], None
                     for st in steps:
@@ -669,6 +792,100 @@ def _synthetic_run(run, truth=TRUTH, noise=0.0, slow=None, seed=3, clk=CLOCK, mi
                         f.write('vllm:num_preemptions_total{engine="0"} 2\n')
             with open(os.path.join(run, f"engine-log-{kind}-log-{b}.txt"), "w") as f:
                 f.write("\n".join(lines) + "\n")
+
+
+# The synthetic session-2 engine omits the frozen clock on context steps; b' and the end delay are session 1's synthetic ones.
+CLOCK_S2 = dict(a=instrument_gates.CLOCK_A, b=instrument_gates.CLOCK_B, c=instrument_gates.CLOCK_C, b_prime=1.2,
+                d_end=3.0)
+WARMUP_STEPS = 30
+# The frozen b of 17.8 ms per context step is larger than session 1's synthetic c of 12 ms, so a small mixed step would
+# log a negative elapsed time; a larger intercept keeps every synthetic step longer than the time its timer omits.
+TRUTH_S2 = dict(TRUTH, c=25.0)
+
+
+def _plan_s2(kind, decode_cap):
+    """One cell's cycles, as designS2 lays them out: full cycles, then the short-prefill staggered settings alone."""
+    if kind == "serial":
+        full = [[(L, c, False)] for L in (256, 512, 768, 1024, 2048, 3072, 4096, 6144, 8192) for c in (1, 16, 64)]
+        return [full] * 6
+    if kind == "burst":
+        return [_cycle("burst")] * 3
+    full = [[(c, decode_cap, False)] * n + [(p, 16, True)] for n in (1, 4, 16) for c in (256, 8192) for p in (256, 8192)]
+    return [full] * 3 + [[e for e in full if e[-1][0] == 256]] * 4
+
+
+def _synthetic_run_s2(run, truth=None, noise=0.0, slow=None, seed=3, clk=CLOCK_S2, mixed_truth="b", nolog_ttft=1.0,
+                      drop=None, decode_cap=STAGGER_DECODE_CAP_S2, cycles=None):
+    """A session-2 archive from known coefficients: registered_design(True)'s matrix, warm-ups, boundaries and study.
+
+    Kept apart from _synthetic_run so that session 1's synthetic archives, which the self-test pins, cannot move.
+    Each logged engine log starts at iteration 0 with WARMUP_STEPS warm-up iterations that no trace request owns, so a
+    fit that read them would refuse or misfit; the boundary file names the last of them.
+    The engine's context-step omission is clk's b + c * P, the frozen form, so instrument_gates' I3 holds exactly.
+    A staggered prefill is sent at the step it arrives before, after its decoders' first tokens, so gate S holds.
+    slow maps a training setting to (factor, phase), applied to the episodes heldout_cycles holds out of it.
+    drop is a (setting, block) one of whose episodes is left out; cycles overrides _plan_s2's for one type.
+    """
+    rng, slow, design, truth = random.Random(seed), slow or {}, registered_design(True), truth or TRUTH_S2
+    study = instrument_gates.STUDY_S2
+    for kind in ("serial", "burst", "stagger"):
+        for b in BLOCKS:
+            plan = (cycles or {}).get(kind) or _plan_s2(kind, decode_cap)
+            trace, raw, idx, ep_no, seen = [], [], 0, 0, {}
+            lines = [_line(i, 1, 2048, 0, 200.0) if i % 2 == 0 else _line(i, 0, 0, 1, 14.0) for i in range(WARMUP_STEPS)]
+            it = WARMUP_STEPS
+            for cyc in plan:
+                for spec in rng.sample(cyc, len(cyc)):
+                    start = ep_no * 100_000
+                    ep_no += 1
+                    s = _setting(kind, spec)
+                    seen[s] = seen.get(s, 0) + 1
+                    if drop == (s, b) and seen[s] == 1:
+                        continue
+                    held = s[0] != "stagger" and seen[s] in heldout_cycles(s, b, design.get(s, 3))
+                    sl = slow.get(s, (1.0, "all")) if held else (1.0, "all")
+                    steps, first_at, done_at, arrived_at = _simulate(spec, truth, rng, noise, sl)
+                    t0 = start + clk["a"]
+                    ends, late_send = [], None
+                    for j, st in enumerate(steps):
+                        if any(late for _, _, late in spec) and j == max(arrived_at):
+                            late_send = t0 - clk["a"]
+                        ctx = clk["b"] + clk["c"] * st["P"]
+                        mixed = st["P"] and st["n"]
+                        omitted = ((ctx if mixed_truth == "b" else clk["b_prime"]) if mixed else ctx) if st["P"] \
+                            else clk["b_prime"]
+                        lines.append(_line(it, st["cr"], st["P"], st["n"], st["T"] - omitted))
+                        it += 1
+                        t0 += st["T"]
+                        ends.append(t0)
+                    for i, (L, cap, late) in enumerate(spec):
+                        send = late_send if late else start
+                        offset = round(send)
+                        trace.append(dict(index=idx, offsetMs=offset, tenant="premium-1", maxOutputTokens=cap))
+                        raw.append(dict(index=idx, study=study, engineInputTokens=L, engineOutputTokens=cap,
+                                        sendUnixNanos=int(offset * 1e6),
+                                        firstTokenUnixNanos=int((ends[first_at[i]] - (offset - send)) * 1e6),
+                                        endUnixNanos=int((ends[done_at[i]] + clk["d_end"] - (offset - send)) * 1e6)))
+                        idx += 1
+            off = []
+            for r in raw:
+                shift = int((r["firstTokenUnixNanos"] - r["sendUnixNanos"]) * (nolog_ttft - 1))
+                off.append(dict(r, firstTokenUnixNanos=r["firstTokenUnixNanos"] + shift, endUnixNanos=r["endUnixNanos"] + shift))
+            for suffix, rows in (("log", raw), ("nolog", off)):
+                arm = f"{kind}-{suffix}"
+                _write(run, f"trace-{arm}-{b}.jsonl", trace)
+                _write(run, f"raw-{arm}-{b}.jsonl", rows)
+                # One cold request and the two verification requests gate W reads.
+                _write(run, f"raw-warmup-{arm}-{b}.jsonl",
+                       [dict(index=i, study=study, engineInputTokens=2048, sendUnixNanos=int(i * 1e10),
+                             firstTokenUnixNanos=int(i * 1e10 + ms * 1e6)) for i, ms in enumerate((400.0, 231.0, 231.5))])
+                for which in ("before", "after"):
+                    with open(os.path.join(run, f"engine-metrics-{arm}-{b}-{which}.prom"), "w") as f:
+                        f.write('vllm:num_preemptions_total{engine="0"} 2\n')
+            with open(os.path.join(run, f"engine-log-{kind}-log-{b}.txt"), "w") as f:
+                f.write("\n".join(lines) + "\n")
+            with open(os.path.join(run, f"warmup-boundary-{kind}-log-{b}.txt"), "w") as f:
+                f.write(f"{WARMUP_STEPS - 1}\n")
 
 
 def _expected(truth, context):
@@ -858,9 +1075,136 @@ def self_test():
               + ", ".join(f"{k} [{lo:.3g}, {hi:.3g}]" for k, (lo, hi) in n["intervals_95"].items() if k in ("c", "d1", "m", "h")))
 
 
+# sha256 of json.dumps(run_fit(<_synthetic_run(noise=0.01, seed=5)>, gates=_PASSED), sort_keys=True), taken from
+# timing_fit.py as committed at 0560304, before session 2 reached this file.
+# Session 1's fit must come out of the session-2 change byte for byte; the noisy archive exercises the bootstrap too.
+# random.gauss draws through the platform's log and cos, so another libm could move the hash without any code change:
+# a mismatch there is a reason to re-take the hash at 0560304 on that machine, not to update it here.
+S1_PIN = "2e533855a5c2579334358bda79a4f15794217e8024e9491f293ff06b2ea0a915"
+
+
+def self_test_s2():
+    """Session 2's paths: warm-up cut, per-study matrix, generalised hold-out and the frozen clock, each made to fire."""
+    import hashlib
+    import tempfile
+
+    def refuses(what, fn, words):
+        try:
+            fn()
+        except Refusal as e:
+            assert words in str(e), f"{what}: refused for another reason -- {e}"
+            print(f"ok: refuses {what} -- {e}")
+            return
+        raise AssertionError(f"{what} was accepted")
+
+    with tempfile.TemporaryDirectory() as run:
+        _synthetic_run(run, noise=0.01, seed=5)
+        got = hashlib.sha256(json.dumps(run_fit(run, gates=_PASSED), sort_keys=True).encode()).hexdigest()
+        assert got == S1_PIN, f"session 1's fit output moved: {got}"
+        print("ok: a session-1 synthetic archive's fit output is byte-identical to the fit as committed at 0560304")
+    for s in registered_settings():
+        if s[0] != "stagger":
+            assert all(heldout_cycles(s, b, 3) == {heldout_cycle(s, b)} for b in BLOCKS), s
+    print("ok: at three episodes a block the generalised hold-out is the registered one in every setting and block")
+
+    design = registered_design(True)
+    with tempfile.TemporaryDirectory() as run:
+        _synthetic_run_s2(run)
+        # The real gates, as run_fit calls them by default.
+        clean = run_fit(run, boot=0)
+        nom = clean["nominal"]
+        assert clean["study"] == instrument_gates.STUDY_S2 and clean["unregistered"] == list(UNREGISTERED_S2)
+        assert clean["gates"][-1].startswith("PASS"), clean["gates"][-1]
+        assert _close(nom["coefficients"], _expected(TRUTH_S2, False), 1e-5), nom["coefficients"]
+        assert (clean["clock"]["b"], clean["clock"]["c"]) == (instrument_gates.CLOCK_B, instrument_gates.CLOCK_C)
+        assert abs(clean["clock"]["b_prime"] - CLOCK_S2["b_prime"]) < 1e-6, clean["clock"]
+        print(f"ok: session 2 under the real gates ({clean['gates'][-1]}): every coefficient recovered within 1e-5 "
+              f"relative with the frozen clock (b {clean['clock']['b']}, c {clean['clock']['c']}) on context steps and "
+              f"b' {clean['clock']['b_prime']:.3f} from fit_clock; fit_clock's own b would be "
+              f"{clean['clock']['fitted_b']:.2f} ms")
+        # The synthetic engine omits the frozen b + c*P on mixed steps and b' is 1.2 ms, so the sensitivity convention
+        # misstates every mixed step by about 16.6 ms; the verdict must say unresolved, not pass.
+        assert nom["verdict"] == "pass" and clean["sensitivity"]["verdict"] == "fail", clean["verdicts"]
+        assert clean["verdict"] == "UNRESOLVED", clean["verdict"]
+        print(f"ok: mixed steps under b' ({CLOCK_S2['b_prime']} ms) against the frozen b + c*P -> {clean['verdicts']} -> "
+              f"{clean['verdict']} -- {clean['sensitivity']['failures'][0]}")
+        eps = load_episodes(run, True)
+        train, held = split(eps, design)
+        for s, n in design.items():
+            if s[0] == "stagger":
+                assert s not in train and len(held[s]) == 3 * n, (s, len(held[s]))
+                continue
+            k = n // len(BLOCKS)
+            for b in BLOCKS:
+                assert sorted(e["cycle"] for e in held[s] if e["block"] == b) == sorted(heldout_cycles(s, b, n))
+                assert len([e for e in held[s] if e["block"] == b]) == k, (s, b)
+            assert sorted(e["cycle"] for e in held[s]) == list(range(1, n + 1)), (s, sorted(e["cycle"] for e in held[s]))
+            assert len(train[s]) == 2 * n, (s, len(train[s]))
+        print("ok: serial settings hold out 2 of 6 per block (6 held, 12 trained, each cycle position held out in one "
+              "block); bursts 1 of 3; staggered all predicted, 21 short-prefill and 9 long-prefill episodes")
+        print(f"ok: the result names its unregistered choices -- {clean['unregistered']}")
+        clean_coef = nom["coefficients"]
+
+        refuses("a session-2 matrix one serial episode short", lambda: check_matrix(
+            [e for e in eps if not (e["setting"] == ("serial", 3072, 16) and e["block"] == 2 and e["cycle"] == 4)],
+            design), "incomplete matrix")
+        refuses("session-1 counts (three serial cycles a block) in a session-2 archive", lambda: check_matrix(
+            [e for e in eps if e["setting"][0] != "serial" or e["cycle"] <= 3], design), "incomplete matrix")
+        refuses("a session-2 archive read against session 1's matrix", lambda: check_matrix(eps), "incomplete matrix")
+        refuses("a hold-out of seven episodes a block", lambda: heldout_cycles(("stagger", 1, 256, 256), 1, 7),
+                "equal held-out")
+
+    def prepared(prepare, **kw):
+        def go():
+            with tempfile.TemporaryDirectory() as run:
+                _synthetic_run_s2(run, **kw)
+                prepare(run)
+                run_fit(run, boot=0, gates=_PASSED)
+        return go
+
+    refuses("a missing warm-up boundary", prepared(
+        lambda run: os.remove(os.path.join(run, "warmup-boundary-burst-log-2.txt"))), "is missing")
+
+    def other_study(run):
+        path = os.path.join(run, "raw-stagger-log-3.jsonl")
+        rows = [json.loads(l) for l in open(path)]
+        rows[4]["study"] = "instrument-validation-2026-10-05"
+        _write(run, "raw-stagger-log-3.jsonl", rows)
+    refuses("a cell carrying session 1's study", prepared(other_study), "one archive is one session")
+    refuses("staggered decoders at session 1's cap of 128", prepared(lambda run: None, decode_cap=128),
+            "session 2 registers 512")
+    refuses("an archive one serial episode short", prepared(lambda run: None, drop=(("serial", 6144, 64), 3)),
+            "incomplete matrix")
+
+    with tempfile.TemporaryDirectory() as run:
+        _synthetic_run_s2(run)
+        refuses("a session-2 archive whose gates verdict is FAIL",
+                lambda: run_fit(run, boot=0, gates=lambda r: (False, ["FAIL: I3"])), "instrument gates do not pass")
+    with tempfile.TemporaryDirectory() as run:
+        # An engine omitting 22 ms per context step, not the frozen 17.8: about 6% of a 256-token TTFT, so the real I3
+        # fails and the fit refuses.
+        _synthetic_run_s2(run, clk=dict(CLOCK_S2, b=22.0))
+        refuses("a session-2 archive the real gates fail", lambda: run_fit(run, boot=0), "instrument gates do not pass")
+
+    with tempfile.TemporaryDirectory() as run:
+        _synthetic_run_s2(run, slow={("serial", 3072, 16): (1.25, "all")})
+        r = run_fit(run, boot=0, gates=_PASSED)
+        assert r["nominal"]["verdict"] == "fail", r["verdicts"]
+        assert _close(r["nominal"]["coefficients"], clean_coef, 1e-9), "a held-out episode reached the training set"
+        print(f"ok: the held-out third of a serial setting 25% slower -> nominal fail with the clean coefficients -- "
+              f"{r['nominal']['failures'][0]}")
+
+    with tempfile.TemporaryDirectory() as run:
+        _synthetic_run_s2(run, noise=0.01, seed=5)
+        r = run_fit(run, boot=0, gates=_PASSED)
+        assert r["nominal"]["verdict"] == "pass", r["nominal"]["failures"]
+        print(f"ok: session 2 at 1% step noise -> nominal pass, worst held-out phase error {_worst(r['nominal']):.2%}")
+
+
 def main(argv):
     if argv[1:] == ["--self-test"]:
         self_test()
+        self_test_s2()
         return 0
     args = argv[1:]
     flip = "--flip-context" in args
@@ -871,6 +1215,8 @@ def main(argv):
     print(json.dumps(out, indent=2))
     print(f"{out['run']}: {out['verdict']} -- {out['verdicts']}; context term {out['context_term']}", file=sys.stderr)
     print(out["note"], file=sys.stderr)
+    for line in out.get("unregistered", []):
+        print(f"UNREGISTERED: {line}", file=sys.stderr)
     return {"PASS": 0, "FAIL": 1}.get(out["verdict"], 3)
 
 
