@@ -215,8 +215,8 @@ fi
 if [ -z "$LADDER" ]; then
   STUDY="${STUDY:-sharing-matrix-2026-09-10}"
   case "$STUDY" in
-    sharing-matrix-2026-09-10|tail-crossing-lc256-2026-10-04|tail-crossing-lc2048-2026-10-05|tail-crossing-lc8192-2026-10-04|instrument-validation-2026-10-05) ;;
-    *) fail "STUDY is ${STUDY@Q}; the non-ladder matrix files evidence under sharing-matrix-2026-09-10, tail-crossing-lc256-2026-10-04, tail-crossing-lc2048-2026-10-05, tail-crossing-lc8192-2026-10-04 or instrument-validation-2026-10-05. An unregistered id is not refused by gen-trace -- it writes a manifest for any string -- so this refusal is the one that stops it before anything is rented" ;;
+    sharing-matrix-2026-09-10|tail-crossing-lc256-2026-10-04|tail-crossing-lc2048-2026-10-05|tail-crossing-lc8192-2026-10-04|instrument-validation-2026-10-05|instrument-validation-s2-2026-10-05) ;;
+    *) fail "STUDY is ${STUDY@Q}; the non-ladder matrix files evidence under sharing-matrix-2026-09-10, tail-crossing-lc256-2026-10-04, tail-crossing-lc2048-2026-10-05, tail-crossing-lc8192-2026-10-04, instrument-validation-2026-10-05 or instrument-validation-s2-2026-10-05. An unregistered id is not refused by gen-trace -- it writes a manifest for any string -- so this refusal is the one that stops it before anything is rented" ;;
   esac
 fi
 
@@ -229,13 +229,13 @@ fi
 # have, and its load is two tenants where this study registers one.
 if [ -z "$LADDER" ] && iv_is_study "$STUDY"; then
   [ -z "${DURATION_MS:-}" ] \
-    || fail "DURATION_MS is ${DURATION_MS@Q} and study $STUDY sets the trace length per arm (serial 180000, burst 330000, stagger 630000 ms). A single value would be shorter than some arm's trace, and gen-trace refuses that; unset it"
+    || fail "DURATION_MS is ${DURATION_MS@Q} and study $STUDY sets the trace length per arm ($(iv_duration_summary "$STUDY")). A single value would be shorter than some arm's trace, and gen-trace refuses that; unset it"
   [ -z "${SWEEP:-}" ] \
     || fail "SWEEP is set and study $STUDY registers no best-effort sweep; its arms are {serial,burst,stagger}-{log,nolog,async}"
   [ -n "$ARMS_FROM_CALLER" ] \
     || fail "ARMS is unset and study $STUDY has none of the default topologies; name its arms, e.g. ARMS=\"serial-log serial-nolog burst-log burst-nolog stagger-log stagger-nolog serial-async burst-async stagger-async\""
   for _arm in $ARMS; do
-    _why=$(iv_duration_ms "$_arm") || fail "$_why"
+    _why=$(iv_duration_ms "$STUDY" "$_arm") || fail "$_why"
   done
 fi
 
@@ -549,7 +549,7 @@ load_banner() {
     say "run:  ${REPS} repetitions of [$ARMS] on $PLATFORM, output $OUT"
   elif iv_is_study "$STUDY"; then
     # DURATION_MS is refused for this study, so naming it here would die on `set -u`.
-    say "load: none -- registered episodes, one tenant; the trace length per arm ($(for a in $ARMS; do printf '%s=%sms ' "$a" "$(iv_duration_ms "$a")"; done))"
+    say "load: none -- registered episodes, one tenant; the trace length per arm ($(for a in $ARMS; do printf '%s=%sms ' "$a" "$(iv_duration_ms "$STUDY" "$a")"; done))"
     say "run:  ${REPS} block(s) of the synchronous arms in [$ARMS], each block in its own order, then the async arms once, on $PLATFORM, output $OUT"
   else
     say "load: rate ${RATE}/s, ${DURATION_MS}ms per arm, weights premium=$PREMIUM_WEIGHT noisy=$NOISY_WEIGHT probe=$PROBE_WEIGHT"
@@ -631,10 +631,57 @@ refuse_unfrozen_load() {
 # four cannot disagree about one cell.
 cell_duration_ms() {
   if [ -z "${LADDER:-}" ] && iv_is_study "${STUDY:-}"; then
-    iv_duration_ms "$1"
+    iv_duration_ms "$STUDY" "$1"
   else
     echo "$DURATION_MS"
   fi
+}
+# The card time one cell is charged in the deadline projections, in ms: its trace length plus its warm-up's.
+#
+# Separate from cell_duration_ms because that one is passed to gen-trace as --duration-ms, and the warm-up
+# must not lengthen the measured trace.
+# Every study without a warm-up is charged exactly its trace length, so its projections are as before.
+cell_charge_ms() {
+  local ms warm
+  ms=$(cell_duration_ms "$1") || { echo "$ms"; return 1; }
+  if [ -z "${LADDER:-}" ] && iv_has_warmup "${STUDY:-}"; then
+    warm=$(warmup_span_ms "$1" "$2") || { echo "$warm"; return 1; }
+    ms=$(( ms + warm ))
+  fi
+  echo "$ms"
+}
+# Generates one cell's warm-up trace: the arm's own gen-trace call, plus --warmup.
+#
+# The same seed, study, arm and flags as the measured trace, so the warm-up's unscored cycle is drawn from
+# the cell's own episode type and the generator, not this file, decides what the warm-up holds.
+# Only --duration-ms differs: the warm-up is one cycle and has its own registered bound.
+# Arguments after the four paths are passed through, for the provenance flags only a real cell has.
+# LOAD_FLAGS is empty under the episode arrivals these studies resolve to, and may not exist yet when a
+# projection runs before the first cell, so it is expanded only if set.
+warmup_gen_trace() {
+  local label="$1" rep="$2" trace="$3" manifest="$4" dur
+  shift 4
+  dur=$(iv_warmup_duration_ms "$STUDY" "$label") || { echo "$dur"; return 1; }
+  "$WORK/benchharness" gen-trace --warmup --seed "$(seed_for_rep "$rep")" --duration-ms "$dur" \
+    ${LOAD_FLAGS[@]+"${LOAD_FLAGS[@]}"} \
+    --study "$STUDY" --arm "$label" --model "$MODEL" --gateway-url "http://127.0.0.1:18080" \
+    "$@" ${PROMPT_FLAGS[@]+"${PROMPT_FLAGS[@]}"} \
+    --timeout-ms "$REQUEST_TIMEOUT_MS" \
+    --trace-out "$trace" --manifest-out "$manifest"
+}
+# The warm-up's own span in ms, as iv_trace_span_ms reads it off the cell's generated warm-up trace.
+#
+# Read from the generated trace rather than estimated, because the warm-up holds one whole cycle of the
+# cell's episode type and only the generator knows how long that is.
+# The trace is generated once per cell into $WORK and reused, so a projection asked before every cell does
+# not run gen-trace twenty-one times each time.
+warmup_span_ms() {
+  local label="$1" rep="$2" t="$WORK/warmup-plan-$1-$2.jsonl" out
+  if [ ! -s "$t" ]; then
+    out=$(warmup_gen_trace "$label" "$rep" "$t" "$WORK/warmup-plan-$1-$2.yaml" 2>&1) \
+      || { echo "gen-trace --warmup could not build $label rep $rep's warm-up trace: $(printf '%s' "$out" | tail -2 | tr '\n' ' ')"; return 1; }
+  fi
+  iv_trace_span_ms "$t"
 }
 set_load_flags() {
   case "$ARRIVALS" in
@@ -895,6 +942,16 @@ if [ -n "${PLAN_ONLY:-}" ]; then
       --timeout-ms "$REQUEST_TIMEOUT_MS" \
       --trace-out "$WORK/plan-$plan_name.jsonl" --manifest-out "$WORK/plan-$plan_name.yaml" >/dev/null \
       || { echo "PLAN REFUSED: gen-trace could not build $cell_label's trace" >&2; plan_failures=$(( plan_failures + 1 )); continue; }
+    # A study that warms each engine first has its warm-up trace generated here too, by the cell's own call.
+    # A warm-up gen-trace refuses would otherwise first refuse on the rented card, after the engine was up.
+    if [ -z "$LADDER" ] && iv_has_warmup "$STUDY"; then
+      if ! plan_warm=$(warmup_span_ms "$cell_label" "${cell_rep:-1}"); then
+        echo "PLAN REFUSED: $plan_warm" >&2
+        plan_failures=$(( plan_failures + 1 ))
+        continue
+      fi
+      say "  $plan_name: warm-up span ${plan_warm} ms, its last request's offset plus 30 s"
+    fi
     # The two experiments ask DIFFERENT questions of the same artefact, and their floors differ.
     #
     # The ladder holds the contender at a fixed count across rungs and needs 500 premium offers; asking that
@@ -1962,7 +2019,7 @@ deploy_arm() {
       local engine_manifest=config/vllm/deployment.yaml engine_source=config/vllm/deployment.yaml why
       if iv_is_study "${STUDY:-}" && [ -z "${LADDER:-}" ]; then
         engine_manifest="$WORK/engine-$label.yaml"
-        why=$(iv_render_manifest "$label" config/vllm/deployment.yaml "$engine_manifest") \
+        why=$(iv_render_manifest "$STUDY" "$label" config/vllm/deployment.yaml "$engine_manifest") \
           || fail "could not render the engine manifest for $label: $why"
         engine_source="config/vllm/deployment.yaml+$label"
       fi
@@ -1974,7 +2031,7 @@ deploy_arm() {
       engine_applied_record "$NS_A" vllm-qwen25-3b "$engine_manifest" "$label" "$engine_source"
       # Before any request: an engine that is not the arm's configuration would measure another arm.
       if iv_is_study "${STUDY:-}" && [ -z "${LADDER:-}" ]; then
-        why=$(iv_process_args_refusal "$label" "$ENGINE_PROCESS_ARGS") \
+        why=$(iv_process_args_refusal "$STUDY" "$label" "$ENGINE_PROCESS_ARGS") \
           || fail "REFUSED $label before replay: $why"
       fi
       routing_record "$NS_A" vllm-qwen25-3b
@@ -2340,9 +2397,13 @@ expected_outputs() {
   # `expected=9 actual=10` with every class matching -- a disagreement no class could explain.
   # engine-log-<cell>.txt is written only under the instrument-validation study, and a completed cell of that
   # study without one cannot exist: capture_engine_log refuses the run when the log cannot be saved.
+  # The warm-up's four files are written only under session 2 and the same holds: run_warmup ends the run
+  # rather than let a cell go on without them.
   cond=$(find "$OUT" -maxdepth 1 \( -name 'mps-compute-apps-*.csv' -o -name 'mps-compute-apps-*.err' \
     -o -name 'mps-pod-lookup.err' -o -name 'ladder-verdict-rung*.txt' \
-    -o -name 'applied-values.tsv' -o -name 'cell-environment.tsv' -o -name 'engine-log-*.txt' \) 2>/dev/null | wc -l)
+    -o -name 'applied-values.tsv' -o -name 'cell-environment.tsv' -o -name 'engine-log-*.txt' \
+    -o -name 'raw-warmup-*.jsonl' -o -name 'warmup-boundary-*.txt' -o -name 'warmup-trace-*.jsonl' \
+    -o -name 'warmup-manifest-*.yaml' \) 2>/dev/null | wc -l)
   # The engine-metrics files are in the total as whatever is there, like the conditional outputs above.
   #
   # How many a cell owes depends on its topology -- one engine or two -- which this count cannot see, so
@@ -2442,7 +2503,8 @@ expected_outputs_by_class() {
   done <<EOF
 $(awk -F'\t' 'NR > 1 && $4 == "completed" {print $2 "-" $3}' "$OUT/cell-timings.tsv" | sort -u)
 EOF
-  stray=$(( $(find "$OUT" -maxdepth 1 \( -name 'trace-*.jsonl' -o -name 'raw-*.jsonl' \
+  # raw-warmup-* matches raw-*, and is a warm-up's rows rather than a cell's, so it is the conditional row's.
+  stray=$(( $(find "$OUT" -maxdepth 1 \( -name 'trace-*.jsonl' -o \( -name 'raw-*.jsonl' ! -name 'raw-warmup-*' \) \
     -o -name 'manifest-*.yaml' -o -name 'port-forward-*.log' \) 2>/dev/null | wc -l) - cell_actual ))
   # A metrics file whose cell did not complete -- a cell that died after its `before` scrape -- is a stray
   # like that cell's port-forward log, not credit for a completed cell's missing phase.
@@ -2460,12 +2522,15 @@ EOF
   fixed_actual=$(( fixed_actual + 1 ))
   cond=$(find "$OUT" -maxdepth 1 \( -name 'mps-compute-apps-*.csv' -o -name 'mps-compute-apps-*.err' \
     -o -name 'mps-pod-lookup.err' -o -name 'ladder-verdict-rung*.txt' \
-    -o -name 'applied-values.tsv' -o -name 'cell-environment.tsv' -o -name 'engine-log-*.txt' \) 2>/dev/null | wc -l)
+    -o -name 'applied-values.tsv' -o -name 'cell-environment.tsv' -o -name 'engine-log-*.txt' \
+    -o -name 'raw-warmup-*.jsonl' -o -name 'warmup-boundary-*.txt' -o -name 'warmup-trace-*.jsonl' \
+    -o -name 'warmup-manifest-*.yaml' \) 2>/dev/null | wc -l)
   unattr=0
   for f in "$OUT"/*; do
     [ -f "$f" ] || continue
     base=${f##*/}
     case "$base" in
+      raw-warmup-*.jsonl | warmup-boundary-*.txt | warmup-trace-*.jsonl | warmup-manifest-*.yaml) ;;
       trace-*.jsonl | raw-*.jsonl | manifest-*.yaml | port-forward-*.log) ;;
       engine-metrics-*.prom | engine-metrics-*.err) ;;
       refused-*.txt | invalid-*.txt) ;;
@@ -2534,11 +2599,12 @@ warm_cell_estimate() {
 # iv_cold_projection_min prints the whole run in minutes before any cell: 8 min beyond each cell's replay
 # floor, plus a fifth.
 # The 8 is the measured cold cell (16 min) less the replay floor of the 420 s trace it was measured on.
+# Both charge a cell cell_charge_ms, which is its trace length and, for a study that warms up, its warm-up.
 iv_cold_projection_min() {
   local c lbl ms sum=0
   for c in "${CELLS[@]}"; do
     lbl=$(printf '%s' "$c" | cut -d'|' -f2)
-    ms=$(cell_duration_ms "$lbl") || return 1
+    ms=$(cell_charge_ms "$lbl" "$(printf '%s' "$c" | cut -d'|' -f3)") || return 1
     sum=$(( sum + 8 + (ms + 59999) / 60000 + 1 ))
   done
   echo $(( sum * 12 / 10 ))
@@ -2553,14 +2619,14 @@ iv_remaining_projection() {
   [ "$cells_done" -gt 0 ] || return 1
   for (( i = 0; i < cells_done && i < ${#CELLS[@]}; i++ )); do
     lbl=$(printf '%s' "${CELLS[$i]}" | cut -d'|' -f2)
-    ms=$(cell_duration_ms "$lbl") || return 1
+    ms=$(cell_charge_ms "$lbl" "$(printf '%s' "${CELLS[$i]}" | cut -d'|' -f3)") || return 1
     done_ms=$(( done_ms + ms ))
   done
   over=$(( (cell_secs - done_ms / 1000 + cells_done - 1) / cells_done ))
   [ "$over" -ge 0 ] || over=0
   for (( i = cells_done; i < ${#CELLS[@]}; i++ )); do
     lbl=$(printf '%s' "${CELLS[$i]}" | cut -d'|' -f2)
-    ms=$(cell_duration_ms "$lbl") || return 1
+    ms=$(cell_charge_ms "$lbl" "$(printf '%s' "${CELLS[$i]}" | cut -d'|' -f3)") || return 1
     left_s=$(( left_s + over + ms / 1000 ))
     left_n=$(( left_n + 1 ))
   done
@@ -2588,7 +2654,8 @@ cell_deadline_check_inner() {
     remain=$(deadline_remaining_minutes 2>/dev/null) || return 0
     [ -n "$remain" ] || return 0
     # The FIRST cell's own length, which is DURATION_MS for every study whose cells share one.
-    first_ms=$(cell_duration_ms "$(printf '%s' "${CELLS[0]:-}" | cut -d'|' -f2)") || first_ms="${DURATION_MS:-0}"
+    # Its warm-up too, for a study that has one, since the replay floor is then two replays.
+    first_ms=$(cell_charge_ms "$(printf '%s' "${CELLS[0]:-}" | cut -d'|' -f2)" "$(printf '%s' "${CELLS[0]:-}" | cut -d'|' -f3)") || first_ms="${DURATION_MS:-0}"
     floor=$(( (first_ms + 59999) / 60000 + 1 ))
     # And the WHOLE matrix, projected by the same conservative rule the mid-run check uses.
     #
@@ -2851,7 +2918,53 @@ capture_engine_log() {
     return 1
   fi
   rm -f "$err"
-  iv_engine_log_refusal "$label" "$dest"
+  iv_engine_log_refusal "$STUDY" "$label" "$dest"
+}
+
+# Writes $OUT/warmup-boundary-<label>-<rep>.txt: the last warm-up iteration index, or `none`.
+#
+# Read from the engine log as it stands after the warm-up replay, because the measured replay has not sent
+# anything yet, so every Iteration line in it so far belongs to the warm-up.
+# Only a -log arm prints iteration lines, so only a -log arm reads the log at all.
+# Prints the refusal and returns 1 with no file written; returns 0 once the file holds the boundary.
+warmup_boundary_record() {
+  local label="$1" rep="$2" log="" err boundary
+  case "$label" in
+    *-log)
+      log="$WORK/warmup-log-$label-$rep.txt"
+      err="$WORK/warmup-log-$label-$rep.err"
+      if ! k logs -n "$NS_A" deploy/vllm-qwen25-3b >"$log" 2>"$err"; then
+        echo "could not read the engine log after $label rep $rep's warm-up: $(tr '\n' ' ' <"$err" | cut -c1-200)"
+        return 1
+      fi ;;
+  esac
+  boundary=$(iv_warmup_boundary "$STUDY" "$label" "$log") || { echo "$boundary"; return 1; }
+  printf '%s\n' "$boundary" > "$OUT/warmup-boundary-$label-$rep.txt" \
+    || { echo "could not write $OUT/warmup-boundary-$label-$rep.txt"; return 1; }
+}
+
+# Warms one cell's fresh engine and proves it warm before the measured replay (section 2 of session 2).
+#
+# The warm-up trace and manifest go to $OUT beside its rows, so what was replayed is in the archive and the
+# rows can be checked against the trace they came from.
+# Its replay takes the measured replay's flags, so the warm-up passes through the same gateway, keys and
+# provenance demand the measured requests will.
+# Every failure here ends the run: the registration stops the session on a W refusal and never repeats a
+# warm-up until it passes, and a cell measured on an engine not proved warm is not a cell it registers.
+run_warmup() {
+  local label="$1" rep="$2" why
+  say "  warm-up for $label rep $rep, excluded from the measurement"
+  warmup_gen_trace "$label" "$rep" "$OUT/warmup-trace-$label-$rep.jsonl" "$OUT/warmup-manifest-$label-$rep.yaml" \
+    --engine-image "$ENGINE_IMAGE" --gateway-image "$GATEWAY_IMAGE_REF" --gateway-sha "$SOURCE_COMMIT" \
+    --tokenizer-rev "$MODEL_REVISION" || fail "gen-trace --warmup $label"
+  "$WORK/benchharness" replay --manifest "$OUT/warmup-manifest-$label-$rep.yaml" \
+    $PROVENANCE_FLAG \
+    --target "http://127.0.0.1:18080" \
+    --api-keys "premium-1=premium-key,standard-noisy=standard-key" \
+    --raw-out "$OUT/raw-warmup-$label-$rep.jsonl" || fail "warm-up replay $label"
+  why=$(warmup_boundary_record "$label" "$rep") || fail "REFUSED $label rep $rep at its warm-up boundary: $why"
+  why=$(iv_warmup_refusal "$OUT/raw-warmup-$label-$rep.jsonl") || fail "W REFUSED $label rep $rep: $why"
+  say "  warm-up passed W; last warm-up iteration $(cat "$OUT/warmup-boundary-$label-$rep.txt")"
 }
 
 run_cell() {
@@ -2988,6 +3101,11 @@ run_cell() {
   # request of every arm would have come back ErrNoRoute -- after both engines had loaded.
   set_load_flags "$RATE_CELL" "$NOISY_CELL"
   cell_duration=$(cell_duration_ms "$label") || fail "$cell_duration"
+  # The warm-up, after deploy_arm proved the engine is the arm's and before anything measured is sent.
+  # Before the `before` metrics scrape as well, so the engine's counters around the replay cover only it.
+  if [ -z "${LADDER:-}" ] && iv_has_warmup "${STUDY:-}"; then
+    run_warmup "$label" "$rep"
+  fi
   "$WORK/benchharness" gen-trace --seed "$(seed_for_rep "$rep")" --duration-ms "$cell_duration" "${LOAD_FLAGS[@]}" \
     --study "$STUDY" --arm "$label" --model "$MODEL" --gateway-url "http://127.0.0.1:18080" \
     --engine-image "$ENGINE_IMAGE" --gateway-image "$GATEWAY_IMAGE_REF" --gateway-sha "$SOURCE_COMMIT" \

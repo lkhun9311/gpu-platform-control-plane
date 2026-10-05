@@ -418,10 +418,10 @@ PROBE_WEIGHT="${PROBE_WEIGHT:-0}"
 # Refused here too, so the caller hears it before anything is built rather than from the plan check.
 if [ -z "$LADDER" ] && iv_is_study "${STUDY:-}"; then
   [ -z "${DURATION_MS:-}" ] \
-    || fail "DURATION_MS is ${DURATION_MS@Q} and study ${STUDY} sets the trace length per arm (serial 180000, burst 330000, stagger 630000 ms); unset it"
+    || fail "DURATION_MS is ${DURATION_MS@Q} and study ${STUDY} sets the trace length per arm ($(iv_duration_summary "$STUDY")); unset it"
   [ -n "$ARMS_FROM_CALLER" ] \
     || fail "ARMS is unset and study ${STUDY} has none of the default topologies; name its arms"
-  for _a in $ARMS; do _why=$(iv_duration_ms "$_a") || fail "$_why"; done
+  for _a in $ARMS; do _why=$(iv_duration_ms "$STUDY" "$_a") || fail "$_why"; done
   DURATION_MS=""
 else
   DURATION_MS="${DURATION_MS:-420000}"
@@ -434,7 +434,7 @@ elif [ -n "$SWEEP" ]; then
   say "load   a sweep, ${DURATION_MS}ms per cell: latency-critical held at ${PREMIUM_RATE}/s, best-effort at $SWEEP /s"
   say "       independent arrivals, so each repetition offers the latency-critical tenant one schedule at every level"
 elif iv_is_study "${STUDY:-}"; then
-  say "load   none -- registered episodes, one tenant; the trace length per arm ($(for _a in $ARMS; do printf '%s=%sms ' "$_a" "$(iv_duration_ms "$_a")"; done))"
+  say "load   none -- registered episodes, one tenant; the trace length per arm ($(for _a in $ARMS; do printf '%s=%sms ' "$_a" "$(iv_duration_ms "$STUDY" "$_a")"; done))"
 else
   say "load   rate ${RATE}/s, ${DURATION_MS}ms, weights premium=$PREMIUM_WEIGHT noisy=$NOISY_WEIGHT probe=$PROBE_WEIGHT"
   say "       (carried from the whole-card run; the pilot's job is to re-derive them for a half-card engine)"
@@ -636,13 +636,15 @@ need_min=$(( 25 + arm_count * 3 / 2 + arm_count * REPS * replay_min + 15 ))
 if [ -z "$LADDER" ] && iv_is_study "${STUDY:-}"; then
   iv_replay_min=0
   for _a in $ARMS; do
-    _ms=$(iv_duration_ms "$_a") || fail "$_ms"
+    _ms=$(iv_duration_ms "$STUDY" "$_a") || fail "$_ms"
     _m=$(( (_ms + 59999) / 60000 + 1 )); [ "$_m" -ge 7 ] || _m=7
     case "$_a" in *-async) _n=1 ;; *) _n=$REPS ;; esac
     iv_replay_min=$(( iv_replay_min + _n * _m ))
   done
   need_min=$(( 25 + arm_count * 3 / 2 + iv_replay_min + 15 ))
 fi
+# The model's own figure, kept so a later charge adds to the model and not to the backstop that floors it.
+model_min="$need_min"
 backstop_min=$(( BACKSTOP_SECONDS / 60 ))
 if [ "$backstop_min" -gt "$need_min" ]; then need_min="$backstop_min"; fi
 require_credential_margin "$need_min"
@@ -669,6 +671,31 @@ CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o "$OUT/benchharness" ./cmd/benc
 GATEWAY_SHA=$(sha256sum "$OUT/gateway" | cut -d' ' -f1)
 HARNESS_SHA=$(sha256sum "$OUT/benchharness" | cut -d' ' -f1)
 say "  gateway ${GATEWAY_SHA:0:12}, benchharness ${HARNESS_SHA:0:12}"
+# A study that warms each engine first owes each cell its warm-up as well, and only the generator knows it.
+#
+# Charged here rather than above because the warm-up's span is read off a generated trace, and this is the
+# first line at which the binary that generates it exists.
+# One trace per arm at the first seed: a warm-up's span moves with the seed only by the stagger's jitter of
+# up to 100 ms per episode, which the fixed 30 s in iv_trace_span_ms covers.
+# The credential margin is asked again with the warm-ups added to the model, under the same backstop floor.
+if [ -z "$LADDER" ] && iv_has_warmup "${STUDY:-}"; then
+  iv_warm_min=0
+  _seed=$(printf '%s\n' ${SEEDS:-11} | sed -n 1p)
+  for _a in $ARMS; do
+    _ms=$(iv_warmup_duration_ms "$STUDY" "$_a") || fail "$_ms"
+    _err="$OUT/warmup-plan-$_a.err"
+    "$OUT/benchharness" gen-trace --warmup --seed "$_seed" --duration-ms "$_ms" --study "$STUDY" --arm "$_a" \
+      --trace-out "$OUT/warmup-plan-$_a.jsonl" --manifest-out "$OUT/warmup-plan-$_a.yaml" >/dev/null 2>"$_err" \
+      || fail "gen-trace --warmup could not build $_a's warm-up trace, so its card time is unknown: $(tail -2 "$_err" | tr '\n' ' ')"
+    _span=$(iv_trace_span_ms "$OUT/warmup-plan-$_a.jsonl") || fail "$_span"
+    case "$_a" in *-async) _n=1 ;; *) _n=$REPS ;; esac
+    iv_warm_min=$(( iv_warm_min + _n * ((_span + 59999) / 60000) ))
+  done
+  say "  warm-ups add ${iv_warm_min} min across the cells"
+  need_min=$(( model_min + iv_warm_min ))
+  if [ "$backstop_min" -gt "$need_min" ]; then need_min="$backstop_min"; fi
+  require_credential_margin "$need_min"
+fi
 
 # ---------------------------------------------------------------- AWS scaffolding
 spot_ensure_bucket "$BUCKET" "$REGION" 30 || fail "could not prepare the results bucket $BUCKET"
@@ -1020,6 +1047,13 @@ done
 # The engine's own log for this cell, written only under the instrument-validation study.
 # Its iteration lines are that study's measurement, so a cell that survives without them is not a cell.
 send "$out/engine-log-$arm-$rep.txt" "engine-log-$arm-$rep.txt"
+# The warm-up's rows, its boundary, and the trace and manifest it replayed, written only under session 2.
+# The boundary is what separates the log's warm-up iterations from the measured ones, so the log without it
+# cannot be split.
+send "$out/raw-warmup-$arm-$rep.jsonl" "raw-warmup-$arm-$rep.jsonl"
+send "$out/warmup-boundary-$arm-$rep.txt" "warmup-boundary-$arm-$rep.txt"
+send "$out/warmup-trace-$arm-$rep.jsonl" "warmup-trace-$arm-$rep.jsonl"
+send "$out/warmup-manifest-$arm-$rep.yaml" "warmup-manifest-$arm-$rep.yaml"
 # The run-wide records, refreshed so the newest surviving copy is the newest one written.
 for f in cell-environment.tsv cell-timings.tsv cell-judgements.tsv applied-values.tsv load-source.txt; do
   send "$out/$f" "$f"
@@ -1504,7 +1538,9 @@ if [ "$done_seen" -eq 0 ]; then
   # Partial evidence is the point of uploading before the marker, so it is reported rather than discarded.
   shopt -s nullglob
   recovered=("$OUT/m5c-run"/raw-*.jsonl)
-  partial=${#recovered[@]}
+  # A session-2 warm-up's rows match the glob and are not a cell's, so they are not counted as one.
+  partial=0
+  for _f in "${recovered[@]}"; do case "${_f##*/}" in raw-warmup-*) ;; *) partial=$(( partial + 1 )) ;; esac; done
   shopt -u nullglob
   say "raw files recovered before the end: $partial"
   if [ -n "$ended_early" ]; then

@@ -162,6 +162,10 @@ for f in "$out"/engine-metrics-"$arm"-"$rep"-*.prom "$out"/engine-metrics-"$arm"
   send "$f" "$(basename "$f")"
 done
 send "$out/engine-log-$arm-$rep.txt" "engine-log-$arm-$rep.txt"
+send "$out/raw-warmup-$arm-$rep.jsonl" "raw-warmup-$arm-$rep.jsonl"
+send "$out/warmup-boundary-$arm-$rep.txt" "warmup-boundary-$arm-$rep.txt"
+send "$out/warmup-trace-$arm-$rep.jsonl" "warmup-trace-$arm-$rep.jsonl"
+send "$out/warmup-manifest-$arm-$rep.yaml" "warmup-manifest-$arm-$rep.yaml"
 for f in cell-environment.tsv cell-timings.tsv cell-judgements.tsv applied-values.tsv load-source.txt; do
   send "$out/$f" "$f"
 done

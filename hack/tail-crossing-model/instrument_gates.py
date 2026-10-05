@@ -344,7 +344,8 @@ def check_warmup(run, arm, b):
     if len(rows) != 2 or any(r.get("errorKind") or r.get("engineInputTokens") != 2048 for r in rows):
         raise Refusal(f"{arm}-{b}: the warm-up's last two rows are not two successful 2,048-token requests (gate W)")
     t = [(r["firstTokenUnixNanos"] - r["sendUnixNanos"]) / 1e6 for r in rows]
-    if any(abs(x / WARM_TTFT_MS - 1) > WARM_TOL for x in t) or abs(t[0] / t[1] - 1) > WARM_PAIR_TOL:
+    # "Within 2% of each other" is measured against the smaller, as the matrix measures it before the cell is bought.
+    if any(abs(x / WARM_TTFT_MS - 1) > WARM_TOL for x in t) or (max(t) - min(t)) / min(t) > WARM_PAIR_TOL:
         raise Refusal(f"{arm}-{b}: verification TTFTs {t[0]:.1f} and {t[1]:.1f} ms are not both within 5% of "
                       f"{WARM_TTFT_MS:.0f} ms and 2% of each other (gate W)")
 

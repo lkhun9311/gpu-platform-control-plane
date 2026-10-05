@@ -49,7 +49,8 @@ func TestStubNonDefaultArgsSatisfyTheHarness(t *testing.T) {
 		{"stagger-async", false, false},
 	} {
 		line := stubNonDefaultArgs(8000, c.noAsync, c.iters)
-		script := `. hack/lib/instrument-validation.sh && iv_process_args_refusal "$1" "$2"`
+		// The lib takes the study first, so neither session's arms can be judged under the other's tables.
+		script := `. hack/lib/instrument-validation.sh && iv_process_args_refusal "$IV_STUDY" "$1" "$2"`
 		cmd := exec.Command("bash", "-c", script, "_", c.arm, line)
 		cmd.Dir = "../.."
 		if out, err := cmd.CombinedOutput(); err != nil {
@@ -57,7 +58,7 @@ func TestStubNonDefaultArgsSatisfyTheHarness(t *testing.T) {
 		}
 	}
 	// And the refusal still fires: a -log arm handed the -nolog line must be refused.
-	cmd := exec.Command("bash", "-c", `. hack/lib/instrument-validation.sh && iv_process_args_refusal "$1" "$2"`,
+	cmd := exec.Command("bash", "-c", `. hack/lib/instrument-validation.sh && iv_process_args_refusal "$IV_STUDY" "$1" "$2"`,
 		"_", "serial-log", stubNonDefaultArgs(8000, true, false))
 	cmd.Dir = "../.."
 	if out, err := cmd.CombinedOutput(); err == nil {
