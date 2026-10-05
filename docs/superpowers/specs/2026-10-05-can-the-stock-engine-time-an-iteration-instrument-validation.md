@@ -102,3 +102,20 @@ An independent review of the evaluator by codex `gpt-6-astra`, run without instr
 - **Drained was assumed from the order of sends.** A request queued behind its predecessor still produces lone steps in order, and its queueing would be booked as omitted engine time. A serial episode in which any request is sent before its predecessor's end is refused.
 
 Each fix has a self-test case that fails when the fix is reverted.
+
+## Amendment, 2026-10-05 — what is bought, before it is bought
+
+The user approved the purchase on 2026-10-05. Written before the session is launched:
+
+| | |
+|---|---|
+| Session | one g5.2xlarge spot instance, `hack/m5c-gpu-session.sh`, `PURPOSE=new-measurement` |
+| Cells | `REPS=3`, the nine arms: three blocks of the six synchronous arms, each block in its own order, then the three async arms once — 21 cells |
+| Traces | one trace per episode type, seed 11, replayed in every block and by all three modes of that type (`TracesVaryByRepetition` is false, as section 4 says); 54, 381 and 288 requests per serial, burst and staggered trace, every setting exactly three times, checked by `PLAN_ONLY` with the real binary |
+| Lengths | 256, 512, 1,024, 2,048, 4,096 and 8,192 tokens, resolved inside the pinned serving image; the three already in the table reproduced byte for byte |
+| Deadline | `HARD_STOP_SECONDS=27000`, `BACKSTOP_SECONDS=27600`. The cold projection before any cell is 394 minutes (8 minutes beyond each cell's replay, plus 20%); replay alone is 133 minutes, and the earlier sessions spent about 3 minutes per cell beyond replay, so about four hours is expected |
+| Cost | expected about $3 at the $0.68–0.70 spot price of 2026-10-04/05; bounded by the script's $1.10/hour cap and the backstop at about $8.40 |
+
+**Stopping rule.** One session. The evaluator `hack/tail-crossing-model/instrument_gates.py`, as committed before launch, is run once on what comes back, and its verdict is the answer. A failed gate is not re-bought to make it pass. A session that ends early — the deadline, a spot reclaim, a refusal — is reported as incomplete with what it did produce, and buying again needs a further amendment saying why.
+
+**Rehearsed on kind before launch.** `IV=1 hack/test/rehearse-m5c-matrix.sh` ran `serial-log`, `serial-nolog` and `serial-async` end to end on a stub engine that answers vLLM's three flags the way v0.27.1 does: each cell deployed its own engine, the recorded process line showed that arm's configuration, the logged cell's 432 iteration lines (54 requests × one context and seven generation steps) passed `iterlog.py`'s accounting, and the two unlogged cells held none. Its first attempt was refused after the first replay because the stub labelled the exclusive engine `vllm-shared` where `config/vllm/deployment.yaml` says `vllm`, so the harness found no pod to read restart counts from — a stub that differed from the real manifest, fixed in the stub. What the rehearsal does not cover: the burst and staggered lengths, any number, and real vLLM's own output.

@@ -156,6 +156,33 @@ mkdir -p "$SRC"
 cp -r hack config "$SRC/" || fail "copy the tree"
 
 # The engines. Same names, same Service names, same nvidia.com/gpu request, a stub behind them.
+# The stub engine's args, in the one form each mode needs.
+#
+# IV=1 rehearses the instrument-validation study, whose harness inserts the arm's vLLM flags after the
+# manifest's `- --port=8000` line and refuses a manifest without exactly one; a flow-style list has none.
+# So that mode writes the list one item per line with the port, and stub-serve answers --port the way vLLM
+# does, by printing its non-default args. Every other mode keeps the flow-style list it always had.
+stub_engine_args() {
+  if [ -n "${IV_UNDER_TEST:-}" ]; then
+    printf '\n            - --addr=:8000\n            - --metrics\n            - --port=8000'
+  else
+    printf '["--addr=:8000", "--metrics"]'
+  fi
+}
+# The component label each stub engine carries.
+#
+# config/vllm/deployment.yaml labels the exclusive engine `vllm`, and the instrument-validation path finds its
+# pod by that label to read restart counts before trusting the engine log. The stub labelled every engine
+# `vllm-shared`, so that path found no pod and refused the first IV rehearsal cell -- a stub that differed from
+# the real manifest, not a harness defect. IV mode gives the exclusive stub the real label. The other modes keep
+# the old one, because changing it under them is a separate change with its own rehearsal to run.
+stub_engine_component() {
+  if [ -n "${IV_UNDER_TEST:-}" ] && [ "$1" = vllm-qwen25-3b ]; then
+    printf vllm
+  else
+    printf vllm-shared
+  fi
+}
 stub_engine_manifest() {
   local name="$1" out="$2"
   cat > "$out" <<EOF
@@ -163,13 +190,13 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: $name
-  labels: {app.kubernetes.io/component: vllm-shared}
+  labels: {app.kubernetes.io/component: $(stub_engine_component "$name")}
 spec:
   replicas: 1
   selector: {matchLabels: {engine: $name}}
   template:
     metadata:
-      labels: {engine: $name, app.kubernetes.io/component: vllm-shared}
+      labels: {engine: $name, app.kubernetes.io/component: $(stub_engine_component "$name")}
     spec:
       # The shared IPC namespace, for the same reason the pipe directory below is here.
       #
@@ -186,7 +213,7 @@ spec:
           # --metrics, so the matrix's engine-metrics scrape meets a page in vLLM's names and its .prom path
           # runs here; without it every phase was an .err and only the failure path had ever executed. The
           # matrix runs its gateway with admission off, so no guard reads this page during a cell.
-          args: ["--addr=:8000", "--metrics"]
+          args: $(stub_engine_args)
           # The marker the matrix's MPS client check looks for, on a directory that exists.
           #
           # The real plugin sets this on a client container at allocation. The simulator does not, so without
@@ -209,6 +236,8 @@ spec:
   ports: [{name: http, port: 8000, targetPort: http}]
 EOF
 }
+# Set before the manifests are written, because stub_engine_args reads it; empty in every other mode.
+IV_UNDER_TEST="${IV:-}"
 stub_engine_manifest vllm-qwen25-3b "$SRC/config/vllm/deployment.yaml"
 : > "$SRC/config/vllm/service.yaml"   # the Service is in the file above; this one must stay applyable
 printf 'apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: m5c-rehearse-noop\ndata: {}\n' > "$SRC/config/vllm/service.yaml"
@@ -383,7 +412,18 @@ SHIM
   BH_FOR_MATRIX="$WORK/bh-shim"
 fi
 
-if [ -n "$LADDER_UNDER_TEST" ]; then
+if [ -n "$IV_UNDER_TEST" ]; then
+  # No load and no DURATION_MS: the study refuses both, and each arm's trace length is its own.
+  # Three serial arms, one of each engine mode, because the modes are what this path changes per cell; burst and
+  # stagger differ only in trace length, and rehearsing them would cost an hour and cover nothing new.
+  ( cd "$SRC" && PLATFORM=kind KCTX="$KCTX" GPU_NODE="$GPU_NODE" \
+      DEADLINE_EPOCH=$(( $(date +%s) + 3600 )) \
+      GATEWAY_BIN="$WORK/gateway" BENCHHARNESS_BIN="$WORK/benchharness" \
+      ENGINE_PIN_WAIVED=1 STUDY=instrument-validation-2026-10-05 \
+      REPS=1 ARMS="serial-log serial-nolog serial-async" OUT="$OUT_DIR" \
+      CELL_DONE_HOOK="$WORK/cell-hook" CELL_HOOK_LOG="$CELL_HOOK_LOG" \
+      bash hack/m5c-matrix.sh ) 2>&1 | tee "$WORK/matrix.log"
+elif [ -n "$LADDER_UNDER_TEST" ]; then
   # RATE, ARMS, REPS and NOISY_WEIGHT are deliberately NOT passed: the script refuses a run that was given
   # both a ladder and a single load, and passing them here would rehearse a refusal instead of a ladder.
   ( cd "$SRC" && PLATFORM=kind KCTX="$KCTX" GPU_NODE="$GPU_NODE" \
@@ -430,6 +470,40 @@ fi
 rc=${PIPESTATUS[0]}
 set -e
 [ "$rc" = "0" ] || { tail -25 "$WORK/matrix.log"; fail "the matrix exited $rc -- the log above is what it said"; }
+
+# The instrument-validation path is checked on its own terms and ends here.
+#
+# The checks below this block are the sharing studies': two tenants, an R1 arm, readings. This study has none
+# of them, and what it adds -- a per-arm engine and a per-cell engine log -- is checked from the files the
+# matrix wrote, not from its exit status alone, because the matrix refusing nothing is what is under test.
+if [ -n "$IV_UNDER_TEST" ]; then
+  say "check what the instrument-validation cells wrote"
+  for arm in serial-log serial-nolog serial-async; do
+    log="$OUT_DIR/engine-log-$arm-1.txt"
+    [ -s "$log" ] || fail "$arm: no engine log at $log"
+    n=$(awk 'index($0, "Iteration(") {c++} END {print c+0}' "$log")
+    proc=$(awk -F'\t' -v a="$arm" '$2 == a && $4 == "process" {print $6}' "$OUT_DIR/applied-values.tsv")
+    case "$arm" in
+      serial-log)
+        [ "$n" -gt 0 ] || fail "$arm: its engine log holds no Iteration( line"
+        python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); import iterlog; iterlog.check_indices(iterlog.parse(open(sys.argv[2])))' \
+          "$ROOT/hack/tail-crossing-model" "$log" || fail "$arm: the evaluator refused its engine log"
+        ;;
+      *) [ "$n" = 0 ] || fail "$arm: its engine log holds $n Iteration( line(s)" ;;
+    esac
+    case "$arm:$proc" in
+      serial-log:*"'async_scheduling': False"*"'enable_logging_iteration_details': True"*) ;;
+      serial-nolog:*"'async_scheduling': False"*) case "$proc" in *enable_logging_iteration_details*) fail "$arm: $proc" ;; esac ;;
+      serial-async:*"non-default args:"*) case "$proc" in *async_scheduling*|*enable_logging_iteration_details*) fail "$arm: $proc" ;; esac ;;
+      *) fail "$arm: the recorded process line does not show the arm's engine: ${proc:-nothing}" ;;
+    esac
+    [ -s "$OUT_DIR/raw-$arm-1.jsonl" ] || fail "$arm: no raw rows"
+    say "  $arm: engine log with $n iteration line(s); process line ${proc:0:120}"
+  done
+  say "REHEARSAL PASSED: the instrument-validation study ran serial-log, serial-nolog and serial-async end to end, each on its own engine."
+  say "What this did NOT cover: the burst and stagger arms' lengths, any number, and real vLLM's own output."
+  exit 0
+fi
 
 # ---------------------------------------------------------------- what the run must have produced
 #

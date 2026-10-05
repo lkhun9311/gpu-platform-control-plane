@@ -269,6 +269,50 @@ type stubProfile struct {
 	// takes. It is off by default because the gateway's admission guard reads an engine's /metrics too, and
 	// every other rehearsal has always met a stub that answered 404 there.
 	metrics bool
+	// iterLog, when set, prints vLLM v0.27.1's per-iteration log lines for every request the stub serves.
+	iterLog *stubIterLog
+}
+
+// stubNonDefaultArgs is the startup line vLLM prints, carrying the keys the instrument-validation harness reads.
+//
+// The keys and the Python repr are vLLM's own: the paid runs recorded `'enable_prefix_caching': False` in this
+// form, and --no-async-scheduling and --enable-logging-iteration-details are the same kind of flag.
+func stubNonDefaultArgs(port int, noAsync, iterDetails bool) string {
+	s := fmt.Sprintf("non-default args: {'model_tag': 'stub', 'port': %d", port)
+	if noAsync {
+		s += ", 'async_scheduling': False"
+	}
+	if iterDetails {
+		s += ", 'enable_logging_iteration_details': True"
+	}
+	return s + "}"
+}
+
+// stubIterLog prints one line per stub step in the format of vLLM v0.27.1's LoggingStatLogger.
+//
+// The stub has no scheduler, so its steps are invented: one context step for the prompt and one generation step
+// per output token after the first, with the context tokens estimated from the body length.
+// What the harness checks is that the lines exist and that their indices run on without a gap, and both hold.
+type stubIterLog struct {
+	mu    sync.Mutex
+	out   *os.File
+	index int
+}
+
+func (l *stubIterLog) request(bodyBytes int64, tokens int) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	ctx := max(bodyBytes/4, 1)
+	fmt.Fprintf(l.out, "INFO stub [loggers.py:182] Iteration(%d): 1 context requests, %d context tokens, "+
+		"0 generation requests, 0 generation tokens, iteration elapsed time: 1.00 ms, GPU KV cache usage: 0.1%%\n",
+		l.index, ctx)
+	l.index++
+	for range max(tokens-1, 0) {
+		fmt.Fprintf(l.out, "INFO stub [loggers.py:182] Iteration(%d): 0 context requests, 0 context tokens, "+
+			"1 generation requests, 1 generation tokens, iteration elapsed time: 1.00 ms, GPU KV cache usage: 0.1%%\n",
+			l.index)
+		l.index++
+	}
 }
 
 // validate refuses a profile that would serve a backend other than the one declared.
@@ -409,8 +453,21 @@ func stubServe(args []string) error {
 	_ = fs.String("model", "", "model name; accepted for InferenceDeployment compatibility and ignored")
 	modelPath := fs.String("model-path", "", "storage URI; a \"stub://...\" URI overrides the response profile")
 	metrics := fs.Bool("metrics", false, "serve /metrics with a completed-request counter in vLLM's name")
+	// The three flags below are vLLM's, accepted so the instrument-validation harness can append them to a stub
+	// engine exactly as it appends them to the real one, and answered the way vLLM v0.27.1 answers them.
+	//
+	// The harness refuses a cell whose engine does not report the configuration its arm registers, and reads
+	// that report from the `non-default args:` line and the `Iteration(` lines; a stub that printed neither
+	// could only rehearse the refusal, never the path.
+	port := fs.Int("port", 0, "vLLM's port flag; when set it overrides --addr and the vLLM-style non-default args line is printed")
+	noAsync := fs.Bool("no-async-scheduling", false, "vLLM's flag; reported as async_scheduling False")
+	iterDetails := fs.Bool("enable-logging-iteration-details", false, "vLLM's flag; one Iteration( line per stub step")
 	if err := fs.Parse(args); err != nil {
 		return err
+	}
+	if *port > 0 {
+		*addr = fmt.Sprintf(":%d", *port)
+		fmt.Println(stubNonDefaultArgs(*port, *noAsync, *iterDetails))
 	}
 
 	profile := stubProfile{
@@ -429,6 +486,9 @@ func stubServe(args []string) error {
 	}
 
 	stats := newStubStats()
+	if *iterDetails {
+		profile.iterLog = &stubIterLog{out: os.Stdout}
+	}
 	mux := stubMux(profile, stats)
 	fmt.Printf("stub backend listening on %s (tokens=%d ttft=%s itl=%s readyAfter=%s)\n", *addr, profile.tokens, profile.ttft, profile.itl, profile.readyAfter)
 	srv := &http.Server{
@@ -487,6 +547,9 @@ func stubMux(profile stubProfile, stats *stubStats) *http.ServeMux {
 		}
 		if !wait(profile.ttft) {
 			return
+		}
+		if profile.iterLog != nil {
+			profile.iterLog.request(r.ContentLength, profile.tokens)
 		}
 		for i := range profile.tokens {
 			if i > 0 && !wait(profile.itl) {
