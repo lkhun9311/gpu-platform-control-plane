@@ -26,6 +26,10 @@ POOLED, PER_SETTING, COMPLETENESS, STABILITY = 0.02, 0.05, 0.05, 0.05
 # Session 2 (docs/superpowers/specs/2026-10-05-instrument-validation-session-2.md) is told apart by the study its rows
 # carry, and only that study takes the paths below; session 1's verdict must come out of this file unchanged.
 STUDY_S2 = "instrument-validation-s2-2026-10-05"
+# Session 3 (2026-10-06-instrument-validation-session-3.md) is session 2 with fixed-length staggered decoders: every
+# session-2 path applies to it, and it adds the decoder-length check and S on the warm-up's staggered episodes.
+STUDY_S3 = "instrument-validation-s3-2026-10-06"
+WARM_STUDIES = (STUDY_S2, STUDY_S3)
 # The prefill clock frozen from session 1's 159 warm serial-log requests; session 2 predicts with it and never refits.
 CLOCK_A, CLOCK_B, CLOCK_C = 6.446325, 17.776531, 0.002620206
 WARM_TTFT_MS, WARM_TOL, WARM_PAIR_TOL = 231.0, 0.05, 0.02
@@ -40,10 +44,15 @@ def study_of(run):
         return json.loads(f.readline()).get("study", "")
 
 
-def load_cell(run, arm, rep):
-    """A cell's requests joined to their trace rows, one dict per request, refusing anything that does not join."""
-    trace = {r["index"]: r for r in map(json.loads, open(os.path.join(run, f"trace-{arm}-{rep}.jsonl")))}
-    raw = [json.loads(l) for l in open(os.path.join(run, f"raw-{arm}-{rep}.jsonl"))]
+def load_cell(run, arm, rep, warmup=False):
+    """A cell's requests joined to their trace rows, one dict per request, refusing anything that does not join.
+
+    warmup=True reads the cell's warm-up instead, which the matrix writes as warmup-trace-* beside raw-warmup-*.
+    """
+    tname, rname = (f"warmup-trace-{arm}-{rep}.jsonl", f"raw-warmup-{arm}-{rep}.jsonl") if warmup else \
+        (f"trace-{arm}-{rep}.jsonl", f"raw-{arm}-{rep}.jsonl")
+    trace = {r["index"]: r for r in map(json.loads, open(os.path.join(run, tname)))}
+    raw = [json.loads(l) for l in open(os.path.join(run, rname))]
     if len(raw) != len(trace) or {r["index"] for r in raw} != set(trace):
         raise Refusal(f"{arm}-{rep}: {len(raw)} raw rows against {len(trace)} trace rows -- a request was lost or added")
     failed = [r["index"] for r in raw if r.get("errorKind")]
@@ -55,7 +64,8 @@ def load_cell(run, arm, rep):
         out.append(dict(index=r["index"], offset=t["offsetMs"], cap=t["maxOutputTokens"],
                         input_tokens=r["engineInputTokens"], output_tokens=r["engineOutputTokens"],
                         ttft_ms=(r["firstTokenUnixNanos"] - r["sendUnixNanos"]) / 1e6, send_ms=r["sendUnixNanos"] / 1e6,
-                        first_ms=r["firstTokenUnixNanos"] / 1e6, end_ms=r["endUnixNanos"] / 1e6))
+                        first_ms=r["firstTokenUnixNanos"] / 1e6, end_ms=r["endUnixNanos"] / 1e6,
+                        finish=r.get("finishReason", "")))
     out.sort(key=lambda q: (q["offset"], q["index"]))
     return out
 
@@ -335,7 +345,7 @@ def context_effect(run, s2=None):
                 groups[-1].append(q)
             else:
                 groups.append([q])
-        iters = measured_iters(run, "burst-log", b, study_of(run) == STUDY_S2 if s2 is None else s2)
+        iters = measured_iters(run, "burst-log", b, study_of(run) in WARM_STUDIES if s2 is None else s2)
         for ep, steps in zip(groups, segment(iters, groups)):
             n, L = len(ep), ep[0]["input_tokens"]
             by.setdefault((n, L), []).extend(s["elapsed_ms"] for s in steps
@@ -367,8 +377,28 @@ def check_warmup(run, arm, b):
                       f"{WARM_TTFT_MS:.0f} ms and 2% of each other (gate W)")
 
 
-def check_stagger(reqs, arm, b):
-    """S: each prefill is sent after every decoder's first token and starts before any decoder has finished."""
+def warmup_stagger_episodes(run, arm, b):
+    """The staggered cycle inside a staggered cell's warm-up, without the warm-up's single requests around it.
+
+    The warm-up is one drained 2,048-token request, one cycle of the cell's episode type, then two drained 2,048-token
+    verification requests (session 2's registration, section 2); the three are checked to be exactly that, so a
+    warm-up of another shape refuses instead of being paired up as decoders and prefills.
+    """
+    reqs = load_cell(run, arm, b, warmup=True)
+    ends = reqs[:1] + reqs[-2:]
+    if len(reqs) < 5 or any(q["input_tokens"] != 2048 or q["cap"] != 16 for q in ends) \
+            or len({q["offset"] for q in ends}) != 3 or reqs[1]["offset"] == reqs[0]["offset"]:
+        raise Refusal(f"{arm}-{b}: the warm-up is not one 2,048-token request, a staggered cycle and two verification "
+                      f"requests, so its staggered episodes cannot be located (gate S)")
+    return reqs[1:-2]
+
+
+def check_stagger(reqs, arm, b, fixed_length=False):
+    """S: each prefill is sent after every decoder's first token and starts before any decoder has finished.
+
+    fixed_length (session 3) also requires every decoder to have produced exactly its cap and stopped on it; session 2
+    lost the composition because decoders capped at 512 stopped at end-of-sequence after as few as 101 tokens.
+    """
     groups = []
     for q in reqs:
         if groups and groups[-1][0]["offset"] == q["offset"]:
@@ -377,6 +407,12 @@ def check_stagger(reqs, arm, b):
             groups.append([q])
     for i in range(0, len(groups), 2):
         dec, pre = groups[i], groups[i + 1][0]
+        if fixed_length:
+            short = [d for d in dec if d["output_tokens"] != d["cap"] or d["finish"] != "length"]
+            if short:
+                raise Refusal(f"{arm}-{b}: a decoder of the episode at offset {dec[0]['offset']} ms produced "
+                              f"{short[0]['output_tokens']} of {short[0]['cap']} tokens and finished "
+                              f"{short[0]['finish'] or 'without a reason'} (gate S)")
         if pre["send_ms"] <= max(d["first_ms"] for d in dec):
             raise Refusal(f"{arm}-{b}: the prefill at offset {pre['offset']} ms was sent before every decoder's first "
                           f"token, so the episode is not the registered composition (gate S)")
@@ -387,7 +423,9 @@ def check_stagger(reqs, arm, b):
 
 def evaluate(run, rng=None):
     rng = rng or random.Random(20261005)
-    s2 = study_of(run) == STUDY_S2
+    study = study_of(run)
+    s2 = study in WARM_STUDIES
+    s3 = study == STUDY_S3
     cells = {}
     for kind in TYPES:
         for suffix in ("log", "nolog"):
@@ -408,9 +446,13 @@ def evaluate(run, rng=None):
             check_warmup(run, arm, 1)
         for suffix in ("log", "nolog"):
             for b in BLOCKS:
-                check_stagger(load_cell(run, f"stagger-{suffix}", b), f"stagger-{suffix}", b)
+                check_stagger(load_cell(run, f"stagger-{suffix}", b), f"stagger-{suffix}", b, fixed_length=s3)
+                if s3:
+                    # The warm-up's staggered episodes are held to S too: session 2's warm-up broke it as well.
+                    check_stagger(warmup_stagger_episodes(run, f"stagger-{suffix}", b), f"stagger-{suffix} warm-up", b,
+                                  fixed_length=True)
         if "stagger-async" in asyncs:
-            check_stagger(load_cell(run, "stagger-async", 1), "stagger-async", 1)
+            check_stagger(load_cell(run, "stagger-async", 1), "stagger-async", 1, fixed_length=s3)
         lines.append(f"W warm-up and S staggered composition: every cell passes; async controls present: {asyncs or 'none'}")
     for kind in TYPES:
         for quantity in ("ttft", "itl"):
@@ -557,6 +599,78 @@ def _s2_run(run, asyncs=True, **kw):
                 shutil.copy(os.path.join(run, name), os.path.join(run, name.replace(f"{kind}-nolog-1", f"{kind}-async-1")))
 
 
+def _s3_run(run, short_decoder=False, short_warmup=False):
+    """A session-3 archive: session 2's, recorded under session 3, every decoder stopping on its cap.
+
+    Each staggered cell gets a warm-up of the registered shape -- one 2,048-token request, one staggered episode, two
+    verification requests -- and its logged cell a warm-up head whose context steps reconcile with those requests.
+    """
+    _s2_run(run, asyncs=False)
+    for name in os.listdir(run):
+        if name.startswith("raw-") and not name.startswith("raw-warmup-"):
+            path = os.path.join(run, name)
+            rows = [json.loads(l) for l in open(path)]
+            for r in rows:
+                r["study"] = STUDY_S3
+                r["finishReason"] = "length"
+            with open(path, "w") as f:
+                f.writelines(json.dumps(r) + "\n" for r in rows)
+    for suffix in ("log", "nolog"):
+        for b in BLOCKS:
+            arm = f"stagger-{suffix}"
+            plan = [(0, 2048, 16, 0, 231.0, 300.0, "length"), (10_000, 256, 128, 0, 50.0, 3_000.0, "length"),
+                    (10_200, 256, 16, 0, 60.0, 400.0, "length"), (20_000, 2048, 16, 0, 231.0, 300.0, "length"),
+                    (30_000, 2048, 16, 0, 231.5, 300.0, "length")]
+            if short_warmup and (suffix, b) == ("nolog", 2):
+                plan[1] = (10_000, 256, 128, 0, 50.0, 100.0, "stop")
+            with open(os.path.join(run, f"warmup-trace-{arm}-{b}.jsonl"), "w") as f:
+                f.writelines(json.dumps(dict(index=i, offsetMs=o, tenant="premium-1", maxOutputTokens=cap)) + "\n"
+                             for i, (o, _, cap, *_) in enumerate(plan))
+            with open(os.path.join(run, f"raw-warmup-{arm}-{b}.jsonl"), "w") as f:
+                for i, (o, tok, cap, _, ttft, dur, fin) in enumerate(plan):
+                    send = int(o * 1e6)
+                    f.write(json.dumps(dict(index=i, study=STUDY_S3, engineInputTokens=tok,
+                                            engineOutputTokens=cap if fin == "length" else cap // 3, finishReason=fin,
+                                            sendUnixNanos=send, firstTokenUnixNanos=send + int(ttft * 1e6),
+                                            endUnixNanos=send + int(dur * 1e6))) + "\n")
+            if suffix == "log":
+                path = os.path.join(run, f"engine-log-{arm}-{b}.txt")
+                lines = open(path).read().splitlines()
+                head = [iterlog._line(i, 1, tok, 0, 0, 10.0) for i, (_, tok, *_) in enumerate(plan)]
+                head += [iterlog._line(i, 0, 0, 1, 1, 13.3) for i in range(len(head), 100)]
+                with open(path, "w") as f:
+                    f.write("\n".join(head + lines[100:]) + "\n")
+    if short_decoder:
+        path = os.path.join(run, "raw-stagger-log-3.jsonl")
+        trace = {r["index"]: r for r in map(json.loads, open(os.path.join(run, "trace-stagger-log-3.jsonl")))}
+        rows = [json.loads(l) for l in open(path)]
+        r = next(r for r in rows if trace[r["index"]]["maxOutputTokens"] == 128)
+        r["finishReason"] = "stop"
+        with open(path, "w") as f:
+            f.writelines(json.dumps(x) + "\n" for x in rows)
+
+
+def self_test_s3():
+    """Session 3: every session-2 path, plus fixed-length decoders and S on the warm-up's staggered episode."""
+    import tempfile
+    with tempfile.TemporaryDirectory() as run:
+        _s3_run(run)
+        passed, lines = evaluate(run)
+        assert passed, "\n".join(lines)
+        print("ok: session 3, decoders at their caps and a warm-up of the registered shape -> PASS")
+    for what, kw, words in [("a measured decoder that stopped on end-of-sequence", dict(short_decoder=True), "finished stop"),
+                            ("a warm-up decoder that stopped early", dict(short_warmup=True), "warm-up-2")]:
+        with tempfile.TemporaryDirectory() as run:
+            _s3_run(run, **kw)
+            try:
+                evaluate(run)
+            except Refusal as e:
+                assert words in str(e) and "(gate S)" in str(e), e
+                print(f"ok: refuses {what} -- {e}")
+                continue
+            raise AssertionError(f"{what} was accepted")
+
+
 def self_test_s2():
     """Session 2's paths: the frozen clock, W, S and the warm-up boundary, each shown to fire."""
     import tempfile
@@ -650,6 +764,7 @@ def self_test_s2():
 
 def self_test():
     import tempfile
+    self_test_s3()
     self_test_s2()
     with tempfile.TemporaryDirectory() as run:
         _synthetic_run(run)
