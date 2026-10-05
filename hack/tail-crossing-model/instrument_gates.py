@@ -38,7 +38,7 @@ def load_cell(run, arm, rep):
         t = trace[r["index"]]
         out.append(dict(index=r["index"], offset=t["offsetMs"], cap=t["maxOutputTokens"],
                         input_tokens=r["engineInputTokens"], output_tokens=r["engineOutputTokens"],
-                        ttft_ms=(r["firstTokenUnixNanos"] - r["sendUnixNanos"]) / 1e6,
+                        ttft_ms=(r["firstTokenUnixNanos"] - r["sendUnixNanos"]) / 1e6, send_ms=r["sendUnixNanos"] / 1e6,
                         first_ms=r["firstTokenUnixNanos"] / 1e6, end_ms=r["endUnixNanos"] / 1e6))
     out.sort(key=lambda q: (q["offset"], q["index"]))
     return out
@@ -135,6 +135,12 @@ def gate_i2_i3(run, cells):
         if p:
             raise Refusal(f"{arm}-{b}: {p:g} preemption(s) (gate I2)")
         if arm == "serial-log":
+            # The same drained check iterlog.load_requests makes, because this loader does not go through it.
+            by_send = sorted(reqs, key=lambda q: q["send_ms"])
+            for p, q in zip(by_send, by_send[1:]):
+                if q["send_ms"] < p["end_ms"]:
+                    raise Refusal(f"{arm}-{b}: request {q['index']} was sent before request {p['index']} ended, so "
+                                  f"the serial episode was not drained")
             fits.append(iterlog.fit_clock(iterlog.attribute_serial(iters, reqs)))
     lines.append(f"I2 accounting: every logged cell has contiguous iterations, no failed request, no preemption")
     worst_res = max(f["worst_residual"] for f in fits)
@@ -272,6 +278,18 @@ def self_test():
             raise AssertionError("a preemption was accepted")
         except Refusal as e:
             print(f"ok: refuses a preemption -- {e}")
+    with tempfile.TemporaryDirectory() as run:
+        _synthetic_run(run)
+        path = os.path.join(run, "raw-serial-log-1.jsonl")
+        rows = [json.loads(l) for l in open(path)]
+        rows[5]["sendUnixNanos"] = rows[4]["endUnixNanos"] - 1
+        with open(path, "w") as f:
+            f.writelines(json.dumps(r) + "\n" for r in rows)
+        try:
+            evaluate(run)
+            raise AssertionError("an undrained serial episode was accepted")
+        except Refusal as e:
+            print(f"ok: refuses an undrained serial episode -- {e}")
     with tempfile.TemporaryDirectory() as run:
         _synthetic_run(run)
         _ = [l for l in open(os.path.join(run, "raw-serial-nolog-2.jsonl"))]

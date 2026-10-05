@@ -10,6 +10,7 @@ so a request's steps can be recovered only where the traffic makes them unambigu
 
 import json
 import math
+import os
 import re
 import statistics
 import sys
@@ -106,19 +107,40 @@ def fit_clock(attributed):
     b = sum((x - mx) * (y - my) for x, y in zip(xs, ys)) / sum((x - mx) ** 2 for x in xs)
     a = my - b * mx
     residual = [abs(y - (a + b * x)) / r["ttft_ms"] for x, y, r in zip(xs, ys, attributed)]
-    spaced = [r for r in attributed if len(r["gen_ms"]) >= 2]
-    b_dec = {}
-    for L in sorted({r["input_tokens"] for r in spaced}):
-        rs = [r for r in spaced if r["input_tokens"] == L]
-        itl = statistics.median((r["end_ms"] - r["first_ms"]) / len(r["gen_ms"]) for r in rs)
-        b_dec[L] = itl - statistics.median(m for r in rs for m in r["gen_ms"])
-    return dict(a=a, b=b, worst_residual=max(residual), b_decode=b_dec)
+    # The decode clock is the same regression, on generation steps.
+    #
+    # The client stamps its end after the stream's usage chunk and [DONE] (internal/bench/httpsender.go), not at
+    # the last token, so end - first carries a termination delay that is fitted as the intercept rather than spread
+    # over the steps. Sums are compared with sums: an earlier version set the client's mean spacing against the
+    # median logged step, and one slow step that both clocks saw then read as ten milliseconds of omitted time.
+    b_dec, d_end = {}, {}
+    for L in sorted({r["input_tokens"] for r in attributed}):
+        rs = [r for r in attributed if r["input_tokens"] == L]
+        gs = [len(r["gen_ms"]) for r in rs]
+        if len(set(gs)) < 2:
+            raise Refusal(f"every {L}-token request has {gs[0]} generation steps, so b' and the end delay are not "
+                          f"separately identified")
+        zs = [r["end_ms"] - r["first_ms"] - sum(r["gen_ms"]) for r in rs]
+        mg, mz = statistics.fmean(gs), statistics.fmean(zs)
+        b_dec[L] = sum((g - mg) * (z - mz) for g, z in zip(gs, zs)) / sum((g - mg) ** 2 for g in gs)
+        d_end[L] = mz - b_dec[L] * mg
+    return dict(a=a, b=b, worst_residual=max(residual), b_decode=b_dec, end_delay=d_end)
 
 
 def load_requests(raw_path):
     rows = [json.loads(l) for l in open(raw_path)]
-    rows = [r for r in rows if not r.get("errorKind")]
+    # A failed request is refused, not dropped: dropping it leaves the iteration accounting consistent and the fit
+    # clean for an episode the registration says must be refused.
+    failed = [r["index"] for r in rows if r.get("errorKind")]
+    if failed:
+        raise Refusal(f"{len(failed)} failed request(s), first index {failed[0]}")
     rows.sort(key=lambda r: r["sendUnixNanos"])
+    # Drained is checked, not assumed: a request queued behind its predecessor still yields lone steps in order,
+    # and its TTFT then carries queueing that the clock fit would book as omitted engine time.
+    for p, r in zip(rows, rows[1:]):
+        if r["sendUnixNanos"] < p["endUnixNanos"]:
+            raise Refusal(f"request {r['index']} was sent before request {p['index']} ended, so the episode was not "
+                          f"drained")
     return [dict(index=r["index"], input_tokens=r["engineInputTokens"], output_tokens=r["engineOutputTokens"],
                  ttft_ms=(r["firstTokenUnixNanos"] - r["sendUnixNanos"]) / 1e6,
                  first_ms=r["firstTokenUnixNanos"] / 1e6, end_ms=r["endUnixNanos"] / 1e6) for r in rows]
@@ -130,20 +152,26 @@ def _line(i, cr, ct, gr, gt, ms):
             f"GPU KV cache usage: 0.4%")
 
 
-def _synthetic(a=6.0, b=1.5, step_ms=10.0, dec_ms=13.3, b_dec=1.5):
-    """A serial episode whose true a, b and b' are known, so the fit can be held to them."""
+def _synthetic(a=6.0, b=1.5, step_ms=10.0, dec_ms=13.3, b_dec=1.5, d_end=3.0, slow=0.0):
+    """A serial episode whose true a, b, b' and end delay are known, so the fit can be held to them.
+
+    `slow` adds that many milliseconds to one decode step, seen by both the log and the client, which must not
+    move b': it is engine time, and the timer saw it.
+    """
     lines, reqs, i, t = [], [], 40, 0.0
-    for n, (L, out) in enumerate([(256, 16), (2048, 16), (4096, 16), (8192, 16), (256, 1), (8192, 64)]):
+    shape = [(256, 16), (256, 1), (2048, 16), (2048, 64), (4096, 1), (4096, 16), (8192, 16), (8192, 64)]
+    for n, (L, out) in enumerate(shape):
         k = math.ceil(L / BUDGET)
         ctx = [step_ms * min(BUDGET, L - j * BUDGET) / BUDGET for j in range(k)]
         for j, ms in enumerate(ctx):
             lines.append(_line(i, 1, min(BUDGET, L - j * BUDGET), 0, 0, ms)); i += 1
-        for _ in range(out - 1):
-            lines.append(_line(i, 0, 0, 1, 1, dec_ms)); i += 1
+        gen = [dec_ms + (slow if (n == 2 and g == 3) else 0.0) for g in range(out - 1)]
+        for ms in gen:
+            lines.append(_line(i, 0, 0, 1, 1, ms)); i += 1
         ttft = a + sum(ctx) + b * k
         first = t + ttft
         reqs.append(dict(index=n, input_tokens=L, output_tokens=out, ttft_ms=ttft, first_ms=first,
-                         end_ms=first + (out - 1) * (dec_ms + b_dec)))
+                         end_ms=first + sum(gen) + b_dec * len(gen) + d_end))
         t += 10_000
     return lines, reqs
 
@@ -157,7 +185,13 @@ def self_test():
     assert abs(fit["a"] - 6.0) < 1e-6 and abs(fit["b"] - 1.5) < 1e-6, fit
     assert fit["worst_residual"] < 1e-9, fit
     assert all(abs(v - 1.5) < 1e-6 for v in fit["b_decode"].values()), fit
-    print(f"ok: a {fit['a']:.3f} ms, b {fit['b']:.3f} ms per context step, b' {fit['b_decode']} recovered exactly")
+    assert all(abs(v - 3.0) < 1e-6 for v in fit["end_delay"].values()), fit
+    print(f"ok: a {fit['a']:.3f} ms, b {fit['b']:.3f} ms per context step, b' and the 3 ms end delay recovered "
+          f"exactly at every length")
+    slow_lines, slow_reqs = _synthetic(slow=150.0)
+    slow_fit = fit_clock(attribute_serial(parse(slow_lines), slow_reqs))
+    assert all(abs(v - 1.5) < 1e-6 for v in slow_fit["b_decode"].values()), slow_fit
+    print("ok: one decode step 150 ms slower, seen by both clocks, leaves b' at 1.5 ms")
 
     def refuses(what, fn):
         try:
@@ -181,6 +215,35 @@ def self_test():
     refuses("a context-token count that does not match", lambda: attribute_serial(parse(lines), wrong))
     flat = [r for r in attribute_serial(parse(lines), reqs) if r["k"] == 1]
     refuses("a fit where every request has one context step", lambda: fit_clock(flat))
+    one_cap = [r for r in attribute_serial(parse(lines), reqs) if r["output_tokens"] == 16]
+    refuses("a decode fit where every request has one output length", lambda: fit_clock(one_cap))
+
+    import tempfile
+
+    def raw_of(rs, mutate):
+        rows = [dict(index=r["index"], engineInputTokens=r["input_tokens"], engineOutputTokens=r["output_tokens"],
+                     sendUnixNanos=int((r["first_ms"] - r["ttft_ms"]) * 1e6),
+                     firstTokenUnixNanos=int(r["first_ms"] * 1e6), endUnixNanos=int(r["end_ms"] * 1e6)) for r in rs]
+        mutate(rows)
+        f = tempfile.NamedTemporaryFile("w", suffix=".jsonl", delete=False)
+        f.write("".join(json.dumps(x) + "\n" for x in rows))
+        f.close()
+        return f.name
+
+    for what, mutate in [("a failed request", lambda rows: rows[3].update(errorKind="timeout")),
+                         ("a request sent before its predecessor ended",
+                          lambda rows: rows[4].update(sendUnixNanos=rows[3]["endUnixNanos"] - 1))]:
+        path = raw_of(reqs, mutate)
+        try:
+            refuses(what, lambda: load_requests(path))
+        finally:
+            os.remove(path)
+    path = raw_of(reqs, lambda rows: None)
+    try:
+        assert len(load_requests(path)) == len(reqs)
+        print("ok: the untouched rows load")
+    finally:
+        os.remove(path)
 
 
 def main(argv):
