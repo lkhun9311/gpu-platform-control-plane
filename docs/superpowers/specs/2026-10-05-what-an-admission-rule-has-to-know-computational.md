@@ -48,3 +48,19 @@ Only after section 4 has an answer: an explicit predictor `F` built on the minim
 - Anything about the card that the simulator gets wrong. Its uncontended latency is wrong between the measured lengths; a summary sufficient in the simulator could be insufficient on the card, which is what a paid test would be for.
 - Sufficiency outside the declared domain, or for other output lengths, budgets, models or cards.
 - That k-nearest-neighbour prediction is the best a summary set allows. A set found insufficient here is insufficient for this predictor; a set found sufficient is sufficient at least for it.
+
+## Result, 2026-10-05 — no candidate set is sufficient at 10%
+
+`python3 hack/tail-crossing-model/sufficiency.py`, run once at `fce3e9a` exactly as registered: 288 contended and 24 isolated profiles, ten traces each.
+
+| Set | Held-out error, median | 95th percentile | Worst | At 10% |
+|---|---|---|---|---|
+| A — `ρ_B`, isolated p99 / `S_B` | 5.6% | 33.7% | 88.8% | not sufficient |
+| B — A + `ρ_LC` | 11.0% | 43.3% | 203.8% | not sufficient |
+| C — B + length ratio | 8.4% | 37.2% | 196.9% | not sufficient |
+
+**The registered answer is that none of the three is sufficient at 10%**, and the best set reaches a 95th-percentile error of 33.7% — the withdrawn rule's own summaries, A. Adding the victim's utilisation or the length ratio made the k-nearest-neighbour predictor **worse**, not better.
+
+**Diagnostics, run after the verdict and not part of it.** Broken down by the held-out length, set A's 95th-percentile error is 37 / 19 / 24 / 15 / 12 / 56% for 256 … 8,192 tokens: the extremes, where a nearest-neighbour predictor has to extrapolate, are worst, and even the interior lengths do not reach 10%. So part of the failure is the predictor the registration fixed, and section 6 already says a set found insufficient here is insufficient **for this predictor**. Two further facts bear on how to read it: the counterexample that prompted this page puts the 256-token tenant at `ρ_LC` = 15.15 × 0.0696 = **1.05**, outside the declared domain, where the victim saturates on its own; and inside the domain the withdrawn rule's summaries were the best of the three, with a median error of 5.6%.
+
+**What this changes.** No explicit predictor built from these summaries meets the tolerance a paid test would need, so section 5's condition for buying a card is not met and **no card is bought**. The next question is a modelling one: a predictor with structure — the queueing argument behind P2, rather than nearest neighbours — registered and checked here before it is held against the card.
