@@ -35,8 +35,9 @@ STUDY_S4 = "instrument-validation-s4-2026-10-06"
 STUDY_S1 = "instrument-validation-2026-10-05"
 # Every study this file can judge; any other id is refused rather than judged by session 1's rules.
 # Without this, a later session's rows fell through to session 1's path with no warning (found by review).
-# Adding a study here hands it gate_i1 as registered for sessions 1 to 5, with issue 326's three weaknesses.
-# The step-boundary study did not come here: step_boundary.py checks ratio bounds over block-paired intervals.
+# Frozen: these rules judged sessions 1 to 5 as registered, weaknesses included (issue 326: I1 and I5 bound
+# |log ratio| rather than the ratio, and I1's interval holds the blocks fixed).
+# A new study gets its own evaluator, as the step-boundary study did; the self-test fails if this list grows.
 KNOWN_STUDIES = (STUDY_S1, STUDY_S2, STUDY_S3, STUDY_S4)
 WARM_STUDIES = (STUDY_S2, STUDY_S3, STUDY_S4)
 FIXED_LENGTH_STUDIES = (STUDY_S3, STUDY_S4)
@@ -888,6 +889,15 @@ def self_test_s4():
         except Refusal as e:
             assert "not one this evaluator was registered for" in str(e), e
             print(f"ok: refuses a study it has no rules for -- {e}")
+    # The study list is frozen at the four ids that bought sessions 1 to 5 (session 5 reused session 4's).
+    # I1 and I5 compare "within 2%/5%" as |log ratio| and I1's interval holds the blocks fixed, as registered;
+    # those verdicts stay reproducible only if the rules stay, so a new study needs its own evaluator (issue 326).
+    # Literal ids, so renaming a constant trips this too.
+    frozen = ("instrument-validation-2026-10-05", "instrument-validation-s2-2026-10-05",
+              "instrument-validation-s3-2026-10-06", "instrument-validation-s4-2026-10-06")
+    assert KNOWN_STUDIES == frozen, (f"KNOWN_STUDIES is {KNOWN_STUDIES}, not the frozen {frozen}: a study added "
+                                     f"here inherits I1's registered weaknesses (issue 326); give it its own evaluator")
+    print(f"ok: the study list is frozen at the four registered ids -- {len(frozen)}")
 
 
 def self_test_s3():
