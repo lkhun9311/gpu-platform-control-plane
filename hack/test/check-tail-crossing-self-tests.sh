@@ -22,7 +22,7 @@ cd "$(dirname "$0")/../tail-crossing-model" || exit 1
 fail=0
 log=$(mktemp)
 trap 'rm -f "$log"' EXIT
-for m in iterlog instrument_gates timing_fit; do
+for m in iterlog instrument_gates timing_fit step_boundary; do
 	if ! python3 "$m.py" --self-test >"$log" 2>&1; then
 		echo "FAIL: $m.py --self-test exited non-zero:" >&2
 		tail -5 "$log" >&2

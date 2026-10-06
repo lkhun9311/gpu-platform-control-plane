@@ -1230,7 +1230,7 @@ def check_warmup_design(run, harness):
     return f"Design: all {len(names)} warm-up traces are what gen-trace --warmup makes from their recorded seeds"
 
 
-def check_provenance(run, arms):
+def check_provenance(run, arms, cells=None):
     """Refuse a cell whose engine image, model revision or engine flags are not the registered ones.
 
     A study string in the rows says which rules apply; it does not say which engine produced them. The manifests
@@ -1239,16 +1239,17 @@ def check_provenance(run, arms):
     """
     image, rev = go_const("InputLengthServingImage"), go_const("InputLengthTokenizerRevision")
     study = study_of(run)
-    for arm in arms:
-        for b in BLOCKS:
-            for kind in ("manifest", "warmup-manifest"):
-                path = os.path.join(run, f"{kind}-{arm}-{b}.yaml")
-                if not os.path.exists(path):
-                    raise Refusal(f"{arm}-{b}: {kind}-{arm}-{b}.yaml is missing, so the cell's provenance is unknown")
-                m = manifest_fields(path)
-                for key, want in (("study", study), ("tokenizerRev", rev), ("imageDigests.engine", image)):
-                    if m.get(key) != want:
-                        raise Refusal(f"{arm}-{b}: {kind} records {key} {m.get(key)!r}, not the registered {want!r}")
+    # cells names the (arm, block) pairs a study bought when they are not every arm in blocks 1-3.
+    cells = cells if cells is not None else [(a, b) for a in arms for b in BLOCKS]
+    for arm, b in cells:
+        for kind in ("manifest", "warmup-manifest"):
+            path = os.path.join(run, f"{kind}-{arm}-{b}.yaml")
+            if not os.path.exists(path):
+                raise Refusal(f"{arm}-{b}: {kind}-{arm}-{b}.yaml is missing, so the cell's provenance is unknown")
+            m = manifest_fields(path)
+            for key, want in (("study", study), ("tokenizerRev", rev), ("imageDigests.engine", image)):
+                if m.get(key) != want:
+                    raise Refusal(f"{arm}-{b}: {kind} records {key} {m.get(key)!r}, not the registered {want!r}")
     cell_of = {}
     for row in list(map(lambda l: l.rstrip("\n").split("\t"), open(os.path.join(run, "cell-timings.tsv"))))[1:]:
         cell_of[(row[1], int(row[2]))] = row[0]
@@ -1256,18 +1257,23 @@ def check_provenance(run, arms):
     for row in list(map(lambda l: l.rstrip("\n").split("\t"), open(os.path.join(run, "applied-values.tsv"))))[1:]:
         if len(row) == 6 and row[3] == "applied" and row[2].startswith("vllm"):
             applied[row[0]] = json.loads(row[5])
-    for arm in arms:
-        for b in BLOCKS:
-            args = applied.get(cell_of.get((arm, b)))
-            if args is None:
-                raise Refusal(f"{arm}-{b}: applied-values.tsv has no applied engine arguments for it")
-            want = {"--no-async-scheduling", f"--revision={rev}", f"--tokenizer-revision={rev}"}
-            if arm.endswith("-log"):
-                want.add("--enable-logging-iteration-details")
-            missing = sorted(want - set(args))
-            if missing or (not arm.endswith("-log") and "--enable-logging-iteration-details" in args):
-                raise Refusal(f"{arm}-{b}: the engine ran with {args}, missing {missing} or logging where none is registered")
-    return f"Provenance: {len(arms) * len(BLOCKS)} cells ran {image.split('@')[1][:19]}, revision {rev[:12]}, with their registered flags"
+    for arm, b in cells:
+        args = applied.get(cell_of.get((arm, b)))
+        if args is None:
+            raise Refusal(f"{arm}-{b}: applied-values.tsv has no applied engine arguments for it")
+        want = {"--no-async-scheduling", f"--revision={rev}", f"--tokenizer-revision={rev}"}
+        if arm.endswith("-log") or arm.endswith("-step"):
+            want.add("--enable-logging-iteration-details")
+        # The instrument is in exactly the -step cells, so a logged control cannot carry the treatment.
+        step = "--scheduler-cls=step_logging_scheduler.StepLoggingScheduler"
+        if arm.endswith("-step") != (step in args):
+            raise Refusal(f"{arm}-{b}: the engine ran with {args}, which does not load the instrument exactly when "
+                          f"its arm says")
+        missing = sorted(want - set(args))
+        logs = arm.endswith("-log") or arm.endswith("-step")
+        if missing or (not logs and "--enable-logging-iteration-details" in args):
+            raise Refusal(f"{arm}-{b}: the engine ran with {args}, missing {missing} or logging where none is registered")
+    return f"Provenance: {len(cells)} cells ran {image.split('@')[1][:19]}, revision {rev[:12]}, with their registered flags"
 
 
 def check_archive(run, harness, logged=False):
