@@ -794,8 +794,9 @@ def _synthetic_run(run, truth=TRUTH, noise=0.0, slow=None, seed=3, clk=CLOCK, mi
                         send = late_send if late else start
                         offset = round(send)
                         trace.append(dict(index=idx, offsetMs=offset, tenant="premium-1", maxOutputTokens=cap))
-                        raw.append(dict(index=idx, engineInputTokens=L, engineOutputTokens=cap,
-                                        sendUnixNanos=int(offset * 1e6),
+                        # Session 1's rows carry its study as the real ones do; the evaluator refuses a row without one.
+                        raw.append(dict(index=idx, study=instrument_gates.STUDY_S1, engineInputTokens=L,
+                                        engineOutputTokens=cap, sendUnixNanos=int(offset * 1e6),
                                         firstTokenUnixNanos=int((ends[first_at[i]] - (offset - send)) * 1e6),
                                         endUnixNanos=int((ends[done_at[i]] + clk["d_end"] - (offset - send)) * 1e6)))
                         idx += 1
