@@ -69,3 +69,9 @@ Item 3 cannot be bought before item 2: without a step-time model, nothing predic
   - Run with a three-stream cap and no priority binding, it failed on its first check, as it should.
 - The estimate is ceil(characters / 4), not the engine's count. A registration that compares admitted work must say how it reconciles the two, as M5-b's exact-token correction showed.
 - **What this does not establish:** any protection. A stub's latency is its configuration. Whether these mechanisms move the premium tail is the successor's question, and it stays unbuyable until 4.4 has a step-time model to run on.
+
+## Update, 2026-10-07 — 4.4 still has no step-time model
+
+The step-boundary session (`2026-10-06-where-the-late-prefill-waits-step-boundary-session.md`) measured mixed steps directly and fitted the family on measured occupancy, and Q3 failed in the same places as the pilot. So the computational feasibility check still has no model to run on, and item 3 of the ranking stays unbuyable. What the session adds:
+- the wait a late prefill pays for the step in flight, measured;
+- an instrument a future family can be fitted and tested with.
