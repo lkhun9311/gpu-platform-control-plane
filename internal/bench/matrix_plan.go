@@ -74,6 +74,19 @@ func instrumentValidationArmSetRefusal(s Study, arms []string) error {
 			return fmt.Errorf("arm %q is not one of study %s's arms (%s)", a, s.ID, strings.Join(s.Arms, ", "))
 		}
 	}
+	// The step-boundary session pairs logged with instrumented cells, and its staggered arm stands alone by
+	// registration, so its pairs are checked on its own terms.
+	if s.ID == StudyStepBoundary {
+		for _, t := range []EpisodeType{EpisodeSerial, EpisodeBurst} {
+			logged := slices.Contains(arms, InstrumentValidationArm(t, instrumentModeLog))
+			step := slices.Contains(arms, InstrumentValidationArm(t, instrumentModeStep))
+			if logged != step {
+				return fmt.Errorf("the planned arms (%s) include only one of %s and %s, and the overhead gate compares the two as a pair, so the one bought would be unreadable",
+					strings.Join(arms, " "), InstrumentValidationArm(t, instrumentModeLog), InstrumentValidationArm(t, instrumentModeStep))
+			}
+		}
+		return nil
+	}
 	for _, t := range EpisodeTypes {
 		on := slices.Contains(arms, InstrumentValidationArm(t, instrumentModeLog))
 		off := slices.Contains(arms, InstrumentValidationArm(t, instrumentModeNoLog))

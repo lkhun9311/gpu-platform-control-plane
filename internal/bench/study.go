@@ -257,6 +257,12 @@ const (
 	//
 	// A study of its own because its warm-up holds one more request, so its cells were conditioned differently from session 3's seven and are not pooled with them.
 	StudyInstrumentValidationS4 = "instrument-validation-s4-2026-10-06"
+	// StudyStepBoundary is the step-boundary session, registered in
+	// docs/superpowers/specs/2026-10-06-where-the-late-prefill-waits-step-boundary-session.md.
+	//
+	// A study of its own because its engine carries a new instrument (hack/vllm-plugins/step_logging_scheduler.py),
+	// so nothing it measures is pooled with the instrument-validation sessions; its episodes are session 4's.
+	StudyStepBoundary = "step-boundary-2026-10-06"
 )
 
 // The engine modes the instrument-validation study crosses with its episode types.
@@ -265,6 +271,8 @@ const (
 	instrumentModeLog   = "log"
 	instrumentModeNoLog = "nolog"
 	instrumentModeAsync = "async"
+	// instrumentModeStep is the logged engine with the step-boundary instrument loaded.
+	instrumentModeStep = "step"
 )
 
 // InstrumentValidationArm is the canonical name of one cell: an episode type under one engine mode.
@@ -284,12 +292,23 @@ func instrumentValidationArms() []string {
 	return arms
 }
 
+// stepBoundaryArms lists the step-boundary session's five arms: serial and burst as logged/instrumented pairs,
+// whose difference is the instrument's overhead, and staggered instrumented alone, since that comparison could not
+// be powered and the registration declares its staggered results to concern the instrumented engine only.
+func stepBoundaryArms() []string {
+	return []string{
+		InstrumentValidationArm(EpisodeSerial, instrumentModeLog), InstrumentValidationArm(EpisodeSerial, instrumentModeStep),
+		InstrumentValidationArm(EpisodeBurst, instrumentModeLog), InstrumentValidationArm(EpisodeBurst, instrumentModeStep),
+		InstrumentValidationArm(EpisodeStagger, instrumentModeStep),
+	}
+}
+
 // InstrumentValidationEpisode returns the episode type an instrument-validation arm replays.
 //
 // Only the type is returned, never the mode, because the generator must not see the mode: the three arms of one type are paired on byte-identical traces.
 func InstrumentValidationEpisode(arm string) (EpisodeType, bool) {
 	for _, t := range EpisodeTypes {
-		for _, m := range []string{instrumentModeLog, instrumentModeNoLog, instrumentModeAsync} {
+		for _, m := range []string{instrumentModeLog, instrumentModeNoLog, instrumentModeAsync, instrumentModeStep} {
 			if arm == InstrumentValidationArm(t, m) {
 				return t, true
 			}
@@ -647,6 +666,12 @@ var studies = map[string]Study{
 	StudyInstrumentValidationS4: {
 		ID:                     StudyInstrumentValidationS4,
 		Arms:                   instrumentValidationArms(),
+		Arrivals:               ArrivalsEpisodes,
+		TracesVaryByRepetition: false,
+	},
+	StudyStepBoundary: {
+		ID:                     StudyStepBoundary,
+		Arms:                   stepBoundaryArms(),
 		Arrivals:               ArrivalsEpisodes,
 		TracesVaryByRepetition: false,
 	},

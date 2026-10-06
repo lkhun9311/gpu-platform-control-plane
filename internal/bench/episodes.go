@@ -233,6 +233,14 @@ var designS4 = func() episodeDesign {
 	return d
 }()
 
+// designStepBoundary is session 4's design under the step-boundary session's study id: its registration buys
+// study s4's episodes with fresh seeds, and changes the engine, not the trace.
+var designStepBoundary = func() episodeDesign {
+	d := designS4
+	d.study = StudyStepBoundary
+	return d
+}()
+
 // designFor returns the episode design a study registers, and false for a study that replays no episodes.
 func designFor(study string) (episodeDesign, bool) {
 	switch study {
@@ -244,6 +252,8 @@ func designFor(study string) (episodeDesign, bool) {
 		return designS3, true
 	case StudyInstrumentValidationS4:
 		return designS4, true
+	case StudyStepBoundary:
+		return designStepBoundary, true
 	}
 	return episodeDesign{}, false
 }
