@@ -58,3 +58,20 @@ Found by a cold review from codex `gpt-6-astra` and re-derived by me from the ar
 - **The shortest prefill in milliseconds.** On/off means 60.916/58.876, 61.887/58.953 and 62.936/57.621 ms: +2.04, +2.94 and +5.32 ms, mean +3.43 ms, paired-block 95% t-interval [−0.77, +7.63] ms. A cost of a few milliseconds is suggested and not established.
 
 The same review found three defects in `instrument_gates.py`'s I1 that did not decide this verdict but must not carry into another session: the ±2% and ±5% bounds are compared in log units, so an actual +5.1% passes; the interval resamples episodes within fixed blocks and so omits the between-block variance; and a study id the evaluator does not recognise silently takes session 1's path.
+The last is fixed in `1a07ee7`, which leaves the verdicts of sessions 1 and 5 byte-identical.
+
+## Decision, 2026-10-06 — no session 6 is bought; I1's FAIL is the instrument's result
+
+A re-test of I1 alone was designed by me and, independently, by codex `gpt-6-astra`, with episode-level burst summaries, exact ratio bounds and a paired-block t-interval that carries the between-block variance the registered bootstrap omits. Sizing it showed that no purchase within reach can answer it:
+
+- Under that interval, a setting passes only if its whole interval lies inside log(0.95) to log(1.05), −5.13 to +4.88 log-points. With normal block effects and no logging effect at all, the probability of passing is set by the setting's block-to-block SD (40,000 simulations each, mine):
+
+| Block SD, log-points | Setting it comes from | 3 blocks | 6 blocks | 8 blocks | 10 blocks |
+|---|---|---:|---:|---:|---:|
+| 2.80 | staggered prefill (1, 256, 256) | 0.25 | 0.87 | 0.98 | 1.00 |
+| 7.21 | staggered prefill (16, 256, 256) | 0.02 | 0.05 | 0.09 | 0.15 |
+
+- Every setting must pass, so the test is only as powerful as its noisiest setting; three other staggered prefills have block SDs of 4.19 to 7.21. Six blocks do not fit one session's 670-minute deadline (about 729 minutes of cells), and splitting them over two cards makes blocks that share a card correlated rather than six independent observations.
+- I first put the six-block option to the user as passing 85% of the time at zero effect. That figure came from the least variable setting and was wrong for the test as a whole; astra found it, and the table above is my re-derivation.
+
+**So the registered result stands as the instrument's result:** with the log on, no setting was shown to move by less than 5%, and the shortest staggered prefill suggests a cost of a few milliseconds (+3.43 ms, interval [−0.77, +7.63]). What session 5 does support is narrower and is stated as such, not as a passed I1: at every serial setting it measured, turning the log on moved the median TTFT by at most 0.44 and the inter-token time by at most 0.57 log-points across blocks, and the frozen clock predicted the TTFT within 2%. That is evidence for serial, one-request-at-a-time use of the iteration log on this engine, card type and model, and for nothing that batches requests. No simulator study is bought on it.
