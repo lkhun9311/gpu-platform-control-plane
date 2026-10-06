@@ -175,4 +175,4 @@ These are re-derived by me, and independently by astra, from `docs/superpowers/s
   - traces not checked against the registered seed;
   - a Q3 refusal that erased the whole evaluation;
   - a gap population that included warm-up steps.
-- Of those, the first five came from astra's first review of the code and the next six from its attack on the rewritten page. The 8% case was caught by my own self-test.
+- Who found them: the conditioning, held-out and capture defects came from astra's bare review of the code; the flush race from its review of my reduced design; the next six from its attack on the rewritten page. The 8% precedence error was caught by my own self-test.
