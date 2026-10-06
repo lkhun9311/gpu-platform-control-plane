@@ -47,6 +47,11 @@ for _ in $(seq 1 120); do
 done
 docker logs "$NAME" 2>&1 | grep -q "Using custom scheduler class step_logging_scheduler.StepLoggingScheduler" \
   || fail "the engine did not load the instrument"
+# The matrix proves a -step cell loaded the instrument from vLLM's own non-default args line
+# (iv_process_args_refusal), so that line must name the class, or every -step cell would be refused on the card.
+args_line=$(docker logs "$NAME" 2>&1 | grep -o "non-default args: {.*}" | head -1)
+printf '%s' "$args_line" | grep -qE "['\"]scheduler_cls['\"]: ['\"]step_logging_scheduler.StepLoggingScheduler['\"]" \
+  || fail "vLLM's non-default args line does not name the instrument's class: ${args_line:-none printed}"
 
 PORT="$PORT" python3 - "$WORK/outputs.json" <<'EOF' || fail "the client could not complete its requests"
 import json, os, sys, threading, time, urllib.request
