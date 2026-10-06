@@ -229,8 +229,11 @@ retroactively confirms it.
 
 ## Finding 4 — a tail-only reading reports the arm that did no work as the winner
 
-The three-arm admission guard was declared **INVALID** by its own pre-registered checks: it held the premium
-tail at 83.7x an uncontended baseline against a 1.25x target, so no protection claim was made.
+The three-arm admission guard was declared **INVALID** by its own pre-registered checks, and the word covers
+two different things. Two of the three checks were void: arm B admitted nothing, so it was not a control
+(`hack/m5d-writeup.md:94`). The third, the absolute check, compared what it was meant to compare and
+**failed**: the guarded premium tail was 83.7x an uncontended baseline against a 1.25x target. So the
+protection did not merely go unmeasured; where it was measured, it failed, and no protection claim was made.
 
 Re-scoring the same evidence later, at no further spend, found something worse. The arm whose tail *matched
 isolation* — the apparent winner on the headline metric — had admitted **none** of the contending tenant's
