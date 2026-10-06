@@ -24,7 +24,7 @@ A client's `X-Request-Id` becomes the engine's id as `chatcmpl-<id>-<8 random ch
 ## 2. What astra added
 
 - **The subclass cannot separate execution from result retrieval.** Both happen between the two scheduler calls. A complete record needs stamps in the engine loop itself (`v1/engine/core.py:595`, and output publication near `:1442`), kept in bounded memory with no per-step text formatting or file writes. That is a design judgment, not a measured overhead.
-- **The scheduler's `QUEUED` event misses frontend and IPC waiting,** so an exhaustive decomposition of a late prefill's TTFT also needs receipt stamps in the API server.
+- **The scheduler's queued event (an engine-core event type in vLLM's `v1/engine/__init__.py:157`) event misses frontend and IPC waiting,** so an exhaustive decomposition of a late prefill's TTFT also needs receipt stamps in the API server.
 - **OpenTelemetry tracing gives request-level spans, not the step-by-request matrix.** The `--collect-detailed-traces` model and worker options have no V1 timing consumer in this source.
 - **Clocks.** A monotonic stamp relates to the client's Unix stamps only through bracketed realtime readings, with uncertainty of half the bracket. Client and engine should share a host.
 - **Cost.** A new instrument needs its own overhead gate, given I1's history: paired on and off cells with between-block uncertainty, sized from the noisiest endpoint. Session 5's paired cells took 26,426 s (7.34 h) of cell time, against 13,092 s (3.64 h) for logged cells alone (both re-summed by astra; the second re-derived by me). So a properly powered session is not covered by the $4–$6 first estimated.
