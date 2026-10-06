@@ -686,6 +686,37 @@ def self_test_s4():
         except Refusal as e:
             assert "cannot be located" in str(e), e
             print(f"ok: refuses a session-4 warm-up without its conditioning request -- {e}")
+    # Staggered TTFT is compared by mean because a median can sit in either of two modes and ignore the other.
+    # Slowing the episodes above each prefill setting's median leaves the median where it was and moves the mean,
+    # so this fails only while the mean is the statistic; with the median put back it passes (issue 325).
+    with tempfile.TemporaryDirectory() as run:
+        _s3_run(run, study=STUDY_S4)
+        for b in BLOCKS:
+            keyed = settings("stagger", load_cell(run, "stagger-log", b))
+            slow = set()
+            for s in {s for s, _ in keyed if s[3] == "prefill"}:
+                episodes = sorted((q for k, q in keyed if k == s), key=lambda q: q["ttft_ms"])
+                assert len(episodes) >= 3, f"setting {s} has {len(episodes)} episodes, too few for a median to hold"
+                slow |= {q["index"]: q["ttft_ms"] for q in episodes[len(episodes) // 2 + 1:]}.items()
+            path = os.path.join(run, f"raw-stagger-log-{b}.jsonl")
+            rows = [json.loads(l) for l in open(path)]
+            for r in rows:
+                for index, ttft in slow:
+                    if r["index"] == index:
+                        r["firstTokenUnixNanos"] += int(0.4 * ttft * 1e6)
+                        r["endUnixNanos"] += int(0.4 * ttft * 1e6)
+            with open(path, "w") as f:
+                f.writelines(json.dumps(r) + "\n" for r in rows)
+        passed, lines = evaluate(run)
+        prefill = next(l for l in lines if l.startswith("I1 stagger") and " prefill:" in l)
+        # The point estimate, not the verdict: a median's bootstrap also widens past 2% when it draws a slowed
+        # episode, so "it failed" held with the median put back.
+        # Both comparisons are pinned: the prefill role's pooled mean, and the worst setting of all staggered roles.
+        whole = next(l for l in lines if l.startswith("I1 stagger ttft:"))
+        point = float(prefill.split("mean d ")[1].split(",")[0])
+        worst = float(whole.rsplit(" ", 1)[1])
+        assert not passed and point > 0.1 and worst > 0.1, (prefill, whole)
+        print(f"ok: slowing the episodes above the median moves the staggered prefill's mean -> FAIL: {prefill}")
     # A session-4 archive that would pass, relabelled with a study no rule here was registered for.
     with tempfile.TemporaryDirectory() as run:
         _s3_run(run, study="instrument-validation-unregistered", conditioner=True)
