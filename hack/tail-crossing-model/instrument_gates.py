@@ -804,6 +804,68 @@ def self_test_s4():
         except Refusal as e:
             assert "registered for" in str(e), e
             print(f"ok: the logged-engine policy refuses another study -- {e}")
+    # Provenance: the manifests' image and revision and the engine's applied flags, per logged cell.
+    image, rev = go_const("InputLengthServingImage"), go_const("InputLengthTokenizerRevision")
+    arms = [f"{k}-log" for k in TYPES]
+
+    def provenance_files(run, drop_flag=None, digest=image):
+        timings = ["cell\tarm\trep"]
+        applied = ["cell\tarm\tdeploy\tstage\tsource\tvalue"]
+        for i, (arm, b) in enumerate([(a, b) for b in BLOCKS for a in arms], 1):
+            timings.append(f"{i}\t{arm}\t{b}")
+            args = ["Qwen/Qwen2.5-3B-Instruct", "--no-async-scheduling", f"--revision={rev}",
+                    f"--tokenizer-revision={rev}", "--enable-logging-iteration-details"]
+            if (arm, b) == drop_flag:
+                args.remove("--enable-logging-iteration-details")
+            applied.append(f"{i}\t{arm}\tvllm-qwen25-3b\tapplied\tdeploy/vllm-qwen25-3b\t{json.dumps(args)}")
+            for kind in ("manifest", "warmup-manifest"):
+                with open(os.path.join(run, f"{kind}-{arm}-{b}.yaml"), "w") as f:
+                    f.write(f"arm: {arm}\nimageDigests:\n  engine: {digest}\nseed: 11\nstudy: {STUDY_S4}\n"
+                            f"tokenizerRev: {rev}\n")
+        for name, rows in (("cell-timings.tsv", timings), ("applied-values.tsv", applied)):
+            with open(os.path.join(run, name), "w") as f:
+                f.write("\n".join(rows) + "\n")
+
+    for what, kw, words in [(None, {}, None),
+                            ("a logged cell whose engine ran without the logging flag",
+                             dict(drop_flag=("burst-log", 2)), "missing ['--enable-logging-iteration-details']"),
+                            ("a cell whose manifest names another engine image",
+                             dict(digest="vllm/vllm-openai@sha256:" + "0" * 64), "imageDigests.engine")]:
+        with tempfile.TemporaryDirectory() as run:
+            _s3_run(run, study=STUDY_S4)
+            provenance_files(run, **kw)
+            try:
+                line = check_provenance(run, arms)
+                assert what is None, f"{what} was accepted"
+                print(f"ok: provenance of nine logged cells with their registered engine -- {line}")
+            except Refusal as e:
+                assert what is not None and words in str(e), e
+                print(f"ok: refuses {what} -- {e}")
+    # Warm-up design: a stub gen-trace that writes back the archive's own warm-up, so only a changed one differs.
+    with tempfile.TemporaryDirectory() as run:
+        _s3_run(run, study=STUDY_S4)
+        provenance_files(run)
+        stub = os.path.join(run, "stub-gen-trace")
+        with open(stub, "w") as f:
+            f.write('#!/bin/sh\narm=""; out=""\nwhile [ $# -gt 0 ]; do case "$1" in --arm) arm="$2";; '
+                    '--trace-out) out="$2";; esac; shift; done\n'
+                    f'cp "{run}/warmup-trace-$arm-1.jsonl" "$out"\n')
+        os.chmod(stub, 0o755)
+        for name in os.listdir(run):
+            if name.startswith("warmup-trace-") and "-nolog-" in name:
+                os.remove(os.path.join(run, name))
+        line = check_warmup_design(run, stub)
+        print(f"ok: warm-ups that match their regeneration pass -- {line}")
+        path = os.path.join(run, "warmup-trace-stagger-log-3.jsonl")
+        rows = open(path).read().splitlines()
+        with open(path, "w") as f:
+            f.write("\n".join(rows[:-1]) + "\n")
+        try:
+            check_warmup_design(run, stub)
+            raise AssertionError("a warm-up trace missing its last row was accepted")
+        except Refusal as e:
+            assert "warmup-trace-stagger-log-3.jsonl is not the warm-up" in str(e), e
+            print(f"ok: refuses a warm-up trace that is not its regeneration -- {e}")
     # A session-4 archive that would pass, relabelled with a study no rule here was registered for.
     with tempfile.TemporaryDirectory() as run:
         _s3_run(run, study="instrument-validation-unregistered", conditioner=True)
@@ -1093,6 +1155,121 @@ def check_design(run, harness):
     return f"Design: all {len(traces)} traces are the matrix {study} registers (matrix-plan-check)"
 
 
+REPO = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
+
+
+def go_const(name):
+    """A string constant of internal/bench/inputlengths.go, read from the source so the pin has one definition."""
+    import re
+    src = open(os.path.join(REPO, "internal", "bench", "inputlengths.go")).read()
+    m = re.search(rf'^const {name} = "([^"]+)"$', src, re.M)
+    if not m:
+        raise Refusal(f"internal/bench/inputlengths.go has no string constant {name}, so the pin cannot be read")
+    return m.group(1)
+
+
+def manifest_fields(path):
+    """The flat and one-level-nested scalar fields of a gen-trace manifest, which is all provenance needs."""
+    out, parent = {}, None
+    for line in open(path):
+        if not line.strip() or ":" not in line:
+            continue
+        key, _, val = line.rstrip("\n").partition(":")
+        if not line.startswith(" "):
+            parent = key.strip()
+            if val.strip():
+                out[parent] = val.strip().strip('"')
+        elif parent:
+            out[f"{parent}.{key.strip()}"] = val.strip().strip('"')
+    return out
+
+
+def check_warmup_design(run, harness):
+    """Refuse a warm-up trace that is not what the generator makes from the cell's recorded seed.
+
+    The Go plan check scores measured traces only, so before this a warm-up could have been anything W and S did
+    not happen to read (found by review). Regenerating it with gen-trace --warmup, from the seed its own manifest
+    records and the warm-up length hack/lib/instrument-validation.sh defines, and comparing bytes, keeps the
+    generator the one definition of a warm-up.
+    """
+    import subprocess, tempfile
+    study = study_of(run)
+    lib = os.path.join(REPO, "hack", "lib", "instrument-validation.sh")
+    names = sorted(n for n in os.listdir(run) if n.startswith("warmup-trace-") and n.endswith(".jsonl"))
+    if not names:
+        raise Refusal(f"{run} holds no warmup-trace-*.jsonl, so its warm-ups cannot be checked")
+    with tempfile.TemporaryDirectory() as tmp:
+        for n in names:
+            cell = n[len("warmup-trace-"):-len(".jsonl")]
+            arm = cell.rsplit("-", 1)[0]
+            seed = manifest_fields(os.path.join(run, f"warmup-manifest-{cell}.yaml")).get("seed")
+            dur = subprocess.run(["bash", "-c", f'source "$0"; iv_warmup_duration_ms "$1" "$2"', lib, study, arm],
+                                 capture_output=True, text=True)
+            if dur.returncode != 0 or not seed:
+                raise Refusal(f"{n}: no warm-up length or seed to regenerate it from: {dur.stdout.strip()} {dur.stderr.strip()}")
+            out = os.path.join(tmp, n)
+            p = subprocess.run([harness, "gen-trace", "--warmup", "--seed", seed, "--duration-ms", dur.stdout.strip(),
+                                "--study", study, "--arm", arm, "--model", "Qwen/Qwen2.5-3B-Instruct",
+                                "--gateway-url", "http://127.0.0.1:18080", "--timeout-ms", "60000",
+                                "--trace-out", out, "--manifest-out", out + ".yaml"], capture_output=True, text=True)
+            if p.returncode != 0:
+                raise Refusal(f"{n}: gen-trace --warmup could not regenerate it: {(p.stderr or p.stdout).strip()[-300:]}")
+            if open(out, "rb").read() != open(os.path.join(run, n), "rb").read():
+                raise Refusal(f"{n} is not the warm-up gen-trace makes from seed {seed}, so it is not the registered warm-up")
+    return f"Design: all {len(names)} warm-up traces are what gen-trace --warmup makes from their recorded seeds"
+
+
+def check_provenance(run, arms):
+    """Refuse a cell whose engine image, model revision or engine flags are not the registered ones.
+
+    A study string in the rows says which rules apply; it does not say which engine produced them. The manifests
+    record the image digest and tokenizer revision gen-trace was told, and applied-values.tsv records the flags the
+    engine Deployment actually carried, keyed by cell number, which cell-timings.tsv maps to an arm and block.
+    """
+    image, rev = go_const("InputLengthServingImage"), go_const("InputLengthTokenizerRevision")
+    study = study_of(run)
+    for arm in arms:
+        for b in BLOCKS:
+            for kind in ("manifest", "warmup-manifest"):
+                path = os.path.join(run, f"{kind}-{arm}-{b}.yaml")
+                if not os.path.exists(path):
+                    raise Refusal(f"{arm}-{b}: {kind}-{arm}-{b}.yaml is missing, so the cell's provenance is unknown")
+                m = manifest_fields(path)
+                for key, want in (("study", study), ("tokenizerRev", rev), ("imageDigests.engine", image)):
+                    if m.get(key) != want:
+                        raise Refusal(f"{arm}-{b}: {kind} records {key} {m.get(key)!r}, not the registered {want!r}")
+    cell_of = {}
+    for row in list(map(lambda l: l.rstrip("\n").split("\t"), open(os.path.join(run, "cell-timings.tsv"))))[1:]:
+        cell_of[(row[1], int(row[2]))] = row[0]
+    applied = {}
+    for row in list(map(lambda l: l.rstrip("\n").split("\t"), open(os.path.join(run, "applied-values.tsv"))))[1:]:
+        if len(row) == 6 and row[3] == "applied" and row[2].startswith("vllm"):
+            applied[row[0]] = json.loads(row[5])
+    for arm in arms:
+        for b in BLOCKS:
+            args = applied.get(cell_of.get((arm, b)))
+            if args is None:
+                raise Refusal(f"{arm}-{b}: applied-values.tsv has no applied engine arguments for it")
+            want = {"--no-async-scheduling", f"--revision={rev}", f"--tokenizer-revision={rev}"}
+            if arm.endswith("-log"):
+                want.add("--enable-logging-iteration-details")
+            missing = sorted(want - set(args))
+            if missing or (not arm.endswith("-log") and "--enable-logging-iteration-details" in args):
+                raise Refusal(f"{arm}-{b}: the engine ran with {args}, missing {missing} or logging where none is registered")
+    return f"Provenance: {len(arms) * len(BLOCKS)} cells ran {image.split('@')[1][:19]}, revision {rev[:12]}, with their registered flags"
+
+
+def check_archive(run, harness, logged=False):
+    """Every check an archive passes before a gate is read; the command line and timing_fit both go through it."""
+    arms = [f"{k}-log" for k in TYPES] if logged else [f"{k}-{s}" for k in TYPES for s in ("log", "nolog")]
+    lines = [check_design(run, harness)]
+    if study_of(run) in WARM_STUDIES:
+        lines.append(check_warmup_design(run, harness))
+    if logged:
+        lines.append(check_provenance(run, arms))
+    return lines
+
+
 if __name__ == "__main__":
     try:
         if sys.argv[1:] == ["--self-test"]:
@@ -1104,7 +1281,7 @@ if __name__ == "__main__":
             if not harness:
                 raise Refusal("set BENCHHARNESS to a built cmd/benchharness: the archive's traces are checked against "
                               "the registered matrix before any gate is read")
-            print(check_design(sys.argv[1], harness))
+            print("\n".join(check_archive(sys.argv[1], harness)))
             passed, lines = evaluate(sys.argv[1])
             print("\n".join(lines))
             sys.exit(0 if passed else 1)
