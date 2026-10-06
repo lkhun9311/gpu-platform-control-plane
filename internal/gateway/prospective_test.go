@@ -28,6 +28,7 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 )
 
 var _ = Describe("prospective admission", func() {
@@ -58,6 +59,12 @@ var _ = Describe("prospective admission", func() {
 		tokens, streams = p.held(backend)
 		Expect(tokens).To(BeZero())
 		Expect(streams).To(BeZero(), "a second Done released a stream that was not held")
+		// The gauges follow the holds. Mutation that turns this red: drop publish from releaseStream.
+		Expect(testutil.ToFloat64(admissionReservedInputTokens.WithLabelValues(backend.URL.String()))).To(BeZero())
+		Expect(testutil.ToFloat64(admissionRunningStandardStreams.WithLabelValues(backend.URL.String()))).To(BeZero())
+		_, _, _ = p.Reserve(context.Background(), meta(300), backend, "t", tierStandard)
+		Expect(testutil.ToFloat64(admissionReservedInputTokens.WithLabelValues(backend.URL.String()))).To(Equal(300.0))
+		Expect(testutil.ToFloat64(admissionRunningStandardStreams.WithLabelValues(backend.URL.String()))).To(Equal(1.0))
 	})
 
 	// Mutation that turns this red: compare running streams with > instead of >=.

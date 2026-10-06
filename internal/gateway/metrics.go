@@ -215,6 +215,23 @@ var (
 		[]string{"mode", "tenant", "decision"},
 	)
 
+	// admissionReservedInputTokens and admissionRunningStandardStreams are the prospective admitter's holds per
+	// backend, so a run can show the caps were reached and released rather than assume it.
+	admissionReservedInputTokens = promauto.With(metrics.Registry).NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: metricPrefix + "admission_reserved_input_tokens",
+			Help: "Standard-tier estimated input tokens the prospective admitter holds and that have not started answering, by backend.",
+		},
+		[]string{"backend"},
+	)
+	admissionRunningStandardStreams = promauto.With(metrics.Registry).NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: metricPrefix + "admission_running_standard_streams",
+			Help: "Standard-tier requests the prospective admitter holds a stream slot for, by backend.",
+		},
+		[]string{"backend"},
+	)
+
 	// admissionModeActive publishes which admission mode this process resolved --admission-mode to,
 	// as a 1 on exactly one mode label.
 	//

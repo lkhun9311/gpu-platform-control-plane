@@ -133,18 +133,28 @@ func (p *prospectiveAdmitter) Reserve(_ context.Context, meta RequestMeta, backe
 	}
 	p.reserved[key] += tokens
 	p.running[key]++
+	p.publish(key)
 	return &reservation{
 		releasePrefill: func() {
 			p.mu.Lock()
 			p.reserved[key] -= tokens
+			p.publish(key)
 			p.mu.Unlock()
 		},
 		releaseStream: func() {
 			p.mu.Lock()
 			p.running[key]--
+			p.publish(key)
 			p.mu.Unlock()
 		},
 	}, true, reasonReserved
+}
+
+// publish sets the backend's two gauges from the holds; the caller holds p.mu, so the gauges move in the same
+// order as the holds and never show a state the holds were not in.
+func (p *prospectiveAdmitter) publish(key string) {
+	admissionReservedInputTokens.WithLabelValues(key).Set(float64(p.reserved[key]))
+	admissionRunningStandardStreams.WithLabelValues(key).Set(float64(p.running[key]))
 }
 
 // held reports a backend's reserved input tokens and running streams, for tests and evidence.
