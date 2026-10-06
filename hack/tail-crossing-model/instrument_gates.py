@@ -35,6 +35,8 @@ STUDY_S4 = "instrument-validation-s4-2026-10-06"
 STUDY_S1 = "instrument-validation-2026-10-05"
 # Every study this file can judge; any other id is refused rather than judged by session 1's rules.
 # Without this, a later session's rows fell through to session 1's path with no warning (found by review).
+# Adding a study here hands it gate_i1 as registered for sessions 1 to 5, with issue 326's three weaknesses.
+# The step-boundary study did not come here: step_boundary.py checks ratio bounds over block-paired intervals.
 KNOWN_STUDIES = (STUDY_S1, STUDY_S2, STUDY_S3, STUDY_S4)
 WARM_STUDIES = (STUDY_S2, STUDY_S3, STUDY_S4)
 FIXED_LENGTH_STUDIES = (STUDY_S3, STUDY_S4)
