@@ -1,6 +1,6 @@
 # Where the late prefill waits — a step-boundary session, registered
 
-Date: 2026-10-06 · **Draft until the freezing amendment at the end.** Frozen by a commit named in that amendment, before any cell is bought, and changed after it only by dated amendments. **Nothing is bought without the user's approval of the purchase.**
+Date: 2026-10-06 · **Frozen by the amendment at the end, before any cell was bought,** and changed after it only by dated amendments. **Nothing is bought without the user's approval of the purchase.**
 
 **Why it exists.**
 - The logged-engine pilot (`2026-10-06-a-timing-family-for-the-logged-synchronous-engine.md`) failed. Every staggered late prefill's client TTFT exceeded the model's account of its own steps by at least 11.1 ms (11.3 ms under the other convention). The archive could not say why.
@@ -179,5 +179,34 @@ These are re-derived by me, and independently by astra, from `docs/superpowers/s
   - a gap population that included warm-up steps;
   - steps shared by two episodes dropped silently from Q3;
   - a handoff and drain check left out of the recorded cost (a 20 ms injected delay recorded as 0.002 ms);
-  - a provenance check that passed a 512-token budget, 32 sequences and prefix caching on, and never read the archived plugin hash.
-- Who found them: the conditioning, held-out and capture defects came from astra's bare review of the code; the flush race from its review of my reduced design; the next six from its attack on the rewritten page, the last three from its second attack. The 8% precedence error was caught by my own self-test.
+  - a provenance check that passed a 512-token budget, 32 sequences and prefix caching on, and never read the archived plugin hash;
+  - an engine-option check that a later `--max-num-batched-tokens 512` or `--dtype=bfloat16` could override unseen;
+  - an overlap refusal in the gap report that ended the whole evaluation.
+- Who found them: the conditioning, held-out and capture defects came from astra's bare review of the code; the flush race from its review of my reduced design; the next six from its attack on the rewritten page, the next three from its second attack and the last two from a bare review of those fixes. The 8% precedence error was caught by my own self-test.
+
+## Amendment, 2026-10-06 — frozen before purchase
+
+This page is frozen at the commit that adds this amendment; the evaluator, the instrument, the matrix and the session script are those of that commit. Before freezing, every check below was run at it: the self-test suites (`check-tail-crossing-self-tests.sh`), `make harness-check`, `make spot-lifecycle`, the full Go suite, `make lint`, `make docs-check`, `PLAN_ONLY` for the 21 cells, `validate-on-cpu.sh` and `smoke-step-evaluator-on-cpu.sh`.
+
+**Launch, as it will be run, after role credentials are re-issued:**
+
+```
+AWS_PROFILE=gpu-lab STUDY=step-boundary-2026-10-06 \
+  ARMS="serial-log serial-step burst-log burst-step stagger-step" REPS=6 SEEDS=31 \
+  PURPOSE=new-measurement HARD_STOP_SECONDS=36000 BACKSTOP_SECONDS=36600 \
+  HYPOTHESIS="step-boundary session: gates 1-3, Q1 and Q3 as registered" \
+  STOPPING_RULE="one session of 21 cells; step_boundary.py at the frozen commit runs once; refusals and the deadline projection stop acquisition; nothing is re-bought" \
+  bash hack/m5c-gpu-session.sh
+```
+
+**Deadline and money.**
+- The hard stop is 600 minutes and the backstop 610, so the session script demands 640 minutes of credentials.
+- After the cold first cell the guard has about 521 minutes against its 432-minute projection.
+- Expected: about 8.5 hours of instance time, about $6 at the observed spot price.
+- Bound: 610 minutes at the $1.10/hour cap, **$11.18**.
+
+**The analysis**, once and only once, at this commit:
+
+```
+BENCHHARNESS=<cmd/benchharness at this commit> python3 hack/tail-crossing-model/step_boundary.py hack/<archive>/m5c-run
+```
