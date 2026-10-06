@@ -83,10 +83,21 @@ def check(step_lines, engine_lines, outputs=None):
         for s in sched:
             for rid, n in s["tokens"].items():
                 scheduled[rid] = scheduled.get(rid, 0) + n
+        # One to one: every engine request joins exactly one client id and every client id exactly one engine
+        # request, or a log holding only a prefix of the workload would pass on what it happened to keep.
+        joined = {}
+        for rid in scheduled:
+            ks = [k for k in outputs if rid.startswith("chatcmpl-" + k + "-")]
+            if len(ks) != 1:
+                raise Refusal(f"engine request {rid} matches {len(ks)} client request ids, not one")
+            if ks[0] in joined:
+                raise Refusal(f"client request {ks[0]} matches two engine requests, {joined[ks[0]]} and {rid}")
+            joined[ks[0]] = rid
+        absent = sorted(set(outputs) - set(joined))
+        if absent:
+            raise Refusal(f"{len(absent)} client request(s) appear in no engine record, first {absent[0]}")
         for rid, n in scheduled.items():
-            out = next((v for k, v in outputs.items() if rid.startswith("chatcmpl-" + k + "-")), None)
-            if out is None:
-                raise Refusal(f"engine request {rid} matches no client request id")
+            out = next(v for k, v in outputs.items() if rid.startswith("chatcmpl-" + k + "-"))
             if n != prompt[rid] + out - 1:
                 raise Refusal(f"{rid}: {n} tokens scheduled, but prompt {prompt[rid]} + output {out} - 1 = "
                               f"{prompt[rid] + out - 1}")
@@ -114,6 +125,7 @@ def self_test():
         ("an engine step the instrument missed", step_log()[:3] + step_log()[5:], engine, None, "recorded 1 steps"),
         ("a token total that differs", step_log(), [engine[0].replace("4 context tokens", "5 context tokens"), engine[1]], None, "logged 5"),
         ("a request whose tokens do not reconcile", step_log(), engine, {"a-1": 3}, "prompt 4 + output 3"),
+        ("a client request missing from the step log", step_log(), engine, {"a-1": 2, "a-2": 2}, "appear in no engine record"),
         ("an instrument cost above 1%", step_log(extra_self=20_000), engine, None, "above 1%"),
         ("an overflow", step_log()[:-1] + [json.dumps({"ev": "overflow", "mono": 0, "dropped_after": 9}), step_log()[-1]], engine, None, "overflowed"),
         ("a step without its done record", step_log()[:2] + step_log()[3:], engine, None, "no done record"),

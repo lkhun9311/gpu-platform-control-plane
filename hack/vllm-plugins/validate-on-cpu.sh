@@ -77,8 +77,16 @@ if len(outputs) != 5:
     sys.exit(f"usage was reported for {len(outputs)} of 5 requests")
 EOF
 docker logs "$NAME" > "$WORK/engine.log" 2>&1
-# The instrument writes when the engine drains, so the last flush follows the last request; wait for it.
-for _ in $(seq 1 20); do grep -q '"ev":"flush"' "$WORK/step.jsonl" 2>/dev/null && break; sleep 1; done
+# The instrument writes when the engine drains, on a thread, so wait until the batch holding the last request has
+# been written: its add record is present and the file ends on a flush. Any earlier flush does not count.
+ok=0
+for _ in $(seq 1 30); do
+  if grep -q '"id":"chatcmpl-lone-1-' "$WORK/step.jsonl" 2>/dev/null && tail -1 "$WORK/step.jsonl" | grep -q '"ev":"flush"'; then
+    ok=1; break
+  fi
+  sleep 1
+done
+[ "$ok" = 1 ] || fail "the batch holding the last request was not written within 30 s"
 python3 check_step_log.py "$WORK/step.jsonl" "$WORK/engine.log" "$WORK/outputs.json" || fail "the step log does not reconcile"
 printf 'flushes: %s\n' "$(grep -c '"ev":"flush"' "$WORK/step.jsonl")"
 echo "PASS: the instrument records the engine's steps on v0.27.1"
