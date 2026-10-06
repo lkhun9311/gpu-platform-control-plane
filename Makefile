@@ -475,7 +475,7 @@ harness-check: ## Run the self-contained test harnesses under hack/test/ that ne
 	@# computing anything. Its header's "no cluster and no card" is true; its runtime is unbounded. Putting it
 	@# in a CI gate would hang the build, and a gate that hangs gets deleted rather than fixed.
 	@#
-	@# The three rehearse-* scripts build a real kind cluster and do not belong in a CI gate at all.
+	@# The rehearse-* scripts build a real kind cluster and do not belong in a CI gate at all.
 	@fail=0; for t in hack/test/capture-evidence-test.sh hack/test/plot-device-observation-test.sh hack/test/check-matrix-plan-refusals.sh hack/test/check-token-unit-labels.sh hack/test/check-published-spreads.sh hack/test/check-cell-timing-record.sh hack/test/check-engine-metrics-scrape.sh hack/test/check-instrument-validation-harness.sh hack/test/check-tail-crossing-self-tests.sh; do \
 		bash "$$t" || { echo "harness-check: $$t failed" >&2; fail=1; }; \
 	done; \
