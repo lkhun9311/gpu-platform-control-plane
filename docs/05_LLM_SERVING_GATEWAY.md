@@ -103,6 +103,9 @@ line named it `admission_guard_decisions_total`, which matches nothing a scrape 
 
 `config/gateway/`: Deployment `replicas: 1` (in-memory bucket — scaling multiplies limits; documented ADR), Service, ServiceAccount, minimal RBAC (`get;list;watch` on the two CRDs + the api-keys Secret). Definition of done for M4-b includes the Makefile target, a gateway Dockerfile, and these manifests — `go run` is not a deployment story.
 
+`--metrics-bearer-token-file` makes `/metrics` on `:8081` demand `Authorization: Bearer <token>` read from that file, answering 401 with no metric bytes otherwise; unset, `/metrics` stays open as before, and the gateway refuses to start if the flag names a missing or empty file (`internal/gateway/metricsauth.go`).
+`/readyz` on the same port stays open either way, because the kubelet's readiness and liveness probes call it without credentials; `config/prometheus/gateway_podmonitor.yaml` sends no token, so an operator who sets the flag also adds an `authorization` block referencing a Secret with the same token.
+
 ## Deferred
 
-`/v1/embeddings` · distributed token bucket (Redis) · per-model limits · Open WebUI wiring · `platformctl` · ServiceMonitor · auth on `/metrics`.
+`/v1/embeddings` · distributed token bucket (Redis) · per-model limits · Open WebUI wiring · `platformctl` · ServiceMonitor.
