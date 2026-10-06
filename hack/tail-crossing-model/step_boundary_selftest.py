@@ -95,6 +95,18 @@ def run():
     assert sorted(sb.heldout_third(None, j) for j in range(6)) == [0, 0, 1, 1, 2, 2]
     print("ok: each third of a setting's cycles is held out once in three blocks and twice in six")
 
+    # The split itself: one fixed order per setting, so over six burst cells of three cycles each cycle position is
+    # held out exactly twice, and over three serial cells of six cycles each position exactly once.
+    # Mutation that turns this red: draw the order per cell instead of once per setting.
+    for setting, cells, n, times in ((("burst", 4, 256, 64), 6, 3, 2), (("serial", 2048, 16), 3, 6, 1)):
+        train = {setting: [(j, dict(setting=setting, cycle=c, steps=[])) for j in range(cells) for c in range(1, n + 1)]}
+        _, ho = sb.split_heldout(train)
+        held = {}
+        for e in ho[setting]:
+            held[e["cycle"]] = held.get(e["cycle"], 0) + 1
+        assert held == {c: times for c in range(1, n + 1)}, (setting, held)
+    print("ok: every cycle position is held out exactly twice in six burst cells and once in three serial cells")
+
 
 if __name__ == "__main__":
     run()

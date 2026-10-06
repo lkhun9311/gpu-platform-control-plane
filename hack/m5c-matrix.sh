@@ -2996,17 +2996,21 @@ capture_engine_log() {
 # check_step_log.py would refuse after the money was spent. The plugin's sha256 inside the pod is compared with
 # the file in this tree, so the instrument the cell measured with is the one the commit names.
 capture_step_log() {
-  local label="$1" rep="$2" dest pod want got
+  local label="$1" rep="$2" dest pod want got last
   dest="$OUT/step-log-$label-$rep.jsonl"
   pod=$(k get pods -n "$NS_A" -l app.kubernetes.io/component=vllm -o jsonpath='{.items[0].metadata.name}' 2>/dev/null) \
     || { echo "could not find the engine pod to read the instrument log from"; return 1; }
   want=$(sha256sum "$IV_STEP_PLUGIN" | cut -c1-64)
   got=$(k exec -n "$NS_A" "$pod" -- sha256sum /opt/step-plugin/step_logging_scheduler.py 2>/dev/null | cut -c1-64)
   [ "$got" = "$want" ] || { echo "the engine loaded an instrument with sha256 ${got:-unreadable}, not this tree's $want"; return 1; }
+  # The cell's LAST measured request, by trace index, must be in the log before its closing flush: any earlier
+  # request followed by a flush is an earlier episode's batch, and accepting it saved a truncated log (found by review).
+  last=$(awk -F'"index":' 'NF > 1 {split($2, a, /[,}]/); if (a[1] + 0 > m) m = a[1] + 0} END {print m + 0}' \
+    "$OUT/trace-$label-$rep.jsonl") || { echo "could not read the last index of trace-$label-$rep.jsonl"; return 1; }
   for _ in $(seq 1 60); do
     k exec -n "$NS_A" "$pod" -- cat "$IV_STEP_LOG" > "$dest" 2>/dev/null || true
     if [ -s "$dest" ] && tail -1 "$dest" | grep -q '"ev":"flush"' \
-       && grep -q "\"id\":\"chatcmpl-$label-$rep-measured-" "$dest"; then
+       && grep -q "\"id\":\"chatcmpl-$label-$rep-measured-$last-" "$dest"; then
       printf '%s  %s\n' "$want" "$IV_STEP_PLUGIN" > "$OUT/step-plugin-$label-$rep.sha256"
       return 0
     fi

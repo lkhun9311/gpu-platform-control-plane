@@ -313,6 +313,31 @@ def episodes_of_cell(run, arm, b, kind):
     return out
 
 
+def split_heldout(train):
+    """Training and held-out episodes per setting from train's (cell index, episode) pairs.
+
+    One seeded order of a setting's cycle positions, fixed across its cells, is cut into thirds, and the cell at
+    index j holds out third j mod 3. Redrawing the order per cell left a cycle position never held out (found by
+    review).
+    """
+    tr, ho = {}, {}
+    for s, items in train.items():
+        counts = {}
+        for j, _ in items:
+            counts[j] = counts.get(j, 0) + 1
+        if len(set(counts.values())) != 1 or next(iter(counts.values())) % 3:
+            raise Refusal(f"Q3: setting {s} has {counts} episodes per cell, not one multiple of three in every cell")
+        n = next(iter(counts.values()))
+        order = sorted(range(1, n + 1), key=lambda c: random.Random(f"{SEED}/{s}/{c}").random())
+        for j in sorted(counts):
+            third = heldout_third(s, j)
+            out = set(order[third * n // 3:(third + 1) * n // 3])
+            for jj, e in items:
+                if jj == j:
+                    (ho if e["cycle"] in out else tr).setdefault(s, []).append(e)
+    return tr, ho
+
+
 def q3(run):
     names = timing_fit.columns(True)
     # Training candidates by setting, each tagged with its cell's index among its type's blocks; staggered episodes
@@ -327,17 +352,10 @@ def q3(run):
                 else:
                     train.setdefault(e["setting"], []).append((j, e))
     # Split each training setting's episodes, cell by cell, by the seeded thirds rule.
-    tr, ho = {}, dict(held)
-    for s, items in train.items():
-        rng = random.Random(f"{SEED}/{s}")
-        for j in sorted({j for j, _ in items}):
-            eps = [e for jj, e in items if jj == j]
-            perm = sorted(range(len(eps)), key=lambda _: rng.random())
-            third = heldout_third(s, j)
-            k = len(eps) // 3
-            out = set(perm[third * k:(third + 1) * k])
-            for i, e in enumerate(eps):
-                (ho if i in out else tr).setdefault(s, []).append(e)
+    tr, extra = split_heldout(train)
+    ho = dict(held)
+    for s, eps in extra.items():
+        ho.setdefault(s, []).extend(eps)
     # Equal total weight per training setting.
     p = len(names)
     G, h = [[0.0] * p for _ in range(p)], [0.0] * p

@@ -88,13 +88,15 @@ iv_fixes_decoder_length() { [ "${1:-}" = "$IV_S3_STUDY" ] || [ "${1:-}" = "$IV_S
 # Only session 4's warm-up ends with a conditioning request before its two verification requests.
 #
 # Gate S on the warm-up drops one more tail request for it, and an earlier session's cycle would lose its last prefill.
-iv_conditions_warmup() { [ "${1:-}" = "$IV_S4_STUDY" ]; }
+# The step-boundary study buys session 4's warm-ups, conditioning request included (found by review: without it here
+# gate S read the conditioner as a decoder episode with no prefill and refused the first staggered warm-up).
+iv_conditions_warmup() { [ "${1:-}" = "$IV_S4_STUDY" ] || [ "${1:-}" = "$IV_STEP_STUDY" ]; }
 
 # Only session 4 keeps the engine log of a cell refused at its warm-up.
 #
 # Session 3's refused cell had none, so the transient W caught could not be read from the engine's side.
 # Sessions 2 and 3 stop exactly as their archives show.
-iv_keeps_warmup_refusal_log() { [ "${1:-}" = "$IV_S4_STUDY" ]; }
+iv_keeps_warmup_refusal_log() { [ "${1:-}" = "$IV_S4_STUDY" ] || [ "${1:-}" = "$IV_STEP_STUDY" ]; }
 
 # The directory of instrument_gates.py, resolved once when sourced so a caller that changes directory still finds it.
 #
@@ -175,7 +177,7 @@ iv_warmup_duration_ms() {
       return 1 ;;
   esac
   # Session 4 shares session 2's bounds, so a bound its longer warm-up outgrew refuses here rather than on the card.
-  if [ "$study" = "$IV_S4_STUDY" ]; then
+  if [ "$study" = "$IV_S4_STUDY" ] || [ "$study" = "$IV_STEP_STUDY" ]; then
     case "$arm" in
       serial-*) s="$IV_S4_WARMUP_SPAN_MS_SERIAL" ;;
       burst-*) s="$IV_S4_WARMUP_SPAN_MS_BURST" ;;

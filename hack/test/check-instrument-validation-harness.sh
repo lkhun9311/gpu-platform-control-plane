@@ -1345,6 +1345,31 @@ else
 	bad "could not build the session-4 plan trees"
 fi
 
+# ======================================= step boundary ===================================================
+IVS=step-boundary-2026-10-06
+
+# --- 22. the step-boundary study takes session 4's warm-up rules -------------------------------------------
+# A review found the study missing from iv_conditions_warmup: gate S then read the warm-up's conditioning request
+# as a decoder episode with no prefill and would have refused the first staggered cell of the session.
+say "22. the step-boundary study is session 4's in every warm-up rule, and has its own five arms"
+iv_is_study "$IVS" && iv_has_warmup "$IVS" && iv_pins_revision "$IVS" && iv_fixes_decoder_length "$IVS" \
+	&& iv_conditions_warmup "$IVS" && iv_keeps_warmup_refusal_log "$IVS" \
+	&& ok "the step-boundary study is warmed, pinned, fixed-decoder and conditioned like session 4" \
+	|| bad "the step-boundary study lacks one of session 4's warm-up rules"
+ls=""; l4s=""
+for a in serial burst stagger; do
+	ls="$ls $a=$(iv_warmup_duration_ms "$IVS" "$a-step")"
+	l4s="$l4s $a=$(iv_warmup_duration_ms "$IV4" "$a-log")"
+done
+[ "$ls" = "$l4s" ] && ok "its warm-up lengths are session 4's:$ls" || bad "its warm-up lengths ${ls@Q} differ from session 4's ${l4s@Q}"
+out=$(iv_arm_refusal "$IVS" stagger-log) && bad "the step-boundary study admitted stagger-log" \
+	|| ok "the step-boundary study refuses an arm outside its five: $out"
+out=$(iv_arm_refusal "$IV4" serial-step) && bad "session 4 admitted a -step arm" \
+	|| ok "session 4 refuses a -step arm: $(printf '%s' "$out" | cut -c1-80)"
+[ "$(iv_request_id_flag "$IVS" stagger-step 3 measured)" = "--request-id-prefix=stagger-step-3-measured" ] \
+	&& [ -z "$(iv_request_id_flag "$IV4" stagger-log 3 measured)" ] \
+	&& ok "only the step-boundary study tags its requests with X-Request-Id" || bad "request-id flags are wrong"
+
 echo
 if [ "$failures" = 0 ]; then
 	echo "check-instrument-validation-harness: every check passed"
