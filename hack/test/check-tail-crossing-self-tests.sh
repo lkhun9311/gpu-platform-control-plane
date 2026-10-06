@@ -41,4 +41,13 @@ if [ "$fail" != "0" ]; then
 	echo "check-tail-crossing-self-tests: FAILED" >&2
 	exit 1
 fi
+# The step-log checker lives beside the instrument it checks, and it gates every number built on that log.
+if python3 ../vllm-plugins/check_step_log.py --self-test >"$log" 2>&1 && grep -q '^ok' "$log"; then
+	echo "ok: vllm-plugins/check_step_log.py --self-test, $(grep -c '^ok' "$log") checks"
+else
+	echo "FAIL: vllm-plugins/check_step_log.py --self-test:" >&2
+	tail -5 "$log" >&2
+	echo "check-tail-crossing-self-tests: FAILED" >&2
+	exit 1
+fi
 echo "check-tail-crossing-self-tests: every self-test passed"
