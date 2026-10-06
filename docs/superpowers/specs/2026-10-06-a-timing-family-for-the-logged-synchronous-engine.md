@@ -141,7 +141,7 @@ Run once at `9a19c8f`, the freezing commit, as the amendment above says. The har
 | Gate lines failed | 21 | 20 |
 | Late-prefill client TTFT, predicted / observed | 0.551 to 0.983; 5 of 12 settings within 10% | 0.453 to 0.972; 5 of 12 within 10% |
 | Late-prefill residual, predicted − observed | −159.7 to −11.1 ms, median −27.6 | −251.3 to −11.3 ms, median −33.4 |
-| Worst step-time misses | decode steps beside 16 decoders at 8,192 tokens +55.0%; the late prefill's own steps at (16, 8,192, 256) −38.7% | the late prefill's own steps at (16, 8,192, 256) −41.0%; 4-request 256-token burst context steps +14.7% |
+| Worst step-time misses | decode steps beside 16 decoders at 8,192 tokens +55.0%; the late prefill's own steps at (16, 8,192, 256) −38.7% | the late prefill's own steps at (16, 8,192, 256) −41.0% and at (1, 256, 256) +26.8% |
 
 **What this shows.** A family trained on serial and burst episodes does not predict the staggered mix of a prefill arriving among running decoders, under either way of charging mixed steps.
 - Its decode steps beside many long-context decoders are over-predicted.
