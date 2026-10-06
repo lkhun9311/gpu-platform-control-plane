@@ -48,3 +48,9 @@ It must also not win by deletion. Contender work and output share must stay at o
 4. True physical separation, if an operational objective justifies its cost.
 
 Item 3 cannot be bought before item 2: without a step-time model, nothing predicts whether a reachable point exists.
+
+## Update, 2026-10-06 — 4.1 is built; 4.4 has no step-time model to run on
+
+- **4.1, trusted priority, is built** (`0dc1629`). `--bind-priority` makes the gateway write priority 0 for premium and 1 for standard into every forwarded request, overwriting any caller value. It sets the body, `GetBody` and `ContentLength` together, so a retry rewinds to the bound priority. Four specs pin it, and each fails when its line is reverted. It is off by default and has run against no engine.
+- **4.4 cannot run yet.** The logged-engine registration's pilot failed under both mixed-step conventions. The staggered late prefill's client TTFT was predicted at 0.45 to 0.98 of what was observed. So no step-time model of mixing exists for the simulator to use, and a computational feasibility check built on it would inherit that failure.
+- So item 3 of the ranking stays unbuyable. 4.2 and 4.3, the reservation hooks and their kind correctness, remain free and open.
