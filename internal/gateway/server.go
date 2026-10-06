@@ -281,8 +281,9 @@ func (s *Server) failReason(w http.ResponseWriter, tenant, model string, code in
 // It prefers the test hook over the real backendFor.
 func (s *Server) resolveBackend(ctx context.Context, policy *platformv1.GPUQuotaPolicy, model string) ([]*BackendRef, error) {
 	if s.backendsOverride != nil {
-		var refs []*BackendRef
-		for _, u := range s.backendsOverride(model) {
+		urls := s.backendsOverride(model)
+		refs := make([]*BackendRef, 0, len(urls))
+		for _, u := range urls {
 			refs = append(refs, &BackendRef{URL: u, Model: model})
 		}
 		return refs, nil
@@ -560,12 +561,7 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 	// on a final attempt, the guards inside tryBackends stopped the loop before any final attempt ran, and a
 	// request nobody served went into requests_total as a success.
 	lastFailure := 0
-	// A request holding a reservation goes only to the backend it reserved on. Falling back to another would put
-	// its work on a backend whose holds never counted it, and both caps could be exceeded there (found by
-	// review); a request with nothing reserved keeps the fallback path.
-	if res != nil {
-		targets = targets[:1]
-	}
+	targets = forwardTargets(res, targets)
 	urls := make([]*url.URL, 0, len(targets))
 	for _, t := range targets {
 		urls = append(urls, t.URL)
@@ -764,6 +760,18 @@ func NewCache(ctx context.Context, cfg *rest.Config, scheme *runtime.Scheme, nam
 // A STATEFUL admitter is still asked once, about the head. static-cap's Admit spends EstInputTokens from a
 // per-backend limiter, so asking it about each candidate would bill one request several times and the arm
 // would stop measuring offered load. One request, one charge, decided up front.
+// forwardTargets is the candidate list a request may be forwarded to.
+//
+// A request holding a reservation goes only to the backend it reserved on. Falling back to another would put its
+// work on a backend whose holds never counted it, and both caps could be exceeded there (found by review); a
+// request with nothing reserved keeps the fallback path.
+func forwardTargets(res *reservation, targets []*BackendRef) []*BackendRef {
+	if res != nil {
+		return targets[:1]
+	}
+	return targets
+}
+
 // decideAdmission asks a reserving admitter through Reserve, never Admit, so an admission always carries its
 // hold, and every other admitter through admitCandidates.
 //

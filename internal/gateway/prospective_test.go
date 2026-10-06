@@ -221,7 +221,7 @@ var _ = Describe("prospective admission in the pipeline", func() {
 		Expect(streams).To(BeZero())
 	})
 
-	// Mutation that turns this red: delete the `targets = targets[:1]` narrowing in chatCompletions.
+	// Mutation that turns this red: make forwardTargets return every candidate.
 	It("does not fall back from the backend a standard request reserved on, while premium still does", func() {
 		served := 0
 		var mu sync.Mutex
