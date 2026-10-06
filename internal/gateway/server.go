@@ -63,6 +63,10 @@ type Server struct {
 	// Off by default because it only means anything to an engine started with priority scheduling, and an
 	// experiment that did not register it must not have its traffic reordered under it.
 	bindPriority bool
+	// metricsTokenDigest is the SHA-256 of the bearer token /metrics demands, or nil for no authentication.
+	//
+	// Nil is the default so an existing deployment that sets no flag keeps scraping exactly as before.
+	metricsTokenDigest []byte
 	// Namespace and APIKeySecret locate the api-keys Secret used to resolve tenants.
 	Namespace    string
 	APIKeySecret string
@@ -665,9 +669,16 @@ func (s *Server) Handler() http.Handler {
 // Per-tenant usage metrics would let a user infer other tenants' activity, so the split is mandatory.
 //
 // Both muxes serve /readyz so a probe on either port gets the same answer.
+//
+// Only /metrics is behind the optional bearer token.
+// /readyz stays open because the kubelet's readiness and liveness probes hit it on this port and send no credentials, so gating it would keep the Pod unready and then restart it.
 func (s *Server) MetricsHandler() http.Handler {
 	mux := http.NewServeMux()
-	mux.Handle("/metrics", metricsHTTPHandler())
+	metricsH := metricsHTTPHandler()
+	if s.metricsTokenDigest != nil {
+		metricsH = requireBearer(s.metricsTokenDigest, metricsH)
+	}
+	mux.Handle("/metrics", metricsH)
 	mux.HandleFunc("/readyz", s.readyz)
 	return mux
 }

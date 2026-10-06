@@ -94,6 +94,8 @@ func main() {
 		enforceBenchmarkProfile bool
 		// bindPriority reorders traffic on a priority-scheduling engine, so it too stays off unless asked for.
 		bindPriority bool
+		// metricsBearerTokenFile is empty by default so a deployment that sets nothing keeps an open /metrics.
+		metricsBearerTokenFile string
 
 		admissionKVEngageUsage    float64
 		admissionKVReleaseUsage   float64
@@ -151,6 +153,9 @@ func main() {
 			"must be well above --admission-kv-scrape-interval")
 	flag.DurationVar(&admissionKVScrapeTimeout, "admission-kv-scrape-timeout", defaultAdmissionKVScrapeTimeout,
 		"kv-aware mode: HTTP timeout for a single /metrics scrape.")
+	flag.StringVar(&metricsBearerTokenFile, "metrics-bearer-token-file", "",
+		"path to a file holding the bearer token /metrics on :8081 requires. "+
+			"Empty leaves /metrics open; /readyz stays open either way because the kubelet probes it without credentials.")
 	flag.Parse()
 
 	// Register the core and platform types the gateway reads.
@@ -219,6 +224,13 @@ func main() {
 		Client:       cl,
 		Namespace:    namespace,
 		APIKeySecret: envOr("GATEWAY_API_KEY_SECRET", "gateway-api-keys"),
+	}
+	// The token is loaded before anything listens, so a missing or empty file stops the process rather than leaving an open /metrics behind a flag that claims otherwise.
+	if metricsBearerTokenFile != "" {
+		if err := s.RequireMetricsBearerTokenFile(metricsBearerTokenFile); err != nil {
+			log.Error(err, "metrics authentication")
+			os.Exit(1)
+		}
 	}
 	// Turn on the per-tenant token bucket registry.
 	//
