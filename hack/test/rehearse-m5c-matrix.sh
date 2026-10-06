@@ -747,6 +747,20 @@ for want in cell-timings.tsv cell-judgements.tsv load-source.txt; do
 done
 say "  and each handover carried its manifest, trace and port-forward log, with the run records beside them"
 
+# Every manifest the run wrote names its gateway by content, one binary and the pinned base (issue 323).
+# Only a run reaches the measured gen-trace calls, so this is the one place their flags are checked executing.
+want_base=$(sed -n 's/^GW_BASE="\(.*\)"$/\1/p' hack/m5c-matrix.sh)
+[ -n "$want_base" ] || fail "hack/m5c-matrix.sh defines no GW_BASE, so the gateway's base cannot be checked"
+gw_ids=$(for m in "$OUT_DIR"/manifest-*.yaml "$OUT_DIR"/warmup-manifest-*.yaml; do
+  [ -f "$m" ] || continue
+  printf '%s %s\n' "$(sed -n 's/^gatewayBinarySHA256: //p' "$m")" "$(sed -n 's/^gatewayBase: //p' "$m")"
+done | sort | uniq -c)
+[ "$(printf '%s\n' "$gw_ids" | grep -c .)" = 1 ] \
+  && printf '%s\n' "$gw_ids" | grep -qE "^ *[0-9]+ [0-9a-f]{64} ${want_base//./\\.}$" \
+  || fail "the run's manifests do not all name one gateway binary on $want_base:
+$gw_ids"
+say "  and every manifest names the gateway by its binary hash and the pinned base: $(printf '%s' "$gw_ids" | awk '{print $1" manifest(s), "substr($2,1,12)}')"
+
 # The contended cell these two checks read: the matrix's `shared` arm, or the ladder's first rung.
 if [ -n "$LADDER_UNDER_TEST" ]; then
   # The FIRST rung this ladder bought, which is not rung 1 when the ladder is skip-led.

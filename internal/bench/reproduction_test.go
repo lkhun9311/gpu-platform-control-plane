@@ -24,7 +24,7 @@ func facts(arm string) ReproductionFacts {
 		TokenizerRev:    "aa8e72537993ba99e69dfaafa59ed015b17504d1",
 		PromptLenChars:  map[string]int{PremiumTenant: 1174, NoisyTenant: 42579},
 		GatewaySHA:      "b97d88ebfb97bf1b8cced34ceae5c4b5c4388270",
-		ImageDigests:    map[string]string{"engine": "vllm/vllm-openai@sha256:0a51ea5b"},
+		ImageDigests:    map[string]string{"engine": "vllm/vllm-openai@sha256:0a51ea5b", "gateway": "m5c-gateway@sha256:03a1ca8d"},
 	}
 }
 

@@ -263,9 +263,12 @@ gen_target() { # gen_target <dir> <timeout-ms> <premium-chars> [--no-provenance]
   [ "${4:-}" = "--no-provenance" ] && prov=0
   local extra=()
   [ "$prov" = 1 ] && extra=(--tokenizer-rev aa8e72537993ba99e69dfaafa59ed015b17504d1
-                            --engine-image "vllm/vllm-openai@sha256:$(printf '0%.0s' $(seq 64))"
-                            --gateway-image "gateway:t@sha256:$(printf 'a%.0s' $(seq 64))"
+                            --engine-image "${GT_ENGINE:-vllm/vllm-openai@sha256:$(printf '0%.0s' $(seq 64))}"
                             --gateway-sha 0123456789abcdef0123456789abcdef01234567)
+  # The gateway's image ID, unless the case is a plan (which has none until the image is built), and its content
+  # when GT_BINARY names a binary hash (docs/superpowers/specs/2026-10-07-gateway-identity-for-reproduction.md).
+  [ "$prov" = 1 ] && [ -z "${GT_NO_IMAGE:-}" ] && extra+=(--gateway-image "gateway:t@sha256:${GT_IMAGE_HEX:-$(printf 'a%.0s' $(seq 64))}")
+  [ "$prov" = 1 ] && [ -n "${GT_BINARY:-}" ] && extra+=(--gateway-binary-sha256 "$GT_BINARY" --gateway-base "$GT_BASE")
   mkdir -p "$dir"
   "$WORK/benchharness" gen-trace --seed 11 --duration-ms "$FULL_DURATION" --rate "$RATE" \
     --premium-weight 1 --noisy-weight "$NOISY_WEIGHT" --probe-weight 0 \
@@ -414,6 +417,58 @@ set -e
 [ "$code" = 0 ] && printf '%s' "$out" | grep -q 'scorable' && ! printf '%s' "$out" | grep -q 'matches' \
   && ok "a plan claiming no reproduction is unaffected" \
   || bad "a plan with no --reproduces changed behaviour (exit $code): $(printf '%s' "$out" | head -1)"
+
+say "9g. is the gateway compared by content when both runs recorded it, and by image ID when the target did not?"
+# Issue 323: one binary on one pinned base, built twice, gives two image IDs, and a plan has no image ID at all
+# because the image is built after purchase. Measured on 2026-10-07; the rule is the 2026-10-07 registration.
+GT_BASE="gcr.io/distroless/static@sha256:e2e927ec666bae08560abb3c55d0659eceabb657f56b6782ab500a9fc7f555e3"
+BIN_A=$(printf 'a%.0s' $(seq 64)); BIN_B=$(printf 'b%.0s' $(seq 64))
+export GT_BASE
+# rp_with <what> <want|ok> <plan dir> <target dir>
+rp_with() {
+  local what="$1" want="$2" plan="$3" dir="$4" out code
+  set +e
+  out=$("$WORK/benchharness" matrix-plan-check --trace "$plan/trace-shared-1.jsonl" \
+        --study sharing-matrix-2026-09-10 --arm shared --arms "R1 shared timeSlicing" \
+        --manifest "$plan/manifest-shared-1.yaml" --reproduces "$dir" 2>&1)
+  code=$?
+  set -e
+  if [ "$want" = ok ]; then
+    [ "$code" = 0 ] && ok "$what is accepted" || bad "$what was refused: $(printf '%s' "$out" | head -1)"
+  elif [ "$code" != 0 ] && printf '%s' "$out" | grep -q "$want"; then
+    ok "$what is refused, naming it"
+  else
+    bad "$what exited $code without saying ${want@Q}: $(printf '%s' "$out" | head -1)"
+  fi
+}
+GT_BINARY="$BIN_A" gen_target "$TGT/content" 60000 1174
+GT_BINARY="$BIN_A" GT_IMAGE_HEX=$(printf 'c%.0s' $(seq 64)) gen_target "$WORK/plan-rebuilt" 60000 1174
+rp_with "a rebuild of the same binary on the same base (a second image ID)" ok "$WORK/plan-rebuilt" "$TGT/content"
+GT_BINARY="$BIN_A" GT_NO_IMAGE=1 gen_target "$WORK/plan-noimage" 60000 1174
+rp_with "a plan with the content and no image ID, as every plan has" ok "$WORK/plan-noimage" "$TGT/content"
+GT_BINARY="$BIN_B" GT_NO_IMAGE=1 gen_target "$WORK/plan-otherbin" 60000 1174
+rp_with "a different gateway binary under the same commit" "gatewayBinarySHA256" "$WORK/plan-otherbin" "$TGT/content"
+rp_with "a plan with the content against a target that recorded only the image ID" "imageDigests differ -- gateway" \
+  "$WORK/plan-noimage" "$TGT/same"
+rp_with "a plan with no content against a target that recorded it" "this plan records neither" "$PLAN" "$TGT/content"
+
+# And the matrix's own plan path, which is what a reproduction purchase actually runs.
+#
+# The target is made with the matrix's engine image and the plan's defaults, so the only fact left to differ
+# is the gateway binary the plan is given.
+GW_FAKE_A="$WORK/gw-a"; GW_FAKE_B="$WORK/gw-b"
+printf 'gateway a' > "$GW_FAKE_A"; printf 'gateway b' > "$GW_FAKE_B"; chmod +x "$GW_FAKE_A" "$GW_FAKE_B"
+matrix_engine=$(sed -n 's/^ *image: *\(vllm[^ ]*@sha256:[0-9a-f]\{64\}\).*/\1/p' config/vllm/deployment.yaml | head -1)
+for arm in R1 shared; do
+  ARM=$arm GT_ENGINE="$matrix_engine" GT_BINARY=$(sha256sum "$GW_FAKE_A" | cut -c1-64) \
+    gen_target "$TGT/matrix" 60000 1174
+done
+rp_env=(ARMS="R1 shared" REPS=1 RATE="$RATE" NOISY_WEIGHT="$NOISY_WEIGHT" DURATION_MS="$FULL_DURATION"
+        PREMIUM_PROMPT_CHARS=1174 NOISY_PROMPT_CHARS=42579 SOURCE_COMMIT=0123456789abcdef0123456789abcdef01234567
+        REPRODUCES="$TGT/matrix")
+plan_case "a reproduction plan with no gateway binary to name" "REPRODUCES needs GATEWAY_BIN" "${rp_env[@]}"
+plan_case "a reproduction plan shipping the target's gateway binary" ok "${rp_env[@]}" GATEWAY_BIN="$GW_FAKE_A"
+plan_case "a reproduction plan shipping another gateway binary" "gatewayBinarySHA256" "${rp_env[@]}" GATEWAY_BIN="$GW_FAKE_B"
 
 say "10b. does the run record WHERE each load value came from?"
 # The refusal compares the EFFECTIVE value, so a wrong default is caught. What it cannot tell a later reader

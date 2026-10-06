@@ -101,6 +101,13 @@ type RunManifest struct {
 	GatewaySHA string `json:"gatewaySHA,omitempty"`
 	// ImageDigests pins every image (gateway, vLLM, load generator) this run used, by name.
 	ImageDigests map[string]string `json:"imageDigests,omitempty"`
+	// GatewayBinarySHA256 and GatewayBase name the gateway by content, which its image ID cannot.
+	//
+	// The image ID changes with every build of the same binary on the same base (the copied file's
+	// timestamp is in the layer), so a reproduction compares these two instead when both runs recorded them.
+	// Registered in docs/superpowers/specs/2026-10-07-gateway-identity-for-reproduction.md.
+	GatewayBinarySHA256 string `json:"gatewayBinarySHA256,omitempty"`
+	GatewayBase         string `json:"gatewayBase,omitempty"`
 	// Thresholds records the guard/static-cap parameters in effect for this arm (e.g. engage
 	// usage, W, static-cap rate/burst), as strings so heterogeneous parameter sets across arms
 	// don't need one struct field per possible knob.
@@ -299,6 +306,37 @@ func digestPinned(ref string) bool {
 	return true
 }
 
+// GatewayIdentityRefusal says what is wrong with a manifest's gateway content facts, or nil.
+//
+// Neither is a run from before the facts existed. One without the other is refused rather than read as neither,
+// because a half-recorded identity would silently fall back to comparing the image ID it was meant to replace.
+func GatewayIdentityRefusal(binarySHA256, base string) error {
+	switch {
+	case binarySHA256 == "" && base == "":
+		return nil
+	case binarySHA256 == "" || base == "":
+		return fmt.Errorf("manifest records gatewayBinarySHA256 %q and gatewayBase %q; the gateway's identity is both or neither", binarySHA256, base)
+	case !lowerHex(binarySHA256, 64):
+		return fmt.Errorf("manifest records gatewayBinarySHA256 %q, which is not 64 lowercase hex characters", binarySHA256)
+	case !digestPinned(base):
+		return fmt.Errorf("manifest records gatewayBase %q, which is not pinned by digest; a tag names whatever was pushed under it most recently", base)
+	}
+	return nil
+}
+
+// lowerHex reports whether s is exactly n lowercase hex characters.
+func lowerHex(s string, n int) bool {
+	if len(s) != n {
+		return false
+	}
+	for _, c := range s {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			return false
+		}
+	}
+	return true
+}
+
 // commitShaped reports whether s could be a git commit: 7 to 40 lowercase hex characters, optionally
 // followed by "-dirty".
 //
@@ -374,7 +412,9 @@ func (m RunManifest) RequireProvenance() error {
 	if !revisionShaped(rev) {
 		return fmt.Errorf("manifest records tokenizerRev %q, which is not a full 40-character lowercase hex revision; a truncated or invented revision identifies no tokenizer", rev)
 	}
-	return nil
+	// The gateway's content facts are not demanded, because the M5-b path (prepare-traces) does not record them.
+	// A paid manifest that records them must record them whole.
+	return GatewayIdentityRefusal(m.GatewayBinarySHA256, m.GatewayBase)
 }
 
 // revisionShaped reports whether s is exactly 40 lowercase hex characters.

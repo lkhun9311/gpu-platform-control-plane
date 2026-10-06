@@ -1225,7 +1225,8 @@ else
   #
   # Unset means "this run claims to repeat nothing", which is the only honest default: the claim belongs in
   # the registration and the enforcement belongs here, before the card is rented.
-  [ -z "${REPRODUCES:-}" ] || plan_env+=(REPRODUCES="$REPRODUCES")
+  # With the gateway binary built above, so the plan can name the gateway by content as its target did.
+  [ -z "${REPRODUCES:-}" ] || plan_env+=(REPRODUCES="$REPRODUCES" GATEWAY_BIN="$OUT/gateway")
   # The seeds the instance will use, so the plan check refuses a list the study cannot take while the
   # refusal is still free.
   [ -z "${SEEDS:-}" ] || plan_env+=(SEEDS="$SEEDS")

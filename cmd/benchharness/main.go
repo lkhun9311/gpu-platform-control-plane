@@ -344,6 +344,10 @@ func genTrace(args []string) error {
 		"revision of the served model whose tokenizer the estimate was calibrated against (40 lowercase hex)")
 	gatewayImage := fs.String("gateway-image", "", "digest-pinned gateway image reference (name@sha256:...)")
 	engineImage := fs.String("engine-image", "", "digest-pinned inference engine image reference (name@sha256:...)")
+	// The gateway by content, because its image ID changes with every build of the same binary
+	// (docs/superpowers/specs/2026-10-07-gateway-identity-for-reproduction.md).
+	gatewayBinary := fs.String("gateway-binary-sha256", "", "sha256 of the gateway binary in the image (64 lowercase hex); with --gateway-base or not at all")
+	gatewayBase := fs.String("gateway-base", "", "digest-pinned base image the gateway image was built on (name@sha256:...); with --gateway-binary-sha256 or not at all")
 	traceOut := fs.String("trace-out", "trace.jsonl", "trace file to write")
 	manifestOut := fs.String("manifest-out", "manifest.yaml", "manifest file to write")
 	// The warm-up is a separate trace rather than rows prepended to the measured one, so the measured trace's bytes and its plan check are the same with or without it.
@@ -351,10 +355,14 @@ func genTrace(args []string) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
+	if err := bench.GatewayIdentityRefusal(*gatewayBinary, *gatewayBase); err != nil {
+		return err
+	}
 	out := traceOutputs{
 		seed: *seed, study: *study, arm: *arm, gatewayURL: *gatewayURL, model: *model, timeoutMs: *timeoutMs,
 		matchTol: *matchTol, longThreshold: *longThreshold, gatewaySHA: *gatewaySHA, tokenizerRev: *tokenizerRev,
 		gatewayImage: *gatewayImage, engineImage: *engineImage, traceOut: *traceOut, manifestOut: *manifestOut,
+		gatewayBinary: *gatewayBinary, gatewayBase: *gatewayBase,
 	}
 
 	// An episode study's rows come from its registered settings, so none of the Poisson flags below has anything to configure.
@@ -488,6 +496,7 @@ type traceOutputs struct {
 	timeoutMs, longThreshold                         int
 	matchTol, gatewaySHA, tokenizerRev               string
 	gatewayImage, engineImage, traceOut, manifestOut string
+	gatewayBinary, gatewayBase                       string
 }
 
 // writeTraceAndManifest writes the trace and a manifest pinning its checksum.
@@ -537,8 +546,11 @@ func writeTraceAndManifest(rows []bench.TraceRow, o traceOutputs, maxOutputToken
 		LongThreshold:   o.longThreshold,
 		GatewaySHA:      o.gatewaySHA,
 		TokenizerRev:    o.tokenizerRev,
-		PromptLenChars:  promptLenChars,
-		MaxOutputTokens: maxOutputTokens,
+
+		GatewayBinarySHA256: o.gatewayBinary,
+		GatewayBase:         o.gatewayBase,
+		PromptLenChars:      promptLenChars,
+		MaxOutputTokens:     maxOutputTokens,
 	}
 	// Only set the map when something was supplied, so a free run's manifest carries no empty scaffolding
 	// that could later be mistaken for a recorded value.

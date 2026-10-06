@@ -576,6 +576,7 @@ drive_warmup() {
 		STUDY="${DW_STUDY:-$IV2}" LADDER="" OUT="$WORK/out" NS_A=a STUB_LOG="$3" SEEDS="" TRACE_POLICY=one
 		MODEL=Qwen/Qwen2.5-3B-Instruct REQUEST_TIMEOUT_MS=120000 ENGINE_IMAGE=e@sha256:1 GATEWAY_IMAGE_REF=g@sha256:2
 		SOURCE_COMMIT=abc MODEL_REVISION=rev PROVENANCE_FLAG=--require-provenance LOAD_FLAGS=() PROMPT_FLAGS=()
+		GW_BINARY_SHA=bin GW_BASE=base@sha256:3
 		export BH_LOG="$WORK/bh.log" BH_WARM_RAW="$2"
 		run_warmup "$1" 1
 	) > "$WORK/warm.out" 2>&1
@@ -587,7 +588,7 @@ if drive_warmup serial-log "$WORK/w-good.jsonl" "$ITER2"; then
 	[ "$(cat "$WORK/out/warmup-boundary-serial-log-1.txt")" = 12 ] && ok "its boundary is the log's last iteration, 12" \
 		|| bad "its boundary reads $(cat "$WORK/out/warmup-boundary-serial-log-1.txt")"
 	g=$(grep '^gen-trace' "$WORK/bh.log")
-	[ "$g" = "gen-trace --warmup --seed 11 --duration-ms 100000 --study $IV2 --arm serial-log --model Qwen/Qwen2.5-3B-Instruct --gateway-url http://127.0.0.1:18080 --engine-image e@sha256:1 --gateway-image g@sha256:2 --gateway-sha abc --tokenizer-rev rev --timeout-ms 120000 --trace-out $WORK/out/warmup-trace-serial-log-1.jsonl --manifest-out $WORK/out/warmup-manifest-serial-log-1.yaml" ] \
+	[ "$g" = "gen-trace --warmup --seed 11 --duration-ms 100000 --study $IV2 --arm serial-log --model Qwen/Qwen2.5-3B-Instruct --gateway-url http://127.0.0.1:18080 --engine-image e@sha256:1 --gateway-image g@sha256:2 --gateway-sha abc --gateway-binary-sha256 bin --gateway-base base@sha256:3 --tokenizer-rev rev --timeout-ms 120000 --trace-out $WORK/out/warmup-trace-serial-log-1.jsonl --manifest-out $WORK/out/warmup-manifest-serial-log-1.yaml" ] \
 		&& ok "gen-trace --warmup is called with the cell's seed and provenance and the warm-up's own length" || bad "gen-trace was called as: $g"
 	r=$(grep '^replay' "$WORK/bh.log")
 	[ "$r" = "replay --manifest $WORK/out/warmup-manifest-serial-log-1.yaml --require-provenance --target http://127.0.0.1:18080 --api-keys premium-1=premium-key,standard-noisy=standard-key --raw-out $WORK/out/raw-warmup-serial-log-1.jsonl" ] \

@@ -445,10 +445,13 @@ if [ -z "${ENGINE_PIN_WAIVED:-}" ]; then
       || fail "$m pins ${other:-no engine image} and config/vllm/deployment.yaml pins $ENGINE_IMAGE. Two topologies on two engine builds is not a comparison of topologies"
   done
 fi
-# The gateway's identity is the COMMIT this tree is at. Its image is not digest-pinned -- the matrix builds
-# a binary and loads it into the node -- so --gateway-image is deliberately not passed rather than filled
-# with something that looks like a digest and is not one.
+# The gateway's build is named three ways: the COMMIT this tree is at, the image ID the build below prints,
+# and the gateway's content -- the binary's sha256 and the base it sits on.
+# The image ID changes with every build of the same binary on the same base, so a reproduction compares the
+# content instead (docs/superpowers/specs/2026-10-07-gateway-identity-for-reproduction.md).
 SOURCE_COMMIT="${SOURCE_COMMIT:-$(git rev-parse HEAD 2>/dev/null || echo unknown)}"
+# Pinned by digest: the tag this replaced could put two builds of one commit on two different bases.
+GW_BASE="gcr.io/distroless/static@sha256:e2e927ec666bae08560abb3c55d0659eceabb657f56b6782ab500a9fc7f555e3"
 
 # The arrival model this run's study registered, and the gen-trace load flags for one cell under it.
 #
@@ -917,6 +920,17 @@ if [ -n "${PLAN_ONLY:-}" ]; then
   # approved a plan the real run then rejected -- or worse, approved one the real run also accepted.
   refuse_unfrozen_load
   resolve_seeds
+  # A reproduction's plan carries the provenance its target recorded, or the comparison could only refuse it.
+  # Only then: a plan that claims nothing invokes gen-trace exactly as before, so recorded plan calls still match.
+  # The image ID is not among them -- it does not exist until the build after purchase -- and the gateway's
+  # content stands in for it.
+  plan_provenance=()
+  if [ -n "${REPRODUCES:-}" ]; then
+    [ -n "${GATEWAY_BIN:-}" ] && [ -x "$GATEWAY_BIN" ] \
+      || fail "REPRODUCES needs GATEWAY_BIN, the gateway binary this run will ship, so the plan can name it by content"
+    plan_provenance=(--gateway-sha "$SOURCE_COMMIT" --engine-image "$ENGINE_IMAGE" --tokenizer-rev "$MODEL_REVISION"
+                     --gateway-binary-sha256 "$(sha256sum "$GATEWAY_BIN" | cut -c1-64)" --gateway-base "$GW_BASE")
+  fi
   plan_top=0
   for spec in "${CELLS[@]}"; do
     IFS='|' read -r _ _ _ _ _ cell_rung <<<"$spec"
@@ -950,7 +964,7 @@ if [ -n "${PLAN_ONLY:-}" ]; then
     plan_duration=$(cell_duration_ms "$cell_label") || fail "$plan_duration"
     "$WORK/benchharness" gen-trace --seed "$plan_seed" --duration-ms "$plan_duration" "${LOAD_FLAGS[@]}" \
       --study "$STUDY" --arm "$cell_label" --model "$MODEL" --gateway-url "http://127.0.0.1:18080" \
-      "${PROMPT_FLAGS[@]}" \
+      "${PROMPT_FLAGS[@]}" ${plan_provenance[@]+"${plan_provenance[@]}"} \
       --timeout-ms "$REQUEST_TIMEOUT_MS" \
       --trace-out "$WORK/plan-$plan_name.jsonl" --manifest-out "$WORK/plan-$plan_name.yaml" >/dev/null \
       || { echo "PLAN REFUSED: gen-trace could not build $cell_label's trace" >&2; plan_failures=$(( plan_failures + 1 )); continue; }
@@ -1560,6 +1574,8 @@ else
   command -v go >/dev/null || fail "no Go toolchain and GATEWAY_BIN is unset. On a rented GPU instance there is no compiler: build the binaries on the machine that has one and pass GATEWAY_BIN and BENCHHARNESS_BIN."
   CGO_ENABLED=0 GOOS=linux go build -o "$WORK/gateway" ./cmd/gateway || fail "build gateway"
 fi
+# The gateway by content, for the manifests: the image built below gets a new ID on every build of this binary.
+GW_BINARY_SHA=$(sha256sum "$WORK/gateway" | cut -c1-64) || fail "hash the gateway binary"
 if [ -n "${BENCHHARNESS_BIN:-}" ]; then
   [ -x "$BENCHHARNESS_BIN" ] || fail "BENCHHARNESS_BIN=$BENCHHARNESS_BIN is not an executable file"
   cp "$BENCHHARNESS_BIN" "$WORK/benchharness" || fail "could not take the shipped benchharness binary"
@@ -1575,8 +1591,9 @@ resolve_arrivals
 # The seeds are resolved first so the frozen-load refusal stays the line immediately ahead of the build.
 resolve_seeds
 refuse_unfrozen_load
-printf 'FROM gcr.io/distroless/static:nonroot\nCOPY gateway /gateway\nUSER 65532:65532\nENTRYPOINT ["/gateway"]\n' > "$WORK/Dockerfile"
-# The image ID is CAPTURED, because it is the only thing that can name the gateway build in the record.
+printf 'FROM %s\nCOPY gateway /gateway\nUSER 65532:65532\nENTRYPOINT ["/gateway"]\n' "$GW_BASE" > "$WORK/Dockerfile"
+# The image ID is CAPTURED, because it is the only thing that names this one build in the record.
+# It does not name the gateway across builds -- that is the binary hash above and the pinned base.
 #
 # `docker build -q` prints sha256:<64 hex> -- the digest of the image's own config, which covers its layers
 # and therefore the base it was built on as well as the binary copied into it. It went to /dev/null, and the
@@ -3053,6 +3070,7 @@ run_warmup() {
   say "  warm-up for $label rep $rep, excluded from the measurement"
   warmup_gen_trace "$label" "$rep" "$OUT/warmup-trace-$label-$rep.jsonl" "$OUT/warmup-manifest-$label-$rep.yaml" \
     --engine-image "$ENGINE_IMAGE" --gateway-image "$GATEWAY_IMAGE_REF" --gateway-sha "$SOURCE_COMMIT" \
+    --gateway-binary-sha256 "$GW_BINARY_SHA" --gateway-base "$GW_BASE" \
     --tokenizer-rev "$MODEL_REVISION" || fail "gen-trace --warmup $label"
   local idflag
   idflag=$(iv_request_id_flag "$STUDY" "$label" "$rep" warmup) || fail "request ids for $label warm-up"
@@ -3275,6 +3293,7 @@ run_cell() {
   "$WORK/benchharness" gen-trace --seed "$(seed_for_rep "$rep")" --duration-ms "$cell_duration" "${LOAD_FLAGS[@]}" \
     --study "$STUDY" --arm "$label" --model "$MODEL" --gateway-url "http://127.0.0.1:18080" \
     --engine-image "$ENGINE_IMAGE" --gateway-image "$GATEWAY_IMAGE_REF" --gateway-sha "$SOURCE_COMMIT" \
+    --gateway-binary-sha256 "$GW_BINARY_SHA" --gateway-base "$GW_BASE" \
     --tokenizer-rev "$MODEL_REVISION" \
     "${PROMPT_FLAGS[@]}" \
     --timeout-ms "$REQUEST_TIMEOUT_MS" \

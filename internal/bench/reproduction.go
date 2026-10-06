@@ -45,6 +45,13 @@ type ReproductionFacts struct {
 	// rather than passing quietly.
 	GatewaySHA   string
 	ImageDigests map[string]string
+
+	// GatewayBinarySHA256 and GatewayBase name the gateway by content (2026-10-07 registration).
+	//
+	// When both runs recorded them, they replace the gateway's image ID in the comparison, because that ID
+	// changes with every build of one binary on one base. Every run before that page recorded neither.
+	GatewayBinarySHA256 string
+	GatewayBase         string
 }
 
 // ReproductionFactsFromArchive reads one run's manifests out of an archive directory, keyed by arm.
@@ -108,6 +115,12 @@ func ReproductionFactsFromArchive(dir string) (map[string]ReproductionFacts, err
 			PromptLenChars:  m.PromptLenChars,
 			GatewaySHA:      m.GatewaySHA,
 			ImageDigests:    m.ImageDigests,
+
+			GatewayBinarySHA256: m.GatewayBinarySHA256,
+			GatewayBase:         m.GatewayBase,
+		}
+		if err := GatewayIdentityRefusal(f.GatewayBinarySHA256, f.GatewayBase); err != nil {
+			return nil, fmt.Errorf("%s: %w", filepath.Base(p), err)
 		}
 		if prev, seen := out[m.Arm]; seen {
 			if diff := factsDiffer(prev, f); diff != "" {
@@ -144,6 +157,9 @@ func ReproductionFactsOf(m RunManifest) ReproductionFacts {
 		PromptLenChars:  m.PromptLenChars,
 		GatewaySHA:      m.GatewaySHA,
 		ImageDigests:    m.ImageDigests,
+
+		GatewayBinarySHA256: m.GatewayBinarySHA256,
+		GatewayBase:         m.GatewayBase,
 	}
 }
 
@@ -176,6 +192,10 @@ func factsDiffer(a, b ReproductionFacts) string {
 		return "gatewaySHA"
 	case digestsDiffer(a.ImageDigests, b.ImageDigests) != "":
 		return "imageDigests"
+	case a.GatewayBinarySHA256 != b.GatewayBinarySHA256:
+		return "gatewayBinarySHA256"
+	case a.GatewayBase != b.GatewayBase:
+		return "gatewayBase"
 	case promptLenDiffer(a.PromptLenChars, b.PromptLenChars) != "":
 		return "promptLenChars"
 	}
@@ -318,12 +338,40 @@ func ReproductionRefusal(target, planned map[string]ReproductionFacts) error {
 					arm, c.field, c.tv, c.pv, c.consequence)
 			}
 		}
+		// The gateway by content, when the target recorded it (2026-10-07 registration).
+		//
+		// Both-or-neither is checked on each side first, so "the target has a binary hash" means it has both
+		// facts. Then the same three classes as above, and when both sides have the facts the gateway's image ID
+		// leaves the image comparison: measured, one binary on one pinned base built twice gives two IDs.
+		for side, f := range map[string]ReproductionFacts{"target run": t, "plan": p} {
+			if err := GatewayIdentityRefusal(f.GatewayBinarySHA256, f.GatewayBase); err != nil {
+				return fmt.Errorf("arm %s: the %s's %w", arm, side, err)
+			}
+		}
+		byContent := t.GatewayBinarySHA256 != ""
+		if byContent {
+			switch {
+			case p.GatewayBinarySHA256 == "":
+				return fmt.Errorf("arm %s: the target run records the gateway's binary hash and base and this plan records neither, so sameness there cannot be checked. Record them in this run's manifest, or stop calling this a reproduction",
+					arm)
+			case t.GatewayBinarySHA256 != p.GatewayBinarySHA256:
+				return fmt.Errorf("arm %s: gatewayBinarySHA256 is %q in the target run and %q in this plan -- a different gateway binary admits and routes differently, whatever commit it names. Fix the plan, or stop calling this a reproduction",
+					arm, t.GatewayBinarySHA256, p.GatewayBinarySHA256)
+			case t.GatewayBase != p.GatewayBase:
+				return fmt.Errorf("arm %s: gatewayBase is %q in the target run and %q in this plan -- the gateway runs on a different base image. Fix the plan, or stop calling this a reproduction",
+					arm, t.GatewayBase, p.GatewayBase)
+			}
+		}
 		if len(t.ImageDigests) > 0 {
-			if len(p.ImageDigests) == 0 {
+			ti, pi := t.ImageDigests, p.ImageDigests
+			if byContent {
+				ti, pi = withoutRole(ti, "gateway"), withoutRole(pi, "gateway")
+			}
+			if len(pi) == 0 {
 				return fmt.Errorf("arm %s: the target run records imageDigests and this plan records none, so sameness there cannot be checked. Record them in this run's manifest, or stop calling this a reproduction",
 					arm)
 			}
-			if d := digestsDiffer(t.ImageDigests, p.ImageDigests); d != "" {
+			if d := digestsDiffer(ti, pi); d != "" {
 				return fmt.Errorf("arm %s: imageDigests differ -- %s. A different image is a different instrument, and this plan does not repeat that run",
 					arm, d)
 			}
@@ -373,8 +421,23 @@ func unrecordedFields(t ReproductionFacts) []string {
 	if t.GatewaySHA == "" {
 		out = append(out, "gatewaySHA")
 	}
-	if len(t.ImageDigests) == 0 {
-		out = append(out, "imageDigests")
+	// Each role on its own: any non-empty map used to count as recorded, so a target naming only its engine
+	// was never reported as UNKNOWN for its gateway (found in review, 2026-10-07).
+	for _, role := range ProvenanceRoles {
+		if strings.TrimSpace(t.ImageDigests[role]) == "" {
+			out = append(out, "imageDigests."+role)
+		}
+	}
+	return out
+}
+
+// withoutRole returns a copy of images without one role, leaving the caller's map untouched.
+func withoutRole(images map[string]string, role string) map[string]string {
+	out := make(map[string]string, len(images))
+	for k, v := range images {
+		if k != role {
+			out[k] = v
+		}
 	}
 	return out
 }
