@@ -106,6 +106,44 @@ def run():
             held[e["cycle"]] = held.get(e["cycle"], 0) + 1
         assert held == {c: times for c in range(1, n + 1)}, (setting, held)
     print("ok: every cycle position is held out exactly twice in six burst cells and once in three serial cells")
+    run_with_harness()
+
+
+def run_with_harness():
+    """The registered-seed check against real gen-trace output; needs BENCHHARNESS, and refuses rather than skips."""
+    import os, shutil, subprocess, tempfile
+    harness = os.environ.get("BENCHHARNESS")
+    if not harness:
+        raise AssertionError("BENCHHARNESS is unset: the seed check's test needs a built benchharness and does not skip")
+    lib = os.path.join(sb.instrument_gates.REPO, "hack", "lib", "instrument-validation.sh")
+    with tempfile.TemporaryDirectory() as run:
+        def gen(arm, b, warm, seed):
+            fn = "iv_warmup_duration_ms" if warm else "iv_duration_ms"
+            dur = subprocess.run(["bash", "-c", f'source "$0"; {fn} "$1" "$2"', lib, sb.STUDY, arm],
+                                 capture_output=True, text=True, check=True).stdout.strip()
+            out = os.path.join(run, f"{'warmup-trace' if warm else 'trace'}-{arm}-{b}.jsonl")
+            subprocess.run([harness, "gen-trace"] + (["--warmup"] if warm else []) + ["--seed", str(seed), "--duration-ms", dur,
+                            "--study", sb.STUDY, "--arm", arm, "--model", "m", "--gateway-url", "http://x", "--timeout-ms", "1",
+                            "--trace-out", out, "--manifest-out", out + ".yaml"], capture_output=True, check=True)
+        for arm, b in sb.CELLS:
+            gen(arm, b, False, sb.REGISTERED_SEED)
+            gen(arm, b, True, sb.REGISTERED_SEED)
+        line = sb.check_registered_seed(run, harness)
+        print(f"ok: traces generated at the registered seed pass -- {line}")
+        # Mutation that turns this red: regenerate from the manifest's seed instead of the registered one.
+        gen("burst-step", 4, False, sb.REGISTERED_SEED + 1)
+        try:
+            sb.check_registered_seed(run, harness)
+            raise AssertionError("a trace from another seed passed")
+        except Refusal as e:
+            assert "trace-burst-step-4.jsonl is not what seed" in str(e), e
+            print(f"ok: a trace from another seed is refused -- {e}")
+    # Q3's refusal is its verdict and does not erase the rest.
+    def refusing(run):
+        raise Refusal("the column-normalised design has condition number 412.0")
+    lines = sb.q3_verdict("unused", fit=refusing)
+    assert lines == ["Q3: REFUSED -- the column-normalised design has condition number 412.0"], lines
+    print("ok: a Q3 refusal becomes Q3's verdict line instead of ending the evaluation")
 
 
 if __name__ == "__main__":

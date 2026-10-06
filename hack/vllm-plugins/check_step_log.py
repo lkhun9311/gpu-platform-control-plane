@@ -41,6 +41,8 @@ def load(step_lines, engine_lines):
         if r["ev"] == "flush":
             if "end" not in r:
                 raise Refusal("a flush record carries no end stamp, so whether it overlapped a request is unknown")
+            if r.get("handoff_ns") is None:
+                raise Refusal("a flush record carries no handoff cost, so the instrument's cost for that step is unknown")
             nxt = next((x for x in recs[i + 1:] if x["ev"] == "add"), None)
             if nxt is not None and r["end"] >= nxt["mono"]:
                 raise Refusal(f"a write ended at {r['end']} ns, after request {nxt['id']} arrived at {nxt['mono']} ns")
@@ -53,10 +55,11 @@ def load(step_lines, engine_lines):
     if len(done) != len(dones):
         raise Refusal("a step has more than one done record")
     adds = [r for r in recs if r["ev"] == "add"]
+    # The cost of handing a batch to the writer, charged to the step after which it was handed over.
     launch = {}
     for r in recs:
-        if r["ev"] == "launch":
-            launch[r["step"]] = launch.get(r["step"], 0) + r["ns"]
+        if r["ev"] == "flush":
+            launch[r["step"]] = launch.get(r["step"], 0) + r["handoff_ns"]
     # Clock anchors: a wall reading bracketed by two monotonic ones, in order; and vLLM's arrival stamp, taken in
     # the frontend before the request was sent, must precede the scheduler's own reading of the wall clock.
     for r in adds + sched:
@@ -104,10 +107,15 @@ def check(step_lines, engine_lines, outputs=None):
                           f"engine logged {int(it[2] + it[4])}")
     lines.append(f"steps: {len(sched)} recorded, {len(iters)} logged by the engine, tokens equal at every step")
     shares = []
+    prev_t3 = None
     for s in sched:
         d = done[s["step"]]
         occupancy = d["t3"] - s["t0"]
-        cost = s["self"] + d["self"] + launch.get(s["step"], 0)
+        # Admissions recorded between the previous step's update and this step's scheduling delay this step, so
+        # their cost is this step's too (a review built 20 ms of admission cost that the bound had ignored).
+        admitted = sum(a["self"] for a in adds if (prev_t3 is None or a["mono"] >= prev_t3) and a["mono"] <= s["t0"])
+        cost = s["self"] + d["self"] + launch.get(s["step"], 0) + admitted
+        prev_t3 = d["t3"]
         shares.append(cost / occupancy if occupancy > 0 else float("inf"))
     worst = max(shares)
     lines.append(f"instrument cost per step: median {statistics.median(shares):.5%}, worst {worst:.5%} of occupancy")
@@ -153,7 +161,7 @@ def self_test():
             json.dumps({"ev": "sched", "step": 2, "t0": 1_000_200, "t1": 1_000_300, "anchor": [1_000_300, 1_000_400, 1_000_302],
                         "tokens": {"chatcmpl-a-1-xx": 1}, "computed": {"chatcmpl-a-1-xx": 4}, "self": 50}),
             json.dumps({"ev": "done", "step": 2, "t2": 2_000_000, "t3": 2_000_100, "self": 50}),
-            json.dumps({"ev": "flush", "mono": 2_000_200, "end": 2_000_300, "records": 5}),
+            json.dumps({"ev": "flush", "mono": 2_000_200, "end": 2_000_300, "records": 5, "step": 2, "handoff_ns": 20}),
         ]
     engine = ["Iteration(1): 1 context requests, 4 context tokens, 0 generation requests, 0 generation tokens, iteration elapsed time: 0.9 ms",
               "Iteration(2): 0 context requests, 0 context tokens, 1 generation requests, 1 generation tokens, iteration elapsed time: 0.9 ms"]
@@ -173,12 +181,16 @@ def self_test():
          engine, None, "out of order"),
         ("computed tokens that do not continue", step_log()[:3] + [step_log()[3].replace('{"chatcmpl-a-1-xx": 4}', '{"chatcmpl-a-1-xx": 3}')]
          + step_log()[4:], engine, None, "computed tokens"),
-        ("a flush with no end stamp", step_log()[:-1] + [json.dumps({"ev": "flush", "mono": 2_000_200, "records": 5})],
-         engine, None, "no end stamp"),
+        ("a flush with no end stamp", step_log()[:-1] + [json.dumps({"ev": "flush", "mono": 2_000_200, "records": 5,
+         "step": 2, "handoff_ns": 20})], engine, None, "no end stamp"),
+        ("a flush with no handoff cost", step_log()[:-1] + [json.dumps({"ev": "flush", "mono": 2_000_200, "end": 2_000_300,
+         "records": 5, "step": 2})], engine, None, "no handoff cost"),
+        ("an admission cost above 1% of the step it delayed", [step_log()[0].replace('"self": 10', '"self": 20000')] + step_log()[1:],
+         engine, None, "above 1%"),
         ("an arrival after the scheduler saw it", [step_log()[0].replace('"arrival_wall": 90', '"arrival_wall": 150')] + step_log()[1:],
          engine, None, "arrived at the frontend after"),
         ("a write still running when the next request arrived",
-         [json.dumps({"ev": "flush", "mono": 0, "end": 5, "records": 0})]
+         [json.dumps({"ev": "flush", "mono": 0, "end": 5, "records": 0, "step": 0, "handoff_ns": 1})]
          + [step_log()[0].replace('"mono": 0', '"mono": 3')] + step_log()[1:], engine, None, "after request")
     ]:
         try:

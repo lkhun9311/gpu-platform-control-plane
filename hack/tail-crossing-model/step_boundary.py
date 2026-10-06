@@ -58,6 +58,7 @@ def gate_archive(run, harness):
                       f"an incomplete session is a refusal")
     lines.append(instrument_gates.check_design(run, harness))
     lines.append(instrument_gates.check_warmup_design(run, harness))
+    lines.append(check_registered_seed(run, harness))
     lines.append(instrument_gates.check_provenance(run, None, CELLS))
     for arm, b in CELLS:
         instrument_gates.check_warmup(run, arm, b)
@@ -77,6 +78,38 @@ def gate_archive(run, harness):
                                            fixed_length=True)
     lines.append(f"W, S and I2: all {len(CELLS)} registered cells pass")
     return lines
+
+
+REGISTERED_SEED = 31
+
+
+def check_registered_seed(run, harness):
+    """Every measured and warm-up trace is what gen-trace makes at the registered seed, byte for byte.
+
+    The design check proves a trace is the registered matrix and the warm-up check regenerates from the seed its
+    own manifest names; neither proves the seed is the registered one, so another seed's traces would have passed
+    and pairs could have replayed different episodes (found by review).
+    """
+    import subprocess, tempfile
+    lib = os.path.join(instrument_gates.REPO, "hack", "lib", "instrument-validation.sh")
+    with tempfile.TemporaryDirectory() as tmp:
+        for arm, b in CELLS:
+            for warm, fn, prefix in ((False, "iv_duration_ms", "trace"), (True, "iv_warmup_duration_ms", "warmup-trace")):
+                dur = subprocess.run(["bash", "-c", f'source "$0"; {fn} "$1" "$2"', lib, STUDY, arm],
+                                     capture_output=True, text=True)
+                if dur.returncode != 0:
+                    raise Refusal(f"{arm}: no registered length: {dur.stdout.strip()} {dur.stderr.strip()}")
+                out = os.path.join(tmp, f"{prefix}-{arm}-{b}.jsonl")
+                cmd = [harness, "gen-trace"] + (["--warmup"] if warm else []) + [
+                    "--seed", str(REGISTERED_SEED), "--duration-ms", dur.stdout.strip(), "--study", STUDY, "--arm", arm,
+                    "--model", "Qwen/Qwen2.5-3B-Instruct", "--gateway-url", "http://127.0.0.1:18080", "--timeout-ms",
+                    "60000", "--trace-out", out, "--manifest-out", out + ".yaml"]
+                p = subprocess.run(cmd, capture_output=True, text=True)
+                if p.returncode != 0:
+                    raise Refusal(f"{arm}-{b}: gen-trace could not regenerate it: {(p.stderr or p.stdout).strip()[-300:]}")
+                if open(out, "rb").read() != open(os.path.join(run, f"{prefix}-{arm}-{b}.jsonl"), "rb").read():
+                    raise Refusal(f"{prefix}-{arm}-{b}.jsonl is not what seed {REGISTERED_SEED} generates")
+    return f"Seed: all {2 * len(CELLS)} measured and warm-up traces are seed {REGISTERED_SEED}'s, byte for byte"
 
 
 # ---------------------------------------------------------------------------------------------------------------
@@ -250,16 +283,20 @@ def gaps(run):
     lines = []
     for kind in ("serial", "burst", "stagger"):
         blocks = ODD if kind != "burst" else tuple(range(1, 7))
-        g = []
+        g, per_block = [], {}
         for b in blocks:
-            adds, sched, done, _, _ = step_records(run, f"{kind}-step", b)
-            for a, nxt in zip(sched, sched[1:]):
-                if set(a["tokens"]) & set(nxt["tokens"]):
-                    g.append((nxt["t0"] - done[a["step"]]["t3"]) / 1e6)
+            # The population, as registered: consecutive steps of one measured episode, by the episode's own
+            # requests; warm-up steps belong to no measured episode and are not in it.
+            for e in episodes_of_cell(run, f"{kind}-step", b, kind):
+                for a, nxt in zip(e["steps"], e["steps"][1:]):
+                    v = nxt["t0_ms"] - a["t3_ms"]
+                    g.append(v)
+                    per_block.setdefault(b, []).append(v)
         if g:
             g.sort()
+            blocks_txt = ", ".join(f"block {b} {statistics.median(v):.3f}" for b, v in sorted(per_block.items()))
             lines.append(f"inter-step gap {kind}: median {statistics.median(g):.3f} ms, p95 {g[int(0.95 * (len(g) - 1))]:.3f} ms "
-                         f"over {len(g)} gaps within episodes")
+                         f"over {len(g)} gaps within measured episodes (block medians: {blocks_txt})")
     return lines
 
 
@@ -281,8 +318,14 @@ def q1(episodes, baseline, prompt_tokens):
         ok = wait >= half
         held = held and ok
         blocks = ", ".join(f"block {b} {statistics.fmean(v):.3f}" for b, v in sorted(waits.items(), key=str))
+        # Uncertainty, published and not judged: the t95 interval of the block means (df = blocks - 1).
+        means = [statistics.fmean(v) for v in waits.values()]
+        ci = ""
+        if len(means) in (3, 6):
+            m, lo, hi = paired_interval(means)
+            ci = f"; block-mean t95 [{lo:.3f}, {hi:.3f}] ms"
         lines.append(f"Q1 {s}: mean wait {wait:.3f} ms against half the pilot's gap {half:.3f} ms -> "
-                     f"{'holds' if ok else 'does not hold'} (by block: {blocks})")
+                     f"{'holds' if ok else 'does not hold'} (by block: {blocks}{ci})")
     return held, lines
 
 
@@ -306,7 +349,7 @@ def step_features(sched, done, adds, late=frozenset()):
                 n += 1
                 K += c + 1
         out.append(dict(P=P, n=n, K=K, H=H, late=is_late, occ=(done[s["step"]]["t3"] - s["t0"]) / 1e6,
-                        rids=set(s["tokens"])))
+                        t0_ms=s["t0"] / 1e6, t3_ms=done[s["step"]]["t3"] / 1e6, rids=set(s["tokens"])))
     return out
 
 
@@ -444,10 +487,17 @@ def evaluate(run, harness):
     lines += more
     lines.append(f"Q1: {'holds' if held else 'does not hold'} on every short-prefill setting" if held else
                  "Q1: does not hold on every short-prefill setting")
-    passed, more, _ = q3(run)
-    lines += more
-    lines.append(f"Q3: {'PASS' if passed else 'FAIL'}")
+    lines += q3_verdict(run)
     return ok, lines
+
+
+def q3_verdict(run, fit=None):
+    """Q3's lines. A refusal (rank, condition) is Q3's verdict, not the evaluator's: everything before it stands."""
+    try:
+        passed, more, _ = (fit or q3)(run)
+        return more + [f"Q3: {'PASS' if passed else 'FAIL'}"]
+    except Refusal as e:
+        return [f"Q3: REFUSED -- {e}"]
 
 
 if __name__ == "__main__":

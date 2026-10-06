@@ -21,7 +21,11 @@ set -uo pipefail
 cd "$(dirname "$0")/../tail-crossing-model" || exit 1
 fail=0
 log=$(mktemp)
-trap 'rm -f "$log"' EXIT
+bin=$(mktemp -d)
+trap 'rm -f "$log"; rm -rf "$bin"' EXIT
+# step_boundary's seed check regenerates traces with the real generator, so its self-test needs a built harness.
+( cd ../.. && go build -o "$bin/benchharness" ./cmd/benchharness ) || { echo "FAIL: could not build benchharness" >&2; exit 1; }
+export BENCHHARNESS="$bin/benchharness"
 for m in iterlog instrument_gates timing_fit step_boundary; do
 	if ! python3 "$m.py" --self-test >"$log" 2>&1; then
 		echo "FAIL: $m.py --self-test exited non-zero:" >&2

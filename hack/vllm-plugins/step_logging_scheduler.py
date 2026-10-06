@@ -28,8 +28,9 @@ One JSON object per line goes to STEP_LOG_PATH (default /tmp/step-log.jsonl):
     {"ev": "add",   "id": ..., "mono": ns, "anchor": [mono_ns, wall_ns, mono_ns], "arrival_wall": ns, "prompt": n, "self": ns}
     {"ev": "sched", "step": k, "t0": ns, "t1": ns, "anchor": [mono_ns, wall_ns, mono_ns], "tokens": {id: n, ...}, "computed": {id: n, ...}, "self": ns}
     {"ev": "done",  "step": k, "t2": ns, "t3": ns, "self": ns}
-    {"ev": "flush", "mono": ns, "end": ns, "records": n}
-    {"ev": "launch", "step": k, "ns": ns}           -- the cost of handing step k's batch to the writer
+    {"ev": "flush", "mono": ns, "end": ns, "records": n, "step": k, "handoff_ns": ns}
+        -- written after the batch it closes; "end" is when that batch's file was closed, and handoff_ns is what
+           handing it over cost the scheduler thread after step k
     {"ev": "overflow", "mono": ns, "dropped_after": n}
 
 "mono", t0..t3 are time.monotonic_ns(). "anchor" is a wall-clock reading bracketed by two monotonic readings, so
@@ -77,21 +78,30 @@ class StepLoggingScheduler(Scheduler):
     def _write_loop(self):
         # One thread takes batches in order, so two drains close together cannot interleave their records.
         while True:
-            recs, start = self._queue.get()
-            self._write(recs, start)
+            recs, start, handoff = self._queue.get()
+            self._write(recs, start, handoff)
 
-    def _write(self, recs, start):
-        if recs:
-            with open(self._step_log_path, "a") as f:
-                for rec in recs:
-                    f.write(json.dumps(rec, separators=(",", ":")) + "\n")
-                # "end" is stamped once every record is in the file's buffer, just before the close.
-                f.write(json.dumps({"ev": "flush", "mono": start, "end": time.monotonic_ns(), "records": len(recs)},
-                                   separators=(",", ":")) + "\n")
+    def _write(self, recs, start, handoff):
+        # The payload is written and the file closed before "end" is read, so "end" is when the batch's own I/O was
+        # over. The closing flush record is then one short append of its own, after the stamp, and carries the
+        # cost of handing this batch over, which the scheduler thread measured after the handoff and passes here
+        # through an event: a cost appended to the next batch was lost for the last drain (found by review).
+        with open(self._step_log_path, "a") as f:
+            for rec in recs:
+                f.write(json.dumps(rec, separators=(",", ":")) + "\n")
+        end = time.monotonic_ns()
+        handoff["done"].wait()
+        with open(self._step_log_path, "a") as f:
+            f.write(json.dumps({"ev": "flush", "mono": start, "end": end, "records": len(recs),
+                                "step": handoff["step"], "handoff_ns": handoff["ns"]}, separators=(",", ":")) + "\n")
 
     def _flush(self):
         recs, self._buf = self._buf, []
-        self._queue.put((recs, time.monotonic_ns()))
+        s0 = time.monotonic_ns()
+        handoff = {"done": threading.Event(), "step": self._step_index, "ns": None}
+        self._queue.put((recs, s0, handoff))
+        handoff["ns"] = time.monotonic_ns() - s0
+        handoff["done"].set()
 
     @staticmethod
     def _anchor():
@@ -136,8 +146,5 @@ class StepLoggingScheduler(Scheduler):
             rec["self"] = time.monotonic_ns() - t3
         # Drained: nothing is waiting or running, so handing the records to the writer delays no request.
         if self._buf and not self.has_requests():
-            s0 = time.monotonic_ns()
             self._flush()
-            # Handing the batch over is the instrument's cost too; it goes in the next batch, after this step.
-            self._buf.append({"ev": "launch", "step": self._step_index, "ns": time.monotonic_ns() - s0})
         return out

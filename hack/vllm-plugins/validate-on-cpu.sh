@@ -92,6 +92,16 @@ for _ in $(seq 1 30); do
   sleep 1
 done
 [ "$ok" = 1 ] || fail "the batch holding the last request was not written within 30 s"
-python3 check_step_log.py "$WORK/step.jsonl" "$WORK/engine.log" "$WORK/outputs.json" || fail "the step log does not reconcile"
-printf 'flushes: %s\n' "$(grep -c '"ev":"flush"' "$WORK/step.jsonl")"
+python3 check_step_log.py "$WORK/step.jsonl" "$WORK/engine.log" "$WORK/outputs.json" | tee "$WORK/summary.txt" \
+  || fail "the step log does not reconcile"
+printf 'flushes: %s\n' "$(grep -c '"ev":"flush"' "$WORK/step.jsonl")" | tee -a "$WORK/summary.txt"
+# EVIDENCE_DIR keeps what the PASS rests on: the step log, the engine log, the client's output counts, the
+# plugin's sha256 and the checker's summary, so a published figure can be re-derived (a review could not).
+if [ -n "${EVIDENCE_DIR:-}" ]; then
+  mkdir -p "$EVIDENCE_DIR"
+  cp "$WORK/step.jsonl" "$WORK/outputs.json" "$WORK/summary.txt" "$EVIDENCE_DIR/"
+  grep -E "Iteration\(|non-default args|custom scheduler" "$WORK/engine.log" > "$EVIDENCE_DIR/engine-log-excerpt.txt"
+  sha256sum step_logging_scheduler.py check_step_log.py | sed 's|  |  hack/vllm-plugins/|' > "$EVIDENCE_DIR/sha256.txt"
+  printf '%s\n' "$IMAGE" "$MODEL" > "$EVIDENCE_DIR/engine.txt"
+fi
 echo "PASS: the instrument records the engine's steps on v0.27.1"
