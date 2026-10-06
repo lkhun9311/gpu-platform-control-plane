@@ -866,6 +866,17 @@ def self_test_s4():
         except Refusal as e:
             assert "warmup-trace-stagger-log-3.jsonl is not the warm-up" in str(e), e
             print(f"ok: refuses a warm-up trace that is not its regeneration -- {e}")
+    with tempfile.TemporaryDirectory() as run:
+        _s3_run(run, study=STUDY_S4)
+        for name in os.listdir(run):
+            if "-nolog-" in name:
+                os.remove(os.path.join(run, name))
+        try:
+            check_archive(run, "unused", logged=True)
+            raise AssertionError("a logged-only archive reached the paired design check")
+        except Refusal as e:
+            assert "logged-only archive needs the logged-engine study" in str(e), e
+            print(f"ok: a logged-only archive is refused by name until its study exists -- {e}")
     # A session-4 archive that would pass, relabelled with a study no rule here was registered for.
     with tempfile.TemporaryDirectory() as run:
         _s3_run(run, study="instrument-validation-unregistered", conditioner=True)
@@ -1262,6 +1273,12 @@ def check_provenance(run, arms):
 def check_archive(run, harness, logged=False):
     """Every check an archive passes before a gate is read; the command line and timing_fit both go through it."""
     arms = [f"{k}-log" for k in TYPES] if logged else [f"{k}-{s}" for k in TYPES for s in ("log", "nolog")]
+    # The Go plan check admits the logged arms only beside their unlogged pairs, so a logged-only archive -- which
+    # only the logged-engine registration's confirmatory session would make -- is refused here by name rather than
+    # by a matrix error. Its study is section 8 item 1 of that registration, built only after a passing pilot.
+    if logged and not any(n.startswith("trace-") and "-nolog-" in n for n in os.listdir(run)):
+        raise Refusal("a logged-only archive needs the logged-engine study registered in internal/bench (section 8 "
+                      "item 1 of the 2026-10-06 logged-engine registration), which is built only after a passing pilot")
     lines = [check_design(run, harness)]
     if study_of(run) in WARM_STUDIES:
         lines.append(check_warmup_design(run, harness))
