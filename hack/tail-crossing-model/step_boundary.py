@@ -82,6 +82,7 @@ def gate_archive(run, harness):
 
 
 REGISTERED_SEED = 31
+MAX_CLOCK_SPREAD_NS = 100_000
 # The engine configuration section 1 registers, beyond what check_provenance reads (found by review: a cell applied
 # with a 512-token budget, 32 sequences and prefix caching on passed provenance).
 REGISTERED_ARGS = ("Qwen/Qwen2.5-3B-Instruct", "--dtype=half", "--max-model-len=16384", "--max-num-seqs=64",
@@ -90,8 +91,13 @@ REGISTERED_ARGS = ("Qwen/Qwen2.5-3B-Instruct", "--dtype=half", "--max-model-len=
 # The same configuration as effective option values: each must be given exactly once, with this value.
 REGISTERED_OPTIONS = {"model": "Qwen/Qwen2.5-3B-Instruct", "dtype": "half", "max-model-len": "16384", "max-num-seqs": "64",
                       "gpu-memory-utilization": "0.90", "max-num-batched-tokens": "2048", "port": "8000",
-                      "no-enable-prefix-caching": None}
-FORBIDDEN_OPTIONS = ("enable-prefix-caching",)
+                      "no-enable-prefix-caching": None, "no-async-scheduling": None,
+                      "enable-logging-iteration-details": None}
+# Revision and scheduler class are read as effective values too: check_provenance only asks that the registered
+# flag be present, so a later --revision, --async-scheduling or a logged control given the instrument passed both
+# checks (found by review, in memory; no archived cell carries any of them).
+FORBIDDEN_OPTIONS = ("enable-prefix-caching", "async-scheduling")
+STEP_CLASS = "step_logging_scheduler.StepLoggingScheduler"
 
 
 def engine_options(args):
@@ -127,10 +133,16 @@ def check_registered_engine(run):
         if len(row) == 6 and row[3] == "applied" and row[2].startswith("vllm"):
             applied[row[0]] = json.loads(row[5])
     want_sha = hashlib.sha256(open(PLUGIN, "rb").read()).hexdigest()
+    rev = instrument_gates.go_const("InputLengthTokenizerRevision")
     for arm, b in CELLS:
         args = applied.get(cell_of.get((arm, b)), [])
         opts = engine_options(args)
-        for k, v in REGISTERED_OPTIONS.items():
+        want = dict(REGISTERED_OPTIONS, **{"revision": rev, "tokenizer-revision": rev})
+        if arm.endswith("-step"):
+            want["scheduler-cls"] = STEP_CLASS
+        elif "scheduler-cls" in opts:
+            raise Refusal(f"{arm}-{b}: a logged control ran with a scheduler class, so it may carry the treatment: {args}")
+        for k, v in want.items():
             if opts.get(k) != [v]:
                 raise Refusal(f"{arm}-{b}: the engine was given {k} as {opts.get(k)}, not exactly once as the "
                               f"registered {v!r}: {args}")
@@ -282,6 +294,13 @@ def step_records(run, arm, b):
     offs = [r["anchor"][1] - (r["anchor"][0] + r["anchor"][2]) / 2 for r in list(adds.values()) + sched]
     offset = statistics.median(offs)
     spread = max(offs) - min(offs)
+    # One offset is only right while the wall clock does not step during the cell; a step moves P -> A and the
+    # serial baseline while every ordering check still passes (found by review: the spread was computed and dropped).
+    # The bound is set after this archive, whose cells spread 6 to 45 us, so it guards later runs and judges nothing
+    # here; it is a tenth of a millisecond, under a quarter of Q1's smallest shortfall (0.437 ms).
+    if spread > MAX_CLOCK_SPREAD_NS:
+        raise Refusal(f"{arm}-{b}: the monotonic-to-wall offset spread {spread / 1e3:.1f} us across the cell, above "
+                      f"{MAX_CLOCK_SPREAD_NS / 1e3:.0f} us, so one offset does not place its stamps on the wall clock")
     return adds, sched, done, offset, spread
 
 

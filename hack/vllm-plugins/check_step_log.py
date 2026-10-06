@@ -78,12 +78,14 @@ def load(step_lines, engine_lines):
         if prev_t3 is not None and r["t0"] < prev_t3:
             raise Refusal(f"step {r['step']} started before step {r['step'] - 1}'s update ended")
         prev_t3 = d["t3"]
-    # Each request's computed tokens continue where its previous step left them.
+    # Each request's computed tokens start at zero and continue where its previous step left them.
+    # Prefix caching is off and preemption refuses the cell, so a first step with tokens already computed is a
+    # record the engine did not make; accepting it read a fresh prompt as a decoder (found by review, in memory).
     progress = {}
     for r in sched:
         for rid, n in r["tokens"].items():
             c = r["computed"].get(rid, -1)
-            if c != progress.get(rid, c if rid not in progress else -2) or c < 0:
+            if c != progress.get(rid, 0) or c < 0:
                 raise Refusal(f"step {r['step']}: request {rid} reports {c} computed tokens, not the "
                               f"{progress.get(rid, 0)} its earlier steps scheduled")
             progress[rid] = c + n
@@ -176,6 +178,10 @@ def self_test():
          engine, None, "out of order"),
         ("computed tokens that do not continue", step_log()[:3] + [step_log()[3].replace('{"chatcmpl-a-1-xx": 4}', '{"chatcmpl-a-1-xx": 3}')]
          + step_log()[4:], engine, None, "computed tokens"),
+        ("a first step with tokens already computed", [step_log()[0].replace('"prompt": 4', '"prompt": 104'),
+         step_log()[1].replace('{"chatcmpl-a-1-xx": 0}', '{"chatcmpl-a-1-xx": 100}')] + step_log()[2:3]
+         + [step_log()[3].replace('{"chatcmpl-a-1-xx": 4}', '{"chatcmpl-a-1-xx": 104}')] + step_log()[4:], engine, None,
+         "computed tokens"),
         ("a flush with no end stamp", step_log()[:-1] + [json.dumps({"ev": "flush", "mono": 2_000_200, "records": 5,
          "step": 2, "handoff_ns": 20})], engine, None, "no end stamp"),
         ("an admission cost above 1% of the step it delayed", [step_log()[0].replace('"self": 10', '"self": 20000')] + step_log()[1:],

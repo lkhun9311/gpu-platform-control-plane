@@ -144,6 +144,23 @@ def run_files():
         except Refusal as e:
             assert "more than one measured episode" in str(e), e
             print(f"ok: a step shared by two episodes refuses the cell -- {e}")
+    # A wall clock that steps inside a cell: one offset would misplace its stamps, so the cell is refused.
+    # Mutation that turns this red: compute the spread and return it without the bound.
+    with tempfile.TemporaryDirectory() as run:
+        def log(step_ns):
+            return [dict(ev="add", id="chatcmpl-x-abcd", mono=0, anchor=[0, 1000, 2], arrival_wall=0, prompt=4, self=1),
+                    dict(ev="sched", step=1, t0=10, t1=11, anchor=[10, 1010 + step_ns, 12], tokens={"chatcmpl-x-abcd": 4},
+                         computed={"chatcmpl-x-abcd": 0}, self=1),
+                    dict(ev="done", step=1, t2=12, t3=13, self=1)]
+        _write(os.path.join(run, "step-log-serial-step-1.jsonl"), log(sb.MAX_CLOCK_SPREAD_NS))
+        print(f"ok: a spread at the bound passes -- {sb.step_records(run, 'serial-step', 1)[4]} ns")
+        _write(os.path.join(run, "step-log-serial-step-1.jsonl"), log(sb.MAX_CLOCK_SPREAD_NS + 1))
+        try:
+            sb.step_records(run, "serial-step", 1)
+            raise AssertionError("a wall clock that stepped inside the cell was accepted")
+        except Refusal as e:
+            assert "offset spread" in str(e), e
+            print(f"ok: refuses a wall clock that stepped inside the cell -- {e}")
     # The registered engine configuration and the archived instrument hash, cell by cell.
     # Mutation that turns this red: check only the arguments check_provenance already reads.
     with tempfile.TemporaryDirectory() as run:
@@ -157,7 +174,10 @@ def run_files():
                     open(os.path.join(run, f"step-plugin-{arm}-{b}.sha256"), "w").write(f"{sha_for(arm, b)}  plugin\n")
             open(os.path.join(run, "cell-timings.tsv"), "w").write("\n".join(timings) + "\n")
             open(os.path.join(run, "applied-values.tsv"), "w").write("\n".join(applied) + "\n")
-        good = lambda arm, b: list(sb.REGISTERED_ARGS) + ["--no-async-scheduling"]
+        rev = sb.instrument_gates.go_const("InputLengthTokenizerRevision")
+        good = lambda arm, b: (list(sb.REGISTERED_ARGS) + ["--no-async-scheduling", "--enable-logging-iteration-details"]
+                               + ([f"--scheduler-cls={sb.STEP_CLASS}"] if arm.endswith("-step") else [])
+                               + [f"--revision={rev}", f"--tokenizer-revision={rev}"])
         lay(good, lambda arm, b: sha)
         print(f"ok: the registered configuration passes -- {sb.check_registered_engine(run)}")
         for what, args_for, sha_for, words in [
@@ -169,7 +189,14 @@ def run_files():
                  "not this tree's"),
                 ("a budget overridden in space form", lambda arm, b: good(arm, b) + ["--max-num-batched-tokens", "512"],
                  lambda a, b: sha, "max-num-batched-tokens"),
-                ("a dtype overridden later", lambda arm, b: good(arm, b) + ["--dtype=bfloat16"], lambda a, b: sha, "dtype")]:
+                ("a dtype overridden later", lambda arm, b: good(arm, b) + ["--dtype=bfloat16"], lambda a, b: sha, "dtype"),
+                ("async scheduling appended", lambda arm, b: good(arm, b) + ["--async-scheduling"], lambda a, b: sha,
+                 "--async-scheduling"),
+                ("another revision appended", lambda arm, b: good(arm, b) + ["--revision=0123abc"], lambda a, b: sha,
+                 "revision as"),
+                ("a logged control given the instrument in space form",
+                 lambda arm, b: good(arm, b) + (["--scheduler-cls", sb.STEP_CLASS] if arm == "burst-log" else []),
+                 lambda a, b: sha, "logged control ran with a scheduler class")]:
             lay(args_for, sha_for)
             try:
                 sb.check_registered_engine(run)
