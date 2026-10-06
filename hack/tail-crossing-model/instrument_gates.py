@@ -4,7 +4,7 @@ docs/superpowers/specs/2026-10-05-can-the-stock-engine-time-an-iteration-instrum
 amendment of 2026-10-05. Blocks are repetitions 1-3; a cell is raw-<arm>-<rep>.jsonl beside trace-<arm>-<rep>.jsonl,
 engine-log-<arm>-<rep>.txt and, for preemptions, engine-metrics-<arm>-<rep>-{before,after}.prom.
 
-    python3 instrument_gates.py ARCHIVE/m5c-run
+    BENCHHARNESS=path/to/benchharness python3 instrument_gates.py ARCHIVE/m5c-run
     python3 instrument_gates.py --self-test
 """
 
@@ -179,12 +179,17 @@ def gate_i1(cells, kind, quantity, rng, stat=statistics.median, role=None, label
             return stat([v[i] for i in draw[(side, b, group(s))]])
         return statistics.fmean(math.log(med("on", on, b, s) / med("off", off, b, s)) for s in keys for b in BLOCKS)
 
+    # Both are as registered, and both are weaker than their labels read (issue 326).
+    # The interval resamples episodes within each cell and holds the three blocks fixed, so it carries no
+    # between-block variance: block effects of +0.2, -0.2 and 0 give a zero-width interval.
     point = pooled({k: range(n) for k, n in sizes.items()})
     boot = sorted(pooled({k: rng.choices(range(n), k=n) for k, n in sizes.items()}) for _ in range(BOOT))
     lo, hi = boot[int(0.025 * BOOT)], boot[int(0.975 * BOOT) - 1]
     worst = max(keys, key=lambda s: abs(statistics.fmean(
         math.log(stat(on[b][s]) / stat(off[b][s])) for b in BLOCKS)))
     worst_d = statistics.fmean(math.log(stat(on[b][worst]) / stat(off[b][worst])) for b in BLOCKS)
+    # The registration bounds the mean of d = log(on/off), so "within 5%" is |d| <= 0.05: an actual +5.1% passes and
+    # -4.9% fails. Read as ratios the bounds are log(0.95) to log(1.05), and no recorded verdict falls between the two.
     ok = -POOLED <= lo and hi <= POOLED and abs(worst_d) <= PER_SETTING
     return ok, f"I1 {kind:7s} {quantity:4s}{label}: mean d {point:+.4f}, 95% [{lo:+.4f}, {hi:+.4f}]; worst setting {worst} {worst_d:+.4f}"
 
@@ -717,6 +722,29 @@ def self_test_s4():
         worst = float(whole.rsplit(" ", 1)[1])
         assert not passed and point > 0.1 and worst > 0.1, (prefill, whole)
         print(f"ok: slowing the episodes above the median moves the staggered prefill's mean -> FAIL: {prefill}")
+    # check_design hands every trace to the Go check and refuses on the first it rejects; a stub stands in for the
+    # harness, rejecting one trace, so what is pinned is the wiring (the Go refusals have their own tests).
+    with tempfile.TemporaryDirectory() as run:
+        _s3_run(run, study=STUDY_S4)
+        stub = os.path.join(run, "stub-harness")
+        with open(stub, "w") as f:
+            f.write('#!/bin/sh\ncase "$*" in *trace-burst-log-2.jsonl*) echo "error: a setting is missing" >&2; exit 1;; esac\n')
+        os.chmod(stub, 0o755)
+        try:
+            check_design(run, stub)
+            raise AssertionError("a trace the design check rejected was accepted")
+        except Refusal as e:
+            assert "trace-burst-log-2.jsonl" in str(e) and "a setting is missing" in str(e), e
+            print(f"ok: refuses an archive one of whose traces the design check rejects -- {e}")
+        # And the command line runs it: a check nothing calls would leave the test above green.
+        import subprocess
+        env = dict(os.environ, BENCHHARNESS=stub)
+        p = subprocess.run([sys.executable, os.path.abspath(__file__), run], env=env, capture_output=True, text=True)
+        assert p.returncode != 0 and "trace-burst-log-2.jsonl" in p.stderr, (p.returncode, p.stderr[-300:])
+        env.pop("BENCHHARNESS")
+        p = subprocess.run([sys.executable, os.path.abspath(__file__), run], env=env, capture_output=True, text=True)
+        assert p.returncode != 0 and "set BENCHHARNESS" in p.stderr, (p.returncode, p.stderr[-300:])
+        print("ok: the command line runs the design check, and refuses without a harness to run it with")
     # A session-4 archive that would pass, relabelled with a study no rule here was registered for.
     with tempfile.TemporaryDirectory() as run:
         _s3_run(run, study="instrument-validation-unregistered", conditioner=True)
@@ -983,11 +1011,41 @@ def self_test():
             print(f"ok: refuses a lost request -- {e}")
 
 
+def check_design(run, harness):
+    """Refuse an archive any of whose traces is not the matrix its study registers, by the Go check the plan passed.
+
+    evaluate() compares cells with each other, so an archive missing a setting from every cell alike (every 64-request
+    burst, say) passed it (found by review, issue 326). The registered matrix lives in internal/bench/episodes.go, and
+    re-running that check here, rather than mirroring the design in Python, keeps one definition of it.
+    The self-tests' synthetic archives are not registered matrices, so this runs on real archives only, from main.
+    """
+    import subprocess
+    study = study_of(run)
+    traces = sorted(n for n in os.listdir(run) if n.startswith("trace-") and n.endswith(".jsonl"))
+    arms = sorted({n[len("trace-"):].rsplit("-", 1)[0] for n in traces})
+    if not traces:
+        raise Refusal(f"{run} holds no trace-*.jsonl, so its matrix cannot be checked against the registration")
+    for n in traces:
+        arm = n[len("trace-"):].rsplit("-", 1)[0]
+        p = subprocess.run([harness, "matrix-plan-check", "--trace", os.path.join(run, n), "--study", study,
+                            "--arm", arm, "--arms", " ".join(arms)], capture_output=True, text=True)
+        if p.returncode != 0:
+            raise Refusal(f"{n} is not the matrix {study} registers: {(p.stderr or p.stdout).strip()}")
+    return f"Design: all {len(traces)} traces are the matrix {study} registers (matrix-plan-check)"
+
+
 if __name__ == "__main__":
     try:
         if sys.argv[1:] == ["--self-test"]:
             self_test()
         elif len(sys.argv) == 2:
+            # BENCHHARNESS names a built cmd/benchharness; it is required rather than skipped when absent, because a
+            # design check that quietly did not run reads exactly like one that passed.
+            harness = os.environ.get("BENCHHARNESS")
+            if not harness:
+                raise Refusal("set BENCHHARNESS to a built cmd/benchharness: the archive's traces are checked against "
+                              "the registered matrix before any gate is read")
+            print(check_design(sys.argv[1], harness))
             passed, lines = evaluate(sys.argv[1])
             print("\n".join(lines))
             sys.exit(0 if passed else 1)
