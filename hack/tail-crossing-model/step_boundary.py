@@ -240,6 +240,29 @@ def serial_baseline(run):
     return {k: statistics.median(v) for k, v in by.items()}
 
 
+def gaps(run):
+    """The time between one step's update exit and the next step's scheduling entry, which occupancy leaves out.
+
+    Published, not gated (section 5): a simulator that advanced straight from one step to the next would omit it.
+    Only gaps inside an episode count, where the engine had work waiting; an idle engine's wait for the next
+    request is not a step gap.
+    """
+    lines = []
+    for kind in ("serial", "burst", "stagger"):
+        blocks = ODD if kind != "burst" else tuple(range(1, 7))
+        g = []
+        for b in blocks:
+            adds, sched, done, _, _ = step_records(run, f"{kind}-step", b)
+            for a, nxt in zip(sched, sched[1:]):
+                if set(a["tokens"]) & set(nxt["tokens"]):
+                    g.append((nxt["t0"] - done[a["step"]]["t3"]) / 1e6)
+        if g:
+            g.sort()
+            lines.append(f"inter-step gap {kind}: median {statistics.median(g):.3f} ms, p95 {g[int(0.95 * (len(g) - 1))]:.3f} ms "
+                         f"over {len(g)} gaps within episodes")
+    return lines
+
+
 def q1(episodes, baseline, prompt_tokens):
     """For each short-prefill setting, whether the mean wait (P->A beyond the idle baseline, plus A->F) is at
     least half the pilot's mean gap. A prediction written before the data, reported, not a gate."""
@@ -251,11 +274,15 @@ def q1(episodes, baseline, prompt_tokens):
         base = baseline.get(prompt_tokens[s])
         if base is None:
             raise Refusal(f"Q1: no serial baseline at {prompt_tokens[s]} prompt tokens")
-        wait = statistics.fmean(e["ms"]["P-A"] - base + e["ms"]["A-F"] for e in eps)
+        waits = {}
+        for e in eps:
+            waits.setdefault(e.get("block"), []).append(e["ms"]["P-A"] - base + e["ms"]["A-F"])
+        wait = statistics.fmean(w for v in waits.values() for w in v)
         ok = wait >= half
         held = held and ok
+        blocks = ", ".join(f"block {b} {statistics.fmean(v):.3f}" for b, v in sorted(waits.items(), key=str))
         lines.append(f"Q1 {s}: mean wait {wait:.3f} ms against half the pilot's gap {half:.3f} ms -> "
-                     f"{'holds' if ok else 'does not hold'}")
+                     f"{'holds' if ok else 'does not hold'} (by block: {blocks})")
     return held, lines
 
 
@@ -405,9 +432,13 @@ def evaluate(run, harness):
     lines.append("overhead gate: " + ("PASS -- serial and burst only; staggered is the instrumented engine's"
                                       if ok else "FAIL -- the instrument's overhead is not established"))
     episodes = [e for b in ODD for e in decompose(run, "stagger-step", b)]
-    for k in ("S-P", "P-A", "A-F", "F-O", "O-C"):
-        lines.append(f"decomposition {k}: median {statistics.median(e['ms'][k] for e in episodes):.3f} ms over "
-                     f"{len(episodes)} late prefills")
+    # Every component for every staggered setting, as section 4 registers, not one pooled median.
+    for s in sorted({e["setting"] for e in episodes}):
+        mine = [e for e in episodes if e["setting"] == s]
+        parts = ", ".join(f"{k} {statistics.fmean(e['ms'][k] for e in mine):.3f}"
+                          for k in ("S-P", "P-A", "A-F", "F-O", "O-C"))
+        lines.append(f"decomposition {s}: mean ms {parts} over {len(mine)} late prefills")
+    lines += gaps(run)
     prompt = {s: s[2] for s in Q1_HALF_GAP_MS}
     held, more = q1(episodes, serial_baseline(run), prompt)
     lines += more
