@@ -11,16 +11,26 @@ three calls the engine core already makes (v1/engine/core.py, EngineCore.step).
 It subclasses the synchronous Scheduler, which is what vLLM uses with --no-async-scheduling; under async
 scheduling the core pipelines steps and these boundaries would not mean what they say here.
 
-One JSON object per line goes to the file named by STEP_LOG_PATH (default /tmp/step-log.jsonl):
+No I/O happens while the engine is busy. Records go to an in-memory list and are written out only when the
+engine has drained -- no request left after a step's update -- which in these traces is between episodes, so the
+write never sits inside a measured step. A buffer that grows past MAX_BUFFERED records is not truncated: the
+next record says so and the evaluator refuses the cell, because a silently shortened log reads as a complete one.
 
-    {"ev": "add",   "id": ..., "mono": ns, "wall": ns, "prompt": n}
-    {"ev": "sched", "step": k, "t0": ns, "t1": ns, "wall1": ns, "tokens": {id: n, ...}}
-    {"ev": "done",  "step": k, "t2": ns}
+Every record carries the plugin's own cost: "self" is the nanoseconds the wrapper spent outside the engine's
+own calls for that event, so the instrument's overhead is measured on every step rather than assumed.
 
-"mono" and t0/t1/t2 are time.monotonic_ns(); "wall" and "wall1" are time.time_ns() read beside them, so every
-record carries its own anchor between the engine's clock and the client's.
-t0 to t1 is scheduling; t1 to t2 is the batch's execution as the core waits for it; t2 is when the core starts
-processing the results, which is before the tokens are detokenized and sent.
+One JSON object per line goes to STEP_LOG_PATH (default /tmp/step-log.jsonl):
+
+    {"ev": "add",   "id": ..., "mono": ns, "wall": ns, "prompt": n, "self": ns}
+    {"ev": "sched", "step": k, "t0": ns, "t1": ns, "wall1": ns, "tokens": {id: n, ...}, "computed": {id: n, ...}, "self": ns}
+    {"ev": "done",  "step": k, "t2": ns, "t3": ns, "self": ns}
+    {"ev": "flush", "mono": ns, "records": n}
+    {"ev": "overflow", "mono": ns, "dropped_after": n}
+
+"mono", t0..t3 are time.monotonic_ns(); "wall"/"wall1" are time.time_ns() read beside them, an anchor between the
+engine's clock and the client's. t0..t1 is scheduling; t1..t2 is the batch's execution as the core waits for it;
+t2..t3 is the scheduler update. "computed" is each scheduled request's computed tokens before this step, so a
+request's prompt progress is known without replaying the log.
 """
 
 import json
@@ -29,21 +39,39 @@ import time
 
 from vllm.v1.core.sched.scheduler import Scheduler
 
+MAX_BUFFERED = 2_000_000
+
 
 class StepLoggingScheduler(Scheduler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        path = os.environ.get("STEP_LOG_PATH", "/tmp/step-log.jsonl")
-        # Line-buffered, so a step's record is on disk when the step is, and a killed engine loses at most a line.
-        self._step_log = open(path, "a", buffering=1)
+        self._step_log_path = os.environ.get("STEP_LOG_PATH", "/tmp/step-log.jsonl")
+        self._buf = []
+        self._overflowed = False
         self._step_index = 0
 
-    def _emit(self, rec):
-        self._step_log.write(json.dumps(rec, separators=(",", ":")) + "\n")
+    def _keep(self, rec):
+        if len(self._buf) >= MAX_BUFFERED:
+            if not self._overflowed:
+                self._overflowed = True
+                self._buf.append({"ev": "overflow", "mono": time.monotonic_ns(), "dropped_after": MAX_BUFFERED})
+            return
+        self._buf.append(rec)
+
+    def _flush(self):
+        n = len(self._buf)
+        with open(self._step_log_path, "a") as f:
+            for rec in self._buf:
+                f.write(json.dumps(rec, separators=(",", ":")) + "\n")
+            f.write(json.dumps({"ev": "flush", "mono": time.monotonic_ns(), "records": n}, separators=(",", ":")) + "\n")
+        self._buf = []
 
     def add_request(self, request):
-        self._emit({"ev": "add", "id": request.request_id, "mono": time.monotonic_ns(), "wall": time.time_ns(),
-                    "prompt": request.num_prompt_tokens})
+        s0 = time.monotonic_ns()
+        rec = {"ev": "add", "id": request.request_id, "mono": s0, "wall": time.time_ns(),
+               "prompt": request.num_prompt_tokens}
+        rec["self"] = time.monotonic_ns() - s0
+        self._keep(rec)
         return super().add_request(request)
 
     def schedule(self, *args, **kwargs):
@@ -53,11 +81,25 @@ class StepLoggingScheduler(Scheduler):
         # A step that schedules nothing is not a step the iteration log records either, so it gets no index.
         if out.total_num_scheduled_tokens > 0:
             self._step_index += 1
-            self._emit({"ev": "sched", "step": self._step_index, "t0": t0, "t1": t1, "wall1": time.time_ns(),
-                        "tokens": dict(out.num_scheduled_tokens)})
+            computed = {}
+            for rid in out.num_scheduled_tokens:
+                req = self.requests.get(rid)
+                # num_computed_tokens has already advanced by this step's tokens when schedule() returns.
+                computed[rid] = (req.num_computed_tokens - out.num_scheduled_tokens[rid]) if req is not None else -1
+            rec = {"ev": "sched", "step": self._step_index, "t0": t0, "t1": t1, "wall1": time.time_ns(),
+                   "tokens": dict(out.num_scheduled_tokens), "computed": computed}
+            rec["self"] = time.monotonic_ns() - t1
+            self._keep(rec)
         return out
 
     def update_from_output(self, scheduler_output, model_runner_output):
+        t2 = time.monotonic_ns()
+        out = super().update_from_output(scheduler_output, model_runner_output)
+        t3 = time.monotonic_ns()
         if scheduler_output.total_num_scheduled_tokens > 0:
-            self._emit({"ev": "done", "step": self._step_index, "t2": time.monotonic_ns()})
-        return super().update_from_output(scheduler_output, model_runner_output)
+            self._keep({"ev": "done", "step": self._step_index, "t2": t2, "t3": t3,
+                        "self": time.monotonic_ns() - t3})
+        # Drained: nothing is waiting or running, so writing now delays no request.
+        if self._buf and not self.has_requests():
+            self._flush()
+        return out
