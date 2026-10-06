@@ -210,6 +210,13 @@ type statusRecorder struct {
 	// measures it; what this supports is the weaker, true statement that nothing had reached the client
 	// before this instant.
 	firstByteAt time.Time
+	// onFirstBody runs once, when the first byte of response BODY reaches the client.
+	//
+	// The status line does not count: for a stream it goes out before any token exists. The prospective
+	// admitter releases a request's prefill reservation here, as the nearest point the gateway can see to the
+	// engine having finished that request's prompt.
+	onFirstBody func()
+	bodySeen    bool
 }
 
 // WriteHeader records the status code and forwards it to the wrapped writer.
@@ -235,7 +242,14 @@ func (rec *statusRecorder) markFirstByte() {
 func (rec *statusRecorder) Write(b []byte) (int, error) {
 	rec.answered = true
 	rec.markFirstByte()
-	return rec.ResponseWriter.Write(b)
+	n, err := rec.ResponseWriter.Write(b)
+	if n > 0 && !rec.bodySeen {
+		rec.bodySeen = true
+		if rec.onFirstBody != nil {
+			rec.onFirstBody()
+		}
+	}
+	return n, err
 }
 
 // Flush forwards to the wrapped writer's Flusher when it has one.

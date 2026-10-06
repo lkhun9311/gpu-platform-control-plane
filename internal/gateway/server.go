@@ -474,7 +474,10 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 	if mode == "" {
 		mode = AdmissionOff
 	}
-	admit, reason := admitCandidates(ctx, admitter, meta, targets, tenant, tier)
+	res, admit, reason := decideAdmission(ctx, admitter, meta, targets, tenant, tier)
+	// Released on every way out from here: a refusal holds nothing, and an admitted request that errors, is
+	// cancelled or completes gives back whatever it still holds.
+	defer res.Done()
 	decision := "admit"
 	if !admit {
 		decision = "reject"
@@ -510,7 +513,7 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 		// The 413 does not go through failReason, so before the header above existed its reason reached
 		// nowhere a client could record it. That is why the 1,788 refusals in the 2026-09-03 run had to be
 		// explained months later by reading the runner's flags and the gateway's defaults.
-		if reason == reasonInputExceedsBurst {
+		if reason == reasonInputExceedsBurst || reason == reasonInputExceedsReservation {
 			s.fail(w, tenant, meta.Model, http.StatusRequestEntityTooLarge)
 			return
 		}
@@ -531,7 +534,7 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 
 	// 8. From here the response is the upstream's, passed through rather than composed.
 	start := time.Now()
-	rec := &statusRecorder{ResponseWriter: w, code: http.StatusOK}
+	rec := &statusRecorder{ResponseWriter: w, code: http.StatusOK, onFirstBody: res.PrefillDone}
 	// Each candidate is tried until one answers, and the two conditions below are what make that safe rather
 	// than merely useful.
 	//
@@ -745,6 +748,19 @@ func NewCache(ctx context.Context, cfg *rest.Config, scheme *runtime.Scheme, nam
 // A STATEFUL admitter is still asked once, about the head. static-cap's Admit spends EstInputTokens from a
 // per-backend limiter, so asking it about each candidate would bill one request several times and the arm
 // would stop measuring offered load. One request, one charge, decided up front.
+// decideAdmission asks a reserving admitter through Reserve, never Admit, so an admission always carries its
+// hold, and every other admitter through admitCandidates.
+//
+// The hold is on the first candidate, the backend the request is sent to unless that one fails.
+func decideAdmission(ctx context.Context, admitter Admitter, meta RequestMeta, targets []*BackendRef,
+	tenant, tier string) (*reservation, bool, string) {
+	if rv, ok := admitter.(reserver); ok {
+		return rv.Reserve(ctx, meta, targets[0], tenant, tier)
+	}
+	admit, reason := admitCandidates(ctx, admitter, meta, targets, tenant, tier)
+	return nil, admit, reason
+}
+
 func admitCandidates(ctx context.Context, admitter Admitter, meta RequestMeta,
 	targets []*BackendRef, tenant, tier string) (bool, string) {
 	if reg, ok := admitter.(backendRegistrar); ok {

@@ -80,10 +80,13 @@ func main() {
 	ctx := ctrl.SetupSignalHandler()
 
 	var (
-		admissionModeFlag      string
-		admissionStaticRate    float64
-		admissionStaticBurst   int
-		admissionLongThreshold int
+		admissionModeFlag    string
+		admissionStaticRate  float64
+		admissionStaticBurst int
+		// The prospective mode's two caps have no default: they are a registration's choice, not this binary's.
+		admissionProspectivePrefill int
+		admissionProspectiveStreams int
+		admissionLongThreshold      int
 		// admissionReportBackendState is the benchmark-only switch; see the flag description.
 		admissionReportBackendState bool
 		// enforceBenchmarkProfile is the other benchmark-only switch, and it refuses traffic rather than
@@ -102,7 +105,11 @@ func main() {
 		admissionKVIdleTimeout    time.Duration
 	)
 	flag.StringVar(&admissionModeFlag, "admission-mode", string(gateway.AdmissionOff),
-		"Admission control mode on the inference path: off, static-cap, or kv-aware.")
+		"Admission control mode on the inference path: off, static-cap, kv-aware, or prospective.")
+	flag.IntVar(&admissionProspectivePrefill, "admission-prospective-prefill-tokens", 0,
+		"prospective mode: per-backend cap on standard-tier input tokens reserved and not yet answering. Required.")
+	flag.IntVar(&admissionProspectiveStreams, "admission-prospective-streams", 0,
+		"prospective mode: per-backend cap on running standard-tier requests. Required.")
 	flag.Float64Var(&admissionStaticRate, "admission-static-rate", defaultAdmissionStaticRate,
 		"static-cap mode: sustained per-backend input-token refill rate, in tokens/sec.")
 	flag.IntVar(&admissionStaticBurst, "admission-static-burst", defaultAdmissionStaticBurst,
@@ -161,9 +168,11 @@ func main() {
 	// fast rather than after the gateway has already started reading Kubernetes.
 	admissionMode := gateway.AdmissionMode(admissionModeFlag)
 	admitter, stopAdmitter, err := newAdmitter(admissionMode, admitterFlags{
-		staticRate:    admissionStaticRate,
-		staticBurst:   admissionStaticBurst,
-		longThreshold: admissionLongThreshold,
+		staticRate:         admissionStaticRate,
+		staticBurst:        admissionStaticBurst,
+		longThreshold:      admissionLongThreshold,
+		prospectivePrefill: admissionProspectivePrefill,
+		prospectiveStreams: admissionProspectiveStreams,
 		kv: gateway.KVAwareConfig{
 			EngageUsage:    admissionKVEngageUsage,
 			ReleaseUsage:   admissionKVReleaseUsage,
@@ -307,6 +316,9 @@ type admitterFlags struct {
 	staticBurst   int
 	longThreshold int
 	kv            gateway.KVAwareConfig
+
+	prospectivePrefill int
+	prospectiveStreams int
 }
 
 // noopStop is the stop function newAdmitter returns for modes that start no background work.
@@ -331,6 +343,13 @@ func newAdmitter(mode gateway.AdmissionMode, f admitterFlags) (gateway.Admitter,
 	case gateway.AdmissionKVAware:
 		admitter, stop := gateway.NewKVAwareAdmitter(f.kv)
 		return admitter, stop, nil
+	case gateway.AdmissionProspective:
+		// A cap of zero would refuse every standard request and look like a guard working perfectly.
+		if f.prospectivePrefill <= 0 || f.prospectiveStreams <= 0 {
+			return nil, noopStop, fmt.Errorf("prospective mode needs --admission-prospective-prefill-tokens and "+
+				"--admission-prospective-streams above zero, got %d and %d", f.prospectivePrefill, f.prospectiveStreams)
+		}
+		return gateway.NewProspectiveAdmitter(f.prospectivePrefill, f.prospectiveStreams), noopStop, nil
 	default:
 		return nil, noopStop, fmt.Errorf("unknown admission mode %q", mode)
 	}
