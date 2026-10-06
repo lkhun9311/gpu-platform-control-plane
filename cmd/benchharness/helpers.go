@@ -21,6 +21,8 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
+	"maps"
 	"net"
 	"net/http"
 	"net/url"
@@ -147,11 +149,14 @@ type stubStats struct {
 	accepted int64
 	open     int64
 	peakOpen int64
+	// byPriority counts chat requests by the priority their body carried, "none" when it carried none, so a
+	// rehearsal can see what a gateway that binds priority actually forwarded.
+	byPriority map[string]int64
 }
 
 // newStubStats returns stats with the connection map ready, since inserting into a nil map panics.
 func newStubStats() *stubStats {
-	return &stubStats{chatConns: make(map[int64]int)}
+	return &stubStats{chatConns: make(map[int64]int), byPriority: make(map[string]int64)}
 }
 
 // connContext stamps a fresh identifier on each accepted connection's base context.
@@ -191,6 +196,13 @@ func (s *stubStats) begin(ctx context.Context) {
 	}
 }
 
+// notePriority counts one chat request under the priority its body carried.
+func (s *stubStats) notePriority(p string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.byPriority[p]++
+}
+
 // end records the completion of one chat request.
 func (s *stubStats) end() {
 	s.mu.Lock()
@@ -208,6 +220,8 @@ type stubStatsSnapshot struct {
 	ConnectionsAccepted        int64 `json:"connectionsAccepted"`
 	OpenConnections            int64 `json:"openConnections"`
 	PeakOpenConnections        int64 `json:"peakOpenConnections"`
+	// RequestsByPriority is the window's chat requests by forwarded priority; "none" is a body without one.
+	RequestsByPriority map[string]int64 `json:"requestsByPriority"`
 }
 
 // snapshot returns the current counters.
@@ -226,6 +240,7 @@ func (s *stubStats) snapshot() stubStatsSnapshot {
 	for _, n := range s.chatConns {
 		snap.MaxRequestsOnOneConnection = max(snap.MaxRequestsOnOneConnection, n)
 	}
+	snap.RequestsByPriority = maps.Clone(s.byPriority)
 	return snap
 }
 
@@ -242,6 +257,7 @@ func (s *stubStats) reset() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.chatConns = make(map[int64]int)
+	s.byPriority = make(map[string]int64)
 	s.requestsServed = 0
 	s.peakInFlight = s.inFlight
 	s.accepted = 0
@@ -583,13 +599,28 @@ func stubMux(profile stubProfile, stats *stubStats) *http.ServeMux {
 			return true
 		}
 		promptTokens := 0
+		// The body is read whole once, so the priority can be counted whatever the profile, and the usage
+		// profile decodes the same bytes it always did.
+		raw, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, "unreadable request body: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		var prio struct {
+			Priority *json.Number `json:"priority"`
+		}
+		label := "none"
+		if json.Unmarshal(raw, &prio) == nil && prio.Priority != nil {
+			label = prio.Priority.String()
+		}
+		stats.notePriority(label)
 		if profile.usage {
 			var body struct {
 				Messages []struct {
 					Content string `json:"content"`
 				} `json:"messages"`
 			}
-			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			if err := json.Unmarshal(raw, &body); err != nil {
 				http.Error(w, "unreadable request body: "+err.Error(), http.StatusBadRequest)
 				return
 			}

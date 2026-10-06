@@ -463,3 +463,34 @@ func TestTheStubServesVLLMNamedMetricsOnlyWhenAsked(t *testing.T) {
 		t.Errorf("after three requests the counter did not read 3:\n%s", after)
 	}
 }
+
+// TestStubCountsTheForwardedPriority pins what a rehearsal of the gateway's priority binding reads: each chat
+// request counted under the priority its body carried, "none" when it carried none, and the count cleared by a
+// reset. Mutation that turns this red: count every request as "none".
+func TestStubCountsTheForwardedPriority(t *testing.T) {
+	stats := newStubStats()
+	srv := httptest.NewServer(stubMux(stubProfile{tokens: 1}, stats))
+	defer srv.Close()
+	for _, body := range []string{`{"priority":0}`, `{"priority":1}`, `{"priority":1}`, `{"model":"m"}`} {
+		resp, err := http.Post(srv.URL+"/v1/chat/completions", "application/json", strings.NewReader(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, _ = io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+	}
+	got := stats.snapshot().RequestsByPriority
+	want := map[string]int64{"0": 1, "1": 2, "none": 1}
+	if len(got) != len(want) {
+		t.Fatalf("requestsByPriority = %v, want %v", got, want)
+	}
+	for k, v := range want {
+		if got[k] != v {
+			t.Fatalf("requestsByPriority = %v, want %v", got, want)
+		}
+	}
+	stats.reset()
+	if n := len(stats.snapshot().RequestsByPriority); n != 0 {
+		t.Fatalf("a reset left %d priority counts behind", n)
+	}
+}
