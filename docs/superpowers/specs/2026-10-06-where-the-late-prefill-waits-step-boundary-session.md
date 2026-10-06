@@ -4,8 +4,8 @@ Date: 2026-10-06 · **Draft until the freezing amendment at the end.** Frozen by
 
 **Why it exists.**
 - The logged-engine pilot (`2026-10-06-a-timing-family-for-the-logged-synchronous-engine.md`) failed. Every staggered late prefill's client TTFT exceeded the model's account of its own steps by at least 11.1 ms (11.3 ms under the other convention). The archive could not say why.
-- `2026-10-06-step-boundary-instrumentation-built-and-parked.md` built and CPU-validated an instrument that can, and parked it until a decision depended on it. One now does: the owner wants M5-b's successor pursued, and its feasibility check needs a step-time model of mixed prefill and decode.
-- This page is that decision's measurement. It was designed by me and, independently, by codex `gpt-6-astra`, and narrowed after astra's review of my reduced design.
+- `2026-10-06-step-boundary-instrumentation-built-and-parked.md` built an instrument that can say why, and parked it until a decision depended on it. One now does: the owner wants M5-b's successor pursued, and its feasibility check needs a step-time model of mixed prefill and decode.
+- I and codex `gpt-6-astra` designed it independently. My reduced design was narrowed by astra's review, and this page was rewritten after astra attacked its first draft (section 9).
 
 **What it is not.** It re-asks nothing that failed. The instrument-validation I1 stays failed, the logged-engine pilot stays failed, and M5-b stays closed. This is a new instrument on a new target.
 
@@ -13,82 +13,156 @@ Date: 2026-10-06 · **Draft until the freezing amendment at the end.** Frozen by
 
 The engine is instrument session 5's: vLLM v0.27.1 at the pinned digest, Qwen2.5-3B-Instruct at the pinned revision, one A10G (g5.2xlarge), a 2,048-token batch budget, 64 sequences, `--no-async-scheduling`, `--enable-logging-iteration-details`, prefix caching off.
 
-**The instrument** is `hack/vllm-plugins/step_logging_scheduler.py`, loaded with `--scheduler-cls`. It records:
-- each request's arrival in the scheduler (A);
-- each step's scheduling entry and exit (t0, t1), the requests scheduled with their tokens, and their computed tokens before the step;
-- the entry and exit of the scheduler's update (t2, t3);
-- its own cost per record.
+**The instrument** is `hack/vllm-plugins/step_logging_scheduler.py`, loaded with `--scheduler-cls step_logging_scheduler.StepLoggingScheduler` from a ConfigMap of the checked-in file. The matrix compares its sha256 inside the pod with the file at the frozen commit. It changes no scheduling decision. It records:
+- each request's arrival in the scheduler, A (entry to `add_request`);
+- vLLM's own `Request.arrival_time`, P, stamped in the frontend after templating and tokenization, just before the request is sent to the engine core (`v1/engine/input_processor.py`);
+- each step's scheduling entry and exit (t0, t1), the requests scheduled with their tokens and their computed tokens before the step;
+- the scheduler update's entry and exit (t2, t3);
+- a wall-clock reading bracketed by two monotonic readings on every record, and the instrument's own cost, including buffering and the handoff to its writer.
 
-It does no I/O while the engine is busy. After a drain it hands the records to a writer thread and records that write's start and end. Every request carries `X-Request-Id <cell>-<rep>-<phase>-<nonce>-<index>`, which vLLM makes its engine id, so client and engine rows join on it.
+It does no file I/O while requests are in flight. After a drain it hands the batch to one long-lived writer thread, and records the write's start and end. Every request carries `X-Request-Id <arm>-<block>-<warmup|measured>-<trace index>`, which vLLM makes its engine id as `chatcmpl-<id>-<8 characters>`, so client and engine rows join one to one by prefix.
+
+**Validated on v0.27.1's CPU build, at no cost**, with `hack/vllm-plugins/validate-on-cpu.sh` and `smoke-step-evaluator-on-cpu.sh`:
+- 70 steps matched the engine's 70 Iteration lines with equal tokens at each;
+- every request joined one to one and scheduled prompt + output − 1 tokens;
+- the instrument's own cost was at most 0.08% of a step's occupancy;
+- clock brackets were at most 1.3 µs;
+- vLLM's non-default args line names the class;
+- the evaluator's joins and the S ≤ P ≤ A ≤ F ≤ O ≤ C ordering held on real output.
+
+None of that is a fact about the A10G.
 
 **Target, declared before the data.** The staggered results concern **the instrumented engine**. Whether they transfer to the uninstrumented engine is not tested here, and nothing below may claim it.
 
 ## 2. Cells
 
-Six blocks. Arms:
-- `serial-log` and `serial-step` in blocks 1–3;
-- `burst-log` and `burst-step` in blocks 1–6;
-- `stagger-step` in blocks 1–3.
+Study `step-boundary-2026-10-06`, with study s4's episode design and warm-ups at one fresh seed, 31, the same in every block so that each pair replays identical traces. Six blocks, laid out by `hack/m5c-matrix.sh`:
 
-`-step` is `-log` with the instrument. That makes 27 cells: 6 serial, 12 burst and 3 staggered.
+| Arm | Blocks |
+|---|---|
+| `serial-log`, `serial-step` | 1, 3, 5 |
+| `burst-log`, `burst-step` | 1–6 |
+| `stagger-step` | 1, 3, 5 |
 
-The traces are study s4's episode design with fresh seeds. The order inside a block is the sha256 hash order, except that block 1 starts with the staggered cell, as in session 5.
+That is 21 cells. Inside a block the order is the sha256 hash order, except that block 1 starts with its staggered cell. Serial and staggered cells are spread over the session rather than front-loaded. `PLAN_ONLY` finds every planned trace scorable.
 
-**Expected:** session 5's per-type cell times (755, 592 and 3,017 s) give 4,530 + 7,104 + 9,051 = 20,685 s, 5.75 h, plus bring-up. The deadline, backstop and dollar bound are fixed in the freezing amendment, from the matrix's own projection.
+**Time and money.**
+- Session 5's per-type cell times give 20,685 s (5.75 h) of warm cells.
+- The matrix's own projection after a cold first staggered cell (3,252 s in session 5, an overhead of 328 s against the charged 2,924) is ceil(1.2 × (6×617 + 12×457 + 2×2,924 + 20×328) / 60) = 432 minutes. With the first cell that is 486 minutes, before bring-up.
+- The hard stop, backstop and the dollar bound they imply are set in the freezing amendment.
 
 ## 3. Gates, in order; each refuses
 
-1. **Archive** (`instrument_gates.check_archive`): every measured and warm-up trace is the registered matrix; provenance holds; and W, S and I2 hold as in session 5.
-2. **Instrument** (`check_step_log.py`, per `-step` cell):
-   - one-to-one with the engine's Iteration lines, with equal tokens at every step;
-   - every request joined by id, and scheduled prompt + output − 1 tokens;
-   - no overflow, the log ending on a flush, and every write ending before the next request arrived;
-   - the instrument's own cost at most 1% of each step's occupancy (t0 to t3).
-3. **Overhead, equivalence where it can be powered:**
-   - Serial: each setting's median TTFT and median ITL.
-   - Burst: each episode type's mean TTFT, maximum TTFT and mean ITL, as episode means.
-   - Each endpoint's paired-block 95% t-interval of log(step / log) must lie inside log(0.95) to log(1.05).
-   - Planning power, from session 5's block SDs (astra's estimate, conditional, not guaranteed): above 99% for serial at 3 pairs and burst at 6 pairs.
-   - **This gate covers serial and burst only.** A cross-type comparison of the self-timed cost is published, and it gates nothing.
+1. **Archive** (`step_boundary.gate_archive`):
+   - exactly the 21 registered cells, since an incomplete session is a refusal;
+   - every measured and warm-up trace is the registered matrix (`matrix-plan-check`, `gen-trace --warmup` regeneration);
+   - provenance: image, revision, flags, and the instrument in exactly the `-step` cells;
+   - W on every warm-up, S on every staggered episode (warm-up included, conditioning request handled as in session 4), and I2 (no preemption, contiguous iterations, drained serial episodes).
+2. **Instrument** (`check_step_log.py` on every `-step` cell, with the client's output counts):
+   - one to one with the engine's Iteration lines, with equal tokens at every step;
+   - every client request joined to exactly one engine request, and the reverse;
+   - each request's tokens summing to prompt + output − 1, and its computed tokens continuous;
+   - step boundaries ordered and not overlapping;
+   - the log ending on a flush, and every write ending before the next request arrived;
+   - no overflow;
+   - the instrument's own cost at most 1% of every step's occupancy.
+3. **Overhead, equivalence where it can be powered** (`step_boundary.gate_overhead`):
+   - **Endpoints, 75 in all:**
+     - Serial: each setting's median TTFT (27) and median ITL (18), where ITL is (end − first token) / (output − 1) and includes stream termination.
+     - Burst: each episode type's mean over episodes of mean TTFT, maximum TTFT and mean ITL (30).
+   - **Rule:** for each, the paired-block 95% t-interval of log(step / log) must lie inside log(0.95) to log(1.05), with 3 serial pairs (df 2) and 6 burst pairs (df 5).
+   - **Planning power, mine.** Using session 5's paired block SDs as a stand-in (largest 0.0061 serial, 0.0198 burst, in log ratio), 20,000 simulations of independent normal blocks at zero effect pass all 75 together 99.1% of the time. That stand-in is a different instrument, so the figure is a planning estimate.
+   - **This gate covers serial and burst only.** A failure is reported as "the instrument's overhead is not established" and does not stop Q1 to Q3 from being reported for the instrumented engine.
 
-## 4. Questions, with predictions written before the data
+## 4. Q1 — where the late prefill waits (a prediction, reported, not a gate)
 
-For each staggered late prefill:
+For each staggered late prefill, from the client row and the instrument, all on one host's clock:
 - S is the client send;
-- A is its arrival in the scheduler;
-- F is the t0 of the first step that schedules it;
-- O is the t3 of the step that completes its prompt;
-- C is its first content at the client.
+- P is vLLM's arrival stamp;
+- A is the scheduler arrival;
+- F is the t0 of the first step scheduling it;
+- O is the t3 of the step completing its prompt;
+- C is the client's first content.
 
-Each is a monotonic or anchored stamp. Client closure must hold: (A − S) + (F − A) + (O − F) + (C − O) equals the client-measured C − S, within the stamps' recorded bracket uncertainty, for every episode. That is a consistency check, not an attribution.
+The engine core takes new requests only between steps (`EngineCoreProc.run_busy_loop`), so a request that arrives while a step is in flight waits in P → A. That is the mechanism under test.
 
-- **Q1, waiting.** Prediction: for the four short-prefill settings (256-token prefill), the mean of F − A is at least half of the mean residual the logged-engine pilot left, on the corresponding settings and convention. Measured in ms with an episode bootstrap. F − A is the wait that happens after the request reaches the scheduler; wait before that sits in A − S and is reported, not attributed.
-- **Q2, own steps.** Prediction: for the long-prefill settings (8,192-token prefill), the frozen family's error on the late prefill's own steps stays above 10% once waiting is removed.
-- **Q3, the family on measured occupancy.**
-  - The family is `c + f(P) + d1·n + d2·n² + m·P·n + h·Σpᵢ·Cᵢ + k·K_d`, with nonnegative coefficients, knots 0/256/512/1,024/2,048, and `k` always in.
-  - It is fitted to each `-step` step's measured occupancy, t0 to t3, with no clock correction.
-  - It trains on serial and burst `-step` episodes, holds out by the 2026-10-05 rule, and never trains on staggered episodes.
-  - It passes if every held-out and staggered setting's mean error is within 10% in each phase (context, decode, late prefill), with full rank and a condition number of at most 100.
+**Baseline.** For each prompt length, the median P → A of the serial-step requests, which arrive at an idle engine.
 
-Q1 and Q2 are answered whatever Q3 says. Q3's pass is what the M5-b successor's feasibility check would rest on.
+**The wait** of a late prefill is (P → A − the baseline at its length) + (A → F).
 
-## 5. Stopping
+**Prediction, written before the data:** for each of the six short-prefill settings, the mean wait over its episodes is at least half the mean gap the pilot left under the context convention:
+
+| Decoders, decoder prompt, late prompt | Half the pilot's mean gap |
+|---|---:|
+| 1, 256, 256 | 9.873 ms |
+| 1, 8,192, 256 | 15.442 ms |
+| 4, 256, 256 | 8.967 ms |
+| 4, 8,192, 256 | 15.047 ms |
+| 16, 256, 256 | 13.162 ms |
+| 16, 8,192, 256 | 28.532 ms |
+
+These are re-derived by me, and independently by astra, from `docs/superpowers/specs/data/2026-10-06-logged-engine-pilot.json`.
+
+- Each setting is judged on its point estimate, and Q1 holds only if all six do. Block-level uncertainty is published beside each.
+- Every component, S → P, P → A, A → F, F → O and O → C, is published in ms for all twelve staggered settings, F → O including steps of other requests between the late prefill's own.
+
+## 5. Q3 — the family on measured occupancy (a verdict, but not a gate)
+
+- **Family:** `c + f(P) + d1·n + d2·n² + m·P·n + h·Σpᵢ·Cᵢ + k·K_d`, with nonnegative coefficients, knots 0/256/512/1,024/2,048, and `k` always in.
+- **Features from the instrument's own counts, with no reconstruction:**
+  - P is the scheduled context tokens of requests whose prompt is unfinished;
+  - n is the decoders;
+  - K_d is the sum over decoders of computed tokens + 1;
+  - H is the sum over prompts of tokens × computed tokens.
+- **Target:** each `-step` step's measured occupancy, t0 to t3, in ms, with no clock correction.
+- **Fit:**
+  - Train on serial and burst `-step` episodes, equal total weight per setting, column-normalised.
+  - Hold out by one seeded order of each setting's cycle positions, fixed across its cells and cut into thirds; the cell at index j of its type holds out third j mod 3. So each position is held out once over three serial cells and twice over six burst cells.
+  - Never train on staggered episodes.
+- **Pass:** every held-out and staggered setting's mean predicted occupancy is within 10% of the measured, separately for context-bearing, pure-decode and late-prefill steps; the design has full rank and a condition number of at most 100.
+- **What a pass is not.** Occupancy excludes the time between one step's t3 and the next step's t0: output publication and admission work. Its distribution is published. A pass here makes no simulator-readiness claim until that gap and the P → A wait are modelled too.
+
+## 6. Stopping
 
 - **One session and one analysis at the frozen commit.** There is no extension, and no re-purchase toward a pass.
 - If gate 1 or 2 refuses, nothing past it is read.
-- If gate 3 fails or is inconclusive, Q1–Q3 are still reported for the instrumented engine, and its overhead stays unestablished.
-- An incomplete session is a refusal.
+- If gate 3 fails, Q1 and Q3 are still reported for the instrumented engine, and its overhead stays unestablished.
+- The matrix stops acquisition when a cell is refused (W, S, provenance, or the instrument log not captured) or the deadline projection refuses. An incomplete session is a refusal.
 
-## 6. What a result licenses
+## 7. What a result licenses
 
 **May license:**
-- serial and burst equivalence of the instrument on the registered endpoints;
+- serial and burst equivalence of the instrument on the 75 endpoints;
 - a measured decomposition of the staggered late prefill's TTFT, for the instrumented engine;
 - held-out prediction of measured occupancy at this configuration.
 
 **Must refuse:**
 - staggered on/off equivalence;
 - a total overhead bound inferred from self-timing;
-- a causal attribution of A − S or C − O beyond their coarse definitions;
+- an attribution inside S → P (HTTP, templating, tokenization) or O → C (publication, delivery);
 - anything about async engines, other budgets (512 included), models or cards;
 - any protection claim.
+
+## 8. Not tested before purchase
+
+- The whole evaluator has not run on a whole step-boundary archive, because none exists; its parts have, as above.
+- The plugin's behaviour under CUDA has not been seen.
+- The kind rehearsal's stub engine does not load the instrument, so the `-step` collection path in the matrix has been exercised by its functions' tests, not on a cluster.
+
+## 9. Who decided what, and what astra's review of the first draft changed
+
+- **Mine:** the reduced design (serial and burst pairs; staggered instrumented only), the self-timed cost, the writer thread, the use of vLLM's own arrival stamp for P, the serial baseline, and the joint power.
+- **astra's:**
+  - the narrowed target;
+  - that waiting falls in P → A, not A → F, which made the first Q1 unidentifiable;
+  - that the first Q2's premise was false, so it is removed: long late prefills' own steps were already within 10% in the pilot;
+  - the correct 21-cell count and the 486-minute projection;
+  - the occupancy target's missing inter-step gap;
+  - spreading serial and staggered cells over the session;
+  - the enumerated endpoints.
+- **Defects found in the code before freezing, all fixed with tests that fail when reverted:**
+  - the conditioning request missing from the study's gate S, which would have refused the first cell;
+  - a held-out order redrawn per cell, which left one cycle never held out;
+  - a log capture that accepted a truncated last batch;
+  - a precedence error that passed an 8% overhead;
+  - a final flush that could race the last output.
