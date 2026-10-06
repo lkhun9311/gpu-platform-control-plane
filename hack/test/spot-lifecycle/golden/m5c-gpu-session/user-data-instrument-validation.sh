@@ -162,6 +162,8 @@ for f in "$out"/engine-metrics-"$arm"-"$rep"-*.prom "$out"/engine-metrics-"$arm"
   send "$f" "$(basename "$f")"
 done
 send "$out/engine-log-$arm-$rep.txt" "engine-log-$arm-$rep.txt"
+send "$out/step-log-$arm-$rep.jsonl" "step-log-$arm-$rep.jsonl"
+send "$out/step-plugin-$arm-$rep.sha256" "step-plugin-$arm-$rep.sha256"
 send "$out/raw-warmup-$arm-$rep.jsonl" "raw-warmup-$arm-$rep.jsonl"
 send "$out/warmup-boundary-$arm-$rep.txt" "warmup-boundary-$arm-$rep.txt"
 send "$out/warmup-trace-$arm-$rep.jsonl" "warmup-trace-$arm-$rep.jsonl"

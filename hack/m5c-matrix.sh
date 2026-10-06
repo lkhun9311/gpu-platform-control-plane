@@ -215,8 +215,8 @@ fi
 if [ -z "$LADDER" ]; then
   STUDY="${STUDY:-sharing-matrix-2026-09-10}"
   case "$STUDY" in
-    sharing-matrix-2026-09-10|tail-crossing-lc256-2026-10-04|tail-crossing-lc2048-2026-10-05|tail-crossing-lc8192-2026-10-04|instrument-validation-2026-10-05|instrument-validation-s2-2026-10-05|instrument-validation-s3-2026-10-06|instrument-validation-s4-2026-10-06) ;;
-    *) fail "STUDY is ${STUDY@Q}; the non-ladder matrix files evidence under sharing-matrix-2026-09-10, tail-crossing-lc256-2026-10-04, tail-crossing-lc2048-2026-10-05, tail-crossing-lc8192-2026-10-04, instrument-validation-2026-10-05, instrument-validation-s2-2026-10-05, instrument-validation-s3-2026-10-06 or instrument-validation-s4-2026-10-06. An unregistered id is not refused by gen-trace -- it writes a manifest for any string -- so this refusal is the one that stops it before anything is rented" ;;
+    sharing-matrix-2026-09-10|tail-crossing-lc256-2026-10-04|tail-crossing-lc2048-2026-10-05|tail-crossing-lc8192-2026-10-04|instrument-validation-2026-10-05|instrument-validation-s2-2026-10-05|instrument-validation-s3-2026-10-06|instrument-validation-s4-2026-10-06|step-boundary-2026-10-06) ;;
+    *) fail "STUDY is ${STUDY@Q}; the non-ladder matrix files evidence under sharing-matrix-2026-09-10, tail-crossing-lc256-2026-10-04, tail-crossing-lc2048-2026-10-05, tail-crossing-lc8192-2026-10-04, instrument-validation-2026-10-05, instrument-validation-s2-2026-10-05, instrument-validation-s3-2026-10-06, instrument-validation-s4-2026-10-06 or step-boundary-2026-10-06. An unregistered id is not refused by gen-trace -- it writes a manifest for any string -- so this refusal is the one that stops it before anything is rented" ;;
   esac
 fi
 
@@ -794,13 +794,18 @@ else
         CELLS+=("$spec")
       done < <(for arm in $ARMS; do
         case "$arm" in *-async) continue ;; esac
+        # The step-boundary session buys serial and staggered cells in blocks 1, 3 and 5 only, spread over the
+        # session rather than front-loaded, and burst cells in all six (its registration, section 2).
+        if [ "$STUDY" = "$IV_STEP_STUDY" ] && [ $(( rep % 2 )) = 0 ]; then
+          case "$arm" in serial-* | stagger-*) continue ;; esac
+        fi
         # Study s4's block 1 starts with a staggered cell, which of the two still chosen by the hash.
         # The matrix stops when the remaining cells, each charged the observed overhead so far, outrun the deadline,
         # and after a cold serial first cell that projection exceeded what the credentials allow (session 4, by one
         # minute); finishing the longest cell first leaves less work to carry the 20% headroom. The other cells and
         # blocks keep their hash order, and session 5's registration records the rule before purchase.
         printf '%s R1|%s|%s|%s|%s|0\n' "$(printf '%s/%s' "$rep" "$arm" | sha256sum | cut -c1-16)" "$arm" "$rep" "$RATE" "$NOISY_WEIGHT"
-      done | LC_ALL=C sort | if [ "$rep" = 1 ] && [ "$STUDY" = "$IV_S4_STUDY" ]; then
+      done | LC_ALL=C sort | if [ "$rep" = 1 ] && { [ "$STUDY" = "$IV_S4_STUDY" ] || [ "$STUDY" = "$IV_STEP_STUDY" ]; }; then
         # Only the first staggered cell in hash order is moved to the front; the other five keep their order.
         awk '!moved && $2 ~ /^R1\|stagger-/ {first = $0; moved = 1; next} {rest[++n] = $0}
              END {if (first != "") print first; for (i = 1; i <= n; i++) print rest[i]}'
@@ -2032,6 +2037,12 @@ deploy_arm() {
           || fail "could not render the engine manifest for $label: $why"
         engine_source="config/vllm/deployment.yaml+$label"
       fi
+      # A -step engine imports the instrument from a ConfigMap of the checked-in file, created beside it.
+      case "$label" in
+        *-step)
+          k create configmap "$IV_STEP_CONFIGMAP" -n "$NS_A" --from-file="step_logging_scheduler.py=$IV_STEP_PLUGIN" \
+            --dry-run=client -o yaml | k apply -f - >/dev/null || fail "create the instrument's ConfigMap for $label" ;;
+      esac
       k apply -f "$engine_manifest" -n "$NS_A" >/dev/null || fail "apply the exclusive engine"
       k apply -f config/vllm/service.yaml -n "$NS_A" >/dev/null || fail "apply the exclusive service"
       k rollout status deploy/vllm-qwen25-3b -n "$NS_A" --timeout=900s >/dev/null \
@@ -2407,13 +2418,15 @@ expected_outputs() {
   # `expected=9 actual=10` with every class matching -- a disagreement no class could explain.
   # engine-log-<cell>.txt is written only under the instrument-validation study, and a completed cell of that
   # study without one cannot exist: capture_engine_log refuses the run when the log cannot be saved.
+  # step-log-<cell>.jsonl and step-plugin-<cell>.sha256 are written only by a -step cell, which capture_step_log
+  # refuses rather than lets complete without them.
   # The warm-up's four files are written only under sessions 2 and 3 and the same holds: run_warmup ends the run
   # rather than let a cell go on without them.
   cond=$(find "$OUT" -maxdepth 1 \( -name 'mps-compute-apps-*.csv' -o -name 'mps-compute-apps-*.err' \
     -o -name 'mps-pod-lookup.err' -o -name 'ladder-verdict-rung*.txt' \
     -o -name 'applied-values.tsv' -o -name 'cell-environment.tsv' -o -name 'engine-log-*.txt' \
     -o -name 'raw-warmup-*.jsonl' -o -name 'warmup-boundary-*.txt' -o -name 'warmup-trace-*.jsonl' \
-    -o -name 'warmup-manifest-*.yaml' \) 2>/dev/null | wc -l)
+    -o -name 'warmup-manifest-*.yaml' -o -name 'step-log-*.jsonl' -o -name 'step-plugin-*.sha256' \) 2>/dev/null | wc -l)
   # The engine-metrics files are in the total as whatever is there, like the conditional outputs above.
   #
   # How many a cell owes depends on its topology -- one engine or two -- which this count cannot see, so
@@ -2574,7 +2587,7 @@ EOF
     -o -name 'mps-pod-lookup.err' -o -name 'ladder-verdict-rung*.txt' \
     -o -name 'applied-values.tsv' -o -name 'cell-environment.tsv' -o -name 'engine-log-*.txt' \
     -o -name 'raw-warmup-*.jsonl' -o -name 'warmup-boundary-*.txt' -o -name 'warmup-trace-*.jsonl' \
-    -o -name 'warmup-manifest-*.yaml' \) 2>/dev/null | wc -l)
+    -o -name 'warmup-manifest-*.yaml' -o -name 'step-log-*.jsonl' -o -name 'step-plugin-*.sha256' \) 2>/dev/null | wc -l)
   unattr=0
   for f in "$OUT"/*; do
     [ -f "$f" ] || continue
@@ -2587,6 +2600,7 @@ EOF
       evidence.log | load-source.txt | cell-timings.tsv | cell-judgements.tsv | expected-files.txt | README.txt) ;;
       mps-compute-apps-*.csv | mps-compute-apps-*.err | mps-pod-lookup.err | ladder-verdict-rung*.txt) ;;
       applied-values.tsv | cell-environment.tsv | engine-log-*.txt) ;;
+      step-log-*.jsonl | step-plugin-*.sha256) ;;
       *) unattr=$(( unattr + 1 )) ;;
     esac
   done
@@ -2975,6 +2989,33 @@ capture_engine_log() {
   iv_engine_log_refusal "$STUDY" "$label" "$dest"
 }
 
+# Saves a -step cell's instrument log to $OUT/step-log-<label>-<rep>.jsonl and proves the engine ran the checked-in file.
+#
+# The instrument writes on a thread after each drain, so the log is read only once it ends on a flush record
+# that follows the cell's last request; reading earlier would save a log missing its last batch, which
+# check_step_log.py would refuse after the money was spent. The plugin's sha256 inside the pod is compared with
+# the file in this tree, so the instrument the cell measured with is the one the commit names.
+capture_step_log() {
+  local label="$1" rep="$2" dest pod want got
+  dest="$OUT/step-log-$label-$rep.jsonl"
+  pod=$(k get pods -n "$NS_A" -l app.kubernetes.io/component=vllm -o jsonpath='{.items[0].metadata.name}' 2>/dev/null) \
+    || { echo "could not find the engine pod to read the instrument log from"; return 1; }
+  want=$(sha256sum "$IV_STEP_PLUGIN" | cut -c1-64)
+  got=$(k exec -n "$NS_A" "$pod" -- sha256sum /opt/step-plugin/step_logging_scheduler.py 2>/dev/null | cut -c1-64)
+  [ "$got" = "$want" ] || { echo "the engine loaded an instrument with sha256 ${got:-unreadable}, not this tree's $want"; return 1; }
+  for _ in $(seq 1 60); do
+    k exec -n "$NS_A" "$pod" -- cat "$IV_STEP_LOG" > "$dest" 2>/dev/null || true
+    if [ -s "$dest" ] && tail -1 "$dest" | grep -q '"ev":"flush"' \
+       && grep -q "\"id\":\"chatcmpl-$label-$rep-measured-" "$dest"; then
+      printf '%s  %s\n' "$want" "$IV_STEP_PLUGIN" > "$OUT/step-plugin-$label-$rep.sha256"
+      return 0
+    fi
+    sleep 1
+  done
+  echo "the instrument log for $label rep $rep did not end on a flush after the measured requests within 60 s"
+  return 1
+}
+
 # Writes $OUT/warmup-boundary-<label>-<rep>.txt: the last warm-up iteration index, or `none`.
 #
 # Read from the engine log as it stands after the warm-up replay, because the measured replay has not sent
@@ -2984,7 +3025,7 @@ capture_engine_log() {
 warmup_boundary_record() {
   local label="$1" rep="$2" log="" err boundary
   case "$label" in
-    *-log)
+    *-log | *-step)
       log="$WORK/warmup-log-$label-$rep.txt"
       err="$WORK/warmup-log-$label-$rep.err"
       if ! k logs -n "$NS_A" deploy/vllm-qwen25-3b >"$log" 2>"$err"; then
@@ -3011,8 +3052,10 @@ run_warmup() {
   warmup_gen_trace "$label" "$rep" "$OUT/warmup-trace-$label-$rep.jsonl" "$OUT/warmup-manifest-$label-$rep.yaml" \
     --engine-image "$ENGINE_IMAGE" --gateway-image "$GATEWAY_IMAGE_REF" --gateway-sha "$SOURCE_COMMIT" \
     --tokenizer-rev "$MODEL_REVISION" || fail "gen-trace --warmup $label"
+  local idflag
+  idflag=$(iv_request_id_flag "$STUDY" "$label" "$rep" warmup) || fail "request ids for $label warm-up"
   "$WORK/benchharness" replay --manifest "$OUT/warmup-manifest-$label-$rep.yaml" \
-    $PROVENANCE_FLAG \
+    $PROVENANCE_FLAG ${idflag:+"$idflag"} \
     --target "http://127.0.0.1:18080" \
     --api-keys "premium-1=premium-key,standard-noisy=standard-key" \
     --raw-out "$OUT/raw-warmup-$label-$rep.jsonl" || fail "warm-up replay $label"
@@ -3245,8 +3288,12 @@ run_cell() {
   # rehearsal fail. The waiver cannot reach a paid run -- hack/m5c-gpu-session.sh refuses to pass it -- so
   # the demand is on wherever it matters.
   scrape_engine_metrics "$arm" "$label" "$rep" before
+  local idflag=""
+  if [ -z "${LADDER:-}" ] && iv_is_study "${STUDY:-}"; then
+    idflag=$(iv_request_id_flag "$STUDY" "$label" "$rep" measured) || fail "request ids for $label"
+  fi
   "$WORK/benchharness" replay --manifest "$OUT/manifest-$label-$rep.yaml" \
-    $PROVENANCE_FLAG \
+    $PROVENANCE_FLAG ${idflag:+"$idflag"} \
     --target "http://127.0.0.1:18080" \
     --api-keys "premium-1=premium-key,standard-noisy=standard-key" \
     --raw-out "$OUT/raw-$label-$rep.jsonl" || fail "replay $label"
@@ -3262,6 +3309,12 @@ run_cell() {
     engine_log_refusal=$(capture_engine_log "$label" "$rep") || {
       [ -n "$engine_log_refusal" ] || engine_log_refusal="capture_engine_log refused without saying why"
     }
+    # A -step cell without its instrument log measured nothing this study bought it for.
+    if [ -z "$engine_log_refusal" ] && [[ "$label" == *-step ]]; then
+      engine_log_refusal=$(capture_step_log "$label" "$rep") && engine_log_refusal="" || {
+        [ -n "$engine_log_refusal" ] || engine_log_refusal="capture_step_log refused without saying why"
+      }
+    fi
   fi
   # Session 2's gate S, on this cell, before the next one is bought.
   #

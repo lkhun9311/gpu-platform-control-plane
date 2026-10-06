@@ -28,6 +28,15 @@ IV_STUDY=instrument-validation-2026-10-05
 IV_S2_STUDY=instrument-validation-s2-2026-10-05
 IV_S3_STUDY=instrument-validation-s3-2026-10-06
 IV_S4_STUDY=instrument-validation-s4-2026-10-06
+# The step-boundary session (docs/superpowers/specs/2026-10-06-where-the-late-prefill-waits-step-boundary-session.md):
+# session 4's episodes, warm-ups and pins, with -step arms that load hack/vllm-plugins/step_logging_scheduler.py.
+IV_STEP_STUDY=step-boundary-2026-10-06
+# The instrument as the -step arms load it: the ConfigMap the matrix creates from it, the class vLLM imports, and
+# where the log is written inside the engine container, on an emptyDir the matrix reads before the cell ends.
+IV_STEP_PLUGIN=hack/vllm-plugins/step_logging_scheduler.py
+IV_STEP_CONFIGMAP=step-logging-scheduler
+IV_STEP_CLASS=step_logging_scheduler.StepLoggingScheduler
+IV_STEP_LOG=/steplog/step.jsonl
 
 # Session 2's trace lengths in ms, one per episode type, as the main session measured them from the generator.
 #
@@ -61,20 +70,20 @@ IV_S2_WARM_TTFT_TOL_PERMILLE=50
 IV_S2_WARM_PAIR_TOL_PERMILLE=20
 IV_S2_WARM_TOKENS=2048
 
-iv_is_study() { [ "${1:-}" = "$IV_STUDY" ] || [ "${1:-}" = "$IV_S2_STUDY" ] || [ "${1:-}" = "$IV_S3_STUDY" ] || [ "${1:-}" = "$IV_S4_STUDY" ]; }
+iv_is_study() { [ "${1:-}" = "$IV_STUDY" ] || [ "${1:-}" = "$IV_S2_STUDY" ] || [ "${1:-}" = "$IV_S3_STUDY" ] || [ "${1:-}" = "$IV_S4_STUDY" ] || [ "${1:-}" = "$IV_STEP_STUDY" ]; }
 
 # Sessions 2 to 4 warm the engine before their measured replay; session 1 measured request 0 cold.
-iv_has_warmup() { [ "${1:-}" = "$IV_S2_STUDY" ] || [ "${1:-}" = "$IV_S3_STUDY" ] || [ "${1:-}" = "$IV_S4_STUDY" ]; }
+iv_has_warmup() { [ "${1:-}" = "$IV_S2_STUDY" ] || [ "${1:-}" = "$IV_S3_STUDY" ] || [ "${1:-}" = "$IV_S4_STUDY" ] || [ "${1:-}" = "$IV_STEP_STUDY" ]; }
 
 # Only sessions 3 and 4 pin the model revision on the engine's command line and demand the engine report it back.
 #
 # Adding the flags to sessions 1 or 2 would change the engine their archives measured.
-iv_pins_revision() { [ "${1:-}" = "$IV_S3_STUDY" ] || [ "${1:-}" = "$IV_S4_STUDY" ]; }
+iv_pins_revision() { [ "${1:-}" = "$IV_S3_STUDY" ] || [ "${1:-}" = "$IV_S4_STUDY" ] || [ "${1:-}" = "$IV_STEP_STUDY" ]; }
 
 # Only sessions 3 and 4's staggered decoders carry min_tokens = max_tokens = 512, so only there must each produce 512.
 #
 # Session 2's decoders could stop at end-of-sequence, and demanding 512 of them would refuse what it registered.
-iv_fixes_decoder_length() { [ "${1:-}" = "$IV_S3_STUDY" ] || [ "${1:-}" = "$IV_S4_STUDY" ]; }
+iv_fixes_decoder_length() { [ "${1:-}" = "$IV_S3_STUDY" ] || [ "${1:-}" = "$IV_S4_STUDY" ] || [ "${1:-}" = "$IV_STEP_STUDY" ]; }
 
 # Only session 4's warm-up ends with a conditioning request before its two verification requests.
 #
@@ -106,6 +115,14 @@ iv_arm_refusal() {
   iv_is_study "$study" || {
     echo "study ${study@Q} is none of $IV_STUDY, $IV_S2_STUDY, $IV_S3_STUDY and $IV_S4_STUDY, so this file has nothing registered for it"
     return 1; }
+  # The step-boundary study has its own five arms, and no other study admits a -step arm.
+  if [ "$study" = "$IV_STEP_STUDY" ]; then
+    case "$arm" in
+      serial-log | serial-step | burst-log | burst-step | stagger-step) return 0 ;;
+    esac
+    echo "arm ${arm@Q} is not one of study $study's five arms (serial-log, serial-step, burst-log, burst-step, stagger-step)"
+    return 1
+  fi
   case "$arm" in
     serial-log | serial-nolog | serial-async | burst-log | burst-nolog | burst-async | stagger-log | stagger-nolog | stagger-async) return 0 ;;
   esac
@@ -212,6 +229,7 @@ iv_engine_args() {
   fi
   case "$2" in
     *-log) printf '%s\n' --no-async-scheduling --enable-logging-iteration-details ;;
+    *-step) printf '%s\n' --no-async-scheduling --enable-logging-iteration-details "--scheduler-cls=$IV_STEP_CLASS" ;;
     *-nolog) printf '%s\n' --no-async-scheduling ;;
     *-async) ;;
   esac
@@ -249,6 +267,59 @@ iv_render_manifest() {
   else
     cmp -s "$dest" "$base" || { echo "the rendered manifest for $arm should equal $base and does not"; return 1; }
   fi
+  case "$arm" in
+    *-step) iv_add_step_mounts "$dest" || return 1 ;;
+  esac
+}
+
+# Prints the replay flag that tags every request of one cell and phase with X-Request-Id, for the step-boundary
+# study only, so every other study's replay command stays what it was.
+#
+# The engine is new in every cell, so <arm>-<rep>-<phase> is unique among the requests one engine sees, and the
+# warm-up's ids cannot collide with the measured replay's.
+iv_request_id_flag() {
+  local study="$1" arm="$2" rep="$3" phase="$4"
+  [ "$study" = "$IV_STEP_STUDY" ] || return 0
+  case "$phase" in warmup | measured) ;; *) echo "phase ${phase@Q} is neither warmup nor measured" >&2; return 1 ;; esac
+  printf -- '--request-id-prefix=%s-%s-%s\n' "$arm" "$rep" "$phase"
+}
+
+# Adds what a -step arm's engine needs to load the instrument, to a manifest iv_render_manifest already rendered.
+#
+# Three insertions, each at a line the base manifest has exactly once: PYTHONPATH and STEP_LOG_PATH after the
+# container's image line, the plugin and log mounts after its volumeMounts line, and the ConfigMap and emptyDir
+# volumes after the pod's volumes line. Proved the way the arguments are: the result minus exactly the inserted
+# lines is byte-identical to the input, so an insertion that landed twice or nowhere refuses instead of deploying.
+iv_add_step_mounts() {
+  local dest="$1" tmp anchor n inserted
+  tmp="$dest.step"
+  for anchor in '^[[:space:]]*image: vllm/' '^[[:space:]]*volumeMounts:[[:space:]]*$' '^[[:space:]]*volumes:[[:space:]]*$'; do
+    n=$(grep -cE "$anchor" "$dest") || true
+    [ "$n" = 1 ] || { echo "$dest has $n lines matching $anchor and the instrument's mounts go after exactly one"; return 1; }
+  done
+  STEP_LOG="$IV_STEP_LOG" CM="$IV_STEP_CONFIGMAP" awk '
+    function ind(line) { s = line; sub(/[^ ].*/, "", s); return s }
+    { print }
+    /^[[:space:]]*image: vllm\// {
+      i = ind($0)
+      print i "env:"; print i "  - name: PYTHONPATH"; print i "    value: /opt/step-plugin"
+      print i "  - name: STEP_LOG_PATH"; print i "    value: " ENVIRON["STEP_LOG"]
+    }
+    /^[[:space:]]*volumeMounts:[[:space:]]*$/ {
+      i = ind($0)
+      print i "  - name: step-plugin"; print i "    mountPath: /opt/step-plugin"; print i "    readOnly: true"
+      print i "  - name: steplog"; print i "    mountPath: " substr(ENVIRON["STEP_LOG"], 1, index(substr(ENVIRON["STEP_LOG"], 2), "/"))
+    }
+    /^[[:space:]]*volumes:[[:space:]]*$/ {
+      i = ind($0)
+      print i "  - name: step-plugin"; print i "    configMap:"; print i "      name: " ENVIRON["CM"]
+      print i "  - name: steplog"; print i "    emptyDir: {}"
+    }
+  ' "$dest" > "$tmp" || { echo "could not write $tmp"; return 1; }
+  inserted=$(diff "$dest" "$tmp" | grep -c '^>') || true
+  [ "$inserted" = 15 ] && [ "$(diff "$dest" "$tmp" | grep -c '^<')" = 0 ] \
+    || { echo "adding the instrument's mounts changed $dest by $inserted added lines and some removed, not exactly 15 added"; return 1; }
+  mv "$tmp" "$dest"
 }
 
 # Refuses a cell whose engine did not report the configuration its arm registers.
@@ -259,7 +330,7 @@ iv_render_manifest() {
 # a present key into a false refusal that reads like a missing one.
 # $4 is the revision session 3 pinned; sessions 1 and 2 ignore it, so their cells are judged exactly as before.
 iv_process_args_refusal() {
-  local study="$1" arm="$2" line="${3:-}" rev="${4:-}" async_false=0 logging_true=0 key pat
+  local study="$1" arm="$2" line="${3:-}" rev="${4:-}" async_false=0 logging_true=0 step_cls=0 key pat
   iv_arm_refusal "$study" "$arm" || return 1
   case "$line" in
     "non-default args: {"*) ;;
@@ -283,8 +354,21 @@ iv_process_args_refusal() {
   fi
   printf '%s' "$line" | grep -qE "['\"]async_scheduling['\"]: False" && async_false=1
   printf '%s' "$line" | grep -qE "['\"]enable_logging_iteration_details['\"]: True" && logging_true=1
+  # The instrument is loaded in exactly the -step cells: vLLM reports a non-default scheduler class, and a -log cell
+  # that reported one would be a paired control carrying the treatment.
+  if [[ "$line" =~ [\'\"]scheduler_cls[\'\"]:\ [\'\"]${IV_STEP_CLASS}[\'\"] ]]; then step_cls=1; else step_cls=0; fi
   case "$arm" in
-    *-log | *-nolog)
+    *-step)
+      [ "$step_cls" = 1 ] || {
+        echo "the engine for $arm does not report scheduler_cls '$IV_STEP_CLASS', so the instrument the arm registers was not loaded: $line"
+        return 1; } ;;
+    *)
+      [ "$step_cls" = 0 ] || {
+        echo "the engine for $arm reports scheduler_cls '$IV_STEP_CLASS' although its arm loads no instrument: $line"
+        return 1; } ;;
+  esac
+  case "$arm" in
+    *-log | *-nolog | *-step)
       [ "$async_false" = 1 ] || {
         echo "the engine for $arm does not report async_scheduling False in its non-default args, so it is not the synchronous engine the arm registers: $line"
         return 1; } ;;
@@ -294,7 +378,7 @@ iv_process_args_refusal() {
         return 1; } ;;
   esac
   case "$arm" in
-    *-log)
+    *-log | *-step)
       [ "$logging_true" = 1 ] || {
         echo "the engine for $arm does not report enable_logging_iteration_details True, so iteration logging is off in a cell whose arm registers it on: $line"
         return 1; } ;;
@@ -318,8 +402,9 @@ iv_engine_log_refusal() {
   [ -f "$log" ] || { echo "no engine log was captured for $arm at $log"; return 1; }
   n=$(awk 'index($0, "Iteration(") {c++} END {print c+0}' "$log") \
     || { echo "could not count iteration lines in $log"; return 1; }
+  # A -step arm logs iterations too: it is a -log engine with the instrument loaded.
   case "$arm" in
-    *-log)
+    *-log | *-step)
       [ "$n" -gt 0 ] || {
         echo "the engine log for $arm holds zero Iteration( lines, so iteration logging was off in a cell whose arm registers it on ($log)"
         return 1; } ;;
@@ -343,7 +428,7 @@ iv_warmup_boundary() {
   iv_arm_refusal "$study" "$arm" || return 1
   iv_has_warmup "$study" || { echo "study $study registers no warm-up, so it has no warm-up boundary"; return 1; }
   case "$arm" in
-    *-log) ;;
+    *-log | *-step) ;;
     *) echo none; return 0 ;;
   esac
   [ -f "$log" ] || { echo "no engine log was read for $arm's warm-up boundary at $log"; return 1; }

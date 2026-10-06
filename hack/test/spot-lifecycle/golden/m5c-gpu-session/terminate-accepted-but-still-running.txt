@@ -45,7 +45,7 @@ gateway checksum: user-data matches the uploaded binary
 ==   gateway <SHA12>, benchharness <SHA12>
 == uploading the source and the binaries
 == g5.2xlarge is offered in: ap-northeast-2a ap-northeast-2c
-== user-data: 12144 of 25600 encoded bytes
+== user-data: 12324 of 25600 encoded bytes
 == checking the purchase plan locally, before anything is rented
 == plan: 4 cell(s): R1 shared timeSlicing mps 
 == load matches study sharing-matrix-2026-09-10's frozen tuple (five quantities)

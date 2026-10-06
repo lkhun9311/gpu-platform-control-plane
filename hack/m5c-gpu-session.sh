@@ -1047,6 +1047,9 @@ done
 # The engine's own log for this cell, written only under the instrument-validation study.
 # Its iteration lines are that study's measurement, so a cell that survives without them is not a cell.
 send "$out/engine-log-$arm-$rep.txt" "engine-log-$arm-$rep.txt"
+# A step-boundary -step cell's instrument log and the sha256 of the instrument it ran, absent for every other cell.
+send "$out/step-log-$arm-$rep.jsonl" "step-log-$arm-$rep.jsonl"
+send "$out/step-plugin-$arm-$rep.sha256" "step-plugin-$arm-$rep.sha256"
 # The warm-up's rows, its boundary, and the trace and manifest it replayed, written only under session 2.
 # The boundary is what separates the log's warm-up iterations from the measured ones, so the log without it
 # cannot be split.
