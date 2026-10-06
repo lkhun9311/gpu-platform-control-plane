@@ -32,6 +32,10 @@ STUDY_S3 = "instrument-validation-s3-2026-10-06"
 # Session 4 (2026-10-06-instrument-validation-session-4.md) is session 3 with a conditioning request between the
 # warm-up's cycle and its verification requests.
 STUDY_S4 = "instrument-validation-s4-2026-10-06"
+STUDY_S1 = "instrument-validation-2026-10-05"
+# Every study this file can judge; any other id is refused rather than judged by session 1's rules.
+# Without this, a later session's rows fell through to session 1's path with no warning (found by review).
+KNOWN_STUDIES = (STUDY_S1, STUDY_S2, STUDY_S3, STUDY_S4)
 WARM_STUDIES = (STUDY_S2, STUDY_S3, STUDY_S4)
 FIXED_LENGTH_STUDIES = (STUDY_S3, STUDY_S4)
 # Session 3 registers every staggered decoder at exactly 512 output tokens, not merely "at its cap": a decoder capped
@@ -434,6 +438,8 @@ def check_stagger(reqs, arm, b, fixed_length=False):
 def evaluate(run, rng=None):
     rng = rng or random.Random(20261005)
     study = study_of(run)
+    if study not in KNOWN_STUDIES:
+        raise Refusal(f"study {study!r} is not one this evaluator was registered for, so it has no rules to judge it by")
     s2 = study in WARM_STUDIES
     s3 = study in FIXED_LENGTH_STUDIES
     trailing = 3 if study == STUDY_S4 else 2
@@ -488,7 +494,7 @@ def evaluate(run, rng=None):
     return passed, lines
 
 
-def _write_cell(run, arm, rep, reqs, log_lines, preempt=0, study=""):
+def _write_cell(run, arm, rep, reqs, log_lines, preempt=0, study=STUDY_S1):
     with open(os.path.join(run, f"trace-{arm}-{rep}.jsonl"), "w") as f:
         for q in reqs:
             f.write(json.dumps(dict(index=q["index"], offsetMs=q["offset"], tenant="premium-1",
@@ -571,7 +577,7 @@ def _synthetic_run(run, overhead=0.0, seed=7, context=0.0, s2=False, clock_c=CLO
                         for i, ttft in enumerate((231.0, 230.0, 232.0)):
                             f.write(json.dumps(dict(index=i, engineInputTokens=2048, sendUnixNanos=int(i * 1e10),
                                                     firstTokenUnixNanos=int(i * 1e10 + ttft * 1e6))) + "\n")
-                _write_cell(run, f"{kind}-{suffix}", b, reqs, lines, study=STUDY_S2 if s2 else "")
+                _write_cell(run, f"{kind}-{suffix}", b, reqs, lines, study=STUDY_S2 if s2 else STUDY_S1)
 
 
 def _positional_bursts(run, seed=3):
@@ -680,6 +686,15 @@ def self_test_s4():
         except Refusal as e:
             assert "cannot be located" in str(e), e
             print(f"ok: refuses a session-4 warm-up without its conditioning request -- {e}")
+    # A session-4 archive that would pass, relabelled with a study no rule here was registered for.
+    with tempfile.TemporaryDirectory() as run:
+        _s3_run(run, study="instrument-validation-unregistered", conditioner=True)
+        try:
+            evaluate(run)
+            raise AssertionError("an unregistered study was judged")
+        except Refusal as e:
+            assert "not one this evaluator was registered for" in str(e), e
+            print(f"ok: refuses a study it has no rules for -- {e}")
 
 
 def self_test_s3():
