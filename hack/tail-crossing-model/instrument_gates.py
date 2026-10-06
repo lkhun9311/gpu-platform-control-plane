@@ -62,6 +62,10 @@ def load_cell(run, arm, rep, warmup=False):
     """
     tname, rname = (f"warmup-trace-{arm}-{rep}.jsonl", f"raw-warmup-{arm}-{rep}.jsonl") if warmup else \
         (f"trace-{arm}-{rep}.jsonl", f"raw-{arm}-{rep}.jsonl")
+    # A cell the run never bought is a refusal that names it, not a traceback (session 3 stopped after seven cells).
+    for name in (tname, rname):
+        if not os.path.exists(os.path.join(run, name)):
+            raise Refusal(f"{arm}-{rep}: {name} is missing, so the cell was not recorded and the gates cannot be read")
     trace = {r["index"]: r for r in map(json.loads, open(os.path.join(run, tname)))}
     raw = [json.loads(l) for l in open(os.path.join(run, rname))]
     if len(raw) != len(trace) or {r["index"] for r in raw} != set(trace):
@@ -745,6 +749,16 @@ def self_test_s4():
         p = subprocess.run([sys.executable, os.path.abspath(__file__), run], env=env, capture_output=True, text=True)
         assert p.returncode != 0 and "set BENCHHARNESS" in p.stderr, (p.returncode, p.stderr[-300:])
         print("ok: the command line runs the design check, and refuses without a harness to run it with")
+    # An archive that stopped before its last cell, as session 3's did.
+    with tempfile.TemporaryDirectory() as run:
+        _s3_run(run, study=STUDY_S4)
+        os.remove(os.path.join(run, "raw-stagger-nolog-3.jsonl"))
+        try:
+            evaluate(run)
+            raise AssertionError("an archive missing a cell was judged")
+        except Refusal as e:
+            assert "raw-stagger-nolog-3.jsonl is missing" in str(e), e
+            print(f"ok: refuses an archive missing a cell -- {e}")
     # A session-4 archive that would pass, relabelled with a study no rule here was registered for.
     with tempfile.TemporaryDirectory() as run:
         _s3_run(run, study="instrument-validation-unregistered", conditioner=True)
