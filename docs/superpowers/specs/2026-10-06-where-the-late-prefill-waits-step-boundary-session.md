@@ -210,3 +210,51 @@ AWS_PROFILE=gpu-lab STUDY=step-boundary-2026-10-06 \
 ```
 BENCHHARNESS=<cmd/benchharness at this commit> python3 hack/tail-crossing-model/step_boundary.py hack/<archive>/m5c-run
 ```
+
+## Result, 2026-10-07 — the instrument is clean and costs nothing measurable; both registered predictions fail
+
+**The session.** It launched at the frozen commit `6de7f59` at about 22:40 KST on 2026-10-06 and completed all 21 cells by about 04:34 KST, with no refusal. The deadline guard's last projection had 258 minutes left against 12 projected. The instance ran about 6.0 hours and was confirmed terminated. Cost Explorer shows $2.89 for 2026-10-06 UTC, which held the whole session; it is not yet final. The archive is hack/m5c-20261006-133937.
+
+**One defect of the session script, not of the data.** After unpacking the evidence, `hack/m5c-gpu-session.sh` failed its repetition check with "arm serial-log is missing repetition 2 of 6". That check expected every arm in every block, and this registration buys serial and staggered cells in blocks 1, 3 and 5 only, which the matrix laid out correctly. The evaluator's gate 1, which checks the registered 21 cells, passed. A kind rehearsal of the -step path would have caught the check (section 8 said none was run), and it is fixed after this record.
+
+`hack/tail-crossing-model/step_boundary.py` at `6de7f59` was run once on the archive. Its whole output is kept as `data/2026-10-07-step-boundary-analysis.txt`.
+
+| | Result |
+|---|---|
+| Gate 1, archive | **passes**: 21 cells, design, all 42 traces seed 31's byte for byte, the registered engine configuration and this tree's instrument in every cell, and W, S and I2 |
+| Gate 2, instrument | **passes** in all 12 -step cells: every step one to one with the engine's log (3,080 per burst cell, 5,314 per serial cell, 37,960 per staggered cell), every request joined and reconciled, own cost median about 0.07% and worst 0.56% of a step's occupancy, clock brackets median under 0.5 µs |
+| Gate 3, overhead | **passes**: all 75 endpoints inside ±5%; the widest intervals are serial (1,024, 16) ITL [−1.04, +1.34] and burst (16, 256, 64) mean TTFT [−0.66, +0.95] log-points |
+| Q1 | **does not hold** on any of the six short-prefill settings |
+| Q3 | **fails**: condition 13.7; 13 phases outside 10% |
+
+**The decomposition of the late prefill's TTFT**, in mean ms, for the instrumented engine:
+
+| Setting | S → P | P → A | A → F | F → O | O → C |
+|---|---:|---:|---:|---:|---:|
+| (1, 256, 256) | 2.99 | 11.15 | 0.016 | 45.15 | 2.18 |
+| (4, 256, 256) | 3.49 | 10.90 | 0.018 | 46.14 | 2.64 |
+| (16, 256, 256) | 5.04 | 12.11 | 0.016 | 49.01 | 3.69 |
+| (1, 8,192, 256) | 3.03 | 12.29 | 0.016 | 58.41 | 2.17 |
+| (4, 8,192, 256) | 3.54 | 14.42 | 0.017 | 59.77 | 2.63 |
+| (16, 8,192, 256) | 4.70 | 18.97 | 0.018 | 104.07 | 3.80 |
+
+The 8,192-token late prefills are in the output file.
+
+- Once a request reaches the scheduler, it is scheduled within 0.02 ms (A → F).
+- The wait sits before that, in P → A. That is the core taking new requests only between steps, as section 4 expected.
+- Steps follow each other with a median gap of 0.037–0.044 ms; p95 is 0.070 ms or less.
+
+**Q1.** The wait beyond an idle engine's P → A, 8.5 to 16.6 ms, is 29% to 48% of the gap the pilot left. That is short of the registered half in every setting. The closest are (4, 256, 256) at 8.53 against 8.97 and (1, 256, 256) at 8.78 against 9.87. The per-setting values, block means and intervals are in the output. **The prediction that waiting explains at least half the gap is false.**
+
+**Q3.** On measured occupancy, with no clock correction, the family fails in the same places as the pilot did on corrected log time:
+- the late prefill's own steps are under-predicted by 21% to 38%;
+- decode steps beside long-context decoders are over-predicted by up to 55%.
+
+So the pilot's failure was not an artefact of the clock correction. The family itself does not describe a step that mixes a prefill with running decoders.
+
+**What this establishes.** For the instrumented engine:
+- The instrument records every step and request, at a direct cost under 0.6% of any step.
+- It moves no serial or burst endpoint by more than the ±5% bound, with intervals within about ±1.3%.
+- A late prefill's extra time is partly a wait for the step in flight, about a third to a half of it. The rest is its own steps taking longer than a family fitted on unmixed steps predicts.
+
+**What it does not.** Any staggered on/off equivalence; anything about the uninstrumented, async or other-budget engine; or a simulator-ready model. Q3 failed, so no simulator or M5-b feasibility check is built on this family. A different family, one with terms for a prefill sharing a step with decoders, would be a new registration fitted on data it is not tested on. This archive is now seen.
