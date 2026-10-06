@@ -39,26 +39,62 @@ def load(step_lines, engine_lines):
     # scheduler, or the write overlapped measured work.
     for i, r in enumerate(recs):
         if r["ev"] == "flush":
+            if "end" not in r:
+                raise Refusal("a flush record carries no end stamp, so whether it overlapped a request is unknown")
             nxt = next((x for x in recs[i + 1:] if x["ev"] == "add"), None)
-            if nxt is not None and "end" in r and r["end"] >= nxt["mono"]:
+            if nxt is not None and r["end"] >= nxt["mono"]:
                 raise Refusal(f"a write ended at {r['end']} ns, after request {nxt['id']} arrived at {nxt['mono']} ns")
     over = [r for r in recs if r["ev"] == "overflow"]
     if over:
         raise Refusal(f"the instrument's buffer overflowed after {over[0]['dropped_after']} records, so the log is short")
     sched = [r for r in recs if r["ev"] == "sched"]
-    done = {r["step"]: r for r in recs if r["ev"] == "done"}
+    dones = [r for r in recs if r["ev"] == "done"]
+    done = {r["step"]: r for r in dones}
+    if len(done) != len(dones):
+        raise Refusal("a step has more than one done record")
     adds = [r for r in recs if r["ev"] == "add"]
+    launch = {}
+    for r in recs:
+        if r["ev"] == "launch":
+            launch[r["step"]] = launch.get(r["step"], 0) + r["ns"]
+    # Clock anchors: a wall reading bracketed by two monotonic ones, in order; and vLLM's arrival stamp, taken in
+    # the frontend before the request was sent, must precede the scheduler's own reading of the wall clock.
+    for r in adds + sched:
+        a = r.get("anchor")
+        if not a or not a[0] <= a[2]:
+            raise Refusal(f"a {r['ev']} record has no ordered monotonic bracket around its wall reading")
+    for r in adds:
+        if r["arrival_wall"] > r["anchor"][1]:
+            raise Refusal(f"request {r['id']} arrived at the frontend after it reached the scheduler")
     if [r["step"] for r in sched] != list(range(1, len(sched) + 1)):
         raise Refusal("the scheduled steps' indices are not 1..n in order")
     missing = [r["step"] for r in sched if r["step"] not in done]
     if missing:
         raise Refusal(f"{len(missing)} scheduled step(s) have no done record, first {missing[0]}")
+    # A step's four boundaries in order, and no step starting before the previous one's update ended.
+    prev_t3 = None
+    for r in sched:
+        d = done[r["step"]]
+        if not r["t0"] <= r["t1"] <= d["t2"] <= d["t3"]:
+            raise Refusal(f"step {r['step']}: its boundaries are out of order")
+        if prev_t3 is not None and r["t0"] < prev_t3:
+            raise Refusal(f"step {r['step']} started before step {r['step'] - 1}'s update ended")
+        prev_t3 = d["t3"]
+    # Each request's computed tokens continue where its previous step left them.
+    progress = {}
+    for r in sched:
+        for rid, n in r["tokens"].items():
+            c = r["computed"].get(rid, -1)
+            if c != progress.get(rid, c if rid not in progress else -2) or c < 0:
+                raise Refusal(f"step {r['step']}: request {rid} reports {c} computed tokens, not the "
+                              f"{progress.get(rid, 0)} its earlier steps scheduled")
+            progress[rid] = c + n
     iters = [tuple(float(x) for x in m.groups()) for m in map(ITER.search, engine_lines) if m]
-    return sched, done, adds, iters
+    return sched, done, adds, iters, launch
 
 
 def check(step_lines, engine_lines, outputs=None):
-    sched, done, adds, iters = load(step_lines, engine_lines)
+    sched, done, adds, iters, launch = load(step_lines, engine_lines)
     lines = []
     if len(iters) != len(sched):
         raise Refusal(f"the instrument recorded {len(sched)} steps and the engine logged {len(iters)}")
@@ -71,10 +107,12 @@ def check(step_lines, engine_lines, outputs=None):
     for s in sched:
         d = done[s["step"]]
         occupancy = d["t3"] - s["t0"]
-        cost = s["self"] + d["self"]
+        cost = s["self"] + d["self"] + launch.get(s["step"], 0)
         shares.append(cost / occupancy if occupancy > 0 else float("inf"))
     worst = max(shares)
     lines.append(f"instrument cost per step: median {statistics.median(shares):.5%}, worst {worst:.5%} of occupancy")
+    widths = [r["anchor"][2] - r["anchor"][0] for r in adds + sched]
+    lines.append(f"clock anchors: {len(widths)}, bracket median {statistics.median(widths)} ns, worst {max(widths)} ns")
     if worst > MAX_SELF_SHARE:
         raise Refusal(f"a step's instrument cost was {worst:.3%} of its occupancy, above {MAX_SELF_SHARE:.0%}")
     if outputs is not None:
@@ -108,11 +146,11 @@ def check(step_lines, engine_lines, outputs=None):
 def self_test():
     def step_log(extra_self=0):
         return [
-            json.dumps({"ev": "add", "id": "chatcmpl-a-1-xx", "mono": 0, "wall": 0, "prompt": 4, "self": 10}),
-            json.dumps({"ev": "sched", "step": 1, "t0": 0, "t1": 100, "wall1": 0, "tokens": {"chatcmpl-a-1-xx": 4},
+            json.dumps({"ev": "add", "id": "chatcmpl-a-1-xx", "mono": 0, "anchor": [0, 100, 2], "arrival_wall": 90, "prompt": 4, "self": 10}),
+            json.dumps({"ev": "sched", "step": 1, "t0": 0, "t1": 100, "anchor": [100, 200, 102], "tokens": {"chatcmpl-a-1-xx": 4},
                         "computed": {"chatcmpl-a-1-xx": 0}, "self": 50 + extra_self}),
             json.dumps({"ev": "done", "step": 1, "t2": 1_000_000, "t3": 1_000_100, "self": 50}),
-            json.dumps({"ev": "sched", "step": 2, "t0": 1_000_200, "t1": 1_000_300, "wall1": 0,
+            json.dumps({"ev": "sched", "step": 2, "t0": 1_000_200, "t1": 1_000_300, "anchor": [1_000_300, 1_000_400, 1_000_302],
                         "tokens": {"chatcmpl-a-1-xx": 1}, "computed": {"chatcmpl-a-1-xx": 4}, "self": 50}),
             json.dumps({"ev": "done", "step": 2, "t2": 2_000_000, "t3": 2_000_100, "self": 50}),
             json.dumps({"ev": "flush", "mono": 2_000_200, "end": 2_000_300, "records": 5}),
@@ -130,6 +168,15 @@ def self_test():
         ("an overflow", step_log()[:-1] + [json.dumps({"ev": "overflow", "mono": 0, "dropped_after": 9}), step_log()[-1]], engine, None, "overflowed"),
         ("a step without its done record", step_log()[:2] + step_log()[3:], engine, None, "no done record"),
         ("a log cut off before its flush", step_log()[:-1], engine, None, "does not end with a flush"),
+        ("a duplicated done record", step_log()[:3] + [step_log()[2]] + step_log()[3:], engine, None, "more than one done"),
+        ("boundaries out of order", [step_log()[0], step_log()[1].replace('"t1": 100', '"t1": 2000000')] + step_log()[2:],
+         engine, None, "out of order"),
+        ("computed tokens that do not continue", step_log()[:3] + [step_log()[3].replace('{"chatcmpl-a-1-xx": 4}', '{"chatcmpl-a-1-xx": 3}')]
+         + step_log()[4:], engine, None, "computed tokens"),
+        ("a flush with no end stamp", step_log()[:-1] + [json.dumps({"ev": "flush", "mono": 2_000_200, "records": 5})],
+         engine, None, "no end stamp"),
+        ("an arrival after the scheduler saw it", [step_log()[0].replace('"arrival_wall": 90', '"arrival_wall": 150')] + step_log()[1:],
+         engine, None, "arrived at the frontend after"),
         ("a write still running when the next request arrived",
          [json.dumps({"ev": "flush", "mono": 0, "end": 5, "records": 0})]
          + [step_log()[0].replace('"mono": 0', '"mono": 3')] + step_log()[1:], engine, None, "after request")
