@@ -87,6 +87,31 @@ REGISTERED_SEED = 31
 REGISTERED_ARGS = ("Qwen/Qwen2.5-3B-Instruct", "--dtype=half", "--max-model-len=16384", "--max-num-seqs=64",
                    "--gpu-memory-utilization=0.90", "--no-enable-prefix-caching", "--max-num-batched-tokens=2048",
                    "--port=8000")
+# The same configuration as effective option values: each must be given exactly once, with this value.
+REGISTERED_OPTIONS = {"model": "Qwen/Qwen2.5-3B-Instruct", "dtype": "half", "max-model-len": "16384", "max-num-seqs": "64",
+                      "gpu-memory-utilization": "0.90", "max-num-batched-tokens": "2048", "port": "8000",
+                      "no-enable-prefix-caching": None}
+FORBIDDEN_OPTIONS = ("enable-prefix-caching",)
+
+
+def engine_options(args):
+    """An engine argument list as {option: [values]}: the leading positional is the model, and both --key=value and
+    --key value are read, so a later `--max-num-batched-tokens 512` cannot override the registered value unseen."""
+    opts, i = {}, 0
+    while i < len(args):
+        a = args[i]
+        if not a.startswith("--"):
+            opts.setdefault("model", []).append(a)
+        elif "=" in a:
+            k, v = a[2:].split("=", 1)
+            opts.setdefault(k, []).append(v)
+        elif i + 1 < len(args) and not args[i + 1].startswith("--"):
+            opts.setdefault(a[2:], []).append(args[i + 1])
+            i += 1
+        else:
+            opts.setdefault(a[2:], []).append(None)
+        i += 1
+    return opts
 PLUGIN = os.path.join(instrument_gates.REPO, "hack", "vllm-plugins", "step_logging_scheduler.py")
 
 
@@ -104,13 +129,14 @@ def check_registered_engine(run):
     want_sha = hashlib.sha256(open(PLUGIN, "rb").read()).hexdigest()
     for arm, b in CELLS:
         args = applied.get(cell_of.get((arm, b)), [])
-        missing = [a for a in REGISTERED_ARGS if a not in args]
-        if missing:
-            raise Refusal(f"{arm}-{b}: the engine ran without the registered {missing}: {args}")
-        others = [a for a in args if a.startswith(("--max-num-batched-tokens=", "--max-num-seqs=", "--enable-prefix-caching"))
-                  and a not in REGISTERED_ARGS]
-        if others:
-            raise Refusal(f"{arm}-{b}: the engine ran with {others}, which the registration does not")
+        opts = engine_options(args)
+        for k, v in REGISTERED_OPTIONS.items():
+            if opts.get(k) != [v]:
+                raise Refusal(f"{arm}-{b}: the engine was given {k} as {opts.get(k)}, not exactly once as the "
+                              f"registered {v!r}: {args}")
+        for k in FORBIDDEN_OPTIONS:
+            if k in opts:
+                raise Refusal(f"{arm}-{b}: the engine ran with --{k}, which the registration does not: {args}")
         if arm.endswith("-step"):
             path = os.path.join(run, f"step-plugin-{arm}-{b}.sha256")
             if not os.path.exists(path):
@@ -322,10 +348,16 @@ def gaps(run):
     for kind in ("serial", "burst", "stagger"):
         blocks = ODD if kind != "burst" else tuple(range(1, 7))
         g, per_block = [], {}
+        try:
+            cells = {b: episodes_of_cell(run, f"{kind}-step", b, kind) for b in blocks}
+        except Refusal as e:
+            # Overlapping episodes refuse the gap report for this type, not the evaluation (found by review).
+            lines.append(f"inter-step gap {kind}: REFUSED -- {e}")
+            continue
         for b in blocks:
             # The population, as registered: consecutive steps of one measured episode, by the episode's own
             # requests; warm-up steps belong to no measured episode and are not in it.
-            for e in episodes_of_cell(run, f"{kind}-step", b, kind):
+            for e in cells[b]:
                 for a, nxt in zip(e["steps"], e["steps"][1:]):
                     v = nxt["t0_ms"] - a["t3_ms"]
                     g.append(v)

@@ -162,11 +162,14 @@ def run_files():
         print(f"ok: the registered configuration passes -- {sb.check_registered_engine(run)}")
         for what, args_for, sha_for, words in [
                 ("a 512-token budget", lambda arm, b: [a.replace("=2048", "=512") for a in good(arm, b)], lambda a, b: sha,
-                 "without the registered"),
+                 "max-num-batched-tokens as ['512']"),
                 ("prefix caching enabled", lambda arm, b: good(arm, b) + ["--enable-prefix-caching"], lambda a, b: sha,
                  "which the registration does not"),
                 ("another instrument", good, lambda arm, b: "0" * 64 if (arm, b) == ("stagger-step", 3) else sha,
-                 "not this tree's")]:
+                 "not this tree's"),
+                ("a budget overridden in space form", lambda arm, b: good(arm, b) + ["--max-num-batched-tokens", "512"],
+                 lambda a, b: sha, "max-num-batched-tokens"),
+                ("a dtype overridden later", lambda arm, b: good(arm, b) + ["--dtype=bfloat16"], lambda a, b: sha, "dtype")]:
             lay(args_for, sha_for)
             try:
                 sb.check_registered_engine(run)
