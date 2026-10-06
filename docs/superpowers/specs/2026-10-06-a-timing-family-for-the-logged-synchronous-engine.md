@@ -32,9 +32,16 @@ The family, the training and held-out split and the two clock conventions are th
 The family **passes** when all of the following hold under **both** mixed-step conventions. If one convention passes and the other fails, the result is **UNRESOLVED**.
 
 1. **Logged step time, held out.** In every held-out setting and every staggered setting, the predicted mean of the convention-corrected step time is within 10% of the observed, separately for context-bearing steps, pure-decode steps and the late prefill's own steps. The design has full rank and a column-normalised condition number of at most 100. (Inherited.)
-2. **Client time, which the log does not set.** In every staggered setting, the late prefill's predicted TTFT is within 10% of its client-measured TTFT, as a mean over the setting's episodes. The predicted TTFT is the frozen per-request intercept `a` plus the sum of predicted step times from the prefill's send to its first token, over the steps the log records in that interval. This is the check that tests mixed steps against a clock outside the log. (New. Proposed by me, not yet reviewed by astra.)
+2. **Whole client TTFT of the late prefill, conditionally.** In every staggered setting and under each convention, the ratio of the arithmetic mean predicted TTFT to the arithmetic mean client-measured TTFT of the late prefill, with the three blocks weighted equally, lies in [0.90, 1.10]. The predicted TTFT is the frozen per-request intercept `a` plus the predicted durations of **the late prompt's own context-bearing steps**. Those steps are chosen by token accounting alone: every initial prompt has finished before the late send, and only one new prompt arrives. Block ratios and per-episode residuals in milliseconds are published, because opposite errors can cancel in a mean.
 
-**What a pass means:** a predictor of convention-corrected logged step time, and of the staggered late prefill's client TTFT, within 10%, for this configuration, model, card and these settings, on episodes it was not trained on. It is conditional on the context reconstruction and on the clock assumptions.
+**What item 2 is not.** I first proposed summing the predicted steps from the prefill's send to its first token, as a test of mixed steps against a clock outside the log. astra showed it is not identifiable from the archive. The log has aggregate counts and elapsed times with second-resolution stamps the parser discards, and no request ids or admission times. So which decode step straddled the send, and how much of it remained, cannot be known.
+
+Item 2 is therefore a **conditional prediction of whole client TTFT using reconstructed service steps**. It tests the family, the reconstruction and the transfer of a serial-calibrated `a` to an arrival during decoding, all at once, and it cannot validate mixed-step durations on its own.
+- Choosing the steps to match the observed first-token time, or locating boundaries by accumulating corrected durations, would make it outcome-dependent or assume the clock under test. Both are prohibited.
+- The 10% is an engineering requirement, not an established measurement tolerance. For (1, 256, 256) the 21 late-prefill TTFTs average 61.91 ms, so the allowance is 6.19 ms, while a median logged pure-decode step there is 14.75 ms (astra's figure). An unattributed boundary step alone would exceed it, so the bound is not widened to absorb one.
+- A test of mixed-step durations against an independent clock would need new instrumentation that records execution boundaries and request associations. That is a new measurement registration, not an implementation detail.
+
+**What a pass means:** a predictor of convention-corrected logged step time within 10%, and a conditional prediction of the staggered late prefill's whole client TTFT within 10%, for this configuration, model, card and these settings, on episodes it was not trained on. Both are conditional on the context reconstruction and the clock assumptions. Of session 5's 3,655 mixed steps in logged burst and staggered cells, 396 are late-prefill steps (astra's count), so item 2 says nothing about burst mixing or the staggered decoders' start-up.
 
 **What it does not mean:** that logging is free; anything about the async or unlogged engine; physical per-step costs, since no coefficient is interpreted on its own; anything about other models, cards, budgets or versions; or that an admission rule built on it protects anyone. The simulator study that would ask the last question is its own registration, calibrated computationally before any shared cell is bought.
 
@@ -75,7 +82,7 @@ Session 5 (hack/m5c-20261005-222736) holds nine logged cells of this design. The
 ## 7. Who decided what
 
 - The change of target is the user's proposal, made after I1 failed.
-- The free pilot, its stopping rule, and the client-TTFT check in section 3 are mine.
+- The free pilot and its stopping rule are mine. So was the first form of section 3's item 2, which astra showed unidentifiable; its replacement, its aggregation and its narrowed claim are astra's.
 - The following are astra's, from its triage and its review of the first draft, each re-derived by me where it is a number:
   - what the page must freeze;
   - that removing I1 does not repair the mixed-step clock;
@@ -92,5 +99,5 @@ None of this exists yet; each item lands with a test that fails when the item is
 1. A study id and episode design in `internal/bench` for logged-only cells, admitted by `matrix-plan-check` without unlogged pairs, and the matrix and session scripts' study helpers.
 2. An evaluator path in `instrument_gates.py` for this study: the gates of section 4 on three logged arms, I5 on the logged arm, no I1, and an explicit pilot policy for session 5's archive. Every earlier study's verdict is byte-identical.
 3. One mandatory validation path, used by both the command line and `timing_fit.run_fit`, that runs Design on measured and warm-up traces and checks provenance.
-4. In `timing_fit.py`: `k` included unconditionally for this study, section 3's client-TTFT check, and the stale `UNREGISTERED_S2` output removed for the adopted amendments.
+4. In `timing_fit.py`: `k` included unconditionally for this study, section 3's item 2 with its step selection by token accounting, and the stale `UNREGISTERED_S2` output removed for the adopted amendments.
 5. Synthetic tests of every refusal, then a kind rehearsal, then a bare codex review of the diff, before the freezing commit.
