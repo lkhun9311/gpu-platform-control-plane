@@ -336,3 +336,9 @@ An independent review by codex `gpt-6-astra`, run without being told where to lo
 ## Amendment, 2026-10-05 — the increment errors were divided by the prediction
 
 The correction above gives the 2,048-token increment errors as **11.4% and 11.2%**. Those divide by the predicted increment; every other error on this page divides by the measured value. Recomputed from the archive's raw rows with that convention — measured isolated pooled p99 461.093 ms, increments +654.259 and +737.679 ms against predicted +587.250 and +663.275 — they are **10.2% and 10.1%**. Both still exceed 10%, so nothing in the correction changes. codex `gpt-6-astra` found the swapped denominator while designing the next study; I recomputed the pooled p99s and both quotients before writing this.
+
+## Correction, 2026-10-06 — the 2,048-token table also divides by the prediction
+
+The amendment above says every other error on this page divides by the measured value. The 2,048-token table does not: its R1 row's −15.9% is (461.1 − 548.5) / 548.5. Found by codex `gpt-6-astra` in a cold review and re-derived by me from the table's own figures.
+
+Divided by the measured value instead, the five rows are −18.96%, −1.82%, −1.08%, −5.31% and −0.76%. No verdict moves: R1 is outside ±10% under either convention, so P4 stays falsified, and the four contended rows stay within 10%; the "0.8–5.0%" above becomes 0.8–5.3%. The pooled p99 errors in the stage-2 and stage-3 paragraph give both figures and so do not say which convention they use; they are not re-derived here.
