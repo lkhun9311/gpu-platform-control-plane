@@ -58,6 +58,11 @@ type Server struct {
 	// experiment imposing its scope on traffic it has no authority over. A benchmark run turns it on; nobody
 	// else does.
 	enforceBenchmarkProfile bool
+	// bindPriority writes the tenant tier's engine priority into every forwarded request.
+	//
+	// Off by default because it only means anything to an engine started with priority scheduling, and an
+	// experiment that did not register it must not have its traffic reordered under it.
+	bindPriority bool
 	// Namespace and APIKeySecret locate the api-keys Secret used to resolve tenants.
 	Namespace    string
 	APIKeySecret string
@@ -164,6 +169,9 @@ func (s *Server) ReportBackendState(on bool) { s.reportBackendState = on }
 // refused before the guard is consulted, and internal/bench/report.go reads that refusal as pre-admission so it
 // never enters either term of the admitted-work fraction.
 func (s *Server) EnforceBenchmarkProfile(on bool) { s.enforceBenchmarkProfile = on }
+
+// BindPriority turns on binding the engine's priority to the tenant's tier (see bindEnginePriority).
+func (s *Server) BindPriority(on bool) { s.bindPriority = on }
 
 func (s *Server) SetAdmitter(mode AdmissionMode, a Admitter) {
 	s.mode = mode
@@ -508,6 +516,17 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 		}
 		s.failReason(w, tenant, meta.Model, http.StatusTooManyRequests, reason)
 		return
+	}
+
+	// Bound only after admission, so a refused request is never rewritten, and before the handoff, so every
+	// attempt on every backend carries the same priority.
+	if s.bindPriority {
+		p, err := bindEnginePriority(r, tier)
+		if err != nil {
+			s.fail(w, tenant, meta.Model, http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set(HeaderEnginePriority, strconv.Itoa(p))
 	}
 
 	// 8. From here the response is the upstream's, passed through rather than composed.

@@ -89,6 +89,8 @@ func main() {
 		// enforceBenchmarkProfile is the other benchmark-only switch, and it refuses traffic rather than
 		// annotating it, so it stays off unless a run asks for it.
 		enforceBenchmarkProfile bool
+		// bindPriority reorders traffic on a priority-scheduling engine, so it too stays off unless asked for.
+		bindPriority bool
 
 		admissionKVEngageUsage    float64
 		admissionKVReleaseUsage   float64
@@ -110,6 +112,9 @@ func main() {
 			"Benchmark runs only: it rejects tools, functions, a top-level system, priority, multimodal content and "+
 			"any unknown field, none of which the input estimate counts, so a run that accepted them would report an "+
 			"admitted-work fraction over a population it never measured.")
+	flag.BoolVar(&bindPriority, "bind-priority", false,
+		"write the tenant tier's engine priority into every forwarded request (premium 0, standard 1), overwriting "+
+			"any priority the caller sent. Only meaningful for an engine started with --scheduling-policy=priority.")
 	flag.BoolVar(&admissionReportBackendState, "admission-report-backend-state", false,
 		"report the pressure reading each admission decision was made from, on the response. "+
 			"For the benchmark only: a caller has no business knowing how full the engine's KV cache is.")
@@ -222,6 +227,7 @@ func main() {
 	s.SetAdmitter(admissionMode, admitter)
 	s.ReportBackendState(admissionReportBackendState)
 	s.EnforceBenchmarkProfile(enforceBenchmarkProfile)
+	s.BindPriority(bindPriority)
 
 	// Start the cache and flip readiness once it has synced.
 	go func() {
