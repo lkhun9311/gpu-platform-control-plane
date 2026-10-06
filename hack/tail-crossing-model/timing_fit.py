@@ -20,6 +20,7 @@ The last two are not in the fit's registration, which was written for session 1,
 
     python3 timing_fit.py ARCHIVE/m5c-run                    # the registered verdict
     python3 timing_fit.py ARCHIVE/m5c-run --flip-context     # a labelled sensitivity run, never the verdict
+    BENCHHARNESS=bin python3 timing_fit.py ARCHIVE/m5c-run --logged   # the logged-engine registration (2026-10-06)
     python3 timing_fit.py --self-test
 
 Exit status: 0 PASS, 1 FAIL, 3 UNRESOLVED; a refusal exits with its message.
@@ -31,6 +32,7 @@ import json
 import math
 import os
 import random
+import statistics
 import sys
 
 import instrument_gates
@@ -250,7 +252,9 @@ def load_episodes(run, s2=False):
             for pos, ((setting, ep), steps) in enumerate(zip(eps, instrument_gates.segment(iters, [e for _, e in eps]))):
                 seen[setting] = seen.get(setting, 0) + 1
                 out.append(dict(setting=setting, block=b, cycle=seen[setting], pos=pos,
-                                reqs=[q["index"] for q in ep], steps=reconstruct(ep, steps)))
+                                reqs=[q["index"] for q in ep], steps=reconstruct(ep, steps),
+                                # The staggered prefill is the episode's last row; only the logged policy reads it.
+                                late_ttft_ms=ep[-1]["ttft_ms"] if kind == "stagger" else None))
     return out
 
 
@@ -555,7 +559,8 @@ def _err(steps, beta, b, b_prime, mixed, context, per_token=None):
     return dict(observed_ms=obs, predicted_ms=pred, error=pred / obs - 1, steps=len(steps))
 
 
-def fit(train, held, b, b_prime, context, mixed, bound=MAX_HELDOUT_ERROR, boot=BOOT, per_token=None, late_gate=False):
+def fit(train, held, b, b_prime, context, mixed, bound=MAX_HELDOUT_ERROR, boot=BOOT, per_token=None, late_gate=False,
+        ttft_a=None):
     """One fit and its verdict on the predicted episodes.
 
     A structural failure -- an unidentified design -- refuses; a prediction outside the bound is a "fail" verdict, so
@@ -602,6 +607,12 @@ def fit(train, held, b, b_prime, context, mixed, bound=MAX_HELDOUT_ERROR, boot=B
                               for e in eps])
         if s[0] == "stagger":
             item["label"] = STAGGER_LABEL
+            if ttft_a is not None:
+                item["late_prefill_ttft"] = late_ttft(eps, beta, context, ttft_a)
+                r = item["late_prefill_ttft"]["ratio"]
+                if not 1 - bound <= r <= 1 + bound:
+                    failures.append(f"{s} late-prefill client TTFT: predicted/observed {r:.4f}, outside "
+                                    f"[{1 - bound:.2f}, {1 + bound:.2f}]")
         report.append(item)
     # Whole episodes are resampled within each training setting, the way the split assigns them.
     rng = random.Random(SEED)
@@ -621,6 +632,29 @@ def fit(train, held, b, b_prime, context, mixed, bound=MAX_HELDOUT_ERROR, boot=B
                 weight_total=G[0][0], trained=[list(s) for s in sorted(train, key=str)], heldout=report)
 
 
+def late_ttft(eps, beta, context, a):
+    """Section 3 item 2 of the logged-engine registration: the late prefill's whole client TTFT, conditionally.
+
+    Predicted is the frozen per-request a plus the predicted durations of the late prompt's own context-bearing steps,
+    which reconstruct() marks by token accounting alone; nothing here reads the observed first-token time to choose
+    steps. The ratio is of means with the blocks weighted equally, and the block ratios and per-episode residuals are
+    published because opposite errors cancel in a mean.
+    """
+    def pred(e):
+        late = [st for st in e["steps"] if st["late"]]
+        if not late:
+            raise Refusal(f"{e['setting']} block {e['block']} cycle {e['cycle']}: no step schedules the late prefill")
+        return a + sum(sum(c * x for c, x in zip(beta, features(st, context))) for st in late)
+    blocks = sorted({e["block"] for e in eps})
+    by = {bl: [(pred(e), e["late_ttft_ms"]) for e in eps if e["block"] == bl] for bl in blocks}
+    mp = statistics.fmean(statistics.fmean(p for p, _ in v) for v in by.values())
+    mo = statistics.fmean(statistics.fmean(o for _, o in v) for v in by.values())
+    return dict(ratio=mp / mo, predicted_ms=mp, observed_ms=mo,
+                blocks={str(bl): statistics.fmean(p for p, _ in v) / statistics.fmean(o for _, o in v)
+                        for bl, v in by.items()},
+                residuals_ms=[dict(block=e["block"], cycle=e["cycle"], residual=pred(e) - e["late_ttft_ms"]) for e in eps])
+
+
 def combine(nominal, sensitivity):
     """Both conventions must agree: neither clock measures a mixed step, so a split verdict is not either one."""
     if nominal == sensitivity:
@@ -636,9 +670,22 @@ def context_decision(run):
     return any(CONTEXT_MARK in l for l in lines), lines
 
 
-def run_fit(run, flip_context=False, boot=BOOT, gates=None):
-    # gates is replaced only by the self-test, to show that a failing verdict refuses.
-    passed, gate_lines = (gates or instrument_gates.evaluate)(run)
+def run_fit(run, flip_context=False, boot=BOOT, gates=None, logged=False, harness=None):
+    """The fit's verdict; logged=True is docs/superpowers/specs/2026-10-06-a-timing-family-for-the-logged-synchronous-engine.md.
+
+    Under that policy the archive must first pass instrument_gates.check_archive (design, warm-ups, provenance), so
+    this path cannot skip what the command line checks; I1 is not a gate; k is always in the family, because I4 reads
+    held-out episodes; and the late prefill's client TTFT is gated under both conventions.
+    """
+    if logged:
+        if not harness:
+            raise Refusal("the logged-engine policy checks the archive with cmd/benchharness; pass its path")
+        checks = instrument_gates.check_archive(run, harness, logged=True)
+        passed, gate_lines = (gates or (lambda r: instrument_gates.evaluate(r, logged=True)))(run)
+        gate_lines = checks + gate_lines
+    else:
+        # gates is replaced only by the self-test, to show that a failing verdict refuses.
+        passed, gate_lines = (gates or instrument_gates.evaluate)(run)
     if not passed:
         raise Refusal(f"the instrument gates do not pass on this archive ({gate_lines[-1]}), so there is no "
                       f"established quantity to fit")
@@ -653,11 +700,17 @@ def run_fit(run, flip_context=False, boot=BOOT, gates=None):
     keep = {(e["block"], i) for s, v in train.items() if s[0] == "serial" for e in v for i in e["reqs"]}
     clk = session_clock(s2, clock(run, keep, s2))
     needs, i4 = context_decision(run)
-    context = needs != flip_context
-    nominal = fit(train, held, clk["b"], clk["b_prime"], context, "b", boot=boot, per_token=clk.get("c"), late_gate=s2)
+    context = (True if logged else needs) != flip_context
+    a = clk["a"] if logged else None
+    nominal = fit(train, held, clk["b"], clk["b_prime"], context, "b", boot=boot, per_token=clk.get("c"), late_gate=s2,
+                  ttft_a=a)
     sensitivity = fit(train, held, clk["b"], clk["b_prime"], context, "b-prime", boot=boot, per_token=clk.get("c"),
-                      late_gate=s2)
-    extra = dict(study=study, unregistered=list(UNREGISTERED_S2)) if s2 else {}
+                      late_gate=s2, ttft_a=a)
+    if logged:
+        extra = dict(study=study, policy="logged-engine registration (2026-10-06): I1 not a gate, k always in the "
+                                          "family, late-prefill client TTFT gated")
+    else:
+        extra = dict(study=study, unregistered=list(UNREGISTERED_S2)) if s2 else {}
     return dict(
         **extra,
         verdict=combine(nominal["verdict"], sensitivity["verdict"]),
@@ -1281,6 +1334,62 @@ def self_test_s2():
         assert r["clock"]["fitted_b"] < 0 and r["clock"]["b"] == instrument_gates.CLOCK_B, r["clock"]
         print(f"ok: a session-2 archive whose fitted b is {r['clock']['fitted_b']:.2f} ms is not refused for it "
               f"-> {r['verdict']}, scored with the frozen b {r['clock']['b']}")
+    self_test_logged()
+
+
+def self_test_logged():
+    """The logged-engine policy: its archive checks cannot be skipped, and the late prefill's client TTFT is gated."""
+    import tempfile
+    with tempfile.TemporaryDirectory() as run:
+        _synthetic_run_s2(run)
+        try:
+            run_fit(run, boot=0, logged=True)
+            raise AssertionError("the logged-engine policy ran without a harness to check the archive with")
+        except Refusal as e:
+            assert "cmd/benchharness" in str(e), e
+            print(f"ok: the logged-engine policy refuses without a harness -- {e}")
+        stub = os.path.join(run, "stub-harness")
+        with open(stub, "w") as f:
+            f.write('#!/bin/sh\necho "error: not the registered matrix" >&2\nexit 1\n')
+        os.chmod(stub, 0o755)
+        called = []
+        try:
+            run_fit(run, boot=0, logged=True, harness=stub, gates=lambda r: called.append(r) or (True, []))
+            raise AssertionError("an archive whose design check failed was fitted")
+        except Refusal as e:
+            assert "not the registered matrix" in str(e) and not called, (e, called)
+            print(f"ok: the logged-engine policy checks the archive before the gates -- {e}")
+    # The checks above are the ones a real archive needs; these synthetic archives are not one, so they are replaced.
+    real = instrument_gates.check_archive
+    instrument_gates.check_archive = lambda run, harness, logged=False: ["archive checks replaced by the self-test"]
+    try:
+        with tempfile.TemporaryDirectory() as run:
+            _synthetic_run_s2(run)
+            r = run_fit(run, boot=0, gates=_PASSED, logged=True, harness="unused")
+            ratios = [it["late_prefill_ttft"]["ratio"] for it in r["nominal"]["heldout"] if "late_prefill_ttft" in it]
+            assert len(ratios) == 12 and r["verdicts"]["mixed steps + b (nominal)"] == "pass", r["verdicts"]
+            assert r["context_term"] is True and "unregistered" not in r, (r["context_term"], list(r))
+            print(f"ok: logged-engine policy, an engine the family describes -> nominal pass, late-prefill TTFT ratios "
+                  f"{min(ratios):.4f} to {max(ratios):.4f}, k in the family")
+        # The late prefill's first token 20% later at the client, every step untouched: only item 2 can see it.
+        with tempfile.TemporaryDirectory() as run:
+            _synthetic_run_s2(run)
+            for b in BLOCKS:
+                path = os.path.join(run, f"raw-stagger-log-{b}.jsonl")
+                trace = {t["index"]: t for t in map(json.loads, open(os.path.join(run, f"trace-stagger-log-{b}.jsonl")))}
+                rows = [json.loads(l) for l in open(path)]
+                for x in rows:
+                    if trace[x["index"]]["maxOutputTokens"] < STAGGER_DECODE_CAP_S2:
+                        x["firstTokenUnixNanos"] += int(0.2 * (x["firstTokenUnixNanos"] - x["sendUnixNanos"]))
+                with open(path, "w") as f:
+                    f.writelines(json.dumps(x) + "\n" for x in rows)
+            r = run_fit(run, boot=0, gates=_PASSED, logged=True, harness="unused")
+            fails = r["nominal"]["failures"]
+            assert r["verdicts"]["mixed steps + b (nominal)"] == "fail" and fails and all(
+                "late-prefill client TTFT" in f for f in fails), fails
+            print(f"ok: a late prefill 20% slower at the client alone fails item 2 -- {fails[0]}")
+    finally:
+        instrument_gates.check_archive = real
 
 
 def main(argv):
@@ -1290,10 +1399,12 @@ def main(argv):
         return 0
     args = argv[1:]
     flip = "--flip-context" in args
-    args = [a for a in args if a != "--flip-context"]
+    # --logged is the logged-engine registration's policy; it checks the archive with BENCHHARNESS, which it requires.
+    logged = "--logged" in args
+    args = [a for a in args if a not in ("--flip-context", "--logged")]
     if len(args) != 1:
         sys.exit(__doc__)
-    out = run_fit(args[0], flip)
+    out = run_fit(args[0], flip, logged=logged, harness=os.environ.get("BENCHHARNESS"))
     print(json.dumps(out, indent=2))
     print(f"{out['run']}: {out['verdict']} -- {out['verdicts']}; context term {out['context_term']}", file=sys.stderr)
     print(out["note"], file=sys.stderr)
