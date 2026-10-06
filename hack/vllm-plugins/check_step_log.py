@@ -41,8 +41,6 @@ def load(step_lines, engine_lines):
         if r["ev"] == "flush":
             if "end" not in r:
                 raise Refusal("a flush record carries no end stamp, so whether it overlapped a request is unknown")
-            if r.get("handoff_ns") is None:
-                raise Refusal("a flush record carries no handoff cost, so the instrument's cost for that step is unknown")
             nxt = next((x for x in recs[i + 1:] if x["ev"] == "add"), None)
             if nxt is not None and r["end"] >= nxt["mono"]:
                 raise Refusal(f"a write ended at {r['end']} ns, after request {nxt['id']} arrived at {nxt['mono']} ns")
@@ -55,11 +53,8 @@ def load(step_lines, engine_lines):
     if len(done) != len(dones):
         raise Refusal("a step has more than one done record")
     adds = [r for r in recs if r["ev"] == "add"]
-    # The cost of handing a batch to the writer, charged to the step after which it was handed over.
+    # The handoff to the writer is inside the done record's own cost, so nothing is added separately.
     launch = {}
-    for r in recs:
-        if r["ev"] == "flush":
-            launch[r["step"]] = launch.get(r["step"], 0) + r["handoff_ns"]
     # Clock anchors: a wall reading bracketed by two monotonic ones, in order; and vLLM's arrival stamp, taken in
     # the frontend before the request was sent, must precede the scheduler's own reading of the wall clock.
     for r in adds + sched:
@@ -183,8 +178,6 @@ def self_test():
          + step_log()[4:], engine, None, "computed tokens"),
         ("a flush with no end stamp", step_log()[:-1] + [json.dumps({"ev": "flush", "mono": 2_000_200, "records": 5,
          "step": 2, "handoff_ns": 20})], engine, None, "no end stamp"),
-        ("a flush with no handoff cost", step_log()[:-1] + [json.dumps({"ev": "flush", "mono": 2_000_200, "end": 2_000_300,
-         "records": 5, "step": 2})], engine, None, "no handoff cost"),
         ("an admission cost above 1% of the step it delayed", [step_log()[0].replace('"self": 10', '"self": 20000')] + step_log()[1:],
          engine, None, "above 1%"),
         ("an arrival after the scheduler saw it", [step_log()[0].replace('"arrival_wall": 90', '"arrival_wall": 150')] + step_log()[1:],

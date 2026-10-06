@@ -106,7 +106,74 @@ def run():
             held[e["cycle"]] = held.get(e["cycle"], 0) + 1
         assert held == {c: times for c in range(1, n + 1)}, (setting, held)
     print("ok: every cycle position is held out exactly twice in six burst cells and once in three serial cells")
+    run_files()
     run_with_harness()
+
+
+def _write(path, rows):
+    import json
+    with open(path, "w") as f:
+        f.writelines(json.dumps(r) + "\n" for r in rows)
+
+
+def run_files():
+    """Cases that need an archive on disk but no harness: the overlap refusal and the engine-configuration check."""
+    import json, os, tempfile, hashlib
+    # Two burst episodes whose requests share a step: their occupancy belongs to neither, so the cell is refused.
+    # Mutation that turns this red: drop the overlap check from episodes_of_cell.
+    with tempfile.TemporaryDirectory() as run:
+        trace, raw, adds = [], [], []
+        for i, off in enumerate((0, 0, 10000, 10000)):
+            trace.append(dict(index=i, offsetMs=off, tenant="premium-1", maxOutputTokens=2))
+            rid = f"burst-step-1-measured-{i}"
+            raw.append(dict(index=i, requestId=rid, study=sb.STUDY, engineInputTokens=4, engineOutputTokens=2,
+                            sendUnixNanos=off * 10**6, firstTokenUnixNanos=off * 10**6 + 5 * 10**6,
+                            endUnixNanos=off * 10**6 + 9 * 10**6))
+            adds.append(dict(ev="add", id=f"chatcmpl-{rid}-abcd", mono=off * 10**6, anchor=[0, 0, 1], arrival_wall=0,
+                             prompt=4, self=1))
+        ids = [a["id"] for a in adds]
+        recs = adds + [dict(ev="sched", step=1, t0=1, t1=2, anchor=[0, 0, 1], tokens={ids[0]: 4, ids[1]: 4, ids[2]: 4},
+                            computed={ids[0]: 0, ids[1]: 0, ids[2]: 0}, self=1),
+                       dict(ev="done", step=1, t2=3, t3=4, self=1)]
+        _write(os.path.join(run, "trace-burst-step-1.jsonl"), trace)
+        _write(os.path.join(run, "raw-burst-step-1.jsonl"), raw)
+        _write(os.path.join(run, "step-log-burst-step-1.jsonl"), recs)
+        try:
+            sb.episodes_of_cell(run, "burst-step", 1, "burst")
+            raise AssertionError("a step shared by two episodes was accepted")
+        except Refusal as e:
+            assert "more than one measured episode" in str(e), e
+            print(f"ok: a step shared by two episodes refuses the cell -- {e}")
+    # The registered engine configuration and the archived instrument hash, cell by cell.
+    # Mutation that turns this red: check only the arguments check_provenance already reads.
+    with tempfile.TemporaryDirectory() as run:
+        sha = hashlib.sha256(open(sb.PLUGIN, "rb").read()).hexdigest()
+        def lay(args_for, sha_for):
+            timings, applied = ["cell\tarm\trep"], ["cell\tarm\tdeploy\tstage\tsource\tvalue"]
+            for i, (arm, b) in enumerate(sb.CELLS, 1):
+                timings.append(f"{i}\t{arm}\t{b}")
+                applied.append(f"{i}\t{arm}\tvllm-qwen25-3b\tapplied\tdeploy\t{json.dumps(args_for(arm, b))}")
+                if arm.endswith("-step"):
+                    open(os.path.join(run, f"step-plugin-{arm}-{b}.sha256"), "w").write(f"{sha_for(arm, b)}  plugin\n")
+            open(os.path.join(run, "cell-timings.tsv"), "w").write("\n".join(timings) + "\n")
+            open(os.path.join(run, "applied-values.tsv"), "w").write("\n".join(applied) + "\n")
+        good = lambda arm, b: list(sb.REGISTERED_ARGS) + ["--no-async-scheduling"]
+        lay(good, lambda arm, b: sha)
+        print(f"ok: the registered configuration passes -- {sb.check_registered_engine(run)}")
+        for what, args_for, sha_for, words in [
+                ("a 512-token budget", lambda arm, b: [a.replace("=2048", "=512") for a in good(arm, b)], lambda a, b: sha,
+                 "without the registered"),
+                ("prefix caching enabled", lambda arm, b: good(arm, b) + ["--enable-prefix-caching"], lambda a, b: sha,
+                 "which the registration does not"),
+                ("another instrument", good, lambda arm, b: "0" * 64 if (arm, b) == ("stagger-step", 3) else sha,
+                 "not this tree's")]:
+            lay(args_for, sha_for)
+            try:
+                sb.check_registered_engine(run)
+                raise AssertionError(f"{what} was accepted")
+            except Refusal as e:
+                assert words in str(e), (what, e)
+                print(f"ok: refuses {what} -- {str(e)[:110]}")
 
 
 def run_with_harness():

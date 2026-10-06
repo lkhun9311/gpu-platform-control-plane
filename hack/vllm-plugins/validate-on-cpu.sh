@@ -45,6 +45,10 @@ for _ in $(seq 1 120); do
   docker ps -q -f "name=$NAME" | grep -q . || fail "the engine exited: $(docker logs "$NAME" 2>&1 | grep -E 'Error' | tail -2)"
   sleep 5
 done
+# An engine that never became healthy is said to be that, with its log's tail; one run reported it as "did not load
+# the instrument", which named a consequence instead of the cause.
+curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$PORT/health" 2>/dev/null | grep -q 200 \
+  || fail "the engine never became healthy: $(docker logs "$NAME" 2>&1 | tail -5 | tr '\n' ' ' | cut -c1-600)"
 docker logs "$NAME" 2>&1 | grep -q "Using custom scheduler class step_logging_scheduler.StepLoggingScheduler" \
   || fail "the engine did not load the instrument"
 # The matrix proves a -step cell loaded the instrument from vLLM's own non-default args line

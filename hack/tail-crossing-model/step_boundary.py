@@ -60,6 +60,7 @@ def gate_archive(run, harness):
     lines.append(instrument_gates.check_warmup_design(run, harness))
     lines.append(check_registered_seed(run, harness))
     lines.append(instrument_gates.check_provenance(run, None, CELLS))
+    lines.append(check_registered_engine(run))
     for arm, b in CELLS:
         instrument_gates.check_warmup(run, arm, b)
         p = instrument_gates.preemptions(run, arm, b)
@@ -81,6 +82,43 @@ def gate_archive(run, harness):
 
 
 REGISTERED_SEED = 31
+# The engine configuration section 1 registers, beyond what check_provenance reads (found by review: a cell applied
+# with a 512-token budget, 32 sequences and prefix caching on passed provenance).
+REGISTERED_ARGS = ("Qwen/Qwen2.5-3B-Instruct", "--dtype=half", "--max-model-len=16384", "--max-num-seqs=64",
+                   "--gpu-memory-utilization=0.90", "--no-enable-prefix-caching", "--max-num-batched-tokens=2048",
+                   "--port=8000")
+PLUGIN = os.path.join(instrument_gates.REPO, "hack", "vllm-plugins", "step_logging_scheduler.py")
+
+
+def check_registered_engine(run):
+    """Every cell's applied engine arguments hold the registered configuration, and every -step cell's archived
+    plugin hash is the instrument in this tree."""
+    import hashlib
+    cell_of = {}
+    for row in list(map(lambda l: l.rstrip("\n").split("\t"), open(os.path.join(run, "cell-timings.tsv"))))[1:]:
+        cell_of[(row[1], int(row[2]))] = row[0]
+    applied = {}
+    for row in list(map(lambda l: l.rstrip("\n").split("\t"), open(os.path.join(run, "applied-values.tsv"))))[1:]:
+        if len(row) == 6 and row[3] == "applied" and row[2].startswith("vllm"):
+            applied[row[0]] = json.loads(row[5])
+    want_sha = hashlib.sha256(open(PLUGIN, "rb").read()).hexdigest()
+    for arm, b in CELLS:
+        args = applied.get(cell_of.get((arm, b)), [])
+        missing = [a for a in REGISTERED_ARGS if a not in args]
+        if missing:
+            raise Refusal(f"{arm}-{b}: the engine ran without the registered {missing}: {args}")
+        others = [a for a in args if a.startswith(("--max-num-batched-tokens=", "--max-num-seqs=", "--enable-prefix-caching"))
+                  and a not in REGISTERED_ARGS]
+        if others:
+            raise Refusal(f"{arm}-{b}: the engine ran with {others}, which the registration does not")
+        if arm.endswith("-step"):
+            path = os.path.join(run, f"step-plugin-{arm}-{b}.sha256")
+            if not os.path.exists(path):
+                raise Refusal(f"{arm}-{b}: no archived plugin hash, so which instrument ran is unknown")
+            got = open(path).read().split()[0]
+            if got != want_sha:
+                raise Refusal(f"{arm}-{b}: the instrument that ran has sha256 {got}, not this tree's {want_sha}")
+    return f"Engine: all {len(CELLS)} cells ran the registered configuration; every -step cell ran this tree's instrument"
 
 
 def check_registered_seed(run, harness):
@@ -375,6 +413,13 @@ def episodes_of_cell(run, arm, b, kind):
             late.add(engine_id(adds, rows[ep[-1]["index"]]["requestId"]))
         groups.append((setting, rids))
     steps = step_features(sched, done, adds, late)
+    # Every step that schedules a measured request belongs to exactly one measured episode: a step spanning two
+    # episodes was dropped from both before (found by review), which changed Q3's population without a word.
+    measured = set().union(*(r for _, r in groups)) if groups else set()
+    for st in steps:
+        if st["rids"] & measured and not any(st["rids"] <= r for _, r in groups):
+            raise Refusal(f"{arm}-{b}: a step schedules requests of more than one measured episode, so the episodes "
+                          f"overlapped and its occupancy belongs to neither")
     seen, out = {}, []
     for setting, rids in groups:
         seen[setting] = seen.get(setting, 0) + 1
