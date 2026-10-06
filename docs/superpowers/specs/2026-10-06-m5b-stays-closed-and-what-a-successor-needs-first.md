@@ -60,7 +60,7 @@ Item 3 cannot be bought before item 2: without a step-time model, nothing predic
 - **4.2, reservation hooks** (`2ebfe45`, `8d91105`, `8fc0da3`). `--admission-mode=prospective` reserves a standard request's estimated input and a stream slot per backend, in one critical section. It releases the input when the first body byte reaches the client and the stream when the request ends, however it ends. Premium is admitted without holding anything. Both caps are required flags with no default.
   - A cold review by codex `gpt-6-astra` found that a reserved request could fall back to an unreserved backend and break both caps there. A reserved request now goes only to the backend it reserved on.
   - The holds are published as `gpuaas_gateway_admission_reserved_input_tokens` and `gpuaas_gateway_admission_running_standard_streams`.
-  - Nine specs pin it under `-race`. Each of seven mutations fails a spec, including releasing the input on the status line instead of the first body byte.
+  - Nine specs pin it under `-race`. Each of eight mutations fails a spec, including releasing the input on the status line instead of the first body byte.
 - **4.3, kind** (`hack/test/rehearse-prospective-admission.sh`). The real gateway and a slow stub engine ran on a fresh kind cluster, routed through an InferenceDeployment. All 8 checks passed:
   - Of four standard requests against a two-stream cap, two were served and two refused with `standard_streams_full`.
   - Two premium requests sent meanwhile were both served.
