@@ -211,9 +211,11 @@ AWS_PROFILE=gpu-lab STUDY=step-boundary-2026-10-06 \
 BENCHHARNESS=<cmd/benchharness at this commit> python3 hack/tail-crossing-model/step_boundary.py hack/<archive>/m5c-run
 ```
 
-## Result, 2026-10-07 — the instrument is clean and costs nothing measurable; both registered predictions fail
+## Result, 2026-10-07 — the instrument passes all three gates within ±5%; both registered predictions fail
 
-**The session.** It launched at the frozen commit `6de7f59` at about 22:40 KST on 2026-10-06 and completed all 21 cells by about 04:34 KST, with no refusal. The deadline guard's last projection had 258 minutes left against 12 projected. The instance ran about 6.0 hours and was confirmed terminated. Cost Explorer shows $2.89 for 2026-10-06 UTC, which held the whole session; it is not yet final. The archive is hack/m5c-20261006-133937.
+**The session.** It launched at the frozen commit `6de7f59` and completed all 21 cells with no refusal. The deadline guard's last projection had 258 minutes left against 12 projected. CloudTrail records the instance i-015c2de4ce40d8214 launched at 22:39:59 KST on 2026-10-06 and terminated at 04:32:28 KST, 5.87 hours. The archive is hack/m5c-20261006-133937.
+
+**Its cost is not yet in Cost Explorer.** The whole session falls in 2026-10-06 UTC, and so do the last 5.86 hours of session 5 (i-098660626ffa74b07, terminated 05:51 UTC). Cost Explorer read on 2026-10-07 shows 5.856 g5.2xlarge spot hours and $4.00 for that day, which is one session's worth, not two. The $2.89 first written here was an earlier reading of the same day and could not be this session's cost. At the $0.68–0.69 per hour these two days were billed, 5.87 hours is about $4.0 of spot time; that is an estimate until the day is final.
 
 **One defect of the session script, not of the data.** After unpacking the evidence, `hack/m5c-gpu-session.sh` failed its repetition check with "arm serial-log is missing repetition 2 of 6". That check expected every arm in every block, and this registration buys serial and staggered cells in blocks 1, 3 and 5 only, which the matrix laid out correctly. The evaluator's gate 1, which checks the registered 21 cells, passed. A kind rehearsal of the -step path would have caught the check (section 8 said none was run), and it is fixed after this record.
 
@@ -221,9 +223,9 @@ BENCHHARNESS=<cmd/benchharness at this commit> python3 hack/tail-crossing-model/
 
 | | Result |
 |---|---|
-| Gate 1, archive | **passes**: 21 cells, design, all 42 traces seed 31's byte for byte, the registered engine configuration and this tree's instrument in every cell, and W, S and I2 |
-| Gate 2, instrument | **passes** in all 12 -step cells: every step one to one with the engine's log (3,080 per burst cell, 5,314 per serial cell, 37,960 per staggered cell), every request joined and reconciled, own cost median about 0.07% and worst 0.56% of a step's occupancy, clock brackets median under 0.5 µs |
-| Gate 3, overhead | **passes**: all 75 endpoints inside ±5%; the widest intervals are serial (1,024, 16) ITL [−1.04, +1.34] and burst (16, 256, 64) mean TTFT [−0.66, +0.95] log-points |
+| Gate 1, archive | **passes**: 21 cells, design, all 42 traces seed 31's byte for byte, the registered engine configuration in every cell and this tree's instrument in every -step cell, and W, S and I2 |
+| Gate 2, instrument | **passes** in all 12 -step cells: every step one to one with the engine's log (3,080 or 3,081 per burst cell, 5,314 per serial cell, 37,960 per staggered cell), every request joined and reconciled, own cost median about 0.07% and worst 0.56% of a step's occupancy, clock brackets median under 0.5 µs |
+| Gate 3, overhead | **passes**: all 75 endpoints inside ±5%; the widest intervals are serial (1,024, 16) ITL [−1.04, +1.34] and burst (16, 256, 64) mean TTFT [−0.66, +0.95] log-points. Nine intervals exclude zero, all on the slower side, the highest serial (8,192, 64) ITL [+0.26, +0.46]: the instrument's cost is small, not unmeasurable |
 | Q1 | **does not hold** on any of the six short-prefill settings |
 | Q3 | **fails**: condition 13.7; 13 phases outside 10% |
 
@@ -240,21 +242,42 @@ BENCHHARNESS=<cmd/benchharness at this commit> python3 hack/tail-crossing-model/
 
 The 8,192-token late prefills are in the output file.
 
-- Once a request reaches the scheduler, it is scheduled within 0.02 ms (A → F).
-- The wait sits before that, in P → A. That is the core taking new requests only between steps, as section 4 expected.
+- A → F averages 0.016–0.022 ms in every setting; over all 180 late prefills the largest is 0.043 ms.
+- The excess sits before that, in P → A, the hop from the frontend's stamp to the scheduler. Section 4's mechanism, the core taking new requests only between steps, would put it there. The evaluator measures where the time is, not why: it does not compute overlap with the step in flight or separate transport and process scheduling from it.
 - Steps follow each other with a median gap of 0.037–0.044 ms; p95 is 0.070 ms or less.
 
-**Q1.** The wait beyond an idle engine's P → A, 8.5 to 16.6 ms, is 29% to 48% of the gap the pilot left. That is short of the registered half in every setting. The closest are (4, 256, 256) at 8.53 against 8.97 and (1, 256, 256) at 8.78 against 9.87. The per-setting values, block means and intervals are in the output. **The prediction that waiting explains at least half the gap is false.**
+**Q1.** The wait beyond an idle engine's P → A, 8.5 to 16.6 ms, is 29% to 48% of the gap the pilot left. That is short of the registered half in every setting, so by the registered point rule **the prediction fails**. The closest are (4, 256, 256) at 8.53 against 8.97 and (1, 256, 256) at 8.78 against 9.87. The block-mean t95 intervals, which section 4 publishes and lets judge nothing, contain the half in four of the six settings; only the two 16-decoder settings exclude it. So the data do not show the prediction false everywhere: they show it unconfirmed, and clearly short with 16 decoders.
 
-**Q3.** On measured occupancy, with no clock correction, the family fails in the same places as the pilot did on corrected log time:
-- the late prefill's own steps are under-predicted by 21% to 38%;
-- decode steps beside long-context decoders are over-predicted by up to 55%.
+**Q3.** On measured occupancy, with no clock correction, the family's 13 failures are all among the 14 phases the pilot's nominal fit failed on corrected log time; the pilot's fourteenth, burst (16, 2,048, 64) decode at +10.7%, passes here.
+- The six short late prefills' own steps are under-predicted by 21% to 38%. The six 8,192-token late prefills are within 10% (−0.6% to −9.4%).
+- Decode steps beside long-context decoders are over-predicted by up to 55%.
 
-So the pilot's failure was not an artefact of the clock correction. The family itself does not describe a step that mixes a prefill with running decoders.
+So the failure does not need the clock correction to appear. This does not measure what the correction contributed to the pilot, whose predictor and timings differ. The family is trained on serial and burst episodes, which include 1,260 mixed steps of 18,049 (a prefill and running decoders together), and it has an `m·P·n` term whose fitted value is not zero. It still does not predict a short late prefill joining running decoders.
 
 **What this establishes.** For the instrumented engine:
 - The instrument records every step and request, at a direct cost under 0.6% of any step.
-- It moves no serial or burst endpoint by more than the ±5% bound, with intervals within about ±1.3%.
-- A late prefill's extra time is partly a wait for the step in flight, about a third to a half of it. The rest is its own steps taking longer than a family fitted on unmixed steps predicts.
+- It moves no serial or burst endpoint by more than the ±5% bound, with intervals within about ±1.3%. Nine of the 75 intervals exclude zero, all slower, by at most 0.46 log-points.
+- A short late prefill's wait (its P → A beyond an idle engine's, plus A → F) is 29% to 48% of the pilot's gap. Nothing here divides the rest of that gap among its other components; it was measured on another session's engine.
 
-**What it does not.** Any staggered on/off equivalence; anything about the uninstrumented, async or other-budget engine; or a simulator-ready model. Q3 failed, so no simulator or M5-b feasibility check is built on this family. A different family, one with terms for a prefill sharing a step with decoders, would be a new registration fitted on data it is not tested on. This archive is now seen.
+**What it does not.** Any staggered on/off equivalence; anything about the uninstrumented, async or other-budget engine; the cause of the P → A excess; or a simulator-ready model. Q3 failed, so no simulator or M5-b feasibility check is built on this family. A different family would be a new registration fitted on data it is not tested on. This archive is now seen.
+
+**Corrections after review, 2026-10-07.** codex `gpt-6-astra`, reading the first version of this Result cold against the output, the registration and the archive, found the following; I re-measured each from the archive before changing the text.
+- The heading said the instrument "costs nothing measurable"; nine intervals exclude zero.
+- "Within 0.02 ms" was a mean read as a maximum.
+- "The core taking new requests only between steps" named a cause the evaluator does not measure.
+- "Short of half everywhere" was written as "false" without the intervals beside it.
+- "The same places" omitted one pilot failure.
+- "21% to 38%" omitted that the six long late prefills pass.
+- "Not an artefact of the clock correction" claimed more than a fit without the correction shows.
+- "A family fitted on unmixed steps" was false: its training holds 1,260 mixed steps.
+- "The rest is its own steps" divided a gap no calculation here partitions.
+- Two burst cells have 3,081 steps, not 3,080; the instrument is in the -step cells, not every cell.
+
+The cost paragraph was wrong by my own reading of Cost Explorer.
+
+The same review found three latent evaluator defects, none present in this archive, fixed in `5dc9732`:
+- revision, async scheduling and scheduler class were checked for presence, not as effective values;
+- a first step with tokens already computed passed the instrument check;
+- the clock-offset spread was computed and dropped.
+
+At `5dc9732` the evaluator's output on this archive is byte-identical to the kept file.

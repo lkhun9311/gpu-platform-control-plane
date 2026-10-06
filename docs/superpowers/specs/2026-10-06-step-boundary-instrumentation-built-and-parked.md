@@ -42,4 +42,4 @@ The condition this page set was met when the owner asked for M5-b's successor, a
 - On the A10G it recorded every step and request at under 0.6% of any step's occupancy.
 - It moved no serial or burst endpoint beyond ±5%.
 - It showed a late prefill's wait sitting in the frontend-to-scheduler hop.
-- Both of that page's predictions failed: the wait explains 29–48% of the pilot's gap, and the family does not fit measured occupancy of mixed steps.
+- Both of that page's predictions failed by their registered rules: the measured wait is 29–48% of the pilot's gap, short of half on every point estimate, and the family does not fit measured occupancy of a short prefill joining running decoders.

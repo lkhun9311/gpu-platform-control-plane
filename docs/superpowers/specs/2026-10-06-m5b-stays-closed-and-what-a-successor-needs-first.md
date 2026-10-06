@@ -72,6 +72,6 @@ Item 3 cannot be bought before item 2: without a step-time model, nothing predic
 
 ## Update, 2026-10-07 — 4.4 still has no step-time model
 
-The step-boundary session (`2026-10-06-where-the-late-prefill-waits-step-boundary-session.md`) measured mixed steps directly and fitted the family on measured occupancy, and Q3 failed in the same places as the pilot. So the computational feasibility check still has no model to run on, and item 3 of the ranking stays unbuyable. What the session adds:
-- the wait a late prefill pays for the step in flight, measured;
+The step-boundary session (`2026-10-06-where-the-late-prefill-waits-step-boundary-session.md`) measured mixed steps directly and fitted the family on measured occupancy, and Q3 failed on 13 of the 14 phases the pilot's nominal fit failed, and on no other. So the computational feasibility check still has no model to run on, and item 3 of the ranking stays unbuyable. What the session adds:
+- where a late prefill's extra wait sits, the frontend-to-scheduler hop, and how long it is, measured though not its cause;
 - an instrument a future family can be fitted and tested with.
