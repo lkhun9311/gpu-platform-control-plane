@@ -108,6 +108,10 @@ type RawRow struct {
 	// A pointer for the same reason the request body uses one: 0 is vLLM's most urgent value, so a plain
 	// int cannot distinguish "most urgent" from "not set".
 	Priority *int `json:"priority,omitempty"`
+	// RequestID is the X-Request-Id the request was sent with, empty when the run sent none.
+	//
+	// The engine's own records carry it, so a client row and the engine's steps join on it rather than on timing.
+	RequestID string `json:"requestId,omitempty"`
 	// TraceChecksum is the sha256 of the trace this row replayed, copied from the frozen manifest.
 	//
 	// The report asserts the contended arms all carry one checksum, so it can prove they replayed identical traffic rather than trusting operator discipline.
@@ -253,6 +257,8 @@ type ReplayOptions struct {
 	// Priorities is the tenant-to-priority map the sender was given, stamped per row so the treatment is
 	// part of the evidence rather than only of the run log.
 	Priorities map[string]int
+	// RequestIDPrefix is the sender's (see HTTPSender.SetRequestIDPrefix), stamped per row through RequestIDFor.
+	RequestIDPrefix string
 	// TraceChecksum, LongThreshold, and MatchTolerance are the frozen manifest provenance stamped into every RawRow, so the report can enforce trace identity and read the pre-registered knobs from the evidence itself.
 	TraceChecksum  string
 	LongThreshold  int
@@ -305,6 +311,7 @@ func Replay(ctx context.Context, sender Sender, trace []TraceRow, opts ReplayOpt
 				Study:               opts.Study,
 				Arm:                 opts.Arm,
 				Priority:            priorityFor(opts.Priorities, tr.Tenant),
+				RequestID:           RequestIDFor(opts.RequestIDPrefix, tr.Index),
 				Tenant:              tr.Tenant,
 				IsNoisy:             tr.IsNoisy,
 				ScheduledOffsetMs:   tr.OffsetMs,

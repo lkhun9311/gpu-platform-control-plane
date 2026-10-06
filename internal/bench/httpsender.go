@@ -26,6 +26,7 @@ import (
 	"io"
 	"math"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -43,6 +44,8 @@ type HTTPSender struct {
 	apiKeys map[string]string
 	// priorities maps a trace tenant to the scheduling priority sent with its requests; absent means none.
 	priorities map[string]int
+	// requestIDPrefix makes every request carry X-Request-Id; empty sends none, which is every run before it existed.
+	requestIDPrefix string
 	// timeout bounds a single request; on expiry the row is recorded as a timeout rather than dropped.
 	timeout time.Duration
 	// drain reports whether the unread tail of each response is consumed so its connection can be pooled.
@@ -163,6 +166,19 @@ func PoolSizeForTrace(trace []TraceRow, timeout time.Duration) int {
 // about itself". A benchmark whose rows named their own priority would measure a mechanism no deployment
 // would ship. A tenant absent from the map sends no priority field at all.
 func (h *HTTPSender) SetPriorities(p map[string]int) { h.priorities = p }
+
+// SetRequestIDPrefix makes each request carry X-Request-Id, built by RequestIDFor.
+func (h *HTTPSender) SetRequestIDPrefix(p string) { h.requestIDPrefix = p }
+
+// RequestIDFor is the X-Request-Id a row is sent with, and the one its raw row records: the two must agree, so
+// both are built here. The gateway forwards it and vLLM makes it the engine's id, as "chatcmpl-<id>-<8 random>".
+// The prefix must be unique per cell and phase, because a trace index alone repeats in every cell.
+func RequestIDFor(prefix string, index int) string {
+	if prefix == "" {
+		return ""
+	}
+	return prefix + "-" + strconv.Itoa(index)
+}
 
 func NewHTTPSender(gatewayURL, model string, apiKeys map[string]string, timeout time.Duration, conn SenderConn) *HTTPSender {
 	return &HTTPSender{
@@ -322,6 +338,9 @@ func (h *HTTPSender) Send(ctx context.Context, row TraceRow, sendUnixNanos int64
 	req.Header.Set("Accept", "text/event-stream")
 	if key := h.apiKeys[row.Tenant]; key != "" {
 		req.Header.Set("Authorization", "Bearer "+key)
+	}
+	if id := RequestIDFor(h.requestIDPrefix, row.Index); id != "" {
+		req.Header.Set("X-Request-Id", id)
 	}
 
 	resp, err := h.client.Do(req)

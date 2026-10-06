@@ -588,6 +588,9 @@ func replay(args []string) error {
 	priorities := fs.String("priorities", "",
 		"comma-separated tenant=priority pairs sent with each request (lower is more urgent); "+
 			"requires the engine to run with --scheduling-policy=priority")
+	requestIDPrefix := fs.String("request-id-prefix", "",
+		"send each request with X-Request-Id <prefix>-<trace index> and record it in the raw rows; the prefix must be "+
+			"unique per cell and phase. Empty sends no id, as every earlier run did")
 	connMode := fs.String("conn-mode", bench.SenderModePooled,
 		"client connection handling: \"pooled\" (pool sized from the run, plus the drain that lets it be "+
 			"used), \"drain-only\", or \"legacy\" (the pre-fix client: http.DefaultTransport, no drain)")
@@ -654,6 +657,11 @@ func replay(args []string) error {
 	} else {
 		fmt.Printf("request priorities: none (requests carry no priority field)\n")
 	}
+	// Printed only when set, so the output of every run that sets nothing stays what it was.
+	if *requestIDPrefix != "" {
+		sender.SetRequestIDPrefix(*requestIDPrefix)
+		fmt.Printf("request ids: %s-<index>\n", *requestIDPrefix)
+	}
 
 	// The frozen manifest's provenance is stamped into every raw row.
 	//
@@ -663,12 +671,13 @@ func replay(args []string) error {
 		return fmt.Errorf("manifest matchTolerance %q is not a number: %w", m.MatchTolerance, err)
 	}
 	raw := bench.Replay(context.Background(), sender, rows, bench.ReplayOptions{
-		Study:          m.Study,
-		Arm:            m.Arm,
-		Priorities:     prio,
-		TraceChecksum:  m.TraceChecksum,
-		LongThreshold:  m.LongThreshold,
-		MatchTolerance: tol,
+		Study:           m.Study,
+		Arm:             m.Arm,
+		Priorities:      prio,
+		RequestIDPrefix: *requestIDPrefix,
+		TraceChecksum:   m.TraceChecksum,
+		LongThreshold:   m.LongThreshold,
+		MatchTolerance:  tol,
 	})
 
 	f, err := os.Create(*rawOut)
