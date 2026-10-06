@@ -1,0 +1,50 @@
+# M5-b stays closed, and what a successor needs first
+
+Date: 2026-10-06 · A decision record, not a registration. **No card is bought by this page.**
+
+**Why it exists.** The owner asked for M5-b to be attempted again. M5-b asked whether the gateway's KV-aware admission guard holds the premium tier's TTFT p99 within 1.25x of isolation. On 2026-09-03 it failed at 83.7x. Two of its three checks were void, and its stopping rule (`2026-09-04-m5b-pilot-stopping-rule.md`) forbids spending again on that design. Before anything was written, I and codex `gpt-6-astra` each judged independently whether a legitimate retry exists.
+
+## 1. What both of us concluded
+
+**M5-b stays closed as a paid study.** Repairing arm B, lowering the KV threshold, or lightening the load until the guard passes would re-ask the old question until it said yes.
+
+astra re-derived the deciding figures from the raw rows, and they agree with the record:
+- The premium p99 ratio is 6,881.98 / 82.18 = 83.75x.
+- The guard refused 274 of 1,788 eligible requests, 15.3%.
+- The best engine-scheduling cell of the price-of-protection run was 20.73x.
+- The KV trigger needs about 43 long prompts in flight, against at most 13 observed.
+
+## 2. Where I was wrong
+
+I first argued that a shared engine cannot meet the bar at this load: one 2,048-token chunk takes about 270 ms, more than a 1.25x budget of about 84 ms.
+
+astra showed that this is not an impossibility proof. The blocking interval depends on the batch budget and the scheduler's boundaries, not on a whole long prompt. The scheduler microtest's 512-token budget with priority scheduling gave 76.01 / 48.55 = 1.57x on two requests. That is above 1.25x, but it is not the order-of-magnitude miss a fixed 2,048-token chunk implies. So the question is not settled by arithmetic, and a successor is not ruled out.
+
+## 3. The successor question, and why it is not M5-b again
+
+astra's proposal, which I adopt as the direction:
+
+> Does **prospective** admission — reserving a standard request's exact input work before forwarding it and releasing it at its first token, with a bound on active standard streams — protect the premium tail better than pressure-blind shedding at comparable admitted work, **on an engine whose priority is bound to the tenant's tier and whose batch budget is fixed in advance**?
+
+It differs from M5-b in three ways:
+- It is not reactive to KV occupancy.
+- It assumes trusted priority and a fixed chunked-prefill budget, which M5-b never had together.
+- Its control is matched on admitted work.
+
+It must also not win by deletion. Contender work and output share must stay at or above 75% of an unshed arm, and aggregate throughput at or above 95%. Those bars are astra's, extended from the price-of-protection safeguards. Like the reservation caps, the load and the blocks, they are frozen in its own registration, not here.
+
+## 4. What must exist first, all of it free
+
+1. **Trusted priority.** Today the gateway resolves a tenant's tier (`internal/gateway/server.go`, step 7) but never binds the engine's `priority` to it. The benchmark profile refuses a client-sent `priority`, and the only priority anywhere is what the harness sends. The gateway must write the tier's priority into the request it forwards and must ignore any client value. That is the first change and lands with tests.
+2. **Reservation hooks.** `internal/gateway/admission.go` exposes a decision but no lifecycle, so it has no reserve before forward and no release at first token, error or cancellation.
+3. **Correctness on kind**, with a stub engine. Kind cannot establish TTFT protection, so nothing measured there is a protection claim.
+4. **A computational feasibility check**, only once a step-time model exists. The logged-engine registration of 2026-10-06 is the current attempt at one, and its fit has never been computed.
+
+## 5. Ranking
+
+1. Keep M5-b closed. Build 4.1 to 4.3, at no cost.
+2. Run the computational feasibility check, conditional on a step-time model.
+3. Register and buy the successor, only after 1 and 2.
+4. True physical separation, if an operational objective justifies its cost.
+
+Item 3 cannot be bought before item 2: without a step-time model, nothing predicts whether a reachable point exists.
