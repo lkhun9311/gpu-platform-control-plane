@@ -11,9 +11,11 @@ three calls the engine core already makes (v1/engine/core.py, EngineCore.step).
 It subclasses the synchronous Scheduler, which is what vLLM uses with --no-async-scheduling; under async
 scheduling the core pipelines steps and these boundaries would not mean what they say here.
 
-No I/O happens while the engine is busy. Records go to an in-memory list and are written out only when the
-engine has drained -- no request left after a step's update -- which in these traces is between episodes, so the
-write never sits inside a measured step. A buffer that grows past MAX_BUFFERED records is not truncated: the
+No I/O happens while the engine is busy. Records go to an in-memory list, and when the engine has drained -- no
+request left after a step's update, which in these traces is between episodes -- the list is handed to a
+background thread that writes it. Writing inline would have delayed the publication of the episode's last output
+(found by review); the thread's start and end are recorded, so the evaluator can show every write finished before
+the next request arrived. A buffer that grows past MAX_BUFFERED records is not truncated: the
 next record says so and the evaluator refuses the cell, because a silently shortened log reads as a complete one.
 
 Every record carries the plugin's own cost: "self" is the nanoseconds the wrapper spent outside the engine's
@@ -24,7 +26,7 @@ One JSON object per line goes to STEP_LOG_PATH (default /tmp/step-log.jsonl):
     {"ev": "add",   "id": ..., "mono": ns, "wall": ns, "prompt": n, "self": ns}
     {"ev": "sched", "step": k, "t0": ns, "t1": ns, "wall1": ns, "tokens": {id: n, ...}, "computed": {id: n, ...}, "self": ns}
     {"ev": "done",  "step": k, "t2": ns, "t3": ns, "self": ns}
-    {"ev": "flush", "mono": ns, "records": n}
+    {"ev": "flush", "mono": ns, "end": ns, "records": n}
     {"ev": "overflow", "mono": ns, "dropped_after": n}
 
 "mono", t0..t3 are time.monotonic_ns(); "wall"/"wall1" are time.time_ns() read beside them, an anchor between the
@@ -35,6 +37,7 @@ request's prompt progress is known without replaying the log.
 
 import json
 import os
+import threading
 import time
 
 from vllm.v1.core.sched.scheduler import Scheduler
@@ -49,6 +52,8 @@ class StepLoggingScheduler(Scheduler):
         self._buf = []
         self._overflowed = False
         self._step_index = 0
+        self._writer = None
+        self._write_lock = threading.Lock()
 
     def _keep(self, rec):
         if len(self._buf) >= MAX_BUFFERED:
@@ -58,13 +63,19 @@ class StepLoggingScheduler(Scheduler):
             return
         self._buf.append(rec)
 
+    def _write(self, recs, start):
+        # One writer at a time and in order, so two drains close together cannot interleave their records.
+        with self._write_lock:
+            with open(self._step_log_path, "a") as f:
+                for rec in recs:
+                    f.write(json.dumps(rec, separators=(",", ":")) + "\n")
+                f.write(json.dumps({"ev": "flush", "mono": start, "end": time.monotonic_ns(), "records": len(recs)},
+                                   separators=(",", ":")) + "\n")
+
     def _flush(self):
-        n = len(self._buf)
-        with open(self._step_log_path, "a") as f:
-            for rec in self._buf:
-                f.write(json.dumps(rec, separators=(",", ":")) + "\n")
-            f.write(json.dumps({"ev": "flush", "mono": time.monotonic_ns(), "records": n}, separators=(",", ":")) + "\n")
-        self._buf = []
+        recs, self._buf = self._buf, []
+        self._writer = threading.Thread(target=self._write, args=(recs, time.monotonic_ns()), daemon=False)
+        self._writer.start()
 
     def add_request(self, request):
         s0 = time.monotonic_ns()

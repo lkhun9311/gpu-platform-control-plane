@@ -10,6 +10,7 @@ It refuses rather than reports when the log cannot be trusted, because every lat
   - a request whose scheduled tokens do not sum to prompt + output - 1 (given the client's output counts)
   - a step whose instrument cost exceeds 1% of that step's measured occupancy (t0 to t3)
   - a log that does not end with a flush record
+  - a write that was still running when the next request arrived
 It prints the instrument's cost as the share of occupancy, median and worst, so the overhead is a number in the
 archive and not a claim.
 """
@@ -34,6 +35,13 @@ def load(step_lines, engine_lines):
     # not end on one was cut off mid-write or never drained.
     if not recs or recs[-1]["ev"] != "flush":
         raise Refusal("the step log does not end with a flush record, so it may be cut short")
+    # Each write runs on a background thread after a drain; it must have ended before the next request reached the
+    # scheduler, or the write overlapped measured work.
+    for i, r in enumerate(recs):
+        if r["ev"] == "flush":
+            nxt = next((x for x in recs[i + 1:] if x["ev"] == "add"), None)
+            if nxt is not None and "end" in r and r["end"] >= nxt["mono"]:
+                raise Refusal(f"a write ended at {r['end']} ns, after request {nxt['id']} arrived at {nxt['mono']} ns")
     over = [r for r in recs if r["ev"] == "overflow"]
     if over:
         raise Refusal(f"the instrument's buffer overflowed after {over[0]['dropped_after']} records, so the log is short")
@@ -96,7 +104,7 @@ def self_test():
             json.dumps({"ev": "sched", "step": 2, "t0": 1_000_200, "t1": 1_000_300, "wall1": 0,
                         "tokens": {"chatcmpl-a-1-xx": 1}, "computed": {"chatcmpl-a-1-xx": 4}, "self": 50}),
             json.dumps({"ev": "done", "step": 2, "t2": 2_000_000, "t3": 2_000_100, "self": 50}),
-            json.dumps({"ev": "flush", "mono": 2_000_200, "records": 5}),
+            json.dumps({"ev": "flush", "mono": 2_000_200, "end": 2_000_300, "records": 5}),
         ]
     engine = ["Iteration(1): 1 context requests, 4 context tokens, 0 generation requests, 0 generation tokens, iteration elapsed time: 0.9 ms",
               "Iteration(2): 0 context requests, 0 context tokens, 1 generation requests, 1 generation tokens, iteration elapsed time: 0.9 ms"]
@@ -110,6 +118,9 @@ def self_test():
         ("an overflow", step_log()[:-1] + [json.dumps({"ev": "overflow", "mono": 0, "dropped_after": 9}), step_log()[-1]], engine, None, "overflowed"),
         ("a step without its done record", step_log()[:2] + step_log()[3:], engine, None, "no done record"),
         ("a log cut off before its flush", step_log()[:-1], engine, None, "does not end with a flush"),
+        ("a write still running when the next request arrived",
+         [json.dumps({"ev": "flush", "mono": 0, "end": 5, "records": 0})]
+         + [step_log()[0].replace('"mono": 0', '"mono": 3')] + step_log()[1:], engine, None, "after request")
     ]:
         try:
             check(sl, el, outs)
