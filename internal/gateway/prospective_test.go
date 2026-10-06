@@ -221,6 +221,44 @@ var _ = Describe("prospective admission in the pipeline", func() {
 		Expect(streams).To(BeZero())
 	})
 
+	// Mutation that turns this red: delete the `targets = targets[:1]` narrowing in chatCompletions.
+	It("does not fall back from the backend a standard request reserved on, while premium still does", func() {
+		served := 0
+		var mu sync.Mutex
+		live := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_, _ = io.ReadAll(r.Body)
+			mu.Lock()
+			served++
+			mu.Unlock()
+			w.WriteHeader(http.StatusOK)
+		}))
+		defer live.Close()
+		dead := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+		deadURL, _ := url.Parse(dead.URL)
+		dead.Close()
+		liveURL, _ := url.Parse(live.URL)
+		for _, tc := range []struct {
+			tier   string
+			served int
+		}{{tierStandard, 0}, {tierPremium, 1}} {
+			mu.Lock()
+			served = 0
+			mu.Unlock()
+			p := newProspectiveAdmitter(100000, 4)
+			s := newAdmissionServer("", tc.tier, AdmissionProspective, p)
+			s.backendsOverride = func(string) []*url.URL { return []*url.URL{deadURL, liveURL} }
+			rr := httptest.NewRecorder()
+			s.Handler().ServeHTTP(rr, authedRequest(body))
+			mu.Lock()
+			Expect(served).To(Equal(tc.served), "tier %s", tc.tier)
+			mu.Unlock()
+			for _, u := range []*url.URL{deadURL, liveURL} {
+				tokens, streams := p.held(&BackendRef{URL: u})
+				Expect(tokens+streams).To(BeZero(), "tier %s left a hold on %s", tc.tier, u)
+			}
+		}
+	})
+
 	It("answers 413 to a request larger than the whole reservation", func() {
 		up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }))
 		defer up.Close()

@@ -104,6 +104,9 @@ type Server struct {
 	//
 	// The hook returns a bare *url.URL rather than a *BackendRef, since tests only need the pipeline to reach an httptest server; resolveBackend wraps it into a BackendRef carrying just URL and Model.
 	backendOverride func(model string) *url.URL
+	// backendsOverride is backendOverride for a model with several candidates, so the fallback path can run
+	// through the whole pipeline in a test; nil in production, and it wins over backendOverride when set.
+	backendsOverride func(model string) []*url.URL
 	// responseHeaderTimeout bounds the wait for upstream response headers.
 	//
 	// Zero selects proxy.go's defaultResponseHeaderTimeout (30s), so production leaves it unset.
@@ -277,6 +280,13 @@ func (s *Server) failReason(w http.ResponseWriter, tenant, model string, code in
 //
 // It prefers the test hook over the real backendFor.
 func (s *Server) resolveBackend(ctx context.Context, policy *platformv1.GPUQuotaPolicy, model string) ([]*BackendRef, error) {
+	if s.backendsOverride != nil {
+		var refs []*BackendRef
+		for _, u := range s.backendsOverride(model) {
+			refs = append(refs, &BackendRef{URL: u, Model: model})
+		}
+		return refs, nil
+	}
 	if s.backendOverride != nil {
 		// The hook only fabricates a URL; Namespace/Name/Port stay zero-valued, since tests using it only need the pipeline to reach an httptest server, not a real backend's identity.
 		return []*BackendRef{{URL: s.backendOverride(model), Model: model}}, nil
@@ -550,6 +560,12 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 	// on a final attempt, the guards inside tryBackends stopped the loop before any final attempt ran, and a
 	// request nobody served went into requests_total as a success.
 	lastFailure := 0
+	// A request holding a reservation goes only to the backend it reserved on. Falling back to another would put
+	// its work on a backend whose holds never counted it, and both caps could be exceeded there (found by
+	// review); a request with nothing reserved keeps the fallback path.
+	if res != nil {
+		targets = targets[:1]
+	}
 	urls := make([]*url.URL, 0, len(targets))
 	for _, t := range targets {
 		urls = append(urls, t.URL)
