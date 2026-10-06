@@ -20,15 +20,15 @@ The engine is instrument session 5's: vLLM v0.27.1 at the pinned digest, Qwen2.5
 - the scheduler update's entry and exit (t2, t3);
 - a wall-clock reading bracketed by two monotonic readings on every record, and the instrument's own cost, including buffering and the handoff to its writer.
 
-It does no file I/O while requests are in flight. After a drain it hands the batch to one long-lived writer thread, and records the write's start and end. Every request carries `X-Request-Id <arm>-<block>-<warmup|measured>-<trace index>`, which vLLM makes its engine id as `chatcmpl-<id>-<8 characters>`, so client and engine rows join one to one by prefix.
+It does no file I/O while requests are in flight. After a drain it hands the batch to one long-lived writer thread. The writer writes and closes the batch's file before stamping its end, then appends a closing flush record that carries the end and the cost of the handoff. Every request carries `X-Request-Id <arm>-<block>-<warmup|measured>-<trace index>`, which vLLM makes its engine id as `chatcmpl-<id>-<8 characters>`, so client and engine rows join one to one by prefix.
 
-**Validated on v0.27.1's CPU build, at no cost**, with `hack/vllm-plugins/validate-on-cpu.sh` and `smoke-step-evaluator-on-cpu.sh`:
+**Validated on v0.27.1's CPU build, at no cost**, with `hack/vllm-plugins/validate-on-cpu.sh` and `smoke-step-evaluator-on-cpu.sh`. The validation's evidence is kept in `data/2026-10-06-step-instrument-cpu-validation/`, from which `check_step_log.py` reproduces its summary:
 - 70 steps matched the engine's 70 Iteration lines with equal tokens at each;
 - every request joined one to one and scheduled prompt + output − 1 tokens;
-- the instrument's own cost was at most 0.08% of a step's occupancy;
-- clock brackets were at most 1.3 µs;
+- the instrument's own cost was at most 0.060% of a step's occupancy, admissions and handoffs included;
+- clock brackets were at most 0.96 µs;
 - vLLM's non-default args line names the class;
-- the evaluator's joins and the S ≤ P ≤ A ≤ F ≤ O ≤ C ordering held on real output.
+- in the smoke run, the evaluator's joins and the S ≤ P ≤ A ≤ F ≤ O ≤ C ordering held on real output.
 
 None of that is a fact about the A10G.
 
@@ -55,7 +55,7 @@ That is 21 cells. Inside a block the order is the sha256 hash order, except that
 
 1. **Archive** (`step_boundary.gate_archive`):
    - exactly the 21 registered cells, since an incomplete session is a refusal;
-   - every measured and warm-up trace is the registered matrix (`matrix-plan-check`, `gen-trace --warmup` regeneration);
+   - every measured and warm-up trace is the registered matrix (`matrix-plan-check`), and is what `gen-trace` makes at the registered seed 31, byte for byte (`check_registered_seed`), so every pair replays identical traces;
    - provenance: image, revision, flags, and the instrument in exactly the `-step` cells;
    - W on every warm-up, S on every staggered episode (warm-up included, conditioning request handled as in session 4), and I2 (no preemption, contiguous iterations, drained serial episodes).
 2. **Instrument** (`check_step_log.py` on every `-step` cell, with the client's output counts):
@@ -65,7 +65,7 @@ That is 21 cells. Inside a block the order is the sha256 hash order, except that
    - step boundaries ordered and not overlapping;
    - the log ending on a flush, and every write ending before the next request arrived;
    - no overflow;
-   - the instrument's own cost at most 1% of every step's occupancy.
+   - the instrument's own cost at most 1% of every step's occupancy, t0 to t3. That cost is the step's scheduling and update records, the admissions recorded since the previous step's update, and the handoff after it.
 3. **Overhead, equivalence where it can be powered** (`step_boundary.gate_overhead`):
    - **Endpoints, 75 in all:**
      - Serial: each setting's median TTFT (27) and median ITL (18), where ITL is (end − first token) / (output − 1) and includes stream termination.
@@ -103,7 +103,7 @@ The engine core takes new requests only between steps (`EngineCoreProc.run_busy_
 
 These are re-derived by me, and independently by astra, from `docs/superpowers/specs/data/2026-10-06-logged-engine-pilot.json`.
 
-- Each setting is judged on its point estimate, and Q1 holds only if all six do. Block-level uncertainty is published beside each.
+- Each setting is judged on its point estimate, and Q1 holds only if all six do. The three block means and their t95 interval (df 2) are published beside each and judge nothing.
 - Every component, S → P, P → A, A → F, F → O and O → C, is published in ms for all twelve staggered settings, F → O including steps of other requests between the late prefill's own.
 
 ## 5. Q3 — the family on measured occupancy (a verdict, but not a gate)
@@ -120,7 +120,10 @@ These are re-derived by me, and independently by astra, from `docs/superpowers/s
   - Hold out by one seeded order of each setting's cycle positions, fixed across its cells and cut into thirds; the cell at index j of its type holds out third j mod 3. So each position is held out once over three serial cells and twice over six burst cells.
   - Never train on staggered episodes.
 - **Pass:** every held-out and staggered setting's mean predicted occupancy is within 10% of the measured, separately for context-bearing, pure-decode and late-prefill steps; the design has full rank and a condition number of at most 100.
-- **What a pass is not.** Occupancy excludes the time between one step's t3 and the next step's t0: output publication and admission work. Its distribution is published. A pass here makes no simulator-readiness claim until that gap and the P → A wait are modelled too.
+- **What a pass is not.** Occupancy excludes the time between one step's t3 and the next step's t0: output publication and admission work.
+  - That gap is published for consecutive steps of one measured episode, identified by the episode's own requests, so warm-up steps are not in it. Per type it is published as median, p95 and block medians.
+  - A pass here makes no simulator-readiness claim until that gap and the P → A wait are modelled too.
+- A Q3 refusal (rank or condition) is Q3's verdict and does not suppress the gates, the decomposition or Q1.
 
 ## 6. Stopping
 
@@ -165,4 +168,11 @@ These are re-derived by me, and independently by astra, from `docs/superpowers/s
   - a held-out order redrawn per cell, which left one cycle never held out;
   - a log capture that accepted a truncated last batch;
   - a precedence error that passed an 8% overhead;
-  - a final flush that could race the last output.
+  - a final flush that could race the last output;
+  - a handoff cost lost for the last drain;
+  - admission cost left out of the 1% bound;
+  - a write's end stamped before its file closed;
+  - traces not checked against the registered seed;
+  - a Q3 refusal that erased the whole evaluation;
+  - a gap population that included warm-up steps.
+- Of those, the first five came from astra's first review of the code and the next six from its attack on the rewritten page. The 8% case was caught by my own self-test.

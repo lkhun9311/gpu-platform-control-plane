@@ -86,7 +86,9 @@ for d in docs:
 
 # --- one blob of everything the repository actually says ------------------------------------------------
 blob = []
-for f in tracked('*.go', '*.yaml', '*.yml', '*.tf', '*.sh', '*.json', 'Makefile', '*.mod'):
+# Python is in the corpus because the evaluators are: a page that names step_boundary.check_registered_seed was
+# reported as citing an absent name while the function was committed.
+for f in tracked('*.go', '*.yaml', '*.yml', '*.tf', '*.sh', '*.json', 'Makefile', '*.mod', '*.py'):
     try:
         blob.append(open(f, encoding='utf-8', errors='ignore').read())
     except OSError:
