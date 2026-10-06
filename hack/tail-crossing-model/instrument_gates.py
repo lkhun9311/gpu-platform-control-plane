@@ -318,10 +318,10 @@ def gate_i2_i3(run, cells, s2=False):
     return ok, lines
 
 
-def gate_i5(cells):
-    """The first and last blocks' serial medians, per setting, logging on and off."""
+def gate_i5(cells, arms=("serial-log", "serial-nolog")):
+    """The first and last blocks' serial medians, per setting, on each of arms."""
     worst = (0.0, None)
-    for arm in ("serial-log", "serial-nolog"):
+    for arm in arms:
         first, last = by_setting("serial", cells[(arm, 1)], "ttft"), by_setting("serial", cells[(arm, 3)], "ttft")
         for s in first:
             d = abs(math.log(statistics.median(last[s]) / statistics.median(first[s])))
@@ -444,17 +444,27 @@ def check_stagger(reqs, arm, b, fixed_length=False):
                           f"prefill's first token (gate S)")
 
 
-def evaluate(run, rng=None):
+def evaluate(run, rng=None, logged=False):
+    """The registered gates; logged=True is the logged-engine policy instead.
+
+    logged=True is docs/superpowers/specs/2026-10-06-a-timing-family-for-the-logged-synchronous-engine.md: the logged
+    engine is the system, so only the logged cells are read, I1 is not a gate (there is nothing unlogged to compare),
+    and I5 is read on the logged serial arm. It is admitted only for session 4's design, the one session 5 bought,
+    and it never changes what the default path prints.
+    """
     rng = rng or random.Random(20261005)
     study = study_of(run)
     if study not in KNOWN_STUDIES:
         raise Refusal(f"study {study!r} is not one this evaluator was registered for, so it has no rules to judge it by")
+    if logged and study != STUDY_S4:
+        raise Refusal(f"the logged-engine policy is registered for {STUDY_S4}'s design only, not {study!r}")
     s2 = study in WARM_STUDIES
     s3 = study in FIXED_LENGTH_STUDIES
     trailing = 3 if study == STUDY_S4 else 2
+    suffixes = ("log",) if logged else ("log", "nolog")
     cells = {}
     for kind in TYPES:
-        for suffix in ("log", "nolog"):
+        for suffix in suffixes:
             for b in BLOCKS:
                 cells[(f"{kind}-{suffix}", b)] = load_cell(run, f"{kind}-{suffix}", b)
     verdicts, lines = {}, []
@@ -465,12 +475,12 @@ def evaluate(run, rng=None):
         # session, and that every planned arm came back is the session script's check, not this one's.
         asyncs = [f"{k}-async" for k in TYPES if os.path.exists(os.path.join(run, f"raw-{k}-async-1.jsonl"))]
         for kind in TYPES:
-            for suffix in ("log", "nolog"):
+            for suffix in suffixes:
                 for b in BLOCKS:
                     check_warmup(run, f"{kind}-{suffix}", b)
         for arm in asyncs:
             check_warmup(run, arm, 1)
-        for suffix in ("log", "nolog"):
+        for suffix in suffixes:
             for b in BLOCKS:
                 check_stagger(load_cell(run, f"stagger-{suffix}", b), f"stagger-{suffix}", b, fixed_length=s3)
                 if s3:
@@ -480,7 +490,7 @@ def evaluate(run, rng=None):
         if "stagger-async" in asyncs:
             check_stagger(load_cell(run, "stagger-async", 1), "stagger-async", 1, fixed_length=s3)
         lines.append(f"W warm-up and S staggered composition: every cell passes; async controls present: {asyncs or 'none'}")
-    for kind in TYPES:
+    for kind in (() if logged else TYPES):
         for quantity in ("ttft", "itl"):
             mean = s2 and kind == "stagger" and quantity == "ttft"
             ok, line = gate_i1(cells, kind, quantity, rng, stat=statistics.fmean if mean else statistics.median)
@@ -493,11 +503,15 @@ def evaluate(run, rng=None):
     ok, more = gate_i2_i3(run, cells, s2)
     verdicts["I3"] = [ok]
     lines += more
-    ok, line = gate_i5(cells)
+    ok, line = gate_i5(cells, arms=("serial-log",) if logged else ("serial-log", "serial-nolog"))
     verdicts["I5"] = [ok]
     lines.append(line)
     lines += context_effect(run)
     passed = all(all(v) for v in verdicts.values())
+    if logged:
+        lines.append("logged-engine policy: I1 is not a gate" + ("; PASS: I2, I3 and I5 hold" if passed else
+                     "; FAIL: " + ", ".join(k for k, v in verdicts.items() if not all(v))))
+        return passed, lines
     lines.append("PASS: I1, I2, I3 and I5 hold" if passed else
                  "FAIL: " + ", ".join(k for k, v in verdicts.items() if not all(v)))
     return passed, lines
@@ -759,6 +773,37 @@ def self_test_s4():
         except Refusal as e:
             assert "raw-stagger-nolog-3.jsonl is missing" in str(e), e
             print(f"ok: refuses an archive missing a cell -- {e}")
+    # The logged-engine policy reads only the logged cells: with every unlogged file deleted it still passes, and it
+    # prints no I1, because the logged engine is the system and there is nothing unlogged to compare it with.
+    with tempfile.TemporaryDirectory() as run:
+        _s3_run(run, study=STUDY_S4)
+        for name in os.listdir(run):
+            if "-nolog-" in name:
+                os.remove(os.path.join(run, name))
+        passed, lines = evaluate(run, logged=True)
+        assert passed and not any(l.startswith("I1 ") for l in lines), lines
+        assert lines[-1] == "logged-engine policy: I1 is not a gate; PASS: I2, I3 and I5 hold", lines[-1]
+        print(f"ok: the logged-engine policy passes on logged cells alone -- {lines[-1]}")
+    # Its I5 is still a gate: drift between the first and last block's logged serial cells fails it.
+    with tempfile.TemporaryDirectory() as run:
+        _s3_run(run, study=STUDY_S4)
+        path = os.path.join(run, "raw-serial-log-3.jsonl")
+        rows = [json.loads(l) for l in open(path)]
+        for r in rows:
+            r["firstTokenUnixNanos"] += int(0.1 * (r["firstTokenUnixNanos"] - r["sendUnixNanos"]))
+        with open(path, "w") as f:
+            f.writelines(json.dumps(r) + "\n" for r in rows)
+        passed, lines = evaluate(run, logged=True)
+        assert not passed and "I5" in lines[-1], lines[-1]
+        print(f"ok: the logged-engine policy fails a 10% first-to-last drift -- {lines[-1]}")
+    with tempfile.TemporaryDirectory() as run:
+        _s3_run(run, study=STUDY_S3)
+        try:
+            evaluate(run, logged=True)
+            raise AssertionError("the logged-engine policy judged a study it is not registered for")
+        except Refusal as e:
+            assert "registered for" in str(e), e
+            print(f"ok: the logged-engine policy refuses another study -- {e}")
     # A session-4 archive that would pass, relabelled with a study no rule here was registered for.
     with tempfile.TemporaryDirectory() as run:
         _s3_run(run, study="instrument-validation-unregistered", conditioner=True)
