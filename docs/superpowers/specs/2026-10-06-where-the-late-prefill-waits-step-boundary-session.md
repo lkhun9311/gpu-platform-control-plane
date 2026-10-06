@@ -20,13 +20,13 @@ The engine is instrument session 5's: vLLM v0.27.1 at the pinned digest, Qwen2.5
 - the scheduler update's entry and exit (t2, t3);
 - a wall-clock reading bracketed by two monotonic readings on every record, and the instrument's own cost, including buffering and the handoff to its writer.
 
-It does no file I/O while requests are in flight. After a drain it hands the batch to one long-lived writer thread. The writer writes and closes the batch's file before stamping its end, then appends a closing flush record that carries the end and the cost of the handoff. Every request carries `X-Request-Id <arm>-<block>-<warmup|measured>-<trace index>`, which vLLM makes its engine id as `chatcmpl-<id>-<8 characters>`, so client and engine rows join one to one by prefix.
+It does no file I/O while requests are in flight. After a drain it hands the batch to one long-lived writer thread, which serialises nothing until the scheduler thread has finished the batch's last record. The writer writes and closes the batch's file, stamps its end, then appends one closing flush record carrying that end. **Outside every recorded cost and stamp:** that one closing append, and the single event set that releases the writer. Every request carries `X-Request-Id <arm>-<block>-<warmup|measured>-<trace index>`, which vLLM makes its engine id as `chatcmpl-<id>-<8 characters>`, so client and engine rows join one to one by prefix.
 
 **Validated on v0.27.1's CPU build, at no cost**, with `hack/vllm-plugins/validate-on-cpu.sh` and `smoke-step-evaluator-on-cpu.sh`. The validation's evidence is kept in `data/2026-10-06-step-instrument-cpu-validation/`, from which `check_step_log.py` reproduces its summary:
 - 70 steps matched the engine's 70 Iteration lines with equal tokens at each;
 - every request joined one to one and scheduled prompt + output − 1 tokens;
-- the instrument's own cost was at most 0.060% of a step's occupancy, admissions and handoffs included;
-- clock brackets were at most 0.96 µs;
+- the instrument's own cost was at most 0.069% of a step's occupancy, admissions, drain checks and handoffs included;
+- clock brackets were at most 0.91 µs;
 - vLLM's non-default args line names the class;
 - in the smoke run, the evaluator's joins and the S ≤ P ≤ A ≤ F ≤ O ≤ C ordering held on real output.
 
@@ -57,6 +57,7 @@ That is 21 cells. Inside a block the order is the sha256 hash order, except that
    - exactly the 21 registered cells, since an incomplete session is a refusal;
    - every measured and warm-up trace is the registered matrix (`matrix-plan-check`), and is what `gen-trace` makes at the registered seed 31, byte for byte (`check_registered_seed`), so every pair replays identical traces;
    - provenance: image, revision, flags, and the instrument in exactly the `-step` cells;
+   - the whole registered engine configuration (model, dtype, context length, 64 sequences, 0.90 memory, prefix caching off, 2,048-token budget, port) in every cell, with no other budget, sequence cap or prefix caching, and every `-step` cell's archived plugin sha256 equal to the instrument at the frozen commit (`check_registered_engine`);
    - W on every warm-up, S on every staggered episode (warm-up included, conditioning request handled as in session 4), and I2 (no preemption, contiguous iterations, drained serial episodes).
 2. **Instrument** (`check_step_log.py` on every `-step` cell, with the client's output counts):
    - one to one with the engine's Iteration lines, with equal tokens at every step;
@@ -65,13 +66,13 @@ That is 21 cells. Inside a block the order is the sha256 hash order, except that
    - step boundaries ordered and not overlapping;
    - the log ending on a flush, and every write ending before the next request arrived;
    - no overflow;
-   - the instrument's own cost at most 1% of every step's occupancy, t0 to t3. That cost is the step's scheduling and update records, the admissions recorded since the previous step's update, and the handoff after it.
+   - the instrument's own cost at most 1% of every step's occupancy, t0 to t3. That cost is the step's scheduling record, its update record (the drain check and any handoff to the writer included), and the admissions recorded since the previous step's update.
 3. **Overhead, equivalence where it can be powered** (`step_boundary.gate_overhead`):
    - **Endpoints, 75 in all:**
      - Serial: each setting's median TTFT (27) and median ITL (18), where ITL is (end − first token) / (output − 1) and includes stream termination.
      - Burst: each episode type's mean over episodes of mean TTFT, maximum TTFT and mean ITL (30).
    - **Rule:** for each, the paired-block 95% t-interval of log(step / log) must lie inside log(0.95) to log(1.05), with 3 serial pairs (df 2) and 6 burst pairs (df 5).
-   - **Planning power, mine.** Using session 5's paired block SDs as a stand-in (largest 0.0061 serial, 0.0198 burst, in log ratio), 20,000 simulations of independent normal blocks at zero effect pass all 75 together 99.1% of the time. That stand-in is a different instrument, so the figure is a planning estimate.
+   - **Planning power, mine.** Using session 5's paired block SDs as a stand-in (largest 0.0061 serial, 0.0198 burst, in log ratio), 20,000 simulations of independent normal blocks at zero effect pass all 75 together 19,810 times, 99.05%. This is reproducible with `hack/tail-crossing-model/step_boundary_power.py` at seed 3; astra's independent reconstruction gave 98.94%. That stand-in is a different instrument and the endpoints are not independent, so the figure is a planning estimate.
    - **This gate covers serial and burst only.** A failure is reported as "the instrument's overhead is not established" and does not stop Q1 to Q3 from being reported for the instrumented engine.
 
 ## 4. Q1 — where the late prefill waits (a prediction, reported, not a gate)
@@ -119,6 +120,7 @@ These are re-derived by me, and independently by astra, from `docs/superpowers/s
   - Train on serial and burst `-step` episodes, equal total weight per setting, column-normalised.
   - Hold out by one seeded order of each setting's cycle positions, fixed across its cells and cut into thirds; the cell at index j of its type holds out third j mod 3. So each position is held out once over three serial cells and twice over six burst cells.
   - Never train on staggered episodes.
+- Every step that schedules a measured request must belong to exactly one measured episode; a step shared by two refuses Q3 rather than dropping out of both.
 - **Pass:** every held-out and staggered setting's mean predicted occupancy is within 10% of the measured, separately for context-bearing, pure-decode and late-prefill steps; the design has full rank and a condition number of at most 100.
 - **What a pass is not.** Occupancy excludes the time between one step's t3 and the next step's t0: output publication and admission work.
   - That gap is published for consecutive steps of one measured episode, identified by the episode's own requests, so warm-up steps are not in it. Per type it is published as median, p95 and block medians.
@@ -174,5 +176,8 @@ These are re-derived by me, and independently by astra, from `docs/superpowers/s
   - a write's end stamped before its file closed;
   - traces not checked against the registered seed;
   - a Q3 refusal that erased the whole evaluation;
-  - a gap population that included warm-up steps.
-- Who found them: the conditioning, held-out and capture defects came from astra's bare review of the code; the flush race from its review of my reduced design; the next six from its attack on the rewritten page. The 8% precedence error was caught by my own self-test.
+  - a gap population that included warm-up steps;
+  - steps shared by two episodes dropped silently from Q3;
+  - a handoff and drain check left out of the recorded cost (a 20 ms injected delay recorded as 0.002 ms);
+  - a provenance check that passed a 512-token budget, 32 sequences and prefix caching on, and never read the archived plugin hash.
+- Who found them: the conditioning, held-out and capture defects came from astra's bare review of the code; the flush race from its review of my reduced design; the next six from its attack on the rewritten page, the last three from its second attack. The 8% precedence error was caught by my own self-test.
