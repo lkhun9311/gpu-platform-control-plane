@@ -274,6 +274,17 @@ iv_render_manifest() {
   esac
 }
 
+# Whether arm $2 is bought in block $3 under study $1: the step-boundary study buys serial and staggered cells in
+# blocks 1, 3 and 5 only. The matrix lays out its cells with this and the session checks completeness with it, so
+# the two cannot disagree again: the session's own copy of "every arm in every block" failed a complete run.
+iv_arm_in_block() {
+  local study="$1" arm="$2" rep="$3"
+  if [ "$study" = "$IV_STEP_STUDY" ] && [ $(( rep % 2 )) = 0 ]; then
+    case "$arm" in serial-* | stagger-*) return 1 ;; esac
+  fi
+  return 0
+}
+
 # Prints the replay flag that tags every request of one cell and phase with X-Request-Id, for the step-boundary
 # study only, so every other study's replay command stays what it was.
 #

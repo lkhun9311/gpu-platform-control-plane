@@ -1366,6 +1366,11 @@ out=$(iv_arm_refusal "$IVS" stagger-log) && bad "the step-boundary study admitte
 	|| ok "the step-boundary study refuses an arm outside its five: $out"
 out=$(iv_arm_refusal "$IV4" serial-step) && bad "session 4 admitted a -step arm" \
 	|| ok "session 4 refuses a -step arm: $(printf '%s' "$out" | cut -c1-80)"
+# The block layout, shared by the matrix and the session's completeness check (the session once failed a complete run).
+iv_arm_in_block "$IVS" serial-step 3 && ! iv_arm_in_block "$IVS" serial-log 2 && ! iv_arm_in_block "$IVS" stagger-step 6 \
+	&& iv_arm_in_block "$IVS" burst-step 6 && iv_arm_in_block "$IV4" serial-log 2 \
+	&& ok "serial and staggered cells are in blocks 1, 3 and 5 only, burst in all six, other studies unchanged" \
+	|| bad "iv_arm_in_block does not lay out the registered blocks"
 [ "$(iv_request_id_flag "$IVS" stagger-step 3 measured)" = "--request-id-prefix=stagger-step-3-measured" ] \
 	&& [ -z "$(iv_request_id_flag "$IV4" stagger-log 3 measured)" ] \
 	&& ok "only the step-boundary study tags its requests with X-Request-Id" || bad "request-id flags are wrong"

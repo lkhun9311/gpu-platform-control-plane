@@ -796,9 +796,7 @@ else
         case "$arm" in *-async) continue ;; esac
         # The step-boundary session buys serial and staggered cells in blocks 1, 3 and 5 only, spread over the
         # session rather than front-loaded, and burst cells in all six (its registration, section 2).
-        if [ "$STUDY" = "$IV_STEP_STUDY" ] && [ $(( rep % 2 )) = 0 ]; then
-          case "$arm" in serial-* | stagger-*) continue ;; esac
-        fi
+        iv_arm_in_block "$STUDY" "$arm" "$rep" || continue
         # Study s4's block 1 starts with a staggered cell, which of the two still chosen by the hash.
         # The matrix stops when the remaining cells, each charged the observed overhead so far, outrun the deadline,
         # and after a cold serial first cell that projection exceeded what the credentials allow (session 4, by one

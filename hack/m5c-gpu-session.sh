@@ -1698,6 +1698,9 @@ for arm in $expected_arms; do
     if iv_is_study "${STUDY:-}"; then case "$arm" in *-async) _arm_reps=1 ;; esac; fi
     _rep=1
     while [ "$_rep" -le "$_arm_reps" ]; do
+      # A block the study does not buy this arm in owes no file (the step-boundary session's serial and staggered
+      # cells are in blocks 1, 3 and 5); the same predicate laid the matrix out.
+      if iv_is_study "${STUDY:-}" && ! iv_arm_in_block "$STUDY" "$arm" "$_rep"; then _rep=$(( _rep + 1 )); continue; fi
       [ -s "$OUT/m5c-run/raw-$arm-$_rep.jsonl" ] \
         || fail "arm $arm is missing repetition $_rep of $_arm_reps. The run reported no refusal for it, so this is a repetition that was planned, was not recorded, and would have been pooled over as though it had been."
       _rep=$(( _rep + 1 ))
